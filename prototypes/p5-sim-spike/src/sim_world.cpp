@@ -93,6 +93,8 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("ignite", "pos"), &SimWorld::ignite);
     ClassDB::bind_method(D_METHOD("tick", "count"), &SimWorld::tick);
     ClassDB::bind_method(D_METHOD("get_chunk_bytes", "chunk", "depth_bytes"), &SimWorld::get_chunk_bytes, DEFVAL(1));
+    ClassDB::bind_method(D_METHOD("set_chunk_bytes", "chunk", "bytes", "depth_bytes"), &SimWorld::set_chunk_bytes, DEFVAL(1));
+    ClassDB::bind_method(D_METHOD("shift", "delta_chunks"), &SimWorld::shift);
     ClassDB::bind_method(D_METHOD("get_dirty_chunks"), &SimWorld::get_dirty_chunks);
     ClassDB::bind_method(D_METHOD("clear_dirty"), &SimWorld::clear_dirty);
     ClassDB::bind_method(D_METHOD("count_material", "material"), &SimWorld::count_material);
@@ -616,6 +618,70 @@ PackedByteArray SimWorld::get_chunk_bytes(Vector3i c, int p_depth_bytes) const {
             for (int y = 0; y < CS; y++)
                 w[(y + CS * (x + CS * z)) * bpv] = cells_[idx(x0 + x, y0 + y, z0 + z)].mat;
     return out;
+}
+
+void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p_depth_bytes) {
+    if (c.x < 0 || c.y < 0 || c.z < 0 || c.x >= CX_ || c.y >= CY_ || c.z >= CZ_) return;
+    const int n = CS * CS * CS;
+    const int bpv = p_depth_bytes == 2 ? 2 : 1;
+    if (p_bytes.size() < n * bpv) return;
+    const uint8_t *r = p_bytes.ptr();
+    int x0 = c.x * CS, y0 = c.y * CS, z0 = c.z * CS;
+    for (int z = 0; z < CS; z++)
+        for (int x = 0; x < CS; x++)
+            for (int y = 0; y < CS; y++) {
+                uint8_t m = r[(y + CS * (x + CS * z)) * bpv];
+                if (m >= mats_.size()) m = 0;
+                place(idx(x0 + x, y0 + y, z0 + z), m);
+            }
+    int ci = cidx(c.x, c.y, c.z);
+    active_next_[ci].store(1, std::memory_order_relaxed); // let it settle once
+}
+
+// Slide the simulation window by whole chunks. Cells that stay inside move in memory;
+// vacated chunks are cleared to air and returned so the caller loads them from the world.
+Array SimWorld::shift(Vector3i d) {
+    Array vacated;
+    if (d == Vector3i()) return vacated;
+    const int dx = d.x * CS, dy = d.y * CS, dz = d.z * CS;
+    std::vector<Cell> nc(cells_.size(), Cell{0, 0, 0, 0});
+    std::vector<uint16_t> nm(moved_.size(), 0);
+    // new[x,y,z] = old[x+dx, y+dy, z+dz]
+    for (int z = 0; z < D_; z++) {
+        int oz = z + dz;
+        if (oz < 0 || oz >= D_) continue;
+        for (int y = 0; y < H_; y++) {
+            int oy = y + dy;
+            if (oy < 0 || oy >= H_) continue;
+            int xs = std::max(0, -dx), xe = std::min(W_, W_ - dx);
+            if (xe <= xs) continue;
+            std::memcpy(&nc[idx(xs, y, z)], &cells_[idx(xs + dx, oy, oz)], (xe - xs) * sizeof(Cell));
+            std::memcpy(&nm[idx(xs, y, z)], &moved_[idx(xs + dx, oy, oz)], (xe - xs) * sizeof(uint16_t));
+        }
+    }
+    cells_.swap(nc);
+    moved_.swap(nm);
+    size_t ncn = (size_t)CX_ * CY_ * CZ_;
+    std::vector<uint8_t> na(ncn, 0), nd(ncn, 0);
+    for (int cz = 0; cz < CZ_; cz++)
+        for (int cy = 0; cy < CY_; cy++)
+            for (int cx = 0; cx < CX_; cx++) {
+                int ox = cx + d.x, oy = cy + d.y, oz = cz + d.z;
+                int ci = cidx(cx, cy, cz);
+                if (ox < 0 || oy < 0 || oz < 0 || ox >= CX_ || oy >= CY_ || oz >= CZ_) {
+                    vacated.push_back(Vector3i(cx, cy, cz));
+                    continue;
+                }
+                int oi = cidx(ox, oy, oz);
+                na[ci] = active_next_[oi].load() | active_now_[oi].load();
+                nd[ci] = dirty_[oi].load();
+            }
+    for (size_t i = 0; i < ncn; i++) {
+        active_next_[i].store(na[i]);
+        active_now_[i].store(0);
+        dirty_[i].store(nd[i]);
+    }
+    return vacated;
 }
 
 Array SimWorld::get_dirty_chunks() const {

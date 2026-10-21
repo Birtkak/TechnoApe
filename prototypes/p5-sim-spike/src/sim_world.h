@@ -79,8 +79,10 @@ public:
     // ---- simulation ----
     Dictionary tick(int p_count);
 
-    // ---- render feed ----
+    // ---- render feed / world streaming ----
     PackedByteArray get_chunk_bytes(Vector3i p_chunk, int p_depth_bytes = 1) const;
+    void set_chunk_bytes(Vector3i p_chunk, const PackedByteArray &p_bytes, int p_depth_bytes = 1); // load from world; wakes, not dirty
+    Array shift(Vector3i p_delta_chunks); // slide the window; returns vacated local chunks that must be loaded
     Array get_dirty_chunks() const;
     void clear_dirty();
 

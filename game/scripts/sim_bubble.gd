@@ -1,0 +1,131 @@
+class_name SimBubble
+extends Node
+
+## The Noita-style simulation bubble: a sliding window of chunks around the
+## player, owned by the native SimWorld. Chunks entering the window are copied
+## from the terrain; the window ticks at Settings.sim_tick_hz; chunks the sim
+## changed are pasted back into the terrain. Everything outside is frozen.
+##
+## Local chunk (0..N) <-> world chunk = local + origin.
+
+var world: World
+var sim: SimWorld
+var origin := Vector3i.ZERO          # world chunk coords of local chunk (0,0,0)
+var size_chunks := Vector3i.ONE
+var _tick_accum := 0.0
+var _pending_loads: Array[Vector3i] = []   # local chunks waiting for terrain data
+var _ready := false
+
+# stats for the HUD / capture
+var last_tick_ms := 0.0
+var ticks_total := 0
+var chunks_pushed := 0
+var chunks_loaded := 0
+var active_chunks := 0
+var push_ms := 0.0
+
+
+func setup(p_world: World, center_world: Vector3) -> void:
+	world = p_world
+	var r := Settings.sim_distance_chunks()
+	size_chunks = Vector3i(2 * r + 1, 2 * r + 1, 2 * r + 1)
+	sim = SimWorld.new()
+	sim.configure(size_chunks, Settings.sim_threads, Settings.world_seed)
+	sim.set_materials(GameMaterials.defs())
+	sim.set_reactions(GameMaterials.reactions())
+	origin = _center_chunk(center_world) - Vector3i(r, r, r)
+	for z in size_chunks.z:
+		for y in size_chunks.y:
+			for x in size_chunks.x:
+				_pending_loads.append(Vector3i(x, y, z))
+	_ready = true
+
+
+func _center_chunk(p: Vector3) -> Vector3i:
+	return Vector3i((p / Settings.CHUNK).floor())
+
+
+func _process(delta: float) -> void:
+	if not _ready:
+		return
+	_load_pending(64)
+	_tick_accum += delta
+	var period := 1.0 / Settings.sim_tick_hz
+	var ticks := 0
+	while _tick_accum >= period and ticks < 3:   # catch up at most 3 ticks per frame
+		_tick_accum -= period
+		var t0 := Time.get_ticks_usec()
+		var r: Dictionary = sim.tick(1)
+		last_tick_ms = r["ms_per_tick"]
+		active_chunks = sim.get_active_chunk_count()
+		ticks_total += 1
+		ticks += 1
+	if ticks > 0:
+		var t1 := Time.get_ticks_usec()
+		_push_dirty()
+		push_ms = (Time.get_ticks_usec() - t1) / 1000.0
+
+
+## Keep the window centred on the player; shift by whole chunks.
+func follow(center_world: Vector3) -> void:
+	if not _ready:
+		return
+	var r := (size_chunks.x - 1) / 2
+	var want := _center_chunk(center_world) - Vector3i(r, r, r)
+	var d := want - origin
+	if d == Vector3i.ZERO:
+		return
+	# Shift at most one chunk per axis per call to keep spikes small.
+	d = d.clamp(Vector3i(-1, -1, -1), Vector3i(1, 1, 1))
+	_push_dirty()  # flush before sliding so nothing is lost
+	var vacated: Array = sim.shift(d)
+	origin += d
+	for c in vacated:
+		_pending_loads.append(c)
+
+
+func _load_pending(budget: int) -> void:
+	var still: Array[Vector3i] = []
+	var n := 0
+	for lc in _pending_loads:
+		var wc: Vector3i = lc + origin
+		if n >= budget or not world.is_area_loaded(wc):
+			still.append(lc)
+			continue
+		sim.set_chunk_bytes(lc, world.read_chunk(wc), 2)
+		chunks_loaded += 1
+		n += 1
+	_pending_loads = still
+
+
+func _push_dirty() -> void:
+	var dirty: Array = sim.get_dirty_chunks()
+	for lc in dirty:
+		var wc: Vector3i = lc + origin
+		if _pending_loads.has(lc):
+			continue  # never pasted before it was loaded
+		world.write_chunk(wc, sim.get_chunk_bytes(lc, 2))
+		chunks_pushed += 1
+	sim.clear_dirty()
+
+
+## Player edits go through the sim when inside the bubble (so the material
+## simulation reacts immediately), otherwise straight to the terrain.
+func set_voxel(wp: Vector3i, material: int) -> bool:
+	var lc := Vector3i((Vector3(wp) / Settings.CHUNK).floor()) - origin
+	if lc.x < 0 or lc.y < 0 or lc.z < 0 or lc.x >= size_chunks.x or lc.y >= size_chunks.y or lc.z >= size_chunks.z:
+		return false
+	if _pending_loads.has(lc):
+		return false
+	sim.set_voxel(wp - origin * Settings.CHUNK, material)
+	return true
+
+
+func stats() -> Dictionary:
+	if not _ready:
+		return {}
+	return {
+		"origin_chunk": origin, "size_chunks": size_chunks, "pending_loads": _pending_loads.size(),
+		"tick_ms": snappedf(last_tick_ms, 0.01), "ticks": ticks_total, "active_chunks": active_chunks,
+		"chunks_pushed": chunks_pushed, "chunks_loaded": chunks_loaded, "push_ms": snappedf(push_ms, 0.01),
+	}
