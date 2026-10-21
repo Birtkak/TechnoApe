@@ -33,6 +33,7 @@ var mouse_sensitivity := 0.0025
 
 # World
 var world_seed := 1337
+var persist_world := true               # save edited chunks to user://worlds/world_<seed>.sqlite
 
 
 static func m2v(metres: float) -> float:
@@ -73,4 +74,5 @@ func apply_cmdline() -> Dictionary:
 			"sim_tick_hz": sim_tick_hz = float(kv[1])
 			"sim_threads": sim_threads = int(kv[1])
 			"world_seed": world_seed = int(kv[1])
+			"persist": persist_world = kv[1] == "1"
 	return args

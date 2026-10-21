@@ -37,6 +37,14 @@ func _ready() -> void:
 	terrain.generate_collisions = true
 	terrain.collision_lod_count = 1
 	terrain.full_load_mode_enabled = false
+	if Settings.persist_world:
+		# Edited blocks are saved to user://worlds/<seed>.sqlite when they unload
+		# (ADR 0002: save format must be chunk-based and versioned; SQLite is the
+		# placeholder until the custom region format exists).
+		var stream := VoxelStreamSQLite.new()
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://worlds"))
+		stream.database_path = "user://worlds/world_%d.sqlite" % Settings.world_seed
+		terrain.stream = stream
 	terrain.voxel_bounds = AABB(Vector3(-1e7, 0, -1e7), Vector3(2e7, Settings.WORLD_HEIGHT_VOXELS, 2e7))
 	add_child(terrain)
 	_tool = terrain.get_voxel_tool()

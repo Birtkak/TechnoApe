@@ -17,6 +17,19 @@ Godot_v4.7.2-stable_mono_win64_console.exe --path game -- autopilot=1 duration=2
 First run after adding scripts/addons: `--headless --path game --import` (twice if the
 voxel extension segfaults once).
 
+```
+# crafting / inventory / recipe-browser tests (gdUnit4, headless, exit code = result)
+Godot_v4.7.2-stable_mono_win64_console.exe --headless --path game -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --add res://test --ignoreHeadlessMode
+```
+
+Crafting core (`scripts/crafting/`, data in `data/items.json` + `data/recipes.json`):
+`ItemRegistry` (tags, search), `RecipeRegistry` (shaped with translation +
+mirroring, shapeless, smelt, spellcraft; `makes`, `uses_of`, `search`,
+`by_station`, `reachable_from` for the Too-Many-Items browser), `Inventory`
+(Minecraft cursor semantics: left/right/shift click, stack limits),
+`CraftingGrid` (preview, craft once/all, return contents). Wands have no
+recipe by design (found only); spells do.
+
 ## Layout
 
 | Path | What |
@@ -45,7 +58,9 @@ the bubble go to the sim so materials react immediately. Outside the bubble
 nothing moves. Server and client will share this split (ADR 0002).
 
 ## Known gaps (skeleton stage)
-- No persistence yet: edits are lost when chunks unload (add `VoxelStreamSQLite`).
+- Persistence is godot_voxel's SQLite stream (`user://worlds/world_<seed>.sqlite`),
+  a placeholder for the versioned region format; sim-bubble state (burning,
+  lifetimes) is not saved, only materials.
 - Generator is GDScript and columns only (no caves, biomes, structures).
 - No inventory/items; break/place are debug actions.
 - Memory at large full-detail radius; see `docs/research` matrix in the commit log.

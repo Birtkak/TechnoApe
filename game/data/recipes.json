@@ -1,0 +1,25 @@
+{
+  "_comment": "Recipes. type: shaped (pattern rows + key), shapeless (ingredients list), smelt (input -> output, ticks), spellcraft (station recipe). Ingredient = item id or '#tag'. Minecraft semantics: shaped recipes may be translated anywhere in the grid and mirrored.",
+  "recipes": [
+    {"id": "planks_from_log", "type": "shapeless", "ingredients": ["#log"], "output": {"id": "oak_planks", "count": 4}},
+    {"id": "sticks", "type": "shaped", "pattern": ["P", "P"], "key": {"P": "#planks"}, "output": {"id": "stick", "count": 4}},
+    {"id": "crafting_table", "type": "shaped", "pattern": ["PP", "PP"], "key": {"P": "#planks"}, "output": {"id": "crafting_table", "count": 1}},
+    {"id": "chest", "type": "shaped", "pattern": ["PPP", "P P", "PPP"], "key": {"P": "#planks"}, "output": {"id": "chest", "count": 1}, "station": "crafting_table"},
+    {"id": "furnace", "type": "shaped", "pattern": ["CCC", "C C", "CCC"], "key": {"C": "#cobble"}, "output": {"id": "furnace", "count": 1}, "station": "crafting_table"},
+    {"id": "wooden_pickaxe", "type": "shaped", "pattern": ["PPP", " S ", " S "], "key": {"P": "#planks", "S": "#stick"}, "output": {"id": "wooden_pickaxe", "count": 1}, "station": "crafting_table"},
+    {"id": "stone_pickaxe", "type": "shaped", "pattern": ["CCC", " S ", " S "], "key": {"C": "#cobble", "S": "#stick"}, "output": {"id": "stone_pickaxe", "count": 1}, "station": "crafting_table"},
+    {"id": "iron_pickaxe", "type": "shaped", "pattern": ["III", " S ", " S "], "key": {"I": "#metal.iron", "S": "#stick"}, "output": {"id": "iron_pickaxe", "count": 1}, "station": "crafting_table"},
+    {"id": "bucket", "type": "shaped", "pattern": ["I I", " I "], "key": {"I": "#metal.iron"}, "output": {"id": "bucket", "count": 1}, "station": "crafting_table"},
+    {"id": "glass_flask", "type": "shaped", "pattern": ["G G", " G "], "key": {"G": "#glass"}, "output": {"id": "glass_flask", "count": 3}, "station": "crafting_table"},
+    {"id": "smelt_iron", "type": "smelt", "input": "iron_ore", "output": {"id": "iron_ingot", "count": 1}, "ticks": 200, "station": "furnace"},
+    {"id": "smelt_copper", "type": "smelt", "input": "copper_ore", "output": {"id": "copper_ingot", "count": 1}, "ticks": 200, "station": "furnace"},
+    {"id": "smelt_tin", "type": "smelt", "input": "tin_ore", "output": {"id": "tin_ingot", "count": 1}, "ticks": 200, "station": "furnace"},
+    {"id": "smelt_glass", "type": "smelt", "input": "#sand", "output": {"id": "glass", "count": 1}, "ticks": 200, "station": "furnace"},
+    {"id": "smelt_charcoal", "type": "smelt", "input": "#log", "output": {"id": "charcoal", "count": 1}, "ticks": 200, "station": "furnace"},
+    {"id": "smelt_stone", "type": "smelt", "input": "#cobble", "output": {"id": "stone", "count": 1}, "ticks": 200, "station": "furnace"},
+    {"id": "bronze_alloy", "type": "shapeless", "ingredients": ["#metal.copper", "#metal.copper", "#metal.copper", "#metal.tin"], "output": {"id": "bronze_ingot", "count": 4}, "station": "furnace"},
+    {"id": "spell_spark_bolt", "type": "spellcraft", "ingredients": ["mana_dust", "mana_dust"], "output": {"id": "spell_spark_bolt", "count": 1}, "station": "spell_altar"},
+    {"id": "spell_fire_bolt", "type": "spellcraft", "ingredients": ["mana_dust", "#essence.fire", "#essence.fire"], "output": {"id": "spell_fire_bolt", "count": 1}, "station": "spell_altar"},
+    {"id": "spell_speed_up", "type": "spellcraft", "ingredients": ["mana_dust", "#stick"], "output": {"id": "spell_speed_up", "count": 1}, "station": "spell_altar"}
+  ]
+}

@@ -67,12 +67,14 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
 
 - Phase 0: research + direction – done 2026-10-21
 - Phase 1 prototypes: P1 headless loop ✓, P2 voxel streaming/LOD ✓,
-  P5 falling-sand simulation core ✓ (rules still being tuned),
-  **next:** P6 re-mesh latency + own bubble mesher decision, P3 crafting core,
-  P4 server headless check
-- Phase 2: real project in `game/`: world gen + simulation vertical slice
-- Phase 3: player, inventory, basic crafting, wands
-- Phase 4: automation depth, Android export, dedicated server, auto-update
+  P5 Noita-model simulation core ✓, P3 crafting core ✓ (17 headless tests)
+- Phase 2 (current): `game/` skeleton ✓ (LOD world, textures, player, sim
+  bubble, debug capture). **Next:** native world generator (1.18-style
+  splines, caves, biomes), item entities + hotbar/inventory UI wired to the
+  crafting core, mining/placing through the material model, bubble polish
+  (spikes on shift, fire-spread tuning), P4 server headless check.
+- Phase 3: wands/spells, machines, JEI-style browser UI, Android export smoke test
+- Phase 4: automation depth, dedicated server on Unraid, auto-update
 
 ## Conventions
 
