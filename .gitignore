@@ -1,0 +1,43 @@
+# OS / editor
+Thumbs.db
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# Node / Python / .NET (prototypes)
+node_modules/
+__pycache__/
+*.pyc
+bin/
+obj/
+
+# Godot
+.godot/
+*.import
+export_presets.cfg
+
+# Unity
+[Ll]ibrary/
+[Tt]emp/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# Rust
+target/
+
+# Godot test/benchmark output
+reports/
+prototypes/*/.godot/
+prototypes/*/addons/zylann.voxel/bin/*.dll
+
+# GDExtension build output
+prototypes/*/bin/
+*.o
+*.os
+*.obj
+.sconsign.dblite
+
+# Other sessions working in this folder (PC tune-up); never part of the game repo
+PC-tuneup/
+PC-optimization-report.md
