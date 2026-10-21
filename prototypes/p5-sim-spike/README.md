@@ -94,6 +94,43 @@ seconds and the last result to land is often stale.
 Decision: push through `VoxelTool.paste`. Keep the hash desync check and
 the unsupported-material query as permanent debug tools.
 
+## D. v4: the Falling Everything model, data-driven (Brent's direction)
+
+The kernel was rewritten around Noita's model (`docs/design/material-simulation.md`):
+materials are rows in a table with Noita's attribute names (`cell_type`,
+`liquid_sand`, `density`, `liquid_flow_speed`, `gas_*_speed`, `lifetime`,
+`burnable`, `fire_hp`, `autoignition_temperature`, `temperature_of_fire`,
+`on_fire_*`...), each voxel carries `{material, flags, aux}` packed in 4
+bytes, and a reaction table (`input_cell1/2 -> output_cell1/2`, probability)
+drives chemistry. `materials.gd` defines stone, sand, water, steam, oil,
+lava, wood, fire, smoke, ash and four reactions (lava+water → stone+steam,
+fire+water → air+steam, lava ignites oil and wood).
+
+| Scenario (128³, 12 threads) | v3 hard-coded | v4 first | v4 packed cells + LUTs |
+|---|---|---|---|
+| Sand column | 0.67 ms | 1.57 ms | **1.05 ms** |
+| Water release | 0.89 ms | 2.54 ms | **1.95 ms** |
+| Worst case 30 % loose sand | 1.72 ms | 3.12 ms | **2.48 ms** |
+| Wood house + oil pool on fire | – | 0.46 ms | **0.37 ms** |
+| Lava block into a lake | – | 2.55 ms | **1.99 ms** |
+| Settled, idle | 0.001 ms | 0.001 ms | 0.001 ms |
+
+Generality costs ~1.5× over the hard-coded rules (per-cell table lookups,
+per-cell RNG, 4-byte cells). Packing the three per-voxel arrays into one
+struct and replacing the density comparison with a 256×256 lookup won back
+a third. Further headroom if ever needed: SoA by chunk, SIMD column scans,
+chunk-local material cache. Not worth it now.
+
+Filmstrips: `out/strip_lava_close.png` (lava hits the lake, stone crust and
+steam cloud form), `out/strip_fire_v4d.png` (oil pool burns, fire spreads
+through the wooden house, ash remains). First fire version did not spread
+between burnable cells (only flame cells could ignite, and they drift away);
+Noita-style direct neighbour ignition fixed it. Spread rate needs tuning.
+
+Push-path cost scales with churn: the lava scene pushes 92 chunks per frame
+at 60 Hz (a whole lake reacting) and averages 21 ms/frame; at 30 Hz it
+halves. Simulation bubbles, not world size, must bound this.
+
 ## Measured answers
 
 1. **Native simulation is fast enough with a large margin.** A 2 M-voxel
