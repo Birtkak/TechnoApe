@@ -130,6 +130,9 @@ chat={
 ; ADR 0016: separate render thread so godot_voxel builds meshes off the main thread;
 ; back to the old mode for one run with --render-thread safe
 driver/threads/thread_model=2
+; ADR 0020: every terrain block is a mesh instance with an instance uniform (u_lod_fade);
+; Godot's default 64 KB buffer holds ~4,000 such instances and 16-voxel mesh blocks overflow it
+limits/global_shader_variables/buffer_size=262144
 textures/canvas_textures/default_texture_filter=0
 lights_and_shadows/directional_shadow/size=4096
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2

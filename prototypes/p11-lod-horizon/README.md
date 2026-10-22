@@ -18,9 +18,12 @@ Custom build: `~/Tools/godot_voxel` at 045ff932, godot-cpp 4.5 branch, MinGW:
 ```
 GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=editor use_mingw=yes use_static_cpp=yes -j12
 ```
-Patches (`voxel_patch.py` in this folder): `MAXIMUM_LOD_DISTANCE` 128 → 1024;
-fading copies on transition-mask changes only when the shader has
-`u_transition_mask` (blocky meshes never stitch).
+Patches (`voxel_patch.py`, then `voxel_patch_budget.py`, both in this folder):
+`MAXIMUM_LOD_DISTANCE` 128 → 1024; fading copies on transition-mask changes
+only when the shader has `u_transition_mask` (blocky meshes never stitch);
+the fade value as an instance shader parameter when the terrain has no
+ShaderMaterial; `mesh_upload_budget_mb`, a per-frame cap on applied mesh data
+(updates over the cap wait a frame, the newest per block wins).
 
 The editor target does not compile with this GCC (16.2: template deduction
 error in `editor/noise/chart_view.cpp`); `target=template_debug` does, and

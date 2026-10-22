@@ -59,6 +59,8 @@ func _ready() -> void:
 	terrain.streaming_system = 1  # CLIPBOX (P2: octree collapses at long range)
 	terrain.lod_fade_duration = Settings.lod_fade_s   # blocks blend between LODs (shader: lod_fade_discard)
 	terrain.mesh_block_size = Settings.terrain_mesh_block
+	if "mesh_upload_budget_mb" in terrain:   # our godot_voxel build only (ADR 0020)
+		terrain.mesh_upload_budget_mb = Settings.mesh_upload_budget_mb
 	# No terrain.material: VoxelLodTerrain would copy it per block and override
 	# every surface of the block mesh with it, so the liquid shader from the
 	# library never ran on the LOD terrain (water drew opaque) and every block

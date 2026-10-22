@@ -18,6 +18,7 @@ var terrain_threaded_update := true     # VoxelLodTerrain's LOD/streaming bookke
 var far_fade_start_m := 150.0           # terrain textures fade toward their tile's average colour from here (ADR 0017)
 var far_fade_end_m := 600.0
 var lod_fade_s := 0.35                  # dithered cross-fade when a terrain block changes LOD (ADR 0020: free with our godot_voxel build; stock godot_voxel copies every fading block and costs 30-60 ms frames)
+var mesh_upload_budget_mb := 0.0        # terrain mesh data applied per frame (ADR 0020, our godot_voxel build); 0 = unlimited
 var terrain_mesh_block := 32            # 16 or 32 voxels; 32 = 3x fewer draw calls (measured), coarser re-mesh granularity
 var cache_generated_blocks := true      # store generated LOD data so edits cascade to far LODs (memory vs correctness)
 
@@ -126,6 +127,7 @@ func apply_cmdline() -> Dictionary:
 			"far_fade_end_m": far_fade_end_m = float(kv[1])
 			"lod_fade_s": lod_fade_s = float(kv[1])
 			"terrain_mesh_block": terrain_mesh_block = int(kv[1])
+			"mesh_upload_budget_mb": mesh_upload_budget_mb = float(kv[1])
 			"cache_generated": cache_generated_blocks = kv[1] == "1"
 			"sim_tick_hz": sim_tick_hz = float(kv[1])
 			"sim_load_budget_ms": sim_load_budget_ms = float(kv[1])

@@ -109,7 +109,17 @@ and the see-through water, the spill is unchanged. Load time 2.8 → 4 s
 - "Destination block not found when cascading edits on LOD n" (1–4 per walk
   run at start-up) is older than this ADR (soak logs of ADR 0016 show it):
   an edit lands before the parent LOD block exists in the data map.
-- Water spill p99 8.7 ms is unchanged (ADR 0016/0017 open item).
+- Water spill p99 8.7 ms is unchanged (ADR 0016/0017 open item). Its spike
+  frames are 11–15 ms of `other` (mesh upload, 7–15 MB of new mesh data in
+  one frame) with 360 chunk pushes/s. 16-voxel mesh blocks do not help
+  (spill p99 10.3, flight 80 ms frames: three times the instances) and hit
+  Godot's instance-uniform buffer. The budget has to cap how many mesh
+  updates the terrain applies per frame.
+- A 2 km horizon (`view_distance_m=2048 lod_count=8`) never settles: the
+  workers stay 100 % busy with a backlog of 1,200 blocks for the whole run.
+  Why the top LODs cost that much is not yet measured (the generator itself
+  is 0.2 ms per block at lod 1–4, 3.5 ms at lod 5 from the 2 km hydrology
+  tiles).
 
 ## Consequences
 - Far forests are leaf-coloured ground, not trees: a far hill reads as
