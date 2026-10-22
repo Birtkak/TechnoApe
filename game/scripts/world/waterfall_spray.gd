@@ -14,6 +14,9 @@ var _accum := 10.0
 var _mesh: QuadMesh
 var _material: ParticleProcessMaterial
 var _count := 0
+var _warm: GPUParticles3D      # shader warm-up emitter, freed after WARM_FRAMES
+var _warm_frames := 0
+const WARM_FRAMES := 8
 
 
 func _ready() -> void:
@@ -57,9 +60,37 @@ func _ready() -> void:
 	var ramp_tex := GradientTexture1D.new()
 	ramp_tex.gradient = ramp
 	_material.color_ramp = ramp_tex
+	# The first GPUParticles3D compiles its process and draw shaders on the main
+	# thread: ~17 ms in the frame the first waterfall came into range (fast-flight
+	# benchmark). One particle in front of the camera for a few frames while the
+	# world is still loading pays that cost before anyone can see it.
+	_warm = _make_emitter()
+	_warm.amount = 1
+	_warm.lifetime = 0.2
+	add_child(_warm)
+
+
+func _make_emitter() -> GPUParticles3D:
+	var e := GPUParticles3D.new()
+	e.amount = 36
+	e.lifetime = 1.8
+	e.explosiveness = 0.0
+	e.randomness = 0.4
+	e.draw_pass_1 = _mesh
+	e.process_material = _material
+	e.visibility_aabb = AABB(Vector3(-8, -2, -8), Vector3(16, 14, 16))
+	return e
 
 
 func _process(delta: float) -> void:
+	if _warm:
+		var c := get_viewport().get_camera_3d()
+		if c:
+			_warm.global_position = c.global_position - c.global_transform.basis.z * 2.0
+		_warm_frames += 1
+		if _warm_frames >= WARM_FRAMES:
+			_warm.queue_free()
+			_warm = null
 	_accum += delta
 	if _accum < rescan_s or gen == null:
 		return
@@ -75,14 +106,7 @@ func _process(delta: float) -> void:
 		keep[key] = true
 		if _emitters.has(key):
 			continue
-		var e := GPUParticles3D.new()
-		e.amount = 36
-		e.lifetime = 1.8
-		e.explosiveness = 0.0
-		e.randomness = 0.4
-		e.draw_pass_1 = _mesh
-		e.process_material = _material
-		e.visibility_aabb = AABB(Vector3(-8, -2, -8), Vector3(16, 14, 16))
+		var e := _make_emitter()
 		e.position = Vector3(key.x + 0.5, key.y + 0.4, key.z + 0.5)
 		add_child(e)
 		_emitters[key] = e

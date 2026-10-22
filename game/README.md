@@ -39,7 +39,8 @@ Godot_..._console.exe --headless --path game --script res://tools/fire_bench.gd 
 # budget check (ADR 0009, 0014): every autopilot JSON has budget_ok + budget{p99,max,ram,vram,loaded}, judged on
 # `duration` s of wall-clock frames after the world settled (load_s: bubble loaded, voxel tasks idle 30 frames;
 # load_settled=false if the 10 s cap hit first); frames after a filmstrip readback are excluded (capture_stalls);
-# rss_mb is the process working set; spikes[] splits frames > 8.3 ms into process/physics/render cpu+gpu/other
+# rss_mb is the process working set; spikes[] splits frames > 8.3 ms into process/physics/render cpu+gpu/other;
+# other_godot_processes > 0 means another Godot run shared the machine: rerun before trusting the numbers
 # mass edits (ADR 0014): blast=R craters of R m on the ground around the player every blast_every s (default 2),
 # blast_count=N per volley; JSON sim.blasts, blast_voxels, blast_ms_max (native SimWorld.fill_sphere)
 Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=4 blast_every=1 duration=20 capture_every=1 out=res://out/blast

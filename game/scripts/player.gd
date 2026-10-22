@@ -30,6 +30,7 @@ var _mouse_captured := false
 var autopilot := false
 var autopilot_dir := Vector3(0, 0, -1)
 var autopilot_speed_m := 6.0
+var mined_log: Array = []   # autopilot mine=1: every break (voxel, what it reads now, feet height), first 64
 var autopilot_action := ""     # "" = fly/walk forward, "mine" = stand still and hold break
 
 # mining state
@@ -371,7 +372,10 @@ func _update_mining(delta: float) -> void:
 			viewmodel.swing()
 		_break_cooldown = Settings.break_cooldown_s
 		if autopilot and autopilot_action == "mine":
-			print("mined %s (%s) player_y=%.2f on_floor=%s" % [p, GameMaterials.name_of(world.get_voxel(p)), position.y, is_on_floor()])
+			# into the run's JSON, not stdout: one console print costs 3-15 ms on Windows and
+			# showed up as the worst frames of every mining benchmark
+			if mined_log.size() < 64:
+				mined_log.append({"voxel": p, "now": GameMaterials.name_of(world.get_voxel(p)), "player_y": snappedf(position.y, 0.01), "on_floor": is_on_floor()})
 			# dig a 2x2 shaft: the player stands on the corner where four voxels
 			# meet and turns a quarter after every break (the body is 1.2 voxels wide)
 			_yaw += PI / 2.0

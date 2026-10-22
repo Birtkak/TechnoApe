@@ -59,7 +59,8 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
 
 - Run / verify: see `game/README.md`. Unattended check:
   `Godot_..._console.exe --path game -- autopilot=1 duration=20 capture_every=1 vsync=0 out=res://out/runN`
-  then read `game/out/runN/strip.png` and the JSON line on stdout.
+  then read `game/out/runN/strip.png` and the JSON line on stdout: `budget_ok`
+  (ADR 0009, measured as ADR 0014 says) and `other_godot_processes == 0`.
 - One world unit = one voxel = 0.5 m. Tunables live in `scripts/settings.gd` in metres.
 - Rebuild the sim extension from `prototypes/p5-sim-spike` and copy the DLL to
   `game/addons/technosim/bin/`.

@@ -53,6 +53,10 @@ var _physics_t0 := 0
 var _process_us := 0     # previous frame's _process phase
 var _physics_us := 0     # physics steps since the previous frame (0, 1 or more)
 var _physics_acc_us := 0
+var _prev_mesh_b := 0.0      # RENDER_BUFFER_MEM_USED last frame: a spike's upload volume is the delta
+var _prev_compiles := 0.0    # pipeline compilations so far (draw + specialization)
+var _mesh_delta_mb := 0.0
+var _compile_delta := 0.0
 var _elapsed := 0.0
 var _capture_accum := 0.0
 var _main: Node
@@ -141,6 +145,12 @@ func _process(delta: float) -> void:
 	# physics jitter fix moves time between frames, so a 28 ms hitch can show as 20 ms
 	var now := Time.get_ticks_usec()
 	var ms := (now - _last_frame_us) / 1000.0 if _last_frame_us > 0 else delta * 1000.0
+	var mesh_b := Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED)
+	var compiles := Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_DRAW) + Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_SPECIALIZATION)
+	_mesh_delta_mb = (mesh_b - _prev_mesh_b) / 1048576.0
+	_compile_delta = compiles - _prev_compiles
+	_prev_mesh_b = mesh_b
+	_prev_compiles = compiles
 	_last_frame_us = now
 	if _skip_next:
 		_skip_next = false
@@ -201,14 +211,18 @@ func _finish() -> void:
 	s["capture_stalls"] = _capture_stalls.size()
 	s["capture_stall_max_ms"] = snappedf(Array(_capture_stalls).max() if _capture_stalls.size() else 0.0, 0.01)
 	s["vram_mb"] = snappedf(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0, 1)
-	s["rss_mb"] = _process_rss_mb()
+	var host := _host_probe()
+	s["rss_mb"] = host["rss_mb"]
+	s["other_godot_processes"] = host["other_godot"]   # > 0: timings shared the machine with another run
 	# ADR 0009 reference-machine budget, after load: p99 <= 8.3 ms, no frame > 16.7 ms, RAM <= 4 GB, VRAM <= 6 GB
 	s["budget"] = {"p99": s["p99_frame_ms"] <= 8.3, "max": s["max_frame_ms"] <= 16.7,
-		"ram": s["rss_mb"] <= 4096.0, "vram": s["vram_mb"] <= 6144.0, "loaded": _loaded_at >= 0.0}
+		"ram": s["rss_mb"] >= 0.0 and s["rss_mb"] <= 4096.0, "vram": s["vram_mb"] <= 6144.0, "loaded": _loaded_at >= 0.0}
 	# frames are counted only after load, so a run that never settled is judged on a
 	# streaming world from SETTLE_CAP_S on: still a valid budget check, flagged in load_settled
 	s["budget_ok"] = not s["budget"].values().has(false)
 	s["spikes"] = _spikes
+	if mine:
+		s["mined_log"] = _main.player.mined_log
 	if blast_m > 0.0:
 		# the edits must have reached the meshed terrain (pushed from the bubble), not only the simulation
 		_main.bubble.flush_all()
@@ -241,8 +255,8 @@ func _note_spike(ms: float, process_us: int) -> void:
 		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		"primitives_m": snappedf(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1e6, 0.01),
 		"mesh_mb": snappedf(Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED) / 1048576.0, 1),
-		"pipeline_compiles": Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_DRAW) + Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_SPECIALIZATION),
-		"terrain": _main.world.terrain.get_statistics().get("time_mesh_requests", 0)})
+		"mesh_delta_mb": snappedf(_mesh_delta_mb, 0.01), "new_pipelines": _compile_delta,
+		"voxel_tasks": VoxelEngine.get_stats().get("tasks", {})})
 	_spikes.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["frame_ms"] > b["frame_ms"])
 	if _spikes.size() > SPIKES_KEEP:
 		_spikes.resize(SPIKES_KEEP)
@@ -286,14 +300,20 @@ func _count_over(sorted_ms: PackedFloat64Array, limit: float) -> int:
 	return sorted_ms.size() - i
 
 
-## Working set of this process (static_memory_usage misses the native extensions' heaps).
-func _process_rss_mb() -> float:
+## Working set of this process (static_memory_usage misses the native extensions' heaps)
+## and how many other Godot processes are alive: another session's benchmark on the same
+## box shows up here as 20-30 ms frames that are not ours.
+func _host_probe() -> Dictionary:
 	var out := []
 	var pid := OS.get_process_id()
 	if OS.get_name() == "Windows":
-		OS.execute("powershell", ["-NoProfile", "-Command", "(Get-Process -Id %d).WorkingSet64" % pid], out)
+		# two output lines: working set bytes, count of other Godot games/editors (each
+		# console launch is a *_console wrapper plus the real process; count the real ones)
+		OS.execute("powershell", ["-NoProfile", "-Command",
+			"(Get-Process -Id %d).WorkingSet64; @(Get-Process -Name Godot* | Where-Object { $_.Id -ne %d -and $_.ProcessName -notlike '*_console' }).Count" % [pid, pid]], out)
 	else:
-		OS.execute("sh", ["-c", "ps -o rss= -p %d | awk '{print $1*1024}'" % pid], out)
-	if out.is_empty() or not String(out[0]).strip_edges().is_valid_int():
-		return -1.0
-	return snappedf(int(String(out[0]).strip_edges()) / 1048576.0, 0.1)
+		OS.execute("sh", ["-c", "ps -o rss= -p %d | awk '{print $1*1024}'; pgrep -c -i godot | awk '{print $1-1}'" % pid], out)
+	var parts := String(out[0]).strip_edges().split("\n") if not out.is_empty() else PackedStringArray()
+	if parts.size() < 2 or not parts[0].strip_edges().is_valid_int():
+		return {"rss_mb": -1.0, "other_godot": -1}
+	return {"rss_mb": snappedf(int(parts[0].strip_edges()) / 1048576.0, 0.1), "other_godot": int(parts[1].strip_edges())}
