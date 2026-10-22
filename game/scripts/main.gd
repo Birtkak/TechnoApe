@@ -6,6 +6,7 @@ extends Node3D
 ## item entities are picked up, merged and despawned here.
 
 var world: World
+var atmosphere: Atmosphere
 var player: Player
 var bubble: SimBubble
 var hud: DebugHud
@@ -33,23 +34,10 @@ func _ready() -> void:
 	world.name = "World"
 	add_child(world)
 
-	var env := WorldEnvironment.new()
-	var e := Environment.new()
-	e.background_mode = Environment.BG_SKY
-	var sky := Sky.new()
-	sky.sky_material = ProceduralSkyMaterial.new()
-	e.sky = sky
-	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	e.fog_enabled = true
-	e.fog_light_color = Color(0.7, 0.8, 0.95)
-	e.fog_density = 0.0004
-	env.environment = e
-	add_child(env)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50, 30, 0)
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = Settings.m2v(96.0)
-	add_child(sun)
+	# sky, sun, fog, bloom, SSAO, underwater / underground looks (scripts/visuals/atmosphere.gd)
+	atmosphere = Atmosphere.new()
+	atmosphere.name = "Atmosphere"
+	add_child(atmosphere)
 
 	items = ItemRegistry.load_default()
 	recipes = RecipeRegistry.load_default(items)
@@ -70,6 +58,7 @@ func _ready() -> void:
 	_spawn_pos = player.position
 	add_child(player)
 	player.setup_inventory(player_inv, mining, world.atlas_material)
+	atmosphere.setup(world, player.camera)
 	player.voxel_broken.connect(_on_broken)
 	player.voxel_placed.connect(_on_placed)
 	player.item_dropped.connect(_on_item_dropped)

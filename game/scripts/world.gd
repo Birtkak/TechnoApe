@@ -7,6 +7,7 @@ extends Node3D
 var terrain: VoxelLodTerrain
 var generator: TerrainGenerator
 var atlas_material: ShaderMaterial
+var liquid_material: ShaderMaterial
 var _tool: VoxelTool
 
 
@@ -23,11 +24,16 @@ func _ready() -> void:
 	atlas_material.set_shader_parameter("lava_tile", float(GameMaterials.defs()[GameMaterials.LAVA - 1]["tiles"][0]))
 	atlas_material.set_shader_parameter("fire_tile", float(GameMaterials.defs()[GameMaterials.FIRE - 1]["tiles"][0]))
 	atlas_material.set_shader_parameter("glow_tile", float(GameMaterials.defs()[GameMaterials.GLOW_MUSHROOM - 1]["tiles"][0]))
+	# liquids and gases: same uniforms, alpha + depth write + water glint (terrain_liquid.gdshader)
+	liquid_material = ShaderMaterial.new()
+	liquid_material.shader = load("res://assets/shaders/terrain_liquid.gdshader")
+	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile"]:
+		liquid_material.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
 	generator = TerrainGenerator.new()
 	generator.set_seed(Settings.world_seed)
 
 	var mesher := VoxelMesherBlocky.new()
-	mesher.library = GameMaterials.build_library(atlas_material)
+	mesher.library = GameMaterials.build_library(atlas_material, liquid_material)
 
 	terrain = VoxelLodTerrain.new()
 	terrain.name = "Terrain"

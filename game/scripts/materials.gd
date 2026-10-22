@@ -134,7 +134,9 @@ static func name_of(id: int) -> String:
 ## 0006) instead of a full cube: vegetation and detail that is still voxels.
 ## "model": "empty" is the reserved CHISELED id: nothing drawn by the terrain
 ## mesher, neighbours keep their faces, the shape comes from the block entity.
-static func build_library(atlas_material: Material) -> VoxelBlockyLibrary:
+## `liquid_material`: see-through material for non-powder liquids, gases and
+## fire (null = draw them opaque with the atlas material).
+static func build_library(atlas_material: Material, liquid_material: Material = null) -> VoxelBlockyLibrary:
 	var lib := VoxelBlockyLibrary.new()
 	var models: Array = [VoxelBlockyModelEmpty.new()]
 	for d in defs():
@@ -156,16 +158,18 @@ static func build_library(atlas_material: Material) -> VoxelBlockyLibrary:
 		cube.set_tile(VoxelBlockyModel.SIDE_NEGATIVE_Y, bottom)
 		for s in [VoxelBlockyModel.SIDE_NEGATIVE_X, VoxelBlockyModel.SIDE_POSITIVE_X, VoxelBlockyModel.SIDE_NEGATIVE_Z, VoxelBlockyModel.SIDE_POSITIVE_Z]:
 			cube.set_tile(s, side)
-		cube.set_material_override(0, atlas_material)
-		# Transparent materials share transparency index 1: faces between two
-		# voxels of the same index are culled (no water-water faces), faces
-		# against air or opaque voxels are kept. culls_neighbors stays true.
-		if d.get("transparent", false):
-			cube.transparency_index = 1
 		# Movement collision (ADR 0011, VoxelBody): only solids and powders
 		# block bodies; liquids, gases and fire are swum or walked through.
 		var ct: String = d.get("cell_type", "solid")
-		if not (ct == "solid" or (ct == "liquid" and d.get("liquid_sand", false))):
+		var passable: bool = not (ct == "solid" or (ct == "liquid" and d.get("liquid_sand", false)))
+		# Transparent materials share transparency index 1: faces between two
+		# voxels of the same index are culled (no water-water faces), faces
+		# against air or opaque voxels are kept. culls_neighbors stays true.
+		# Passable transparent ones (water, oil, gases, fire) get the alpha material.
+		if d.get("transparent", false):
+			cube.transparency_index = 1
+		cube.set_material_override(0, liquid_material if (liquid_material != null and passable and d.get("transparent", false)) else atlas_material)
+		if passable:
 			cube.collision_mask = 0
 			cube.set_mesh_collision_enabled(0, false)
 		models.append(cube)
