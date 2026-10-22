@@ -79,7 +79,7 @@ SimWorld::SimWorld() {
     mats_.resize(1); // material 0 = air: gas, density 0
     rebuild_reaction_lut();
 }
-SimWorld::~SimWorld() { pool_.shutdown(); }
+SimWorld::~SimWorld() { stop_driver(); pool_.shutdown(); }
 
 void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("configure", "chunks", "threads", "seed"), &SimWorld::configure);
@@ -111,6 +111,12 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_size_voxels"), &SimWorld::get_size_voxels);
     ClassDB::bind_method(D_METHOD("set_gravity", "cells_per_tick2"), &SimWorld::set_gravity);
     ClassDB::bind_method(D_METHOD("set_dirty_boxes", "on"), &SimWorld::set_dirty_boxes);
+    ClassDB::bind_method(D_METHOD("set_focus", "cell"), &SimWorld::set_focus);
+    ClassDB::bind_method(D_METHOD("set_lod", "radius_chunks", "divisor"), &SimWorld::set_lod);
+    ClassDB::bind_method(D_METHOD("set_cell_budget", "cells"), &SimWorld::set_cell_budget);
+    ClassDB::bind_method(D_METHOD("start_tick"), &SimWorld::start_tick);
+    ClassDB::bind_method(D_METHOD("is_tick_done"), &SimWorld::is_tick_done);
+    ClassDB::bind_method(D_METHOD("finish_tick"), &SimWorld::finish_tick);
     BIND_ENUM_CONSTANT(CELL_SOLID);
     BIND_ENUM_CONSTANT(CELL_LIQUID);
     BIND_ENUM_CONSTANT(CELL_GAS);
@@ -120,6 +126,7 @@ void SimWorld::_bind_methods() {
 // ---------- setup ----------
 
 void SimWorld::configure(Vector3i p_chunks, int p_threads, int p_seed) {
+    stop_driver();
     pool_.shutdown();
     chunks_ = p_chunks;
     CX_ = p_chunks.x; CY_ = p_chunks.y; CZ_ = p_chunks.z;
@@ -138,6 +145,7 @@ void SimWorld::configure(Vector3i p_chunks, int p_threads, int p_seed) {
     box_now_.reset(new std::atomic<uint32_t>[nc]);
     box_next_.reset(new std::atomic<uint32_t>[nc]);
     for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); box_now_[i].store(0); box_next_[i].store(0); }
+    defer_age_.assign(nc, 0);
     loaded_.assign(nc, 1); // default: everything counts as loaded (fill_box/scatter worlds); streaming callers clear it
     rebuild_pass_lists();
     if (threads_ > 1) pool_.start(threads_);
@@ -192,6 +200,16 @@ void SimWorld::set_materials(const Array &p_defs) {
                                                : std::clamp(10.0 / std::max(1, (int)m.fire_hp), 0.125, 1.0);
             m.ignite_chance = (uint16_t)std::clamp((int)std::lround(ic * 65535.0), 0, 65535);
         }
+        // Static ground shaken loose by nearby changes (Noita): unsupported cells fall, static water
+        // flows once it has an opening, natural sand/gravel (they have a "loose" kind) erode into
+        // slopes. Only next to cells that changed this or the previous tick, so a freshly loaded world
+        // (caves, overhangs) never collapses by itself. Data: "loosen_chance", "erode_chance" (0..1).
+        if (m.liquid_static) {
+            double lc = dget_f(d, "loosen_chance", 0.35);
+            double ec = dget_f(d, "erode_chance", (m.liquid_sand && d.has("loose")) ? 0.04 : 0.0);
+            m.loosen = (uint16_t)std::clamp((int)std::lround(lc * 65535.0), 0, 65535);
+            m.erode = (uint16_t)std::clamp((int)std::lround(ec * 65535.0), 0, 65535);
+        }
         if (m.cell_type == CELL_FIRE || m.burnable) any_fire_ = true;
         mats_.push_back(m);
     }
@@ -234,7 +252,7 @@ void SimWorld::rebuild_reaction_lut() {
     for (size_t m = 1; m < mats_.size(); m++) {
         const MaterialDef &d = mats_[m];
         bool static_cell = d.cell_type == CELL_SOLID || (d.cell_type == CELL_LIQUID && d.liquid_static);
-        inert_[m] = static_cell && d.lifetime == 0 && !d.burnable && !reactive_[m];
+        inert_[m] = static_cell && d.lifetime == 0 && !d.burnable && !reactive_[m] && d.loosen == 0 && d.erode == 0;
     }
 }
 
@@ -258,6 +276,7 @@ inline void SimWorld::touch(int x, int y, int z) {
     int cx = x / CS, cy = y / CS, cz = z / CS;
     int ci = cidx(cx, cy, cz);
     dirty_[ci].store(1, std::memory_order_relaxed);
+    moved_[idx(x, y, z)] = stamp_;   // an edit is a change: static ground next to it may loosen
     wake_full(ci);
     int lx = x & (CS - 1), ly = y & (CS - 1), lz = z & (CS - 1);
     if (lx == 0 && cx > 0) wake_full(ci - 1);
@@ -269,6 +288,7 @@ inline void SimWorld::touch(int x, int y, int z) {
 }
 
 void SimWorld::fill_box(Vector3i p_min, Vector3i p_max, int p_material) {
+    wait_idle();
     uint8_t m = (uint8_t)std::clamp(p_material, 0, (int)mats_.size() - 1);
     for (int z = std::max(0, p_min.z); z < std::min(D_, p_max.z); z++)
         for (int y = std::max(0, p_min.y); y < std::min(H_, p_max.y); y++)
@@ -279,6 +299,7 @@ void SimWorld::fill_box(Vector3i p_min, Vector3i p_max, int p_material) {
 }
 
 void SimWorld::scatter(Vector3i p_min, Vector3i p_max, int p_material, float p_density, int p_seed) {
+    wait_idle();
     uint8_t m = (uint8_t)std::clamp(p_material, 0, (int)mats_.size() - 1);
     uint32_t s = (uint32_t)p_seed | 1u;
     for (int z = std::max(0, p_min.z); z < std::min(D_, p_max.z); z++)
@@ -293,26 +314,31 @@ void SimWorld::scatter(Vector3i p_min, Vector3i p_max, int p_material, float p_d
 }
 
 void SimWorld::set_voxel(Vector3i p, int p_material) {
+    wait_idle();
     if (!in_world(p.x, p.y, p.z)) return;
     place(idx(p.x, p.y, p.z), (uint8_t)std::clamp(p_material, 0, (int)mats_.size() - 1));
     touch(p.x, p.y, p.z);
 }
 
 int SimWorld::get_voxel(Vector3i p) const {
+    wait_idle();
     if (!in_world(p.x, p.y, p.z)) return -1;
     return cells_[idx(p.x, p.y, p.z)].mat;
 }
 
 int SimWorld::get_flags(Vector3i p) const {
+    wait_idle();
     if (!in_world(p.x, p.y, p.z)) return 0;
     return cells_[idx(p.x, p.y, p.z)].flags;
 }
 
 void SimWorld::mark_all_loaded(bool p_loaded) {
+    wait_idle();
     std::fill(loaded_.begin(), loaded_.end(), p_loaded ? 1 : 0);
 }
 
 void SimWorld::ignite(Vector3i p) {
+    wait_idle();
     if (!in_world(p.x, p.y, p.z)) return;
     int i = idx(p.x, p.y, p.z);
     const MaterialDef &m = mats_[cells_[i].mat];
@@ -395,6 +421,48 @@ inline bool SimWorld::try_move(int sx, int sy, int sz, int tx, int ty, int tz, C
     mark_cell(sx, sy, sz, c, true);
     mark_cell(tx, ty, tz, c, true);
     return true;
+}
+
+// Static ground next to a fresh change gets a chance to turn loose (see set_materials).
+void SimWorld::try_loosen(int x, int y, int z, int i, Ctx &c) {
+    const MaterialDef &md = mats_[cells_[i].mat];
+    if (md.loosen == 0 && md.erode == 0) return;
+    const uint8_t self = cells_[i].mat;
+    const uint16_t prev = (uint16_t)(stamp_ - 1);
+    const bool shaken = (cells_[i].flags & FLAG_SHAKEN) != 0;
+    auto open = [&](int nx, int ny, int nz) -> bool {
+        return is_open(nx, ny, nz) && can_displace(self, cells_[idx(nx, ny, nz)].mat);
+    };
+    // an opening counts if it is fresh (changed this or last tick) or this cell was shaken before
+    auto trigger = [&](int nx, int ny, int nz) -> bool {
+        if (!open(nx, ny, nz)) return false;
+        if (shaken) return true;
+        uint16_t s = moved_[idx(nx, ny, nz)];
+        return s == stamp_ || s == prev;
+    };
+    uint32_t r = rnd(c);
+    bool hit = false, go = false;
+    if (md.loosen) {
+        bool t = trigger(x, y - 1, z);
+        if (!t && !md.liquid_sand)   // static water: any opening beside it
+            for (int k = 0; k < 4 && !t; k++) t = trigger(x + DX4[k], y, z + DZ4[k]);
+        if (t) { hit = true; go = (r & 0xFFFF) < md.loosen; }
+    }
+    if (!go && md.erode) {
+        int k = (r >> 8) & 3;
+        int sx = x + DX4[k], sz = z + DZ4[k];
+        if (open(sx, y - 1, sz) && (trigger(sx, y, sz))) { hit = true; go = ((r >> 16) & 0xFFFF) < md.erode; }
+    }
+    if (!hit) return;
+    if (!go) {
+        // stay awake and keep rolling while the opening is there
+        cells_[i].flags |= FLAG_SHAKEN;
+        mark_cell(x, y, z, c, false);
+        return;
+    }
+    cells_[i].flags = (uint8_t)((cells_[i].flags & ~FLAG_SHAKEN) | FLAG_LOOSE);
+    moved_[i] = stamp_;
+    mark_cell(x, y, z, c, false);
 }
 
 // v5: falling powders and liquids keep a velocity in aux (1/16 cell per tick) and move up to
@@ -618,7 +686,7 @@ void SimWorld::update_chunk(int ci) {
                 switch (md.cell_type) {
                     case CELL_SOLID: break;
                     case CELL_LIQUID:
-                        if (md.liquid_static) break;
+                        if (md.liquid_static && !(cells_[i].flags & FLAG_LOOSE)) { try_loosen(x, y, z, i, c); break; }
                         if (md.liquid_sand) update_powder(x, y, z, i, c);
                         else update_liquid(x, y, z, i, c);
                         break;
@@ -633,58 +701,193 @@ void SimWorld::update_chunk(int ci) {
     if (c.reacted) react_count_.fetch_add(c.reacted, std::memory_order_relaxed);
 }
 
-Dictionary SimWorld::tick(int p_count) {
+void SimWorld::defer_chunk(int ci) {
+    active_now_[ci].store(0, std::memory_order_relaxed);
+    active_next_[ci].store(1, std::memory_order_relaxed);
+    uint32_t b = box_now_[ci].load(std::memory_order_relaxed);
+    merge_box(ci, (b & BOX_VALID) ? b : BOX_FULL);
+    if (defer_age_[ci] < 255) defer_age_[ci]++;
+}
+
+// One tick. v6: chunks beyond the level-of-detail radius run every lod_divisor-th
+// tick, and a cell budget keeps the nearest (and longest-waiting) chunks.
+void SimWorld::tick_once(TickOut &o) {
     using clock = std::chrono::steady_clock;
+    auto t0 = clock::now();
     size_t nc = (size_t)CX_ * CY_ * CZ_;
-    std::vector<int> work;
-    work.reserve(nc);
-    uint64_t active_total = 0, moved_total = 0, react_total = 0;
-    double max_ms = 0.0;
-    auto t_start = clock::now();
-    for (int n = 0; n < p_count; n++) {
-        auto t0 = clock::now();
-        tick_++;
-        stamp_++;
-        if (stamp_ == 0) { std::fill(moved_.begin(), moved_.end(), 0); stamp_ = 1; }
-        for (size_t i = 0; i < nc; i++) {
-            active_now_[i].store(active_next_[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
-            active_next_[i].store(0, std::memory_order_relaxed);
-            box_now_[i].store(box_next_[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
-            box_next_[i].store(0, std::memory_order_relaxed);
-        }
-        moved_count_.store(0);
-        react_count_.store(0);
-        for (int pass = 0; pass < 8; pass++) {
-            work.clear();
-            for (int ci : pass_lists_[pass])
-                if (active_now_[ci].load(std::memory_order_relaxed)) work.push_back(ci);
-            active_total += work.size();
-            pool_.run(work, [this](int ci) { update_chunk(ci); });
-        }
-        moved_total += moved_count_.load();
-        react_total += react_count_.load();
-        double ms = std::chrono::duration<double, std::milli>(clock::now() - t0).count();
-        if (ms > max_ms) max_ms = ms;
+    tick_++;
+    stamp_++;
+    if (stamp_ == 0) { std::fill(moved_.begin(), moved_.end(), 0); stamp_ = 1; }
+    for (size_t i = 0; i < nc; i++) {
+        active_now_[i].store(active_next_[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
+        active_next_[i].store(0, std::memory_order_relaxed);
+        box_now_[i].store(box_next_[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
+        box_next_[i].store(0, std::memory_order_relaxed);
     }
-    double total_ms = std::chrono::duration<double, std::milli>(clock::now() - t_start).count();
+    uint64_t scanned = 0, deferred = 0;
+    const bool lod = lod_radius_ >= 0 && lod_divisor_ > 1;
+    if (lod || cell_budget_ > 0) {
+        sched_.clear();
+        const int64_t r2 = (int64_t)lod_radius_ * lod_radius_;
+        for (size_t i = 0; i < nc; i++) {
+            if (!active_now_[i].load(std::memory_order_relaxed)) continue;
+            int ci = (int)i;
+            int cx = ci % CX_, cy = (ci / CX_) % CY_, cz = ci / (CX_ * CY_);
+            int64_t dx = cx - focus_chunk_.x, dy = cy - focus_chunk_.y, dz = cz - focus_chunk_.z;
+            int64_t d2 = dx * dx + dy * dy + dz * dz;
+            if (lod && d2 > r2 && ((tick_ + (uint32_t)ci) % (uint32_t)lod_divisor_) != 0) {
+                defer_chunk(ci);
+                deferred++;
+                continue;
+            }
+            sched_.push_back({d2 >> std::min<int>(defer_age_[ci], 30), ci});
+        }
+        if (cell_budget_ > 0) {
+            std::sort(sched_.begin(), sched_.end());
+            uint64_t used = 0;
+            for (size_t k = 0; k < sched_.size(); k++) {
+                int ci = sched_[k].second;
+                int v = dirty_boxes_ ? box_volume(box_now_[ci].load(std::memory_order_relaxed)) : CS * CS * CS;
+                if (k > 0 && used + (uint64_t)v > (uint64_t)cell_budget_) { defer_chunk(ci); deferred++; continue; }
+                used += v;
+                defer_age_[ci] = 0;
+            }
+            scanned = used;
+        } else {
+            for (auto &p : sched_) {
+                defer_age_[p.second] = 0;
+                scanned += dirty_boxes_ ? box_volume(box_now_[p.second].load(std::memory_order_relaxed)) : CS * CS * CS;
+            }
+        }
+    } else {
+        for (size_t i = 0; i < nc; i++)
+            if (active_now_[i].load(std::memory_order_relaxed))
+                scanned += dirty_boxes_ ? box_volume(box_now_[i].load(std::memory_order_relaxed)) : CS * CS * CS;
+    }
+    moved_count_.store(0);
+    react_count_.store(0);
+    std::vector<int> work;
+    work.reserve(nc / 8 + 1);
+    uint64_t active = 0;
+    for (int pass = 0; pass < 8; pass++) {
+        work.clear();
+        for (int ci : pass_lists_[pass])
+            if (active_now_[ci].load(std::memory_order_relaxed)) work.push_back(ci);
+        active += work.size();
+        pool_.run(work, [this](int ci) { update_chunk(ci); });
+    }
+    o.ms = std::chrono::duration<double, std::milli>(clock::now() - t0).count();
+    o.active = active;
+    o.moved = moved_count_.load();
+    o.react = react_count_.load();
+    o.scanned = scanned;
+    o.deferred = deferred;
+}
+
+static Dictionary tick_dict(int p_count, int p_threads, double total_ms, double max_ms, uint64_t active, uint64_t moved,
+        uint64_t react, uint64_t scanned, uint64_t deferred, int cs3) {
     Dictionary d;
+    int n = std::max(1, p_count);
     d["ticks"] = p_count;
-    d["threads"] = threads_;
+    d["threads"] = p_threads;
     d["total_ms"] = total_ms;
-    d["ms_per_tick"] = total_ms / std::max(1, p_count);
+    d["ms_per_tick"] = total_ms / n;
     d["max_tick_ms"] = max_ms;
-    d["active_chunks_per_tick"] = (double)active_total / std::max(1, p_count);
-    d["active_cells_per_tick"] = (double)active_total * (CS * CS * CS) / std::max(1, p_count);
-    d["moved_cells_per_tick"] = (double)moved_total / std::max(1, p_count);
-    d["reactions_per_tick"] = (double)react_total / std::max(1, p_count);
-    d["active_cells_per_ms"] = total_ms > 0 ? (double)active_total * (CS * CS * CS) / total_ms : 0.0;
-    d["moved_cells_total"] = (int64_t)moved_total;
+    d["active_chunks_per_tick"] = (double)active / n;
+    d["active_cells_per_tick"] = (double)active * cs3 / n;
+    d["scanned_cells_per_tick"] = (double)scanned / n;
+    d["deferred_chunks_per_tick"] = (double)deferred / n;
+    d["moved_cells_per_tick"] = (double)moved / n;
+    d["reactions_per_tick"] = (double)react / n;
+    d["active_cells_per_ms"] = total_ms > 0 ? (double)active * cs3 / total_ms : 0.0;
+    d["moved_cells_total"] = (int64_t)moved;
     return d;
+}
+
+Dictionary SimWorld::tick(int p_count) {
+    wait_idle();
+    double total = 0, mx = 0;
+    uint64_t active = 0, moved = 0, react = 0, scanned = 0, deferred = 0;
+    for (int n = 0; n < p_count; n++) {
+        TickOut o;
+        tick_once(o);
+        total += o.ms;
+        mx = std::max(mx, o.ms);
+        active += o.active; moved += o.moved; react += o.react; scanned += o.scanned; deferred += o.deferred;
+    }
+    return tick_dict(p_count, threads_, total, mx, active, moved, react, scanned, deferred, CS * CS * CS);
+}
+
+// ---------- v6: level of detail, budget, background tick ----------
+
+void SimWorld::set_focus(Vector3i p_cell) { focus_chunk_ = Vector3i(p_cell.x / CS, p_cell.y / CS, p_cell.z / CS); }
+void SimWorld::set_lod(int p_radius_chunks, int p_divisor) { lod_radius_ = p_radius_chunks; lod_divisor_ = std::max(1, p_divisor); }
+void SimWorld::set_cell_budget(int p_cells) { cell_budget_ = std::max(0, p_cells); }
+
+bool SimWorld::start_tick() {
+    if (busy_.load()) return false;
+    std::unique_lock<std::mutex> lk(dm_);
+    if (!driver_.joinable()) {
+        drv_stop_ = false;
+        driver_ = std::thread([this]() {
+            for (;;) {
+                {
+                    std::unique_lock<std::mutex> l(dm_);
+                    dcv_.wait(l, [&] { return drv_stop_ || drv_req_; });
+                    if (drv_stop_) return;
+                }
+                TickOut o;
+                tick_once(o);
+                {
+                    std::lock_guard<std::mutex> l(dm_);
+                    last_ = o;
+                    drv_req_ = false;
+                    busy_.store(false);
+                }
+                dcv_.notify_all();
+            }
+        });
+    }
+    busy_.store(true);
+    drv_req_ = true;
+    lk.unlock();
+    dcv_.notify_all();
+    return true;
+}
+
+bool SimWorld::is_tick_done() const { return !busy_.load(); }
+
+void SimWorld::wait_idle() const {
+    if (!busy_.load()) return;
+    std::unique_lock<std::mutex> lk(dm_);
+    dcv_.wait(lk, [&] { return !busy_.load(); });
+}
+
+Dictionary SimWorld::finish_tick() {
+    wait_idle();
+    TickOut o;
+    {
+        std::lock_guard<std::mutex> lk(dm_);
+        o = last_;
+    }
+    return tick_dict(1, threads_, o.ms, o.ms, o.active, o.moved, o.react, o.scanned, o.deferred, CS * CS * CS);
+}
+
+void SimWorld::stop_driver() {
+    wait_idle();
+    {
+        std::lock_guard<std::mutex> lk(dm_);
+        drv_stop_ = true;
+    }
+    dcv_.notify_all();
+    if (driver_.joinable()) driver_.join();
+    drv_stop_ = false;
 }
 
 // ---------- render feed ----------
 
 PackedByteArray SimWorld::get_chunk_bytes(Vector3i c, int p_depth_bytes) const {
+    wait_idle();
     PackedByteArray out;
     const int n = CS * CS * CS;
     const int bpv = p_depth_bytes == 2 ? 2 : 1;
@@ -700,6 +903,7 @@ PackedByteArray SimWorld::get_chunk_bytes(Vector3i c, int p_depth_bytes) const {
 }
 
 void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p_depth_bytes) {
+    wait_idle();
     if (c.x < 0 || c.y < 0 || c.z < 0 || c.x >= CX_ || c.y >= CY_ || c.z >= CZ_) return;
     const int n = CS * CS * CS;
     const int bpv = p_depth_bytes == 2 ? 2 : 1;
@@ -728,6 +932,7 @@ void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p
 // takes a fresh stamp before reading it. Measured: 2.0-2.4 ms with the old copy into
 // freshly allocated arrays (8.4 MB per shift) for a 7^3-chunk window.
 Array SimWorld::shift(Vector3i d) {
+    wait_idle();
     Array vacated;
     if (d == Vector3i()) return vacated;
     const int dx = d.x * CS, dy = d.y * CS, dz = d.z * CS;
@@ -782,6 +987,7 @@ Array SimWorld::shift(Vector3i d) {
 }
 
 Array SimWorld::get_dirty_chunks() const {
+    wait_idle();
     Array a;
     for (int cz = 0; cz < CZ_; cz++)
         for (int cy = 0; cy < CY_; cy++)
@@ -791,6 +997,7 @@ Array SimWorld::get_dirty_chunks() const {
 }
 
 void SimWorld::clear_dirty() {
+    wait_idle();
     size_t nc = (size_t)CX_ * CY_ * CZ_;
     for (size_t i = 0; i < nc; i++) dirty_[i].store(0, std::memory_order_relaxed);
 }
@@ -798,12 +1005,14 @@ void SimWorld::clear_dirty() {
 // ---------- debug ----------
 
 int SimWorld::count_material(int p_material) const {
+    wait_idle();
     int n = 0;
     for (const Cell &c : cells_) n += c.mat == (uint8_t)p_material;
     return n;
 }
 
 int SimWorld::count_in_box(Vector3i p_min, Vector3i p_max, int p_material) const {
+    wait_idle();
     int n = 0;
     for (int z = std::max(0, p_min.z); z < std::min(D_, p_max.z); z++)
         for (int y = std::max(0, p_min.y); y < std::min(H_, p_max.y); y++)
@@ -822,6 +1031,7 @@ int SimWorld::count_unsupported(int p_material) const {
 }
 
 int SimWorld::count_burning() const {
+    wait_idle();
     int n = 0;
     for (const Cell &c : cells_) n += (c.flags & FLAG_BURNING) != 0;
     return n;
@@ -849,6 +1059,7 @@ PackedInt32Array SimWorld::material_histogram() const {
 }
 
 Dictionary SimWorld::chunk_info(Vector3i c) const {
+    wait_idle();
     Dictionary d;
     if (c.x < 0 || c.y < 0 || c.z < 0 || c.x >= CX_ || c.y >= CY_ || c.z >= CZ_) return d;
     int ci = cidx(c.x, c.y, c.z);

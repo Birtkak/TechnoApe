@@ -19,3 +19,9 @@ tick after v5 (25-36 ms before) and must run off the main thread under a
 per-tick budget. Micro cells move in slow motion at one cell per tick; v5's
 fall velocity brings a 6 m drop from 3.5 s to 1.5 s (real 1.1 s); liquids
 still spread slowly and need fullness levels.
+
+**v6 (2026-10-22):** background tick (the game's bubble uses it), distance
+level of detail, per-tick cell budget, and static ground that loosens next to
+changes (ADR 0013). Worst case with a 1.5 M-cell budget: 7.0 / 7.9 ms per tick;
+in game the worst frame of the forest fire fell from 16.7 to 7.7 ms.
+`budget=1500000 lod=8` on the bench command line.

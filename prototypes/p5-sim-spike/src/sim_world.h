@@ -32,7 +32,11 @@ class SimWorld : public RefCounted {
 
 public:
     enum CellType : uint8_t { CELL_SOLID = 0, CELL_LIQUID = 1, CELL_GAS = 2, CELL_FIRE = 3 };
-    enum Flags : uint8_t { FLAG_BURNING = 1 };
+    // FLAG_LOOSE: a static-ground cell (liquid_static) that a nearby change has shaken loose; it now
+    // moves like its loose kind (Noita's static -> dynamic) until something places it again.
+    // FLAG_SHAKEN: static ground that saw a fresh opening; it keeps rolling its loosen chance while the
+    // opening stays open (crumbles over time instead of only on the tick of the change).
+    enum Flags : uint8_t { FLAG_BURNING = 1, FLAG_LOOSE = 2, FLAG_SHAKEN = 4 };
     static constexpr int CS = 16;
     static constexpr int MAX_MATERIALS = 256;
     static constexpr int MAX_DISP = 7; // must stay < CS/2 for the parity scheme
@@ -56,6 +60,8 @@ public:
         uint8_t generates_smoke = 0;   // 0..255 chance per burning tick
         uint8_t extinguish_mask = 0;   // unused for now
         uint16_t ignite_chance = 8192; // 0..65535 per attempt by a burning neighbour (see set_materials)
+        uint16_t loosen = 0;   // static ground: chance per tick (0..65535) to turn loose when the cell below just opened
+        uint16_t erode = 0;    // static powder: chance per tick to slide off an edge that just opened beside and below it
     };
 
     struct Reaction {
@@ -83,6 +89,17 @@ public:
     void set_gravity(float p_cells_per_tick2);
     // v5: scan only each active chunk's dirty box (default on); off = whole chunks (P5 behaviour) for comparison.
     void set_dirty_boxes(bool p_on);
+    // v6 (P10): level of detail and budget. Chunks further than lod_radius chunks from the focus tick
+    // only every lod_divisor-th tick; when cell_budget > 0 a tick scans at most that many cells
+    // (nearest chunks first, waiting chunks gain priority each tick). Deferred chunks keep their
+    // activity and dirty box for the next tick, so nothing is lost, only delayed.
+    void set_focus(Vector3i p_cell);
+    void set_lod(int p_radius_chunks, int p_divisor);
+    void set_cell_budget(int p_cells);
+    // v6: one tick on a background thread. Every other call that reads or writes cells waits for it.
+    bool start_tick();          // false if a tick is still running
+    bool is_tick_done() const;
+    Dictionary finish_tick();   // waits, returns that tick's stats
 
     // ---- simulation ----
     Dictionary tick(int p_count);
@@ -145,6 +162,20 @@ private:
         return r;
     }
     void merge_box(int ci, uint32_t b);
+    struct TickOut { double ms = 0; uint64_t active = 0, moved = 0, react = 0, scanned = 0, deferred = 0; };
+    void tick_once(TickOut &o);
+    void defer_chunk(int ci);
+    static inline int box_volume(uint32_t b) {
+        if (!(b & BOX_VALID)) b = BOX_FULL;
+        int v = 1;
+        for (int k = 0; k < 3; k++) {
+            int lo = std::max(0, (int)((b >> (4 * k)) & 15u) - 1), hi = std::min(CS - 1, (int)((b >> (12 + 4 * k)) & 15u) + 1);
+            v *= hi - lo + 1;
+        }
+        return v;
+    }
+    void wait_idle() const;
+    void stop_driver();
     void wake_full(int ci);
 
     Vector3i chunks_;
@@ -174,6 +205,19 @@ private:
     std::unique_ptr<std::atomic<uint32_t>[]> box_now_;  // v5 dirty boxes (packed, see box_point)
     std::unique_ptr<std::atomic<uint32_t>[]> box_next_;
     uint16_t gravity16_ = 0;   // v5 fall acceleration in 1/16 cell per tick^2
+    Vector3i focus_chunk_;     // v6 level of detail
+    int lod_radius_ = -1;      // chunks; -1 = off
+    int lod_divisor_ = 1;
+    int cell_budget_ = 0;      // 0 = unlimited
+    std::vector<uint8_t> defer_age_;
+    std::vector<std::pair<int64_t, int>> sched_;
+    // v6 background tick
+    std::thread driver_;
+    mutable std::mutex dm_;
+    mutable std::condition_variable dcv_;
+    bool drv_stop_ = false, drv_req_ = false;
+    std::atomic<bool> busy_{false};
+    TickOut last_;
     bool dirty_boxes_ = true;
     std::vector<int> pass_lists_[8];
     std::atomic<uint64_t> moved_count_{0};
@@ -200,6 +244,7 @@ private:
     inline bool can_displace(uint8_t mover, uint8_t target) const;
     inline bool try_move(int sx, int sy, int sz, int tx, int ty, int tz, Ctx &c);
     bool fall(int x, int y, int z, int i, Ctx &c);
+    void try_loosen(int x, int y, int z, int i, Ctx &c);
     void update_powder(int x, int y, int z, int i, Ctx &c);
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_gas(int x, int y, int z, int i, Ctx &c);

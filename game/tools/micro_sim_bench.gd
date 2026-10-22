@@ -17,6 +17,8 @@ var threads := maxi(2, OS.get_processor_count() - 2)
 var only := ""
 var boxes := true        # v5 dirty boxes (false = P5 whole-chunk scan)
 var gravity := false     # v5 fall velocity at 9.8 m/s^2 (false = one cell per tick, P5)
+var budget := 0          # v6 cells scanned per tick (0 = unlimited)
+var lod := -1            # v6 full-rate radius in metres around the world centre (-1 = off), far chunks every 3rd tick
 const WORLD_M := Vector3(32.0, 16.0, 32.0)
 const FLOOR_M := 1.0
 
@@ -34,6 +36,8 @@ func _init() -> void:
 			"only": only = kv[1]
 			"boxes": boxes = kv[1] == "1"
 			"gravity": gravity = kv[1] == "1"
+			"budget": budget = int(kv[1])
+			"lod": lod = int(kv[1])
 	var scenes := {"fall": _fall, "avalanche": _avalanche, "flood": _flood, "tnt_static": _tnt_static,
 		"tnt_loose": _tnt_loose, "black_hole": _black_hole, "fire": _fire}
 	for name in scenes:
@@ -65,6 +69,11 @@ func _world() -> SimWorld:
 	w.set_dirty_boxes(boxes)
 	if gravity:
 		w.set_gravity(9.8 / (cell * hz * hz))
+	w.set_focus(Vector3i(m(WORLD_M.x / 2.0), m(FLOOR_M + 6.0), m(WORLD_M.z / 2.0)))
+	if budget > 0:
+		w.set_cell_budget(budget)
+	if lod >= 0:
+		w.set_lod(int(ceil(m(float(lod)) / 16.0)), 3)
 	box(w, Vector3(0, 0, 0), Vector3(WORLD_M.x, FLOOR_M, WORLD_M.z), GameMaterials.STONE)
 	return w
 
@@ -170,6 +179,8 @@ func _run(name: String, build: Callable) -> Dictionary:
 	var moved_max := 0
 	var moved_total := 0
 	var dirty := PackedInt32Array()
+	var scanned_max := 0
+	var deferred_max := 0
 	var settled_s := -1.0
 	var quiet := 0
 	var probes := []
@@ -182,6 +193,8 @@ func _run(name: String, build: Callable) -> Dictionary:
 		active_max = maxi(active_max, int(r["active_chunks_per_tick"]))
 		moved_max = maxi(moved_max, int(r["moved_cells_per_tick"]))
 		moved_total += int(r["moved_cells_per_tick"])
+		scanned_max = maxi(scanned_max, int(r.get("scanned_cells_per_tick", 0)))
+		deferred_max = maxi(deferred_max, int(r.get("deferred_chunks_per_tick", 0)))
 		var dc: int = w.get_dirty_chunks().size()
 		w.clear_dirty()
 		dirty.append(dc)
@@ -207,11 +220,11 @@ func _run(name: String, build: Callable) -> Dictionary:
 	var sum := 0.0
 	for v in tick_ms:
 		sum += v
-	var out := {"scene": name, "cell_m": cell, "hz": hz, "threads": threads, "boxes": boxes, "gravity": gravity,
+	var out := {"scene": name, "cell_m": cell, "hz": hz, "threads": threads, "boxes": boxes, "gravity": gravity, "budget": budget, "lod_m": lod,
 		"cells_m": snappedf(size_chunks().x * size_chunks().y * size_chunks().z * 4096 / 1.0e6, 0.1), "build_ms": snappedf(build_ms, 0.1),
 		"ticks": n, "settled_s": snappedf(settled_s, 0.1),
 		"tick_ms": {"p50": snappedf(sorted[n / 2], 0.01), "p95": snappedf(sorted[int(n * 0.95)], 0.01), "max": snappedf(sorted[n - 1], 0.01), "sum_s": snappedf(sum / 1000.0, 0.01)},
-		"active_chunks_max": active_max, "moved_cells_max": moved_max, "moved_per_ms": int(moved_total / maxf(sum, 0.001)),
+		"active_chunks_max": active_max, "scanned_cells_max": scanned_max, "deferred_chunks_max": deferred_max, "moved_cells_max": moved_max, "moved_per_ms": int(moved_total / maxf(sum, 0.001)),
 		"dirty_chunks": {"p50": dsorted[n / 2], "p95": dsorted[int(n * 0.95)], "max": dsorted[n - 1]},
 		"upload_mb_per_s_p95": snappedf(dsorted[int(n * 0.95)] * 4096.0 * hz / 1048576.0, 0.1)}
 	if name == "fall":

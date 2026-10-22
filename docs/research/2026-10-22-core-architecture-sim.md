@@ -137,10 +137,42 @@ Conditions, in order of value:
 chisel resolution the brick world exists for; it stays the fallback named in
 ADR 0012, not the recommendation.
 
-## 5. Next spikes
+## 5. Kernel v6 (built after the first answer)
 
-- v6: tick off the main thread + distance tick-rate LOD + scanned-cell cap,
-  measured with the same bench and in game.
+- **Background tick:** `start_tick()` / `finish_tick()`; every other call that
+  touches cells waits for a running tick. The game's sim bubble now starts a
+  tick, lets it overlap the frame, and pastes/loads chunks only while the
+  simulation is idle. In game (0.5 m, forest fire with 574 voxels lit): p99
+  3.3 ms, worst frame 7.7 ms (16.7 ms before), worst main-thread bubble cost
+  0.39 ms; flight at 20 m/s p99 2.1 ms. A background tick produces exactly the
+  same cells as an inline tick (test).
+- **Level of detail and budget:** chunks beyond a radius from the focus tick
+  every n-th tick; a per-tick cell budget keeps the nearest and longest
+  waiting chunks and defers the rest with their activity and dirty box, so
+  work is delayed, never lost (test).
+- **Static ground loosens next to changes (ADR 0013):** Noita-style collapse
+  of undermined ground, broken shores and slumping sand walls, triggered only
+  by fresh changes so a loaded world never collapses by itself.
+
+| event (6.25 cm, v6, gravity on) | tick p50 / max |
+|---|---|
+| 8 m crater in static ground, collapsing | 2.8 / 3.4 ms |
+| black hole through a static hill, collapsing | 3.6 / 5.8 ms |
+| water release | 6.7 / 7.9 ms |
+| loose-hill TNT, no budget | 14.1 / 18.8 ms |
+| loose-hill TNT, 1.5 M-cell budget + LOD | **7.0 / 7.9 ms** |
+| water release, same budget | 5.6 / 7.8 ms |
+
+With the background tick and the budget, the worst case measured costs at
+most a quarter of the 33 ms tick period on 10 threads and nothing on the main
+thread except the start call and the dirty-chunk paste (budgeted, ADR 0010).
+Conditions 1, 2 and 3 of section 4 are met.
+
+## 6. Next spikes
+
 - Liquid fullness in the 4 variant bits (16-bit cells, id + variant), the
-  flood scene as the benchmark.
-- The island check and ray-cast explosions from §1 on bricks.
+  flood scene as the benchmark: the remaining slow-motion case.
+- Upload by dirty box (or 8³ brick) instead of whole 16³ chunks.
+- The island check and ray-cast explosions of section 1, on bricks.
+- A brick-sparse kernel if the dense window's 6 bytes per cell outgrow the
+  RAM budget.

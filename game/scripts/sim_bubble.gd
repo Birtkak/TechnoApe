@@ -25,6 +25,7 @@ var bad_loads := 0
 var active_chunks := 0
 var push_ms := 0.0
 var shifts := 0
+var _tick_running := false
 var _push_queue := {}          # world chunk -> true, insertion order = oldest first (ADR 0010)
 var push_queue_max := 0
 var _last_push := {}           # world chunk -> msec of its last paste (Settings.sim_push_interval_ms)
@@ -92,26 +93,31 @@ func _process(delta: float) -> void:
 		return
 	if delta * 1000.0 > SLOW_MS and Engine.get_process_frames() > 120:
 		_note_slow_frame(delta)
-	_load_pending()
+	# v6 (ADR 0012 sim chapter): the tick runs on a background thread. The main thread
+	# collects a finished tick, pastes and loads chunks while the simulation is idle,
+	# and starts the next tick when one is due; the tick overlaps the rest of the frame.
 	_tick_accum += delta
-	var period := 1.0 / Settings.sim_tick_hz
-	var ticks := 0
-	while _tick_accum >= period and ticks < 3:   # catch up at most 3 ticks per frame
-		_tick_accum -= period
-		var t0 := Time.get_ticks_usec()
-		var r: Dictionary = sim.tick(1)
-		_frame_cost()["tick_ms"] += (Time.get_ticks_usec() - t0) / 1000.0
+	if _tick_running and sim.is_tick_done():
+		var r: Dictionary = sim.finish_tick()
 		last_tick_ms = r["ms_per_tick"]
-		active_chunks = sim.get_active_chunk_count()
+		active_chunks = int(r["active_chunks_per_tick"])
 		ticks_total += 1
-		ticks += 1
-	if ticks > 0:
+		_tick_running = false
 		_collect_dirty()
+	if _tick_running:
+		return
+	_load_pending()
 	if not _push_queue.is_empty():
 		var t1 := Time.get_ticks_usec()
 		_drain_push(Settings.sim_push_budget_ms)
 		push_ms = (Time.get_ticks_usec() - t1) / 1000.0
 		_frame_cost()["push_ms"] += push_ms
+	var period := 1.0 / Settings.sim_tick_hz
+	if _tick_accum >= period:
+		_tick_accum = minf(_tick_accum - period, period * 2.0)   # never build up more than two ticks of debt
+		var t0 := Time.get_ticks_usec()
+		_tick_running = sim.start_tick()
+		_frame_cost()["tick_ms"] += (Time.get_ticks_usec() - t0) / 1000.0   # main-thread cost of starting it
 	if _fire_test > 0:
 		_run_fire_test()
 
