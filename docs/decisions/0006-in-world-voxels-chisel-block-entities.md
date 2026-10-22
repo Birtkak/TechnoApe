@@ -1,6 +1,6 @@
 # 0006 – In-world voxels: chiseling every voxel, block entities, decor
 
-- **Status:** proposed (Brent asked for it 2026-10-22: "make sure in the future we
+- **Status:** proposed (requested 2026-10-22: "make sure in the future we
   can chisel every voxel so builds will be unlimited possibilities", "get
   inspiration from Vintage Story", "freedom and functionality for chests and
   furnaces etc."). ADR 0007 (station blocks, same day) is the first
@@ -12,7 +12,7 @@
 ## Context
 A voxel today is one 16-bit id in godot_voxel's `VoxelBuffer`, drawn by the
 blocky mesher from a fixed library of models (cubes, and since 2026-10-22
-micro-voxel patterns for vegetation). Brent wants three things from in-world
+micro-voxel patterns for vegetation). The developer wants three things from in-world
 voxels that this alone cannot give:
 
 1. **Every voxel chiselable** into sub-voxel shapes, Vintage Story style, so

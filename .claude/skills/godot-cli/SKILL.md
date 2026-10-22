@@ -8,7 +8,7 @@ description: How to run Godot 4.7.2 headless for tests, benchmarks, C# builds an
 Binary (console build prints to stdout; use it for everything scripted):
 
 ```
-G="/c/Users/dev/Tools/Godot/4.7.2-mono/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
+G="$HOME/Tools/Godot/4.7.2-mono/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
 ```
 
 Always run from the project directory (`--path .`). First run of a project,

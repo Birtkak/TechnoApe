@@ -1,6 +1,6 @@
 # 0005 – Player, inventory, hotbar/HUD and first-person interaction
 
-- **Status:** accepted (routine defaults recorded for Brent to overrule)
+- **Status:** accepted (routine defaults recorded, open to overrule)
 - **Date:** 2026-10-22
 
 ## Context

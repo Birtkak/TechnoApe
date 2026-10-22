@@ -1,10 +1,10 @@
 # 0004 – World scale (0.5 m voxels) and first look (16×16 textures)
 
-- **Status:** accepted (Brent, 2026-10-21 night)
+- **Status:** accepted (2026-10-21)
 - **Date:** 2026-10-21
 
 ## Context
-Brent chose **0.5 m voxels** over the Minecraft 1 m baseline, for a finer,
+The developer chose **0.5 m voxels** over the Minecraft 1 m baseline, for a finer,
 more Noita-like feel of the material simulation, and **Minecraft-style
 16×16 textures** from the first visible build.
 

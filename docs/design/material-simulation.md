@@ -1,7 +1,7 @@
 # Material simulation – the Falling Everything model on voxels
 
 - **Date:** 2026-10-21
-- **Status:** design, decided by Brent: "use the Falling Everything engine
+- **Status:** design, decided: "use the Falling Everything engine
   logic for how our voxels behave and what states they are in, and Noita's
   way of assigning information to a pixel, but for voxels".
 - **References:** Noita `materials.xml` attribute reference
@@ -148,7 +148,7 @@ Changed chunks are pushed as `material` arrays into godot_voxel (blocky
 mesher, model index = material id). Colour variants and burning state map
 to model variants or a per-voxel colour channel later.
 
-### 2.6 Ticks and distances (Brent's questions, 2026-10-21)
+### 2.6 Ticks and distances (open questions, 2026-10-21)
 - **Fixed tick rate like Minecraft.** The material simulation runs at a fixed
   rate (`sim_tick_hz`, 60 in the P5 test, likely 20–30 shipped) on its own
   threads, independent of frame rate. Game logic (machines, crops, mobs) runs

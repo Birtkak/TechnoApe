@@ -6,14 +6,14 @@
 - **Date:** 2026-10-21
 
 ## Context
-Brent wants an Android APK client alongside Windows, a dedicated server on
+The project wanted an Android APK client alongside Windows, a dedicated server on
 the household Unraid box reachable over Tailscale for co-op, and updates
 pushed to clients automatically. Details: `docs/design/platforms-and-deployment.md`.
 
 ## Options considered
 1. **Windows-only client, LAN co-op** – simplest; rejected, Android is wanted.
 2. **Clients + dedicated Linux server in Docker on Unraid over Tailscale** –
-   fits the hardware Brent has, no public exposure, no NAT traversal.
+   fits the hardware at hand, no public exposure, no NAT traversal.
 3. **Peer-hosted co-op (one player hosts)** – no server box needed, but the
    host must stay online and Android as host is impractical. Rejected as the
    primary model; could be a fallback mode later.

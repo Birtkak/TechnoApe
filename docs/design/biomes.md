@@ -77,7 +77,7 @@ surface → **magma_cave**; deep + cave noise < −0.35 → **deep_dark**; deep 
 cave noise > 0.45 → **crystal_cave** (the spell-material gate: gem ores and
 mana crystals live only there).
 
-So Brent's example works as asked: a mountain, humid forest at its foot, and
+So the requested example works: a mountain, humid forest at its foot, and
 straight down from the foot: forest (soil) → lush_cave (shallow and mid) →
 deep_cave, or deep_dark / crystal_cave where the cave noise says so. Under a
 desert the same column gives dripstone_cave → deep_cave / magma_cave.
@@ -162,9 +162,9 @@ the coast and the sea the real one. Original steps, kept for reference:
    `test_generated_header_is_up_to_date` fails whenever the JSON and the
    header drift.
 
-## Open (taste calls for Brent)
+## Open (taste calls)
 
-- ~~Latitude scale~~: **16 km to fully frozen/hot, decided by Brent 2026-10-22**
+- ~~Latitude scale~~: **16 km to fully frozen/hot, decided 2026-10-22**
   (each climate zone should feel like a country, not a short walk).
 - Whether spawn should be forced temperate (today the latitude term is 0 at
   z = 0, the noise still allows cold or warm pockets there).

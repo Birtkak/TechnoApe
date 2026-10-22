@@ -22,7 +22,7 @@ performance for streamed open worlds, long-term stability. See
 5. **Unreal / custom engine** – rejected: AI cannot edit Blueprints; custom
    engine is years of plumbing.
 
-## Decision (2026-10-21, Brent)
+## Decision (2026-10-21)
 - **Engine:** Godot 4.7, prototyped alone (no Unity side-by-side). Becomes
   *accepted* once P1 (headless loop) and P2 (voxel chunk streaming benchmark)
   pass. Unity (P4) only if P2 fails.

@@ -3,7 +3,7 @@
 #   python -m SCons platform=windows target=template_debug   (or template_release)
 import os
 
-env = SConscript(os.environ.get("GODOT_CPP_PATH", "C:/Users/dev/Tools/godot-cpp") + "/SConstruct")
+env = SConscript(os.environ.get("GODOT_CPP_PATH", os.path.expanduser("~/Tools/godot-cpp")) + "/SConstruct")
 
 env.Append(CPPPATH=["src/"])
 if env["platform"] == "windows" and not env.get("use_mingw"):

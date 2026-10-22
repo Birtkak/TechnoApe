@@ -1,11 +1,11 @@
-# 0009 – Drop Android; Brent's PC is the reference machine
+# 0009 – Drop Android; the dev PC is the reference machine
 
 - **Status:** accepted
 - **Date:** 2026-10-22
 - **Amends:** ADR 0002 (targets, updates), 0003 and 0004 (Android budgets)
 
 ## Context
-Brent, 2026-10-22: "Let's remove the android version from this since it will
+Request, 2026-10-22: "Let's remove the android version from this since it will
 limit us. Drop android completely, but instead I want performance to still be
 good on older computers, meaning it should run perfect on mine."
 
@@ -13,7 +13,7 @@ Android shaped several earlier calls: small simulation and render budgets
 for phones, an APK update path, touch input, an Android export smoke test,
 and keeping C# out of the shipped game because its Android export is
 experimental. The dev box is a 2020-era mid-range gaming PC, so "older
-computers" and "Brent's PC" describe the same bar.
+computers" and "the dev PC" describe the same bar.
 
 ## Decision
 - **Targets:** Windows x86_64 client; Linux x86_64 dedicated server (Docker

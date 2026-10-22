@@ -161,7 +161,7 @@ Sources: [GDC: Astroneer crafting overhaul](https://gdconf.com/news/go-behind-sc
 | P3 | Pure-logic crafting core (tags, recipe graph, tests), no scenes | Is the data model right? Does it test well? | half to 1 day |
 | P4 (optional) | Same streaming spike in Unity for comparison | Only if P2 disappoints | 1 day |
 
-## 6. Open decisions for Brent (taste/direction – see ADR 0001 draft)
+## 6. Open decisions (taste/direction – see ADR 0001 draft)
 1. Perspective and dimension: 3D first-person / 3D third-person / 2D top-down.
 2. World representation: heightmap / blocky voxel / smooth voxel / tilemap.
 3. Multiplayer: never / maybe later / core. (Changes architecture from day 1.)

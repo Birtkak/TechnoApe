@@ -17,8 +17,8 @@ flushed once (v2; v1 wrote shared atomics per cell and scaled badly).
 Machine: Ryzen 5 5600X (6c/12t), RAM at 2666 MHz.
 
 Build: `python -m SCons platform=windows use_mingw=yes target=template_debug -j12`
-with `C:\Users\dev\Tools\mingw-dl\mingw64\bin` on PATH and godot-cpp at
-`C:\Users\dev\Tools\godot-cpp`.
+with `~\Tools\mingw-dl\mingw64\bin` on PATH and godot-cpp at
+`~\Tools\godot-cpp`.
 
 ## A. Simulation throughput (headless, `bench_sim.gd`)
 
@@ -94,7 +94,7 @@ seconds and the last result to land is often stale.
 Decision: push through `VoxelTool.paste`. Keep the hash desync check and
 the unsupported-material query as permanent debug tools.
 
-## D. v4: the Falling Everything model, data-driven (Brent's direction)
+## D. v4: the Falling Everything model, data-driven (chosen direction)
 
 The kernel was rewritten around Noita's model (`docs/design/material-simulation.md`):
 materials are rows in a table with Noita's attribute names (`cell_type`,

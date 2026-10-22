@@ -1,7 +1,7 @@
 # Seeing far while simulating near
 
 - **Date:** 2026-10-21
-- **Question (Brent):** how do we let the player see epic distances while a
+- **Question:** how do we let the player see epic distances while a
   Noita-style material simulation runs, without simulating everything, or
   optimise the simulation so well that we can?
 

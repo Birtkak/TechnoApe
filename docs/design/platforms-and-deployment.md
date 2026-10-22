@@ -1,15 +1,15 @@
 # Platforms, hosting and updates
 
-- **Date:** 2026-10-21 (requirements from Brent)
+- **Date:** 2026-10-21
 - **Status:** requirements captured; implementation is Phase 4+. Everything
   built before then must not block this.
 
 > **2026-10-22: Android dropped (ADR 0009).** Windows client + Linux server
 > only; the dev PC is the reference machine. Android notes below are history.
 
-## Requirements (Brent, 2026-10-21; Android removed 2026-10-22)
+## Requirements (2026-10-21; Android removed 2026-10-22)
 1. ~~Android client (APK)~~ dropped (ADR 0009).
-2. **Dedicated server on the Unraid box**, reached over **Tailscale**, so Brent
+2. **Dedicated server on the Unraid box**, reached over **Tailscale**, so the developer
    and friends play together on a private network.
 3. **Auto-updates pushed from the server to the clients**, so nobody installs
    builds by hand after the first one.
