@@ -115,11 +115,16 @@ and the see-through water, the spill is unchanged. Load time 2.8 → 4 s
   (spill p99 10.3, flight 80 ms frames: three times the instances) and hit
   Godot's instance-uniform buffer. The budget has to cap how many mesh
   updates the terrain applies per frame.
-- A 2 km horizon (`view_distance_m=2048 lod_count=8`) never settles: the
-  workers stay 100 % busy with a backlog of 1,200 blocks for the whole run.
-  Why the top LODs cost that much is not yet measured (the generator itself
-  is 0.2 ms per block at lod 1–4, 3.5 ms at lod 5 from the 2 km hydrology
-  tiles).
+- The 2 km horizon is now the default (`view_distance_m` 2048, 7 LODs):
+  first load 3.9 s standing (1 km: 4.05 s), flight at 20 m/s p99 3.4 ms,
+  VRAM 620 MB, 560 draw calls. With 48 m rings LOD6 reaches 3 km, so seven
+  levels cover it. An eighth level (`lod_count=8`) makes the first load
+  22.6 s and a 20 m/s flight never settle: lod-7 data blocks span 2 km each
+  and touch more 2 km hydrology tiles than the generator's cache keeps (64,
+  cleared wholesale when full, each tile rebuilt under the global mutex), so
+  the workers serialize on tile rebuilds. Raising the cache or building
+  tiles outside the lock is the fix if an 8th level is ever wanted; a tile
+  is ~2.8 MB.
 
 ## Consequences
 - Far forests are leaf-coloured ground, not trees: a far hill reads as

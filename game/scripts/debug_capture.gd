@@ -46,6 +46,7 @@ var _idle_frames := 0
 var _last_frame_us := 0
 const SETTLE_FRAMES := 30               # voxel tasks idle this many frames in a row = loaded
 const SETTLE_CAP_S := 10.0
+var settle_cap_s := SETTLE_CAP_S   # load_cap_s= raises it to time a slow first load (2 km horizons)
 var _skip_next := false                 # the frame after a filmstrip readback carries its GPU stall
 var _capture_stalls := PackedFloat64Array()
 var _spikes: Array = []                 # frames over SPIKE_MS after load, with render CPU/GPU times to attribute them
@@ -67,6 +68,7 @@ var _others_accum := 0.0
 const OTHERS_EVERY_S := 10.0
 var _backlog := PackedInt32Array()   # pending voxel tasks (generation + meshing + streaming), sampled every 0.25 s after load
 var _backlog_accum := 0.0
+var _backlog_peak := {}              # per task type (generation, meshing, streaming, main_thread, gpu)
 var _compile_delta := 0.0
 var _elapsed := 0.0
 var _capture_accum := 0.0
@@ -81,6 +83,7 @@ func _ready() -> void:
 		if not args.has("persist"):   # persist=1 seed=<unused seed>: measure the save-file (SQLite stream) load path
 			Settings.persist_world = false  # unattended test runs never write world saves
 	duration = float(args.get("duration", "20"))
+	settle_cap_s = float(args.get("load_cap_s", str(SETTLE_CAP_S)))
 	capture_every = float(args.get("capture_every", "0"))
 	out_dir = args.get("out", "res://out")
 	altitude_m = float(args.get("alt", "30"))
@@ -179,7 +182,7 @@ func _process(delta: float) -> void:
 		_capture_stalls.push_back(ms)
 	elif _loaded_at < 0.0:
 		_load_max_ms = maxf(_load_max_ms, ms)
-		if _world_settled() or _elapsed >= SETTLE_CAP_S:
+		if _world_settled() or _elapsed >= settle_cap_s:
 			_loaded_at = _elapsed
 	else:
 		_frame_ms.push_back(ms)
@@ -197,6 +200,8 @@ func _process(delta: float) -> void:
 		_backlog_accum = 0.0
 		var t: Dictionary = VoxelEngine.get_stats().get("tasks", {})
 		_backlog.push_back(int(t.get("generation", 0)) + int(t.get("meshing", 0)) + int(t.get("streaming", 0)) + int(t.get("main_thread", 0)))
+		for k in t:   # per-type peak, to tell a generator backlog from a meshing one
+			_backlog_peak[k] = maxi(int(_backlog_peak.get(k, 0)), int(t[k]))
 	_others_accum += delta
 	if _others_accum >= OTHERS_EVERY_S and (_others_task < 0 or WorkerThreadPool.is_task_completed(_others_task)):
 		if _others_task >= 0:
@@ -260,7 +265,7 @@ func _finish() -> void:
 	s["spikes"] = _spikes
 	# terrain streaming backlog while moving: how far godot_voxel's workers fall behind
 	var bl := Array(_backlog)
-	s["voxel_backlog"] = {"samples": bl.size(), "max": bl.max() if bl.size() else 0,
+	s["voxel_backlog"] = {"samples": bl.size(), "peak_by_type": _backlog_peak, "last": VoxelEngine.get_stats().get("tasks", {}), "max": bl.max() if bl.size() else 0,
 		"mean": snappedf(float(bl.reduce(func(a, b): return a + b, 0)) / maxi(bl.size(), 1), 0.1),
 		"busy_share": snappedf(float(bl.filter(func(v): return v > 0).size()) / maxi(bl.size(), 1), 0.01),
 		"max_busy_s": _longest_run(bl) * 0.25,

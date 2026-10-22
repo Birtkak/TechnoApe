@@ -11,7 +11,7 @@ const SEA_LEVEL_VOXEL := 256
 # Distances (metres)
 var simulation_distance_m := 24.0       # radius of the simulation bubble around the player
 var render_distance_m := 64.0           # full-detail (LOD 0) radius; godot_voxel clamps lod_distance to 128 voxels = 64 m (ADR 0017), larger values are silently cut
-var view_distance_m := 1024.0           # LOD horizon
+var view_distance_m := 2048.0           # LOD horizon (vision: 2 km). ADR 0020: free at 7 LODs (LOD6 reaches 3 km with 48 m rings); an 8th LOD makes the first load 22 s (lod-7 blocks span more hydrology tiles than the generator's cache holds)
 var lod_count := 7
 var lod_ring_m := 48.0                  # clipbox: LOD n ends at render_distance_m + lod_ring_m * 2^n (ADR 0020: 48 m = 2-voxel cubes to 160 m, 4-voxel to 256 m; godot_voxel's default is 24 m; 64 m looks better still but 40 m/s flight then has 20-27 ms frames)
 var terrain_threaded_update := true     # VoxelLodTerrain's LOD/streaming bookkeeping on a worker thread (ADR 0020: the 17 ms burst frame at 64 m rings became 9 ms)

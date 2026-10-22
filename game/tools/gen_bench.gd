@@ -19,7 +19,7 @@ func _init() -> void:
 	g.configure(sd, S.SEA_LEVEL_VOXEL, S.WORLD_HEIGHT_VOXELS)
 	var size := Vector3i(16, 16, 16)   # data block + no padding (what the terrain asks for)
 	var out := {"seed": sd, "blocks_per_lod": blocks, "lods": {}}
-	for lod in 6:
+	for lod in 8:
 		var step := 1 << lod
 		var t0 := Time.get_ticks_usec()
 		var non_empty := 0
