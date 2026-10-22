@@ -130,6 +130,20 @@ func set_voxel(wp: Vector3i, material: int) -> bool:
 	return true
 
 
+## The bubble's current material at a world voxel, or -1 when the voxel is
+## outside the window or its chunk is still loading. Newer than the terrain:
+## edits reach the terrain only on the next push.
+func get_voxel(wp: Vector3i) -> int:
+	if not _ready:
+		return -1
+	var lc := Vector3i((Vector3(wp) / Settings.CHUNK).floor()) - origin
+	if lc.x < 0 or lc.y < 0 or lc.z < 0 or lc.x >= size_chunks.x or lc.y >= size_chunks.y or lc.z >= size_chunks.z:
+		return -1
+	if _pending_loads.has(lc):
+		return -1
+	return sim.get_voxel(wp - origin * Settings.CHUNK)
+
+
 ## Debug: compare every loaded bubble chunk with what the generator says it
 ## should be. In a settled, unedited world they must match; mismatches mean
 ## chunks were loaded while the terrain was still streaming (air where there

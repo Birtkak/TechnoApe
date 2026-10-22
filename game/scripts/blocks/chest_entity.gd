@@ -59,6 +59,17 @@ func contents() -> Array:
 	return out
 
 
+## Save data (BlockEntities writes it next to the world save).
+func to_dict() -> Dictionary:
+	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "slots": inv.to_array()}
+
+
+func load_from(d: Dictionary) -> void:
+	var slots: Array = d.get("slots", [])
+	for i in mini(slots.size(), SIZE):
+		inv.set_slot(i, slots[i])
+
+
 func summary() -> Dictionary:
 	var c := {}
 	for s in contents():

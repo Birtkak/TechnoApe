@@ -12,6 +12,7 @@ Status: accepted (2026-10-22)
 
 ## Consequences / revisit
 - No block facing yet: the furnace front shows on all four sides, chests are full cubes, no double chests.
-- Block entities are not saved, like other world edits.
+- Block entities save as versioned JSON (`user://worlds/blocks_<seed>_g<gen>.json`, atomic temp + rename) every 30 s while dirty and on exit; voxels already persist through godot_voxel's SQLite stream. Both move into the versioned region format later.
+- Edits inside the sim bubble reach the terrain only on the next push, so Main reads voxels bubble-first (`get_world_voxel`) wherever a fresh edit matters.
 - The bronze_alloy recipe (station furnace, shapeless) has no screen; it belongs in a later alloy machine.
 - Early edits can log godot_voxel "Destination block not found when cascading edits on LOD 1"; harmless so far, not investigated.

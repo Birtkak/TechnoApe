@@ -222,3 +222,29 @@ func test_crafting_table_recipes_need_the_table() -> void:
 	assert_str(recipes.match_grid(grid, "crafting_table").get("id", "")).is_equal("chest")
 	assert_str(recipes.smelting_for("sand").get("id", "")).is_equal("smelt_glass")
 	assert_dict(recipes.smelting_for("dirt")).is_empty()
+
+
+func test_save_and_load_round_trip() -> void:
+	var c: ChestEntity = store.create(Vector3i(5, 6, 7), "chest")
+	c.inv.set_slot(26, {"id": "coal", "count": 7})
+	var f := _furnace()
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 4})
+	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 2})
+	_run(f, 150)
+	assert_bool(store.dirty).is_true()
+	var path := "user://test_blocks_roundtrip.json"
+	assert_bool(store.save_file(path)).is_true()
+	assert_bool(store.dirty).is_false()
+	var other := BlockEntities.new(items, recipes)
+	assert_bool(other.load_file(path)).is_true()
+	assert_int(other.size()).is_equal(2)
+	var c2: ChestEntity = other.at(Vector3i(5, 6, 7))
+	assert_dict(c2.inv.get_slot(26)).is_equal({"id": "coal", "count": 7})
+	var f2: FurnaceEntity = other.at(Vector3i(1, 2, 3))
+	assert_int(f2.cook).is_equal(150)
+	assert_int(f2.lit_time).is_equal(f.lit_time)
+	assert_dict(f2.inv.get_slot(FurnaceEntity.FUEL)).is_equal({"id": "coal", "count": 1})
+	_run(f2, 50)                                  # carries on where it stopped
+	assert_dict(f2.inv.get_slot(FurnaceEntity.OUTPUT)).is_equal({"id": "iron_ingot", "count": 1})
+	assert_bool(other.load_dict({"version": 99})).is_false()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

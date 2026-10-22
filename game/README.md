@@ -7,7 +7,8 @@ The real project. Prototypes live in `../prototypes/`; decisions in
 
 ```
 # play (mouse captured; Esc releases; F fly/walk; F3 debug overlay; hold LMB to mine; RMB place/use;
-#       1-9 / wheel select; E inventory; Q drop one (Ctrl+Q stack))
+#       1-9 / wheel select; E inventory; Q drop one (Ctrl+Q stack); RMB on a crafting table / furnace /
+#       chest opens it, Shift+RMB places against it)
 Godot_v4.7.2-stable_mono_win64_console.exe --path game
 
 # unattended check for Claude: fly forward 20 s, filmstrip every second, JSON on stdout
@@ -22,6 +23,9 @@ Godot_v4.7.2-stable_mono_win64_console.exe --path game -- autopilot=1 duration=2
 # scatter_items=1 drops one entity per given item in front; open_inventory=1 for a screen shot
 Godot_..._console.exe --path game -- autopilot=1 mine=1 duration=20 capture_every=2 give=wooden_pickaxe out=res://out/mine
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=4 open_inventory=1 give=oak_log:12,cobblestone:64,bucket:2 out=res://out/inv
+# station blocks (ADR 0007): stations=1 places a crafting table, chest and furnace ahead (furnace smelts 8 iron
+# ore on 1 coal, JSON "blocks"); open=crafting_table|chest|furnace right-clicks that one at 60 % of the run
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 stations=1 open=furnace duration=24 capture_every=2 out=res://out/stations
 
 # generator probes (headless): stats + biome map; settle test around a feature
 Godot_..._console.exe --headless --path game --script res://tools/gen_probe.gd -- seed=1337 radius=2048
@@ -62,7 +66,8 @@ recipe by design (found only); spells do.
 | `scripts/player/mining_table.gd` | `data/mining.json`: hardness, tool class/tier, drops per material (Minecraft break-time formula). |
 | `scripts/items/item_entity.gd` | Dropped stacks: textured mini-cube rigid bodies, bob/spin, merge, pickup, despawn; pop out of solid voxels. |
 | `scripts/ui/hud.gd` | Crosshair, hotbar with isometric atlas icons (`item_icon.gd`), hearts, break progress. |
-| `scripts/ui/inventory_screen.gd` | Vanilla-layout inventory / crafting-table screen with cursor semantics. |
+| `scripts/ui/inventory_screen.gd` | Vanilla-layout inventory, crafting table, chest and furnace screens with cursor semantics. |
+| `scripts/blocks/` | Block entities by voxel position (ADR 0007): `ChestEntity`, `FurnaceEntity` (vanilla tick rules), `BlockEntities` store, saved to `user://worlds/blocks_<seed>_g<gen>.json`. |
 | `scripts/debug_hud.gd` | F3 overlay. |
 | `scripts/debug_capture.gd` | Autoload. Autopilot, filmstrips, JSON stats, vsync switch. |
 | `addons/technosim/` | Our GDExtension (built from `../prototypes/p5-sim-spike/src`). |
@@ -85,7 +90,8 @@ nothing moves. Server and client will share this split (ADR 0002).
   a placeholder for the versioned region format; sim-bubble state (burning,
   lifetimes) is not saved, only materials.
 - Generator: no dungeons or villages yet (ruins, trees, rivers, lakes, marshes, waterfalls, vegetation exist).
-- Station blocks (ADR 0007) have no facing and their entities are not saved; no double chests. Cobblestone
+- Station blocks (ADR 0007) have no facing; no double chests. Their entities save as JSON beside the
+  world database (every 30 s and on exit), not yet in the region format. Cobblestone
   places stone until a cobblestone material exists.
 - Chiseling (ADR 0006) is designed and the mesher measured (P6), but there is no chisel tool, no `Chisel`
   block entity and no overlay meshes yet; `CHISELED` (44) is reserved and renders as nothing.

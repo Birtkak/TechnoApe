@@ -166,6 +166,22 @@ func contents() -> Array:
 	return out
 
 
+## Save data. Slots first: setting the input resets the cook progress.
+func to_dict() -> Dictionary:
+	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "slots": inv.to_array(), "lit_time": lit_time,
+		"lit_duration": lit_duration, "cook": cook, "cook_total": cook_total}
+
+
+func load_from(d: Dictionary) -> void:
+	var slots: Array = d.get("slots", [])
+	for i in mini(slots.size(), 3):
+		inv.set_slot(i, slots[i])
+	lit_time = int(d.get("lit_time", 0))
+	lit_duration = int(d.get("lit_duration", 0))
+	cook = int(d.get("cook", 0))
+	cook_total = int(d.get("cook_total", cook_total))
+
+
 func summary() -> Dictionary:
 	return {"kind": kind, "pos": pos, "input": inv.get_slot(INPUT), "fuel": inv.get_slot(FUEL),
 		"output": inv.get_slot(OUTPUT), "lit": is_lit(), "lit_time": lit_time, "cook": cook,

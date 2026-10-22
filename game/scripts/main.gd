@@ -17,6 +17,7 @@ var mining: MiningTable
 var player_inv: PlayerInventory
 var blocks: BlockEntities
 var _tick_accum := 0.0
+var _save_accum := 0.0
 var _items_root: Node3D
 var _item_entities: Array[ItemEntity] = []
 var _merge_accum := 0.0
@@ -57,6 +58,8 @@ func _ready() -> void:
 		push_error("data: " + err)
 	player_inv = PlayerInventory.new(items, recipes, Settings.max_health)
 	blocks = BlockEntities.new(items, recipes)
+	if Settings.persist_world and blocks.load_file(_blocks_path()):
+		print("block entities loaded: %d" % blocks.size())
 
 	player = Player.new()
 	player.name = "Player"
@@ -176,6 +179,23 @@ func _physics_process(delta: float) -> void:
 		n += 1
 		for p in blocks.tick():
 			_on_lit_flipped(p)
+	_save_accum += delta
+	if _save_accum >= 30.0:
+		_save_accum = 0.0
+		_save_blocks()
+
+
+func _exit_tree() -> void:
+	_save_blocks()
+
+
+func _blocks_path() -> String:
+	return "user://worlds/blocks_%d_g%d.json" % [Settings.world_seed, TerrainGenerator.GEN_VERSION]
+
+
+func _save_blocks() -> void:
+	if Settings.persist_world and blocks != null and blocks.dirty:
+		blocks.save_file(_blocks_path())
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -188,6 +208,13 @@ func _unhandled_input(event: InputEvent) -> void:
 func set_world_voxel(p: Vector3i, material: int) -> void:
 	if not bubble.set_voxel(p, material):
 		world.set_voxel(p, material)
+
+
+## Reads where set_world_voxel writes: the bubble first (it is ahead of the
+## terrain until the next push), else the terrain.
+func get_world_voxel(p: Vector3i) -> int:
+	var m := bubble.get_voxel(p)
+	return m if m >= 0 else world.get_voxel(p)
 
 
 func _on_broken(p: Vector3i, drop: Dictionary) -> void:
@@ -216,6 +243,8 @@ func _on_block_used(p: Vector3i, material: int) -> void:
 			inv_screen.open(3, "crafting_table", "Crafting")
 		"chest", "furnace":
 			var e := blocks.get_or_create(p, d.get("entity", kind))
+			if material == GameMaterials.FURNACE_LIT and not e.is_lit():
+				set_world_voxel(p, GameMaterials.FURNACE)   # lit block without fire (older save): put it out
 			player.set_ui_open(true, false)
 			inv_screen.open_container(e)
 
@@ -223,7 +252,7 @@ func _on_block_used(p: Vector3i, material: int) -> void:
 ## A furnace started or stopped burning: swap furnace <-> furnace_lit, or
 ## drop the entity when its block is gone (burnt, replaced by the sim).
 func _on_lit_flipped(p: Vector3i) -> void:
-	var m := world.get_voxel(p)
+	var m := get_world_voxel(p)
 	if m != GameMaterials.FURNACE and m != GameMaterials.FURNACE_LIT:
 		for s in blocks.remove(p):
 			spawn_item(s, Vector3(p) + Vector3(0.5, 0.5, 0.5))
