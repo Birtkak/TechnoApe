@@ -49,6 +49,23 @@ Mass edits, whole volume re-uploaded in one frame (`burst=60`):
 
 Uploads run at roughly 3 GB/s through `texture_update`, one call per z slice.
 
+**P8b: fed by the native simulation (`feed=sim`, `sim_feed.gd`, `scatter.glsl`, `results_sim.jsonl`):**
+the volume is filled by `SimWorld` (ground, hill, pool, a spring, glowing ore),
+ticked at 30 Hz; each tick the dirty 16³ chunks are read as raw bytes and
+scattered into the texture by a compute shader (one workgroup per chunk), then
+brick occupancy is rebuilt. At `tnt=4` s an 8 m box is carved to air in one
+call.
+
+| volume | frame p50 / p95 / p99 | sim tick p50 / p99 | dirty chunks p50 / max | upload p99 | TNT carve | ticks after TNT max |
+|---|---|---|---|---|---|---|
+| 256³ | 1.7 / 2.5 / 2.6 ms | 1.3 / 2.1 ms | 62 / 751 | 0.7 ms | 8.7 ms | 2.1 ms |
+| 512³ | 2.8 / 5.0 / 5.6 ms | 2.8 / 6.6 ms | 99 / 805 | 1.8 ms | 10.2 ms | 4.1 ms |
+
+The active fraction was low (at most 287 of 32 768 chunks); the simulation
+chapter of the architecture research measures heavy activity. A per-byte
+GDScript copy of the chunk bytes cost 70 ms per burst before it was replaced
+by a native append: the feed path must stay in native code.
+
 **Answer:**
 - **Yes for rendering.** A 32 m micro-voxel cube at 6.25 cm ray-casts in 3.3 ms
   median, 6 ms p99, with correct depth compositing and sun shadows, leaving
@@ -72,4 +89,13 @@ Uploads run at roughly 3 GB/s through `texture_update`, one call per z slice.
   opaque), one bounce of lighting, no collision (physics still needs meshes or
   a voxel mover), CPU-side carving in GDScript is slow and would be C++.
 
-**Decision pending:** ADR 0011 (`docs/decisions/0011-near-field-raycast.md`).
+**Shadow seam (`cam=shadow`):** the ray-cast volume casts a shadow onto the
+Godot ground plane with its own terrain silhouette (`out/shadow/n256_1.png`),
+so the DEPTH-writing shader takes part in the directional shadow pass.
+
+**Water transparency:** a water hit continues the ray through water cells
+to the next solid, tints by the water depth crossed and adds a Fresnel rim;
+DEPTH stays at the water surface. 512³ fed by the sim: 3.3 / 5.9 / 6.1 ms
+p50 / p95 / p99 (was 2.8 / 5.0 / 5.6), `shots/n512_water.png`.
+
+**Decision pending:** ADR 0012 (`docs/decisions/0012-near-field-raycast.md`), research in `docs/research/2026-10-22-core-architecture.md`.

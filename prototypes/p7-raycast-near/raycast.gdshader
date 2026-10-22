@@ -11,11 +11,12 @@ render_mode unshaded, cull_front, depth_draw_always;
 
 uniform sampler2DArray vol : filter_nearest, repeat_disable;
 uniform sampler2DArray occ : filter_nearest, repeat_disable;
-uniform int n = 256;                 // cells per edge
+uniform int n = 256;                 // cells per edge (power of two)
+uniform ivec3 win_origin = ivec3(0); // window origin in world cells (multiple of 16): texel = (window cell + win_origin) & (n - 1)
 uniform vec3 vol_origin = vec3(0.0); // world position of cell (0,0,0)
 uniform float cell = 0.0625;         // world units per cell
 uniform vec3 sun_dir = vec3(0.4, 0.8, 0.3);
-uniform vec3 palette[8];
+uniform vec3 palette[64];
 uniform int max_bricks = 200;
 
 varying vec3 v_world;
@@ -26,18 +27,18 @@ void vertex() {
 
 float fetch(ivec3 c) {
 	if (any(lessThan(c, ivec3(0))) || any(greaterThanEqual(c, ivec3(n)))) return 0.0;
-	return texelFetch(vol, c, 0).r * 255.0;
+	return texelFetch(vol, (c + win_origin) & ivec3(n - 1), 0).r * 255.0;
 }
 
 float brick(ivec3 b) {
 	int nb = n >> 3;
 	if (any(lessThan(b, ivec3(0))) || any(greaterThanEqual(b, ivec3(nb)))) return 0.0;
-	return texelFetch(occ, b, 0).r;
+	return texelFetch(occ, (b + win_origin / 8) & ivec3(nb - 1), 0).r;
 }
 
 // Two-level DDA from p (cell space) along d. Returns the material id or 0;
 // hit cell, face normal and t (in cells along the ray) on a hit.
-float march(vec3 p, vec3 d, int bricks, out ivec3 hit, out vec3 nrm, out float t) {
+float march(vec3 p, vec3 d, int bricks, float skip_id, out ivec3 hit, out vec3 nrm, out float t) {
 	ivec3 s = ivec3(sign(d));
 	vec3 inv = 1.0 / max(abs(d), vec3(1e-6));
 	// brick level
@@ -60,7 +61,7 @@ float march(vec3 p, vec3 d, int bricks, out ivec3 hit, out vec3 nrm, out float t
 			for (int j = 0; j < 26; j++) {
 				if (any(lessThan(c, cb * 8)) || any(greaterThan(c, cb * 8 + 7))) break;
 				float m = fetch(c);
-				if (m > 0.5) { hit = c; nrm = nf; t = tb + 1e-3 + tf; return m; }
+				if (m > 0.5 && abs(m - skip_id) > 0.5) { hit = c; nrm = nf; t = tb + 1e-3 + tf; return m; }
 				if (tmax.x < tmax.y && tmax.x < tmax.z) { tf = tmax.x; tmax.x += inv.x; c.x += s.x; nf = vec3(-float(s.x), 0.0, 0.0); }
 				else if (tmax.y < tmax.z) { tf = tmax.y; tmax.y += inv.y; c.y += s.y; nf = vec3(0.0, -float(s.y), 0.0); }
 				else { tf = tmax.z; tmax.z += inv.z; c.z += s.z; nf = vec3(0.0, 0.0, -float(s.z)); }
@@ -91,20 +92,41 @@ void fragment() {
 	ivec3 hit;
 	vec3 nrm;
 	float t;
-	float m = march(p, rd, max_bricks, hit, nrm, t);
+	float m = march(p, rd, max_bricks, -1.0, hit, nrm, t);
 	if (m < 0.5) discard;
 	int id = int(m + 0.5);
-	vec3 base = palette[clamp(id, 0, 7)];
+	vec3 base = palette[clamp(id, 0, 63)];
+	// transparency: water (id 5) is seen through to the next solid, tinted by the depth travelled in it
+	float water_t = -1.0;
+	vec3 water_nrm = vec3(0.0);
+	ivec3 water_hit = hit;
+	if (id == 5) {
+		water_t = t;
+		water_nrm = nrm;
+		ivec3 h2; vec3 n2; float t2;
+		float m2 = march(vec3(hit) + 0.5 + rd * 0.01, rd, max_bricks, 5.0, h2, n2, t2);
+		if (m2 > 0.5) { id = int(m2 + 0.5); hit = h2; nrm = n2; t = t + t2 + 0.5; base = palette[clamp(id, 0, 63)]; }
+		else { id = 0; }
+	}
 	vec3 sun = normalize(sun_dir);
 	float lambert = max(dot(nrm, sun), 0.0);
 	float shade = 1.0;
 	if (lambert > 0.0) {
 		ivec3 h2; vec3 n2; float t2;
 		vec3 sp = vec3(hit) + 0.5 + nrm * 0.51;
-		if (march(sp, sun, 40, h2, n2, t2) > 0.5) shade = 0.0;
+		if (march(sp, sun, 40, 5.0, h2, n2, t2) > 0.5) shade = 0.0;
 	}
 	vec3 col = base * (0.28 + 0.72 * lambert * shade);
 	if (id == 6) col = base * 1.6;
+	if (id == 0) col = palette[5] * 0.6; // water with nothing behind it: deep water
+	if (water_t >= 0.0) {
+		float depth_in_water = clamp((t - water_t) * cell / 3.0, 0.0, 1.0); // metres of water, saturates at 3 m
+		float fresnel = pow(1.0 - max(dot(-rd, water_nrm), 0.0), 3.0);
+		vec3 water_col = palette[5] * (0.5 + 0.5 * max(dot(water_nrm, normalize(sun_dir)), 0.0));
+		col = mix(col, water_col, 0.45 + 0.5 * depth_in_water);
+		col = mix(col, vec3(0.75, 0.85, 1.0), fresnel * 0.4);
+		t = water_t; // depth of the water surface, so meshes composite against the surface
+	}
 	ALBEDO = col;
 	vec3 hitw = ro + rd * (tstart + t * cell);
 	vec4 cp = PROJECTION_MATRIX * VIEW_MATRIX * vec4(hitw, 1.0);

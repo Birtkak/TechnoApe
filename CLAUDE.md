@@ -84,9 +84,17 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   pacing per material), voxel-grid collision ✓ (ADR 0011: player and items
   move with `VoxelBoxMover`, terrain mesh colliders off, swimming), 89
   headless tests. P7 (`prototypes/p7-raycast-near`) measured a Grimorium-style
-  GPU ray-cast near field (32 m at 6.25 cm: 3.3 ms p50); ADR 0011 (proposed)
+  GPU ray-cast near field (32 m at 6.25 cm: 3.3 ms p50); ADR 0012 (proposed)
   makes the simulation resolution the next spike and requires per-frame edit
-  budgets for mass edits. **Next:** P4 server headless check, then the chisel layer
+  budgets for mass edits. **Direction (ADR 0012, accepted in principle):
+  option B** = the 6.25 cm cell is the world grid, stored as bricks that are
+  today's 0.5 m voxels (uniform brick = 1 byte, expanded = 512 cells);
+  ray-cast 32 m near field fed by the simulation per brick; godot_voxel
+  meshes the uniform view with LOD beyond; chisel = brick expansion; every
+  edit path under a per-frame byte budget. Steps, each gated by a spike:
+  (1) simulation at micro resolution on expanded bricks (player-loop
+  session), (2) brick world store + feed (P9, generator session), (3) the
+  game switches its world store to bricks. **Next:** P4 server headless check, then the chisel layer
   (ADR 0006: `Chisel` block-entity behavior + overlay meshes).
 - In-world voxels follow ADR 0006: terrain ids + one block-entity layer
   (`scripts/blocks/`) + reserved decor layer; every voxel chiselable on an

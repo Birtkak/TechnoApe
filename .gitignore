@@ -46,3 +46,4 @@ PC-optimization-report.md
 game/out/
 game/.godot/
 game/addons/*/bin/*.dll
+prototypes/p7-raycast-near/addons/technosim/bin/
