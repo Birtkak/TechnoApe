@@ -109,3 +109,41 @@ func test_budget_and_lod_delay_but_never_lose_work() -> void:
 	# same amount of sand, all of it settled on the floor in both worlds
 	assert_int(b.count_material(GameMaterials.SAND)).is_equal(a.count_material(GameMaterials.SAND))
 	assert_int(b.count_in_box(Vector3i(0, 20, 0), Vector3i(48, 48, 48), GameMaterials.SAND)).is_equal(0)
+
+
+func test_dirty_boxes_cover_every_changed_cell() -> void:
+	var w := _world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 1, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(12, 18, 12), Vector3i(20, 26, 20), GameMaterials.SAND)   # straddles chunk borders
+	w.fill_box(Vector3i(30, 1, 30), Vector3i(34, 5, 34), GameMaterials.WATER)
+	w.clear_dirty()
+	# a single edit reports exactly its own cell
+	w.set_voxel(Vector3i(40, 40, 40), GameMaterials.STONE)
+	var one: PackedInt32Array = w.get_dirty_boxes()
+	assert_array(Array(one)).is_equal([2, 2, 2, 8, 8, 8, 8, 8, 8])
+	w.clear_dirty()
+	assert_int(w.get_dirty_boxes().size()).is_equal(0)
+	for step in 12:
+		var before := {}
+		for cz in N:
+			for cy in N:
+				for cx in N:
+					before[Vector3i(cx, cy, cz)] = w.get_chunk_bytes(Vector3i(cx, cy, cz), 1)
+		w.clear_dirty()
+		w.tick(1)
+		var boxes := {}
+		var b: PackedInt32Array = w.get_dirty_boxes()
+		for k in range(0, b.size(), 9):
+			boxes[Vector3i(b[k], b[k + 1], b[k + 2])] = [Vector3i(b[k + 3], b[k + 4], b[k + 5]), Vector3i(b[k + 6], b[k + 7], b[k + 8])]
+		for c in before:
+			var now: PackedByteArray = w.get_chunk_bytes(c, 1)
+			var old: PackedByteArray = before[c]
+			for i in 4096:
+				if now[i] == old[i]:
+					continue
+				# chunk byte order: y fastest, then x, then z
+				var cell := Vector3i((i / 16) % 16, i % 16, i / 256)
+				assert_bool(boxes.has(c)).override_failure_message("step %d: chunk %s changed but not listed" % [step, c]).is_true()
+				var bx: Array = boxes[c]
+				var inside: bool = cell.x >= bx[0].x and cell.y >= bx[0].y and cell.z >= bx[0].z and cell.x <= bx[1].x and cell.y <= bx[1].y and cell.z <= bx[1].z
+				assert_bool(inside).override_failure_message("step %d: %s cell %s outside %s" % [step, c, cell, bx]).is_true()

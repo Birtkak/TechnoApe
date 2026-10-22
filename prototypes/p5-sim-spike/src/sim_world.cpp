@@ -98,6 +98,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_chunk_bytes", "chunk", "bytes", "depth_bytes"), &SimWorld::set_chunk_bytes, DEFVAL(1));
     ClassDB::bind_method(D_METHOD("shift", "delta_chunks"), &SimWorld::shift);
     ClassDB::bind_method(D_METHOD("get_dirty_chunks"), &SimWorld::get_dirty_chunks);
+    ClassDB::bind_method(D_METHOD("get_dirty_boxes"), &SimWorld::get_dirty_boxes);
     ClassDB::bind_method(D_METHOD("clear_dirty"), &SimWorld::clear_dirty);
     ClassDB::bind_method(D_METHOD("count_material", "material"), &SimWorld::count_material);
     ClassDB::bind_method(D_METHOD("count_in_box", "min", "max", "material"), &SimWorld::count_in_box);
@@ -144,7 +145,8 @@ void SimWorld::configure(Vector3i p_chunks, int p_threads, int p_seed) {
     dirty_.reset(new std::atomic<uint8_t>[nc]);
     box_now_.reset(new std::atomic<uint32_t>[nc]);
     box_next_.reset(new std::atomic<uint32_t>[nc]);
-    for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); box_now_[i].store(0); box_next_[i].store(0); }
+    dbox_.reset(new std::atomic<uint32_t>[nc]);
+    for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); box_now_[i].store(0); box_next_[i].store(0); dbox_[i].store(0); }
     defer_age_.assign(nc, 0);
     loaded_.assign(nc, 1); // default: everything counts as loaded (fill_box/scatter worlds); streaming callers clear it
     rebuild_pass_lists();
@@ -276,6 +278,7 @@ inline void SimWorld::touch(int x, int y, int z) {
     int cx = x / CS, cy = y / CS, cz = z / CS;
     int ci = cidx(cx, cy, cz);
     dirty_[ci].store(1, std::memory_order_relaxed);
+    merge_dbox(ci, box_point(x & (CS - 1), y & (CS - 1), z & (CS - 1)));
     moved_[idx(x, y, z)] = stamp_;   // an edit is a change: static ground next to it may loosen
     wake_full(ci);
     int lx = x & (CS - 1), ly = y & (CS - 1), lz = z & (CS - 1);
@@ -358,6 +361,7 @@ inline void SimWorld::mark_cell(int x, int y, int z, Ctx &c, bool changed) {
     if (changed) c.mk.dirty |= self_bit;
     int lx = x & (CS - 1), ly = y & (CS - 1), lz = z & (CS - 1);
     c.mk.box[sb] = box_union(c.mk.box[sb], box_point(lx, ly, lz));
+    if (changed) c.mk.dbox[sb] = box_union(c.mk.dbox[sb], box_point(lx, ly, lz));
     if (lx == 0 && ox > -1) { int b = mark_bit(ox - 1, oy, oz); c.mk.wake |= 1u << b; c.mk.box[b] = box_union(c.mk.box[b], box_point(CS - 1, ly, lz)); }
     if (lx == CS - 1 && ox < 1) { int b = mark_bit(ox + 1, oy, oz); c.mk.wake |= 1u << b; c.mk.box[b] = box_union(c.mk.box[b], box_point(0, ly, lz)); }
     if (ly == 0 && oy > -1) { int b = mark_bit(ox, oy - 1, oz); c.mk.wake |= 1u << b; c.mk.box[b] = box_union(c.mk.box[b], box_point(lx, CS - 1, lz)); }
@@ -378,12 +382,25 @@ void SimWorld::flush_marks(const Ctx &c) {
                 int ci = cidx(nx, ny, nz);
                 active_next_[ci].store(1, std::memory_order_relaxed);
                 merge_box(ci, c.mk.box[mark_bit(ox, oy, oz)] ? c.mk.box[mark_bit(ox, oy, oz)] : BOX_FULL);
-                if (c.mk.dirty & bit) dirty_[ci].store(1, std::memory_order_relaxed);
+                if (c.mk.dirty & bit) {
+                    dirty_[ci].store(1, std::memory_order_relaxed);
+                    uint32_t db = c.mk.dbox[mark_bit(ox, oy, oz)];
+                    merge_dbox(ci, db ? db : BOX_FULL);
+                }
             }
 }
 
 void SimWorld::merge_box(int ci, uint32_t b) {
     std::atomic<uint32_t> &a = box_next_[ci];
+    uint32_t cur = a.load(std::memory_order_relaxed);
+    for (;;) {
+        uint32_t u = box_union(cur, b);
+        if (u == cur || a.compare_exchange_weak(cur, u, std::memory_order_relaxed)) return;
+    }
+}
+
+void SimWorld::merge_dbox(int ci, uint32_t b) {
+    std::atomic<uint32_t> &a = dbox_[ci];
     uint32_t cur = a.load(std::memory_order_relaxed);
     for (;;) {
         uint32_t u = box_union(cur, b);
@@ -961,6 +978,7 @@ Array SimWorld::shift(Vector3i d) {
     }
     size_t ncn = (size_t)CX_ * CY_ * CZ_;
     std::vector<uint8_t> na(ncn, 0), nd(ncn, 0), nl(ncn, 0);
+    std::vector<uint32_t> ndb(ncn, 0);
     for (int cz = 0; cz < CZ_; cz++)
         for (int cy = 0; cy < CY_; cy++)
             for (int cx = 0; cx < CX_; cx++) {
@@ -973,6 +991,7 @@ Array SimWorld::shift(Vector3i d) {
                 int oi = cidx(ox, oy, oz);
                 na[ci] = active_next_[oi].load() | active_now_[oi].load();
                 nd[ci] = dirty_[oi].load();
+                ndb[ci] = dbox_[oi].load();
                 nl[ci] = loaded_[oi];
             }
     for (size_t i = 0; i < ncn; i++) {
@@ -981,6 +1000,7 @@ Array SimWorld::shift(Vector3i d) {
         box_now_[i].store(0);
         active_now_[i].store(0);
         dirty_[i].store(nd[i]);
+        dbox_[i].store(ndb[i]);
     }
     loaded_.swap(nl); // vacated chunks are unloaded (walls) until the caller loads them
     return vacated;
@@ -996,10 +1016,27 @@ Array SimWorld::get_dirty_chunks() const {
     return a;
 }
 
+PackedInt32Array SimWorld::get_dirty_boxes() const {
+    wait_idle();
+    PackedInt32Array out;
+    for (int cz = 0; cz < CZ_; cz++)
+        for (int cy = 0; cy < CY_; cy++)
+            for (int cx = 0; cx < CX_; cx++) {
+                int ci = cidx(cx, cy, cz);
+                if (!dirty_[ci].load(std::memory_order_relaxed)) continue;
+                uint32_t b = dbox_[ci].load(std::memory_order_relaxed);
+                if (!(b & BOX_VALID)) b = BOX_FULL;
+                const int32_t v[9] = {cx, cy, cz, (int32_t)(b & 15u), (int32_t)((b >> 4) & 15u), (int32_t)((b >> 8) & 15u),
+                    (int32_t)((b >> 12) & 15u), (int32_t)((b >> 16) & 15u), (int32_t)((b >> 20) & 15u)};
+                for (int k = 0; k < 9; k++) out.push_back(v[k]);
+            }
+    return out;
+}
+
 void SimWorld::clear_dirty() {
     wait_idle();
     size_t nc = (size_t)CX_ * CY_ * CZ_;
-    for (size_t i = 0; i < nc; i++) dirty_[i].store(0, std::memory_order_relaxed);
+    for (size_t i = 0; i < nc; i++) { dirty_[i].store(0, std::memory_order_relaxed); dbox_[i].store(0, std::memory_order_relaxed); }
 }
 
 // ---------- debug ----------

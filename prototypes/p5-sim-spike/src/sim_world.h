@@ -109,6 +109,9 @@ public:
     void set_chunk_bytes(Vector3i p_chunk, const PackedByteArray &p_bytes, int p_depth_bytes = 1); // load from world; wakes, not dirty
     Array shift(Vector3i p_delta_chunks); // slide the window; returns vacated local chunks that must be loaded
     Array get_dirty_chunks() const;
+    // v6: the changed cells of every dirty chunk as a box, for uploads finer than whole chunks:
+    // 9 ints per chunk: chunk x,y,z, then min x,y,z and max x,y,z in local cells (inclusive).
+    PackedInt32Array get_dirty_boxes() const;
     void clear_dirty();
 
     // ---- debug / introspection ----
@@ -142,7 +145,7 @@ private:
         void shutdown();
     };
 
-    struct Marks { uint32_t wake = 0; uint32_t dirty = 0; uint32_t box[27] = {}; };
+    struct Marks { uint32_t wake = 0; uint32_t dirty = 0; uint32_t box[27] = {}; uint32_t dbox[27] = {}; };
     struct Ctx { int cx, cy, cz; Marks mk; uint32_t rng; uint64_t moved = 0; uint64_t reacted = 0; };
     // Dirty box of a chunk packed in 25 bits: valid | min xyz | max xyz (4 bits each, local 0..15).
     static constexpr uint32_t BOX_VALID = 1u << 24;
@@ -162,6 +165,7 @@ private:
         return r;
     }
     void merge_box(int ci, uint32_t b);
+    void merge_dbox(int ci, uint32_t b);
     struct TickOut { double ms = 0; uint64_t active = 0, moved = 0, react = 0, scanned = 0, deferred = 0; };
     void tick_once(TickOut &o);
     void defer_chunk(int ci);
@@ -204,6 +208,7 @@ private:
     std::vector<uint8_t> loaded_; // per chunk: 1 once world data was loaded; unloaded chunks act as solid walls
     std::unique_ptr<std::atomic<uint32_t>[]> box_now_;  // v5 dirty boxes (packed, see box_point)
     std::unique_ptr<std::atomic<uint32_t>[]> box_next_;
+    std::unique_ptr<std::atomic<uint32_t>[]> dbox_;     // v6 changed-cells box per dirty chunk
     uint16_t gravity16_ = 0;   // v5 fall acceleration in 1/16 cell per tick^2
     Vector3i focus_chunk_;     // v6 level of detail
     int lod_radius_ = -1;      // chunks; -1 = off
