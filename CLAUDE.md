@@ -81,9 +81,9 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   F5 cycles first person / behind / front, Minecraft-style arm in first person),
   recipe browser ✓ (ADR 0008: JEI-style search, recipes/uses, R/U keys),
   bubble polish ✓ (ADR 0010: in-place shift, load/push budgets, fire
-  pacing per material), 89 headless tests. **Next:** voxel-grid collision
-  for player and items (`VoxelBoxMover`, ADR 0010: mesh colliders cause the
-  remaining frame spikes), P4 server headless check, then the chisel layer
+  pacing per material), voxel-grid collision ✓ (ADR 0011: player and items
+  move with `VoxelBoxMover`, terrain mesh colliders off, swimming), 89
+  headless tests. **Next:** P4 server headless check, then the chisel layer
   (ADR 0006: `Chisel` block-entity behavior + overlay meshes).
 - In-world voxels follow ADR 0006: terrain ids + one block-entity layer
   (`scripts/blocks/`) + reserved decor layer; every voxel chiselable on an

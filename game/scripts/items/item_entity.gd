@@ -1,20 +1,34 @@
 class_name ItemEntity
-extends RigidBody3D
+extends Node3D
 
 ## A dropped stack lying in the world (ADR 0005): a tiny textured cube (or a
 ## coloured card for non-block items) that falls, bobs, spins, merges with
 ## equal stacks nearby, is picked up by walking over it and despawns after
 ## Settings.item_despawn_s. Pure Minecraft behaviour; the matter inside is
 ## inert until placed back (then it obeys the material simulation).
+##
+## Moves against the voxel grid with a VoxelBody (ADR 0011), not a rigid
+## body: gravity, Minecraft drag (air 0.98 / ground 0.6 x 0.98 per 20 Hz
+## tick), a small bounce, and sleep once at rest (re-checked 4 times a second
+## so mining the block underneath drops it).
+
+const SIZE := 0.5                 # voxels (25 cm box, like vanilla's 0.25 m)
+const BOUNCE := 0.15
+const SLEEP_SPEED := 0.05         # voxels/s
 
 var stack := {}
 var age := 0.0
 var items: ItemRegistry
+var world: World          # voxel data for movement and the pop-out check
+var velocity := Vector3.ZERO
+var frozen := true        # held still right after spawning until the mined voxel reads as air
+var sleeping := false
 var _visual: MeshInstance3D
 var _phase := 0.0
 var _initial_velocity := Vector3.ZERO
-var world: World          # to detect being inside a solid voxel (mesh/collider lag) and pop out upwards
 var _unfreeze_at := 0.15
+var _sleep_check := 0.0
+var _body: VoxelBody
 
 
 func set_initial_velocity(v: Vector3) -> void:
@@ -31,30 +45,14 @@ static func create(p_items: ItemRegistry, p_stack: Dictionary, atlas_material: M
 
 
 func _build(atlas_material: Material) -> void:
-	mass = 0.2
-	lock_rotation = true
-	collision_layer = 4          # items: collide with the terrain (layer 1) only, never with the player or each other
-	collision_mask = 1
-	freeze = true                # let the mined voxel's collider update before physics touches the item
-	gravity_scale = Settings.m2v(9.8) / 9.8   # realistic 9.8 m/s^2 in voxel units
-	continuous_cd = true
-	linear_damp = 0.5
-	physics_material_override = PhysicsMaterial.new()
-	physics_material_override.friction = 0.9
-	physics_material_override.bounce = 0.1
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3.ONE * 0.5
-	shape.shape = box
-	add_child(shape)
+	_body = VoxelBody.new(AABB(Vector3(-SIZE / 2.0, 0.0, -SIZE / 2.0), Vector3.ONE * SIZE))
 	_visual = MeshInstance3D.new()
 	var mat_id := ItemIcon.material_id_for(items, stack["id"])
 	if mat_id > 0:
 		_visual.mesh = BlockMeshes.cube(mat_id, atlas_material)
-		_visual.scale = Vector3.ONE * 0.5
 	else:
 		_visual.mesh = BlockMeshes.card(stack["id"])
-		_visual.scale = Vector3.ONE * 0.5
+	_visual.scale = Vector3.ONE * 0.5
 	_visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_visual)
 	_phase = randf() * TAU
@@ -62,29 +60,65 @@ func _build(atlas_material: Material) -> void:
 
 func _process(delta: float) -> void:
 	age += delta
-	if freeze and age >= _unfreeze_at:
+	if frozen and age >= _unfreeze_at:
 		if world and _solid_at(position):
-			_unfreeze_at = age + 0.1   # the broken voxel has not been pasted/remeshed yet: wait
+			_unfreeze_at = age + 0.1   # the broken voxel has not reached the terrain yet: wait
 		else:
-			freeze = false
-			linear_velocity = _initial_velocity
+			frozen = false
+			velocity = _initial_velocity
 	_phase += delta
-	_visual.position.y = 0.08 + sin(_phase * 2.0) * 0.06
+	_visual.position.y = SIZE / 2.0 + 0.08 + sin(_phase * 2.0) * 0.06   # mesh is centred, position is the box bottom
 	_visual.rotation.y = _phase * 1.2
 
 
-## Minecraft pops items out of blocks they end up inside (our colliders lag
-## the voxel data by a remesh); move up to the first free voxel.
-func _physics_process(_delta: float) -> void:
-	if freeze or world == null or not _solid_at(position):
+func _physics_process(delta: float) -> void:
+	if frozen or world == null:
 		return
-	var p := position
-	for _i in 8:
-		p.y = floor(p.y) + 1.25
-		if not _solid_at(p):
-			position = p
-			linear_velocity = Vector3.ZERO
+	# Minecraft pops items out of blocks they end up inside (a voxel placed or
+	# simulated into them): move up to the first free voxel.
+	if _solid_at(position):
+		var p := position
+		for _i in 8:
+			p.y = floor(p.y) + 1.0
+			if not _solid_at(p):
+				position = p
+				velocity = Vector3.ZERO
+				sleeping = false
+				return
+		return
+	if not world.is_area_loaded(Vector3i((position / Settings.CHUNK).floor())):
+		return   # never fall into terrain that has not streamed in
+	if sleeping:
+		_sleep_check -= delta
+		if _sleep_check > 0.0:
 			return
+		_sleep_check = 0.25
+		_body.move(position, Vector3(0, -1.0, 0), 0.05, world.terrain)
+		if _body.on_floor:
+			return
+		sleeping = false
+	velocity.y -= Settings.m2v(Settings.gravity_m) * delta
+	var got := _body.move(position, velocity, delta, world.terrain)
+	position += got
+	if _body.blocked.x > 0.0:
+		velocity.x = 0.0
+	if _body.blocked.z > 0.0:
+		velocity.z = 0.0
+	if _body.on_floor:
+		velocity.y = -velocity.y * BOUNCE if velocity.y < -2.0 else 0.0
+		var ground := pow(0.6 * 0.98, delta * 20.0)
+		velocity.x *= ground
+		velocity.z *= ground
+		if velocity.length() < SLEEP_SPEED:
+			velocity = Vector3.ZERO
+			sleeping = true
+			_sleep_check = 0.25
+	else:
+		if _body.hit_ceiling:
+			velocity.y = 0.0
+		var air := pow(0.98, delta * 20.0)
+		velocity.x *= air
+		velocity.z *= air
 
 
 func _solid_at(p: Vector3) -> bool:
@@ -92,8 +126,10 @@ func _solid_at(p: Vector3) -> bool:
 	if m <= 0:
 		return false
 	var d: Dictionary = GameMaterials.defs()[m - 1]
-	# cross-quad vegetation has no collision; liquids and gases do not hold items either
-	return not d.get("cross", false) and d.get("cell_type", "solid") != "gas" and (d.get("cell_type", "solid") != "liquid" or d.get("liquid_sand", false))
+	if d.has("micro"):
+		return false   # micro-voxel plants have no collision
+	var ct: String = d.get("cell_type", "solid")
+	return ct == "solid" or (ct == "liquid" and d.get("liquid_sand", false))
 
 
 func can_pickup() -> bool:

@@ -162,6 +162,12 @@ static func build_library(atlas_material: Material) -> VoxelBlockyLibrary:
 		# against air or opaque voxels are kept. culls_neighbors stays true.
 		if d.get("transparent", false):
 			cube.transparency_index = 1
+		# Movement collision (ADR 0011, VoxelBody): only solids and powders
+		# block bodies; liquids, gases and fire are swum or walked through.
+		var ct: String = d.get("cell_type", "solid")
+		if not (ct == "solid" or (ct == "liquid" and d.get("liquid_sand", false))):
+			cube.collision_mask = 0
+			cube.set_mesh_collision_enabled(0, false)
 		models.append(cube)
 	lib.models = models
 	lib.bake()

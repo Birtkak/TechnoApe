@@ -62,10 +62,9 @@ the flight p99 (2.8 → 5.1 ms), and a 250 ms interval makes water and fire
 step visibly.
 
 ## Consequences
-- Next step (own change): collide the player and item entities against the
-  voxel grid (godot_voxel `VoxelBoxMover`, Minecraft-style AABB moves) and turn
-  terrain mesh colliders off or limit them, so churn never rebuilds colliders.
-  It touches player movement, so it is coordinated with the player-body work.
+- Done in ADR 0011: the player and item entities collide against the voxel
+  grid (`VoxelBoxMover`) and terrain mesh colliders are off; the forest fire
+  runs at p99 3.0 ms.
 - `fire_test=N` (autopilot) ignites burnables around the player;
   `tools/fire_bench.gd` reports pacing and cost; both stay as regression checks.
 - Smoke and flame voxels currently render as opaque grey/orange cubes and get

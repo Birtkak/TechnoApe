@@ -76,10 +76,10 @@ recipe by design (found only); spells do.
 | `scripts/generator.gd` | Bridge to the native `WorldGen` (1.18-style splines, caves, ores, biomes); see `docs/design/world-generation.md`. `tools/gen_probe.gd` prints stats and a biome map. |
 | `scripts/world.gd` | `VoxelLodTerrain` (clipbox streaming, 7 LODs) + copy/paste helpers. |
 | `scripts/sim_bubble.gd` | Sliding window of the native `SimWorld` around the player; load/tick/push. |
-| `scripts/player.gd` | First-person walk/fly, mouse look, hold-to-mine with progress, place/use (buckets), hotbar keys, drop, fall damage, held-item viewmodel (`scripts/player/viewmodel.gd`). |
+| `scripts/player.gd` | First-person walk/fly/swim against the voxel grid (`scripts/physics/voxel_body.gd`, ADR 0011), mouse look, hold-to-mine with progress, place/use (buckets), hotbar keys, drop, fall damage, held-item viewmodel (`scripts/player/viewmodel.gd`). |
 | `scripts/player/player_inventory.gd` | Player model: 36-slot inventory (hotbar = slots 0..8), cursor stack, 2x2/3x3 crafting grid, health. Pure logic, tested. |
 | `scripts/player/mining_table.gd` | `data/mining.json`: hardness, tool class/tier, drops per material (Minecraft break-time formula). |
-| `scripts/items/item_entity.gd` | Dropped stacks: textured mini-cube rigid bodies, bob/spin, merge, pickup, despawn; pop out of solid voxels. |
+| `scripts/items/item_entity.gd` | Dropped stacks: textured mini-cubes moved by VoxelBody (gravity, vanilla drag, sleep), bob/spin, merge, pickup, despawn; pop out of solid voxels. |
 | `scripts/ui/hud.gd` | Crosshair, hotbar with isometric atlas icons (`item_icon.gd`), hearts, break progress. |
 | `scripts/ui/inventory_screen.gd` | Vanilla-layout inventory, crafting table, chest and furnace screens with cursor semantics. |
 | `scripts/ui/recipe_browser.gd`, `recipe_browser_view.gd` | JEI-style browser (ADR 0008): search, recipes/uses by category, history; the view beside every inventory screen. |
@@ -116,6 +116,7 @@ nothing moves. Server and client will share this split (ADR 0002).
   block entity and no overlay meshes yet; `CHISELED` (44) is reserved and renders as nothing.
 - Micro-voxel plants/detail live in LOD 0 blocks only; after an edit, godot_voxel downsamples them into
   LOD 1/2 where they show as full voxels.
-- Player body is a capsule 1.2 voxels wide: 1-voxel shafts are not enterable (dig 2x2 like the autopilot does).
+- Player body is a box 1.2 voxels wide: 1-voxel shafts are not enterable (dig 2x2 like the autopilot does).
+- No terrain physics colliders (ADR 0011): new movers use VoxelBody or voxel ray-casts. Swimming is minimal.
 - Item icons for non-block items are coloured tags with initials; the held item is a cube or a card, no arm.
 - Memory at large full-detail radius; see `docs/research` matrix in the commit log.

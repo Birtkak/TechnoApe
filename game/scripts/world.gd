@@ -39,7 +39,9 @@ func _ready() -> void:
 	terrain.streaming_system = 1  # CLIPBOX (P2: octree collapses at long range)
 	terrain.mesh_block_size = Settings.terrain_mesh_block
 	terrain.material = atlas_material
-	terrain.generate_collisions = true
+	# Bodies collide against voxel data (VoxelBody, ADR 0011); mesh colliders
+	# rebuilt per edited block on the main thread were the frame spikes (ADR 0010).
+	terrain.generate_collisions = Settings.terrain_mesh_collisions
 	terrain.collision_lod_count = 1
 	terrain.full_load_mode_enabled = false
 	# Keep generated data for all LODs in range so edits near the player cascade

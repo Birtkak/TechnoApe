@@ -20,7 +20,10 @@ var cache_generated_blocks := true      # store generated LOD data so edits casc
 var sim_tick_hz := 30.0
 var sim_load_budget_ms := 0.3           # main-thread time per frame for copying terrain chunks into the bubble
 var sim_push_budget_ms := 1.5           # main-thread time per frame for pasting simulated chunks back into the terrain
-var sim_push_interval_ms := 0.0         # a chunk is pasted at most this often (each paste = remesh + collider rebuild)
+var sim_push_interval_ms := 0.0         # a chunk is pasted at most this often (each paste = remesh)
+var terrain_mesh_collisions := false    # physics colliders for terrain meshes; bodies use voxel-grid collision instead (ADR 0011)
+var swim_up_speed_m := 2.0              # holding jump in water
+var sink_speed_m := 1.0                 # drifting down in water
 var sim_threads := maxi(2, OS.get_processor_count() - 2)
 
 # Player (metres, converted at use)
@@ -110,6 +113,7 @@ func apply_cmdline() -> Dictionary:
 			"sim_load_budget_ms": sim_load_budget_ms = float(kv[1])
 			"sim_push_budget_ms": sim_push_budget_ms = float(kv[1])
 			"sim_push_interval_ms": sim_push_interval_ms = float(kv[1])
+			"terrain_mesh_collisions": terrain_mesh_collisions = kv[1] == "1"
 			"sim_threads": sim_threads = int(kv[1])
 			"world_seed", "seed": set_seed_text(kv[1])
 			"persist": persist_world = kv[1] == "1"

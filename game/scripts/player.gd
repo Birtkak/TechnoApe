@@ -1,10 +1,11 @@
 class_name Player
-extends CharacterBody3D
+extends Node3D
 
 ## First-person player (ADR 0005). World units are voxels (0.5 m); all
 ## tunables live in Settings in metres and are converted here. Owns the
 ## PlayerInventory model, the mining progress and the held-item viewmodel;
 ## world writes are requested through signals and done by Main.
+## Moves against the voxel grid (VoxelBody, ADR 0011), not physics colliders.
 
 signal voxel_broken(pos: Vector3i, drop: Dictionary)
 signal voxel_placed(pos: Vector3i, material: int)
@@ -40,21 +41,21 @@ var _place_cooldown := 0.0
 var _highlight: MeshInstance3D
 var _crack: MeshInstance3D
 
+# movement (ADR 0011)
+var velocity := Vector3.ZERO
+var body: VoxelBody
+var _on_floor := false
+var in_liquid := false
+
 # fall damage
 var _fall_peak_y := 0.0
 var _was_on_floor := false
 
 
 func _ready() -> void:
-	collision_layer = 2          # player body; terrain is layer 1, items layer 4 (items pass through the player)
-	collision_mask = 1
-	var shape := CollisionShape3D.new()
-	var cap := CapsuleShape3D.new()
-	cap.radius = Settings.m2v(Settings.player_radius_m)
-	cap.height = Settings.m2v(Settings.player_height_m)
-	shape.shape = cap
-	shape.position = Vector3(0, cap.height / 2.0, 0)
-	add_child(shape)
+	var r := Settings.m2v(Settings.player_radius_m)
+	body = VoxelBody.new(AABB(Vector3(-r, 0.0, -r), Vector3(2.0 * r, Settings.m2v(Settings.player_height_m), 2.0 * r)),
+		Settings.m2v(Settings.step_height_m))
 	camera = Camera3D.new()
 	camera.position = Vector3(0, Settings.m2v(Settings.eye_height_m), 0)
 	camera.fov = 75.0
@@ -69,7 +70,7 @@ func _ready() -> void:
 	add_child(model)
 	var viewer := VoxelViewer.new()
 	viewer.view_distance = Settings.view_distance_voxels()
-	viewer.requires_collisions = true
+	viewer.requires_collisions = Settings.terrain_mesh_collisions
 	camera.add_child(viewer)
 	_highlight = _make_box_outline()
 	_highlight.visible = false
@@ -184,28 +185,43 @@ func _apply_look() -> void:
 	camera.look_at(global_position + eye + Vector3(0, 0.1, 0))
 
 
-var _ground_seen_at := -1.0   # seconds; terrain under the player was first seen at this time
+## Floor contact from the last move (VoxelBody), like CharacterBody3D's.
+func is_on_floor() -> bool:
+	return _on_floor
 
 
-## Spawn / teleport safety: while the terrain below has not streamed in
-## (and for a short grace period after, until its collision exists), the body
-## does not move at all, so nobody falls through an unloaded world.
+## Spawn / streaming safety: unloaded voxels read as air, so the body does not
+## move while the chunk it stands in or the one below has not streamed in
+## (Minecraft freezes players in unloaded chunks the same way).
 func _ground_ready() -> bool:
 	if flying:
 		return true
-	var now := Time.get_ticks_msec() / 1000.0
-	if _ground_seen_at < 0.0:
-		# Ask the physics world, not the voxel data: data streams in long before
-		# the collision shapes exist, and only colliders stop a fall.
-		var space := get_world_3d().direct_space_state
-		var q := PhysicsRayQueryParameters3D.create(global_position + Vector3(0, 1, 0), global_position + Vector3(0, -64, 0))
-		q.exclude = [get_rid()]
-		var hit := space.intersect_ray(q)
-		if hit.is_empty():
-			return false
-		_ground_seen_at = now
-		return false
-	return now - _ground_seen_at > 0.3
+	var c := Vector3i((position / Settings.CHUNK).floor())
+	return world.is_area_loaded(c) and world.is_area_loaded(c - Vector3i(0, 1, 0))
+
+
+## Feet or chest in a liquid that is not a powder (water, lava, oil).
+func _check_liquid() -> bool:
+	for h in [0.2, 0.5]:
+		var m := world.get_voxel(Vector3i((position + Vector3(0, Settings.m2v(Settings.player_height_m) * h, 0)).floor()))
+		if m > 0:
+			var d: Dictionary = GameMaterials.defs()[m - 1]
+			if d.get("cell_type", "solid") == "liquid" and not d.get("liquid_sand", false):
+				return true
+	return false
+
+
+## One move through the voxel grid; zeroes velocity on blocked axes.
+func _move(delta: float, allow_step: bool) -> void:
+	var got := body.move(position, velocity, delta, world.terrain, allow_step)
+	position += got
+	_on_floor = body.on_floor
+	if body.blocked.x > 0.0:
+		velocity.x = 0.0
+	if body.blocked.z > 0.0:
+		velocity.z = 0.0
+	if body.on_floor or body.hit_ceiling:
+		velocity.y = 0.0
 
 
 func _physics_process(delta: float) -> void:
@@ -232,52 +248,35 @@ func _physics_process(delta: float) -> void:
 		var speed := Settings.m2v(autopilot_speed_m if autopilot else Settings.fly_speed_m)
 		velocity = dir * speed
 		velocity.y = up_down * speed
-		move_and_slide()
+		_move(delta, false)
 		_fall_peak_y = position.y
 		return
 	var speed_m := Settings.sprint_speed_m if (Input.is_action_pressed("sprint") and not ui_open) else Settings.walk_speed_m
 	if autopilot:
 		speed_m = minf(autopilot_speed_m, Settings.sprint_speed_m)   # speed=0 stands still
-	var speed := Settings.m2v(speed_m)
+	in_liquid = _check_liquid()
+	var speed := Settings.m2v(speed_m) * (0.5 if in_liquid else 1.0)
 	velocity.x = dir.x * speed
 	velocity.z = dir.z * speed
-	if not is_on_floor():
+	var jump := Input.is_action_pressed("jump") and not ui_open and not autopilot
+	if in_liquid:
+		# Minecraft-style swimming: drift down slowly, hold jump to rise
+		var target := Settings.m2v(Settings.swim_up_speed_m) if jump else -Settings.m2v(Settings.sink_speed_m)
+		velocity.y = move_toward(velocity.y, target, Settings.m2v(Settings.gravity_m) * 0.5 * delta)
+	else:
+		# always pull down a little, so standing still still reports floor contact
 		velocity.y -= Settings.m2v(Settings.gravity_m) * delta
-	elif Input.is_action_just_pressed("jump") and not ui_open:
-		velocity.y = sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(Settings.jump_height_m))
-	_try_step_up(delta)
-	move_and_slide()
+		if _on_floor and Input.is_action_just_pressed("jump") and not ui_open:
+			velocity.y = sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(Settings.jump_height_m))
+	_move(delta, _on_floor)
 	_unstick_from_voxels()
 	_update_fall_damage()
 	if autopilot and autopilot_action == "place" and _place_cooldown <= 0.0:
 		_use(true)
 
 
-## Minecraft-style auto step: when walking into a ledge no taller than
-## Settings.step_height_m, lift the body onto it instead of stopping. Taller
-## ledges (steep rock, cliffs) still block, so mountains stay hard to climb.
-func _try_step_up(delta: float) -> void:
-	if not is_on_floor():
-		return
-	var horizontal := Vector3(velocity.x, 0, velocity.z)
-	if horizontal.length_squared() < 0.0001:
-		return
-	var motion := horizontal * delta
-	if not test_move(global_transform, motion):
-		return  # nothing in the way
-	var step := Vector3(0, Settings.m2v(Settings.step_height_m), 0)
-	if test_move(global_transform, step):
-		return  # ceiling right above
-	var raised := global_transform.translated(step)
-	if test_move(raised, motion):
-		return  # still blocked: the ledge is taller than one step
-	global_position += step
-	floor_snap_length = step.y + 0.1
-
-
-## Terrain colliders are swapped when a mesh block is rebuilt; during that
-## gap the body can sink into voxel data that is solid. Trust the data: if the
-## feet are inside a solid voxel, lift to its top and stop falling.
+## A voxel placed or simulated into the body (falling sand) would trap it:
+## if the feet are inside a solid voxel, lift to its top and stop falling.
 func _unstick_from_voxels() -> void:
 	var feet := Vector3i((position + Vector3(0, 0.05, 0)).floor())
 	if feet.y < 0 or not _is_solid_voxel(feet):
@@ -306,7 +305,7 @@ func _is_solid_voxel(v: Vector3i) -> bool:
 func _update_fall_damage() -> void:
 	# "landed" = floor contact, or any contact while no longer falling (standing
 	# on a voxel edge in a shaft reports a wall normal, not a floor)
-	var on_floor := is_on_floor() or (get_slide_collision_count() > 0 and velocity.y >= -Settings.m2v(1.0))
+	var on_floor := is_on_floor() or in_liquid   # water breaks a fall, as in vanilla
 	if on_floor and not _was_on_floor:
 		var fall_m := Settings.v2m(_fall_peak_y - position.y)
 		var dmg := int(floor(fall_m - Settings.fall_damage_safe_m))
@@ -324,7 +323,6 @@ func respawn_at(pos: Vector3) -> void:
 	position = pos
 	velocity = Vector3.ZERO
 	_fall_peak_y = pos.y
-	_ground_seen_at = -1.0
 	if inventory:
 		inventory.respawn()
 
