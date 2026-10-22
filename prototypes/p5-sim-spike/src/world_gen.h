@@ -51,9 +51,13 @@ public:
     // size may be non-cubic: godot_voxel requests padded mesh regions (e.g. 34x33x34).
     PackedByteArray generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel = 2) const;
 
-    // Debug: RGB8 image (w = h = 2*radius/step) of biomes shaded by height around a centre.
+    // Debug: RGB8 image (w = h = 2*radius/step) of biomes shaded by height around a centre,
+    // with lakes (light blue) and ruins (dark grey) overlaid.
     PackedByteArray map_image(int center_x, int center_z, int radius, int step) const;
     static String biome_name(int b);
+    // Debug: nearest decoration of a kind ("lake" | "ruin") within max_radius voxels of (x, z).
+    // Returns Vector3i(x, ground_y, z) or Vector3i(0, -1, 0) when none.
+    Vector3i find_nearest(const String &kind, int x, int z, int max_radius) const;
 
 protected:
     static void _bind_methods();
@@ -72,15 +76,37 @@ private:
     struct Tree {
         int x, z, base, trunk_h, radius;
     };
+    // Lakes above sea level: one candidate per LAKE_CELL cell; surface level is
+    // sampled from the basin rim so no water floats at the edge.
+    static constexpr int LAKE_CELL = 192;
+    static constexpr int LAKE_MAX_RADIUS = 56;
+    struct Lake {
+        int x, z, radius, level, depth;
+    };
+    // Ruins: small broken stone enclosures, one candidate per RUIN_CELL cell.
+    static constexpr int RUIN_CELL = 160;
+    static constexpr int RUIN_MAX_HALF = 10;
+    struct Ruin {
+        int x, z, hw, hd, base;
+        uint32_t seed;
+    };
     int seed_ = 1337;
     int sea_ = 256;
     int world_height_ = 768;
-    FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_beach_, n_river_;
+    FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_beach_, n_river_, n_jitter_;
 
     Column column(int x, int z) const;
     static uint32_t hash3(int a, int b, int c);
     bool tree_at_cell(int cx, int cz, Tree &out) const;
     int trees_near(int x0, int z0, int x1, int z1, Tree *out, int max_out) const;
+    bool lake_at_cell(int cx, int cz, Lake &out) const;
+    int lakes_near(int x0, int z0, int x1, int z1, Lake *out, int max_out) const;
+    // Applies lakes to a column: lowers height inside the basin, raises a small
+    // berm at the rim, returns the water level (>= sea) and whether this is lake bed.
+    static void apply_lakes(int x, int z, const Lake *lakes, int n, int &height, int &water_level, bool &lakebed);
+    bool ruin_at_cell(int cx, int cz, Ruin &out) const;
+    int ruins_near(int x0, int z0, int x1, int z1, Ruin *out, int max_out) const;
+    static bool in_ruin(const Ruin &r, int x, int z, int margin);
     inline bool is_cave(int x, int y, int z, int height) const;
     inline uint16_t ore_at(int x, int y, int z) const;
     static float spline(float v, const float *xs, const float *ys, int n);

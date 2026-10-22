@@ -33,6 +33,9 @@ func setup(p_world: World, center_world: Vector3) -> void:
 	sim.configure(size_chunks, Settings.sim_threads, Settings.world_seed)
 	sim.set_materials(GameMaterials.defs())
 	sim.set_reactions(GameMaterials.reactions())
+	# Chunks stream in over several frames; until loaded they must act as walls,
+	# not air, or water next to them flows into nothing (holes in lakes).
+	sim.mark_all_loaded(false)
 	origin = _center_chunk(center_world) - Vector3i(r, r, r)
 	for z in size_chunks.z:
 		for y in size_chunks.y:
@@ -119,6 +122,50 @@ func set_voxel(wp: Vector3i, material: int) -> bool:
 		return false
 	sim.set_voxel(wp - origin * Settings.CHUNK, material)
 	return true
+
+
+## Debug: compare every loaded bubble chunk with what the generator says it
+## should be. In a settled, unedited world they must match; mismatches mean
+## chunks were loaded while the terrain was still streaming (air where there
+## should be ground) or the simulation moved something.
+func verify_against_generator(gen: WorldGen) -> Dictionary:
+	if not _ready:
+		return {}
+	var mismatched := 0
+	var air_where_solid := 0
+	var solid_where_air := 0
+	var checked := 0
+	var examples := []
+	for z in size_chunks.z:
+		for y in size_chunks.y:
+			for x in size_chunks.x:
+				var lc := Vector3i(x, y, z)
+				if _pending_loads.has(lc):
+					continue
+				var wc := lc + origin
+				var expect: PackedByteArray = gen.generate_block(wc * Settings.CHUNK, Vector3i(16, 16, 16), 0, 2)
+				var got: PackedByteArray = sim.get_chunk_bytes(lc, 2)
+				checked += 1
+				if expect.is_empty():
+					expect = PackedByteArray()
+					expect.resize(8192)
+				if expect == got:
+					continue
+				mismatched += 1
+				var aws := 0
+				var swa := 0
+				for i in 4096:
+					var e := expect[i * 2] | (expect[i * 2 + 1] << 8)
+					var g := got[i * 2] | (got[i * 2 + 1] << 8)
+					if e != 0 and g == 0:
+						aws += 1
+					elif e == 0 and g != 0:
+						swa += 1
+				air_where_solid += aws
+				solid_where_air += swa
+				if examples.size() < 5:
+					examples.append({"world_chunk": wc, "air_where_solid": aws, "solid_where_air": swa, "terrain_loaded_now": world.is_area_loaded(wc)})
+	return {"checked": checked, "mismatched": mismatched, "air_where_solid": air_where_solid, "solid_where_air": solid_where_air, "examples": examples}
 
 
 func stats() -> Dictionary:

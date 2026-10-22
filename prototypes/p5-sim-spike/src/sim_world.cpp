@@ -91,6 +91,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_voxel", "pos", "material"), &SimWorld::set_voxel);
     ClassDB::bind_method(D_METHOD("get_voxel", "pos"), &SimWorld::get_voxel);
     ClassDB::bind_method(D_METHOD("ignite", "pos"), &SimWorld::ignite);
+    ClassDB::bind_method(D_METHOD("mark_all_loaded", "loaded"), &SimWorld::mark_all_loaded);
     ClassDB::bind_method(D_METHOD("tick", "count"), &SimWorld::tick);
     ClassDB::bind_method(D_METHOD("get_chunk_bytes", "chunk", "depth_bytes"), &SimWorld::get_chunk_bytes, DEFVAL(1));
     ClassDB::bind_method(D_METHOD("set_chunk_bytes", "chunk", "bytes", "depth_bytes"), &SimWorld::set_chunk_bytes, DEFVAL(1));
@@ -132,6 +133,7 @@ void SimWorld::configure(Vector3i p_chunks, int p_threads, int p_seed) {
     active_next_.reset(new std::atomic<uint8_t>[nc]);
     dirty_.reset(new std::atomic<uint8_t>[nc]);
     for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); }
+    loaded_.assign(nc, 1); // default: everything counts as loaded (fill_box/scatter worlds); streaming callers clear it
     rebuild_pass_lists();
     if (threads_ > 1) pool_.start(threads_);
 }
@@ -287,6 +289,10 @@ int SimWorld::get_voxel(Vector3i p) const {
     return cells_[idx(p.x, p.y, p.z)].mat;
 }
 
+void SimWorld::mark_all_loaded(bool p_loaded) {
+    std::fill(loaded_.begin(), loaded_.end(), p_loaded ? 1 : 0);
+}
+
 void SimWorld::ignite(Vector3i p) {
     if (!in_world(p.x, p.y, p.z)) return;
     int i = idx(p.x, p.y, p.z);
@@ -336,7 +342,7 @@ inline bool SimWorld::can_displace(uint8_t mover, uint8_t target) const {
 }
 
 inline bool SimWorld::try_move(int sx, int sy, int sz, int tx, int ty, int tz, Ctx &c) {
-    if (!in_world(tx, ty, tz)) return false;
+    if (!is_open(tx, ty, tz)) return false;
     int ti = idx(tx, ty, tz);
     int si = idx(sx, sy, sz);
     if (moved_[ti] == stamp_) return false;
@@ -381,7 +387,7 @@ void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
         bool ledge = false;
         for (int s = 1; s <= DISP; s++) {
             int px = x + DX4[dd] * s, pz = z + DZ4[dd] * s;
-            if (!in_world(px, y, pz)) break;
+            if (!is_open(px, y, pz)) break;
             int pi = idx(px, y, pz);
             if (!can_displace(self, cells_[pi].mat) || moved_[pi] == stamp_) break;
             best_x = px; best_z = pz;
@@ -425,7 +431,7 @@ void SimWorld::update_fire(int x, int y, int z, int i, Ctx &c) {
     uint32_t r = rnd(c);
     int n = (r >> 4) % 6;
     int nx = x + NX6[n], ny = y + NY6[n], nz = z + NZ6[n];
-    if (in_world(nx, ny, nz)) {
+    if (is_open(nx, ny, nz)) {
         int ni = idx(nx, ny, nz);
         const MaterialDef &t = mats_[cells_[ni].mat];
         if (t.burnable && !(cells_[ni].flags & FLAG_BURNING) && m.temperature_of_fire >= t.autoignition_temperature) {
@@ -457,7 +463,7 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
     // Spread to a random burnable neighbour (Noita: burning pixels ignite neighbours directly).
     int n = (r >> 4) % 6;
     int nx = x + NX6[n], ny = y + NY6[n], nz = z + NZ6[n];
-    if (in_world(nx, ny, nz)) {
+    if (is_open(nx, ny, nz)) {
         int ni = idx(nx, ny, nz);
         const MaterialDef &t = mats_[cells_[ni].mat];
         if (t.burnable && !(cells_[ni].flags & FLAG_BURNING) && m.temperature_of_fire >= t.autoignition_temperature
@@ -494,7 +500,7 @@ void SimWorld::try_react(int x, int y, int z, int i, Ctx &c) {
     uint32_t r = rnd(c);
     int n = (r >> 4) % 6;
     int nx = x + NX6[n], ny = y + NY6[n], nz = z + NZ6[n];
-    if (!in_world(nx, ny, nz)) return;
+    if (!is_open(nx, ny, nz)) return;
     int ni = idx(nx, ny, nz);
     const uint8_t b = cells_[ni].mat;
     int16_t ri = react_lut_[a * MAX_MATERIALS + b];
@@ -636,6 +642,7 @@ void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p
             }
     int ci = cidx(c.x, c.y, c.z);
     active_next_[ci].store(1, std::memory_order_relaxed); // let it settle once
+    loaded_[ci] = 1;
 }
 
 // Slide the simulation window by whole chunks. Cells that stay inside move in memory;
@@ -662,7 +669,7 @@ Array SimWorld::shift(Vector3i d) {
     cells_.swap(nc);
     moved_.swap(nm);
     size_t ncn = (size_t)CX_ * CY_ * CZ_;
-    std::vector<uint8_t> na(ncn, 0), nd(ncn, 0);
+    std::vector<uint8_t> na(ncn, 0), nd(ncn, 0), nl(ncn, 0);
     for (int cz = 0; cz < CZ_; cz++)
         for (int cy = 0; cy < CY_; cy++)
             for (int cx = 0; cx < CX_; cx++) {
@@ -675,12 +682,14 @@ Array SimWorld::shift(Vector3i d) {
                 int oi = cidx(ox, oy, oz);
                 na[ci] = active_next_[oi].load() | active_now_[oi].load();
                 nd[ci] = dirty_[oi].load();
+                nl[ci] = loaded_[oi];
             }
     for (size_t i = 0; i < ncn; i++) {
         active_next_[i].store(na[i]);
         active_now_[i].store(0);
         dirty_[i].store(nd[i]);
     }
+    loaded_.swap(nl); // vacated chunks are unloaded (walls) until the caller loads them
     return vacated;
 }
 

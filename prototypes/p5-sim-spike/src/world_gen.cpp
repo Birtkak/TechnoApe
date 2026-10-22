@@ -20,6 +20,7 @@ void WorldGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("generate_block", "origin", "size", "lod", "bytes_per_voxel"), &WorldGen::generate_block, DEFVAL(2));
     ClassDB::bind_method(D_METHOD("map_image", "center_x", "center_z", "radius", "step"), &WorldGen::map_image);
     ClassDB::bind_static_method("WorldGen", D_METHOD("biome_name", "biome"), &WorldGen::biome_name);
+    ClassDB::bind_method(D_METHOD("find_nearest", "kind", "x", "z", "max_radius"), &WorldGen::find_nearest);
     BIND_ENUM_CONSTANT(BIOME_DEEP_OCEAN);
     BIND_ENUM_CONSTANT(BIOME_OCEAN);
     BIND_ENUM_CONSTANT(BIOME_BEACH);
@@ -61,6 +62,7 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup(n_ore_, seed_ + 10, 0.09f, 1);
     setup(n_beach_, seed_ + 11, 0.01f, 1);
     setup(n_river_, seed_ + 12, 0.0009f, 2);
+    setup(n_jitter_, seed_ + 13, 0.02f, 2);
 }
 
 uint32_t WorldGen::hash3(int a, int b, int c) {
@@ -95,8 +97,12 @@ WorldGen::Column WorldGen::column(int x, int z) const {
     col.e = n_eros_.GetNoise(fx, fz);
     float pv_raw = n_pv_.GetNoise(fx, fz); // ridged: around -1..1, sharp ridges near 1
     col.pv = pv_raw;
-    col.t = n_temp_.GetNoise(fx, fz);
-    col.h = n_hum_.GetNoise(fx, fz);
+    // Biome blending: jitter the climate values with a fine noise so biome
+    // borders dither over ~20 m instead of a hard line.
+    const float jit = n_jitter_.GetNoise(fx, fz);
+    const float jit2 = n_jitter_.GetNoise(fz + 1000.0f, fx - 1000.0f);
+    col.t = n_temp_.GetNoise(fx, fz) + jit * 0.09f;
+    col.h = n_hum_.GetNoise(fx, fz) + jit2 * 0.09f;
 
     // Base height from continentalness (voxels relative to sea level).
     static const float cx[] = {-1.0f, -0.6f, -0.25f, -0.08f, 0.05f, 0.3f, 0.55f, 0.8f, 1.0f};
@@ -133,15 +139,16 @@ WorldGen::Column WorldGen::column(int x, int z) const {
     int h = (int)std::lround(hf);
     col.height = std::clamp(h, 8, world_height_ - 8);
 
-    // Biome
+    // Biome (height thresholds jittered too, so beach/highland edges dither)
     int above = col.height - sea_;
+    const int hj = (int)(jit * 6.0f);
     if (col.c < -0.55f) col.biome = BIOME_DEEP_OCEAN;
     else if (col.river > 0.55f && col.height < sea_) col.biome = BIOME_RIVER;
     else if (col.height < sea_ - 1) col.biome = BIOME_OCEAN;
-    else if (above <= 3) col.biome = BIOME_BEACH;
-    else if (above > 300) col.biome = BIOME_SNOWY_PEAKS;
-    else if (above > 170) col.biome = BIOME_MOUNTAINS;
-    else if (above > 70) col.biome = BIOME_HIGHLANDS;
+    else if (above <= 3 + (hj > 0 ? hj / 3 : 0)) col.biome = BIOME_BEACH;
+    else if (above > 300 + hj) col.biome = BIOME_SNOWY_PEAKS;
+    else if (above > 170 + hj) col.biome = BIOME_MOUNTAINS;
+    else if (above > 70 + hj) col.biome = BIOME_HIGHLANDS;
     else if (col.t > 0.35f && col.h < -0.1f) col.biome = BIOME_DESERT;
     else if (col.t < -0.45f) col.biome = BIOME_TUNDRA;
     else if (col.h > 0.15f) col.biome = BIOME_FOREST;
@@ -200,6 +207,131 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     return true;
 }
 
+// ---------- lakes ----------
+
+bool WorldGen::lake_at_cell(int cx, int cz, Lake &out) const {
+    uint32_t hsh = hash3(cx, cz, seed_ + 77);
+    if ((hsh & 0xFF) > 90) return false; // ~35 % of cells
+    int radius = 24 + (int)((hsh >> 8) % 33);  // 24..56 voxels (12..28 m)
+    int margin = radius + 4;
+    int span = LAKE_CELL - 2 * margin;
+    if (span <= 0) return false;
+    int x = cx * LAKE_CELL + margin + (int)((hsh >> 14) % (uint32_t)span);
+    int z = cz * LAKE_CELL + margin + (int)((hsh >> 22) % (uint32_t)span);
+    Column c = column(x, z);
+    if (c.height < sea_ + 8 || c.river > 0.1f || c.e < 0.05f) return false; // flat land only
+    if (!(c.biome == BIOME_PLAINS || c.biome == BIOME_FOREST || c.biome == BIOME_HIGHLANDS || c.biome == BIOME_TUNDRA)) return false;
+    // Surface level: just below the lowest point of the rim, so water never
+    // floats; give up if the rim is too uneven for a believable pond.
+    int rim_min = 1 << 30, rim_max = -1;
+    for (int k = 0; k < 8; k++) {
+        float a = (float)k * 0.7853982f;
+        int rx = x + (int)std::lround(std::cos(a) * radius), rz = z + (int)std::lround(std::sin(a) * radius);
+        int rh = column(rx, rz).height;
+        rim_min = std::min(rim_min, rh);
+        rim_max = std::max(rim_max, rh);
+    }
+    if (rim_max - rim_min > 6) return false; // no cliff-walled pits
+    out.x = x;
+    out.z = z;
+    out.radius = radius;
+    out.level = std::min(rim_min, c.height) - 1;
+    out.depth = 4 + (int)((hsh >> 4) & 7); // 4..11 voxels deep at the centre
+    if (out.level <= sea_ + 2) return false;
+    return true;
+}
+
+int WorldGen::lakes_near(int x0, int z0, int x1, int z1, Lake *out, int max_out) const {
+    int n = 0;
+    int cx0 = (int)std::floor((float)(x0 - LAKE_MAX_RADIUS - 8) / LAKE_CELL);
+    int cx1 = (int)std::floor((float)(x1 + LAKE_MAX_RADIUS + 8) / LAKE_CELL);
+    int cz0 = (int)std::floor((float)(z0 - LAKE_MAX_RADIUS - 8) / LAKE_CELL);
+    int cz1 = (int)std::floor((float)(z1 + LAKE_MAX_RADIUS + 8) / LAKE_CELL);
+    for (int cz = cz0; cz <= cz1 && n < max_out; cz++)
+        for (int cx = cx0; cx <= cx1 && n < max_out; cx++) {
+            Lake l;
+            if (lake_at_cell(cx, cz, l)) out[n++] = l;
+        }
+    return n;
+}
+
+void WorldGen::apply_lakes(int x, int z, const Lake *lakes, int n, int &height, int &water_level, bool &lakebed) {
+    for (int i = 0; i < n; i++) {
+        const Lake &l = lakes[i];
+        float dx = (float)(x - l.x), dz = (float)(z - l.z);
+        float d = std::sqrt(dx * dx + dz * dz);
+        float outer = (float)l.radius + 4.0f;
+        if (d > outer) continue;
+        float r = (float)l.radius;
+        if (d <= r) {
+            // basin: bowl profile, deepest at the centre
+            float t = 1.0f - smoothstep(0.0f, 1.0f, d / r); // 1 centre .. 0 rim
+            int bed = l.level - (int)std::lround((float)l.depth * (0.3f + 0.7f * t));
+            if (d > r * 0.85f) {
+                // inner rim: blend from bed up to the rim level
+                float u = (d - r * 0.85f) / (r * 0.15f);
+                bed = (int)std::lround((float)bed + u * (float)(l.level - bed));
+            }
+            if (bed < height) height = bed;
+            if (height <= l.level) { water_level = std::max(water_level, l.level); lakebed = true; }
+        } else {
+            // berm: never let the ground right outside the rim sit below the water
+            if (height < l.level + 1) height = l.level + 1;
+        }
+    }
+}
+
+// ---------- ruins ----------
+
+bool WorldGen::ruin_at_cell(int cx, int cz, Ruin &out) const {
+    uint32_t hsh = hash3(cx, cz, seed_ + 991);
+    if ((hsh & 0xFF) > 30) return false; // ~12 % of cells
+    int hw = 5 + (int)((hsh >> 8) % 6);   // half width 5..10
+    int hd = 5 + (int)((hsh >> 12) % 6);
+    int margin = RUIN_MAX_HALF + 4;
+    int span = RUIN_CELL - 2 * margin;
+    int x = cx * RUIN_CELL + margin + (int)((hsh >> 16) % (uint32_t)span);
+    int z = cz * RUIN_CELL + margin + (int)((hsh >> 24) % (uint32_t)span);
+    Column c = column(x, z);
+    if (c.height < sea_ + 5 || c.river > 0.1f) return false;
+    if (!(c.biome == BIOME_PLAINS || c.biome == BIOME_FOREST || c.biome == BIOME_HIGHLANDS || c.biome == BIOME_TUNDRA || c.biome == BIOME_DESERT)) return false;
+    // Only on flat ground: the footprint corners must sit within a few voxels of the centre.
+    int hmin = c.height, hmax = c.height;
+    const int cxs[4] = {x - hw, x + hw, x - hw, x + hw};
+    const int czs[4] = {z - hd, z - hd, z + hd, z + hd};
+    for (int k = 0; k < 4; k++) {
+        int hh = column(cxs[k], czs[k]).height;
+        hmin = std::min(hmin, hh);
+        hmax = std::max(hmax, hh);
+    }
+    if (hmax - hmin > 4) return false;
+    out.x = x;
+    out.z = z;
+    out.hw = hw;
+    out.hd = hd;
+    out.base = (hmin + hmax) / 2;
+    out.seed = hsh;
+    return true;
+}
+
+int WorldGen::ruins_near(int x0, int z0, int x1, int z1, Ruin *out, int max_out) const {
+    int n = 0;
+    int cx0 = (int)std::floor((float)(x0 - RUIN_MAX_HALF - 4) / RUIN_CELL);
+    int cx1 = (int)std::floor((float)(x1 + RUIN_MAX_HALF + 4) / RUIN_CELL);
+    int cz0 = (int)std::floor((float)(z0 - RUIN_MAX_HALF - 4) / RUIN_CELL);
+    int cz1 = (int)std::floor((float)(z1 + RUIN_MAX_HALF + 4) / RUIN_CELL);
+    for (int cz = cz0; cz <= cz1 && n < max_out; cz++)
+        for (int cx = cx0; cx <= cx1 && n < max_out; cx++) {
+            Ruin r;
+            if (ruin_at_cell(cx, cz, r)) out[n++] = r;
+        }
+    return n;
+}
+
+bool WorldGen::in_ruin(const Ruin &r, int x, int z, int margin) {
+    return std::abs(x - r.x) <= r.hw + margin && std::abs(z - r.z) <= r.hd + margin;
+}
+
 // Trees whose canopy can touch the horizontal range [x0,x1] x [z0,z1].
 int WorldGen::trees_near(int x0, int z0, int x1, int z1, Tree *out, int max_out) const {
     int n = 0;
@@ -251,19 +383,45 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
     bool any = false;
     const bool do_caves = lod == 0;
     const bool do_ores = lod == 0;
-    // Trees: stamped at LOD 0..2 so forests show on the horizon as green blobs.
-    Tree trees[64];
-    int ntrees = 0;
+    // Decorations are deterministic per grid cell, so every block stamps the
+    // same trees / lakes / ruins without neighbour data. Lakes and ruins at all
+    // LODs (they change the height field); trees at LOD 0..2.
     const int y_top = origin.y + sy * step;
-    if (lod <= 2 && y_top > sea_ && origin.y < world_height_) {
-        ntrees = trees_near(origin.x, origin.z, origin.x + sx * step, origin.z + sz * step, trees, 64);
+    const bool above_sea = y_top > sea_ && origin.y < world_height_;
+    Tree trees[64];
+    Lake lakes[8];
+    Ruin ruins[4];
+    int ntrees = 0, nlakes = 0, nruins = 0;
+    if (above_sea) {
+        nlakes = lakes_near(origin.x, origin.z, origin.x + sx * step, origin.z + sz * step, lakes, 8);
+        nruins = ruins_near(origin.x, origin.z, origin.x + sx * step, origin.z + sz * step, ruins, 4);
+        if (lod <= 2) ntrees = trees_near(origin.x, origin.z, origin.x + sx * step, origin.z + sz * step, trees, 64);
     }
     for (int z = 0; z < sz; z++) {
         const int wz = origin.z + z * step;
         for (int x = 0; x < sx; x++) {
             const int wx = origin.x + x * step;
             const Column col = column(wx, wz);
-            const int h = col.height;
+            int h = col.height;
+            int water_level = sea_;
+            bool lakebed = false;
+            int no_cave_above = -1; // no caves above this y (keeps lakes from draining)
+            if (nlakes) {
+                apply_lakes(wx, wz, lakes, nlakes, h, water_level, lakebed);
+                for (int i = 0; i < nlakes; i++) {
+                    float ddx = (float)(wx - lakes[i].x), ddz = (float)(wz - lakes[i].z);
+                    float lim = (float)(lakes[i].radius + 8);
+                    if (ddx * ddx + ddz * ddz <= lim * lim) no_cave_above = std::max(no_cave_above, lakes[i].level - 40);
+                }
+            }
+            // Ruin footprint: flatten to the ruin base and open the air above it.
+            const Ruin *ruin = nullptr;
+            for (int i = 0; i < nruins; i++)
+                if (in_ruin(ruins[i], wx, wz, 2)) { ruin = &ruins[i]; break; }
+            if (ruin) {
+                const int ground = ruin->base;
+                if (in_ruin(*ruin, wx, wz, 0)) h = ground; else if (h > ground + 1) h = ground + 1;
+            }
             const bool beach_sand = col.biome == BIOME_BEACH || (col.biome == BIOME_OCEAN && col.c > -0.4f);
             const bool river_bank = col.river > 0.08f && h <= sea_ + 2;
             uint16_t *colp = w + sy * (x + sx * z); // y is fastest (VoxelBuffer order)
@@ -274,15 +432,56 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                 const int dx = wx - trees[t].x, dz = wz - trees[t].z;
                 const int d2 = dx * dx + dz * dz;
                 if (d2 > trees[t].radius * trees[t].radius + 1) continue;
+                // no trees in lakes or on ruins
+                bool blocked = false;
+                for (int i = 0; i < nlakes && !blocked; i++) {
+                    float ddx = (float)(trees[t].x - lakes[i].x), ddz = (float)(trees[t].z - lakes[i].z);
+                    blocked = ddx * ddx + ddz * ddz <= (float)((lakes[i].radius + 2) * (lakes[i].radius + 2));
+                }
+                for (int i = 0; i < nruins && !blocked; i++) blocked = in_ruin(ruins[i], trees[t].x, trees[t].z, 3);
+                if (blocked) continue;
                 const int top = trees[t].base + trees[t].trunk_h;
                 if (dx == 0 && dz == 0) { trunk_lo = trees[t].base; trunk_hi = top + 1; }
                 if (can_hi < 0 || d2 < can_d2) {
                     can_base = top - 2; can_lo = can_base; can_hi = top + 2; can_r = trees[t].radius; can_d2 = d2;
                 }
             }
+            // Ruin walls for this column: perimeter segments with gaps, taller corner
+            // pillars, rubble just outside.
+            int wall_top = -1;
+            uint32_t wall_seed = 0;
+            bool rubble = false;
+            if (ruin) {
+                const int ax = std::abs(wx - ruin->x), az = std::abs(wz - ruin->z);
+                const bool on_perimeter = (ax == ruin->hw && az <= ruin->hd) || (az == ruin->hd && ax <= ruin->hw);
+                const bool corner = ax == ruin->hw && az == ruin->hd;
+                if (on_perimeter) {
+                    const int seg = corner ? 99 : ((ax == ruin->hw) ? (wz - ruin->z + ruin->hd) / 4 + 100 * (wx > ruin->x) : (wx - ruin->x + ruin->hw) / 4 + 200 * (wz > ruin->z));
+                    uint32_t sh = hash3((int)ruin->seed, seg, 7);
+                    int hgt = corner ? 6 + (int)(sh % 4) : (int)(sh % 7); // 0..6, corners 6..9
+                    if (!corner && ((sh >> 8) & 7) == 0) hgt = 0;            // collapsed segment
+                    wall_top = ruin->base + hgt;
+                    wall_seed = hash3(wx, wz, (int)ruin->seed);
+                } else if (!in_ruin(*ruin, wx, wz, 0)) {
+                    rubble = (hash3(wx, wz, (int)ruin->seed + 5) & 15) == 0;
+                }
+            }
             for (int y = 0; y < sy; y++) {
                 const int wy = origin.y + y * step;
                 uint16_t m = AIR;
+                if (ruin && wy >= ruin->base && wy <= ruin->base + 10 && in_ruin(*ruin, wx, wz, 2)) {
+                    // inside the ruin volume: floor, walls, rubble, otherwise open air
+                    if (wy == ruin->base && in_ruin(*ruin, wx, wz, 0)) m = (hash3(wx, wz, 3) & 3) ? STONE : GRAVEL_STATIC;
+                    else if (wall_top >= 0 && wy > ruin->base && wy <= wall_top) {
+                        // weathered: random missing stones, more missing near the top
+                        uint32_t vh = hash3(wy, (int)wall_seed, 11);
+                        int miss = (vh & 15) < (uint32_t)(2 + (wy - ruin->base)) ? 1 : 0;
+                        m = miss ? AIR : STONE;
+                    } else if (rubble && wy == ruin->base + 1) m = STONE;
+                    colp[y] = m;
+                    if (m != AIR) any = true;
+                    continue;
+                }
                 if (wy >= trunk_lo && wy <= trunk_hi) {
                     m = WOOD;
                 } else if (can_hi >= 0 && wy >= can_lo && wy <= can_hi && wy >= h) {
@@ -296,14 +495,16 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                     m = BEDROCK;
                 } else if (wy < h) {
                     const int depth = h - wy;
-                    if (do_caves && is_cave(wx, wy, wz, h) && !(wy < sea_ && h < sea_ + 2)) {
+                    if (do_caves && wy < no_cave_above - 0 + (no_cave_above < 0 ? 1 << 20 : 0) && is_cave(wx, wy, wz, h) && !(wy < sea_ && h < sea_ + 2)) {
                         m = (wy < sea_ - 180) ? LAVA : AIR; // deep caves hold lava pools
                     } else if (depth > 4 + (int)(step > 1)) {
                         m = do_ores ? ore_at(wx, wy, wz) : STONE;
                     } else {
                         // top layers by biome
                         const bool top = depth == 1;
-                        if (river_bank) {
+                        if (lakebed) {
+                            m = (hash3(wx, wz, 5) & 3) ? GRAVEL_STATIC : SAND_STATIC;
+                        } else if (river_bank) {
                             m = (col.river > 0.5f) ? GRAVEL_STATIC : SAND_STATIC;
                         } else switch (col.biome) {
                             case BIOME_RIVER: m = GRAVEL_STATIC; break;
@@ -317,7 +518,7 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                             default: m = top ? GRASS : DIRT; break;
                         }
                     }
-                } else if (wy < sea_) {
+                } else if (wy < water_level) {
                     m = WATER;
                 }
                 colp[y] = m;
@@ -341,11 +542,44 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
     return out;
 }
 
+Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius) const {
+    const bool want_lake = kind == "lake";
+    const int cell = want_lake ? LAKE_CELL : RUIN_CELL;
+    const int cx0 = (int)std::floor((float)x / cell), cz0 = (int)std::floor((float)z / cell);
+    const int rings = max_radius / cell + 1;
+    Vector3i best(0, -1, 0);
+    long best_d2 = -1;
+    for (int ring = 0; ring <= rings; ring++) {
+        for (int dz = -ring; dz <= ring; dz++)
+            for (int dx = -ring; dx <= ring; dx++) {
+                if (std::max(std::abs(dx), std::abs(dz)) != ring) continue;
+                int px, pz, py;
+                if (want_lake) {
+                    Lake l;
+                    if (!lake_at_cell(cx0 + dx, cz0 + dz, l)) continue;
+                    px = l.x; pz = l.z; py = l.level;
+                } else {
+                    Ruin r;
+                    if (!ruin_at_cell(cx0 + dx, cz0 + dz, r)) continue;
+                    px = r.x; pz = r.z; py = r.base;
+                }
+                long d2 = (long)(px - x) * (px - x) + (long)(pz - z) * (pz - z);
+                if (best_d2 < 0 || d2 < best_d2) { best_d2 = d2; best = Vector3i(px, py, pz); }
+            }
+        if (best_d2 >= 0) break; // nearest ring with a hit is good enough
+    }
+    return best;
+}
+
 PackedByteArray WorldGen::map_image(int center_x, int center_z, int radius, int step) const {
     const int n = std::max(1, 2 * radius / std::max(1, step));
     PackedByteArray img;
     img.resize(n * n * 3);
     uint8_t *p = img.ptrw();
+    std::vector<Lake> lakes(1024);
+    std::vector<Ruin> ruins(1024);
+    const int nl = lakes_near(center_x - radius, center_z - radius, center_x + radius, center_z + radius, lakes.data(), 1024);
+    const int nr = ruins_near(center_x - radius, center_z - radius, center_x + radius, center_z + radius, ruins.data(), 1024);
     static const uint8_t colors[BIOME_COUNT][3] = {
         {20, 40, 120}, {40, 80, 200}, {230, 215, 150}, {110, 190, 80}, {40, 130, 50},
         {225, 200, 110}, {200, 210, 220}, {130, 150, 90}, {120, 120, 125}, {245, 245, 250},
@@ -361,6 +595,13 @@ PackedByteArray WorldGen::map_image(int center_x, int center_z, int radius, int 
             q[0] = (uint8_t)std::clamp(col[0] * shade, 0.0f, 255.0f);
             q[1] = (uint8_t)std::clamp(col[1] * shade, 0.0f, 255.0f);
             q[2] = (uint8_t)std::clamp(col[2] * shade, 0.0f, 255.0f);
+            const int wx = center_x - radius + i * step, wz = center_z - radius + j * step;
+            for (int k = 0; k < nl; k++) {
+                long dx = wx - lakes[k].x, dz = wz - lakes[k].z;
+                if (dx * dx + dz * dz <= (long)lakes[k].radius * lakes[k].radius) { q[0] = 120; q[1] = 190; q[2] = 255; break; }
+            }
+            for (int k = 0; k < nr; k++)
+                if (in_ruin(ruins[k], wx, wz, 1)) { q[0] = 40; q[1] = 40; q[2] = 45; break; }
         }
     return img;
 }

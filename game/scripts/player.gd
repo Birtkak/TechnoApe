@@ -40,6 +40,13 @@ func _ready() -> void:
 	_apply_look()
 
 
+func set_look(yaw: float, pitch: float) -> void:
+	_yaw = yaw
+	_pitch = clampf(pitch, -1.5, 1.5)
+	if camera:
+		_apply_look()
+
+
 func capture_mouse(on: bool) -> void:
 	_mouse_captured = on
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if on else Input.MOUSE_MODE_VISIBLE
@@ -87,6 +94,9 @@ func _physics_process(delta: float) -> void:
 		up_down = (1.0 if Input.is_action_pressed("jump") else 0.0) - (1.0 if Input.is_action_pressed("descend") else 0.0)
 	var dir := (transform.basis * Vector3(input.x, 0, input.y)).normalized()
 	if flying:
+		if autopilot and autopilot_speed_m <= 0.0:
+			velocity = Vector3.ZERO
+			return
 		var speed := Settings.m2v(autopilot_speed_m if autopilot else Settings.fly_speed_m)
 		velocity = dir * speed
 		velocity.y = up_down * speed

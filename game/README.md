@@ -12,6 +12,12 @@ Godot_v4.7.2-stable_mono_win64_console.exe --path game
 # unattended check for Claude: fly forward 20 s, filmstrip every second, JSON on stdout
 Godot_v4.7.2-stable_mono_win64_console.exe --path game -- autopilot=1 duration=20 capture_every=1 vsync=0 out=res://out/run1
 # any Settings value can be overridden: render_distance_m=64 view_distance_m=1024 lod_count=8 sim_tick_hz=30 ...
+# park at a feature and look down: target=lake|ruin speed=0 offset=15 alt=20 pitch=-0.7
+# the JSON ends with bubble_verify: simulation bubble vs generator (0 mismatches expected)
+
+# generator probes (headless): stats + biome map; settle test around a feature
+Godot_..._console.exe --headless --path game --script res://tools/gen_probe.gd -- seed=1337 radius=2048
+Godot_..._console.exe --headless --path game --script res://tools/settle_probe.gd -- target=lake ticks=60
 ```
 
 First run after adding scripts/addons: `--headless --path game --import` (twice if the
@@ -61,6 +67,6 @@ nothing moves. Server and client will share this split (ADR 0002).
 - Persistence is godot_voxel's SQLite stream (`user://worlds/world_<seed>.sqlite`),
   a placeholder for the versioned region format; sim-bubble state (burning,
   lifetimes) is not saved, only materials.
-- Generator has no trees, rivers or structures yet.
+- Generator: no dungeons, villages, waterfalls or vegetation details yet (ruins, trees, rivers, lakes exist).
 - No inventory/items; break/place are debug actions.
 - Memory at large full-detail radius; see `docs/research` matrix in the commit log.

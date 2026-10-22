@@ -25,8 +25,8 @@ cold. Caves and ores only at LOD 0 (they alias at coarser LODs); caves are
 not carved under the sea floor. Max height ≈ sea + 606, under the ceiling.
 
 ## Measured (seed 1337)
-- LOD 0 block 16³ with caves + ores: 375 µs; LOD 2 block: 67 µs (one thread;
-  godot_voxel runs them on its pool).
+- LOD 0 block 16³ with caves + ores: 375 µs; with trees, lakes, ruins: 425 µs;
+  LOD 2 block: 67 → 118 µs (one thread; godot_voxel runs them on its pool).
 - 4 km × 4 km sample: ocean 43 %, plains 15 %, forest 13 %, highlands 13 %,
   beach 6 %, tundra 4 %, mountains 4 %, desert 1 %, snowy peaks 0.5 %.
 - Height range 191 … 703. Cave air under the spawn area: 4.3 % of volume.
@@ -62,9 +62,50 @@ Natural sand and gravel are generated as `sand_static` / `gravel_static`
 diagonally into the sea under the powder rules (3,400 chunk pushes in a
 25 s fly-through). Mining them yields the loose material (`loose` field).
 
+## Lakes above sea level (2026-10-22)
+One candidate per 192-voxel cell (35 % of cells), radius 24–56, only on flat
+land (erosion > 0.05, no river, plains/forest/highlands/tundra). The surface
+level is `min(rim samples, centre) − 1` from 8 columns on the rim, and the
+lake is rejected if the rim varies by more than 6 voxels, so no cliff-walled
+pits. Inside: a bowl 4–11 voxels deep with gravel/sand bed; a 1-voxel berm
+outside the rim keeps water from spilling where the ground dips. Caves are
+suppressed within radius + 8 above `level − 40` so lakes never drain. Trees
+keep out of lakes.
+
+## Ruins (2026-10-22, "keep structures minimal")
+One candidate per 160-voxel cell (12 %), footprint 11–21 voxels, only where
+the four footprint corners are within 4 voxels of each other. The ground is
+flattened to the ruin base; a 10-voxel-high volume above it is opened;
+stone floor with gravel patches; perimeter walls in 4-voxel segments of
+random height 0–6 with some segments collapsed and random missing stones
+(more missing near the top); corner pillars 6–9 high; rubble stones
+scattered just outside. Trees keep off ruins.
+
+## Biome blending (2026-10-22)
+Temperature, humidity and the height thresholds are jittered by a 50 m noise
+(±0.09, ±6 voxels), so biome borders dither over ~20 m instead of a line.
+
+## Debug tools
+- `gen_probe.gd`: timings, biome mix, cave share, biome map PNG with lakes
+  (light blue) and ruins (dark) overlaid.
+- `settle_probe.gd`: generate a region around a point or the nearest
+  lake/ruin, run the material simulation on it, report every cell that moved
+  with its neighbours. Generated terrain must be still (it is: 0 moves).
+- Autopilot `target=lake|ruin offset= alt= pitch= speed=0` parks the camera
+  at a feature; `bubble_verify` in the JSON compares the simulation bubble
+  with the generator at the end of a run (must be 0 mismatches in an
+  unedited world).
+
+## Lesson: streaming and the simulation
+Chunks enter the simulation bubble over several frames. Until a chunk is
+loaded it must act as a *wall*, not air: before this rule, lake water next
+to a not-yet-loaded chunk flowed "into nothing", the load then overwrote it,
+and the lost water was pasted back as holes (3,566 pushes in 12 s parked at
+a lake). `SimWorld` now carries a per-chunk loaded flag (`mark_all_loaded`,
+set by `set_chunk_bytes`, carried through `shift`). Cost ≈ 5–10 % per tick.
+
 ## Next
-- Lakes above sea level; waterfalls where rivers meet cliffs.
+- Waterfalls where rivers meet cliffs; swamps.
 - Biome vegetation (grass tufts, flowers, cacti), sandstone under deserts, clay.
-- Structures: villages, and the Noita-style dungeons (stamps from a
-  deterministic per-region RNG; the same cross-border trick as trees).
-- Biome blending at borders (currently hard edges).
+- The Noita-style dungeons (underground stamps from a per-region RNG).
+- A per-thread cache for lake/ruin cells (they re-evaluate columns per block).

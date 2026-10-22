@@ -75,6 +75,7 @@ public:
     void set_voxel(Vector3i p, int p_material);
     int get_voxel(Vector3i p) const;
     void ignite(Vector3i p);
+    void mark_all_loaded(bool p_loaded);
 
     // ---- simulation ----
     Dictionary tick(int p_count);
@@ -143,6 +144,7 @@ private:
     std::unique_ptr<std::atomic<uint8_t>[]> active_now_;
     std::unique_ptr<std::atomic<uint8_t>[]> active_next_;
     std::unique_ptr<std::atomic<uint8_t>[]> dirty_;
+    std::vector<uint8_t> loaded_; // per chunk: 1 once world data was loaded; unloaded chunks act as solid walls
     std::vector<int> pass_lists_[8];
     std::atomic<uint64_t> moved_count_{0};
     std::atomic<uint64_t> react_count_{0};
@@ -152,6 +154,11 @@ private:
     inline int cidx(int cx, int cy, int cz) const { return cx + CX_ * (cy + CY_ * cz); }
     inline bool in_world(int x, int y, int z) const {
         return x >= 0 && y >= 0 && z >= 0 && x < W_ && y < H_ && z < D_;
+    }
+    // In world AND inside a chunk whose data has been loaded (streaming bubbles load
+    // chunks over several frames; an unloaded neighbour must not look like air).
+    inline bool is_open(int x, int y, int z) const {
+        return in_world(x, y, z) && loaded_[cidx(x >> 4, y >> 4, z >> 4)];
     }
     static inline int mark_bit(int ox, int oy, int oz) { return (ox + 1) + 3 * ((oy + 1) + 3 * (oz + 1)); }
     inline uint32_t rnd(Ctx &c) { c.rng ^= c.rng << 13; c.rng ^= c.rng >> 17; c.rng ^= c.rng << 5; return c.rng; }

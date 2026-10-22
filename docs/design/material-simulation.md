@@ -136,6 +136,13 @@ Memory: 4 bytes per voxel core; a 16³ chunk = 16 KB; a 128³ active region
 - Simulation bubbles (players, machines, burning things) decide which
   chunks may be active at all; outside, chunks are frozen as-is.
 
+### 2.4b Streaming rule (learned 2026-10-22)
+A chunk whose world data has not been loaded into the simulation yet is a
+**wall**, never air. Every move, dispersion scan, ignition, spawn and
+reaction test checks the target chunk's loaded flag. Otherwise material at
+the bubble's loading edge flows into "nothing" and is lost when the real
+data arrives.
+
 ### 2.5 What the renderer gets
 Changed chunks are pushed as `material` arrays into godot_voxel (blocky
 mesher, model index = material id). Colour variants and burning state map

@@ -46,7 +46,6 @@ func _ready() -> void:
 	bubble = SimBubble.new()
 	bubble.name = "SimBubble"
 	add_child(bubble)
-	bubble.setup(world, player.position)
 
 	hud = DebugHud.new()
 	hud.main = self
@@ -56,10 +55,21 @@ func _ready() -> void:
 	if DebugCapture.autopilot:
 		player.autopilot = true
 		player.flying = true
-		player.position.y = h + Settings.m2v(DebugCapture.altitude_m)
 		player.autopilot_speed_m = DebugCapture.speed_m
+		if DebugCapture.target != "":
+			var t: Vector3i = world.generator.gen.find_nearest(DebugCapture.target, spawn.x, spawn.y, 4096)
+			if t.y >= 0:
+				# start offset_m before the target along +z, fly -z over it
+				player.position = Vector3(t.x + 0.5, t.y + Settings.m2v(DebugCapture.altitude_m), t.z + Settings.m2v(DebugCapture.offset_m) + 0.5)
+				player.set_look(0.0, DebugCapture.pitch)
+				print("autopilot target %s at %s" % [DebugCapture.target, t])
+			else:
+				print("autopilot target %s not found" % DebugCapture.target)
+		else:
+			player.position.y = h + Settings.m2v(DebugCapture.altitude_m)
 	else:
 		player.capture_mouse(true)
+	bubble.setup(world, player.position)
 
 
 ## Spiral out from the origin for dry, flat-ish land (plains or forest).
@@ -95,6 +105,10 @@ func _on_place(hit: VoxelRaycastResult) -> void:
 	var p: Vector3i = hit.previous_position
 	if not bubble.set_voxel(p, GameMaterials.SAND):
 		world.set_voxel(p, GameMaterials.SAND)
+
+
+func verify_bubble() -> Dictionary:
+	return bubble.verify_against_generator(world.generator.gen)
 
 
 ## Everything the HUD shows, as data (DebugCapture prints it as JSON).
