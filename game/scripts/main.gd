@@ -24,6 +24,7 @@ var chat: ChatBox
 var debug_menu: DebugMenu
 var _tick_accum := 0.0
 var _save_accum := 0.0
+var _loading: LoadingScreen
 var phys_cost := {}   # ms per physics callback this frame (player, items, item_bodies, blocks); DebugCapture reads it on a spike
 var _items_root: Node3D
 var _item_entities: Array[ItemEntity] = []
@@ -84,11 +85,14 @@ func _ready() -> void:
 	game_hud.name = "Hud"
 	add_child(game_hud)
 	# covers the first seconds while the terrain streams in (ADR 0020)
-	var loading := LoadingScreen.new()
-	loading.name = "LoadingScreen"
-	loading.bubble = bubble
-	loading.finished.connect(func() -> void: bubble.hold_pushes = false)
-	add_child(loading)
+	_loading = LoadingScreen.new()
+	_loading.name = "LoadingScreen"
+	_loading.bubble = bubble
+	_loading.finished.connect(func() -> void:
+		bubble.hold_pushes = false
+		player.edits_locked = false)
+	player.edits_locked = true
+	add_child(_loading)
 	game_hud.setup(player_inv)
 	player.hud = game_hud
 	inv_screen = InventoryScreen.new()
@@ -173,7 +177,7 @@ func _ready() -> void:
 			inv_screen.open()
 			_debug_browser.call_deferred()
 		if DebugCapture.stations:
-			_place_debug_stations.call_deferred()
+			_after_load(_place_debug_stations)   # an edit before the LOD rings exist cascades into nothing
 		if DebugCapture.scatter_items:
 			# one entity per given item, in a row two metres ahead, so a screenshot shows them
 			var fwd := -player.camera.global_transform.basis.z
@@ -289,6 +293,14 @@ func _on_game_mode_changed(mode: String) -> void:
 ## Godot 4.4+ can run the game inside the editor's Game tab; minimizing that would hide it.
 func _embedded_in_editor() -> bool:
 	return Engine.has_method("is_embedded_in_editor") and bool(Engine.call("is_embedded_in_editor"))
+
+
+## Runs `cb` once the loading screen is gone (now, if it already is).
+func _after_load(cb: Callable) -> void:
+	if _loading == null or _loading.is_done():
+		cb.call_deferred()
+	else:
+		_loading.finished.connect(func() -> void: cb.call_deferred())
 
 
 ## /stations and the debug menu: a crafting table, chest and furnace ahead.

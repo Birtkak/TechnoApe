@@ -26,6 +26,7 @@ var hud: GameHud
 var flying := true
 var game_mode := GameMode.SURVIVAL   # rules in GameMode (ADR 0018); set with set_game_mode or /gamemode
 var ui_open := false
+var edits_locked := false   # no breaking or placing while the loading screen is up (ADR 0020)
 var _last_jump_ms := -1000           # creative: double-tap jump toggles flying
 var _yaw := 0.0
 var _pitch := -0.2
@@ -393,6 +394,8 @@ func _update_mining(delta: float) -> void:
 	var holding := false
 	if autopilot:
 		holding = autopilot_action == "mine"
+	if edits_locked:
+		holding = false
 	else:
 		holding = _mouse_captured and not ui_open and Input.is_action_pressed("action_break")
 	var hit: VoxelRaycastResult = _aim() if (holding or (_mouse_captured and not ui_open and not autopilot)) else null
@@ -461,7 +464,7 @@ func _reset_mining() -> void:
 # ---------------- using the held item (right click) ----------------
 
 func _use(first_press: bool) -> void:
-	if inventory == null:
+	if inventory == null or edits_locked:
 		return
 	var hit := _aim()
 	if hit == null:
