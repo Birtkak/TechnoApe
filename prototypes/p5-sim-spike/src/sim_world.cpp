@@ -90,6 +90,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("scatter", "min", "max", "material", "density", "seed"), &SimWorld::scatter);
     ClassDB::bind_method(D_METHOD("set_voxel", "pos", "material"), &SimWorld::set_voxel);
     ClassDB::bind_method(D_METHOD("get_voxel", "pos"), &SimWorld::get_voxel);
+    ClassDB::bind_method(D_METHOD("get_flags", "pos"), &SimWorld::get_flags);
     ClassDB::bind_method(D_METHOD("ignite", "pos"), &SimWorld::ignite);
     ClassDB::bind_method(D_METHOD("mark_all_loaded", "loaded"), &SimWorld::mark_all_loaded);
     ClassDB::bind_method(D_METHOD("tick", "count"), &SimWorld::tick);
@@ -178,6 +179,15 @@ void SimWorld::set_materials(const Array &p_defs) {
         m.on_fire_flame_material = clamp8(dget_int(d, "on_fire_flame_material", 0));
         m.on_fire_smoke_material = clamp8(dget_int(d, "on_fire_smoke_material", 0));
         m.generates_smoke = clamp8(dget_f(d, "generates_smoke", 0) * 12.75);
+        // Chance that a burning neighbour's attempt ignites this material. Thin, short-burning
+        // fuels catch easily (grass, leaves), thick ones slowly (logs): 10 / fire_hp, clamped to
+        // [1/8, 1]. With a fixed 1/8 a grass voxel (fire_hp 10) died before passing the fire on
+        // and grass fires never spread (fire_bench.gd). Data may override with "ignite_chance" 0..1.
+        {
+            double ic = d.has("ignite_chance") ? dget_f(d, "ignite_chance", 0.125)
+                                               : std::clamp(10.0 / std::max(1, (int)m.fire_hp), 0.125, 1.0);
+            m.ignite_chance = (uint16_t)std::clamp((int)std::lround(ic * 65535.0), 0, 65535);
+        }
         if (m.cell_type == CELL_FIRE || m.burnable) any_fire_ = true;
         mats_.push_back(m);
     }
@@ -287,6 +297,11 @@ void SimWorld::set_voxel(Vector3i p, int p_material) {
 int SimWorld::get_voxel(Vector3i p) const {
     if (!in_world(p.x, p.y, p.z)) return -1;
     return cells_[idx(p.x, p.y, p.z)].mat;
+}
+
+int SimWorld::get_flags(Vector3i p) const {
+    if (!in_world(p.x, p.y, p.z)) return 0;
+    return cells_[idx(p.x, p.y, p.z)].flags;
 }
 
 void SimWorld::mark_all_loaded(bool p_loaded) {
@@ -467,7 +482,7 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
         int ni = idx(nx, ny, nz);
         const MaterialDef &t = mats_[cells_[ni].mat];
         if (t.burnable && !(cells_[ni].flags & FLAG_BURNING) && m.temperature_of_fire >= t.autoignition_temperature
-                && ((r >> 20) & 7) == 0) {
+                && (rnd(c) & 0xFFFF) < t.ignite_chance) {
             cells_[ni].flags |= FLAG_BURNING;
             cells_[ni].aux = t.fire_hp;
             mark_cell(nx, ny, nz, c, true);
@@ -647,27 +662,40 @@ void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p
 
 // Slide the simulation window by whole chunks. Cells that stay inside move in memory;
 // vacated chunks are cleared to air and returned so the caller loads them from the world.
+//
+// In place: cells are one linear array (idx = x + W*(y + H*z)), so new[i] = old[i + off]
+// for a constant offset is a single overlapping memmove. Cells whose source lies outside
+// the window (the vacated chunks, plus x rows that wrapped into the neighbouring row)
+// are then zeroed. moved_ needs no shift: it holds per-tick stamps and the next tick
+// takes a fresh stamp before reading it. Measured: 2.0-2.4 ms with the old copy into
+// freshly allocated arrays (8.4 MB per shift) for a 7^3-chunk window.
 Array SimWorld::shift(Vector3i d) {
     Array vacated;
     if (d == Vector3i()) return vacated;
     const int dx = d.x * CS, dy = d.y * CS, dz = d.z * CS;
-    std::vector<Cell> nc(cells_.size(), Cell{0, 0, 0, 0});
-    std::vector<uint16_t> nm(moved_.size(), 0);
-    // new[x,y,z] = old[x+dx, y+dy, z+dz]
+    const int64_t n = (int64_t)cells_.size();
+    const int64_t off = (int64_t)dx + (int64_t)W_ * ((int64_t)dy + (int64_t)H_ * dz);
+    if (off >= n || -off >= n) {
+        std::fill(cells_.begin(), cells_.end(), Cell{0, 0, 0, 0});
+    } else if (off > 0) {
+        std::memmove(cells_.data(), cells_.data() + off, (size_t)(n - off) * sizeof(Cell));
+    } else if (off < 0) {
+        std::memmove(cells_.data() - off, cells_.data(), (size_t)(n + off) * sizeof(Cell));
+    }
+    // zero every cell whose source was outside the old window
+    const int xs = std::max(0, -dx), xe = std::min(W_, W_ - dx);
     for (int z = 0; z < D_; z++) {
-        int oz = z + dz;
-        if (oz < 0 || oz >= D_) continue;
+        const bool z_out = z + dz < 0 || z + dz >= D_;
         for (int y = 0; y < H_; y++) {
-            int oy = y + dy;
-            if (oy < 0 || oy >= H_) continue;
-            int xs = std::max(0, -dx), xe = std::min(W_, W_ - dx);
-            if (xe <= xs) continue;
-            std::memcpy(&nc[idx(xs, y, z)], &cells_[idx(xs + dx, oy, oz)], (xe - xs) * sizeof(Cell));
-            std::memcpy(&nm[idx(xs, y, z)], &moved_[idx(xs + dx, oy, oz)], (xe - xs) * sizeof(uint16_t));
+            Cell *row = &cells_[idx(0, y, z)];
+            if (z_out || y + dy < 0 || y + dy >= H_ || xe <= xs) {
+                std::memset(row, 0, (size_t)W_ * sizeof(Cell));
+                continue;
+            }
+            if (xs > 0) std::memset(row, 0, (size_t)xs * sizeof(Cell));
+            if (xe < W_) std::memset(row + xe, 0, (size_t)(W_ - xe) * sizeof(Cell));
         }
     }
-    cells_.swap(nc);
-    moved_.swap(nm);
     size_t ncn = (size_t)CX_ * CY_ * CZ_;
     std::vector<uint8_t> na(ncn, 0), nd(ncn, 0), nl(ncn, 0);
     for (int cz = 0; cz < CZ_; cz++)

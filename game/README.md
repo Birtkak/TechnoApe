@@ -31,6 +31,11 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 stations=1 open=
 # hover_test=1 (mouse over a cell + R + RMB through real input; prints the result); JSON "browser"
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 open_inventory=1 browse=oak_planks:uses duration=4 out=res://out/browser
 
+# bubble / fire (ADR 0010): JSON sim.worst_frames (bubble cost per frame) and sim.slow_frames (frames > 6 ms with
+# Godot monitors); fire_test=N ignites burnables within N voxels of the player once loaded
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 target=forest fire_test=14 duration=40 out=res://out/fire
+Godot_..._console.exe --headless --path game --script res://tools/fire_bench.gd   # fire pacing + cost; set=tall_grass.fire_hp:40 only=grass_field
+
 # generator probes (headless): stats + biome map; settle test around a feature
 Godot_..._console.exe --headless --path game --script res://tools/gen_probe.gd -- seed=1337 radius=2048
 Godot_..._console.exe --headless --path game --script res://tools/settle_probe.gd -- target=lake ticks=60

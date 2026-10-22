@@ -24,6 +24,41 @@ var chunks_loaded := 0
 var bad_loads := 0
 var active_chunks := 0
 var push_ms := 0.0
+var shifts := 0
+var _push_queue := {}          # world chunk -> true, insertion order = oldest first (ADR 0010)
+var push_queue_max := 0
+var _last_push := {}           # world chunk -> msec of its last paste (Settings.sim_push_interval_ms)
+var _fire_test := -1           # debug: fire_test=N ignites burnables within N voxels once loaded
+var _fire_test_at := -1.0
+var fire_ignited := 0
+var _fire_center := Vector3i.ZERO   # player voxel (world), updated by follow()
+# per-frame cost breakdown (main-thread ms), worst frames kept for the JSON
+var _cost := {}
+var _worst: Array = []
+const WORST_KEEP := 5
+var _slow: Array = []          # whole frames over SLOW_MS: where did the time go (debug JSON)
+const SLOW_MS := 6.0
+
+
+func _frame_cost() -> Dictionary:
+	var f := Engine.get_process_frames()
+	if _cost.get("frame", -1) != f:
+		_commit_cost()
+		_cost = {"frame": f, "shift_ms": 0.0, "flush_ms": 0.0, "load_ms": 0.0, "loads": 0, "tick_ms": 0.0, "push_ms": 0.0, "pushed": 0}
+	return _cost
+
+
+func _commit_cost() -> void:
+	if _cost.is_empty():
+		return
+	var total: float = _cost["shift_ms"] + _cost["flush_ms"] + _cost["load_ms"] + _cost["tick_ms"] + _cost["push_ms"]
+	_cost["total_ms"] = snappedf(total, 0.01)
+	for k in ["shift_ms", "flush_ms", "load_ms", "tick_ms", "push_ms"]:
+		_cost[k] = snappedf(_cost[k], 0.01)
+	_worst.append(_cost)
+	_worst.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["total_ms"] > b["total_ms"])
+	if _worst.size() > WORST_KEEP:
+		_worst.resize(WORST_KEEP)
 
 
 func setup(p_world: World, center_world: Vector3) -> void:
@@ -43,6 +78,9 @@ func setup(p_world: World, center_world: Vector3) -> void:
 			for x in size_chunks.x:
 				_pending_loads.append(Vector3i(x, y, z))
 	_ready = true
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("fire_test="):
+			_fire_test = int(a.get_slice("=", 1))
 
 
 func _center_chunk(p: Vector3) -> Vector3i:
@@ -52,7 +90,9 @@ func _center_chunk(p: Vector3) -> Vector3i:
 func _process(delta: float) -> void:
 	if not _ready:
 		return
-	_load_pending(64)
+	if delta * 1000.0 > SLOW_MS and Engine.get_process_frames() > 120:
+		_note_slow_frame(delta)
+	_load_pending()
 	_tick_accum += delta
 	var period := 1.0 / Settings.sim_tick_hz
 	var ticks := 0
@@ -60,20 +100,27 @@ func _process(delta: float) -> void:
 		_tick_accum -= period
 		var t0 := Time.get_ticks_usec()
 		var r: Dictionary = sim.tick(1)
+		_frame_cost()["tick_ms"] += (Time.get_ticks_usec() - t0) / 1000.0
 		last_tick_ms = r["ms_per_tick"]
 		active_chunks = sim.get_active_chunk_count()
 		ticks_total += 1
 		ticks += 1
 	if ticks > 0:
+		_collect_dirty()
+	if not _push_queue.is_empty():
 		var t1 := Time.get_ticks_usec()
-		_push_dirty()
+		_drain_push(Settings.sim_push_budget_ms)
 		push_ms = (Time.get_ticks_usec() - t1) / 1000.0
+		_frame_cost()["push_ms"] += push_ms
+	if _fire_test > 0:
+		_run_fire_test()
 
 
 ## Keep the window centred on the player; shift by whole chunks.
 func follow(center_world: Vector3) -> void:
 	if not _ready:
 		return
+	_fire_center = Vector3i(center_world.floor())
 	var r := (size_chunks.x - 1) / 2
 	var want := _center_chunk(center_world) - Vector3i(r, r, r)
 	var d := want - origin
@@ -81,19 +128,35 @@ func follow(center_world: Vector3) -> void:
 		return
 	# Shift at most one chunk per axis per call to keep spikes small.
 	d = d.clamp(Vector3i(-1, -1, -1), Vector3i(1, 1, 1))
-	_push_dirty()  # flush before sliding so nothing is lost
+	var t0 := Time.get_ticks_usec()
+	_flush_leaving(d)  # chunks sliding out of the window must reach the terrain first
+	var t1 := Time.get_ticks_usec()
 	var vacated: Array = sim.shift(d)
+	var cost := _frame_cost()
+	cost["flush_ms"] += (t1 - t0) / 1000.0
+	cost["shift_ms"] += (Time.get_ticks_usec() - t1) / 1000.0
+	shifts += 1
 	origin += d
 	for c in vacated:
 		_pending_loads.append(c)
 
 
-func _load_pending(budget: int) -> void:
+## Loads vacated / new chunks from the terrain within a main-thread time
+## budget (Settings.sim_load_budget_ms, at least MIN_LOADS per frame), so a
+## shift's 49 chunks spread over a few frames instead of one ~0.7 ms frame.
+## Chunks still waiting act as walls in the simulation.
+const MIN_LOADS := 4
+
+
+func _load_pending() -> void:
+	var t0 := Time.get_ticks_usec()
+	var budget_us := int(Settings.sim_load_budget_ms * 1000.0)
 	var still: Array[Vector3i] = []
 	var n := 0
 	for lc in _pending_loads:
 		var wc: Vector3i = lc + origin
-		if n >= budget or not world.is_area_loaded(wc):
+		var over := n >= MIN_LOADS and Time.get_ticks_usec() - t0 >= budget_us
+		if over or not world.is_area_loaded(wc):
 			still.append(lc)
 			continue
 		var bytes: PackedByteArray = world.read_chunk(wc)
@@ -105,17 +168,115 @@ func _load_pending(budget: int) -> void:
 		chunks_loaded += 1
 		n += 1
 	_pending_loads = still
+	if n > 0:
+		var c := _frame_cost()
+		c["load_ms"] += (Time.get_ticks_usec() - t0) / 1000.0
+		c["loads"] += n
 
 
-func _push_dirty() -> void:
-	var dirty: Array = sim.get_dirty_chunks()
-	for lc in dirty:
-		var wc: Vector3i = lc + origin
-		if _pending_loads.has(lc):
-			continue  # never pasted before it was loaded
-		world.write_chunk(wc, sim.get_chunk_bytes(lc, 2))
-		chunks_pushed += 1
+## Records a slow frame with Godot's own monitors (previous frame) next to the
+## bubble's costs, so a spike can be attributed without a profiler.
+func _note_slow_frame(delta: float) -> void:
+	var prev: Dictionary = _cost if _cost.get("frame", -1) == Engine.get_process_frames() - 1 else {}
+	var t: Dictionary = world.terrain.get_statistics()
+	_slow.append({"frame_ms": snappedf(delta * 1000.0, 0.01),
+		"process_ms": snappedf(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, 0.01),
+		"physics_ms": snappedf(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, 0.01),
+		"nav_ms": snappedf(Performance.get_monitor(Performance.TIME_NAVIGATION_PROCESS) * 1000.0, 0.01),
+		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+		"objects": Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
+		"vram_mb": snappedf(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0, 1),
+		"bubble_ms": prev.get("total_ms", 0.0), "pushed": prev.get("pushed", 0),
+		"terrain_update_ms": t.get("time_update_task", 0), "terrain_mesh_req": t.get("time_mesh_requests", 0)})
+	_slow.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["frame_ms"] > b["frame_ms"])
+	if _slow.size() > 8:
+		_slow.resize(8)
+
+
+## Moves the sim's dirty chunks into the push queue (world coords, so they
+## survive window shifts).
+func _collect_dirty() -> void:
+	for lc in sim.get_dirty_chunks():
+		if not _pending_loads.has(lc):   # never paste a chunk before it was loaded
+			_push_queue[lc + origin] = true
 	sim.clear_dirty()
+	push_queue_max = maxi(push_queue_max, _push_queue.size())
+
+
+## Pastes queued chunks into the terrain, oldest first, until `budget_ms` of
+## main-thread time is used (at least one per call). Each paste costs ~0.1 ms
+## plus a remesh; a big fire dirties 30+ chunks per tick, which unbudgeted
+## turned every sim tick into a multi-millisecond frame (ADR 0010).
+func _drain_push(budget_ms: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	var budget_us := int(budget_ms * 1000.0)
+	var now := Time.get_ticks_msec()
+	var interval := int(Settings.sim_push_interval_ms)
+	var done: Array[Vector3i] = []
+	for wc in _push_queue:
+		if not done.is_empty() and Time.get_ticks_usec() - t0 >= budget_us:
+			break
+		if interval > 0 and now - int(_last_push.get(wc, -100000)) < interval:
+			continue   # pasted moments ago: let more changes pile up, one remesh instead of several
+		_push_one(wc)
+		_last_push[wc] = now
+		done.append(wc)
+	for wc in done:
+		_push_queue.erase(wc)
+
+
+func _push_one(wc: Vector3i) -> void:
+	var lc: Vector3i = wc - origin
+	if lc.x < 0 or lc.y < 0 or lc.z < 0 or lc.x >= size_chunks.x or lc.y >= size_chunks.y or lc.z >= size_chunks.z:
+		return   # left the window (flushed on shift already)
+	world.write_chunk(wc, sim.get_chunk_bytes(lc, 2))
+	chunks_pushed += 1
+	_frame_cost()["pushed"] += 1
+
+
+## Before shifting by d: push everything queued that is about to leave the
+## window; the rest stays queued and is pushed from its new place.
+func _flush_leaving(d: Vector3i) -> void:
+	_collect_dirty()
+	var leaving: Array[Vector3i] = []
+	for wc in _push_queue:
+		var nl: Vector3i = wc - origin - d
+		if nl.x < 0 or nl.y < 0 or nl.z < 0 or nl.x >= size_chunks.x or nl.y >= size_chunks.y or nl.z >= size_chunks.z:
+			leaving.append(wc)
+	for wc in leaving:
+		_push_one(wc)
+		_push_queue.erase(wc)
+
+
+## Pushes everything now (tests, saving, quitting).
+func flush_all() -> void:
+	_collect_dirty()
+	_drain_push(1e9)
+
+
+## Debug (fire_test=N on the command line): once the chunks around the player
+## have loaded (6 s after start), ignite every burnable voxel within N voxels
+## of the player.
+## Scans (2N+1)^3 voxels once from GDScript: debug only, keep N <= 16.
+func _run_fire_test() -> void:
+	if _fire_test_at < 0.0:
+		_fire_test_at = Time.get_ticks_msec() / 1000.0 + 6.0
+		return
+	if Time.get_ticks_msec() / 1000.0 < _fire_test_at:
+		return
+	var defs := GameMaterials.defs()
+	var c: Vector3i = _fire_center - origin * Settings.CHUNK   # player voxel in window coords
+	var r := _fire_test
+	for z in range(-r, r + 1):
+		for y in range(-r, r + 1):
+			for x in range(-r, r + 1):
+				var p := c + Vector3i(x, y, z)
+				var m := sim.get_voxel(p)
+				if m > 0 and defs[m - 1].get("burnable", false):
+					sim.ignite(p)
+					fire_ignited += 1
+	print("fire_test: ignited %d voxels around %s" % [fire_ignited, _fire_center])
+	_fire_test = 0
 
 
 ## Player edits go through the sim when inside the bubble (so the material
@@ -213,4 +374,6 @@ func stats() -> Dictionary:
 		"origin_chunk": origin, "size_chunks": size_chunks, "pending_loads": _pending_loads.size(),
 		"tick_ms": snappedf(last_tick_ms, 0.01), "ticks": ticks_total, "active_chunks": active_chunks,
 		"chunks_pushed": chunks_pushed, "chunks_loaded": chunks_loaded, "bad_loads": bad_loads, "push_ms": snappedf(push_ms, 0.01),
+		"shifts": shifts, "worst_frames": _worst, "slow_frames": _slow, "push_queue": _push_queue.size(), "push_queue_max": push_queue_max,
+		"burning": sim.count_burning() if _fire_test == 0 else -1, "fire_ignited": fire_ignited,
 	}

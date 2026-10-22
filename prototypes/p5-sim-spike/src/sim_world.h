@@ -55,6 +55,7 @@ public:
         uint8_t on_fire_smoke_material = 0;
         uint8_t generates_smoke = 0;   // 0..255 chance per burning tick
         uint8_t extinguish_mask = 0;   // unused for now
+        uint16_t ignite_chance = 8192; // 0..65535 per attempt by a burning neighbour (see set_materials)
     };
 
     struct Reaction {
@@ -74,6 +75,7 @@ public:
     void scatter(Vector3i p_min, Vector3i p_max, int p_material, float p_density, int p_seed);
     void set_voxel(Vector3i p, int p_material);
     int get_voxel(Vector3i p) const;
+    int get_flags(Vector3i p) const; // FLAG_BURNING etc. (0 outside)
     void ignite(Vector3i p);
     void mark_all_loaded(bool p_loaded);
 

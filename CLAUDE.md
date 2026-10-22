@@ -80,9 +80,11 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   player body ✓ (`ape_model.gd`: micro-voxel monkey in goggles and lab coat,
   F5 cycles first person / behind / front, Minecraft-style arm in first person),
   recipe browser ✓ (ADR 0008: JEI-style search, recipes/uses, R/U keys),
-  81 headless tests. **Next:** bubble polish (spikes
-  on shift, fire-spread tuning), P4 server headless check, then the chisel
-  layer (ADR 0006: `Chisel` block-entity behavior + overlay meshes).
+  bubble polish ✓ (ADR 0010: in-place shift, load/push budgets, fire
+  pacing per material), 89 headless tests. **Next:** voxel-grid collision
+  for player and items (`VoxelBoxMover`, ADR 0010: mesh colliders cause the
+  remaining frame spikes), P4 server headless check, then the chisel layer
+  (ADR 0006: `Chisel` block-entity behavior + overlay meshes).
 - In-world voxels follow ADR 0006: terrain ids + one block-entity layer
   (`scripts/blocks/`) + reserved decor layer; every voxel chiselable on an
   8³ cell grid (6.25 cm) through the native `MicroMesher`, which also builds
