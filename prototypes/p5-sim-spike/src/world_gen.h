@@ -134,6 +134,7 @@ private:
         bool puddle;      // this marsh column is a puddle (water_level = marsh_level)
         int marsh_level;  // marsh floor / water surface (exclusive), -1 none
         int fall_top;     // waterfall sheet: static water from water_level up to this (exclusive), -1 none
+        bool shore;       // dry ground within ~1 m of a lake or river surface (reeds)
     };
     // Which tile owns a column, plus the neighbour tiles its accumulation blends with
     // near the core border (so river width does not jump at tile seams).
@@ -169,7 +170,7 @@ private:
     Hydro hydro_at(int x, int z, int base_height) const;
     bool hydro_ctx(int x, int z, HydroCtx &ctx) const;
     const HydroTile *tile_cached(int tx, int tz) const; // thread-local small cache over hydro_tile
-    uint16_t vegetation_at(const Column &col, int x, int z, uint16_t top, bool marsh, int &height) const;
+    uint16_t vegetation_at(const Column &col, int x, int z, uint16_t top, const Hydro &hy, int &height) const;
     static int marsh_floor(int h, const Hydro &hy);
 
     bool tree_at_cell(int cx, int cz, Tree &out) const;

@@ -111,7 +111,18 @@ func _ready() -> void:
 		player.autopilot_speed_m = DebugCapture.speed_m
 		if DebugCapture.target != "":
 			var t: Vector3i = world.generator.gen.find_nearest(DebugCapture.target, spawn.x, spawn.y, 4096)
-			if t.y >= 0:
+			if t.y >= 0 and DebugCapture.inside:
+				# stand in the target itself (a cave room): eye height above its floor voxel, a torch on the player
+				player.position = Vector3(t.x + 0.5, t.y + 0.1, t.z + 0.5)
+				player.set_look(0.0, DebugCapture.pitch)
+				var torch := OmniLight3D.new()
+				torch.omni_range = 40.0
+				torch.light_energy = 2.5
+				torch.light_color = Color(1.0, 0.9, 0.75)
+				torch.position = Vector3(0, 1.5, 0)
+				player.add_child(torch)
+				print("autopilot inside %s at %s" % [DebugCapture.target, t])
+			elif t.y >= 0:
 				# start offset_m before the target along +z, fly -z over it
 				player.position = Vector3(t.x + 0.5, t.y + Settings.m2v(DebugCapture.altitude_m), t.z + Settings.m2v(DebugCapture.offset_m) + 0.5)
 				player.set_look(0.0, DebugCapture.pitch)

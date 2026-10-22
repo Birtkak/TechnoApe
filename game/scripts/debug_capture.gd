@@ -12,8 +12,9 @@ var capture_every := 0.0
 var out_dir := "res://out"
 var altitude_m := 30.0
 var speed_m := 6.0
-var target := ""      # lake|ruin|spring|river|waterfall|marsh|alpine|snow|mountain|<biome name>: start before the nearest one and fly over it
+var target := ""      # lake|ruin|spring|river|waterfall|marsh|alpine|snow|mountain|cave|<biome name>: start before the nearest one and fly over it
 var offset_m := 40.0  # start this far from the target (along +z)
+var inside := false   # start at the target position itself (cave|...) with a debug torch, instead of above it
 var pitch := -0.2     # camera pitch in radians (negative = looking down)
 var walk := false     # walk (gravity, step-up) instead of flying; reports distance travelled
 var mine := false     # stand still, look down and hold break for the whole run; JSON reports picked_up
@@ -44,6 +45,7 @@ func _ready() -> void:
 	speed_m = float(args.get("speed", "6"))
 	target = args.get("target", "")
 	offset_m = float(args.get("offset", "40"))
+	inside = args.get("inside", "0") == "1"
 	pitch = float(args.get("pitch", "-0.2"))
 	walk = args.get("walk", "0") == "1"
 	mine = args.get("mine", "0") == "1"

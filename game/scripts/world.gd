@@ -6,17 +6,22 @@ extends Node3D
 
 var terrain: VoxelLodTerrain
 var generator: TerrainGenerator
-var atlas_material: StandardMaterial3D
+var atlas_material: ShaderMaterial
 var _tool: VoxelTool
 
 
 func _ready() -> void:
 	var atlas: Texture2D = load("res://assets/textures/atlas.png")
-	atlas_material = StandardMaterial3D.new()
-	atlas_material.albedo_texture = atlas
-	atlas_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
-	atlas_material.vertex_color_use_as_albedo = true  # baked AO from the mesher
-	atlas_material.roughness = 1.0
+	# One material for terrain, micro models, item cubes and the viewmodel:
+	# nearest-filtered atlas, vertex colour = baked AO from the mesher, and the
+	# water / lava / fire tiles scroll inside their tile (rivers, falls, lava flow).
+	atlas_material = ShaderMaterial.new()
+	atlas_material.shader = load("res://assets/shaders/terrain.gdshader")
+	atlas_material.set_shader_parameter("atlas", atlas)
+	atlas_material.set_shader_parameter("atlas_tiles", Vector2(GameMaterials.ATLAS_TILES))
+	atlas_material.set_shader_parameter("water_tile", float(GameMaterials.defs()[GameMaterials.WATER - 1]["tiles"][0]))
+	atlas_material.set_shader_parameter("lava_tile", float(GameMaterials.defs()[GameMaterials.LAVA - 1]["tiles"][0]))
+	atlas_material.set_shader_parameter("fire_tile", float(GameMaterials.defs()[GameMaterials.FIRE - 1]["tiles"][0]))
 	generator = TerrainGenerator.new()
 	generator.set_seed(Settings.world_seed)
 

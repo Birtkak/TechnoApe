@@ -34,6 +34,9 @@ Godot_..._console.exe --headless --path game --script res://tools/seam_probe.gd 
 Godot_..._console.exe --headless --path game --script res://tools/detail_probe.gd -- seed=1337 radius=96  # micro-voxel detail placement checks
 Godot_..._console.exe --headless --path game --script res://tools/chisel_bench.gd                 # MicroMesher sanity + timings (P6)
 Godot_..._console.exe --path game --script res://tools/model_sheet.gd -- out=res://out/models/sheet.png  # renders every micro model
+Godot_..._console.exe --path game --script res://tools/anim_probe.gd                       # terrain shader: animated tiles change, others do not
+Godot_..._console.exe --headless --path game --script res://tools/shore_probe.gd -- seed=1337   # hydrology flags along a lake waterline
+Godot_..._console.exe --path game -- autopilot=1 duration=8 capture_every=2 target=cave inside=1 speed=0.6 out=res://out/cave1  # inside a cave, with a torch
 ```
 
 First run after adding scripts/addons: `--headless --path game --import` (twice if the

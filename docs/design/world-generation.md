@@ -191,10 +191,29 @@ biome now). LOD 0 block 595 us.
   to one PNG (`out/models/`). Captures: `out/detail_highlands`,
   `out/detail2_marsh`, `out/detail2_forest`.
 
+## Shores, caves by eye, moving water (2026-10-22, same GEN_VERSION 7)
+- `Hydro.shore`: dry ground within ~1 m above a lake surface (3x3 cells) or
+  just outside a river channel (0.9-1.8 half widths, within 1 voxel of the
+  water). `vegetation_at` puts **reeds** (1 m, two voxels) on 32 % of shore
+  columns with grass/dirt/clay/sand tops where the climate is above the ice
+  line (`t > -0.42`). `tools/shore_probe.gd` walks the nearest lake's
+  waterline and prints the flags.
+- `find_nearest("cave")`: a cheese room at least 5 voxels tall with a solid
+  floor, 10-120 voxels under dry land; `autopilot ... target=cave inside=1`
+  starts the player on that floor with a debug torch (OmniLight on the
+  player), so cave detail can be captured (`out/cave1`).
+- The terrain material is now `assets/shaders/terrain.gdshader` (nearest
+  atlas, vertex AO, specular off): fragments in the water, lava or fire tile
+  scroll inside their tile over time (UVs wrap within the tile, derivatives
+  from the unshifted UV so mips do not seam). Rivers, lakes, waterfall sheets
+  and lava pools move; `tools/anim_probe.gd` renders one quad per tile and
+  reports pixels changed in 0.5 s (water 50 %, lava 41 %, fire 64 %, stone 0 %).
+  Still missing: waterfall mist particles.
+
 ## Next
 - The Noita-style dungeons (underground stamps from a per-region RNG) - parked.
 - Chisel every voxel: ADR 0006 (block-entity `Chisel` behavior, overlay
   meshes from `MicroMesher`, `CHISELED` id reserved); P6 measured the mesher.
-- Waterfall mist/particles; animated flow (the sheet is static water).
+- Waterfall mist/particles (the sheet now scrolls, but there is no spray).
 - A per-thread cache for lake/ruin cells (they re-evaluate columns per block).
-- Reeds along lake and river shores (today only marsh puddles); cave moss.
+- Cave moss and glowing fungi (needs emissive tiles in the shader).

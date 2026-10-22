@@ -196,6 +196,7 @@ Dictionary WorldGen::column_info(int x, int z) const {
     d["spring"] = hy.spring;
     d["marsh"] = hy.marsh;
     d["puddle"] = hy.puddle;
+    d["shore"] = hy.shore;
     d["fall_top"] = hy.fall_top;
     return d;
 }
@@ -404,7 +405,7 @@ static inline float seg_dist(float px, float pz, float ax, float az, float bx, f
 }
 
 WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
-    Hydro out{0.0f, 0, -1, false, false, false, false, -1, -1};
+    Hydro out{0.0f, 0, -1, false, false, false, false, -1, -1, false};
     HydroCtx c;
     if (!hydro_ctx(x, z, c)) return out;
     const HydroTile *t = c.t;
@@ -422,6 +423,7 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
             const int k = (j + dj) * HWIN + (i + di);
             if (t->lake[k]) lake_level = std::max(lake_level, t->filled[k]);
         }
+    if (lake_level > 0.0f && (float)base_height >= lake_level - 0.5f && (float)base_height <= lake_level + 2.5f) out.shore = true;
     if (lake_level > 0.0f && (float)base_height < lake_level - 0.5f) {
         out.lake = true;
         out.water_level = (int)std::floor(lake_level);
@@ -471,6 +473,7 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
             const int water = (int)std::floor(surf) - 1;
             out.bed = (int)std::floor(surf) - 1 - (int)std::lround(depth * (1.0f - smoothstep(0.0f, half_w, best_d)));
             if (best_d < half_w && water > out.bed) out.water_level = std::max(out.water_level, water);
+            if (best_d >= half_w * 0.9f && best_d < half_w * 1.8f && base_height <= water + 2 && base_height >= water - 1) out.shore = true;
             if (out.fall_top >= 0 && out.fall_top <= out.water_level) out.fall_top = -1;
             // Springs: first cell of a stream (no upstream stream cells).
             bool upstream = false;
@@ -628,11 +631,17 @@ inline uint16_t WorldGen::ore_at(int x, int y, int z) const {
 // Per-column surface vegetation (LOD 0 only): Minecraft-style tufts, flower
 // patches, cacti and dead bushes. One hash per column; flowers cluster where a
 // 20 m noise is high. Returns AIR for none; height is 1 except for cacti.
-uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, bool marsh, int &height) const {
+uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, const Hydro &hy, int &height) const {
     height = 1;
+    const bool marsh = hy.marsh;
     const uint32_t v = hash3(x, z, seed_ + 31);
     const int r = (int)(v & 1023);
     using namespace technosim_biome;
+    // Reeds on lake and river shores (not in cold biomes: no reeds in snow).
+    if (hy.shore && !col.snow && col.t > -0.42f && (top == GRASS || top == DIRT || top == CLAY || top == SAND_STATIC) && r < 330) {
+        height = 2;
+        return REED;
+    }
     if (col.biome == DESERT || col.biome == BADLANDS) {
         if (top != SAND_STATIC && top != GRAVEL_STATIC) return AIR;
         if (col.biome == DESERT && r < 5) { height = 2 + (int)((v >> 10) % 3); return CACTUS; }
@@ -786,7 +795,7 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
             uint16_t veg = AIR;
             int veg_h = 0;
             if (do_veg && !ruin && h >= water_level && hy.fall_top < 0 && h > sea_)
-                veg = vegetation_at(col, wx, wz, top_m, hy.marsh, veg_h);
+                veg = vegetation_at(col, wx, wz, top_m, hy, veg_h);
             uint16_t *colp = w + sy * (x + sx * z);
             // Trees touching this column
             int trunk_lo = 0, trunk_hi = -1;
@@ -978,6 +987,17 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                     pz = (int)std::lround(az + (bz - az) * f);
                     hit = true;
                     py = column_base(px, pz, false).height;
+                }
+                else if (kind == "cave") {
+                    // a room at least 5 voxels tall with a solid floor, 10..120 voxels under dry land
+                    if (c.height > sea_ + 4 && !hy.lake && hy.river < 0.05f) {
+                        int run = 0;
+                        for (int y = c.height - 10; y >= std::max(12, c.height - 120); y--) {
+                            if (is_cave(px, y, pz, c.height)) { run++; continue; }
+                            if (run >= 5) { hit = true; py = y + 1; break; } // y is the floor, y+1 the first air voxel
+                            run = 0;
+                        }
+                    }
                 }
                 else if (kind == "lake") { hit = hy.lake; py = hy.water_level; }
                 else if (kind == "marsh") { hit = hy.marsh; }
