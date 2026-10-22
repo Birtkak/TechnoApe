@@ -8,7 +8,7 @@ extends VoxelGeneratorScript
 ## Bump whenever generated terrain changes: saves are keyed by seed AND this
 ## version, so a world saved by an older generator is never loaded over a
 ## newer one (stale chunks would mix old terrain with new).
-const GEN_VERSION := 5  # 5: deeper lakes, marshes, waterfalls, seam blending, vegetation, sandstone/clay/ice
+const GEN_VERSION := 6  # 5: lakes/marshes/waterfalls/vegetation; 6: biomes.json classifier (latitude climate, 36 biomes, cave layer)
 
 var seed_value := 1337
 var gen: WorldGen = WorldGen.new()

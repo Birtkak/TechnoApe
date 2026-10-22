@@ -134,7 +134,20 @@ shrubland 7 %, jungle, taiga, tundra, swamp, savanna) and the retuned band
 edges. Observed border pairs: 71, none the rules forbid except 7 samples of
 alpine next to highlands where the 8 m sample grid steps over a cliff.
 
-## Hand-off to the native generator (owned by the generator session)
+## Hand-off to the native generator - done 2026-10-22 (GEN_VERSION 6)
+
+Integrated in `world_gen.cpp`: `column_base()` computes the climate with
+`technosim_biome::temperature()` and classifies with `classify()` (river and
+lake are overlaid afterwards by the hydrology pass, as before); surface
+materials come from `SURFACE_TOP/UNDER/STEEP`, tree density from
+`TREE_DENSITY` (thinned over the last 60 voxels below `tree_line(t)`), map
+colours from `COLORS`, names from `NAMES`. Cave floors use `cave_biome()`
+from the column's bands plus a 120 m 3D noise: lush caves get grass floors,
+fungal caves dirt, frozen caves snow; the top 6 voxels keep the surface
+biome. The generated cave table is `CAVE_TABLE` (the enum already has
+`Id::CAVE`). Jitter: altitude bands see the height jittered by +-12 voxels,
+the coast and the sea the real one. Original steps, kept for reference:
+
 
 1. `#include "biome_table.gen.h"` and replace the if-chain in
    `column_base()` with `technosim_biome::classify(t, h, above, c, e, slope,

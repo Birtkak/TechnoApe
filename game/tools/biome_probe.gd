@@ -139,8 +139,9 @@ func _init() -> void:
 func _classify(rules: BiomeRules, gen: WorldGen, x: int, z: int) -> String:
 	var info: Dictionary = gen.column_info(x, z)
 	var above: int = int(info["height"]) - Settings.SEA_LEVEL_VOXEL
-	# column_info temperature already carries the generator's noise + jitter: use it as noise_t.
-	var t := rules.temperature(float(info["temperature"]), float(z), above)
+	# column_info "temperature" is the final climate (latitude and lapse applied by the
+	# native generator since GEN_VERSION 6); "temperature_noise" is the raw noise + jitter.
+	var t := rules.temperature(float(info.get("temperature_noise", info["temperature"])), float(z), above)
 	return rules.classify_name({
 		"temperature": t, "humidity": float(info["humidity"]), "above_sea": above,
 		"continentalness": float(info["continentalness"]), "erosion": float(info["erosion"]),

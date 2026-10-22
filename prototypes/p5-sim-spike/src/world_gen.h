@@ -26,6 +26,7 @@
 #include <godot_cpp/variant/vector3i.hpp>
 
 #include "FastNoiseLite.h"
+#include "biome_table.gen.h" // generated from game/data/biomes.json (36 biomes, classify(), classify_3d())
 
 #include <cstdint>
 #include <memory>
@@ -47,12 +48,16 @@ public:
         SAND_STATIC = 21, GRAVEL_STATIC = 22, WATER_STATIC = 23,
         SANDSTONE = 24, CLAY = 25, TALL_GRASS = 26, FLOWER = 27, CACTUS = 28, DEAD_BUSH = 29, ICE = 30, FLOWER_RED = 31
     };
+    // The first 13 ids are stable (bound to GDScript); the rest come from
+    // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,
+    // SURFACE_* and TREE_DENSITY tables, classify() / classify_3d()).
     enum Biome : int {
         BIOME_DEEP_OCEAN = 0, BIOME_OCEAN = 1, BIOME_BEACH = 2, BIOME_PLAINS = 3, BIOME_FOREST = 4,
         BIOME_DESERT = 5, BIOME_TUNDRA = 6, BIOME_HIGHLANDS = 7, BIOME_MOUNTAINS = 8, BIOME_SNOWY_PEAKS = 9,
         BIOME_RIVER = 10, BIOME_LAKE = 11, BIOME_ALPINE = 12,
-        BIOME_COUNT = 13
+        BIOME_COUNT = 36
     };
+    static_assert(BIOME_COUNT == technosim_biome::COUNT, "biome_table.gen.h changed: regenerate and update BIOME_COUNT");
 
     WorldGen();
 
@@ -86,7 +91,8 @@ private:
     struct Column {
         int height;      // base terrain height (no rivers/lakes)
         int biome;
-        float c, e, pv, t, h;
+        float c, e, pv, t, h; // t is the final climate (noise + latitude + lapse), see biomes.md
+        float t_noise;        // temperature noise + jitter before latitude and lapse (debug / probes)
         float slope;     // |dh/dx|, |dh/dz| max (voxels per voxel), only computed on mountains
         bool alpine;     // above the tree line
         bool snow;       // permanent snow
@@ -144,7 +150,7 @@ private:
     int seed_ = 1337;
     int sea_ = 256;
     int world_height_ = 768;
-    FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_beach_, n_jitter_;
+    FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_beach_, n_jitter_, n_cavebiome_;
     mutable std::mutex hydro_mutex_;
     mutable std::unordered_map<uint64_t, std::shared_ptr<HydroTile>> hydro_cache_;
 

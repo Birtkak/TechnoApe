@@ -58,6 +58,7 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup(n_temp_, seed_ + 5, 0.0004f, 2);
     setup(n_hum_, seed_ + 6, 0.0005f, 2);
     setup(n_cheese_, seed_ + 7, 0.011f, 2);
+    setup(n_cavebiome_, seed_ + 13, 1.0f / (technosim_biome::CAVE_NOISE_PERIOD_M * 2.0f), 1); // 3D, slow: deep dark / crystal / magma pockets
     setup(n_spag1_, seed_ + 8, 0.018f, 1);
     setup(n_spag2_, seed_ + 9, 0.018f, 1);
     setup(n_ore_, seed_ + 10, 0.09f, 1);
@@ -101,8 +102,9 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     col.pv = n_pv_.GetNoise(fx, fz);
     const float jit = n_jitter_.GetNoise(fx, fz);
     const float jit2 = n_jitter_.GetNoise(fz + 1000.0f, fx - 1000.0f);
-    col.t = n_temp_.GetNoise(fx, fz) + jit * 0.09f;
-    col.h = n_hum_.GetNoise(fx, fz) + jit2 * 0.09f;
+    const float t_noise = n_temp_.GetNoise(fx, fz) + jit * technosim_biome::JITTER;
+    col.t_noise = t_noise;
+    col.h = n_hum_.GetNoise(fx, fz) + jit2 * technosim_biome::JITTER;
 
     static const float cx[] = {-1.0f, -0.6f, -0.25f, -0.08f, 0.05f, 0.3f, 0.55f, 0.8f, 1.0f};
     static const float cy[] = {-80.0f, -50.0f, -12.0f, -2.0f, 4.0f, 24.0f, 80.0f, 180.0f, 240.0f};
@@ -125,31 +127,25 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
 
     const int above = col.height - sea_;
     const int hj = (int)(jit * 6.0f);
-    // Altitude lines (voxels above sea): tree line ~ 220 (110 m), snow line ~ 330
-    // (165 m), both lowered where it is cold and raised where it is warm.
-    const float cold = -col.t; // -1 warm .. 1 cold
-    const int tree_line = 220 + hj * 2 - (int)(cold * 60.0f);
-    const int snow_line = 330 + hj * 2 - (int)(cold * 90.0f);
+    // Climate: noise + latitude (north = -z colder, 16 km to saturate) + lapse
+    // above 70 voxels (biomes.md). Altitude lines from the same tables, jittered
+    // so the tree line and snow line wander instead of following a contour.
+    col.t = technosim_biome::temperature(t_noise, fz, above);
+    const int tree_line = technosim_biome::tree_line(col.t) + hj * 2;
+    const int snow_line = technosim_biome::snow_line(col.t) + hj * 2;
     col.alpine = above > tree_line;
     col.snow = above > snow_line;
-    if (with_slope && above > 120) {
-        // Slope only matters on mountains; two extra samples keep the cost local.
+    if (with_slope && (above > 120 || (above >= -1 && above <= technosim_biome::COAST_MAX + 2))) {
+        // Slope matters on mountains (rock faces, scree) and at the coast (stony
+        // shores); two extra samples keep the cost local.
         Column cxp = column_base(x + 2, z, false);
         Column czp = column_base(x, z + 2, false);
         col.slope = std::max(std::fabs((float)(cxp.height - col.height)), std::fabs((float)(czp.height - col.height))) * 0.5f;
     }
-
-    if (col.c < -0.55f) col.biome = BIOME_DEEP_OCEAN;
-    else if (col.height < sea_ - 1) col.biome = BIOME_OCEAN;
-    else if (above <= 3 + (hj > 0 ? hj / 3 : 0)) col.biome = BIOME_BEACH;
-    else if (col.snow) col.biome = BIOME_SNOWY_PEAKS;
-    else if (col.alpine) col.biome = BIOME_ALPINE;
-    else if (above > 170 + hj) col.biome = BIOME_MOUNTAINS;
-    else if (above > 70 + hj) col.biome = BIOME_HIGHLANDS;
-    else if (col.t > 0.35f && col.h < -0.1f) col.biome = BIOME_DESERT;
-    else if (col.t < -0.45f) col.biome = BIOME_TUNDRA;
-    else if (col.h > 0.15f) col.biome = BIOME_FOREST;
-    else col.biome = BIOME_PLAINS;
+    // Band thresholds see the jittered altitude (dithered borders); the coast
+    // and the sea use the real one so no dry land is called ocean.
+    const int above_j = above <= technosim_biome::COAST_MAX ? above : std::max(technosim_biome::COAST_MAX + 1, above - hj * 2);
+    col.biome = technosim_biome::classify(col.t, col.h, above_j, col.c, col.e, col.slope, 0.0f, false);
     return col;
 }
 
@@ -189,6 +185,7 @@ Dictionary WorldGen::column_info(int x, int z) const {
     d["erosion"] = c.e;
     d["peaks_valleys"] = c.pv;
     d["temperature"] = c.t;
+    d["temperature_noise"] = c.t_noise;
     d["humidity"] = c.h;
     d["slope"] = c.slope;
     d["alpine"] = c.alpine;
@@ -204,9 +201,8 @@ Dictionary WorldGen::column_info(int x, int z) const {
 }
 
 String WorldGen::biome_name(int b) {
-    static const char *names[] = {"deep_ocean", "ocean", "beach", "plains", "forest", "desert", "tundra", "highlands", "mountains", "snowy_peaks", "river", "lake", "alpine"};
     if (b < 0 || b >= BIOME_COUNT) return "unknown";
-    return names[b];
+    return technosim_biome::NAMES[b];
 }
 
 // ---------- hydrology ----------
@@ -325,14 +321,16 @@ void WorldGen::build_hydro_tile(HydroTile &t) const {
             const float f = (float)q / S;
             g[q] = column_base((int)std::lround(ax + (bx - ax) * f), (int)std::lround(az + (bz - az) * f), false).height;
         }
+        // Near-vertical only: >= 6 voxels down over one sample step (~2.7 voxels),
+        // i.e. a rock face, not a stair of 1-voxel steps. The sheet is one step thin.
         int best = 0, bq = -1;
-        for (int q = 0; q + 2 <= S; q++) {
-            const int d = g[q] - g[q + 2];
+        for (int q = 0; q + 1 <= S; q++) {
+            const int d = g[q] - g[q + 1];
             if (d > best) { best = d; bq = q; }
         }
         if (bq < 0 || best < 6) continue;
-        t.fall_t0[k] = (float)bq / S;
-        t.fall_t1[k] = (float)(bq + 2) / S;
+        t.fall_t0[k] = (float)bq / S + 0.25f / S;
+        t.fall_t1[k] = (float)(bq + 1) / S;
         t.fall_top[k] = (int16_t)(g[bq] - 1);
     }
 }
@@ -341,16 +339,22 @@ static inline int floordiv(int a, int b) { return (int)std::floor((float)a / (fl
 const WorldGen::HydroTile *WorldGen::tile_cached(int tx, int tz) const {
     // Each generator thread touches at most a few tiles at a time (its own and
     // the neighbours of the seam band); avoid the global mutex for those.
-    struct Slot { int tx = 0, tz = 0; std::shared_ptr<HydroTile> t; };
+    // LRU over 4 slots: one hydro_at() needs up to 3 tiles (owner + 2 seam
+    // neighbours) and holds raw pointers to them, so eviction must never hit a
+    // tile fetched in the same call (round-robin did, after ~64 tiles: crash).
+    struct Slot { int tx = 0, tz = 0; uint64_t used = 0; std::shared_ptr<HydroTile> t; };
     thread_local Slot slots[4];
-    thread_local int next = 0;
-    for (auto &s : slots)
-        if (s.t && s.tx == tx && s.tz == tz) return s.t.get();
-    Slot &s = slots[(next++) & 3];
-    s.t = hydro_tile(tx, tz);
-    s.tx = tx;
-    s.tz = tz;
-    return s.t.get();
+    thread_local uint64_t tick = 0;
+    Slot *victim = &slots[0];
+    for (auto &s : slots) {
+        if (s.t && s.tx == tx && s.tz == tz) { s.used = ++tick; return s.t.get(); }
+        if (s.used < victim->used) victim = &s;
+    }
+    victim->t = hydro_tile(tx, tz);
+    victim->tx = tx;
+    victim->tz = tz;
+    victim->used = ++tick;
+    return victim->t.get();
 }
 
 bool WorldGen::hydro_ctx(int x, int z, HydroCtx &ctx) const {
@@ -460,7 +464,7 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
             float surf = up + (down - up) * best_t;
             surf = std::min(surf, (float)base_height); // never above the local ground
             // Waterfall sheet over the cliff part of this segment (precomputed per cell).
-            if (t->fall_t0[best_k] >= 0.0f && best_t >= t->fall_t0[best_k] && best_t <= t->fall_t1[best_k] && best_d < half_w * 0.8f)
+            if (t->fall_t0[best_k] >= 0.0f && best_t >= t->fall_t0[best_k] && best_t <= t->fall_t1[best_k] && best_d < half_w * 0.6f)
                 out.fall_top = t->fall_top[best_k];
             const float mask = 1.0f - smoothstep(half_w, half_w + bank_w, best_d);
             out.river = mask;
@@ -520,18 +524,12 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     if (col.height <= sea_ + 2 || col.alpine) return false;
     Hydro hy = hydro_at(tx, tz, col.height);
     if (hy.river > 0.05f || hy.lake || hy.puddle) return false;
-    float density;
-    switch (col.biome) {
-        case BIOME_FOREST: density = 0.55f; break;
-        case BIOME_PLAINS: density = 0.06f; break;
-        case BIOME_HIGHLANDS: density = 0.18f; break;
-        case BIOME_TUNDRA: density = 0.08f; break;
-        case BIOME_MOUNTAINS: density = 0.12f; break;
-        default: return false;
-    }
+    float density = technosim_biome::TREE_DENSITY[col.biome];
+    if (density <= 0.0f) return false;
     // Thin out toward the tree line (stunted, sparse).
     const int above = col.height - sea_;
-    if (above > 160) density *= std::clamp((220 - above) / 60.0f, 0.1f, 1.0f);
+    const int tree_line = technosim_biome::tree_line(col.t);
+    if (above > tree_line - 60) density *= std::clamp((tree_line - above) / 60.0f, 0.1f, 1.0f);
     float roll = (float)((hsh >> 6) & 1023) / 1023.0f;
     if (roll >= density) return false;
     out.x = tx;
@@ -539,7 +537,7 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     out.base = hy.marsh ? marsh_floor(col.height, hy) : col.height;
     out.trunk_h = 8 + (int)((hsh >> 16) % 6);
     out.radius = 2 + (int)((hsh >> 20) & 1);
-    if (above > 160) { out.trunk_h = 5 + (int)((hsh >> 16) % 3); out.radius = 2; }
+    if (above > tree_line - 60) { out.trunk_h = 5 + (int)((hsh >> 16) % 3); out.radius = 2; }
     return true;
 }
 
@@ -570,7 +568,7 @@ bool WorldGen::ruin_at_cell(int cx, int cz, Ruin &out) const {
     if (c.height < sea_ + 5 || c.alpine) return false;
     Hydro hy = hydro_at(x, z, c.height);
     if (hy.river > 0.05f || hy.lake || hy.marsh) return false;
-    if (!(c.biome == BIOME_PLAINS || c.biome == BIOME_FOREST || c.biome == BIOME_HIGHLANDS || c.biome == BIOME_TUNDRA || c.biome == BIOME_DESERT)) return false;
+    if (c.alpine || c.snow || c.height - sea_ > technosim_biome::HIGHLAND_MAX) return false; // lowland and highland biomes only
     int hmin = c.height, hmax = c.height;
     const int cxs[4] = {x - hw, x + hw, x - hw, x + hw};
     const int czs[4] = {z - hd, z - hd, z + hd, z + hd};
@@ -634,23 +632,31 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
     height = 1;
     const uint32_t v = hash3(x, z, seed_ + 31);
     const int r = (int)(v & 1023);
-    if (col.biome == BIOME_DESERT) {
-        if (top != SAND_STATIC) return AIR;
-        if (r < 5) { height = 2 + (int)((v >> 10) % 3); return CACTUS; }
+    using namespace technosim_biome;
+    if (col.biome == DESERT || col.biome == BADLANDS) {
+        if (top != SAND_STATIC && top != GRAVEL_STATIC) return AIR;
+        if (col.biome == DESERT && r < 5) { height = 2 + (int)((v >> 10) % 3); return CACTUS; }
         if (r < 18) return DEAD_BUSH;
         return AIR;
     }
     if (top != GRASS && !(marsh && top == DIRT)) return AIR;
-    int grass = 0, flower = 0;
+    int grass = 0, flower = 0, bush = 0;
     if (marsh) grass = 560;
     else switch (col.biome) {
-        case BIOME_PLAINS: grass = 300; flower = 36; break;
-        case BIOME_FOREST: grass = 170; flower = 14; break;
-        case BIOME_HIGHLANDS: grass = 110; flower = 10; break;
-        case BIOME_MOUNTAINS: grass = 50; flower = 4; break;
-        case BIOME_ALPINE: grass = 25; flower = 6; break;
+        case PLAINS: grass = 300; flower = 36; break;
+        case FOREST: grass = 170; flower = 14; break;
+        case OLD_GROWTH_FOREST: grass = 200; flower = 10; break;
+        case HIGHLANDS: grass = 110; flower = 10; break;
+        case MOUNTAINS: grass = 50; flower = 4; break;
+        case ALPINE: grass = 25; flower = 6; break;
+        case TAIGA: grass = 60; break;
+        case SHRUBLAND: grass = 120; bush = 40; break;
+        case SAVANNA: grass = 420; bush = 12; break;
+        case JUNGLE: grass = 350; flower = 20; break;
+        case SWAMP: grass = 450; break;
         default: break;
     }
+    if (bush > 0 && r >= 1000 - bush) return DEAD_BUSH;
     if (flower > 0) {
         const float patch = n_detail_.GetNoise((float)x * 2.0f + 5000.0f, (float)z * 2.0f - 5000.0f);
         flower = patch > 0.3f ? flower * 5 : flower / 4;
@@ -743,17 +749,20 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                 const uint32_t mh = hash3(wx, wz, 29) & 7;
                 top_m = mh < 2 ? CLAY : (mh < 5 ? DIRT : GRASS);
                 under_m = mh < 4 ? CLAY : DIRT;
-            } else switch (col.biome) {
-                case BIOME_DEEP_OCEAN: top_m = under_m = GRAVEL_STATIC; break;
-                case BIOME_OCEAN: top_m = under_m = beach_sand ? SAND_STATIC : GRAVEL_STATIC; break;
-                case BIOME_BEACH: top_m = under_m = SAND_STATIC; break;
-                case BIOME_DESERT: top_m = under_m = SAND_STATIC; break;
-                case BIOME_TUNDRA: top_m = SNOW; under_m = DIRT; break;
-                case BIOME_MOUNTAINS: top_m = col.slope > 0.6f ? STONE : GRASS; under_m = DIRT; break;
-                default: top_m = GRASS; under_m = DIRT; break;
+            } else {
+                // Surface materials from biomes.json (ocean floors near the coast are sand).
+                top_m = (uint16_t)technosim_biome::SURFACE_TOP[col.biome];
+                under_m = (uint16_t)technosim_biome::SURFACE_UNDER[col.biome];
+                if (col.biome == BIOME_OCEAN && !beach_sand) top_m = under_m = GRAVEL_STATIC;
+                if (technosim_biome::SURFACE_STEEP[col.biome] >= 0 && col.slope > 0.6f) top_m = (uint16_t)technosim_biome::SURFACE_STEEP[col.biome];
             }
-            // Sedimentary layer under deserts and beaches (no ores in it).
-            const int sandstone_depth = col.biome == BIOME_DESERT ? 16 : (col.biome == BIOME_BEACH ? 8 : 0);
+            // Sedimentary layer under deserts, badlands and beaches (no ores in it).
+            const int sandstone_depth = (col.biome == BIOME_DESERT || col.biome == technosim_biome::BADLANDS) ? 16
+                : ((col.biome == BIOME_BEACH || col.biome == technosim_biome::SNOWY_BEACH) ? 8 : 0);
+            // Cave biome bands for this column (3D layer): floors of carved caves get the
+            // cave biome's top material (lush: grass, fungal: dirt, frozen: snow, ...).
+            const int ti = technosim_biome::band_of(technosim_biome::TEMP_BAND_MAX, col.t);
+            const int hi = technosim_biome::band_of(technosim_biome::HUM_BAND_MAX, col.h);
             // Vegetation standing on the surface (not in water, not on the sheet).
             uint16_t veg = AIR;
             int veg_h = 0;
@@ -795,6 +804,16 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                     rubble = (hash3(wx, wz, (int)ruin->seed + 5) & 15) == 0;
                 }
             }
+            // Cave mask for the column (one voxel above and below the block too, so
+            // cave floors and ceilings are known at block borders).
+            bool cave[sy + 2];
+            if (do_caves) {
+                for (int y = -1; y <= sy; y++) {
+                    const int wy = origin.y + y;
+                    const bool cave_ok = no_cave_above < 0 || wy < no_cave_above;
+                    cave[y + 1] = wy < h && cave_ok && is_cave(wx, wy, wz, h) && !(wy < sea_ && h < sea_ + 2);
+                }
+            }
             for (int y = 0; y < sy; y++) {
                 const int wy = origin.y + y * step;
                 uint16_t m = AIR;
@@ -821,12 +840,18 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                     m = BEDROCK;
                 } else if (wy < h) {
                     const int depth = h - wy;
-                    const bool cave_ok = no_cave_above < 0 || wy < no_cave_above;
-                    if (do_caves && cave_ok && is_cave(wx, wy, wz, h) && !(wy < sea_ && h < sea_ + 2)) {
+                    if (do_caves && cave[y + 1]) {
                         m = (wy < sea_ - 180) ? LAVA : AIR;
                     } else if (depth > 4 + (int)(step > 1)) {
                         if (depth <= sandstone_depth) m = SANDSTONE;
                         else m = do_ores ? ore_at(wx, wy, wz) : STONE;
+                        if (do_caves && cave[y + 2] && m == STONE) {
+                            // cave floor: the 3D biome decides what you stand on
+                            const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth, technosim_biome::DEPTH_BAND_COUNT);
+                            const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, n_cavebiome_.GetNoise((float)wx, (float)wy, (float)wz), technosim_biome::CAVE_NOISE_BAND_COUNT);
+                            const int cb = depth < technosim_biome::SOIL_DEPTH ? col.biome : technosim_biome::cave_biome(ti, hi, di, ni);
+                            m = (uint16_t)technosim_biome::SURFACE_TOP[cb];
+                        }
                     } else {
                         m = depth == 1 ? top_m : under_m;
                     }
@@ -946,11 +971,6 @@ PackedByteArray WorldGen::map_image(int center_x, int center_z, int radius, int 
     uint8_t *p = img.ptrw();
     std::vector<Ruin> ruins(1024);
     const int nr = ruins_near(center_x - radius, center_z - radius, center_x + radius, center_z + radius, ruins.data(), 1024);
-    static const uint8_t colors[BIOME_COUNT][3] = {
-        {20, 40, 120}, {40, 80, 200}, {230, 215, 150}, {110, 190, 80}, {40, 130, 50},
-        {225, 200, 110}, {200, 210, 220}, {130, 150, 90}, {120, 120, 125}, {245, 245, 250},
-        {70, 140, 230}, {90, 160, 240}, {150, 140, 120},
-    };
     for (int j = 0; j < n; j++)
         for (int i = 0; i < n; i++) {
             const int wx = center_x - radius + i * step, wz = center_z - radius + j * step;
@@ -962,7 +982,7 @@ PackedByteArray WorldGen::map_image(int center_x, int center_z, int radius, int 
             float shade = 0.6f + 0.4f * std::clamp((float)(c.height - sea_) / 400.0f, -0.5f, 1.0f);
             if (c.height < sea_) shade = 0.5f + 0.5f * std::clamp((float)(c.height - sea_ + 80) / 80.0f, 0.0f, 1.0f);
             if (biome == BIOME_RIVER || biome == BIOME_LAKE) shade = 1.0f;
-            const uint8_t *col = colors[biome];
+            const unsigned char *col = technosim_biome::COLORS[biome];
             uint8_t *q = p + (j * n + i) * 3;
             q[0] = (uint8_t)std::clamp(col[0] * shade, 0.0f, 255.0f);
             q[1] = (uint8_t)std::clamp(col[1] * shade, 0.0f, 255.0f);

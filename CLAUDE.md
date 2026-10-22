@@ -73,8 +73,9 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   P5 Noita-model simulation core ✓, P3 crafting core ✓ (17 headless tests)
 - Phase 2 (current): `game/` skeleton ✓ (LOD world, textures, player, sim
   bubble, debug capture), native world generator ✓ (splines, caves, ores,
-  biomes, trees, ruins, hydrology rivers/lakes/springs, altitude bands,
-  seeds), player loop ✓ (ADR 0005: hotbar/inventory/crafting screens,
+  biomes from biomes.json, trees, ruins, hydrology rivers/lakes/springs,
+  marshes, waterfalls, altitude bands, vegetation, seeds; dungeons parked),
+  player loop ✓ (ADR 0005: hotbar/inventory/crafting screens,
   item entities, mining table, placing, buckets, hearts, viewmodel; 16
   headless tests + autopilot `mine=1` / `place=1` checks). **Next:**
   crafting table / furnace / chest blocks (materials + tiles + block

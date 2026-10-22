@@ -99,14 +99,14 @@ static const int LOWLAND_OVERRIDE_COUNT = 1;
 static const Override LOWLAND_OVERRIDES[1] = {{21, 12, 16, 24, 0.05f}};
 
 // Underground layer: depth = surface height - y. Below SOIL_DEPTH a cave biome
-// comes from CAVE[depth band][surface humidity band] after CAVE_OVERRIDES.
+// comes from CAVE_TABLE[depth band][surface humidity band] after CAVE_OVERRIDES.
 static const int SOIL_DEPTH = 6;
 static const int DEPTH_BAND_COUNT = 3; // shallow, mid, deep
 static const float DEPTH_BAND_MAX[DEPTH_BAND_COUNT] = {60.0f, 160.0f, 100000.0f};
 static const int CAVE_NOISE_BAND_COUNT = 3; // low, mid, high
 static const float CAVE_NOISE_BAND_MAX[CAVE_NOISE_BAND_COUNT] = {-0.35f, 0.45f, 1.01f};
 static const float CAVE_NOISE_PERIOD_M = 120.0f;
-static const int CAVE[DEPTH_BAND_COUNT][BAND_COUNT] = {
+static const int CAVE_TABLE[DEPTH_BAND_COUNT][BAND_COUNT] = {
     {29, 29, 27, 28, 28}, // shallow
     {29, 27, 27, 28, 30}, // mid
     {32, 32, 32, 32, 32}, // deep
@@ -167,7 +167,7 @@ inline int cave_biome(int ti, int hi, int di, int ni) {
         const CaveOverride &o = CAVE_OVERRIDES[i];
         if ((o.depth_mask >> di) & 1 && (o.temp_mask >> ti) & 1 && (o.hum_mask >> hi) & 1 && (o.noise_mask >> ni) & 1) return o.biome;
     }
-    return CAVE[di][hi];
+    return CAVE_TABLE[di][hi];  // CAVE_TABLE: the enum already has Id::CAVE
 }
 // surface_biome = classify(...) for the column; depth = surface height - y; cave_noise: slow 3D noise -1..1.
 inline int classify_3d(int surface_biome, float t, float h, int depth, float cave_noise) {

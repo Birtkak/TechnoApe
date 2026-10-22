@@ -152,6 +152,16 @@ set by `set_chunk_bytes`, carried through `shift`). Cost ≈ 5–10 % per tick.
 - Cost with warmed tiles: LOD 0 block 573 us, LOD 2 block 215 us; a hydrology
   tile (320x320 cells) builds in ~65 ms.
 
+## Biomes from data (2026-10-22, GEN_VERSION 6)
+The if-chain is gone: `biome_table.gen.h` (generated from
+`game/data/biomes.json`) provides the climate model (latitude: north is
+colder, 16 km to saturate; lapse above 70 voxels), 36 biomes with surface
+materials and tree densities, and the 3D cave layer. See `biomes.md`.
+Seed 1337, 4 km square: plains 10 %, forest 5.6 %, old growth 2.2 %,
+shrubland 1.8 %, taiga 1.3 %, jungle 0.8 %, savanna 0.7 %, swamp 0.5 %;
+the nearest desert moved from 0.5 km to 6 km south (deserts are a hot-band
+biome now). LOD 0 block 595 us.
+
 ## Next
 - The Noita-style dungeons (underground stamps from a per-region RNG) - parked.
 - Biome classifier from `biomes.json` (see `biomes.md`, hand-off section).
