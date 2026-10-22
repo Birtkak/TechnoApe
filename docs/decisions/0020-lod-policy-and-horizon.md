@@ -112,6 +112,20 @@ and the see-through water; the fire and the spill gain from the remesh
 rate. First load 2.8 → 3.4 s (more blocks in the first rings, minus the
 hydrology fix).
 
+**Soak** (3 min per scenario on the final build and defaults, no crash,
+exit code 0 in every run):
+
+| Scenario (180 s) | p50 | p99 | max | > 8.3 | > 16.7 |
+|---|---|---|---|---|---|
+| fly 6 m/s | 2.70 | 4.13 | 10.9 | 1 | 0 |
+| fast fly 40 m/s | 3.18 | 3.59 | 28.4 | 3 | 1 (render thread, 3,500 blocks generating) |
+| walk + mine + place | 2.80 | 3.21 | 10.7 | 1 | 0 |
+| forest fire | 3.26 | 3.66 | 6.9 | 0 | 0 |
+| water spill, a 1.5 m ball every 2 s | 2.66 | 3.25 | 11.0 | 57 | 0 (ADR 0016: p99 17.8, 484 over) |
+| blast 8 m every 2 s | 2.48 | 2.88 | 15.0 | 2 | 0 |
+| 50 × 1 m craters every 2 s | 2.51 | 2.79 | 11.8 | 3 | 0 |
+| stations + furnace screen | 2.93 | 3.39 | 42.3 | 2 | 1 (`other` only: an outside stall, as ADR 0016's fire cluster) |
+
 ## Open
 - 40 m/s flight with 64 m rings: single 20–27 ms frames of render-thread
   time during a clipbox burst (`mesh_delta` ±8 MB, 6,000 generation tasks
