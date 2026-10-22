@@ -16,6 +16,8 @@ uniform float fire_tile = 12.0;
 uniform float water_speed = 0.45;   // tiles per second along the flow direction
 uniform float lava_speed = 0.06;
 uniform float fire_speed = 1.6;
+uniform float glow_tile = 45.0;     // emissive tile (glow mushroom caps)
+uniform float glow_strength = 2.2;
 
 varying vec4 vcol;
 
@@ -43,4 +45,9 @@ void fragment() {
 	ALBEDO = c.rgb * vcol.rgb;
 	ROUGHNESS = 1.0;
 	METALLIC = 0.0;
+	if (abs(idx - glow_tile) < 0.5) {
+		EMISSION = c.rgb * glow_strength;
+	} else if (abs(idx - lava_tile) < 0.5 || abs(idx - fire_tile) < 0.5) {
+		EMISSION = c.rgb * 0.9;
+	}
 }

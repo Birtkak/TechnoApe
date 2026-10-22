@@ -23,6 +23,7 @@
 // (y fastest, then x, then z).
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
@@ -51,7 +52,8 @@ public:
         SANDSTONE = 24, CLAY = 25, TALL_GRASS = 26, FLOWER = 27, CACTUS = 28, DEAD_BUSH = 29, ICE = 30, FLOWER_RED = 31,
         // 32..36 station blocks (ADR 0007, never generated), then micro-voxel detail (ADR 0006 grid)
         PEBBLES = 37, MUSHROOM_BROWN = 38, MUSHROOM_RED = 39, REED = 40, LILY_PAD = 41, STALACTITE = 42, STALAGMITE = 43,
-        CHISELED = 44 // reserved, never generated
+        CHISELED = 44, // reserved, never generated
+        GLOW_MUSHROOM = 45, MOSS = 46 // deep / lush cave detail
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,
@@ -86,6 +88,9 @@ public:
     // "alpine" | "snow" | "mountain" | any biome name) within max_radius of (x, z).
     // Returns Vector3i(x, ground_y, z) or Vector3i(0, -1, 0) when none.
     Vector3i find_nearest(const String &kind, int x, int z, int max_radius) const;
+    // Waterfalls within radius voxels of (x, z): [{x, y, z, top, dir_x, dir_z}] with (x, y, z) the
+    // first air voxel at the foot of the sheet and (dir_x, dir_z) the flow direction (unit).
+    Array waterfalls_near(int x, int z, int radius) const;
     Dictionary hydrology_stats(int x, int z) const; // tile stats around a point (debug)
 
 protected:

@@ -21,6 +21,7 @@ void WorldGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("map_image", "center_x", "center_z", "radius", "step"), &WorldGen::map_image);
     ClassDB::bind_static_method("WorldGen", D_METHOD("biome_name", "biome"), &WorldGen::biome_name);
     ClassDB::bind_method(D_METHOD("find_nearest", "kind", "x", "z", "max_radius"), &WorldGen::find_nearest);
+    ClassDB::bind_method(D_METHOD("waterfalls_near", "x", "z", "radius"), &WorldGen::waterfalls_near);
     ClassDB::bind_method(D_METHOD("hydrology_stats", "x", "z"), &WorldGen::hydrology_stats);
     BIND_ENUM_CONSTANT(BIOME_DEEP_OCEAN);
     BIND_ENUM_CONSTANT(BIOME_OCEAN);
@@ -879,9 +880,12 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                                     technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth, technosim_biome::DEPTH_BAND_COUNT),
                                     technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, n_cavebiome_.GetNoise((float)wx, (float)wy, (float)wz), technosim_biome::CAVE_NOISE_BAND_COUNT));
                                 const bool fungal = technosim_biome::SURFACE_TOP[cbi] == DIRT;
+                                const bool lush = technosim_biome::SURFACE_TOP[cbi] == GRASS;
                                 if (ch < 25) m = STALAGMITE;
                                 else if (ch < 85) m = PEBBLES;
                                 else if (ch < (fungal ? 230 : 105)) m = (fungal && (ch & 1)) ? MUSHROOM_RED : MUSHROOM_BROWN;
+                                else if (lush && ch < 420) m = MOSS;                                   // moss carpets on lush cave floors
+                                else if (depth > 40 && ch >= (fungal ? 955 : 975)) m = GLOW_MUSHROOM;  // glowing fungi deep down
                             } else if (!cave[y + 2] && ch < 40) {
                                 m = STALACTITE;
                             }
@@ -988,11 +992,12 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                     hit = true;
                     py = column_base(px, pz, false).height;
                 }
-                else if (kind == "cave") {
-                    // a room at least 5 voxels tall with a solid floor, 10..120 voxels under dry land
+                else if (kind == "cave" || kind == "deep_cave") {
+                    // a room at least 5 voxels tall with a solid floor, 10..120 (deep: 50..170) voxels under dry land
+                    const int from = kind == "cave" ? 10 : 50, to = kind == "cave" ? 120 : 170;
                     if (c.height > sea_ + 4 && !hy.lake && hy.river < 0.05f) {
                         int run = 0;
-                        for (int y = c.height - 10; y >= std::max(12, c.height - 120); y--) {
+                        for (int y = c.height - from; y >= std::max(12, c.height - to); y--) {
                             if (is_cave(px, y, pz, c.height)) { run++; continue; }
                             if (run >= 5) { hit = true; py = y + 1; break; } // y is the floor, y+1 the first air voxel
                             run = 0;
@@ -1019,6 +1024,40 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
         if (best_d2 >= 0) break;
     }
     return best;
+}
+
+Array WorldGen::waterfalls_near(int x, int z, int radius) const {
+    Array out;
+    const int cx0 = (int)std::floor((float)x / HCELL), cz0 = (int)std::floor((float)z / HCELL);
+    const int r = radius / HCELL + 1;
+    for (int dz = -r; dz <= r; dz++)
+        for (int dx = -r; dx <= r; dx++) {
+            const int px = (cx0 + dx) * HCELL + HCELL / 2, pz = (cz0 + dz) * HCELL + HCELL / 2;
+            HydroCtx hc;
+            if (!hydro_ctx(px, pz, hc)) continue;
+            const HydroTile *t = hc.t;
+            const int k = hc.ci;
+            if (t->dir[k] < 0 || t->lake[k] || hc.acc(k) < STREAM_ACC || t->fall_t0[k] < 0.0f) continue;
+            const int nk = (k / HWIN + D8Z[t->dir[k]]) * HWIN + (k % HWIN + D8X[t->dir[k]]);
+            const int wx0 = (t->tx * HTILE - HMARGIN) * HCELL, wz0 = (t->tz * HTILE - HMARGIN) * HCELL;
+            const float ax = (float)(wx0 + (k % HWIN) * HCELL + HCELL / 2) + t->jx[k];
+            const float az = (float)(wz0 + (k / HWIN) * HCELL + HCELL / 2) + t->jz[k];
+            const float bx = (float)(wx0 + (nk % HWIN) * HCELL + HCELL / 2) + t->jx[nk];
+            const float bz = (float)(wz0 + (nk / HWIN) * HCELL + HCELL / 2) + t->jz[nk];
+            const float f = std::min(1.0f, t->fall_t1[k] + 0.5f / 12.0f); // half a step past the cliff foot
+            const int fx = (int)std::lround(ax + (bx - ax) * f), fz = (int)std::lround(az + (bz - az) * f);
+            if ((long)(fx - x) * (fx - x) + (long)(fz - z) * (fz - z) > (long)radius * radius) continue;
+            const Column c = column_base(fx, fz, false);
+            const Hydro hy = hydro_at(fx, fz, c.height);
+            const int foot = hy.river > 0.0f ? std::max(hy.bed, hy.water_level) : c.height;
+            const float len = std::max(1.0f, std::sqrt((bx - ax) * (bx - ax) + (bz - az) * (bz - az)));
+            Dictionary d;
+            d["x"] = fx; d["y"] = foot; d["z"] = fz;
+            d["top"] = (int)t->fall_top[k];
+            d["dir_x"] = (bx - ax) / len; d["dir_z"] = (bz - az) / len;
+            out.push_back(d);
+        }
+    return out;
 }
 
 PackedByteArray WorldGen::map_image(int center_x, int center_z, int radius, int step) const {

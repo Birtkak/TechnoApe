@@ -17,7 +17,7 @@ from PIL import Image
 
 TILE = 16
 COLS = 8
-ROWS = 6  # 48 tiles; 45..47 free
+ROWS = 6  # 48 tiles; 47 free
 
 random.seed(1337)
 
@@ -249,6 +249,8 @@ tiles = [
     noise_tile((225, 215, 190), 8, (200, 190, 165), 0.15),    # 42 mushroom stem
     noise_tile((110, 175, 70), 10, (150, 200, 90), 0.2),      # 43 lily pad, lighter than grass so it reads on a puddle
     noise_tile((150, 120, 70), 12, (120, 95, 55), 0.2),       # 44 reed head, brown
+    spotted((70, 200, 210), (190, 250, 255)),                 # 45 glow mushroom cap (emissive in the shader)
+    noise_tile((48, 92, 40), 10, (70, 120, 55), 0.25),        # 46 moss carpet
 ]
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))

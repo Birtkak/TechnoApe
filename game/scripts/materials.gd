@@ -53,6 +53,8 @@ const LILY_PAD := 41        # floats on a puddle's water voxel
 const STALACTITE := 42      # hangs from cave ceilings
 const STALAGMITE := 43      # cave floors; both have a core collision box
 const CHISELED := 44        # reserved (ADR 0006): empty non-culling model, shape lives in the block entity
+const GLOW_MUSHROOM := 45   # deep caves; its cap tile is emissive in the terrain shader
+const MOSS := 46            # carpet on lush cave floors
 
 const ATLAS_TILES := Vector2i(8, 6)
 const MICRO_GRID := 8       # cells per voxel edge for micro models and chisels (6.25 cm)
@@ -104,6 +106,8 @@ static func defs() -> Array:
 		{"name": "stalactite", "cell_type": "solid", "density": 10, "hp": 300, "tiles": [0, 0, 0], "transparent": false, "micro": "stalactite"},
 		{"name": "stalagmite", "cell_type": "solid", "density": 10, "hp": 300, "tiles": [0, 0, 0], "transparent": false, "micro": "stalagmite"},
 		{"name": "chiseled", "cell_type": "solid", "density": 10, "hp": 1000, "tiles": [0, 0, 0], "transparent": true, "model": "empty"},
+		{"name": "glow_mushroom", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [45, 42, 42], "transparent": false, "micro": "mushroom"},
+		{"name": "moss", "cell_type": "solid", "density": 10, "hp": 8, "burnable": true, "fire_hp": 10, "autoignition_temperature": 35, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [46, 46, 46], "transparent": false, "micro": "carpet"},
 	]
 
 
@@ -318,6 +322,14 @@ static func micro_pattern(kind: String, tiles: Array) -> PackedInt32Array:
 					_cell(c, px + dx, 0, pz + dz, body)
 					if (dx == 0 or dx == 4 or dz == 0) and rng.randf() < 0.5:
 						_cell(c, px + dx, 1, pz + dz, body)
+		"carpet":
+			# moss: a 1-cell layer over ~70 % of the floor with a few 2-cell bumps
+			for x in g:
+				for z in g:
+					if rng.randf() < 0.7:
+						_cell(c, x, 0, z, body)
+						if rng.randf() < 0.15:
+							_cell(c, x, 1, z, body)
 		"stalactite":
 			# cone hanging from the ceiling: 4x4 at the top down to a 1-cell tip
 			var ox := rng.randi_range(2, 3)

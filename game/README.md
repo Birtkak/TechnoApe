@@ -40,7 +40,10 @@ Godot_..._console.exe --headless --path game --script res://tools/chisel_bench.g
 Godot_..._console.exe --path game --script res://tools/model_sheet.gd -- out=res://out/models/sheet.png  # renders every micro model
 Godot_..._console.exe --path game --script res://tools/anim_probe.gd                       # terrain shader: animated tiles change, others do not
 Godot_..._console.exe --headless --path game --script res://tools/shore_probe.gd -- seed=1337   # hydrology flags along a lake waterline
-Godot_..._console.exe --path game -- autopilot=1 duration=8 capture_every=2 target=cave inside=1 speed=0.6 out=res://out/cave1  # inside a cave, with a torch
+Godot_..._console.exe --path game -- autopilot=1 duration=8 capture_every=2 target=cave inside=1 speed=0.6 out=res://out/cave1  # inside a cave, with a torch (deep_cave: 50-170 voxels down)
+Godot_..._console.exe --path game -- autopilot=1 duration=10 capture_every=1 target=waterfall alt=4 offset=10 speed=0.4 out=res://out/fall_spray  # waterfall with spray; read strip.png for the motion
+Godot_..._console.exe --path game --script res://tools/ape_sheet.gd -- out=res://out/ape/sheet.png     # player body from front/left/back + head close-up
+Godot_..._console.exe --path game -- autopilot=1 duration=6 capture_every=0.5 walk=1 third_person=1 out=res://out/ape_walk  # third-person walk cycle (2 = camera in front)
 ```
 
 First run after adding scripts/addons: `--headless --path game --import` (twice if the
@@ -80,7 +83,10 @@ recipe by design (found only); spells do.
 | `scripts/debug_capture.gd` | Autoload. Autopilot, filmstrips, JSON stats, vsync switch. |
 | `addons/technosim/` | Our GDExtension (built from `../prototypes/p5-sim-spike/src`). |
 | `addons/zylann.voxel/` | godot_voxel GDExtension (CI build 2026-10-01; pin a tag). |
-| `assets/textures/atlas.png` | 8×6 tiles of 16×16 placeholder textures (0..44 used, 45..47 free); `tools/make_atlas.py` regenerates, then `--headless --import` before tests. |
+| `assets/textures/atlas.png` | 8×6 tiles of 16×16 placeholder textures (0..46 used, 47 free; grow ROWS for more); `tools/make_atlas.py` regenerates, then `--headless --import` before tests. |
+| `assets/shaders/terrain.gdshader` | The one material for terrain, micro models, item cubes: nearest atlas, baked AO, scrolling water/lava/fire tiles, emissive glow tile. |
+| `scripts/world/waterfall_spray.gd` | Mist emitters at waterfall feet near the camera (reads `WorldGen.waterfalls_near`). |
+| `scripts/player/ape_model.gd` | The player body: a monkey in goggles and a lab coat built from micro-voxel cells (body 3.1 cm, head 1.8 cm) by `MicroMesher`, limbs pivoted for the walk cycle; also the first-person arm. `tools/ape_sheet.gd` renders it from four sides. |
 
 ## Architecture in one paragraph
 

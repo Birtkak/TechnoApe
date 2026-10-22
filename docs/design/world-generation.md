@@ -150,7 +150,7 @@ set by `set_chunk_bytes`, carried through `shift`). Cost ≈ 5–10 % per tick.
   `micro: tuft|flower|bush|...`): a pattern on the 8x8x8 cell grid (6.25 cm,
   ADR 0006) meshed by the native `MicroMesher` into a `VoxelBlockyModelMesh`
   with only exposed faces, textured from opaque atlas tiles, no collision,
-  never culling neighbours. Brent's call (2026-10-22) over Minecraft
+  never culling neighbours. Direction call (2026-10-22) over Minecraft
   cross-quads, which showed hairlines edge-on and atlas-bleed specks through
   the alpha cutout; the same mesher builds chisel overlays later. They burn
   (grass fires) and are solid for the simulation.
@@ -210,10 +210,26 @@ biome now). LOD 0 block 595 us.
   reports pixels changed in 0.5 s (water 50 %, lava 41 %, fire 64 %, stone 0 %).
   Still missing: waterfall mist particles.
 
+## Spray, glow and moss (2026-10-22, GEN_VERSION 8)
+- **Waterfall spray**: `WorldGen.waterfalls_near(x, z, radius)` lists the
+  falls around a point (foot voxel half a step past the cliff, sheet top,
+  flow direction). `scripts/world/waterfall_spray.gd` (a child of `World`)
+  rescans every 2 s around the camera (120 m) and keeps one `GPUParticles3D`
+  per fall at its foot: 36 soft white billboards, 1.8 s, rising with the
+  flow and sinking back. Presentation only, nothing saved.
+- **Glowing fungi** (`GLOW_MUSHROOM`, 45): the mushroom micro model with a
+  cyan cap tile (45) that the terrain shader renders emissive (`glow_tile`,
+  strength 2.2; lava and fire tiles glow mildly too). Placed on cave floors
+  deeper than 40 voxels: 2.5 % of floor cells, 4.5 % in fungal caves.
+- **Moss carpets** (`MOSS`, 46): a 1-cell layer with bumps over 33 % of the
+  floor cells of lush cave biomes (the ones whose cave top material is grass).
+- `find_nearest("deep_cave")`: like `cave` but 50-170 voxels down, for
+  captures of the glow (`out/cave_deep`).
+
 ## Next
 - The Noita-style dungeons (underground stamps from a per-region RNG) - parked.
 - Chisel every voxel: ADR 0006 (block-entity `Chisel` behavior, overlay
   meshes from `MicroMesher`, `CHISELED` id reserved); P6 measured the mesher.
-- Waterfall mist/particles (the sheet now scrolls, but there is no spray).
+- Waterfall sound and a wet-rock darkening around the spray.
 - A per-thread cache for lake/ruin cells (they re-evaluate columns per block).
-- Cave moss and glowing fungi (needs emissive tiles in the shader).
+- Glow mushrooms as real light sources (today they only glow themselves).

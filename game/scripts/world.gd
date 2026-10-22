@@ -22,6 +22,7 @@ func _ready() -> void:
 	atlas_material.set_shader_parameter("water_tile", float(GameMaterials.defs()[GameMaterials.WATER - 1]["tiles"][0]))
 	atlas_material.set_shader_parameter("lava_tile", float(GameMaterials.defs()[GameMaterials.LAVA - 1]["tiles"][0]))
 	atlas_material.set_shader_parameter("fire_tile", float(GameMaterials.defs()[GameMaterials.FIRE - 1]["tiles"][0]))
+	atlas_material.set_shader_parameter("glow_tile", float(GameMaterials.defs()[GameMaterials.GLOW_MUSHROOM - 1]["tiles"][0]))
 	generator = TerrainGenerator.new()
 	generator.set_seed(Settings.world_seed)
 
@@ -55,6 +56,10 @@ func _ready() -> void:
 		terrain.stream = stream
 	terrain.voxel_bounds = AABB(Vector3(-1e7, 0, -1e7), Vector3(2e7, Settings.WORLD_HEIGHT_VOXELS, 2e7))
 	add_child(terrain)
+	var spray := WaterfallSpray.new()
+	spray.name = "WaterfallSpray"
+	spray.gen = generator.gen
+	add_child(spray)
 	_tool = terrain.get_voxel_tool()
 	_tool.channel = VoxelBuffer.CHANNEL_TYPE
 
