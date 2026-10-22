@@ -53,11 +53,17 @@ func _ready() -> void:
 	terrain.generator = generator
 	terrain.lod_count = Settings.lod_count
 	terrain.lod_distance = Settings.render_distance_voxels()
+	terrain.secondary_lod_distance = Settings.m2v(Settings.lod_ring_m)
+	terrain.threaded_update_enabled = Settings.terrain_threaded_update
 	terrain.view_distance = Settings.view_distance_voxels()
 	terrain.streaming_system = 1  # CLIPBOX (P2: octree collapses at long range)
 	terrain.lod_fade_duration = Settings.lod_fade_s   # blocks blend between LODs (shader: lod_fade_discard)
 	terrain.mesh_block_size = Settings.terrain_mesh_block
-	terrain.material = atlas_material
+	# No terrain.material: VoxelLodTerrain would copy it per block and override
+	# every surface of the block mesh with it, so the liquid shader from the
+	# library never ran on the LOD terrain (water drew opaque) and every block
+	# carried its own ShaderMaterial. Surfaces keep the library's materials; the
+	# LOD cross-fade reaches the shaders as an instance parameter (ADR 0020).
 	# Bodies collide against voxel data (VoxelBody, ADR 0011); mesh colliders
 	# rebuilt per edited block on the main thread were the frame spikes (ADR 0010).
 	terrain.generate_collisions = Settings.terrain_mesh_collisions

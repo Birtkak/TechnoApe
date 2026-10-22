@@ -57,7 +57,9 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=3 f3=1 
 # liquid spill stress: blast=1.5 blast_material=water blast_every=2 (passes for ~20 s; minutes of flow do not yet)
 # far view + streaming (ADR 0017): JSON voxel_backlog = pending voxel tasks while moving (max/mean/busy_share/
 # max_busy_s/threads); voxel_threads=N overrides the worker count; persist=1 seed=<unused seed> measures the
-# save-file load path (never use the seed you play); lod_fade_s=0.35 tries the LOD cross-fade (off: too costly)
+# save-file load path (never use the seed you play); lod_fade_s=0 turns the LOD cross-fade off (default 0.35 s, ADR 0020);
+# lod_ring_m=24 narrows the LOD rings back to godot_voxel's default (LOD n ends at render_distance_m + lod_ring_m * 2^n, ADR 0020);
+# terrain_threaded_update=1 moves VoxelLodTerrain's LOD bookkeeping to a worker thread
 Godot_..._console.exe --path game -- autopilot=1 speed=20 alt=30 duration=16 vsync=0 persist=1 seed=424242 out=res://out/stream
 # mass edits (ADR 0014): blast=R craters of R m on the ground around the player every blast_every s (default 2),
 # blast_count=N per volley; JSON sim.blasts, blast_voxels, blast_ms_max (native SimWorld.fill_sphere)
@@ -162,3 +164,20 @@ nothing moves. Server and client will share this split (ADR 0002).
 - No terrain physics colliders (ADR 0011): new movers use VoxelBody or voxel ray-casts. Swimming is minimal.
 - Item icons for non-block items are coloured tags with initials; the held item is a cube or a card, no arm.
 - Memory at large full-detail radius; see `docs/research` matrix in the commit log.
+
+## The voxel extension is our build (ADR 0020)
+
+`addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll` (git-ignored)
+is godot_voxel 045ff932 plus `prototypes/p11-lod-horizon/voxel_patch.py`. To
+rebuild it (MinGW on PATH, godot-cpp 4.5 branch at `~/Tools/godot-cpp`):
+
+```
+git clone https://github.com/Zylann/godot_voxel ~/Tools/godot_voxel && cd ~/Tools/godot_voxel && git checkout 045ff932
+python ../../prototypes/p11-lod-horizon/voxel_patch.py ~/Tools/godot_voxel
+GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=template_debug use_mingw=yes use_static_cpp=yes -j12
+cp project/addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll <repo>/game/addons/zylann.voxel/bin/
+```
+
+The stock CI DLL still runs the game (`voxel.gdextension` can point `windows.debug`
+back at `libvoxel.windows.editor.x86_64.dll`), but then set `lod_fade_s=0`: the
+stock fade needs a `terrain.material` and costs 30-60 ms frames.

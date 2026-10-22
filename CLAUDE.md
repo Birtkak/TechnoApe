@@ -42,9 +42,15 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
 
 - Godot 4.7.2 .NET at `~\Tools\Godot\4.7.2-mono\Godot_v4.7.2-stable_mono_win64\`
   (`_console.exe` for CLI). .NET SDK 8.0.426 (tooling only).
-- godot_voxel GDExtension (master CI build 2026-10-01 at
-  `~\Tools\downloads\libvoxel-36898667256\`; pin a tag before Phase 2).
-  Terrain: `VoxelLodTerrain` + `VoxelMesherBlocky` + `streaming_system = CLIPBOX`.
+- godot_voxel GDExtension, **our own build** of commit 045ff932 (the 2026-10-01
+  master CI build at `~\Tools\downloads\libvoxel-36898667256\`) with the
+  patches in `prototypes/p11-lod-horizon/voxel_patch.py` (ADR 0020: LOD
+  distance cap, cheap cross-fade through an instance parameter). Source at
+  `~\Tools\godot_voxel`; build with `target=template_debug` (the editor target
+  does not compile with GCC 16) and copy the DLL to `game/addons/zylann.voxel/bin/`,
+  see `game/README.md`. Terrain: `VoxelLodTerrain` + `VoxelMesherBlocky` +
+  `streaming_system = CLIPBOX`; never set `terrain.material` (it overrides the
+  library's per-surface materials, ADR 0020).
 - Tests: gdUnit4 v6.2.2 (source at `~\Tools\downloads\gdUnit4\`).
 - C++ toolchain: portable MinGW-w64 GCC 16.2 at
   `~\Tools\mingw-dl\mingw64\bin` (add to PATH), SCons via

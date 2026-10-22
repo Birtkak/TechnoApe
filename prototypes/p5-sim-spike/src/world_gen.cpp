@@ -713,16 +713,24 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
     bool any = false;
     const bool do_caves = lod == 0;
     const bool do_ores = lod == 0;
-    const bool do_veg = lod == 0;
+    // Micro vegetation up to lod 1: sampling every other column keeps a quarter
+    // of the tufts, drawn at twice the size, so cover thins instead of stopping
+    // at the LOD0 edge (ADR 0020).
+    const bool do_veg = lod <= 1;
     const int y_top = origin.y + sy * step;
     const bool above_sea = y_top > sea_ && origin.y < world_height_;
-    Tree trees[64];
+    // Foliage thins with LOD (ADR 0020): micro vegetation to lod 1, trees as
+    // trunk + canopy up to lod 2 (sampling already drops most trunks there), and
+    // from lod 3 on a tree is just a leaf-coloured surface cell under its canopy,
+    // so far forests keep their colour without any tree geometry.
+    Tree trees[256];
     Ruin ruins[4];
     int ntrees = 0, nruins = 0;
     if (above_sea) {
         nruins = ruins_near(origin.x, origin.z, origin.x + sx * step, origin.z + sz * step, ruins, 4);
-        if (lod <= 2) ntrees = trees_near(origin.x, origin.z, origin.x + sx * step, origin.z + sz * step, trees, 64);
+        if (lod <= 2) ntrees = trees_near(origin.x, origin.z, origin.x + sx * step, origin.z + sz * step, trees, 256);
     }
+    const bool far_trees = lod >= 3 && above_sea;
     for (int z = 0; z < sz; z++) {
         const int wz = origin.z + z * step;
         for (int x = 0; x < sx; x++) {
@@ -802,18 +810,34 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
             if (do_veg && !ruin && h >= water_level && hy.fall_top < 0 && h > sea_)
                 veg = vegetation_at(col, wx, wz, top_m, hy, veg_h);
             uint16_t *colp = w + sy * (x + sx * z);
+            // Far LOD: is this column under a tree's canopy? (one tree cell lookup)
+            bool far_canopy = false;
+            if (far_trees && !ruin && h > water_level && technosim_biome::TREE_DENSITY[col.biome] > 0.0f) {
+                Tree t;
+                const int tcx = (int)std::floor((float)wx / TREE_CELL), tcz = (int)std::floor((float)wz / TREE_CELL);
+                if (tree_at_cell(tcx, tcz, t)) {
+                    const int dx = wx - t.x, dz = wz - t.z;
+                    far_canopy = dx * dx + dz * dz <= t.radius * t.radius + 1;
+                }
+            }
             // Trees touching this column
             int trunk_lo = 0, trunk_hi = -1;
             int can_lo = 0, can_hi = -1, can_base = 0, can_r = 0, can_d2 = 0;
             for (int t = 0; t < ntrees; t++) {
-                const int dx = wx - trees[t].x, dz = wz - trees[t].z;
-                const int d2 = dx * dx + dz * dz;
+                // A coarse cell holds the trunk when the tree's base lies in its
+                // footprint (lod 0: the column itself); canopy distance is measured
+                // from the cell centre, so lod 1-2 trees keep trunk and crown instead
+                // of the one in 2^(2 lod) whose base hits the sampled column (ADR 0020).
+                const bool trunk_here = step == 1 ? (wx == trees[t].x && wz == trees[t].z)
+                    : (trees[t].x >= wx && trees[t].x < wx + step && trees[t].z >= wz && trees[t].z < wz + step);
+                const int dx = wx + step / 2 - trees[t].x, dz = wz + step / 2 - trees[t].z;
+                const int d2 = trunk_here ? 0 : dx * dx + dz * dz;
                 if (d2 > trees[t].radius * trees[t].radius + 1) continue;
                 bool blocked = false;
                 for (int i = 0; i < nruins && !blocked; i++) blocked = in_ruin(ruins[i], trees[t].x, trees[t].z, 3);
                 if (blocked) continue;
                 const int top = trees[t].base + trees[t].trunk_h;
-                if (dx == 0 && dz == 0) { trunk_lo = trees[t].base; trunk_hi = top + 1; veg = AIR; }
+                if (trunk_here) { trunk_lo = trees[t].base; trunk_hi = top + 1; veg = AIR; }
                 if (can_hi < 0 || d2 < can_d2) {
                     can_base = top - 2; can_lo = can_base; can_hi = top + 2; can_r = trees[t].radius; can_d2 = d2;
                 }
@@ -915,12 +939,14 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                             m = (uint16_t)technosim_biome::SURFACE_TOP[cb];
                         }
                     } else {
-                        m = d_top == 1 ? top_m : under_m;
+                        m = d_top == 1 ? (far_canopy ? LEAVES : top_m) : under_m;
                     }
-                } else if (wy < water_level) {
-                    // generated water is static (does not drain down slopes) except the sea;
-                    // cold lakes and marshes freeze over
-                    if (wy == water_level - 1 && cold && (hy.lake || hy.marsh)) m = ICE;
+                } else if ((water_level - wy) * 2 >= step) {
+                    // water where at least half the cell is below the water level (lod 0:
+                    // wy < water_level); a coarse cell no longer lifts a lake by step - 1 voxels.
+                    // Generated water is static (does not drain down slopes) except the sea;
+                    // cold lakes and marshes freeze over.
+                    if (wy + step >= water_level && cold && (hy.lake || hy.marsh)) m = ICE;
                     else m = (hy.lake || hy.river > 0.0f || hy.marsh) ? WATER_STATIC : WATER;
                 } else if (hy.fall_top > wy) {
                     m = WATER_STATIC; // waterfall sheet hanging from the lip

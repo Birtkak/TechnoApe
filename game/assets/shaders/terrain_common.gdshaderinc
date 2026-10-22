@@ -36,7 +36,7 @@ uniform float far_fade_end = 1200.0;
 // terrain sets this per mesh block, x = progress 0..1, y = 1 fading in / 0 out;
 // an ordered 4x4 dither hides pixels so the old and new LOD blend instead of
 // flipping. Blocks that are not fading keep the default and draw fully.
-instance uniform vec2 u_lod_fade = vec2(0.0, 0.0);
+instance uniform vec2 u_lod_fade = vec2(0.0, 0.0);   // set per block by our godot_voxel build as an instance parameter (ADR 0020); stock godot_voxel only sets it on a per-block ShaderMaterial
 
 varying vec4 vcol;
 varying vec3 v_world;

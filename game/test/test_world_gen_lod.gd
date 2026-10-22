@@ -103,3 +103,31 @@ func test_buried_cells_are_soil_or_rock_by_majority() -> void:
 		k = (h - 1 - y0) / 8
 		assert_int(c[k - 1]).is_not_equal(GameMaterials.DIRT)
 		assert_int(c[k - 1]).is_not_equal(GameMaterials.GRASS)
+
+
+func test_far_lod_forests_collapse_into_leaf_coloured_ground() -> void:
+	# From lod 3 on trees have no geometry: a column under a canopy gets a LEAVES
+	# surface cell instead (ADR 0020). Scan a strip of lod-3 blocks: leaves exist,
+	# and every leaf cell is a surface cell (air above, ground below).
+	var g := _gen()
+	var size := Vector3i(16, 16, 16)
+	var leaves := 0
+	var surface_leaves := 0
+	var x := 0
+	while x < 40000 and leaves < 20:
+		var h: int = g.height_at(x, 13)
+		if h > Settings.SEA_LEVEL_VOXEL + 2:
+			var y0 := ((h - 64) / 8) * 8
+			var bytes: PackedByteArray = g.generate_block(Vector3i(x, y0, 13), size, 3, 2)
+			if not bytes.is_empty():
+				for bz in size.z:
+					for bx in size.x:
+						var c := _col(bytes, size, bx, bz)
+						for y in range(1, size.y - 1):
+							if c[y] == GameMaterials.LEAVES:
+								leaves += 1
+								if c[y + 1] == GameMaterials.AIR and c[y - 1] != GameMaterials.AIR and c[y - 1] != GameMaterials.LEAVES:
+									surface_leaves += 1
+		x += 128
+	assert_int(leaves).is_greater(0)
+	assert_int(surface_leaves).is_equal(leaves)

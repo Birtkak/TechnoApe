@@ -13,9 +13,11 @@ var simulation_distance_m := 24.0       # radius of the simulation bubble around
 var render_distance_m := 64.0           # full-detail (LOD 0) radius; godot_voxel clamps lod_distance to 128 voxels = 64 m (ADR 0017), larger values are silently cut
 var view_distance_m := 1024.0           # LOD horizon
 var lod_count := 7
+var lod_ring_m := 48.0                  # clipbox: LOD n ends at render_distance_m + lod_ring_m * 2^n (ADR 0020: 48 m = 2-voxel cubes to 160 m, 4-voxel to 256 m; godot_voxel's default is 24 m; 64 m looks better still but 40 m/s flight then has 20-27 ms frames)
+var terrain_threaded_update := true     # VoxelLodTerrain's LOD/streaming bookkeeping on a worker thread (ADR 0020: the 17 ms burst frame at 64 m rings became 9 ms)
 var far_fade_start_m := 150.0           # terrain textures fade toward their tile's average colour from here (ADR 0017)
 var far_fade_end_m := 600.0
-var lod_fade_s := 0.0                   # cross-fade when a terrain block changes LOD; off: a 3000-block burst then draws both LODs and costs 30-60 ms frames (ADR 0017)
+var lod_fade_s := 0.35                  # dithered cross-fade when a terrain block changes LOD (ADR 0020: free with our godot_voxel build; stock godot_voxel copies every fading block and costs 30-60 ms frames)
 var terrain_mesh_block := 32            # 16 or 32 voxels; 32 = 3x fewer draw calls (measured), coarser re-mesh granularity
 var cache_generated_blocks := true      # store generated LOD data so edits cascade to far LODs (memory vs correctness)
 
@@ -118,6 +120,8 @@ func apply_cmdline() -> Dictionary:
 			"render_distance_m": render_distance_m = float(kv[1])
 			"view_distance_m": view_distance_m = float(kv[1])
 			"lod_count": lod_count = int(kv[1])
+			"lod_ring_m": lod_ring_m = float(kv[1])
+			"terrain_threaded_update": terrain_threaded_update = kv[1] == "1"
 			"far_fade_start_m": far_fade_start_m = float(kv[1])
 			"far_fade_end_m": far_fade_end_m = float(kv[1])
 			"lod_fade_s": lod_fade_s = float(kv[1])
