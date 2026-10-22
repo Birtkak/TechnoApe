@@ -37,6 +37,8 @@ var store: BrickStore = null
 var store_origin_voxel := Vector3i.ZERO   # world voxel of the store's brick (0,0,0); the owner updates it when the store window slides
 var store_writes := 0
 var _push_queue := {}          # world chunk -> true, insertion order = oldest first (ADR 0010)
+var hold_pushes := true        # no pastes into the terrain until the first streaming burst is done (ADR 0020): an edit
+                               # cascades to every LOD, and parents that are not loaded yet log "destination block not found"
 var push_queue_max := 0
 var _last_push := {}           # world chunk -> msec of its last paste (Settings.sim_push_interval_ms)
 var _fire_test := -1           # debug: fire_test=N ignites burnables within N voxels once loaded
@@ -131,7 +133,7 @@ func _process(delta: float) -> void:
 	if _tick_running:
 		return
 	_load_pending()
-	if not _push_queue.is_empty():
+	if not _push_queue.is_empty() and not hold_pushes:
 		var t1 := Time.get_ticks_usec()
 		_drain_push(Settings.sim_push_budget_ms)
 		push_ms = (Time.get_ticks_usec() - t1) / 1000.0

@@ -8,6 +8,8 @@ extends CanvasLayer
 ## Progress is 1 - pending / peak pending tasks (monotonic); a cap ends it
 ## regardless, so a slow horizon never hides the game.
 
+signal finished   # the cover starts fading: the terrain around the player is in
+
 const CAP_S := 15.0
 const IDLE_FRAMES := 20        # frames with no voxel task before the fade starts
 const FADE_S := 0.6
@@ -66,6 +68,7 @@ func _process(delta: float) -> void:
 	if _idle >= IDLE_FRAMES or _elapsed >= CAP_S:
 		_fading = true
 		_bar.size.x = 300.0
+		finished.emit()
 		var tw := create_tween()
 		tw.tween_property(_cover, "modulate:a", 0.0, FADE_S)
 		tw.tween_callback(queue_free)

@@ -86,6 +86,7 @@ func _ready() -> void:
 	var loading := LoadingScreen.new()
 	loading.name = "LoadingScreen"
 	loading.bubble = bubble
+	loading.finished.connect(func() -> void: bubble.hold_pushes = false)
 	add_child(loading)
 	game_hud.setup(player_inv)
 	player.hud = game_hud

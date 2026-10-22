@@ -123,8 +123,10 @@ hydrology fix).
   reads the terrain under its data lock; a worker holding that lock for a
   block save or cache write is the suspect. Not new to this ADR.
 - "Destination block not found when cascading edits on LOD n" (1–4 per walk
-  run at start-up) is older than this ADR (soak logs of ADR 0016 show it):
-  an edit lands before the parent LOD block exists in the data map.
+  run at start-up, older than this ADR) came from the bubble pasting its first
+  simulation changes before the parent LOD blocks existed. The bubble now
+  holds its pushes until the loading screen finishes (`SimBubble.hold_pushes`);
+  no such error in the walk and spill runs since.
 - The water spill is within budget with the edit remesh rate (above).
   Measured on the way: 16-voxel mesh blocks do not help (spill p99 10.3,
   flight 80 ms frames: three times the instances) and overflow Godot's
