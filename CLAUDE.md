@@ -74,9 +74,12 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
 - Phase 2 (current): `game/` skeleton ✓ (LOD world, textures, player, sim
   bubble, debug capture), native world generator ✓ (splines, caves, ores,
   biomes, trees, ruins, hydrology rivers/lakes/springs, altitude bands,
-  seeds). **Next:** item entities + hotbar/inventory UI wired to the
-  crafting core, mining/placing through the material model, bubble polish
-  (spikes on shift, fire-spread tuning), P4 server headless check.
+  seeds), player loop ✓ (ADR 0005: hotbar/inventory/crafting screens,
+  item entities, mining table, placing, buckets, hearts, viewmodel; 16
+  headless tests + autopilot `mine=1` / `place=1` checks). **Next:**
+  crafting table / furnace / chest blocks (materials + tiles + block
+  entities), JEI-style browser UI, bubble polish (spikes on shift,
+  fire-spread tuning), P4 server headless check.
 - A parallel session ("PC testing and optimization") adds biomes.json +
   biome registry/rules/tests/docs as new files only; Biome enum ids 0..12
   in world_gen.h must stay stable; it generates biome_table.gen.h.

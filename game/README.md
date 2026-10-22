@@ -6,7 +6,8 @@ The real project. Prototypes live in `../prototypes/`; decisions in
 ## Run
 
 ```
-# play (mouse captured; Esc releases; F fly/walk; F3 HUD; LMB break; RMB place sand)
+# play (mouse captured; Esc releases; F fly/walk; F3 debug overlay; hold LMB to mine; RMB place/use;
+#       1-9 / wheel select; E inventory; Q drop one (Ctrl+Q stack))
 Godot_v4.7.2-stable_mono_win64_console.exe --path game
 
 # unattended check for Claude: fly forward 20 s, filmstrip every second, JSON on stdout
@@ -16,6 +17,12 @@ Godot_v4.7.2-stable_mono_win64_console.exe --path game -- autopilot=1 duration=2
 # walk instead of fly (gravity + 1-voxel auto step-up): walk=1 ; JSON reports travelled_horizontal_m
 # pick a world: seed=1337 or seed="any text" (hashed); see docs/design/seeds.md
 # the JSON ends with bubble_verify: simulation bubble vs generator (0 mismatches expected)
+# interaction checks (ADR 0005): give=... fills the hotbar; mine=1 digs a 2x2 shaft under the feet
+# (JSON: picked_up, item_stats, player.hotbar); place=1 places the held block ahead every 0.2 s;
+# scatter_items=1 drops one entity per given item in front; open_inventory=1 for a screen shot
+Godot_..._console.exe --path game -- autopilot=1 mine=1 duration=20 capture_every=2 give=wooden_pickaxe out=res://out/mine
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=4 open_inventory=1 give=oak_log:12,cobblestone:64,bucket:2 out=res://out/inv
+
 
 # generator probes (headless): stats + biome map; settle test around a feature
 Godot_..._console.exe --headless --path game --script res://tools/gen_probe.gd -- seed=1337 radius=2048
@@ -47,7 +54,12 @@ recipe by design (found only); spells do.
 | `scripts/generator.gd` | Bridge to the native `WorldGen` (1.18-style splines, caves, ores, biomes); see `docs/design/world-generation.md`. `tools/gen_probe.gd` prints stats and a biome map. |
 | `scripts/world.gd` | `VoxelLodTerrain` (clipbox streaming, 7 LODs) + copy/paste helpers. |
 | `scripts/sim_bubble.gd` | Sliding window of the native `SimWorld` around the player; load/tick/push. |
-| `scripts/player.gd` | First-person walk/fly, mouse look, raycast break/place. |
+| `scripts/player.gd` | First-person walk/fly, mouse look, hold-to-mine with progress, place/use (buckets), hotbar keys, drop, fall damage, held-item viewmodel (`scripts/player/viewmodel.gd`). |
+| `scripts/player/player_inventory.gd` | Player model: 36-slot inventory (hotbar = slots 0..8), cursor stack, 2x2/3x3 crafting grid, health. Pure logic, tested. |
+| `scripts/player/mining_table.gd` | `data/mining.json`: hardness, tool class/tier, drops per material (Minecraft break-time formula). |
+| `scripts/items/item_entity.gd` | Dropped stacks: textured mini-cube rigid bodies, bob/spin, merge, pickup, despawn; pop out of solid voxels. |
+| `scripts/ui/hud.gd` | Crosshair, hotbar with isometric atlas icons (`item_icon.gd`), hearts, break progress. |
+| `scripts/ui/inventory_screen.gd` | Vanilla-layout inventory / crafting-table screen with cursor semantics. |
 | `scripts/debug_hud.gd` | F3 overlay. |
 | `scripts/debug_capture.gd` | Autoload. Autopilot, filmstrips, JSON stats, vsync switch. |
 | `addons/technosim/` | Our GDExtension (built from `../prototypes/p5-sim-spike/src`). |
@@ -70,5 +82,8 @@ nothing moves. Server and client will share this split (ADR 0002).
   a placeholder for the versioned region format; sim-bubble state (burning,
   lifetimes) is not saved, only materials.
 - Generator: no dungeons, villages, waterfalls or vegetation details yet (ruins, trees, rivers, lakes exist).
-- No inventory/items; break/place are debug actions.
+- No crafting table / furnace / chest *blocks* yet (they need materials + atlas tiles); the 3x3 screen exists
+  (`InventoryScreen.open(3, "crafting_table")`). Cobblestone places stone until a cobblestone material exists.
+- Player body is a capsule 1.2 voxels wide: 1-voxel shafts are not enterable (dig 2x2 like the autopilot does).
+- Item icons for non-block items are coloured tags with initials; the held item is a cube or a card, no arm.
 - Memory at large full-detail radius; see `docs/research` matrix in the commit log.

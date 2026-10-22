@@ -33,6 +33,17 @@ var reach_m := 5.0
 var gravity_m := 9.8 * 2.0              # Minecraft-ish snappy gravity
 var mouse_sensitivity := 0.0025
 
+# Interaction (ADR 0005)
+var max_health := 20                    # half-hearts, vanilla
+var fall_damage_safe_m := 3.0           # metres of fall before damage (vanilla: 3 blocks)
+var pickup_radius_m := 1.4              # item entities this close to the body centre are picked up
+var item_pickup_delay_s := 0.5          # a freshly dropped item cannot be picked up at once
+var item_despawn_s := 300.0             # vanilla: 5 minutes
+var item_merge_radius_m := 0.75         # equal stacks closer than this merge
+var drop_throw_speed_m := 4.0           # Q drop velocity
+var break_cooldown_s := 0.25            # vanilla: 5 ticks between broken blocks
+var place_repeat_s := 0.2               # vanilla: 4 ticks between placed blocks while holding
+
 # World
 var world_seed := 1337
 var world_seed_text := ""               # what the player typed, if the seed came from text
@@ -96,4 +107,7 @@ func apply_cmdline() -> Dictionary:
 			"sim_threads": sim_threads = int(kv[1])
 			"world_seed", "seed": set_seed_text(kv[1])
 			"persist": persist_world = kv[1] == "1"
+			"max_health": max_health = int(kv[1])
+			"pickup_radius_m": pickup_radius_m = float(kv[1])
+			"item_despawn_s": item_despawn_s = float(kv[1])
 	return args

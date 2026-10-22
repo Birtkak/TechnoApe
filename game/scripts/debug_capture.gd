@@ -16,6 +16,11 @@ var target := ""      # "lake" | "ruin": start the flight before the nearest one
 var offset_m := 40.0  # start this far from the target (along +z)
 var pitch := -0.2     # camera pitch in radians (negative = looking down)
 var walk := false     # walk (gravity, step-up) instead of flying; reports distance travelled
+var mine := false     # stand still, look down and hold break for the whole run; JSON reports picked_up
+var place := false    # stand still and place the held item ahead every place_repeat_s; JSON shows the hotbar count drop
+var open_inventory := false   # open the inventory screen (for HUD screenshots)
+var scatter_items := false    # also drop one item entity per given item in front of the player
+var give: Array = []  # give=oak_log:12,wooden_pickaxe  -> starting items
 var _start_pos := Vector3.ZERO
 var _strip: FrameSheet
 var _frame_ms := PackedFloat64Array()
@@ -39,6 +44,13 @@ func _ready() -> void:
 	offset_m = float(args.get("offset", "40"))
 	pitch = float(args.get("pitch", "-0.2"))
 	walk = args.get("walk", "0") == "1"
+	mine = args.get("mine", "0") == "1"
+	place = args.get("place", "0") == "1"
+	open_inventory = args.get("open_inventory", "0") == "1"
+	scatter_items = args.get("scatter_items", "0") == "1"
+	for spec in String(args.get("give", "")).split(",", false):
+		var parts := spec.split(":")
+		give.append({"id": parts[0], "count": int(parts[1]) if parts.size() > 1 else 1})
 	if capture_every > 0.0:
 		_strip = FrameSheet.new(320, 180, 5)
 	if args.get("vsync", "1") == "0":
