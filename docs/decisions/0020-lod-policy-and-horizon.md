@@ -43,6 +43,13 @@ which a per-block ShaderMaterial never reaches: the earlier fade measurement
 **Rings (settings.gd `lod_ring_m`, world.gd):** `secondary_lod_distance` is
 set explicitly; LOD n ends at `render_distance_m + lod_ring_m * 2^n`.
 
+**Hydrology tile cache (world_gen.cpp):** a 2 km tile (~35 ms, ~2.8 MB)
+is now built outside the global lock by the first thread that asks for it
+while the others wait on its future, and the cache evicts its least
+recently used quarter past 96 tiles instead of clearing wholesale at 64.
+First load standing still: 4.05 → 3.3 s (the builds used to serialise every
+worker); flight unchanged.
+
 **Rings:** `lod_ring_m` defaults to 48 m (2-voxel cubes to 160 m, 4-voxel to
 256 m, 8-voxel to 448 m, 16-voxel to 832 m) and `terrain_threaded_update`
 is on. 64 m looks better still (grass to 192 m) and holds the p99, but at

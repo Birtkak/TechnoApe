@@ -33,6 +33,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <future>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -162,8 +163,16 @@ private:
     int sea_ = 256;
     int world_height_ = 768;
     FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_beach_, n_jitter_, n_cavebiome_;
+    // Global tile cache: a tile is built outside the lock by the first thread
+    // that asks for it, others wait on its future; least recently used tiles
+    // are evicted past HYDRO_CACHE_MAX (ADR 0020: a build under the lock
+    // serialised every worker during the first load, and the old wholesale
+    // clear rebuilt a region's tiles again and again when flying far).
+    static constexpr size_t HYDRO_CACHE_MAX = 96;   // ~2.8 MB each
+    struct HydroEntry { std::shared_future<std::shared_ptr<HydroTile>> tile; uint64_t used; };
     mutable std::mutex hydro_mutex_;
-    mutable std::unordered_map<uint64_t, std::shared_ptr<HydroTile>> hydro_cache_;
+    mutable std::unordered_map<uint64_t, HydroEntry> hydro_cache_;
+    mutable uint64_t hydro_tick_ = 0;
 
     Column column(int x, int z) const;
     Column column_base(int x, int z, bool with_slope) const;

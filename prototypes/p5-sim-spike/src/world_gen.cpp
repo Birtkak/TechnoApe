@@ -3,6 +3,7 @@
 #include <godot_cpp/core/class_db.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <queue>
@@ -214,15 +215,36 @@ static const int D8Z[8] = {0, 1, 1, 1, 0, -1, -1, -1};
 
 std::shared_ptr<WorldGen::HydroTile> WorldGen::hydro_tile(int tx, int tz) const {
     const uint64_t key = ((uint64_t)(uint32_t)tx << 32) | (uint32_t)tz;
-    std::lock_guard<std::mutex> lk(hydro_mutex_);
-    auto it = hydro_cache_.find(key);
-    if (it != hydro_cache_.end()) return it->second;
+    std::promise<std::shared_ptr<HydroTile>> mine;
+    std::shared_future<std::shared_ptr<HydroTile>> f;
+    bool builder = false;
+    {
+        std::lock_guard<std::mutex> lk(hydro_mutex_);
+        auto it = hydro_cache_.find(key);
+        if (it != hydro_cache_.end()) {
+            it->second.used = ++hydro_tick_;
+            f = it->second.tile;
+        } else {
+            if (hydro_cache_.size() >= HYDRO_CACHE_MAX) {
+                // evict the least recently used quarter among finished tiles
+                std::vector<std::pair<uint64_t, uint64_t>> order; // (used, key)
+                for (auto &kv : hydro_cache_)
+                    if (kv.second.tile.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+                        order.push_back({kv.second.used, kv.first});
+                std::sort(order.begin(), order.end());
+                for (size_t i = 0; i < order.size() / 4; i++) hydro_cache_.erase(order[i].second);
+            }
+            f = mine.get_future().share();
+            hydro_cache_[key] = HydroEntry{f, ++hydro_tick_};
+            builder = true;
+        }
+    }
+    if (!builder) return f.get();   // built by another thread, or being built: wait for it
     auto t = std::make_shared<HydroTile>();
     t->tx = tx;
     t->tz = tz;
     build_hydro_tile(*t);
-    if (hydro_cache_.size() > 64) hydro_cache_.clear(); // crude bound; tiles are cheap to rebuild (~0.2 s)
-    hydro_cache_[key] = t;
+    mine.set_value(t);
     return t;
 }
 
