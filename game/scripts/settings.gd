@@ -25,6 +25,7 @@ var walk_speed_m := 4.3
 var sprint_speed_m := 7.0
 var fly_speed_m := 20.0
 var jump_height_m := 1.25
+var step_height_m := 0.55               # auto step-up: one voxel (0.5 m) plus a little slack
 var player_height_m := 1.8
 var player_radius_m := 0.3
 var eye_height_m := 1.62
@@ -34,7 +35,25 @@ var mouse_sensitivity := 0.0025
 
 # World
 var world_seed := 1337
-var persist_world := true               # save edited chunks to user://worlds/world_<seed>.sqlite
+var world_seed_text := ""               # what the player typed, if the seed came from text
+var persist_world := true               # save edited chunks to user://worlds/world_<seed>_g<gen>.sqlite
+
+
+## Minecraft-style seeds: a number is used as-is, any other text is hashed
+## (FNV-1a, 32-bit, stable across platforms) so "epic mountains" is a valid seed.
+static func seed_from_string(s: String) -> int:
+	s = s.strip_edges()
+	if s.is_valid_int():
+		return int(s)
+	var h := 2166136261
+	for b in s.to_utf8_buffer():
+		h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+	return h
+
+
+func set_seed_text(s: String) -> void:
+	world_seed_text = s
+	world_seed = seed_from_string(s)
 
 
 static func m2v(metres: float) -> float:
@@ -75,6 +94,6 @@ func apply_cmdline() -> Dictionary:
 			"cache_generated": cache_generated_blocks = kv[1] == "1"
 			"sim_tick_hz": sim_tick_hz = float(kv[1])
 			"sim_threads": sim_threads = int(kv[1])
-			"world_seed": world_seed = int(kv[1])
+			"world_seed", "seed": set_seed_text(kv[1])
 			"persist": persist_world = kv[1] == "1"
 	return args

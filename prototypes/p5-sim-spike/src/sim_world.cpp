@@ -767,6 +767,7 @@ Dictionary SimWorld::chunk_info(Vector3i c) const {
     d["active_next"] = (int)active_next_[ci].load();
     d["active_now"] = (int)active_now_[ci].load();
     d["dirty"] = (int)dirty_[ci].load();
+    d["loaded"] = (int)loaded_[ci];
     Dictionary counts;
     int burning = 0;
     for (int z = 0; z < CS; z++)

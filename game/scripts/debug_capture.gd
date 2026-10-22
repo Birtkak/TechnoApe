@@ -15,6 +15,8 @@ var speed_m := 6.0
 var target := ""      # "lake" | "ruin": start the flight before the nearest one and fly over it
 var offset_m := 40.0  # start this far from the target (along +z)
 var pitch := -0.2     # camera pitch in radians (negative = looking down)
+var walk := false     # walk (gravity, step-up) instead of flying; reports distance travelled
+var _start_pos := Vector3.ZERO
 var _strip: FrameSheet
 var _frame_ms := PackedFloat64Array()
 var _elapsed := 0.0
@@ -26,6 +28,8 @@ var _done := false
 func _ready() -> void:
 	var args: Dictionary = Settings.apply_cmdline()
 	autopilot = args.get("autopilot", "0") == "1"
+	if autopilot and not args.has("persist"):
+		Settings.persist_world = false  # unattended test runs never write world saves
 	duration = float(args.get("duration", "20"))
 	capture_every = float(args.get("capture_every", "0"))
 	out_dir = args.get("out", "res://out")
@@ -34,6 +38,7 @@ func _ready() -> void:
 	target = args.get("target", "")
 	offset_m = float(args.get("offset", "40"))
 	pitch = float(args.get("pitch", "-0.2"))
+	walk = args.get("walk", "0") == "1"
 	if capture_every > 0.0:
 		_strip = FrameSheet.new(320, 180, 5)
 	if args.get("vsync", "1") == "0":
@@ -51,6 +56,8 @@ func _process(delta: float) -> void:
 	_elapsed += delta
 	if _elapsed < 1.0:
 		return  # let the world load
+	if _frame_ms.is_empty():
+		_start_pos = _main.player.position
 	_frame_ms.push_back(delta * 1000.0)
 	if _strip:
 		_capture_accum += delta
@@ -75,6 +82,9 @@ func _finish() -> void:
 		_strip.save(out_dir + "/strip.png")
 	var s: Dictionary = _main.snapshot()
 	s["test"] = "autopilot"
+	s["mode_requested"] = "walk" if walk else "fly"
+	s["travelled_m"] = snappedf(Settings.v2m((_main.player.position - _start_pos).length()), 0.1)
+	s["travelled_horizontal_m"] = snappedf(Settings.v2m(Vector2(_main.player.position.x - _start_pos.x, _main.player.position.z - _start_pos.z).length()), 0.1)
 	if _main.has_method("verify_bubble"):
 		s["bubble_verify"] = _main.verify_bubble()
 	s["frames"] = ft.size()
@@ -82,7 +92,7 @@ func _finish() -> void:
 	s["p50_frame_ms"] = snappedf(ft[n / 2] if ft.size() else 0.0, 0.01)
 	s["p95_frame_ms"] = snappedf(ft[int(n * 0.95)] if ft.size() else 0.0, 0.01)
 	s["p99_frame_ms"] = snappedf(ft[int(n * 0.99)] if ft.size() else 0.0, 0.01)
-	s["settings"] = {"render_distance_m": Settings.render_distance_m, "view_distance_m": Settings.view_distance_m,
+	s["settings"] = {"seed": Settings.world_seed, "seed_text": Settings.world_seed_text, "render_distance_m": Settings.render_distance_m, "view_distance_m": Settings.view_distance_m,
 		"simulation_distance_m": Settings.simulation_distance_m, "lod_count": Settings.lod_count, "sim_tick_hz": Settings.sim_tick_hz}
 	print(JSON.stringify(s))
 	get_tree().quit(0)

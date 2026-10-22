@@ -47,7 +47,7 @@ func _ready() -> void:
 		# placeholder until the custom region format exists).
 		var stream := VoxelStreamSQLite.new()
 		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://worlds"))
-		stream.database_path = "user://worlds/world_%d.sqlite" % Settings.world_seed
+		stream.database_path = "user://worlds/world_%d_g%d.sqlite" % [Settings.world_seed, TerrainGenerator.GEN_VERSION]
 		terrain.stream = stream
 	terrain.voxel_bounds = AABB(Vector3(-1e7, 0, -1e7), Vector3(2e7, Settings.WORLD_HEIGHT_VOXELS, 2e7))
 	add_child(terrain)

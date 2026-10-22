@@ -67,6 +67,11 @@ func _ready() -> void:
 				print("autopilot target %s not found" % DebugCapture.target)
 		else:
 			player.position.y = h + Settings.m2v(DebugCapture.altitude_m)
+		if DebugCapture.walk:
+			player.flying = false
+			# stand on the ground at the player's actual x/z (targets move it away from spawn)
+			var gh := world.surface_height(int(floor(player.position.x)), int(floor(player.position.z)))
+			player.position.y = maxi(gh, Settings.SEA_LEVEL_VOXEL) + 3
 	else:
 		player.capture_mouse(true)
 	bubble.setup(world, player.position)

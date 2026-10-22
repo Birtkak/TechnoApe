@@ -32,7 +32,7 @@ func _process(_delta: float) -> void:
 		return
 	var s: Dictionary = main.snapshot()
 	var lines := [
-		"TechnoApe dev  |  %d fps  frame %.2f ms" % [s["fps"], s["frame_ms"]],
+		"TechnoApe dev  |  %d fps  frame %.2f ms  |  seed %d%s" % [s["fps"], s["frame_ms"], Settings.world_seed, (" (\"%s\")" % Settings.world_seed_text) if Settings.world_seed_text != "" else ""],
 		"pos %s m  voxel %s  chunk %s" % [s["pos_m"], s["pos_voxel"], s["chunk"]],
 		"mode %s   F fly  F3 hud  Esc mouse  LMB break  RMB place" % s["mode"],
 		"terrain: lod0 %d m, view %d m, lods %d | stats %s" % [Settings.render_distance_m, Settings.view_distance_m, Settings.lod_count, s["terrain"]],

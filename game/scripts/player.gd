@@ -84,7 +84,34 @@ func _apply_look() -> void:
 	camera.rotation = Vector3(_pitch, 0, 0)
 
 
+var _ground_seen_at := -1.0   # seconds; terrain under the player was first seen at this time
+
+
+## Spawn / teleport safety: while the terrain below has not streamed in
+## (and for a short grace period after, until its collision exists), the body
+## does not move at all, so nobody falls through an unloaded world.
+func _ground_ready() -> bool:
+	if flying:
+		return true
+	var now := Time.get_ticks_msec() / 1000.0
+	if _ground_seen_at < 0.0:
+		# Ask the physics world, not the voxel data: data streams in long before
+		# the collision shapes exist, and only colliders stop a fall.
+		var space := get_world_3d().direct_space_state
+		var q := PhysicsRayQueryParameters3D.create(global_position + Vector3(0, 1, 0), global_position + Vector3(0, -64, 0))
+		q.exclude = [get_rid()]
+		var hit := space.intersect_ray(q)
+		if hit.is_empty():
+			return false
+		_ground_seen_at = now
+		return false
+	return now - _ground_seen_at > 0.3
+
+
 func _physics_process(delta: float) -> void:
+	if not _ground_ready():
+		velocity = Vector3.ZERO
+		return
 	var input := Vector2.ZERO
 	var up_down := 0.0
 	if autopilot:
@@ -110,4 +137,27 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= Settings.m2v(Settings.gravity_m) * delta
 	elif Input.is_action_just_pressed("jump"):
 		velocity.y = sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(Settings.jump_height_m))
+	_try_step_up(delta)
 	move_and_slide()
+
+
+## Minecraft-style auto step: when walking into a ledge no taller than
+## Settings.step_height_m, lift the body onto it instead of stopping. Taller
+## ledges (steep rock, cliffs) still block, so mountains stay hard to climb.
+func _try_step_up(delta: float) -> void:
+	if not is_on_floor():
+		return
+	var horizontal := Vector3(velocity.x, 0, velocity.z)
+	if horizontal.length_squared() < 0.0001:
+		return
+	var motion := horizontal * delta
+	if not test_move(global_transform, motion):
+		return  # nothing in the way
+	var step := Vector3(0, Settings.m2v(Settings.step_height_m), 0)
+	if test_move(global_transform, step):
+		return  # ceiling right above
+	var raised := global_transform.translated(step)
+	if test_move(raised, motion):
+		return  # still blocked: the ledge is taller than one step
+	global_position += step
+	floor_snap_length = step.y + 0.1

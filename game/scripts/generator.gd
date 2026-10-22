@@ -5,6 +5,11 @@ extends VoxelGeneratorScript
 ## All work happens in C++: one native call per block, one buffer copy.
 ## Heights are in voxels (0.5 m). Sea level = Settings.SEA_LEVEL_VOXEL.
 
+## Bump whenever generated terrain changes: saves are keyed by seed AND this
+## version, so a world saved by an older generator is never loaded over a
+## newer one (stale chunks would mix old terrain with new).
+const GEN_VERSION := 4
+
 var seed_value := 1337
 var gen: WorldGen = WorldGen.new()
 

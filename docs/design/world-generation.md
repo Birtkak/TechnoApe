@@ -37,14 +37,38 @@ not carved under the sea floor. Max height ≈ sea + 606, under the ceiling.
   34×33×34 when mesh blocks are 32): never assume a cube.
 - Match the buffer's channel depth (8/16/32-bit) when writing bytes.
 
-## Rivers (2026-10-22)
-A river noise (~1.1 km period) defines channels where it crosses zero:
-mask = 1 − smoothstep(0, width, |n|), width 0.035–0.055 (wider inland).
-Inside the mask the height blends toward sea − 3 and the normal water fill
-puts the surface at sea level, so rivers connect to the ocean like
-Minecraft's. Banks within the mask get sand, the bed gravel. Rivers cut
-valleys through hills and canyons through mountains (same carve). About
-1.2 % of land area. No lakes above sea level yet.
+## Hydrology (2026-10-22, replaces the noise-band rivers)
+Water is routed on a coarse grid: cells of 32 voxels (16 m), tiles of
+128×128 cells (2 km) computed with a 64-cell (1 km) margin, cached per tile.
+1. **Priority-flood with epsilon** fills every depression to its spill
+   level; outlets are the window border and all ocean cells.
+2. **D8 flow routing** on the filled surface, then **flow accumulation**
+   from high to low.
+3. Cells with accumulation ≥ 18 become streams; the first stream cell of a
+   branch is a **spring** (small pool). Width and depth grow with
+   accumulation (half-width 2.5 → 18 voxels, depth 1.6 → 7), so brooks merge
+   into collector rivers that reach the sea. Centre lines are jittered by
+   noise so they are not grid-aligned; the carve blends over wide banks.
+4. **Lakes** are the filled depressions deeper than 3 voxels: natural,
+   irregular basins; their surface is the spill level. Caves are suppressed
+   under rivers and lakes.
+5. Generated river and lake water is `water_static` (Noita's static liquid)
+   so the material simulation does not drain slopes; disturbing it makes it
+   flow. Sea water stays live `water`.
+Limits: the 1 km margin truncates basins larger than that, so a river's width
+can jump at a tile border; flow does not animate. Debug: the biome map draws
+streams (light blue), lakes (blue) and springs (yellow); `find_nearest`
+knows "spring", "river", "lake", "alpine", "snow", "mountain".
+
+## Mountains (2026-10-22)
+Altitude bands in voxels above sea, jittered and shifted by temperature:
+tree line ≈ 220 (cold: −60, warm: +60), permanent snow line ≈ 330 (cold:
+−90). Above the tree line: alpine rock with patches of thin grass and
+gravel; trees thin out from 160 up and become stunted. Slope from two extra
+samples (only above 120): > 48° is bare rock, 37–48° in the alpine zone is
+gravel scree. Lowland detail noise is ±1.2 voxels so plains roll gently and
+walk with a 1-voxel step-up; mountains keep ±4.7 of fine roughness plus the
+ridged peaks, so they stay hard to traverse without a path.
 
 ## Trees (2026-10-22)
 Trees sit on a jittered 8-voxel grid: one hash per cell (seed, cell) decides
@@ -62,15 +86,10 @@ Natural sand and gravel are generated as `sand_static` / `gravel_static`
 diagonally into the sea under the powder rules (3,400 chunk pushes in a
 25 s fly-through). Mining them yields the loose material (`loose` field).
 
-## Lakes above sea level (2026-10-22)
-One candidate per 192-voxel cell (35 % of cells), radius 24–56, only on flat
-land (erosion > 0.05, no river, plains/forest/highlands/tundra). The surface
-level is `min(rim samples, centre) − 1` from 8 columns on the rim, and the
-lake is rejected if the rim varies by more than 6 voxels, so no cliff-walled
-pits. Inside: a bowl 4–11 voxels deep with gravel/sand bed; a 1-voxel berm
-outside the rim keeps water from spilling where the ground dips. Caves are
-suppressed within radius + 8 above `level − 40` so lakes never drain. Trees
-keep out of lakes.
+## Lakes (2026-10-22)
+Superseded by hydrology: lakes are now filled depressions (see Hydrology).
+The earlier circular "pond" generator (jittered grid, rim-sampled level,
+berm) is gone.
 
 ## Ruins (2026-10-22, "keep structures minimal")
 One candidate per 160-voxel cell (12 %), footprint 11–21 voxels, only where

@@ -21,6 +21,7 @@ var last_tick_ms := 0.0
 var ticks_total := 0
 var chunks_pushed := 0
 var chunks_loaded := 0
+var bad_loads := 0
 var active_chunks := 0
 var push_ms := 0.0
 
@@ -95,7 +96,12 @@ func _load_pending(budget: int) -> void:
 		if n >= budget or not world.is_area_loaded(wc):
 			still.append(lc)
 			continue
-		sim.set_chunk_bytes(lc, world.read_chunk(wc), 2)
+		var bytes: PackedByteArray = world.read_chunk(wc)
+		if bytes.size() != 8192:
+			bad_loads += 1
+			if bad_loads <= 3:
+				push_warning("SimBubble: chunk %s read %d bytes (expected 8192)" % [wc, bytes.size()])
+		sim.set_chunk_bytes(lc, bytes, 2)
 		chunks_loaded += 1
 		n += 1
 	_pending_loads = still
@@ -163,8 +169,26 @@ func verify_against_generator(gen: WorldGen) -> Dictionary:
 						swa += 1
 				air_where_solid += aws
 				solid_where_air += swa
-				if examples.size() < 5:
-					examples.append({"world_chunk": wc, "air_where_solid": aws, "solid_where_air": swa, "terrain_loaded_now": world.is_area_loaded(wc)})
+				if examples.size() < 4:
+					# which material pairs differ (expected -> got), top 4
+					var pairs := {}
+					for i in 4096:
+						var e := expect[i * 2] | (expect[i * 2 + 1] << 8)
+						var g := got[i * 2] | (got[i * 2 + 1] << 8)
+						if e != g:
+							var key := "%s->%s" % [GameMaterials.name_of(e), GameMaterials.name_of(g)]
+							pairs[key] = pairs.get(key, 0) + 1
+					# what the terrain itself holds right now for this chunk, compared with the generator
+					var terrain_now: PackedByteArray = world.read_chunk(wc)
+					var terrain_diff := 0
+					if terrain_now.size() == expect.size():
+						for i in 4096:
+							if terrain_now[i * 2] != expect[i * 2] or terrain_now[i * 2 + 1] != expect[i * 2 + 1]:
+								terrain_diff += 1
+					examples.append({"world_chunk": wc, "air_where_solid": aws, "solid_where_air": swa,
+						"terrain_loaded_now": world.is_area_loaded(wc), "pairs": pairs,
+						"terrain_bytes": terrain_now.size(), "terrain_vs_generator_diff": terrain_diff,
+						"sim_chunk": sim.chunk_info(lc)})
 	return {"checked": checked, "mismatched": mismatched, "air_where_solid": air_where_solid, "solid_where_air": solid_where_air, "examples": examples}
 
 
@@ -174,5 +198,5 @@ func stats() -> Dictionary:
 	return {
 		"origin_chunk": origin, "size_chunks": size_chunks, "pending_loads": _pending_loads.size(),
 		"tick_ms": snappedf(last_tick_ms, 0.01), "ticks": ticks_total, "active_chunks": active_chunks,
-		"chunks_pushed": chunks_pushed, "chunks_loaded": chunks_loaded, "push_ms": snappedf(push_ms, 0.01),
+		"chunks_pushed": chunks_pushed, "chunks_loaded": chunks_loaded, "bad_loads": bad_loads, "push_ms": snappedf(push_ms, 0.01),
 	}

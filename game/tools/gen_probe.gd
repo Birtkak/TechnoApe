@@ -5,6 +5,7 @@ extends SceneTree
 ##   godot_console.exe --headless --path game --script res://tools/gen_probe.gd -- seed=1337 radius=2048
 
 var seed_value := 1337
+var seed_text := ""
 var radius := 2048
 
 
@@ -14,10 +15,12 @@ func _init() -> void:
 		if kv.size() != 2:
 			continue
 		match kv[0]:
-			"seed": seed_value = int(kv[1])
+			"seed":
+				seed_text = kv[1]
+				seed_value = _seed_from_string(kv[1])
 			"radius": radius = int(kv[1])
 	var gen := WorldGen.new()
-	gen.configure(seed_value, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	gen.configure(seed_value, 256, 768)
 
 	# Timing: 512 LOD0 blocks around the surface, 512 LOD2 blocks.
 	var t0 := Time.get_ticks_usec()
@@ -76,14 +79,18 @@ func _init() -> void:
 	img.save_png("res://out/map_%d.png" % seed_value)
 
 	print(JSON.stringify({
-		"test": "gen_probe", "seed": seed_value,
+		"test": "gen_probe", "seed": seed_value, "seed_text": seed_text,
 		"lod0_us_per_block": snappedf(lod0_us, 0.1), "lod2_us_per_block": snappedf(lod2_us, 0.1),
 		"lod0_nonempty_of_512": nonempty,
-		"height_min": hmin, "height_max": hmax, "sea_level": Settings.SEA_LEVEL_VOXEL,
+		"height_min": hmin, "height_max": hmax, "sea_level": 256,
 		"biomes_pct": _pct(hist, samples),
 		"cave_air_pct_under_origin": snappedf(100.0 * air_under / total_under, 0.1),
 		"spawn_height": h0, "spawn_biome": WorldGen.biome_name(gen.biome_at(0, 0)),
-		"map": "res://out/map_%d.png (%d px = %d m across)" % [seed_value, n, int(2 * radius * Settings.VOXEL_M)],
+		"map": "res://out/map_%d.png (%d px = %d m across)" % [seed_value, n, int(2 * radius * 0.5)],
+		"hydrology_at_origin": gen.hydrology_stats(0, 0),
+		"nearest_spring": gen.find_nearest("spring", 0, 0, 4096),
+		"nearest_river": gen.find_nearest("river", 0, 0, 4096),
+		"nearest_lake": gen.find_nearest("lake", 0, 0, 4096),
 	}))
 	quit(0)
 
@@ -93,3 +100,14 @@ func _pct(hist: Dictionary, total: int) -> Dictionary:
 	for k in hist:
 		out[k] = snappedf(100.0 * hist[k] / total, 0.1)
 	return out
+
+
+## Same hashing as Settings.seed_from_string (autoloads are not available in --script mode).
+func _seed_from_string(s: String) -> int:
+	s = s.strip_edges()
+	if s.is_valid_int():
+		return int(s)
+	var h := 2166136261
+	for b in s.to_utf8_buffer():
+		h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+	return h

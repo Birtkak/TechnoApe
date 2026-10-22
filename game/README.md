@@ -12,7 +12,9 @@ Godot_v4.7.2-stable_mono_win64_console.exe --path game
 # unattended check for Claude: fly forward 20 s, filmstrip every second, JSON on stdout
 Godot_v4.7.2-stable_mono_win64_console.exe --path game -- autopilot=1 duration=20 capture_every=1 vsync=0 out=res://out/run1
 # any Settings value can be overridden: render_distance_m=64 view_distance_m=1024 lod_count=8 sim_tick_hz=30 ...
-# park at a feature and look down: target=lake|ruin speed=0 offset=15 alt=20 pitch=-0.7
+# park at a feature and look down: target=lake|ruin|spring|river|alpine|snow|mountain speed=0 offset=15 alt=20 pitch=-0.7
+# walk instead of fly (gravity + 1-voxel auto step-up): walk=1 ; JSON reports travelled_horizontal_m
+# pick a world: seed=1337 or seed="any text" (hashed); see docs/design/seeds.md
 # the JSON ends with bubble_verify: simulation bubble vs generator (0 mismatches expected)
 
 # generator probes (headless): stats + biome map; settle test around a feature

@@ -73,9 +73,13 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   P5 Noita-model simulation core ✓, P3 crafting core ✓ (17 headless tests)
 - Phase 2 (current): `game/` skeleton ✓ (LOD world, textures, player, sim
   bubble, debug capture), native world generator ✓ (splines, caves, ores,
-  biomes). **Next:** item entities + hotbar/inventory UI wired to the
-  crafting core, mining/placing through the material model, trees/rivers,
-  bubble polish (spikes on shift, fire-spread tuning), P4 server headless check.
+  biomes, trees, ruins, hydrology rivers/lakes/springs, altitude bands,
+  seeds). **Next:** item entities + hotbar/inventory UI wired to the
+  crafting core, mining/placing through the material model, bubble polish
+  (spikes on shift, fire-spread tuning), P4 server headless check.
+- A parallel session ("PC testing and optimization") adds biomes.json +
+  biome registry/rules/tests/docs as new files only; Biome enum ids 0..12
+  in world_gen.h must stay stable; it generates biome_table.gen.h.
 - Phase 3: wands/spells, machines, JEI-style browser UI, Android export smoke test
 - Phase 4: automation depth, dedicated server on Unraid, auto-update
 
