@@ -168,10 +168,33 @@ most a quarter of the 33 ms tick period on 10 threads and nothing on the main
 thread except the start call and the dirty-chunk paste (budgeted, ADR 0010).
 Conditions 1, 2 and 3 of section 4 are met.
 
-## 6. Next spikes
+## 6. Liquid fullness (spike, opt-in `set_liquid_fullness`)
 
-- Liquid fullness in the 4 variant bits (16-bit cells, id + variant), the
-  flood scene as the benchmark: the remaining slow-motion case.
+Grimorium's model in the cell's spare byte: low nibble = eighths (0 = full),
+high nibble = momentum. A liquid fills the partly full cell below it, splits
+half into an empty neighbour, evens out with neighbours two or more eighths
+lower; full cells under more liquid (pressure) or with momentum left (gained
+by falling or by being pushed out of a column, spent one per tick) slide
+like P5 liquids; a one-eighth film stays put. Mass is conserved exactly
+(test), a released block settles into a one-cell puddle (test).
+
+| 8 x 4 x 8 m release, 6.25 cm, 30 Hz | front at 2 s / 6 s / 18 s | tick p50 | dirty chunks p95 |
+|---|---|---|---|
+| P5 liquids | 2 / 4 / 8 m | 6.7 ms | 745 |
+| fullness, diffusion only | 1 / 1 / 2 m | 4.6 ms | 275 |
+| fullness + momentum (kept) | 4 / 4 / 4 m | 6.7 ms | 325 |
+
+Gains: mass conservation, settling, a fast first surge, 2.3x fewer chunk
+uploads. Not solved: long-range spread, because local rules carry no
+pressure; after the surge a large body spreads only by diffusion. The
+established answer is compressible-cell water (a cell under depth holds a
+little more than full, flow follows mass differences, so pressure crosses a
+pool in a few ticks); that is the next liquid spike, and fullness stays
+opt-in until it lands. The 0.5 m game keeps P5 liquids.
+
+## 7. Next spikes
+
+- Compressible-cell water on top of fullness (section 6), the flood scene as the benchmark.
 - Upload by dirty box (or 8³ brick) instead of whole 16³ chunks.
 - The island check and ray-cast explosions of section 1, on bricks.
 - A brick-sparse kernel if the dense window's 6 bytes per cell outgrow the

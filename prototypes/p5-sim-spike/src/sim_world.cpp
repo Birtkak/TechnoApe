@@ -117,6 +117,8 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_focus", "cell"), &SimWorld::set_focus);
     ClassDB::bind_method(D_METHOD("set_lod", "radius_chunks", "divisor"), &SimWorld::set_lod);
     ClassDB::bind_method(D_METHOD("set_cell_budget", "cells"), &SimWorld::set_cell_budget);
+    ClassDB::bind_method(D_METHOD("set_liquid_fullness", "on"), &SimWorld::set_liquid_fullness);
+    ClassDB::bind_method(D_METHOD("count_liquid_eighths", "material"), &SimWorld::count_liquid_eighths);
     ClassDB::bind_method(D_METHOD("start_tick"), &SimWorld::start_tick);
     ClassDB::bind_method(D_METHOD("is_tick_done"), &SimWorld::is_tick_done);
     ClassDB::bind_method(D_METHOD("finish_tick"), &SimWorld::finish_tick);
@@ -274,6 +276,7 @@ inline void SimWorld::place(int i, uint8_t mat) {
     cells_[i].mat = mat;
     cells_[i].flags = 0;
     cells_[i].aux = mat < mats_.size() ? mats_[mat].lifetime : 0;
+    cells_[i].pad = 0;   // liquid fullness: 0 = full
 }
 
 inline void SimWorld::touch(int x, int y, int z) {
@@ -493,17 +496,22 @@ bool SimWorld::fall(int x, int y, int z, int i, Ctx &c) {
         if (fast) cells_[i].aux = 0;
         return false;
     }
-    if (!fast) return true;
     int ny = y - 1;
     int ni = idx(x, ny, z);
-    int v = std::min(255, (int)cells_[ni].aux + gravity16_);
-    int steps = std::min(MAX_DISP, std::max(1, v >> 4));
-    for (int s = 1; s < steps; s++) {
-        if (!try_move(x, ny, z, x, ny - 1, z, c)) { v = 0; break; }
-        ny--;
-        ni = idx(x, ny, z);
+    if (fast) {
+        int v = std::min(255, (int)cells_[ni].aux + gravity16_);
+        int steps = std::min(MAX_DISP, std::max(1, v >> 4));
+        for (int s = 1; s < steps; s++) {
+            if (!try_move(x, ny, z, x, ny - 1, z, c)) { v = 0; break; }
+            ny--;
+            ni = idx(x, ny, z);
+        }
+        cells_[ni].aux = (uint8_t)v;
     }
-    cells_[ni].aux = (uint8_t)v;
+    if (fullness_) {   // falling liquid carries momentum into its landing (high nibble of pad)
+        const MaterialDef &fm = mats_[cells_[ni].mat];
+        if (fm.cell_type == CELL_LIQUID && !fm.liquid_sand) cells_[ni].pad = (uint8_t)((cells_[ni].pad & 15u) | (15u << 4));
+    }
     return true;
 }
 
@@ -520,6 +528,7 @@ void SimWorld::update_powder(int x, int y, int z, int i, Ctx &c) {
 }
 
 void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
+    if (fullness_) { update_liquid_fullness(x, y, z, i, c); return; }
     const uint8_t self = cells_[i].mat;
     const MaterialDef &m = mats_[self];
     uint32_t r = rnd(c);
@@ -557,6 +566,125 @@ void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
         uint8_t under = y > 0 ? cells_[idx(x, y - 1, z)].mat : self;
         if (!ledge && under == self && ((r >> 12) & 7) != 0) continue; // calm pool
         if (try_move(x, y, z, best_x, y, best_z, c)) { c.moved++; return; }
+    }
+}
+
+void SimWorld::set_liquid_fullness(bool p_on) { fullness_ = p_on; }
+
+int SimWorld::count_liquid_eighths(int p_material) const {
+    wait_idle();
+    int n = 0;
+    for (const Cell &c : cells_)
+        if (c.mat == (uint8_t)p_material) n += (c.pad & 15) ? (c.pad & 15) : 8;
+    return n;
+}
+
+void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
+    const uint8_t self = cells_[i].mat;
+    const MaterialDef &m = mats_[self];
+    uint32_t r = rnd(c);
+    if ((r & 0xFF) > m.gravity_prob) return;
+    // pad: low nibble = fullness in eighths (0 = full), high nibble = momentum (ticks of fast sliding left)
+    auto full = [&](int k) -> int { int f = cells_[k].pad & 15; return f ? f : 8; };
+    auto set_full = [&](int k, int f) { cells_[k].pad = (uint8_t)((cells_[k].pad & 0xF0u) | (uint32_t)(f >= 8 ? 0 : f)); };
+    auto momentum = [&](int k) -> int { return cells_[k].pad >> 4; };
+    auto set_momentum = [&](int k, int mo) { cells_[k].pad = (uint8_t)((cells_[k].pad & 15u) | ((uint32_t)std::clamp(mo, 0, 15) << 4)); };
+    // 1. fall into anything it displaces, as a whole cell (keeps velocity)
+    if (fall(x, y, z, i, c)) { c.moved++; return; }
+    int f = full(i);
+    // 2. pour into a partly full cell of the same liquid below
+    if (is_open(x, y - 1, z)) {
+        int bi = idx(x, y - 1, z);
+        if (cells_[bi].mat == self && moved_[bi] != stamp_) {
+            int fb = full(bi);
+            if (fb < 8) {
+                int t = std::min(8 - fb, f);
+                set_full(bi, fb + t);
+                moved_[bi] = stamp_;
+                moved_[i] = stamp_;
+                if (t >= f) { place(i, 0); mark_cell(x, y, z, c, true); }
+                else { set_full(i, f - t); mark_cell(x, y, z, c, false); }
+                mark_cell(x, y - 1, z, c, false);
+                c.moved++;
+                return;
+            }
+        }
+    }
+    // 3. run down a slope as a whole cell
+    int d = (r >> 8) & 3;
+    for (int k = 0; k < 4; k++) {
+        int dd = (d + k) & 3;
+        if (try_move(x, y, z, x + DX4[dd], y - 1, z + DZ4[dd], c)) { c.moved++; return; }
+    }
+    if (f < 2) {
+        // a one-eighth droplet on top of full cells wanders until it can pour into a lower cell;
+        // on the floor (nothing of its own kind below) it stays: floods settle as a thin film
+        if (!is_open(x, y - 1, z) || cells_[idx(x, y - 1, z)].mat != self) return;
+        int dd = (r >> 16) & 3;
+        if (try_move(x, y, z, x + DX4[dd], y, z + DZ4[dd], c)) c.moved++;
+        return;
+    }
+    // 4a. a full cell under more of its liquid (bulk, pressure) flows like a P5 liquid: slide up to
+    // disp cells sideways, so floods move fast; the surface layer splits and evens out instead (4b)
+    const bool pressed = is_open(x, y + 1, z) && cells_[idx(x, y + 1, z)].mat == self;
+    const int mo = momentum(i);
+    if (f == 8 && (pressed || mo > 0) && m.disp > 0) {
+        for (int k = 0; k < 4; k++) {
+            int dd = (d + k) & 3;
+            int best_x = x, best_z = z;
+            for (int s = 1; s <= m.disp; s++) {
+                int px = x + DX4[dd] * s, pz = z + DZ4[dd] * s;
+                if (!is_open(px, y, pz)) break;
+                int pi = idx(px, y, pz);
+                if (cells_[pi].mat != 0 || moved_[pi] == stamp_) break;
+                best_x = px; best_z = pz;
+                if (y > 0 && is_open(px, y - 1, pz) && cells_[idx(px, y - 1, pz)].mat == 0) break;   // ledge: drop there
+            }
+            if (best_x == x && best_z == z) continue;
+            uint8_t under = y > 0 ? cells_[idx(x, y - 1, z)].mat : self;
+            if (under == self && ((r >> 12) & 7) != 0) continue;   // calm pool: mostly stay
+            if (try_move(x, y, z, best_x, y, best_z, c)) {
+                // pushed out of a column: full momentum; otherwise it spends one tick of it
+                set_momentum(idx(best_x, y, best_z), pressed ? 15 : mo - 1);
+                c.moved++;
+                return;
+            }
+        }
+        if (mo > 0) { set_momentum(i, mo - 1); mark_cell(x, y, z, c, false); }
+    }
+    // 4b. spread sideways: split half into an empty neighbour, or even out with a lower one
+    for (int k = 0; k < 4; k++) {
+        int dd = (d + k) & 3;
+        int nx = x + DX4[dd], nz = z + DZ4[dd];
+        if (!is_open(nx, y, nz)) continue;
+        int ni = idx(nx, y, nz);
+        if (moved_[ni] == stamp_) continue;
+        const uint8_t t = cells_[ni].mat;
+        if (t == 0) {
+            int g = f / 2;
+            place(ni, self);
+            set_full(ni, g);
+            set_full(i, f - g);
+            moved_[ni] = stamp_;
+            moved_[i] = stamp_;
+            mark_cell(nx, y, nz, c, true);
+            mark_cell(x, y, z, c, false);
+            c.moved++;
+            return;
+        }
+        if (t == self) {
+            int fn = full(ni);
+            if (fn <= f - 2) {
+                set_full(ni, fn + 1);
+                set_full(i, f - 1);
+                moved_[ni] = stamp_;
+                moved_[i] = stamp_;
+                mark_cell(nx, y, nz, c, false);
+                mark_cell(x, y, z, c, false);
+                c.moved++;
+                return;
+            }
+        }
     }
 }
 

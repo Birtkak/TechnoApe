@@ -96,6 +96,12 @@ public:
     void set_focus(Vector3i p_cell);
     void set_lod(int p_radius_chunks, int p_divisor);
     void set_cell_budget(int p_cells);
+    // P10: liquid fullness (Grimorium): a liquid cell holds 1..8 eighths (Cell.pad, 0 = full), fills
+    // the partly full cell below it, splits half into an empty neighbour (the front moves one cell per
+    // tick) and evens out with neighbours that differ by two or more eighths; mass is conserved and a
+    // one-eighth film stays put, so floods settle. Off = P5 liquids (whole cells, lateral slides).
+    void set_liquid_fullness(bool p_on);
+    int count_liquid_eighths(int p_material) const;   // total eighths of a liquid (mass check)
     // v6: one tick on a background thread. Every other call that reads or writes cells waits for it.
     bool start_tick();          // false if a tick is still running
     bool is_tick_done() const;
@@ -230,6 +236,7 @@ private:
     std::atomic<bool> busy_{false};
     TickOut last_;
     bool dirty_boxes_ = true;
+    bool fullness_ = false;
     std::vector<int> pass_lists_[8];
     std::atomic<uint64_t> moved_count_{0};
     std::atomic<uint64_t> react_count_{0};
@@ -258,6 +265,7 @@ private:
     void try_loosen(int x, int y, int z, int i, Ctx &c);
     void update_powder(int x, int y, int z, int i, Ctx &c);
     void update_liquid(int x, int y, int z, int i, Ctx &c);
+    void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);
     void update_gas(int x, int y, int z, int i, Ctx &c);
     void update_fire(int x, int y, int z, int i, Ctx &c);
     void update_burning(int x, int y, int z, int i, Ctx &c);
