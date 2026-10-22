@@ -83,7 +83,7 @@ Noita simulates pixels only in the chunks around the screen and freezes
 everything else. We do the same in 3D: a **simulation bubble** around each
 player (and around powered machines) runs the cellular-automaton material
 update; everything outside it is frozen and stored. The active volume is the
-knob that scales from the dev PC down to Android. Simulating every voxel of
+knob that scales with the machine; the dev PC is the reference (ADR 0009). Simulating every voxel of
 an open world at once is not feasible on any hardware and is not what Noita
 does either. This is **technical risk #1** for the project and gets its own
 prototype (P5, falling-sand-3D spike) before the architecture is locked.
@@ -110,8 +110,9 @@ prototype (P5, falling-sand-3D spike) before the architecture is locked.
    simulation layer that will later run as a dedicated server on Brent's
    Unraid box over Tailscale; generation is deterministic and seed-based;
    presentation is separated from simulation.
-5. **Play anywhere.** Windows and Android clients from one project; the
-   server pushes updates so friends never install builds by hand.
+5. **Runs perfect on ordinary gaming PCs.** One Windows client tuned against
+   Brent's PC as the reference machine (ADR 0009); the server pushes
+   updates so friends never install builds by hand.
 6. **Epic horizons.** Distant mountains and player builds are always in
    view through level-of-detail terrain (think Voxy / Distant Horizons in
    Minecraft). Up close, blocks are full quality; far away, the same world
@@ -125,7 +126,7 @@ prototype (P5, falling-sand-3D spike) before the architecture is locked.
 - Look: Minecraft-style 16×16 textures from the first build (ADR 0004).
 - Multiplayer: not in scope now; architecture must not block co-op later.
   Target: dedicated Linux server in Docker on Unraid, Tailscale network (ADR 0002).
-- Platforms: Windows + Android clients, Linux server (ADR 0002).
+- Platforms: Windows client, Linux server (ADR 0002, Android dropped in ADR 0009).
 - Updates: CI-built, manifest-driven auto-update from the server (ADR 0002).
 - Engine: Godot 4.7 (pending prototype confirmation, ADR 0001).
 

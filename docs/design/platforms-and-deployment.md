@@ -4,8 +4,11 @@
 - **Status:** requirements captured; implementation is Phase 4+. Everything
   built before then must not block this.
 
-## Requirements (Brent, 2026-10-21)
-1. **Android client (APK)** that plays the same game as the Windows client.
+> **2026-10-22: Android dropped (ADR 0009).** Windows client + Linux server
+> only; the dev PC is the reference machine. Android notes below are history.
+
+## Requirements (Brent, 2026-10-21; Android removed 2026-10-22)
+1. ~~Android client (APK)~~ dropped (ADR 0009).
 2. **Dedicated server on the Unraid box**, reached over **Tailscale**, so Brent
    and friends play together on a private network.
 3. **Auto-updates pushed from the server to the clients**, so nobody installs
@@ -16,11 +19,10 @@
 | Target | Role | Export | Notes |
 |---|---|---|---|
 | Windows x86_64 | Primary client, dev box | Godot Windows template | Full view distance, keyboard/mouse |
-| Android arm64 | Client (phone/tablet) | Godot Android template (APK) | Reduced view distance, touch + gamepad; needs Android SDK, JDK 17, keystore |
 | Linux x86_64 | Dedicated server | Godot Linux template, "Export as dedicated server" | Runs `--headless` in a Docker container on Unraid |
 | Linux client | Nice-to-have | Same as server template without the server flag | Not planned |
 
-## Android consequences for the foundation
+## Android consequences for the foundation (history: dropped in ADR 0009)
 - **Scripting language.** Godot's C# export to Android is still marked
   *experimental* in the current docs (bionic runtime, no JNI, some APIs
   crash), and C# cannot export to web at all. GDScript and GDExtension (C++)
@@ -59,7 +61,7 @@
   triggers the update flow below.
 
 ## Auto-update flow
-1. **CI builds** (GitHub Actions): Windows zip, Android APK (signed), Linux
+1. **CI builds** (GitHub Actions): Windows zip, Linux
    server Docker image. Artifacts are versioned `vMAJOR.MINOR.PATCH`.
 2. **Manifest** on the Unraid box (small HTTP server container, same tailnet):
    `manifest.json` with latest version, per-platform download URL, size,
@@ -68,7 +70,7 @@
    updates ship as a `.pck` loaded via `ProjectSettings.load_resource_pack()`
    or swapped on disk; an engine-version bump downloads the full zip and a
    tiny helper script swaps the executable after exit.
-4. **Android client:** Android does not allow silent installs. The game
+4. ~~Android client~~ (dropped, ADR 0009). Android does not allow silent installs. The game
    downloads the APK and hands it to the system installer (one tap to
    confirm; "install unknown apps" granted once). Alternative with zero code:
    point [Obtainium](https://github.com/ImranR98/Obtainium) at the manifest
@@ -83,4 +85,4 @@
   even in single-player (commands in, state deltas out).
 - Chunk-based, versioned save format from the first prototype that saves.
 - Prefer GDScript + native over C# unless P2 forces otherwise.
-- Add an Android export smoke test to P1's follow-ups once the SDK is set up.
+- (Android export smoke test dropped with ADR 0009.)

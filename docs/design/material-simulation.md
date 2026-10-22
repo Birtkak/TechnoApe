@@ -159,13 +159,13 @@ to model variants or a per-voxel colour channel later.
 - **Minecraft-style chunk distances, three of them, all settings:**
   `simulation_distance` (chunks around each player/anchor that may be
   active), `render_distance` (full-detail chunks), `lod_distance` /
-  `view_distance` (horizon rings). Android profile: small sim + render,
-  same horizon.
+  `view_distance` (horizon rings). Weaker-PC presets: smaller sim + render,
+  same horizon (ADR 0009).
 - **Only visible faces are rendered.** The blocky mesher emits a face only
   where a voxel touches air or a transparent material; interior faces never
   exist. Beyond that: Godot's occlusion culling and godot_voxel's shadow
   occluders hide chunks behind terrain, and greedy meshing (merging coplanar
-  faces) is the next step if triangle counts matter on Android.
+  faces) is the next step if triangle counts matter on weaker GPUs.
 
 ## 3. Prototype plan
 - P5 v4 (next): data-driven material table with the attributes above,

@@ -24,8 +24,9 @@ more Noita-like feel of the material simulation, and **Minecraft-style
 - **8× the voxels per cubic metre** of a 1 m world. Everything per-voxel is
   8× more expensive for the same metres: generation, meshing, simulation,
   memory, saves, network deltas. P2/P5 margins absorb this on the dev PC
-  (2 M-voxel active region ticks in <2 ms), but Android budgets must be set
-  in *metres* (bubble radius, render distance) and will be small.
+  (2 M-voxel active region ticks in <2 ms). Budgets are set in *metres*
+  (bubble radius, render distance); Android was dropped (ADR 0009), so they
+  are tuned against the dev PC.
 - Render distance in chunks doubles for the same metres: 256 m view =
   32 chunks of full detail; the LOD horizon (clipbox, 7 LODs ≈ 1 km of
   voxels = 2 km of... no: 1024 voxels = 512 m) needs one more LOD level to

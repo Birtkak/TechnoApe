@@ -2,7 +2,7 @@
 
 3D first-person voxel game: Minecraft/GregTech building and automation,
 Noita-style simulated materials and wand/spell play, procedurally generated
-world with 2 km LOD horizons. Windows + Android clients, dedicated Linux
+world with 2 km LOD horizons. Windows client (Android dropped, ADR 0009), dedicated Linux
 server on Brent's Unraid box over Tailscale. Developer: Brent (solo). Claude
 Code does most implementation; Brent steers, plays, decides.
 
@@ -24,11 +24,13 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
 7. **Simulation separate from presentation**, deterministic from seed,
    authoritative on the server, deltas over the wire.
 8. **GDScript orchestrates, never iterates voxels.** Per-voxel work is C++
-   (GDExtension). C# is not used in the shipped game (Android export is
-   experimental); it may be used for tooling.
+   (GDExtension). C# is not used in the shipped game; it may be used for
+   tooling (ADR 0003, 0009).
 9. **Performance rules (Brent):** multithread everything heavy, budget RAM
    and disk explicitly, always pick the discrete GPU and log it, ship every
    system with a benchmark. See vision.md "Engineering requirements".
+   Reference machine = the dev box (ADR 0009): default settings must hold
+   p99 frame <= 8.3 ms, no frame > 16.7 ms after load, RAM <= 4 GB, VRAM <= 6 GB.
 10. **Debug tools are for Claude too.** Anything about the running game must
     be reachable without eyes: JSON stats on stdout, log files, state dumps,
     and frame capture. To *watch* motion, capture a filmstrip (thumbnail
@@ -49,8 +51,6 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   `python -m SCons`, godot-cpp branch 4.5 at `C:\Users\dev\Tools\godot-cpp`.
   Build an extension: `python -m SCons platform=windows use_mingw=yes target=template_debug -j12`.
   MSVC 2022 Build Tools (cl 14.44) are installed too; MinGW stays the default.
-- JDK 17 (no admin, zip): `C:\Users\dev\Tools\jdk-dl\jdk-17.0.20.1+1` (set JAVA_HOME
-  for Android exports). Not yet installed: Android SDK command-line tools.
 - World generator is native (`src/world_gen.cpp`); design in
   `docs/design/world-generation.md`. godot_voxel asks for padded non-cubic
   blocks, so generators take a Vector3i size.
@@ -91,7 +91,7 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
 - Two sessions share this checkout (this one and "PC testing and
   optimization"): stage files explicitly, never `git add -A`; Biome enum ids
   0..12 in world_gen.h stay stable; biome_table.gen.h is generated.
-- Phase 3: wands/spells, machines, JEI-style browser UI, Android export smoke test
+- Phase 3: wands/spells, machines, recipe browser depth (machine recipes, bookmarks)
 - Phase 4: automation depth, dedicated server on Unraid, auto-update
 
 ## Conventions

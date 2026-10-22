@@ -1,7 +1,8 @@
 # 0002 – Platform targets, hosting and update distribution
 
 - **Status:** accepted (targets and hosting); language consequence provisional
-  until P2 numbers are in
+  until P2 numbers are in. **Amended by ADR 0009 (2026-10-22): Android
+  dropped; Windows client + Linux server only.**
 - **Date:** 2026-10-21
 
 ## Context
