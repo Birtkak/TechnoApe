@@ -28,6 +28,7 @@ var give: Array = []  # give=oak_log:12,wooden_pickaxe  -> starting items
 var blast_m := 0.0    # blast=R: mass-edit stress (ADR 0012): craters of radius R m on the ground around the player
 var blast_count := 1  # blast_count=N craters per volley (1000 TNT = many small ones)
 var blast_every := 2.0  # blast_every=S seconds between volleys, first one 2 s after load
+var blast_material := 0  # blast_material=water|sand|...: fill instead of carve (liquid spills: remesh stress)
 var _blast_accum := 0.0
 var _blast_i := 0
 var _blast_centres: Array[Vector3i] = []   # first craters: the JSON reports what the terrain holds there
@@ -88,6 +89,10 @@ func _ready() -> void:
 	blast_m = float(args.get("blast", "0"))
 	blast_count = int(args.get("blast_count", "1"))
 	blast_every = float(args.get("blast_every", "2"))
+	var defs := GameMaterials.defs()
+	for i in defs.size():   # material ids are 1 + definition index (0 = air)
+		if defs[i]["name"] == args.get("blast_material", "air"):
+			blast_material = i + 1
 	for spec in String(args.get("give", "")).split(",", false):
 		var parts := spec.split(":")
 		give.append({"id": parts[0], "count": int(parts[1]) if parts.size() > 1 else 1})
@@ -278,7 +283,9 @@ func _blast_volley() -> void:
 		var x := int(p.x + ahead.x + cos(a) * d)
 		var z := int(p.z + ahead.y + sin(a) * d)
 		var c := Vector3i(x, _main.world.surface_height(x, z), z)
-		_main.bubble.blast(Vector3(c), r)
+		if blast_material != 0:
+			c.y += int(r) + 2   # a ball of it in the air above the ground, so it falls and spreads
+		_main.bubble.blast(Vector3(c), r, blast_material)
 		if _blast_centres.size() < 8:
 			_blast_centres.append(c)
 
