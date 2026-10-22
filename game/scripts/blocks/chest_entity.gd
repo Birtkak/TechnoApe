@@ -20,7 +20,11 @@ var inv: Inventory
 func _init(p_items: ItemRegistry, p_pos: Vector3i) -> void:
 	pos = p_pos
 	inv = Inventory.new(p_items, SIZE)
-	inv.changed.connect(func(_i: int) -> void: changed.emit())
+	inv.changed.connect(_on_slot_changed)   # method, not a lambda: no reference cycle
+
+
+func _on_slot_changed(_i: int) -> void:
+	changed.emit()
 
 
 func may_place(_slot: int, _id: String) -> bool:

@@ -4,7 +4,8 @@ extends CanvasLayer
 ## Minecraft-layout inventory screen (ADR 0005, 0006): the vanilla 176x166
 ## panel at 2x with a 2x2 personal crafting grid + output, a 3x3 crafting
 ## table grid, a chest's 27 slots or a furnace (input, fuel, output, flame
-## and arrow gauges) above 27 main slots and the hotbar row. Clicks go to PlayerInventory's
+## and arrow gauges) above 27 main slots and the hotbar row. The JEI-style
+## recipe browser (ADR 0008) sits beside it; item names show on hover. Clicks go to PlayerInventory's
 ## cursor operations; the cursor stack follows the mouse. Closing returns
 ## grid contents; what does not fit is emitted for dropping.
 
@@ -25,11 +26,20 @@ var _title: Label
 var _inv_label: Label
 var _container: RefCounted = null          # ChestEntity / FurnaceEntity in container mode
 var _container_slots: Array[SlotView] = []
+var browser: RecipeBrowser
+var browser_view: RecipeBrowserView
+var _tooltip: Label
 
 
 func setup(p_inv: PlayerInventory) -> void:
 	player_inv = p_inv
 	player_inv.changed.connect(_refresh)
+	browser = RecipeBrowser.new(player_inv.items, player_inv.recipes)
+	browser_view = RecipeBrowserView.new()
+	browser_view.setup(browser)
+	_root.add_child(browser_view)
+	_root.move_child(_cursor_icon, -1)   # the held stack draws above the browser
+	_root.move_child(_tooltip, -1)
 
 
 func _ready() -> void:
@@ -62,6 +72,18 @@ func _ready() -> void:
 	_cursor_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cursor_icon.z_index = 10
 	_root.add_child(_cursor_icon)
+	_tooltip = Label.new()
+	_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tooltip.z_index = 20
+	_tooltip.add_theme_font_size_override("font_size", 14)
+	var tsb := StyleBoxFlat.new()
+	tsb.bg_color = Color(0.08, 0.02, 0.12, 0.94)
+	tsb.border_color = Color(0.3, 0.1, 0.6)
+	tsb.set_border_width_all(2)
+	tsb.set_content_margin_all(5)
+	_tooltip.add_theme_stylebox_override("normal", tsb)
+	_tooltip.visible = false
+	_root.add_child(_tooltip)
 	_build_player_slots()
 
 
@@ -154,6 +176,8 @@ func open_container(c: RefCounted) -> void:
 
 
 func _show() -> void:
+	if browser_view:
+		browser_view.refresh()
 	is_open = true
 	visible = true
 	_refresh()
@@ -164,6 +188,9 @@ func close() -> void:
 		return
 	is_open = false
 	visible = false
+	_tooltip.visible = false
+	if browser_view:
+		browser_view.close_recipes()
 	_clear_mode_slots()
 	var dropped: Array = player_inv.close_screen()
 	if player_inv.craft.width != 2:
@@ -193,6 +220,53 @@ func _process(_delta: float) -> void:
 		_cursor_icon.position = _root.get_local_mouse_position() - Vector2(16, 16)
 		if _container and _container.kind == "furnace":
 			_panel.queue_redraw()   # flame and arrow gauges move every tick
+		_update_tooltip()
+
+
+## The item under the mouse (inventory slot or browser cell), or "".
+func hovered_item() -> String:
+	var c := get_viewport().gui_get_hovered_control()
+	while c != null and c != _root:
+		if c.has_method("hover_item_id"):
+			return c.hover_item_id()
+		c = c.get_parent() as Control
+	return ""
+
+
+func _update_tooltip() -> void:
+	var id := hovered_item() if player_inv.cursor.is_empty() else ""
+	_tooltip.visible = id != ""
+	if id == "":
+		return
+	var text := player_inv.items.display_name(id)
+	var c := get_viewport().gui_get_hovered_control()
+	if c and c.has_method("hover_tag") and c.hover_tag() != "":
+		text += "\nany " + c.hover_tag()
+	_tooltip.text = text
+	_tooltip.reset_size()
+	var p := _root.get_local_mouse_position() + Vector2(14, -10)
+	p.x = minf(p.x, _root.size.x - _tooltip.size.x - 4)
+	_tooltip.position = p
+
+
+## JEI keys while the screen is open: R recipes, U uses (over any item),
+## Backspace back, Esc closes the recipe view before the screen. Typing in
+## the search box never reaches here (the LineEdit has focus).
+func _unhandled_input(event: InputEvent) -> void:
+	if not is_open or not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	match event.keycode:
+		KEY_R, KEY_U:
+			if browser_view.show_item(hovered_item(), "recipes" if event.keycode == KEY_R else "uses"):
+				get_viewport().set_input_as_handled()
+		KEY_BACKSPACE:
+			if browser_view.is_showing_recipes():
+				browser_view.back()
+				get_viewport().set_input_as_handled()
+		KEY_ESCAPE:
+			if browser_view.is_showing_recipes():
+				browser_view.close_recipes()
+				get_viewport().set_input_as_handled()
 
 
 func _on_slot_clicked(button: int, shift: bool, i: int) -> void:
@@ -279,6 +353,9 @@ class SlotView:
 	func set_stack(items: ItemRegistry, stack: Dictionary) -> void:
 		_icon.items = items
 		_icon.stack = stack
+
+	func hover_item_id() -> String:
+		return _icon.stack.get("id", "")
 
 	func _draw() -> void:
 		var sb := StyleBoxFlat.new()

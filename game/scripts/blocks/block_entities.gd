@@ -38,9 +38,13 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			push_error("unknown block entity kind " + kind)
 			return null
 	_by_pos[pos] = e
-	e.changed.connect(func() -> void: dirty = true)
+	e.changed.connect(_mark_dirty)
 	dirty = true
 	return e
+
+
+func _mark_dirty() -> void:
+	dirty = true
 
 
 func at(pos: Vector3i) -> RefCounted:

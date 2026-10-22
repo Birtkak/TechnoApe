@@ -32,8 +32,8 @@ func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_max_health: int =
 	craft = CraftingGrid.new(items, recipes, 2, "")
 	max_health = p_max_health
 	health = p_max_health
-	inv.changed.connect(func(_i: int) -> void: changed.emit())
-	craft.grid.changed.connect(func(_i: int) -> void: changed.emit())
+	inv.changed.connect(_on_slot_changed)
+	craft.grid.changed.connect(_on_slot_changed)
 
 
 ## Swaps in a bigger grid (crafting table: width 3) or back to the personal 2x2.
@@ -41,9 +41,15 @@ func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_max_health: int =
 func set_crafting_grid(width: int, station: String) -> Array:
 	var dropped: Array = craft.return_contents(inv)
 	craft = CraftingGrid.new(items, recipes, width, station)
-	craft.grid.changed.connect(func(_i: int) -> void: changed.emit())
+	craft.grid.changed.connect(_on_slot_changed)
 	changed.emit()
 	return dropped
+
+
+## Method callables, not lambdas: a lambda capturing self on a child's
+## signal is a reference cycle and leaks at exit.
+func _on_slot_changed(_i: int) -> void:
+	changed.emit()
 
 
 # ---------------- hotbar ----------------

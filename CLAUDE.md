@@ -78,7 +78,8 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   (pebbles, mushrooms, reeds, lily pads, boulders, cave stalactites/
   stalagmites), seeds; dungeons parked), player loop ✓ (ADR 0005), station
   blocks ✓ (ADR 0007: crafting table, furnace, chest block entities),
-  69 headless tests. **Next:** JEI-style browser UI, bubble polish (spikes
+  recipe browser ✓ (ADR 0008: JEI-style search, recipes/uses, R/U keys),
+  81 headless tests. **Next:** bubble polish (spikes
   on shift, fire-spread tuning), P4 server headless check, then the chisel
   layer (ADR 0006: `Chisel` block-entity behavior + overlay meshes).
 - In-world voxels follow ADR 0006: terrain ids + one block-entity layer

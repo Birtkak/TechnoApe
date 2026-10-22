@@ -8,7 +8,8 @@ The real project. Prototypes live in `../prototypes/`; decisions in
 ```
 # play (mouse captured; Esc releases; F fly/walk; F3 debug overlay; hold LMB to mine; RMB place/use;
 #       1-9 / wheel select; E inventory; Q drop one (Ctrl+Q stack); RMB on a crafting table / furnace /
-#       chest opens it, Shift+RMB places against it)
+#       chest opens it, Shift+RMB places against it; in any inventory screen the recipe browser sits on the
+#       right: LMB recipes, RMB uses, R/U over any item, Backspace back, Esc closes the recipe view)
 Godot_v4.7.2-stable_mono_win64_console.exe --path game
 
 # unattended check for Claude: fly forward 20 s, filmstrip every second, JSON on stdout
@@ -26,6 +27,9 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=4 open_
 # station blocks (ADR 0007): stations=1 places a crafting table, chest and furnace ahead (furnace smelts 8 iron
 # ore on 1 coal, JSON "blocks"); open=crafting_table|chest|furnace right-clicks that one at 60 % of the run
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 stations=1 open=furnace duration=24 capture_every=2 out=res://out/stations
+# recipe browser (ADR 0008), with open_inventory=1: browse=iron_pickaxe | browse=oak_planks:uses, search=#metal,
+# hover_test=1 (mouse over a cell + R + RMB through real input; prints the result); JSON "browser"
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 open_inventory=1 browse=oak_planks:uses duration=4 out=res://out/browser
 
 # generator probes (headless): stats + biome map; settle test around a feature
 Godot_..._console.exe --headless --path game --script res://tools/gen_probe.gd -- seed=1337 radius=2048
@@ -70,6 +74,7 @@ recipe by design (found only); spells do.
 | `scripts/items/item_entity.gd` | Dropped stacks: textured mini-cube rigid bodies, bob/spin, merge, pickup, despawn; pop out of solid voxels. |
 | `scripts/ui/hud.gd` | Crosshair, hotbar with isometric atlas icons (`item_icon.gd`), hearts, break progress. |
 | `scripts/ui/inventory_screen.gd` | Vanilla-layout inventory, crafting table, chest and furnace screens with cursor semantics. |
+| `scripts/ui/recipe_browser.gd`, `recipe_browser_view.gd` | JEI-style browser (ADR 0008): search, recipes/uses by category, history; the view beside every inventory screen. |
 | `scripts/blocks/` | Block entities by voxel position (ADR 0007): `ChestEntity`, `FurnaceEntity` (vanilla tick rules), `BlockEntities` store, saved to `user://worlds/blocks_<seed>_g<gen>.json`. |
 | `scripts/debug_hud.gd` | F3 overlay. |
 | `scripts/debug_capture.gd` | Autoload. Autopilot, filmstrips, JSON stats, vsync switch. |

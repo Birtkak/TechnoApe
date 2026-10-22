@@ -148,6 +148,7 @@ func _ready() -> void:
 			player.position.z = floor(player.position.z)
 		if DebugCapture.open_inventory:
 			inv_screen.open()
+			_debug_browser.call_deferred()
 		if DebugCapture.stations:
 			_place_debug_stations.call_deferred()
 		if DebugCapture.scatter_items:
@@ -270,6 +271,51 @@ func _on_lit_flipped(p: Vector3i) -> void:
 		return
 	var e: FurnaceEntity = blocks.at(p)
 	set_world_voxel(p, GameMaterials.FURNACE_LIT if e.is_lit() else GameMaterials.FURNACE)
+
+
+## Debug (with open_inventory=1): search=text filters the item list,
+## browse=item_id[:uses] opens its recipes (or uses) in the recipe view.
+func _debug_browser() -> void:
+	var args := {}
+	for a in OS.get_cmdline_user_args():
+		var kv := a.split("=", true, 1)
+		if kv.size() == 2:
+			args[kv[0]] = kv[1]
+	if args.has("search"):
+		inv_screen.browser_view._search.text = args["search"]
+		inv_screen.browser_view._search.text_changed.emit(args["search"])
+	if args.has("browse"):
+		var parts: PackedStringArray = args["browse"].split(":")
+		var ok := inv_screen.browser_view.show_item(parts[0], parts[1] if parts.size() > 1 else "recipes")
+		print("debug browse %s -> %s" % [args["browse"], ok])
+	if args.get("hover_test", "0") == "1":
+		# real input path: mouse over the 8th list cell (oak planks), R (recipes), then RMB on the 2nd cell (uses)
+		var bv := inv_screen.browser_view
+		await get_tree().process_frame
+		var cell: Control = bv._cells[7]
+		get_viewport().warp_mouse(cell.get_global_rect().get_center())
+		var mm := InputEventMouseMotion.new()
+		mm.position = cell.get_global_rect().get_center()
+		Input.parse_input_event(mm)
+		for _i in 3:
+			await get_tree().process_frame
+		var hovered := inv_screen.hovered_item()
+		var key := InputEventKey.new()
+		key.keycode = KEY_R
+		key.pressed = true
+		Input.parse_input_event(key)
+		for _i in 2:
+			await get_tree().process_frame
+		print("debug hover %s tooltip=%s R -> %s" % [hovered, inv_screen._tooltip.text.replace("\n", " / "), inv_screen.browser.summary().get("view", {})])
+		var c2: Control = bv._cells[1]
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_RIGHT
+		click.pressed = true
+		click.position = c2.get_global_rect().get_center()
+		Input.parse_input_event(click)
+		for _i in 2:
+			await get_tree().process_frame
+		print("debug rmb %s -> %s history=%d" % [c2.item_id, inv_screen.browser.summary().get("view", {}), inv_screen.browser.history.size()])
 
 
 ## Debug: aim at a block and right click it through the player's own use path.
@@ -457,6 +503,7 @@ func snapshot() -> Dictionary:
 		"item_stats": item_stats,
 		"items_sample": _items_sample(),
 		"inventory_open": inv_screen.is_open,
+		"browser": inv_screen.browser.summary(),
 		"blocks": blocks.summary(),
 		"mem_mb": OS.get_static_memory_usage() / 1048576.0,
 		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
