@@ -3,7 +3,9 @@ extends RefCounted
 
 ## Material table for the game, Noita attribute names (see
 ## docs/design/material-simulation.md). Index = material id, 0 = air.
-## `tiles` = atlas tile index [top, side, bottom] (game/assets/textures/atlas.png, 4x4 tiles).
+## `tiles` = atlas tile index [top, side, bottom] (game/assets/textures/atlas.png, ATLAS_TILES).
+## `interact` = what right-clicking the block opens (ADR 0007); `entity` = block
+## entity kind created on placement (chest / furnace inventories).
 ## TODO Phase 2: load from data/materials/*.json validated by schema + tests.
 
 const AIR := 0
@@ -38,8 +40,13 @@ const CACTUS := 28
 const DEAD_BUSH := 29
 const ICE := 30
 const FLOWER_RED := 31
+const CRAFTING_TABLE := 32  # station blocks (ADR 0007)
+const FURNACE := 33
+const FURNACE_LIT := 34     # same block entity, swapped in while the furnace burns (Minecraft's lit state)
+const CHEST := 35
+const PLANKS := 36
 
-const ATLAS_TILES := Vector2i(8, 4)
+const ATLAS_TILES := Vector2i(8, 5)
 
 
 static func defs() -> Array:
@@ -75,6 +82,11 @@ static func defs() -> Array:
 		{"name": "dead_bush", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 6, "autoignition_temperature": 15, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [26, 26, 26], "transparent": false, "micro": "bush"},
 		{"name": "ice", "cell_type": "solid", "density": 9, "hp": 120, "tiles": [27, 27, 27], "transparent": false},
 		{"name": "flower_red", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 8, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [28, 28, 28], "transparent": false, "micro": "flower"},
+		{"name": "crafting_table", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [32, 33, 39], "transparent": false, "interact": "crafting_table"},
+		{"name": "furnace", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 35, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
+		{"name": "furnace_lit", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 36, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
+		{"name": "chest", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [37, 38, 37], "transparent": false, "interact": "chest", "entity": "chest"},
+		{"name": "planks", "cell_type": "solid", "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false},
 	]
 
 

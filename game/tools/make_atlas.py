@@ -5,7 +5,9 @@ Tiles (index = row*4 + col):
  4 sand   5 water  6 wood       7 lava
  8 ash    9 oil   10 steam     11 smoke
 12 fire  13 bedrock 14 snow 15 gravel 16-19 ores 20 leaves 21 sandstone 22 clay
-23 tall_grass 24 flower 25 cactus 26 dead_bush 27 ice 28 flower_red (atlas is 8x4)
+23 tall_grass 24 flower 25 cactus 26 dead_bush 27 ice 28 flower_red
+29-31 plant colours 32 crafting_table top 33 crafting_table side 34 furnace top
+35 furnace front 36 furnace front lit 37 chest top 38 chest side 39 planks (atlas is 8x5)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -15,7 +17,7 @@ from PIL import Image
 
 TILE = 16
 COLS = 8
-ROWS = 4
+ROWS = 5
 
 random.seed(1337)
 
@@ -100,6 +102,98 @@ def cross_tile(base, blades=False, flower=None, sparse=False):
     return img
 
 
+def planks(base=(176, 136, 82)):
+    """Four horizontal boards with dark seams and staggered butt joints."""
+    img = noise_tile(base, 7)
+    px = img.load()
+    for y in range(TILE):
+        for x in range(TILE):
+            r, g, b, _ = px[x, y]
+            if y % 4 == 3:
+                px[x, y] = (r - 45, g - 40, b - 30, 255)
+            elif x == (5 if (y // 4) % 2 == 0 else 12):
+                px[x, y] = (r - 35, g - 30, b - 22, 255)
+    return img
+
+
+def frame(img, colour, width=1):
+    px = img.load()
+    for y in range(TILE):
+        for x in range(TILE):
+            if x < width or y < width or x >= TILE - width or y >= TILE - width:
+                px[x, y] = colour + (255,)
+    return img
+
+
+def crafting_table_top():
+    img = planks((168, 120, 70))
+    px = img.load()
+    # 3x3 grid lines like the vanilla table top
+    for i in range(TILE):
+        for k in (1, 5, 10, 14):
+            px[k, i] = (92, 60, 32, 255)
+            px[i, k] = (92, 60, 32, 255)
+    return frame(img, (110, 74, 40))
+
+
+def crafting_table_side():
+    img = planks((150, 104, 58))
+    px = img.load()
+    # top band and two hanging tools (saw blade + hammer head)
+    for x in range(TILE):
+        for y in range(3):
+            px[x, y] = (120, 84, 46, 255)
+    for y in range(5, 12):
+        px[3, y] = (90, 60, 32, 255)
+        px[4, y] = (180, 180, 186, 255)
+        px[5, y] = (200, 200, 206, 255) if y % 2 else (150, 150, 156, 255)
+    for x in range(9, 14):
+        px[x, 5] = (110, 110, 116, 255)
+        px[x, 6] = (90, 90, 96, 255)
+    for y in range(7, 12):
+        px[11, y] = (110, 74, 40, 255)
+    return img
+
+
+def furnace_top():
+    img = noise_tile((118, 118, 122), 12, (90, 90, 94), 0.15)
+    return frame(img, (80, 80, 84))
+
+
+def furnace_front(lit):
+    img = noise_tile((118, 118, 122), 12, (90, 90, 94), 0.15)
+    px = img.load()
+    for y in range(8, 14):
+        for x in range(4, 12):
+            if lit:
+                hot = random.random()
+                px[x, y] = (255, 120 + int(110 * hot) if y > 10 else 90 + int(80 * hot), 30, 255)
+            else:
+                px[x, y] = (24, 22, 22, 255)
+    for x in range(3, 13):
+        px[x, 7] = (70, 70, 74, 255)
+        px[x, 14] = (70, 70, 74, 255)
+    for x in range(4, 12, 2):  # vent slits
+        px[x, 3] = (40, 40, 44, 255)
+        px[x, 4] = (40, 40, 44, 255)
+    return frame(img, (80, 80, 84))
+
+
+def chest_tile(top):
+    img = planks((160, 110, 52))
+    frame(img, (88, 58, 26))
+    if not top:
+        px = img.load()
+        for y in range(TILE):
+            px[0, y] = px[TILE - 1, y] = (88, 58, 26, 255)
+        for x in range(TILE):
+            px[x, 5] = (88, 58, 26, 255)  # lid seam
+        for y in range(4, 9):  # iron latch
+            for x in range(7, 9):
+                px[x, y] = (200, 200, 205, 255) if y < 8 else (120, 120, 126, 255)
+    return img
+
+
 tiles = [
     noise_tile((128, 128, 132), 14, (100, 100, 104), 0.08),   # 0 stone
     noise_tile((120, 86, 56), 14, (90, 60, 40), 0.1),         # 1 dirt
@@ -133,6 +227,14 @@ tiles = [
     noise_tile((60, 140, 55), 12),                            # 29 leaf green (stems)
     noise_tile((245, 215, 60), 12, (255, 240, 120), 0.2),     # 30 petal yellow
     noise_tile((220, 55, 55), 12, (250, 110, 110), 0.2),      # 31 petal red
+    crafting_table_top(),                                     # 32 crafting table top
+    crafting_table_side(),                                    # 33 crafting table side
+    furnace_top(),                                            # 34 furnace top / bottom
+    furnace_front(False),                                     # 35 furnace front (all four sides until blocks have facing)
+    furnace_front(True),                                      # 36 furnace front, lit
+    chest_tile(True),                                         # 37 chest top
+    chest_tile(False),                                        # 38 chest side with latch
+    planks(),                                                 # 39 oak planks
 ]
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))

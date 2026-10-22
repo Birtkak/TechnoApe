@@ -20,6 +20,8 @@ var mine := false     # stand still, look down and hold break for the whole run;
 var place := false    # stand still and place the held item ahead every place_repeat_s; JSON shows the hotbar count drop
 var open_inventory := false   # open the inventory screen (for HUD screenshots)
 var scatter_items := false    # also drop one item entity per given item in front of the player
+var stations := false         # place a crafting table, chest and furnace in front of the player; the furnace gets iron ore + coal
+var open_screen := ""          # open=crafting_table|chest|furnace: open that station's screen (needs stations=1)
 var give: Array = []  # give=oak_log:12,wooden_pickaxe  -> starting items
 var _start_pos := Vector3.ZERO
 var _strip: FrameSheet
@@ -48,6 +50,8 @@ func _ready() -> void:
 	place = args.get("place", "0") == "1"
 	open_inventory = args.get("open_inventory", "0") == "1"
 	scatter_items = args.get("scatter_items", "0") == "1"
+	stations = args.get("stations", "0") == "1"
+	open_screen = args.get("open", "")
 	for spec in String(args.get("give", "")).split(",", false):
 		var parts := spec.split(":")
 		give.append({"id": parts[0], "count": int(parts[1]) if parts.size() > 1 else 1})

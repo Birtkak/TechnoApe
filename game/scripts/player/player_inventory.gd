@@ -19,6 +19,7 @@ var recipes: RecipeRegistry
 var inv: Inventory
 var craft: CraftingGrid
 var cursor := {}
+var container: RefCounted = null   # ChestEntity / FurnaceEntity while its screen is open (ADR 0007)
 var selected := 0
 var max_health := 20
 var health := 20
@@ -111,8 +112,19 @@ func drop_held(whole: bool = false) -> Dictionary:
 # ---------------- inventory screen: cursor operations ----------------
 
 ## Click on one of the 36 player slots. button: MOUSE_BUTTON_LEFT/RIGHT.
+## Shift with a container open moves the stack into it (vanilla
+## quickMoveStack); the furnace takes only smeltables and fuel and refuses
+## the rest without falling back, everything else moves hotbar <-> main.
 func click_slot(i: int, button: int, shift: bool) -> void:
 	if shift:
+		var s: Dictionary = inv.get_slot(i)
+		if container != null and not s.is_empty():
+			var targets: Array = container.shift_targets(s["id"])
+			if not targets.is_empty():
+				_move_stack(inv, i, container.inv, targets)
+				return
+			if container.kind == "chest":
+				return
 		if i < HOTBAR:
 			_move_slot(inv, i, HOTBAR, SIZE)
 		else:
@@ -122,6 +134,38 @@ func click_slot(i: int, button: int, shift: bool) -> void:
 		cursor = inv.right_click(i, cursor)
 	else:
 		cursor = inv.left_click(i, cursor)
+	changed.emit()
+
+
+## Opens a container screen (chest, furnace). The personal grid stays 2x2.
+func open_container(c: RefCounted) -> void:
+	container = c
+	changed.emit()
+
+
+## Click on a container slot. Slots that refuse the cursor's item (furnace
+## output, fuel slot with a non-fuel) only hand items out: vanilla moves as
+## much as fits into a matching cursor and ignores a different one.
+func click_container_slot(i: int, button: int, shift: bool) -> void:
+	if container == null:
+		return
+	var c_inv: Inventory = container.inv
+	if shift:
+		_move_stack(c_inv, i, inv, _player_order(container.shift_out_reverse(i)))
+		return
+	var s: Dictionary = c_inv.get_slot(i)
+	if not cursor.is_empty() and not container.may_place(i, cursor["id"]):
+		if not s.is_empty() and s["id"] == cursor["id"]:
+			var room: int = items.max_stack(cursor["id"]) - int(cursor["count"])
+			if room > 0:
+				var t := c_inv.take(i, room)
+				cursor["count"] += int(t.get("count", 0))
+		changed.emit()
+		return
+	if button == MOUSE_BUTTON_RIGHT:
+		cursor = c_inv.right_click(i, cursor)
+	else:
+		cursor = c_inv.left_click(i, cursor)
 	changed.emit()
 
 
@@ -163,6 +207,7 @@ func click_craft_output(shift: bool) -> void:
 ## Closing the screen: grid contents go back, cursor too. Returns stacks
 ## that did not fit (to drop in the world).
 func close_screen() -> Array:
+	container = null
 	var dropped: Array = craft.return_contents(inv)
 	if not cursor.is_empty():
 		var left := inv.add(cursor["id"], cursor["count"])
@@ -234,6 +279,46 @@ func _move_slot(src: Inventory, i: int, from: int, to: int) -> void:
 	changed.emit()
 
 
+## Player slot order for stacks coming out of a container: vanilla walks the
+## menu's player slots (main 9..35 then hotbar 0..8), reversed for chests and
+## the furnace output, so those fill the hotbar from slot 9 leftwards first.
+func _player_order(reverse: bool) -> Array:
+	var order := range(HOTBAR, SIZE) + range(0, HOTBAR)
+	if reverse:
+		order.reverse()
+	return order
+
+
+## Moves slot i of `src` into `dst` slots in `order`: merge pass, then empty
+## pass (vanilla moveItemStackTo). What does not fit stays in the source.
+func _move_stack(src: Inventory, i: int, dst: Inventory, order: Array) -> void:
+	var s: Dictionary = src.get_slot(i)
+	if s.is_empty():
+		return
+	var id: String = s["id"]
+	var count: int = s["count"]
+	var max_stack := items.max_stack(id)
+	src.take(i, count)
+	for pass_merge in [true, false]:
+		for j in order:
+			if count <= 0:
+				break
+			if dst == src and j == i:
+				continue
+			var d: Dictionary = dst.get_slot(j)
+			if pass_merge and not d.is_empty() and d["id"] == id and d["count"] < max_stack:
+				var n := mini(count, max_stack - int(d["count"]))
+				dst.set_slot(j, {"id": id, "count": int(d["count"]) + n})
+				count -= n
+			elif not pass_merge and d.is_empty():
+				var n := mini(count, max_stack)
+				dst.set_slot(j, {"id": id, "count": n})
+				count -= n
+	if count > 0:
+		src.put(i, {"id": id, "count": count})
+	changed.emit()
+
+
 ## Serialisable summary for debug JSON.
 func summary() -> Dictionary:
 	var hotbar := []
@@ -244,4 +329,5 @@ func summary() -> Dictionary:
 		var s: Dictionary = inv.get_slot(i)
 		if not s.is_empty():
 			main[s["id"]] = int(main.get(s["id"], 0)) + int(s["count"])
-	return {"selected": selected, "hotbar": hotbar, "main": main, "cursor": cursor, "health": health}
+	return {"selected": selected, "hotbar": hotbar, "main": main, "cursor": cursor, "health": health,
+		"container": container.kind if container != null else ""}

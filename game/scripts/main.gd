@@ -15,6 +15,8 @@ var items: ItemRegistry
 var recipes: RecipeRegistry
 var mining: MiningTable
 var player_inv: PlayerInventory
+var blocks: BlockEntities
+var _tick_accum := 0.0
 var _items_root: Node3D
 var _item_entities: Array[ItemEntity] = []
 var _merge_accum := 0.0
@@ -54,6 +56,7 @@ func _ready() -> void:
 	for err in items.errors + recipes.errors + mining.errors:
 		push_error("data: " + err)
 	player_inv = PlayerInventory.new(items, recipes, Settings.max_health)
+	blocks = BlockEntities.new(items, recipes)
 
 	player = Player.new()
 	player.name = "Player"
@@ -69,6 +72,7 @@ func _ready() -> void:
 	player.item_dropped.connect(_on_item_dropped)
 	player.inventory_toggled.connect(_on_inventory_toggled)
 	player.died.connect(_on_died)
+	player.block_used.connect(_on_block_used)
 
 	_items_root = Node3D.new()
 	_items_root.name = "Items"
@@ -130,6 +134,8 @@ func _ready() -> void:
 			player.position.z = floor(player.position.z)
 		if DebugCapture.open_inventory:
 			inv_screen.open()
+		if DebugCapture.stations:
+			_place_debug_stations.call_deferred()
 		if DebugCapture.scatter_items:
 			# one entity per given item, in a row two metres ahead, so a screenshot shows them
 			var fwd := -player.camera.global_transform.basis.z
@@ -163,6 +169,13 @@ func _process(_delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	_update_items(delta)
+	_tick_accum += delta
+	var n := 0
+	while _tick_accum >= BlockEntities.TICK_S and n < 10:   # 20 ticks/s, catch up at most 0.5 s
+		_tick_accum -= BlockEntities.TICK_S
+		n += 1
+		for p in blocks.tick():
+			_on_lit_flipped(p)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -179,12 +192,98 @@ func set_world_voxel(p: Vector3i, material: int) -> void:
 
 func _on_broken(p: Vector3i, drop: Dictionary) -> void:
 	set_world_voxel(p, GameMaterials.AIR)
+	for s in blocks.remove(p):   # chest / furnace contents spill like vanilla
+		spawn_item(s, Vector3(p) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1.5, 1.5), 2.5, randf_range(-1.5, 1.5)))
 	if not drop.is_empty():
 		spawn_item(drop, Vector3(p) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
 
 
 func _on_placed(p: Vector3i, material: int) -> void:
 	set_world_voxel(p, material)
+	if material > 0:
+		var d: Dictionary = GameMaterials.defs()[material - 1]
+		if d.has("entity"):
+			blocks.create(p, d["entity"])
+
+
+## Right click on a station block (ADR 0007).
+func _on_block_used(p: Vector3i, material: int) -> void:
+	var d: Dictionary = GameMaterials.defs()[material - 1]
+	var kind: String = d.get("interact", "")
+	match kind:
+		"crafting_table":
+			player.set_ui_open(true, false)
+			inv_screen.open(3, "crafting_table", "Crafting")
+		"chest", "furnace":
+			var e := blocks.get_or_create(p, d.get("entity", kind))
+			player.set_ui_open(true, false)
+			inv_screen.open_container(e)
+
+
+## A furnace started or stopped burning: swap furnace <-> furnace_lit, or
+## drop the entity when its block is gone (burnt, replaced by the sim).
+func _on_lit_flipped(p: Vector3i) -> void:
+	var m := world.get_voxel(p)
+	if m != GameMaterials.FURNACE and m != GameMaterials.FURNACE_LIT:
+		for s in blocks.remove(p):
+			spawn_item(s, Vector3(p) + Vector3(0.5, 0.5, 0.5))
+		return
+	var e: FurnaceEntity = blocks.at(p)
+	set_world_voxel(p, GameMaterials.FURNACE_LIT if e.is_lit() else GameMaterials.FURNACE)
+
+
+## Debug: aim at a block and right click it through the player's own use path.
+func _debug_use_block(at: Vector3i) -> void:
+	var dir := (Vector3(at) + Vector3(0.5, 0.5, 0.5) - player.camera.global_position).normalized()
+	player.set_look(atan2(-dir.x, -dir.z), asin(dir.y))
+	player._use(true)
+	print("debug use %s -> screen open %s (%s)" % [at, inv_screen.is_open, player_inv.summary()["container"]])
+
+
+## Debug: a crafting table, chest and furnace on the ground ahead (stations=1);
+## the furnace starts smelting 8 iron ore with 1 coal, the chest holds samples.
+func _place_debug_stations() -> void:
+	var fwd := -player.camera.global_transform.basis.z
+	fwd.y = 0
+	fwd = fwd.normalized()
+	var right := fwd.cross(Vector3.UP)
+	var base := player.position + fwd * 4.0
+	var kinds := [["crafting_table", GameMaterials.CRAFTING_TABLE], ["chest", GameMaterials.CHEST], ["furnace", GameMaterials.FURNACE]]
+	var spots: Array[Vector3i] = []
+	for i in kinds.size():
+		var q := base + right * (i - 1) * 2.0
+		var x := int(floor(q.x))
+		var z := int(floor(q.z))
+		spots.append(Vector3i(x, world.surface_height(x, z) + 1, z))
+	# the terrain must be editable there first (a player can only aim at loaded ground)
+	for _f in 1200:
+		var ok := true
+		for sp in spots:
+			if not world.is_area_loaded(Vector3i((Vector3(sp) / Settings.CHUNK).floor())):
+				ok = false
+		if ok:
+			break
+		await get_tree().process_frame
+	for i in kinds.size():
+		var x := spots[i].x
+		var y := spots[i].y
+		var z := spots[i].z
+		_on_placed(Vector3i(x, y, z), kinds[i][1])
+		var e: RefCounted = blocks.at(Vector3i(x, y, z))
+		if e is FurnaceEntity:
+			e.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 8})
+			e.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 1})
+		elif e is ChestEntity:
+			e.inv.set_slot(0, {"id": "oak_log", "count": 32})
+			e.inv.set_slot(4, {"id": "cobblestone", "count": 64})
+			e.inv.set_slot(13, {"id": "coal", "count": 9})
+		print("debug station %s at %s" % [kinds[i][0], Vector3i(x, y, z)])
+		if DebugCapture.open_screen == kinds[i][0]:
+			# the strip shows the blocks first (furnace lighting up), the screen for the last 40 %
+			var at := Vector3i(x, y, z)
+			get_tree().create_timer(DebugCapture.duration * 0.6).timeout.connect(_debug_use_block.bind(at))
+	player.autopilot_action = "look"   # stand still (autopilot input is zero for any action)
+	player.set_look(player._yaw, -0.45)
 
 
 func _on_item_dropped(stack: Dictionary, from: Vector3, velocity: Vector3) -> void:
@@ -318,6 +417,7 @@ func snapshot() -> Dictionary:
 		"item_stats": item_stats,
 		"items_sample": _items_sample(),
 		"inventory_open": inv_screen.is_open,
+		"blocks": blocks.summary(),
 		"mem_mb": OS.get_static_memory_usage() / 1048576.0,
 		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		"primitives": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),

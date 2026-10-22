@@ -1,9 +1,10 @@
 class_name InventoryScreen
 extends CanvasLayer
 
-## Minecraft-layout inventory screen (ADR 0005): the vanilla 176x166 panel at
-## 2x with a 2x2 personal crafting grid + output (or a 3x3 crafting table
-## grid), 27 main slots and the hotbar row. Clicks go to PlayerInventory's
+## Minecraft-layout inventory screen (ADR 0005, 0006): the vanilla 176x166
+## panel at 2x with a 2x2 personal crafting grid + output, a 3x3 crafting
+## table grid, a chest's 27 slots or a furnace (input, fuel, output, flame
+## and arrow gauges) above 27 main slots and the hotbar row. Clicks go to PlayerInventory's
 ## cursor operations; the cursor stack follows the mouse. Closing returns
 ## grid contents; what does not fit is emitted for dropping.
 
@@ -21,6 +22,9 @@ var _craft_slots: Array[SlotView] = []
 var _output: SlotView
 var _cursor_icon: ItemIcon
 var _title: Label
+var _inv_label: Label
+var _container: RefCounted = null          # ChestEntity / FurnaceEntity in container mode
+var _container_slots: Array[SlotView] = []
 
 
 func setup(p_inv: PlayerInventory) -> void:
@@ -47,6 +51,12 @@ func _ready() -> void:
 	_title.add_theme_color_override("font_color", Color(0.25, 0.25, 0.25))
 	_title.add_theme_font_size_override("font_size", 16)
 	_panel.add_child(_title)
+	_inv_label = Label.new()
+	_inv_label.text = "Inventory"
+	_inv_label.position = Vector2(16, 142)
+	_inv_label.add_theme_color_override("font_color", Color(0.25, 0.25, 0.25))
+	_inv_label.add_theme_font_size_override("font_size", 16)
+	_panel.add_child(_inv_label)
 	_cursor_icon = ItemIcon.new()
 	_cursor_icon.size = Vector2(32, 32)
 	_cursor_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -73,12 +83,21 @@ func _build_player_slots() -> void:
 		_slots.append(sv)
 
 
-func _build_craft_slots(width: int) -> void:
-	for sv in _craft_slots:
+func _clear_mode_slots() -> void:
+	for sv in _craft_slots + _container_slots:
 		sv.queue_free()
 	_craft_slots.clear()
+	_container_slots.clear()
 	if _output:
 		_output.queue_free()
+		_output = null
+	if _container:
+		_container.changed.disconnect(_refresh)
+		_container = null
+
+
+func _build_craft_slots(width: int) -> void:
+	_clear_mode_slots()
 	var origin := Vector2(196, 36) if width == 2 else Vector2(60, 34)
 	for i in width * width:
 		var sv := SlotView.new()
@@ -103,6 +122,38 @@ func open(width: int = 2, station: String = "", title: String = "Inventory") -> 
 	_build_craft_slots(width)
 	_title.text = title
 	_title.position = Vector2(196, 8) if width == 2 else Vector2(16, 8)
+	_inv_label.visible = width != 2
+	_show()
+
+
+## Opens a chest or furnace (vanilla generic_54 / furnace layouts at 2x).
+func open_container(c: RefCounted) -> void:
+	_clear_mode_slots()
+	_container = c
+	_container.changed.connect(_refresh)
+	player_inv.open_container(c)
+	var positions: Array = []
+	if c.kind == "furnace":
+		# vanilla input (56,17), fuel (56,53), result (116,35)
+		positions = [Vector2(112, 34), Vector2(112, 106), Vector2(232, 70)]
+	else:
+		for i in c.inv.size():
+			positions.append(Vector2(16 + (i % 9) * S, 36 + (i / 9) * S))
+	for i in positions.size():
+		var sv := SlotView.new()
+		sv.position = positions[i]
+		sv.index = i
+		sv.is_output = c.is_output(i)
+		sv.clicked.connect(_on_container_clicked.bind(i))
+		_panel.add_child(sv)
+		_container_slots.append(sv)
+	_title.text = c.title
+	_title.position = Vector2(16, 8) if c.kind == "chest" else Vector2(176 - c.title.length() * 4, 8)
+	_inv_label.visible = true
+	_show()
+
+
+func _show() -> void:
 	is_open = true
 	visible = true
 	_refresh()
@@ -113,6 +164,7 @@ func close() -> void:
 		return
 	is_open = false
 	visible = false
+	_clear_mode_slots()
 	var dropped: Array = player_inv.close_screen()
 	if player_inv.craft.width != 2:
 		dropped.append_array(player_inv.set_crafting_grid(2, ""))
@@ -128,6 +180,9 @@ func _refresh() -> void:
 		_craft_slots[i].set_stack(player_inv.items, player_inv.craft.grid.get_slot(i))
 	if _output:
 		_output.set_stack(player_inv.items, player_inv.craft.preview_output())
+	if _container:
+		for i in _container_slots.size():
+			_container_slots[i].set_stack(player_inv.items, _container.inv.get_slot(i))
 	_cursor_icon.items = player_inv.items
 	_cursor_icon.stack = player_inv.cursor
 	_cursor_icon.visible = not player_inv.cursor.is_empty()
@@ -136,6 +191,8 @@ func _refresh() -> void:
 func _process(_delta: float) -> void:
 	if is_open:
 		_cursor_icon.position = _root.get_local_mouse_position() - Vector2(16, 16)
+		if _container and _container.kind == "furnace":
+			_panel.queue_redraw()   # flame and arrow gauges move every tick
 
 
 func _on_slot_clicked(button: int, shift: bool, i: int) -> void:
@@ -144,6 +201,10 @@ func _on_slot_clicked(button: int, shift: bool, i: int) -> void:
 
 func _on_craft_clicked(button: int, shift: bool, i: int) -> void:
 	player_inv.click_craft_slot(i, button, shift)
+
+
+func _on_container_clicked(button: int, shift: bool, i: int) -> void:
+	player_inv.click_container_slot(i, button, shift)
 
 
 func _on_output_clicked(_button: int, shift: bool) -> void:
@@ -157,6 +218,10 @@ func _draw_panel() -> void:
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(6)
 	_panel.draw_style_box(sb, Rect2(Vector2.ZERO, PANEL))
+	if _container:
+		if _container.kind == "furnace":
+			_draw_furnace_gauges()
+		return
 	# player "portrait" area like vanilla's model box
 	if player_inv and player_inv.craft.width == 2:
 		_panel.draw_rect(Rect2(16, 16, 104, 140), Color(0.1, 0.1, 0.1))
@@ -164,6 +229,31 @@ func _draw_panel() -> void:
 		_panel.draw_line(Vector2(272, 74), Vector2(300, 74), Color(0.3, 0.3, 0.3), 4.0)
 	else:
 		_panel.draw_line(Vector2(180, 88), Vector2(236, 88), Color(0.3, 0.3, 0.3), 4.0)
+
+
+## Vanilla furnace gauges: flame (56,36) 14x14 burns down, arrow (79,34)
+## 24x17 fills left to right with the cook progress.
+func _draw_furnace_gauges() -> void:
+	var f: Rect2 = Rect2(114, 74, 28, 28)
+	_panel.draw_rect(f, Color(0.45, 0.45, 0.45))
+	var lit: float = _container.flame()
+	if lit > 0.0:
+		var h := f.size.y * lit
+		_panel.draw_rect(Rect2(f.position.x, f.end.y - h, f.size.x, h), Color(1.0, 0.55, 0.1))
+		_panel.draw_rect(Rect2(f.position.x + 7, f.end.y - h * 0.6, f.size.x - 14, h * 0.6), Color(1.0, 0.85, 0.3))
+	_draw_arrow(Vector2(160, 70), 48.0, Color(0.5, 0.5, 0.5))
+	var prog: float = _container.progress()
+	if prog > 0.0:
+		_draw_arrow(Vector2(160, 70), 48.0 * prog, Color(1, 1, 1))
+
+
+## Arrow 48x34 at `o` (shaft 30 wide, head 18), drawn up to `w` px wide.
+func _draw_arrow(o: Vector2, w: float, c: Color) -> void:
+	_panel.draw_rect(Rect2(o + Vector2(0, 10), Vector2(minf(w, 30.0), 14)), c)
+	if w > 30.5:
+		var x := minf(w, 48.0)
+		var dy := 17.0 * (x - 30.0) / 18.0
+		_panel.draw_colored_polygon(PackedVector2Array([o + Vector2(30, 0), o + Vector2(x, dy), o + Vector2(x, 34.0 - dy), o + Vector2(30, 34)]), c)
 
 
 ## One slot: dark inset square, item icon, hover highlight, click -> signal.

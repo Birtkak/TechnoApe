@@ -179,6 +179,17 @@ func reachable_from(raw_ids: Array) -> Dictionary:
 	return have
 
 
+## The smelt recipe that takes `item_id` at `station` (furnace), or {}.
+func smelting_for(item_id: String, station: String = "furnace") -> Dictionary:
+	if item_id == "":
+		return {}
+	for rid in recipes:
+		var r: Dictionary = recipes[rid]
+		if r["type"] == "smelt" and r.get("station", "furnace") == station and items.matches(item_id, r["input"]):
+			return r
+	return {}
+
+
 # ---------------- matching ----------------
 
 ## grid: Array of 9 item ids ("" = empty), row-major 3x3. Returns the recipe

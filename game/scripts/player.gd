@@ -10,6 +10,7 @@ signal voxel_broken(pos: Vector3i, drop: Dictionary)
 signal voxel_placed(pos: Vector3i, material: int)
 signal item_dropped(stack: Dictionary, from: Vector3, velocity: Vector3)
 signal inventory_toggled(open: bool)
+signal block_used(pos: Vector3i, material: int)   # right click on a block with an "interact" key (ADR 0007)
 signal died
 
 var world: World
@@ -96,11 +97,13 @@ func capture_mouse(on: bool) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if on else Input.MOUSE_MODE_VISIBLE
 
 
-func set_ui_open(open: bool) -> void:
+## notify = false when Main opens a station screen itself (block_used).
+func set_ui_open(open: bool, notify: bool = true) -> void:
 	ui_open = open
 	_mine_progress = 0.0
 	capture_mouse(not open)
-	inventory_toggled.emit(open)
+	if notify or not open:
+		inventory_toggled.emit(open)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -365,10 +368,16 @@ func _use(first_press: bool) -> void:
 		return
 	if not first_press and _place_cooldown > 0.0:
 		return
+	var target: Vector3i = hit.position
+	# stations open on right click; sneaking (Shift) places against them instead (vanilla)
+	if first_press and not Input.is_action_pressed("sprint"):
+		var tm := world.get_voxel(target)
+		if tm > 0 and GameMaterials.defs()[tm - 1].has("interact"):
+			block_used.emit(target, tm)
+			return
 	var def := inventory.held_def()
 	if def.is_empty():
 		return
-	var target: Vector3i = hit.position
 	var target_name := _loose_name(world.get_voxel(target))
 	# container pickup (bucket on water / lava)
 	if def.has("fills") and def["fills"].has(target_name):

@@ -24,6 +24,11 @@
     "tall_grass":   {"hardness": 0.0},
     "flower":       {"hardness": 0.0},
     "flower_red":   {"hardness": 0.0},
-    "dead_bush":    {"hardness": 0.0}
+    "dead_bush":    {"hardness": 0.0},
+    "planks":       {"hardness": 2.0, "tool": "axe", "drops": "oak_planks"},
+    "crafting_table": {"hardness": 2.5, "tool": "axe", "drops": "crafting_table"},
+    "chest":        {"hardness": 2.5, "tool": "axe", "drops": "chest"},
+    "furnace":      {"hardness": 3.5, "tool": "pickaxe", "requires": true, "drops": "furnace"},
+    "furnace_lit":  {"hardness": 3.5, "tool": "pickaxe", "requires": true, "drops": "furnace"}
   }
 }
