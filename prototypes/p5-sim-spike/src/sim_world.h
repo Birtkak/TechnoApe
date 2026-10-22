@@ -112,6 +112,12 @@ public:
     // v6: the changed cells of every dirty chunk as a box, for uploads finer than whole chunks:
     // 9 ints per chunk: chunk x,y,z, then min x,y,z and max x,y,z in local cells (inclusive).
     PackedInt32Array get_dirty_boxes() const;
+    // Bridge to the brick world (ADR 0012 step 3): writes the cells inside the dirty boxes into a
+    // BrickStore. scale 8: one sim cell is one brick (the 0.5 m game); origin = store brick of sim
+    // cell (0,0,0); a brick is rewritten only when its material (an expanded brick: its majority)
+    // differs, so chisel detail survives. scale 1: one sim cell is one store cell (micro sim);
+    // origin = store cell of sim cell (0,0,0). Returns bricks/cells written. Call before clear_dirty().
+    int write_dirty_to_store(Object *p_store, Vector3i p_origin, int p_scale);
     void clear_dirty();
 
     // ---- debug / introspection ----

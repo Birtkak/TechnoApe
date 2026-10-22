@@ -26,6 +26,12 @@ var active_chunks := 0
 var push_ms := 0.0
 var shifts := 0
 var _tick_running := false
+# Bridge to the brick world (ADR 0012 step 3): when the owner of a BrickStore sets these,
+# every tick's changed cells are written into the store (one bubble cell = one brick, the
+# 0.5 m game), so the ray-cast near field shows what the simulation does.
+var store: BrickStore = null
+var store_origin_voxel := Vector3i.ZERO   # world voxel of the store's brick (0,0,0); the owner updates it when the store window slides
+var store_writes := 0
 var _push_queue := {}          # world chunk -> true, insertion order = oldest first (ADR 0010)
 var push_queue_max := 0
 var _last_push := {}           # world chunk -> msec of its last paste (Settings.sim_push_interval_ms)
@@ -202,6 +208,8 @@ func _note_slow_frame(delta: float) -> void:
 ## Moves the sim's dirty chunks into the push queue (world coords, so they
 ## survive window shifts).
 func _collect_dirty() -> void:
+	if store != null:
+		store_writes += sim.write_dirty_to_store(store, origin * Settings.CHUNK - store_origin_voxel, 8)
 	for lc in sim.get_dirty_chunks():
 		if not _pending_loads.has(lc):   # never paste a chunk before it was loaded
 			_push_queue[lc + origin] = true
@@ -382,4 +390,5 @@ func stats() -> Dictionary:
 		"chunks_pushed": chunks_pushed, "chunks_loaded": chunks_loaded, "bad_loads": bad_loads, "push_ms": snappedf(push_ms, 0.01),
 		"shifts": shifts, "worst_frames": _worst, "slow_frames": _slow, "push_queue": _push_queue.size(), "push_queue_max": push_queue_max,
 		"burning": sim.count_burning() if _fire_test == 0 else -1, "fire_ignited": fire_ignited,
+		"store_writes": store_writes,
 	}

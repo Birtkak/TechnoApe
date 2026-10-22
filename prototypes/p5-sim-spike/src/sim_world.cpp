@@ -1,4 +1,5 @@
 #include "sim_world.h"
+#include "brick_store.h"
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
@@ -99,6 +100,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("shift", "delta_chunks"), &SimWorld::shift);
     ClassDB::bind_method(D_METHOD("get_dirty_chunks"), &SimWorld::get_dirty_chunks);
     ClassDB::bind_method(D_METHOD("get_dirty_boxes"), &SimWorld::get_dirty_boxes);
+    ClassDB::bind_method(D_METHOD("write_dirty_to_store", "store", "origin", "scale"), &SimWorld::write_dirty_to_store);
     ClassDB::bind_method(D_METHOD("clear_dirty"), &SimWorld::clear_dirty);
     ClassDB::bind_method(D_METHOD("count_material", "material"), &SimWorld::count_material);
     ClassDB::bind_method(D_METHOD("count_in_box", "min", "max", "material"), &SimWorld::count_in_box);
@@ -1031,6 +1033,65 @@ PackedInt32Array SimWorld::get_dirty_boxes() const {
                 for (int k = 0; k < 9; k++) out.push_back(v[k]);
             }
     return out;
+}
+
+int SimWorld::write_dirty_to_store(Object *p_store, Vector3i p_origin, int p_scale) {
+    wait_idle();
+    BrickStore *store = Object::cast_to<BrickStore>(p_store);
+    if (!store) return 0;
+    const int B = BrickStore::B;
+    int written = 0;
+    for (int cz = 0; cz < CZ_; cz++)
+        for (int cy = 0; cy < CY_; cy++)
+            for (int cx = 0; cx < CX_; cx++) {
+                int ci = cidx(cx, cy, cz);
+                if (!dirty_[ci].load(std::memory_order_relaxed)) continue;
+                uint32_t b = dbox_[ci].load(std::memory_order_relaxed);
+                if (!(b & BOX_VALID)) b = BOX_FULL;
+                const int x0 = (int)(b & 15u), y0 = (int)((b >> 4) & 15u), z0 = (int)((b >> 8) & 15u);
+                const int x1 = (int)((b >> 12) & 15u), y1 = (int)((b >> 16) & 15u), z1 = (int)((b >> 20) & 15u);
+                for (int lz = z0; lz <= z1; lz++)
+                    for (int ly = y0; ly <= y1; ly++)
+                        for (int lx = x0; lx <= x1; lx++) {
+                            const int sx = cx * CS + lx, sy = cy * CS + ly, sz = cz * CS + lz;
+                            const uint8_t m = cells_[idx(sx, sy, sz)].mat;
+                            if (p_scale == B) {
+                                const Vector3i br(p_origin.x + sx, p_origin.y + sy, p_origin.z + sz);
+                                const uint32_t ref = store->raw_ref(br);
+                                if (ref & BrickStore::EXPANDED) {
+                                    const uint8_t *cl = store->raw_cells(br);
+                                    if (!cl) continue;
+                                    int counts[256] = {0};
+                                    int best = 0;
+                                    for (int k = 0; k < BrickStore::CELLS; k++) {
+                                        int c = ++counts[cl[k]];
+                                        if (c > counts[best]) best = cl[k];
+                                    }
+                                    if (best == m) continue;   // chiseled brick of the same material: keep its shape
+                                } else if (ref == m) {
+                                    continue;
+                                }
+                                store->fill_uniform(br, br + Vector3i(1, 1, 1), m);
+                                written++;
+                            } else {
+                                const Vector3i c(p_origin.x + sx, p_origin.y + sy, p_origin.z + sz);
+                                const Vector3i br(c.x >> 3, c.y >> 3, c.z >> 3);
+                                const int k = (c.x & 7) + B * ((c.y & 7) + B * (c.z & 7));
+                                const uint32_t ref = store->raw_ref(br);
+                                if (ref & BrickStore::EXPANDED) {
+                                    const uint8_t *cl = store->raw_cells(br);
+                                    if (!cl || cl[k] == m) continue;
+                                } else if (ref == m) {
+                                    continue;
+                                }
+                                uint8_t *w = store->raw_cells_mut(br);
+                                if (!w) continue;
+                                w[k] = m;
+                                written++;
+                            }
+                        }
+            }
+    return written;
 }
 
 void SimWorld::clear_dirty() {
