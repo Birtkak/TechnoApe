@@ -78,6 +78,11 @@ public:
     int get_flags(Vector3i p) const; // FLAG_BURNING etc. (0 outside)
     void ignite(Vector3i p);
     void mark_all_loaded(bool p_loaded);
+    // v5 (P10): fall acceleration in cells/tick^2 for powders and liquids (0 = one cell per tick, P5 behaviour).
+    // At 6.25 cm and 30 Hz, 9.8 m/s^2 is 0.174 cells/tick^2.
+    void set_gravity(float p_cells_per_tick2);
+    // v5: scan only each active chunk's dirty box (default on); off = whole chunks (P5 behaviour) for comparison.
+    void set_dirty_boxes(bool p_on);
 
     // ---- simulation ----
     Dictionary tick(int p_count);
@@ -120,8 +125,27 @@ private:
         void shutdown();
     };
 
-    struct Marks { uint32_t wake = 0; uint32_t dirty = 0; };
+    struct Marks { uint32_t wake = 0; uint32_t dirty = 0; uint32_t box[27] = {}; };
     struct Ctx { int cx, cy, cz; Marks mk; uint32_t rng; uint64_t moved = 0; uint64_t reacted = 0; };
+    // Dirty box of a chunk packed in 25 bits: valid | min xyz | max xyz (4 bits each, local 0..15).
+    static constexpr uint32_t BOX_VALID = 1u << 24;
+    static constexpr uint32_t BOX_FULL = BOX_VALID | (15u << 12) | (15u << 16) | (15u << 20);
+    static inline uint32_t box_point(int x, int y, int z) {
+        return BOX_VALID | (uint32_t)x | ((uint32_t)y << 4) | ((uint32_t)z << 8) | ((uint32_t)x << 12) | ((uint32_t)y << 16) | ((uint32_t)z << 20);
+    }
+    static inline uint32_t box_union(uint32_t a, uint32_t b) {
+        if (!(a & BOX_VALID)) return b;
+        if (!(b & BOX_VALID)) return a;
+        uint32_t r = BOX_VALID;
+        for (int k = 0; k < 3; k++) {
+            uint32_t lo = std::min((a >> (4 * k)) & 15u, (b >> (4 * k)) & 15u);
+            uint32_t hi = std::max((a >> (12 + 4 * k)) & 15u, (b >> (12 + 4 * k)) & 15u);
+            r |= (lo << (4 * k)) | (hi << (12 + 4 * k));
+        }
+        return r;
+    }
+    void merge_box(int ci, uint32_t b);
+    void wake_full(int ci);
 
     Vector3i chunks_;
     int W_ = 0, H_ = 0, D_ = 0;
@@ -147,6 +171,10 @@ private:
     std::unique_ptr<std::atomic<uint8_t>[]> active_next_;
     std::unique_ptr<std::atomic<uint8_t>[]> dirty_;
     std::vector<uint8_t> loaded_; // per chunk: 1 once world data was loaded; unloaded chunks act as solid walls
+    std::unique_ptr<std::atomic<uint32_t>[]> box_now_;  // v5 dirty boxes (packed, see box_point)
+    std::unique_ptr<std::atomic<uint32_t>[]> box_next_;
+    uint16_t gravity16_ = 0;   // v5 fall acceleration in 1/16 cell per tick^2
+    bool dirty_boxes_ = true;
     std::vector<int> pass_lists_[8];
     std::atomic<uint64_t> moved_count_{0};
     std::atomic<uint64_t> react_count_{0};
@@ -171,6 +199,7 @@ private:
     inline void place(int i, uint8_t mat);                    // set material + init aux/flags (no marks)
     inline bool can_displace(uint8_t mover, uint8_t target) const;
     inline bool try_move(int sx, int sy, int sz, int tx, int ty, int tz, Ctx &c);
+    bool fall(int x, int y, int z, int i, Ctx &c);
     void update_powder(int x, int y, int z, int i, Ctx &c);
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_gas(int x, int y, int z, int i, Ctx &c);

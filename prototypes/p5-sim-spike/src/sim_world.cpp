@@ -109,6 +109,8 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_stats"), &SimWorld::get_stats);
     ClassDB::bind_method(D_METHOD("get_active_chunk_count"), &SimWorld::get_active_chunk_count);
     ClassDB::bind_method(D_METHOD("get_size_voxels"), &SimWorld::get_size_voxels);
+    ClassDB::bind_method(D_METHOD("set_gravity", "cells_per_tick2"), &SimWorld::set_gravity);
+    ClassDB::bind_method(D_METHOD("set_dirty_boxes", "on"), &SimWorld::set_dirty_boxes);
     BIND_ENUM_CONSTANT(CELL_SOLID);
     BIND_ENUM_CONSTANT(CELL_LIQUID);
     BIND_ENUM_CONSTANT(CELL_GAS);
@@ -133,7 +135,9 @@ void SimWorld::configure(Vector3i p_chunks, int p_threads, int p_seed) {
     active_now_.reset(new std::atomic<uint8_t>[nc]);
     active_next_.reset(new std::atomic<uint8_t>[nc]);
     dirty_.reset(new std::atomic<uint8_t>[nc]);
-    for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); }
+    box_now_.reset(new std::atomic<uint32_t>[nc]);
+    box_next_.reset(new std::atomic<uint32_t>[nc]);
+    for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); box_now_[i].store(0); box_next_[i].store(0); }
     loaded_.assign(nc, 1); // default: everything counts as loaded (fill_box/scatter worlds); streaming callers clear it
     rebuild_pass_lists();
     if (threads_ > 1) pool_.start(threads_);
@@ -253,15 +257,15 @@ inline void SimWorld::place(int i, uint8_t mat) {
 inline void SimWorld::touch(int x, int y, int z) {
     int cx = x / CS, cy = y / CS, cz = z / CS;
     int ci = cidx(cx, cy, cz);
-    active_next_[ci].store(1, std::memory_order_relaxed);
     dirty_[ci].store(1, std::memory_order_relaxed);
+    wake_full(ci);
     int lx = x & (CS - 1), ly = y & (CS - 1), lz = z & (CS - 1);
-    if (lx == 0 && cx > 0) active_next_[ci - 1].store(1, std::memory_order_relaxed);
-    if (lx == CS - 1 && cx < CX_ - 1) active_next_[ci + 1].store(1, std::memory_order_relaxed);
-    if (ly == 0 && cy > 0) active_next_[ci - CX_].store(1, std::memory_order_relaxed);
-    if (ly == CS - 1 && cy < CY_ - 1) active_next_[ci + CX_].store(1, std::memory_order_relaxed);
-    if (lz == 0 && cz > 0) active_next_[ci - CX_ * CY_].store(1, std::memory_order_relaxed);
-    if (lz == CS - 1 && cz < CZ_ - 1) active_next_[ci + CX_ * CY_].store(1, std::memory_order_relaxed);
+    if (lx == 0 && cx > 0) wake_full(ci - 1);
+    if (lx == CS - 1 && cx < CX_ - 1) wake_full(ci + 1);
+    if (ly == 0 && cy > 0) wake_full(ci - CX_);
+    if (ly == CS - 1 && cy < CY_ - 1) wake_full(ci + CX_);
+    if (lz == 0 && cz > 0) wake_full(ci - CX_ * CY_);
+    if (lz == CS - 1 && cz < CZ_ - 1) wake_full(ci + CX_ * CY_);
 }
 
 void SimWorld::fill_box(Vector3i p_min, Vector3i p_max, int p_material) {
@@ -322,16 +326,18 @@ void SimWorld::ignite(Vector3i p) {
 
 inline void SimWorld::mark_cell(int x, int y, int z, Ctx &c, bool changed) {
     int ox = x / CS - c.cx, oy = y / CS - c.cy, oz = z / CS - c.cz;
-    uint32_t self_bit = 1u << mark_bit(ox, oy, oz);
+    int sb = mark_bit(ox, oy, oz);
+    uint32_t self_bit = 1u << sb;
     c.mk.wake |= self_bit;
     if (changed) c.mk.dirty |= self_bit;
     int lx = x & (CS - 1), ly = y & (CS - 1), lz = z & (CS - 1);
-    if (lx == 0 && ox > -1) c.mk.wake |= 1u << mark_bit(ox - 1, oy, oz);
-    if (lx == CS - 1 && ox < 1) c.mk.wake |= 1u << mark_bit(ox + 1, oy, oz);
-    if (ly == 0 && oy > -1) c.mk.wake |= 1u << mark_bit(ox, oy - 1, oz);
-    if (ly == CS - 1 && oy < 1) c.mk.wake |= 1u << mark_bit(ox, oy + 1, oz);
-    if (lz == 0 && oz > -1) c.mk.wake |= 1u << mark_bit(ox, oy, oz - 1);
-    if (lz == CS - 1 && oz < 1) c.mk.wake |= 1u << mark_bit(ox, oy, oz + 1);
+    c.mk.box[sb] = box_union(c.mk.box[sb], box_point(lx, ly, lz));
+    if (lx == 0 && ox > -1) { int b = mark_bit(ox - 1, oy, oz); c.mk.wake |= 1u << b; c.mk.box[b] = box_union(c.mk.box[b], box_point(CS - 1, ly, lz)); }
+    if (lx == CS - 1 && ox < 1) { int b = mark_bit(ox + 1, oy, oz); c.mk.wake |= 1u << b; c.mk.box[b] = box_union(c.mk.box[b], box_point(0, ly, lz)); }
+    if (ly == 0 && oy > -1) { int b = mark_bit(ox, oy - 1, oz); c.mk.wake |= 1u << b; c.mk.box[b] = box_union(c.mk.box[b], box_point(lx, CS - 1, lz)); }
+    if (ly == CS - 1 && oy < 1) { int b = mark_bit(ox, oy + 1, oz); c.mk.wake |= 1u << b; c.mk.box[b] = box_union(c.mk.box[b], box_point(lx, 0, lz)); }
+    if (lz == 0 && oz > -1) { int b = mark_bit(ox, oy, oz - 1); c.mk.wake |= 1u << b; c.mk.box[b] = box_union(c.mk.box[b], box_point(lx, ly, CS - 1)); }
+    if (lz == CS - 1 && oz < 1) { int b = mark_bit(ox, oy, oz + 1); c.mk.wake |= 1u << b; c.mk.box[b] = box_union(c.mk.box[b], box_point(lx, ly, 0)); }
 }
 
 void SimWorld::flush_marks(const Ctx &c) {
@@ -345,9 +351,30 @@ void SimWorld::flush_marks(const Ctx &c) {
                 if (nx < 0 || ny < 0 || nz < 0 || nx >= CX_ || ny >= CY_ || nz >= CZ_) continue;
                 int ci = cidx(nx, ny, nz);
                 active_next_[ci].store(1, std::memory_order_relaxed);
+                merge_box(ci, c.mk.box[mark_bit(ox, oy, oz)] ? c.mk.box[mark_bit(ox, oy, oz)] : BOX_FULL);
                 if (c.mk.dirty & bit) dirty_[ci].store(1, std::memory_order_relaxed);
             }
 }
+
+void SimWorld::merge_box(int ci, uint32_t b) {
+    std::atomic<uint32_t> &a = box_next_[ci];
+    uint32_t cur = a.load(std::memory_order_relaxed);
+    for (;;) {
+        uint32_t u = box_union(cur, b);
+        if (u == cur || a.compare_exchange_weak(cur, u, std::memory_order_relaxed)) return;
+    }
+}
+
+void SimWorld::wake_full(int ci) {
+    active_next_[ci].store(1, std::memory_order_relaxed);
+    box_next_[ci].store(BOX_FULL, std::memory_order_relaxed);
+}
+
+void SimWorld::set_gravity(float p_cells_per_tick2) {
+    gravity16_ = (uint16_t)std::clamp((int)std::lround(p_cells_per_tick2 * 16.0), 0, 255);
+}
+
+void SimWorld::set_dirty_boxes(bool p_on) { dirty_boxes_ = p_on; }
 
 // ---------- movement ----------
 
@@ -370,11 +397,34 @@ inline bool SimWorld::try_move(int sx, int sy, int sz, int tx, int ty, int tz, C
     return true;
 }
 
+// v5: falling powders and liquids keep a velocity in aux (1/16 cell per tick) and move up to
+// MAX_DISP cells down per tick (the parity scheme allows < CS/2); landing clears it.
+// Returns true when the cell fell at least one cell.
+bool SimWorld::fall(int x, int y, int z, int i, Ctx &c) {
+    const bool fast = gravity16_ > 0 && !(cells_[i].flags & FLAG_BURNING) && mats_[cells_[i].mat].lifetime == 0;
+    if (!try_move(x, y, z, x, y - 1, z, c)) {
+        if (fast) cells_[i].aux = 0;
+        return false;
+    }
+    if (!fast) return true;
+    int ny = y - 1;
+    int ni = idx(x, ny, z);
+    int v = std::min(255, (int)cells_[ni].aux + gravity16_);
+    int steps = std::min(MAX_DISP, std::max(1, v >> 4));
+    for (int s = 1; s < steps; s++) {
+        if (!try_move(x, ny, z, x, ny - 1, z, c)) { v = 0; break; }
+        ny--;
+        ni = idx(x, ny, z);
+    }
+    cells_[ni].aux = (uint8_t)v;
+    return true;
+}
+
 void SimWorld::update_powder(int x, int y, int z, int i, Ctx &c) {
     const MaterialDef &m = mats_[cells_[i].mat];
     uint32_t r = rnd(c);
     if ((r & 0xFF) > m.gravity_prob) return;
-    if (try_move(x, y, z, x, y - 1, z, c)) { c.moved++; return; }
+    if (fall(x, y, z, i, c)) { c.moved++; return; }
     int d = (r >> 8) & 3;
     for (int k = 0; k < 4; k++) {
         int dd = (d + k) & 3;
@@ -387,7 +437,7 @@ void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
     const MaterialDef &m = mats_[self];
     uint32_t r = rnd(c);
     if ((r & 0xFF) > m.gravity_prob) return;
-    if (try_move(x, y, z, x, y - 1, z, c)) { c.moved++; return; }
+    if (fall(x, y, z, i, c)) { c.moved++; return; }
     int d = (r >> 8) & 3;
     for (int k = 0; k < 4; k++) {
         int dd = (d + k) & 3;
@@ -542,11 +592,17 @@ void SimWorld::update_chunk(int ci) {
     c.rng = (seed_ ^ ((uint32_t)ci * 2654435761u) ^ (tick_ * 40503u)) | 1u;
     int x0 = c.cx * CS, y0 = c.cy * CS, z0 = c.cz * CS;
     const bool alt = (tick_ & 1) != 0; // alternate x/z scan direction per tick to avoid bias
-    for (int y = y0; y < y0 + CS; y++)
-        for (int zz = 0; zz < CS; zz++) {
-            int z = z0 + (alt ? CS - 1 - zz : zz);
-            for (int xx = 0; xx < CS; xx++) {
-                int x = x0 + (alt ? CS - 1 - xx : xx);
+    // v5: only the cells woken last tick (their dirty box grown by one cell) can change now
+    uint32_t bx = dirty_boxes_ ? box_now_[ci].load(std::memory_order_relaxed) : BOX_FULL;
+    if (!(bx & BOX_VALID)) bx = BOX_FULL;
+    const int bx0 = std::max(0, (int)(bx & 15u) - 1), by0 = std::max(0, (int)((bx >> 4) & 15u) - 1), bz0 = std::max(0, (int)((bx >> 8) & 15u) - 1);
+    const int bx1 = std::min(CS - 1, (int)((bx >> 12) & 15u) + 1), by1 = std::min(CS - 1, (int)((bx >> 16) & 15u) + 1), bz1 = std::min(CS - 1, (int)((bx >> 20) & 15u) + 1);
+    const int nzs = bz1 - bz0 + 1, nxs = bx1 - bx0 + 1;
+    for (int y = y0 + by0; y <= y0 + by1; y++)
+        for (int zz = 0; zz < nzs; zz++) {
+            int z = z0 + (alt ? bz1 - zz : bz0 + zz);
+            for (int xx = 0; xx < nxs; xx++) {
+                int x = x0 + (alt ? bx1 - xx : bx0 + xx);
                 int i = idx(x, y, z);
                 uint8_t m = cells_[i].mat;
                 if (m == 0 || inert_[m]) continue;
@@ -593,6 +649,8 @@ Dictionary SimWorld::tick(int p_count) {
         for (size_t i = 0; i < nc; i++) {
             active_now_[i].store(active_next_[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
             active_next_[i].store(0, std::memory_order_relaxed);
+            box_now_[i].store(box_next_[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
+            box_next_[i].store(0, std::memory_order_relaxed);
         }
         moved_count_.store(0);
         react_count_.store(0);
@@ -656,7 +714,7 @@ void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p
                 place(idx(x0 + x, y0 + y, z0 + z), m);
             }
     int ci = cidx(c.x, c.y, c.z);
-    active_next_[ci].store(1, std::memory_order_relaxed); // let it settle once
+    wake_full(ci); // let it settle once
     loaded_[ci] = 1;
 }
 
@@ -714,6 +772,8 @@ Array SimWorld::shift(Vector3i d) {
             }
     for (size_t i = 0; i < ncn; i++) {
         active_next_[i].store(na[i]);
+        box_next_[i].store(na[i] ? BOX_FULL : 0u);
+        box_now_[i].store(0);
         active_now_[i].store(0);
         dirty_[i].store(nd[i]);
     }
