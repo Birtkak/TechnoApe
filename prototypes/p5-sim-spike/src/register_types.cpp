@@ -1,5 +1,6 @@
 #include "register_types.h"
 #include "sim_world.h"
+#include "world_gen.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/defs.hpp>
@@ -12,6 +13,7 @@ void initialize_technosim_module(ModuleInitializationLevel p_level) {
         return;
     }
     GDREGISTER_CLASS(SimWorld);
+    GDREGISTER_CLASS(WorldGen);
 }
 
 void uninitialize_technosim_module(ModuleInitializationLevel p_level) {

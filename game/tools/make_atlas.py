@@ -13,7 +13,7 @@ import random
 from PIL import Image
 
 TILE = 16
-COLS = 4
+COLS = 8
 ROWS = 4
 
 random.seed(1337)
@@ -60,9 +60,13 @@ tiles = [
     noise_tile((80, 80, 84), 10),                             # 11 smoke
     noise_tile((255, 150, 40), 22, (255, 230, 90), 0.3),      # 12 fire
     noise_tile((40, 40, 44), 10, (60, 60, 64), 0.15),         # 13 bedrock
-    noise_tile((255, 0, 255), 0),                             # 14 spare (magenta = missing)
-    noise_tile((255, 0, 255), 0),                             # 15 spare
-]
+    noise_tile((240, 243, 250), 6),                           # 14 snow
+    noise_tile((140, 135, 128), 18, (100, 96, 92), 0.2),      # 15 gravel
+    noise_tile((128, 128, 132), 14, (30, 30, 32), 0.22),      # 16 coal ore
+    noise_tile((128, 128, 132), 14, (200, 150, 110), 0.22),   # 17 iron ore
+    noise_tile((128, 128, 132), 14, (210, 120, 70), 0.22),    # 18 copper ore
+    noise_tile((128, 128, 132), 14, (200, 205, 215), 0.22),   # 19 tin ore
+] + [noise_tile((255, 0, 255), 0) for _ in range(12)]         # 20..31 spare (magenta = missing)
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))
 for i, t in enumerate(tiles):

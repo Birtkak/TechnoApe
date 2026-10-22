@@ -48,9 +48,12 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   `C:\Users\dev\Tools\mingw-dl\mingw64\bin` (add to PATH), SCons via
   `python -m SCons`, godot-cpp branch 4.5 at `C:\Users\dev\Tools\godot-cpp`.
   Build an extension: `python -m SCons platform=windows use_mingw=yes target=template_debug -j12`.
-  MSVC 2022 Build Tools install was cancelled at the admin prompt (exit 1602);
-  retry only when Brent is at the PC.
-- Not yet installed: Android SDK/JDK (needed before Phase 4).
+  MSVC 2022 Build Tools (cl 14.44) are installed too; MinGW stays the default.
+- JDK 17 (no admin, zip): `C:\Users\dev\Tools\jdk-dl\jdk-17.0.20.1+1` (set JAVA_HOME
+  for Android exports). Not yet installed: Android SDK command-line tools.
+- World generator is native (`src/world_gen.cpp`); design in
+  `docs/design/world-generation.md`. godot_voxel asks for padded non-cubic
+  blocks, so generators take a Vector3i size.
 
 ## Game project (`game/`)
 
@@ -69,10 +72,10 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
 - Phase 1 prototypes: P1 headless loop ✓, P2 voxel streaming/LOD ✓,
   P5 Noita-model simulation core ✓, P3 crafting core ✓ (17 headless tests)
 - Phase 2 (current): `game/` skeleton ✓ (LOD world, textures, player, sim
-  bubble, debug capture). **Next:** native world generator (1.18-style
-  splines, caves, biomes), item entities + hotbar/inventory UI wired to the
-  crafting core, mining/placing through the material model, bubble polish
-  (spikes on shift, fire-spread tuning), P4 server headless check.
+  bubble, debug capture), native world generator ✓ (splines, caves, ores,
+  biomes). **Next:** item entities + hotbar/inventory UI wired to the
+  crafting core, mining/placing through the material model, trees/rivers,
+  bubble polish (spikes on shift, fire-spread tuning), P4 server headless check.
 - Phase 3: wands/spells, machines, JEI-style browser UI, Android export smoke test
 - Phase 4: automation depth, dedicated server on Unraid, auto-update
 

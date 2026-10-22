@@ -36,7 +36,7 @@ recipe by design (found only); spells do.
 |---|---|
 | `scripts/settings.gd` | Autoload. Every budget is a setting, in metres. One world unit = one voxel = 0.5 m (ADR 0004). |
 | `scripts/materials.gd` | Material table (Noita attribute names) + atlas tiles; builds the blocky library. |
-| `scripts/generator.gd` | Placeholder GDScript world generator (layers, sea, beaches). Phase 2: native. |
+| `scripts/generator.gd` | Bridge to the native `WorldGen` (1.18-style splines, caves, ores, biomes); see `docs/design/world-generation.md`. `tools/gen_probe.gd` prints stats and a biome map. |
 | `scripts/world.gd` | `VoxelLodTerrain` (clipbox streaming, 7 LODs) + copy/paste helpers. |
 | `scripts/sim_bubble.gd` | Sliding window of the native `SimWorld` around the player; load/tick/push. |
 | `scripts/player.gd` | First-person walk/fly, mouse look, raycast break/place. |
@@ -61,6 +61,6 @@ nothing moves. Server and client will share this split (ADR 0002).
 - Persistence is godot_voxel's SQLite stream (`user://worlds/world_<seed>.sqlite`),
   a placeholder for the versioned region format; sim-bubble state (burning,
   lifetimes) is not saved, only materials.
-- Generator is GDScript and columns only (no caves, biomes, structures).
+- Generator has no trees, rivers or structures yet.
 - No inventory/items; break/place are debug actions.
 - Memory at large full-detail radius; see `docs/research` matrix in the commit log.
