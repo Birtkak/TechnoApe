@@ -1,18 +1,25 @@
 class_name BiomeRules
 extends RefCounted
 
-## Reference biome placement logic over data/biomes.json. Three parts:
+## Reference biome placement logic over data/biomes.json. Four parts:
 ##  1. climate: temperature from noise + latitude (north = -Z is colder) and an
 ##     altitude lapse; band lookup.
-##  2. classify(): climate + altitude + hydrology -> biome id, the same decision
-##     the native generator makes from biome_table.gen.h.
-##  3. adjacency: which biomes can border each other, derived from where they
-##     sit in (temperature band, humidity band, altitude band) space. Noise is
-##     continuous, so a border can only exist between cells that touch.
-## GDScript never iterates voxels here: this is per-column logic for tests,
-## tools and the generator's data tables, not the per-voxel path.
+##  2. classify(): climate + altitude + hydrology -> surface biome id, the same
+##     decision the native generator makes from biome_table.gen.h.
+##  3. classify_3d(): the same column at a given y: surface biome down to
+##     soil_depth, then a cave biome from depth band x surface humidity, with
+##     overrides on surface temperature and a slow 3D cave noise.
+##  4. adjacency: which biomes can border each other, derived from where they
+##     sit in climate space (surface: temperature, humidity, altitude band;
+##     caves: depth, humidity, temperature, cave-noise band; surface biomes
+##     touch the shallow caves beneath them). Noise is continuous, so a border
+##     can only exist between cells that touch.
+## GDScript never iterates voxels here: this is per-column / per-band logic for
+## tests, tools and the generator's data tables, not the per-voxel path.
 
 var reg: BiomeRegistry
+var _cells_cache := {}     # name -> Array of cells (see cells_of)
+var _neighbors_cache := {} # name -> {common, rare}
 
 
 func _init(p_reg: BiomeRegistry) -> void:
@@ -45,6 +52,14 @@ func temp_band(t: float) -> int:
 
 func hum_band(h: float) -> int:
 	return _band(reg.climate["humidity_bands"], h)
+
+
+func depth_band(depth: int) -> int:
+	return _band(reg.underground["depth_bands"], float(depth))
+
+
+func cave_noise_band(n: float) -> int:
+	return _band(reg.underground["cave_noise_bands"], n)
 
 
 static func _band(bands: Array, v: float) -> int:
@@ -85,9 +100,9 @@ func alt_band(above_sea: int, continentalness: float, t: float) -> int:
 	return 3
 
 
-# ---------- classification ----------
+# ---------- surface classification ----------
 
-## Column -> biome id. `col` keys (all optional except temperature/humidity/above_sea):
+## Column -> surface biome id. `col` keys (all optional except temperature/humidity/above_sea):
 ##   temperature, humidity: final climate values (-1..1, latitude and lapse applied)
 ##   above_sea: height - sea level (voxels)
 ##   continentalness, erosion, slope: generator noises / derived slope
@@ -144,16 +159,63 @@ func _override_matches(when: Dictionary, ti: int, hi: int, above: int, col: Dict
 	return true
 
 
+# ---------- 3D classification ----------
+
+## Column + depth below the surface (voxels) + cave noise sample (-1..1) -> biome id.
+## Depth < soil_depth keeps the surface biome (classify(col)).
+func classify_3d(col: Dictionary, depth: int, cave_noise: float = 0.0) -> int:
+	if depth < int(reg.underground["soil_depth"]):
+		return classify(col)
+	return cave_biome(temp_band(float(col["temperature"])), hum_band(float(col["humidity"])), depth_band(depth), cave_noise_band(cave_noise))
+
+
+func classify_3d_name(col: Dictionary, depth: int, cave_noise: float = 0.0) -> String:
+	return reg.name_of(classify_3d(col, depth, cave_noise))
+
+
+## Cave biome from band indices (surface temperature, surface humidity, depth, cave noise).
+func cave_biome(ti: int, hi: int, di: int, ni: int) -> int:
+	var tb := reg.tables
+	var dname: String = reg.depth_band_names()[di]
+	for o in tb.get("cave_overrides", []):
+		if _cave_override_matches(o["when"], ti, hi, di, ni):
+			return reg.id_of(o["biome"])
+	return reg.id_of(tb["cave"][dname][hi])
+
+
+func _cave_override_matches(when: Dictionary, ti: int, hi: int, di: int, ni: int) -> bool:
+	if when.has("depth") and not when["depth"].has(reg.depth_band_names()[di]):
+		return false
+	if when.has("temperature") and not when["temperature"].has(BiomeRegistry.TEMP_BANDS[ti]):
+		return false
+	if when.has("humidity") and not when["humidity"].has(BiomeRegistry.HUM_BANDS[hi]):
+		return false
+	if when.has("cave_noise") and not when["cave_noise"].has(reg.cave_noise_band_names()[ni]):
+		return false
+	return true
+
+
 # ---------- adjacency ----------
 
-## Climate cells each biome occupies: Array of [temp_band, hum_band, alt_band].
+## Climate cells each biome occupies.
+##  surface biomes: [temp_band, hum_band, alt_band]
+##  cave biomes:    [temp_band, hum_band, depth_band, noise_band]
 ## Water biomes get no cells (they are overlays); see neighbors().
 func cells_of(name: String) -> Array:
+	if _cells_cache.has(name):
+		return _cells_cache[name]
 	var out := []
 	var tb := reg.tables
+	var is_cave: bool = reg.get_def(name).get("band", "") == "cave"
 	for ti in BiomeRegistry.TEMP_BANDS.size():
 		var trow: String = BiomeRegistry.TEMP_BANDS[ti]
 		for hi in BiomeRegistry.HUM_BANDS.size():
+			if is_cave:
+				for di in reg.depth_band_names().size():
+					for ni in reg.cave_noise_band_names().size():
+						if cave_biome(ti, hi, di, ni) == reg.id_of(name):
+							out.append([ti, hi, di, ni])
+				continue
 			var frozen := ti == 0
 			var here := {
 				0: [tb["deep_ocean"]],
@@ -173,25 +235,24 @@ func cells_of(name: String) -> Array:
 			for ai in here:
 				if here[ai].has(name):
 					out.append([ti, hi, ai])
+	_cells_cache[name] = out
 	return out
 
 
 ## Which biomes can border `name`, split into common (share a band edge: one
-## climate step at the same altitude, or the next altitude band with the same
-## climate) and rare (diagonal in climate space, or two things change at once).
-## Water biomes border every land biome whose band they can cut through.
+## climate step at the same altitude/depth, the next altitude or depth band with
+## the same climate, or a surface biome and the shallow cave beneath it) and
+## rare (diagonal in climate space: two things change at once).
+## Water biomes border every biome whose band they can cut through.
 func neighbors(name: String) -> Dictionary:
+	if _neighbors_cache.has(name):
+		return _neighbors_cache[name]
 	var common := {}
 	var rare := {}
-	var mine := cells_of(name)
 	var water_names: Array = [reg.tables["river"], reg.tables["lake"]]
 	if water_names.has(name):
 		for other in reg.names():
-			if other == name:
-				continue
-			if water_names.has(other):
-				common[other] = true
-			elif _water_touches(name, other):
+			if other != name and (water_names.has(other) or _water_touches(name, other)):
 				common[other] = true
 	else:
 		for other in reg.names():
@@ -202,17 +263,9 @@ func neighbors(name: String) -> Dictionary:
 					common[other] = true
 				continue
 			var best := 99
-			for a in mine:
+			for a in cells_of(name):
 				for b in cells_of(other):
-					var dt: int = absi(a[0] - b[0])
-					var dh: int = absi(a[1] - b[1])
-					var da: int = absi(a[2] - b[2])
-					if dt > 1 or dh > 1 or da > 1:
-						continue
-					var steps := dt + dh + da
-					if steps == 0:
-						steps = 1  # same cell (table biome + override, or beach + stony shore)
-					best = mini(best, steps)
+					best = mini(best, _cell_steps(a, b))
 			if best == 1:
 				common[other] = true
 			elif best <= 3:
@@ -221,7 +274,34 @@ func neighbors(name: String) -> Dictionary:
 	var r := rare.keys()
 	c.sort()
 	r.sort()
-	return {"common": c, "rare": r}
+	_neighbors_cache[name] = {"common": c, "rare": r}
+	return _neighbors_cache[name]
+
+
+## Steps between two cells in climate space (99 = cannot touch).
+## Surface-surface: temperature, humidity, altitude each at most one band apart.
+## Cave-cave: temperature, humidity, depth, noise each at most one band apart.
+## Surface-cave: the shallow depth band under land, same temperature and
+## humidity (within one band); altitude band does not matter (caves run under
+## everything that is not sea floor).
+static func _cell_steps(a: Array, b: Array) -> int:
+	if a.size() != b.size():
+		var s: Array = a if a.size() == 3 else b
+		var c: Array = b if a.size() == 3 else a
+		if s[2] <= 1 or c[2] != 0:  # sea floor above, or cave not shallow
+			return 99
+		var dt: int = absi(s[0] - c[0])
+		var dh: int = absi(s[1] - c[1])
+		if dt > 1 or dh > 1:
+			return 99
+		return maxi(1, dt + dh + 1)
+	var steps := 0
+	for i in a.size():
+		var d: int = absi(a[i] - b[i])
+		if d > 1:
+			return 99
+		steps += d
+	return maxi(1, steps)  # same cell (table biome + override, or beach + stony shore)
 
 
 func can_border(a: String, b: String) -> bool:
@@ -230,24 +310,39 @@ func can_border(a: String, b: String) -> bool:
 
 
 func _water_touches(water: String, land: String) -> bool:
+	# Rivers and lakes come from the hydrology pass, which runs on the height
+	# field alone: springs and tarns above the tree line, basins next to beaches.
+	# Rivers reach the sea; lakes never sit in the sea. Both cut into shallow caves.
 	var band: String = reg.get_def(land).get("band", "")
+	if band == "cave":
+		return reg.has_tag(land, "underground") and not reg.has_tag(land, "deep")
 	if water == reg.tables["river"]:
-		# Rivers run from springs in the hills down to the sea: not above the tree
-		# line (no springs there) and not out into the deep ocean.
-		return ["ocean", "coast", "lowland", "highland", "mountain"].has(band)
-	# Lakes fill basins: lowland, highland and mountain valleys (the hydrology
-	# pass makes them wherever a depression is), never on the coast or peaks.
-	return ["lowland", "highland", "mountain"].has(band)
+		return band != "deep_ocean"
+	return band != "deep_ocean" and band != "ocean"
 
 
-## Biomes you meet walking north from a start temperature band (colder bands first).
+## Biomes you meet walking north from a start biome (colder bands, same altitude).
 func colder_than(name: String) -> Array:
 	var out := {}
 	for c in cells_of(name):
 		for d in reg.biomes:
 			for c2 in cells_of(d["name"]):
-				if c2[2] == c[2] and c2[0] < c[0]:
+				if c2.size() == c.size() and c2[2] == c[2] and c2[0] < c[0]:
 					out[d["name"]] = true
+	var k := out.keys()
+	k.sort()
+	return k
+
+
+## Cave biomes that can lie straight below a surface biome.
+func below(name: String) -> Array:
+	var out := {}
+	for c in cells_of(name):
+		if c.size() != 3 or c[2] <= 1:
+			continue
+		for di in reg.depth_band_names().size():
+			for ni in reg.cave_noise_band_names().size():
+				out[reg.name_of(cave_biome(c[0], c[1], di, ni))] = true
 	var k := out.keys()
 	k.sort()
 	return k

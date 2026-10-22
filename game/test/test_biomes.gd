@@ -112,6 +112,7 @@ func test_altitude_bands() -> void:
 	assert_str(_lowland(0.0, 0.0, 400)).is_equal("snowy_peaks")
 	# Cold lowers the snow line: 300 above sea is snow when frozen, alpine when warm.
 	assert_str(_lowland(-1.0, 0.0, 300)).is_equal("snowy_peaks")
+	assert_str(_lowland(-1.0, 0.0, 175)).is_equal("mountains")   # coldest tree line stays above highland_max
 	assert_str(_lowland(0.5, 0.0, 300)).is_equal("alpine")
 
 
@@ -133,14 +134,19 @@ func test_water_overrides() -> void:
 # ---------- adjacency ----------
 
 func test_declared_borders_match_derived() -> void:
-	# The borders listed in biomes.json (for humans) must agree with the derived graph:
-	# every listed border is possible, and every common border is listed.
+	# The borders listed in biomes.json (for humans) must agree with the derived graph
+	# within the same layer (surface or cave): every listed border is possible, and
+	# every common border is listed. Vertical links are derived only (see below()).
 	for name in reg.names():
 		var declared: Array = reg.get_def(name)["borders"]
 		var derived := rules.neighbors(name)
+		var cave: bool = reg.get_def(name)["band"] == "cave"
 		for b in declared:
 			assert_bool(rules.can_border(name, b)).override_failure_message("%s lists %s as a border but they cannot touch" % [name, b]).is_true()
+			assert_bool((reg.get_def(b)["band"] == "cave") == cave).override_failure_message("%s lists %s: borders are per layer" % [name, b]).is_true()
 		for c in derived["common"]:
+			if (reg.get_def(c)["band"] == "cave") != cave:
+				continue
 			assert_bool(declared.has(c)).override_failure_message("%s commonly borders %s but does not list it" % [name, c]).is_true()
 
 
@@ -162,11 +168,13 @@ func test_specific_borders() -> void:
 	assert_array(rules.neighbors("desert")["common"]).not_contains(["plains"])  # savanna sits between; only a rare corner touch
 	assert_bool(rules.can_border("desert", "tundra")).is_false()
 	assert_bool(rules.can_border("snowy_peaks", "plains")).is_false()
-	assert_array(rules.neighbors("snowy_peaks")["common"]).is_equal(["alpine"])
+	var peaks_surface: Array = rules.neighbors("snowy_peaks")["common"].filter(func(n): return reg.get_def(n)["band"] != "cave")
+	assert_array(peaks_surface).is_equal(["alpine", "lake", "river"])  # tarns and springs; caves run beneath
 	assert_bool(rules.can_border("river", "mountains")).is_true()
 	assert_bool(rules.can_border("lake", "mountains")).is_true()   # basin lakes in mountain valleys
-	assert_bool(rules.can_border("lake", "alpine")).is_false()
-	assert_bool(rules.can_border("river", "snowy_peaks")).is_false()
+	assert_bool(rules.can_border("lake", "ocean")).is_false()
+	assert_bool(rules.can_border("river", "deep_ocean")).is_false()
+	assert_bool(rules.can_border("alpine", "highlands")).is_false()   # mountains always sit between
 	assert_bool(rules.can_border("beach", "ocean")).is_true()
 	assert_bool(rules.can_border("beach", "highlands")).is_false()
 
@@ -175,6 +183,62 @@ func test_colder_neighbours_going_north() -> void:
 	assert_array(rules.colder_than("plains")).contains(["tundra", "taiga"])
 	assert_array(rules.colder_than("plains")).not_contains(["desert", "savanna", "jungle"])
 	assert_array(rules.colder_than("ice_fields")).is_empty()
+
+
+# ---------- 3D layer ----------
+
+func _col(t: float, h: float, above: int) -> Dictionary:
+	return {"temperature": t, "humidity": h, "above_sea": above, "continentalness": 0.2, "erosion": 0.0, "slope": 0.0}
+
+
+func test_straight_down_from_a_mountain_foot() -> void:
+	# Mountain on top, humid ground at its foot, lush cave straight below.
+	var mountain := _col(0.0, 0.3, 200)
+	var foot := _col(0.0, 0.3, 30)
+	assert_str(rules.classify_name(mountain)).is_equal("mountains")
+	assert_str(rules.classify_name(foot)).is_equal("forest")
+	assert_str(rules.classify_3d_name(foot, 2)).is_equal("forest")        # soil keeps the surface biome
+	assert_str(rules.classify_3d_name(foot, 30)).is_equal("lush_cave")
+	assert_str(rules.classify_3d_name(foot, 100)).is_equal("lush_cave")
+	assert_str(rules.classify_3d_name(foot, 200)).is_equal("deep_cave")
+	assert_str(rules.classify_3d_name(mountain, 30)).is_equal("lush_cave")  # the mountain shares the climate
+
+
+func test_cave_table_follows_surface_climate() -> void:
+	assert_str(rules.classify_3d_name(_col(0.9, -0.9, 30), 30)).is_equal("dripstone_cave")   # under desert
+	assert_str(rules.classify_3d_name(_col(0.0, 0.0, 30), 30)).is_equal("cave")              # under plains
+	assert_str(rules.classify_3d_name(_col(0.0, 0.8, 30), 100)).is_equal("fungal_cave")      # wettest, mid depth
+	assert_str(rules.classify_3d_name(_col(-0.9, 0.0, 30), 30)).is_equal("frozen_cave")      # frozen surface, shallow
+	assert_str(rules.classify_3d_name(_col(-0.9, 0.0, 30), 100)).is_equal("cave")            # frozen only shallow
+
+
+func test_deep_layer_variants() -> void:
+	var c := _col(0.0, 0.0, 30)
+	assert_str(rules.classify_3d_name(c, 300, 0.0)).is_equal("deep_cave")
+	assert_str(rules.classify_3d_name(c, 300, -0.9)).is_equal("deep_dark")
+	assert_str(rules.classify_3d_name(c, 300, 0.9)).is_equal("crystal_cave")
+	assert_str(rules.classify_3d_name(_col(0.9, 0.0, 30), 300, 0.0)).is_equal("magma_cave")
+	assert_str(rules.classify_3d_name(_col(0.9, 0.0, 30), 300, -0.9)).is_equal("magma_cave") # temperature override first
+	assert_str(rules.classify_3d_name(c, 100, -0.9)).is_equal("cave")                        # deep dark only deep
+
+
+func test_vertical_adjacency() -> void:
+	assert_bool(rules.can_border("plains", "cave")).is_true()
+	assert_bool(rules.can_border("forest", "lush_cave")).is_true()
+	assert_bool(rules.can_border("plains", "deep_cave")).is_false()
+	assert_bool(rules.can_border("plains", "deep_dark")).is_false()
+	assert_bool(rules.can_border("ocean", "cave")).is_false()
+	assert_bool(rules.can_border("lush_cave", "cave")).is_true()
+	assert_bool(rules.can_border("lush_cave", "dripstone_cave")).is_false()   # plain cave sits between
+	assert_bool(rules.can_border("deep_dark", "crystal_cave")).is_false()     # deep cave sits between
+	assert_bool(rules.can_border("deep_dark", "magma_cave")).is_true()
+	assert_bool(rules.can_border("river", "cave")).is_true()
+	assert_bool(rules.can_border("river", "deep_cave")).is_false()
+	# Forest is humid (not wet, not hot): lush caves, then the deep layer without magma.
+	assert_array(rules.below("forest")).is_equal(["crystal_cave", "deep_cave", "deep_dark", "lush_cave"])
+	assert_array(rules.below("old_growth_forest")).contains(["fungal_cave"])
+	assert_array(rules.below("desert")).contains(["dripstone_cave", "magma_cave"])
+	assert_array(rules.below("desert")).not_contains(["lush_cave", "frozen_cave"])
 
 
 # ---------- generated header ----------

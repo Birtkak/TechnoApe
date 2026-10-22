@@ -78,6 +78,34 @@ func _init() -> void:
 				if not rules.can_border(a, b):
 					illegal[key] = pairs[key]
 
+	# Underground: cave biome mix per depth band over the same grid (cave noise: slow 3D noise).
+	var cave_noise := FastNoiseLite.new()
+	cave_noise.seed = seed_value + 7
+	cave_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	cave_noise.frequency = 1.0 / (float(reg.underground["cave_noise_period_m"]) / Settings.VOXEL_M)
+	var cave_mix := {}
+	for dn in reg.depth_band_names():
+		cave_mix[dn] = {}
+	for z in range(-radius, radius, step * 2):
+		for x in range(-radius, radius, step * 2):
+			var info: Dictionary = gen.column_info(x, z)
+			if int(info["height"]) < Settings.SEA_LEVEL_VOXEL - 1:
+				continue
+			var above: int = int(info["height"]) - Settings.SEA_LEVEL_VOXEL
+			var col := {"temperature": rules.temperature(float(info["temperature"]), float(z), above), "humidity": float(info["humidity"]), "above_sea": above}
+			for di in reg.depth_band_names().size():
+				var band: Dictionary = reg.underground["depth_bands"][di]
+				var depth := int(band["min"]) + 10
+				var y := int(info["height"]) - depth
+				var name := rules.classify_3d_name(col, depth, cave_noise.get_noise_3d(x, y, z))
+				var dn: String = band["name"]
+				cave_mix[dn][name] = cave_mix[dn].get(name, 0) + 1
+	for dn in cave_mix:
+		var tot := 0
+		for k in cave_mix[dn]:
+			tot += cave_mix[dn][k]
+		cave_mix[dn] = _pct(cave_mix[dn], maxi(1, tot))
+
 	# Map image of the rules' classification.
 	var mstep := maxi(1, radius / 256)
 	var n := 2 * radius / mstep
@@ -102,6 +130,7 @@ func _init() -> void:
 		"native_vs_rules_diffs": diffs,
 		"border_pairs_observed": pairs.size(), "top_border_pairs": top,
 		"illegal_border_pairs": illegal,
+		"cave_mix_pct_by_depth": cave_mix,
 		"map": "res://out/biomes_%d.png (%d px = %d m across)" % [seed_value, n, int(2 * radius * Settings.VOXEL_M)],
 	}))
 	quit(0)

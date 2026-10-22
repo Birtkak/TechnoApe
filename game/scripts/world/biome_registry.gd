@@ -17,6 +17,7 @@ var biomes: Array = []        # index = id -> Dictionary (raw definition, valida
 var by_name := {}             # name -> id
 var climate := {}             # the "climate" section
 var tables := {}              # the "tables" section
+var underground := {}         # the "underground" section (3D layer)
 var errors: Array[String] = []
 
 
@@ -36,11 +37,12 @@ func load_file(path: String) -> bool:
 
 func load_json(text: String) -> bool:
 	var data = JSON.parse_string(text)
-	if typeof(data) != TYPE_DICTIONARY or not data.has("biomes") or not data.has("climate") or not data.has("tables"):
-		errors.append("biomes.json: expected {climate, tables, biomes}")
+	if typeof(data) != TYPE_DICTIONARY or not data.has("biomes") or not data.has("climate") or not data.has("tables") or not data.has("underground"):
+		errors.append("biomes.json: expected {climate, underground, tables, biomes}")
 		return false
 	climate = data["climate"]
 	tables = data["tables"]
+	underground = data["underground"]
 	for d in data["biomes"]:
 		if typeof(d) != TYPE_DICTIONARY or not d.has("id") or not d.has("name"):
 			errors.append("biome without id/name: %s" % str(d))
@@ -56,14 +58,15 @@ func load_json(text: String) -> bool:
 	for d in biomes:
 		_validate(d)
 	_validate_climate()
+	_validate_underground()
 	_validate_tables()
 	return errors.is_empty()
 
 
 func _validate(d: Dictionary) -> void:
 	var n: String = d["name"]
-	if not ALT_BANDS.has(d.get("band", "")) and d.get("band", "") != "water":
-		errors.append("biome %s: band must be one of %s or water" % [n, ALT_BANDS])
+	if not ALT_BANDS.has(d.get("band", "")) and not ["water", "cave"].has(d.get("band", "")):
+		errors.append("biome %s: band must be one of %s, water or cave" % [n, ALT_BANDS])
 	var s: Dictionary = d.get("surface", {})
 	if not s.has("top") or not s.has("under"):
 		errors.append("biome %s: surface needs top and under" % n)
@@ -89,6 +92,49 @@ func _validate_climate() -> void:
 	_validate_bands("humidity_bands", HUM_BANDS)
 	if climate.get("latitude_weight", 0.0) + climate.get("noise_weight", 0.0) < 1.0:
 		errors.append("climate: latitude_weight + noise_weight must reach 1.0 so every band is reachable")
+	var a: Dictionary = climate.get("altitude", {})
+	if a.has("tree_line_base") and int(a["tree_line_base"]) - int(a["tree_line_cold_shift"]) <= int(a["highland_max"]):
+		errors.append("climate.altitude: the coldest tree line must stay above highland_max (alpine would touch highlands)")
+	if a.has("snow_line_base") and int(a["snow_line_base"]) - int(a["snow_line_cold_shift"]) <= int(a["tree_line_base"]):
+		errors.append("climate.altitude: the coldest snow line must stay above the warmest tree line")
+
+
+func _validate_underground() -> void:
+	for key in ["soil_depth", "depth_bands", "cave_noise_bands", "cave_noise_period_m"]:
+		if not underground.has(key):
+			errors.append("underground: missing %s" % key)
+	var db: Array = underground.get("depth_bands", [])
+	if db.is_empty():
+		errors.append("underground: depth_bands must not be empty")
+	elif int(db[0].get("min", -1)) != int(underground.get("soil_depth", -2)):
+		errors.append("underground: first depth band must start at soil_depth")
+	var prev := -1.0
+	for b in db:
+		if prev >= 0.0 and float(b.get("min", 9.0)) != prev:
+			errors.append("underground.depth_bands: bands must be contiguous")
+		prev = float(b.get("max", 9.0))
+	var nb: Array = underground.get("cave_noise_bands", [])
+	prev = -1.0
+	for b in nb:
+		if float(b.get("min", 9.0)) != prev:
+			errors.append("underground.cave_noise_bands: bands must be contiguous from -1")
+		prev = float(b.get("max", 9.0))
+	if prev < 1.0:
+		errors.append("underground.cave_noise_bands: last band must reach 1.0")
+
+
+func depth_band_names() -> Array:
+	var out := []
+	for b in underground.get("depth_bands", []):
+		out.append(b["name"])
+	return out
+
+
+func cave_noise_band_names() -> Array:
+	var out := []
+	for b in underground.get("cave_noise_bands", []):
+		out.append(b["name"])
+	return out
 
 
 func _validate_bands(key: String, names: Array) -> void:
@@ -120,6 +166,23 @@ func _validate_tables() -> void:
 				_check_name("tables.%s.%s[%d]" % [tname, tb, i], row[i], tname)
 	for o in tables.get("lowland_overrides", []):
 		_check_name("lowland_overrides", o.get("biome", ""), "lowland")
+	var cave: Dictionary = tables.get("cave", {})
+	for dn in depth_band_names():
+		var row: Array = cave.get(dn, [])
+		if row.size() != HUM_BANDS.size():
+			errors.append("tables.cave.%s: expected %d entries" % [dn, HUM_BANDS.size()])
+			continue
+		for i in row.size():
+			_check_name("tables.cave.%s[%d]" % [dn, i], row[i], "cave")
+	for o in tables.get("cave_overrides", []):
+		_check_name("cave_overrides", o.get("biome", ""), "cave")
+		var w: Dictionary = o.get("when", {})
+		for dn in w.get("depth", []):
+			if not depth_band_names().has(dn):
+				errors.append("cave_overrides %s: unknown depth band %s" % [o.get("biome", ""), dn])
+		for nn in w.get("cave_noise", []):
+			if not cave_noise_band_names().has(nn):
+				errors.append("cave_overrides %s: unknown cave noise band %s" % [o.get("biome", ""), nn])
 	_check_name("tables.mountain", tables.get("mountain", ""), "mountain")
 	_check_name("tables.alpine", tables.get("alpine", ""), "alpine")
 	_check_name("tables.snow", tables.get("snow", ""), "snow")
