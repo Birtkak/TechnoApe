@@ -102,7 +102,7 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   8³ cell grid (6.25 cm) through the native `MicroMesher`, which also builds
   all micro models (`materials.gd` `micro:` kinds). Material ids are
   definition order: 32..36 stations, 37..43 detail, 44 `CHISELED` reserved;
-  append only. Atlas 8×6 tiles, 45..47 free.
+  append only; 47 = blood (ADR 0015). Atlas 8×6 tiles, all used: the next tile needs a bigger atlas.
 - Two sessions share this checkout (this one and "PC testing and
   optimization"): stage files explicitly, never `git add -A`; Biome enum ids
   0..12 in world_gen.h stay stable; biome_table.gen.h is generated.

@@ -8,6 +8,10 @@ extends Node
 ##
 ## Local chunk (0..N) <-> world chunk = local + origin.
 
+## After every tick: the world chunks it changed (StainMap queues them and reads
+## them on a later frame while is_idle(); keep handlers cheap, the next tick waits).
+signal chunks_changed(world_chunks: Array)
+
 var world: World
 var sim: SimWorld
 var origin := Vector3i.ZERO          # world chunk coords of local chunk (0,0,0)
@@ -224,9 +228,13 @@ func _note_slow_frame(delta: float) -> void:
 func _collect_dirty() -> void:
 	if store != null:
 		store_writes += sim.write_dirty_to_store(store, origin * Settings.CHUNK - store_origin_voxel, 8)
+	var changed: Array = []
 	for lc in sim.get_dirty_chunks():
 		if not _pending_loads.has(lc):   # never paste a chunk before it was loaded
 			_push_queue[lc + origin] = true
+			changed.append(lc + origin)
+	if not changed.is_empty():
+		chunks_changed.emit(changed)
 	sim.clear_dirty()
 	push_queue_max = maxi(push_queue_max, _push_queue.size())
 
@@ -411,6 +419,16 @@ func verify_against_generator(gen: WorldGen) -> Dictionary:
 						"terrain_bytes": terrain_now.size(), "terrain_vs_generator_diff": terrain_diff,
 						"sim_chunk": sim.chunk_info(lc)})
 	return {"checked": checked, "mismatched": mismatched, "air_where_solid": air_where_solid, "solid_where_air": solid_where_air, "examples": examples}
+
+
+## True while no tick runs in the background: the simulation may be read without waiting.
+func is_idle() -> bool:
+	return _ready and not _tick_running
+
+
+## True when the local chunk `lc` holds terrain data (not waiting to load).
+func is_chunk_loaded(lc: Vector3i) -> bool:
+	return _ready and not _pending_loads.has(lc)
 
 
 ## True once every chunk of the window holds terrain data (DebugCapture starts its budget clock here).

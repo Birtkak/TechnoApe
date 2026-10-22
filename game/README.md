@@ -63,6 +63,9 @@ Godot_..._console.exe --path game -- autopilot=1 duration=6 capture_every=0.5 wa
 # day_length=<seconds per day, 0 = frozen>, clouds=0..1, ssao=0|1, glow=0|1, fog=0|1, shadows=soft|hard|off, tonemap=aces|agx|filmic|linear, saturation=1.08, fxaa=1
 # cost on the dev box (forest, 1280x720): defaults ~+1.2 ms/frame over bare (p99 3.4 ms walking); soft shadows ~0.5 ms, SSAO ~0.1 ms, glow ~0.05 ms
 Godot_..._console.exe --path game -- autopilot=1 target=forest walk=1 speed=0 duration=5 capture_every=3 time=0.76 out=res://out/sunset
+# stains (ADR 0015, scripts/visuals/stain_map.gd): stain_test=1 bleeds and drops oil + blood next to the player once loaded;
+# stains=0 turns stains off (same spill, for A/B), stain_uploads=N layers per frame, stain_scan=0 ignores the simulation
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 third_person=1 pitch=-0.75 stain_test=1 duration=14 out=res://out/stains
 ```
 
 First run after adding scripts/addons: `--headless --path game --import` (twice if the
@@ -106,6 +109,7 @@ recipe by design (found only); spells do.
 | `assets/shaders/terrain.gdshader` | Opaque material for terrain, micro models, item cubes, viewmodel: nearest atlas, baked AO, per-face tint, scrolling water/lava/fire tiles, emissive glow/lava/fire tiles (bloom). Body shared via `terrain_common.gdshaderinc`. |
 | `assets/shaders/terrain_liquid.gdshader` | Same sampling with alpha + depth write for passable transparent voxels (water, oil, gases, fire); rippling sun glint on water tops. `GameMaterials.build_library` assigns it. |
 | `assets/shaders/sky.gdshader` | Procedural sky: gradient, sun disc/halo, noise clouds, stars, moon; driven by the true sun direction. |
+| `scripts/visuals/stain_map.gd` | Noita-style stains (ADR 0015): blood, oil, soot and scorch coat the faces around the cells they touched; water washes them. Fed by `SimBubble.chunks_changed` and `bleed()`; the shader half is `surface_stain` in `terrain_common.gdshaderinc`. |
 | `scripts/visuals/atmosphere.gd` | Sky, sun (soft 4-split shadows, `shadows=hard|off` to trade them for ~0.5 ms, optional day/night cycle), AgX tonemap, bloom, SSAO, fog with aerial perspective; caves darken with depth below the surface, liquids tint the view when the camera is inside one. Pure presentation. No MSAA: it extrapolates UVs over tile borders on silhouettes and neighbour tiles bleed in. |
 | `scripts/world/waterfall_spray.gd` | Mist emitters at waterfall feet near the camera (reads `WorldGen.waterfalls_near`). |
 | `scripts/player/ape_model.gd` | The player body: a monkey in goggles and a lab coat built from micro-voxel cells (body 3.1 cm, head 1.8 cm) by `MicroMesher`, limbs pivoted for the walk cycle; also the first-person arm. `tools/ape_sheet.gd` renders it from four sides. |

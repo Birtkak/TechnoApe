@@ -37,6 +37,7 @@ var liquid_tints := {            # material name -> [fog colour, fog density, sc
 	"water_static": [Color(0.05, 0.22, 0.42), 0.09, Color(0.1, 0.3, 0.6, 0.28)],
 	"lava": [Color(0.9, 0.25, 0.02), 0.6, Color(1.0, 0.35, 0.05, 0.55)],
 	"oil": [Color(0.06, 0.04, 0.02), 0.35, Color(0.15, 0.1, 0.03, 0.5)],
+	"blood": [Color(0.3, 0.02, 0.02), 0.3, Color(0.55, 0.04, 0.04, 0.45)],
 }
 var ssao_on := true
 var glow_on := true
@@ -200,9 +201,11 @@ func _update_sun() -> void:
 	var is_moon := night > day
 	var rot_x := -rad_to_deg(angle) + (180.0 if is_moon else 0.0)
 	sun.rotation_degrees = Vector3(rot_x, sun_yaw_deg, 0)
-	# the sky always wants the real sun, even while the light plays the moon
-	var sun_basis := Basis.from_euler(Vector3(deg_to_rad(-rad_to_deg(angle)), deg_to_rad(sun_yaw_deg), 0))
-	sky_material.set_shader_parameter("sun_dir", -sun_basis.z)
+	# the sky always wants the real sun, even while the light plays the moon. A
+	# directional light shines along its -Z, so the direction towards the sun is +Z
+	# of the un-flipped basis (-Z put the sun below the horizon: a night sky at noon).
+	var sun_basis := Basis.from_euler(Vector3(-angle, deg_to_rad(sun_yaw_deg), 0))
+	sky_material.set_shader_parameter("sun_dir", sun_basis.z)
 	if is_moon:
 		sun.light_color = moon_color
 		sun.light_energy = moon_energy * night

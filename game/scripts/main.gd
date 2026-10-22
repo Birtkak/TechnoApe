@@ -7,6 +7,7 @@ extends Node3D
 
 var world: World
 var atmosphere: Atmosphere
+var stains: StainMap
 var player: Player
 var bubble: SimBubble
 var hud: DebugHud
@@ -57,7 +58,7 @@ func _ready() -> void:
 	player.position = Vector3(spawn.x + 0.5, h + 3, spawn.y + 0.5)
 	_spawn_pos = player.position
 	add_child(player)
-	player.setup_inventory(player_inv, mining, world.atlas_material)
+	player.setup_inventory(player_inv, mining, world.prop_material)
 	atmosphere.setup(world, player.camera)
 	player.voxel_broken.connect(_on_broken)
 	player.voxel_placed.connect(_on_placed)
@@ -153,6 +154,14 @@ func _ready() -> void:
 	else:
 		player.capture_mouse(true)
 	bubble.setup(world, player.position)
+	# blood, oil and soot stains on the voxels they touch (scripts/visuals/stain_map.gd)
+	stains = StainMap.new()
+	stains.name = "Stains"
+	add_child(stains)
+	var stained: Array[ShaderMaterial] = [world.atlas_material]
+	stains.setup(world, bubble, stained)
+	_last_health = player_inv.health
+	player_inv.health_changed.connect(_on_health_changed)
 
 
 ## Spiral out from the origin for dry, flat-ish land (plains or forest).
@@ -171,6 +180,7 @@ func _find_spawn() -> Vector2i:
 
 func _process(_delta: float) -> void:
 	bubble.follow(player.position)
+	stains.follow(player.position)
 
 
 func _physics_process(delta: float) -> void:
@@ -231,9 +241,20 @@ func _on_broken(p: Vector3i, drop: Dictionary) -> void:
 func _on_placed(p: Vector3i, material: int) -> void:
 	set_world_voxel(p, material)
 	if material > 0:
+		stains.clear_cell(p)   # a filled cell's old stain must not come back when it is mined
 		var d: Dictionary = GameMaterials.defs()[material - 1]
 		if d.has("entity"):
 			blocks.create(p, d["entity"])
+
+
+var _last_health := -1
+
+
+## Losing health bleeds: a splatter at the feet, liquid blood for heavy hits.
+func _on_health_changed(h: int) -> void:
+	if _last_health > h:
+		stains.bleed(player.position, _last_health - h)
+	_last_health = h
 
 
 ## Right click on a station block (ADR 0007).
@@ -387,7 +408,7 @@ func _on_died() -> void:
 # ---------------- item entities ----------------
 
 func spawn_item(stack: Dictionary, pos: Vector3, velocity: Vector3 = Vector3.ZERO, extra_delay: float = 0.0) -> ItemEntity:
-	var e := ItemEntity.create(items, stack, world.atlas_material)
+	var e := ItemEntity.create(items, stack, world.prop_material)
 	e.position = pos
 	e.age = -extra_delay
 	e.set_initial_velocity(velocity)
@@ -487,6 +508,7 @@ func snapshot() -> Dictionary:
 		"mode": "fly" if player.flying else "walk",
 		"terrain": world.terrain.get_statistics(),
 		"sim": bubble.stats(),
+		"stains": stains.stats() if stains else {},
 		"look": look,
 		"player": player_inv.summary(),
 		"picked_up": picked_up_total,

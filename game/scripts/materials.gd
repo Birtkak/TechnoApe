@@ -55,6 +55,7 @@ const STALAGMITE := 43      # cave floors; both have a core collision box
 const CHISELED := 44        # reserved (ADR 0006): empty non-culling model, shape lives in the block entity
 const GLOW_MUSHROOM := 45   # deep caves; its cap tile is emissive in the terrain shader
 const MOSS := 46            # carpet on lush cave floors
+const BLOOD := 47           # bleeding (StainMap.bleed): a short-lived liquid that soaks in and leaves a stain
 
 const ATLAS_TILES := Vector2i(8, 6)
 const MICRO_GRID := 8       # cells per voxel edge for micro models and chisels (6.25 cm)
@@ -108,6 +109,8 @@ static func defs() -> Array:
 		{"name": "chiseled", "cell_type": "solid", "density": 10, "hp": 1000, "tiles": [0, 0, 0], "transparent": true, "model": "empty"},
 		{"name": "glow_mushroom", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [45, 42, 42], "transparent": false, "micro": "mushroom"},
 		{"name": "moss", "cell_type": "solid", "density": 10, "hp": 8, "burnable": true, "fire_hp": 40, "autoignition_temperature": 35, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [46, 46, 46], "transparent": false, "micro": "carpet"},
+		# lifetime in sim ticks (30 Hz): the puddle soaks into the ground after ~7 s; the stain stays
+		{"name": "blood", "cell_type": "liquid", "density": 1.1, "liquid_flow_speed": 0.7, "lifetime": 200, "tiles": [47, 47, 47], "transparent": true},
 	]
 
 

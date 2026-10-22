@@ -8,6 +8,7 @@ var terrain: VoxelLodTerrain
 var generator: TerrainGenerator
 var atlas_material: ShaderMaterial
 var liquid_material: ShaderMaterial
+var prop_material: ShaderMaterial   # atlas material without stains: item cubes, viewmodel (they are not at their voxel)
 var _tool: VoxelTool
 
 
@@ -29,6 +30,7 @@ func _ready() -> void:
 	liquid_material.shader = load("res://assets/shaders/terrain_liquid.gdshader")
 	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile"]:
 		liquid_material.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
+	prop_material = atlas_material.duplicate()
 	generator = TerrainGenerator.new()
 	generator.set_seed(Settings.world_seed)
 

@@ -77,3 +77,80 @@ vec3 ripple_normal(vec2 p) {
 	float dz = cos(p.y * 2.1 - t * 1.1) * 0.5 + cos((p.x - p.y) * 1.3 + t * 0.7) * 0.5;
 	return normalize(vec3(dx * ripple_strength * 0.15, 1.0, dz * ripple_strength * 0.15));
 }
+
+// --- surface stains (scripts/visuals/stain_map.gd) ----------------------------
+// Noita-style coatings: blood, oil, soot. A stain belongs to an EMPTY cell (where
+// the liquid or flame was) and colours the faces that border it: floors fully,
+// walls up to a tide line that rises with the amount, ceilings faintly. The
+// window around the player lives in a texture array, layer = world y, texel =
+// world (x, z), all wrapped (mod size); rgb = colour * amount, a = amount.
+// Per stain pixel (16 per voxel edge, the atlas resolution) the amount is
+// interpolated across neighbouring cells and thresholded against noise, so
+// stains are pixel splats with ragged edges, not tinted cubes.
+uniform bool stains_on = false;
+uniform sampler2DArray stain_tex : filter_nearest;
+uniform ivec3 stain_size = ivec3(128, 64, 128);
+uniform ivec3 stain_min = ivec3(0);    // valid window in world voxels (inclusive)
+uniform ivec3 stain_max = ivec3(0);    // exclusive
+uniform float stain_px = 16.0;
+
+float stain_hash(vec3 p) {
+	p = fract(p * 0.1031);
+	p += dot(p, p.zyx + 31.32);
+	return fract((p.x + p.y) * p.z);
+}
+
+vec4 stain_cell(ivec3 c) {
+	if (any(lessThan(c, stain_min)) || any(greaterThanEqual(c, stain_max))) {
+		return vec4(0.0);
+	}
+	ivec3 m = ((c % stain_size) + stain_size) % stain_size;
+	return texelFetch(stain_tex, ivec3(m.x, m.z, m.y), 0);
+}
+
+// rgb = stain colour, a = how much of it covers this pixel (0 = clean).
+vec4 surface_stain(vec3 wpos, vec3 n) {
+	vec3 an = abs(n);
+	if (max(an.x, max(an.y, an.z)) < 0.9) {
+		return vec4(0.0);   // only axis-aligned faces
+	}
+	int ax = an.x > 0.5 ? 0 : (an.y > 0.5 ? 1 : 2);
+	vec3 pq = (floor(wpos * stain_px) + 0.5) / stain_px;   // stain pixel centre
+	vec3 out_p = pq + sign(n) * an * 0.5;                   // inside the cell the face looks into
+	vec3 e1 = ax == 0 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+	vec3 e2 = ax == 2 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
+	vec3 b = out_p - 0.5 * (e1 + e2);
+	vec3 base = floor(b);
+	vec3 f3 = b - base;
+	vec3 cell = floor(out_p);
+	base = mix(base, cell, step(0.5, an));   // along the normal: the outside cell itself
+	float fu = dot(f3, e1);
+	float fv = dot(f3, e2);
+	if (ax != 1) {
+		base.y = cell.y;      // walls: no blending between cells above / below
+		if (ax == 0) { fu = 0.0; } else { fv = 0.0; }
+	}
+	ivec3 c00 = ivec3(base);
+	ivec3 d1 = ivec3(e1);
+	ivec3 d2 = ivec3(e2);
+	vec4 s = mix(mix(stain_cell(c00), stain_cell(c00 + d1), fu),
+		mix(stain_cell(c00 + d2), stain_cell(c00 + d1 + d2), fu), fv);
+	float a = s.a;
+	if (a < 0.02) {
+		return vec4(0.0);
+	}
+	vec3 px = floor(out_p * stain_px);
+	float h = stain_hash(px);
+	float blot = stain_hash(floor(out_p * 4.0) + 17.0);
+	float thr = 0.1 + 0.8 * (0.55 * h + 0.45 * blot);
+	if (ax != 1) {
+		// walls: liquid sits low in the cell; the tide line wobbles per pixel column
+		float local_h = pq.y - cell.y;
+		float col_j = stain_hash(vec3(px.x + px.z, 3.0, px.x - px.z));
+		a *= step(local_h, 0.12 + 0.8 * a + 0.12 * (col_j - 0.5)) * 0.85;   // < 1: walls stay speckled
+	} else if (n.y < 0.0) {
+		a *= 0.35;            // ceilings: splashes and soot only
+	}
+	float cover = step(thr, a);
+	return vec4(s.rgb / max(s.a, 1e-4), cover * (0.78 + 0.2 * min(a, 1.0)));
+}
