@@ -51,6 +51,20 @@ func _validate(d) -> bool:
 	return true
 
 
+## The item that places a material (pick block): the one named like the
+## material first, else any placing it that is not a filled container.
+func item_for_material(material_name: String) -> String:
+	if items.has(material_name) and items[material_name].get("material", "") == material_name:
+		return material_name
+	var ids := items.keys()
+	ids.sort()
+	for id in ids:
+		var d: Dictionary = items[id]
+		if d.get("material", "") == material_name and not d.has("empties_to"):
+			return id
+	return ""
+
+
 func has(id: String) -> bool:
 	return items.has(id)
 

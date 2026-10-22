@@ -64,6 +64,10 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   The project renders on a separate thread (ADR 0016); `--render-thread safe`
   runs the old mode. Never drive the shared RenderingDevice from the main thread.
 - One world unit = one voxel = 0.5 m. Tunables live in `scripts/settings.gd` in metres.
+- Playtest tools (ADR 0018): T chat + slash commands (`/help`), `/gamemode`, F3
+  debug screen, F4 playtest menu, F9 bug reports. When the developer mentions a
+  bug report, read the newest folder in `game/out/bug_reports/` (report.md,
+  state.json, screenshot.png, log.txt).
 - Rebuild the sim extension from `prototypes/p5-sim-spike` and copy the DLL to
   `game/addons/technosim/bin/`.
 - GitHub: https://github.com/Birtkak/TechnoApe (private).

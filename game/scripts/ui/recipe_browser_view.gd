@@ -25,6 +25,7 @@ var _spec_cells: Array[BrowserCell] = []   # cells showing a (possibly tag) spec
 var _cycle_t := -1
 var _list_rect := Rect2()
 var _cols := 0
+var cheat_give: Callable        # creative (ADR 0018): fn(item_id, shift) -> bool; LMB on the list takes items
 var _rows := 0
 
 
@@ -124,7 +125,7 @@ func _rebuild_list() -> void:
 	for i in ids.size():
 		var c := BrowserCell.new(items, ids[i])
 		c.position = Vector2(4 + (i % _cols) * S, 34 + (i / _cols) * S)
-		c.clicked.connect(_on_cell_clicked)
+		c.clicked.connect(_on_list_cell_clicked)
 		_list_panel.add_child(c)
 		_cells.append(c)
 	_page_label.text = "%d / %d" % [model.page + 1, model.page_count()]
@@ -141,6 +142,14 @@ func _on_list_input(e: InputEvent) -> void:
 			_turn_page(1)
 		elif e.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_turn_page(-1)
+
+
+## The item list: in creative a left click takes a stack (shift: into the
+## inventory), like JEI's cheat mode; right click still shows uses.
+func _on_list_cell_clicked(item_id: String, button: int) -> void:
+	if button == MOUSE_BUTTON_LEFT and cheat_give.is_valid() and cheat_give.call(item_id, Input.is_key_pressed(KEY_SHIFT)):
+		return
+	_on_cell_clicked(item_id, button)
 
 
 func _on_cell_clicked(item_id: String, button: int) -> void:

@@ -10,6 +10,12 @@ The real project. Prototypes live in `../prototypes/`; decisions in
 #       1-9 / wheel select; E inventory; Q drop one (Ctrl+Q stack); RMB on a crafting table / furnace /
 #       chest opens it, Shift+RMB places against it; in any inventory screen the recipe browser sits on the
 #       right: LMB recipes, RMB uses, R/U over any item, Backspace back, Esc closes the recipe view)
+# chat and commands (ADR 0018): T chat, / command (Tab completes, Up/Down history), /help lists them;
+#       /gamemode creative|survival (creative: F or double-tap Space flies, instant break, endless blocks,
+#       middle click picks a block, LMB on the recipe list takes a stack); F3 Minecraft-style debug screen;
+#       F4 (or the Debug button top right) playtest menu with saved start options; F9 bug report; F2 screenshot.
+#       Playing from the editor starts minimized (turn off in F4 start options or with minimized=0).
+#       Bug reports land in game/out/bug_reports/<time>/ (report.md, state.json, screenshot.png, log.txt).
 Godot_v4.7.2-stable_mono_win64_console.exe --path game
 
 # unattended check for Claude: fly forward 20 s, filmstrip every second, JSON on stdout
@@ -44,6 +50,10 @@ Godot_..._console.exe --headless --path game --script res://tools/fire_bench.gd 
 # render thread (ADR 0016): the project renders on a separate thread (Godot prints an "experimental" warning
 # and a "finalize ... render thread" error on exit: both expected); for one run in the old mode add --render-thread safe
 Godot_..._console.exe --path game --render-thread safe -- autopilot=1 duration=20 out=res://out/safe
+# commands=/gamemode creative;/give oak_log 64 runs chat commands at start (JSON: game_mode, chat); chat_text=/give oak
+# opens the chat with that typed; debug_menu=1 opens the F4 menu; f3=1 the debug screen. In Git Bash set
+# MSYS_NO_PATHCONV=1 or it rewrites /arguments into Windows paths.
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=3 f3=1 "commands=/gamemode creative;/kit tools" out=res://out/chat
 # liquid spill stress: blast=1.5 blast_material=water blast_every=2 (passes for ~20 s; minutes of flow do not yet)
 # mass edits (ADR 0014): blast=R craters of R m on the ground around the player every blast_every s (default 2),
 # blast_count=N per volley; JSON sim.blasts, blast_voxels, blast_ms_max (native SimWorld.fill_sphere)
@@ -105,7 +115,10 @@ recipe by design (found only); spells do.
 | `scripts/ui/inventory_screen.gd` | Vanilla-layout inventory, crafting table, chest and furnace screens with cursor semantics. |
 | `scripts/ui/recipe_browser.gd`, `recipe_browser_view.gd` | JEI-style browser (ADR 0008): search, recipes/uses by category, history; the view beside every inventory screen. |
 | `scripts/blocks/` | Block entities by voxel position (ADR 0007): `ChestEntity`, `FurnaceEntity` (vanilla tick rules), `BlockEntities` store, saved to `user://worlds/blocks_<seed>_g<gen>.json`. |
-| `scripts/debug_hud.gd` | F3 overlay. |
+| `scripts/debug_hud.gd` | F3 debug screen after vanilla's (ADR 0018): facts left, system + targeted block right, axis crosshair, frame graph. |
+| `scripts/ui/chat_box.gd`, `scripts/commands/` | Chat (T, /) and slash commands (ADR 0018): `CommandRegistry` (pure: parse, dispatch, complete), `GameCommands` (the commands). |
+| `scripts/player/game_mode.gd` | Survival / creative rule sets the player, HUD and inventory consult. |
+| `scripts/ui/debug_menu.gd`, `scripts/debug/bug_report.gd` | F4 playtest menu (saved start options in `user://playtest.cfg`), F9 bug reports, F2 screenshots. |
 | `scripts/debug_capture.gd` | Autoload. Autopilot, filmstrips, JSON stats, vsync switch. |
 | `addons/technosim/` | Our GDExtension (built from `../prototypes/p5-sim-spike/src`). |
 | `addons/zylann.voxel/` | godot_voxel GDExtension (CI build 2026-10-01; pin a tag). |

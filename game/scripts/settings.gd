@@ -50,6 +50,12 @@ var drop_throw_speed_m := 4.0           # Q drop velocity
 var break_cooldown_s := 0.25            # vanilla: 5 ticks between broken blocks
 var place_repeat_s := 0.2               # vanilla: 4 ticks between placed blocks while holding
 
+# Game (ADR 0018)
+var game_mode := "survival"             # survival | creative (gamemode=creative on the command line)
+var start_minimized := true             # playtests from the editor open minimized (minimized=0 turns it off)
+var start_commands: PackedStringArray = []   # run through the chat when a normal (non-autopilot) game starts
+const PLAYTEST_PREFS := "user://playtest.cfg"   # the debug menu's start options
+
 # World
 var world_seed := 1337
 var world_seed_text := ""               # what the player typed, if the seed came from text
@@ -97,6 +103,8 @@ func apply_cmdline() -> Dictionary:
 	## Lets Claude (or a script) override settings and request captures:
 	##   godot --path game -- autopilot=1 duration=20 capture_every=1 sim_tick_hz=60 render_distance_m=64
 	var args := {}
+	if not OS.get_cmdline_user_args().has("autopilot=1"):
+		load_playtest_prefs()   # the debug menu's start options; command-line values below still win
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=")
 		if kv.size() != 2:
@@ -120,4 +128,17 @@ func apply_cmdline() -> Dictionary:
 			"max_health": max_health = int(kv[1])
 			"pickup_radius_m": pickup_radius_m = float(kv[1])
 			"item_despawn_s": item_despawn_s = float(kv[1])
+			"gamemode": game_mode = kv[1]
+			"minimized": start_minimized = kv[1] == "1"
 	return args
+
+
+## Start options saved by the debug menu (F4): game mode, minimized playtests,
+## commands to run at start. Autopilot runs never read them (reproducible).
+func load_playtest_prefs() -> void:
+	var cf := ConfigFile.new()
+	if cf.load(PLAYTEST_PREFS) != OK:
+		return
+	game_mode = String(cf.get_value("start", "game_mode", game_mode))
+	start_minimized = bool(cf.get_value("start", "minimized", start_minimized))
+	start_commands = PackedStringArray(cf.get_value("start", "commands", PackedStringArray()))

@@ -161,6 +161,12 @@ func _ready() -> void:
 	_apply_states(true)
 
 
+## /time set: jump the sun (0 midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset).
+func set_time_of_day(t: float) -> void:
+	time_of_day = fposmod(t, 1.0)
+	_update_sun()
+
+
 func _apply_cmdline() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=")

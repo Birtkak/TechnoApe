@@ -13,6 +13,7 @@ signal item_dropped(stack: Dictionary, from: Vector3, velocity: Vector3)
 signal inventory_toggled(open: bool)
 signal block_used(pos: Vector3i, material: int)   # right click on a block with an "interact" key (ADR 0007)
 signal died
+signal game_mode_changed(mode: String)
 
 var world: World
 var camera: Camera3D
@@ -23,7 +24,9 @@ var mining: MiningTable
 var viewmodel: Viewmodel
 var hud: GameHud
 var flying := true
+var game_mode := GameMode.SURVIVAL   # rules in GameMode (ADR 0018); set with set_game_mode or /gamemode
 var ui_open := false
+var _last_jump_ms := -1000           # creative: double-tap jump toggles flying
 var _yaw := 0.0
 var _pitch := -0.2
 var _mouse_captured := false
@@ -94,6 +97,24 @@ func setup_inventory(p_inv: PlayerInventory, p_mining: MiningTable, atlas_materi
 	inventory.changed.connect(func() -> void: viewmodel.show_item(inventory.held()))
 
 
+## Survival takes flight away (and lands the player); creative allows F and
+## double-tapping jump to fly.
+func set_game_mode(mode: String) -> void:
+	game_mode = mode
+	if not GameMode.rule(mode, "can_fly"):
+		flying = false
+	_mine_progress = 0.0
+	_mine_target = Vector3i(1 << 30, 0, 0)
+	game_mode_changed.emit(mode)
+
+
+## /tp: move without fall damage from the jump.
+func teleport(pos: Vector3) -> void:
+	position = pos
+	velocity = Vector3.ZERO
+	_fall_peak_y = pos.y
+
+
 func set_look(yaw: float, pitch: float) -> void:
 	_yaw = yaw
 	_pitch = clampf(pitch, -1.5, 1.5)
@@ -134,7 +155,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("release_mouse"):
 		capture_mouse(false)
 	elif event.is_action_pressed("toggle_fly"):
-		flying = not flying
+		if GameMode.rule(game_mode, "can_fly"):
+			flying = not flying
+	elif event.is_action_pressed("jump") and GameMode.rule(game_mode, "can_fly"):
+		var now := Time.get_ticks_msec()
+		if now - _last_jump_ms < 300:
+			flying = not flying
+			_last_jump_ms = -1000
+		else:
+			_last_jump_ms = now
+	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_MIDDLE:
+		_pick_block()
 	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F5:
 		set_perspective((perspective + 1) % 3)
 	elif event.is_action_pressed("hotbar_next"):
@@ -310,7 +341,7 @@ func _update_fall_damage() -> void:
 	if on_floor and not _was_on_floor:
 		var fall_m := Settings.v2m(_fall_peak_y - position.y)
 		var dmg := int(floor(fall_m - Settings.fall_damage_safe_m))
-		if dmg > 0 and inventory:
+		if dmg > 0 and inventory and GameMode.rule(game_mode, "takes_damage"):
 			print("fall damage %d after %.1f m" % [dmg, fall_m])
 			inventory.damage(dmg)
 			if inventory.is_dead():
@@ -350,7 +381,10 @@ func _update_mining(delta: float) -> void:
 		_mine_target = p
 		_mine_progress = 0.0
 		var mat_name := GameMaterials.name_of(world.get_voxel(p))
-		_mine_time = mining.break_time(mat_name, inventory.held_def()) if mining else 0.0
+		if GameMode.rule(game_mode, "instant_break"):
+			_mine_time = 0.0 if world.get_voxel(p) > 0 else -1.0   # creative breaks anything, at once
+		else:
+			_mine_time = mining.break_time(mat_name, inventory.held_def()) if mining else 0.0
 		if viewmodel:
 			viewmodel.swing()
 	if _mine_time < 0.0:
@@ -366,7 +400,7 @@ func _update_mining(delta: float) -> void:
 	_crack.transparency = 1.0 - clampf(_mine_progress, 0.0, 1.0) * 0.4
 	if _mine_progress >= 1.0:
 		var mat_name := GameMaterials.name_of(world.get_voxel(p))
-		var drop := mining.drops(mat_name, inventory.held_def()) if mining else {}
+		var drop := mining.drops(mat_name, inventory.held_def()) if mining and GameMode.rule(game_mode, "drops") else {}
 		voxel_broken.emit(p, drop)
 		if viewmodel:
 			viewmodel.swing()
@@ -420,7 +454,8 @@ func _use(first_press: bool) -> void:
 	# container pickup (bucket on water / lava)
 	if def.has("fills") and def["fills"].has(target_name):
 		voxel_placed.emit(target, GameMaterials.AIR)
-		inventory.replace_held_one(def["fills"][target_name])
+		if GameMode.rule(game_mode, "consumes_items"):
+			inventory.replace_held_one(def["fills"][target_name])
 		_after_use()
 		return
 	if not def.has("material"):
@@ -434,11 +469,26 @@ func _use(first_press: bool) -> void:
 	if world.get_voxel(p) != GameMaterials.AIR:
 		return
 	voxel_placed.emit(p, mat)
-	if def.has("empties_to"):
+	if not GameMode.rule(game_mode, "consumes_items"):
+		pass   # creative: blocks and buckets never run out
+	elif def.has("empties_to"):
 		inventory.replace_held_one(def["empties_to"])
 	else:
 		inventory.consume_held(1)
 	_after_use()
+
+
+## Middle click (vanilla pick block): the item that places the aimed voxel.
+## Creative conjures it; survival only switches to it if it is carried.
+func _pick_block() -> void:
+	if inventory == null or not _mouse_captured:
+		return
+	var hit := _aim()
+	if hit == null:
+		return
+	var id := inventory.items.item_for_material(_loose_name(world.get_voxel(hit.position)))
+	if id != "":
+		inventory.pick_block(id, GameMode.rule(game_mode, "item_picker"))
 
 
 func _after_use() -> void:

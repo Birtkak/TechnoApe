@@ -83,6 +83,16 @@ func _ready() -> void:
 	move_child(_pill, _name_label.get_index())
 
 
+## The F3 overlay draws its own axis crosshair instead.
+func set_crosshair_visible(v: bool) -> void:
+	_crosshair.visible = v
+
+
+## Creative hides the hearts (no damage), like vanilla.
+func set_hearts_visible(v: bool) -> void:
+	_hearts.visible = v
+
+
 func _process(delta: float) -> void:
 	if _name_timer > 0.0:
 		_name_timer -= delta

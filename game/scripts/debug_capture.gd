@@ -25,6 +25,10 @@ var scatter_items := false    # also drop one item entity per given item in fron
 var stations := false         # place a crafting table, chest and furnace in front of the player; the furnace gets iron ore + coal
 var open_screen := ""          # open=crafting_table|chest|furnace: open that station's screen (needs stations=1)
 var give: Array = []  # give=oak_log:12,wooden_pickaxe  -> starting items
+var chat_commands: PackedStringArray = []  # commands=/gamemode creative;/time set noon  -> run through the chat at start (ADR 0018)
+var chat_text := ""   # chat_text=/give oak  -> chat box open with this typed (screenshot of hints)
+var debug_menu := false   # debug_menu=1: open the F4 playtest menu
+var f3 := false       # f3=1: the F3 overlay on
 var blast_m := 0.0    # blast=R: mass-edit stress (ADR 0012): craters of radius R m on the ground around the player
 var blast_count := 1  # blast_count=N craters per volley (1000 TNT = many small ones)
 var blast_every := 2.0  # blast_every=S seconds between volleys, first one 2 s after load
@@ -90,6 +94,10 @@ func _ready() -> void:
 	scatter_items = args.get("scatter_items", "0") == "1"
 	stations = args.get("stations", "0") == "1"
 	open_screen = args.get("open", "")
+	chat_commands = String(args.get("commands", "")).split(";", false)
+	chat_text = args.get("chat_text", "")
+	debug_menu = args.get("debug_menu", "0") == "1"
+	f3 = args.get("f3", "0") == "1"
 	blast_m = float(args.get("blast", "0"))
 	blast_count = int(args.get("blast_count", "1"))
 	blast_every = float(args.get("blast_every", "2"))

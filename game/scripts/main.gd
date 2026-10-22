@@ -18,6 +18,10 @@ var recipes: RecipeRegistry
 var mining: MiningTable
 var player_inv: PlayerInventory
 var blocks: BlockEntities
+var commands: CommandRegistry      # slash commands (ADR 0018)
+var game_commands: GameCommands
+var chat: ChatBox
+var debug_menu: DebugMenu
 var _tick_accum := 0.0
 var _save_accum := 0.0
 var _items_root: Node3D
@@ -86,11 +90,31 @@ func _ready() -> void:
 	inv_screen.setup(player_inv)
 	inv_screen.closed.connect(_on_screen_closed)
 
+	# chat, slash commands, game modes and the playtest debug menu (ADR 0018)
+	commands = CommandRegistry.new()
+	game_commands = GameCommands.new(commands, player, player_inv, self)
+	chat = ChatBox.new()
+	chat.name = "Chat"
+	chat.commands = commands
+	chat.can_open = _can_open_overlay
+	add_child(chat)
+	chat.opened.connect(_on_overlay_opened)
+	chat.closed.connect(_on_overlay_closed)
+	debug_menu = DebugMenu.new()
+	debug_menu.name = "DebugMenu"
+	debug_menu.main = self
+	debug_menu.can_open = _can_open_overlay
+	add_child(debug_menu)
+	debug_menu.opened.connect(_on_overlay_opened)
+	debug_menu.closed.connect(_on_overlay_closed)
+	player.game_mode_changed.connect(_on_game_mode_changed)
+	var mode := GameMode.parse(Settings.game_mode)
+	player.set_game_mode(mode if mode != "" else GameMode.SURVIVAL)
+
 	hud = DebugHud.new()
 	hud.main = self
 	add_child(hud)
-	hud.toggle()                 # F3 overlay off by default; the game HUD draws the crosshair
-	hud.crosshair.visible = false
+	hud.toggle()                 # F3 overlay off by default
 
 	DebugCapture.attach(self)
 	for stack in DebugCapture.give:
@@ -152,7 +176,21 @@ func _ready() -> void:
 				spawn_item({"id": stack["id"], "count": stack["count"]}, pos, Vector3.ZERO)
 				i += 1
 	else:
-		player.capture_mouse(true)
+		for c in Settings.start_commands:   # the debug menu's saved start options
+			chat.send(c)
+		if Settings.start_minimized and EngineDebugger.is_active() and not _embedded_in_editor():
+			# playtests from the editor start minimized; after restoring the window a click captures the mouse
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
+		else:
+			player.capture_mouse(true)
+	for c in DebugCapture.chat_commands:
+		chat.send(c)
+	if DebugCapture.chat_text != "":
+		chat.open(DebugCapture.chat_text)
+	if DebugCapture.debug_menu:
+		debug_menu.open(true)
+	if DebugCapture.f3:
+		hud.toggle()
 	bubble.setup(world, player.position)
 	# blood, oil and soot stains on the voxels they touch (scripts/visuals/stain_map.gd)
 	stains = StainMap.new()
@@ -214,6 +252,42 @@ func _save_blocks() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_debug"):
 		hud.toggle()
+
+
+# ---------------- chat, debug menu, game modes (ADR 0018) ----------------
+
+## Chat and the debug menu open only over the plain game view.
+func _can_open_overlay() -> bool:
+	return not player.ui_open and not player.autopilot and not inv_screen.is_open
+
+
+func _on_overlay_opened() -> void:
+	player.set_ui_open(true, false)
+
+
+func _on_overlay_closed() -> void:
+	if not chat.is_open and not debug_menu.is_open:
+		player.set_ui_open(false)
+
+
+func _on_game_mode_changed(mode: String) -> void:
+	game_hud.set_hearts_visible(GameMode.rule(mode, "takes_damage"))
+	inv_screen.browser_view.cheat_give = player_inv.creative_take if GameMode.rule(mode, "item_picker") else Callable()
+
+
+## Godot 4.4+ can run the game inside the editor's Game tab; minimizing that would hide it.
+func _embedded_in_editor() -> bool:
+	return Engine.has_method("is_embedded_in_editor") and bool(Engine.call("is_embedded_in_editor"))
+
+
+## /stations and the debug menu: a crafting table, chest and furnace ahead.
+func place_stations() -> void:
+	_place_debug_stations()
+
+
+## Where the player respawns (/spawn).
+func spawn_position() -> Vector3:
+	return _spawn_pos
 
 
 # ---------------- world writes ----------------
@@ -380,8 +454,9 @@ func _place_debug_stations() -> void:
 			# the strip shows the blocks first (furnace lighting up), the screen for the last 40 %
 			var at := Vector3i(x, y, z)
 			get_tree().create_timer(DebugCapture.duration * 0.6).timeout.connect(_debug_use_block.bind(at))
-	player.autopilot_action = "look"   # stand still (autopilot input is zero for any action)
-	player.set_look(player._yaw, -0.45)
+	if player.autopilot:
+		player.autopilot_action = "look"   # stand still (autopilot input is zero for any action)
+		player.set_look(player._yaw, -0.45)
 
 
 func _on_item_dropped(stack: Dictionary, from: Vector3, velocity: Vector3) -> void:
@@ -506,6 +581,10 @@ func snapshot() -> Dictionary:
 		"pos_voxel": Vector3i(pos.floor()),
 		"chunk": Vector3i((pos / Settings.CHUNK).floor()),
 		"mode": "fly" if player.flying else "walk",
+		"game_mode": player.game_mode,
+		"chat": chat.recent(10) if chat else [],
+		"chat_open": chat.is_open if chat else false,
+		"debug_menu_open": debug_menu.is_open if debug_menu else false,
 		"terrain": world.terrain.get_statistics(),
 		"sim": bubble.stats(),
 		"stains": stains.stats() if stains else {},

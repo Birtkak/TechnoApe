@@ -96,6 +96,60 @@ func replace_held_one(new_id: String) -> int:
 	return pickup(new_id, 1)
 
 
+# ---------------- pick block / creative picker (ADR 0018) ----------------
+
+## Middle click on a block (vanilla pick block). A hotbar slot holding `id` is
+## selected. Survival swaps a stack from the main grid into the selected slot;
+## creative conjures a full stack into the selected slot if empty, else the
+## first empty hotbar slot, else over the held stack. Returns true on change.
+func pick_block(id: String, creative: bool) -> bool:
+	for i in HOTBAR:
+		var s: Dictionary = inv.get_slot(i)
+		if not s.is_empty() and s["id"] == id:
+			select(i)
+			return true
+	if not creative:
+		for i in range(HOTBAR, SIZE):
+			var s: Dictionary = inv.get_slot(i)
+			if not s.is_empty() and s["id"] == id:
+				var h := held()
+				inv.set_slot(selected, s)
+				inv.set_slot(i, h)
+				return true
+		return false
+	if not items.has(id):
+		return false
+	var slot := selected
+	if not inv.is_empty_slot(slot):
+		for i in HOTBAR:
+			if inv.is_empty_slot(i):
+				slot = i
+				break
+	inv.set_slot(slot, {"id": id, "count": items.max_stack(id)})
+	select(slot)
+	return true
+
+
+## Creative item picker (JEI cheat mode, the recipe browser's item list): a
+## full stack onto an empty cursor, or straight into the inventory with
+## `into_inventory`. With a stack on the cursor the click deletes it instead
+## (vanilla's creative inventory trashes what is dropped on the item list).
+func creative_take(id: String, into_inventory: bool) -> bool:
+	if not cursor.is_empty():
+		cursor = {}
+		changed.emit()
+		return true
+	if not items.has(id):
+		return false
+	var n := items.max_stack(id)
+	if into_inventory:
+		pickup(id, n)
+	else:
+		cursor = {"id": id, "count": n}
+	changed.emit()
+	return true
+
+
 # ---------------- pick up / drop ----------------
 
 ## Picks up a stack: merges into existing stacks first, then fills empty
