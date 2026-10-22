@@ -23,7 +23,9 @@ Patches (`voxel_patch.py`, then `voxel_patch_budget.py`, both in this folder):
 only when the shader has `u_transition_mask` (blocky meshes never stitch);
 the fade value as an instance shader parameter when the terrain has no
 ShaderMaterial; `mesh_upload_budget_mb`, a per-frame cap on applied mesh data
-(updates over the cap wait a frame, the newest per block wins).
+(updates over the cap wait a frame, the newest per block wins);
+`voxel_patch_remesh.py`: `edit_remesh_rate`, a token bucket over the remeshes
+that edits request (streaming is never limited), the rest stay pending.
 
 The editor target does not compile with this GCC (16.2: template deduction
 error in `editor/noise/chart_view.cpp`); `target=template_debug` does, and

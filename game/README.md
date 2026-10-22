@@ -180,6 +180,7 @@ rebuild it (MinGW on PATH, godot-cpp 4.5 branch at `~/Tools/godot-cpp`):
 git clone https://github.com/Zylann/godot_voxel ~/Tools/godot_voxel && cd ~/Tools/godot_voxel && git checkout 045ff932
 python <repo>/prototypes/p11-lod-horizon/voxel_patch.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_budget.py ~/Tools/godot_voxel
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_remesh.py ~/Tools/godot_voxel
 GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=template_debug use_mingw=yes use_static_cpp=yes -j12
 cp project/addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll <repo>/game/addons/zylann.voxel/bin/
 ```

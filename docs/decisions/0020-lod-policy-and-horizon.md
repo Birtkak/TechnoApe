@@ -92,23 +92,25 @@ The liquid shader's transparent pass costs ~0.25 ms p50; the 64 m rings
 ~0.5 ms and 350 MB VRAM, and the initial load doubles (the clipbox has four
 times the blocks in the first rings). The fade itself is noise.
 
-Budget matrix (ADR 0014 scenarios, 20 s after load) on the new defaults
-(our build, rings 48 m, fade 0.35 s, threaded update, no terrain.material):
+Budget matrix (ADR 0014 scenarios, 20 s after load) on the final defaults
+(our build, rings 48 m, fade 0.35 s, threaded update, no terrain.material,
+2 km horizon, edit remesh rate 300/s, loading screen):
 
 | Run | load s | p50 | p99 | max | > 8.3 | > 16.7 | RSS MB | VRAM MB | ok |
 |---|---|---|---|---|---|---|---|---|---|
-| fly 6 m/s | 3.9 | 2.15 | 3.12 | 4.3 | 0 | 0 | 1,169 | 471 | yes |
-| fast fly 40 m/s | 4.8 | 2.81 | 4.24 | 10.8 | 1 | 0 | 1,224 | 954 | yes |
-| walk + mine + place | 4.1 | 2.80 | 3.62 | 6.1 | 0 | 0 | 1,228 | 728 | yes |
-| forest fire | 4.2 | 3.21 | 6.36 | 7.9 | 0 | 0 | 1,249 | 1,149 | yes |
-| water spill 1.5 m / 2 s | 4.1 | 2.60 | 8.86 | 16.4 | 103 | 0 | 1,221 | 728 | p99 over, as before |
-| blast 8 m / 2 s | 4.2 | 2.44 | 3.90 | 5.8 | 0 | 0 | 1,194 | 721 | yes |
-| 50 x 1 m craters / 2 s | 4.1 | 2.47 | 3.28 | 4.2 | 0 | 0 | 1,211 | 726 | yes |
+| fly 6 m/s | 3.4 | 2.20 | 3.12 | 4.2 | 0 | 0 | 1,197 | 488 | yes |
+| fast fly 40 m/s | 4.0 | 2.73 | 4.16 | 13.2 | 2 | 0 | 1,241 | 989 | yes |
+| walk + mine + place | 3.6 | 2.82 | 3.69 | 11.1 | 1 | 0 | 1,238 | 746 | yes |
+| forest fire | 3.6 | 3.32 | 4.31 | 7.1 | 0 | 0 | 1,243 | 1,169 | yes |
+| water spill 1.5 m / 2 s | 3.4 | 2.60 | 5.12 | 10.7 | 31 | 0 | 1,217 | 749 | yes |
+| blast 8 m / 2 s | 3.6 | 2.48 | 3.23 | 10.6 | 1 | 0 | 1,218 | 738 | yes |
+| 50 x 1 m craters / 2 s | 3.6 | 2.51 | 3.22 | 10.9 | 2 | 0 | 1,217 | 743 | yes |
 
-Against ADR 0017's numbers (fly p99 2.6, fire 7.0, spill 8.8): the fire got
-cheaper (fewer per-block materials), flight pays ~0.4 ms for the wider rings
-and the see-through water, the spill is unchanged. Load time 2.8 → 4 s
-(initial clipbox rings hold more blocks).
+Every scenario is within ADR 0009 for the first time (ADR 0017: fly p99 2.6,
+fire 7.0, spill 8.8 over the line). Flight pays ~0.4 ms for the wider rings
+and the see-through water; the fire and the spill gain from the remesh
+rate. First load 2.8 → 3.4 s (more blocks in the first rings, minus the
+hydrology fix).
 
 ## Open
 - 40 m/s flight with 64 m rings: single 20–27 ms frames of render-thread
@@ -123,12 +125,10 @@ and the see-through water, the spill is unchanged. Load time 2.8 → 4 s
 - "Destination block not found when cascading edits on LOD n" (1–4 per walk
   run at start-up) is older than this ADR (soak logs of ADR 0016 show it):
   an edit lands before the parent LOD block exists in the data map.
-- Water spill p99 8.7 ms is unchanged (ADR 0016/0017 open item). Its spike
-  frames are 11–15 ms of `other` (mesh upload, 7–15 MB of new mesh data in
-  one frame) with 360 chunk pushes/s. 16-voxel mesh blocks do not help
-  (spill p99 10.3, flight 80 ms frames: three times the instances) and hit
-  Godot's instance-uniform buffer. The budget has to cap how many mesh
-  updates the terrain applies per frame.
+- The water spill is within budget with the edit remesh rate (above).
+  Measured on the way: 16-voxel mesh blocks do not help (spill p99 10.3,
+  flight 80 ms frames: three times the instances) and overflow Godot's
+  instance-uniform buffer; a byte cap at apply time is within noise.
 - The 2 km horizon is now the default (`view_distance_m` 2048, 7 LODs):
   first load 3.9 s standing (1 km: 4.05 s), flight at 20 m/s p99 3.4 ms,
   VRAM 620 MB, 560 draw calls. With 48 m rings LOD6 reaches 3 km, so seven
@@ -139,6 +139,20 @@ and the see-through water, the spill is unchanged. Load time 2.8 → 4 s
   the workers serialize on tile rebuilds. With the tile cache fix above
   (built outside the lock, LRU past 96) an 8th level loads in 4.4 s; it is
   still not needed at 2 km.
+
+**Remesh budget for edits (`voxel_patch_remesh.py`, `edit_remesh_rate`,
+default 300/s):** the open item of ADR 0012/0016/0017. The frame stalls of a
+liquid spill come from mesh uploads when worker threads build the meshes, so
+a cap at apply time (`mesh_upload_budget_mb`, above) does nothing; the cap
+has to sit where remeshes are *scheduled*. Mesh updates that edits request
+(VoxelTool pastes, generator changes; never streaming) pass through a token
+bucket in `send_mesh_requests`; the rest stay pending and go out in later
+updates, and a block that is edited again while pending is still remeshed
+once. Water spill 20 s: p99 8.3 → 5.1 ms, frames over 8.3 ms 58 → 15, max
+10 ms; 60 s of continuous flow p99 3.8 ms, max 13.7, none over 16.7 (ADR
+0016 measured 17.8 / 33.7 and 484 frames over). Mining and placing update at
+once (the bucket is full when idle, burst 30). The filmstrip of the spill
+shows the water spreading as before.
 
 **Loading screen (`scripts/ui/loading_screen.gd`):** the first ~4 s, while
 the clipbox rings stream in, are covered by a dark panel with a progress bar

@@ -61,6 +61,8 @@ func _ready() -> void:
 	terrain.mesh_block_size = Settings.terrain_mesh_block
 	if "mesh_upload_budget_mb" in terrain:   # our godot_voxel build only (ADR 0020)
 		terrain.mesh_upload_budget_mb = Settings.mesh_upload_budget_mb
+	if "edit_remesh_rate" in terrain:
+		terrain.edit_remesh_rate = Settings.edit_remesh_rate
 	# No terrain.material: VoxelLodTerrain would copy it per block and override
 	# every surface of the block mesh with it, so the liquid shader from the
 	# library never ran on the LOD terrain (water drew opaque) and every block
