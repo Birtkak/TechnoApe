@@ -38,10 +38,15 @@ var _last_push := {}           # world chunk -> msec of its last paste (Settings
 var _fire_test := -1           # debug: fire_test=N ignites burnables within N voxels once loaded
 var _fire_test_at := -1.0
 var fire_ignited := 0
+var _keep := PackedInt32Array()   # materials blast() never removes (stations, bedrock), filled on first use
+var blasts := 0
+var blast_voxels := 0
+var blast_ms_max := 0.0
 var _fire_center := Vector3i.ZERO   # player voxel (world), updated by follow()
 # per-frame cost breakdown (main-thread ms), worst frames kept for the JSON
 var _cost := {}
 var _worst: Array = []
+var _last_cost := {}
 const WORST_KEEP := 5
 var _slow: Array = []          # whole frames over SLOW_MS: where did the time go (debug JSON)
 const SLOW_MS := 6.0
@@ -51,16 +56,25 @@ func _frame_cost() -> Dictionary:
 	var f := Engine.get_process_frames()
 	if _cost.get("frame", -1) != f:
 		_commit_cost()
-		_cost = {"frame": f, "shift_ms": 0.0, "flush_ms": 0.0, "load_ms": 0.0, "loads": 0, "tick_ms": 0.0, "push_ms": 0.0, "pushed": 0}
+		_cost = {"frame": f, "shift_ms": 0.0, "flush_ms": 0.0, "load_ms": 0.0, "loads": 0, "tick_ms": 0.0, "push_ms": 0.0, "edit_ms": 0.0, "pushed": 0}
 	return _cost
+
+
+## The bubble's cost breakdown of the previous frame (DebugCapture spikes), {} if it did nothing.
+func last_frame_cost() -> Dictionary:
+	var f := Engine.get_process_frames()
+	if _cost.get("frame", -1) == f - 1:
+		return _cost
+	return _last_cost if _last_cost.get("frame", -1) == f - 1 else {}
 
 
 func _commit_cost() -> void:
 	if _cost.is_empty():
 		return
-	var total: float = _cost["shift_ms"] + _cost["flush_ms"] + _cost["load_ms"] + _cost["tick_ms"] + _cost["push_ms"]
+	_last_cost = _cost
+	var total: float = _cost["shift_ms"] + _cost["flush_ms"] + _cost["load_ms"] + _cost["tick_ms"] + _cost["push_ms"] + _cost["edit_ms"]
 	_cost["total_ms"] = snappedf(total, 0.01)
-	for k in ["shift_ms", "flush_ms", "load_ms", "tick_ms", "push_ms"]:
+	for k in ["shift_ms", "flush_ms", "load_ms", "tick_ms", "push_ms", "edit_ms"]:
 		_cost[k] = snappedf(_cost[k], 0.01)
 	_worst.append(_cost)
 	_worst.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["total_ms"] > b["total_ms"])
@@ -271,26 +285,44 @@ func flush_all() -> void:
 ## Debug (fire_test=N on the command line): once the chunks around the player
 ## have loaded (6 s after start), ignite every burnable voxel within N voxels
 ## of the player.
-## Scans (2N+1)^3 voxels once from GDScript: debug only, keep N <= 16.
 func _run_fire_test() -> void:
 	if _fire_test_at < 0.0:
 		_fire_test_at = Time.get_ticks_msec() / 1000.0 + 6.0
 		return
 	if Time.get_ticks_msec() / 1000.0 < _fire_test_at:
 		return
-	var defs := GameMaterials.defs()
 	var c: Vector3i = _fire_center - origin * Settings.CHUNK   # player voxel in window coords
-	var r := _fire_test
-	for z in range(-r, r + 1):
-		for y in range(-r, r + 1):
-			for x in range(-r, r + 1):
-				var p := c + Vector3i(x, y, z)
-				var m := sim.get_voxel(p)
-				if m > 0 and defs[m - 1].get("burnable", false):
-					sim.ignite(p)
-					fire_ignited += 1
+	var r := Vector3i.ONE * _fire_test
+	fire_ignited += sim.ignite_box(c - r, c + r + Vector3i.ONE)
 	print("fire_test: ignited %d voxels around %s" % [fire_ignited, _fire_center])
 	_fire_test = 0
+
+
+## Mass edit (explosion, black hole, big dig; ADR 0012 requires these never to choke a
+## frame): every voxel whose centre lies within `radius` voxels of `center` (world
+## voxel coords) becomes `material`, in one native call. Stations and bedrock stay
+## (block entities must not vanish under their data). Only the window is edited:
+## outside it the world is frozen and not simulated; chunks still loading are skipped.
+## The changed chunks reach the terrain through the budgeted push queue, and the
+## kernel loosens static ground around the hole (ADR 0013), so craters collapse.
+## Returns the number of voxels changed.
+func blast(center: Vector3, radius: float, material := GameMaterials.AIR) -> int:
+	if not _ready:
+		return 0
+	if _keep.is_empty():
+		var defs := GameMaterials.defs()
+		for i in defs.size():
+			var d: Dictionary = defs[i]
+			if d.has("interact") or d.has("entity") or float(d.get("hp", 0)) >= 1e6:
+				_keep.append(i + 1)
+	var t0 := Time.get_ticks_usec()
+	var n := sim.fill_sphere(center - Vector3(origin * Settings.CHUNK), radius, material, _keep)
+	var ms := (Time.get_ticks_usec() - t0) / 1000.0
+	_frame_cost()["edit_ms"] = _frame_cost().get("edit_ms", 0.0) + ms
+	blasts += 1
+	blast_voxels += n
+	blast_ms_max = maxf(blast_ms_max, ms)
+	return n
 
 
 ## Player edits go through the sim when inside the bubble (so the material
@@ -381,6 +413,11 @@ func verify_against_generator(gen: WorldGen) -> Dictionary:
 	return {"checked": checked, "mismatched": mismatched, "air_where_solid": air_where_solid, "solid_where_air": solid_where_air, "examples": examples}
 
 
+## True once every chunk of the window holds terrain data (DebugCapture starts its budget clock here).
+func is_loaded() -> bool:
+	return _ready and _pending_loads.is_empty()
+
+
 func stats() -> Dictionary:
 	if not _ready:
 		return {}
@@ -391,4 +428,5 @@ func stats() -> Dictionary:
 		"shifts": shifts, "worst_frames": _worst, "slow_frames": _slow, "push_queue": _push_queue.size(), "push_queue_max": push_queue_max,
 		"burning": sim.count_burning() if _fire_test == 0 else -1, "fire_ignited": fire_ignited,
 		"store_writes": store_writes,
+		"blasts": blasts, "blast_voxels": blast_voxels, "blast_ms_max": snappedf(blast_ms_max, 0.01),
 	}

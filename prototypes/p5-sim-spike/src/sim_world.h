@@ -83,6 +83,8 @@ public:
     int get_voxel(Vector3i p) const;
     int get_flags(Vector3i p) const; // FLAG_BURNING etc. (0 outside)
     void ignite(Vector3i p);
+    int fill_sphere(Vector3 p_center, float p_radius, int p_material, const PackedInt32Array &p_keep);
+    int ignite_box(Vector3i p_min, Vector3i p_max);
     void mark_all_loaded(bool p_loaded);
     // v5 (P10): fall acceleration in cells/tick^2 for powders and liquids (0 = one cell per tick, P5 behaviour).
     // At 6.25 cm and 30 Hz, 9.8 m/s^2 is 0.174 cells/tick^2.

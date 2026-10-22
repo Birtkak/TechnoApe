@@ -93,6 +93,8 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_voxel", "pos"), &SimWorld::get_voxel);
     ClassDB::bind_method(D_METHOD("get_flags", "pos"), &SimWorld::get_flags);
     ClassDB::bind_method(D_METHOD("ignite", "pos"), &SimWorld::ignite);
+    ClassDB::bind_method(D_METHOD("fill_sphere", "center", "radius", "material", "keep"), &SimWorld::fill_sphere, DEFVAL(PackedInt32Array()));
+    ClassDB::bind_method(D_METHOD("ignite_box", "min", "max"), &SimWorld::ignite_box);
     ClassDB::bind_method(D_METHOD("mark_all_loaded", "loaded"), &SimWorld::mark_all_loaded);
     ClassDB::bind_method(D_METHOD("tick", "count"), &SimWorld::tick);
     ClassDB::bind_method(D_METHOD("get_chunk_bytes", "chunk", "depth_bytes"), &SimWorld::get_chunk_bytes, DEFVAL(1));
@@ -354,6 +356,87 @@ void SimWorld::ignite(Vector3i p) {
     cells_[i].flags |= FLAG_BURNING;
     cells_[i].aux = m.fire_hp;
     touch(p.x, p.y, p.z);
+}
+
+// Mass edit (ADR 0012: explosions, black holes, big digs never iterate voxels in
+// GDScript). Every cell whose centre lies within p_radius of p_center becomes
+// p_material, except cells of a material listed in p_keep (block entities, bedrock)
+// and cells of chunks that are not loaded yet (their data would be overwritten on
+// load). Dirty boxes and wakes are merged once per chunk, not per cell, so a
+// 32-voxel sphere costs about a millisecond. The changed chunks then reach the
+// terrain through the bubble's budgeted push queue like any other change.
+// Returns the number of cells changed.
+int SimWorld::fill_sphere(Vector3 p_center, float p_radius, int p_material, const PackedInt32Array &p_keep) {
+    wait_idle();
+    if (p_radius <= 0.0f || mats_.empty()) return 0;
+    const uint8_t m = (uint8_t)std::clamp(p_material, 0, (int)mats_.size() - 1);
+    bool keep[256] = {};
+    for (int k : p_keep)
+        if (k >= 0 && k < 256) keep[k] = true;
+    const float r2 = p_radius * p_radius;
+    const int x0 = std::max(0, (int)std::floor(p_center.x - p_radius)), x1 = std::min(W_ - 1, (int)std::ceil(p_center.x + p_radius));
+    const int y0 = std::max(0, (int)std::floor(p_center.y - p_radius)), y1 = std::min(H_ - 1, (int)std::ceil(p_center.y + p_radius));
+    const int z0 = std::max(0, (int)std::floor(p_center.z - p_radius)), z1 = std::min(D_ - 1, (int)std::ceil(p_center.z + p_radius));
+    if (x0 > x1 || y0 > y1 || z0 > z1) return 0;
+    int changed = 0;
+    for (int cz = z0 / CS; cz <= z1 / CS; cz++)
+        for (int cy = y0 / CS; cy <= y1 / CS; cy++)
+            for (int cx = x0 / CS; cx <= x1 / CS; cx++) {
+                const int ci = cidx(cx, cy, cz);
+                if (!loaded_[ci]) continue;
+                int lo[3] = {CS, CS, CS}, hi[3] = {-1, -1, -1};
+                const int zs = std::max(z0, cz * CS), ze = std::min(z1, cz * CS + CS - 1);
+                const int ys = std::max(y0, cy * CS), ye = std::min(y1, cy * CS + CS - 1);
+                const int xs = std::max(x0, cx * CS), xe = std::min(x1, cx * CS + CS - 1);
+                for (int z = zs; z <= ze; z++) {
+                    const float dz = z + 0.5f - p_center.z;
+                    for (int y = ys; y <= ye; y++) {
+                        const float dy = y + 0.5f - p_center.y;
+                        const float rem = r2 - dz * dz - dy * dy;
+                        if (rem < 0.0f) continue;
+                        for (int x = xs; x <= xe; x++) {
+                            const float dx = x + 0.5f - p_center.x;
+                            if (dx * dx > rem) continue;
+                            const int i = idx(x, y, z);
+                            const uint8_t cur = cells_[i].mat;
+                            if (cur == m || keep[cur]) continue;
+                            place(i, m);
+                            moved_[i] = stamp_;   // fresh change: static ground next to the crater may loosen (ADR 0013)
+                            changed++;
+                            const int l[3] = {x & (CS - 1), y & (CS - 1), z & (CS - 1)};
+                            for (int a = 0; a < 3; a++) { lo[a] = std::min(lo[a], l[a]); hi[a] = std::max(hi[a], l[a]); }
+                        }
+                    }
+                }
+                if (hi[0] < 0) continue;
+                dirty_[ci].store(1, std::memory_order_relaxed);
+                merge_dbox(ci, box_union(box_point(lo[0], lo[1], lo[2]), box_point(hi[0], hi[1], hi[2])));
+                for (int oz = -1; oz <= 1; oz++)   // the chunk and its neighbours settle around the hole
+                    for (int oy = -1; oy <= 1; oy++)
+                        for (int ox = -1; ox <= 1; ox++) {
+                            const int nx = cx + ox, ny = cy + oy, nz = cz + oz;
+                            if (nx >= 0 && ny >= 0 && nz >= 0 && nx < CX_ && ny < CY_ && nz < CZ_) wake_full(cidx(nx, ny, nz));
+                        }
+            }
+    return changed;
+}
+
+// Ignites every burnable cell in [p_min, p_max) (fire tests, fire spells). Returns the count.
+int SimWorld::ignite_box(Vector3i p_min, Vector3i p_max) {
+    wait_idle();
+    int n = 0;
+    for (int z = std::max(0, p_min.z); z < std::min(D_, p_max.z); z++)
+        for (int y = std::max(0, p_min.y); y < std::min(H_, p_max.y); y++)
+            for (int x = std::max(0, p_min.x); x < std::min(W_, p_max.x); x++) {
+                const int i = idx(x, y, z);
+                const MaterialDef &md = mats_[cells_[i].mat];
+                if (!md.burnable || (cells_[i].flags & FLAG_BURNING)) continue;
+                cells_[i].flags |= FLAG_BURNING;
+                cells_[i].aux = md.fire_hp;
+                touch(x, y, z);
+                n++;
+            }
+    return n;
 }
 
 // ---------- marks ----------

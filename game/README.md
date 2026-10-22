@@ -36,6 +36,15 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 open_inventory=1
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 target=forest fire_test=14 duration=40 out=res://out/fire
 Godot_..._console.exe --headless --path game --script res://tools/fire_bench.gd   # fire pacing + cost; set=tall_grass.fire_hp:40 only=grass_field
 
+# budget check (ADR 0009, 0014): every autopilot JSON has budget_ok + budget{p99,max,ram,vram,loaded}, judged on
+# `duration` s of wall-clock frames after the world settled (load_s: bubble loaded, voxel tasks idle 30 frames;
+# load_settled=false if the 10 s cap hit first); frames after a filmstrip readback are excluded (capture_stalls);
+# rss_mb is the process working set; spikes[] splits frames > 8.3 ms into process/physics/render cpu+gpu/other
+# mass edits (ADR 0014): blast=R craters of R m on the ground around the player every blast_every s (default 2),
+# blast_count=N per volley; JSON sim.blasts, blast_voxels, blast_ms_max (native SimWorld.fill_sphere)
+Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=4 blast_every=1 duration=20 capture_every=1 out=res://out/blast
+Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=1 blast_count=50 duration=20 out=res://out/tnt
+
 # generator probes (headless): stats + biome map; settle test around a feature
 Godot_..._console.exe --headless --path game --script res://tools/gen_probe.gd -- seed=1337 radius=2048
 Godot_..._console.exe --headless --path game --script res://tools/settle_probe.gd -- target=lake ticks=60
