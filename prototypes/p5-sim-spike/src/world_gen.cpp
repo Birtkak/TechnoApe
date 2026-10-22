@@ -30,6 +30,7 @@ void WorldGen::_bind_methods() {
     BIND_ENUM_CONSTANT(BIOME_HIGHLANDS);
     BIND_ENUM_CONSTANT(BIOME_MOUNTAINS);
     BIND_ENUM_CONSTANT(BIOME_SNOWY_PEAKS);
+    BIND_ENUM_CONSTANT(BIOME_RIVER);
 }
 
 static void setup(FastNoiseLite &n, int seed, float freq, int octaves, FastNoiseLite::FractalType ft = FastNoiseLite::FractalType_FBm) {
@@ -59,6 +60,15 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup(n_spag2_, seed_ + 9, 0.018f, 1);
     setup(n_ore_, seed_ + 10, 0.09f, 1);
     setup(n_beach_, seed_ + 11, 0.01f, 1);
+    setup(n_river_, seed_ + 12, 0.0009f, 2);
+}
+
+uint32_t WorldGen::hash3(int a, int b, int c) {
+    uint32_t h = (uint32_t)a * 374761393u + (uint32_t)b * 668265263u + (uint32_t)c * 2246822519u;
+    h ^= h >> 13;
+    h *= 1274126177u;
+    h ^= h >> 16;
+    return h;
 }
 
 // Piecewise-linear spline through (xs, ys), clamped at the ends.
@@ -103,12 +113,30 @@ WorldGen::Column WorldGen::column(int x, int z) const {
     // Under water, damp relief so the sea floor is gentle.
     if (base < 0.0f) relief *= 0.25f;
     float detail = n_detail_.GetNoise(fx, fz) * 4.0f;
-    int h = (int)std::lround((float)sea_ + base + relief + detail);
+    float hf = (float)sea_ + base + relief + detail;
+
+    // Rivers: a narrow band where the river noise crosses zero. Surface at sea
+    // level (Minecraft style), bed 3 below, banks blend over the mask. Rivers
+    // cut valleys through hills; deep canyons through mountains.
+    col.river = 0.0f;
+    if (hf > (float)sea_ - 4.0f && col.c > -0.3f) {
+        float rn = std::fabs(n_river_.GetNoise(fx, fz));
+        float width = 0.035f + 0.02f * smoothstep(0.1f, 0.7f, col.c); // wider rivers inland
+        float mask = 1.0f - smoothstep(0.0f, width, rn);
+        if (mask > 0.0f) {
+            float bank = smoothstep(0.0f, 1.0f, mask);
+            float target = (float)sea_ - 3.0f;
+            hf = hf + (target - hf) * bank;
+            col.river = mask;
+        }
+    }
+    int h = (int)std::lround(hf);
     col.height = std::clamp(h, 8, world_height_ - 8);
 
     // Biome
     int above = col.height - sea_;
     if (col.c < -0.55f) col.biome = BIOME_DEEP_OCEAN;
+    else if (col.river > 0.55f && col.height < sea_) col.biome = BIOME_RIVER;
     else if (col.height < sea_ - 1) col.biome = BIOME_OCEAN;
     else if (above <= 3) col.biome = BIOME_BEACH;
     else if (above > 300) col.biome = BIOME_SNOWY_PEAKS;
@@ -135,13 +163,56 @@ Dictionary WorldGen::column_info(int x, int z) const {
     d["peaks_valleys"] = c.pv;
     d["temperature"] = c.t;
     d["humidity"] = c.h;
+    d["river"] = c.river;
     return d;
 }
 
 String WorldGen::biome_name(int b) {
-    static const char *names[] = {"deep_ocean", "ocean", "beach", "plains", "forest", "desert", "tundra", "highlands", "mountains", "snowy_peaks"};
+    static const char *names[] = {"deep_ocean", "ocean", "beach", "plains", "forest", "desert", "tundra", "highlands", "mountains", "snowy_peaks", "river"};
     if (b < 0 || b >= BIOME_COUNT) return "unknown";
     return names[b];
+}
+
+// ---------- trees ----------
+
+bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
+    uint32_t hsh = hash3(cx, cz, seed_);
+    int jx = (int)(hsh & 7), jz = (int)((hsh >> 3) & 7);
+    int tx = cx * TREE_CELL + jx, tz = cz * TREE_CELL + jz;
+    Column col = column(tx, tz);
+    if (col.height <= sea_ + 2 || col.river > 0.25f) return false;
+    float density;
+    switch (col.biome) {
+        case BIOME_FOREST: density = 0.55f; break;
+        case BIOME_PLAINS: density = 0.06f; break;
+        case BIOME_HIGHLANDS: density = 0.18f; break;
+        case BIOME_TUNDRA: density = 0.08f; break;
+        case BIOME_MOUNTAINS: density = 0.05f; break;
+        default: return false;
+    }
+    float roll = (float)((hsh >> 6) & 1023) / 1023.0f;
+    if (roll >= density) return false;
+    out.x = tx;
+    out.z = tz;
+    out.base = col.height;
+    out.trunk_h = 8 + (int)((hsh >> 16) % 6);   // 4..6.5 m trunks (0.5 m voxels)
+    out.radius = 2 + (int)((hsh >> 20) & 1);   // canopy radius 2..3
+    return true;
+}
+
+// Trees whose canopy can touch the horizontal range [x0,x1] x [z0,z1].
+int WorldGen::trees_near(int x0, int z0, int x1, int z1, Tree *out, int max_out) const {
+    int n = 0;
+    int cx0 = (int)std::floor((float)(x0 - TREE_MAX_RADIUS) / TREE_CELL);
+    int cx1 = (int)std::floor((float)(x1 + TREE_MAX_RADIUS) / TREE_CELL);
+    int cz0 = (int)std::floor((float)(z0 - TREE_MAX_RADIUS) / TREE_CELL);
+    int cz1 = (int)std::floor((float)(z1 + TREE_MAX_RADIUS) / TREE_CELL);
+    for (int cz = cz0; cz <= cz1 && n < max_out; cz++)
+        for (int cx = cx0; cx <= cx1 && n < max_out; cx++) {
+            Tree t;
+            if (tree_at_cell(cx, cz, t)) out[n++] = t;
+        }
+    return n;
 }
 
 inline bool WorldGen::is_cave(int x, int y, int z, int height) const {
@@ -180,6 +251,13 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
     bool any = false;
     const bool do_caves = lod == 0;
     const bool do_ores = lod == 0;
+    // Trees: stamped at LOD 0..2 so forests show on the horizon as green blobs.
+    Tree trees[64];
+    int ntrees = 0;
+    const int y_top = origin.y + sy * step;
+    if (lod <= 2 && y_top > sea_ && origin.y < world_height_) {
+        ntrees = trees_near(origin.x, origin.z, origin.x + sx * step, origin.z + sz * step, trees, 64);
+    }
     for (int z = 0; z < sz; z++) {
         const int wz = origin.z + z * step;
         for (int x = 0; x < sx; x++) {
@@ -187,10 +265,33 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
             const Column col = column(wx, wz);
             const int h = col.height;
             const bool beach_sand = col.biome == BIOME_BEACH || (col.biome == BIOME_OCEAN && col.c > -0.4f);
+            const bool river_bank = col.river > 0.08f && h <= sea_ + 2;
             uint16_t *colp = w + sy * (x + sx * z); // y is fastest (VoxelBuffer order)
+            // Trees touching this column: trunk (dx=dz=0) and canopy layers.
+            int trunk_lo = 0, trunk_hi = -1;
+            int can_lo = 0, can_hi = -1, can_base = 0, can_r = 0, can_d2 = 0;
+            for (int t = 0; t < ntrees; t++) {
+                const int dx = wx - trees[t].x, dz = wz - trees[t].z;
+                const int d2 = dx * dx + dz * dz;
+                if (d2 > trees[t].radius * trees[t].radius + 1) continue;
+                const int top = trees[t].base + trees[t].trunk_h;
+                if (dx == 0 && dz == 0) { trunk_lo = trees[t].base; trunk_hi = top + 1; }
+                if (can_hi < 0 || d2 < can_d2) {
+                    can_base = top - 2; can_lo = can_base; can_hi = top + 2; can_r = trees[t].radius; can_d2 = d2;
+                }
+            }
             for (int y = 0; y < sy; y++) {
                 const int wy = origin.y + y * step;
                 uint16_t m = AIR;
+                if (wy >= trunk_lo && wy <= trunk_hi) {
+                    m = WOOD;
+                } else if (can_hi >= 0 && wy >= can_lo && wy <= can_hi && wy >= h) {
+                    // canopy: layer radius shrinks toward top and bottom
+                    const int k = wy - can_base;              // 0..4
+                    const int lr = (k == 0 || k == 3) ? can_r - 1 : (k == 4 ? can_r - 2 : can_r);
+                    if (lr >= 0 && can_d2 <= lr * lr + (lr > 1 ? 1 : 0)) m = LEAVES;
+                }
+                if (m != AIR) { colp[y] = m; any = true; continue; }
                 if (wy < 3) {
                     m = BEDROCK;
                 } else if (wy < h) {
@@ -202,11 +303,14 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                     } else {
                         // top layers by biome
                         const bool top = depth == 1;
-                        switch (col.biome) {
-                            case BIOME_DEEP_OCEAN: m = GRAVEL; break;
-                            case BIOME_OCEAN: m = beach_sand ? SAND : GRAVEL; break;
-                            case BIOME_BEACH: m = SAND; break;
-                            case BIOME_DESERT: m = SAND; break;
+                        if (river_bank) {
+                            m = (col.river > 0.5f) ? GRAVEL_STATIC : SAND_STATIC;
+                        } else switch (col.biome) {
+                            case BIOME_RIVER: m = GRAVEL_STATIC; break;
+                            case BIOME_DEEP_OCEAN: m = GRAVEL_STATIC; break;
+                            case BIOME_OCEAN: m = beach_sand ? SAND_STATIC : GRAVEL_STATIC; break;
+                            case BIOME_BEACH: m = SAND_STATIC; break;
+                            case BIOME_DESERT: m = SAND_STATIC; break;
                             case BIOME_TUNDRA: m = top ? SNOW : DIRT; break;
                             case BIOME_SNOWY_PEAKS: m = top ? SNOW : STONE; break;
                             case BIOME_MOUNTAINS: m = (top && col.pv > 0.2f) ? STONE : (top ? GRASS : DIRT); break;
@@ -245,6 +349,7 @@ PackedByteArray WorldGen::map_image(int center_x, int center_z, int radius, int 
     static const uint8_t colors[BIOME_COUNT][3] = {
         {20, 40, 120}, {40, 80, 200}, {230, 215, 150}, {110, 190, 80}, {40, 130, 50},
         {225, 200, 110}, {200, 210, 220}, {130, 150, 90}, {120, 120, 125}, {245, 245, 250},
+        {70, 140, 230},
     };
     for (int j = 0; j < n; j++)
         for (int i = 0; i < n; i++) {

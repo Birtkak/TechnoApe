@@ -10,6 +10,8 @@ var autopilot := false
 var duration := 20.0
 var capture_every := 0.0
 var out_dir := "res://out"
+var altitude_m := 30.0
+var speed_m := 6.0
 var _strip: FrameSheet
 var _frame_ms := PackedFloat64Array()
 var _elapsed := 0.0
@@ -24,6 +26,8 @@ func _ready() -> void:
 	duration = float(args.get("duration", "20"))
 	capture_every = float(args.get("capture_every", "0"))
 	out_dir = args.get("out", "res://out")
+	altitude_m = float(args.get("alt", "30"))
+	speed_m = float(args.get("speed", "6"))
 	if capture_every > 0.0:
 		_strip = FrameSheet.new(320, 180, 5)
 	if args.get("vsync", "1") == "0":

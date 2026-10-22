@@ -26,6 +26,9 @@ const COAL_ORE := 16
 const IRON_ORE := 17
 const COPPER_ORE := 18
 const TIN_ORE := 19
+const LEAVES := 20
+const SAND_STATIC := 21     # natural ground sand: static until disturbed (Noita's static ground)
+const GRAVEL_STATIC := 22
 
 const ATLAS_TILES := Vector2i(8, 4)
 
@@ -51,6 +54,9 @@ static func defs() -> Array:
 		{"name": "iron_ore", "cell_type": "solid", "density": 11, "hp": 1200, "tiles": [17, 17, 17], "transparent": false},
 		{"name": "copper_ore", "cell_type": "solid", "density": 11, "hp": 1100, "tiles": [18, 18, 18], "transparent": false},
 		{"name": "tin_ore", "cell_type": "solid", "density": 11, "hp": 1100, "tiles": [19, 19, 19], "transparent": false},
+		{"name": "leaves", "cell_type": "solid", "density": 10, "hp": 20, "burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [20, 20, 20], "transparent": true},
+		{"name": "sand_static", "cell_type": "liquid", "liquid_sand": true, "liquid_static": true, "density": 3, "tiles": [4, 4, 4], "transparent": false, "loose": 4},
+		{"name": "gravel_static", "cell_type": "liquid", "liquid_sand": true, "liquid_static": true, "density": 4, "tiles": [15, 15, 15], "transparent": false, "loose": 15},
 	]
 
 

@@ -66,7 +66,8 @@ tiles = [
     noise_tile((128, 128, 132), 14, (200, 150, 110), 0.22),   # 17 iron ore
     noise_tile((128, 128, 132), 14, (210, 120, 70), 0.22),    # 18 copper ore
     noise_tile((128, 128, 132), 14, (200, 205, 215), 0.22),   # 19 tin ore
-] + [noise_tile((255, 0, 255), 0) for _ in range(12)]         # 20..31 spare (magenta = missing)
+    noise_tile((45, 120, 40), 22, (25, 80, 30), 0.3),         # 20 leaves
+] + [noise_tile((255, 0, 255), 0) for _ in range(11)]         # 21..31 spare (magenta = missing)
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))
 for i, t in enumerate(tiles):

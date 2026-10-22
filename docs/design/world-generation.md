@@ -37,10 +37,34 @@ not carved under the sea floor. Max height ≈ sea + 606, under the ceiling.
   34×33×34 when mesh blocks are 32): never assume a cube.
 - Match the buffer's channel depth (8/16/32-bit) when writing bytes.
 
+## Rivers (2026-10-22)
+A river noise (~1.1 km period) defines channels where it crosses zero:
+mask = 1 − smoothstep(0, width, |n|), width 0.035–0.055 (wider inland).
+Inside the mask the height blends toward sea − 3 and the normal water fill
+puts the surface at sea level, so rivers connect to the ocean like
+Minecraft's. Banks within the mask get sand, the bed gravel. Rivers cut
+valleys through hills and canyons through mountains (same carve). About
+1.2 % of land area. No lakes above sea level yet.
+
+## Trees (2026-10-22)
+Trees sit on a jittered 8-voxel grid: one hash per cell (seed, cell) decides
+existence (biome density: forest 55 %, highlands 18 %, tundra 8 %, plains
+6 %, mountains 5 %), position, trunk height (8–13 voxels = 4–6.5 m) and
+canopy radius (2–3). Any block asks for the trees whose canopy can touch it
+(`trees_near`, ±3 voxels), so trees cross block borders deterministically
+and need no neighbour data. Stamped at LOD 0–2 so forests stay visible on
+the horizon as blobs. Trunk = wood, canopy = leaves (burnable, fire_hp 40:
+forest fires work). Cost: +25 µs per LOD 0 block, +28 µs per LOD 2 block.
+
+## Static ground
+Natural sand and gravel are generated as `sand_static` / `gravel_static`
+(Noita's `liquid_static` ground): without this, beaches on terraces slid
+diagonally into the sea under the powder rules (3,400 chunk pushes in a
+25 s fly-through). Mining them yields the loose material (`loose` field).
+
 ## Next
-- Trees and structures (needs a placement pass that can write across block
-  borders: generate "decorations" from a deterministic per-chunk RNG and
-  stamp them when neighbouring blocks exist).
-- Rivers (gradient descent on the height field) and lakes above sea level.
-- Biome-specific vegetation materials; sandstone under deserts; clay.
-- Village/dungeon stamps for the Noita-style dungeons.
+- Lakes above sea level; waterfalls where rivers meet cliffs.
+- Biome vegetation (grass tufts, flowers, cacti), sandstone under deserts, clay.
+- Structures: villages, and the Noita-style dungeons (stamps from a
+  deterministic per-region RNG; the same cross-border trick as trees).
+- Biome blending at borders (currently hard edges).

@@ -36,8 +36,9 @@ func _ready() -> void:
 	player = Player.new()
 	player.name = "Player"
 	player.world = world
-	var h := world.surface_height(0, 0)
-	player.position = Vector3(0.5, h + 3, 0.5)
+	var spawn := _find_spawn()
+	var h := world.surface_height(spawn.x, spawn.y)
+	player.position = Vector3(spawn.x + 0.5, h + 3, spawn.y + 0.5)
 	add_child(player)
 	player.break_requested.connect(_on_break)
 	player.place_requested.connect(_on_place)
@@ -55,9 +56,24 @@ func _ready() -> void:
 	if DebugCapture.autopilot:
 		player.autopilot = true
 		player.flying = true
-		player.position.y = h + Settings.m2v(30.0)
+		player.position.y = h + Settings.m2v(DebugCapture.altitude_m)
+		player.autopilot_speed_m = DebugCapture.speed_m
 	else:
 		player.capture_mouse(true)
+
+
+## Spiral out from the origin for dry, flat-ish land (plains or forest).
+func _find_spawn() -> Vector2i:
+	var gen := world.generator
+	for r in range(0, 2048, 32):
+		for a in range(0, 360, 30):
+			var x := int(r * cos(deg_to_rad(a)))
+			var z := int(r * sin(deg_to_rad(a)))
+			var info: Dictionary = gen.column_info(x, z)
+			var b: int = info["biome"]
+			if (b == WorldGen.BIOME_PLAINS or b == WorldGen.BIOME_FOREST) and int(info["height"]) > Settings.SEA_LEVEL_VOXEL + 4 and float(info["river"]) < 0.05:
+				return Vector2i(x, z)
+	return Vector2i.ZERO
 
 
 func _process(_delta: float) -> void:

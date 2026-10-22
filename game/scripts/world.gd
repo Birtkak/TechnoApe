@@ -37,6 +37,10 @@ func _ready() -> void:
 	terrain.generate_collisions = true
 	terrain.collision_lod_count = 1
 	terrain.full_load_mode_enabled = false
+	# Keep generated data for all LODs in range so edits near the player cascade
+	# to the horizon rings (otherwise godot_voxel logs "destination block not
+	# found when cascading edits" and far LODs never show the edit).
+	terrain.cache_generated_blocks = Settings.cache_generated_blocks
 	if Settings.persist_world:
 		# Edited blocks are saved to user://worlds/<seed>.sqlite when they unload
 		# (ADR 0002: save format must be chunk-based and versioned; SQLite is the

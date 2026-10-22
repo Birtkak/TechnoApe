@@ -14,6 +14,7 @@ var render_distance_m := 96.0           # full-detail (LOD 0) radius
 var view_distance_m := 1024.0           # LOD horizon
 var lod_count := 7
 var terrain_mesh_block := 32            # 16 or 32 voxels; 32 = 3x fewer draw calls (measured), coarser re-mesh granularity
+var cache_generated_blocks := true      # store generated LOD data so edits cascade to far LODs (memory vs correctness)
 
 # Simulation
 var sim_tick_hz := 30.0
@@ -71,6 +72,7 @@ func apply_cmdline() -> Dictionary:
 			"view_distance_m": view_distance_m = float(kv[1])
 			"lod_count": lod_count = int(kv[1])
 			"terrain_mesh_block": terrain_mesh_block = int(kv[1])
+			"cache_generated": cache_generated_blocks = kv[1] == "1"
 			"sim_tick_hz": sim_tick_hz = float(kv[1])
 			"sim_threads": sim_threads = int(kv[1])
 			"world_seed": world_seed = int(kv[1])
