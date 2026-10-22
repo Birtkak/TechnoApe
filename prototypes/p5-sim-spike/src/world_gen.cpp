@@ -159,7 +159,15 @@ int WorldGen::height_at(int x, int z) const {
     Column c = column_base(x, z, false);
     Hydro hy = hydro_at(x, z, c.height);
     if (hy.river > 0.0f) return std::min(c.height, hy.bed);
+    if (hy.marsh) return marsh_floor(c.height, hy);
     return c.height;
+}
+
+// Marsh floor: the hollow is filled flat to marsh_level (wet ground); puddle
+// columns are cut 1-2 voxels below it and hold static water.
+int WorldGen::marsh_floor(int h, const Hydro &hy) {
+    if (hy.puddle) return std::clamp(h, hy.marsh_level - 2, hy.marsh_level - 1);
+    return std::max(h, hy.marsh_level);
 }
 
 int WorldGen::biome_at(int x, int z) const {
@@ -189,6 +197,9 @@ Dictionary WorldGen::column_info(int x, int z) const {
     d["water_level"] = hy.water_level;
     d["lake"] = hy.lake;
     d["spring"] = hy.spring;
+    d["marsh"] = hy.marsh;
+    d["puddle"] = hy.puddle;
+    d["fall_top"] = hy.fall_top;
     return d;
 }
 
@@ -212,7 +223,7 @@ std::shared_ptr<WorldGen::HydroTile> WorldGen::hydro_tile(int tx, int tz) const 
     t->tx = tx;
     t->tz = tz;
     build_hydro_tile(*t);
-    if (hydro_cache_.size() > 48) hydro_cache_.clear(); // crude bound; tiles are cheap to rebuild
+    if (hydro_cache_.size() > 64) hydro_cache_.clear(); // crude bound; tiles are cheap to rebuild (~0.2 s)
     hydro_cache_[key] = t;
     return t;
 }
@@ -226,6 +237,9 @@ void WorldGen::build_hydro_tile(HydroTile &t) const {
     t.lake.assign(n, 0);
     t.jx.resize(n);
     t.jz.resize(n);
+    t.fall_t0.assign(n, -1.0f);
+    t.fall_t1.assign(n, -1.0f);
+    t.fall_top.assign(n, -1);
     const int wx0 = (t.tx * HTILE - HMARGIN) * HCELL;
     const int wz0 = (t.tz * HTILE - HMARGIN) * HCELL;
     for (int j = 0; j < HWIN; j++)
@@ -271,7 +285,7 @@ void WorldGen::build_hydro_tile(HydroTile &t) const {
     // D8 flow direction on the filled surface (steepest descent), lakes where filled.
     for (int k = 0; k < n; k++) {
         const int i = k % HWIN, j = k / HWIN;
-        t.lake[k] = (t.filled[k] - t.h[k] > 3.0f && t.h[k] >= (float)sea_) ? 1 : 0; // puddles < 1.5 m deep are not lakes
+        t.lake[k] = (t.filled[k] - t.h[k] > LAKE_MIN_DEPTH && t.h[k] >= (float)sea_) ? 1 : 0; // shallower hollows: marsh or dry
         if (t.h[k] < (float)sea_) { t.dir[k] = -1; continue; }
         float best = 0.0f;
         int bd = -1;
@@ -293,19 +307,86 @@ void WorldGen::build_hydro_tile(HydroTile &t) const {
         const int nk = (j + D8Z[t.dir[k]]) * HWIN + (i + D8X[t.dir[k]]);
         t.acc[nk] += t.acc[k];
     }
+    // Waterfalls: for stream segments that drop >= FALL_MIN between cells, sample
+    // the real ground along the jittered segment and hang the sheet over the
+    // steepest 2/12 of it, if that part alone is a cliff (>= 6 voxels).
+    for (int k = 0; k < n; k++) {
+        if (t.dir[k] < 0 || t.lake[k] || t.acc[k] < STREAM_ACC) continue;
+        const int i = k % HWIN, j = k / HWIN;
+        const int nk = (j + D8Z[t.dir[k]]) * HWIN + (i + D8X[t.dir[k]]);
+        if (t.filled[k] - t.filled[nk] < FALL_MIN) continue;
+        const float ax = (float)(wx0 + i * HCELL + HCELL / 2) + t.jx[k];
+        const float az = (float)(wz0 + j * HCELL + HCELL / 2) + t.jz[k];
+        const float bx = (float)(wx0 + (nk % HWIN) * HCELL + HCELL / 2) + t.jx[nk];
+        const float bz = (float)(wz0 + (nk / HWIN) * HCELL + HCELL / 2) + t.jz[nk];
+        const int S = 12;
+        int g[S + 1];
+        for (int q = 0; q <= S; q++) {
+            const float f = (float)q / S;
+            g[q] = column_base((int)std::lround(ax + (bx - ax) * f), (int)std::lround(az + (bz - az) * f), false).height;
+        }
+        int best = 0, bq = -1;
+        for (int q = 0; q + 2 <= S; q++) {
+            const int d = g[q] - g[q + 2];
+            if (d > best) { best = d; bq = q; }
+        }
+        if (bq < 0 || best < 6) continue;
+        t.fall_t0[k] = (float)bq / S;
+        t.fall_t1[k] = (float)(bq + 2) / S;
+        t.fall_top[k] = (int16_t)(g[bq] - 1);
+    }
+}
+static inline int floordiv(int a, int b) { return (int)std::floor((float)a / (float)b); }
+
+const WorldGen::HydroTile *WorldGen::tile_cached(int tx, int tz) const {
+    // Each generator thread touches at most a few tiles at a time (its own and
+    // the neighbours of the seam band); avoid the global mutex for those.
+    struct Slot { int tx = 0, tz = 0; std::shared_ptr<HydroTile> t; };
+    thread_local Slot slots[4];
+    thread_local int next = 0;
+    for (auto &s : slots)
+        if (s.t && s.tx == tx && s.tz == tz) return s.t.get();
+    Slot &s = slots[(next++) & 3];
+    s.t = hydro_tile(tx, tz);
+    s.tx = tx;
+    s.tz = tz;
+    return s.t.get();
 }
 
-bool WorldGen::hydro_cell(int x, int z, const HydroTile *&tile, int &ci) const {
-    // Which tile owns this column, and the window cell index inside it.
-    const int cx = (int)std::floor((float)x / HCELL), cz = (int)std::floor((float)z / HCELL);
-    const int tx = (int)std::floor((float)cx / HTILE), tz = (int)std::floor((float)cz / HTILE);
-    thread_local std::shared_ptr<HydroTile> cached;
-    if (!cached || cached->tx != tx || cached->tz != tz) cached = hydro_tile(tx, tz);
-    tile = cached.get();
+bool WorldGen::hydro_ctx(int x, int z, HydroCtx &ctx) const {
+    const int cx = floordiv(x, HCELL), cz = floordiv(z, HCELL);
+    const int tx = floordiv(cx, HTILE), tz = floordiv(cz, HTILE);
+    ctx.t = tile_cached(tx, tz);
     const int i = cx - (tx * HTILE - HMARGIN), j = cz - (tz * HTILE - HMARGIN);
     if (i < 1 || j < 1 || i >= HWIN - 1 || j >= HWIN - 1) return false;
-    ci = j * HWIN + i;
+    ctx.ci = j * HWIN + i;
+    // Seam blending: within HBLEND cells of the core border the accumulation is
+    // mixed with the neighbour tile value, 50/50 exactly at the border, so the
+    // same column gives the same river width from both sides.
+    const float fx = (float)x / HCELL - (float)(tx * HTILE);
+    const float fz = (float)z / HCELL - (float)(tz * HTILE);
+    ctx.bx = ctx.bz = nullptr;
+    ctx.wx = ctx.wz = 0.0f;
+    if (fx < HBLEND) { ctx.bx = tile_cached(tx - 1, tz); ctx.wx = 0.5f * (1.0f - fx / HBLEND); }
+    else if (HTILE - fx < HBLEND) { ctx.bx = tile_cached(tx + 1, tz); ctx.wx = 0.5f * (1.0f - (HTILE - fx) / HBLEND); }
+    if (fz < HBLEND) { ctx.bz = tile_cached(tx, tz - 1); ctx.wz = 0.5f * (1.0f - fz / HBLEND); }
+    else if (HTILE - fz < HBLEND) { ctx.bz = tile_cached(tx, tz + 1); ctx.wz = 0.5f * (1.0f - (HTILE - fz) / HBLEND); }
     return true;
+}
+
+float WorldGen::HydroCtx::acc(int k) const {
+    float a = t->acc[k];
+    if (!bx && !bz) return a;
+    const int cx = t->tx * HTILE - HMARGIN + k % HWIN;
+    const int cz = t->tz * HTILE - HMARGIN + k / HWIN;
+    auto other = [&](const HydroTile *o, float w) {
+        const int oi = cx - (o->tx * HTILE - HMARGIN), oj = cz - (o->tz * HTILE - HMARGIN);
+        if (oi < 0 || oj < 0 || oi >= HWIN || oj >= HWIN) return;
+        a = a * (1.0f - w) + o->acc[oj * HWIN + oi] * w;
+    };
+    if (bx) other(bx, wx);
+    if (bz) other(bz, wz);
+    return a;
 }
 
 static inline float seg_dist(float px, float pz, float ax, float az, float bx, float bz, float &tout) {
@@ -319,15 +400,17 @@ static inline float seg_dist(float px, float pz, float ax, float az, float bx, f
 }
 
 WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
-    Hydro out{0.0f, 0, -1, false, false};
-    const HydroTile *t = nullptr;
-    int ci = 0;
-    if (!hydro_cell(x, z, t, ci)) return out;
+    Hydro out{0.0f, 0, -1, false, false, false, false, -1, -1};
+    HydroCtx c;
+    if (!hydro_ctx(x, z, c)) return out;
+    const HydroTile *t = c.t;
+    const int ci = c.ci;
     const int i = ci % HWIN, j = ci / HWIN;
     const int wx0 = (t->tx * HTILE - HMARGIN) * HCELL;
     const int wz0 = (t->tz * HTILE - HMARGIN) * HCELL;
     auto centre_x = [&](int k) { return (float)(wx0 + (k % HWIN) * HCELL + HCELL / 2) + t->jx[k]; };
     auto centre_z = [&](int k) { return (float)(wz0 + (k / HWIN) * HCELL + HCELL / 2) + t->jz[k]; };
+    auto downstream = [&](int k) { return (k / HWIN + D8Z[t->dir[k]]) * HWIN + (k % HWIN + D8X[t->dir[k]]); };
     // Lakes: the filled level of this cell or a neighbouring lake cell.
     float lake_level = -1.0f;
     for (int dj = -1; dj <= 1; dj++)
@@ -339,6 +422,19 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
         out.lake = true;
         out.water_level = (int)std::floor(lake_level);
     }
+    // Marsh: a humid, warm lowland hollow too shallow for a lake. Only the
+    // lowest columns flood (puddles); the rest is wet ground.
+    const float dd = t->filled[ci] - t->h[ci];
+    if (!out.lake && !t->lake[ci] && t->h[ci] >= (float)sea_ && dd > MARSH_MIN_DEPTH && dd <= LAKE_MIN_DEPTH && t->h[ci] - (float)sea_ < 48.0f) {
+        const float hum = n_hum_.GetNoise((float)x, (float)z), tmp = n_temp_.GetNoise((float)x, (float)z);
+        if (hum > 0.05f && tmp > -0.35f) {
+            out.marsh = true;
+            out.marsh_level = (int)std::floor(t->filled[ci]) - 2;
+            // puddles are coherent blobs (~20 m) of the flat floor
+            out.puddle = n_detail_.GetNoise((float)x * 1.7f + 3000.0f, (float)z * 1.7f + 3000.0f) > 0.12f;
+            if (out.puddle) out.water_level = std::max(out.water_level, out.marsh_level);
+        }
+    }
     // Rivers: segments from each nearby cell with enough drainage to its downstream cell.
     float best_d = 1e9f;
     int best_k = -1;
@@ -346,32 +442,37 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
     for (int dj = -1; dj <= 1; dj++)
         for (int di = -1; di <= 1; di++) {
             const int k = (j + dj) * HWIN + (i + di);
-            if (t->acc[k] < STREAM_ACC || t->dir[k] < 0 || t->lake[k]) continue;
-            const int nk = (k / HWIN + D8Z[t->dir[k]]) * HWIN + (k % HWIN + D8X[t->dir[k]]);
+            if (t->dir[k] < 0 || t->lake[k] || c.acc(k) < STREAM_ACC) continue;
+            const int nk = downstream(k);
             float tt;
             float d = seg_dist((float)x, (float)z, centre_x(k), centre_z(k), centre_x(nk), centre_z(nk), tt);
             if (d < best_d) { best_d = d; best_k = k; best_t = tt; }
         }
     if (best_k >= 0) {
-        const float acc = t->acc[best_k];
+        const float acc = c.acc(best_k);
         const float strength = std::sqrt(acc / STREAM_ACC);           // 1 at a spring .. ~10 for big rivers
         const float half_w = std::clamp(1.2f + 1.3f * strength, 1.5f, 18.0f);
         const float depth = std::clamp(1.0f + 0.6f * strength, 1.0f, 7.0f);
         const float bank_w = half_w * 1.5f + 6.0f; // gentle banks: valley floor widens with the river
         if (best_d < half_w + bank_w) {
-            const int nk = (best_k / HWIN + D8Z[t->dir[best_k]]) * HWIN + (best_k % HWIN + D8X[t->dir[best_k]]);
-            float surf = t->filled[best_k] + (t->filled[nk] - t->filled[best_k]) * best_t;
+            const int nk = downstream(best_k);
+            const float up = t->filled[best_k], down = t->filled[nk];
+            float surf = up + (down - up) * best_t;
             surf = std::min(surf, (float)base_height); // never above the local ground
+            // Waterfall sheet over the cliff part of this segment (precomputed per cell).
+            if (t->fall_t0[best_k] >= 0.0f && best_t >= t->fall_t0[best_k] && best_t <= t->fall_t1[best_k] && best_d < half_w * 0.8f)
+                out.fall_top = t->fall_top[best_k];
             const float mask = 1.0f - smoothstep(half_w, half_w + bank_w, best_d);
             out.river = mask;
             const int water = (int)std::floor(surf) - 1;
             out.bed = (int)std::floor(surf) - 1 - (int)std::lround(depth * (1.0f - smoothstep(0.0f, half_w, best_d)));
             if (best_d < half_w && water > out.bed) out.water_level = std::max(out.water_level, water);
+            if (out.fall_top >= 0 && out.fall_top <= out.water_level) out.fall_top = -1;
             // Springs: first cell of a stream (no upstream stream cells).
             bool upstream = false;
             for (int d = 0; d < 8 && !upstream; d++) {
                 const int uk = (best_k / HWIN + D8Z[d]) * HWIN + (best_k % HWIN + D8X[d]);
-                upstream = t->dir[uk] >= 0 && t->acc[uk] >= STREAM_ACC && ((uk / HWIN + D8Z[t->dir[uk]]) * HWIN + (uk % HWIN + D8X[t->dir[uk]])) == best_k;
+                upstream = t->dir[uk] >= 0 && c.acc(uk) >= STREAM_ACC && downstream(uk) == best_k;
             }
             out.spring = !upstream && best_t < 0.15f;
         }
@@ -380,27 +481,32 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
 }
 
 Dictionary WorldGen::hydrology_stats(int x, int z) const {
-    const HydroTile *t = nullptr;
-    int ci = 0;
+    HydroCtx c;
     Dictionary d;
-    if (!hydro_cell(x, z, t, ci)) return d;
-    int streams = 0, lakes = 0, springs = 0;
+    if (!hydro_ctx(x, z, c)) return d;
+    const HydroTile *t = c.t;
+    int streams = 0, lakes = 0, falls = 0;
     float max_acc = 0.0f;
     for (int k = 0; k < HWIN * HWIN; k++) {
         if (t->lake[k]) lakes++;
         if (t->acc[k] >= STREAM_ACC && t->dir[k] >= 0) {
             streams++;
             max_acc = std::max(max_acc, t->acc[k]);
+            if (t->fall_t0[k] >= 0.0f) falls++;
         }
     }
     d["tile"] = Vector2i(t->tx, t->tz);
     d["window_cells"] = HWIN * HWIN;
     d["stream_cells"] = streams;
     d["lake_cells"] = lakes;
+    d["waterfall_segments"] = falls;
     d["max_accumulation"] = max_acc;
-    d["cell_acc"] = t->acc[ci];
-    d["cell_filled"] = t->filled[ci];
-    d["cell_h"] = t->h[ci];
+    d["cell_acc"] = t->acc[c.ci];
+    d["cell_acc_blended"] = c.acc(c.ci);
+    d["cell_filled"] = t->filled[c.ci];
+    d["cell_h"] = t->h[c.ci];
+    d["seam_blend_x"] = c.wx;
+    d["seam_blend_z"] = c.wz;
     return d;
 }
 
@@ -413,7 +519,7 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     Column col = column_base(tx, tz, false);
     if (col.height <= sea_ + 2 || col.alpine) return false;
     Hydro hy = hydro_at(tx, tz, col.height);
-    if (hy.river > 0.05f || hy.lake) return false;
+    if (hy.river > 0.05f || hy.lake || hy.puddle) return false;
     float density;
     switch (col.biome) {
         case BIOME_FOREST: density = 0.55f; break;
@@ -430,7 +536,7 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     if (roll >= density) return false;
     out.x = tx;
     out.z = tz;
-    out.base = col.height;
+    out.base = hy.marsh ? marsh_floor(col.height, hy) : col.height;
     out.trunk_h = 8 + (int)((hsh >> 16) % 6);
     out.radius = 2 + (int)((hsh >> 20) & 1);
     if (above > 160) { out.trunk_h = 5 + (int)((hsh >> 16) % 3); out.radius = 2; }
@@ -463,7 +569,7 @@ bool WorldGen::ruin_at_cell(int cx, int cz, Ruin &out) const {
     Column c = column_base(x, z, false);
     if (c.height < sea_ + 5 || c.alpine) return false;
     Hydro hy = hydro_at(x, z, c.height);
-    if (hy.river > 0.05f || hy.lake) return false;
+    if (hy.river > 0.05f || hy.lake || hy.marsh) return false;
     if (!(c.biome == BIOME_PLAINS || c.biome == BIOME_FOREST || c.biome == BIOME_HIGHLANDS || c.biome == BIOME_TUNDRA || c.biome == BIOME_DESERT)) return false;
     int hmin = c.height, hmax = c.height;
     const int cxs[4] = {x - hw, x + hw, x - hw, x + hw};
@@ -521,6 +627,38 @@ inline uint16_t WorldGen::ore_at(int x, int y, int z) const {
     if (y < sea_ - 80 && o >= 0.85f) return TIN_ORE;
     return STONE;
 }
+// Per-column surface vegetation (LOD 0 only): Minecraft-style tufts, flower
+// patches, cacti and dead bushes. One hash per column; flowers cluster where a
+// 20 m noise is high. Returns AIR for none; height is 1 except for cacti.
+uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, bool marsh, int &height) const {
+    height = 1;
+    const uint32_t v = hash3(x, z, seed_ + 31);
+    const int r = (int)(v & 1023);
+    if (col.biome == BIOME_DESERT) {
+        if (top != SAND_STATIC) return AIR;
+        if (r < 5) { height = 2 + (int)((v >> 10) % 3); return CACTUS; }
+        if (r < 18) return DEAD_BUSH;
+        return AIR;
+    }
+    if (top != GRASS && !(marsh && top == DIRT)) return AIR;
+    int grass = 0, flower = 0;
+    if (marsh) grass = 560;
+    else switch (col.biome) {
+        case BIOME_PLAINS: grass = 300; flower = 36; break;
+        case BIOME_FOREST: grass = 170; flower = 14; break;
+        case BIOME_HIGHLANDS: grass = 110; flower = 10; break;
+        case BIOME_MOUNTAINS: grass = 50; flower = 4; break;
+        case BIOME_ALPINE: grass = 25; flower = 6; break;
+        default: break;
+    }
+    if (flower > 0) {
+        const float patch = n_detail_.GetNoise((float)x * 2.0f + 5000.0f, (float)z * 2.0f - 5000.0f);
+        flower = patch > 0.3f ? flower * 5 : flower / 4;
+    }
+    if (r < grass) return TALL_GRASS;
+    if (r < grass + flower) return ((v >> 12) & 1) ? FLOWER : FLOWER_RED;
+    return AIR;
+}
 
 // ---------- blocks ----------
 
@@ -536,6 +674,7 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
     bool any = false;
     const bool do_caves = lod == 0;
     const bool do_ores = lod == 0;
+    const bool do_veg = lod == 0;
     const int y_top = origin.y + sy * step;
     const bool above_sea = y_top > sea_ && origin.y < world_height_;
     Tree trees[64];
@@ -552,7 +691,7 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
             const Column col = column(wx, wz);
             int h = col.height;
             int water_level = sea_;
-            bool riverbed = false, lakebed = false;
+            bool riverbed = false, lakebed = false, marshbed = false;
             Hydro hy = hydro_at(wx, wz, col.height);
             if (hy.river > 0.0f) {
                 // carve the channel: bed in the middle, banks blend outward
@@ -563,8 +702,12 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
             if (hy.water_level > water_level) water_level = hy.water_level;
             if (hy.lake && h < hy.water_level) lakebed = true;
             if (hy.river > 0.0f && h < hy.water_level) riverbed = true;
+            if (hy.marsh && hy.river < 0.3f) {
+                h = marsh_floor(h, hy);
+                marshbed = hy.puddle;
+            }
             int no_cave_above = -1;
-            if (hy.lake || hy.river > 0.0f) no_cave_above = water_level - 40;
+            if (hy.lake || hy.river > 0.0f || hy.marsh) no_cave_above = water_level - 40;
 
             const Ruin *ruin = nullptr;
             for (int i = 0; i < nruins; i++)
@@ -576,6 +719,46 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
             const bool beach_sand = col.biome == BIOME_BEACH || (col.biome == BIOME_OCEAN && col.c > -0.4f);
             const bool steep = col.slope > 1.1f;      // > ~48 degrees: bare rock
             const bool scree = col.slope > 0.75f && col.slope <= 1.1f && col.alpine;
+            const bool cold = col.t < -0.45f || col.snow;
+            // Surface layers for this column: top voxel and the soil under it.
+            uint16_t top_m, under_m;
+            if (lakebed || riverbed || marshbed) {
+                const uint32_t bh = hash3(wx, wz, 5) & 7;
+                top_m = bh < 3 ? CLAY : (bh < 5 ? SAND_STATIC : GRAVEL_STATIC);
+                under_m = (bh & 1) ? CLAY : GRAVEL_STATIC;
+            } else if (hy.river > 0.08f && h <= water_level + 2) {
+                top_m = under_m = SAND_STATIC; // river bank
+            } else if (col.snow && !steep) {
+                top_m = SNOW; under_m = STONE; // permanent snow over rock
+            } else if (steep) {
+                top_m = under_m = STONE;       // bare rock face
+            } else if (scree) {
+                top_m = under_m = GRAVEL_STATIC; // scree slopes below the cliffs
+            } else if (col.alpine) {
+                // alpine zone: rock with patches of thin grass/gravel
+                const uint32_t ah = hash3(wx, wz, 19) & 7;
+                top_m = ah < 3 ? GRASS : (ah < 5 ? GRAVEL_STATIC : STONE);
+                under_m = ah < 3 ? DIRT : STONE;
+            } else if (hy.marsh) {
+                const uint32_t mh = hash3(wx, wz, 29) & 7;
+                top_m = mh < 2 ? CLAY : (mh < 5 ? DIRT : GRASS);
+                under_m = mh < 4 ? CLAY : DIRT;
+            } else switch (col.biome) {
+                case BIOME_DEEP_OCEAN: top_m = under_m = GRAVEL_STATIC; break;
+                case BIOME_OCEAN: top_m = under_m = beach_sand ? SAND_STATIC : GRAVEL_STATIC; break;
+                case BIOME_BEACH: top_m = under_m = SAND_STATIC; break;
+                case BIOME_DESERT: top_m = under_m = SAND_STATIC; break;
+                case BIOME_TUNDRA: top_m = SNOW; under_m = DIRT; break;
+                case BIOME_MOUNTAINS: top_m = col.slope > 0.6f ? STONE : GRASS; under_m = DIRT; break;
+                default: top_m = GRASS; under_m = DIRT; break;
+            }
+            // Sedimentary layer under deserts and beaches (no ores in it).
+            const int sandstone_depth = col.biome == BIOME_DESERT ? 16 : (col.biome == BIOME_BEACH ? 8 : 0);
+            // Vegetation standing on the surface (not in water, not on the sheet).
+            uint16_t veg = AIR;
+            int veg_h = 0;
+            if (do_veg && !ruin && h >= water_level && hy.fall_top < 0 && h > sea_)
+                veg = vegetation_at(col, wx, wz, top_m, hy.marsh, veg_h);
             uint16_t *colp = w + sy * (x + sx * z);
             // Trees touching this column
             int trunk_lo = 0, trunk_hi = -1;
@@ -588,7 +771,7 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                 for (int i = 0; i < nruins && !blocked; i++) blocked = in_ruin(ruins[i], trees[t].x, trees[t].z, 3);
                 if (blocked) continue;
                 const int top = trees[t].base + trees[t].trunk_h;
-                if (dx == 0 && dz == 0) { trunk_lo = trees[t].base; trunk_hi = top + 1; }
+                if (dx == 0 && dz == 0) { trunk_lo = trees[t].base; trunk_hi = top + 1; veg = AIR; }
                 if (can_hi < 0 || d2 < can_d2) {
                     can_base = top - 2; can_lo = can_base; can_hi = top + 2; can_r = trees[t].radius; can_d2 = d2;
                 }
@@ -642,36 +825,20 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                     if (do_caves && cave_ok && is_cave(wx, wy, wz, h) && !(wy < sea_ && h < sea_ + 2)) {
                         m = (wy < sea_ - 180) ? LAVA : AIR;
                     } else if (depth > 4 + (int)(step > 1)) {
-                        m = do_ores ? ore_at(wx, wy, wz) : STONE;
+                        if (depth <= sandstone_depth) m = SANDSTONE;
+                        else m = do_ores ? ore_at(wx, wy, wz) : STONE;
                     } else {
-                        const bool top = depth == 1;
-                        if (lakebed || riverbed) {
-                            m = (hash3(wx, wz, 5) & 3) ? GRAVEL_STATIC : SAND_STATIC;
-                        } else if (hy.river > 0.08f && h <= water_level + 2) {
-                            m = SAND_STATIC; // river bank
-                        } else if (col.snow && !steep) {
-                            m = top ? SNOW : STONE; // permanent snow over rock
-                        } else if (steep) {
-                            m = STONE;              // bare rock face
-                        } else if (scree) {
-                            m = GRAVEL_STATIC;      // scree slopes below the cliffs
-                        } else if (col.alpine) {
-                            // alpine zone: rock with patches of thin grass/gravel
-                            uint32_t ah = hash3(wx, wz, 19) & 7;
-                            m = top ? (ah < 3 ? GRASS : (ah < 5 ? GRAVEL_STATIC : STONE)) : (ah < 3 ? DIRT : STONE);
-                        } else switch (col.biome) {
-                            case BIOME_DEEP_OCEAN: m = GRAVEL_STATIC; break;
-                            case BIOME_OCEAN: m = beach_sand ? SAND_STATIC : GRAVEL_STATIC; break;
-                            case BIOME_BEACH: m = SAND_STATIC; break;
-                            case BIOME_DESERT: m = SAND_STATIC; break;
-                            case BIOME_TUNDRA: m = top ? SNOW : DIRT; break;
-                            case BIOME_MOUNTAINS: m = (top && col.slope > 0.6f) ? STONE : (top ? GRASS : DIRT); break;
-                            default: m = top ? GRASS : DIRT; break;
-                        }
+                        m = depth == 1 ? top_m : under_m;
                     }
                 } else if (wy < water_level) {
-                    // generated water is static (does not drain down slopes) except the sea
-                    m = (hy.lake || hy.river > 0.0f) ? WATER_STATIC : WATER;
+                    // generated water is static (does not drain down slopes) except the sea;
+                    // cold lakes and marshes freeze over
+                    if (wy == water_level - 1 && cold && (hy.lake || hy.marsh)) m = ICE;
+                    else m = (hy.lake || hy.river > 0.0f || hy.marsh) ? WATER_STATIC : WATER;
+                } else if (hy.fall_top > wy) {
+                    m = WATER_STATIC; // waterfall sheet hanging from the lip
+                } else if (veg != AIR && wy < h + veg_h) {
+                    m = veg;
                 }
                 colp[y] = m;
                 if (m != AIR) any = true;
@@ -714,6 +881,10 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
         }
         return best;
     }
+    // Biome names are accepted as kinds too ("desert", "forest", ...).
+    int biome_kind = -1;
+    for (int b = 0; b < BIOME_COUNT; b++)
+        if (kind == biome_name(b)) biome_kind = b;
     // Hydrology features: scan cells in a growing square.
     const int cx0 = (int)std::floor((float)x / HCELL), cz0 = (int)std::floor((float)z / HCELL);
     const int rings = max_radius / HCELL + 1;
@@ -721,17 +892,44 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
         for (int dz = -ring; dz <= ring; dz++)
             for (int dx = -ring; dx <= ring; dx++) {
                 if (std::max(std::abs(dx), std::abs(dz)) != ring) continue;
-                const int px = (cx0 + dx) * HCELL + HCELL / 2, pz = (cz0 + dz) * HCELL + HCELL / 2;
+                int px = (cx0 + dx) * HCELL + HCELL / 2, pz = (cz0 + dz) * HCELL + HCELL / 2;
                 Column c = column_base(px, pz, false);
                 Hydro hy = hydro_at(px, pz, c.height);
                 bool hit = false;
                 int py = c.height;
-                if (kind == "lake") { hit = hy.lake; py = hy.water_level; }
+                if (kind == "waterfall") {
+                    // The sheet sits just past the lip of a steep stream segment, not at a cell centre.
+                    HydroCtx hc;
+                    if (!hydro_ctx(px, pz, hc)) continue;
+                    const HydroTile *t = hc.t;
+                    const int k = hc.ci;
+                    if (t->dir[k] < 0 || t->lake[k] || hc.acc(k) < STREAM_ACC) continue;
+                    const int nk = (k / HWIN + D8Z[t->dir[k]]) * HWIN + (k % HWIN + D8X[t->dir[k]]);
+                    if (t->fall_t0[k] < 0.0f) continue;
+                    const int wx0 = (t->tx * HTILE - HMARGIN) * HCELL, wz0 = (t->tz * HTILE - HMARGIN) * HCELL;
+                    const float ax = (float)(wx0 + (k % HWIN) * HCELL + HCELL / 2) + t->jx[k];
+                    const float az = (float)(wz0 + (k / HWIN) * HCELL + HCELL / 2) + t->jz[k];
+                    const float bx = (float)(wx0 + (nk % HWIN) * HCELL + HCELL / 2) + t->jx[nk];
+                    const float bz = (float)(wz0 + (nk / HWIN) * HCELL + HCELL / 2) + t->jz[nk];
+                    const float f = t->fall_t1[k];
+                    px = (int)std::lround(ax + (bx - ax) * f);
+                    pz = (int)std::lround(az + (bz - az) * f);
+                    hit = true;
+                    py = column_base(px, pz, false).height;
+                }
+                else if (kind == "lake") { hit = hy.lake; py = hy.water_level; }
+                else if (kind == "marsh") { hit = hy.marsh; }
                 else if (kind == "spring") { hit = hy.spring; py = hy.bed; }
                 else if (kind == "river") { hit = hy.river > 0.5f && !hy.spring; py = hy.bed; }
                 else if (kind == "alpine") { hit = c.alpine && !c.snow; }
                 else if (kind == "snow") { hit = c.snow; }
                 else if (kind == "mountain") { hit = c.height > sea_ + 200; }
+                else if (biome_kind >= 0) {
+                    // a real patch of that biome, not one dithered cell: 4 samples 24 voxels out agree
+                    hit = c.biome == biome_kind && !hy.lake && hy.river < 0.05f;
+                    for (int q = 0; q < 4 && hit; q++)
+                        hit = column_base(px + (q & 1 ? 24 : -24), pz + (q & 2 ? 24 : -24), false).biome == biome_kind;
+                }
                 if (!hit) continue;
                 long d2 = (long)dx * dx + (long)dz * dz;
                 if (best_d2 < 0 || d2 < best_d2) { best_d2 = d2; best = Vector3i(px, py, pz); }
@@ -769,7 +967,9 @@ PackedByteArray WorldGen::map_image(int center_x, int center_z, int radius, int 
             q[0] = (uint8_t)std::clamp(col[0] * shade, 0.0f, 255.0f);
             q[1] = (uint8_t)std::clamp(col[1] * shade, 0.0f, 255.0f);
             q[2] = (uint8_t)std::clamp(col[2] * shade, 0.0f, 255.0f);
+            if (hy.marsh && biome != BIOME_RIVER) { q[0] = 70; q[1] = 110; q[2] = 60; } // dark olive
             if (hy.spring) { q[0] = 255; q[1] = 255; q[2] = 0; }
+            if (hy.fall_top >= 0) { q[0] = 255; q[1] = 255; q[2] = 255; }
             for (int k = 0; k < nr; k++)
                 if (in_ruin(ruins[k], wx, wz, 1)) { q[0] = 40; q[1] = 40; q[2] = 45; break; }
         }

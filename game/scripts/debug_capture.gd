@@ -12,7 +12,7 @@ var capture_every := 0.0
 var out_dir := "res://out"
 var altitude_m := 30.0
 var speed_m := 6.0
-var target := ""      # "lake" | "ruin": start the flight before the nearest one and fly over it
+var target := ""      # lake|ruin|spring|river|waterfall|marsh|alpine|snow|mountain|<biome name>: start before the nearest one and fly over it
 var offset_m := 40.0  # start this far from the target (along +z)
 var pitch := -0.2     # camera pitch in radians (negative = looking down)
 var walk := false     # walk (gravity, step-up) instead of flying; reports distance travelled

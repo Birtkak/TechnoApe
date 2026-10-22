@@ -30,6 +30,14 @@ const LEAVES := 20
 const SAND_STATIC := 21     # natural ground sand: static until disturbed (Noita's static ground)
 const GRAVEL_STATIC := 22
 const WATER_STATIC := 23    # generated river/lake water: static until disturbed (else it drains downhill)
+const SANDSTONE := 24
+const CLAY := 25
+const TALL_GRASS := 26      # cross-quad vegetation (no collision): tufts, flowers, dead bushes
+const FLOWER := 27
+const CACTUS := 28
+const DEAD_BUSH := 29
+const ICE := 30
+const FLOWER_RED := 31
 
 const ATLAS_TILES := Vector2i(8, 4)
 
@@ -59,6 +67,14 @@ static func defs() -> Array:
 		{"name": "sand_static", "cell_type": "liquid", "liquid_sand": true, "liquid_static": true, "density": 3, "tiles": [4, 4, 4], "transparent": false, "loose": 4},
 		{"name": "gravel_static", "cell_type": "liquid", "liquid_sand": true, "liquid_static": true, "density": 4, "tiles": [15, 15, 15], "transparent": false, "loose": 15},
 		{"name": "water_static", "cell_type": "liquid", "liquid_static": true, "density": 1, "tiles": [5, 5, 5], "transparent": true, "loose": 5},
+		{"name": "sandstone", "cell_type": "solid", "density": 10, "hp": 600, "tiles": [21, 21, 21], "transparent": false},
+		{"name": "clay", "cell_type": "solid", "density": 9, "hp": 300, "tiles": [22, 22, 22], "transparent": false},
+		{"name": "tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 10, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 23, 23], "transparent": true, "cross": true},
+		{"name": "flower", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 8, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [24, 24, 24], "transparent": true, "cross": true},
+		{"name": "cactus", "cell_type": "solid", "density": 10, "hp": 40, "burnable": true, "fire_hp": 30, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [25, 25, 25], "transparent": false},
+		{"name": "dead_bush", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 6, "autoignition_temperature": 15, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [26, 26, 26], "transparent": true, "cross": true},
+		{"name": "ice", "cell_type": "solid", "density": 9, "hp": 120, "tiles": [27, 27, 27], "transparent": false},
+		{"name": "flower_red", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 8, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [28, 28, 28], "transparent": true, "cross": true},
 	]
 
 
@@ -68,6 +84,8 @@ static func reactions() -> Array:
 		{"input_cell1": FIRE, "input_cell2": WATER, "output_cell1": AIR, "output_cell2": STEAM, "probability": 0.6},
 		{"input_cell1": LAVA, "input_cell2": OIL, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.3},
 		{"input_cell1": LAVA, "input_cell2": WOOD, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.1},
+		{"input_cell1": FIRE, "input_cell2": ICE, "output_cell1": AIR, "output_cell2": WATER, "probability": 0.4},
+		{"input_cell1": LAVA, "input_cell2": ICE, "output_cell1": STONE, "output_cell2": STEAM, "probability": 0.5},
 	]
 
 
@@ -79,10 +97,15 @@ static func name_of(id: int) -> String:
 
 
 ## Builds the godot_voxel blocky library with atlas tiles per face.
-static func build_library(atlas_material: Material) -> VoxelBlockyLibrary:
+## cutout_material: alpha-scissor, double-sided variant of the atlas for the
+## cross-quad vegetation models (tall grass, flowers, dead bushes).
+static func build_library(atlas_material: Material, cutout_material: Material = null) -> VoxelBlockyLibrary:
 	var lib := VoxelBlockyLibrary.new()
 	var models: Array = [VoxelBlockyModelEmpty.new()]
 	for d in defs():
+		if d.get("cross", false):
+			models.append(_cross_model(d["tiles"][0], cutout_material if cutout_material else atlas_material))
+			continue
 		var cube := VoxelBlockyModelCube.new()
 		cube.atlas_size_in_tiles = ATLAS_TILES
 		var t: Array = d["tiles"]
@@ -103,3 +126,38 @@ static func build_library(atlas_material: Material) -> VoxelBlockyLibrary:
 	lib.models = models
 	lib.bake()
 	return lib
+
+
+## Minecraft-style "cross" model: two diagonal quads, no collision, never culls
+## its neighbours (the ground under a tuft must stay visible), own transparency
+## index so faces between two tufts are not culled either.
+static func _cross_model(tile: int, material: Material) -> VoxelBlockyModelMesh:
+	var u0 := float(tile % ATLAS_TILES.x) / ATLAS_TILES.x
+	var v0 := float(tile / ATLAS_TILES.x) / ATLAS_TILES.y
+	var u1 := u0 + 1.0 / ATLAS_TILES.x
+	var v1 := v0 + 1.0 / ATLAS_TILES.y
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var inset := 0.15
+	var a := inset
+	var b := 1.0 - inset
+	for q in [[Vector3(a, 0, a), Vector3(b, 0, b)], [Vector3(a, 0, b), Vector3(b, 0, a)]]:
+		var p0: Vector3 = q[0]
+		var p1: Vector3 = q[1]
+		var n := Vector3(0, 1, 0)
+		st.set_normal(n); st.set_uv(Vector2(u0, v1)); st.add_vertex(p0)
+		st.set_normal(n); st.set_uv(Vector2(u1, v1)); st.add_vertex(p1)
+		st.set_normal(n); st.set_uv(Vector2(u1, v0)); st.add_vertex(p1 + Vector3.UP)
+		st.set_normal(n); st.set_uv(Vector2(u0, v1)); st.add_vertex(p0)
+		st.set_normal(n); st.set_uv(Vector2(u1, v0)); st.add_vertex(p1 + Vector3.UP)
+		st.set_normal(n); st.set_uv(Vector2(u0, v0)); st.add_vertex(p0 + Vector3.UP)
+	st.index()  # the blocky mesher expects indexed surfaces
+	var mesh := st.commit()
+	var model := VoxelBlockyModelMesh.new()
+	model.mesh = mesh
+	model.set_material_override(0, material)
+	model.culls_neighbors = false
+	model.transparency_index = 2
+	model.collision_aabbs = []
+	model.set_mesh_collision_enabled(0, false)  # walk through tufts like Minecraft
+	return model

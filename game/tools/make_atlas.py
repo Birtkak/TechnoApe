@@ -4,7 +4,8 @@ Tiles (index = row*4 + col):
  0 stone  1 dirt   2 grass_top  3 grass_side
  4 sand   5 water  6 wood       7 lava
  8 ash    9 oil   10 steam     11 smoke
-12 fire  13 bedrock 14 spare    15 spare
+12 fire  13 bedrock 14 snow 15 gravel 16-19 ores 20 leaves 21 sandstone 22 clay
+23 tall_grass 24 flower 25 cactus 26 dead_bush 27 ice 28 flower_red (atlas is 8x4)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -45,6 +46,58 @@ def grass_side():
     return img
 
 
+def sandstone():
+    img = noise_tile((214, 190, 130), 8)
+    px = img.load()
+    for y in range(TILE):
+        if y % 5 == 0:
+            for x in range(TILE):
+                r, g, b, _ = px[x, y]
+                px[x, y] = (r - 22, g - 22, b - 18, 255)
+    return img
+
+
+def cactus():
+    img = noise_tile((60, 130, 50), 8)
+    px = img.load()
+    for y in range(TILE):
+        for x in range(TILE):
+            if x % 4 == 1:
+                r, g, b, _ = px[x, y]
+                px[x, y] = (r - 20, g - 25, b - 15, 255)
+    return img
+
+
+def cross_tile(base, blades=False, flower=None, sparse=False):
+    """Cutout tile: dense 2-px grass blades (Minecraft-like), optional flower
+    head. Transparent pixels keep the base colour so mipmaps do not darken."""
+    img = Image.new("RGBA", (TILE, TILE), (base[0], base[1], base[2], 0))
+    px = img.load()
+    nblades = 5 if sparse else 11
+    for i in range(nblades):
+        x = random.randint(0, TILE - 3)
+        h = random.randint(8, 15) if blades else random.randint(6, 10)
+        lean = random.choice([-1, 0, 0, 1])
+        for k in range(h):
+            y = TILE - 1 - k
+            xx = max(0, min(TILE - 2, x + (lean if k > h * 2 // 3 else 0)))
+            w = 2 if k < h - 3 else 1
+            for dx in range(w):
+                d = random.randint(-18, 18)
+                px[xx + dx, y] = (max(0, base[0] + d), max(0, base[1] + d), max(0, base[2] + d), 255)
+    if flower:
+        cx, cy = TILE // 2, 4
+        for k in range(cy + 1, TILE):
+            px[cx, k] = (base[0] - 15, base[1] - 10, base[2] - 15, 255)
+            px[cx + 1, k] = (base[0] - 25, base[1] - 20, base[2] - 25, 255)
+        for dy in range(-3, 4):
+            for dx in range(-3, 4):
+                if abs(dx) + abs(dy) <= 3 and 0 <= cx + dx < TILE and 0 <= cy + dy < TILE:
+                    c = (255, 240, 120) if abs(dx) + abs(dy) <= 1 else flower
+                    px[cx + dx, cy + dy] = (c[0], c[1], c[2], 255)
+    return img
+
+
 tiles = [
     noise_tile((128, 128, 132), 14, (100, 100, 104), 0.08),   # 0 stone
     noise_tile((120, 86, 56), 14, (90, 60, 40), 0.1),         # 1 dirt
@@ -67,7 +120,15 @@ tiles = [
     noise_tile((128, 128, 132), 14, (210, 120, 70), 0.22),    # 18 copper ore
     noise_tile((128, 128, 132), 14, (200, 205, 215), 0.22),   # 19 tin ore
     noise_tile((45, 120, 40), 22, (25, 80, 30), 0.3),         # 20 leaves
-] + [noise_tile((255, 0, 255), 0) for _ in range(11)]         # 21..31 spare (magenta = missing)
+    sandstone(),                                              # 21 sandstone
+    noise_tile((150, 158, 170), 10, (120, 128, 140), 0.12),   # 22 clay
+    cross_tile((70, 150, 60), blades=True),                   # 23 tall grass (cutout)
+    cross_tile((70, 150, 60), flower=(240, 210, 50)),         # 24 flower, yellow (cutout)
+    cactus(),                                                 # 25 cactus
+    cross_tile((140, 100, 50), blades=True, sparse=True),     # 26 dead bush (cutout)
+    noise_tile((170, 205, 240), 8, (210, 230, 250), 0.15),    # 27 ice
+    cross_tile((70, 150, 60), flower=(220, 50, 50)),          # 28 flower, red (cutout)
+] + [noise_tile((255, 0, 255), 0) for _ in range(3)]          # 29..31 spare (magenta = missing)
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))
 for i, t in enumerate(tiles):

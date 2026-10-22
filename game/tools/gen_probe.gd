@@ -22,6 +22,11 @@ func _init() -> void:
 	var gen := WorldGen.new()
 	gen.configure(seed_value, 256, 768)
 
+	# Warm the hydrology tiles first (the origin sits in a seam band: 3 tiles,
+	# ~0.2 s each) so the per-block timing measures generation, not tile builds.
+	var tw := Time.get_ticks_usec()
+	gen.column_info(0, 0)
+	var tile_ms := (Time.get_ticks_usec() - tw) / 1000.0
 	# Timing: 512 LOD0 blocks around the surface, 512 LOD2 blocks.
 	var t0 := Time.get_ticks_usec()
 	var nonempty := 0
@@ -81,7 +86,7 @@ func _init() -> void:
 	print(JSON.stringify({
 		"test": "gen_probe", "seed": seed_value, "seed_text": seed_text,
 		"lod0_us_per_block": snappedf(lod0_us, 0.1), "lod2_us_per_block": snappedf(lod2_us, 0.1),
-		"lod0_nonempty_of_512": nonempty,
+		"lod0_nonempty_of_512": nonempty, "hydro_tiles_warmup_ms": snappedf(tile_ms, 0.1),
 		"height_min": hmin, "height_max": hmax, "sea_level": 256,
 		"biomes_pct": _pct(hist, samples),
 		"cave_air_pct_under_origin": snappedf(100.0 * air_under / total_under, 0.1),
@@ -91,6 +96,9 @@ func _init() -> void:
 		"nearest_spring": gen.find_nearest("spring", 0, 0, 4096),
 		"nearest_river": gen.find_nearest("river", 0, 0, 4096),
 		"nearest_lake": gen.find_nearest("lake", 0, 0, 4096),
+		"nearest_waterfall": gen.find_nearest("waterfall", 0, 0, 4096),
+		"nearest_marsh": gen.find_nearest("marsh", 0, 0, 4096),
+		"nearest_desert": gen.find_nearest("desert", 0, 0, 8192),
 	}))
 	quit(0)
 

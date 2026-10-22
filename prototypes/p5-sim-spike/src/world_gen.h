@@ -10,7 +10,12 @@
 //    to the ocean. River/lake water is generated static (liquid_static) so the
 //    material simulation does not drain every slope.
 //  - 3D cheese + spaghetti caves with lava pools, ore noise, sea, beaches
-//  - trees on a jittered grid, small ruins on flat ground
+//  - waterfalls: where a stream drops >= FALL_MIN voxels between cells, the
+//    ground along the segment is sampled and a static water sheet is hung
+//    over the steepest part (a real cliff); marshes in shallow humid hollows,
+//    ice on cold lakes, sandstone under deserts, clay in beds
+//  - trees on a jittered grid, small ruins on flat ground, per-column
+//    vegetation (tall grass, flowers, cacti, dead bushes) at LOD 0
 // Deterministic from a seed. Heights in voxels (0.5 m each, ADR 0004).
 // Output blocks are 16-bit material ids in godot_voxel VoxelBuffer order
 // (y fastest, then x, then z).
@@ -39,7 +44,8 @@ public:
         AIR = 0, STONE = 1, DIRT = 2, GRASS = 3, SAND = 4, WATER = 5, WOOD = 6, LAVA = 7, ASH = 8,
         OIL = 9, STEAM = 10, SMOKE = 11, FIRE = 12, BEDROCK = 13, SNOW = 14, GRAVEL = 15,
         COAL_ORE = 16, IRON_ORE = 17, COPPER_ORE = 18, TIN_ORE = 19, LEAVES = 20,
-        SAND_STATIC = 21, GRAVEL_STATIC = 22, WATER_STATIC = 23
+        SAND_STATIC = 21, GRAVEL_STATIC = 22, WATER_STATIC = 23,
+        SANDSTONE = 24, CLAY = 25, TALL_GRASS = 26, FLOWER = 27, CACTUS = 28, DEAD_BUSH = 29, ICE = 30, FLOWER_RED = 31
     };
     enum Biome : int {
         BIOME_DEEP_OCEAN = 0, BIOME_OCEAN = 1, BIOME_BEACH = 2, BIOME_PLAINS = 3, BIOME_FOREST = 4,
@@ -66,7 +72,8 @@ public:
     // rivers, lakes and ruins overlaid.
     PackedByteArray map_image(int center_x, int center_z, int radius, int step) const;
     static String biome_name(int b);
-    // Debug: nearest feature ("lake" | "ruin" | "spring" | "river") within max_radius of (x, z).
+    // Debug: nearest feature ("lake" | "ruin" | "spring" | "river" | "waterfall" | "marsh" |
+    // "alpine" | "snow" | "mountain" | any biome name) within max_radius of (x, z).
     // Returns Vector3i(x, ground_y, z) or Vector3i(0, -1, 0) when none.
     Vector3i find_nearest(const String &kind, int x, int z, int max_radius) const;
     Dictionary hydrology_stats(int x, int z) const; // tile stats around a point (debug)
@@ -87,17 +94,24 @@ private:
     // ---- hydrology ----
     static constexpr int HCELL = 32;          // voxels per hydrology cell (16 m)
     static constexpr int HTILE = 128;         // cells per tile (4096 voxels = 2 km)
-    static constexpr int HMARGIN = 64;        // cells of margin on each side (1 km)
+    static constexpr int HMARGIN = 96;        // cells of margin on each side (1.5 km)
     static constexpr int HWIN = HTILE + 2 * HMARGIN; // window cells per axis
+    friend struct HydroCtx;
+    static constexpr int HBLEND = 12;         // cells inside a tile's core border where accumulation blends with the neighbour tile
     static constexpr float STREAM_ACC = 18.0f; // cells of drainage to become a stream (18 cells ≈ 4600 m²)
+    static constexpr float LAKE_MIN_DEPTH = 5.0f; // filled - h (voxels) for a depression to hold a lake
+    static constexpr float MARSH_MIN_DEPTH = 1.5f; // shallower humid depressions become marsh
+    static constexpr float FALL_MIN = 10.0f;  // drop (voxels) between stream cells that makes a waterfall
     struct HydroTile {
         int tx, tz;                       // tile coords
         std::vector<float> h;             // base height per window cell (voxels)
         std::vector<float> filled;        // depression-filled surface
         std::vector<float> acc;           // drainage accumulation (cells)
         std::vector<int8_t> dir;          // D8 direction index 0..7, -1 outlet
-        std::vector<uint8_t> lake;        // 1 if filled - h > 0.5
+        std::vector<uint8_t> lake;        // 1 if filled - h > LAKE_MIN_DEPTH (and above sea)
         std::vector<float> jx, jz;        // jittered centre offsets (voxels)
+        std::vector<float> fall_t0, fall_t1; // waterfall band along the cell's segment (segment parameter), -1 none
+        std::vector<int16_t> fall_top;    // water sheet top (exclusive) at that band
     };
     struct Hydro {
         float river;      // 0..1 river mask (1 = centre line)
@@ -105,6 +119,19 @@ private:
         int water_level;  // water surface for rivers / lakes (>= sea or -1)
         bool lake;
         bool spring;
+        bool marsh;       // shallow humid depression: flat wet floor at marsh_level with puddles
+        bool puddle;      // this marsh column is a puddle (water_level = marsh_level)
+        int marsh_level;  // marsh floor / water surface (exclusive), -1 none
+        int fall_top;     // waterfall sheet: static water from water_level up to this (exclusive), -1 none
+    };
+    // Which tile owns a column, plus the neighbour tiles its accumulation blends with
+    // near the core border (so river width does not jump at tile seams).
+    struct HydroCtx {
+        const HydroTile *t = nullptr;
+        int ci = 0;                   // window cell index in t
+        const HydroTile *bx = nullptr, *bz = nullptr;
+        float wx = 0.0f, wz = 0.0f;   // blend weights (0 .. 0.5)
+        float acc(int k) const;       // blended accumulation of owner cell k
     };
     // ---- decorations ----
     static constexpr int TREE_CELL = 8;
@@ -129,7 +156,10 @@ private:
     std::shared_ptr<HydroTile> hydro_tile(int tx, int tz) const;
     void build_hydro_tile(HydroTile &t) const;
     Hydro hydro_at(int x, int z, int base_height) const;
-    bool hydro_cell(int x, int z, const HydroTile *&tile, int &ci) const; // window cell for world coords
+    bool hydro_ctx(int x, int z, HydroCtx &ctx) const;
+    const HydroTile *tile_cached(int tx, int tz) const; // thread-local small cache over hydro_tile
+    uint16_t vegetation_at(const Column &col, int x, int z, uint16_t top, bool marsh, int &height) const;
+    static int marsh_floor(int h, const Hydro &hy);
 
     bool tree_at_cell(int cx, int cz, Tree &out) const;
     int trees_near(int x0, int z0, int x1, int z1, Tree *out, int max_out) const;

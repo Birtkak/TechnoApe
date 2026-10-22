@@ -55,8 +55,9 @@ Water is routed on a coarse grid: cells of 32 voxels (16 m), tiles of
 5. Generated river and lake water is `water_static` (Noita's static liquid)
    so the material simulation does not drain slopes; disturbing it makes it
    flow. Sea water stays live `water`.
-Limits: the 1 km margin truncates basins larger than that, so a river's width
-can jump at a tile border; flow does not animate. Debug: the biome map draws
+Limits: the 1.5 km margin truncates basins larger than that; seam blending
+(see the polish round below) hides the accumulation difference; flow does not
+animate. Debug: the biome map draws
 streams (light blue), lakes (blue) and springs (yellow); `find_nearest`
 knows "spring", "river", "lake", "alpine", "snow", "mountain".
 
@@ -123,8 +124,36 @@ and the lost water was pasted back as holes (3,566 pushes in 12 s parked at
 a lake). `SimWorld` now carries a per-chunk loaded flag (`mark_all_loaded`,
 set by `set_chunk_bytes`, carried through `shift`). Cost ≈ 5–10 % per tick.
 
+## Polish round (2026-10-22, GEN_VERSION 5)
+- **Lakes** need a depression deeper than 5 voxels (was 3): the puddle lakes
+  are gone, the large highland basins stay (seed 1337 map: 5.2 % lake of the
+  4 km square, almost all in two basins).
+- **Marshes**: hollows 1.5-5 voxels deep in warm humid lowland (< 24 m above
+  sea) are wet ground (dirt, clay, grass mix, dense tufts) with static-water
+  puddles where the ground dips below the fill level minus one; cold marshes
+  and lakes get an ice voxel on top.
+- **Waterfalls**: where a stream segment drops >= 10 voxels between cells the
+  channel keeps the upstream level to a lip at 55 % of the segment and then
+  steps down; a 2-voxel band past the lip is filled with static water from the
+  pool up to the upper surface (a hanging sheet). Mountain streams become
+  stair cascades. `find_nearest("waterfall")` and the map (white) find them.
+- **Tile seams**: margin 1 km -> 1.5 km, and within 12 cells of a tile's core
+  border the accumulation is blended with the neighbour tile (50/50 on the
+  border). `tools/seam_probe.gd` walks the x = 4096 and z = 4096 seams:
+  max height jump 1 voxel, max water-level jump 1, mean 0.03-0.18 (before:
+  rivers changed width by several voxels at seams).
+- **Materials**: sandstone (16 voxels under desert sand, 8 under beaches, no
+  ores in it), clay patches in river, lake and marsh beds, ice. Vegetation at
+  LOD 0 only: tall grass (plains 29 %, forest 17 %, highlands 11 %, marsh
+  55 %), flowers in patches (20 m noise), cacti 2-4 high and dead bushes in
+  deserts. Vegetation voxels are Minecraft cross-quads (`materials.gd`
+  `cross: true`): no collision, never cull neighbours, alpha-cutout material;
+  they burn (grass fires) and are solid for the simulation.
+- Cost with warmed tiles: LOD 0 block 573 us, LOD 2 block 215 us; a hydrology
+  tile (320x320 cells) builds in ~65 ms.
+
 ## Next
-- Waterfalls where rivers meet cliffs; swamps.
-- Biome vegetation (grass tufts, flowers, cacti), sandstone under deserts, clay.
-- The Noita-style dungeons (underground stamps from a per-region RNG).
+- The Noita-style dungeons (underground stamps from a per-region RNG) - parked.
+- Biome classifier from `biomes.json` (see `biomes.md`, hand-off section).
+- Waterfall mist/particles; animated flow (the sheet is static water).
 - A per-thread cache for lake/ruin cells (they re-evaluate columns per block).
