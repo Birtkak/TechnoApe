@@ -15,8 +15,11 @@ void vertex() {
 }
 
 void fragment() {
+	if (lod_fade_discard(FRAGCOORD.xy)) {
+		discard;
+	}
 	vec4 c;
-	float idx = terrain_sample(UV, c);
+	float idx = terrain_sample(UV, v_world, v_normal_world, CAMERA_POSITION_WORLD, c);
 	ALBEDO = c.rgb * vcol.rgb * face_tint(v_normal_world);
 	ROUGHNESS = 1.0;
 	METALLIC = 0.0;

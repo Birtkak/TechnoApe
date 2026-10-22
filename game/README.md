@@ -55,6 +55,10 @@ Godot_..._console.exe --path game --render-thread safe -- autopilot=1 duration=2
 # MSYS_NO_PATHCONV=1 or it rewrites /arguments into Windows paths.
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=3 f3=1 "commands=/gamemode creative;/kit tools" out=res://out/chat
 # liquid spill stress: blast=1.5 blast_material=water blast_every=2 (passes for ~20 s; minutes of flow do not yet)
+# far view + streaming (ADR 0017): JSON voxel_backlog = pending voxel tasks while moving (max/mean/busy_share/
+# max_busy_s/threads); voxel_threads=N overrides the worker count; persist=1 seed=<unused seed> measures the
+# save-file load path (never use the seed you play); lod_fade_s=0.35 tries the LOD cross-fade (off: too costly)
+Godot_..._console.exe --path game -- autopilot=1 speed=20 alt=30 duration=16 vsync=0 persist=1 seed=424242 out=res://out/stream
 # mass edits (ADR 0014): blast=R craters of R m on the ground around the player every blast_every s (default 2),
 # blast_count=N per volley; JSON sim.blasts, blast_voxels, blast_ms_max (native SimWorld.fill_sphere)
 Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=4 blast_every=1 duration=20 capture_every=1 out=res://out/blast

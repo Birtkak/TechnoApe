@@ -63,6 +63,8 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   (ADR 0009, measured as ADR 0014 says) and `other_godot_processes == 0`.
   The project renders on a separate thread (ADR 0016); `--render-thread safe`
   runs the old mode. Never drive the shared RenderingDevice from the main thread.
+  Play loads through the SQLite save; benchmarks do not: measure the save path
+  with `persist=1 seed=<unused>` when loading or streaming changes (ADR 0017).
 - One world unit = one voxel = 0.5 m. Tunables live in `scripts/settings.gd` in metres.
 - Playtest tools (ADR 0018): T chat + slash commands (`/help`), `/gamemode`, F3
   debug screen, F4 playtest menu, F9 bug reports. When the developer mentions a

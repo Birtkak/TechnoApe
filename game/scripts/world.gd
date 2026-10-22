@@ -13,7 +13,13 @@ var _tool: VoxelTool
 
 
 func _ready() -> void:
-	var atlas: Texture2D = load("res://assets/textures/atlas.png")
+	# The atlas is imported without mipmaps (its .import file is generated, not
+	# tracked), so they are built here: without them every far block samples
+	# full-resolution texels and the horizon turns to pixel noise (ADR 0017).
+	var atlas_img: Image = (load("res://assets/textures/atlas.png") as Texture2D).get_image()
+	if atlas_img.generate_mipmaps() != OK:
+		push_warning("atlas: mipmaps not generated (format %d)" % atlas_img.get_format())
+	var atlas: Texture2D = ImageTexture.create_from_image(atlas_img)
 	# One material for terrain, micro models, item cubes and the viewmodel:
 	# nearest-filtered atlas, vertex colour = baked AO from the mesher, and the
 	# water / lava / fire tiles scroll inside their tile (rivers, falls, lava flow).
@@ -25,10 +31,14 @@ func _ready() -> void:
 	atlas_material.set_shader_parameter("lava_tile", float(GameMaterials.defs()[GameMaterials.LAVA - 1]["tiles"][0]))
 	atlas_material.set_shader_parameter("fire_tile", float(GameMaterials.defs()[GameMaterials.FIRE - 1]["tiles"][0]))
 	atlas_material.set_shader_parameter("glow_tile", float(GameMaterials.defs()[GameMaterials.GLOW_MUSHROOM - 1]["tiles"][0]))
+	atlas_material.set_shader_parameter("grass_top_tile", float(GameMaterials.defs()[GameMaterials.GRASS - 1]["tiles"][0]))
+	atlas_material.set_shader_parameter("grass_side_tile", float(GameMaterials.defs()[GameMaterials.GRASS - 1]["tiles"][1]))
+	atlas_material.set_shader_parameter("far_fade_start", Settings.m2v(Settings.far_fade_start_m))
+	atlas_material.set_shader_parameter("far_fade_end", Settings.m2v(Settings.far_fade_end_m))
 	# liquids and gases: same uniforms, alpha + depth write + water glint (terrain_liquid.gdshader)
 	liquid_material = ShaderMaterial.new()
 	liquid_material.shader = load("res://assets/shaders/terrain_liquid.gdshader")
-	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile"]:
+	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "grass_top_tile", "grass_side_tile", "far_fade_start", "far_fade_end"]:
 		liquid_material.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
 	prop_material = atlas_material.duplicate()
 	generator = TerrainGenerator.new()
@@ -45,6 +55,7 @@ func _ready() -> void:
 	terrain.lod_distance = Settings.render_distance_voxels()
 	terrain.view_distance = Settings.view_distance_voxels()
 	terrain.streaming_system = 1  # CLIPBOX (P2: octree collapses at long range)
+	terrain.lod_fade_duration = Settings.lod_fade_s   # blocks blend between LODs (shader: lod_fade_discard)
 	terrain.mesh_block_size = Settings.terrain_mesh_block
 	terrain.material = atlas_material
 	# Bodies collide against voxel data (VoxelBody, ADR 0011); mesh colliders
@@ -63,6 +74,10 @@ func _ready() -> void:
 		var stream := VoxelStreamSQLite.new()
 		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://worlds"))
 		stream.database_path = "user://worlds/world_%d_g%d.sqlite" % [Settings.world_seed, TerrainGenerator.GEN_VERSION]
+		# Every block of every LOD is asked from the stream before it is generated. Without
+		# the key cache each miss is a database query on one thread: ~12,000 queued blocks,
+		# the world never settles and detail trickles in for a minute (ADR 0017).
+		stream.set_key_cache_enabled(true)
 		terrain.stream = stream
 	terrain.voxel_bounds = AABB(Vector3(-1e7, 0, -1e7), Vector3(2e7, Settings.WORLD_HEIGHT_VOXELS, 2e7))
 	add_child(terrain)

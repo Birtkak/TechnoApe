@@ -25,16 +25,50 @@ uniform float face_tint_bottom = 0.62;
 uniform float water_specular = 0.55;
 uniform float water_roughness = 0.14;
 uniform float ripple_strength = 0.35;
+// far LOD blocks (ADR 0017): grass sides show the grass top, and from
+// far_fade_start (world voxels from the camera) textures fade toward tile averages
+uniform float grass_top_tile = 2.0;
+uniform float grass_side_tile = 3.0;
+uniform float far_fade_start = 300.0;
+uniform float far_fade_end = 1200.0;
+
+// LOD cross-fade (ADR 0017): while VoxelLodTerrain.lod_fade_duration > 0 the
+// terrain sets this per mesh block, x = progress 0..1, y = 1 fading in / 0 out;
+// an ordered 4x4 dither hides pixels so the old and new LOD blend instead of
+// flipping. Blocks that are not fading keep the default and draw fully.
+instance uniform vec2 u_lod_fade = vec2(0.0, 0.0);
 
 varying vec4 vcol;
 varying vec3 v_world;
 varying vec3 v_normal_world;
 
 // Tile index under this UV and the (animated) sample from the atlas.
-float terrain_sample(vec2 uv_in, out vec4 c) {
+// Near faces use the mesher's UVs: one tile per face, whether the face is a
+// voxel, a micro cell or an item cube. On far LOD blocks a face spans 2^lod
+// voxels and those UVs would stretch one tile across all of it (ADR 0017), so
+// there the tile repeats per world voxel (constant texel size, a Minecraft
+// hillside seen from afar), grass sides show the grass top instead of dirt
+// stripes, and past far_fade_start the mip gradients widen so the sample
+// blends toward the tile's average colour. Gradients are capped at one tile
+// per pixel: coarser mips blend neighbouring tiles together.
+float terrain_sample(vec2 uv_in, vec3 wpos, vec3 n, vec3 cam, out vec4 c) {
 	vec2 scaled = uv_in * atlas_tiles;
 	vec2 tile = floor(scaled);
 	vec2 local = scaled - tile;
+	// voxels per tile across this pixel: 1 on a voxel face, 2^lod on far LOD
+	// blocks, far below 1 on micro cells and item cubes
+	float vox_per_tile = (length(dFdx(wpos)) + length(dFdy(wpos))) / max(length(dFdx(scaled)) + length(dFdy(scaled)), 1e-6);
+	vec2 gsrc = scaled;   // unwrapped coordinate whose derivatives pick the mip (no seams at the wrap)
+	if (vox_per_tile > 1.5) {
+		vec3 an = abs(n);
+		// the two world axes across the face; -y so the tile's top row stays at the top
+		vec2 wc = an.y > 0.5 ? wpos.xz : (an.x > 0.5 ? vec2(wpos.z, -wpos.y) : vec2(wpos.x, -wpos.y));
+		local = fract(wc);
+		gsrc = wc;
+		if (an.y < 0.5 && abs(tile.y * atlas_tiles.x + tile.x - grass_side_tile) < 0.5) {
+			tile = vec2(mod(grass_top_tile, atlas_tiles.x), floor(grass_top_tile / atlas_tiles.x));
+		}
+	}
 	float idx = tile.y * atlas_tiles.x + tile.x;
 	vec2 shift = vec2(0.0);
 	if (abs(idx - water_tile) < 0.5) {
@@ -46,9 +80,26 @@ float terrain_sample(vec2 uv_in, out vec4 c) {
 	}
 	local = fract(local + shift);
 	vec2 uv = (tile + local) / atlas_tiles;
-	// derivatives from the unshifted UV: no mip seams where the wrap happens
-	c = textureGrad(atlas, uv, dFdx(uv_in), dFdy(uv_in));
+	float widen = 1.0 + 16.0 * smoothstep(far_fade_start, far_fade_end, distance(wpos, cam));
+	vec2 dx = dFdx(gsrc) / atlas_tiles * widen;
+	vec2 dy = dFdy(gsrc) / atlas_tiles * widen;
+	float m = max(max(abs(dx.x), abs(dy.x)) * atlas_tiles.x, max(abs(dx.y), abs(dy.y)) * atlas_tiles.y);
+	if (m > 1.0) {
+		dx /= m;
+		dy /= m;
+	}
+	c = textureGrad(atlas, uv, dx, dy);
 	return idx;
+}
+
+bool lod_fade_discard(vec2 fragcoord) {
+	if (u_lod_fade.x <= 0.0 && u_lod_fade.y <= 0.0) {
+		return false;
+	}
+	const mat4 bayer = mat4(vec4(0.0, 8.0, 2.0, 10.0), vec4(12.0, 4.0, 14.0, 6.0), vec4(3.0, 11.0, 1.0, 9.0), vec4(15.0, 7.0, 13.0, 5.0));
+	ivec2 p = ivec2(mod(fragcoord, 4.0));
+	float h = (bayer[p.x][p.y] + 0.5) / 16.0;
+	return u_lod_fade.y > 0.5 ? h > u_lod_fade.x : h < u_lod_fade.x;
 }
 
 float face_tint(vec3 n) {

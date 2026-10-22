@@ -65,6 +65,8 @@ var _others_max := 0         # most other Godot processes seen by the periodic p
 var _others_task := -1
 var _others_accum := 0.0
 const OTHERS_EVERY_S := 10.0
+var _backlog := PackedInt32Array()   # pending voxel tasks (generation + meshing + streaming), sampled every 0.25 s after load
+var _backlog_accum := 0.0
 var _compile_delta := 0.0
 var _elapsed := 0.0
 var _capture_accum := 0.0
@@ -76,7 +78,8 @@ func _ready() -> void:
 	var args: Dictionary = Settings.apply_cmdline()
 	autopilot = args.get("autopilot", "0") == "1"
 	if autopilot and not args.has("persist"):
-		Settings.persist_world = false  # unattended test runs never write world saves
+		if not args.has("persist"):   # persist=1 seed=<unused seed>: measure the save-file (SQLite stream) load path
+			Settings.persist_world = false  # unattended test runs never write world saves
 	duration = float(args.get("duration", "20"))
 	capture_every = float(args.get("capture_every", "0"))
 	out_dir = args.get("out", "res://out")
@@ -101,6 +104,8 @@ func _ready() -> void:
 	blast_m = float(args.get("blast", "0"))
 	blast_count = int(args.get("blast_count", "1"))
 	blast_every = float(args.get("blast_every", "2"))
+	if args.has("voxel_threads"):   # godot_voxel worker threads for this run (project default: voxel/threads/count)
+		VoxelEngine.set_thread_count(int(args["voxel_threads"]))
 	var defs := GameMaterials.defs()
 	for i in defs.size():   # material ids are 1 + definition index (0 = air)
 		if defs[i]["name"] == args.get("blast_material", "air"):
@@ -187,6 +192,11 @@ func _process(delta: float) -> void:
 				_blast_volley()
 	# another Godot starting mid-run (a peer's benchmark) must taint the run even if it
 	# exits before ours ends; the probe runs on a worker thread, never on the frame
+	_backlog_accum += delta
+	if _loaded_at >= 0.0 and _backlog_accum >= 0.25:
+		_backlog_accum = 0.0
+		var t: Dictionary = VoxelEngine.get_stats().get("tasks", {})
+		_backlog.push_back(int(t.get("generation", 0)) + int(t.get("meshing", 0)) + int(t.get("streaming", 0)) + int(t.get("main_thread", 0)))
 	_others_accum += delta
 	if _others_accum >= OTHERS_EVERY_S and (_others_task < 0 or WorkerThreadPool.is_task_completed(_others_task)):
 		if _others_task >= 0:
@@ -248,6 +258,13 @@ func _finish() -> void:
 	# streaming world from SETTLE_CAP_S on: still a valid budget check, flagged in load_settled
 	s["budget_ok"] = not s["budget"].values().has(false)
 	s["spikes"] = _spikes
+	# terrain streaming backlog while moving: how far godot_voxel's workers fall behind
+	var bl := Array(_backlog)
+	s["voxel_backlog"] = {"samples": bl.size(), "max": bl.max() if bl.size() else 0,
+		"mean": snappedf(float(bl.reduce(func(a, b): return a + b, 0)) / maxi(bl.size(), 1), 0.1),
+		"busy_share": snappedf(float(bl.filter(func(v): return v > 0).size()) / maxi(bl.size(), 1), 0.01),
+		"max_busy_s": _longest_run(bl) * 0.25,
+		"threads": VoxelEngine.get_thread_count()}
 	if mine:
 		s["mined_log"] = _main.player.mined_log
 	if blast_m > 0.0:
@@ -322,6 +339,15 @@ func _world_settled() -> bool:
 	_idle_frames = _idle_frames + 1 if busy == 0 and _main.bubble.is_loaded() else 0
 	_settled = _idle_frames >= SETTLE_FRAMES
 	return _settled
+
+
+func _longest_run(samples: Array) -> int:
+	var best := 0
+	var run := 0
+	for v in samples:
+		run = run + 1 if int(v) > 0 else 0
+		best = maxi(best, run)
+	return best
 
 
 func _count_over(sorted_ms: PackedFloat64Array, limit: float) -> int:
