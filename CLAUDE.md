@@ -83,7 +83,10 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   bubble polish ✓ (ADR 0010: in-place shift, load/push budgets, fire
   pacing per material), voxel-grid collision ✓ (ADR 0011: player and items
   move with `VoxelBoxMover`, terrain mesh colliders off, swimming), 89
-  headless tests. **Next:** P4 server headless check, then the chisel layer
+  headless tests. P7 (`prototypes/p7-raycast-near`) measured a Grimorium-style
+  GPU ray-cast near field (32 m at 6.25 cm: 3.3 ms p50); ADR 0011 (proposed)
+  makes the simulation resolution the next spike and requires per-frame edit
+  budgets for mass edits. **Next:** P4 server headless check, then the chisel layer
   (ADR 0006: `Chisel` block-entity behavior + overlay meshes).
 - In-world voxels follow ADR 0006: terrain ids + one block-entity layer
   (`scripts/blocks/`) + reserved decor layer; every voxel chiselable on an
