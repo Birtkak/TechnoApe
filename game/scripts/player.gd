@@ -15,6 +15,8 @@ signal died
 
 var world: World
 var camera: Camera3D
+var model: ApeModel          # the body (visible in third person)
+var perspective := 0         # 0 first person, 1 third person behind, 2 third person front (F5 cycles)
 var inventory: PlayerInventory
 var mining: MiningTable
 var viewmodel: Viewmodel
@@ -60,6 +62,11 @@ func _ready() -> void:
 	camera.far = Settings.m2v(Settings.view_distance_m) * 1.5
 	add_child(camera)
 	camera.make_current()
+	model = ApeModel.new()
+	model.name = "Model"
+	model.scale = Vector3.ONE * (Settings.m2v(Settings.player_height_m) / (57.0 / ApeModel.GRID))
+	model.visible = false
+	add_child(model)
 	var viewer := VoxelViewer.new()
 	viewer.view_distance = Settings.view_distance_voxels()
 	viewer.requires_collisions = true
@@ -126,6 +133,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		capture_mouse(false)
 	elif event.is_action_pressed("toggle_fly"):
 		flying = not flying
+	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F5:
+		set_perspective((perspective + 1) % 3)
 	elif event.is_action_pressed("hotbar_next"):
 		inventory.scroll(1)
 	elif event.is_action_pressed("hotbar_prev"):
@@ -145,9 +154,34 @@ func _aim() -> VoxelRaycastResult:
 	return world.raycast(camera.global_position, -camera.global_transform.basis.z, Settings.m2v(Settings.reach_m))
 
 
+## F5 view: 0 = first person, 1 = behind, 2 = in front (facing the player).
+func set_perspective(p: int) -> void:
+	perspective = p
+	if model:
+		model.visible = p != 0
+	if viewmodel:
+		viewmodel.visible = p == 0
+	_apply_look()
+
+
 func _apply_look() -> void:
 	rotation = Vector3(0, _yaw, 0)
-	camera.rotation = Vector3(_pitch, 0, 0)
+	var eye := Vector3(0, Settings.m2v(Settings.eye_height_m), 0)
+	if perspective == 0:
+		camera.position = eye
+		camera.rotation = Vector3(_pitch, 0, 0)
+		return
+	# orbit the head at a fixed distance, pulled in when terrain is in the way
+	var back := 1.0 if perspective == 1 else -1.0
+	var dist := Settings.m2v(3.5)
+	var offset := Basis(Vector3.RIGHT, _pitch * back) * Vector3(0, 0, dist * back)
+	if world:
+		var hit := world.raycast(global_position + eye, global_transform.basis * offset.normalized(), dist + 0.5)
+		if hit:
+			dist = maxf(0.6, hit.distance - 0.6)
+			offset = offset.normalized() * dist
+	camera.position = eye + offset
+	camera.look_at(global_position + eye + Vector3(0, 0.1, 0))
 
 
 var _ground_seen_at := -1.0   # seconds; terrain under the player was first seen at this time
@@ -175,6 +209,8 @@ func _ground_ready() -> bool:
 
 
 func _physics_process(delta: float) -> void:
+	if model and model.visible:
+		model.animate(delta, Vector2(velocity.x, velocity.z).length(), is_on_floor(), flying, _pitch, viewmodel.swing_amount() if viewmodel else 0.0)
 	_break_cooldown = maxf(0.0, _break_cooldown - delta)
 	_place_cooldown = maxf(0.0, _place_cooldown - delta)
 	_update_mining(delta)

@@ -108,6 +108,8 @@ func _ready() -> void:
 	if DebugCapture.autopilot:
 		player.autopilot = true
 		player.flying = true
+		if DebugCapture.third_person > 0:
+			player.set_perspective(DebugCapture.third_person)
 		player.autopilot_speed_m = DebugCapture.speed_m
 		if DebugCapture.target != "":
 			var t: Vector3i = world.generator.gen.find_nearest(DebugCapture.target, spawn.x, spawn.y, 4096)
