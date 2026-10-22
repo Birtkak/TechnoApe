@@ -36,10 +36,13 @@ of one core and 21 % of the GPU with vsync on.
   atlas tiles. Near faces (voxel, micro cell, item cube) are unchanged.
 - `render_distance_m` defaults to the real cap, 64 m, with the clamp noted.
 - Frame cost: none measurable (fly p50 1.70 vs 1.69 ms, p99 2.55 vs 2.54).
-- Still visible: the staircase silhouette of far LOD blocks, and dirt risers
-  where the LOD sampler hit a dirt voxel under a thin grass/snow layer. The
-  latter is a generator change (at lod > 0 give a coarse cell the surface
-  material when it contains the surface), left for the generator owner.
+- Dirt risers, where the LOD sampler hit a dirt or stone voxel under a thin
+  grass/snow layer (at step 8 only one surface cell in eight was grass), are
+  fixed in the generator: a coarse cell is classified by what it contains.
+  The cell holding the surface voxel gets the top material, a buried cell is
+  soil or rock by majority (`world_gen.cpp`, `test_world_gen_lod.gd`). LOD 0
+  output is unchanged, so `GEN_VERSION` stays and saves still load.
+- Still visible: the staircase silhouette of far LOD blocks.
 
 **LOD cross-fade: supported, off by default.** The shader implements
 godot_voxel's `u_lod_fade` with an ordered dither (`lod_fade_discard`) and

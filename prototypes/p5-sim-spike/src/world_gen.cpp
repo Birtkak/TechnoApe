@@ -697,6 +697,10 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
 
 // ---------- blocks ----------
 
+// Soil voxels per column counted from the surface (depth 1 is the top material,
+// 2..SOIL_VOXELS the biome's under material, deeper is rock, sandstone or ore).
+static const int SOIL_VOXELS = 4;
+
 PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel) const {
     PackedByteArray out;
     const int step = 1 << lod;
@@ -868,6 +872,16 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                 if (wy < 3) {
                     m = BEDROCK;
                 } else if (wy < h) {
+                    // This cell covers world y in [wy, wy + step). At lod > 0 it is
+                    // classified by what it contains, not by the voxel at wy: a cell
+                    // holding the surface voxel (h - 1) is the top material, a buried
+                    // cell is soil or rock by majority (ADR 0017: sampling only wy made
+                    // most far hillsides dirt and stone under a thin top). lod 0 is
+                    // unchanged: d_top == depth, n_solid == 1.
+                    const int cell_top = std::min(h - 1, wy + step - 1);
+                    const int d_top = h - cell_top;          // 1 when the cell holds the surface
+                    const int n_solid = cell_top - wy + 1;
+                    const int n_soil = std::clamp(SOIL_VOXELS + 1 - d_top, 0, n_solid);
                     const int depth = h - wy;
                     if (do_caves && cave[y + 1]) {
                         m = (wy < sea_ - 180) ? LAVA : AIR;
@@ -890,8 +904,8 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                                 m = STALACTITE;
                             }
                         }
-                    } else if (depth > 4 + (int)(step > 1)) {
-                        if (depth <= sandstone_depth) m = SANDSTONE;
+                    } else if (d_top > 1 && n_soil * 2 < n_solid) {
+                        if (d_top <= sandstone_depth) m = SANDSTONE;
                         else m = do_ores ? ore_at(wx, wy, wz) : STONE;
                         if (do_caves && cave[y + 2] && m == STONE) {
                             // cave floor: the 3D biome decides what you stand on
@@ -901,7 +915,7 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                             m = (uint16_t)technosim_biome::SURFACE_TOP[cb];
                         }
                     } else {
-                        m = depth == 1 ? top_m : under_m;
+                        m = d_top == 1 ? top_m : under_m;
                     }
                 } else if (wy < water_level) {
                     // generated water is static (does not drain down slopes) except the sea;
