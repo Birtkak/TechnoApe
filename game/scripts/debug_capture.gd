@@ -57,6 +57,10 @@ var _physics_acc_us := 0
 var _prev_mesh_b := 0.0      # RENDER_BUFFER_MEM_USED last frame: a spike's upload volume is the delta
 var _prev_compiles := 0.0    # pipeline compilations so far (draw + specialization)
 var _mesh_delta_mb := 0.0
+var _others_max := 0         # most other Godot processes seen by the periodic probe
+var _others_task := -1
+var _others_accum := 0.0
+const OTHERS_EVERY_S := 10.0
 var _compile_delta := 0.0
 var _elapsed := 0.0
 var _capture_accum := 0.0
@@ -173,6 +177,14 @@ func _process(delta: float) -> void:
 			if _blast_accum >= blast_every:
 				_blast_accum -= blast_every
 				_blast_volley()
+	# another Godot starting mid-run (a peer's benchmark) must taint the run even if it
+	# exits before ours ends; the probe runs on a worker thread, never on the frame
+	_others_accum += delta
+	if _others_accum >= OTHERS_EVERY_S and (_others_task < 0 or WorkerThreadPool.is_task_completed(_others_task)):
+		if _others_task >= 0:
+			WorkerThreadPool.wait_for_task_completion(_others_task)
+		_others_accum = 0.0
+		_others_task = WorkerThreadPool.add_task(_probe_others)
 	if _strip:
 		_capture_accum += delta
 		if _capture_accum >= capture_every:
@@ -218,7 +230,9 @@ func _finish() -> void:
 	s["vram_mb"] = snappedf(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0, 1)
 	var host := _host_probe()
 	s["rss_mb"] = host["rss_mb"]
-	s["other_godot_processes"] = host["other_godot"]   # > 0: timings shared the machine with another run
+	if _others_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_others_task)
+	s["other_godot_processes"] = maxi(host["other_godot"], _others_max)   # > 0 at any probe: timings shared the machine
 	# ADR 0009 reference-machine budget, after load: p99 <= 8.3 ms, no frame > 16.7 ms, RAM <= 4 GB, VRAM <= 6 GB
 	s["budget"] = {"p99": s["p99_frame_ms"] <= 8.3, "max": s["max_frame_ms"] <= 16.7,
 		"ram": s["rss_mb"] >= 0.0 and s["rss_mb"] <= 4096.0, "vram": s["vram_mb"] <= 6144.0, "loaded": _loaded_at >= 0.0}
@@ -305,6 +319,12 @@ func _world_settled() -> bool:
 func _count_over(sorted_ms: PackedFloat64Array, limit: float) -> int:
 	var i := sorted_ms.bsearch(limit, false)   # first index past every value <= limit
 	return sorted_ms.size() - i
+
+
+func _probe_others() -> void:
+	var n: int = _host_probe()["other_godot"]
+	if n > _others_max:
+		_others_max = n
 
 
 ## Working set of this process (static_memory_usage misses the native extensions' heaps)

@@ -61,6 +61,8 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   `Godot_..._console.exe --path game -- autopilot=1 duration=20 capture_every=1 vsync=0 out=res://out/runN`
   then read `game/out/runN/strip.png` and the JSON line on stdout: `budget_ok`
   (ADR 0009, measured as ADR 0014 says) and `other_godot_processes == 0`.
+  The project renders on a separate thread (ADR 0016); `--render-thread safe`
+  runs the old mode. Never drive the shared RenderingDevice from the main thread.
 - One world unit = one voxel = 0.5 m. Tunables live in `scripts/settings.gd` in metres.
 - Rebuild the sim extension from `prototypes/p5-sim-spike` and copy the DLL to
   `game/addons/technosim/bin/`.

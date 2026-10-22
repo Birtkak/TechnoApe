@@ -123,6 +123,9 @@ drop={
 
 [rendering]
 
+; ADR 0016: separate render thread so godot_voxel builds meshes off the main thread;
+; back to the old mode for one run with --render-thread safe
+driver/threads/thread_model=2
 textures/canvas_textures/default_texture_filter=0
 lights_and_shadows/directional_shadow/size=4096
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2
