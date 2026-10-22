@@ -700,6 +700,8 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
 // Soil voxels per column counted from the surface (depth 1 is the top material,
 // 2..SOIL_VOXELS the biome's under material, deeper is rock, sandstone or ore).
 static const int SOIL_VOXELS = 4;
+// At lod 1 caves are carved only this close to the surface (cave mouths).
+static const int CAVE_MOUTH_DEPTH = 24;
 
 PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel) const {
     PackedByteArray out;
@@ -711,7 +713,11 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
     std::vector<uint16_t> tmp(n, 0);
     uint16_t *w = tmp.data();
     bool any = false;
-    const bool do_caves = lod == 0;
+    // Caves at lod 0, and at lod 1 only within CAVE_MOUTH_DEPTH of the surface:
+    // cave mouths on hillsides then show to the LOD1 edge instead of popping
+    // in at the LOD0 edge (ADR 0020); deep caves stay lod 0 (nobody sees them).
+    const bool do_caves = lod <= 1;
+    const int cave_band = lod == 0 ? 1 << 30 : CAVE_MOUTH_DEPTH;
     const bool do_ores = lod == 0;
     // Micro vegetation up to lod 1: sampling every other column keeps a quarter
     // of the tufts, drawn at twice the size, so cover thins instead of stopping
@@ -866,9 +872,9 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
             bool cave[sy + 2];
             if (do_caves) {
                 for (int y = -1; y <= sy; y++) {
-                    const int wy = origin.y + y;
+                    const int wy = origin.y + y * step;
                     const bool cave_ok = no_cave_above < 0 || wy < no_cave_above;
-                    cave[y + 1] = wy < h && cave_ok && is_cave(wx, wy, wz, h) && !(wy < sea_ && h < sea_ + 2);
+                    cave[y + 1] = wy < h && h - wy <= cave_band && cave_ok && is_cave(wx, wy, wz, h) && !(wy < sea_ && h < sea_ + 2);
                 }
             }
             for (int y = 0; y < sy; y++) {
@@ -911,7 +917,7 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                         m = (wy < sea_ - 180) ? LAVA : AIR;
                         // Cave detail (deep enough that it is a real cave, not a soil overhang):
                         // stalagmites, pebbles and mushrooms on floors, stalactites on ceilings.
-                        if (m == AIR && depth > 6) {
+                        if (m == AIR && depth > 6 && lod == 0) {
                             const uint32_t ch = hash3(wx, wz, wy * 7919 + 13) % 1000;
                             if (!cave[y]) {
                                 const int cbi = technosim_biome::cave_biome(ti, hi,

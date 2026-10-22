@@ -79,10 +79,11 @@ func test_coarse_surface_cell_keeps_the_surface_material() -> void:
 			var k := (h - 1 - y0) / step
 			assert_int(c[k]).override_failure_message("lod %d at (%d,%d) h=%d: surface cell is %d" % [lod, cz[0], cz[1], h, c[k]]).is_equal(GameMaterials.GRASS)
 			assert_int(c[k + 1]).is_equal(GameMaterials.AIR)
-			# below the surface cell: never grass, never air
+			# below the surface cell: never grass; never air except lod-1 cave mouths
 			for j in range(0, k):
 				assert_int(c[j]).is_not_equal(GameMaterials.GRASS)
-				assert_int(c[j]).is_not_equal(GameMaterials.AIR)
+				if lod > 1:
+					assert_int(c[j]).is_not_equal(GameMaterials.AIR)
 
 
 func test_buried_cells_are_soil_or_rock_by_majority() -> void:
@@ -131,3 +132,40 @@ func test_far_lod_forests_collapse_into_leaf_coloured_ground() -> void:
 		x += 128
 	assert_int(leaves).is_greater(0)
 	assert_int(surface_leaves).is_equal(leaves)
+
+
+func test_lod1_keeps_cave_mouths_near_the_surface() -> void:
+	# lod 1 carves caves within 24 voxels of the surface (ADR 0020): where the
+	# lod-0 voxel at an even position is cave air under ground, the lod-1 cell
+	# at the same world position is air too; deeper than the band it is not.
+	var g := _gen()
+	var size0 := Vector3i(16, 16, 16)
+	var checked := 0
+	var agree := 0
+	var deep_carved := 0
+	var x := 0
+	while x < 60000 and checked < 40:
+		var h: int = g.height_at(x, 3)
+		if h > Settings.SEA_LEVEL_VOXEL + 10:
+			var y0 := ((h - 20) / 16) * 16            # lod-0 block just under the surface
+			var b0: PackedByteArray = g.generate_block(Vector3i(x, y0, 3), size0, 0, 2)
+			var y1 := (y0 / 32) * 32                  # lod-1 block covering it (y0 is a multiple of 16)
+			var b1: PackedByteArray = g.generate_block(Vector3i(x, y1, 3), size0, 1, 2)
+			if not b0.is_empty() and not b1.is_empty():
+				var c0 := _col(b0, size0, 0, 0)
+				var c1 := _col(b1, size0, 0, 0)
+				for y in range(0, 16, 2):
+					var wy := y0 + y
+					if wy < h - 1 and h - wy <= 24 and c0[y] == GameMaterials.AIR:   # cave air at lod 0, inside the band
+						checked += 1
+						if (wy - y1) % 2 == 0 and c1[(wy - y1) / 2] == GameMaterials.AIR:
+							agree += 1
+				# nothing carved deeper than the band at lod 1
+				for k in 16:
+					var wyk := y1 + k * 2
+					if wyk < h - 24 - 2 and wyk > 3 and c1[k] == GameMaterials.AIR:
+						deep_carved += 1
+		x += 61
+	assert_int(checked).is_greater(0)
+	assert_int(agree).is_equal(checked)
+	assert_int(deep_carved).is_equal(0)

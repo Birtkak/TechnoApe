@@ -31,6 +31,10 @@ which a per-block ShaderMaterial never reaches: the earlier fade measurement
   trunks; canopies remain as blobs). lod ≥ 3: no tree geometry; a column
   under a canopy gets a LEAVES surface cell, so forests keep their colour at
   any distance ("naked blocks with matching colours").
+- Caves are carved at lod 1 too, but only within 24 voxels of the surface
+  (`CAVE_MOUTH_DEPTH`): cave mouths on hillsides show to the LOD1 edge
+  instead of popping in at 64 m; deep caves stay lod 0. Cave decorations
+  (stalactites, pebbles, fungi) stay lod 0. lod-1 blocks: 0.18 → 0.37 ms.
 - A coarse cell is water only when at least half of it is below the water
   level (lod 0 unchanged), so lakes and seas keep their level at every LOD.
 - `test_world_gen_lod.gd` covers the surface rule, the soil/rock majority,
