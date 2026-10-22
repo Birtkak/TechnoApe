@@ -1,4 +1,5 @@
 #include "register_types.h"
+#include "micro_mesher.h"
 #include "sim_world.h"
 #include "world_gen.h"
 
@@ -14,6 +15,7 @@ void initialize_technosim_module(ModuleInitializationLevel p_level) {
     }
     GDREGISTER_CLASS(SimWorld);
     GDREGISTER_CLASS(WorldGen);
+    GDREGISTER_CLASS(MicroMesher);
 }
 
 void uninitialize_technosim_module(ModuleInitializationLevel p_level) {
