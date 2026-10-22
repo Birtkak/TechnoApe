@@ -1,0 +1,75 @@
+class_name LoadingScreen
+extends CanvasLayer
+
+## First-load cover (ADR 0020): a dark panel with a progress bar until the
+## simulation bubble holds its chunks and godot_voxel's workers have drained
+## the initial streaming burst, then a short fade. Without it the first
+## seconds show the world assembling block by block around the player.
+## Progress is 1 - pending / peak pending tasks (monotonic); a cap ends it
+## regardless, so a slow horizon never hides the game.
+
+const CAP_S := 15.0
+const IDLE_FRAMES := 20        # frames with no voxel task before the fade starts
+const FADE_S := 0.6
+
+var bubble: SimBubble
+var _cover: ColorRect
+var _bar: ColorRect
+var _bar_bg: ColorRect
+var _label: Label
+var _elapsed := 0.0
+var _peak := 0
+var _idle := 0
+var _progress := 0.0
+var _fading := false
+
+
+func _ready() -> void:
+	layer = 20
+	_cover = ColorRect.new()
+	_cover.color = Color(0.03, 0.035, 0.05, 1.0)
+	_cover.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_cover.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_cover)
+	_label = Label.new()
+	_label.text = "Generating world"
+	_label.add_theme_font_size_override("font_size", 22)
+	_label.add_theme_color_override("font_color", Color(0.85, 0.85, 0.8))
+	_label.set_anchors_preset(Control.PRESET_CENTER)
+	_label.position = Vector2(-90, -40)
+	_cover.add_child(_label)
+	_bar_bg = ColorRect.new()
+	_bar_bg.color = Color(0.2, 0.2, 0.22)
+	_bar_bg.set_anchors_preset(Control.PRESET_CENTER)
+	_bar_bg.position = Vector2(-150, 4)
+	_bar_bg.size = Vector2(300, 6)
+	_cover.add_child(_bar_bg)
+	_bar = ColorRect.new()
+	_bar.color = Color(0.55, 0.75, 0.35)
+	_bar.position = Vector2.ZERO
+	_bar.size = Vector2(0, 6)
+	_bar_bg.add_child(_bar)
+
+
+func _process(delta: float) -> void:
+	if _fading:
+		return
+	_elapsed += delta
+	var t: Dictionary = VoxelEngine.get_stats().get("tasks", {})
+	var pending: int = int(t.get("generation", 0)) + int(t.get("meshing", 0)) + int(t.get("streaming", 0)) + int(t.get("main_thread", 0))
+	_peak = maxi(_peak, pending)
+	if _peak > 0:
+		_progress = maxf(_progress, 1.0 - float(pending) / float(_peak))
+	_bar.size.x = 300.0 * _progress
+	var bubble_ready := bubble == null or bubble.is_loaded()
+	_idle = _idle + 1 if (pending == 0 and bubble_ready and _elapsed > 0.5) else 0
+	if _idle >= IDLE_FRAMES or _elapsed >= CAP_S:
+		_fading = true
+		_bar.size.x = 300.0
+		var tw := create_tween()
+		tw.tween_property(_cover, "modulate:a", 0.0, FADE_S)
+		tw.tween_callback(queue_free)
+
+
+func is_done() -> bool:
+	return _fading

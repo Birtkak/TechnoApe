@@ -82,6 +82,11 @@ func _ready() -> void:
 	game_hud = GameHud.new()
 	game_hud.name = "Hud"
 	add_child(game_hud)
+	# covers the first seconds while the terrain streams in (ADR 0020)
+	var loading := LoadingScreen.new()
+	loading.name = "LoadingScreen"
+	loading.bubble = bubble
+	add_child(loading)
 	game_hud.setup(player_inv)
 	player.hud = game_hud
 	inv_screen = InventoryScreen.new()

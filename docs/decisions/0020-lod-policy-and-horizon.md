@@ -126,6 +126,12 @@ and the see-through water, the spill is unchanged. Load time 2.8 → 4 s
   tiles outside the lock is the fix if an 8th level is ever wanted; a tile
   is ~2.8 MB.
 
+**Loading screen (`scripts/ui/loading_screen.gd`):** the first ~4 s, while
+the clipbox rings stream in, are covered by a dark panel with a progress bar
+(1 − pending / peak voxel tasks) that fades once the bubble holds its chunks
+and the workers are idle for 20 frames (cap 15 s). Before it the game opened
+on a world assembling block by block around the player.
+
 ## Consequences
 - Far forests are leaf-coloured ground, not trees: a far hill reads as
   forest, and the LOD2 → LOD3 switch replaces canopy blobs with a flat
