@@ -146,9 +146,14 @@ set by `set_chunk_bytes`, carried through `shift`). Cost ≈ 5–10 % per tick.
   ores in it), clay patches in river, lake and marsh beds, ice. Vegetation at
   LOD 0 only: tall grass (plains 29 %, forest 17 %, highlands 11 %, marsh
   55 %), flowers in patches (20 m noise), cacti 2-4 high and dead bushes in
-  deserts. Vegetation voxels are Minecraft cross-quads (`materials.gd`
-  `cross: true`): no collision, never cull neighbours, alpha-cutout material;
-  they burn (grass fires) and are solid for the simulation.
+  deserts. Vegetation voxels are **micro-voxel models** (`materials.gd`
+  `micro: tuft|flower|bush`): a pattern of quarter-size cubes (12.5 cm) built
+  into a `VoxelBlockyModelMesh` with only exposed faces, textured from opaque
+  atlas tiles, no collision, never culling neighbours. Brent's call
+  (2026-10-22) over Minecraft cross-quads, which showed hairlines edge-on and
+  atlas-bleed specks through the alpha cutout; the same model path can serve
+  slabs, stairs and other sub-voxel decoration later. They burn (grass fires)
+  and are solid for the simulation.
 - Cost with warmed tiles: LOD 0 block 573 us, LOD 2 block 215 us; a hydrology
   tile (320x320 cells) builds in ~65 ms.
 

@@ -32,7 +32,7 @@ const GRAVEL_STATIC := 22
 const WATER_STATIC := 23    # generated river/lake water: static until disturbed (else it drains downhill)
 const SANDSTONE := 24
 const CLAY := 25
-const TALL_GRASS := 26      # cross-quad vegetation (no collision): tufts, flowers, dead bushes
+const TALL_GRASS := 26      # micro-voxel vegetation (quarter cubes, no collision): tufts, flowers, dead bushes
 const FLOWER := 27
 const CACTUS := 28
 const DEAD_BUSH := 29
@@ -69,12 +69,12 @@ static func defs() -> Array:
 		{"name": "water_static", "cell_type": "liquid", "liquid_static": true, "density": 1, "tiles": [5, 5, 5], "transparent": true, "loose": 5},
 		{"name": "sandstone", "cell_type": "solid", "density": 10, "hp": 600, "tiles": [21, 21, 21], "transparent": false},
 		{"name": "clay", "cell_type": "solid", "density": 9, "hp": 300, "tiles": [22, 22, 22], "transparent": false},
-		{"name": "tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 10, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 23, 23], "transparent": true, "cross": true},
-		{"name": "flower", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 8, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [24, 24, 24], "transparent": true, "cross": true},
+		{"name": "tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 10, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 23, 23], "transparent": false, "micro": "tuft"},
+		{"name": "flower", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 8, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [24, 24, 24], "transparent": false, "micro": "flower"},
 		{"name": "cactus", "cell_type": "solid", "density": 10, "hp": 40, "burnable": true, "fire_hp": 30, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [25, 25, 25], "transparent": false},
-		{"name": "dead_bush", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 6, "autoignition_temperature": 15, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [26, 26, 26], "transparent": true, "cross": true},
+		{"name": "dead_bush", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 6, "autoignition_temperature": 15, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [26, 26, 26], "transparent": false, "micro": "bush"},
 		{"name": "ice", "cell_type": "solid", "density": 9, "hp": 120, "tiles": [27, 27, 27], "transparent": false},
-		{"name": "flower_red", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 8, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [28, 28, 28], "transparent": true, "cross": true},
+		{"name": "flower_red", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 8, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [28, 28, 28], "transparent": false, "micro": "flower"},
 	]
 
 
@@ -97,14 +97,14 @@ static func name_of(id: int) -> String:
 
 
 ## Builds the godot_voxel blocky library with atlas tiles per face.
-## cutout_material: alpha-scissor, double-sided variant of the atlas for the
-## cross-quad vegetation models (tall grass, flowers, dead bushes).
-static func build_library(atlas_material: Material, cutout_material: Material = null) -> VoxelBlockyLibrary:
+## Materials with a "micro" key are built from quarter-voxel cubes (12.5 cm)
+## instead of a full cube: vegetation that is still voxels, no alpha cutout.
+static func build_library(atlas_material: Material) -> VoxelBlockyLibrary:
 	var lib := VoxelBlockyLibrary.new()
 	var models: Array = [VoxelBlockyModelEmpty.new()]
 	for d in defs():
-		if d.get("cross", false):
-			models.append(_cross_model(d["tiles"][0], cutout_material if cutout_material else atlas_material))
+		if d.has("micro"):
+			models.append(_micro_model(d["micro"], d["tiles"][0], atlas_material))
 			continue
 		var cube := VoxelBlockyModelCube.new()
 		cube.atlas_size_in_tiles = ATLAS_TILES
@@ -128,36 +128,95 @@ static func build_library(atlas_material: Material, cutout_material: Material = 
 	return lib
 
 
-## Minecraft-style "cross" model: two diagonal quads, no collision, never culls
-## its neighbours (the ground under a tuft must stay visible), own transparency
-## index so faces between two tufts are not culled either.
-static func _cross_model(tile: int, material: Material) -> VoxelBlockyModelMesh:
-	var u0 := float(tile % ATLAS_TILES.x) / ATLAS_TILES.x
-	var v0 := float(tile / ATLAS_TILES.x) / ATLAS_TILES.y
-	var u1 := u0 + 1.0 / ATLAS_TILES.x
-	var v1 := v0 + 1.0 / ATLAS_TILES.y
+## Micro-voxel model: a pattern of quarter-size cubes (4x4x4 grid per voxel,
+## 12.5 cm each) with only the exposed faces, textured from opaque atlas tiles.
+## No collision (walk through like Minecraft tufts), never culls neighbours (the
+## ground under it stays visible), same opaque material as the terrain.
+## kind: "tuft" | "flower" | "bush"; tile: the atlas tile for the plant body;
+## flowers take their petal tile from the head colour (tile 30 yellow, 31 red).
+static func _micro_model(kind: String, tile: int, material: Material) -> VoxelBlockyModelMesh:
+	var cells := {}  # Vector3i -> tile
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(kind + str(tile))
+	match kind:
+		"tuft":
+			for i in 4:
+				var x := rng.randi_range(0, 3)
+				var z := rng.randi_range(0, 3)
+				var hgt := rng.randi_range(1, 3)
+				for y in hgt:
+					cells[Vector3i(x, y, z)] = tile
+				if hgt >= 3 and rng.randf() < 0.6:
+					var lean := Vector3i(x + rng.randi_range(-1, 1), hgt - 1, z + rng.randi_range(-1, 1))
+					if lean.x >= 0 and lean.x <= 3 and lean.z >= 0 and lean.z <= 3:
+						cells[lean] = tile
+		"flower":
+			var petal := 31 if tile == 28 else 30
+			for y in 3:
+				cells[Vector3i(1, y, 1)] = 29  # stem, leaf green
+			cells[Vector3i(0, 1, 2)] = 29      # a leaf
+			# plus-shaped head: petals around a contrasting centre
+			cells[Vector3i(1, 3, 1)] = 30 if petal == 31 else 31
+			for off in [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]:
+				cells[Vector3i(1, 3, 1) + off] = petal
+			for i in 2:  # a couple of grass blades around it
+				var x := rng.randi_range(0, 3)
+				var z := rng.randi_range(0, 3)
+				if not cells.has(Vector3i(x, 0, z)):
+					cells[Vector3i(x, 0, z)] = tile
+					if rng.randf() < 0.5:
+						cells[Vector3i(x, 1, z)] = tile
+		"bush":
+			cells[Vector3i(1, 0, 1)] = tile
+			cells[Vector3i(1, 1, 1)] = tile
+			for i in 5:  # twigs
+				var x := rng.randi_range(0, 3)
+				var z := rng.randi_range(0, 3)
+				var y := rng.randi_range(1, 2)
+				cells[Vector3i(x, y, z)] = tile
+				cells[Vector3i(x, y - 1, z)] = tile
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var inset := 0.15
-	var a := inset
-	var b := 1.0 - inset
-	for q in [[Vector3(a, 0, a), Vector3(b, 0, b)], [Vector3(a, 0, b), Vector3(b, 0, a)]]:
-		var p0: Vector3 = q[0]
-		var p1: Vector3 = q[1]
-		var n := Vector3(0, 1, 0)
-		st.set_normal(n); st.set_uv(Vector2(u0, v1)); st.add_vertex(p0)
-		st.set_normal(n); st.set_uv(Vector2(u1, v1)); st.add_vertex(p1)
-		st.set_normal(n); st.set_uv(Vector2(u1, v0)); st.add_vertex(p1 + Vector3.UP)
-		st.set_normal(n); st.set_uv(Vector2(u0, v1)); st.add_vertex(p0)
-		st.set_normal(n); st.set_uv(Vector2(u1, v0)); st.add_vertex(p1 + Vector3.UP)
-		st.set_normal(n); st.set_uv(Vector2(u0, v0)); st.add_vertex(p0 + Vector3.UP)
-	st.index()  # the blocky mesher expects indexed surfaces
-	var mesh := st.commit()
+	var q := 0.25
+	# faces: normal, the four corners (in units of the quarter cube), tile uv origin
+	var faces := [
+		[Vector3i(0, 1, 0), [Vector3(0, 1, 0), Vector3(0, 1, 1), Vector3(1, 1, 1), Vector3(1, 1, 0)]],
+		[Vector3i(0, -1, 0), [Vector3(0, 0, 1), Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(1, 0, 1)]],
+		[Vector3i(1, 0, 0), [Vector3(1, 0, 0), Vector3(1, 1, 0), Vector3(1, 1, 1), Vector3(1, 0, 1)]],
+		[Vector3i(-1, 0, 0), [Vector3(0, 0, 1), Vector3(0, 1, 1), Vector3(0, 1, 0), Vector3(0, 0, 0)]],
+		[Vector3i(0, 0, 1), [Vector3(1, 0, 1), Vector3(1, 1, 1), Vector3(0, 1, 1), Vector3(0, 0, 1)]],
+		[Vector3i(0, 0, -1), [Vector3(0, 0, 0), Vector3(0, 1, 0), Vector3(1, 1, 0), Vector3(1, 0, 0)]],
+	]
+	for c in cells:
+		var t: int = cells[c]
+		var u0 := float(t % ATLAS_TILES.x) / ATLAS_TILES.x
+		var v0 := float(t / ATLAS_TILES.x) / ATLAS_TILES.y
+		var du := 1.0 / ATLAS_TILES.x
+		var dv := 1.0 / ATLAS_TILES.y
+		for f in faces:
+			var n: Vector3i = f[0]
+			if cells.has(c + n):
+				continue  # face shared with another cube of the pattern
+			var corners: Array = f[1]
+			var p: Array = []
+			for k in 4:
+				p.append((Vector3(c) + corners[k]) * q)
+			# each quarter cube shows a quarter of the tile so the texture scale matches the terrain
+			var uq := [Vector2(0, 1), Vector2(0, 0), Vector2(1, 0), Vector2(1, 1)]
+			var uo := Vector2(u0 + du * 0.25 * (c.x % 4), v0 + dv * 0.25 * (c.z % 4))
+			var uvs: Array = []
+			for k in 4:
+				uvs.append(uo + Vector2(uq[k].x * du * 0.25, uq[k].y * dv * 0.25))
+			var nn := Vector3(n)
+			for idx in [0, 1, 2, 0, 2, 3]:
+				st.set_normal(nn)
+				st.set_uv(uvs[idx])
+				st.add_vertex(p[idx])
+	st.index()
 	var model := VoxelBlockyModelMesh.new()
-	model.mesh = mesh
+	model.mesh = st.commit()
 	model.set_material_override(0, material)
 	model.culls_neighbors = false
-	model.transparency_index = 2
 	model.collision_aabbs = []
-	model.set_mesh_collision_enabled(0, false)  # walk through tufts like Minecraft
+	model.set_mesh_collision_enabled(0, false)
 	return model

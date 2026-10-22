@@ -17,22 +17,11 @@ func _ready() -> void:
 	atlas_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
 	atlas_material.vertex_color_use_as_albedo = true  # baked AO from the mesher
 	atlas_material.roughness = 1.0
-	# Cutout variant for cross-quad vegetation (grass tufts, flowers): alpha
-	# scissor keeps it in the opaque pass, double-sided so both quad faces show.
-	var cutout := StandardMaterial3D.new()
-	cutout.albedo_texture = atlas
-	cutout.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
-	cutout.vertex_color_use_as_albedo = true
-	cutout.roughness = 1.0
-	cutout.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-	cutout.alpha_scissor_threshold = 0.5
-	cutout.cull_mode = BaseMaterial3D.CULL_DISABLED
-
 	generator = TerrainGenerator.new()
 	generator.set_seed(Settings.world_seed)
 
 	var mesher := VoxelMesherBlocky.new()
-	mesher.library = GameMaterials.build_library(atlas_material, cutout)
+	mesher.library = GameMaterials.build_library(atlas_material)
 
 	terrain = VoxelLodTerrain.new()
 	terrain.name = "Terrain"

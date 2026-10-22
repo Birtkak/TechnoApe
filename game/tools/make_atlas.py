@@ -73,15 +73,17 @@ def cross_tile(base, blades=False, flower=None, sparse=False):
     head. Transparent pixels keep the base colour so mipmaps do not darken."""
     img = Image.new("RGBA", (TILE, TILE), (base[0], base[1], base[2], 0))
     px = img.load()
-    nblades = 5 if sparse else 11
+    # Dense: at distance (no mipmaps) a tuft must still read as a green blob,
+    # not as a few hairlines.
+    nblades = 6 if sparse else 16
     for i in range(nblades):
-        x = random.randint(0, TILE - 3)
-        h = random.randint(8, 15) if blades else random.randint(6, 10)
+        x = random.randint(0, TILE - 4)
+        h = random.randint(9, 16) if blades else random.randint(6, 10)
         lean = random.choice([-1, 0, 0, 1])
         for k in range(h):
             y = TILE - 1 - k
-            xx = max(0, min(TILE - 2, x + (lean if k > h * 2 // 3 else 0)))
-            w = 2 if k < h - 3 else 1
+            xx = max(0, min(TILE - 3, x + (lean if k > h * 2 // 3 else 0)))
+            w = 3 if k < h - 4 else (2 if k < h - 2 else 1)
             for dx in range(w):
                 d = random.randint(-18, 18)
                 px[xx + dx, y] = (max(0, base[0] + d), max(0, base[1] + d), max(0, base[2] + d), 255)
@@ -122,13 +124,16 @@ tiles = [
     noise_tile((45, 120, 40), 22, (25, 80, 30), 0.3),         # 20 leaves
     sandstone(),                                              # 21 sandstone
     noise_tile((150, 158, 170), 10, (120, 128, 140), 0.12),   # 22 clay
-    cross_tile((70, 150, 60), blades=True),                   # 23 tall grass (cutout)
-    cross_tile((70, 150, 60), flower=(240, 210, 50)),         # 24 flower, yellow (cutout)
+    noise_tile((96, 182, 74), 14, (70, 150, 55), 0.15),       # 23 tall grass body (micro-voxel model), lighter than grass top
+    noise_tile((96, 182, 74), 14, (70, 150, 55), 0.15),       # 24 flower body (micro-voxel model)
     cactus(),                                                 # 25 cactus
-    cross_tile((140, 100, 50), blades=True, sparse=True),     # 26 dead bush (cutout)
+    noise_tile((135, 95, 50), 14, (100, 70, 35), 0.2),        # 26 dead bush (micro-voxel model)
     noise_tile((170, 205, 240), 8, (210, 230, 250), 0.15),    # 27 ice
-    cross_tile((70, 150, 60), flower=(220, 50, 50)),          # 28 flower, red (cutout)
-] + [noise_tile((255, 0, 255), 0) for _ in range(3)]          # 29..31 spare (magenta = missing)
+    noise_tile((96, 182, 74), 14, (70, 150, 55), 0.15),       # 28 flower_red body (micro-voxel model)
+    noise_tile((60, 140, 55), 12),                            # 29 leaf green (stems)
+    noise_tile((245, 215, 60), 12, (255, 240, 120), 0.2),     # 30 petal yellow
+    noise_tile((220, 55, 55), 12, (250, 110, 110), 0.2),      # 31 petal red
+]
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))
 for i, t in enumerate(tiles):
