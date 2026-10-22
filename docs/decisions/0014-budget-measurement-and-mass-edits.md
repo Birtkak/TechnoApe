@@ -61,6 +61,9 @@ compiled its particle shaders on the main thread (15-19 ms when the first
 waterfall came into range); `WaterfallSpray` now warms one up during load.
 
 ## Measured (dev box, 1280x720, vsync off, default distances, 20 s after load)
+Game at 8ebab97 plus this ADR's fixes, i.e. *before* the visual polish (ab9980f:
+SSAO, soft shadows, bloom, see-through water), which adds ~1.2 ms steady state.
+
 | Run | p50 | p99 | max | frames > 8.3 | > 16.7 |
 |---|---|---|---|---|---|
 | fly 6 m/s | 0.98 | 1.29 | 8.99 | 1 | 0 |
