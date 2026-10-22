@@ -75,3 +75,9 @@ Rings 48 m (64 m gives 20–27 ms frames at 40 m/s flight), fade 0.35 s,
 threaded update on, no `terrain.material`, our extension build. The budget
 matrix on those defaults is in the ADR; `game/out/mx_d2_*` holds the runs.
 The fade is visible as a dithered edge in `game/out/fade_vis2/zoom_far.png`.
+
+### Later the same night (see ADR 0020 for the numbers)
+- 2 km horizon at 7 LODs costs nothing over 1 km; an 8th LOD took 22.6 s to
+  load until the generator's hydrology tile cache was fixed (4.4 s after).
+- LOD0 96 m: fine at 20 m/s, a 19.5 ms frame at 40 m/s. Not default.
+- Mesh upload budget at apply time: within noise on the water spill.

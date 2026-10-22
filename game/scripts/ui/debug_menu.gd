@@ -24,10 +24,12 @@ var _opt_creative: CheckBox
 var _opt_minimized: CheckBox
 var _opt_noon: CheckBox
 var _opt_kit: OptionButton
+var _opt_detail: OptionButton
 var _opt_extra: LineEdit
 var _loading_prefs := false
 
 const KIT_CHOICES := ["none", "tools", "builder", "stations", "magic"]
+const DETAIL_CHOICES := ["normal", "high", "ultra"]   # ADR 0020: LOD rings 48 m / 64 m / 64 m + 96 m full detail
 
 
 func _ready() -> void:
@@ -148,6 +150,18 @@ func _build_panel() -> void:
 	_opt_kit.item_selected.connect(func(_i: int) -> void: _save_prefs())
 	kit_row.add_child(_opt_kit)
 	opts.add_child(kit_row)
+	var detail_row := HBoxContainer.new()
+	var detail_label := Label.new()
+	detail_label.text = "Terrain detail:"
+	detail_row.add_child(detail_label)
+	_opt_detail = OptionButton.new()
+	for d in DETAIL_CHOICES:
+		_opt_detail.add_item(d)
+	_opt_detail.tooltip_text = "normal: 2-voxel cubes to 160 m. high: to 192 m (grass too), +0.5 ms, +350 MB VRAM.
+ultra: full detail to 96 m as well; 40 m/s flight can hitch. Applies at the next start."
+	_opt_detail.item_selected.connect(func(_i: int) -> void: _save_prefs())
+	detail_row.add_child(_opt_detail)
+	opts.add_child(detail_row)
 	_opt_extra = LineEdit.new()
 	_opt_extra.placeholder_text = "More start commands, separated by ;  e.g.  /goto lake; /give glass 64"
 	_opt_extra.text_changed.connect(func(_t: String) -> void: _save_prefs())
@@ -383,6 +397,7 @@ func _load_prefs() -> void:
 	_opt_minimized.button_pressed = bool(cf.get_value("start", "minimized", true)) if ok else true
 	_opt_noon.button_pressed = ok and bool(cf.get_value("start", "noon", false))
 	_opt_kit.select(maxi(0, KIT_CHOICES.find(String(cf.get_value("start", "kit", "none")) if ok else "none")))
+	_opt_detail.select(maxi(0, DETAIL_CHOICES.find(String(cf.get_value("start", "terrain_detail", "normal")) if ok else "normal")))
 	_opt_extra.text = String(cf.get_value("start", "extra", "")) if ok else ""
 	_loading_prefs = false
 
@@ -405,6 +420,7 @@ func _save_prefs() -> void:
 	cf.set_value("start", "minimized", _opt_minimized.button_pressed)
 	cf.set_value("start", "noon", _opt_noon.button_pressed)
 	cf.set_value("start", "kit", kit)
+	cf.set_value("start", "terrain_detail", DETAIL_CHOICES[maxi(0, _opt_detail.selected)])
 	cf.set_value("start", "extra", _opt_extra.text)
 	cf.set_value("start", "commands", cmds)
 	cf.save(Settings.PLAYTEST_PREFS)

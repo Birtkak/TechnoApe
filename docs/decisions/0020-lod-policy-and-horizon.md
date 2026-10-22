@@ -71,8 +71,11 @@ calls). `lod_fade_s` defaults to 0.35 s; the shader's `u_lod_fade` is an
 `instance uniform` again.
 
 **Not adopted:** LOD0 at 128 m. Eight times the full-detail volume: 16 M
-primitives, 2 GB VRAM, p99 10 ms, 9 s load. Detail further out comes from
-the rings and the generator policy, not from a bigger LOD0.
+primitives, 2 GB VRAM, p99 10 ms, 9 s load. LOD0 at 96 m (3.4× the volume)
+holds at 20 m/s (p50 3.0, p99 5.0, max 14 ms, 1.2 GB VRAM, load 5.8 s) but
+not at 40 m/s (p99 5.8, a 19.5 ms frame). Detail further out comes from
+the rings and the generator policy, not from a bigger LOD0;
+`render_distance_m=96` stays a setting for a quiet walk.
 
 ## Measured
 Flight at 20 m/s, 16 s after load, 1280x720, separate render thread
@@ -133,9 +136,9 @@ and the see-through water, the spill is unchanged. Load time 2.8 → 4 s
   22.6 s and a 20 m/s flight never settle: lod-7 data blocks span 2 km each
   and touch more 2 km hydrology tiles than the generator's cache keeps (64,
   cleared wholesale when full, each tile rebuilt under the global mutex), so
-  the workers serialize on tile rebuilds. Raising the cache or building
-  tiles outside the lock is the fix if an 8th level is ever wanted; a tile
-  is ~2.8 MB.
+  the workers serialize on tile rebuilds. With the tile cache fix above
+  (built outside the lock, LRU past 96) an 8th level loads in 4.4 s; it is
+  still not needed at 2 km.
 
 **Loading screen (`scripts/ui/loading_screen.gd`):** the first ~4 s, while
 the clipbox rings stream in, are covered by a dark panel with a progress bar

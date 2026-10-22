@@ -167,6 +167,9 @@ nothing moves. Server and client will share this split (ADR 0002).
 - Item icons for non-block items are coloured tags with initials; the held item is a cube or a card, no arm.
 - Memory at large full-detail radius; see `docs/research` matrix in the commit log.
 
+The F4 playtest menu's "Terrain detail" (normal / high / ultra) sets the LOD
+ring width and the full-detail radius for the next start (ADR 0020).
+
 ## The voxel extension is our build (ADR 0020)
 
 `addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll` (git-ignored)

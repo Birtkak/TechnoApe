@@ -154,3 +154,10 @@ func load_playtest_prefs() -> void:
 	game_mode = String(cf.get_value("start", "game_mode", game_mode))
 	start_minimized = bool(cf.get_value("start", "minimized", start_minimized))
 	start_commands = PackedStringArray(cf.get_value("start", "commands", PackedStringArray()))
+	# F4 menu "Terrain detail" (ADR 0020): wider LOD rings, and full detail to 96 m for "ultra"
+	match String(cf.get_value("start", "terrain_detail", "normal")):
+		"high":
+			lod_ring_m = 64.0
+		"ultra":
+			lod_ring_m = 64.0
+			render_distance_m = 96.0
