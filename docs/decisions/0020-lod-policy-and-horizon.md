@@ -117,11 +117,16 @@ hydrology fix).
   time during a clipbox burst (`mesh_delta` ±8 MB, 6,000 generation tasks
   queued). The per-frame upload/remesh budget that ADR 0016 already asks for
   would cap it; with our own extension build it is now reachable.
-- Walking runs show one 34 ms physics step per 20 s run, about once in
-  8,000 frames, with no voxel task in flight (seen in the walk and the 8 m
-  blast runs, not reproduced in two reruns). The player's `VoxelBoxMover`
-  reads the terrain under its data lock; a worker holding that lock for a
-  block save or cache write is the suspect. Not new to this ADR.
+- Walking runs showed one 34 ms physics step in roughly 4 of 10 runs, about
+  22 s after start, with no voxel task in flight. It is independent of the
+  threaded LOD update (1 of 3 each way) and of the harness's host probe
+  (2 of 4 with it off); per-callback timers put all 33.7 ms inside the
+  player's physics step (`Main.phys_cost`, listed on every spike). With
+  sub-step timers in the player (mining, ground check, move, unstick,
+  place) it did not occur in 10 runs. Open; the timers stay in, so the next
+  occurrence names the sub-step. The 11 ms frames of walking runs are mesh
+  uploads of a remeshed 32-voxel surface block (3–7 MB each: micro
+  vegetation), 1–2 per 20 s.
 - "Destination block not found when cascading edits on LOD n" (1–4 per walk
   run at start-up, older than this ADR) came from the bubble pasting its first
   simulation changes before the parent LOD blocks existed. The bubble now

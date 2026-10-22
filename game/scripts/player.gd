@@ -257,12 +257,34 @@ func _move(delta: float, allow_step: bool) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_physics_step(delta)
+	var m := get_parent()
+	if m != null and "phys_cost" in m:
+		m.phys_cost["player"] = maxf(float(m.phys_cost.get("player", 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
+
+
+## Records a sub-step's cost in Main.phys_cost (DebugCapture lists it on a spike).
+func _cost(name: String, t0: int) -> void:
+	var m := get_parent()
+	if m != null and "phys_cost" in m:
+		m.phys_cost[name] = maxf(float(m.phys_cost.get(name, 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
+
+
+func _physics_step(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
 	if model and model.visible:
 		model.animate(delta, Vector2(velocity.x, velocity.z).length(), is_on_floor(), flying, _pitch, viewmodel.swing_amount() if viewmodel else 0.0)
+	_cost("player_model", t0)
 	_break_cooldown = maxf(0.0, _break_cooldown - delta)
 	_place_cooldown = maxf(0.0, _place_cooldown - delta)
+	t0 = Time.get_ticks_usec()
 	_update_mining(delta)
-	if not _ground_ready():
+	_cost("player_mining", t0)
+	t0 = Time.get_ticks_usec()
+	var ground := _ground_ready()
+	_cost("player_ground", t0)
+	if not ground:
 		velocity = Vector3.ZERO
 		return
 	var input := Vector2.ZERO
@@ -300,11 +322,17 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= Settings.m2v(Settings.gravity_m) * delta
 		if _on_floor and Input.is_action_just_pressed("jump") and not ui_open:
 			velocity.y = sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(Settings.jump_height_m))
+	t0 = Time.get_ticks_usec()
 	_move(delta, _on_floor)
+	_cost("player_move", t0)
+	t0 = Time.get_ticks_usec()
 	_unstick_from_voxels()
 	_update_fall_damage()
+	_cost("player_unstick", t0)
 	if autopilot and autopilot_action == "place" and _place_cooldown <= 0.0:
+		t0 = Time.get_ticks_usec()
 		_use(true)
+		_cost("player_place", t0)
 
 
 ## A voxel placed or simulated into the body (falling sand) would trap it:

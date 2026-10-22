@@ -148,6 +148,8 @@ class _FrameEnd extends Node:
 
 func _physics_process(_delta: float) -> void:
 	_physics_t0 = Time.get_ticks_usec()
+	if _main != null and _main.phys_cost.size() > 0 and _physics_acc_us == 0:
+		_main.phys_cost.clear()   # first step of this frame: start the per-callback maxima afresh
 
 
 func attach(main: Node) -> void:
@@ -301,6 +303,7 @@ func _note_spike(ms: float, process_us: int) -> void:
 		"render_gpu_ms": snappedf(RenderingServer.viewport_get_measured_render_time_gpu(vp), 0.01),
 		"other_ms": snappedf(maxf(ms - pms - phys - rcpu, 0.0), 0.01),
 		"bubble": _main.bubble.last_frame_cost(),
+		"phys_cost": _main.phys_cost.duplicate(),
 		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		"primitives_m": snappedf(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1e6, 0.01),
 		"mesh_mb": snappedf(Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED) / 1048576.0, 1),

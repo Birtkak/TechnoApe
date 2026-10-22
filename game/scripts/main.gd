@@ -24,6 +24,7 @@ var chat: ChatBox
 var debug_menu: DebugMenu
 var _tick_accum := 0.0
 var _save_accum := 0.0
+var phys_cost := {}   # ms per physics callback this frame (player, items, item_bodies, blocks); DebugCapture reads it on a spike
 var _items_root: Node3D
 var _item_entities: Array[ItemEntity] = []
 var _merge_accum := 0.0
@@ -228,7 +229,10 @@ func _process(_delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
 	_update_items(delta)
+	phys_cost["items"] = maxf(float(phys_cost.get("items", 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
+	t0 = Time.get_ticks_usec()
 	_tick_accum += delta
 	var n := 0
 	while _tick_accum >= BlockEntities.TICK_S and n < 10:   # 20 ticks/s, catch up at most 0.5 s
@@ -236,6 +240,7 @@ func _physics_process(delta: float) -> void:
 		n += 1
 		for p in blocks.tick():
 			_on_lit_flipped(p)
+	phys_cost["blocks"] = maxf(float(phys_cost.get("blocks", 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
 	_save_accum += delta
 	if _save_accum >= 30.0:
 		_save_accum = 0.0

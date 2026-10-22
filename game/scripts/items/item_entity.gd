@@ -72,6 +72,14 @@ func _process(delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_physics_step(delta)
+	var m := get_parent().get_parent() if get_parent() != null else null
+	if m != null and "phys_cost" in m:
+		m.phys_cost["item_bodies"] = maxf(float(m.phys_cost.get("item_bodies", 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
+
+
+func _physics_step(delta: float) -> void:
 	if frozen or world == null:
 		return
 	# Minecraft pops items out of blocks they end up inside (a voxel placed or
