@@ -3,7 +3,10 @@
 - **Status:** proposed (Brent asked for it 2026-10-22: "make sure in the future we
   can chisel every voxel so builds will be unlimited possibilities", "get
   inspiration from Vintage Story", "freedom and functionality for chests and
-  furnaces etc.")
+  furnaces etc."). ADR 0007 (station blocks, same day) is the first
+  implementation of the block-entity layer described here
+  (`game/scripts/blocks/block_entities.gd`, keyed by voxel position, ticked
+  at 20 Hz); the `Chisel` behavior joins that registry, no second layer.
 - **Date:** 2026-10-22
 
 ## Context
@@ -114,9 +117,10 @@ server-authoritative world with deltas over the wire, Android later.
   go through `World` so entities can be consulted.
 - The save format carries the entity layer per chunk next to godot_voxel's
   voxel data and has its own version number, separate from `GEN_VERSION`.
-- Functional blocks the parallel session adds (crafting table, furnace,
-  chest) are voxel ids + entities in this layer, never special cases in the
-  terrain or the mesher.
+- Functional blocks (ADR 0007: crafting table, furnace, chest) are voxel ids
+  + entities in this one layer, never special cases in the terrain or the
+  mesher. ADR 0007's open points (facing, saving entities) are solved for
+  the layer as a whole, so chiseled and station entities share them.
 
 ## Consequences
 - Builds become unlimited at 6.25 cm; cost is proportional to chiseled

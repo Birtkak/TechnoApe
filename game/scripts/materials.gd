@@ -34,7 +34,7 @@ const GRAVEL_STATIC := 22
 const WATER_STATIC := 23    # generated river/lake water: static until disturbed (else it drains downhill)
 const SANDSTONE := 24
 const CLAY := 25
-const TALL_GRASS := 26      # micro-voxel vegetation (quarter cubes, no collision): tufts, flowers, dead bushes
+const TALL_GRASS := 26      # micro-voxel vegetation (8^3 cells of 6.25 cm, MicroMesher, no collision)
 const FLOWER := 27
 const CACTUS := 28
 const DEAD_BUSH := 29
@@ -45,8 +45,17 @@ const FURNACE := 33
 const FURNACE_LIT := 34     # same block entity, swapped in while the furnace burns (Minecraft's lit state)
 const CHEST := 35
 const PLANKS := 36
+const PEBBLES := 37         # micro-voxel ground / cave detail (ADR 0006 grid): generator only
+const MUSHROOM_BROWN := 38
+const MUSHROOM_RED := 39
+const REED := 40            # two stacked voxels at marsh puddle edges
+const LILY_PAD := 41        # floats on a puddle's water voxel
+const STALACTITE := 42      # hangs from cave ceilings
+const STALAGMITE := 43      # cave floors; both have a core collision box
+const CHISELED := 44        # reserved (ADR 0006): empty non-culling model, shape lives in the block entity
 
-const ATLAS_TILES := Vector2i(8, 5)
+const ATLAS_TILES := Vector2i(8, 6)
+const MICRO_GRID := 8       # cells per voxel edge for micro models and chisels (6.25 cm)
 
 
 static func defs() -> Array:
@@ -87,6 +96,14 @@ static func defs() -> Array:
 		{"name": "furnace_lit", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 36, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "chest", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [37, 38, 37], "transparent": false, "interact": "chest", "entity": "chest"},
 		{"name": "planks", "cell_type": "solid", "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false},
+		{"name": "pebbles", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [0, 0, 0], "transparent": false, "micro": "pebbles"},
+		{"name": "mushroom_brown", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [40, 42, 42], "transparent": false, "micro": "mushroom"},
+		{"name": "mushroom_red", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [41, 42, 42], "transparent": false, "micro": "mushroom"},
+		{"name": "reed", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 12, "autoignition_temperature": 30, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 44, 23], "transparent": false, "micro": "reed"},
+		{"name": "lily_pad", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [43, 43, 43], "transparent": false, "micro": "lilypad"},
+		{"name": "stalactite", "cell_type": "solid", "density": 10, "hp": 300, "tiles": [0, 0, 0], "transparent": false, "micro": "stalactite"},
+		{"name": "stalagmite", "cell_type": "solid", "density": 10, "hp": 300, "tiles": [0, 0, 0], "transparent": false, "micro": "stalagmite"},
+		{"name": "chiseled", "cell_type": "solid", "density": 10, "hp": 1000, "tiles": [0, 0, 0], "transparent": true, "model": "empty"},
 	]
 
 
@@ -109,14 +126,21 @@ static func name_of(id: int) -> String:
 
 
 ## Builds the godot_voxel blocky library with atlas tiles per face.
-## Materials with a "micro" key are built from quarter-voxel cubes (12.5 cm)
-## instead of a full cube: vegetation that is still voxels, no alpha cutout.
+## Materials with a "micro" key are patterns of 6.25 cm cells (MicroMesher, ADR
+## 0006) instead of a full cube: vegetation and detail that is still voxels.
+## "model": "empty" is the reserved CHISELED id: nothing drawn by the terrain
+## mesher, neighbours keep their faces, the shape comes from the block entity.
 static func build_library(atlas_material: Material) -> VoxelBlockyLibrary:
 	var lib := VoxelBlockyLibrary.new()
 	var models: Array = [VoxelBlockyModelEmpty.new()]
 	for d in defs():
 		if d.has("micro"):
-			models.append(_micro_model(d["micro"], d["tiles"][0], atlas_material))
+			models.append(_micro_model(d["micro"], d["tiles"], atlas_material))
+			continue
+		if d.get("model", "") == "empty":
+			var empty := VoxelBlockyModelEmpty.new()
+			empty.culls_neighbors = false
+			models.append(empty)
 			continue
 		var cube := VoxelBlockyModelCube.new()
 		cube.atlas_size_in_tiles = ATLAS_TILES
@@ -140,95 +164,186 @@ static func build_library(atlas_material: Material) -> VoxelBlockyLibrary:
 	return lib
 
 
-## Micro-voxel model: a pattern of quarter-size cubes (4x4x4 grid per voxel,
-## 12.5 cm each) with only the exposed faces, textured from opaque atlas tiles.
-## No collision (walk through like Minecraft tufts), never culls neighbours (the
-## ground under it stays visible), same opaque material as the terrain.
-## kind: "tuft" | "flower" | "bush"; tile: the atlas tile for the plant body;
-## flowers take their petal tile from the head colour (tile 30 yellow, 31 red).
-static func _micro_model(kind: String, tile: int, material: Material) -> VoxelBlockyModelMesh:
-	var cells := {}  # Vector3i -> tile
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(kind + str(tile))
-	match kind:
-		"tuft":
-			for i in 4:
-				var x := rng.randi_range(0, 3)
-				var z := rng.randi_range(0, 3)
-				var hgt := rng.randi_range(1, 3)
-				for y in hgt:
-					cells[Vector3i(x, y, z)] = tile
-				if hgt >= 3 and rng.randf() < 0.6:
-					var lean := Vector3i(x + rng.randi_range(-1, 1), hgt - 1, z + rng.randi_range(-1, 1))
-					if lean.x >= 0 and lean.x <= 3 and lean.z >= 0 and lean.z <= 3:
-						cells[lean] = tile
-		"flower":
-			var petal := 31 if tile == 28 else 30
-			for y in 3:
-				cells[Vector3i(1, y, 1)] = 29  # stem, leaf green
-			cells[Vector3i(0, 1, 2)] = 29      # a leaf
-			# plus-shaped head: petals around a contrasting centre
-			cells[Vector3i(1, 3, 1)] = 30 if petal == 31 else 31
-			for off in [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]:
-				cells[Vector3i(1, 3, 1) + off] = petal
-			for i in 2:  # a couple of grass blades around it
-				var x := rng.randi_range(0, 3)
-				var z := rng.randi_range(0, 3)
-				if not cells.has(Vector3i(x, 0, z)):
-					cells[Vector3i(x, 0, z)] = tile
-					if rng.randf() < 0.5:
-						cells[Vector3i(x, 1, z)] = tile
-		"bush":
-			cells[Vector3i(1, 0, 1)] = tile
-			cells[Vector3i(1, 1, 1)] = tile
-			for i in 5:  # twigs
-				var x := rng.randi_range(0, 3)
-				var z := rng.randi_range(0, 3)
-				var y := rng.randi_range(1, 2)
-				cells[Vector3i(x, y, z)] = tile
-				cells[Vector3i(x, y - 1, z)] = tile
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var q := 0.25
-	# faces: normal, the four corners (in units of the quarter cube), tile uv origin
-	var faces := [
-		[Vector3i(0, 1, 0), [Vector3(0, 1, 0), Vector3(0, 1, 1), Vector3(1, 1, 1), Vector3(1, 1, 0)]],
-		[Vector3i(0, -1, 0), [Vector3(0, 0, 1), Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(1, 0, 1)]],
-		[Vector3i(1, 0, 0), [Vector3(1, 0, 0), Vector3(1, 1, 0), Vector3(1, 1, 1), Vector3(1, 0, 1)]],
-		[Vector3i(-1, 0, 0), [Vector3(0, 0, 1), Vector3(0, 1, 1), Vector3(0, 1, 0), Vector3(0, 0, 0)]],
-		[Vector3i(0, 0, 1), [Vector3(1, 0, 1), Vector3(1, 1, 1), Vector3(0, 1, 1), Vector3(0, 0, 1)]],
-		[Vector3i(0, 0, -1), [Vector3(0, 0, 0), Vector3(0, 1, 0), Vector3(1, 1, 0), Vector3(1, 0, 0)]],
-	]
-	for c in cells:
-		var t: int = cells[c]
-		var u0 := float(t % ATLAS_TILES.x) / ATLAS_TILES.x
-		var v0 := float(t / ATLAS_TILES.x) / ATLAS_TILES.y
-		var du := 1.0 / ATLAS_TILES.x
-		var dv := 1.0 / ATLAS_TILES.y
-		for f in faces:
-			var n: Vector3i = f[0]
-			if cells.has(c + n):
-				continue  # face shared with another cube of the pattern
-			var corners: Array = f[1]
-			var p: Array = []
-			for k in 4:
-				p.append((Vector3(c) + corners[k]) * q)
-			# each quarter cube shows a quarter of the tile so the texture scale matches the terrain
-			var uq := [Vector2(0, 1), Vector2(0, 0), Vector2(1, 0), Vector2(1, 1)]
-			var uo := Vector2(u0 + du * 0.25 * (c.x % 4), v0 + dv * 0.25 * (c.z % 4))
-			var uvs: Array = []
-			for k in 4:
-				uvs.append(uo + Vector2(uq[k].x * du * 0.25, uq[k].y * dv * 0.25))
-			var nn := Vector3(n)
-			for idx in [0, 1, 2, 0, 2, 3]:
-				st.set_normal(nn)
-				st.set_uv(uvs[idx])
-				st.add_vertex(p[idx])
-	st.index()
+## Micro-voxel model (ADR 0006): a pattern on the MICRO_GRID^3 cell grid (6.25 cm
+## cells), meshed by the native MicroMesher with only exposed faces, each cell
+## showing its 1/8 of an opaque atlas tile. Cells hold "paint" = atlas tile + 1
+## (0 = air), so stems and petals can use colour tiles that are not materials.
+## Plants never cull neighbours (the ground under them stays visible) and have
+## no collision; stalactites/stalagmites get a core collision box.
+## tiles: the material's [top, side, bottom] tiles; patterns read what they need.
+static func _micro_model(kind: String, tiles: Array, material: Material) -> VoxelBlockyModelMesh:
+	var cells := micro_pattern(kind, tiles)
+	var mesh: ArrayMesh = MicroMesher.build(cells, Vector3i(MICRO_GRID, MICRO_GRID, MICRO_GRID), MICRO_GRID, micro_paint_tiles(), ATLAS_TILES, Vector3.ZERO)
 	var model := VoxelBlockyModelMesh.new()
-	model.mesh = st.commit()
+	model.mesh = mesh
 	model.set_material_override(0, material)
 	model.culls_neighbors = false
 	model.collision_aabbs = []
+	if kind == "stalactite" or kind == "stalagmite":
+		model.collision_aabbs = [AABB(Vector3(0.25, 0.0, 0.25), Vector3(0.5, 1.0, 0.5))]
 	model.set_mesh_collision_enabled(0, false)
 	return model
+
+
+## paint id -> atlas tile for MicroMesher (paint = tile + 1).
+static func micro_paint_tiles() -> PackedInt32Array:
+	var t := PackedInt32Array()
+	t.resize(ATLAS_TILES.x * ATLAS_TILES.y + 1)
+	t[0] = -1
+	for i in range(1, t.size()):
+		t[i] = i - 1
+	return t
+
+
+## The cell pattern of a micro model kind. Deterministic per (kind, tiles).
+static func micro_pattern(kind: String, tiles: Array) -> PackedInt32Array:
+	var g := MICRO_GRID
+	var c := PackedInt32Array()
+	c.resize(g * g * g)
+	c.fill(0)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(kind + str(tiles))
+	var body: int = tiles[0] + 1
+	match kind:
+		"tuft":
+			# 9-11 blades, 1 cell (6 cm) wide, 3-7 cells tall, some leaning at the top
+			for i in rng.randi_range(9, 11):
+				var x := rng.randi_range(0, g - 1)
+				var z := rng.randi_range(0, g - 1)
+				var hgt := rng.randi_range(3, 7)
+				for y in hgt:
+					_cell(c, x, y, z, body)
+				if hgt >= 5 and rng.randf() < 0.6:
+					_cell(c, x + rng.randi_range(-1, 1), hgt - 1, z + rng.randi_range(-1, 1), body)
+				if rng.randf() < 0.3:
+					_cell(c, x + 1, 0, z, body)
+		"flower":
+			# 1-cell stem with a leaf, a 3x3 plus of petals around a contrasting centre at ~35 cm, a few blades
+			var petal: int = (31 if tiles[0] == 28 else 30) + 1
+			var centre: int = (30 if tiles[0] == 28 else 31) + 1
+			var stem: int = 29 + 1
+			var sx := rng.randi_range(2, 5)
+			var sz := rng.randi_range(2, 5)
+			var top := rng.randi_range(4, 6)
+			for y in top:
+				_cell(c, sx, y, sz, stem)
+			_cell(c, sx + 1, 2, sz, stem)
+			_cell(c, sx + 1, 2, sz + 1, stem)
+			for dx in range(-1, 2):
+				for dz in range(-1, 2):
+					if abs(dx) + abs(dz) <= 1:
+						_cell(c, sx + dx, top, sz + dz, petal)
+			_cell(c, sx, top, sz, centre)
+			_cell(c, sx, top + 1, sz, petal) if top + 1 < g else null
+			for i in 4:
+				var x := rng.randi_range(0, g - 1)
+				var z := rng.randi_range(0, g - 1)
+				for y in rng.randi_range(2, 4):
+					_cell(c, x, y, z, body)
+		"bush":
+			# dead bush: 1-cell trunk, 6 twigs rising diagonally
+			var tx := rng.randi_range(3, 4)
+			var tz := rng.randi_range(3, 4)
+			for y in 4:
+				_cell(c, tx, y, tz, body)
+			for i in 6:
+				var dx := rng.randi_range(-1, 1)
+				var dz := rng.randi_range(-1, 1)
+				if dx == 0 and dz == 0:
+					dx = 1
+				# twigs step out then up so every cell shares a face with the previous one
+				var x := tx
+				var z := tz
+				var y := rng.randi_range(1, 3)
+				for k in rng.randi_range(2, 4):
+					x += dx
+					z += dz
+					_cell(c, x, y, z, body)
+					if dx != 0 and dz != 0:
+						_cell(c, x - dx, y, z, body)  # corner cell to keep the diagonal connected
+					y += 1
+					_cell(c, x, y, z, body)
+		"pebbles":
+			# 3-5 small stones of 1-2 cells, flat on the ground
+			for i in rng.randi_range(3, 5):
+				var x := rng.randi_range(0, g - 2)
+				var z := rng.randi_range(0, g - 2)
+				var w := rng.randi_range(1, 2)
+				var d := rng.randi_range(1, 2)
+				for dx in w:
+					for dz in d:
+						_cell(c, x + dx, 0, z + dz, body)
+				if w == 2 and d == 2 and rng.randf() < 0.5:
+					_cell(c, x, 1, z, body)
+		"mushroom":
+			# cap tile = tiles[0], stem tile = tiles[1]; one big and one small mushroom
+			var cap: int = tiles[0] + 1
+			var stem: int = tiles[1] + 1
+			var mx := rng.randi_range(1, 4)
+			var mz := rng.randi_range(1, 4)
+			var sh := rng.randi_range(2, 3)
+			for y in sh:
+				_cell(c, mx, y, mz, stem)
+				_cell(c, mx + 1, y, mz, stem)
+			for dx in range(-1, 3):
+				for dz in range(-1, 3):
+					_cell(c, mx + dx, sh, mz + dz, cap)
+					if abs(dx - 0.5) + abs(dz - 0.5) < 1.5:
+						_cell(c, mx + dx, sh + 1, mz + dz, cap)
+			var ox := rng.randi_range(0, g - 1)
+			var oz := rng.randi_range(0, g - 1)
+			_cell(c, ox, 0, oz, stem)
+			_cell(c, ox, 1, oz, cap)
+		"reed":
+			# 4 stalks the full voxel height (stacked twice by the generator = 1 m reeds), heads on some
+			var head: int = tiles[1] + 1
+			for i in 4:
+				var x := rng.randi_range(0, g - 1)
+				var z := rng.randi_range(0, g - 1)
+				for y in g:
+					_cell(c, x, y, z, body)
+				if rng.randf() < 0.5:
+					_cell(c, x, g - 1, z, head)
+					_cell(c, x, g - 2, z, head)
+		"lilypad":
+			# a 5x5 pad minus corners, one cell thick on the water surface, with a notch and a raised rim
+			var px := rng.randi_range(0, 3)
+			var pz := rng.randi_range(0, 3)
+			for dx in 5:
+				for dz in 5:
+					if (dx == 0 or dx == 4) and (dz == 0 or dz == 4):
+						continue
+					if dx == 2 and dz == 4:
+						continue
+					_cell(c, px + dx, 0, pz + dz, body)
+					if (dx == 0 or dx == 4 or dz == 0) and rng.randf() < 0.5:
+						_cell(c, px + dx, 1, pz + dz, body)
+		"stalactite":
+			# cone hanging from the ceiling: 4x4 at the top down to a 1-cell tip
+			var ox := rng.randi_range(2, 3)
+			var oz := rng.randi_range(2, 3)
+			var widths := [4, 4, 3, 2, 2, 2, 1, 1]
+			for y in g:
+				var w: int = widths[g - 1 - y]
+				var o: int = (4 - w) / 2
+				for dx in w:
+					for dz in w:
+						_cell(c, ox + o + dx, y, oz + o + dz, body)
+		"stalagmite":
+			var ox := rng.randi_range(2, 3)
+			var oz := rng.randi_range(2, 3)
+			var widths := [4, 4, 3, 3, 2, 2, 1, 1]
+			for y in g:
+				var w: int = widths[y]
+				var o: int = (4 - w) / 2
+				for dx in w:
+					for dz in w:
+						_cell(c, ox + o + dx, y, oz + o + dz, body)
+	return c
+
+
+static func _cell(c: PackedInt32Array, x: int, y: int, z: int, paint: int) -> void:
+	var g := MICRO_GRID
+	if x < 0 or y < 0 or z < 0 or x >= g or y >= g or z >= g:
+		return
+	c[x + g * (y + g * z)] = paint

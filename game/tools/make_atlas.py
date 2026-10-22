@@ -17,7 +17,7 @@ from PIL import Image
 
 TILE = 16
 COLS = 8
-ROWS = 5
+ROWS = 6  # 48 tiles; 45..47 free
 
 random.seed(1337)
 
@@ -194,6 +194,15 @@ def chest_tile(top):
     return img
 
 
+def spotted(base, spot):
+    img = noise_tile(base, 12, None, 0)
+    for (sx, sy) in [(3, 3), (10, 4), (6, 9), (12, 11), (2, 12)]:
+        for dy in range(2):
+            for dx in range(2):
+                img.putpixel((sx + dx, sy + dy), (spot[0], spot[1], spot[2], 255))
+    return img
+
+
 tiles = [
     noise_tile((128, 128, 132), 14, (100, 100, 104), 0.08),   # 0 stone
     noise_tile((120, 86, 56), 14, (90, 60, 40), 0.1),         # 1 dirt
@@ -235,6 +244,11 @@ tiles = [
     chest_tile(True),                                         # 37 chest top
     chest_tile(False),                                        # 38 chest side with latch
     planks(),                                                 # 39 oak planks
+    noise_tile((150, 100, 60), 14, (120, 80, 45), 0.2),       # 40 mushroom cap, brown (micro-voxel detail)
+    spotted((200, 40, 40), (240, 235, 220)),                  # 41 mushroom cap, red with white spots
+    noise_tile((225, 215, 190), 8, (200, 190, 165), 0.15),    # 42 mushroom stem
+    noise_tile((110, 175, 70), 10, (150, 200, 90), 0.2),      # 43 lily pad, lighter than grass so it reads on a puddle
+    noise_tile((150, 120, 70), 12, (120, 95, 55), 0.2),       # 44 reed head, brown
 ]
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))

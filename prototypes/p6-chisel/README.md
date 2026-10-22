@@ -38,8 +38,12 @@ atlas tile, all triangle windings face their normal.
 - The checkerboard row is the reason to cap cell edits per voxel per tick on
   the server, not a real risk from players.
 
-**Next (not in this spike):** block-entity layer with the `Chisel` behavior,
-`CHISELED` reserved id, overlay `MeshInstance3D` per mesh block, chisel tool
-modes; migrate `materials.gd` `_micro_model` to `MicroMesher` on the 8³ grid.
-Reconcile ADR 0006 with the parallel session's ADR 0007 (station blocks with
-block entities): one entity layer, not two.
+**Done the same day:** `materials.gd` builds every micro model through
+`MicroMesher` on the 8³ grid (`micro_pattern`, `micro_paint_tiles`), the
+`CHISELED` id (44) is reserved, and `game/tools/model_sheet.gd` renders all
+models to one PNG for checking. ADR 0006 is reconciled with ADR 0007: the
+station block entities are the entity layer the chisel joins.
+
+**Next (not in this spike):** the `Chisel` block-entity behavior, overlay
+`MeshInstance3D` + trimesh per mesh block on a worker thread, chisel tool
+modes, save format for the entity layer.

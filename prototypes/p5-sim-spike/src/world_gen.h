@@ -15,7 +15,9 @@
 //    over the steepest part (a real cliff); marshes in shallow humid hollows,
 //    ice on cold lakes, sandstone under deserts, clay in beds
 //  - trees on a jittered grid, small ruins on flat ground, per-column
-//    vegetation (tall grass, flowers, cacti, dead bushes) at LOD 0
+//    vegetation and detail at LOD 0 (tall grass, flowers, cacti, dead bushes,
+//    boulders, pebbles, mushrooms, reeds and lily pads in marshes) and cave
+//    detail on floors and ceilings (stalagmites, stalactites, mushrooms)
 // Deterministic from a seed. Heights in voxels (0.5 m each, ADR 0004).
 // Output blocks are 16-bit material ids in godot_voxel VoxelBuffer order
 // (y fastest, then x, then z).
@@ -46,7 +48,10 @@ public:
         OIL = 9, STEAM = 10, SMOKE = 11, FIRE = 12, BEDROCK = 13, SNOW = 14, GRAVEL = 15,
         COAL_ORE = 16, IRON_ORE = 17, COPPER_ORE = 18, TIN_ORE = 19, LEAVES = 20,
         SAND_STATIC = 21, GRAVEL_STATIC = 22, WATER_STATIC = 23,
-        SANDSTONE = 24, CLAY = 25, TALL_GRASS = 26, FLOWER = 27, CACTUS = 28, DEAD_BUSH = 29, ICE = 30, FLOWER_RED = 31
+        SANDSTONE = 24, CLAY = 25, TALL_GRASS = 26, FLOWER = 27, CACTUS = 28, DEAD_BUSH = 29, ICE = 30, FLOWER_RED = 31,
+        // 32..36 station blocks (ADR 0007, never generated), then micro-voxel detail (ADR 0006 grid)
+        PEBBLES = 37, MUSHROOM_BROWN = 38, MUSHROOM_RED = 39, REED = 40, LILY_PAD = 41, STALACTITE = 42, STALAGMITE = 43,
+        CHISELED = 44 // reserved, never generated
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,

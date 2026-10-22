@@ -639,24 +639,43 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
         if (r < 18) return DEAD_BUSH;
         return AIR;
     }
+    // Boulders: 2x2 columns of stone (1-2 high) on rocky open ground, from a coarser hash.
+    const bool rocky = col.biome == HIGHLANDS || col.biome == MOUNTAINS || col.biome == ALPINE || col.biome == SHRUBLAND;
+    if (!marsh && rocky && top != SAND_STATIC) {
+        const uint32_t bh = hash3(x >> 1, z >> 1, seed_ + 47);
+        if ((bh & 1023) < 3) { height = 1 + (int)((bh >> 10) & 1); return STONE; }
+    }
+    // Reeds at marsh puddle edges (the puddle noise just below its threshold), 1 m tall.
+    if (marsh && (top == DIRT || top == CLAY || top == GRASS)) {
+        const float pn = n_detail_.GetNoise((float)x * 1.7f + 3000.0f, (float)z * 1.7f + 3000.0f);
+        if (pn > 0.02f && pn <= 0.12f && r < 420) { height = 2; return REED; }
+    }
+    // Pebbles on bare rock and gravel.
+    if ((top == GRAVEL_STATIC || top == STONE) && r < 50 && !marsh) return PEBBLES;
     if (top != GRASS && !(marsh && top == DIRT)) return AIR;
-    int grass = 0, flower = 0, bush = 0;
+    int grass = 0, flower = 0, bush = 0, shroom = 0, pebble = 0;
     if (marsh) grass = 560;
     else switch (col.biome) {
-        case PLAINS: grass = 300; flower = 36; break;
-        case FOREST: grass = 170; flower = 14; break;
-        case OLD_GROWTH_FOREST: grass = 200; flower = 10; break;
-        case HIGHLANDS: grass = 110; flower = 10; break;
-        case MOUNTAINS: grass = 50; flower = 4; break;
-        case ALPINE: grass = 25; flower = 6; break;
-        case TAIGA: grass = 60; break;
-        case SHRUBLAND: grass = 120; bush = 40; break;
+        case PLAINS: grass = 300; flower = 36; pebble = 4; break;
+        case FOREST: grass = 170; flower = 14; shroom = 10; break;
+        case OLD_GROWTH_FOREST: grass = 200; flower = 10; shroom = 22; break;
+        case HIGHLANDS: grass = 110; flower = 10; pebble = 20; break;
+        case MOUNTAINS: grass = 50; flower = 4; pebble = 30; break;
+        case ALPINE: grass = 25; flower = 6; pebble = 30; break;
+        case TAIGA: grass = 60; shroom = 12; pebble = 8; break;
+        case SHRUBLAND: grass = 120; bush = 40; pebble = 14; break;
         case SAVANNA: grass = 420; bush = 12; break;
-        case JUNGLE: grass = 350; flower = 20; break;
-        case SWAMP: grass = 450; break;
+        case JUNGLE: grass = 350; flower = 20; shroom = 14; break;
+        case SWAMP: grass = 450; shroom = 18; break;
         default: break;
     }
     if (bush > 0 && r >= 1000 - bush) return DEAD_BUSH;
+    if (shroom > 0 && r >= 1000 - bush - shroom) {
+        // red caps in the wet, dark biomes, brown elsewhere
+        const bool red = (col.biome == SWAMP || col.biome == OLD_GROWTH_FOREST || col.biome == JUNGLE) && ((v >> 14) & 3) == 0;
+        return red ? MUSHROOM_RED : MUSHROOM_BROWN;
+    }
+    if (pebble > 0 && r >= 1000 - bush - shroom - pebble) return PEBBLES;
     if (flower > 0) {
         const float patch = n_detail_.GetNoise((float)x * 2.0f + 5000.0f, (float)z * 2.0f - 5000.0f);
         flower = patch > 0.3f ? flower * 5 : flower / 4;
@@ -842,6 +861,22 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                     const int depth = h - wy;
                     if (do_caves && cave[y + 1]) {
                         m = (wy < sea_ - 180) ? LAVA : AIR;
+                        // Cave detail (deep enough that it is a real cave, not a soil overhang):
+                        // stalagmites, pebbles and mushrooms on floors, stalactites on ceilings.
+                        if (m == AIR && depth > 6) {
+                            const uint32_t ch = hash3(wx, wz, wy * 7919 + 13) % 1000;
+                            if (!cave[y]) {
+                                const int cbi = technosim_biome::cave_biome(ti, hi,
+                                    technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth, technosim_biome::DEPTH_BAND_COUNT),
+                                    technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, n_cavebiome_.GetNoise((float)wx, (float)wy, (float)wz), technosim_biome::CAVE_NOISE_BAND_COUNT));
+                                const bool fungal = technosim_biome::SURFACE_TOP[cbi] == DIRT;
+                                if (ch < 25) m = STALAGMITE;
+                                else if (ch < 85) m = PEBBLES;
+                                else if (ch < (fungal ? 230 : 105)) m = (fungal && (ch & 1)) ? MUSHROOM_RED : MUSHROOM_BROWN;
+                            } else if (!cave[y + 2] && ch < 40) {
+                                m = STALACTITE;
+                            }
+                        }
                     } else if (depth > 4 + (int)(step > 1)) {
                         if (depth <= sandstone_depth) m = SANDSTONE;
                         else m = do_ores ? ore_at(wx, wy, wz) : STONE;
@@ -862,6 +897,8 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                     else m = (hy.lake || hy.river > 0.0f || hy.marsh) ? WATER_STATIC : WATER;
                 } else if (hy.fall_top > wy) {
                     m = WATER_STATIC; // waterfall sheet hanging from the lip
+                } else if (do_veg && hy.puddle && h < water_level && wy == water_level && !cold && (hash3(wx, wz, 53) & 7) < 2) {
+                    m = LILY_PAD; // floats on the puddle's water voxel
                 } else if (veg != AIR && wy < h + veg_h) {
                     m = veg;
                 }

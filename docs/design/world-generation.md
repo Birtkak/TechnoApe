@@ -147,13 +147,13 @@ set by `set_chunk_bytes`, carried through `shift`). Cost ≈ 5–10 % per tick.
   LOD 0 only: tall grass (plains 29 %, forest 17 %, highlands 11 %, marsh
   55 %), flowers in patches (20 m noise), cacti 2-4 high and dead bushes in
   deserts. Vegetation voxels are **micro-voxel models** (`materials.gd`
-  `micro: tuft|flower|bush`): a pattern of quarter-size cubes (12.5 cm) built
-  into a `VoxelBlockyModelMesh` with only exposed faces, textured from opaque
-  atlas tiles, no collision, never culling neighbours. Brent's call
-  (2026-10-22) over Minecraft cross-quads, which showed hairlines edge-on and
-  atlas-bleed specks through the alpha cutout; the same model path can serve
-  slabs, stairs and other sub-voxel decoration later. They burn (grass fires)
-  and are solid for the simulation.
+  `micro: tuft|flower|bush|...`): a pattern on the 8x8x8 cell grid (6.25 cm,
+  ADR 0006) meshed by the native `MicroMesher` into a `VoxelBlockyModelMesh`
+  with only exposed faces, textured from opaque atlas tiles, no collision,
+  never culling neighbours. Brent's call (2026-10-22) over Minecraft
+  cross-quads, which showed hairlines edge-on and atlas-bleed specks through
+  the alpha cutout; the same mesher builds chisel overlays later. They burn
+  (grass fires) and are solid for the simulation.
 - Cost with warmed tiles: LOD 0 block 573 us, LOD 2 block 215 us; a hydrology
   tile (320x320 cells) builds in ~65 ms.
 
@@ -167,8 +167,34 @@ shrubland 1.8 %, taiga 1.3 %, jungle 0.8 %, savanna 0.7 %, swamp 0.5 %;
 the nearest desert moved from 0.5 km to 6 km south (deserts are a hot-band
 biome now). LOD 0 block 595 us.
 
+## Micro-voxel detail (2026-10-22, GEN_VERSION 7)
+- Materials 37..43 (`PEBBLES`, `MUSHROOM_BROWN/RED`, `REED`, `LILY_PAD`,
+  `STALACTITE`, `STALAGMITE`) are micro models like the vegetation; 44 is the
+  reserved `CHISELED` id (ADR 0006). Tufts are now 1-cell (6 cm) blades, 3-7
+  cells tall; flowers a 1-cell stem with a 3x3 plus of petals at ~35 cm.
+- Surface (`vegetation_at`, per column hash, LOD 0): **boulders** (2x2 columns
+  of stone, 1-2 high, from a coarser hash, 0.3 % of highland/mountain/alpine/
+  shrubland cells), **pebbles** on bare rock and gravel (5 %) and sparsely on
+  grass (plains 0.4 %, highlands 2 %, mountains 3 %), **mushrooms** in forests
+  (1-2 %), taiga, jungle and swamp (red caps only in the wet dark biomes),
+  **reeds** 1 m tall (two stacked voxels) at marsh puddle edges (the puddle
+  noise just under its threshold), **lily pads** on 25 % of puddle water
+  voxels where the puddle is not frozen and the ground is really under water.
+- Caves (`generate_block`, column cave mask, depth > 6 so soil overhangs stay
+  clean): cave floors get stalagmites 2.5 %, pebbles 6 %, mushrooms 2 %
+  (fungal cave biome: 12.5 %, half red); ceilings get stalactites 4 %.
+  Stalactites/stalagmites have a core collision box (0.5 voxel wide).
+- Checks: `tools/detail_probe.gd` generates 192x192 columns around plains,
+  forest, marsh and highlands and asserts nothing floats, every stalactite
+  has a ceiling, lily pads sit on water, reeds come in pairs (seed 1337: 0 bad
+  of ~40 000 detail voxels). `tools/model_sheet.gd` renders every micro model
+  to one PNG (`out/models/`). Captures: `out/detail_highlands`,
+  `out/detail2_marsh`, `out/detail2_forest`.
+
 ## Next
 - The Noita-style dungeons (underground stamps from a per-region RNG) - parked.
-- Biome classifier from `biomes.json` (see `biomes.md`, hand-off section).
+- Chisel every voxel: ADR 0006 (block-entity `Chisel` behavior, overlay
+  meshes from `MicroMesher`, `CHISELED` id reserved); P6 measured the mesher.
 - Waterfall mist/particles; animated flow (the sheet is static water).
 - A per-thread cache for lake/ruin cells (they re-evaluate columns per block).
+- Reeds along lake and river shores (today only marsh puddles); cave moss.
