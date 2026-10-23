@@ -62,8 +62,13 @@ const TIN_BEARING_STONES := 49
 const IRON_BEARING_STONES := 50
 const FLINT_STONES := 51           # flint lying on gravel and stony ground
 const TWIGS := 52                  # fallen sticks on forest floors
+# Sulfur caves and Noita chemistry
+const TOXIC_SLUDGE := 53           # Noita's toxic sludge: stains you toxic; water dilutes it into water
+const TOXIC_SLUDGE_STATIC := 54    # generated sludge pools in sulfur caves: static until disturbed
+const SULFUR := 55                 # yellow crust on sulfur cave floors and ceilings
+const OBSIDIAN := 56               # lava quenched by water
 
-const ATLAS_TILES := Vector2i(8, 6)
+const ATLAS_TILES := Vector2i(8, 7)
 const MICRO_GRID := 8       # cells per voxel edge for micro models and chisels (6.25 cm)
 
 
@@ -123,12 +128,22 @@ static func defs() -> Array:
 		{"name": "iron_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [17, 17, 17], "transparent": false, "micro": "ore_stones"},
 		{"name": "flint_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [13, 13, 13], "transparent": false, "micro": "pebbles"},
 		{"name": "twigs", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 20, "autoignition_temperature": 20, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [26, 26, 26], "transparent": false, "micro": "twigs"},
+		# sulfur caves (biomes.json sulfur_cave) and Noita chemistry (reactions below)
+		{"name": "toxic_sludge", "cell_type": "liquid", "density": 1.3, "liquid_flow_speed": 0.4, "tiles": [48, 48, 48], "transparent": true},
+		{"name": "toxic_sludge_static", "cell_type": "liquid", "liquid_static": true, "density": 1.3, "tiles": [48, 48, 48], "transparent": true, "loose": 53},
+		{"name": "sulfur", "cell_type": "solid", "density": 10, "hp": 400, "tiles": [49, 49, 49], "transparent": false},
+		{"name": "obsidian", "cell_type": "solid", "density": 12, "hp": 6000, "tiles": [50, 50, 50], "transparent": false},
 	]
 
 
 static func reactions() -> Array:
 	return [
-		{"input_cell1": LAVA, "input_cell2": WATER, "output_cell1": STONE, "output_cell2": STEAM, "probability": 0.5},
+		# water quenches lava into obsidian (static lake water too, once the sim wakes it)
+		{"input_cell1": LAVA, "input_cell2": WATER, "output_cell1": OBSIDIAN, "output_cell2": STEAM, "probability": 0.5},
+		{"input_cell1": LAVA, "input_cell2": WATER_STATIC, "output_cell1": OBSIDIAN, "output_cell2": STEAM, "probability": 0.5},
+		# Noita: water dilutes toxic sludge until only water is left
+		{"input_cell1": TOXIC_SLUDGE, "input_cell2": WATER, "output_cell1": WATER, "output_cell2": WATER, "probability": 0.15},
+		{"input_cell1": TOXIC_SLUDGE_STATIC, "input_cell2": WATER, "output_cell1": WATER, "output_cell2": WATER, "probability": 0.15},
 		{"input_cell1": FIRE, "input_cell2": WATER, "output_cell1": AIR, "output_cell2": STEAM, "probability": 0.6},
 		{"input_cell1": LAVA, "input_cell2": OIL, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.3},
 		{"input_cell1": LAVA, "input_cell2": WOOD, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.1},

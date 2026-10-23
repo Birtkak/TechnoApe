@@ -72,6 +72,11 @@ func show_item(stack: Dictionary) -> void:
 		_mesh.rotation_degrees = Vector3(0, 0, -30)
 
 
+## Stain colour on the bare arm (Player._apply_stain_tint); null clears it.
+func set_overlay(m: Material) -> void:
+	_arm.material_overlay = m
+
+
 func swing() -> void:
 	_swinging = true
 

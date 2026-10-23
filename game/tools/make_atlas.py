@@ -17,7 +17,7 @@ from PIL import Image
 
 TILE = 16
 COLS = 8
-ROWS = 6  # 48 tiles; all used
+ROWS = 7  # 56 tiles; 51..55 free
 
 random.seed(1337)
 
@@ -252,6 +252,9 @@ tiles = [
     spotted((70, 200, 210), (190, 250, 255)),                 # 45 glow mushroom cap (emissive in the shader)
     noise_tile((48, 92, 40), 10, (70, 120, 55), 0.25),        # 46 moss carpet
     noise_tile((150, 14, 20), 14, (95, 6, 12), 0.22),         # 47 blood (liquid; its stains come from scripts/visuals/stain_map.gd)
+    noise_tile((150, 226, 30), 16, (226, 255, 120), 0.2),     # 48 toxic sludge: acid lime with bubbles, see-through like water
+    noise_tile((214, 192, 58), 12, (168, 138, 30), 0.22),     # 49 sulfur crust
+    noise_tile((30, 20, 42), 6, (76, 54, 110), 0.10),         # 50 obsidian
 ]
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))

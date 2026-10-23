@@ -220,6 +220,7 @@ func test_deep_layer_variants() -> void:
 	assert_str(rules.classify_3d_name(_col(0.9, 0.0, 30), 300, 0.0)).is_equal("magma_cave")
 	assert_str(rules.classify_3d_name(_col(0.9, 0.0, 30), 300, -0.9)).is_equal("magma_cave") # temperature override first
 	assert_str(rules.classify_3d_name(c, 100, -0.9)).is_equal("cave")                        # deep dark only deep
+	assert_str(rules.classify_3d_name(c, 100, 0.9)).is_equal("sulfur_cave")                 # rare mid-depth pockets
 
 
 func test_vertical_adjacency() -> void:
@@ -234,8 +235,8 @@ func test_vertical_adjacency() -> void:
 	assert_bool(rules.can_border("deep_dark", "magma_cave")).is_true()
 	assert_bool(rules.can_border("river", "cave")).is_true()
 	assert_bool(rules.can_border("river", "deep_cave")).is_false()
-	# Forest is humid (not wet, not hot): lush caves, then the deep layer without magma.
-	assert_array(rules.below("forest")).is_equal(["crystal_cave", "deep_cave", "deep_dark", "lush_cave"])
+	# Forest is humid (not wet, not hot): lush caves (sulfur pockets at mid depth), then the deep layer without magma.
+	assert_array(rules.below("forest")).is_equal(["crystal_cave", "deep_cave", "deep_dark", "lush_cave", "sulfur_cave"])
 	assert_array(rules.below("old_growth_forest")).contains(["fungal_cave"])
 	assert_array(rules.below("desert")).contains(["dripstone_cave", "magma_cave"])
 	assert_array(rules.below("desert")).not_contains(["lush_cave", "frozen_cave"])

@@ -43,16 +43,20 @@ enum Id : int {
     DEEP_DARK = 33,
     CRYSTAL_CAVE = 34,
     MAGMA_CAVE = 35,
-    COUNT = 36
+    SULFUR_CAVE = 36,
+    COUNT = 37
 };
 
-static const char *const NAMES[COUNT] = {"deep_ocean", "ocean", "beach", "plains", "forest", "desert", "tundra", "highlands", "mountains", "snowy_peaks", "river", "lake", "alpine", "frozen_ocean", "snowy_beach", "stony_shore", "ice_fields", "snowy_tundra", "snowy_taiga", "taiga", "shrubland", "swamp", "savanna", "jungle", "frozen_highlands", "badlands", "old_growth_forest", "cave", "lush_cave", "dripstone_cave", "fungal_cave", "frozen_cave", "deep_cave", "deep_dark", "crystal_cave", "magma_cave"};
-static const unsigned char COLORS[COUNT][3] = {{10, 30, 90}, {30, 70, 160}, {230, 220, 150}, {120, 190, 80}, {40, 120, 40}, {235, 210, 120}, {170, 190, 200}, {100, 140, 70}, {130, 120, 110}, {245, 245, 250}, {60, 120, 220}, {90, 160, 230}, {160, 150, 140}, {150, 190, 220}, {220, 225, 235}, {120, 125, 130}, {200, 230, 245}, {225, 235, 240}, {120, 160, 150}, {60, 110, 80}, {170, 180, 90}, {70, 100, 60}, {190, 180, 80}, {30, 140, 50}, {190, 205, 215}, {200, 120, 70}, {25, 90, 35}, {90, 90, 95}, {60, 150, 90}, {150, 120, 90}, {120, 80, 140}, {180, 210, 230}, {50, 50, 60}, {20, 30, 50}, {170, 120, 220}, {200, 70, 30}};
-static const float TREE_DENSITY[COUNT] = {0.0f, 0.0f, 0.0f, 0.06f, 0.55f, 0.0f, 0.08f, 0.18f, 0.12f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.02f, 0.35f, 0.45f, 0.02f, 0.3f, 0.04f, 0.7f, 0.1f, 0.0f, 0.65f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+static const char *const NAMES[COUNT] = {"deep_ocean", "ocean", "beach", "plains", "forest", "desert", "tundra", "highlands", "mountains", "snowy_peaks", "river", "lake", "alpine", "frozen_ocean", "snowy_beach", "stony_shore", "ice_fields", "snowy_tundra", "snowy_taiga", "taiga", "shrubland", "swamp", "savanna", "jungle", "frozen_highlands", "badlands", "old_growth_forest", "cave", "lush_cave", "dripstone_cave", "fungal_cave", "frozen_cave", "deep_cave", "deep_dark", "crystal_cave", "magma_cave", "sulfur_cave"};
+static const unsigned char COLORS[COUNT][3] = {{10, 30, 90}, {30, 70, 160}, {230, 220, 150}, {120, 190, 80}, {40, 120, 40}, {235, 210, 120}, {170, 190, 200}, {100, 140, 70}, {130, 120, 110}, {245, 245, 250}, {60, 120, 220}, {90, 160, 230}, {160, 150, 140}, {150, 190, 220}, {220, 225, 235}, {120, 125, 130}, {200, 230, 245}, {225, 235, 240}, {120, 160, 150}, {60, 110, 80}, {170, 180, 90}, {70, 100, 60}, {190, 180, 80}, {30, 140, 50}, {190, 205, 215}, {200, 120, 70}, {25, 90, 35}, {90, 90, 95}, {60, 150, 90}, {150, 120, 90}, {120, 80, 140}, {180, 210, 230}, {50, 50, 60}, {20, 30, 50}, {170, 120, 220}, {200, 70, 30}, {205, 190, 60}};
+static const float TREE_DENSITY[COUNT] = {0.0f, 0.0f, 0.0f, 0.06f, 0.55f, 0.0f, 0.08f, 0.18f, 0.12f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.02f, 0.35f, 0.45f, 0.02f, 0.3f, 0.04f, 0.7f, 0.1f, 0.0f, 0.65f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 // Material ids (WorldGen::Material); -1 = none.
-static const int SURFACE_TOP[COUNT] = {22, 21, 21, 3, 3, 21, 14, 3, 3, 14, 22, 22, 22, 22, 14, 1, 14, 14, 14, 3, 3, 3, 3, 3, 14, 22, 3, 1, 3, 1, 2, 14, 1, 1, 1, 1};
-static const int SURFACE_UNDER[COUNT] = {22, 22, 21, 2, 2, 21, 2, 2, 2, 1, 22, 22, 1, 22, 21, 1, 14, 2, 2, 2, 2, 2, 2, 2, 2, 21, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-static const int SURFACE_STEEP[COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+static const int SURFACE_TOP[COUNT] = {22, 21, 21, 3, 3, 21, 14, 3, 3, 14, 22, 22, 22, 22, 14, 1, 14, 14, 14, 3, 3, 3, 3, 3, 14, 22, 3, 1, 3, 1, 2, 14, 1, 1, 1, 1, 55};
+static const int SURFACE_UNDER[COUNT] = {22, 22, 21, 2, 2, 21, 2, 2, 2, 1, 22, 22, 1, 22, 21, 1, 14, 2, 2, 2, 2, 2, 2, 2, 2, 21, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+static const int SURFACE_STEEP[COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+// Caves: the ceiling over a cave cell and static pools on cave floors (-1 = plain stone, no pools).
+static const int SURFACE_CEILING[COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 55};
+static const int SURFACE_POOL[COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 23, -1, -1, -1, -1, -1, -1, 23, -1, -1, -1, -1, -1, -1, 7, 54};
 
 // Climate: temperature = clamp(NOISE_WEIGHT * temp_noise - LATITUDE_WEIGHT * clamp(north / LATITUDE_FULL_VOXELS, -1, 1), -1, 1)
 // with north = -z, then minus LAPSE_PER_VOXEL per voxel above LAPSE_START_ABOVE_SEA.
@@ -112,8 +116,8 @@ static const int CAVE_TABLE[DEPTH_BAND_COUNT][BAND_COUNT] = {
     {32, 32, 32, 32, 32}, // deep
 };
 struct CaveOverride { int biome; int depth_mask; int temp_mask; int hum_mask; int noise_mask; };
-static const int CAVE_OVERRIDE_COUNT = 4;
-static const CaveOverride CAVE_OVERRIDES[4] = {{31, 1, 1, 31, 7}, {35, 4, 16, 31, 7}, {33, 4, 31, 31, 1}, {34, 4, 31, 31, 4}};
+static const int CAVE_OVERRIDE_COUNT = 5;
+static const CaveOverride CAVE_OVERRIDES[5] = {{31, 1, 1, 31, 7}, {35, 4, 16, 31, 7}, {33, 4, 31, 31, 1}, {34, 4, 31, 31, 4}, {36, 2, 31, 31, 4}};
 
 static const int MOUNTAIN_ID = 8;
 static const int ALPINE_ID = 12;

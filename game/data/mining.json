@@ -6,6 +6,8 @@
     "sandstone":    {"hardness": 0.8, "tool": "pickaxe", "requires": true,  "drops": "sandstone"},
     "coal_ore":     {"hardness": 3.0, "tool": "pickaxe", "requires": true,  "drops": "coal"},
     "iron_ore":     {"hardness": 3.0, "tool": "pickaxe", "requires": true,  "drops": "iron_ore", "min_tier": 1},
+    "sulfur":       {"hardness": 1.0, "tool": "pickaxe", "requires": true,  "drops": "sulfur"},
+    "obsidian":     {"hardness": 15.0, "tool": "pickaxe", "requires": true,  "drops": "obsidian", "min_tier": 2},
     "copper_ore":   {"hardness": 3.0, "tool": "pickaxe", "requires": true,  "drops": "copper_ore", "min_tier": 1},
     "tin_ore":      {"hardness": 3.0, "tool": "pickaxe", "requires": true,  "drops": "tin_ore", "min_tier": 1},
     "dirt":         {"hardness": 0.5, "tool": "shovel", "drops": "dirt"},

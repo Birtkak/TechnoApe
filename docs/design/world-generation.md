@@ -263,6 +263,29 @@ GregTech-style veins replace the 3D ore noise (developer, ADR 0019; plan in
   hash per column. Captures: `out/vein3` (top-down over the copper vein at
   59, 452), `out/forest1` (twigs).
 
+## Sulfur caves, cave pools and ceilings (2026-10-23, GEN_VERSION 10)
+Asked for: "toxic sludge which can spawn in sulfur caves (make those)".
+- `sulfur_cave` (biome id 36) is a cave biome in `biomes.json`: rare pockets at
+  mid depth (60-160 voxels) where the slow 3D cave noise is high, the
+  mid-depth twin of crystal caves. Floors and ceilings are sulfur (id 55).
+  Its borders follow the derived graph (test_biomes).
+- Cave biomes may now set `surface.ceiling` (the stone voxel right above a
+  cave cell) and `surface.pool`: a static liquid one voxel deep on cave
+  floors where a 2D noise (~11 m blobs) is above 0.35 and no neighbour at
+  that height opens onto a drop, so a pool never hangs over an edge. Sulfur
+  caves pool toxic sludge (static kind, id 54), lush caves water and magma
+  caves lava; the codegen emits `SURFACE_CEILING` and `SURFACE_POOL`.
+- The biome codegen now takes material ids from GameMaterials (it used the
+  index in the registry's allowed-names list, which only matched while that
+  list was in id order). Old ids are unchanged.
+- `find_nearest("<cave biome>")` (and `/locate`, `/goto`, autopilot
+  `target=`) finds a 5-voxel room whose floor is in that cave biome:
+  seed 1337 has a sulfur cave right under spawn at (16, 175, 16), with 2,960
+  sulfur and 475 sludge voxels in a 48 x 24 x 48 block around it.
+- Frame budget: unchanged by this (walk run p99 2.9-3.0 ms vs 3.1 ms before).
+  The 8 s `target=cave inside=1` capture was already over budget at HEAD
+  (p99 45 ms), sulfur caves the same.
+
 ## Next
 - Small ores between veins (single blocks dropping nuggets) and the copper
   prospecting pick (reads `vein_at` within ~16 m): `progression.md` "Ores".

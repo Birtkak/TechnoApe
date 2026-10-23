@@ -33,6 +33,9 @@ static func generate(reg: BiomeRegistry) -> String:
 	L.append("static const int SURFACE_TOP[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("top", ""))))))
 	L.append("static const int SURFACE_UNDER[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("under", ""))))))
 	L.append("static const int SURFACE_STEEP[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("steep", ""))))))
+	L.append("// Caves: the ceiling over a cave cell and static pools on cave floors (-1 = plain stone, no pools).")
+	L.append("static const int SURFACE_CEILING[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("ceiling", ""))))))
+	L.append("static const int SURFACE_POOL[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("pool", ""))))))
 	L.append("")
 	var c := reg.climate
 	var a: Dictionary = c["altitude"]
@@ -184,7 +187,9 @@ static func _f(v: float) -> String:
 
 
 static func _mat(name: String) -> int:
-	return BiomeRegistry.MATERIALS.find(name)  # -1 when absent
+	if name == "" or not BiomeRegistry.MATERIALS.has(name):
+		return -1
+	return OreVeinRegistry.material_id(name)   # GameMaterials id (air = 0)
 
 
 static func _mask(names: Array, all: Array) -> int:

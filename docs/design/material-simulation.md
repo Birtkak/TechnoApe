@@ -127,6 +127,21 @@ Memory: 4 bytes per voxel core; a 16³ chunk = 16 KB; a 128³ active region
   `[material][material]` → reaction-id table built at load time.
 - **Lifetime:** `aux` counts down each tick for materials with `lifetime`.
 
+- **Noita chemistry (2026-10-23):** water quenches lava into obsidian
+  (id 56) and steam, from moving and static lake water alike; water dilutes
+  toxic sludge (ids 53/54, a see-through acid-lime liquid heavier than water)
+  into water, pair by pair, until none is left. Both are rows in
+  `GameMaterials.reactions()`. Toxic sludge also leaves green surface stains.
+- **Stains on the player (Noita):** `PlayerStains` coats the ape with what its
+  feet, waist and head touch, one stain at a time (a new one washes the old
+  one off). Wet (water) puts out fire and keeps it off; bloody (blood) is
+  cosmetic; oily (oil) doubles how long you burn when you catch fire; toxic (sludge) costs a half-heart every 2 s; burning (fire,
+  lava; lava also boils a wet coat off) a half-heart a second. Coats fade
+  (wet 12 s, bloody 25, oily 30, toxic 10, burning 4), tint the body and
+  the bare arm, drip on the ground (StainMap.drip) and show as status icons
+  next to the hotbar. `/stain <kind|clear>` for playtests; the snapshot JSON lists
+  them under `player_stains`.
+
 ### 2.4 Chunks, activity and threads (already proven in P5)
 - 16³ chunks; per-chunk `active` (anything moved or was woken last tick),
   `dirty_mesh` (contents changed since last push), `edited` (differs from

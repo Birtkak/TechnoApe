@@ -177,6 +177,11 @@ PALETTES = {
     "glass": ramp("#3a6a78", "#7eb4c4", "#a6d6e2", "#c8eaf2", "#ffffff"),
     "gem": ramp("#2a0a3a", "#5c1a86", "#8a32c0", "#b45ae6", "#ecc2ff"),
     "bomb": ramp("#0e0e12", "#24242a", "#36363e", "#50505a", "#8a8a96"),
+    "sulfur": ramp("#5a4a08", "#a8901c", "#d6bc32", "#ead25a", "#fff09a"),
+    "water": ramp("#0e2a5a", "#2050a8", "#3a78d8", "#6aa4f0", "#c0e0ff"),
+    "blood": ramp("#2a0206", "#5e0a10", "#8e141c", "#b8242c", "#e86a70"),
+    "oil": ramp("#050403", "#16120c", "#2a2218", "#463a2a", "#8a7a60"),
+    "toxic": ramp("#163a06", "#2e7a10", "#4eaa1e", "#7ed43a", "#d0ff90"),
 }
 
 
@@ -741,6 +746,14 @@ sp("bucket", ("bucket", "iron"))
 sp("water_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#2e64c8", "Q": "#7ab0f0"}))
 sp("lava_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#e8541a", "Q": "#ffd060"}))
 sp("oil_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#1a1410", "Q": "#5a4a3a"}))
+sp("toxic_sludge_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#60c42c", "Q": "#b0fa60"}))
+sp("sulfur", ("dust_pile", "sulfur"))
+# HUD status icons for the player's stains (PlayerStains), not items
+sp("stain_wet", ("flame_drop", "water"))
+sp("stain_bloody", ("flame_drop", "blood"))
+sp("stain_oily", ("flame_drop", "oil"))
+sp("stain_toxic", ("flame_drop", "toxic"))
+sp("stain_burning", ("flame_drop", "fire"))
 sp("glass_flask", ("flask", "glass"))
 sp("crucible", ("crucible", "terracotta"))
 sp("raw_crucible", ("crucible", "clay", {"i": "#3a3e46"}))

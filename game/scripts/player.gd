@@ -14,6 +14,7 @@ signal inventory_toggled(open: bool)
 signal block_used(pos: Vector3i, material: int)   # right click on a block with an "interact" key (ADR 0007)
 signal died
 signal game_mode_changed(mode: String)
+signal stain_drip(at: Vector3, colour: Color)   # a stained body drips on the ground (StainMap.drip)
 
 var world: World
 var camera: Camera3D
@@ -51,6 +52,11 @@ var velocity := Vector3.ZERO
 var body: VoxelBody
 var _on_floor := false
 var in_liquid := false
+var stains := PlayerStains.new()   # Noita stains on the body: wet, bloody, oily, toxic, burning
+var _drip_timer := 0.0
+var _stain_overlay: StandardMaterial3D
+var _stain_overlay_on := false
+const DRIP_EVERY_S := 0.35
 
 # fall damage
 var _fall_peak_y := 0.0
@@ -288,6 +294,9 @@ func _physics_step(delta: float) -> void:
 	if not ground:
 		velocity = Vector3.ZERO
 		return
+	t0 = Time.get_ticks_usec()
+	_update_stains(delta)
+	_cost("player_stains", t0)
 	var input := Vector2.ZERO
 	var up_down := 0.0
 	if autopilot:
@@ -384,8 +393,60 @@ func respawn_at(pos: Vector3) -> void:
 	position = pos
 	velocity = Vector3.ZERO
 	_fall_peak_y = pos.y
+	stains.clear()
 	if inventory:
 		inventory.respawn()
+
+
+# ---------------- stains ----------------
+
+## Noita stains (PlayerStains): what the feet, waist and head touch coats the
+## body; burning and toxic coats hurt; bloody, oily and toxic coats drip.
+func _update_stains(delta: float) -> void:
+	var h := Settings.m2v(Settings.player_height_m)
+	var touching := []
+	for f in [0.1, 0.5, 0.9]:
+		var m := world.get_voxel(Vector3i((position + Vector3(0, h * f, 0)).floor()))
+		if m > 0:
+			touching.append(m)
+	var dmg := stains.update(delta, touching)
+	if dmg > 0 and inventory and GameMode.rule(game_mode, "takes_damage"):
+		inventory.damage(dmg)
+	_drip_timer -= delta
+	if _drip_timer <= 0.0:
+		_drip_timer = DRIP_EVERY_S
+		var best := ""
+		for k in ["bloody", "oily", "toxic"]:
+			if float(stains.amount[k]) > 0.2 and (best == "" or float(stains.amount[k]) > float(stains.amount[best])):
+				best = k
+		if best != "" and _on_floor:
+			stain_drip.emit(position, PlayerStains.COLORS[best])
+	_apply_stain_tint()
+
+
+## The body (third person) and the bare arm (first person) take the stains' colour.
+func _apply_stain_tint() -> void:
+	var c := stains.tint()
+	var on := c.a > 0.01
+	if on:
+		if _stain_overlay == null:
+			_stain_overlay = StandardMaterial3D.new()
+			_stain_overlay.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			_stain_overlay.roughness = 0.4   # a wet, glossy coat
+		_stain_overlay.albedo_color = c
+		var burn := float(stains.amount["burning"])
+		_stain_overlay.emission_enabled = burn > 0.0
+		if burn > 0.0:
+			_stain_overlay.emission = PlayerStains.COLORS["burning"] * (1.2 + 0.4 * sin(Time.get_ticks_msec() * 0.02))
+	if on != _stain_overlay_on:
+		_stain_overlay_on = on
+		var m: Material = _stain_overlay if on else null
+		if model:
+			for part in model.get_children():
+				if part is GeometryInstance3D:
+					part.material_overlay = m
+		if viewmodel:
+			viewmodel.set_overlay(m)
 
 
 # ---------------- mining ----------------

@@ -31,6 +31,7 @@ var sources := {
 	GameMaterials.OIL: [Color(0.045, 0.035, 0.022), 0.35],
 	GameMaterials.FIRE: [Color(0.035, 0.032, 0.03), 0.06],   # soot
 	GameMaterials.LAVA: [Color(0.05, 0.04, 0.035), 0.30],    # scorch
+	GameMaterials.TOXIC_SLUDGE: [Color(0.09, 0.32, 0.02), 0.30],   # green slime trail
 }
 var washers := [GameMaterials.WATER, GameMaterials.WATER_STATIC]
 var wash_rate := 0.3
@@ -178,6 +179,14 @@ func amount_at(wp: Vector3i) -> float:
 		return 0.0
 	var l := wp - wc * CS
 	return img.get_pixel(l.x, l.y * CS + l.z).a
+
+
+## A stained body drips: a small stain on the floor at or just below `at` (the feet).
+func drip(at: Vector3, colour: Color, amount: float = 0.18) -> void:
+	var p := Vector3i((at + Vector3(randf_range(-0.3, 0.3), 0.2, randf_range(-0.3, 0.3))).floor())
+	var floor_cell := _floor_below(p, 2)
+	if floor_cell.y > -1000:
+		deposit(floor_cell, colour, amount)
 
 
 ## A placed block fills the cell: its old stain must not reappear when it is mined.

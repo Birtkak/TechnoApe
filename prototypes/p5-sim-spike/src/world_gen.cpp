@@ -67,6 +67,7 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup(n_ore_, seed_ + 10, 0.09f, 1); // ore vein lens edge wobble
     setup(n_beach_, seed_ + 11, 0.01f, 1);
     setup(n_jitter_, seed_ + 13, 0.02f, 2);
+    setup(n_pool_, seed_ + 17, 0.045f, 1); // ~11 m blobs: where cave floors hold their biome's pool
     std::lock_guard<std::mutex> lk(hydro_mutex_);
     hydro_cache_.clear();
 }
@@ -801,6 +802,9 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
 // Soil voxels per column counted from the surface (depth 1 is the top material,
 // 2..SOIL_VOXELS the biome's under material, deeper is rock, sandstone or ore).
 static const int SOIL_VOXELS = 4;
+// Cave floors hold their biome's pool (biomes.json surface.pool) where this 2D noise is above it.
+static constexpr float POOL_NOISE = 0.35f;
+
 // At lod 1 caves are carved only this close to the surface (cave mouths).
 static const int CAVE_MOUTH_DEPTH = 24;
 
@@ -1036,7 +1040,18 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                                     technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, n_cavebiome_.GetNoise((float)wx, (float)wy, (float)wz), technosim_biome::CAVE_NOISE_BAND_COUNT));
                                 const bool fungal = technosim_biome::SURFACE_TOP[cbi] == DIRT;
                                 const bool lush = technosim_biome::SURFACE_TOP[cbi] == GRASS;
-                                if (ch < 25) m = STALAGMITE;
+                                const int pool = technosim_biome::SURFACE_POOL[cbi];
+                                bool pooled = false;
+                                if (pool >= 0 && n_pool_.GetNoise((float)wx, (float)wz) > POOL_NOISE) {
+                                    // a pool only where the floor is level: no neighbour at this height may
+                                    // open onto a drop, or the static liquid would hang over the edge
+                                    pooled = true;
+                                    static const int PX[4] = {1, -1, 0, 0}, PZ[4] = {0, 0, 1, -1};
+                                    for (int k = 0; k < 4 && pooled; k++)
+                                        if (is_cave(wx + PX[k], wy, wz + PZ[k], h) && is_cave(wx + PX[k], wy - 1, wz + PZ[k], h)) pooled = false;
+                                }
+                                if (pooled) m = (uint16_t)pool;   // static pool, one voxel deep
+                                else if (ch < 25) m = STALAGMITE;
                                 else if (ch < 85) m = PEBBLES;
                                 else if (ch < (fungal ? 230 : 105)) m = (fungal && (ch & 1)) ? MUSHROOM_RED : MUSHROOM_BROWN;
                                 else if (lush && ch < 420) m = MOSS;                                   // moss carpets on lush cave floors
@@ -1054,6 +1069,12 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                             const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, n_cavebiome_.GetNoise((float)wx, (float)wy, (float)wz), technosim_biome::CAVE_NOISE_BAND_COUNT);
                             const int cb = depth < technosim_biome::SOIL_DEPTH ? col.biome : technosim_biome::cave_biome(ti, hi, di, ni);
                             m = (uint16_t)technosim_biome::SURFACE_TOP[cb];
+                        } else if (do_caves && cave[y] && m == STONE && depth >= technosim_biome::SOIL_DEPTH) {
+                            // cave ceiling: some cave biomes crust it over (sulfur caves)
+                            const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth, technosim_biome::DEPTH_BAND_COUNT);
+                            const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, n_cavebiome_.GetNoise((float)wx, (float)wy, (float)wz), technosim_biome::CAVE_NOISE_BAND_COUNT);
+                            const int ceil_m = technosim_biome::SURFACE_CEILING[technosim_biome::cave_biome(ti, hi, di, ni)];
+                            if (ceil_m >= 0) m = (uint16_t)ceil_m;
                         }
                     } else {
                         m = d_top == 1 ? (far_canopy ? LEAVES : top_m) : under_m;
@@ -1097,6 +1118,9 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
 Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius) const {
     Vector3i best(0, -1, 0);
     long best_d2 = -1;
+    int cave_kind = -1;   // a named cave biome ("sulfur_cave", "lush_cave", ...); "cave" and "deep_cave" are plain rooms
+    for (int b = 0; b < technosim_biome::COUNT; b++)
+        if (kind == technosim_biome::NAMES[b] && kind.ends_with("_cave") && kind != "deep_cave") cave_kind = b;
     if (kind == "ruin") {
         const int cx0 = (int)std::floor((float)x / RUIN_CELL), cz0 = (int)std::floor((float)z / RUIN_CELL);
         const int rings = max_radius / RUIN_CELL + 1;
@@ -1185,6 +1209,19 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                         for (int y = c.height - from; y >= std::max(12, c.height - to); y--) {
                             if (is_cave(px, y, pz, c.height)) { run++; continue; }
                             if (run >= 5) { hit = true; py = y + 1; break; } // y is the floor, y+1 the first air voxel
+                            run = 0;
+                        }
+                    }
+                }
+                else if (cave_kind >= 0) {
+                    // a cave room (5+ voxels tall) whose 3D biome at the floor is the one asked for
+                    if (c.height > sea_ + 4 && !hy.lake && hy.river < 0.05f) {
+                        int run = 0;
+                        for (int y = c.height - technosim_biome::SOIL_DEPTH; y >= std::max(12, c.height - 260); y--) {
+                            if (is_cave(px, y, pz, c.height)) { run++; continue; }
+                            if (run >= 5 && technosim_biome::classify_3d(c.biome, c.t, c.h, c.height - (y + 1), n_cavebiome_.GetNoise((float)px, (float)(y + 1), (float)pz)) == cave_kind) {
+                                hit = true; py = y + 1; break;
+                            }
                             run = 0;
                         }
                     }

@@ -29,7 +29,12 @@
     "fire": {"o": "#5a1004", "d": "#c0300c", "m": "#ec6418", "l": "#fca030", "h": "#ffe27a"},
     "glass": {"o": "#3a6a78", "d": "#7eb4c4", "m": "#a6d6e2", "l": "#c8eaf2", "h": "#ffffff"},
     "gem": {"o": "#2a0a3a", "d": "#5c1a86", "m": "#8a32c0", "l": "#b45ae6", "h": "#ecc2ff"},
-    "bomb": {"o": "#0e0e12", "d": "#24242a", "m": "#36363e", "l": "#50505a", "h": "#8a8a96"}
+    "bomb": {"o": "#0e0e12", "d": "#24242a", "m": "#36363e", "l": "#50505a", "h": "#8a8a96"},
+    "sulfur": {"o": "#5a4a08", "d": "#a8901c", "m": "#d6bc32", "l": "#ead25a", "h": "#fff09a"},
+    "water": {"o": "#0e2a5a", "d": "#2050a8", "m": "#3a78d8", "l": "#6aa4f0", "h": "#c0e0ff"},
+    "blood": {"o": "#2a0206", "d": "#5e0a10", "m": "#8e141c", "l": "#b8242c", "h": "#e86a70"},
+    "oil": {"o": "#050403", "d": "#16120c", "m": "#2a2218", "l": "#463a2a", "h": "#8a7a60"},
+    "toxic": {"o": "#163a06", "d": "#2e7a10", "m": "#4eaa1e", "l": "#7ed43a", "h": "#d0ff90"}
   },
   "shapes": {
     "handle": {
@@ -1408,6 +1413,13 @@
     "water_bucket": {"layers": [{"shape": "bucket", "palette": "iron"}, {"shape": "bucket_fill", "colors": {"q": "#2e64c8", "Q": "#7ab0f0"}}]},
     "lava_bucket": {"layers": [{"shape": "bucket", "palette": "iron"}, {"shape": "bucket_fill", "colors": {"q": "#e8541a", "Q": "#ffd060"}}]},
     "oil_bucket": {"layers": [{"shape": "bucket", "palette": "iron"}, {"shape": "bucket_fill", "colors": {"q": "#1a1410", "Q": "#5a4a3a"}}]},
+    "toxic_sludge_bucket": {"layers": [{"shape": "bucket", "palette": "iron"}, {"shape": "bucket_fill", "colors": {"q": "#60c42c", "Q": "#b0fa60"}}]},
+    "sulfur": {"layers": [{"shape": "dust_pile", "palette": "sulfur"}]},
+    "stain_wet": {"layers": [{"shape": "flame_drop", "palette": "water"}]},
+    "stain_bloody": {"layers": [{"shape": "flame_drop", "palette": "blood"}]},
+    "stain_oily": {"layers": [{"shape": "flame_drop", "palette": "oil"}]},
+    "stain_toxic": {"layers": [{"shape": "flame_drop", "palette": "toxic"}]},
+    "stain_burning": {"layers": [{"shape": "flame_drop", "palette": "fire"}]},
     "glass_flask": {"layers": [{"shape": "flask", "palette": "glass"}]},
     "crucible": {"layers": [{"shape": "crucible", "palette": "terracotta"}]},
     "raw_crucible": {"layers": [{"shape": "crucible", "palette": "clay", "colors": {"i": "#3a3e46"}}]},

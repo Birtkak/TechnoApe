@@ -209,6 +209,8 @@ func _ready() -> void:
 	add_child(stains)
 	var stained: Array[ShaderMaterial] = [world.atlas_material]
 	stains.setup(world, bubble, stained)
+	player.stain_drip.connect(func(at: Vector3, colour: Color) -> void: stains.drip(at, colour.srgb_to_linear()))
+	game_hud.player_stains = player.stains
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
 
@@ -613,6 +615,7 @@ func snapshot() -> Dictionary:
 		"stains": stains.stats() if stains else {},
 		"look": look,
 		"player": player_inv.summary(),
+		"player_stains": player.stains.summary(),
 		"picked_up": picked_up_total,
 		"items_in_world": _item_entities.size(),
 		"item_stats": item_stats,

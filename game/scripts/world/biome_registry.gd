@@ -10,8 +10,8 @@ const TEMP_BANDS := ["frozen", "cold", "temperate", "warm", "hot"]
 const HUM_BANDS := ["arid", "dry", "neutral", "humid", "wet"]
 ## Altitude bands from the sea floor up. Adjacent entries can border each other.
 const ALT_BANDS := ["deep_ocean", "ocean", "coast", "lowland", "highland", "mountain", "alpine", "snow"]
-## Material names the surface entries may use (GameMaterials names).
-const MATERIALS := ["air", "stone", "dirt", "grass", "sand", "water", "wood", "lava", "ash", "oil", "steam", "smoke", "fire", "bedrock", "snow", "gravel", "coal_ore", "iron_ore", "copper_ore", "tin_ore", "leaves", "sand_static", "gravel_static", "water_static"]
+## Material names the surface entries may use (GameMaterials names; ids come from GameMaterials).
+const MATERIALS := ["air", "stone", "dirt", "grass", "sand", "water", "wood", "lava", "ash", "oil", "steam", "smoke", "fire", "bedrock", "snow", "gravel", "coal_ore", "iron_ore", "copper_ore", "tin_ore", "leaves", "sand_static", "gravel_static", "water_static", "toxic_sludge_static", "sulfur"]
 
 var biomes: Array = []        # index = id -> Dictionary (raw definition, validated)
 var by_name := {}             # name -> id

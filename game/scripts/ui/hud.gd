@@ -20,6 +20,9 @@ var _name_timer := 0.0
 var _crosshair: Control
 var _progress: Control
 var break_progress := 0.0   # 0..1, set by the player while mining
+var player_stains: PlayerStains   # Noita stains: icons right of the hotbar, a screen tint while burning or toxic
+var _stain_bar: Control
+var _screen_tint: ColorRect
 
 
 func setup(p_inv: PlayerInventory) -> void:
@@ -32,6 +35,11 @@ func setup(p_inv: PlayerInventory) -> void:
 
 func _ready() -> void:
 	layer = 5
+	_screen_tint = ColorRect.new()
+	_screen_tint.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_screen_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_screen_tint.color = Color(0, 0, 0, 0)
+	add_child(_screen_tint)
 	_crosshair = Control.new()
 	_crosshair.set_anchors_preset(Control.PRESET_CENTER)
 	_crosshair.draw.connect(_draw_crosshair)
@@ -56,6 +64,14 @@ func _ready() -> void:
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_hotbar.add_child(icon)
 		_icons.append(icon)
+
+	_stain_bar = Control.new()
+	_stain_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_stain_bar.position = Vector2(w / 2.0 + 10, -SLOT - 8)   # just right of the hotbar
+	_stain_bar.size = Vector2(5 * 40, SLOT)
+	_stain_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_stain_bar.draw.connect(_draw_stains)
+	add_child(_stain_bar)
 
 	_hearts = Control.new()
 	_hearts.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -99,6 +115,33 @@ func _process(delta: float) -> void:
 		_name_label.modulate.a = clampf(_name_timer / 0.5, 0.0, 1.0)
 		_pill.modulate.a = _name_label.modulate.a
 	_progress.queue_redraw()
+	if player_stains != null:
+		_stain_bar.queue_redraw()
+		var burn := clampf(float(player_stains.amount["burning"]), 0.0, 1.0)
+		var tox := clampf(float(player_stains.amount["toxic"]), 0.0, 1.0)
+		var tint := Color(1.0, 0.45, 0.1, 0.16 * burn) if burn > 0.0 else Color(0.4, 0.9, 0.15, 0.10 * tox)
+		_screen_tint.color = tint
+
+
+## Active stains as Noita-style status icons next to the hotbar, each with a
+## bar that empties as the coat fades and its name above it.
+func _draw_stains() -> void:
+	if player_stains == null:
+		return
+	if _font == null:
+		_font = ThemeDB.fallback_font
+	var sprites := ItemSprites.get_default()
+	var x := 0.0
+	for k in player_stains.active():
+		var r := Rect2(x, 0, 36, 36)
+		_stain_bar.draw_rect(r, Color(0.08, 0.08, 0.1, 0.75))
+		var tex := sprites.texture("stain_" + k)
+		if tex:
+			_stain_bar.draw_texture_rect(tex, r.grow(-2), false)
+		var a := clampf(float(player_stains.amount[k]), 0.0, 1.0)
+		_stain_bar.draw_rect(Rect2(x, 39, 36 * a, 4), PlayerStains.COLORS[k])
+		_stain_bar.draw_string(_font, Vector2(x, -4), k, HORIZONTAL_ALIGNMENT_CENTER, 36, 11, Color(0.95, 0.95, 0.95, 0.9))
+		x += 40.0
 
 
 func _refresh() -> void:

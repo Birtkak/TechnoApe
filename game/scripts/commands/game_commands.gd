@@ -19,7 +19,8 @@ const KITS := {
 
 ## What WorldGen.find_nearest can look for (biome names work too).
 const FEATURES := ["cave", "deep_cave", "ruin", "waterfall", "lake", "river", "spring", "marsh", "alpine", "snow", "mountain", "forest", "plains", "desert",
-	"coal_vein", "copper_vein", "cassiterite_vein", "iron_vein", "copper_iron_vein"]
+	"coal_vein", "copper_vein", "cassiterite_vein", "iron_vein", "copper_iron_vein",
+	"sulfur_cave", "lush_cave", "magma_cave", "crystal_cave", "fungal_cave"]
 
 var reg: CommandRegistry
 var player: Player
@@ -42,6 +43,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_time, [["set", "query"], TIMES.keys()])
 	reg.register("kill", "/kill", "Die and respawn at the world spawn", _kill)
 	reg.register("heal", "/heal", "Restore full health", _heal)
+	reg.register("stain", "/stain <wet|bloody|oily|toxic|burning|clear>", "Coat the ape like touching that liquid (Noita stains)", _stain, [PlayerStains.KINDS + ["clear"]])
 	reg.register("seed", "/seed", "Show the world seed", _seed)
 	reg.register("kit", "/kit <%s>" % "|".join(KITS.keys()), "Give a playtest kit", _kit, [KITS.keys()])
 	reg.register("spawn", "/spawn", "Teleport to the world spawn", _spawn)
@@ -170,6 +172,19 @@ func _heal(_args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("No player")
 	player_inv.heal(player_inv.max_health)
 	return CommandRegistry.ok("Healed")
+
+
+func _stain(args: PackedStringArray) -> Dictionary:
+	if player == null:
+		return CommandRegistry.fail("No player")
+	var k := args[0].to_lower() if not args.is_empty() else ""
+	if k == "clear":
+		player.stains.clear()
+		return CommandRegistry.ok("Stains cleared")
+	if not PlayerStains.KINDS.has(k):
+		return CommandRegistry.fail("Usage: /stain <%s|clear>" % "|".join(PlayerStains.KINDS))
+	player.stains.apply(k)
+	return CommandRegistry.ok("Stained: %s" % ", ".join(player.stains.active()))
 
 
 func _kit(args: PackedStringArray) -> Dictionary:

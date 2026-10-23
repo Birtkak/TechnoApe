@@ -31,10 +31,11 @@
     {"id": "wooden_pickaxe", "name": "Wooden Pickaxe", "tags": ["tool", "pickaxe"], "stack": 1, "tier": 0, "durability": 59},
     {"id": "stone_pickaxe", "name": "Stone Pickaxe", "tags": ["tool", "pickaxe"], "stack": 1, "tier": 1, "durability": 131},
     {"id": "iron_pickaxe", "name": "Iron Pickaxe", "tags": ["tool", "pickaxe"], "stack": 1, "tier": 2, "durability": 250},
-    {"id": "bucket", "name": "Bucket", "tags": ["container"], "stack": 16, "fills": {"water": "water_bucket", "lava": "lava_bucket", "oil": "oil_bucket"}},
+    {"id": "bucket", "name": "Bucket", "tags": ["container"], "stack": 16, "fills": {"water": "water_bucket", "lava": "lava_bucket", "oil": "oil_bucket", "toxic_sludge": "toxic_sludge_bucket"}},
     {"id": "water_bucket", "name": "Water Bucket", "tags": ["container", "liquid.water"], "stack": 1, "material": "water", "empties_to": "bucket"},
     {"id": "lava_bucket", "name": "Lava Bucket", "tags": ["container", "liquid.lava", "fuel"], "stack": 1, "fuel_ticks": 20000, "material": "lava", "empties_to": "bucket"},
     {"id": "oil_bucket", "name": "Oil Bucket", "tags": ["container", "liquid.oil"], "stack": 1, "material": "oil", "empties_to": "bucket"},
+    {"id": "toxic_sludge_bucket", "name": "Toxic Sludge Bucket", "tags": ["container", "liquid.toxic_sludge"], "stack": 1, "material": "toxic_sludge", "empties_to": "bucket", "_note": "scooped from sulfur cave pools; pour water on sludge to turn it into water"},
     {"id": "glass_flask", "name": "Glass Flask", "tags": ["container", "flask"], "stack": 16},
     {"id": "spell_spark_bolt", "name": "Spark Bolt", "tags": ["spell", "projectile"], "stack": 1, "mana_cost": 5},
     {"id": "spell_fire_bolt", "name": "Fire Bolt", "tags": ["spell", "projectile"], "stack": 1, "mana_cost": 15},
@@ -46,6 +47,8 @@
     {"id": "loose_stone", "name": "Loose Stone", "tags": ["rock"], "stack": 64, "_note": "picked up from pebbles"},
     {"id": "loose_copper_ore", "name": "Copper-Bearing Stone", "tags": ["rock", "loose_ore"], "stack": 64, "_note": "surface indicator: lies above a copper vein"},
     {"id": "loose_tin_ore", "name": "Tin-Bearing Stone", "tags": ["rock", "loose_ore"], "stack": 64, "_note": "surface indicator: lies above a cassiterite vein"},
-    {"id": "loose_iron_ore", "name": "Iron-Bearing Stone", "tags": ["rock", "loose_ore"], "stack": 64, "_note": "surface indicator: lies above an iron vein"}
+    {"id": "loose_iron_ore", "name": "Iron-Bearing Stone", "tags": ["rock", "loose_ore"], "stack": 64, "_note": "surface indicator: lies above an iron vein"},
+    {"id": "sulfur", "name": "Sulfur", "tags": ["dust", "sulfur"], "stack": 64, "_note": "mined from sulfur cave crust"},
+    {"id": "obsidian", "name": "Obsidian", "tags": ["block", "stone"], "stack": 64, "material": "obsidian", "_note": "lava quenched by water; needs an iron pickaxe"}
   ]
 }

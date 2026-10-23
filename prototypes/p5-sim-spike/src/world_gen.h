@@ -60,7 +60,8 @@ public:
         CHISELED = 44, // reserved, never generated
         GLOW_MUSHROOM = 45, MOSS = 46, // deep / lush cave detail
         // 47 blood (never generated); ground pickups (ADR 0019)
-        COPPER_BEARING_STONES = 48, TIN_BEARING_STONES = 49, IRON_BEARING_STONES = 50, FLINT_STONES = 51, TWIGS = 52
+        COPPER_BEARING_STONES = 48, TIN_BEARING_STONES = 49, IRON_BEARING_STONES = 50, FLINT_STONES = 51, TWIGS = 52,
+        TOXIC_SLUDGE = 53, TOXIC_SLUDGE_STATIC = 54, SULFUR = 55, OBSIDIAN = 56
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,
@@ -69,7 +70,7 @@ public:
         BIOME_DEEP_OCEAN = 0, BIOME_OCEAN = 1, BIOME_BEACH = 2, BIOME_PLAINS = 3, BIOME_FOREST = 4,
         BIOME_DESERT = 5, BIOME_TUNDRA = 6, BIOME_HIGHLANDS = 7, BIOME_MOUNTAINS = 8, BIOME_SNOWY_PEAKS = 9,
         BIOME_RIVER = 10, BIOME_LAKE = 11, BIOME_ALPINE = 12,
-        BIOME_COUNT = 36
+        BIOME_COUNT = 37
     };
     static_assert(BIOME_COUNT == technosim_biome::COUNT, "biome_table.gen.h changed: regenerate and update BIOME_COUNT");
 
@@ -171,7 +172,7 @@ private:
     int seed_ = 1337;
     int sea_ = 256;
     int world_height_ = 768;
-    FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_beach_, n_jitter_, n_cavebiome_;
+    FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_beach_, n_jitter_, n_cavebiome_, n_pool_;
     // Global tile cache: a tile is built outside the lock by the first thread
     // that asks for it, others wait on its future; least recently used tiles
     // are evicted past HYDRO_CACHE_MAX (ADR 0020: a build under the lock
