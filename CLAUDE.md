@@ -8,6 +8,7 @@ Code does most implementation, the developer steers, plays, decides.
 
 Ground truth: `docs/design/vision.md`. Decisions: `docs/decisions/`.
 Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
+Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
 
 ## Working principles (agreed 2026-10-21)
 
