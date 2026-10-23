@@ -29,15 +29,15 @@ extends Node3D
 
 const THINK_S := 0.1
 const TICK_S := 0.05            # Minecraft tick, for per-tick chances
-const ACCEL := 24.0             # voxels/s^2 toward the wanted velocity on the ground
-const AIR_ACCEL := 4.0
+const ACCEL := 24.0 * Settings.BLOCK   # voxels/s^2 toward the wanted velocity on the ground (12 m/s^2; distances here were tuned in 0.5 m blocks)
+const AIR_ACCEL := 4.0 * Settings.BLOCK
 const TURN := 6.0               # rad/s body turn rate
 const HEAD_TURN := 8.0
 const INVULNERABLE_S := 0.5     # Minecraft's 10 hurt ticks
 const PANIC_S := 5.0
 const GRAZE_S := 2.0
 const DEATH_S := 1.0
-const MAX_DROP_V := 6           # never walk off more than 3 m
+const MAX_DROP_V := 6 * Settings.BLOCK   # never walk off more than 3 m
 
 var species := ""
 var def := {}
@@ -65,7 +65,7 @@ var _head_pitch := 0.0
 var _think_t := 0.0
 var _target := Vector3.INF      # where the legs go
 var _speed := 0.0               # voxels/s toward _target
-var _arrive := 0.8              # voxels: close enough
+var _arrive := 0.8 * Settings.BLOCK   # voxels: close enough
 var _look := Vector3.INF        # where the head looks (world point)
 var _look_t := 0.0
 var _panic_t := 0.0
@@ -140,7 +140,7 @@ func _apply_size() -> void:
 	var k := 0.5 if is_baby() else 1.0
 	_half_v = Settings.m2v(float(s[0])) * 0.5 * k
 	_height_v = Settings.m2v(float(s[1])) * k
-	_body = VoxelBody.new(AABB(Vector3(-_half_v, 0, -_half_v), Vector3(_half_v * 2.0, _height_v, _half_v * 2.0)), 1.1)
+	_body = VoxelBody.new(AABB(Vector3(-_half_v, 0, -_half_v), Vector3(_half_v * 2.0, _height_v, _half_v * 2.0)), Settings.m2v(0.55))
 	if model:
 		model.scale = Vector3.ONE * k
 		model.head.scale = Vector3.ONE * (1.45 if is_baby() else 1.0)   # babies have big heads
@@ -325,7 +325,7 @@ func _think_goal() -> void:
 	if _panic_t > 0.0:
 		goal = "panic"
 		if _target == Vector3.INF or _reached():
-			_go(_random_land_target(10, 8, false), Settings.m2v(float(def.get("panic_m", 2.5))))
+			_go(_random_land_target(10 * Settings.BLOCK, 8 * Settings.BLOCK, false), Settings.m2v(float(def.get("panic_m", 2.5))))
 		return
 	# breed
 	if love_s > 0.0 and not is_baby():
@@ -334,14 +334,14 @@ func _think_goal() -> void:
 			goal = "breed"
 			_look = mate.eye()
 			_look_t = 0.5
-			if position.distance_to(mate.position) < 4.0:
+			if position.distance_to(mate.position) < 4.0 * Settings.BLOCK:
 				_stop()
 				_mate_t += THINK_S
 				if _mate_t >= manager.mate_s and uid < mate.uid:
 					manager.breed(self, mate)
 			else:
 				_mate_t = 0.0
-				_go(mate.position, Settings.m2v(float(def.get("walk_m", 1.0))), 3.0)
+				_go(mate.position, Settings.m2v(float(def.get("walk_m", 1.0))), 3.0 * Settings.BLOCK)
 			return
 	_mate_t = 0.0
 	# tempt: follow a player holding our food
@@ -382,7 +382,7 @@ func _think_goal() -> void:
 		goal = "stroll"
 		return
 	if _chance_per_tick(1.0 / 120.0):
-		var t := _random_land_target(20, 8, true)
+		var t := _random_land_target(20 * Settings.BLOCK, 8 * Settings.BLOCK, true)
 		if t != Vector3.INF:
 			goal = "stroll"
 			_go(t, Settings.m2v(float(def.get("walk_m", 1.0))))
@@ -397,7 +397,7 @@ func _think_goal() -> void:
 			_look_t = _rng.randf_range(2.0, 4.0)
 		elif _chance_per_tick(0.02):
 			var a := _yaw + _rng.randf_range(-1.6, 1.6)
-			_look = eye() + Vector3(sin(a), _rng.randf_range(-0.3, 0.2), cos(a)) * 6.0
+			_look = eye() + Vector3(sin(a), _rng.randf_range(-0.3, 0.2), cos(a)) * 6.0 * Settings.BLOCK
 			_look_t = _rng.randf_range(1.0, 2.0)
 
 
@@ -424,7 +424,7 @@ func _predator_goal() -> bool:
 					_attack_cd = float(pr.get("attack_s", 1.2))
 					manager.maul_player(self, int(pr.get("attack", 6)))
 			else:
-				_go(pp, run, 0.5)
+				_go(pp, run, 0.5 * Settings.BLOCK)
 			return true
 	if _hunger_t <= 0.0 and not is_baby():
 		if _prey == null or not is_instance_valid(_prey) or _prey.is_dead():
@@ -448,15 +448,15 @@ func _predator_goal() -> bool:
 				_attack_cd = float(pr.get("attack_s", 1.2))
 				manager.maul(self, _prey, int(pr.get("attack", 6)))
 		else:
-			_go(_prey.position, run, 0.5)
+			_go(_prey.position, run, 0.5 * Settings.BLOCK)
 		return true
 	return false
 
 
-func _go(t: Vector3, speed: float, arrive: float = 0.8) -> void:
+func _go(t: Vector3, speed: float, arrive: float = 0.8 * Settings.BLOCK) -> void:
 	if t == Vector3.INF:
 		return
-	if _target == Vector3.INF or _target.distance_to(t) > 0.5:
+	if _target == Vector3.INF or _target.distance_to(t) > 0.5 * Settings.BLOCK:
 		_stuck_t = 0.0
 	_target = t
 	_speed = speed
@@ -492,7 +492,7 @@ func _random_land_target(h: int, v: int, herd: bool) -> Vector3:
 		if manager.get_voxel(Vector3i(x, y - 1, z)) == GameMaterials.GRASS:
 			score += 10.0
 		if centre != Vector3.INF:
-			score -= maxf(0.0, p.distance_to(centre) - 8.0) * 0.6
+			score -= maxf(0.0, (p.distance_to(centre) - 8.0 * Settings.BLOCK) / Settings.BLOCK) * 0.6
 		if score > best_score:
 			best_score = score
 			best = p
@@ -530,7 +530,7 @@ func _move(delta: float) -> void:
 			want = dir * _speed * (0.5 if in_liquid else 1.0)
 	# at rest on the ground: skip the collision move, re-check the floor 4 times a second
 	# (like ItemEntity's sleep; most animals stand still most of the time)
-	if want == Vector3.ZERO and on_floor and not in_liquid and Vector3(velocity.x, 0, velocity.z).length() < 0.05:
+	if want == Vector3.ZERO and on_floor and not in_liquid and Vector3(velocity.x, 0, velocity.z).length() < 0.05 * Settings.BLOCK:
 		_rest_t -= delta
 		if _rest_t > 0.0:
 			return
@@ -573,7 +573,7 @@ func _move(delta: float) -> void:
 	_land(delta)
 	# face where it walks
 	var hv := Vector2(velocity.x, velocity.z)
-	if want != Vector3.ZERO and hv.length() > 0.2:
+	if want != Vector3.ZERO and hv.length() > 0.2 * Settings.BLOCK:
 		_yaw = rotate_toward(_yaw, atan2(velocity.x, velocity.z), TURN * delta)
 	rotation.y = _yaw
 

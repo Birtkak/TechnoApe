@@ -26,10 +26,10 @@ var sim: SimWorld
 var origin := Vector3i.ZERO          # world chunk coords of local chunk (0,0,0)
 var size_chunks := Vector3i.ONE
 var _tick_accum := 0.0
-var _unloaded := {}                  # world chunk -> true: inside the window, waiting for terrain data
-var _columns: Array[Vector3i] = []   # world chunk (x, y0, z) of each column segment to load ...
-var _column_n: PackedInt32Array = [] # ... and its chunk count
-var _sort_queue := false
+# Chunks waiting for terrain data, one bitmask per chunk column of the window:
+# Vector2i(world chunk x, z) -> bit k set = local chunk y k is unloaded (a wall).
+# A window move touches only the columns that change, never every chunk.
+var _pending := {}
 var _player := Vector3.ZERO
 var _ready := false
 
@@ -127,15 +127,20 @@ func _target(p: Vector3) -> Vector3i:
 	return Vector3i(roundi(c.x), roundi(c.y), roundi(c.z))
 
 
-## Queues every chunk column of the world box [wmin, wmin + size) for loading.
+## Queues every chunk column of the window for loading.
 func _queue_box(wmin: Vector3i, size: Vector3i) -> void:
+	var full := (1 << size.y) - 1
 	for z in size.z:
 		for x in size.x:
-			_columns.append(Vector3i(wmin.x + x, wmin.y, wmin.z + z))
-			_column_n.append(size.y)
-			for y in size.y:
-				_unloaded[Vector3i(wmin.x + x, wmin.y + y, wmin.z + z)] = true
-	_sort_queue = true
+			_pending[Vector2i(wmin.x + x, wmin.z + z)] = full
+
+
+## True while world chunk `wc` (inside the window) waits for terrain data.
+func _is_unloaded(wc: Vector3i) -> bool:
+	var ly := wc.y - origin.y
+	if ly < 0 or ly >= size_chunks.y:
+		return false
+	return (int(_pending.get(Vector2i(wc.x, wc.z), 0)) >> ly) & 1 == 1
 
 
 func _process(delta: float) -> void:
@@ -190,109 +195,98 @@ func _move_window() -> void:
 	_flush_leaving(d)   # chunks sliding out of the window must reach the terrain first
 	var t1 := Time.get_ticks_usec()
 	sim.shift(d)        # wrapped: an offset moves; the vacated chunks are walls until loaded
+	var old := origin
 	origin = want
-	# forget what left, queue what entered (as column segments)
-	for wc in _unloaded.keys():
-		if not is_chunk_in_window(wc - origin):
-			_unloaded.erase(wc)
-	var keep_c: Array[Vector3i] = []
-	var keep_n := PackedInt32Array()
-	for i in _columns.size():
-		var lc: Vector3i = _columns[i] - origin
-		if lc.x >= 0 and lc.z >= 0 and lc.x < size_chunks.x and lc.z < size_chunks.z:
-			keep_c.append(_columns[i])
-			keep_n.append(_column_n[i])
-	_columns = keep_c
-	_column_n = keep_n
-	var old := origin - d
+	var full := (1 << size_chunks.y) - 1
+	# columns that left the window are forgotten
+	for k in _pending.keys():
+		if k.x < origin.x or k.y < origin.z or k.x >= origin.x + size_chunks.x or k.y >= origin.z + size_chunks.z:
+			_pending.erase(k)
+	if d.y != 0:
+		# every column that stays shifts its mask; the rows that entered at the top or bottom wait
+		var n := mini(absi(d.y), size_chunks.y)
+		var rows := ((1 << n) - 1) << (size_chunks.y - n) if d.y > 0 else (1 << n) - 1
+		for z in size_chunks.z:
+			for x in size_chunks.x:
+				var k := Vector2i(origin.x + x, origin.z + z)
+				var m := int(_pending.get(k, 0))
+				m = (m >> d.y) & full if d.y > 0 else (m << -d.y) & full
+				_pending[k] = m | rows
+	# columns that entered the window wait whole
 	for z in size_chunks.z:
+		var wz := origin.z + z
+		var in_z := wz >= old.z and wz < old.z + size_chunks.z
 		for x in size_chunks.x:
 			var wx := origin.x + x
-			var wz := origin.z + z
-			var was_xz := wx - old.x >= 0 and wx - old.x < size_chunks.x and wz - old.z >= 0 and wz - old.z < size_chunks.z
-			if not was_xz:
-				_queue_segment(Vector3i(wx, origin.y, wz), size_chunks.y)
+			if in_z and wx >= old.x and wx < old.x + size_chunks.x:
 				continue
-			# same column, new chunks at the top or bottom after a vertical move
-			if d.y > 0:
-				var n := mini(d.y, size_chunks.y)
-				_queue_segment(Vector3i(wx, origin.y + size_chunks.y - n, wz), n)
-			elif d.y < 0:
-				_queue_segment(Vector3i(wx, origin.y, wz), mini(-d.y, size_chunks.y))
-	_sort_queue = true
+			_pending[Vector2i(wx, wz)] = full
 	var cost := _frame_cost()
 	cost["flush_ms"] += (t1 - t0) / 1000.0
 	cost["shift_ms"] += (Time.get_ticks_usec() - t1) / 1000.0
 	shifts += 1
 
 
-func _queue_segment(wc: Vector3i, n: int) -> void:
-	_columns.append(wc)
-	_column_n.append(n)
-	for y in n:
-		_unloaded[wc + Vector3i(0, y, 0)] = true
+## Loads waiting chunks from the terrain, the column nearest the player first,
+## one copy per contiguous run of waiting chunks, within
+## Settings.sim_load_budget_ms (at least one per frame). Columns whose terrain is
+## not streamed in yet wait.
+const NEAREST := 8
 
 
-## Loads queued column segments from the terrain, nearest to the player first,
-## within Settings.sim_load_budget_ms (at least one per frame). Columns whose
-## terrain is not streamed in yet wait.
 func _load_pending() -> void:
-	if _columns.is_empty():
+	if _pending.is_empty():
 		return
 	var t0 := Time.get_ticks_usec()
-	if _sort_queue:
-		_sort_columns()
 	var budget_us := int(Settings.sim_load_budget_ms * 1000.0)
+	var pc := Vector2(_player.x, _player.z) / Settings.CHUNK - Vector2(0.5, 0.5)
+	# the NEAREST waiting columns, nearest first, from one pass over the queue (cheaper than
+	# keeping it sorted; columns whose terrain has not streamed in yet are simply passed over)
+	var near: Array[Vector2i] = []
+	var near_d := PackedFloat32Array()
+	for k in _pending:
+		var dd := (Vector2(k) - pc).length_squared()
+		if near.size() == NEAREST and dd >= near_d[NEAREST - 1]:
+			continue
+		var at := near.size()
+		while at > 0 and near_d[at - 1] > dd:
+			at -= 1
+		near.insert(at, k)
+		near_d.insert(at, dd)
+		if near.size() > NEAREST:
+			near.resize(NEAREST)
+			near_d.resize(NEAREST)
 	var n := 0
-	var i := 0
-	while i < _columns.size():
+	for best in near:
 		if n > 0 and Time.get_ticks_usec() - t0 >= budget_us:
 			break
-		var wc: Vector3i = _columns[i]
-		var cnt: int = _column_n[i]
-		var lc: Vector3i = wc - origin
-		# clip to the window's current y range (a vertical move may have cut it)
-		var lo := maxi(lc.y, 0)
-		var hi := mini(lc.y + cnt, size_chunks.y)
-		if hi <= lo:
-			_columns.remove_at(i)
-			_column_n.remove_at(i)
+		var m := int(_pending[best])
+		if m == 0:
+			_pending.erase(best)
 			continue
-		var w0 := Vector3i(wc.x, origin.y + lo, wc.z)
+		var lo := 0
+		while (m >> lo) & 1 == 0:
+			lo += 1
+		var hi := lo
+		while hi < size_chunks.y and (m >> hi) & 1 == 1:
+			hi += 1
+		var w0 := Vector3i(best.x, origin.y + lo, best.y)
 		if not world.is_box_loaded(w0 * Settings.CHUNK, Vector3i(Settings.CHUNK, (hi - lo) * Settings.CHUNK, Settings.CHUNK)):
-			i += 1
 			continue
 		var bytes: PackedByteArray = world.read_column(w0, hi - lo)
-		sim.set_column_bytes(Vector3i(lc.x, lo, lc.z), hi - lo, bytes, 2)
-		for y in range(lo, hi):
-			_unloaded.erase(Vector3i(wc.x, origin.y + y, wc.z))
+		sim.set_column_bytes(Vector3i(best.x - origin.x, lo, best.y - origin.z), hi - lo, bytes, 2)
+		m &= ~(((1 << (hi - lo)) - 1) << lo)
+		if m == 0:
+			_pending.erase(best)
+		else:
+			_pending[best] = m
 		chunks_loaded += hi - lo
 		columns_loaded += 1
 		n += 1
-		_columns.remove_at(i)
-		_column_n.remove_at(i)
 	if n > 0:
 		var c := _frame_cost()
 		c["load_ms"] += (Time.get_ticks_usec() - t0) / 1000.0
 		c["loads"] += n
-
-
-func _sort_columns() -> void:
-	_sort_queue = false
-	var pc := _player / Settings.CHUNK
-	var idx := range(_columns.size())
-	var cols := _columns
-	idx.sort_custom(func(a: int, b: int) -> bool:
-		var da := Vector2(cols[a].x + 0.5 - pc.x, cols[a].z + 0.5 - pc.z).length_squared()
-		var db := Vector2(cols[b].x + 0.5 - pc.x, cols[b].z + 0.5 - pc.z).length_squared()
-		return da < db)
-	var nc: Array[Vector3i] = []
-	var nn := PackedInt32Array()
-	for k in idx:
-		nc.append(_columns[k])
-		nn.append(_column_n[k])
-	_columns = nc
-	_column_n = nn
 
 
 ## Records a slow frame with Godot's own monitors (previous frame) next to the
@@ -318,7 +312,7 @@ func _collect_dirty() -> void:
 	var changed: Array = []
 	for lc in sim.get_dirty_chunks():
 		var wc: Vector3i = lc + origin
-		if not _unloaded.has(wc):   # never paste a chunk before it was loaded
+		if not _is_unloaded(wc):   # never paste a chunk before it was loaded
 			_push_queue[wc] = true
 			changed.append(wc)
 	if not changed.is_empty():
@@ -436,7 +430,7 @@ func fill_box(wmin: Vector3i, wmax: Vector3i, material: int) -> int:
 	for z in range(lo.z, hi.z + 1):
 		for y in range(lo.y, hi.y + 1):
 			for x in range(lo.x, hi.x + 1):
-				if _unloaded.has(Vector3i(x, y, z)):
+				if _is_unloaded(Vector3i(x, y, z)):
 					return -1
 	if _tick_running:
 		sim.finish_tick()
@@ -454,7 +448,7 @@ func fill_box(wmin: Vector3i, wmax: Vector3i, material: int) -> int:
 ## simulation reacts immediately), otherwise straight to the terrain.
 func set_voxel(wp: Vector3i, material: int) -> bool:
 	var wc := Vector3i((Vector3(wp) / Settings.CHUNK).floor())
-	if not _ready or not is_chunk_in_window(wc - origin) or _unloaded.has(wc):
+	if not _ready or not is_chunk_in_window(wc - origin) or _is_unloaded(wc):
 		return false
 	sim.set_voxel(wp - origin * Settings.CHUNK, material)
 	return true
@@ -467,7 +461,7 @@ func get_voxel(wp: Vector3i) -> int:
 	if not _ready:
 		return -1
 	var wc := Vector3i((Vector3(wp) / Settings.CHUNK).floor())
-	if not is_chunk_in_window(wc - origin) or _unloaded.has(wc):
+	if not is_chunk_in_window(wc - origin) or _is_unloaded(wc):
 		return -1
 	return sim.get_voxel(wp - origin * Settings.CHUNK)
 
@@ -513,7 +507,7 @@ func verify_against_generator(gen: FineGen, radius_chunks := 3) -> Dictionary:
 		for y in range(-radius_chunks, radius_chunks + 1):
 			for x in range(-radius_chunks, radius_chunks + 1):
 				var wc := pc + Vector3i(x, y, z)
-				if not is_chunk_in_window(wc - origin) or _unloaded.has(wc):
+				if not is_chunk_in_window(wc - origin) or _is_unloaded(wc):
 					continue
 				var expect: PackedByteArray = gen.generate_block(wc * Settings.CHUNK, Vector3i(16, 16, 16), 0, 2)
 				var got: PackedByteArray = sim.get_chunk_bytes(wc - origin, 2)
@@ -551,7 +545,7 @@ func is_idle() -> bool:
 
 ## True when the local chunk `lc` holds terrain data (not waiting to load).
 func is_chunk_loaded(lc: Vector3i) -> bool:
-	return _ready and is_chunk_in_window(lc) and not _unloaded.has(lc + origin)
+	return _ready and is_chunk_in_window(lc) and not _is_unloaded(lc + origin)
 
 
 ## True once every chunk within the near part of the window holds terrain data
@@ -559,21 +553,34 @@ func is_chunk_loaded(lc: Vector3i) -> bool:
 func is_loaded() -> bool:
 	if not _ready:
 		return false
-	if _unloaded.is_empty():
+	if _pending.is_empty():
 		return true
 	var pc := Vector3i((_player / Settings.CHUNK).floor())
-	for wc in _unloaded:
-		var d: Vector3i = wc - pc
-		if absi(d.x) <= 4 and absi(d.z) <= 4 and absi(d.y) <= 3:
+	var near := 0   # local y rows within 3 chunks of the player
+	for y in range(pc.y - origin.y - 3, pc.y - origin.y + 4):
+		if y >= 0 and y < size_chunks.y:
+			near |= 1 << y
+	for k in _pending:
+		if absi(k.x - pc.x) <= 4 and absi(k.y - pc.z) <= 4 and int(_pending[k]) & near != 0:
 			return false
 	return true
+
+
+func _count_unloaded() -> int:
+	var n := 0
+	for k in _pending:
+		var m := int(_pending[k])
+		while m != 0:
+			m &= m - 1
+			n += 1
+	return n
 
 
 func stats() -> Dictionary:
 	if not _ready:
 		return {}
 	return {
-		"origin_chunk": origin, "size_chunks": size_chunks, "unloaded_chunks": _unloaded.size(), "pending_columns": _columns.size(),
+		"origin_chunk": origin, "size_chunks": size_chunks, "unloaded_chunks": _count_unloaded(), "pending_columns": _pending.size(),
 		"tick_ms": snappedf(last_tick_ms, 0.01), "ticks": ticks_total, "active_chunks": active_chunks, "scanned_max": scanned_max,
 		"chunks_pushed": chunks_pushed, "chunks_loaded": chunks_loaded, "columns_loaded": columns_loaded, "push_ms": snappedf(push_ms, 0.01),
 		"shifts": shifts, "worst_frames": _worst, "slow_frames": _slow, "push_queue": _push_queue.size(), "push_queue_max": push_queue_max,

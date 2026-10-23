@@ -19,14 +19,14 @@ extends Node3D
 ## its kelp where it was; edits under the sea are rare.
 
 const MAP_N := 64             # columns per side of the water map
-const MAP_STEP := 2           # voxels per column: 128 voxels (64 m) across
-const REBUILD_V := 24.0       # rebuild the map when the camera moved this far (voxels)
+const MAP_STEP := int(1.0 / Settings.VOXEL_M)   # voxels per column (1 m): 64 m across
+const REBUILD_V := 12.0 / Settings.VOXEL_M   # rebuild the map when the camera moved this far (12 m, in voxels)
 const MAX_KELP := 3000
-const KELP_MAX_DEPTH := 60    # voxels: no kelp in deep water (real kelp forests stop at ~30 m)
-const KELP_MAX_HEIGHT := 20.0
+const KELP_MAX_DEPTH := int(30.0 / Settings.VOXEL_M)   # voxels: no kelp in deep water (real kelp forests stop at ~30 m)
+const KELP_MAX_HEIGHT := 10.0 / Settings.VOXEL_M   # voxels (10 m)
 const SCHOOLS := 6
 const FISH_PER_SCHOOL := 12
-const SCHOOL_SPEED := 2.4     # voxels/s
+const SCHOOL_SPEED := 1.2 / Settings.VOXEL_M   # voxels/s (1.2 m/s)
 const SCHOOL_COLORS := [Color(0.72, 0.76, 0.80), Color(0.95, 0.55, 0.15), Color(0.35, 0.55, 0.85), Color(0.85, 0.80, 0.35), Color(0.55, 0.70, 0.55)]
 
 var world: World
@@ -158,7 +158,7 @@ func _place_kelp_rows() -> void:
 			var r := float(h % 1000) / 1000.0
 			var height := 0.0
 			var col := Color()
-			if depth >= 4 and depth <= KELP_MAX_DEPTH and patch < 45 and r < 0.6:
+			if depth >= 2 * Settings.BLOCK and depth <= KELP_MAX_DEPTH and patch < 45 and r < 0.6:
 				height = minf(KELP_MAX_HEIGHT, minf(depth - 0.6, depth * (0.55 + 0.35 * float((h >> 10) % 100) / 100.0)))
 				col = Color(0.16, 0.22 + 0.06 * r, 0.07)
 				kelp += 1

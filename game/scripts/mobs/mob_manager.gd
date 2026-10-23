@@ -88,7 +88,7 @@ func _prewarm_fx() -> void:
 	var cam: Camera3D = main.player.camera if main != null and main.player != null else null
 	if cam == null:
 		return
-	var at := cam.global_position - cam.global_transform.basis.z * 3.0
+	var at := cam.global_position - cam.global_transform.basis.z * Settings.m2v(1.5)
 	var warm := Node3D.new()
 	warm.position = at
 	add_child(warm)
@@ -200,7 +200,7 @@ func _update_dormancy() -> void:
 	var still := []
 	for d in _dormant:
 		var p: Array = d["pos"]
-		var near := Vector2(float(p[0]) - pp.x, float(p[2]) - pp.z).length() < active_radius_v - 16.0
+		var near := Vector2(float(p[0]) - pp.x, float(p[2]) - pp.z).length() < active_radius_v - Settings.m2v(8.0)
 		if near and _active.size() < max_active * 2 and world.is_area_loaded(Vector3i((Vector3(float(p[0]), float(p[1]), float(p[2])) / Settings.CHUNK).floor())):
 			_wake(d)
 		else:
@@ -286,10 +286,10 @@ func _populate(c: Vector2i) -> void:
 	for _i in n * 4:
 		if placed >= n:
 			break
-		var x := cx + rng.randi_range(-10, 10)
-		var z := cz + rng.randi_range(-10, 10)
+		var x := cx + rng.randi_range(-10, 10) * Settings.BLOCK
+		var z := cz + rng.randi_range(-10, 10) * Settings.BLOCK
 		var h := world.surface_height(x, z)
-		var y := stand_height(x, z, h + 1, 4, height)
+		var y := stand_height(x, z, h + 1, 4 * Settings.BLOCK, height)
 		var ground := get_voxel(Vector3i(x, y - 1, z))
 		if y == -1 or (ground != GameMaterials.GRASS and ground != GameMaterials.SNOW):
 			continue
@@ -357,7 +357,7 @@ func stand_height(x: int, z: int, start: int, v: int, height: int) -> int:
 ## Can the mob keep walking `dir`? No drop deeper than MAX_DROP_V and no
 ## liquid ahead (panicking animals still avoid lava and cliffs, not water).
 func safe_ahead(m: Mob, dir: Vector3, panicking: bool) -> bool:
-	var probe := m.position + dir * (m._half_v + 0.7)
+	var probe := m.position + dir * (m._half_v + 0.7 * Settings.BLOCK)
 	var x := int(floor(probe.x))
 	var z := int(floor(probe.z))
 	var y := int(floor(m.position.y + 0.05))
@@ -411,16 +411,16 @@ func separate(m: Mob) -> void:
 			continue
 		var d := Vector2(m.position.x - o.position.x, m.position.z - o.position.z)
 		var r := m._half_v + o._half_v
-		if d.length() < r and absf(m.position.y - o.position.y) < 1.5:
+		if d.length() < r and absf(m.position.y - o.position.y) < 1.5 * Settings.BLOCK:
 			var push := d.normalized() if d.length() > 0.01 else Vector2(1, 0)
-			m.velocity.x += push.x * 0.8
-			m.velocity.z += push.y * 0.8
+			m.velocity.x += push.x * 0.8 * Settings.BLOCK
+			m.velocity.z += push.y * 0.8 * Settings.BLOCK
 	var pp := _player_pos()
 	var dp := Vector2(m.position.x - pp.x, m.position.z - pp.z)
 	if dp.length() < m._half_v + Settings.m2v(Settings.player_radius_m) and absf(pp.y - m.position.y) < m._height_v:
 		var push := dp.normalized() if dp.length() > 0.01 else Vector2(0, 1)
-		m.velocity.x += push.x * 1.2
-		m.velocity.z += push.y * 1.2
+		m.velocity.x += push.x * 1.2 * Settings.BLOCK
+		m.velocity.z += push.y * 1.2 * Settings.BLOCK
 
 
 # ---------------- social ----------------

@@ -70,10 +70,11 @@ var camera: Camera3D
 
 # season map: temperatures around the player for the terrain shader's snow and colours
 const CLIMATE_N := 256                     # texels per side
-const CLIMATE_STEP := 32                   # voxels per texel (16 m): 4 km across, the whole horizon
+const CLIMATE_STEP := int(16.0 / Settings.VOXEL_M)   # voxels per texel (16 m): 4 km across, the whole horizon
 var _climate_task := -1
 var _climate_bytes := PackedByteArray()
 var _climate_rect := Vector4.ZERO
+var _climate_tex: ImageTexture
 var _climate_center := Vector2(INF, INF)
 var _snow_t_max := 0.2
 
@@ -380,11 +381,17 @@ func _update_climate() -> void:
 			_climate_center = Vector2(INF, INF)   # try again next time
 			return
 		var img := Image.create_from_data(CLIMATE_N, CLIMATE_N, false, Image.FORMAT_L8, _climate_bytes)
-		world.atlas_material.set_shader_parameter("climate_map", ImageTexture.create_from_image(img))
+		# one texture, updated in place: a new texture on the terrain material makes the render
+		# thread rebuild every terrain block's uniform set (a 15 ms frame, ADR 0033)
+		if _climate_tex == null:
+			_climate_tex = ImageTexture.create_from_image(img)
+			world.atlas_material.set_shader_parameter("climate_map", _climate_tex)
+		else:
+			_climate_tex.update(img)
 		world.atlas_material.set_shader_parameter("climate_rect", _climate_rect)
 		return
 	var p := Vector2(camera.global_position.x, camera.global_position.z)
-	if p.distance_to(_climate_center) < 1024.0:
+	if p.distance_to(_climate_center) < Settings.m2v(512.0):
 		return
 	_climate_center = p
 	var span := CLIMATE_N * CLIMATE_STEP
