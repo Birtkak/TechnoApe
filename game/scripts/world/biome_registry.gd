@@ -11,7 +11,10 @@ const HUM_BANDS := ["arid", "dry", "neutral", "humid", "wet"]
 ## Altitude bands from the sea floor up. Adjacent entries can border each other.
 const ALT_BANDS := ["deep_ocean", "ocean", "coast", "lowland", "highland", "mountain", "alpine", "snow"]
 ## Material names the surface entries may use (GameMaterials names; ids come from GameMaterials).
-const MATERIALS := ["air", "stone", "dirt", "grass", "sand", "water", "wood", "lava", "ash", "oil", "steam", "smoke", "fire", "bedrock", "snow", "gravel", "coal_ore", "iron_ore", "copper_ore", "tin_ore", "leaves", "sand_static", "gravel_static", "water_static", "toxic_sludge_static", "sulfur", "ice", "packed_ice", "basalt", "terracotta"]
+const MATERIALS := ["air", "stone", "dirt", "grass", "sand", "water", "wood", "lava", "ash", "oil", "steam", "smoke", "fire", "bedrock", "snow", "gravel", "coal_ore", "iron_ore", "copper_ore", "tin_ore", "leaves", "sand_static", "gravel_static", "water_static", "toxic_sludge_static", "sulfur", "ice", "packed_ice", "basalt", "terracotta", "sandstone"]
+## Ground decorations (biomes.json "decor"): chance per 8 m cell of a bush, boulder or
+## dead tree (one per cell), and per 12 m cell of a spire of spire_material.
+const DECOR_KINDS := ["bush", "boulder", "dead_tree", "spire"]
 ## Tree shapes and woods (biomes.json tree_kind); index = WorldGen tree kind.
 const TREE_KINDS := ["oak", "spruce", "acacia", "jungle"]
 
@@ -81,6 +84,27 @@ func _validate(d: Dictionary) -> void:
 	var td := float(d.get("tree_density", -1.0))
 	if td < 0.0 or td > 1.0:
 		errors.append("biome %s: tree_density must be 0..1" % n)
+	var dec: Dictionary = d.get("decor", {})
+	var cell_sum := 0.0
+	for k in dec:
+		if k in DECOR_KINDS:
+			var v := float(dec[k])
+			if v < 0.0 or v > 1.0:
+				errors.append("biome %s: decor.%s must be 0..1" % [n, k])
+			if k != "spire":
+				cell_sum += v
+		elif k == "spire_material":
+			if not MATERIALS.has(dec[k]):
+				errors.append("biome %s: unknown spire material %s" % [n, dec[k]])
+		elif k == "spire_height":
+			if typeof(dec[k]) != TYPE_ARRAY or dec[k].size() != 2 or int(dec[k][0]) < 1 or int(dec[k][1]) < int(dec[k][0]):
+				errors.append("biome %s: decor.spire_height must be [min, max] voxels" % n)
+		else:
+			errors.append("biome %s: unknown decor %s" % [n, k])
+	if cell_sum > 1.0:
+		errors.append("biome %s: bush + boulder + dead_tree chances exceed 1" % n)
+	if float(dec.get("spire", 0.0)) > 0.0 and not dec.has("spire_material"):
+		errors.append("biome %s: a spire needs a spire_material" % n)
 	if td > 0.0 and not TREE_KINDS.has(d.get("tree_kind", "")):
 		errors.append("biome %s: trees need a tree_kind (%s)" % [n, ", ".join(TREE_KINDS)])
 	for b in d.get("borders", []):

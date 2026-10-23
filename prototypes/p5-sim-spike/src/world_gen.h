@@ -100,6 +100,7 @@ public:
     // Debug: nearest feature ("lake" | "ruin" | "spring" | "river" | "waterfall" | "marsh" |
     // "alpine" | "snow" | "mountain" | any biome name) within max_radius of (x, z).
     // Returns Vector3i(x, ground_y, z) or Vector3i(0, -1, 0) when none.
+    PackedByteArray climate_map(int x0, int z0, int n, int step) const;
     Vector3i find_nearest(const String &kind, int x, int z, int max_radius) const;
     // Waterfalls within radius voxels of (x, z): [{x, y, z, top, dir_x, dir_z}] with (x, y, z) the
     // first air voxel at the foot of the sheet and (dir_x, dir_z) the flow direction (unit).
@@ -176,6 +177,16 @@ private:
     static int trunk_top(const Tree &t);               // highest log voxel
     static uint16_t tree_log(int kind);
     static uint16_t tree_leaves(int kind);
+    // Ground decorations (biomes.json decor, DECOR_* tables): at most one per 8 m cell,
+    // anchored 2..13 voxels into the cell so it never reaches past a neighbour cell.
+    static constexpr int STAMP_CELL = 16;
+    static constexpr int STAMP_REACH = 3;
+    enum StampKind : int { STAMP_BUSH = 1, STAMP_BOULDER = 2, STAMP_DEAD_TREE = 3 };
+    struct Stamp { int kind, x, z, size, tree_kind; bool mossy; uint32_t seed; };
+    bool stamp_at_cell(int cx, int cz, Stamp &out) const;
+    int stamps_near(int x0, int z0, int x1, int z1, Stamp *out, int max_out) const;
+    static int stamp_height(const Stamp &s);                  // voxels above the ground it can fill
+    static uint16_t stamp_voxel(const Stamp &s, int x, int z, int dy); // dy = 0: the first voxel above the ground
     static constexpr int RUIN_CELL = 160;
     static constexpr int RUIN_MAX_HALF = 10;
     struct Ruin { int x, z, hw, hd, base; uint32_t seed; };
@@ -207,7 +218,7 @@ private:
     const HydroTile *tile_cached(int tx, int tz) const; // thread-local small cache over hydro_tile
     uint16_t vegetation_at(const Column &col, int x, int z, uint16_t top, const Hydro &hy, int &height) const;
     uint16_t strata_at(int x, int y, int z) const;   // badlands terracotta bands by height
-    int ice_spike(int x, int z) const;                // packed-ice spike height above ground (ice fields), 0 = none
+    int spire_at(int biome, int x, int z) const;      // spire height above ground (decor.spire), 0 = none
     static int marsh_floor(int h, const Hydro &hy);
 
     bool tree_at_cell(int cx, int cz, Tree &out) const;

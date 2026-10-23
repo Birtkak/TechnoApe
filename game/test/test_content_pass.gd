@@ -126,3 +126,41 @@ func test_magma_caves_are_basalt() -> void:
 	var p := _near(g, "magma_cave")
 	var c := _count(g, p - Vector3i(24, 8, 24), Vector3i(48, 24, 48), [GameMaterials.BASALT])
 	assert_int(c[GameMaterials.BASALT]).is_greater(100)
+
+
+## Voxels of `mats` from `lo` to `hi` voxels above the local ground, over a
+## 128 x 128 window around p, sampled per 16 x 16 tile from the tile's ground.
+func _above_ground(g: WorldGen, p: Vector3i, mats: Array, lo: int, hi: int) -> Dictionary:
+	var out := {}
+	for m in mats:
+		out[m] = 0
+	for z in range(-64, 64, 16):
+		for x in range(-64, 64, 16):
+			var o := Vector3i(p.x + x, 0, p.z + z)
+			var h: int = g.height_at(o.x + 8, o.z + 8)
+			var c := _count(g, Vector3i(o.x, h + lo, o.z), Vector3i(16, hi - lo, 16), mats)
+			for m in mats:
+				out[m] += c[m]
+	return out
+
+
+func test_decor_bushes_boulders_dead_trees() -> void:
+	var g := _gen()
+	# jungle bushes: leaves and logs within 2 voxels of the ground (jungle crowns start 12+ up)
+	var c := _above_ground(g, _near(g, "jungle"), [GameMaterials.JUNGLE_LEAVES, GameMaterials.JUNGLE_LOG], 0, 3)
+	assert_int(c[GameMaterials.JUNGLE_LEAVES]).override_failure_message("jungle: no bushes").is_greater(50)
+	# highland boulders: stone standing on the grass
+	c = _above_ground(g, _near(g, "highlands"), [GameMaterials.STONE], 0, 4)
+	assert_int(c[GameMaterials.STONE]).override_failure_message("highlands: no boulders").is_greater(20)
+	# savanna dead trees: bare acacia trunks, no leaves around them at head height
+	c = _above_ground(g, _near(g, "savanna"), [GameMaterials.ACACIA_LOG], 0, 6)
+	assert_int(c[GameMaterials.ACACIA_LOG]).override_failure_message("savanna: no trunks").is_greater(0)
+
+
+func test_spires_in_badlands_and_deserts() -> void:
+	var g := _gen()
+	var c := _above_ground(g, _near(g, "desert"), [GameMaterials.SANDSTONE], 2, 14)
+	assert_int(c[GameMaterials.SANDSTONE]).override_failure_message("desert: no hoodoos").is_greater(0)
+	var t := [GameMaterials.TERRACOTTA, GameMaterials.TERRACOTTA_RED, GameMaterials.TERRACOTTA_CREAM]
+	c = _above_ground(g, _near(g, "badlands"), t, 3, 26)
+	assert_int(c[t[0]] + c[t[1]] + c[t[2]]).override_failure_message("badlands: no spires").is_greater(20)

@@ -52,6 +52,14 @@ static const unsigned char COLORS[COUNT][3] = {{10, 30, 90}, {30, 70, 160}, {230
 static const float TREE_DENSITY[COUNT] = {0.0f, 0.0f, 0.0f, 0.06f, 0.55f, 0.0f, 0.08f, 0.18f, 0.12f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.02f, 0.35f, 0.45f, 0.02f, 0.3f, 0.04f, 0.7f, 0.1f, 0.0f, 0.65f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 // Tree shape and wood: 0 oak, 1 spruce, 2 acacia, 3 jungle.
 static const int TREE_KIND[COUNT] = {0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+// Ground decorations (biomes.json decor): chance per 8 m cell (one of bush / boulder / dead tree),
+// spire chance per 12 m cell, its material (TERRACOTTA = strata) and height range in voxels.
+static const float DECOR_BUSH[COUNT] = {0.0f, 0.0f, 0.0f, 0.08f, 0.35f, 0.0f, 0.0f, 0.05f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.15f, 0.25f, 0.2f, 0.12f, 0.8f, 0.0f, 0.0f, 0.4f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+static const float DECOR_BOULDER[COUNT] = {0.0f, 0.0f, 0.0f, 0.04f, 0.05f, 0.0f, 0.08f, 0.15f, 0.1f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.05f, 0.08f, 0.12f, 0.06f, 0.0f, 0.0f, 0.0f, 0.1f, 0.0f, 0.15f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+static const float DECOR_DEAD_TREE[COUNT] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.02f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.04f, 0.1f, 0.05f, 0.0f, 0.0f, 0.03f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+static const float DECOR_SPIRE[COUNT] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.04f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.375f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.25f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+static const int SPIRE_MATERIAL[COUNT] = {-1, -1, -1, -1, -1, 24, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 86, -1, -1, -1, -1, -1, -1, -1, -1, 82, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+static const int SPIRE_HEIGHT[COUNT][2] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {4, 12}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {6, 24}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {8, 26}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}};
 // Material ids (WorldGen::Material); -1 = none.
 static const int SURFACE_TOP[COUNT] = {22, 21, 21, 3, 3, 21, 14, 3, 3, 14, 22, 22, 22, 22, 14, 1, 14, 14, 14, 3, 3, 3, 3, 3, 14, 22, 3, 1, 3, 1, 2, 14, 1, 1, 1, 85, 55};
 static const int SURFACE_UNDER[COUNT] = {22, 22, 21, 2, 2, 21, 2, 2, 2, 1, 22, 22, 1, 22, 21, 1, 86, 2, 2, 2, 2, 2, 2, 2, 2, 82, 2, 1, 1, 1, 1, 1, 1, 1, 1, 85, 1};

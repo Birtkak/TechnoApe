@@ -20,6 +20,7 @@ void WorldGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("column_info", "x", "z"), &WorldGen::column_info);
     ClassDB::bind_method(D_METHOD("generate_block", "origin", "size", "lod", "bytes_per_voxel"), &WorldGen::generate_block, DEFVAL(2));
     ClassDB::bind_method(D_METHOD("map_image", "center_x", "center_z", "radius", "step"), &WorldGen::map_image);
+    ClassDB::bind_method(D_METHOD("climate_map", "x0", "z0", "n", "step"), &WorldGen::climate_map);
     ClassDB::bind_static_method("WorldGen", D_METHOD("biome_name", "biome"), &WorldGen::biome_name);
     ClassDB::bind_method(D_METHOD("find_nearest", "kind", "x", "z", "max_radius"), &WorldGen::find_nearest);
     ClassDB::bind_method(D_METHOD("waterfalls_near", "x", "z", "radius"), &WorldGen::waterfalls_near);
@@ -71,6 +72,8 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     std::lock_guard<std::mutex> lk(hydro_mutex_);
     hydro_cache_.clear();
 }
+
+static inline int floor_div(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
 
 uint32_t WorldGen::hash3(int a, int b, int c) {
     uint32_t h = (uint32_t)a * 374761393u + (uint32_t)b * 668265263u + (uint32_t)c * 2246822519u;
@@ -154,6 +157,22 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
 }
 
 WorldGen::Column WorldGen::column(int x, int z) const { return column_base(x, z, true); }
+
+// n x n final temperatures (lapse included) from (x0, z0) every `step` voxels,
+// as bytes (t + 1) * 127.5, row-major in z: the terrain shader's season map
+// (snow cover where it is cold enough, ADR 0025). Thread-safe like generate_block.
+PackedByteArray WorldGen::climate_map(int x0, int z0, int n, int step) const {
+    PackedByteArray out;
+    if (n <= 0 || step <= 0) return out;
+    out.resize(n * n);
+    uint8_t *o = out.ptrw();
+    for (int j = 0; j < n; j++)
+        for (int i = 0; i < n; i++) {
+            const Column c = column_base(x0 + i * step, z0 + j * step, false);
+            o[j * n + i] = (uint8_t)std::clamp((int)std::lround((c.t + 1.0f) * 127.5f), 0, 255);
+        }
+    return out;
+}
 
 int WorldGen::height_at(int x, int z) const {
     Column c = column_base(x, z, false);
@@ -649,6 +668,90 @@ int WorldGen::trees_near(int x0, int z0, int x1, int z1, Tree *out, int max_out)
     return n;
 }
 
+// ---------- ground decorations ----------
+
+bool WorldGen::stamp_at_cell(int cx, int cz, Stamp &out) const {
+    using namespace technosim_biome;
+    const uint32_t hs = hash3(cx, cz, seed_ + 401);
+    out.x = cx * STAMP_CELL + 2 + (int)((hs >> 10) % (STAMP_CELL - 4));
+    out.z = cz * STAMP_CELL + 2 + (int)((hs >> 15) % (STAMP_CELL - 4));
+    Column col = column_base(out.x, out.z, false);
+    if (col.height <= sea_ + 1) return false;
+    const float roll = (float)(hs & 1023) / 1024.0f;
+    const float bush = DECOR_BUSH[col.biome], boulder = DECOR_BOULDER[col.biome], dead = DECOR_DEAD_TREE[col.biome];
+    if (roll < bush) out.kind = STAMP_BUSH;
+    else if (roll < bush + boulder) out.kind = STAMP_BOULDER;
+    else if (roll < bush + boulder + dead) out.kind = STAMP_DEAD_TREE;
+    else return false;
+    Hydro hy = hydro_at(out.x, out.z, col.height);
+    if (hy.river > 0.05f || hy.lake || hy.puddle) return false;
+    out.seed = hash3(out.x, out.z, seed_ + 409);
+    out.tree_kind = TREE_KIND[col.biome];
+    out.mossy = TREE_DENSITY[col.biome] >= 0.25f;   // forests: moss on boulders
+    switch (out.kind) {
+        case STAMP_BUSH: out.size = 1 + (int)((out.seed >> 4) & 1); break;       // radius 1-2
+        case STAMP_BOULDER: out.size = 1 + (int)((out.seed >> 4) % 3); break;    // radius 1-3
+        default: out.size = 3 + (int)((out.seed >> 4) % 4); break;               // dead trunk 3-6
+    }
+    return true;
+}
+
+int WorldGen::stamps_near(int x0, int z0, int x1, int z1, Stamp *out, int max_out) const {
+    int n = 0;
+    const int cx0 = floor_div(x0 - STAMP_REACH, STAMP_CELL), cx1 = floor_div(x1 + STAMP_REACH, STAMP_CELL);
+    const int cz0 = floor_div(z0 - STAMP_REACH, STAMP_CELL), cz1 = floor_div(z1 + STAMP_REACH, STAMP_CELL);
+    for (int cz = cz0; cz <= cz1 && n < max_out; cz++)
+        for (int cx = cx0; cx <= cx1 && n < max_out; cx++) {
+            Stamp s;
+            if (stamp_at_cell(cx, cz, s)) out[n++] = s;
+        }
+    return n;
+}
+
+int WorldGen::stamp_height(const Stamp &s) {
+    switch (s.kind) {
+        case STAMP_BUSH: return s.size + 1;
+        case STAMP_BOULDER: return s.size + 2;   // + a moss carpet
+        default: return s.size;
+    }
+}
+
+// Shapes, per column around the anchor, draped on each column's own ground:
+//   bush     a leaf mound of the biome's tree kind over a log core (Minecraft's jungle bush),
+//            radius 1-2, a ragged edge from the seed;
+//   boulder  a stone dome of radius 1-3, moss carpet on top in forests;
+//   dead     a bare trunk of the biome's wood, 3-6 tall, with one stub branch.
+uint16_t WorldGen::stamp_voxel(const Stamp &s, int x, int z, int dy) {
+    const int dx = x - s.x, dz = z - s.z, d2 = dx * dx + dz * dz;
+    if (dy < 0) return AIR;
+    switch (s.kind) {
+        case STAMP_BUSH: {
+            if (d2 == 0) return dy == 0 ? tree_log(s.tree_kind) : (dy <= s.size ? tree_leaves(s.tree_kind) : AIR);
+            const int r = s.size;
+            if (d2 > r * r + 1) return AIR;
+            const int hgt = d2 <= (r - 1) * (r - 1) + 1 ? r : r - 1;   // lower towards the edge
+            if (hash3(x, z, (int)s.seed) % 5 == 0 && d2 > 1) return AIR; // ragged edge
+            return dy <= hgt ? tree_leaves(s.tree_kind) : AIR;
+        }
+        case STAMP_BOULDER: {
+            const float d = std::sqrt((float)d2), r = (float)s.size + 0.4f;
+            if (d > r) return AIR;
+            const int hgt = std::max(1, (int)std::lround((r - d) * 1.3f));
+            if (dy < hgt) return STONE;
+            if (dy == hgt && s.mossy && hash3(x, z, (int)s.seed + 1) % 3 != 0) return MOSS;
+            return AIR;
+        }
+        default: {
+            if (d2 == 0) return dy < s.size ? tree_log(s.tree_kind) : AIR;
+            // one stub branch near the top, on a side picked by the seed
+            static const int BX[4] = {1, -1, 0, 0}, BZ[4] = {0, 0, 1, -1};
+            const int b = (int)((s.seed >> 8) & 3);
+            if (dx == BX[b] && dz == BZ[b]) return (dy == s.size - 2 || dy == s.size - 1) ? tree_log(s.tree_kind) : AIR;
+            return AIR;
+        }
+    }
+}
+
 bool WorldGen::ruin_at_cell(int cx, int cz, Ruin &out) const {
     uint32_t hsh = hash3(cx, cz, seed_ + 991);
     if ((hsh & 0xFF) > 30) return false;
@@ -712,7 +815,6 @@ inline bool WorldGen::is_cave(int x, int y, int z, int height) const {
 
 // ---------- ore veins (GregTech style, ore_veins.json) ----------
 
-static inline int floor_div(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
 
 // One vein candidate per cell: filled with chance FILL, type by weight, centre
 // jittered by at most JITTER so the whole lens stays inside the cell (a column
@@ -801,16 +903,19 @@ uint16_t WorldGen::strata_at(int x, int y, int z) const {
     return MIX[hash3(floor_div(y + wob, 3), 0, seed_ + 71) & 7];
 }
 
-// Ice fields: 3 in 8 cells of 12 m hold a packed-ice spike, 3-12 m tall, 3 or 5
-// voxels across at the base and tapering to a point (Minecraft's ice spikes).
-int WorldGen::ice_spike(int x, int z) const {
+// Spires (biomes.json decor.spire): a 12 m cell holds one with the biome's chance,
+// SPIRE_HEIGHT tall, 3 or 5 voxels across at the base and tapering to a point:
+// ice fields' packed-ice spikes, badlands' terracotta spires, desert hoodoos.
+int WorldGen::spire_at(int biome, int x, int z) const {
+    using namespace technosim_biome;
     constexpr int C = 24;
     const int cx = floor_div(x, C), cz = floor_div(z, C);
     const uint32_t hs = hash3(cx, cz, seed_ + 307);
-    if ((hs & 7) >= 3) return 0;
-    const int px = cx * C + 4 + (int)((hs >> 3) % (C - 8));
-    const int pz = cz * C + 4 + (int)((hs >> 8) % (C - 8));
-    const int height = 6 + (int)((hs >> 13) % 19);
+    if ((float)(hs & 1023) / 1024.0f >= DECOR_SPIRE[biome]) return 0;
+    const int px = cx * C + 4 + (int)((hs >> 10) % (C - 8));
+    const int pz = cz * C + 4 + (int)((hs >> 15) % (C - 8));
+    const int lo = SPIRE_HEIGHT[biome][0], hi = std::max(lo, SPIRE_HEIGHT[biome][1]);
+    const int height = lo + (int)((hs >> 20) % (uint32_t)(hi - lo + 1));
     const float r = height > 15 ? 2.0f : 1.0f;
     const float d = std::sqrt((float)((x - px) * (x - px) + (z - pz) * (z - pz)));
     if (d > r + 0.5f) return 0;
@@ -951,10 +1056,12 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
     // so far forests keep their colour without any tree geometry.
     Tree trees[256];
     Ruin ruins[4];
-    int ntrees = 0, nruins = 0;
+    int ntrees = 0, nruins = 0, nstamps = 0;
+    Stamp stamps[128];   // ground decorations (bushes, boulders, dead trees), lod <= 1 like micro vegetation
     if (above_sea) {
         nruins = ruins_near(origin.x, origin.z, origin.x + sx * step, origin.z + sz * step, ruins, 4);
         if (lod <= 2) ntrees = trees_near(origin.x, origin.z, origin.x + sx * step, origin.z + sz * step, trees, 256);
+        if (lod <= 1) nstamps = stamps_near(origin.x, origin.z, origin.x + sx * step, origin.z + sz * step, stamps, 128);
     }
     const bool far_trees = lod >= 3 && above_sea;
     for (int z = 0; z < sz; z++) {
@@ -999,11 +1106,12 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                 const int ground = ruin->base;
                 if (in_ruin(*ruin, wx, wz, 0)) h = ground; else if (h > ground + 1) h = ground + 1;
             }
-            int spike = 0;   // packed-ice spike voxels on top of the ground (ice fields)
-            if (col.biome == technosim_biome::ICE_FIELDS && !ruin && !lakebed && !riverbed && !marshbed && h > water_level) {
-                spike = ice_spike(wx, wz);
+            int spike = 0;   // spire voxels on top of the ground (decor.spire: ice spikes, hoodoos)
+            if (technosim_biome::DECOR_SPIRE[col.biome] > 0.0f && !ruin && !lakebed && !riverbed && !marshbed && h > water_level) {
+                spike = spire_at(col.biome, wx, wz);
                 h += spike;
             }
+            const uint16_t spire_m = spike > 0 ? (uint16_t)technosim_biome::SPIRE_MATERIAL[col.biome] : AIR;
             const bool beach_sand = col.biome == BIOME_BEACH || (col.biome == BIOME_OCEAN && col.c > -0.4f);
             const bool steep = col.slope > 1.1f;      // > ~48 degrees: bare rock
             const bool scree = col.slope > 0.75f && col.slope <= 1.1f && col.alpine;
@@ -1039,7 +1147,7 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                 if (col.biome == BIOME_OCEAN && !beach_sand) top_m = under_m = GRAVEL_STATIC;
                 if (technosim_biome::SURFACE_STEEP[col.biome] >= 0 && col.slope > 0.6f) top_m = (uint16_t)technosim_biome::SURFACE_STEEP[col.biome];
             }
-            if (spike > 0) top_m = under_m = PACKED_ICE;
+            if (spike > 0) top_m = under_m = spire_m;
             const bool strata = under_m == TERRACOTTA;   // TERRACOTTA in the tables stands for banded strata
             // Sedimentary layer under deserts, badlands and beaches (no ores in it).
             const int sandstone_depth = col.biome == technosim_biome::BADLANDS ? 24 : col.biome == BIOME_DESERT ? 16
@@ -1069,6 +1177,18 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                     const int dx = wx - t.x, dz = wz - t.z;
                     far_canopy = dx * dx + dz * dz <= t.radius * t.radius + 1;
                     far_leaves = tree_leaves(t.kind);
+                }
+            }
+            // Ground decorations touching this column: dry open ground only (no ruins,
+            // water, waterfalls or spires); a decoration on the ground voxel replaces its plant.
+            int col_st[4];
+            int ncs = 0, stamp_hi = 0;
+            if (nstamps > 0 && !ruin && spike == 0 && h >= water_level && hy.fall_top < 0 && !lakebed && !riverbed) {
+                for (int i = 0; i < nstamps && ncs < 4; i++) {
+                    if (std::abs(wx - stamps[i].x) > STAMP_REACH || std::abs(wz - stamps[i].z) > STAMP_REACH) continue;
+                    col_st[ncs++] = i;
+                    stamp_hi = std::max(stamp_hi, stamp_height(stamps[i]));
+                    if (stamp_voxel(stamps[i], wx, wz, 0) != AIR) veg = AIR;
                 }
             }
             // Trees touching this column
@@ -1140,6 +1260,8 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                     const int lr = canopy_radius(trees[can_t], wy);
                     if (lr >= 0 && can_d2 <= lr * lr + (lr > 1 ? 1 : 0)) m = tree_leaves(trees[can_t].kind);
                 }
+                if (m == AIR && ncs > 0 && wy >= h && wy < h + stamp_hi)
+                    for (int i = 0; i < ncs && m == AIR; i++) m = stamp_voxel(stamps[col_st[i]], wx, wz, wy - h);
                 if (m != AIR) { colp[y] = m; any = true; continue; }
                 if (wy < 3) {
                     m = BEDROCK;
@@ -1190,7 +1312,7 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
                         if (d_top <= sandstone_depth) m = strata ? strata_at(wx, wy, wz) : SANDSTONE;
                         else m = vein_ht > 0.0f ? vein_ore(vein, vein_ht, wx, wy, wz) : STONE;
-                        if (spike > 0 && wy >= h - spike) m = PACKED_ICE;
+                        if (spike > 0 && wy >= h - spike) m = spire_m == TERRACOTTA ? strata_at(wx, wy, wz) : spire_m;
                         if (do_caves && cave[y + 2] && m == STONE) {
                             // cave floor: the 3D biome decides what you stand on
                             const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth, technosim_biome::DEPTH_BAND_COUNT);

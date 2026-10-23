@@ -31,6 +31,12 @@ static func generate(reg: BiomeRegistry) -> String:
 	L.append("static const float TREE_DENSITY[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return _f(float(d["tree_density"])))))
 	L.append("// Tree shape and wood: %s." % ", ".join(_map(BiomeRegistry.TREE_KINDS, func(k): return "%d %s" % [BiomeRegistry.TREE_KINDS.find(k), k])))
 	L.append("static const int TREE_KIND[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(maxi(0, BiomeRegistry.TREE_KINDS.find(d.get("tree_kind", "oak")))))))
+	L.append("// Ground decorations (biomes.json decor): chance per 8 m cell (one of bush / boulder / dead tree),")
+	L.append("// spire chance per 12 m cell, its material (TERRACOTTA = strata) and height range in voxels.")
+	for k in ["bush", "boulder", "dead_tree", "spire"]:
+		L.append("static const float DECOR_%s[COUNT] = {%s};" % [k.to_upper(), ", ".join(_map(reg.biomes, func(d): return _f(float(d.get("decor", {}).get(k, 0.0)))))])
+	L.append("static const int SPIRE_MATERIAL[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d.get("decor", {}).get("spire_material", ""))))))
+	L.append("static const int SPIRE_HEIGHT[COUNT][2] = {%s};" % ", ".join(_map(reg.biomes, func(d): return "{%d, %d}" % [int(d.get("decor", {}).get("spire_height", [0, 0])[0]), int(d.get("decor", {}).get("spire_height", [0, 0])[1])])))
 	L.append("// Material ids (WorldGen::Material); -1 = none.")
 	L.append("static const int SURFACE_TOP[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("top", ""))))))
 	L.append("static const int SURFACE_UNDER[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("under", ""))))))

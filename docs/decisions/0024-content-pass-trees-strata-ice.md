@@ -59,6 +59,25 @@ pillars later", magma caves "basalt-like stone later". The atlas was
   `MobModel.outward()`. The player body and the `model_sheet` tool now go
   through it too.
 
+## Addendum: ground decorations (2026-10-23)
+- **`decor` in biomes.json**, generated into `DECOR_*` tables. It gives
+  the chance per 8 m cell of one bush, boulder or dead tree, and the
+  chance per 12 m cell of a spire with a material and height range.
+  BiomeRegistry validates it.
+- **Stamps.** `WorldGen::stamp_at_cell` / `stamps_near` work like trees:
+  a few lookups per block, then a short list per column. The shapes drape
+  over each column's own ground:
+  - bush: a leaf mound of the biome's tree kind over a log core;
+  - boulder: a stone dome of radius 1-3, with moss on top in forests;
+  - dead tree: a bare trunk with a stub branch.
+
+  Stamps go to lod 1, like micro vegetation, and stay off water, ruins
+  and spires. A stamp on the ground voxel replaces that voxel's plant.
+- **Spires** generalise the ice spikes: packed ice in ice fields,
+  banded terracotta in badlands, sandstone hoodoos in deserts.
+- **Fallen logs wait** for a log block that is bark on every face (or log
+  orientation). A log lying down would show its rings on top.
+
 ## Consequences
 - `test_content_pass.gd` checks:
   - ids, atlas bounds and data;
