@@ -56,9 +56,15 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     seed_ = p_seed;
     sea_ = p_sea_level;
     world_height_ = p_world_height;
-    setup(n_cont_, seed_ + 1, 0.00033f, 3);
+    // Landforms (2026-10-23, the user: "huge mountains, plains and small hilly areas"): continents
+    // ~8 km across, regions ~3 km across that are plains, hill country or a mountain range, ridged
+    // ranges with ~1 km between ridges, hills ~70 m across.
+    setup(n_cont_, seed_ + 1, 0.00006f, 4);
     setup(n_eros_, seed_ + 2, 0.0008f, 3);
-    setup(n_pv_, seed_ + 3, 0.0025f, 3, FastNoiseLite::FractalType_Ridged);
+    setup(n_pv_, seed_ + 3, 0.0005f, 5, FastNoiseLite::FractalType_Ridged);
+    setup(n_region_, seed_ + 14, 0.00016f, 2);
+    setup(n_hillmask_, seed_ + 15, 0.0004f, 2);
+    setup(n_hill_, seed_ + 16, 0.007f, 3);
     setup(n_detail_, seed_ + 4, 0.013f, 2); // ~75 voxel period: fewer, longer steps on flats
     setup(n_temp_, seed_ + 5, 0.0004f, 2);
     setup(n_hum_, seed_ + 6, 0.0005f, 2);
@@ -114,20 +120,27 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     col.t_noise = t_noise;
     col.h = n_hum_.GetNoise(fx, fz) + jit2 * technosim_biome::JITTER;
 
-    // Sea floor (2026-10-23): a shallow shelf off the beach (-1.5 .. -18 voxels), a continental
-    // slope down to the deep-ocean line (c -0.55, ~-95), then an abyssal plain that keeps sinking
-    // to 100 m below the surface: deep enough to go dark and room for boats and sea life.
-    static const float cx[] = {-1.0f, -0.75f, -0.6f, -0.45f, -0.3f, -0.15f, -0.05f, 0.05f, 0.3f, 0.55f, 0.8f, 1.0f};
-    static const float cy[] = {-200.0f, -160.0f, -120.0f, -55.0f, -18.0f, -7.0f, -1.5f, 4.0f, 24.0f, 80.0f, 180.0f, 240.0f};
-    float base = spline(col.c, cx, cy, 12);
+    // Sea floor: a shallow shelf off the beach (-1.5 .. -18 voxels), a continental slope down to the
+    // deep-ocean line (c -0.55, ~-95), then an abyssal plain 100 m below the surface. Land rises slowly
+    // inland: coasts and plains lie a few metres above the sea, the heart of a continent ~30 m.
+    static const float cx[] = {-1.0f, -0.75f, -0.6f, -0.45f, -0.3f, -0.15f, -0.05f, 0.05f, 0.3f, 0.6f, 1.0f};
+    static const float cy[] = {-200.0f, -160.0f, -120.0f, -55.0f, -18.0f, -7.0f, -1.5f, 4.0f, 14.0f, 34.0f, 60.0f};
+    float base = spline(col.c, cx, cy, 11);
+    const float inland = smoothstep(0.0f, 0.25f, col.c);
+    // Regions: plains where the region noise is low, hill country in the middle and where the hill
+    // mask says so, mountain ranges where it is high. Ranges may reach the coast (fjords, sea cliffs).
+    const float region = n_region_.GetNoise(fx, fz);
+    const float mountainness = smoothstep(0.04f, 0.4f, region) * smoothstep(-0.05f, 0.2f, col.c);
+    const float hilly = std::clamp(smoothstep(-0.45f, -0.12f, region) + smoothstep(0.2f, 0.5f, n_hillmask_.GetNoise(fx, fz)), 0.0f, 1.0f) * inland;
     static const float ex[] = {-1.0f, -0.3f, 0.4f, 1.0f};
-    static const float ey[] = {1.25f, 1.0f, 0.45f, 0.15f};
-    float relief_scale = spline(col.e, ex, ey, 4);
-    // Lowlands roll gently (walkable with a 1-voxel step); mountains keep their
-    // ridges and fine roughness so they stay hard to traverse.
-    const float mountainness = smoothstep(0.25f, 0.85f, col.c);
-    float mountain_amp = 18.0f + 272.0f * mountainness;
-    float relief = (col.pv * 0.5f + 0.5f) * mountain_amp * relief_scale;
+    static const float ey[] = {1.15f, 1.0f, 0.7f, 0.5f};
+    const float relief_scale = spline(col.e, ex, ey, 4);
+    // ranges: ridged noise, sharpened so the peaks stand out of broad flanks (up to ~220 m above the sea)
+    const float ridge = col.pv * 0.5f + 0.5f;
+    float relief = std::pow(mountainness, 1.5f) * (50.0f + 400.0f * std::pow(ridge, 1.7f)) * relief_scale;
+    // hills: rolling 3-11 m humps, taller where the hill country is wide
+    const float hn = n_hill_.GetNoise(fx, fz) * 0.5f + 0.5f;
+    relief += hilly * (1.0f - mountainness) * std::pow(hn, 1.3f) * (12.0f + 10.0f * smoothstep(0.3f, 0.8f, hilly)) * relief_scale;
     if (base < 0.0f) relief *= 0.25f;
     float detail = n_detail_.GetNoise(fx, fz) * (1.2f + 3.5f * mountainness);
     col.hf = std::clamp((float)sea_ + base + relief + detail, 8.0f, (float)(world_height_ - 8));
@@ -626,6 +639,8 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     out.z = tz;
     out.base = hy.marsh ? marsh_floor(col.height, hy) : col.height;
     out.kind = technosim_biome::TREE_KIND[col.biome];
+    out.biome = col.biome;
+    out.stunted = false;
     if ((float)((hsh >> 21) & 1023) / 1024.0f < technosim_biome::TREE_MIX[col.biome]) out.kind = technosim_biome::TREE_MIX_KIND[col.biome];
     const int vary = (int)((hsh >> 16) % 6), wide = (int)((hsh >> 20) & 1);
     switch (out.kind) {
@@ -639,7 +654,7 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
             if (col.biome == technosim_biome::OLD_GROWTH_FOREST) { out.trunk_h += 4; out.radius = 3; }
             break;
     }
-    if (above > tree_line - 60) { out.trunk_h = 5 + (int)((hsh >> 16) % 3); out.radius = 2; }
+    if (above > tree_line - 60) { out.trunk_h = 5 + (int)((hsh >> 16) % 3); out.radius = 2; out.stunted = true; }
     return true;
 }
 

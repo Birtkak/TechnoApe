@@ -14,6 +14,7 @@
     "tin_ore":      {"hardness": 3.0, "tool": "pickaxe", "requires": true,  "drops": "tin_ore", "min_tier": 1},
     "dirt":         {"hardness": 0.5, "tool": "shovel", "drops": "dirt"},
     "grass":        {"hardness": 0.6, "tool": "shovel", "drops": "dirt"},
+    "leaf_litter":  {"hardness": 0.6, "tool": "shovel", "drops": "dirt"},
     "sand":         {"hardness": 0.5, "tool": "shovel", "drops": "sand"},
     "sand_static":  {"hardness": 0.5, "tool": "shovel", "drops": "sand"},
     "gravel":       {"hardness": 0.6, "tool": "shovel", "drops": "gravel"},

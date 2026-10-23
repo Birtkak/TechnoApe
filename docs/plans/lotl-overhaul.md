@@ -9,6 +9,8 @@
   step 4 (bubble on the voxels), step 5 (ADR 0034: brush, units, footprints, every scripted test),
   step 6's deletions (near field, brick store, micro window). Open: step 2 (the look, taste calls),
   fire pacing, fast flight vs generation, water spill / blast / `persist=1` runs, structural collapse.
+  Then (ADR 0035): continents, plains / hills / mountain ranges, ground relief, aged trees with thick
+  bark trunks and clumped crowns, young trees, the forest floor, far forests with height.
 - **Rule:** each step lands only when its check passes (ADR 0009 budget on the
   dev box, measured as ADR 0014 says; screenshots or filmstrips for looks).
   Steps 1-2 gate the architecture; later steps can split across sessions.

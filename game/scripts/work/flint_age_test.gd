@@ -238,6 +238,7 @@ func run(p_main: Node) -> void:
 	inv.pickup("storage_pot", 1)
 	main._hold("storage_pot")
 	main.player._place_cooldown = 0.0
+	r["pot_aim"] = _aim_info(Vector3(pot_at - Vector3i.UP) + Vector3(0.5, 0.999, 0.5))
 	_click_top(pot_at - Vector3i.UP)
 	await tree.create_timer(0.3).timeout
 	r["storage_pot_block"] = main.get_world_voxel(pot_at) == GameMaterials.STORAGE_POT

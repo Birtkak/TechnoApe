@@ -70,7 +70,9 @@ public:
         // 88..89 work pieces (ADR 0023, never generated); content pass 2
         BIRCH_LOG = 90, BIRCH_LEAVES = 91, BLUEBERRY_BUSH = 92, PUMPKIN = 93, CORNFLOWER = 94, OXEYE_DAISY = 95, ALLIUM = 96,
         OAK_BARK = 97, SPRUCE_BARK = 98, ACACIA_BARK = 99, JUNGLE_BARK = 100, BIRCH_BARK = 101,
-        CARCASS = 102   // wildlife (ADR 0027)
+        CARCASS = 102,  // wildlife (ADR 0027)
+        // 103..107 Flint Age (never generated)
+        LEAF_LITTER = 108   // the shaded forest floor (2026-10-23)
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,
@@ -180,7 +182,7 @@ private:
     static constexpr int TREE_MAX_RADIUS = 4;
     // kind = technosim_biome::TREE_KIND / TREE_MIX_KIND (0 oak, 1 spruce, 2 acacia, 3 jungle, 4 birch): shape and wood
     enum TreeKind : int { TREE_OAK = 0, TREE_SPRUCE = 1, TREE_ACACIA = 2, TREE_JUNGLE = 3, TREE_BIRCH = 4 };
-    struct Tree { int x, z, base, trunk_h, radius, kind; };
+    struct Tree { int x, z, base, trunk_h, radius, kind, biome; bool stunted; };
     static int canopy_radius(const Tree &t, int wy);   // leaf radius of the crown layer at wy, -1 = none
     static int trunk_top(const Tree &t);               // highest log voxel
     static uint16_t tree_log(int kind);
@@ -204,6 +206,7 @@ private:
     int sea_ = 256;
     int world_height_ = 768;
     FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_beach_, n_jitter_, n_cavebiome_, n_pool_;
+    FastNoiseLite n_region_, n_hillmask_, n_hill_;   // landform regions (plains, hills, mountain ranges) and hill shapes
     // Global tile cache: a tile is built outside the lock by the first thread
     // that asks for it, others wait on its future; least recently used tiles
     // are evicted past HYDRO_CACHE_MAX (ADR 0020: a build under the lock

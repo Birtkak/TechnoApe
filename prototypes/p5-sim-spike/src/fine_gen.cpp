@@ -13,9 +13,11 @@ namespace {
 constexpr int FS = FineGen::FS;
 // Soil under the top voxel: about a metre of the biome's under material.
 constexpr int SOIL_FINE = 8;
-// Ground noise on dry land (fine voxels): lumps and hollows the 0.5 m fields cannot make.
-constexpr float GROUND_AMP = 1.4f;
-constexpr float GROUND_AMP2 = 0.6f;
+// Ground relief on dry land (fine voxels): swells, hummocks and roughness the 0.5 m fields cannot
+// make, faded out toward water, rivers and ruins (MacroPt::gw).
+constexpr float GROUND_AMP = 3.5f;    // ~8 m swells
+constexpr float HUMP_AMP = 1.5f;      // ~2.5 m hummocks
+constexpr float GROUND_AMP2 = 0.6f;   // ~1 m roughness
 // At lod 1 caves are carved only this close to the surface (cave mouths, ADR 0020).
 constexpr int CAVE_MOUTH_DEPTH = 24 * FS;
 
@@ -74,9 +76,12 @@ static void setup_noise(FastNoiseLite &n, int seed, float freq, int octaves) {
 
 void FineGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     g_->configure(p_seed, p_sea_level / FS, p_world_height / FS);
-    setup_noise(n_ground_, p_seed + 101, 1.0f / 40.0f, 2);   // 5 m lumps (fine voxels)
+    setup_noise(n_ground_, p_seed + 101, 1.0f / 64.0f, 2);   // 8 m swells (fine voxels)
     setup_noise(n_ground2_, p_seed + 102, 1.0f / 9.0f, 1);   // ~1 m roughness
-    setup_noise(n_leaf_, p_seed + 103, 1.0f / 7.0f, 1);
+    setup_noise(n_hump_, p_seed + 104, 1.0f / 20.0f, 1);     // 2.5 m hummocks
+    setup_noise(n_leaf_, p_seed + 103, 1.0f / 6.0f, 1);      // lumps on leaf clumps
+    setup_noise(n_litter_, p_seed + 105, 1.0f / 14.0f, 2);   // leaf litter vs grass under trees
+    setup_noise(n_meadow_, p_seed + 106, 1.0f / 48.0f, 2);   // thick and thin grass, flower patches
 }
 
 // ---------- surface ----------
@@ -116,12 +121,19 @@ FineGen::MacroPt FineGen::macro_point(int mx, int mz, const WorldGen::Ruin *ruin
         h += (float)m.spike;
     }
     m.hc = h;
+    float gw = (m.lakebed || m.riverbed || m.marshbed || m.spike > 0 || m.ruin >= 0) ? 0.0f : 1.0f;
+    gw *= 1.0f - std::clamp(m.hy.river * 4.0f, 0.0f, 1.0f);
+    gw *= smoothstep(0.5f, 6.0f, h - (float)m.water_level);
+    if (m.hy.marsh) gw *= 0.3f;
+    for (int i = 0; i < nruins && gw > 0.0f; i++)
+        if (WorldGen::in_ruin(ruins[i], mx, mz, 6)) gw *= 0.4f;
+    m.gw = gw;
     return m;
 }
 
-float FineGen::ground_detail(int x, int z, const MacroPt &m) const {
-    if (m.lakebed || m.riverbed || m.marshbed || m.ruin >= 0 || m.hy.river > 0.05f || m.spike > 0) return 0.0f;
-    return n_ground_.GetNoise((float)x, (float)z) * GROUND_AMP + n_ground2_.GetNoise((float)x, (float)z) * GROUND_AMP2;
+float FineGen::ground_noise(int x, int z) const {
+    const float fx = (float)x, fz = (float)z;
+    return n_ground_.GetNoise(fx, fz) * GROUND_AMP + n_hump_.GetNoise(fx, fz) * HUMP_AMP + n_ground2_.GetNoise(fx, fz) * GROUND_AMP2;
 }
 
 float FineGen::surface_f(int x, int z) const {
@@ -131,8 +143,7 @@ float FineGen::surface_f(int x, int z) const {
     const MacroPt a = macro_point(mx, mz, ruins, nr), b = macro_point(mx + 1, mz, ruins, nr);
     const MacroPt c = macro_point(mx, mz + 1, ruins, nr), d = macro_point(mx + 1, mz + 1, ruins, nr);
     const float tx = (float)(x - mx * FS) / FS, tz = (float)(z - mz * FS) / FS;
-    const MacroPt &near = tz < 0.5f ? (tx < 0.5f ? a : b) : (tx < 0.5f ? c : d);
-    return bilerp(a.hc, b.hc, c.hc, d.hc, tx, tz) * FS + ground_detail(x, z, near);
+    return bilerp(a.hc, b.hc, c.hc, d.hc, tx, tz) * FS + ground_noise(x, z) * bilerp(a.gw, b.gw, c.gw, d.gw, tx, tz);
 }
 
 int FineGen::height_at(int x, int z) const {
@@ -153,91 +164,199 @@ Dictionary FineGen::column_info(int x, int z) const {
 
 // ---------- trees and decorations at fine resolution ----------
 
-void FineGen::build_tree(const WorldGen::Tree &t, FTree &o) const {
+// How far along its life a canopy tree is (0 sapling .. 1 ancient): old growth is mostly old,
+// forests mix every age, trees near the tree line stay young.
+float FineGen::tree_age(const WorldGen::Tree &t, uint32_t seed) const {
+    const float u = (float)((seed >> 12) & 1023) / 1023.0f;
+    if (t.stunted) return 0.15f + 0.1f * u;
+    if (t.biome == technosim_biome::OLD_GROWTH_FOREST) return 0.55f + 0.45f * u;
+    if (technosim_biome::TREE_DENSITY[t.biome] >= 0.3f) return 0.3f + 0.7f * u;
+    return 0.25f + 0.6f * u;
+}
+
+// One tree at fine resolution. Oaks and jungle trees: a trunk that thickens with age, flares into
+// roots, and splits into 4-8 limbs that bend upward and end in clusters of leaf clumps, so the crown
+// is lumpy and far reaching instead of one ball. Birches: slender, small clumps up the top half.
+// Spruces: a layered cone. Acacias: a fork carrying flat plates.
+void FineGen::build_tree(int kind, float fx, float fz, int trunk_h, int radius, float a, bool old_growth, uint32_t seed, FTree &o) const {
     const int sd = g_->seed_;
-    o.seed = h3(t.x, t.z, sd + 77);
-    o.x = (float)(t.x * FS + 2) + (float)((int)(o.seed & 3) - 1) * 0.5f;
-    o.z = (float)(t.z * FS + 2) + (float)((int)((o.seed >> 2) & 3) - 1) * 0.5f;
-    o.ground = (int)std::floor(surface_f((int)o.x, (int)o.z) + 0.5f);
+    o.seed = seed;
+    o.kind = kind;
+    o.x = fx;
+    o.z = fz;
+    o.ground = (int)std::floor(surface_f((int)std::floor(fx), (int)std::floor(fz)) + 0.5f);
     o.base = o.ground - 6;
-    o.top = o.ground + (WorldGen::trunk_top(t) - t.base) * FS + (int)((o.seed >> 4) % 3);
-    o.kind = t.kind;
-    o.log = WorldGen::tree_log(t.kind);
-    o.leaves = WorldGen::tree_leaves(t.kind);
+    o.log = WorldGen::tree_log(kind);
+    o.bark = WorldGen::tree_bark(kind);
+    o.leaves = WorldGen::tree_leaves(kind);
     o.nb = o.ns = 0;
     o.cone_r = 0.0f;
-    const float R = (float)(t.radius * FS);
+    auto rnd = [&](int k) { return (float)(h3((int)seed, k, sd + 79) & 1023) / 1023.0f; };
+    const float H = (float)(trunk_h * FS) * (0.55f + 0.65f * a) * (old_growth ? 1.15f : 1.0f);
+    o.top = o.ground + std::max(6, (int)H);
     const float top = (float)o.top;
-    auto rnd = [&](int k) { return (float)(h3((int)o.seed, k, sd + 79) & 1023) / 1023.0f; };
-    switch (t.kind) {
-        case WorldGen::TREE_SPRUCE:
-            o.r = 1.4f;
-            o.cone_lo = o.ground + 3 * FS;
-            o.cone_hi = o.top + 2 * FS;
-            o.cone_r = R + 2.5f;
-            break;
-        case WorldGen::TREE_BIRCH:
-            o.r = 1.1f;
-            for (int i = 0; i < 3; i++)
-                o.blobs[o.nb++] = {o.x + (rnd(i) - 0.5f) * 2.0f, top - FS * 2.5f + i * FS * 1.4f, o.z + (rnd(i + 9) - 0.5f) * 2.0f, R * 0.8f + 1.5f, FS * 1.3f, R * 0.8f + 1.5f};
-            break;
-        case WorldGen::TREE_ACACIA: {
-            o.r = 1.3f;
-            const float a = rnd(1) * 6.2832f;
-            const float ox = std::cos(a) * R * 0.6f, oz = std::sin(a) * R * 0.6f;
-            o.segs[o.ns++] = {o.x, top - FS * 2.0f, o.z, o.x + ox, top + 1.0f, o.z + oz, 1.2f};
-            o.segs[o.ns++] = {o.x, top - FS * 1.5f, o.z, o.x - ox * 0.8f, top - 1.0f, o.z - oz * 0.8f, 1.0f};
-            o.blobs[o.nb++] = {o.x + ox, top + 2.0f, o.z + oz, R * 1.1f + 3.0f, 2.2f, R * 1.1f + 3.0f};
-            o.blobs[o.nb++] = {o.x - ox * 0.8f, top, o.z - oz * 0.8f, R * 0.7f + 2.0f, 1.8f, R * 0.7f + 2.0f};
+    auto blob = [&](float x, float y, float z, float r, float flat) {
+        if (o.nb < MAX_BLOBS) o.blobs[o.nb++] = {x, y, z, r, r * flat, r};
+    };
+    auto seg = [&](float ax, float ay, float az, float bx, float by, float bz, float r0, float r1) {
+        if (o.ns < MAX_SEGS) o.segs[o.ns++] = {ax, ay, az, bx, by, bz, r0, r1};
+    };
+    auto roots = [&](int n, float len, float rr) {
+        const float a0 = rnd(50) * 6.2832f;
+        for (int i = 0; i < n; i++) {
+            const float an = a0 + (float)i * 6.2832f / (float)n + (rnd(51 + i) - 0.5f) * 0.7f;
+            const float l = len * (0.7f + 0.5f * rnd(60 + i));
+            seg(o.x, (float)o.ground + o.r * 0.7f, o.z, o.x + std::cos(an) * l, (float)o.ground - 2.5f, o.z + std::sin(an) * l, rr, 0.6f);
+        }
+    };
+    switch (kind) {
+        case WorldGen::TREE_SPRUCE: {
+            o.r = 1.6f + 4.0f * a + (old_growth ? 1.2f : 0.0f);
+            o.r_top = 0.9f;
+            o.cone_r = (float)(radius * FS) * (0.55f + 0.75f * a) + 2.0f;
+            o.cone_lo = o.ground + (int)(H * 0.15f) + 2;
+            o.cone_hi = o.top + 2 + (int)(a * 4.0f);
+            if (a > 0.45f) roots(4, o.r + 3.0f + 4.0f * a, o.r * 0.45f);
             break;
         }
-        default: {   // oak and jungle: a crown blob over the trunk, side blobs on branches
-            const bool jungle = t.kind == WorldGen::TREE_JUNGLE;
-            o.r = jungle ? 2.2f + 0.3f * (float)(t.radius - 3) : (t.radius >= 3 ? 2.0f : 1.6f);
-            o.blobs[o.nb++] = {o.x, top - 1.0f, o.z, R + 2.0f, R * 0.65f + 2.0f, R + 2.0f};
-            const int k = 3 + (int)(o.seed >> 8) % 3;
-            const float a0 = rnd(2) * 6.2832f;
-            for (int i = 0; i < k && o.nb < 8 && o.ns < 8; i++) {
-                const float a = a0 + i * 6.2832f / k + (rnd(10 + i) - 0.5f) * 0.8f;
-                const float dist = R * (0.7f + 0.3f * rnd(20 + i));
-                const float by = top - FS * (jungle ? 1.0f : 1.8f) + rnd(30 + i) * FS * 1.5f;
-                const float bx = o.x + std::cos(a) * dist, bz = o.z + std::sin(a) * dist;
-                const float br = R * 0.55f + 1.5f;
-                o.blobs[o.nb++] = {bx, by, bz, br, br * 0.75f, br};
-                const float sy = top - FS * 3.0f - (float)i;
-                o.segs[o.ns++] = {o.x, sy, o.z, o.x + (bx - o.x) * 0.8f, by - 1.0f, o.z + (bz - o.z) * 0.8f, jungle ? 1.3f : 1.0f};
+        case WorldGen::TREE_BIRCH: {
+            o.r = 1.2f + 2.2f * a;
+            o.r_top = 0.7f;
+            const int n = 4 + (int)(3.0f * a);
+            for (int i = 0; i < n; i++) {
+                const float y = top - H * 0.45f + (float)i * H * 0.45f / (float)n + rnd(70 + i) * 2.0f;
+                const float an = rnd(80 + i) * 6.2832f;
+                const float d = 1.5f + (2.0f + 3.0f * a) * rnd(90 + i);
+                const float bx = o.x + std::cos(an) * d, bz = o.z + std::sin(an) * d;
+                seg(o.x, y - 2.0f, o.z, bx, y, bz, 0.7f, 0.5f);
+                blob(bx, y + 1.0f, bz, (3.0f + 4.0f * a) * (0.75f + 0.3f * rnd(100 + i)), 0.85f);
+            }
+            blob(o.x, top + 1.0f, o.z, 3.0f + 3.0f * a, 1.0f);
+            break;
+        }
+        case WorldGen::TREE_ACACIA: {
+            o.r = 1.5f + 2.6f * a;
+            o.r_top = o.r * 0.6f;
+            const float R = (float)(radius * FS) * (0.7f + 0.6f * a) + 3.0f;
+            const float a0 = rnd(1) * 6.2832f;
+            for (int i = 0; i < 3; i++) {
+                const float an = a0 + (float)i * 2.1f + (rnd(10 + i) - 0.5f) * 0.6f;
+                const float d = R * (0.45f + 0.25f * rnd(20 + i));
+                const float bx = o.x + std::cos(an) * d, bz = o.z + std::sin(an) * d, by = top + 2.0f + rnd(30 + i) * 3.0f;
+                seg(o.x, top - H * 0.3f, o.z, bx, by, bz, o.r * 0.6f, 0.8f);
+                blob(bx, by + 1.5f, bz, R * (0.55f + 0.2f * rnd(40 + i)), 0.25f);
             }
             break;
         }
+        default: {
+            const bool jungle = kind == WorldGen::TREE_JUNGLE;
+            // trunk radius ~0.25 m young .. 1 m ancient (2 m across), 0.5 m at the crown
+            o.r = (1.8f + 6.2f * std::pow(a, 1.2f) + (old_growth ? 1.5f : 0.0f)) * (jungle ? 1.15f : 1.0f);
+            o.r_top = std::max(1.0f, o.r * 0.5f);
+            const float Rc = (10.0f + 30.0f * a + 6.0f * (float)(radius - 2)) * (jungle ? 0.9f : 1.0f) * (old_growth ? 1.1f : 1.0f);
+            const int n = std::min(8, 4 + (int)(3.0f * a + rnd(3) * 1.5f));
+            const float a0 = rnd(2) * 6.2832f;
+            for (int i = 0; i < n; i++) {
+                const float an = a0 + (float)i * 6.2832f / (float)n + (rnd(10 + i) - 0.5f) * 0.7f;
+                const float ca = std::cos(an), sa = std::sin(an);
+                const float sy = top - H * (jungle ? 0.12f : 0.4f) * (0.3f + 0.7f * rnd(20 + i));
+                const float reach = Rc * (0.75f + 0.35f * rnd(30 + i));
+                const float mx = o.x + ca * reach * 0.5f, my = sy + Rc * (0.2f + 0.25f * rnd(40 + i)), mz = o.z + sa * reach * 0.5f;
+                const float ex = o.x + ca * reach * 0.88f, ey = my + Rc * (0.12f + 0.2f * rnd(45 + i)), ez = o.z + sa * reach * 0.88f;
+                const float lr = std::max(1.0f, o.r * 0.55f * (0.8f + 0.3f * rnd(50 + i)));
+                seg(o.x, sy, o.z, mx, my, mz, lr, lr * 0.75f);
+                seg(mx, my, mz, ex, ey, ez, lr * 0.75f, std::max(0.7f, lr * 0.45f));
+                // a cluster of clumps at the end of the limb and one over its middle
+                const float cr = Rc * 0.36f + 2.5f;
+                blob(ex, ey + cr * 0.25f, ez, cr, 0.7f);
+                blob((mx + ex) * 0.5f, (my + ey) * 0.5f + cr * 0.55f, (mz + ez) * 0.5f, cr * 0.8f, 0.7f);
+                const float side = (rnd(55 + i) - 0.5f) * 1.8f * cr;
+                blob(ex - sa * side + ca * cr * 0.4f, ey - cr * 0.1f, ez + ca * side + sa * cr * 0.4f, cr * 0.65f, 0.65f);
+            }
+            blob(o.x, top + Rc * 0.18f, o.z, Rc * 0.5f + 2.0f, 0.6f);
+            for (int i = 0; i < 2; i++) {
+                const float an = rnd(110 + i) * 6.2832f;
+                blob(o.x + std::cos(an) * Rc * 0.3f, top + Rc * 0.32f, o.z + std::sin(an) * Rc * 0.3f, Rc * 0.33f + 1.5f, 0.7f);
+            }
+            if (a > 0.3f) roots(4 + (int)(2.0f * a), o.r + 5.0f + 8.0f * a, o.r * 0.5f);
+            break;
+        }
     }
-    float reach = o.r + 3.0f, yhi = top;
+    float reach = o.r * 1.8f + 5.0f, yhi = top;
     for (int i = 0; i < o.nb; i++) {
         const Blob &b = o.blobs[i];
-        reach = std::max(reach, std::max(std::fabs(b.x - o.x), std::fabs(b.z - o.z)) + b.rx);
-        yhi = std::max(yhi, b.y + b.ry);
+        reach = std::max(reach, std::max(std::fabs(b.x - o.x), std::fabs(b.z - o.z)) + b.rx * 1.25f);
+        yhi = std::max(yhi, b.y + b.ry * 1.25f);
     }
-    if (o.cone_r > 0.0f) { reach = std::max(reach, o.cone_r); yhi = std::max(yhi, (float)o.cone_hi); }
+    for (int i = 0; i < o.ns; i++) {
+        const Seg &s = o.segs[i];
+        const float r = std::max(s.r0, s.r1);
+        reach = std::max(reach, std::max({std::fabs(s.ax - o.x), std::fabs(s.bx - o.x), std::fabs(s.az - o.z), std::fabs(s.bz - o.z)}) + r);
+        yhi = std::max(yhi, std::max(s.ay, s.by) + r);
+    }
+    if (o.cone_r > 0.0f) { reach = std::max(reach, o.cone_r + 1.0f); yhi = std::max(yhi, (float)o.cone_hi); }
     o.reach = reach + 1.0f;
     o.y_hi = (int)std::ceil(yhi) + 1;
 }
 
-uint16_t FineGen::tree_voxel(const FTree &t, float x, int y, float z, float grow) const {
-    if (y < t.base || y > t.y_hi) return Mat::AIR;
+bool FineGen::col_tree(const FTree &t, float x, float z, float grow, ColTree &c) const {
+    c.t = &t;
+    c.bm = 0;
+    c.sm = 0;
+    c.trunk = c.cone = false;
+    c.ylo = 1 << 30;
+    c.yhi = -(1 << 30);
     const float dx = x - t.x, dz = z - t.z, d2 = dx * dx + dz * dz;
-    if (y <= t.top) {
-        const float frac = std::clamp((float)(y - t.ground) / (float)std::max(1, t.top - t.ground), 0.0f, 1.0f);
-        float r = t.r * (1.0f - 0.3f * frac) + grow;
-        if (y < t.ground + 6) r += (float)(t.ground + 6 - y) * 0.22f;   // root flare
-        if (d2 <= r * r) return t.log;
+    const float tr = t.r * 1.8f + 4.0f + grow;
+    if (d2 <= tr * tr) { c.trunk = true; c.ylo = t.base; c.yhi = t.top; }
+    for (int i = 0; i < t.nb; i++) {
+        const Blob &b = t.blobs[i];
+        const float rx = b.rx * 1.25f + grow + 1.0f, rz = b.rz * 1.25f + grow + 1.0f;
+        if (std::fabs(x - b.x) > rx || std::fabs(z - b.z) > rz) continue;
+        c.bm |= 1ull << i;
+        const float ry = b.ry * 1.25f + grow + 1.0f;
+        c.ylo = std::min(c.ylo, (int)std::floor(b.y - ry));
+        c.yhi = std::max(c.yhi, (int)std::ceil(b.y + ry));
     }
-    const float fy = (float)y;
     for (int i = 0; i < t.ns; i++) {
         const Seg &s = t.segs[i];
-        const float r = s.r + grow;
-        if (seg_dist2(x, fy, z, s.ax, s.ay, s.az, s.bx, s.by, s.bz) <= r * r) return t.log;
+        const float r = std::max(s.r0, s.r1) + grow + 1.0f;
+        if (x < std::min(s.ax, s.bx) - r || x > std::max(s.ax, s.bx) + r || z < std::min(s.az, s.bz) - r || z > std::max(s.az, s.bz) + r) continue;
+        c.sm |= 1u << i;
+        c.ylo = std::min(c.ylo, (int)std::floor(std::min(s.ay, s.by) - r));
+        c.yhi = std::max(c.yhi, (int)std::ceil(std::max(s.ay, s.by) + r));
+    }
+    const float cr = t.cone_r + 2.0f + grow;
+    if (t.cone_r > 0.0f && d2 <= cr * cr) { c.cone = true; c.ylo = std::min(c.ylo, t.cone_lo); c.yhi = std::max(c.yhi, t.cone_hi); }
+    return c.trunk || c.bm || c.sm || c.cone;
+}
+
+// leaf_n: the leaf noise at this voxel, computed once (2 = not yet) and shared by every tree.
+uint16_t FineGen::tree_voxel(const ColTree &c, float x, int y, float z, float grow, float &leaf_n) const {
+    if (y < c.ylo || y > c.yhi) return Mat::AIR;
+    const FTree &t = *c.t;
+    const float fy = (float)y;
+    const float dx = x - t.x, dz = z - t.z, d2 = dx * dx + dz * dz;
+    if (c.trunk && y >= t.base && y <= t.top) {
+        const float frac = std::clamp((float)(y - t.ground) / (float)std::max(1, t.top - t.ground), 0.0f, 1.0f);
+        float r = t.r + (t.r_top - t.r) * frac + grow;
+        const float flare = (float)(t.ground + 3) + t.r * 0.8f - fy;   // the trunk widens into its roots
+        if (flare > 0.0f) r += flare * 0.3f;
+        if (d2 <= r * r) return d2 > (r - 1.5f) * (r - 1.5f) ? t.bark : t.log;
+    }
+    for (uint32_t m = c.sm; m; m &= m - 1) {
+        const Seg &s = t.segs[__builtin_ctz(m)];
+        const float vx = s.bx - s.ax, vy = s.by - s.ay, vz = s.bz - s.az;
+        const float wx = x - s.ax, wy = fy - s.ay, wz = z - s.az;
+        const float l2 = vx * vx + vy * vy + vz * vz;
+        const float u = l2 > 0.0f ? std::clamp((wx * vx + wy * vy + wz * vz) / l2, 0.0f, 1.0f) : 0.0f;
+        const float ex = wx - vx * u, ey = wy - vy * u, ez = wz - vz * u;
+        const float r = s.r0 + (s.r1 - s.r0) * u + grow;
+        const float e2 = ex * ex + ey * ey + ez * ez;
+        if (e2 <= r * r) return e2 > (r - 1.5f) * (r - 1.5f) ? t.bark : t.log;
     }
     const int ix = (int)std::floor(x), iz = (int)std::floor(z);
-    if (t.cone_r > 0.0f && y >= t.cone_lo && y <= t.cone_hi) {
+    if (c.cone && y >= t.cone_lo && y <= t.cone_hi) {
         const float u = (float)(t.cone_hi - y) / (float)std::max(1, t.cone_hi - t.cone_lo);
         float rr = t.cone_r * u + 0.8f;
         if (((t.cone_hi - y) / 3) & 1) rr *= 0.78f;   // layered boughs
@@ -247,17 +366,60 @@ uint16_t FineGen::tree_voxel(const FTree &t, float x, int y, float z, float grow
             return t.leaves;
         }
     }
-    for (int i = 0; i < t.nb; i++) {
-        const Blob &b = t.blobs[i];
+    for (uint64_t m = c.bm; m; m &= m - 1) {
+        const Blob &b = t.blobs[__builtin_ctzll(m)];
         const float ex = (x - b.x) / (b.rx + grow), ey = (fy - b.y) / (b.ry + grow), ez = (z - b.z) / (b.rz + grow);
         const float d = ex * ex + ey * ey + ez * ez;
-        if (d > 1.15f) continue;
-        const float edge = d + n_leaf_.GetNoise(x, fy, z) * 0.35f;
+        if (d > 1.5f) continue;
+        if (leaf_n > 1.5f) leaf_n = n_leaf_.GetNoise(x, fy, z);
+        const float edge = d + leaf_n * 0.45f;   // lumpy clumps
         if (edge > 1.0f) continue;
-        if (edge > 0.7f && (h3(ix, y, iz) % 5) == 0) continue;   // ragged, see-through edge
+        if (grow == 0.0f && edge > 0.85f && (h3(ix, y, iz) & 15) == 0) continue;   // a few gaps at the edge (each costs faces)
         return t.leaves;
     }
     return Mat::AIR;
+}
+
+// Young trees between the canopy trees: one chance per 3 m cell, as often as the biome has trees,
+// never on top of the cell's canopy tree. Deterministic per cell, so every block sees the same ones.
+void FineGen::young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<FTree> &out) const {
+    const WorldGen &g = *g_.ptr();
+    constexpr int YC = 24, M = 20;
+    const int cx0 = floor_div(x_lo - M, YC), cx1 = floor_div(x_hi + M, YC);
+    const int cz0 = floor_div(z_lo - M, YC), cz1 = floor_div(z_hi + M, YC);
+    for (int cz = cz0; cz <= cz1; cz++)
+        for (int cx = cx0; cx <= cx1; cx++) {
+            const uint32_t hs = h3(cx, cz, g.seed_ + 613);
+            const float roll = (float)(hs & 1023) / 1024.0f;
+            if (roll >= 0.7f) continue;
+            const float fx = (float)(cx * YC + 3 + (int)((hs >> 10) % (YC - 6))) + 0.5f;
+            const float fz = (float)(cz * YC + 3 + (int)((hs >> 16) % (YC - 6))) + 0.5f;
+            const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
+            const WorldGen::Column col = g.column_base(mx, mz, false);
+            if (col.height <= g.sea_ + 2 || col.alpine) continue;
+            const float dens = technosim_biome::TREE_DENSITY[col.biome];
+            if (roll >= std::min(0.7f, dens * 0.55f)) continue;
+            const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
+            if (hy.river > 0.05f || hy.lake || hy.puddle) continue;
+            bool blocked = false;
+            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, 3);
+            if (blocked) continue;
+            WorldGen::Tree big;
+            if (g.tree_at_cell(floor_div(mx, WorldGen::TREE_CELL), floor_div(mz, WorldGen::TREE_CELL), big)) {
+                const float bx = (float)(big.x * FS + 2) - fx, bz = (float)(big.z * FS + 2) - fz;
+                if (bx * bx + bz * bz < 14.0f * 14.0f) continue;
+            }
+            const uint32_t ts = h3(cx, cz, g.seed_ + 617);
+            int kind = technosim_biome::TREE_KIND[col.biome];
+            if ((float)((ts >> 8) & 1023) / 1024.0f < technosim_biome::TREE_MIX[col.biome]) kind = technosim_biome::TREE_MIX_KIND[col.biome];
+            // poles reaching for the light: a tall bare trunk, the crown above head height
+            const float age = 0.1f + 0.22f * (float)(ts & 255) / 255.0f;
+            const int trunk_h = (kind == WorldGen::TREE_SPRUCE || kind == WorldGen::TREE_BIRCH ? 12 : 10) + (int)((ts >> 20) % 5);
+            FTree t;
+            build_tree(kind, fx, fz, trunk_h, 2, age, false, ts, t);
+            if (t.x + t.reach < x_lo || t.x - t.reach > x_hi || t.z + t.reach < z_lo || t.z - t.reach > z_hi) continue;
+            out.push_back(t);
+        }
 }
 
 void FineGen::build_stamp(const WorldGen::Stamp &s, FStamp &o) const {
@@ -267,16 +429,77 @@ void FineGen::build_stamp(const WorldGen::Stamp &s, FStamp &o) const {
     o.z = (float)(s.z * FS + 2);
     o.ground = (int)std::floor(surface_f(s.x * FS + 2, s.z * FS + 2) + 0.5f);
     o.mossy = s.mossy;
-    o.along_x = (s.seed >> 9) & 1;
     o.wood = WorldGen::tree_log(s.tree_kind);
     o.bark = WorldGen::tree_bark(s.tree_kind);
     o.leaves = WorldGen::tree_leaves(s.tree_kind);
+    const float an = (float)((s.seed >> 9) & 1023) / 1023.0f * 6.2832f;
+    o.dx = std::cos(an);
+    o.dz = std::sin(an);
+    o.r = 0.0f;
     switch (s.kind) {
         case WorldGen::STAMP_BOULDER: o.size = ((float)s.size + 0.4f) * FS * 0.9f; break;
         case WorldGen::STAMP_BUSH: o.size = (float)s.size * FS + 1.5f; break;
-        case WorldGen::STAMP_FALLEN_LOG: o.size = (float)s.size * FS; break;
+        case WorldGen::STAMP_FALLEN_LOG:
+            o.size = (float)s.size * FS * 0.5f + 4.0f;
+            o.r = 2.2f + (float)((s.seed >> 20) & 7) * 0.4f;
+            break;
         default: o.size = (float)s.size * FS; break;
     }
+}
+
+// The forest floor: one chance per 2 m cell for a fallen log (any direction, mossy, with
+// mushrooms), a stump, a bush (leafy or blueberry) or a mossy rock; forests get most of them,
+// open land a few bushes and stones.
+void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<FStamp> &out) const {
+    const WorldGen &g = *g_.ptr();
+    constexpr int FC = 16, M = 34;
+    const int cx0 = floor_div(x_lo - M, FC), cx1 = floor_div(x_hi + M, FC);
+    const int cz0 = floor_div(z_lo - M, FC), cz1 = floor_div(z_hi + M, FC);
+    for (int cz = cz0; cz <= cz1; cz++)
+        for (int cx = cx0; cx <= cx1; cx++) {
+            const uint32_t hs = h3(cx, cz, g.seed_ + 601);
+            const float roll = (float)(hs & 1023) / 1024.0f;
+            if (roll >= 0.3f) continue;
+            const float fx = (float)(cx * FC + 2 + (int)((hs >> 10) % (FC - 4))) + 0.5f;
+            const float fz = (float)(cz * FC + 2 + (int)((hs >> 16) % (FC - 4))) + 0.5f;
+            const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
+            const WorldGen::Column col = g.column_base(mx, mz, false);
+            if (col.height <= g.sea_ + 1 || col.alpine || col.snow) continue;
+            const float dens = technosim_biome::TREE_DENSITY[col.biome];
+            const float f = std::clamp(dens / 0.5f, 0.0f, 1.3f);
+            const float p_log = 0.05f * f, p_stump = p_log + 0.03f * f, p_bush = p_stump + 0.02f + 0.14f * f, p_rock = p_bush + 0.012f + 0.02f * f;
+            if (roll >= p_rock) continue;
+            if (dens <= 0.0f && roll < p_stump) continue;   // logs and stumps come from trees
+            const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
+            if (hy.river > 0.05f || hy.lake || hy.puddle) continue;
+            bool blocked = false;
+            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, 2);
+            if (blocked) continue;
+            FStamp s;
+            s.seed = h3(cx, cz, g.seed_ + 607);
+            int tk = technosim_biome::TREE_KIND[col.biome];
+            if ((float)((s.seed >> 12) & 1023) / 1024.0f < technosim_biome::TREE_MIX[col.biome]) tk = technosim_biome::TREE_MIX_KIND[col.biome];
+            s.wood = WorldGen::tree_log(tk);
+            s.bark = WorldGen::tree_bark(tk);
+            s.leaves = WorldGen::tree_leaves(tk);
+            s.mossy = dens >= 0.2f;
+            s.x = fx;
+            s.z = fz;
+            const float an = (float)(s.seed & 1023) / 1023.0f * 6.2832f;
+            s.dx = std::cos(an);
+            s.dz = std::sin(an);
+            const float u1 = (float)((s.seed >> 10) & 255) / 255.0f, u2 = (float)((s.seed >> 18) & 255) / 255.0f;
+            s.r = 0.0f;
+            if (roll < p_log) { s.kind = WorldGen::STAMP_FALLEN_LOG; s.r = 2.0f + 3.5f * u1; s.size = 10.0f + 18.0f * u2; }
+            else if (roll < p_stump) { s.kind = STUMP; s.r = 2.5f + 4.0f * u1; s.size = 3.0f + 5.0f * u2; }
+            else if (roll < p_bush) {
+                s.kind = WorldGen::STAMP_BUSH;
+                s.size = 2.5f + 4.0f * u1;
+                if (dens > 0.0f && (s.seed >> 26) % 6 == 0) s.leaves = Mat::BLUEBERRY_BUSH;
+            } else { s.kind = WorldGen::STAMP_BOULDER; s.size = 2.0f + 3.0f * u1; }
+            s.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
+            out.push_back(s);
+        }
 }
 
 uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const {
@@ -297,18 +520,36 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
         case WorldGen::STAMP_BUSH: {
             const float r = s.size + grow;
             const float e = (dx * dx + dz * dz) / (r * r) + ((fy - (float)s.ground) * (fy - (float)s.ground)) / (r * r * 0.5f);
-            if (e > 1.0f + n_leaf_.GetNoise(x, fy, z) * 0.3f) return Mat::AIR;
+            if (e > 1.0f + n_leaf_.GetNoise(x, fy, z) * 0.35f) return Mat::AIR;
             if (dx * dx + dz * dz < 2.0f && y < s.ground + 2) return s.wood;
             return s.leaves;
         }
         case WorldGen::STAMP_FALLEN_LOG: {
-            const float a = s.along_x ? dx : dz, b = s.along_x ? dz : dx;
-            const float cy = (float)s.ground + 1.4f;
-            const float r = 1.7f + grow;
-            if (std::fabs(a) > s.size * 0.5f) return Mat::AIR;
+            const float a = dx * s.dx + dz * s.dz, b = -dx * s.dz + dz * s.dx;
+            if (std::fabs(a) > s.size + 0.5f) return Mat::AIR;
+            const float cy = (float)s.ground + s.r - 0.6f;   // settled into the ground
+            const float r = s.r + grow;
             const float d2 = b * b + (fy - cy) * (fy - cy);
-            if (d2 <= r * r) return s.bark;
-            if (s.mossy && d2 <= (r + 1.0f) * (r + 1.0f) && fy > cy + r - 0.5f && (h3((int)x, (int)z, (int)s.seed + 3) % 3) == 0) return Mat::MOSS;
+            if (d2 <= r * r) return std::fabs(a) > s.size - 0.5f ? s.wood : s.bark;
+            // a broken-off branch stub
+            const float sa = s.size * 0.3f * (((s.seed >> 3) & 1) ? 1.0f : -1.0f), side = ((s.seed >> 4) & 1) ? 1.0f : -1.0f;
+            const float bx0 = s.x + s.dx * sa, bz0 = s.z + s.dz * sa;
+            if (seg_dist2(x, fy, z, bx0, cy, bz0, bx0 - s.dz * side * (r + 3.0f), cy + r + 1.0f, bz0 + s.dx * side * (r + 3.0f)) <= (0.8f + grow) * (0.8f + grow)) return s.bark;
+            if (s.mossy && d2 <= (r + 1.0f) * (r + 1.0f) && fy > cy + r * 0.5f) {
+                const uint32_t hh = h3((int)std::floor(x), y, (int)std::floor(z) + (int)s.seed);
+                if (hh % 3 == 0) return Mat::MOSS;
+                if (hh % 29 == 1) return (hh >> 8) % 3 == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN;
+            }
+            return Mat::AIR;
+        }
+        case STUMP: {
+            const float d2 = dx * dx + dz * dz;
+            const int top = s.ground + (int)s.size;
+            if (y < s.ground - 3 || y > top + 1) return Mat::AIR;
+            float r = s.r + grow;
+            if (y < s.ground + 2) r += (float)(s.ground + 2 - y) * 0.6f;   // root flare
+            if (y <= top && d2 <= r * r) return y == top ? s.wood : s.bark;
+            if (y == top + 1 && s.mossy && d2 <= r * r && h3((int)std::floor(x), y, (int)std::floor(z)) % 3 == 0) return Mat::MOSS;
             return Mat::AIR;
         }
         default: {   // dead tree: a bare trunk with one stub branch
@@ -367,7 +608,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
     const int y_top = origin.y + sy * step;
     const bool above_sea = y_top > sea;
     // Trees (lod <= 3 as shapes, from lod 4 only a leaf-coloured surface) and decorations (lod <= 2).
-    static constexpr int MAXT = 64, MAXS = 32;
+    static constexpr int MAXT = 160, MAXS = 32;
     WorldGen::Tree mtrees[MAXT];
     std::vector<FTree> trees;
     std::vector<FStamp> stamps;
@@ -375,17 +616,35 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
     int feature_top = 0;
     if (above_sea && origin.y < (hmax_m + 40) * FS) {
         if (lod <= 3) {
-            const int nt = g.trees_near(floor_div(x_lo, FS) - 4, floor_div(z_lo, FS) - 4, floor_div(x_hi, FS) + 4, floor_div(z_hi, FS) + 4, mtrees, MAXT);
+            // canopy trees reach up to ~7 m from their trunk: search 12 macro voxels beyond the block
+            const int nt = g.trees_near(floor_div(x_lo, FS) - 12, floor_div(z_lo, FS) - 12, floor_div(x_hi, FS) + 12, floor_div(z_hi, FS) + 12, mtrees, MAXT);
+            trees.reserve(nt + 16);
             for (int i = 0; i < nt; i++) {
                 bool blocked = false;
                 for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mtrees[i].x, mtrees[i].z, 3);
                 if (blocked) continue;
+                const WorldGen::Tree &mt = mtrees[i];
+                const uint32_t ts = h3(mt.x, mt.z, g.seed_ + 77);
+                const float fx = (float)(mt.x * FS + 2) + (float)((int)(ts & 3) - 1) * 0.5f;
+                const float fz = (float)(mt.z * FS + 2) + (float)((int)((ts >> 2) & 3) - 1) * 0.5f;
+                // cheap reject before the tree is built
+                const float bound = (12.0f + 4.0f) * FS;
+                if (fx + bound < x_lo || fx - bound > x_hi || fz + bound < z_lo || fz - bound > z_hi) continue;
                 FTree t;
-                build_tree(mtrees[i], t);
+                build_tree(mt.kind, fx, fz, mt.trunk_h, mt.radius, tree_age(mt, ts), mt.biome == technosim_biome::OLD_GROWTH_FOREST, ts, t);
                 if (t.x + t.reach < x_lo || t.x - t.reach > x_hi || t.z + t.reach < z_lo || t.z - t.reach > z_hi) continue;
                 if (t.y_hi < origin.y || t.base >= y_top) continue;
                 feature_top = std::max(feature_top, t.y_hi);
                 trees.push_back(t);
+            }
+            if (lod <= 2) {
+                const size_t first = trees.size();
+                young_trees(x_lo, z_lo, x_hi, z_hi, ruins, nruins, trees);
+                for (size_t i = first; i < trees.size();) {
+                    if (trees[i].y_hi < origin.y || trees[i].base >= y_top) { trees[i] = trees.back(); trees.pop_back(); continue; }
+                    feature_top = std::max(feature_top, trees[i].y_hi);
+                    i++;
+                }
             }
         }
         if (lod <= 2) {
@@ -397,13 +656,15 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 if (blocked) continue;
                 FStamp s;
                 build_stamp(ms[i], s);
-                feature_top = std::max(feature_top, s.ground + (int)s.size + 8);
                 stamps.push_back(s);
             }
+            floor_features(x_lo, z_lo, x_hi, z_hi, ruins, nruins, stamps);
+            for (const FStamp &s : stamps) feature_top = std::max(feature_top, s.ground + (int)(s.size + s.r) + 8);
         }
     }
     // Nothing reaches this block: all air.
-    const int reach_top = std::max({(hmax_m + 12) * FS, wl_max * FS + 1, fall_max * FS + 1, feature_top + 1, (hmax_m + 1) * FS + 12});
+    const int far_canopy_top = (lod >= 4 && above_sea) ? (hmax_m + 2) * FS + 112 : 0;   // far forests stand ~14 m tall
+    const int reach_top = std::max({(hmax_m + 12) * FS, wl_max * FS + 1, fall_max * FS + 1, feature_top + 1, (hmax_m + 1) * FS + 12, far_canopy_top});
     if (origin.y >= reach_top) return out;
 
     // Caves: a field on the macro lattice (lod 0, and cave mouths at lod 1), interpolated per voxel.
@@ -446,7 +707,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             const bool ex = tx + jx >= 0.5f, ez = tz + jz >= 0.5f;
             const MacroPt &m = ez ? (ex ? c11 : c01) : (ex ? c10 : c00);
             const int mx = floor_div(wx, FS), mz = floor_div(wz, FS);
-            const float hf = bilerp(c00.hc, c10.hc, c01.hc, c11.hc, tx, tz) * FS + ground_detail(wx, wz, m);
+            const float hf = bilerp(c00.hc, c10.hc, c01.hc, c11.hc, tx, tz) * FS + ground_noise(wx, wz) * bilerp(c00.gw, c10.gw, c01.gw, c11.gw, tx, tz);
             const int h = std::clamp((int)std::floor(hf + 0.5f), 8 * FS, world_h - 8 * FS);
             // real slope of the interpolated surface (fine voxels per fine voxel)
             const float gx = ((c10.hc - c00.hc) * (1.0f - tz) + (c11.hc - c01.hc) * tz) * FS / L;
@@ -557,39 +818,97 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                         break;
                 }
             }
-            // far LOD: a leaf-coloured surface under a tree's crown
+            // far LOD: a crown-shaped dome of leaves over the cell's tree (its cell clips it), so far
+            // forests keep their height instead of turning into green ground
             bool far_canopy = false;
+            int far_top = 0;
             uint16_t far_leaves = Mat::LEAVES;
             if (lod >= 4 && above_sea && !ruin && h > water_level && technosim_biome::TREE_DENSITY[col.biome] > 0.0f) {
                 WorldGen::Tree t;
                 const int tcx = floor_div(mx, WorldGen::TREE_CELL), tcz = floor_div(mz, WorldGen::TREE_CELL);
                 if (g.tree_at_cell(tcx, tcz, t)) {
-                    const int dx = mx - t.x, dz = mz - t.z;
-                    far_canopy = dx * dx + dz * dz <= t.radius * t.radius + 2;
-                    far_leaves = WorldGen::tree_leaves(t.kind);
+                    const uint32_t ts = h3(t.x, t.z, g.seed_ + 77);
+                    const float a = tree_age(t, ts);
+                    const float H = (float)(t.trunk_h * FS) * (0.55f + 0.65f * a);
+                    const float rc = t.kind == WorldGen::TREE_SPRUCE ? (float)(t.radius * FS) * (0.55f + 0.75f * a) + 2.0f
+                                                                     : 10.0f + 30.0f * a + 6.0f * (float)(t.radius - 2);
+                    const float dx = (float)(wx - (t.x * FS + 2)), dz = (float)(wz - (t.z * FS + 2));
+                    const float q = 1.0f - (dx * dx + dz * dz) / (rc * rc);
+                    if (q > 0.0f) {
+                        far_canopy = true;
+                        far_top = h + (int)(H * 0.55f + (H * 0.45f + rc * 0.5f) * std::sqrt(q));
+                        far_leaves = WorldGen::tree_leaves(t.kind);
+                    }
                 }
             }
             // trees and decorations whose bounds touch this column
-            const FTree *ctrees[16];
+            const float grow = step > 1 ? (float)step * 0.45f : 0.0f;
+            ColTree ctrees[24];
             int nct = 0;
+            bool shaded = false;
             for (const FTree &t : trees) {
-                if (nct >= 16) break;
-                if (std::fabs((float)wx - t.x) <= t.reach + step && std::fabs((float)wz - t.z) <= t.reach + step) ctrees[nct++] = &t;
+                if (nct >= 24) break;
+                if (std::fabs((float)wx - t.x) > t.reach + step || std::fabs((float)wz - t.z) > t.reach + step) continue;
+                if (col_tree(t, (float)wx, (float)wz, grow, ctrees[nct])) {
+                    shaded = shaded || ctrees[nct].bm || ctrees[nct].cone;
+                    nct++;
+                }
             }
-            const FStamp *cst[8];
+            const FStamp *cst[16];
             int ncs = 0;
             if (!ruin && spike == 0 && !lakebed && !riverbed && h >= water_level - FS) {
                 for (const FStamp &s : stamps) {
-                    if (ncs >= 8) break;
-                    if (std::fabs((float)wx - s.x) <= s.size * 1.3f + 6 && std::fabs((float)wz - s.z) <= s.size * 1.3f + 6) cst[ncs++] = &s;
+                    if (ncs >= 16) break;
+                    const float rr = std::max(s.size * 1.3f, s.size + s.r) + 6.0f;
+                    if (std::fabs((float)wx - s.x) <= rr && std::fabs((float)wz - s.z) <= rr) cst[ncs++] = &s;
+                }
+            }
+            // The forest floor and open grass (2026-10-23): leaf litter, ferns, mushrooms at the foot of
+            // trunks and twigs under the canopy; grass that thickens and thins in patches, with patches of
+            // one kind of flower, in the open.
+            if (top_m == Mat::GRASS && !ruin && spike == 0 && h > water_level && hy.fall_top < 0) {
+                const bool forest = technosim_biome::TREE_DENSITY[col.biome] >= 0.2f;
+                const bool under = forest && shaded;
+                if (under && n_litter_.GetNoise((float)wx, (float)wz) > -0.4f) top_m = Mat::LEAF_LITTER;
+                if (do_veg && h > sea && (veg == Mat::AIR || veg == Mat::TALL_GRASS) && veg_head == Mat::AIR) {
+                    const uint32_t fh = h3(wx, wz, g.seed_ + 31);
+                    const uint32_t r10 = fh & 1023;
+                    veg = Mat::AIR;
+                    veg_h = 0;
+                    if (under) {
+                        bool near_wood = false;
+                        for (int k = 0; k < nct && !near_wood; k++) {
+                            if (!ctrees[k].trunk) continue;
+                            const float dx = (float)wx - ctrees[k].t->x, dz = (float)wz - ctrees[k].t->z, rr = ctrees[k].t->r + 5.0f;
+                            near_wood = dx * dx + dz * dz <= rr * rr;
+                        }
+                        if (near_wood && r10 < 150) { veg = ((fh >> 10) & 3) == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN; veg_h = 1; }
+                        else if (r10 < 300) { veg = Mat::FERN; veg_h = 2 + (int)((fh >> 12) % 3); }
+                        else if (r10 < 420) { veg = Mat::TALL_GRASS; veg_h = 1 + (int)((fh >> 12) & 1); }
+                        else if (r10 < 426) { veg = Mat::TWIGS; veg_h = 1; }
+                    } else {
+                        const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
+                        const float cover = 0.12f + 0.3f * mead + (forest ? 0.1f : 0.0f);   // every tuft costs ~10 faces
+                        if ((float)r10 / 1024.0f < cover) {
+                            const uint32_t th = (fh >> 10) % 20;
+                            veg = Mat::TALL_GRASS;
+                            veg_h = (th < 9 ? 1 : (th < 16 ? 2 : (th < 19 ? 3 : 4))) + (mead > 0.4f ? 1 : 0);
+                        }
+                        if (n_meadow_.GetNoise((float)wx * 0.37f + 500.0f, (float)wz * 0.37f - 500.0f) > 0.42f && ((fh >> 16) & 15) == 0) {
+                            static const uint16_t FL[5] = {Mat::FLOWER, Mat::FLOWER_RED, Mat::CORNFLOWER, Mat::OXEYE_DAISY, Mat::ALLIUM};
+                            veg = Mat::TALL_GRASS;
+                            veg_h = 2;
+                            veg_head = FL[h3(wx >> 5, wz >> 5, g.seed_ + 37) % 5];
+                        }
+                    }
                 }
             }
             if (ncs > 0 || nct > 0) {
-                // a plant under a trunk, boulder or log is gone
-                for (int k = 0; k < nct && veg != Mat::AIR; k++) if (tree_voxel(*ctrees[k], (float)wx, h, (float)wz, 0.0f) != Mat::AIR) veg = Mat::AIR;
-                for (int k = 0; k < ncs && veg != Mat::AIR; k++) if (stamp_voxel(*cst[k], (float)wx, h, (float)wz, 0.0f) != Mat::AIR) veg = Mat::AIR;
+                // a plant under a trunk, root, boulder or log is gone
+                float ln = 2.0f;
+                for (int k = 0; k < nct && veg != Mat::AIR; k++) if (tree_voxel(ctrees[k], (float)wx, h, (float)wz, 0.0f, ln) != Mat::AIR) veg = veg_head = Mat::AIR;
+                for (int k = 0; k < ncs && veg != Mat::AIR; k++) if (stamp_voxel(*cst[k], (float)wx, h, (float)wz, 0.0f) != Mat::AIR) veg = veg_head = Mat::AIR;
             }
-            const float grow = step > 1 ? (float)step * 0.45f : 0.0f;
             // ruin walls (macro geometry: 0.5 m stones)
             int wall_top = -1;
             uint32_t wall_seed = 0;
@@ -651,7 +970,8 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                         continue;
                     }
                 }
-                for (int k = 0; k < nct && mat == Mat::AIR; k++) mat = tree_voxel(*ctrees[k], (float)wx, wy, (float)wz, grow);
+                float ln = 2.0f;
+                for (int k = 0; k < nct && mat == Mat::AIR; k++) mat = tree_voxel(ctrees[k], (float)wx, wy, (float)wz, grow, ln);
                 if (mat == Mat::AIR && wy >= h - 8)
                     for (int k = 0; k < ncs && mat == Mat::AIR; k++) mat = stamp_voxel(*cst[k], (float)wx, wy, (float)wz, grow);
                 if (mat != Mat::AIR) { colp[y] = mat; any = true; continue; }
@@ -710,6 +1030,8 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     else mat = inland ? Mat::WATER_STATIC : Mat::WATER;
                 } else if (hy.fall_top * FS > wy) {
                     mat = Mat::WATER_STATIC;   // waterfall sheet hanging from the lip
+                } else if (far_canopy && wy < far_top) {
+                    mat = far_leaves;
                 } else if (veg != Mat::AIR && wy < h + veg_h) {
                     mat = veg;
                 } else if (veg_head != Mat::AIR && wy == h + veg_h) {

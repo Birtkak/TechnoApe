@@ -44,8 +44,11 @@ func _grass_columns(g: WorldGen, want: int) -> Array:
 		var h: int = g.height_at(x, 7)
 		if h > Settings.SEA_LEVEL_VOXEL + 4:
 			var c := _column_at(g, x, 7, h - 8, 0)
-			# surface at index 7 (world h - 1), nothing above it (no tree, no plant)
-			if c[7] == GameMaterials.GRASS and c[8] == GameMaterials.AIR and c[12] == GameMaterials.AIR:
+			# surface at index 7 (world h - 1), nothing above it up to 12 m (no plant, no crown overhead)
+			var clear := true
+			for k in range(8, SY):
+				clear = clear and c[k] == GameMaterials.AIR
+			if c[7] == GameMaterials.GRASS and clear:
 				found.append([x, 7, h])
 		x += 37
 	return found
@@ -79,9 +82,10 @@ func test_coarse_surface_cell_keeps_the_surface_material() -> void:
 			var k := (h - 1 - y0) / step
 			assert_int(c[k]).override_failure_message("lod %d at (%d,%d) h=%d: surface cell is %d" % [lod, cz[0], cz[1], h, c[k]]).is_equal(GameMaterials.GRASS)
 			assert_int(c[k + 1]).is_equal(GameMaterials.AIR)
-			# below the surface cell: never grass; never air except lod-1 cave mouths
+			# below the surface cell: grass only on a cave floor; never air except lod-1 cave mouths
 			for j in range(0, k):
-				assert_int(c[j]).is_not_equal(GameMaterials.GRASS)
+				if c[j] == GameMaterials.GRASS:   # only as the floor of a shallow cave mouth
+					assert_int(c[j + 1]).override_failure_message("lod %d at (%d,%d) h=%d: grass in cell %d below the surface cell %d" % [lod, cz[0], cz[1], h, j, k]).is_equal(GameMaterials.AIR)
 				if lod > 1:
 					assert_int(c[j]).is_not_equal(GameMaterials.AIR)
 

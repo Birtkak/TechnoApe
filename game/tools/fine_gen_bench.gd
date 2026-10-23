@@ -2,12 +2,24 @@ extends SceneTree
 
 ## Benchmark: FineGen.generate_block per LOD (ADR 0033), single thread, the
 ## blocks a flight over the spawn area asks for (surface, above, below).
-##   godot --headless --path game --script res://tools/fine_gen_bench.gd
+##   godot --headless --path game --script res://tools/fine_gen_bench.gd [-- biome=forest]
+## With biome=<name> it runs over the nearest place of that biome (forests cost the most).
+
+const Settings := preload("res://scripts/settings.gd")
+
 
 func _init() -> void:
 	var gen := FineGen.new()
 	gen.configure(1337, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
-	var out := {}
+	var cx := 1000
+	var cz := -700
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("biome="):
+			var p: Vector3i = gen.find_nearest(a.substr(6), 0, 0, int(Settings.m2v(8000.0)))
+			if p.y >= 0:
+				cx = p.x
+				cz = p.z
+	var out := {"at": [cx, cz]}
 	for lod in 8:
 		var step := 1 << lod
 		var size := 16 * step   # world voxels a 16^3 block spans at this LOD
@@ -16,8 +28,8 @@ func _init() -> void:
 		var n := 0
 		for bz in range(-3, 3):
 			for bx in range(-3, 3):
-				var x := bx * size + 1000
-				var z := bz * size - 700
+				var x := bx * size + cx
+				var z := bz * size + cz
 				var h := gen.height_at(x + size / 2, z + size / 2)
 				for by in [-2, -1, 0, 1, 2]:
 					var y: int = (floori(float(h) / size) + int(by)) * size

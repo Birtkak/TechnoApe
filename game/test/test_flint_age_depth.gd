@@ -292,7 +292,8 @@ func test_new_materials() -> void:
 		GameMaterials.TORCH: "torch", GameMaterials.STORAGE_POT: "storage_pot"}
 	for id in names:
 		assert_str(GameMaterials.name_of(id)).is_equal(names[id])
-	assert_int(GameMaterials.defs().size()).is_equal(GameMaterials.STORAGE_POT)
+	assert_int(GameMaterials.defs().size()).is_equal(GameMaterials.LEAF_LITTER)   # the last id
+	assert_str(GameMaterials.name_of(GameMaterials.LEAF_LITTER)).is_equal("leaf_litter")
 	var torch: Dictionary = GameMaterials.defs()[GameMaterials.TORCH - 1]
 	assert_bool(torch.get("floor_only", false)).is_true()
 	assert_str(torch["entity"]).is_equal("torch")

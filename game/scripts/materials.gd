@@ -114,6 +114,7 @@ const WATTLE := 104                # woven sticks (micro lattice, solid)
 const DAUB_WALL := 105             # wattle plastered with clay, straw and dirt
 const TORCH := 106                 # stands on a top face; TorchLights gives the nearest ones a light
 const STORAGE_POT := 107           # fired clay jar: a 9-slot container (micro model, solid)
+const LEAF_LITTER := 108           # the shaded forest floor: fallen leaves over soil, dug like grass
 
 const ATLAS_TILES := Vector2i(8, 12)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -200,7 +201,9 @@ static func defs() -> Array:
 	] + _content_pass_defs() + [
 		{"name": "work_spot", "cell_type": "solid", "density": 8, "hp": 50, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": "aim", "cross": true, "interact": "work"},
 		{"name": "work_block", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": true, "interact": "work"},
-	] + _content_pass2_defs() + _flint_age_defs()
+	] + _content_pass2_defs() + _flint_age_defs() + [
+		{"name": "leaf_litter", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [84, 84, 1], "transparent": false},
+	]
 
 
 static var _content2 := []
@@ -226,7 +229,7 @@ static func _content_pass2_defs() -> Array:
 		var d := {"name": f[0], "cell_type": "solid", "density": 10, "hp": 5, "tiles": [f[1], f[2], 23], "transparent": false, "micro": "bloom", "replaceable": true, "floor_only": true}
 		d.merge(plant_burn)
 		_content2.append(d)
-	for b in [["oak_bark", 6], ["spruce_bark", 57], ["acacia_bark", 60], ["jungle_bark", 63], ["birch_bark", 73]]:
+	for b in [["oak_bark", 85], ["spruce_bark", 57], ["acacia_bark", 60], ["jungle_bark", 63], ["birch_bark", 73]]:
 		var d := {"name": b[0], "cell_type": "solid", "density": 10, "tiles": [b[1], b[1], b[1]], "transparent": false}
 		d.merge(log_burn)
 		_content2.append(d)

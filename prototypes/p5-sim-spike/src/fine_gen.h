@@ -4,12 +4,15 @@
 // trees and decorations stand. FineGen samples it on a lattice of macro
 // columns, interpolates the surface between them, adds a small ground noise
 // and draws every voxel at FS x the resolution: soil layers, rock faces from
-// the real slope, caves from a trilinear cave field, voxel trees (tapered
-// trunks, branches, leaf blobs), tufts, flowers, boulders and logs.
+// the real slope, caves from a trilinear cave field, voxel trees (young to old,
+// tapered trunks with roots, limbs ending in leaf clumps), a forest floor of
+// leaf litter, ferns, mushrooms, logs, stumps and bushes, tufts and flower patches.
 // Every public coordinate is a fine voxel; output blocks are 16-bit material
 // ids in godot_voxel VoxelBuffer order (y fastest, then x, then z).
 
 #include "world_gen.h"
+
+#include <vector>
 
 namespace godot {
 
@@ -53,18 +56,20 @@ private:
         bool lakebed = false, riverbed = false, marshbed = false;
         int ruin = -1;          // index into the block's ruins
         int spike = 0;
+        float gw = 1.0f;        // weight of the fine ground relief: 0 at water, rivers and ruins, interpolated
     };
     struct Blob { float x, y, z, rx, ry, rz; };
-    struct Seg { float ax, ay, az, bx, by, bz, r; };
+    struct Seg { float ax, ay, az, bx, by, bz, r0, r1; };   // a limb or root tapering from r0 to r1
+    static constexpr int MAX_BLOBS = 48, MAX_SEGS = 32;
     struct FTree {
         float x, z;             // trunk centre (fine)
         int ground, base, top;  // ground at the trunk, lowest root voxel, trunk top (fine y)
-        float r;                // trunk radius at the ground
+        float r, r_top;         // trunk radius above the flare and at the top
         int kind;
-        uint16_t log, leaves;
-        Blob blobs[8];
+        uint16_t log, bark, leaves;   // bark on the outside of trunks and limbs, wood inside
+        Blob blobs[MAX_BLOBS];  // leaf clumps
         int nb = 0;
-        Seg segs[8];
+        Seg segs[MAX_SEGS];     // limbs, branches, roots
         int ns = 0;
         float cone_r = 0.0f;    // spruce: cone radius at its base
         int cone_lo = 0, cone_hi = 0;
@@ -72,17 +77,41 @@ private:
         int y_hi = 0;
         uint32_t seed = 0;
     };
-    struct FStamp { int kind; float x, z; int ground; float size; uint16_t wood, bark, leaves; bool mossy, along_x; uint32_t seed; };
+    // The parts of one tree that can touch one column: bits into its blobs and segs.
+    struct ColTree {
+        const FTree *t;
+        uint64_t bm;
+        uint32_t sm;
+        bool trunk, cone;
+        int ylo, yhi;
+    };
+    // Ground features: WorldGen's stamps plus FineGen's forest floor (logs at any angle, stumps, bushes, rocks).
+    enum { STUMP = 10 };
+    struct FStamp {
+        int kind;
+        float x, z;
+        int ground;
+        float size;             // radius, half length (logs) or height (stumps)
+        float r;                // log and stump radius
+        float dx, dz;           // log direction
+        uint16_t wood, bark, leaves;
+        bool mossy;
+        uint32_t seed;
+    };
 
     Ref<WorldGen> g_;
-    FastNoiseLite n_ground_, n_ground2_, n_leaf_;
+    FastNoiseLite n_ground_, n_ground2_, n_hump_, n_leaf_, n_litter_, n_meadow_;
 
     MacroPt macro_point(int mx, int mz, const WorldGen::Ruin *ruins, int nruins) const;
-    float ground_detail(int x, int z, const MacroPt &m) const;
+    float ground_noise(int x, int z) const;
     float surface_f(int x, int z) const;        // standalone fine surface (4 lattice corners)
-    void build_tree(const WorldGen::Tree &t, FTree &out) const;
-    uint16_t tree_voxel(const FTree &t, float x, int y, float z, float grow) const;
+    float tree_age(const WorldGen::Tree &t, uint32_t seed) const;
+    void build_tree(int kind, float fx, float fz, int trunk_h, int radius, float age, bool old_growth, uint32_t seed, FTree &out) const;
+    bool col_tree(const FTree &t, float x, float z, float grow, ColTree &out) const;
+    uint16_t tree_voxel(const ColTree &c, float x, int y, float z, float grow, float &leaf_n) const;
+    void young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<FTree> &out) const;
     void build_stamp(const WorldGen::Stamp &s, FStamp &out) const;
+    void floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<FStamp> &out) const;
     uint16_t stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const;
     float cave_field(int mx, int my, int mz, int height) const;
 };

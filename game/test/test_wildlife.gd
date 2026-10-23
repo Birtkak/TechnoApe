@@ -124,7 +124,14 @@ func test_water_map_sees_the_sea_and_not_the_ice() -> void:
 			wet += 1
 			assert_int(v >> 16).is_greater(v & 0xFFFF)   # the water stands above the floor
 	assert_int(wet).is_greater(200)
-	var f: Vector3i = g.find_nearest("frozen_ocean", 0, 0, 12000)
+	var f: Vector3i = g.find_nearest("frozen_ocean", 0, 0, 32000)
+	# the nearest frozen sea is its dithered edge: step in to a spot whose whole window is frozen sea
+	var fb := g.biome_at(f.x, f.z)
+	for step_in in [Vector3i.ZERO, Vector3i(0, 0, -64), Vector3i(0, 0, -128), Vector3i(64, 0, 0), Vector3i(-64, 0, 0), Vector3i(0, 0, 64)]:
+		var q: Vector3i = f + step_in
+		if g.biome_at(q.x - 16, q.z - 16) == fb and g.biome_at(q.x + 16, q.z - 16) == fb and g.biome_at(q.x - 16, q.z + 16) == fb and g.biome_at(q.x + 16, q.z + 16) == fb:
+			f = q
+			break
 	m = g.water_floor_map(f.x - 16, f.z - 16, 16, 2)
 	var open := 0
 	for v in m:

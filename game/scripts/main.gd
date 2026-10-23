@@ -233,7 +233,7 @@ func _ready() -> void:
 			player.set_perspective(DebugCapture.third_person)
 		player.autopilot_speed_m = DebugCapture.speed_m
 		if DebugCapture.target != "":
-			var t: Vector3i = world.generator.gen.find_nearest(DebugCapture.target, spawn.x, spawn.y, 4096)
+			var t: Vector3i = world.generator.gen.find_nearest(DebugCapture.target, spawn.x, spawn.y, int(Settings.m2v(4000.0)))
 			if t.y >= 0 and DebugCapture.inside:
 				# stand in the target itself (a cave room): eye height above its floor voxel, a torch on the player
 				player.position = Vector3(t.x + 0.5, t.y + 0.1, t.z + 0.5)

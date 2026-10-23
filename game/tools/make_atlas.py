@@ -12,7 +12,7 @@ Tiles (index = row*4 + col):
 56 oak log top 57-59 spruce log side/top, needles 60-62 acacia 63-65 jungle
 66-68 terracotta orange/red/cream 69 basalt top 70 basalt side 71 packed ice
 72 fern frond; 73 birch bark 74 birch top 75 birch leaves 76 blueberries
-77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84-87 free
+77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84 leaf litter; 85 oak bark; 86-87 free
 88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93-95 free (8x12)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
@@ -345,6 +345,44 @@ def pumpkin_top():
     return img
 
 
+def oak_bark():
+    """Grey-brown bark in vertical plates with dark grooves. Own RNG (see leaf_litter)."""
+    noise_tile((128, 128, 128), 0)
+    rng = random.Random(85)
+    img = Image.new("RGBA", (TILE, TILE))
+    px = img.load()
+    plates = [(112, 92, 70), (98, 80, 60), (124, 104, 80), (88, 72, 56)]
+    for x in range(TILE):
+        groove = rng.random() < 0.25
+        base = (58, 46, 36) if groove else rng.choice(plates)
+        for y in range(TILE):
+            v = rng.randint(-9, 9)
+            c = base if not groove or rng.random() < 0.8 else rng.choice(plates)
+            px[x, y] = (max(0, c[0] + v), max(0, c[1] + v), max(0, c[2] + v), 255)
+    return img
+
+
+def leaf_litter():
+    """Fallen leaves: browns, rust and a little olive, in leaf-sized splotches. Own RNG, so adding
+    it does not reshuffle the tiles after it (the free tile it replaced still draws its numbers)."""
+    noise_tile((128, 128, 128), 0)
+    rng = random.Random(84)
+    cols = [(118, 80, 46), (150, 96, 44), (176, 112, 48), (92, 64, 38), (124, 112, 54), (190, 146, 70)]
+    weights = [5, 4, 3, 3, 2, 1]
+    img = Image.new("RGBA", (TILE, TILE))
+    px = img.load()
+    for y in range(TILE):
+        for x in range(TILE):
+            px[x, y] = (96, 70, 42, 255)
+    for _ in range(60):
+        c = rng.choices(cols, weights)[0]
+        x0, y0 = rng.randrange(TILE), rng.randrange(TILE)
+        for dx, dy in ((0, 0), (1, 0), (0, 1), (1, 1))[: rng.randint(1, 4)]:
+            v = rng.randint(-10, 10)
+            px[(x0 + dx) % TILE, (y0 + dy) % TILE] = (max(0, min(255, c[0] + v)), max(0, min(255, c[1] + v)), max(0, min(255, c[2] + v)), 255)
+    return img
+
+
 def spotted(base, spot):
     img = noise_tile(base, 12, None, 0)
     for (sx, sy) in [(3, 3), (10, 4), (6, 9), (12, 11), (2, 12)]:
@@ -441,8 +479,8 @@ tiles = [
     noise_tile((160, 80, 200), 12, (200, 120, 230), 0.2),     # 81 petal purple (allium)
     noise_tile((230, 224, 206), 6, (206, 198, 176), 0.15),    # 82 bone (carcasses)
     noise_tile((150, 46, 46), 12, (110, 28, 30), 0.25),       # 83 raw meat (carcasses)
-    noise_tile((128, 128, 128), 0),                           # 84 free
-    noise_tile((128, 128, 128), 0),                           # 85 free
+    leaf_litter(),                                            # 84 leaf litter (forest floor)
+    oak_bark(),                                               # 85 oak bark: grey-brown, dark grooves (trunks in the world)
     noise_tile((128, 128, 128), 0),                           # 86 free
     noise_tile((128, 128, 128), 0),                           # 87 free
     thatch(True),                                             # 88 thatch top

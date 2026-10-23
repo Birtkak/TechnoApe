@@ -151,6 +151,10 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   (`scripts/player/brush.gd`: Ctrl + wheel size, B shape), voxel items count in voxels and recipes in
   blocks of 64 (`ItemRegistry.units`), block entities cover footprints (`BlockEntities.footprint`).
   Scripted tests (`stone_age_test`, `flint_age_test`, `hands_test`, `swim_test`, `menu_test`) pass.
+  Landforms and forests ✓ (ADR 0035): ~8 km continents of plains, hill country and ~1 km mountain
+  ranges; ground swells and hummocks; trees with an age (thick bark trunks, roots, limbs ending in leaf
+  clumps), young poles between them, a forest floor of leaf litter, logs, stumps, bushes, ferns and
+  mushrooms (`tools/terrain_map.gd`, `tools/face_probe.gd`); loads take 12-17 s, so budget runs use `load_cap_s=30`.
   **Next:** the look pass (palettes, water, crowns, grade: taste calls), fire/smoke pacing per cell,
   fast flight outrunning generation, the water spill / blast / `persist=1` runs; plan in
   `docs/plans/lotl-overhaul.md`. Old notes below about micro models at 6.25 cm and one-voxel blocks

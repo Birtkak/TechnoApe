@@ -3,6 +3,9 @@ extends SceneTree
 ## Debug: the material mix of FineGen blocks around a point (ADR 0033).
 ##   godot --headless --path game --script res://tools/fine_probe.gd [-- vein=1 | x=.. y=.. z=..]
 
+const Settings := preload("res://scripts/settings.gd")
+
+
 func _init() -> void:
 	var gen := FineGen.new()
 	gen.configure(1337, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)

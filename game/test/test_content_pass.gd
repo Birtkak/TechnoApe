@@ -66,8 +66,9 @@ func _gen() -> WorldGen:
 
 
 func _near(g: WorldGen, kind: String) -> Vector3i:
-	var p: Vector3i = g.find_nearest(kind, 0, 0, 12000)
-	assert_int(p.y).override_failure_message("no %s within 6 km" % kind).is_greater(0)
+	# continents are ~8 km across (2026-10-23): some biomes lie a continent away
+	var p: Vector3i = g.find_nearest(kind, 0, 0, 32000)
+	assert_int(p.y).override_failure_message("no %s within 16 km" % kind).is_greater(0)
 	return p
 
 
