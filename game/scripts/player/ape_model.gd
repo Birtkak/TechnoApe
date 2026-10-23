@@ -104,7 +104,8 @@ func _ready() -> void:
 
 func _part(cells: PackedInt32Array, size: Vector3i, origin: Vector3, grid: int = GRID) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	mi.mesh = MicroMesher.build(cells, size, grid, _tiles, ATLAS, origin)
+	# MicroMesher winds counter-clockwise; Godot's front faces are clockwise (MobModel.outward)
+	mi.mesh = MobModel.outward(MicroMesher.build(cells, size, grid, _tiles, ATLAS, origin))
 	mi.material_override = _material
 	add_child(mi)
 	return mi
@@ -140,7 +141,7 @@ func animate(delta: float, speed: float, on_floor: bool, flying: bool, pitch: fl
 static func build_arm_mesh() -> MeshInstance3D:
 	material()
 	var mi := MeshInstance3D.new()
-	mi.mesh = MicroMesher.build(_arm_cells(true), Vector3i(6, 22, 6), GRID, _tiles, ATLAS, Vector3(-3, -2.5, -3) / GRID)
+	mi.mesh = MobModel.outward(MicroMesher.build(_arm_cells(true), Vector3i(6, 22, 6), GRID, _tiles, ATLAS, Vector3(-3, -2.5, -3) / GRID))
 	# the arm sits in the camera's shadow most of the day: lift it with a little
 	# self-emission and ignore cast shadows, like Minecraft's flat-lit arm
 	var m: StandardMaterial3D = _material.duplicate()

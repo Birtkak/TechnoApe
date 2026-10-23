@@ -56,9 +56,11 @@ alpine, snow → snowy_peaks. Coast → beach / snowy_beach (frozen) /
 stony_shore (slope ≥ 0.6). Ocean → ocean / frozen_ocean (frozen); deep ocean
 → deep_ocean. River and lake overlay everything (hydrology pass).
 
-Each biome carries: `surface` {top, under, optional steep/bank/pool/ice}
-material names, `tree_density`, `tree_kind` (oak / spruce / acacia / jungle,
-for the tree stamper later), `color` (maps), `tags`, `borders`, `notes`.
+Each biome carries: `surface` {top, under, optional steep/bank/pool/ceiling/ice}
+material names (`ice`: what open sea water freezes into; `terracotta` in
+under/steep stands for banded strata, ADR 0024), `tree_density`, `tree_kind`
+(oak / spruce / acacia / jungle: crown shape and wood, required when
+tree_density > 0, ADR 0024), `color` (maps), `tags`, `borders`, `notes`.
 
 ## Underground layer (9 cave biomes) — the 3D map
 

@@ -62,7 +62,7 @@ func test_material_ids_are_stable() -> void:
 	assert_int(GameMaterials.WILD_WHEAT).is_equal(73)
 	assert_int(GameMaterials.WILD_CARROT).is_equal(74)
 	assert_str(GameMaterials.name_of(GameMaterials.FURNITURE)).is_equal("furniture")
-	assert_int(GameMaterials.defs().size()).is_equal(GameMaterials.FURNITURE)
+	assert_int(GameMaterials.defs().size()).is_greater_equal(GameMaterials.FURNITURE)   # later content appends after it
 	for i in GameMaterials.defs().size():
 		var n: String = GameMaterials.defs()[i]["name"]
 		if n.begins_with("wheat_") or n.begins_with("carrots_") or n.begins_with("wild_") or n in ["wool", "carpet", "farmland", "farmland_moist", "furniture"]:

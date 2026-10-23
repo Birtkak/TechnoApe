@@ -11,7 +11,9 @@ const HUM_BANDS := ["arid", "dry", "neutral", "humid", "wet"]
 ## Altitude bands from the sea floor up. Adjacent entries can border each other.
 const ALT_BANDS := ["deep_ocean", "ocean", "coast", "lowland", "highland", "mountain", "alpine", "snow"]
 ## Material names the surface entries may use (GameMaterials names; ids come from GameMaterials).
-const MATERIALS := ["air", "stone", "dirt", "grass", "sand", "water", "wood", "lava", "ash", "oil", "steam", "smoke", "fire", "bedrock", "snow", "gravel", "coal_ore", "iron_ore", "copper_ore", "tin_ore", "leaves", "sand_static", "gravel_static", "water_static", "toxic_sludge_static", "sulfur"]
+const MATERIALS := ["air", "stone", "dirt", "grass", "sand", "water", "wood", "lava", "ash", "oil", "steam", "smoke", "fire", "bedrock", "snow", "gravel", "coal_ore", "iron_ore", "copper_ore", "tin_ore", "leaves", "sand_static", "gravel_static", "water_static", "toxic_sludge_static", "sulfur", "ice", "packed_ice", "basalt", "terracotta"]
+## Tree shapes and woods (biomes.json tree_kind); index = WorldGen tree kind.
+const TREE_KINDS := ["oak", "spruce", "acacia", "jungle"]
 
 var biomes: Array = []        # index = id -> Dictionary (raw definition, validated)
 var by_name := {}             # name -> id
@@ -79,6 +81,8 @@ func _validate(d: Dictionary) -> void:
 	var td := float(d.get("tree_density", -1.0))
 	if td < 0.0 or td > 1.0:
 		errors.append("biome %s: tree_density must be 0..1" % n)
+	if td > 0.0 and not TREE_KINDS.has(d.get("tree_kind", "")):
+		errors.append("biome %s: trees need a tree_kind (%s)" % [n, ", ".join(TREE_KINDS)])
 	for b in d.get("borders", []):
 		if not by_name.has(b):
 			errors.append("biome %s: unknown border biome %s" % [n, b])

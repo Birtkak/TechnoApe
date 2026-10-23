@@ -29,6 +29,8 @@ static func generate(reg: BiomeRegistry) -> String:
 	L.append("static const char *const NAMES[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return "\"%s\"" % d["name"])))
 	L.append("static const unsigned char COLORS[COUNT][3] = {%s};" % ", ".join(_map(reg.biomes, func(d): return "{%d, %d, %d}" % [int(d["color"][0]), int(d["color"][1]), int(d["color"][2])])))
 	L.append("static const float TREE_DENSITY[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return _f(float(d["tree_density"])))))
+	L.append("// Tree shape and wood: %s." % ", ".join(_map(BiomeRegistry.TREE_KINDS, func(k): return "%d %s" % [BiomeRegistry.TREE_KINDS.find(k), k])))
+	L.append("static const int TREE_KIND[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(maxi(0, BiomeRegistry.TREE_KINDS.find(d.get("tree_kind", "oak")))))))
 	L.append("// Material ids (WorldGen::Material); -1 = none.")
 	L.append("static const int SURFACE_TOP[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("top", ""))))))
 	L.append("static const int SURFACE_UNDER[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("under", ""))))))
@@ -36,6 +38,8 @@ static func generate(reg: BiomeRegistry) -> String:
 	L.append("// Caves: the ceiling over a cave cell and static pools on cave floors (-1 = plain stone, no pools).")
 	L.append("static const int SURFACE_CEILING[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("ceiling", ""))))))
 	L.append("static const int SURFACE_POOL[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("pool", ""))))))
+	L.append("// What the top voxel of open water freezes into (-1 = it stays water).")
+	L.append("static const int SURFACE_ICE[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d["surface"].get("ice", ""))))))
 	L.append("")
 	var c := reg.climate
 	var a: Dictionary = c["altitude"]

@@ -63,7 +63,10 @@ public:
         COPPER_BEARING_STONES = 48, TIN_BEARING_STONES = 49, IRON_BEARING_STONES = 50, FLINT_STONES = 51, TWIGS = 52,
         TOXIC_SLUDGE = 53, TOXIC_SLUDGE_STATIC = 54, SULFUR = 55, OBSIDIAN = 56,
         // 57..72 wool, carpet, farmland, crops (never generated); rare wild crops (ADR 0022)
-        WILD_WHEAT = 73, WILD_CARROT = 74
+        WILD_WHEAT = 73, WILD_CARROT = 74,
+        // 75 furniture (never generated); content pass: tree kinds, badlands strata, basalt, ice fields, ferns
+        SPRUCE_LOG = 76, SPRUCE_LEAVES = 77, ACACIA_LOG = 78, ACACIA_LEAVES = 79, JUNGLE_LOG = 80, JUNGLE_LEAVES = 81,
+        TERRACOTTA = 82, TERRACOTTA_RED = 83, TERRACOTTA_CREAM = 84, BASALT = 85, PACKED_ICE = 86, FERN = 87
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,
@@ -165,8 +168,14 @@ private:
     };
     // ---- decorations ----
     static constexpr int TREE_CELL = 8;
-    static constexpr int TREE_MAX_RADIUS = 3;
-    struct Tree { int x, z, base, trunk_h, radius; };
+    static constexpr int TREE_MAX_RADIUS = 4;
+    // kind = technosim_biome::TREE_KIND (0 oak, 1 spruce, 2 acacia, 3 jungle): shape and wood
+    enum TreeKind : int { TREE_OAK = 0, TREE_SPRUCE = 1, TREE_ACACIA = 2, TREE_JUNGLE = 3 };
+    struct Tree { int x, z, base, trunk_h, radius, kind; };
+    static int canopy_radius(const Tree &t, int wy);   // leaf radius of the crown layer at wy, -1 = none
+    static int trunk_top(const Tree &t);               // highest log voxel
+    static uint16_t tree_log(int kind);
+    static uint16_t tree_leaves(int kind);
     static constexpr int RUIN_CELL = 160;
     static constexpr int RUIN_MAX_HALF = 10;
     struct Ruin { int x, z, hw, hd, base; uint32_t seed; };
@@ -197,6 +206,8 @@ private:
     bool hydro_ctx(int x, int z, HydroCtx &ctx) const;
     const HydroTile *tile_cached(int tx, int tz) const; // thread-local small cache over hydro_tile
     uint16_t vegetation_at(const Column &col, int x, int z, uint16_t top, const Hydro &hy, int &height) const;
+    uint16_t strata_at(int x, int y, int z) const;   // badlands terracotta bands by height
+    int ice_spike(int x, int z) const;                // packed-ice spike height above ground (ice fields), 0 = none
     static int marsh_floor(int h, const Hydro &hy);
 
     bool tree_at_cell(int cx, int cz, Tree &out) const;

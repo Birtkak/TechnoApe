@@ -567,10 +567,72 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     out.x = tx;
     out.z = tz;
     out.base = hy.marsh ? marsh_floor(col.height, hy) : col.height;
-    out.trunk_h = 8 + (int)((hsh >> 16) % 6);
-    out.radius = 2 + (int)((hsh >> 20) & 1);
+    out.kind = technosim_biome::TREE_KIND[col.biome];
+    const int vary = (int)((hsh >> 16) % 6), wide = (int)((hsh >> 20) & 1);
+    switch (out.kind) {
+        case TREE_SPRUCE: out.trunk_h = 10 + vary; out.radius = 3; break;       // 5-8 m cones
+        case TREE_ACACIA: out.trunk_h = 6 + vary / 2; out.radius = 3 + wide; break; // short trunk, flat wide crown
+        case TREE_JUNGLE: out.trunk_h = 15 + vary + 2 * wide; out.radius = 3 + wide; break; // tall emergent trees
+        default:
+            out.trunk_h = 8 + vary;
+            out.radius = 2 + wide;
+            if (col.biome == technosim_biome::OLD_GROWTH_FOREST) { out.trunk_h += 4; out.radius = 3; }
+            break;
+    }
     if (above > tree_line - 60) { out.trunk_h = 5 + (int)((hsh >> 16) % 3); out.radius = 2; }
     return true;
+}
+
+// Crown shapes per kind, as a leaf radius per voxel layer (the column loop
+// compares it with the column's squared distance to the trunk):
+//   oak    5 layers around the trunk top: r-1, r, r, r-1, r-2
+//   spruce a cone from 3 voxels above the base to 1 above the trunk top with
+//          alternating fringes (0, 0, 1, 1, 2, 1, 3, 2, 3, 2 ... from the tip down)
+//   acacia a flat umbrella: r at the trunk top, r-2 above it
+//   jungle 6 layers over a tall trunk: r-2, r-1, r, r, r-1, r-2
+int WorldGen::canopy_radius(const Tree &t, int wy) {
+    const int top = t.base + t.trunk_h, r = t.radius;
+    switch (t.kind) {
+        case TREE_SPRUCE: {
+            const int hi = top + 1;
+            if (wy > hi || wy < t.base + 3) return -1;
+            const int u = hi - wy;
+            int lr = std::min(r, u / 2);
+            if (u >= 3 && (u & 1)) lr = std::max(1, lr - 1);
+            return lr;
+        }
+        case TREE_ACACIA:
+            if (wy == top) return r;
+            if (wy == top + 1) return r - 2;
+            return -1;
+        case TREE_JUNGLE: {
+            static const int J[6] = {-2, -1, 0, 0, -1, -2};
+            const int k = wy - (top - 3);
+            return (k < 0 || k > 5) ? -1 : r + J[k];
+        }
+        default: {
+            static const int O[5] = {-1, 0, 0, -1, -2};
+            const int k = wy - (top - 2);
+            return (k < 0 || k > 4) ? -1 : r + O[k];
+        }
+    }
+}
+
+int WorldGen::trunk_top(const Tree &t) {
+    const int top = t.base + t.trunk_h;
+    if (t.kind == TREE_SPRUCE) return top - 1;   // the cone's tip is needles
+    if (t.kind == TREE_ACACIA) return top;
+    return top + 1;
+}
+
+uint16_t WorldGen::tree_log(int kind) {
+    static const uint16_t L[4] = {WOOD, SPRUCE_LOG, ACACIA_LOG, JUNGLE_LOG};
+    return L[kind & 3];
+}
+
+uint16_t WorldGen::tree_leaves(int kind) {
+    static const uint16_t L[4] = {LEAVES, SPRUCE_LEAVES, ACACIA_LEAVES, JUNGLE_LEAVES};
+    return L[kind & 3];
 }
 
 int WorldGen::trees_near(int x0, int z0, int x1, int z1, Tree *out, int max_out) const {
@@ -730,6 +792,31 @@ Dictionary WorldGen::vein_at(int x, int z) const {
 // Per-column surface vegetation (LOD 0 only): Minecraft-style tufts, flower
 // patches, cacti and dead bushes. One hash per column; flowers cluster where a
 // 20 m noise is high. Returns AIR for none; height is 1 except for cacti.
+// Badlands strata (biomes.json: under/steep "terracotta"): horizontal bands 3
+// voxels thick, chosen per band from a fixed mix, that wobble up and down by
+// a few voxels over tens of metres so terraces do not look ruled.
+uint16_t WorldGen::strata_at(int x, int y, int z) const {
+    static const uint16_t MIX[8] = {TERRACOTTA, TERRACOTTA_RED, TERRACOTTA, TERRACOTTA_CREAM, TERRACOTTA_RED, TERRACOTTA, SANDSTONE, TERRACOTTA_RED};
+    const int wob = (int)std::lround(n_detail_.GetNoise((float)x * 0.05f + 900.0f, (float)z * 0.05f - 900.0f) * 3.0f);
+    return MIX[hash3(floor_div(y + wob, 3), 0, seed_ + 71) & 7];
+}
+
+// Ice fields: 3 in 8 cells of 12 m hold a packed-ice spike, 3-12 m tall, 3 or 5
+// voxels across at the base and tapering to a point (Minecraft's ice spikes).
+int WorldGen::ice_spike(int x, int z) const {
+    constexpr int C = 24;
+    const int cx = floor_div(x, C), cz = floor_div(z, C);
+    const uint32_t hs = hash3(cx, cz, seed_ + 307);
+    if ((hs & 7) >= 3) return 0;
+    const int px = cx * C + 4 + (int)((hs >> 3) % (C - 8));
+    const int pz = cz * C + 4 + (int)((hs >> 8) % (C - 8));
+    const int height = 6 + (int)((hs >> 13) % 19);
+    const float r = height > 15 ? 2.0f : 1.0f;
+    const float d = std::sqrt((float)((x - px) * (x - px) + (z - pz) * (z - pz)));
+    if (d > r + 0.5f) return 0;
+    return std::max(1, (int)((float)height * (1.0f - d / (r + 1.0f))));
+}
+
 uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, const Hydro &hy, int &height) const {
     height = 1;
     const bool marsh = hy.marsh;
@@ -790,19 +877,20 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
     }
     // Per mille of grass columns; pebbles, twigs and flint are the starting pickups.
     int grass = 0, flower = 0, bush = 0, shroom = 0, pebble = 0, twig = 0, flint = 0;
+    int fern = 0;   // ferns take this share of the grass columns (shady, wet biomes)
     if (marsh) grass = 560;
     else switch (col.biome) {
         case PLAINS: grass = 300; flower = 36; pebble = 6; twig = 2; flint = 2; break;
-        case FOREST: grass = 170; flower = 14; shroom = 10; pebble = 4; twig = 12; flint = 1; break;
-        case OLD_GROWTH_FOREST: grass = 200; flower = 10; shroom = 22; pebble = 3; twig = 16; break;
+        case FOREST: grass = 170; flower = 14; shroom = 10; pebble = 4; twig = 12; flint = 1; fern = 15; break;
+        case OLD_GROWTH_FOREST: grass = 200; flower = 10; shroom = 22; pebble = 3; twig = 16; fern = 70; break;
         case HIGHLANDS: grass = 110; flower = 10; pebble = 20; twig = 2; flint = 4; break;
         case MOUNTAINS: grass = 50; flower = 4; pebble = 30; flint = 4; break;
         case ALPINE: grass = 25; flower = 6; pebble = 30; flint = 3; break;
-        case TAIGA: grass = 60; shroom = 12; pebble = 8; twig = 12; flint = 1; break;
+        case TAIGA: grass = 90; shroom = 12; pebble = 8; twig = 12; flint = 1; fern = 50; break;
         case SHRUBLAND: grass = 120; bush = 40; pebble = 14; twig = 4; flint = 3; break;
         case SAVANNA: grass = 420; bush = 12; twig = 3; flint = 2; break;
-        case JUNGLE: grass = 350; flower = 20; shroom = 14; twig = 10; break;
-        case SWAMP: grass = 450; shroom = 18; twig = 6; break;
+        case JUNGLE: grass = 350; flower = 20; shroom = 14; twig = 10; fern = 110; break;
+        case SWAMP: grass = 450; shroom = 18; twig = 6; fern = 40; break;
         default: break;
     }
     if (bush > 0 && r >= 1000 - bush) return DEAD_BUSH;
@@ -818,6 +906,7 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
         const float patch = n_detail_.GetNoise((float)x * 2.0f + 5000.0f, (float)z * 2.0f - 5000.0f);
         flower = patch > 0.3f ? flower * 5 : flower / 4;
     }
+    if (r < fern) return FERN;
     if (r < grass) return TALL_GRASS;
     if (r < grass + flower) return ((v >> 12) & 1) ? FLOWER : FLOWER_RED;
     return AIR;
@@ -872,7 +961,12 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
         const int wz = origin.z + z * step;
         for (int x = 0; x < sx; x++) {
             const int wx = origin.x + x * step;
-            const Column col = column(wx, wz);
+            Column col = column(wx, wz);
+            if (col.biome == technosim_biome::BADLANDS && col.slope == 0.0f) {
+                // column() measures slope only on mountains and coasts; badlands need it for their strata faces
+                const int hx = column_base(wx + 2, wz, false).height, hz = column_base(wx, wz + 2, false).height;
+                col.slope = std::max(std::abs(hx - col.height), std::abs(hz - col.height)) * 0.5f;
+            }
             // Ore vein of this column's cell (one cell lookup); the lens thickness
             // here only matters at lod 0 where ores are placed.
             Vein vein;
@@ -905,6 +999,11 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                 const int ground = ruin->base;
                 if (in_ruin(*ruin, wx, wz, 0)) h = ground; else if (h > ground + 1) h = ground + 1;
             }
+            int spike = 0;   // packed-ice spike voxels on top of the ground (ice fields)
+            if (col.biome == technosim_biome::ICE_FIELDS && !ruin && !lakebed && !riverbed && !marshbed && h > water_level) {
+                spike = ice_spike(wx, wz);
+                h += spike;
+            }
             const bool beach_sand = col.biome == BIOME_BEACH || (col.biome == BIOME_OCEAN && col.c > -0.4f);
             const bool steep = col.slope > 1.1f;      // > ~48 degrees: bare rock
             const bool scree = col.slope > 0.75f && col.slope <= 1.1f && col.alpine;
@@ -920,7 +1019,8 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
             } else if (col.snow && !steep) {
                 top_m = SNOW; under_m = STONE; // permanent snow over rock
             } else if (steep) {
-                top_m = under_m = STONE;       // bare rock face
+                // bare rock face; badlands faces show their strata
+                top_m = under_m = technosim_biome::SURFACE_UNDER[col.biome] == TERRACOTTA ? TERRACOTTA : STONE;
             } else if (scree) {
                 top_m = under_m = GRAVEL_STATIC; // scree slopes below the cliffs
             } else if (col.alpine) {
@@ -939,8 +1039,10 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                 if (col.biome == BIOME_OCEAN && !beach_sand) top_m = under_m = GRAVEL_STATIC;
                 if (technosim_biome::SURFACE_STEEP[col.biome] >= 0 && col.slope > 0.6f) top_m = (uint16_t)technosim_biome::SURFACE_STEEP[col.biome];
             }
+            if (spike > 0) top_m = under_m = PACKED_ICE;
+            const bool strata = under_m == TERRACOTTA;   // TERRACOTTA in the tables stands for banded strata
             // Sedimentary layer under deserts, badlands and beaches (no ores in it).
-            const int sandstone_depth = (col.biome == BIOME_DESERT || col.biome == technosim_biome::BADLANDS) ? 16
+            const int sandstone_depth = col.biome == technosim_biome::BADLANDS ? 24 : col.biome == BIOME_DESERT ? 16
                 : ((col.biome == BIOME_BEACH || col.biome == technosim_biome::SNOWY_BEACH) ? 8 : 0);
             // Cave biome bands for this column (3D layer): floors of carved caves get the
             // cave biome's top material (lush: grass, fungal: dirt, frozen: snow, ...).
@@ -959,17 +1061,20 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
             uint16_t *colp = w + sy * (x + sx * z);
             // Far LOD: is this column under a tree's canopy? (one tree cell lookup)
             bool far_canopy = false;
+            uint16_t far_leaves = LEAVES;
             if (far_trees && !ruin && h > water_level && technosim_biome::TREE_DENSITY[col.biome] > 0.0f) {
                 Tree t;
                 const int tcx = (int)std::floor((float)wx / TREE_CELL), tcz = (int)std::floor((float)wz / TREE_CELL);
                 if (tree_at_cell(tcx, tcz, t)) {
                     const int dx = wx - t.x, dz = wz - t.z;
                     far_canopy = dx * dx + dz * dz <= t.radius * t.radius + 1;
+                    far_leaves = tree_leaves(t.kind);
                 }
             }
             // Trees touching this column
             int trunk_lo = 0, trunk_hi = -1;
-            int can_lo = 0, can_hi = -1, can_base = 0, can_r = 0, can_d2 = 0;
+            uint16_t trunk_m = WOOD;
+            int can_t = -1, can_d2 = 0;   // nearest tree whose crown covers this column
             for (int t = 0; t < ntrees; t++) {
                 // A coarse cell holds the trunk when the tree's base lies in its
                 // footprint (lod 0: the column itself); canopy distance is measured
@@ -983,11 +1088,8 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                 bool blocked = false;
                 for (int i = 0; i < nruins && !blocked; i++) blocked = in_ruin(ruins[i], trees[t].x, trees[t].z, 3);
                 if (blocked) continue;
-                const int top = trees[t].base + trees[t].trunk_h;
-                if (trunk_here) { trunk_lo = trees[t].base; trunk_hi = top + 1; veg = AIR; }
-                if (can_hi < 0 || d2 < can_d2) {
-                    can_base = top - 2; can_lo = can_base; can_hi = top + 2; can_r = trees[t].radius; can_d2 = d2;
-                }
+                if (trunk_here) { trunk_lo = trees[t].base; trunk_hi = trunk_top(trees[t]); trunk_m = tree_log(trees[t].kind); veg = AIR; }
+                if (can_t < 0 || d2 < can_d2) { can_t = t; can_d2 = d2; }
             }
             // Ruin walls for this column
             int wall_top = -1;
@@ -1033,11 +1135,10 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                     continue;
                 }
                 if (wy >= trunk_lo && wy <= trunk_hi) {
-                    m = WOOD;
-                } else if (can_hi >= 0 && wy >= can_lo && wy <= can_hi && wy >= h) {
-                    const int k = wy - can_base;
-                    const int lr = (k == 0 || k == 3) ? can_r - 1 : (k == 4 ? can_r - 2 : can_r);
-                    if (lr >= 0 && can_d2 <= lr * lr + (lr > 1 ? 1 : 0)) m = LEAVES;
+                    m = trunk_m;
+                } else if (can_t >= 0 && wy >= h) {
+                    const int lr = canopy_radius(trees[can_t], wy);
+                    if (lr >= 0 && can_d2 <= lr * lr + (lr > 1 ? 1 : 0)) m = tree_leaves(trees[can_t].kind);
                 }
                 if (m != AIR) { colp[y] = m; any = true; continue; }
                 if (wy < 3) {
@@ -1087,8 +1188,9 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                             }
                         }
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
-                        if (d_top <= sandstone_depth) m = SANDSTONE;
+                        if (d_top <= sandstone_depth) m = strata ? strata_at(wx, wy, wz) : SANDSTONE;
                         else m = vein_ht > 0.0f ? vein_ore(vein, vein_ht, wx, wy, wz) : STONE;
+                        if (spike > 0 && wy >= h - spike) m = PACKED_ICE;
                         if (do_caves && cave[y + 2] && m == STONE) {
                             // cave floor: the 3D biome decides what you stand on
                             const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth, technosim_biome::DEPTH_BAND_COUNT);
@@ -1103,15 +1205,18 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                             if (ceil_m >= 0) m = (uint16_t)ceil_m;
                         }
                     } else {
-                        m = d_top == 1 ? (far_canopy ? LEAVES : top_m) : under_m;
+                        m = d_top == 1 ? (far_canopy ? far_leaves : top_m) : under_m;
+                        if (m == TERRACOTTA) m = strata_at(wx, wy, wz);
                     }
                 } else if ((water_level - wy) * 2 >= step) {
                     // water where at least half the cell is below the water level (lod 0:
                     // wy < water_level); a coarse cell no longer lifts a lake by step - 1 voxels.
                     // Generated water is static (does not drain down slopes) except the sea;
                     // cold lakes and marshes freeze over.
+                    const bool inland = hy.lake || hy.river > 0.0f || hy.marsh;
                     if (wy + step >= water_level && cold && (hy.lake || hy.marsh)) m = ICE;
-                    else m = (hy.lake || hy.river > 0.0f || hy.marsh) ? WATER_STATIC : WATER;
+                    else if (wy + step >= water_level && !inland && technosim_biome::SURFACE_ICE[col.biome] >= 0) m = (uint16_t)technosim_biome::SURFACE_ICE[col.biome];   // frozen sea
+                    else m = inland ? WATER_STATIC : WATER;
                 } else if (hy.fall_top > wy) {
                     m = WATER_STATIC; // waterfall sheet hanging from the lip
                 } else if (do_veg && hy.puddle && h < water_level && wy == water_level && !cold && (hash3(wx, wz, 53) & 7) < 2) {

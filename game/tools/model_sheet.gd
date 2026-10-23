@@ -3,9 +3,11 @@ extends SceneTree
 ## Renders every micro-voxel model (materials.gd "micro" kinds) in a row on a
 ## grass slab and saves one PNG, so the shapes can be checked without a world:
 ##   godot_console.exe --path game --script res://tools/model_sheet.gd -- out=res://out/models.png
+## only=fern,tall_grass renders just those materials (the full row no longer fits the frame).
 ## Not headless (needs the renderer); quits after the frame is saved.
 
 var out_path := "res://out/models.png"
+var only := PackedStringArray()
 var _frames := 0
 
 
@@ -14,6 +16,8 @@ func _init() -> void:
 		var kv := a.split("=")
 		if kv.size() == 2 and kv[0] == "out":
 			out_path = kv[1]
+		elif kv.size() == 2 and kv[0] == "only":
+			only = kv[1].split(",")
 	var root3d := Node3D.new()
 	get_root().add_child(root3d)
 	var atlas: Texture2D = load("res://assets/textures/atlas.png")
@@ -23,14 +27,14 @@ func _init() -> void:
 	mat.roughness = 1.0
 	var kinds: Array = []
 	for d in GameMaterials.defs():
-		if d.has("micro"):
+		if d.has("micro") and (only.is_empty() or d["name"] in only):
 			kinds.append(d)
 	var g := GameMaterials.MICRO_GRID
 	var tiles := GameMaterials.micro_paint_tiles()
 	var i := 0
 	for d in kinds:
 		var cells: PackedInt32Array = GameMaterials.micro_pattern(d["micro"], d["tiles"])
-		var mesh: ArrayMesh = MicroMesher.build(cells, Vector3i(g, g, g), g, tiles, GameMaterials.ATLAS_TILES, Vector3.ZERO)
+		var mesh: ArrayMesh = MobModel.outward(MicroMesher.build(cells, Vector3i(g, g, g), g, tiles, GameMaterials.ATLAS_TILES, Vector3.ZERO))
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
 		mi.material_override = mat
@@ -39,7 +43,7 @@ func _init() -> void:
 		# a grass voxel under it, built with the same mesher
 		var ground := MicroMesher.fill_box(PackedInt32Array(), Vector3i(g, g, g), Vector3i.ZERO, Vector3i(g, g, g), 2 + 1)
 		var gi := MeshInstance3D.new()
-		gi.mesh = MicroMesher.build(ground, Vector3i(g, g, g), g, tiles, GameMaterials.ATLAS_TILES, Vector3.ZERO)
+		gi.mesh = MobModel.outward(MicroMesher.build(ground, Vector3i(g, g, g), g, tiles, GameMaterials.ATLAS_TILES, Vector3.ZERO))
 		gi.material_override = mat
 		gi.position = Vector3(i * 1.8, -1, 0)
 		root3d.add_child(gi)

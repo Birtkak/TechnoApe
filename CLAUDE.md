@@ -132,8 +132,8 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   all micro models (`materials.gd` `micro:` kinds). Material ids are
   definition order: 32..36 stations, 37..43 detail, 44 `CHISELED` reserved;
   append only; 47 = blood (ADR 0015); 48..52 ground pickups (ADR 0019); 57..75 animals/farming/furniture
-  (ADR 0022). Atlas 8×7 tiles, all used: the next tile needs a bigger atlas. MicroMesher winds
-  triangles counter-clockwise: pass its meshes through `MobModel.outward` (the ape still draws inside out).
+  (ADR 0022). Atlas 8×10 tiles (ADR 0024; 73..79 free, grow ROWS for more); 76..87 = content pass (tree kinds, terracotta, basalt, packed ice, fern). MicroMesher winds
+  triangles counter-clockwise: pass its meshes through `MobModel.outward` (terrain models, mobs, furniture, the ape).
 - Two sessions share this checkout (this one and "PC testing and
   optimization"): stage files explicitly, never `git add -A`; Biome enum ids
   0..12 in world_gen.h stay stable; biome_table.gen.h is generated.

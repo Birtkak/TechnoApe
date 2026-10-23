@@ -8,7 +8,10 @@ Tiles (index = row*4 + col):
 23 tall_grass 24 flower 25 cactus 26 dead_bush 27 ice 28 flower_red
 29-31 plant colours 32 crafting_table top 33 crafting_table side 34 furnace top
 35 furnace front 36 furnace front lit 37 chest top 38 chest side 39 planks 40-50 detail, sludge, sulfur, obsidian
-51 wool 52 farmland 53 farmland moist 54 ripe wheat 55 carrot (atlas is 8x7, full)
+51 wool 52 farmland 53 farmland moist 54 ripe wheat 55 carrot
+56 oak log top 57-59 spruce log side/top, needles 60-62 acacia 63-65 jungle
+66-68 terracotta orange/red/cream 69 basalt top 70 basalt side 71 packed ice
+72 fern frond; 73-79 free (8x10)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -18,7 +21,7 @@ from PIL import Image
 
 TILE = 16
 COLS = 8
-ROWS = 7  # 56 tiles, all used: the next tile needs a bigger atlas
+ROWS = 10  # 80 tiles; rows grow at the bottom so tile indices keep their meaning
 
 random.seed(1337)
 
@@ -219,6 +222,70 @@ def wool():
     return img
 
 
+def bark(base, groove):
+    """Log side: vertical bark ridges with dark grooves that wander a little."""
+    img = noise_tile(base, 10)
+    px = img.load()
+    for x0 in range(1, TILE, 4):
+        x = x0
+        for y in range(TILE):
+            if random.random() < 0.2:
+                x = max(0, min(TILE - 1, x + random.choice((-1, 1))))
+            d = random.randint(-6, 6)
+            px[x, y] = (max(0, groove[0] + d), max(0, groove[1] + d), max(0, groove[2] + d), 255)
+    return img
+
+
+def log_top(core, ring, rim):
+    """Log end grain: growth rings around the pith, a bark rim."""
+    img = noise_tile(core, 6)
+    px = img.load()
+    c = (TILE - 1) / 2.0
+    for y in range(TILE):
+        for x in range(TILE):
+            d = max(abs(x - c), abs(y - c)) * 0.7 + ((x - c) ** 2 + (y - c) ** 2) ** 0.5 * 0.3
+            if d >= 7.0:
+                col = rim
+            elif int(d) % 2 == 1:
+                col = ring
+            else:
+                continue
+            k = random.randint(-6, 6)
+            px[x, y] = (max(0, col[0] + k), max(0, col[1] + k), max(0, col[2] + k), 255)
+    return img
+
+
+def terracotta(base, band):
+    """Badlands strata: hardened clay with a faint lighter band."""
+    img = noise_tile(base, 6, band, 0.08)
+    px = img.load()
+    for x in range(TILE):
+        for y in (5, 6):
+            r, g, b, _ = px[x, y]
+            px[x, y] = (min(255, r + 12), min(255, g + 10), min(255, b + 8), 255)
+    return img
+
+
+def basalt_side():
+    """Columnar basalt: dark grey with vertical joints."""
+    img = noise_tile((62, 62, 68), 8, (44, 44, 50), 0.12)
+    px = img.load()
+    for x in (0, 5, 11):
+        for y in range(TILE):
+            px[x, y] = (34, 34, 38, 255)
+    return img
+
+
+def basalt_top():
+    """Basalt column tops: polygon cells with dark joints."""
+    img = noise_tile((70, 70, 76), 8, (52, 52, 58), 0.12)
+    px = img.load()
+    for i in range(TILE):
+        px[i, 0] = px[i, 8] = (34, 34, 38, 255)
+        px[5 if i < 8 else 11, i] = (34, 34, 38, 255)
+    return img
+
+
 def spotted(base, spot):
     img = noise_tile(base, 12, None, 0)
     for (sx, sy) in [(3, 3), (10, 4), (6, 9), (12, 11), (2, 12)]:
@@ -285,7 +352,26 @@ tiles = [
     farmland((74, 48, 30), (44, 28, 16)),                     # 53 farmland top, moist (hydrated)
     noise_tile((214, 178, 70), 14, (176, 138, 44), 0.25),     # 54 ripe wheat (crop heads and stalks, wild wheat)
     noise_tile((236, 124, 30), 12, (200, 90, 20), 0.2),       # 55 carrot orange
+    # content pass: tree kinds (biomes.json tree_kind), badlands strata, basalt, packed ice, ferns
+    log_top((176, 136, 82), (140, 100, 56), (110, 76, 40)),   # 56 oak log top
+    bark((70, 50, 32), (40, 28, 18)),                         # 57 spruce log side: dark bark
+    log_top((150, 112, 66), (118, 84, 46), (70, 50, 32)),     # 58 spruce log top
+    noise_tile((38, 78, 52), 12, (24, 58, 40), 0.3),          # 59 spruce needles: dark blue-green
+    bark((112, 106, 96), (78, 72, 64)),                       # 60 acacia log side: grey bark
+    log_top((200, 104, 52), (168, 82, 40), (112, 106, 96)),   # 61 acacia log top: orange heartwood
+    noise_tile((112, 136, 44), 16, (86, 110, 30), 0.3),       # 62 acacia leaves: olive
+    bark((128, 98, 56), (88, 92, 40)),                        # 63 jungle log side: mossy streaks
+    log_top((180, 140, 90), (150, 110, 66), (128, 98, 56)),   # 64 jungle log top
+    noise_tile((40, 150, 36), 20, (24, 110, 24), 0.35),       # 65 jungle leaves: bright, broad-leaved
+    terracotta((176, 96, 54), (196, 120, 70)),                # 66 terracotta orange
+    terracotta((140, 70, 52), (160, 88, 64)),                 # 67 terracotta red-brown
+    terracotta((208, 176, 140), (224, 196, 162)),             # 68 terracotta cream
+    basalt_top(),                                             # 69 basalt top
+    basalt_side(),                                            # 70 basalt side
+    noise_tile((140, 176, 222), 6, (176, 204, 238), 0.12),    # 71 packed ice: denser, bluer than ice
+    noise_tile((70, 146, 58), 12, (50, 120, 44), 0.2),        # 72 fern frond (micro-voxel model)
 ]
+assert len(tiles) <= COLS * ROWS, len(tiles)
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))
 for i, t in enumerate(tiles):

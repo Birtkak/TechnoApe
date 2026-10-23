@@ -1,0 +1,128 @@
+extends GdUnitTestSuite
+
+## Content pass: tree kinds with their own logs and leaves (biomes.json
+## tree_kind), badlands terracotta strata, magma cave basalt, frozen seas,
+## ice field spikes and ferns. Ids 76..87 are append-only like every material.
+
+const S := preload("res://scripts/settings.gd")
+const NEW := ["spruce_log", "spruce_leaves", "acacia_log", "acacia_leaves", "jungle_log", "jungle_leaves",
+	"terracotta", "terracotta_red", "terracotta_cream", "basalt", "packed_ice", "fern"]
+
+
+func test_material_ids_are_stable() -> void:
+	for i in NEW.size():
+		assert_str(GameMaterials.name_of(GameMaterials.SPRUCE_LOG + i)).is_equal(NEW[i])
+	assert_int(GameMaterials.FERN).is_equal(87)
+	assert_int(GameMaterials.defs().size()).is_greater_equal(GameMaterials.FERN)
+	# every tile a material names fits the atlas
+	var n := GameMaterials.ATLAS_TILES.x * GameMaterials.ATLAS_TILES.y
+	for d in GameMaterials.defs():
+		for t in d["tiles"]:
+			assert_int(int(t)).override_failure_message("%s tile %d outside the atlas" % [d["name"], t]).is_less(n)
+
+
+func test_new_blocks_are_minable_and_logs_make_planks() -> void:
+	var mining := MiningTable.load_default()
+	var items := ItemRegistry.load_default()
+	var recipes := RecipeRegistry.load_default(items)
+	for name in NEW:
+		assert_bool(mining.is_minable(name)).override_failure_message("%s not minable" % name).is_true()
+	for id in ["spruce_log", "acacia_log", "jungle_log", "terracotta", "terracotta_red", "terracotta_cream", "basalt", "packed_ice"]:
+		assert_bool(items.has(id)).override_failure_message("no item %s" % id).is_true()
+		assert_str(String(mining.entry(id).get("drops", ""))).is_equal(id)
+	for id in ["spruce_log", "acacia_log", "jungle_log"]:
+		assert_bool(id in items.items_with_tag("log")).is_true()
+	assert_bool("planks_from_log" in recipes.uses_of("jungle_log")).is_true()
+
+
+func test_fern_is_a_small_plant() -> void:
+	var cells := GameMaterials.micro_pattern("fern", [72, 29, 72])
+	var filled := 0
+	var top := 0
+	for i in cells.size():
+		if cells[i] != 0:
+			filled += 1
+			top = maxi(top, (i / GameMaterials.MICRO_GRID) % GameMaterials.MICRO_GRID)
+	assert_int(filled).is_between(20, 120)
+	assert_int(top).is_between(3, 6)   # knee-high, under tall grass
+
+
+func _count(g: WorldGen, origin: Vector3i, size: Vector3i, mats: Array) -> Dictionary:
+	var bytes: PackedByteArray = g.generate_block(origin, size, 0, 2)
+	var out := {}
+	for m in mats:
+		out[m] = 0
+	for i in range(0, bytes.size(), 2):
+		var m := bytes.decode_u16(i)
+		if out.has(m):
+			out[m] += 1
+	return out
+
+
+func _gen() -> WorldGen:
+	var g := WorldGen.new()
+	g.configure(1337, S.SEA_LEVEL_VOXEL, S.WORLD_HEIGHT_VOXELS)
+	return g
+
+
+func _near(g: WorldGen, kind: String) -> Vector3i:
+	var p: Vector3i = g.find_nearest(kind, 0, 0, 12000)
+	assert_int(p.y).override_failure_message("no %s within 6 km" % kind).is_greater(0)
+	return p
+
+
+func test_tree_kinds_grow_their_own_wood() -> void:
+	var g := _gen()
+	for k in [["taiga", GameMaterials.SPRUCE_LOG, GameMaterials.SPRUCE_LEAVES],
+			["savanna", GameMaterials.ACACIA_LOG, GameMaterials.ACACIA_LEAVES],
+			["jungle", GameMaterials.JUNGLE_LOG, GameMaterials.JUNGLE_LEAVES],
+			["forest", GameMaterials.WOOD, GameMaterials.LEAVES]]:
+		var p := _near(g, k[0])
+		# savanna trees are sparse: a wider window
+		var half := 48 if k[0] == "savanna" else 24
+		var c := _count(g, p - Vector3i(half, 8, half), Vector3i(half * 2, 48, half * 2), [k[1], k[2], GameMaterials.WOOD])
+		assert_int(c[k[1]]).override_failure_message("%s: no %s" % [k[0], GameMaterials.name_of(k[1])]).is_greater(0)
+		assert_int(c[k[2]]).override_failure_message("%s: no %s" % [k[0], GameMaterials.name_of(k[2])]).is_greater(c[k[1]])
+		if k[1] != GameMaterials.WOOD:
+			# a bordering forest may reach into the window, but the biome's own wood dominates
+			assert_int(c[GameMaterials.WOOD]).override_failure_message("%s grew mostly oak" % k[0]).is_less(c[k[1]])
+
+
+func test_ferns_grow_in_jungles_and_taiga() -> void:
+	var g := _gen()
+	for kind in ["jungle", "taiga"]:
+		var p := _near(g, kind)
+		var c := _count(g, p - Vector3i(24, 8, 24), Vector3i(48, 24, 48), [GameMaterials.FERN])
+		assert_int(c[GameMaterials.FERN]).override_failure_message("%s: no ferns" % kind).is_greater(5)
+
+
+func test_badlands_show_strata() -> void:
+	var g := _gen()
+	var p := _near(g, "badlands")
+	var t := [GameMaterials.TERRACOTTA, GameMaterials.TERRACOTTA_RED, GameMaterials.TERRACOTTA_CREAM]
+	var c := _count(g, p - Vector3i(24, 24, 24), Vector3i(48, 48, 48), t)
+	for m in t:
+		assert_int(c[m]).override_failure_message("badlands: no %s" % GameMaterials.name_of(m)).is_greater(0)
+
+
+func test_frozen_sea_and_ice_spikes() -> void:
+	var g := _gen()
+	var p := _near(g, "frozen_ocean")
+	var c := _count(g, Vector3i(p.x - 24, S.SEA_LEVEL_VOXEL - 4, p.z - 24), Vector3i(48, 8, 48), [GameMaterials.ICE, GameMaterials.WATER])
+	assert_int(c[GameMaterials.ICE]).override_failure_message("frozen ocean: no sea ice").is_greater(1000)
+	p = _near(g, "ice_fields")
+	# spikes stand on the ground: packed ice above the surface height somewhere in a 64 m square
+	var above := 0
+	for z in range(-64, 64, 16):
+		for x in range(-64, 64, 16):
+			var o := Vector3i(p.x + x, 0, p.z + z)
+			var h: int = g.height_at(o.x + 8, o.z + 8)
+			above += _count(g, Vector3i(o.x, h + 2, o.z), Vector3i(16, 24, 16), [GameMaterials.PACKED_ICE])[GameMaterials.PACKED_ICE]
+	assert_int(above).override_failure_message("ice fields: no spikes").is_greater(20)
+
+
+func test_magma_caves_are_basalt() -> void:
+	var g := _gen()
+	var p := _near(g, "magma_cave")
+	var c := _count(g, p - Vector3i(24, 8, 24), Vector3i(48, 24, 48), [GameMaterials.BASALT])
+	assert_int(c[GameMaterials.BASALT]).is_greater(100)

@@ -77,8 +77,21 @@ const CARROTS_0 := 69              # carrot crop: 4 looks for ages 0..7 (Minecra
 const WILD_WHEAT := 73             # rare generated patches in plains (ADR 0022): seeds to start a farm
 const WILD_CARROT := 74
 const FURNITURE := 75              # invisible full-collision voxel under a bed or chair; the shape is the furniture entity's mesh
+# Content pass: tree kinds (biomes.json tree_kind), badlands strata, magma cave basalt, ice fields, ferns
+const SPRUCE_LOG := 76
+const SPRUCE_LEAVES := 77
+const ACACIA_LOG := 78
+const ACACIA_LEAVES := 79
+const JUNGLE_LOG := 80
+const JUNGLE_LEAVES := 81
+const TERRACOTTA := 82             # badlands strata: orange, red-brown and cream bands
+const TERRACOTTA_RED := 83
+const TERRACOTTA_CREAM := 84
+const BASALT := 85                 # magma cave floors and walls
+const PACKED_ICE := 86             # ice fields ground and spikes
+const FERN := 87                   # micro-voxel fronds in taiga, jungle, swamp and old growth
 
-const ATLAS_TILES := Vector2i(8, 7)
+const ATLAS_TILES := Vector2i(8, 10)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -96,7 +109,7 @@ static func defs() -> Array:
 		{"name": "grass", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [2, 3, 1], "transparent": false},
 		{"name": "sand", "cell_type": "powder", "density": 3, "tiles": [4, 4, 4], "transparent": false},
 		{"name": "water", "cell_type": "liquid", "fluid_slot": 0, "density": 1, "liquid_flow_speed": 1.0, "tiles": [5, 5, 5], "transparent": true},
-		{"name": "wood", "cell_type": "solid", "density": 10, "burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [6, 6, 6], "transparent": false},
+		{"name": "wood", "cell_type": "solid", "density": 10, "burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [56, 6, 56], "transparent": false},
 		{"name": "lava", "cell_type": "liquid", "fluid_slot": 1, "density": 5, "liquid_flow_speed": 0.3, "liquid_gravity": 0.3, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false},
 		{"name": "ash", "cell_type": "powder", "density": 2, "tiles": [8, 8, 8], "transparent": false},
 		{"name": "oil", "cell_type": "liquid", "fluid_slot": 2, "density": 0.8, "liquid_flow_speed": 0.6, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
@@ -159,7 +172,36 @@ static func defs() -> Array:
 		{"name": "wild_wheat", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [54, 23, 54], "transparent": false, "micro": "wild_wheat"},
 		{"name": "wild_carrot", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [51, 29, 55], "transparent": false, "micro": "wild_carrot"},
 		{"name": "furniture", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": true, "interact": "furniture"},
-	]
+	] + _content_pass_defs()
+
+
+static var _content := []
+
+## Ids 76..87: logs and leaves burn like oak's, terracotta and basalt are stone-like,
+## packed ice melts slower than ice, ferns burn like tall grass.
+static func _content_pass_defs() -> Array:
+	if not _content.is_empty():
+		return _content
+	var log_burn := {"burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4}
+	var leaf_burn := {"burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6}
+	for k in [["spruce", 57, 58, 59], ["acacia", 60, 61, 62], ["jungle", 63, 64, 65]]:
+		var trunk := {"name": "%s_log" % k[0], "cell_type": "solid", "density": 10, "tiles": [k[2], k[1], k[2]], "transparent": false}
+		trunk.merge(log_burn)
+		var leaves := {"name": "%s_leaves" % k[0], "cell_type": "solid", "density": 10, "hp": 20, "tiles": [k[3], k[3], k[3]], "transparent": true}
+		leaves.merge(leaf_burn)
+		_content.append_array([trunk, leaves])
+	var fern := {"name": "fern", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [72, 29, 72], "transparent": false, "micro": "fern", "replaceable": true}
+	fern.merge(leaf_burn)
+	fern["generates_smoke"] = 3
+	_content.append_array([
+		{"name": "terracotta", "cell_type": "solid", "density": 10, "hp": 500, "tiles": [66, 66, 66], "transparent": false},
+		{"name": "terracotta_red", "cell_type": "solid", "density": 10, "hp": 500, "tiles": [67, 67, 67], "transparent": false},
+		{"name": "terracotta_cream", "cell_type": "solid", "density": 10, "hp": 500, "tiles": [68, 68, 68], "transparent": false},
+		{"name": "basalt", "cell_type": "solid", "density": 11, "hp": 1100, "tiles": [69, 70, 69], "transparent": false},
+		{"name": "packed_ice", "cell_type": "solid", "density": 9, "hp": 200, "tiles": [71, 71, 71], "transparent": false},
+		fern,
+	])
+	return _content
 
 
 static var _crops := []
@@ -191,8 +233,13 @@ static func reactions() -> Array:
 		{"input_cell1": FIRE, "input_cell2": WATER, "output_cell1": AIR, "output_cell2": STEAM, "probability": 0.6},
 		{"input_cell1": LAVA, "input_cell2": OIL, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.3},
 		{"input_cell1": LAVA, "input_cell2": WOOD, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.1},
+		{"input_cell1": LAVA, "input_cell2": SPRUCE_LOG, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.1},
+		{"input_cell1": LAVA, "input_cell2": ACACIA_LOG, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.1},
+		{"input_cell1": LAVA, "input_cell2": JUNGLE_LOG, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.1},
 		{"input_cell1": FIRE, "input_cell2": ICE, "output_cell1": AIR, "output_cell2": WATER, "probability": 0.4},
 		{"input_cell1": LAVA, "input_cell2": ICE, "output_cell1": STONE, "output_cell2": STEAM, "probability": 0.5},
+		{"input_cell1": FIRE, "input_cell2": PACKED_ICE, "output_cell1": AIR, "output_cell2": WATER, "probability": 0.1},
+		{"input_cell1": LAVA, "input_cell2": PACKED_ICE, "output_cell1": STONE, "output_cell2": STEAM, "probability": 0.3},
 	]
 
 
@@ -457,6 +504,35 @@ static func micro_pattern(kind: String, tiles: Array) -> PackedInt32Array:
 				_cell(c, x, 1, z + 1, stem)   # a leaf
 				_cell(c, x + 1, 1, z + 1, stem)
 				_cell(c, x, 0, z, root)
+		"fern":
+			# a rosette of 6 fronds from a short crown: each frond rises to 4-6 cells and arches
+			# 3 cells outward, dropping a cell per step, with leaflets on both sides near the
+			# crown; the crown uses the darker leaf-green tile
+			var stem: int = tiles[1] + 1
+			var cx := 3 + rng.randi_range(0, 1)
+			var cz := 3 + rng.randi_range(0, 1)
+			var dirs := [Vector2i(1, 0), Vector2i(1, 1), Vector2i(0, 1), Vector2i(-1, 1), Vector2i(-1, 0), Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1)]
+			var start := rng.randi_range(0, 7)
+			var crown := rng.randi_range(2, 3)
+			for y in crown:
+				_cell(c, cx, y, cz, stem)
+			for i in 6:
+				var dv: Vector2i = dirs[(start + i + i / 2) % 8]   # 6 of the 8 directions, spread round
+				var x := cx
+				var z := cz
+				var y := crown + rng.randi_range(1, 3)
+				for yy in range(crown, y):
+					_cell(c, cx + dv.x * int(yy > crown), yy, cz + dv.y * int(yy > crown), body)
+				for k in 3:
+					x += dv.x
+					z += dv.y
+					_cell(c, x, y, z, body)
+					if dv.x != 0 and dv.y != 0:
+						_cell(c, x - dv.x, y, z, body)   # keep diagonals connected
+					if k < 2:
+						_cell(c, x + dv.y, y, z + dv.x, body)   # leaflets
+						_cell(c, x - dv.y, y, z - dv.x, body)
+					y -= 1
 		"tuft":
 			# 9-11 blades, 1 cell (6 cm) wide, 3-7 cells tall, some leaning at the top
 			for i in rng.randi_range(9, 11):
