@@ -1,8 +1,8 @@
 class_name ItemEntity
 extends Node3D
 
-## A dropped stack lying in the world (ADR 0005): a tiny textured cube (or a
-## coloured card for non-block items) that falls, bobs, spins, merges with
+## A dropped stack lying in the world (ADR 0005): a tiny textured cube or the
+## item's extruded sprite (a coloured card for items with neither) that falls, bobs, spins, merges with
 ## equal stacks nearby, is picked up by walking over it and despawns after
 ## Settings.item_despawn_s. Pure Minecraft behaviour; the matter inside is
 ## inert until placed back (then it obeys the material simulation).
@@ -48,7 +48,9 @@ func _build(atlas_material: Material) -> void:
 	_body = VoxelBody.new(AABB(Vector3(-SIZE / 2.0, 0.0, -SIZE / 2.0), Vector3.ONE * SIZE))
 	_visual = MeshInstance3D.new()
 	var mat_id := ItemIcon.material_id_for(items, stack["id"])
-	if mat_id > 0:
+	if ItemSprites.get_default().has(stack["id"]):
+		_visual.mesh = BlockMeshes.sprite(stack["id"])
+	elif mat_id > 0:
 		_visual.mesh = BlockMeshes.cube(mat_id, atlas_material)
 	else:
 		_visual.mesh = BlockMeshes.card(stack["id"])

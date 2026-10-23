@@ -1,9 +1,10 @@
 class_name ItemIcon
 extends Control
 
-## Draws one item stack: block items as an isometric cube built from the
-## material's atlas tiles (Minecraft-style), other items as a coloured tag
-## with initials until real icons exist. Count in the bottom-right corner.
+## Draws one item stack: its pixel-art sprite (ItemSprites, data/item_sprites.json;
+## block-face sprites as an isometric cube), else block items as an isometric
+## cube built from the material's atlas tiles (Minecraft-style), else a
+## coloured tag with initials. Count in the bottom-right corner.
 
 static var atlas: Texture2D
 static var _font: Font
@@ -40,8 +41,16 @@ func _draw() -> void:
 		_font = ThemeDB.fallback_font
 	var id: String = stack["id"]
 	var s := size
+	var sprites := ItemSprites.get_default()
 	var mat := material_id_for(items, id)
-	if mat > 0:
+	if sprites.has(id):
+		var tex := sprites.texture(id)
+		var full := Rect2(Vector2.ZERO, tex.get_size())
+		if sprites.is_cube(id):
+			_draw_iso(tex, full, full, s)
+		else:
+			draw_texture_rect(tex, Rect2(Vector2.ZERO, s), false)
+	elif mat > 0:
 		_draw_cube(mat, s)
 	else:
 		_draw_tag(id, s)
@@ -60,6 +69,14 @@ func _draw() -> void:
 func _draw_cube(mat: int, s: Vector2) -> void:
 	var d: Dictionary = GameMaterials.defs()[mat - 1]
 	var t: Array = d["tiles"]
+	if d.get("cross", false):
+		# flat sprite for vegetation / cutout tiles
+		draw_texture_rect_region(atlas, Rect2(s.x * 0.07, s.y * 0.04, s.x * 0.86, s.y * 0.92), BlockMeshes.tile_region(int(t[0]), atlas), Color.WHITE)
+		return
+	_draw_iso(atlas, BlockMeshes.tile_region(int(t[0]), atlas), BlockMeshes.tile_region(int(t[1]), atlas), s)
+
+
+func _draw_iso(tex: Texture2D, top_region: Rect2, side_region: Rect2, s: Vector2) -> void:
 	var w := s.x * 0.86
 	var h := s.y * 0.92
 	var ox := (s.x - w) / 2.0
@@ -69,20 +86,15 @@ func _draw_cube(mat: int, s: Vector2) -> void:
 	var right := Vector2(ox + w, oy + h * 0.25)
 	var mid := Vector2(ox + w / 2.0, oy + h * 0.5)
 	var down := Vector2(0, h * 0.5)
-	var cross: bool = d.get("cross", false)
-	if cross:
-		# flat sprite for vegetation / cutout tiles
-		draw_texture_rect_region(atlas, Rect2(ox, oy, w, h), BlockMeshes.tile_region(int(t[0]), atlas), Color.WHITE)
-		return
-	_face(int(t[0]), top, right - top, left - top, Color(1, 1, 1))
-	_face(int(t[1]), left, mid - left, down, Color(0.8, 0.8, 0.8))
-	_face(int(t[1]), mid, right - mid, down, Color(0.6, 0.6, 0.6))
+	_face(tex, top_region, top, right - top, left - top, Color(1, 1, 1))
+	_face(tex, side_region, left, mid - left, down, Color(0.8, 0.8, 0.8))
+	_face(tex, side_region, mid, right - mid, down, Color(0.6, 0.6, 0.6))
 	draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
-func _face(tile: int, origin: Vector2, x_axis: Vector2, y_axis: Vector2, tint: Color) -> void:
+func _face(tex: Texture2D, region: Rect2, origin: Vector2, x_axis: Vector2, y_axis: Vector2, tint: Color) -> void:
 	draw_set_transform_matrix(Transform2D(x_axis, y_axis, origin))
-	draw_texture_rect_region(atlas, Rect2(0, 0, 1, 1), BlockMeshes.tile_region(tile, atlas), tint)
+	draw_texture_rect_region(tex, Rect2(0, 0, 1, 1), region, tint)
 
 
 func _draw_tag(id: String, s: Vector2) -> void:
