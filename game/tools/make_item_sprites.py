@@ -422,7 +422,7 @@ ellipse(g, 8, 5, 4.6, 1.4, "i")
 g = outline(g)
 for (x, y) in [(3, 3), (4, 2), (5, 1), (6, 1), (7, 1), (8, 1), (9, 1), (10, 1), (11, 2), (12, 3)]:
     put(g, x, y, "r")
-shape("bucket", g, {"i": "#1a1c20", "r": "#46494e"})
+shape("bucket", g, {"i": "#565a60", "r": "#46494e"})   # inside: dark iron, so an empty bucket reads as empty
 g = ellipse(new(), 8, 5, 4.6, 1.4, "q")
 put(g, 6, 4, "Q")
 put(g, 7, 4, "Q")
@@ -745,7 +745,7 @@ sp("berry_compote", ("bowl", "terracotta"), ("bowl_fill", None, {"q": "#6a1e48",
 sp("bucket", ("bucket", "iron"))
 sp("water_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#2e64c8", "Q": "#7ab0f0"}))
 sp("lava_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#e8541a", "Q": "#ffd060"}))
-sp("oil_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#1a1410", "Q": "#5a4a3a"}))
+sp("oil_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#5a3a12", "Q": "#e0b040"}))   # brown oil with an amber sheen (black read as obsidian)
 sp("toxic_sludge_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#60c42c", "Q": "#b0fa60"}))
 sp("sulfur", ("dust_pile", "sulfur"))
 # HUD status icons for the player's stains (PlayerStains), not items

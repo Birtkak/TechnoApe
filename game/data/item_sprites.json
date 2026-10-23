@@ -602,7 +602,7 @@
       ]
     },
     "bucket": {
-      "colors": {"i": "#1a1c20", "r": "#46494e"},
+      "colors": {"i": "#565a60", "r": "#46494e"},
       "rows": [
         "................",
         ".....rrrrrr.....",
@@ -1412,7 +1412,7 @@
     "bucket": {"layers": [{"shape": "bucket", "palette": "iron"}]},
     "water_bucket": {"layers": [{"shape": "bucket", "palette": "iron"}, {"shape": "bucket_fill", "colors": {"q": "#2e64c8", "Q": "#7ab0f0"}}]},
     "lava_bucket": {"layers": [{"shape": "bucket", "palette": "iron"}, {"shape": "bucket_fill", "colors": {"q": "#e8541a", "Q": "#ffd060"}}]},
-    "oil_bucket": {"layers": [{"shape": "bucket", "palette": "iron"}, {"shape": "bucket_fill", "colors": {"q": "#1a1410", "Q": "#5a4a3a"}}]},
+    "oil_bucket": {"layers": [{"shape": "bucket", "palette": "iron"}, {"shape": "bucket_fill", "colors": {"q": "#5a3a12", "Q": "#e0b040"}}]},
     "toxic_sludge_bucket": {"layers": [{"shape": "bucket", "palette": "iron"}, {"shape": "bucket_fill", "colors": {"q": "#60c42c", "Q": "#b0fa60"}}]},
     "sulfur": {"layers": [{"shape": "dust_pile", "palette": "sulfur"}]},
     "stain_wet": {"layers": [{"shape": "flame_drop", "palette": "water"}]},
