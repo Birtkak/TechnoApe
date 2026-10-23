@@ -38,6 +38,10 @@
     "blanket": {"o": "#3a0a0e", "d": "#7a161c", "m": "#a82228", "l": "#c83a3e", "h": "#ec7a7a"},
     "carrot": {"o": "#5a2004", "d": "#a8460c", "m": "#e0701a", "l": "#f49434", "h": "#ffc47a"},
     "bread": {"o": "#4a2408", "d": "#8a5018", "m": "#b87a30", "l": "#d49a4a", "h": "#f0c880"},
+    "egg": {"o": "#6a5a44", "d": "#b8a07c", "m": "#dcc8a2", "l": "#efe2c4", "h": "#fcf6e4"},
+    "feather": {"o": "#5a5a5e", "d": "#b4b4b8", "m": "#dcdce0", "l": "#efeff2", "h": "#ffffff"},
+    "bone": {"o": "#6a604c", "d": "#b8ac8c", "m": "#d8ceb0", "l": "#ebe4cc", "h": "#f8f4e6"},
+    "hide": {"o": "#2a1a10", "d": "#4e3220", "m": "#6e4a30", "l": "#8a6040", "h": "#a87a54"},
     "seed": {"o": "#3a2c10", "d": "#6e5824", "m": "#9a8034", "l": "#bca048", "h": "#e0cc7a"}
   },
   "shapes": {
@@ -1453,6 +1457,108 @@
         "................"
       ]
     },
+    "egg": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "......oooo......",
+        ".....ohlllo.....",
+        "....ohmmmmlo....",
+        "...ohmmmmmmlo...",
+        "...olmmmmmmdo...",
+        "...olmmmmmmdo...",
+        "...olmmmmmmdo...",
+        "...olmmmmmmdo...",
+        "...olmmmmmmdo...",
+        "....olmmmmdo....",
+        ".....oldddo.....",
+        "......oooo......",
+        "................"
+      ]
+    },
+    "fried_egg": {
+      "colors": {"w": "#f6f4ec"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        ".....oooooo.....",
+        "...oowwwwwwoo...",
+        "..owwwwwwwwwwo..",
+        ".owwowwhllwwwwo.",
+        ".owwwwhmmmlwowo.",
+        ".owwwwlmmmdwwwo.",
+        ".owwwwlmmmdwwwo.",
+        ".owwwwwlddwwwwo.",
+        ".owwwwwwwwwwwwo.",
+        "..owwowwwwwowo..",
+        "...oowwwwwwoo...",
+        ".....oooooo.....",
+        "................"
+      ]
+    },
+    "feather": {
+      "colors": {"s": "#8a8070"},
+      "rows": [
+        "................",
+        ".........o......",
+        "........oho.o...",
+        ".......ohohoso..",
+        "......ohohdso...",
+        ".....ohohdshloo.",
+        "....ohohdshdohlo",
+        "...ohohdshdohdo.",
+        "..ohohdohdohdo..",
+        "...ohdohdohdo...",
+        "...olohdohdo....",
+        "....ohdohdo.....",
+        "...osoohdo......",
+        "..oso..oo.......",
+        "...o............",
+        "................"
+      ]
+    },
+    "bone": {
+      "rows": [
+        "................",
+        "..........ooo...",
+        ".........ohllo..",
+        ".........olmdo..",
+        ".........olmmlo.",
+        ".........oldmdo.",
+        "........ohdolo..",
+        ".......ohdo.o...",
+        ".......oldo.....",
+        "......ohdo......",
+        "..oooohdo.......",
+        ".ohllldo........",
+        ".olmmdo.........",
+        ".oldmmlo........",
+        "..ooldo.........",
+        "....oo.........."
+      ]
+    },
+    "hide": {
+      "rows": [
+        "................",
+        "................",
+        ".....oooooo.....",
+        "...oohllllloo...",
+        "..ohlmmmmmmllo..",
+        ".ohmmmmmmmmmmlo.",
+        ".olmmmmmmmmmmdo.",
+        ".olmmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        ".ohmddddddddmlo.",
+        ".oldooooooooldo.",
+        "..oo........oo..",
+        "................"
+      ]
+    },
     "hoe_head": {
       "rows": [
         ".......ohlo.....",
@@ -1760,6 +1866,11 @@
     "carrot": {"layers": [{"shape": "carrot", "palette": "carrot"}]},
     "bread": {"layers": [{"shape": "bread", "palette": "bread"}]},
     "pumpkin_pie": {"layers": [{"shape": "pie", "palette": "bread"}]},
+    "egg": {"layers": [{"shape": "egg", "palette": "egg"}]},
+    "fried_egg": {"layers": [{"shape": "fried_egg", "palette": "carrot"}]},
+    "feather": {"layers": [{"shape": "feather", "palette": "feather"}]},
+    "bone": {"layers": [{"shape": "bone", "palette": "bone"}]},
+    "bear_hide": {"layers": [{"shape": "hide", "palette": "hide"}]},
     "wooden_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "wood"}]},
     "stone_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "stone"}]},
     "iron_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "iron"}]},

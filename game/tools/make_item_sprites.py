@@ -185,6 +185,10 @@ PALETTES = {
     "blanket": ramp("#3a0a0e", "#7a161c", "#a82228", "#c83a3e", "#ec7a7a"),
     "carrot": ramp("#5a2004", "#a8460c", "#e0701a", "#f49434", "#ffc47a"),
     "bread": ramp("#4a2408", "#8a5018", "#b87a30", "#d49a4a", "#f0c880"),
+    "egg": ramp("#6a5a44", "#b8a07c", "#dcc8a2", "#efe2c4", "#fcf6e4"),
+    "feather": ramp("#5a5a5e", "#b4b4b8", "#dcdce0", "#efeff2", "#ffffff"),
+    "bone": ramp("#6a604c", "#b8ac8c", "#d8ceb0", "#ebe4cc", "#f8f4e6"),
+    "hide": ramp("#2a1a10", "#4e3220", "#6e4a30", "#8a6040", "#a87a54"),
     "seed": ramp("#3a2c10", "#6e5824", "#9a8034", "#bca048", "#e0cc7a"),
 }
 
@@ -727,6 +731,24 @@ f = ellipse(new(), 8, 9.0, 5.0, 3.0, "f")
 for (x, y) in [(5, 8), (8, 7), (11, 8), (6, 10), (9, 10)]:
     put(f, x, y, "F")
 shape("pie", outline(compose(g, f)), {"f": "#e08a2a", "F": "#c06a18"})
+# wildlife (ADR 0027): egg, fried egg, feather, bone, hide
+shape("egg", outline(shade(ellipse(new(), 8, 9, 4.2, 5.4))))
+g = ellipse(new(), 8, 9, 6.4, 5.0, "w")
+for (x, y) in [(4, 6), (12, 7), (5, 12), (11, 12)]:
+    put(g, x, y, ".")
+y = shade(ellipse(new(), 8.5, 8.5, 2.4, 2.4))
+shape("fried_egg", outline(compose(g, y)), {"w": "#f6f4ec"})
+g = new()
+line(g, 3, 13, 12, 3, "s")
+for k in range(1, 8):
+    line(g, 4 + k, 12 - k, 4 + k - 2, 12 - k - 3, "#")
+    line(g, 4 + k, 12 - k, 4 + k + 3, 12 - k + 1, "#")
+shape("feather", outline(shade(g)), {"s": "#8a8070"})
+g = compose(line(new(), 4, 12, 11, 4, "#", 2), ellipse(new(), 3.5, 12.5, 1.8, 1.8), ellipse(new(), 5, 13.5, 1.6, 1.6),
+            ellipse(new(), 11.5, 3.5, 1.8, 1.8), ellipse(new(), 12.5, 5, 1.6, 1.6))
+shape("bone", outline(shade(g)))
+g = shade(poly(new(), [(2, 5), (6, 3), (10, 3), (14, 5), (13, 10), (14, 14), (8, 12.5), (2, 14), (3, 10)]))
+shape("hide", outline(g))
 shape("hoe_head", body(poly(new(), tool_pts([(-0.6, -1.4), (5.2, -1.4), (5.2, 0.9), (-0.6, 0.9)]))))
 g = compose(line(new(), 3, 3, 10, 10, "#", 2), line(new(), 12, 3, 5, 10, "#", 2))
 g = shade(g)
@@ -869,6 +891,11 @@ sp("wheat", ("sheaf", "straw"))
 sp("carrot", ("carrot", "carrot"))
 sp("bread", ("bread", "bread"))
 sp("pumpkin_pie", ("pie", "bread"))
+sp("egg", ("egg", "egg"))
+sp("fried_egg", ("fried_egg", "carrot"))
+sp("feather", ("feather", "feather"))
+sp("bone", ("bone", "bone"))
+sp("bear_hide", ("hide", "hide"))
 for m, item in (("wood", "wooden_hoe"), ("stone", "stone_hoe"), ("iron", "iron_hoe")):
     sp(item, H, ("hoe_head", m))
 sp("shears", ("shears", "iron"))

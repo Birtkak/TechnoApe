@@ -35,7 +35,7 @@ var mate_s := 3.0
 var feed_baby_speedup := 0.1
 var spawning := true
 var game_time := 0.0           # seconds this world has run (dormant mobs catch up from it)
-var stats := {"spawned": 0, "herds": 0, "bred": 0, "died": 0, "slept": 0, "woke": 0, "cells": 0}
+var stats := {"spawned": 0, "herds": 0, "bred": 0, "died": 0, "slept": 0, "woke": 0, "cells": 0, "kills": 0, "mauled": 0, "eggs": 0, "carcasses": 0}
 var dirty := false
 var last_frame_ms := 0.0
 var worst_frame_ms := 0.0
@@ -93,6 +93,8 @@ func _prewarm_fx() -> void:
 	warm.position = at
 	add_child(warm)
 	warm.add_child(MobModel.create("pig", false))
+	warm.add_child(MobModel.create("chicken", false))
+	warm.add_child(MobModel.create("bear", false))
 	warm.add_child(FurnitureEntity.new(Vector3i.ZERO, "chair", 0).make_view())
 	get_tree().create_timer(0.5).timeout.connect(warm.queue_free)
 
@@ -273,6 +275,8 @@ func _populate(c: Vector2i) -> void:
 		if pick < 0:
 			species = k
 			break
+	if defs[species].has("rarity") and rng.randf() >= float(defs[species]["rarity"]):   # the roll only for rare ones: older herds stay where they were
+		return   # rare species (bears): most of the cells that pick them stay empty
 	var g: Array = defs[species].get("group", [2, 4])
 	var n := rng.randi_range(int(g[0]), int(g[1]))
 	if season == 0:
@@ -286,7 +290,8 @@ func _populate(c: Vector2i) -> void:
 		var z := cz + rng.randi_range(-10, 10)
 		var h := world.surface_height(x, z)
 		var y := stand_height(x, z, h + 1, 4, height)
-		if y == -1 or get_voxel(Vector3i(x, y - 1, z)) != GameMaterials.GRASS:
+		var ground := get_voxel(Vector3i(x, y - 1, z))
+		if y == -1 or (ground != GameMaterials.GRASS and ground != GameMaterials.SNOW):
 			continue
 		spawn(species, Vector3(x + 0.5, y + 0.05, z + 0.5), rng.randf() < baby_chance, rng.randf() * TAU)
 		placed += 1
@@ -556,8 +561,82 @@ func interact(m: Mob, held: Dictionary) -> String:
 	return ""
 
 
+# ---------------- wildlife (ADR 0027) ----------------
+
+func player_attackable() -> bool:
+	if main == null or main.player == null or main.get("player_inv") == null:
+		return false
+	return GameMode.rule(main.player.game_mode, "takes_damage") and not main.player_inv.is_dead()
+
+
+func player_feet() -> Vector3:
+	return _player_pos()
+
+
+## The nearest live prey of a predator within its sight.
+func find_prey(m: Mob) -> Mob:
+	var pr: Dictionary = m.def.get("predator", {})
+	var kinds: Array = pr.get("prey", [])
+	var sight := Settings.m2v(float(pr.get("sight_m", 24.0)))
+	var best: Mob = null
+	var best_d := sight
+	for o in _active:
+		if o == m or o.is_dead() or not (o.species in kinds):
+			continue
+		var d := o.position.distance_to(m.position)
+		if d < best_d:
+			best_d = d
+			best = o
+	return best
+
+
+## A predator bites its prey; a killing bite leaves the prey's carcass and feeds the predator.
+func maul(m: Mob, prey: Mob, damage: int) -> void:
+	if prey.hurt(damage, m.position):
+		if _fx():
+			_fx().burst("damage", prey.eye(), {"count_bonus": damage})
+		if prey.is_dead():
+			prey.killed_by = m.species
+			stats["kills"] += 1
+			m.on_kill(prey.position)
+
+
+## A predator bites the player: damage and a shove away from it.
+func maul_player(m: Mob, damage: int) -> void:
+	if not player_attackable():
+		return
+	main.player_inv.damage(damage)
+	var away: Vector3 = main.player.position - m.position
+	away.y = 0.0
+	if away.length() > 0.01:
+		main.player.velocity += away.normalized() * Settings.m2v(5.0) + Vector3(0, Settings.m2v(3.0), 0)
+	stats["mauled"] += 1
+	if _fx():
+		_fx().burst("damage", player_eye() + Vector3(0, -0.4, 0), {"count_bonus": damage})
+
+
+## A chicken lays an egg where it stands.
+func lay(m: Mob) -> void:
+	var item: String = m.def.get("lays", {}).get("item", "egg")
+	main.spawn_item({"id": item, "count": 1}, m.position + Vector3(0, 0.3, 0), Vector3(_rng.randf_range(-0.5, 0.5), 1.0, _rng.randf_range(-0.5, 0.5)))
+	stats["eggs"] += 1
+
+
+## Where a kill lies: the remains go on the first free voxel over solid ground.
+func _leave_carcass(at: Vector3) -> void:
+	var p := Vector3i(at.floor())
+	for dy in [0, 1, -1]:
+		var q: Vector3i = p + Vector3i(0, dy, 0)
+		if get_voxel(q) == GameMaterials.AIR and is_solid(get_voxel(q + Vector3i.DOWN)):
+			main.set_world_voxel(q, GameMaterials.CARCASS)
+			stats["carcasses"] += 1
+			return
+
+
 func on_died(m: Mob) -> void:
-	if not m.is_baby():
+	if m.killed_by != "":
+		_leave_carcass(m.position)   # eaten: what is left lies there, no drops
+	elif not m.is_baby():
 		var list: Array = m.def.get("drops", []).duplicate()
 		if not m.sheared:
 			list.append_array(m.def.get("drops_unsheared", []))

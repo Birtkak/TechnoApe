@@ -73,6 +73,7 @@
     "spruce_bark": {"hardness": 2.0, "tool": "axe", "drops": "spruce_log", "requires": true},
     "acacia_bark": {"hardness": 2.0, "tool": "axe", "drops": "acacia_log", "requires": true},
     "jungle_bark": {"hardness": 2.0, "tool": "axe", "drops": "jungle_log", "requires": true},
-    "birch_bark": {"hardness": 2.0, "tool": "axe", "drops": "birch_log", "requires": true}
+    "birch_bark": {"hardness": 2.0, "tool": "axe", "drops": "birch_log", "requires": true},
+    "carcass": {"hardness": 0.3, "drops": [{"id": "bone", "count": [1, 3]}, {"id": "raw_meat", "chance": 0.3}]}
   }
 }

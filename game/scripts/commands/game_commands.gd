@@ -63,7 +63,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
 	reg.register("stations", "/stations", "Place a crafting table, chest and furnace ahead", _stations)
-	reg.register("summon", "/summon <sheep|pig> [count] [baby]", "Spawn animals where you look (ADR 0022)", _summon, [["sheep", "pig"], ["1", "2", "4", "8"], ["baby"]])
+	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
+		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 	var atmo: Node = main.get("atmosphere") if main != null else null
 	if atmo != null:
@@ -286,12 +287,15 @@ func _summon(args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("Usage: /summon <%s> [count] [baby]" % "|".join(main.mobs.defs.keys()))
 	var n := clampi(int(args[1]) if args.size() > 1 and args[1].is_valid_int() else 1, 1, 32)
 	var baby := args.size() > 1 and args[args.size() - 1].to_lower() == "baby"
+	var hungry := args.size() > 1 and args[args.size() - 1].to_lower() == "hungry"
 	var fwd := -player.camera.global_transform.basis.z
 	fwd.y = 0
 	var at := player.position + fwd.normalized() * Settings.m2v(3.0)
 	for i in n:
 		var q := at + Vector3(randf_range(-2, 2), 0, randf_range(-2, 2))
-		main.mobs.spawn(sp, Vector3(q.x, q.y + 0.5, q.z), baby, randf() * TAU)
+		var m: Mob = main.mobs.spawn(sp, Vector3(q.x, q.y + 0.5, q.z), baby, randf() * TAU)
+		if hungry and m != null:
+			m.make_hungry()
 	return CommandRegistry.ok("Summoned %d %s%s" % [n, "baby " if baby else "", sp])
 
 

@@ -7,6 +7,7 @@ extends Node3D
 
 var world: World
 var atmosphere: Atmosphere
+var ocean_life: OceanLife   # kelp and fish around the player (ADR 0027)
 var stains: StainMap
 var player: Player
 var bubble: SimBubble
@@ -88,6 +89,10 @@ func _ready() -> void:
 	add_child(player)
 	player.setup_inventory(player_inv, mining, world.prop_material)
 	atmosphere.setup(world, player.camera)
+	ocean_life = OceanLife.new()
+	ocean_life.name = "OceanLife"
+	add_child(ocean_life)
+	ocean_life.setup(world, player.camera)
 	player.voxel_broken.connect(_on_broken)
 	player.voxel_placed.connect(_on_placed)
 	player.item_dropped.connect(_on_item_dropped)

@@ -106,6 +106,8 @@ const SPRUCE_BARK := 98
 const ACACIA_BARK := 99
 const JUNGLE_BARK := 100
 const BIRCH_BARK := 101
+# Wildlife (ADR 0027)
+const CARCASS := 102               # half-eaten remains: what a bear leaves, and the odd old kill in the wild
 
 const ATLAS_TILES := Vector2i(8, 11)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -221,6 +223,8 @@ static func _content_pass2_defs() -> Array:
 		var d := {"name": b[0], "cell_type": "solid", "density": 10, "tiles": [b[1], b[1], b[1]], "transparent": false}
 		d.merge(log_burn)
 		_content2.append(d)
+	# wildlife (ADR 0027): a ribcage with scraps of meat, tiles [meat, bone, blood]
+	_content2.append({"name": "carcass", "cell_type": "solid", "density": 6, "hp": 20, "tiles": [83, 82, 47], "transparent": false, "micro": "carcass"})
 	return _content2
 
 
@@ -618,6 +622,29 @@ static func micro_pattern(kind: String, tiles: Array) -> PackedInt32Array:
 				var z := rng.randi_range(0, g - 1)
 				for y in rng.randi_range(2, 4):
 					_cell(c, x, y, z, blade)
+		"carcass":
+			# a half-eaten animal lying along x: spine, a ribcage open on one side, the skull at
+			# one end, scraps of meat on the ribs and a dark stain under it
+			var bone: int = tiles[1] + 1
+			var stain: int = tiles[2] + 1
+			for x in range(0, g):
+				for z in range(1, g - 1):
+					if rng.randf() < 0.35:
+						_cell(c, x, 0, z, stain)
+			for x in range(1, 7):
+				_cell(c, x, 1, 4, bone)                     # spine
+			for x in range(2, 6):
+				if x % 2 == 0:
+					for h in range(1, 4):
+						_cell(c, x, h, 2, bone)          # ribs on the near side, standing
+					_cell(c, x, 4, 3, bone)
+					_cell(c, x, 1, 6, bone)              # far side: broken off short
+					if rng.randf() < 0.7:
+						_cell(c, x + 1, rng.randi_range(1, 2), 3 + rng.randi_range(0, 1), body)   # meat left on them
+			_box_cells(c, Vector3i(6, 1, 3), Vector3i(8, 3, 6), bone)   # skull
+			_cell(c, 7, 2, 4, 0)                            # eye socket
+			_cell(c, 0, 1, 5, bone)                         # a leg bone
+			_cell(c, 1, 1, 6, bone)
 		"berry_bush":
 			# a low leafy dome (leaf-green tile) dotted with berries (tile 0)
 			var leaf: int = tiles[1] + 1
@@ -804,3 +831,11 @@ static func _cell(c: PackedInt32Array, x: int, y: int, z: int, paint: int) -> vo
 	if x < 0 or y < 0 or z < 0 or x >= g or y >= g or z >= g:
 		return
 	c[x + g * (y + g * z)] = paint
+
+
+## Fills the box [from, to) of a micro pattern with `paint` (cells outside the grid are skipped).
+static func _box_cells(c: PackedInt32Array, from: Vector3i, to: Vector3i, paint: int) -> void:
+	for x in range(from.x, to.x):
+		for y in range(from.y, to.y):
+			for z in range(from.z, to.z):
+				_cell(c, x, y, z, paint)

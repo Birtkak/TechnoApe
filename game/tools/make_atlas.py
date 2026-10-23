@@ -12,7 +12,7 @@ Tiles (index = row*4 + col):
 56 oak log top 57-59 spruce log side/top, needles 60-62 acacia 63-65 jungle
 66-68 terracotta orange/red/cream 69 basalt top 70 basalt side 71 packed ice
 72 fern frond; 73 birch bark 74 birch top 75 birch leaves 76 blueberries
-77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82-87 free (8x11)
+77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84-87 free (8x11)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -414,6 +414,8 @@ tiles = [
     noise_tile((70, 110, 230), 12, (120, 160, 250), 0.2),     # 79 petal blue (cornflower)
     noise_tile((240, 240, 236), 8, (255, 255, 255), 0.2),     # 80 petal white (oxeye daisy)
     noise_tile((160, 80, 200), 12, (200, 120, 230), 0.2),     # 81 petal purple (allium)
+    noise_tile((230, 224, 206), 6, (206, 198, 176), 0.15),    # 82 bone (carcasses)
+    noise_tile((150, 46, 46), 12, (110, 28, 30), 0.25),       # 83 raw meat (carcasses)
 ]
 assert len(tiles) <= COLS * ROWS, len(tiles)
 

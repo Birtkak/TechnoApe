@@ -21,6 +21,7 @@ void WorldGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("generate_block", "origin", "size", "lod", "bytes_per_voxel"), &WorldGen::generate_block, DEFVAL(2));
     ClassDB::bind_method(D_METHOD("map_image", "center_x", "center_z", "radius", "step"), &WorldGen::map_image);
     ClassDB::bind_method(D_METHOD("climate_map", "x0", "z0", "n", "step"), &WorldGen::climate_map);
+    ClassDB::bind_method(D_METHOD("water_floor_map", "x0", "z0", "n", "step"), &WorldGen::water_floor_map);
     ClassDB::bind_static_method("WorldGen", D_METHOD("biome_name", "biome"), &WorldGen::biome_name);
     ClassDB::bind_method(D_METHOD("find_nearest", "kind", "x", "z", "max_radius"), &WorldGen::find_nearest);
     ClassDB::bind_method(D_METHOD("waterfalls_near", "x", "z", "radius"), &WorldGen::waterfalls_near);
@@ -160,6 +161,28 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
 }
 
 WorldGen::Column WorldGen::column(int x, int z) const { return column_base(x, z, true); }
+
+// n x n columns from (x0, z0) every `step` voxels: where open, unfrozen sea or lake
+// water stands over the ground, floor | water_level << 16 (the first water voxel and
+// the first air voxel above it), else -1. For kelp and fish (OceanLife, ADR 0027).
+PackedInt32Array WorldGen::water_floor_map(int x0, int z0, int n, int step) const {
+    PackedInt32Array out;
+    if (n <= 0 || step <= 0) return out;
+    out.resize(n * n);
+    int32_t *o = out.ptrw();
+    for (int j = 0; j < n; j++)
+        for (int i = 0; i < n; i++) {
+            const int x = x0 + i * step, z = z0 + j * step;
+            const Column c = column_base(x, z, false);
+            int floor = c.height, level = sea_;
+            const Hydro hy = hydro_at(x, z, c.height);
+            if (hy.lake) level = std::max(level, hy.water_level);
+            if (hy.river > 0.0f) { floor = std::min(floor, hy.bed); level = std::max(level, hy.water_level); }
+            const bool frozen = technosim_biome::SURFACE_ICE[c.biome] >= 0 || ((hy.lake || hy.marsh) && (c.t < -0.45f || c.snow));
+            o[j * n + i] = (floor < level && !frozen && !hy.marsh) ? (floor | (level << 16)) : -1;
+        }
+    return out;
+}
 
 // n x n final temperatures (lapse included) from (x0, z0) every `step` voxels,
 // as bytes (t + 1) * 127.5, row-major in z: the terrain shader's season map
@@ -1049,6 +1072,9 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
         default: break;
     }
     if (bush > 0 && r >= 1000 - bush) return DEAD_BUSH;
+    // the remains of an old kill (ADR 0027): rare, where predators and grazers meet
+    if (!marsh && (col.biome == PLAINS || col.biome == FOREST || col.biome == TAIGA || col.biome == SAVANNA || col.biome == SHRUBLAND)
+            && (hash3(x, z, seed_ + 97) % 20000u) < 3u) return CARCASS;
     if (shroom > 0 && r >= 1000 - bush - shroom) {
         // red caps in the wet, dark biomes, brown elsewhere
         const bool red = (col.biome == SWAMP || col.biome == OLD_GROWTH_FOREST || col.biome == JUNGLE) && ((v >> 14) & 3) == 0;

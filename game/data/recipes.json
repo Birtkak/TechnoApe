@@ -72,6 +72,8 @@
     {"id": "sift_gravel_iron_nugget", "type": "sift", "station": "sieve", "input": "gravel", "output": {"id": "iron_nugget", "count": 1}, "chance": 0.04},
     {"id": "sift_sand_tin_nugget", "type": "sift", "station": "sieve", "input": "#sand", "output": {"id": "tin_nugget", "count": 1}, "chance": 0.1},
     {"id": "cook_meat_firepit", "type": "smelt", "input": "raw_meat", "output": {"id": "cooked_meat", "count": 1}, "ticks": 300, "station": "firepit"},
-    {"id": "pumpkin_pie", "type": "shapeless", "ingredients": ["pumpkin", "wheat"], "output": {"id": "pumpkin_pie", "count": 1}}
+    {"id": "pumpkin_pie", "type": "shapeless", "ingredients": ["pumpkin", "wheat"], "output": {"id": "pumpkin_pie", "count": 1}},
+    {"id": "fry_egg", "type": "smelt", "input": "egg", "output": {"id": "fried_egg", "count": 1}, "ticks": 200, "station": "furnace"},
+    {"id": "fry_egg_firepit", "type": "smelt", "input": "egg", "output": {"id": "fried_egg", "count": 1}, "ticks": 300, "station": "firepit"}
   ]
 }

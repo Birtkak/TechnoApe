@@ -13,6 +13,14 @@ extends Node3D
 ##   stroll     every ~6 s walk to a random spot up to 10 m away (4 m up or down), preferring
 ##              grass and the herd, avoiding water, lava and drops over 3 m
 ##   look       idle: watch a player within 6 m or look around
+## Predators (data "predator", ADR 0027: bears) think first about, in order:
+##   eat        sit at a fresh kill for eat_s, head down
+##   attack     aggressive ones (and any that were hurt by the player) charge a player in
+##              survival within player_sight_m and bite every attack_s
+##   hunt       when hungry (every hunt_every_s): pick the nearest prey within sight_m,
+##              run it down (it bolts when the bear closes in), bite until it dies;
+##              the kill leaves a carcass and the bear eats
+## Chickens lay an egg every 5-10 minutes and flap down from heights without damage.
 ## Steering: walk straight at the target; the body steps up one voxel by
 ## itself and jumps a two-voxel ledge when it bumps into one; when still
 ## blocked it slides along the wall for a second before giving up the target.
@@ -47,6 +55,8 @@ var on_floor := false
 var in_liquid := false
 var dying := 0.0                # 0 alive, then 0..1 over DEATH_S
 var model: MobModel
+var aggressive := false         # predators: also hunts the player (rolled once per animal, saved)
+var killed_by := ""             # set when a predator's bite killed it: leaves a carcass instead of drops
 
 var _body: VoxelBody
 var _yaw := 0.0
@@ -77,6 +87,12 @@ var _ahead_ok := true          # the brain's last cliff / water check along the 
 var _ahead_dir := Vector3.ZERO
 var _height_v := 2.0
 var _half_v := 0.9
+var _prey: Mob = null
+var _hunger_t := 0.0            # predators: seconds until it hunts again
+var _attack_cd := 0.0
+var _eat_t := 0.0
+var _provoked_t := 0.0          # predators: hurt by the player, chases them for a while
+var _lay_t := 0.0               # chickens: seconds to the next egg
 
 
 static func create(p_manager: MobManager, p_species: String, p_def: Dictionary, baby: bool) -> Mob:
@@ -100,6 +116,14 @@ func _ready() -> void:
 	_apply_size()
 	_last_pos = position
 	_fall_peak = position.y
+	if def.has("predator"):
+		var pr: Dictionary = def["predator"]
+		var hv: Array = pr.get("hunt_every_s", [300, 600])
+		_hunger_t = _rng.randf_range(float(hv[0]) * 0.3, float(hv[1]))
+		if uid > 0 and not has_meta("rolled"):
+			aggressive = float(hash([uid, species]) % 1000) / 1000.0 < float(pr.get("aggressive_chance", 0.0))
+	if def.has("lays"):
+		_lay_t = _lay_interval()
 
 
 func is_baby() -> bool:
@@ -142,15 +166,50 @@ func hurt(amount: int, from: Vector3) -> bool:
 	var away := position - from
 	away.y = 0
 	away = away.normalized() if away.length() > 0.01 else Vector3(_rng.randf_range(-1, 1), 0, _rng.randf_range(-1, 1)).normalized()
-	velocity += away * Settings.m2v(4.0)
-	velocity.y = Settings.m2v(3.0)
-	_panic_t = PANIC_S
+	var heavy := def.has("predator")
+	velocity += away * Settings.m2v(1.5 if heavy else 4.0)
+	velocity.y = Settings.m2v(1.5 if heavy else 3.0)
+	if heavy:
+		# predators turn on whoever hurt them instead of running (the player: chase for 30 s)
+		var eye_p: Vector3 = manager.player_eye()
+		if eye_p != Vector3.INF and from.distance_to(eye_p) < Settings.m2v(6.0):
+			_provoked_t = 30.0
+	else:
+		_panic_t = PANIC_S
 	_target = Vector3.INF
 	_graze_t = 0.0
 	if health <= 0:
 		dying = 0.001
 		goal = "dying"
 	return true
+
+
+## A predator closes in: bolt (prey only).
+func scare() -> void:
+	if not def.has("predator") and not is_dead():
+		_panic_t = maxf(_panic_t, 3.0)
+
+
+## Predators: the prey it was biting died at `at`: eat there, then rest until hungry again.
+func on_kill(at: Vector3) -> void:
+	var pr: Dictionary = def.get("predator", {})
+	_prey = null
+	_eat_t = float(pr.get("eat_s", 10.0))
+	var hv: Array = pr.get("hunt_every_s", [300, 600])
+	_hunger_t = _rng.randf_range(float(hv[0]), float(hv[1]))
+	_look = at
+	_look_t = _eat_t
+	health = mini(int(def.get("health", health)), health + 4)
+
+
+## /summon ... hungry: a predator hunts at once.
+func make_hungry() -> void:
+	_hunger_t = 0.0
+
+
+func _lay_interval() -> float:
+	var r: Array = def["lays"].get("every_s", [300, 600])
+	return _rng.randf_range(float(r[0]), float(r[1]))
 
 
 ## The mob ate (feeding by hand): love, growth.
@@ -226,6 +285,17 @@ func _timers(delta: float) -> void:
 		_graze_t -= delta
 		if _graze_t <= 0.0:
 			_finish_graze()
+	_attack_cd = maxf(0.0, _attack_cd - delta)
+	_provoked_t = maxf(0.0, _provoked_t - delta)
+	if _eat_t > 0.0:
+		_eat_t = maxf(0.0, _eat_t - delta)
+	elif _hunger_t > 0.0:
+		_hunger_t -= delta
+	if _lay_t > 0.0 and not is_baby():
+		_lay_t -= delta
+		if _lay_t <= 0.0:
+			_lay_t = _lay_interval()
+			manager.lay(self)
 
 
 # ---------------- brain ----------------
@@ -249,6 +319,8 @@ func _think() -> void:
 
 
 func _think_goal() -> void:
+	if def.has("predator") and _predator_goal():
+		return
 	# panic: run to random spots around until it wears off
 	if _panic_t > 0.0:
 		goal = "panic"
@@ -327,6 +399,58 @@ func _think_goal() -> void:
 			var a := _yaw + _rng.randf_range(-1.6, 1.6)
 			_look = eye() + Vector3(sin(a), _rng.randf_range(-0.3, 0.2), cos(a)) * 6.0
 			_look_t = _rng.randf_range(1.0, 2.0)
+
+
+## Predator goals (eat, attack the player, hunt); false = fall through to the animal goals.
+func _predator_goal() -> bool:
+	var pr: Dictionary = def["predator"]
+	var run := Settings.m2v(float(pr.get("chase_m", 4.0)))
+	var reach := Settings.m2v(float(pr.get("reach_m", 1.6))) + _half_v
+	if _eat_t > 0.0:
+		goal = "eat"
+		_stop()
+		return true
+	if (aggressive or _provoked_t > 0.0) and manager.player_attackable():
+		var pp: Vector3 = manager.player_feet()
+		var d := pp.distance_to(position)
+		var sight := Settings.m2v(float(pr.get("player_sight_m", 14.0)))
+		if d < sight or (_provoked_t > 0.0 and d < sight * 2.5):
+			goal = "attack"
+			_look = manager.player_eye()
+			_look_t = 0.5
+			if d < reach + Settings.m2v(0.3):
+				_stop()
+				if _attack_cd <= 0.0:
+					_attack_cd = float(pr.get("attack_s", 1.2))
+					manager.maul_player(self, int(pr.get("attack", 6)))
+			else:
+				_go(pp, run, 0.5)
+			return true
+	if _hunger_t <= 0.0 and not is_baby():
+		if _prey == null or not is_instance_valid(_prey) or _prey.is_dead():
+			_prey = manager.find_prey(self)
+			if _prey == null:
+				_hunger_t = 20.0   # nothing about: look again later
+				return false
+		var d := _prey.position.distance_to(position)
+		if d > Settings.m2v(float(pr.get("sight_m", 24.0))) * 1.5:
+			_prey = null
+			_hunger_t = 30.0   # it got away
+			return false
+		goal = "hunt"
+		_look = _prey.eye()
+		_look_t = 0.5
+		if d < Settings.m2v(8.0):
+			_prey.scare()
+		if d < reach + _prey._half_v:
+			_stop()
+			if _attack_cd <= 0.0:
+				_attack_cd = float(pr.get("attack_s", 1.2))
+				manager.maul(self, _prey, int(pr.get("attack", 6)))
+		else:
+			_go(_prey.position, run, 0.5)
+		return true
+	return false
 
 
 func _go(t: Vector3, speed: float, arrive: float = 0.8) -> void:
@@ -420,6 +544,8 @@ func _move(delta: float) -> void:
 		velocity.y = move_toward(velocity.y, Settings.m2v(1.6), Settings.m2v(Settings.gravity_m) * 0.6 * delta)
 	else:
 		velocity.y -= Settings.m2v(Settings.gravity_m) * delta
+		if def.get("slow_fall", false):
+			velocity.y = maxf(velocity.y, -Settings.m2v(1.2))   # chickens flap down
 	var got := _body.move(position, velocity, delta, world.terrain, on_floor)
 	position += got
 	var blocked := _body.blocked.x > 0.0 or _body.blocked.z > 0.0
@@ -458,7 +584,7 @@ func _land(_delta: float) -> void:
 		var fall_m := Settings.v2m(_fall_peak - position.y)
 		if not in_liquid:
 			manager.landed(self, fall_m)
-			var dmg := int(ceil(fall_m - 3.0))
+			var dmg := 0 if def.get("slow_fall", false) else int(ceil(fall_m - 3.0))
 			if dmg > 0:
 				hurt(dmg, position)
 	if on_floor or in_liquid or position.y > _fall_peak:
@@ -476,6 +602,9 @@ func _animate(delta: float) -> void:
 	_head_yaw = move_toward(_head_yaw, yaw_want, HEAD_TURN * delta)
 	_head_pitch = move_toward(_head_pitch, pitch_want, HEAD_TURN * delta)
 	var graze := clampf(minf(_graze_t, GRAZE_S - _graze_t) * 4.0, 0.0, 1.0) if _graze_t > 0.0 else 0.0
+	if _eat_t > 0.0:
+		graze = clampf(_eat_t * 2.0, 0.0, 1.0)   # tearing at the kill
+	model.flapping = not on_floor and not in_liquid
 	model.animate(delta, Vector2(velocity.x, velocity.z).length(), graze, _head_yaw, _head_pitch, 0.0)
 
 
@@ -484,7 +613,7 @@ func _animate(delta: float) -> void:
 func to_dict() -> Dictionary:
 	return {"species": species, "uid": uid, "pos": [snappedf(position.x, 0.01), snappedf(position.y, 0.01), snappedf(position.z, 0.01)],
 		"yaw": snappedf(_yaw, 0.01), "health": health, "age_s": snappedf(age_s, 0.1), "love_s": snappedf(love_s, 0.1),
-		"breed_cooldown_s": snappedf(breed_cooldown_s, 0.1), "sheared": sheared}
+		"breed_cooldown_s": snappedf(breed_cooldown_s, 0.1), "sheared": sheared, "aggressive": aggressive}
 
 
 func load_from(d: Dictionary) -> void:
@@ -497,8 +626,11 @@ func load_from(d: Dictionary) -> void:
 	love_s = float(d.get("love_s", 0.0))
 	breed_cooldown_s = float(d.get("breed_cooldown_s", 0.0))
 	sheared = bool(d.get("sheared", false))
+	if d.has("aggressive"):
+		aggressive = bool(d["aggressive"])
+		set_meta("rolled", true)
 
 
 func summary() -> Dictionary:
 	return {"species": species, "uid": uid, "goal": goal, "pos": position.snapped(Vector3.ONE * 0.1), "health": health,
-		"baby": is_baby(), "love": love_s > 0.0, "sheared": sheared}
+		"baby": is_baby(), "love": love_s > 0.0, "sheared": sheared, "aggressive": aggressive}

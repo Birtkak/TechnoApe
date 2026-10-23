@@ -24,9 +24,15 @@ const EYE := 7
 const NOSTRIL := 8
 const PINK_LIGHT := 9
 const SHORN := 10        # a sheared sheep's short fleece
+const RED := 11          # chicken comb and wattle (ADR 0027)
+const YELLOW := 12       # chicken beak and legs
+const FUR := 13          # bear
+const FUR_DARK := 14     # bear legs, ears, paws
+const MUZZLE := 15       # bear snout
 const PALETTE: Array = [
 	[236, 236, 230], [214, 212, 204], [218, 190, 160], [150, 120, 96], [240, 162, 160], [212, 116, 120],
 	[250, 250, 248], [26, 22, 22], [120, 52, 60], [250, 186, 182], [226, 212, 186],
+	[200, 40, 36], [236, 186, 60], [104, 70, 44], [70, 46, 30], [160, 124, 90],
 ]
 
 static var _material: StandardMaterial3D
@@ -36,7 +42,9 @@ static var _meshes := {}   # "species/part/variant" -> ArrayMesh
 var species := "sheep"
 var head: MeshInstance3D
 var body: MeshInstance3D
-var legs: Array[MeshInstance3D] = []   # front left, front right, back left, back right
+var legs: Array[MeshInstance3D] = []   # front left, front right, back left, back right (chickens: left, right)
+var wings: Array[MeshInstance3D] = []  # chickens
+var flapping := false                  # set by Mob while in the air
 var _phase := 0.0
 var _time := 0.0
 var _sheared := false
@@ -52,7 +60,7 @@ static func material() -> StandardMaterial3D:
 	rng.seed = 7171
 	for t in PALETTE.size():
 		var base: Array = PALETTE[t]
-		var spread := 7 if t in [WOOL, WOOL_SHADE, SHORN] else 4
+		var spread := 7 if t in [WOOL, WOOL_SHADE, SHORN, FUR, FUR_DARK] else 4
 		for y in 16:
 			for x in 16:
 				var k := rng.randi_range(-spread, spread)
@@ -73,7 +81,8 @@ static func material() -> StandardMaterial3D:
 ## ~25 ms, a frame spike when the first herd spawns otherwise.
 static func prewarm() -> void:
 	var m := MobModel.new()
-	for key in [["sheep", ["body", "body_shorn", "head", "leg", "leg_shorn"]], ["pig", ["body", "head", "leg"]]]:
+	for key in [["sheep", ["body", "body_shorn", "head", "leg", "leg_shorn"]], ["pig", ["body", "head", "leg"]],
+			["chicken", ["body", "head", "leg", "wing"]], ["bear", ["body", "head", "leg"]]]:
 		m.species = key[0]
 		for part in key[1]:
 			m._mesh(part)
@@ -90,7 +99,20 @@ static func create(p_species: String, sheared: bool) -> MobModel:
 func _ready() -> void:
 	material()
 	var s := 1.0 / GRID
-	if species == "pig":
+	if species == "chicken":
+		body = _part("body", Vector3(0, 7, 0) * s)
+		head = _part("head", Vector3(0, 15, 6) * s)
+		for p in [Vector3(2.5, 8, 0), Vector3(-2.5, 8, 0)]:
+			legs.append(_part("leg", p * s))
+		for p in [Vector3(7, 16, 0), Vector3(-7, 16, 0)]:
+			wings.append(_part("wing", p * s))
+	elif species == "bear":
+		body = _part("body", Vector3(0, 16, 0) * s)
+		head = _part("head", Vector3(0, 30, 22) * s)
+		var hip := 20.0
+		for p in [Vector3(7, hip, 14), Vector3(-7, hip, 14), Vector3(7, hip, -14), Vector3(-7, hip, -14)]:
+			legs.append(_part("leg", p * s))
+	elif species == "pig":
 		body = _part("body", Vector3(0, 12, 0) * s)
 		head = _part("head", Vector3(0, 18, 14) * s)
 		var hip := 12.0
@@ -142,9 +164,13 @@ func animate(delta: float, speed: float, graze: float, head_yaw: float, head_pit
 	var amp := clampf(speed / 3.0, 0.0, 1.0) * 0.75 if moving else 0.0
 	var sw := sin(_phase) * amp
 	legs[0].rotation.x = sw
-	legs[3].rotation.x = sw
 	legs[1].rotation.x = -sw
-	legs[2].rotation.x = -sw
+	if legs.size() == 4:
+		legs[3].rotation.x = sw
+		legs[2].rotation.x = -sw
+	for i in wings.size():
+		var flap := sin(_time * 28.0) * 0.9 if flapping else 0.0
+		wings[i].rotation.z = flap * (1.0 if i == 0 else -1.0)
 	body.position.y = body.position.y   # the body stays; the hips carry it
 	# grazing: the head drops to the grass and chews
 	var chew := sin(_time * 18.0) * 0.08 * graze
@@ -199,6 +225,69 @@ static func _build(sp: String, part: String) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(sp + part)
 	var s := 1.0 / GRID
+	if sp == "chicken":
+		match part:
+			"body":
+				# 6 x 5 x 8 px of white feathers with a tail tuft at the back
+				var size := Vector3i(12, 12, 16)
+				var c := _cells(size)
+				_box(c, size, Vector3i(0, 0, 2), Vector3i(12, 10, 16), WOOL + 1)
+				_box(c, size, Vector3i(3, 8, 0), Vector3i(9, 12, 4), WOOL + 1)
+				for i in 24:
+					_put(c, size, Vector3i(rng.randi_range(0, 11), rng.randi_range(0, 9), rng.randi_range(2, 15)), WOOL_SHADE + 1)
+				return [c, size, Vector3(-6, 0, -8) * s]
+			"head":
+				# 4 x 6 x 3 px with a beak, red comb on top and wattle under it
+				var size := Vector3i(8, 14, 10)
+				var c := _cells(size)
+				_box(c, size, Vector3i(0, 0, 0), Vector3i(8, 12, 6), WOOL + 1)
+				_box(c, size, Vector3i(2, 6, 6), Vector3i(6, 8, 10), YELLOW + 1)
+				_box(c, size, Vector3i(3, 3, 6), Vector3i(5, 6, 8), RED + 1)
+				_box(c, size, Vector3i(3, 12, 1), Vector3i(5, 14, 5), RED + 1)
+				for x in [0, 7]:
+					_box(c, size, Vector3i(x, 8, 3), Vector3i(x + 1, 10, 5), EYE + 1)
+				return [c, size, Vector3(-4, -2, -2) * s]
+			"leg":
+				var size := Vector3i(2, 8, 4)
+				var c := _cells(size)
+				_box(c, size, Vector3i(0, 0, 0), Vector3i(2, 8, 2), YELLOW + 1)
+				_box(c, size, Vector3i(0, 0, 0), Vector3i(2, 1, 4), YELLOW + 1)   # toes
+				return [c, size, Vector3(-1, -8, -1) * s]
+			"wing":
+				var size := Vector3i(2, 8, 10)
+				var c := _cells(size)
+				_box(c, size, Vector3i(0, 0, 0), size, WOOL_SHADE + 1)
+				return [c, size, Vector3(-1, -8, -5) * s]
+	if sp == "bear":
+		match part:
+			"body":
+				# 12 x 11 x 22 px of shaggy brown fur, a shoulder hump at the front
+				var size := Vector3i(24, 26, 44)
+				var c := _cells(size)
+				_box(c, size, Vector3i(0, 0, 0), Vector3i(24, 22, 44), FUR + 1)
+				_box(c, size, Vector3i(3, 22, 24), Vector3i(21, 26, 38), FUR + 1)
+				for i in 220:
+					_put(c, size, Vector3i(rng.randi_range(0, 23), rng.randi_range(0, 25), rng.randi_range(0, 43)), FUR_DARK + 1)
+				_box(c, size, Vector3i(0, 0, 0), Vector3i(24, 2, 44), FUR_DARK + 1)   # belly shadow
+				return [c, size, Vector3(-12, 0, -22) * s]
+			"head":
+				# 8 x 7 x 8 px with a lighter muzzle, black nose, small round ears
+				var size := Vector3i(16, 18, 22)
+				var c := _cells(size)
+				_box(c, size, Vector3i(0, 0, 0), Vector3i(16, 15, 16), FUR + 1)
+				_box(c, size, Vector3i(4, 1, 16), Vector3i(12, 8, 22), MUZZLE + 1)
+				_box(c, size, Vector3i(6, 6, 21), Vector3i(10, 8, 22), EYE + 1)    # nose
+				for x in [0, 12]:
+					_box(c, size, Vector3i(x, 15, 6), Vector3i(x + 4, 18, 9), FUR_DARK + 1)   # ears
+				for x in [2, 11]:
+					_box(c, size, Vector3i(x, 9, 15), Vector3i(x + 3, 11, 16), EYE + 1)
+				return [c, size, Vector3(-8, -6, -2) * s]
+			"leg":
+				var size := Vector3i(10, 20, 10)
+				var c := _cells(size)
+				_box(c, size, Vector3i(0, 0, 0), size, FUR_DARK + 1)
+				_box(c, size, Vector3i(0, 0, 0), Vector3i(10, 3, 10), EYE + 1)   # paws
+				return [c, size, Vector3(-5, -20, -5) * s]
 	if sp == "pig":
 		match part:
 			"body":

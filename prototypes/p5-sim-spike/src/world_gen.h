@@ -69,7 +69,8 @@ public:
         TERRACOTTA = 82, TERRACOTTA_RED = 83, TERRACOTTA_CREAM = 84, BASALT = 85, PACKED_ICE = 86, FERN = 87,
         // 88..89 work pieces (ADR 0023, never generated); content pass 2
         BIRCH_LOG = 90, BIRCH_LEAVES = 91, BLUEBERRY_BUSH = 92, PUMPKIN = 93, CORNFLOWER = 94, OXEYE_DAISY = 95, ALLIUM = 96,
-        OAK_BARK = 97, SPRUCE_BARK = 98, ACACIA_BARK = 99, JUNGLE_BARK = 100, BIRCH_BARK = 101
+        OAK_BARK = 97, SPRUCE_BARK = 98, ACACIA_BARK = 99, JUNGLE_BARK = 100, BIRCH_BARK = 101,
+        CARCASS = 102   // wildlife (ADR 0027)
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,
@@ -104,6 +105,7 @@ public:
     // "alpine" | "snow" | "mountain" | any biome name) within max_radius of (x, z).
     // Returns Vector3i(x, ground_y, z) or Vector3i(0, -1, 0) when none.
     PackedByteArray climate_map(int x0, int z0, int n, int step) const;
+    PackedInt32Array water_floor_map(int x0, int z0, int n, int step) const;
     Vector3i find_nearest(const String &kind, int x, int z, int max_radius) const;
     // Waterfalls within radius voxels of (x, z): [{x, y, z, top, dir_x, dir_z}] with (x, y, z) the
     // first air voxel at the foot of the sheet and (dir_x, dir_z) the flow direction (unit).

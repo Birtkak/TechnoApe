@@ -1,5 +1,5 @@
 {
-  "_comment": "Passive animals (ADR 0022). Distances and speeds in metres (Minecraft blocks are 1 m, so its values carry over), times in seconds, health in half-hearts. food = items that tempt (the mob follows a player holding one), breed adults and grow babies; drops = death drop list like mining.json (adults only, as in Minecraft); shear = what shears give (sheep), the wool grows back when it grazes. biomes = where herds spawn when the land first comes near a player; weight = Minecraft's spawn weight among the species of a biome; group = herd size.",
+  "_comment": "Passive animals (ADR 0022). Distances and speeds in metres (Minecraft blocks are 1 m, so its values carry over), times in seconds, health in half-hearts. food = items that tempt (the mob follows a player holding one), breed adults and grow babies; drops = death drop list like mining.json (adults only, as in Minecraft); shear = what shears give (sheep), the wool grows back when it grazes. biomes = where herds spawn when the land first comes near a player; weight = Minecraft's spawn weight among the species of a biome; group = herd size. Wildlife (ADR 0027): lays = {item, every_s [min, max]} (chickens); slow_fall = flaps down without fall damage; legs = 2 or 4; rarity = chance a herd of this species really spawns once picked (bears are rare); predator = {prey: species it hunts, hunt_every_s: hunger interval, sight_m, chase_m: run speed, attack: half-hearts, attack_s: between bites, reach_m, eat_s: time at a kill, aggressive_chance: share that also hunt the player, player_sight_m}; predators do not panic when hurt, they turn on the attacker. A kill leaves a carcass, not drops.",
   "spawn": {
     "cell_m": 16,
     "chance": 0.1,
@@ -19,32 +19,182 @@
     "sheep": {
       "name": "Sheep",
       "health": 8,
-      "size_m": [0.9, 1.3],
+      "size_m": [
+        0.9,
+        1.3
+      ],
       "walk_m": 1.1,
       "panic_m": 2.6,
       "tempt_m": 1.35,
-      "food": ["wheat"],
-      "drops": [{"id": "raw_meat", "count": [1, 2]}],
-      "drops_unsheared": [{"id": "wool"}],
-      "shear": [{"id": "wool", "count": [1, 3]}],
+      "food": [
+        "wheat"
+      ],
+      "drops": [
+        {
+          "id": "raw_meat",
+          "count": [
+            1,
+            2
+          ]
+        }
+      ],
+      "drops_unsheared": [
+        {
+          "id": "wool"
+        }
+      ],
+      "shear": [
+        {
+          "id": "wool",
+          "count": [
+            1,
+            3
+          ]
+        }
+      ],
       "grazes": true,
-      "biomes": ["plains"],
+      "biomes": [
+        "plains"
+      ],
       "weight": 12,
-      "group": [2, 4]
+      "group": [
+        2,
+        4
+      ]
     },
     "pig": {
       "name": "Pig",
       "health": 10,
-      "size_m": [0.9, 0.9],
+      "size_m": [
+        0.9,
+        0.9
+      ],
       "walk_m": 1.2,
       "panic_m": 2.8,
       "tempt_m": 1.45,
-      "food": ["carrot"],
-      "drops": [{"id": "raw_meat", "count": [1, 3]}],
+      "food": [
+        "carrot"
+      ],
+      "drops": [
+        {
+          "id": "raw_meat",
+          "count": [
+            1,
+            3
+          ]
+        }
+      ],
       "grazes": true,
-      "biomes": ["plains"],
+      "biomes": [
+        "plains"
+      ],
       "weight": 10,
-      "group": [2, 4]
+      "group": [
+        2,
+        4
+      ]
+    },
+    "chicken": {
+      "name": "Chicken",
+      "health": 4,
+      "size_m": [
+        0.4,
+        0.7
+      ],
+      "walk_m": 1.0,
+      "panic_m": 2.2,
+      "tempt_m": 1.1,
+      "food": [
+        "wheat_seeds"
+      ],
+      "drops": [
+        {
+          "id": "raw_meat"
+        },
+        {
+          "id": "feather",
+          "count": [
+            0,
+            2
+          ]
+        }
+      ],
+      "lays": {
+        "item": "egg",
+        "every_s": [
+          300,
+          600
+        ]
+      },
+      "slow_fall": true,
+      "legs": 2,
+      "biomes": [
+        "plains",
+        "forest",
+        "savanna"
+      ],
+      "weight": 10,
+      "group": [
+        2,
+        4
+      ]
+    },
+    "bear": {
+      "name": "Bear",
+      "health": 30,
+      "size_m": [
+        1.4,
+        1.4
+      ],
+      "walk_m": 0.9,
+      "panic_m": 2.0,
+      "tempt_m": 1.1,
+      "food": [
+        "blueberry"
+      ],
+      "drops": [
+        {
+          "id": "raw_meat",
+          "count": [
+            2,
+            4
+          ]
+        },
+        {
+          "id": "bear_hide"
+        }
+      ],
+      "predator": {
+        "prey": [
+          "sheep",
+          "pig",
+          "chicken"
+        ],
+        "hunt_every_s": [
+          240,
+          600
+        ],
+        "sight_m": 24,
+        "chase_m": 4.4,
+        "attack": 6,
+        "attack_s": 1.2,
+        "reach_m": 1.6,
+        "eat_s": 10,
+        "aggressive_chance": 0.25,
+        "player_sight_m": 14
+      },
+      "biomes": [
+        "forest",
+        "taiga",
+        "old_growth_forest",
+        "snowy_taiga"
+      ],
+      "weight": 4,
+      "group": [
+        1,
+        1
+      ],
+      "rarity": 0.35
     }
   }
 }
