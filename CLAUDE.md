@@ -75,7 +75,9 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   `ParticleFx._prewarm`; anything else drawn mid-game for the first time needs the same.
   Play loads through the SQLite save; benchmarks do not: measure the save path
   with `persist=1 seed=<unused>` when loading or streaming changes (ADR 0017).
-- One world unit = one voxel = 0.5 m. Tunables live in `scripts/settings.gd` in metres.
+- One world unit = one voxel = 12.5 cm (ADR 0033); `Settings.BLOCK` = 4 voxels = the 0.5 m block that
+  stations, furniture, work pieces and recipe units keep (ADR 0034). Tunables live in `scripts/settings.gd`
+  in metres: never write a distance in voxels as a bare number (convert with `Settings.m2v` or a BLOCK multiple).
 - The title screen is the main scene (ADR 0032: worlds list, Settings with graphics presets in
   `user://settings.cfg`, Esc pauses with Settings and save-and-quit, the player is saved with the
   world). `autopilot=1` or `play=1` skip it; `menu_test=1` checks the menus.
@@ -140,12 +142,19 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   store as cells; plants are their pattern cells, columns fall together). **Next:** chisel as brick
   expansion (fable-backlog job 2: edits into the micro cells replace ADR 0006's overlay meshes), P4 server
   headless check.
-- **Overhaul (ADR 0033, proposed 2026-10-23, the user's direction):** the world
-  becomes Lay of the Land style: one 12.5 cm voxel grid for everything,
-  flat-coloured voxels, brush digging with material amounts, shape building.
-  Plan and gates: `docs/plans/lotl-overhaul.md` (step 1 = P12 spike, godot_voxel
-  at 12.5 cm with a 2 km horizon). Built behind `world_v2=1`; the 0.5 m notes
-  below describe the current game until the flag goes default.
+- **Lay of the Land overhaul ✓ (ADR 0033, 0034, 2026-10-23, the user's direction; it supersedes the
+  brick world, near field and micro window above, which are deleted):** one 12.5 cm voxel grid for
+  terrain, simulation, collision and rendering. Native `FineGen` draws the voxels over `WorldGen`'s 0.5 m
+  climate/biomes/hydrology (`tools/fine_probe.gd`, `tools/fine_gen_bench.gd`); flat colours (one texel of
+  the material's tile per voxel, `voxel_sample`), props keep pixel art (`terrain_prop.gdshader`);
+  `SimBubble` ticks a wrapped 64 x 32 x 64 m window of the world's voxels. Brush digging and building
+  (`scripts/player/brush.gd`: Ctrl + wheel size, B shape), voxel items count in voxels and recipes in
+  blocks of 64 (`ItemRegistry.units`), block entities cover footprints (`BlockEntities.footprint`).
+  Scripted tests (`stone_age_test`, `flint_age_test`, `hands_test`, `swim_test`, `menu_test`) pass.
+  **Next:** the look pass (palettes, water, crowns, grade: taste calls), fire/smoke pacing per cell,
+  fast flight outrunning generation, the water spill / blast / `persist=1` runs; plan in
+  `docs/plans/lotl-overhaul.md`. Old notes below about micro models at 6.25 cm and one-voxel blocks
+  describe the 0.5 m game.
 - In-world voxels follow ADR 0006: terrain ids + one block-entity layer
   (`scripts/blocks/`) + reserved decor layer; every voxel chiselable on an
   8³ cell grid (6.25 cm) through the native `MicroMesher`, which also builds
@@ -154,8 +163,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   append only; 47 = blood (ADR 0015); 48..52 ground pickups (ADR 0019); 57..75 animals/farming/furniture
   (ADR 0022). Atlas 8×12 tiles (ADR 0024, 0030; 84..87 and 93..95 free, grow ROWS for more); 103..107 = Flint Age depth (thatch, wattle, daub wall, torch, storage pot, ADR 0030); 76..87 = content pass (tree kinds, terracotta, basalt, packed ice, fern), 90..101 = content pass 2 (birch, blueberry bush, pumpkin, flowers, bark). 88..89 = work spots (ADR 0023: drawn by `scripts/work/` entities from `MicroMesher.build_arrays` with the winding flipped in the arrays; `MobModel.outward` reads an ArrayMesh back, which waits 4-6 ms for the render thread, so never call it per edit). MicroMesher winds
   triangles counter-clockwise: pass its meshes through `MobModel.outward` (terrain models, mobs, furniture, the ape).
-- Two sessions share this checkout (this one and "PC testing and
-  optimization"): stage files explicitly, never `git add -A`; Biome enum ids
+- When another session shares this checkout, stage files explicitly, never `git add -A`; Biome enum ids
   0..12 in world_gen.h stay stable; biome_table.gen.h is generated.
 - Phase 3: wands/spells, machines, recipe browser depth (machine recipes, bookmarks)
 - Phase 4: automation depth, dedicated server on Unraid, auto-update

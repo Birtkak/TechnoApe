@@ -517,9 +517,13 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 const bool grassy = top_m == Mat::GRASS;
                 switch (kind) {
                     case Mat::AIR: break;
-                    case Mat::TALL_GRASS:
-                        if ((hv & 7) < 3) { veg = Mat::TALL_GRASS; veg_h = 1 + (int)((hv >> 3) % 3); }
+                    case Mat::TALL_GRASS: {
+                        // tufts on about a third of the columns, mostly one voxel tall, so the ground reads
+                        // as grass with tufts rather than a carpet of cubes
+                        const uint32_t th = (hv >> 4) % 20;
+                        if ((hv & 15) < 5) { veg = Mat::TALL_GRASS; veg_h = th < 13 ? 1 : (th < 19 ? 2 : 3); }
                         break;
+                    }
                     case Mat::FERN:
                         if ((hv & 7) < 4) { veg = Mat::FERN; veg_h = 2 + (int)((hv >> 3) % 3); }
                         break;

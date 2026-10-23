@@ -1,8 +1,10 @@
 # 0033 – A Lay of the Land world: one 12.5 cm voxel grid, flat colours, brushes
 
-- **Status:** proposed 2026-10-23. The direction (scale, look, interaction) is
-  the user's call and is settled; the architecture below is gated by the P12
-  spike (`docs/plans/lotl-overhaul.md`) before any of it replaces the 0.5 m game.
+- **Status:** accepted 2026-10-23 and built. The direction (scale, look,
+  interaction) is the user's call; the user then said "change everything
+  needed ... only keep what fits the picture", so the game was rebuilt in place
+  instead of behind a `world_v2` flag (git history keeps the 0.5 m game).
+  Measurements below; digging, units and footprints are ADR 0034.
 - **Date:** 2026-10-23
 
 ## Context
@@ -101,3 +103,50 @@ variant (b).
 - Revisit: if P12 cannot hold the budget with a useful LOD 0 radius, 25 cm
   near-LOD with 12.5 cm only inside the bubble is the fallback, decided with
   the user (it changes the look).
+
+## What was built and measured (2026-10-23)
+- **Generator:** `FineGen` (native, `prototypes/p5-sim-spike/src/fine_gen.*`) draws
+  12.5 cm voxels over `WorldGen`'s 0.5 m fields: lattice-interpolated surface plus
+  ground noise, soil about a metre deep, rock where the real slope is steep,
+  caves from a trilinear field of WorldGen's cave noises, voxel trees (tapered
+  trunks with root flare, branches, leaf blobs; spruce cones; acacia discs),
+  tufts, flowers on stems, boulders, bushes, logs; ruins, ores (25 cm grains in
+  GregTech layers), hydrology, waterfalls and biomes as before. 0.1-0.2 ms per
+  16^3 block on one thread (`tools/fine_gen_bench.gd`). `GEN_VERSION` 12.
+- **Look:** a terrain voxel shows one texel of its material's tile, picked by a
+  hash of its position (`voxel_sample` in `terrain_common.gdshaderinc`), fading
+  to the tile average from 40 m; props keep pixel art (`terrain_prop.gdshader`).
+- **Rendering:** variant (a), meshed all the way in. godot_voxel at 12.5 cm with
+  full detail to 24 m (`render_distance_m`), 24 m rings and 8 LODs (horizon
+  ~3 km) holds the budget, so the ray-cast near field (ADR 0021) is deleted with
+  the brick store, `NearFieldFeed` and the micro window (ADR 0029).
+- **Simulation:** `SimBubble` ticks the world's voxels in a wrapped 32 x 16 x 32
+  chunk window (64 x 32 x 64 m, 268 MB): a move shifts an offset (0.2 ms), waiting
+  chunks are a bitmask per column, loaded one terrain copy per column run,
+  nearest first (at most 1.7 ms a frame). Columns beyond the streamed LOD 0
+  data wait as walls. Kernel v6 conditions as before (cascade, cell budget 1.5 M,
+  LOD at 12 m); gravity set per cell size.
+
+Budget runs (dev box, 1280x720, vsync off, 20 s after load):
+
+| scenario | p50 | p99 | max | > 16.7 ms | note |
+|---|---|---|---|---|---|
+| standing | 3.0 | 5.3 | 8.0 | 0 | 3.8 M triangles |
+| fly 6 m/s, 30 m up | 3.2 | 4.3-4.6 | 5.9-22 | 0-2 | rare render-thread frame while LOD rings shift |
+| fly 20 m/s | 3.1 | 4.4-4.6 | 14-28 | 0-2 | terrain keeps up (backlog drains) |
+| fast flight 40 m/s | 1.0-1.9 | 3.5-6.8 | 13-17 | 0 | generation falls behind: the ground is not drawn |
+| walk + mine + place | 2.9 | 4.8 | 8.9 | 0 | |
+| forest fire (`fire_test=56`, 7 m) | 4.7 | 5.9 | 8.5 | 0 | 32 k voxels lit |
+
+RSS 2.2-2.4 GB, VRAM 0.8-1.0 GB. Not yet run on the fine grid: the water spill
+and blast scenarios of ADR 0014, and `persist=1` streaming through the save.
+
+Open, in order of weight:
+- Fast flight (40 m/s) outruns generation at 12.5 cm; 20 m/s (creative flight) keeps up.
+- A render-thread frame of 15-22 ms now and then while LOD rings shift (0-2 per
+  20 s of flight); not reproducible on demand.
+- Fire, smoke and gas pace per cell (ADR 0029's note): smoke now hangs as a
+  grey cloud of 12.5 cm cells; materials need retuning for the cell size.
+- The look: palettes per material (ore voxels show their tile's stone texels
+  most of the time), water colour and depth, crowns less round, grass density
+  per biome; a colour grade to choose with the user.

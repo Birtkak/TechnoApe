@@ -8,8 +8,9 @@
 - **How to start one:** "Read `docs/plans/fable-backlog.md` and do job N."
   Each job lists what to read first, what is already known, and what done
   looks like. Tick a job off here (and in CLAUDE.md's phase plan) when it lands.
-- **2026-10-23: ADR 0033 (Lay of the Land world, 12.5 cm one grid) reshapes jobs 1-4;** its plan is `docs/plans/lotl-overhaul.md` and comes first.
-- Next free ADR number: **0034** (0031 = frame breakdown, 0032 = title screen, 0033 = Lay of the Land world); older note: (0028 = progression book, 0029 = micro simulation window, 0030 = Flint Age depth) (0022 = animals, farming and furniture; 0023 = Vintage Story early game; 0024 = content pass; 0025 = calendar and sky; 0026 = particles; 0027 = wildlife).
+- **2026-10-23: ADR 0033/0034 (Lay of the Land world, one 12.5 cm grid) made jobs 2-4 obsolete** (no bricks,
+  near field or chisel layer left: chiseling is the brush at size 1); its plan is `docs/plans/lotl-overhaul.md`.
+- Next free ADR number: **0035** (0031 = frame breakdown, 0032 = title screen, 0033 = Lay of the Land world); older note: (0028 = progression book, 0029 = micro simulation window, 0030 = Flint Age depth) (0022 = animals, farming and furniture; 0023 = Vintage Story early game; 0024 = content pass; 0025 = calendar and sky; 0026 = particles; 0027 = wildlife).
 
 Recommended order: 1, 2, 3 (ADR 0012's remaining steps, they depend on each
 other), then 4, then 5-7 as Phase 3/4 start. 8 is ongoing.

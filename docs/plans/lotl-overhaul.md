@@ -4,6 +4,11 @@
 - **Goal:** the whole world at 12.5 cm voxels, flat-coloured, fully
   destructible and simulated, dug and built with brushes. Built behind
   `world_v2=1`; the 0.5 m game keeps running until the new one beats it.
+- **Status 2026-10-23:** built in place (the user: "change everything needed"), not behind a flag.
+  Done: step 1 (variant (a), meshed; measured in ADR 0033), step 3's generator core (FineGen),
+  step 4 (bubble on the voxels), step 5 (ADR 0034: brush, units, footprints, every scripted test),
+  step 6's deletions (near field, brick store, micro window). Open: step 2 (the look, taste calls),
+  fire pacing, fast flight vs generation, water spill / blast / `persist=1` runs, structural collapse.
 - **Rule:** each step lands only when its check passes (ADR 0009 budget on the
   dev box, measured as ADR 0014 says; screenshots or filmstrips for looks).
   Steps 1-2 gate the architecture; later steps can split across sessions.

@@ -1260,45 +1260,41 @@ func _debug_farm() -> void:
 func _debug_swim() -> void:
 	var r := {}
 	player.set_game_mode(GameMode.SURVIVAL)
+	# a stone tub of 0.5 m blocks (ADR 0034): 5 x 5 blocks of water 4 blocks deep, its surface one block under the rim
+	var B := Settings.BLOCK
 	var base := Vector3i(player.position.floor())
-	var c := Vector3i(base.x, 0, base.z - 4)
+	var c := Vector3i(base.x, 0, base.z - 4 * B)
 	var g: int = world.surface_height(c.x, c.z)
-	for dx in range(-3, 4):
-		for dz in range(-3, 4):
-			var edge := absi(dx) == 3 or absi(dz) == 3
-			for y in range(g - 4, g + 4):
-				var m := GameMaterials.AIR
-				if edge:
-					m = GameMaterials.STONE if y <= g else GameMaterials.AIR
-				elif y < g:
-					m = GameMaterials.WATER_STATIC
-				set_world_voxel(Vector3i(c.x + dx, y, c.z + dz), m)
-			set_world_voxel(Vector3i(c.x + dx, g - 5, c.z + dz), GameMaterials.STONE)
+	_debug_fill(Vector3i(c.x - 3 * B, g - 5 * B, c.z - 3 * B), Vector3i(c.x + 4 * B, g + B, c.z + 4 * B), GameMaterials.STONE)
+	_debug_fill(Vector3i(c.x - 2 * B, g - 4 * B, c.z - 2 * B), Vector3i(c.x + 3 * B, g, c.z + 3 * B), GameMaterials.WATER_STATIC)
+	_debug_fill(Vector3i(c.x - 2 * B, g, c.z - 2 * B), Vector3i(c.x + 3 * B, g + 4 * B, c.z + 3 * B), GameMaterials.AIR)
+	_debug_fill(Vector3i(c.x - 3 * B, g + B, c.z - 3 * B), Vector3i(c.x + 4 * B, g + 5 * B, c.z + 4 * B), GameMaterials.AIR)
 	await get_tree().create_timer(0.5).timeout
 	player.autopilot = false
-	player.teleport(Vector3(c.x + 0.5, g - 1.5, c.z + 0.5))
+	player.teleport(Vector3(c.x + 0.5, g - 1.5 * B, c.z + 0.5))
 	await get_tree().create_timer(3.0).timeout
-	r["floor_y"] = g - 4
+	r["floor_y"] = g - 4 * B
 	r["y_after_sink"] = snappedf(player.position.y, 0.01)
-	r["stands_on_floor"] = player.is_on_floor() and player.in_liquid and absf(player.position.y - (g - 4)) < 0.05
+	r["stands_on_floor"] = player.is_on_floor() and player.in_liquid and absf(player.position.y - (g - 4 * B)) < 0.05
 	r["air_after_3s"] = snappedf(player.air, 0.01)
 	var hp := player_inv.health
 	player.air = 0.0
 	await get_tree().create_timer(2.2).timeout
 	r["drowned_hp"] = hp - player_inv.health
 	player_inv.heal(20)
-	# swim to the +z bank (its top is one voxel over the water) holding forward and jump
+	# swim to the +z bank (its top is one block over the water) holding forward and jump
 	player.set_look(PI, 0.0)
 	Input.action_press("move_forward")
 	Input.action_press("jump")
 	var t := 0.0
-	while t < 6.0 and not (player.is_on_floor() and not player.in_liquid and player.position.y >= g + 0.99):
+	while t < 6.0 and not (player.is_on_floor() and not player.in_liquid and player.position.y >= g + B - 0.01):
 		await get_tree().process_frame
 		t += get_process_delta_time()
 	Input.action_release("move_forward")
 	Input.action_release("jump")
-	r["climbed_out"] = player.position.y >= g + 0.99 and not player.in_liquid
+	r["climbed_out"] = player.position.y >= g + B - 0.01 and not player.in_liquid
 	r["climb_s"] = snappedf(t, 0.01)
+	await get_tree().create_timer(1.2).timeout   # breath comes back at half a bar per second
 	r["air_refilled"] = player.air > 0.5
 	player.autopilot = true
 	print("debug swim " + JSON.stringify(r))
