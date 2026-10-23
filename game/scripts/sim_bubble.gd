@@ -57,13 +57,17 @@ var _last_cost := {}
 const WORST_KEEP := 5
 var _slow: Array = []          # whole frames over SLOW_MS: where did the time go (debug JSON)
 const SLOW_MS := 6.0
+# The 6.25 cm simulation around the player (ADR 0029, Settings.micro_sim): it owns the chunks of its window,
+# which this bubble holds (they do not tick here) and keeps equal to the micro cells' majority view.
+var micro: MicroBubble = null
 
 
 func _frame_cost() -> Dictionary:
 	var f := Engine.get_process_frames()
 	if _cost.get("frame", -1) != f:
 		_commit_cost()
-		_cost = {"frame": f, "shift_ms": 0.0, "flush_ms": 0.0, "load_ms": 0.0, "loads": 0, "tick_ms": 0.0, "push_ms": 0.0, "edit_ms": 0.0, "pushed": 0}
+		_cost = {"frame": f, "shift_ms": 0.0, "flush_ms": 0.0, "load_ms": 0.0, "loads": 0, "tick_ms": 0.0, "push_ms": 0.0, "edit_ms": 0.0, "pushed": 0,
+			"micro_ms": 0.0}
 	return _cost
 
 
@@ -79,9 +83,9 @@ func _commit_cost() -> void:
 	if _cost.is_empty():
 		return
 	_last_cost = _cost
-	var total: float = _cost["shift_ms"] + _cost["flush_ms"] + _cost["load_ms"] + _cost["tick_ms"] + _cost["push_ms"] + _cost["edit_ms"]
+	var total: float = _cost["shift_ms"] + _cost["flush_ms"] + _cost["load_ms"] + _cost["tick_ms"] + _cost["push_ms"] + _cost["edit_ms"] + _cost["micro_ms"]
 	_cost["total_ms"] = snappedf(total, 0.01)
-	for k in ["shift_ms", "flush_ms", "load_ms", "tick_ms", "push_ms", "edit_ms"]:
+	for k in ["shift_ms", "flush_ms", "load_ms", "tick_ms", "push_ms", "edit_ms", "micro_ms"]:
 		_cost[k] = snappedf(_cost[k], 0.01)
 	_worst.append(_cost)
 	_worst.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["total_ms"] > b["total_ms"])
@@ -107,6 +111,9 @@ func setup(p_world: World, center_world: Vector3) -> void:
 		for y in size_chunks.y:
 			for x in size_chunks.x:
 				_pending_loads.append(Vector3i(x, y, z))
+	if Settings.micro_sim:
+		micro = MicroBubble.new()
+		micro.setup(self, center_world)
 	_ready = true
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("fire_test="):
@@ -133,9 +140,15 @@ func _process(delta: float) -> void:
 		ticks_total += 1
 		_tick_running = false
 		_collect_dirty()
+	if micro != null and not micro.poll():
+		return   # the micro tick still runs: it may not be read or written, nor may this bubble's held chunks
 	if _tick_running:
 		return
 	_load_pending()
+	if micro != null:   # both idle: the micro window moves, loads and publishes into this bubble here
+		var mc := micro.update()
+		var c := _frame_cost()
+		c["micro_ms"] += mc["load_ms"] + mc["edit_ms"] + mc["publish_ms"]
 	if not _push_queue.is_empty() and not hold_pushes:
 		var t1 := Time.get_ticks_usec()
 		_drain_push(Settings.sim_push_budget_ms)
@@ -146,6 +159,8 @@ func _process(delta: float) -> void:
 		_tick_accum = minf(_tick_accum - period, period * 2.0)   # never build up more than two ticks of debt
 		var t0 := Time.get_ticks_usec()
 		_tick_running = sim.start_tick()
+		if micro != null:
+			micro.start_tick()
 		_frame_cost()["tick_ms"] += (Time.get_ticks_usec() - t0) / 1000.0   # main-thread cost of starting it
 	if _fire_test > 0:
 		_run_fire_test()
@@ -156,6 +171,8 @@ func follow(center_world: Vector3) -> void:
 	if not _ready:
 		return
 	_fire_center = Vector3i(center_world.floor())
+	if micro != null:
+		micro.player = center_world   # the micro window moves in update(), when both simulations are idle
 	var r := (size_chunks.x - 1) / 2
 	var want := _center_chunk(center_world) - Vector3i(r, r, r)
 	var d := want - origin
@@ -293,6 +310,8 @@ func _flush_leaving(d: Vector3i) -> void:
 
 ## Pushes everything now (tests, saving, quitting).
 func flush_all() -> void:
+	if micro != null:
+		micro.flush()   # waits for both ticks; the next frame still collects their stats
 	_collect_dirty()
 	_drain_push(1e9)
 
@@ -308,7 +327,9 @@ func _run_fire_test() -> void:
 		return
 	var c: Vector3i = _fire_center - origin * Settings.CHUNK   # player voxel in window coords
 	var r := Vector3i.ONE * _fire_test
-	fire_ignited += sim.ignite_box(c - r, c + r + Vector3i.ONE)
+	fire_ignited += sim.ignite_box(c - r, c + r + Vector3i.ONE)   # skips held chunks: the micro simulation burns those
+	if micro != null:
+		micro.ignite_box(_fire_center - r, _fire_center + r + Vector3i.ONE)
 	print("fire_test: ignited %d voxels around %s" % [fire_ignited, _fire_center])
 	_fire_test = 0
 
@@ -331,7 +352,9 @@ func blast(center: Vector3, radius: float, material := GameMaterials.AIR) -> int
 			if d.has("interact") or d.has("entity") or float(d.get("hp", 0)) >= 1e6:
 				_keep.append(i + 1)
 	var t0 := Time.get_ticks_usec()
-	var n := sim.fill_sphere(center - Vector3(origin * Settings.CHUNK), radius, material, _keep)
+	var n := sim.fill_sphere(center - Vector3(origin * Settings.CHUNK), radius, material, _keep)   # skips held chunks
+	if micro != null:
+		micro.blast(center, radius, material, _keep)
 	var ms := (Time.get_ticks_usec() - t0) / 1000.0
 	_frame_cost()["edit_ms"] = _frame_cost().get("edit_ms", 0.0) + ms
 	blasts += 1
@@ -357,6 +380,8 @@ func fill_box(wmin: Vector3i, wmax: Vector3i, material: int) -> int:
 	var t0 := Time.get_ticks_usec()
 	var o := origin * Settings.CHUNK
 	sim.fill_box(wmin - o, wmax - o, material)
+	if micro != null:
+		micro.fill_box(wmin, wmax, material)
 	_frame_cost()["edit_ms"] = _frame_cost().get("edit_ms", 0.0) + (Time.get_ticks_usec() - t0) / 1000.0
 	var d := wmax - wmin
 	return d.x * d.y * d.z
@@ -370,7 +395,9 @@ func set_voxel(wp: Vector3i, material: int) -> bool:
 		return false
 	if _pending_loads.has(lc):
 		return false
-	sim.set_voxel(wp - origin * Settings.CHUNK, material)
+	sim.set_voxel(wp - origin * Settings.CHUNK, material)   # a held chunk too: get_voxel sees the edit at once
+	if micro != null and micro.covers(wp):
+		micro.set_voxel(wp, material)
 	return true
 
 
@@ -401,6 +428,11 @@ func sample_cells(center_world: Vector3i, radius: int, count: int, rng_seed: int
 		r[i + 1] += o.y
 		r[i + 2] += o.z
 	return r
+
+
+## True when the local chunk `lc` lies inside the window.
+func is_chunk_in_window(lc: Vector3i) -> bool:
+	return lc.x >= 0 and lc.y >= 0 and lc.z >= 0 and lc.x < size_chunks.x and lc.y < size_chunks.y and lc.z < size_chunks.z
 
 
 ## False while a simulation tick runs on its thread (cells cannot be read).
@@ -482,7 +514,7 @@ func is_chunk_loaded(lc: Vector3i) -> bool:
 
 ## True once every chunk of the window holds terrain data (DebugCapture starts its budget clock here).
 func is_loaded() -> bool:
-	return _ready and _pending_loads.is_empty()
+	return _ready and _pending_loads.is_empty() and (micro == null or micro.is_loaded())
 
 
 func stats() -> Dictionary:
@@ -494,6 +526,6 @@ func stats() -> Dictionary:
 		"chunks_pushed": chunks_pushed, "chunks_loaded": chunks_loaded, "bad_loads": bad_loads, "push_ms": snappedf(push_ms, 0.01),
 		"shifts": shifts, "worst_frames": _worst, "slow_frames": _slow, "push_queue": _push_queue.size(), "push_queue_max": push_queue_max,
 		"burning": sim.count_burning() if _fire_test == 0 else -1, "fire_ignited": fire_ignited,
-		"store_writes": store_writes,
+		"store_writes": store_writes, "micro": micro.stats() if micro != null else {},
 		"blasts": blasts, "blast_voxels": blast_voxels, "blast_ms_max": snappedf(blast_ms_max, 0.01),
 	}

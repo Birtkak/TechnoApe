@@ -45,6 +45,8 @@ public:
     Vector3i get_wrap_origin() const { return origin_; }
     // material id -> 512 bytes (x fastest, y, z; 0 = air, else the material): bricks of that material are written expanded
     void set_micro_patterns(const Dictionary &patterns);
+    // native: the 512-cell pattern of a material, or nullptr when it has none (the micro simulation's publish)
+    const uint8_t *micro_pattern(int material) const { return (material >= 0 && material < (int)micro_.size() && !micro_[material].empty()) ? micro_[material].data() : nullptr; }
     // 16-bit voxel ids in godot_voxel order (y fastest, x, z) become uniform bricks at origin_brick.
     void load_voxels(Vector3i origin_brick, Vector3i size, const PackedByteArray &ids16);
     void fill_uniform(Vector3i min_brick, Vector3i max_brick, int material);

@@ -71,6 +71,10 @@ Godot_..._console.exe --path game -- autopilot=1 speed=20 alt=30 duration=16 vsy
 # draw?); near_verify=1 reads the GPU volume back once the window is uploaded and prints a JSON line comparing it with
 # the store (bad must be 0). JSON "near_field": uploads, mb, pending slabs/chunks, valid box, store stats
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=6 near_field=1 near_debug=1 capture_every=0.5 out=res://out/near
+# micro simulation (ADR 0029): micro_sim=1 (implies near_field=1) simulates 32 x 16 x 32 m around the player at 6.25 cm
+# cells (the window sits low: 6-14 m of it below the feet); JSON sim.micro: tick ms p50/p99/max, scanned cells, publish
+# ms and queue, loads, shifts, edit_cells. micro_cell_budget, micro_lod_m, micro_publish_budget_ms, micro_load_budget_ms
+Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=6 pitch=-0.45 micro_sim=1 blast=1.5 blast_material=water blast_every=4 capture_every=0.33 full_frames=1 out=res://out/micro_water
 # mass edits (ADR 0014): blast=R craters of R m on the ground around the player every blast_every s (default 2),
 # blast_count=N per volley; JSON sim.blasts, blast_voxels, blast_ms_max (native SimWorld.fill_sphere)
 Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=4 blast_every=1 duration=20 capture_every=1 out=res://out/blast

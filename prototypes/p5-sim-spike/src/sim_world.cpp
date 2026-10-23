@@ -126,6 +126,16 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("start_tick"), &SimWorld::start_tick);
     ClassDB::bind_method(D_METHOD("is_tick_done"), &SimWorld::is_tick_done);
     ClassDB::bind_method(D_METHOD("finish_tick"), &SimWorld::finish_tick);
+    ClassDB::bind_method(D_METHOD("set_wrapped", "on"), &SimWorld::set_wrapped);
+    ClassDB::bind_method(D_METHOD("is_wrapped"), &SimWorld::is_wrapped);
+    ClassDB::bind_method(D_METHOD("set_chunk_held", "chunk", "held"), &SimWorld::set_chunk_held);
+    ClassDB::bind_method(D_METHOD("is_chunk_held", "chunk"), &SimWorld::is_chunk_held);
+    ClassDB::bind_method(D_METHOD("load_from_coarse", "coarse", "coarse_chunk", "cell_origin"), &SimWorld::load_from_coarse);
+    ClassDB::bind_method(D_METHOD("publish", "store", "store_origin_brick", "coarse", "world_cell_origin", "coarse_origin_voxel", "max_us"), &SimWorld::publish);
+    ClassDB::bind_method(D_METHOD("get_publish_pending"), &SimWorld::get_publish_pending);
+    ClassDB::bind_method(D_METHOD("brick_majority", "brick"), &SimWorld::brick_majority);
+    ClassDB::bind_method(D_METHOD("set_micro_masks", "masks"), &SimWorld::set_micro_masks);
+    ClassDB::bind_method(D_METHOD("set_cascade", "on"), &SimWorld::set_cascade);
     BIND_ENUM_CONSTANT(CELL_SOLID);
     BIND_ENUM_CONSTANT(CELL_LIQUID);
     BIND_ENUM_CONSTANT(CELL_GAS);
@@ -158,6 +168,12 @@ void SimWorld::configure(Vector3i p_chunks, int p_threads, int p_seed) {
     for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); box_now_[i].store(0); box_next_[i].store(0); dbox_[i].store(0); }
     defer_age_.assign(nc, 0);
     loaded_.assign(nc, 1); // default: everything counts as loaded (fill_box/scatter worlds); streaming callers clear it
+    wrapped_ = false;
+    ox_ = oy_ = oz_ = 0; ocx_ = ocy_ = ocz_ = 0;
+    mx_ = my_ = mz_ = -1; cmx_ = cmy_ = cmz_ = -1;
+    pub_flag_.assign(n / 512, 0);
+    pub_queue_.clear();
+    pub_head_ = 0;
     rebuild_pass_lists();
     if (threads_ > 1) pool_.start(threads_);
 }
@@ -191,6 +207,7 @@ void SimWorld::set_materials(const Array &p_defs) {
         m.liquid_static = dget_b(d, "liquid_static", false);
         m.fluid_slot = (int8_t)std::clamp(dget_int(d, "fluid_slot", -1), -1, 31);
         m.burnable = dget_b(d, "burnable", false);
+        m.replaceable = dget_b(d, "replaceable", false);
         m.density = clamp8(dget_f(d, "density", 1.0) * 16.0);
         m.disp = (uint8_t)std::clamp((int)std::lround(dget_f(d, "liquid_flow_speed", 0.9) * MAX_DISP), 0, MAX_DISP);
         m.gravity_prob = clamp8(dget_f(d, "liquid_gravity", 0.5) * 2.0 * 255.0); // 0.5 -> always falls
@@ -296,21 +313,22 @@ inline void SimWorld::touch(int x, int y, int z) {
     moved_[idx(x, y, z)] = stamp_;   // an edit is a change: static ground next to it may loosen
     wake_full(ci);
     int lx = x & (CS - 1), ly = y & (CS - 1), lz = z & (CS - 1);
-    if (lx == 0 && cx > 0) wake_full(ci - 1);
-    if (lx == CS - 1 && cx < CX_ - 1) wake_full(ci + 1);
-    if (ly == 0 && cy > 0) wake_full(ci - CX_);
-    if (ly == CS - 1 && cy < CY_ - 1) wake_full(ci + CX_);
-    if (lz == 0 && cz > 0) wake_full(ci - CX_ * CY_);
-    if (lz == CS - 1 && cz < CZ_ - 1) wake_full(ci + CX_ * CY_);
+    if (lx == 0 && cx > 0) wake_full(cidx(cx - 1, cy, cz));
+    if (lx == CS - 1 && cx < CX_ - 1) wake_full(cidx(cx + 1, cy, cz));
+    if (ly == 0 && cy > 0) wake_full(cidx(cx, cy - 1, cz));
+    if (ly == CS - 1 && cy < CY_ - 1) wake_full(cidx(cx, cy + 1, cz));
+    if (lz == 0 && cz > 0) wake_full(cidx(cx, cy, cz - 1));
+    if (lz == CS - 1 && cz < CZ_ - 1) wake_full(cidx(cx, cy, cz + 1));
 }
 
 void SimWorld::fill_box(Vector3i p_min, Vector3i p_max, int p_material) {
     wait_idle();
     uint8_t m = (uint8_t)std::clamp(p_material, 0, (int)mats_.size() - 1);
+    const uint8_t *mask = mask_of(m);   // a plant fills only its pattern's cells
     for (int z = std::max(0, p_min.z); z < std::min(D_, p_max.z); z++)
         for (int y = std::max(0, p_min.y); y < std::min(H_, p_max.y); y++)
             for (int x = std::max(0, p_min.x); x < std::min(W_, p_max.x); x++) {
-                place(idx(x, y, z), m);
+                place(idx(x, y, z), (mask && !mask[(x & 7) + 8 * ((y & 7) + 8 * (z & 7))]) ? 0 : m);
                 touch(x, y, z);
             }
 }
@@ -385,65 +403,99 @@ int SimWorld::fill_sphere(Vector3 p_center, float p_radius, int p_material, cons
     const int y0 = std::max(0, (int)std::floor(p_center.y - p_radius)), y1 = std::min(H_ - 1, (int)std::ceil(p_center.y + p_radius));
     const int z0 = std::max(0, (int)std::floor(p_center.z - p_radius)), z1 = std::min(D_ - 1, (int)std::ceil(p_center.z + p_radius));
     if (x0 > x1 || y0 > y1 || z0 > z1) return 0;
-    int changed = 0;
+    // one job per chunk on the pool (ADR 0029: an 8 m crater is 8.8 M cells at 6.25 cm); chunks write only their own
+    // cells, marks are atomic
+    std::vector<int> jobs;
     for (int cz = z0 / CS; cz <= z1 / CS; cz++)
         for (int cy = y0 / CS; cy <= y1 / CS; cy++)
-            for (int cx = x0 / CS; cx <= x1 / CS; cx++) {
-                const int ci = cidx(cx, cy, cz);
-                if (!loaded_[ci]) continue;
-                int lo[3] = {CS, CS, CS}, hi[3] = {-1, -1, -1};
-                const int zs = std::max(z0, cz * CS), ze = std::min(z1, cz * CS + CS - 1);
-                const int ys = std::max(y0, cy * CS), ye = std::min(y1, cy * CS + CS - 1);
-                const int xs = std::max(x0, cx * CS), xe = std::min(x1, cx * CS + CS - 1);
-                for (int z = zs; z <= ze; z++) {
-                    const float dz = z + 0.5f - p_center.z;
-                    for (int y = ys; y <= ye; y++) {
-                        const float dy = y + 0.5f - p_center.y;
-                        const float rem = r2 - dz * dz - dy * dy;
-                        if (rem < 0.0f) continue;
-                        for (int x = xs; x <= xe; x++) {
-                            const float dx = x + 0.5f - p_center.x;
-                            if (dx * dx > rem) continue;
-                            const int i = idx(x, y, z);
-                            const uint8_t cur = cells_[i].mat;
-                            if (cur == m || keep[cur]) continue;
-                            place(i, m);
-                            moved_[i] = stamp_;   // fresh change: static ground next to the crater may loosen (ADR 0013)
-                            changed++;
-                            const int l[3] = {x & (CS - 1), y & (CS - 1), z & (CS - 1)};
-                            for (int a = 0; a < 3; a++) { lo[a] = std::min(lo[a], l[a]); hi[a] = std::max(hi[a], l[a]); }
-                        }
-                    }
+            for (int cx = x0 / CS; cx <= x1 / CS; cx++) jobs.push_back(cx + CX_ * (cy + CY_ * cz));
+    std::atomic<int> changed{0};
+    pool_.run(jobs, [&](int job) {
+        const int cx = job % CX_, cy = (job / CX_) % CY_, cz = job / (CX_ * CY_);
+        const int ci = cidx(cx, cy, cz);
+        if (loaded_[ci] != 1) return;   // loading, or held by the micro simulation (it edits its own cells)
+        int lo[3] = {CS, CS, CS}, hi[3] = {-1, -1, -1};
+        int n = 0;
+        const int zs = std::max(z0, cz * CS), ze = std::min(z1, cz * CS + CS - 1);
+        const int ys = std::max(y0, cy * CS), ye = std::min(y1, cy * CS + CS - 1);
+        const int xs = std::max(x0, cx * CS), xe = std::min(x1, cx * CS + CS - 1);
+        for (int z = zs; z <= ze; z++) {
+            const float dz = z + 0.5f - p_center.z;
+            for (int y = ys; y <= ye; y++) {
+                const float dy = y + 0.5f - p_center.y;
+                const float rem = r2 - dz * dz - dy * dy;
+                if (rem < 0.0f) continue;
+                for (int x = xs; x <= xe; x++) {
+                    const float dx = x + 0.5f - p_center.x;
+                    if (dx * dx > rem) continue;
+                    const int i = idx(x, y, z);
+                    const uint8_t cur = cells_[i].mat;
+                    if (cur == m || keep[cur]) continue;
+                    place(i, m);
+                    moved_[i] = stamp_;   // fresh change: static ground next to the crater may loosen (ADR 0013)
+                    n++;
+                    const int l[3] = {x & (CS - 1), y & (CS - 1), z & (CS - 1)};
+                    for (int a = 0; a < 3; a++) { lo[a] = std::min(lo[a], l[a]); hi[a] = std::max(hi[a], l[a]); }
                 }
-                if (hi[0] < 0) continue;
-                dirty_[ci].store(1, std::memory_order_relaxed);
-                merge_dbox(ci, box_union(box_point(lo[0], lo[1], lo[2]), box_point(hi[0], hi[1], hi[2])));
-                for (int oz = -1; oz <= 1; oz++)   // the chunk and its neighbours settle around the hole
-                    for (int oy = -1; oy <= 1; oy++)
-                        for (int ox = -1; ox <= 1; ox++) {
-                            const int nx = cx + ox, ny = cy + oy, nz = cz + oz;
-                            if (nx >= 0 && ny >= 0 && nz >= 0 && nx < CX_ && ny < CY_ && nz < CZ_) wake_full(cidx(nx, ny, nz));
-                        }
             }
-    return changed;
+        }
+        if (hi[0] < 0) return;
+        changed.fetch_add(n, std::memory_order_relaxed);
+        dirty_[ci].store(1, std::memory_order_relaxed);
+        merge_dbox(ci, box_union(box_point(lo[0], lo[1], lo[2]), box_point(hi[0], hi[1], hi[2])));
+        for (int oz = -1; oz <= 1; oz++)   // the chunk and its neighbours settle around the hole
+            for (int oy = -1; oy <= 1; oy++)
+                for (int ox = -1; ox <= 1; ox++) {
+                    const int nx = cx + ox, ny = cy + oy, nz = cz + oz;
+                    if (nx >= 0 && ny >= 0 && nz >= 0 && nx < CX_ && ny < CY_ && nz < CZ_) wake_full(cidx(nx, ny, nz));
+                }
+    });
+    return changed.load();
 }
 
 // Ignites every burnable cell in [p_min, p_max) (fire tests, fire spells). Returns the count.
+// One job per chunk on the pool, marks merged once per chunk (a 15 m fire test is 12 M cells at 6.25 cm).
 int SimWorld::ignite_box(Vector3i p_min, Vector3i p_max) {
     wait_idle();
-    int n = 0;
-    for (int z = std::max(0, p_min.z); z < std::min(D_, p_max.z); z++)
-        for (int y = std::max(0, p_min.y); y < std::min(H_, p_max.y); y++)
-            for (int x = std::max(0, p_min.x); x < std::min(W_, p_max.x); x++) {
-                const int i = idx(x, y, z);
-                const MaterialDef &md = mats_[cells_[i].mat];
-                if (!md.burnable || (cells_[i].flags & FLAG_BURNING)) continue;
-                cells_[i].flags |= FLAG_BURNING;
-                cells_[i].aux = md.fire_hp;
-                touch(x, y, z);
-                n++;
-            }
-    return n;
+    const int x0 = std::max(0, p_min.x), x1 = std::min(W_, p_max.x) - 1;
+    const int y0 = std::max(0, p_min.y), y1 = std::min(H_, p_max.y) - 1;
+    const int z0 = std::max(0, p_min.z), z1 = std::min(D_, p_max.z) - 1;
+    if (x0 > x1 || y0 > y1 || z0 > z1) return 0;
+    std::vector<int> jobs;
+    for (int cz = z0 / CS; cz <= z1 / CS; cz++)
+        for (int cy = y0 / CS; cy <= y1 / CS; cy++)
+            for (int cx = x0 / CS; cx <= x1 / CS; cx++) jobs.push_back(cx + CX_ * (cy + CY_ * cz));
+    std::atomic<int> lit{0};
+    pool_.run(jobs, [&](int job) {
+        const int cx = job % CX_, cy = (job / CX_) % CY_, cz = job / (CX_ * CY_);
+        const int ci = cidx(cx, cy, cz);
+        if (loaded_[ci] != 1) return;   // held chunks burn in the micro simulation
+        int lo[3] = {CS, CS, CS}, hi[3] = {-1, -1, -1};
+        int n = 0;
+        for (int z = std::max(z0, cz * CS); z <= std::min(z1, cz * CS + CS - 1); z++)
+            for (int y = std::max(y0, cy * CS); y <= std::min(y1, cy * CS + CS - 1); y++)
+                for (int x = std::max(x0, cx * CS); x <= std::min(x1, cx * CS + CS - 1); x++) {
+                    const int i = idx(x, y, z);
+                    const MaterialDef &md = mats_[cells_[i].mat];
+                    if (!md.burnable || (cells_[i].flags & FLAG_BURNING)) continue;
+                    cells_[i].flags |= FLAG_BURNING;
+                    cells_[i].aux = md.fire_hp;
+                    n++;
+                    const int l[3] = {x & (CS - 1), y & (CS - 1), z & (CS - 1)};
+                    for (int a = 0; a < 3; a++) { lo[a] = std::min(lo[a], l[a]); hi[a] = std::max(hi[a], l[a]); }
+                }
+        if (hi[0] < 0) return;
+        lit.fetch_add(n, std::memory_order_relaxed);
+        dirty_[ci].store(1, std::memory_order_relaxed);
+        merge_dbox(ci, box_union(box_point(lo[0], lo[1], lo[2]), box_point(hi[0], hi[1], hi[2])));
+        for (int oz = -1; oz <= 1; oz++)
+            for (int oy = -1; oy <= 1; oy++)
+                for (int ox = -1; ox <= 1; ox++) {
+                    const int nx = cx + ox, ny = cy + oy, nz = cz + oz;
+                    if (nx >= 0 && ny >= 0 && nz >= 0 && nx < CX_ && ny < CY_ && nz < CZ_) wake_full(cidx(nx, ny, nz));
+                }
+    });
+    return lit.load();
 }
 
 // ---------- marks ----------
@@ -526,10 +578,16 @@ inline bool SimWorld::try_move(int sx, int sy, int sz, int tx, int ty, int tz, C
     int ti = idx(tx, ty, tz);
     int si = idx(sx, sy, sz);
     if (moved_[ti] == stamp_) return false;
-    if (!can_displace(cells_[si].mat, cells_[ti].mat)) return false;
+    if (!can_displace(cells_[si].mat, cells_[ti].mat)) {
+        // a plant cell in the way of a liquid or powder is washed away / buried (micro simulation only)
+        const uint8_t ct = mats_[cells_[si].mat].cell_type;
+        if (!washable_[cells_[ti].mat] || (ct != CELL_LIQUID && ct != CELL_POWDER)) return false;
+        place(ti, 0);
+    }
     std::swap(cells_[ti], cells_[si]);
     moved_[ti] = stamp_;
-    moved_[si] = stamp_;
+    // cascade: the vacated air cell may be entered again this tick ("previous tick" still reads as fresh for loosening)
+    moved_[si] = (cascade_ && cells_[si].mat == 0) ? (uint16_t)(stamp_ - 1) : stamp_;
     mark_cell(sx, sy, sz, c, true);
     mark_cell(tx, ty, tz, c, true);
     return true;
@@ -660,6 +718,7 @@ void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
 }
 
 void SimWorld::set_liquid_fullness(bool p_on) { fullness_ = p_on; }
+void SimWorld::set_cascade(bool p_on) { cascade_ = p_on; }
 
 int SimWorld::count_liquid_eighths(int p_material) const {
     wait_idle();
@@ -726,13 +785,14 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
                 int px = x + DX4[dd] * s, pz = z + DZ4[dd] * s;
                 if (!is_open(px, y, pz)) break;
                 int pi = idx(px, y, pz);
-                if (cells_[pi].mat != 0 || moved_[pi] == stamp_) break;
+                if (!open_air(cells_[pi].mat) || moved_[pi] == stamp_) break;
                 best_x = px; best_z = pz;
-                if (y > 0 && is_open(px, y - 1, pz) && cells_[idx(px, y - 1, pz)].mat == 0) break;   // ledge: drop there
+                if (y > 0 && is_open(px, y - 1, pz) && open_air(cells_[idx(px, y - 1, pz)].mat)) break;   // ledge: drop there
             }
             if (best_x == x && best_z == z) continue;
             uint8_t under = y > 0 ? cells_[idx(x, y - 1, z)].mat : self;
-            if (under == self && ((r >> 12) & 7) != 0) continue;   // calm pool: mostly stay
+            // calm pool: mostly stay. With cascade (micro) a pressed cell next to air is a water wall and goes.
+            if (!cascade_ && under == self && ((r >> 12) & 7) != 0) continue;
             if (try_move(x, y, z, best_x, y, best_z, c)) {
                 // pushed out of a column: full momentum; otherwise it spends one tick of it
                 set_momentum(idx(best_x, y, best_z), pressed ? 15 : mo - 1);
@@ -750,7 +810,7 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
         int ni = idx(nx, y, nz);
         if (moved_[ni] == stamp_) continue;
         const uint8_t t = cells_[ni].mat;
-        if (t == 0) {
+        if (open_air(t)) {   // empty, or a plant the water washes away
             int g = f / 2;
             place(ni, self);
             set_full(ni, g);
@@ -891,9 +951,16 @@ void SimWorld::try_react(int x, int y, int z, int i, Ctx &c) {
     c.reacted++;
 }
 
+void SimWorld::chunk_of(int ci, int &cx, int &cy, int &cz) const {
+    cx = ((ci % CX_) - ocx_) & cmx_;
+    cy = (((ci / CX_) % CY_) - ocy_) & cmy_;
+    cz = ((ci / (CX_ * CY_)) - ocz_) & cmz_;
+}
+
 void SimWorld::update_chunk(int ci) {
+    if (loaded_[ci] != 1) return;   // waiting for data, or held by the micro simulation
     Ctx c;
-    c.cx = ci % CX_; c.cy = (ci / CX_) % CY_; c.cz = ci / (CX_ * CY_);
+    chunk_of(ci, c.cx, c.cy, c.cz);
     c.rng = (seed_ ^ ((uint32_t)ci * 2654435761u) ^ (tick_ * 40503u)) | 1u;
     int x0 = c.cx * CS, y0 = c.cy * CS, z0 = c.cz * CS;
     const bool alt = (tick_ & 1) != 0; // alternate x/z scan direction per tick to avoid bias
@@ -970,7 +1037,8 @@ void SimWorld::tick_once(TickOut &o) {
         for (size_t i = 0; i < nc; i++) {
             if (!active_now_[i].load(std::memory_order_relaxed)) continue;
             int ci = (int)i;
-            int cx = ci % CX_, cy = (ci / CX_) % CY_, cz = ci / (CX_ * CY_);
+            int cx, cy, cz;
+            chunk_of(ci, cx, cy, cz);
             int64_t dx = cx - focus_chunk_.x, dy = cy - focus_chunk_.y, dz = cz - focus_chunk_.z;
             int64_t d2 = dx * dx + dy * dy + dz * dz;
             if (lod && d2 > r2 && ((tick_ + (uint32_t)ci) % (uint32_t)lod_divisor_) != 0) {
@@ -1192,6 +1260,27 @@ Array SimWorld::shift(Vector3i d) {
     wait_idle();
     Array vacated;
     if (d == Vector3i()) return vacated;
+    if (wrapped_) {
+        // Toroidal: new local L = old local L + d, so the offset moves by d; nothing is copied. Chunks whose
+        // source lies outside the old window keep stale cells: they become unloaded (walls, not ticked) with
+        // their state reset, and the caller loads them (load_from_coarse rewrites every cell and stamp).
+        ocx_ += d.x; ocy_ += d.y; ocz_ += d.z;
+        ox_ = ocx_ * CS; oy_ = ocy_ * CS; oz_ = ocz_ * CS;
+        for (int cz = 0; cz < CZ_; cz++)
+            for (int cy = 0; cy < CY_; cy++)
+                for (int cx = 0; cx < CX_; cx++) {
+                    const int sx = cx + d.x, sy = cy + d.y, sz = cz + d.z;
+                    if (sx >= 0 && sy >= 0 && sz >= 0 && sx < CX_ && sy < CY_ && sz < CZ_) continue;
+                    const int ci = cidx(cx, cy, cz);
+                    active_now_[ci].store(0); active_next_[ci].store(0);
+                    box_now_[ci].store(0); box_next_[ci].store(0);
+                    dirty_[ci].store(0); dbox_[ci].store(0);
+                    loaded_[ci] = 0;
+                    defer_age_[ci] = 0;
+                    vacated.push_back(Vector3i(cx, cy, cz));
+                }
+        return vacated;
+    }
     const int dx = d.x * CS, dy = d.y * CS, dz = d.z * CS;
     const int64_t n = (int64_t)cells_.size();
     const int64_t off = (int64_t)dx + (int64_t)W_ * ((int64_t)dy + (int64_t)H_ * dz);
@@ -1302,6 +1391,7 @@ int SimWorld::write_dirty_to_store(Object *p_store, Vector3i p_origin, int p_sca
             for (int cx = 0; cx < CX_; cx++) {
                 int ci = cidx(cx, cy, cz);
                 if (!dirty_[ci].load(std::memory_order_relaxed)) continue;
+                if (loaded_[ci] == 2) continue;   // held: the micro simulation writes these bricks itself
                 uint32_t b = dbox_[ci].load(std::memory_order_relaxed);
                 if (!(b & BOX_VALID)) b = BOX_FULL;
                 const int x0 = (int)(b & 15u), y0 = (int)((b >> 4) & 15u), z0 = (int)((b >> 8) & 15u);
@@ -1361,6 +1451,265 @@ void SimWorld::clear_dirty() {
     for (size_t i = 0; i < nc; i++) { dirty_[i].store(0, std::memory_order_relaxed); dbox_[i].store(0, std::memory_order_relaxed); }
 }
 
+// ---------- micro simulation (ADR 0029) ----------
+
+static bool is_pow2(int v) { return v > 0 && (v & (v - 1)) == 0; }
+
+bool SimWorld::set_wrapped(bool p_on) {
+    wait_idle();
+    if (p_on && !(is_pow2(CX_) && is_pow2(CY_) && is_pow2(CZ_))) return false;
+    wrapped_ = p_on;
+    ox_ = oy_ = oz_ = 0; ocx_ = ocy_ = ocz_ = 0;
+    mx_ = p_on ? W_ - 1 : -1; my_ = p_on ? H_ - 1 : -1; mz_ = p_on ? D_ - 1 : -1;
+    cmx_ = p_on ? CX_ - 1 : -1; cmy_ = p_on ? CY_ - 1 : -1; cmz_ = p_on ? CZ_ - 1 : -1;
+    return true;
+}
+
+void SimWorld::set_chunk_held(Vector3i c, bool p_held) {
+    wait_idle();
+    if (c.x < 0 || c.y < 0 || c.z < 0 || c.x >= CX_ || c.y >= CY_ || c.z >= CZ_) return;
+    const int ci = cidx(c.x, c.y, c.z);
+    if (p_held) {
+        loaded_[ci] = 2;
+        active_next_[ci].store(0);
+        box_next_[ci].store(0);
+        return;
+    }
+    if (loaded_[ci] != 2) return;
+    loaded_[ci] = 1;
+    for (int oz = -1; oz <= 1; oz++)   // it and its neighbours settle against what the micro simulation left
+        for (int oy = -1; oy <= 1; oy++)
+            for (int ox = -1; ox <= 1; ox++) {
+                const int nx = c.x + ox, ny = c.y + oy, nz = c.z + oz;
+                if (nx >= 0 && ny >= 0 && nz >= 0 && nx < CX_ && ny < CY_ && nz < CZ_) wake_full(cidx(nx, ny, nz));
+            }
+}
+
+bool SimWorld::is_chunk_held(Vector3i c) const {
+    if (c.x < 0 || c.y < 0 || c.z < 0 || c.x >= CX_ || c.y >= CY_ || c.z >= CZ_) return false;
+    return loaded_[cidx(c.x, c.y, c.z)] == 2;
+}
+
+int SimWorld::load_from_coarse(Object *p_coarse, Vector3i cc, Vector3i o) {
+    wait_idle();
+    SimWorld *co = Object::cast_to<SimWorld>(p_coarse);
+    if (!co || co == this) return 0;
+    co->wait_idle();
+    if (cc.x < 0 || cc.y < 0 || cc.z < 0 || cc.x >= co->CX_ || cc.y >= co->CY_ || cc.z >= co->CZ_) return 0;
+    const int B = BrickStore::B;
+    const int span = CS * B;   // cells covered by one coarse chunk
+    if ((o.x | o.y | o.z) & (CS - 1)) return 0;
+    if (o.x < 0 || o.y < 0 || o.z < 0 || o.x + span > W_ || o.y + span > H_ || o.z + span > D_) return 0;
+    // snapshot the coarse chunk (x fastest), so the workers never touch the other simulation
+    std::vector<Cell> src((size_t)CS * CS * CS);
+    for (int z = 0; z < CS; z++)
+        for (int y = 0; y < CS; y++)
+            for (int x = 0; x < CS; x++) src[x + CS * (y + CS * z)] = co->cells_[co->idx(cc.x * CS + x, cc.y * CS + y, cc.z * CS + z)];
+    const uint16_t old_stamp = (uint16_t)(stamp_ - 2);   // never "fresh": static ground must not loosen at a load seam
+    auto needs_wake = [this](const Cell &c) -> bool {
+        const uint8_t m = c.mat;
+        if (m == 0) return false;
+        if (c.flags & FLAG_BURNING) return true;
+        if (inert_[m]) return false;
+        const MaterialDef &d = mats_[m];
+        if (reactive_[m] || d.lifetime) return true;
+        if (d.cell_type == CELL_SOLID) return false;
+        if ((d.cell_type == CELL_LIQUID || d.cell_type == CELL_POWDER) && d.liquid_static && !(c.flags & FLAG_LOOSE)) return false;
+        return true;
+    };
+    const int per = span / CS;   // micro chunks per axis (8)
+    std::vector<int> items(per * per * per);
+    for (int k = 0; k < (int)items.size(); k++) items[k] = k;
+    pool_.run(items, [&](int k) {
+        const int mcx = o.x / CS + k % per, mcy = o.y / CS + (k / per) % per, mcz = o.z / CS + k / (per * per);
+        bool wake = false;
+        // a micro chunk (16 cells) holds 2x2x2 coarse cells
+        for (int vz = 0; vz < CS / B; vz++)
+            for (int vy = 0; vy < CS / B; vy++)
+                for (int vx = 0; vx < CS / B; vx++) {
+                    const int sx = (mcx * CS - o.x) / B + vx, sy = (mcy * CS - o.y) / B + vy, sz = (mcz * CS - o.z) / B + vz;
+                    const Cell sc = src[sx + CS * (sy + CS * sz)];
+                    const uint8_t m = sc.mat < mats_.size() ? sc.mat : 0;
+                    const int e = mats_[m].cell_type == CELL_LIQUID ? (sc.pad & 15) : 0;   // partly full: bottom layers
+                    const Cell full{m, sc.flags, sc.aux, 0};
+                    const Cell air{0, 0, 0, 0};
+                    const uint8_t *mask = mask_of(m);   // a plant: only its pattern's cells
+                    wake = wake || needs_wake(sc);
+                    const int x0 = mcx * CS + vx * B, y0 = mcy * CS + vy * B, z0 = mcz * CS + vz * B;
+                    for (int z = 0; z < B; z++)
+                        for (int y = 0; y < B; y++) {
+                            const Cell &v = (e && y >= e) ? air : full;
+                            for (int x = 0; x < B; x++) {
+                                const int i = idx(x0 + x, y0 + y, z0 + z);
+                                cells_[i] = (mask && !mask[x + B * (y + B * z)]) ? air : v;
+                                moved_[i] = old_stamp;
+                            }
+                        }
+                }
+        const int ci = cidx(mcx, mcy, mcz);
+        dirty_[ci].store(0); dbox_[ci].store(0);
+        active_now_[ci].store(0);
+        defer_age_[ci] = 0;
+        loaded_[ci] = 1;
+        if (wake) wake_full(ci);
+        else { active_next_[ci].store(0); box_next_[ci].store(0); }
+    });
+    return (int)items.size();
+}
+
+void SimWorld::gather_brick(int lbx, int lby, int lbz, Cell *out) const {
+    const int B = BrickStore::B;
+    for (int z = 0; z < B; z++)
+        for (int y = 0; y < B; y++) {
+            const int row = idx(lbx * B, lby * B + y, lbz * B + z);   // a brick's row never crosses the wrap (it wraps by whole chunks)
+            for (int x = 0; x < B; x++) out[x + B * (y + B * z)] = cells_[row + x];
+        }
+}
+
+void SimWorld::majority_of(const Cell *cells, int &mat, int &eighths) const {
+    int counts[MAX_MATERIALS] = {0};
+    int vol[MAX_MATERIALS] = {0};
+    for (int k = 0; k < BrickStore::CELLS; k++) {
+        const uint8_t m = cells[k].mat;
+        counts[m]++;
+        if (m < mats_.size() && mats_[m].cell_type == CELL_LIQUID) vol[m] += (cells[k].pad & 15) ? (cells[k].pad & 15) : 8;
+    }
+    int best = 0, liq = 0;
+    for (int m = 1; m < (int)mats_.size(); m++) {
+        if (mats_[m].cell_type == CELL_LIQUID) { if (vol[m] > vol[liq]) liq = m; }
+        else if (counts[m] > counts[best]) best = m;
+    }
+    mat = 0; eighths = 0;
+    if (best && counts[best] * 2 >= BrickStore::CELLS) { mat = best; return; }   // solid if half the brick is one material
+    for (int m = 1; m < (int)mats_.size() && m < (int)masks_.size(); m++)   // a plant while half its cells are left
+        if (mask_cells_[m] > 0 && counts[m] * 2 >= mask_cells_[m]) { mat = m; return; }
+    if (liq) {
+        const int e = (vol[liq] + BrickStore::CELLS / 2) / BrickStore::CELLS;   // eighths of the brick's volume
+        if (e >= 1) { mat = liq; eighths = e >= 8 ? 0 : e; }
+    }
+}
+
+void SimWorld::set_micro_masks(const Dictionary &p_masks) {
+    wait_idle();
+    masks_.assign(MAX_MATERIALS, {});
+    mask_cells_.assign(MAX_MATERIALS, 0);
+    const Array keys = p_masks.keys();
+    for (int i = 0; i < keys.size(); i++) {
+        const int id = (int)keys[i];
+        const PackedByteArray b = p_masks[keys[i]];
+        if (id < 1 || id >= MAX_MATERIALS || b.size() != BrickStore::CELLS) continue;
+        masks_[id].assign(b.ptr(), b.ptr() + BrickStore::CELLS);
+        for (uint8_t v : masks_[id]) mask_cells_[id] += v != 0;
+    }
+    for (int m = 0; m < MAX_MATERIALS; m++) washable_[m] = m < (int)mats_.size() && mats_[m].replaceable && mask_of((uint8_t)m) ? 1 : 0;
+}
+
+Vector2i SimWorld::brick_majority(Vector3i b) const {
+    wait_idle();
+    const int B = BrickStore::B;
+    if (b.x < 0 || b.y < 0 || b.z < 0 || b.x * B >= W_ || b.y * B >= H_ || b.z * B >= D_) return Vector2i(-1, 0);
+    Cell buf[BrickStore::CELLS];
+    gather_brick(b.x, b.y, b.z, buf);
+    int m, e;
+    majority_of(buf, m, e);
+    return Vector2i(m, e);
+}
+
+int SimWorld::publish(Object *p_store, Vector3i p_store_origin, Object *p_coarse, Vector3i p_world_cell, Vector3i p_coarse_origin, int p_max_us) {
+    wait_idle();
+    BrickStore *store = Object::cast_to<BrickStore>(p_store);
+    SimWorld *co = Object::cast_to<SimWorld>(p_coarse);
+    if (co == this) co = nullptr;
+    if (co) co->wait_idle();
+    const int B = BrickStore::B;
+    const int BW = W_ / B, BH = H_ / B, BD = D_ / B;
+    if (pub_flag_.size() != (size_t)BW * BH * BD) pub_flag_.assign((size_t)BW * BH * BD, 0);
+    // 1. this tick's dirty boxes -> bricks to publish (physical index: survives toroidal shifts)
+    for (int cz = 0; cz < CZ_; cz++)
+        for (int cy = 0; cy < CY_; cy++)
+            for (int cx = 0; cx < CX_; cx++) {
+                const int ci = cidx(cx, cy, cz);
+                if (!dirty_[ci].load(std::memory_order_relaxed)) continue;
+                uint32_t b = dbox_[ci].load(std::memory_order_relaxed);
+                if (!(b & BOX_VALID)) b = BOX_FULL;
+                dirty_[ci].store(0, std::memory_order_relaxed);
+                dbox_[ci].store(0, std::memory_order_relaxed);
+                const int lo[3] = {(int)(b & 15u) / B, (int)((b >> 4) & 15u) / B, (int)((b >> 8) & 15u) / B};
+                const int hi[3] = {(int)((b >> 12) & 15u) / B, (int)((b >> 16) & 15u) / B, (int)((b >> 20) & 15u) / B};
+                for (int z = lo[2]; z <= hi[2]; z++)
+                    for (int y = lo[1]; y <= hi[1]; y++)
+                        for (int x = lo[0]; x <= hi[0]; x++) {
+                            const int lbx = cx * (CS / B) + x, lby = cy * (CS / B) + y, lbz = cz * (CS / B) + z;
+                            const int pb = (((lbx * B + ox_) & mx_) / B) + BW * ((((lby * B + oy_) & my_) / B) + BH * (((lbz * B + oz_) & mz_) / B));
+                            if (pub_flag_[pb]) continue;
+                            pub_flag_[pb] = 1;
+                            pub_queue_.push_back(pb);
+                        }
+            }
+    // 2. write bricks until the time budget is spent
+    using clock = std::chrono::steady_clock;
+    const auto t0 = clock::now();
+    const Vector3i wb0(p_world_cell.x >> 3, p_world_cell.y >> 3, p_world_cell.z >> 3);
+    int n = 0;
+    Cell buf[BrickStore::CELLS];
+    uint8_t out[BrickStore::CELLS];
+    while (pub_head_ < pub_queue_.size()) {
+        if (p_max_us > 0 && n > 0 && (n & 15) == 0 &&
+                std::chrono::duration<double, std::micro>(clock::now() - t0).count() >= p_max_us) break;
+        const int pb = pub_queue_[pub_head_++];
+        pub_flag_[pb] = 0;
+        const int pbx = pb % BW, pby = (pb / BW) % BH, pbz = pb / (BW * BH);
+        const int lbx = ((pbx * B - ox_) & mx_) / B, lby = ((pby * B - oy_) & my_) / B, lbz = ((pbz * B - oz_) & mz_) / B;
+        if (loaded_[cidx(lbx * B / CS, lby * B / CS, lbz * B / CS)] != 1) continue;   // vacated since it was queued
+        gather_brick(lbx, lby, lbz, buf);
+        const Vector3i wb(wb0.x + lbx, wb0.y + lby, wb0.z + lbz);
+        if (store) {
+            const Vector3i sb = wb - p_store_origin;
+            bool same = true;
+            for (int k = 0; k < BrickStore::CELLS; k++) {
+                const uint8_t m = buf[k].mat;
+                const uint8_t *pat = store->micro_pattern(m);
+                out[k] = pat ? pat[k] : m;   // vegetation cells show their pattern (paint), the rest their material
+                same = same && m == buf[0].mat;
+            }
+            const uint32_t ref = store->raw_ref(sb);
+            const uint8_t *cur = (ref & BrickStore::EXPANDED) ? store->raw_cells(sb) : nullptr;
+            if (same && !store->micro_pattern(buf[0].mat)) {
+                if (ref != buf[0].mat) store->set_brick_filled(sb, buf[0].mat, 0);   // homogeneous: one word again
+            } else if (!cur || std::memcmp(cur, out, BrickStore::CELLS) != 0) {
+                uint8_t *w = store->raw_cells_mut(sb);
+                if (w) std::memcpy(w, out, BrickStore::CELLS);
+            }
+        }
+        if (co) {
+            const Vector3i v = wb - p_coarse_origin;
+            if (co->in_world(v.x, v.y, v.z)) {
+                const int cci = co->cidx(v.x >> 4, v.y >> 4, v.z >> 4);
+                if (co->loaded_[cci] == 2) {
+                    int m, e;
+                    majority_of(buf, m, e);
+                    const int i = co->idx(v.x, v.y, v.z);
+                    const Cell &cur = co->cells_[i];
+                    const int ce = (cur.mat < co->mats_.size() && co->mats_[cur.mat].cell_type == CELL_LIQUID) ? (cur.pad & 15) : 0;
+                    if (cur.mat != m || ce != e) {
+                        co->place(i, (uint8_t)m);
+                        co->cells_[i].pad = (uint8_t)e;
+                        co->dirty_[cci].store(1, std::memory_order_relaxed);
+                        co->merge_dbox(cci, box_point(v.x & (CS - 1), v.y & (CS - 1), v.z & (CS - 1)));
+                    }
+                    // burning is only information here (particles sample the bubble): no push for a flag
+                    int burning = 0;
+                    for (int k = 0; k < BrickStore::CELLS; k++) burning += (buf[k].flags & FLAG_BURNING) != 0;
+                    co->cells_[i].flags = (uint8_t)((co->cells_[i].flags & ~FLAG_BURNING) | (burning * 16 >= BrickStore::CELLS ? FLAG_BURNING : 0));
+                }
+            }
+        }
+        n++;
+    }
+    if (pub_head_ >= pub_queue_.size()) { pub_queue_.clear(); pub_head_ = 0; }
+    return n;
+}
+
 // ---------- debug ----------
 
 int SimWorld::count_material(int p_material) const {
@@ -1409,12 +1758,14 @@ PackedInt32Array SimWorld::sample_cells(Vector3i p_center, int p_radius, int p_c
         const int y = p_center.y - p_radius + (int)(r % (uint32_t)span);
         r ^= r << 13; r ^= r >> 17; r ^= r << 5;
         const int z = p_center.z - p_radius + (int)(r % (uint32_t)span);
-        if (!is_open(x, y, z)) continue;
+        // held chunks count: they hold the micro simulation's majority view
+        auto readable = [&](int px, int py, int pz) { return in_world(px, py, pz) && loaded_[cidx(px >> 4, py >> 4, pz >> 4)] != 0; };
+        if (!readable(x, y, z)) continue;
         const Cell &c = cells_[idx(x, y, z)];
         if (!mask[c.mat] && !(c.flags & FLAG_BURNING)) continue;
         out.push_back(x); out.push_back(y); out.push_back(z); out.push_back(c.mat);
-        out.push_back(is_open(x, y + 1, z) ? cells_[idx(x, y + 1, z)].mat : -1);
-        out.push_back(is_open(x, y - 1, z) ? cells_[idx(x, y - 1, z)].mat : -1);
+        out.push_back(readable(x, y + 1, z) ? cells_[idx(x, y + 1, z)].mat : -1);
+        out.push_back(readable(x, y - 1, z) ? cells_[idx(x, y - 1, z)].mat : -1);
         out.push_back(c.flags);
     }
     return out;

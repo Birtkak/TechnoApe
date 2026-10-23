@@ -27,6 +27,13 @@ var cache_generated_blocks := true      # store generated LOD data so edits casc
 var near_field := false
 var near_field_m := 32.0                # edge of the cube: 32 m = 512^3 cells = 128 MB of VRAM, 16 m = 256^3 = 16 MB
 var near_upload_mb := 8.0               # volume bytes uploaded per frame at most (window slabs, simulation changes); the rest waits
+# Micro simulation (ADR 0029): a 32 x 16 x 32 m window around the player simulated at 6.25 cm cells inside the
+# 0.5 m bubble; the bubble's voxels there are its majority view. Off until it holds the budget (micro_sim=1, implies near_field).
+var micro_sim := false
+var micro_cell_budget := 1500000        # cells scanned per micro tick at most; the furthest active chunks wait (ADR 0013)
+var micro_lod_m := 12.0                 # micro chunks further than this from the player tick every second tick
+var micro_publish_budget_ms := 1.0      # main-thread time per frame for writing changed bricks into the store and the bubble
+var micro_load_budget_ms := 1.0         # main-thread time per frame for expanding 0.5 m chunks into the micro window (at least one)
 
 # Simulation
 var sim_tick_hz := 30.0
@@ -162,6 +169,11 @@ func apply_cmdline() -> Dictionary:
 			"particle_budget": particle_budget = int(kv[1])
 			"near_field_m": near_field_m = float(kv[1])
 			"near_upload_mb": near_upload_mb = float(kv[1])
+			"micro_sim": micro_sim = kv[1] == "1"
+			"micro_cell_budget": micro_cell_budget = int(kv[1])
+			"micro_lod_m": micro_lod_m = float(kv[1])
+			"micro_publish_budget_ms": micro_publish_budget_ms = float(kv[1])
+			"micro_load_budget_ms": micro_load_budget_ms = float(kv[1])
 			"sim_tick_hz": sim_tick_hz = float(kv[1])
 			"sim_load_budget_ms": sim_load_budget_ms = float(kv[1])
 			"sim_push_budget_ms": sim_push_budget_ms = float(kv[1])
@@ -175,6 +187,8 @@ func apply_cmdline() -> Dictionary:
 			"item_despawn_s": item_despawn_s = float(kv[1])
 			"gamemode": game_mode = kv[1]
 			"minimized": start_minimized = kv[1] == "1"
+	if micro_sim:
+		near_field = true   # the micro cells are only visible in the ray-cast near field
 	return args
 
 

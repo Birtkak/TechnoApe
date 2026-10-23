@@ -8,7 +8,7 @@
 - **How to start one:** "Read `docs/plans/fable-backlog.md` and do job N."
   Each job lists what to read first, what is already known, and what done
   looks like. Tick a job off here (and in CLAUDE.md's phase plan) when it lands.
-- Next free ADR number: **0028** (0022 = animals, farming and furniture; 0023 = Vintage Story early game; 0024 = content pass; 0025 = calendar and sky; 0026 = particles; 0027 = wildlife).
+- Next free ADR number: **0031** (0028 = progression book, 0029 = micro simulation window, 0030 = Flint Age depth) (0022 = animals, farming and furniture; 0023 = Vintage Story early game; 0024 = content pass; 0025 = calendar and sky; 0026 = particles; 0027 = wildlife).
 
 Recommended order: 1, 2, 3 (ADR 0012's remaining steps, they depend on each
 other), then 4, then 5-7 as Phase 3/4 start. 8 is ongoing.
@@ -16,6 +16,12 @@ other), then 4, then 5-7 as Phase 3/4 start. 8 is ongoing.
 ---
 
 ## 1. Micro-resolution simulation on expanded bricks (ADR 0012 step 1 in the game)
+
+**Done 2026-10-23: ADR 0029** (`micro_sim=1`: a dense, toroidal 32 x 16 x 32 m window at 6.25 cm
+inside the 0.5 m bubble, majority view published back; budget table in the ADR). Left open there:
+the window's faces are walls (no exchange with the 0.5 m simulation), compressible water, fire
+pacing per cell, and the brick-sparse kernel when the window must grow. The notes below are the
+state before it.
 
 **Read first:** ADR 0012, ADR 0013, ADR 0021, `docs/design/brick-world.md`,
 `docs/design/material-simulation.md`, `docs/research/2026-10-22-core-architecture-sim.md`,

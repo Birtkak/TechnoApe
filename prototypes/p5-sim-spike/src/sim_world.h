@@ -14,6 +14,7 @@
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
+#include <godot_cpp/variant/vector2i.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 
 #include <atomic>
@@ -69,6 +70,7 @@ public:
         uint16_t ignite_chance = 8192; // 0..65535 per attempt by a burning neighbour (see set_materials)
         uint16_t loosen = 0;   // static ground: chance per tick (0..65535) to turn loose when the cell below just opened
         uint16_t erode = 0;    // static powder: chance per tick to slide off an edge that just opened beside and below it
+        bool replaceable = false;      // a plant Minecraft lets water wash away (with a micro mask: liquids and powders do)
     };
 
     struct Reaction {
@@ -110,6 +112,11 @@ public:
     // tick) and evens out with neighbours that differ by two or more eighths; mass is conserved and a
     // one-eighth film stays put, so floods settle. Off = P5 liquids (whole cells, lateral slides).
     void set_liquid_fullness(bool p_on);
+    // ADR 0029: a cell vacated by a move into air stays free this tick, so the cell above can follow at once and a
+    // column falls together (one layer per tick otherwise: slow motion at 6.25 cm). Static ground still sees it as a
+    // fresh opening (ADR 0013). It also lets a wall of pressed liquid next to air flow out every tick instead of one
+    // tick in eight. Off by default (the 0.5 m game keeps its pacing).
+    void set_cascade(bool p_on);
     int count_liquid_eighths(int p_material) const;   // total eighths of a liquid (mass check)
     // v6: one tick on a background thread. Every other call that reads or writes cells waits for it.
     bool start_tick();          // false if a tick is still running
@@ -137,6 +144,38 @@ public:
     // load path, so partial liquids never reach the store as raw FLUID_LEVEL_BASE values. Returns bricks written.
     int write_chunk_to_store(Object *p_store, Vector3i p_chunk, Vector3i p_origin);
     void clear_dirty();
+
+    // ---- micro simulation (ADR 0029): a 6.25 cm window inside the 0.5 m bubble ----
+    // Toroidal window: call after configure (chunk counts must be powers of two). shift() then moves an
+    // offset instead of memory: vacated chunks keep stale cells, are marked unloaded (walls, not ticked)
+    // and must be loaded again; per-chunk state is reset. Cell coordinates stay window-local.
+    bool set_wrapped(bool p_on);
+    bool is_wrapped() const { return wrapped_; }
+    // A held chunk (the 0.5 m bubble's chunks inside the micro window) does not tick, is a wall to its
+    // neighbours and is not written into a BrickStore by write_dirty_to_store: the micro simulation owns it
+    // and keeps its cells equal to the micro cells' majority view (publish). Releasing wakes it.
+    void set_chunk_held(Vector3i p_chunk, bool p_held);
+    bool is_chunk_held(Vector3i p_chunk) const;
+    // Copies one chunk of a coarse SimWorld (one coarse cell = one brick = 8^3 cells here) into this window
+    // at p_cell_origin (local cell of the coarse chunk's min corner, a multiple of 8): a partly full liquid
+    // becomes its bottom layers. The micro chunks covered become loaded; only those holding something that
+    // moves (liquids, loose powders, gases, fire, burning or reactive cells) are woken. Uses the pool.
+    int load_from_coarse(Object *p_coarse, Vector3i p_coarse_chunk, Vector3i p_cell_origin);
+    // Publishes changed bricks: dirty boxes become a queue of bricks (dirty flags are consumed), then up to
+    // p_max_us of bricks are written (0 = all): into p_store as cells (homogeneous bricks collapse, a material
+    // with a micro pattern shows its pattern cells) at world brick (world_cell_origin + local) / 8 - store_origin,
+    // and into p_coarse as the brick's majority (solid if half its cells are one material, else a liquid level
+    // from its liquid volume, else air) at that world voxel - p_coarse_origin_voxel, held chunks only.
+    // Either target may be null. Returns bricks written.
+    int publish(Object *p_store, Vector3i p_store_origin_brick, Object *p_coarse, Vector3i p_world_cell_origin,
+            Vector3i p_coarse_origin_voxel, int p_max_us);
+    int get_publish_pending() const { return (int)(pub_queue_.size() - pub_head_); }
+    // Vegetation and detail at cell scale: material id -> 512 bytes (x fastest; nonzero = a cell of the plant).
+    // Such a material fills only its pattern's cells (fill_box, load_from_coarse; air elsewhere), and a brick
+    // counts as that plant in the majority while at least half of its pattern's cells are left.
+    void set_micro_masks(const Dictionary &p_masks);
+    // The coarse view of one brick (local brick coords): material, eighths (0 = full) as Vector2i (tests, debug).
+    Vector2i brick_majority(Vector3i p_brick) const;
 
     // ---- debug / introspection ----
     int count_material(int p_material) const;
@@ -210,6 +249,7 @@ private:
     void wait_idle() const;
     void stop_driver();
     void wake_full(int ci);
+    void chunk_of(int ci, int &cx, int &cy, int &cz) const;   // physical chunk index -> window-local chunk
 
     Vector3i chunks_;
     int W_ = 0, H_ = 0, D_ = 0;
@@ -228,6 +268,8 @@ private:
     bool any_fire_ = false;
 
     struct Cell { uint8_t mat, flags, aux, pad; }; // 4 bytes, one cache line touch per voxel
+    void majority_of(const Cell *cells, int &mat, int &eighths) const;   // 512 cells of a brick (x fastest)
+    void gather_brick(int lbx, int lby, int lbz, Cell *out) const;
     std::vector<Cell> cells_;
     int16_t slot_material_[32];         // fluid_slot -> the moving material that a partial level decodes to
     std::vector<uint8_t> displace_lut_; // [mover*256+target] -> 1 if mover may swap into target
@@ -255,20 +297,37 @@ private:
     TickOut last_;
     bool dirty_boxes_ = true;
     bool fullness_ = false;
+    bool cascade_ = false;
+    // toroidal window (set_wrapped): physical = (local + offset) & mask; non-wrapped: offset 0, mask -1
+    bool wrapped_ = false;
+    int ox_ = 0, oy_ = 0, oz_ = 0;        // cells
+    int mx_ = -1, my_ = -1, mz_ = -1;
+    int ocx_ = 0, ocy_ = 0, ocz_ = 0;     // chunks
+    int cmx_ = -1, cmy_ = -1, cmz_ = -1;
+    // publish queue (physical brick index), one flag per brick
+    std::vector<std::vector<uint8_t>> masks_;   // set_micro_masks, per material (empty = none)
+    std::vector<int> mask_cells_;
+    inline const uint8_t *mask_of(uint8_t m) const { return m < masks_.size() && !masks_[m].empty() ? masks_[m].data() : nullptr; }
+    uint8_t washable_[MAX_MATERIALS] = {};      // replaceable plant with a micro mask: liquids and powders move through it, destroying it
+    inline bool open_air(uint8_t m) const { return m == 0 || washable_[m]; }
+    std::vector<uint8_t> pub_flag_;
+    std::vector<int> pub_queue_;
+    size_t pub_head_ = 0;
     std::vector<int> pass_lists_[8];
     std::atomic<uint64_t> moved_count_{0};
     std::atomic<uint64_t> react_count_{0};
     Pool pool_;
 
-    inline int idx(int x, int y, int z) const { return x + W_ * (y + H_ * z); }
-    inline int cidx(int cx, int cy, int cz) const { return cx + CX_ * (cy + CY_ * cz); }
+    inline int idx(int x, int y, int z) const { return ((x + ox_) & mx_) + W_ * (((y + oy_) & my_) + H_ * ((z + oz_) & mz_)); }
+    inline int cidx(int cx, int cy, int cz) const { return ((cx + ocx_) & cmx_) + CX_ * (((cy + ocy_) & cmy_) + CY_ * ((cz + ocz_) & cmz_)); }
     inline bool in_world(int x, int y, int z) const {
         return x >= 0 && y >= 0 && z >= 0 && x < W_ && y < H_ && z < D_;
     }
     // In world AND inside a chunk whose data has been loaded (streaming bubbles load
     // chunks over several frames; an unloaded neighbour must not look like air).
+    // loaded_: 0 = waiting for data, 1 = loaded, 2 = held by the micro simulation (a wall here).
     inline bool is_open(int x, int y, int z) const {
-        return in_world(x, y, z) && loaded_[cidx(x >> 4, y >> 4, z >> 4)];
+        return in_world(x, y, z) && loaded_[cidx(x >> 4, y >> 4, z >> 4)] == 1;
     }
     static inline int mark_bit(int ox, int oy, int oz) { return (ox + 1) + 3 * ((oy + 1) + 3 * (oz + 1)); }
     inline uint32_t rnd(Ctx &c) { c.rng ^= c.rng << 13; c.rng ^= c.rng >> 17; c.rng ^= c.rng << 5; return c.rng; }

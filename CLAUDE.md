@@ -127,8 +127,12 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   edit path under a per-frame byte budget. Steps, each gated by a spike:
   (1) simulation at micro resolution on expanded bricks (player-loop
   session), (2) brick world store + feed (P9, generator session), (3) the
-  game switches its world store to bricks. **Next:** P4 server headless check, then the chisel layer
-  (ADR 0006: `Chisel` block-entity behavior + overlay meshes).
+  game switches its world store to bricks. Step (1) in the game ✓ (ADR 0029, `micro_sim=1`, off by
+  default: `scripts/micro_bubble.gd` runs a toroidal 32 x 16 x 32 m `SimWorld` at 6.25 cm inside the
+  bubble, whose chunks there are held and get the bricks' majority; changed bricks are published into the
+  store as cells; plants are their pattern cells, columns fall together). **Next:** chisel as brick
+  expansion (fable-backlog job 2: edits into the micro cells replace ADR 0006's overlay meshes), P4 server
+  headless check.
 - In-world voxels follow ADR 0006: terrain ids + one block-entity layer
   (`scripts/blocks/`) + reserved decor layer; every voxel chiselable on an
   8³ cell grid (6.25 cm) through the native `MicroMesher`, which also builds
