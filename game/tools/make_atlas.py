@@ -11,7 +11,8 @@ Tiles (index = row*4 + col):
 51 wool 52 farmland 53 farmland moist 54 ripe wheat 55 carrot
 56 oak log top 57-59 spruce log side/top, needles 60-62 acacia 63-65 jungle
 66-68 terracotta orange/red/cream 69 basalt top 70 basalt side 71 packed ice
-72 fern frond; 73-79 free (8x10)
+72 fern frond; 73 birch bark 74 birch top 75 birch leaves 76 blueberries
+77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82-87 free (8x11)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -21,7 +22,7 @@ from PIL import Image
 
 TILE = 16
 COLS = 8
-ROWS = 10  # 80 tiles; rows grow at the bottom so tile indices keep their meaning
+ROWS = 11  # 88 tiles; rows grow at the bottom so tile indices keep their meaning
 
 random.seed(1337)
 
@@ -286,6 +287,39 @@ def basalt_top():
     return img
 
 
+def birch_bark():
+    """White bark with short black horizontal marks (lenticels)."""
+    img = noise_tile((222, 220, 210), 6, (200, 198, 188), 0.1)
+    px = img.load()
+    for _ in range(9):
+        x0 = random.randint(0, TILE - 4)
+        y = random.randint(0, TILE - 1)
+        for x in range(x0, x0 + random.randint(2, 4)):
+            px[x, y] = (40, 38, 36, 255)
+    return img
+
+
+def pumpkin_side():
+    """Orange ribs with darker grooves."""
+    img = noise_tile((222, 128, 30), 8, (200, 108, 22), 0.1)
+    px = img.load()
+    for x in (0, 4, 8, 12):
+        for y in range(TILE):
+            r, g, b, _ = px[x, y]
+            px[x, y] = (r - 50, g - 40, b - 10, 255)
+    return img
+
+
+def pumpkin_top():
+    """Ribs meeting at a green-brown stem."""
+    img = pumpkin_side()
+    px = img.load()
+    for y in range(6, 10):
+        for x in range(6, 10):
+            px[x, y] = (96, 110, 40, 255) if (x + y) % 3 else (70, 80, 30, 255)
+    return img
+
+
 def spotted(base, spot):
     img = noise_tile(base, 12, None, 0)
     for (sx, sy) in [(3, 3), (10, 4), (6, 9), (12, 11), (2, 12)]:
@@ -370,6 +404,16 @@ tiles = [
     basalt_side(),                                            # 70 basalt side
     noise_tile((140, 176, 222), 6, (176, 204, 238), 0.12),    # 71 packed ice: denser, bluer than ice
     noise_tile((70, 146, 58), 12, (50, 120, 44), 0.2),        # 72 fern frond (micro-voxel model)
+    # content pass 2: birch, blueberries, pumpkins, flower petals
+    birch_bark(),                                             # 73 birch log side
+    log_top((214, 196, 150), (186, 166, 120), (222, 220, 210)),   # 74 birch log top
+    noise_tile((120, 168, 70), 16, (96, 140, 52), 0.3),       # 75 birch leaves: light, yellowish
+    noise_tile((70, 80, 170), 14, (110, 120, 210), 0.25),     # 76 blueberries
+    pumpkin_side(),                                           # 77 pumpkin side
+    pumpkin_top(),                                            # 78 pumpkin top
+    noise_tile((70, 110, 230), 12, (120, 160, 250), 0.2),     # 79 petal blue (cornflower)
+    noise_tile((240, 240, 236), 8, (255, 255, 255), 0.2),     # 80 petal white (oxeye daisy)
+    noise_tile((160, 80, 200), 12, (200, 120, 230), 0.2),     # 81 petal purple (allium)
 ]
 assert len(tiles) <= COLS * ROWS, len(tiles)
 

@@ -78,6 +78,31 @@ pillars later", magma caves "basalt-like stone later". The atlas was
 - **Fallen logs wait** for a log block that is bark on every face (or log
   orientation). A log lying down would show its rings on top.
 
+## Addendum 2: birch, fallen logs, berries, pumpkins, flowers (2026-10-23)
+- **Atlas 8x11** (tiles 73..81 new, 82..87 free).
+- **Materials 90..101**, after ADR 0023's work pieces:
+  - birch log and leaves;
+  - blueberry bush (micro model, drops 1-3 blueberries, food 2);
+  - pumpkin (a block; pumpkin + wheat = pumpkin pie, food 8);
+  - cornflower, oxeye daisy and allium (`micro: "bloom"`, tiles [petal, centre, blades]);
+  - bark blocks for oak, spruce, acacia, jungle and birch.
+- **Bark blocks** are the log's side on every face, so fallen logs can
+  lie on their side without log orientation. Breaking one drops the
+  log.
+- **`tree_mix`** in biomes.json gives a biome a second tree kind with a
+  share, generated into `TREE_MIX_KIND` / `TREE_MIX`. Birch takes 30% of
+  forests, 25% of plains, 15% of highlands and 10% of taiga. It is a slender
+  trunk with a narrow crown.
+- **`decor.fallen_log`** adds a bark log of the cell's tree kind, 4-7
+  long along x or z. It has moss and the odd brown mushroom on top in
+  forests.
+- **Ground plants:**
+  - blueberry bushes in forests, old growth and taiga;
+  - pumpkins as a third wild-patch kind next to ADR 0022's wheat and
+    carrots, in plains and forests;
+  - flowers in single-kind patches from a per-biome mix of five:
+    meadow, woods, upland and wet.
+
 ## Consequences
 - `test_content_pass.gd` checks:
   - ids, atlas bounds and data;

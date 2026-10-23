@@ -135,7 +135,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   all micro models (`materials.gd` `micro:` kinds). Material ids are
   definition order: 32..36 stations, 37..43 detail, 44 `CHISELED` reserved;
   append only; 47 = blood (ADR 0015); 48..52 ground pickups (ADR 0019); 57..75 animals/farming/furniture
-  (ADR 0022). Atlas 8×10 tiles (ADR 0024; 73..79 free, grow ROWS for more); 76..87 = content pass (tree kinds, terracotta, basalt, packed ice, fern). 88..89 = work spots (ADR 0023: drawn by `scripts/work/` entities from `MicroMesher.build_arrays` with the winding flipped in the arrays; `MobModel.outward` reads an ArrayMesh back, which waits 4-6 ms for the render thread, so never call it per edit). MicroMesher winds
+  (ADR 0022). Atlas 8×11 tiles (ADR 0024; 82..87 free, grow ROWS for more); 76..87 = content pass (tree kinds, terracotta, basalt, packed ice, fern), 90..101 = content pass 2 (birch, blueberry bush, pumpkin, flowers, bark). 88..89 = work spots (ADR 0023: drawn by `scripts/work/` entities from `MicroMesher.build_arrays` with the winding flipped in the arrays; `MobModel.outward` reads an ArrayMesh back, which waits 4-6 ms for the render thread, so never call it per edit). MicroMesher winds
   triangles counter-clockwise: pass its meshes through `MobModel.outward` (terrain models, mobs, furniture, the ape).
 - Two sessions share this checkout (this one and "PC testing and
   optimization"): stage files explicitly, never `git add -A`; Biome enum ids

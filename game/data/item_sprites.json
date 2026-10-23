@@ -1432,6 +1432,27 @@
         "................"
       ]
     },
+    "pie": {
+      "colors": {"f": "#e08a2a", "F": "#c06a18"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "......oooo......",
+        "...ooohlllooo...",
+        "..ohlffffffllo..",
+        ".ohmffffFfffmlo.",
+        ".olffFfffffFfdo.",
+        "ohmffffffffffmlo",
+        ".olmffFffFffmdo.",
+        ".olmmffffffmmdo.",
+        "..olddmmmmdddo..",
+        "...oooldddooo...",
+        "......oooo......",
+        "................"
+      ]
+    },
     "hoe_head": {
       "rows": [
         ".......ohlo.....",
@@ -1738,6 +1759,7 @@
     "wheat": {"layers": [{"shape": "sheaf", "palette": "straw"}]},
     "carrot": {"layers": [{"shape": "carrot", "palette": "carrot"}]},
     "bread": {"layers": [{"shape": "bread", "palette": "bread"}]},
+    "pumpkin_pie": {"layers": [{"shape": "pie", "palette": "bread"}]},
     "wooden_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "wood"}]},
     "stone_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "stone"}]},
     "iron_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "iron"}]},

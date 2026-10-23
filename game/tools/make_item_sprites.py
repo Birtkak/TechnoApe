@@ -721,6 +721,12 @@ g = shade(compose(ellipse(new(), 8, 9.5, 6.6, 3.8), rect(new(), 2, 9, 13, 12)))
 for (x, y) in [(5, 7), (6, 8), (8, 7), (9, 8), (11, 7), (12, 8)]:
     put(g, x, y, "d")
 shape("bread", outline(g))
+# pumpkin pie: a round crust seen from above at an angle, orange filling, a lattice
+g = shade(ellipse(new(), 8, 9.5, 6.6, 4.2))
+f = ellipse(new(), 8, 9.0, 5.0, 3.0, "f")
+for (x, y) in [(5, 8), (8, 7), (11, 8), (6, 10), (9, 10)]:
+    put(f, x, y, "F")
+shape("pie", outline(compose(g, f)), {"f": "#e08a2a", "F": "#c06a18"})
 shape("hoe_head", body(poly(new(), tool_pts([(-0.6, -1.4), (5.2, -1.4), (5.2, 0.9), (-0.6, 0.9)]))))
 g = compose(line(new(), 3, 3, 10, 10, "#", 2), line(new(), 12, 3, 5, 10, "#", 2))
 g = shade(g)
@@ -862,6 +868,7 @@ sp("wheat_seeds", ("seeds", "seed"))
 sp("wheat", ("sheaf", "straw"))
 sp("carrot", ("carrot", "carrot"))
 sp("bread", ("bread", "bread"))
+sp("pumpkin_pie", ("pie", "bread"))
 for m, item in (("wood", "wooden_hoe"), ("stone", "stone_hoe"), ("iron", "iron_hoe")):
     sp(item, H, ("hoe_head", m))
 sp("shears", ("shears", "iron"))

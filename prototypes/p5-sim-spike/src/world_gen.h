@@ -66,7 +66,10 @@ public:
         WILD_WHEAT = 73, WILD_CARROT = 74,
         // 75 furniture (never generated); content pass: tree kinds, badlands strata, basalt, ice fields, ferns
         SPRUCE_LOG = 76, SPRUCE_LEAVES = 77, ACACIA_LOG = 78, ACACIA_LEAVES = 79, JUNGLE_LOG = 80, JUNGLE_LEAVES = 81,
-        TERRACOTTA = 82, TERRACOTTA_RED = 83, TERRACOTTA_CREAM = 84, BASALT = 85, PACKED_ICE = 86, FERN = 87
+        TERRACOTTA = 82, TERRACOTTA_RED = 83, TERRACOTTA_CREAM = 84, BASALT = 85, PACKED_ICE = 86, FERN = 87,
+        // 88..89 work pieces (ADR 0023, never generated); content pass 2
+        BIRCH_LOG = 90, BIRCH_LEAVES = 91, BLUEBERRY_BUSH = 92, PUMPKIN = 93, CORNFLOWER = 94, OXEYE_DAISY = 95, ALLIUM = 96,
+        OAK_BARK = 97, SPRUCE_BARK = 98, ACACIA_BARK = 99, JUNGLE_BARK = 100, BIRCH_BARK = 101
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,
@@ -170,18 +173,19 @@ private:
     // ---- decorations ----
     static constexpr int TREE_CELL = 8;
     static constexpr int TREE_MAX_RADIUS = 4;
-    // kind = technosim_biome::TREE_KIND (0 oak, 1 spruce, 2 acacia, 3 jungle): shape and wood
-    enum TreeKind : int { TREE_OAK = 0, TREE_SPRUCE = 1, TREE_ACACIA = 2, TREE_JUNGLE = 3 };
+    // kind = technosim_biome::TREE_KIND / TREE_MIX_KIND (0 oak, 1 spruce, 2 acacia, 3 jungle, 4 birch): shape and wood
+    enum TreeKind : int { TREE_OAK = 0, TREE_SPRUCE = 1, TREE_ACACIA = 2, TREE_JUNGLE = 3, TREE_BIRCH = 4 };
     struct Tree { int x, z, base, trunk_h, radius, kind; };
     static int canopy_radius(const Tree &t, int wy);   // leaf radius of the crown layer at wy, -1 = none
     static int trunk_top(const Tree &t);               // highest log voxel
     static uint16_t tree_log(int kind);
     static uint16_t tree_leaves(int kind);
+    static uint16_t tree_bark(int kind);
     // Ground decorations (biomes.json decor, DECOR_* tables): at most one per 8 m cell,
     // anchored 2..13 voxels into the cell so it never reaches past a neighbour cell.
     static constexpr int STAMP_CELL = 16;
     static constexpr int STAMP_REACH = 3;
-    enum StampKind : int { STAMP_BUSH = 1, STAMP_BOULDER = 2, STAMP_DEAD_TREE = 3 };
+    enum StampKind : int { STAMP_BUSH = 1, STAMP_BOULDER = 2, STAMP_DEAD_TREE = 3, STAMP_FALLEN_LOG = 4 };
     struct Stamp { int kind, x, z, size, tree_kind; bool mossy; uint32_t seed; };
     bool stamp_at_cell(int cx, int cz, Stamp &out) const;
     int stamps_near(int x0, int z0, int x1, int z1, Stamp *out, int max_out) const;

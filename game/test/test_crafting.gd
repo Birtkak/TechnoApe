@@ -179,7 +179,8 @@ func test_browser_queries() -> void:
 func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
 	var raw := ["oak_log", "cobblestone", "sand", "iron_ore", "copper_ore", "tin_ore", "coal", "mana_dust", "fire_essence", "wand_basic", "dirt", "gravel", "grass_block",
 		"wool", "raw_meat", "wheat", "carrot", "wheat_seeds",   # animal drops and wild crops (ADR 0022)
-		"flint", "loose_stone", "loose_copper_ore", "clay_ball", "dry_grass"]   # ground pickups, clay, cut grass (ADR 0023)
+		"flint", "loose_stone", "loose_copper_ore", "clay_ball", "dry_grass",   # ground pickups, clay, cut grass (ADR 0023)
+		"pumpkin", "blueberry"]   # wild pumpkin patches, blueberry bushes (ADR 0024)
 	var have := recipes.reachable_from(raw)
 	var missing := []
 	for id in items.all_ids():

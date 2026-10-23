@@ -14,9 +14,9 @@ const ALT_BANDS := ["deep_ocean", "ocean", "coast", "lowland", "highland", "moun
 const MATERIALS := ["air", "stone", "dirt", "grass", "sand", "water", "wood", "lava", "ash", "oil", "steam", "smoke", "fire", "bedrock", "snow", "gravel", "coal_ore", "iron_ore", "copper_ore", "tin_ore", "leaves", "sand_static", "gravel_static", "water_static", "toxic_sludge_static", "sulfur", "ice", "packed_ice", "basalt", "terracotta", "sandstone"]
 ## Ground decorations (biomes.json "decor"): chance per 8 m cell of a bush, boulder or
 ## dead tree (one per cell), and per 12 m cell of a spire of spire_material.
-const DECOR_KINDS := ["bush", "boulder", "dead_tree", "spire"]
+const DECOR_KINDS := ["bush", "boulder", "dead_tree", "fallen_log", "spire"]
 ## Tree shapes and woods (biomes.json tree_kind); index = WorldGen tree kind.
-const TREE_KINDS := ["oak", "spruce", "acacia", "jungle"]
+const TREE_KINDS := ["oak", "spruce", "acacia", "jungle", "birch"]
 
 var biomes: Array = []        # index = id -> Dictionary (raw definition, validated)
 var by_name := {}             # name -> id
@@ -105,6 +105,9 @@ func _validate(d: Dictionary) -> void:
 		errors.append("biome %s: bush + boulder + dead_tree chances exceed 1" % n)
 	if float(dec.get("spire", 0.0)) > 0.0 and not dec.has("spire_material"):
 		errors.append("biome %s: a spire needs a spire_material" % n)
+	var mix: Dictionary = d.get("tree_mix", {})
+	if not mix.is_empty() and (not TREE_KINDS.has(mix.get("kind", "")) or float(mix.get("share", -1.0)) < 0.0 or float(mix.get("share", 2.0)) > 1.0):
+		errors.append("biome %s: tree_mix needs a kind (%s) and a share 0..1" % [n, ", ".join(TREE_KINDS)])
 	if td > 0.0 and not TREE_KINDS.has(d.get("tree_kind", "")):
 		errors.append("biome %s: trees need a tree_kind (%s)" % [n, ", ".join(TREE_KINDS)])
 	for b in d.get("borders", []):

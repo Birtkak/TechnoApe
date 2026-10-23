@@ -156,7 +156,7 @@ recipe by design (found only); spells do.
 | `scripts/debug_capture.gd` | Autoload. Autopilot, filmstrips, JSON stats, vsync switch. |
 | `addons/technosim/` | Our GDExtension (built from `../prototypes/p5-sim-spike/src`). |
 | `addons/zylann.voxel/` | godot_voxel GDExtension (CI build 2026-10-01; pin a tag). |
-| `assets/textures/atlas.png` | 8×10 tiles of 16×16 placeholder textures (73..79 free: grow ROWS for more, ADR 0024); `tools/make_atlas.py` regenerates, then `--headless --import` before tests. |
+| `assets/textures/atlas.png` | 8×11 tiles of 16×16 placeholder textures (82..87 free: grow ROWS for more, ADR 0024); `tools/make_atlas.py` regenerates, then `--headless --import` before tests. |
 | `assets/shaders/terrain.gdshader` | Opaque material for terrain, micro models, item cubes, viewmodel: nearest atlas, baked AO, per-face tint, scrolling water/lava/fire tiles, emissive glow/lava/fire tiles (bloom). Body shared via `terrain_common.gdshaderinc`. |
 | `assets/shaders/terrain_liquid.gdshader` | Same sampling with alpha + depth write for passable transparent voxels (water, oil, gases, fire); rippling sun glint on water tops. `GameMaterials.build_library` assigns it. |
 | `assets/shaders/sky.gdshader` | Procedural sky: gradient, sun disc/halo, noise clouds, stars, moon; driven by the true sun direction. |

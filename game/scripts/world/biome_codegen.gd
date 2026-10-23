@@ -31,9 +31,12 @@ static func generate(reg: BiomeRegistry) -> String:
 	L.append("static const float TREE_DENSITY[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return _f(float(d["tree_density"])))))
 	L.append("// Tree shape and wood: %s." % ", ".join(_map(BiomeRegistry.TREE_KINDS, func(k): return "%d %s" % [BiomeRegistry.TREE_KINDS.find(k), k])))
 	L.append("static const int TREE_KIND[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(maxi(0, BiomeRegistry.TREE_KINDS.find(d.get("tree_kind", "oak")))))))
-	L.append("// Ground decorations (biomes.json decor): chance per 8 m cell (one of bush / boulder / dead tree),")
+	L.append("// A second tree kind mixed in (biomes.json tree_mix): which, and its share of the trees.")
+	L.append("static const int TREE_MIX_KIND[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(maxi(0, BiomeRegistry.TREE_KINDS.find(d.get("tree_mix", {}).get("kind", "oak")))))))
+	L.append("static const float TREE_MIX[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return _f(float(d.get("tree_mix", {}).get("share", 0.0))))))
+	L.append("// Ground decorations (biomes.json decor): chance per 8 m cell (one of bush / boulder / dead tree / fallen log),")
 	L.append("// spire chance per 12 m cell, its material (TERRACOTTA = strata) and height range in voxels.")
-	for k in ["bush", "boulder", "dead_tree", "spire"]:
+	for k in ["bush", "boulder", "dead_tree", "fallen_log", "spire"]:
 		L.append("static const float DECOR_%s[COUNT] = {%s};" % [k.to_upper(), ", ".join(_map(reg.biomes, func(d): return _f(float(d.get("decor", {}).get(k, 0.0)))))])
 	L.append("static const int SPIRE_MATERIAL[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d.get("decor", {}).get("spire_material", ""))))))
 	L.append("static const int SPIRE_HEIGHT[COUNT][2] = {%s};" % ", ".join(_map(reg.biomes, func(d): return "{%d, %d}" % [int(d.get("decor", {}).get("spire_height", [0, 0])[0]), int(d.get("decor", {}).get("spire_height", [0, 0])[1])])))

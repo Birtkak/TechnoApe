@@ -587,11 +587,13 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     out.z = tz;
     out.base = hy.marsh ? marsh_floor(col.height, hy) : col.height;
     out.kind = technosim_biome::TREE_KIND[col.biome];
+    if ((float)((hsh >> 21) & 1023) / 1024.0f < technosim_biome::TREE_MIX[col.biome]) out.kind = technosim_biome::TREE_MIX_KIND[col.biome];
     const int vary = (int)((hsh >> 16) % 6), wide = (int)((hsh >> 20) & 1);
     switch (out.kind) {
         case TREE_SPRUCE: out.trunk_h = 10 + vary; out.radius = 3; break;       // 5-8 m cones
         case TREE_ACACIA: out.trunk_h = 6 + vary / 2; out.radius = 3 + wide; break; // short trunk, flat wide crown
         case TREE_JUNGLE: out.trunk_h = 15 + vary + 2 * wide; out.radius = 3 + wide; break; // tall emergent trees
+        case TREE_BIRCH: out.trunk_h = 9 + vary; out.radius = 2; break;                     // slender, a narrow crown
         default:
             out.trunk_h = 8 + vary;
             out.radius = 2 + wide;
@@ -609,6 +611,7 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
 //          alternating fringes (0, 0, 1, 1, 2, 1, 3, 2, 3, 2 ... from the tip down)
 //   acacia a flat umbrella: r at the trunk top, r-2 above it
 //   jungle 6 layers over a tall trunk: r-2, r-1, r, r, r-1, r-2
+//   birch  a narrow column: r-1, r, r, r, r-1, r-2 from 4 below the trunk top
 int WorldGen::canopy_radius(const Tree &t, int wy) {
     const int top = t.base + t.trunk_h, r = t.radius;
     switch (t.kind) {
@@ -629,6 +632,11 @@ int WorldGen::canopy_radius(const Tree &t, int wy) {
             const int k = wy - (top - 3);
             return (k < 0 || k > 5) ? -1 : r + J[k];
         }
+        case TREE_BIRCH: {
+            static const int B[6] = {-1, 0, 0, 0, -1, -2};
+            const int k = wy - (top - 4);
+            return (k < 0 || k > 5) ? -1 : r + B[k];
+        }
         default: {
             static const int O[5] = {-1, 0, 0, -1, -2};
             const int k = wy - (top - 2);
@@ -640,18 +648,23 @@ int WorldGen::canopy_radius(const Tree &t, int wy) {
 int WorldGen::trunk_top(const Tree &t) {
     const int top = t.base + t.trunk_h;
     if (t.kind == TREE_SPRUCE) return top - 1;   // the cone's tip is needles
-    if (t.kind == TREE_ACACIA) return top;
+    if (t.kind == TREE_ACACIA || t.kind == TREE_BIRCH) return top;
     return top + 1;
 }
 
 uint16_t WorldGen::tree_log(int kind) {
-    static const uint16_t L[4] = {WOOD, SPRUCE_LOG, ACACIA_LOG, JUNGLE_LOG};
-    return L[kind & 3];
+    static const uint16_t L[5] = {WOOD, SPRUCE_LOG, ACACIA_LOG, JUNGLE_LOG, BIRCH_LOG};
+    return L[std::clamp(kind, 0, 4)];
 }
 
 uint16_t WorldGen::tree_leaves(int kind) {
-    static const uint16_t L[4] = {LEAVES, SPRUCE_LEAVES, ACACIA_LEAVES, JUNGLE_LEAVES};
-    return L[kind & 3];
+    static const uint16_t L[5] = {LEAVES, SPRUCE_LEAVES, ACACIA_LEAVES, JUNGLE_LEAVES, BIRCH_LEAVES};
+    return L[std::clamp(kind, 0, 4)];
+}
+
+uint16_t WorldGen::tree_bark(int kind) {
+    static const uint16_t L[5] = {OAK_BARK, SPRUCE_BARK, ACACIA_BARK, JUNGLE_BARK, BIRCH_BARK};
+    return L[std::clamp(kind, 0, 4)];
 }
 
 int WorldGen::trees_near(int x0, int z0, int x1, int z1, Tree *out, int max_out) const {
@@ -679,18 +692,22 @@ bool WorldGen::stamp_at_cell(int cx, int cz, Stamp &out) const {
     if (col.height <= sea_ + 1) return false;
     const float roll = (float)(hs & 1023) / 1024.0f;
     const float bush = DECOR_BUSH[col.biome], boulder = DECOR_BOULDER[col.biome], dead = DECOR_DEAD_TREE[col.biome];
+    const float fallen = DECOR_FALLEN_LOG[col.biome];
     if (roll < bush) out.kind = STAMP_BUSH;
     else if (roll < bush + boulder) out.kind = STAMP_BOULDER;
     else if (roll < bush + boulder + dead) out.kind = STAMP_DEAD_TREE;
+    else if (roll < bush + boulder + dead + fallen) out.kind = STAMP_FALLEN_LOG;
     else return false;
     Hydro hy = hydro_at(out.x, out.z, col.height);
     if (hy.river > 0.05f || hy.lake || hy.puddle) return false;
     out.seed = hash3(out.x, out.z, seed_ + 409);
     out.tree_kind = TREE_KIND[col.biome];
+    if ((float)((out.seed >> 12) & 1023) / 1024.0f < TREE_MIX[col.biome]) out.tree_kind = TREE_MIX_KIND[col.biome];
     out.mossy = TREE_DENSITY[col.biome] >= 0.25f;   // forests: moss on boulders
     switch (out.kind) {
         case STAMP_BUSH: out.size = 1 + (int)((out.seed >> 4) & 1); break;       // radius 1-2
         case STAMP_BOULDER: out.size = 1 + (int)((out.seed >> 4) % 3); break;    // radius 1-3
+        case STAMP_FALLEN_LOG: out.size = 4 + (int)((out.seed >> 4) % 4); break; // length 4-7, centred on the anchor
         default: out.size = 3 + (int)((out.seed >> 4) % 4); break;               // dead trunk 3-6
     }
     return true;
@@ -712,6 +729,7 @@ int WorldGen::stamp_height(const Stamp &s) {
     switch (s.kind) {
         case STAMP_BUSH: return s.size + 1;
         case STAMP_BOULDER: return s.size + 2;   // + a moss carpet
+        case STAMP_FALLEN_LOG: return 2;         // the log + moss or a mushroom on it
         default: return s.size;
     }
 }
@@ -720,7 +738,8 @@ int WorldGen::stamp_height(const Stamp &s) {
 //   bush     a leaf mound of the biome's tree kind over a log core (Minecraft's jungle bush),
 //            radius 1-2, a ragged edge from the seed;
 //   boulder  a stone dome of radius 1-3, moss carpet on top in forests;
-//   dead     a bare trunk of the biome's wood, 3-6 tall, with one stub branch.
+//   dead     a bare trunk of the biome's wood, 3-6 tall, with one stub branch;
+//   fallen   a log of bark blocks lying along x or z, 4-7 long, moss and the odd mushroom on top.
 uint16_t WorldGen::stamp_voxel(const Stamp &s, int x, int z, int dy) {
     const int dx = x - s.x, dz = z - s.z, d2 = dx * dx + dz * dz;
     if (dy < 0) return AIR;
@@ -739,6 +758,19 @@ uint16_t WorldGen::stamp_voxel(const Stamp &s, int x, int z, int dy) {
             const int hgt = std::max(1, (int)std::lround((r - d) * 1.3f));
             if (dy < hgt) return STONE;
             if (dy == hgt && s.mossy && hash3(x, z, (int)s.seed + 1) % 3 != 0) return MOSS;
+            return AIR;
+        }
+        case STAMP_FALLEN_LOG: {
+            const bool along_x = (s.seed >> 9) & 1;
+            const int a = along_x ? dx : dz, b = along_x ? dz : dx;
+            const int lo = -s.size / 2, hi = lo + s.size - 1;
+            if (b != 0 || a < lo || a > hi) return AIR;
+            if (dy == 0) return tree_bark(s.tree_kind);
+            if (dy == 1) {
+                const uint32_t h = hash3(x, z, (int)s.seed + 3) % 8;
+                if (h == 0) return MUSHROOM_BROWN;
+                if (s.mossy && h < 4) return MOSS;
+            }
             return AIR;
         }
         default: {
@@ -959,39 +991,42 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
     // ~170 m); the patch is a 1.5 m disc around a jittered centre, a quarter of its
     // grass columns carrying the plant (about 6 plants).
     if (!marsh) {
-        int wheat = 0, carrot = 0;   // per 1000 cells
+        int wheat = 0, carrot = 0, pumpkin = 0;   // per 1000 cells
         switch (col.biome) {
-            case PLAINS: wheat = 30; carrot = 20; break;
+            case PLAINS: wheat = 30; carrot = 20; pumpkin = 12; break;
             case SAVANNA: wheat = 15; break;
-            case FOREST: carrot = 12; break;
+            case FOREST: carrot = 12; pumpkin = 10; break;
             default: break;
         }
-        if (wheat + carrot > 0) {
+        if (wheat + carrot + pumpkin > 0) {
             constexpr int PC = 48;
             const int pcx = floor_div(x, PC), pcz = floor_div(z, PC);
             const uint32_t ph = hash3(pcx, pcz, seed_ + 211);
             const int roll = (int)(ph % 1000u);
-            if (roll < wheat + carrot) {
+            if (roll < wheat + carrot + pumpkin) {
                 const int px = pcx * PC + 8 + (int)((ph >> 10) % (PC - 16));
                 const int pz = pcz * PC + 8 + (int)((ph >> 20) % (PC - 16));
                 const int dx = x - px, dz = z - pz;
-                if (dx * dx + dz * dz <= 10 && ((v >> 16) & 3u) == 0)
+                if (dx * dx + dz * dz <= 10 && ((v >> 16) & 3u) == 0) {
+                    if (roll >= wheat + carrot) return ((v >> 18) & 1u) ? PUMPKIN : AIR;   // pumpkins: fewer, bigger
                     return roll < wheat ? WILD_WHEAT : WILD_CARROT;
+                }
             }
         }
     }
     // Per mille of grass columns; pebbles, twigs and flint are the starting pickups.
     int grass = 0, flower = 0, bush = 0, shroom = 0, pebble = 0, twig = 0, flint = 0;
     int fern = 0;   // ferns take this share of the grass columns (shady, wet biomes)
+    int berry = 0;  // blueberry bushes, per mille
     if (marsh) grass = 560;
     else switch (col.biome) {
         case PLAINS: grass = 300; flower = 36; pebble = 6; twig = 2; flint = 2; break;
-        case FOREST: grass = 170; flower = 14; shroom = 10; pebble = 4; twig = 12; flint = 1; fern = 15; break;
-        case OLD_GROWTH_FOREST: grass = 200; flower = 10; shroom = 22; pebble = 3; twig = 16; fern = 70; break;
+        case FOREST: grass = 170; flower = 14; shroom = 10; pebble = 4; twig = 12; flint = 1; fern = 15; berry = 6; break;
+        case OLD_GROWTH_FOREST: grass = 200; flower = 10; shroom = 22; pebble = 3; twig = 16; fern = 70; berry = 4; break;
         case HIGHLANDS: grass = 110; flower = 10; pebble = 20; twig = 2; flint = 4; break;
         case MOUNTAINS: grass = 50; flower = 4; pebble = 30; flint = 4; break;
         case ALPINE: grass = 25; flower = 6; pebble = 30; flint = 3; break;
-        case TAIGA: grass = 90; shroom = 12; pebble = 8; twig = 12; flint = 1; fern = 50; break;
+        case TAIGA: grass = 90; shroom = 12; pebble = 8; twig = 12; flint = 1; fern = 50; berry = 10; break;
         case SHRUBLAND: grass = 120; bush = 40; pebble = 14; twig = 4; flint = 3; break;
         case SAVANNA: grass = 420; bush = 12; twig = 3; flint = 2; break;
         case JUNGLE: grass = 350; flower = 20; shroom = 14; twig = 10; fern = 110; break;
@@ -1007,13 +1042,27 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
     if (pebble > 0 && r >= 1000 - bush - shroom - pebble) return PEBBLES;
     if (twig > 0 && r >= 1000 - bush - shroom - pebble - twig) return TWIGS;
     if (flint > 0 && r >= 1000 - bush - shroom - pebble - twig - flint) return FLINT_STONES;
+    if (berry > 0 && r >= 1000 - bush - shroom - pebble - twig - flint - berry) return BLUEBERRY_BUSH;
     if (flower > 0) {
         const float patch = n_detail_.GetNoise((float)x * 2.0f + 5000.0f, (float)z * 2.0f - 5000.0f);
         flower = patch > 0.3f ? flower * 5 : flower / 4;
     }
     if (r < fern) return FERN;
     if (r < grass) return TALL_GRASS;
-    if (r < grass + flower) return ((v >> 12) & 1) ? FLOWER : FLOWER_RED;
+    if (r < grass + flower) {
+        // each biome its own mix of the five flowers (dandelion-yellow, poppy-red, cornflower, daisy, allium)
+        static const uint16_t MEADOW[4] = {FLOWER, FLOWER_RED, OXEYE_DAISY, CORNFLOWER};
+        static const uint16_t WOODS[4] = {FLOWER, FLOWER_RED, ALLIUM, OXEYE_DAISY};
+        static const uint16_t UPLAND[4] = {CORNFLOWER, OXEYE_DAISY, FLOWER, CORNFLOWER};
+        static const uint16_t WET[4] = {FLOWER_RED, ALLIUM, FLOWER_RED, ALLIUM};
+        const uint16_t *mix = MEADOW;
+        if (col.biome == FOREST || col.biome == OLD_GROWTH_FOREST) mix = WOODS;
+        else if (col.biome == HIGHLANDS || col.biome == MOUNTAINS || col.biome == ALPINE) mix = UPLAND;
+        else if (col.biome == JUNGLE || col.biome == SWAMP) mix = WET;
+        // flowers grow in patches of one kind: the kind follows a coarse cell, not the column
+        const uint32_t fk = hash3(x >> 3, z >> 3, seed_ + 223);
+        return mix[fk & 3];
+    }
     return AIR;
 }
 

@@ -164,3 +164,49 @@ func test_spires_in_badlands_and_deserts() -> void:
 	var t := [GameMaterials.TERRACOTTA, GameMaterials.TERRACOTTA_RED, GameMaterials.TERRACOTTA_CREAM]
 	c = _above_ground(g, _near(g, "badlands"), t, 3, 26)
 	assert_int(c[t[0]] + c[t[1]] + c[t[2]]).override_failure_message("badlands: no spires").is_greater(20)
+
+
+# ---------- content pass 2: birch, fallen logs, blueberries, pumpkins, flowers ----------
+
+const NEW2 := ["birch_log", "birch_leaves", "blueberry_bush", "pumpkin", "cornflower", "oxeye_daisy", "allium",
+	"oak_bark", "spruce_bark", "acacia_bark", "jungle_bark", "birch_bark"]
+
+
+func test_content2_ids_items_and_drops() -> void:
+	for i in NEW2.size():
+		assert_str(GameMaterials.name_of(GameMaterials.BIRCH_LOG + i)).is_equal(NEW2[i])
+	assert_int(GameMaterials.BIRCH_LOG).is_equal(90)
+	var mining := MiningTable.load_default()
+	var items := ItemRegistry.load_default()
+	var recipes := RecipeRegistry.load_default(items)
+	for n in NEW2:
+		assert_bool(mining.is_minable(n)).override_failure_message("%s not minable" % n).is_true()
+	for id in ["birch_log", "blueberry", "pumpkin", "pumpkin_pie"]:
+		assert_bool(items.has(id)).override_failure_message("no item %s" % id).is_true()
+	assert_str(String(mining.entry("oak_bark")["drops"])).is_equal("oak_log")   # fallen logs give logs
+	assert_bool("pumpkin_pie" in recipes.makes("pumpkin_pie")).is_true()
+	var cells := GameMaterials.micro_pattern("berry_bush", [76, 29, 29])
+	var berries := 0
+	for c in cells:
+		if c == 77:
+			berries += 1
+	assert_int(berries).is_greater(0)
+
+
+func test_birch_fallen_logs_berries_and_flowers_generate() -> void:
+	var g := _gen()
+	var c := _above_ground(g, _near(g, "forest"), [GameMaterials.BIRCH_LOG, GameMaterials.WOOD], 0, 16)
+	assert_int(c[GameMaterials.BIRCH_LOG]).override_failure_message("forest: no birches").is_greater(0)
+	assert_int(c[GameMaterials.WOOD]).override_failure_message("forest: no oaks left").is_greater(c[GameMaterials.BIRCH_LOG])
+	# fallen logs: a few per hectare, so look over a 128 m square, ground to canopy
+	c = _count(g, _near(g, "old_growth_forest") - Vector3i(128, 32, 128), Vector3i(256, 64, 256), [GameMaterials.OAK_BARK])
+	assert_int(c[GameMaterials.OAK_BARK]).override_failure_message("old growth: no fallen logs").is_greater(15)
+	c = _above_ground(g, _near(g, "taiga"), [GameMaterials.BLUEBERRY_BUSH], 0, 2)
+	assert_int(c[GameMaterials.BLUEBERRY_BUSH]).override_failure_message("taiga: no blueberries").is_greater(0)
+	var f := [GameMaterials.FLOWER, GameMaterials.FLOWER_RED, GameMaterials.OXEYE_DAISY, GameMaterials.CORNFLOWER]
+	c = _above_ground(g, _near(g, "plains"), f, 0, 2)
+	var kinds := 0
+	for m in f:
+		if c[m] > 0:
+			kinds += 1
+	assert_int(kinds).override_failure_message("plains flowers: %s" % str(c)).is_greater(2)

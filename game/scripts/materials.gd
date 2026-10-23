@@ -93,8 +93,21 @@ const FERN := 87                   # micro-voxel fronds in taiga, jungle, swamp 
 # Vintage Story work pieces (ADR 0023): drawn by their block entity (scripts/work/)
 const WORK_SPOT := 88              # knapping, clay forming, ground storage, firepit: only the aim ray hits it
 const WORK_BLOCK := 89             # sieve: solid to bodies
+# Content pass 2 (ADR 0024): birch, blueberries, pumpkins, more flowers, bark for fallen logs
+const BIRCH_LOG := 90
+const BIRCH_LEAVES := 91
+const BLUEBERRY_BUSH := 92         # micro-voxel bush; drops blueberries
+const PUMPKIN := 93
+const CORNFLOWER := 94             # micro "bloom" flowers: blue, white, purple
+const OXEYE_DAISY := 95
+const ALLIUM := 96
+const OAK_BARK := 97               # bark on every face: fallen logs lie on their side (no log orientation)
+const SPRUCE_BARK := 98
+const ACACIA_BARK := 99
+const JUNGLE_BARK := 100
+const BIRCH_BARK := 101
 
-const ATLAS_TILES := Vector2i(8, 10)   # rows grow at the bottom, so tile indices keep their meaning
+const ATLAS_TILES := Vector2i(8, 11)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -178,7 +191,37 @@ static func defs() -> Array:
 	] + _content_pass_defs() + [
 		{"name": "work_spot", "cell_type": "solid", "density": 8, "hp": 50, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": "aim", "cross": true, "interact": "work"},
 		{"name": "work_block", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": true, "interact": "work"},
-	]
+	] + _content_pass2_defs()
+
+
+static var _content2 := []
+
+## Ids 90..101: birch log and leaves, blueberry bush, pumpkin, three "bloom"
+## flowers (tiles [petal, centre, blades]) and bark blocks (the log's side on all
+## faces) for fallen logs.
+static func _content_pass2_defs() -> Array:
+	if not _content2.is_empty():
+		return _content2
+	var log_burn := {"burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4}
+	var plant_burn := {"burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2}
+	var birch := {"name": "birch_log", "cell_type": "solid", "density": 10, "tiles": [74, 73, 74], "transparent": false}
+	birch.merge(log_burn)
+	var birch_leaves := {"name": "birch_leaves", "cell_type": "solid", "density": 10, "hp": 20, "tiles": [75, 75, 75], "transparent": true}
+	birch_leaves.merge(plant_burn)
+	birch_leaves["generates_smoke"] = 6
+	var bush := {"name": "blueberry_bush", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [76, 29, 29], "transparent": false, "micro": "berry_bush"}
+	bush.merge(plant_burn)
+	var pumpkin := {"name": "pumpkin", "cell_type": "solid", "density": 6, "hp": 60, "tiles": [78, 77, 77], "transparent": false}
+	_content2.append_array([birch, birch_leaves, bush, pumpkin])
+	for f in [["cornflower", 79, 30], ["oxeye_daisy", 80, 30], ["allium", 81, 81]]:
+		var d := {"name": f[0], "cell_type": "solid", "density": 10, "hp": 5, "tiles": [f[1], f[2], 23], "transparent": false, "micro": "bloom", "replaceable": true}
+		d.merge(plant_burn)
+		_content2.append(d)
+	for b in [["oak_bark", 6], ["spruce_bark", 57], ["acacia_bark", 60], ["jungle_bark", 63], ["birch_bark", 73]]:
+		var d := {"name": b[0], "cell_type": "solid", "density": 10, "tiles": [b[1], b[1], b[1]], "transparent": false}
+		d.merge(log_burn)
+		_content2.append(d)
+	return _content2
 
 
 static var _content := []
@@ -242,6 +285,7 @@ static func reactions() -> Array:
 		{"input_cell1": LAVA, "input_cell2": SPRUCE_LOG, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.1},
 		{"input_cell1": LAVA, "input_cell2": ACACIA_LOG, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.1},
 		{"input_cell1": LAVA, "input_cell2": JUNGLE_LOG, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.1},
+		{"input_cell1": LAVA, "input_cell2": BIRCH_LOG, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.1},
 		{"input_cell1": FIRE, "input_cell2": ICE, "output_cell1": AIR, "output_cell2": WATER, "probability": 0.4},
 		{"input_cell1": LAVA, "input_cell2": ICE, "output_cell1": STONE, "output_cell2": STEAM, "probability": 0.5},
 		{"input_cell1": FIRE, "input_cell2": PACKED_ICE, "output_cell1": AIR, "output_cell2": WATER, "probability": 0.1},
@@ -543,6 +587,46 @@ static func micro_pattern(kind: String, tiles: Array) -> PackedInt32Array:
 						_cell(c, x + dv.y, y, z + dv.x, body)   # leaflets
 						_cell(c, x - dv.y, y, z - dv.x, body)
 					y -= 1
+		"bloom":
+			# a flower of tiles [petal, centre, blades]: a stem with a leaf, a petal plus around the
+			# centre (alliums: a petal ball on a taller stem), a few grass blades
+			var petal: int = tiles[0] + 1
+			var centre: int = tiles[1] + 1
+			var blade: int = tiles[2] + 1
+			var stem: int = 29 + 1
+			var ball: bool = tiles[0] == tiles[1]
+			var sx := rng.randi_range(2, 5)
+			var sz := rng.randi_range(2, 5)
+			var top := rng.randi_range(6, 7) if ball else rng.randi_range(4, 6)
+			for y in top:
+				_cell(c, sx, y, sz, stem)
+			_cell(c, sx + 1, 2, sz, stem)
+			if ball:
+				for dx in range(-1, 2):
+					for dz in range(-1, 2):
+						for dy in range(-1, 1):
+							if abs(dx) + abs(dz) + abs(dy) <= 2:
+								_cell(c, sx + dx, top + dy, sz + dz, petal)
+			else:
+				for dx in range(-1, 2):
+					for dz in range(-1, 2):
+						if abs(dx) + abs(dz) <= 1:
+							_cell(c, sx + dx, top, sz + dz, petal)
+				_cell(c, sx, top, sz, centre)
+			for i in 4:
+				var x := rng.randi_range(0, g - 1)
+				var z := rng.randi_range(0, g - 1)
+				for y in rng.randi_range(2, 4):
+					_cell(c, x, y, z, blade)
+		"berry_bush":
+			# a low leafy dome (leaf-green tile) dotted with berries (tile 0)
+			var leaf: int = tiles[1] + 1
+			for x in g:
+				for z in g:
+					for y in 6:
+						var d := Vector3(x - 3.5, y * 1.2, z - 3.5).length()
+						if d < 4.2 and rng.randf() < 0.8:
+							_cell(c, x, y, z, body if (rng.randf() < 0.12 and d > 3.0) else leaf)
 		"tuft":
 			# 9-11 blades, 1 cell (6 cm) wide, 3-7 cells tall, some leaning at the top
 			for i in rng.randi_range(9, 11):
