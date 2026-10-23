@@ -7,12 +7,20 @@ extends RefCounted
 ## frame times and chat), screenshot.png (the frame when the report was
 ## started) and log.txt (the tail of Godot's log). From the editor they go to
 ## game/out/bug_reports/ (git-ignored, next to the autopilot runs), from an
-## exported build to user://bug_reports/.
+## exported build to user://bug_reports/. Autopilot runs (`commands=/bug ...`)
+## write into their own run folder (`out=`), so game/out/bug_reports/ only holds
+## reports a person filed and its newest folder is the one to read.
 
 const LOG_LINES := 300
 
 
 static func folder() -> String:
+	var args := OS.get_cmdline_user_args()
+	if args.has("autopilot=1"):
+		for a in args:
+			if a.begins_with("out="):
+				return a.substr(4) + "/bug_reports"
+		return "res://out/bug_reports_autopilot"
 	return "res://out/bug_reports" if OS.has_feature("editor") else "user://bug_reports"
 
 

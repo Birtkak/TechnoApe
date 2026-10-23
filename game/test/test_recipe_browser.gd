@@ -123,3 +123,70 @@ func test_summary_is_serialisable() -> void:
 	var s := b.summary()
 	assert_str(s["view"]["recipe"]).is_equal("smelt_iron")
 	assert_str(JSON.stringify(s)).is_not_empty()
+
+
+# ---------- mining pseudo-recipes ----------
+
+func _mining(json: String) -> MiningTable:
+	var t := MiningTable.new()
+	t.load_json(json)
+	return t
+
+
+func test_mining_recipes_show_drops_and_tools() -> void:
+	b.set_mining(_mining('{"materials": {'
+		+ '"stone": {"hardness": 1.5, "tool": "pickaxe", "requires": true, "drops": "cobblestone"},'
+		+ '"iron_ore": {"hardness": 3, "tool": "pickaxe", "requires": true, "drops": "iron_ore", "min_tier": 1},'
+		+ '"dirt": {"hardness": 0.5, "tool": "shovel", "drops": "dirt"},'
+		+ '"sand": {"hardness": 0.5, "tool": "shovel", "drops": "gravel"},'
+		+ '"sand_static": {"hardness": 0.5, "tool": "shovel", "drops": "gravel"},'
+		+ '"gravel": {"hardness": 0.6, "tool": "shovel", "drops": [{"id": "flint", "count": [1, 2], "chance": 0.25}]}}}'))
+	var cats := b.recipes_for("cobblestone")
+	assert_array(cats.map(func(c: Dictionary) -> String: return c["id"])).contains(["mining"])
+	var r := b.recipe("mining:stone:cobblestone")
+	assert_str(r["input"]).is_equal("stone")
+	var l := b.layout(r)
+	assert_str(l["kind"]).is_equal("mine")
+	assert_str(l["needs"]).is_equal("Any pickaxe")
+	# a self-drop needing a tool tier stays (it tells you which pick), plain dirt -> dirt does not
+	assert_str(b.layout(b.recipe("mining:iron_ore:iron_ore"))["needs"]).is_equal("Stone Pickaxe or better")
+	assert_dict(b.recipe("mining:dirt:dirt")).is_empty()
+	# sand and sand_static collapse to one entry; uses of the block list it
+	assert_int(b.recipes_for("gravel").filter(func(c: Dictionary) -> bool: return c["id"] == "mining")[0]["recipes"].size()).is_equal(1)
+	assert_array(b.uses_for("sand").map(func(c: Dictionary) -> String: return c["id"])).contains(["mining"])
+
+
+func test_mining_counts_and_chance_in_info() -> void:
+	if not items.has("flint"):
+		return
+	b.set_mining(_mining('{"materials": {"gravel": {"hardness": 0.6, "tool": "shovel", "drops": [{"id": "flint", "count": [1, 2], "chance": 0.25}]}}}'))
+	var l := b.layout(b.recipe("mining:gravel:flint"))
+	assert_str(l["info"]).contains("1-2").contains("25")
+	assert_str(l["needs"]).is_equal("Hand (faster with a shovel)")
+
+
+func test_real_mining_table_loads_into_the_browser() -> void:
+	b.set_mining(MiningTable.load_default())
+	b.show("cobblestone", "recipes")
+	assert_array(b.summary()["view"]["categories"]).contains(["mining"])
+
+
+# ---------- bookmarks ----------
+
+func test_bookmarks_toggle_filter_and_persist() -> void:
+	assert_bool(b.toggle_bookmark("iron_ingot")).is_true()
+	assert_bool(b.toggle_bookmark("coal")).is_true()
+	assert_bool(b.toggle_bookmark("no_such_item")).is_false()
+	assert_array(b.bookmarks).is_equal(["iron_ingot", "coal"])
+	assert_bool(b.toggle_bookmark("iron_ingot")).is_false()
+	assert_bool(b.is_bookmarked("iron_ingot")).is_false()
+	b.set_bookmarks(["coal", "gone_item", "coal", "furnace"])
+	assert_array(b.bookmarks).is_equal(["coal", "furnace"])
+	var path := "user://test_bookmarks.json"
+	assert_bool(b.save_bookmarks(path)).is_true()
+	var b2 := RecipeBrowser.new(items, recipes)
+	b2.load_bookmarks(path)
+	assert_array(b2.bookmarks).is_equal(["coal", "furnace"])
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	b2.load_bookmarks("user://missing_bookmarks.json")   # a missing file keeps what is there
+	assert_array(b2.bookmarks).is_equal(["coal", "furnace"])

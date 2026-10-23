@@ -139,6 +139,11 @@ func set_voxel(p: Vector3i, material: int) -> void:
 	_tool.set_voxel(p, material)
 
 
+## False while the voxel's block is not loaded (set_voxel would be dropped).
+func is_editable(p: Vector3i) -> bool:
+	return _tool.is_area_editable(AABB(Vector3(p), Vector3.ONE))
+
+
 func raycast(from: Vector3, dir: Vector3, max_dist: float) -> VoxelRaycastResult:
 	return _tool.raycast(from, dir, max_dist)
 

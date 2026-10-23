@@ -4,8 +4,9 @@ extends Control
 ## JEI-style browser drawn beside the inventory screen (ADR 0008): the item
 ## list right of the panel (search box below, pages above, wheel turns
 ## pages) and the recipe view drawn over the panel. Left click = recipes,
-## right click = uses, also on ingredients inside a recipe. Logic lives in
-## RecipeBrowser; this only lays out and forwards clicks.
+## right click = uses, also on ingredients inside a recipe. Bookmarks (A over
+## any item) list left of the panel, as in JEI. Logic lives in RecipeBrowser;
+## this only lays out and forwards clicks.
 
 const S := 36
 const PANEL := Vector2(352, 332)
@@ -27,6 +28,11 @@ var _list_rect := Rect2()
 var _cols := 0
 var cheat_give: Callable        # creative (ADR 0018): fn(item_id, shift) -> bool; LMB on the list takes items
 var _rows := 0
+var _bm_panel: Control          # bookmarks, left of the panel
+var _bm_cells: Array[BrowserCell] = []
+var _bm_title: Label
+var _bm_cols := 0
+var _bm_rows := 0
 
 
 func setup(p_model: RecipeBrowser) -> void:
@@ -56,6 +62,15 @@ func _ready() -> void:
 	_page_label = Label.new()
 	_page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_list_panel.add_child(_page_label)
+	_bm_panel = Control.new()
+	_bm_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_bm_panel.draw.connect(func() -> void:
+		_bm_panel.draw_rect(Rect2(Vector2.ZERO, _bm_panel.size), Color(0, 0, 0, 0.35)))
+	add_child(_bm_panel)
+	_bm_title = Label.new()
+	_bm_title.position = Vector2(6, 6)
+	_bm_title.add_theme_font_size_override("font_size", 14)
+	_bm_panel.add_child(_bm_title)
 	_overlay = Control.new()
 	_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -69,7 +84,8 @@ func _ready() -> void:
 	_recipe_panel.size = PANEL
 	_recipe_panel.draw.connect(_draw_recipe_panel)
 	_overlay.add_child(_recipe_panel)
-	move_child(_list_panel, -1)   # the item list stays clickable while a recipe is open (JEI)
+	move_child(_list_panel, -1)   # the item list and bookmarks stay clickable while a recipe is open (JEI)
+	move_child(_bm_panel, -1)
 	get_viewport().size_changed.connect(_layout)
 
 
@@ -110,7 +126,13 @@ func _layout() -> void:
 	model.page_size = maxi(1, _cols * _rows)
 	model.page = clampi(model.page, 0, model.page_count() - 1)
 	_recipe_panel.position = vw / 2.0 - PANEL / 2.0
+	# bookmarks: mirror of the item list on the left
+	var bw := vw.x / 2.0 - PANEL.x / 2.0 - 12.0 - 8.0
+	_bm_cols = int((bw - 8.0) / S)
+	_bm_rows = int((vw.y - 16.0 - 34.0 - 8.0) / S)
+	_bm_panel.position = Vector2(8, 8)
 	_rebuild_list()
+	refresh_bookmarks()
 	if model.is_open():
 		_build_recipe()
 
@@ -125,10 +147,34 @@ func _rebuild_list() -> void:
 	for i in ids.size():
 		var c := BrowserCell.new(items, ids[i])
 		c.position = Vector2(4 + (i % _cols) * S, 34 + (i / _cols) * S)
+		c.marked = model.is_bookmarked(ids[i])
 		c.clicked.connect(_on_list_cell_clicked)
 		_list_panel.add_child(c)
 		_cells.append(c)
 	_page_label.text = "%d / %d" % [model.page + 1, model.page_count()]
+
+
+## Rebuilds the bookmark panel (after A, or a layout change) and the list's marks.
+func refresh_bookmarks() -> void:
+	for c in _bm_cells:
+		c.queue_free()
+	_bm_cells.clear()
+	for c in _cells:
+		c.marked = model.is_bookmarked(c.item_id)
+	_bm_panel.visible = _bm_cols >= 1 and _bm_rows >= 1
+	if not _bm_panel.visible:
+		return
+	var ids := model.bookmarks.slice(0, _bm_cols * _bm_rows)
+	var used_rows := maxi(1, ceili(float(ids.size()) / float(_bm_cols)))
+	_bm_panel.size = Vector2(_bm_cols * S + 8, used_rows * S + 34 + 8 if not ids.is_empty() else 52.0)
+	_bm_panel.queue_redraw()
+	_bm_title.text = "Bookmarks" if not ids.is_empty() else "A over an item\nbookmarks it"
+	for i in ids.size():
+		var c := BrowserCell.new(items, ids[i])
+		c.position = Vector2(4 + (i % _bm_cols) * S, 34 + (i / _bm_cols) * S)
+		c.clicked.connect(_on_list_cell_clicked)
+		_bm_panel.add_child(c)
+		_bm_cells.append(c)
 
 
 func _turn_page(d: int) -> void:
@@ -204,7 +250,7 @@ func _build_recipe() -> void:
 	# inputs
 	var origin := Vector2(40, 84)
 	match l["kind"]:
-		"smelt":
+		"smelt", "mine":
 			origin = Vector2(40 + S, 84)
 		"row":
 			origin = Vector2(16, 120)
@@ -223,7 +269,7 @@ func _build_recipe() -> void:
 	if l["info"] != "":
 		_label(l["info"], Vector2(40, 200), 14)
 	if l["needs"] != "":
-		_label("Needs: " + l["needs"], Vector2(40, 220), 14)
+		_label(("Tool: " if l["kind"] == "mine" else "Needs: ") + l["needs"], Vector2(40, 220), 14)
 	var cats := model.catalysts(cat["id"])
 	if not cats.is_empty():
 		_label("Made in:", Vector2(16, 252), 14)
@@ -240,8 +286,11 @@ func _build_recipe() -> void:
 	pl.size = Vector2(PANEL.x - 96, 22)
 	pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var hint := Label.new()
-	hint.text = "LMB recipes   RMB uses   R / U over any item   Backspace back   Esc close"
+	hint.text = "LMB recipes  RMB uses  R / U / A (bookmark) over an item  Bksp back  Esc close"
 	hint.add_theme_font_size_override("font_size", 12)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	hint.custom_minimum_size = Vector2(PANEL.x, 0)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.position = Vector2(0, PANEL.y + 6)
 	_add(hint, hint.position)
 	_cycle_t = -1
@@ -301,6 +350,13 @@ func _draw_recipe_panel() -> void:
 		for y in 3:
 			for x in 3:
 				BrowserCell.draw_slot(_recipe_panel, Rect2(Vector2(40 + x * S, 84 + y * S), Vector2(S, S)))
+	elif l["kind"] == "mine":
+		BrowserCell.draw_slot(_recipe_panel, Rect2(Vector2(40 + S, 84), Vector2(S, S)))
+		# a pick head under the block: "break it"
+		var ph := Vector2(40 + S + 4, 84 + S + 8)
+		_recipe_panel.draw_line(ph + Vector2(0, 8), ph + Vector2(14, 0), Color(0.45, 0.45, 0.5), 4.0)
+		_recipe_panel.draw_line(ph + Vector2(14, 0), ph + Vector2(28, 8), Color(0.45, 0.45, 0.5), 4.0)
+		_recipe_panel.draw_line(ph + Vector2(14, 0), ph + Vector2(14, 22), Color(0.55, 0.38, 0.2), 4.0)
 	elif l["kind"] == "smelt":
 		var f := Rect2(Vector2(40 + S + 4, 84 + S + 4), Vector2(28, 28))
 		_recipe_panel.draw_rect(f, Color(1.0, 0.55, 0.1))
@@ -317,6 +373,12 @@ class BrowserCell:
 	signal clicked(item_id: String, button: int)
 	var item_id := ""
 	var spec := ""           # set for recipe ingredients ("#tag" cycles)
+	var marked := false:     # bookmarked: a gold corner in the item list
+		set(v):
+			marked = v
+			if _mark:
+				_mark.visible = v
+	var _mark: Control
 	var count := 1:
 		set(v):
 			count = v
@@ -335,6 +397,13 @@ class BrowserCell:
 		_icon.size = Vector2(S - 4, S - 4)
 		_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_icon)
+		_mark = Control.new()   # above the icon
+		_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_mark.size = size
+		_mark.visible = marked
+		_mark.draw.connect(func() -> void:
+			_mark.draw_colored_polygon(PackedVector2Array([Vector2(S - 13, 2), Vector2(S - 2, 2), Vector2(S - 2, 13)]), Color(1.0, 0.8, 0.2)))
+		add_child(_mark)
 		set_item(p_id)
 		mouse_entered.connect(func() -> void: _hover = true; queue_redraw())
 		mouse_exited.connect(func() -> void: _hover = false; queue_redraw())

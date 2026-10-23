@@ -22,6 +22,9 @@ const FEATURES := ["cave", "deep_cave", "ruin", "waterfall", "lake", "river", "s
 	"coal_vein", "copper_vein", "cassiterite_vein", "iron_vein", "copper_iron_vein",
 	"sulfur_cave", "lush_cave", "magma_cave", "crystal_cave", "fungal_cave"]
 
+## /fill's limit: 64^3, about one bubble chunk column's worth of remeshing.
+const FILL_MAX := 262144
+
 var reg: CommandRegistry
 var player: Player
 var player_inv: PlayerInventory
@@ -52,6 +55,10 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("daycycle", "/daycycle <on|off|seconds>", "Run the sun (on = 20 min days) or freeze it", _daycycle, [["on", "off"]])
 	reg.register("blast", "/blast <radius_m> [material]", "Carve a crater where you look, or drop a ball of a material (water, sand, lava ...)",
 		_blast, [["1", "2", "4", "8"], _material_names])
+	reg.register("setblock", "/setblock <x> <y> <z> <material>", "Set one voxel; ~ is relative to you (~ ~-1 ~ is under your feet)",
+		_setblock, [["~"], ["~"], ["~"], _material_names])
+	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
+		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
 	reg.register("stations", "/stations", "Place a crafting table, chest and furnace ahead", _stations)
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 
@@ -119,10 +126,22 @@ func _tp(args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("No player")
 	if args.size() != 3:
 		return CommandRegistry.fail("Usage: /tp <x> <y> <z>")
-	var cur := player.position
+	var p: Variant = _coords(args, 0, player.position, true)
+	if p is Dictionary:
+		return p
+	var out: Vector3 = p
+	out.y = clampf(out.y, 0.0, float(Settings.WORLD_HEIGHT_VOXELS))
+	player.teleport(out)
+	return CommandRegistry.ok("Teleported to %.1f, %.1f, %.1f" % [out.x, out.y, out.z])
+
+
+## Three coordinates from args[start..start+2] as a Vector3, or a fail() result.
+## `~` / `~n` are relative to `cur`. centre: whole x/z name the voxel's centre (/tp);
+## without it the result is floored to the voxel that holds it (/setblock, /fill).
+func _coords(args: PackedStringArray, start: int, cur: Vector3, centre := false) -> Variant:
 	var out := Vector3.ZERO
 	for i in 3:
-		var a := args[i]
+		var a := args[start + i]
 		var rel := a.begins_with("~")
 		var num := a.substr(1) if rel else a
 		if num != "" and not num.is_valid_float():
@@ -131,10 +150,95 @@ func _tp(args: PackedStringArray) -> Dictionary:
 		if rel:
 			out[i] = cur[i] + v
 		else:
-			out[i] = v + (0.5 if i != 1 and num.is_valid_int() else 0.0)   # whole x/z = the voxel's centre
-	out.y = clampf(out.y, 0.0, float(Settings.WORLD_HEIGHT_VOXELS))
-	player.teleport(out)
-	return CommandRegistry.ok("Teleported to %.1f, %.1f, %.1f" % [out.x, out.y, out.z])
+			out[i] = v + (0.5 if centre and i != 1 and num.is_valid_int() else 0.0)
+	return out if centre else out.floor()
+
+
+## Material id for a GameMaterials name (ids are 1 + definition index, 0 = air), or -1.
+static func material_id(name: String) -> int:
+	if name.to_lower() == "air":
+		return GameMaterials.AIR
+	var defs := GameMaterials.defs()
+	for i in defs.size():
+		if defs[i]["name"] == name.to_lower():
+			return i + 1
+	return -1
+
+
+## Material id for /setblock and /fill, or a fail() result. Block-entity voxels
+## (chest, furnace ...) are refused: the voxel alone would have no entity behind it.
+func _placeable(name: String) -> Variant:
+	var m := material_id(name)
+	if m < 0:
+		return CommandRegistry.fail("Unknown material: %s" % name)
+	if m != GameMaterials.AIR and GameMaterials.defs()[m - 1].has("entity"):
+		return CommandRegistry.fail("%s is a block entity: place its item or use /stations" % name)
+	return m
+
+
+## World edits typed before the bubble has loaded (start commands, the F4 menu's
+## "extra commands") wait for it, then report in chat; ~ resolves at that point.
+func _queue_until_loaded(cb: Callable, args: PackedStringArray) -> Dictionary:
+	_run_when_loaded(cb, args)
+	return CommandRegistry.ok("Waiting for the world to load ...")
+
+
+func _run_when_loaded(cb: Callable, args: PackedStringArray) -> void:
+	var tree: SceneTree = main.get_tree()
+	while not main.bubble.is_loaded():
+		await tree.process_frame
+	var r: Dictionary = cb.call(args)
+	var chat: Node = main.get("chat")
+	if chat != null:
+		chat.add_message(r["text"], ChatBox.FEEDBACK if r["ok"] else ChatBox.ERROR)
+
+
+func _setblock(args: PackedStringArray) -> Dictionary:
+	if main == null or player == null:
+		return CommandRegistry.fail("No world")
+	if args.size() != 4:
+		return CommandRegistry.fail("Usage: /setblock <x> <y> <z> <material>")
+	if not main.bubble.is_loaded():
+		return _queue_until_loaded(_setblock, args)
+	var p: Variant = _coords(args, 0, player.position)
+	if p is Dictionary:
+		return p
+	var m: Variant = _placeable(args[3])
+	if m is Dictionary:
+		return m
+	var wp := Vector3i(p)
+	if not main.bubble.set_voxel(wp, m):
+		if not main.world.is_editable(wp):
+			return CommandRegistry.fail("%d, %d, %d is not loaded" % [wp.x, wp.y, wp.z])
+		main.world.set_voxel(wp, m)   # outside the bubble: straight to the frozen terrain
+	return CommandRegistry.ok("Set %d, %d, %d to %s" % [wp.x, wp.y, wp.z, args[3].to_lower()])
+
+
+func _fill(args: PackedStringArray) -> Dictionary:
+	if main == null or player == null:
+		return CommandRegistry.fail("No world")
+	if args.size() != 7:
+		return CommandRegistry.fail("Usage: /fill <x1> <y1> <z1> <x2> <y2> <z2> <material>")
+	if not main.bubble.is_loaded():
+		return _queue_until_loaded(_fill, args)
+	var a: Variant = _coords(args, 0, player.position)
+	if a is Dictionary:
+		return a
+	var b: Variant = _coords(args, 3, player.position)
+	if b is Dictionary:
+		return b
+	var m: Variant = _placeable(args[6])
+	if m is Dictionary:
+		return m
+	var lo := Vector3i((a as Vector3).min(b))
+	var hi := Vector3i((a as Vector3).max(b)) + Vector3i.ONE   # corners included, as in Minecraft
+	var d := hi - lo
+	if d.x * d.y * d.z > FILL_MAX:
+		return CommandRegistry.fail("Too many voxels: %d (limit %d)" % [d.x * d.y * d.z, FILL_MAX])
+	var n: int = main.bubble.fill_box(lo, hi, m)
+	if n < 0:
+		return CommandRegistry.fail("The box must lie inside the loaded sim bubble around you")
+	return CommandRegistry.ok("Filled %d voxels with %s" % [n, args[6].to_lower()])
 
 
 func _time(args: PackedStringArray) -> Dictionary:
@@ -255,7 +359,7 @@ func _daycycle(args: PackedStringArray) -> Dictionary:
 
 
 func _material_names() -> Array:
-	var out := []
+	var out := ["air"]
 	for d in GameMaterials.defs():
 		out.append(d["name"])
 	return out
@@ -266,15 +370,9 @@ func _blast(args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("No world")
 	if args.is_empty() or not args[0].is_valid_float() or float(args[0]) <= 0.0 or float(args[0]) > 16.0:
 		return CommandRegistry.fail("Usage: /blast <radius_m 0..16> [material]")
-	var mat := GameMaterials.AIR
-	if args.size() > 1:
-		mat = -1
-		var defs := GameMaterials.defs()
-		for i in defs.size():
-			if defs[i]["name"] == args[1].to_lower():
-				mat = i + 1   # material ids are 1 + definition index
-		if mat < 0:
-			return CommandRegistry.fail("Unknown material: %s" % args[1])
+	var mat := material_id(args[1]) if args.size() > 1 else GameMaterials.AIR
+	if mat < 0:
+		return CommandRegistry.fail("Unknown material: %s" % args[1])
 	var cam: Camera3D = player.camera
 	var r := Settings.m2v(float(args[0]))
 	var hit: VoxelRaycastResult = main.world.raycast(cam.global_position, -cam.global_transform.basis.z, 64.0)

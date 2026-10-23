@@ -340,6 +340,28 @@ func blast(center: Vector3, radius: float, material := GameMaterials.AIR) -> int
 	return n
 
 
+## Debug mass edit (/fill): sets every voxel of the world box [wmin, wmax) to
+## `material` in the native kernel. Fails (returns -1) unless the whole box lies
+## inside the window and every chunk it touches is loaded: a fill into a chunk
+## still loading would be overwritten by the terrain copy. Returns the box volume.
+func fill_box(wmin: Vector3i, wmax: Vector3i, material: int) -> int:
+	if not _ready:
+		return -1
+	var lo := Vector3i((Vector3(wmin) / Settings.CHUNK).floor()) - origin
+	var hi := Vector3i((Vector3(wmax - Vector3i.ONE) / Settings.CHUNK).floor()) - origin
+	if lo.x < 0 or lo.y < 0 or lo.z < 0 or hi.x >= size_chunks.x or hi.y >= size_chunks.y or hi.z >= size_chunks.z:
+		return -1
+	for lc in _pending_loads:
+		if lc.x >= lo.x and lc.y >= lo.y and lc.z >= lo.z and lc.x <= hi.x and lc.y <= hi.y and lc.z <= hi.z:
+			return -1
+	var t0 := Time.get_ticks_usec()
+	var o := origin * Settings.CHUNK
+	sim.fill_box(wmin - o, wmax - o, material)
+	_frame_cost()["edit_ms"] = _frame_cost().get("edit_ms", 0.0) + (Time.get_ticks_usec() - t0) / 1000.0
+	var d := wmax - wmin
+	return d.x * d.y * d.z
+
+
 ## Player edits go through the sim when inside the bubble (so the material
 ## simulation reacts immediately), otherwise straight to the terrain.
 func set_voxel(wp: Vector3i, material: int) -> bool:

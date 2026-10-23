@@ -35,6 +35,14 @@ func setup(p_inv: PlayerInventory) -> void:
 	player_inv = p_inv
 	player_inv.changed.connect(_refresh)
 	browser = RecipeBrowser.new(player_inv.items, player_inv.recipes)
+	browser.set_mining(MiningTable.load_default())
+	# bookmarks are the player's (user://); autopilot runs stay reproducible and take bookmarks=a,b instead
+	var args := OS.get_cmdline_user_args()
+	if not args.has("autopilot=1"):
+		browser.load_bookmarks()
+	for a in args:
+		if a.begins_with("bookmarks="):
+			browser.set_bookmarks(Array(a.substr(10).split(",", false)))
 	browser_view = RecipeBrowserView.new()
 	browser_view.setup(browser)
 	_root.add_child(browser_view)
@@ -249,8 +257,8 @@ func _update_tooltip() -> void:
 	_tooltip.position = p
 
 
-## JEI keys while the screen is open: R recipes, U uses (over any item),
-## Backspace back, Esc closes the recipe view before the screen. Typing in
+## JEI keys while the screen is open: R recipes, U uses, A bookmark (over
+## any item), Backspace back, Esc closes the recipe view before the screen. Typing in
 ## the search box never reaches here (the LineEdit has focus).
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_open or not (event is InputEventKey) or not event.pressed or event.echo:
@@ -258,6 +266,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	match event.keycode:
 		KEY_R, KEY_U:
 			if browser_view.show_item(hovered_item(), "recipes" if event.keycode == KEY_R else "uses"):
+				get_viewport().set_input_as_handled()
+		KEY_A:
+			var id := hovered_item()
+			if id != "":
+				browser.toggle_bookmark(id)
+				if not OS.get_cmdline_user_args().has("autopilot=1"):
+					browser.save_bookmarks()
+				browser_view.refresh_bookmarks()
 				get_viewport().set_input_as_handled()
 		KEY_BACKSPACE:
 			if browser_view.is_showing_recipes():

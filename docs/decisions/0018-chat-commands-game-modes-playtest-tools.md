@@ -25,7 +25,11 @@ Option 1.
   built-in `/help`. `GameCommands` registers the game's commands: `gamemode`
   (`gm`; 0/1/s/c), `give`, `clear`, `tp` (voxel coordinates, `~` relative),
   `time`, `daycycle`, `kill`, `heal`, `seed`, `kit`, `spawn`, `locate`,
-  `goto`, `blast`, `stations`, `bug`.
+  `goto`, `blast`, `stations`, `bug`; since 2026-10-23 `setblock` and
+  `fill` (Minecraft syntax, `~` relative; `/fill` goes through the native
+  kernel's `fill_box`, at most 64^3 voxels and only inside the loaded sim
+  bubble; block-entity materials are refused). World edits typed before the
+  bubble has loaded (start commands) wait for it and report in chat.
 - `ChatBox`: T opens it, `/` opens it with the slash typed (any keyboard
   layout). Enter sends, Esc closes, Up/Down history, Tab completes (Shift+Tab
   back). Messages fade after 10 s; a hint shows the usage and Tab candidates.
@@ -52,7 +56,9 @@ Option 1.
   (`Main.snapshot()` plus frame times and chat), `screenshot.png` (the frame
   when F9 was pressed) and `log.txt` (Godot log tail). Editor runs write to
   `game/out/bug_reports/` (git-ignored) so Claude can read them; exported
-  builds write to `user://bug_reports/`. F2 saves a screenshot the same way.
+  builds write to `user://bug_reports/`. Autopilot runs write into their own
+  `out=` folder, so the newest folder in `game/out/bug_reports/` is always one
+  a person filed. F2 saves a screenshot the same way.
 - Editor playtests (debugger attached, not embedded in the editor's Game
   tab, not autopilot) start minimized; a click after restoring captures the
   mouse. `minimized=0` or the menu's checkbox turns it off.

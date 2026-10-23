@@ -173,3 +173,33 @@ func test_creative_take_cursor_inventory_and_trash() -> void:
 	assert_bool(inv.creative_take("stone", true)).is_true()
 	assert_int(inv.inv.count_of("stone")).is_equal(64)
 	assert_bool(inv.creative_take("nope", true)).is_false()
+
+
+# ---------- /setblock and /fill ----------
+
+func test_coords_relative_absolute_and_floored() -> void:
+	var cur := Vector3(10.4, 20.9, -3.2)
+	var p: Variant = cmds._coords(PackedStringArray(["~", "~-1", "~2"]), 0, cur)
+	assert_vector(p).is_equal(Vector3(10, 19, -2))
+	p = cmds._coords(PackedStringArray(["x", "5", "6", "7"]), 1, cur)
+	assert_vector(p).is_equal(Vector3(5, 6, 7))
+	# /tp: whole x/z name the voxel's centre, y stays as typed
+	p = cmds._coords(PackedStringArray(["5", "6", "7"]), 0, cur, true)
+	assert_vector(p).is_equal(Vector3(5.5, 6, 7.5))
+	assert_bool(cmds._coords(PackedStringArray(["~", "up", "1"]), 0, cur) is Dictionary).is_true()
+
+
+func test_material_ids_match_definition_order() -> void:
+	assert_int(GameCommands.material_id("air")).is_equal(GameMaterials.AIR)
+	assert_int(GameCommands.material_id("STONE")).is_equal(GameMaterials.STONE)
+	assert_int(GameCommands.material_id("no_such_thing")).is_equal(-1)
+	assert_array(cmds._material_names()).contains(["air", "stone", "water"])
+
+
+func test_fill_and_setblock_refuse_block_entities_and_bad_input() -> void:
+	assert_bool(cmds._placeable("chest") is Dictionary).is_true()
+	assert_bool(cmds._placeable("nope") is Dictionary).is_true()
+	assert_int(cmds._placeable("sand")).is_equal(GameCommands.material_id("sand"))
+	# no world in headless tests: both fail with a message instead of crashing
+	assert_bool(reg.execute("/setblock ~ ~ ~ stone")["ok"]).is_false()
+	assert_bool(reg.execute("/fill 0 0 0 1 1 1 stone")["ok"]).is_false()

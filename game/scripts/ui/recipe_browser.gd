@@ -10,9 +10,13 @@ extends RefCounted
 ##   the uses of a station item (furnace, crafting table) include its whole
 ##   category like JEI catalysts;
 ## - a history stack for Backspace; layouts that place each recipe's inputs
-##   on a grid; tag ingredients cycle through their members.
+##   on a grid; tag ingredients cycle through their members;
+## - "mining" pseudo-recipes from data/mining.json (block -> drops, which tool),
+##   added by set_mining(), so "how do I get flint" has an answer too;
+## - bookmarks (JEI's A key), kept in user://bookmarks.json by the screen.
 
-const CATEGORY_ORDER := ["crafting", "smelting", "spellcraft"]
+const CATEGORY_ORDER := ["crafting", "smelting", "spellcraft", "mining"]
+const BOOKMARKS_PATH := "user://bookmarks.json"
 const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace"]}
 
 var items: ItemRegistry
@@ -27,6 +31,10 @@ var _order := {}          # item id -> index in items.json, for stable member or
 # {"mode": "recipes"|"uses", "item": id, "categories": [{id, title, recipes}], "cat": i, "index": i}
 var view := {}
 var history: Array = []
+var bookmarks: Array = []   # item ids, oldest first
+var _mining := {}           # pseudo-recipe id ("mining:<block>:<drop>") -> recipe
+var _mining_makes := {}     # drop item id -> [pseudo-recipe id]
+var _mining_uses := {}      # block item id -> [pseudo-recipe id]
 
 
 func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry) -> void:
@@ -89,12 +97,23 @@ func turn_page(direction: int) -> void:
 
 # ---------------- recipe views ----------------
 
+## A recipe by id: recipes.json first, then the mining pseudo-recipes.
+func recipe(rid: String) -> Dictionary:
+	return recipes.recipes[rid] if recipes.recipes.has(rid) else _mining.get(rid, {})
+
+
+func _all_recipe_ids() -> Array:
+	return recipes.recipes.keys() + _mining.keys()
+
+
 func category_of(r: Dictionary) -> String:
 	match r["type"]:
 		"smelt":
 			return "smelting"
 		"spellcraft":
 			return "spellcraft"
+		"mining":
+			return "mining"
 	var st: String = r.get("station", "")
 	return "crafting" if st == "" or st == "crafting_table" else "station:" + st
 
@@ -107,6 +126,8 @@ func category_title(cat: String) -> String:
 			return "Smelting"
 		"spellcraft":
 			return "Spellcraft"
+		"mining":
+			return "Mining"
 	var st := cat.trim_prefix("station:")
 	return items.display_name(st) if items.has(st) else st.capitalize()
 
@@ -121,7 +142,7 @@ func catalysts(cat: String) -> Array:
 func _group(rids: Array) -> Array:
 	var by_cat := {}
 	for rid in rids:
-		var c := category_of(recipes.recipes[rid])
+		var c := category_of(recipe(rid))
 		if not by_cat.has(c):
 			by_cat[c] = []
 		if not rid in by_cat[c]:
@@ -140,7 +161,7 @@ func _group(rids: Array) -> Array:
 
 
 func recipes_for(item_id: String) -> Array:
-	return _group(recipes.makes(item_id))
+	return _group(recipes.makes(item_id) + _mining_makes.get(item_id, []))
 
 
 ## Uses: recipes taking the item, plus every recipe of a category the item is
@@ -151,7 +172,7 @@ func uses_for(item_id: String) -> Array:
 		if item_id in catalysts(cat):
 			for rid in _recipes_in(cat):
 				rids.append(rid)
-	for rid in recipes.uses_of(item_id):
+	for rid in recipes.uses_of(item_id) + _mining_uses.get(item_id, []):
 		if not rid in rids:
 			rids.append(rid)
 	return _group(rids)
@@ -159,8 +180,8 @@ func uses_for(item_id: String) -> Array:
 
 func _all_categories() -> Array:
 	var out := []
-	for rid in recipes.recipes:
-		var c := category_of(recipes.recipes[rid])
+	for rid in _all_recipe_ids():
+		var c := category_of(recipe(rid))
 		if not c in out:
 			out.append(c)
 	return out
@@ -168,8 +189,8 @@ func _all_categories() -> Array:
 
 func _recipes_in(cat: String) -> Array:
 	var out := []
-	for rid in recipes.recipes:
-		if category_of(recipes.recipes[rid]) == cat:
+	for rid in _all_recipe_ids():
+		if category_of(recipe(rid)) == cat:
 			out.append(rid)
 	out.sort()
 	return out
@@ -208,7 +229,7 @@ func current_recipe() -> Dictionary:
 	if not is_open():
 		return {}
 	var c := current_category()
-	return recipes.recipes[c["recipes"][view["index"]]]
+	return recipe(c["recipes"][view["index"]])
 
 
 func turn_recipe(direction: int) -> void:
@@ -222,10 +243,114 @@ func turn_category(direction: int) -> void:
 		view["index"] = 0
 
 
+# ---------------- mining ----------------
+
+## Adds one "mining" pseudo-recipe per (block, drop) from a MiningTable. Blocks
+## without an item to show are skipped, and so are plain self-drops (dirt
+## gives dirt) unless a tool is required. Calling it again replaces them.
+func set_mining(table: MiningTable) -> void:
+	_mining.clear()
+	_mining_makes.clear()
+	_mining_uses.clear()
+	var names: Array = table.materials.keys()
+	names.sort()
+	for mat in names:
+		var e: Dictionary = table.materials[mat]
+		var block := items.item_for_material(mat)
+		if block == "" and mat.ends_with("_static"):
+			block = items.item_for_material(mat.trim_suffix("_static"))
+		if block == "" or not e.has("drops"):
+			continue
+		var drops: Array = e["drops"] if e["drops"] is Array else [{"id": e["drops"], "count": int(e.get("count", 1))}]
+		for d in drops:
+			var id: String = d.get("id", "")
+			var c = d.get("count", 1)
+			var lo := int(c[0]) if c is Array else int(c)
+			var hi := int(c[1]) if c is Array else int(c)
+			var chance := float(d.get("chance", 1.0))
+			if not items.has(id):
+				continue
+			if id == block and not e.get("requires", false) and chance >= 1.0 and hi == 1:
+				continue
+			var rid := "mining:%s:%s" % [block, id]
+			if _mining.has(rid):
+				continue   # sand and sand_static: one entry
+			var info := PackedStringArray()
+			if lo != hi:
+				info.append("%d-%d" % [lo, hi])
+			if chance < 1.0:
+				info.append("%s %% chance" % str(snappedf(chance * 100.0, 0.1)))
+			_mining[rid] = {"id": rid, "type": "mining", "input": block,
+				"output": {"id": id, "count": lo},
+				"info": ", ".join(info), "needs": _tool_text(e)}
+			if not _mining_makes.has(id):
+				_mining_makes[id] = []
+			_mining_makes[id].append(rid)
+			if not _mining_uses.has(block):
+				_mining_uses[block] = []
+			_mining_uses[block].append(rid)
+
+
+## "Stone Pickaxe or better", "Any pickaxe", "Hand (faster with a shovel)" ...
+func _tool_text(e: Dictionary) -> String:
+	var tool: String = e.get("tool", "")
+	if tool == "":
+		return "Hand"
+	var tier := int(e.get("min_tier", 0))
+	if tier > 0:
+		for id in items.items_with_tag(tool):
+			if int(items.get_def(id).get("tier", -1)) == tier:
+				return "%s or better" % items.display_name(id)
+	return ("Any %s" % tool) if e.get("requires", false) else ("Hand (faster with a %s)" % tool)
+
+
+# ---------------- bookmarks ----------------
+
+func is_bookmarked(item_id: String) -> bool:
+	return item_id in bookmarks
+
+
+## Adds or removes a bookmark; returns true when the item is now bookmarked.
+func toggle_bookmark(item_id: String) -> bool:
+	if item_id == "" or not items.has(item_id):
+		return false
+	if item_id in bookmarks:
+		bookmarks.erase(item_id)
+		return false
+	bookmarks.append(item_id)
+	return true
+
+
+## Keeps the known ids of `ids` in order, without duplicates (items can vanish between versions).
+func set_bookmarks(ids: Array) -> void:
+	bookmarks = []
+	for id in ids:
+		if id is String and items.has(id) and not id in bookmarks:
+			bookmarks.append(id)
+
+
+func save_bookmarks(path := BOOKMARKS_PATH) -> bool:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(JSON.stringify({"bookmarks": bookmarks}))
+	return true
+
+
+func load_bookmarks(path := BOOKMARKS_PATH) -> void:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return
+	var data = JSON.parse_string(f.get_as_text())
+	if data is Dictionary and data.get("bookmarks") is Array:
+		set_bookmarks(data["bookmarks"])
+
+
 # ---------------- layout ----------------
 
 ## Where a recipe's inputs sit: kind "grid" (3x3 crafting), "smelt" (one
-## input above the flame) or "row" (spellcraft ingredients side by side).
+## input above the flame), "mine" (the block) or "row" (spellcraft
+## ingredients side by side).
 ## inputs: [{"cell": Vector2i, "spec": id or #tag}].
 func layout(r: Dictionary) -> Dictionary:
 	var inputs := []
@@ -245,6 +370,9 @@ func layout(r: Dictionary) -> Dictionary:
 		"smelt":
 			kind = "smelt"
 			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
+		"mining":
+			kind = "mine"
+			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
 		_:
 			kind = "row"
 			var ing: Array = r.get("ingredients", [])
@@ -256,9 +384,13 @@ func layout(r: Dictionary) -> Dictionary:
 			info = "Shapeless"
 		"smelt":
 			info = "%.1f s" % (float(r.get("ticks", 200)) / 20.0)
+		"mining":
+			info = r["info"]
 	var st: String = r.get("station", "")
 	var needs := ""
-	if st != "" and not (r["type"] == "smelt" and st == "furnace"):
+	if r["type"] == "mining":
+		needs = r["needs"]
+	elif st != "" and not (r["type"] == "smelt" and st == "furnace"):
 		needs = items.display_name(st) if items.has(st) else st.capitalize()
 	return {"kind": kind, "inputs": inputs, "output": r["output"], "info": info, "needs": needs, "id": r["id"]}
 
@@ -279,7 +411,7 @@ func display_item(spec: String, t: int) -> String:
 
 
 func summary() -> Dictionary:
-	var s := {"query": query, "page": page, "pages": page_count(), "shown": _filtered.size(), "history": history.size()}
+	var s := {"query": query, "page": page, "pages": page_count(), "shown": _filtered.size(), "history": history.size(), "bookmarks": bookmarks.duplicate()}
 	if is_open():
 		var c := current_category()
 		s["view"] = {"mode": view["mode"], "item": view["item"], "category": c["id"],
