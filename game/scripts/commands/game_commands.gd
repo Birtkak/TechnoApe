@@ -22,7 +22,7 @@ const KITS := {
 }
 
 ## What WorldGen.find_nearest can look for (biome names work too).
-const FEATURES := ["cave", "deep_cave", "ruin", "waterfall", "lake", "river", "spring", "marsh", "alpine", "snow", "mountain", "forest", "plains", "desert",
+const FEATURES := ["cave", "deep_cave", "ruin", "waterfall", "lake", "river", "spring", "marsh", "alpine", "snow", "mountain", "forest", "old_growth_forest", "taiga", "jungle", "plains", "desert",
 	"coal_vein", "copper_vein", "cassiterite_vein", "iron_vein", "copper_iron_vein",
 	"sulfur_cave", "lush_cave", "magma_cave", "crystal_cave", "fungal_cave"]
 
@@ -55,7 +55,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("seed", "/seed", "Show the world seed", _seed)
 	reg.register("kit", "/kit <%s>" % "|".join(KITS.keys()), "Give a playtest kit", _kit, [KITS.keys()])
 	reg.register("spawn", "/spawn", "Teleport to the world spawn", _spawn)
-	reg.register("locate", "/locate <feature>", "Find the nearest cave, ruin, lake, biome ... (within 2 km)", _locate, [FEATURES])
+	reg.register("locate", "/locate <feature>", "Find the nearest cave, ruin, lake, biome ... (within 4 km)", _locate, [FEATURES])
 	reg.register("goto", "/goto <feature>", "Teleport to the nearest cave, ruin, lake, biome ...", _goto, [FEATURES])
 	reg.register("daycycle", "/daycycle <on|off|seconds>", "Run the sun (on = 20 min days) or freeze it", _daycycle, [["on", "off"]])
 	reg.register("blast", "/blast <radius_m> [material]", "Carve a crater where you look, or drop a ball of a material (water, sand, lava ...)",
@@ -399,9 +399,10 @@ func _find(args: PackedStringArray) -> Variant:
 		return CommandRegistry.fail("No world")
 	var kind := args[0].to_lower()
 	var p := player.position
-	var t: Vector3i = main.world.generator.gen.find_nearest(kind, int(p.x), int(p.z), 4096)
+	# continents are ~8 km across (ADR 0035): a biome can be a few km away
+	var t: Vector3i = main.world.generator.gen.find_nearest(kind, int(p.x), int(p.z), int(Settings.m2v(4000.0)))
 	if t.y < 0:
-		return CommandRegistry.fail("No %s within 2 km" % kind)
+		return CommandRegistry.fail("No %s within 4 km" % kind)
 	return t
 
 
