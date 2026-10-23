@@ -1,0 +1,49 @@
+class_name MaterialWarmup
+extends Node
+
+## Compiles every terrain pipeline while the loading screen still covers the
+## view (as ParticleFx._prewarm does for the particle pools). Godot compiles a
+## pipeline on a material's first draw; a world with no gas or flame in sight
+## first drew the liquid/gas material when a fire started, a 20-30 ms frame on
+## the render thread (and 1 s once, before the shader cache held it). One mesh
+## holding every model of the library, built by the terrain's own mesher (so the
+## vertex format matches the terrain's), is drawn in front of the camera, casting
+## shadows, for a few frames, then freed.
+
+const FRAMES := 8
+
+var _mesh: MeshInstance3D
+var _frames := 0
+
+
+## `library` and `mesher` are the terrain's (World); call once the camera exists.
+func setup(mesher: VoxelMesherBlocky, camera: Camera3D) -> void:
+	var lib := mesher.library as VoxelBlockyLibrary
+	if lib == null or camera == null:
+		queue_free()
+		return
+	var n := lib.models.size()
+	var buf := VoxelBuffer.new()
+	buf.create(n * 2 + 2, 3, 3)   # one voxel per model with air around it; 1 voxel of padding (mesher)
+	buf.set_channel_depth(VoxelBuffer.CHANNEL_TYPE, VoxelBuffer.DEPTH_16_BIT)
+	for id in range(1, n):
+		buf.set_voxel(id, 1 + id * 2, 1, 1, VoxelBuffer.CHANNEL_TYPE)
+	var mesh := mesher.build_mesh(buf, lib.get_materials())
+	if mesh == null:
+		queue_free()
+		return
+	_mesh = MeshInstance3D.new()
+	_mesh.name = "WarmupMesh"
+	_mesh.mesh = mesh
+	_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	_mesh.extra_cull_margin = 16384.0   # never frustum-culled: every surface must draw
+	camera.add_child(_mesh)
+	_mesh.transform = Transform3D(Basis.from_scale(Vector3.ONE * 0.002), Vector3(-0.5, 0.0, -1.0))
+
+
+func _process(_delta: float) -> void:
+	_frames += 1
+	if _frames >= FRAMES:
+		if _mesh:
+			_mesh.queue_free()
+		queue_free()

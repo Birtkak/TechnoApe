@@ -70,6 +70,9 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   (ADR 0009, measured as ADR 0014 says) and `other_godot_processes == 0`.
   The project renders on a separate thread (ADR 0016); `--render-thread safe`
   runs the old mode. Never drive the shared RenderingDevice from the main thread.
+  A material's first draw compiles its pipeline (20-30 ms, 1 s uncached): new terrain models
+  are drawn under the loading screen by `scripts/visuals/material_warmup.gd`, particle pools by
+  `ParticleFx._prewarm`; anything else drawn mid-game for the first time needs the same.
   Play loads through the SQLite save; benchmarks do not: measure the save path
   with `persist=1 seed=<unused>` when loading or streaming changes (ADR 0017).
 - One world unit = one voxel = 0.5 m. Tunables live in `scripts/settings.gd` in metres.
@@ -102,8 +105,8 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   recipe browser ✓ (ADR 0008: JEI-style search, recipes/uses, R/U keys),
   bubble polish ✓ (ADR 0010: in-place shift, load/push budgets, fire
   pacing per material), voxel-grid collision ✓ (ADR 0011: player and items
-  move with `VoxelBoxMover`, terrain mesh colliders off, swimming), 89
-  headless tests. LOD policy and horizon ✓ (ADR 0020: foliage thins per
+  move with `VoxelBoxMover`, terrain mesh colliders off, swimming); 298
+  headless tests (2026-10-23). LOD policy and horizon ✓ (ADR 0020: foliage thins per
   LOD ring, 2 km horizon, dithered LOD cross-fade, see-through water,
   loading screen, edit remesh rate; every ADR 0014 scenario within the
   ADR 0009 budget on the dev box; `prototypes/p11-lod-horizon` holds the
@@ -117,7 +120,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   `BrickStore`, `NearFieldFeed` + `near_scatter.glsl` keep a toroidal 512³ volume on the
   GPU under a byte budget, `near_field.gdshader` marches it with Godot's lighting, the
   terrain shaders hide the meshes inside its valid box). P7 (`prototypes/p7-raycast-near`) measured a Grimorium-style
-  GPU ray-cast near field (32 m at 6.25 cm: 3.3 ms p50); ADR 0012 (proposed)
+  GPU ray-cast near field (32 m at 6.25 cm: 3.3 ms p50); ADR 0012 (accepted)
   makes the simulation resolution the next spike and requires per-frame edit
   budgets for mass edits. **Direction (ADR 0012, accepted in principle):
   option B** = the 6.25 cm cell is the world grid, stored as bricks that are

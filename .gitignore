@@ -30,6 +30,7 @@ target/
 reports/
 prototypes/*/.godot/
 prototypes/*/addons/zylann.voxel/bin/*.dll
+prototypes/*/out/
 
 # GDExtension build output
 prototypes/*/bin/

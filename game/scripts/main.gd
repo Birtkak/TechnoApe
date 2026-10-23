@@ -302,6 +302,11 @@ func _ready() -> void:
 	stains.setup(world, bubble, stained)
 	player.stain_drip.connect(func(at: Vector3, colour: Color) -> void: stains.drip(at, colour.srgb_to_linear()))
 	game_hud.player_stains = player.stains
+	# every terrain pipeline compiles under the loading screen, not when the first gas or flame shows up
+	var warmup := MaterialWarmup.new()
+	warmup.name = "MaterialWarmup"
+	add_child(warmup)
+	warmup.setup(world.terrain.mesher as VoxelMesherBlocky, player.camera)
 	# chips, dust, splashes, smoke, hearts, lava pops, drips and waterfall spray (scripts/visuals/particle_fx.gd)
 	if Settings.particles:
 		fx = ParticleFx.load_default()

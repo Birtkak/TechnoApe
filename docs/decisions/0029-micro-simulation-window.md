@@ -116,6 +116,12 @@ and fast flight's worst frame is render-thread uploads (`other_ms`). Neither is 
 simulation; both are regressions since ADR 0021's table (6.42 / 10.53 ms) to chase on their
 own. With the micro simulation on nothing else crosses 8.3 ms more than twice.
 
+Update, same day: the fire's compile was the liquid/gas terrain material, never drawn in a
+forest before the first smoke. `scripts/visuals/material_warmup.gd` now draws every terrain
+model under the loading screen; the fire then has no frame over 8.3 ms (near field on: p99
+6.39, max 7.22 ms; plain renderer max 5.56 ms). Fast flight's 19 ms frame (`other_ms` 16,
+driver time outside Godot's phases) did not come back in two reruns (max 7.95 / 10.25 ms).
+
 What the spike found and fixed before this table: applying the fire test (ignite a 15 m
 cube = 12 M cells) on the main thread cost 35 ms; `ignite_box` and `fill_sphere` now run one
 job per chunk on the pool, and queued box edits are applied in 1 m slabs under
