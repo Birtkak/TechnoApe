@@ -447,6 +447,36 @@ g = shade(rect(new(), 1, 7, 14, 12))
 rect(g, 4, 8, 11, 10, "i")
 rect(g, 4, 8, 11, 8, "I")
 shape("ingot_mold", outline(g), {"i": "#3a1a0e", "I": "#24100a"})
+
+
+def mold_of(head):
+    """A clay slab with the head's silhouette pressed into it (tool molds, ADR 0023)."""
+    src = S[head]["rows"]
+    pts = [(x, y) for y in range(N) for x in range(N) if src[y][x] != "."]
+    x0, x1 = min(p[0] for p in pts), max(p[0] for p in pts)
+    y0, y1 = min(p[1] for p in pts), max(p[1] for p in pts)
+    g = shade(rect(new(), 0, 4, 15, 13))
+    for y in range(6, 12):
+        for x in range(2, 14):
+            sx = x0 + (x - 2) * (x1 - x0 + 1) // 12
+            sy = y0 + (y - 6) * (y1 - y0 + 1) // 6
+            if src[sy][sx] not in ".o":
+                put(g, x, y, "i" if get(g, x, y - 1) != "I" else "i")
+    for x in range(2, 14):
+        for y in range(6, 12):
+            if g[y][x] == "i" and g[y - 1][x] not in ("i", "I"):
+                put(g, x, y, "I")
+    return outline(g)
+
+
+g = new()
+line(g, 3, 13, 12, 4, "#", 2)     # the spindle
+g = body(g)
+line(g, 1, 9, 13, 9, "s")          # the bow string over it
+line(g, 1, 9, 3, 7, "b", 1)
+line(g, 13, 9, 11, 7, "b", 1)
+line(g, 3, 7, 11, 7, "b", 1)
+shape("firestarter", g, {"s": "#d8c8a0", "b": "#7a5226"})
 g = shade(compose(ellipse(new(), 8, 10, 6.2, 4.6), rect(new(), 2, 6, 13, 10)))
 rect(g, 2, 6, 13, 6, "h")
 rect(g, 6, 4, 9, 5, "l")
@@ -755,6 +785,23 @@ sp("copper_chisel_head", ("chisel_blade", "copper"))
 sp("copper_prospecting_pick", H, ("prospecting_head", "copper"))
 sp("copper_prospecting_pick_head", ("prospecting_head", "copper"))
 
+# Vintage Story early game (ADR 0023): flint heads, hoes, molds, nuggets in the crucible
+for k, sh in (("knife_blade", "knife_blade"), ("axe_head", "axe_head"), ("shovel_head", "shovel_head"),
+              ("hoe_head", "hoe_head"), ("pickaxe_head", "pickaxe_head")):
+    sp("flint_" + k, (sh, "flint"))
+sp("flint_axe", H, ("axe_head", "flint"))
+sp("flint_hoe", H, ("hoe_head", "flint"))
+sp("copper_hoe", H, ("hoe_head", "copper"))
+sp("copper_hoe_head", ("hoe_head", "copper"))
+for t, head in (("axe", "axe_head"), ("pickaxe", "pickaxe_head"), ("shovel", "shovel_head"),
+                ("knife", "knife_blade"), ("hoe", "hoe_head")):
+    shape(t + "_mold", mold_of(head), {"i": "#3a1a0e", "I": "#24100a"})
+    sp(t + "_mold", (t + "_mold", "terracotta"))
+    sp("raw_" + t + "_mold", (t + "_mold", "clay", {"i": "#5a606a", "I": "#3a3e46"}))
+sp("crucible_copper", ("crucible", "terracotta", {"i": "#ffa030"}))
+sp("dry_grass", ("fiber", "straw"))
+sp("firestarter", ("firestarter", "handle"))
+sp("firepit", ("campfire", "handle"))
 sp("stick", ("stick", "handle"))
 sp("bark", ("bark", "bark"))
 sp("plant_fiber", ("fiber", "fiber"))

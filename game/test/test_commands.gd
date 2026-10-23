@@ -92,15 +92,15 @@ func test_gamemode_command_switches_and_lands() -> void:
 func test_give_and_clear() -> void:
 	assert_bool(reg.execute("/give oak_log 70")["ok"]).is_true()
 	assert_int(inv.inv.count_of("oak_log")).is_equal(70)
-	assert_bool(reg.execute("/give wooden_pickaxe")["ok"]).is_true()
-	assert_int(inv.inv.count_of("wooden_pickaxe")).is_equal(1)
+	assert_bool(reg.execute("/give flint_pickaxe")["ok"]).is_true()
+	assert_int(inv.inv.count_of("flint_pickaxe")).is_equal(1)
 	assert_bool(reg.execute("/give unobtainium")["ok"]).is_false()
 	assert_bool(reg.execute("/give oak_log lots")["ok"]).is_false()
 	assert_bool(reg.execute("/give oak_log 0")["ok"]).is_false()
 	var r := reg.execute("/clear oak_log")
 	assert_bool(r["ok"]).is_true()
 	assert_int(inv.inv.count_of("oak_log")).is_equal(0)
-	assert_int(inv.inv.count_of("wooden_pickaxe")).is_equal(1)
+	assert_int(inv.inv.count_of("flint_pickaxe")).is_equal(1)
 	assert_bool(reg.execute("/clear")["ok"]).is_true()
 	assert_bool(reg.execute("/clear")["ok"]).is_false()   # nothing left
 

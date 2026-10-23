@@ -109,7 +109,10 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   ADR 0009 budget on the dev box; `prototypes/p11-lod-horizon` holds the
   godot_voxel patches and measurements). Animals, farming and furniture ✓ (ADR 0022: sheep and
   pigs with a Minecraft goal brain, herds in plains, tempt/breed/shear; Minecraft farming with
-  wheat and carrots, rare wild crops; wool, carpet, bed, chair; `hands_test=1` drives them all). Ray-cast near field in the game ✓ (ADR 0021,
+  wheat and carrots, rare wild crops; wool, carpet, bed, chair; `hands_test=1` drives them all).
+  Vintage Story early game ✓ (ADR 0023: knapping and clay forming on the ground, pit kiln,
+  firepit, crucible melting, casting in molds, sieve; rock drops nothing before copper;
+  pieces in `scripts/work/`, `stone_age_test=1` plays flint to copper pickaxe). Ray-cast near field in the game ✓ (ADR 0021,
   `near_field=1`, off by default until the user calls it: the bubble writes a wrapped
   `BrickStore`, `NearFieldFeed` + `near_scatter.glsl` keep a toroidal 512³ volume on the
   GPU under a byte budget, `near_field.gdshader` marches it with Godot's lighting, the
@@ -132,7 +135,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   all micro models (`materials.gd` `micro:` kinds). Material ids are
   definition order: 32..36 stations, 37..43 detail, 44 `CHISELED` reserved;
   append only; 47 = blood (ADR 0015); 48..52 ground pickups (ADR 0019); 57..75 animals/farming/furniture
-  (ADR 0022). Atlas 8×10 tiles (ADR 0024; 73..79 free, grow ROWS for more); 76..87 = content pass (tree kinds, terracotta, basalt, packed ice, fern). MicroMesher winds
+  (ADR 0022). Atlas 8×10 tiles (ADR 0024; 73..79 free, grow ROWS for more); 76..87 = content pass (tree kinds, terracotta, basalt, packed ice, fern). 88..89 = work spots (ADR 0023: drawn by `scripts/work/` entities from `MicroMesher.build_arrays` with the winding flipped in the arrays; `MobModel.outward` reads an ArrayMesh back, which waits 4-6 ms for the render thread, so never call it per edit). MicroMesher winds
   triangles counter-clockwise: pass its meshes through `MobModel.outward` (terrain models, mobs, furniture, the ape).
 - Two sessions share this checkout (this one and "PC testing and
   optimization"): stage files explicitly, never `git add -A`; Biome enum ids

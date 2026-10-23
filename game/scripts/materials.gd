@@ -90,6 +90,9 @@ const TERRACOTTA_CREAM := 84
 const BASALT := 85                 # magma cave floors and walls
 const PACKED_ICE := 86             # ice fields ground and spikes
 const FERN := 87                   # micro-voxel fronds in taiga, jungle, swamp and old growth
+# Vintage Story work pieces (ADR 0023): drawn by their block entity (scripts/work/)
+const WORK_SPOT := 88              # knapping, clay forming, ground storage, firepit: only the aim ray hits it
+const WORK_BLOCK := 89             # sieve: solid to bodies
 
 const ATLAS_TILES := Vector2i(8, 10)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -172,7 +175,10 @@ static func defs() -> Array:
 		{"name": "wild_wheat", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [54, 23, 54], "transparent": false, "micro": "wild_wheat"},
 		{"name": "wild_carrot", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [51, 29, 55], "transparent": false, "micro": "wild_carrot"},
 		{"name": "furniture", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": true, "interact": "furniture"},
-	] + _content_pass_defs()
+	] + _content_pass_defs() + [
+		{"name": "work_spot", "cell_type": "solid", "density": 8, "hp": 50, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": "aim", "cross": true, "interact": "work"},
+		{"name": "work_block", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": true, "interact": "work"},
+	]
 
 
 static var _content := []
@@ -304,7 +310,11 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 		if d.get("model", "") == "empty":
 			var empty := VoxelBlockyModelEmpty.new()
 			empty.culls_neighbors = false
-			if d.get("collision", false):
+			if d.get("collision", false) is String:
+				# work spots (ADR 0023): only the aim ray hits the box, bodies walk through
+				empty.collision_aabbs = [AABB(Vector3.ZERO, Vector3.ONE)]
+				empty.collision_mask = MASK_TARGET
+			elif d.get("collision", false):
 				empty.collision_aabbs = [AABB(Vector3.ZERO, Vector3.ONE)]   # furniture: solid to bodies, drawn by its entity
 			models.append(empty)
 			continue

@@ -58,7 +58,7 @@ func test_uses_of_planks_and_navigation() -> void:
 	var ids: Array = []
 	for c in b.view["categories"]:
 		ids.append_array(c["recipes"])
-	assert_array(ids).contains(["sticks", "crafting_table", "chest", "wooden_pickaxe"])
+	assert_array(ids).contains(["sticks", "chest", "sieve", "bed"])
 	assert_str(b.current_category()["id"]).is_equal("crafting")
 	b.turn_recipe(-1)
 	assert_int(b.view["index"]).is_equal(b.current_category()["recipes"].size() - 1)
@@ -92,7 +92,7 @@ func test_layouts_place_inputs() -> void:
 	var sticks := b.layout(recipes.recipes["sticks"])
 	assert_str(sticks["kind"]).is_equal("grid")
 	assert_array(sticks["inputs"].map(func(i: Dictionary) -> Vector2i: return i["cell"])).contains_exactly([Vector2i(0, 0), Vector2i(0, 1)])
-	var pick := b.layout(recipes.recipes["wooden_pickaxe"])
+	var pick := b.layout(recipes.recipes["iron_pickaxe"])
 	assert_int(pick["inputs"].size()).is_equal(5)
 	assert_str(pick["needs"]).is_equal("Crafting Table")
 	var bronze := b.layout(recipes.recipes["bronze_alloy"])
@@ -149,7 +149,7 @@ func test_mining_recipes_show_drops_and_tools() -> void:
 	assert_str(l["kind"]).is_equal("mine")
 	assert_str(l["needs"]).is_equal("Any pickaxe")
 	# a self-drop needing a tool tier stays (it tells you which pick), plain dirt -> dirt does not
-	assert_str(b.layout(b.recipe("mining:iron_ore:iron_ore"))["needs"]).is_equal("Stone Pickaxe or better")
+	assert_str(b.layout(b.recipe("mining:iron_ore:iron_ore"))["needs"]).is_equal("Copper Pickaxe or better")
 	assert_dict(b.recipe("mining:dirt:dirt")).is_empty()
 	# sand and sand_static collapse to one entry; uses of the block list it
 	assert_int(b.recipes_for("gravel").filter(func(c: Dictionary) -> bool: return c["id"] == "mining")[0]["recipes"].size()).is_equal(1)

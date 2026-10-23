@@ -252,6 +252,8 @@ func _build_recipe() -> void:
 	match l["kind"]:
 		"smelt", "mine":
 			origin = Vector2(40 + S, 84)
+		"pattern":
+			origin = Vector2(24, 120)
 		"row":
 			origin = Vector2(16, 120)
 	for inp in l["inputs"]:
@@ -357,6 +359,21 @@ func _draw_recipe_panel() -> void:
 		_recipe_panel.draw_line(ph + Vector2(0, 8), ph + Vector2(14, 0), Color(0.45, 0.45, 0.5), 4.0)
 		_recipe_panel.draw_line(ph + Vector2(14, 0), ph + Vector2(28, 8), Color(0.45, 0.45, 0.5), 4.0)
 		_recipe_panel.draw_line(ph + Vector2(14, 0), ph + Vector2(14, 22), Color(0.55, 0.38, 0.2), 4.0)
+	elif l["kind"] == "pattern":
+		# the shape from above, 8x8 cells of 10 px; clay shades darker with height
+		var hs: PackedInt32Array = l["heights"]
+		var top := 1
+		for v in hs:
+			top = maxi(top, v)
+		var o0 := Vector2(84, 98)
+		_recipe_panel.draw_rect(Rect2(o0 - Vector2(2, 2), Vector2(84, 84)), Color(0.35, 0.35, 0.35))
+		for i in 64:
+			var r := Rect2(o0 + Vector2((i % 8) * 10, (i / 8) * 10), Vector2(9, 9))
+			if hs[i] == 0:
+				_recipe_panel.draw_rect(r, Color(0.55, 0.55, 0.55))
+			else:
+				var k := float(hs[i]) / float(top)
+				_recipe_panel.draw_rect(r, Color(0.55, 0.6, 0.7).lerp(Color(0.25, 0.28, 0.36), k))
 	elif l["kind"] == "smelt":
 		var f := Rect2(Vector2(40 + S + 4, 84 + S + 4), Vector2(28, 28))
 		_recipe_panel.draw_rect(f, Color(1.0, 0.55, 0.1))

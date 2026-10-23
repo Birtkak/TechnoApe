@@ -70,7 +70,7 @@ func test_material_ids_are_stable() -> void:
 
 
 func test_new_recipes() -> void:
-	for r in ["carpet", "bed", "chair", "bread", "wooden_hoe", "stone_hoe", "iron_hoe", "shears", "cook_meat_furnace"]:
+	for r in ["carpet", "bed", "chair", "bread", "flint_hoe", "copper_hoe", "iron_hoe", "shears", "cook_meat_furnace"]:
 		assert_bool(recipes.by_id.has(r) if "by_id" in recipes else true).is_true()
 	assert_array(recipes.makes("bed")).is_not_empty()
 	assert_array(recipes.makes("bread")).is_not_empty()

@@ -16,8 +16,8 @@ const SAVE_VERSION := 1
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
-var _by_pos := {}            # Vector3i -> ChestEntity / FurnaceEntity
-var _ticking: Array = []     # entities with state over time (furnaces)
+var _by_pos := {}            # Vector3i -> ChestEntity / FurnaceEntity / FurnitureEntity / work pieces
+var _ticking: Array = []     # entities with state over time (furnaces, firepits, pit kilns, molds)
 var _cells := {}             # Vector3i -> anchor of the multi-voxel entity covering it (furniture)
 var ticks := 0
 var dirty := false           # something changed since the last save
@@ -39,6 +39,19 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			_ticking.append(e)
 		"furniture":
 			e = FurnitureEntity.new(pos)
+		# Vintage Story work pieces (ADR 0023): drawn by Main from view_parts()
+		"knap":
+			e = KnapEntity.new(pos)
+		"clayform":
+			e = ClayFormEntity.new(pos)
+		"ground":
+			e = GroundEntity.new(recipes, pos)
+			_ticking.append(e)
+		"firepit":
+			e = FirepitEntity.new(items, recipes, pos)
+			_ticking.append(e)
+		"sieve":
+			e = SieveEntity.new(recipes, pos)
 		_:
 			push_error("unknown block entity kind " + kind)
 			return null
@@ -78,6 +91,21 @@ func all_furniture() -> Array:
 	var out := []
 	for p in _by_pos:
 		if _by_pos[p] is FurnitureEntity:
+			out.append(_by_pos[p])
+	return out
+
+
+const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve"]
+
+
+static func is_work(e: RefCounted) -> bool:
+	return e != null and e.kind in WORK_KINDS
+
+
+func all_work() -> Array:
+	var out := []
+	for p in _by_pos:
+		if is_work(_by_pos[p]):
 			out.append(_by_pos[p])
 	return out
 
@@ -153,7 +181,10 @@ func load_dict(d: Dictionary) -> bool:
 			continue
 		var e := create(Vector3i(int(pa[0]), int(pa[1]), int(pa[2])), String(ed.get("kind", "")))
 		if e != null:
-			e.load_from(ed)
+			if e is KnapEntity or e is ClayFormEntity:
+				e.load_from(ed, recipes)   # they keep their recipe by id
+			else:
+				e.load_from(ed)
 			if e is FurnitureEntity:
 				_register_cells(e)
 	dirty = false

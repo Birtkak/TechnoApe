@@ -14,46 +14,57 @@ they follow. Numbers below are first guesses to tune in play.
 
 | Age | Unlocked by | Tool tier | Tools | Key stations |
 |---|---|---|---|---|
-| Stone | bare hands | 0 | flint knife, hatchet, shovel, pickaxe; stone hammer | 2×2 hand grid, crafting table (flint + logs), campfire |
-| Copper | sifted copper nuggets cast at the campfire | 1 | copper pickaxe, axe, shovel, knife, saw, chisel, prospecting pick | sieve, furnace |
-| Bronze | copper + sifted or mined tin, alloyed in the furnace | 2 | bronze pickaxe, axe, shovel, saw, hammer | bloomery |
-| Iron | iron blooms (from sifted nuggets or iron ore) hammered into ingots | 3 | iron pickaxe, axe, shovel, saw, hammer, knife | blast furnace |
+| Stone | flint picked up from the ground, knapped | 0 | flint knife, axe, shovel, hoe, pickaxe | 2×2 hand grid, crafting table (flint + logs), firepit, pit kiln |
+| Copper | surface copper melted in a fired crucible and cast in clay molds | 1 | copper pickaxe, axe, shovel, knife, hoe | sieve, furnace |
+| Bronze | copper + tin, alloyed | 2 | bronze pickaxe, axe, shovel, saw, hammer | bloomery |
+| Iron | iron blooms hammered into ingots | 3 | iron pickaxe, axe, shovel, saw, hammer, knife | blast furnace |
 | Steel | iron + coal in the blast furnace | 4 | steel pickaxe | (machines, later) |
+
+Until electricity the game plays like **Vintage Story** (developer,
+2026-10-23): work by hand, in the world, one piece at a time. Electricity is
+where it turns into GregTech: machines that craft for you. Mechanics and
+numbers as built: ADR 0023.
 
 Spells run beside the ladder: mana crystals from crystal caves, crafted at
 the spell altar. Wands stay found-only (vision.md).
 
-## Stone age: the first hour
+## Stone age: the first hour (ADR 0023)
 
-1. Break **leaves** by hand: sticks drop (about 20 %).
-2. Dig **gravel** by hand: flint drops (about 10 %), otherwise gravel.
-   Pick up **loose stones** (the pebble detail voxels).
-3. **Flint knife** = flint + stick (hand). Cut **tall grass** with it for
-   **plant fiber**; 3 fiber = **twine**.
-4. **Flint hatchet** = 2 flint + stick + twine. Logs can't be broken by hand,
-   only with an axe.
-5. **Shave bark** off a log with a knife or hatchet; 2 bark = twine.
-   (Better later as an in-world action: use the tool on a log, it becomes a
-   stripped log and drops bark.)
-6. **Crafting table** = 2 flint + 2 logs. Planks: 2 per log by hand, 3 with
-   a hatchet, 4 with a saw.
-7. **Flint pickaxe** (table): mines stone and coal slowly, not ores.
-   **Stone hammer** (loose stones) crushes cobble to gravel and gravel to sand.
-8. **Campfire** fires clay: clay balls → raw crucible and raw ingot mold →
-   fired at the campfire.
+You spawn with nothing.
 
-## Copper age: sifting
+1. **Pick up** what lies around: flint on gravel and stony ground, loose
+   stones, twigs (sticks) on forest floors, and copper-bearing stones above
+   copper veins. Leaves drop a stick now and then.
+2. **Knap flint** in the world: right click the top of a solid block with
+   flint, pick a head (knife blade, axe, shovel, hoe, pickaxe), then chip off
+   the marked cells. Head + stick in the hand grid = the tool.
+3. Logs need an **axe**. Planks are 2 per log by hand. The **crafting table**
+   is 2 flint + 2 logs.
+4. The **flint knife** cuts tall grass into **dry grass**. A **firestarter**
+   is 2 sticks + dry grass.
+5. The **flint pickaxe** breaks rock, but **rock drops nothing** until
+   copper. You can dig into a hill, but you cannot collect stone.
+6. **Clay** lies in river beds, lake beds and marshes, and digging it gives
+   clay balls. **Form clay** in the world the same way you knap: pick a
+   crucible or a mold and fill the ghost cells layer by layer.
+7. **Pit kiln:** put the raw clay ware on the ground, add 4 dry grass and
+   8 sticks, and light it with the firestarter. A minute later it is fired.
+8. **Firepit** (2 sticks + 2 loose stones): light it with the firestarter.
+   It cooks food and melts metal.
 
-- **Sieve** (table: sticks, twine, planks). Sifting is a chance table:
-  gravel gives flint 25 %, copper nugget 18 %, iron nugget 4 %;
-  sand gives tin nugget 10 % (placer tin).
-- **Copper ingot** = 7 copper nuggets + crucible + ingot mold at the
-  campfire. The crucible and mold stay in the grid and lose durability.
-  About 40 sifts per ingot.
-- Copper tools. The copper pickaxe is the first that mines ore
-  (copper and tin ore need tier 1).
-- **Furnace** (cobble) smelts copper and tin ore, sand to glass, logs to
-  charcoal, clay to bricks.
+## Copper age: surface copper
+
+- Put a **crucible** in the firepit's vessel slot and **4 copper-bearing
+  stones** in its input. When they melt, the crucible holds molten copper.
+- **Cast:** right click a fired **mold** lying on the ground with the molten
+  crucible. You get the empty crucible back. When the metal has cooled, take
+  the **copper head** out (the mold stays) and put it on a stick.
+- The copper pickaxe makes rock drop cobblestone, and it mines copper and tin
+  ore (tier 1). The furnace needs that cobble.
+- **Sieve** (crafting table: sticks, dry grass, planks) is the slow, safe
+  route next to surface copper. Load gravel or sand and shake it. Gravel
+  gives flint 25 %, a copper nugget 18 % and an iron nugget 4 %; sand gives
+  a tin nugget 10 %. 8 copper nuggets melt like 4 copper-bearing stones.
 
 ## Bronze age
 
@@ -122,7 +133,7 @@ recipe book. The stone hammer can work copper, so there is no chicken and egg.
 - **Sun and moon:** a visible sun and moon cross the sky with the day cycle
   (the moon with phases), lighting follows them.
 
-## Systems this needs (not in the game yet)
+## Systems this needs (not in the game yet; ADR 0023 built 2, 3, 5 in part and 6)
 
 1. **Tools that stay in the grid** (GregTech crafting tools): a recipe lists
    `keep` ingredients; crafting leaves them in place and costs 1 durability.

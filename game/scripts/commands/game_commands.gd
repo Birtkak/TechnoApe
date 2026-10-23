@@ -11,10 +11,11 @@ const TIMES := {"sunrise": 0.25, "day": 0.29, "noon": 0.5, "sunset": 0.75, "nigh
 
 ## Playtest kits (/kit): item id -> count. test_commands.gd checks every id exists.
 const KITS := {
-	"tools": {"iron_pickaxe": 1, "stone_pickaxe": 1, "bucket": 2, "water_bucket": 1, "lava_bucket": 1, "coal": 32, "oak_log": 64},
+	"tools": {"iron_pickaxe": 1, "copper_pickaxe": 1, "copper_axe": 1, "copper_shovel": 1, "flint_knife": 1, "bucket": 2, "water_bucket": 1, "lava_bucket": 1, "coal": 32, "oak_log": 64},
 	"builder": {"stone": 64, "cobblestone": 64, "dirt": 64, "grass_block": 64, "sand": 64, "oak_planks": 64, "oak_log": 64, "glass": 64, "sandstone": 64},
 	"stations": {"crafting_table": 4, "furnace": 4, "chest": 4, "iron_ore": 16, "copper_ore": 16, "tin_ore": 16, "coal": 32},
 	"farm": {"iron_hoe": 1, "wheat_seeds": 32, "carrot": 16, "wheat": 32, "water_bucket": 2, "shears": 1, "bed": 1, "chair": 4, "wool": 16},
+	"stone": {"flint": 8, "stick": 16, "clay_ball": 16, "dry_grass": 12, "loose_stone": 4, "loose_copper_ore": 8, "firestarter": 1, "oak_log": 8},   # Vintage Story early game (ADR 0023)
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64},
 }
 

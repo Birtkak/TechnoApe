@@ -48,19 +48,24 @@ func test_block_items_reference_materials() -> void:
 
 
 func test_break_times_follow_minecraft() -> void:
-	# stone needs a pickaxe: by hand 5x hardness and no drop, wooden pickaxe hardness*1.5/2
+	# stone needs a pickaxe: by hand 5x hardness and no drop; the flint pickaxe breaks it at
+	# hardness*1.5/2 but rock drops nothing before copper (drop_tier, ADR 0023)
 	assert_float(mining.break_time("stone")).is_equal_approx(7.5, 0.01)
 	assert_dict(mining.drops("stone")).is_empty()
-	var wood_pick := items.get_def("wooden_pickaxe")
-	assert_float(mining.break_time("stone", wood_pick)).is_equal_approx(1.125, 0.01)
-	assert_dict(mining.drops("stone", wood_pick)).is_equal({"id": "cobblestone", "count": 1})
+	var flint_pick := items.get_def("flint_pickaxe")
+	var copper_pick := items.get_def("copper_pickaxe")
+	assert_float(mining.break_time("stone", flint_pick)).is_equal_approx(1.125, 0.01)
+	assert_dict(mining.drops("stone", flint_pick)).is_empty()
+	assert_dict(mining.drops("stone", copper_pick)).is_equal({"id": "cobblestone", "count": 1})
 	# dirt by hand drops; a pickaxe does not help
 	assert_float(mining.break_time("dirt")).is_equal_approx(0.75, 0.01)
-	assert_float(mining.break_time("dirt", wood_pick)).is_equal_approx(0.75, 0.01)
+	assert_float(mining.break_time("dirt", flint_pick)).is_equal_approx(0.75, 0.01)
 	assert_dict(mining.drops("dirt")).is_equal({"id": "dirt", "count": 1})
-	# iron needs tier 1: wooden pickaxe is slow and yields nothing, stone pickaxe works
-	assert_dict(mining.drops("iron_ore", wood_pick)).is_empty()
-	assert_dict(mining.drops("iron_ore", items.get_def("stone_pickaxe"))).is_equal({"id": "iron_ore", "count": 1})
+	# copper ore needs tier 1, iron ore tier 2 (bronze): copper is slow and yields nothing there
+	assert_dict(mining.drops("copper_ore", flint_pick)).is_empty()
+	assert_dict(mining.drops("copper_ore", copper_pick)).is_equal({"id": "copper_ore", "count": 1})
+	assert_dict(mining.drops("iron_ore", copper_pick)).is_empty()
+	assert_dict(mining.drops("iron_ore", items.get_def("iron_pickaxe"))).is_equal({"id": "iron_ore", "count": 1})
 	# liquids and unknown materials are unbreakable
 	assert_float(mining.break_time("water")).is_equal(-1.0)
 	assert_float(mining.break_time("bedrock")).is_equal(-1.0)
@@ -146,15 +151,15 @@ func test_personal_grid_crafts_planks_and_sticks() -> void:
 	p.inv.set_slot(0, {"id": "oak_log", "count": 2})
 	p.click_slot(0, MOUSE_BUTTON_LEFT, false)
 	p.click_craft_slot(0, MOUSE_BUTTON_RIGHT, false)   # one log into the grid
-	assert_dict(p.craft.preview_output()).is_equal({"id": "oak_planks", "count": 4})
+	assert_dict(p.craft.preview_output()).is_equal({"id": "oak_planks", "count": 2})   # 2 per log by hand (ADR 0019)
 	p.click_slot(0, MOUSE_BUTTON_LEFT, false)           # cursor (1 log) back to slot 0
 	p.click_craft_output(false)
-	assert_dict(p.cursor).is_equal({"id": "oak_planks", "count": 4})
+	assert_dict(p.cursor).is_equal({"id": "oak_planks", "count": 2})
 	assert_bool(p.craft.grid.is_empty_slot(0)).is_true()
 	# planks vertical in the 2x2 -> sticks via shift-click straight into the inventory
 	p.click_craft_slot(0, MOUSE_BUTTON_RIGHT, false)
 	p.click_craft_slot(2, MOUSE_BUTTON_RIGHT, false)
-	p.click_slot(5, MOUSE_BUTTON_LEFT, false)           # park the remaining 2 planks
+	assert_dict(p.cursor).is_empty()                    # both planks went into the grid
 	assert_dict(p.craft.preview_output()).is_equal({"id": "stick", "count": 4})
 	p.click_craft_output(true)
 	assert_int(p.inv.count_of("stick")).is_equal(4)

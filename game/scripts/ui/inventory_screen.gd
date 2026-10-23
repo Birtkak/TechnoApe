@@ -166,6 +166,9 @@ func open_container(c: RefCounted) -> void:
 	if c.kind == "furnace":
 		# vanilla input (56,17), fuel (56,53), result (116,35)
 		positions = [Vector2(112, 34), Vector2(112, 106), Vector2(232, 70)]
+	elif c.kind == "firepit":
+		# the furnace layout plus the vessel (crucible) slot left of the input (ADR 0023)
+		positions = [Vector2(112, 34), Vector2(112, 106), Vector2(232, 70), Vector2(52, 34)]
 	else:
 		for i in c.inv.size():
 			positions.append(Vector2(16 + (i % 9) * S, 36 + (i / 9) * S))
@@ -226,7 +229,7 @@ func _refresh() -> void:
 func _process(_delta: float) -> void:
 	if is_open:
 		_cursor_icon.position = _root.get_local_mouse_position() - Vector2(16, 16)
-		if _container and _container.kind == "furnace":
+		if _container and _container.kind in ["furnace", "firepit"]:
 			_panel.queue_redraw()   # flame and arrow gauges move every tick
 		_update_tooltip()
 
@@ -309,7 +312,7 @@ func _draw_panel() -> void:
 	sb.set_corner_radius_all(6)
 	_panel.draw_style_box(sb, Rect2(Vector2.ZERO, PANEL))
 	if _container:
-		if _container.kind == "furnace":
+		if _container.kind in ["furnace", "firepit"]:
 			_draw_furnace_gauges()
 		return
 	# player "portrait" area like vanilla's model box

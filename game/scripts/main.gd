@@ -30,6 +30,8 @@ var farming: Farming                 # tilled farmland and crops (ADR 0022)
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
 var _furniture_root: Node3D
 var _furniture_views := {}           # anchor -> MeshInstance3D
+var work: WorkSystem                 # knapping, clay forming, pit kilns, firepits, sieves (ADR 0023)
+var _stone_age_test: StoneAgeTest
 var _farm_accum := 0.0
 var phys_cost := {}   # ms per physics callback this frame (player, items, item_bodies, blocks); DebugCapture reads it on a spike
 var _items_root: Node3D
@@ -55,6 +57,10 @@ func _ready() -> void:
 	items = ItemRegistry.load_default()
 	recipes = RecipeRegistry.load_default(items)
 	mining = MiningTable.load_default()
+	# first-use costs paid behind the loading screen, not on the first item picked up:
+	# parsing the sprite data (7 ms) and the held-item material's shader (15 ms, ADR 0023 run)
+	ItemSprites.get_default()
+	BlockMeshes.sprite("stick")
 	for err in items.errors + recipes.errors + mining.errors:
 		push_error("data: " + err)
 	player_inv = PlayerInventory.new(items, recipes, Settings.max_health)
@@ -135,6 +141,12 @@ func _ready() -> void:
 	add_child(inv_screen)
 	inv_screen.setup(player_inv)
 	inv_screen.closed.connect(_on_screen_closed)
+	work = WorkSystem.new()
+	work.name = "Work"
+	add_child(work)
+	work.setup(self)
+	player.work_use = work.use
+	player.work_hit = work.hit
 
 	# chat, slash commands, game modes and the playtest debug menu (ADR 0018)
 	commands = CommandRegistry.new()
@@ -220,6 +232,10 @@ func _ready() -> void:
 			_after_load(_debug_farm)
 		if DebugCapture.hands_test:
 			_after_load(_debug_hands)
+		if DebugCapture.stone_age_test:
+			_after_load(func() -> void:
+				_stone_age_test = StoneAgeTest.new()   # held here: a RefCounted coroutine dies with its last reference
+				_stone_age_test.run(self))
 		if DebugCapture.scatter_items:
 			# one entity per given item, in a row two metres ahead, so a screenshot shows them
 			var fwd := -player.camera.global_transform.basis.z
@@ -423,8 +439,10 @@ func _on_broken(p: Vector3i, drops: Array) -> void:
 		_remove_furniture(furn, GameMode.rule(player.game_mode, "drops"))
 		return
 	set_world_voxel(p, GameMaterials.AIR)
-	for s in blocks.remove(p):   # chest / furnace contents spill like vanilla
+	for s in blocks.remove(p):   # chest / furnace contents spill like vanilla; work pieces give their parts back
 		spawn_item(s, Vector3(p) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1.5, 1.5), 2.5, randf_range(-1.5, 1.5)))
+	if work:
+		work.forget(p)
 	var events := farming.on_broken(p)
 	if farming.is_crop_material(was) and events.is_empty() and GameMode.rule(player.game_mode, "drops"):
 		events.append({"pos": p, "drops": farming.drops_for_material(was)})   # an untracked crop voxel
@@ -792,6 +810,7 @@ func snapshot() -> Dictionary:
 		"inventory_open": inv_screen.is_open,
 		"browser": inv_screen.browser.summary(),
 		"blocks": blocks.summary(),
+		"work": work.summary() if work else {},
 		"mobs": mobs.summary() if mobs else {},
 		"farm": farming.summary() if farming else {},
 		"mem_mb": OS.get_static_memory_usage() / 1048576.0,
@@ -904,7 +923,7 @@ func _debug_hands() -> void:
 	await get_tree().create_timer(0.5).timeout   # the cleared patch reaches the terrain the aim ray reads
 	base = Vector3i(player.position.floor())
 	var soil := Vector3i(base.x, gy.call(base.x, base.z - 3), base.z - 3)
-	_hold("wooden_hoe")
+	_hold("flint_hoe")
 	r["hoe_aim"] = _aim_use(Vector3(soil) + Vector3(0.5, 0.99, 0.5)) == soil
 	r["tilled"] = GameMaterials.name_of(get_world_voxel(soil))
 	_hold("wheat_seeds")
@@ -947,7 +966,7 @@ func _debug_hands() -> void:
 	_aim_use(sheep.aabb().get_center())
 	r["sheared"] = sheep.sheared
 	var spawned_before: int = item_stats["spawned"]
-	_hold("wooden_hoe")
+	_hold("flint_hoe")
 	var hits := 0
 	for i in 12:
 		if not is_instance_valid(sheep) or sheep.is_dead():

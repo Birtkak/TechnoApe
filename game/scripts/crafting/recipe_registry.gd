@@ -9,6 +9,7 @@ extends RefCounted
 var items: ItemRegistry
 var recipes := {}            # id -> Dictionary
 var _by_output := {}         # item id -> Array[recipe id]
+var _by_type := {}           # type -> recipes sorted by id (of_type cache, cleared on load)
 var errors: Array[String] = []
 
 
@@ -35,6 +36,7 @@ func load_json(text: String) -> bool:
 	if typeof(data) != TYPE_DICTIONARY or not data.has("recipes"):
 		errors.append("recipes.json: expected {recipes: [...]}")
 		return false
+	_by_type.clear()
 	for r in data["recipes"]:
 		if not _validate(r):
 			continue
@@ -80,12 +82,46 @@ func _validate(r) -> bool:
 			if not r.has("ingredients") or r["ingredients"].is_empty() or r["ingredients"].size() > 9:
 				errors.append("recipe %s: needs 1..9 ingredients" % r["id"])
 				return false
-		"smelt":
+		"smelt", "kiln", "sift":
 			if not r.has("input"):
-				errors.append("smelt recipe %s needs input" % r["id"])
+				errors.append("%s recipe %s needs input" % [r["type"], r["id"]])
+				return false
+		"knap":
+			if not r.has("input") or not _is_grid(r.get("pattern")):
+				errors.append("knap recipe %s needs input and an 8x8 pattern" % r["id"])
+				return false
+		"clayform":
+			var layers = r.get("layers")
+			if not r.has("input") or not (layers is Array) or layers.is_empty():
+				errors.append("clayform recipe %s needs input and layers" % r["id"])
+				return false
+			for l in layers:
+				if not _is_grid(l):
+					errors.append("clayform recipe %s: every layer is 8 rows of 8" % r["id"])
+					return false
+		"melt":
+			if not r.has("input") or not r.has("vessel"):
+				errors.append("melt recipe %s needs input and vessel" % r["id"])
+				return false
+		"cast":
+			if not r.has("input") or not r.has("mold"):
+				errors.append("cast recipe %s needs input and mold" % r["id"])
+				return false
+			if r.has("returns") and not items.has(r["returns"]):
+				errors.append("cast recipe %s returns unknown item %s" % [r["id"], r["returns"]])
 				return false
 		_:
 			errors.append("recipe %s: unknown type %s" % [r["id"], r["type"]])
+			return false
+	return true
+
+
+## 8 strings of 8 characters (knapping patterns, clay layers; ADR 0023).
+static func _is_grid(g) -> bool:
+	if not (g is Array) or g.size() != 8:
+		return false
+	for row in g:
+		if String(row).length() != 8:
 			return false
 	return true
 
@@ -108,9 +144,57 @@ func ingredient_specs(r: Dictionary) -> Array:
 			return out
 		"shapeless", "spellcraft":
 			return r["ingredients"].duplicate()
-		"smelt":
+		"smelt", "knap", "clayform", "kiln", "sift":
 			return [r["input"]]
+		"melt":
+			var out := []
+			for i in int(r.get("count", 1)):
+				out.append(r["input"])
+			out.append(r["vessel"])
+			return out
+		"cast":
+			return [r["input"], r["mold"]]
 	return []
+
+
+## Recipes of one type, sorted by id.
+func of_type(t: String) -> Array:
+	if _by_type.has(t):
+		return _by_type[t]
+	var out := []
+	for rid in recipes:
+		if recipes[rid]["type"] == t:
+			out.append(recipes[rid])
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["id"] < b["id"])
+	_by_type[t] = out
+	return out
+
+
+## The first recipe of type `t` (by id) whose fields match `filter`: "input",
+## "vessel" and "mold" match an item id against the recipe's spec, "output"
+## the output id. {} when none.
+func first_of(t: String, filter: Dictionary) -> Dictionary:
+	for r in of_type(t):
+		var ok := true
+		for k in filter:
+			if k == "output":
+				ok = r["output"]["id"] == filter[k]
+			else:
+				ok = r.has(k) and items.matches(String(filter[k]), String(r[k]))
+			if not ok:
+				break
+		if ok:
+			return r
+	return {}
+
+
+## Every sift recipe for an input: one loot table, each entry rolled on its own.
+func sift_table(item_id: String) -> Array:
+	var out := []
+	for r in of_type("sift"):
+		if items.matches(item_id, r["input"]):
+			out.append(r)
+	return out
 
 
 # ---------------- browser queries ----------------

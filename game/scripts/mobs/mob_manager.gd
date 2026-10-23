@@ -306,7 +306,7 @@ static func is_solid(m: int) -> bool:
 		return false
 	var d := _def_of(m)
 	var ct: String = d.get("cell_type", "solid")
-	if ct != "solid" and ct != "powder":
+	if (ct != "solid" and ct != "powder") or d.get("cross", false):
 		return false
 	return not d.has("micro") or d["micro"] in ["stalactite", "stalagmite"]
 

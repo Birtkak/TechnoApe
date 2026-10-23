@@ -708,6 +708,27 @@
         "................"
       ]
     },
+    "firestarter": {
+      "colors": {"s": "#d8c8a0", "b": "#7a5226"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "............oo..",
+        "...........ohlo.",
+        "..........ohdo..",
+        ".........ohdo...",
+        "...bbbbbbbbb....",
+        "..b....ohdo.b...",
+        ".bsssssssssssb..",
+        ".....ohdo.......",
+        "....ohdo........",
+        "...ohdo.........",
+        "..ohdo..........",
+        "...oo...........",
+        "................"
+      ]
+    },
     "cooking_pot": {
       "rows": [
         "................",
@@ -1472,6 +1493,111 @@
         "..odo.....odo...",
         "...o.......o...."
       ]
+    },
+    "axe_mold": {
+      "colors": {"i": "#3a1a0e", "I": "#24100a"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "oooooooooooooooo",
+        "hlllllllllllllll",
+        "lmmmmmmmmmmmmmmd",
+        "lmmmmIIIIImmmmmd",
+        "lmmmIiiiiiImmmmd",
+        "lmmIiiiiiiiImmmd",
+        "lmmmmmmmiiiiImmd",
+        "lmmmmmmmmiiiimmd",
+        "lmmmmmmmmmiimmmd",
+        "lmmmmmmmmmmmmmmd",
+        "lddddddddddddddd",
+        "oooooooooooooooo",
+        "................"
+      ]
+    },
+    "pickaxe_mold": {
+      "colors": {"i": "#3a1a0e", "I": "#24100a"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "oooooooooooooooo",
+        "hlllllllllllllll",
+        "lmmmmmmmmmmmmmmd",
+        "lmmmmmmmmmmmmmmd",
+        "lmmIIIIIIIIImmmd",
+        "lmmmmmmmmmmiIImd",
+        "lmmmmmmmmmmmiimd",
+        "lmmmmmmmmmmmiimd",
+        "lmmmmmmmmmmmimmd",
+        "lmmmmmmmmmmmmmmd",
+        "lddddddddddddddd",
+        "oooooooooooooooo",
+        "................"
+      ]
+    },
+    "shovel_mold": {
+      "colors": {"i": "#3a1a0e", "I": "#24100a"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "oooooooooooooooo",
+        "hlllllllllllllll",
+        "lmmmmmmmmmmmmmmd",
+        "lmmmmmIIIIIIIImd",
+        "lmmmIIiiiiiiiimd",
+        "lmmmiiiiiiiiiimd",
+        "lmmmiiiiiiiiiimd",
+        "lmmmiiiiiiiiiimd",
+        "lmmmmmiiiiiiimmd",
+        "lmmmmmmmmmmmmmmd",
+        "lddddddddddddddd",
+        "oooooooooooooooo",
+        "................"
+      ]
+    },
+    "knife_mold": {
+      "colors": {"i": "#3a1a0e", "I": "#24100a"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "oooooooooooooooo",
+        "hlllllllllllllll",
+        "lmmmmmmmmmmmmmmd",
+        "lmmmmmmmmmmmmmmd",
+        "lmmmmmmmmmmIImmd",
+        "lmmmmmmmmmIiimmd",
+        "lmmmmIIIIImmmmmd",
+        "lmmmIiiimmmmmmmd",
+        "lmmmiiimmmmmmmmd",
+        "lmmmmmmmmmmmmmmd",
+        "lddddddddddddddd",
+        "oooooooooooooooo",
+        "................"
+      ]
+    },
+    "hoe_mold": {
+      "colors": {"i": "#3a1a0e", "I": "#24100a"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "oooooooooooooooo",
+        "hlllllllllllllll",
+        "lmmmmmmmmmmmmmmd",
+        "lmmmIIIImmmmmmmd",
+        "lmmmiiiiImmmmmmd",
+        "lmmmmmiiiIImmmmd",
+        "lmmmmmmmiiiIImmd",
+        "lmmmmmmmmiimmmmd",
+        "lmmmmmmmmmmmmmmd",
+        "lmmmmmmmmmmmmmmd",
+        "lddddddddddddddd",
+        "oooooooooooooooo",
+        "................"
+      ]
     }
   },
   "sprites": {
@@ -1530,6 +1656,29 @@
     "copper_chisel_head": {"layers": [{"shape": "chisel_blade", "palette": "copper"}]},
     "copper_prospecting_pick": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "prospecting_head", "palette": "copper"}]},
     "copper_prospecting_pick_head": {"layers": [{"shape": "prospecting_head", "palette": "copper"}]},
+    "flint_knife_blade": {"layers": [{"shape": "knife_blade", "palette": "flint"}]},
+    "flint_axe_head": {"layers": [{"shape": "axe_head", "palette": "flint"}]},
+    "flint_shovel_head": {"layers": [{"shape": "shovel_head", "palette": "flint"}]},
+    "flint_hoe_head": {"layers": [{"shape": "hoe_head", "palette": "flint"}]},
+    "flint_pickaxe_head": {"layers": [{"shape": "pickaxe_head", "palette": "flint"}]},
+    "flint_axe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "axe_head", "palette": "flint"}]},
+    "flint_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "flint"}]},
+    "copper_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "copper"}]},
+    "copper_hoe_head": {"layers": [{"shape": "hoe_head", "palette": "copper"}]},
+    "axe_mold": {"layers": [{"shape": "axe_mold", "palette": "terracotta"}]},
+    "raw_axe_mold": {"layers": [{"shape": "axe_mold", "palette": "clay", "colors": {"i": "#5a606a", "I": "#3a3e46"}}]},
+    "pickaxe_mold": {"layers": [{"shape": "pickaxe_mold", "palette": "terracotta"}]},
+    "raw_pickaxe_mold": {"layers": [{"shape": "pickaxe_mold", "palette": "clay", "colors": {"i": "#5a606a", "I": "#3a3e46"}}]},
+    "shovel_mold": {"layers": [{"shape": "shovel_mold", "palette": "terracotta"}]},
+    "raw_shovel_mold": {"layers": [{"shape": "shovel_mold", "palette": "clay", "colors": {"i": "#5a606a", "I": "#3a3e46"}}]},
+    "knife_mold": {"layers": [{"shape": "knife_mold", "palette": "terracotta"}]},
+    "raw_knife_mold": {"layers": [{"shape": "knife_mold", "palette": "clay", "colors": {"i": "#5a606a", "I": "#3a3e46"}}]},
+    "hoe_mold": {"layers": [{"shape": "hoe_mold", "palette": "terracotta"}]},
+    "raw_hoe_mold": {"layers": [{"shape": "hoe_mold", "palette": "clay", "colors": {"i": "#5a606a", "I": "#3a3e46"}}]},
+    "crucible_copper": {"layers": [{"shape": "crucible", "palette": "terracotta", "colors": {"i": "#ffa030"}}]},
+    "dry_grass": {"layers": [{"shape": "fiber", "palette": "straw"}]},
+    "firestarter": {"layers": [{"shape": "firestarter", "palette": "handle"}]},
+    "firepit": {"layers": [{"shape": "campfire", "palette": "handle"}]},
     "stick": {"layers": [{"shape": "stick", "palette": "handle"}]},
     "bark": {"layers": [{"shape": "bark", "palette": "bark"}]},
     "plant_fiber": {"layers": [{"shape": "fiber", "palette": "fiber"}]},

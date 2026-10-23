@@ -25,7 +25,7 @@ func test_data_files_are_valid() -> void:
 
 func test_tags_index() -> void:
 	assert_bool(items.has_tag("oak_planks", "planks")).is_true()
-	assert_array(items.items_with_tag("pickaxe")).contains(["wooden_pickaxe", "stone_pickaxe", "iron_pickaxe"])
+	assert_array(items.items_with_tag("pickaxe")).contains(["flint_pickaxe", "copper_pickaxe", "iron_pickaxe"])
 	assert_bool(items.matches("coal", "#fuel")).is_true()
 	assert_bool(items.matches("coal", "charcoal")).is_false()
 
@@ -50,7 +50,7 @@ func _g(cells: Array) -> Array:
 func test_shapeless_planks_from_any_log() -> void:
 	var r := recipes.match_grid(_g(["", "", "", "", "oak_log"]))
 	assert_str(r.get("id", "")).is_equal("planks_from_log")
-	assert_int(int(r["output"]["count"])).is_equal(4)
+	assert_int(int(r["output"]["count"])).is_equal(2)   # 2 per log by hand (ADR 0019)
 
 
 func test_shaped_sticks_anywhere_in_grid() -> void:
@@ -63,10 +63,10 @@ func test_shaped_sticks_anywhere_in_grid() -> void:
 
 
 func test_shaped_pickaxe_requires_station_and_exact_shape() -> void:
-	var pick := _g(["oak_planks", "oak_planks", "oak_planks", "", "stick", "", "", "stick", ""])
+	var pick := _g(["iron_ingot", "iron_ingot", "iron_ingot", "", "stick", "", "", "stick", ""])
 	assert_dict(recipes.match_grid(pick, "")).is_empty()  # needs a crafting table
-	assert_str(recipes.match_grid(pick, "crafting_table").get("id", "")).is_equal("wooden_pickaxe")
-	var wrong := _g(["oak_planks", "oak_planks", "oak_planks", "stick", "", "", "stick", "", ""])
+	assert_str(recipes.match_grid(pick, "crafting_table").get("id", "")).is_equal("iron_pickaxe")
+	var wrong := _g(["iron_ingot", "iron_ingot", "iron_ingot", "stick", "", "", "stick", "", ""])
 	assert_dict(recipes.match_grid(wrong, "crafting_table")).is_empty()
 
 
@@ -106,11 +106,11 @@ func test_crafting_grid_consumes_one_per_slot() -> void:
 
 func test_two_by_two_grid_cannot_make_three_wide() -> void:
 	var cg := CraftingGrid.new(items, recipes, 2, "")
-	cg.grid.set_slot(0, {"id": "oak_planks", "count": 1})
-	cg.grid.set_slot(1, {"id": "oak_planks", "count": 1})
-	cg.grid.set_slot(2, {"id": "oak_planks", "count": 1})
-	cg.grid.set_slot(3, {"id": "oak_planks", "count": 1})
-	assert_dict(cg.preview_output()).is_equal({"id": "crafting_table", "count": 1})
+	cg.grid.set_slot(0, {"id": "flint", "count": 1})
+	cg.grid.set_slot(1, {"id": "flint", "count": 1})
+	cg.grid.set_slot(2, {"id": "oak_log", "count": 1})
+	cg.grid.set_slot(3, {"id": "oak_log", "count": 1})
+	assert_dict(cg.preview_output()).is_equal({"id": "crafting_table", "count": 1})   # 2 flint + 2 logs (ADR 0019)
 
 
 # ---------- inventory ----------
@@ -169,16 +169,17 @@ func test_shift_click_moves_and_merges() -> void:
 # ---------- browser ----------
 
 func test_browser_queries() -> void:
-	assert_array(recipes.uses_of("stick")).contains(["wooden_pickaxe", "stone_pickaxe", "iron_pickaxe", "spell_speed_up"])
+	assert_array(recipes.uses_of("stick")).contains(["flint_pickaxe", "copper_pickaxe", "iron_pickaxe", "spell_speed_up"])
 	assert_array(recipes.makes("glass")).is_equal(["smelt_glass"])
-	assert_array(recipes.search("pick")).contains(["wooden_pickaxe", "stone_pickaxe", "iron_pickaxe"])
+	assert_array(recipes.search("pick")).contains(["flint_pickaxe", "copper_pickaxe", "iron_pickaxe"])
 	assert_array(items.search("ingot")).contains(["iron_ingot", "copper_ingot", "tin_ingot", "bronze_ingot"])
 	assert_array(recipes.by_station("furnace")).contains(["smelt_iron", "smelt_glass", "bronze_alloy"])
 
 
 func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
 	var raw := ["oak_log", "cobblestone", "sand", "iron_ore", "copper_ore", "tin_ore", "coal", "mana_dust", "fire_essence", "wand_basic", "dirt", "gravel", "grass_block",
-		"wool", "raw_meat", "wheat", "carrot", "wheat_seeds"]   # animal drops and wild crops (ADR 0022)
+		"wool", "raw_meat", "wheat", "carrot", "wheat_seeds",   # animal drops and wild crops (ADR 0022)
+		"flint", "loose_stone", "loose_copper_ore", "clay_ball", "dry_grass"]   # ground pickups, clay, cut grass (ADR 0023)
 	var have := recipes.reachable_from(raw)
 	var missing := []
 	for id in items.all_ids():

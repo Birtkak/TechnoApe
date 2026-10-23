@@ -45,6 +45,8 @@ var entity_pick: Callable        # (from, dir, max_dist) -> {mob, dist} or {}
 var entity_attack: Callable      # (mob, damage) -> void
 var entity_use: Callable         # (mob, held def) -> bool (true: one held item used up)
 var place_furniture: Callable    # (kind, anchor, facing) -> bool
+var work_use: Callable           # (hit, first_press, from, dir) -> bool: a work piece took the right click (ADR 0023)
+var work_hit: Callable           # (hit, from, dir, sneaking) -> bool: a knapping piece took the left click
 var farm: Farming
 var seat: Vector3 = Vector3.INF  # sitting on a chair: the seat surface (world voxels)
 var _eat_t := 0.0
@@ -491,6 +493,17 @@ func _update_mining(delta: float) -> void:
 		_highlight.global_position = Vector3(hit.position)
 	else:
 		_highlight.visible = false
+	# keep placing while the button is held (vanilla repeats every 4 ticks)
+	if not autopilot and not ui_open and _mouse_captured and Input.is_action_pressed("action_place") and _place_cooldown <= 0.0:
+		_use(false)
+	# knapping (ADR 0023): a left click chips a cell instead of mining; holding repeats
+	if holding and hit and _break_cooldown <= 0.0 and work_hit.is_valid():
+		if work_hit.call(hit, camera.global_position, -camera.global_transform.basis.z, Input.is_action_pressed("sprint")):
+			_break_cooldown = Settings.work_repeat_s
+			_reset_mining()
+			if viewmodel:
+				viewmodel.swing()
+			return
 	if not holding or hit == null or _break_cooldown > 0.0:
 		_reset_mining()
 		return
@@ -535,9 +548,6 @@ func _update_mining(delta: float) -> void:
 		_reset_mining()
 	elif viewmodel and fmod(_mine_progress * 4.0, 1.0) < delta * 4.0:
 		viewmodel.swing()
-	# keep placing while the button is held (vanilla repeats every 4 ticks)
-	if not autopilot and Input.is_action_pressed("action_place") and _place_cooldown <= 0.0:
-		_use(false)
 
 
 func _reset_mining() -> void:
@@ -568,6 +578,10 @@ func _use(first_press: bool) -> void:
 	if not first_press and _place_cooldown > 0.0:
 		return
 	var target: Vector3i = hit.position
+	# Vintage Story work pieces (ADR 0023): knapping, clay forming, pit kilns, firepits, sieves
+	if work_use.is_valid() and work_use.call(hit, first_press, camera.global_position, -camera.global_transform.basis.z):
+		_after_use()
+		return
 	# stations open on right click; sneaking (Shift) places against them instead (vanilla)
 	if first_press and not Input.is_action_pressed("sprint"):
 		var tm := world.get_voxel(target)

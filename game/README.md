@@ -100,6 +100,13 @@ Godot_..._console.exe --path game -- autopilot=1 target=forest walk=1 speed=0 du
 # hands_test=1 tills, sows, places a chair and a bed, sits, sleeps, feeds, shears, kills a sheep and eats through the
 #       player's own input code; prints "debug hands {...}" (every field should read true / placed)
 # chat: /summon <sheep|pig> [count] [baby], /kit farm (hoe, seeds, carrots, wheat, shears, bed, chairs, wool)
+# Vintage Story early game (ADR 0023): stone_age_test=1 knaps a flint axe head, forms a crucible and a pickaxe mold,
+#       fires them in pit kilns, melts copper-bearing stones in a firepit, casts a copper pickaxe head and sifts gravel
+#       through the player's own clicks; prints "debug stone_age {...}" and saves stone_age_*.png per stage
+#       (stone_age_shots=0 skips the screenshots, which stall the render thread ~100 ms, for a budget run);
+#       chat: /kit stone (flint, sticks, clay, dry grass, stones, copper-bearing stones, firestarter, logs)
+#       piece timings: JSON work.rebuild_ms_max / use_ms_max / hit_ms_max; headless: res://tools/work_probe.tscn
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=40 stone_age_test=1 mob_spawn=0 vsync=0 out=res://out/stone_age
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=15 animals=40 mob_spawn=0 give=wheat:8 vsync=0 out=res://out/animals
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=18 capture_every=1 hands_test=1 mob_spawn=0 out=res://out/hands
 Godot_..._console.exe --path game --script res://tools/mob_sheet.gd -- out=res://out/mobs/sheet.png   # sheep, shorn sheep, lamb, pig, piglet, bed, chair

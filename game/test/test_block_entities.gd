@@ -46,7 +46,7 @@ func test_station_materials_and_items() -> void:
 	assert_str(GameMaterials.name_of(GameMaterials.PLANKS)).is_equal("planks")
 	for it in ["crafting_table", "furnace", "chest", "oak_planks"]:
 		assert_int(ItemIcon.material_id_for(items, it)).override_failure_message("%s does not place" % it).is_greater(0)
-	assert_str(mining.drops("furnace_lit", items.get_def("wooden_pickaxe")).get("id", "")).is_equal("furnace")
+	assert_str(mining.drops("furnace_lit", items.get_def("flint_pickaxe")).get("id", "")).is_equal("furnace")
 	assert_dict(mining.drops("furnace", {})).is_empty()   # needs a pickaxe like vanilla
 
 

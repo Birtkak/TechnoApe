@@ -61,6 +61,9 @@ var item_merge_radius_m := 0.75         # equal stacks closer than this merge
 var drop_throw_speed_m := 4.0           # Q drop velocity
 var break_cooldown_s := 0.25            # vanilla: 5 ticks between broken blocks
 var place_repeat_s := 0.2               # vanilla: 4 ticks between placed blocks while holding
+var work_repeat_s := 0.12               # chips and clay strokes while a button is held (ADR 0023)
+var pit_kiln_burn_s := 60.0             # pit kiln burn time (ADR 0023; Vintage Story's is hours of game time)
+var cast_cool_s := 10.0                 # metal in a mold cools this long before it can be taken out
 
 # Game (ADR 0018)
 var game_mode := "survival"             # survival | creative (gamemode=creative on the command line)

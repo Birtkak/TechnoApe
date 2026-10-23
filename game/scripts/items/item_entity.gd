@@ -136,8 +136,8 @@ func _solid_at(p: Vector3) -> bool:
 	if m <= 0:
 		return false
 	var d: Dictionary = GameMaterials.defs()[m - 1]
-	if d.has("micro"):
-		return false   # micro-voxel plants have no collision
+	if d.has("micro") or d.get("cross", false):
+		return false   # micro-voxel plants and work spots (ADR 0023) have no collision
 	var ct: String = d.get("cell_type", "solid")
 	return ct == "solid" or ct == "powder"
 

@@ -8,7 +8,7 @@ extends RefCounted
 
 var materials := {}          # material name -> entry
 var hand_speed := 1.0
-var tier_speed: Array = [2.0, 4.0, 6.0, 8.0]
+var tier_speed: Array = [2.0, 4.0, 6.0, 8.0, 10.0]
 var errors: Array[String] = []
 
 
@@ -55,7 +55,7 @@ func entry(material_name: String) -> Dictionary:
 ## Tool class of an item definition ("pickaxe", "shovel", "axe") or "".
 static func tool_class(held: Dictionary) -> String:
 	for t in held.get("tags", []):
-		if t in ["pickaxe", "shovel", "axe", "hoe", "shears"]:
+		if t in ["pickaxe", "shovel", "axe", "hoe", "shears", "knife"]:
 			return t
 	return ""
 
@@ -94,6 +94,18 @@ func break_time(material_name: String, held: Dictionary = {}) -> float:
 	return hardness * 1.5 / hand_speed
 
 
+## False when the material drops nothing for this tool: the wrong class or tier
+## for a "requires" material, or below its "drop_tier" (rock before copper, ADR 0023).
+func yields(material_name: String, held: Dictionary) -> bool:
+	var e := entry(material_name)
+	if e.get("requires", false) and not tool_fits(material_name, held):
+		return false
+	if e.has("drop_tier"):
+		if tool_class(held) != e.get("tool", "") or int(held.get("tier", 0)) < int(e["drop_tier"]):
+			return false
+	return true
+
+
 ## What breaking this material with `held` yields: {id, count} or {}. For a
 ## drop list ({id, count, chance} entries) this is the first entry's item at
 ## its smallest count; roll_drops gives the real, random result.
@@ -101,12 +113,13 @@ func drops(material_name: String, held: Dictionary = {}) -> Dictionary:
 	var e := entry(material_name)
 	if e.is_empty() or not e.has("drops"):
 		return {}
-	if e.get("requires", false) and not tool_fits(material_name, held):
+	if not yields(material_name, held):
 		return {}
 	if e["drops"] is Array:
-		if e["drops"].is_empty():
+		var list: Array = e["drops"].filter(func(d: Dictionary) -> bool: return d.get("tool", "") in ["", tool_class(held)])
+		if list.is_empty():
 			return {}
-		var first: Dictionary = e["drops"][0]
+		var first: Dictionary = list[0]
 		return {"id": first["id"], "count": _count_range(first)[0]}
 	return {"id": e["drops"], "count": int(e.get("count", 1))}
 
@@ -116,18 +129,21 @@ func roll_drops(material_name: String, held: Dictionary, rng: RandomNumberGenera
 	var e := entry(material_name)
 	if e.is_empty() or not e.has("drops"):
 		return []
-	if e.get("requires", false) and not tool_fits(material_name, held):
+	if not yields(material_name, held):
 		return []
 	if not (e["drops"] is Array):
 		return [{"id": e["drops"], "count": int(e.get("count", 1))}]
-	return roll_list(e["drops"], rng)
+	return roll_list(e["drops"], rng, tool_class(held))
 
 
-## Rolls a drop list: {id, count: n | [min, max], chance: 0..1, binomial: [n, p]}.
-## binomial adds Minecraft's "n tries at p" extra count (crop seeds) to count.
-static func roll_list(list: Array, rng: RandomNumberGenerator) -> Array:
+## Rolls a drop list: {id, count: n | [min, max], chance: 0..1, binomial: [n, p],
+## tool: class}. binomial adds Minecraft's "n tries at p" extra count (crop seeds)
+## to count; an entry with a tool class only drops when `held_class` is it.
+static func roll_list(list: Array, rng: RandomNumberGenerator, held_class: String = "") -> Array:
 	var out := []
 	for d in list:
+		if d.get("tool", "") != "" and d["tool"] != held_class:
+			continue
 		if rng.randf() >= float(d.get("chance", 1.0)):
 			continue
 		var r := _count_range(d)

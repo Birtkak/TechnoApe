@@ -15,9 +15,13 @@ extends RefCounted
 ##   added by set_mining(), so "how do I get flint" has an answer too;
 ## - bookmarks (JEI's A key), kept in user://bookmarks.json by the screen.
 
-const CATEGORY_ORDER := ["crafting", "smelting", "spellcraft", "mining"]
+const CATEGORY_ORDER := ["crafting", "knapping", "clayforming", "pit_kiln", "station:firepit", "casting", "smelting", "spellcraft", "mining"]
 const BOOKMARKS_PATH := "user://bookmarks.json"
-const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace"]}
+const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace"], "knapping": ["flint"],
+	"clayforming": ["clay_ball"], "pit_kiln": ["dry_grass", "firestarter"]}
+## Vintage Story work types (ADR 0023) -> browser category and title.
+const WORK_CATEGORIES := {"knap": ["knapping", "Knapping"], "clayform": ["clayforming", "Clay forming"],
+	"kiln": ["pit_kiln", "Pit kiln"], "cast": ["casting", "Casting"]}
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
@@ -114,6 +118,8 @@ func category_of(r: Dictionary) -> String:
 			return "spellcraft"
 		"mining":
 			return "mining"
+	if WORK_CATEGORIES.has(r["type"]):
+		return WORK_CATEGORIES[r["type"]][0]
 	var st: String = r.get("station", "")
 	return "crafting" if st == "" or st == "crafting_table" else "station:" + st
 
@@ -128,6 +134,9 @@ func category_title(cat: String) -> String:
 			return "Spellcraft"
 		"mining":
 			return "Mining"
+	for t in WORK_CATEGORIES:
+		if WORK_CATEGORIES[t][0] == cat:
+			return WORK_CATEGORIES[t][1]
 	var st := cat.trim_prefix("station:")
 	return items.display_name(st) if items.has(st) else st.capitalize()
 
@@ -282,7 +291,7 @@ func set_mining(table: MiningTable) -> void:
 				info.append("%s %% chance" % str(snappedf(chance * 100.0, 0.1)))
 			_mining[rid] = {"id": rid, "type": "mining", "input": block,
 				"output": {"id": id, "count": lo},
-				"info": ", ".join(info), "needs": _tool_text(e)}
+				"info": ", ".join(info), "needs": _tool_text(e, d)}
 			if not _mining_makes.has(id):
 				_mining_makes[id] = []
 			_mining_makes[id].append(rid)
@@ -292,16 +301,18 @@ func set_mining(table: MiningTable) -> void:
 
 
 ## "Stone Pickaxe or better", "Any pickaxe", "Hand (faster with a shovel)" ...
-func _tool_text(e: Dictionary) -> String:
+func _tool_text(e: Dictionary, drop: Dictionary = {}) -> String:
+	if drop.get("tool", "") != "":
+		return "Any %s" % drop["tool"]
 	var tool: String = e.get("tool", "")
 	if tool == "":
 		return "Hand"
-	var tier := int(e.get("min_tier", 0))
+	var tier := maxi(int(e.get("min_tier", 0)), int(e.get("drop_tier", 0)))
 	if tier > 0:
 		for id in items.items_with_tag(tool):
 			if int(items.get_def(id).get("tier", -1)) == tier:
 				return "%s or better" % items.display_name(id)
-	return ("Any %s" % tool) if e.get("requires", false) else ("Hand (faster with a %s)" % tool)
+	return ("Any %s" % tool) if e.get("requires", false) or e.has("drop_tier") else ("Hand (faster with a %s)" % tool)
 
 
 # ---------------- bookmarks ----------------
@@ -373,6 +384,16 @@ func layout(r: Dictionary) -> Dictionary:
 		"mining":
 			kind = "mine"
 			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
+		"knap", "clayform":
+			kind = "pattern"
+			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
+		"kiln", "sift":
+			kind = "smelt"
+			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
+		"melt", "cast":
+			kind = "row"
+			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
+			inputs.append({"cell": Vector2i(1, 0), "spec": r["vessel"] if r["type"] == "melt" else r["mold"]})
 		_:
 			kind = "row"
 			var ing: Array = r.get("ingredients", [])
@@ -386,13 +407,43 @@ func layout(r: Dictionary) -> Dictionary:
 			info = "%.1f s" % (float(r.get("ticks", 200)) / 20.0)
 		"mining":
 			info = r["info"]
+		"knap":
+			info = "Chip off the dark cells"
+		"clayform":
+			info = "%d layers, %d clay" % [r["layers"].size(), ClayFormEntity.balls_for(r)]
+		"kiln":
+			info = "4 dry grass, 8 sticks, %d s" % int(Settings.pit_kiln_burn_s)
+		"melt":
+			info = "%d x %s, %.0f s" % [int(r.get("count", 1)), items.display_name(r["input"]) if items.has(r["input"]) else r["input"], float(r.get("ticks", 200)) / 20.0]
+		"cast":
+			info = "Pour on the mold; gives the %s back" % items.display_name(r["returns"]) if r.has("returns") else "Pour on the mold"
+		"sift":
+			info = "%s %% chance" % str(snappedf(float(r.get("chance", 1.0)) * 100.0, 0.1))
 	var st: String = r.get("station", "")
 	var needs := ""
 	if r["type"] == "mining":
 		needs = r["needs"]
 	elif st != "" and not (r["type"] == "smelt" and st == "furnace"):
 		needs = items.display_name(st) if items.has(st) else st.capitalize()
-	return {"kind": kind, "inputs": inputs, "output": r["output"], "info": info, "needs": needs, "id": r["id"]}
+	var out := {"kind": kind, "inputs": inputs, "output": r["output"], "info": info, "needs": needs, "id": r["id"]}
+	if kind == "pattern":
+		out["heights"] = pattern_heights(r)
+	return out
+
+
+## Top view of a knapping or clay shape: per cell (row-major 8x8) how many
+## layers are filled (knapping: 1 kept, 0 chipped).
+static func pattern_heights(r: Dictionary) -> PackedInt32Array:
+	var h := PackedInt32Array()
+	h.resize(64)
+	var layers: Array = r["layers"] if r["type"] == "clayform" else [r["pattern"]]
+	for l in layers:
+		for z in 8:
+			var row := String(l[z])
+			for x in 8:
+				if x < row.length() and row[x] == "#":
+					h[z * 8 + x] += 1
+	return h
 
 
 ## Items an ingredient spec stands for, in items.json order.
