@@ -30,6 +30,7 @@ uniform int tile_side[64];
 uniform int tile_bottom[64];
 uniform int water_id = 5;
 uniform int water_static_id = 23;
+uniform int paint_base = 128;        // cells >= this are painted micro cells: atlas tile = id - paint_base on every face
 uniform float water_mix = 0.45;      // how much the water colour tints what lies under it
 uniform float debug_tint = 0.0;      // > 0: ray-cast pixels blend toward magenta (near_debug=1), to see where the near field draws
 
@@ -98,9 +99,13 @@ float march(vec3 p, vec3 d, vec3 nrm0, float tmax, bool skip_water, out ivec3 hi
 
 // Atlas colour of a cell face: the material's tile for that face, 1/8 of it per cell (wc = world cell).
 vec3 face_color(int id, ivec3 wc, vec3 nrm, out int tile) {
-	tile = tile_side[clamp(id, 0, 63)];
-	if (nrm.y > 0.5) tile = tile_top[clamp(id, 0, 63)];
-	else if (nrm.y < -0.5) tile = tile_bottom[clamp(id, 0, 63)];
+	if (id >= paint_base) {
+		tile = id - paint_base;
+	} else {
+		tile = tile_side[clamp(id, 0, 63)];
+		if (nrm.y > 0.5) tile = tile_top[clamp(id, 0, 63)];
+		else if (nrm.y < -0.5) tile = tile_bottom[clamp(id, 0, 63)];
+	}
 	ivec3 l = wc & ivec3(7);
 	vec2 f;
 	if (abs(nrm.y) > 0.5) f = vec2(float(l.x), float(l.z));

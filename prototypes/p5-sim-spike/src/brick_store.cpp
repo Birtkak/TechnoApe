@@ -53,6 +53,19 @@ void BrickStore::set_micro_patterns(const Dictionary &patterns) {
     }
 }
 
+void BrickStore::set_brick_filled(Vector3i b, int material, int eighths) {
+    if (!in_bricks(b.x, b.y, b.z)) return;
+    const int bi = bidx(b.x, b.y, b.z);
+    const uint8_t m = (uint8_t)std::clamp(material, 0, 255);
+    if (eighths <= 0 || eighths >= B) { set_uniform(bi, m); return; }
+    const int slot = expand_index(bi);
+    uint8_t *c = pool_.data() + (size_t)slot * CELLS;
+    std::memset(c, 0, CELLS);
+    // cidx is x fastest, then y, then z: in each z plane the rows y < eighths are its first eighths * 8 bytes
+    for (int lz = 0; lz < B; lz++) std::memset(c + cidx(0, 0, lz), m, (size_t)eighths * B);
+    mark(bi);
+}
+
 Vector3i BrickStore::world_of(int bi) const {
     const Vector3i l(bi % bx_, (bi / bx_) % by_, bi / (bx_ * by_));
     if (!wrap_) return l;

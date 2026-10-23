@@ -103,6 +103,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_dirty_chunks"), &SimWorld::get_dirty_chunks);
     ClassDB::bind_method(D_METHOD("get_dirty_boxes"), &SimWorld::get_dirty_boxes);
     ClassDB::bind_method(D_METHOD("write_dirty_to_store", "store", "origin", "scale"), &SimWorld::write_dirty_to_store);
+    ClassDB::bind_method(D_METHOD("write_chunk_to_store", "store", "chunk", "origin"), &SimWorld::write_chunk_to_store);
     ClassDB::bind_method(D_METHOD("clear_dirty"), &SimWorld::clear_dirty);
     ClassDB::bind_method(D_METHOD("count_material", "material"), &SimWorld::count_material);
     ClassDB::bind_method(D_METHOD("count_in_box", "min", "max", "material"), &SimWorld::count_in_box);
@@ -1271,6 +1272,24 @@ PackedInt32Array SimWorld::get_dirty_boxes() const {
     return out;
 }
 
+int SimWorld::write_chunk_to_store(Object *p_store, Vector3i c, Vector3i p_origin) {
+    wait_idle();
+    BrickStore *store = Object::cast_to<BrickStore>(p_store);
+    if (!store) return 0;
+    if (c.x < 0 || c.y < 0 || c.z < 0 || c.x >= CX_ || c.y >= CY_ || c.z >= CZ_) return 0;
+    const int x0 = c.x * CS, y0 = c.y * CS, z0 = c.z * CS;
+    int written = 0;
+    for (int z = 0; z < CS; z++)
+        for (int y = 0; y < CS; y++)
+            for (int x = 0; x < CS; x++) {
+                const Cell &cell = cells_[idx(x0 + x, y0 + y, z0 + z)];
+                const int e = (cell.mat < mats_.size() && mats_[cell.mat].cell_type == CELL_LIQUID) ? (cell.pad & 15) : 0;
+                store->set_brick_filled(Vector3i(p_origin.x + x0 + x, p_origin.y + y0 + y, p_origin.z + z0 + z), cell.mat, e);
+                written++;
+            }
+    return written;
+}
+
 int SimWorld::write_dirty_to_store(Object *p_store, Vector3i p_origin, int p_scale) {
     wait_idle();
     BrickStore *store = Object::cast_to<BrickStore>(p_store);
@@ -1290,24 +1309,29 @@ int SimWorld::write_dirty_to_store(Object *p_store, Vector3i p_origin, int p_sca
                     for (int ly = y0; ly <= y1; ly++)
                         for (int lx = x0; lx <= x1; lx++) {
                             const int sx = cx * CS + lx, sy = cy * CS + ly, sz = cz * CS + lz;
-                            const uint8_t m = cells_[idx(sx, sy, sz)].mat;
+                            const Cell &cell = cells_[idx(sx, sy, sz)];
+                            const uint8_t m = cell.mat;
                             if (p_scale == B) {
+                                // a partly full liquid is written as its bottom layers (levels change every tick: always rewritten)
+                                const int e = (m < mats_.size() && mats_[m].cell_type == CELL_LIQUID) ? (cell.pad & 15) : 0;
                                 const Vector3i br(p_origin.x + sx, p_origin.y + sy, p_origin.z + sz);
                                 const uint32_t ref = store->raw_ref(br);
-                                if (ref & BrickStore::EXPANDED) {
-                                    const uint8_t *cl = store->raw_cells(br);
-                                    if (!cl) continue;
-                                    int counts[256] = {0};
-                                    int best = 0;
-                                    for (int k = 0; k < BrickStore::CELLS; k++) {
-                                        int c = ++counts[cl[k]];
-                                        if (c > counts[best]) best = cl[k];
+                                if (e == 0) {
+                                    if (ref & BrickStore::EXPANDED) {
+                                        const uint8_t *cl = store->raw_cells(br);
+                                        if (!cl) continue;
+                                        int counts[256] = {0};
+                                        int best = 0;
+                                        for (int k = 0; k < BrickStore::CELLS; k++) {
+                                            int c = ++counts[cl[k]];
+                                            if (c > counts[best]) best = cl[k];
+                                        }
+                                        if (best == m && (mats_[m].cell_type != CELL_LIQUID || counts[0] == 0)) continue;   // chiseled brick of the same material: keep its shape
+                                    } else if (ref == m) {
+                                        continue;
                                     }
-                                    if (best == m) continue;   // chiseled brick of the same material: keep its shape
-                                } else if (ref == m) {
-                                    continue;
                                 }
-                                store->fill_uniform(br, br + Vector3i(1, 1, 1), m);
+                                store->set_brick_filled(br, m, e);
                                 written++;
                             } else {
                                 const Vector3i c(p_origin.x + sx, p_origin.y + sy, p_origin.z + sz);

@@ -133,6 +133,9 @@ public:
     // differs, so chisel detail survives. scale 1: one sim cell is one store cell (micro sim);
     // origin = store cell of sim cell (0,0,0). Returns bricks/cells written. Call before clear_dirty().
     int write_dirty_to_store(Object *p_store, Vector3i p_origin, int p_scale);
+    // The whole chunk's decoded materials (and liquid levels) as bricks at p_origin + chunk * 16: the near field's
+    // load path, so partial liquids never reach the store as raw FLUID_LEVEL_BASE values. Returns bricks written.
+    int write_chunk_to_store(Object *p_store, Vector3i p_chunk, Vector3i p_origin);
     void clear_dirty();
 
     // ---- debug / introspection ----

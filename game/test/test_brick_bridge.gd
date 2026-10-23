@@ -64,6 +64,41 @@ func test_chiseled_brick_survives_but_a_changed_one_is_rewritten() -> void:
 	assert_int(s.brick_material(br)).is_equal(0)
 
 
+func test_partial_liquid_loads_as_layers() -> void:
+	var w := _sim()
+	var s := _store(64)
+	# chunk (0,0,0): stone floor, a half-full (4 eighths) water voxel and a full one, encoded as the terrain stores them
+	var bytes := PackedByteArray()
+	bytes.resize(4096 * 2)
+	for x in 16:
+		for z in 16:
+			var i := (0 + 16 * (x + 16 * z)) * 2
+			bytes[i] = GameMaterials.STONE
+	var half := GameMaterials.FLUID_LEVEL_BASE + 0 * 8 + (4 - 1)   # water is fluid slot 0
+	var ih := (1 + 16 * (5 + 16 * 5)) * 2
+	bytes[ih] = half & 255
+	bytes[ih + 1] = half >> 8
+	var ifull := (1 + 16 * (6 + 16 * 5)) * 2
+	bytes[ifull] = GameMaterials.WATER
+	w.set_chunk_bytes(Vector3i.ZERO, bytes, 2)
+	assert_int(w.get_voxel(Vector3i(5, 1, 5))).is_equal(GameMaterials.WATER)
+	var origin := Vector3i(8, 8, 8)
+	assert_int(w.write_chunk_to_store(s, Vector3i.ZERO, origin)).is_equal(4096)
+	assert_int(s.brick_material(origin + Vector3i(3, 0, 3))).is_equal(GameMaterials.STONE)
+	assert_int(s.brick_material(origin + Vector3i(6, 1, 5))).is_equal(GameMaterials.WATER)   # full: uniform
+	var b := origin + Vector3i(5, 1, 5)
+	assert_bool(s.is_expanded(b)).is_true()                                                  # half: four layers
+	assert_int(s.get_cell(b * 8 + Vector3i(3, 3, 3))).is_equal(GameMaterials.WATER)
+	assert_int(s.get_cell(b * 8 + Vector3i(3, 4, 3))).is_equal(0)
+	assert_int(s.get_cell(b * 8 + Vector3i(7, 0, 7))).is_equal(GameMaterials.WATER)
+	# nothing above 255 ever reaches the store
+	for z in 16:
+		for y in 2:
+			for x in 16:
+				var m := s.brick_material(origin + Vector3i(x, y, z))
+				assert_bool(m == -1 or m <= 255).is_true()
+
+
 func test_cell_scale_writes_cells() -> void:
 	var w := _sim()
 	var s := _store(16)

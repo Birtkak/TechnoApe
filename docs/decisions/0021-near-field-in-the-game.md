@@ -122,13 +122,26 @@ overlap with this matrix; on a quiet machine the flag off costs nothing
 ## Consequences
 - Collision, mining, placing and the simulation are unchanged: they never used
   the meshes (ADR 0011). The near field is presentation only.
-- Flowers lose their petal colours in the near field: a cell holds a material
-  id, and petals were MicroMesher paints (atlas tiles that are not materials).
-  A paint channel, or petal materials, is the fix when the near field becomes
-  the default.
+- Micro cells are painted, not material: a cell of an expanded micro brick
+  holds `128 + atlas tile` (the MicroMesher paint), so reeds, petals and
+  mushroom stems keep their tiles; the shader reads the tile straight from
+  the id. Such a brick's material is not recoverable from its cells (its
+  majority is air, which is how the far field treats micro bricks anyway);
+  a reader of the brick world treats ids >= 128 as decoration.
+- The near-field water is tinted (P7's depth mix) where the mesh water is
+  alpha-blended with a ripple glint; at a lake shore the two blues differ a
+  little across the seam. A taste call for when the flag goes default.
 - Stains (ADR 0015) and the animated water/lava/fire tiles are not yet in the
   near-field shader; both are shader work on the existing `surface_stain` and
   `terrain_sample` helpers.
+- Fluid levels (the peer's change of the same morning: a partly full liquid
+  voxel is stored in the terrain as `FLUID_LEVEL_BASE + slot * 8 + eighths - 1`,
+  256 and up) never reach the store as raw values: loaded chunks go through
+  `SimWorld.write_chunk_to_store`, which has already decoded them, and both
+  write paths store a partly full liquid as an expanded brick with its bottom
+  `eighths` cell layers filled (`BrickStore.set_brick_filled`), so the near
+  field shows the same water level the fluid meshes do, in eight steps.
+  `test_brick_bridge.gd` covers it.
 - Terrain meshes inside the box are still built and drawn (discarded per
   pixel): the LOD 0 radius cannot shrink below the box until the far field
   reads the store (brick-world.md step 3b).

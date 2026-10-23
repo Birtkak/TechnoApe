@@ -90,6 +90,7 @@ func setup(p_world: World, p_bubble: SimBubble, p_camera: Camera3D) -> void:
 	_mat.set_shader_parameter("max_bricks", n / 8 * 3)
 	_mat.set_shader_parameter("water_id", GameMaterials.WATER)
 	_mat.set_shader_parameter("water_static_id", GameMaterials.WATER_STATIC)
+	_mat.set_shader_parameter("paint_base", PAINT_BASE)
 	if OS.get_cmdline_user_args().has("near_debug=1"):   # where does the near field draw? (magenta tint)
 		_mat.set_shader_parameter("debug_tint", 0.5)
 	_verify = OS.get_cmdline_user_args().has("near_verify=1")
@@ -120,9 +121,15 @@ func setup(p_world: World, p_bubble: SimBubble, p_camera: Camera3D) -> void:
 	RenderingServer.call_on_render_thread(_rt_init)
 
 
-## Per micro material: 512 bytes (x fastest, y, z) with the material id where its
-## cell pattern has a cell, 0 elsewhere. Same patterns as the MicroMesher models,
-## so a tuft of grass looks the same on both sides of the seam.
+## Per micro material: 512 bytes (x fastest, y, z), 0 where the cell pattern is
+## empty, else PAINT_BASE + the cell's atlas tile (the MicroMesher paint - 1), so a
+## reed's head, a flower's petals and a mushroom's stem keep their own tiles on
+## both sides of the seam. Cells >= PAINT_BASE are presentation: the brick's
+## material is not recoverable from them (its majority is air, as the far field
+## treats micro bricks anyway).
+const PAINT_BASE := 128
+
+
 static func micro_patterns() -> Dictionary:
 	var out := {}
 	var defs := GameMaterials.defs()
@@ -134,7 +141,7 @@ static func micro_patterns() -> Dictionary:
 		var cells := PackedByteArray()
 		cells.resize(pattern.size())
 		for k in pattern.size():
-			cells[k] = (i + 1) if pattern[k] != 0 else 0
+			cells[k] = (PAINT_BASE + pattern[k] - 1) if pattern[k] != 0 else 0
 		out[i + 1] = cells
 	return out
 

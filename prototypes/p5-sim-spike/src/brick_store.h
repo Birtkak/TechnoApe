@@ -74,6 +74,9 @@ public:
     const uint8_t *raw_cells(Vector3i b) const { if (!in_bricks(b.x, b.y, b.z)) return nullptr; const int bi = bidx(b.x, b.y, b.z); return (ref_[bi] & EXPANDED) ? cells(bi) : nullptr; }
     uint32_t raw_ref(Vector3i b) const { return in_bricks(b.x, b.y, b.z) ? ref_[bidx(b.x, b.y, b.z)] : 0; } // material, or EXPANDED | slot
     void mark_dirty(Vector3i b) { if (in_bricks(b.x, b.y, b.z)) mark(bidx(b.x, b.y, b.z)); }
+    // One brick from the simulation: uniform (or its micro pattern) when eighths is 0 or 8, else expanded with the
+    // bottom `eighths` cell layers of `material` over air (a partly full liquid, godot_voxel fluid levels).
+    void set_brick_filled(Vector3i b, int material, int eighths);
     Array get_dirty_bricks() const;
     void clear_dirty();
     Dictionary stats() const;

@@ -200,8 +200,8 @@ func _load_pending() -> void:
 			if bad_loads <= 3:
 				push_warning("SimBubble: chunk %s read %d bytes (expected 8192)" % [wc, bytes.size()])
 		sim.set_chunk_bytes(lc, bytes, 2)
-		if store != null and bytes.size() == 8192:   # the near field renders from the store (ADR 0012 step 3)
-			store.load_voxels(wc * Settings.CHUNK - store_origin_voxel, Vector3i.ONE * Settings.CHUNK, bytes)
+		if store != null:   # the near field renders from the store (ADR 0012 step 3); the sim decoded the fluid levels
+			sim.write_chunk_to_store(store, lc, origin * Settings.CHUNK - store_origin_voxel)
 		chunks_loaded += 1
 		n += 1
 	_pending_loads = still

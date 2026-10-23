@@ -56,7 +56,8 @@ func test_micro_pattern_expands_on_write() -> void:
 	for z in 8:
 		for y in 8:
 			for x in 8:
-				var expect := GameMaterials.TALL_GRASS if pattern[x + 8 * (y + 8 * z)] != 0 else 0
+				var paint := pattern[x + 8 * (y + 8 * z)]
+				var expect := (NearField.PAINT_BASE + paint - 1) if paint != 0 else 0
 				assert_int(s.get_cell(b * 8 + Vector3i(x, y, z))).is_equal(expect)
 				if expect != 0:
 					filled += 1
