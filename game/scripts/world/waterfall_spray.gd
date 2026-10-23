@@ -3,13 +3,16 @@ extends Node3D
 
 ## Mist at the foot of every waterfall near the camera. Every `rescan_s` the
 ## generator lists waterfalls within `radius_m` (`WorldGen.waterfalls_near`);
-## one GPUParticles3D per fall is created or freed. Pure presentation: the
-## emitters read the generator, never the voxel data, and nothing is saved.
+## one GPUParticles3D per fall is created or freed, sized by the sheet's width
+## and drop. ParticleFx reads falls() for the pixel spray and foam (ADR 0026).
+## Pure presentation: the emitters read the generator, never the voxel data,
+## and nothing is saved.
 
 var gen: WorldGen
 var radius_m := 120.0
 var rescan_s := 2.0
 var _emitters := {}   # Vector3i foot -> GPUParticles3D
+var _falls := {}      # Vector3i foot -> the generator's dict {x, y, z, top, dir_x, dir_z, width}
 var _accum := 10.0
 var _mesh: QuadMesh
 var _material: ParticleProcessMaterial
@@ -104,9 +107,20 @@ func _process(delta: float) -> void:
 	for d in gen.waterfalls_near(int(floor(p.x)), int(floor(p.z)), radius):
 		var key := Vector3i(d["x"], d["y"], d["z"])
 		keep[key] = true
+		_falls[key] = d
 		if _emitters.has(key):
 			continue
 		var e := _make_emitter()
+		# a wide, tall fall makes a bigger cloud: more puffs over a wider box
+		var width := maxf(1.0, float(d.get("width", 3.0)))
+		var drop_m := Settings.v2m(maxf(1.0, float(d["top"]) - float(d["y"])))
+		var energy := width * sqrt(drop_m)
+		e.amount = clampi(int(energy * 3.0), 24, 220)
+		var pm := _material.duplicate() as ParticleProcessMaterial
+		pm.emission_box_extents = Vector3(maxf(1.2, width * 0.5), 0.3, maxf(1.2, width * 0.5))
+		pm.initial_velocity_max = 4.0 * clampf(sqrt(drop_m) / 2.5, 0.8, 2.0)
+		e.process_material = pm
+		e.visibility_aabb = AABB(Vector3(-width - 8, -2, -width - 8), Vector3(2 * width + 16, 20, 2 * width + 16))
 		e.position = Vector3(key.x + 0.5, key.y + 0.4, key.z + 0.5)
 		add_child(e)
 		_emitters[key] = e
@@ -115,6 +129,12 @@ func _process(delta: float) -> void:
 		if not keep.has(key):
 			_emitters[key].queue_free()
 			_emitters.erase(key)
+			_falls.erase(key)
+
+
+## The waterfalls in range: the generator's dicts (x, y = foot, z, top, dir_x, dir_z, width in voxels).
+func falls() -> Array:
+	return _falls.values()
 
 
 func emitter_count() -> int:

@@ -388,6 +388,26 @@ func get_voxel(wp: Vector3i) -> int:
 	return sim.get_voxel(wp - origin * Settings.CHUNK)
 
 
+## Random cells around `center_world` for ambient particles (ADR 0026,
+## SimWorld.sample_cells): 7 ints per hit (x, y, z in world voxels, material,
+## material above, material below, flags). Empty while a tick runs (see can_sample).
+func sample_cells(center_world: Vector3i, radius: int, count: int, rng_seed: int, mask: PackedByteArray) -> PackedInt32Array:
+	if not _ready:
+		return PackedInt32Array()
+	var o := origin * Settings.CHUNK
+	var r := sim.sample_cells(center_world - o, radius, count, rng_seed, mask)
+	for i in range(0, r.size(), 7):
+		r[i] += o.x
+		r[i + 1] += o.y
+		r[i + 2] += o.z
+	return r
+
+
+## False while a simulation tick runs on its thread (cells cannot be read).
+func can_sample() -> bool:
+	return _ready and sim.is_tick_done()
+
+
 ## Debug: compare every loaded bubble chunk with what the generator says it
 ## should be. In a settled, unedited world they must match; mismatches mean
 ## chunks were loaded while the terrain was still streaming (air where there

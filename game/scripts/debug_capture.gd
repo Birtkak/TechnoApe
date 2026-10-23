@@ -82,6 +82,8 @@ var _backlog_peak := {}              # per task type (generation, meshing, strea
 var _compile_delta := 0.0
 var _elapsed := 0.0
 var _capture_accum := 0.0
+var full_frames := false   # full_frames=1: every filmstrip capture also saved full size as frame_NNN.png (particles, small detail)
+var _full_i := 0
 var _main: Node
 var _done := false
 
@@ -95,6 +97,7 @@ func _ready() -> void:
 	duration = float(args.get("duration", "20"))
 	settle_cap_s = float(args.get("load_cap_s", str(SETTLE_CAP_S)))
 	capture_every = float(args.get("capture_every", "0"))
+	full_frames = args.get("full_frames", "0") == "1"
 	out_dir = args.get("out", "res://out")
 	altitude_m = float(args.get("alt", "30"))
 	speed_m = float(args.get("speed", "6"))
@@ -236,6 +239,11 @@ func _process(delta: float) -> void:
 		if _capture_accum >= capture_every:
 			_capture_accum -= capture_every
 			_strip.add(get_viewport())
+			if full_frames and _loaded_at >= 0.0:
+				if _full_i == 0:
+					DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(out_dir))
+				get_viewport().get_texture().get_image().save_png(out_dir + "/frame_%03d.png" % _full_i)
+				_full_i += 1
 			_skip_next = true
 	if _loaded_at >= 0.0 and _elapsed >= _loaded_at + duration:   # `duration` seconds of measured, loaded frames
 		_finish()

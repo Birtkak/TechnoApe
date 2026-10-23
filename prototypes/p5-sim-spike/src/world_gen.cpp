@@ -1579,6 +1579,9 @@ Array WorldGen::waterfalls_near(int x, int z, int radius) const {
             d["x"] = fx; d["y"] = foot; d["z"] = fz;
             d["top"] = (int)t->fall_top[k];
             d["dir_x"] = (bx - ax) / len; d["dir_z"] = (bz - az) / len;
+            // sheet width in voxels: the river's half width as hydro_at computes it, sheet = 60 % of it each side
+            const float half_w = std::clamp(1.2f + 1.3f * std::sqrt(hc.acc(k) / STREAM_ACC), 1.5f, 18.0f);
+            d["width"] = 1.2f * half_w;
             out.push_back(d);
         }
     return out;

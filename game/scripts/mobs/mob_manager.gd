@@ -82,15 +82,13 @@ func setup(p_world: World, p_main: Node, world_seed: int) -> void:
 	_prewarm_fx.call_deferred()
 
 
-## A heart, a puff, a pig and a chair in front of the camera while the loading screen is
-## up: their first draw compiles pipelines and rasterizes the glyph (a 180 ms frame otherwise).
+## A pig and a chair in front of the camera while the loading screen is up: their
+## first draw compiles pipelines (a 180 ms frame otherwise). ParticleFx warms its own.
 func _prewarm_fx() -> void:
 	var cam: Camera3D = main.player.camera if main != null and main.player != null else null
 	if cam == null:
 		return
 	var at := cam.global_position - cam.global_transform.basis.z * 3.0
-	_heart(at)
-	_poof(at)
 	var warm := Node3D.new()
 	warm.position = at
 	add_child(warm)
@@ -381,16 +379,24 @@ func can_graze(m: Mob) -> bool:
 ## nothing regrows grass yet (ADR 0022). Returns true when it ate.
 func graze(m: Mob) -> bool:
 	var feet := Vector3i(m.position.floor())
+	var fx := _fx()
 	if get_voxel(feet) == GameMaterials.TALL_GRASS:
 		main.set_world_voxel(feet, GameMaterials.AIR)
+		if fx:
+			fx.block_break(feet, GameMaterials.TALL_GRASS)
 		return true
-	return get_voxel(feet + Vector3i.DOWN) == GameMaterials.GRASS
+	var ate := get_voxel(feet + Vector3i.DOWN) == GameMaterials.GRASS
+	if ate and fx:
+		fx.burst("graze", Vector3(m.eye().x, feet.y + 0.1, m.eye().z), {"material": GameMaterials.TALL_GRASS, "floor": float(feet.y)})
+	return ate
 
 
 ## A landing on farmland may trample it (Minecraft: babies are too light).
 func landed(m: Mob, fall_m: float) -> void:
 	if fall_m > 0.5 and not m.is_baby() and main != null and main.has_method("trample"):
 		main.trample(Vector3i((m.position + Vector3(0, -0.1, 0)).floor()), fall_m)
+	if fall_m > 0.5 and _fx():
+		_fx().landing(Vector3i((m.position + Vector3(0, -0.1, 0)).floor()), fall_m, m.position)
 
 
 ## Pushes overlapping animals (and the player) apart, Minecraft's entity push.
@@ -488,49 +494,19 @@ func hearts_tick(m: Mob, delta: float) -> void:
 	_hearts_t[m.uid] = t
 
 
+## The game's particles (ADR 0026); null without a Main (tests).
+func _fx() -> ParticleFx:
+	return main.get("fx") if main != null else null
+
+
 func _heart(at: Vector3) -> void:
-	var l := Label3D.new()
-	l.text = "♥"
-	l.font_size = 64
-	l.pixel_size = 0.012
-	l.modulate = Color(1.0, 0.25, 0.35)
-	l.outline_modulate = Color(0.35, 0.0, 0.05)
-	l.outline_size = 8
-	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	l.no_depth_test = false
-	l.position = at
-	add_child(l)
-	var tw := l.create_tween()
-	tw.set_parallel(true)
-	tw.tween_property(l, "position", at + Vector3(0, 1.2, 0), 1.2)
-	tw.tween_property(l, "modulate:a", 0.0, 1.2).set_delay(0.4)
-	tw.chain().tween_callback(l.queue_free)
+	if _fx():
+		_fx().burst("heart", at)
 
 
 func _poof(at: Vector3) -> void:
-	var p := CPUParticles3D.new()
-	p.one_shot = true
-	p.amount = 18
-	p.lifetime = 0.8
-	p.explosiveness = 0.9
-	p.direction = Vector3.UP
-	p.spread = 80.0
-	p.initial_velocity_min = 1.0
-	p.initial_velocity_max = 2.5
-	p.gravity = Vector3(0, 0.6, 0)
-	p.scale_amount_min = 0.6
-	p.scale_amount_max = 1.2
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3.ONE * 0.22
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.92, 0.92, 0.9)
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mesh.material = mat
-	p.mesh = mesh
-	p.position = at
-	add_child(p)
-	p.emitting = true
-	get_tree().create_timer(1.5).timeout.connect(p.queue_free)
+	if _fx():
+		_fx().burst("poof", at)
 
 
 # ---------------- player actions ----------------
@@ -551,7 +527,10 @@ func pick(from: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 
 
 func attack(m: Mob, damage: int, from: Vector3) -> bool:
-	return m.hurt(damage, from)
+	var hurt := m.hurt(damage, from)
+	if hurt and _fx():
+		_fx().burst("damage", m.eye(), {"count_bonus": damage})   # Minecraft's damage indicator hearts
+	return hurt
 
 
 ## Right click on an animal with `held` (item def). Returns what happened:
@@ -568,6 +547,8 @@ func interact(m: Mob, held: Dictionary) -> String:
 		return r
 	if "shears" in held.get("tags", []) and m.def.has("shear") and not m.sheared and not m.is_baby():
 		m.set_sheared(true)
+		if _fx():
+			_fx().burst("block_break", m.eye() + Vector3(0, -0.3, 0), {"material": GameMaterials.WOOL})
 		for s in MiningTable.roll_list(m.def["shear"], _rng):
 			main.spawn_item(s, m.eye(), Vector3(_rng.randf_range(-1.5, 1.5), 3.0, _rng.randf_range(-1.5, 1.5)))
 		dirty = true

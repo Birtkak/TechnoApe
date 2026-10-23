@@ -143,6 +143,11 @@ public:
     int count_in_box(Vector3i p_min, Vector3i p_max, int p_material) const;
     int count_unsupported(int p_material) const;
     int count_burning() const;
+    // Minecraft's animateTick for ambient particles: p_count random cells within p_radius of p_center
+    // (local cells, a cube); returns 7 ints per hit (x, y, z, material, material above, material below,
+    // flags) for loaded cells whose material has a nonzero byte in p_mask (256 bytes) or that burn.
+    // Never waits: returns nothing while a tick runs (the caller tries again next frame).
+    PackedInt32Array sample_cells(Vector3i p_center, int p_radius, int p_count, int p_seed, const PackedByteArray &p_mask) const;
     PackedInt32Array layer_histogram(int p_material) const;
     PackedInt32Array material_histogram() const;
     Dictionary chunk_info(Vector3i p_chunk) const;

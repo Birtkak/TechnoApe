@@ -8,6 +8,7 @@ var terrain: VoxelLodTerrain
 var generator: TerrainGenerator
 var atlas_material: ShaderMaterial
 var liquid_material: ShaderMaterial
+var spray: WaterfallSpray          # mist at waterfall feet; ParticleFx reads its falls (ADR 0026)
 var prop_material: ShaderMaterial   # atlas material without stains: item cubes, viewmodel (they are not at their voxel)
 var _tool: VoxelTool
 
@@ -101,7 +102,7 @@ func _ready() -> void:
 		terrain.stream = stream
 	terrain.voxel_bounds = AABB(Vector3(-1e7, 0, -1e7), Vector3(2e7, Settings.WORLD_HEIGHT_VOXELS, 2e7))
 	add_child(terrain)
-	var spray := WaterfallSpray.new()
+	spray = WaterfallSpray.new()
 	spray.name = "WaterfallSpray"
 	spray.gen = generator.gen
 	add_child(spray)

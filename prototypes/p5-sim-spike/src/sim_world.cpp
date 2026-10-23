@@ -109,6 +109,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("count_in_box", "min", "max", "material"), &SimWorld::count_in_box);
     ClassDB::bind_method(D_METHOD("count_unsupported", "material"), &SimWorld::count_unsupported);
     ClassDB::bind_method(D_METHOD("count_burning"), &SimWorld::count_burning);
+    ClassDB::bind_method(D_METHOD("sample_cells", "center", "radius", "count", "seed", "mask"), &SimWorld::sample_cells);
     ClassDB::bind_method(D_METHOD("layer_histogram", "material"), &SimWorld::layer_histogram);
     ClassDB::bind_method(D_METHOD("material_histogram"), &SimWorld::material_histogram);
     ClassDB::bind_method(D_METHOD("chunk_info", "chunk"), &SimWorld::chunk_info);
@@ -1393,6 +1394,30 @@ int SimWorld::count_burning() const {
     int n = 0;
     for (const Cell &c : cells_) n += (c.flags & FLAG_BURNING) != 0;
     return n;
+}
+
+PackedInt32Array SimWorld::sample_cells(Vector3i p_center, int p_radius, int p_count, int p_seed, const PackedByteArray &p_mask) const {
+    PackedInt32Array out;
+    if (busy_.load() || p_mask.size() < MAX_MATERIALS || p_radius <= 0) return out;
+    const uint8_t *mask = p_mask.ptr();
+    uint32_t r = (uint32_t)p_seed * 2654435761u + 1u;
+    const int span = 2 * p_radius + 1;
+    for (int i = 0; i < p_count; i++) {
+        r ^= r << 13; r ^= r >> 17; r ^= r << 5;
+        const int x = p_center.x - p_radius + (int)(r % (uint32_t)span);
+        r ^= r << 13; r ^= r >> 17; r ^= r << 5;
+        const int y = p_center.y - p_radius + (int)(r % (uint32_t)span);
+        r ^= r << 13; r ^= r >> 17; r ^= r << 5;
+        const int z = p_center.z - p_radius + (int)(r % (uint32_t)span);
+        if (!is_open(x, y, z)) continue;
+        const Cell &c = cells_[idx(x, y, z)];
+        if (!mask[c.mat] && !(c.flags & FLAG_BURNING)) continue;
+        out.push_back(x); out.push_back(y); out.push_back(z); out.push_back(c.mat);
+        out.push_back(is_open(x, y + 1, z) ? cells_[idx(x, y + 1, z)].mat : -1);
+        out.push_back(is_open(x, y - 1, z) ? cells_[idx(x, y - 1, z)].mat : -1);
+        out.push_back(c.flags);
+    }
+    return out;
 }
 
 PackedInt32Array SimWorld::layer_histogram(int p_material) const {

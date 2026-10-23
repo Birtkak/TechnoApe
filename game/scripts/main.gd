@@ -27,6 +27,7 @@ var _save_accum := 0.0
 var _loading: LoadingScreen
 var near_field: NearField            # ray-cast near field (ADR 0012 step 3), null unless Settings.near_field
 var farming: Farming                 # tilled farmland and crops (ADR 0022)
+var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
 var _furniture_root: Node3D
 var _furniture_views := {}           # anchor -> MeshInstance3D
@@ -277,6 +278,20 @@ func _ready() -> void:
 	stains.setup(world, bubble, stained)
 	player.stain_drip.connect(func(at: Vector3, colour: Color) -> void: stains.drip(at, colour.srgb_to_linear()))
 	game_hud.player_stains = player.stains
+	# chips, dust, splashes, smoke, hearts, lava pops, drips and waterfall spray (scripts/visuals/particle_fx.gd)
+	if Settings.particles:
+		fx = ParticleFx.load_default()
+		fx.name = "Particles"
+		for err in fx.errors:
+			push_error("data: " + err)
+		add_child(fx)
+		fx.setup(world.atlas_material.get_shader_parameter("atlas"), GameMaterials.ATLAS_TILES)
+		fx.get_voxel = get_world_voxel
+		fx.bubble = bubble
+		fx.spray = world.spray
+		fx.player = player
+		fx.main_blocks = blocks
+		player.landed.connect(func(p: Vector3i, fall_m: float) -> void: fx.landing(p, fall_m, player.position))
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
 
@@ -439,6 +454,8 @@ func get_world_voxel(p: Vector3i) -> int:
 
 func _on_broken(p: Vector3i, drops: Array) -> void:
 	var was := get_world_voxel(p)
+	if fx:
+		fx.block_break(p, was)
 	var furn := blocks.furniture_at(p)
 	if furn != null:
 		_remove_furniture(furn, GameMode.rule(player.game_mode, "drops"))
@@ -545,6 +562,8 @@ var _last_health := -1
 func _on_health_changed(h: int) -> void:
 	if _last_health > h:
 		stains.bleed(player.position, _last_health - h)
+		if fx:
+			fx.burst("bleed", player.position + Vector3(0, Settings.m2v(1.0), 0), {"count_bonus": _last_health - h})
 	_last_health = h
 
 
@@ -821,6 +840,7 @@ func snapshot() -> Dictionary:
 		"work": work.summary() if work else {},
 		"mobs": mobs.summary() if mobs else {},
 		"farm": farming.summary() if farming else {},
+		"particles": fx.stats if fx else {},
 		"mem_mb": OS.get_static_memory_usage() / 1048576.0,
 		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		"primitives": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),

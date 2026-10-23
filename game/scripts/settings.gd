@@ -65,6 +65,23 @@ var work_repeat_s := 0.12               # chips and clay strokes while a button 
 var pit_kiln_burn_s := 60.0             # pit kiln burn time (ADR 0023; Vintage Story's is hours of game time)
 var cast_cool_s := 10.0                 # metal in a mold cools this long before it can be taken out
 
+# Particles (ADR 0026): two GPU pools, every particle emitted by script
+var particles := true                   # particles=0 turns every effect off (benchmarks against the old game)
+var particle_pool_chips := 2048         # block chips alive at once at most
+var particle_pool_sprites := 6144       # smoke, splashes, hearts, waterfall spray...
+var particle_budget := 700              # particles emitted per frame at most; the rest of a burst is dropped
+var particle_distance_m := 64.0         # bursts farther from the camera are skipped
+var particle_ambient := true            # Minecraft's animateTick: lava pops, drips, spores, leaves, furnace flames
+var particle_ambient_near_m := 8.0      # Minecraft: 667 random blocks within 16 blocks per tick ...
+var particle_ambient_near_samples := 667
+var particle_ambient_far_m := 20.0      # ... and 667 within 32; ours reaches the bubble's edge, so more samples
+var particle_ambient_far_samples := 2000
+var particle_waterfall_m := 90.0        # waterfall impact spray within this distance of the camera
+var particle_waterfall_spray := 14.0    # droplets per second per voxel of sheet width per sqrt(metre of drop)
+var particle_waterfall_burst := 3.0     # chunks of white water thrown up hard
+var particle_waterfall_mist := 2.2
+var particle_waterfall_foam := 4.0
+
 # Game (ADR 0018)
 var game_mode := "survival"             # survival | creative (gamemode=creative on the command line)
 var start_minimized := true             # playtests from the editor open minimized (minimized=0 turns it off)
@@ -140,6 +157,9 @@ func apply_cmdline() -> Dictionary:
 			"edit_remesh_rate": edit_remesh_rate = float(kv[1])
 			"cache_generated": cache_generated_blocks = kv[1] == "1"
 			"near_field": near_field = kv[1] == "1"
+			"particles": particles = kv[1] == "1"
+			"particle_ambient": particle_ambient = kv[1] == "1"
+			"particle_budget": particle_budget = int(kv[1])
 			"near_field_m": near_field_m = float(kv[1])
 			"near_upload_mb": near_upload_mb = float(kv[1])
 			"sim_tick_hz": sim_tick_hz = float(kv[1])

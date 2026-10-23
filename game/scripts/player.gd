@@ -483,7 +483,7 @@ func _update_mining(delta: float) -> void:
 		holding = autopilot_action == "mine"
 	if edits_locked:
 		holding = false
-	else:
+	elif not autopilot:
 		holding = _mouse_captured and not ui_open and Input.is_action_pressed("action_break")
 	var hit: VoxelRaycastResult = _aim() if (holding or (_mouse_captured and not ui_open and not autopilot)) else null
 	if hit and aimed_mob(hit) != null:
@@ -548,6 +548,16 @@ func _update_mining(delta: float) -> void:
 		_reset_mining()
 	elif viewmodel and fmod(_mine_progress * 4.0, 1.0) < delta * 4.0:
 		viewmodel.swing()
+
+
+## The voxel being mined (the crack is showing), else x = 1 << 30 (particles, ADR 0026).
+func mining_target() -> Vector3i:
+	return _mine_target if _mine_progress > 0.0 and _mine_time > 0.0 else Vector3i(1 << 30, 0, 0)
+
+
+## The item being eaten, "" when not eating.
+func eating_item() -> String:
+	return _eat_id
 
 
 func _reset_mining() -> void:

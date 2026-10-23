@@ -231,12 +231,20 @@ static func plane_cell(p: Vector3i, cells: float, from: Vector3, dir: Vector3):
 
 func _finish(e: RefCounted, out: Dictionary) -> void:
 	var p: Vector3i = e.pos
+	_particles("poof", Vector3(p) + Vector3(0.5, 0.3, 0.5), 0)
 	main.blocks.remove(p)
 	main.set_world_voxel(p, GameMaterials.AIR)
 	forget(p)
 	if not out.is_empty():
 		main.spawn_item({"id": out["id"], "count": int(out.get("count", 1))}, Vector3(p) + Vector3(0.5, 0.3, 0.5), Vector3(0, 1.5, 0))
 		stats["finished"].append(out["id"])
+
+
+## A particle effect from Main's ParticleFx (ADR 0026), if there is one.
+func _particles(effect: String, at: Vector3, material: int) -> void:
+	var fx: ParticleFx = main.get("fx")
+	if fx:
+		fx.burst(effect, at, {"material": material, "normal": Vector3.UP})
 
 
 func _give(stacks: Array, at: Vector3) -> void:
@@ -307,6 +315,8 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		var balls: int = main.player_inv.held().get("count", 0) if _consumes() else 1 << 20
 		var res: Dictionary = e.add(int(floor(c.x - 0.5)), int(floor(c.y - 0.5)), balls)
 		stats["clay_cells"] += res["added"]
+		if res["added"] > 0:
+			_particles("block_hit", Vector3(p) + Vector3(c.x / 8.0, e.active_layer() / 8.0 + 0.02, c.y / 8.0), GameMaterials.CLAY)
 		if res["balls_used"] > 0 and _consumes():
 			main.player_inv.consume_held(res["balls_used"])
 		if res["done"]:
@@ -341,7 +351,11 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		main.inv_screen.open_container(e)
 		return true
 	if e is SieveEntity:
+		var sifting: String = e.input
 		var res: Dictionary = e.use(held, _rng)
+		if sifting != "":
+			var fx: ParticleFx = main.get("fx")
+			_particles("sprint", Vector3(p) + Vector3(0.5, 0.9, 0.5), fx.material_id(sifting) if fx else 0)
 		if res["consume"] > 0 and _consumes():
 			main.player_inv.consume_held(res["consume"])
 		if e.input == "" and res["consume"] == 0 and res["msg"] == "":
@@ -379,6 +393,7 @@ func _hit(hit_r: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool
 	var r: String = e.chip(cell.x, cell.y)
 	if r != "":
 		stats["chips"] += 1
+		_particles("block_hit", Vector3(p) + Vector3((cell.x + 0.5) / 8.0, 0.1, (cell.y + 0.5) / 8.0), GameMaterials.FLINT_STONES)
 	if r == "done":
 		_finish(e, e.output())
 	return true
