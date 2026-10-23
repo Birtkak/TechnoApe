@@ -115,13 +115,19 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   (0028), Flint Age (0030), menus and saves (0032). Probes: `tools/terrain_map.gd`, `fine_gen_bench.gd`,
   `fine_probe.gd`, `face_probe.gd`. Loads take 12-17 s: budget runs use `load_cap_s=30`.
   Full detail is capped at 24 m (`Settings.MAX_DETAIL_M`): 32 m blows the budget in forests.
-  **Next:** the texture and look pass (palettes, water, grade: taste calls), fire/smoke pacing per cell,
-  fast flight vs generation, the water spill / blast / `persist=1` runs, structural collapse; plan in
-  `docs/plans/lotl-overhaul.md`, playtest list in `docs/plans/to-test.md`.
+  **Direction (ADR 0037, 2026-10-24):** rigid voxel pieces (trees, cut pieces, later buildings topple),
+  LotL shape building + box mode + prefabs from the start, tools and gear crafted in the world (grid for
+  bulk), ages into GregTech, hunger + temperature + spoilage, biting wildlife and dangerous places (calm
+  surface, combat a side system), patterned voxels for built materials, structures / dungeons / cave
+  biomes / roads / traders, new systems keep state server-side. Magic is decided in Phase 3.
+  **Next:** the work order for ADR 0037; still open from before: fire/smoke pacing per cell, fast flight vs
+  generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
+  list in `docs/plans/to-test.md`.
 - Material ids are definition order, append only (saves and the generator use them): 32..36 stations,
   37..43 detail, 44 reserved (once `CHISELED`), 47 blood, 48..52 ground pickups, 57..75 animals, farming,
   furniture, 76..87 and 90..101 content passes, 88..89 work spots, 103..107 Flint Age, 108 leaf litter.
-  Atlas 8x12 tiles (84 leaf litter, 85 oak bark; 86..87 and 93..95 free). `MicroMesher` builds the
+  Atlas 8x13 tiles (84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
+  stones; 98..103 free). Ground pickups are voxel shapes (stone chunks on a 0.5 m patch, sticks as `FineGen::STICK` stamps). `MicroMesher` builds the
   models of stations, furniture, work pieces, mobs and the ape at 6.25 cm cells; it winds triangles
   counter-clockwise, so pass its meshes through `MobModel.outward` (which reads an ArrayMesh back and
   waits 4-6 ms for the render thread: never per edit).

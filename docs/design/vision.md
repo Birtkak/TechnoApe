@@ -36,6 +36,24 @@ A voxel game that mixes **Minecraft with GregTech vibes** and **Noita**:
   the 0.5 m world. Where this section disagrees with older text below
   (blocky 0.5 m voxels, 16x16 textures, mining single blocks), this wins.
 
+### Direction: LotL feel, VS and GregTech depth (2026-10-24, ADR 0037)
+Decided system by system after comparing Lay of the Land and Vintage Story; where this section
+disagrees with older text, this wins.
+- **Simulation:** the Noita kernel plus rigid voxel pieces: felled trees, cut pillars, undermined
+  ledges and in time whole buildings break off, fall, crush and settle.
+- **Building:** LotL shape building from the start (shapes from a radial menu, a preview with drag
+  handles, rotate/mirror, click away to commit), box mode, prefabs; the brush is "normal" mode.
+- **Crafting:** tools and gear are made in the world (knapping, assembling on the ground or a
+  workbench, anvil, moulds, firepit); the grid stays for bulk and simple recipes.
+- **Progression:** ages into GregTech; exploration gates materials; no boss loop.
+- **Survival:** hunger, body temperature and food spoilage, the same in every world.
+- **Threat:** biting wildlife and dangerous places (dungeons, deep caves, guarded ruins); a calm
+  surface; combat is a side system for now.
+- **Magic:** decided in Phase 3.
+- **Art:** palettes for nature, patterned voxels for crafted building materials, then a grade.
+- **Places:** structures with loot, dungeons, cave biomes, roads and bridges, traders.
+- **Multiplayer:** co-op ready, server in Phase 4; new systems keep state server-side.
+
 ### Getting resources (2026-10-21)
 - **Mining** yields metals and the materials that drive technology tiers
   (the GregTech side).
@@ -157,8 +175,10 @@ prototype (P5, falling-sand-3D spike) before the architecture is locked.
 - Engine: Godot 4.7 (pending prototype confirmation, ADR 0001).
 
 ## Open design questions (decide when they become relevant)
-- Art direction (textured cubes vs stylised/flat-shaded vs higher-res).
-- Survival pressure level: hunger yes (2026-10-22); temperature still open.
-- Automation axis: does late-game crafting include machines/automation?
-- World scale: block size, world height, chunk size.
-- Combat: present at all, and how central?
+- Art direction: decided 2026-10-24 (ADR 0037: palettes for nature, patterns for built
+  materials); the lighting grade is still a taste call.
+- Survival pressure: decided 2026-10-24 (hunger, temperature, spoilage).
+- Automation axis: decided 2026-10-24 (ages into GregTech machines and automation).
+- World scale: decided 2026-10-23 (12.5 cm voxels, 384 m high, ADR 0033).
+- Combat: decided 2026-10-24 as a side system for now; revisit when dungeons exist.
+- Magic: the wand design and how it meets the tech tree, in Phase 3.
