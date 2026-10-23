@@ -268,16 +268,20 @@ func test_spawn_cells_are_deterministic() -> void:
 
 # ---------- furniture ----------
 
+## Furniture is measured in 0.5 m blocks of BLOCK voxels (ADR 0034).
 func test_furniture_footprints() -> void:
+	var b := Settings.BLOCK
 	var bed := FurnitureEntity.footprint("bed", Vector3i(0, 0, 0), 0)
-	assert_int(bed.size()).is_equal(8)
-	assert_bool(bed.has(Vector3i(0, 0, 3))).is_true()    # 4 long along +z
-	assert_bool(bed.has(Vector3i(1, 0, 0))).is_true()    # 2 wide
+	assert_int(bed.size()).is_equal(8 * b * b * b)
+	assert_bool(bed.has(Vector3i(0, 0, 4 * b - 1))).is_true()    # 4 blocks long along +z
+	assert_bool(bed.has(Vector3i(2 * b - 1, 0, 0))).is_true()    # 2 blocks wide
+	assert_bool(bed.has(Vector3i(0, b, 0))).is_false()           # 1 block high
 	var bed_x := FurnitureEntity.footprint("bed", Vector3i(0, 0, 0), 1)
-	assert_bool(bed_x.has(Vector3i(3, 0, 0))).is_true()
+	assert_bool(bed_x.has(Vector3i(4 * b - 1, 0, 0))).is_true()
 	assert_bool(bed_x.has(Vector3i(0, 0, -1))).is_true()
 	var chair := FurnitureEntity.footprint("chair", Vector3i(5, 5, 5), 2)
-	assert_array(chair).contains_exactly_in_any_order([Vector3i(5, 5, 5), Vector3i(5, 6, 5)])
+	assert_int(chair.size()).is_equal(2 * b * b * b)
+	assert_bool(chair.has(Vector3i(5, 5 + 2 * b - 1, 5))).is_true()
 	# beds face away from the player's look, chairs back at the player
 	assert_int(FurnitureEntity.facing_for("bed", Vector3(0, 0, -1))).is_equal(2)
 	assert_int(FurnitureEntity.facing_for("chair", Vector3(0, 0, -1))).is_equal(0)

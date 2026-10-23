@@ -160,7 +160,7 @@ static func defs() -> Array:
 		{"name": "dead_bush", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 24, "autoignition_temperature": 15, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [26, 26, 26], "transparent": false, "micro": "bush", "replaceable": true},
 		{"name": "ice", "cell_type": "solid", "density": 9, "hp": 120, "tiles": [27, 27, 27], "transparent": false},
 		{"name": "flower_red", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [28, 28, 28], "transparent": false, "micro": "flower", "floor_only": true},
-		{"name": "crafting_table", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [32, 33, 39], "transparent": false, "interact": "crafting_table"},
+		{"name": "crafting_table", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [32, 33, 39], "transparent": false, "interact": "crafting_table", "entity": "station"},
 		{"name": "furnace", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 35, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "furnace_lit", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 36, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "chest", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [37, 38, 37], "transparent": false, "interact": "chest", "entity": "chest"},
@@ -397,6 +397,15 @@ static func id_of(name: String) -> int:
 	return _ids.get(name, 0)
 
 
+## A crafting table, chest, furnace or storage pot (ADR 0034): a block entity
+## whose footprint (BLOCK^3 voxels) only collides and whose view draws the block.
+static func is_station(id: int) -> bool:
+	if id <= 0 or id > defs().size():
+		return false
+	var d: Dictionary = defs()[id - 1]
+	return d.has("interact") and d.has("entity") and d.get("entity") != "torch" and d.get("model", "") != "empty"
+
+
 ## True for a plain terrain voxel: a solid or powder cube with no entity,
 ## station or model of its own. Items placing one count in voxels (ADR 0034).
 static func is_plain_voxel(id: int) -> bool:
@@ -438,6 +447,14 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 	for d in defs():
 		if d.has("fluid_slot") and fluids.has(int(d["fluid_slot"])):
 			models.append(_fluid_model(fluids[int(d["fluid_slot"])], 8, d.get("transparent", false)))
+			continue
+		# Stations, chests, furnaces and pots (ADR 0034): their footprint voxels only
+		# collide; the block entity draws the block over the whole footprint.
+		if d.has("interact") and d.get("model", "") != "empty":
+			var station := VoxelBlockyModelEmpty.new()
+			station.culls_neighbors = false
+			station.collision_aabbs = [AABB(Vector3.ZERO, Vector3.ONE)]
+			models.append(station)
 			continue
 		if d.get("model", "") == "empty":
 			var empty := VoxelBlockyModelEmpty.new()

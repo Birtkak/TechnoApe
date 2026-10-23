@@ -75,11 +75,11 @@ func ignite() -> bool:
 func _burn_next() -> bool:
 	var fuel := inv.get_slot(FUEL)
 	var t := fuel_ticks(fuel.get("id", ""))
-	if t <= 0:
+	if t <= 0 or int(fuel.get("count", 0)) < items.units(fuel["id"]):
 		return false
 	lit_time = t
 	lit_duration = t
-	inv.take(FUEL, 1)
+	inv.take(FUEL, items.units(fuel["id"]))   # logs burn a block's worth of voxels at a time (ADR 0034)
 	return true
 
 
@@ -91,11 +91,11 @@ func current_recipe() -> Dictionary:
 	var vessel := inv.get_slot(VESSEL)
 	if not vessel.is_empty():
 		var m := recipes.first_of("melt", {"input": input["id"], "vessel": vessel["id"]})
-		if not m.is_empty() and int(input["count"]) >= int(m.get("count", 1)):
+		if not m.is_empty() and int(input["count"]) >= int(m.get("count", 1)) * items.units(input["id"]):
 			return m
 		return {}
 	var r := recipes.smelting_for(input["id"], STATION)
-	if r.is_empty():
+	if r.is_empty() or int(input["count"]) < items.units(input["id"]):
 		return {}
 	var o := inv.get_slot(OUTPUT)
 	if not o.is_empty() and (o["id"] != r["output"]["id"] or int(o["count"]) + int(r["output"]["count"]) > items.max_stack(o["id"])):
@@ -170,13 +170,13 @@ func tick() -> bool:
 func _finish(r: Dictionary) -> void:
 	made += 1
 	if r["type"] == "melt":
-		inv.take(INPUT, int(r.get("count", 1)))
+		inv.take(INPUT, int(r.get("count", 1)) * items.units(inv.get_slot(INPUT)["id"]))
 		inv.set_slot(VESSEL, {"id": r["output"]["id"], "count": 1})
 		return
-	inv.take(INPUT, 1)
+	inv.take(INPUT, items.units(inv.get_slot(INPUT)["id"]))
 	var o := inv.get_slot(OUTPUT)
 	var out: Dictionary = r["output"]
-	inv.set_slot(OUTPUT, {"id": out["id"], "count": int(out["count"]) + (int(o["count"]) if not o.is_empty() else 0)})
+	inv.set_slot(OUTPUT, {"id": out["id"], "count": int(out["count"]) * items.units(out["id"]) + (int(o["count"]) if not o.is_empty() else 0)})
 
 
 func contents() -> Array:

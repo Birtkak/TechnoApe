@@ -211,7 +211,7 @@ func test_wrong_mold_does_not_take_metal() -> void:
 
 func test_firepit_needs_a_firestarter_then_melts_copper() -> void:
 	var f := store.create(Vector3i(0, 10, 0), "firepit") as FirepitEntity
-	f.inv.set_slot(FirepitEntity.FUEL, {"id": "oak_log", "count": 8})
+	f.inv.set_slot(FirepitEntity.FUEL, {"id": "oak_log", "count": 8 * items.units("oak_log")})   # eight logs of wood voxels (ADR 0034)
 	f.inv.set_slot(FirepitEntity.VESSEL, {"id": "crucible", "count": 1})
 	f.inv.set_slot(FirepitEntity.INPUT, {"id": "loose_copper_ore", "count": 5})
 	for i in 100:
@@ -276,45 +276,47 @@ func test_sieve_loads_shakes_and_rolls_the_table() -> void:
 # ---------- saving ----------
 
 func test_pieces_survive_save_and_load() -> void:
-	var k := store.create(Vector3i(1, 10, 0), "knap") as KnapEntity
+	var n := Settings.BLOCK   # pieces are blocks: anchors one block apart (ADR 0034)
+	var k := store.create(Vector3i(1 * n, 10, 0), "knap") as KnapEntity
 	k.set_recipe(recipes.recipes["knap_flint_hoe_head"])
 	k.chip(0, 0)
-	var c := store.create(Vector3i(2, 10, 0), "clayform") as ClayFormEntity
+	var c := store.create(Vector3i(2 * n, 10, 0), "clayform") as ClayFormEntity
 	c.set_recipe(recipes.recipes["form_axe_mold"])
 	c.add(0, 0, 1)
 	var g := _ground("raw_ingot_mold")
 	g.use(items.get_def("dry_grass"))
-	var f := store.create(Vector3i(3, 10, 0), "firepit") as FirepitEntity
+	var f := store.create(Vector3i(3 * n, 10, 0), "firepit") as FirepitEntity
 	f.inv.set_slot(FirepitEntity.VESSEL, {"id": "crucible", "count": 1})
-	var s := store.create(Vector3i(4, 10, 0), "sieve") as SieveEntity
+	var s := store.create(Vector3i(4 * n, 10, 0), "sieve") as SieveEntity
 	s.input = "gravel"
 	s.shakes = 3
 	var d := store.to_dict()
 	var other := BlockEntities.new(items, recipes)
 	assert_bool(other.load_dict(JSON.parse_string(JSON.stringify(d)))).is_true()
-	var k2 := other.at(Vector3i(1, 10, 0)) as KnapEntity
+	var k2 := other.at(Vector3i(1 * n, 10, 0)) as KnapEntity
 	assert_str(k2.recipe.get("id", "")).is_equal("knap_flint_hoe_head")
 	assert_int(k2.chips).is_equal(1)
-	var c2 := other.at(Vector3i(2, 10, 0)) as ClayFormEntity
+	var c2 := other.at(Vector3i(2 * n, 10, 0)) as ClayFormEntity
 	assert_int(c2.placed).is_equal(4)
 	assert_bool(c2.is_filled(0, 0, 0)).is_true()
 	assert_int((other.at(Vector3i(0, 10, 0)) as GroundEntity).grass).is_equal(1)
-	assert_dict((other.at(Vector3i(3, 10, 0)) as FirepitEntity).inv.get_slot(FirepitEntity.VESSEL)).is_equal({"id": "crucible", "count": 1})
-	assert_int((other.at(Vector3i(4, 10, 0)) as SieveEntity).shakes).is_equal(3)
+	assert_dict((other.at(Vector3i(3 * n, 10, 0)) as FirepitEntity).inv.get_slot(FirepitEntity.VESSEL)).is_equal({"id": "crucible", "count": 1})
+	assert_int((other.at(Vector3i(4 * n, 10, 0)) as SieveEntity).shakes).is_equal(3)
 	assert_int(other.all_work().size()).is_equal(5)
 
 
 # ---------- views ----------
 
 func test_every_piece_draws() -> void:
-	var k := store.create(Vector3i(1, 10, 0), "knap") as KnapEntity
+	var n := Settings.BLOCK
+	var k := store.create(Vector3i(1 * n, 10, 0), "knap") as KnapEntity
 	k.set_recipe(recipes.recipes["knap_flint_axe_head"])
-	var c := store.create(Vector3i(2, 10, 0), "clayform") as ClayFormEntity
+	var c := store.create(Vector3i(2 * n, 10, 0), "clayform") as ClayFormEntity
 	c.set_recipe(recipes.recipes["form_crucible"])
 	var g := _ground("pickaxe_mold")
 	g.use(items.get_def("crucible_copper"))
-	store.create(Vector3i(3, 10, 0), "firepit")
-	store.create(Vector3i(4, 10, 0), "sieve")
+	store.create(Vector3i(3 * n, 10, 0), "firepit")
+	store.create(Vector3i(4 * n, 10, 0), "sieve")
 	for e in store.all_work():
 		var parts: Dictionary = e.view_parts()
 		assert_bool(parts.has("solid")).is_true()
@@ -328,7 +330,9 @@ func test_every_piece_draws() -> void:
 
 
 func test_plane_cell_maps_the_aim_to_cells() -> void:
-	# looking straight down at the middle of voxel (4, 10, 7), slab top one cell up
-	var c = WorkSystem.plane_cell(Vector3i(4, 10, 7), 1.0, Vector3(4.5, 12.0, 7.5), Vector3(0, -1, 0))
+	# looking straight down at the middle of the piece anchored at (4, 10, 7) (a block of
+	# BLOCK voxels, ADR 0034), slab top one cell up
+	var h := Settings.BLOCK * 0.5
+	var c = WorkSystem.plane_cell(Vector3i(4, 10, 7), 1.0, Vector3(4 + h, 14.0, 7 + h), Vector3(0, -1, 0))
 	assert_vector(c).is_equal_approx(Vector2(4, 4), Vector2(0.001, 0.001))
-	assert_that(WorkSystem.plane_cell(Vector3i(4, 10, 7), 1.0, Vector3(4.5, 12.0, 7.5), Vector3(0, 1, 0))).is_null()
+	assert_that(WorkSystem.plane_cell(Vector3i(4, 10, 7), 1.0, Vector3(4 + h, 14.0, 7 + h), Vector3(0, 1, 0))).is_null()

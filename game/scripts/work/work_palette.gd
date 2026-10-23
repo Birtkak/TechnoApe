@@ -155,6 +155,7 @@ static func box(cells: PackedInt32Array, size: Vector3i, a: Vector3i, b: Vector3
 static func make_view(pos: Vector3i, solid: Dictionary, ghost: Dictionary = {}, guide: Dictionary = {}) -> Node3D:
 	var root := Node3D.new()
 	root.position = Vector3(pos)
+	root.scale = Vector3.ONE * Settings.BLOCK   # a piece is one 0.5 m block of BLOCK^3 voxels (ADR 0034)
 	_add_mesh(root, solid, material())
 	if not ghost.is_empty():
 		_add_mesh(root, ghost, ghost_material())

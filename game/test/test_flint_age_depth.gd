@@ -171,25 +171,30 @@ func test_a_pit_is_every_touching_pile_and_seals_with_soil() -> void:
 	var mw := _pit_world()
 	var m: FakeMain = mw[0]
 	var w: WorkSystem = mw[1]
+	# piles are blocks of BLOCK^3 voxels (ADR 0034): the second one stands one block over
+	var n := Settings.BLOCK
 	var a := Vector3i(0, 0, 0)
-	var b := Vector3i(1, 0, 0)
-	store.create(a, "firewood_pile")
-	store.create(b, "firewood_pile")
-	m.voxels[a] = GameMaterials.WORK_BLOCK
-	m.voxels[b] = GameMaterials.WORK_BLOCK
-	var pit := w.pit_of(a)
+	var b := Vector3i(n, 0, 0)
+	for at in [a, b]:
+		store.create(at, "firewood_pile")
+		for c in BlockEntities.cube(at):
+			m.voxels[c] = GameMaterials.WORK_BLOCK
+	var pit := w.pit_of(Vector3i(1, 2, 1))   # any voxel of a pile finds its pit
 	assert_int(pit.size()).is_equal(2)
 	assert_int(w.open_faces(pit)).is_equal(10)   # 2 x 6 faces minus the shared pair
-	for p in pit:
-		for d in WorkSystem.DIRS6:
-			if not m.voxels.has(p + d):
-				m.voxels[p + d] = GameMaterials.DIRT
+	# soil all around: every voxel touching the pit from outside
+	for at in pit:
+		for c in BlockEntities.cube(at):
+			for d in WorkSystem.DIRS6:
+				if not m.voxels.has(c + d):
+					m.voxels[c + d] = GameMaterials.DIRT
 	assert_int(w.open_faces(pit)).is_equal(0)
-	m.voxels[Vector3i(0, 1, 0)] = GameMaterials.TALL_GRASS   # a plant on top does not seal it
+	var top := Vector3i(1, n, 2)
+	m.voxels[top] = GameMaterials.TALL_GRASS   # one plant on top does not seal it
 	assert_int(w.open_faces(pit)).is_equal(1)
-	m.voxels[Vector3i(0, 1, 0)] = GameMaterials.THATCH       # nor does anything that burns
+	m.voxels[top] = GameMaterials.THATCH       # nor does anything that burns
 	assert_int(w.open_faces(pit)).is_equal(1)
-	m.voxels[Vector3i(0, 1, 0)] = GameMaterials.STONE
+	m.voxels[top] = GameMaterials.STONE
 	assert_int(w.open_faces(pit)).is_equal(0)
 	w.free()
 	m.free()
@@ -262,9 +267,10 @@ func test_quests_count_the_bag() -> void:
 func test_straw_bed_is_furniture_you_sleep_in() -> void:
 	assert_bool(FurnitureEntity.KINDS["straw_bed"]["sleep"]).is_true()
 	var e := store.create_furniture(Vector3i(0, 0, 0), "straw_bed", 0)
-	assert_int(e.cells.size()).is_equal(8)
+	var n := Settings.BLOCK   # 2 x 1 x 4 blocks of BLOCK^3 voxels (ADR 0034)
+	assert_int(e.cells.size()).is_equal(8 * n * n * n)
 	assert_array(e.contents()).is_equal([{"id": "straw_bed", "count": 1}])
-	assert_float(e.seat().y).is_equal(1.0)
+	assert_float(e.seat().y).is_equal(float(n))   # one block above its floor
 	var c := FurnitureEntity.cells_for("straw_bed")
 	assert_bool(c.count(0) < c.size()).is_true()
 

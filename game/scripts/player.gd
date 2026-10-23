@@ -807,22 +807,36 @@ func _use(first_press: bool) -> void:
 	# stations open on right click; sneaking (Shift) places against them instead (vanilla)
 	if first_press and not Input.is_action_pressed("sprint"):
 		var tm := world.get_voxel(target)
-		if tm > 0 and GameMaterials.defs()[tm - 1].has("interact"):
+		if tm > 0 and GameMaterials.defs()[tm - 1].get("interact", "work") != "work":   # work pieces: the work system above
 			block_used.emit(target, tm)
 			return
 	var def := inventory.held_def()
 	if def.is_empty():
 		return
 	# farming (ADR 0022): hoes till, seeds and carrots plant on a farmland top face
+	# farming (ADR 0022, 0034): the hoe tills, seeds plant over the brush's patch of ground
 	if "hoe" in def.get("tags", []) and farm != null:
-		if hit.previous_position.y >= target.y and farm.till(target):
-			_after_use()
+		if hit.previous_position.y >= target.y:
+			var tilled := 0
+			for c in _farm_patch(target):
+				if farm.till(c):
+					tilled += 1
+			if tilled > 0:
+				_after_use()
 		return
 	if def.has("plants") and farm != null and farm.is_farmland_material(farm.get_voxel.call(target)):   # Main's view: the bubble is ahead of the terrain
-		if hit.previous_position == target + Vector3i.UP and farm.plant(target, def["plants"]):
-			if GameMode.rule(game_mode, "consumes_items"):
-				inventory.consume_held(1)
-			_after_use()
+		if hit.previous_position == target + Vector3i.UP:
+			var sown := 0
+			var consumes := GameMode.rule(game_mode, "consumes_items")
+			for c in _farm_patch(target):
+				if consumes and int(inventory.held().get("count", 0)) <= 0:
+					break
+				if farm.plant(c, def["plants"]):
+					sown += 1
+					if consumes:
+						inventory.consume_held(1)
+			if sown > 0:
+				_after_use()
 		return
 	if def.has("furniture"):
 		_place_furniture(hit, def)
@@ -845,6 +859,9 @@ func _use(first_press: bool) -> void:
 		return
 	if inventory.items.is_voxel_item(def["id"]):
 		_place_voxels(hit, mat)
+		return
+	if GameMaterials.is_station(mat):
+		_place_station(hit, mat)
 		return
 	var p: Vector3i = hit.previous_position
 	if _replaceable(world.get_voxel(target)):
@@ -889,6 +906,37 @@ func _place_voxels(hit: VoxelRaycastResult, mat: int) -> void:
 	if not creative:
 		inventory.consume_held(cells.size())
 	_after_use()
+
+
+## A station item (crafting table, chest, furnace, pot) fills a BLOCK^3
+## footprint standing on the aimed face (ADR 0034), when all of it is free.
+func _place_station(hit: VoxelRaycastResult, mat: int) -> void:
+	var anchor := BlockEntities.anchor_for(hit.previous_position)
+	for c in BlockEntities.cube(anchor):
+		var m := world.get_voxel(c)
+		if (m != GameMaterials.AIR and not _replaceable(m)) or _overlaps_player(c):
+			return
+	voxel_placed.emit(anchor, mat)
+	if GameMode.rule(game_mode, "consumes_items"):
+		inventory.consume_held(1)
+	_after_use()
+
+
+## The ground voxels a hoe or seeds work on: the brush's square (brush_size
+## across, snapped like a cube brush) around the aimed voxel, each column's
+## surface within a voxel of the aimed height (open air above it).
+func _farm_patch(target: Vector3i) -> Array[Vector3i]:
+	var out: Array[Vector3i] = []
+	var n := maxi(brush_size, 1)
+	var o := Vector3i(floori(float(target.x) / n) * n, target.y, floori(float(target.z) / n) * n)
+	for dz in n:
+		for dx in n:
+			for dy in [0, 1, -1]:
+				var c := o + Vector3i(dx, dy, dz)
+				if farm.get_voxel.call(c + Vector3i.UP) == GameMaterials.AIR and farm.get_voxel.call(c) != GameMaterials.AIR:
+					out.append(c)
+					break
+	return out
 
 
 func _replaceable(m: int) -> bool:
@@ -945,7 +993,7 @@ func _place_furniture(hit: VoxelRaycastResult, def: Dictionary) -> void:
 	if not place_furniture.is_valid():
 		return
 	var kind: String = def["furniture"]
-	var anchor: Vector3i = hit.position if _replaceable(world.get_voxel(hit.position)) else hit.previous_position
+	var anchor := BlockEntities.anchor_for(hit.position if _replaceable(world.get_voxel(hit.position)) else hit.previous_position)
 	var look := -camera.global_transform.basis.z
 	var facing := FurnitureEntity.facing_for(kind, look)
 	for c in FurnitureEntity.footprint(kind, anchor, facing):

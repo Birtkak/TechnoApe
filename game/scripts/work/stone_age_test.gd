@@ -9,6 +9,8 @@ extends RefCounted
 ## Screenshots of each stage go to the run's out dir (stone_age_shots=0 skips
 ## them for a budget run); one JSON line
 ## "debug stone_age {...}" says what happened (every check should be true).
+## Pieces are 0.5 m blocks of BLOCK^3 voxels (ADR 0034): spots step a block, and
+## aim points inside a piece are fractions of a block from its anchor.
 
 var main: Node
 var r := {}
@@ -20,19 +22,18 @@ func run(p_main: Node) -> void:
 	var tree: SceneTree = main.get_tree()
 	await tree.create_timer(0.6).timeout
 	main.player.autopilot_action = "look"
-	var base := Vector3i(main.player.position.floor())
+	var B := Settings.BLOCK
+	var base := BlockEntities.anchor_for(Vector3i(main.player.position.floor()))
 	var gy := func(x: int, z: int) -> int: return main.world.surface_height(x, z)
-	# a flat 15 x 7 grass strip ahead at the player's ground height, so every aim ray hits the ground
+	# a flat 15 x 7 block grass strip ahead at the player's ground height, so every aim ray hits the ground
 	var g0: int = gy.call(base.x, base.z)
-	for dx in range(-7, 8):
-		for dz in range(-6, 1):
-			for k in range(1, 6):
-				main.set_world_voxel(Vector3i(base.x + dx, g0 + k, base.z + dz), GameMaterials.AIR)
-			main.set_world_voxel(Vector3i(base.x + dx, g0, base.z + dz), GameMaterials.GRASS)
-			main.set_world_voxel(Vector3i(base.x + dx, g0 - 1, base.z + dz), GameMaterials.DIRT)
+	var lo := Vector3i(base.x - 7 * B, g0 - 1, base.z - 6 * B)
+	var hi := Vector3i(base.x + 8 * B, g0 + 1, base.z + B)
+	_fill(lo, Vector3i(hi.x, g0, hi.z), GameMaterials.DIRT)
+	_fill(Vector3i(lo.x, g0, lo.z), Vector3i(hi.x, g0 + 1, hi.z), GameMaterials.GRASS)
+	_fill(Vector3i(lo.x, g0 + 1, lo.z), Vector3i(hi.x, g0 + 6 * B, hi.z), GameMaterials.AIR)
 	await tree.create_timer(1.5).timeout   # the cleared strip reaches the terrain the aim ray reads
-	base = Vector3i(main.player.position.floor())
-	var spot := func(dx: int) -> Vector3i: return Vector3i(base.x + dx, g0 + 1, base.z - 3)
+	var spot := func(dx: int) -> Vector3i: return Vector3i(base.x + dx * B, g0 + 1, base.z - 3 * B)
 	var inv: PlayerInventory = main.player_inv
 	r["survival"] = GameMode.rule(main.player.game_mode, "consumes_items")
 
@@ -53,7 +54,7 @@ func run(p_main: Node) -> void:
 		while main.blocks.at(a) == k and clicks < 200:
 			var cell := _first_marked(k)
 			if clicks == todo / 2:
-				await _shot(tree, "knapping", Vector3(a) + Vector3(0.5, 0.1, 0.5))
+				await _shot(tree, "knapping", Vector3(a) + Vector3(0.5, 0.1, 0.5) * Settings.BLOCK)
 			_chip(a, cell)
 			clicks += 1
 			await tree.process_frame   # one click per frame at most, like a player
@@ -78,9 +79,9 @@ func run(p_main: Node) -> void:
 			var y: int = c.active_layer()
 			if not shot and y >= 2 or (not shot and job[0] == "form_pickaxe_mold" and y >= 1):
 				shot = true
-				await _shot(tree, job[0], Vector3(b) + Vector3(0.5, 0.1, 0.5))
+				await _shot(tree, job[0], Vector3(b) + Vector3(0.5, 0.1, 0.5) * Settings.BLOCK)
 			var cell := _first_missing(c, y)
-			main._aim_use(Vector3(b) + Vector3((cell.x + 0.75) / 8.0, y / 8.0, (cell.y + 0.75) / 8.0))
+			main._aim_use(Vector3(b) + Vector3((cell.x + 0.75) / 8.0, y / 8.0, (cell.y + 0.75) / 8.0) * Settings.BLOCK)
 			clicks += 1
 			await tree.process_frame
 		r[job[0] + "_clicks"] = clicks
@@ -104,17 +105,17 @@ func run(p_main: Node) -> void:
 		await tree.create_timer(0.2).timeout
 		for i in GroundEntity.KILN_GRASS:
 			main._hold("dry_grass")
-			main._aim_use(Vector3(p) + Vector3(0.5, 0.15, 0.5))
+			main._aim_use(Vector3(p) + Vector3(0.5, 0.15, 0.5) * Settings.BLOCK)
 			await tree.process_frame
 		for i in GroundEntity.KILN_STICKS:
 			main._hold("stick")
-			main._aim_use(Vector3(p) + Vector3(0.5, 0.2, 0.5))
+			main._aim_use(Vector3(p) + Vector3(0.5, 0.2, 0.5) * Settings.BLOCK)
 			await tree.process_frame
 		main._hold("firestarter")
-		main._aim_use(Vector3(p) + Vector3(0.5, 0.2, 0.5))
+		main._aim_use(Vector3(p) + Vector3(0.5, 0.2, 0.5) * Settings.BLOCK)
 		var g = main.blocks.at(p)
 		r["kiln_lit_" + id] = g is GroundEntity and g.is_lit()
-	await _shot(tree, "pit_kilns", Vector3(spot.call(3)) + Vector3(0.5, 0.2, 0.5))
+	await _shot(tree, "pit_kilns", Vector3(spot.call(3)) + Vector3(0.5, 0.2, 0.5) * Settings.BLOCK)
 	await _fast_forward(int(Settings.pit_kiln_burn_s * 20.0) + 1)
 	for id in kilns:
 		var g = main.blocks.at(kilns[id])
@@ -131,18 +132,18 @@ func run(p_main: Node) -> void:
 	r["firepit_placed"] = fp is FirepitEntity
 	# pick the fired crucible up with an empty hand
 	_empty_hand()
-	main._aim_use(Vector3(kilns["raw_crucible"]) + Vector3(0.5, 0.3, 0.5))
+	main._aim_use(Vector3(kilns["raw_crucible"]) + Vector3(0.5, 0.3, 0.5) * Settings.BLOCK)
 	r["crucible_picked_up"] = inv.inv.count_of("crucible") == 1
 	if fp is FirepitEntity:
 		inv.inv.remove("crucible", 1)
 		fp.inv.set_slot(FirepitEntity.VESSEL, {"id": "crucible", "count": 1})
 		fp.inv.set_slot(FirepitEntity.INPUT, {"id": "loose_copper_ore", "count": 4})
-		fp.inv.set_slot(FirepitEntity.FUEL, {"id": "oak_log", "count": 4})
+		fp.inv.set_slot(FirepitEntity.FUEL, {"id": "oak_log", "count": 4 * main.items.units("oak_log")})
 		main._hold("firestarter")
-		main._aim_use(Vector3(f_at) + Vector3(0.5, 0.2, 0.5))
+		main._aim_use(Vector3(f_at) + Vector3(0.5, 0.2, 0.5) * Settings.BLOCK)
 		r["firepit_lit"] = fp.is_lit()
 		await _fast_forward(200)
-		await _shot(tree, "firepit", Vector3(f_at) + Vector3(0.5, 0.2, 0.5))
+		await _shot(tree, "firepit", Vector3(f_at) + Vector3(0.5, 0.2, 0.5) * Settings.BLOCK)
 		await _fast_forward(220)
 		r["molten"] = fp.inv.get_slot(FirepitEntity.VESSEL).get("id", "")
 		if r["molten"] == "crucible_copper":
@@ -153,14 +154,14 @@ func run(p_main: Node) -> void:
 	_stage("casting")
 	var m_at: Vector3i = kilns["raw_pickaxe_mold"]
 	main._hold("crucible_copper")
-	main._aim_use(Vector3(m_at) + Vector3(0.5, 0.2, 0.5))
+	main._aim_use(Vector3(m_at) + Vector3(0.5, 0.2, 0.5) * Settings.BLOCK)
 	var mold = main.blocks.at(m_at)
 	r["cast"] = mold.cast_output if mold is GroundEntity else "no mold"
 	r["crucible_back"] = inv.inv.count_of("crucible") == 1
-	await _shot(tree, "casting", Vector3(m_at) + Vector3(0.5, 0.1, 0.5))
+	await _shot(tree, "casting", Vector3(m_at) + Vector3(0.5, 0.1, 0.5) * Settings.BLOCK)
 	await _fast_forward(int(Settings.cast_cool_s * 20.0) + 1)
 	_empty_hand()
-	main._aim_use(Vector3(m_at) + Vector3(0.5, 0.2, 0.5))
+	main._aim_use(Vector3(m_at) + Vector3(0.5, 0.2, 0.5) * Settings.BLOCK)
 	r["head_in_hand"] = inv.inv.count_of("copper_pickaxe_head") == 1
 	var grid := ["copper_pickaxe_head", "stick", "", "", "", "", "", "", ""]
 	r["pickaxe_recipe"] = main.recipes.match_grid(grid).get("id", "")
@@ -172,7 +173,7 @@ func run(p_main: Node) -> void:
 	_stage("sieve")
 	var s_at: Vector3i = spot.call(-6)
 	inv.pickup("sieve", 1)
-	inv.pickup("gravel", 12)
+	inv.pickup("gravel", 12 * main.items.units("gravel"))
 	main._hold("sieve")
 	_click_top(s_at - Vector3i.UP)
 	await tree.create_timer(0.2).timeout
@@ -181,19 +182,29 @@ func run(p_main: Node) -> void:
 	var before: int = main.item_stats["spawned"]
 	for n in 12:
 		main._hold("gravel")
-		main._aim_use(Vector3(s_at) + Vector3(0.5, 0.9, 0.5))
+		main._aim_use(Vector3(s_at) + Vector3(0.5, 0.9, 0.5) * Settings.BLOCK)
 		_empty_hand()
 		for i in SieveEntity.SHAKES:
 			await tree.process_frame
-			main._aim_use(Vector3(s_at) + Vector3(0.5, 0.9, 0.5))
+			main._aim_use(Vector3(s_at) + Vector3(0.5, 0.9, 0.5) * Settings.BLOCK)
 	r["sifts"] = sv.sifted if sv is SieveEntity else 0
 	r["sift_items_spawned"] = main.item_stats["spawned"] - before
-	await _shot(tree, "all", Vector3(spot.call(0)) + Vector3(0.5, 0.0, 0.5), 3.2)
+	await _shot(tree, "all", Vector3(spot.call(0)) + Vector3(0.5, 0.0, 0.5) * Settings.BLOCK, 3.2)
 	_stage("end")
 	r["work"] = main.work.summary()
 	r["quests"] = main.quests.summary() if main.quests else {}
 	r["shots"] = shots
 	print("debug stone_age " + JSON.stringify(r))
+
+
+## Fills the world box [lo, hi) through the bubble in one native call, voxel by voxel when it cannot.
+func _fill(lo: Vector3i, hi: Vector3i, m: int) -> void:
+	if main.bubble.fill_box(lo, hi, m) >= 0:
+		return
+	for z in range(lo.z, hi.z):
+		for y in range(lo.y, hi.y):
+			for x in range(lo.x, hi.x):
+				main.set_world_voxel(Vector3i(x, y, z), m)
 
 
 ## Frame number where a stage starts (lines spikes up with stages).
@@ -205,7 +216,11 @@ func _stage(name: String) -> void:
 
 ## Right click the top face of voxel `t`.
 func _click_top(t: Vector3i) -> void:
-	main._aim_use(Vector3(t) + Vector3(0.5, 0.999, 0.5))
+	var hit: Vector3i = main._aim_use(Vector3(t) + Vector3(0.5, 0.999, 0.5))
+	if not r.has("clicks"):
+		r["clicks"] = []
+	if r["clicks"].size() < 8:   # what the ray hit, for when a placement fails
+		r["clicks"].append({"want": t, "hit": hit, "material": GameMaterials.name_of(main.get_world_voxel(hit)), "eye": Vector3i(main.player.camera.global_position.floor())})
 
 
 func _empty_hand() -> void:
@@ -234,7 +249,7 @@ func _first_missing(c: ClayFormEntity, y: int) -> Vector2i:
 
 ## Left click on a knapping cell, aimed like a player would.
 func _chip(a: Vector3i, cell: Vector2i) -> void:
-	var at := Vector3(a) + Vector3((cell.x + 0.5) / 8.0, 1.0 / 8.0, (cell.y + 0.5) / 8.0)
+	var at := Vector3(a) + Vector3((cell.x + 0.5) / 8.0, 1.0 / 8.0, (cell.y + 0.5) / 8.0) * Settings.BLOCK
 	var cam: Camera3D = main.player.camera
 	var dir := (at - cam.global_position).normalized()
 	main.player.set_look(atan2(-dir.x, -dir.z), asin(dir.y))

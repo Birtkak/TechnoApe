@@ -2,9 +2,11 @@ class_name BlockEntities
 extends RefCounted
 
 ## Block entities by voxel position (ADR 0007): the inventories and state
-## that a voxel id alone cannot hold (chests, furnaces, and the beds and chairs
-## of ADR 0022, which cover several voxels: every covered voxel maps to the
-## anchor through _cells). Created when such a
+## that a voxel id alone cannot hold (chests, furnaces, beds and chairs, work
+## pieces). Every entity covers a footprint of 12.5 cm voxels (ADR 0034): a
+## BLOCK^3 cube with its anchor (pos) at the min corner, furniture its own
+## cells, a torch its one voxel; every covered voxel maps to the anchor through
+## _cells, so at() finds the entity from any of them. Created when such a
 ## block is placed (material "entity" key), lazily when one is opened that
 ## has none (generated or debug-placed blocks), removed with their contents
 ## when the block breaks. Ticked at Minecraft's 20 ticks per second by Main.
@@ -18,7 +20,7 @@ var items: ItemRegistry
 var recipes: RecipeRegistry
 var _by_pos := {}            # Vector3i -> ChestEntity / FurnaceEntity / FurnitureEntity / work pieces
 var _ticking: Array = []     # entities with state over time (furnaces, firepits, pit kilns, molds)
-var _cells := {}             # Vector3i -> anchor of the multi-voxel entity covering it (furniture)
+var _cells := {}             # Vector3i -> anchor of the entity whose footprint covers it
 var ticks := 0
 var dirty := false           # something changed since the last save
 
@@ -36,6 +38,8 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			e = ChestEntity.new(items, pos, kind)
 		"torch":
 			e = TorchEntity.new(pos)
+		"station":
+			e = StationEntity.new(pos)
 		"furnace":
 			e = FurnaceEntity.new(items, recipes, pos)
 			_ticking.append(e)
@@ -61,9 +65,49 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			push_error("unknown block entity kind " + kind)
 			return null
 	_by_pos[pos] = e
+	_register_cells(e)
 	e.changed.connect(_mark_dirty)
 	dirty = true
 	return e
+
+
+const SINGLE := ["torch"]   # entities that are one voxel
+## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
+## a knapping stone or a mold on the ground is one voxel high, a firepit two.
+const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2}
+
+
+## The voxels an entity covers (ADR 0034).
+static func footprint(e: RefCounted) -> Array[Vector3i]:
+	if e is FurnitureEntity:
+		return e.cells
+	if e.kind in SINGLE:
+		return [e.pos]
+	return cube(e.pos, height_of(e.kind))
+
+
+## Footprint height in voxels of a block entity kind.
+static func height_of(p_kind: String) -> int:
+	return int(HEIGHT.get(p_kind, Settings.BLOCK))
+
+
+## BLOCK x height x BLOCK voxels from `anchor` (min corner): a station's or work piece's footprint.
+static func cube(anchor: Vector3i, height: int = Settings.BLOCK) -> Array[Vector3i]:
+	var out: Array[Vector3i] = []
+	var n := Settings.BLOCK
+	for z in n:
+		for y in height:
+			for x in n:
+				out.append(anchor + Vector3i(x, y, z))
+	return out
+
+
+## Where a block-sized thing goes when placed against a face (ADR 0034): x and z
+## snap to the block grid, y is the voxel in front of the face, so it stands on
+## the real ground.
+static func anchor_for(front: Vector3i) -> Vector3i:
+	var n := Settings.BLOCK
+	return Vector3i(floori(float(front.x) / n) * n, front.y, floori(float(front.z) / n) * n)
 
 
 func _mark_dirty() -> void:
@@ -81,8 +125,8 @@ func create_furniture(anchor: Vector3i, furniture: String, facing: int) -> Furni
 	return e
 
 
-func _register_cells(e: FurnitureEntity) -> void:
-	for c in e.cells:
+func _register_cells(e: RefCounted) -> void:
+	for c in footprint(e):
 		_cells[c] = e.pos
 
 
@@ -123,12 +167,13 @@ func all_work() -> Array:
 	return out
 
 
+## The entity whose footprint covers voxel `pos`, or null.
 func at(pos: Vector3i) -> RefCounted:
-	return _by_pos.get(pos)
+	return _by_pos.get(_cells.get(pos, pos))
 
 
 func has(pos: Vector3i) -> bool:
-	return _by_pos.has(pos)
+	return at(pos) != null
 
 
 func get_or_create(pos: Vector3i, kind: String) -> RefCounted:
@@ -145,8 +190,8 @@ func remove(pos: Vector3i) -> Array:
 	var e: RefCounted = _by_pos.get(pos)
 	if e == null:
 		return []
-	if e is FurnitureEntity:
-		for c in e.cells:
+	for c in footprint(e):
+		if _cells.get(c) == pos:
 			_cells.erase(c)
 	_by_pos.erase(pos)
 	_ticking.erase(e)
@@ -198,8 +243,7 @@ func load_dict(d: Dictionary) -> bool:
 				e.load_from(ed, recipes)   # they keep their recipe by id
 			else:
 				e.load_from(ed)
-			if e is FurnitureEntity:
-				_register_cells(e)
+			_register_cells(e)   # furniture knows its cells only after load_from
 	dirty = false
 	return true
 

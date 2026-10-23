@@ -42,6 +42,7 @@ func _ready() -> void:
 	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "grass_top_tile", "grass_side_tile", "far_fade_start", "far_fade_end"]:
 		liquid_material.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
 	prop_material = atlas_material.duplicate()
+	prop_material.shader = load("res://assets/shaders/terrain_prop.gdshader")
 	generator = TerrainGenerator.new()
 	generator.set_seed(Settings.world_seed)
 

@@ -31,7 +31,7 @@ func use(held: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 		if id != "" and not recipes.sift_table(id, "sieve").is_empty():
 			input = id
 			shakes = 0
-			res["consume"] = 1
+			res["consume"] = recipes.items.units(id)   # a block's worth of gravel or sand voxels (ADR 0034)
 			changed.emit()
 		else:
 			res["msg"] = "Load the sieve with gravel or sand."
@@ -57,7 +57,7 @@ func roll(id: String, rng: RandomNumberGenerator) -> Array:
 func contents() -> Array:
 	var out := [{"id": "sieve", "count": 1}]
 	if input != "":
-		out.append({"id": input, "count": 1})
+		out.append({"id": input, "count": recipes.items.units(input)})
 	return out
 
 

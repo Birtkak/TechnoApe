@@ -153,26 +153,39 @@ func _say(text: String) -> void:
 		main.chat.add_message(text)
 
 
-## A new piece goes on the voxel above a solid top face (or, for a sieve,
-## in front of any face); returns the voxel or (-1, -1, -1).
-func _spot_for(hit: VoxelRaycastResult, any_face: bool) -> Vector3i:
+## A piece in world voxels: `v` in blocks from its anchor (a piece is one 0.5 m block, ADR 0034).
+static func _at(p: Vector3i, v: Vector3) -> Vector3:
+	return Vector3(p) + v * Settings.BLOCK
+
+
+## A new piece stands on a solid top face (or, for a sieve or firewood pile, in
+## front of any face): its anchor (BLOCK^3 footprint, BlockEntities.anchor_for)
+## or (-1, -1, -1) when the footprint is not free. Against another piece the
+## new one lines up with it (stacked firewood piles).
+func _spot_for(hit: VoxelRaycastResult, any_face: bool, kind: String = "") -> Vector3i:
 	var t: Vector3i = hit.position
 	var p: Vector3i = hit.previous_position
 	if not any_face and p != t + Vector3i.UP:
 		return Vector3i(-1, -1, -1)
-	if not MobManager.is_solid(main.get_world_voxel(t)):
+	if not MobManager.is_solid(main.get_world_voxel(t)) and not _is_work_voxel(t):
 		return Vector3i(-1, -1, -1)
-	var m: int = main.get_world_voxel(p)
-	if m != GameMaterials.AIR and not (m > 0 and GameMaterials.defs()[m - 1].get("replaceable", false)):
-		return Vector3i(-1, -1, -1)
-	if main.player._overlaps_player(p) and any_face:
-		return Vector3i(-1, -1, -1)
-	return p
+	var anchor := BlockEntities.anchor_for(p)
+	var next_to: RefCounted = main.blocks.at(t)
+	if BlockEntities.is_work(next_to):
+		anchor = next_to.pos + (p - t) * Settings.BLOCK
+	for c in BlockEntities.cube(anchor, BlockEntities.height_of(kind)):
+		var m: int = main.get_world_voxel(c)
+		if m != GameMaterials.AIR and not (m > 0 and GameMaterials.defs()[m - 1].get("replaceable", false)):
+			return Vector3i(-1, -1, -1)
+		if any_face and main.player._overlaps_player(c):
+			return Vector3i(-1, -1, -1)
+	return anchor
 
 
 func _create(p: Vector3i, kind: String, material: int) -> RefCounted:
 	var e: RefCounted = main.blocks.create(p, kind)
-	main.set_world_voxel(p, material)
+	for c in BlockEntities.footprint(e):
+		main.set_world_voxel(c, material)
 	_watch(e)
 	stats["placed"] += 1
 	return e
@@ -194,7 +207,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary) -> bool:
 	if kind == "":
 		return false
 	var solid := kind == "sieve" or kind == "firewood_pile"
-	var p := _spot_for(hit, solid)
+	var p := _spot_for(hit, solid, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
 	var e := _create(p, kind, GameMaterials.WORK_BLOCK if solid else GameMaterials.WORK_SPOT)
@@ -252,27 +265,37 @@ func choose(p: Vector3i, rid: String) -> bool:
 
 # ---------------- working ----------------
 
-## Where the camera ray crosses the horizontal plane `cells` above voxel p's
-## floor, in cells of that voxel (may be outside 0..7); null when it misses.
+## Where the camera ray crosses the horizontal plane `cells` above the floor of
+## the piece anchored at p, in cells of its 8^3 work grid over the whole block
+## (may be outside 0..7); null when it misses.
 static func plane_cell(p: Vector3i, cells: float, from: Vector3, dir: Vector3):
 	if absf(dir.y) < 1e-5:
 		return null
-	var y := float(p.y) + cells / GameMaterials.MICRO_GRID
+	var k := float(Settings.BLOCK) / GameMaterials.MICRO_GRID   # voxels per work cell
+	var y := float(p.y) + cells * k
 	var t := (y - from.y) / dir.y
 	if t <= 0.0:
 		return null
 	var q := from + dir * t
-	return Vector2((q.x - p.x) * GameMaterials.MICRO_GRID, (q.z - p.z) * GameMaterials.MICRO_GRID)
+	return Vector2((q.x - p.x) / k, (q.z - p.z) / k)
+
+
+## Removes a piece and empties its footprint (to `material`, air by default).
+func remove_piece(e: RefCounted, material := GameMaterials.AIR) -> void:
+	var cells := BlockEntities.footprint(e)
+	main.blocks.remove(e.pos)
+	for c in cells:
+		if _is_work_voxel(c):
+			main.set_world_voxel(c, material)
+	forget(e.pos)
 
 
 func _finish(e: RefCounted, out: Dictionary) -> void:
 	var p: Vector3i = e.pos
-	_particles("poof", Vector3(p) + Vector3(0.5, 0.3, 0.5), 0)
-	main.blocks.remove(p)
-	main.set_world_voxel(p, GameMaterials.AIR)
-	forget(p)
+	_particles("poof", _at(p, Vector3(0.5, 0.3, 0.5)), 0)
+	remove_piece(e)
 	if not out.is_empty():
-		main.spawn_item({"id": out["id"], "count": int(out.get("count", 1))}, Vector3(p) + Vector3(0.5, 0.3, 0.5), Vector3(0, 1.5, 0))
+		main.spawn_item({"id": out["id"], "count": int(out.get("count", 1))}, _at(p, Vector3(0.5, 0.3, 0.5)), Vector3(0, 1.5, 0))
 		stats["finished"].append(out["id"])
 
 
@@ -295,15 +318,17 @@ func _is_work_voxel(p: Vector3i) -> bool:
 	return m == GameMaterials.WORK_SPOT or m == GameMaterials.WORK_BLOCK
 
 
-## The work voxel a ray hit: its hit voxel, or the voxel it passed through
-## last when that holds a piece the terrain does not show yet (a new piece
-## lives in the simulation bubble until the next push; the aim ray reads the
-## terrain). (-1, -1, -1) when neither is one.
+## The anchor of the piece a ray hit: through its hit voxel, or the voxel it
+## passed through last when that holds a piece the terrain does not show yet
+## (a new piece lives in the simulation bubble until the next push; the aim ray
+## reads the terrain). (-1, -1, -1) when neither is one.
 func _work_at(hit: VoxelRaycastResult) -> Vector3i:
-	if _is_work_voxel(hit.position):
-		return hit.position
-	if _is_work_voxel(hit.previous_position):
-		return hit.previous_position
+	for v in [hit.position, hit.previous_position]:
+		var e: RefCounted = main.blocks.at(v)
+		if BlockEntities.is_work(e):
+			return e.pos
+		if _is_work_voxel(v):
+			return v   # a stray work voxel without its piece
 	return Vector3i(-1, -1, -1)
 
 
@@ -331,6 +356,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 	if not BlockEntities.is_work(e):
 		main.set_world_voxel(p, GameMaterials.AIR)   # a stray work voxel without its piece
 		return true
+	p = e.pos
 	if e is KnapEntity:
 		if first_press:
 			if not e.has_recipe():
@@ -354,7 +380,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		var res: Dictionary = e.add(int(floor(c.x - 0.5)), int(floor(c.y - 0.5)), balls)
 		stats["clay_cells"] += res["added"]
 		if res["added"] > 0:
-			_particles("block_hit", Vector3(p) + Vector3(c.x / 8.0, e.active_layer() / 8.0 + 0.02, c.y / 8.0), GameMaterials.CLAY)
+			_particles("block_hit", _at(p, Vector3(c.x / 8.0, e.active_layer() / 8.0 + 0.02, c.y / 8.0)), GameMaterials.CLAY)
 		if res["balls_used"] > 0 and _consumes():
 			main.player_inv.consume_held(res["balls_used"])
 		if res["done"]:
@@ -382,12 +408,10 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 			stats["kilns_lit"] += 1 if res["msg"] == "The pit kiln is lit." else 0
 		if res.get("stroke", false):
 			stats["scrapes"] += 1
-			_particles("block_hit", Vector3(p) + Vector3(0.5, 0.08, 0.5), GameMaterials.DIRT)
-		_give(res["give"], Vector3(p) + Vector3(0.5, 0.5, 0.5))
+			_particles("block_hit", _at(p, Vector3(0.5, 0.08, 0.5)), GameMaterials.DIRT)
+		_give(res["give"], _at(p, Vector3(0.5, 0.5, 0.5)))
 		if res["remove"]:
-			main.blocks.remove(p)
-			main.set_world_voxel(p, GameMaterials.AIR)
-			forget(p)
+			remove_piece(e)
 		_say(res["msg"])
 		return true
 	if e is FirepitEntity:
@@ -402,13 +426,13 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		var res: Dictionary = e.use(held, _rng)
 		if sifting != "":
 			var fx: ParticleFx = main.get("fx")
-			_particles("sprint", Vector3(p) + Vector3(0.5, 0.9, 0.5), fx.material_id(sifting) if fx else 0)
+			_particles("sprint", _at(p, Vector3(0.5, 0.9, 0.5)), fx.material_id(sifting) if fx else 0)
 		if res["consume"] > 0 and _consumes():
 			main.player_inv.consume_held(res["consume"])
 		if e.input == "" and res["consume"] == 0 and res["msg"] == "":
 			stats["sifts"] += 1
 		for s in res["drops"]:
-			main.spawn_item(s, Vector3(p) + Vector3(0.5, 1.1, 0.5), Vector3(_rng.randf_range(-1, 1), 2.0, _rng.randf_range(-1, 1)))
+			main.spawn_item(s, _at(p, Vector3(0.5, 1.1, 0.5)), Vector3(_rng.randf_range(-1, 1), 2.0, _rng.randf_range(-1, 1)))
 		if first_press:
 			_say(res["msg"])
 		return true
@@ -440,7 +464,7 @@ func _hit(hit_r: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool
 	var r: String = e.chip(cell.x, cell.y)
 	if r != "":
 		stats["chips"] += 1
-		_particles("block_hit", Vector3(p) + Vector3((cell.x + 0.5) / 8.0, 0.1, (cell.y + 0.5) / 8.0), GameMaterials.FLINT_STONES)
+		_particles("block_hit", _at(p, Vector3((cell.x + 0.5) / 8.0, 0.1, (cell.y + 0.5) / 8.0)), GameMaterials.FLINT_STONES)
 	if r == "done":
 		_finish(e, e.output())
 	return true
@@ -520,14 +544,7 @@ func _use_pile(e: FirewoodPileEntity, hit: VoxelRaycastResult, held: Dictionary,
 	if not first_press:
 		return true
 	if held.has("material"):
-		# soil and stone go against the pile like against any block: that is how a pit is sealed
-		var mat := ItemIcon.material_id_for(main.items, id)
-		var q: Vector3i = hit.previous_position
-		if mat > 0 and main.get_world_voxel(q) == GameMaterials.AIR and not main.player._overlaps_player(q):
-			main.player.voxel_placed.emit(q, mat)
-			if _consumes():
-				main.player_inv.consume_held(1)
-		return true
+		return false   # soil and stone go against the pile like against any block (the brush): that is how a pit is sealed
 	if "firestarter" in held.get("tags", []):
 		if e.state != "wood":
 			_say("This pit is already burning." if e.is_lit() else "Dig out the charcoal.")
@@ -552,19 +569,24 @@ func _use_pile(e: FirewoodPileEntity, hit: VoxelRaycastResult, held: Dictionary,
 const DIRS6: Array[Vector3i] = [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 1, 0), Vector3i(0, -1, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]
 
 
-## Every pile voxel connected to p through faces (one pit), up to 512.
+## The anchors of every pile connected to the one at p through faces (one
+## pit), up to 512. Piles are blocks: a neighbour is the pile covering the
+## voxel just past a face.
 func pit_of(p: Vector3i) -> Array[Vector3i]:
 	var out: Array[Vector3i] = []
-	var seen := {p: true}
-	var todo: Array[Vector3i] = [p]
+	var first: RefCounted = main.blocks.at(p)
+	if not (first is FirewoodPileEntity):
+		return out
+	var seen := {first.pos: true}
+	var todo: Array[Vector3i] = [first.pos]
 	while not todo.is_empty() and out.size() < 512:
 		var q: Vector3i = todo.pop_back()
 		out.append(q)
 		for d in DIRS6:
-			var n: Vector3i = q + d
-			if not seen.has(n) and main.blocks.at(n) is FirewoodPileEntity:
-				seen[n] = true
-				todo.append(n)
+			var n: RefCounted = main.blocks.at(q + d * Settings.BLOCK)
+			if n is FirewoodPileEntity and not seen.has(n.pos):
+				seen[n.pos] = true
+				todo.append(n.pos)
 	return out
 
 
@@ -586,17 +608,38 @@ static func seals(m: int) -> bool:
 	return d.get("cell_type", "") in ["solid", "powder"]
 
 
-## Open faces of a pit: faces of its piles that touch neither another pile of
-## the pit nor a sealing voxel.
+## Open faces of a pit: block faces of its piles that touch neither another
+## pile of the pit nor sealing voxels all across (BLOCK x BLOCK of them).
 func open_faces(pit: Array[Vector3i]) -> int:
 	var inside := {}
 	for p in pit:
 		inside[p] = true
 	var n := 0
+	var b := Settings.BLOCK
 	for p in pit:
 		for d in DIRS6:
-			var q: Vector3i = p + d
-			if not inside.has(q) and not seals(main.get_world_voxel(q)):
+			var next: RefCounted = main.blocks.at(p + d * b)
+			if next != null and inside.has(next.pos):
+				continue
+			# the layer of voxels just outside this face
+			var base := p
+			if d.x != 0:
+				base.x = p.x + b if d.x > 0 else p.x - 1
+			elif d.y != 0:
+				base.y = p.y + b if d.y > 0 else p.y - 1
+			else:
+				base.z = p.z + b if d.z > 0 else p.z - 1
+			var u := Vector3i(0, 1, 0) if d.x != 0 else Vector3i(1, 0, 0)
+			var w := Vector3i(0, 0, 1) if d.z == 0 else Vector3i(0, 1, 0)
+			var open := false
+			for i in b:
+				for j in b:
+					if not seals(main.get_world_voxel(base + u * i + w * j)):
+						open = true
+						break
+				if open:
+					break
+			if open:
 				n += 1
 	return n
 
@@ -619,17 +662,15 @@ func _check_pits() -> void:
 			if p.y > top.y:
 				top = p
 		if open == 0:
-			_particles("smoke", Vector3(top) + Vector3(0.5, 2.1, 0.5), 0)
+			_particles("smoke", _at(top, Vector3(0.5, 2.1, 0.5)), 0)
 			continue
-		_particles("flame", Vector3(top) + Vector3(0.5, 1.1, 0.5), 0)
+		_particles("flame", _at(top, Vector3(0.5, 1.1, 0.5)), 0)
 		if main.blocks.at(pit[0]).grace > 0:
 			continue
 		# open to the air: the wood catches fire and is gone (the simulation's fire may spread)
 		stats["pits_burnt"] += 1
 		for p in pit:
-			main.blocks.remove(p)
-			forget(p)
-			main.set_world_voxel(p, GameMaterials.FIRE)
+			remove_piece(main.blocks.at(p), GameMaterials.FIRE)
 		_say("The charcoal pit was open to the air: the wood burst into flames.")
 	stats["seal_ms_max"] = maxf(stats["seal_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
 

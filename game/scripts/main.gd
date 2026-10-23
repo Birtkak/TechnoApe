@@ -119,6 +119,12 @@ func _ready() -> void:
 	add_child(_furniture_root)
 	for e in blocks.all_furniture():
 		_add_furniture_view(e)
+	_station_root = Node3D.new()
+	_station_root.name = "Stations"
+	add_child(_station_root)
+	for kind in ["station", "chest", "furnace", "storage_pot"]:
+		for e in blocks.all_of(kind):
+			_add_station_view(e)
 	mobs = MobManager.new()
 	mobs.name = "Mobs"
 	add_child(mobs)
@@ -639,6 +645,8 @@ func _on_broken(p: Vector3i, drops: Array) -> void:
 	if furn != null:
 		_remove_furniture(furn, GameMode.rule(player.game_mode, "drops"))
 		return
+	if _break_station(p, drops):
+		return
 	set_world_voxel(p, GameMaterials.AIR)
 	for s in blocks.remove(p):   # chest / furnace contents spill like vanilla; work pieces give their parts back
 		spawn_item(s, Vector3(p) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1.5, 1.5), 2.5, randf_range(-1.5, 1.5)))
@@ -756,6 +764,9 @@ func _use_furniture(p: Vector3i) -> void:
 
 
 func _on_placed(p: Vector3i, material: int) -> void:
+	if material > 0 and GameMaterials.is_station(material):
+		_place_station(p, material)
+		return
 	set_world_voxel(p, material)
 	_spawn_drop_events(farming.on_placed(p, material))
 	if material > 0:
@@ -777,8 +788,80 @@ func _on_health_changed(h: int) -> void:
 	_last_health = h
 
 
+# ---------------- stations (ADR 0007, 0034) ----------------
+
+var _station_root: Node3D
+var _station_views := {}   # anchor -> MeshInstance3D
+
+
+func _place_station(anchor: Vector3i, material: int) -> void:
+	var e: RefCounted = blocks.create(anchor, GameMaterials.defs()[material - 1]["entity"])
+	for c in BlockEntities.footprint(e):
+		set_world_voxel(c, material)
+		stains.clear_cell(c)
+	_add_station_view(e)
+
+
+func _add_station_view(e: RefCounted) -> void:
+	if _station_views.has(e.pos):
+		_station_views[e.pos].queue_free()
+	var m := get_world_voxel(e.pos)
+	if m <= 0 or not GameMaterials.is_station(m):
+		m = GameMaterials.id_of({"station": "crafting_table", "chest": "chest", "furnace": "furnace", "storage_pot": "storage_pot"}.get(e.kind, "chest"))
+	var mi := MeshInstance3D.new()
+	var d: Dictionary = GameMaterials.defs()[m - 1]
+	if d.has("micro"):
+		mi.mesh = _micro_view_mesh(d)
+		mi.position = Vector3(e.pos)
+	else:
+		mi.mesh = BlockMeshes.cube(m, world.prop_material)
+		mi.position = Vector3(e.pos) + Vector3.ONE * (Settings.BLOCK * 0.5)
+	mi.scale = Vector3.ONE * Settings.BLOCK
+	mi.visibility_range_end = 160.0
+	_station_root.add_child(mi)
+	_station_views[e.pos] = mi
+
+
+static var _micro_meshes := {}
+
+## A station drawn from its micro pattern (8 cells per block, the storage pot).
+func _micro_view_mesh(d: Dictionary) -> Mesh:
+	if not _micro_meshes.has(d["name"]):
+		var cells := GameMaterials.micro_pattern(d["micro"], d["tiles"])
+		var g := GameMaterials.MICRO_GRID
+		var mesh: ArrayMesh = MobModel.outward(MicroMesher.build(cells, Vector3i(g, g, g), g, GameMaterials.micro_paint_tiles(), GameMaterials.ATLAS_TILES, Vector3.ZERO))
+		mesh.surface_set_material(0, world.prop_material)
+		_micro_meshes[d["name"]] = mesh
+	return _micro_meshes[d["name"]]
+
+
+## Breaks a whole station from any of its voxels: the footprint empties, the
+## view goes, contents spill. Returns false when `p` is not part of one.
+func _break_station(p: Vector3i, drops: Array) -> bool:
+	var e: RefCounted = blocks.at(p)
+	if e == null or not (e.kind in ["station", "chest", "furnace", "storage_pot"]):
+		return false
+	var anchor: Vector3i = e.pos
+	var centre := Vector3(anchor) + Vector3.ONE * (Settings.BLOCK * 0.5)
+	for c in BlockEntities.footprint(e):
+		var m := get_world_voxel(c)
+		if m > 0 and GameMaterials.is_station(m):
+			set_world_voxel(c, GameMaterials.AIR)
+	for s in blocks.remove(anchor):
+		spawn_item(s, centre, Vector3(randf_range(-1.5, 1.5), 2.5, randf_range(-1.5, 1.5)))
+	for d in drops:
+		spawn_item(d, centre, Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+	if _station_views.has(anchor):
+		_station_views[anchor].queue_free()
+		_station_views.erase(anchor)
+	return true
+
+
 ## Right click on a station block (ADR 0007).
 func _on_block_used(p: Vector3i, material: int) -> void:
+	var at: RefCounted = blocks.at(p)
+	if at != null and not (at is FurnitureEntity):
+		p = at.pos   # any voxel of a station opens the one at its anchor
 	var d: Dictionary = GameMaterials.defs()[material - 1]
 	var kind: String = d.get("interact", "")
 	match kind:
@@ -790,7 +873,7 @@ func _on_block_used(p: Vector3i, material: int) -> void:
 		"chest", "furnace":
 			var e := blocks.get_or_create(p, d.get("entity", kind))
 			if material == GameMaterials.FURNACE_LIT and not e.is_lit():
-				set_world_voxel(p, GameMaterials.FURNACE)   # lit block without fire (older save): put it out
+				_set_station_material(e, GameMaterials.FURNACE)   # lit block without fire (older save): put it out
 			player.set_ui_open(true, false)
 			inv_screen.open_container(e)
 
@@ -804,7 +887,14 @@ func _on_lit_flipped(p: Vector3i) -> void:
 			spawn_item(s, Vector3(p) + Vector3(0.5, 0.5, 0.5))
 		return
 	var e: FurnaceEntity = blocks.at(p)
-	set_world_voxel(p, GameMaterials.FURNACE_LIT if e.is_lit() else GameMaterials.FURNACE)
+	_set_station_material(e, GameMaterials.FURNACE_LIT if e.is_lit() else GameMaterials.FURNACE)
+
+
+## Swaps a station's footprint to another material (furnace <-> lit furnace) and redraws it.
+func _set_station_material(e: RefCounted, material: int) -> void:
+	for c in BlockEntities.footprint(e):
+		set_world_voxel(c, material)
+	_add_station_view(e)
 
 
 ## Debug (with open_inventory=1): search=text filters the item list,
@@ -1250,25 +1340,33 @@ func _aim_attack(at: Vector3) -> void:
 	player._attack()
 
 
+## Debug: fills the world box [lo, hi) through the bubble in one native call, voxel by voxel when it cannot.
+func _debug_fill(lo: Vector3i, hi: Vector3i, m: int) -> void:
+	if bubble.fill_box(lo, hi, m) >= 0:
+		return
+	for z in range(lo.z, hi.z):
+		for y in range(lo.y, hi.y):
+			for x in range(lo.x, hi.x):
+				set_world_voxel(Vector3i(x, y, z), m)
+
+
 ## Debug (hands_test=1): till, sow, place a chair and a bed, sit, feed, shear,
 ## kill a sheep and eat, all through the player's input code; prints one JSON line.
 func _debug_hands() -> void:
 	var r := {}
 	await get_tree().create_timer(0.6).timeout
 	player.autopilot_action = "look"
-	var base := Vector3i(player.position.floor())
-	var fwd := Vector3i(0, 0, -1)
-	var gy := func(x: int, z: int) -> int: return world.surface_height(x, z)
-	# clear a 9 x 9 patch of plants so the aim ray hits the ground
-	for dx in range(-4, 5):
-		for dz in range(-8, 1):
-			var g: int = gy.call(base.x + dx, base.z + dz)
-			for k in range(1, 4):
-				set_world_voxel(Vector3i(base.x + dx, g + k, base.z + dz), GameMaterials.AIR)
-			set_world_voxel(Vector3i(base.x + dx, g, base.z + dz), GameMaterials.GRASS)
-	await get_tree().create_timer(0.5).timeout   # the cleared patch reaches the terrain the aim ray reads
-	base = Vector3i(player.position.floor())
-	var soil := Vector3i(base.x, gy.call(base.x, base.z - 3), base.z - 3)
+	# a flat 9 x 9 block patch of grass on the block grid (ADR 0034), so the aim ray hits the ground
+	var B := Settings.BLOCK
+	var base := BlockEntities.anchor_for(Vector3i(player.position.floor()))
+	var g0 := floori(float(world.surface_height(base.x, base.z)) / B) * B - 1
+	var lo := Vector3i(base.x - 4 * B, g0 - B, base.z - 8 * B)
+	var hi := Vector3i(base.x + 5 * B, g0 + 1, base.z + B)
+	_debug_fill(lo, Vector3i(hi.x, g0, hi.z), GameMaterials.DIRT)
+	_debug_fill(Vector3i(lo.x, g0, lo.z), hi, GameMaterials.GRASS)
+	_debug_fill(Vector3i(lo.x, g0 + 1, lo.z), Vector3i(hi.x, g0 + 1 + 4 * B, hi.z), GameMaterials.AIR)
+	await get_tree().create_timer(1.0).timeout   # the cleared patch reaches the terrain the aim ray reads
+	var soil := Vector3i(base.x, g0, base.z - 3 * B)
 	_hold("flint_hoe")
 	r["hoe_aim"] = _aim_use(Vector3(soil) + Vector3(0.5, 0.99, 0.5)) == soil
 	r["tilled"] = GameMaterials.name_of(get_world_voxel(soil))
@@ -1277,18 +1375,18 @@ func _debug_hands() -> void:
 	r["sown"] = GameMaterials.name_of(get_world_voxel(soil + Vector3i.UP))
 	r["crops"] = farming.crops.size()
 	# chair two to the right, bed three to the left
-	var cp := Vector3i(base.x + 2, gy.call(base.x + 2, base.z - 3), base.z - 3)
+	var cp := Vector3i(base.x + 2 * B, g0, base.z - 3 * B)
 	_hold("chair")
 	r["chair_aim"] = _aim_use(Vector3(cp) + Vector3(0.5, 0.99, 0.5)) == cp
 	var ch := blocks.furniture_at(cp + Vector3i.UP)
 	r["chair"] = ch.summary() if ch != null else "not placed"
 	await get_tree().create_timer(0.3).timeout
 	if ch != null:
-		_aim_use(Vector3(cp) + Vector3(0.5, 1.5, 0.5))
+		_aim_use(Vector3(cp + Vector3i.UP) + Vector3(0.5, 0.5, 0.5) * B)
 		r["sitting"] = player.seat != Vector3.INF
 		player.stand_up()
 		r["stood_up_at"] = player.position.snapped(Vector3.ONE * 0.1)
-	var bp := Vector3i(base.x - 3, gy.call(base.x - 3, base.z - 2), base.z - 2)
+	var bp := Vector3i(base.x - 3 * B, g0, base.z - 2 * B)
 	_hold("bed")
 	r["bed_aim"] = _aim_use(Vector3(bp) + Vector3(0.5, 0.99, 0.5)) == bp
 	var bed := blocks.furniture_at(bp + Vector3i.UP)
@@ -1296,12 +1394,12 @@ func _debug_hands() -> void:
 	await get_tree().create_timer(0.3).timeout   # the bed's voxels reach the terrain the aim ray reads
 	if bed != null:
 		atmosphere.set_time_of_day(0.9)
-		_aim_use(Vector3(bed.cells[0]) + Vector3(0.5, 0.9, 0.5))
+		_aim_use(Vector3(bed.pos) + Vector3(0.5, 0.9, 0.5) * B)
 		r["time_after_sleep"] = snappedf(atmosphere.time_of_day, 0.01)
 		r["spawn_after_sleep"] = _spawn_pos.snapped(Vector3.ONE * 0.1)
 	# a sheep ahead: feed, shear, kill
-	var sp := Vector3i(base.x, gy.call(base.x, base.z - 5) + 1, base.z - 5)
-	var sheep := mobs.spawn("sheep", Vector3(sp) + Vector3(0.5, 0.05, 0.5))
+	var sp := Vector3i(base.x, g0 + 1, base.z - 5 * B)
+	var sheep := mobs.spawn("sheep", Vector3(sp) + Vector3(0.5, 0.05, 0.5) * B)
 	await get_tree().create_timer(0.3).timeout
 	_hold("wheat")
 	var before := player_inv.inv.count_of("wheat")
@@ -1318,7 +1416,7 @@ func _debug_hands() -> void:
 		if not is_instance_valid(sheep) or sheep.is_dead():
 			break
 		player._attack_cooldown = 0.0
-		sheep.position = Vector3(sp) + Vector3(0.5, 0.05, 0.5)   # it panics away between hits: bring it back in reach
+		sheep.position = Vector3(sp) + Vector3(0.5, 0.05, 0.5) * B   # it panics away between hits: bring it back in reach
 		_aim_attack(sheep.aabb().get_center())
 		hits += 1
 		await get_tree().create_timer(0.55).timeout

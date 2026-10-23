@@ -1,7 +1,7 @@
 class_name FurnitureEntity
 extends RefCounted
 
-## A bed, straw bed (ADR 0030) or chair (ADR 0022): furniture is bigger than one 0.5 m voxel, so it
+## A bed, straw bed (ADR 0030) or chair (ADR 0022): furniture is bigger than one 0.5 m block, so it
 ## is a block entity that fills its footprint with invisible FURNITURE voxels
 ## (full collision, the aim ray hits them) and draws one rotated micro-voxel
 ## mesh (8 cells per voxel, the chisel grid of ADR 0006) with its own palette.
@@ -12,7 +12,8 @@ extends RefCounted
 signal changed
 
 const DIRS: Array[Vector3i] = [Vector3i(0, 0, 1), Vector3i(1, 0, 0), Vector3i(0, 0, -1), Vector3i(-1, 0, 0)]
-## kind -> footprint in voxels (x across, y up, z along the facing) and the model's cell grid size.
+## kind -> footprint in 0.5 m blocks (x across, y up, z along the facing; BLOCK voxels each,
+## ADR 0034) and the model's cell grid size (8 cells per block).
 const KINDS := {
 	"bed": {"size": Vector3i(2, 1, 4), "cells": Vector3i(16, 12, 32), "item": "bed", "sleep": true},
 	"straw_bed": {"size": Vector3i(2, 1, 4), "cells": Vector3i(16, 6, 32), "item": "straw_bed", "sleep": true},
@@ -34,7 +35,9 @@ func _init(p_pos: Vector3i, p_furniture: String = "", p_facing: int = 0) -> void
 		cells = footprint(furniture, pos, facing)
 
 
-## The voxels a piece of furniture covers when anchored at `anchor`.
+## The voxels a piece of furniture covers when anchored at `anchor` (the min
+## corner of its anchor block): whole blocks of BLOCK^3 voxels laid out from
+## the anchor block across (right), up and along the facing (ADR 0034).
 static func footprint(p_kind: String, anchor: Vector3i, p_facing: int) -> Array[Vector3i]:
 	var out: Array[Vector3i] = []
 	var size: Vector3i = KINDS[p_kind]["size"]
@@ -43,7 +46,7 @@ static func footprint(p_kind: String, anchor: Vector3i, p_facing: int) -> Array[
 	for lx in size.x:
 		for ly in size.y:
 			for lz in size.z:
-				out.append(anchor + right * lx + Vector3i.UP * ly + fwd * lz)
+				out.append_array(BlockEntities.cube(anchor + (right * lx + Vector3i.UP * ly + fwd * lz) * Settings.BLOCK))
 	return out
 
 
@@ -70,10 +73,16 @@ func contents() -> Array:
 func seat() -> Vector3:
 	var fwd := Vector3(DIRS[facing])
 	var right := Vector3(fwd.z, 0, -fwd.x)
-	var base := Vector3(pos) + Vector3(0.5, 0, 0.5)
+	var b := float(Settings.BLOCK)
+	var base := _block_centre()
 	if KINDS.get(furniture, {}).get("sleep", false):
-		return base + right * 0.5 + fwd * 1.5 + Vector3(0, 1.0, 0)
-	return base + Vector3(0, 1.0, 0)
+		return base + (right * 0.5 + fwd * 1.5 + Vector3(0, 1.0, 0)) * b
+	return base + Vector3(0, 1.0, 0) * b
+
+
+## The floor centre of the anchor block (pos is its min corner).
+func _block_centre() -> Vector3:
+	return Vector3(pos) + Vector3(0.5, 0, 0.5) * Settings.BLOCK
 
 
 func yaw() -> float:
@@ -145,8 +154,9 @@ func make_view() -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh_for(furniture)
 	mi.material_override = material()
-	mi.position = Vector3(pos) + Vector3(0.5, 0, 0.5)
+	mi.position = _block_centre()
 	mi.rotation.y = yaw()
+	mi.scale = Vector3.ONE * Settings.BLOCK
 	mi.visibility_range_end = 160.0
 	return mi
 
