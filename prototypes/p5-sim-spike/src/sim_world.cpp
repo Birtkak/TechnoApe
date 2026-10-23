@@ -174,6 +174,7 @@ static uint8_t clamp8(double v) { return (uint8_t)std::clamp(v, 0.0, 255.0); }
 void SimWorld::set_materials(const Array &p_defs) {
     mats_.clear();
     mats_.resize(1); // air
+    for (int16_t &s : slot_material_) s = 0;
     any_fire_ = false;
     for (int i = 0; i < p_defs.size() && mats_.size() < MAX_MATERIALS; i++) {
         Dictionary d = p_defs[i];
@@ -186,6 +187,7 @@ void SimWorld::set_materials(const Array &p_defs) {
         else m.cell_type = CELL_LIQUID;
         if (m.cell_type == CELL_LIQUID && dget_b(d, "liquid_sand", false)) m.cell_type = CELL_POWDER;   // Noita spelling
         m.liquid_static = dget_b(d, "liquid_static", false);
+        m.fluid_slot = (int8_t)std::clamp(dget_int(d, "fluid_slot", -1), -1, 31);
         m.burnable = dget_b(d, "burnable", false);
         m.density = clamp8(dget_f(d, "density", 1.0) * 16.0);
         m.disp = (uint8_t)std::clamp((int)std::lround(dget_f(d, "liquid_flow_speed", 0.9) * MAX_DISP), 0, MAX_DISP);
@@ -221,6 +223,7 @@ void SimWorld::set_materials(const Array &p_defs) {
             m.erode = (uint16_t)std::clamp((int)std::lround(ec * 65535.0), 0, 65535);
         }
         if (m.cell_type == CELL_FIRE || m.burnable) any_fire_ = true;
+        if (m.fluid_slot >= 0 && !m.liquid_static && slot_material_[m.fluid_slot] == 0) slot_material_[m.fluid_slot] = (int16_t)mats_.size();
         mats_.push_back(m);
     }
     rebuild_reaction_lut();
@@ -1130,8 +1133,16 @@ PackedByteArray SimWorld::get_chunk_bytes(Vector3i c, int p_depth_bytes) const {
     int x0 = c.x * CS, y0 = c.y * CS, z0 = c.z * CS;
     for (int z = 0; z < CS; z++)
         for (int x = 0; x < CS; x++)
-            for (int y = 0; y < CS; y++)
-                w[(y + CS * (x + CS * z)) * bpv] = cells_[idx(x0 + x, y0 + y, z0 + z)].mat;
+            for (int y = 0; y < CS; y++) {
+                const Cell &cell = cells_[idx(x0 + x, y0 + y, z0 + z)];
+                const int o = (y + CS * (x + CS * z)) * bpv;
+                int v = cell.mat;
+                const int e = cell.pad & 15;   // liquid fullness in eighths, 0 = full
+                if (bpv == 2 && e && mats_[cell.mat].fluid_slot >= 0 && mats_[cell.mat].cell_type == CELL_LIQUID)
+                    v = FLUID_LEVEL_BASE + mats_[cell.mat].fluid_slot * 8 + (e - 1);
+                w[o] = (uint8_t)(v & 0xFF);
+                if (bpv == 2) w[o + 1] = (uint8_t)(v >> 8);
+            }
     return out;
 }
 
@@ -1146,9 +1157,20 @@ void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p
     for (int z = 0; z < CS; z++)
         for (int x = 0; x < CS; x++)
             for (int y = 0; y < CS; y++) {
-                uint8_t m = r[(y + CS * (x + CS * z)) * bpv];
-                if (m >= mats_.size()) m = 0;
-                place(idx(x0 + x, y0 + y, z0 + z), m);
+                const int o = (y + CS * (x + CS * z)) * bpv;
+                int v = bpv == 2 ? (r[o] | (r[o + 1] << 8)) : r[o];
+                int e = 0;
+                if (v >= FLUID_LEVEL_BASE) {   // a partly full liquid cell from the terrain
+                    const int k = v - FLUID_LEVEL_BASE;
+                    const int slot = k / 8;
+                    e = k % 8 + 1;
+                    v = slot < 32 ? slot_material_[slot] : 0;
+                    if (e >= 8) e = 0;
+                }
+                if (v >= (int)mats_.size()) v = 0;
+                const int ci = idx(x0 + x, y0 + y, z0 + z);
+                place(ci, (uint8_t)v);
+                if (e) cells_[ci].pad = (uint8_t)e;
             }
     int ci = cidx(c.x, c.y, c.z);
     wake_full(ci); // let it settle once

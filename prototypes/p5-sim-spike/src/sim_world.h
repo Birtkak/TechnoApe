@@ -42,10 +42,16 @@ public:
     static constexpr int CS = 16;
     static constexpr int MAX_MATERIALS = 256;
     static constexpr int MAX_DISP = 7; // must stay < CS/2 for the parity scheme
+    // Partly full liquid cells in the terrain (Minecraft-style fluid models, one per level):
+    // voxel value FLUID_LEVEL_BASE + fluid_slot * 8 + (eighths - 1) for 1..7 eighths; a full
+    // cell keeps its material id. get_chunk_bytes / set_chunk_bytes (2 bytes) encode and
+    // decode it, so the terrain shows the fullness and a reload restores it.
+    static constexpr int FLUID_LEVEL_BASE = 256;
 
     struct MaterialDef {
         uint8_t cell_type = CELL_GAS; // air default
         bool liquid_static = false;    // ground: never moves
+        int8_t fluid_slot = -1;        // terrain fluid models (FLUID_LEVEL_BASE), -1 = drawn as a cube
         bool burnable = false;
         uint8_t density = 0;           // 0..255 (Noita 0..15 scaled by 16)
         uint8_t disp = 0;              // lateral dispersion cells for liquids (from liquid_flow_speed)
@@ -215,6 +221,7 @@ private:
 
     struct Cell { uint8_t mat, flags, aux, pad; }; // 4 bytes, one cache line touch per voxel
     std::vector<Cell> cells_;
+    int16_t slot_material_[32];         // fluid_slot -> the moving material that a partial level decodes to
     std::vector<uint8_t> displace_lut_; // [mover*256+target] -> 1 if mover may swap into target
     std::vector<uint16_t> moved_;
     std::unique_ptr<std::atomic<uint8_t>[]> active_now_;

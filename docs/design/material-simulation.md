@@ -142,6 +142,21 @@ Memory: 4 bytes per voxel core; a 16³ chunk = 16 KB; a 128³ active region
   next to the hotbar. `/stain <kind|clear>` for playtests; the snapshot JSON lists
   them under `player_stains`.
 
+- **Liquids settle into layers (2026-10-23, developer: "make liquids settle
+  more ... now it looks like blocks of liquids", "connect to neighbour cells
+  like MC does"):** the game's SimWorld runs with liquid fullness on (a cell
+  holds 1..8 eighths, mass conserved; research doc section 6), so a spill
+  spreads into a thin sheet. The terrain draws every liquid with a
+  `fluid_slot` as a godot_voxel `VoxelBlockyFluid`: the full cell is the
+  material's own voxel id, 1..7 eighths are fixed voxel ids from
+  `FLUID_LEVEL_BASE` (256) + slot * 8, written by `get_chunk_bytes` and read
+  back by `set_chunk_bytes`, so reloads keep the level. The blocky mesher
+  raises each top corner to the highest neighbouring level and dips edges
+  over drops, so surfaces slope and pour like Minecraft's;
+  `terrain_fluid.gdshader` textures them from world position and scrolls the
+  texture along the flow. `World.get_voxel` returns the liquid's material
+  for a partial level. Static lake water is always full.
+
 ### 2.4 Chunks, activity and threads (already proven in P5)
 - 16³ chunks; per-chunk `active` (anything moved or was woken last tick),
   `dirty_mesh` (contents changed since last push), `edited` (differs from

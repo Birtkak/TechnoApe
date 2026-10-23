@@ -69,6 +69,12 @@ const SULFUR := 55                 # yellow crust on sulfur cave floors and ceil
 const OBSIDIAN := 56               # lava quenched by water
 
 const ATLAS_TILES := Vector2i(8, 7)
+# Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
+# VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
+# eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
+# above every material id, so new materials never move them (saves stay valid).
+# Same constant as SimWorld::FLUID_LEVEL_BASE.
+const FLUID_LEVEL_BASE := 256
 const MICRO_GRID := 8       # cells per voxel edge for micro models and chisels (6.25 cm)
 
 
@@ -78,11 +84,11 @@ static func defs() -> Array:
 		{"name": "dirt", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [1, 1, 1], "transparent": false},
 		{"name": "grass", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [2, 3, 1], "transparent": false},
 		{"name": "sand", "cell_type": "powder", "density": 3, "tiles": [4, 4, 4], "transparent": false},
-		{"name": "water", "cell_type": "liquid", "density": 1, "liquid_flow_speed": 1.0, "tiles": [5, 5, 5], "transparent": true},
+		{"name": "water", "cell_type": "liquid", "fluid_slot": 0, "density": 1, "liquid_flow_speed": 1.0, "tiles": [5, 5, 5], "transparent": true},
 		{"name": "wood", "cell_type": "solid", "density": 10, "burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [6, 6, 6], "transparent": false},
-		{"name": "lava", "cell_type": "liquid", "density": 5, "liquid_flow_speed": 0.3, "liquid_gravity": 0.3, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false},
+		{"name": "lava", "cell_type": "liquid", "fluid_slot": 1, "density": 5, "liquid_flow_speed": 0.3, "liquid_gravity": 0.3, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false},
 		{"name": "ash", "cell_type": "powder", "density": 2, "tiles": [8, 8, 8], "transparent": false},
-		{"name": "oil", "cell_type": "liquid", "density": 0.8, "liquid_flow_speed": 0.6, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
+		{"name": "oil", "cell_type": "liquid", "fluid_slot": 2, "density": 0.8, "liquid_flow_speed": 0.6, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
 		{"name": "steam", "cell_type": "gas", "density": 0, "gas_upwards_speed": 200, "gas_horizontal_speed": 60, "lifetime": 180, "tiles": [10, 10, 10], "transparent": true},
 		{"name": "smoke", "cell_type": "gas", "density": 0, "gas_upwards_speed": 120, "gas_horizontal_speed": 90, "lifetime": 240, "tiles": [11, 11, 11], "transparent": true},
 		{"name": "fire", "cell_type": "fire", "density": 0, "lifetime": 24, "temperature_of_fire": 60, "gas_upwards_speed": 120, "gas_horizontal_speed": 80, "tiles": [12, 12, 12], "transparent": true},
@@ -96,7 +102,7 @@ static func defs() -> Array:
 		{"name": "leaves", "cell_type": "solid", "density": 10, "hp": 20, "burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [20, 20, 20], "transparent": true},
 		{"name": "sand_static", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [4, 4, 4], "transparent": false, "loose": 4},
 		{"name": "gravel_static", "cell_type": "powder", "liquid_static": true, "density": 4, "tiles": [15, 15, 15], "transparent": false, "loose": 15},
-		{"name": "water_static", "cell_type": "liquid", "liquid_static": true, "density": 1, "tiles": [5, 5, 5], "transparent": true, "loose": 5},
+		{"name": "water_static", "cell_type": "liquid", "fluid_slot": 0, "liquid_static": true, "density": 1, "tiles": [5, 5, 5], "transparent": true, "loose": 5},
 		{"name": "sandstone", "cell_type": "solid", "density": 10, "hp": 600, "tiles": [21, 21, 21], "transparent": false},
 		{"name": "clay", "cell_type": "solid", "density": 9, "hp": 300, "tiles": [22, 22, 22], "transparent": false},
 		{"name": "tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 23, 23], "transparent": false, "micro": "tuft"},
@@ -121,7 +127,7 @@ static func defs() -> Array:
 		{"name": "glow_mushroom", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [45, 42, 42], "transparent": false, "micro": "mushroom"},
 		{"name": "moss", "cell_type": "solid", "density": 10, "hp": 8, "burnable": true, "fire_hp": 40, "autoignition_temperature": 35, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [46, 46, 46], "transparent": false, "micro": "carpet"},
 		# lifetime in sim ticks (30 Hz): the puddle soaks into the ground after ~7 s; the stain stays
-		{"name": "blood", "cell_type": "liquid", "density": 1.1, "liquid_flow_speed": 0.7, "lifetime": 200, "tiles": [47, 47, 47], "transparent": true},
+		{"name": "blood", "cell_type": "liquid", "fluid_slot": 3, "density": 1.1, "liquid_flow_speed": 0.7, "lifetime": 200, "tiles": [47, 47, 47], "transparent": true},
 		# ground pickups: hardness 0 in mining.json, they drop loose items (ADR 0019)
 		{"name": "copper_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [18, 18, 18], "transparent": false, "micro": "ore_stones"},
 		{"name": "tin_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [19, 19, 19], "transparent": false, "micro": "ore_stones"},
@@ -129,8 +135,8 @@ static func defs() -> Array:
 		{"name": "flint_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [13, 13, 13], "transparent": false, "micro": "pebbles"},
 		{"name": "twigs", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 20, "autoignition_temperature": 20, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [26, 26, 26], "transparent": false, "micro": "twigs"},
 		# sulfur caves (biomes.json sulfur_cave) and Noita chemistry (reactions below)
-		{"name": "toxic_sludge", "cell_type": "liquid", "density": 1.3, "liquid_flow_speed": 0.4, "tiles": [48, 48, 48], "transparent": true},
-		{"name": "toxic_sludge_static", "cell_type": "liquid", "liquid_static": true, "density": 1.3, "tiles": [48, 48, 48], "transparent": true, "loose": 53},
+		{"name": "toxic_sludge", "cell_type": "liquid", "fluid_slot": 4, "density": 1.3, "liquid_flow_speed": 0.4, "tiles": [48, 48, 48], "transparent": true},
+		{"name": "toxic_sludge_static", "cell_type": "liquid", "fluid_slot": 4, "liquid_static": true, "density": 1.3, "tiles": [48, 48, 48], "transparent": true, "loose": 53},
 		{"name": "sulfur", "cell_type": "solid", "density": 10, "hp": 400, "tiles": [49, 49, 49], "transparent": false},
 		{"name": "obsidian", "cell_type": "solid", "density": 12, "hp": 6000, "tiles": [50, 50, 50], "transparent": false},
 	]
@@ -152,6 +158,30 @@ static func reactions() -> Array:
 	]
 
 
+## The material a terrain voxel value stands for (partly full liquids -> their liquid).
+static func material_of_voxel(v: int) -> int:
+	if v < FLUID_LEVEL_BASE:
+		return v
+	return _slot_materials().get((v - FLUID_LEVEL_BASE) / 8, 0)
+
+
+## Eighths of liquid in a terrain voxel value (8 for anything that is not a partial level).
+static func eighths_of_voxel(v: int) -> int:
+	return (v - FLUID_LEVEL_BASE) % 8 + 1 if v >= FLUID_LEVEL_BASE else 8
+
+
+static var _slot_mats := {}
+
+## fluid_slot -> the moving liquid (static kinds share their liquid's slot).
+static func _slot_materials() -> Dictionary:
+	if _slot_mats.is_empty():
+		var d := defs()
+		for i in d.size():
+			if d[i].has("fluid_slot") and not d[i].get("liquid_static", false) and not _slot_mats.has(int(d[i]["fluid_slot"])):
+				_slot_mats[int(d[i]["fluid_slot"])] = i + 1
+	return _slot_mats
+
+
 static func name_of(id: int) -> String:
 	if id == 0:
 		return "air"
@@ -166,10 +196,23 @@ static func name_of(id: int) -> String:
 ## mesher, neighbours keep their faces, the shape comes from the block entity.
 ## `liquid_material`: see-through material for non-powder liquids, gases and
 ## fire (null = draw them opaque with the atlas material).
-static func build_library(atlas_material: Material, liquid_material: Material = null) -> VoxelBlockyLibrary:
+## `fluid_materials`: fluid_slot -> material for Minecraft-style liquid surfaces
+## (terrain_fluid.gdshader); empty = liquids stay cubes. With them, every liquid
+## with a fluid_slot is a VoxelBlockyModelFluid at full level, and the partial
+## levels follow at FLUID_LEVEL_BASE (empty models fill the gap).
+static func build_library(atlas_material: Material, liquid_material: Material = null, fluid_materials: Dictionary = {}) -> VoxelBlockyLibrary:
 	var lib := VoxelBlockyLibrary.new()
 	var models: Array = [VoxelBlockyModelEmpty.new()]
+	var fluids := {}   # slot -> VoxelBlockyFluid
+	for slot in fluid_materials:
+		var f := VoxelBlockyFluid.new()
+		f.material = fluid_materials[slot]
+		f.dip_when_flowing_down = true
+		fluids[slot] = f
 	for d in defs():
+		if d.has("fluid_slot") and fluids.has(int(d["fluid_slot"])):
+			models.append(_fluid_model(fluids[int(d["fluid_slot"])], 8, d.get("transparent", false)))
+			continue
 		if d.has("micro"):
 			models.append(_micro_model(d["micro"], d["tiles"], atlas_material))
 			continue
@@ -203,9 +246,32 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 			cube.collision_mask = 0
 			cube.set_mesh_collision_enabled(0, false)
 		models.append(cube)
+	if not fluids.is_empty():
+		while models.size() < FLUID_LEVEL_BASE:
+			models.append(VoxelBlockyModelEmpty.new())
+		var transparent := {}
+		for d in defs():
+			if d.has("fluid_slot"):
+				transparent[int(d["fluid_slot"])] = d.get("transparent", false)
+		for slot in range(0, fluids.keys().max() + 1):
+			for e in range(1, 9):
+				if e < 8 and fluids.has(slot):
+					models.append(_fluid_model(fluids[slot], e, transparent.get(slot, false)))
+				else:
+					models.append(VoxelBlockyModelEmpty.new())
 	lib.models = models
 	lib.bake()
 	return lib
+
+
+static func _fluid_model(fluid: VoxelBlockyFluid, level: int, transparent: bool) -> VoxelBlockyModelFluid:
+	var m := VoxelBlockyModelFluid.new()
+	m.fluid = fluid
+	m.level = level
+	m.collision_mask = 0   # swum through, like every liquid (ADR 0011)
+	if transparent:
+		m.transparency_index = 1
+	return m
 
 
 ## Micro-voxel model (ADR 0006): a pattern on the MICRO_GRID^3 cell grid (6.25 cm

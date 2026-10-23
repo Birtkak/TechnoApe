@@ -44,8 +44,18 @@ func _ready() -> void:
 	generator = TerrainGenerator.new()
 	generator.set_seed(Settings.world_seed)
 
+	# Minecraft-style liquid surfaces with levels (terrain_fluid.gdshader), one material per liquid
+	var fluid_materials := {}
+	for d in GameMaterials.defs():
+		if d.has("fluid_slot") and not d.get("liquid_static", false):
+			var fm := ShaderMaterial.new()
+			fm.shader = load("res://assets/shaders/terrain_fluid.gdshader" if d.get("transparent", false) else "res://assets/shaders/terrain_fluid_opaque.gdshader")
+			for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile"]:
+				fm.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
+			fm.set_shader_parameter("fluid_tile", float(d["tiles"][0]))
+			fluid_materials[int(d["fluid_slot"])] = fm
 	var mesher := VoxelMesherBlocky.new()
-	mesher.library = GameMaterials.build_library(atlas_material, liquid_material)
+	mesher.library = GameMaterials.build_library(atlas_material, liquid_material, fluid_materials)
 
 	terrain = VoxelLodTerrain.new()
 	terrain.name = "Terrain"
@@ -119,8 +129,10 @@ func is_area_loaded(wc: Vector3i) -> bool:
 	return _tool.is_area_editable(AABB(Vector3(wc * Settings.CHUNK), Vector3.ONE * Settings.CHUNK))
 
 
+## The material at a world voxel (a partly full liquid reads as its liquid).
 func get_voxel(p: Vector3i) -> int:
-	return _tool.get_voxel(p)
+	var v := _tool.get_voxel(p)
+	return v if v < GameMaterials.FLUID_LEVEL_BASE else GameMaterials.material_of_voxel(v)
 
 
 func set_voxel(p: Vector3i, material: int) -> void:
