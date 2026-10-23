@@ -33,6 +33,16 @@ A voxel game that mixes **Minecraft with GregTech vibes** and **Noita**:
 - Exploration therefore feeds both loops: deeper/further for better ore,
   dungeons for spell ingredients and wands.
 
+### Progression feel (2026-10-22)
+- **Slow-burning early game: GregTech: New Horizons meets Vintage Story.**
+  Flint tools first, shave bark, sift gravel for nuggets; copper before
+  iron; an iron pickaxe takes real grinding. Ages: flint, copper, bronze,
+  iron, steel. Plan: `progression.md`, ADR 0019.
+- Vintage Story smithing (heat, anvil, hammer to a shape), food and cooking
+  with a **hunger bar** (survival pressure: yes, hunger), beds that skip the
+  night, saplings, a sun and moon, and loose pickups on the ground
+  (stones, flint, sticks, ore-bearing stones above veins).
+
 ### Interaction model (2026-10-21)
 - **Mining, picking up, building and placing are Minecraft-like**, on
   voxels: break a voxel and its matter drops as an item entity on the
@@ -132,7 +142,7 @@ prototype (P5, falling-sand-3D spike) before the architecture is locked.
 
 ## Open design questions (decide when they become relevant)
 - Art direction (textured cubes vs stylised/flat-shaded vs higher-res).
-- Survival pressure level (hunger/temperature vs pure progression).
+- Survival pressure level: hunger yes (2026-10-22); temperature still open.
 - Automation axis: does late-game crafting include machines/automation?
 - World scale: block size, world height, chunk size.
 - Combat: present at all, and how central?
