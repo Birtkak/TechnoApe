@@ -1,0 +1,184 @@
+extends GdUnitTestSuite
+
+## GregTech-style ore veins and ground pickups (ADR 0019, ore_veins.json):
+## the data, the generated header, and what the native generator makes of them.
+
+const S := preload("res://scripts/settings.gd")
+const ORES := [GameMaterials.COAL_ORE, GameMaterials.IRON_ORE, GameMaterials.COPPER_ORE, GameMaterials.TIN_ORE]
+const PICKUPS := ["pebbles", "flint_stones", "twigs", "copper_bearing_stones", "tin_bearing_stones", "iron_bearing_stones"]
+
+var gen: WorldGen
+var reg: OreVeinRegistry
+
+
+func before() -> void:
+	gen = WorldGen.new()
+	gen.configure(1337, S.SEA_LEVEL_VOXEL, S.WORLD_HEIGHT_VOXELS)
+	reg = OreVeinRegistry.load_default()
+
+
+func _cell_veins(radius_cells: int) -> Array:
+	var out := []
+	var c := int(reg.grid["cell_voxels"])
+	for cz in range(-radius_cells, radius_cells):
+		for cx in range(-radius_cells, radius_cells):
+			var v: Dictionary = gen.vein_at(cx * c + c / 2, cz * c + c / 2)
+			if not v.is_empty():
+				out.append(v)
+	return out
+
+
+func _block(origin: Vector3i, size: Vector3i) -> PackedInt32Array:
+	var bytes: PackedByteArray = gen.generate_block(origin, size, 0, 2)
+	var ids := PackedInt32Array()
+	ids.resize(size.x * size.y * size.z)
+	if bytes.is_empty():
+		return ids
+	for i in ids.size():
+		ids[i] = bytes.decode_u16(i * 2)
+	return ids
+
+
+func _count(ids: PackedInt32Array, wanted: Array) -> int:
+	var n := 0
+	for id in ids:
+		if id in wanted:
+			n += 1
+	return n
+
+
+func test_data_loads() -> void:
+	assert_array(reg.errors).is_empty()
+	assert_int(reg.count()).is_equal(5)
+	assert_int(reg.total_weight()).is_greater(0)
+	for v in reg.veins:
+		# the lens never leaves its cell, so a column only looks at one cell
+		assert_int(int(v["size_voxels"]) / 2 + reg.jitter_of(v)).is_less(int(reg.grid["cell_voxels"]) / 2)
+
+
+func test_header_is_current() -> void:
+	var path := ProjectSettings.globalize_path("res://").path_join("..").path_join(OreVeinCodegen.HEADER_PATH)
+	var f := FileAccess.open(path, FileAccess.READ)
+	assert_object(f).override_failure_message("missing %s; run tools/ore_vein_codegen.gd" % path).is_not_null()
+	if f == null:
+		return
+	assert_str(f.get_as_text().replace("\r\n", "\n")).override_failure_message("header stale; run tools/ore_vein_codegen.gd").is_equal(OreVeinCodegen.generate(reg))
+
+
+func test_bad_data_is_rejected() -> void:
+	var bad := OreVeinRegistry.new()
+	bad.load_json(JSON.stringify({
+		"grid": {"cell_voxels": 192, "fill": 0.5, "size_voxels": 64, "thickness_voxels": 16, "density": 0.6, "sporadic_chance": 0.1},
+		"indicators": {"radius_voxels": 40, "max_depth_voxels": 100, "chance": 0.01},
+		"veins": [
+			{"name": "upside_down", "y_min": 300, "y_max": 100, "weight": 1, "primary": "iron_ore", "between": "iron_ore", "secondary": "iron_ore", "sporadic": "iron_ore"},
+			{"name": "made_up", "y_min": 100, "y_max": 200, "weight": 1, "primary": "mithril_ore", "between": "iron_ore", "secondary": "iron_ore", "sporadic": "iron_ore"},
+			{"name": "big_indicator", "y_min": 100, "y_max": 200, "weight": 1, "primary": "iron_ore", "between": "iron_ore", "secondary": "iron_ore", "sporadic": "iron_ore", "indicator": "stone"},
+		]}))
+	assert_int(bad.errors.size()).is_greater_equal(3)
+	assert_int(bad.count()).is_equal(0)
+
+
+func test_pickups_are_minable_and_drop_items() -> void:
+	assert_int(OreVeinRegistry.material_id("copper_bearing_stones")).is_equal(GameMaterials.COPPER_BEARING_STONES)
+	assert_int(OreVeinRegistry.material_id("twigs")).is_equal(GameMaterials.TWIGS)
+	var mining := MiningTable.load_default()
+	var items := ItemRegistry.load_default()
+	for m in PICKUPS:
+		assert_bool(mining.is_minable(m)).override_failure_message("%s not in mining.json" % m).is_true()
+		var drop := String(mining.entry(m).get("drops", ""))
+		assert_bool(items.has(drop)).override_failure_message("%s drops unknown item %s" % [m, drop]).is_true()
+
+
+func test_veins_fill_the_grid_deterministically() -> void:
+	var veins := _cell_veins(10)   # 400 cells, 3.8 km square
+	var share := float(veins.size()) / 400.0
+	assert_float(share).is_between(float(reg.grid["fill"]) - 0.1, float(reg.grid["fill"]) + 0.1)
+	var names := {}
+	for v in veins:
+		names[v["name"]] = true
+		var d: Dictionary = reg.veins[int(v["type"])]
+		assert_int(int(v["y"])).is_between(int(d["y_min"]), int(d["y_max"]))
+	assert_int(names.size()).is_equal(reg.count())
+	var again := WorldGen.new()
+	again.configure(1337, S.SEA_LEVEL_VOXEL, S.WORLD_HEIGHT_VOXELS)
+	var v0: Dictionary = veins[0]
+	assert_dict(again.vein_at(int(v0["x"]), int(v0["z"]))).is_equal(gen.vein_at(int(v0["x"]), int(v0["z"])))
+
+
+func test_vein_is_a_dense_mixed_ore_lens() -> void:
+	# a vein buried well below the ground at its centre, so the 16^3 block is all rock or cave
+	var vein := {}
+	for v in _cell_veins(10):
+		if gen.height_at(int(v["x"]), int(v["z"])) - int(v["y"]) > 40 and v["name"] != "coal":
+			vein = v
+			break
+	assert_dict(vein).is_not_empty()
+	var ids := _block(Vector3i(int(vein["x"]) - 8, int(vein["y"]) - 8, int(vein["z"]) - 8), Vector3i(16, 16, 16))
+	var d: Dictionary = reg.veins[int(vein["type"])]
+	var own := []
+	for k in OreVeinRegistry.ORE_KEYS:
+		own.append(OreVeinRegistry.material_id(String(d[k])))
+	var ore := _count(ids, ORES)
+	assert_int(ore).override_failure_message("only %d ore voxels in the vein centre" % ore).is_greater(600)
+	assert_int(_count(ids, own)).is_equal(ore)   # nothing but the vein's own ores
+	assert_int(_count(ids, [OreVeinRegistry.material_id(String(d["primary"]))])).is_greater(0)
+
+
+func test_no_ore_between_veins() -> void:
+	var c := int(reg.grid["cell_voxels"])
+	var empty := Vector2i(-1, -1)
+	for cz in 10:
+		for cx in 10:
+			if gen.vein_at(cx * c + c / 2, cz * c + c / 2).is_empty():
+				empty = Vector2i(cx * c + c / 2, cz * c + c / 2)
+				break
+		if empty.x >= 0:
+			break
+	assert_int(empty.x).is_greater_equal(0)
+	var y := mini(gen.height_at(empty.x, empty.y) - 40, 200)
+	var ids := _block(Vector3i(empty.x - 8, y - 8, empty.y - 8), Vector3i(16, 16, 16))
+	assert_int(_count(ids, ORES)).is_equal(0)
+
+
+func test_ore_bearing_stones_mark_shallow_veins() -> void:
+	var vein := {}
+	for v in _cell_veins(10):
+		var top := int(v["y"]) + int(v["thickness"]) / 2
+		var h := gen.height_at(int(v["x"]), int(v["z"]))
+		if int(v["indicator"]) > 0 and h - top < 30 and h > S.SEA_LEVEL_VOXEL + 4:
+			vein = v
+			break
+	assert_dict(vein).override_failure_message("no shallow vein with indicators near spawn").is_not_empty()
+	var ind := int(vein["indicator"])
+	var r := int(reg.indicators["radius_voxels"])
+	var found := 0
+	for bz in range(-r, r, 16):
+		for bx in range(-r, r, 16):
+			var x := int(vein["x"]) + bx
+			var z := int(vein["z"]) + bz
+			var h := gen.height_at(x + 8, z + 8)
+			found += _count(_block(Vector3i(x, h - 6, z), Vector3i(16, 12, 16)), [ind])
+	assert_int(found).override_failure_message("no ore-bearing stones above the %s vein" % vein["name"]).is_greater(3)
+
+
+func test_starting_pickups_lie_in_forests() -> void:
+	var f: Vector3i = gen.find_nearest("forest", 0, 0, 4096)
+	assert_int(f.y).is_greater(0)
+	var twigs := 0
+	var stones := 0
+	for bz in range(-64, 64, 16):
+		for bx in range(-64, 64, 16):
+			var h := gen.height_at(f.x + bx + 8, f.z + bz + 8)
+			var ids := _block(Vector3i(f.x + bx, h - 6, f.z + bz), Vector3i(16, 12, 16))
+			twigs += _count(ids, [GameMaterials.TWIGS])
+			stones += _count(ids, [GameMaterials.PEBBLES, GameMaterials.FLINT_STONES])
+	assert_int(twigs).is_greater(5)
+	assert_int(stones).is_greater(0)
+
+
+func test_locate_finds_a_vein() -> void:
+	var p: Vector3i = gen.find_nearest("copper_vein", 0, 0, 4096)
+	assert_int(p.y).is_greater(0)
+	assert_str(String(gen.vein_at(p.x, p.z).get("name", ""))).is_equal("copper")
+	assert_int(gen.find_nearest("unobtainium_vein", 0, 0, 4096).y).is_equal(-1)

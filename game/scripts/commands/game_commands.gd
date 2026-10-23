@@ -18,7 +18,8 @@ const KITS := {
 }
 
 ## What WorldGen.find_nearest can look for (biome names work too).
-const FEATURES := ["cave", "deep_cave", "ruin", "waterfall", "lake", "river", "spring", "marsh", "alpine", "snow", "mountain", "forest", "plains", "desert"]
+const FEATURES := ["cave", "deep_cave", "ruin", "waterfall", "lake", "river", "spring", "marsh", "alpine", "snow", "mountain", "forest", "plains", "desert",
+	"coal_vein", "copper_vein", "cassiterite_vein", "iron_vein", "copper_iron_vein"]
 
 var reg: CommandRegistry
 var player: Player

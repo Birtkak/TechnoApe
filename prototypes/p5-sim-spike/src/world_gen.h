@@ -9,14 +9,17 @@
 //    springs, streams that merge into collector rivers, basin lakes, outflow
 //    to the ocean. River/lake water is generated static (liquid_static) so the
 //    material simulation does not drain every slope.
-//  - 3D cheese + spaghetti caves with lava pools, ore noise, sea, beaches
+//  - 3D cheese + spaghetti caves with lava pools, sea, beaches
+//  - GregTech-style ore veins: one mixed-ore lens per 96 m cell at most, from
+//    game/data/ore_veins.json through ore_veins.gen.h, with ore-bearing
+//    stones on the ground above shallow veins
 //  - waterfalls: where a stream drops >= FALL_MIN voxels between cells, the
 //    ground along the segment is sampled and a static water sheet is hung
 //    over the steepest part (a real cliff); marshes in shallow humid hollows,
 //    ice on cold lakes, sandstone under deserts, clay in beds
 //  - trees on a jittered grid, small ruins on flat ground, per-column
 //    vegetation and detail at LOD 0 (tall grass, flowers, cacti, dead bushes,
-//    boulders, pebbles, mushrooms, reeds and lily pads in marshes) and cave
+//    boulders, pebbles, flint, twigs, mushrooms, reeds and lily pads in marshes) and cave
 //    detail on floors and ceilings (stalagmites, stalactites, mushrooms)
 // Deterministic from a seed. Heights in voxels (0.5 m each, ADR 0004).
 // Output blocks are 16-bit material ids in godot_voxel VoxelBuffer order
@@ -30,6 +33,7 @@
 
 #include "FastNoiseLite.h"
 #include "biome_table.gen.h" // generated from game/data/biomes.json (36 biomes, classify(), classify_3d())
+#include "ore_veins.gen.h"   // generated from game/data/ore_veins.json (vein types, grid, indicators)
 
 #include <cstdint>
 #include <memory>
@@ -54,7 +58,9 @@ public:
         // 32..36 station blocks (ADR 0007, never generated), then micro-voxel detail (ADR 0006 grid)
         PEBBLES = 37, MUSHROOM_BROWN = 38, MUSHROOM_RED = 39, REED = 40, LILY_PAD = 41, STALACTITE = 42, STALAGMITE = 43,
         CHISELED = 44, // reserved, never generated
-        GLOW_MUSHROOM = 45, MOSS = 46 // deep / lush cave detail
+        GLOW_MUSHROOM = 45, MOSS = 46, // deep / lush cave detail
+        // 47 blood (never generated); ground pickups (ADR 0019)
+        COPPER_BEARING_STONES = 48, TIN_BEARING_STONES = 49, IRON_BEARING_STONES = 50, FLINT_STONES = 51, TWIGS = 52
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,
@@ -93,6 +99,9 @@ public:
     // first air voxel at the foot of the sheet and (dir_x, dir_z) the flow direction (unit).
     Array waterfalls_near(int x, int z, int radius) const;
     Dictionary hydrology_stats(int x, int z) const; // tile stats around a point (debug)
+    // Debug: the ore vein of the cell holding (x, z): {name, type, x, y, z, size, thickness,
+    // half_thickness (lens thickness / 2 at this column, 0 outside), indicator} or {} when none.
+    Dictionary vein_at(int x, int z) const;
 
 protected:
     static void _bind_methods();
@@ -193,7 +202,12 @@ private:
     int ruins_near(int x0, int z0, int x1, int z1, Ruin *out, int max_out) const;
     static bool in_ruin(const Ruin &r, int x, int z, int margin);
     inline bool is_cave(int x, int y, int z, int height) const;
-    inline uint16_t ore_at(int x, int y, int z) const;
+    // ---- ore veins (technosim_ore tables) ----
+    struct Vein { int type, x, y, z; };
+    bool vein_at_cell(int cx, int cz, Vein &out) const;
+    float vein_half_thickness(const Vein &v, int x, int z) const; // 0 outside the lens
+    inline uint16_t vein_ore(const Vein &v, float half_t, int x, int y, int z) const;
+    uint16_t indicator_at(const Vein &v, int x, int z, int ground, uint16_t top) const;
 };
 
 } // namespace godot

@@ -56,6 +56,12 @@ const CHISELED := 44        # reserved (ADR 0006): empty non-culling model, shap
 const GLOW_MUSHROOM := 45   # deep caves; its cap tile is emissive in the terrain shader
 const MOSS := 46            # carpet on lush cave floors
 const BLOOD := 47           # bleeding (StainMap.bleed): a short-lived liquid that soaks in and leaves a stain
+# Ground pickups (Vintage Story style, ADR 0019): micro detail you pick up by hand.
+const COPPER_BEARING_STONES := 48  # surface indicator above a copper vein (ore_veins.json)
+const TIN_BEARING_STONES := 49
+const IRON_BEARING_STONES := 50
+const FLINT_STONES := 51           # flint lying on gravel and stony ground
+const TWIGS := 52                  # fallen sticks on forest floors
 
 const ATLAS_TILES := Vector2i(8, 6)
 const MICRO_GRID := 8       # cells per voxel edge for micro models and chisels (6.25 cm)
@@ -111,6 +117,12 @@ static func defs() -> Array:
 		{"name": "moss", "cell_type": "solid", "density": 10, "hp": 8, "burnable": true, "fire_hp": 40, "autoignition_temperature": 35, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [46, 46, 46], "transparent": false, "micro": "carpet"},
 		# lifetime in sim ticks (30 Hz): the puddle soaks into the ground after ~7 s; the stain stays
 		{"name": "blood", "cell_type": "liquid", "density": 1.1, "liquid_flow_speed": 0.7, "lifetime": 200, "tiles": [47, 47, 47], "transparent": true},
+		# ground pickups: hardness 0 in mining.json, they drop loose items (ADR 0019)
+		{"name": "copper_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [18, 18, 18], "transparent": false, "micro": "ore_stones"},
+		{"name": "tin_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [19, 19, 19], "transparent": false, "micro": "ore_stones"},
+		{"name": "iron_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [17, 17, 17], "transparent": false, "micro": "ore_stones"},
+		{"name": "flint_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [13, 13, 13], "transparent": false, "micro": "pebbles"},
+		{"name": "twigs", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 20, "autoignition_temperature": 20, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [26, 26, 26], "transparent": false, "micro": "twigs"},
 	]
 
 
@@ -292,6 +304,33 @@ static func micro_pattern(kind: String, tiles: Array) -> PackedInt32Array:
 						_cell(c, x + dx, 0, z + dz, body)
 				if w == 2 and d == 2 and rng.randf() < 0.5:
 					_cell(c, x, 1, z, body)
+		"ore_stones":
+			# 2-3 chunky stones (2x2 cells, some 2 tall) showing the ore tile: ore-bearing rocks
+			for i in rng.randi_range(2, 3):
+				var x := rng.randi_range(0, g - 3)
+				var z := rng.randi_range(0, g - 3)
+				var w := rng.randi_range(2, 3)
+				for dx in w:
+					for dz in 2:
+						_cell(c, x + dx, 0, z + dz, body)
+				if rng.randf() < 0.6:
+					_cell(c, x, 1, z, body)
+					_cell(c, x + 1, 1, z, body)
+		"twigs":
+			# 2-3 sticks lying flat, 4-6 cells long along x, z or a diagonal, one with a side branch
+			for i in rng.randi_range(2, 3):
+				var dirs := [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(1, -1)]
+				var dv: Vector2i = dirs[rng.randi_range(0, 3)]
+				var x := rng.randi_range(1, 3)
+				var z := rng.randi_range(1, 6) if dv.y < 0 else rng.randi_range(0, 3)
+				var y := 1 if i == 2 else 0
+				var n := rng.randi_range(4, 6)
+				for k in n:
+					_cell(c, x + dv.x * k, y, z + dv.y * k, body)
+					if dv.x != 0 and dv.y != 0 and k > 0:
+						_cell(c, x + dv.x * k - dv.x, y, z + dv.y * k, body)  # keep diagonals connected
+				if i == 0:
+					_cell(c, x + dv.x * 2 + dv.y, y, z + dv.y * 2 + dv.x, body)
 		"mushroom":
 			# cap tile = tiles[0], stem tile = tiles[1]; one big and one small mushroom
 			var cap: int = tiles[0] + 1

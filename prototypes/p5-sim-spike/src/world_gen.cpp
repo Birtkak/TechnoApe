@@ -24,6 +24,7 @@ void WorldGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("find_nearest", "kind", "x", "z", "max_radius"), &WorldGen::find_nearest);
     ClassDB::bind_method(D_METHOD("waterfalls_near", "x", "z", "radius"), &WorldGen::waterfalls_near);
     ClassDB::bind_method(D_METHOD("hydrology_stats", "x", "z"), &WorldGen::hydrology_stats);
+    ClassDB::bind_method(D_METHOD("vein_at", "x", "z"), &WorldGen::vein_at);
     BIND_ENUM_CONSTANT(BIOME_DEEP_OCEAN);
     BIND_ENUM_CONSTANT(BIOME_OCEAN);
     BIND_ENUM_CONSTANT(BIOME_BEACH);
@@ -63,7 +64,7 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup(n_cavebiome_, seed_ + 13, 1.0f / (technosim_biome::CAVE_NOISE_PERIOD_M * 2.0f), 1); // 3D, slow: deep dark / crystal / magma pockets
     setup(n_spag1_, seed_ + 8, 0.018f, 1);
     setup(n_spag2_, seed_ + 9, 0.018f, 1);
-    setup(n_ore_, seed_ + 10, 0.09f, 1);
+    setup(n_ore_, seed_ + 10, 0.09f, 1); // ore vein lens edge wobble
     setup(n_beach_, seed_ + 11, 0.01f, 1);
     setup(n_jitter_, seed_ + 13, 0.02f, 2);
     std::lock_guard<std::mutex> lk(hydro_mutex_);
@@ -200,6 +201,10 @@ Dictionary WorldGen::column_info(int x, int z) const {
     d["puddle"] = hy.puddle;
     d["shore"] = hy.shore;
     d["fall_top"] = hy.fall_top;
+    const Dictionary vein = vein_at(x, z);
+    d["vein"] = vein.has("name") ? vein["name"] : Variant(String());
+    d["vein_y"] = vein.has("y") ? vein["y"] : Variant(-1);
+    d["in_vein_column"] = vein.has("half_thickness") && (float)vein["half_thickness"] > 0.0f;
     return d;
 }
 
@@ -642,14 +647,84 @@ inline bool WorldGen::is_cave(int x, int y, int z, int height) const {
     return (s1 * s1 + s2 * s2) < 0.0115f;
 }
 
-inline uint16_t WorldGen::ore_at(int x, int y, int z) const {
-    float o = n_ore_.GetNoise((float)x, (float)y, (float)z);
-    if (o < 0.66f) return STONE;
-    if (y > sea_ - 160 && o < 0.74f) return COAL_ORE;
-    if (y < sea_ + 60 && o >= 0.74f && o < 0.80f) return IRON_ORE;
-    if (y < sea_ - 20 && o >= 0.80f && o < 0.85f) return COPPER_ORE;
-    if (y < sea_ - 80 && o >= 0.85f) return TIN_ORE;
-    return STONE;
+// ---------- ore veins (GregTech style, ore_veins.json) ----------
+
+static inline int floor_div(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+
+// One vein candidate per cell: filled with chance FILL, type by weight, centre
+// jittered by at most JITTER so the whole lens stays inside the cell (a column
+// only ever looks at its own cell).
+bool WorldGen::vein_at_cell(int cx, int cz, Vein &out) const {
+    using namespace technosim_ore;
+    const uint32_t h = hash3(cx, cz, seed_ + 7717);
+    if ((float)(h & 0xFFFF) >= FILL * 65536.0f) return false;
+    int pick = (int)(hash3(cz, cx, seed_ + 7723) % (uint32_t)WEIGHT_TOTAL), t = 0;
+    while (t < COUNT - 1 && pick >= WEIGHT[t]) { pick -= WEIGHT[t]; t++; }
+    const uint32_t hj = hash3(cx + 31, cz - 17, seed_ + 7741);
+    const uint32_t span = (uint32_t)(2 * JITTER[t] + 1);
+    out.type = t;
+    out.x = cx * CELL + CELL / 2 + (int)(hj % span) - JITTER[t];
+    out.z = cz * CELL + CELL / 2 + (int)((hj >> 12) % span) - JITTER[t];
+    out.y = Y_MIN[t] + (int)(hash3(cx - 5, cz + 11, seed_ + 7753) % (uint32_t)(Y_MAX[t] - Y_MIN[t] + 1));
+    return true;
+}
+
+// A flat lens: radius wobbles between 60 % and 100 % of SIZE / 2 (never past
+// the jitter margin), thickness THICKNESS at the centre thinning to the rim.
+float WorldGen::vein_half_thickness(const Vein &v, int x, int z) const {
+    using namespace technosim_ore;
+    const float a = 0.5f * (float)SIZE[v.type] * (0.8f + 0.2f * n_ore_.GetNoise((float)x * 0.5f, (float)z * 0.5f));
+    const float dx = (float)(x - v.x), dz = (float)(z - v.z);
+    const float r2 = (dx * dx + dz * dz) / (a * a);
+    if (r2 >= 1.0f) return 0.0f;
+    return 0.5f * (float)THICKNESS[v.type] * std::sqrt(1.0f - r2);
+}
+
+// GregTech layers: primary in the top third, between in the middle, secondary
+// at the bottom; DENSITY of the lens is ore, SPORADIC_CHANCE of that is the
+// sporadic ore.
+inline uint16_t WorldGen::vein_ore(const Vein &v, float half_t, int x, int y, int z) const {
+    using namespace technosim_ore;
+    const float dy = (float)(y - v.y);
+    if (dy > half_t || dy < -half_t) return STONE;
+    const uint32_t hh = hash3(x, z, y * 1031 + seed_ + 7759);
+    if ((float)(hh & 1023) >= DENSITY[v.type] * 1024.0f) return STONE;
+    if ((float)((hh >> 10) & 1023) < SPORADIC_CHANCE * 1024.0f) return (uint16_t)SPORADIC[v.type];
+    const float t = (dy + half_t) / (2.0f * half_t); // 0 bottom .. 1 top
+    return (uint16_t)(t > 0.6667f ? PRIMARY[v.type] : (t < 0.3333f ? SECONDARY[v.type] : BETWEEN[v.type]));
+}
+
+// Ore-bearing stones on the ground near a vein's centre (Vintage Story style):
+// the chance per column fades from INDICATOR_CHANCE with the vein top at the
+// surface to 0 at INDICATOR_MAX_DEPTH below it.
+uint16_t WorldGen::indicator_at(const Vein &v, int x, int z, int ground, uint16_t top) const {
+    using namespace technosim_ore;
+    const int ind = INDICATOR[v.type];
+    if (ind < 0) return AIR;
+    if (!(top == GRASS || top == DIRT || top == GRAVEL_STATIC || top == STONE || top == SAND_STATIC || top == SNOW || top == CLAY)) return AIR;
+    const int dx = x - v.x, dz = z - v.z;
+    if (dx * dx + dz * dz > INDICATOR_RADIUS * INDICATOR_RADIUS) return AIR;
+    const int depth = ground - (v.y + THICKNESS[v.type] / 2);
+    if (depth > INDICATOR_MAX_DEPTH) return AIR;
+    const float p = INDICATOR_CHANCE * (1.0f - (float)std::max(depth, 0) / (float)INDICATOR_MAX_DEPTH);
+    return (float)(hash3(x, z, seed_ + 97) % 100000u) < p * 100000.0f ? (uint16_t)ind : AIR;
+}
+
+Dictionary WorldGen::vein_at(int x, int z) const {
+    using namespace technosim_ore;
+    Dictionary d;
+    Vein v;
+    if (!vein_at_cell(floor_div(x, CELL), floor_div(z, CELL), v)) return d;
+    d["name"] = String(NAMES[v.type]);
+    d["type"] = v.type;
+    d["x"] = v.x;
+    d["y"] = v.y;
+    d["z"] = v.z;
+    d["size"] = SIZE[v.type];
+    d["thickness"] = THICKNESS[v.type];
+    d["half_thickness"] = vein_half_thickness(v, x, z);
+    d["indicator"] = INDICATOR[v.type];
+    return d;
 }
 // Per-column surface vegetation (LOD 0 only): Minecraft-style tufts, flower
 // patches, cacti and dead bushes. One hash per column; flowers cluster where a
@@ -682,23 +757,25 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
         const float pn = n_detail_.GetNoise((float)x * 1.7f + 3000.0f, (float)z * 1.7f + 3000.0f);
         if (pn > 0.02f && pn <= 0.12f && r < 420) { height = 2; return REED; }
     }
-    // Pebbles on bare rock and gravel.
+    // Pebbles on bare rock and gravel, flint on gravel (ground pickups, ADR 0019).
     if ((top == GRAVEL_STATIC || top == STONE) && r < 50 && !marsh) return PEBBLES;
+    if (top == GRAVEL_STATIC && r >= 50 && r < 66 && !marsh) return FLINT_STONES;
     if (top != GRASS && !(marsh && top == DIRT)) return AIR;
-    int grass = 0, flower = 0, bush = 0, shroom = 0, pebble = 0;
+    // Per mille of grass columns; pebbles, twigs and flint are the starting pickups.
+    int grass = 0, flower = 0, bush = 0, shroom = 0, pebble = 0, twig = 0, flint = 0;
     if (marsh) grass = 560;
     else switch (col.biome) {
-        case PLAINS: grass = 300; flower = 36; pebble = 4; break;
-        case FOREST: grass = 170; flower = 14; shroom = 10; break;
-        case OLD_GROWTH_FOREST: grass = 200; flower = 10; shroom = 22; break;
-        case HIGHLANDS: grass = 110; flower = 10; pebble = 20; break;
-        case MOUNTAINS: grass = 50; flower = 4; pebble = 30; break;
-        case ALPINE: grass = 25; flower = 6; pebble = 30; break;
-        case TAIGA: grass = 60; shroom = 12; pebble = 8; break;
-        case SHRUBLAND: grass = 120; bush = 40; pebble = 14; break;
-        case SAVANNA: grass = 420; bush = 12; break;
-        case JUNGLE: grass = 350; flower = 20; shroom = 14; break;
-        case SWAMP: grass = 450; shroom = 18; break;
+        case PLAINS: grass = 300; flower = 36; pebble = 6; twig = 2; flint = 2; break;
+        case FOREST: grass = 170; flower = 14; shroom = 10; pebble = 4; twig = 12; flint = 1; break;
+        case OLD_GROWTH_FOREST: grass = 200; flower = 10; shroom = 22; pebble = 3; twig = 16; break;
+        case HIGHLANDS: grass = 110; flower = 10; pebble = 20; twig = 2; flint = 4; break;
+        case MOUNTAINS: grass = 50; flower = 4; pebble = 30; flint = 4; break;
+        case ALPINE: grass = 25; flower = 6; pebble = 30; flint = 3; break;
+        case TAIGA: grass = 60; shroom = 12; pebble = 8; twig = 12; flint = 1; break;
+        case SHRUBLAND: grass = 120; bush = 40; pebble = 14; twig = 4; flint = 3; break;
+        case SAVANNA: grass = 420; bush = 12; twig = 3; flint = 2; break;
+        case JUNGLE: grass = 350; flower = 20; shroom = 14; twig = 10; break;
+        case SWAMP: grass = 450; shroom = 18; twig = 6; break;
         default: break;
     }
     if (bush > 0 && r >= 1000 - bush) return DEAD_BUSH;
@@ -708,6 +785,8 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
         return red ? MUSHROOM_RED : MUSHROOM_BROWN;
     }
     if (pebble > 0 && r >= 1000 - bush - shroom - pebble) return PEBBLES;
+    if (twig > 0 && r >= 1000 - bush - shroom - pebble - twig) return TWIGS;
+    if (flint > 0 && r >= 1000 - bush - shroom - pebble - twig - flint) return FLINT_STONES;
     if (flower > 0) {
         const float patch = n_detail_.GetNoise((float)x * 2.0f + 5000.0f, (float)z * 2.0f - 5000.0f);
         flower = patch > 0.3f ? flower * 5 : flower / 4;
@@ -764,6 +843,11 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
         for (int x = 0; x < sx; x++) {
             const int wx = origin.x + x * step;
             const Column col = column(wx, wz);
+            // Ore vein of this column's cell (one cell lookup); the lens thickness
+            // here only matters at lod 0 where ores are placed.
+            Vein vein;
+            const bool has_vein = vein_at_cell(floor_div(wx, technosim_ore::CELL), floor_div(wz, technosim_ore::CELL), vein);
+            const float vein_ht = (has_vein && do_ores) ? vein_half_thickness(vein, wx, wz) : 0.0f;
             int h = col.height;
             int water_level = sea_;
             bool riverbed = false, lakebed = false, marshbed = false;
@@ -835,8 +919,13 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
             // Vegetation standing on the surface (not in water, not on the sheet).
             uint16_t veg = AIR;
             int veg_h = 0;
-            if (do_veg && !ruin && h >= water_level && hy.fall_top < 0 && h > sea_)
+            if (do_veg && !ruin && h >= water_level && hy.fall_top < 0 && h > sea_) {
                 veg = vegetation_at(col, wx, wz, top_m, hy, veg_h);
+                if (has_vein && (veg == AIR || veg == TALL_GRASS)) {
+                    const uint16_t ind = indicator_at(vein, wx, wz, h, top_m);
+                    if (ind != AIR) { veg = ind; veg_h = 1; }
+                }
+            }
             uint16_t *colp = w + sy * (x + sx * z);
             // Far LOD: is this column under a tree's canopy? (one tree cell lookup)
             bool far_canopy = false;
@@ -958,7 +1047,7 @@ PackedByteArray WorldGen::generate_block(Vector3i origin, Vector3i size, int lod
                         }
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
                         if (d_top <= sandstone_depth) m = SANDSTONE;
-                        else m = do_ores ? ore_at(wx, wy, wz) : STONE;
+                        else m = vein_ht > 0.0f ? vein_ore(vein, vein_ht, wx, wy, wz) : STONE;
                         if (do_caves && cave[y + 2] && m == STONE) {
                             // cave floor: the 3D biome decides what you stand on
                             const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth, technosim_biome::DEPTH_BAND_COUNT);
@@ -1021,6 +1110,34 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                     if (best_d2 < 0 || d2 < best_d2) { best_d2 = d2; best = Vector3i(r.x, r.base, r.z); }
                 }
             if (best_d2 >= 0) break;
+        }
+        return best;
+    }
+    // Ore veins: "<name>_vein" -> the nearest vein centre of that type under dry land
+    // (above sea level), at ground height.
+    if (kind.ends_with("_vein")) {
+        const String vname = kind.substr(0, kind.length() - 5);
+        int vt = -1;
+        for (int t = 0; t < technosim_ore::COUNT; t++)
+            if (vname == technosim_ore::NAMES[t]) vt = t;
+        if (vt < 0) return best;
+        const int C = technosim_ore::CELL;
+        const int cx0 = floor_div(x, C), cz0 = floor_div(z, C);
+        const int rings = max_radius / C + 1;
+        for (int ring = 0; ring <= rings; ring++) {
+            for (int dz = -ring; dz <= ring; dz++)
+                for (int dx = -ring; dx <= ring; dx++) {
+                    if (std::max(std::abs(dx), std::abs(dz)) != ring) continue;
+                    Vein v;
+                    if (!vein_at_cell(cx0 + dx, cz0 + dz, v) || v.type != vt) continue;
+                    long d2 = (long)(v.x - x) * (v.x - x) + (long)(v.z - z) * (v.z - z);
+                    if (best_d2 >= 0 && d2 >= best_d2) continue;
+                    const int gy = height_at(v.x, v.z);
+                    if (gy <= sea_) continue;
+                    best_d2 = d2;
+                    best = Vector3i(v.x, gy, v.z);
+                }
+            if (best_d2 >= 0 && ring >= 1) break; // one more ring: a nearer centre can sit in the next ring
         }
         return best;
     }

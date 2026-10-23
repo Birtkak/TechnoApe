@@ -17,7 +17,7 @@
 | detail | ~50 m | ±4 voxels |
 | temperature, humidity | ~2.5 km | desert / tundra / forest / plains |
 | cheese + 2× spaghetti (3D) | ~50 m | caves below the surface, more rooms deeper; lava pools below sea −180 |
-| ore (3D) | ~11 m | coal (shallow), iron, copper, tin (deeper) inside stone |
+| ore veins (GEN_VERSION 9) | 96 m grid | one mixed-ore lens per cell at most, from `ore_veins.json` (see below) |
 
 Sea level 256, world height 768, bedrock below y=3. Beaches where land is
 within 3 voxels of sea level; snow caps above sea +300; snowy tundra when
@@ -226,7 +226,46 @@ biome now). LOD 0 block 595 us.
 - `find_nearest("deep_cave")`: like `cave` but 50-170 voxels down, for
   captures of the glow (`out/cave_deep`).
 
+## Ore veins and ground pickups (2026-10-23, GEN_VERSION 9)
+GregTech-style veins replace the 3D ore noise (developer, ADR 0019; plan in
+`progression.md` "Ores"). Data: `game/data/ore_veins.json`, validated by
+`OreVeinRegistry` and compiled into `ore_veins.gen.h` by
+`tools/ore_vein_codegen.gd` (test fails when the header is stale).
+- The world is cut into 192-voxel (96 m) cells; a cell holds a vein with
+  chance 0.55. Type by weight (coal 30, copper 25, iron 20, cassiterite 15,
+  copper-iron 10), centre y uniform in the type's band, centre jittered so
+  the lens never leaves its cell: a column looks up exactly one cell.
+- A vein is a flat lens 64 voxels across (coal 80) and 16 thick (coal 20) at
+  the centre, its rim wobbling between 60 and 100 % of the radius. 60 % of
+  the lens is ore: primary in the top third, between in the middle,
+  secondary at the bottom, 12 % of ore voxels the sporadic ore. Between
+  veins there is no ore at all. Ores stay lod 0 only.
+- Surface indicators: ore-bearing stones (micro `ore_stones` with the ore's
+  tile, ids 48-50) on grass, dirt, gravel, stone, sand, snow or clay within
+  44 voxels of a vein centre, 1 % of columns when the vein top reaches the
+  ground, fading to 0 at 120 voxels deep. Coal has none. Veins under the sea
+  get none (vegetation stops at the waterline).
+- Ground pickups (Vintage Story start): flint stones (id 51) on gravel (1.6 %
+  of columns) and a few per mille of grass in open and rocky biomes, twigs
+  (id 52) on forest floors (12-16 per mille), pebbles now also in forests.
+  All are hardness 0 in `mining.json` and drop `loose_stone`, `flint`,
+  `stick` or `loose_*_ore` items.
+- Debug: `WorldGen.vein_at(x, z)`, `column_info()` gains `vein`, `vein_y`,
+  `in_vein_column`; `find_nearest("<type>_vein")` returns the nearest vein
+  under dry land, so `/locate copper_vein` and `/goto copper_vein` work, and
+  so does the autopilot `target=copper_vein`. `tools/vein_probe.gd` lists the
+  veins around a point with their depth and indicator count.
+- Measured (seed 1337, 8x8 cells around the origin): 38 veins (coal 15,
+  copper 12, iron 6, cassiterite 3, copper-iron 2); land veins whose top is
+  within 120 voxels of the ground carry 5-36 indicator stones. `gen_bench`
+  (64 blocks per lod): lod 0 4.76 -> 4.70 ms per block, other lods within
+  noise; the old per-voxel ore noise was dropped, the vein costs one cell
+  hash per column. Captures: `out/vein3` (top-down over the copper vein at
+  59, 452), `out/forest1` (twigs).
+
 ## Next
+- Small ores between veins (single blocks dropping nuggets) and the copper
+  prospecting pick (reads `vein_at` within ~16 m): `progression.md` "Ores".
 - The Noita-style dungeons (underground stamps from a per-region RNG) - parked.
 - Chisel every voxel: ADR 0006 (block-entity `Chisel` behavior, overlay
   meshes from `MicroMesher`, `CHISELED` id reserved); P6 measured the mesher.

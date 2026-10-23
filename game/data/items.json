@@ -41,6 +41,11 @@
     {"id": "spell_speed_up", "name": "Speed Up", "tags": ["spell", "modifier"], "stack": 1, "mana_cost": 3},
     {"id": "wand_basic", "name": "Basic Wand", "tags": ["wand"], "stack": 1, "found_only": true},
     {"id": "mana_dust", "name": "Mana Dust", "tags": ["spell_material"], "stack": 64},
-    {"id": "fire_essence", "name": "Fire Essence", "tags": ["spell_material", "essence.fire"], "stack": 64}
+    {"id": "fire_essence", "name": "Fire Essence", "tags": ["spell_material", "essence.fire"], "stack": 64},
+    {"id": "flint", "name": "Flint", "tags": ["flint"], "stack": 64, "_note": "picked up from flint stones on gravel and stony ground (ADR 0019)"},
+    {"id": "loose_stone", "name": "Loose Stone", "tags": ["rock"], "stack": 64, "_note": "picked up from pebbles"},
+    {"id": "loose_copper_ore", "name": "Copper-Bearing Stone", "tags": ["rock", "loose_ore"], "stack": 64, "_note": "surface indicator: lies above a copper vein"},
+    {"id": "loose_tin_ore", "name": "Tin-Bearing Stone", "tags": ["rock", "loose_ore"], "stack": 64, "_note": "surface indicator: lies above a cassiterite vein"},
+    {"id": "loose_iron_ore", "name": "Iron-Bearing Stone", "tags": ["rock", "loose_ore"], "stack": 64, "_note": "surface indicator: lies above an iron vein"}
   ]
 }

@@ -29,6 +29,12 @@
     "crafting_table": {"hardness": 2.5, "tool": "axe", "drops": "crafting_table"},
     "chest":        {"hardness": 2.5, "tool": "axe", "drops": "chest"},
     "furnace":      {"hardness": 3.5, "tool": "pickaxe", "requires": true, "drops": "furnace"},
-    "furnace_lit":  {"hardness": 3.5, "tool": "pickaxe", "requires": true, "drops": "furnace"}
+    "furnace_lit":  {"hardness": 3.5, "tool": "pickaxe", "requires": true, "drops": "furnace"},
+    "pebbles":      {"hardness": 0.0, "drops": "loose_stone"},
+    "flint_stones": {"hardness": 0.0, "drops": "flint"},
+    "twigs":        {"hardness": 0.0, "drops": "stick"},
+    "copper_bearing_stones": {"hardness": 0.0, "drops": "loose_copper_ore"},
+    "tin_bearing_stones":    {"hardness": 0.0, "drops": "loose_tin_ore"},
+    "iron_bearing_stones":   {"hardness": 0.0, "drops": "loose_iron_ore"}
   }
 }
