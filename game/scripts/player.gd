@@ -43,6 +43,7 @@ var autopilot_action := ""     # "" = fly/walk forward, "mine" = stand still and
 # animals, farming, furniture (ADR 0022): hooks Main sets
 var entity_pick: Callable        # (from, dir, max_dist) -> {mob, dist} or {}
 var entity_attack: Callable      # (mob, damage) -> void
+var throw_item: Callable         # (stack, from, dir) -> void: a thrown spear flies (ADR 0030)
 var entity_use: Callable         # (mob, held def) -> bool (true: one held item used up)
 var place_furniture: Callable    # (kind, anchor, facing) -> bool
 var work_use: Callable           # (hit, first_press, from, dir) -> bool: a work piece took the right click (ADR 0023)
@@ -574,6 +575,9 @@ func _use(first_press: bool) -> void:
 	if inventory == null or edits_locked:
 		return
 	var hit := _aim()
+	if first_press and inventory.held_def().has("throw") and throw_item.is_valid():
+		_throw()
+		return
 	if first_press:
 		var mob = aimed_mob(hit)
 		if mob != null:
@@ -638,6 +642,10 @@ func _use(first_press: bool) -> void:
 		return
 	if world.get_voxel(p) != GameMaterials.AIR and not _replaceable(world.get_voxel(p)):
 		return
+	if GameMaterials.defs()[mat - 1].get("floor_only", false):
+		var top_face := p == target or hit.previous_position == target + Vector3i.UP
+		if not top_face or not MobManager.is_solid(world.get_voxel(p - Vector3i.UP)):
+			return   # torches stand on a floor, not on a wall (ADR 0030)
 	voxel_placed.emit(p, mat)
 	if not GameMode.rule(game_mode, "consumes_items"):
 		pass   # creative: blocks and buckets never run out
@@ -673,10 +681,26 @@ func _attack() -> void:
 		return
 	var def := inventory.held_def() if inventory else {}
 	var dmg := 1
-	if "tool" in def.get("tags", []):
+	if def.has("attack_damage"):
+		dmg = int(def["attack_damage"])   # weapons (the flint spear, ADR 0030)
+	elif "tool" in def.get("tags", []):
 		dmg = 2 + int(def.get("tier", 0))
 	entity_attack.call(mob, dmg)
 	_attack_cooldown = 0.25
+	if viewmodel:
+		viewmodel.swing()
+
+
+## Right click with a throwable (the spear): it leaves the hand and flies
+## along the look; Main moves it and hits animals (creative keeps it).
+func _throw() -> void:
+	var def := inventory.held_def()
+	var stack := {"id": def["id"], "count": 1}
+	if GameMode.rule(game_mode, "consumes_items"):
+		stack = inventory.inv.take(inventory.selected, 1)
+	var dir := -camera.global_transform.basis.z
+	throw_item.call(stack, camera.global_position + dir * 0.6, dir)
+	_attack_cooldown = 0.5
 	if viewmodel:
 		viewmodel.swing()
 
@@ -725,7 +749,10 @@ func _update_eating(delta: float) -> void:
 	if _eat_t >= EAT_S:
 		inventory.heal(int(def["food"].get("hunger", 1)))
 		if GameMode.rule(game_mode, "consumes_items"):
-			inventory.consume_held(1)
+			if def.has("empties_to"):
+				inventory.replace_held_one(def["empties_to"])   # stew leaves its bowl
+			else:
+				inventory.consume_held(1)
 		ate.emit(_eat_id)
 		_eat_id = ""
 

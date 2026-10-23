@@ -84,11 +84,16 @@ func test_drop_lists_roll_counts_and_chances() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
 	var seeds := 0
+	var fiber := 0
 	for i in 2000:
 		for s in mining.roll_drops("tall_grass", {}, rng):
-			assert_str(s["id"]).is_equal("wheat_seeds")
-			seeds += int(s["count"])
+			assert_array(["wheat_seeds", "plant_fiber"]).contains([s["id"]])   # by hand: no dry grass (that needs a knife)
+			if s["id"] == "wheat_seeds":
+				seeds += int(s["count"])
+			else:
+				fiber += int(s["count"])
 	assert_int(seeds).is_between(40, 130)   # 4 % of 2000 = 80: rare
+	assert_int(fiber).is_between(500, 700)  # 30 % of 2000 = 600 (ADR 0030)
 	for i in 50:
 		var d := mining.roll_drops("wild_carrot", {}, rng)
 		assert_int(d.size()).is_equal(1)

@@ -32,8 +32,10 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 	remove(pos)
 	var e: RefCounted = null
 	match kind:
-		"chest":
-			e = ChestEntity.new(items, pos)
+		"chest", "storage_pot":
+			e = ChestEntity.new(items, pos, kind)
+		"torch":
+			e = TorchEntity.new(pos)
 		"furnace":
 			e = FurnaceEntity.new(items, recipes, pos)
 			_ticking.append(e)
@@ -52,6 +54,9 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			_ticking.append(e)
 		"sieve":
 			e = SieveEntity.new(recipes, pos)
+		"firewood_pile":
+			e = FirewoodPileEntity.new(recipes, pos)
+			_ticking.append(e)
 		_:
 			push_error("unknown block entity kind " + kind)
 			return null
@@ -95,7 +100,15 @@ func all_furniture() -> Array:
 	return out
 
 
-const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve"]
+const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile"]
+
+
+func all_of(p_kind: String) -> Array:
+	var out := []
+	for p in _by_pos:
+		if _by_pos[p].kind == p_kind:
+			out.append(_by_pos[p])
+	return out
 
 
 static func is_work(e: RefCounted) -> bool:

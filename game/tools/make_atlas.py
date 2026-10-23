@@ -12,7 +12,8 @@ Tiles (index = row*4 + col):
 56 oak log top 57-59 spruce log side/top, needles 60-62 acacia 63-65 jungle
 66-68 terracotta orange/red/cream 69 basalt top 70 basalt side 71 packed ice
 72 fern frond; 73 birch bark 74 birch top 75 birch leaves 76 blueberries
-77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84-87 free (8x11)
+77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84-87 free
+88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93-95 free (8x12)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -22,7 +23,7 @@ from PIL import Image
 
 TILE = 16
 COLS = 8
-ROWS = 11  # 88 tiles; rows grow at the bottom so tile indices keep their meaning
+ROWS = 12  # 96 tiles; rows grow at the bottom so tile indices keep their meaning
 
 random.seed(1337)
 
@@ -39,6 +40,30 @@ def noise_tile(base, spread, speckle=None, speckle_chance=0.0, stripes=False):
             if speckle and random.random() < speckle_chance:
                 r, g, b = speckle
             px[x, y] = (max(0, min(255, r + d)), max(0, min(255, g + d)), max(0, min(255, b + d)), 255)
+    return img
+
+
+def thatch(top):
+    # dry grass bundles: top = straws lying diagonally, side = overlapping rows with dark gaps
+    img = noise_tile((200, 168, 78), 14, (168, 136, 56), 0.2)
+    px = img.load()
+    for y in range(TILE):
+        for x in range(TILE):
+            dark = ((x + y) % 4 == 0) if top else (y % 4 == 3 or (y % 4 == 2 and (x + y // 4) % 3 == 0))
+            if dark:
+                r, g, b, a = px[x, y]
+                px[x, y] = (int(r * 0.72), int(g * 0.70), int(b * 0.62), 255)
+    return img
+
+
+def daub():
+    # clay, straw and dirt plaster: a warm grey-tan with straw flecks and trowel marks
+    img = noise_tile((178, 158, 128), 8, (206, 184, 112), 0.12)
+    px = img.load()
+    for x in range(TILE):
+        y = (x * 3 // 4 + 5) % TILE
+        r, g, b, a = px[x, y]
+        px[x, y] = (r - 18, g - 18, b - 16, 255)
     return img
 
 
@@ -416,6 +441,15 @@ tiles = [
     noise_tile((160, 80, 200), 12, (200, 120, 230), 0.2),     # 81 petal purple (allium)
     noise_tile((230, 224, 206), 6, (206, 198, 176), 0.15),    # 82 bone (carcasses)
     noise_tile((150, 46, 46), 12, (110, 28, 30), 0.25),       # 83 raw meat (carcasses)
+    noise_tile((128, 128, 128), 0),                           # 84 free
+    noise_tile((128, 128, 128), 0),                           # 85 free
+    noise_tile((128, 128, 128), 0),                           # 86 free
+    noise_tile((128, 128, 128), 0),                           # 87 free
+    thatch(True),                                             # 88 thatch top
+    thatch(False),                                            # 89 thatch side
+    daub(),                                                   # 90 daub (wattle and daub wall)
+    noise_tile((176, 132, 76), 12, (140, 100, 54), 0.25),     # 91 wattle withy: peeled hazel, lighter than logs
+    noise_tile((120, 30, 10), 18, (255, 120, 30), 0.35),      # 92 torch ember: charred wick glowing orange
 ]
 assert len(tiles) <= COLS * ROWS, len(tiles)
 

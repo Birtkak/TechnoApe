@@ -5,9 +5,11 @@ extends Node
 ## use() on right click and hit() on left click before its own handling;
 ## both return true when a work piece took the click. Places new pieces on
 ## top faces (flint -> knapping, clay -> clay forming, ground_place ware ->
-## ground storage, firepit and sieve items), works existing ones, applies
+## ground storage, firepit and sieve items, firewood piles), works existing ones, applies
 ## their results to the player's hand, and keeps one view node per piece,
-## rebuilt from the entity's view_parts() when it changes.
+## rebuilt from the entity's view_parts() when it changes. ADR 0030 adds the
+## pan (washing sand and gravel under water) and the charcoal pit: firewood
+## piles that must be sealed with soil while they smoulder.
 
 var main: Node          # Main: blocks, items, recipes, player, set/get_world_voxel, spawn_item, chat, inv_screen
 var picker: WorkPicker
@@ -16,7 +18,11 @@ var _views := {}        # Vector3i -> Node3D
 var _dirty := {}        # Vector3i -> true: rebuild next frame
 var _picking: RefCounted = null
 var _rng := RandomNumberGenerator.new()
+var _pan_at := Vector3i(-1, -1, -1)   # the bed voxel being panned
+var _pan_shakes := 0
+var _seal_accum := 0.0
 var stats := {"placed": 0, "chips": 0, "clay_cells": 0, "finished": [], "kilns_lit": 0, "casts": 0, "sifts": 0,
+	"pans": 0, "scrapes": 0, "pits_lit": 0, "pits_charred": 0, "pits_burnt": 0, "seal_ms_max": 0.0,
 	"rebuild_ms_max": 0.0, "use_ms_max": 0.0, "hit_ms_max": 0.0}   # one piece's mesh, one right / left click
 
 
@@ -38,10 +44,14 @@ func setup(p_main: Node) -> void:
 		_watch(e)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	for p in _dirty:
 		_rebuild(p)
 	_dirty.clear()
+	_seal_accum += delta
+	if _seal_accum >= 1.0:
+		_seal_accum = 0.0
+		_check_pits()
 
 
 # ---------------- views ----------------
@@ -69,7 +79,32 @@ func _watch(e: RefCounted) -> void:
 	var p: Vector3i = e.pos
 	if not e.changed.is_connected(_mark.bind(p)):
 		e.changed.connect(_mark.bind(p))
+	if e.has_signal("fired") and not e.fired.is_connected(_on_fired):
+		e.fired.connect(_on_fired)
+	if e.has_signal("charred") and not e.charred.is_connected(_on_charred):
+		e.charred.connect(_on_charred)
 	_dirty[p] = true
+
+
+## A pit kiln fired its ware: the progression book counts it (ADR 0028).
+func _on_fired(item: String) -> void:
+	_note("fired", item)
+
+
+var _charred_said := -1000
+
+func _on_charred() -> void:
+	stats["pits_charred"] += 1
+	_note("charcoal_pit", "charcoal")
+	if Engine.get_process_frames() - _charred_said > 60:   # one line per pit, not per pile
+		_charred_said = Engine.get_process_frames()
+		_say("The charcoal pit has burnt down. Dig out the charcoal.")
+
+
+func _note(event: String, item: String) -> void:
+	var q: QuestBook = main.get("quests")
+	if q:
+		q.note(event, item)
 
 
 func _mark(p: Vector3i) -> void:
@@ -158,10 +193,11 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary) -> bool:
 		kind = work
 	if kind == "":
 		return false
-	var p := _spot_for(hit, kind == "sieve")
+	var solid := kind == "sieve" or kind == "firewood_pile"
+	var p := _spot_for(hit, solid)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
-	var e := _create(p, kind, GameMaterials.WORK_BLOCK if kind == "sieve" else GameMaterials.WORK_SPOT)
+	var e := _create(p, kind, GameMaterials.WORK_BLOCK if solid else GameMaterials.WORK_SPOT)
 	match kind:
 		"knap", "clayform":
 			# clay is paid for while forming; flint and everything else now
@@ -283,6 +319,8 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 	if hit == null:
 		return false
 	var held: Dictionary = main.player_inv.held_def()
+	if "pan" in held.get("tags", []):
+		return _pan(hit, first_press)
 	var p: Vector3i = _work_at(hit)
 	var m: int = main.get_world_voxel(p) if p.y >= 0 else GameMaterials.AIR
 	if m != GameMaterials.WORK_SPOT and m != GameMaterials.WORK_BLOCK:
@@ -325,8 +363,14 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 	if not first_press:
 		if e is SieveEntity and e.input != "":
 			pass   # holding right click keeps shaking
+		elif e is GroundEntity and not main.recipes.first_of("scrape", {"input": e.item}).is_empty():
+			pass   # holding right click keeps scraping
+		elif e is FirewoodPileEntity and held.get("id", "") == "firewood":
+			pass   # holding right click keeps stacking
 		else:
 			return true
+	if e is FirewoodPileEntity:
+		return _use_pile(e, hit, held, first_press)
 	if e is GroundEntity:
 		var res: Dictionary = e.use(held)
 		if res["consume"] > 0 and _consumes():
@@ -336,6 +380,9 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 			stats["casts"] += 1
 		if e.is_lit():
 			stats["kilns_lit"] += 1 if res["msg"] == "The pit kiln is lit." else 0
+		if res.get("stroke", false):
+			stats["scrapes"] += 1
+			_particles("block_hit", Vector3(p) + Vector3(0.5, 0.08, 0.5), GameMaterials.DIRT)
 		_give(res["give"], Vector3(p) + Vector3(0.5, 0.5, 0.5))
 		if res["remove"]:
 			main.blocks.remove(p)
@@ -397,6 +444,194 @@ func _hit(hit_r: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool
 	if r == "done":
 		_finish(e, e.output())
 	return true
+
+
+# ---------------- the pan (ADR 0030) ----------------
+
+static func _is_water(m: int) -> bool:
+	var b := GameMaterials.material_of_voxel(m)
+	return b == GameMaterials.WATER or b == GameMaterials.WATER_STATIC
+
+
+## The item a pannable bed voxel stands for (sand, gravel), or "".
+static func _bed_item(m: int) -> String:
+	if m == GameMaterials.SAND or m == GameMaterials.SAND_STATIC:
+		return "sand"
+	if m == GameMaterials.GRAVEL or m == GameMaterials.GRAVEL_STATIC:
+		return "gravel"
+	return ""
+
+
+## Right click with a pan: aim at water over sand or gravel (or at the bed
+## itself under water). Settings.pan_shakes clicks (holding repeats) wash one
+## voxel of it: the pan loot table rolls, and the bed voxel becomes water.
+## The aim ray passes through water, so the water may be the voxel it hit or
+## the one it crossed last before hitting the bank.
+func _pan(hit: VoxelRaycastResult, first_press: bool) -> bool:
+	var bed := Vector3i(-1, -1, -1)
+	var t: Vector3i = hit.position
+	if _bed_item(main.get_world_voxel(t)) != "" and _is_water(main.get_world_voxel(t + Vector3i.UP)):
+		bed = t
+	else:
+		for w in [t, hit.previous_position]:
+			if bed.y >= 0 or not _is_water(main.get_world_voxel(w)):
+				continue
+			for d in range(1, 4):
+				var m: int = main.get_world_voxel(w - Vector3i(0, d, 0))
+				if not _is_water(m):
+					if _bed_item(m) != "":
+						bed = w - Vector3i(0, d, 0)
+					break
+	if bed.y < 0:
+		if first_press:
+			_say("Pan sand or gravel that lies under water.")
+		return true
+	if bed != _pan_at:
+		_pan_at = bed
+		_pan_shakes = 0
+	_pan_shakes += 1
+	var item := _bed_item(main.get_world_voxel(bed))
+	_particles("splash", Vector3(bed) + Vector3(0.5, 1.2, 0.5), GameMaterials.WATER)
+	if _pan_shakes < Settings.pan_shakes:
+		return true
+	_pan_shakes = 0
+	_pan_at = Vector3i(-1, -1, -1)
+	stats["pans"] += 1
+	main.set_world_voxel(bed, GameMaterials.WATER_STATIC)
+	var at: Vector3 = main.player.position + Vector3(0, 1.0, 0)
+	for r in main.recipes.sift_table(item, "pan"):
+		if _rng.randf() < float(r.get("chance", 1.0)):
+			var s := {"id": r["output"]["id"], "count": int(r["output"].get("count", 1))}
+			_give([s], at)
+			_note("panned", s["id"])
+	return true
+
+
+# ---------------- the charcoal pit (ADR 0030) ----------------
+
+func _use_pile(e: FirewoodPileEntity, hit: VoxelRaycastResult, held: Dictionary, first_press: bool) -> bool:
+	var id: String = held.get("id", "")
+	if id == "firewood":
+		if e.state == "wood" and not e.is_full():
+			if e.add(1) > 0 and _consumes():
+				main.player_inv.consume_held(1)
+			return true
+		return _try_place(hit, held)   # full: the next pile goes in front of the clicked face
+	if not first_press:
+		return true
+	if held.has("material"):
+		# soil and stone go against the pile like against any block: that is how a pit is sealed
+		var mat := ItemIcon.material_id_for(main.items, id)
+		var q: Vector3i = hit.previous_position
+		if mat > 0 and main.get_world_voxel(q) == GameMaterials.AIR and not main.player._overlaps_player(q):
+			main.player.voxel_placed.emit(q, mat)
+			if _consumes():
+				main.player_inv.consume_held(1)
+		return true
+	if "firestarter" in held.get("tags", []):
+		if e.state != "wood":
+			_say("This pit is already burning." if e.is_lit() else "Dig out the charcoal.")
+			return true
+		var pit := pit_of(e.pos)
+		for p in pit:
+			main.blocks.at(p).light()
+		stats["pits_lit"] += 1
+		_say("The charcoal pit is lit (%d firewood). Seal every side with soil within %d s." % [_pit_firewood(pit), int(Settings.charcoal_pit_grace_s)])
+		return true
+	if id == "":
+		match e.state:
+			"wood":
+				_say("%d of %d firewood. Seal the piles with soil, then light them." % [e.count, Settings.firewood_per_pile])
+			"lit":
+				_say("Smouldering: %d s left%s." % [ceili(e.burn / 20.0), "" if e.sealed else ", but the pit is open"])
+			"charcoal":
+				_say("Break the pile to dig out %d charcoal." % e.charcoal)
+	return true
+
+
+const DIRS6: Array[Vector3i] = [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 1, 0), Vector3i(0, -1, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]
+
+
+## Every pile voxel connected to p through faces (one pit), up to 512.
+func pit_of(p: Vector3i) -> Array[Vector3i]:
+	var out: Array[Vector3i] = []
+	var seen := {p: true}
+	var todo: Array[Vector3i] = [p]
+	while not todo.is_empty() and out.size() < 512:
+		var q: Vector3i = todo.pop_back()
+		out.append(q)
+		for d in DIRS6:
+			var n: Vector3i = q + d
+			if not seen.has(n) and main.blocks.at(n) is FirewoodPileEntity:
+				seen[n] = true
+				todo.append(n)
+	return out
+
+
+func _pit_firewood(pit: Array[Vector3i]) -> int:
+	var n := 0
+	for p in pit:
+		n += main.blocks.at(p).count
+	return n
+
+
+## A voxel that seals a charcoal pit: a full solid or powder block that does
+## not burn (soil, sand, stone, clay ...), not a plant, a pickup or a work piece.
+static func seals(m: int) -> bool:
+	if m <= 0 or m >= GameMaterials.FLUID_LEVEL_BASE:
+		return false
+	var d: Dictionary = GameMaterials.defs()[m - 1]
+	if d.has("micro") or d.get("model", "") == "empty" or d.get("burnable", false) or d.get("transparent", false):
+		return false
+	return d.get("cell_type", "") in ["solid", "powder"]
+
+
+## Open faces of a pit: faces of its piles that touch neither another pile of
+## the pit nor a sealing voxel.
+func open_faces(pit: Array[Vector3i]) -> int:
+	var inside := {}
+	for p in pit:
+		inside[p] = true
+	var n := 0
+	for p in pit:
+		for d in DIRS6:
+			var q: Vector3i = p + d
+			if not inside.has(q) and not seals(main.get_world_voxel(q)):
+				n += 1
+	return n
+
+
+## Once a second: every lit pit is sealed (it smokes and chars) or open (past
+## its grace time it bursts into flames and the wood is gone).
+func _check_pits() -> void:
+	var t0 := Time.get_ticks_usec()
+	var done := {}
+	for e in main.blocks.all_of("firewood_pile"):
+		if not e.is_lit() or done.has(e.pos):
+			continue
+		var pit := pit_of(e.pos)
+		for p in pit:
+			done[p] = true
+		var open := open_faces(pit)
+		var top: Vector3i = pit[0]
+		for p in pit:
+			main.blocks.at(p).sealed = open == 0
+			if p.y > top.y:
+				top = p
+		if open == 0:
+			_particles("smoke", Vector3(top) + Vector3(0.5, 2.1, 0.5), 0)
+			continue
+		_particles("flame", Vector3(top) + Vector3(0.5, 1.1, 0.5), 0)
+		if main.blocks.at(pit[0]).grace > 0:
+			continue
+		# open to the air: the wood catches fire and is gone (the simulation's fire may spread)
+		stats["pits_burnt"] += 1
+		for p in pit:
+			main.blocks.remove(p)
+			forget(p)
+			main.set_world_voxel(p, GameMaterials.FIRE)
+		_say("The charcoal pit was open to the air: the wood burst into flames.")
+	stats["seal_ms_max"] = maxf(stats["seal_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
 
 
 func summary() -> Dictionary:

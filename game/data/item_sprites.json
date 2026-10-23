@@ -42,6 +42,9 @@
     "feather": {"o": "#5a5a5e", "d": "#b4b4b8", "m": "#dcdce0", "l": "#efeff2", "h": "#ffffff"},
     "bone": {"o": "#6a604c", "d": "#b8ac8c", "m": "#d8ceb0", "l": "#ebe4cc", "h": "#f8f4e6"},
     "hide": {"o": "#2a1a10", "d": "#4e3220", "m": "#6e4a30", "l": "#8a6040", "h": "#a87a54"},
+    "scraped_hide": {"o": "#5a4a36", "d": "#a08a6a", "m": "#c8b08a", "l": "#dcc8a4", "h": "#f0e4c8"},
+    "leather": {"o": "#2e1808", "d": "#6a3a18", "m": "#945428", "l": "#b06c38", "h": "#cc8c54"},
+    "daub": {"o": "#4a3e30", "d": "#8a7a62", "m": "#b2a084", "l": "#c8b89c", "h": "#e0d4bc"},
     "seed": {"o": "#3a2c10", "d": "#6e5824", "m": "#9a8034", "l": "#bca048", "h": "#e0cc7a"}
   },
   "shapes": {
@@ -1021,6 +1024,190 @@
         "..............l."
       ]
     },
+    "spear_tip": {
+      "rows": [
+        "............ooo.",
+        "...........ohllo",
+        "..........ohmmdo",
+        "..........olmdo.",
+        "..........oldo..",
+        "...........oo...",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "spear_shaft": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "...........oo...",
+        "..........ohlo..",
+        ".........ohdo...",
+        "........ohdo....",
+        ".......ohdo.....",
+        "......ohdo......",
+        ".....ohdo.......",
+        "....ohdo........",
+        "...ohdo.........",
+        "..ohdo..........",
+        ".ohdo...........",
+        "ohdo............",
+        ".oo............."
+      ]
+    },
+    "spear_head": {
+      "rows": [
+        "................",
+        ".......oo.......",
+        "......ohlo......",
+        ".....ohmmlo.....",
+        "....ohmmdmlo....",
+        "....olmmdmdo....",
+        "....olmmdmdo....",
+        "....olmmdmdo....",
+        "....olmmdmdo....",
+        "....olmmdmdo....",
+        ".....olmddo.....",
+        ".....olmddo.....",
+        "......oldo......",
+        "......oldo......",
+        ".......oo.......",
+        "................"
+      ]
+    },
+    "strips": {
+      "rows": [
+        "................",
+        "...........ooo..",
+        ".....oooooohllo.",
+        "..ooohllllldddo.",
+        ".ohllddddddooo..",
+        ".olddoooooo.ooo.",
+        "..ooo.oooooohllo",
+        "...ooohllllldddo",
+        "..ohllddddddooo.",
+        "..olddoooooooo..",
+        "...oooooooohllo.",
+        "..ooohllllldddo.",
+        ".ohllddddddooo..",
+        ".olddoooooo.....",
+        "..ooo...........",
+        "................"
+      ]
+    },
+    "bag": {
+      "colors": {"f": "#3a2010", "s": "#ae9058", "k": "#ae9058"},
+      "rows": [
+        "................",
+        "......ooooo.....",
+        ".....ossssso....",
+        ".....osoooso....",
+        "...ooshllloso...",
+        "..ofsfffffffso..",
+        "..olsmmmmmmmso..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        ".ohmmkmmkmmkmlo.",
+        ".olmmmmmmmmmmdo.",
+        ".olmmmmmmmmmmdo.",
+        ".oldddddddddddo.",
+        "..oooooooooooo..",
+        "................"
+      ]
+    },
+    "pan": {
+      "colors": {"i": "#3a1a0e", "j": "#c8a050"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        ".....oooooo.....",
+        "...oohllllloo...",
+        ".oohliiiiiilloo.",
+        "ohliiiiiiiiiillo",
+        "oliiijiiiijiiido",
+        "olmiiiijiiiiimdo",
+        "oldmmiiiiiimmddo",
+        ".ooldmmmmmmddoo.",
+        "...ooldddddoo...",
+        ".....oooooo.....",
+        "................",
+        "................"
+      ]
+    },
+    "jar": {
+      "colors": {"i": "#24140c"},
+      "rows": [
+        "................",
+        ".....oooooo.....",
+        ".....oiiiio.....",
+        ".....olmmdo.....",
+        "....ohmmmmlo....",
+        "...ohmmmmmmlo...",
+        "..ohmmmmmmmmlo..",
+        ".ohmmmmmmmmmmlo.",
+        ".olmmmmmmmmmmdo.",
+        ".olmmmmmmmmmmdo.",
+        ".olmmmmmmmmmmdo.",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "...olmmmmmmdo...",
+        "....oldddddo....",
+        ".....oooooo....."
+      ]
+    },
+    "pot_fill": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        ".....qqqqqq.....",
+        "....qqkqqkqq....",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "firewood": {
+      "colors": {"e": "#c89a5a", "E": "#8a6232"},
+      "rows": [
+        "................",
+        "............oo..",
+        "..........ooeeo.",
+        "........ooheeeeo",
+        ".......ohlmeEEeo",
+        ".....oohmmmeEEeo",
+        "...oohlmmmmmeeo.",
+        "..ohlmmmmdmddo..",
+        ".ohmmmmdmmdoo...",
+        "ohmmmmmmmdo.....",
+        ".olmdmmddo......",
+        "..olmmdoo.......",
+        "...oldo.........",
+        "....oo..........",
+        "................",
+        "................"
+      ]
+    },
     "wand_stick": {
       "colors": {"r": "#e0b040"},
       "rows": [
@@ -1871,6 +2058,22 @@
     "feather": {"layers": [{"shape": "feather", "palette": "feather"}]},
     "bone": {"layers": [{"shape": "bone", "palette": "bone"}]},
     "bear_hide": {"layers": [{"shape": "hide", "palette": "hide"}]},
+    "raw_hide": {"layers": [{"shape": "hide", "palette": "hide"}]},
+    "scraped_hide": {"layers": [{"shape": "hide", "palette": "scraped_hide"}]},
+    "leather": {"layers": [{"shape": "hide", "palette": "leather"}]},
+    "leather_strip": {"layers": [{"shape": "strips", "palette": "leather"}]},
+    "leather_bag": {"layers": [{"shape": "bag", "palette": "leather"}]},
+    "cordage": {"layers": [{"shape": "twine", "palette": "twine"}]},
+    "flint_spear_head": {"layers": [{"shape": "spear_head", "palette": "flint"}]},
+    "flint_spear": {"layers": [{"shape": "spear_shaft", "palette": "handle"}, {"shape": "spear_tip", "palette": "flint"}]},
+    "pan": {"layers": [{"shape": "pan", "palette": "terracotta"}]},
+    "raw_pan": {"layers": [{"shape": "pan", "palette": "clay", "colors": {"i": "#3a3e46", "j": "#5a606a"}}]},
+    "storage_pot": {"layers": [{"shape": "jar", "palette": "terracotta"}]},
+    "raw_storage_pot": {"layers": [{"shape": "jar", "palette": "clay", "colors": {"i": "#3a3e46"}}]},
+    "pot_of_stew": {"layers": [{"shape": "cooking_pot", "palette": "terracotta"}, {"shape": "pot_fill", "colors": {"q": "#7a4a22", "k": "#d07a30"}}]},
+    "stew": {"layers": [{"shape": "bowl", "palette": "terracotta"}, {"shape": "bowl_fill", "colors": {"q": "#7a4a22", "k": "#d07a30"}}]},
+    "daub": {"layers": [{"shape": "ball", "palette": "daub"}]},
+    "firewood": {"layers": [{"shape": "firewood", "palette": "wood"}]},
     "wooden_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "wood"}]},
     "stone_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "stone"}]},
     "iron_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "iron"}]},

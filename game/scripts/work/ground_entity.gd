@@ -9,10 +9,14 @@ extends RefCounted
 ## - Casting: a fired mold takes a molten crucible whose "cast" recipe names
 ##   it; the crucible comes back (`returns`), the metal cools for
 ##   Settings.cast_cool_s, then a right click takes the casting out.
+## - Hides (ADR 0030): a "scrape" recipe takes `strokes` right clicks with
+##   its tool (a knife); the scraped hide then lies there for its "dry"
+##   recipe's seconds and turns into leather. A bear hide gives two.
 ## - Anything else: a right click picks the ware back up.
 ## use() answers with what Main must do to the player's hand.
 
 signal changed
+signal fired(item: String)   # the pit kiln finished: item is the fired ware (quest events, ADR 0028)
 
 const KILN_GRASS := 4
 const KILN_STICKS := 8
@@ -25,6 +29,9 @@ var sticks := 0
 var burn := 0          # ticks of kiln fire left
 var cast_output := ""  # casting in the mold
 var cool := 0          # ticks until the casting can be taken
+var count := 1         # a bear hide scrapes into two hides that lie as one piece
+var strokes := 0       # knife strokes on a hide
+var dry_t := 0         # ticks a scraped hide has dried
 var recipes: RecipeRegistry
 
 
@@ -66,6 +73,21 @@ func use(held: Dictionary) -> Dictionary:
 		res["consume"] = 0 if res["replace_held"] != "" else 1
 		changed.emit()
 		return res
+	var scrape := recipes.first_of("scrape", {"input": item})
+	if not scrape.is_empty() and id != "":
+		if recipes.items.matches(id, scrape["tool"]):
+			strokes += 1
+			res["stroke"] = true
+			if strokes >= int(scrape["strokes"]):
+				item = scrape["output"]["id"]
+				count *= int(scrape["output"].get("count", 1))
+				strokes = 0
+				dry_t = 0
+				res["msg"] = "The hide is scraped clean. Leave it to dry."
+			changed.emit()
+		else:
+			res["msg"] = "Scrape the hide with a knife (%d/%d)." % [strokes, int(scrape["strokes"])]
+		return res
 	var kiln := kiln_recipe()
 	if not kiln.is_empty():
 		if grass < KILN_GRASS:
@@ -94,9 +116,14 @@ func use(held: Dictionary) -> Dictionary:
 				res["msg"] = "Light the pit kiln with a firestarter."
 			return res
 	if id == "":
-		res["give"] = [{"id": item, "count": 1}]
+		res["give"] = [{"id": item, "count": count}]
 		res["remove"] = true
 	return res
+
+
+## The "dry" recipe for what lies here, or {}.
+func dry_recipe() -> Dictionary:
+	return recipes.first_of("dry", {"input": item}) if item != "" else {}
 
 
 ## One tick (1/20 s). Emits changed when the look changes (fired, cooled).
@@ -107,6 +134,7 @@ func tick() -> bool:
 			var r := kiln_recipe()
 			if not r.is_empty():
 				item = r["output"]["id"]
+				fired.emit(item)
 			grass = 0
 			sticks = 0
 			changed.emit()
@@ -114,11 +142,30 @@ func tick() -> bool:
 		cool -= 1
 		if cool == 0:
 			changed.emit()
+	if item == _dry_checked and _dry_ticks == 0:
+		return false   # nothing that dries lies here (cached: this runs 20 times a second)
+	if item != _dry_checked:
+		_dry_checked = item
+		var d := dry_recipe()
+		_dry_ticks = int(float(d.get("seconds", 0)) * 20.0) if not d.is_empty() else 0
+		if _dry_ticks == 0:
+			return false
+	dry_t += 1
+	if dry_t >= _dry_ticks:
+		var d := dry_recipe()
+		item = d["output"]["id"]
+		count *= int(d["output"].get("count", 1))
+		dry_t = 0
+		changed.emit()
 	return false
 
 
+var _dry_checked := "-"   # the item whose dry recipe _dry_ticks holds
+var _dry_ticks := 0
+
+
 func contents() -> Array:
-	var out := [{"id": item, "count": 1}]
+	var out := [{"id": item, "count": count}]
 	if burn == 0:
 		if grass > 0:
 			out.append({"id": "dry_grass", "count": grass})
@@ -147,7 +194,19 @@ func view_parts() -> Dictionary:
 	var h: int = base["size"].y if not base.is_empty() else 2
 	var size := Vector3i(8, mini(h + (3 if grass > 0 else 0), 16), 8)
 	var c := WorkPalette.new_cells(size)
-	if base.is_empty():
+	var hide := _hide_paint()
+	if hide >= 0:
+		# a hide spread flat: scraped rows (front first) turn pale while the knife works
+		var scrape := recipes.first_of("scrape", {"input": item})
+		var done_rows := 0 if scrape.is_empty() else strokes * 7 / int(scrape["strokes"])
+		for z in range(0, 8):
+			for x in range(0, 8):
+				var edge := (x == 0 or x == 7) and (z == 0 or z == 7)
+				if not edge:
+					c[WorkPalette.idx(size, x, 0, z)] = (WorkPalette.SCRAPED if z < done_rows else hide) + 1
+		if count > 1:
+			WorkPalette.box(c, size, Vector3i(1, 1, 1), Vector3i(7, 2, 7), hide)
+	elif base.is_empty():
 		WorkPalette.box(c, size, Vector3i(2, 0, 2), Vector3i(6, 2, 6), WorkPalette.FIRED)
 	else:
 		var bs: Vector3i = base["size"]
@@ -183,9 +242,20 @@ func view_parts() -> Dictionary:
 	return {"solid": {"cells": c, "size": size}}
 
 
+## The palette a hide lying here shows (raw, scraped, leather), or -1 for clay ware.
+func _hide_paint() -> int:
+	if recipes.items.has_tag(item, "hide"):
+		return WorkPalette.HIDE
+	if item == "scraped_hide":
+		return WorkPalette.SCRAPED
+	if recipes.items.has_tag(item, "leather"):
+		return WorkPalette.LEATHER
+	return -1
+
+
 func to_dict() -> Dictionary:
 	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "item": item, "grass": grass, "sticks": sticks,
-		"burn": burn, "cast": cast_output, "cool": cool}
+		"burn": burn, "cast": cast_output, "cool": cool, "count": count, "strokes": strokes, "dry_t": dry_t}
 
 
 func load_from(d: Dictionary) -> void:
@@ -195,8 +265,11 @@ func load_from(d: Dictionary) -> void:
 	burn = int(d.get("burn", 0))
 	cast_output = String(d.get("cast", ""))
 	cool = int(d.get("cool", 0))
+	count = int(d.get("count", 1))
+	strokes = int(d.get("strokes", 0))
+	dry_t = int(d.get("dry_t", 0))
 
 
 func summary() -> Dictionary:
 	return {"kind": kind, "pos": pos, "item": item, "grass": grass, "sticks": sticks, "burn": burn,
-		"cast": cast_output, "cool": cool}
+		"cast": cast_output, "cool": cool, "count": count, "strokes": strokes, "dry_t": dry_t}

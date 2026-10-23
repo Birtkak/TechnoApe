@@ -5,7 +5,8 @@ extends CanvasLayer
 ## panel at 2x with a 2x2 personal crafting grid + output, a 3x3 crafting
 ## table grid, a chest's 27 slots or a furnace (input, fuel, output, flame
 ## and arrow gauges) above 27 main slots and the hotbar row. The JEI-style
-## recipe browser (ADR 0008) sits beside it; item names show on hover. Clicks go to PlayerInventory's
+## recipe browser (ADR 0008) sits beside it; item names show on hover. The
+## progression book (ADR 0028) opens from the button in the top left corner. Clicks go to PlayerInventory's
 ## cursor operations; the cursor stack follows the mouse. Closing returns
 ## grid contents; what does not fit is emitted for dropping.
 
@@ -29,6 +30,10 @@ var _container_slots: Array[SlotView] = []
 var browser: RecipeBrowser
 var browser_view: RecipeBrowserView
 var _tooltip: Label
+var _bag_slot: SlotView                  # the worn bag (ADR 0030), personal inventory only
+var _bag_slots: Array[SlotView] = []     # its 9 slots, a row under the hotbar while a bag is worn
+var quest_view: QuestBookView
+var _book_button: QuestBookView.BookButton
 
 
 func setup(p_inv: PlayerInventory) -> void:
@@ -48,6 +53,40 @@ func setup(p_inv: PlayerInventory) -> void:
 	_root.add_child(browser_view)
 	_root.move_child(_cursor_icon, -1)   # the held stack draws above the browser
 	_root.move_child(_tooltip, -1)
+
+
+## The progression book: its button top left, the book over everything else.
+func setup_quests(book: QuestBook) -> void:
+	_book_button = QuestBookView.BookButton.new()
+	_book_button.book = book
+	_book_button.position = Vector2(8, 8)
+	_book_button.pressed.connect(open_book)
+	_root.add_child(_book_button)
+	book.quest_completed.connect(func(_id: String) -> void: _book_button.queue_redraw())
+	quest_view = QuestBookView.new()
+	quest_view.visible = false
+	quest_view.setup(book, player_inv.items)
+	quest_view.show_recipes.connect(func(id: String) -> void:
+		close_book()
+		browser_view.show_item(id, "recipes"))
+	_root.add_child(quest_view)
+	_root.move_child(_cursor_icon, -1)
+	_root.move_child(_tooltip, -1)
+
+
+func open_book() -> void:
+	if quest_view and is_open:
+		_tooltip.visible = false
+		quest_view.open()
+
+
+func close_book() -> void:
+	if quest_view:
+		quest_view.close()
+
+
+func is_book_open() -> bool:
+	return quest_view != null and quest_view.visible
 
 
 func _ready() -> void:
@@ -111,6 +150,23 @@ func _build_player_slots() -> void:
 		sv.clicked.connect(_on_slot_clicked.bind(i))
 		_panel.add_child(sv)
 		_slots.append(sv)
+	for sv in _bag_slots:
+		sv.queue_free()
+	_bag_slots.clear()
+	for i in PlayerInventory.BAG:
+		var sv := SlotView.new()
+		sv.position = Vector2(16 + i * S, 332)
+		sv.index = i
+		sv.clicked.connect(func(button: int, shift: bool) -> void: player_inv.click_bag_slot(i, button, shift))
+		sv.visible = false
+		_panel.add_child(sv)
+		_bag_slots.append(sv)
+	if _bag_slot == null:
+		_bag_slot = SlotView.new()
+		_bag_slot.position = Vector2(126, 120)
+		_bag_slot.hint = "Bag"
+		_bag_slot.clicked.connect(func(_b: int, _s: bool) -> void: player_inv.click_bag_item())
+		_panel.add_child(_bag_slot)
 
 
 func _clear_mode_slots() -> void:
@@ -181,7 +237,7 @@ func open_container(c: RefCounted) -> void:
 		_panel.add_child(sv)
 		_container_slots.append(sv)
 	_title.text = c.title
-	_title.position = Vector2(16, 8) if c.kind == "chest" else Vector2(176 - c.title.length() * 4, 8)
+	_title.position = Vector2(16, 8) if c.kind == "chest" or c.kind == "storage_pot" else Vector2(176 - c.title.length() * 4, 8)
 	_inv_label.visible = true
 	_show()
 
@@ -200,6 +256,7 @@ func close() -> void:
 	is_open = false
 	visible = false
 	_tooltip.visible = false
+	close_book()
 	if browser_view:
 		browser_view.close_recipes()
 	_clear_mode_slots()
@@ -221,6 +278,17 @@ func _refresh() -> void:
 	if _container:
 		for i in _container_slots.size():
 			_container_slots[i].set_stack(player_inv.items, _container.inv.get_slot(i))
+	var worn := player_inv.has_bag()
+	_bag_slot.visible = _container == null and player_inv.craft.width == 2
+	_bag_slot.set_stack(player_inv.items, player_inv.bag_item)
+	for i in _bag_slots.size():
+		_bag_slots[i].visible = worn
+		_bag_slots[i].set_stack(player_inv.items, player_inv.bag.get_slot(i))
+	var h := PANEL.y + (48.0 if worn else 0.0)
+	if _panel.size.y != h:
+		_panel.size = Vector2(PANEL.x, h)
+		_panel.position = -_panel.size / 2.0
+		_panel.queue_redraw()
 	_cursor_icon.items = player_inv.items
 	_cursor_icon.stack = player_inv.cursor
 	_cursor_icon.visible = not player_inv.cursor.is_empty()
@@ -266,9 +334,16 @@ func _update_tooltip() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_open or not (event is InputEventKey) or not event.pressed or event.echo:
 		return
+	if event.keycode == KEY_ESCAPE and is_book_open():
+		close_book()
+		get_viewport().set_input_as_handled()
+		return
 	match event.keycode:
 		KEY_R, KEY_U:
-			if browser_view.show_item(hovered_item(), "recipes" if event.keycode == KEY_R else "uses"):
+			var id := hovered_item()
+			if id != "" and is_book_open():
+				close_book()   # the recipe view draws under the book
+			if browser_view.show_item(id, "recipes" if event.keycode == KEY_R else "uses"):
 				get_viewport().set_input_as_handled()
 		KEY_A:
 			var id := hovered_item()
@@ -310,7 +385,7 @@ func _draw_panel() -> void:
 	sb.border_color = Color(0.2, 0.2, 0.2)
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(6)
-	_panel.draw_style_box(sb, Rect2(Vector2.ZERO, PANEL))
+	_panel.draw_style_box(sb, Rect2(Vector2.ZERO, _panel.size))
 	if _container:
 		if _container.kind in ["furnace", "firepit"]:
 			_draw_furnace_gauges()
@@ -355,6 +430,7 @@ class SlotView:
 	signal clicked(button: int, shift: bool)
 	var index := 0
 	var is_output := false
+	var hint := ""            # drawn faintly while the slot is empty (the bag slot)
 	var _icon: ItemIcon
 	var _hover := false
 
@@ -372,6 +448,8 @@ class SlotView:
 	func set_stack(items: ItemRegistry, stack: Dictionary) -> void:
 		_icon.items = items
 		_icon.stack = stack
+		if hint != "":
+			queue_redraw()
 
 	func hover_item_id() -> String:
 		return _icon.stack.get("id", "")
@@ -390,6 +468,8 @@ class SlotView:
 		draw_rect(Rect2(size.x - 2, 0, 2, size.y), Color.WHITE)
 		if _hover:
 			draw_rect(Rect2(2, 2, size.x - 4, size.y - 4), Color(1, 1, 1, 0.35))
+		if hint != "" and _icon.stack.is_empty():
+			draw_string(ThemeDB.fallback_font, Vector2(4, size.y / 2.0 + 5), hint, HORIZONTAL_ALIGNMENT_CENTER, size.x - 8, 12, Color(0.3, 0.3, 0.3))
 
 	func _gui_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed and (event.button_index == MOUSE_BUTTON_LEFT or event.button_index == MOUSE_BUTTON_RIGHT):

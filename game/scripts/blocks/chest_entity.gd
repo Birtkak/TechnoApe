@@ -1,7 +1,8 @@
 class_name ChestEntity
 extends RefCounted
 
-## A single chest (ADR 0007): 27 slots, Minecraft's shift-click order. Pure
+## A single chest (ADR 0007): 27 slots, Minecraft's shift-click order; the
+## storage pot of ADR 0030 is the same container with 9 slots. Pure
 ## logic; InventoryScreen shows it, BlockEntities owns it by voxel position.
 ## Container interface shared with FurnaceEntity (duck-typed): kind, title,
 ## pos, inv, may_place(), is_output(), shift_targets(), shift_out_reverse(),
@@ -15,11 +16,16 @@ var kind := "chest"
 var title := "Chest"
 var pos: Vector3i
 var inv: Inventory
+var size := SIZE
 
 
-func _init(p_items: ItemRegistry, p_pos: Vector3i) -> void:
+func _init(p_items: ItemRegistry, p_pos: Vector3i, p_kind: String = "chest") -> void:
 	pos = p_pos
-	inv = Inventory.new(p_items, SIZE)
+	kind = p_kind
+	if kind == "storage_pot":
+		size = 9
+		title = "Storage Pot"
+	inv = Inventory.new(p_items, size)
 	inv.changed.connect(_on_slot_changed)   # method, not a lambda: no reference cycle
 
 
@@ -37,7 +43,7 @@ func is_output(_slot: int) -> bool:
 
 ## Slots a shift-clicked player stack tries, in order (vanilla: forward).
 func shift_targets(_id: String) -> Array:
-	return range(SIZE)
+	return range(size)
 
 
 ## Vanilla moves chest stacks into the player inventory back to front.
@@ -70,7 +76,7 @@ func to_dict() -> Dictionary:
 
 func load_from(d: Dictionary) -> void:
 	var slots: Array = d.get("slots", [])
-	for i in mini(slots.size(), SIZE):
+	for i in mini(slots.size(), size):
 		inv.set_slot(i, slots[i])
 
 

@@ -191,6 +191,7 @@ func run(p_main: Node) -> void:
 	await _shot(tree, "all", Vector3(spot.call(0)) + Vector3(0.5, 0.0, 0.5), 3.2)
 	_stage("end")
 	r["work"] = main.work.summary()
+	r["quests"] = main.quests.summary() if main.quests else {}
 	r["shots"] = shots
 	print("debug stone_age " + JSON.stringify(r))
 

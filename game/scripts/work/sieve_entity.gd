@@ -28,7 +28,7 @@ func use(held: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 	var id: String = held.get("id", "")
 	var res := {"consume": 0, "drops": [], "msg": ""}
 	if input == "":
-		if id != "" and not recipes.sift_table(id).is_empty():
+		if id != "" and not recipes.sift_table(id, "sieve").is_empty():
 			input = id
 			shakes = 0
 			res["consume"] = 1
@@ -48,7 +48,7 @@ func use(held: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 
 func roll(id: String, rng: RandomNumberGenerator) -> Array:
 	var out := []
-	for r in recipes.sift_table(id):
+	for r in recipes.sift_table(id, "sieve"):
 		if rng.randf() < float(r.get("chance", 1.0)):
 			out.append({"id": r["output"]["id"], "count": int(r["output"].get("count", 1))})
 	return out

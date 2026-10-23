@@ -112,7 +112,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   wheat and carrots, rare wild crops; wool, carpet, bed, chair; `hands_test=1` drives them all).
   Vintage Story early game ✓ (ADR 0023: knapping and clay forming on the ground, pit kiln,
   firepit, crucible melting, casting in molds, sieve; rock drops nothing before copper;
-  pieces in `scripts/work/`, `stone_age_test=1` plays flint to copper pickaxe). Ray-cast near field in the game ✓ (ADR 0021,
+  pieces in `scripts/work/`, `stone_age_test=1` plays flint to copper pickaxe). Progression book ✓ (ADR 0028: FTB-style quest book from the button top left of the inventory, `data/quests.json`, Flint Age chapter ending at the first copper tool, `/quests`). Deeper Flint Age ✓ (ADR 0030: cordage binds flint heads, thrown spear and hides, scraping and drying leather on the ground, worn bag, pan, bowls, cooking pot and stew, storage pot, thatch, wattle and daub, straw bed, torches with lights, an in-world charcoal pit sealed with soil; `flint_age_test=1`, `/kit flint`). Ray-cast near field in the game ✓ (ADR 0021,
   `near_field=1`, off by default until the user calls it: the bubble writes a wrapped
   `BrickStore`, `NearFieldFeed` + `near_scatter.glsl` keep a toroidal 512³ volume on the
   GPU under a byte budget, `near_field.gdshader` marches it with Godot's lighting, the
@@ -139,7 +139,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   all micro models (`materials.gd` `micro:` kinds). Material ids are
   definition order: 32..36 stations, 37..43 detail, 44 `CHISELED` reserved;
   append only; 47 = blood (ADR 0015); 48..52 ground pickups (ADR 0019); 57..75 animals/farming/furniture
-  (ADR 0022). Atlas 8×11 tiles (ADR 0024; 82..87 free, grow ROWS for more); 76..87 = content pass (tree kinds, terracotta, basalt, packed ice, fern), 90..101 = content pass 2 (birch, blueberry bush, pumpkin, flowers, bark). 88..89 = work spots (ADR 0023: drawn by `scripts/work/` entities from `MicroMesher.build_arrays` with the winding flipped in the arrays; `MobModel.outward` reads an ArrayMesh back, which waits 4-6 ms for the render thread, so never call it per edit). MicroMesher winds
+  (ADR 0022). Atlas 8×12 tiles (ADR 0024, 0030; 84..87 and 93..95 free, grow ROWS for more); 103..107 = Flint Age depth (thatch, wattle, daub wall, torch, storage pot, ADR 0030); 76..87 = content pass (tree kinds, terracotta, basalt, packed ice, fern), 90..101 = content pass 2 (birch, blueberry bush, pumpkin, flowers, bark). 88..89 = work spots (ADR 0023: drawn by `scripts/work/` entities from `MicroMesher.build_arrays` with the winding flipped in the arrays; `MobModel.outward` reads an ArrayMesh back, which waits 4-6 ms for the render thread, so never call it per edit). MicroMesher winds
   triangles counter-clockwise: pass its meshes through `MobModel.outward` (terrain models, mobs, furniture, the ape).
 - Two sessions share this checkout (this one and "PC testing and
   optimization"): stage files explicitly, never `git add -A`; Biome enum ids

@@ -71,6 +71,14 @@ var place_repeat_s := 0.2               # vanilla: 4 ticks between placed blocks
 var work_repeat_s := 0.12               # chips and clay strokes while a button is held (ADR 0023)
 var pit_kiln_burn_s := 60.0             # pit kiln burn time (ADR 0023; Vintage Story's is hours of game time)
 var cast_cool_s := 10.0                 # metal in a mold cools this long before it can be taken out
+# Flint Age depth (ADR 0030)
+var charcoal_pit_burn_s := 120.0        # a sealed pit smoulders this long (Vintage Story: about 18 game hours)
+var charcoal_pit_grace_s := 20.0        # after lighting, this long to finish sealing it before the wood burns away
+var firewood_per_pile := 16             # firewood in one pile voxel; two make one charcoal
+var torch_lights_max := 24              # the torches nearest the player that get a real light
+var torch_light_range_m := 7.0          # how far one torch lights
+var torch_light_radius_m := 48.0        # torches farther from the player than this stay unlit
+var pan_shakes := 6                     # right clicks to wash one pan of sand or gravel
 
 # Particles (ADR 0026): two GPU pools, every particle emitted by script
 var particles := true                   # particles=0 turns every effect off (benchmarks against the old game)

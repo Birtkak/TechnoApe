@@ -44,14 +44,32 @@ func preview_output() -> Dictionary:
 
 
 ## Crafts once: consumes one item from every non-empty grid slot and returns
-## the output stack, or {} if nothing matches.
+## the output stack, or {} if nothing matches. A recipe's "keep" specs (the
+## axe that splits a log) stay in their slot; "remainder" turns an ingredient
+## into another item in place (the pot of stew leaves its pot, Minecraft's
+## milk bucket) (ADR 0030).
 func craft_once() -> Dictionary:
-	var out := preview_output()
-	if out.is_empty():
+	var r := current_recipe()
+	if r.is_empty():
 		return {}
+	var out := {"id": r["output"]["id"], "count": int(r["output"]["count"])}
+	var keep: Array = r.get("keep", []).duplicate()
+	var remainder: Dictionary = r.get("remainder", {})
 	for i in grid.size():
-		if not grid.is_empty_slot(i):
-			grid.take(i, 1)
+		if grid.is_empty_slot(i):
+			continue
+		var id: String = grid.get_slot(i)["id"]
+		var kept := false
+		for k in keep.size():
+			if items.matches(id, keep[k]):
+				keep.remove_at(k)   # each keep spec spares one slot
+				kept = true
+				break
+		if kept:
+			continue
+		grid.take(i, 1)
+		if remainder.has(id):
+			grid.put(i, {"id": remainder[id], "count": 1})
 	return out
 
 

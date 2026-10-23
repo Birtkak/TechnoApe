@@ -189,6 +189,9 @@ PALETTES = {
     "feather": ramp("#5a5a5e", "#b4b4b8", "#dcdce0", "#efeff2", "#ffffff"),
     "bone": ramp("#6a604c", "#b8ac8c", "#d8ceb0", "#ebe4cc", "#f8f4e6"),
     "hide": ramp("#2a1a10", "#4e3220", "#6e4a30", "#8a6040", "#a87a54"),
+    "scraped_hide": ramp("#5a4a36", "#a08a6a", "#c8b08a", "#dcc8a4", "#f0e4c8"),
+    "leather": ramp("#2e1808", "#6a3a18", "#945428", "#b06c38", "#cc8c54"),
+    "daub": ramp("#4a3e30", "#8a7a62", "#b2a084", "#c8b89c", "#e0d4bc"),
     "seed": ramp("#3a2c10", "#6e5824", "#9a8034", "#bca048", "#e0cc7a"),
 }
 
@@ -593,6 +596,55 @@ g = outline(g)
 line(g, 12, 12, 14, 15, "l")
 shape("twine", g)
 
+# Flint Age depth (ADR 0030): spear, leather goods, pan, jar, stew, firewood
+g = shade(poly(new(), [(12.6, 0.6), (15.0, 0.6), (15.0, 3.0), (12.0, 5.6), (10.4, 4.0)]))
+shape("spear_tip", outline(g))
+g = new()
+line(g, 1, 14, 11, 4, "#", 2)
+shape("spear_shaft", body(g))
+g = shade(poly(new(), [(8, 1), (11, 5), (10.5, 10), (8, 15), (5.5, 10), (5, 5)]))
+for y in range(4, 13):
+    put(g, 8, y, "d")
+shape("spear_head", outline(g))
+g = new()
+for k, (x0, y0) in enumerate([(2, 4), (3, 8), (2, 12)]):
+    line(g, x0, y0, x0 + 11, y0 - 2, "#", 1)
+    line(g, x0, y0 + 1, x0 + 11, y0 - 1, "#", 1)
+shape("strips", body(g))
+g = shade(compose(poly(new(), [(3, 6), (13, 6), (14, 14.5), (2, 14.5)]), ellipse(new(), 8, 6, 5, 1.6)))
+rect(g, 3, 5, 12, 5, "f")
+line(g, 4, 6, 6, 2, "s")
+line(g, 12, 6, 10, 2, "s")
+line(g, 6, 2, 10, 2, "s")
+for x in (5, 8, 11):
+    put(g, x, 10, "k")
+shape("bag", outline(g), {"f": "#3a2010", "s": "#ae9058", "k": "#ae9058"})
+g = shade(ellipse(new(), 8, 9, 7.2, 3.8))
+ellipse(g, 8, 8.4, 5.6, 2.4, "i")
+for (x, y) in [(5, 8), (7, 9), (10, 8)]:
+    put(g, x, y, "j")
+shape("pan", outline(g), {"i": "#3a1a0e", "j": "#c8a050"})
+g = new()
+for y in range(N):
+    w = [0, 0, 2, 2, 3, 4, 5, 6, 6, 6, 6, 5, 5, 4, 3, 0][y]
+    for x in range(8 - w, 8 + w):
+        put(g, x, y, "#")
+g = shade(g)
+rect(g, 6, 2, 9, 2, "i")
+g = outline(g)
+rect(g, 5, 1, 10, 1, "o")
+shape("jar", g, {"i": "#24140c"})
+g = ellipse(new(), 8, 6.2, 4.6, 1.0, "q")
+for (x, y) in [(6, 6), (9, 6)]:
+    put(g, x, y, "k")
+shape("pot_fill", g)
+g = shade(poly(new(), [(1, 9), (11, 3), (15, 6), (5, 13)]))
+ellipse(g, 13, 4.6, 2.0, 2.2, "e")
+ellipse(g, 13, 4.6, 1.0, 1.1, "E")
+for (x, y) in [(4, 10), (7, 8), (9, 7)]:
+    put(g, x, y, "d")
+shape("firewood", outline(g), {"e": "#c89a5a", "E": "#8a6232"})
+
 # wand (stick + gem layers), fire bomb
 g = shade(diag(2, 13, 8))
 put(g, 8, 6, "r")
@@ -896,6 +948,22 @@ sp("fried_egg", ("fried_egg", "carrot"))
 sp("feather", ("feather", "feather"))
 sp("bone", ("bone", "bone"))
 sp("bear_hide", ("hide", "hide"))
+sp("raw_hide", ("hide", "hide"))
+sp("scraped_hide", ("hide", "scraped_hide"))
+sp("leather", ("hide", "leather"))
+sp("leather_strip", ("strips", "leather"))
+sp("leather_bag", ("bag", "leather"))
+sp("cordage", ("twine", "twine"))
+sp("flint_spear_head", ("spear_head", "flint"))
+sp("flint_spear", ("spear_shaft", "handle"), ("spear_tip", "flint"))
+sp("pan", ("pan", "terracotta"))
+sp("raw_pan", ("pan", "clay", {"i": "#3a3e46", "j": "#5a606a"}))
+sp("storage_pot", ("jar", "terracotta"))
+sp("raw_storage_pot", ("jar", "clay", {"i": "#3a3e46"}))
+sp("pot_of_stew", ("cooking_pot", "terracotta"), ("pot_fill", None, {"q": "#7a4a22", "k": "#d07a30"}))
+sp("stew", ("bowl", "terracotta"), ("bowl_fill", None, {"q": "#7a4a22", "k": "#d07a30"}))
+sp("daub", ("ball", "daub"))
+sp("firewood", ("firewood", "wood"))
 for m, item in (("wood", "wooden_hoe"), ("stone", "stone_hoe"), ("iron", "iron_hoe")):
     sp(item, H, ("hoe_head", m))
 sp("shears", ("shears", "iron"))

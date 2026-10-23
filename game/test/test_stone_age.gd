@@ -65,7 +65,7 @@ func test_mold_cavities_are_enclosed() -> void:
 ## Ground pickups, clay, cut grass and logs (with a flint axe) are all a new
 ## player can gather; from them every stone and copper age item must follow.
 func test_copper_pickaxe_from_ground_pickups() -> void:
-	var have := recipes.reachable_from(["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball", "dry_grass", "oak_log", "gravel", "sand"])
+	var have := recipes.reachable_from(["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball", "dry_grass", "oak_log", "gravel", "sand", "plant_fiber"])
 	for id in ["flint_knife", "flint_axe", "flint_pickaxe", "crafting_table", "firestarter", "firepit", "crucible",
 			"pickaxe_mold", "crucible_copper", "copper_pickaxe_head", "copper_pickaxe", "copper_axe", "sieve", "copper_nugget"]:
 		assert_bool(have.has(id)).override_failure_message("%s not reachable" % id).is_true()

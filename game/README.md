@@ -110,7 +110,13 @@ Godot_..._console.exe --path game -- autopilot=1 target=forest walk=1 speed=0 du
 #       (stone_age_shots=0 skips the screenshots, which stall the render thread ~100 ms, for a budget run);
 #       chat: /kit stone (flint, sticks, clay, dry grass, stones, copper-bearing stones, firestarter, logs)
 #       piece timings: JSON work.rebuild_ms_max / use_ms_max / hit_ms_max; headless: res://tools/work_probe.tscn
+# Deeper Flint Age (ADR 0030): flint_age_test=1 scrapes and dries a hide, digs, stacks, lights, seals and burns a
+#       charcoal pit (and lets an open one burst into flames), pans gravel in a pool, throws a spear at a sheep,
+#       places torches (lights at night), thatch, wattle and daub, a straw bed and a storage pot, wears a bag and
+#       cooks stew; prints "debug flint_age {...}" and saves flint_age_*.png (flint_age_shots=0 skips them);
+#       chat: /kit flint; progression book: open_inventory=1 quest_book=1 [quest_select=id] [quests_done=a,b|all]
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=40 stone_age_test=1 mob_spawn=0 vsync=0 out=res://out/stone_age
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=90 flint_age_test=1 mob_spawn=0 vsync=0 out=res://out/flint_age
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=15 animals=40 mob_spawn=0 give=wheat:8 vsync=0 out=res://out/animals
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=18 capture_every=1 hands_test=1 mob_spawn=0 out=res://out/hands
 Godot_..._console.exe --path game --script res://tools/mob_sheet.gd -- out=res://out/mobs/sheet.png   # sheep, shorn sheep, lamb, pig, piglet, bed, chair

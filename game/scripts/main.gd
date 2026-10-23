@@ -34,6 +34,11 @@ var _furniture_root: Node3D
 var _furniture_views := {}           # anchor -> MeshInstance3D
 var work: WorkSystem                 # knapping, clay forming, pit kilns, firepits, sieves (ADR 0023)
 var _stone_age_test: StoneAgeTest
+var _flint_age_test: FlintAgeTest
+var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
+var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
+var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
+var quest_toast: QuestToast
 var _farm_accum := 0.0
 var phys_cost := {}   # ms per physics callback this frame (player, items, item_bodies, blocks); DebugCapture reads it on a spike
 var _items_root: Node3D
@@ -149,12 +154,22 @@ func _ready() -> void:
 	add_child(inv_screen)
 	inv_screen.setup(player_inv)
 	inv_screen.closed.connect(_on_screen_closed)
+	_setup_quests()
 	work = WorkSystem.new()
 	work.name = "Work"
 	add_child(work)
 	work.setup(self)
 	player.work_use = work.use
 	player.work_hit = work.hit
+	projectiles = Projectiles.new()
+	projectiles.name = "Projectiles"
+	projectiles.main = self
+	add_child(projectiles)
+	player.throw_item = projectiles.throw
+	torch_lights = TorchLights.new()
+	torch_lights.name = "TorchLights"
+	torch_lights.main = self
+	add_child(torch_lights)
 
 	# chat, slash commands, game modes and the playtest debug menu (ADR 0018)
 	commands = CommandRegistry.new()
@@ -244,6 +259,10 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_stone_age_test = StoneAgeTest.new()   # held here: a RefCounted coroutine dies with its last reference
 				_stone_age_test.run(self))
+		if DebugCapture.flint_age_test:
+			_after_load(func() -> void:
+				_flint_age_test = FlintAgeTest.new()
+				_flint_age_test.run(self))
 		if DebugCapture.scatter_items:
 			# one entity per given item, in a row two metres ahead, so a screenshot shows them
 			var fwd := -player.camera.global_transform.basis.z
@@ -361,6 +380,9 @@ func _save_blocks() -> void:
 		return
 	if blocks != null and blocks.dirty:
 		blocks.save_file(_blocks_path())
+	if quests != null and quests.dirty:
+		_save_json(_save_path("quests"), quests.to_dict())
+		quests.dirty = false
 	if farming != null and farming.dirty:
 		_save_json(_save_path("farms"), farming.to_dict())
 		farming.dirty = false
@@ -368,6 +390,31 @@ func _save_blocks() -> void:
 		mobs.save_file(_save_path("mobs"))   # animals move all the time: always written
 	if atmosphere != null:
 		_save_json(_save_path("calendar"), atmosphere.calendar.to_dict())   # the date moves all the time too
+
+
+## The progression book (ADR 0028): progress saved per world, item tasks
+## counted whenever the inventory changes, a toast per completed quest.
+func _setup_quests() -> void:
+	quests = QuestBook.load_default(items)
+	for err in quests.errors:
+		push_error("data: " + err)
+	if Settings.persist_world:
+		quests.load_dict(_load_json(_save_path("quests")))
+	quest_toast = QuestToast.new()
+	quest_toast.name = "QuestToast"
+	quest_toast.items = items
+	add_child(quest_toast)
+	quests.quest_completed.connect(func(id: String) -> void:
+		var q: Dictionary = quests.quests[id]
+		quest_toast.push(q["icon"], q["title"], q.get("final", false))
+		if chat:
+			chat.add_message("Quest complete: %s" % q["title"]))
+	player_inv.changed.connect(func() -> void: quests.check_inventory(player_inv.inv, player_inv.cursor, [player_inv.bag]))
+	inv_screen.setup_quests(quests)
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("quests_done="):   # debug: quests_done=all or a,b,c (for book screenshots)
+			for id in (quests.quests.keys() if a.substr(12) == "all" else Array(a.substr(12).split(",", false))):
+				quests.complete(id)
 
 
 ## user://worlds/<what>_<seed>_g<gen>.json, next to the blocks file.
@@ -527,7 +574,7 @@ func _remove_furniture(e: FurnitureEntity, drop: bool) -> void:
 		player.stand_up()
 
 
-## Right click on a bed: sleep through the night (Minecraft: 12542..23459 of its
+## Right click on a bed or straw bed: sleep through the night (Minecraft: 12542..23459 of its
 ## 24000 ticks = after sunset to before sunrise) and set the respawn point
 ## beside it; on a chair: sit down.
 func _use_furniture(p: Vector3i) -> void:
@@ -613,6 +660,13 @@ func _debug_browser() -> void:
 	if args.has("search"):
 		inv_screen.browser_view._search.text = args["search"]
 		inv_screen.browser_view._search.text_changed.emit(args["search"])
+	if args.get("quest_book", "0") == "click":
+		await _debug_quest_clicks()
+	if args.get("quest_book", "0") == "1":
+		inv_screen.open_book()
+		if args.has("quest_select"):
+			inv_screen.quest_view.select(args["quest_select"])
+		print("debug quest_book open=%s selected=%s %s" % [inv_screen.is_book_open(), inv_screen.quest_view.selected, quests.summary()])
 	if args.has("browse"):
 		var parts: PackedStringArray = args["browse"].split(":")
 		var ok := inv_screen.browser_view.show_item(parts[0], parts[1] if parts.size() > 1 else "recipes")
@@ -645,6 +699,43 @@ func _debug_browser() -> void:
 		for _i in 2:
 			await get_tree().process_frame
 		print("debug rmb %s -> %s history=%d" % [c2.item_id, inv_screen.browser.summary().get("view", {}), inv_screen.browser.history.size()])
+
+
+## Debug (open_inventory=1 quest_book=click): the book through real mouse
+## clicks: the button opens it, a quest node selects it, its first task's
+## item closes the book and opens that item's recipes.
+func _debug_quest_clicks() -> void:
+	var click := func(c: Control) -> void:
+		var at := c.get_global_rect().get_center()
+		get_viewport().warp_mouse(at)
+		var mm := InputEventMouseMotion.new()
+		mm.position = at
+		Input.parse_input_event(mm)
+		for down in [true, false]:
+			var e := InputEventMouseButton.new()
+			e.button_index = MOUSE_BUTTON_LEFT
+			e.pressed = down
+			e.position = at
+			Input.parse_input_event(e)
+		for _i in 3:
+			await get_tree().process_frame
+	for _i in 1200:   # the loading screen covers everything until the world is in
+		if not is_instance_valid(_loading) or not _loading.is_inside_tree() or not _loading.visible:
+			break
+		await get_tree().process_frame
+	await click.call(inv_screen._book_button)
+	var opened := inv_screen.is_book_open()
+	var qv := inv_screen.quest_view
+	await click.call(qv._nodes["shape_crucible"])
+	var selected := qv.selected
+	var row: Control = null
+	for c in qv._detail.get_children():
+		if c is QuestBookView.TaskRow:
+			row = c
+			break
+	await click.call(row)
+	print("debug quest_clicks %s" % JSON.stringify({"opened": opened, "selected": selected,
+		"book_closed_after_task": not inv_screen.is_book_open(), "recipes": inv_screen.browser.summary().get("view", {})}))
 
 
 ## Debug: aim at a block and right click it through the player's own use path.
@@ -843,6 +934,9 @@ func snapshot() -> Dictionary:
 		"browser": inv_screen.browser.summary(),
 		"blocks": blocks.summary(),
 		"work": work.summary() if work else {},
+		"quests": quests.summary() if quests else {},
+		"projectiles": projectiles.stats if projectiles else {},
+		"torches": torch_lights.stats if torch_lights else {},
 		"mobs": mobs.summary() if mobs else {},
 		"farm": farming.summary() if farming else {},
 		"particles": fx.stats if fx else {},
@@ -916,8 +1010,15 @@ func _hold(id: String) -> void:
 		if not st.is_empty() and st["id"] == id:
 			player_inv.select(i)
 			return
-	player_inv.pickup(id, 1)
-	_hold(id)
+	if player_inv.pickup(id, 1) > 0:
+		push_error("_hold: no room for %s" % id)   # (a full inventory recursed forever)
+		return
+	for i in PlayerInventory.HOTBAR:
+		var st: Dictionary = player_inv.inv.get_slot(i)
+		if not st.is_empty() and st["id"] == id:
+			player_inv.select(i)
+			return
+	push_error("_hold: %s went to the main grid, not the hotbar" % id)
 
 
 ## Aims the camera at a point (world voxels) and right clicks through Player._use.

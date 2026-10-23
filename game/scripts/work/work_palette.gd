@@ -23,6 +23,13 @@ const PALETTE: Array = [
 	[70, 66, 62],      # ASH
 	[200, 180, 140],   # MESH (sieve weave)
 	[150, 140, 130],   # GRAVEL
+	[112, 78, 50],     # HIDE: raw, hair side down (ADR 0030)
+	[214, 196, 164],   # SCRAPED: the flesh side scraped clean
+	[150, 96, 52],     # LEATHER
+	[96, 70, 40],      # FIREWOOD: split log ends
+	[150, 112, 70],    # FIREWOOD_LIGHT: split faces
+	[30, 26, 24],      # CHARCOAL
+	[120, 86, 60],     # SOIL (pit cover in the view, unused by the world)
 ]
 const FLINT := 0
 const FLINT_MARK := 1
@@ -38,7 +45,14 @@ const EMBER := 10
 const ASH := 11
 const MESH := 12
 const GRAVEL := 13
-const ATLAS := Vector2i(14, 1)
+const HIDE := 14
+const SCRAPED := 15
+const LEATHER := 16
+const FIREWOOD := 17
+const FIREWOOD_LIGHT := 18
+const CHARCOAL := 19
+const SOIL := 20
+const ATLAS := Vector2i(21, 1)
 
 static var _material: StandardMaterial3D
 static var _ghost: StandardMaterial3D

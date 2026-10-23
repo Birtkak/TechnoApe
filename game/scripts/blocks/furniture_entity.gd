@@ -1,7 +1,7 @@
 class_name FurnitureEntity
 extends RefCounted
 
-## A bed or chair (ADR 0022): furniture is bigger than one 0.5 m voxel, so it
+## A bed, straw bed (ADR 0030) or chair (ADR 0022): furniture is bigger than one 0.5 m voxel, so it
 ## is a block entity that fills its footprint with invisible FURNITURE voxels
 ## (full collision, the aim ray hits them) and draws one rotated micro-voxel
 ## mesh (8 cells per voxel, the chisel grid of ADR 0006) with its own palette.
@@ -14,7 +14,8 @@ signal changed
 const DIRS: Array[Vector3i] = [Vector3i(0, 0, 1), Vector3i(1, 0, 0), Vector3i(0, 0, -1), Vector3i(-1, 0, 0)]
 ## kind -> footprint in voxels (x across, y up, z along the facing) and the model's cell grid size.
 const KINDS := {
-	"bed": {"size": Vector3i(2, 1, 4), "cells": Vector3i(16, 12, 32), "item": "bed"},
+	"bed": {"size": Vector3i(2, 1, 4), "cells": Vector3i(16, 12, 32), "item": "bed", "sleep": true},
+	"straw_bed": {"size": Vector3i(2, 1, 4), "cells": Vector3i(16, 6, 32), "item": "straw_bed", "sleep": true},
 	"chair": {"size": Vector3i(1, 2, 1), "cells": Vector3i(8, 16, 8), "item": "chair"},
 }
 
@@ -70,7 +71,7 @@ func seat() -> Vector3:
 	var fwd := Vector3(DIRS[facing])
 	var right := Vector3(fwd.z, 0, -fwd.x)
 	var base := Vector3(pos) + Vector3(0.5, 0, 0.5)
-	if furniture == "bed":
+	if KINDS.get(furniture, {}).get("sleep", false):
 		return base + right * 0.5 + fwd * 1.5 + Vector3(0, 1.0, 0)
 	return base + Vector3(0, 1.0, 0)
 
@@ -103,7 +104,10 @@ const WOOL := 2
 const WOOL_SHADE := 3
 const RED := 4
 const RED_SHADE := 5
-const PALETTE: Array = [[184, 142, 86], [128, 92, 52], [238, 238, 232], [214, 212, 204], [184, 40, 44], [146, 28, 34]]
+const STRAW := 6
+const STRAW_SHADE := 7
+const PALETTE: Array = [[184, 142, 86], [128, 92, 52], [238, 238, 232], [214, 212, 204], [184, 40, 44], [146, 28, 34],
+	[208, 178, 88], [168, 136, 60]]
 
 static var _material: StandardMaterial3D
 static var _tiles: PackedInt32Array
@@ -168,7 +172,17 @@ static func cells_for(p_kind: String) -> PackedInt32Array:
 				for x in range(a.x, b.x):
 					if x >= 0 and y >= 0 and z >= 0 and x < size.x and y < size.y and z < size.z:
 						c[x + size.x * (y + size.y * z)] = paint + 1
-	if p_kind == "bed":
+	if p_kind == "straw_bed":
+		# a heap of dry grass on the floor, bound at the edges, a rolled-up pillow at the head end (+z)
+		box.call(Vector3i(0, 0, 0), Vector3i(16, 2, 32), STRAW_SHADE)
+		box.call(Vector3i(1, 2, 1), Vector3i(15, 3, 31), STRAW)
+		for z in range(1, 31, 3):
+			box.call(Vector3i(1, 3, z), Vector3i(15, 4, z + 1), STRAW_SHADE)
+		for x in range(2, 14, 4):
+			box.call(Vector3i(x, 3, 2), Vector3i(x + 2, 4, 26), STRAW)
+		box.call(Vector3i(2, 3, 26), Vector3i(14, 6, 31), STRAW)
+		box.call(Vector3i(2, 5, 26), Vector3i(14, 6, 27), STRAW_SHADE)
+	elif p_kind == "bed":
 		# 1 x 2 m: legs, plank frame, white mattress, red blanket draped over the foot two thirds,
 		# a pillow and a headboard at the head end (+z)
 		for q in [Vector3i(0, 0, 0), Vector3i(14, 0, 0), Vector3i(0, 0, 29), Vector3i(14, 0, 29)]:

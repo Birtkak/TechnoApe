@@ -5,6 +5,8 @@ extends RefCounted
 ## Inventory where slots 0..8 are the hotbar and 9..35 the main grid, a
 ## cursor stack for the inventory screen, a personal 2x2 crafting grid, the
 ## selected hotbar index and health in half-hearts. Pure logic, no nodes.
+## A worn bag (ADR 0030, Vintage Story's backpack) adds BAG slots of its own:
+## pickups that do not fit go there, and the bag comes off only when empty.
 
 signal changed
 signal selection_changed(index: int)
@@ -13,12 +15,15 @@ signal health_changed(health: int)
 const HOTBAR := 9
 const MAIN := 27
 const SIZE := HOTBAR + MAIN
+const BAG := 9
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
 var inv: Inventory
 var craft: CraftingGrid
 var cursor := {}
+var bag_item := {}                 # the worn bag stack (leather_bag), or {}
+var bag: Inventory                 # its slots; usable while bag_item is set
 var container: RefCounted = null   # ChestEntity / FurnaceEntity while its screen is open (ADR 0007)
 var selected := 0
 var max_health := 20
@@ -34,6 +39,8 @@ func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_max_health: int =
 	health = p_max_health
 	inv.changed.connect(_on_slot_changed)
 	craft.grid.changed.connect(_on_slot_changed)
+	bag = Inventory.new(items, BAG)
+	bag.changed.connect(_on_slot_changed)
 
 
 ## Swaps in a bigger grid (crafting table: width 3) or back to the personal 2x2.
@@ -158,7 +165,56 @@ func pickup(id: String, count: int) -> int:
 	var left := _add_in_range(id, count, 0, SIZE, true)
 	if left > 0:
 		left = _add_in_range(id, left, 0, SIZE, false)
+	if left > 0 and has_bag():
+		left = bag.add(id, left)
 	return left
+
+
+# ---------------- the bag (ADR 0030) ----------------
+
+func has_bag() -> bool:
+	return not bag_item.is_empty()
+
+
+func bag_is_empty() -> bool:
+	for i in BAG:
+		if not bag.is_empty_slot(i):
+			return false
+	return true
+
+
+## Click on the bag slot: put a bag on from the cursor, or take an empty one off.
+func click_bag_item() -> void:
+	var cursor_bag: bool = not cursor.is_empty() and items.has_tag(cursor["id"], "bag")
+	if not cursor.is_empty() and not cursor_bag:
+		return
+	if has_bag() and not bag_is_empty():
+		return   # a bag with things in it stays on
+	var was := bag_item
+	bag_item = {"id": cursor["id"], "count": 1} if cursor_bag else {}
+	if cursor_bag:
+		cursor["count"] = int(cursor["count"]) - 1
+		cursor = cursor if cursor["count"] > 0 else {}
+	if not was.is_empty():
+		if cursor.is_empty():
+			cursor = was
+		else:
+			pickup(was["id"], 1)
+	changed.emit()
+
+
+## Click on one of the bag's slots: like a main slot; shift moves it into the inventory.
+func click_bag_slot(i: int, button: int, shift: bool) -> void:
+	if not has_bag():
+		return
+	if shift:
+		_move_stack(bag, i, inv, _player_order(false))
+		return
+	if button == MOUSE_BUTTON_RIGHT:
+		cursor = bag.right_click(i, cursor)
+	else:
+		cursor = bag.left_click(i, cursor)
+	changed.emit()
 
 
 ## Drops from the held stack (all when `whole` else one). Returns the dropped stack.
@@ -183,7 +239,7 @@ func click_slot(i: int, button: int, shift: bool) -> void:
 			if not targets.is_empty():
 				_move_stack(inv, i, container.inv, targets)
 				return
-			if container.kind == "chest":
+			if container.kind == "chest" or container.kind == "storage_pot":
 				return
 		if i < HOTBAR:
 			_move_slot(inv, i, HOTBAR, SIZE)
@@ -271,6 +327,8 @@ func close_screen() -> Array:
 	var dropped: Array = craft.return_contents(inv)
 	if not cursor.is_empty():
 		var left := inv.add(cursor["id"], cursor["count"])
+		if left > 0 and has_bag():
+			left = bag.add(cursor["id"], left)
 		if left > 0:
 			dropped.append({"id": cursor["id"], "count": left})
 		cursor = {}
@@ -389,5 +447,10 @@ func summary() -> Dictionary:
 		var s: Dictionary = inv.get_slot(i)
 		if not s.is_empty():
 			main[s["id"]] = int(main.get(s["id"], 0)) + int(s["count"])
+	var in_bag := {}
+	for i in BAG:
+		var s: Dictionary = bag.get_slot(i)
+		if not s.is_empty():
+			in_bag[s["id"]] = int(in_bag.get(s["id"], 0)) + int(s["count"])
 	return {"selected": selected, "hotbar": hotbar, "main": main, "cursor": cursor, "health": health,
-		"container": container.kind if container != null else ""}
+		"container": container.kind if container != null else "", "bag": bag_item.get("id", ""), "in_bag": in_bag}

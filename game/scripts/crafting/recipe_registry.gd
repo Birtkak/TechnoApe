@@ -82,7 +82,15 @@ func _validate(r) -> bool:
 			if not r.has("ingredients") or r["ingredients"].is_empty() or r["ingredients"].size() > 9:
 				errors.append("recipe %s: needs 1..9 ingredients" % r["id"])
 				return false
-		"smelt", "kiln", "sift":
+			for id in r.get("remainder", {}):
+				if not items.has(r["remainder"][id]) or not id in r["ingredients"]:
+					errors.append("recipe %s: bad remainder %s" % [r["id"], id])
+					return false
+			for spec in r.get("keep", []):
+				if not spec in r["ingredients"]:
+					errors.append("recipe %s: keeps %s, which is no ingredient" % [r["id"], spec])
+					return false
+		"smelt", "kiln", "sift", "dry", "charcoal_pit":
 			if not r.has("input"):
 				errors.append("%s recipe %s needs input" % [r["type"], r["id"]])
 				return false
@@ -102,6 +110,10 @@ func _validate(r) -> bool:
 		"melt":
 			if not r.has("input") or not r.has("vessel"):
 				errors.append("melt recipe %s needs input and vessel" % r["id"])
+				return false
+		"scrape":
+			if not r.has("input") or not r.has("tool") or int(r.get("strokes", 0)) <= 0:
+				errors.append("scrape recipe %s needs input, tool and strokes" % r["id"])
 				return false
 		"cast":
 			if not r.has("input") or not r.has("mold"):
@@ -144,8 +156,15 @@ func ingredient_specs(r: Dictionary) -> Array:
 			return out
 		"shapeless", "spellcraft":
 			return r["ingredients"].duplicate()
-		"smelt", "knap", "clayform", "kiln", "sift":
+		"smelt", "knap", "clayform", "kiln", "sift", "dry":
 			return [r["input"]]
+		"scrape":
+			return [r["input"], r["tool"]]
+		"charcoal_pit":
+			var out := []
+			for i in int(r.get("per", 1)):
+				out.append(r["input"])
+			return out
 		"melt":
 			var out := []
 			for i in int(r.get("count", 1)):
@@ -188,11 +207,12 @@ func first_of(t: String, filter: Dictionary) -> Dictionary:
 	return {}
 
 
-## Every sift recipe for an input: one loot table, each entry rolled on its own.
-func sift_table(item_id: String) -> Array:
+## Every sift recipe for an input at a station (the sieve, or the pan of
+## ADR 0030): one loot table, each entry rolled on its own.
+func sift_table(item_id: String, station: String = "sieve") -> Array:
 	var out := []
 	for r in of_type("sift"):
-		if items.matches(item_id, r["input"]):
+		if r.get("station", "sieve") == station and items.matches(item_id, r["input"]):
 			out.append(r)
 	return out
 

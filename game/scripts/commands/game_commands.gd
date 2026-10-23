@@ -15,7 +15,9 @@ const KITS := {
 	"builder": {"stone": 64, "cobblestone": 64, "dirt": 64, "grass_block": 64, "sand": 64, "oak_planks": 64, "oak_log": 64, "glass": 64, "sandstone": 64},
 	"stations": {"crafting_table": 4, "furnace": 4, "chest": 4, "iron_ore": 16, "copper_ore": 16, "tin_ore": 16, "coal": 32},
 	"farm": {"iron_hoe": 1, "wheat_seeds": 32, "carrot": 16, "wheat": 32, "water_bucket": 2, "shears": 1, "bed": 1, "chair": 4, "wool": 16},
-	"stone": {"flint": 8, "stick": 16, "clay_ball": 16, "dry_grass": 12, "loose_stone": 4, "loose_copper_ore": 8, "firestarter": 1, "oak_log": 8},   # Vintage Story early game (ADR 0023)
+	"stone": {"flint": 8, "stick": 16, "clay_ball": 16, "dry_grass": 12, "loose_stone": 4, "loose_copper_ore": 8, "firestarter": 1, "oak_log": 8, "cordage": 6},   # Vintage Story early game (ADR 0023)
+	"flint": {"flint_spear": 1, "flint_knife": 1, "flint_axe": 1, "raw_hide": 2, "firewood": 32, "dirt": 32, "firestarter": 1, "torch": 16,
+		"pan": 1, "cooking_pot": 1, "clay_bowl": 3, "raw_meat": 4, "dry_grass": 24, "wattle": 8, "daub": 8, "leather_bag": 1},   # the deeper Flint Age (ADR 0030)
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64},
 }
 
@@ -65,6 +67,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("stations", "/stations", "Place a crafting table, chest and furnace ahead", _stations)
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
+	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
+		_quests, [["list", "complete", "reset"], _quest_ids])
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 	var atmo: Node = main.get("atmosphere") if main != null else null
 	if atmo != null:
@@ -297,6 +301,48 @@ func _summon(args: PackedStringArray) -> Dictionary:
 		if hungry and m != null:
 			m.make_hungry()
 	return CommandRegistry.ok("Summoned %d %s%s" % [n, "baby " if baby else "", sp])
+
+
+func _book() -> QuestBook:
+	return main.get("quests") if main != null else null
+
+
+func _quest_ids() -> Array:
+	var b := _book()
+	return (b.quests.keys() + ["all"]) if b else []
+
+
+func _quests(args: PackedStringArray) -> Dictionary:
+	var b := _book()
+	if b == null:
+		return CommandRegistry.fail("No progression book")
+	var sub := args[0] if not args.is_empty() else "list"
+	match sub:
+		"list":
+			var lines := []
+			for c in b.chapters:
+				var p := b.chapter_progress(c["id"])
+				lines.append("%s %d/%d" % [c["title"], p.x, p.y])
+				for q in c["quests"]:
+					if not b.is_done(q["id"]) and b.is_unlocked(q["id"]):
+						lines.append("  open: %s (%s)" % [q["title"], q["id"]])
+			return CommandRegistry.ok("
+".join(lines))
+		"complete":
+			if args.size() < 2:
+				return CommandRegistry.fail("Usage: /quests complete <id|all>")
+			if args[1] == "all":
+				for id in b.quests:
+					b.complete(id)
+				return CommandRegistry.ok("Completed every quest")
+			if not b.quests.has(args[1]):
+				return CommandRegistry.fail("No quest %s" % args[1])
+			b.complete(args[1])
+			return CommandRegistry.ok("Completed %s" % b.quests[args[1]]["title"])
+		"reset":
+			b.reset()
+			return CommandRegistry.ok("Progression book reset")
+	return CommandRegistry.fail("Usage: /quests [list|complete <id|all>|reset]")
 
 
 func _kill(_args: PackedStringArray) -> Dictionary:

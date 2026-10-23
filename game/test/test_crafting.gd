@@ -181,7 +181,8 @@ func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
 		"wool", "raw_meat", "wheat", "carrot", "wheat_seeds",   # animal drops and wild crops (ADR 0022)
 		"flint", "loose_stone", "loose_copper_ore", "clay_ball", "dry_grass",   # ground pickups, clay, cut grass (ADR 0023)
 		"pumpkin", "blueberry",   # wild pumpkin patches, blueberry bushes (ADR 0024)
-		"egg", "feather", "bone", "bear_hide"]   # chickens, carcasses, bears (ADR 0027)
+		"egg", "feather", "bone", "bear_hide",   # chickens, carcasses, bears (ADR 0027)
+		"plant_fiber", "raw_hide"]   # grass by hand, sheep and pigs (ADR 0030)
 	var have := recipes.reachable_from(raw)
 	var missing := []
 	for id in items.all_ids():

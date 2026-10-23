@@ -15,13 +15,15 @@ extends RefCounted
 ##   added by set_mining(), so "how do I get flint" has an answer too;
 ## - bookmarks (JEI's A key), kept in user://bookmarks.json by the screen.
 
-const CATEGORY_ORDER := ["crafting", "knapping", "clayforming", "pit_kiln", "station:firepit", "casting", "smelting", "spellcraft", "mining"]
+const CATEGORY_ORDER := ["crafting", "knapping", "clayforming", "pit_kiln", "station:firepit", "casting", "scraping", "drying", "charcoal_pit", "station:sieve", "station:pan", "smelting", "spellcraft", "mining"]
 const BOOKMARKS_PATH := "user://bookmarks.json"
 const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace"], "knapping": ["flint"],
-	"clayforming": ["clay_ball"], "pit_kiln": ["dry_grass", "firestarter"]}
+	"clayforming": ["clay_ball"], "pit_kiln": ["dry_grass", "firestarter"], "scraping": ["flint_knife", "copper_knife"],
+	"charcoal_pit": ["firewood", "firestarter"]}
 ## Vintage Story work types (ADR 0023) -> browser category and title.
 const WORK_CATEGORIES := {"knap": ["knapping", "Knapping"], "clayform": ["clayforming", "Clay forming"],
-	"kiln": ["pit_kiln", "Pit kiln"], "cast": ["casting", "Casting"]}
+	"kiln": ["pit_kiln", "Pit kiln"], "cast": ["casting", "Casting"], "scrape": ["scraping", "Scraping hides"],
+	"dry": ["drying", "Drying"], "charcoal_pit": ["charcoal_pit", "Charcoal pit"]}
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
@@ -387,9 +389,17 @@ func layout(r: Dictionary) -> Dictionary:
 		"knap", "clayform":
 			kind = "pattern"
 			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
-		"kiln", "sift":
+		"kiln", "sift", "dry":
 			kind = "smelt"
 			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
+		"charcoal_pit":
+			kind = "row"
+			for i in int(r.get("per", 1)):
+				inputs.append({"cell": Vector2i(i, 0), "spec": r["input"]})
+		"scrape":
+			kind = "row"
+			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
+			inputs.append({"cell": Vector2i(1, 0), "spec": r["tool"]})
 		"melt", "cast":
 			kind = "row"
 			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
@@ -403,6 +413,8 @@ func layout(r: Dictionary) -> Dictionary:
 	match r["type"]:
 		"shapeless":
 			info = "Shapeless"
+			for k in r.get("keep", []):
+				info += ", keeps the " + (k.substr(1) if k.begins_with("#") else items.display_name(k))
 		"smelt":
 			info = "%.1f s" % (float(r.get("ticks", 200)) / 20.0)
 		"mining":
@@ -419,6 +431,14 @@ func layout(r: Dictionary) -> Dictionary:
 			info = "Pour on the mold; gives the %s back" % items.display_name(r["returns"]) if r.has("returns") else "Pour on the mold"
 		"sift":
 			info = "%s %% chance" % str(snappedf(float(r.get("chance", 1.0)) * 100.0, 0.1))
+			if r.get("station", "") == "pan":
+				info += ", sand or gravel under water"
+		"scrape":
+			info = "On the ground, %d strokes" % int(r["strokes"])
+		"dry":
+			info = "Lies on the ground %d s" % int(r.get("seconds", 60))
+		"charcoal_pit":
+			info = "Piles sealed with soil, %d s" % int(Settings.charcoal_pit_burn_s)
 	var st: String = r.get("station", "")
 	var needs := ""
 	if r["type"] == "mining":

@@ -108,8 +108,14 @@ const JUNGLE_BARK := 100
 const BIRCH_BARK := 101
 # Wildlife (ADR 0027)
 const CARCASS := 102               # half-eaten remains: what a bear leaves, and the odd old kill in the wild
+# Flint Age depth (ADR 0030): shelter, light, storage
+const THATCH := 103                # dry grass bundles: a roof that burns
+const WATTLE := 104                # woven sticks (micro lattice, solid)
+const DAUB_WALL := 105             # wattle plastered with clay, straw and dirt
+const TORCH := 106                 # stands on a top face; TorchLights gives the nearest ones a light
+const STORAGE_POT := 107           # fired clay jar: a 9-slot container (micro model, solid)
 
-const ATLAS_TILES := Vector2i(8, 11)   # rows grow at the bottom, so tile indices keep their meaning
+const ATLAS_TILES := Vector2i(8, 12)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -117,6 +123,7 @@ const ATLAS_TILES := Vector2i(8, 11)   # rows grow at the bottom, so tile indice
 # Same constant as SimWorld::FLUID_LEVEL_BASE.
 const FLUID_LEVEL_BASE := 256
 const MICRO_GRID := 8       # cells per voxel edge for micro models and chisels (6.25 cm)
+const SOLID_MICRO := ["wattle", "storage_pot"]   # micro models with full body collision
 const MASK_TARGET := 2      # collision bit of boxes only the aim ray hits (VoxelBody uses bit 1, VoxelBody.MASK_SOLID)
 
 
@@ -193,7 +200,7 @@ static func defs() -> Array:
 	] + _content_pass_defs() + [
 		{"name": "work_spot", "cell_type": "solid", "density": 8, "hp": 50, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": "aim", "cross": true, "interact": "work"},
 		{"name": "work_block", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": true, "interact": "work"},
-	] + _content_pass2_defs()
+	] + _content_pass2_defs() + _flint_age_defs()
 
 
 static var _content2 := []
@@ -226,6 +233,29 @@ static func _content_pass2_defs() -> Array:
 	# wildlife (ADR 0027): a ribcage with scraps of meat, tiles [meat, bone, blood]
 	_content2.append({"name": "carcass", "cell_type": "solid", "density": 6, "hp": 20, "tiles": [83, 82, 47], "transparent": false, "micro": "carcass"})
 	return _content2
+
+
+static var _flint_age := []
+
+## Ids 103..107 (ADR 0030). The torch flame is painted with the fire tile, so
+## the terrain shader's fire glow lights it up.
+static func _flint_age_defs() -> Array:
+	if not _flint_age.is_empty():
+		return _flint_age
+	var grass_burn := {"burnable": true, "fire_hp": 60, "autoignition_temperature": 25, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4}
+	var wood_burn := {"burnable": true, "fire_hp": 100, "autoignition_temperature": 35, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3}
+	var thatch := {"name": "thatch", "cell_type": "solid", "density": 4, "hp": 60, "tiles": [88, 89, 88], "transparent": false}
+	thatch.merge(grass_burn)
+	var wattle := {"name": "wattle", "cell_type": "solid", "density": 6, "hp": 120, "tiles": [91, 6, 6], "transparent": false, "micro": "wattle"}
+	wattle.merge(wood_burn)
+	_flint_age.append_array([
+		thatch,
+		wattle,
+		{"name": "daub_wall", "cell_type": "solid", "density": 9, "hp": 400, "tiles": [90, 90, 90], "transparent": false},
+		{"name": "torch", "cell_type": "solid", "density": 5, "hp": 5, "tiles": [12, 6, 92], "transparent": false, "micro": "torch", "entity": "torch", "light": true, "floor_only": true},
+		{"name": "storage_pot", "cell_type": "solid", "density": 9, "hp": 80, "tiles": [66, 3, 66], "transparent": false, "micro": "storage_pot", "interact": "chest", "entity": "storage_pot"},
+	])
+	return _flint_age
 
 
 static var _content := []
@@ -436,6 +466,8 @@ static func _micro_model(kind: String, tiles: Array, material: Material) -> Voxe
 	model.culls_neighbors = false
 	if kind == "stalactite" or kind == "stalagmite":
 		model.collision_aabbs = [AABB(Vector3(0.25, 0.0, 0.25), Vector3(0.5, 1.0, 0.5))]
+	elif kind in SOLID_MICRO:
+		model.collision_aabbs = [_cells_aabb(cells)]   # walls and pots block bodies (ADR 0030)
 	else:
 		# a box only the aim ray sees (VoxelBody collides with MASK_SOLID only): plants and
 		# pickups can be broken and picked up but are walked through (ADR 0022)
@@ -823,6 +855,45 @@ static func micro_pattern(kind: String, tiles: Array) -> PackedInt32Array:
 				for dx in w:
 					for dz in w:
 						_cell(c, ox + o + dx, y, oz + o + dz, body)
+		"wattle":
+			# woven wall (ADR 0030): upright stakes every other cell, withies weaving
+			# over and under them in alternating rows; tiles [withy, stake, stake]
+			var stake: int = tiles[1] + 1
+			for x in g:
+				for z in g:
+					for y in g:
+						if x % 3 == 0 and z % 3 == 0:
+							_cell(c, x, y, z, stake)
+						elif y % 2 == 0 and ((x + z + y / 2) % 2 == 0 or x == 0 or z == 0 or x == g - 1 or z == g - 1):
+							_cell(c, x, y, z, body)
+						elif y % 2 == 1 and (x == 0 or z == 0 or x == g - 1 or z == g - 1) and (x + z) % 2 == 1:
+							_cell(c, x, y, z, body)
+		"torch":
+			# a 2x2 stick 5 cells tall with a 2x2x2 flame and a tip; tiles [flame, stick, ember]
+			var stick: int = tiles[1] + 1
+			var ember: int = tiles[2] + 1
+			for y in 5:
+				for dx in 2:
+					for dz in 2:
+						_cell(c, 3 + dx, y, 3 + dz, stick)
+			for dx in 2:
+				for dz in 2:
+					_cell(c, 3 + dx, 4, 3 + dz, ember)
+					_cell(c, 3 + dx, 5, 3 + dz, body)
+					_cell(c, 3 + dx, 6, 3 + dz, body)
+			_cell(c, 3, 7, 4, body)
+		"storage_pot":
+			# a fired clay jar: wide belly, shoulder, narrow neck with a lip; tiles [clay, -, -]
+			var widths := [5, 6, 7, 7, 7, 6, 4, 4]
+			for y in g:
+				var w: int = widths[y]
+				var lo := (g - w) / 2
+				for x in range(lo, lo + w):
+					for z in range(lo, lo + w):
+						var corner := (x == lo or x == lo + w - 1) and (z == lo or z == lo + w - 1)
+						var inner := y >= 6 and x > lo and z > lo and x < lo + w - 1 and z < lo + w - 1
+						if (not corner or w <= 4) and not inner:
+							_cell(c, x, y, z, body)
 	return c
 
 

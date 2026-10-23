@@ -10,6 +10,7 @@ extends Control
 
 const S := 36
 const PANEL := Vector2(352, 332)
+const BM_TOP := 80.0   # bookmarks start below the progression book button (ADR 0028)
 
 var model: RecipeBrowser
 var items: ItemRegistry
@@ -129,8 +130,8 @@ func _layout() -> void:
 	# bookmarks: mirror of the item list on the left
 	var bw := vw.x / 2.0 - PANEL.x / 2.0 - 12.0 - 8.0
 	_bm_cols = int((bw - 8.0) / S)
-	_bm_rows = int((vw.y - 16.0 - 34.0 - 8.0) / S)
-	_bm_panel.position = Vector2(8, 8)
+	_bm_rows = int((vw.y - BM_TOP - 8.0 - 34.0 - 8.0) / S)
+	_bm_panel.position = Vector2(8, BM_TOP)
 	_rebuild_list()
 	refresh_bookmarks()
 	if model.is_open():
