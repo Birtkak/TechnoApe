@@ -235,7 +235,7 @@ func test_firepit_cooks_and_burns_out() -> void:
 	assert_bool(f.is_lit()).is_true()
 	store.tick()
 	assert_bool(f.is_lit()).is_false()   # one stick = 100 ticks, not enough to cook (300)
-	f.inv.set_slot(FirepitEntity.FUEL, {"id": "oak_log", "count": 2})
+	f.inv.set_slot(FirepitEntity.FUEL, {"id": "oak_log", "count": 2 * items.units("oak_log")})   # two logs of wood voxels (ADR 0034)
 	f.ignite()
 	for i in 301:
 		store.tick()
@@ -260,7 +260,7 @@ func test_sieve_loads_shakes_and_rolls_the_table() -> void:
 	assert_str(s.use(items.get_def("dirt"), rng)["msg"]).contains("gravel")
 	var got := {}
 	for n in 200:
-		assert_int(s.use(items.get_def("gravel"), rng)["consume"]).is_equal(1)
+		assert_int(s.use(items.get_def("gravel"), rng)["consume"]).is_equal(items.units("gravel"))   # a block of gravel voxels per sift (ADR 0034)
 		for i in SieveEntity.SHAKES - 1:
 			assert_array(s.use({}, rng)["drops"]).is_empty()
 		for d in s.use({}, rng)["drops"]:
