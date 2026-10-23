@@ -11,7 +11,8 @@ signal voxel_broken(pos: Vector3i, drops: Array)
 signal voxel_placed(pos: Vector3i, material: int)
 signal item_dropped(stack: Dictionary, from: Vector3, velocity: Vector3)
 signal inventory_toggled(open: bool)
-signal block_used(pos: Vector3i, material: int)   # right click on a block with an "interact" key (ADR 0007)
+signal block_used(pos: Vector3i, material: int)
+signal pause_requested   # Esc with nothing else open: the pause menu (ADR 0032)   # right click on a block with an "interact" key (ADR 0007)
 signal died
 signal game_mode_changed(mode: String)
 signal stain_drip(at: Vector3, colour: Color)   # a stained body drips on the ground (StainMap.drip)
@@ -87,7 +88,7 @@ func _ready() -> void:
 		Settings.m2v(Settings.step_height_m))
 	camera = Camera3D.new()
 	camera.position = Vector3(0, Settings.m2v(Settings.eye_height_m), 0)
-	camera.fov = 75.0
+	camera.fov = Settings.fov
 	camera.near = 0.05
 	camera.far = Settings.m2v(Settings.view_distance_m) * 1.5
 	add_child(camera)
@@ -173,12 +174,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion and _mouse_captured:
 		_yaw -= event.relative.x * Settings.mouse_sensitivity
-		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity, -1.5, 1.5)
+		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity * (-1.0 if Settings.invert_y else 1.0), -1.5, 1.5)
 		_apply_look()
 	elif event is InputEventMouseButton and event.pressed and not _mouse_captured:
 		capture_mouse(true)
 	elif event.is_action_pressed("release_mouse"):
 		capture_mouse(false)
+		pause_requested.emit()
 	elif event.is_action_pressed("toggle_fly"):
 		if GameMode.rule(game_mode, "can_fly"):
 			flying = not flying

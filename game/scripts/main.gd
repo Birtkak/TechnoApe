@@ -39,6 +39,7 @@ var quests: QuestBook                # the progression book's quests and progres
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
 var quest_toast: QuestToast
+var pause_menu: PauseMenu            # Esc: pause, settings, save and quit (ADR 0032)
 var quest_check_ms_max := 0.0        # slowest progression-book inventory check (debug JSON)
 var _farm_accum := 0.0
 var phys_cost := {}   # ms per physics callback this frame (player, items, item_bodies, blocks); DebugCapture reads it on a spike
@@ -192,6 +193,22 @@ func _ready() -> void:
 	player.game_mode_changed.connect(_on_game_mode_changed)
 	var mode := GameMode.parse(Settings.game_mode)
 	player.set_game_mode(mode if mode != "" else GameMode.SURVIVAL)
+	if Settings.persist_world:
+		_load_player()   # inventory, position, health, game mode of this world (ADR 0032)
+
+	pause_menu = PauseMenu.new()
+	pause_menu.name = "PauseMenu"
+	add_child(pause_menu)
+	player.pause_requested.connect(_on_pause_requested)
+	pause_menu.resumed.connect(func() -> void:
+		if not player.ui_open:
+			player.capture_mouse(true))
+	pause_menu.quit_to_title.connect(_quit_to_title)
+	pause_menu.quit_game.connect(func() -> void:
+		get_tree().paused = false
+		_save_blocks()
+		get_tree().quit())
+	Settings.user_settings_changed.connect(_on_user_settings_changed)
 
 	hud = DebugHud.new()
 	hud.main = self
@@ -275,8 +292,9 @@ func _ready() -> void:
 	else:
 		for c in Settings.start_commands:   # the debug menu's saved start options
 			chat.send(c)
-		if Settings.start_minimized and EngineDebugger.is_active() and not _embedded_in_editor():
-			# playtests from the editor start minimized; after restoring the window a click captures the mouse
+		if Settings.start_minimized and Settings.world_name == "" and EngineDebugger.is_active() and not _embedded_in_editor():
+			# playtests from the editor (play=1) start minimized; after restoring the window a click captures
+			# the mouse. A world picked on the title screen just starts (the title minimized instead)
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
 		else:
 			player.capture_mouse(true)
@@ -389,6 +407,8 @@ func _save_blocks() -> void:
 	if quests != null and quests.dirty:
 		_save_json(_save_path("quests"), quests.to_dict())
 		quests.dirty = false
+	if player != null and player_inv != null:
+		_save_json(_save_path("player"), _player_dict())   # the player moves all the time: always written
 	if farming != null and farming.dirty:
 		_save_json(_save_path("farms"), farming.to_dict())
 		farming.dirty = false
@@ -468,6 +488,77 @@ func _unhandled_input(event: InputEvent) -> void:
 # ---------------- chat, debug menu, game modes (ADR 0018) ----------------
 
 ## Chat and the debug menu open only over the plain game view.
+# ---------------- pause menu and settings (ADR 0032) ----------------
+
+func _on_pause_requested() -> void:
+	if player.autopilot or player.ui_open or inv_screen.is_open or chat.is_open or debug_menu.is_open:
+		return
+	pause_menu.open()
+	get_viewport().set_input_as_handled()   # the same Esc must not reach the menu and close it again
+
+
+## Minecraft pauses when the window loses focus (not autopilot runs, not while loading).
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and pause_menu != null and is_instance_valid(_loading) == false:
+		_on_pause_requested()
+
+
+func _quit_to_title() -> void:
+	get_tree().paused = false
+	_save_blocks()
+	get_tree().change_scene_to_file.call_deferred("res://scenes/title.tscn")
+
+
+func _on_user_settings_changed() -> void:
+	atmosphere.apply_graphics()
+	player.camera.fov = Settings.fov
+	world.apply_distances()
+
+
+# ---------------- the player's save (ADR 0032) ----------------
+
+func _player_dict() -> Dictionary:
+	var p := player.position
+	var s := _spawn_pos
+	return {"version": 1, "pos": [p.x, p.y, p.z], "yaw": player._yaw, "pitch": player._pitch, "spawn": [s.x, s.y, s.z],
+		"game_mode": player.game_mode, "flying": player.flying, "health": player_inv.health, "selected": player_inv.selected,
+		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array()}
+
+
+func _load_player() -> void:
+	var d := _load_json(_save_path("player"))
+	if d.is_empty() or int(d.get("version", 0)) != 1:
+		return
+	var p: Array = d.get("pos", [])
+	if p.size() == 3:
+		player.position = Vector3(p[0], p[1], p[2])
+	var s: Array = d.get("spawn", [])
+	if s.size() == 3:
+		_spawn_pos = Vector3(s[0], s[1], s[2])
+	player.set_look(float(d.get("yaw", 0.0)), float(d.get("pitch", 0.0)))
+	var mode := GameMode.parse(String(d.get("game_mode", player.game_mode)))
+	if mode != "":
+		player.set_game_mode(mode)
+	player.flying = bool(d.get("flying", false)) and GameMode.rule(player.game_mode, "can_fly")
+	var slots: Array = d.get("slots", [])
+	for i in mini(slots.size(), player_inv.inv.size()):
+		player_inv.inv.set_slot(i, _stack_of(slots[i]))
+	player_inv.bag_item = _stack_of(d.get("bag_item"))
+	var bag: Array = d.get("bag", [])
+	for i in mini(bag.size(), player_inv.bag.size()):
+		player_inv.bag.set_slot(i, _stack_of(bag[i]))
+	player_inv.select(int(d.get("selected", 0)))
+	player_inv.health = clampi(int(d.get("health", player_inv.max_health)), 1, player_inv.max_health)
+	player_inv.health_changed.emit(player_inv.health)
+
+
+## A saved stack (JSON numbers are floats), or {} for an empty or unknown one.
+func _stack_of(v) -> Dictionary:
+	if not (v is Dictionary) or not v.has("id") or not items.has(String(v["id"])):
+		return {}
+	return {"id": String(v["id"]), "count": int(v.get("count", 1))}
+
+
 func _can_open_overlay() -> bool:
 	return not player.ui_open and not player.autopilot and not inv_screen.is_open
 

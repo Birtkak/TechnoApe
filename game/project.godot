@@ -4,7 +4,7 @@ config_version=5
 [application]
 
 config/name="TechnoApe"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/title.tscn"
 config/features=PackedStringArray("4.7")
 ; play is capped at 120 fps: 500 fps on a menu or an empty view only heats the GPU. Autopilot
 ; runs with vsync=0 lift the cap (DebugCapture) so they measure the real frame cost

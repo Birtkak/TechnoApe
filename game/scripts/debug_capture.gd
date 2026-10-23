@@ -41,6 +41,8 @@ var animal_love := false     # animal_love=1: adults start in love (they pair up
 var farm_test := false   # farm_test=1: a sown 9x9 field around a water voxel ahead (ADR 0022)
 var farm_speed := 1.0    # farm_speed=N: farmland and crop random ticks N times faster
 var hands_test := false # hands_test=1: till, sow, chair, bed, feed, shear, kill, eat through the player's input code (JSON line "debug hands")
+var menu_test := false   # menu_test=1: title, worlds, Esc menu, settings, save and reload a world (ADR 0032, JSON line "debug menu_test")
+var _menu_test: MenuTest
 var flint_age_test := false # flint_age_test=1: hides, charcoal pit, pan, spear, torches, shelter, bed, pot, bag, stew (ADR 0030, JSON line "debug flint_age")
 var stone_age_test := false # stone_age_test=1: knap, form clay, pit kiln, firepit, cast, sieve through the player's clicks (ADR 0023, JSON line "debug stone_age")
 var mob_spawning := true # mob_spawn=0: no herds spawn as land loads (benchmarks without animals)
@@ -89,6 +91,14 @@ var _main: Node
 var _done := false
 
 
+## The title screen calls this once it is up (menu_test=1 drives the menus from here,
+## because the scenes it walks through come and go).
+func menu_test_ready(title: Control) -> void:
+	if menu_test and _menu_test == null:
+		_menu_test = MenuTest.new()
+		_menu_test.run(self, title)
+
+
 func _ready() -> void:
 	var args: Dictionary = Settings.apply_cmdline()
 	autopilot = args.get("autopilot", "0") == "1"
@@ -132,6 +142,7 @@ func _ready() -> void:
 	hands_test = args.get("hands_test", "0") == "1"
 	stone_age_test = args.get("stone_age_test", "0") == "1"
 	flint_age_test = args.get("flint_age_test", "0") == "1"
+	menu_test = args.get("menu_test", "0") == "1"
 	if args.has("voxel_threads"):   # godot_voxel worker threads for this run (project default: voxel/threads/count)
 		VoxelEngine.set_thread_count(int(args["voxel_threads"]))
 	var defs := GameMaterials.defs()

@@ -103,6 +103,37 @@ var start_minimized := true             # playtests from the editor open minimiz
 var start_commands: PackedStringArray = []   # run through the chat when a normal (non-autopilot) game starts
 const PLAYTEST_PREFS := "user://playtest.cfg"   # the debug menu's start options
 
+# Player options (ADR 0032): the Settings screen of the title and pause menus,
+# saved to user://settings.cfg. Autopilot runs never read them (reproducible);
+# command-line values still win. Graphics presets bundle the trade-offs that
+# ADR 0031 measured; "high" is the look the budget was measured with.
+signal user_settings_changed
+var user_settings_path := "user://settings.cfg"   # menu_test=1 points it elsewhere
+const GRAPHICS_PRESETS := {
+	"low": {"shadow_quality": "low", "ssao": false, "bloom": false, "render_distance_m": 48.0, "lod_ring_m": 48.0},
+	"medium": {"shadow_quality": "medium", "ssao": true, "bloom": true, "render_distance_m": 64.0, "lod_ring_m": 48.0},
+	"high": {"shadow_quality": "high", "ssao": true, "bloom": true, "render_distance_m": 64.0, "lod_ring_m": 48.0},
+	"ultra": {"shadow_quality": "high", "ssao": true, "bloom": true, "render_distance_m": 96.0, "lod_ring_m": 64.0},
+}
+## Sun shadows per quality: Atmosphere mode, cascades, distance and filter (ADR 0031's knobs).
+const SHADOW_QUALITY := {
+	"off": {"mode": "off", "splits": 2, "distance_m": 0.0, "filter": 0},
+	"low": {"mode": "hard", "splits": 2, "distance_m": 48.0, "filter": 0},
+	"medium": {"mode": "soft", "splits": 2, "distance_m": 64.0, "filter": 1},
+	"high": {"mode": "soft", "splits": 4, "distance_m": 96.0, "filter": 2},
+}
+const MAX_FPS_CHOICES := [60, 120, 144, 240, 0]   # 0 = unlimited
+var graphics_preset := "high"           # low | medium | high | ultra | custom (a value changed by hand)
+var shadow_quality := "high"            # off | low | medium | high
+var ssao := true
+var bloom := true
+var fov := 75.0                         # degrees, vertical
+var invert_y := false
+var vsync := true
+var max_fps := 120                      # 0 = unlimited (project default 120: 500 fps on a menu only heats the GPU)
+var fullscreen := false
+var world_name := ""                    # the title screen's world being played (WorldList)
+
 # World
 var world_seed := 1337
 var world_seed_text := ""               # what the player typed, if the seed came from text
@@ -151,6 +182,7 @@ func apply_cmdline() -> Dictionary:
 	##   godot --path game -- autopilot=1 duration=20 capture_every=1 sim_tick_hz=60 render_distance_m=64
 	var args := {}
 	if not OS.get_cmdline_user_args().has("autopilot=1"):
+		load_user_settings()    # the player's options (ADR 0032)
 		load_playtest_prefs()   # the debug menu's start options; command-line values below still win
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=")
@@ -195,9 +227,90 @@ func apply_cmdline() -> Dictionary:
 			"item_despawn_s": item_despawn_s = float(kv[1])
 			"gamemode": game_mode = kv[1]
 			"minimized": start_minimized = kv[1] == "1"
+			"graphics": apply_graphics_preset(kv[1])   # graphics=low|medium|high|ultra (ADR 0032)
 	if micro_sim:
 		near_field = true   # the micro cells are only visible in the ray-cast near field
 	return args
+
+
+## The player's options from user://settings.cfg (missing keys keep their defaults).
+func load_user_settings() -> void:
+	var cf := ConfigFile.new()
+	if cf.load(user_settings_path) != OK:
+		return
+	graphics_preset = String(cf.get_value("video", "preset", graphics_preset))
+	shadow_quality = String(cf.get_value("video", "shadows", shadow_quality))
+	ssao = bool(cf.get_value("video", "ssao", ssao))
+	bloom = bool(cf.get_value("video", "bloom", bloom))
+	render_distance_m = float(cf.get_value("video", "render_distance_m", render_distance_m))
+	lod_ring_m = float(cf.get_value("video", "lod_ring_m", lod_ring_m))
+	view_distance_m = float(cf.get_value("video", "view_distance_m", view_distance_m))
+	fov = float(cf.get_value("video", "fov", fov))
+	vsync = bool(cf.get_value("video", "vsync", vsync))
+	max_fps = int(cf.get_value("video", "max_fps", max_fps))
+	fullscreen = bool(cf.get_value("video", "fullscreen", fullscreen))
+	mouse_sensitivity = float(cf.get_value("controls", "mouse_sensitivity", mouse_sensitivity))
+	invert_y = bool(cf.get_value("controls", "invert_y", invert_y))
+	if not SHADOW_QUALITY.has(shadow_quality):
+		shadow_quality = "high"
+
+
+func save_user_settings() -> void:
+	var cf := ConfigFile.new()
+	cf.set_value("video", "preset", graphics_preset)
+	cf.set_value("video", "shadows", shadow_quality)
+	cf.set_value("video", "ssao", ssao)
+	cf.set_value("video", "bloom", bloom)
+	cf.set_value("video", "render_distance_m", render_distance_m)
+	cf.set_value("video", "lod_ring_m", lod_ring_m)
+	cf.set_value("video", "view_distance_m", view_distance_m)
+	cf.set_value("video", "fov", fov)
+	cf.set_value("video", "vsync", vsync)
+	cf.set_value("video", "max_fps", max_fps)
+	cf.set_value("video", "fullscreen", fullscreen)
+	cf.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
+	cf.set_value("controls", "invert_y", invert_y)
+	cf.save(user_settings_path)
+
+
+## Sets every value of a graphics preset (low / medium / high / ultra).
+func apply_graphics_preset(p_name: String) -> void:
+	if not GRAPHICS_PRESETS.has(p_name):
+		return
+	graphics_preset = p_name
+	for k in GRAPHICS_PRESETS[p_name]:
+		set(k, GRAPHICS_PRESETS[p_name][k])
+
+
+## The preset whose values match the current ones, or "custom".
+func matching_preset() -> String:
+	for p in GRAPHICS_PRESETS:
+		var same := true
+		for k in GRAPHICS_PRESETS[p]:
+			if get(k) != GRAPHICS_PRESETS[p][k]:
+				same = false
+		if same:
+			return p
+	return "custom"
+
+
+## Window, vsync and frame cap (not for autopilot runs: DebugCapture owns those).
+func apply_display() -> void:
+	if OS.get_cmdline_user_args().has("autopilot=1") or DisplayServer.get_name() == "headless":
+		return
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED)
+	Engine.max_fps = max_fps
+	var want := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
+	if DisplayServer.window_get_mode() != want and not (not fullscreen and DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MAXIMIZED):
+		DisplayServer.window_set_mode(want)
+
+
+## After the Settings screen changed something: save, apply the display, tell the game.
+func user_settings_edited() -> void:
+	graphics_preset = matching_preset()
+	save_user_settings()
+	apply_display()
+	user_settings_changed.emit()
 
 
 ## Start options saved by the debug menu (F4): game mode, minimized playtests,

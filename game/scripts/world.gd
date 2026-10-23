@@ -111,6 +111,13 @@ func _ready() -> void:
 
 
 ## Copies a 16^3 chunk (world chunk coords) out of the terrain as 16-bit bytes.
+## The Settings screen changed render or view distance (ADR 0032): the terrain re-rings live.
+func apply_distances() -> void:
+	terrain.lod_distance = Settings.render_distance_voxels()
+	terrain.secondary_lod_distance = Settings.m2v(Settings.lod_ring_m)
+	terrain.view_distance = Settings.view_distance_voxels()
+
+
 func read_chunk(wc: Vector3i) -> PackedByteArray:
 	var vb := VoxelBuffer.new()
 	vb.create(Settings.CHUNK, Settings.CHUNK, Settings.CHUNK)

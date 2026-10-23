@@ -93,6 +93,7 @@ func setup(p_world: World, p_camera: Camera3D) -> void:
 
 
 func _ready() -> void:
+	_read_user_settings()
 	_apply_cmdline()
 	var we := WorldEnvironment.new()
 	we.name = "WorldEnvironment"
@@ -166,19 +167,13 @@ func _ready() -> void:
 
 	sun = DirectionalLight3D.new()
 	sun.name = "Sun"
-	sun.shadow_enabled = shadows != "off"
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if shadows == "soft" and shadow_splits == 4 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	_apply_shadows()
 	sun.directional_shadow_split_1 = 0.06
 	sun.directional_shadow_split_2 = 0.18
 	sun.directional_shadow_split_3 = 0.45
-	sun.directional_shadow_blend_splits = shadow_blend
-	if shadow_filter >= 0:
-		RenderingServer.directional_soft_shadow_filter_set_quality(shadow_filter)
 	sun.directional_shadow_fade_start = 0.85
-	sun.directional_shadow_max_distance = Settings.m2v(shadow_distance_m)
 	sun.shadow_bias = 0.03
 	sun.shadow_normal_bias = 0.7     # higher values leak light along voxel silhouettes
-	sun.light_angular_distance = 0.6 if shadows == "soft" else 0.0   # penumbra (needs soft_shadow_filter_quality >= 1 in project settings)
 	sun.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_AND_SKY
 	add_child(sun)
 
@@ -214,6 +209,37 @@ func set_time_of_day(t: float) -> void:
 func set_show_constellations(on: bool) -> void:
 	show_constellations = on
 	_update_sun()
+
+
+## The player's graphics options (Settings, ADR 0032) as this node's values;
+## command-line args (ssao=, shadows=, shadow_splits= ...) override them after.
+func _read_user_settings() -> void:
+	ssao_on = Settings.ssao
+	glow_on = Settings.bloom
+	var q: Dictionary = Settings.SHADOW_QUALITY.get(Settings.shadow_quality, Settings.SHADOW_QUALITY["high"])
+	shadows = q["mode"]
+	shadow_splits = int(q["splits"])
+	shadow_filter = int(q["filter"])
+	if float(q["distance_m"]) > 0.0:
+		shadow_distance_m = float(q["distance_m"])
+
+
+func _apply_shadows() -> void:
+	sun.shadow_enabled = shadows != "off"
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if shadows == "soft" and shadow_splits == 4 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	sun.directional_shadow_blend_splits = shadow_blend
+	if shadow_filter >= 0:
+		RenderingServer.directional_soft_shadow_filter_set_quality(shadow_filter)
+	sun.directional_shadow_max_distance = Settings.m2v(shadow_distance_m)
+	sun.light_angular_distance = 0.6 if shadows == "soft" else 0.0   # penumbra (needs soft_shadow_filter_quality >= 1 in project settings)
+
+
+## The Settings screen changed something: shadows, ambient occlusion and bloom, live.
+func apply_graphics() -> void:
+	_read_user_settings()
+	env.ssao_enabled = ssao_on
+	env.glow_enabled = glow_on
+	_apply_shadows()
 
 
 func _apply_cmdline() -> void:

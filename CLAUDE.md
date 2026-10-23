@@ -76,6 +76,9 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   Play loads through the SQLite save; benchmarks do not: measure the save path
   with `persist=1 seed=<unused>` when loading or streaming changes (ADR 0017).
 - One world unit = one voxel = 0.5 m. Tunables live in `scripts/settings.gd` in metres.
+- The title screen is the main scene (ADR 0032: worlds list, Settings with graphics presets in
+  `user://settings.cfg`, Esc pauses with Settings and save-and-quit, the player is saved with the
+  world). `autopilot=1` or `play=1` skip it; `menu_test=1` checks the menus.
 - Playtest tools (ADR 0018): T chat + slash commands (`/help`), `/gamemode`, F3
   debug screen, F4 playtest menu, F9 bug reports. When the developer mentions a
   bug report, read the newest folder in `game/out/bug_reports/` (report.md,
