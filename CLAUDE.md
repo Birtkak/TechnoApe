@@ -107,7 +107,9 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   LOD ring, 2 km horizon, dithered LOD cross-fade, see-through water,
   loading screen, edit remesh rate; every ADR 0014 scenario within the
   ADR 0009 budget on the dev box; `prototypes/p11-lod-horizon` holds the
-  godot_voxel patches and measurements). Ray-cast near field in the game ✓ (ADR 0021,
+  godot_voxel patches and measurements). Animals, farming and furniture ✓ (ADR 0022: sheep and
+  pigs with a Minecraft goal brain, herds in plains, tempt/breed/shear; Minecraft farming with
+  wheat and carrots, rare wild crops; wool, carpet, bed, chair; `hands_test=1` drives them all). Ray-cast near field in the game ✓ (ADR 0021,
   `near_field=1`, off by default until the user calls it: the bubble writes a wrapped
   `BrickStore`, `NearFieldFeed` + `near_scatter.glsl` keep a toroidal 512³ volume on the
   GPU under a byte budget, `near_field.gdshader` marches it with Godot's lighting, the
@@ -129,7 +131,9 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   8³ cell grid (6.25 cm) through the native `MicroMesher`, which also builds
   all micro models (`materials.gd` `micro:` kinds). Material ids are
   definition order: 32..36 stations, 37..43 detail, 44 `CHISELED` reserved;
-  append only; 47 = blood (ADR 0015); 48..52 ground pickups (ADR 0019). Atlas 8×6 tiles, all used: the next tile needs a bigger atlas.
+  append only; 47 = blood (ADR 0015); 48..52 ground pickups (ADR 0019); 57..75 animals/farming/furniture
+  (ADR 0022). Atlas 8×7 tiles, all used: the next tile needs a bigger atlas. MicroMesher winds
+  triangles counter-clockwise: pass its meshes through `MobModel.outward` (the ape still draws inside out).
 - Two sessions share this checkout (this one and "PC testing and
   optimization"): stage files explicitly, never `git add -A`; Biome enum ids
   0..12 in world_gen.h stay stable; biome_table.gen.h is generated.

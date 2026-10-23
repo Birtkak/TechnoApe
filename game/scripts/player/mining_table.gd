@@ -55,7 +55,7 @@ func entry(material_name: String) -> Dictionary:
 ## Tool class of an item definition ("pickaxe", "shovel", "axe") or "".
 static func tool_class(held: Dictionary) -> String:
 	for t in held.get("tags", []):
-		if t in ["pickaxe", "shovel", "axe"]:
+		if t in ["pickaxe", "shovel", "axe", "hoe", "shears"]:
 			return t
 	return ""
 
@@ -94,11 +94,55 @@ func break_time(material_name: String, held: Dictionary = {}) -> float:
 	return hardness * 1.5 / hand_speed
 
 
-## What breaking this material with `held` yields: {id, count} or {}.
+## What breaking this material with `held` yields: {id, count} or {}. For a
+## drop list ({id, count, chance} entries) this is the first entry's item at
+## its smallest count; roll_drops gives the real, random result.
 func drops(material_name: String, held: Dictionary = {}) -> Dictionary:
 	var e := entry(material_name)
 	if e.is_empty() or not e.has("drops"):
 		return {}
 	if e.get("requires", false) and not tool_fits(material_name, held):
 		return {}
+	if e["drops"] is Array:
+		if e["drops"].is_empty():
+			return {}
+		var first: Dictionary = e["drops"][0]
+		return {"id": first["id"], "count": _count_range(first)[0]}
 	return {"id": e["drops"], "count": int(e.get("count", 1))}
+
+
+## Every stack breaking this material yields (each list entry rolled on its own).
+func roll_drops(material_name: String, held: Dictionary, rng: RandomNumberGenerator) -> Array:
+	var e := entry(material_name)
+	if e.is_empty() or not e.has("drops"):
+		return []
+	if e.get("requires", false) and not tool_fits(material_name, held):
+		return []
+	if not (e["drops"] is Array):
+		return [{"id": e["drops"], "count": int(e.get("count", 1))}]
+	return roll_list(e["drops"], rng)
+
+
+## Rolls a drop list: {id, count: n | [min, max], chance: 0..1, binomial: [n, p]}.
+## binomial adds Minecraft's "n tries at p" extra count (crop seeds) to count.
+static func roll_list(list: Array, rng: RandomNumberGenerator) -> Array:
+	var out := []
+	for d in list:
+		if rng.randf() >= float(d.get("chance", 1.0)):
+			continue
+		var r := _count_range(d)
+		var n := rng.randi_range(r[0], r[1])
+		if d.has("binomial"):
+			for _i in int(d["binomial"][0]):
+				if rng.randf() < float(d["binomial"][1]):
+					n += 1
+		if n > 0:
+			out.append({"id": d["id"], "count": n})
+	return out
+
+
+static func _count_range(d: Dictionary) -> Array:
+	var c = d.get("count", 1)
+	if c is Array:
+		return [int(c[0]), int(c[1])]
+	return [int(c), int(c)]

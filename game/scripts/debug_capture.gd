@@ -33,6 +33,14 @@ var blast_m := 0.0    # blast=R: mass-edit stress (ADR 0012): craters of radius 
 var blast_count := 1  # blast_count=N craters per volley (1000 TNT = many small ones)
 var blast_every := 2.0  # blast_every=S seconds between volleys, first one 2 s after load
 var blast_material := 0  # blast_material=water|sand|...: fill instead of carve (liquid spills: remesh stress)
+var animals := 0         # animals=N: N sheep and pigs 4-10 m ahead once loaded (ADR 0022); animal=sheep|pig only that one
+var animal_species := ""
+var animal_babies := false   # animal_babies=1: every third one a baby
+var animal_love := false     # animal_love=1: adults start in love (they pair up and breed)
+var farm_test := false   # farm_test=1: a sown 9x9 field around a water voxel ahead (ADR 0022)
+var farm_speed := 1.0    # farm_speed=N: farmland and crop random ticks N times faster
+var hands_test := false # hands_test=1: till, sow, chair, bed, feed, shear, kill, eat through the player's input code (JSON line "debug hands")
+var mob_spawning := true # mob_spawn=0: no herds spawn as land loads (benchmarks without animals)
 var _blast_accum := 0.0
 var _blast_i := 0
 var _blast_centres: Array[Vector3i] = []   # first craters: the JSON reports what the terrain holds there
@@ -107,6 +115,14 @@ func _ready() -> void:
 	blast_m = float(args.get("blast", "0"))
 	blast_count = int(args.get("blast_count", "1"))
 	blast_every = float(args.get("blast_every", "2"))
+	animals = int(args.get("animals", "0"))
+	animal_species = args.get("animal", "")
+	animal_babies = args.get("animal_babies", "0") == "1"
+	animal_love = args.get("animal_love", "0") == "1"
+	farm_test = args.get("farm_test", "0") == "1"
+	farm_speed = float(args.get("farm_speed", "1"))
+	mob_spawning = args.get("mob_spawn", "1") == "1"
+	hands_test = args.get("hands_test", "0") == "1"
 	if args.has("voxel_threads"):   # godot_voxel worker threads for this run (project default: voxel/threads/count)
 		VoxelEngine.set_thread_count(int(args["voxel_threads"]))
 	var defs := GameMaterials.defs()

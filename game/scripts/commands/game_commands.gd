@@ -14,6 +14,7 @@ const KITS := {
 	"tools": {"iron_pickaxe": 1, "stone_pickaxe": 1, "bucket": 2, "water_bucket": 1, "lava_bucket": 1, "coal": 32, "oak_log": 64},
 	"builder": {"stone": 64, "cobblestone": 64, "dirt": 64, "grass_block": 64, "sand": 64, "oak_planks": 64, "oak_log": 64, "glass": 64, "sandstone": 64},
 	"stations": {"crafting_table": 4, "furnace": 4, "chest": 4, "iron_ore": 16, "copper_ore": 16, "tin_ore": 16, "coal": 32},
+	"farm": {"iron_hoe": 1, "wheat_seeds": 32, "carrot": 16, "wheat": 32, "water_bucket": 2, "shears": 1, "bed": 1, "chair": 4, "wool": 16},
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64},
 }
 
@@ -60,6 +61,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
 	reg.register("stations", "/stations", "Place a crafting table, chest and furnace ahead", _stations)
+	reg.register("summon", "/summon <sheep|pig> [count] [baby]", "Spawn animals where you look (ADR 0022)", _summon, [["sheep", "pig"], ["1", "2", "4", "8"], ["baby"]])
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 
 
@@ -261,6 +263,23 @@ func _time(args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("Unknown time: %s" % args[1])
 	atmo.set_time_of_day(t)
 	return CommandRegistry.ok("Set the time to %s" % key)
+
+
+func _summon(args: PackedStringArray) -> Dictionary:
+	if main == null or player == null or not ("mobs" in main) or main.mobs == null:
+		return CommandRegistry.fail("No animals here")
+	var sp := args[0].to_lower() if not args.is_empty() else ""
+	if not main.mobs.defs.has(sp):
+		return CommandRegistry.fail("Usage: /summon <%s> [count] [baby]" % "|".join(main.mobs.defs.keys()))
+	var n := clampi(int(args[1]) if args.size() > 1 and args[1].is_valid_int() else 1, 1, 32)
+	var baby := args.size() > 1 and args[args.size() - 1].to_lower() == "baby"
+	var fwd := -player.camera.global_transform.basis.z
+	fwd.y = 0
+	var at := player.position + fwd.normalized() * Settings.m2v(3.0)
+	for i in n:
+		var q := at + Vector3(randf_range(-2, 2), 0, randf_range(-2, 2))
+		main.mobs.spawn(sp, Vector3(q.x, q.y + 0.5, q.z), baby, randf() * TAU)
+	return CommandRegistry.ok("Summoned %d %s%s" % [n, "baby " if baby else "", sp])
 
 
 func _kill(_args: PackedStringArray) -> Dictionary:

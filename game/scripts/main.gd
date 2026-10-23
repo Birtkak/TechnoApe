@@ -26,6 +26,11 @@ var _tick_accum := 0.0
 var _save_accum := 0.0
 var _loading: LoadingScreen
 var near_field: NearField            # ray-cast near field (ADR 0012 step 3), null unless Settings.near_field
+var farming: Farming                 # tilled farmland and crops (ADR 0022)
+var mobs: MobManager                 # sheep and pigs (ADR 0022)
+var _furniture_root: Node3D
+var _furniture_views := {}           # anchor -> MeshInstance3D
+var _farm_accum := 0.0
 var phys_cost := {}   # ms per physics callback this frame (player, items, item_bodies, blocks); DebugCapture reads it on a spike
 var _items_root: Node3D
 var _item_entities: Array[ItemEntity] = []
@@ -56,6 +61,13 @@ func _ready() -> void:
 	blocks = BlockEntities.new(items, recipes)
 	if Settings.persist_world and blocks.load_file(_blocks_path()):
 		print("block entities loaded: %d" % blocks.size())
+	farming = Farming.load_default()
+	for err in farming.errors:
+		push_error("data: " + err)
+	farming.get_voxel = get_world_voxel
+	farming.set_voxel = set_world_voxel
+	if Settings.persist_world:
+		farming.load_dict(_load_json(_save_path("farms")))
 
 	player = Player.new()
 	player.name = "Player"
@@ -73,10 +85,32 @@ func _ready() -> void:
 	player.inventory_toggled.connect(_on_inventory_toggled)
 	player.died.connect(_on_died)
 	player.block_used.connect(_on_block_used)
+	player.landed.connect(trample)
+	player.farm = farming
+	player.place_furniture = _place_furniture
 
 	_items_root = Node3D.new()
 	_items_root.name = "Items"
 	add_child(_items_root)
+	_furniture_root = Node3D.new()
+	_furniture_root.name = "Furniture"
+	add_child(_furniture_root)
+	for e in blocks.all_furniture():
+		_add_furniture_view(e)
+	mobs = MobManager.new()
+	mobs.name = "Mobs"
+	add_child(mobs)
+	mobs.setup(world, self, Settings.world_seed)
+	for err in mobs.errors:
+		push_error("data: " + err)
+	if Settings.persist_world:
+		mobs.load_file(_save_path("mobs"))
+	mobs.spawning = DebugCapture.mob_spawning
+	player.entity_pick = mobs.pick
+	player.entity_attack = func(m: Mob, dmg: int) -> void: mobs.attack(m, dmg, player.position)
+	player.entity_use = func(m: Mob, held: Dictionary) -> bool:
+		var r := mobs.interact(m, held)
+		return r == "love" or r == "grew"
 
 	bubble = SimBubble.new()
 	bubble.name = "SimBubble"
@@ -159,6 +193,7 @@ func _ready() -> void:
 				print("autopilot target %s not found" % DebugCapture.target)
 		else:
 			player.position.y = h + Settings.m2v(DebugCapture.altitude_m)
+			player.set_look(0.0, DebugCapture.pitch)   # same as the player's default unless pitch= is given
 		if DebugCapture.walk or DebugCapture.mine or DebugCapture.place:
 			player.flying = false
 			# stand on the ground at the player's actual x/z (targets move it away from spawn)
@@ -179,6 +214,12 @@ func _ready() -> void:
 			_debug_browser.call_deferred()
 		if DebugCapture.stations:
 			_after_load(_place_debug_stations)   # an edit before the LOD rings exist cascades into nothing
+		if DebugCapture.animals > 0:
+			_after_load(_debug_animals)
+		if DebugCapture.farm_test:
+			_after_load(_debug_farm)
+		if DebugCapture.hands_test:
+			_after_load(_debug_hands)
 		if DebugCapture.scatter_items:
 			# one entity per given item, in a row two metres ahead, so a screenshot shows them
 			var fwd := -player.camera.global_transform.basis.z
@@ -254,6 +295,14 @@ func _physics_process(delta: float) -> void:
 		for p in blocks.tick():
 			_on_lit_flipped(p)
 	phys_cost["blocks"] = maxf(float(phys_cost.get("blocks", 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
+	# Minecraft random ticks for farmland and crops, batched per second (ADR 0022)
+	_farm_accum += delta * DebugCapture.farm_speed
+	if _farm_accum >= 1.0:
+		var ticks := int(_farm_accum / BlockEntities.TICK_S)
+		_farm_accum -= ticks * BlockEntities.TICK_S
+		t0 = Time.get_ticks_usec()
+		_spawn_drop_events(farming.tick(ticks))
+		phys_cost["farm"] = maxf(float(phys_cost.get("farm", 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
 	_save_accum += delta
 	if _save_accum >= 30.0:
 		_save_accum = 0.0
@@ -269,8 +318,39 @@ func _blocks_path() -> String:
 
 
 func _save_blocks() -> void:
-	if Settings.persist_world and blocks != null and blocks.dirty:
+	if not Settings.persist_world:
+		return
+	if blocks != null and blocks.dirty:
 		blocks.save_file(_blocks_path())
+	if farming != null and farming.dirty:
+		_save_json(_save_path("farms"), farming.to_dict())
+		farming.dirty = false
+	if mobs != null:
+		mobs.save_file(_save_path("mobs"))   # animals move all the time: always written
+
+
+## user://worlds/<what>_<seed>_g<gen>.json, next to the blocks file.
+func _save_path(what: String) -> String:
+	return "user://worlds/%s_%d_g%d.json" % [what, Settings.world_seed, TerrainGenerator.GEN_VERSION]
+
+
+func _load_json(path: String) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {}
+	var d = JSON.parse_string(FileAccess.get_file_as_string(path))
+	return d if d is Dictionary else {}
+
+
+## Atomic write (temp file + rename), like BlockEntities.save_file.
+func _save_json(path: String, data: Dictionary) -> void:
+	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+	var f := FileAccess.open(path + ".tmp", FileAccess.WRITE)
+	if f == null:
+		push_error("cannot write %s" % path)
+		return
+	f.store_string(JSON.stringify(data))
+	f.close()
+	DirAccess.rename_absolute(path + ".tmp", path)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -336,16 +416,95 @@ func get_world_voxel(p: Vector3i) -> int:
 	return m if m >= 0 else world.get_voxel(p)
 
 
-func _on_broken(p: Vector3i, drop: Dictionary) -> void:
+func _on_broken(p: Vector3i, drops: Array) -> void:
+	var was := get_world_voxel(p)
+	var furn := blocks.furniture_at(p)
+	if furn != null:
+		_remove_furniture(furn, GameMode.rule(player.game_mode, "drops"))
+		return
 	set_world_voxel(p, GameMaterials.AIR)
 	for s in blocks.remove(p):   # chest / furnace contents spill like vanilla
 		spawn_item(s, Vector3(p) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1.5, 1.5), 2.5, randf_range(-1.5, 1.5)))
-	if not drop.is_empty():
-		spawn_item(drop, Vector3(p) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+	var events := farming.on_broken(p)
+	if farming.is_crop_material(was) and events.is_empty() and GameMode.rule(player.game_mode, "drops"):
+		events.append({"pos": p, "drops": farming.drops_for_material(was)})   # an untracked crop voxel
+	if not GameMode.rule(player.game_mode, "drops"):
+		for e in events:
+			e["drops"] = []
+	_spawn_drop_events(events)
+	for d in drops:
+		spawn_item(d, Vector3(p) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+
+
+## Farming results ({pos, drops}) become item entities.
+func _spawn_drop_events(events: Array) -> void:
+	for e in events:
+		for d in e["drops"]:
+			spawn_item(d, Vector3(e["pos"]) + Vector3(0.5, 0.3, 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+
+
+## A body landed on `p` (player or animal): farmland may be trampled (ADR 0022).
+func trample(p: Vector3i, fall_m: float) -> void:
+	_spawn_drop_events(farming.trample(p, fall_m))
+
+
+# ---------------- furniture (ADR 0022) ----------------
+
+func _place_furniture(kind: String, anchor: Vector3i, facing: int) -> bool:
+	var e := blocks.create_furniture(anchor, kind, facing)
+	for c in e.cells:
+		set_world_voxel(c, GameMaterials.FURNITURE)
+		_spawn_drop_events(farming.on_placed(c, GameMaterials.FURNITURE))
+	_add_furniture_view(e)
+	return true
+
+
+func _add_furniture_view(e: FurnitureEntity) -> void:
+	var v := e.make_view()
+	_furniture_root.add_child(v)
+	_furniture_views[e.pos] = v
+
+
+func _remove_furniture(e: FurnitureEntity, drop: bool) -> void:
+	var cells := e.cells.duplicate()
+	var anchor := e.pos
+	var stacks := blocks.remove(anchor)
+	for c in cells:
+		if get_world_voxel(c) == GameMaterials.FURNITURE:
+			set_world_voxel(c, GameMaterials.AIR)
+	if _furniture_views.has(anchor):
+		_furniture_views[anchor].queue_free()
+		_furniture_views.erase(anchor)
+	if drop:
+		for s in stacks:
+			spawn_item(s, Vector3(anchor) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+	if player.seat != Vector3.INF and e.furniture == "chair":
+		player.stand_up()
+
+
+## Right click on a bed: sleep through the night (Minecraft: 12542..23459 of its
+## 24000 ticks = after sunset to before sunrise) and set the respawn point
+## beside it; on a chair: sit down.
+func _use_furniture(p: Vector3i) -> void:
+	var e := blocks.furniture_at(p)
+	if e == null:
+		set_world_voxel(p, GameMaterials.AIR)   # a stray furniture voxel without its entity
+		return
+	if e.furniture == "chair":
+		player.sit(e.seat(), e.yaw())
+		return
+	_spawn_pos = e.seat() + Vector3(0, 0.6, 0)
+	var t := atmosphere.time_of_day
+	if t > 0.773 or t < 0.227:
+		atmosphere.set_time_of_day(0.26)
+		chat.add_message("You slept through the night. Respawn point set.")
+	else:
+		chat.add_message("You can only sleep at night. Respawn point set.")
 
 
 func _on_placed(p: Vector3i, material: int) -> void:
 	set_world_voxel(p, material)
+	_spawn_drop_events(farming.on_placed(p, material))
 	if material > 0:
 		stains.clear_cell(p)   # a filled cell's old stain must not come back when it is mined
 		var d: Dictionary = GameMaterials.defs()[material - 1]
@@ -368,6 +527,8 @@ func _on_block_used(p: Vector3i, material: int) -> void:
 	var d: Dictionary = GameMaterials.defs()[material - 1]
 	var kind: String = d.get("interact", "")
 	match kind:
+		"furniture":
+			_use_furniture(p)
 		"crafting_table":
 			player.set_ui_open(true, false)
 			inv_screen.open(3, "crafting_table", "Crafting")
@@ -631,7 +792,188 @@ func snapshot() -> Dictionary:
 		"inventory_open": inv_screen.is_open,
 		"browser": inv_screen.browser.summary(),
 		"blocks": blocks.summary(),
+		"mobs": mobs.summary() if mobs else {},
+		"farm": farming.summary() if farming else {},
 		"mem_mb": OS.get_static_memory_usage() / 1048576.0,
 		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		"primitives": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
 	}
+
+
+## Debug (animals=N): N sheep and pigs on the ground 4-10 m ahead; holding their
+## food (give=wheat) they come over. JSON "mobs" shows their goals.
+func _debug_animals() -> void:
+	await get_tree().create_timer(0.5).timeout
+	var fwd := -player.camera.global_transform.basis.z
+	fwd.y = 0
+	fwd = fwd.normalized()
+	var right := fwd.cross(Vector3.UP)
+	for i in DebugCapture.animals:
+		var q := player.position + fwd * (8.0 + (i % 4) * 2.5) + right * ((i / 4) * 3.0 - 3.0)
+		var x := int(floor(q.x))
+		var z := int(floor(q.z))
+		var y := world.surface_height(x, z) + 1
+		var sp := DebugCapture.animal_species if DebugCapture.animal_species != "" else ("sheep" if i % 2 == 0 else "pig")
+		var m := mobs.spawn(sp, Vector3(x + 0.5, y + 0.05, z + 0.5), DebugCapture.animal_babies and i % 3 == 2, randf() * TAU)
+		if DebugCapture.animal_love and m != null and not m.is_baby():
+			m.feed()
+	print("debug animals: %d spawned" % DebugCapture.animals)
+	if player.autopilot:
+		player.autopilot_action = "look"
+		player.set_look(player._yaw, DebugCapture.pitch)
+
+
+## Debug (farm_test=1): a 9x9 field around one water voxel 3 m ahead, tilled and
+## sown with wheat (carrots on the right half); farm_speed=N runs random ticks N x faster.
+func _debug_farm() -> void:
+	await get_tree().create_timer(0.5).timeout
+	var fwd := -player.camera.global_transform.basis.z
+	fwd.y = 0
+	fwd = fwd.normalized()
+	var c := player.position + fwd * 8.0
+	var cx := int(floor(c.x))
+	var cz := int(floor(c.z))
+	var gy := world.surface_height(cx, cz)
+	var tilled := 0
+	var planted := 0
+	for dx in range(-4, 5):
+		for dz in range(-4, 5):
+			var p := Vector3i(cx + dx, gy, cz + dz)
+			for k in range(1, 4):
+				set_world_voxel(p + Vector3i(0, k, 0), GameMaterials.AIR)
+			if get_world_voxel(p) != GameMaterials.GRASS and get_world_voxel(p) != GameMaterials.DIRT:
+				set_world_voxel(p, GameMaterials.DIRT)
+			if dx == 0 and dz == 0:
+				set_world_voxel(p, GameMaterials.WATER_STATIC)
+				continue
+			if farming.till(p):
+				tilled += 1
+				if farming.plant(p, "carrots" if dx > 0 else "wheat"):
+					planted += 1
+	print("debug farm at %s: tilled %d planted %d" % [Vector3i(cx, gy, cz), tilled, planted])
+	if player.autopilot:
+		player.autopilot_action = "look"
+		player.set_look(player._yaw, DebugCapture.pitch)
+
+
+# ---------------- debug: the player's own hands (hands_test=1) ----------------
+
+func _hold(id: String) -> void:
+	for i in PlayerInventory.HOTBAR:
+		var st: Dictionary = player_inv.inv.get_slot(i)
+		if not st.is_empty() and st["id"] == id:
+			player_inv.select(i)
+			return
+	player_inv.pickup(id, 1)
+	_hold(id)
+
+
+## Aims the camera at a point (world voxels) and right clicks through Player._use.
+## Returns the voxel the aim ray hit (what the player would see highlighted).
+func _aim_use(at: Vector3) -> Vector3i:
+	var dir := (at - player.camera.global_position).normalized()
+	player.set_look(atan2(-dir.x, -dir.z), asin(dir.y))
+	var hit := player._aim()
+	player._use(true)
+	player._place_cooldown = 0.0
+	return hit.position if hit else Vector3i(-1, -1, -1)
+
+
+func _aim_attack(at: Vector3) -> void:
+	var dir := (at - player.camera.global_position).normalized()
+	player.set_look(atan2(-dir.x, -dir.z), asin(dir.y))
+	player._attack()
+
+
+## Debug (hands_test=1): till, sow, place a chair and a bed, sit, feed, shear,
+## kill a sheep and eat, all through the player's input code; prints one JSON line.
+func _debug_hands() -> void:
+	var r := {}
+	await get_tree().create_timer(0.6).timeout
+	player.autopilot_action = "look"
+	var base := Vector3i(player.position.floor())
+	var fwd := Vector3i(0, 0, -1)
+	var gy := func(x: int, z: int) -> int: return world.surface_height(x, z)
+	# clear a 9 x 9 patch of plants so the aim ray hits the ground
+	for dx in range(-4, 5):
+		for dz in range(-8, 1):
+			var g: int = gy.call(base.x + dx, base.z + dz)
+			for k in range(1, 4):
+				set_world_voxel(Vector3i(base.x + dx, g + k, base.z + dz), GameMaterials.AIR)
+			set_world_voxel(Vector3i(base.x + dx, g, base.z + dz), GameMaterials.GRASS)
+	await get_tree().create_timer(0.5).timeout   # the cleared patch reaches the terrain the aim ray reads
+	base = Vector3i(player.position.floor())
+	var soil := Vector3i(base.x, gy.call(base.x, base.z - 3), base.z - 3)
+	_hold("wooden_hoe")
+	r["hoe_aim"] = _aim_use(Vector3(soil) + Vector3(0.5, 0.99, 0.5)) == soil
+	r["tilled"] = GameMaterials.name_of(get_world_voxel(soil))
+	_hold("wheat_seeds")
+	_aim_use(Vector3(soil) + Vector3(0.5, 0.99, 0.5))
+	r["sown"] = GameMaterials.name_of(get_world_voxel(soil + Vector3i.UP))
+	r["crops"] = farming.crops.size()
+	# chair two to the right, bed three to the left
+	var cp := Vector3i(base.x + 2, gy.call(base.x + 2, base.z - 3), base.z - 3)
+	_hold("chair")
+	r["chair_aim"] = _aim_use(Vector3(cp) + Vector3(0.5, 0.99, 0.5)) == cp
+	var ch := blocks.furniture_at(cp + Vector3i.UP)
+	r["chair"] = ch.summary() if ch != null else "not placed"
+	await get_tree().create_timer(0.3).timeout
+	if ch != null:
+		_aim_use(Vector3(cp) + Vector3(0.5, 1.5, 0.5))
+		r["sitting"] = player.seat != Vector3.INF
+		player.stand_up()
+		r["stood_up_at"] = player.position.snapped(Vector3.ONE * 0.1)
+	var bp := Vector3i(base.x - 3, gy.call(base.x - 3, base.z - 2), base.z - 2)
+	_hold("bed")
+	r["bed_aim"] = _aim_use(Vector3(bp) + Vector3(0.5, 0.99, 0.5)) == bp
+	var bed := blocks.furniture_at(bp + Vector3i.UP)
+	r["bed"] = bed.summary() if bed != null else "not placed"
+	await get_tree().create_timer(0.3).timeout   # the bed's voxels reach the terrain the aim ray reads
+	if bed != null:
+		atmosphere.set_time_of_day(0.9)
+		_aim_use(Vector3(bed.cells[0]) + Vector3(0.5, 0.9, 0.5))
+		r["time_after_sleep"] = snappedf(atmosphere.time_of_day, 0.01)
+		r["spawn_after_sleep"] = _spawn_pos.snapped(Vector3.ONE * 0.1)
+	# a sheep ahead: feed, shear, kill
+	var sp := Vector3i(base.x, gy.call(base.x, base.z - 5) + 1, base.z - 5)
+	var sheep := mobs.spawn("sheep", Vector3(sp) + Vector3(0.5, 0.05, 0.5))
+	await get_tree().create_timer(0.3).timeout
+	_hold("wheat")
+	var before := player_inv.inv.count_of("wheat")
+	_aim_use(sheep.aabb().get_center())
+	r["fed_love"] = sheep.love_s > 0.0
+	r["wheat_used"] = before - player_inv.inv.count_of("wheat")
+	_hold("shears")
+	_aim_use(sheep.aabb().get_center())
+	r["sheared"] = sheep.sheared
+	var spawned_before: int = item_stats["spawned"]
+	_hold("wooden_hoe")
+	var hits := 0
+	for i in 12:
+		if not is_instance_valid(sheep) or sheep.is_dead():
+			break
+		player._attack_cooldown = 0.0
+		sheep.position = Vector3(sp) + Vector3(0.5, 0.05, 0.5)   # it panics away between hits: bring it back in reach
+		_aim_attack(sheep.aabb().get_center())
+		hits += 1
+		await get_tree().create_timer(0.55).timeout
+	await get_tree().create_timer(1.3).timeout
+	r["hits_to_kill"] = hits
+	r["sheep_dead"] = not is_instance_valid(sheep)
+	r["drops_spawned"] = item_stats["spawned"] - spawned_before
+	var drops := []
+	for e in _item_entities:
+		if is_instance_valid(e):
+			drops.append("%s x%d" % [e.stack["id"], e.stack["count"]])
+	r["items_on_ground"] = drops
+	# eat: hurt, hold raw meat, right click at the sky
+	player_inv.damage(6)
+	var hp: int = player_inv.health
+	_hold("raw_meat")
+	player.set_look(0.0, 1.2)
+	player._use(true)
+	await get_tree().create_timer(2.0).timeout
+	r["health_before_eating"] = hp
+	r["health_after_eating"] = player_inv.health
+	player.set_look(0.0, -0.5)
+	print("debug hands " + JSON.stringify(r))

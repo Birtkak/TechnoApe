@@ -32,7 +32,9 @@ func test_mining_table_names_exist() -> void:
 		assert_bool(m in names).override_failure_message("unknown material in mining.json: %s" % m).is_true()
 		var e: Dictionary = mining.materials[m]
 		if e.has("drops"):
-			assert_bool(items.has(e["drops"])).override_failure_message("unknown drop item %s for %s" % [e["drops"], m]).is_true()
+			var ids: Array = e["drops"].map(func(d: Dictionary) -> String: return d["id"]) if e["drops"] is Array else [e["drops"]]
+			for id in ids:
+				assert_bool(items.has(id)).override_failure_message("unknown drop item %s for %s" % [id, m]).is_true()
 
 
 func test_block_items_reference_materials() -> void:

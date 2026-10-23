@@ -34,7 +34,11 @@
     "water": {"o": "#0e2a5a", "d": "#2050a8", "m": "#3a78d8", "l": "#6aa4f0", "h": "#c0e0ff"},
     "blood": {"o": "#2a0206", "d": "#5e0a10", "m": "#8e141c", "l": "#b8242c", "h": "#e86a70"},
     "oil": {"o": "#050403", "d": "#16120c", "m": "#2a2218", "l": "#463a2a", "h": "#8a7a60"},
-    "toxic": {"o": "#163a06", "d": "#2e7a10", "m": "#4eaa1e", "l": "#7ed43a", "h": "#d0ff90"}
+    "toxic": {"o": "#163a06", "d": "#2e7a10", "m": "#4eaa1e", "l": "#7ed43a", "h": "#d0ff90"},
+    "blanket": {"o": "#3a0a0e", "d": "#7a161c", "m": "#a82228", "l": "#c83a3e", "h": "#ec7a7a"},
+    "carrot": {"o": "#5a2004", "d": "#a8460c", "m": "#e0701a", "l": "#f49434", "h": "#ffc47a"},
+    "bread": {"o": "#4a2408", "d": "#8a5018", "m": "#b87a30", "l": "#d49a4a", "h": "#f0c880"},
+    "seed": {"o": "#3a2c10", "d": "#6e5824", "m": "#9a8034", "l": "#bca048", "h": "#e0cc7a"}
   },
   "shapes": {
     "handle": {
@@ -1324,6 +1328,150 @@
         "................",
         "................"
       ]
+    },
+    "seeds": {
+      "rows": [
+        "................",
+        "................",
+        ".........o......",
+        "........oho.....",
+        ".....o.ohmlo....",
+        "....oho.olo.....",
+        "...ohmlo.o.o....",
+        "....olo...oho...",
+        ".....oo..ohmlo..",
+        ".....oho.oolo...",
+        "....ohmlohooo...",
+        "....oolohmloho..",
+        "...ohoo.olohmlo.",
+        "..ohmlo..o.olo..",
+        "...olo......o...",
+        "....o..........."
+      ]
+    },
+    "sheaf": {
+      "colors": {"s": "#c8a840", "t": "#6a4a24"},
+      "rows": [
+        "......oohoo.....",
+        "....ooholohoo...",
+        "...ohollmldoho..",
+        "...ollmdmdmldo..",
+        "..ohmddololdmlo.",
+        "...ololosololo..",
+        "...olosososolo..",
+        "....ossososso...",
+        "....ososssoso...",
+        ".....ossssso....",
+        ".....ottttto....",
+        ".....ottttto....",
+        "......ossso.....",
+        "......ossso.....",
+        "......oosoo.....",
+        ".....ossssso...."
+      ]
+    },
+    "carrot": {
+      "colors": {"q": "#4e9a2c", "Q": "#2e6a1a"},
+      "rows": [
+        "...........o....",
+        "..........oqo.o.",
+        "..........oqooqo",
+        "..........oqoqo.",
+        ".........oqoqo.o",
+        ".........oqoqooQ",
+        "........ooqqQQQo",
+        ".......ohmoQooo.",
+        "......ohmddo....",
+        ".....ohmddo.....",
+        "....ohmmdo......",
+        "....olddo.......",
+        "...ohmdo........",
+        "..ohddo.........",
+        "...ooo..........",
+        "................"
+      ]
+    },
+    "bread": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "....oooooooo....",
+        "..oohllllllloo..",
+        ".ohlmdmmdmmdllo.",
+        ".olmmmdmmdmmddo.",
+        "ohmmmmmmmmmmmmlo",
+        ".olmmmmmmmmmmdo.",
+        ".olmmmmmmmmmmdo.",
+        ".oldddddddddddo.",
+        "..oooooooooooo..",
+        "................",
+        "................"
+      ]
+    },
+    "hoe_head": {
+      "rows": [
+        ".......ohlo.....",
+        ".......olmlo....",
+        "........olmlo...",
+        ".........olmlo..",
+        "..........olo...",
+        "...........o....",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "shears": {
+      "colors": {"r": "#8a3a2a"},
+      "rows": [
+        "................",
+        "................",
+        "...oo.......oo..",
+        "..ohlo.....ohlo.",
+        "...ollo...ohdo..",
+        "....ollo.ohdo...",
+        ".....ollohdo....",
+        "......olldo.....",
+        "......olddo.....",
+        "...ooohdolloo...",
+        "..orrhdo.ollro..",
+        ".orrrro.orrorro.",
+        ".orooro.oro.oro.",
+        ".orrrro.orrorro.",
+        "..orro...orrro..",
+        "...oo.....ooo..."
+      ]
+    },
+    "chair": {
+      "colors": {"w": "#ecece4"},
+      "rows": [
+        "...o............",
+        "..odo...........",
+        "..odlo..........",
+        "..odlo..........",
+        "..odloo.........",
+        "..odlllo........",
+        "..odloo.........",
+        "..odlooooooo....",
+        "..odlwwwwwwwo...",
+        "..odlmmmmmmmmo..",
+        "..oddddddddddo..",
+        "..odooooooodo...",
+        "..odo.....odo...",
+        "..odo.....odo...",
+        "..odo.....odo...",
+        "...o.......o...."
+      ]
     }
   },
   "sprites": {
@@ -1435,6 +1583,16 @@
     "campfire": {"layers": [{"shape": "campfire", "palette": "handle"}]},
     "sieve": {"layers": [{"shape": "sieve", "palette": "wood"}]},
     "straw_bed": {"layers": [{"shape": "bed", "palette": "straw"}]},
+    "bed": {"layers": [{"shape": "bed", "palette": "blanket"}]},
+    "chair": {"layers": [{"shape": "chair", "palette": "wood"}]},
+    "wheat_seeds": {"layers": [{"shape": "seeds", "palette": "seed"}]},
+    "wheat": {"layers": [{"shape": "sheaf", "palette": "straw"}]},
+    "carrot": {"layers": [{"shape": "carrot", "palette": "carrot"}]},
+    "bread": {"layers": [{"shape": "bread", "palette": "bread"}]},
+    "wooden_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "wood"}]},
+    "stone_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "stone"}]},
+    "iron_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "iron"}]},
+    "shears": {"layers": [{"shape": "shears", "palette": "iron"}]},
     "torch": {"layers": [{"shape": "torch", "palette": "handle"}]},
     "oak_sapling": {"layers": [{"shape": "sapling", "palette": "leaf"}]},
     "wand_basic": {"layers": [{"shape": "wand_stick", "palette": "handle"}, {"shape": "wand_gem", "palette": "gem"}]},

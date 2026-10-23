@@ -762,6 +762,32 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
     if ((top == GRAVEL_STATIC || top == STONE) && r < 50 && !marsh) return PEBBLES;
     if (top == GRAVEL_STATIC && r >= 50 && r < 66 && !marsh) return FLINT_STONES;
     if (top != GRASS && !(marsh && top == DIRT)) return AIR;
+    // Wild crops (ADR 0022): rare patches, a good reason to start a farm. A 24 m cell
+    // holds a patch with a small chance (plains: wheat every ~140 m, carrots every
+    // ~170 m); the patch is a 1.5 m disc around a jittered centre, a quarter of its
+    // grass columns carrying the plant (about 6 plants).
+    if (!marsh) {
+        int wheat = 0, carrot = 0;   // per 1000 cells
+        switch (col.biome) {
+            case PLAINS: wheat = 30; carrot = 20; break;
+            case SAVANNA: wheat = 15; break;
+            case FOREST: carrot = 12; break;
+            default: break;
+        }
+        if (wheat + carrot > 0) {
+            constexpr int PC = 48;
+            const int pcx = floor_div(x, PC), pcz = floor_div(z, PC);
+            const uint32_t ph = hash3(pcx, pcz, seed_ + 211);
+            const int roll = (int)(ph % 1000u);
+            if (roll < wheat + carrot) {
+                const int px = pcx * PC + 8 + (int)((ph >> 10) % (PC - 16));
+                const int pz = pcz * PC + 8 + (int)((ph >> 20) % (PC - 16));
+                const int dx = x - px, dz = z - pz;
+                if (dx * dx + dz * dz <= 10 && ((v >> 16) & 3u) == 0)
+                    return roll < wheat ? WILD_WHEAT : WILD_CARROT;
+            }
+        }
+    }
     // Per mille of grass columns; pebbles, twigs and flint are the starting pickups.
     int grass = 0, flower = 0, bush = 0, shroom = 0, pebble = 0, twig = 0, flint = 0;
     if (marsh) grass = 560;

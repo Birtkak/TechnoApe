@@ -7,7 +7,7 @@ extends Node3D
 ## world writes are requested through signals and done by Main.
 ## Moves against the voxel grid (VoxelBody, ADR 0011), not physics colliders.
 
-signal voxel_broken(pos: Vector3i, drop: Dictionary)
+signal voxel_broken(pos: Vector3i, drops: Array)
 signal voxel_placed(pos: Vector3i, material: int)
 signal item_dropped(stack: Dictionary, from: Vector3, velocity: Vector3)
 signal inventory_toggled(open: bool)
@@ -15,6 +15,8 @@ signal block_used(pos: Vector3i, material: int)   # right click on a block with 
 signal died
 signal game_mode_changed(mode: String)
 signal stain_drip(at: Vector3, colour: Color)   # a stained body drips on the ground (StainMap.drip)
+signal landed(feet_voxel: Vector3i, fall_m: float)   # touched ground after a fall (farmland trampling, ADR 0022)
+signal ate(item_id: String)
 
 var world: World
 var camera: Camera3D
@@ -37,6 +39,18 @@ var autopilot_dir := Vector3(0, 0, -1)
 var autopilot_speed_m := 6.0
 var mined_log: Array = []   # autopilot mine=1: every break (voxel, what it reads now, feet height), first 64
 var autopilot_action := ""     # "" = fly/walk forward, "mine" = stand still and hold break
+
+# animals, farming, furniture (ADR 0022): hooks Main sets
+var entity_pick: Callable        # (from, dir, max_dist) -> {mob, dist} or {}
+var entity_attack: Callable      # (mob, damage) -> void
+var entity_use: Callable         # (mob, held def) -> bool (true: one held item used up)
+var place_furniture: Callable    # (kind, anchor, facing) -> bool
+var farm: Farming
+var seat: Vector3 = Vector3.INF  # sitting on a chair: the seat surface (world voxels)
+var _eat_t := 0.0
+var _eat_id := ""
+var _attack_cooldown := 0.0
+const EAT_S := 1.6               # Minecraft: 32 ticks
 
 # mining state
 var _mine_target := Vector3i(1 << 30, 0, 0)
@@ -61,6 +75,7 @@ const DRIP_EVERY_S := 0.35
 # fall damage
 var _fall_peak_y := 0.0
 var _was_on_floor := false
+var _drop_rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
@@ -183,6 +198,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_drop(Input.is_key_pressed(KEY_CTRL))
 	elif event.is_action_pressed("action_place") and _mouse_captured:
 		_use(true)
+	elif event.is_action_pressed("action_break") and _mouse_captured:
+		_attack()
 	else:
 		for i in 9:
 			if event.is_action_pressed("hotbar_%d" % (i + 1)):
@@ -288,6 +305,11 @@ func _physics_step(delta: float) -> void:
 	t0 = Time.get_ticks_usec()
 	_update_mining(delta)
 	_cost("player_mining", t0)
+	if seat != Vector3.INF:
+		_sit_step()
+		return
+	_update_eating(delta)
+	_attack_cooldown = maxf(0.0, _attack_cooldown - delta)
 	t0 = Time.get_ticks_usec()
 	var ground := _ground_ready()
 	_cost("player_ground", t0)
@@ -378,6 +400,8 @@ func _update_fall_damage() -> void:
 	var on_floor := is_on_floor() or in_liquid   # water breaks a fall, as in vanilla
 	if on_floor and not _was_on_floor:
 		var fall_m := Settings.v2m(_fall_peak_y - position.y)
+		if not in_liquid and fall_m > 0.5:
+			landed.emit(Vector3i((position + Vector3(0, -0.1, 0)).floor()), fall_m)
 		var dmg := int(floor(fall_m - Settings.fall_damage_safe_m))
 		if dmg > 0 and inventory and GameMode.rule(game_mode, "takes_damage"):
 			print("fall damage %d after %.1f m" % [dmg, fall_m])
@@ -460,6 +484,8 @@ func _update_mining(delta: float) -> void:
 	else:
 		holding = _mouse_captured and not ui_open and Input.is_action_pressed("action_break")
 	var hit: VoxelRaycastResult = _aim() if (holding or (_mouse_captured and not ui_open and not autopilot)) else null
+	if hit and aimed_mob(hit) != null:
+		hit = null   # an animal is in front of the block: LMB hits it instead (_attack)
 	if hit:
 		_highlight.visible = true
 		_highlight.global_position = Vector3(hit.position)
@@ -492,8 +518,8 @@ func _update_mining(delta: float) -> void:
 	_crack.transparency = 1.0 - clampf(_mine_progress, 0.0, 1.0) * 0.4
 	if _mine_progress >= 1.0:
 		var mat_name := GameMaterials.name_of(world.get_voxel(p))
-		var drop := mining.drops(mat_name, inventory.held_def()) if mining and GameMode.rule(game_mode, "drops") else {}
-		voxel_broken.emit(p, drop)
+		var drops := mining.roll_drops(mat_name, inventory.held_def(), _drop_rng) if mining and GameMode.rule(game_mode, "drops") else []
+		voxel_broken.emit(p, drops)
 		if viewmodel:
 			viewmodel.swing()
 		_break_cooldown = Settings.break_cooldown_s
@@ -528,7 +554,16 @@ func _use(first_press: bool) -> void:
 	if inventory == null or edits_locked:
 		return
 	var hit := _aim()
+	if first_press:
+		var mob = aimed_mob(hit)
+		if mob != null:
+			if entity_use.is_valid() and entity_use.call(mob, inventory.held_def()):
+				if GameMode.rule(game_mode, "consumes_items") and not ("tool" in inventory.held_def().get("tags", [])):
+					inventory.consume_held(1)
+				_after_use()
+			return
 	if hit == null:
+		_start_eating(first_press)
 		return
 	if not first_press and _place_cooldown > 0.0:
 		return
@@ -541,6 +576,23 @@ func _use(first_press: bool) -> void:
 			return
 	var def := inventory.held_def()
 	if def.is_empty():
+		return
+	# farming (ADR 0022): hoes till, seeds and carrots plant on a farmland top face
+	if "hoe" in def.get("tags", []) and farm != null:
+		if hit.previous_position.y >= target.y and farm.till(target):
+			_after_use()
+		return
+	if def.has("plants") and farm != null and farm.is_farmland_material(farm.get_voxel.call(target)):   # Main's view: the bubble is ahead of the terrain
+		if hit.previous_position == target + Vector3i.UP and farm.plant(target, def["plants"]):
+			if GameMode.rule(game_mode, "consumes_items"):
+				inventory.consume_held(1)
+			_after_use()
+		return
+	if def.has("furniture"):
+		_place_furniture(hit, def)
+		return
+	if def.has("food"):
+		_start_eating(first_press)
 		return
 	var target_name := _loose_name(world.get_voxel(target))
 	# container pickup (bucket on water / lava)
@@ -556,9 +608,11 @@ func _use(first_press: bool) -> void:
 	if mat <= 0:
 		return
 	var p: Vector3i = hit.previous_position
+	if _replaceable(world.get_voxel(target)):
+		p = target   # Minecraft places into tall grass instead of in front of it
 	if _overlaps_player(p) or p.y < 0 or p.y >= Settings.WORLD_HEIGHT_VOXELS:
 		return
-	if world.get_voxel(p) != GameMaterials.AIR:
+	if world.get_voxel(p) != GameMaterials.AIR and not _replaceable(world.get_voxel(p)):
 		return
 	voxel_placed.emit(p, mat)
 	if not GameMode.rule(game_mode, "consumes_items"):
@@ -568,6 +622,128 @@ func _use(first_press: bool) -> void:
 	else:
 		inventory.consume_held(1)
 	_after_use()
+
+
+func _replaceable(m: int) -> bool:
+	return m > 0 and GameMaterials.defs()[m - 1].get("replaceable", false)
+
+
+## An animal under the crosshair closer than the aimed voxel (hit may be null), or null.
+func aimed_mob(hit: VoxelRaycastResult = null):
+	if not entity_pick.is_valid():
+		return null
+	var r: Dictionary = entity_pick.call(camera.global_position, -camera.global_transform.basis.z, Settings.m2v(Settings.reach_m))
+	if r.is_empty():
+		return null
+	if hit != null and float(hit.distance) < float(r["dist"]):
+		return null
+	return r["mob"]
+
+
+## Left click: hit the animal in front (Minecraft: hand 1, tools 2 + tier).
+func _attack() -> void:
+	if _attack_cooldown > 0.0 or edits_locked or ui_open or not entity_attack.is_valid():
+		return
+	var mob = aimed_mob(_aim())
+	if mob == null:
+		return
+	var def := inventory.held_def() if inventory else {}
+	var dmg := 1
+	if "tool" in def.get("tags", []):
+		dmg = 2 + int(def.get("tier", 0))
+	entity_attack.call(mob, dmg)
+	_attack_cooldown = 0.25
+	if viewmodel:
+		viewmodel.swing()
+
+
+## Beds and chairs: the clicked face's neighbour is the anchor; the footprint must be free.
+func _place_furniture(hit: VoxelRaycastResult, def: Dictionary) -> void:
+	if not place_furniture.is_valid():
+		return
+	var kind: String = def["furniture"]
+	var anchor: Vector3i = hit.position if _replaceable(world.get_voxel(hit.position)) else hit.previous_position
+	var look := -camera.global_transform.basis.z
+	var facing := FurnitureEntity.facing_for(kind, look)
+	for c in FurnitureEntity.footprint(kind, anchor, facing):
+		var m := world.get_voxel(c)
+		if (m != GameMaterials.AIR and not _replaceable(m)) or _overlaps_player(c):
+			return
+	if place_furniture.call(kind, anchor, facing):
+		if GameMode.rule(game_mode, "consumes_items"):
+			inventory.consume_held(1)
+		_after_use()
+
+
+# ---------------- eating ----------------
+
+## Holding right click with food eats it after EAT_S (only when hurt: no hunger yet).
+func _start_eating(first_press: bool) -> void:
+	var def := inventory.held_def()
+	if not def.has("food") or not first_press:
+		return
+	if inventory.health >= inventory.max_health:
+		return
+	_eat_id = def["id"]
+	_eat_t = 0.0
+
+
+func _update_eating(delta: float) -> void:
+	if _eat_id == "":
+		return
+	var def := inventory.held_def()
+	if ui_open or not (autopilot or Input.is_action_pressed("action_place")) or def.get("id", "") != _eat_id:
+		_eat_id = ""
+		return
+	_eat_t += delta
+	if viewmodel and fmod(_eat_t, 0.25) < delta:
+		viewmodel.swing()
+	if _eat_t >= EAT_S:
+		inventory.heal(int(def["food"].get("hunger", 1)))
+		if GameMode.rule(game_mode, "consumes_items"):
+			inventory.consume_held(1)
+		ate.emit(_eat_id)
+		_eat_id = ""
+
+
+# ---------------- sitting ----------------
+
+## Sit on a chair: hips on the seat, looking out of the chair's front.
+func sit(seat_surface: Vector3, chair_yaw: float) -> void:
+	seat = seat_surface
+	velocity = Vector3.ZERO
+	flying = false
+	set_look(chair_yaw + PI, _pitch)   # the player looks along -Z of its yaw
+
+
+func stand_up() -> void:
+	if seat == Vector3.INF:
+		return
+	var s := seat
+	seat = Vector3.INF
+	# step off in front of the seat if there is room, else onto it
+	var front := s + Vector3(-sin(_yaw), 0, -cos(_yaw))
+	var fp := Vector3i(int(floor(front.x)), int(floor(s.y)) - 1, int(floor(front.z)))
+	if world.get_voxel(fp) == GameMaterials.AIR and world.get_voxel(fp + Vector3i.UP) == GameMaterials.AIR and world.get_voxel(fp + Vector3i.DOWN) != GameMaterials.AIR:
+		position = Vector3(front.x, fp.y + 0.05, front.z)
+	else:
+		position = Vector3(s.x, s.y + 0.05, s.z)
+	_fall_peak_y = position.y
+	if model:
+		model.leg_r.rotation = Vector3.ZERO
+		model.leg_l.rotation = Vector3.ZERO
+
+
+func _sit_step() -> void:
+	# hips (the ape's are at 24/57 of its height) on the seat
+	position = seat - Vector3(0, Settings.m2v(Settings.player_height_m) * 24.0 / 57.0, 0)
+	velocity = Vector3.ZERO
+	_fall_peak_y = position.y
+	if model and model.visible:
+		model.leg_r.rotation = Vector3(-PI * 0.5, 0, 0.05)
+		model.leg_l.rotation = Vector3(-PI * 0.5, 0, -0.05)
+	if not ui_open and not autopilot and (Input.is_action_just_pressed("jump") or Input.is_action_just_pressed("descend")):
+		stand_up()
 
 
 ## Middle click (vanilla pick block): the item that places the aimed voxel.

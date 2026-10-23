@@ -67,6 +67,16 @@ const TOXIC_SLUDGE := 53           # Noita's toxic sludge: stains you toxic; wat
 const TOXIC_SLUDGE_STATIC := 54    # generated sludge pools in sulfur caves: static until disturbed
 const SULFUR := 55                 # yellow crust on sulfur cave floors and ceilings
 const OBSIDIAN := 56               # lava quenched by water
+# Animals, farming and furniture (ADR 0022)
+const WOOL := 57
+const CARPET := 58                 # 6.25 cm rug on the voxel floor
+const FARMLAND := 59               # hoed dirt; Farming tracks its moisture and swaps in FARMLAND_MOIST
+const FARMLAND_MOIST := 60
+const WHEAT_0 := 61                # wheat crop ages 0..7 = ids 61..68 (Minecraft's 8 stages)
+const CARROTS_0 := 69              # carrot crop: 4 looks for ages 0..7 (Minecraft: 0-1, 2-3, 4-6, 7) = ids 69..72
+const WILD_WHEAT := 73             # rare generated patches in plains (ADR 0022): seeds to start a farm
+const WILD_CARROT := 74
+const FURNITURE := 75              # invisible full-collision voxel under a bed or chair; the shape is the furniture entity's mesh
 
 const ATLAS_TILES := Vector2i(8, 7)
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -76,6 +86,7 @@ const ATLAS_TILES := Vector2i(8, 7)
 # Same constant as SimWorld::FLUID_LEVEL_BASE.
 const FLUID_LEVEL_BASE := 256
 const MICRO_GRID := 8       # cells per voxel edge for micro models and chisels (6.25 cm)
+const MASK_TARGET := 2      # collision bit of boxes only the aim ray hits (VoxelBody uses bit 1, VoxelBody.MASK_SOLID)
 
 
 static func defs() -> Array:
@@ -105,10 +116,10 @@ static func defs() -> Array:
 		{"name": "water_static", "cell_type": "liquid", "fluid_slot": 0, "liquid_static": true, "density": 1, "tiles": [5, 5, 5], "transparent": true, "loose": 5},
 		{"name": "sandstone", "cell_type": "solid", "density": 10, "hp": 600, "tiles": [21, 21, 21], "transparent": false},
 		{"name": "clay", "cell_type": "solid", "density": 9, "hp": 300, "tiles": [22, 22, 22], "transparent": false},
-		{"name": "tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 23, 23], "transparent": false, "micro": "tuft"},
+		{"name": "tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 23, 23], "transparent": false, "micro": "tuft", "replaceable": true},
 		{"name": "flower", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [24, 24, 24], "transparent": false, "micro": "flower"},
 		{"name": "cactus", "cell_type": "solid", "density": 10, "hp": 40, "burnable": true, "fire_hp": 30, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [25, 25, 25], "transparent": false},
-		{"name": "dead_bush", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 24, "autoignition_temperature": 15, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [26, 26, 26], "transparent": false, "micro": "bush"},
+		{"name": "dead_bush", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 24, "autoignition_temperature": 15, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [26, 26, 26], "transparent": false, "micro": "bush", "replaceable": true},
 		{"name": "ice", "cell_type": "solid", "density": 9, "hp": 120, "tiles": [27, 27, 27], "transparent": false},
 		{"name": "flower_red", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [28, 28, 28], "transparent": false, "micro": "flower"},
 		{"name": "crafting_table", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [32, 33, 39], "transparent": false, "interact": "crafting_table"},
@@ -139,7 +150,34 @@ static func defs() -> Array:
 		{"name": "toxic_sludge_static", "cell_type": "liquid", "fluid_slot": 4, "liquid_static": true, "density": 1.3, "tiles": [48, 48, 48], "transparent": true, "loose": 53},
 		{"name": "sulfur", "cell_type": "solid", "density": 10, "hp": 400, "tiles": [49, 49, 49], "transparent": false},
 		{"name": "obsidian", "cell_type": "solid", "density": 12, "hp": 6000, "tiles": [50, 50, 50], "transparent": false},
+		# animals, farming and furniture (ADR 0022); crops are micro models on the farmland voxel below them
+		{"name": "wool", "cell_type": "solid", "density": 4, "hp": 80, "burnable": true, "fire_hp": 60, "autoignition_temperature": 30, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [51, 51, 51], "transparent": false},
+		{"name": "carpet", "cell_type": "solid", "density": 4, "hp": 10, "burnable": true, "fire_hp": 30, "autoignition_temperature": 30, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [51, 51, 51], "transparent": false, "micro": "rug"},
+		{"name": "farmland", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [52, 1, 1], "transparent": false},
+		{"name": "farmland_moist", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [53, 1, 1], "transparent": false},
+	] + _crop_defs() + [
+		{"name": "wild_wheat", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [54, 23, 54], "transparent": false, "micro": "wild_wheat"},
+		{"name": "wild_carrot", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [51, 29, 55], "transparent": false, "micro": "wild_carrot"},
+		{"name": "furniture", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": true, "interact": "furniture"},
 	]
+
+
+static var _crops := []
+
+## wheat_0..wheat_7 and carrots_0..carrots_3: micro models "wheat:<age>" /
+## "carrots:<look>" (tiles: [ripe, stalk, root]). Burnable like tall grass.
+static func _crop_defs() -> Array:
+	if _crops.is_empty():
+		var burn := {"burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2}
+		for age in 8:
+			var d := {"name": "wheat_%d" % age, "cell_type": "solid", "density": 10, "hp": 5, "tiles": [54, 29, 23], "transparent": false, "micro": "wheat:%d" % age, "crop": "wheat"}
+			d.merge(burn)
+			_crops.append(d)
+		for look in 4:
+			var d := {"name": "carrots_%d" % look, "cell_type": "solid", "density": 10, "hp": 5, "tiles": [55, 29, 23], "transparent": false, "micro": "carrots:%d" % look, "crop": "carrots"}
+			d.merge(burn)
+			_crops.append(d)
+	return _crops
 
 
 static func reactions() -> Array:
@@ -219,6 +257,8 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 		if d.get("model", "") == "empty":
 			var empty := VoxelBlockyModelEmpty.new()
 			empty.culls_neighbors = false
+			if d.get("collision", false):
+				empty.collision_aabbs = [AABB(Vector3.ZERO, Vector3.ONE)]   # furniture: solid to bodies, drawn by its entity
 			models.append(empty)
 			continue
 		var cube := VoxelBlockyModelCube.new()
@@ -283,16 +323,40 @@ static func _fluid_model(fluid: VoxelBlockyFluid, level: int, transparent: bool)
 ## tiles: the material's [top, side, bottom] tiles; patterns read what they need.
 static func _micro_model(kind: String, tiles: Array, material: Material) -> VoxelBlockyModelMesh:
 	var cells := micro_pattern(kind, tiles)
-	var mesh: ArrayMesh = MicroMesher.build(cells, Vector3i(MICRO_GRID, MICRO_GRID, MICRO_GRID), MICRO_GRID, micro_paint_tiles(), ATLAS_TILES, Vector3.ZERO)
+	# MicroMesher winds counter-clockwise; Godot's front faces are clockwise (MobModel.outward)
+	var mesh: ArrayMesh = MobModel.outward(MicroMesher.build(cells, Vector3i(MICRO_GRID, MICRO_GRID, MICRO_GRID), MICRO_GRID, micro_paint_tiles(), ATLAS_TILES, Vector3.ZERO))
 	var model := VoxelBlockyModelMesh.new()
 	model.mesh = mesh
 	model.set_material_override(0, material)
 	model.culls_neighbors = false
-	model.collision_aabbs = []
 	if kind == "stalactite" or kind == "stalagmite":
 		model.collision_aabbs = [AABB(Vector3(0.25, 0.0, 0.25), Vector3(0.5, 1.0, 0.5))]
+	else:
+		# a box only the aim ray sees (VoxelBody collides with MASK_SOLID only): plants and
+		# pickups can be broken and picked up but are walked through (ADR 0022)
+		model.collision_aabbs = [_cells_aabb(cells)]
+		model.collision_mask = MASK_TARGET
 	model.set_mesh_collision_enabled(0, false)
 	return model
+
+
+## Bounds of the filled cells of a micro pattern, in voxel units (at least 1/4 voxel tall,
+## so thin carpets and lily pads stay easy to aim at).
+static func _cells_aabb(cells: PackedInt32Array) -> AABB:
+	var g := MICRO_GRID
+	var lo := Vector3i(g, g, g)
+	var hi := Vector3i(-1, -1, -1)
+	for i in cells.size():
+		if cells[i] != 0:
+			var p := Vector3i(i % g, (i / g) % g, i / (g * g))
+			lo = lo.min(p)
+			hi = hi.max(p)
+	if hi.x < 0:
+		return AABB(Vector3.ZERO, Vector3.ONE)
+	var a := Vector3(lo) / g
+	var b := Vector3(hi + Vector3i.ONE) / g
+	b.y = maxf(b.y, a.y + 0.25)
+	return AABB(a, b - a)
 
 
 ## paint id -> atlas tile for MicroMesher (paint = tile + 1).
@@ -314,7 +378,85 @@ static func micro_pattern(kind: String, tiles: Array) -> PackedInt32Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(kind + str(tiles))
 	var body: int = tiles[0] + 1
+	var stage := 0
+	if kind.contains(":"):
+		# crops: "wheat:<age>", "carrots:<look>"; the plant positions are seeded per crop, not per stage,
+		# so a field grows in place instead of reshuffling every stage
+		stage = int(kind.get_slice(":", 1))
+		kind = kind.get_slice(":", 0)
+		rng.seed = hash(kind)
 	match kind:
+		"rug":
+			# carpet: one 6.25 cm layer over the whole floor
+			for x in g:
+				for z in g:
+					_cell(c, x, 0, z, body)
+		"wheat":
+			# Minecraft's 8 stages: 12 stalks on a loose 4x3 grid grow from 1 to 8 cells; green until age 5,
+			# gold heads from age 5, all gold at age 7 (ripe)
+			var stalk: int = tiles[1] + 1
+			var ripe := body
+			var hgt: int = [1, 2, 3, 4, 5, 6, 7, 8][stage]
+			for i in 12:
+				var x := (i % 4) * 2 + rng.randi_range(0, 1)
+				var z := (i / 4) * 3 + rng.randi_range(0, 1)
+				var h := clampi(hgt - rng.randi_range(0, 1), 1, g)
+				var col := ripe if stage == 7 else stalk
+				for y in h:
+					_cell(c, x, y, z, col)
+				if stage >= 5:
+					_cell(c, x, h - 1, z, ripe)
+					if h >= 2:
+						_cell(c, x, h - 2, z, ripe)
+				if stage >= 6 and rng.randf() < 0.5:
+					_cell(c, x + rng.randi_range(-1, 1), h - 1, z, ripe)   # heavy heads lean
+		"carrots":
+			# leafy tufts at 6 spots growing 1..4 cells; the ripe look shows the orange tops in the soil line
+			var leaf: int = tiles[1] + 1
+			var root := body
+			var hgt: int = [1, 2, 3, 4][stage]
+			for i in 6:
+				var x := (i % 3) * 3 + rng.randi_range(0, 1)
+				var z := (i / 3) * 4 + rng.randi_range(0, 2)
+				for y in hgt:
+					_cell(c, x, y, z, leaf)
+				if stage >= 2:
+					_cell(c, x + 1, hgt - 1, z, leaf)
+					_cell(c, x, hgt - 1, z + 1, leaf)
+				if stage == 3:
+					_cell(c, x, 0, z, root)
+					_cell(c, x + 1, 0, z, root)
+		"wild_wheat":
+			# a wild tuft: 7 gold stalks with heads among a few green blades
+			var blade: int = tiles[1] + 1
+			for i in 7:
+				var x := rng.randi_range(1, g - 2)
+				var z := rng.randi_range(1, g - 2)
+				var h := rng.randi_range(5, 7)
+				for y in h:
+					_cell(c, x, y, z, body)
+				_cell(c, x + rng.randi_range(-1, 1), h, z + rng.randi_range(-1, 1), body)
+			for i in 5:
+				var x := rng.randi_range(0, g - 1)
+				var z := rng.randi_range(0, g - 1)
+				for y in rng.randi_range(2, 4):
+					_cell(c, x, y, z, blade)
+		"wild_carrot":
+			# Queen Anne's lace: 2 green stems with flat white flower umbels, an orange root top in the ground line
+			var stem: int = tiles[1] + 1
+			var root: int = tiles[2] + 1
+			for i in 2:
+				var x := 2 + i * 3 + rng.randi_range(0, 1)
+				var z := 2 + rng.randi_range(0, 3)
+				var h := rng.randi_range(5, 6) - i
+				for y in h:
+					_cell(c, x, y, z, stem)
+				for dx in range(-1, 2):
+					for dz in range(-1, 2):
+						_cell(c, x + dx, h, z + dz, body)
+				_cell(c, x, 1, z + 1, stem)   # a leaf
+				_cell(c, x + 1, 1, z + 1, stem)
+				_cell(c, x, 0, z, root)
 		"tuft":
 			# 9-11 blades, 1 cell (6 cm) wide, 3-7 cells tall, some leaning at the top
 			for i in rng.randi_range(9, 11):

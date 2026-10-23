@@ -61,7 +61,9 @@ public:
         GLOW_MUSHROOM = 45, MOSS = 46, // deep / lush cave detail
         // 47 blood (never generated); ground pickups (ADR 0019)
         COPPER_BEARING_STONES = 48, TIN_BEARING_STONES = 49, IRON_BEARING_STONES = 50, FLINT_STONES = 51, TWIGS = 52,
-        TOXIC_SLUDGE = 53, TOXIC_SLUDGE_STATIC = 54, SULFUR = 55, OBSIDIAN = 56
+        TOXIC_SLUDGE = 53, TOXIC_SLUDGE_STATIC = 54, SULFUR = 55, OBSIDIAN = 56,
+        // 57..72 wool, carpet, farmland, crops (never generated); rare wild crops (ADR 0022)
+        WILD_WHEAT = 73, WILD_CARROT = 74
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,

@@ -1,5 +1,5 @@
 {
-  "_comment": "Item definitions. tags power recipes (#tag ingredients) and the recipe browser. stack = max stack size (Minecraft: 64 default, tools 1). material = GameMaterials name placed on use. fuel_ticks = furnace burn time at 20 ticks/s (Minecraft values); empties_to = what stays in the fuel slot / hand after use.",
+  "_comment": "Item definitions. tags power recipes (#tag ingredients) and the recipe browser. stack = max stack size (Minecraft: 64 default, tools 1). material = GameMaterials name placed on use. fuel_ticks = furnace burn time at 20 ticks/s (Minecraft values); empties_to = what stays in the fuel slot / hand after use. food = eaten by holding right click (hunger = half-hearts healed until hunger exists); plants = crop it plants on farmland (data/crops.json); furniture = furniture kind it places (ADR 0022).",
   "items": [
     {"id": "stone", "name": "Stone", "tags": ["block", "stone"], "stack": 64, "material": "stone"},
     {"id": "cobblestone", "name": "Cobblestone", "tags": ["block", "stone", "cobble"], "stack": 64, "material": "stone", "_note": "placeholder: no cobblestone material yet, places stone"},
@@ -49,6 +49,20 @@
     {"id": "loose_tin_ore", "name": "Tin-Bearing Stone", "tags": ["rock", "loose_ore"], "stack": 64, "_note": "surface indicator: lies above a cassiterite vein"},
     {"id": "loose_iron_ore", "name": "Iron-Bearing Stone", "tags": ["rock", "loose_ore"], "stack": 64, "_note": "surface indicator: lies above an iron vein"},
     {"id": "sulfur", "name": "Sulfur", "tags": ["dust", "sulfur"], "stack": 64, "_note": "mined from sulfur cave crust"},
-    {"id": "obsidian", "name": "Obsidian", "tags": ["block", "stone"], "stack": 64, "material": "obsidian", "_note": "lava quenched by water; needs an iron pickaxe"}
+    {"id": "obsidian", "name": "Obsidian", "tags": ["block", "stone"], "stack": 64, "material": "obsidian", "_note": "lava quenched by water; needs an iron pickaxe"},
+    {"id": "wool", "name": "Wool", "tags": ["block", "wool"], "stack": 64, "material": "wool", "fuel_ticks": 100, "_note": "sheared from sheep (1-3) or dropped when one dies (ADR 0022)"},
+    {"id": "carpet", "name": "Carpet", "tags": ["block", "carpet"], "stack": 64, "material": "carpet", "fuel_ticks": 67},
+    {"id": "bed", "name": "Bed", "tags": ["furniture", "bed"], "stack": 1, "furniture": "bed", "_note": "1 x 2 m; right click at night sleeps to morning, always sets the respawn point"},
+    {"id": "chair", "name": "Chair", "tags": ["furniture", "chair"], "stack": 64, "furniture": "chair", "fuel_ticks": 300, "_note": "right click sits down; jump or sneak stands up"},
+    {"id": "raw_meat", "name": "Raw Meat", "tags": ["food", "meat"], "stack": 64, "food": {"hunger": 2, "saturation": 1}, "_note": "pigs and sheep drop it; until hunger exists, eating heals hunger half-hearts"},
+    {"id": "cooked_meat", "name": "Cooked Meat", "tags": ["food", "meat"], "stack": 64, "food": {"hunger": 6, "saturation": 6}},
+    {"id": "wheat_seeds", "name": "Wheat Seeds", "tags": ["seed"], "stack": 64, "plants": "wheat", "_note": "wild wheat patches in plains; tall grass drops one rarely (4 %)"},
+    {"id": "wheat", "name": "Wheat", "tags": ["crop", "wheat"], "stack": 64, "_note": "sheep follow it and breed on it"},
+    {"id": "carrot", "name": "Carrot", "tags": ["food", "crop"], "stack": 64, "plants": "carrots", "food": {"hunger": 3, "saturation": 3}, "_note": "wild carrots grow rarely in plains and forests; pigs follow it and breed on it"},
+    {"id": "bread", "name": "Bread", "tags": ["food"], "stack": 64, "food": {"hunger": 5, "saturation": 6}},
+    {"id": "wooden_hoe", "name": "Wooden Hoe", "tags": ["tool", "hoe"], "stack": 1, "tier": 0},
+    {"id": "stone_hoe", "name": "Stone Hoe", "tags": ["tool", "hoe"], "stack": 1, "tier": 1},
+    {"id": "iron_hoe", "name": "Iron Hoe", "tags": ["tool", "hoe"], "stack": 1, "tier": 2},
+    {"id": "shears", "name": "Shears", "tags": ["tool", "shears"], "stack": 1, "_note": "right click a sheep: 1-3 wool; the wool grows back when it grazes"}
   ]
 }

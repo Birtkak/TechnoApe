@@ -8,7 +8,7 @@
 - **How to start one:** "Read `docs/plans/fable-backlog.md` and do job N."
   Each job lists what to read first, what is already known, and what done
   looks like. Tick a job off here (and in CLAUDE.md's phase plan) when it lands.
-- Next free ADR number: **0022**.
+- Next free ADR number: **0023** (0022 = animals, farming and furniture).
 
 Recommended order: 1, 2, 3 (ADR 0012's remaining steps, they depend on each
 other), then 4, then 5-7 as Phase 3/4 start. 8 is ongoing.
@@ -54,7 +54,7 @@ and `brick_store.h`, `game/scripts/sim_bubble.gd`.
   which view of an expanded brick is solid?
 
 **Done looks like:** a spike (`prototypes/p12-...` or in the game behind a
-flag such as `micro_sim=1`), ADR 0022, every ADR 0014 scenario (fly, fast
+flag such as `micro_sim=1`), ADR 0023 (or the next free number), every ADR 0014 scenario (fly, fast
 flight, walk + mine + place, forest fire, water spill, 8 m blast, 50 craters)
 inside the ADR 0009 budget on the dev box with the table in the ADR, gdUnit
 tests for the kernel, a filmstrip of falling sand and flowing water at micro

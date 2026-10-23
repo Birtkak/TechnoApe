@@ -1,0 +1,22 @@
+{
+  "_comment": "Crops on farmland (ADR 0022), Minecraft 1.20 rules. ages = growth stages (0..ages-1, the last is ripe); looks = material per age; seed = item that plants it; drops_ripe / drops_young = drop lists like mining.json (binomial [n, p] = Minecraft's n extra tries at p, the 'apply_bonus' of its loot tables). random_tick_speed blocks per 16^3 section per 20 Hz tick (Minecraft gamerule default 3); hydration: water within radius blocks horizontally, at the farmland's height or one above.",
+  "random_tick_speed": 3,
+  "hydration_radius": 4,
+  "max_moisture": 7,
+  "crops": {
+    "wheat": {
+      "seed": "wheat_seeds",
+      "ages": 8,
+      "looks": ["wheat_0", "wheat_1", "wheat_2", "wheat_3", "wheat_4", "wheat_5", "wheat_6", "wheat_7"],
+      "drops_ripe": [{"id": "wheat"}, {"id": "wheat_seeds", "count": 0, "binomial": [3, 0.5714286]}],
+      "drops_young": [{"id": "wheat_seeds"}]
+    },
+    "carrots": {
+      "seed": "carrot",
+      "ages": 8,
+      "looks": ["carrots_0", "carrots_0", "carrots_1", "carrots_1", "carrots_2", "carrots_2", "carrots_2", "carrots_3"],
+      "drops_ripe": [{"id": "carrot", "count": 1, "binomial": [3, 0.5714286]}],
+      "drops_young": [{"id": "carrot"}]
+    }
+  }
+}

@@ -7,7 +7,8 @@ Tiles (index = row*4 + col):
 12 fire  13 bedrock 14 snow 15 gravel 16-19 ores 20 leaves 21 sandstone 22 clay
 23 tall_grass 24 flower 25 cactus 26 dead_bush 27 ice 28 flower_red
 29-31 plant colours 32 crafting_table top 33 crafting_table side 34 furnace top
-35 furnace front 36 furnace front lit 37 chest top 38 chest side 39 planks (atlas is 8x5)
+35 furnace front 36 furnace front lit 37 chest top 38 chest side 39 planks 40-50 detail, sludge, sulfur, obsidian
+51 wool 52 farmland 53 farmland moist 54 ripe wheat 55 carrot (atlas is 8x7, full)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -17,7 +18,7 @@ from PIL import Image
 
 TILE = 16
 COLS = 8
-ROWS = 7  # 56 tiles; 51..55 free
+ROWS = 7  # 56 tiles, all used: the next tile needs a bigger atlas
 
 random.seed(1337)
 
@@ -194,6 +195,30 @@ def chest_tile(top):
     return img
 
 
+def farmland(base, furrow):
+    """Tilled soil seen from above: dark furrows every 4 px across the tile."""
+    img = noise_tile(base, 10, furrow, 0.08)
+    px = img.load()
+    for y in range(TILE):
+        if y % 4 == 3:
+            for x in range(TILE):
+                d = random.randint(-6, 6)
+                px[x, y] = (max(0, furrow[0] + d), max(0, furrow[1] + d), max(0, furrow[2] + d), 255)
+    return img
+
+
+def wool():
+    """White fleece: soft noise with curly darker loops."""
+    img = noise_tile((234, 234, 228), 6, (212, 212, 204), 0.12)
+    px = img.load()
+    for y in range(0, TILE, 4):
+        for x in range((y // 4) % 2 * 2, TILE, 4):
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1)]:
+                r, g, b, _ = px[(x + dx) % TILE, (y + dy) % TILE]
+                px[(x + dx) % TILE, (y + dy) % TILE] = (r - 18, g - 18, b - 20, 255)
+    return img
+
+
 def spotted(base, spot):
     img = noise_tile(base, 12, None, 0)
     for (sx, sy) in [(3, 3), (10, 4), (6, 9), (12, 11), (2, 12)]:
@@ -255,6 +280,11 @@ tiles = [
     noise_tile((150, 226, 30), 16, (226, 255, 120), 0.2),     # 48 toxic sludge: acid lime with bubbles, see-through like water
     noise_tile((214, 192, 58), 12, (168, 138, 30), 0.22),     # 49 sulfur crust
     noise_tile((30, 20, 42), 6, (76, 54, 110), 0.10),         # 50 obsidian
+    wool(),                                                   # 51 wool (blocks, carpet, wild carrot flowers)
+    farmland((104, 70, 44), (66, 42, 26)),                    # 52 farmland top, dry
+    farmland((74, 48, 30), (44, 28, 16)),                     # 53 farmland top, moist (hydrated)
+    noise_tile((214, 178, 70), 14, (176, 138, 44), 0.25),     # 54 ripe wheat (crop heads and stalks, wild wheat)
+    noise_tile((236, 124, 30), 12, (200, 90, 20), 0.2),       # 55 carrot orange
 ]
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))

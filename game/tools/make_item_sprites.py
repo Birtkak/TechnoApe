@@ -182,6 +182,10 @@ PALETTES = {
     "blood": ramp("#2a0206", "#5e0a10", "#8e141c", "#b8242c", "#e86a70"),
     "oil": ramp("#050403", "#16120c", "#2a2218", "#463a2a", "#8a7a60"),
     "toxic": ramp("#163a06", "#2e7a10", "#4eaa1e", "#7ed43a", "#d0ff90"),
+    "blanket": ramp("#3a0a0e", "#7a161c", "#a82228", "#c83a3e", "#ec7a7a"),
+    "carrot": ramp("#5a2004", "#a8460c", "#e0701a", "#f49434", "#ffc47a"),
+    "bread": ramp("#4a2408", "#8a5018", "#b87a30", "#d49a4a", "#f0c880"),
+    "seed": ramp("#3a2c10", "#6e5824", "#9a8034", "#bca048", "#e0cc7a"),
 }
 
 
@@ -664,6 +668,42 @@ gl["water"] = (g, {"a": "#a8dcff", "b": "#3a86e0"})
 for k, (g, cols) in gl.items():
     shape("glyph_" + k, g, cols)
 
+# farming and animals (ADR 0022)
+g = new()
+for (cx, cy) in [(5, 6), (9, 4), (11, 8), (6, 10), (9, 11), (12, 12), (4, 13)]:
+    ellipse(g, cx + 0.5, cy + 0.5, 1.4, 1.0, ang=-35)
+shape("seeds", body(g))
+g = new()
+for (x0, x1) in [(6, 4), (7, 6), (8, 8), (9, 10), (10, 12)]:
+    line(g, 8, 15, x1, 5, "s")
+    put(g, x0, 15, "s")
+for (hx, hy) in [(4, 5), (6, 4), (8, 3), (10, 4), (12, 5)]:
+    ellipse(g, hx + 0.5, hy - 0.5, 1.1, 2.4, "#")
+g = shade(g)
+rect(g, 6, 10, 10, 11, "t")
+shape("sheaf", outline(g), {"s": "#c8a840", "t": "#6a4a24"})
+g = shade(poly(new(), [(3, 13.5), (9.5, 5.5), (12, 8), (4.5, 14.5)]))
+for (x, y) in [(6, 11), (8, 9), (9, 8)]:
+    put(g, x, y, "d")
+leaves = compose(line(new(), 10, 6, 11, 1, "q"), line(new(), 11, 6, 14, 2, "q"), line(new(), 11, 7, 15, 5, "Q"))
+shape("carrot", compose(outline(g), outline(leaves)), {"q": "#4e9a2c", "Q": "#2e6a1a"})
+g = shade(compose(ellipse(new(), 8, 9.5, 6.6, 3.8), rect(new(), 2, 9, 13, 12)))
+for (x, y) in [(5, 7), (6, 8), (8, 7), (9, 8), (11, 7), (12, 8)]:
+    put(g, x, y, "d")
+shape("bread", outline(g))
+shape("hoe_head", body(poly(new(), tool_pts([(-0.6, -1.4), (5.2, -1.4), (5.2, 0.9), (-0.6, 0.9)]))))
+g = compose(line(new(), 3, 3, 10, 10, "#", 2), line(new(), 12, 3, 5, 10, "#", 2))
+g = shade(g)
+ring = compose(ellipse(new(), 4, 12.5, 2.4, 2.4, "r"), ellipse(new(), 11.5, 12.5, 2.4, 2.4, "r"))
+for (cx, cy) in [(4, 12.5), (11.5, 12.5)]:
+    ellipse(ring, cx, cy, 1.1, 1.1, ".")
+shape("shears", outline(compose(ring, g)), {"r": "#8a3a2a"})
+shape("chair", outline(art([
+    "................", "...d............", "...dl...........", "...dl...........",
+    "...dl...........", "...dlll.........", "...dl...........", "...dl...........",
+    "...dlwwwwwww....", "...dlmmmmmmmm...", "...dddddddddd...", "...d.......d....",
+    "...d.......d....", "...d.......d....", "...d.......d....", "................"])), {"w": "#ecece4"})
+
 # ---------- sprites ----------
 SP = {}
 
@@ -769,6 +809,15 @@ sp("forge", "forge")
 sp("campfire", ("campfire", "handle"))
 sp("sieve", ("sieve", "wood"))
 sp("straw_bed", ("bed", "straw"))
+sp("bed", ("bed", "blanket"))
+sp("chair", ("chair", "wood"))
+sp("wheat_seeds", ("seeds", "seed"))
+sp("wheat", ("sheaf", "straw"))
+sp("carrot", ("carrot", "carrot"))
+sp("bread", ("bread", "bread"))
+for m, item in (("wood", "wooden_hoe"), ("stone", "stone_hoe"), ("iron", "iron_hoe")):
+    sp(item, H, ("hoe_head", m))
+sp("shears", ("shears", "iron"))
 sp("torch", ("torch", "handle"))
 sp("oak_sapling", ("sapling", "leaf"))
 sp("wand_basic", ("wand_stick", "handle"), ("wand_gem", "gem"))

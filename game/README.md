@@ -93,6 +93,17 @@ Godot_..._console.exe --path game -- autopilot=1 duration=6 capture_every=0.5 wa
 # day_length=<seconds per day, 0 = frozen>, clouds=0..1, ssao=0|1, glow=0|1, fog=0|1, shadows=soft|hard|off, tonemap=aces|agx|filmic|linear, saturation=1.08, fxaa=1
 # cost on the dev box (forest, 1280x720): defaults ~+1.2 ms/frame over bare (p99 3.4 ms walking); soft shadows ~0.5 ms, SSAO ~0.1 ms, glow ~0.05 ms
 Godot_..._console.exe --path game -- autopilot=1 target=forest walk=1 speed=0 duration=5 capture_every=3 time=0.76 out=res://out/sunset
+# animals, farming, furniture (ADR 0022): animals=N spawns N sheep and pigs ahead once loaded (animal=sheep|pig only that one,
+#       animal_babies=1 every third a baby, animal_love=1 adults start in love and breed); hold their food (give=wheat:8) and
+#       they follow; mob_spawn=0 stops natural herds; JSON "mobs" (active, goals, avg/worst frame ms, stats: herds, bred, died)
+# farm_test=1 sows a 9x9 field around a water voxel ahead, farm_speed=N runs farm random ticks N x faster; JSON "farm"
+# hands_test=1 tills, sows, places a chair and a bed, sits, sleeps, feeds, shears, kills a sheep and eats through the
+#       player's own input code; prints "debug hands {...}" (every field should read true / placed)
+# chat: /summon <sheep|pig> [count] [baby], /kit farm (hoe, seeds, carrots, wheat, shears, bed, chairs, wool)
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=15 animals=40 mob_spawn=0 give=wheat:8 vsync=0 out=res://out/animals
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=18 capture_every=1 hands_test=1 mob_spawn=0 out=res://out/hands
+Godot_..._console.exe --path game --script res://tools/mob_sheet.gd -- out=res://out/mobs/sheet.png   # sheep, shorn sheep, lamb, pig, piglet, bed, chair
+Godot_..._console.exe --headless --path game --script res://tools/wild_crop_probe.gd -- seed=1337 radius=1024   # wild wheat / carrot patches per km^2
 # stains (ADR 0015, scripts/visuals/stain_map.gd): stain_test=1 bleeds and drops oil + blood next to the player once loaded;
 # stains=0 turns stains off (same spill, for A/B), stain_uploads=N layers per frame, stain_scan=0 ignores the simulation
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 third_person=1 pitch=-0.75 stain_test=1 duration=14 out=res://out/stains
@@ -138,7 +149,7 @@ recipe by design (found only); spells do.
 | `scripts/debug_capture.gd` | Autoload. Autopilot, filmstrips, JSON stats, vsync switch. |
 | `addons/technosim/` | Our GDExtension (built from `../prototypes/p5-sim-spike/src`). |
 | `addons/zylann.voxel/` | godot_voxel GDExtension (CI build 2026-10-01; pin a tag). |
-| `assets/textures/atlas.png` | 8×6 tiles of 16×16 placeholder textures (0..46 used, 47 free; grow ROWS for more); `tools/make_atlas.py` regenerates, then `--headless --import` before tests. |
+| `assets/textures/atlas.png` | 8×7 tiles of 16×16 placeholder textures (all 56 used: grow ROWS for more); `tools/make_atlas.py` regenerates, then `--headless --import` before tests. |
 | `assets/shaders/terrain.gdshader` | Opaque material for terrain, micro models, item cubes, viewmodel: nearest atlas, baked AO, per-face tint, scrolling water/lava/fire tiles, emissive glow/lava/fire tiles (bloom). Body shared via `terrain_common.gdshaderinc`. |
 | `assets/shaders/terrain_liquid.gdshader` | Same sampling with alpha + depth write for passable transparent voxels (water, oil, gases, fire); rippling sun glint on water tops. `GameMaterials.build_library` assigns it. |
 | `assets/shaders/sky.gdshader` | Procedural sky: gradient, sun disc/halo, noise clouds, stars, moon; driven by the true sun direction. |
@@ -146,6 +157,9 @@ recipe by design (found only); spells do.
 | `scripts/visuals/near_field.gd` | Ray-cast near field (ADR 0012 step 3): the bubble writes a wrapped `BrickStore` (brick = voxel, micro vegetation expanded to cells), the native `NearFieldFeed` picks and packs the window chunks to upload per frame, `near_scatter.glsl` scatters them into a toroidal volume texture + brick occupancy on the render thread, `near_field.gdshader` marches it with Godot lighting (`LIGHT_VERTEX`), `terrain_common` hides the meshes inside the valid box. Off by default (`Settings.near_field`). |
 | `scripts/visuals/atmosphere.gd` | Sky, sun (soft 4-split shadows, `shadows=hard|off` to trade them for ~0.5 ms, optional day/night cycle), AgX tonemap, bloom, SSAO, fog with aerial perspective; caves darken with depth below the surface, liquids tint the view when the camera is inside one. Pure presentation. No MSAA: it extrapolates UVs over tile borders on silhouettes and neighbour tiles bleed in. |
 | `scripts/world/waterfall_spray.gd` | Mist emitters at waterfall feet near the camera (reads `WorldGen.waterfalls_near`). |
+| `scripts/mobs/` | Sheep and pigs (ADR 0022, `data/mobs.json`): `MobManager` (herd spawning per 16 m cell, dormancy beyond 64 m, picking, feeding, shearing, breeding, hearts, saves), `Mob` (VoxelBody + Minecraft goal brain at 10 Hz), `MobModel` (micro-voxel bodies, shared meshes). |
+| `scripts/farming/farming.gd` | Minecraft farming (ADR 0022, `data/crops.json`): tilling, planting, random ticks, hydration, growth formula, trampling, crop drops; tracks only player-made farmland and crops. |
+| `scripts/blocks/furniture_entity.gd` | Beds and chairs (ADR 0022): a block entity over several invisible `furniture` voxels with one rotated micro-voxel mesh. |
 | `scripts/player/ape_model.gd` | The player body: a monkey in goggles and a lab coat built from micro-voxel cells (body 3.1 cm, head 1.8 cm) by `MicroMesher`, limbs pivoted for the walk cycle; also the first-person arm. `tools/ape_sheet.gd` renders it from four sides. |
 
 ## Architecture in one paragraph

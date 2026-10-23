@@ -2,7 +2,9 @@ class_name BlockEntities
 extends RefCounted
 
 ## Block entities by voxel position (ADR 0007): the inventories and state
-## that a voxel id alone cannot hold (chests, furnaces). Created when such a
+## that a voxel id alone cannot hold (chests, furnaces, and the beds and chairs
+## of ADR 0022, which cover several voxels: every covered voxel maps to the
+## anchor through _cells). Created when such a
 ## block is placed (material "entity" key), lazily when one is opened that
 ## has none (generated or debug-placed blocks), removed with their contents
 ## when the block breaks. Ticked at Minecraft's 20 ticks per second by Main.
@@ -16,6 +18,7 @@ var items: ItemRegistry
 var recipes: RecipeRegistry
 var _by_pos := {}            # Vector3i -> ChestEntity / FurnaceEntity
 var _ticking: Array = []     # entities with state over time (furnaces)
+var _cells := {}             # Vector3i -> anchor of the multi-voxel entity covering it (furniture)
 var ticks := 0
 var dirty := false           # something changed since the last save
 
@@ -34,6 +37,8 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		"furnace":
 			e = FurnaceEntity.new(items, recipes, pos)
 			_ticking.append(e)
+		"furniture":
+			e = FurnitureEntity.new(pos)
 		_:
 			push_error("unknown block entity kind " + kind)
 			return null
@@ -45,6 +50,36 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 
 func _mark_dirty() -> void:
 	dirty = true
+
+
+## A bed or chair anchored at `anchor`; registers every voxel it covers.
+func create_furniture(anchor: Vector3i, furniture: String, facing: int) -> FurnitureEntity:
+	remove(anchor)
+	var e := FurnitureEntity.new(anchor, furniture, facing)
+	_by_pos[anchor] = e
+	_register_cells(e)
+	e.changed.connect(_mark_dirty)
+	dirty = true
+	return e
+
+
+func _register_cells(e: FurnitureEntity) -> void:
+	for c in e.cells:
+		_cells[c] = e.pos
+
+
+## The furniture covering voxel p, or null.
+func furniture_at(p: Vector3i) -> FurnitureEntity:
+	var a = _cells.get(p)
+	return _by_pos.get(a) as FurnitureEntity if a != null else null
+
+
+func all_furniture() -> Array:
+	var out := []
+	for p in _by_pos:
+		if _by_pos[p] is FurnitureEntity:
+			out.append(_by_pos[p])
+	return out
 
 
 func at(pos: Vector3i) -> RefCounted:
@@ -64,9 +99,14 @@ func get_or_create(pos: Vector3i, kind: String) -> RefCounted:
 
 ## Removes the entity; returns its stacks (to drop as item entities).
 func remove(pos: Vector3i) -> Array:
+	if _cells.has(pos):
+		pos = _cells[pos]   # any voxel of a bed or chair removes all of it
 	var e: RefCounted = _by_pos.get(pos)
 	if e == null:
 		return []
+	if e is FurnitureEntity:
+		for c in e.cells:
+			_cells.erase(c)
 	_by_pos.erase(pos)
 	_ticking.erase(e)
 	dirty = true
@@ -106,6 +146,7 @@ func load_dict(d: Dictionary) -> bool:
 		return false
 	_by_pos.clear()
 	_ticking.clear()
+	_cells.clear()
 	for ed in d.get("entities", []):
 		var pa: Array = ed.get("pos", [])
 		if pa.size() != 3:
@@ -113,6 +154,8 @@ func load_dict(d: Dictionary) -> bool:
 		var e := create(Vector3i(int(pa[0]), int(pa[1]), int(pa[2])), String(ed.get("kind", "")))
 		if e != null:
 			e.load_from(ed)
+			if e is FurnitureEntity:
+				_register_cells(e)
 	dirty = false
 	return true
 
