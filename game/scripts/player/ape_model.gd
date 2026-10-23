@@ -13,7 +13,7 @@ extends Node3D
 ## neck at 42, head to 57 = 1.78 m. See `build_arm_mesh` for the first-person arm.
 
 const GRID := 16       # cells per voxel for the body (3.1 cm)
-const HEAD_GRID := 28  # the head is built on a finer grid (1.8 cm cells): round skull, real eyes; 32 cells = 57 cm, a cartoon head
+const HEAD_GRID := 16  # the head shares the body's grid: a blocky head, 16 cells = 50 cm wide, a cartoon head
 
 # palette tile indices (paint = tile + 1 in the cell arrays)
 const FUR_DARK := 0
@@ -82,22 +82,21 @@ static func material() -> StandardMaterial3D:
 
 func _ready() -> void:
 	material()
-	# The part meshes come out facing +Z; the node is turned so the ape faces
-	# the player's forward (-Z) and its right arm is on the player's right (+X).
-	rotation.y = PI
+	# The part meshes come out facing -Z (cell z = 0 is the front), the player's
+	# forward; the right arm and leg are on +X, the player's right.
 	var s := 1.0 / GRID
 	torso = _part(_torso_cells(), Vector3i(14, 24, 9), Vector3(-7, 0, -4) * s)
 	torso.position = Vector3(0, 18, 0) * s
-	head = _part(_head_cells(), Vector3i(32, 30, 32), Vector3(-16, 0, -16) / HEAD_GRID, HEAD_GRID)
+	head = _part(_head_cells(), Vector3i(20, 16, 17), Vector3(-10, 0, -9) / HEAD_GRID, HEAD_GRID)
 	head.position = Vector3(0, 41, 0) * s
 	arm_r = _part(_arm_cells(true), Vector3i(6, 22, 6), Vector3(-3, -22, -3) * s)
-	arm_r.position = Vector3(-10, 40, 0.5) * s
+	arm_r.position = Vector3(10, 40, 0.5) * s
 	arm_l = _part(_arm_cells(false), Vector3i(6, 22, 6), Vector3(-3, -22, -3) * s)
-	arm_l.position = Vector3(10, 40, 0.5) * s
+	arm_l.position = Vector3(-10, 40, 0.5) * s
 	leg_r = _part(_leg_cells(), Vector3i(6, 24, 7), Vector3(-3, -24, -3) * s)
-	leg_r.position = Vector3(-3.5, 24, 0) * s
+	leg_r.position = Vector3(3.5, 24, 0) * s
 	leg_l = _part(_leg_cells(), Vector3i(6, 24, 7), Vector3(-3, -24, -3) * s)
-	leg_l.position = Vector3(3.5, 24, 0) * s
+	leg_l.position = Vector3(-3.5, 24, 0) * s
 	tail = _part(_tail_cells(), Vector3i(4, 20, 14), Vector3(-2, 0, 0) * s)
 	tail.position = Vector3(0, 20, 4) * s
 
@@ -112,6 +111,7 @@ func _part(cells: PackedInt32Array, size: Vector3i, origin: Vector3, grid: int =
 
 
 ## Walk cycle and idle motion. speed: horizontal speed in voxels/s.
+## Rotations about +X with a positive angle swing a hanging limb forward (-Z).
 func animate(delta: float, speed: float, on_floor: bool, flying: bool, pitch: float, swing: float) -> void:
 	_time += delta
 	var moving := speed > 0.2 and (on_floor or flying)
@@ -120,20 +120,20 @@ func animate(delta: float, speed: float, on_floor: bool, flying: bool, pitch: fl
 	var amp := clampf(speed / 6.0, 0.0, 1.0) if moving else 0.0
 	var sw := sin(_phase) * amp
 	if flying and not on_floor:
-		leg_r.rotation = Vector3(0.25, 0, 0.08)
-		leg_l.rotation = Vector3(0.15, 0, -0.08)
-		arm_r.rotation = Vector3(0.3 + 0.1 * sin(_time * 2.0), 0, -0.45)
-		arm_l.rotation = Vector3(0.3 - 0.1 * sin(_time * 2.0), 0, 0.45)
+		leg_r.rotation = Vector3(-0.25, 0, -0.08)
+		leg_l.rotation = Vector3(-0.15, 0, 0.08)
+		arm_r.rotation = Vector3(0.3 + 0.1 * sin(_time * 2.0), 0, 0.45)
+		arm_l.rotation = Vector3(0.3 - 0.1 * sin(_time * 2.0), 0, -0.45)
 	else:
-		leg_r.rotation = Vector3(0.9 * sw, 0, 0)
-		leg_l.rotation = Vector3(-0.9 * sw, 0, 0)
-		arm_r.rotation = Vector3(-0.7 * sw, 0, -0.08 + 0.03 * sin(_time * 1.7))
-		arm_l.rotation = Vector3(0.7 * sw, 0, 0.08 - 0.03 * sin(_time * 1.7))
+		leg_r.rotation = Vector3(-0.9 * sw, 0, 0)
+		leg_l.rotation = Vector3(0.9 * sw, 0, 0)
+		arm_r.rotation = Vector3(0.7 * sw, 0, 0.08 - 0.03 * sin(_time * 1.7))
+		arm_l.rotation = Vector3(-0.7 * sw, 0, -0.08 + 0.03 * sin(_time * 1.7))
 	if swing > 0.0:
-		arm_r.rotation.x = -1.4 * sin(swing * PI)
+		arm_r.rotation.x = 1.4 * sin(swing * PI)
 	head.rotation = Vector3(clampf(pitch, -0.9, 0.9), 0, 0)
 	tail.rotation = Vector3(0.1 + 0.12 * sin(_time * 2.3), 0.25 * sin(_time * 1.3), 0)
-	torso.rotation = Vector3(0.05 * amp, 0, 0)
+	torso.rotation = Vector3(-0.05 * amp, 0, 0)
 
 
 ## The first-person arm: a right arm with the hand at the origin, pointing +y
@@ -141,7 +141,7 @@ func animate(delta: float, speed: float, on_floor: bool, flying: bool, pitch: fl
 static func build_arm_mesh() -> MeshInstance3D:
 	material()
 	var mi := MeshInstance3D.new()
-	mi.mesh = MobModel.outward(MicroMesher.build(_arm_cells(true), Vector3i(6, 22, 6), GRID, _tiles, ATLAS, Vector3(-3, -2.5, -3) / GRID))
+	mi.mesh = MobModel.outward(MicroMesher.build(_arm_cells(false), Vector3i(6, 22, 6), GRID, _tiles, ATLAS, Vector3(-3, -2.5, -3) / GRID))
 	# the arm sits in the camera's shadow most of the day: lift it with a little
 	# self-emission and ignore cast shadows, like Minecraft's flat-lit arm
 	var m: StandardMaterial3D = _material.duplicate()
@@ -205,96 +205,58 @@ static func _repaint_shell(c: PackedInt32Array, size: Vector3i, from: int, to: i
 					_cell_set(c, size, x, y, z, to)
 
 
-## z = 0 is the face side. Built at HEAD_GRID cells per voxel: a round
-## skull with a wide tan face mask, big eyes, a smile, round ears, a fur tuft,
-## and the goggles pushed up on the forehead so the face stays visible.
+## z = 0 is the face side. A blocky head on the body's own grid (Minecraft
+## style, 16 x 14 x 14 cells with rounded edges): a tan peanut-shaped face mask,
+## a muzzle one cell proud with nostrils and a smile, square eyes, round ears,
+## the goggles pushed up on the forehead and a fur tuft.
 static func _head_cells() -> PackedInt32Array:
-	var size := Vector3i(32, 30, 32)
+	var size := Vector3i(20, 16, 17)
 	var c := _cells(size)
-	_ellipsoid(c, size, 16, 14, 16, 13.5, 13.0, 13.5, FUR)                 # skull
-	_repaint_inside(c, size, 16, 11, 7, 11.0, 10.0, 8.5, FUR, FACE)         # face mask (only existing skull cells)
-	for y in range(19, 24):                                                 # heart-shaped dip of the mask at the brow
-		for x in range(13, 19):
-			if abs(x + 0.5 - 16) < (y - 18) * 0.9:
-				_repaint_cell(c, size, x, y, FACE, FUR)
-	_ellipsoid(c, size, 16, 8.5, 5.5, 6.0, 4.5, 3.5, FACE)                  # muzzle
-	_ellipsoid(c, size, 1.5, 15, 16, 2.6, 5.0, 5.0, FUR)                    # ears
-	_ellipsoid(c, size, 30.5, 15, 16, 2.6, 5.0, 5.0, FUR)
-	_ellipsoid(c, size, 0.8, 15, 16, 1.4, 3.0, 3.0, FACE)
-	_ellipsoid(c, size, 31.2, 15, 16, 1.4, 3.0, 3.0, FACE)
-	for cx in [10.5, 21.5]:                                                 # eyes: white discs one cell proud of the face
-		_stamp_front(c, size, cx, 15.0, 4.0, EYE_WHITE, 1)
-		_stamp_front(c, size, cx + (0.5 if cx < 16 else -0.5), 14.5, 1.9, EYE, 0)
-		_stamp_front(c, size, cx + (1.3 if cx < 16 else -1.3), 15.8, 0.7, EYE_WHITE, 0)
-	for x in range(7, 13):                                                  # brows
-		_stamp_front(c, size, x + 0.5, 20.0, 0.6, FUR_DARK, 0)
-	for x in range(19, 25):
-		_stamp_front(c, size, x + 0.5, 20.0, 0.6, FUR_DARK, 0)
-	for x in range(15, 18):                                                 # nose
-		for y in range(9, 11):
-			_stamp_front(c, size, x + 0.5, y + 0.5, 0.6, NOSE, 0)
-	for x in range(12, 21):                                                 # smile
-		_stamp_front(c, size, x + 0.5, 6.5, 0.6, FUR_DARK, 0)
-	_stamp_front(c, size, 11.5, 7.5, 0.6, FUR_DARK, 0)
-	_stamp_front(c, size, 20.5, 7.5, 0.6, FUR_DARK, 0)
-	_repaint_shell(c, size, FUR, STRAP, 23, 26)                             # goggle strap around the forehead
-	_repaint_shell(c, size, FACE, STRAP, 23, 26)
-	for cx in [10.5, 21.5]:                                                 # goggles on the forehead: rims, glass, glint
-		_stamp_front(c, size, cx, 25.0, 4.6, RIM, 2)
-		_stamp_front(c, size, cx, 25.0, 3.2, LENS, 0)
-		_stamp_front(c, size, cx + 1.2, 26.2, 0.7, EYE_WHITE, 0)
-	for x in range(14, 18):                                                 # bridge
-		_stamp_front(c, size, x + 0.5, 25.0, 0.8, RIM, 1)
-	for t in [[15, 27], [17, 28], [13, 27], [19, 27], [16, 29]]:            # fur tuft
-		_box(c, size, t[0], t[1], 14, t[0] + 2, t[1] + 2, 18, FUR_DARK)
+	_rounded_box(c, size, Vector3i(2, 0, 2), Vector3i(18, 14, 16), FUR)       # skull
+	for y in range(1, 13):                                                  # face mask on the front layer
+		for x in range(3, 17):
+			var eye_l := pow((x + 0.5 - 7.0) / 3.6, 2) + pow((y + 0.5 - 8.5) / 3.2, 2) <= 1.0
+			var eye_r := pow((x + 0.5 - 13.0) / 3.6, 2) + pow((y + 0.5 - 8.5) / 3.2, 2) <= 1.0
+			var lower := y < 7 and absf(x + 0.5 - 10.0) < 6.0 - maxf(0.0, 2.0 - y) * 1.5
+			if (eye_l or eye_r or lower) and _cell_get(c, size, x, y, 2) != 0:
+				_cell_set(c, size, x, y, 2, FACE)
+	_rounded_box(c, size, Vector3i(6, 1, 0), Vector3i(14, 6, 2), FACE)       # muzzle
+	_box(c, size, 8, 4, 0, 9, 5, 1, NOSE)                                   # nostrils
+	_box(c, size, 11, 4, 0, 12, 5, 1, NOSE)
+	_box(c, size, 8, 2, 0, 12, 3, 1, FUR_DARK)                              # smile
+	_box(c, size, 7, 3, 0, 8, 4, 1, FUR_DARK)
+	_box(c, size, 12, 3, 0, 13, 4, 1, FUR_DARK)
+	for ex in [5, 12]:                                                      # eyes: white with the pupil inward and a glint
+		_box(c, size, ex, 7, 2, ex + 3, 10, 3, EYE_WHITE)
+		var px: int = ex + 1 if ex < 10 else ex
+		_box(c, size, px, 7, 2, px + 2, 9, 3, EYE)
+		_box(c, size, px + (1 if ex < 10 else 0), 8, 2, px + (2 if ex < 10 else 1), 9, 3, EYE_WHITE)
+	_box(c, size, 4, 10, 2, 9, 11, 3, FUR_DARK)                             # brows
+	_box(c, size, 11, 10, 2, 16, 11, 3, FUR_DARK)
+	_repaint_shell(c, size, FUR, STRAP, 11, 13)                             # goggle strap around the forehead
+	_repaint_shell(c, size, FACE, STRAP, 11, 13)
+	for gx in [4, 11]:                                                      # goggles on the forehead: rims, glass, glint
+		_box(c, size, gx, 11, 1, gx + 5, 14, 2, RIM)
+		_box(c, size, gx + 1, 12, 1, gx + 4, 13, 2, LENS)
+		_box(c, size, gx + 3, 12, 1, gx + 4, 13, 2, EYE_WHITE)
+	_box(c, size, 9, 12, 1, 11, 13, 2, RIM)                                 # bridge
+	for ex in [0, 18]:                                                      # ears with a light inside
+		_rounded_box(c, size, Vector3i(ex, 6, 7), Vector3i(ex + 2, 11, 11), FUR)
+		_box(c, size, ex + (0 if ex == 0 else 1), 7, 8, ex + (1 if ex == 0 else 2), 10, 10, FACE)
+	for t in [[9, 14, 8], [10, 15, 9], [8, 14, 10], [11, 14, 7]]:           # fur tuft
+		_box(c, size, t[0], t[1], t[2], t[0] + 2, t[1] + 1, t[2] + 2, FUR_DARK)
 	return c
 
 
-## Repaints cells of `from` inside an ellipsoid to `to` (keeps the shape).
-static func _repaint_inside(c: PackedInt32Array, size: Vector3i, cx: float, cy: float, cz: float, rx: float, ry: float, rz: float, from: int, to: int) -> void:
-	for z in size.z:
-		for y in size.y:
-			for x in size.x:
-				if _cell_get(c, size, x, y, z) != from + 1:
-					continue
-				var dx := (x + 0.5 - cx) / rx
-				var dy := (y + 0.5 - cy) / ry
-				var dz := (z + 0.5 - cz) / rz
-				if dx * dx + dy * dy + dz * dz <= 1.0:
-					_cell_set(c, size, x, y, z, to)
-
-
-static func _repaint_cell(c: PackedInt32Array, size: Vector3i, x: int, y: int, from: int, to: int) -> void:
-	for z in size.z:
-		if _cell_get(c, size, x, y, z) == from + 1:
-			_cell_set(c, size, x, y, z, to)
-
-
-## Front (lowest z) solid cell of a column, -1 when the column is empty.
-static func _front(c: PackedInt32Array, size: Vector3i, x: int, y: int) -> int:
-	for z in size.z:
-		if _cell_get(c, size, x, y, z) != 0:
-			return z
-	return -1
-
-
-## Stamps a disc onto the face: depth 0 repaints the front cell of each column,
-## depth n adds n cells in front of it (features that stand proud of the skin).
-static func _stamp_front(c: PackedInt32Array, size: Vector3i, cx: float, cy: float, r: float, tile: int, depth: int) -> void:
-	for y in range(int(floor(cy - r)), int(ceil(cy + r)) + 1):
-		for x in range(int(floor(cx - r)), int(ceil(cx + r)) + 1):
-			var dx := x + 0.5 - cx
-			var dy := y + 0.5 - cy
-			if dx * dx + dy * dy > r * r:
-				continue
-			var zf := _front(c, size, x, y)
-			if zf < 0:
-				continue
-			if depth == 0:
-				_cell_set(c, size, x, y, zf, tile)
-			else:
-				for d in range(1, depth + 1):
-					_cell_set(c, size, x, y, zf - d, tile)
+## Fills [from, to) with `tile`, leaving out the cells on the box's edges (two
+## coordinates on the boundary), so the box reads as rounded.
+static func _rounded_box(c: PackedInt32Array, size: Vector3i, from: Vector3i, to: Vector3i, tile: int) -> void:
+	for z in range(from.z, to.z):
+		for y in range(from.y, to.y):
+			for x in range(from.x, to.x):
+				var edges := int(x == from.x or x == to.x - 1) + int(y == from.y or y == to.y - 1) + int(z == from.z or z == to.z - 1)
+				if edges < 2:
+					_cell_set(c, size, x, y, z, tile)
 
 
 static func _torso_cells() -> PackedInt32Array:
@@ -334,7 +296,7 @@ static func _arm_cells(right: bool) -> PackedInt32Array:
 	_box(c, size, 1, 3, 0, 5, 5, 1, FACE)                        # palm side lighter
 	for fx in [1, 3, 4]:                                         # fingers
 		_box(c, size, fx, 0, 1, fx + 1, 2, 3, FUR)
-	_box(c, size, 0 if right else 5, 2, 2, 1 if right else 6, 4, 4, FUR)   # thumb
+	_box(c, size, 5 if right else 0, 2, 2, 6 if right else 1, 4, 4, FUR)   # thumb on the outer side (palms face forward)
 	_box(c, size, 1, 0, 1, 5, 2, 3, FUR)
 	return c
 

@@ -320,6 +320,114 @@ func click_craft_output(shift: bool) -> void:
 	changed.emit()
 
 
+# ---------------- Mouse Tweaks (the Minecraft mod) ----------------
+# Slots are addressed by group: "inv" (the 36 player slots), "bag", "craft"
+# (the crafting grid inputs) and "container" (the open chest or furnace).
+
+func _group(group: String) -> Inventory:
+	match group:
+		"inv":
+			return inv
+		"bag":
+			return bag if has_bag() else null
+		"craft":
+			return craft.grid
+		"container":
+			return container.inv if container != null else null
+	return null
+
+
+## Right button dragged over a slot with a stack on the cursor: one item goes
+## into it if it is empty or holds the same item with room (vanilla's RMB drag).
+func drag_place_one(group: String, i: int) -> void:
+	var dst := _group(group)
+	if dst == null or cursor.is_empty():
+		return
+	if group == "container" and not container.may_place(i, cursor["id"]):
+		return
+	var s := dst.get_slot(i)
+	if not s.is_empty() and (s["id"] != cursor["id"] or int(s["count"]) >= items.max_stack(s["id"])):
+		return
+	cursor = dst.right_click(i, cursor)
+	changed.emit()
+
+
+## Left button dragged over a slot with a stack on the cursor: that slot's
+## items of the same kind join the cursor, as many as fit.
+func drag_collect(group: String, i: int) -> void:
+	var src := _group(group)
+	if src == null or cursor.is_empty():
+		return
+	var s := src.get_slot(i)
+	if s.is_empty() or s["id"] != cursor["id"]:
+		return
+	var room: int = items.max_stack(cursor["id"]) - int(cursor["count"])
+	if room <= 0:
+		return
+	var t := src.take(i, room)
+	cursor["count"] = int(cursor["count"]) + int(t.get("count", 0))
+	changed.emit()
+
+
+## Shift held while dragging over slots: each one is shift-clicked.
+func drag_shift(group: String, i: int) -> void:
+	match group:
+		"inv":
+			click_slot(i, MOUSE_BUTTON_LEFT, true)
+		"bag":
+			click_bag_slot(i, MOUSE_BUTTON_LEFT, true)
+		"craft":
+			click_craft_slot(i, MOUSE_BUTTON_LEFT, true)
+		"container":
+			click_container_slot(i, MOUSE_BUTTON_LEFT, true)
+
+
+## Where a slot's items go on a shift-click: [inventory, slot order], or [] for nowhere.
+func _other_side(group: String, i: int, id: String) -> Array:
+	if group == "inv":
+		if container != null:
+			var targets: Array = container.shift_targets(id)
+			if not targets.is_empty():
+				return [container.inv, targets]
+			if container.kind == "chest" or container.kind == "storage_pot":
+				return []
+		return [inv, range(HOTBAR, SIZE) if i < HOTBAR else range(0, HOTBAR)]
+	if group == "container":
+		return [inv, _player_order(container.shift_out_reverse(i))]
+	return [inv, _player_order(false)]
+
+
+## Scroll wheel over a slot: down moves one item from it to where a shift-click
+## would send it; up pulls one item of the same kind from there into it.
+func wheel_move(group: String, i: int, down: bool) -> void:
+	var here := _group(group)
+	if here == null:
+		return
+	var s := here.get_slot(i)
+	if s.is_empty():
+		return
+	var side := _other_side(group, i, s["id"])
+	if side.is_empty():
+		return
+	var there: Inventory = side[0]
+	if down:
+		_move_count(here, i, there, side[1], 1)
+		return
+	if int(s["count"]) >= items.max_stack(s["id"]):
+		return
+	if group == "container" and not container.may_place(i, s["id"]):
+		return
+	for j in side[1]:
+		if there == here and j == i:
+			continue
+		var d := there.get_slot(j)
+		if not d.is_empty() and d["id"] == s["id"]:
+			there.take(j, 1)
+			here.set_slot(i, {"id": s["id"], "count": int(s["count"]) + 1})
+			changed.emit()
+			return
+
+
 ## Closing the screen: grid contents go back, cursor too. Returns stacks
 ## that did not fit (to drop in the world).
 func close_screen() -> Array:
@@ -410,11 +518,16 @@ func _player_order(reverse: bool) -> Array:
 ## Moves slot i of `src` into `dst` slots in `order`: merge pass, then empty
 ## pass (vanilla moveItemStackTo). What does not fit stays in the source.
 func _move_stack(src: Inventory, i: int, dst: Inventory, order: Array) -> void:
+	_move_count(src, i, dst, order, -1)
+
+
+## _move_stack for at most n items of the slot (-1 = all of them).
+func _move_count(src: Inventory, i: int, dst: Inventory, order: Array, n_max: int) -> void:
 	var s: Dictionary = src.get_slot(i)
 	if s.is_empty():
 		return
 	var id: String = s["id"]
-	var count: int = s["count"]
+	var count: int = int(s["count"]) if n_max < 0 else mini(n_max, int(s["count"]))
 	var max_stack := items.max_stack(id)
 	src.take(i, count)
 	for pass_merge in [true, false]:

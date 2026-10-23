@@ -5,12 +5,14 @@ extends RefCounted
 ## slabs, clay forms, ground storage, pit kilns, firepits and sieves. Every
 ## piece is a grid of 6.25 cm cells (the ADR 0006 chisel grid) meshed by the
 ## native MicroMesher with a small palette atlas of its own, like furniture
-## (ADR 0022). A view node sits on the voxel's corner; ghost cells (the clay
-## form's next layer) use a see-through copy of the material.
+## (ADR 0022). A view node sits on the voxel's corner; ghost cells use a
+## see-through copy of the material; guide plates (the clay form's next layer:
+## green = fill, red = leave empty, with grid lines between the cells) are
+## thin opaque tiles meshed on a finer grid.
 
 const PALETTE: Array = [
 	[92, 90, 98],      # FLINT
-	[44, 40, 46],      # FLINT_MARK: cells still to chip off
+	[150, 44, 38],     # FLINT_MARK: cells still to chip off (red: take away)
 	[150, 156, 168],   # CLAY (blue-grey raw clay)
 	[190, 104, 62],    # FIRED (terracotta)
 	[206, 118, 64],    # COPPER
@@ -30,6 +32,8 @@ const PALETTE: Array = [
 	[150, 112, 70],    # FIREWOOD_LIGHT: split faces
 	[30, 26, 24],      # CHARCOAL
 	[120, 86, 60],     # SOIL (pit cover in the view, unused by the world)
+	[86, 196, 82],     # PLACE: the clay form's guide, cells to fill (green)
+	[200, 62, 52],     # AVOID: the clay form's guide, cells that stay empty (red)
 ]
 const FLINT := 0
 const FLINT_MARK := 1
@@ -52,7 +56,10 @@ const FIREWOOD := 17
 const FIREWOOD_LIGHT := 18
 const CHARCOAL := 19
 const SOIL := 20
-const ATLAS := Vector2i(21, 1)
+const PLACE := 21
+const AVOID := 22
+const GUIDE_GRID := 32   # guide plates are meshed 4x finer: 3x3 coloured, a one-cell gap as grid lines
+const ATLAS := Vector2i(23, 1)
 
 static var _material: StandardMaterial3D
 static var _ghost: StandardMaterial3D
@@ -98,7 +105,7 @@ static func ghost_material() -> StandardMaterial3D:
 
 ## cells: paint + 1 per cell (0 = empty), index x + size.x * (y + size.y * z).
 ## Null when nothing is filled.
-static func mesh(cells: PackedInt32Array, size: Vector3i) -> ArrayMesh:
+static func mesh(cells: PackedInt32Array, size: Vector3i, grid: int = GameMaterials.MICRO_GRID) -> ArrayMesh:
 	material()
 	var any := false
 	for c in cells:
@@ -111,7 +118,7 @@ static func mesh(cells: PackedInt32Array, size: Vector3i) -> ArrayMesh:
 	# triangles in the arrays before the mesh exists. MobModel.outward flips an
 	# ArrayMesh instead, and reading its arrays back waits for the render thread
 	# (ADR 0016): 4-6 ms per rebuild in game against 0.05 ms to mesh.
-	var a := MicroMesher.build_arrays(cells, size, GameMaterials.MICRO_GRID, _tiles, ATLAS, Vector3.ZERO)
+	var a := MicroMesher.build_arrays(cells, size, grid, _tiles, ATLAS, Vector3.ZERO)
 	if a.is_empty():
 		return null
 	var ix: PackedInt32Array = a[Mesh.ARRAY_INDEX]
@@ -143,26 +150,44 @@ static func box(cells: PackedInt32Array, size: Vector3i, a: Vector3i, b: Vector3
 				cells[idx(size, x, y, z)] = paint + 1
 
 
-## A node for a piece at voxel `pos`: the solid cells and (optionally) ghost cells.
-static func make_view(pos: Vector3i, solid: Dictionary, ghost: Dictionary = {}) -> Node3D:
+## A node for a piece at voxel `pos`: the solid cells and (optionally) ghost
+## cells and a guide (cells on GUIDE_GRID, opaque, no shadow).
+static func make_view(pos: Vector3i, solid: Dictionary, ghost: Dictionary = {}, guide: Dictionary = {}) -> Node3D:
 	var root := Node3D.new()
 	root.position = Vector3(pos)
 	_add_mesh(root, solid, material())
 	if not ghost.is_empty():
 		_add_mesh(root, ghost, ghost_material())
+	if not guide.is_empty():
+		_add_mesh(root, guide, material(), GUIDE_GRID)
 	return root
 
 
-static func _add_mesh(root: Node3D, part: Dictionary, mat: Material) -> void:
+## A guide plate for one layer of an N x N work grid: each cell a 3x3 tile of
+## `paint_of(x, z)` (-1 = none) one fine cell thick at the bottom of layer y,
+## with a fine cell of gap around it so the cells read as a grid.
+static func guide_plate(n: int, layer: int, paint_of: Callable) -> Dictionary:
+	var k := GUIDE_GRID / GameMaterials.MICRO_GRID
+	var size := Vector3i(n * k, (layer + 1) * k, n * k)
+	var c := new_cells(size)
+	for z in n:
+		for x in n:
+			var paint: int = paint_of.call(x, z)
+			if paint >= 0:
+				box(c, size, Vector3i(x * k + 1, layer * k, z * k + 1), Vector3i(x * k + k, layer * k + 1, z * k + k), paint)
+	return {"cells": c, "size": size}
+
+
+static func _add_mesh(root: Node3D, part: Dictionary, mat: Material, grid: int = GameMaterials.MICRO_GRID) -> void:
 	if part.is_empty():
 		return
-	var m := mesh(part["cells"], part["size"])
+	var m := mesh(part["cells"], part["size"], grid)
 	if m == null:
 		return
 	var mi := MeshInstance3D.new()
 	mi.mesh = m
 	mi.material_override = mat
 	mi.visibility_range_end = 96.0
-	if mat == _ghost:
+	if mat == _ghost or grid != GameMaterials.MICRO_GRID:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(mi)

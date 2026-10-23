@@ -47,19 +47,31 @@ func test_block_items_reference_materials() -> void:
 			assert_bool(d["material"] in names).override_failure_message("item %s places unknown material %s" % [id, d["material"]]).is_true()
 
 
-func test_break_times_follow_minecraft() -> void:
-	# stone needs a pickaxe: by hand 5x hardness and no drop; the flint pickaxe breaks it at
-	# hardness*1.5/2 but rock drops nothing before copper (drop_tier, ADR 0023)
-	assert_float(mining.break_time("stone")).is_equal_approx(7.5, 0.01)
+func test_break_times_need_the_right_tool() -> void:
+	# stone needs a pickaxe: by hand it takes 2 minutes and drops nothing; the flint pickaxe
+	# breaks it in hardness * 3 / 2 but rock drops nothing before copper (drop_tier, ADR 0023)
+	assert_float(mining.break_time("stone")).is_equal_approx(120.0, 0.01)
 	assert_dict(mining.drops("stone")).is_empty()
 	var flint_pick := items.get_def("flint_pickaxe")
 	var copper_pick := items.get_def("copper_pickaxe")
-	assert_float(mining.break_time("stone", flint_pick)).is_equal_approx(1.125, 0.01)
+	assert_float(mining.break_time("stone", flint_pick)).is_equal_approx(2.25, 0.01)
+	assert_float(mining.break_time("stone", copper_pick)).is_equal_approx(1.125, 0.01)
 	assert_dict(mining.drops("stone", flint_pick)).is_empty()
 	assert_dict(mining.drops("stone", copper_pick)).is_equal({"id": "cobblestone", "count": 1})
-	# dirt by hand drops; a pickaxe does not help
-	assert_float(mining.break_time("dirt")).is_equal_approx(0.75, 0.01)
-	assert_float(mining.break_time("dirt", flint_pick)).is_equal_approx(0.75, 0.01)
+	# dirt wants a shovel: by hand or with a pickaxe it is slow (still drops), a shovel is quick
+	assert_float(mining.break_time("dirt")).is_equal_approx(40.0, 0.01)
+	assert_float(mining.break_time("dirt", flint_pick)).is_equal_approx(40.0, 0.01)
+	assert_float(mining.break_time("dirt", items.get_def("flint_shovel"))).is_equal_approx(0.75, 0.01)
+	# logs and planks want an axe; the right tool never takes under 0.5 s or over 10 s
+	assert_float(mining.break_time("wood")).is_equal_approx(120.0, 0.01)
+	assert_float(mining.break_time("planks")).is_equal_approx(120.0, 0.01)
+	assert_float(mining.break_time("wood", items.get_def("flint_axe"))).is_equal_approx(3.0, 0.01)
+	assert_float(mining.break_time("snow", items.get_def("copper_shovel"))).is_equal_approx(0.5, 0.01)
+	assert_float(mining.break_time("obsidian", items.get_def("iron_pickaxe"))).is_between(0.5, 10.0)
+	# copper ore below its min_tier counts as the wrong tool
+	assert_float(mining.break_time("copper_ore", flint_pick)).is_equal_approx(120.0, 0.01)
+	# leaves want no tool: quick by hand
+	assert_float(mining.break_time("leaves")).is_equal_approx(0.3, 0.01)
 	assert_dict(mining.drops("dirt")).is_equal({"id": "dirt", "count": 1})
 	# copper ore needs tier 1, iron ore tier 2 (bronze): copper is slow and yields nothing there
 	assert_dict(mining.drops("copper_ore", flint_pick)).is_empty()
@@ -73,6 +85,20 @@ func test_break_times_follow_minecraft() -> void:
 
 
 # ---------- hotbar ----------
+
+func test_bodies_walk_through_plants() -> void:
+	# the unstick check and the library agree: plants, pickups and work spots are walked through
+	for n in ["tall_grass", "flower", "fern", "reed", "pebbles", "work_spot", "water", "torch"]:
+		assert_bool(GameMaterials.blocks_bodies(GameMaterials.defs().map(func(d: Dictionary) -> String: return d["name"]).find(n) + 1)).override_failure_message(n).is_false()
+	for n in ["stone", "grass", "sand", "wattle", "storage_pot", "furniture", "stalagmite"]:
+		assert_bool(GameMaterials.blocks_bodies(GameMaterials.defs().map(func(d: Dictionary) -> String: return d["name"]).find(n) + 1)).override_failure_message(n).is_true()
+
+
+func test_flowers_drop_themselves_and_place() -> void:
+	for pair in [["flower", "dandelion"], ["flower_red", "poppy"], ["cornflower", "cornflower"], ["oxeye_daisy", "oxeye_daisy"], ["allium", "allium"]]:
+		assert_dict(mining.drops(pair[0])).is_equal({"id": pair[1], "count": 1})
+		assert_str(String(items.get_def(pair[1]).get("material", ""))).is_equal(pair[0])
+
 
 func test_select_and_scroll_wrap() -> void:
 	p.select(8)
@@ -134,6 +160,42 @@ func test_shift_click_moves_between_hotbar_and_main() -> void:
 	assert_dict(p.inv.get_slot(9)).is_equal({"id": "oak_log", "count": 10})
 	p.click_slot(9, MOUSE_BUTTON_LEFT, true)
 	assert_dict(p.inv.get_slot(0)).is_equal({"id": "oak_log", "count": 10})
+
+
+func test_mouse_tweaks_drags() -> void:
+	# right drag: one item into each slot passed, skipping slots of another item
+	p.inv.set_slot(12, {"id": "stick", "count": 1})
+	p.cursor = {"id": "dirt", "count": 5}
+	for i in [10, 11, 12]:
+		p.drag_place_one("inv", i)
+	assert_dict(p.inv.get_slot(10)).is_equal({"id": "dirt", "count": 1})
+	assert_dict(p.inv.get_slot(11)).is_equal({"id": "dirt", "count": 1})
+	assert_dict(p.inv.get_slot(12)).is_equal({"id": "stick", "count": 1})
+	assert_int(int(p.cursor["count"])).is_equal(3)
+	# left drag: the same item comes back into the cursor, others stay
+	for i in [10, 11, 12]:
+		p.drag_collect("inv", i)
+	assert_int(int(p.cursor["count"])).is_equal(5)
+	assert_bool(p.inv.is_empty_slot(10)).is_true()
+	assert_dict(p.inv.get_slot(12)).is_equal({"id": "stick", "count": 1})
+	# shift drag: each slot is shift-clicked (main -> hotbar)
+	p.cursor = {}
+	p.drag_shift("inv", 12)
+	assert_dict(p.inv.get_slot(0)).is_equal({"id": "stick", "count": 1})
+
+
+func test_mouse_tweaks_wheel() -> void:
+	p.inv.set_slot(0, {"id": "dirt", "count": 3})
+	p.inv.set_slot(20, {"id": "dirt", "count": 2})
+	# wheel down on a hotbar slot: one item to the main grid, merging first
+	p.wheel_move("inv", 0, true)
+	assert_dict(p.inv.get_slot(0)).is_equal({"id": "dirt", "count": 2})
+	assert_dict(p.inv.get_slot(20)).is_equal({"id": "dirt", "count": 3})
+	# wheel up: one item pulled back from the main grid
+	p.wheel_move("inv", 0, false)
+	p.wheel_move("inv", 0, false)
+	assert_dict(p.inv.get_slot(0)).is_equal({"id": "dirt", "count": 4})
+	assert_dict(p.inv.get_slot(20)).is_equal({"id": "dirt", "count": 1})
 
 
 func test_cursor_left_right_click() -> void:

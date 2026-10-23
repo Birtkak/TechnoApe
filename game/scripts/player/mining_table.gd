@@ -9,6 +9,10 @@ extends RefCounted
 var materials := {}          # material name -> entry
 var hand_speed := 1.0
 var tier_speed: Array = [2.0, 4.0, 6.0, 8.0, 10.0]
+# the right tool breaks in hardness * factor / tier speed, kept within [min_s, max_s];
+# hands or the wrong tool on a material that wants a tool take hardness * s_per_hardness
+var right_tool := {"factor": 3.0, "min_s": 0.5, "max_s": 10.0}
+var wrong_tool := {"s_per_hardness": 80.0, "min_s": 20.0, "max_s": 120.0}
 var errors: Array[String] = []
 
 
@@ -35,6 +39,8 @@ func load_json(text: String) -> bool:
 	hand_speed = float(speeds.get("hand", 1.0))
 	if speeds.has("tier"):
 		tier_speed = speeds["tier"]
+	right_tool.merge(data.get("right_tool", {}), true)
+	wrong_tool.merge(data.get("wrong_tool", {}), true)
 	for name in data["materials"]:
 		var e = data["materials"][name]
 		if typeof(e) != TYPE_DICTIONARY or not e.has("hardness"):
@@ -73,8 +79,10 @@ func tool_fits(material_name: String, held: Dictionary) -> bool:
 	return int(held.get("tier", 0)) >= int(e.get("min_tier", 0))
 
 
-## Seconds to break, or -1 when unbreakable. Minecraft: hardness * 1.5 with
-## the right tool (or none needed), * 5 with the wrong one.
+## Seconds to break, or -1 when unbreakable. A material that names a tool
+## class breaks in 0.5..10 s with that tool at or above its min_tier, and very
+## slowly (20..120 s) by hand, with another tool or a too-low tier; materials
+## without a tool class break by hand at hardness * 1.5 (leaves, plants).
 func break_time(material_name: String, held: Dictionary = {}) -> float:
 	var e := entry(material_name)
 	if e.is_empty():
@@ -83,15 +91,12 @@ func break_time(material_name: String, held: Dictionary = {}) -> float:
 	if hardness <= 0.0:
 		return 0.0
 	var needed: String = e.get("tool", "")
-	if needed != "" and tool_class(held) == needed:
+	if needed == "":
+		return hardness * 1.5 / hand_speed
+	if tool_class(held) == needed and int(held.get("tier", 0)) >= int(e.get("min_tier", 0)):
 		var tier := clampi(int(held.get("tier", 0)), 0, tier_speed.size() - 1)
-		var speed := float(tier_speed[tier])
-		if int(held.get("tier", 0)) < int(e.get("min_tier", 0)):
-			return hardness * 5.0 / speed
-		return hardness * 1.5 / speed
-	if e.get("requires", false):
-		return hardness * 5.0 / hand_speed
-	return hardness * 1.5 / hand_speed
+		return clampf(hardness * float(right_tool["factor"]) / float(tier_speed[tier]), float(right_tool["min_s"]), float(right_tool["max_s"]))
+	return clampf(hardness * float(wrong_tool["s_per_hardness"]), float(wrong_tool["min_s"]), float(wrong_tool["max_s"]))
 
 
 ## False when the material drops nothing for this tool: the wrong class or tier

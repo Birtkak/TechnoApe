@@ -4,10 +4,11 @@ extends RefCounted
 ## Clay being formed on the ground (ADR 0023, Vintage Story's clay forming):
 ## the player picks a "clayform" recipe, whose `layers` (bottom first, each
 ## 8 rows of 8, row = z, column = x, '#' = clay) is the target shape. The
-## lowest layer with missing cells is the active one; its missing cells show
-## as ghosts. Adding fills a 2x2 brush clipped to the target. Every clay
-## ball pays for CELLS_PER_BALL cells; unused credit and placed clay come back
-## as balls when the piece is broken before it is done.
+## lowest layer with missing cells is the active one; it shows as a guide
+## plate (green cells to fill, red cells to leave empty, grid lines between).
+## Adding fills a 2x2 brush clipped to the target. Every clay ball pays for
+## CELLS_PER_BALL cells; unused credit and placed clay come back as balls when
+## the piece is broken before it is done.
 
 signal changed
 
@@ -164,16 +165,20 @@ func view_parts() -> Dictionary:
 		return {"solid": {"cells": c, "size": size}}
 	var size := Vector3i(N, height(), N)
 	var solid := WorkPalette.new_cells(size)
-	var ghost := WorkPalette.new_cells(size)
-	var active := active_layer()
 	for y in height():
 		for z in N:
 			for x in N:
 				if is_filled(x, y, z):
 					solid[WorkPalette.idx(size, x, y, z)] = WorkPalette.CLAY + 1
-				elif y == active and is_target(x, y, z):
-					ghost[WorkPalette.idx(size, x, y, z)] = WorkPalette.CLAY + 1
-	return {"solid": {"cells": solid, "size": size}, "ghost": {"cells": ghost, "size": size}}
+	var active := active_layer()
+	if active >= height():
+		return {"solid": {"cells": solid, "size": size}}
+	# the layer being worked: green where clay goes, red where it must not
+	var guide := WorkPalette.guide_plate(N, active, func(x: int, z: int) -> int:
+		if is_filled(x, active, z):
+			return -1
+		return WorkPalette.PLACE if is_target(x, active, z) else WorkPalette.AVOID)
+	return {"solid": {"cells": solid, "size": size}, "guide": guide}
 
 
 func to_dict() -> Dictionary:

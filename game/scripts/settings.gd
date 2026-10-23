@@ -42,7 +42,9 @@ var sim_push_budget_ms := 1.5           # main-thread time per frame for pasting
 var sim_push_interval_ms := 0.0         # a chunk is pasted at most this often (each paste = remesh)
 var terrain_mesh_collisions := false    # physics colliders for terrain meshes; bodies use voxel-grid collision instead (ADR 0011)
 var swim_up_speed_m := 2.0              # holding jump in water
-var sink_speed_m := 1.0                 # drifting down in water
+var sink_speed_m := 1.5                 # drifting down in water (to the floor, which can be walked on)
+var air_s := 15.0                       # breath under water (vanilla: 300 ticks)
+var drown_damage := 2                   # half-hearts per second once the air is gone (vanilla)
 var sim_threads := maxi(2, OS.get_processor_count() - 2)
 
 # Player (metres, converted at use)

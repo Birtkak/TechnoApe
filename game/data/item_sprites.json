@@ -964,6 +964,68 @@
         ".......oo......."
       ]
     },
+    "flower_stem": {
+      "colors": {"t": "#3e7e2a", "u": "#56a03a"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "........o.......",
+        ".......oto......",
+        ".......oto......",
+        ".......oto.o....",
+        ".....o.otoouo...",
+        "....ouootuuo....",
+        ".....ouuuoo.....",
+        "......oouo......",
+        ".......oto......",
+        ".......oto......"
+      ]
+    },
+    "flower_head": {
+      "colors": {"p": "#f0d040", "c": "#c07a18", "o": "#2a2418"},
+      "rows": [
+        ".......oo.......",
+        "......oppo......",
+        "....ooppppoo....",
+        "...oppppppppo...",
+        "...opppccpppo...",
+        "...oppoccoppo...",
+        "...opppccpppo...",
+        "...opppoopppo...",
+        "....oppooppo....",
+        ".....oo..oo.....",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "allium_head": {
+      "rows": [
+        ".......oo.......",
+        ".....oohloo.....",
+        "....ohlmhllo....",
+        "....olhmmmdo....",
+        "...ohmmmmhmlo...",
+        "...olmmmmmmdo...",
+        "....olmhmmho....",
+        "....oldmmddo....",
+        ".....ooldoo.....",
+        ".......oo.......",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
     "bark": {
       "rows": [
         "................",
@@ -2080,6 +2142,11 @@
     "shears": {"layers": [{"shape": "shears", "palette": "iron"}]},
     "torch": {"layers": [{"shape": "torch", "palette": "handle"}]},
     "oak_sapling": {"layers": [{"shape": "sapling", "palette": "leaf"}]},
+    "dandelion": {"layers": [{"shape": "flower_stem", "palette": "leaf"}, {"shape": "flower_head", "colors": {"p": "#f4d23c", "c": "#d08a1c"}}]},
+    "poppy": {"layers": [{"shape": "flower_stem", "palette": "leaf"}, {"shape": "flower_head", "colors": {"p": "#d8302a", "c": "#2a1a14"}}]},
+    "cornflower": {"layers": [{"shape": "flower_stem", "palette": "leaf"}, {"shape": "flower_head", "colors": {"p": "#4a72e0", "c": "#24306a"}}]},
+    "oxeye_daisy": {"layers": [{"shape": "flower_stem", "palette": "leaf"}, {"shape": "flower_head", "colors": {"p": "#f4f2ea", "c": "#e8b820"}}]},
+    "allium": {"layers": [{"shape": "flower_stem", "palette": "leaf"}, {"shape": "allium_head", "colors": {"o": "#3a1450", "d": "#6a2a8a", "m": "#9446b8", "l": "#b46ad4", "h": "#dca8f0"}}]},
     "wand_basic": {"layers": [{"shape": "wand_stick", "palette": "handle"}, {"shape": "wand_gem", "palette": "gem"}]},
     "fire_bomb": {"layers": [{"shape": "fire_bomb", "palette": "bomb"}]},
     "bricks": {"layers": [{"shape": "bricks_face"}], "cube": true},

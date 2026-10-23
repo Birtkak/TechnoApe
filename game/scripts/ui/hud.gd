@@ -23,6 +23,11 @@ var break_progress := 0.0   # 0..1, set by the player while mining
 var player_stains: PlayerStains   # Noita stains: icons right of the hotbar, a screen tint while burning or toxic
 var _stain_bar: Control
 var _screen_tint: ColorRect
+var air := 1.0              # breath 0..1, set by the player; bubbles show while it is below 1
+var _air_row: Control
+var _look: Control          # the look-at panel, top centre (like the Jade mod)
+var _look_info := {}
+var _shown_air := -1
 
 
 func setup(p_inv: PlayerInventory) -> void:
@@ -80,6 +85,20 @@ func _ready() -> void:
 	_hearts.draw.connect(_draw_hearts)
 	add_child(_hearts)
 
+	_air_row = Control.new()
+	_air_row.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_air_row.position = Vector2(w / 2.0 - 10 * 18, -SLOT - 8 - 22)   # right half, above the hotbar (vanilla)
+	_air_row.size = Vector2(10 * 18, 20)
+	_air_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_air_row.draw.connect(_draw_air)
+	add_child(_air_row)
+
+	_look = Control.new()
+	_look.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_look.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_look.draw.connect(_draw_look)
+	add_child(_look)
+
 	_name_label = Label.new()
 	_name_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -99,6 +118,54 @@ func _ready() -> void:
 	move_child(_pill, _name_label.get_index())
 
 
+## What the crosshair is on: {title, line?, tool?, ok?, drops?}; {} hides the panel.
+func set_look(info: Dictionary) -> void:
+	_look_info = info
+	_look.queue_redraw()
+
+
+func _draw_look() -> void:
+	if _look_info.is_empty():
+		return
+	if _font == null:
+		_font = ThemeDB.fallback_font
+	var lines := []   # [text, size, colour, mark: "" | "ok" | "no"]
+	lines.append([String(_look_info["title"]), 17, Color(0.97, 0.95, 0.9), ""])
+	if _look_info.has("line"):
+		lines.append([String(_look_info["line"]), 13, Color(0.8, 0.82, 0.86), ""])
+	if _look_info.has("tool"):
+		var ok: bool = _look_info.get("ok", false)
+		lines.append([String(_look_info["tool"]), 13, Color(0.5, 0.9, 0.45) if ok else Color(0.95, 0.45, 0.4), "ok" if ok else "no"])
+	if not _look_info.get("drops", true):
+		lines.append(["Drops nothing with this", 12, Color(0.95, 0.7, 0.4), ""])
+	var w := 0.0
+	var h := 10.0
+	for l in lines:
+		w = maxf(w, _font.get_string_size(l[0], HORIZONTAL_ALIGNMENT_LEFT, -1, l[1]).x + (16.0 if l[3] != "" else 0.0))
+		h += l[1] + 5
+	w += 28
+	var box := Rect2(-w / 2.0, 10, w, h)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.03, 0.03, 0.05, 0.72)
+	sb.border_color = Color(1, 1, 1, 0.14)
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(8)
+	_look.draw_style_box(sb, box)
+	var y := box.position.y + 6
+	for l in lines:
+		y += l[1]
+		var x := box.position.x + 14
+		if l[3] == "ok":   # a tick
+			_look.draw_polyline(PackedVector2Array([Vector2(x, y - 5), Vector2(x + 3, y - 2), Vector2(x + 9, y - 9)]), l[2], 2.0)
+			x += 16
+		elif l[3] == "no":   # a cross
+			_look.draw_line(Vector2(x, y - 9), Vector2(x + 8, y - 1), l[2], 2.0)
+			_look.draw_line(Vector2(x + 8, y - 9), Vector2(x, y - 1), l[2], 2.0)
+			x += 16
+		_look.draw_string(_font, Vector2(x, y), l[0], HORIZONTAL_ALIGNMENT_LEFT, -1, l[1], l[2])
+		y += 5
+
+
 ## The F3 overlay draws its own axis crosshair instead.
 func set_crosshair_visible(v: bool) -> void:
 	_crosshair.visible = v
@@ -115,6 +182,10 @@ func _process(delta: float) -> void:
 		_name_label.modulate.a = clampf(_name_timer / 0.5, 0.0, 1.0)
 		_pill.modulate.a = _name_label.modulate.a
 	_progress.queue_redraw()
+	var bubbles := ceili(air * 10.0) if air < 1.0 else -1
+	if bubbles != _shown_air:
+		_shown_air = bubbles
+		_air_row.queue_redraw()
 	if player_stains != null:
 		_stain_bar.queue_redraw()
 		var burn := clampf(float(player_stains.amount["burning"]), 0.0, 1.0)
@@ -262,6 +333,23 @@ func _draw_hearts() -> void:
 					elif y >= 3:
 						c = Color(0.68, 0.07, 0.1)
 				_hearts.draw_rect(Rect2(ox + x * px, 2 + y * px, px, px), c)
+
+
+# 7x7 pixel air bubble: rim, a light upper-left, a dark lower-right
+const BUBBLE := ["0011100", "0122210", "1233321", "1233341", "1233441", "0144410", "0011100"]
+
+func _draw_air() -> void:
+	if _shown_air < 0:
+		return
+	var px := 2
+	var cols := [Color(0, 0, 0, 0), Color(0.12, 0.2, 0.45), Color(0.85, 0.95, 1.0), Color(0.45, 0.7, 1.0), Color(0.25, 0.45, 0.85)]
+	for i in _shown_air:
+		var ox := (9 - i) * 18   # bubbles pop from the left, like vanilla's from the right edge inwards
+		for y in BUBBLE.size():
+			for x in 7:
+				var k := int(BUBBLE[y][x])
+				if k > 0:
+					_air_row.draw_rect(Rect2(ox + x * px, 2 + y * px, px, px), cols[k])
 
 
 func _draw_crosshair() -> void:

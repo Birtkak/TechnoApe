@@ -73,7 +73,7 @@ func test_copper_pickaxe_from_ground_pickups() -> void:
 
 func test_rock_drops_nothing_before_copper() -> void:
 	var flint := items.get_def("flint_pickaxe")
-	assert_float(mining.break_time("stone", flint)).is_equal_approx(1.125, 0.01)   # breaks at normal speed
+	assert_float(mining.break_time("stone", flint)).is_equal_approx(2.25, 0.01)   # breaks at normal speed
 	assert_array(mining.roll_drops("stone", flint, RandomNumberGenerator.new())).is_empty()
 	assert_array(mining.roll_drops("stone", items.get_def("copper_pickaxe"), RandomNumberGenerator.new())).is_equal([{"id": "cobblestone", "count": 1}])
 	# logs need an axe; the flint axe will do
@@ -318,10 +318,10 @@ func test_every_piece_draws() -> void:
 	for e in store.all_work():
 		var parts: Dictionary = e.view_parts()
 		assert_bool(parts.has("solid")).is_true()
-		var v := WorkPalette.make_view(e.pos, parts["solid"], parts.get("ghost", {}))
+		var v := WorkPalette.make_view(e.pos, parts["solid"], parts.get("ghost", {}), parts.get("guide", {}))
 		assert_int(v.get_child_count()).override_failure_message("%s draws nothing" % e.kind).is_greater(0)
 		v.free()
-	# the fresh clay form shows its first layer as a ghost only
+	# the fresh clay form shows its first layer as a guide only
 	var bare := WorkPalette.make_view(c.pos, c.view_parts()["solid"], {})
 	assert_int(bare.get_child_count()).is_equal(0)
 	bare.free()

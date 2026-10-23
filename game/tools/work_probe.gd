@@ -35,7 +35,7 @@ func _ready() -> void:
 		var a := Time.get_ticks_usec()
 		var parts: Dictionary = e.view_parts()
 		var b := Time.get_ticks_usec()
-		var v := WorkPalette.make_view(e.pos, parts["solid"], parts.get("ghost", {}))
+		var v := WorkPalette.make_view(e.pos, parts["solid"], parts.get("ghost", {}), parts.get("guide", {}))
 		var d := Time.get_ticks_usec()
 		print("%-9s parts %.2f ms  view %.2f ms  size %s" % [e.kind, (b - a) / 1000.0, (d - b) / 1000.0, parts["solid"]["size"]])
 		v.free()

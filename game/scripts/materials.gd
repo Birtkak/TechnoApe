@@ -155,11 +155,11 @@ static func defs() -> Array:
 		{"name": "sandstone", "cell_type": "solid", "density": 10, "hp": 600, "tiles": [21, 21, 21], "transparent": false},
 		{"name": "clay", "cell_type": "solid", "density": 9, "hp": 300, "tiles": [22, 22, 22], "transparent": false},
 		{"name": "tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 23, 23], "transparent": false, "micro": "tuft", "replaceable": true},
-		{"name": "flower", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [24, 24, 24], "transparent": false, "micro": "flower"},
+		{"name": "flower", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [24, 24, 24], "transparent": false, "micro": "flower", "floor_only": true},
 		{"name": "cactus", "cell_type": "solid", "density": 10, "hp": 40, "burnable": true, "fire_hp": 30, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [25, 25, 25], "transparent": false},
 		{"name": "dead_bush", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 24, "autoignition_temperature": 15, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [26, 26, 26], "transparent": false, "micro": "bush", "replaceable": true},
 		{"name": "ice", "cell_type": "solid", "density": 9, "hp": 120, "tiles": [27, 27, 27], "transparent": false},
-		{"name": "flower_red", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [28, 28, 28], "transparent": false, "micro": "flower"},
+		{"name": "flower_red", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [28, 28, 28], "transparent": false, "micro": "flower", "floor_only": true},
 		{"name": "crafting_table", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [32, 33, 39], "transparent": false, "interact": "crafting_table"},
 		{"name": "furnace", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 35, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "furnace_lit", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 36, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
@@ -223,7 +223,7 @@ static func _content_pass2_defs() -> Array:
 	var pumpkin := {"name": "pumpkin", "cell_type": "solid", "density": 6, "hp": 60, "tiles": [78, 77, 77], "transparent": false}
 	_content2.append_array([birch, birch_leaves, bush, pumpkin])
 	for f in [["cornflower", 79, 30], ["oxeye_daisy", 80, 30], ["allium", 81, 81]]:
-		var d := {"name": f[0], "cell_type": "solid", "density": 10, "hp": 5, "tiles": [f[1], f[2], 23], "transparent": false, "micro": "bloom", "replaceable": true}
+		var d := {"name": f[0], "cell_type": "solid", "density": 10, "hp": 5, "tiles": [f[1], f[2], 23], "transparent": false, "micro": "bloom", "replaceable": true, "floor_only": true}
 		d.merge(plant_burn)
 		_content2.append(d)
 	for b in [["oak_bark", 6], ["spruce_bark", 57], ["acacia_bark", 60], ["jungle_bark", 63], ["birch_bark", 73]]:
@@ -349,6 +349,41 @@ static func _slot_materials() -> Dictionary:
 			if d[i].has("fluid_slot") and not d[i].get("liquid_static", false) and not _slot_mats.has(int(d[i]["fluid_slot"])):
 				_slot_mats[int(d[i]["fluid_slot"])] = i + 1
 	return _slot_mats
+
+
+static var _blocks_bodies := PackedByteArray()
+
+## True when bodies collide with this material, as the library's collision masks
+## say (build_library): solid and powder cubes, stalactites, SOLID_MICRO models
+## and furniture voxels. Plants, pickups and work spots are walked through.
+static func blocks_bodies(id: int) -> bool:
+	if _blocks_bodies.is_empty():
+		var d := defs()
+		_blocks_bodies.resize(d.size() + 1)
+		for i in d.size():
+			var e: Dictionary = d[i]
+			var ct: String = e.get("cell_type", "solid")
+			var solid := ct == "solid" or ct == "powder"
+			if e.has("fluid_slot"):
+				solid = false
+			elif e.has("micro"):
+				solid = e["micro"] in ["stalactite", "stalagmite"] or e["micro"] in SOLID_MICRO
+			elif e.get("model", "") == "empty":
+				solid = e.get("collision", false) is bool and e.get("collision", false)
+			_blocks_bodies[i + 1] = 1 if solid else 0
+	return id > 0 and id < _blocks_bodies.size() and _blocks_bodies[id] == 1
+
+
+static var _liquids := PackedByteArray()
+
+## True for liquid cell types (water, lava, oil, their static kinds).
+static func is_liquid(id: int) -> bool:
+	if _liquids.is_empty():
+		var d := defs()
+		_liquids.resize(d.size() + 1)
+		for i in d.size():
+			_liquids[i + 1] = 1 if d[i].get("cell_type", "solid") == "liquid" else 0
+	return id > 0 and id < _liquids.size() and _liquids[id] == 1
 
 
 static func name_of(id: int) -> String:

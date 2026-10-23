@@ -163,6 +163,7 @@ func _ready() -> void:
 	work.setup(self)
 	player.work_use = work.use
 	player.work_hit = work.hit
+	player.describe_block = _describe_block
 	projectiles = Projectiles.new()
 	projectiles.name = "Projectiles"
 	projectiles.main = self
@@ -273,6 +274,8 @@ func _ready() -> void:
 			_after_load(_debug_farm)
 		if DebugCapture.hands_test:
 			_after_load(_debug_hands)
+		if DebugCapture.swim_test:
+			_after_load(_debug_swim)
 		if DebugCapture.stone_age_test:
 			_after_load(func() -> void:
 				_stone_age_test = StoneAgeTest.new()   # held here: a RefCounted coroutine dies with its last reference
@@ -326,6 +329,8 @@ func _ready() -> void:
 	warmup.name = "MaterialWarmup"
 	add_child(warmup)
 	warmup.setup(world.terrain.mesher as VoxelMesherBlocky, player.camera)
+	if not warmup.is_queued_for_deletion():
+		warmup.add_materials(player.warm_materials(), player.camera)
 	# chips, dust, splashes, smoke, hearts, lava pops, drips and waterfall spray (scripts/visuals/particle_fx.gd)
 	if Settings.particles:
 		fx = ParticleFx.load_default()
@@ -420,6 +425,23 @@ func _save_blocks() -> void:
 
 ## The progression book (ADR 0028): progress saved per world, item tasks
 ## counted whenever the inventory changes, a toast per completed quest.
+## The look-at panel's extra line for a work piece: what it makes and how far it is.
+func _describe_block(p: Vector3i) -> String:
+	var e: RefCounted = blocks.at(p)
+	if e is ClayFormEntity:
+		var c := e as ClayFormEntity
+		if not c.has_recipe():
+			return "Clay: pick a shape"
+		var out: String = items.display_name(String(c.recipe.get("output", {}).get("id", "")))
+		return "%s: layer %d of %d" % [out, mini(c.active_layer() + 1, c.height()), c.height()]
+	if e is KnapEntity:
+		var k := e as KnapEntity
+		if not k.has_recipe():
+			return "Flint: pick a shape"
+		return "%s: %d chips left" % [items.display_name(String(k.recipe.get("output", {}).get("id", ""))), k.remaining()]
+	return ""
+
+
 func _setup_quests() -> void:
 	quests = QuestBook.load_default(items)
 	for err in quests.errors:
@@ -1036,6 +1058,7 @@ func snapshot() -> Dictionary:
 		"look": look,
 		"player": player_inv.summary(),
 		"player_stains": player.stains.summary(),
+		"swim": {"air": snappedf(player.air, 0.01), "in_liquid": player.in_liquid, "on_floor": player.is_on_floor()},
 		"picked_up": picked_up_total,
 		"items_in_world": _item_entities.size(),
 		"item_stats": item_stats,
@@ -1111,6 +1134,59 @@ func _debug_farm() -> void:
 	if player.autopilot:
 		player.autopilot_action = "look"
 		player.set_look(player._yaw, DebugCapture.pitch)
+
+
+# ---------------- debug: swimming (swim_test=1) ----------------
+
+## Debug (swim_test=1): digs a 5 x 5 pool four deep with its water one voxel
+## under the bank, drops the player in (survival, real input), and checks it
+## sinks to the floor, loses air, drowns, and hops out onto the bank holding
+## forward and jump. Prints one JSON line.
+func _debug_swim() -> void:
+	var r := {}
+	player.set_game_mode(GameMode.SURVIVAL)
+	var base := Vector3i(player.position.floor())
+	var c := Vector3i(base.x, 0, base.z - 4)
+	var g: int = world.surface_height(c.x, c.z)
+	for dx in range(-3, 4):
+		for dz in range(-3, 4):
+			var edge := absi(dx) == 3 or absi(dz) == 3
+			for y in range(g - 4, g + 4):
+				var m := GameMaterials.AIR
+				if edge:
+					m = GameMaterials.STONE if y <= g else GameMaterials.AIR
+				elif y < g:
+					m = GameMaterials.WATER_STATIC
+				set_world_voxel(Vector3i(c.x + dx, y, c.z + dz), m)
+			set_world_voxel(Vector3i(c.x + dx, g - 5, c.z + dz), GameMaterials.STONE)
+	await get_tree().create_timer(0.5).timeout
+	player.autopilot = false
+	player.teleport(Vector3(c.x + 0.5, g - 1.5, c.z + 0.5))
+	await get_tree().create_timer(3.0).timeout
+	r["floor_y"] = g - 4
+	r["y_after_sink"] = snappedf(player.position.y, 0.01)
+	r["stands_on_floor"] = player.is_on_floor() and player.in_liquid and absf(player.position.y - (g - 4)) < 0.05
+	r["air_after_3s"] = snappedf(player.air, 0.01)
+	var hp := player_inv.health
+	player.air = 0.0
+	await get_tree().create_timer(2.2).timeout
+	r["drowned_hp"] = hp - player_inv.health
+	player_inv.heal(20)
+	# swim to the +z bank (its top is one voxel over the water) holding forward and jump
+	player.set_look(PI, 0.0)
+	Input.action_press("move_forward")
+	Input.action_press("jump")
+	var t := 0.0
+	while t < 6.0 and not (player.is_on_floor() and not player.in_liquid and player.position.y >= g + 0.99):
+		await get_tree().process_frame
+		t += get_process_delta_time()
+	Input.action_release("move_forward")
+	Input.action_release("jump")
+	r["climbed_out"] = player.position.y >= g + 0.99 and not player.in_liquid
+	r["climb_s"] = snappedf(t, 0.01)
+	r["air_refilled"] = player.air > 0.5
+	player.autopilot = true
+	print("debug swim " + JSON.stringify(r))
 
 
 # ---------------- debug: the player's own hands (hands_test=1) ----------------

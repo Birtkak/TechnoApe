@@ -49,6 +49,9 @@ var entity_use: Callable         # (mob, held def) -> bool (true: one held item 
 var place_furniture: Callable    # (kind, anchor, facing) -> bool
 var work_use: Callable           # (hit, first_press, from, dir) -> bool: a work piece took the right click (ADR 0023)
 var work_hit: Callable           # (hit, from, dir, sneaking) -> bool: a knapping piece took the left click
+var describe_block: Callable     # (voxel) -> String: an extra line for the look-at panel ("" = none)
+var _look_key := ""              # what the look-at panel shows now (rebuilt only when it changes)
+var _look_refresh := 0
 var farm: Farming
 var seat: Vector3 = Vector3.INF  # sitting on a chair: the seat surface (world voxels)
 var _eat_t := 0.0
@@ -63,17 +66,24 @@ var _mine_time := -1.0
 var _break_cooldown := 0.0
 var _place_cooldown := 0.0
 var _highlight: MeshInstance3D
-var _crack: MeshInstance3D
+var _crack: Node3D
+var crack_material: ShaderMaterial   # MaterialWarmup draws it under the loading screen
+var _swing_t := 0.0                  # mining: time to the next arm swing
+const SWING_EVERY_S := 0.25          # the arm keeps swinging while a block is being broken (Minecraft)
 
 # movement (ADR 0011)
 var velocity := Vector3.ZERO
 var body: VoxelBody
 var _on_floor := false
 var in_liquid := false
+var air := 1.0                    # breath, 0..1 (Settings.air_s); drowning once it is gone
+var _drown_t := 0.0
+var _wall_contact := false        # the last move was blocked sideways (climbing out of water)
 var stains := PlayerStains.new()   # Noita stains on the body: wet, bloody, oily, toxic, burning
 var _drip_timer := 0.0
-var _stain_overlay: StandardMaterial3D
-var _stain_overlay_on := false
+var _stain_overlay: StandardMaterial3D        # made in _ready: building a material's shader mid-game cost a 20 ms frame
+var _stain_overlay_burn: StandardMaterial3D   # the same with emission (burning)
+var _stain_overlay_on: Material = null
 const DRIP_EVERY_S := 0.35
 
 # fall damage
@@ -105,6 +115,8 @@ func _ready() -> void:
 	_highlight = _make_box_outline()
 	_highlight.visible = false
 	get_tree().root.call_deferred("add_child", _highlight)
+	_stain_overlay = _make_stain_overlay(false)
+	_stain_overlay_burn = _make_stain_overlay(true)
 	_crack = _make_crack_box()
 	_crack.visible = false
 	get_tree().root.call_deferred("add_child", _crack)
@@ -264,11 +276,8 @@ func _ground_ready() -> bool:
 ## Feet or chest in a liquid (water, lava, oil).
 func _check_liquid() -> bool:
 	for h in [0.2, 0.5]:
-		var m := world.get_voxel(Vector3i((position + Vector3(0, Settings.m2v(Settings.player_height_m) * h, 0)).floor()))
-		if m > 0:
-			var d: Dictionary = GameMaterials.defs()[m - 1]
-			if d.get("cell_type", "solid") == "liquid":
-				return true
+		if GameMaterials.is_liquid(world.get_voxel(Vector3i((position + Vector3(0, Settings.m2v(Settings.player_height_m) * h, 0)).floor()))):
+			return true
 	return false
 
 
@@ -277,6 +286,7 @@ func _move(delta: float, allow_step: bool) -> void:
 	var got := body.move(position, velocity, delta, world.terrain, allow_step)
 	position += got
 	_on_floor = body.on_floor
+	_wall_contact = body.blocked.x > 0.0 or body.blocked.z > 0.0
 	if body.blocked.x > 0.0:
 		velocity.x = 0.0
 	if body.blocked.z > 0.0:
@@ -354,14 +364,19 @@ func _physics_step(delta: float) -> void:
 		# Minecraft-style swimming: drift down slowly, hold jump to rise
 		var target := Settings.m2v(Settings.swim_up_speed_m) if jump else -Settings.m2v(Settings.sink_speed_m)
 		velocity.y = move_toward(velocity.y, target, Settings.m2v(Settings.gravity_m) * 0.5 * delta)
+		# swimming against a bank with jump held: hop out onto it (Minecraft's water jump)
+		var hop := sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(Settings.jump_height_m))
+		if jump and _wall_contact and dir != Vector3.ZERO and velocity.y < hop * 0.5:
+			velocity.y = hop
 	else:
 		# always pull down a little, so standing still still reports floor contact
 		velocity.y -= Settings.m2v(Settings.gravity_m) * delta
 		if _on_floor and Input.is_action_just_pressed("jump") and not ui_open:
 			velocity.y = sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(Settings.jump_height_m))
 	t0 = Time.get_ticks_usec()
-	_move(delta, _on_floor)
+	_move(delta, _on_floor or in_liquid)   # in water the body also steps up out of the shallows
 	_cost("player_move", t0)
+	_update_air(delta)
 	t0 = Time.get_ticks_usec()
 	_unstick_from_voxels()
 	_update_fall_damage()
@@ -387,13 +402,7 @@ func _unstick_from_voxels() -> void:
 
 
 func _is_solid_voxel(v: Vector3i) -> bool:
-	var m := world.get_voxel(v)
-	if m <= 0:
-		return false
-	var d: Dictionary = GameMaterials.defs()[m - 1]
-	if d.get("cross", false) or d.get("cell_type", "solid") == "gas":
-		return false
-	return d.get("cell_type", "solid") != "liquid"
+	return GameMaterials.blocks_bodies(world.get_voxel(v))
 
 
 # ---------------- health ----------------
@@ -418,10 +427,33 @@ func _update_fall_damage() -> void:
 	_was_on_floor = on_floor
 
 
+## Breath: the eyes under a liquid use it up in Settings.air_s, then the body
+## drowns (Settings.drown_damage per second); out of the liquid it refills in 2 s.
+func _update_air(delta: float) -> void:
+	var eye := Vector3i((position + Vector3(0, Settings.m2v(Settings.eye_height_m), 0)).floor())
+	var under := GameMaterials.is_liquid(world.get_voxel(eye))
+	if not under or not GameMode.rule(game_mode, "takes_damage"):
+		air = minf(1.0, air + delta / 2.0)
+		_drown_t = 0.0
+	else:
+		air = maxf(0.0, air - delta / Settings.air_s)
+		if air <= 0.0:
+			_drown_t -= delta
+			if _drown_t <= 0.0:
+				_drown_t = 1.0
+				if inventory:
+					inventory.damage(Settings.drown_damage)
+					if inventory.is_dead():
+						died.emit()
+	if hud:
+		hud.air = air
+
+
 func respawn_at(pos: Vector3) -> void:
 	position = pos
 	velocity = Vector3.ZERO
 	_fall_peak_y = pos.y
+	air = 1.0
 	stains.clear()
 	if inventory:
 		inventory.respawn()
@@ -456,26 +488,35 @@ func _update_stains(delta: float) -> void:
 ## The body (third person) and the bare arm (first person) take the stains' colour.
 func _apply_stain_tint() -> void:
 	var c := stains.tint()
-	var on := c.a > 0.01
-	if on:
-		if _stain_overlay == null:
-			_stain_overlay = StandardMaterial3D.new()
-			_stain_overlay.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			_stain_overlay.roughness = 0.4   # a wet, glossy coat
-		_stain_overlay.albedo_color = c
-		var burn := float(stains.amount["burning"])
-		_stain_overlay.emission_enabled = burn > 0.0
+	var burn := float(stains.amount["burning"])
+	var m: StandardMaterial3D = null
+	if c.a > 0.01:
+		m = _stain_overlay_burn if burn > 0.0 else _stain_overlay
+		m.albedo_color = c
 		if burn > 0.0:
-			_stain_overlay.emission = PlayerStains.COLORS["burning"] * (1.2 + 0.4 * sin(Time.get_ticks_msec() * 0.02))
-	if on != _stain_overlay_on:
-		_stain_overlay_on = on
-		var m: Material = _stain_overlay if on else null
+			m.emission = PlayerStains.COLORS["burning"] * (1.2 + 0.4 * sin(Time.get_ticks_msec() * 0.02))
+	if m != _stain_overlay_on:
+		_stain_overlay_on = m
 		if model:
 			for part in model.get_children():
 				if part is GeometryInstance3D:
 					part.material_overlay = m
 		if viewmodel:
 			viewmodel.set_overlay(m)
+
+
+## Materials MaterialWarmup draws under the loading screen (their first draw compiles a pipeline).
+func warm_materials() -> Array:
+	return [crack_material, _stain_overlay, _stain_overlay_burn]
+
+
+static func _make_stain_overlay(burning: bool) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.roughness = 0.4   # a wet, glossy coat
+	m.emission_enabled = burning
+	m.albedo_color = Color(1, 1, 1, 0)
+	return m
 
 
 # ---------------- mining ----------------
@@ -489,7 +530,9 @@ func _update_mining(delta: float) -> void:
 	elif not autopilot:
 		holding = _mouse_captured and not ui_open and Input.is_action_pressed("action_break")
 	var hit: VoxelRaycastResult = _aim() if (holding or (_mouse_captured and not ui_open and not autopilot)) else null
-	if hit and aimed_mob(hit) != null:
+	var mob = aimed_mob(hit) if (_mouse_captured and not ui_open and not autopilot) else null
+	_update_look(hit, mob)
+	if hit and mob != null:
 		hit = null   # an animal is in front of the block: LMB hits it instead (_attack)
 	if hit:
 		_highlight.visible = true
@@ -519,8 +562,7 @@ func _update_mining(delta: float) -> void:
 			_mine_time = 0.0 if world.get_voxel(p) > 0 else -1.0   # creative breaks anything, at once
 		else:
 			_mine_time = mining.break_time(mat_name, inventory.held_def()) if mining else 0.0
-		if viewmodel:
-			viewmodel.swing()
+		_swing_t = 0.0
 	if _mine_time < 0.0:
 		_crack.visible = false
 		if hud:
@@ -531,7 +573,12 @@ func _update_mining(delta: float) -> void:
 		hud.break_progress = _mine_progress
 	_crack.visible = _mine_progress > 0.0 and _mine_time > 0.0
 	_crack.global_position = Vector3(p)
-	_crack.transparency = 1.0 - clampf(_mine_progress, 0.0, 1.0) * 0.4
+	crack_material.set_shader_parameter("progress", clampf(_mine_progress, 0.0, 1.0))
+	_swing_t -= delta
+	if _swing_t <= 0.0 and _mine_progress < 1.0:
+		_swing_t = SWING_EVERY_S
+		if viewmodel:
+			viewmodel.swing()
 	if _mine_progress >= 1.0:
 		var mat_name := GameMaterials.name_of(world.get_voxel(p))
 		var drops := mining.roll_drops(mat_name, inventory.held_def(), _drop_rng) if mining and GameMode.rule(game_mode, "drops") else []
@@ -549,8 +596,63 @@ func _update_mining(delta: float) -> void:
 			_yaw += PI / 2.0
 			_apply_look()
 		_reset_mining()
-	elif viewmodel and fmod(_mine_progress * 4.0, 1.0) < delta * 4.0:
-		viewmodel.swing()
+
+
+## The look-at panel (like the Jade mod): what is under the crosshair, the tool
+## it wants and whether the held item is that tool, or an animal and its health.
+func _update_look(hit: VoxelRaycastResult, mob) -> void:
+	if hud == null:
+		return
+	# the panel is rebuilt when its target, the held item or the mode changes, and
+	# a few times a second for live lines (health, a clay form's layer)
+	var held_id: String = inventory.held().get("id", "") if inventory else ""
+	var key := ""
+	if mob != null:
+		key = "mob %d %d" % [mob.uid, mob.health]
+	elif hit != null:
+		key = "%s %d %s %s" % [hit.position, world.get_voxel(hit.position), held_id, game_mode]
+	_look_refresh -= 1
+	if key == _look_key and _look_refresh > 0:
+		return
+	_look_key = key
+	_look_refresh = 15
+	var info := {}
+	if mob != null:
+		info = {"title": String(mob.species).capitalize(), "line": "Health %d / %d" % [mob.health, int(mob.def.get("health", 8))]}
+	elif hit != null:
+		var mat := world.get_voxel(hit.position)
+		if mat > 0:
+			info = _block_info(hit.position, mat)
+	hud.set_look(info)
+
+
+func _block_info(p: Vector3i, mat: int) -> Dictionary:
+	var loose := _loose_name(mat)
+	var id := inventory.items.item_for_material(loose) if inventory else ""
+	var title := inventory.items.display_name(id) if id != "" else loose.capitalize()
+	var info := {"title": title}
+	if describe_block.is_valid():
+		var extra: String = describe_block.call(p)
+		if extra != "":
+			info["line"] = extra
+	if mining == null or GameMode.rule(game_mode, "instant_break"):
+		return info
+	var name := GameMaterials.name_of(mat)
+	var e := mining.entry(name)
+	if e.is_empty():
+		info["tool"] = "Unbreakable"
+		info["ok"] = false
+		return info
+	var needed: String = e.get("tool", "")
+	if needed == "":
+		return info
+	var tier := int(e.get("min_tier", 0))
+	info["tool"] = needed.capitalize() + (" (%s or better)" % ["flint", "copper", "bronze", "iron", "steel"][mini(tier, 4)] if tier > 0 else "")
+	var held := inventory.held_def() if inventory else {}
+	info["ok"] = MiningTable.tool_class(held) == needed and int(held.get("tier", 0)) >= tier
+	if not mining.yields(name, held):
+		info["drops"] = false
+	return info
 
 
 ## The voxel being mined (the crack is showing), else x = 1 << 30 (particles, ADR 0026).
@@ -793,8 +895,8 @@ func _sit_step() -> void:
 	velocity = Vector3.ZERO
 	_fall_peak_y = position.y
 	if model and model.visible:
-		model.leg_r.rotation = Vector3(-PI * 0.5, 0, 0.05)
-		model.leg_l.rotation = Vector3(-PI * 0.5, 0, -0.05)
+		model.leg_r.rotation = Vector3(PI * 0.5, 0, -0.05)
+		model.leg_l.rotation = Vector3(PI * 0.5, 0, 0.05)
 	if not ui_open and not autopilot and (Input.is_action_just_pressed("jump") or Input.is_action_just_pressed("descend")):
 		stand_up()
 
@@ -872,19 +974,49 @@ func _make_box_outline() -> MeshInstance3D:
 	return mi
 
 
-func _make_crack_box() -> MeshInstance3D:
+func _make_crack_box() -> Node3D:
 	var box := BoxMesh.new()
 	box.size = Vector3.ONE * 1.01
-	var m := StandardMaterial3D.new()
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.albedo_color = Color(0.05, 0.05, 0.05, 1.0)
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	box.material = m
+	crack_material = ShaderMaterial.new()
+	crack_material.shader = preload("res://assets/shaders/crack.gdshader")
+	crack_material.set_shader_parameter("crack_map", ImageTexture.create_from_image(crack_image()))
+	box.material = crack_material
 	var mi := MeshInstance3D.new()
 	mi.mesh = box
 	mi.position = Vector3(0.5, 0.5, 0.5)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# wrap so global_position addresses the voxel corner
-	var holder := MeshInstance3D.new()
+	var holder := Node3D.new()
 	holder.add_child(mi)
 	return holder
+
+
+## 16x16 crack map: each pixel holds the break progress at which it cracks
+## (1 = never). Random walks from the middle with branches: pixels further
+## along a crack open later, so the cracks grow outwards as the block breaks.
+static func crack_image() -> Image:
+	var img := Image.create(16, 16, false, Image.FORMAT_R8)
+	img.fill(Color(1, 1, 1))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var walks := []   # [x, y, dir x, dir y, start progress]
+	for i in 5:
+		var a := TAU * (i + rng.randf() * 0.6) / 5.0
+		walks.append([7.5, 7.5, cos(a), sin(a), 0.05])
+	while not walks.is_empty():
+		var w: Array = walks.pop_back()
+		var x: float = w[0]
+		var y: float = w[1]
+		var at: float = w[4]
+		for _step in 12:
+			x += w[2] + rng.randf_range(-0.5, 0.5)
+			y += w[3] + rng.randf_range(-0.5, 0.5)
+			at += 0.075
+			if x < 0.0 or y < 0.0 or x >= 16.0 or y >= 16.0 or at >= 0.95:
+				break
+			var px := Vector2i(int(x), int(y))
+			if img.get_pixelv(px).r > at:
+				img.set_pixelv(px, Color(at, at, at))
+			if rng.randf() < 0.12 and walks.size() < 12:
+				walks.append([x, y, w[3] * (1 if rng.randf() < 0.5 else -1), w[2] * (1 if rng.randf() < 0.5 else -1), at])
+	return img

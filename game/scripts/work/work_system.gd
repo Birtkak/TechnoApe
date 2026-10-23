@@ -128,7 +128,7 @@ func _rebuild_view(p: Vector3i) -> void:
 	if not BlockEntities.is_work(e):
 		return
 	var parts: Dictionary = e.view_parts()
-	var v := WorkPalette.make_view(p, parts.get("solid", {}), parts.get("ghost", {}))
+	var v := WorkPalette.make_view(p, parts.get("solid", {}), parts.get("ghost", {}), parts.get("guide", {}))
 	_root.add_child(v)
 	_views[p] = v
 

@@ -34,6 +34,10 @@ var _bag_slot: SlotView                  # the worn bag (ADR 0030), personal inv
 var _bag_slots: Array[SlotView] = []     # its 9 slots, a row under the hotbar while a bag is worn
 var quest_view: QuestBookView
 var _book_button: QuestBookView.BookButton
+# Mouse Tweaks: a button held after a press on a slot drags over more slots
+var _drag_button := 0
+var _drag_shift := false
+var _drag_seen := {}
 
 
 func setup(p_inv: PlayerInventory) -> void:
@@ -147,6 +151,7 @@ func _build_player_slots() -> void:
 			var j := i - PlayerInventory.HOTBAR
 			sv.position = Vector2(16 + (j % 9) * S, 168 + (j / 9) * S)
 		sv.index = i
+		sv.group = "inv"
 		sv.clicked.connect(_on_slot_clicked.bind(i))
 		_panel.add_child(sv)
 		_slots.append(sv)
@@ -157,6 +162,7 @@ func _build_player_slots() -> void:
 		var sv := SlotView.new()
 		sv.position = Vector2(16 + i * S, 332)
 		sv.index = i
+		sv.group = "bag"
 		sv.clicked.connect(func(button: int, shift: bool) -> void: player_inv.click_bag_slot(i, button, shift))
 		sv.visible = false
 		_panel.add_child(sv)
@@ -189,6 +195,7 @@ func _build_craft_slots(width: int) -> void:
 		var sv := SlotView.new()
 		sv.position = origin + Vector2((i % width) * S, (i / width) * S)
 		sv.index = i
+		sv.group = "craft"
 		sv.clicked.connect(_on_craft_clicked.bind(i))
 		_panel.add_child(sv)
 		_craft_slots.append(sv)
@@ -233,6 +240,7 @@ func open_container(c: RefCounted) -> void:
 		sv.position = positions[i]
 		sv.index = i
 		sv.is_output = c.is_output(i)
+		sv.group = "container"
 		sv.clicked.connect(_on_container_clicked.bind(i))
 		_panel.add_child(sv)
 		_container_slots.append(sv)
@@ -326,6 +334,48 @@ func _update_tooltip() -> void:
 	var p := _root.get_local_mouse_position() + Vector2(14, -10)
 	p.x = minf(p.x, _root.size.x - _tooltip.size.x - 4)
 	_tooltip.position = p
+
+
+## Mouse Tweaks: after a press on a slot, dragging with the right button puts
+## one item into each slot passed, with the left button collects that item
+## from them into the cursor, and with shift held shift-clicks each of them.
+## The wheel over a slot moves single items (down: away, up: back in).
+func _input(event: InputEvent) -> void:
+	if not is_open or is_book_open():
+		return
+	if event is InputEventMouseButton:
+		if event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN] and event.pressed:
+			var sv := _slot_at(event.position)
+			if sv != null:
+				player_inv.wheel_move(sv.group, sv.index, event.button_index == MOUSE_BUTTON_WHEEL_DOWN)
+				get_viewport().set_input_as_handled()
+		elif event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
+			if event.pressed:
+				var sv := _slot_at(event.position)
+				_drag_button = event.button_index if sv != null else 0
+				_drag_shift = event.shift_pressed
+				_drag_seen = {sv: true}
+			elif event.button_index == _drag_button:
+				_drag_button = 0
+	elif event is InputEventMouseMotion and _drag_button != 0:
+		var sv := _slot_at(event.position)
+		if sv == null or _drag_seen.has(sv):
+			return
+		_drag_seen[sv] = true
+		if _drag_shift and _drag_button == MOUSE_BUTTON_LEFT:
+			player_inv.drag_shift(sv.group, sv.index)
+		elif _drag_button == MOUSE_BUTTON_RIGHT:
+			player_inv.drag_place_one(sv.group, sv.index)
+		else:
+			player_inv.drag_collect(sv.group, sv.index)
+
+
+## The visible slot (not an output) under a screen position, or null.
+func _slot_at(screen_pos: Vector2) -> SlotView:
+	for sv in _slots + _bag_slots + _craft_slots + _container_slots:
+		if sv.visible and not sv.is_output and sv.group != "" and sv.get_global_rect().has_point(screen_pos):
+			return sv
+	return null
 
 
 ## JEI keys while the screen is open: R recipes, U uses, A bookmark (over
@@ -429,6 +479,7 @@ class SlotView:
 	extends Control
 	signal clicked(button: int, shift: bool)
 	var index := 0
+	var group := ""           # PlayerInventory slot group ("inv", "bag", "craft", "container"); "" = no drags
 	var is_output := false
 	var hint := ""            # drawn faintly while the slot is empty (the bag slot)
 	var _icon: ItemIcon
