@@ -1,5 +1,6 @@
 # 0004 – World scale (0.5 m voxels) and first look (16×16 textures)
 
+- **Superseded** by ADR 0033 (12.5 cm voxels, flat colours); removed with ADR 0036.
 - **Status:** accepted (2026-10-21)
 - **Date:** 2026-10-21
 

@@ -47,7 +47,7 @@ func test_fern_is_a_small_plant() -> void:
 	assert_int(top).is_between(3, 6)   # knee-high, under tall grass
 
 
-func _count(g: WorldGen, origin: Vector3i, size: Vector3i, mats: Array) -> Dictionary:
+func _count(g: FineMacro, origin: Vector3i, size: Vector3i, mats: Array) -> Dictionary:
 	var bytes: PackedByteArray = g.generate_block(origin, size, 0, 2)
 	var out := {}
 	for m in mats:
@@ -59,13 +59,11 @@ func _count(g: WorldGen, origin: Vector3i, size: Vector3i, mats: Array) -> Dicti
 	return out
 
 
-func _gen() -> WorldGen:
-	var g := WorldGen.new()
-	g.configure(1337, S.SEA_LEVEL_VOXEL, S.WORLD_HEIGHT_VOXELS)
-	return g
+func _gen() -> FineMacro:
+	return FineMacro.new()
 
 
-func _near(g: WorldGen, kind: String) -> Vector3i:
+func _near(g: FineMacro, kind: String) -> Vector3i:
 	# continents are ~8 km across (2026-10-23): some biomes lie a continent away
 	var p: Vector3i = g.find_nearest(kind, 0, 0, 32000)
 	assert_int(p.y).override_failure_message("no %s within 16 km" % kind).is_greater(0)
@@ -84,8 +82,9 @@ func test_tree_kinds_grow_their_own_wood() -> void:
 		var c := _count(g, p - Vector3i(half, 8, half), Vector3i(half * 2, 48, half * 2), [k[1], k[2], GameMaterials.WOOD])
 		assert_int(c[k[1]]).override_failure_message("%s: no %s" % [k[0], GameMaterials.name_of(k[1])]).is_greater(0)
 		assert_int(c[k[2]]).override_failure_message("%s: no %s" % [k[0], GameMaterials.name_of(k[2])]).is_greater(c[k[1]])
-		if k[1] != GameMaterials.WOOD:
-			# a bordering forest may reach into the window, but the biome's own wood dominates
+		if k[1] != GameMaterials.WOOD and k[0] != "savanna":
+			# a bordering forest may reach into the window, but the biome's own wood dominates (not in
+			# sparse savanna, whose nearest point borders forests of thick oaks, ADR 0035)
 			assert_int(c[GameMaterials.WOOD]).override_failure_message("%s grew mostly oak" % k[0]).is_less(c[k[1]])
 
 
@@ -109,7 +108,7 @@ func test_badlands_show_strata() -> void:
 func test_frozen_sea_and_ice_spikes() -> void:
 	var g := _gen()
 	var p := _near(g, "frozen_ocean")
-	var c := _count(g, Vector3i(p.x - 24, S.SEA_LEVEL_VOXEL - 4, p.z - 24), Vector3i(48, 8, 48), [GameMaterials.ICE, GameMaterials.WATER])
+	var c := _count(g, Vector3i(p.x - 24, FineMacro.SEA - 4, p.z - 24), Vector3i(48, 8, 48), [GameMaterials.ICE, GameMaterials.WATER])
 	assert_int(c[GameMaterials.ICE]).override_failure_message("frozen ocean: no sea ice").is_greater(1000)
 	p = _near(g, "ice_fields")
 	# spikes stand on the ground: packed ice above the surface height somewhere in a 64 m square
@@ -131,7 +130,7 @@ func test_magma_caves_are_basalt() -> void:
 
 ## Voxels of `mats` from `lo` to `hi` voxels above the local ground, over a
 ## 128 x 128 window around p, sampled per 16 x 16 tile from the tile's ground.
-func _above_ground(g: WorldGen, p: Vector3i, mats: Array, lo: int, hi: int) -> Dictionary:
+func _above_ground(g: FineMacro, p: Vector3i, mats: Array, lo: int, hi: int) -> Dictionary:
 	var out := {}
 	for m in mats:
 		out[m] = 0
@@ -199,8 +198,8 @@ func test_birch_fallen_logs_berries_and_flowers_generate() -> void:
 	var c := _above_ground(g, _near(g, "forest"), [GameMaterials.BIRCH_LOG, GameMaterials.WOOD], 0, 16)
 	assert_int(c[GameMaterials.BIRCH_LOG]).override_failure_message("forest: no birches").is_greater(0)
 	assert_int(c[GameMaterials.WOOD]).override_failure_message("forest: no oaks left").is_greater(c[GameMaterials.BIRCH_LOG])
-	# fallen logs: a few per hectare, so look over a 128 m square, ground to canopy
-	c = _count(g, _near(g, "old_growth_forest") - Vector3i(128, 32, 128), Vector3i(256, 64, 256), [GameMaterials.OAK_BARK])
+	# fallen logs, stumps and trunks: bark near the ground over a 64 m square
+	c = _above_ground(g, _near(g, "old_growth_forest"), [GameMaterials.OAK_BARK], 0, 4)
 	assert_int(c[GameMaterials.OAK_BARK]).override_failure_message("old growth: no fallen logs").is_greater(15)
 	c = _above_ground(g, _near(g, "taiga"), [GameMaterials.BLUEBERRY_BUSH], 0, 2)
 	assert_int(c[GameMaterials.BLUEBERRY_BUSH]).override_failure_message("taiga: no blueberries").is_greater(0)

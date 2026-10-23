@@ -97,20 +97,22 @@ func test_carcass_model_and_drops() -> void:
 	assert_str(GameMaterials.name_of(GameMaterials.CARCASS)).is_equal("carcass")
 
 
-func _gen() -> WorldGen:
-	var g := WorldGen.new()
-	g.configure(1337, S.SEA_LEVEL_VOXEL, S.WORLD_HEIGHT_VOXELS)
-	return g
+func _gen() -> FineMacro:
+	return FineMacro.new()
 
 
 func test_old_kills_lie_in_the_wild() -> void:
 	var g := _gen()
 	var p: Vector3i = g.find_nearest("plains", 0, 0, 12000)
-	var bytes: PackedByteArray = g.generate_block(p - Vector3i(128, 24, 128), Vector3i(256, 48, 256), 0, 2)
+	# the ground of a 128 m square, one 8 m tile at a time
 	var n := 0
-	for i in range(0, bytes.size(), 2):
-		if bytes.decode_u16(i) == GameMaterials.CARCASS:
-			n += 1
+	for tz in range(-128, 128, 16):
+		for tx in range(-128, 128, 16):
+			var h := g.height_at(p.x + tx + 8, p.z + tz + 8)
+			var bytes: PackedByteArray = g.generate_block(Vector3i(p.x + tx, h - 3, p.z + tz), Vector3i(16, 6, 16), 0, 2)
+			for i in range(0, bytes.size(), 2):
+				if bytes.decode_u16(i) == GameMaterials.CARCASS:
+					n += 1
 	assert_int(n).override_failure_message("no carcass in 128 m of plains").is_greater(0)
 
 

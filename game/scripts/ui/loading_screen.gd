@@ -1,20 +1,21 @@
 class_name LoadingScreen
 extends CanvasLayer
 
-## First-load cover (ADR 0020): a dark panel with a progress bar until the
+## Loading cover (ADR 0020): a dark panel with a progress bar until the
 ## simulation bubble holds its chunks and godot_voxel's workers have drained
-## the initial streaming burst, then a short fade. Without it the first
-## seconds show the world assembling block by block around the player.
-## Progress is 1 - pending / peak pending tasks (monotonic); a cap ends it
-## regardless, so a slow horizon never hides the game.
+## the streaming burst, then a short fade. Main puts it up at the start, after a
+## respawn and after a long teleport, and freezes the player and the animals
+## under it: when it lifts, the world is there. Progress is 1 - pending / peak
+## pending tasks (monotonic); a generous cap only guards against a hang.
 
 signal finished   # the cover starts fading: the terrain around the player is in
 
-const CAP_S := 15.0
+const CAP_S := 120.0       # generation may take its time (the user); the cap only guards against a hang
 const IDLE_FRAMES := 20        # frames with no voxel task before the fade starts
 const FADE_S := 0.6
 
 var bubble: SimBubble
+var title := "Generating world"
 var _cover: ColorRect
 var _bar: ColorRect
 var _bar_bg: ColorRect
@@ -34,7 +35,7 @@ func _ready() -> void:
 	_cover.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_cover)
 	_label = Label.new()
-	_label.text = "Generating world"
+	_label.text = title
 	_label.add_theme_font_size_override("font_size", 22)
 	_label.add_theme_color_override("font_color", Color(0.85, 0.85, 0.8))
 	_label.set_anchors_preset(Control.PRESET_CENTER)
@@ -68,6 +69,7 @@ func _process(delta: float) -> void:
 	if _idle >= IDLE_FRAMES or _elapsed >= CAP_S:
 		_fading = true
 		_bar.size.x = 300.0
+		print("loading cover '%s' lifted after %.1f s%s" % [title, _elapsed, "" if _elapsed < CAP_S else " (cap)"])
 		finished.emit()
 		var tw := create_tween()
 		tw.tween_property(_cover, "modulate:a", 0.0, FADE_S)

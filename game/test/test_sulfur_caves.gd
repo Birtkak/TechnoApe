@@ -60,8 +60,7 @@ func test_water_on_lava_makes_obsidian() -> void:
 
 
 func test_sulfur_cave_generates_near_spawn() -> void:
-	var g := WorldGen.new()
-	g.configure(1337, S.SEA_LEVEL_VOXEL, S.WORLD_HEIGHT_VOXELS)
+	var g := FineMacro.new()
 	var p: Vector3i = g.find_nearest("sulfur_cave", 0, 0, 4096)
 	assert_int(p.y).override_failure_message("no sulfur cave within 2 km").is_greater(0)
 	var size := Vector3i(48, 24, 48)

@@ -1,9 +1,0 @@
-<Project Sdk="Godot.NET.Sdk/4.7.2">
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <EnableDynamicLoading>true</EnableDynamicLoading>
-    <RootNamespace>P2VoxelBenchmark</RootNamespace>
-    <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
-</Project>

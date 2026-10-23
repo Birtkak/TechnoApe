@@ -26,6 +26,7 @@ var debug_menu: DebugMenu
 var _tick_accum := 0.0
 var _save_accum := 0.0
 var _loading: LoadingScreen
+var startup_ms := {}   # ms since _ready began, per startup step (printed, and in DebugCapture's JSON)
 var farming: Farming                 # tilled farmland and crops (ADR 0022)
 var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
@@ -53,9 +54,13 @@ var item_stats := {"spawned": 0, "picked": 0, "merged": 0, "expired": 0, "invali
 
 
 func _ready() -> void:
+	var t0 := Time.get_ticks_usec()
+	var mark := func(step: String) -> void:   # where the frozen first frame goes (title -> game)
+		startup_ms[step] = snappedf((Time.get_ticks_usec() - t0) / 1000.0, 0.1)
 	world = World.new()
 	world.name = "World"
 	add_child(world)
+	mark.call("world")
 
 	# sky, sun, fog, bloom, SSAO, underwater / underground looks (scripts/visuals/atmosphere.gd)
 	atmosphere = Atmosphere.new()
@@ -84,6 +89,7 @@ func _ready() -> void:
 	farming.set_voxel = set_world_voxel
 	if Settings.persist_world:
 		farming.load_dict(_load_json(_save_path("farms")))
+	mark.call("data")
 
 	player = Player.new()
 	player.name = "Player"
@@ -94,11 +100,14 @@ func _ready() -> void:
 	_spawn_pos = player.position
 	add_child(player)
 	player.setup_inventory(player_inv, mining, world.prop_material)
+	mark.call("spawn")
 	atmosphere.setup(world, player.camera)
+	mark.call("atmosphere")
 	ocean_life = OceanLife.new()
 	ocean_life.name = "OceanLife"
 	add_child(ocean_life)
 	ocean_life.setup(world, player.camera)
+	mark.call("ocean_life")
 	player.voxel_broken.connect(_on_broken)
 	player.voxel_placed.connect(_on_placed)
 	player.voxels_dug.connect(_on_dug)
@@ -134,6 +143,7 @@ func _ready() -> void:
 	if Settings.persist_world:
 		mobs.load_file(_save_path("mobs"))
 	mobs.spawning = DebugCapture.mob_spawning
+	mark.call("mobs")
 	player.entity_pick = mobs.pick
 	player.entity_attack = func(m: Mob, dmg: int) -> void: mobs.attack(m, dmg, player.position)
 	player.entity_use = func(m: Mob, held: Dictionary) -> bool:
@@ -147,15 +157,11 @@ func _ready() -> void:
 	game_hud = GameHud.new()
 	game_hud.name = "Hud"
 	add_child(game_hud)
-	# covers the first seconds while the terrain streams in (ADR 0020)
-	_loading = LoadingScreen.new()
-	_loading.name = "LoadingScreen"
-	_loading.bubble = bubble
-	_loading.finished.connect(func() -> void:
-		bubble.hold_pushes = false
-		player.edits_locked = false)
-	player.edits_locked = true
-	add_child(_loading)
+	# covers the start until the terrain around the player and the bubble are in (ADR 0020)
+	cover_until_loaded("Generating world")
+	_loading.finished.connect(func() -> void: bubble.hold_pushes = false)
+	player.moved_far.connect(func() -> void: cover_until_loaded("Loading"))
+	mark.call("bubble_hud_loading")
 	game_hud.setup(player_inv)
 	player.hud = game_hud
 	inv_screen = InventoryScreen.new()
@@ -180,6 +186,7 @@ func _ready() -> void:
 	torch_lights.name = "TorchLights"
 	torch_lights.main = self
 	add_child(torch_lights)
+	mark.call("ui_work")
 
 	# chat, slash commands, game modes and the playtest debug menu (ADR 0018)
 	commands = CommandRegistry.new()
@@ -222,6 +229,8 @@ func _ready() -> void:
 	hud.main = self
 	add_child(hud)
 	hud.toggle()                 # F3 overlay off by default
+	mark.call("chat_menus_player")
+	print("startup_ms " + JSON.stringify(startup_ms))
 
 	DebugCapture.attach(self)
 	for stack in DebugCapture.give:
@@ -603,6 +612,42 @@ func _on_game_mode_changed(mode: String) -> void:
 ## Godot 4.4+ can run the game inside the editor's Game tab; minimizing that would hide it.
 func _embedded_in_editor() -> bool:
 	return Engine.has_method("is_embedded_in_editor") and bool(Engine.call("is_embedded_in_editor"))
+
+
+## The loading screen until the world around the player is in: at the start (new world or save),
+## after a respawn and after a long teleport. The player and the animals stand still under it, so
+## nothing happens before you can see it; workers and mesh uploads run flat out, since the cover
+## hides any stutter. Autopilot runs only get the first cover and freeze nothing (their scripts act
+## from the start).
+func cover_until_loaded(title: String) -> void:
+	if _loading != null and is_instance_valid(_loading) and not _loading.is_done():
+		return
+	var first := _loading == null
+	if not first and DebugCapture.autopilot:
+		return
+	_loading = LoadingScreen.new()
+	_loading.name = "LoadingScreen"
+	_loading.title = title
+	_loading.bubble = bubble
+	player.edits_locked = true
+	var frozen := not DebugCapture.autopilot
+	if frozen:
+		player.process_mode = Node.PROCESS_MODE_DISABLED
+		mobs.process_mode = Node.PROCESS_MODE_DISABLED
+	var threads := VoxelEngine.get_thread_count()
+	VoxelEngine.set_thread_count(maxi(threads, OS.get_processor_count() - 2))
+	var has_budget := "mesh_upload_budget_mb" in world.terrain
+	if has_budget:
+		world.terrain.mesh_upload_budget_mb = 0.0
+	_loading.finished.connect(func() -> void:
+		player.edits_locked = false
+		if frozen:
+			player.process_mode = Node.PROCESS_MODE_INHERIT
+			mobs.process_mode = Node.PROCESS_MODE_INHERIT
+		VoxelEngine.set_thread_count(threads)
+		if has_budget:
+			world.terrain.mesh_upload_budget_mb = Settings.mesh_upload_budget_mb)
+	add_child(_loading)
 
 
 ## Runs `cb` once the loading screen is gone (now, if it already is).

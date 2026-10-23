@@ -1,5 +1,6 @@
 # 0029 – The micro simulation window (ADR 0012 step 1 in the game)
 
+- **Superseded** by ADR 0033 (the bubble ticks the world's voxels); the code was deleted, ADR 0036.
 - **Status:** accepted for the flag (`micro_sim=1`, implies `near_field=1`); the default stays off until the user plays it
 - **Date:** 2026-10-23 (the user: "job 1" of `docs/plans/fable-backlog.md`)
 

@@ -100,7 +100,7 @@ private:
     };
 
     Ref<WorldGen> g_;
-    FastNoiseLite n_ground_, n_ground2_, n_hump_, n_leaf_, n_litter_, n_meadow_;
+    FastNoiseLite n_ground_, n_ground2_, n_hump_, n_leaf_, n_litter_, n_meadow_, n_pool_;
 
     MacroPt macro_point(int mx, int mz, const WorldGen::Ruin *ruins, int nruins) const;
     float ground_noise(int x, int z) const;

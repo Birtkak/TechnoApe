@@ -1,10 +1,12 @@
 # World generation
 
+> **2026-10-23:** the world is drawn at 12.5 cm by `FineGen` (ADR 0033) over the 0.5 m macro layer described here; landforms and forests changed in ADR 0035. Voxel counts below are macro voxels (0.5 m); the 0.5 m block generator and its probes were removed (ADR 0036).
+
 - **Date:** 2026-10-22
 - **Code:** `prototypes/p5-sim-spike/src/world_gen.{h,cpp}` (native, in the
   technosim extension), bridged by `game/scripts/generator.gd`
   (`VoxelGeneratorScript`: one native call per block, one buffer copy).
-- **Debug:** `game/tools/gen_probe.gd` prints timings, biome mix, height
+- **Debug:** `game/tools/terrain_map.gd` draws the land (hillshade, landform mix); `fine_gen_bench.gd` times blocks; formerly `gen_probe.gd` printed timings, biome mix, height
   range, cave share and writes a biome map PNG; `WorldGen.column_info(x, z)`
   explains any column.
 
@@ -184,7 +186,7 @@ biome now). LOD 0 block 595 us.
   clean): cave floors get stalagmites 2.5 %, pebbles 6 %, mushrooms 2 %
   (fungal cave biome: 12.5 %, half red); ceilings get stalactites 4 %.
   Stalactites/stalagmites have a core collision box (0.5 voxel wide).
-- Checks: `tools/detail_probe.gd` generates 192x192 columns around plains,
+- Checks: the retired `tools/detail_probe.gd` generates 192x192 columns around plains,
   forest, marsh and highlands and asserts nothing floats, every stalactite
   has a ceiling, lily pads sit on water, reeds come in pairs (seed 1337: 0 bad
   of ~40 000 detail voxels). `tools/model_sheet.gd` renders every micro model
@@ -253,7 +255,7 @@ GregTech-style veins replace the 3D ore noise (developer, ADR 0019; plan in
 - Debug: `WorldGen.vein_at(x, z)`, `column_info()` gains `vein`, `vein_y`,
   `in_vein_column`; `find_nearest("<type>_vein")` returns the nearest vein
   under dry land, so `/locate copper_vein` and `/goto copper_vein` work, and
-  so does the autopilot `target=copper_vein`. `tools/vein_probe.gd` lists the
+  so does the autopilot `target=copper_vein`. `tools/fine_probe.gd -- vein=1` finds a vein (the retired `vein_probe.gd` listed the
   veins around a point with their depth and indicator count.
 - Measured (seed 1337, 8x8 cells around the origin): 38 veins (coal 15,
   copper 12, iron 6, cassiterite 3, copper-iron 2); land veins whose top is

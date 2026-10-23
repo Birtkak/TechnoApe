@@ -1,5 +1,6 @@
 # 0021 – The ray-cast near field in the game (ADR 0012 step 3)
 
+- **Superseded** by ADR 0033 (meshed all the way in); the code was deleted, ADR 0036.
 - **Status:** accepted for the flag; the default stays off until the user plays it
 - **Date:** 2026-10-23 (the user: "Go" on "spend the Fable credits on ADR 0012
   step 3, wiring the ray-cast near field into the real game")

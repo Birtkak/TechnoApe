@@ -347,6 +347,7 @@ func _finish() -> void:
 		for c in _blast_centres:
 			at.append(GameMaterials.name_of(_main.world.get_voxel(c)))
 		s["blast_terrain_at_centres"] = at
+	s["startup_ms"] = _main.startup_ms
 	s["settings"] = {"seed": Settings.world_seed, "seed_text": Settings.world_seed_text, "render_distance_m": Settings.render_distance_m, "view_distance_m": Settings.view_distance_m,
 		"simulation_distance_m": Settings.simulation_distance_m, "lod_count": Settings.lod_count, "sim_tick_hz": Settings.sim_tick_hz}
 	print(JSON.stringify(s))

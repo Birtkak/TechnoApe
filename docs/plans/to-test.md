@@ -10,6 +10,30 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Build of 2026-10-23 night: voxel world only, loading, textures (ADR 0036)
+
+Fixes your bug report (grey world that never loaded): the Settings screen still offered the old
+0.5 m distances (48/64/96 m), and 96 m is far more than the 12.5 cm world can load. It now offers
+16 or 24 m, and old settings files are clamped. Ultra and F4 "Terrain detail" are gone.
+
+**Loading**
+- [ ] New world, and loading a save: the loading screen stays until the ground around you is
+      there, then you can move. You and the animals stand still under it. How long does it take?
+- [ ] Die (or `/kill`) far from your spawn point, and `/goto old_growth_forest`: a "Loading"
+      screen until the place is there, never a grey world, nothing hits you meanwhile.
+- [ ] `/goto sulfur_cave` (or `lush_cave`): you land in the cave now, not on the surface above it;
+      pools of sludge (or water) on the cave floor.
+
+**Textures** (a first pass: tell me what feels off)
+- [ ] Ground, rock, sand, snow and leaves: soft natural colours, a few close shades each.
+- [ ] Ores stand out in their own colours (coal black, iron rust, copper orange with green, tin silver).
+- [ ] Grass voxels are green on every side; tall grass lighter than the ground; teal water.
+- [ ] Crafting table, furnace, chest, held and dropped blocks: drawn in small flat cells (8 per
+      block side) instead of pixel art. Still readable?
+
+**Known, no need to report**
+- Old growth at eye level sits right at the frame budget (p99 7.8-8.5 ms).
+
 ## Build of 2026-10-23 evening: landforms and living forests (ADR 0035)
 
 **The land**

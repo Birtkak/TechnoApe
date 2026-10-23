@@ -1,5 +1,6 @@
 # 0006 – In-world voxels: chiseling every voxel, block entities, decor
 
+- **Superseded** by ADR 0033/0034 (no chisel grid: chiseling is the brush at size 1); the block-entity layer lives on; removed with ADR 0036.
 - **Status:** proposed (requested 2026-10-22: "make sure in the future we
   can chisel every voxel so builds will be unlimited possibilities", "get
   inspiration from Vintage Story", "freedom and functionality for chests and

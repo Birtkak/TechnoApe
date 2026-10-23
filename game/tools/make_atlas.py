@@ -383,6 +383,65 @@ def leaf_litter():
     return img
 
 
+def palette(entries, seed):
+    """A terrain palette (ADR 0036): every terrain voxel shows one texel of its material's tile,
+    picked by a hash of its position, so a tile is a palette whose texel counts are the weights.
+    entries = [("#rrggbb", weight), ...]; the 256 texels hold the colours in those proportions,
+    shuffled with the tile's own RNG (no pattern: patterns mean nothing at one texel per voxel)."""
+    rng = random.Random(seed)
+    total = sum(w for _, w in entries)
+    cols = []
+    for hexc, w in entries:
+        c = tuple(int(hexc[i:i + 2], 16) for i in (1, 3, 5))
+        cols += [c] * round(256 * w / total)
+    while len(cols) < 256:
+        cols.append(cols[-1])
+    cols = cols[:256]
+    rng.shuffle(cols)
+    img = Image.new("RGBA", (TILE, TILE))
+    px = img.load()
+    for i, c in enumerate(cols):
+        px[i % TILE, i // TILE] = c + (255,)
+    return img
+
+
+# Terrain palettes: natural, a little warm and soft, a few close shades per material so ground,
+# rock and foliage read as surfaces of many voxels (Lay of the Land) instead of noisy textures.
+STONE = [("#8a8a87", 5), ("#7c7d7c", 4), ("#979590", 3), ("#6d6e6f", 2), ("#a5a198", 1)]
+PAL = {
+    "stone": STONE,
+    "dirt": [("#7a5638", 5), ("#6b4a30", 4), ("#8a6442", 3), ("#5c3f28", 2), ("#96714b", 1)],
+    "grass": [("#5f9a3c", 5), ("#6ea844", 4), ("#548c35", 4), ("#7fb24c", 2), ("#4a7d2f", 2), ("#8fbb57", 1)],
+    "sand": [("#d8c48e", 5), ("#cdb67f", 4), ("#e2d09f", 3), ("#c2a970", 2)],
+    "wood": [("#a8814f", 4), ("#9a7446", 4), ("#b58d5a", 3), ("#8a653d", 2)],
+    "ash": [("#9a9790", 5), ("#8a8780", 4), ("#aaa79f", 3), ("#77746e", 2)],
+    "bedrock": [("#3a3a3e", 5), ("#2e2e32", 4), ("#4a4a4f", 3), ("#25252a", 2)],
+    "snow": [("#eef2f7", 6), ("#e2e8f0", 4), ("#f8fafc", 3), ("#d6dde8", 1)],
+    "gravel": [("#8c8781", 4), ("#7a7570", 4), ("#9d9890", 3), ("#6b6661", 2), ("#a89f92", 1)],
+    "coal": [("#2f2f31", 6), ("#3e3e41", 4), ("#4d4b48", 2), ("#8a8a87", 2)],
+    "iron": [("#b9825e", 5), ("#a06a4a", 4), ("#c99a74", 3), ("#8a8a87", 2)],
+    "copper": [("#c8743f", 5), ("#b0602f", 4), ("#d98c55", 2), ("#4f9a7e", 2), ("#8a8a87", 2)],
+    "tin": [("#c9ccd2", 5), ("#b0b4bb", 4), ("#dde0e5", 2), ("#8f949c", 3)],
+    "leaves": [("#3f7a2e", 5), ("#4c8a34", 4), ("#356a28", 4), ("#5a9a3c", 3), ("#2c5a22", 2), ("#6aa846", 1)],
+    "sandstone": [("#d4bd85", 5), ("#c8ae74", 4), ("#ddc994", 3), ("#b89c64", 2)],
+    "clay": [("#9aa2ad", 5), ("#8c95a1", 4), ("#a8afb8", 3), ("#7f8894", 2)],
+    "tall_grass": [("#7cbc4f", 5), ("#8dc75a", 4), ("#6aa842", 4), ("#9ed06a", 2)],
+    "plant_green": [("#5e9c44", 5), ("#6aa94c", 4), ("#4f8a3a", 3)],
+    "dead_bush": [("#8d6a40", 5), ("#7a5a35", 4), ("#a07c4c", 3)],
+    "moss": [("#4f7d32", 5), ("#5d8f3a", 4), ("#426b2a", 3), ("#6a9c44", 1)],
+    "sulfur": [("#d6c03a", 5), ("#c4aa2c", 4), ("#e6d35a", 3), ("#a88f22", 2)],
+    "obsidian": [("#221a30", 5), ("#2e2440", 4), ("#3a2e52", 2), ("#18121f", 2)],
+    "spruce_needles": [("#2f5e45", 5), ("#264f3a", 4), ("#3a6d50", 3), ("#1f4230", 2)],
+    "acacia_leaves": [("#7c8f3a", 5), ("#6c7f30", 4), ("#8ea046", 3), ("#5d6f28", 2)],
+    "jungle_leaves": [("#3d9132", 5), ("#2f7a28", 4), ("#4ea33c", 3), ("#256622", 2)],
+    "birch_leaves": [("#86ac4c", 5), ("#96bb58", 4), ("#75993f", 3), ("#a6c565", 2)],
+    "fern": [("#4f9a3e", 5), ("#5daa48", 4), ("#3f8432", 3)],
+    "basalt": [("#4a4a50", 5), ("#3e3e44", 4), ("#56565c", 3), ("#333338", 2)],
+    "packed_ice": [("#8cb0de", 5), ("#9cbce4", 4), ("#b0ccec", 3)],
+    "ice": [("#aacdf0", 5), ("#bcd8f4", 4), ("#9cc0e6", 3), ("#d2e6fa", 1)],
+}
+
+
 def spotted(base, spot):
     img = noise_tile(base, 12, None, 0)
     for (sx, sy) in [(3, 3), (10, 4), (6, 9), (12, 11), (2, 12)]:
@@ -393,36 +452,36 @@ def spotted(base, spot):
 
 
 tiles = [
-    noise_tile((128, 128, 132), 14, (100, 100, 104), 0.08),   # 0 stone
-    noise_tile((120, 86, 56), 14, (90, 60, 40), 0.1),         # 1 dirt
-    noise_tile((70, 150, 60), 14, (50, 120, 45), 0.12),       # 2 grass top
-    grass_side(),                                             # 3 grass side
-    noise_tile((218, 196, 120), 10, (200, 180, 110), 0.1),    # 4 sand
-    noise_tile((50, 100, 220), 10, (80, 130, 240), 0.15),     # 5 water
-    noise_tile((140, 95, 50), 8, None, 0, stripes=True),      # 6 wood
+    palette(PAL["stone"], 0),                                 # 0 stone
+    palette(PAL["dirt"], 1),                                  # 1 dirt
+    palette(PAL["grass"], 2),                                 # 2 grass top
+    palette(PAL["grass"], 3),                                 # 3 grass side: a grass voxel is grass all round
+    palette(PAL["sand"], 4),                                  # 4 sand
+    noise_tile((44, 128, 156), 10, (78, 160, 182), 0.15),     # 5 water: teal (animated, scrolls)
+    palette(PAL["wood"], 6),                                  # 6 wood (log heartwood, placed logs)
     noise_tile((240, 110, 30), 16, (255, 200, 60), 0.2),      # 7 lava
-    noise_tile((150, 148, 140), 10, (120, 118, 112), 0.15),   # 8 ash
+    palette(PAL["ash"], 8),                                   # 8 ash
     noise_tile((60, 50, 30), 8, (40, 35, 20), 0.1),           # 9 oil
     noise_tile((225, 228, 235), 8),                           # 10 steam
     noise_tile((80, 80, 84), 10),                             # 11 smoke
     noise_tile((255, 150, 40), 22, (255, 230, 90), 0.3),      # 12 fire
-    noise_tile((40, 40, 44), 10, (60, 60, 64), 0.15),         # 13 bedrock
-    noise_tile((240, 243, 250), 6),                           # 14 snow
-    noise_tile((140, 135, 128), 18, (100, 96, 92), 0.2),      # 15 gravel
-    noise_tile((128, 128, 132), 14, (30, 30, 32), 0.22),      # 16 coal ore
-    noise_tile((128, 128, 132), 14, (200, 150, 110), 0.22),   # 17 iron ore
-    noise_tile((128, 128, 132), 14, (210, 120, 70), 0.22),    # 18 copper ore
-    noise_tile((128, 128, 132), 14, (200, 205, 215), 0.22),   # 19 tin ore
-    noise_tile((45, 120, 40), 22, (25, 80, 30), 0.3),         # 20 leaves
-    sandstone(),                                              # 21 sandstone
-    noise_tile((150, 158, 170), 10, (120, 128, 140), 0.12),   # 22 clay
-    noise_tile((96, 182, 74), 14, (70, 150, 55), 0.15),       # 23 tall grass body (micro-voxel model), lighter than grass top
-    noise_tile((96, 182, 74), 14, (70, 150, 55), 0.15),       # 24 flower body (micro-voxel model)
+    palette(PAL["bedrock"], 13),                              # 13 bedrock
+    palette(PAL["snow"], 14),                                 # 14 snow
+    palette(PAL["gravel"], 15),                               # 15 gravel
+    palette(PAL["coal"], 16),                                 # 16 coal ore: mostly ore, a little host rock
+    palette(PAL["iron"], 17),                                 # 17 iron ore
+    palette(PAL["copper"], 18),                               # 18 copper ore (with malachite green)
+    palette(PAL["tin"], 19),                                  # 19 tin ore
+    palette(PAL["leaves"], 20),                               # 20 leaves (oak)
+    palette(PAL["sandstone"], 21),                            # 21 sandstone
+    palette(PAL["clay"], 22),                                 # 22 clay
+    palette(PAL["tall_grass"], 23),                           # 23 tall grass, lighter than the grass it stands on
+    palette(PAL["tall_grass"], 24),                           # 24 flower stem
     cactus(),                                                 # 25 cactus
-    noise_tile((135, 95, 50), 14, (100, 70, 35), 0.2),        # 26 dead bush (micro-voxel model)
-    noise_tile((170, 205, 240), 8, (210, 230, 250), 0.15),    # 27 ice
-    noise_tile((96, 182, 74), 14, (70, 150, 55), 0.15),       # 28 flower_red body (micro-voxel model)
-    noise_tile((60, 140, 55), 12),                            # 29 leaf green (stems)
+    palette(PAL["dead_bush"], 26),                            # 26 dead bush
+    palette(PAL["ice"], 27),                                  # 27 ice
+    palette(PAL["tall_grass"], 28),                           # 28 flower_red stem
+    palette(PAL["plant_green"], 29),                          # 29 leaf green (stems)
     noise_tile((245, 215, 60), 12, (255, 240, 120), 0.2),     # 30 petal yellow
     noise_tile((220, 55, 55), 12, (250, 110, 110), 0.2),      # 31 petal red
     crafting_table_top(),                                     # 32 crafting table top
@@ -439,11 +498,11 @@ tiles = [
     noise_tile((110, 175, 70), 10, (150, 200, 90), 0.2),      # 43 lily pad, lighter than grass so it reads on a puddle
     noise_tile((150, 120, 70), 12, (120, 95, 55), 0.2),       # 44 reed head, brown
     spotted((70, 200, 210), (190, 250, 255)),                 # 45 glow mushroom cap (emissive in the shader)
-    noise_tile((48, 92, 40), 10, (70, 120, 55), 0.25),        # 46 moss carpet
+    palette(PAL["moss"], 46),                                 # 46 moss
     noise_tile((150, 14, 20), 14, (95, 6, 12), 0.22),         # 47 blood (liquid; its stains come from scripts/visuals/stain_map.gd)
     noise_tile((150, 226, 30), 16, (226, 255, 120), 0.2),     # 48 toxic sludge: acid lime with bubbles, see-through like water
-    noise_tile((214, 192, 58), 12, (168, 138, 30), 0.22),     # 49 sulfur crust
-    noise_tile((30, 20, 42), 6, (76, 54, 110), 0.10),         # 50 obsidian
+    palette(PAL["sulfur"], 49),                               # 49 sulfur crust
+    palette(PAL["obsidian"], 50),                             # 50 obsidian
     wool(),                                                   # 51 wool (blocks, carpet, wild carrot flowers)
     farmland((104, 70, 44), (66, 42, 26)),                    # 52 farmland top, dry
     farmland((74, 48, 30), (44, 28, 16)),                     # 53 farmland top, moist (hydrated)
@@ -453,24 +512,24 @@ tiles = [
     log_top((176, 136, 82), (140, 100, 56), (110, 76, 40)),   # 56 oak log top
     bark((70, 50, 32), (40, 28, 18)),                         # 57 spruce log side: dark bark
     log_top((150, 112, 66), (118, 84, 46), (70, 50, 32)),     # 58 spruce log top
-    noise_tile((38, 78, 52), 12, (24, 58, 40), 0.3),          # 59 spruce needles: dark blue-green
+    palette(PAL["spruce_needles"], 59),                       # 59 spruce needles: dark blue-green
     bark((112, 106, 96), (78, 72, 64)),                       # 60 acacia log side: grey bark
     log_top((200, 104, 52), (168, 82, 40), (112, 106, 96)),   # 61 acacia log top: orange heartwood
-    noise_tile((112, 136, 44), 16, (86, 110, 30), 0.3),       # 62 acacia leaves: olive
+    palette(PAL["acacia_leaves"], 62),                        # 62 acacia leaves: olive
     bark((128, 98, 56), (88, 92, 40)),                        # 63 jungle log side: mossy streaks
     log_top((180, 140, 90), (150, 110, 66), (128, 98, 56)),   # 64 jungle log top
-    noise_tile((40, 150, 36), 20, (24, 110, 24), 0.35),       # 65 jungle leaves: bright, broad-leaved
+    palette(PAL["jungle_leaves"], 65),                        # 65 jungle leaves: bright
     terracotta((176, 96, 54), (196, 120, 70)),                # 66 terracotta orange
     terracotta((140, 70, 52), (160, 88, 64)),                 # 67 terracotta red-brown
     terracotta((208, 176, 140), (224, 196, 162)),             # 68 terracotta cream
-    basalt_top(),                                             # 69 basalt top
-    basalt_side(),                                            # 70 basalt side
-    noise_tile((140, 176, 222), 6, (176, 204, 238), 0.12),    # 71 packed ice: denser, bluer than ice
-    noise_tile((70, 146, 58), 12, (50, 120, 44), 0.2),        # 72 fern frond (micro-voxel model)
+    palette(PAL["basalt"], 69),                               # 69 basalt top
+    palette(PAL["basalt"], 70),                               # 70 basalt side
+    palette(PAL["packed_ice"], 71),                           # 71 packed ice: denser, bluer than ice
+    palette(PAL["fern"], 72),                                 # 72 fern frond
     # content pass 2: birch, blueberries, pumpkins, flower petals
     birch_bark(),                                             # 73 birch log side
     log_top((214, 196, 150), (186, 166, 120), (222, 220, 210)),   # 74 birch log top
-    noise_tile((120, 168, 70), 16, (96, 140, 52), 0.3),       # 75 birch leaves: light, yellowish
+    palette(PAL["birch_leaves"], 75),                         # 75 birch leaves: light, yellowish
     noise_tile((70, 80, 170), 14, (110, 120, 210), 0.25),     # 76 blueberries
     pumpkin_side(),                                           # 77 pumpkin side
     pumpkin_top(),                                            # 78 pumpkin top

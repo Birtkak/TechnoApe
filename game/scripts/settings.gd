@@ -102,11 +102,14 @@ const PLAYTEST_PREFS := "user://playtest.cfg"   # the debug menu's start options
 # ADR 0031 measured; "high" is the look the budget was measured with.
 signal user_settings_changed
 var user_settings_path := "user://settings.cfg"   # menu_test=1 points it elsewhere
+## Full detail (LOD 0) radius and LOD ring the menus allow: in a forest 24 m holds p99 6.8 ms,
+## 24 m with 32 m rings 9.4 ms, 32 m 21 ms and 3.7 GB (ADR 0035).
+const MIN_DETAIL_M := 16.0
+const MAX_DETAIL_M := 24.0
 const GRAPHICS_PRESETS := {
 	"low": {"shadow_quality": "low", "ssao": false, "bloom": false, "render_distance_m": 16.0, "lod_ring_m": 16.0},
 	"medium": {"shadow_quality": "medium", "ssao": true, "bloom": true, "render_distance_m": 24.0, "lod_ring_m": 24.0},
 	"high": {"shadow_quality": "high", "ssao": true, "bloom": true, "render_distance_m": 24.0, "lod_ring_m": 24.0},
-	"ultra": {"shadow_quality": "high", "ssao": true, "bloom": true, "render_distance_m": 32.0, "lod_ring_m": 32.0},
 }
 ## Sun shadows per quality: Atmosphere mode, cascades, distance and filter (ADR 0031's knobs).
 const SHADOW_QUALITY := {
@@ -116,7 +119,7 @@ const SHADOW_QUALITY := {
 	"high": {"mode": "soft", "splits": 4, "distance_m": 96.0, "filter": 2},
 }
 const MAX_FPS_CHOICES := [60, 120, 144, 240, 0]   # 0 = unlimited
-var graphics_preset := "high"           # low | medium | high | ultra | custom (a value changed by hand)
+var graphics_preset := "high"           # low | medium | high | custom (a value changed by hand)
 var shadow_quality := "high"            # off | low | medium | high
 var ssao := true
 var bloom := true
@@ -214,7 +217,7 @@ func apply_cmdline() -> Dictionary:
 			"item_despawn_s": item_despawn_s = float(kv[1])
 			"gamemode": game_mode = kv[1]
 			"minimized": start_minimized = kv[1] == "1"
-			"graphics": apply_graphics_preset(kv[1])   # graphics=low|medium|high|ultra (ADR 0032)
+			"graphics": apply_graphics_preset(kv[1])   # graphics=low|medium|high (ADR 0032)
 	return args
 
 
@@ -227,8 +230,9 @@ func load_user_settings() -> void:
 	shadow_quality = String(cf.get_value("video", "shadows", shadow_quality))
 	ssao = bool(cf.get_value("video", "ssao", ssao))
 	bloom = bool(cf.get_value("video", "bloom", bloom))
-	render_distance_m = float(cf.get_value("video", "render_distance_m", render_distance_m))
-	lod_ring_m = float(cf.get_value("video", "lod_ring_m", lod_ring_m))
+	# 0.5 m-era files hold 48-96 m: at 12.5 cm that never finishes loading (6 GB, nothing drawn)
+	render_distance_m = clampf(float(cf.get_value("video", "render_distance_m", render_distance_m)), MIN_DETAIL_M, MAX_DETAIL_M)
+	lod_ring_m = clampf(float(cf.get_value("video", "lod_ring_m", lod_ring_m)), MIN_DETAIL_M, MAX_DETAIL_M)
 	view_distance_m = float(cf.get_value("video", "view_distance_m", view_distance_m))
 	fov = float(cf.get_value("video", "fov", fov))
 	vsync = bool(cf.get_value("video", "vsync", vsync))
@@ -238,6 +242,7 @@ func load_user_settings() -> void:
 	invert_y = bool(cf.get_value("controls", "invert_y", invert_y))
 	if not SHADOW_QUALITY.has(shadow_quality):
 		shadow_quality = "high"
+	graphics_preset = matching_preset()
 
 
 func save_user_settings() -> void:
@@ -258,7 +263,7 @@ func save_user_settings() -> void:
 	cf.save(user_settings_path)
 
 
-## Sets every value of a graphics preset (low / medium / high / ultra).
+## Sets every value of a graphics preset (low / medium / high).
 func apply_graphics_preset(p_name: String) -> void:
 	if not GRAPHICS_PRESETS.has(p_name):
 		return
@@ -307,10 +312,3 @@ func load_playtest_prefs() -> void:
 	game_mode = String(cf.get_value("start", "game_mode", game_mode))
 	start_minimized = bool(cf.get_value("start", "minimized", start_minimized))
 	start_commands = PackedStringArray(cf.get_value("start", "commands", PackedStringArray()))
-	# F4 menu "Terrain detail" (ADR 0020): wider LOD rings, and full detail to 96 m for "ultra"
-	match String(cf.get_value("start", "terrain_detail", "normal")):
-		"high":
-			lod_ring_m = 64.0
-		"ultra":
-			lod_ring_m = 64.0
-			render_distance_m = 96.0

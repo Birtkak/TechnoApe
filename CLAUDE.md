@@ -7,7 +7,8 @@ server on the home server (Unraid) over Tailscale. Solo developer; Claude
 Code does most implementation, the developer steers, plays, decides.
 
 Ground truth: `docs/design/vision.md`. Decisions: `docs/decisions/`.
-Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
+Research: `docs/research/`. Prototype results: `prototypes/*/README.md` (p5 holds the native
+source of the technosim extension, p11 the godot_voxel patches).
 Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
 
 ## Working principles (agreed 2026-10-21)
@@ -58,7 +59,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   `python -m SCons`, godot-cpp branch 4.5 at `~\Tools\godot-cpp`.
   Build an extension: `python -m SCons platform=windows use_mingw=yes target=template_debug -j12`.
   MSVC 2022 Build Tools (cl 14.44) are installed too; MinGW stays the default.
-- World generator is native (`src/world_gen.cpp`); design in
+- World generator is native (`src/fine_gen.cpp` over `src/world_gen.cpp`); design in
   `docs/design/world-generation.md`. godot_voxel asks for padded non-cubic
   blocks, so generators take a Vector3i size.
 
@@ -96,77 +97,34 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
 
 ## Phase plan
 
-- Phase 0: research + direction – done 2026-10-21
-- Phase 1 prototypes: P1 headless loop ✓, P2 voxel streaming/LOD ✓,
-  P5 Noita-model simulation core ✓, P3 crafting core ✓ (17 headless tests)
-- Phase 2 (current): `game/` skeleton ✓ (LOD world, textures, player, sim
-  bubble, debug capture), native world generator ✓ (splines, caves, ores,
-  biomes from biomes.json, trees, ruins, hydrology rivers/lakes/springs,
-  marshes, waterfalls, altitude bands, micro-voxel vegetation and detail
-  (pebbles, mushrooms, reeds, lily pads, boulders, cave stalactites/
-  stalagmites), seeds; dungeons parked), player loop ✓ (ADR 0005), station
-  blocks ✓ (ADR 0007: crafting table, furnace, chest block entities),
-  player body ✓ (`ape_model.gd`: micro-voxel monkey in goggles and lab coat,
-  F5 cycles first person / behind / front, Minecraft-style arm in first person),
-  recipe browser ✓ (ADR 0008: JEI-style search, recipes/uses, R/U keys),
-  bubble polish ✓ (ADR 0010: in-place shift, load/push budgets, fire
-  pacing per material), voxel-grid collision ✓ (ADR 0011: player and items
-  move with `VoxelBoxMover`, terrain mesh colliders off, swimming); 298
-  headless tests (2026-10-23). LOD policy and horizon ✓ (ADR 0020: foliage thins per
-  LOD ring, 2 km horizon, dithered LOD cross-fade, see-through water,
-  loading screen, edit remesh rate; every ADR 0014 scenario within the
-  ADR 0009 budget on the dev box; `prototypes/p11-lod-horizon` holds the
-  godot_voxel patches and measurements). Animals, farming and furniture ✓ (ADR 0022: sheep and
-  pigs with a Minecraft goal brain, herds in plains, tempt/breed/shear; Minecraft farming with
-  wheat and carrots, rare wild crops; wool, carpet, bed, chair; `hands_test=1` drives them all).
-  Vintage Story early game ✓ (ADR 0023: knapping and clay forming on the ground, pit kiln,
-  firepit, crucible melting, casting in molds, sieve; rock drops nothing before copper;
-  pieces in `scripts/work/`, `stone_age_test=1` plays flint to copper pickaxe). Progression book ✓ (ADR 0028: FTB-style quest book from the button top left of the inventory, `data/quests.json`, Flint Age chapter ending at the first copper tool, `/quests`). Deeper Flint Age ✓ (ADR 0030: cordage binds flint heads, thrown spear and hides, scraping and drying leather on the ground, worn bag, pan, bowls, cooking pot and stew, storage pot, thatch, wattle and daub, straw bed, torches with lights, an in-world charcoal pit sealed with soil; `flint_age_test=1`, `/kit flint`). Ray-cast near field in the game ✓ (ADR 0021,
-  `near_field=1`, off by default until the user calls it: the bubble writes a wrapped
-  `BrickStore`, `NearFieldFeed` + `near_scatter.glsl` keep a toroidal 512³ volume on the
-  GPU under a byte budget, `near_field.gdshader` marches it with Godot's lighting, the
-  terrain shaders hide the meshes inside its valid box). P7 (`prototypes/p7-raycast-near`) measured a Grimorium-style
-  GPU ray-cast near field (32 m at 6.25 cm: 3.3 ms p50); ADR 0012 (accepted)
-  makes the simulation resolution the next spike and requires per-frame edit
-  budgets for mass edits. **Direction (ADR 0012, accepted in principle):
-  option B** = the 6.25 cm cell is the world grid, stored as bricks that are
-  today's 0.5 m voxels (uniform brick = 1 byte, expanded = 512 cells);
-  ray-cast 32 m near field fed by the simulation per brick; godot_voxel
-  meshes the uniform view with LOD beyond; chisel = brick expansion; every
-  edit path under a per-frame byte budget. Steps, each gated by a spike:
-  (1) simulation at micro resolution on expanded bricks (player-loop
-  session), (2) brick world store + feed (P9, generator session), (3) the
-  game switches its world store to bricks. Step (1) in the game ✓ (ADR 0029, `micro_sim=1`, off by
-  default: `scripts/micro_bubble.gd` runs a toroidal 32 x 16 x 32 m `SimWorld` at 6.25 cm inside the
-  bubble, whose chunks there are held and get the bricks' majority; changed bricks are published into the
-  store as cells; plants are their pattern cells, columns fall together). **Next:** chisel as brick
-  expansion (fable-backlog job 2: edits into the micro cells replace ADR 0006's overlay meshes), P4 server
-  headless check.
-- **Lay of the Land overhaul ✓ (ADR 0033, 0034, 2026-10-23, the user's direction; it supersedes the
-  brick world, near field and micro window above, which are deleted):** one 12.5 cm voxel grid for
-  terrain, simulation, collision and rendering. Native `FineGen` draws the voxels over `WorldGen`'s 0.5 m
-  climate/biomes/hydrology (`tools/fine_probe.gd`, `tools/fine_gen_bench.gd`); flat colours (one texel of
-  the material's tile per voxel, `voxel_sample`), props keep pixel art (`terrain_prop.gdshader`);
-  `SimBubble` ticks a wrapped 64 x 32 x 64 m window of the world's voxels. Brush digging and building
-  (`scripts/player/brush.gd`: Ctrl + wheel size, B shape), voxel items count in voxels and recipes in
-  blocks of 64 (`ItemRegistry.units`), block entities cover footprints (`BlockEntities.footprint`).
-  Scripted tests (`stone_age_test`, `flint_age_test`, `hands_test`, `swim_test`, `menu_test`) pass.
-  Landforms and forests ✓ (ADR 0035): ~8 km continents of plains, hill country and ~1 km mountain
-  ranges; ground swells and hummocks; trees with an age (thick bark trunks, roots, limbs ending in leaf
-  clumps), young poles between them, a forest floor of leaf litter, logs, stumps, bushes, ferns and
-  mushrooms (`tools/terrain_map.gd`, `tools/face_probe.gd`); loads take 12-17 s, so budget runs use `load_cap_s=30`.
-  **Next:** the look pass (palettes, water, crowns, grade: taste calls), fire/smoke pacing per cell,
-  fast flight outrunning generation, the water spill / blast / `persist=1` runs; plan in
-  `docs/plans/lotl-overhaul.md`. Old notes below about micro models at 6.25 cm and one-voxel blocks
-  describe the 0.5 m game.
-- In-world voxels follow ADR 0006: terrain ids + one block-entity layer
-  (`scripts/blocks/`) + reserved decor layer; every voxel chiselable on an
-  8³ cell grid (6.25 cm) through the native `MicroMesher`, which also builds
-  all micro models (`materials.gd` `micro:` kinds). Material ids are
-  definition order: 32..36 stations, 37..43 detail, 44 `CHISELED` reserved;
-  append only; 47 = blood (ADR 0015); 48..52 ground pickups (ADR 0019); 57..75 animals/farming/furniture
-  (ADR 0022). Atlas 8×12 tiles (ADR 0024, 0030; 84..87 and 93..95 free, grow ROWS for more); 103..107 = Flint Age depth (thatch, wattle, daub wall, torch, storage pot, ADR 0030); 76..87 = content pass (tree kinds, terracotta, basalt, packed ice, fern), 90..101 = content pass 2 (birch, blueberry bush, pumpkin, flowers, bark). 88..89 = work spots (ADR 0023: drawn by `scripts/work/` entities from `MicroMesher.build_arrays` with the winding flipped in the arrays; `MobModel.outward` reads an ArrayMesh back, which waits 4-6 ms for the render thread, so never call it per edit). MicroMesher winds
-  triangles counter-clockwise: pass its meshes through `MobModel.outward` (terrain models, mobs, furniture, the ape).
+- Phase 0 (research + direction) and Phase 1 (prototypes) done 2026-10-21; the spikes that shaped
+  the retired 0.5 m / brick-world architecture were deleted with it (ADR 0036, git history keeps them).
+- Phase 2 (current): **the voxel world (ADR 0033-0036).** One 12.5 cm grid for terrain, simulation,
+  collision and rendering. Native `FineGen` draws the voxels over `WorldGen`'s 0.5 m macro layer
+  (landforms: ~8 km continents of plains, hill country and mountain ranges; climate, biomes from
+  biomes.json, hydrology, caves with pools, GregTech ore veins, ruins); aged trees with bark trunks,
+  roots and clumped crowns, young trees, a forest floor of leaf litter, logs, stumps, bushes, ferns and
+  mushrooms; far forests as leaf domes. Flat colours: one texel of the material's tile per voxel
+  (`voxel_sample`); props use `terrain_prop.gdshader`. `SimBubble` ticks a wrapped 64 x 32 x 64 m window
+  of the world's voxels (Noita kernel: sand, water, fire, gas). Brush digging and building
+  (`scripts/player/brush.gd`: Ctrl + wheel size, B shape); voxel items count voxels, recipes blocks of 64
+  (`ItemRegistry.units`); block entities cover footprints (`BlockEntities.footprint`). The loading screen
+  covers the start, respawns and long teleports until the ground is in, with the player and animals
+  frozen. Gameplay on top: player loop (ADR 0005), stations (0007), recipe browser (0008), collision and
+  swimming (0011), animals, farming, furniture (0022), Vintage Story early game (0023), progression book
+  (0028), Flint Age (0030), menus and saves (0032). Probes: `tools/terrain_map.gd`, `fine_gen_bench.gd`,
+  `fine_probe.gd`, `face_probe.gd`. Loads take 12-17 s: budget runs use `load_cap_s=30`.
+  Full detail is capped at 24 m (`Settings.MAX_DETAIL_M`): 32 m blows the budget in forests.
+  **Next:** the texture and look pass (palettes, water, grade: taste calls), fire/smoke pacing per cell,
+  fast flight vs generation, the water spill / blast / `persist=1` runs, structural collapse; plan in
+  `docs/plans/lotl-overhaul.md`, playtest list in `docs/plans/to-test.md`.
+- Material ids are definition order, append only (saves and the generator use them): 32..36 stations,
+  37..43 detail, 44 reserved (once `CHISELED`), 47 blood, 48..52 ground pickups, 57..75 animals, farming,
+  furniture, 76..87 and 90..101 content passes, 88..89 work spots, 103..107 Flint Age, 108 leaf litter.
+  Atlas 8x12 tiles (84 leaf litter, 85 oak bark; 86..87 and 93..95 free). `MicroMesher` builds the
+  models of stations, furniture, work pieces, mobs and the ape at 6.25 cm cells; it winds triangles
+  counter-clockwise, so pass its meshes through `MobModel.outward` (which reads an ArrayMesh back and
+  waits 4-6 ms for the render thread: never per edit).
 - When another session shares this checkout, stage files explicitly, never `git add -A`; Biome enum ids
   0..12 in world_gen.h stay stable; biome_table.gen.h is generated.
 - Phase 3: wands/spells, machines, recipe browser depth (machine recipes, bookmarks)

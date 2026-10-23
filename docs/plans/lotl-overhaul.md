@@ -61,7 +61,7 @@ Port `world_gen.cpp` features to fine voxels (see `docs/design/world-generation.
   species, deterministic per tree. Boulders, logs, bushes, grass tufts and
   flowers become 12.5 cm voxel stamps (the 6.25 cm micro models halve).
 - Caves, ores, ruins at the new scale. `GEN_VERSION` bump.
-- **Done:** `gen_probe.gd` timings per block within the streaming budget,
+- **Done:** block timings within the streaming budget (`fine_gen_bench.gd`),
   seam probe clean, a biome screenshot tour.
 
 ## 4. The simulation on the voxels

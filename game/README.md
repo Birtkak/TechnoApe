@@ -80,12 +80,12 @@ Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=6 pitch=-0.45 micro
 Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=4 blast_every=1 duration=20 capture_every=1 out=res://out/blast
 Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=1 blast_count=50 duration=20 out=res://out/tnt
 
-# generator probes (headless): stats + biome map; settle test around a feature
-Godot_..._console.exe --headless --path game --script res://tools/gen_probe.gd -- seed=1337 radius=2048
-Godot_..._console.exe --headless --path game --script res://tools/settle_probe.gd -- target=lake ticks=60
+# generator probes (headless, ADR 0033/0035): landform map, block timings, materials and faces
+Godot_..._console.exe --headless --path game --script res://tools/terrain_map.gd -- km=12 px=384   # hillshaded map + plains/hills/mountains mix
+Godot_..._console.exe --headless --path game --script res://tools/fine_gen_bench.gd -- biome=old_growth_forest   # ms per block per LOD
+Godot_..._console.exe --headless --path game --script res://tools/fine_probe.gd -- x=0 y=1040 z=0   # material mix of one block (vein=1: an ore vein)
+Godot_..._console.exe --headless --path game --script res://tools/face_probe.gd -- biome=forest lod=0 m=16   # exposed faces per material (draw cost)
 Godot_..._console.exe --headless --path game --script res://tools/seam_probe.gd -- seed=1337   # rivers across hydrology tile borders
-Godot_..._console.exe --headless --path game --script res://tools/detail_probe.gd -- seed=1337 radius=96  # micro-voxel detail placement checks
-Godot_..._console.exe --headless --path game --script res://tools/chisel_bench.gd                 # MicroMesher sanity + timings (P6)
 Godot_..._console.exe --path game --script res://tools/model_sheet.gd -- out=res://out/models/sheet.png  # renders every micro model
 Godot_..._console.exe --path game --script res://tools/anim_probe.gd                       # terrain shader: animated tiles change, others do not
 Godot_..._console.exe --headless --path game --script res://tools/shore_probe.gd -- seed=1337   # hydrology flags along a lake waterline
@@ -131,7 +131,6 @@ Godot_..._console.exe --headless --path game --export-debug "Windows Desktop" ..
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=15 animals=40 mob_spawn=0 give=wheat:8 vsync=0 out=res://out/animals
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=18 capture_every=1 hands_test=1 mob_spawn=0 out=res://out/hands
 Godot_..._console.exe --path game --script res://tools/mob_sheet.gd -- out=res://out/mobs/sheet.png   # sheep, shorn sheep, lamb, pig, piglet, bed, chair
-Godot_..._console.exe --headless --path game --script res://tools/wild_crop_probe.gd -- seed=1337 radius=1024   # wild wheat / carrot patches per km^2
 # stains (ADR 0015, scripts/visuals/stain_map.gd): stain_test=1 bleeds and drops oil + blood next to the player once loaded;
 # stains=0 turns stains off (same spill, for A/B), stain_uploads=N layers per frame, stain_scan=0 ignores the simulation
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 third_person=1 pitch=-0.75 stain_test=1 duration=14 out=res://out/stains
@@ -157,9 +156,9 @@ recipe by design (found only); spells do.
 
 | Path | What |
 |---|---|
-| `scripts/settings.gd` | Autoload. Every budget is a setting, in metres. One world unit = one voxel = 0.5 m (ADR 0004). |
+| `scripts/settings.gd` | Autoload. Every budget is a setting, in metres. One world unit = one voxel = 12.5 cm (ADR 0033). |
 | `scripts/materials.gd` | Material table (Noita attribute names) + atlas tiles; builds the blocky library. |
-| `scripts/generator.gd` | Bridge to the native `WorldGen` (1.18-style splines, caves, ores, biomes); see `docs/design/world-generation.md`. `tools/gen_probe.gd` prints stats and a biome map. |
+| `scripts/generator.gd` | Bridge to the native `FineGen` (12.5 cm voxels over `WorldGen`'s 0.5 m landforms, climate, hydrology, ores); see `docs/design/world-generation.md`. `tools/terrain_map.gd` draws the land. |
 | `scripts/world.gd` | `VoxelLodTerrain` (clipbox streaming, 7 LODs) + copy/paste helpers. |
 | `scripts/sim_bubble.gd` | Sliding window of the native `SimWorld` around the player; load/tick/push. |
 | `scripts/player.gd` | First-person walk/fly/swim against the voxel grid (`scripts/physics/voxel_body.gd`, ADR 0011), mouse look, hold-to-mine with progress, place/use (buckets), hotbar keys, drop, fall damage, held-item viewmodel (`scripts/player/viewmodel.gd`). |

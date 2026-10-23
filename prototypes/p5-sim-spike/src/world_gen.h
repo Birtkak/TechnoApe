@@ -1,29 +1,17 @@
 #pragma once
-// Native world generator (Minecraft 1.18 style terrain + real hydrology):
-//  - continentalness / erosion / ridged peaks noises through splines -> height
-//  - temperature + humidity (jittered) -> biomes with dithered borders
-//  - altitude bands on mountains: alpine rock, scree, jittered tree line,
-//    permanent snow line (lower where cold); steep slopes expose rock
+// The macro layer of the world (ADR 0033, 0035), in 0.5 m units: FineGen draws the 12.5 cm voxels
+// from it and nothing else generates blocks.
+//  - landforms: continents (~8 km), regions of plains, hill country and ridged mountain ranges,
+//    erosion -> height; temperature + humidity (jittered) -> biomes with dithered borders
+//  - altitude bands on mountains: alpine rock, scree, jittered tree line, permanent snow line
 //  - hydrology on a coarse grid (32-voxel cells, 2 km tiles with 1 km margin):
 //    priority-flood depression filling, D8 flow routing, flow accumulation ->
 //    springs, streams that merge into collector rivers, basin lakes, outflow
-//    to the ocean. River/lake water is generated static (liquid_static) so the
-//    material simulation does not drain every slope.
-//  - 3D cheese + spaghetti caves with lava pools, sea, beaches
-//  - GregTech-style ore veins: one mixed-ore lens per 96 m cell at most, from
-//    game/data/ore_veins.json through ore_veins.gen.h, with ore-bearing
-//    stones on the ground above shallow veins
-//  - waterfalls: where a stream drops >= FALL_MIN voxels between cells, the
-//    ground along the segment is sampled and a static water sheet is hung
-//    over the steepest part (a real cliff); marshes in shallow humid hollows,
-//    ice on cold lakes, sandstone under deserts, clay in beds
-//  - trees on a jittered grid, small ruins on flat ground, per-column
-//    vegetation and detail at LOD 0 (tall grass, flowers, cacti, dead bushes,
-//    boulders, pebbles, flint, twigs, mushrooms, reeds and lily pads in marshes) and cave
-//    detail on floors and ceilings (stalagmites, stalactites, mushrooms)
-// Deterministic from a seed. Heights in voxels (0.5 m each, ADR 0004).
-// Output blocks are 16-bit material ids in godot_voxel VoxelBuffer order
-// (y fastest, then x, then z).
+//    to the ocean, waterfalls, marshes
+//  - the cave noises FineGen interpolates, GregTech-style ore veins (ore_veins.gen.h) and
+//    the ore-bearing stones above shallow veins
+//  - where trees, ground stamps and ruins stand, and which plant a column grows
+// Deterministic from a seed. Heights in macro voxels of 0.5 m (FineGen::FS fine voxels each).
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/array.hpp>
@@ -96,9 +84,6 @@ public:
     int biome_at(int x, int z) const;
     Dictionary column_info(int x, int z) const;
 
-    // Block generation: returns empty array when the block is entirely air.
-    // size may be non-cubic: godot_voxel requests padded mesh regions (e.g. 34x33x34).
-    PackedByteArray generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel = 2) const;
 
     // Debug: RGB8 image (w = h = 2*radius/step) of biomes shaded by height, with
     // rivers, lakes and ruins overlaid.
@@ -183,8 +168,6 @@ private:
     // kind = technosim_biome::TREE_KIND / TREE_MIX_KIND (0 oak, 1 spruce, 2 acacia, 3 jungle, 4 birch): shape and wood
     enum TreeKind : int { TREE_OAK = 0, TREE_SPRUCE = 1, TREE_ACACIA = 2, TREE_JUNGLE = 3, TREE_BIRCH = 4 };
     struct Tree { int x, z, base, trunk_h, radius, kind, biome; bool stunted; };
-    static int canopy_radius(const Tree &t, int wy);   // leaf radius of the crown layer at wy, -1 = none
-    static int trunk_top(const Tree &t);               // highest log voxel
     static uint16_t tree_log(int kind);
     static uint16_t tree_leaves(int kind);
     static uint16_t tree_bark(int kind);
@@ -196,8 +179,6 @@ private:
     struct Stamp { int kind, x, z, size, tree_kind; bool mossy; uint32_t seed; };
     bool stamp_at_cell(int cx, int cz, Stamp &out) const;
     int stamps_near(int x0, int z0, int x1, int z1, Stamp *out, int max_out) const;
-    static int stamp_height(const Stamp &s);                  // voxels above the ground it can fill
-    static uint16_t stamp_voxel(const Stamp &s, int x, int z, int dy); // dy = 0: the first voxel above the ground
     static constexpr int RUIN_CELL = 160;
     static constexpr int RUIN_MAX_HALF = 10;
     struct Ruin { int x, z, hw, hd, base; uint32_t seed; };
@@ -205,7 +186,7 @@ private:
     int seed_ = 1337;
     int sea_ = 256;
     int world_height_ = 768;
-    FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_beach_, n_jitter_, n_cavebiome_, n_pool_;
+    FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_jitter_, n_cavebiome_;
     FastNoiseLite n_region_, n_hillmask_, n_hill_;   // landform regions (plains, hills, mountain ranges) and hill shapes
     // Global tile cache: a tile is built outside the lock by the first thread
     // that asks for it, others wait on its future; least recently used tiles
@@ -242,7 +223,6 @@ private:
     struct Vein { int type, x, y, z; };
     bool vein_at_cell(int cx, int cz, Vein &out) const;
     float vein_half_thickness(const Vein &v, int x, int z) const; // 0 outside the lens
-    inline uint16_t vein_ore(const Vein &v, float half_t, int x, int y, int z) const;
     uint16_t indicator_at(const Vein &v, int x, int z, int ground, uint16_t top) const;
 };
 

@@ -82,6 +82,7 @@ void FineGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup_noise(n_leaf_, p_seed + 103, 1.0f / 6.0f, 1);      // lumps on leaf clumps
     setup_noise(n_litter_, p_seed + 105, 1.0f / 14.0f, 2);   // leaf litter vs grass under trees
     setup_noise(n_meadow_, p_seed + 106, 1.0f / 48.0f, 2);   // thick and thin grass, flower patches
+    setup_noise(n_pool_, p_seed + 107, 1.0f / 88.0f, 1);     // ~11 m blobs: where cave floors hold their biome's pool
 }
 
 // ---------- surface ----------
@@ -1012,6 +1013,9 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                             const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
                             const int cb = depth < technosim_biome::SOIL_DEPTH * FS ? col.biome : technosim_biome::cave_biome(ti, hi, di, ni);
                             mat = (uint16_t)technosim_biome::SURFACE_TOP[cb];
+                            // the biome's pool (biomes.json surface.pool: water, toxic sludge) lies in the floor in patches
+                            const int pool = technosim_biome::SURFACE_POOL[cb];
+                            if (pool >= 0 && cave[y] == 0 && n_pool_.GetNoise((float)wx, (float)wz) > 0.35f) mat = (uint16_t)pool;
                         } else if (cave[y] && mat == Mat::STONE && depth >= technosim_biome::SOIL_DEPTH * FS) {
                             const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)wy / FS, (float)mz);
                             const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth / FS, technosim_biome::DEPTH_BAND_COUNT);
@@ -1079,7 +1083,9 @@ Vector3i FineGen::find_nearest(const String &kind, int x, int z, int max_radius)
     const Vector3i r = g_->find_nearest(kind, floor_div(x, FS), floor_div(z, FS), std::max(1, max_radius / FS));
     if (r.y < 0) return r;
     const int fx = r.x * FS + 2, fz = r.z * FS + 2;
-    return Vector3i(fx, height_at(fx, fz), fz);
+    // surface features stand on the fine surface; caves keep their depth
+    const int surf = height_at(fx, fz), y = r.y * FS;
+    return Vector3i(fx, y < surf - 2 * FS ? y : surf, fz);
 }
 
 Array FineGen::waterfalls_near(int x, int z, int radius) const {

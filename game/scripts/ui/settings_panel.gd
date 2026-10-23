@@ -2,7 +2,7 @@ class_name SettingsPanel
 extends Control
 
 ## The Settings screen (ADR 0032), shared by the title screen and the pause
-## menu. Video: a graphics preset (low / medium / high / ultra, from ADR 0031's
+## menu. Video: a graphics preset (low / medium / high, from ADR 0031's
 ## measurements) and the values it sets, which can be changed one by one
 ## (the preset then reads "Custom"), plus field of view, vsync, frame cap and
 ## fullscreen. Controls: mouse sensitivity, invert Y and the key list. Every
@@ -10,9 +10,9 @@ extends Control
 
 signal done
 
-const PRESETS := ["low", "medium", "high", "ultra"]
+const PRESETS := ["low", "medium", "high"]
 const SHADOWS := ["off", "low", "medium", "high"]
-const RENDER_M := [48.0, 64.0, 96.0]
+const RENDER_M := [16.0, 24.0]   # Settings.MIN_DETAIL_M .. MAX_DETAIL_M
 const VIEW_M := [1024.0, 2048.0]
 const KEYS := [["W A S D", "walk"], ["Space", "jump; fly up (twice: fly, creative)"], ["Shift", "sprint; with right click, place against a station"],
 	["Ctrl / F", "fly down / toggle flying (creative)"],
@@ -93,19 +93,19 @@ func _check(cb: Callable) -> CheckBox:
 
 func _video_tab() -> Control:
 	var g := _grid("Video")
-	_preset = _options(["Low", "Medium", "High", "Ultra", "Custom"], func() -> void:
+	_preset = _options(["Low", "Medium", "High", "Custom"], func() -> void:
 		if _preset.selected < PRESETS.size():
 			Settings.apply_graphics_preset(PRESETS[_preset.selected])
 		_edited())
-	_preset.tooltip_text = "Low and Medium trade shadows for speed; High is the default look.\nUltra draws full detail to 96 m and can stutter when flying fast."
+	_preset.tooltip_text = "Low and Medium trade shadows and detail for speed; High is the default look."
 	_row(g, "Graphics", _preset)
 	_shadows = _options(["Off", "Low", "Medium", "High"], func() -> void:
 		Settings.shadow_quality = SHADOWS[_shadows.selected]
 		_edited())
 	_row(g, "Shadows", _shadows)
-	_render = _options(["48 m", "64 m", "96 m"], func() -> void:
+	_render = _options(["16 m", "24 m"], func() -> void:
 		Settings.render_distance_m = RENDER_M[_render.selected]
-		Settings.lod_ring_m = 64.0 if Settings.render_distance_m >= 96.0 else 48.0
+		Settings.lod_ring_m = Settings.render_distance_m
 		_edited())
 	_row(g, "Full detail to", _render)
 	_view = _options(["1 km", "2 km"], func() -> void:

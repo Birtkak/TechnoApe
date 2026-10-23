@@ -16,7 +16,7 @@
   bumps `TerrainGenerator.GEN_VERSION` so old saves are never mixed into a
   new world.
 - Probe a seed without the game:
-  `--headless --path game --script res://tools/gen_probe.gd -- seed=42 radius=2048`
+  `--headless --path game --script res://tools/terrain_map.gd -- seed=42 km=12`
   prints biome mix, heights, nearest spring/river/lake and writes
   `game/out/map_<seed>.png` (2 km across at radius 2048).
 

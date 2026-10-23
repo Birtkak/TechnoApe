@@ -1,5 +1,6 @@
 # 0012 – Core architecture: micro-voxel bricks, ray-cast near field, meshed far field
 
+- **Superseded** by ADR 0033 (one 12.5 cm grid instead of bricks and a near field); removed with ADR 0036.
 - **Status:** accepted 2026-10-22 ("let's go with option B as long as it works
   for what we want"). Gate 1 (simulation at 6.25 cm, P10 and the sim chapter)
   passed **with conditions**; gate 2 (brick store + ray-cast feed + sliding
