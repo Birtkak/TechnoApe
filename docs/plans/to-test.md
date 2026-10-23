@@ -77,3 +77,10 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] Stations, chests, furnaces, furniture and Flint Age pieces sit on the ground at 0.5 m.
 - [ ] The Flint Age and Stone Age chains still work from start to copper pickaxe.
 - [ ] Sand, water and fire behave on the small voxels (fire spreads through a forest).
+
+## Build of 2026-10-24: pickups and water
+
+- [ ] Ground pickups stand out from walking height: sticks (1-1.5 m, pale top, dark bark, on a rim of
+      soil), flint (dark chunks), loose stones (pale chunks), copper / tin / iron-bearing stones (grey
+      stone with orange-green / dark brown / rust voxels). Digging one voxel picks up the whole thing.
+- [ ] Water: clear turquoise over the bed in the shallows, deep teal further out, no texture.

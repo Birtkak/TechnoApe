@@ -15,6 +15,22 @@ uniform float flow_speed = 0.35;          // texture tiles per second along the 
 uniform float liquid_alpha : hint_range(0.0, 1.0) = 0.68;
 uniform float edge_alpha_boost = 0.25;
 
+#ifdef FLUID_SEE_THROUGH
+// Water (Lay of the Land look, ADR 0036 look pass): no texture; the colour and opacity come from the
+// water's thickness along the view ray (depth buffer behind the surface), clear turquoise over the
+// bed in the shallows, dark teal and nearly opaque in the deep, a pale rim where it meets the shore.
+uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
+uniform float metres_per_unit = 0.125;
+uniform vec3 water_shallow : source_color = vec3(0.22, 0.82, 0.70);
+uniform vec3 water_deep : source_color = vec3(0.02, 0.34, 0.40);
+uniform float water_depth_m = 3.0;    // metres of water for ~63 % of the deep colour
+uniform float water_clear_m = 1.1;    // metres of water for ~63 % of the opacity
+uniform float water_alpha_min = 0.22;
+uniform float water_alpha_max = 0.94;
+uniform float water_rim_m = 0.1;      // the pale shore rim fades out over this much water
+uniform float water_rim = 0.35;
+#endif
+
 varying vec2 v_flow;
 
 void vertex() {
@@ -55,11 +71,24 @@ void fragment() {
 	EMISSION = tile_emission(fluid_tile, c.rgb);
 	if (top && abs(fluid_tile - water_tile) < 0.5) {
 		NORMAL = normalize((VIEW_MATRIX * vec4(ripple_normal(v_world.xz + shift), 0.0)).xyz);
-		SPECULAR = water_specular;
+		SPECULAR = water_specular * 0.6;   // the sky sheen washed the colour out
 		ROUGHNESS = water_roughness;
 	}
 #ifdef FLUID_SEE_THROUGH
 	float facing = abs(dot(normalize(VIEW), NORMAL));
-	ALPHA = clamp(liquid_alpha + (1.0 - facing) * edge_alpha_boost, 0.0, 1.0);
+	if (abs(fluid_tile - water_tile) < 0.5) {
+		float zb = texture(depth_tex, SCREEN_UV).r;
+		float d_m = 1000.0;   // sky behind: as deep as it gets
+		if (zb > 0.0) {
+			vec4 vb = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, zb, 1.0);
+			d_m = max(length(vb.xyz / vb.w) - length(VERTEX), 0.0) * metres_per_unit;
+		}
+		float rim = (1.0 - smoothstep(0.0, water_rim_m, d_m)) * water_rim;
+		vec3 col = mix(water_shallow, water_deep, 1.0 - exp(-d_m / water_depth_m));
+		ALBEDO = mix(col, vec3(0.86, 0.96, 0.95), rim) * face_tint(n);
+		ALPHA = clamp(mix(water_alpha_min, water_alpha_max, 1.0 - exp(-d_m / water_clear_m)) + (1.0 - facing) * edge_alpha_boost + rim, 0.0, 1.0);
+	} else {
+		ALPHA = clamp(liquid_alpha + (1.0 - facing) * edge_alpha_boost, 0.0, 1.0);
+	}
 #endif
 }

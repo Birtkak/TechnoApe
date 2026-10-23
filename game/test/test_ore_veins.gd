@@ -180,6 +180,62 @@ func test_starting_pickups_lie_in_forests() -> void:
 	assert_int(stones).is_greater(0)
 
 
+## A single 12.5 cm voxel cannot be seen or told apart: pickups are Vintage Story style shapes of
+## touching voxels (stone chunks filling their 0.5 m patch, sticks 1-1.5 m long). A slope can clip
+## the odd one, so the median counts.
+func test_pickups_are_big_enough_to_see() -> void:
+	var f: Vector3i = gen.find_nearest("plains", 0, 0, 4096)
+	var sizes := {}   # material -> cluster sizes
+	for bz in range(-128, 128, 32):
+		for bx in range(-128, 128, 32):
+			var h := gen.height_at(f.x + bx + 16, f.z + bz + 16)
+			var o := Vector3i(f.x + bx, h - 16, f.z + bz)
+			var ids := _block(o, Vector3i(32, 32, 32))
+			var seen := {}
+			for i in ids.size():
+				var m := ids[i]
+				if not m in [GameMaterials.PEBBLES, GameMaterials.FLINT_STONES, GameMaterials.TWIGS] or seen.has(i):
+					continue
+				var cluster := _cluster(ids, i, m)
+				seen.merge(cluster)
+				# voxel order is y fastest, then x, then z; skip shapes that may run over the block edge
+				var x := (i / 32) % 32
+				var z := i / 1024
+				if x < 4 or x > 27 or z < 4 or z > 27:
+					continue
+				if not sizes.has(m):
+					sizes[m] = []
+				sizes[m].append(cluster.size())
+	assert_int(sizes.size()).override_failure_message("found %s" % sizes).is_equal(3)
+	for m in sizes:
+		var s: Array = sizes[m]
+		s.sort()
+		var median: int = s[s.size() / 2]
+		assert_int(median).override_failure_message("%s: median %d voxels of %s" % [GameMaterials.name_of(m), median, s]).is_greater_equal(8)
+
+
+## Voxels of material m touching index i (26-neighbourhood) in a 32^3 block, as a set.
+func _cluster(ids: PackedInt32Array, i: int, m: int) -> Dictionary:
+	var seen := {i: true}
+	var todo := [i]
+	while not todo.is_empty():
+		var c: int = todo.pop_back()
+		var y := c % 32
+		var x := (c / 32) % 32
+		var z := c / 1024
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				for dy in range(-1, 2):
+					var q := Vector3i(x + dx, y + dy, z + dz)
+					if q.x < 0 or q.y < 0 or q.z < 0 or q.x > 31 or q.y > 31 or q.z > 31:
+						continue
+					var k := q.y + 32 * (q.x + 32 * q.z)
+					if not seen.has(k) and ids[k] == m:
+						seen[k] = true
+						todo.append(k)
+	return seen
+
+
 func test_locate_finds_a_vein() -> void:
 	var p: Vector3i = gen.find_nearest("copper_vein", 0, 0, 4096)
 	assert_int(p.y).is_greater(0)

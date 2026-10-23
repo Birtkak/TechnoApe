@@ -683,7 +683,34 @@ func _dig_selection(p: Vector3i, size: int) -> Array[Vector3i]:
 		if t < 0.0 or t > maxf(t_hit * 4.0, 0.5):
 			continue
 		out.append(c)
+	if hit_mat in GameMaterials.GROUND_PICKUPS:
+		_add_pickup(p, hit_mat, out)
 	return out
+
+
+## A ground pickup is a few touching voxels (a stick, a nodule, pebbles): digging one
+## takes the rest, and the dig rolls its drop once (MiningTable.voxel_drops).
+func _add_pickup(p: Vector3i, m: int, out: Array[Vector3i]) -> void:
+	var seen := {}
+	for c in out:
+		seen[c] = true
+	var todo: Array[Vector3i] = [p]
+	seen[p] = true
+	if not out.has(p):
+		out.append(p)
+	var n := 0
+	while not todo.is_empty() and n < 64:
+		var c: Vector3i = todo.pop_back()
+		n += 1
+		for dz in range(-1, 2):
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					var q := c + Vector3i(dx, dy, dz)
+					if seen.has(q) or q.distance_squared_to(p) > 196 or world.get_voxel(q) != m:
+						continue
+					seen[q] = true
+					out.append(q)
+					todo.append(q)
 
 
 ## Seconds a dig takes: each voxel costs its material's block time / BLOCK^3,

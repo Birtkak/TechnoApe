@@ -41,6 +41,26 @@ inline float seg_dist2(float px, float py, float pz, float ax, float ay, float a
 bool is_flower(uint16_t m) {
     return m == WorldGen::FLOWER || m == WorldGen::FLOWER_RED || m == WorldGen::CORNFLOWER || m == WorldGen::OXEYE_DAISY || m == WorldGen::ALLIUM;
 }
+// Stone pickups on their bare 0.5 m patch: loose stones, flint, ore-bearing stones. Sticks are
+// stamps (FineGen::STICK).
+bool is_pickup(uint16_t m) {
+    return m == WorldGen::PEBBLES || m == WorldGen::FLINT_STONES
+        || (m >= WorldGen::COPPER_BEARING_STONES && m <= WorldGen::IRON_BEARING_STONES);
+}
+// A stone pickup's shape (lx, lz in 0..FS-1): voxels tall at this column, 0 = none. Vintage Story's
+// chunks in voxels: a slab filling the patch, two voxels thick with chipped corners, mirrored and
+// turned per patch; loose stones are a size smaller with a chip beside them. The voxels touch, so the player picks the whole
+// chunk up at once (player.gd _dig_selection).
+int pickup_shape(uint16_t kind, int lx, int lz, uint32_t s) {
+    if (s & 1) lx = FS - 1 - lx;
+    if ((s >> 1) & 1) std::swap(lx, lz);
+    static const int CHUNK[FS][FS] = {{1, 2, 2, 1}, {2, 2, 2, 2}, {2, 2, 2, 1}, {1, 2, 1, 0}};   // [z][x]
+    static const int STONES[FS][FS] = {{0, 0, 0, 0}, {1, 2, 1, 0}, {1, 1, 1, 0}, {0, 0, 0, 1}};
+    const int v = (kind == WorldGen::PEBBLES ? STONES : CHUNK)[lz][lx];
+    // one of the thick cells sits a voxel lower, so chunks are not all the same block
+    if (v == 2 && ((s >> 2) & 3) == (uint32_t)((lx + lz) & 3)) return 1;
+    return v;
+}
 } // namespace
 
 FineGen::FineGen() {
@@ -501,6 +521,52 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             s.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
             out.push_back(s);
         }
+    // Fallen sticks (the twigs pickup, Vintage Story style in voxels): 1-1.5 m long, one voxel thick,
+    // a forked side branch, lying at any angle; the column loop lays them on the ground. Half the
+    // 2 m cells of a forest hold one, a few in open land.
+    constexpr int SM = 12;
+    const int sx0 = floor_div(x_lo - SM, FC), sx1 = floor_div(x_hi + SM, FC);
+    const int sz0 = floor_div(z_lo - SM, FC), sz1 = floor_div(z_hi + SM, FC);
+    for (int cz = sz0; cz <= sz1; cz++)
+        for (int cx = sx0; cx <= sx1; cx++) {
+            const uint32_t hs = h3(cx, cz, g.seed_ + 613);
+            const float roll = (float)(hs & 1023) / 1024.0f;
+            if (roll >= 0.55f) continue;
+            const float fx = (float)(cx * FC + 3 + (int)((hs >> 10) % (FC - 6))) + 0.5f;
+            const float fz = (float)(cz * FC + 3 + (int)((hs >> 16) % (FC - 6))) + 0.5f;
+            const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
+            const WorldGen::Column col = g.column_base(mx, mz, false);
+            if (col.height <= g.sea_ + 1 || col.alpine || col.snow) continue;
+            const float dens = technosim_biome::TREE_DENSITY[col.biome];
+            if (roll >= 0.05f + 0.5f * std::clamp(dens / 0.5f, 0.0f, 1.0f)) continue;
+            const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
+            if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh) continue;
+            bool blocked = false;
+            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, 2);
+            if (blocked) continue;
+            FStamp s{};
+            s.kind = STICK;
+            s.seed = h3(cx, cz, g.seed_ + 617);
+            s.x = fx;
+            s.z = fz;
+            const float an = (float)(s.seed & 1023) / 1023.0f * 3.1416f;
+            s.dx = std::cos(an);
+            s.dz = std::sin(an);
+            s.size = 4.0f + (float)((s.seed >> 10) & 7) * 0.4f;   // half length: 8-12 voxels long
+            s.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
+            out.push_back(s);
+        }
+}
+
+float FineGen::stick_dist(const FStamp &s, float x, float z) {
+    const float d = std::sqrt(seg_dist2(x, 0.0f, z, s.x - s.dx * s.size, 0.0f, s.z - s.dz * s.size, s.x + s.dx * s.size, 0.0f, s.z + s.dz * s.size));
+    // the fork: a third of the way along, 3-4 voxels out at 40 degrees to one side, pointing forward
+    const float along = s.size * (((s.seed >> 14) & 1) ? 0.35f : -0.35f);
+    const float side = ((s.seed >> 15) & 1) ? 1.0f : -1.0f;
+    const float bx = s.x + s.dx * along, bz = s.z + s.dz * along;
+    const float bl = 3.0f + (float)((s.seed >> 16) & 1);
+    const float ex = bx + (s.dx * 0.77f - s.dz * side * 0.64f) * bl, ez = bz + (s.dz * 0.77f + s.dx * side * 0.64f) * bl;
+    return std::min(d, std::sqrt(seg_dist2(x, 0.0f, z, bx, 0.0f, bz, ex, 0.0f, ez)));
 }
 
 uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const {
@@ -543,6 +609,7 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
             }
             return Mat::AIR;
         }
+        case STICK: return Mat::AIR;   // laid on each column's ground by the column loop
         case STUMP: {
             const float d2 = dx * dx + dz * dz;
             const int top = s.ground + (int)s.size;
@@ -766,9 +833,11 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             // Plants: the macro column decides the kind, the fine column whether it stands here.
             uint16_t veg = Mat::AIR, veg_head = Mat::AIR;
             int veg_h = 0;
+            bool pickup = false;   // the macro column holds a ground pickup: its 0.5 m stays bare so the pickup shows
             if (do_veg && !ruin && h >= water_level && hy.fall_top < 0 && h > sea && spike == 0 && !lakebed && !riverbed) {
                 int mh = 1;
                 uint16_t kind = g.vegetation_at(col, mx, mz, top_m, hy, mh);
+                if (kind == Mat::TWIGS) kind = Mat::TALL_GRASS;   // sticks are stamps, longer than a macro column
                 if (has_vein && (kind == Mat::AIR || kind == Mat::TALL_GRASS)) {
                     const uint16_t ind = g.indicator_at(vein, mx, mz, h / FS, top_m);
                     if (ind != Mat::AIR) kind = ind;
@@ -777,6 +846,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 const uint32_t hv = h3(wx, wz, g.seed_ + 5);
                 const bool centre = lx == 1 && lz == 2;
                 const bool grassy = top_m == Mat::GRASS;
+                pickup = is_pickup(kind);
                 switch (kind) {
                     case Mat::AIR: break;
                     case Mat::TALL_GRASS: {
@@ -811,9 +881,12 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                         if (is_flower(kind)) {
                             if (centre) { veg = Mat::TALL_GRASS; veg_h = 2; veg_head = kind; }
                             else if (grassy && (hv & 7) < 2) { veg = Mat::TALL_GRASS; veg_h = 1; }
+                        } else if (pickup) {
+                            veg_h = pickup_shape(kind, lx, lz, h3(mx, mz, g.seed_ + 41));
+                            if (veg_h > 0) veg = kind;
                         } else if (centre) {
-                            veg = kind; veg_h = 1;   // pickups, mushrooms, wild crops, carcasses: one voxel
-                        } else if (grassy && (hv & 7) < 2) {
+                            veg = kind; veg_h = 1;   // mushrooms, wild crops, carcasses: one voxel
+                        } else if (grassy && !pickup && (hv & 7) < 2) {
                             veg = Mat::TALL_GRASS; veg_h = 1;
                         }
                         break;
@@ -871,7 +944,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 const bool forest = technosim_biome::TREE_DENSITY[col.biome] >= 0.2f;
                 const bool under = forest && shaded;
                 if (under && n_litter_.GetNoise((float)wx, (float)wz) > -0.4f) top_m = Mat::LEAF_LITTER;
-                if (do_veg && h > sea && (veg == Mat::AIR || veg == Mat::TALL_GRASS) && veg_head == Mat::AIR) {
+                if (do_veg && h > sea && !pickup && (veg == Mat::AIR || veg == Mat::TALL_GRASS) && veg_head == Mat::AIR) {
                     const uint32_t fh = h3(wx, wz, g.seed_ + 31);
                     const uint32_t r10 = fh & 1023;
                     veg = Mat::AIR;
@@ -886,7 +959,6 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                         if (near_wood && r10 < 150) { veg = ((fh >> 10) & 3) == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN; veg_h = 1; }
                         else if (r10 < 300) { veg = Mat::FERN; veg_h = 2 + (int)((fh >> 12) % 3); }
                         else if (r10 < 420) { veg = Mat::TALL_GRASS; veg_h = 1 + (int)((fh >> 12) & 1); }
-                        else if (r10 < 426) { veg = Mat::TWIGS; veg_h = 1; }
                     } else {
                         const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
                         const float cover = 0.12f + 0.3f * mead + (forest ? 0.1f : 0.0f);   // every tuft costs ~10 faces
@@ -909,6 +981,15 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 float ln = 2.0f;
                 for (int k = 0; k < nct && veg != Mat::AIR; k++) if (tree_voxel(ctrees[k], (float)wx, h, (float)wz, 0.0f, ln) != Mat::AIR) veg = veg_head = Mat::AIR;
                 for (int k = 0; k < ncs && veg != Mat::AIR; k++) if (stamp_voxel(*cst[k], (float)wx, h, (float)wz, 0.0f) != Mat::AIR) veg = veg_head = Mat::AIR;
+            }
+            // fallen sticks lie on this column's ground, on a strip the grass and ferns keep clear of
+            if (do_veg && ncs > 0 && !pickup && h > water_level && hy.fall_top < 0) {
+                float sd = 1e9f;
+                for (int k = 0; k < ncs; k++) if (cst[k]->kind == STICK) sd = std::min(sd, stick_dist(*cst[k], (float)wx, (float)wz));
+                if (sd <= 0.72f) { veg = Mat::TWIGS; veg_h = 1; veg_head = Mat::AIR; }
+                else if (sd <= 2.5f) veg = veg_head = Mat::AIR;
+                // a rim of bare soil under and beside it, so the pale stick reads against grass and litter
+                if (sd <= 1.6f && (top_m == Mat::GRASS || top_m == Mat::LEAF_LITTER)) top_m = Mat::DIRT;
             }
             // ruin walls (macro geometry: 0.5 m stones)
             int wall_top = -1;

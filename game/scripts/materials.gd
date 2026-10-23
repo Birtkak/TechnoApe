@@ -62,6 +62,7 @@ const TIN_BEARING_STONES := 49
 const IRON_BEARING_STONES := 50
 const FLINT_STONES := 51           # flint lying on gravel and stony ground
 const TWIGS := 52                  # fallen sticks on forest floors
+const GROUND_PICKUPS := [PEBBLES, COPPER_BEARING_STONES, TIN_BEARING_STONES, IRON_BEARING_STONES, FLINT_STONES, TWIGS]
 # Sulfur caves and Noita chemistry
 const TOXIC_SLUDGE := 53           # Noita's toxic sludge: stains you toxic; water dilutes it into water
 const TOXIC_SLUDGE_STATIC := 54    # generated sludge pools in sulfur caves: static until disturbed
@@ -116,7 +117,7 @@ const TORCH := 106                 # stands on a top face; TorchLights gives the
 const STORAGE_POT := 107           # fired clay jar: a 9-slot container (micro model, solid)
 const LEAF_LITTER := 108           # the shaded forest floor: fallen leaves over soil, dug like grass
 
-const ATLAS_TILES := Vector2i(8, 12)   # rows grow at the bottom, so tile indices keep their meaning
+const ATLAS_TILES := Vector2i(8, 13)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -166,7 +167,7 @@ static func defs() -> Array:
 		{"name": "furnace_lit", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 36, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "chest", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [37, 38, 37], "transparent": false, "interact": "chest", "entity": "chest"},
 		{"name": "planks", "cell_type": "solid", "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false},
-		{"name": "pebbles", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [0, 0, 0], "transparent": false, "micro": "pebbles"},
+		{"name": "pebbles", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [86, 86, 86], "transparent": false, "micro": "pebbles"},
 		{"name": "mushroom_brown", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [40, 42, 42], "transparent": false, "micro": "mushroom"},
 		{"name": "mushroom_red", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [41, 42, 42], "transparent": false, "micro": "mushroom"},
 		{"name": "reed", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 44, 23], "transparent": false, "micro": "reed"},
@@ -179,11 +180,11 @@ static func defs() -> Array:
 		# lifetime in sim ticks (30 Hz): the puddle soaks into the ground after ~7 s; the stain stays
 		{"name": "blood", "cell_type": "liquid", "fluid_slot": 3, "density": 1.1, "liquid_flow_speed": 0.7, "lifetime": 200, "tiles": [47, 47, 47], "transparent": true},
 		# ground pickups: hardness 0 in mining.json, they drop loose items (ADR 0019)
-		{"name": "copper_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [18, 18, 18], "transparent": false, "micro": "ore_stones"},
-		{"name": "tin_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [19, 19, 19], "transparent": false, "micro": "ore_stones"},
-		{"name": "iron_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [17, 17, 17], "transparent": false, "micro": "ore_stones"},
-		{"name": "flint_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [13, 13, 13], "transparent": false, "micro": "pebbles"},
-		{"name": "twigs", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 20, "autoignition_temperature": 20, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [26, 26, 26], "transparent": false, "micro": "twigs"},
+		{"name": "copper_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [94, 94, 94], "transparent": false, "micro": "ore_stones"},
+		{"name": "tin_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [95, 95, 95], "transparent": false, "micro": "ore_stones"},
+		{"name": "iron_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [96, 96, 96], "transparent": false, "micro": "ore_stones"},
+		{"name": "flint_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [87, 87, 87], "transparent": false, "micro": "pebbles"},
+		{"name": "twigs", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 20, "autoignition_temperature": 20, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [93, 97, 97], "transparent": false, "micro": "twigs"},
 		# sulfur caves (biomes.json sulfur_cave) and Noita chemistry (reactions below)
 		{"name": "toxic_sludge", "cell_type": "liquid", "fluid_slot": 4, "density": 1.3, "liquid_flow_speed": 0.4, "tiles": [48, 48, 48], "transparent": true},
 		{"name": "toxic_sludge_static", "cell_type": "liquid", "fluid_slot": 4, "liquid_static": true, "density": 1.3, "tiles": [48, 48, 48], "transparent": true, "loose": 53},

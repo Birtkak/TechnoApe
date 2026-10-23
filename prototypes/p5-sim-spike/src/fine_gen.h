@@ -86,7 +86,7 @@ private:
         int ylo, yhi;
     };
     // Ground features: WorldGen's stamps plus FineGen's forest floor (logs at any angle, stumps, bushes, rocks).
-    enum { STUMP = 10 };
+    enum { STUMP = 10, STICK = 11 };   // STICK: a fallen stick (twigs pickup), laid on the ground per column
     struct FStamp {
         int kind;
         float x, z;
@@ -113,6 +113,7 @@ private:
     void build_stamp(const WorldGen::Stamp &s, FStamp &out) const;
     void floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<FStamp> &out) const;
     uint16_t stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const;
+    static float stick_dist(const FStamp &s, float x, float z);   // ground-plane distance to a stick and its branch
     float cave_field(int mx, int my, int mz, int height) const;
 };
 

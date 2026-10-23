@@ -12,8 +12,8 @@ Tiles (index = row*4 + col):
 56 oak log top 57-59 spruce log side/top, needles 60-62 acacia 63-65 jungle
 66-68 terracotta orange/red/cream 69 basalt top 70 basalt side 71 packed ice
 72 fern frond; 73 birch bark 74 birch top 75 birch leaves 76 blueberries
-77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84 leaf litter; 85 oak bark; 86-87 free
-88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93-95 free (8x12)
+77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84 leaf litter; 85 oak bark; 86 pebbles 87 flint
+88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98-103 free (8x13)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -23,7 +23,7 @@ from PIL import Image
 
 TILE = 16
 COLS = 8
-ROWS = 12  # 96 tiles; rows grow at the bottom so tile indices keep their meaning
+ROWS = 13  # 104 tiles; rows grow at the bottom so tile indices keep their meaning
 
 random.seed(1337)
 
@@ -442,6 +442,29 @@ PAL = {
 }
 
 
+def on_free_tile(entries, seed):
+    """A palette on a tile that used to be a free noise_tile: still draws that tile's numbers from
+    the shared RNG, so the noise tiles after it keep their look."""
+    noise_tile((128, 128, 128), 0)
+    return palette(entries, seed)
+
+
+# Ground pickups (ADR 0019): one voxel each on ground of nearly the same colour, so each gets a
+# palette that stands out from stone, gravel, grass and leaf litter.
+PICKUP = {
+    "pebbles": [("#cfc8b8", 5), ("#bfb7a5", 4), ("#ddd7c9", 3), ("#aca390", 2)],   # pale river stones
+    "flint": [("#2a2f3b", 5), ("#373d4b", 4), ("#1f232c", 3), ("#e6e0d0", 2)],     # blue-black, chalky rind
+    "twigs": [("#c9a46c", 5), ("#b8925a", 4), ("#d8b781", 3), ("#9e7c4c", 2)],     # stick tops: dry, pale wood
+    "twigs_bark": [("#6e4a2a", 5), ("#5a3b21", 4), ("#7d5631", 3), ("#4a301b", 2)],  # stick sides: dark bark
+}
+# Ore-bearing stones (Vintage Story's ore chunks): grey host rock, about a quarter of it saturated ore voxels.
+# (A pale host read as quartz.)
+HOST = [("#8e8a83", 5), ("#7c7872", 4), ("#9c978e", 3), ("#6a6661", 2)]
+PICKUP["copper_bearing"] = HOST + [("#d4692a", 2), ("#b0471f", 1.5), ("#3f9a6a", 1)]   # native copper, malachite
+PICKUP["tin_bearing"] = HOST + [("#3a2a1f", 2), ("#58402f", 1.5), ("#c8c2b0", 1)]  # cassiterite, a little quartz
+PICKUP["iron_bearing"] = HOST + [("#a8402a", 2), ("#c9662f", 1.5), ("#6e2e1c", 1)]     # hematite and limonite
+
+
 def spotted(base, spot):
     img = noise_tile(base, 12, None, 0)
     for (sx, sy) in [(3, 3), (10, 4), (6, 9), (12, 11), (2, 12)]:
@@ -540,13 +563,18 @@ tiles = [
     noise_tile((150, 46, 46), 12, (110, 28, 30), 0.25),       # 83 raw meat (carcasses)
     leaf_litter(),                                            # 84 leaf litter (forest floor)
     oak_bark(),                                               # 85 oak bark: grey-brown, dark grooves (trunks in the world)
-    noise_tile((128, 128, 128), 0),                           # 86 free
-    noise_tile((128, 128, 128), 0),                           # 87 free
+    on_free_tile(PICKUP["pebbles"], 86),                      # 86 pebbles (ground pickup)
+    on_free_tile(PICKUP["flint"], 87),                        # 87 flint stones (ground pickup)
     thatch(True),                                             # 88 thatch top
     thatch(False),                                            # 89 thatch side
     daub(),                                                   # 90 daub (wattle and daub wall)
     noise_tile((176, 132, 76), 12, (140, 100, 54), 0.25),     # 91 wattle withy: peeled hazel, lighter than logs
     noise_tile((120, 30, 10), 18, (255, 120, 30), 0.35),      # 92 torch ember: charred wick glowing orange
+    palette(PICKUP["twigs"], 93),                             # 93 twigs (ground pickup)
+    palette(PICKUP["copper_bearing"], 94),                    # 94 copper-bearing stones
+    palette(PICKUP["tin_bearing"], 95),                       # 95 tin-bearing stones
+    palette(PICKUP["iron_bearing"], 96),                      # 96 iron-bearing stones
+    palette(PICKUP["twigs_bark"], 97),                        # 97 twigs sides (bark)
 ]
 assert len(tiles) <= COLS * ROWS, len(tiles)
 
