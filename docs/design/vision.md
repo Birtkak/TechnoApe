@@ -22,6 +22,20 @@ A voxel game that mixes **Minecraft with GregTech vibes** and **Noita**:
 - **Crafting, spells and exploration are a mix of both**: materials found by
   exploring feed both the factory and the wand.
 
+### The world looks and plays like Lay of the Land (2026-10-23, ADR 0033)
+- **12.5 cm voxels everywhere**, one grid for gameplay, simulation,
+  collision and rendering; fully destructible; the Noita simulation runs on
+  the voxels you see. Trees are cut voxel by voxel and fall; undermined
+  roofs collapse.
+- **Flat-coloured voxels** (per-material palettes, jittered per voxel), soft
+  light, AO and atmosphere; no terrain textures.
+- **Brushes and amounts:** tools dig blobs, the inventory holds material
+  amounts in Minecraft-style slots, building places shapes (cube, cylinder,
+  cone, slope, path).
+- Plan: `docs/plans/lotl-overhaul.md`, behind `world_v2=1` until it beats
+  the 0.5 m world. Where this section disagrees with older text below
+  (blocky 0.5 m voxels, 16x16 textures, mining single blocks), this wins.
+
 ### Getting resources (2026-10-21)
 - **Mining** yields metals and the materials that drive technology tiers
   (the GregTech side).
@@ -132,8 +146,10 @@ prototype (P5, falling-sand-3D spike) before the architecture is locked.
 ## Fixed decisions (see ADRs)
 - Perspective: 3D first-person.
 - World: blocky voxels, chunk-streamed, infinite or very large.
-- Scale: **0.5 m voxels**, world 768 voxels high (ADR 0004).
-- Look: Minecraft-style 16×16 textures from the first build (ADR 0004).
+- Scale: **12.5 cm voxels**, world 384 m high (ADR 0033, replacing ADR
+  0004's 0.5 m once `world_v2` goes default).
+- Look: flat per-voxel colours, Lay of the Land style (ADR 0033, replacing
+  ADR 0004's 16×16 textures for terrain; item icons stay pixel art).
 - Multiplayer: not in scope now; architecture must not block co-op later.
   Target: dedicated Linux server in Docker on Unraid, Tailscale network (ADR 0002).
 - Platforms: Windows client, Linux server (ADR 0002, Android dropped in ADR 0009).

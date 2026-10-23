@@ -140,6 +140,12 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   store as cells; plants are their pattern cells, columns fall together). **Next:** chisel as brick
   expansion (fable-backlog job 2: edits into the micro cells replace ADR 0006's overlay meshes), P4 server
   headless check.
+- **Overhaul (ADR 0033, proposed 2026-10-23, the user's direction):** the world
+  becomes Lay of the Land style: one 12.5 cm voxel grid for everything,
+  flat-coloured voxels, brush digging with material amounts, shape building.
+  Plan and gates: `docs/plans/lotl-overhaul.md` (step 1 = P12 spike, godot_voxel
+  at 12.5 cm with a 2 km horizon). Built behind `world_v2=1`; the 0.5 m notes
+  below describe the current game until the flag goes default.
 - In-world voxels follow ADR 0006: terrain ids + one block-entity layer
   (`scripts/blocks/`) + reserved decor layer; every voxel chiselable on an
   8³ cell grid (6.25 cm) through the native `MicroMesher`, which also builds
