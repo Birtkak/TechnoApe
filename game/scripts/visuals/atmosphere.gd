@@ -8,17 +8,28 @@ extends Node3D
 ##   underground: the deeper the camera is below the generator's surface, the
 ##     darker the ambient and the darker/denser the fog (caves stop glowing sky blue)
 ##   submerged: the camera voxel is a liquid -> dense tinted fog + a screen tint
-## Pure presentation; nothing here is saved or simulated. Tunables below;
-## command line: time=0..1 (0.5 = noon), day_length=<seconds, 0 = frozen>,
+## The sun, the moon and the stars stand where `calendar` (scripts/world/calendar.gd,
+## ADR 0025) puts them: real sun paths through the seasons, the moon's phase by the
+## day of the month, sidereal stars, eclipses. The calendar is the only state here
+## that is saved (by main.gd); the rest is presentation. Tunables below;
+## command line: time=0..1 (0.5 = noon), date=<month>-<day> (1-based), day=<days since start>, latitude=<deg>,
+## constellations=0|1, day_length=<seconds, 0 = frozen>,
 ## clouds=0..1, ssao=0|1, glow=0|1, fog=0|1, shadows=soft|hard|off, tonemap=aces|agx|filmic|linear,
 ## saturation=1.0. Measured cost of the defaults: ~1.2 ms/frame (see README).
 
 # --- tunables ------------------------------------------------------------------
-var time_of_day := 0.40          # 0 midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset
+var calendar := Calendar.new()   # date, time, sun / moon / star geometry (saved by main.gd)
+var time_of_day: float:          # 0 midnight, 0.5 noon (local solar time; sunrise moves with the seasons)
+	get:
+		return calendar.time
+	set(v):
+		calendar.time = fposmod(v, 1.0)
 var day_length_s := 0.0          # seconds per full day; 0 freezes the sun
-var sun_yaw_deg := 35.0          # compass direction of the sun path (shadows never axis aligned)
 var sun_energy := 1.25
-var moon_energy := 0.10
+var moon_energy := 0.16          # a full moon high up; scaled by its phase and height
+var show_constellations := false
+var sun_radius := 0.042          # radians, as drawn (sky.gdshader)
+var moon_radius := 0.042 * Calendar.MOON_SUN_RATIO   # mean size; the perigee cycle scales it
 var sun_color := Color(1.0, 0.96, 0.88)
 var sunset_color := Color(1.0, 0.62, 0.35)
 var moon_color := Color(0.62, 0.70, 0.95)
@@ -54,6 +65,15 @@ var overlay: ColorRect
 var world: World
 var camera: Camera3D
 
+# season map: temperatures around the player for the terrain shader's snow and colours
+const CLIMATE_N := 256                     # texels per side
+const CLIMATE_STEP := 32                   # voxels per texel (16 m): 4 km across, the whole horizon
+var _climate_task := -1
+var _climate_bytes := PackedByteArray()
+var _climate_rect := Vector4.ZERO
+var _climate_center := Vector2(INF, INF)
+var _snow_t_max := 0.2
+
 var _underground := 0.0          # smoothed 0..1
 var _submerged_name := ""        # material name the camera is in, "" above
 var _depth_check_accum := 0.0
@@ -62,6 +82,7 @@ var _depth_check_accum := 0.0
 func setup(p_world: World, p_camera: Camera3D) -> void:
 	world = p_world
 	camera = p_camera
+	_apply_season()   # _ready ran before the world was known
 
 
 func _ready() -> void:
@@ -75,6 +96,10 @@ func _ready() -> void:
 	sky_material.shader = load("res://assets/shaders/sky.gdshader")
 	sky_material.set_shader_parameter("cloud_coverage", cloud_coverage)
 	sky_material.set_shader_parameter("sunset_color", Vector3(sunset_color.r, sunset_color.g, sunset_color.b))
+	sky_material.set_shader_parameter("star_map", load("res://assets/textures/sky_stars.png"))
+	sky_material.set_shader_parameter("milky_way", load("res://assets/textures/sky_milkyway.png"))
+	sky_material.set_shader_parameter("sun_radius", sun_radius)
+	sky_material.set_shader_parameter("moon_radius", moon_radius)
 	sky.sky_material = sky_material
 	sky.radiance_size = Sky.RADIANCE_SIZE_128
 	sky.process_mode = Sky.PROCESS_MODE_REALTIME   # the sky moves (clouds, sun); ambient follows
@@ -157,13 +182,28 @@ func _ready() -> void:
 	overlay.color = Color(0, 0, 0, 0)
 	layer.add_child(overlay)
 	add_child(layer)
+	var temp_bands: Array = BiomeRegistry.load_default().climate.get("temperature_bands", [])
+	for b in temp_bands:
+		if b.get("name", "") == "temperate":
+			_snow_t_max = float(b["max"])   # snow settles in temperate and colder climates
 	_update_sun()
 	_apply_states(true)
 
 
-## /time set: jump the sun (0 midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset).
+func _exit_tree() -> void:
+	if _climate_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_climate_task)
+		_climate_task = -1
+
+## /time set and sleeping: move forward to the next time `t` (0 midnight, 0.5 noon);
+## the date moves on with it, never back.
 func set_time_of_day(t: float) -> void:
-	time_of_day = fposmod(t, 1.0)
+	calendar.advance_to(t)
+	_update_sun()
+
+
+func set_show_constellations(on: bool) -> void:
+	show_constellations = on
 	_update_sun()
 
 
@@ -174,6 +214,13 @@ func _apply_cmdline() -> void:
 			continue
 		match kv[0]:
 			"time": time_of_day = fposmod(float(kv[1]), 1.0)
+			"date":
+				var md := kv[1].split("-")
+				if md.size() == 2:
+					calendar.set_date(int(md[0]) - 1, int(md[1]) - 1)
+			"latitude": calendar.latitude_deg = clampf(float(kv[1]), -89.0, 89.0)
+			"day": calendar.day = maxi(0, int(kv[1]))   # whole days since the world began (eclipse shots)
+			"constellations": show_constellations = kv[1] == "1"
 			"day_length": day_length_s = float(kv[1])
 			"clouds": cloud_coverage = clampf(float(kv[1]), 0.0, 1.0)
 			"ssao": ssao_on = kv[1] == "1"
@@ -187,45 +234,139 @@ func _apply_cmdline() -> void:
 
 func _process(delta: float) -> void:
 	if day_length_s > 0.0:
-		time_of_day = fposmod(time_of_day + delta / day_length_s, 1.0)
+		calendar.advance(delta / day_length_s)
 		_update_sun()
 	_depth_check_accum += delta
 	if _depth_check_accum >= 0.1:   # 10 Hz is plenty for a fade; the lerp below smooths it
 		_depth_check_accum = 0.0
 		_sample_camera()
+		_update_climate()
 	_apply_states(false, delta)
 
 
-## Sun elevation from the time of day: the light orbits around the X axis
-## (tilted by sun_yaw), so one rotation is one day. Below the horizon the same
-## light becomes the moon: dim, cool, from the opposite side.
+## Sun, moon and sky from the calendar. One DirectionalLight plays the sun by day
+## and the moon by night (its energy follows the phase and the moon's height);
+## the sky shader draws both discs, the stars turned by sidereal time, and eclipses.
 func _update_sun() -> void:
-	var angle := (time_of_day - 0.25) * TAU         # 0 at sunrise, PI/2 at noon
-	var sun_up := sin(angle)
-	var day := smoothstep(-0.05, 0.22, sun_up)
+	var sd := calendar.sun_dir()
+	var md := calendar.moon_dir()
+	var size := calendar.moon_size()
+	var e := calendar.eclipse()
+	var basis := calendar.celestial_to_world()
+	var pole := basis * Vector3(0, 0, 1)
+	var sun_up := sd.y
+	var solar := 0.0
+	var cover := 0.0
+	var lunar_cover := 0.0
+	var shadow := Vector2(9.0, 0.0)
+	var moon_draw := md
+	var mr := moon_radius * size
+	if e["kind"] == "solar":
+		# the drawn moon crosses the drawn sun at the real eclipse's closest approach
+		var east := pole.cross(sd).normalized()
+		var north := sd.cross(east)
+		var r_sum := sun_radius + mr
+		var along: float = float(e["progress"]) * r_sum * 1.6
+		var miss: float = float(e["miss"]) * r_sum
+		moon_draw = (sd + east * along + north * miss).normalized()
+		solar = 1.0
+		cover = disc_overlap(sqrt(along * along + miss * miss), sun_radius, mr)
+	elif e["kind"] == "lunar":
+		# the umbra crosses the moon from east to west (in moon radii, disc frame x west)
+		var travel := 2.0 * (2.7 + 1.0)
+		shadow = Vector2(float(e["progress"]) * travel * 0.5, float(e["miss"]) * 3.7)
+		lunar_cover = disc_overlap(shadow.length(), 2.7, 1.0)
+	var day := smoothstep(-0.05, 0.22, sun_up) * (1.0 - 0.95 * cover * cover)
 	var night := smoothstep(-0.05, 0.22, -sun_up)
-	var is_moon := night > day
-	var rot_x := -rad_to_deg(angle) + (180.0 if is_moon else 0.0)
-	sun.rotation_degrees = Vector3(rot_x, sun_yaw_deg, 0)
-	# the sky always wants the real sun, even while the light plays the moon. A
-	# directional light shines along its -Z, so the direction towards the sun is +Z
-	# of the un-flipped basis (-Z put the sun below the horizon: a night sky at noon).
-	var sun_basis := Basis.from_euler(Vector3(-angle, deg_to_rad(sun_yaw_deg), 0))
-	sky_material.set_shader_parameter("sun_dir", sun_basis.z)
+	var moon_light := moon_energy * calendar.moon_illumination() * smoothstep(-0.02, 0.2, md.y) * night * (1.0 - 0.9 * lunar_cover)
+	var sun_light := sun_energy * day
+	var is_moon := moon_light > sun_light
+	var light_dir := md if is_moon else sd
+	var up := Vector3.UP if absf(light_dir.y) < 0.98 else Vector3.FORWARD
+	sun.basis = Basis.looking_at(-light_dir, up)   # a directional light shines along its -Z
 	if is_moon:
 		sun.light_color = moon_color
-		sun.light_energy = moon_energy * night
+		sun.light_energy = moon_light
 	else:
 		var low := 1.0 - smoothstep(0.0, 0.35, sun_up)
 		sun.light_color = sun_color.lerp(sunset_color, low * 0.85)
-		sun.light_energy = sun_energy * day
+		sun.light_energy = sun_light
 	sun.shadow_opacity = 0.9 if not is_moon else 0.6
+	sky_material.set_shader_parameter("sun_dir", sd)
+	sky_material.set_shader_parameter("moon_dir", moon_draw)
+	sky_material.set_shader_parameter("moon_size", size)
+	sky_material.set_shader_parameter("pole_dir", pole)
+	sky_material.set_shader_parameter("world_to_sky", basis.transposed())
+	sky_material.set_shader_parameter("solar_eclipse", solar)
+	sky_material.set_shader_parameter("eclipse_dark", cover)
+	sky_material.set_shader_parameter("lunar_shadow", shadow)
+	sky_material.set_shader_parameter("constellation_lines", 1.0 if show_constellations else 0.0)
+	# the autumn moons rise orange; the rest are a cool white
+	var tint := Color(1.0, 0.98, 0.94)
+	if calendar.moon_illumination() > 0.8 and calendar.month() in [8, 9]:
+		tint = Color(1.0, 0.86, 0.66)
+	sky_material.set_shader_parameter("moon_tint", Vector3(tint.r, tint.g, tint.b))
 	# the sky's fog colour follows daylight; the moon side stays dark blue
 	var fog_c := fog_color_night.lerp(fog_color_day, day)
 	var low2 := (1.0 - smoothstep(0.0, 0.3, absf(sun_up))) * smoothstep(-0.2, 0.0, sun_up)
 	fog_c = fog_c.lerp(sunset_color, low2 * 0.35)
 	set_meta("fog_day_color", fog_c)
 	set_meta("daylight", day)
+	_apply_season()
+
+
+## Season looks on the terrain material (autumn leaves, winter grass, snow cover).
+func _apply_season() -> void:
+	if world == null or world.atlas_material == null:
+		return
+	var m := world.atlas_material
+	m.set_shader_parameter("season_autumn", calendar.autumn_colour())
+	m.set_shader_parameter("season_winter", calendar.winter_dullness())
+	m.set_shader_parameter("season_snow", calendar.snow_cover())
+	m.set_shader_parameter("snow_t_max", _snow_t_max)
+
+
+## Rebuilds the climate map on a worker when the camera has moved 512 m from its
+## centre (65k native column samples, ~0.2 s off the main thread).
+func _update_climate() -> void:
+	if world == null or camera == null or world.generator == null or world.atlas_material == null:
+		return
+	if _climate_task >= 0:
+		if not WorkerThreadPool.is_task_completed(_climate_task):
+			return
+		WorkerThreadPool.wait_for_task_completion(_climate_task)
+		_climate_task = -1
+		if _climate_bytes.size() != CLIMATE_N * CLIMATE_N:
+			_climate_center = Vector2(INF, INF)   # try again next time
+			return
+		var img := Image.create_from_data(CLIMATE_N, CLIMATE_N, false, Image.FORMAT_L8, _climate_bytes)
+		world.atlas_material.set_shader_parameter("climate_map", ImageTexture.create_from_image(img))
+		world.atlas_material.set_shader_parameter("climate_rect", _climate_rect)
+		return
+	var p := Vector2(camera.global_position.x, camera.global_position.z)
+	if p.distance_to(_climate_center) < 1024.0:
+		return
+	_climate_center = p
+	var span := CLIMATE_N * CLIMATE_STEP
+	var x0 := int(p.x) - span / 2
+	var z0 := int(p.y) - span / 2
+	# texel i is sampled at x0 + i * step: shift the rect half a texel so they line up
+	_climate_rect = Vector4(x0 - CLIMATE_STEP * 0.5, z0 - CLIMATE_STEP * 0.5, span, span)
+	var gen: WorldGen = world.generator.gen
+	_climate_task = WorkerThreadPool.add_task(func() -> void:
+		_climate_bytes = gen.climate_map(x0, z0, CLIMATE_N, CLIMATE_STEP))
+
+
+## Fraction of disc A (radius ra) covered by disc B (radius rb) at centre distance d.
+static func disc_overlap(d: float, ra: float, rb: float) -> float:
+	if d >= ra + rb:
+		return 0.0
+	if d <= absf(rb - ra):
+		return 1.0 if rb >= ra else (rb * rb) / (ra * ra)
+	var a := ra * ra * acos(clampf((d * d + ra * ra - rb * rb) / (2.0 * d * ra), -1.0, 1.0))
+	var b := rb * rb * acos(clampf((d * d + rb * rb - ra * ra) / (2.0 * d * rb), -1.0, 1.0))
+	var c := 0.5 * sqrt(maxf(0.0, (-d + ra + rb) * (d + ra - rb) * (d - ra + rb) * (d + ra + rb)))
+	return clampf((a + b - c) / (PI * ra * ra), 0.0, 1.0)
 
 
 func _sample_camera() -> void:

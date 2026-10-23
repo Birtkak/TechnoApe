@@ -251,7 +251,11 @@ func _update_spawning() -> void:
 func _populate(c: Vector2i) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([_seed, c.x, c.y, 0x5EED])
-	if rng.randf() >= chance:
+	# seasons (ADR 0025): spring herds bring lambs and piglets, winter herds are fewer and smaller
+	var season := _season()
+	var herd_chance := chance * (0.5 if season == 0 else 1.0)
+	var baby_chance := 0.4 if season == 1 else 0.1
+	if rng.randf() >= herd_chance:
 		return
 	var cx := int((c.x + 0.5) * cell_v)
 	var cz := int((c.y + 0.5) * cell_v)
@@ -273,6 +277,8 @@ func _populate(c: Vector2i) -> void:
 			break
 	var g: Array = defs[species].get("group", [2, 4])
 	var n := rng.randi_range(int(g[0]), int(g[1]))
+	if season == 0:
+		n = maxi(1, n - 1)
 	var placed := 0
 	var height := int(ceil(Settings.m2v(float(defs[species]["size_m"][1]))))
 	for _i in n * 4:
@@ -284,13 +290,19 @@ func _populate(c: Vector2i) -> void:
 		var y := stand_height(x, z, h + 1, 4, height)
 		if y == -1 or get_voxel(Vector3i(x, y - 1, z)) != GameMaterials.GRASS:
 			continue
-		spawn(species, Vector3(x + 0.5, y + 0.05, z + 0.5), rng.randf() < 0.1, rng.randf() * TAU)
+		spawn(species, Vector3(x + 0.5, y + 0.05, z + 0.5), rng.randf() < baby_chance, rng.randf() * TAU)
 		placed += 1
 	if placed > 0:
 		stats["herds"] += 1
 
 
 # ---------------- world queries (for Mob) ----------------
+
+## The calendar's season (0 winter .. 3 autumn), or -1 without a sky (tests).
+func _season() -> int:
+	var atmo: Node = main.get("atmosphere") if main != null else null
+	return atmo.calendar.season() if atmo != null else -1
+
 
 func get_voxel(p: Vector3i) -> int:
 	return main.get_world_voxel(p) if main != null else world.get_voxel(p)

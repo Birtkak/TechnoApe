@@ -31,6 +31,7 @@ var reg: CommandRegistry
 var player: Player
 var player_inv: PlayerInventory
 var main: Node   # Main: atmosphere, spawn_item, spawn position
+var sky: SkyCommands   # /date, /moon, /eclipse, /constellations (ADR 0025)
 
 
 func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_main: Node = null) -> void:
@@ -64,6 +65,10 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("stations", "/stations", "Place a crafting table, chest and furnace ahead", _stations)
 	reg.register("summon", "/summon <sheep|pig> [count] [baby]", "Spawn animals where you look (ADR 0022)", _summon, [["sheep", "pig"], ["1", "2", "4", "8"], ["baby"]])
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
+	var atmo: Node = main.get("atmosphere") if main != null else null
+	if atmo != null:
+		sky = SkyCommands.new(atmo)
+		sky.register(reg)
 
 
 func _item_ids() -> Array:
@@ -251,13 +256,20 @@ func _time(args: PackedStringArray) -> Dictionary:
 	if args.is_empty() or args[0] == "query":
 		var now: float = atmo.time_of_day
 		var hours := fposmod(now * 24.0, 24.0)
-		return CommandRegistry.ok("The time is %02d:%02d (%.3f)" % [int(hours), int(fmod(hours, 1.0) * 60.0), now])
+		return CommandRegistry.ok("The time is %02d:%02d (%.3f), %s" % [int(hours), int(fmod(hours, 1.0) * 60.0), now, atmo.calendar.date_text()])
 	if args[0] != "set" or args.size() < 2:
 		return CommandRegistry.fail("Usage: /time set <day|noon|sunset|night|midnight|sunrise|0..1>")
 	var key := args[1].to_lower()
 	var t := 0.0
 	if TIMES.has(key):
 		t = TIMES[key]
+		# sunrise and sunset move with the seasons (ADR 0025); day / night are just after them
+		var cal: Calendar = atmo.calendar
+		match key:
+			"sunrise": t = cal.sunrise()
+			"day": t = cal.sunrise() + 0.04
+			"sunset": t = cal.sunset()
+			"night": t = cal.sunset() + 0.04
 	elif key.is_valid_float():
 		t = fposmod(float(key), 1.0)
 	else:

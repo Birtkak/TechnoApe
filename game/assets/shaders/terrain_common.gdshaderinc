@@ -220,3 +220,61 @@ vec4 surface_stain(vec3 wpos, vec3 n) {
 	float cover = step(thr, a);
 	return vec4(s.rgb / max(s.a, 1e-4), cover * (0.78 + 0.2 * min(a, 1.0)));
 }
+
+
+// Seasons (ADR 0025): atmosphere.gd sets these from the calendar. The climate map
+// holds the temperature (-1..1, lapse included) around the player at 16 m, so
+// winter snow settles only where the climate is cold or temperate and autumn
+// colours stay out of the hot biomes. Deciduous leaves = the oak leaf tile.
+uniform float season_autumn = 0.0;      // 0..1 how far the leaves have turned
+uniform float season_winter = 0.0;      // 0..1 straw-coloured grass, brown oak leaves
+uniform float season_snow = 0.0;        // 0..1 snow cover on top faces
+uniform float snow_t_max = 0.2;         // warmest temperature where winter snow settles
+uniform sampler2D climate_map : filter_linear, repeat_disable;
+uniform vec4 climate_rect = vec4(0.0);  // x0, z0, size x, size z (world voxels); size 0 = no map yet
+uniform float leaf_tile = 20.0;
+uniform float tall_grass_tile = 23.0;
+uniform float fern_tile = 72.0;
+
+float climate_temperature(vec3 wpos) {
+	if (climate_rect.z <= 0.0) {
+		return 1.0;
+	}
+	vec2 uv = (wpos.xz - climate_rect.xy) / climate_rect.zw;
+	if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
+		return 1.0;
+	}
+	return texture(climate_map, uv).r * 2.0 - 1.0;
+}
+
+vec3 season_color(vec3 col, float idx, vec3 wpos, vec3 n) {
+	if (season_autumn + season_winter + season_snow <= 0.0) {
+		return col;
+	}
+	float t = climate_temperature(wpos);
+	float seasonal = 1.0 - smoothstep(snow_t_max + 0.1, snow_t_max + 0.35, t);   // hot biomes stay green
+	float lum = dot(col, vec3(0.30, 0.59, 0.11));
+	float vh = stain_hash(floor(wpos) + 3.0);   // per voxel
+	if (abs(idx - leaf_tile) < 0.5) {
+		vec3 turn = mix(vec3(0.95, 0.74, 0.20), vec3(0.93, 0.40, 0.10), smoothstep(0.3, 0.7, vh));
+		turn = mix(turn, vec3(0.72, 0.16, 0.08), step(0.82, vh));
+		float a = clamp(season_autumn * 1.5 - vh * 0.5, 0.0, 1.0) * seasonal;
+		col = mix(col, turn * lum * 2.4, a);
+		col = mix(col, vec3(0.45, 0.31, 0.18) * lum * 2.2, season_winter * 0.85 * seasonal);
+	} else if (abs(idx - grass_top_tile) < 0.5 || abs(idx - grass_side_tile) < 0.5 || abs(idx - tall_grass_tile) < 0.5
+			|| abs(idx - fern_tile) < 0.5) {
+		float green = step(col.r * 1.08, col.g) * step(col.b, col.g);   // the grass pixels, not the soil under them
+		col = mix(col, vec3(0.70, 0.63, 0.40) * lum * 2.0, season_winter * 0.7 * green * seasonal);
+		if (abs(idx - fern_tile) < 0.5) {
+			col = mix(col, vec3(0.62, 0.42, 0.20) * lum * 2.2, season_autumn * 0.6 * seasonal);
+		}
+	}
+	if (season_snow > 0.0 && n.y > 0.6 && abs(idx - lava_tile) > 0.5 && abs(idx - fire_tile) > 0.5) {
+		float cold = 1.0 - smoothstep(snow_t_max - 0.06, snow_t_max + 0.04, t);
+		float s = season_snow * cold;
+		// ragged edge while it thins: pixels drop out by a per-pixel hash
+		s *= step(stain_hash(floor(wpos * 16.0)) * 0.7, s * 1.2);
+		col = mix(col, vec3(0.92, 0.94, 0.98), s);
+	}
+	return col;
+}

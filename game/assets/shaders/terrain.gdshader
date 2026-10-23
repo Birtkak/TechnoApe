@@ -20,6 +20,7 @@ void fragment() {
 	}
 	vec4 c;
 	float idx = terrain_sample(UV, v_world, v_normal_world, CAMERA_POSITION_WORLD, c);
+	c.rgb = season_color(c.rgb, idx, v_world, v_normal_world);
 	ALBEDO = c.rgb * vcol.rgb * face_tint(v_normal_world);
 	ROUGHNESS = 1.0;
 	METALLIC = 0.0;

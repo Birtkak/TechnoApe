@@ -17,6 +17,7 @@ var offset_m := 40.0  # start this far from the target (along +z)
 var inside := false   # start at the target position itself (cave|...) with a debug torch, instead of above it
 var third_person := 0 # 1 = camera behind the ape, 2 = in front (F5 views)
 var pitch := -0.2     # camera pitch in radians (negative = looking down)
+var yaw := 0.0        # camera yaw in radians (0 = the default heading; sky shots, ADR 0025)
 var walk := false     # walk (gravity, step-up) instead of flying; reports distance travelled
 var mine := false     # stand still, look down and hold break for the whole run; JSON reports picked_up
 var place := false    # stand still and place the held item ahead every place_repeat_s; JSON shows the hotbar count drop
@@ -102,6 +103,7 @@ func _ready() -> void:
 	inside = args.get("inside", "0") == "1"
 	third_person = int(args.get("third_person", "0"))
 	pitch = float(args.get("pitch", "-0.2"))
+	yaw = float(args.get("yaw", "0.0"))
 	walk = args.get("walk", "0") == "1"
 	mine = args.get("mine", "0") == "1"
 	place = args.get("place", "0") == "1"

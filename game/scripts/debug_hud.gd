@@ -136,6 +136,7 @@ func _collect() -> void:
 			float(info.get("humidity", 0.0)), float(info.get("river", 0.0)), float(info.get("slope", 0.0))],
 		"Time: %02d:%02d (%.3f), day cycle %s" % [int(hours), int(fmod(hours, 1.0) * 60.0), atmo.time_of_day,
 			"frozen" if atmo.day_length_s <= 0.0 else "%d s" % int(atmo.day_length_s)],
+		_sky_line(atmo.calendar),
 		"Seed: %d%s" % [Settings.world_seed, (" (\"%s\")" % Settings.world_seed_text) if Settings.world_seed_text != "" else ""],
 		"Mode: %s, %s" % [p.game_mode, ", ".join(states)],
 		"Health: %d / %d" % [inv.health, inv.max_health],
@@ -254,3 +255,14 @@ func _draw_axes() -> void:
 	for a in axes:
 		var l: Vector3 = inv * (a[0] as Vector3)
 		_axes.draw_line(c, c + Vector2(l.x, -l.y) * 14.0, a[1], 2.0)
+
+
+## Date, moon and sun (ADR 0025): "Date: 5 September, year 1 (Autumn), Full Moon 99% (Harvest Moon), day 11.9 h".
+func _sky_line(c: Calendar) -> String:
+	var name := c.moon_name()
+	var e := c.eclipse()
+	var ecl := ""
+	if e["kind"] != "":
+		ecl = ", %s eclipse%s" % [e["kind"], " (total)" if e["total"] else ""]
+	return "Date: %s, %s %d%%%s, day %.1f h%s" % [c.date_text(), c.phase_name(), int(c.moon_illumination() * 100.0),
+		(" (%s)" % name) if name != "" else "", c.day_length_hours(), ecl]

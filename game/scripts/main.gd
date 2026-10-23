@@ -52,6 +52,8 @@ func _ready() -> void:
 	# sky, sun, fog, bloom, SSAO, underwater / underground looks (scripts/visuals/atmosphere.gd)
 	atmosphere = Atmosphere.new()
 	atmosphere.name = "Atmosphere"
+	if Settings.persist_world:
+		atmosphere.calendar.load_dict(_load_json(_save_path("calendar")))   # before _ready: date= still overrides it (ADR 0025)
 	add_child(atmosphere)
 
 	items = ItemRegistry.load_default()
@@ -188,7 +190,7 @@ func _ready() -> void:
 			if t.y >= 0 and DebugCapture.inside:
 				# stand in the target itself (a cave room): eye height above its floor voxel, a torch on the player
 				player.position = Vector3(t.x + 0.5, t.y + 0.1, t.z + 0.5)
-				player.set_look(0.0, DebugCapture.pitch)
+				player.set_look(DebugCapture.yaw, DebugCapture.pitch)
 				var torch := OmniLight3D.new()
 				torch.omni_range = 40.0
 				torch.light_energy = 2.5
@@ -199,13 +201,13 @@ func _ready() -> void:
 			elif t.y >= 0:
 				# start offset_m before the target along +z, fly -z over it
 				player.position = Vector3(t.x + 0.5, t.y + Settings.m2v(DebugCapture.altitude_m), t.z + Settings.m2v(DebugCapture.offset_m) + 0.5)
-				player.set_look(0.0, DebugCapture.pitch)
+				player.set_look(DebugCapture.yaw, DebugCapture.pitch)
 				print("autopilot target %s at %s" % [DebugCapture.target, t])
 			else:
 				print("autopilot target %s not found" % DebugCapture.target)
 		else:
 			player.position.y = h + Settings.m2v(DebugCapture.altitude_m)
-			player.set_look(0.0, DebugCapture.pitch)   # same as the player's default unless pitch= is given
+			player.set_look(DebugCapture.yaw, DebugCapture.pitch)   # same as the player's default unless pitch= is given
 		if DebugCapture.walk or DebugCapture.mine or DebugCapture.place:
 			player.flying = false
 			# stand on the ground at the player's actual x/z (targets move it away from spawn)
@@ -317,6 +319,7 @@ func _physics_process(delta: float) -> void:
 		var ticks := int(_farm_accum / BlockEntities.TICK_S)
 		_farm_accum -= ticks * BlockEntities.TICK_S
 		t0 = Time.get_ticks_usec()
+		farming.season_growth = atmosphere.calendar.crop_growth()   # crops rest in winter (ADR 0025)
 		_spawn_drop_events(farming.tick(ticks))
 		phys_cost["farm"] = maxf(float(phys_cost.get("farm", 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
 	_save_accum += delta
@@ -343,6 +346,8 @@ func _save_blocks() -> void:
 		farming.dirty = false
 	if mobs != null:
 		mobs.save_file(_save_path("mobs"))   # animals move all the time: always written
+	if atmosphere != null:
+		_save_json(_save_path("calendar"), atmosphere.calendar.to_dict())   # the date moves all the time too
 
 
 ## user://worlds/<what>_<seed>_g<gen>.json, next to the blocks file.
@@ -512,10 +517,13 @@ func _use_furniture(p: Vector3i) -> void:
 		player.sit(e.seat(), e.yaw())
 		return
 	_spawn_pos = e.seat() + Vector3(0, 0.6, 0)
+	# night = the sun is down (sunset and sunrise move with the seasons, ADR 0025); wake at sunrise
+	var cal := atmosphere.calendar
 	var t := atmosphere.time_of_day
-	if t > 0.773 or t < 0.227:
-		atmosphere.set_time_of_day(0.26)
-		chat.add_message("You slept through the night. Respawn point set.")
+	if t > cal.sunset() + 0.02 or t < cal.sunrise() - 0.02:
+		var wake := cal.sunrise() + 0.01
+		atmosphere.set_time_of_day(wake)
+		chat.add_message("You slept through the night. Respawn point set. %s" % cal.date_text())
 	else:
 		chat.add_message("You can only sleep at night. Respawn point set.")
 

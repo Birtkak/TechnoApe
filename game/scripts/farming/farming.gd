@@ -38,6 +38,7 @@ var errors: Array[String] = []
 var get_voxel: Callable       # (Vector3i) -> material id
 var set_voxel: Callable       # (Vector3i, material id) -> void
 var rng := RandomNumberGenerator.new()
+var season_growth := 1.0     # Calendar.crop_growth(): 1 spring/summer, 0.5 autumn, 0 winter (ADR 0025)
 var dirty := false
 var stats := {"random_ticks": 0, "grown": 0, "dried": 0, "trampled": 0, "popped": 0}
 var _material_ids := {}       # name -> id
@@ -223,7 +224,8 @@ func _crop_tick(p: Vector3i) -> Array:
 	var max_age: int = int(crops_def[c["kind"]]["ages"]) - 1
 	if c["age"] < max_age:
 		var f := growth_speed(p)
-		if rng.randi_range(0, int(25.0 / f)) == 0:
+		# seasons (ADR 0025): the Minecraft roll, then the season's share of it
+		if rng.randi_range(0, int(25.0 / f)) == 0 and rng.randf() < season_growth:
 			grow(p)
 	return []
 
