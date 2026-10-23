@@ -182,6 +182,10 @@ func attach(main: Node) -> void:
 	_main = main
 
 
+var _parts := {"render_cpu": [], "render_gpu": [], "process": [], "physics": []}
+var _parts_n := 0
+
+
 func _process(delta: float) -> void:
 	var prev_process_us := _process_us   # the frame whose delta we are about to record
 	_physics_us = _physics_acc_us
@@ -214,6 +218,17 @@ func _process(delta: float) -> void:
 			_loaded_at = _elapsed
 	else:
 		_frame_ms.push_back(ms)
+		# where a normal frame goes: script and physics time every frame; the render
+		# CPU / GPU times every 30th frame only, because reading them waits for the
+		# render thread (the frame after a read is left out, like a filmstrip capture)
+		_parts["process"].push_back(prev_process_us / 1000.0)
+		_parts["physics"].push_back(_physics_us / 1000.0)
+		_parts_n += 1
+		if _parts_n % 30 == 0 and not _strip:
+			var vp := get_viewport().get_viewport_rid()
+			_parts["render_cpu"].push_back(RenderingServer.viewport_get_measured_render_time_cpu(vp) + RenderingServer.get_frame_setup_time_cpu())
+			_parts["render_gpu"].push_back(RenderingServer.viewport_get_measured_render_time_gpu(vp))
+			_skip_next = true
 		if ms > SPIKE_MS:
 			_note_spike(ms, prev_process_us)
 		if blast_m > 0.0:
@@ -276,6 +291,13 @@ func _finish() -> void:
 	s["p95_frame_ms"] = snappedf(ft[int(n * 0.95)] if ft.size() else 0.0, 0.01)
 	s["p99_frame_ms"] = snappedf(ft[int(n * 0.99)] if ft.size() else 0.0, 0.01)
 	s["max_frame_ms"] = snappedf(ft[ft.size() - 1] if ft.size() else 0.0, 0.01)
+	var parts := {}
+	for k in _parts:
+		var a: Array = _parts[k].duplicate()
+		a.sort()
+		if not a.is_empty():
+			parts[k] = {"p50": snappedf(a[a.size() / 2], 0.01), "p99": snappedf(a[int(a.size() * 0.99)], 0.01)}
+	s["frame_parts"] = parts   # steady state: render_cpu, render_gpu, process (scripts), physics, ms
 	s["frames_over_8_3"] = _count_over(ft, 8.3)
 	s["frames_over_16_7"] = _count_over(ft, 16.7)
 	s["load_s"] = snappedf(_loaded_at, 0.01)

@@ -55,6 +55,9 @@ var glow_on := true
 var fog_on := true
 var tonemap := "agx"             # aces | agx | filmic | linear
 var shadows := "soft"            # soft (4 splits, penumbra) | hard (2 splits, no filter) | off
+var shadow_splits := 4            # shadow_splits=2|4 (soft only): cascades
+var shadow_blend := true          # shadow_blend=0|1: cross-fade between cascades
+var shadow_filter := -1           # shadow_filter=0..5: directional soft-shadow filter quality (-1 = project setting)
 var saturation := 1.08
 
 # --- nodes ---------------------------------------------------------------------
@@ -164,11 +167,13 @@ func _ready() -> void:
 	sun = DirectionalLight3D.new()
 	sun.name = "Sun"
 	sun.shadow_enabled = shadows != "off"
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if shadows == "soft" else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if shadows == "soft" and shadow_splits == 4 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 	sun.directional_shadow_split_1 = 0.06
 	sun.directional_shadow_split_2 = 0.18
 	sun.directional_shadow_split_3 = 0.45
-	sun.directional_shadow_blend_splits = true
+	sun.directional_shadow_blend_splits = shadow_blend
+	if shadow_filter >= 0:
+		RenderingServer.directional_soft_shadow_filter_set_quality(shadow_filter)
 	sun.directional_shadow_fade_start = 0.85
 	sun.directional_shadow_max_distance = Settings.m2v(shadow_distance_m)
 	sun.shadow_bias = 0.03
@@ -232,6 +237,10 @@ func _apply_cmdline() -> void:
 			"fog": fog_on = kv[1] == "1"
 			"tonemap": tonemap = kv[1]
 			"shadows": shadows = kv[1]
+			"shadow_splits": shadow_splits = int(kv[1])
+			"shadow_blend": shadow_blend = kv[1] == "1"
+			"shadow_filter": shadow_filter = int(kv[1])
+			"shadow_distance_m": shadow_distance_m = float(kv[1])
 			"saturation": saturation = float(kv[1])
 			"fxaa": get_viewport().screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if kv[1] == "1" else Viewport.SCREEN_SPACE_AA_DISABLED
 

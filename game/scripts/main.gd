@@ -39,6 +39,7 @@ var quests: QuestBook                # the progression book's quests and progres
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
 var quest_toast: QuestToast
+var quest_check_ms_max := 0.0        # slowest progression-book inventory check (debug JSON)
 var _farm_accum := 0.0
 var phys_cost := {}   # ms per physics callback this frame (player, items, item_bodies, blocks); DebugCapture reads it on a spike
 var _items_root: Node3D
@@ -414,12 +415,25 @@ func _setup_quests() -> void:
 		quest_toast.push(q["icon"], q["title"], q.get("final", false))
 		if chat:
 			chat.add_message("Quest complete: %s" % q["title"]))
-	player_inv.changed.connect(func() -> void: quests.check_inventory(player_inv.inv, player_inv.cursor, [player_inv.bag]))
+	# once per frame at most: a shift-click craft changes slots hundreds of times in one frame
+	player_inv.changed.connect(func() -> void:
+		if not _quests_pending:
+			_quests_pending = true
+			_check_quests.call_deferred())
 	inv_screen.setup_quests(quests)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("quests_done="):   # debug: quests_done=all or a,b,c (for book screenshots)
 			for id in (quests.quests.keys() if a.substr(12) == "all" else Array(a.substr(12).split(",", false))):
 				quests.complete(id)
+
+
+var _quests_pending := false
+
+func _check_quests() -> void:
+	_quests_pending = false
+	var t0 := Time.get_ticks_usec()
+	quests.check_inventory(player_inv.inv, player_inv.cursor, [player_inv.bag])
+	quest_check_ms_max = maxf(quest_check_ms_max, (Time.get_ticks_usec() - t0) / 1000.0)
 
 
 ## user://worlds/<what>_<seed>_g<gen>.json, next to the blocks file.
@@ -940,6 +954,7 @@ func snapshot() -> Dictionary:
 		"blocks": blocks.summary(),
 		"work": work.summary() if work else {},
 		"quests": quests.summary() if quests else {},
+		"quest_check_ms_max": snappedf(quest_check_ms_max, 0.001),
 		"projectiles": projectiles.stats if projectiles else {},
 		"torches": torch_lights.stats if torch_lights else {},
 		"mobs": mobs.summary() if mobs else {},
