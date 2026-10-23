@@ -9,6 +9,8 @@ extends Node3D
 
 signal voxel_broken(pos: Vector3i, drops: Array)
 signal voxel_placed(pos: Vector3i, material: int)
+signal voxels_dug(cells: Array, drops: Array, center: Vector3)   # a brush dig (ADR 0034)
+signal voxels_placed(cells: Array, material: int)                # a brush placement of a voxel item
 signal item_dropped(stack: Dictionary, from: Vector3, velocity: Vector3)
 signal inventory_toggled(open: bool)
 signal block_used(pos: Vector3i, material: int)
@@ -60,6 +62,12 @@ var _attack_cooldown := 0.0
 const EAT_S := 1.6               # Minecraft: 32 ticks
 
 # mining state
+# Brush (ADR 0034): size in voxels (1, 2, 4, 8; Ctrl + wheel) and shape (B); the
+# dig size is capped by the held tool (MiningTable.dig_cap).
+var brush_size := 4
+var brush_shape := "cube"
+var _dig_cells: Array[Vector3i] = []   # the voxels the current dig removes
+var _dig_carry := {}                   # fractional drops carried between digs (MiningTable.voxel_drops)
 var _mine_target := Vector3i(1 << 30, 0, 0)
 var _mine_progress := 0.0
 var _mine_time := -1.0
@@ -203,6 +211,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_last_jump_ms = -1000
 		else:
 			_last_jump_ms = now
+	elif event is InputEventMouseButton and event.pressed and event.ctrl_pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		var i := Brush.SIZES.find(brush_size)
+		i = clampi(i + (1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1), 0, Brush.SIZES.size() - 1)
+		set_brush(Brush.SIZES[i], brush_shape)
+	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_B:
+		set_brush(brush_size, Brush.SHAPES[(Brush.SHAPES.find(brush_shape) + 1) % Brush.SHAPES.size()])
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_MIDDLE:
 		_pick_block()
 	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F5:
@@ -222,6 +236,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.is_action_pressed("hotbar_%d" % (i + 1)):
 				inventory.select(i)
 				break
+
+
+func set_brush(size: int, shape: String) -> void:
+	brush_size = size
+	brush_shape = shape
+	_reset_mining()
+	if hud:
+		hud.show_toast("Brush: %s, %d cm" % [shape, int(size * Settings.VOXEL_M * 100.0)])
+
+
+## The dig brush's size with the held item (the tool caps it).
+func dig_size() -> int:
+	return mini(brush_size, MiningTable.dig_cap(inventory.held_def() if inventory else {}))
 
 
 func _aim() -> VoxelRaycastResult:
@@ -536,7 +563,9 @@ func _update_mining(delta: float) -> void:
 		hit = null   # an animal is in front of the block: LMB hits it instead (_attack)
 	if hit:
 		_highlight.visible = true
-		_highlight.global_position = Vector3(hit.position)
+		var hb := Brush.dig_bounds(hit.position, dig_size(), brush_shape)
+		_highlight.global_position = hb.position
+		_highlight.scale = hb.size
 	else:
 		_highlight.visible = false
 	# keep placing while the button is held (vanilla repeats every 4 ticks)
@@ -554,14 +583,13 @@ func _update_mining(delta: float) -> void:
 		_reset_mining()
 		return
 	var p: Vector3i = hit.position
-	if p != _mine_target:
-		_mine_target = p
+	var size := dig_size()
+	var key: Vector3i = Vector3i(Brush.dig_bounds(p, size, brush_shape).position.floor()) if size > 1 and brush_shape == "cube" else p
+	if key != _mine_target:
+		_mine_target = key
 		_mine_progress = 0.0
-		var mat_name := GameMaterials.name_of(world.get_voxel(p))
-		if GameMode.rule(game_mode, "instant_break"):
-			_mine_time = 0.0 if world.get_voxel(p) > 0 else -1.0   # creative breaks anything, at once
-		else:
-			_mine_time = mining.break_time(mat_name, inventory.held_def()) if mining else 0.0
+		_dig_cells = _dig_selection(p, size)
+		_mine_time = _dig_time(p, _dig_cells)
 		_swing_t = 0.0
 	if _mine_time < 0.0:
 		_crack.visible = false
@@ -571,18 +599,31 @@ func _update_mining(delta: float) -> void:
 	_mine_progress += delta / maxf(_mine_time, 0.001) if _mine_time > 0.0 else 1.0
 	if hud:
 		hud.break_progress = _mine_progress
-	_crack.visible = _mine_progress > 0.0 and _mine_time > 0.0
-	_crack.global_position = Vector3(p)
-	crack_material.set_shader_parameter("progress", clampf(_mine_progress, 0.0, 1.0))
+	_crack.visible = false
 	_swing_t -= delta
 	if _swing_t <= 0.0 and _mine_progress < 1.0:
 		_swing_t = SWING_EVERY_S
 		if viewmodel:
 			viewmodel.swing()
 	if _mine_progress >= 1.0:
-		var mat_name := GameMaterials.name_of(world.get_voxel(p))
-		var drops := mining.roll_drops(mat_name, inventory.held_def(), _drop_rng) if mining and GameMode.rule(game_mode, "drops") else []
-		voxel_broken.emit(p, drops)
+		var mat := world.get_voxel(p)
+		if mat > 0 and not GameMaterials.is_plain_voxel(mat) and not _is_plant(mat):
+			# a station, furniture piece or work spot: the single-voxel break
+			var mat_name := GameMaterials.name_of(mat)
+			var drops := mining.roll_drops(mat_name, inventory.held_def(), _drop_rng) if mining and GameMode.rule(game_mode, "drops") else []
+			voxel_broken.emit(p, drops)
+		else:
+			_dig_cells = _dig_selection(p, size)   # the world may have changed while digging
+			var counts := {}
+			for c in _dig_cells:
+				var n := GameMaterials.name_of(world.get_voxel(c))
+				counts[n] = int(counts.get(n, 0)) + 1
+			var drops := []
+			if mining and GameMode.rule(game_mode, "drops"):
+				drops = mining.voxel_drops(counts, inventory.held_def(), inventory.items.units,
+					func(n: String) -> bool: return GameMaterials.is_plain_voxel(GameMaterials.id_of(n)),
+					_dig_carry, _drop_rng, Settings.BLOCK * Settings.BLOCK * Settings.BLOCK)
+			voxels_dug.emit(_dig_cells.duplicate(), drops, Brush.dig_bounds(p, size, brush_shape).get_center())
 		if viewmodel:
 			viewmodel.swing()
 		_break_cooldown = Settings.break_cooldown_s
@@ -591,11 +632,74 @@ func _update_mining(delta: float) -> void:
 			# showed up as the worst frames of every mining benchmark
 			if mined_log.size() < 64:
 				mined_log.append({"voxel": p, "now": GameMaterials.name_of(world.get_voxel(p)), "player_y": snappedf(position.y, 0.01), "on_floor": is_on_floor()})
-			# dig a 2x2 shaft: the player stands on the corner where four voxels
-			# meet and turns a quarter after every break (the body is 1.2 voxels wide)
+			# dig a 2x2 shaft of brush cubes: the player stands where four meet and
+			# turns a quarter after every dig (the body is narrower than two cubes)
 			_yaw += PI / 2.0
 			_apply_look()
 		_reset_mining()
+
+
+## A plant or ground pickup voxel (grass, flowers, reeds, pebbles, twigs): dug
+## with the brush, walked through.
+func _is_plant(m: int) -> bool:
+	if m <= 0 or GameMaterials.is_plain_voxel(m) or GameMaterials.blocks_bodies(m) or GameMaterials.is_liquid(m):
+		return false
+	var d: Dictionary = GameMaterials.defs()[m - 1]
+	return not d.has("interact") and not d.has("entity") and d.get("model", "") != "empty"
+
+
+## The voxels a dig at `p` removes: the brush's cells the held tool can break
+## at a pace comparable to the aimed voxel (a shovel in dirt leaves the rock
+## around it standing). Stations, furniture, work spots, liquids and the
+## unbreakable never go with a brush; such an aimed voxel digs alone.
+func _dig_selection(p: Vector3i, size: int) -> Array[Vector3i]:
+	var out: Array[Vector3i] = []
+	var hit_mat := world.get_voxel(p)
+	if hit_mat > 0 and not GameMaterials.is_plain_voxel(hit_mat) and not _is_plant(hit_mat):
+		out.append(p)
+		return out
+	var creative := GameMode.rule(game_mode, "instant_break")
+	var held := inventory.held_def() if inventory else {}
+	var t_hit := mining.break_time(GameMaterials.name_of(hit_mat), held) if mining else 0.0
+	var times := {}
+	for c in Brush.dig_cells(p, size, brush_shape):
+		var m := world.get_voxel(c)
+		if m <= 0 or not (GameMaterials.is_plain_voxel(m) or _is_plant(m)):
+			continue
+		if creative:
+			out.append(c)
+			continue
+		if not times.has(m):
+			times[m] = mining.break_time(GameMaterials.name_of(m), held) if mining else 0.0
+		var t: float = times[m]
+		if t < 0.0 or t > maxf(t_hit * 4.0, 0.5):
+			continue
+		out.append(c)
+	return out
+
+
+## Seconds a dig takes: each voxel costs its material's block time / BLOCK^3,
+## so a full 0.5 m cube of dirt takes what a Minecraft block did (ADR 0034).
+func _dig_time(p: Vector3i, cells: Array[Vector3i]) -> float:
+	var hit_mat := world.get_voxel(p)
+	if hit_mat <= 0:
+		return -1.0
+	if GameMode.rule(game_mode, "instant_break"):
+		return 0.0
+	var held := inventory.held_def() if inventory else {}
+	if not GameMaterials.is_plain_voxel(hit_mat) and not _is_plant(hit_mat):
+		return mining.break_time(GameMaterials.name_of(hit_mat), held) if mining else 0.0
+	if cells.is_empty():
+		return -1.0
+	var per := float(Settings.BLOCK * Settings.BLOCK * Settings.BLOCK)
+	var total := 0.0
+	var times := {}
+	for c in cells:
+		var m := world.get_voxel(c)
+		if not times.has(m):
+			times[m] = maxf(mining.break_time(GameMaterials.name_of(m), held), 0.0) if mining else 0.0
+		total += times[m] / per
+	return maxf(total, 0.12)
 
 
 ## The look-at panel (like the Jade mod): what is under the crosshair, the tool
@@ -739,6 +843,9 @@ func _use(first_press: bool) -> void:
 	var mat := ItemIcon.material_id_for(inventory.items, def["id"])
 	if mat <= 0:
 		return
+	if inventory.items.is_voxel_item(def["id"]):
+		_place_voxels(hit, mat)
+		return
 	var p: Vector3i = hit.previous_position
 	if _replaceable(world.get_voxel(target)):
 		p = target   # Minecraft places into tall grass instead of in front of it
@@ -757,6 +864,30 @@ func _use(first_press: bool) -> void:
 		inventory.replace_held_one(def["empties_to"])
 	else:
 		inventory.consume_held(1)
+	_after_use()
+
+
+## Places the held voxel item as the brush shape against the aimed face (ADR
+## 0034): only empty or replaceable cells outside the player's body are filled,
+## at most as many as the stack holds.
+func _place_voxels(hit: VoxelRaycastResult, mat: int) -> void:
+	var cells: Array = []
+	var have := int(inventory.held().get("count", 0))
+	var creative := not GameMode.rule(game_mode, "consumes_items")
+	for c in Brush.place_cells(hit.position, hit.previous_position, brush_size, brush_shape):
+		if not creative and cells.size() >= have:
+			break
+		if c.y < 0 or c.y >= Settings.WORLD_HEIGHT_VOXELS or _overlaps_player(c):
+			continue
+		var m := world.get_voxel(c)
+		if m != GameMaterials.AIR and not _replaceable(m):
+			continue
+		cells.append(c)
+	if cells.is_empty():
+		return
+	voxels_placed.emit(cells, mat)
+	if not creative:
+		inventory.consume_held(cells.size())
 	_after_use()
 
 

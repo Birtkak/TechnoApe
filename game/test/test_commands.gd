@@ -151,7 +151,7 @@ func test_item_for_material() -> void:
 func test_pick_block_creative_and_survival() -> void:
 	# creative: conjures a stack into the empty selected slot
 	assert_bool(inv.pick_block("dirt", true)).is_true()
-	assert_dict(inv.held()).is_equal({"id": "dirt", "count": 64})
+	assert_dict(inv.held()).is_equal({"id": "dirt", "count": items.max_stack("dirt")})   # 64 blocks of voxels (ADR 0034)
 	# already in the hotbar: selects it
 	inv.select(4)
 	assert_bool(inv.pick_block("dirt", true)).is_true()
@@ -162,16 +162,16 @@ func test_pick_block_creative_and_survival() -> void:
 	inv.inv.set_slot(20, {"id": "sand", "count": 5})
 	assert_bool(inv.pick_block("sand", false)).is_true()
 	assert_dict(inv.held()).is_equal({"id": "sand", "count": 5})
-	assert_dict(inv.inv.get_slot(20)).is_equal({"id": "dirt", "count": 64})
+	assert_dict(inv.inv.get_slot(20)).is_equal({"id": "dirt", "count": items.max_stack("dirt")})
 
 
 func test_creative_take_cursor_inventory_and_trash() -> void:
 	assert_bool(inv.creative_take("glass", false)).is_true()
-	assert_dict(inv.cursor).is_equal({"id": "glass", "count": 64})
+	assert_dict(inv.cursor).is_equal({"id": "glass", "count": items.max_stack("glass")})
 	assert_bool(inv.creative_take("stone", false)).is_true()   # a held stack is trashed first
 	assert_dict(inv.cursor).is_empty()
 	assert_bool(inv.creative_take("stone", true)).is_true()
-	assert_int(inv.inv.count_of("stone")).is_equal(64)
+	assert_int(inv.inv.count_of("stone")).is_equal(items.max_stack("stone"))
 	assert_bool(inv.creative_take("nope", true)).is_false()
 
 

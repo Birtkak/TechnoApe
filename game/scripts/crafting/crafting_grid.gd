@@ -20,7 +20,8 @@ func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_width: int = 3, p
 	grid = Inventory.new(p_items, p_width * p_width)
 
 
-## The grid as a 3x3 id array (2x2 grids are placed top-left).
+## The grid as a 3x3 id array (2x2 grids are placed top-left). A slot holding
+## less than one recipe unit of a voxel item (a block's worth, ADR 0034) counts as empty.
 func as_3x3() -> Array:
 	var out := []
 	out.resize(9)
@@ -28,7 +29,7 @@ func as_3x3() -> Array:
 	for y in width:
 		for x in width:
 			var s: Dictionary = grid.get_slot(y * width + x)
-			out[y * 3 + x] = s["id"] if not s.is_empty() else ""
+			out[y * 3 + x] = s["id"] if not s.is_empty() and int(s["count"]) >= items.units(s["id"]) else ""
 	return out
 
 
@@ -40,10 +41,10 @@ func preview_output() -> Dictionary:
 	var r := current_recipe()
 	if r.is_empty():
 		return {}
-	return {"id": r["output"]["id"], "count": int(r["output"]["count"])}
+	return {"id": r["output"]["id"], "count": int(r["output"]["count"]) * items.units(r["output"]["id"])}
 
 
-## Crafts once: consumes one item from every non-empty grid slot and returns
+## Crafts once: consumes one recipe unit from every non-empty grid slot and returns
 ## the output stack, or {} if nothing matches. A recipe's "keep" specs (the
 ## axe that splits a log) stay in their slot; "remainder" turns an ingredient
 ## into another item in place (the pot of stew leaves its pot, Minecraft's
@@ -52,11 +53,11 @@ func craft_once() -> Dictionary:
 	var r := current_recipe()
 	if r.is_empty():
 		return {}
-	var out := {"id": r["output"]["id"], "count": int(r["output"]["count"])}
+	var out := {"id": r["output"]["id"], "count": int(r["output"]["count"]) * items.units(r["output"]["id"])}
 	var keep: Array = r.get("keep", []).duplicate()
 	var remainder: Dictionary = r.get("remainder", {})
 	for i in grid.size():
-		if grid.is_empty_slot(i):
+		if grid.is_empty_slot(i) or int(grid.get_slot(i)["count"]) < items.units(grid.get_slot(i)["id"]):
 			continue
 		var id: String = grid.get_slot(i)["id"]
 		var kept := false
@@ -67,7 +68,7 @@ func craft_once() -> Dictionary:
 				break
 		if kept:
 			continue
-		grid.take(i, 1)
+		grid.take(i, items.units(id))
 		if remainder.has(id):
 			grid.put(i, {"id": remainder[id], "count": 1})
 	return out

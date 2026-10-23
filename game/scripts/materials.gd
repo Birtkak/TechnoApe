@@ -131,7 +131,7 @@ static func defs() -> Array:
 	return [
 		{"name": "stone", "cell_type": "solid", "density": 10, "hp": 1000, "tiles": [0, 0, 0], "transparent": false},
 		{"name": "dirt", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [1, 1, 1], "transparent": false},
-		{"name": "grass", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [2, 3, 1], "transparent": false},
+		{"name": "grass", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [2, 2, 1], "transparent": false},
 		{"name": "sand", "cell_type": "powder", "density": 3, "tiles": [4, 4, 4], "transparent": false},
 		{"name": "water", "cell_type": "liquid", "fluid_slot": 0, "density": 1, "liquid_flow_speed": 1.0, "tiles": [5, 5, 5], "transparent": true},
 		{"name": "wood", "cell_type": "solid", "density": 10, "burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [56, 6, 56], "transparent": false},
@@ -386,6 +386,28 @@ static func is_liquid(id: int) -> bool:
 	return id > 0 and id < _liquids.size() and _liquids[id] == 1
 
 
+static var _ids := {}
+
+## Material id for a name (0 when unknown).
+static func id_of(name: String) -> int:
+	if _ids.is_empty():
+		var d := defs()
+		for i in d.size():
+			_ids[d[i]["name"]] = i + 1
+	return _ids.get(name, 0)
+
+
+## True for a plain terrain voxel: a solid or powder cube with no entity,
+## station or model of its own. Items placing one count in voxels (ADR 0034).
+static func is_plain_voxel(id: int) -> bool:
+	if id <= 0 or id > defs().size():
+		return false
+	var d: Dictionary = defs()[id - 1]
+	if d.has("micro") or d.has("interact") or d.has("entity") or d.get("model", "") == "empty":
+		return false
+	return d.get("cell_type", "solid") in ["solid", "powder"]
+
+
 static func name_of(id: int) -> String:
 	if id == 0:
 		return "air"
@@ -417,9 +439,6 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 		if d.has("fluid_slot") and fluids.has(int(d["fluid_slot"])):
 			models.append(_fluid_model(fluids[int(d["fluid_slot"])], 8, d.get("transparent", false)))
 			continue
-		if d.has("micro"):
-			models.append(_micro_model(d["micro"], d["tiles"], atlas_material))
-			continue
 		if d.get("model", "") == "empty":
 			var empty := VoxelBlockyModelEmpty.new()
 			empty.culls_neighbors = false
@@ -445,11 +464,16 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 		# block bodies; liquids, gases and fire are swum or walked through.
 		var ct: String = d.get("cell_type", "solid")
 		var passable: bool = not (ct == "solid" or ct == "powder")
+		# Plants, pickups and detail (the old 6.25 cm "micro" models) are plain
+		# voxels at 12.5 cm (ADR 0033): walked through unless blocks_bodies says so.
+		if d.has("micro") and not blocks_bodies(defs().find(d) + 1):
+			passable = true
 		# Transparent materials share transparency index 1: faces between two
 		# voxels of the same index are culled (no water-water faces), faces
 		# against air or opaque voxels are kept. culls_neighbors stays true.
 		# Passable transparent ones (water, oil, gases, fire) get the alpha material.
-		if d.get("transparent", false):
+		# Leaves and plants are opaque voxels now; only see-through passables keep the index.
+		if d.get("transparent", false) and passable and not d.has("micro"):
 			cube.transparency_index = 1
 		cube.set_material_override(0, liquid_material if (liquid_material != null and passable and d.get("transparent", false)) else atlas_material)
 		if passable:

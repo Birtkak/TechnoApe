@@ -233,7 +233,12 @@ func _on_selection(_i: int) -> void:
 		_name_label.modulate.a = 0.0
 		_pill.modulate.a = 0.0
 		return
-	_name_label.text = player_inv.items.display_name(h["id"])
+	show_toast(player_inv.items.display_name(h["id"]))
+
+
+## A short line above the hotbar (the held item's name, the brush size), fading after 2 s.
+func show_toast(text: String) -> void:
+	_name_label.text = text
 	_name_label.size = Vector2(400, 24)
 	_name_label.position = Vector2(-200, -SLOT - 8 - 22 - 28)
 	if _font == null:

@@ -1,9 +1,8 @@
 #include "register_types.h"
-#include "brick_store.h"
-#include "near_field_feed.h"
 #include "micro_mesher.h"
 #include "sim_world.h"
 #include "world_gen.h"
+#include "fine_gen.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/defs.hpp>
@@ -17,9 +16,8 @@ void initialize_technosim_module(ModuleInitializationLevel p_level) {
     }
     GDREGISTER_CLASS(SimWorld);
     GDREGISTER_CLASS(WorldGen);
+    GDREGISTER_CLASS(FineGen);
     GDREGISTER_CLASS(MicroMesher);
-    GDREGISTER_CLASS(BrickStore);
-    GDREGISTER_CLASS(NearFieldFeed);
 }
 
 void uninitialize_technosim_module(ModuleInitializationLevel p_level) {

@@ -15,11 +15,11 @@ void vertex() {
 }
 
 void fragment() {
-	if (lod_fade_discard(FRAGCOORD.xy) || near_field_discard(v_world, PROJECTION_MATRIX)) {
+	if (lod_fade_discard(FRAGCOORD.xy)) {
 		discard;
 	}
 	vec4 c;
-	float idx = terrain_sample(UV, v_world, v_normal_world, CAMERA_POSITION_WORLD, c);
+	float idx = voxel_sample(UV, v_world, v_normal_world, CAMERA_POSITION_WORLD, c);
 	c.rgb = season_color(c.rgb, idx, v_world, v_normal_world);
 	ALBEDO = c.rgb * vcol.rgb * face_tint(v_normal_world);
 	ROUGHNESS = 1.0;

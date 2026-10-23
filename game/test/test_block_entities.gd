@@ -64,18 +64,18 @@ func test_atlas_covers_every_tile() -> void:
 func test_chest_shift_click_in_and_out_vanilla_order() -> void:
 	var c: ChestEntity = store.create(Vector3i.ZERO, "chest")
 	p.open_container(c)
-	p.inv.set_slot(12, {"id": "dirt", "count": 40})
+	p.inv.set_slot(12, {"id": "stick", "count": 40})
 	p.click_slot(12, MOUSE_BUTTON_LEFT, true)
-	assert_dict(c.inv.get_slot(0)).is_equal({"id": "dirt", "count": 40})
+	assert_dict(c.inv.get_slot(0)).is_equal({"id": "stick", "count": 40})
 	assert_bool(p.inv.is_empty_slot(12)).is_true()
 	# back out: reverse menu order fills the last hotbar slot first
 	p.click_container_slot(0, MOUSE_BUTTON_LEFT, true)
-	assert_dict(p.inv.get_slot(8)).is_equal({"id": "dirt", "count": 40})
+	assert_dict(p.inv.get_slot(8)).is_equal({"id": "stick", "count": 40})
 	# merges into an existing stack before taking an empty slot
-	c.inv.set_slot(3, {"id": "dirt", "count": 30})
+	c.inv.set_slot(3, {"id": "stick", "count": 30})
 	p.click_container_slot(3, MOUSE_BUTTON_LEFT, true)
-	assert_dict(p.inv.get_slot(8)).is_equal({"id": "dirt", "count": 64})
-	assert_dict(p.inv.get_slot(7)).is_equal({"id": "dirt", "count": 6})
+	assert_dict(p.inv.get_slot(8)).is_equal({"id": "stick", "count": 64})
+	assert_dict(p.inv.get_slot(7)).is_equal({"id": "stick", "count": 6})
 
 
 func test_chest_full_keeps_stack_in_player() -> void:
@@ -106,7 +106,7 @@ func test_chest_cursor_clicks() -> void:
 
 func test_furnace_smelts_iron_with_coal() -> void:
 	var f := _furnace()
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 3})
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 3 * items.units("iron_ore")})   # three blocks of ore voxels (ADR 0034)
 	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 1})
 	assert_int(_run(f, 1)).is_equal(1)      # lights on the first tick
 	assert_bool(f.is_lit()).is_true()
@@ -134,7 +134,7 @@ func test_furnace_does_not_burn_fuel_without_smeltable_input() -> void:
 
 func test_furnace_lava_bucket_leaves_bucket() -> void:
 	var f := _furnace()
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "sand", "count": 1})
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "sand", "count": items.units("sand")})
 	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "lava_bucket", "count": 1})
 	_run(f, 1)
 	assert_dict(f.inv.get_slot(FurnaceEntity.FUEL)).is_equal({"id": "bucket", "count": 1})
@@ -143,7 +143,7 @@ func test_furnace_lava_bucket_leaves_bucket() -> void:
 
 func test_furnace_output_full_stops_and_progress_decays() -> void:
 	var f := _furnace()
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 5})
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 5 * items.units("iron_ore")})
 	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "stick", "count": 1})   # 100 ticks of fire
 	_run(f, 100)
 	assert_int(f.cook).is_equal(100)           # half an item per stick, like vanilla
@@ -159,11 +159,11 @@ func test_furnace_output_full_stops_and_progress_decays() -> void:
 
 func test_furnace_input_change_resets_progress() -> void:
 	var f := _furnace()
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 2})
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 2 * items.units("iron_ore")})
 	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 1})
 	_run(f, 50)
 	assert_int(f.cook).is_equal(50)
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "copper_ore", "count": 2})
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "copper_ore", "count": 2 * items.units("copper_ore")})
 	assert_int(f.cook).is_equal(0)
 
 
@@ -203,7 +203,7 @@ func test_store_remove_returns_contents_and_ticks_furnaces() -> void:
 	var c: ChestEntity = store.create(Vector3i(5, 5, 5), "chest")
 	c.inv.set_slot(2, {"id": "coal", "count": 7})
 	var f := _furnace()
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "sand", "count": 1})
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "sand", "count": items.units("sand")})
 	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 1})
 	var flipped := store.tick()
 	assert_array(flipped).contains_exactly([Vector3i(1, 2, 3)])
@@ -228,7 +228,7 @@ func test_save_and_load_round_trip() -> void:
 	var c: ChestEntity = store.create(Vector3i(5, 6, 7), "chest")
 	c.inv.set_slot(26, {"id": "coal", "count": 7})
 	var f := _furnace()
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 4})
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 4 * items.units("iron_ore")})
 	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 2})
 	_run(f, 150)
 	assert_bool(store.dirty).is_true()

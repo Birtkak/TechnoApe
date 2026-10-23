@@ -90,15 +90,18 @@ func test_shapeless_alloy_counts_must_match() -> void:
 
 # ---------- crafting grid flow ----------
 
+## Planks are a voxel item (ADR 0034): one recipe unit is a block's worth of voxels.
 func test_crafting_grid_consumes_one_per_slot() -> void:
 	var cg := CraftingGrid.new(items, recipes, 3, "crafting_table")
-	cg.grid.set_slot(0, {"id": "oak_planks", "count": 5})
-	cg.grid.set_slot(3, {"id": "oak_planks", "count": 2})
+	var u := items.units("oak_planks")
+	assert_int(u).is_equal(Settings.BLOCK * Settings.BLOCK * Settings.BLOCK)
+	cg.grid.set_slot(0, {"id": "oak_planks", "count": 5 * u})
+	cg.grid.set_slot(3, {"id": "oak_planks", "count": 2 * u})
 	assert_dict(cg.preview_output()).is_equal({"id": "stick", "count": 4})
 	var out := cg.craft_once()
 	assert_dict(out).is_equal({"id": "stick", "count": 4})
-	assert_int(cg.grid.get_slot(0)["count"]).is_equal(4)
-	assert_int(cg.grid.get_slot(3)["count"]).is_equal(1)
+	assert_int(cg.grid.get_slot(0)["count"]).is_equal(4 * u)
+	assert_int(cg.grid.get_slot(3)["count"]).is_equal(u)
 	var all := cg.craft_all()
 	assert_dict(all).is_equal({"id": "stick", "count": 4})  # only one more craft possible
 	assert_bool(cg.grid.is_empty_slot(3)).is_true()
@@ -108,8 +111,8 @@ func test_two_by_two_grid_cannot_make_three_wide() -> void:
 	var cg := CraftingGrid.new(items, recipes, 2, "")
 	cg.grid.set_slot(0, {"id": "flint", "count": 1})
 	cg.grid.set_slot(1, {"id": "flint", "count": 1})
-	cg.grid.set_slot(2, {"id": "oak_log", "count": 1})
-	cg.grid.set_slot(3, {"id": "oak_log", "count": 1})
+	cg.grid.set_slot(2, {"id": "oak_log", "count": items.units("oak_log")})
+	cg.grid.set_slot(3, {"id": "oak_log", "count": items.units("oak_log")})
 	assert_dict(cg.preview_output()).is_equal({"id": "crafting_table", "count": 1})   # 2 flint + 2 logs (ADR 0019)
 
 
@@ -117,14 +120,14 @@ func test_two_by_two_grid_cannot_make_three_wide() -> void:
 
 func test_add_merges_then_fills_and_reports_leftover() -> void:
 	var inv := Inventory.new(items, 3)
-	inv.set_slot(1, {"id": "cobblestone", "count": 60})
+	inv.set_slot(1, {"id": "flint", "count": 60})
 	# 70: 4 into slot 1 (to 64), 64 into slot 0, 2 into slot 2
-	assert_int(inv.add("cobblestone", 70)).is_equal(0)
+	assert_int(inv.add("flint", 70)).is_equal(0)
 	assert_int(inv.get_slot(1)["count"]).is_equal(64)
 	assert_int(inv.get_slot(0)["count"]).is_equal(64)
 	assert_int(inv.get_slot(2)["count"]).is_equal(2)
-	assert_int(inv.add("cobblestone", 200)).is_equal(200 - 62)
-	assert_int(inv.count_of("cobblestone")).is_equal(192)
+	assert_int(inv.add("flint", 200)).is_equal(200 - 62)
+	assert_int(inv.count_of("flint")).is_equal(192)
 
 
 func test_tools_do_not_stack() -> void:
@@ -136,9 +139,9 @@ func test_tools_do_not_stack() -> void:
 
 func test_cursor_left_and_right_click() -> void:
 	var inv := Inventory.new(items, 2)
-	inv.set_slot(0, {"id": "sand", "count": 9})
+	inv.set_slot(0, {"id": "flint", "count": 9})
 	var cursor := inv.left_click(0, {})               # pick up all 9
-	assert_dict(cursor).is_equal({"id": "sand", "count": 9})
+	assert_dict(cursor).is_equal({"id": "flint", "count": 9})
 	assert_bool(inv.is_empty_slot(0)).is_true()
 	cursor = inv.right_click(1, cursor)               # place one
 	assert_int(inv.get_slot(1)["count"]).is_equal(1)
@@ -149,10 +152,10 @@ func test_cursor_left_and_right_click() -> void:
 	cursor = inv.right_click(1, {})                   # pick up half (5)
 	assert_int(cursor["count"]).is_equal(5)
 	assert_int(inv.get_slot(1)["count"]).is_equal(4)
-	inv.set_slot(0, {"id": "dirt", "count": 3})
+	inv.set_slot(0, {"id": "stick", "count": 3})
 	cursor = inv.left_click(0, cursor)                # swap sand cursor with dirt slot
-	assert_dict(cursor).is_equal({"id": "dirt", "count": 3})
-	assert_dict(inv.get_slot(0)).is_equal({"id": "sand", "count": 5})
+	assert_dict(cursor).is_equal({"id": "stick", "count": 3})
+	assert_dict(inv.get_slot(0)).is_equal({"id": "flint", "count": 5})
 
 
 func test_shift_click_moves_and_merges() -> void:

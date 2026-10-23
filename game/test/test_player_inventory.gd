@@ -111,8 +111,9 @@ func test_select_and_scroll_wrap() -> void:
 
 
 func test_pickup_fills_hotbar_first_and_merges() -> void:
-	assert_int(p.pickup("dirt", 70)).is_equal(0)
-	assert_dict(p.inv.get_slot(0)).is_equal({"id": "dirt", "count": 64})
+	var full := p.items.max_stack("dirt")
+	assert_int(p.pickup("dirt", full + 6)).is_equal(0)
+	assert_dict(p.inv.get_slot(0)).is_equal({"id": "dirt", "count": full})
 	assert_dict(p.inv.get_slot(1)).is_equal({"id": "dirt", "count": 6})
 	# a stack in main merges before a new hotbar slot is used
 	p.inv.set_slot(20, {"id": "sand", "count": 10})
@@ -123,7 +124,7 @@ func test_pickup_fills_hotbar_first_and_merges() -> void:
 
 func test_pickup_leftover_when_full() -> void:
 	for i in PlayerInventory.SIZE:
-		p.inv.set_slot(i, {"id": "stone", "count": 64})
+		p.inv.set_slot(i, {"id": "stone", "count": p.items.max_stack("stone")})
 	assert_int(p.pickup("stone", 3)).is_equal(3)
 	assert_int(p.pickup("dirt", 1)).is_equal(1)
 
@@ -165,11 +166,11 @@ func test_shift_click_moves_between_hotbar_and_main() -> void:
 func test_mouse_tweaks_drags() -> void:
 	# right drag: one item into each slot passed, skipping slots of another item
 	p.inv.set_slot(12, {"id": "stick", "count": 1})
-	p.cursor = {"id": "dirt", "count": 5}
+	p.cursor = {"id": "flint", "count": 5}
 	for i in [10, 11, 12]:
 		p.drag_place_one("inv", i)
-	assert_dict(p.inv.get_slot(10)).is_equal({"id": "dirt", "count": 1})
-	assert_dict(p.inv.get_slot(11)).is_equal({"id": "dirt", "count": 1})
+	assert_dict(p.inv.get_slot(10)).is_equal({"id": "flint", "count": 1})
+	assert_dict(p.inv.get_slot(11)).is_equal({"id": "flint", "count": 1})
 	assert_dict(p.inv.get_slot(12)).is_equal({"id": "stick", "count": 1})
 	assert_int(int(p.cursor["count"])).is_equal(3)
 	# left drag: the same item comes back into the cursor, others stay
@@ -199,24 +200,26 @@ func test_mouse_tweaks_wheel() -> void:
 
 
 func test_cursor_left_right_click() -> void:
-	p.inv.set_slot(0, {"id": "sand", "count": 9})
+	p.inv.set_slot(0, {"id": "flint", "count": 9})
 	p.click_slot(0, MOUSE_BUTTON_RIGHT, false)   # pick up half (5)
-	assert_dict(p.cursor).is_equal({"id": "sand", "count": 5})
+	assert_dict(p.cursor).is_equal({"id": "flint", "count": 5})
 	p.click_slot(1, MOUSE_BUTTON_RIGHT, false)   # place one
-	assert_dict(p.inv.get_slot(1)).is_equal({"id": "sand", "count": 1})
+	assert_dict(p.inv.get_slot(1)).is_equal({"id": "flint", "count": 1})
 	p.click_slot(2, MOUSE_BUTTON_LEFT, false)    # place the rest
 	assert_dict(p.cursor).is_empty()
-	assert_dict(p.inv.get_slot(2)).is_equal({"id": "sand", "count": 4})
+	assert_dict(p.inv.get_slot(2)).is_equal({"id": "flint", "count": 4})
 
 
+## Logs and planks count in voxels; a right click moves one block's worth (ADR 0034).
 func test_personal_grid_crafts_planks_and_sticks() -> void:
-	p.inv.set_slot(0, {"id": "oak_log", "count": 2})
+	var u := p.items.units("oak_log")
+	p.inv.set_slot(0, {"id": "oak_log", "count": 2 * u})
 	p.click_slot(0, MOUSE_BUTTON_LEFT, false)
 	p.click_craft_slot(0, MOUSE_BUTTON_RIGHT, false)   # one log into the grid
-	assert_dict(p.craft.preview_output()).is_equal({"id": "oak_planks", "count": 2})   # 2 per log by hand (ADR 0019)
+	assert_dict(p.craft.preview_output()).is_equal({"id": "oak_planks", "count": 2 * u})   # 2 per log by hand (ADR 0019)
 	p.click_slot(0, MOUSE_BUTTON_LEFT, false)           # cursor (1 log) back to slot 0
 	p.click_craft_output(false)
-	assert_dict(p.cursor).is_equal({"id": "oak_planks", "count": 2})
+	assert_dict(p.cursor).is_equal({"id": "oak_planks", "count": 2 * u})
 	assert_bool(p.craft.grid.is_empty_slot(0)).is_true()
 	# planks vertical in the 2x2 -> sticks via shift-click straight into the inventory
 	p.click_craft_slot(0, MOUSE_BUTTON_RIGHT, false)
@@ -239,12 +242,12 @@ func test_close_screen_returns_grid_and_cursor() -> void:
 
 
 func test_crafting_table_grid_swap() -> void:
-	p.inv.set_slot(0, {"id": "oak_planks", "count": 8})
+	p.inv.set_slot(0, {"id": "flint", "count": 8})
 	p.click_slot(0, MOUSE_BUTTON_LEFT, false)
 	p.click_craft_slot(0, MOUSE_BUTTON_RIGHT, false)
 	assert_array(p.set_crafting_grid(3, "crafting_table")).is_empty()
 	assert_int(p.craft.width).is_equal(3)
-	assert_int(p.inv.count_of("oak_planks")).is_equal(1)   # the grid's plank came back
+	assert_int(p.inv.count_of("flint")).is_equal(1)   # the grid's flint came back
 
 
 # ---------- health ----------

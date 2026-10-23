@@ -130,6 +130,7 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     float relief = (col.pv * 0.5f + 0.5f) * mountain_amp * relief_scale;
     if (base < 0.0f) relief *= 0.25f;
     float detail = n_detail_.GetNoise(fx, fz) * (1.2f + 3.5f * mountainness);
+    col.hf = std::clamp((float)sea_ + base + relief + detail, 8.0f, (float)(world_height_ - 8));
     int h = (int)std::lround((float)sea_ + base + relief + detail);
     col.height = std::clamp(h, 8, world_height_ - 8);
     col.slope = 0.0f;

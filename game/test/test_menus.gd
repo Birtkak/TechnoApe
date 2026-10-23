@@ -104,12 +104,12 @@ func test_presets_set_their_values_and_custom_is_detected() -> void:
 		assert_bool(Settings.SHADOW_QUALITY.has(Settings.shadow_quality)).is_true()
 	Settings.apply_graphics_preset("high")
 	assert_str(Settings.shadow_quality).is_equal("high")
-	assert_float(Settings.render_distance_m).is_equal(64.0)
+	assert_float(Settings.render_distance_m).is_equal(24.0)
 	Settings.ssao = false
 	assert_str(Settings.matching_preset()).is_equal("custom")
 	Settings.apply_graphics_preset("low")
 	assert_bool(Settings.ssao).is_false()
-	assert_float(Settings.render_distance_m).is_equal(48.0)
+	assert_float(Settings.render_distance_m).is_equal(16.0)
 
 
 func test_settings_screen_shows_the_settings() -> void:

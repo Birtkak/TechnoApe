@@ -1,0 +1,90 @@
+#pragma once
+// The world at 12.5 cm voxels (ADR 0033). WorldGen stays the macro layer in
+// its 0.5 m units: climate, biomes, hydrology, ore veins, ruins and where
+// trees and decorations stand. FineGen samples it on a lattice of macro
+// columns, interpolates the surface between them, adds a small ground noise
+// and draws every voxel at FS x the resolution: soil layers, rock faces from
+// the real slope, caves from a trilinear cave field, voxel trees (tapered
+// trunks, branches, leaf blobs), tufts, flowers, boulders and logs.
+// Every public coordinate is a fine voxel; output blocks are 16-bit material
+// ids in godot_voxel VoxelBuffer order (y fastest, then x, then z).
+
+#include "world_gen.h"
+
+namespace godot {
+
+class FineGen : public RefCounted {
+    GDCLASS(FineGen, RefCounted)
+
+public:
+    static constexpr int FS = 4;   // fine voxels per macro unit (0.5 m / 12.5 cm)
+
+    FineGen();
+
+    // sea_level and world_height in fine voxels (multiples of FS)
+    void configure(int p_seed, int p_sea_level, int p_world_height);
+    int get_seed() const { return g_->get_seed(); }
+
+    int height_at(int x, int z) const;          // solid voxels in the column (the top one is height - 1)
+    int biome_at(int x, int z) const;
+    Dictionary column_info(int x, int z) const;
+    PackedByteArray generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel = 2) const;
+
+    PackedByteArray map_image(int center_x, int center_z, int radius, int step) const;
+    PackedByteArray climate_map(int x0, int z0, int n, int step) const;
+    PackedInt32Array water_floor_map(int x0, int z0, int n, int step) const;
+    Vector3i find_nearest(const String &kind, int x, int z, int max_radius) const;
+    Array waterfalls_near(int x, int z, int radius) const;
+    Dictionary hydrology_stats(int x, int z) const;
+    Dictionary vein_at(int x, int z) const;
+    Ref<WorldGen> get_macro() const { return g_; }
+
+protected:
+    static void _bind_methods();
+
+private:
+    using Mat = WorldGen::Mat;
+    // One macro column of the lattice, with everything the fine columns near it need.
+    struct MacroPt {
+        WorldGen::Column col;
+        WorldGen::Hydro hy;
+        float hc = 0.0f;        // carved surface (macro units, float): solid below it
+        int water_level = 0;    // macro
+        bool lakebed = false, riverbed = false, marshbed = false;
+        int ruin = -1;          // index into the block's ruins
+        int spike = 0;
+    };
+    struct Blob { float x, y, z, rx, ry, rz; };
+    struct Seg { float ax, ay, az, bx, by, bz, r; };
+    struct FTree {
+        float x, z;             // trunk centre (fine)
+        int ground, base, top;  // ground at the trunk, lowest root voxel, trunk top (fine y)
+        float r;                // trunk radius at the ground
+        int kind;
+        uint16_t log, leaves;
+        Blob blobs[8];
+        int nb = 0;
+        Seg segs[8];
+        int ns = 0;
+        float cone_r = 0.0f;    // spruce: cone radius at its base
+        int cone_lo = 0, cone_hi = 0;
+        float reach = 0.0f;     // horizontal bound of everything (fine)
+        int y_hi = 0;
+        uint32_t seed = 0;
+    };
+    struct FStamp { int kind; float x, z; int ground; float size; uint16_t wood, bark, leaves; bool mossy, along_x; uint32_t seed; };
+
+    Ref<WorldGen> g_;
+    FastNoiseLite n_ground_, n_ground2_, n_leaf_;
+
+    MacroPt macro_point(int mx, int mz, const WorldGen::Ruin *ruins, int nruins) const;
+    float ground_detail(int x, int z, const MacroPt &m) const;
+    float surface_f(int x, int z) const;        // standalone fine surface (4 lattice corners)
+    void build_tree(const WorldGen::Tree &t, FTree &out) const;
+    uint16_t tree_voxel(const FTree &t, float x, int y, float z, float grow) const;
+    void build_stamp(const WorldGen::Stamp &s, FStamp &out) const;
+    uint16_t stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const;
+    float cave_field(int mx, int my, int mz, int height) const;
+};
+
+} // namespace godot

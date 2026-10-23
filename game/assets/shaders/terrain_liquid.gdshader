@@ -19,7 +19,7 @@ void vertex() {
 }
 
 void fragment() {
-	if (lod_fade_discard(FRAGCOORD.xy) || near_field_discard(v_world, PROJECTION_MATRIX)) {
+	if (lod_fade_discard(FRAGCOORD.xy)) {
 		discard;
 	}
 	vec4 c;

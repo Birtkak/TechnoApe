@@ -1,17 +1,18 @@
 class_name TerrainGenerator
 extends VoxelGeneratorScript
 
-## Bridge between godot_voxel and the native WorldGen (technosim extension).
-## All work happens in C++: one native call per block, one buffer copy.
-## Heights are in voxels (0.5 m). Sea level = Settings.SEA_LEVEL_VOXEL.
+## Bridge between godot_voxel and the native FineGen (technosim extension):
+## the 12.5 cm voxel layer over WorldGen's 0.5 m climate, biomes and hydrology
+## (ADR 0033). All work happens in C++: one native call per block, one buffer
+## copy. Heights are in voxels (12.5 cm). Sea level = Settings.SEA_LEVEL_VOXEL.
 
 ## Bump whenever generated terrain changes: saves are keyed by seed AND this
 ## version, so a world saved by an older generator is never loaded over a
 ## newer one (stale chunks would mix old terrain with new).
-const GEN_VERSION := 11  # 11: boat-sized rivers, deep sloped ocean floor; 5: lakes/marshes/waterfalls/vegetation; 6: biomes.json classifier (latitude climate, 36 biomes, cave layer); 9: GregTech ore veins + ground pickups (ADR 0019); 10: sulfur caves, cave pools and ceilings
+const GEN_VERSION := 12  # 12: 12.5 cm voxels (ADR 0033); 11: boat-sized rivers, deep sloped ocean floor; 5: lakes/marshes/waterfalls/vegetation; 6: biomes.json classifier (latitude climate, 36 biomes, cave layer); 9: GregTech ore veins + ground pickups (ADR 0019); 10: sulfur caves, cave pools and ceilings
 
 var seed_value := 1337
-var gen: WorldGen = WorldGen.new()
+var gen: FineGen = FineGen.new()
 
 
 func _init() -> void:

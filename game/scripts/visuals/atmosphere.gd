@@ -392,7 +392,7 @@ func _update_climate() -> void:
 	var z0 := int(p.y) - span / 2
 	# texel i is sampled at x0 + i * step: shift the rect half a texel so they line up
 	_climate_rect = Vector4(x0 - CLIMATE_STEP * 0.5, z0 - CLIMATE_STEP * 0.5, span, span)
-	var gen: WorldGen = world.generator.gen
+	var gen: FineGen = world.generator.gen
 	_climate_task = WorkerThreadPool.add_task(func() -> void:
 		_climate_bytes = gen.climate_map(x0, z0, CLIMATE_N, CLIMATE_STEP))
 

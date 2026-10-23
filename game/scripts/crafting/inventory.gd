@@ -140,17 +140,19 @@ func left_click(i: int, cursor: Dictionary) -> Dictionary:
 	return put(i, cursor)
 
 
-## Right click: empty cursor picks up half (rounded up); cursor with items places one.
+## Right click: empty cursor picks up half (rounded up); cursor with items places
+## one (a voxel item: one recipe unit, a block's worth of voxels, ADR 0034).
 func right_click(i: int, cursor: Dictionary) -> Dictionary:
 	if cursor.is_empty():
 		var s: Dictionary = slots[i]
 		if s.is_empty():
 			return {}
 		return take(i, int(ceil(s["count"] / 2.0)))
-	var one := {"id": cursor["id"], "count": 1}
+	var n := mini(items.units(cursor["id"]), int(cursor["count"]))
+	var one := {"id": cursor["id"], "count": n}
 	var left := put(i, one)
-	if left.is_empty():
-		cursor["count"] -= 1
+	if left.is_empty() or left["id"] == cursor["id"]:
+		cursor["count"] -= n - int(left.get("count", 0))
 		return {} if cursor["count"] <= 0 else cursor
 	if left["id"] != cursor["id"]:
 		# swapped with a different stack: Minecraft keeps the swapped stack in the cursor

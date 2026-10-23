@@ -6,6 +6,7 @@ extends RefCounted
 var items := {}          # id -> Dictionary (the raw definition, validated)
 var _by_tag := {}        # tag -> Array[String] of ids
 var errors: Array[String] = []
+var _units := {}         # id -> voxels per recipe unit, for items that place a plain terrain voxel
 
 
 static func load_default() -> ItemRegistry:
@@ -31,6 +32,8 @@ func load_json(text: String) -> bool:
 		if not _validate(d):
 			continue
 		items[d["id"]] = d
+		if d.has("material") and not d.has("empties_to") and GameMaterials.is_plain_voxel(GameMaterials.id_of(String(d["material"]))):
+			_units[d["id"]] = Settings.BLOCK * Settings.BLOCK * Settings.BLOCK
 		for t in d.get("tags", []):
 			if not _by_tag.has(t):
 				_by_tag[t] = []
@@ -77,8 +80,21 @@ func display_name(id: String) -> String:
 	return items.get(id, {}).get("name", id)
 
 
+## Stack size in counted units: a voxel item's stack holds `stack` blocks of voxels.
 func max_stack(id: String) -> int:
-	return int(items.get(id, {}).get("stack", 64))
+	return int(items.get(id, {}).get("stack", 64)) * units(id)
+
+
+## Voxels in one recipe unit (ADR 0034): an item that places a plain terrain
+## voxel (dirt, cobblestone, planks, logs, ores) is counted in 12.5 cm voxels,
+## and recipes, smelting and fuel use it in blocks of BLOCK^3 voxels (0.5 m);
+## every other item counts in pieces (1).
+func units(id: String) -> int:
+	return int(_units.get(id, 1))
+
+
+func is_voxel_item(id: String) -> bool:
+	return _units.has(id)
 
 
 func has_tag(id: String, tag: String) -> bool:

@@ -84,6 +84,7 @@ public:
     static_assert(BIOME_COUNT == technosim_biome::COUNT, "biome_table.gen.h changed: regenerate and update BIOME_COUNT");
 
     WorldGen();
+    static uint32_t hash3(int a, int b, int c);
 
     void configure(int p_seed, int p_sea_level, int p_world_height);
     int get_seed() const { return seed_; }
@@ -120,8 +121,10 @@ protected:
 
 private:
     // ---- terrain columns ----
+    friend class FineGen;   // the 12.5 cm voxel layer samples these fields (ADR 0033)
     struct Column {
         int height;      // base terrain height (no rivers/lakes)
+        float hf;        // the same before rounding (FineGen interpolates it)
         int biome;
         float c, e, pv, t, h; // t is the final climate (noise + latitude + lapse), see biomes.md
         float t_noise;        // temperature noise + jitter before latitude and lapse (debug / probes)
@@ -214,7 +217,6 @@ private:
 
     Column column(int x, int z) const;
     Column column_base(int x, int z, bool with_slope) const;
-    static uint32_t hash3(int a, int b, int c);
     static float spline(float v, const float *xs, const float *ys, int n);
 
     std::shared_ptr<HydroTile> hydro_tile(int tx, int tz) const;

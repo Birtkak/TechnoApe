@@ -8,7 +8,7 @@ extends Node3D
 ## Pure presentation: the emitters read the generator, never the voxel data,
 ## and nothing is saved.
 
-var gen: WorldGen
+var gen: FineGen
 var radius_m := 120.0
 var rescan_s := 2.0
 var _emitters := {}   # Vector3i foot -> GPUParticles3D

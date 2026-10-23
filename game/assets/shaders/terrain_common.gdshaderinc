@@ -92,19 +92,40 @@ float terrain_sample(vec2 uv_in, vec3 wpos, vec3 n, vec3 cam, out vec4 c) {
 	return idx;
 }
 
-// Near field (ADR 0012 step 3): inside this world-space box the ray-cast volume
-// (near_field.gdshader) draws the voxels, so mesh fragments there are dropped. Not
-// in orthographic passes, i.e. the shadow maps: the meshes keep casting the shadows
-// the near field receives. An empty box (max <= min) turns it off. The box is inset
-// by a hair so faces lying exactly on its planes stay with the mesh.
-uniform vec3 near_min = vec3(0.0);
-uniform vec3 near_max = vec3(0.0);
+// Flat-coloured voxels (ADR 0033): a voxel is one colour, picked from its
+// material's tile by a hash of the voxel's world position, so the 16x16 tile
+// works as a palette whose pixel counts are the colour weights. The voxel is
+// the one just inside the face (faces of far LOD blocks still get per-voxel
+// colours). Past far_fade_start the colour blends to the tile's average (its
+// 1x1 mip) so distant ground does not sparkle. Animated tiles (water, lava,
+// fire) keep the scrolling texture.
+uint voxel_hash(ivec3 p) {
+	uint h = uint(p.x) * 73856093u ^ uint(p.y) * 19349663u ^ uint(p.z) * 83492791u;
+	h ^= h >> 13u;
+	h *= 0x5bd1e995u;
+	h ^= h >> 15u;
+	return h;
+}
 
-bool near_field_discard(vec3 wpos, mat4 proj) {
-	if (near_max.x <= near_min.x || proj[3][3] > 0.5) {
-		return false;
+float voxel_sample(vec2 uv_in, vec3 wpos, vec3 n, vec3 cam, out vec4 c) {
+	vec2 scaled = uv_in * atlas_tiles;
+	vec2 tile = floor(scaled);
+	float idx = tile.y * atlas_tiles.x + tile.x;
+	if (abs(idx - water_tile) < 0.5 || abs(idx - lava_tile) < 0.5 || abs(idx - fire_tile) < 0.5) {
+		return terrain_sample(uv_in, wpos, n, cam, c);
 	}
-	return all(greaterThan(wpos, near_min + 0.002)) && all(lessThan(wpos, near_max - 0.002));
+	ivec2 tex_size = textureSize(atlas, 0);
+	ivec2 tile_px = tex_size / ivec2(atlas_tiles);
+	ivec3 vox = ivec3(floor(wpos - n * 0.02));
+	uint h = voxel_hash(vox);
+	ivec2 texel = ivec2(tile) * tile_px + ivec2(int(h % uint(tile_px.x)), int((h >> 8u) % uint(tile_px.y)));
+	c = texelFetch(atlas, texel, 0);
+	float far = smoothstep(far_fade_start, far_fade_end, distance(wpos, cam));
+	if (far > 0.0) {
+		vec4 avg = textureLod(atlas, (tile + 0.5) / atlas_tiles, log2(float(tile_px.x)));
+		c = mix(c, avg, far);
+	}
+	return idx;
 }
 
 bool lod_fade_discard(vec2 fragcoord) {

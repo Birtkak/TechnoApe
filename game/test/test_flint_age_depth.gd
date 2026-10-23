@@ -61,11 +61,12 @@ func test_sheep_and_pigs_drop_raw_hide() -> void:
 
 func test_splitting_firewood_keeps_the_axe() -> void:
 	var g := CraftingGrid.new(items, recipes, 2, "")
-	g.grid.set_slot(0, {"id": "oak_log", "count": 2})
+	var u := items.units("oak_log")   # a log is a block's worth of wood voxels (ADR 0034)
+	g.grid.set_slot(0, {"id": "oak_log", "count": 2 * u})
 	g.grid.set_slot(1, {"id": "flint_axe", "count": 1})
 	assert_dict(g.craft_once()).is_equal({"id": "firewood", "count": 4})
 	assert_dict(g.grid.get_slot(1)).is_equal({"id": "flint_axe", "count": 1})
-	assert_int(int(g.grid.get_slot(0)["count"])).is_equal(1)
+	assert_int(int(g.grid.get_slot(0)["count"])).is_equal(u)
 	var all := g.craft_all()
 	assert_dict(all).is_equal({"id": "firewood", "count": 4})
 	assert_bool(g.grid.is_empty_slot(0)).is_true()
@@ -222,7 +223,7 @@ func test_pan_and_sieve_have_their_own_loot() -> void:
 
 func test_bag_holds_overflow_and_comes_off_only_empty() -> void:
 	var p := PlayerInventory.new(items, recipes)
-	p.pickup("cobblestone", 64 * PlayerInventory.SIZE)
+	p.pickup("cobblestone", items.max_stack("cobblestone") * PlayerInventory.SIZE)
 	assert_int(p.pickup("dirt", 5)).is_equal(5)   # full
 	p.cursor = {"id": "leather_bag", "count": 1}
 	p.click_bag_item()

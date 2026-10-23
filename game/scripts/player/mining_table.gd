@@ -167,3 +167,49 @@ static func _count_range(d: Dictionary) -> Array:
 	if c is Array:
 		return [int(c[0]), int(c[1])]
 	return [int(c), int(c)]
+
+
+# ---------------- brush digging (ADR 0034) ----------------
+
+## Largest dig brush (voxels edge) a held item allows: bare hands and non-tools
+## 2, tools 4, iron and steel (tier 3+) 8.
+static func dig_cap(held: Dictionary) -> int:
+	if tool_class(held) == "":
+		return 2
+	return 8 if int(held.get("tier", 0)) >= 3 else 4
+
+
+## What digging `counts` (material name -> voxels) yields with `held`.
+## Plain terrain voxels yield by expected value per block of `per_block`
+## voxels, carried over between digs in `carry` (item id -> fraction): a
+## block's worth of stone gives a block's worth of cobblestone (a voxel item,
+## `units(id)` > 1, counts in voxels), gravel a flint every ten blocks. Plants
+## and pickups (`plain(name)` false) roll their old per-block drops once per dig.
+func voxel_drops(counts: Dictionary, held: Dictionary, units: Callable, plain: Callable, carry: Dictionary,
+		rng: RandomNumberGenerator, per_block: int = 64) -> Array:
+	var out := []
+	var cls := tool_class(held)
+	for name in counts:
+		var n: int = counts[name]
+		var e := entry(name)
+		if n <= 0 or e.is_empty() or not e.has("drops") or not yields(name, held):
+			continue
+		if not plain.call(name):
+			out.append_array(roll_drops(name, held, rng))
+			continue
+		var list: Array = e["drops"] if e["drops"] is Array else [{"id": e["drops"], "count": int(e.get("count", 1))}]
+		for d in list:
+			if d.get("tool", "") != "" and d["tool"] != cls:
+				continue
+			var r := _count_range(d)
+			var avg: float = (int(r[0]) + int(r[1])) * 0.5 * float(d.get("chance", 1.0))
+			if d.has("binomial"):
+				avg += int(d["binomial"][0]) * float(d["binomial"][1]) * float(d.get("chance", 1.0))
+			var id: String = d["id"]
+			var amount: float = avg * n * (1.0 if int(units.call(id)) > 1 else 1.0 / per_block)
+			var total: float = carry.get(id, 0.0) + amount
+			var k := floori(total + 1e-6)
+			carry[id] = total - k
+			if k > 0:
+				out.append({"id": id, "count": k})
+	return out

@@ -12,9 +12,9 @@ extends Node3D
 ## tick), a small bounce, and sleep once at rest (re-checked 4 times a second
 ## so mining the block underneath drops it).
 
-const SIZE := 0.5                 # voxels (25 cm box, like vanilla's 0.25 m)
+const SIZE := 0.5 * Settings.BLOCK  # voxels (25 cm box, like vanilla's 0.25 m)
 const BOUNCE := 0.15
-const SLEEP_SPEED := 0.05         # voxels/s
+const SLEEP_SPEED := 0.05 * Settings.BLOCK   # voxels/s
 
 var stack := {}
 var age := 0.0
@@ -31,8 +31,9 @@ var _sleep_check := 0.0
 var _body: VoxelBody
 
 
+## `v` in blocks (0.5 m) per second, the unit every caller throws items in.
 func set_initial_velocity(v: Vector3) -> void:
-	_initial_velocity = v
+	_initial_velocity = v * Settings.BLOCK
 
 
 static func create(p_items: ItemRegistry, p_stack: Dictionary, atlas_material: Material) -> ItemEntity:
@@ -54,7 +55,7 @@ func _build(atlas_material: Material) -> void:
 		_visual.mesh = BlockMeshes.cube(mat_id, atlas_material)
 	else:
 		_visual.mesh = BlockMeshes.card(stack["id"])
-	_visual.scale = Vector3.ONE * 0.5
+	_visual.scale = Vector3.ONE * 0.5 * Settings.BLOCK
 	_visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_visual)
 	_phase = randf() * TAU
@@ -69,7 +70,7 @@ func _process(delta: float) -> void:
 			frozen = false
 			velocity = _initial_velocity
 	_phase += delta
-	_visual.position.y = SIZE / 2.0 + 0.08 + sin(_phase * 2.0) * 0.06   # mesh is centred, position is the box bottom
+	_visual.position.y = SIZE / 2.0 + (0.08 + sin(_phase * 2.0) * 0.06) * Settings.BLOCK   # mesh is centred, position is the box bottom
 	_visual.rotation.y = _phase * 1.2
 
 
@@ -115,7 +116,7 @@ func _physics_step(delta: float) -> void:
 	if _body.blocked.z > 0.0:
 		velocity.z = 0.0
 	if _body.on_floor:
-		velocity.y = -velocity.y * BOUNCE if velocity.y < -2.0 else 0.0
+		velocity.y = -velocity.y * BOUNCE if velocity.y < -2.0 * Settings.BLOCK else 0.0
 		var ground := pow(0.6 * 0.98, delta * 20.0)
 		velocity.x *= ground
 		velocity.z *= ground

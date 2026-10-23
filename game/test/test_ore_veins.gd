@@ -7,19 +7,20 @@ const S := preload("res://scripts/settings.gd")
 const ORES := [GameMaterials.COAL_ORE, GameMaterials.IRON_ORE, GameMaterials.COPPER_ORE, GameMaterials.TIN_ORE]
 const PICKUPS := ["pebbles", "flint_stones", "twigs", "copper_bearing_stones", "tin_bearing_stones", "iron_bearing_stones"]
 
-var gen: WorldGen
+var gen: FineGen
+const F := FineGen.FS   # fine voxels per macro unit: ore_veins.json counts macro units
 var reg: OreVeinRegistry
 
 
 func before() -> void:
-	gen = WorldGen.new()
+	gen = FineGen.new()
 	gen.configure(1337, S.SEA_LEVEL_VOXEL, S.WORLD_HEIGHT_VOXELS)
 	reg = OreVeinRegistry.load_default()
 
 
 func _cell_veins(radius_cells: int) -> Array:
 	var out := []
-	var c := int(reg.grid["cell_voxels"])
+	var c := int(reg.grid["cell_voxels"]) * F
 	for cz in range(-radius_cells, radius_cells):
 		for cx in range(-radius_cells, radius_cells):
 			var v: Dictionary = gen.vein_at(cx * c + c / 2, cz * c + c / 2)
@@ -98,35 +99,37 @@ func test_veins_fill_the_grid_deterministically() -> void:
 	for v in veins:
 		names[v["name"]] = true
 		var d: Dictionary = reg.veins[int(v["type"])]
-		assert_int(int(v["y"])).is_between(int(d["y_min"]), int(d["y_max"]))
+		assert_int(int(v["y"]) / F).is_between(int(d["y_min"]), int(d["y_max"]))
 	assert_int(names.size()).is_equal(reg.count())
-	var again := WorldGen.new()
+	var again := FineGen.new()
 	again.configure(1337, S.SEA_LEVEL_VOXEL, S.WORLD_HEIGHT_VOXELS)
 	var v0: Dictionary = veins[0]
 	assert_dict(again.vein_at(int(v0["x"]), int(v0["z"]))).is_equal(gen.vein_at(int(v0["x"]), int(v0["z"])))
 
 
 func test_vein_is_a_dense_mixed_ore_lens() -> void:
-	# a vein buried well below the ground at its centre, so the 16^3 block is all rock or cave
+	# a vein buried well below the ground at its centre; the probe column (16 x the lens thickness x 16
+	# fine voxels) spans the whole lens, so all three GregTech layers show
 	var vein := {}
 	for v in _cell_veins(10):
-		if gen.height_at(int(v["x"]), int(v["z"])) - int(v["y"]) > 40 and v["name"] != "coal":
+		if gen.height_at(int(v["x"]), int(v["z"])) - int(v["y"]) > 40 * F and v["name"] != "coal":
 			vein = v
 			break
 	assert_dict(vein).is_not_empty()
-	var ids := _block(Vector3i(int(vein["x"]) - 8, int(vein["y"]) - 8, int(vein["z"]) - 8), Vector3i(16, 16, 16))
+	var t := int(vein["thickness"]) * F
+	var ids := _block(Vector3i(int(vein["x"]) - 8, int(vein["y"]) - t / 2, int(vein["z"]) - 8), Vector3i(16, t, 16))
 	var d: Dictionary = reg.veins[int(vein["type"])]
 	var own := []
 	for k in OreVeinRegistry.ORE_KEYS:
 		own.append(OreVeinRegistry.material_id(String(d[k])))
 	var ore := _count(ids, ORES)
-	assert_int(ore).override_failure_message("only %d ore voxels in the vein centre" % ore).is_greater(600)
+	assert_int(ore).override_failure_message("only %d ore voxels in the vein centre" % ore).is_greater(16 * t * 16 / 8)
 	assert_int(_count(ids, own)).is_equal(ore)   # nothing but the vein's own ores
 	assert_int(_count(ids, [OreVeinRegistry.material_id(String(d["primary"]))])).is_greater(0)
 
 
 func test_no_ore_between_veins() -> void:
-	var c := int(reg.grid["cell_voxels"])
+	var c := int(reg.grid["cell_voxels"]) * F
 	var empty := Vector2i(-1, -1)
 	for cz in 10:
 		for cx in 10:
@@ -136,7 +139,7 @@ func test_no_ore_between_veins() -> void:
 		if empty.x >= 0:
 			break
 	assert_int(empty.x).is_greater_equal(0)
-	var y := mini(gen.height_at(empty.x, empty.y) - 40, 200)
+	var y := mini(gen.height_at(empty.x, empty.y) - 40 * F, 200 * F)
 	var ids := _block(Vector3i(empty.x - 8, y - 8, empty.y - 8), Vector3i(16, 16, 16))
 	assert_int(_count(ids, ORES)).is_equal(0)
 
@@ -144,14 +147,14 @@ func test_no_ore_between_veins() -> void:
 func test_ore_bearing_stones_mark_shallow_veins() -> void:
 	var vein := {}
 	for v in _cell_veins(10):
-		var top := int(v["y"]) + int(v["thickness"]) / 2
+		var top := int(v["y"]) + int(v["thickness"]) * F / 2
 		var h := gen.height_at(int(v["x"]), int(v["z"]))
-		if int(v["indicator"]) > 0 and h - top < 30 and h > S.SEA_LEVEL_VOXEL + 4:
+		if int(v["indicator"]) > 0 and h - top < 30 * F and h > S.SEA_LEVEL_VOXEL + 4 * F:
 			vein = v
 			break
 	assert_dict(vein).override_failure_message("no shallow vein with indicators near spawn").is_not_empty()
 	var ind := int(vein["indicator"])
-	var r := int(reg.indicators["radius_voxels"])
+	var r := int(reg.indicators["radius_voxels"]) * F
 	var found := 0
 	for bz in range(-r, r, 16):
 		for bx in range(-r, r, 16):
@@ -167,8 +170,8 @@ func test_starting_pickups_lie_in_forests() -> void:
 	assert_int(f.y).is_greater(0)
 	var twigs := 0
 	var stones := 0
-	for bz in range(-64, 64, 16):
-		for bx in range(-64, 64, 16):
+	for bz in range(-128, 128, 16):
+		for bx in range(-128, 128, 16):
 			var h := gen.height_at(f.x + bx + 8, f.z + bz + 8)
 			var ids := _block(Vector3i(f.x + bx, h - 6, f.z + bz), Vector3i(16, 12, 16))
 			twigs += _count(ids, [GameMaterials.TWIGS])

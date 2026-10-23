@@ -1,43 +1,34 @@
 extends Node
 
 ## Autoload: every budget is a setting. Distances are in METRES; the world
-## unit is one voxel = VOXEL_M metres (ADR 0004: 0.5 m). Use m2v()/v2m().
+## unit is one voxel = VOXEL_M metres (ADR 0033: 12.5 cm). Use m2v()/v2m().
 
-const VOXEL_M := 0.5
-const CHUNK := 16                       # voxels per chunk edge (8 m)
-const WORLD_HEIGHT_VOXELS := 768        # 384 m (ADR 0004)
-const SEA_LEVEL_VOXEL := 256
+const VOXEL_M := 0.125
+const CHUNK := 16                       # voxels per chunk edge (2 m)
+const BLOCK := 4                        # voxels per 0.5 m block edge: the size stations, furniture and recipe units keep (ADR 0034)
+const WORLD_HEIGHT_VOXELS := 3072       # 384 m (ADR 0033)
+const SEA_LEVEL_VOXEL := 1024           # 128 m
 
 # Distances (metres)
-var simulation_distance_m := 24.0       # radius of the simulation bubble around the player
-var render_distance_m := 64.0           # full-detail (LOD 0) radius. Our godot_voxel build lifts stock's 64 m clamp (ADR 0020): 96 m holds at 20 m/s (not at 40), 128 m costs p99 10 ms and 2 GB VRAM
+var simulation_distance_m := 24.0       # nominal reach of the simulation (HUD); the window itself is sim_window_chunks
+var sim_window_chunks := Vector3i(32, 16, 32)   # the wrapped simulation window: 64 x 32 x 64 m of 12.5 cm voxels (powers of two)
+var sim_cell_budget := 1500000          # cells scanned per tick at most; the furthest active chunks wait (ADR 0013)
+var sim_lod_m := 12.0                   # chunks further than this from the player tick every second tick
+var render_distance_m := 24.0           # full-detail (LOD 0) radius. Our godot_voxel build lifts stock's 64 m clamp (ADR 0020): 96 m holds at 20 m/s (not at 40), 128 m costs p99 10 ms and 2 GB VRAM
 var view_distance_m := 2048.0           # LOD horizon (vision: 2 km). ADR 0020: free at 7 LODs (LOD6 reaches 3 km with 48 m rings); an 8th LOD makes the first load 22 s (lod-7 blocks span more hydrology tiles than the generator's cache holds)
-var lod_count := 7
-var lod_ring_m := 48.0                  # clipbox: LOD n ends at render_distance_m + lod_ring_m * 2^n (ADR 0020: 48 m = 2-voxel cubes to 160 m, 4-voxel to 256 m; godot_voxel's default is 24 m; 64 m looks better still but 40 m/s flight then has 20-27 ms frames)
+var lod_count := 8
+var lod_ring_m := 24.0                  # clipbox: LOD n ends at render_distance_m + lod_ring_m * 2^n (ADR 0020: 48 m = 2-voxel cubes to 160 m, 4-voxel to 256 m; godot_voxel's default is 24 m; 64 m looks better still but 40 m/s flight then has 20-27 ms frames)
 var terrain_threaded_update := true     # VoxelLodTerrain's LOD/streaming bookkeeping on a worker thread (ADR 0020: the 17 ms burst frame at 64 m rings became 9 ms)
-var far_fade_start_m := 150.0           # terrain textures fade toward their tile's average colour from here (ADR 0017)
-var far_fade_end_m := 600.0
+var far_fade_start_m := 40.0            # terrain textures fade toward their tile's average colour from here (ADR 0017)
+var far_fade_end_m := 200.0
 var lod_fade_s := 0.35                  # dithered cross-fade when a terrain block changes LOD (ADR 0020: free with our godot_voxel build; stock godot_voxel copies every fading block and costs 30-60 ms frames)
 var mesh_upload_budget_mb := 0.0        # terrain mesh data applied per frame (ADR 0020, our godot_voxel build); 0 = unlimited
 var edit_remesh_rate := 300.0           # edit-caused terrain remeshes per second, token bucket (ADR 0020, our godot_voxel build): the water spill's p99 8.3 -> 5.1 ms, 60 s of flow p99 3.8; 0 = unlimited
 var terrain_mesh_block := 32            # 16 or 32 voxels; 32 = 3x fewer draw calls (measured), coarser re-mesh granularity
 var cache_generated_blocks := true      # store generated LOD data so edits cascade to far LODs (memory vs correctness)
-# Ray-cast near field (ADR 0012 step 3): the cube around the player is drawn per pixel from the brick world at
-# 6.25 cm cells; terrain meshes inside it are hidden. Off until it holds the ADR 0009 budget (near_field=1 to try).
-var near_field := false
-var near_field_m := 32.0                # edge of the cube: 32 m = 512^3 cells = 128 MB of VRAM, 16 m = 256^3 = 16 MB
-var near_upload_mb := 8.0               # volume bytes uploaded per frame at most (window slabs, simulation changes); the rest waits
-# Micro simulation (ADR 0029): a 32 x 16 x 32 m window around the player simulated at 6.25 cm cells inside the
-# 0.5 m bubble; the bubble's voxels there are its majority view. Off until it holds the budget (micro_sim=1, implies near_field).
-var micro_sim := false
-var micro_cell_budget := 1500000        # cells scanned per micro tick at most; the furthest active chunks wait (ADR 0013)
-var micro_lod_m := 12.0                 # micro chunks further than this from the player tick every second tick
-var micro_publish_budget_ms := 1.0      # main-thread time per frame for writing changed bricks into the store and the bubble
-var micro_load_budget_ms := 1.0         # main-thread time per frame for expanding 0.5 m chunks into the micro window (at least one)
-
 # Simulation
 var sim_tick_hz := 30.0
-var sim_load_budget_ms := 0.3           # main-thread time per frame for copying terrain chunks into the bubble
+var sim_load_budget_ms := 1.0           # main-thread time per frame for copying terrain columns into the bubble
 var sim_push_budget_ms := 1.5           # main-thread time per frame for pasting simulated chunks back into the terrain
 var sim_push_interval_ms := 0.0         # a chunk is pasted at most this often (each paste = remesh)
 var terrain_mesh_collisions := false    # physics colliders for terrain meshes; bodies use voxel-grid collision instead (ADR 0011)
@@ -112,10 +103,10 @@ const PLAYTEST_PREFS := "user://playtest.cfg"   # the debug menu's start options
 signal user_settings_changed
 var user_settings_path := "user://settings.cfg"   # menu_test=1 points it elsewhere
 const GRAPHICS_PRESETS := {
-	"low": {"shadow_quality": "low", "ssao": false, "bloom": false, "render_distance_m": 48.0, "lod_ring_m": 48.0},
-	"medium": {"shadow_quality": "medium", "ssao": true, "bloom": true, "render_distance_m": 64.0, "lod_ring_m": 48.0},
-	"high": {"shadow_quality": "high", "ssao": true, "bloom": true, "render_distance_m": 64.0, "lod_ring_m": 48.0},
-	"ultra": {"shadow_quality": "high", "ssao": true, "bloom": true, "render_distance_m": 96.0, "lod_ring_m": 64.0},
+	"low": {"shadow_quality": "low", "ssao": false, "bloom": false, "render_distance_m": 16.0, "lod_ring_m": 16.0},
+	"medium": {"shadow_quality": "medium", "ssao": true, "bloom": true, "render_distance_m": 24.0, "lod_ring_m": 24.0},
+	"high": {"shadow_quality": "high", "ssao": true, "bloom": true, "render_distance_m": 24.0, "lod_ring_m": 24.0},
+	"ultra": {"shadow_quality": "high", "ssao": true, "bloom": true, "render_distance_m": 32.0, "lod_ring_m": 32.0},
 }
 ## Sun shadows per quality: Atmosphere mode, cascades, distance and filter (ADR 0031's knobs).
 const SHADOW_QUALITY := {
@@ -205,18 +196,12 @@ func apply_cmdline() -> Dictionary:
 			"mesh_upload_budget_mb": mesh_upload_budget_mb = float(kv[1])
 			"edit_remesh_rate": edit_remesh_rate = float(kv[1])
 			"cache_generated": cache_generated_blocks = kv[1] == "1"
-			"near_field": near_field = kv[1] == "1"
 			"particles": particles = kv[1] == "1"
 			"particle_ambient": particle_ambient = kv[1] == "1"
 			"particle_budget": particle_budget = int(kv[1])
-			"near_field_m": near_field_m = float(kv[1])
-			"near_upload_mb": near_upload_mb = float(kv[1])
-			"micro_sim": micro_sim = kv[1] == "1"
-			"micro_cell_budget": micro_cell_budget = int(kv[1])
-			"micro_lod_m": micro_lod_m = float(kv[1])
-			"micro_publish_budget_ms": micro_publish_budget_ms = float(kv[1])
-			"micro_load_budget_ms": micro_load_budget_ms = float(kv[1])
 			"sim_tick_hz": sim_tick_hz = float(kv[1])
+			"sim_cell_budget": sim_cell_budget = int(kv[1])
+			"sim_lod_m": sim_lod_m = float(kv[1])
 			"sim_load_budget_ms": sim_load_budget_ms = float(kv[1])
 			"sim_push_budget_ms": sim_push_budget_ms = float(kv[1])
 			"sim_push_interval_ms": sim_push_interval_ms = float(kv[1])
@@ -230,8 +215,6 @@ func apply_cmdline() -> Dictionary:
 			"gamemode": game_mode = kv[1]
 			"minimized": start_minimized = kv[1] == "1"
 			"graphics": apply_graphics_preset(kv[1])   # graphics=low|medium|high|ultra (ADR 0032)
-	if micro_sim:
-		near_field = true   # the micro cells are only visible in the ray-cast near field
 	return args
 
 

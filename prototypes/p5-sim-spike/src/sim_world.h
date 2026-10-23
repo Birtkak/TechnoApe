@@ -70,7 +70,7 @@ public:
         uint16_t ignite_chance = 8192; // 0..65535 per attempt by a burning neighbour (see set_materials)
         uint16_t loosen = 0;   // static ground: chance per tick (0..65535) to turn loose when the cell below just opened
         uint16_t erode = 0;    // static powder: chance per tick to slide off an edge that just opened beside and below it
-        bool replaceable = false;      // a plant Minecraft lets water wash away (with a micro mask: liquids and powders do)
+        bool replaceable = false;      // a plant liquids and powders wash away
     };
 
     struct Reaction {
@@ -129,54 +129,22 @@ public:
     // ---- render feed / world streaming ----
     PackedByteArray get_chunk_bytes(Vector3i p_chunk, int p_depth_bytes = 1) const;
     void set_chunk_bytes(Vector3i p_chunk, const PackedByteArray &p_bytes, int p_depth_bytes = 1); // load from world; wakes, not dirty
+    // A column of ncy chunks from (c.x, c.y, c.z) up, from one buffer of CS x (ncy * CS) x CS voxels in
+    // godot_voxel order (y fastest, then x, then z): one terrain copy per column instead of one per chunk.
+    void set_column_bytes(Vector3i c, int ncy, const PackedByteArray &bytes, int depth_bytes);
     Array shift(Vector3i p_delta_chunks); // slide the window; returns vacated local chunks that must be loaded
     Array get_dirty_chunks() const;
     // v6: the changed cells of every dirty chunk as a box, for uploads finer than whole chunks:
     // 9 ints per chunk: chunk x,y,z, then min x,y,z and max x,y,z in local cells (inclusive).
     PackedInt32Array get_dirty_boxes() const;
-    // Bridge to the brick world (ADR 0012 step 3): writes the cells inside the dirty boxes into a
-    // BrickStore. scale 8: one sim cell is one brick (the 0.5 m game); origin = store brick of sim
-    // cell (0,0,0); a brick is rewritten only when its material (an expanded brick: its majority)
-    // differs, so chisel detail survives. scale 1: one sim cell is one store cell (micro sim);
-    // origin = store cell of sim cell (0,0,0). Returns bricks/cells written. Call before clear_dirty().
-    int write_dirty_to_store(Object *p_store, Vector3i p_origin, int p_scale);
-    // The whole chunk's decoded materials (and liquid levels) as bricks at p_origin + chunk * 16: the near field's
-    // load path, so partial liquids never reach the store as raw FLUID_LEVEL_BASE values. Returns bricks written.
-    int write_chunk_to_store(Object *p_store, Vector3i p_chunk, Vector3i p_origin);
     void clear_dirty();
 
-    // ---- micro simulation (ADR 0029): a 6.25 cm window inside the 0.5 m bubble ----
+    // ---- wrapped window (ADR 0029, ADR 0033: the bubble) ----
     // Toroidal window: call after configure (chunk counts must be powers of two). shift() then moves an
     // offset instead of memory: vacated chunks keep stale cells, are marked unloaded (walls, not ticked)
     // and must be loaded again; per-chunk state is reset. Cell coordinates stay window-local.
     bool set_wrapped(bool p_on);
     bool is_wrapped() const { return wrapped_; }
-    // A held chunk (the 0.5 m bubble's chunks inside the micro window) does not tick, is a wall to its
-    // neighbours and is not written into a BrickStore by write_dirty_to_store: the micro simulation owns it
-    // and keeps its cells equal to the micro cells' majority view (publish). Releasing wakes it.
-    void set_chunk_held(Vector3i p_chunk, bool p_held);
-    bool is_chunk_held(Vector3i p_chunk) const;
-    // Copies one chunk of a coarse SimWorld (one coarse cell = one brick = 8^3 cells here) into this window
-    // at p_cell_origin (local cell of the coarse chunk's min corner, a multiple of 8): a partly full liquid
-    // becomes its bottom layers. The micro chunks covered become loaded; only those holding something that
-    // moves (liquids, loose powders, gases, fire, burning or reactive cells) are woken. Uses the pool.
-    int load_from_coarse(Object *p_coarse, Vector3i p_coarse_chunk, Vector3i p_cell_origin);
-    // Publishes changed bricks: dirty boxes become a queue of bricks (dirty flags are consumed), then up to
-    // p_max_us of bricks are written (0 = all): into p_store as cells (homogeneous bricks collapse, a material
-    // with a micro pattern shows its pattern cells) at world brick (world_cell_origin + local) / 8 - store_origin,
-    // and into p_coarse as the brick's majority (solid if half its cells are one material, else a liquid level
-    // from its liquid volume, else air) at that world voxel - p_coarse_origin_voxel, held chunks only.
-    // Either target may be null. Returns bricks written.
-    int publish(Object *p_store, Vector3i p_store_origin_brick, Object *p_coarse, Vector3i p_world_cell_origin,
-            Vector3i p_coarse_origin_voxel, int p_max_us);
-    int get_publish_pending() const { return (int)(pub_queue_.size() - pub_head_); }
-    // Vegetation and detail at cell scale: material id -> 512 bytes (x fastest; nonzero = a cell of the plant).
-    // Such a material fills only its pattern's cells (fill_box, load_from_coarse; air elsewhere), and a brick
-    // counts as that plant in the majority while at least half of its pattern's cells are left.
-    void set_micro_masks(const Dictionary &p_masks);
-    // The coarse view of one brick (local brick coords): material, eighths (0 = full) as Vector2i (tests, debug).
-    Vector2i brick_majority(Vector3i p_brick) const;
-
     // ---- debug / introspection ----
     int count_material(int p_material) const;
     int count_in_box(Vector3i p_min, Vector3i p_max, int p_material) const;
@@ -268,8 +236,6 @@ private:
     bool any_fire_ = false;
 
     struct Cell { uint8_t mat, flags, aux, pad; }; // 4 bytes, one cache line touch per voxel
-    void majority_of(const Cell *cells, int &mat, int &eighths) const;   // 512 cells of a brick (x fastest)
-    void gather_brick(int lbx, int lby, int lbz, Cell *out) const;
     std::vector<Cell> cells_;
     int16_t slot_material_[32];         // fluid_slot -> the moving material that a partial level decodes to
     std::vector<uint8_t> displace_lut_; // [mover*256+target] -> 1 if mover may swap into target
@@ -304,15 +270,8 @@ private:
     int mx_ = -1, my_ = -1, mz_ = -1;
     int ocx_ = 0, ocy_ = 0, ocz_ = 0;     // chunks
     int cmx_ = -1, cmy_ = -1, cmz_ = -1;
-    // publish queue (physical brick index), one flag per brick
-    std::vector<std::vector<uint8_t>> masks_;   // set_micro_masks, per material (empty = none)
-    std::vector<int> mask_cells_;
-    inline const uint8_t *mask_of(uint8_t m) const { return m < masks_.size() && !masks_[m].empty() ? masks_[m].data() : nullptr; }
-    uint8_t washable_[MAX_MATERIALS] = {};      // replaceable plant with a micro mask: liquids and powders move through it, destroying it
+    uint8_t washable_[MAX_MATERIALS] = {};      // replaceable plant (grass, flowers): liquids and powders move through it, destroying it
     inline bool open_air(uint8_t m) const { return m == 0 || washable_[m]; }
-    std::vector<uint8_t> pub_flag_;
-    std::vector<int> pub_queue_;
-    size_t pub_head_ = 0;
     std::vector<int> pass_lists_[8];
     std::atomic<uint64_t> moved_count_{0};
     std::atomic<uint64_t> react_count_{0};
@@ -325,7 +284,7 @@ private:
     }
     // In world AND inside a chunk whose data has been loaded (streaming bubbles load
     // chunks over several frames; an unloaded neighbour must not look like air).
-    // loaded_: 0 = waiting for data, 1 = loaded, 2 = held by the micro simulation (a wall here).
+    // loaded_: 0 = waiting for data, 1 = loaded.
     inline bool is_open(int x, int y, int z) const {
         return in_world(x, y, z) && loaded_[cidx(x >> 4, y >> 4, z >> 4)] == 1;
     }

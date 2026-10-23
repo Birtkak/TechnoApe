@@ -125,7 +125,7 @@ func _update_map() -> void:
 	_center = p
 	_pending_x0 = int(floor(p.x)) - MAP_N * MAP_STEP / 2
 	_pending_z0 = int(floor(p.z)) - MAP_N * MAP_STEP / 2
-	var gen: WorldGen = world.generator.gen
+	var gen: FineGen = world.generator.gen
 	var x0 := _pending_x0
 	var z0 := _pending_z0
 	_task = WorkerThreadPool.add_task(func() -> void:

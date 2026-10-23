@@ -125,6 +125,19 @@ func read_chunk(wc: Vector3i) -> PackedByteArray:
 	return vb.get_channel_as_byte_array(VoxelBuffer.CHANNEL_TYPE)
 
 
+## Copies a column of `count` chunks from world chunk `wc` up as 16-bit bytes
+## (16 x 16*count x 16, y fastest): one terrain copy for the whole column.
+func read_column(wc: Vector3i, count: int) -> PackedByteArray:
+	var vb := VoxelBuffer.new()
+	vb.create(Settings.CHUNK, Settings.CHUNK * count, Settings.CHUNK)
+	_tool.copy(wc * Settings.CHUNK, vb, 1 << VoxelBuffer.CHANNEL_TYPE)
+	return vb.get_channel_as_byte_array(VoxelBuffer.CHANNEL_TYPE)
+
+
+func is_box_loaded(wmin: Vector3i, size: Vector3i) -> bool:
+	return _tool.is_area_editable(AABB(Vector3(wmin), Vector3(size)))
+
+
 ## Writes a 16^3 chunk back (VoxelTool.paste: correct under load, see P5 §C).
 func write_chunk(wc: Vector3i, bytes16: PackedByteArray) -> void:
 	var vb := VoxelBuffer.new()

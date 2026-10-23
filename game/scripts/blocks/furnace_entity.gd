@@ -103,7 +103,7 @@ func progress() -> float:
 
 
 func _can_burn(r: Dictionary) -> bool:
-	if r.is_empty() or inv.is_empty_slot(INPUT):
+	if r.is_empty() or inv.is_empty_slot(INPUT) or int(inv.get_slot(INPUT)["count"]) < items.units(inv.get_slot(INPUT)["id"]):
 		return false
 	var out: Dictionary = r["output"]
 	var o: Dictionary = inv.get_slot(OUTPUT)
@@ -111,18 +111,19 @@ func _can_burn(r: Dictionary) -> bool:
 		return true
 	if o["id"] != out["id"]:
 		return false
-	return int(o["count"]) + int(out["count"]) <= items.max_stack(out["id"])
+	return int(o["count"]) + int(out["count"]) * items.units(out["id"]) <= items.max_stack(out["id"])
 
 
 func _smelt(r: Dictionary) -> void:
 	var out: Dictionary = r["output"]
-	inv.take(INPUT, 1)
+	inv.take(INPUT, items.units(inv.get_slot(INPUT)["id"]))   # a block's worth of a voxel item (ADR 0034)
+	var n := int(out["count"]) * items.units(out["id"])
 	var o: Dictionary = inv.get_slot(OUTPUT)
 	if o.is_empty():
-		inv.set_slot(OUTPUT, {"id": out["id"], "count": int(out["count"])})
+		inv.set_slot(OUTPUT, {"id": out["id"], "count": n})
 	else:
-		inv.set_slot(OUTPUT, {"id": out["id"], "count": int(o["count"]) + int(out["count"])})
-	smelted += int(out["count"])
+		inv.set_slot(OUTPUT, {"id": out["id"], "count": int(o["count"]) + n})
+	smelted += n
 
 
 ## One game tick (1/20 s). Returns true when the lit state flipped (Main then
@@ -137,12 +138,12 @@ func tick() -> bool:
 	var has_fuel := not fuel.is_empty()
 	if is_lit() or (has_fuel and has_input):
 		var r := recipes.smelting_for(input.get("id", ""), station) if has_input else {}
-		if not is_lit() and _can_burn(r):
+		if not is_lit() and _can_burn(r) and has_fuel and int(fuel["count"]) >= items.units(fuel["id"]):
 			lit_time = fuel_ticks(fuel.get("id", ""))
 			lit_duration = lit_time
 			if is_lit() and has_fuel:
 				var rest: String = items.get_def(fuel["id"]).get("empties_to", "")
-				inv.take(FUEL, 1)
+				inv.take(FUEL, items.units(fuel["id"]))
 				if rest != "" and inv.is_empty_slot(FUEL):
 					inv.set_slot(FUEL, {"id": rest, "count": 1})
 		if is_lit() and _can_burn(r):

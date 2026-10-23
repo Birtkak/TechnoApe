@@ -34,7 +34,9 @@ func _ready() -> void:
 	_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_mesh.position = HAND
 	add_child(_mesh)
-	position = _rest_pos
+	# laid out in blocks (0.5 m) in front of the camera; the world unit is a 12.5 cm voxel (ADR 0033)
+	scale = Vector3.ONE * Settings.BLOCK
+	position = _rest_pos * Settings.BLOCK
 	rotation_degrees = Vector3(0, 20, 0)
 	show_item({})
 
@@ -93,5 +95,5 @@ func _process(delta: float) -> void:
 	else:
 		_swing = maxf(0.0, _swing - delta * 5.0)
 	var s := sin(_swing * PI)
-	position = _rest_pos + Vector3(-0.18 * s, -0.08 * s, -0.28 * s)
+	position = (_rest_pos + Vector3(-0.18 * s, -0.08 * s, -0.28 * s)) * Settings.BLOCK
 	rotation_degrees = Vector3(-40 * s, 20 - 25 * s, 0)

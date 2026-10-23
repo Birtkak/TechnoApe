@@ -26,7 +26,6 @@ var debug_menu: DebugMenu
 var _tick_accum := 0.0
 var _save_accum := 0.0
 var _loading: LoadingScreen
-var near_field: NearField            # ray-cast near field (ADR 0012 step 3), null unless Settings.near_field
 var farming: Farming                 # tilled farmland and crops (ADR 0022)
 var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
@@ -102,6 +101,8 @@ func _ready() -> void:
 	ocean_life.setup(world, player.camera)
 	player.voxel_broken.connect(_on_broken)
 	player.voxel_placed.connect(_on_placed)
+	player.voxels_dug.connect(_on_dug)
+	player.voxels_placed.connect(_on_placed_many)
 	player.item_dropped.connect(_on_item_dropped)
 	player.inventory_toggled.connect(_on_inventory_toggled)
 	player.died.connect(_on_died)
@@ -310,12 +311,6 @@ func _ready() -> void:
 	if DebugCapture.f3:
 		hud.toggle()
 	bubble.setup(world, player.position)
-	if Settings.near_field:
-		# the brick world around the player, ray-cast at 6.25 cm (scripts/visuals/near_field.gd)
-		near_field = NearField.new()
-		near_field.name = "NearField"
-		add_child(near_field)
-		near_field.setup(world, bubble, player.camera)
 	# blood, oil and soot stains on the voxels they touch (scripts/visuals/stain_map.gd)
 	stains = StainMap.new()
 	stains.name = "Stains"
@@ -658,6 +653,37 @@ func _on_broken(p: Vector3i, drops: Array) -> void:
 	_spawn_drop_events(events)
 	for d in drops:
 		spawn_item(d, Vector3(p) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+
+
+## A brush dig (ADR 0034): the cells become air, plants and crops go through
+## farming, one burst of chips for the material that was aimed, the drops
+## spawn at the brush's centre.
+func _on_dug(cells: Array, drops: Array, center: Vector3) -> void:
+	var first := 0
+	var events := []
+	for c in cells:
+		var was := get_world_voxel(c)
+		if was <= 0:
+			continue
+		if first == 0:
+			first = was
+		set_world_voxel(c, GameMaterials.AIR)
+		if not GameMaterials.is_plain_voxel(was):
+			events.append_array(farming.on_broken(c))
+	if fx and first > 0:
+		fx.block_break(Vector3i(center.floor()), first)
+	if not GameMode.rule(player.game_mode, "drops"):
+		events.clear()
+	_spawn_drop_events(events)
+	for d in drops:
+		spawn_item(d, center, Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+
+
+## A brush placement of a voxel item: every cell gets the material.
+func _on_placed_many(cells: Array, material: int) -> void:
+	for c in cells:
+		set_world_voxel(c, material)
+		stains.clear_cell(c)
 
 
 ## Farming results ({pos, drops}) become item entities.
@@ -1054,7 +1080,6 @@ func snapshot() -> Dictionary:
 		"terrain": world.terrain.get_statistics(),
 		"sim": bubble.stats(),
 		"stains": stains.stats() if stains else {},
-		"near_field": near_field.stats() if near_field else {},
 		"look": look,
 		"player": player_inv.summary(),
 		"player_stains": player.stains.summary(),
