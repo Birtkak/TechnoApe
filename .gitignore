@@ -16,6 +16,7 @@ obj/
 .godot/
 *.import
 export_presets.cfg
+!game/export_presets.cfg
 
 # Unity
 [Ll]ibrary/
@@ -44,6 +45,7 @@ PC-tuneup/
 PC-optimization-report.md
 
 # Game captures and Godot caches
+build/
 game/out/
 game/.godot/
 game/addons/*/bin/*.dll

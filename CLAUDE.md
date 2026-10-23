@@ -82,7 +82,8 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
 - Playtest tools (ADR 0018): T chat + slash commands (`/help`), `/gamemode`, F3
   debug screen, F4 playtest menu, F9 bug reports. When the developer mentions a
   bug report, read the newest folder in `game/out/bug_reports/` (report.md,
-  state.json, screenshot.png, log.txt).
+  state.json, screenshot.png, log.txt); from the exported build (`build/windows/TechnoApe.exe`,
+  export command in `game/README.md`) they are in `%APPDATA%/Godot/app_userdata/TechnoApe/bug_reports/`.
 - Rebuild the sim extension from `prototypes/p5-sim-spike` and copy the DLL to
   `game/addons/technosim/bin/`.
 - Item looks: `game/data/item_sprites.json` (16x16 pixel art, shared shapes +

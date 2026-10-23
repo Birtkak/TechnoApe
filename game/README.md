@@ -122,6 +122,12 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=90 flin
 #       save and quit -> reload (inventory and position kept) -> delete; prints "debug menu_test {...}".
 #       graphics=low|medium|high|ultra picks a graphics preset for a run; frame_parts in the JSON says where a frame goes
 Godot_..._console.exe --path game -- menu_test=1 minimized=0
+# Windows build for playtests (export_presets.cfg): a debug-template export, because the sim and
+#       voxel extensions are built and measured as template_debug (ADR 0020). Output: build/windows/TechnoApe.exe
+#       (+ .pck and the two DLLs; TechnoApe.console.exe shows the log). The first launch on a machine compiles
+#       shaders once (one ~60 ms frame); later launches hold the budget. The exe keeps worlds, settings and
+#       F9 bug reports in %APPDATA%/Godot/app_userdata/TechnoApe/ (bug_reports/), the editor in game/out/
+Godot_..._console.exe --headless --path game --export-debug "Windows Desktop" ../build/windows/TechnoApe.exe
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=15 animals=40 mob_spawn=0 give=wheat:8 vsync=0 out=res://out/animals
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=18 capture_every=1 hands_test=1 mob_spawn=0 out=res://out/hands
 Godot_..._console.exe --path game --script res://tools/mob_sheet.gd -- out=res://out/mobs/sheet.png   # sheep, shorn sheep, lamb, pig, piglet, bed, chair
