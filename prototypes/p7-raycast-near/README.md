@@ -98,4 +98,6 @@ to the next solid, tints by the water depth crossed and adds a Fresnel rim;
 DEPTH stays at the water surface. 512³ fed by the sim: 3.3 / 5.9 / 6.1 ms
 p50 / p95 / p99 (was 2.8 / 5.0 / 5.6), `shots/n512_water.png`.
 
-**Decision pending:** ADR 0012 (`docs/decisions/0012-near-field-raycast.md`), research in `docs/research/2026-10-22-core-architecture.md`.
+**Decision:** ADR 0012 (`docs/decisions/0012-near-field-raycast.md`), research in `docs/research/2026-10-22-core-architecture.md`.
+**In the game:** ADR 0021 (`game/scripts/visuals/near_field.gd`, `near_field=1`): the caster fed from the store the
+simulation bubble writes, Godot lighting instead of the lambert + shadow ray, uploads on the render thread.

@@ -47,6 +47,7 @@ Godot_..._console.exe --headless --path game --script res://tools/fire_bench.gd 
 # load_settled=false if the 10 s cap hit first); frames after a filmstrip readback are excluded (capture_stalls);
 # rss_mb is the process working set; spikes[] splits frames > 8.3 ms into process/physics/render cpu+gpu/other;
 # other_godot_processes > 0 means another Godot run shared the machine: rerun before trusting the numbers
+# frame cap: play runs at most 120 fps (project.godot run/max_fps); vsync=0 runs lift it (max_fps=N sets another cap)
 # render thread (ADR 0016): the project renders on a separate thread (Godot prints an "experimental" warning
 # and a "finalize ... render thread" error on exit: both expected); for one run in the old mode add --render-thread safe
 Godot_..._console.exe --path game --render-thread safe -- autopilot=1 duration=20 out=res://out/safe
@@ -64,6 +65,12 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=3 f3=1 
 # voxel_backlog.peak_by_type tells a generator backlog from a meshing one; every spike lists phys_cost (ms per
 # physics callback: player and its sub-steps, items, item_bodies, blocks)
 Godot_..._console.exe --path game -- autopilot=1 speed=20 alt=30 duration=16 vsync=0 persist=1 seed=424242 out=res://out/stream
+# ray-cast near field (ADR 0012 step 3, ADR 0021): near_field=1 draws the cube around the player per pixel from the
+# brick world at 6.25 cm (near_field_m=32 -> 512^3 cells, 128 MB VRAM; 16 -> 256^3), terrain meshes inside it are hidden;
+# near_upload_mb=8 caps the volume bytes uploaded per frame; near_debug=1 tints the ray-cast pixels magenta (where does it
+# draw?); near_verify=1 reads the GPU volume back once the window is uploaded and prints a JSON line comparing it with
+# the store (bad must be 0). JSON "near_field": uploads, mb, pending slabs/chunks, valid box, store stats
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=6 near_field=1 near_debug=1 capture_every=0.5 out=res://out/near
 # mass edits (ADR 0014): blast=R craters of R m on the ground around the player every blast_every s (default 2),
 # blast_count=N per volley; JSON sim.blasts, blast_voxels, blast_ms_max (native SimWorld.fill_sphere)
 Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=4 blast_every=1 duration=20 capture_every=1 out=res://out/blast
@@ -136,6 +143,7 @@ recipe by design (found only); spells do.
 | `assets/shaders/terrain_liquid.gdshader` | Same sampling with alpha + depth write for passable transparent voxels (water, oil, gases, fire); rippling sun glint on water tops. `GameMaterials.build_library` assigns it. |
 | `assets/shaders/sky.gdshader` | Procedural sky: gradient, sun disc/halo, noise clouds, stars, moon; driven by the true sun direction. |
 | `scripts/visuals/stain_map.gd` | Noita-style stains (ADR 0015): blood, oil, soot and scorch coat the faces around the cells they touched; water washes them. Fed by `SimBubble.chunks_changed` and `bleed()`; the shader half is `surface_stain` in `terrain_common.gdshaderinc`. |
+| `scripts/visuals/near_field.gd` | Ray-cast near field (ADR 0012 step 3): the bubble writes a wrapped `BrickStore` (brick = voxel, micro vegetation expanded to cells), the native `NearFieldFeed` picks and packs the window chunks to upload per frame, `near_scatter.glsl` scatters them into a toroidal volume texture + brick occupancy on the render thread, `near_field.gdshader` marches it with Godot lighting (`LIGHT_VERTEX`), `terrain_common` hides the meshes inside the valid box. Off by default (`Settings.near_field`). |
 | `scripts/visuals/atmosphere.gd` | Sky, sun (soft 4-split shadows, `shadows=hard|off` to trade them for ~0.5 ms, optional day/night cycle), AgX tonemap, bloom, SSAO, fog with aerial perspective; caves darken with depth below the surface, liquids tint the view when the camera is inside one. Pure presentation. No MSAA: it extrapolates UVs over tile borders on silhouettes and neighbour tiles bleed in. |
 | `scripts/world/waterfall_spray.gd` | Mist emitters at waterfall feet near the camera (reads `WorldGen.waterfalls_near`). |
 | `scripts/player/ape_model.gd` | The player body: a monkey in goggles and a lab coat built from micro-voxel cells (body 3.1 cm, head 1.8 cm) by `MicroMesher`, limbs pivoted for the walk cycle; also the first-person arm. `tools/ape_sheet.gd` renders it from four sides. |

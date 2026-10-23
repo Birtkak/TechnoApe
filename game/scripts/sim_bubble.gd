@@ -31,8 +31,9 @@ var push_ms := 0.0
 var shifts := 0
 var _tick_running := false
 # Bridge to the brick world (ADR 0012 step 3): when the owner of a BrickStore sets these,
-# every tick's changed cells are written into the store (one bubble cell = one brick, the
-# 0.5 m game), so the ray-cast near field shows what the simulation does.
+# every loaded chunk and every tick's changed cells are written into the store (one bubble
+# cell = one brick, the 0.5 m game), so the ray-cast near field shows what the simulation
+# does. NearField gives it a wrapped store addressed by world bricks (store_origin_voxel 0).
 var store: BrickStore = null
 var store_origin_voxel := Vector3i.ZERO   # world voxel of the store's brick (0,0,0); the owner updates it when the store window slides
 var store_writes := 0
@@ -96,6 +97,8 @@ func setup(p_world: World, center_world: Vector3) -> void:
 	sim.configure(size_chunks, Settings.sim_threads, Settings.world_seed)
 	sim.set_materials(GameMaterials.defs())
 	sim.set_reactions(GameMaterials.reactions())
+	# liquids hold 1..8 eighths and spread into thin layers; the terrain draws the level (fluid models)
+	sim.set_liquid_fullness(true)
 	# Chunks stream in over several frames; until loaded they must act as walls,
 	# not air, or water next to them flows into nothing (holes in lakes).
 	sim.mark_all_loaded(false)
@@ -197,6 +200,8 @@ func _load_pending() -> void:
 			if bad_loads <= 3:
 				push_warning("SimBubble: chunk %s read %d bytes (expected 8192)" % [wc, bytes.size()])
 		sim.set_chunk_bytes(lc, bytes, 2)
+		if store != null and bytes.size() == 8192:   # the near field renders from the store (ADR 0012 step 3)
+			store.load_voxels(wc * Settings.CHUNK - store_origin_voxel, Vector3i.ONE * Settings.CHUNK, bytes)
 		chunks_loaded += 1
 		n += 1
 	_pending_loads = still

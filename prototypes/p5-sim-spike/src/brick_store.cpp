@@ -27,6 +27,48 @@ void BrickStore::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_dirty_bricks"), &BrickStore::get_dirty_bricks);
     ClassDB::bind_method(D_METHOD("clear_dirty"), &BrickStore::clear_dirty);
     ClassDB::bind_method(D_METHOD("stats"), &BrickStore::stats);
+    ClassDB::bind_method(D_METHOD("set_wrap_origin", "origin_brick"), &BrickStore::set_wrap_origin);
+    ClassDB::bind_method(D_METHOD("is_wrapped"), &BrickStore::is_wrapped);
+    ClassDB::bind_method(D_METHOD("get_wrap_origin"), &BrickStore::get_wrap_origin);
+    ClassDB::bind_method(D_METHOD("set_micro_patterns", "patterns"), &BrickStore::set_micro_patterns);
+}
+
+static bool pow2(int v) { return v > 0 && (v & (v - 1)) == 0; }
+
+void BrickStore::set_wrap_origin(Vector3i o) {
+    if (!(pow2(bx_) && pow2(by_) && pow2(bz_))) return; // masks need powers of two
+    wrap_ = true;
+    origin_ = o;
+}
+
+void BrickStore::set_micro_patterns(const Dictionary &patterns) {
+    micro_.assign(256, {});
+    const Array keys = patterns.keys();
+    for (int i = 0; i < keys.size(); i++) {
+        const int id = (int)keys[i];
+        if (id < 1 || id > 255) continue;
+        const PackedByteArray cells = patterns[keys[i]];
+        if (cells.size() != CELLS) continue;
+        micro_[id].assign(cells.ptr(), cells.ptr() + CELLS);
+    }
+}
+
+Vector3i BrickStore::world_of(int bi) const {
+    const Vector3i l(bi % bx_, (bi / bx_) % by_, bi / (bx_ * by_));
+    if (!wrap_) return l;
+    return Vector3i(origin_.x + ((l.x - origin_.x) & (bx_ - 1)), origin_.y + ((l.y - origin_.y) & (by_ - 1)), origin_.z + ((l.z - origin_.z) & (bz_ - 1)));
+}
+
+void BrickStore::set_uniform(int bi, uint32_t m) {
+    const std::vector<uint8_t> *pat = (m < micro_.size() && !micro_[m].empty()) ? &micro_[m] : nullptr;
+    if (!pat) {
+        if (ref_[bi] & EXPANDED) free_.push_back(ref_[bi] & ~EXPANDED);
+        if (ref_[bi] != m || (ref_[bi] & EXPANDED)) { ref_[bi] = m; mark(bi); }
+        return;
+    }
+    const int slot = expand_index(bi);
+    std::memcpy(pool_.data() + (size_t)slot * CELLS, pat->data(), CELLS);
+    mark(bi);
 }
 
 void BrickStore::configure(Vector3i s) {
@@ -67,22 +109,21 @@ void BrickStore::load_voxels(Vector3i o, Vector3i size, const PackedByteArray &i
                 if (!in_bricks(bxx, byy, bzz)) continue;
                 const int i = (y + size.y * (x + size.x * z)) * 2;
                 const uint32_t id = std::min<uint32_t>(p[i] | (p[i + 1] << 8), 255);
-                const int bi = bidx(bxx, byy, bzz);
-                if (ref_[bi] & EXPANDED) free_.push_back(ref_[bi] & ~EXPANDED);
-                ref_[bi] = id;
-                mark(bi);
+                set_uniform(bidx(bxx, byy, bzz), id);
             }
 }
 
 void BrickStore::fill_uniform(Vector3i mn, Vector3i mx, int material) {
     const uint32_t m = (uint32_t)std::clamp(material, 0, 255);
-    for (int z = std::max(0, mn.z); z < std::min(bz_, mx.z); z++)
-        for (int y = std::max(0, mn.y); y < std::min(by_, mx.y); y++)
-            for (int x = std::max(0, mn.x); x < std::min(bx_, mx.x); x++) {
-                const int bi = bidx(x, y, z);
-                if (ref_[bi] & EXPANDED) free_.push_back(ref_[bi] & ~EXPANDED);
-                if (ref_[bi] != m) { ref_[bi] = m; mark(bi); }
-            }
+    if (!wrap_) {
+        mn = Vector3i(std::max(0, mn.x), std::max(0, mn.y), std::max(0, mn.z));
+        mx = Vector3i(std::min(bx_, mx.x), std::min(by_, mx.y), std::min(bz_, mx.z));
+    } else {
+        mx = Vector3i(std::min(mn.x + bx_, mx.x), std::min(mn.y + by_, mx.y), std::min(mn.z + bz_, mx.z));
+    }
+    for (int z = mn.z; z < mx.z; z++)
+        for (int y = mn.y; y < mx.y; y++)
+            for (int x = mn.x; x < mx.x; x++) set_uniform(bidx(x, y, z), m);
 }
 
 int BrickStore::brick_material(Vector3i b) const {
@@ -255,29 +296,37 @@ int BrickStore::expand_surfaces() {
 PackedByteArray BrickStore::get_chunk_bytes(Vector3i ch) const {
     PackedByteArray out;
     out.resize(16 * 16 * 16);
-    uint8_t *w = out.ptrw();
-    const int c0x = ch.x * 16, c0y = ch.y * 16, c0z = ch.z * 16;
-    for (int z = 0; z < 16; z++)
-        for (int x = 0; x < 16; x++) {
-            const int bxx = (c0x + x) >> 3, bzz = (c0z + z) >> 3;
-            const int lx = (c0x + x) & 7, lz = (c0z + z) & 7;
-            uint8_t *col = w + 16 * (x + 16 * z);
-            for (int half = 0; half < 2; half++) {
-                const int byy = (c0y >> 3) + half;
-                if (!in_bricks(bxx, byy, bzz)) { std::memset(col + half * 8, 0, 8); continue; }
-                const int bi = bidx(bxx, byy, bzz);
-                const uint32_t r = ref_[bi];
-                if (!(r & EXPANDED)) { std::memset(col + half * 8, (int)(r & 0xFF), 8); continue; }
-                const uint8_t *cc = pool_.data() + (size_t)(r & ~EXPANDED) * CELLS;
-                for (int ly = 0; ly < 8; ly++) col[half * 8 + ly] = cc[cidx(lx, ly, lz)];
-            }
-        }
+    read_chunk_cells(ch, out.ptrw());
     return out;
+}
+
+void BrickStore::read_chunk_cells(Vector3i ch, uint8_t *w) const {
+    // 2x2x2 bricks per chunk; the output column (x, z) holds 16 y cells, 8 per brick
+    const int c0x = ch.x * 16, c0y = ch.y * 16, c0z = ch.z * 16;
+    for (int bz = 0; bz < 2; bz++)
+        for (int by = 0; by < 2; by++)
+            for (int bx = 0; bx < 2; bx++) {
+                const int bxx = (c0x >> 3) + bx, byy = (c0y >> 3) + by, bzz = (c0z >> 3) + bz;
+                const uint32_t r = in_bricks(bxx, byy, bzz) ? ref_[bidx(bxx, byy, bzz)] : 0u;
+                if (!(r & EXPANDED)) {
+                    const uint64_t fill = (uint64_t)(r & 0xFF) * 0x0101010101010101ull;
+                    for (int lz = 0; lz < 8; lz++)
+                        for (int lx = 0; lx < 8; lx++)
+                            std::memcpy(w + 16 * ((bx * 8 + lx) + 16 * (bz * 8 + lz)) + by * 8, &fill, 8);
+                    continue;
+                }
+                const uint8_t *cc = pool_.data() + (size_t)(r & ~EXPANDED) * CELLS;
+                for (int lz = 0; lz < 8; lz++)
+                    for (int lx = 0; lx < 8; lx++) {
+                        uint8_t *col = w + 16 * ((bx * 8 + lx) + 16 * (bz * 8 + lz)) + by * 8;
+                        for (int ly = 0; ly < 8; ly++) col[ly] = cc[cidx(lx, ly, lz)];
+                    }
+            }
 }
 
 Array BrickStore::get_dirty_bricks() const {
     Array a;
-    for (int bi : dirty_list_) a.push_back(Vector3i(bi % bx_, (bi / bx_) % by_, bi / (bx_ * by_)));
+    for (int bi : dirty_list_) a.push_back(world_of(bi));
     return a;
 }
 

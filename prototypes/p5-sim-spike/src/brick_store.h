@@ -7,6 +7,15 @@
 //
 // Cell coordinates are in cells; brick coordinates = cell >> 3. Materials are
 // 8-bit here (the sim is 8-bit too); 16-bit ids above 255 are clamped.
+//
+// Wrapped mode (ADR 0012 step 3, the game): set_wrap_origin() turns the store
+// into a toroidal window of power-of-two size addressed by WORLD brick
+// coordinates (brick -> slot = brick & (size - 1)). Sliding the window costs
+// nothing: the owner moves the origin and rewrites the slabs that entered.
+// Dirty bricks are reported in world coordinates relative to that origin.
+// Micro patterns (set_micro_patterns) make a uniform brick of a vegetation /
+// detail material expand into its 8^3 cell pattern on write, so the near field
+// shows a tuft of grass, not a green cube.
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/array.hpp>
@@ -29,6 +38,13 @@ public:
 
     void configure(Vector3i size_bricks);
     Vector3i get_size_bricks() const { return Vector3i(bx_, by_, bz_); }
+    // Wrapped (toroidal) addressing by world brick coordinates; origin = world brick of the window's min corner.
+    // Sizes must be powers of two. Call again on every slide of the window.
+    void set_wrap_origin(Vector3i origin_brick);
+    bool is_wrapped() const { return wrap_; }
+    Vector3i get_wrap_origin() const { return origin_; }
+    // material id -> 512 bytes (x fastest, y, z; 0 = air, else the material): bricks of that material are written expanded
+    void set_micro_patterns(const Dictionary &patterns);
     // 16-bit voxel ids in godot_voxel order (y fastest, x, z) become uniform bricks at origin_brick.
     void load_voxels(Vector3i origin_brick, Vector3i size, const PackedByteArray &ids16);
     void fill_uniform(Vector3i min_brick, Vector3i max_brick, int material);
@@ -48,6 +64,9 @@ public:
     int expand_surfaces();
 
     PackedByteArray get_chunk_bytes(Vector3i chunk) const; // 16^3 cells, SimWorld layout (y fastest, x, z)
+    void read_chunk_cells(Vector3i chunk, uint8_t *out) const; // same, into 4096 bytes the caller owns (NearFieldFeed)
+    const std::vector<int> &dirty_slots() const { return dirty_list_; } // slot indices; world_of() maps them
+    Vector3i world_of(int bi) const; // slot index -> brick coordinates (world when wrapped)
 
     // ---- native access for the simulation (not bound to GDScript) ----
     // Cells of a brick (expanded in place if needed), 512 bytes, x fastest then y then z; marks it dirty.
@@ -64,14 +83,21 @@ protected:
 
 private:
     int bx_ = 0, by_ = 0, bz_ = 0;
+    bool wrap_ = false;
+    Vector3i origin_;                        // wrapped mode: world brick of the window's min corner
+    std::vector<std::vector<uint8_t>> micro_; // per material id: 512 cells or empty
     std::vector<uint32_t> ref_;              // per brick: material (uniform) or EXPANDED | pool index
     std::vector<uint8_t> pool_;              // CELLS bytes per expanded brick
     std::vector<uint32_t> free_;             // free pool slots
     std::vector<uint8_t> dirty_;             // per brick flag
     std::vector<int> dirty_list_;
 
-    inline bool in_bricks(int x, int y, int z) const { return x >= 0 && y >= 0 && z >= 0 && x < bx_ && y < by_ && z < bz_; }
-    inline int bidx(int x, int y, int z) const { return x + bx_ * (y + by_ * z); }
+    inline bool in_bricks(int x, int y, int z) const { return wrap_ || (x >= 0 && y >= 0 && z >= 0 && x < bx_ && y < by_ && z < bz_); }
+    inline int bidx(int x, int y, int z) const {
+        if (wrap_) return (x & (bx_ - 1)) + bx_ * ((y & (by_ - 1)) + by_ * (z & (bz_ - 1)));
+        return x + bx_ * (y + by_ * z);
+    }
+    void set_uniform(int bi, uint32_t m);   // uniform brick, or its micro pattern when the material has one
     inline static int cidx(int x, int y, int z) { return x + B * (y + B * z); } // x fastest inside a brick
     uint8_t *cells(int bi);
     const uint8_t *cells(int bi) const;

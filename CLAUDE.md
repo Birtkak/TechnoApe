@@ -106,7 +106,11 @@ Research: `docs/research/`. Prototype results: `prototypes/*/README.md`.
   LOD ring, 2 km horizon, dithered LOD cross-fade, see-through water,
   loading screen, edit remesh rate; every ADR 0014 scenario within the
   ADR 0009 budget on the dev box; `prototypes/p11-lod-horizon` holds the
-  godot_voxel patches and measurements). P7 (`prototypes/p7-raycast-near`) measured a Grimorium-style
+  godot_voxel patches and measurements). Ray-cast near field in the game ✓ (ADR 0021,
+  `near_field=1`, off by default until the user calls it: the bubble writes a wrapped
+  `BrickStore`, `NearFieldFeed` + `near_scatter.glsl` keep a toroidal 512³ volume on the
+  GPU under a byte budget, `near_field.gdshader` marches it with Godot's lighting, the
+  terrain shaders hide the meshes inside its valid box). P7 (`prototypes/p7-raycast-near`) measured a Grimorium-style
   GPU ray-cast near field (32 m at 6.25 cm: 3.3 ms p50); ADR 0012 (proposed)
   makes the simulation resolution the next spike and requires per-frame edit
   budgets for mass edits. **Direction (ADR 0012, accepted in principle):

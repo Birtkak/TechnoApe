@@ -25,6 +25,7 @@ var debug_menu: DebugMenu
 var _tick_accum := 0.0
 var _save_accum := 0.0
 var _loading: LoadingScreen
+var near_field: NearField            # ray-cast near field (ADR 0012 step 3), null unless Settings.near_field
 var phys_cost := {}   # ms per physics callback this frame (player, items, item_bodies, blocks); DebugCapture reads it on a spike
 var _items_root: Node3D
 var _item_entities: Array[ItemEntity] = []
@@ -203,6 +204,12 @@ func _ready() -> void:
 	if DebugCapture.f3:
 		hud.toggle()
 	bubble.setup(world, player.position)
+	if Settings.near_field:
+		# the brick world around the player, ray-cast at 6.25 cm (scripts/visuals/near_field.gd)
+		near_field = NearField.new()
+		near_field.name = "NearField"
+		add_child(near_field)
+		near_field.setup(world, bubble, player.camera)
 	# blood, oil and soot stains on the voxels they touch (scripts/visuals/stain_map.gd)
 	stains = StainMap.new()
 	stains.name = "Stains"
@@ -613,6 +620,7 @@ func snapshot() -> Dictionary:
 		"terrain": world.terrain.get_statistics(),
 		"sim": bubble.stats(),
 		"stains": stains.stats() if stains else {},
+		"near_field": near_field.stats() if near_field else {},
 		"look": look,
 		"player": player_inv.summary(),
 		"player_stains": player.stains.summary(),

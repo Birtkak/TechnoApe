@@ -1,7 +1,9 @@
 # Brick world (ADR 0012, option B)
 
 - **Status:** design, 2026-10-22; P9 (`prototypes/p5-sim-spike/src/brick_store.*`,
-  bench in `prototypes/p7-raycast-near/brick_bench.gd`) measures it.
+  bench in `prototypes/p7-raycast-near/brick_bench.gd`) measures it. Steps 1-3
+  below are done (ADR 0021, 2026-10-23: the game's near field renders from a
+  wrapped store the simulation bubble writes; `near_field=1`).
 
 ## The one data model
 
@@ -81,9 +83,12 @@ stats() -> {bricks, expanded, pool_bytes, ref_bytes, uniform_ratio}
    feed). Gate: within the ADR 0009 budgets.
 2. The P7 caster fed from the store instead of SimWorld chunks; the player
    stands in a brick world in the prototype.
-3. In the game: `World` owns a `BrickStore` fed by `TerrainGenerator`;
-   godot_voxel keeps its own voxel data for the far field and is updated
-   from dirty bricks (majority material); the near field renders from the
-   store; the sim bubble becomes the store's active set.
+3. In the game (ADR 0021): the sim bubble owns the writes into a wrapped
+   `BrickStore` (every loaded chunk, every tick's changes, micro patterns
+   expanded); godot_voxel keeps its own voxel data for the far field, fed by
+   the bubble's pushes as before; the near field renders from the store
+   through `NearFieldFeed` + `near_scatter.glsl` + `near_field.gdshader`.
+   3b (open): the far field reads the store's majority view instead of its
+   own data, so LOD 0 can stop at the near field's edge.
 4. Chisel tool: expand + edit cells; vegetation micro models become
    expanded bricks produced by the generator (no library models needed).

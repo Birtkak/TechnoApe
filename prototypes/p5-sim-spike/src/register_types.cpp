@@ -1,5 +1,6 @@
 #include "register_types.h"
 #include "brick_store.h"
+#include "near_field_feed.h"
 #include "micro_mesher.h"
 #include "sim_world.h"
 #include "world_gen.h"
@@ -18,6 +19,7 @@ void initialize_technosim_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(WorldGen);
     GDREGISTER_CLASS(MicroMesher);
     GDREGISTER_CLASS(BrickStore);
+    GDREGISTER_CLASS(NearFieldFeed);
 }
 
 void uninitialize_technosim_module(ModuleInitializationLevel p_level) {

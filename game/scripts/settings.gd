@@ -22,6 +22,11 @@ var mesh_upload_budget_mb := 0.0        # terrain mesh data applied per frame (A
 var edit_remesh_rate := 300.0           # edit-caused terrain remeshes per second, token bucket (ADR 0020, our godot_voxel build): the water spill's p99 8.3 -> 5.1 ms, 60 s of flow p99 3.8; 0 = unlimited
 var terrain_mesh_block := 32            # 16 or 32 voxels; 32 = 3x fewer draw calls (measured), coarser re-mesh granularity
 var cache_generated_blocks := true      # store generated LOD data so edits cascade to far LODs (memory vs correctness)
+# Ray-cast near field (ADR 0012 step 3): the cube around the player is drawn per pixel from the brick world at
+# 6.25 cm cells; terrain meshes inside it are hidden. Off until it holds the ADR 0009 budget (near_field=1 to try).
+var near_field := false
+var near_field_m := 32.0                # edge of the cube: 32 m = 512^3 cells = 128 MB of VRAM, 16 m = 256^3 = 16 MB
+var near_upload_mb := 8.0               # volume bytes uploaded per frame at most (window slabs, simulation changes); the rest waits
 
 # Simulation
 var sim_tick_hz := 30.0
@@ -131,6 +136,9 @@ func apply_cmdline() -> Dictionary:
 			"mesh_upload_budget_mb": mesh_upload_budget_mb = float(kv[1])
 			"edit_remesh_rate": edit_remesh_rate = float(kv[1])
 			"cache_generated": cache_generated_blocks = kv[1] == "1"
+			"near_field": near_field = kv[1] == "1"
+			"near_field_m": near_field_m = float(kv[1])
+			"near_upload_mb": near_upload_mb = float(kv[1])
 			"sim_tick_hz": sim_tick_hz = float(kv[1])
 			"sim_load_budget_ms": sim_load_budget_ms = float(kv[1])
 			"sim_push_budget_ms": sim_push_budget_ms = float(kv[1])

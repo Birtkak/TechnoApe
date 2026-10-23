@@ -3,8 +3,9 @@
 - **Status:** accepted 2026-10-22 ("let's go with option B as long as it works
   for what we want"). Gate 1 (simulation at 6.25 cm, P10 and the sim chapter)
   passed **with conditions**; gate 2 (brick store + ray-cast feed + sliding
-  window, P9) passed. Each remaining step still lands only after its spike
-  meets the ADR 0009 budget.
+  window, P9) passed. Step 3 (the near field in the game, from a store the
+  bubble writes) landed behind `near_field=1` on 2026-10-23 (ADR 0021). Each
+  remaining step still lands only after its spike meets the ADR 0009 budget.
 - **Date:** 2026-10-22
 
 ## Context

@@ -92,6 +92,21 @@ float terrain_sample(vec2 uv_in, vec3 wpos, vec3 n, vec3 cam, out vec4 c) {
 	return idx;
 }
 
+// Near field (ADR 0012 step 3): inside this world-space box the ray-cast volume
+// (near_field.gdshader) draws the voxels, so mesh fragments there are dropped. Not
+// in orthographic passes, i.e. the shadow maps: the meshes keep casting the shadows
+// the near field receives. An empty box (max <= min) turns it off. The box is inset
+// by a hair so faces lying exactly on its planes stay with the mesh.
+uniform vec3 near_min = vec3(0.0);
+uniform vec3 near_max = vec3(0.0);
+
+bool near_field_discard(vec3 wpos, mat4 proj) {
+	if (near_max.x <= near_min.x || proj[3][3] > 0.5) {
+		return false;
+	}
+	return all(greaterThan(wpos, near_min + 0.002)) && all(lessThan(wpos, near_max - 0.002));
+}
+
 bool lod_fade_discard(vec2 fragcoord) {
 	if (u_lod_fade.x <= 0.0 && u_lod_fade.y <= 0.0) {
 		return false;
