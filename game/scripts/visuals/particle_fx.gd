@@ -519,7 +519,7 @@ func _watch_player(delta: float) -> void:
 		_bubble_t -= delta
 		if _bubble_t <= 0.0:
 			_bubble_t = _rng.randf_range(0.4, 1.4)
-			burst("bubbles", eye - player.camera.global_transform.basis.z * 0.6 + Vector3(0, -0.3, 0))
+			burst("bubbles", eye - player.camera.global_transform.basis.z * 1.6 + Vector3(0, -0.4, 0))
 	# chips off the block being mined, ~10 per second
 	var target: Vector3i = player.mining_target()
 	if target.x != 1 << 30 and get_voxel.is_valid():

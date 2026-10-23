@@ -76,6 +76,10 @@ var _snow_t_max := 0.2
 
 var _underground := 0.0          # smoothed 0..1
 var _submerged_name := ""        # material name the camera is in, "" above
+var _water_depth_m := 0.0        # metres of water above the camera while submerged in water
+var _water_light := 1.0          # share of daylight that reaches that depth (eased)
+var _sun_light := -1.0           # the sun / moon energy _update_sun chose, before water absorbs it
+var water_light_m := 18.0        # light falls to 1/e every this many metres of water: dark below ~50 m
 var _depth_check_accum := 0.0
 
 
@@ -286,11 +290,12 @@ func _update_sun() -> void:
 	sun.basis = Basis.looking_at(-light_dir, up)   # a directional light shines along its -Z
 	if is_moon:
 		sun.light_color = moon_color
-		sun.light_energy = moon_light
+		_sun_light = moon_light
 	else:
 		var low := 1.0 - smoothstep(0.0, 0.35, sun_up)
 		sun.light_color = sun_color.lerp(sunset_color, low * 0.85)
-		sun.light_energy = sun_light
+		_sun_light = sun_light
+	sun.light_energy = _sun_light * _water_light
 	sun.shadow_opacity = 0.9 if not is_moon else 0.6
 	sky_material.set_shader_parameter("sun_dir", sd)
 	sky_material.set_shader_parameter("moon_dir", moon_draw)
@@ -380,6 +385,17 @@ func _sample_camera() -> void:
 		var d: Dictionary = GameMaterials.defs()[m - 1]
 		if liquid_tints.has(d["name"]):
 			_submerged_name = d["name"]
+	# how deep under water: up to 24 voxels by reading, deeper in the sea by sea level
+	_water_depth_m = 0.0
+	if _submerged_name.begins_with("water"):
+		var v := Vector3i(p.floor())
+		var n := 0
+		while n < 24 and world.get_voxel(v + Vector3i(0, n + 1, 0)) in [GameMaterials.WATER, GameMaterials.WATER_STATIC]:
+			n += 1
+		var depth_v := float(n) + (float(v.y) + 1.0 - p.y)
+		if n >= 24:
+			depth_v = maxf(depth_v, float(Settings.SEA_LEVEL_VOXEL) - p.y)
+		_water_depth_m = Settings.v2m(depth_v)
 	# below the surface?
 	var surface := world.surface_height(int(floor(p.x)), int(floor(p.z)))
 	var depth_m := Settings.v2m(float(surface) - p.y)
@@ -398,14 +414,24 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 	env.ambient_light_energy = lerpf(1.0, underground_ambient, _underground)
 	env.ambient_light_sky_contribution = lerpf(1.0, 0.25, _underground)
 	var tint := Color(0, 0, 0, 0)
+	# water swallows light with depth: the sea floor at 100 m is close to black (2026-10-23)
+	var light_target := exp(-_water_depth_m / water_light_m) if _submerged_name.begins_with("water") else 1.0
+	_water_light = light_target if instant else lerpf(_water_light, light_target, clampf(delta * 3.0, 0.0, 1.0))
+	if _sun_light >= 0.0:
+		sun.light_energy = _sun_light * _water_light
 	if _submerged_name != "":
 		var t: Array = liquid_tints[_submerged_name]
-		env.fog_light_color = t[0]
-		env.fog_density = t[1]
+		var dark := 1.0 - _water_light
+		var lit := lerpf(0.25, 1.0, day) * lerpf(0.06, 1.0, _water_light)   # night water is dark too
+		var fc: Color = t[0]
+		env.fog_light_color = Color(fc.r * lit, fc.g * lit, fc.b * lit)
+		env.fog_density = lerpf(float(t[1]), float(t[1]) * 1.6, dark)
 		env.fog_aerial_perspective = 0.0
 		env.fog_sky_affect = 1.0
 		env.fog_height_density = 0.0
-		tint = t[2]
+		env.ambient_light_energy *= lerpf(1.0, 0.08, dark)
+		var tc: Color = t[2]
+		tint = Color(tc.r * lit, tc.g * lit, tc.b * lit, lerpf(tc.a, 0.5, dark))
 	else:
 		env.fog_light_color = fog_day.lerp(underground_fog_color, _underground)
 		env.fog_density = lerpf(fog_density, underground_fog_density, _underground)

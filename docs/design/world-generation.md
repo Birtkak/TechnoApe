@@ -286,6 +286,35 @@ Asked for: "toxic sludge which can spawn in sulfur caves (make those)".
   The 8 s `target=cave inside=1` capture was already over budget at HEAD
   (p99 45 ms), sulfur caves the same.
 
+## Boat-ready rivers, sloped shelf, deep ocean (2026-10-23, GEN_VERSION 11)
+The developer asked for rivers "wide/deep enough for potential future boats" and
+"a shoreline with gradually decreasing ocean bottom until you hit deep ocean where it
+can get quite deep and dark".
+- **Rivers**: `river_half_width` / `river_depth` in `world_gen.cpp` (shared with
+  `waterfalls_near`'s sheet width), from strength sqrt(acc / STREAM_ACC):
+  half width 2 + 2.5 s (3.5 .. 28 voxels), depth 2 + s (3 .. 12 voxels). The channel
+  is **flat-bottomed**: full depth over the inner 45 % of the half width, then rising
+  to the bank (it was a V, too shallow for a hull off the centre line).
+- **Sea floor**: the continentalness spline now has a shelf, a slope and an abyss.
+  Beach -1.5 voxels (c -0.05), shelf -7 (c -0.15), shelf edge -18 (c -0.3),
+  continental slope to -55 (c -0.45) and -120 (c -0.6), abyssal plain -160 (c -0.75)
+  down to -200 voxels (100 m) at c = -1. Deep ocean is still c < -0.55.
+- **Dark water**: `Atmosphere` reads how much water is above the camera (up to
+  24 voxels; deeper in the sea by sea level). Light falls to 1/e every
+  `water_light_m` = 18 m: the sun's energy, the ambient, the fog colour and the
+  screen tint go dark with depth, and also at night. The fog thickens up to 1.6x.
+- Measured with `tools/water_probe.gd` (seed 1337):
+  - Rivers (338 river-centre samples over 8 km): 4 .. 40.5 m wide, p10 5.5 m,
+    median 6.5 m. 0.5 .. 6.5 m deep, p10 1.5 m, median 2 m. One sample was under
+    1 m deep. Before: 2.5 .. 36 voxels wide and 1.6 .. 7 voxels deep (V-shaped).
+  - Ocean (16 km square, 6820 sea columns): 16 % deeper than 40 m, deepest 91 m.
+    Before, the floor stopped at 40 m.
+  - Shore transect from the nearest beach: -0.5 m at 32 m out, -6.5 m at 64 m,
+    -11 m at 96 m, -22 m at 128 m.
+- Frame cost: a 20 m/s flight over the deep ocean costs less than over land
+  (p50 2.0 vs 6.8 ms, p99 8.2 vs 12.2 ms). Other Godot processes were running in
+  both runs, so neither is a budget check.
+
 ## Next
 - Small ores between veins (single blocks dropping nuggets) and the copper
   prospecting pick (reads `vein_at` within ~16 m): `progression.md` "Ores".

@@ -113,9 +113,12 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     col.t_noise = t_noise;
     col.h = n_hum_.GetNoise(fx, fz) + jit2 * technosim_biome::JITTER;
 
-    static const float cx[] = {-1.0f, -0.6f, -0.25f, -0.08f, 0.05f, 0.3f, 0.55f, 0.8f, 1.0f};
-    static const float cy[] = {-80.0f, -50.0f, -12.0f, -2.0f, 4.0f, 24.0f, 80.0f, 180.0f, 240.0f};
-    float base = spline(col.c, cx, cy, 9);
+    // Sea floor (2026-10-23): a shallow shelf off the beach (-1.5 .. -18 voxels), a continental
+    // slope down to the deep-ocean line (c -0.55, ~-95), then an abyssal plain that keeps sinking
+    // to 100 m below the surface: deep enough to go dark and room for boats and sea life.
+    static const float cx[] = {-1.0f, -0.75f, -0.6f, -0.45f, -0.3f, -0.15f, -0.05f, 0.05f, 0.3f, 0.55f, 0.8f, 1.0f};
+    static const float cy[] = {-200.0f, -160.0f, -120.0f, -55.0f, -18.0f, -7.0f, -1.5f, 4.0f, 24.0f, 80.0f, 180.0f, 240.0f};
+    float base = spline(col.c, cx, cy, 12);
     static const float ex[] = {-1.0f, -0.3f, 0.4f, 1.0f};
     static const float ey[] = {1.25f, 1.0f, 0.45f, 0.15f};
     float relief_scale = spline(col.e, ex, ey, 4);
@@ -215,6 +218,7 @@ Dictionary WorldGen::column_info(int x, int z) const {
     d["snow"] = c.snow;
     d["river"] = hy.river;
     d["water_level"] = hy.water_level;
+    d["river_bed"] = hy.river > 0.0f ? hy.bed : -1;
     d["lake"] = hy.lake;
     d["spring"] = hy.spring;
     d["marsh"] = hy.marsh;
@@ -427,6 +431,17 @@ bool WorldGen::hydro_ctx(int x, int z, HydroCtx &ctx) const {
     return true;
 }
 
+// River size from drainage strength sqrt(acc / STREAM_ACC) (1 at a spring .. ~10 for big rivers), in voxels. Sized
+// for boats (2026-10-23): a brook is 4.5 m wide and 1.5 m deep, a strength-2 stream 7 m and
+// 2 m, the largest rivers 28 m wide and 6 m deep (tools/water_probe.gd measures them).
+static float river_half_width(float strength) {
+    return std::clamp(2.0f + 2.5f * strength, 3.5f, 28.0f);
+}
+
+static float river_depth(float strength) {
+    return std::clamp(2.0f + 1.0f * strength, 3.0f, 12.0f);
+}
+
 float WorldGen::HydroCtx::acc(int k) const {
     float a = t->acc[k];
     if (!bx && !bz) return a;
@@ -503,10 +518,9 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
             if (d < best_d) { best_d = d; best_k = k; best_t = tt; }
         }
     if (best_k >= 0) {
-        const float acc = c.acc(best_k);
-        const float strength = std::sqrt(acc / STREAM_ACC);           // 1 at a spring .. ~10 for big rivers
-        const float half_w = std::clamp(1.2f + 1.3f * strength, 1.5f, 18.0f);
-        const float depth = std::clamp(1.0f + 0.6f * strength, 1.0f, 7.0f);
+        const float strength = std::sqrt(c.acc(best_k) / STREAM_ACC);
+        const float half_w = river_half_width(strength);
+        const float depth = river_depth(strength);
         const float bank_w = half_w * 1.5f + 6.0f; // gentle banks: valley floor widens with the river
         if (best_d < half_w + bank_w) {
             const int nk = downstream(best_k);
@@ -519,7 +533,8 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
             const float mask = 1.0f - smoothstep(half_w, half_w + bank_w, best_d);
             out.river = mask;
             const int water = (int)std::floor(surf) - 1;
-            out.bed = (int)std::floor(surf) - 1 - (int)std::lround(depth * (1.0f - smoothstep(0.0f, half_w, best_d)));
+            // flat-bottomed channel: full depth over the inner half, rising to the banks
+            out.bed = (int)std::floor(surf) - 1 - (int)std::lround(depth * (1.0f - smoothstep(0.45f * half_w, half_w, best_d)));
             if (best_d < half_w && water > out.bed) out.water_level = std::max(out.water_level, water);
             if (best_d >= half_w * 0.9f && best_d < half_w * 1.8f && base_height <= water + 2 && base_height >= water - 1) out.shore = true;
             if (out.fall_top >= 0 && out.fall_top <= out.water_level) out.fall_top = -1;
@@ -1580,8 +1595,7 @@ Array WorldGen::waterfalls_near(int x, int z, int radius) const {
             d["top"] = (int)t->fall_top[k];
             d["dir_x"] = (bx - ax) / len; d["dir_z"] = (bz - az) / len;
             // sheet width in voxels: the river's half width as hydro_at computes it, sheet = 60 % of it each side
-            const float half_w = std::clamp(1.2f + 1.3f * std::sqrt(hc.acc(k) / STREAM_ACC), 1.5f, 18.0f);
-            d["width"] = 1.2f * half_w;
+            d["width"] = 1.2f * river_half_width(std::sqrt(hc.acc(k) / STREAM_ACC));
             out.push_back(d);
         }
     return out;
