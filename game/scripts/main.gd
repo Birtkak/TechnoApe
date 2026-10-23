@@ -28,6 +28,7 @@ var _save_accum := 0.0
 var _loading: LoadingScreen
 var startup_ms := {}   # ms since _ready began, per startup step (printed, and in DebugCapture's JSON)
 var farming: Farming                 # tilled farmland and crops (ADR 0022)
+var pieces: FallingPieces            # rigid voxel pieces (P12), null unless rigid_pieces=1
 var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
 var _furniture_root: Node3D
@@ -292,6 +293,10 @@ func _ready() -> void:
 			_after_load(_debug_hands)
 		if DebugCapture.swim_test:
 			_after_load(_debug_swim)
+		if DebugCapture.fell_test != "":
+			_after_load(func() -> void:
+				await get_tree().create_timer(1.5).timeout
+				chat.send("/fell " + DebugCapture.fell_test))
 		if DebugCapture.stone_age_test:
 			_after_load(func() -> void:
 				_stone_age_test = StoneAgeTest.new()   # held here: a RefCounted coroutine dies with its last reference
@@ -355,6 +360,14 @@ func _ready() -> void:
 		fx.player = player
 		fx.main_blocks = blocks
 		player.landed.connect(func(p: Vector3i, fall_m: float) -> void: fx.landing(p, fall_m, player.position))
+	if Settings.rigid_pieces:
+		pieces = FallingPieces.new()
+		pieces.name = "FallingPieces"
+		add_child(pieces)
+		pieces.setup(bubble, world.atlas_material, fx)
+		bubble.pieces = pieces
+		if not warmup.is_queued_for_deletion():
+			warmup.add_materials([pieces.material], player.camera)
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
 
@@ -730,6 +743,8 @@ func _on_dug(cells: Array, drops: Array, center: Vector3) -> void:
 	_spawn_drop_events(events)
 	for d in drops:
 		spawn_item(d, center, Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+	if pieces:
+		pieces.check(cells, player.position)   # a cut that frees a trunk or a limb: it falls (P12)
 
 
 ## A brush placement of a voxel item: every cell gets the material.
@@ -1214,6 +1229,7 @@ func snapshot() -> Dictionary:
 		"debug_menu_open": debug_menu.is_open if debug_menu else false,
 		"terrain": world.terrain.get_statistics(),
 		"sim": bubble.stats(),
+		"pieces": pieces.stats() if pieces else {},
 		"stains": stains.stats() if stains else {},
 		"look": look,
 		"player": player_inv.summary(),

@@ -74,6 +74,7 @@ var torch_light_radius_m := 48.0        # torches farther from the player than t
 var pan_shakes := 6                     # right clicks to wash one pan of sand or gravel
 
 # Particles (ADR 0026): two GPU pools, every particle emitted by script
+var rigid_pieces := false               # rigid_pieces=1: cut-loose trees and limbs fall as rigid bodies (P12, ADR 0037; prototype)
 var particles := true                   # particles=0 turns every effect off (benchmarks against the old game)
 var particle_pool_chips := 2048         # block chips alive at once at most
 var particle_pool_sprites := 6144       # smoke, splashes, hearts, waterfall spray...
@@ -200,6 +201,7 @@ func apply_cmdline() -> Dictionary:
 			"edit_remesh_rate": edit_remesh_rate = float(kv[1])
 			"cache_generated": cache_generated_blocks = kv[1] == "1"
 			"particles": particles = kv[1] == "1"
+			"rigid_pieces": rigid_pieces = kv[1] == "1"
 			"particle_ambient": particle_ambient = kv[1] == "1"
 			"particle_budget": particle_budget = int(kv[1])
 			"sim_tick_hz": sim_tick_hz = float(kv[1])

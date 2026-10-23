@@ -129,6 +129,8 @@ const SOLID_MICRO := ["wattle", "storage_pot"]   # micro models with full body c
 const MASK_TARGET := 2      # collision bit of boxes only the aim ray hits (VoxelBody uses bit 1, VoxelBody.MASK_SOLID)
 
 
+## "rigid": "wood" carries support and breaks off with what it holds (RigidPieces, P12);
+## "leaf" hangs on wood and carries nothing.
 static func defs() -> Array:
 	return [
 		{"name": "stone", "cell_type": "solid", "density": 10, "hp": 1000, "tiles": [0, 0, 0], "transparent": false},
@@ -136,7 +138,7 @@ static func defs() -> Array:
 		{"name": "grass", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [2, 2, 1], "transparent": false},
 		{"name": "sand", "cell_type": "powder", "density": 3, "tiles": [4, 4, 4], "transparent": false},
 		{"name": "water", "cell_type": "liquid", "fluid_slot": 0, "density": 1, "liquid_flow_speed": 1.0, "tiles": [5, 5, 5], "transparent": true},
-		{"name": "wood", "cell_type": "solid", "density": 10, "burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [56, 6, 56], "transparent": false},
+		{"name": "wood", "cell_type": "solid", "rigid": "wood", "density": 10, "burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [56, 6, 56], "transparent": false},
 		{"name": "lava", "cell_type": "liquid", "fluid_slot": 1, "density": 5, "liquid_flow_speed": 0.3, "liquid_gravity": 0.3, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false},
 		{"name": "ash", "cell_type": "powder", "density": 2, "tiles": [8, 8, 8], "transparent": false},
 		{"name": "oil", "cell_type": "liquid", "fluid_slot": 2, "density": 0.8, "liquid_flow_speed": 0.6, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
@@ -150,7 +152,7 @@ static func defs() -> Array:
 		{"name": "iron_ore", "cell_type": "solid", "density": 11, "hp": 1200, "tiles": [17, 17, 17], "transparent": false},
 		{"name": "copper_ore", "cell_type": "solid", "density": 11, "hp": 1100, "tiles": [18, 18, 18], "transparent": false},
 		{"name": "tin_ore", "cell_type": "solid", "density": 11, "hp": 1100, "tiles": [19, 19, 19], "transparent": false},
-		{"name": "leaves", "cell_type": "solid", "density": 10, "hp": 20, "burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [20, 20, 20], "transparent": true},
+		{"name": "leaves", "cell_type": "solid", "rigid": "leaf", "density": 10, "hp": 20, "burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [20, 20, 20], "transparent": true},
 		{"name": "sand_static", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [4, 4, 4], "transparent": false, "loose": 4},
 		{"name": "gravel_static", "cell_type": "powder", "liquid_static": true, "density": 4, "tiles": [15, 15, 15], "transparent": false, "loose": 15},
 		{"name": "water_static", "cell_type": "liquid", "fluid_slot": 0, "liquid_static": true, "density": 1, "tiles": [5, 5, 5], "transparent": true, "loose": 5},
@@ -166,7 +168,7 @@ static func defs() -> Array:
 		{"name": "furnace", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 35, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "furnace_lit", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 36, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "chest", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [37, 38, 37], "transparent": false, "interact": "chest", "entity": "chest"},
-		{"name": "planks", "cell_type": "solid", "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false},
+		{"name": "planks", "cell_type": "solid", "rigid": "wood", "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false},
 		{"name": "pebbles", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [86, 86, 86], "transparent": false, "micro": "pebbles"},
 		{"name": "mushroom_brown", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [40, 42, 42], "transparent": false, "micro": "mushroom"},
 		{"name": "mushroom_red", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [41, 42, 42], "transparent": false, "micro": "mushroom"},
@@ -217,9 +219,9 @@ static func _content_pass2_defs() -> Array:
 		return _content2
 	var log_burn := {"burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4}
 	var plant_burn := {"burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2}
-	var birch := {"name": "birch_log", "cell_type": "solid", "density": 10, "tiles": [74, 73, 74], "transparent": false}
+	var birch := {"name": "birch_log", "cell_type": "solid", "rigid": "wood", "density": 10, "tiles": [74, 73, 74], "transparent": false}
 	birch.merge(log_burn)
-	var birch_leaves := {"name": "birch_leaves", "cell_type": "solid", "density": 10, "hp": 20, "tiles": [75, 75, 75], "transparent": true}
+	var birch_leaves := {"name": "birch_leaves", "cell_type": "solid", "rigid": "leaf", "density": 10, "hp": 20, "tiles": [75, 75, 75], "transparent": true}
 	birch_leaves.merge(plant_burn)
 	birch_leaves["generates_smoke"] = 6
 	var bush := {"name": "blueberry_bush", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [76, 29, 29], "transparent": false, "micro": "berry_bush"}
@@ -231,7 +233,7 @@ static func _content_pass2_defs() -> Array:
 		d.merge(plant_burn)
 		_content2.append(d)
 	for b in [["oak_bark", 85], ["spruce_bark", 57], ["acacia_bark", 60], ["jungle_bark", 63], ["birch_bark", 73]]:
-		var d := {"name": b[0], "cell_type": "solid", "density": 10, "tiles": [b[1], b[1], b[1]], "transparent": false}
+		var d := {"name": b[0], "cell_type": "solid", "rigid": "wood", "density": 10, "tiles": [b[1], b[1], b[1]], "transparent": false}
 		d.merge(log_burn)
 		_content2.append(d)
 	# wildlife (ADR 0027): a ribcage with scraps of meat, tiles [meat, bone, blood]
@@ -248,14 +250,14 @@ static func _flint_age_defs() -> Array:
 		return _flint_age
 	var grass_burn := {"burnable": true, "fire_hp": 60, "autoignition_temperature": 25, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4}
 	var wood_burn := {"burnable": true, "fire_hp": 100, "autoignition_temperature": 35, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3}
-	var thatch := {"name": "thatch", "cell_type": "solid", "density": 4, "hp": 60, "tiles": [88, 89, 88], "transparent": false}
+	var thatch := {"name": "thatch", "cell_type": "solid", "rigid": "wood", "density": 4, "hp": 60, "tiles": [88, 89, 88], "transparent": false}
 	thatch.merge(grass_burn)
-	var wattle := {"name": "wattle", "cell_type": "solid", "density": 6, "hp": 120, "tiles": [91, 6, 6], "transparent": false, "micro": "wattle"}
+	var wattle := {"name": "wattle", "cell_type": "solid", "rigid": "wood", "density": 6, "hp": 120, "tiles": [91, 6, 6], "transparent": false, "micro": "wattle"}
 	wattle.merge(wood_burn)
 	_flint_age.append_array([
 		thatch,
 		wattle,
-		{"name": "daub_wall", "cell_type": "solid", "density": 9, "hp": 400, "tiles": [90, 90, 90], "transparent": false},
+		{"name": "daub_wall", "cell_type": "solid", "rigid": "wood", "density": 9, "hp": 400, "tiles": [90, 90, 90], "transparent": false},
 		{"name": "torch", "cell_type": "solid", "density": 5, "hp": 5, "tiles": [12, 6, 92], "transparent": false, "micro": "torch", "entity": "torch", "light": true, "floor_only": true},
 		{"name": "storage_pot", "cell_type": "solid", "density": 9, "hp": 80, "tiles": [66, 3, 66], "transparent": false, "micro": "storage_pot", "interact": "chest", "entity": "storage_pot"},
 	])
@@ -272,9 +274,9 @@ static func _content_pass_defs() -> Array:
 	var log_burn := {"burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4}
 	var leaf_burn := {"burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6}
 	for k in [["spruce", 57, 58, 59], ["acacia", 60, 61, 62], ["jungle", 63, 64, 65]]:
-		var trunk := {"name": "%s_log" % k[0], "cell_type": "solid", "density": 10, "tiles": [k[2], k[1], k[2]], "transparent": false}
+		var trunk := {"name": "%s_log" % k[0], "cell_type": "solid", "rigid": "wood", "density": 10, "tiles": [k[2], k[1], k[2]], "transparent": false}
 		trunk.merge(log_burn)
-		var leaves := {"name": "%s_leaves" % k[0], "cell_type": "solid", "density": 10, "hp": 20, "tiles": [k[3], k[3], k[3]], "transparent": true}
+		var leaves := {"name": "%s_leaves" % k[0], "cell_type": "solid", "rigid": "leaf", "density": 10, "hp": 20, "tiles": [k[3], k[3], k[3]], "transparent": true}
 		leaves.merge(leaf_burn)
 		_content.append_array([trunk, leaves])
 	var fern := {"name": "fern", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [72, 29, 72], "transparent": false, "micro": "fern", "replaceable": true}

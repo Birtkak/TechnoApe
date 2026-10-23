@@ -1053,7 +1053,23 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     }
                 }
                 float ln = 2.0f;
-                for (int k = 0; k < nct && mat == Mat::AIR; k++) mat = tree_voxel(ctrees[k], (float)wx, wy, (float)wz, grow, ln);
+                int owner = -1;
+                for (int k = 0; k < nct && mat == Mat::AIR; k++) {
+                    mat = tree_voxel(ctrees[k], (float)wx, wy, (float)wz, grow, ln);
+                    if (mat != Mat::AIR) owner = k;
+                }
+                // Trees never weld: wood within a voxel of an earlier tree's wood stays empty, so a limb
+                // that grows into the next trunk stops short of it and a felled tree is not held up by
+                // its neighbours (P12, rigid pieces).
+                if (owner > 0 && (mat == ctrees[owner].t->log || mat == ctrees[owner].t->bark))
+                    for (int j = 0; j < owner; j++) {
+                        float lj = 2.0f;
+                        const uint16_t o = tree_voxel(ctrees[j], (float)wx, wy, (float)wz, grow + 1.0f, lj);
+                        if (o == ctrees[j].t->log || o == ctrees[j].t->bark) {
+                            mat = Mat::AIR;
+                            break;
+                        }
+                    }
                 if (mat == Mat::AIR && wy >= h - 8)
                     for (int k = 0; k < ncs && mat == Mat::AIR; k++) mat = stamp_voxel(*cst[k], (float)wx, wy, (float)wz, grow);
                 if (mat != Mat::AIR) { colp[y] = mat; any = true; continue; }

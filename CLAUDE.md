@@ -120,7 +120,10 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   bulk), ages into GregTech, hunger + temperature + spoilage, biting wildlife and dangerous places (calm
   surface, combat a side system), patterned voxels for built materials, structures / dungeons / cave
   biomes / roads / traders, new systems keep state server-side. Magic is decided in Phase 3.
-  **Next:** the work order for ADR 0037; still open from before: fire/smoke pacing per cell, fast flight vs
+  **Rigid pieces (P12, `rigid_pieces=1`):** `RigidPieces` (technosim) cuts loose wood (support fill, max-flow
+  strength, hardness breaking), flies it and settles it back into voxels; works, but a forest felling costs 25-80 ms
+  (see `prototypes/p12-rigid-pieces/README.md` for the fixes before it leaves the flag). Trees never weld (FineGen gap).
+  **Next:** the rest of the ADR 0037 work order; still open from before: fire/smoke pacing per cell, fast flight vs
   generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
   list in `docs/plans/to-test.md`.
 - Material ids are definition order, append only (saves and the generator use them): 32..36 stations,

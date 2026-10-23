@@ -69,6 +69,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
 		_quests, [["list", "complete", "reset"], _quest_ids])
+	reg.register("fell", "/fell [direction_deg|pillar]", "Fell the thickest tree 8-20 m away, across your view (rigid_pieces=1)", _fell)
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 	var atmo: Node = main.get("atmosphere") if main != null else null
 	if atmo != null:
@@ -471,6 +472,26 @@ func _stations(_args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("No world")
 	main.place_stations()
 	return CommandRegistry.ok("Placing a crafting table, chest and furnace ahead")
+
+
+func _fell(args: PackedStringArray) -> Dictionary:
+	if main == null or player == null or main.pieces == null:
+		return CommandRegistry.fail("Rigid pieces are off (start with rigid_pieces=1)")
+	var deg := float(args[0]) if args.size() > 0 and args[0].is_valid_float() else 0.0
+	var t: Dictionary
+	if args.size() > 0 and args[0] == "pillar":
+		t = main.pieces.fell_pillar(player.camera.global_position, -player.camera.global_transform.basis.z, main.world)
+	else:
+		t = main.pieces.fell_nearest(player.position, 20.0, deg, main.world)
+	if t.is_empty():
+		return CommandRegistry.fail("No standing trunk 8-20 m away")
+	# face it, looking at 5 m up the trunk: it falls across the view
+	var eye: Vector3 = player.camera.global_position
+	var look: Vector3 = t["centre"] + Vector3(0, Settings.m2v(5.0), 0) - eye
+	player._yaw = atan2(-look.x, -look.z)
+	player._pitch = atan2(look.y, Vector2(look.x, look.z).length())
+	player._apply_look()
+	return CommandRegistry.ok("Felled a trunk of %d columns (%d voxels cut, %d pieces)" % [t["columns"], t["cut"], t["pieces"]])
 
 
 func _bug(args: PackedStringArray) -> Dictionary:

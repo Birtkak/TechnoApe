@@ -32,6 +32,7 @@ var _tick_accum := 0.0
 var _pending := {}
 var _player := Vector3.ZERO
 var _ready := false
+var pieces: FallingPieces          # rigid voxel pieces (P12), null unless rigid_pieces=1
 
 # stats for the HUD / capture
 var last_tick_ms := 0.0
@@ -173,6 +174,8 @@ func _process(delta: float) -> void:
 	if _tick_accum >= period:
 		_tick_accum = minf(_tick_accum - period, period * 2.0)   # never build up more than two ticks of debt
 		var t0 := Time.get_ticks_usec()
+		if pieces:
+			pieces.tick(period)   # the SimWorld is idle here: pieces crush, snap and settle into its cells
 		sim.set_focus(Vector3i(_player.floor()) - origin * Settings.CHUNK)
 		_tick_running = sim.start_tick()
 		_frame_cost()["tick_ms"] += (Time.get_ticks_usec() - t0) / 1000.0   # main-thread cost of starting it

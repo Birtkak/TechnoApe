@@ -310,6 +310,13 @@ inline void SimWorld::touch(int x, int y, int z) {
     if (lz == CS - 1 && cz < CZ_ - 1) wake_full(cidx(cx, cy, cz + 1));
 }
 
+void SimWorld::touch_cell(int x, int y, int z) { touch(x, y, z); }
+
+void SimWorld::place_cell(int x, int y, int z, uint8_t m) {
+    place(idx(x, y, z), m);
+    touch(x, y, z);
+}
+
 void SimWorld::fill_box(Vector3i p_min, Vector3i p_max, int p_material) {
     wait_idle();
     uint8_t m = (uint8_t)std::clamp(p_material, 0, (int)mats_.size() - 1);

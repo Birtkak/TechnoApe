@@ -166,6 +166,9 @@ protected:
     static void _bind_methods();
 
 private:
+    friend class RigidPieces;   // P12: reads and writes cells between ticks (rigid_pieces.h)
+    void touch_cell(int x, int y, int z);              // touch / place for callers outside this file
+    void place_cell(int x, int y, int z, uint8_t m);   // place + touch
     struct Pool {
         std::vector<std::thread> threads;
         std::mutex m;

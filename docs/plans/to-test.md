@@ -84,3 +84,12 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
       soil), flint (dark chunks), loose stones (pale chunks), copper / tin / iron-bearing stones (grey
       stone with orange-green / dark brown / rust voxels). Digging one voxel picks up the whole thing.
 - [ ] Water: clear turquoise over the bed in the shallows, deep teal further out, no texture.
+
+## Prototype of 2026-10-24: falling trees (P12, start the game with `rigid_pieces=1`)
+
+- [ ] `/fell pillar` on open ground: a log pillar with a leaf crown appears ahead and falls across
+      your view; the crown bursts into leaves where it hits, the log stays lying as voxels.
+- [ ] Chop through a tree trunk with the brush (cut above the root flare, 2 m up is safe): the tree
+      falls away from you, breaks the limbs and leaves it hits, and lies as voxels you can dig.
+- [ ] `/fell` in a forest: the nearest big tree falls across your view. Known: a felled tree in a
+      forest costs a lot (a stutter of 30-40 ms when it breaks off) and can wreck neighbouring crowns.
