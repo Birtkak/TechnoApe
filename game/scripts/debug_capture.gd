@@ -120,6 +120,7 @@ func _ready() -> void:
 		_strip = FrameSheet.new(320, 180, 5)
 	if args.get("vsync", "1") == "0":
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+		Engine.max_fps = int(args.get("max_fps", "0"))   # benchmarks run uncapped (the project caps play at 120 fps)
 	set_process(autopilot)
 	if autopilot:
 		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
