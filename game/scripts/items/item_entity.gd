@@ -139,7 +139,7 @@ func _solid_at(p: Vector3) -> bool:
 	if d.has("micro"):
 		return false   # micro-voxel plants have no collision
 	var ct: String = d.get("cell_type", "solid")
-	return ct == "solid" or (ct == "liquid" and d.get("liquid_sand", false))
+	return ct == "solid" or ct == "powder"
 
 
 func can_pickup() -> bool:

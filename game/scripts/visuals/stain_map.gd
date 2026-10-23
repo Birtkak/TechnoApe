@@ -77,8 +77,7 @@ func setup(p_world: World, p_bubble: SimBubble, p_materials: Array[ShaderMateria
 	for i in defs.size():
 		var d: Dictionary = defs[i]
 		var ct: String = d.get("cell_type", "solid")
-		var powder: bool = ct == "liquid" and d.get("liquid_sand", false)
-		var solid: bool = (ct == "solid" or powder) and not d.has("micro") and d.get("model", "") != "empty"
+		var solid: bool = (ct == "solid" or ct == "powder") and not d.has("micro") and d.get("model", "") != "empty"
 		_solid_mat[i + 1] = 1 if solid else 0
 		_empty_mat[i + 1] = 1 if (not solid and not d.has("micro") and ct != "solid") else 0
 	for a in OS.get_cmdline_user_args():

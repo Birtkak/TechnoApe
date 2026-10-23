@@ -70,27 +70,27 @@ const MICRO_GRID := 8       # cells per voxel edge for micro models and chisels 
 static func defs() -> Array:
 	return [
 		{"name": "stone", "cell_type": "solid", "density": 10, "hp": 1000, "tiles": [0, 0, 0], "transparent": false},
-		{"name": "dirt", "cell_type": "liquid", "liquid_sand": true, "liquid_static": true, "density": 3, "tiles": [1, 1, 1], "transparent": false},
-		{"name": "grass", "cell_type": "liquid", "liquid_sand": true, "liquid_static": true, "density": 3, "tiles": [2, 3, 1], "transparent": false},
-		{"name": "sand", "cell_type": "liquid", "liquid_sand": true, "density": 3, "tiles": [4, 4, 4], "transparent": false},
+		{"name": "dirt", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [1, 1, 1], "transparent": false},
+		{"name": "grass", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [2, 3, 1], "transparent": false},
+		{"name": "sand", "cell_type": "powder", "density": 3, "tiles": [4, 4, 4], "transparent": false},
 		{"name": "water", "cell_type": "liquid", "density": 1, "liquid_flow_speed": 1.0, "tiles": [5, 5, 5], "transparent": true},
 		{"name": "wood", "cell_type": "solid", "density": 10, "burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [6, 6, 6], "transparent": false},
 		{"name": "lava", "cell_type": "liquid", "density": 5, "liquid_flow_speed": 0.3, "liquid_gravity": 0.3, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false},
-		{"name": "ash", "cell_type": "liquid", "liquid_sand": true, "density": 2, "tiles": [8, 8, 8], "transparent": false},
+		{"name": "ash", "cell_type": "powder", "density": 2, "tiles": [8, 8, 8], "transparent": false},
 		{"name": "oil", "cell_type": "liquid", "density": 0.8, "liquid_flow_speed": 0.6, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
 		{"name": "steam", "cell_type": "gas", "density": 0, "gas_upwards_speed": 200, "gas_horizontal_speed": 60, "lifetime": 180, "tiles": [10, 10, 10], "transparent": true},
 		{"name": "smoke", "cell_type": "gas", "density": 0, "gas_upwards_speed": 120, "gas_horizontal_speed": 90, "lifetime": 240, "tiles": [11, 11, 11], "transparent": true},
 		{"name": "fire", "cell_type": "fire", "density": 0, "lifetime": 24, "temperature_of_fire": 60, "gas_upwards_speed": 120, "gas_horizontal_speed": 80, "tiles": [12, 12, 12], "transparent": true},
 		{"name": "bedrock", "cell_type": "solid", "density": 15, "hp": 1000000, "tiles": [13, 13, 13], "transparent": false},
-		{"name": "snow", "cell_type": "liquid", "liquid_sand": true, "liquid_static": true, "density": 2, "tiles": [14, 14, 14], "transparent": false},
-		{"name": "gravel", "cell_type": "liquid", "liquid_sand": true, "density": 4, "tiles": [15, 15, 15], "transparent": false},
+		{"name": "snow", "cell_type": "powder", "liquid_static": true, "density": 2, "tiles": [14, 14, 14], "transparent": false},
+		{"name": "gravel", "cell_type": "powder", "density": 4, "tiles": [15, 15, 15], "transparent": false},
 		{"name": "coal_ore", "cell_type": "solid", "density": 10, "hp": 900, "burnable": true, "fire_hp": 240, "autoignition_temperature": 90, "on_fire_convert_to_material": 1, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 8, "tiles": [16, 16, 16], "transparent": false},
 		{"name": "iron_ore", "cell_type": "solid", "density": 11, "hp": 1200, "tiles": [17, 17, 17], "transparent": false},
 		{"name": "copper_ore", "cell_type": "solid", "density": 11, "hp": 1100, "tiles": [18, 18, 18], "transparent": false},
 		{"name": "tin_ore", "cell_type": "solid", "density": 11, "hp": 1100, "tiles": [19, 19, 19], "transparent": false},
 		{"name": "leaves", "cell_type": "solid", "density": 10, "hp": 20, "burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [20, 20, 20], "transparent": true},
-		{"name": "sand_static", "cell_type": "liquid", "liquid_sand": true, "liquid_static": true, "density": 3, "tiles": [4, 4, 4], "transparent": false, "loose": 4},
-		{"name": "gravel_static", "cell_type": "liquid", "liquid_sand": true, "liquid_static": true, "density": 4, "tiles": [15, 15, 15], "transparent": false, "loose": 15},
+		{"name": "sand_static", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [4, 4, 4], "transparent": false, "loose": 4},
+		{"name": "gravel_static", "cell_type": "powder", "liquid_static": true, "density": 4, "tiles": [15, 15, 15], "transparent": false, "loose": 15},
 		{"name": "water_static", "cell_type": "liquid", "liquid_static": true, "density": 1, "tiles": [5, 5, 5], "transparent": true, "loose": 5},
 		{"name": "sandstone", "cell_type": "solid", "density": 10, "hp": 600, "tiles": [21, 21, 21], "transparent": false},
 		{"name": "clay", "cell_type": "solid", "density": 9, "hp": 300, "tiles": [22, 22, 22], "transparent": false},
@@ -176,7 +176,7 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 		# Movement collision (ADR 0011, VoxelBody): only solids and powders
 		# block bodies; liquids, gases and fire are swum or walked through.
 		var ct: String = d.get("cell_type", "solid")
-		var passable: bool = not (ct == "solid" or (ct == "liquid" and d.get("liquid_sand", false)))
+		var passable: bool = not (ct == "solid" or ct == "powder")
 		# Transparent materials share transparency index 1: faces between two
 		# voxels of the same index are culled (no water-water faces), faces
 		# against air or opaque voxels are kept. culls_neighbors stays true.

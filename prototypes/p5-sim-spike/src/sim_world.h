@@ -3,8 +3,8 @@
 //
 // Every voxel has a material id (u8 in this spike; u16 in the real store), a
 // flags byte (burning, ...) and an aux byte (remaining lifetime or fire hp).
-// Every material has a cell_type (solid / liquid / gas / fire) and Noita-named
-// attributes (liquid_sand, density, lifetime, burnable, fire_hp, ...). A
+// Every material has a cell_type (solid / liquid / gas / powder / fire) and
+// Noita-named attributes (density, lifetime, burnable, fire_hp, ...). A
 // reaction table (input a + input b -> output a + output b, probability)
 // drives chemistry. Chunks of 16^3; only active chunks update; 8 parity passes
 // on a persistent thread pool; per-chunk flag batching.
@@ -31,7 +31,9 @@ class SimWorld : public RefCounted {
     GDCLASS(SimWorld, RefCounted)
 
 public:
-    enum CellType : uint8_t { CELL_SOLID = 0, CELL_LIQUID = 1, CELL_GAS = 2, CELL_FIRE = 3 };
+    // Powders (sand, gravel, dirt, snow, ash) are their own type: Noita spells them liquid +
+    // liquid_sand, which set_materials still reads.
+    enum CellType : uint8_t { CELL_SOLID = 0, CELL_LIQUID = 1, CELL_GAS = 2, CELL_FIRE = 3, CELL_POWDER = 4 };
     // FLAG_LOOSE: a static-ground cell (liquid_static) that a nearby change has shaken loose; it now
     // moves like its loose kind (Noita's static -> dynamic) until something places it again.
     // FLAG_SHAKEN: static ground that saw a fresh opening; it keeps rolling its loosen chance while the
@@ -43,7 +45,6 @@ public:
 
     struct MaterialDef {
         uint8_t cell_type = CELL_GAS; // air default
-        bool liquid_sand = false;      // powder
         bool liquid_static = false;    // ground: never moves
         bool burnable = false;
         uint8_t density = 0;           // 0..255 (Noita 0..15 scaled by 16)

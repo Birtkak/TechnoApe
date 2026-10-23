@@ -233,13 +233,13 @@ func _ground_ready() -> bool:
 	return world.is_area_loaded(c) and world.is_area_loaded(c - Vector3i(0, 1, 0))
 
 
-## Feet or chest in a liquid that is not a powder (water, lava, oil).
+## Feet or chest in a liquid (water, lava, oil).
 func _check_liquid() -> bool:
 	for h in [0.2, 0.5]:
 		var m := world.get_voxel(Vector3i((position + Vector3(0, Settings.m2v(Settings.player_height_m) * h, 0)).floor()))
 		if m > 0:
 			var d: Dictionary = GameMaterials.defs()[m - 1]
-			if d.get("cell_type", "solid") == "liquid" and not d.get("liquid_sand", false):
+			if d.get("cell_type", "solid") == "liquid":
 				return true
 	return false
 
@@ -357,7 +357,7 @@ func _is_solid_voxel(v: Vector3i) -> bool:
 	var d: Dictionary = GameMaterials.defs()[m - 1]
 	if d.get("cross", false) or d.get("cell_type", "solid") == "gas":
 		return false
-	return d.get("cell_type", "solid") != "liquid" or d.get("liquid_sand", false)
+	return d.get("cell_type", "solid") != "liquid"
 
 
 # ---------------- health ----------------

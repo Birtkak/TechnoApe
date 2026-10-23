@@ -24,9 +24,8 @@ func test_every_item_has_a_look() -> void:
 			continue
 		var mat := ItemIcon.material_id_for(items, id)
 		assert_int(mat).override_failure_message("item %s has neither a sprite nor a block material" % id).is_greater(0)
-		# soils and sand are granular "liquids" in the simulation but still blocks
 		var d: Dictionary = GameMaterials.defs()[mat - 1]
-		var block := String(d.get("cell_type", "solid")) == "solid" or bool(d.get("liquid_sand", false))
+		var block := String(d.get("cell_type", "solid")) in ["solid", "powder"]
 		assert_bool(block).override_failure_message("item %s would show a %s cube; give it a sprite" % [id, d["name"]]).is_true()
 
 

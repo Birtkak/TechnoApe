@@ -128,6 +128,7 @@ void SimWorld::_bind_methods() {
     BIND_ENUM_CONSTANT(CELL_LIQUID);
     BIND_ENUM_CONSTANT(CELL_GAS);
     BIND_ENUM_CONSTANT(CELL_FIRE);
+    BIND_ENUM_CONSTANT(CELL_POWDER);
 }
 
 // ---------- setup ----------
@@ -181,8 +182,9 @@ void SimWorld::set_materials(const Array &p_defs) {
         if (ct == "solid") m.cell_type = CELL_SOLID;
         else if (ct == "gas") m.cell_type = CELL_GAS;
         else if (ct == "fire") m.cell_type = CELL_FIRE;
+        else if (ct == "powder") m.cell_type = CELL_POWDER;
         else m.cell_type = CELL_LIQUID;
-        m.liquid_sand = dget_b(d, "liquid_sand", false);
+        if (m.cell_type == CELL_LIQUID && dget_b(d, "liquid_sand", false)) m.cell_type = CELL_POWDER;   // Noita spelling
         m.liquid_static = dget_b(d, "liquid_static", false);
         m.burnable = dget_b(d, "burnable", false);
         m.density = clamp8(dget_f(d, "density", 1.0) * 16.0);
@@ -214,7 +216,7 @@ void SimWorld::set_materials(const Array &p_defs) {
         // (caves, overhangs) never collapses by itself. Data: "loosen_chance", "erode_chance" (0..1).
         if (m.liquid_static) {
             double lc = dget_f(d, "loosen_chance", 0.35);
-            double ec = dget_f(d, "erode_chance", (m.liquid_sand && d.has("loose")) ? 0.04 : 0.0);
+            double ec = dget_f(d, "erode_chance", (m.cell_type == CELL_POWDER && d.has("loose")) ? 0.04 : 0.0);
             m.loosen = (uint16_t)std::clamp((int)std::lround(lc * 65535.0), 0, 65535);
             m.erode = (uint16_t)std::clamp((int)std::lround(ec * 65535.0), 0, 65535);
         }
@@ -259,7 +261,7 @@ void SimWorld::rebuild_reaction_lut() {
         }
     for (size_t m = 1; m < mats_.size(); m++) {
         const MaterialDef &d = mats_[m];
-        bool static_cell = d.cell_type == CELL_SOLID || (d.cell_type == CELL_LIQUID && d.liquid_static);
+        bool static_cell = d.cell_type == CELL_SOLID || ((d.cell_type == CELL_LIQUID || d.cell_type == CELL_POWDER) && d.liquid_static);
         inert_[m] = static_cell && d.lifetime == 0 && !d.burnable && !reactive_[m] && d.loosen == 0 && d.erode == 0;
     }
 }
@@ -549,7 +551,7 @@ void SimWorld::try_loosen(int x, int y, int z, int i, Ctx &c) {
     bool hit = false, go = false;
     if (md.loosen) {
         bool t = trigger(x, y - 1, z);
-        if (!t && !md.liquid_sand)   // static water: any opening beside it
+        if (!t && md.cell_type == CELL_LIQUID)   // static water: any opening beside it
             for (int k = 0; k < 4 && !t; k++) t = trigger(x + DX4[k], y, z + DZ4[k]);
         if (t) { hit = true; go = (r & 0xFFFF) < md.loosen; }
     }
@@ -593,7 +595,7 @@ bool SimWorld::fall(int x, int y, int z, int i, Ctx &c) {
     }
     if (fullness_) {   // falling liquid carries momentum into its landing (high nibble of pad)
         const MaterialDef &fm = mats_[cells_[ni].mat];
-        if (fm.cell_type == CELL_LIQUID && !fm.liquid_sand) cells_[ni].pad = (uint8_t)((cells_[ni].pad & 15u) | (15u << 4));
+        if (fm.cell_type == CELL_LIQUID) cells_[ni].pad = (uint8_t)((cells_[ni].pad & 15u) | (15u << 4));
     }
     return true;
 }
@@ -817,7 +819,7 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
         int nx = x + NX6[n], ny = y + NY6[n], nz = z + NZ6[n];
         if (!in_world(nx, ny, nz)) continue;
         const MaterialDef &t = mats_[cells_[idx(nx, ny, nz)].mat];
-        if (t.cell_type == CELL_LIQUID && !t.liquid_sand && !t.burnable) {
+        if (t.cell_type == CELL_LIQUID && !t.burnable) {
             cells_[i].flags &= ~FLAG_BURNING;
             mark_cell(x, y, z, c, true);
             return;
@@ -916,8 +918,9 @@ void SimWorld::update_chunk(int ci) {
                 switch (md.cell_type) {
                     case CELL_SOLID: break;
                     case CELL_LIQUID:
+                    case CELL_POWDER:
                         if (md.liquid_static && !(cells_[i].flags & FLAG_LOOSE)) { try_loosen(x, y, z, i, c); break; }
-                        if (md.liquid_sand) update_powder(x, y, z, i, c);
+                        if (md.cell_type == CELL_POWDER) update_powder(x, y, z, i, c);
                         else update_liquid(x, y, z, i, c);
                         break;
                     case CELL_GAS: update_gas(x, y, z, i, c); break;

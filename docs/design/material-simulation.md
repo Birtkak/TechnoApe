@@ -14,7 +14,8 @@
 
 **Cell types.** Every pixel has a material; every material has a
 `cell_type`: `solid`, `liquid`, `gas` or `fire`. Powders are *not* a type:
-sand is a liquid with `liquid_sand="1"`. Static ground is a liquid with
+sand is a liquid with `liquid_sand="1"` (TechnoApe makes powder a type of
+its own, see 2.3; the simulation still reads Noita's spelling). Static ground is a liquid with
 `liquid_static="1"` (and sand with `liquid_sticks_to_ceiling`).
 
 **Update rules.**
@@ -55,9 +56,9 @@ indexed by material id at startup; validated by schema + tests.
 
 ```
 id, name, ui_name, tags[]
-cell_type: solid | liquid | gas | fire
-# liquid family (powder = liquid + liquid_sand)
-liquid_sand, liquid_static, liquid_gravity, liquid_flow_speed, liquid_slime,
+cell_type: solid | liquid | gas | powder | fire
+# liquid and powder family (Noita: powder = liquid + liquid_sand)
+liquid_static, liquid_gravity, liquid_flow_speed, liquid_slime,
 liquid_sticks_to_ceiling, liquid_viscosity, stickyness
 # gas
 gas_speed, gas_upwards_speed, gas_horizontal_speed, gas_downwards_speed
@@ -99,7 +100,9 @@ Memory: 4 bytes per voxel core; a 16³ chunk = 16 KB; a 128³ active region
 ### 2.3 Update rules on voxels (Falling Everything in 3D)
 - **Scan order:** bottom-up in y so columns fall consistently (same as
   Noita); x/z order alternates per tick to avoid directional bias.
-- **Powder (liquid + liquid_sand):** down → the four down-diagonals in
+- **Powder (`cell_type: powder`; sand, gravel, dirt, snow, ash; developer
+  2026-10-23: solids, liquids, gases and powders are the four kinds, Noita's
+  liquid + `liquid_sand` is still read):** down → the four down-diagonals in
   random order → stop. Swaps with anything lighter (`density`) that is a
   liquid or gas. `liquid_static`: never moves until disturbed (ground);
   `liquid_sticks_to_ceiling`: static unless the cell below is air.

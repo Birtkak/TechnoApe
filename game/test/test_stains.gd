@@ -38,7 +38,6 @@ func test_blood_is_a_short_lived_liquid() -> void:
 	var d: Dictionary = GameMaterials.defs()[GameMaterials.BLOOD - 1]
 	assert_str(d["name"]).is_equal("blood")
 	assert_str(d["cell_type"]).is_equal("liquid")
-	assert_bool(d.get("liquid_sand", false)).is_false()
 	assert_int(int(d["lifetime"])).is_greater(0)
 	assert_array(d["tiles"]).is_equal([47, 47, 47])
 
