@@ -38,7 +38,7 @@ var animals := 0         # animals=N: N sheep and pigs 4-10 m ahead once loaded 
 var animal_species := ""
 var animal_babies := false   # animal_babies=1: every third one a baby
 var animal_love := false     # animal_love=1: adults start in love (they pair up and breed)
-var farm_test := false   # farm_test=1: a sown 9x9 field around a water voxel ahead (ADR 0022)
+var farm_test := false   # farm_test=1: a sown 9x9 field of 0.5 m blocks around a block of water ahead (ADR 0022)
 var farm_speed := 1.0    # farm_speed=N: farmland and crop random ticks N times faster
 var swim_test := false  # swim_test=1: sink to a pool floor, lose air, drown, hop out onto the bank (JSON line "debug swim")
 var hands_test := false # hands_test=1: till, sow, chair, bed, feed, shear, kill, eat through the player's input code (JSON line "debug hands")

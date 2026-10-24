@@ -21,8 +21,8 @@ extends Node3D
 ##              run it down (it bolts when the bear closes in), bite until it dies;
 ##              the kill leaves a carcass and the bear eats
 ## Chickens lay an egg every 5-10 minutes and flap down from heights without damage.
-## Steering: walk straight at the target; the body steps up one voxel by
-## itself and jumps a two-voxel ledge when it bumps into one; when still
+## Steering: walk straight at the target; the body steps up a 0.5 m block by
+## itself and jumps a 1 m ledge (two blocks) when it bumps into one; when still
 ## blocked it slides along the wall for a second before giving up the target.
 ## Thinking runs at 10 Hz (staggered); movement every physics frame.
 ## World units are voxels; data (data/mobs.json) is in metres.
@@ -558,7 +558,7 @@ func _move(delta: float) -> void:
 		velocity.y = 0.0
 	if blocked and want != Vector3.ZERO:
 		if on_floor and not in_liquid:
-			velocity.y = sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(1.15))   # hop a 2-voxel ledge
+			velocity.y = sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(1.15))   # hop a 1 m ledge (two blocks)
 		_stuck_t += delta
 		if _stuck_t > 0.6 and _slide_t <= 0.0:
 			# slide along the wall to one side for a moment

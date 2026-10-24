@@ -872,7 +872,7 @@ func _remove_furniture(e: FurnitureEntity, drop: bool) -> void:
 		_furniture_views.erase(anchor)
 	if drop:
 		for s in stacks:
-			spawn_item(s, Vector3(anchor) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+			spawn_item(s, Vector3(anchor) + Vector3.ONE * (Settings.BLOCK * 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))   # the anchor block's centre
 	if player.seat != Vector3.INF and e.furniture == "chair":
 		player.stand_up()
 
@@ -1031,7 +1031,7 @@ func _on_lit_flipped(p: Vector3i) -> void:
 	var m := get_world_voxel(p)
 	if m != GameMaterials.FURNACE and m != GameMaterials.FURNACE_LIT:
 		for s in blocks.remove(p):
-			spawn_item(s, Vector3(p) + Vector3(0.5, 0.5, 0.5))
+			spawn_item(s, Vector3(p) + Vector3.ONE * (Settings.BLOCK * 0.5))   # the furnace block's centre
 		return
 	var e: FurnaceEntity = blocks.at(p)
 	_set_station_material(e, GameMaterials.FURNACE_LIT if e.is_lit() else GameMaterials.FURNACE)
@@ -1376,33 +1376,37 @@ func _debug_animals() -> void:
 		player.set_look(player._yaw, DebugCapture.pitch)
 
 
-## Debug (farm_test=1): a 9x9 field around one water voxel 3 m ahead, tilled and
-## sown with wheat (carrots on the right half); farm_speed=N runs random ticks N x faster.
+## Debug (farm_test=1): Minecraft's 9x9 field of 0.5 m blocks (4.5 m) around one block of
+## water, its centre 6 m ahead, tilled and sown with wheat (carrots on the right half);
+## farm_speed=N runs random ticks N x faster.
 func _debug_farm() -> void:
 	await get_tree().create_timer(0.5).timeout
 	var fwd := -player.camera.global_transform.basis.z
 	fwd.y = 0
 	fwd = fwd.normalized()
-	var c := player.position + fwd * 8.0
-	var cx := int(floor(c.x))
-	var cz := int(floor(c.z))
+	var c := player.position + fwd * Settings.m2v(6.0)
+	var B := Settings.BLOCK
+	var cx := floori(c.x / B) * B
+	var cz := floori(c.z / B) * B
 	var gy := world.surface_height(cx, cz)
 	var tilled := 0
 	var planted := 0
-	for dx in range(-4, 5):
-		for dz in range(-4, 5):
-			var p := Vector3i(cx + dx, gy, cz + dz)
-			for k in range(1, 4):
-				set_world_voxel(p + Vector3i(0, k, 0), GameMaterials.AIR)
-			if get_world_voxel(p) != GameMaterials.GRASS and get_world_voxel(p) != GameMaterials.DIRT:
-				set_world_voxel(p, GameMaterials.DIRT)
-			if dx == 0 and dz == 0:
-				set_world_voxel(p, GameMaterials.WATER_STATIC)
-				continue
-			if farming.till(p):
-				tilled += 1
-				if farming.plant(p, "carrots" if dx > 0 else "wheat"):
-					planted += 1
+	for bx in range(-4, 5):
+		for bz in range(-4, 5):
+			for vx in B:
+				for vz in B:
+					var p := Vector3i(cx + bx * B + vx, gy, cz + bz * B + vz)
+					for k in range(1, 3 * B):
+						set_world_voxel(p + Vector3i(0, k, 0), GameMaterials.AIR)
+					if get_world_voxel(p) != GameMaterials.GRASS and get_world_voxel(p) != GameMaterials.DIRT:
+						set_world_voxel(p, GameMaterials.DIRT)
+					if bx == 0 and bz == 0:
+						set_world_voxel(p, GameMaterials.WATER_STATIC)
+						continue
+					if farming.till(p):
+						tilled += 1
+						if farming.plant(p, "carrots" if bx > 0 else "wheat"):
+							planted += 1
 	print("debug farm at %s: tilled %d planted %d" % [Vector3i(cx, gy, cz), tilled, planted])
 	if player.autopilot:
 		player.autopilot_action = "look"

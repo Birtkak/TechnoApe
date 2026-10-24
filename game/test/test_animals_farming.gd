@@ -25,6 +25,7 @@ func before_test() -> void:
 		else:
 			vox[p] = m
 	farm.rng.seed = 1234
+	farm.block = 1   # the Minecraft rules on one-voxel blocks; test_block_scale_farming checks the 0.5 m scale
 
 
 ## A flat grass floor at y = 0 over [-r, r]^2.
@@ -198,6 +199,30 @@ func test_crop_drops_by_age() -> void:
 	var c: Array = farm.on_broken(Vector3i(0, 1, 0))[0]["drops"]
 	assert_str(c[0]["id"]).is_equal("carrot")
 	assert_int(int(c[0]["count"])).is_between(1, 4)
+
+
+func test_block_scale_farming() -> void:
+	# the game's scale (ADR 0034): Minecraft's distances count 0.5 m blocks of BLOCK voxels
+	farm.block = Settings.BLOCK
+	var b := farm.block
+	_floor(6 * b)
+	# a brushed 4x4 patch of wheat is one Minecraft crop: its own voxels are no rows
+	for x in b:
+		for z in b:
+			farm.till(Vector3i(x, 0, z))
+			farm.plant(Vector3i(x, 0, z), "wheat")
+	assert_float(farm.growth_speed(Vector3i(1, 1, 1))).is_equal_approx(2.0, 0.001)
+	# patches one block away on both axes halve it, as rows of crop blocks do
+	for x in b:
+		for z in b:
+			for o in [Vector3i(b, 0, 0), Vector3i(0, 0, b)]:
+				farm.till(Vector3i(x, 0, z) + o)
+				farm.plant(Vector3i(x, 0, z) + o, "wheat")
+	assert_float(farm.growth_speed(Vector3i(1, 1, 1))).is_less(2.0)
+	# water 1.5 m away (12 voxels) and one block up keeps farmland wet; 2.5 m away does not
+	vox[Vector3i(12, b, 0)] = GameMaterials.WATER
+	assert_bool(farm.near_water(Vector3i(0, 0, 0))).is_true()
+	assert_bool(farm.near_water(Vector3i(-8, 0, 0))).is_false()
 
 
 func test_trampling_and_smothering_pop_the_crop() -> void:

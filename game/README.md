@@ -65,16 +65,6 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=3 f3=1 
 # voxel_backlog.peak_by_type tells a generator backlog from a meshing one; every spike lists phys_cost (ms per
 # physics callback: player and its sub-steps, items, item_bodies, blocks)
 Godot_..._console.exe --path game -- autopilot=1 speed=20 alt=30 duration=16 vsync=0 persist=1 seed=424242 out=res://out/stream
-# ray-cast near field (ADR 0012 step 3, ADR 0021): near_field=1 draws the cube around the player per pixel from the
-# brick world at 6.25 cm (near_field_m=32 -> 512^3 cells, 128 MB VRAM; 16 -> 256^3), terrain meshes inside it are hidden;
-# near_upload_mb=8 caps the volume bytes uploaded per frame; near_debug=1 tints the ray-cast pixels magenta (where does it
-# draw?); near_verify=1 reads the GPU volume back once the window is uploaded and prints a JSON line comparing it with
-# the store (bad must be 0). JSON "near_field": uploads, mb, pending slabs/chunks, valid box, store stats
-Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=6 near_field=1 near_debug=1 capture_every=0.5 out=res://out/near
-# micro simulation (ADR 0029): micro_sim=1 (implies near_field=1) simulates 32 x 16 x 32 m around the player at 6.25 cm
-# cells (the window sits low: 6-14 m of it below the feet); JSON sim.micro: tick ms p50/p99/max, scanned cells, publish
-# ms and queue, loads, shifts, edit_cells. micro_cell_budget, micro_lod_m, micro_publish_budget_ms, micro_load_budget_ms
-Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=6 pitch=-0.45 micro_sim=1 blast=1.5 blast_material=water blast_every=4 capture_every=0.33 full_frames=1 out=res://out/micro_water
 # mass edits (ADR 0014): blast=R craters of R m on the ground around the player every blast_every s (default 2),
 # blast_count=N per volley; JSON sim.blasts, blast_voxels, blast_ms_max (native SimWorld.fill_sphere)
 Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=4 blast_every=1 duration=20 capture_every=1 out=res://out/blast
@@ -100,7 +90,7 @@ Godot_..._console.exe --path game -- autopilot=1 target=forest walk=1 speed=0 du
 # animals, farming, furniture (ADR 0022): animals=N spawns N sheep and pigs ahead once loaded (animal=sheep|pig only that one,
 #       animal_babies=1 every third a baby, animal_love=1 adults start in love and breed); hold their food (give=wheat:8) and
 #       they follow; mob_spawn=0 stops natural herds; JSON "mobs" (active, goals, avg/worst frame ms, stats: herds, bred, died)
-# farm_test=1 sows a 9x9 field around a water voxel ahead, farm_speed=N runs farm random ticks N x faster; JSON "farm"
+# farm_test=1 sows a 9x9 field of 0.5 m blocks around a block of water ahead, farm_speed=N runs farm random ticks N x faster; JSON "farm"
 # hands_test=1 tills, sows, places a chair and a bed, sits, sleeps, feeds, shears, kills a sheep and eats through the
 #       player's own input code; prints "debug hands {...}" (every field should read true / placed)
 # chat: /summon <sheep|pig> [count] [baby], /kit farm (hoe, seeds, carrots, wheat, shears, bed, chairs, wool)
@@ -188,15 +178,14 @@ recipe by design (found only); spells do.
 | `scripts/debug_capture.gd` | Autoload. Autopilot, filmstrips, JSON stats, vsync switch. |
 | `addons/technosim/` | Our GDExtension (built from `../prototypes/p5-sim-spike/src`). |
 | `addons/zylann.voxel/` | godot_voxel GDExtension (CI build 2026-10-01; pin a tag). |
-| `assets/textures/atlas.png` | 8×13 tiles of 16×16 palettes (98..103 free: grow ROWS for more, ADR 0024); `tools/make_atlas.py` regenerates, then `--headless --import` before tests. |
+| `assets/textures/atlas.png` | 8×13 tiles of 16×16 palettes (101..103 free: grow ROWS for more, ADR 0024); `tools/make_atlas.py` regenerates, then `--headless --import` before tests. |
 | `assets/shaders/terrain.gdshader` | Opaque material for terrain, micro models, item cubes, viewmodel: nearest atlas, baked AO, per-face tint, scrolling water/lava/fire tiles, emissive glow/lava/fire tiles (bloom). Body shared via `terrain_common.gdshaderinc`. |
 | `assets/shaders/terrain_liquid.gdshader` | Same sampling with alpha + depth write for passable transparent voxels (water, oil, gases, fire); rippling sun glint on water tops. `GameMaterials.build_library` assigns it. |
 | `assets/shaders/sky.gdshader` | Procedural sky: gradient, sun disc/halo, noise clouds, stars, moon; driven by the true sun direction. |
 | `scripts/visuals/stain_map.gd` | Noita-style stains (ADR 0015): blood, oil, soot and scorch coat the faces around the cells they touched; water washes them. Fed by `SimBubble.chunks_changed` and `bleed()`; the shader half is `surface_stain` in `terrain_common.gdshaderinc`. |
-| `scripts/visuals/near_field.gd` | Ray-cast near field (ADR 0012 step 3): the bubble writes a wrapped `BrickStore` (brick = voxel, micro vegetation expanded to cells), the native `NearFieldFeed` picks and packs the window chunks to upload per frame, `near_scatter.glsl` scatters them into a toroidal volume texture + brick occupancy on the render thread, `near_field.gdshader` marches it with Godot lighting (`LIGHT_VERTEX`), `terrain_common` hides the meshes inside the valid box. Off by default (`Settings.near_field`). |
 | `scripts/visuals/atmosphere.gd` | Sky, sun (soft 4-split shadows, `shadows=hard|off` to trade them for ~0.5 ms, optional day/night cycle), AgX tonemap, bloom, SSAO, fog with aerial perspective; caves darken with depth below the surface, liquids tint the view when the camera is inside one. Pure presentation. No MSAA: it extrapolates UVs over tile borders on silhouettes and neighbour tiles bleed in. |
 | `scripts/world/waterfall_spray.gd` | Mist emitters at waterfall feet near the camera (reads `WorldGen.waterfalls_near`). |
-| `scripts/mobs/` | Sheep and pigs (ADR 0022, `data/mobs.json`): `MobManager` (herd spawning per 16 m cell, dormancy beyond 64 m, picking, feeding, shearing, breeding, hearts, saves), `Mob` (VoxelBody + Minecraft goal brain at 10 Hz), `MobModel` (micro-voxel bodies, shared meshes). |
+| `scripts/mobs/` | Sheep, pigs, chickens and bears (ADR 0022, 0027, `data/mobs.json`): `MobManager` (herd spawning per 16 m cell, dormancy beyond 64 m, picking, feeding, shearing, breeding, hearts, saves), `Mob` (VoxelBody + Minecraft goal brain at 10 Hz), `MobModel` (micro-voxel bodies, shared meshes). |
 | `scripts/farming/farming.gd` | Minecraft farming (ADR 0022, `data/crops.json`): tilling, planting, random ticks, hydration, growth formula, trampling, crop drops; tracks only player-made farmland and crops. |
 | `scripts/blocks/furniture_entity.gd` | Beds and chairs (ADR 0022): a block entity over several invisible `furniture` voxels with one rotated micro-voxel mesh. |
 | `scripts/player/ape_model.gd` | The player body: a monkey in goggles and a lab coat built from micro-voxel cells (body 3.1 cm, head 1.8 cm) by `MicroMesher`, limbs pivoted for the walk cycle; also the first-person arm. `tools/ape_sheet.gd` renders it from four sides. |
@@ -218,19 +207,12 @@ nothing moves. Server and client will share this split (ADR 0002).
   lifetimes) is not saved, only materials.
 - Generator: no dungeons or villages yet (ruins, trees, rivers, lakes, marshes, waterfalls, vegetation exist).
 - Station blocks (ADR 0007) have no facing; no double chests. Their entities save as JSON beside the
-  world database (every 30 s and on exit), not yet in the region format. Cobblestone
-  places stone until a cobblestone material exists.
-- Chiseling (ADR 0006) is designed and the mesher measured (P6), but there is no chisel tool, no `Chisel`
-  block entity and no overlay meshes yet; `CHISELED` (44) is reserved and renders as nothing.
+  world database (every 30 s and on exit), not yet in the region format.
+- Material 44 (once `CHISELED`, ADR 0006, retired by ADR 0036) stays reserved and renders as nothing.
 - Micro-voxel plants/detail live in LOD 0 blocks only; after an edit, godot_voxel downsamples them into
   LOD 1/2 where they show as full voxels.
-- Player body is a box 1.2 voxels wide: 1-voxel shafts are not enterable (dig 2x2 like the autopilot does).
+- Player body is a box 0.6 m (~5 voxels) wide: a shaft one block (0.5 m) wide is not enterable; dig two blocks wide.
 - No terrain physics colliders (ADR 0011): new movers use VoxelBody or voxel ray-casts. Swimming is minimal.
-- Item icons for non-block items are coloured tags with initials; the held item is a cube or a card, no arm.
-- Memory at large full-detail radius; see `docs/research` matrix in the commit log.
-
-The F4 playtest menu's "Terrain detail" (normal / high / ultra) sets the LOD
-ring width and the full-detail radius for the next start (ADR 0020).
 
 ## The voxel extension is our build (ADR 0020)
 

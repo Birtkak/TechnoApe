@@ -16,9 +16,11 @@ extends RefCounted
 ##     8 farmland blocks around that, halved when the same crop stands in rows
 ##     on both axes or on a diagonal; a crop pops off when its farmland goes.
 ## Minecraft's light check (crops need light 9) is left out: there is no light
-## data yet. A voxel is this game's block, so radii and neighbours count voxels
-## (a 9x9 field around one water voxel, as in Minecraft); fall heights are in
-## metres, because jumps and falls are tuned in metres like Minecraft's.
+## data yet. Every voxel of farmland and every crop voxel is tracked and ticks,
+## but Minecraft's distances are in 0.5 m blocks (Settings.BLOCK voxels, ADR 0034):
+## water within 4 blocks (2 m) at the farmland's height or one block above, and
+## the growth neighbours and rows one block away, so a brushed patch of 16 crops
+## is one Minecraft crop. Fall heights are in metres, like Minecraft's.
 ##
 ## Only farmland and crops the player made are tracked (a few hundred voxels),
 ## so the random ticks run over this list, never over terrain. Voxel reads and
@@ -30,7 +32,8 @@ const SECTION := 4096.0
 
 var crops_def := {}           # kind -> definition (data/crops.json)
 var random_tick_speed := 3
-var hydration_radius := 4     # voxels
+var hydration_radius := 4     # blocks (BLOCK voxels each)
+var block := Settings.BLOCK   # voxels per Minecraft block (tests may change it)
 var max_moisture := 7
 var farmland := {}            # Vector3i -> moisture 0..7
 var crops := {}               # Vector3i -> {kind, age}
@@ -43,6 +46,11 @@ var dirty := false
 var stats := {"random_ticks": 0, "grown": 0, "dried": 0, "trampled": 0, "popped": 0}
 var _material_ids := {}       # name -> id
 var _look_kind := {}          # crop material id -> kind
+var _ticks := 0               # game ticks so far (water cache)
+var _water_cache := {}        # block coordinate -> [near water, valid until tick]
+const WATER_CACHE_TICKS := 400   # 20 s: a scan reads up to ~5 k voxels (~2 ms), shared by the 16 voxels of a block
+const SCANS_PER_TICK_CALL := 1   # water scans per tick() call; farmland that needs another skips this random tick
+var _scans_left := 0
 
 
 static func load_default() -> Farming:
@@ -183,6 +191,8 @@ func trample(p: Vector3i, fall_m: float) -> Array:
 ## Advances `n` game ticks (20 Hz) of random ticks over every tracked voxel.
 func tick(n: int = 20) -> Array:
 	var out := []
+	_ticks += n
+	_scans_left = SCANS_PER_TICK_CALL
 	var p_tick := 1.0 - pow(1.0 - float(random_tick_speed) / SECTION, n)
 	for p in farmland.keys():
 		if rng.randf() < p_tick:
@@ -201,6 +211,10 @@ func _farmland_tick(p: Vector3i) -> Array:
 		dirty = true
 		return _pop_crop(p + Vector3i.UP)
 	var moisture: int = farmland[p]
+	if not _water_known(p):
+		if _scans_left <= 0:
+			return []   # the scan budget is spent: this random tick is lost, the next one scans
+		_scans_left -= 1
 	if near_water(p):
 		if moisture < max_moisture:
 			_set_moisture(p, max_moisture)
@@ -243,14 +257,15 @@ func grow(p: Vector3i, ages: int = 1) -> void:
 		set_voxel.call(p, after)
 
 
-## Minecraft CropBlock.getGrowthSpeed for the crop at p.
+## Minecraft CropBlock.getGrowthSpeed for the crop at p, its neighbours one block away.
 func growth_speed(p: Vector3i) -> float:
 	var kind: String = crops[p]["kind"]
 	var f := 1.0
 	var below := p + Vector3i.DOWN
+	var b := block
 	for i in range(-1, 2):
 		for j in range(-1, 2):
-			var q := below + Vector3i(i, 0, j)
+			var q := below + Vector3i(i * b, 0, j * b)
 			var g := 0.0
 			var m: int = get_voxel.call(q)
 			if is_farmland_material(m):
@@ -261,20 +276,42 @@ func growth_speed(p: Vector3i) -> float:
 				g /= 4.0
 			f += g
 	var same := func(d: Vector3i) -> bool: return crops.has(p + d) and crops[p + d]["kind"] == kind
-	var west_east: bool = same.call(Vector3i(-1, 0, 0)) or same.call(Vector3i(1, 0, 0))
-	var north_south: bool = same.call(Vector3i(0, 0, -1)) or same.call(Vector3i(0, 0, 1))
+	var west_east: bool = same.call(Vector3i(-b, 0, 0)) or same.call(Vector3i(b, 0, 0))
+	var north_south: bool = same.call(Vector3i(0, 0, -b)) or same.call(Vector3i(0, 0, b))
 	if west_east and north_south:
 		f /= 2.0
-	elif same.call(Vector3i(-1, 0, -1)) or same.call(Vector3i(1, 0, -1)) or same.call(Vector3i(1, 0, 1)) or same.call(Vector3i(-1, 0, 1)):
+	elif same.call(Vector3i(-b, 0, -b)) or same.call(Vector3i(b, 0, -b)) or same.call(Vector3i(b, 0, b)) or same.call(Vector3i(-b, 0, b)):
 		f /= 2.0
 	return f
 
 
-## Water within hydration_radius voxels horizontally, at the farmland's level
-## or one above (at most 162 reads, once per random tick of a farmland voxel).
+## Water within hydration_radius blocks horizontally, at the farmland's level
+## or up to one block above. The answer is kept per block for WATER_CACHE_TICKS,
+## so the voxels of one block share a scan.
 func near_water(p: Vector3i) -> bool:
-	var r := hydration_radius
-	for dy in range(0, 2):
+	var key := _block_of(p)
+	var hit: Array = _water_cache.get(key, [])
+	if not hit.is_empty() and _ticks < int(hit[1]):
+		return hit[0]
+	var wet := _scan_water(p)
+	if _water_cache.size() > 4096:
+		_water_cache.clear()
+	_water_cache[key] = [wet, _ticks + WATER_CACHE_TICKS]
+	return wet
+
+
+func _block_of(p: Vector3i) -> Vector3i:
+	return Vector3i(floori(float(p.x) / block), floori(float(p.y) / block), floori(float(p.z) / block))
+
+
+func _water_known(p: Vector3i) -> bool:
+	var hit: Array = _water_cache.get(_block_of(p), [])
+	return not hit.is_empty() and _ticks < int(hit[1])
+
+
+func _scan_water(p: Vector3i) -> bool:
+	var r := hydration_radius * block
+	for dy in range(0, block + 1):
 		for dx in range(-r, r + 1):
 			for dz in range(-r, r + 1):
 				var m: int = get_voxel.call(p + Vector3i(dx, dy, dz))

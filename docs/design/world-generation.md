@@ -6,8 +6,7 @@
 - **Code:** `prototypes/p5-sim-spike/src/world_gen.{h,cpp}` (native, in the
   technosim extension), bridged by `game/scripts/generator.gd`
   (`VoxelGeneratorScript`: one native call per block, one buffer copy).
-- **Debug:** `game/tools/terrain_map.gd` draws the land (hillshade, landform mix); `fine_gen_bench.gd` times blocks; formerly `gen_probe.gd` printed timings, biome mix, height
-  range, cave share and writes a biome map PNG; `WorldGen.column_info(x, z)`
+- **Debug:** `game/tools/terrain_map.gd` draws the land (hillshade, landform mix); `fine_gen_bench.gd` times blocks; `WorldGen.column_info(x, z)`
   explains any column.
 
 ## Model (Minecraft 1.18 style, voxels are 0.5 m)
@@ -108,11 +107,11 @@ Temperature, humidity and the height thresholds are jittered by a 50 m noise
 (±0.09, ±6 voxels), so biome borders dither over ~20 m instead of a line.
 
 ## Debug tools
-- `gen_probe.gd`: timings, biome mix, cave share, biome map PNG with lakes
-  (light blue) and ruins (dark) overlaid.
-- `settle_probe.gd`: generate a region around a point or the nearest
-  lake/ruin, run the material simulation on it, report every cell that moved
-  with its neighbours. Generated terrain must be still (it is: 0 moves).
+- `terrain_map.gd`: hillshaded land map with the landform mix; `fine_gen_bench.gd`: ms per block per
+  LOD; `fine_probe.gd`: material mix of one block; `face_probe.gd`: exposed faces per material;
+  `seam_probe.gd`, `shore_probe.gd`, `water_surface_probe.gd`: rivers across tile borders, lake
+  waterlines, water holes and glass edges (all in `game/tools/`, run headless; `gen_probe.gd` and
+  `settle_probe.gd` went with the 0.5 m block generator, ADR 0036).
 - Autopilot `target=lake|ruin offset= alt= pitch= speed=0` parks the camera
   at a feature; `bubble_verify` in the JSON compares the simulation bubble
   with the generator at the end of a run (must be 0 mismatches in an
@@ -154,7 +153,7 @@ set by `set_chunk_bytes`, carried through `shift`). Cost ≈ 5–10 % per tick.
   with only exposed faces, textured from opaque atlas tiles, no collision,
   never culling neighbours. Direction call (2026-10-22) over Minecraft
   cross-quads, which showed hairlines edge-on and atlas-bleed specks through
-  the alpha cutout; the same mesher builds chisel overlays later. They burn
+  the alpha cutout; the same mesher builds the station, furniture and mob models. They burn
   (grass fires) and are solid for the simulation.
 - Cost with warmed tiles: LOD 0 block 573 us, LOD 2 block 215 us; a hydrology
   tile (320x320 cells) builds in ~65 ms.

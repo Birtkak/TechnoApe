@@ -4,7 +4,7 @@ extends RefCounted
 ## The commands a player can type in chat (ADR 0018). Holds the game objects
 ## the handlers touch; any of them may be null (headless tests), and a
 ## command that needs a missing one fails with a message instead of crashing.
-## Coordinates are voxels, as F3 shows them ("voxel ..."); one voxel = 0.5 m.
+## Coordinates are voxels, as F3 shows them ("voxel ..."); one voxel = 12.5 cm (ADR 0033).
 
 ## Minecraft's named times on our clock (0 midnight, 0.25 sunrise, 0.5 noon).
 const TIMES := {"sunrise": 0.25, "day": 0.29, "noon": 0.5, "sunset": 0.75, "night": 0.79, "midnight": 0.0}
@@ -313,7 +313,7 @@ func _summon(args: PackedStringArray) -> Dictionary:
 	fwd.y = 0
 	var at := player.position + fwd.normalized() * Settings.m2v(3.0)
 	for i in n:
-		var q := at + Vector3(randf_range(-2, 2), 0, randf_range(-2, 2))
+		var q := at + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)) * Settings.m2v(2.0)
 		var m: Mob = main.mobs.spawn(sp, Vector3(q.x, q.y + 0.5, q.z), baby, randf() * TAU)
 		if hungry and m != null:
 			m.make_hungry()

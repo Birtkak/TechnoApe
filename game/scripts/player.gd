@@ -1,7 +1,7 @@
 class_name Player
 extends Node3D
 
-## First-person player (ADR 0005). World units are voxels (0.5 m); all
+## First-person player (ADR 0005). World units are 12.5 cm voxels (ADR 0033); all
 ## tunables live in Settings in metres and are converted here. Owns the
 ## PlayerInventory model, the mining progress and the held-item viewmodel;
 ## world writes are requested through signals and done by Main.
