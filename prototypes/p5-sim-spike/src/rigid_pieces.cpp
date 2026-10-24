@@ -133,7 +133,7 @@ void RigidPieces::setup(const Ref<SimWorld> &p_sim, const Array &p_defs, Vector2
         uint8_t c = EMPTY;
         if (rigid == "wood") c = WOOD;
         else if (rigid == "leaf") c = LEAF;
-        else if (ct == "solid" || ct == "powder") c = (d.has("micro") || (bool)d.get("replaceable", false)) ? CRUSH : GROUND;
+        else if (ct == "solid" || ct == "powder") c = (d.has("micro") || d.has("clutter") || (bool)d.get("replaceable", false)) ? CRUSH : GROUND;
         cls_[m] = c;
         const Array t = d.get("tiles", Array());
         if (t.size() >= 3) tiles_[m] = {(int)t[0], (int)t[1], (int)t[2]};

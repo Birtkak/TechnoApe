@@ -328,7 +328,7 @@ static func is_solid(m: int) -> bool:
 
 func is_liquid(p: Vector3i) -> bool:
 	var m := GameMaterials.material_of_voxel(get_voxel(p))
-	return m > 0 and _def_of(m).get("cell_type", "solid") == "liquid"
+	return m > 0 and (_def_of(m).get("cell_type", "solid") == "liquid" or GameMaterials.is_waterlogged(m))
 
 
 ## The lowest y in [start - v, start + v] where a body `height` voxels tall can

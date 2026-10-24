@@ -7,7 +7,7 @@ extends Node3D
 
 var world: World
 var atmosphere: Atmosphere
-var ocean_life: OceanLife   # kelp and fish around the player (ADR 0027)
+var ocean_life: OceanLife   # fish around the player (ADR 0027); kelp is voxels (ADR 0047)
 var stains: StainMap
 var player: Player
 var bubble: SimBubble

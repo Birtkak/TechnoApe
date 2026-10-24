@@ -11,6 +11,9 @@ using namespace godot;
 
 namespace {
 constexpr int FS = FineGen::FS;
+// Ore nuggets fill ~23 of a cell's 64 voxels: cells hold one this much more often than the old 25 cm
+// grains were ore, so a vein still gives roughly the ore it did (ADR 0047).
+constexpr float NUGGET_FILL = 2.4f;
 // Soil under the top voxel: about a metre of the biome's under material.
 constexpr int SOIL_FINE = 8;
 // Ground relief on dry land (fine voxels): swells, hummocks and roughness the 0.5 m fields cannot
@@ -556,6 +559,100 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             s.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
             out.push_back(s);
         }
+    // Clutter pieces of whole voxels (ADR 0047): flowers in meadow patches, mushrooms on forest floors,
+    // seashells on beaches. At most one per CLUTTER_CELL, centred, so the next is at least a voxel away
+    // (touching voxels of one group would dig as one piece).
+    constexpr int CL = 6;
+    static const uint16_t FL[5] = {Mat::FLOWER, Mat::FLOWER_RED, Mat::CORNFLOWER, Mat::OXEYE_DAISY, Mat::ALLIUM};
+    const int kx0 = floor_div(x_lo - 3, CL), kx1 = floor_div(x_hi + 3, CL);
+    const int kz0 = floor_div(z_lo - 3, CL), kz1 = floor_div(z_hi + 3, CL);
+    for (int cz = kz0; cz <= kz1; cz++)
+        for (int cx = kx0; cx <= kx1; cx++) {
+            const uint32_t hs = h3(cx, cz, g.seed_ + 631);
+            const int px = cx * CL + 3, pz = cz * CL + 3;
+            const int mx = floor_div(px, FS), mz = floor_div(pz, FS);
+            const WorldGen::Column col = g.column_base(mx, mz, false);
+            if (col.height <= g.sea_ || col.alpine || col.snow) continue;
+            const bool beach = col.biome == WorldGen::BIOME_BEACH || (col.biome == WorldGen::BIOME_OCEAN && col.c > -0.4f);
+            const float dens = technosim_biome::TREE_DENSITY[col.biome];
+            int kind = 0;
+            uint16_t m = Mat::AIR;
+            if (beach) {
+                if ((hs & 15) == 0) { kind = SHELL_S; m = Mat::SEASHELL; }
+            } else if (col.height <= g.sea_ + 1) {
+                continue;
+            } else if (dens >= 0.2f) {
+                if ((hs & 31) < 3) { kind = MUSHROOM_S; m = ((hs >> 5) & 3) == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN; }
+            } else if (technosim_biome::SURFACE_TOP[col.biome] == Mat::GRASS) {
+                if (n_meadow_.GetNoise((float)px * 0.37f + 500.0f, (float)pz * 0.37f - 500.0f) > 0.42f && (hs & 1)) {
+                    kind = FLOWER_S;
+                    m = FL[h3(px >> 5, pz >> 5, g.seed_ + 37) % 5];
+                }
+            }
+            if (kind == 0) continue;
+            const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
+            if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh) continue;
+            bool blocked = false;
+            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, 2);
+            if (blocked) continue;
+            FStamp s{};
+            s.kind = kind;
+            s.seed = h3(cx, cz, g.seed_ + 641);
+            s.x = (float)px + 0.5f;
+            s.z = (float)pz + 0.5f;
+            s.size = 2.0f;
+            s.wood = m;
+            s.ground = (int)std::floor(surface_f(px, pz) + 0.5f);
+            out.push_back(s);
+        }
+}
+
+// A clutter piece's voxel (ADR 0047), dy = 0 the first voxel above its ground. Flowers: a stem of
+// plant_stem with two leaves and a head of petals (~30 voxels; alliums a ball on a taller stem);
+// mushrooms: a pale stem under a cap (a big one in three); seashells: a ribbed fan. Air elsewhere.
+uint16_t FineGen::clutter_voxel(const FStamp &s, int dx, int dy, int dz) {
+    const int adx = std::abs(dx), adz = std::abs(dz);
+    switch (s.kind) {
+        case FLOWER_S: {
+            const bool ball = s.wood == Mat::ALLIUM;
+            const int S = ball ? 6 : 4 + (int)((s.seed >> 3) & 1);   // stem height
+            if (dx == 0 && dz == 0 && dy < S) return Mat::PLANT_STEM;
+            const int lx = (s.seed & 1) ? 1 : 0, lz = 1 - lx;        // leaves on one axis, one each side
+            if ((dx == lx && dz == lz && dy == 1) || (dx == -lx && dz == -lz && dy == 2)) return Mat::PLANT_STEM;
+            if (ball) {
+                const int c = S + 1;
+                if (adx <= 1 && adz <= 1 && std::abs(dy - c) <= 1 && adx + adz + std::abs(dy - c) < 3) return s.wood;
+                return Mat::AIR;
+            }
+            if (dy == S && ((adx <= 1 && adz <= 1) || (adx + adz == 2 && (adx == 0 || adz == 0)))) return s.wood;
+            if (dy == S + 1 && adx <= 1 && adz <= 1) return s.wood;
+            return Mat::AIR;
+        }
+        case MUSHROOM_S: {
+            const bool big = (s.seed % 3) == 0;
+            const int H = big ? 3 + (int)((s.seed >> 2) & 1) : 2;
+            if (big) {
+                // 2x2 stem (dx, dz in 0..1), a 4x4 cap without corners, a 2x2 crown
+                const int ex = dx * 2 - 1, ez = dz * 2 - 1;   // -1/+1 on the stem, wider out
+                if (dy < H && (dx == 0 || dx == 1) && (dz == 0 || dz == 1)) return Mat::MUSHROOM_STEM;
+                if (dy == H && dx >= -1 && dx <= 2 && dz >= -1 && dz <= 2 && !(std::abs(ex) == 3 && std::abs(ez) == 3)) return s.wood;
+                if (dy == H + 1 && (dx == 0 || dx == 1) && (dz == 0 || dz == 1)) return s.wood;
+                return Mat::AIR;
+            }
+            if (dx == 0 && dz == 0 && dy < H) return Mat::MUSHROOM_STEM;
+            if (dy == H && adx <= 1 && adz <= 1) return s.wood;
+            if (dy == H + 1 && adx + adz <= 1) return s.wood;
+            return Mat::AIR;
+        }
+        case SHELL_S: {
+            const bool turn = s.seed & 1;
+            const int a = turn ? dz : dx, b = turn ? dx : dz;   // a across the fan, b along it
+            if (dy == 0 && std::abs(a) <= 1 && (b == 0 || b == 1)) return s.wood;
+            if (dy == 1 && a == 0 && (b == 0 || b == 1)) return s.wood;
+            return Mat::AIR;
+        }
+    }
+    return Mat::AIR;
 }
 
 float FineGen::stick_dist(const FStamp &s, float x, float z) {
@@ -609,7 +706,7 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
             }
             return Mat::AIR;
         }
-        case STICK: return Mat::AIR;   // laid on each column's ground by the column loop
+        case STICK: case FLOWER_S: case MUSHROOM_S: case SHELL_S: return Mat::AIR;   // laid on each column's ground by the column loop
         case STUMP: {
             const float d2 = dx * dx + dz * dz;
             const int top = s.ground + (int)s.size;
@@ -906,9 +1003,9 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                         break;
                     }
                     default:
-                        if (is_flower(kind)) {
-                            if (centre) { veg = Mat::TALL_GRASS; veg_h = 2; veg_head = kind; }
-                            else if (grassy && (hv & 7) < 2) { veg = Mat::TALL_GRASS; veg_h = 1; }
+                        if (is_flower(kind) || kind == Mat::MUSHROOM_BROWN || kind == Mat::MUSHROOM_RED) {
+                            // flowers and mushrooms are clutter stamps of whole voxels now (ADR 0047)
+                            if (grassy && (hv & 7) < 2) { veg = Mat::TALL_GRASS; veg_h = 1; }
                         } else if (pickup) {
                             veg_h = pickup_shape(kind, lx, lz, h3(mx, mz, g.seed_ + 41));
                             if (veg_h > 0) veg = kind;
@@ -961,7 +1058,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             if (!ruin && spike == 0 && !lakebed && !riverbed && h >= water_level - FS) {
                 for (const FStamp &s : stamps) {
                     if (ncs >= 16) break;
-                    const float rr = std::max(s.size * 1.3f, s.size + s.r) + 6.0f;
+                    const float rr = s.kind >= FLOWER_S ? 2.6f : std::max(s.size * 1.3f, s.size + s.r) + 6.0f;
                     if (std::fabs((float)wx - s.x) <= rr && std::fabs((float)wz - s.z) <= rr) cst[ncs++] = &s;
                 }
             }
@@ -984,7 +1081,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                             const float dx = (float)wx - ctrees[k].t->x, dz = (float)wz - ctrees[k].t->z, rr = ctrees[k].t->r + 5.0f;
                             near_wood = dx * dx + dz * dz <= rr * rr;
                         }
-                        if (near_wood && r10 < 150) { veg = ((fh >> 10) & 3) == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN; veg_h = 1; }
+                        if (near_wood && r10 < 150) { veg = Mat::FERN; veg_h = 1 + (int)((fh >> 12) & 1); }   // mushrooms are stamps (ADR 0047)
                         else if (r10 < 300) { veg = Mat::FERN; veg_h = 2 + (int)((fh >> 12) % 3); }
                         else if (r10 < 420) { veg = Mat::TALL_GRASS; veg_h = 1 + (int)((fh >> 12) & 1); }
                     } else {
@@ -994,12 +1091,6 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                             const uint32_t th = (fh >> 10) % 20;
                             veg = Mat::TALL_GRASS;
                             veg_h = (th < 9 ? 1 : (th < 16 ? 2 : (th < 19 ? 3 : 4))) + (mead > 0.4f ? 1 : 0);
-                        }
-                        if (n_meadow_.GetNoise((float)wx * 0.37f + 500.0f, (float)wz * 0.37f - 500.0f) > 0.42f && ((fh >> 16) & 15) == 0) {
-                            static const uint16_t FL[5] = {Mat::FLOWER, Mat::FLOWER_RED, Mat::CORNFLOWER, Mat::OXEYE_DAISY, Mat::ALLIUM};
-                            veg = Mat::TALL_GRASS;
-                            veg_h = 2;
-                            veg_head = FL[h3(wx >> 5, wz >> 5, g.seed_ + 37) % 5];
                         }
                     }
                 }
@@ -1018,6 +1109,41 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 else if (sd <= 2.5f) veg = veg_head = Mat::AIR;
                 // a rim of bare soil under and beside it, so the pale stick reads against grass and litter
                 if (sd <= 1.6f && (top_m == Mat::GRASS || top_m == Mat::LEAF_LITTER)) top_m = Mat::DIRT;
+            }
+            // clutter pieces standing on this column (ADR 0047): their voxels from their own ground up
+            int clut_base = INT32_MIN;
+            uint16_t clut[CLUTTER_H] = {};
+            if (lod == 0 && ncs > 0 && hy.fall_top < 0) {
+                for (int k = 0; k < ncs; k++) {
+                    const FStamp &cs = *cst[k];
+                    if (cs.kind < FLOWER_S) continue;
+                    const int dx = wx - (int)std::floor(cs.x), dz = wz - (int)std::floor(cs.z);
+                    if (dx < -2 || dx > 2 || dz < -2 || dz > 2) continue;
+                    bool hit = false;
+                    for (int dy = 0; dy < CLUTTER_H; dy++) hit |= (clut[dy] = clutter_voxel(cs, dx, dy, dz)) != Mat::AIR;
+                    if (hit) {
+                        clut_base = cs.ground;
+                        veg = veg_head = Mat::AIR;
+                        break;
+                    }
+                }
+            }
+            // kelp forests and seagrass on the sea floor (ADR 0047): whole voxels standing in the water,
+            // which refills their cells when they are cut (generated water is a reservoir, ADR 0045)
+            uint16_t aqua = Mat::AIR;
+            int aqua_h = 0;
+            if (lod == 0 && h < water_level && hy.river <= 0.05f && (top_m == Mat::SAND || top_m == Mat::GRAVEL_STATIC || top_m == Mat::GRAVEL || top_m == Mat::SAND_STATIC || top_m == Mat::DIRT)) {
+                const int depth = water_level - h;
+                const uint32_t ah = h3(wx, wz, g.seed_ + 653);
+                const bool sea_water = !hy.lake && !hy.marsh;
+                constexpr int VPM = 2 * FS;   // voxels per metre
+                if (sea_water && depth >= 2 * VPM && depth <= 30 * VPM && n_meadow_.GetNoise((float)wx * 0.3f + 1700.0f, (float)wz * 0.3f) > 0.2f && (ah & 31) == 0) {   // ~40 voxels of faces each: sparse
+                    aqua = Mat::KELP;
+                    aqua_h = std::max(2, (int)((float)std::min(depth * 9 / 10, 10 * VPM) * (0.45f + 0.55f * (float)((ah >> 4) & 255) / 255.0f)));
+                } else if (depth <= 3 * VPM && n_meadow_.GetNoise((float)wx * 0.6f - 900.0f, (float)wz * 0.6f) > 0.0f && (ah & 7) < 2) {
+                    aqua = Mat::SEAGRASS;
+                    aqua_h = std::min(1 + (int)((ah >> 4) % 3), depth - 1);
+                }
             }
             // ruin walls (macro geometry: 0.5 m stones)
             int wall_top = -1;
@@ -1115,16 +1241,21 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
                         if (d_top <= sandstone_depth) mat = strata ? g.strata_at(mx, floor_div(wy, FS), mz) : Mat::SANDSTONE;
                         else if (vein_ht > 0.0f) {
-                            // GregTech layers in the lens, 25 cm grains
+                            // GregTech layers in the lens, as nuggets (ADR 0047): each 0.5 m cell of the lens may hold
+                            // one, a 3x3x3 lump with chipped corners in the cell's upper corner, so a voxel of stone
+                            // parts it from the next and it digs out as one piece
                             using namespace technosim_ore;
                             const float dy = (float)wy / FS - (float)vein.y;
                             mat = Mat::STONE;
-                            if (dy <= vein_ht && dy >= -vein_ht) {
-                                const uint32_t hh = h3(wx >> 1, wz >> 1, (wy >> 1) * 1031 + g.seed_ + 7759);
-                                if ((float)(hh & 1023) < DENSITY[vein.type] * 1024.0f) {
+                            const int ox = wx & (FS - 1), oy = wy & (FS - 1), oz = wz & (FS - 1);
+                            if (dy <= vein_ht && dy >= -vein_ht && ox > 0 && oy > 0 && oz > 0) {
+                                const uint32_t hh = h3(wx >> 2, wz >> 2, (wy >> 2) * 1031 + g.seed_ + 7759);
+                                const int corner = (ox != 2) + (oy != 2) + (oz != 2);
+                                const bool chipped = corner == 3 && ((hh >> 20) >> (((ox >> 1) | ((oy >> 1) << 1) | ((oz >> 1) << 2)) & 7) & 1);
+                                if ((float)(hh & 1023) < std::min(1.0f, DENSITY[vein.type] * NUGGET_FILL) * 1024.0f && !chipped) {
                                     if ((float)((hh >> 10) & 1023) < SPORADIC_CHANCE * 1024.0f) mat = (uint16_t)SPORADIC[vein.type];
                                     else {
-                                        const float t = (dy + vein_ht) / (2.0f * vein_ht);
+                                        const float t = (std::floor((float)wy / FS) + 0.5f - (float)vein.y + vein_ht) / (2.0f * vein_ht);
                                         mat = (uint16_t)(t > 0.6667f ? PRIMARY[vein.type] : (t < 0.3333f ? SECONDARY[vein.type] : BETWEEN[vein.type]));
                                     }
                                 }
@@ -1166,6 +1297,8 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 } else if (veg_head != Mat::AIR && wy == h + veg_h) {
                     mat = veg_head;
                 }
+                if (mat == Mat::AIR && clut_base != INT32_MIN && wy >= clut_base && wy < clut_base + CLUTTER_H) mat = clut[wy - clut_base];
+                else if (mat == Mat::WATER_STATIC && aqua_h > 0 && wy >= h && wy < h + aqua_h) mat = aqua;
                 colp[y] = mat;
                 if (mat != Mat::AIR) any = true;
             }

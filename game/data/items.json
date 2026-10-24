@@ -169,6 +169,10 @@
     {"id": "sand_bomb", "name": "Sand Bomb", "tags": ["debug"], "stack": 16, "found_only": true, "playtest": {"kind": "bomb", "material": "sand", "radius_m": 2.0}, "_note": "playtest gadget: right click drops a 2 m ball of sand where you look"},
     {"id": "lava_bomb", "name": "Lava Bomb", "tags": ["debug"], "stack": 16, "found_only": true, "playtest": {"kind": "bomb", "material": "lava", "radius_m": 1.5}, "_note": "playtest gadget: right click drops a 1.5 m ball of lava where you look"},
     {"id": "instant_tree", "name": "Instant Tree", "tags": ["tool", "debug"], "stack": 1, "found_only": true, "playtest": {"kind": "tree"}, "_note": "playtest gadget: right click on the ground grows a 1 m thick, 8 m tall test tree with a crown (sneak: 2 m thick, 16 m tall), something big to cut"},
-    {"id": "tape_measure", "name": "Tape Measure", "tags": ["tool", "debug"], "stack": 1, "found_only": true, "playtest": {"kind": "measure"}, "_note": "playtest gadget: right click two voxels, the chat shows the distance between them"}
+    {"id": "tape_measure", "name": "Tape Measure", "tags": ["tool", "debug"], "stack": 1, "found_only": true, "playtest": {"kind": "measure"}, "_note": "playtest gadget: right click two voxels, the chat shows the distance between them"},
+    {"id": "brown_mushroom", "name": "Brown Mushroom", "tags": ["food", "plant", "mushroom"], "stack": 64, "material": "mushroom_brown", "food": {"hunger": 1, "saturation": 0.6}, "spoil_days": 5, "_note": "under trees, picked whole (ADR 0047)"},
+    {"id": "red_mushroom", "name": "Red Mushroom", "tags": ["plant", "mushroom"], "stack": 64, "material": "mushroom_red", "_note": "under trees, picked whole; not food (ADR 0047)"},
+    {"id": "kelp", "name": "Kelp", "tags": ["food", "plant"], "stack": 64, "material": "kelp", "food": {"hunger": 1, "saturation": 0.3}, "spoil_days": 3, "_note": "kelp forests 2-30 m deep, cut a stalk at a time (ADR 0047)"},
+    {"id": "seashell", "name": "Seashell", "tags": ["shell"], "stack": 64, "material": "seashell", "_note": "lies on beaches, picked whole (ADR 0047)"}
   ]
 }

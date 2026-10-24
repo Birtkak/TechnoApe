@@ -13,7 +13,7 @@ Tiles (index = row*4 + col):
 66-68 terracotta orange/red/cream 69 basalt top 70 basalt side 71 packed ice
 72 fern frond; 73 birch bark 74 birch top 75 birch leaves 76 blueberries
 77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84 leaf litter; 85 oak bark; 86 pebbles 87 flint
-88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98 cobblestone 99 bricks (patterned, ADR 0039); 100 blueberry bush; 101-103 free (8x13)
+88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98 cobblestone 99 bricks (patterned, ADR 0039); 100 blueberry bush; 101 kelp 102 seagrass 103 seashell (ADR 0047); atlas full (8x13)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -628,6 +628,9 @@ tiles = [
     cobblestone(),                                            # 98 cobblestone (patterned)
     bricks(),                                                 # 99 bricks (patterned)
     palette(PAL["berry_bush"], 100),                          # 100 blueberry bush: leaves dotted with berries
+    noise_tile((70, 92, 38), 12, (100, 120, 50), 0.2),        # 101 kelp: olive brown-green (ADR 0047)
+    noise_tile((80, 150, 70), 12, (120, 185, 90), 0.2),       # 102 seagrass
+    noise_tile((240, 205, 190), 8, (250, 235, 225), 0.25),    # 103 seashell: pink cream
 ]
 assert len(tiles) <= COLS * ROWS, len(tiles)
 

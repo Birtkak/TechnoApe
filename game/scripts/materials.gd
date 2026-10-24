@@ -119,6 +119,12 @@ const LEAF_LITTER := 108           # the shaded forest floor: fallen leaves over
 # Patterned building materials (ADR 0039)
 const COBBLESTONE := 109           # what stone breaks into: rounded stones in a dark bed
 const BRICKS := 110                # kiln-fired clay bricks in courses
+# Clutter as voxel pieces (ADR 0047): whole voxels, walked through, dug and picked up as one piece
+const PLANT_STEM := 111            # a flower's stem and leaves
+const KELP := 112                  # stands in water like Minecraft's waterlogged blocks: water refills its cell when cut
+const SEAGRASS := 113
+const SEASHELL := 114
+const MUSHROOM_STEM := 115
 
 const ATLAS_TILES := Vector2i(8, 13)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -173,19 +179,19 @@ static func _build_defs() -> Array:
 		{"name": "sandstone", "cell_type": "solid", "density": 10, "hp": 600, "tiles": [21, 21, 21], "transparent": false},
 		{"name": "clay", "cell_type": "solid", "density": 9, "hp": 300, "tiles": [22, 22, 22], "transparent": false},
 		{"name": "tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 23, 23], "transparent": false, "micro": "tuft", "replaceable": true},
-		{"name": "flower", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [24, 24, 24], "transparent": false, "micro": "flower", "floor_only": true},
+		{"name": "flower", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [30, 30, 30], "transparent": false, "clutter": "flower", "floor_only": true},
 		{"name": "cactus", "cell_type": "solid", "density": 10, "hp": 40, "burnable": true, "fire_hp": 30, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [25, 25, 25], "transparent": false},
 		{"name": "dead_bush", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 24, "autoignition_temperature": 15, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [26, 26, 26], "transparent": false, "micro": "bush", "replaceable": true},
 		{"name": "ice", "cell_type": "solid", "density": 9, "hp": 120, "tiles": [27, 27, 27], "transparent": false},
-		{"name": "flower_red", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [28, 28, 28], "transparent": false, "micro": "flower", "floor_only": true},
+		{"name": "flower_red", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [31, 31, 31], "transparent": false, "clutter": "flower", "floor_only": true},
 		{"name": "crafting_table", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [32, 33, 39], "transparent": false, "interact": "crafting_table", "entity": "station"},
 		{"name": "furnace", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 35, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "furnace_lit", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 36, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "chest", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [37, 38, 37], "transparent": false, "interact": "chest", "entity": "chest"},
 		{"name": "planks", "cell_type": "solid", "rigid": "wood", "pattern": true, "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false},
 		{"name": "pebbles", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [86, 86, 86], "transparent": false, "micro": "pebbles"},
-		{"name": "mushroom_brown", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [40, 42, 42], "transparent": false, "micro": "mushroom"},
-		{"name": "mushroom_red", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [41, 42, 42], "transparent": false, "micro": "mushroom"},
+		{"name": "mushroom_brown", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [40, 40, 40], "transparent": false, "clutter": "mushroom"},
+		{"name": "mushroom_red", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [41, 41, 41], "transparent": false, "clutter": "mushroom"},
 		{"name": "reed", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 44, 23], "transparent": false, "micro": "reed"},
 		{"name": "lily_pad", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [43, 43, 43], "transparent": false, "micro": "lilypad"},
 		{"name": "stalactite", "cell_type": "solid", "density": 10, "hp": 300, "tiles": [0, 0, 0], "transparent": false, "micro": "stalactite"},
@@ -222,7 +228,27 @@ static func _build_defs() -> Array:
 		{"name": "leaf_litter", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [84, 84, 1], "transparent": false},
 		{"name": "cobblestone", "cell_type": "solid", "pattern": true, "density": 10, "hp": 1000, "tiles": [98, 98, 98], "transparent": false},
 		{"name": "bricks", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [99, 99, 99], "transparent": false},
-	]
+	] + _clutter_defs()
+
+
+static var _clutter := []
+
+## Ids 111..115 (ADR 0047). "clutter" names the piece group: voxels of one group that touch are one
+## piece (GroundPickups); "stem" parts never decide what a piece drops; "waterlogged" ones stand in water.
+static func _clutter_defs() -> Array:
+	if not _clutter.is_empty():
+		return _clutter
+	var plant_burn := {"burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2}
+	var stem := {"name": "plant_stem", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [29, 29, 29], "transparent": false, "clutter": "flower", "stem": true}
+	stem.merge(plant_burn)
+	_clutter.append_array([
+		stem,
+		{"name": "kelp", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [101, 101, 101], "transparent": false, "clutter": "kelp", "waterlogged": true},
+		{"name": "seagrass", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [102, 102, 102], "transparent": false, "clutter": "seagrass", "waterlogged": true},
+		{"name": "seashell", "cell_type": "solid", "density": 8, "hp": 10, "tiles": [103, 103, 103], "transparent": false, "clutter": "seashell"},
+		{"name": "mushroom_stem", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [42, 42, 42], "transparent": false, "clutter": "mushroom", "stem": true},
+	])
+	return _clutter
 
 
 static var _content2 := []
@@ -245,7 +271,7 @@ static func _content_pass2_defs() -> Array:
 	var pumpkin := {"name": "pumpkin", "cell_type": "solid", "density": 6, "hp": 60, "tiles": [78, 77, 77], "transparent": false}
 	_content2.append_array([birch, birch_leaves, bush, pumpkin])
 	for f in [["cornflower", 79, 30], ["oxeye_daisy", 80, 30], ["allium", 81, 81]]:
-		var d := {"name": f[0], "cell_type": "solid", "density": 10, "hp": 5, "tiles": [f[1], f[2], 23], "transparent": false, "micro": "bloom", "replaceable": true, "floor_only": true}
+		var d := {"name": f[0], "cell_type": "solid", "density": 10, "hp": 5, "tiles": [f[1], f[1], f[1]], "transparent": false, "clutter": "flower", "floor_only": true}
 		d.merge(plant_burn)
 		_content2.append(d)
 	for b in [["oak_bark", 85], ["spruce_bark", 57], ["acacia_bark", 60], ["jungle_bark", 63], ["birch_bark", 73]]:
@@ -390,6 +416,8 @@ static func blocks_bodies(id: int) -> bool:
 				solid = false
 			elif e.has("micro"):
 				solid = e["micro"] in ["stalactite", "stalagmite"] or e["micro"] in SOLID_MICRO
+			elif e.has("clutter"):
+				solid = false   # clutter is walked through (ADR 0047)
 			elif e.get("model", "") == "empty":
 				solid = e.get("collision", false) is bool and e.get("collision", false)
 			_blocks_bodies[i + 1] = 1 if solid else 0
@@ -406,6 +434,11 @@ static func is_liquid(id: int) -> bool:
 		for i in d.size():
 			_liquids[i + 1] = 1 if d[i].get("cell_type", "solid") == "liquid" else 0
 	return id > 0 and id < _liquids.size() and _liquids[id] == 1
+
+
+## Waterlogged clutter (kelp, seagrass, ADR 0047): a body in it is in water.
+static func is_waterlogged(id: int) -> bool:
+	return id > 0 and id <= defs().size() and defs()[id - 1].get("waterlogged", false)
 
 
 static var _ids := {}
@@ -446,7 +479,7 @@ static func is_plain_voxel(id: int) -> bool:
 	if id <= 0 or id > defs().size():
 		return false
 	var d: Dictionary = defs()[id - 1]
-	if d.has("micro") or d.has("interact") or d.has("entity") or d.get("model", "") == "empty":
+	if d.has("micro") or d.has("clutter") or d.has("interact") or d.has("entity") or d.get("model", "") == "empty":
 		return false
 	return d.get("cell_type", "solid") in ["solid", "powder"]
 
@@ -517,7 +550,7 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 		var passable: bool = not (ct == "solid" or ct == "powder")
 		# Plants, pickups and detail (the old 6.25 cm "micro" models) are plain
 		# voxels at 12.5 cm (ADR 0033): walked through unless blocks_bodies says so.
-		if d.has("micro") and not blocks_bodies(defs().find(d) + 1):
+		if (d.has("micro") or d.has("clutter")) and not blocks_bodies(defs().find(d) + 1):
 			passable = true
 		# Transparent materials share transparency index 1: faces between two
 		# voxels of the same index are culled (no water-water faces), faces
@@ -530,7 +563,7 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 		if passable:
 			cube.collision_mask = 0
 			cube.set_mesh_collision_enabled(0, false)
-			if defs().find(d) + 1 in GROUND_PICKUPS or d.has("micro"):
+			if defs().find(d) + 1 in GROUND_PICKUPS or d.has("micro") or d.has("clutter"):
 				# a box only the aim ray hits: sticks and stones are aimed at, dug and picked up whole,
 				# but walked through (ADR 0043); plants too, or the ray passes through grass, ferns and
 				# reeds into the ground and they never drop their fiber (bug report 2026-10-24)

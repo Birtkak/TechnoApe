@@ -86,7 +86,8 @@ private:
         int ylo, yhi;
     };
     // Ground features: WorldGen's stamps plus FineGen's forest floor (logs at any angle, stumps, bushes, rocks).
-    enum { STUMP = 10, STICK = 11 };   // STICK: a fallen stick (twigs pickup), laid on the ground per column
+    enum { STUMP = 10, STICK = 11, FLOWER_S = 12, MUSHROOM_S = 13, SHELL_S = 14, CLUTTER_H = 12 };   // STICK: a fallen stick (twigs pickup), laid on the ground per column;
+    // FLOWER_S, MUSHROOM_S, SHELL_S: clutter pieces of whole voxels on a CLUTTER_CELL grid (ADR 0047), laid per column
     struct FStamp {
         int kind;
         float x, z;
@@ -112,6 +113,8 @@ private:
     void young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<FTree> &out) const;
     void build_stamp(const WorldGen::Stamp &s, FStamp &out) const;
     void floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<FStamp> &out) const;
+    // Clutter piece voxel at (dx, dy, dz) from its stamp's centre column and ground (dy = 0: the first voxel above it).
+    static uint16_t clutter_voxel(const FStamp &s, int dx, int dy, int dz);
     uint16_t stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const;
     static float stick_dist(const FStamp &s, float x, float z);   // ground-plane distance to a stick and its branch
     float cave_field(int mx, int my, int mz, int height) const;

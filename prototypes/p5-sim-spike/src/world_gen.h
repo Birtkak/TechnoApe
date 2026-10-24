@@ -60,7 +60,9 @@ public:
         OAK_BARK = 97, SPRUCE_BARK = 98, ACACIA_BARK = 99, JUNGLE_BARK = 100, BIRCH_BARK = 101,
         CARCASS = 102,  // wildlife (ADR 0027)
         // 103..107 Flint Age (never generated)
-        LEAF_LITTER = 108   // the shaded forest floor (2026-10-23)
+        LEAF_LITTER = 108,  // the shaded forest floor (2026-10-23)
+        // 109..110 patterned building materials (never generated); clutter as voxel pieces (ADR 0047)
+        PLANT_STEM = 111, KELP = 112, SEAGRASS = 113, SEASHELL = 114, MUSHROOM_STEM = 115
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,

@@ -1,29 +1,19 @@
 class_name OceanLife
 extends Node3D
 
-## Kelp, seagrass and fish around the player (ADR 0027). Pure presentation:
-## nothing here is a voxel, saved or simulated. A native map
-## (WorldGen.water_floor_map: sea floor and water level per column, frozen
-## water excluded) is rebuilt on a worker when the player has moved
-## REBUILD_V voxels; from it:
-##   kelp      swaying strands in patchy forests where the water is 4 to 60 voxels
-##             (2-30 m) deep, up to 90 % of the depth and at most 10 m tall, like real
-##             kelp forests; seagrass tufts in the shallows. Dark, so the water's
-##             depth tint reads on them as on the floor. One
-##             MultiMesh, the sway is in the vertex shader.
+## Fish around the player (ADR 0027). Pure presentation: nothing here is a
+## voxel, saved or simulated. Kelp and seagrass are voxels now, laid by FineGen
+## (ADR 0047). A native map (WorldGen.water_floor_map: sea floor and water level
+## per column, frozen water excluded) is rebuilt on a worker when the player has
+## moved REBUILD_V voxels; from it:
 ##   fish      a few schools of 8-14 fish that swim between random spots in the
 ##             water around the player; a school only steers to points that are
 ##             water voxels, so it never swims into the ground. One MultiMesh,
 ##             transforms set per frame (~100 fish), the tail beats in the shader.
-## Kelp is placed from the generator's floor, so a floor the player dug out keeps
-## its kelp where it was; edits under the sea are rare.
 
 const MAP_N := 64             # columns per side of the water map
 const MAP_STEP := int(1.0 / Settings.VOXEL_M)   # voxels per column (1 m): 64 m across
 const REBUILD_V := 12.0 / Settings.VOXEL_M   # rebuild the map when the camera moved this far (12 m, in voxels)
-const MAX_KELP := 3000
-const KELP_MAX_DEPTH := int(30.0 / Settings.VOXEL_M)   # voxels: no kelp in deep water (real kelp forests stop at ~30 m)
-const KELP_MAX_HEIGHT := 10.0 / Settings.VOXEL_M   # voxels (10 m)
 const SCHOOLS := 6
 const FISH_PER_SCHOOL := 12
 const SCHOOL_SPEED := 1.2 / Settings.VOXEL_M   # voxels/s (1.2 m/s)
@@ -31,9 +21,8 @@ const SCHOOL_COLORS := [Color(0.72, 0.76, 0.80), Color(0.95, 0.55, 0.15), Color(
 
 var world: World
 var camera: Camera3D
-var stats := {"kelp": 0, "seagrass": 0, "schools": 0, "maps": 0}
+var stats := {"schools": 0, "maps": 0}
 
-var _kelp: MultiMeshInstance3D
 var _fish: MultiMeshInstance3D
 var _task := -1
 var _map := PackedInt32Array()
@@ -46,8 +35,7 @@ var _spots: Array[Vector3] = []    # mid-water points fish can swim to
 var _schools: Array = []           # {pos, vel, target, color, offsets, phase}
 var _rng := RandomNumberGenerator.new()
 var _check_t := 0.0
-var _row := -1                     # kelp placement in progress: next map row (ROWS_PER_FRAME per frame)
-var _n := 0
+var _row := -1                     # swim spots in progress: next map row (ROWS_PER_FRAME per frame)
 const ROWS_PER_FRAME := 8
 
 
@@ -58,20 +46,6 @@ func setup(p_world: World, p_camera: Camera3D) -> void:
 
 func _ready() -> void:
 	_rng.randomize()
-	_kelp = MultiMeshInstance3D.new()
-	_kelp.name = "Kelp"
-	var km := MultiMesh.new()
-	km.transform_format = MultiMesh.TRANSFORM_3D
-	km.use_colors = true
-	var strand := BoxMesh.new()
-	strand.size = Vector3(0.14, 1.0, 0.14)
-	km.mesh = strand
-	km.instance_count = MAX_KELP
-	km.visible_instance_count = 0
-	_kelp.multimesh = km
-	_kelp.material_override = _material(_KELP_SHADER)
-	_kelp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(_kelp)
 	_fish = MultiMeshInstance3D.new()
 	_fish.name = "Fish"
 	var fm := MultiMesh.new()
@@ -99,7 +73,7 @@ func _process(delta: float) -> void:
 	_update_fish(delta)
 
 
-# ---------------- the water map and kelp ----------------
+# ---------------- the water map ----------------
 
 func _update_map() -> void:
 	if _task >= 0:
@@ -111,13 +85,10 @@ func _update_map() -> void:
 		_map_z0 = _pending_z0
 		stats["maps"] += 1
 		_row = 0
-		_n = 0
 		_spots.clear()
-		stats["kelp"] = 0
-		stats["seagrass"] = 0
 		return
 	if _row >= 0:
-		_place_kelp_rows()
+		_place_spot_rows()
 		return
 	var p := camera.global_position
 	if Vector2(p.x - _center.x, p.z - _center.z).length() < REBUILD_V:
@@ -132,12 +103,9 @@ func _update_map() -> void:
 		_map = gen.water_floor_map(x0, z0, MAP_N, MAP_STEP))
 
 
-## A few map rows per frame (a whole map is 4096 columns: a frame spike at once).
-func _place_kelp_rows() -> void:
-	var mm := _kelp.multimesh
-	var n := _n
-	var kelp: int = stats["kelp"]
-	var grass: int = stats["seagrass"]
+## A few map rows per frame (a whole map is 4096 columns: a frame spike at once): the mid-water
+## points fish swim to.
+func _place_spot_rows() -> void:
 	var last := mini(MAP_N, _row + ROWS_PER_FRAME)
 	for j in range(_row, last):
 		for i in MAP_N:
@@ -145,45 +113,12 @@ func _place_kelp_rows() -> void:
 			if v < 0:
 				continue
 			var floor_y := v & 0xFFFF
-			var level := v >> 16
-			var depth := level - floor_y
+			var depth := (v >> 16) - floor_y
 			var wx := _map_x0 + i * MAP_STEP
 			var wz := _map_z0 + j * MAP_STEP
-			var h := hash(Vector2i(wx, wz))
-			if depth >= 3 and h % 7 == 0:
+			if depth >= 3 and hash(Vector2i(wx, wz)) % 7 == 0:
 				_spots.append(Vector3(wx + 0.5, floor_y + depth * 0.45, wz + 0.5))
-			if n >= MAX_KELP:
-				continue
-			var patch := hash(Vector2i(wx >> 4, wz >> 4)) % 100
-			var r := float(h % 1000) / 1000.0
-			var height := 0.0
-			var col := Color()
-			if depth >= 2 * Settings.BLOCK and depth <= KELP_MAX_DEPTH and patch < 45 and r < 0.6:
-				height = minf(KELP_MAX_HEIGHT, minf(depth - 0.6, depth * (0.55 + 0.35 * float((h >> 10) % 100) / 100.0)))
-				col = Color(0.16, 0.22 + 0.06 * r, 0.07)
-				kelp += 1
-			elif depth >= 1 and depth < 4 and r < 0.35:
-				height = 0.5 + 0.7 * float((h >> 10) % 100) / 100.0
-				col = Color(0.20, 0.38, 0.14)
-				grass += 1
-			else:
-				continue
-			for k in (2 if height > 3.0 else 1):   # tall kelp stands in pairs
-				var jx := float((h >> (14 + k * 4)) % 100) / 100.0 * MAP_STEP
-				var jz := float((h >> (18 + k * 4)) % 100) / 100.0 * MAP_STEP
-				var hk := height * (1.0 - 0.25 * k)
-				var b := Basis().scaled(Vector3(1.0, hk, 1.0)).rotated(Vector3.UP, float(h % 628) / 100.0)
-				mm.set_instance_transform(n, Transform3D(b, Vector3(wx + jx, floor_y + hk * 0.5, wz + jz)))
-				mm.set_instance_color(n, col)
-				n += 1
-				if n >= MAX_KELP:
-					break
-	_n = n
 	_row = -1 if last >= MAP_N else last
-	if _row < 0:
-		mm.visible_instance_count = n   # swap the new kelp in at once
-	stats["kelp"] = kelp
-	stats["seagrass"] = grass
 
 
 # ---------------- fish ----------------
@@ -256,24 +191,6 @@ func _retarget(s: Dictionary) -> void:
 
 
 # ---------------- shaders ----------------
-
-const _KELP_SHADER := """
-shader_type spatial;
-render_mode cull_disabled;
-// kelp and seagrass: the strand bends with the current, more towards the tip
-void vertex() {
-	float along = VERTEX.y + 0.5;
-	vec3 o = MODEL_MATRIX[3].xyz;
-	float sway = sin(TIME * 1.1 + o.x * 0.7 + o.z * 0.5) * 0.35 + sin(TIME * 2.3 + o.z) * 0.08;
-	VERTEX.x += sway * along * along / max(length(MODEL_MATRIX[0].xyz), 0.01);
-	VERTEX.z += sway * 0.5 * along * along;
-}
-void fragment() {
-	ALBEDO = COLOR.rgb * (0.6 + 0.4 * (1.0 - UV.y));
-	ROUGHNESS = 0.9;
-	SPECULAR = 0.1;
-}
-"""
 
 const _FISH_SHADER := """
 shader_type spatial;

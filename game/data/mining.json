@@ -85,6 +85,13 @@
     "wattle": {"hardness": 0.6, "tool": "axe", "drops": "wattle"},
     "daub_wall": {"hardness": 1.0, "tool": "shovel", "drops": "daub_wall"},
     "torch": {"hardness": 0.0, "drops": "torch"},
-    "storage_pot": {"hardness": 0.5, "drops": "storage_pot", "_note": "spills its 9 slots like a chest"}
+    "storage_pot": {"hardness": 0.5, "drops": "storage_pot", "_note": "spills its 9 slots like a chest"},
+    "mushroom_brown": {"hardness": 0.0, "drops": "brown_mushroom", "_note": "a whole mushroom (cap and stem) is one piece (ADR 0047)"},
+    "mushroom_red": {"hardness": 0.0, "drops": "red_mushroom"},
+    "mushroom_stem": {"hardness": 0.0},
+    "plant_stem": {"hardness": 0.0},
+    "kelp": {"hardness": 0.0, "drops": [{"id": "kelp", "chance": 0.15}], "_note": "a stalk at a time, rolled per voxel: a 5 m stalk gives ~6"},
+    "seagrass": {"hardness": 0.0, "drops": [{"id": "plant_fiber", "chance": 0.3}]},
+    "seashell": {"hardness": 0.0, "drops": "seashell"}
   }
 }

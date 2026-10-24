@@ -318,10 +318,11 @@ func _ground_ready() -> bool:
 	return world.is_area_loaded(c) and world.is_area_loaded(c - Vector3i(0, 1, 0))
 
 
-## Feet or chest in a liquid (water, lava, oil).
+## Feet or chest in a liquid (water, lava, oil), or in kelp standing in water (ADR 0047).
 func _check_liquid() -> bool:
 	for h in [0.2, 0.5]:
-		if GameMaterials.is_liquid(world.get_voxel(Vector3i((position + Vector3(0, Settings.m2v(Settings.player_height_m) * h, 0)).floor()))):
+		var m := world.get_voxel(Vector3i((position + Vector3(0, Settings.m2v(Settings.player_height_m) * h, 0)).floor()))
+		if GameMaterials.is_liquid(m) or GameMaterials.is_waterlogged(m):
 			return true
 	return false
 
@@ -477,7 +478,8 @@ func _update_fall_damage() -> void:
 ## drowns (Settings.drown_damage per second); out of the liquid it refills in 2 s.
 func _update_air(delta: float) -> void:
 	var eye := Vector3i((position + Vector3(0, Settings.m2v(Settings.eye_height_m), 0)).floor())
-	var under := GameMaterials.is_liquid(world.get_voxel(eye))
+	var eye_m := world.get_voxel(eye)
+	var under := GameMaterials.is_liquid(eye_m) or GameMaterials.is_waterlogged(eye_m)
 	if not under or not GameMode.rule(game_mode, "takes_damage"):
 		air = minf(1.0, air + delta / 2.0)
 		_drown_t = 0.0
@@ -647,10 +649,11 @@ func _update_mining(delta: float) -> void:
 		else:
 			_dig_cells = _dig_selection(p, size)   # the world may have changed while digging
 			var split := GroundPickups.complete(world.get_voxel, _dig_cells)
-			var in_piece := {}
+			var in_piece := {}   # pieces that drop once; stalks and ore nuggets drop per voxel, as before (ADR 0047)
 			for pc in split["pieces"]:
-				for c in pc["cells"]:
-					in_piece[c] = true
+				if not pc["per_voxel"]:
+					for c in pc["cells"]:
+						in_piece[c] = true
 			var counts := {}
 			for c in _dig_cells:
 				if not in_piece.has(c):
@@ -663,6 +666,8 @@ func _update_mining(delta: float) -> void:
 					_dig_carry, _drop_rng, Settings.BLOCK * Settings.BLOCK * Settings.BLOCK)
 				# each stick or stone piece drops its item once, where it lay (ADR 0043)
 				for pc in split["pieces"]:
+					if pc["per_voxel"]:
+						continue
 					for d in mining.roll_drops(GameMaterials.name_of(pc["material"]), inventory.held_def(), _drop_rng):
 						d["at"] = pc["center"]
 						drops.append(d)
@@ -720,7 +725,7 @@ func _dig_selection(p: Vector3i, size: int) -> Array[Vector3i]:
 		if t < 0.0 or t > maxf(t_hit * 4.0, 0.5):
 			continue
 		out.append(c)
-	return GroundPickups.complete(world.get_voxel, out)["cells"]   # a stick or stones go whole (ADR 0043)
+	return GroundPickups.complete(world.get_voxel, out)["cells"]   # pieces go whole (ADR 0043, 0047)
 
 
 ## Seconds a dig takes: each voxel costs its material's block time / BLOCK^3,
