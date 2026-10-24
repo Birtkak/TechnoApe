@@ -296,7 +296,7 @@ func _ready() -> void:
 		if DebugCapture.fell_test != "":
 			_after_load(func() -> void:
 				await get_tree().create_timer(1.5).timeout
-				chat.send("/fell " + DebugCapture.fell_test))
+				chat.send("/fell " + DebugCapture.fell_test.replace(",", " ")))   # fell_test=0,cam
 		if DebugCapture.stone_age_test:
 			_after_load(func() -> void:
 				_stone_age_test = StoneAgeTest.new()   # held here: a RefCounted coroutine dies with its last reference

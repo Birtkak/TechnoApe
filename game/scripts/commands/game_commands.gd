@@ -33,6 +33,7 @@ var reg: CommandRegistry
 var player: Player
 var player_inv: PlayerInventory
 var main: Node   # Main: atmosphere, spawn_item, spawn position
+var _cam: DebugCamera   # /cam, made on first use
 var sky: SkyCommands   # /date, /moon, /eclipse, /constellations (ADR 0025)
 
 
@@ -69,7 +70,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
 		_quests, [["list", "complete", "reset"], _quest_ids])
-	reg.register("fell", "/fell [direction_deg|pillar]", "Fell the thickest tree 8-20 m away, across your view (rigid_pieces=1)", _fell)
+	reg.register("cam", "/cam [off | <x> <y> <z> [<look_x> <look_y> <look_z>]]", "Free camera: flies anywhere while you, the terrain detail and the simulation stay put", _cam_cmd)
+	reg.register("fell", "/fell [direction_deg|pillar] [cam]", "Fell the thickest tree 8-20 m away, across your view (rigid_pieces=1)", _fell)
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 	var atmo: Node = main.get("atmosphere") if main != null else null
 	if atmo != null:
@@ -474,12 +476,71 @@ func _stations(_args: PackedStringArray) -> Dictionary:
 	return CommandRegistry.ok("Placing a crafting table, chest and furnace ahead")
 
 
+func _debug_cam() -> DebugCamera:
+	if _cam == null:
+		_cam = DebugCamera.new(player)
+		main.add_child(_cam)
+	return _cam
+
+
+func _cam_cmd(args: PackedStringArray) -> Dictionary:
+	if main == null or player == null:
+		return CommandRegistry.fail("No player")
+	var cam := _debug_cam()
+	if args.size() == 1 and args[0] == "off":
+		cam.disable()
+		return CommandRegistry.ok("Back to the player's view")
+	if args.is_empty():
+		if cam.is_on():
+			cam.disable()
+			return CommandRegistry.ok("Back to the player's view")
+		cam.enable()
+		return CommandRegistry.ok("Free camera on (/cam again to leave)")
+	if args.size() != 3 and args.size() != 6:
+		return CommandRegistry.fail("Usage: /cam [off | <x> <y> <z> [<look_x> <look_y> <look_z>]]")
+	var at: Variant = _coords(args, 0, cam.global_position if cam.is_on() else player.camera.global_position, true)
+	if at is Dictionary:
+		return at
+	var target: Variant = null
+	if args.size() == 6:
+		target = _coords(args, 3, at, true)
+		if target is Dictionary:
+			return target
+	cam.enable(at, target)
+	return CommandRegistry.ok("Free camera at %.0f, %.0f, %.0f" % [at.x, at.y, at.z])
+
+
+## A camera spot that sees a tree at `c` (world voxels, the trunk's foot) fall: around `away` (+-75 deg),
+## 12-30 m off, 2-24 m up, scored by clear lines to 4, 10 and 16 m up the trunk (a line may end in the
+## tree itself). Returns {at, clear} or {}.
+func _vantage(c: Vector3, away: Vector3) -> Dictionary:
+	var best := {}
+	for dist_m in [14.0, 18.0, 22.0, 26.0, 30.0]:
+		for up_m in [2.0, 6.0, 10.0, 16.0, 24.0]:
+			for k in range(-5, 6):
+				var dir := away.rotated(Vector3.UP, deg_to_rad(15.0 * k))
+				var at := c + dir * Settings.m2v(dist_m)
+				at.y = main.world.surface_height(int(at.x), int(at.z)) + Settings.m2v(up_m)
+				var clear := 0
+				for aim_m in [4.0, 10.0, 16.0]:
+					var to := c + Vector3(0, Settings.m2v(aim_m), 0) - at
+					var hit: VoxelRaycastResult = main.world.raycast(at, to.normalized(), to.length())
+					if hit == null or Vector2(hit.position.x - c.x, hit.position.z - c.z).length() < Settings.m2v(6.0):
+						clear += 1
+				if clear > int(best.get("clear", -1)):
+					best = {"at": at, "clear": clear}
+				if clear == 3:
+					return best
+	return best
+
+
 func _fell(args: PackedStringArray) -> Dictionary:
 	if main == null or player == null or main.pieces == null:
 		return CommandRegistry.fail("Rigid pieces are off (start with rigid_pieces=1)")
 	var deg := float(args[0]) if args.size() > 0 and args[0].is_valid_float() else 0.0
+	var with_cam := args.has("cam")
 	var t: Dictionary
-	if args.size() > 0 and args[0] == "pillar":
+	if args.has("pillar"):
 		t = main.pieces.fell_pillar(player.camera.global_position, -player.camera.global_transform.basis.z, main.world)
 	else:
 		t = main.pieces.fell_nearest(player.position, 20.0, deg, main.world)
@@ -492,7 +553,18 @@ func _fell(args: PackedStringArray) -> Dictionary:
 	player._yaw = atan2(-look.x, -look.z)
 	player._pitch = atan2(look.y, Vector2(look.x, look.z).length())
 	player._apply_look()
-	return CommandRegistry.ok("Felled a trunk of %d columns (%d voxels cut)" % [t["columns"], t["cut"]])
+	if with_cam:
+		# a free camera where the fall can be seen: the first spot near the player's side of the fall
+		# line with a clear line to the trunk and the crown (a forest hides it from most places)
+		var c: Vector3 = t["centre"]
+		var away := Vector3(eye.x - c.x, 0.0, eye.z - c.z).normalized()
+		var v: Dictionary = _vantage(c, away)
+		if not v.is_empty():
+			_debug_cam().enable(v["at"], c + Vector3(0, Settings.m2v(8.0), 0))
+			t["clear_rays"] = v["clear"]
+	return CommandRegistry.ok("Felled a trunk of %d columns (%d voxels cut) at %s m, view from %s m (%d/3 clear)" % [t["columns"], t["cut"],
+		str((t["centre"] / Settings.m2v(1.0)).snapped(Vector3.ONE * 0.1)), str((player.get_viewport().get_camera_3d().global_position / Settings.m2v(1.0)).snapped(Vector3.ONE * 0.1)),
+		t.get("clear_rays", -1)])
 
 
 func _bug(args: PackedStringArray) -> Dictionary:

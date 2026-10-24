@@ -360,8 +360,9 @@ PackedInt32Array RigidPieces::check_cells(const std::vector<Vector3i> &p_cells, 
             if (!db[i] || da[i] < db[i]) mine.push_back(key(lo[0] + (int)(i % bx), lo[1] + (int)(i / bx % by), lo[2] + (int)(i / bx / by)));
         std::free(da);
         std::free(db);
-        // too small to fly: crumbs (Grimorium: < 8 voxels); snapped twigs too, below min_limb
-        if ((int)(wood.size() + mine.size()) < (strength ? min_piece_ : min_limb_)) {
+        // too small to fly: crumbs (Grimorium: < 8 voxels); snapped twigs too, below min_limb of wood (only
+        // wood holds a piece up: a twig in a bunch of leaves rocked on its few wood voxels and never slept)
+        if (strength ? (int)(wood.size() + mine.size()) < min_piece_ : (int)wood.size() < min_limb_) {
             const std::vector<int64_t> *lists[2] = {&wood, &mine};
             for (const std::vector<int64_t> *ks : lists)
                 for (int64_t k : *ks) {
@@ -583,6 +584,7 @@ void RigidPieces::make_piece(const std::vector<int64_t> &wood, const std::vector
     const Vector3 base = Vector3(p.com.x, 0.0f, p.com.z) - p.com;
     p.vel = -p.ang.cross(base);
     spawned_ids_.push_back(p.id);
+    if (made_.size() < 16) made_.push_back(Vector3i(p.id, p.wood, p.leaves));
     pieces_.push_back(std::move(p));
     spawned_++;
 }
@@ -1088,6 +1090,9 @@ Dictionary RigidPieces::get_stats() const {
 Dictionary RigidPieces::live_stats() const {
     Dictionary d;
     d["last_job_ms"] = last_job_ms_;
+    Array made;
+    for (const Vector3i &m : made_) made.push_back(m);
+    d["made"] = made;   // (id, wood, leaves) of the first 16 pieces
     d["max_job_ms"] = max_job_ms_;
     d["pieces"] = (int)pieces_.size();
     d["spawned"] = spawned_;

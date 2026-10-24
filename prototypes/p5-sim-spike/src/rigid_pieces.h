@@ -193,6 +193,7 @@ private:
     std::vector<View> view_;
     Dictionary stats_view_;
     double last_job_ms_ = 0.0, max_job_ms_ = 0.0;
+    std::vector<Vector3i> made_;   // debug: (id, wood, leaves) of the first pieces made
 
     // stats
     double last_check_ms_ = 0.0, max_check_ms_ = 0.0;

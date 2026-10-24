@@ -25,6 +25,8 @@ var _settled: Array = [] # [Node3D, frames left]
 var _since_tick := 0.0
 var _period := 1.0 / 30.0
 var tick_ms_max := 0.0
+var track: Array = []   # debug: [s since the first piece, id, world position of the first piece's origin, tilt deg] every 0.5 s
+var _track_ticks := 0
 var _parts_max := {"collect": 0.0, "uploads": 0.0, "effects": 0.0}   # main-thread cost per part, ms
 
 
@@ -83,6 +85,11 @@ func tick(dt: float) -> void:
 	_parts_max["effects"] = maxf(_parts_max["effects"], (Time.get_ticks_usec() - t1) / 1000.0)
 	if not _pieces.is_empty():
 		rp.queue_step(dt)
+		_track_ticks += 1
+		if _track_ticks % 15 == 1 and track.size() < 60:
+			var id: int = _pieces.keys()[0]
+			var t := rp.get_transform(id, 1.0)
+			track.append([snappedf(_track_ticks * dt, 0.1), id, (t.origin / Settings.m2v(1.0)).snapped(Vector3.ONE * 0.1), snappedf(rad_to_deg(t.basis.y.angle_to(Vector3.UP)), 1.0)])
 	tick_ms_max = maxf(tick_ms_max, (Time.get_ticks_usec() - t0) / 1000.0)
 
 
@@ -146,7 +153,7 @@ func stats() -> Dictionary:
 	return {"pieces": s["pieces"], "spawned": s["spawned"], "settled": s["settled"], "broken": s["crushed"], "shed": s["shed"],
 		"snapped": s["snapped"], "max_check_ms": snappedf(s["max_check_ms"], 0.01), "max_step_ms": snappedf(s["max_step_ms"], 0.01),
 		"max_settle_ms": snappedf(s["max_settle_ms"], 0.01), "max_job_ms": snappedf(s["max_job_ms"], 0.01), "tick_ms_max": snappedf(tick_ms_max, 0.01),
-		"tick_parts_max_ms": _parts_max}
+		"tick_parts_max_ms": _parts_max, "track_m": track, "made": s.get("made", [])}
 
 
 const NOT_STANDING := -1000000

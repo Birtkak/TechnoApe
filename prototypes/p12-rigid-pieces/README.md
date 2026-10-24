@@ -129,9 +129,16 @@ pillar), not the falling. The pillar filmstrip (`game/out/fell12/fall_sheet.png`
 topples away from the cut, crown bursts on impact, the log settles.
 
 Still open:
-- A forest fall has not been judged on camera: from the ground and from above the canopy, crowns
-  block the view, and above ~22 m the sim window no longer reaches the trunks. Needs a debug camera
-  or a clearing to film in.
+- ~~A forest fall has not been judged on camera.~~ Done with a free camera (`/cam`, `DebugCamera`;
+  `/fell cam` picks a spot 14-30 m off with clear raycasts to 4, 10 and 16 m up the trunk; the
+  player, terrain detail and sim window stay put). Seen (`game/out/fell17`): the old oak (5 868 wood +
+  40 066 leaves) tips away from the cut and comes to rest after ~3 s leaning at ~50 deg on its
+  neighbours' wood, breaking leaves on the way, and is written back leaning. A snapped twig with a
+  bunch of leaves (15 wood + 2 273 leaves) rocked for 15 s without sleeping: only wood holds a piece
+  up, so it pivoted on its few wood voxels. Snapped bits now drop as crumbs under `min_limb` wood
+  voxels (not wood + leaves); every piece settles, p99 6.47 ms.
+- Whether a felled old tree should hang up on its neighbours (real forestry) or push through to the
+  ground is a taste call for the developer.
 - Leaves (7-11 ms) are now the biggest part of a check; reading cells through `cls_at` (bounds and
   loaded check per neighbour) is most of it.
 - A frame over budget in a real chop could still come from the terrain remesh of thousands of broken

@@ -91,5 +91,8 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
       your view; the crown bursts into leaves where it hits, the log stays lying as voxels.
 - [ ] Chop through a tree trunk with the brush (cut above the root flare, 2 m up is safe): the tree
       falls away from you, breaks the limbs and leaves it hits, and lies as voxels you can dig.
-- [ ] `/fell` in a forest: the nearest big tree falls across your view. Known: a felled tree in a
-      forest costs a lot (a stutter of 30-40 ms when it breaks off) and can wreck neighbouring crowns.
+- [ ] `/fell` in a forest: the nearest big tree falls across your view (`/fell cam` moves a free
+      camera to a spot that sees it). Should be smooth now apart from the command's own frame; an old
+      tree often hangs up leaning on its neighbours instead of reaching the ground: does that feel right?
+- [ ] `/cam`: free camera (mouse looks, move keys fly, sprint 3x), `/cam` again to go back. Terrain detail
+      and the simulation stay around you, so do not fly far.

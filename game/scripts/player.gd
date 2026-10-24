@@ -40,6 +40,7 @@ var _yaw := 0.0
 var _pitch := -0.2
 var _mouse_captured := false
 var autopilot := false
+var free_cam := false        # a DebugCamera has the view: no moving, looking or mining from input
 var autopilot_dir := Vector3(0, 0, -1)
 var autopilot_speed_m := 6.0
 var mined_log: Array = []   # autopilot mine=1: every break (voxel, what it reads now, feet height), first 64
@@ -188,7 +189,7 @@ func set_ui_open(open: bool, notify: bool = true) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if autopilot:
+	if autopilot or free_cam:
 		return
 	if event.is_action_pressed("inventory"):
 		set_ui_open(not ui_open)
@@ -370,7 +371,7 @@ func _physics_step(delta: float) -> void:
 	var up_down := 0.0
 	if autopilot:
 		input = Vector2.ZERO if autopilot_action != "" else Vector2(0, -1)
-	elif not ui_open:
+	elif not ui_open and not free_cam:
 		input = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		up_down = (1.0 if Input.is_action_pressed("jump") else 0.0) - (1.0 if Input.is_action_pressed("descend") else 0.0)
 	var dir := (transform.basis * Vector3(input.x, 0, input.y)).normalized()
@@ -391,7 +392,7 @@ func _physics_step(delta: float) -> void:
 	var speed := Settings.m2v(speed_m) * (0.5 if in_liquid else 1.0)
 	velocity.x = dir.x * speed
 	velocity.z = dir.z * speed
-	var jump := Input.is_action_pressed("jump") and not ui_open and not autopilot
+	var jump := Input.is_action_pressed("jump") and not ui_open and not autopilot and not free_cam
 	if in_liquid:
 		# Minecraft-style swimming: drift down slowly, hold jump to rise
 		var target := Settings.m2v(Settings.swim_up_speed_m) if jump else -Settings.m2v(Settings.sink_speed_m)
@@ -563,7 +564,7 @@ func _update_mining(delta: float) -> void:
 	if edits_locked:
 		holding = false
 	elif not autopilot:
-		holding = _mouse_captured and not ui_open and Input.is_action_pressed("action_break")
+		holding = _mouse_captured and not ui_open and not free_cam and Input.is_action_pressed("action_break")
 	var hit: VoxelRaycastResult = _aim() if (holding or (_mouse_captured and not ui_open and not autopilot)) else null
 	var mob = aimed_mob(hit) if (_mouse_captured and not ui_open and not autopilot) else null
 	_update_look(hit, mob)
