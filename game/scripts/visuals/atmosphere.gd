@@ -15,7 +15,7 @@ extends Node3D
 ## command line: time=0..1 (0.5 = noon), date=<month>-<day> (1-based), day=<days since start>, latitude=<deg>,
 ## constellations=0|1, day_length=<seconds, 0 = frozen>,
 ## clouds=0..1, ssao=0|1, glow=0|1, fog=0|1, shadows=soft|hard|off, tonemap=aces|agx|filmic|linear,
-## saturation=1.0. Measured cost of the defaults: ~1.2 ms/frame (see README).
+## saturation=1.0, grade=golden|natural|clear (the lighting grade, ADR 0041). Measured cost of the defaults: ~1.2 ms/frame (see README).
 
 # --- tunables ------------------------------------------------------------------
 var calendar := Calendar.new()   # date, time, sun / moon / star geometry (saved by main.gd)
@@ -35,7 +35,8 @@ var sunset_color := Color(1.0, 0.62, 0.35)
 var moon_color := Color(0.62, 0.70, 0.95)
 var shadow_distance_m := 96.0
 var cloud_coverage := 0.42
-var fog_density := 0.00035       # per world unit, above ground in daylight
+var fog_per_km := 2.8            # fog above ground in daylight, extinction per km (1 / e left after 1 / this km)
+var mist_per_km := 9.6           # the lowland ground mist by day (height fog), per km
 var fog_color_day := Color(0.74, 0.83, 0.95)
 var fog_color_night := Color(0.05, 0.06, 0.10)
 var underground_start_m := 2.0   # metres below the surface where the cave look begins
@@ -59,6 +60,50 @@ var shadow_splits := 4            # shadow_splits=2|4 (soft only): cascades
 var shadow_blend := true          # shadow_blend=0|1: cross-fade between cascades
 var shadow_filter := -1           # shadow_filter=0..5: directional soft-shadow filter quality (-1 = project setting)
 var saturation := 1.08
+
+# --- lighting grade (ADR 0041): one of GRADES sets everything below and the colours above ------
+var grade := "golden"            # the developer's pick (2026-10-24)
+var exposure := 1.0
+var tonemap_white := 6.0
+var contrast := 1.02
+var curve: Array = []            # [[offset, Color], ...]: per-channel curves after the tonemap (split toning); [] = none
+var ambient_mult := 1.0          # sky ambient above ground
+var shadow_opacity := 0.9        # sun shadows by day (lower = lifted, softer shadows)
+var aerial := 0.75               # how much far terrain takes the sky's colour
+var sun_scatter := 0.12          # fog brightening towards the sun (haze)
+var ssao_intensity := 2.2
+var glow_intensity := 0.55
+var glow_bloom := 0.0
+var glow_threshold := 1.5
+var zenith_color := Color(0.23, 0.45, 0.85)
+var horizon_color := Color(0.72, 0.82, 0.95)
+
+## The lighting grades of ADR 0041: golden is the game's look (the developer's pick, 2026-10-24), a warm
+## afternoon sun, a warm haze and an S-curve like Lay of the Land. natural (the look before grades:
+## neutral and hazy) and clear (thin air, a deep blue sky, crisp contrast) stay for comparison:
+## `/grade <name>` or grade=<name>.
+const GRADES := {
+	"natural": {},
+	"golden": {
+		"tonemap": "aces", "exposure": 0.8, "tonemap_white": 8.0, "saturation": 1.2, "contrast": 1.08,
+		"curve": [[0.0, Color(0.0, 0.01, 0.03)], [0.25, Color(0.22, 0.22, 0.24)], [0.5, Color(0.52, 0.5, 0.46)],
+			[0.75, Color(0.79, 0.76, 0.70)], [1.0, Color(1.0, 0.97, 0.9)]],
+		"sun_color": Color(1.0, 0.82, 0.6), "sunset_color": Color(1.0, 0.5, 0.22), "sun_energy": 1.6,
+		"ambient_mult": 0.8, "shadow_opacity": 0.9, "fog_color_day": Color(0.85, 0.79, 0.69), "fog_per_km": 2.8,
+		"aerial": 0.72, "sun_scatter": 0.35, "ssao_intensity": 2.0, "glow_intensity": 0.7, "glow_bloom": 0.03,
+		"glow_threshold": 1.2, "zenith_color": Color(0.22, 0.42, 0.78), "horizon_color": Color(0.84, 0.79, 0.70),
+	},
+	"clear": {
+		"tonemap": "agx", "exposure": 1.0, "tonemap_white": 6.0, "saturation": 1.22, "contrast": 1.1,
+		"curve": [[0.0, Color(0.0, 0.0, 0.01)], [0.25, Color(0.21, 0.215, 0.23)], [0.5, Color(0.5, 0.5, 0.5)],
+			[0.75, Color(0.79, 0.785, 0.77)], [1.0, Color(1.0, 1.0, 0.99)]],
+		"sun_color": Color(1.0, 0.97, 0.92), "sunset_color": Color(1.0, 0.58, 0.3), "sun_energy": 1.4,
+		"ambient_mult": 0.95, "shadow_opacity": 0.92, "fog_color_day": Color(0.62, 0.76, 0.95), "fog_per_km": 1.1,
+		"aerial": 0.55, "sun_scatter": 0.08, "ssao_intensity": 2.2, "glow_intensity": 0.5, "glow_bloom": 0.0,
+		"glow_threshold": 1.5, "zenith_color": Color(0.12, 0.36, 0.88), "horizon_color": Color(0.58, 0.74, 0.95),
+	},
+}
+static var _natural := {}        # the defaults above, read once (natural = no overrides)
 
 # --- nodes ---------------------------------------------------------------------
 var env: Environment
@@ -95,6 +140,10 @@ func setup(p_world: World, p_camera: Camera3D) -> void:
 
 func _ready() -> void:
 	_read_user_settings()
+	for a in OS.get_cmdline_user_args():   # the grade first: single values on the command line override it
+		if a.begins_with("grade="):
+			grade = a.substr(6)
+	_load_grade(grade)
 	_apply_cmdline()
 	var we := WorldEnvironment.new()
 	we.name = "WorldEnvironment"
@@ -104,7 +153,6 @@ func _ready() -> void:
 	sky_material = ShaderMaterial.new()
 	sky_material.shader = load("res://assets/shaders/sky.gdshader")
 	sky_material.set_shader_parameter("cloud_coverage", cloud_coverage)
-	sky_material.set_shader_parameter("sunset_color", Vector3(sunset_color.r, sunset_color.g, sunset_color.b))
 	sky_material.set_shader_parameter("star_map", load("res://assets/textures/sky_stars.png"))
 	sky_material.set_shader_parameter("milky_way", load("res://assets/textures/sky_milkyway.png"))
 	sky_material.set_shader_parameter("sun_radius", sun_radius)
@@ -117,23 +165,13 @@ func _ready() -> void:
 	env.ambient_light_sky_contribution = 1.0
 	env.ambient_light_energy = 1.0
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-
-	env.tonemap_mode = {"aces": Environment.TONE_MAPPER_ACES, "agx": Environment.TONE_MAPPER_AGX,
-		"filmic": Environment.TONE_MAPPER_FILMIC, "linear": Environment.TONE_MAPPER_LINEAR}.get(tonemap, Environment.TONE_MAPPER_ACES)
-	env.tonemap_exposure = 1.0
-	env.tonemap_white = 6.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = saturation
-	env.adjustment_contrast = 1.02
 
 	# bloom only from genuinely bright things: lava, fire, glow caps, the sun's glint
 	env.glow_enabled = glow_on
 	env.glow_normalized = false
-	env.glow_intensity = 0.55
 	env.glow_strength = 1.0
-	env.glow_bloom = 0.0
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
-	env.glow_hdr_threshold = 1.5
 	env.glow_hdr_scale = 2.0
 	env.glow_hdr_luminance_cap = 12.0
 	for i in 7:
@@ -145,7 +183,6 @@ func _ready() -> void:
 	# screen-space AO: the crease between every voxel reads, plants sit on the ground
 	env.ssao_enabled = ssao_on
 	env.ssao_radius = 1.6            # world units (0.8 m)
-	env.ssao_intensity = 2.2
 	env.ssao_power = 1.6
 	env.ssao_detail = 0.6
 	env.ssao_horizon = 0.06
@@ -157,12 +194,11 @@ func _ready() -> void:
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
 	env.fog_light_color = fog_color_day
 	env.fog_light_energy = 1.0
-	env.fog_sun_scatter = 0.12
-	env.fog_density = fog_density
-	env.fog_aerial_perspective = 0.75    # far terrain fades into the sky's own colour, not a flat tint
+	env.fog_density = fog_per_km / Settings.m2v(1000.0)
 	env.fog_sky_affect = 0.15            # the sky keeps its gradient near the horizon
 	env.fog_height = Settings.SEA_LEVEL_VOXEL + 6.0
 	env.fog_height_density = 0.0        # ground mist is set per frame (lowlands only, daylight)
+	_push_grade()
 	we.environment = env
 	add_child(we)
 
@@ -210,6 +246,64 @@ func set_time_of_day(t: float) -> void:
 func set_show_constellations(on: bool) -> void:
 	show_constellations = on
 	_update_sun()
+
+
+## /grade: switch the lighting grade live. False for an unknown name.
+func apply_grade(p_name: String) -> bool:
+	if not _load_grade(p_name):
+		return false
+	_push_grade()
+	_update_sun()
+	_apply_states(true)
+	return true
+
+
+## Sets this node's values from a grade (keys it leaves out keep natural's).
+func _load_grade(p_name: String) -> bool:
+	if not GRADES.has(p_name):
+		return false
+	if _natural.is_empty():   # first call: the defaults are still untouched
+		for g: Dictionary in GRADES.values():
+			for k in g:
+				_natural[k] = get(k)
+	grade = p_name
+	var g: Dictionary = GRADES[p_name]
+	for k in _natural:
+		set(k, g.get(k, _natural[k]))
+	return true
+
+
+## The grade's values on the environment and the sky (the sun and fog colours follow in _update_sun).
+func _push_grade() -> void:
+	env.tonemap_mode = {"aces": Environment.TONE_MAPPER_ACES, "agx": Environment.TONE_MAPPER_AGX,
+		"filmic": Environment.TONE_MAPPER_FILMIC, "linear": Environment.TONE_MAPPER_LINEAR}.get(tonemap, Environment.TONE_MAPPER_ACES)
+	env.tonemap_exposure = exposure
+	env.tonemap_white = tonemap_white
+	env.adjustment_saturation = saturation
+	env.adjustment_contrast = contrast
+	env.adjustment_color_correction = _curve_texture(curve)
+	env.glow_intensity = glow_intensity
+	env.glow_bloom = glow_bloom
+	env.glow_hdr_threshold = glow_threshold
+	env.ssao_intensity = ssao_intensity
+	env.fog_sun_scatter = sun_scatter
+	env.fog_aerial_perspective = aerial
+	sky_material.set_shader_parameter("sunset_color", Vector3(sunset_color.r, sunset_color.g, sunset_color.b))
+	sky_material.set_shader_parameter("zenith_color", Vector3(zenith_color.r, zenith_color.g, zenith_color.b))
+	sky_material.set_shader_parameter("horizon_color", Vector3(horizon_color.r, horizon_color.g, horizon_color.b))
+
+
+## A 1D lookup: each channel is remapped through its own curve (Godot reads r from .r, g from .g ...).
+static func _curve_texture(points: Array) -> GradientTexture1D:
+	if points.is_empty():
+		return null
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array(points.map(func(p: Array) -> float: return p[0]))
+	g.colors = PackedColorArray(points.map(func(p: Array) -> Color: return p[1]))
+	var t := GradientTexture1D.new()
+	t.gradient = g
+	t.width = 256
+	return t
 
 
 ## The player's graphics options (Settings, ADR 0032) as this node's values;
@@ -332,7 +426,7 @@ func _update_sun() -> void:
 		sun.light_color = sun_color.lerp(sunset_color, low * 0.85)
 		_sun_light = sun_light
 	sun.light_energy = _sun_light * _water_light
-	sun.shadow_opacity = 0.9 if not is_moon else 0.6
+	sun.shadow_opacity = shadow_opacity if not is_moon else 0.6
 	sky_material.set_shader_parameter("sun_dir", sd)
 	sky_material.set_shader_parameter("moon_dir", moon_draw)
 	sky_material.set_shader_parameter("moon_size", size)
@@ -453,7 +547,7 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 	var day: float = get_meta("daylight", 1.0)
 	var fog_day: Color = get_meta("fog_day_color", fog_color_day)
 
-	env.ambient_light_energy = lerpf(1.0, underground_ambient, _underground)
+	env.ambient_light_energy = lerpf(ambient_mult, underground_ambient, _underground)
 	env.ambient_light_sky_contribution = lerpf(1.0, 0.25, _underground)
 	var tint := Color(0, 0, 0, 0)
 	# water swallows light with depth: the sea floor at 100 m is close to black (2026-10-23)
@@ -476,11 +570,11 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 		tint = Color(tc.r * lit, tc.g * lit, tc.b * lit, lerpf(tc.a, 0.5, dark))
 	else:
 		env.fog_light_color = fog_day.lerp(underground_fog_color, _underground)
-		env.fog_density = lerpf(fog_density, underground_fog_density, _underground)
-		env.fog_aerial_perspective = lerpf(0.75, 0.0, _underground)
+		env.fog_density = lerpf(fog_per_km / Settings.m2v(1000.0), underground_fog_density, _underground)
+		env.fog_aerial_perspective = lerpf(aerial, 0.0, _underground)
 		env.fog_sky_affect = lerpf(0.15, 0.0, _underground)
 		# faint ground mist in the lowlands by day, none underground or at night
-		env.fog_height_density = 0.0012 * day * (1.0 - _underground)
+		env.fog_height_density = mist_per_km / Settings.m2v(1000.0) * day * (1.0 - _underground)
 	overlay.color = tint
 	# sun cannot reach deep caves beyond its shadow range: fade it with depth too
-	sun.shadow_opacity = lerpf(0.9, 1.0, _underground)
+	sun.shadow_opacity = lerpf(shadow_opacity, 1.0, _underground)

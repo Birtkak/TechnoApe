@@ -133,6 +133,8 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   (climate, season, hour, caves, water, rooms from the native `ClimateProbe` flood fill, heat of fire cells and lit
   entities) and food spoilage (perishable stacks carry `spoil` through every Inventory move, averaged on merge; rot).
   Tunables in `Settings`; `/survival` reads and sets it. A new `class_name` needs an `--import` before the game sees it.
+  **Lighting grade (ADR 0041):** golden (warm sun, warm haze, ACES + S-curve LUT) is the look; `Atmosphere.GRADES` holds it
+  and the alternatives natural and clear (`/grade <name>`, `grade=`); fog is per km. `/shot <name>` saves a frame without the HUD.
   **Next:** the rest of the ADR 0037 work order; still open from before: fire/smoke pacing per cell, fast flight vs
   generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
   list in `docs/plans/to-test.md`.

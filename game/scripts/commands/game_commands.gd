@@ -70,6 +70,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
 		_quests, [["list", "complete", "reset"], _quest_ids])
+	reg.register("grade", "/grade [%s]" % "|".join(Atmosphere.GRADES.keys()), "Switch the lighting grade (ADR 0041), or show the current one", _grade, [Atmosphere.GRADES.keys()])
+	reg.register("shot", "/shot <name> [hud]", "Save the view as out/shots/<name>.png, without the HUD unless hud is given", _shot)
 	reg.register("cam", "/cam [off | <x> <y> <z> [<look_x> <look_y> <look_z>]]", "Free camera: flies anywhere while you, the terrain detail and the simulation stay put", _cam_cmd)
 	reg.register("survival", "/survival [hunger <0..20> | body <C> | spoil <0..1>]", "Hunger, body temperature and the air around you (ADR 0040); spoil sets the held food's freshness", _survival)
 	reg.register("shape", "/shape <box|wall|cylinder|cone|sphere|stairs|slope> [w h d] [hollow n] [at x y z] | commit | cancel | turn [tip] | mirror", "Shape building (V in game): set a shape down at the crosshair, then commit", _shape)
@@ -486,6 +488,42 @@ func _debug_cam() -> DebugCamera:
 		_cam = DebugCamera.new(player)
 		main.add_child(_cam)
 	return _cam
+
+
+func _grade(args: PackedStringArray) -> Dictionary:
+	var atmo: Node = main.get("atmosphere") if main != null else null
+	if atmo == null:
+		return CommandRegistry.fail("No sky")
+	if args.is_empty():
+		return CommandRegistry.ok("Lighting grade: %s" % atmo.grade)
+	if not atmo.apply_grade(args[0].to_lower()):
+		return CommandRegistry.fail("Grades: %s" % ", ".join(Atmosphere.GRADES.keys()))
+	return CommandRegistry.ok("Lighting grade: %s" % atmo.grade)
+
+
+func _shot(args: PackedStringArray) -> Dictionary:
+	if main == null or args.is_empty() or not args[0].is_valid_filename():
+		return CommandRegistry.fail("Usage: /shot <name> [hud]")
+	var dir := DebugCapture.out_dir + "/shots" if DebugCapture.autopilot else "res://out/shots"
+	_save_shot(dir, args[0], args.size() > 1 and args[1] == "hud")
+	return CommandRegistry.ok("Saving %s/%s.png" % [dir, args[0]])
+
+
+## Hides the HUD and chat for two frames, saves the frame, shows them again (a coroutine).
+func _save_shot(dir: String, file: String, with_hud: bool) -> void:
+	var layers: Array = [] if with_hud else [main.get("game_hud"), main.get("chat")]
+	var was: Array = []
+	for l in layers:
+		was.append(l != null and l.visible)
+		if l != null:
+			l.visible = false
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
+	main.get_viewport().get_texture().get_image().save_png("%s/%s.png" % [dir, file])
+	for i in layers.size():
+		if layers[i] != null:
+			layers[i].visible = was[i]
 
 
 func _cam_cmd(args: PackedStringArray) -> Dictionary:

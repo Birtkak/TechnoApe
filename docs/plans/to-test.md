@@ -126,3 +126,9 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
       closed hut (walls, roof, floor, no gaps) pulls the air halfway to 18 C (`/survival` shows the air and "in a room").
 - [ ] Food spoils: raw meat rots in about 2 game days at 16 C (slower when cold, in a storage pot or a cellar 3 m
       down); a bar under the icon and the tooltip show it; rotten food turns into Rot.
+
+## 2026-10-24: lighting grade golden (ADR 0041)
+
+- [ ] Golden is the default look: walk a forest at midday, watch a sunset, go into a cave with a torch. Does the warm
+      haze still feel right while playing, and is the cave torch light too orange?
+- [ ] `/grade natural` and `/grade clear` switch live for comparison; `/grade golden` goes back.
