@@ -29,6 +29,7 @@ var _loading: LoadingScreen
 var startup_ms := {}   # ms since _ready began, per startup step (printed, and in DebugCapture's JSON)
 var farming: Farming                 # tilled farmland and crops (ADR 0022)
 var pieces: FallingPieces            # rigid voxel pieces (P12), null with rigid_pieces=0
+var builder: ShapeBuilder            # shape building, box mode, prefabs (ADR 0038)
 var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
 var _furniture_root: Node3D
@@ -293,6 +294,15 @@ func _ready() -> void:
 			_after_load(_debug_hands)
 		if DebugCapture.swim_test:
 			_after_load(_debug_swim)
+		if not DebugCapture.later.is_empty():
+			_after_load(func() -> void:
+				await get_tree().create_timer(1.0).timeout
+				for c in DebugCapture.later:
+					if c.begins_with("wait "):
+						await get_tree().create_timer(float(c.substr(5))).timeout
+					else:
+						chat.send(c)
+						await get_tree().process_frame)
 		if DebugCapture.chop_test != "":
 			_after_load(func() -> void:
 				await get_tree().create_timer(1.5).timeout
@@ -372,6 +382,12 @@ func _ready() -> void:
 		bubble.pieces = pieces
 		if not warmup.is_queued_for_deletion():
 			warmup.add_materials([pieces.material], player.camera)
+	builder = ShapeBuilder.new()
+	builder.name = "ShapeBuilder"
+	add_child(builder)
+	builder.setup(self)
+	if not warmup.is_queued_for_deletion():
+		warmup.add_materials(builder.warm_materials(), player.camera)
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
 
@@ -1234,6 +1250,7 @@ func snapshot() -> Dictionary:
 		"terrain": world.terrain.get_statistics(),
 		"sim": bubble.stats(),
 		"pieces": pieces.stats() if pieces else {},
+		"build": builder.snapshot() if builder else {},
 		"stains": stains.stats() if stains else {},
 		"look": look,
 		"player": player_inv.summary(),

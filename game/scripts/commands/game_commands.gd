@@ -71,6 +71,9 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
 		_quests, [["list", "complete", "reset"], _quest_ids])
 	reg.register("cam", "/cam [off | <x> <y> <z> [<look_x> <look_y> <look_z>]]", "Free camera: flies anywhere while you, the terrain detail and the simulation stay put", _cam_cmd)
+	reg.register("shape", "/shape <box|wall|cylinder|cone|sphere|stairs|slope> [w h d] [hollow n] [at x y z] | commit | cancel | turn [tip] | mirror", "Shape building (V in game): set a shape down at the crosshair, then commit", _shape)
+	reg.register("box", "/box <build|dig|select> <x1> <y1> <z1> <x2> <y2> <z2> | go", "Box mode by coordinates (V in game); go digs a marked box at once", _box)
+	reg.register("prefab", "/prefab save <category> <name> | place <category> <name> [at x y z] | list", "Save the selected box as a prefab, place one, or list them", _prefab)
 	reg.register("chop", "/chop [cam]", "Chop through the nearest big trunk 8-20 m away like a player would: 1 m brush digs at 1.5 m up, one every 0.3 s", _chop)
 	reg.register("fell", "/fell [direction_deg|pillar] [cam]", "Fell the thickest tree 8-20 m away, across your view", _fell)
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
@@ -533,6 +536,107 @@ func _vantage(c: Vector3, away: Vector3) -> Dictionary:
 				if clear == 3:
 					return best
 	return best
+
+
+func _shape(args: PackedStringArray) -> Dictionary:
+	if main == null or main.builder == null:
+		return CommandRegistry.fail("No builder")
+	var b: ShapeBuilder = main.builder
+	if args.is_empty():
+		return CommandRegistry.fail("Usage: /shape <shape> [w h d] [hollow n] | commit | cancel | turn [tip] | mirror")
+	match args[0]:
+		"commit":
+			var n := b.commit()
+			return CommandRegistry.ok("Built %d voxels" % n) if n > 0 else CommandRegistry.fail("Not built: %s" % b.refusal)
+		"cancel":
+			b._set_state(ShapeBuilder.State.OFF)
+			return CommandRegistry.ok("Building off")
+		"turn":
+			b.turn(2 if args.size() > 1 and args[1] == "tip" else 1)
+			return CommandRegistry.ok("Turned: %s" % str(b.wsize))
+		"mirror":
+			b.mirror = not b.mirror
+			b._changed()
+			return CommandRegistry.ok("Mirrored")
+		"menu":
+			if args.size() > 1 and args[1] == "pick":
+				b._close_menu()
+				return CommandRegistry.ok("Menu closed: %s, %s" % [b.snapshot()["state"], b.snapshot()["shape"]])
+			b._open_menu()
+			var want := " ".join(args.slice(1)).to_lower()
+			for i in b.menu.items.size():
+				if String(b.menu.items[i]["label"]).to_lower() == want:
+					b.menu.feed(Vector2.from_angle(b.menu._angle_of(i)) * 80.0)   # what mouse motion does
+			return CommandRegistry.ok("Menu open on %s" % (b.menu.items[b.menu.selected]["label"] if b.menu.selected >= 0 else "nothing"))
+		"drag":
+			if args.size() < 3:
+				return CommandRegistry.fail("Usage: /shape drag <top|+x|-x|+z|-z|hollow|move> <voxels>")
+			var seen := b.drag_by(args[1], float(args[2]))
+			return CommandRegistry.ok("Dragged %s (aimed at %s): %s at %s, hollow %d" % [args[1], seen, str(b.wsize), str(b.lo), b.hollow])
+	if not ShapeBuilder.SHAPES.has(args[0]):
+		return CommandRegistry.fail("Unknown shape: %s" % args[0])
+	if b._held_material() <= 0:
+		return CommandRegistry.fail("Hold a voxel material to build with")
+	var size := Vector3i.ZERO
+	if args.size() >= 4 and args[1].is_valid_int() and args[2].is_valid_int() and args[3].is_valid_int():
+		size = Vector3i(int(args[1]), int(args[2]), int(args[3]))
+	b.start_shape(args[0], size)
+	var hi := args.find("hollow")
+	if hi >= 0 and hi + 1 < args.size():
+		b.hollow = int(args[hi + 1])
+	b.place_at_aim(_at_arg(args))
+	return CommandRegistry.ok("%s %s at %s" % [args[0], str(b.wsize), str(b.lo)])
+
+
+## "at <x> <y> <z>" in a command's args (~ relative to the player) as a Vector3i, else null.
+func _at_arg(args: PackedStringArray) -> Variant:
+	var i := args.find("at")
+	if i < 0 or i + 3 >= args.size():
+		return null
+	var p: Variant = _coords(args, i + 1, player.position)
+	return Vector3i(p) if p is Vector3 else null
+
+
+func _box(args: PackedStringArray) -> Dictionary:
+	if main == null or main.builder == null:
+		return CommandRegistry.fail("No builder")
+	var b: ShapeBuilder = main.builder
+	if args.size() == 1 and args[0] == "go":
+		return CommandRegistry.ok("Dug %d voxels" % b.stats["dug"]) if b.dig_now() else CommandRegistry.fail("No box marked to dig")
+	if args.size() != 7 or not args[0] in ["build", "dig", "select"]:
+		return CommandRegistry.fail("Usage: /box <build|dig|select> <x1> <y1> <z1> <x2> <y2> <z2> | go")
+	var a: Variant = _coords(args, 1, player.position)
+	if a is Dictionary:
+		return a
+	var c: Variant = _coords(args, 4, player.position)
+	if c is Dictionary:
+		return c
+	b.start_box(args[0])
+	b.mark_box(Vector3i(a), Vector3i(c))
+	return CommandRegistry.ok("Box %s from %s, size %s (%s)" % [args[0], str(b.lo), str(b.wsize), b.snapshot()["state"]])
+
+
+func _prefab(args: PackedStringArray) -> Dictionary:
+	if main == null or main.builder == null:
+		return CommandRegistry.fail("No builder")
+	var b: ShapeBuilder = main.builder
+	if args.size() == 1 and args[0] == "list":
+		return CommandRegistry.ok(str(b.prefabs.list()))
+	if args.size() < 3:
+		return CommandRegistry.fail("Usage: /prefab save <category> <name> | place <category> <name> | list")
+	var nm := " ".join(args.slice(2))
+	if args[0] == "save":
+		var path := b.save_selection(args[1], nm)
+		return CommandRegistry.ok("Saved %s" % path) if path != "" else CommandRegistry.fail("Select a box first (V, Select), with something built in it")
+	if args[0] == "place":
+		var at: Variant = _at_arg(args)
+		if at != null:
+			nm = " ".join(args.slice(2, args.find("at")))
+		if not b.start_prefab(args[1], nm):
+			return CommandRegistry.fail("No prefab %s / %s" % [args[1], nm])
+		b.place_at_aim(at)
+		return CommandRegistry.ok("Placing %s, %s" % [nm, str(b.wsize)])
+	return CommandRegistry.fail("Usage: /prefab save <category> <name> | place <category> <name> | list")
 
 
 func _chop(args: PackedStringArray) -> Dictionary:

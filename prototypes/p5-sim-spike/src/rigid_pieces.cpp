@@ -111,6 +111,7 @@ void RigidPieces::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_async", "on"), &RigidPieces::set_async);
     ClassDB::bind_method(D_METHOD("queue_check", "cells", "push_from"), &RigidPieces::queue_check);
     ClassDB::bind_method(D_METHOD("queue_step", "dt"), &RigidPieces::queue_step);
+    ClassDB::bind_method(D_METHOD("queue_check_packed", "cells", "push_from"), &RigidPieces::queue_check_packed);
     ClassDB::bind_method(D_METHOD("collect"), &RigidPieces::collect);
     ClassDB::bind_method(D_METHOD("get_contact_info", "id"), &RigidPieces::get_contact_info);
 }
@@ -1287,6 +1288,15 @@ void RigidPieces::queue_check(const Array &p_cells, Vector3 p_push_from) {
     PendingCheck c;
     c.cells.resize(p_cells.size());
     for (int i = 0; i < p_cells.size(); i++) c.cells[i] = p_cells[i];
+    c.from = p_push_from;
+    std::lock_guard<std::mutex> lk(job_m_);
+    pending_.push_back(std::move(c));
+}
+
+void RigidPieces::queue_check_packed(const PackedInt32Array &p_cells, Vector3 p_push_from) {
+    PendingCheck c;
+    c.cells.reserve(p_cells.size() / 3);
+    for (int64_t i = 0; i + 2 < p_cells.size(); i += 3) c.cells.push_back(Vector3i(p_cells[i], p_cells[i + 1], p_cells[i + 2]));
     c.from = p_push_from;
     std::lock_guard<std::mutex> lk(job_m_);
     pending_.push_back(std::move(c));

@@ -98,6 +98,7 @@ public:
     // (tests, the bench).
     void set_async(bool p_on);
     void queue_check(const Array &p_cells, Vector3 p_push_from);
+    void queue_check_packed(const PackedInt32Array &p_cells, Vector3 p_push_from);   // x, y, z triples (a box dig)
     void queue_step(float p_dt);
     Dictionary collect();
     // Debug, as of collect(): {load (highest wood contact load over its snapping load, last tick), wood, ground (contacts)}.

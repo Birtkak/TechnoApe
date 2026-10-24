@@ -97,3 +97,15 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
       propped on its own crown; it pivots on the edge of the cut as it tips.
 - [ ] `/cam`: free camera (mouse looks, move keys fly, sprint 3x), `/cam` again to go back. Terrain detail
       and the simulation stay around you, so do not fly far.
+
+## 2026-10-24: shape building (ADR 0038)
+
+- [ ] Hold a building material (planks), hold **V**: a ring menu. Move the mouse to a shape, let go of V.
+      Does the menu feel right (size, labels, choosing by moving the mouse)?
+- [ ] The shape's see-through preview follows your aim; left click sets it down. Aim at a coloured handle
+      (green top, red / blue sides, yellow hollow, white move), hold the left button and turn: it grows, hollows
+      or moves. R turns it, Shift+R tips it, X mirrors it. Left click away from it builds; right click goes back.
+- [ ] In survival a shape needs the material in your inventory (it says how much); the preview turns red when short.
+- [ ] Box mode: two clicks mark a box, then the same handles. With a tool (or an empty hand), Box dig marks a box;
+      hold the left button to dig it, the drops fall out.
+- [ ] Select marks a box; type `/prefab save <category> <name>`; V, Prefabs places it again (also "last build").

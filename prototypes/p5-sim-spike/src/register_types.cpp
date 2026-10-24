@@ -1,6 +1,7 @@
 #include "register_types.h"
 #include "micro_mesher.h"
 #include "rigid_pieces.h"
+#include "shape_tool.h"
 #include "sim_world.h"
 #include "world_gen.h"
 #include "fine_gen.h"
@@ -20,6 +21,7 @@ void initialize_technosim_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(FineGen);
     GDREGISTER_CLASS(MicroMesher);
     GDREGISTER_CLASS(RigidPieces);
+    GDREGISTER_CLASS(ShapeTool);
 }
 
 void uninitialize_technosim_module(ModuleInitializationLevel p_level) {

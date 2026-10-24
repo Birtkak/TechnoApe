@@ -167,6 +167,7 @@ protected:
 
 private:
     friend class RigidPieces;   // P12: reads and writes cells between ticks (rigid_pieces.h)
+    friend class ShapeTool;     // ADR 0038: fills and reads shapes (shape_tool.h)
     void touch_cell(int x, int y, int z);              // touch / place for callers outside this file
     void place_cell(int x, int y, int z, uint8_t m);   // place + touch
     std::function<void()> pre_tick_;                   // runs on the driver thread before each background tick

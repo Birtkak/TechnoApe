@@ -41,6 +41,8 @@ var _pitch := -0.2
 var _mouse_captured := false
 var autopilot := false
 var free_cam := false        # a DebugCamera has the view: no moving, looking or mining from input
+var building := false        # the ShapeBuilder (ADR 0038) owns the mouse buttons: no breaking or placing
+var input_grab := false      # the build menu (V) has the mouse: no looking either
 var autopilot_dir := Vector3(0, 0, -1)
 var autopilot_speed_m := 6.0
 var mined_log: Array = []   # autopilot mine=1: every break (voxel, what it reads now, feet height), first 64
@@ -189,7 +191,7 @@ func set_ui_open(open: bool, notify: bool = true) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if autopilot or free_cam:
+	if autopilot or free_cam or input_grab:
 		return
 	if event.is_action_pressed("inventory"):
 		set_ui_open(not ui_open)
@@ -233,9 +235,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		inventory.scroll(-1)
 	elif event.is_action_pressed("drop"):
 		_drop(Input.is_key_pressed(KEY_CTRL))
-	elif event.is_action_pressed("action_place") and _mouse_captured:
+	elif event.is_action_pressed("action_place") and _mouse_captured and not building:
 		_use(true)
-	elif event.is_action_pressed("action_break") and _mouse_captured:
+	elif event.is_action_pressed("action_break") and _mouse_captured and not building:
 		_attack()
 	else:
 		for i in 9:
@@ -564,7 +566,7 @@ func _update_mining(delta: float) -> void:
 	if edits_locked:
 		holding = false
 	elif not autopilot:
-		holding = _mouse_captured and not ui_open and not free_cam and Input.is_action_pressed("action_break")
+		holding = _mouse_captured and not ui_open and not free_cam and not building and Input.is_action_pressed("action_break")
 	var hit: VoxelRaycastResult = _aim() if (holding or (_mouse_captured and not ui_open and not autopilot)) else null
 	var mob = aimed_mob(hit) if (_mouse_captured and not ui_open and not autopilot) else null
 	_update_look(hit, mob)
@@ -578,7 +580,7 @@ func _update_mining(delta: float) -> void:
 	else:
 		_highlight.visible = false
 	# keep placing while the button is held (vanilla repeats every 4 ticks)
-	if not autopilot and not ui_open and _mouse_captured and Input.is_action_pressed("action_place") and _place_cooldown <= 0.0:
+	if not autopilot and not ui_open and not building and _mouse_captured and Input.is_action_pressed("action_place") and _place_cooldown <= 0.0:
 		_use(false)
 	# knapping (ADR 0023): a left click chips a cell instead of mining; holding repeats
 	if holding and hit and _break_cooldown <= 0.0 and work_hit.is_valid():
