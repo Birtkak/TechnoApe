@@ -33,6 +33,7 @@
 
 #include <array>
 #include <cstdint>
+#include <mutex>
 #include <vector>
 
 namespace godot {
@@ -42,8 +43,10 @@ class RigidPieces : public RefCounted {
 
 public:
     enum Class : uint8_t { EMPTY = 0, GROUND = 1, WOOD = 2, LEAF = 3, CRUSH = 4 };
+    static constexpr int MESH_BLOCK = 16;   // async meshes come in blocks: a crown that sheds leaves rebuilds only where it did
 
     RigidPieces();
+    ~RigidPieces();
 
     // defs: the same Array as SimWorld.set_materials (index = material id - 1). Reads "rigid"
     // ("wood" / "leaf"), "cell_type", "micro" and "replaceable" to pick each material's class, and
@@ -86,11 +89,23 @@ public:
     Dictionary get_info(int p_id) const;
     Dictionary get_stats() const;
 
+    // In the game the work runs on the SimWorld's driver thread, just before each sim tick, never on
+    // the main thread. set_async(true) hooks it in; then queue_check / queue_step only queue, and
+    // collect() (main thread, between ticks) hands over what the last jobs did: {spawned, settled,
+    // meshes (id -> {block index -> mesh arrays}, built on the driver), breaks, crumbs}. get_transform, get_hash_origin
+    // and get_stats then read the state as of that collect. check() and step() stay synchronous
+    // (tests, the bench).
+    void set_async(bool p_on);
+    void queue_check(const Array &p_cells, Vector3 p_push_from);
+    void queue_step(float p_dt);
+    Dictionary collect();
+
 protected:
     static void _bind_methods();
 
 private:
     struct LeafPoint { Vector3 r; int cell; };   // relative to com; index into grid
+    struct View { int id; Vector3 prev_pos, pos, com, hash_origin; Quaternion prev_rot, rot; };   // async: as of collect()
     struct Piece {
         int id = 0;
         Vector3i size;                    // local grid size
@@ -105,6 +120,10 @@ private:
         std::vector<Vector3> points;      // contact points (wood surface), local, relative to com
         std::vector<LeafPoint> leaf_points;   // leaf surface: shreds on impact, never holds the piece up
         bool mesh_dirty = false;
+        bool mesh_new = true;             // async: no mesh handed over yet
+        int mesh_wait = 0;                // ticks since its mesh was last built (async rebuilds are spaced)
+        Vector3i blocks;                  // mesh blocks of MESH_BLOCK^3 cells along each axis
+        std::vector<uint8_t> block_dirty; // async: blocks that lost voxels since their last mesh
         int still = 0;
         float age = 0.0f;
         int wood = 0, leaves = 0;
@@ -157,6 +176,23 @@ private:
     Vector3i hit_at_;
     PackedInt32Array crumbs_;
     std::vector<Vector3i> anchors_, fills_;   // debug: where the last check's fills touched ground
+    int max_breaks_ = 800;       // world voxels pieces may break per tick (each is a terrain edit and a remesh)
+    int breaks_tick_ = 0;
+    int recheck_every_ = 3;      // snapped limbs are checked together every this many ticks
+    int recheck_wait_ = 0;
+    int mesh_every_ = 2;         // async: a piece that lost leaves gets its changed blocks at most every this many ticks
+
+    // async (set_async)
+    struct PendingCheck { std::vector<Vector3i> cells; Vector3 from; };
+    bool async_ = false;
+    std::mutex job_m_;
+    std::vector<PendingCheck> pending_;
+    float pending_dt_ = 0.0f;
+    PackedInt32Array settled_out_;
+    Dictionary meshes_out_;
+    std::vector<View> view_;
+    Dictionary stats_view_;
+    double last_job_ms_ = 0.0, max_job_ms_ = 0.0;
 
     // stats
     double last_check_ms_ = 0.0, max_check_ms_ = 0.0;
@@ -171,7 +207,14 @@ private:
     uint8_t cls_at(int wx, int wy, int wz) const;               // GROUND outside the window / unloaded
     void set_at(int wx, int wy, int wz, uint8_t m);
 
-    PackedInt32Array check_cells(const Array &p_cells, Vector3 p_push_from, bool strength);
+    PackedInt32Array check_cells(const std::vector<Vector3i> &cells, Vector3 p_push_from, bool strength);
+    void step_impl(float dt, PackedInt32Array &done);
+    void run_job();   // driver thread, before a sim tick
+    // block < 0: the whole piece; else one MESH_BLOCK^3 block (index into Piece::blocks)
+    Array mesh_arrays(const Piece &p, int block = -1) const;
+    void mark_block(Piece &p, int cell);
+    Dictionary live_stats() const;
+    const View *find_view(int id) const;
     bool strength_split(const std::vector<int64_t> &S, std::vector<int64_t> &piece);
     void make_piece(const std::vector<int64_t> &wood, const std::vector<int64_t> &leaves, Vector3 push_from);
     Vector3 smooth_normal(int cx, int cy, int cz, const Vector3 &face) const;

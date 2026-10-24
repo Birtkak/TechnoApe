@@ -485,13 +485,14 @@ func _fell(args: PackedStringArray) -> Dictionary:
 		t = main.pieces.fell_nearest(player.position, 20.0, deg, main.world)
 	if t.is_empty():
 		return CommandRegistry.fail("No standing trunk 8-20 m away")
-	# face it, looking at 5 m up the trunk: it falls across the view
+	# face it, looking at 5 m up the trunk (from above the canopy: at the crown): it falls across the view
 	var eye: Vector3 = player.camera.global_position
-	var look: Vector3 = t["centre"] + Vector3(0, Settings.m2v(5.0), 0) - eye
+	var aim_m := 5.0 if eye.y - t["centre"].y < Settings.m2v(20.0) else 16.0
+	var look: Vector3 = t["centre"] + Vector3(0, Settings.m2v(aim_m), 0) - eye
 	player._yaw = atan2(-look.x, -look.z)
 	player._pitch = atan2(look.y, Vector2(look.x, look.z).length())
 	player._apply_look()
-	return CommandRegistry.ok("Felled a trunk of %d columns (%d voxels cut, %d pieces)" % [t["columns"], t["cut"], t["pieces"]])
+	return CommandRegistry.ok("Felled a trunk of %d columns (%d voxels cut)" % [t["columns"], t["cut"]])
 
 
 func _bug(args: PackedStringArray) -> Dictionary:

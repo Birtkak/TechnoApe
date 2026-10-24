@@ -46,3 +46,34 @@ research for P12 (rigid voxel pieces, ADR 0037).
 | < 8 voxels become powder | Nothing yet | **Yes:** tiny pieces skip the rigid body (wood bits drop as items, crumbs fall as cells) |
 | Bodies split when damaged | Settled pieces are voxels again, so a new cut runs the normal check | Covered |
 | Projectiles separate | Item and projectile code already separate | Covered |
+
+## Video 2: the graphics pipeline (Y8HRCXxI0BY, auto captions read)
+Grimorium does not draw triangles: a compute shader casts one ray per pixel through the voxel data
+the simulation uses (DDA, voxel by voxel), so a changing world never rebuilds meshes. Notes in
+order of use to us:
+- **Rigid bodies moved to a physics library** ("Box 3D", for large speedups) after the first video.
+  The hand-written solver did not scale for them either. Godot 4.7 ships Jolt; if many P12 pieces
+  have to touch each other (body vs body, which ours lacks), a Jolt body per piece with a
+  simplified collider is the path to try before growing our own solver.
+- **Emissive voxels as a few lights.** Thousands of glowing cells (lava, fire, embers, acid) are
+  merged on the GPU into one point light per chunk octant (8^3 cells), brightness from how much
+  glows there, and each chunk keeps a list of the lights that reach it. Our lava and fire only
+  glow by emission and light nothing around them; `TorchLights` already has a pool of
+  OmniLight3Ds, so merging emissive cells per 1 m octant into that pool is a cheap win for caves.
+- **Every dangerous material glows a little** so the player never walks into acid in the dark
+  unwarned. A taste rule worth keeping for our materials.
+- **Detail in the shader, not the data:** grass, leaves, flowers and vines build blades and leaves
+  inside the voxel's space when a ray enters it, seeded by the voxel position, so they cost no
+  storage. Our raster equivalent is a terrain shader that cuts leaf cells into alpha-tested leaf
+  shapes (seeded by `voxel_sample`'s hash); worth a look when leaves read as flat cubes.
+- **Gas as a density field** (smooth blobs, not cubes), the same trick for slime creatures.
+- **LOD rings** at 2x and 4x voxel size beyond the simulation window, the same shape as our
+  godot_voxel LOD.
+- **Ambient occlusion** from the corners around each surface point; godot_voxel's blocky mesher
+  gives us baked AO already.
+- **Cost controls:** 1/3 render resolution with a jittered camera and temporal anti-aliasing,
+  per-chunk occupancy flags to skip empty space, a debug view coloured by work per ray (like our
+  F3 overlays, a per-pixel cost view is a useful idea for any ray marching we add).
+
+Nothing here changes P12's current fixes. The emissive-light merge and the leaf shader are
+candidates for the patterned-voxel and cave work in ADR 0037.

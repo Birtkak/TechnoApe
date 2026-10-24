@@ -351,13 +351,13 @@ void SimWorld::set_voxel(Vector3i p, int p_material) {
 }
 
 int SimWorld::get_voxel(Vector3i p) const {
-    wait_idle();
+    wait_readable();
     if (!in_world(p.x, p.y, p.z)) return -1;
     return cells_[idx(p.x, p.y, p.z)].mat;
 }
 
 int SimWorld::get_flags(Vector3i p) const {
-    wait_idle();
+    wait_readable();
     if (!in_world(p.x, p.y, p.z)) return 0;
     return cells_[idx(p.x, p.y, p.z)].flags;
 }
@@ -1137,6 +1137,11 @@ bool SimWorld::start_tick() {
                     dcv_.wait(l, [&] { return drv_stop_ || drv_req_; });
                     if (drv_stop_) return;
                 }
+                if (pre_tick_) {   // P12 rigid pieces: they read and write cells between ticks
+                    pre_phase_.store(true);
+                    pre_tick_();
+                    pre_phase_.store(false);
+                }
                 TickOut o;
                 tick_once(o);
                 {
@@ -1157,6 +1162,11 @@ bool SimWorld::start_tick() {
 }
 
 bool SimWorld::is_tick_done() const { return !busy_.load(); }
+
+void SimWorld::wait_readable() const {
+    if (!busy_.load() || pre_phase_.load()) return;
+    wait_idle();
+}
 
 void SimWorld::wait_idle() const {
     if (!busy_.load()) return;

@@ -86,11 +86,53 @@ Against the criteria:
   writing 30 000 voxels from GDScript); **forest fail** (p99 35 ms: detection on the main thread and
   thousands of broken voxels re-meshing).
 
-**Answer.** Rigid voxel pieces work end to end on our grid: find, fly, crush, settle, draw with the
-terrain's colours. The mechanism is sound; the forest cost is not yet. Before it leaves the flag:
-1. Run `check` (and settling) on the sim driver thread between ticks, never on the main thread.
-2. Leaves on a dense local grid instead of hash maps (expect 5-10x), and the strength flow only
-   when the cut plane leaves a thin hinge (count the wood left in the cut's layer first).
-3. A break budget per tick (crowns break thousands of leaves; each is a terrain edit and remesh),
-   and snapped limbs re-checked in one batch every few ticks.
-4. Then a forest filmstrip from a clearing, and the budget run with `budget_ok`.
+**Answer (first pass).** Rigid voxel pieces work end to end on our grid: find, fly, crush, settle,
+draw with the terrain's colours. The mechanism is sound; the forest cost was not.
+
+## Cost pass (2026-10-24)
+What changed, in the order it paid off:
+1. **Strength flow grows its region lazily.** The max flow no longer builds the whole connected
+   wood network (93k voxels in old growth) before its first search: a node's faces are read when a
+   search first reaches it, so a dig by the roots meets the ground at once. Strength 21 -> 4 ms; an
+   ordinary dig next to a big tree 17 -> 0.4 ms (it ran the flow over the whole forest before).
+   Same pieces found (11 117 wood + 30 676 leaves, as before).
+2. **Leaves on a dense box** (calloc'd distance bytes around the wood, plus leaf_reach) instead of
+   hash maps: 41 -> 11 ms (old growth), 13 -> 6.6 ms (forest).
+3. **Settling scans world rows once**, clipped to the piece's rotated box, instead of a small cube of
+   world cells around every piece voxel: a leafy crown 15 -> 5.6 ms.
+4. **The work runs on the sim's driver thread** (`RigidPieces.set_async`, `SimWorld::pre_tick_`):
+   the main thread queues checks and steps and collects results between ticks. Single-cell reads
+   (`get_voxel`, `get_flags`) no longer wait for that phase, only for the tick itself: the first
+   async run stalled the main thread for the whole job through the player's and the particles'
+   per-frame `get_voxel` (a read now sees a wood or leaf cell just before or just after a piece takes
+   it; writers still wait).
+5. **Meshes in 16^3 blocks, built on the driver**: a crown that sheds leaves rebuilds only the blocks
+   it lost them from, and the main thread uploads blocks within 1.5 ms a frame (one 100k-voxel mesh
+   cost 15 ms to upload, every few ticks while the crown shed).
+6. **Budgets:** at most 800 world voxels broken per tick (over it, wood holds and leaves wait),
+   snapped limbs re-checked together every 3 ticks, 8 break particles per tick (24 cost 4.4 ms).
+7. `/fell` scans every 4th column first: the debug command itself cost a 574 ms frame (now 110 ms,
+   still GDScript; a player's chop does not go through it).
+
+| Case | Check (driver) | Job max (driver) | Main thread max | p99 / frames > 16.7 ms |
+|---|---|---|---|---|
+| Old-growth oak (bench, sync) | 19.7 ms (fill 2.6, strength 3.8, leaves 10.8, make 2.4) | | | |
+| Forest oak (bench, sync) | 14.7 ms | | | |
+| `/fell` in forest (game) | 10.5-11 ms | 15-17.6 ms | 2.4 ms (`pieces.tick`) | **7.19 ms** / 1 (the `/fell` command frame) |
+| `/fell pillar` on plains (game) | 1.5 ms | 2.5 ms | 1.6 ms | 4.45 ms / 1 (the command placing 30k voxels) |
+
+Against the criteria now: detection costs the main thread nothing (it delays one sim tick by up to
+~18 ms on the driver, the sim runs at 33 ms a tick); physics and settling likewise; the forest
+felling holds p99 (7.19 <= 8.3 ms). `budget_ok` still reads false in both runs, only for `max`:
+the one frame over 16.7 ms is the debug command's own GDScript (scan and cut, or placing the
+pillar), not the falling. The pillar filmstrip (`game/out/fell12/fall_sheet.png`) looks as before:
+topples away from the cut, crown bursts on impact, the log settles.
+
+Still open:
+- A forest fall has not been judged on camera: from the ground and from above the canopy, crowns
+  block the view, and above ~22 m the sim window no longer reaches the trunks. Needs a debug camera
+  or a clearing to film in.
+- Leaves (7-11 ms) are now the biggest part of a check; reading cells through `cls_at` (bounds and
+  loaded check per neighbour) is most of it.
+- A frame over budget in a real chop could still come from the terrain remesh of thousands of broken
+  leaves; the break budget bounds it per tick but it was not measured with a player's chop.

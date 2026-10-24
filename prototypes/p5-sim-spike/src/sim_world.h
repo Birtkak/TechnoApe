@@ -169,6 +169,7 @@ private:
     friend class RigidPieces;   // P12: reads and writes cells between ticks (rigid_pieces.h)
     void touch_cell(int x, int y, int z);              // touch / place for callers outside this file
     void place_cell(int x, int y, int z, uint8_t m);   // place + touch
+    std::function<void()> pre_tick_;                   // runs on the driver thread before each background tick
     struct Pool {
         std::vector<std::thread> threads;
         std::mutex m;
@@ -218,6 +219,10 @@ private:
         return v;
     }
     void wait_idle() const;
+    // single-cell reads: wait for a running tick, but not for the pre-tick phase (P12 rigid pieces take and
+    // put back wood and leaf cells there; a read sees a cell just before or just after, and the main thread
+    // does not stall for a felled tree)
+    void wait_readable() const;
     void stop_driver();
     void wake_full(int ci);
     void chunk_of(int ci, int &cx, int &cy, int &cz) const;   // physical chunk index -> window-local chunk
@@ -263,6 +268,7 @@ private:
     mutable std::condition_variable dcv_;
     bool drv_stop_ = false, drv_req_ = false;
     std::atomic<bool> busy_{false};
+    std::atomic<bool> pre_phase_{false};   // the driver runs pre_tick_
     TickOut last_;
     bool dirty_boxes_ = true;
     bool fullness_ = false;

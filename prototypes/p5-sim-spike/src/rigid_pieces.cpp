@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 
 using namespace godot;
 
@@ -84,6 +85,13 @@ struct FlatMap {
 
 RigidPieces::RigidPieces() {}
 
+RigidPieces::~RigidPieces() {
+    if (sim_.is_valid() && async_) {
+        sim_->wait_idle();
+        sim_->pre_tick_ = nullptr;
+    }
+}
+
 void RigidPieces::_bind_methods() {
     ClassDB::bind_method(D_METHOD("setup", "sim", "defs", "atlas_tiles"), &RigidPieces::setup);
     ClassDB::bind_method(D_METHOD("set_origin", "world_cell"), &RigidPieces::set_origin);
@@ -100,6 +108,10 @@ void RigidPieces::_bind_methods() {
     ClassDB::bind_method(D_METHOD("build_mesh", "id"), &RigidPieces::build_mesh);
     ClassDB::bind_method(D_METHOD("get_info", "id"), &RigidPieces::get_info);
     ClassDB::bind_method(D_METHOD("get_stats"), &RigidPieces::get_stats);
+    ClassDB::bind_method(D_METHOD("set_async", "on"), &RigidPieces::set_async);
+    ClassDB::bind_method(D_METHOD("queue_check", "cells", "push_from"), &RigidPieces::queue_check);
+    ClassDB::bind_method(D_METHOD("queue_step", "dt"), &RigidPieces::queue_step);
+    ClassDB::bind_method(D_METHOD("collect"), &RigidPieces::collect);
 }
 
 void RigidPieces::setup(const Ref<SimWorld> &p_sim, const Array &p_defs, Vector2i p_atlas_tiles) {
@@ -150,6 +162,9 @@ void RigidPieces::set_params(const Dictionary &p) {
     impact_k_ = p.get("impact_k", impact_k_);
     load_k_ = p.get("load_k", load_k_);
     max_leaf_points_ = p.get("max_leaf_points", max_leaf_points_);
+    max_breaks_ = p.get("max_breaks", max_breaks_);
+    recheck_every_ = std::max(1, (int)p.get("recheck_every", recheck_every_));
+    mesh_every_ = std::max(1, (int)p.get("mesh_every", mesh_every_));
 }
 
 // ---- cells ----
@@ -181,20 +196,23 @@ void RigidPieces::set_at(int wx, int wy, int wz, uint8_t m) {
 // ---- support ----
 
 PackedInt32Array RigidPieces::check(const Array &p_cells, Vector3 p_push_from) {
+    if (sim_.is_null()) return PackedInt32Array();
+    sim_->wait_idle();
     crumbs_.clear();
-    return check_cells(p_cells, p_push_from, true);
+    std::vector<Vector3i> cells(p_cells.size());
+    for (int i = 0; i < p_cells.size(); i++) cells[i] = p_cells[i];
+    return check_cells(cells, p_push_from, true);
 }
 
 // strength: also test whether supported wood above the cells hangs on too little (player cuts; the
 // limbs a falling piece snaps only get the cheap free-or-held fill). Crumbs accumulate until check().
-PackedInt32Array RigidPieces::check_cells(const Array &p_cells, Vector3 p_push_from, bool strength) {
+PackedInt32Array RigidPieces::check_cells(const std::vector<Vector3i> &p_cells, Vector3 p_push_from, bool strength) {
     PackedInt32Array out;
     anchors_.clear();
     fills_.clear();
     last_paths_ = last_region_ = 0;
     last_strength_ms_ = 0.0;
     if (sim_.is_null() || cls_.empty()) return out;
-    sim_->wait_idle();
     const double t0 = now_ms();
     FlatMap supported, freed, visit;
     supported.reset();
@@ -202,8 +220,7 @@ PackedInt32Array RigidPieces::check_cells(const Array &p_cells, Vector3 p_push_f
     std::vector<std::vector<int64_t>> comps;
     std::vector<int64_t> queue;
     int filled = 0;
-    for (int ci = 0; ci < p_cells.size(); ci++) {
-        const Vector3i c = p_cells[ci];
+    for (const Vector3i &c : p_cells) {
         for (int d = 0; d < 6; d++) {
             const int sx = c.x + DX[d], sy = c.y + DY[d], sz = c.z + DZ[d];
             if (cls_at(sx, sy, sz) != WOOD) continue;
@@ -252,8 +269,7 @@ PackedInt32Array RigidPieces::check_cells(const Array &p_cells, Vector3 p_push_f
         FlatMap seen;
         seen.reset();
         std::vector<int64_t> S;
-        for (int ci = 0; ci < p_cells.size(); ci++) {
-            const Vector3i c = p_cells[ci];
+        for (const Vector3i &c : p_cells) {
             const int64_t k = key(c.x, c.y + 1, c.z);
             if (cls_at(c.x, c.y + 1, c.z) == WOOD && !freed.has(k) && seen.put(k)) S.push_back(k);
         }
@@ -265,55 +281,85 @@ PackedInt32Array RigidPieces::check_cells(const Array &p_cells, Vector3 p_push_f
     }
     const double t_strength = now_ms();
     double leaf_ms = 0.0, make_ms = 0.0;
-    // leaves: those closer (through leaves) to the piece's wood than to any other wood
+    // leaves: those closer (through leaves) to the piece's wood than to any other wood. On a dense box
+    // around the wood (no leaf further than leaf_reach can join): distances to this wood (da, OWN on the
+    // wood itself) and to other wood (db); calloc'd, so untouched pages cost nothing.
     for (const std::vector<int64_t> &wood : comps) {
         const double tl = now_ms();
-        FlatMap da, db;
-        da.reset();
-        db.reset();
-        std::vector<int64_t> front, bfront;
+        int lo[3] = {INT32_MAX, INT32_MAX, INT32_MAX}, hi[3] = {INT32_MIN, INT32_MIN, INT32_MIN};
+        for (int64_t k : wood) {
+            int v[3];
+            unkey(k, v[0], v[1], v[2]);
+            for (int a = 0; a < 3; a++) {
+                lo[a] = std::min(lo[a], v[a]);
+                hi[a] = std::max(hi[a], v[a]);
+            }
+        }
+        for (int a = 0; a < 3; a++) {
+            lo[a] -= leaf_reach_ + 1;
+            hi[a] += leaf_reach_ + 1;
+        }
+        const int bx = hi[0] - lo[0] + 1, by = hi[1] - lo[1] + 1, bz = hi[2] - lo[2] + 1;
+        const size_t bn = (size_t)bx * by * bz;
+        uint8_t *da = (uint8_t *)std::calloc(bn, 1), *db = (uint8_t *)std::calloc(bn, 1);
+        constexpr uint8_t OWN = 255;
+        const int64_t off[6] = {1, -1, bx, -bx, (int64_t)bx * by, -(int64_t)bx * by};
+        auto at = [&](int x, int y, int z) { return (size_t)(x - lo[0]) + (size_t)bx * ((size_t)(y - lo[1]) + (size_t)by * (size_t)(z - lo[2])); };
+        for (int64_t k : wood) {
+            int x, y, z;
+            unkey(k, x, y, z);
+            da[at(x, y, z)] = OWN;
+        }
+        std::vector<uint32_t> front, bfront;   // box indices
         for (int64_t k : wood) {
             int x, y, z;
             unkey(k, x, y, z);
             for (int e = 0; e < 6; e++) {
                 const int nx = x + DX[e], ny = y + DY[e], nz = z + DZ[e];
-                if (cls_at(nx, ny, nz) == LEAF && da.put(key(nx, ny, nz), 1)) front.push_back(key(nx, ny, nz));
+                const size_t i = at(nx, ny, nz);
+                if (!da[i] && cls_at(nx, ny, nz) == LEAF) {
+                    da[i] = 1;
+                    front.push_back((uint32_t)i);
+                }
             }
         }
-        std::vector<int64_t> leaves;
         for (size_t h = 0; h < front.size(); h++) {
-            const int64_t k = front[h];
-            leaves.push_back(k);
-            const int dist = *da.get(k);
-            int x, y, z;
-            unkey(k, x, y, z);
+            const uint32_t i = front[h];
+            const int dist = da[i];
+            const int x = lo[0] + (int)(i % bx), y = lo[1] + (int)(i / bx % by), z = lo[2] + (int)(i / bx / by);
             for (int e = 0; e < 6; e++) {
-                const int nx = x + DX[e], ny = y + DY[e], nz = z + DZ[e];
-                const uint8_t cl = cls_at(nx, ny, nz);
-                const int64_t nk = key(nx, ny, nz);
-                if (cl == WOOD && !freed.has(nk)) {
-                    if (db.put(k, 1)) bfront.push_back(k);   // this leaf touches another tree's wood
-                } else if (cl == LEAF && dist < leaf_reach_ && da.put(nk, dist + 1)) {
-                    front.push_back(nk);
+                const uint32_t ni = (uint32_t)(i + off[e]);
+                const uint8_t cl = cls_at(x + DX[e], y + DY[e], z + DZ[e]);
+                if (cl == WOOD && da[ni] != OWN) {
+                    if (!db[i]) {   // this leaf touches another tree's wood
+                        db[i] = 1;
+                        bfront.push_back(i);
+                    }
+                } else if (cl == LEAF && dist < leaf_reach_ && !da[ni]) {
+                    da[ni] = (uint8_t)(dist + 1);
+                    front.push_back(ni);
                 }
             }
         }
         // the other trees' distances, inside the leaves reached
         for (size_t h = 0; h < bfront.size(); h++) {
-            int x, y, z;
-            unkey(bfront[h], x, y, z);
-            const int dist = *db.get(bfront[h]);
+            const uint32_t i = bfront[h];
+            const int dist = db[i];
+            if (dist >= leaf_reach_) continue;
             for (int e = 0; e < 6; e++) {
-                const int64_t nk = key(x + DX[e], y + DY[e], z + DZ[e]);
-                if (da.has(nk) && dist < leaf_reach_ && db.put(nk, dist + 1)) bfront.push_back(nk);
+                const uint32_t ni = (uint32_t)(i + off[e]);
+                if (da[ni] && da[ni] != OWN && !db[ni]) {
+                    db[ni] = (uint8_t)(dist + 1);
+                    bfront.push_back(ni);
+                }
             }
         }
         std::vector<int64_t> mine;
-        mine.reserve(leaves.size());
-        for (int64_t k : leaves) {
-            const int32_t *b = db.get(k);
-            if (!b || *da.get(k) < *b) mine.push_back(k);
-        }
+        mine.reserve(front.size());
+        for (uint32_t i : front)
+            if (!db[i] || da[i] < db[i]) mine.push_back(key(lo[0] + (int)(i % bx), lo[1] + (int)(i / bx % by), lo[2] + (int)(i / bx / by)));
+        std::free(da);
+        std::free(db);
         // too small to fly: crumbs (Grimorium: < 8 voxels); snapped twigs too, below min_limb
         if ((int)(wood.size() + mine.size()) < (strength ? min_piece_ : min_limb_)) {
             const std::vector<int64_t> *lists[2] = {&wood, &mine};
@@ -349,46 +395,55 @@ PackedInt32Array RigidPieces::check_cells(const Array &p_cells, Vector3 p_push_f
 
 // Max flow from the sources S (the wood just above a hole) to the ground through wood, one unit per
 // voxel face: the number of separate paths is the cross-section that holds S up. Each path carries
-// `strength` voxels. Wood beyond region_cap counts as held (the rest of a big structure). If the
-// paths found carry less than the wood on S's side of the narrowest cut, that side is `piece`.
+// `strength` voxels. The region grows as the searches reach it (a dig by the roots meets the ground
+// at once and never walks the whole forest); wood beyond region_cap counts as held (the rest of a big
+// structure). If the paths found carry less than the wood on S's side of the narrowest cut, that side
+// is `piece`.
 bool RigidPieces::strength_split(const std::vector<int64_t> &S, std::vector<int64_t> &piece) {
     const double t0 = now_ms();
     FlatMap id;
     id.reset();
     std::vector<int64_t> nodes;
-    for (int64_t k : S)
-        if (id.put(k, (int32_t)nodes.size())) nodes.push_back(k);
-    const size_t nsrc = nodes.size();
-    for (size_t h = 0; h < nodes.size() && (int)nodes.size() < region_cap_; h++) {
-        int x, y, z;
-        unkey(nodes[h], x, y, z);
-        for (int e = 0; e < 6; e++) {
-            const int nx = x + DX[e], ny = y + DY[e], nz = z + DZ[e];
-            if (cls_at(nx, ny, nz) != WOOD) continue;
-            const int64_t nk = key(nx, ny, nz);
-            if (id.put(nk, (int32_t)nodes.size())) nodes.push_back(nk);
-        }
-    }
-    const int N = (int)nodes.size();
-    std::vector<int32_t> nbr((size_t)N * 6, -1);
-    std::vector<int8_t> sinkcap(N, 0), sinkflow(N, 0), flow((size_t)N * 6, 0);
-    for (int i = 0; i < N; i++) {
+    std::vector<int32_t> nbr, stamp, prev, q;
+    std::vector<int8_t> sinkcap, sinkflow, flow, pdir;
+    std::vector<uint8_t> expanded;
+    auto add = [&](int64_t k) -> int32_t {
+        const int32_t i = (int32_t)nodes.size();
+        nodes.push_back(k);
+        id.put(k, i);
+        nbr.insert(nbr.end(), 6, -1);
+        flow.insert(flow.end(), 6, 0);
+        sinkcap.push_back(0);
+        sinkflow.push_back(0);
+        expanded.push_back(0);
+        stamp.push_back(0);
+        prev.push_back(-1);
+        pdir.push_back(0);
+        return i;
+    };
+    // a node's faces, the first time a search reaches it
+    auto expand = [&](int32_t i) {
+        expanded[i] = 1;
         int x, y, z;
         unkey(nodes[i], x, y, z);
         for (int e = 0; e < 6; e++) {
             const int nx = x + DX[e], ny = y + DY[e], nz = z + DZ[e];
             const uint8_t cl = cls_at(nx, ny, nz);
-            if (cl == GROUND) sinkcap[i]++;
-            else if (cl == WOOD) {
-                const int32_t *j = id.get(key(nx, ny, nz));
+            if (cl == GROUND) {
+                sinkcap[i]++;
+            } else if (cl == WOOD) {
+                const int64_t nk = key(nx, ny, nz);
+                const int32_t *j = id.get(nk);
                 if (j) nbr[(size_t)i * 6 + e] = *j;
-                else sinkcap[i]++;   // past the region: held by the rest
+                else if ((int)nodes.size() >= region_cap_) sinkcap[i]++;   // past the region: held by the rest
+                else nbr[(size_t)i * 6 + e] = add(nk);
             }
         }
-    }
-    const int enough = std::min(max_paths_, (int)std::ceil(N * 1.3 / strength_));   // holds the whole region
-    std::vector<int32_t> stamp(N, 0), prev(N, -1), q;
-    std::vector<int8_t> pdir(N, 0);
+    };
+    for (int64_t k : S)
+        if (!id.has(k)) add(k);
+    const size_t nsrc = nodes.size();
+    const int enough = max_paths_;
     int f = 0, it = 0;
     bool held = false;
     for (;;) {
@@ -402,6 +457,7 @@ bool RigidPieces::strength_split(const std::vector<int64_t> &S, std::vector<int6
         int hit = -1;
         for (size_t h = 0; h < q.size() && hit < 0; h++) {
             const int i = q[h];
+            if (!expanded[i]) expand(i);
             if (sinkflow[i] < sinkcap[i]) { hit = i; break; }
             for (int e = 0; e < 6; e++) {
                 const int j = nbr[(size_t)i * 6 + e];
@@ -422,7 +478,7 @@ bool RigidPieces::strength_split(const std::vector<int64_t> &S, std::vector<int6
         if (++f >= enough) { held = true; break; }
     }
     last_paths_ = f;
-    last_region_ = N;
+    last_region_ = (int)nodes.size();
     last_side_ = held ? -1 : (int)q.size();
     // the last, failing search reached exactly S's side of the narrowest cut
     if (!held && (double)f * strength_ < q.size() * 1.3) {
@@ -513,6 +569,8 @@ void RigidPieces::make_piece(const std::vector<int64_t> &wood, const std::vector
     for (size_t i = 0; i < pts.size(); i += stride) p.points.push_back(pts[i]);
     const size_t lstride = std::max<size_t>(1, (lpts.size() + max_leaf_points_ - 1) / max_leaf_points_);
     for (size_t i = 0; i < lpts.size(); i += lstride) p.leaf_points.push_back(lpts[i]);
+    p.blocks = Vector3i((p.size.x + MESH_BLOCK - 1) / MESH_BLOCK, (p.size.y + MESH_BLOCK - 1) / MESH_BLOCK, (p.size.z + MESH_BLOCK - 1) / MESH_BLOCK);
+    p.block_dirty.assign((size_t)p.blocks.x * p.blocks.y * p.blocks.z, 0);
     p.pos = p.prev_pos = p.hash_origin + p.com;
     p.rot = Quaternion();
     p.prev_rot = p.rot;
@@ -556,6 +614,7 @@ bool RigidPieces::breaks(int x, int y, int z, float speed) {
     bool open;
     const uint8_t m = mat_at(x, y, z, open);
     if (!open || !m || impact_k_ * speed * speed < hardness_[m]) return false;
+    if (breaks_tick_ >= max_breaks_) return false;   // over this tick's budget: it holds (wood) or waits (leaves)
     if (cls_[m] == WOOD) {
         if (!thin(x, y, z)) return false;
         snapped_.push_back(Vector3i(x, y, z));
@@ -563,6 +622,7 @@ bool RigidPieces::breaks(int x, int y, int z, float speed) {
     set_at(x, y, z, 0);
     note_break(x, y, z, m);
     crushed_++;
+    breaks_tick_++;
     return true;
 }
 
@@ -665,6 +725,7 @@ void RigidPieces::collide(Piece &p, float dt, std::vector<Contact> &cs) {
             note_break(cx, cy, cz, own);
             p.grid[lp.cell] = 0;
             p.mesh_dirty = true;
+            mark_block(p, lp.cell);
             p.leaf_points[i] = p.leaf_points.back();
             p.leaf_points.pop_back();
             shed_++;
@@ -729,20 +790,28 @@ void RigidPieces::solve(Piece &p, std::vector<Contact> &cs, float dt) {
         if (!c.weak) continue;
         bool open;
         const uint8_t m = mat_at(c.cell.x, c.cell.y, c.cell.z, open);
-        if (open && cls_[m] == WOOD && c.jn / dt >= hardness_[m] * load_k_) {
+        if (open && cls_[m] == WOOD && c.jn / dt >= hardness_[m] * load_k_ && breaks_tick_ < max_breaks_) {
             set_at(c.cell.x, c.cell.y, c.cell.z, 0);
             note_break(c.cell.x, c.cell.y, c.cell.z, m);
             snapped_.push_back(c.cell);
             crushed_++;
+            breaks_tick_++;
         }
     }
 }
 
 PackedInt32Array RigidPieces::step(float p_dt) {
     PackedInt32Array done;
-    if (pieces_.empty()) return done;
+    if (pieces_.empty() && snapped_.empty()) return done;
     sim_->wait_idle();
+    step_impl(p_dt, done);
+    return done;
+}
+
+void RigidPieces::step_impl(float p_dt, PackedInt32Array &done) {
+    if (pieces_.empty() && snapped_.empty()) return;
     const double t0 = now_ms();
+    breaks_tick_ = 0;
     const float h = p_dt / (float)substeps_;
     std::vector<Contact> cs;
     int contacts = 0;
@@ -776,17 +845,17 @@ PackedInt32Array RigidPieces::step(float p_dt) {
         i++;
     }
     last_contacts_ = contacts;
-    if (!snapped_.empty()) {   // limbs the pieces broke through: do they hang on anything?
-        Array cells;
-        for (const Vector3i &c : snapped_) cells.push_back(c);
-        snapped_total_ += (int)snapped_.size();
-        const Vector3 from = pieces_.empty() ? Vector3(snapped_[0]) : pieces_[0].pos;
-        snapped_.clear();
+    // limbs the pieces broke through: do they hang on anything? Checked together every few ticks
+    if (!snapped_.empty() && (++recheck_wait_ >= recheck_every_ || pieces_.empty())) {
+        recheck_wait_ = 0;
+        std::vector<Vector3i> cells;
+        cells.swap(snapped_);
+        snapped_total_ += (int)cells.size();
+        const Vector3 from = pieces_.empty() ? Vector3(cells[0]) : pieces_[0].pos;
         check_cells(cells, from, false);
     }
     last_step_ms_ = now_ms() - t0;
     max_step_ms_ = std::max(max_step_ms_, last_step_ms_);
-    return done;
 }
 
 // Every grid cell the piece covers takes the material of the piece voxel its centre falls in (inverse
@@ -795,33 +864,52 @@ bool RigidPieces::settle(Piece &p) {
     const double t0 = now_ms();
     const Basis R(p.rot);
     const Basis Ri = R.transposed();
-    float ext[3];
-    for (int a = 0; a < 3; a++) ext[a] = 0.5f * (std::fabs(R[a][0]) + std::fabs(R[a][1]) + std::fabs(R[a][2]));
-    int written = 0, total = 0;
-    for (int z = 0; z < p.size.z; z++)
-        for (int y = 0; y < p.size.y; y++)
-            for (int x = 0; x < p.size.x; x++) {
-                if (!p.grid[x + p.size.x * (y + p.size.y * z)]) continue;
-                total++;
-                const Vector3 w = p.pos + R.xform(Vector3(x + 0.5f, y + 0.5f, z + 0.5f) - p.com);
-                const int x0 = (int)std::floor(w.x - ext[0]), x1 = (int)std::floor(w.x + ext[0]);
-                const int y0 = (int)std::floor(w.y - ext[1]), y1 = (int)std::floor(w.y + ext[1]);
-                const int z0 = (int)std::floor(w.z - ext[2]), z1 = (int)std::floor(w.z + ext[2]);
-                for (int wz = z0; wz <= z1; wz++)
-                    for (int wy = y0; wy <= y1; wy++)
-                        for (int wx = x0; wx <= x1; wx++) {
-                            const Vector3 l = Ri.xform(Vector3(wx + 0.5f, wy + 0.5f, wz + 0.5f) - p.pos) + p.com;
-                            const int lx = (int)std::floor(l.x), ly = (int)std::floor(l.y), lz = (int)std::floor(l.z);
-                            if (lx != x || ly != y || lz != z) continue;   // that cell belongs to another piece voxel
-                            bool open;
-                            const uint8_t have = mat_at(wx, wy, wz, open);
-                            if (!open) continue;
-                            const uint8_t c = cls_[have];
-                            if (c == GROUND || c == WOOD) continue;
-                            set_at(wx, wy, wz, p.grid[x + p.size.x * (y + p.size.y * z)]);
-                            written++;
-                        }
+    int total = 0;
+    for (uint8_t m : p.grid) total += m != 0;
+    // world box of the rotated local box; each world row maps linearly into local space, clipped to it
+    Vector3 wlo(1e9f, 1e9f, 1e9f), whi(-1e9f, -1e9f, -1e9f);
+    for (int c = 0; c < 8; c++) {
+        const Vector3 corner((c & 1) ? p.size.x : 0, (c & 2) ? p.size.y : 0, (c & 4) ? p.size.z : 0);
+        const Vector3 w = p.pos + R.xform(corner - p.com);
+        wlo = wlo.min(w);
+        whi = whi.max(w);
+    }
+    const Vector3 dl = Ri.xform(Vector3(1, 0, 0));   // local step per world x
+    const float S[3] = {(float)p.size.x, (float)p.size.y, (float)p.size.z};
+    int written = 0;
+    const int x0 = (int)std::floor(wlo.x), x1 = (int)std::floor(whi.x);
+    for (int wz = (int)std::floor(wlo.z); wz <= (int)std::floor(whi.z); wz++)
+        for (int wy = (int)std::floor(wlo.y); wy <= (int)std::floor(whi.y); wy++) {
+            const Vector3 l0 = Ri.xform(Vector3(x0 + 0.5f, wy + 0.5f, wz + 0.5f) - p.pos) + p.com;
+            // the steps t where l0 + t * dl lies inside [0, size) on every axis
+            float t0 = 0.0f, t1 = (float)(x1 - x0);
+            for (int a = 0; a < 3 && t0 <= t1; a++) {
+                if (std::fabs(dl[a]) < 1e-6f) {
+                    if (l0[a] < 0.0f || l0[a] >= S[a]) t1 = -1.0f;
+                    continue;
+                }
+                float ta = (0.0f - l0[a]) / dl[a], tb = (S[a] - l0[a]) / dl[a];
+                if (ta > tb) std::swap(ta, tb);
+                t0 = std::max(t0, ta);
+                t1 = std::min(t1, tb);
             }
+            if (t0 > t1) continue;
+            for (int t = std::max(0, (int)std::floor(t0)); t <= std::min(x1 - x0, (int)std::ceil(t1)); t++) {
+                const Vector3 l = l0 + dl * (float)t;
+                const int lx = (int)std::floor(l.x), ly = (int)std::floor(l.y), lz = (int)std::floor(l.z);
+                if (lx < 0 || ly < 0 || lz < 0 || lx >= p.size.x || ly >= p.size.y || lz >= p.size.z) continue;
+                const uint8_t m = p.grid[lx + p.size.x * (ly + p.size.y * lz)];
+                if (!m) continue;
+                const int wx = x0 + t;
+                bool open;
+                const uint8_t have = mat_at(wx, wy, wz, open);
+                if (!open) continue;
+                const uint8_t c = cls_[have];
+                if (c == GROUND || c == WOOD) continue;
+                set_at(wx, wy, wz, m);
+                written++;
+            }
+        }
     last_written_ = written;
     last_lost_ = total - written;
     last_settle_ms_ = now_ms() - t0;
@@ -867,7 +955,20 @@ PackedInt32Array RigidPieces::get_ids() const {
     return a;
 }
 
+const RigidPieces::View *RigidPieces::find_view(int id) const {
+    for (const View &v : view_)
+        if (v.id == id) return &v;
+    return nullptr;
+}
+
 Transform3D RigidPieces::get_transform(int id, float alpha) const {
+    if (async_) {
+        const View *v = find_view(id);
+        if (!v) return Transform3D();
+        alpha = std::clamp(alpha, 0.0f, 1.0f);
+        const Basis b(v->prev_rot.slerp(v->rot, alpha));
+        return Transform3D(b, v->prev_pos.lerp(v->pos, alpha) - b.xform(v->com));
+    }
     const Piece *p = find(id);
     if (!p) return Transform3D();
     alpha = std::clamp(alpha, 0.0f, 1.0f);
@@ -877,14 +978,32 @@ Transform3D RigidPieces::get_transform(int id, float alpha) const {
 }
 
 Vector3 RigidPieces::get_hash_origin(int id) const {
+    if (async_) {
+        const View *v = find_view(id);
+        return v ? v->hash_origin : Vector3();
+    }
     const Piece *p = find(id);
     return p ? p->hash_origin : Vector3();
 }
 
 Array RigidPieces::build_mesh(int id) const {
-    Array arrays;
     const Piece *p = find(id);
-    if (!p) return arrays;
+    return p ? mesh_arrays(*p) : Array();
+}
+
+// A removed cell changes its own block's mesh and, through the faces it uncovers, its neighbours'.
+void RigidPieces::mark_block(Piece &p, int cell) {
+    const int x = cell % p.size.x, y = cell / p.size.x % p.size.y, z = cell / p.size.x / p.size.y;
+    for (int e = -1; e < 6; e++) {
+        const int nx = x + (e < 0 ? 0 : DX[e]), ny = y + (e < 0 ? 0 : DY[e]), nz = z + (e < 0 ? 0 : DZ[e]);
+        if (nx < 0 || ny < 0 || nz < 0 || nx >= p.size.x || ny >= p.size.y || nz >= p.size.z) continue;
+        p.block_dirty[nx / MESH_BLOCK + p.blocks.x * (ny / MESH_BLOCK + p.blocks.y * (nz / MESH_BLOCK))] = 1;
+    }
+}
+
+Array RigidPieces::mesh_arrays(const Piece &piece, int block) const {
+    Array arrays;
+    const Piece *p = &piece;
     // corners of each face, wound clockwise seen from outside (Godot's front faces)
     static const int C[6][4][3] = {
             {{1, 0, 0}, {1, 0, 1}, {1, 1, 1}, {1, 1, 0}},
@@ -899,9 +1018,17 @@ Array RigidPieces::build_mesh(int id) const {
     PackedColorArray cols;
     PackedInt32Array idx;
     const Vector3i S = p->size;
-    for (int z = 0; z < S.z; z++)
-        for (int y = 0; y < S.y; y++)
-            for (int x = 0; x < S.x; x++) {
+    int lo[3] = {0, 0, 0}, hi[3] = {S.x, S.y, S.z};
+    if (block >= 0) {
+        const int b[3] = {block % p->blocks.x, block / p->blocks.x % p->blocks.y, block / p->blocks.x / p->blocks.y};
+        for (int a = 0; a < 3; a++) {
+            lo[a] = b[a] * MESH_BLOCK;
+            hi[a] = std::min(lo[a] + MESH_BLOCK, a == 0 ? S.x : (a == 1 ? S.y : S.z));
+        }
+    }
+    for (int z = lo[2]; z < hi[2]; z++)
+        for (int y = lo[1]; y < hi[1]; y++)
+            for (int x = lo[0]; x < hi[0]; x++) {
                 const uint8_t m = p->grid[x + S.x * (y + S.y * z)];
                 if (!m) continue;
                 for (int f = 0; f < 6; f++) {
@@ -955,7 +1082,13 @@ Dictionary RigidPieces::get_info(int id) const {
 }
 
 Dictionary RigidPieces::get_stats() const {
+    return async_ ? stats_view_ : live_stats();
+}
+
+Dictionary RigidPieces::live_stats() const {
     Dictionary d;
+    d["last_job_ms"] = last_job_ms_;
+    d["max_job_ms"] = max_job_ms_;
     d["pieces"] = (int)pieces_.size();
     d["spawned"] = spawned_;
     d["settled"] = settled_;
@@ -986,5 +1119,80 @@ Dictionary RigidPieces::get_stats() const {
     Array fl;
     for (const Vector3i &f : fills_) fl.push_back(f);
     d["last_fills"] = fl;   // (seed y, voxels, 0 free / 1 ground / 2 joined a supported fill / 3 cap)
+    return d;
+}
+
+// ---- async: the work runs on the sim's driver thread ----
+
+void RigidPieces::set_async(bool p_on) {
+    if (sim_.is_null() || p_on == async_) return;
+    sim_->wait_idle();
+    async_ = p_on;
+    if (p_on) sim_->pre_tick_ = [this]() { run_job(); };
+    else sim_->pre_tick_ = nullptr;
+}
+
+void RigidPieces::queue_check(const Array &p_cells, Vector3 p_push_from) {
+    PendingCheck c;
+    c.cells.resize(p_cells.size());
+    for (int i = 0; i < p_cells.size(); i++) c.cells[i] = p_cells[i];
+    c.from = p_push_from;
+    std::lock_guard<std::mutex> lk(job_m_);
+    pending_.push_back(std::move(c));
+}
+
+void RigidPieces::queue_step(float p_dt) {
+    std::lock_guard<std::mutex> lk(job_m_);
+    pending_dt_ += p_dt;
+}
+
+void RigidPieces::run_job() {
+    std::vector<PendingCheck> todo;
+    float dt;
+    {
+        std::lock_guard<std::mutex> lk(job_m_);
+        todo.swap(pending_);
+        dt = pending_dt_;
+        pending_dt_ = 0.0f;
+    }
+    if (todo.empty() && (dt <= 0.0f || (pieces_.empty() && snapped_.empty()))) return;
+    const double t0 = now_ms();
+    for (const PendingCheck &c : todo) check_cells(c.cells, c.from, true);
+    if (dt > 0.0f) step_impl(std::min(dt, 0.1f), settled_out_);
+    // meshes for new pieces (every block), and the blocks of pieces that shed leaves (spaced)
+    for (Piece &p : pieces_) {
+        p.mesh_wait++;
+        if (!p.mesh_new && !(p.mesh_dirty && p.mesh_wait >= mesh_every_)) continue;
+        Dictionary blocks = meshes_out_.get(p.id, Dictionary());
+        for (int b = 0; b < (int)p.block_dirty.size(); b++) {
+            if (!p.mesh_new && !p.block_dirty[b]) continue;
+            Array arr = mesh_arrays(p, b);
+            if (p.mesh_new && ((PackedInt32Array)arr[Mesh::ARRAY_INDEX]).is_empty()) continue;   // nothing there
+            blocks[b] = arr;
+            p.block_dirty[b] = 0;
+        }
+        meshes_out_[p.id] = blocks;
+        p.mesh_new = p.mesh_dirty = false;
+        p.mesh_wait = 0;
+    }
+    last_job_ms_ = now_ms() - t0;
+    max_job_ms_ = std::max(max_job_ms_, last_job_ms_);
+}
+
+Dictionary RigidPieces::collect() {
+    Dictionary d;
+    if (sim_.is_null()) return d;
+    sim_->wait_idle();   // a no-op between ticks, where the game calls it
+    d["spawned"] = take_spawned();
+    d["settled"] = settled_out_;
+    settled_out_.clear();
+    d["meshes"] = meshes_out_;
+    meshes_out_ = Dictionary();
+    d["breaks"] = take_breaks();
+    d["crumbs"] = crumbs_;
+    crumbs_.clear();
+    view_.clear();
+    for (const Piece &p : pieces_) view_.push_back({p.id, p.prev_pos, p.pos, p.com, p.hash_origin, p.prev_rot, p.rot});
+    stats_view_ = live_stats();
     return d;
 }
