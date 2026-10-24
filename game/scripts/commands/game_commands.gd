@@ -71,6 +71,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
 		_quests, [["list", "complete", "reset"], _quest_ids])
 	reg.register("cam", "/cam [off | <x> <y> <z> [<look_x> <look_y> <look_z>]]", "Free camera: flies anywhere while you, the terrain detail and the simulation stay put", _cam_cmd)
+	reg.register("survival", "/survival [hunger <0..20> | body <C> | spoil <0..1>]", "Hunger, body temperature and the air around you (ADR 0040); spoil sets the held food's freshness", _survival)
 	reg.register("shape", "/shape <box|wall|cylinder|cone|sphere|stairs|slope> [w h d] [hollow n] [at x y z] | commit | cancel | turn [tip] | mirror", "Shape building (V in game): set a shape down at the crosshair, then commit", _shape)
 	reg.register("box", "/box <build|dig|select> <x1> <y1> <z1> <x2> <y2> <z2> | go", "Box mode by coordinates (V in game); go digs a marked box at once", _box)
 	reg.register("prefab", "/prefab save <category> <name> | place <category> <name> [at x y z] | list", "Save the selected box as a prefab, place one, or list them", _prefab)
@@ -536,6 +537,32 @@ func _vantage(c: Vector3, away: Vector3) -> Dictionary:
 				if clear == 3:
 					return best
 	return best
+
+
+func _survival(args: PackedStringArray) -> Dictionary:
+	if main == null or main.survival == null:
+		return CommandRegistry.fail("No survival")
+	var sv: Survival = main.survival
+	if args.size() == 2 and args[1].is_valid_float():
+		var v := float(args[1])
+		match args[0]:
+			"hunger":
+				sv.hunger = clampf(v, 0.0, Settings.hunger_max)
+				sv.saturation = minf(sv.saturation, sv.hunger)
+			"body":
+				sv.body_c = clampf(v, 25.0, 45.0)
+			"spoil":
+				var h: Dictionary = player_inv.held()
+				if not h.has("spoil"):
+					return CommandRegistry.fail("The held item does not spoil")
+				h["spoil"] = clampf(v, 0.0, 1.0)
+				player_inv.changed.emit()
+			_:
+				return CommandRegistry.fail("Usage: /survival [hunger <0..20> | body <C> | spoil <0..1>]")
+	sv._measure()
+	var s := sv.snapshot()
+	return CommandRegistry.ok("Hunger %.1f (+%.1f), body %.1f C %s, air %.1f C%s%s" % [s["hunger"], s["saturation"], s["body_c"], s["status"],
+		s["env_c"], ", in a room" if s["in_room"] else "", ", heat %.1f" % s["heat"] if s["heat"] > 0.05 else ""])
 
 
 func _shape(args: PackedStringArray) -> Dictionary:

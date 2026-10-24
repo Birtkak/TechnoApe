@@ -40,6 +40,8 @@ static func create(p_items: ItemRegistry, p_stack: Dictionary, atlas_material: M
 	var e := ItemEntity.new()
 	e.items = p_items
 	e.stack = {"id": p_stack["id"], "count": int(p_stack["count"])}
+	if p_stack.has("spoil"):
+		e.stack["spoil"] = float(p_stack["spoil"])
 	e.name = "Item_" + p_stack["id"]
 	e._build(atlas_material)
 	return e

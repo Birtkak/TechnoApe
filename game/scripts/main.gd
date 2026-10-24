@@ -30,6 +30,8 @@ var startup_ms := {}   # ms since _ready began, per startup step (printed, and i
 var farming: Farming                 # tilled farmland and crops (ADR 0022)
 var pieces: FallingPieces            # rigid voxel pieces (P12), null with rigid_pieces=0
 var builder: ShapeBuilder            # shape building, box mode, prefabs (ADR 0038)
+var survival: Survival               # hunger, body temperature, food spoilage (ADR 0040)
+var _survival_save := {}             # loaded with the player, before Survival exists
 var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
 var _furniture_root: Node3D
@@ -236,7 +238,7 @@ func _ready() -> void:
 
 	DebugCapture.attach(self)
 	for stack in DebugCapture.give:
-		player_inv.pickup(stack["id"], stack["count"])
+		player_inv.pickup(stack["id"], stack["count"], float(stack.get("spoil", 0.0)))
 	if DebugCapture.autopilot:
 		player.autopilot = true
 		player.flying = true
@@ -386,6 +388,14 @@ func _ready() -> void:
 	builder.name = "ShapeBuilder"
 	add_child(builder)
 	builder.setup(self)
+	survival = Survival.new()
+	survival.name = "Survival"
+	add_child(survival)
+	survival.setup(self)
+	if game_hud:
+		game_hud.survival = survival
+	if not _survival_save.is_empty():
+		survival.load_dict(_survival_save)
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(builder.warm_materials(), player.camera)
 	_last_health = player_inv.health
@@ -587,7 +597,8 @@ func _player_dict() -> Dictionary:
 	var s := _spawn_pos
 	return {"version": 1, "pos": [p.x, p.y, p.z], "yaw": player._yaw, "pitch": player._pitch, "spawn": [s.x, s.y, s.z],
 		"game_mode": player.game_mode, "flying": player.flying, "health": player_inv.health, "selected": player_inv.selected,
-		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array()}
+		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
+		"survival": survival.to_dict() if survival else {}}
 
 
 func _load_player() -> void:
@@ -615,13 +626,17 @@ func _load_player() -> void:
 	player_inv.select(int(d.get("selected", 0)))
 	player_inv.health = clampi(int(d.get("health", player_inv.max_health)), 1, player_inv.max_health)
 	player_inv.health_changed.emit(player_inv.health)
+	_survival_save = d.get("survival", {})
 
 
 ## A saved stack (JSON numbers are floats), or {} for an empty or unknown one.
 func _stack_of(v) -> Dictionary:
 	if not (v is Dictionary) or not v.has("id") or not items.has(String(v["id"])):
 		return {}
-	return {"id": String(v["id"]), "count": int(v.get("count", 1))}
+	var out := {"id": String(v["id"]), "count": int(v.get("count", 1))}
+	if v.has("spoil"):
+		out["spoil"] = float(v["spoil"])   # food freshness (ADR 0040)
+	return out
 
 
 func _can_open_overlay() -> bool:
@@ -1140,6 +1155,8 @@ func _on_screen_closed(dropped: Array) -> void:
 func _on_died() -> void:
 	print("player died at %s, respawning" % player.position)
 	player.respawn_at(_spawn_pos)
+	if survival:
+		survival.reset()
 
 
 # ---------------- item entities ----------------
@@ -1177,7 +1194,7 @@ func _update_items(delta: float) -> void:
 			e.queue_free()
 			continue
 		if e.can_pickup() and e.position.distance_to(centre) <= radius:
-			var left := player_inv.pickup(e.stack["id"], e.stack["count"])
+			var left := player_inv.pickup(e.stack["id"], e.stack["count"], float(e.stack.get("spoil", 0.0)))
 			var got: int = e.stack["count"] - left
 			if got > 0:
 				picked_up_total[e.stack["id"]] = int(picked_up_total.get(e.stack["id"], 0)) + got
@@ -1203,6 +1220,9 @@ func _update_items(delta: float) -> void:
 				if room <= 0:
 					continue
 				var take: int = mini(room, b.stack["count"])
+				if a.stack.has("spoil"):   # food freshness averages by count (ADR 0040)
+					var n: int = a.stack["count"] + take
+					a.stack["spoil"] = (float(a.stack["spoil"]) * a.stack["count"] + float(b.stack.get("spoil", 0.0)) * take) / n
 				a.set_count(a.stack["count"] + take)
 				if take >= b.stack["count"]:
 					item_stats["merged"] += 1
@@ -1251,6 +1271,7 @@ func snapshot() -> Dictionary:
 		"sim": bubble.stats(),
 		"pieces": pieces.stats() if pieces else {},
 		"build": builder.snapshot() if builder else {},
+		"survival": survival.snapshot() if survival else {},
 		"stains": stains.stats() if stains else {},
 		"look": look,
 		"player": player_inv.summary(),

@@ -2,6 +2,7 @@
 #include "micro_mesher.h"
 #include "rigid_pieces.h"
 #include "shape_tool.h"
+#include "climate_probe.h"
 #include "sim_world.h"
 #include "world_gen.h"
 #include "fine_gen.h"
@@ -22,6 +23,7 @@ void initialize_technosim_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(MicroMesher);
     GDREGISTER_CLASS(RigidPieces);
     GDREGISTER_CLASS(ShapeTool);
+    GDREGISTER_CLASS(ClimateProbe);
 }
 
 void uninitialize_technosim_module(ModuleInitializationLevel p_level) {

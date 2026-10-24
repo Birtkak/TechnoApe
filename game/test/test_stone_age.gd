@@ -239,7 +239,10 @@ func test_firepit_cooks_and_burns_out() -> void:
 	f.ignite()
 	for i in 301:
 		store.tick()
-	assert_dict(f.inv.get_slot(FirepitEntity.OUTPUT)).is_equal({"id": "cooked_meat", "count": 1})
+	var out := f.inv.get_slot(FirepitEntity.OUTPUT)
+	assert_str(out["id"]).is_equal("cooked_meat")
+	assert_int(int(out["count"])).is_equal(1)
+	assert_float(float(out["spoil"])).is_equal(0.0)   # fresh off the fire (ADR 0040)
 
 
 func test_firepit_slots() -> void:

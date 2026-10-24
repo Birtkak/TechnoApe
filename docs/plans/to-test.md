@@ -117,3 +117,12 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
       brick courses and weave should read from a few metres; do they look right at this voxel size?
 - [ ] Tree trunks show bark stripes now (oak brown, birch white with dashes). Better or worse than before?
 - [ ] Bricks in survival: form clay into raw clay bricks, fire them in a pit kiln, four make a bricks block.
+
+## 2026-10-24: hunger, body temperature, spoilage (ADR 0040)
+
+- [ ] Survival: the drumsticks (right, above the hotbar) empty over about 13 minutes at rest, faster sprinting.
+      Eating works whenever you are not full. An empty bar hurts down to one heart (not to death): right call?
+- [ ] The thermometer left of the hotbar: at night in a cold biome it drops; standing by a lit firepit warms you; a
+      closed hut (walls, roof, floor, no gaps) pulls the air halfway to 18 C (`/survival` shows the air and "in a room").
+- [ ] Food spoils: raw meat rots in about 2 game days at 16 C (slower when cold, in a storage pot or a cellar 3 m
+      down); a bar under the icon and the tooltip show it; rotten food turns into Rot.

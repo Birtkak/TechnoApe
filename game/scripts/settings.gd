@@ -74,6 +74,30 @@ var torch_light_radius_m := 48.0        # torches farther from the player than t
 var pan_shakes := 6                     # right clicks to wash one pan of sand or gravel
 
 # Particles (ADR 0026): two GPU pools, every particle emitted by script
+# Survival (ADR 0040): hunger, body temperature, food spoilage. Seconds are real time, days game days.
+var hunger_max := 20.0
+var hunger_drain_s := 40.0               # one hunger point per this many seconds at rest
+var hunger_fast_mult := 2.5              # sprinting or swimming
+var hunger_cold_mult := 1.5              # while the body is cold
+var regen_hunger := 17.0                 # at or above: one health back per regen_s
+var regen_s := 6.0
+var starve_s := 8.0                      # an empty bar hurts one health per this, down to 1
+var comfort_min_c := 10.0                # environment band where the body stays at 37 C (clothing widens it later)
+var comfort_max_c := 30.0
+var body_ease_s := 90.0                  # the body temperature eases toward its target over about this long
+var cold_c := 35.5                       # below: cold (hunger x hunger_cold_mult)
+var shiver_c := 34.0                     # below: slowed to shiver_speed
+var shiver_speed := 0.85
+var freeze_c := 33.0                     # below: one health per freeze_s
+var freeze_s := 6.0
+var hot_c := 38.5
+var heatstroke_c := 39.5                 # above: one health per heatstroke_s
+var heatstroke_s := 8.0
+var room_c := 18.0                       # a closed room pulls the temperature halfway to this
+var cave_c := 10.0                       # 4 m and more under the surface
+var water_c := -8.0                      # in water
+var cellar_c := 8.0                      # containers 3 m and more under the surface (spoilage)
+var climate_probe_s := 1.5               # how often shelter and heat are measured
 var rigid_pieces := true                # cut-loose trees and limbs fall as rigid bodies (P12, ADR 0037); rigid_pieces=0 turns it off
 var particles := true                   # particles=0 turns every effect off (benchmarks against the old game)
 var particle_pool_chips := 2048         # block chips alive at once at most

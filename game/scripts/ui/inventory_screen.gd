@@ -329,6 +329,17 @@ func _update_tooltip() -> void:
 	var c := get_viewport().gui_get_hovered_control()
 	if c and c.has_method("hover_tag") and c.hover_tag() != "":
 		text += "\nany " + c.hover_tag()
+	var days := float(player_inv.items.get_def(id).get("spoil_days", 0.0))
+	if days > 0.0:
+		var sp := 0.0
+		var w := c
+		while w != null and w != _root:   # the hovered slot's stack, if it has one
+			var st: Variant = w.get("stack")
+			if st is Dictionary and st.has("spoil"):
+				sp = float(st["spoil"])
+				break
+			w = w.get_parent() as Control
+		text += "\n%s (%.1f days left at 16 C)" % [Survival.freshness_name(sp), (1.0 - sp) * days]
 	_tooltip.text = text
 	_tooltip.reset_size()
 	var p := _root.get_local_mouse_position() + Vector2(14, -10)

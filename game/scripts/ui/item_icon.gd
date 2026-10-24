@@ -54,6 +54,14 @@ func _draw() -> void:
 		_draw_cube(mat, s)
 	else:
 		_draw_tag(id, s)
+	if stack.has("spoil") and float(stack["spoil"]) > 0.02:
+		# freshness (ADR 0040): a bar along the bottom, green while fresh, yellow when stale, brown when rotting
+		var sp := float(stack["spoil"])
+		var col := Color(0.3, 0.85, 0.3).lerp(Color(0.95, 0.85, 0.2), clampf(sp * 2.0, 0.0, 1.0))
+		if sp > 0.5:
+			col = col.lerp(Color(0.45, 0.3, 0.12), clampf((sp - 0.5) * 2.0, 0.0, 1.0))
+		draw_rect(Rect2(Vector2(1, s.y - 3), Vector2(s.x - 2, 2)), Color(0, 0, 0, 0.8))
+		draw_rect(Rect2(Vector2(1, s.y - 3), Vector2((s.x - 2) * (1.0 - sp), 2)), col)
 	var count := int(stack.get("count", 1))
 	if count > 1:
 		var txt := str(count)

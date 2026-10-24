@@ -43,6 +43,8 @@ var autopilot := false
 var free_cam := false        # a DebugCamera has the view: no moving, looking or mining from input
 var building := false        # the ShapeBuilder (ADR 0038) owns the mouse buttons: no breaking or placing
 var input_grab := false      # the build menu (V) has the mouse: no looking either
+var survival: Survival = null   # hunger and body temperature (ADR 0040), set by Main
+var speed_mult := 1.0        # Survival slows a shivering body
 var autopilot_dir := Vector3(0, 0, -1)
 var autopilot_speed_m := 6.0
 var mined_log: Array = []   # autopilot mine=1: every break (voxel, what it reads now, feet height), first 64
@@ -391,7 +393,7 @@ func _physics_step(delta: float) -> void:
 	if autopilot:
 		speed_m = minf(autopilot_speed_m, Settings.sprint_speed_m)   # speed=0 stands still
 	in_liquid = _check_liquid()
-	var speed := Settings.m2v(speed_m) * (0.5 if in_liquid else 1.0)
+	var speed := Settings.m2v(speed_m) * (0.5 if in_liquid else 1.0) * speed_mult
 	velocity.x = dir.x * speed
 	velocity.z = dir.z * speed
 	var jump := Input.is_action_pressed("jump") and not ui_open and not autopilot and not free_cam
@@ -1046,12 +1048,15 @@ func _place_furniture(hit: VoxelRaycastResult, def: Dictionary) -> void:
 
 # ---------------- eating ----------------
 
-## Holding right click with food eats it after EAT_S (only when hurt: no hunger yet).
+## Holding right click with food eats it after EAT_S, when hungry or hurt (Survival, ADR 0040).
 func _start_eating(first_press: bool) -> void:
 	var def := inventory.held_def()
 	if not def.has("food") or not first_press:
 		return
-	if inventory.health >= inventory.max_health:
+	if survival != null:
+		if not survival.wants_food():
+			return
+	elif inventory.health >= inventory.max_health:
 		return
 	_eat_id = def["id"]
 	_eat_t = 0.0
@@ -1068,7 +1073,10 @@ func _update_eating(delta: float) -> void:
 	if viewmodel and fmod(_eat_t, 0.25) < delta:
 		viewmodel.swing()
 	if _eat_t >= EAT_S:
-		inventory.heal(int(def["food"].get("hunger", 1)))
+		if survival != null:
+			survival.eat(def, float(inventory.held().get("spoil", 0.0)))
+		else:
+			inventory.heal(int(def["food"].get("hunger", 1)))
 		if GameMode.rule(game_mode, "consumes_items"):
 			if def.has("empties_to"):
 				inventory.replace_held_one(def["empties_to"])   # stew leaves its bowl

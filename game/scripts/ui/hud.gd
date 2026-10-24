@@ -13,6 +13,11 @@ var player_inv: PlayerInventory
 var _hotbar: Control
 var _icons: Array[ItemIcon] = []
 var _hearts: Control
+var _hunger_row: Control     # ADR 0040: ten food icons, right half above the hotbar (vanilla's place)
+var _thermo: Control         # body temperature, left of the hotbar
+var survival: Survival       # set by Main
+var _shown_hunger := -1
+var _shown_body := -1
 var _name_label: Label
 var _pill: Control          # rounded backdrop behind the item name
 var _font: Font
@@ -87,11 +92,25 @@ func _ready() -> void:
 
 	_air_row = Control.new()
 	_air_row.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_air_row.position = Vector2(w / 2.0 - 10 * 18, -SLOT - 8 - 22)   # right half, above the hotbar (vanilla)
+	_air_row.position = Vector2(w / 2.0 - 10 * 18, -SLOT - 8 - 42)   # right half, above the hunger row (vanilla)
 	_air_row.size = Vector2(10 * 18, 20)
 	_air_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_air_row.draw.connect(_draw_air)
 	add_child(_air_row)
+	_hunger_row = Control.new()
+	_hunger_row.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_hunger_row.position = Vector2(w / 2.0 - 10 * 18, -SLOT - 8 - 22)
+	_hunger_row.size = Vector2(10 * 18, 20)
+	_hunger_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hunger_row.draw.connect(_draw_hunger)
+	add_child(_hunger_row)
+	_thermo = Control.new()
+	_thermo.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_thermo.position = Vector2(-w / 2.0 - 30, -SLOT - 8)
+	_thermo.size = Vector2(22, SLOT)
+	_thermo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_thermo.draw.connect(_draw_thermo)
+	add_child(_thermo)
 
 	_look = Control.new()
 	_look.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -174,6 +193,8 @@ func set_crosshair_visible(v: bool) -> void:
 ## Creative hides the hearts (no damage), like vanilla.
 func set_hearts_visible(v: bool) -> void:
 	_hearts.visible = v
+	_hunger_row.visible = v   # creative: no hunger or temperature either
+	_thermo.visible = v
 
 
 func _process(delta: float) -> void:
@@ -182,6 +203,15 @@ func _process(delta: float) -> void:
 		_name_label.modulate.a = clampf(_name_timer / 0.5, 0.0, 1.0)
 		_pill.modulate.a = _name_label.modulate.a
 	_progress.queue_redraw()
+	if survival != null:
+		var hu := ceili(survival.hunger)
+		if hu != _shown_hunger:
+			_shown_hunger = hu
+			_hunger_row.queue_redraw()
+		var bc := roundi(survival.body_c * 10.0)
+		if bc != _shown_body:
+			_shown_body = bc
+			_thermo.queue_redraw()
 	var bubbles := ceili(air * 10.0) if air < 1.0 else -1
 	if bubbles != _shown_air:
 		_shown_air = bubbles
@@ -355,6 +385,51 @@ func _draw_air() -> void:
 				var k := int(BUBBLE[y][x])
 				if k > 0:
 					_air_row.draw_rect(Rect2(ox + x * px, 2 + y * px, px, px), cols[k])
+
+
+# 7x7 food icon (a drumstick): o outline, b bone, m meat, l light, d dark
+const FOOD := ["0000bb0", "000bbb0", "00ommo0", "0omlmo0", "omllmo0", "ommmdo0", "0oooo00"]
+
+func _draw_hunger() -> void:
+	if survival == null:
+		return
+	var px := 2
+	var cols := {"o": Color(0.08, 0.04, 0.02, 0.95), "b": Color(0.92, 0.9, 0.82), "m": Color(0.72, 0.38, 0.16),
+		"l": Color(0.92, 0.6, 0.32), "d": Color(0.5, 0.24, 0.1)}
+	var empty := Color(0.2, 0.18, 0.18)
+	var h := survival.hunger
+	for i in 10:
+		var ox := (9 - i) * 18   # full from the right, emptying toward the left (vanilla)
+		var v := h - i * 2.0
+		for y in FOOD.size():
+			for x in 7:
+				var k: String = FOOD[y][x]
+				if k == "0":
+					continue
+				var c: Color = cols[k]
+				var filled := v >= 2.0 or (v >= 1.0 and x >= 3)
+				if not filled and k != "o":
+					c = empty
+				_hunger_row.draw_rect(Rect2(ox + x * px, 2 + y * px, px, px), c)
+
+
+## The body temperature: a tube from 31 to 43 C, the fill blue when cold, red when hot, a mark at 37.
+func _draw_thermo() -> void:
+	if survival == null:
+		return
+	var r := Rect2(Vector2(6, 2), Vector2(10, _thermo.size.y - 4))
+	_thermo.draw_rect(r.grow(2), Color(0.03, 0.03, 0.05, 0.75))
+	var b := survival.body_c
+	var f := clampf((b - 31.0) / 12.0, 0.0, 1.0)
+	var c := Color(0.35, 0.8, 0.35)
+	if b < Settings.cold_c:
+		c = Color(0.3, 0.55, 1.0)
+	elif b > Settings.hot_c:
+		c = Color(1.0, 0.35, 0.2)
+	var h := r.size.y * f
+	_thermo.draw_rect(Rect2(r.position + Vector2(0, r.size.y - h), Vector2(r.size.x, h)), c)
+	var mark := r.position.y + r.size.y * (1.0 - (37.0 - 31.0) / 12.0)
+	_thermo.draw_line(Vector2(r.position.x - 3, mark), Vector2(r.end.x + 3, mark), Color(1, 1, 1, 0.8), 1.0)
 
 
 func _draw_crosshair() -> void:

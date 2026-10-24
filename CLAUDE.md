@@ -129,6 +129,10 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   box mode, box dig, select, prefabs); `ShapeBuilder` (`scripts/building/`) orchestrates, native `ShapeTool` rasterizes,
   meshes and fills; prefabs in `user://prefabs/<category>/<name>.json`. Scripted checks: `later=/a;wait 1;/b` runs chat
   commands after loading (`/shape ... at x y z`, `/shape drag`, `/shape menu`, `/box`, `/prefab`).
+  **Survival (ADR 0040):** `Survival` (`scripts/survival/`) runs hunger (Minecraft bar + saturation), body temperature
+  (climate, season, hour, caves, water, rooms from the native `ClimateProbe` flood fill, heat of fire cells and lit
+  entities) and food spoilage (perishable stacks carry `spoil` through every Inventory move, averaged on merge; rot).
+  Tunables in `Settings`; `/survival` reads and sets it. A new `class_name` needs an `--import` before the game sees it.
   **Next:** the rest of the ADR 0037 work order; still open from before: fire/smoke pacing per cell, fast flight vs
   generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
   list in `docs/plans/to-test.md`.

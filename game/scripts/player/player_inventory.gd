@@ -161,12 +161,12 @@ func creative_take(id: String, into_inventory: bool) -> bool:
 
 ## Picks up a stack: merges into existing stacks first, then fills empty
 ## slots hotbar-first (vanilla order). Returns the leftover that did not fit.
-func pickup(id: String, count: int) -> int:
-	var left := _add_in_range(id, count, 0, SIZE, true)
+func pickup(id: String, count: int, spoil: float = 0.0) -> int:
+	var left := _add_in_range(id, count, 0, SIZE, true, spoil)
 	if left > 0:
-		left = _add_in_range(id, left, 0, SIZE, false)
+		left = _add_in_range(id, left, 0, SIZE, false, spoil)
 	if left > 0 and has_bag():
-		left = bag.add(id, left)
+		left = bag.add(id, left, spoil)
 	return left
 
 
@@ -422,8 +422,10 @@ func wheel_move(group: String, i: int, down: bool) -> void:
 			continue
 		var d := there.get_slot(j)
 		if not d.is_empty() and d["id"] == s["id"]:
-			there.take(j, 1)
-			here.set_slot(i, {"id": s["id"], "count": int(s["count"]) + 1})
+			var one := there.take(j, 1)
+			var merged := s.duplicate()
+			Inventory.merge_into(merged, 1, float(one.get("spoil", 0.0)))
+			here.set_slot(i, merged)
 			changed.emit()
 			return
 
@@ -434,11 +436,14 @@ func close_screen() -> Array:
 	container = null
 	var dropped: Array = craft.return_contents(inv)
 	if not cursor.is_empty():
-		var left := inv.add(cursor["id"], cursor["count"])
+		var sp := float(cursor.get("spoil", 0.0))
+		var left := inv.add(cursor["id"], cursor["count"], sp)
 		if left > 0 and has_bag():
-			left = bag.add(cursor["id"], left)
+			left = bag.add(cursor["id"], left, sp)
 		if left > 0:
-			dropped.append({"id": cursor["id"], "count": left})
+			var rest := cursor.duplicate()
+			rest["count"] = left
+			dropped.append(rest)
 		cursor = {}
 	changed.emit()
 	return dropped
@@ -470,7 +475,7 @@ func respawn() -> void:
 # ---------------- helpers ----------------
 
 ## Adds into slots [from, to): merge pass (into same-id stacks) or fill pass (empties).
-func _add_in_range(id: String, count: int, from: int, to: int, merge_only: bool) -> int:
+func _add_in_range(id: String, count: int, from: int, to: int, merge_only: bool, spoil: float = 0.0) -> int:
 	var max_stack := items.max_stack(id)
 	for i in range(from, to):
 		if count <= 0:
@@ -479,11 +484,13 @@ func _add_in_range(id: String, count: int, from: int, to: int, merge_only: bool)
 		if merge_only:
 			if not s.is_empty() and s["id"] == id and s["count"] < max_stack:
 				var take := mini(count, max_stack - s["count"])
-				inv.set_slot(i, {"id": id, "count": s["count"] + take})
+				var merged := s.duplicate()
+				Inventory.merge_into(merged, take, spoil)
+				inv.set_slot(i, merged)
 				count -= take
 		elif s.is_empty():
 			var take := mini(count, max_stack)
-			inv.set_slot(i, {"id": id, "count": take})
+			inv.set_slot(i, {"id": id, "count": take, "spoil": spoil})
 			count -= take
 	return count
 
@@ -495,13 +502,14 @@ func _move_slot(src: Inventory, i: int, from: int, to: int) -> void:
 		return
 	var id: String = s["id"]
 	var count: int = s["count"]
+	var sp := float(s.get("spoil", 0.0))
 	# take first so the source slot never counts as a merge target
 	src.take(i, count)
-	var left := _add_in_range(id, count, from, to, true)
+	var left := _add_in_range(id, count, from, to, true, sp)
 	if left > 0:
-		left = _add_in_range(id, left, from, to, false)
+		left = _add_in_range(id, left, from, to, false, sp)
 	if left > 0:
-		src.put(i, {"id": id, "count": left})
+		src.put(i, {"id": id, "count": left, "spoil": sp})
 	changed.emit()
 
 
@@ -528,6 +536,7 @@ func _move_count(src: Inventory, i: int, dst: Inventory, order: Array, n_max: in
 		return
 	var id: String = s["id"]
 	var count: int = int(s["count"]) if n_max < 0 else mini(n_max, int(s["count"]))
+	var sp := float(s.get("spoil", 0.0))
 	var max_stack := items.max_stack(id)
 	src.take(i, count)
 	for pass_merge in [true, false]:
@@ -539,14 +548,16 @@ func _move_count(src: Inventory, i: int, dst: Inventory, order: Array, n_max: in
 			var d: Dictionary = dst.get_slot(j)
 			if pass_merge and not d.is_empty() and d["id"] == id and d["count"] < max_stack:
 				var n := mini(count, max_stack - int(d["count"]))
-				dst.set_slot(j, {"id": id, "count": int(d["count"]) + n})
+				var merged := d.duplicate()
+				Inventory.merge_into(merged, n, sp)
+				dst.set_slot(j, merged)
 				count -= n
 			elif not pass_merge and d.is_empty():
 				var n := mini(count, max_stack)
-				dst.set_slot(j, {"id": id, "count": n})
+				dst.set_slot(j, {"id": id, "count": n, "spoil": sp})
 				count -= n
 	if count > 0:
-		src.put(i, {"id": id, "count": count})
+		src.put(i, {"id": id, "count": count, "spoil": sp})
 	changed.emit()
 
 

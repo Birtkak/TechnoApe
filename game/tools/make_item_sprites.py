@@ -160,6 +160,7 @@ PALETTES = {
     "coal": ramp("#0c0c0e", "#1c1c20", "#2c2c32", "#45454d", "#7a7a86"),
     "charcoal": ramp("#120c08", "#241810", "#38261a", "#523a28", "#7a6048"),
     "clay": ramp("#474c55", "#7a808c", "#979eaa", "#b0b6c0", "#cdd2da"),
+    "rot": ramp("#1c1a10", "#3a3a1c", "#55532a", "#6e6a38", "#8a8448"),
     "terracotta": ramp("#4a1e10", "#8a3e22", "#b05a34", "#c8744a", "#e09468"),
     "fire_clay": ramp("#5a4e3a", "#968668", "#b8aa88", "#cec2a2", "#e6dec4"),
     "fire_brick": ramp("#5a3a22", "#9c6c3e", "#c4965e", "#d8b07a", "#ecd0a0"),
@@ -911,6 +912,7 @@ sp("clay_ball", ("ball", "clay"))
 sp("fire_clay", ("ball", "fire_clay"))
 sp("clay_brick", ("brick", "terracotta"))
 sp("raw_clay_brick", ("brick", "clay"))
+sp("rot", ("ball", "rot"))
 sp("fire_brick", ("brick", "fire_brick"))
 sp("iron_bloom", ("bloom", "iron"))
 sp("mana_dust", ("dust_pile", "mana"))
