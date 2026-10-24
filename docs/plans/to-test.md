@@ -12,8 +12,13 @@ frame times.
 
 ## Build of 2026-10-24 late: your bug reports (crash, drops, animals, bushes, leaves, fiber)
 
-New world for the bushes (generator change). Not touched yet: water looks (a rework is planned),
-far trees.
+New world for the bushes and the water (generator change, `GEN_VERSION` 14). Not touched yet: far trees.
+
+**Water (ADR 0045)**: `/goto river`, `/goto lake`
+- [ ] Rivers are one continuous sheet that steps down 12.5 cm at a time (soft ramps), no glass walls
+      at the steps and no "holes" along the banks: the water reaches the bank everywhere.
+- [ ] Dig a pocket beside a pond: the water should run into it (the simulation wakes next to a dig).
+- [ ] Still there, not mine: small dark pinwheels on the water are underwater plants poking through.
 
 - [ ] The river crash: laser or dig next to a river until the water runs, then walk and fly
       around. The game kept crashing in godot_voxel when water was written to terrain that had

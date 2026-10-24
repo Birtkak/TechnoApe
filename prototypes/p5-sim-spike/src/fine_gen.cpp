@@ -783,8 +783,30 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             const float slope = std::max({std::fabs(gx), std::fabs(gz), m.col.slope * 0.75f});
             const WorldGen::Column &col = m.col;
             const WorldGen::Hydro &hy = m.hy;
-            const int water_level = m.water_level * FS;
-            const bool lakebed = m.lakebed && h < water_level, riverbed = m.riverbed, marshbed = m.marshbed;
+            // Rivers and lakes (P13 water look): the surface is interpolated between the wet corners, so a
+            // river descends a voxel (12.5 cm) at a time instead of in 0.5 m terraces with glass walls between,
+            // and a bank column beside the water whose ground lies lower fills up to it (the water runs into
+            // the sides instead of hanging over a dry pocket).
+            int water_level = m.water_level * FS;
+            bool side_fill = false;
+            {
+                const MacroPt *cs[4] = {&c00, &c10, &c01, &c11};
+                const float ws[4] = {(1.0f - tx) * (1.0f - tz), tx * (1.0f - tz), (1.0f - tx) * tz, tx * tz};
+                float sum = 0.0f, wsum = 0.0f;
+                for (int k = 0; k < 4; k++) {
+                    // only corners that hold water: hydrology marks a river's whole trench (river ~1) but
+                    // gives only its channel a level; the rest of the trench is filled from it here
+                    if ((cs[k]->hy.river <= 0.0f && !cs[k]->hy.lake) || cs[k]->hy.water_level < 0) continue;
+                    sum += std::max(ws[k], 0.02f) * (float)cs[k]->water_level;
+                    wsum += std::max(ws[k], 0.02f);
+                }
+                if (wsum > 0.0f) {
+                    const int wl = (int)std::floor(sum / wsum * FS + 0.5f);
+                    if ((hy.river > 0.0f || hy.lake) && hy.water_level >= 0) water_level = wl;
+                    else if (wl > water_level && h < wl) { water_level = wl; side_fill = true; }
+                }
+            }
+            const bool lakebed = (m.lakebed || side_fill) && h < water_level, riverbed = m.riverbed, marshbed = m.marshbed;
             const WorldGen::Ruin *ruin = m.ruin >= 0 ? &ruins[m.ruin] : nullptr;
             const int spike = m.spike * FS;
             const uint16_t spire_m = spike > 0 ? (uint16_t)technosim_biome::SPIRE_MATERIAL[col.biome] : Mat::AIR;
@@ -1131,7 +1153,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                         if (mat == Mat::TERRACOTTA) mat = g.strata_at(mx, floor_div(wy, FS), mz);
                     }
                 } else if ((water_level - wy) * 2 >= step) {
-                    const bool inland = hy.lake || hy.river > 0.0f || hy.marsh;
+                    const bool inland = hy.lake || hy.river > 0.0f || hy.marsh || side_fill;
                     if (wy + step >= water_level && cold && (hy.lake || hy.marsh)) mat = Mat::ICE;
                     else if (wy + step >= water_level && !inland && technosim_biome::SURFACE_ICE[col.biome] >= 0) mat = (uint16_t)technosim_biome::SURFACE_ICE[col.biome];
                     else mat = inland ? Mat::WATER_STATIC : Mat::WATER;
