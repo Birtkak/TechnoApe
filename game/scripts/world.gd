@@ -167,8 +167,11 @@ func is_editable(p: Vector3i) -> bool:
 	return _tool.is_area_editable(AABB(Vector3(p), Vector3.ONE))
 
 
-func raycast(from: Vector3, dir: Vector3, max_dist: float) -> VoxelRaycastResult:
-	return _tool.raycast(from, dir, max_dist)
+## The first voxel along the ray whose collision box matches `mask`: by default also the aim-only
+## boxes (GameMaterials.MASK_TARGET: work spots, ground pickups); VoxelBody.MASK_SOLID sees only
+## what blocks bodies.
+func raycast(from: Vector3, dir: Vector3, max_dist: float, mask: int = 0xFFFFFFFF) -> VoxelRaycastResult:
+	return _tool.raycast(from, dir, max_dist, mask)
 
 
 func surface_height(wx: int, wz: int) -> int:

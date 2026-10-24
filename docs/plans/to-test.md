@@ -148,3 +148,11 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
       Let it cool (40 s): take the piece off, reheat it, put it back.
 - [ ] A saw: smith the blade, put it on a stick; a log and the saw make four planks.
 - [ ] The Copper Age chapter in the book follows the Flint Age.
+
+## 2026-10-24: held right clicks, whole sticks (ADR 0043)
+
+- [ ] Hold right click on a stick or stones on the ground for a second (empty hand or a tool): the bar fills, it pops out
+      as one item where it lay. Does a second feel right?
+- [ ] Left click one end of a stick: the whole stick goes and one stick pops out. No half sticks left over.
+- [ ] Firepit: hold right click to lay logs on (one a second while you hold), food on, and with an empty hand to take
+      things off; they pop out beside the fire. The firestarter still lights at once.

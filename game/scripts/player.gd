@@ -58,6 +58,11 @@ var entity_use: Callable         # (mob, held def) -> bool (true: one held item 
 var place_furniture: Callable    # (kind, anchor, facing) -> bool
 var work_use: Callable           # (hit, first_press, from, dir) -> bool: a work piece took the right click (ADR 0023)
 var work_hit: Callable           # (hit, from, dir, sneaking) -> bool: a knapping piece took the left click
+var hold_key: Callable           # (hit) -> String: what a held right click works on ("" = an instant use) (ADR 0043)
+var hold_done: Callable          # (hit) -> void: right click was held Settings.hold_use_s on it
+var autopilot_hold := false      # scripted checks: the right button is held
+var _hold_at := ""
+var _hold_t := 0.0
 var describe_block: Callable     # (voxel) -> String: an extra line for the look-at panel ("" = none)
 var _look_key := ""              # what the look-at panel shows now (rebuilt only when it changes)
 var _look_refresh := 0
@@ -287,7 +292,7 @@ func _apply_look() -> void:
 	var dist := Settings.m2v(3.5)
 	var offset := Basis(Vector3.RIGHT, _pitch * back) * Vector3(0, 0, dist * back)
 	if world:
-		var hit := world.raycast(global_position + eye, global_transform.basis * offset.normalized(), dist + 0.5)
+		var hit := world.raycast(global_position + eye, global_transform.basis * offset.normalized(), dist + 0.5, VoxelBody.MASK_SOLID)
 		if hit:
 			dist = maxf(0.6, hit.distance - 0.6)
 			offset = offset.normalized() * dist
@@ -356,6 +361,7 @@ func _physics_step(delta: float) -> void:
 	_place_cooldown = maxf(0.0, _place_cooldown - delta)
 	t0 = Time.get_ticks_usec()
 	_update_mining(delta)
+	_update_hold(delta)
 	_cost("player_mining", t0)
 	if seat != Vector3.INF:
 		_sit_step()
@@ -628,15 +634,26 @@ func _update_mining(delta: float) -> void:
 			_wear(1)
 		else:
 			_dig_cells = _dig_selection(p, size)   # the world may have changed while digging
+			var split := GroundPickups.complete(world.get_voxel, _dig_cells)
+			var in_piece := {}
+			for pc in split["pieces"]:
+				for c in pc["cells"]:
+					in_piece[c] = true
 			var counts := {}
 			for c in _dig_cells:
-				var n := GameMaterials.name_of(world.get_voxel(c))
-				counts[n] = int(counts.get(n, 0)) + 1
+				if not in_piece.has(c):
+					var n := GameMaterials.name_of(world.get_voxel(c))
+					counts[n] = int(counts.get(n, 0)) + 1
 			var drops := []
 			if mining and GameMode.rule(game_mode, "drops"):
 				drops = mining.voxel_drops(counts, inventory.held_def(), inventory.items.units,
 					func(n: String) -> bool: return GameMaterials.is_plain_voxel(GameMaterials.id_of(n)),
 					_dig_carry, _drop_rng, Settings.BLOCK * Settings.BLOCK * Settings.BLOCK)
+				# each stick or stone piece drops its item once, where it lay (ADR 0043)
+				for pc in split["pieces"]:
+					for d in mining.roll_drops(GameMaterials.name_of(pc["material"]), inventory.held_def(), _drop_rng):
+						d["at"] = pc["center"]
+						drops.append(d)
 			voxels_dug.emit(_dig_cells.duplicate(), drops, Brush.dig_bounds(p, size, brush_shape).get_center())
 			if not _dig_cells.is_empty():
 				_wear(ceili(_dig_cells.size() / float(Settings.BLOCK * Settings.BLOCK * Settings.BLOCK)))   # a use per block dug
@@ -691,34 +708,7 @@ func _dig_selection(p: Vector3i, size: int) -> Array[Vector3i]:
 		if t < 0.0 or t > maxf(t_hit * 4.0, 0.5):
 			continue
 		out.append(c)
-	if hit_mat in GameMaterials.GROUND_PICKUPS:
-		_add_pickup(p, hit_mat, out)
-	return out
-
-
-## A ground pickup is a few touching voxels (a stick, a nodule, pebbles): digging one
-## takes the rest, and the dig rolls its drop once (MiningTable.voxel_drops).
-func _add_pickup(p: Vector3i, m: int, out: Array[Vector3i]) -> void:
-	var seen := {}
-	for c in out:
-		seen[c] = true
-	var todo: Array[Vector3i] = [p]
-	seen[p] = true
-	if not out.has(p):
-		out.append(p)
-	var n := 0
-	while not todo.is_empty() and n < 64:
-		var c: Vector3i = todo.pop_back()
-		n += 1
-		for dz in range(-1, 2):
-			for dy in range(-1, 2):
-				for dx in range(-1, 2):
-					var q := c + Vector3i(dx, dy, dz)
-					if seen.has(q) or q.distance_squared_to(p) > 196 or world.get_voxel(q) != m:
-						continue
-					seen[q] = true
-					out.append(q)
-					todo.append(q)
+	return GroundPickups.complete(world.get_voxel, out)["cells"]   # a stick or stones go whole (ADR 0043)
 
 
 ## Seconds a dig takes: each voxel costs its material's block time / BLOCK^3,
@@ -843,6 +833,12 @@ func _use(first_press: bool) -> void:
 	if not first_press and _place_cooldown > 0.0:
 		return
 	var target: Vector3i = hit.position
+	# picking up sticks and stones, laying things on a firepit and taking them off: hold for a second (ADR 0043)
+	if hold_key.is_valid() and hold_key.call(hit) != "":
+		if first_press:
+			_hold_at = hold_key.call(hit)
+			_hold_t = 0.0
+		return
 	# Vintage Story work pieces (ADR 0023): knapping, clay forming, pit kilns, firepits, sieves
 	if work_use.is_valid() and work_use.call(hit, first_press, camera.global_position, -camera.global_transform.basis.z):
 		_after_use()
@@ -1148,6 +1144,28 @@ func _pick_block() -> void:
 	var id := inventory.items.item_for_material(_loose_name(world.get_voxel(hit.position)))
 	if id != "":
 		inventory.pick_block(id, GameMode.rule(game_mode, "item_picker"))
+
+
+## A right click held on a pickup or a firepit (ADR 0043): the bar fills over Settings.hold_use_s, then
+## hold_done acts; still holding, it goes again (the next thing onto the fire). Letting go or looking
+## away cancels it.
+func _update_hold(delta: float) -> void:
+	if _hold_at == "":
+		return
+	var pressed := autopilot_hold if autopilot else (_mouse_captured and not ui_open and not building and Input.is_action_pressed("action_place"))
+	var hit: VoxelRaycastResult = _aim() if pressed and not edits_locked else null
+	if hit == null or hold_key.call(hit) != _hold_at:
+		_hold_at = ""
+		if hud:
+			hud.break_progress = 0.0
+		return
+	_hold_t += delta
+	if hud:
+		hud.break_progress = _hold_t / Settings.hold_use_s
+	if _hold_t >= Settings.hold_use_s:
+		_hold_t = 0.0
+		hold_done.call(hit)
+		_after_use()
 
 
 func _after_use() -> void:

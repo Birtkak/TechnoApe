@@ -31,6 +31,8 @@ var farming: Farming                 # tilled farmland and crops (ADR 0022)
 var pieces: FallingPieces            # rigid voxel pieces (P12), null with rigid_pieces=0
 var builder: ShapeBuilder            # shape building, box mode, prefabs (ADR 0038)
 var survival: Survival               # hunger, body temperature, food spoilage (ADR 0040)
+var pickups_popped := 0              # sticks and stones picked up by hand (ADR 0043, debug JSON)
+var _pickup_rng := RandomNumberGenerator.new()
 var tools_broken := 0                # tools that wore out this session (ADR 0042, debug JSON)
 var _survival_save := {}             # loaded with the player, before Survival exists
 var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
@@ -182,6 +184,8 @@ func _ready() -> void:
 	work.setup(self)
 	player.work_use = work.use
 	player.work_hit = work.hit
+	player.hold_key = work.hold_key
+	player.hold_done = work.hold_done
 	player.describe_block = _describe_block
 	projectiles = Projectiles.new()
 	projectiles.name = "Projectiles"
@@ -783,9 +787,31 @@ func _on_dug(cells: Array, drops: Array, center: Vector3) -> void:
 		events.clear()
 	_spawn_drop_events(events)
 	for d in drops:
-		spawn_item(d, center, Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+		var s: Dictionary = d.duplicate()
+		s.erase("at")   # a ground pickup's drop pops where it lay (ADR 0043)
+		spawn_item(s, d.get("at", center), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
 	if pieces:
 		pieces.check(cells, player.position)   # a cut that frees a trunk or a limb: it falls (P12)
+
+
+## A stick or stones picked up by hand (ADR 0043): the piece's voxels go and its item pops out where
+## it lay, to be picked up by walking over it.
+func pop_pickup(cells: Array[Vector3i]) -> void:
+	if cells.is_empty():
+		return
+	var split := GroundPickups.complete(get_world_voxel, cells)
+	if split["pieces"].is_empty():
+		return
+	var pc: Dictionary = split["pieces"][0]
+	for c in pc["cells"]:
+		set_world_voxel(c, GameMaterials.AIR)
+	if fx:
+		fx.block_break(pc["cells"][0], pc["material"])
+	pickups_popped += 1
+	if not GameMode.rule(player.game_mode, "drops"):
+		return
+	for d in mining.roll_drops(GameMaterials.name_of(pc["material"]), player_inv.held_def(), _pickup_rng):
+		spawn_item(d, pc["center"], Vector3(randf_range(-0.5, 0.5), 2.5, randf_range(-0.5, 0.5)))
 
 
 ## A brush placement of a voxel item: every cell gets the material.

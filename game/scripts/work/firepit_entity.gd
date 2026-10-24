@@ -206,25 +206,31 @@ func _finish(r: Dictionary) -> void:
 # ---------------- by hand (ADR 0042) ----------------
 
 ## Right click with `stack` (the held stack, {} for an empty hand) and its definition.
-## Returns {consume: n, give: [stacks], ignited: bool, msg: text}. A consumed item keeps its
-## per-stack data in the slot (a hot ingot stays hot, food keeps its freshness).
-func use(stack: Dictionary, def: Dictionary) -> Dictionary:
-	var res := {"consume": 0, "give": [], "ignited": false, "msg": ""}
+## Returns {consume: n, give: [stacks], ignited: bool, act: bool, msg: text}; act says something
+## changed. With `dry` nothing changes: act says whether it would (ADR 0043: only acts are held).
+## A consumed item keeps its per-stack data in the slot (a hot ingot stays hot, food its freshness).
+func use(stack: Dictionary, def: Dictionary, dry := false) -> Dictionary:
+	var res := {"consume": 0, "give": [], "ignited": false, "act": false, "msg": ""}
 	var id: String = stack.get("id", "")
 	if id == "":
 		for slot in [OUTPUT, VESSEL, INPUT, FUEL]:
 			if slot == FUEL and is_lit():
 				continue
 			if not inv.is_empty_slot(slot):
-				res["give"] = [inv.take(slot)]
+				res["act"] = true
+				if not dry:
+					res["give"] = [inv.take(slot)]
 				return res
 		res["msg"] = "Lay fuel on the firepit, then light it with a firestarter."
 		return res
 	if "firestarter" in def.get("tags", []):
 		if is_lit():
 			res["msg"] = "The firepit is burning."
+		elif dry:
+			res["act"] = fuel_ticks(inv.get_slot(FUEL).get("id", "")) > 0
 		elif ignite():
 			res["ignited"] = true
+			res["act"] = true
 			res["msg"] = "The firepit is lit."
 		else:
 			res["msg"] = "Lay fuel on the firepit first."
@@ -234,13 +240,18 @@ func use(stack: Dictionary, def: Dictionary) -> Dictionary:
 		if not inv.is_empty_slot(VESSEL):
 			res["msg"] = "There is a vessel on the fire already."
 			return res
-		inv.set_slot(VESSEL, Inventory.make_stack(items, id, 1, stack))
-		res["consume"] = 1
+		res["act"] = true
+		if not dry:
+			inv.set_slot(VESSEL, Inventory.make_stack(items, id, 1, stack))
+			res["consume"] = 1
 		return res
 	if _cooks_here(id):
 		var s := inv.get_slot(INPUT)
 		if not s.is_empty() and (s["id"] != id or int(s["count"]) + n > items.max_stack(id)):
 			res["msg"] = "Take the %s off first." % items.display_name(s["id"])
+			return res
+		res["act"] = true
+		if dry:
 			return res
 		if s.is_empty():
 			inv.set_slot(INPUT, Inventory.make_stack(items, id, n, stack))
@@ -258,8 +269,10 @@ func use(stack: Dictionary, def: Dictionary) -> Dictionary:
 		if int(f.get("count", 0)) / maxi(n, 1) >= Settings.firepit_fuel_max:
 			res["msg"] = "The firepit holds no more fuel."
 			return res
-		inv.set_slot(FUEL, {"id": id, "count": int(f.get("count", 0)) + n})
-		res["consume"] = n
+		res["act"] = true
+		if not dry:
+			inv.set_slot(FUEL, {"id": id, "count": int(f.get("count", 0)) + n})
+			res["consume"] = n
 		return res
 	var melt := recipes.first_of("melt", {"input": id})
 	if not melt.is_empty():

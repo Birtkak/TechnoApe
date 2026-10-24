@@ -450,19 +450,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_say(res["msg"])
 		return true
 	if e is FirepitEntity:
-		var stack: Dictionary = main.player_inv.held()
-		var res: Dictionary = e.use(stack, held)
-		stats["firepit_uses"] += 1
-		if res["consume"] > 0 and _consumes():
-			main.player_inv.consume_held(res["consume"])
-		if res["ignited"]:
-			_wear_held()   # the firestarter
-		for s in res["give"]:
-			if Inventory.heat_of(s) >= 0.5:
-				_note("heated", s["id"])   # hot metal off the fire (the progression book, ADR 0042)
-		_give(res["give"], _at(p, Vector3(0.5, 0.5, 0.5)))
-		if first_press:
-			_say(res["msg"])
+		_use_firepit(e, held, first_press)
 		return true
 	if e is SieveEntity:
 		var sifting: String = e.input
@@ -638,6 +626,73 @@ func _anvil_column(e: AnvilEntity, from: Vector3, dir: Vector3) -> Vector2i:
 		if q.y - AnvilEntity.BASE_H < e.height(x, z):
 			return Vector2i(x, z)
 	return Vector2i(-1, -1)
+
+
+## A right click on a firepit (ADR 0042). What comes off pops out beside the fire, toward the player,
+## to be picked up by walking over it (ADR 0043).
+func _use_firepit(e: FirepitEntity, held: Dictionary, say: bool) -> void:
+	var res: Dictionary = e.use(main.player_inv.held(), held)
+	stats["firepit_uses"] += 1
+	if res["consume"] > 0 and _consumes():
+		main.player_inv.consume_held(res["consume"])
+	if res["ignited"]:
+		_wear_held()   # the firestarter
+	var side: Vector3 = main.player.position - _at(e.pos, Vector3(0.5, 0.0, 0.5))
+	side.y = 0.0
+	side = side.normalized() if side.length() > 0.01 else Vector3.BACK
+	for s in res["give"]:
+		if Inventory.heat_of(s) >= 0.5:
+			_note("heated", s["id"])   # hot metal off the fire (the progression book, ADR 0042)
+		main.spawn_item(s, _at(e.pos, Vector3(0.5, 0.5, 0.5)) + side * Settings.BLOCK * 0.4, side * 1.2 + Vector3(0, 2.0, 0))
+	if say:
+		_say(res["msg"])
+
+
+# ---------------- held right clicks (ADR 0043) ----------------
+
+var _hold_cells := {}        # the pickup piece the last hold_key looked at: cell -> true
+var _hold_piece := ""        # its key
+
+## What a held right click on `hit` works on, or "" for an instant use: a stick or stones on the
+## ground (with an empty hand, a tool or the same item in it), a firepit that would take the held
+## thing or give something back (not the firestarter, which lights at once).
+func hold_key(hit: VoxelRaycastResult) -> String:
+	if hit == null:
+		return ""
+	var m: int = main.get_world_voxel(hit.position)
+	if GroundPickups.is_pickup(m):
+		var held: Dictionary = main.player_inv.held_def()
+		var drop: String = main.mining.drops(GameMaterials.name_of(m)).get("id", "") if main.mining else ""
+		if not (held.is_empty() or "tool" in held.get("tags", []) or held.get("id", "") == drop):
+			return ""
+		if not _hold_cells.has(hit.position):
+			var pc := GroundPickups.piece(main.get_world_voxel, hit.position)
+			_hold_cells.clear()
+			var lo: Vector3i = pc[0]
+			for c in pc:
+				_hold_cells[c] = true
+				lo = Vector3i(mini(lo.x, c.x), mini(lo.y, c.y), mini(lo.z, c.z))
+			_hold_piece = "pickup:%s" % lo
+		return _hold_piece
+	var p := _work_at(hit)
+	var e: RefCounted = main.blocks.at(p) if p.y >= 0 else null
+	if e is FirepitEntity:
+		var held: Dictionary = main.player_inv.held_def()
+		if "firestarter" in held.get("tags", []):
+			return ""
+		if e.use(main.player_inv.held(), held, true)["act"]:
+			return "firepit:%s" % e.pos
+	return ""
+
+
+## The right click was held long enough on `hit`.
+func hold_done(hit: VoxelRaycastResult) -> void:
+	var key := hold_key(hit)
+	if key.begins_with("pickup:"):
+		_hold_cells.clear()
+		main.pop_pickup(GroundPickups.piece(main.get_world_voxel, hit.position))
+	elif key.begins_with("firepit:"):
+		_use_firepit(main.blocks.at(_work_at(hit)), main.player_inv.held_def(), true)
 
 
 # ---------------- the pan (ADR 0030) ----------------

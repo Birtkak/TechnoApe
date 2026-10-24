@@ -6,7 +6,9 @@ extends RefCounted
 ## firepit is worked by hand (logs, meat, firestarter; the cooked meat taken off, then an ingot
 ## heated on it); a stone anvil takes the hot ingot and the hammer drives it into a hammer head,
 ## the player walking round the anvil so each blow pushes the metal the right way; the piece comes
-## off half done and goes back on; a nearly worn axe breaks. Waiting is fast-forwarded by ticking
+## off half done and goes back on; a nearly worn axe breaks. ADR 0043: the firepit is worked with
+## held right clicks (a second each, things taken off pop out beside it), a stick on the ground is
+## picked up whole by a held right click, and digging one of its voxels takes all of it. Waiting is fast-forwarded by ticking
 ## the block entities. Screenshots go to the run's out dir (craft_shots=0 skips them); one JSON line
 ## "debug craft {...}" says what happened.
 
@@ -72,11 +74,13 @@ func run(p_main: Node) -> void:
 	r["firepit_placed"] = fp is FirepitEntity
 	inv.pickup("oak_log", 4 * main.items.units("oak_log"))
 	main._hold("oak_log")
-	for i in 4:
-		_use_on(f_at, Vector3(0.5, 0.2, 0.5))
+	await _hold_on(f_at, Vector3(0.5, 0.2, 0.5), 4)   # held: a log a second (ADR 0043)
+	r["logs_on"] = fp.inv.get_slot(FirepitEntity.FUEL).get("count", 0) / main.items.units("oak_log") if fp is FirepitEntity else 0
 	inv.pickup("raw_meat", 2)
 	main._hold("raw_meat")
 	_use_on(f_at, Vector3(0.5, 0.2, 0.5))
+	r["meat_needs_a_hold"] = fp is FirepitEntity and fp.inv.is_empty_slot(FirepitEntity.INPUT)
+	await _hold_on(f_at, Vector3(0.5, 0.2, 0.5))
 	inv.pickup("firestarter", 1)
 	main._hold("firestarter")
 	_use_on(f_at, Vector3(0.5, 0.2, 0.5))
@@ -86,15 +90,18 @@ func run(p_main: Node) -> void:
 	await _shot(tree, "firepit_cooking", Vector3(f_at) + Vector3(0.5, 0.2, 0.5) * B, 1.1)
 	await _fast_forward(301)
 	_empty_hand()
-	_use_on(f_at, Vector3(0.5, 0.2, 0.5))
+	await _hold_on(f_at, Vector3(0.5, 0.2, 0.5))
+	r["meat_popped_out"] = inv.inv.count_of("cooked_meat") == 0   # it lies beside the fire, not in the hand
+	await _pick_up_near(tree, f_at)
 	r["cooked_meat"] = inv.inv.count_of("cooked_meat")
 	inv.pickup("copper_ingot", 1)
 	main._hold("copper_ingot")
-	_use_on(f_at, Vector3(0.5, 0.2, 0.5))
+	await _hold_on(f_at, Vector3(0.5, 0.2, 0.5))
 	await _fast_forward(int(Settings.metal_heat_s * 20.0) + 4)
 	await _shot(tree, "firepit_ingot", Vector3(f_at) + Vector3(0.5, 0.2, 0.5) * B, 1.1)
 	_empty_hand()
-	_use_on(f_at, Vector3(0.5, 0.2, 0.5))
+	await _hold_on(f_at, Vector3(0.5, 0.2, 0.5))
+	await _pick_up_near(tree, f_at)
 	var slot := _slot_of(inv, "copper_ingot")
 	r["ingot_heat"] = snappedf(Inventory.heat_of(inv.inv.get_slot(slot)), 0.01) if slot >= 0 else -1.0
 
@@ -144,6 +151,29 @@ func run(p_main: Node) -> void:
 		await _pick_up_near(tree, n_at)
 		r["hammer_head"] = inv.inv.count_of("copper_hammer_head")
 		await _shot(tree, "anvil_done", Vector3(n_at) + Vector3(0.5, 0.6, 0.5) * B, 1.1)
+
+	# ---- sticks on the ground (ADR 0043): a held right click picks one up whole; digging one voxel takes all of it ----
+	var t1: Vector3i = at.call(-3, -5)
+	var t2: Vector3i = at.call(1, -5)
+	for x in 10:
+		main.set_world_voxel(t1 + Vector3i(x, 0, 0), GameMaterials.TWIGS)
+		main.set_world_voxel(t2 + Vector3i(x, 0, 0), GameMaterials.TWIGS)
+	await tree.create_timer(1.0).timeout
+	_empty_hand()
+	var sticks_before := inv.inv.count_of("stick")
+	_use_on(t1 + Vector3i(3, 0, 0), Vector3(0.1, 0.12, 0.1))
+	r["twig_needs_a_hold"] = main.get_world_voxel(t1) == GameMaterials.TWIGS
+	var aim: VoxelRaycastResult = main.player._aim()
+	r["twig_aim"] = [aim.position, GameMaterials.name_of(main.get_world_voxel(aim.position)), main.work.hold_key(aim)] if aim else ["none"]
+	await _hold_on(t1 + Vector3i(3, 0, 0), Vector3(0.1, 0.12, 0.1))
+	var left := 0
+	for x in 10:
+		left += 1 if main.get_world_voxel(t1 + Vector3i(x, 0, 0)) == GameMaterials.TWIGS else 0
+	r["twig_voxels_left_after_hold"] = left
+	await _pick_up_near(tree, t1 + Vector3i(4, 0, 0))
+	r["sticks_from_hold"] = inv.inv.count_of("stick") - sticks_before
+	r["dig_takes_whole_twig"] = main.player._dig_selection(t2 + Vector3i(7, 0, 0), 1).size()
+	r["pickups_popped"] = main.pickups_popped
 
 	# ---- wear: an axe one use from breaking ----
 	var broke_before: int = main.tools_broken
@@ -195,6 +225,20 @@ func _pick_up_near(tree: SceneTree, p: Vector3i) -> void:
 	main.player.position = Vector3(p) + Vector3(0.5, 0.0, 1.6) * Settings.BLOCK   # beside it: an anvil is solid
 	await tree.create_timer(Settings.item_pickup_delay_s + 0.5).timeout
 	main.player.position = keep
+	await tree.process_frame
+
+
+## Right click held at a point of the piece anchored at p (block fractions) for `times` holds (ADR 0043).
+func _hold_on(p: Vector3i, frac: Vector3, times: int = 1) -> void:
+	var tree := main.get_tree()
+	var at := Vector3(p) + frac * Settings.BLOCK
+	var cam: Camera3D = main.player.camera
+	var dir := (at - cam.global_position).normalized()
+	main.player.set_look(atan2(-dir.x, -dir.z), asin(dir.y))
+	main.player.autopilot_hold = true
+	main.player._use(true)
+	await tree.create_timer(Settings.hold_use_s * times + 0.15).timeout
+	main.player.autopilot_hold = false
 	await tree.process_frame
 
 

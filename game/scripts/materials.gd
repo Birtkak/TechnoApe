@@ -530,6 +530,11 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 		if passable:
 			cube.collision_mask = 0
 			cube.set_mesh_collision_enabled(0, false)
+			if defs().find(d) + 1 in GROUND_PICKUPS:
+				# a box only the aim ray hits: sticks and stones are aimed at, dug and picked up whole,
+				# but walked through (ADR 0043)
+				cube.collision_aabbs = [AABB(Vector3.ZERO, Vector3.ONE)]
+				cube.collision_mask = MASK_TARGET
 		models.append(cube)
 	if not fluids.is_empty():
 		while models.size() < FLUID_LEVEL_BASE:

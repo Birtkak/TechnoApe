@@ -140,6 +140,8 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   against `Inventory.clock_s`, and a stone anvil smiths hot copper with a hammer (`smith` recipes, height per column,
   `AnvilEntity`). Stacks keep per-stack data (`spoil`, `wear`, `hot_until`, `work`) through every move: build stacks with
   `Inventory.make_stack`. `craft_test=1` checks it all (headless with `craft_shots=0`).
+  **Held right clicks (ADR 0043):** ground pickups are whole pieces (`GroundPickups`): aimable (aim-only box), a dig takes the
+  whole stick, a 1 s held right click pops it into an item on the ground; firepit moves are held too (`hold_key`/`hold_done`).
   **Next:** the rest of the ADR 0037 work order; still open from before: fire/smoke pacing per cell, fast flight vs
   generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
   list in `docs/plans/to-test.md`.

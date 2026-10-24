@@ -46,7 +46,7 @@ func _physics_process(delta: float) -> void:
 		var dist := seg.length()
 		var dir := seg / maxf(dist, 1e-6)
 		var mob_hit: Dictionary = main.mobs.pick(a, dir, dist) if main.mobs != null else {}
-		var block_hit: VoxelRaycastResult = main.world.raycast(a, dir, dist)
+		var block_hit: VoxelRaycastResult = main.world.raycast(a, dir, dist, VoxelBody.MASK_SOLID)   # through sticks and work spots
 		if not mob_hit.is_empty() and (block_hit == null or float(mob_hit["dist"]) < float(block_hit.distance)):
 			main.mobs.attack(mob_hit["mob"], f["damage"], a)
 			stats["hits"] += 1

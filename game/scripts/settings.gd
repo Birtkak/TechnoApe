@@ -77,6 +77,7 @@ var metal_heat_s := 8.0                 # an ingot or work piece on a lit firepi
 var metal_cool_s := 40.0                # fully hot metal is cold again this long after leaving the fire (Inventory.clock_s)
 var smith_min_heat := 0.1               # below this heat the hammer does nothing: reheat the work piece
 var firepit_fuel_max := 8               # fuel items a firepit holds (laid on one right click at a time)
+var hold_use_s := 1.0                   # right click held this long picks up a stick or stone, lays a thing on a firepit or takes it off (ADR 0043)
 
 # Particles (ADR 0026): two GPU pools, every particle emitted by script
 # Survival (ADR 0040): hunger, body temperature, food spoilage. Seconds are real time, days game days.
