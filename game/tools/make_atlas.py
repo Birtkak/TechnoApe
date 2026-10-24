@@ -13,7 +13,7 @@ Tiles (index = row*4 + col):
 66-68 terracotta orange/red/cream 69 basalt top 70 basalt side 71 packed ice
 72 fern frond; 73 birch bark 74 birch top 75 birch leaves 76 blueberries
 77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84 leaf litter; 85 oak bark; 86 pebbles 87 flint
-88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98-103 free (8x13)
+88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98 cobblestone 99 bricks (patterned, ADR 0039); 100-103 free (8x13)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -465,6 +465,55 @@ PICKUP["tin_bearing"] = HOST + [("#3a2a1f", 2), ("#58402f", 1.5), ("#c8c2b0", 1)
 PICKUP["iron_bearing"] = HOST + [("#a8402a", 2), ("#c9662f", 1.5), ("#6e2e1c", 1)]     # hematite and limonite
 
 
+def cobblestone():
+    """Rounded stones about 4 voxels across with dark gaps; wraps at the tile edge (patterned: the
+    tile repeats every 16 voxels in the world)."""
+    rng = random.Random(9801)
+    seeds = []
+    for gy in range(4):
+        for gx in range(4):
+            seeds.append((gx * 4 + rng.uniform(0.5, 3.5), gy * 4 + rng.uniform(0.5, 3.5), rng.randint(-22, 18)))
+    img = Image.new("RGBA", (TILE, TILE))
+    px = img.load()
+    for y in range(TILE):
+        for x in range(TILE):
+            ds = []
+            for sx, sy, shade in seeds:
+                dx = min(abs(x + 0.5 - sx), TILE - abs(x + 0.5 - sx))
+                dy = min(abs(y + 0.5 - sy), TILE - abs(y + 0.5 - sy))
+                ds.append((dx * dx + dy * dy, shade))
+            ds.sort()
+            gap = ds[1][0] ** 0.5 - ds[0][0] ** 0.5 < 0.75
+            v = 142 + ds[0][1] + rng.randint(-6, 6)
+            if gap:
+                v = 88 + rng.randint(-6, 6)
+            px[x, y] = (v + 4, v, v - 8, 255)
+    return img
+
+
+def bricks():
+    """Fired-clay bricks in courses: 4 voxels tall (3 brick, 1 mortar), 8 long, every other course
+    shifted by half a brick; each brick its own shade. Wraps (patterned)."""
+    rng = random.Random(9902)
+    img = Image.new("RGBA", (TILE, TILE))
+    px = img.load()
+    shades = {}
+    for y in range(TILE):
+        course = y // 4
+        for x in range(TILE):
+            xs = (x + (4 if course % 2 else 0)) % TILE
+            if y % 4 == 3 or xs % 8 == 7:
+                v = 178 + rng.randint(-8, 8)
+                px[x, y] = (v, v - 6, v - 16, 255)
+                continue
+            key = (course, xs // 8)
+            if key not in shades:
+                shades[key] = rng.randint(-20, 16)
+            d = shades[key] + rng.randint(-7, 7)
+            px[x, y] = (max(0, 162 + d), max(0, 74 + d // 2), max(0, 52 + d // 2), 255)
+    return img
+
+
 def spotted(base, spot):
     img = noise_tile(base, 12, None, 0)
     for (sx, sy) in [(3, 3), (10, 4), (6, 9), (12, 11), (2, 12)]:
@@ -575,6 +624,8 @@ tiles = [
     palette(PICKUP["tin_bearing"], 95),                       # 95 tin-bearing stones
     palette(PICKUP["iron_bearing"], 96),                      # 96 iron-bearing stones
     palette(PICKUP["twigs_bark"], 97),                        # 97 twigs sides (bark)
+    cobblestone(),                                            # 98 cobblestone (patterned)
+    bricks(),                                                 # 99 bricks (patterned)
 ]
 assert len(tiles) <= COLS * ROWS, len(tiles)
 

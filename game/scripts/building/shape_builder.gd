@@ -351,7 +351,8 @@ func _left_press() -> void:
 		State.BOX_END:
 			_left_press_box_end()
 		State.SELECTED:
-			pass
+			if main.chat:
+				main.chat.open("/prefab save builds ")   # type a name, Enter saves (category first)
 
 
 func _left_press_box_end() -> void:
@@ -556,7 +557,7 @@ func _update_hint() -> void:
 		State.DIG_BOX:
 			_hint.text = "Dig %s: hold the left button   right click: another box" % size_text
 		State.SELECTED:
-			_hint.text = "Selected %s   /prefab save <category> <name>   right click: another box" % size_text
+			_hint.text = "Selected %s   click to name and save it   right click: another box" % size_text
 	if _short and state in [State.AIM, State.EDIT]:
 		_hint.text += "   (not enough)"
 

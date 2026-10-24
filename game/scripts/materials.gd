@@ -116,6 +116,9 @@ const DAUB_WALL := 105             # wattle plastered with clay, straw and dirt
 const TORCH := 106                 # stands on a top face; TorchLights gives the nearest ones a light
 const STORAGE_POT := 107           # fired clay jar: a 9-slot container (micro model, solid)
 const LEAF_LITTER := 108           # the shaded forest floor: fallen leaves over soil, dug like grass
+# Patterned building materials (ADR 0039)
+const COBBLESTONE := 109           # what stone breaks into: rounded stones in a dark bed
+const BRICKS := 110                # kiln-fired clay bricks in courses
 
 const ATLAS_TILES := Vector2i(8, 13)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -179,7 +182,7 @@ static func _build_defs() -> Array:
 		{"name": "furnace", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 35, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "furnace_lit", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 36, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "chest", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [37, 38, 37], "transparent": false, "interact": "chest", "entity": "chest"},
-		{"name": "planks", "cell_type": "solid", "rigid": "wood", "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false},
+		{"name": "planks", "cell_type": "solid", "rigid": "wood", "pattern": true, "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false},
 		{"name": "pebbles", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [86, 86, 86], "transparent": false, "micro": "pebbles"},
 		{"name": "mushroom_brown", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [40, 42, 42], "transparent": false, "micro": "mushroom"},
 		{"name": "mushroom_red", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [41, 42, 42], "transparent": false, "micro": "mushroom"},
@@ -217,6 +220,8 @@ static func _build_defs() -> Array:
 		{"name": "work_block", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": true, "interact": "work"},
 	] + _content_pass2_defs() + _flint_age_defs() + [
 		{"name": "leaf_litter", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [84, 84, 1], "transparent": false},
+		{"name": "cobblestone", "cell_type": "solid", "pattern": true, "density": 10, "hp": 1000, "tiles": [98, 98, 98], "transparent": false},
+		{"name": "bricks", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [99, 99, 99], "transparent": false},
 	]
 
 
@@ -244,7 +249,7 @@ static func _content_pass2_defs() -> Array:
 		d.merge(plant_burn)
 		_content2.append(d)
 	for b in [["oak_bark", 85], ["spruce_bark", 57], ["acacia_bark", 60], ["jungle_bark", 63], ["birch_bark", 73]]:
-		var d := {"name": b[0], "cell_type": "solid", "rigid": "wood", "density": 10, "tiles": [b[1], b[1], b[1]], "transparent": false}
+		var d := {"name": b[0], "cell_type": "solid", "rigid": "wood", "pattern": true, "density": 10, "tiles": [b[1], b[1], b[1]], "transparent": false}
 		d.merge(log_burn)
 		_content2.append(d)
 	# wildlife (ADR 0027): a ribcage with scraps of meat, tiles [meat, bone, blood]
@@ -261,7 +266,7 @@ static func _flint_age_defs() -> Array:
 		return _flint_age
 	var grass_burn := {"burnable": true, "fire_hp": 60, "autoignition_temperature": 25, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4}
 	var wood_burn := {"burnable": true, "fire_hp": 100, "autoignition_temperature": 35, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3}
-	var thatch := {"name": "thatch", "cell_type": "solid", "rigid": "wood", "density": 4, "hp": 60, "tiles": [88, 89, 88], "transparent": false}
+	var thatch := {"name": "thatch", "cell_type": "solid", "pattern": true, "rigid": "wood", "density": 4, "hp": 60, "tiles": [88, 89, 88], "transparent": false}
 	thatch.merge(grass_burn)
 	var wattle := {"name": "wattle", "cell_type": "solid", "rigid": "wood", "density": 6, "hp": 120, "tiles": [91, 6, 6], "transparent": false, "micro": "wattle"}
 	wattle.merge(wood_burn)
@@ -406,6 +411,18 @@ static func is_liquid(id: int) -> bool:
 static var _ids := {}
 
 ## Material id for a name (0 when unknown).
+## The atlas tiles drawn as patterns (ADR 0039): one texel per voxel, laid over the world grid, instead
+## of a texel picked by the voxel's hash. Bit t of the result's int t / 32 is set for tile t: every tile
+## of a material with "pattern": true (terrain_common.gdshaderinc, pattern_tiles).
+static func pattern_tiles() -> PackedInt32Array:
+	var bits := PackedInt32Array([0, 0, 0, 0])
+	for d in defs():
+		if d.get("pattern", false):
+			for t in d.get("tiles", []):
+				bits[int(t) / 32] |= 1 << (int(t) % 32)
+	return bits
+
+
 static func id_of(name: String) -> int:
 	if _ids.is_empty():
 		var d := defs()

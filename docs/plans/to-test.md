@@ -108,4 +108,12 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] In survival a shape needs the material in your inventory (it says how much); the preview turns red when short.
 - [ ] Box mode: two clicks mark a box, then the same handles. With a tool (or an empty hand), Box dig marks a box;
       hold the left button to dig it, the drops fall out.
-- [ ] Select marks a box; type `/prefab save <category> <name>`; V, Prefabs places it again (also "last build").
+- [ ] Select marks a box; click it, the chat opens with `/prefab save builds `: type a name, Enter. V, Prefabs places
+      it again (also "last build").
+
+## 2026-10-24: patterned building materials (ADR 0039)
+
+- [ ] Build walls of planks, cobblestone (`/give cobblestone`), bricks (`/give bricks`) and thatch: boards, stones,
+      brick courses and weave should read from a few metres; do they look right at this voxel size?
+- [ ] Tree trunks show bark stripes now (oak brown, birch white with dashes). Better or worse than before?
+- [ ] Bricks in survival: form clay into raw clay bricks, fire them in a pit kiln, four make a bricks block.

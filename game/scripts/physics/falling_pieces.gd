@@ -39,7 +39,7 @@ func setup(p_bubble: SimBubble, atlas_material: ShaderMaterial, p_fx: ParticleFx
 	rp.set_async(true)
 	material = ShaderMaterial.new()
 	material.shader = load("res://assets/shaders/terrain_piece.gdshader")
-	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "grass_top_tile", "grass_side_tile", "far_fade_start", "far_fade_end"]:
+	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "grass_top_tile", "grass_side_tile", "pattern_tiles", "far_fade_start", "far_fade_end"]:
 		material.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
 
 

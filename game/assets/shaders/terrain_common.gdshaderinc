@@ -29,6 +29,10 @@ uniform float ripple_strength = 0.35;
 // far_fade_start (world voxels from the camera) textures fade toward tile averages
 uniform float grass_top_tile = 2.0;
 uniform float grass_side_tile = 3.0;
+// Patterned tiles (ADR 0039, GameMaterials.pattern_tiles): bit t of pattern_tiles[t / 32] set = tile t
+// is a pattern laid over the world grid, one texel per voxel (plank rows, brick courses, cobble, bark),
+// instead of one texel picked by the voxel's hash.
+uniform int pattern_tiles[4];
 uniform float far_fade_start = 300.0;
 uniform float far_fade_end = 1200.0;
 
@@ -117,8 +121,18 @@ float voxel_sample(vec2 uv_in, vec3 wpos, vec3 n, vec3 cam, out vec4 c) {
 	ivec2 tex_size = textureSize(atlas, 0);
 	ivec2 tile_px = tex_size / ivec2(atlas_tiles);
 	ivec3 vox = ivec3(floor(wpos - n * 0.02));
-	uint h = voxel_hash(vox);
-	ivec2 texel = ivec2(tile) * tile_px + ivec2(int(h % uint(tile_px.x)), int((h >> 8u) % uint(tile_px.y)));
+	int ti = int(idx + 0.5);
+	ivec2 cell;
+	if (ti >= 0 && ti < 128 && (pattern_tiles[ti >> 5] & (1 << (ti & 31))) != 0) {
+		// the tile across the face's plane: walls show it upright, floors from above
+		vec3 an = abs(n);
+		ivec2 q = an.y > 0.5 ? vox.xz : (an.x > an.z ? ivec2(vox.z, -vox.y - 1) : ivec2(vox.x, -vox.y - 1));
+		cell = ivec2(((q.x % tile_px.x) + tile_px.x) % tile_px.x, ((q.y % tile_px.y) + tile_px.y) % tile_px.y);
+	} else {
+		uint h = voxel_hash(vox);
+		cell = ivec2(int(h % uint(tile_px.x)), int((h >> 8u) % uint(tile_px.y)));
+	}
+	ivec2 texel = ivec2(tile) * tile_px + cell;
 	c = texelFetch(atlas, texel, 0);
 	float far = smoothstep(far_fade_start, far_fade_end, distance(wpos, cam));
 	if (far > 0.0) {

@@ -43,6 +43,8 @@
     "flower_red":   {"hardness": 0.0, "drops": "poppy"},
     "dead_bush":    {"hardness": 0.0},
     "planks":       {"hardness": 2.0, "tool": "axe", "drops": "oak_planks"},
+    "cobblestone":  {"hardness": 2.0, "tool": "pickaxe", "requires": true, "drops": "cobblestone", "drop_tier": 1},
+    "bricks":       {"hardness": 2.0, "tool": "pickaxe", "requires": true, "drops": "bricks", "drop_tier": 1},
     "crafting_table": {"hardness": 2.5, "tool": "axe", "drops": "crafting_table"},
     "chest":        {"hardness": 2.5, "tool": "axe", "drops": "chest"},
     "furnace":      {"hardness": 3.5, "tool": "pickaxe", "requires": true, "drops": "furnace"},

@@ -2069,6 +2069,7 @@
     "clay_ball": {"layers": [{"shape": "ball", "palette": "clay"}]},
     "fire_clay": {"layers": [{"shape": "ball", "palette": "fire_clay"}]},
     "clay_brick": {"layers": [{"shape": "brick", "palette": "terracotta"}]},
+    "raw_clay_brick": {"layers": [{"shape": "brick", "palette": "clay"}]},
     "fire_brick": {"layers": [{"shape": "brick", "palette": "fire_brick"}]},
     "iron_bloom": {"layers": [{"shape": "bloom", "palette": "iron"}]},
     "mana_dust": {"layers": [{"shape": "dust_pile", "palette": "mana"}]},

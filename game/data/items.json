@@ -2,7 +2,7 @@
   "_comment": "Item definitions. tags power recipes (#tag ingredients) and the recipe browser. stack = max stack size (Minecraft: 64 default, tools 1). material = GameMaterials name placed on use. fuel_ticks = furnace burn time at 20 ticks/s (Minecraft values); empties_to = what stays in the fuel slot / hand after use. food = eaten by holding right click (hunger = half-hearts healed until hunger exists); plants = crop it plants on farmland (data/crops.json); furniture = furniture kind it places (ADR 0022). work = the work piece it places (ADR 0023: firepit, sieve); tag ground_place = right click puts it on the ground (pit kiln, molds); tool_head + stick = the tool (flint heads also need a #binding, ADR 0030). attack_damage = melee half-hearts; throw = {damage, speed_m}: right click throws it; bag_slots = slots a worn bag adds; empties_to on food = what is left in the hand after eating.",
   "items": [
     {"id": "stone", "name": "Stone", "tags": ["block", "stone"], "stack": 64, "material": "stone"},
-    {"id": "cobblestone", "name": "Cobblestone", "tags": ["block", "stone", "cobble"], "stack": 64, "material": "stone", "_note": "placeholder: no cobblestone material yet, places stone"},
+    {"id": "cobblestone", "name": "Cobblestone", "tags": ["block", "stone", "cobble"], "stack": 64, "material": "cobblestone"},
     {"id": "dirt", "name": "Dirt", "tags": ["block", "soil"], "stack": 64, "material": "dirt"},
     {"id": "grass_block", "name": "Grass Block", "tags": ["block", "soil"], "stack": 64, "material": "grass"},
     {"id": "sand", "name": "Sand", "tags": ["block", "sand"], "stack": 64, "material": "sand"},
@@ -138,6 +138,9 @@
     {"id": "pan", "name": "Pan", "tags": ["pan"], "stack": 1, "_note": "right click sand or gravel under water and keep shaking: nuggets (ADR 0030)"},
     {"id": "raw_clay_bowl", "name": "Raw Clay Bowl", "tags": ["ground_place", "raw_clay"], "stack": 16},
     {"id": "clay_bowl", "name": "Clay Bowl", "tags": ["bowl"], "stack": 16},
+    {"id": "raw_clay_brick", "name": "Raw Clay Brick", "tags": ["ground_place", "raw_clay"], "stack": 16, "_note": "formed from clay, fired in a pit kiln (ADR 0039)"},
+    {"id": "clay_brick", "name": "Clay Brick", "tags": ["brick"], "stack": 64},
+    {"id": "bricks", "name": "Bricks", "tags": ["block", "bricks"], "stack": 64, "material": "bricks"},
     {"id": "raw_cooking_pot", "name": "Raw Cooking Pot", "tags": ["ground_place", "raw_clay"], "stack": 1},
     {"id": "cooking_pot", "name": "Cooking Pot", "tags": ["vessel"], "stack": 1, "_note": "goes in the vessel slot of a firepit: stew"},
     {"id": "pot_of_stew", "name": "Pot of Stew", "tags": ["vessel"], "stack": 1, "_note": "craft it with clay bowls: three servings, the pot comes back"},

@@ -50,7 +50,7 @@ native (principle 8), and the inventory has to pay for it across all stacks.
   reaching outside the window is refused for now.
 - Falling pieces (P12) check every commit's removed cells only for box digs; a built shape that
   floats is fine (built wood is `rigid` and holds what it touches, like any wood).
-- First version (2026-10-24): naming a selection goes through chat (`/prefab save <category> <name>`);
-  a naming dialog comes when the menus get their next pass. The Prefabs menu shows the first 12.
+- First version (2026-10-24): a click on a selection opens the chat with `/prefab save builds ` typed,
+  to name it (and change the category); a proper dialog comes when the menus get their next pass. The Prefabs menu shows the first 12.
 - Taste calls left open: the radial menu's look, handle sizes and colours, whether stairs come in
   step heights other than 0.5 m.
