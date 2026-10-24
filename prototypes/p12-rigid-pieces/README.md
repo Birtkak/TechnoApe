@@ -137,8 +137,23 @@ Still open:
   bunch of leaves (15 wood + 2 273 leaves) rocked for 15 s without sleeping: only wood holds a piece
   up, so it pivoted on its few wood voxels. Snapped bits now drop as crumbs under `min_limb` wood
   voxels (not wood + leaves); every piece settles, p99 6.47 ms.
-- Whether a felled old tree should hang up on its neighbours (real forestry) or push through to the
-  ground is a taste call for the developer.
+- **Push through (the developer's call, 2026-10-24).** A felled tree should not hang up on its
+  neighbours. Three things were in the way, found with the per-piece contact log (`get_contact_info`,
+  `rest`, `contact_log` in the stats, `track_m` in FallingPieces):
+  1. Only wood under 0.75 m could break. Wood now breaks at `hardness * (run / thick)^2` (thickness
+     factor, capped at a 6 m run): twice as thick needs twice the speed or load.
+  2. Old-growth crowns interlock one voxel apart: a tree touched its neighbours' limbs on the first
+     tick, before it moved fast enough to break anything, and stood (0-1 deg for 4 s in the bench). A
+     heavy piece (`heavy_mass` 1000) now breaks any wood thinner than `limb_run` (1.5 m) it touches,
+     at any speed; trunks hold.
+  3. Cut off its stump, a trunk slid about on its base and rocked (3-28 deg for 6 s). Felled trunks
+     now pivot on the edge of their cut that faces the fall (`hold_hinge`, a ball joint) until they
+     tip 45 deg or 4 s pass, like the hinge wood a feller leaves.
+  Also: a strength split tears the wood left face to face with the piece (it would jam on it).
+  Result in the game, the same old oak felled three ways: it tips to ~50 deg in 2-3 s and rests on
+  its own crown limbs on the ground (3 ground contacts, no wood), breaking 6 000-8 000 voxels; job
+  max 18-19 ms on the driver, p99 6.0-6.6 ms. A broad oak crown props its trunk off the ground; its
+  own limbs do not break under it (they are part of the piece).
 - Leaves (7-11 ms) are now the biggest part of a check; reading cells through `cls_at` (bounds and
   loaded check per neighbour) is most of it.
 - A frame over budget in a real chop could still come from the terrain remesh of thousands of broken

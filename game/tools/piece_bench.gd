@@ -183,9 +183,10 @@ func _init() -> void:
 		if done.size() > 0:
 			out["settled_after_s"] = (t + 1) / 30.0
 			break
-		if t % 6 == 0:
+		if t % int(args.get("track_every", "6")) == 0:
 			var inf: Dictionary = rp.get_info(ids[0])
-			track.append([snappedf(t / 30.0, 0.01), snappedf(inf["tilt_deg"], 0.1), snappedf((inf["pos"] as Vector3).y - o.y - top, 0.1), (rp.get_stats()["last_contacts"])])
+			track.append([snappedf(t / 30.0, 0.01), snappedf(inf["tilt_deg"], 0.1), snappedf((inf["pos"] as Vector3).y - o.y - top, 0.1), (rp.get_stats()["last_contacts"]),
+				snappedf((inf["ang"] as Vector3).length(), 0.01), inf["hinged"]])
 	step_ms.sort()
 	out["track_t_tilt_height_contacts"] = track
 	out["step_ms_p50"] = step_ms[step_ms.size() / 2]
@@ -198,6 +199,7 @@ func _init() -> void:
 	out["broken_events"] = broken
 	out["limb_pieces"] = spawned_more
 	out["shed_leaves"] = st["shed"]
+	out["contact_log"] = (st["contact_log"] as Array).map(func(c: Vector4i) -> String: return "%s %s %d" % [str(Vector3i(c.x, c.y, c.z) - o - Vector3i(int(mid.x), top, int(mid.z))), GameMaterials.name_of(sim.get_voxel(Vector3i(c.x, c.y, c.z) - o)), c.w])
 	out["hits"] = [st["hits_ground"], st["hits_wood"], st["snapped"], st["spawned"], str(st["last_wood_hit"] - o - Vector3i(int(mid.x), top, int(mid.z))), GameMaterials.name_of(sim.get_voxel(st["last_wood_hit"] - o))]
 	# the common case: a 4x4x4 dig in the ground next to the stump
 	var dig := []

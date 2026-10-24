@@ -30,6 +30,7 @@
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 #include <godot_cpp/variant/vector4.hpp>
+#include <godot_cpp/variant/vector4i.hpp>
 
 #include <array>
 #include <cstdint>
@@ -55,7 +56,7 @@ public:
     void set_origin(Vector3i p_world_cell);
     // Tunables: max_wood (flood-fill cap), leaf_reach (voxels), substeps, friction, restitution,
     // push (topple speed, rad/s), sleep_ticks, max_age_s, max_points, min_piece, strength (voxels held
-    // per voxel of cross-section), region_cap, max_paths, thick (shortest wood run, voxels, that makes wood a trunk), load_k,
+    // per voxel of cross-section), region_cap, max_paths, thick (wood thinner than this breaks at its hardness, thicker needs (run / thick)^2 times), max_run, load_k,
     // impact_k, max_leaf_points. Hardness per material: "hardness", else "hp", else wood 4000, leaves 20,
     // plants 5; ground never breaks.
     void set_params(const Dictionary &p_params);
@@ -99,13 +100,15 @@ public:
     void queue_check(const Array &p_cells, Vector3 p_push_from);
     void queue_step(float p_dt);
     Dictionary collect();
+    // Debug, as of collect(): {load (highest wood contact load over its snapping load, last tick), wood, ground (contacts)}.
+    Dictionary get_contact_info(int p_id) const;
 
 protected:
     static void _bind_methods();
 
 private:
     struct LeafPoint { Vector3 r; int cell; };   // relative to com; index into grid
-    struct View { int id; Vector3 prev_pos, pos, com, hash_origin; Quaternion prev_rot, rot; };   // async: as of collect()
+    struct View { int id; Vector3 prev_pos, pos, com, hash_origin; Quaternion prev_rot, rot; float load; int wood_touch, ground_touch, inside; bool hinged; float spin; };   // async: as of collect()
     struct Piece {
         int id = 0;
         Vector3i size;                    // local grid size
@@ -123,6 +126,10 @@ private:
         bool mesh_new = true;             // async: no mesh handed over yet
         int mesh_wait = 0;                // ticks since its mesh was last built (async rebuilds are spaced)
         Vector3i blocks;                  // mesh blocks of MESH_BLOCK^3 cells along each axis
+        bool hinged = false;              // a felled trunk pivots on the edge of its cut (its hinge wood) until it tips hinge_deg
+        Vector3 hinge_r, hinge_world;     // that pivot: local, relative to com; and where it stays in the world
+        float load = 0.0f;                // debug, last tick: highest wood contact load / its snapping load
+        int wood_touch = 0, ground_touch = 0, inside = 0;   // debug, last tick: most contacts on wood / ground / inside a cell in a substep
         std::vector<uint8_t> block_dirty; // async: blocks that lost voxels since their last mesh
         int still = 0;
         float age = 0.0f;
@@ -135,7 +142,7 @@ private:
         Vector3 t1, t2;
         float mass_t1, mass_t2;
         Vector3i cell;      // the wood cell touched (other trees), for snapping under load
-        bool weak;          // that wood is thin
+        float factor;       // that wood's wood_factor (0: not wood)
     };
 
     Ref<SimWorld> sim_;
@@ -165,11 +172,17 @@ private:
     int last_paths_ = 0, last_region_ = 0, last_side_ = 0;
     double last_strength_ms_ = 0.0;
     double split_ms_[4] = {};
-    int hit_ground_ = 0, hit_wood_ = 0, snapped_total_ = 0, shed_ = 0;
+    int hit_ground_ = 0, hit_wood_ = 0, snapped_total_ = 0, shed_ = 0, torn_ = 0;
     float impact_k_ = 20.0f;              // impact_k * speed^2 (voxels/s) breaks a voxel of that hardness
     int max_leaf_points_ = 2000;
     PackedInt32Array breaks_;
-    int thick_ = 6;                      // shortest wood run (voxels) through a voxel from which it is a trunk, not a limb
+    int thick_ = 6;                      // wood thinner than this (shortest run, voxels) breaks at its plain hardness
+    int max_run_ = 48;                   // thicker wood counts as this thick (6 m: holds against ~14 m/s)
+    int limb_run_ = 12;                  // a heavy piece breaks wood thinner than this (1.5 m) on any contact
+    float heavy_mass_ = 1000.0f;         // ...when it weighs this much (wood voxels; a leaf is 0.12)
+    float cur_mass_ = 0.0f;              // the piece collide() is moving
+    float hinge_deg_ = 45.0f;            // a felled trunk leaves its hinge at this tilt (or after hinge_s)
+    float hinge_s_ = 4.0f;
     float load_k_ = 40.0f;                // a limb snaps under a contact force of hardness * load_k (mass voxels * voxels/s^2)
     std::vector<Vector3i> snapped_;
     PackedInt32Array spawned_ids_;
@@ -194,6 +207,8 @@ private:
     Dictionary stats_view_;
     double last_job_ms_ = 0.0, max_job_ms_ = 0.0;
     std::vector<Vector3i> made_;   // debug: (id, wood, leaves) of the first pieces made
+    Array rest_;                   // debug: what the first pieces came to rest on
+    std::vector<Vector4i> contact_log_;   // debug: the first contacts made
 
     // stats
     double last_check_ms_ = 0.0, max_check_ms_ = 0.0;
@@ -217,10 +232,13 @@ private:
     Dictionary live_stats() const;
     const View *find_view(int id) const;
     bool strength_split(const std::vector<int64_t> &S, std::vector<int64_t> &piece);
-    void make_piece(const std::vector<int64_t> &wood, const std::vector<int64_t> &leaves, Vector3 push_from);
+    // hinged: a cut (not a snapped limb) pivots on the edge of its base that faces the fall
+    void make_piece(const std::vector<int64_t> &wood, const std::vector<int64_t> &leaves, Vector3 push_from, bool hinged);
+    void hold_hinge(Piece &p, float dt);
     Vector3 smooth_normal(int cx, int cy, int cz, const Vector3 &face) const;
     bool breaks(int x, int y, int z, float speed);
-    bool thin(int x, int y, int z) const;
+    int wood_run(int x, int y, int z, int cap) const;
+    float wood_factor(int x, int y, int z) const;
     void note_break(int x, int y, int z, uint8_t m);
     void collide(Piece &p, float dt, std::vector<Contact> &cs);
     void solve(Piece &p, std::vector<Contact> &cs, float dt);

@@ -112,6 +112,7 @@ void RigidPieces::_bind_methods() {
     ClassDB::bind_method(D_METHOD("queue_check", "cells", "push_from"), &RigidPieces::queue_check);
     ClassDB::bind_method(D_METHOD("queue_step", "dt"), &RigidPieces::queue_step);
     ClassDB::bind_method(D_METHOD("collect"), &RigidPieces::collect);
+    ClassDB::bind_method(D_METHOD("get_contact_info", "id"), &RigidPieces::get_contact_info);
 }
 
 void RigidPieces::setup(const Ref<SimWorld> &p_sim, const Array &p_defs, Vector2i p_atlas_tiles) {
@@ -158,6 +159,11 @@ void RigidPieces::set_params(const Dictionary &p) {
     region_cap_ = p.get("region_cap", region_cap_);
     max_paths_ = p.get("max_paths", max_paths_);
     thick_ = p.get("thick", thick_);
+    max_run_ = p.get("max_run", max_run_);
+    hinge_deg_ = p.get("hinge_deg", hinge_deg_);
+    limb_run_ = p.get("limb_run", limb_run_);
+    heavy_mass_ = p.get("heavy_mass", heavy_mass_);
+    hinge_s_ = p.get("hinge_s", hinge_s_);
     min_limb_ = p.get("min_limb", min_limb_);
     impact_k_ = p.get("impact_k", impact_k_);
     load_k_ = p.get("load_k", load_k_);
@@ -276,6 +282,22 @@ PackedInt32Array RigidPieces::check_cells(const std::vector<Vector3i> &p_cells, 
         std::vector<int64_t> piece;
         if (strength && !S.empty() && strength_split(S, piece)) {
             for (int64_t k : piece) freed.put(k);
+            // the fracture: the wood left touching the piece across the split tears with it (else the
+            // piece starts face to face with it and jams on the first tick). Checked with the snapped limbs.
+            for (int64_t k : piece) {
+                int x, y, z;
+                unkey(k, x, y, z);
+                for (int e = 0; e < 6; e++) {
+                    const int nx = x + DX[e], ny = y + DY[e], nz = z + DZ[e];
+                    if (cls_at(nx, ny, nz) != WOOD || freed.has(key(nx, ny, nz))) continue;
+                    bool open;
+                    const uint8_t m = mat_at(nx, ny, nz, open);
+                    set_at(nx, ny, nz, 0);
+                    note_break(nx, ny, nz, m);
+                    snapped_.push_back(Vector3i(nx, ny, nz));
+                    torn_++;
+                }
+            }
             comps.push_back(std::move(piece));
         }
     }
@@ -381,7 +403,7 @@ PackedInt32Array RigidPieces::check_cells(const std::vector<Vector3i> &p_cells, 
         const double tm = now_ms();
         leaf_ms += tm - tl;
         out.push_back(next_id_);
-        make_piece(wood, mine, p_push_from);
+        make_piece(wood, mine, p_push_from, strength);
         make_ms += now_ms() - tm;
     }
     last_filled_ = filled;
@@ -490,7 +512,7 @@ bool RigidPieces::strength_split(const std::vector<int64_t> &S, std::vector<int6
     return !piece.empty();
 }
 
-void RigidPieces::make_piece(const std::vector<int64_t> &wood, const std::vector<int64_t> &leaves, Vector3 push_from) {
+void RigidPieces::make_piece(const std::vector<int64_t> &wood, const std::vector<int64_t> &leaves, Vector3 push_from, bool hinged) {
     Piece p;
     p.id = next_id_++;
     int lo[3] = {INT32_MAX, INT32_MAX, INT32_MAX}, hi[3] = {INT32_MIN, INT32_MIN, INT32_MIN};
@@ -581,7 +603,32 @@ void RigidPieces::make_piece(const std::vector<int64_t> &wood, const std::vector
     if (dir.length_squared() < 1e-4f) dir = Vector3(1, 0, 0);
     dir.normalize();
     p.ang = Vector3(0, 1, 0).cross(dir) * push_;
-    const Vector3 base = Vector3(p.com.x, 0.0f, p.com.z) - p.com;
+    Vector3 base = Vector3(p.com.x, 0.0f, p.com.z) - p.com;
+    if (hinged) {
+        // the pivot: the bottom wood voxel furthest along the fall, at its outer bottom edge (like the
+        // hinge wood a feller leaves), so the trunk rotates off its stump instead of sliding about on it
+        int ymin = INT32_MAX;
+        for (int64_t k : wood) {
+            int x, y, z;
+            unkey(k, x, y, z);
+            ymin = std::min(ymin, y);
+        }
+        float best = -1e9f;
+        for (int64_t k : wood) {
+            int x, y, z;
+            unkey(k, x, y, z);
+            if (y != ymin) continue;
+            const Vector3 c(x - lo[0] + 0.5f, 0.0f, z - lo[2] + 0.5f);
+            const float d = (c - Vector3(p.com.x, 0.0f, p.com.z)).dot(dir);
+            if (d > best) {
+                best = d;
+                base = Vector3(c.x + dir.x * 0.5f, (float)(ymin - lo[1]), c.z + dir.z * 0.5f) - p.com;
+            }
+        }
+        p.hinged = true;
+        p.hinge_r = base;
+        p.hinge_world = p.pos + base;
+    }
     p.vel = -p.ang.cross(base);
     spawned_ids_.push_back(p.id);
     if (made_.size() < 16) made_.push_back(Vector3i(p.id, p.wood, p.leaves));
@@ -609,16 +656,22 @@ Vector3 RigidPieces::smooth_normal(int cx, int cy, int cz, const Vector3 &face) 
 }
 
 // A falling piece hitting a voxel at `speed` (voxels/s) breaks it when impact_k * speed^2 reaches the
-// voxel's hardness: leaves and plants give way at once, limbs snap in a fast fall, trunks (wood with
-// much wood around it) and ground hold. Broken wood is checked after the tick, so a snapped-off limb
-// falls by itself.
+// voxel's hardness: leaves and plants give way at once, wood by how thick it is (wood_factor: a limb
+// twice as thick needs twice the speed), so a tree tipping hard smashes through its neighbours' limbs
+// while their trunks hold; ground never breaks. Broken wood is checked after the tick, so a
+// snapped-off limb falls by itself.
+// A heavy piece (a felled tree, heavy_mass or more) also breaks any wood thinner than limb_run it
+// touches, however slowly: old-growth crowns interlock a voxel apart, and a tree that only breaks what it
+// hits fast enough stood propped in its neighbours' limbs. Their trunks still hold.
 bool RigidPieces::breaks(int x, int y, int z, float speed) {
     bool open;
     const uint8_t m = mat_at(x, y, z, open);
-    if (!open || !m || impact_k_ * speed * speed < hardness_[m]) return false;
+    if (!open || !m) return false;
+    const bool limb_crush = cls_[m] == WOOD && cur_mass_ >= heavy_mass_ && wood_run(x, y, z, limb_run_) < limb_run_;
+    if (!limb_crush && impact_k_ * speed * speed < hardness_[m]) return false;
     if (breaks_tick_ >= max_breaks_) return false;   // over this tick's budget: it holds (wood) or waits (leaves)
     if (cls_[m] == WOOD) {
-        if (!thin(x, y, z)) return false;
+        if (!limb_crush && impact_k_ * speed * speed < hardness_[m] * wood_factor(x, y, z)) return false;
         snapped_.push_back(Vector3i(x, y, z));
     }
     set_at(x, y, z, 0);
@@ -628,21 +681,28 @@ bool RigidPieces::breaks(int x, int y, int z, float speed) {
     return true;
 }
 
-// Wood is thin (a limb that can snap) when the shortest run of wood through it along x, y or z is
-// under `thick` voxels; a trunk is thick across both horizontal axes.
-bool RigidPieces::thin(int x, int y, int z) const {
-    int best = thick_;
+// The shortest run of wood through a voxel along x, y or z, up to `cap`: how thick that wood is (a
+// trunk is thick across both horizontal axes, a limb across two of the three).
+int RigidPieces::wood_run(int x, int y, int z, int cap) const {
+    int best = cap;
     for (int a = 0; a < 3; a++) {
         int run = 1;
         for (int sgn = -1; sgn <= 1; sgn += 2)
-            for (int k = 1; k < thick_ && run < best; k++) {
+            for (int k = 1; k < cap && run < best; k++) {
                 const int qx = x + (a == 0 ? sgn * k : 0), qy = y + (a == 1 ? sgn * k : 0), qz = z + (a == 2 ? sgn * k : 0);
                 if (cls_at(qx, qy, qz) != WOOD) break;
                 run++;
             }
         best = std::min(best, run);
     }
-    return best < thick_;
+    return best;
+}
+
+// How much harder than its hardness wood is to break: 1 under `thick` voxels, then (run / thick)^2, so
+// the speed (or load) that breaks it grows with its thickness. Runs past max_run count as max_run.
+float RigidPieces::wood_factor(int x, int y, int z) const {
+    const float f = std::max(1.0f, (float)wood_run(x, y, z, max_run_) / (float)thick_);
+    return f * f;
 }
 
 void RigidPieces::note_break(int x, int y, int z, uint8_t m) {
@@ -655,6 +715,7 @@ void RigidPieces::note_break(int x, int y, int z, uint8_t m) {
 
 void RigidPieces::collide(Piece &p, float dt, std::vector<Contact> &cs) {
     cs.clear();
+    cur_mass_ = p.mass;
     const Basis R(p.rot);
     for (const Vector3 &pl : p.points) {
         const Vector3 r = R.xform(pl);
@@ -684,8 +745,9 @@ void RigidPieces::collide(Piece &p, float dt, std::vector<Contact> &cs) {
             c.r = r;
             c.n = smooth_normal(cx + (int)bn.x, cy + (int)bn.y, cz + (int)bn.z, bn);
             c.depth = best + 0.5f;
-            if (cl == WOOD) c.cell = Vector3i(cx, cy, cz), c.weak = thin(cx, cy, cz);
+            if (cl == WOOD) c.cell = Vector3i(cx, cy, cz), c.factor = wood_factor(cx, cy, cz);
             cs.push_back(c);
+            if (contact_log_.size() < 64) contact_log_.push_back(Vector4i(cx, cy, cz, cl * 10 + 1));   // debug: 1 = inside
             continue;
         }
         if (cl == LEAF || cl == CRUSH) breaks(cx, cy, cz, speed);   // wood goes through leaves and plants
@@ -705,9 +767,11 @@ void RigidPieces::collide(Piece &p, float dt, std::vector<Contact> &cs) {
             c.depth = 0.5f - gap;
             if (nc == WOOD) {
                 c.cell = Vector3i(cx + (a == 0 ? s : 0), cy + (a == 1 ? s : 0), cz + (a == 2 ? s : 0));
-                c.weak = thin(c.cell.x, c.cell.y, c.cell.z);
+                c.factor = wood_factor(c.cell.x, c.cell.y, c.cell.z);
             }
             cs.push_back(c);
+            if (contact_log_.size() < 64)   // debug: 2 = touching a face
+                contact_log_.push_back(Vector4i(cx + (a == 0 ? s : 0), cy + (a == 1 ? s : 0), cz + (a == 2 ? s : 0), nc * 10 + 2));
         }
     }
     // The piece's own leaves do not hold it up; they shred against what they hit at speed, and leaves
@@ -736,6 +800,29 @@ void RigidPieces::collide(Piece &p, float dt, std::vector<Contact> &cs) {
         i++;
     }
     (void)dt;
+}
+
+// Keeps a felled trunk's hinge point where it was (a ball joint, three axes of impulse with position
+// correction), so gravity tips it over the edge of its cut; lets go at hinge_deg of tilt or hinge_s.
+void RigidPieces::hold_hinge(Piece &p, float dt) {
+    const Basis R(p.rot);
+    if (std::acos(std::clamp(R.get_column(1).y, -1.0f, 1.0f)) >= Math::deg_to_rad(hinge_deg_) || p.age >= hinge_s_) {
+        p.hinged = false;
+        return;
+    }
+    const Basis Iw = R * p.inv_inertia * R.transposed();
+    const Vector3 r = R.xform(p.hinge_r);
+    const Vector3 err = p.hinge_world - (p.pos + r);
+    for (int it = 0; it < 4; it++)
+        for (int a = 0; a < 3; a++) {
+            const Vector3 e(a == 0, a == 1, a == 2);
+            const float k = 1.0f / (p.inv_mass + e.dot((Iw.xform(r.cross(e))).cross(r)));
+            const float vr = (p.vel + p.ang.cross(r)).dot(e);
+            const float dj = k * (err[a] * 0.3f / dt - vr);
+            const Vector3 P = e * dj;
+            p.vel += P * p.inv_mass;
+            p.ang += Iw.xform(r.cross(P));
+        }
 }
 
 void RigidPieces::solve(Piece &p, std::vector<Contact> &cs, float dt) {
@@ -786,13 +873,14 @@ void RigidPieces::solve(Piece &p, std::vector<Contact> &cs, float dt) {
             p.ang += Iw.xform(c.r.cross(P));
         }
     }
-    // a limb carrying more of the piece's weight than its hardness allows snaps (a leaning tree
-    // breaks the branches it leans on even when it moves slowly)
+    // wood carrying more of the piece's weight than its hardness (times its thickness factor) allows
+    // snaps: a leaning tree breaks the branches it leans on even when it moves slowly
     for (const Contact &c : cs) {
-        if (!c.weak) continue;
+        if (c.factor <= 0.0f) continue;
         bool open;
         const uint8_t m = mat_at(c.cell.x, c.cell.y, c.cell.z, open);
-        if (open && cls_[m] == WOOD && c.jn / dt >= hardness_[m] * load_k_ && breaks_tick_ < max_breaks_) {
+        if (open && cls_[m] == WOOD) p.load = std::max(p.load, c.jn / dt / (hardness_[m] * load_k_ * c.factor));
+        if (open && cls_[m] == WOOD && c.jn / dt >= hardness_[m] * load_k_ * c.factor && breaks_tick_ < max_breaks_) {
             set_at(c.cell.x, c.cell.y, c.cell.z, 0);
             note_break(c.cell.x, c.cell.y, c.cell.z, m);
             snapped_.push_back(c.cell);
@@ -822,10 +910,23 @@ void RigidPieces::step_impl(float p_dt, PackedInt32Array &done) {
         p.prev_pos = p.pos;
         p.prev_rot = p.rot;
         int touching = 0;
+        p.load = 0.0f;
         for (int s = 0; s < substeps_; s++) {
             p.vel.y -= GRAVITY * h;
             collide(p, h, cs);
             solve(p, cs, h);
+            if (p.hinged) hold_hinge(p, h);
+            {   // debug: the most contacts of each kind in any substep of this tick
+                int w = 0, g = 0, in = 0;
+                for (const Contact &c : cs) {
+                    (c.factor > 0.0f ? w : g)++;
+                    in += c.depth > 0.5f;   // a point inside a solid cell, not just touching a face
+                }
+                if (s == 0) p.wood_touch = p.ground_touch = p.inside = 0;
+                p.wood_touch = std::max(p.wood_touch, w);
+                p.ground_touch = std::max(p.ground_touch, g);
+                p.inside = std::max(p.inside, in);
+            }
             touching = std::max(touching, (int)cs.size());
             p.pos += p.vel * h;
             const Quaternion dq(p.ang.x * 0.5f * h, p.ang.y * 0.5f * h, p.ang.z * 0.5f * h, 0.0f);
@@ -838,6 +939,30 @@ void RigidPieces::step_impl(float p_dt, PackedInt32Array &done) {
         p.still = slow ? p.still + 1 : 0;
         const bool lost = p.pos.y < origin_.y - 64;   // fell out of the window
         if (p.still >= sleep_ticks_ || p.age >= max_age_ || lost) {
+            if (rest_.size() < 16) {   // debug: what it came to rest on (the last substep's contacts)
+                int ng = 0, nw = 0;
+                float fmax = 0.0f, fsum = 0.0f, hsum = 0.0f;
+                for (const Contact &c : cs) {
+                    if (c.factor > 0.0f) {
+                        nw++;
+                        fmax = std::max(fmax, c.factor);
+                        fsum += c.factor;
+                    } else {
+                        ng++;
+                    }
+                    hsum += c.r.y;
+                }
+                Dictionary r;
+                r["id"] = p.id;
+                r["tilt_deg"] = Math::rad_to_deg(std::acos(std::clamp(Basis(p.rot).get_column(1).y, -1.0f, 1.0f)));
+                r["ground"] = ng;
+                r["wood"] = nw;
+                r["wood_factor_max"] = fmax;
+                r["wood_factor_mean"] = nw ? fsum / nw : 0.0f;
+                r["contact_dy_m"] = cs.empty() ? 0.0f : hsum / cs.size() * 0.125f;   // mean height of contacts over the centre of mass
+                r["age_s"] = p.age;
+                rest_.push_back(r);
+            }
             if (!lost) settle(p);
             done.push_back(p.id);
             pieces_.erase(pieces_.begin() + i);
@@ -979,6 +1104,19 @@ Transform3D RigidPieces::get_transform(int id, float alpha) const {
     return Transform3D(b, pos - b.xform(p->com));
 }
 
+Dictionary RigidPieces::get_contact_info(int id) const {
+    Dictionary d;
+    const View *v = find_view(id);
+    if (!v) return d;
+    d["load"] = v->load;
+    d["wood"] = v->wood_touch;
+    d["ground"] = v->ground_touch;
+    d["inside"] = v->inside;
+    d["hinged"] = v->hinged;
+    d["spin"] = v->spin;
+    return d;
+}
+
 Vector3 RigidPieces::get_hash_origin(int id) const {
     if (async_) {
         const View *v = find_view(id);
@@ -1078,6 +1216,9 @@ Dictionary RigidPieces::get_info(int id) const {
     d["pos"] = p->pos;
     d["vel"] = p->vel;
     d["ang"] = p->ang;
+    d["hinged"] = p->hinged;
+    d["hinge_r"] = p->hinge_r;   // local, from the centre of mass
+    d["com"] = p->com;
     d["age"] = p->age;
     d["tilt_deg"] = Math::rad_to_deg(std::acos(std::clamp(Basis(p->rot).get_column(1).y, -1.0f, 1.0f)));
     return d;
@@ -1093,6 +1234,7 @@ Dictionary RigidPieces::live_stats() const {
     Array made;
     for (const Vector3i &m : made_) made.push_back(m);
     d["made"] = made;   // (id, wood, leaves) of the first 16 pieces
+    d["rest"] = rest_.duplicate();
     d["max_job_ms"] = max_job_ms_;
     d["pieces"] = (int)pieces_.size();
     d["spawned"] = spawned_;
@@ -1107,6 +1249,10 @@ Dictionary RigidPieces::live_stats() const {
     d["hits_ground"] = hit_ground_;
     d["hits_wood"] = hit_wood_;
     d["snapped"] = snapped_total_;
+    d["torn"] = torn_;   // wood torn along strength splits
+    Array cl;
+    for (const Vector4i &c : contact_log_) cl.push_back(c);
+    d["contact_log"] = cl;   // the first 64 contacts: world cell, class * 10 + (1 inside, 2 at a face)
     d["shed"] = shed_;
     d["last_wood_hit"] = hit_at_;
     d["last_settle_ms"] = last_settle_ms_;
@@ -1197,7 +1343,8 @@ Dictionary RigidPieces::collect() {
     d["crumbs"] = crumbs_;
     crumbs_.clear();
     view_.clear();
-    for (const Piece &p : pieces_) view_.push_back({p.id, p.prev_pos, p.pos, p.com, p.hash_origin, p.prev_rot, p.rot});
+    for (const Piece &p : pieces_)
+        view_.push_back({p.id, p.prev_pos, p.pos, p.com, p.hash_origin, p.prev_rot, p.rot, p.load, p.wood_touch, p.ground_touch, p.inside, p.hinged, p.ang.length()});
     stats_view_ = live_stats();
     return d;
 }
