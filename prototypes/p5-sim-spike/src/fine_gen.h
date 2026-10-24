@@ -32,6 +32,10 @@ public:
     int biome_at(int x, int z) const;
     Dictionary column_info(int x, int z) const;
     PackedByteArray generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel = 2) const;
+    // Deep rock from LOD 1 on comes back as one voxel (the block is all that material) when on; off: always
+    // the whole block (probes and tests decode it voxel by voxel).
+    void set_uniform_blocks(bool on) { uniform_blocks_ = on; }
+    bool get_uniform_blocks() const { return uniform_blocks_; }
 
     PackedByteArray map_image(int center_x, int center_z, int radius, int step) const;
     PackedByteArray climate_map(int x0, int z0, int n, int step) const;
@@ -101,6 +105,7 @@ private:
     };
 
     Ref<WorldGen> g_;
+    bool uniform_blocks_ = false;
     FastNoiseLite n_ground_, n_ground2_, n_hump_, n_leaf_, n_litter_, n_meadow_, n_pool_;
 
     MacroPt macro_point(int mx, int mz, const WorldGen::Ruin *ruins, int nruins) const;
@@ -112,7 +117,7 @@ private:
     uint16_t tree_voxel(const ColTree &c, float x, int y, float z, float grow, float &leaf_n) const;
     void young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<FTree> &out) const;
     void build_stamp(const WorldGen::Stamp &s, FStamp &out) const;
-    void floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<FStamp> &out) const;
+    void floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, bool clutter, std::vector<FStamp> &out) const;
     // Clutter piece voxel at (dx, dy, dz) from its stamp's centre column and ground (dy = 0: the first voxel above it).
     static uint16_t clutter_voxel(const FStamp &s, int dx, int dy, int dz);
     uint16_t stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const;

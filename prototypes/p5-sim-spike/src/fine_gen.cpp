@@ -23,6 +23,10 @@ constexpr float HUMP_AMP = 1.5f;      // ~2.5 m hummocks
 constexpr float GROUND_AMP2 = 0.6f;   // ~1 m roughness
 // At lod 1 caves are carved only this close to the surface (cave mouths, ADR 0020).
 constexpr int CAVE_MOUTH_DEPTH = 24 * FS;
+// Below this many voxels under the lowest carved surface of a block's columns nothing but stone is
+// generated from LOD 1 on: past the deepest sandstone and badlands strata (24 macro), the cave mouths
+// (CAVE_MOUTH_DEPTH) and the ground's swells, with room to spare.
+constexpr int DEEP_ROCK_MARGIN = (24 * FS > CAVE_MOUTH_DEPTH ? 24 * FS : CAVE_MOUTH_DEPTH) + 24 * FS;
 
 inline int floor_div(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
 inline float smoothstep(float a, float b, float x) {
@@ -78,6 +82,8 @@ void FineGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("biome_at", "x", "z"), &FineGen::biome_at);
     ClassDB::bind_method(D_METHOD("column_info", "x", "z"), &FineGen::column_info);
     ClassDB::bind_method(D_METHOD("generate_block", "origin", "size", "lod", "bytes_per_voxel"), &FineGen::generate_block, DEFVAL(2));
+    ClassDB::bind_method(D_METHOD("set_uniform_blocks", "on"), &FineGen::set_uniform_blocks);
+    ClassDB::bind_method(D_METHOD("get_uniform_blocks"), &FineGen::get_uniform_blocks);
     ClassDB::bind_method(D_METHOD("map_image", "center_x", "center_z", "radius", "step"), &FineGen::map_image);
     ClassDB::bind_method(D_METHOD("climate_map", "x0", "z0", "n", "step"), &FineGen::climate_map);
     ClassDB::bind_method(D_METHOD("water_floor_map", "x0", "z0", "n", "step"), &FineGen::water_floor_map);
@@ -474,7 +480,7 @@ void FineGen::build_stamp(const WorldGen::Stamp &s, FStamp &o) const {
 // The forest floor: one chance per 2 m cell for a fallen log (any direction, mossy, with
 // mushrooms), a stump, a bush (leafy or blueberry) or a mossy rock; forests get most of them,
 // open land a few bushes and stones.
-void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<FStamp> &out) const {
+void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, bool clutter, std::vector<FStamp> &out) const {
     const WorldGen &g = *g_.ptr();
     constexpr int FC = 16, M = 34;
     const int cx0 = floor_div(x_lo - M, FC), cx1 = floor_div(x_hi + M, FC);
@@ -561,7 +567,8 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
         }
     // Clutter pieces of whole voxels (ADR 0047): flowers in meadow patches, mushrooms on forest floors,
     // seashells on beaches. At most one per CLUTTER_CELL, centred, so the next is at least a voxel away
-    // (touching voxels of one group would dig as one piece).
+    // (touching voxels of one group would dig as one piece). LOD 0 only: nothing coarser draws them.
+    if (!clutter) return;
     constexpr int CL = 6;
     static const uint16_t FL[5] = {Mat::FLOWER, Mat::FLOWER_RED, Mat::CORNFLOWER, Mat::OXEYE_DAISY, Mat::ALLIUM};
     const int kx0 = floor_div(x_lo - 3, CL), kx1 = floor_div(x_hi + 3, CL);
@@ -762,16 +769,30 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
     const int nruins = g.ruins_near(mx0 - 1, mz0 - 1, mx0 + nx * mstep + 1, mz0 + nz * mstep + 1, ruins, 4);
     std::vector<MacroPt> lat((size_t)nx * nz);
     int hmax_m = 0, wl_max = 0, fall_max = -1;
+    float hmin_m = 1e9f;
     for (int j = 0; j < nz; j++)
         for (int i = 0; i < nx; i++) {
             MacroPt &m = lat[(size_t)j * nx + i];
             m = macro_point(mx0 + i * mstep, mz0 + j * mstep, ruins, nruins);
+            hmin_m = std::min(hmin_m, m.hc);
             hmax_m = std::max(hmax_m, (int)std::ceil(m.hc) + m.spike);
             wl_max = std::max(wl_max, m.water_level);
             fall_max = std::max(fall_max, m.hy.fall_top);
         }
     const int y_top = origin.y + sy * step;
     const bool above_sea = y_top > sea;
+    // Deep rock (2026-10-25, fast flight vs generation): from LOD 1 on there are no ores and caves only
+    // reach CAVE_MOUTH_DEPTH, so a block wholly below the sandstone, the cave mouths and the ground's
+    // swells is all stone. One voxel of it tells the caller to fill the block (TerrainGenerator); the
+    // per-voxel pass cost 0.16 ms a block and the clipboxes are half rock.
+    if (uniform_blocks_ && lod >= 1 && origin.y >= 8 * FS && (float)y_top <= hmin_m * FS - (float)DEEP_ROCK_MARGIN) {
+        const int bpv = (bytes_per_voxel == 1 || bytes_per_voxel == 4) ? bytes_per_voxel : 2;
+        out.resize(bpv);
+        uint8_t *o = out.ptrw();
+        std::memset(o, 0, bpv);
+        o[0] = (uint8_t)Mat::STONE;
+        return out;
+    }
     // Trees (lod <= 3 as shapes, from lod 4 only a leaf-coloured surface) and decorations (lod <= 2).
     static constexpr int MAXT = 160, MAXS = 32;
     WorldGen::Tree mtrees[MAXT];
@@ -823,7 +844,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 build_stamp(ms[i], s);
                 stamps.push_back(s);
             }
-            floor_features(x_lo, z_lo, x_hi, z_hi, ruins, nruins, stamps);
+            floor_features(x_lo, z_lo, x_hi, z_hi, ruins, nruins, lod == 0, stamps);
             for (const FStamp &s : stamps) feature_top = std::max(feature_top, s.ground + (int)(s.size + s.r) + 8);
         }
     }

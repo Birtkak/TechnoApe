@@ -16,6 +16,7 @@ var gen: FineGen = FineGen.new()
 
 
 func _init() -> void:
+	gen.set_uniform_blocks(true)   # deep rock comes back as one voxel; _generate_block fills it
 	set_seed(seed_value)
 
 
@@ -47,4 +48,8 @@ func _generate_block(out_buffer: VoxelBuffer, origin: Vector3i, lod: int) -> voi
 	var bytes: PackedByteArray = gen.generate_block(origin, size, lod, bpv)
 	if bytes.is_empty():
 		return  # all air; buffer already zero
+	if bytes.size() == bpv:
+		# one voxel: the whole block is that material (deep rock), stored uniform by godot_voxel
+		out_buffer.fill(bytes.decode_u8(0) if bpv == 1 else bytes.decode_u16(0), VoxelBuffer.CHANNEL_TYPE)
+		return
 	out_buffer.set_channel_from_byte_array(VoxelBuffer.CHANNEL_TYPE, bytes)

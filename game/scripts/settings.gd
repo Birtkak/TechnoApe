@@ -18,6 +18,7 @@ var render_distance_m := 24.0           # full-detail (LOD 0) radius. Our godot_
 var view_distance_m := 2048.0           # LOD horizon (vision: 2 km). ADR 0020: free at 7 LODs (LOD6 reaches 3 km with 48 m rings); an 8th LOD makes the first load 22 s (lod-7 blocks span more hydrology tiles than the generator's cache holds)
 var lod_count := 8
 var lod_ring_m := 24.0                  # clipbox: LOD n ends at render_distance_m + lod_ring_m * 2^n (ADR 0020: 48 m = 2-voxel cubes to 160 m, 4-voxel to 256 m; godot_voxel's default is 24 m; 64 m looks better still but 40 m/s flight then has 20-27 ms frames)
+var lod_vertical_ratio := 1.0           # LOD 1+ boxes this flat (our godot_voxel build, 1 = cubes). 0.35 cut 20 m/s flight work 10x but lost the trees under you from 120 m up (2026-10-25)
 var terrain_threaded_update := true     # VoxelLodTerrain's LOD/streaming bookkeeping on a worker thread (ADR 0020: the 17 ms burst frame at 64 m rings became 9 ms)
 var far_fade_start_m := 40.0            # terrain textures fade toward their tile's average colour from here (ADR 0017)
 var far_fade_end_m := 200.0
@@ -232,6 +233,7 @@ func apply_cmdline() -> Dictionary:
 			"view_distance_m": view_distance_m = float(kv[1])
 			"lod_count": lod_count = int(kv[1])
 			"lod_ring_m": lod_ring_m = float(kv[1])
+			"lod_vertical_ratio": lod_vertical_ratio = float(kv[1])
 			"terrain_threaded_update": terrain_threaded_update = kv[1] == "1"
 			"far_fade_start_m": far_fade_start_m = float(kv[1])
 			"far_fade_end_m": far_fade_end_m = float(kv[1])

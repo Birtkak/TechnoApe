@@ -230,6 +230,8 @@ python <repo>/prototypes/p11-lod-horizon/voxel_patch_budget.py ~/Tools/godot_vox
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_remesh.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_unloaded.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_fluid.py ~/Tools/godot_voxel
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_vertical.py ~/Tools/godot_voxel
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_stream.py ~/Tools/godot_voxel
 GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=template_debug use_mingw=yes use_static_cpp=yes -j12
 cp project/addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll <repo>/game/addons/zylann.voxel/bin/
 ```

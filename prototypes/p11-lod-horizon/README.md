@@ -26,6 +26,11 @@ ShaderMaterial; `mesh_upload_budget_mb`, a per-frame cap on applied mesh data
 (updates over the cap wait a frame, the newest per block wins);
 `voxel_patch_remesh.py`: `edit_remesh_rate`, a token bucket over the remeshes
 that edits request (streaming is never limited), the rest stay pending.
+It also keeps the pending list's indices right when blocks leave it (the
+2026-10-25 access violation). `voxel_patch_unloaded.py`, `voxel_patch_fluid.py`
+(ADR 0045); `voxel_patch_vertical.py`: `lod_vertical_ratio`, flatter LOD 1+
+boxes; `voxel_patch_stream.py`: `VoxelStream.may_have_block`, blocks the SQLite
+key cache never saw skip the serial I/O queue (ADR 0048).
 
 The editor target does not compile with this GCC (16.2: template deduction
 error in `editor/noise/chart_view.cpp`); `target=template_debug` does, and

@@ -234,6 +234,7 @@ func _ready() -> void:
 	pause_menu.quit_game.connect(func() -> void:
 		get_tree().paused = false
 		_save_blocks()
+		save_terrain(5.0)
 		get_tree().quit())
 	Settings.user_settings_changed.connect(_on_user_settings_changed)
 
@@ -474,10 +475,37 @@ func _physics_process(delta: float) -> void:
 	if _save_accum >= 30.0:
 		_save_accum = 0.0
 		_save_blocks()
+		if bubble:
+			bubble.flush_all()
+		if world.edits != _saved_edits:
+			save_terrain()   # a crash loses 30 s of digging at most; nothing changed, nothing walked
 
 
 func _exit_tree() -> void:
 	_save_blocks()
+
+
+## Writes the terrain edits still loaded to the world save: the bubble's simulated chunks go back into
+## the terrain, then every modified block to the SQLite stream. Blocks used to be written only when
+## they unloaded, so a save-and-quit lost what was dug or built near the player (2026-10-25).
+## wait_s > 0 blocks until the writes are done (quitting), at most that long.
+var _saved_edits := 0
+
+
+func save_terrain(wait_s := 0.0) -> void:
+	if not Settings.persist_world or world == null or world.terrain == null or not world.terrain.is_inside_tree():
+		return
+	if bubble:
+		bubble.flush_all()
+	_saved_edits = world.edits
+	var tracker = world.terrain.save_modified_blocks()   # ~9 ms on the main thread: it walks every loaded block
+	if wait_s <= 0.0 or tracker == null:
+		return
+	var until := Time.get_ticks_msec() + int(wait_s * 1000.0)
+	while not tracker.is_complete() and not tracker.is_aborted() and Time.get_ticks_msec() < until:
+		OS.delay_msec(5)
+	if not tracker.is_complete():
+		push_warning("save_terrain: the terrain save did not finish in %.1f s" % wait_s)
 
 
 func _blocks_path() -> String:
@@ -608,6 +636,7 @@ func _notification(what: int) -> void:
 func _quit_to_title() -> void:
 	get_tree().paused = false
 	_save_blocks()
+	save_terrain(5.0)
 	get_tree().change_scene_to_file.call_deferred("res://scenes/title.tscn")
 
 

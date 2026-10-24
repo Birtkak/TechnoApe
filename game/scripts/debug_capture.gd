@@ -12,6 +12,7 @@ var capture_every := 0.0
 var out_dir := "res://out"
 var altitude_m := 30.0
 var speed_m := 6.0
+var follow_ground := false   # fly at `alt` metres above the generated ground instead of a fixed height (low fast flight)
 var target := ""      # lake|ruin|spring|river|waterfall|marsh|alpine|snow|mountain|cave|<biome name>: start before the nearest one and fly over it
 var offset_m := 40.0  # start this far from the target (along +z)
 var inside := false   # start at the target position itself (cave|...) with a debug torch, instead of above it
@@ -89,6 +90,7 @@ const OTHERS_EVERY_S := 10.0
 var _backlog := PackedInt32Array()   # pending voxel tasks (generation + meshing + streaming), sampled every 0.25 s after load
 var _backlog_accum := 0.0
 var _backlog_peak := {}              # per task type (generation, meshing, streaming, main_thread, gpu)
+var _detail_missing := PackedInt32Array()   # 1 = the ground 18 m around the player had no full-detail (LOD 0) mesh yet, sampled with the backlog
 var _compile_delta := 0.0
 var _elapsed := 0.0
 var _capture_accum := 0.0
@@ -119,6 +121,7 @@ func _ready() -> void:
 	out_dir = args.get("out", "res://out")
 	altitude_m = float(args.get("alt", "30"))
 	speed_m = float(args.get("speed", "6"))
+	follow_ground = args.get("follow_ground", "0") == "1"
 	target = args.get("target", "")
 	offset_m = float(args.get("offset", "40"))
 	inside = args.get("inside", "0") == "1"
@@ -199,6 +202,15 @@ class _FrameEnd extends Node:
 
 func _physics_process(_delta: float) -> void:
 	_physics_t0 = Time.get_ticks_usec()
+	if follow_ground and _main != null and _main.player != null and _loaded_at >= 0.0:
+		# a ghost flight: moved here along the heading (through trees and hills), `alt` above the ground
+		var pl: Node3D = _main.player
+		pl.autopilot_speed_m = 0.0
+		var fwd := -pl.transform.basis.z
+		fwd.y = 0.0
+		var pp: Vector3 = pl.position + fwd.normalized() * Settings.m2v(speed_m) * _delta
+		pp.y = float(_main.world.generator.gen.height_at(int(pp.x), int(pp.z))) + Settings.m2v(altitude_m)
+		pl.position = pp
 	if _main != null and _main.phys_cost.size() > 0 and _physics_acc_us == 0:
 		_main.phys_cost.clear()   # first step of this frame: start the per-callback maxima afresh
 
@@ -241,6 +253,7 @@ func _process(delta: float) -> void:
 		_load_max_ms = maxf(_load_max_ms, ms)
 		if _world_settled() or _elapsed >= settle_cap_s:
 			_loaded_at = _elapsed
+			_print_probe_voxels()
 	else:
 		_frame_ms.push_back(ms)
 		# where a normal frame goes: script and physics time every frame; the render
@@ -270,6 +283,12 @@ func _process(delta: float) -> void:
 		_backlog.push_back(int(t.get("generation", 0)) + int(t.get("meshing", 0)) + int(t.get("streaming", 0)) + int(t.get("main_thread", 0)))
 		for k in t:   # per-type peak, to tell a generator backlog from a meshing one
 			_backlog_peak[k] = maxi(int(_backlog_peak.get(k, 0)), int(t[k]))
+		# what a flying player sees: is the ground around them at full detail yet (bug report 2026-10-25)
+		var pp: Vector3 = _main.player.position
+		var r := Settings.m2v(18.0)
+		var ground := float(_main.world.generator.gen.height_at(int(pp.x), int(pp.z)))
+		var box := AABB(Vector3(pp.x - r, ground - r * 0.5, pp.z - r), Vector3(r * 2.0, r, r * 2.0))
+		_detail_missing.push_back(0 if _main.world.terrain.is_area_meshed(box, 0) else 1)
 	_others_accum += delta
 	if _others_accum >= OTHERS_EVERY_S and (_others_task < 0 or WorkerThreadPool.is_task_completed(_others_task)):
 		if _others_task >= 0:
@@ -352,6 +371,9 @@ func _finish() -> void:
 		"busy_share": snappedf(float(bl.filter(func(v): return v > 0).size()) / maxi(bl.size(), 1), 0.01),
 		"max_busy_s": _longest_run(bl) * 0.25,
 		"threads": VoxelEngine.get_thread_count()}
+	var dm := Array(_detail_missing)
+	s["detail"] = {"samples": dm.size(), "missing_share": snappedf(float(dm.count(1)) / maxi(dm.size(), 1), 0.01),
+		"max_missing_s": _longest_run(dm) * 0.25}
 	if mine:
 		s["mined_log"] = _main.player.mined_log
 	if blast_m > 0.0:
@@ -365,6 +387,8 @@ func _finish() -> void:
 	s["settings"] = {"seed": Settings.world_seed, "seed_text": Settings.world_seed_text, "render_distance_m": Settings.render_distance_m, "view_distance_m": Settings.view_distance_m,
 		"simulation_distance_m": Settings.simulation_distance_m, "lod_count": Settings.lod_count, "sim_tick_hz": Settings.sim_tick_hz}
 	print(JSON.stringify(s))
+	if _main.has_method("save_terrain"):
+		_main.save_terrain(5.0)   # persist=1 runs keep their edits, as a save-and-quit does
 	get_tree().quit(0)
 
 
@@ -422,6 +446,18 @@ func _blast_volley() -> void:
 ## generation, meshing or main-thread tasks for SETTLE_FRAMES frames in a row. The
 ## bubble alone loads in ~1 s, while the visible terrain is still meshing (frames with
 ## 0 primitives and 20-30 ms of main-thread mesh application).
+## probe_voxels=x,y,z;x,y,z: what the world holds there once loaded (a save round trip: edit, leave, reload).
+func _print_probe_voxels() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("probe_voxels="):
+			var out := []
+			for t in a.substr(13).split(";", false):
+				var c := t.split(",")
+				var p := Vector3i(int(c[0]), int(c[1]), int(c[2]))
+				out.append("%s=%s" % [p, GameMaterials.name_of(_main.world.get_voxel(p))])
+			print("probe_voxels ", " ".join(out))
+
+
 func _world_settled() -> bool:
 	var t: Dictionary = VoxelEngine.get_stats().get("tasks", {})
 	var busy: int = int(t.get("generation", 0)) + int(t.get("meshing", 0)) + int(t.get("main_thread", 0)) + int(t.get("streaming", 0))

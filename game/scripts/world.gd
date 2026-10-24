@@ -9,6 +9,7 @@ var generator: TerrainGenerator
 var atlas_material: ShaderMaterial
 var liquid_material: ShaderMaterial
 var gas_material: ShaderMaterial    # steam and smoke as soft clouds (terrain_gas.gdshader)
+var edits := 0                      # terrain writes so far: the autosave skips the terrain when none came since the last
 var spray: WaterfallSpray          # mist at waterfall feet; ParticleFx reads its falls (ADR 0026)
 var prop_material: ShaderMaterial   # atlas material without stains: item cubes, viewmodel (they are not at their voxel)
 var _tool: VoxelTool
@@ -72,6 +73,8 @@ func _ready() -> void:
 	terrain.lod_count = Settings.lod_count
 	terrain.lod_distance = Settings.render_distance_voxels()
 	terrain.secondary_lod_distance = Settings.m2v(Settings.lod_ring_m)
+	if "lod_vertical_ratio" in terrain:
+		terrain.lod_vertical_ratio = Settings.lod_vertical_ratio
 	terrain.threaded_update_enabled = Settings.terrain_threaded_update
 	terrain.view_distance = Settings.view_distance_voxels()
 	terrain.streaming_system = 1  # CLIPBOX (P2: octree collapses at long range)
@@ -122,6 +125,8 @@ func _ready() -> void:
 func apply_distances() -> void:
 	terrain.lod_distance = Settings.render_distance_voxels()
 	terrain.secondary_lod_distance = Settings.m2v(Settings.lod_ring_m)
+	if "lod_vertical_ratio" in terrain:
+		terrain.lod_vertical_ratio = Settings.lod_vertical_ratio
 	terrain.view_distance = Settings.view_distance_voxels()
 
 
@@ -151,6 +156,7 @@ func write_chunk(wc: Vector3i, bytes16: PackedByteArray) -> void:
 	vb.create(Settings.CHUNK, Settings.CHUNK, Settings.CHUNK)
 	vb.set_channel_from_byte_array(VoxelBuffer.CHANNEL_TYPE, bytes16)
 	_tool.paste(wc * Settings.CHUNK, vb, 1 << VoxelBuffer.CHANNEL_TYPE)
+	edits += 1
 
 
 func is_area_loaded(wc: Vector3i) -> bool:
@@ -165,6 +171,7 @@ func get_voxel(p: Vector3i) -> int:
 
 func set_voxel(p: Vector3i, material: int) -> void:
 	_tool.set_voxel(p, material)
+	edits += 1
 
 
 ## False while the voxel's block is not loaded (set_voxel would be dropped).
