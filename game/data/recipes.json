@@ -3,7 +3,7 @@
   "recipes": [
     {"id": "planks_from_log", "type": "shapeless", "ingredients": ["#log"], "output": {"id": "oak_planks", "count": 2}, "_note": "2 per log by hand (ADR 0019)"},
     {"id": "sticks", "type": "shaped", "pattern": ["P", "P"], "key": {"P": "#planks"}, "output": {"id": "stick", "count": 4}},
-    {"id": "crafting_table", "type": "shaped", "pattern": ["FF", "LL"], "key": {"F": "flint", "L": "#log"}, "output": {"id": "crafting_table", "count": 1}, "_note": "2 flint + 2 logs (ADR 0019)"},
+    {"id": "crafting_table", "type": "shapeless", "ingredients": ["flint", "flint", "#log", "#log"], "output": {"id": "crafting_table", "count": 1}, "_note": "2 flint + 2 logs (ADR 0019), any layout: the shaped FF/LL was missed in play (bug report 2026-10-25)"},
     {"id": "chest", "type": "shaped", "pattern": ["PPP", "P P", "PPP"], "key": {"P": "#planks"}, "output": {"id": "chest", "count": 1}, "station": "crafting_table"},
     {"id": "furnace", "type": "shaped", "pattern": ["CCC", "C C", "CCC"], "key": {"C": "#cobble"}, "output": {"id": "furnace", "count": 1}, "station": "crafting_table"},
     {"id": "iron_pickaxe", "type": "shaped", "pattern": ["III", " S ", " S "], "key": {"I": "#metal.iron", "S": "#stick"}, "output": {"id": "iron_pickaxe", "count": 1}, "station": "crafting_table"},

@@ -7,6 +7,7 @@
 #include <godot_cpp/variant/packed_vector2_array.hpp>
 
 #include <algorithm>
+#include <initializer_list>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -304,6 +305,9 @@ PackedInt32Array RigidPieces::check_cells(const std::vector<Vector3i> &p_cells, 
     }
     const double t_strength = now_ms();
     double leaf_ms = 0.0, make_ms = 0.0;
+    // what this check takes out of the world (pieces, crumbs): leaf decay starts from it as well as from
+    // the cut, or the crown beyond leaf_reach of a felled trunk stays hanging where it was
+    std::vector<Vector3i> gone = p_cells;
     // leaves: those closer (through leaves) to the piece's wood than to any other wood. On a dense box
     // around the wood (no leaf further than leaf_reach can join): distances to this wood (da, OWN on the
     // wood itself) and to other wood (db); calloc'd, so untouched pages cost nothing.
@@ -398,16 +402,23 @@ PackedInt32Array RigidPieces::check_cells(const std::vector<Vector3i> &p_cells, 
                     crumbs_.push_back(z);
                     crumbs_.push_back(m);
                     set_at(x, y, z, 0);
+                    gone.push_back(Vector3i(x, y, z));
                 }
             continue;
         }
         const double tm = now_ms();
         leaf_ms += tm - tl;
+        for (const std::vector<int64_t> *ks : {(const std::vector<int64_t> *)&wood, (const std::vector<int64_t> *)&mine})
+            for (int64_t k : *ks) {
+                int x, y, z;
+                unkey(k, x, y, z);
+                gone.push_back(Vector3i(x, y, z));
+            }
         out.push_back(next_id_);
         make_piece(wood, mine, p_push_from, strength);
         make_ms += now_ms() - tm;
     }
-    if (strength) decay_orphan_leaves(p_cells);
+    if (strength || gone.size() > p_cells.size()) decay_orphan_leaves(gone);
     last_filled_ = filled;
     split_ms_[0] = t_fill - t0;
     split_ms_[1] = t_strength - t_fill;

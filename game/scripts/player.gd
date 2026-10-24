@@ -927,7 +927,7 @@ func _use(first_press: bool) -> void:
 		p = target   # Minecraft places into tall grass instead of in front of it
 	if _overlaps_player(p) or p.y < 0 or p.y >= Settings.WORLD_HEIGHT_VOXELS:
 		return
-	if world.get_voxel(p) != GameMaterials.AIR and not _replaceable(world.get_voxel(p)):
+	if not _placeable(world.get_voxel(p)):
 		return
 	if GameMaterials.defs()[mat - 1].get("floor_only", false):
 		var top_face := p == target or hit.previous_position == target + Vector3i.UP
@@ -956,7 +956,7 @@ func _place_voxels(hit: VoxelRaycastResult, mat: int) -> void:
 		if c.y < 0 or c.y >= Settings.WORLD_HEIGHT_VOXELS or _overlaps_player(c):
 			continue
 		var m := world.get_voxel(c)
-		if m != GameMaterials.AIR and not _replaceable(m):
+		if not _placeable(m):
 			continue
 		cells.append(c)
 	if cells.is_empty():
@@ -973,7 +973,7 @@ func _place_station(hit: VoxelRaycastResult, mat: int) -> void:
 	var anchor := BlockEntities.anchor_for(hit.previous_position)
 	for c in BlockEntities.cube(anchor):
 		var m := world.get_voxel(c)
-		if (m != GameMaterials.AIR and not _replaceable(m)) or _overlaps_player(c):
+		if not _placeable(m) or _overlaps_player(c):
 			return
 	voxel_placed.emit(anchor, mat)
 	if GameMode.rule(game_mode, "consumes_items"):
@@ -999,7 +999,16 @@ func _farm_patch(target: Vector3i) -> Array[Vector3i]:
 
 
 func _replaceable(m: int) -> bool:
-	return m > 0 and GameMaterials.defs()[m - 1].get("replaceable", false)
+	return m > 0 and m <= GameMaterials.defs().size() and GameMaterials.defs()[m - 1].get("replaceable", false)
+
+
+## A cell a placed block may take: air, a replaceable plant, or liquid and gas (building in water
+## pushes it out, like Minecraft; bug report 2026-10-25).
+func _placeable(v: int) -> bool:
+	if v == GameMaterials.AIR or _replaceable(v):
+		return true
+	var m := GameMaterials.material_of_voxel(v)
+	return GameMaterials.is_liquid(m) or (m > 0 and GameMaterials.defs()[m - 1].get("cell_type", "") == "gas")
 
 
 ## An animal under the crosshair closer than the aimed voxel (hit may be null), or null.
@@ -1064,7 +1073,7 @@ func _place_furniture(hit: VoxelRaycastResult, def: Dictionary) -> void:
 	var facing := FurnitureEntity.facing_for(kind, look)
 	for c in FurnitureEntity.footprint(kind, anchor, facing):
 		var m := world.get_voxel(c)
-		if (m != GameMaterials.AIR and not _replaceable(m)) or _overlaps_player(c):
+		if not _placeable(m) or _overlaps_player(c):
 			return
 	if place_furniture.call(kind, anchor, facing):
 		if GameMode.rule(game_mode, "consumes_items"):

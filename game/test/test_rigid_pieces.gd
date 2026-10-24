@@ -105,3 +105,17 @@ func test_leaves_near_wood_stay() -> void:
 	sim.set_voxel(Vector3i(26, 37, 26), GameMaterials.AIR)   # a leaf at the crown's edge cut
 	rp.check([Vector3i(26, 37, 26)], Vector3.ZERO)
 	assert_int(sim.count_in_box(Vector3i(0, 0, 0), Vector3i(64, 64, 64), GameMaterials.LEAVES)).is_equal(before - 1)
+
+
+## A felled trunk takes the leaves within leaf_reach along; the crown beyond them has no wood left and
+## decays too (bug report 2026-10-25: leaves hung in the air where a tree had stood).
+func test_a_felled_crown_leaves_nothing_hanging() -> void:
+	var w := _world()
+	var sim: SimWorld = w[0]
+	var rp: RigidPieces = w[1]
+	var cut := _pillar(sim, 12, true)
+	sim.fill_box(Vector3i(1, 34, 1), Vector3i(63, 38, 63), GameMaterials.LEAVES)   # reaches 29 voxels out
+	sim.fill_box(Vector3i(30, 34, 30), Vector3i(34, 38, 34), GameMaterials.WOOD)
+	assert_int(rp.check(cut, Vector3(0, 12, 32)).size()).is_equal(1)
+	assert_int(sim.count_in_box(Vector3i(0, 0, 0), Vector3i(64, 64, 64), GameMaterials.LEAVES)).is_equal(0)
+	assert_int(int(rp.get_stats()["decayed"])).is_greater(0)

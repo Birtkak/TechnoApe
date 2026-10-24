@@ -98,3 +98,14 @@ func test_right_click_places_a_block_of_a_voxel_item() -> void:
 	cursor = inv.right_click(1, cursor)
 	assert_dict(cursor).is_empty()
 	assert_dict(inv.get_slot(1)).is_equal({"id": "dirt", "count": 10})
+
+
+## Blocks go into water and gas as into air (bug report 2026-10-25: nothing could be built in water).
+func test_blocks_can_be_placed_in_water() -> void:
+	var p = auto_free(preload("res://scripts/player.gd").new())
+	assert_bool(p._placeable(GameMaterials.AIR)).is_true()
+	assert_bool(p._placeable(GameMaterials.WATER)).is_true()
+	assert_bool(p._placeable(GameMaterials.WATER_STATIC)).is_true()
+	assert_bool(p._placeable(GameMaterials.FLUID_LEVEL_BASE + 3)).is_true()   # a partly full cell
+	assert_bool(p._placeable(GameMaterials.STEAM)).is_true()
+	assert_bool(p._placeable(GameMaterials.STONE)).is_false()

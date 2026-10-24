@@ -38,6 +38,8 @@ const PANIC_S := 5.0
 const GRAZE_S := 2.0
 const DEATH_S := 1.0
 const MAX_DROP_V := 6 * Settings.BLOCK   # never walk off more than 3 m
+const BURN_S := 4.0             # alight this long after the last touch of lava or fire
+const BURN_HURT_EVERY_S := 0.5
 
 var species := ""
 var def := {}
@@ -93,6 +95,8 @@ var _attack_cd := 0.0
 var _eat_t := 0.0
 var _provoked_t := 0.0          # predators: hurt by the player, chases them for a while
 var _lay_t := 0.0               # chickens: seconds to the next egg
+var _burn_t := 0.0              # seconds still alight after touching lava or fire
+var _burn_hurt_t := 0.0
 
 
 static func create(p_manager: MobManager, p_species: String, p_def: Dictionary, baby: bool) -> Mob:
@@ -157,6 +161,37 @@ func eye() -> Vector3:
 # ---------------- interaction ----------------
 
 ## Damage from `from` (world position of the attacker). Returns true if it hurt.
+## Lava or fire at the feet or in the body sets the animal alight, like the player's burning coat
+## (PlayerStains): water puts it out (bug report 2026-10-25: a pig stood in lava unharmed).
+func _touch_heat() -> void:
+	if is_dead():
+		return
+	for f in [0.05, 0.4, 0.8]:
+		var m := GameMaterials.material_of_voxel(manager.get_voxel(Vector3i((position + Vector3(0, _height_v * f, 0)).floor())))
+		if m == GameMaterials.LAVA or m == GameMaterials.FIRE:
+			if _burn_t <= 0.0:
+				_burn_hurt_t = 0.0   # catching fire hurts at once
+			_burn_t = BURN_S
+			return
+	if in_liquid:
+		_burn_t = 0.0
+
+
+func _burn_step(delta: float) -> void:
+	if _burn_t <= 0.0:
+		return
+	_burn_t = maxf(0.0, _burn_t - delta)
+	_burn_hurt_t -= delta
+	if _burn_hurt_t <= 0.0:
+		_burn_hurt_t = BURN_HURT_EVERY_S
+		_invuln_t = 0.0   # the burn ticks on its own clock, not the hit cooldown
+		hurt(1, position + Vector3(_rng.randf_range(-1, 1), 0, _rng.randf_range(-1, 1)))
+
+
+func is_burning() -> bool:
+	return _burn_t > 0.0
+
+
 func hurt(amount: int, from: Vector3) -> bool:
 	if is_dead() or _invuln_t > 0.0:
 		return false
@@ -287,6 +322,7 @@ func _timers(delta: float) -> void:
 			_finish_graze()
 	_attack_cd = maxf(0.0, _attack_cd - delta)
 	_provoked_t = maxf(0.0, _provoked_t - delta)
+	_burn_step(delta)
 	if _eat_t > 0.0:
 		_eat_t = maxf(0.0, _eat_t - delta)
 	elif _hunger_t > 0.0:
@@ -307,6 +343,7 @@ func _chance_per_tick(p: float) -> bool:
 func _think() -> void:
 	manager.separate(self)
 	in_liquid = manager.is_liquid(Vector3i((position + Vector3(0, _height_v * 0.4, 0)).floor()))
+	_touch_heat()
 	_think_goal()
 	# voxel probes run here at 10 Hz, never per frame (they are GDScript voxel reads)
 	if _target != Vector3.INF and _speed > 0.0:
@@ -633,4 +670,4 @@ func load_from(d: Dictionary) -> void:
 
 func summary() -> Dictionary:
 	return {"species": species, "uid": uid, "goal": goal, "pos": position.snapped(Vector3.ONE * 0.1), "health": health,
-		"baby": is_baby(), "love": love_s > 0.0, "sheared": sheared, "aggressive": aggressive}
+		"baby": is_baby(), "love": love_s > 0.0, "sheared": sheared, "aggressive": aggressive, "burning": is_burning()}

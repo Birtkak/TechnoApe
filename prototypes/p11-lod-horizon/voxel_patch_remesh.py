@@ -211,3 +211,45 @@ s = s.replace(old, old + '''
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "edit_remesh_rate"), "set_edit_remesh_rate", "get_edit_remesh_rate");''', 1)
 open(p, 'w', encoding='utf-8', newline='\n').write(s)
 print('patched edit-remesh-rate')
+
+# --- keep pending-list indices right when unviewed blocks leave it (crash fix) ---
+# Upstream clears mesh_blocks_pending_update every update, so the stale index that
+# unordered_remove leaves on the entry swapped into the freed slot never mattered.
+# With the rate limit the list outlives the update, and schedule_mesh_load writing
+# through that stale index ran past the end of the vector (access violation in
+# libvoxel, seen after laser cutting and flying away).
+p = root + '/terrain/variable_lod/voxel_lod_terrain_update_clipbox_streaming.cpp'
+s = open(p, encoding='utf-8').read()
+old = """				if (mesh_block.update_list_index != -1) {
+					unordered_remove(lod.mesh_blocks_pending_update, mesh_block.update_list_index);
+					mesh_block.update_list_index = -1;
+				}
+"""
+assert s.count(old) == 1
+s = s.replace(old, """				if (mesh_block.update_list_index != -1) {
+					// TechnoApe P11: the pending list outlives one update (edit rate limit), so the entry swapped
+					// into the freed slot must learn its new index, or a later write through the stale one runs
+					// past the end of the list
+					StdVector<VoxelLodTerrainUpdateData::MeshToUpdate> &pending = lod.mesh_blocks_pending_update;
+					const unsigned int index = mesh_block.update_list_index;
+					mesh_block.update_list_index = -1;
+					if (index < pending.size()) {
+						unordered_remove(pending, index);
+						if (index < pending.size()) {
+							auto moved_it = lod.mesh_map_state.map.find(pending[index].position);
+							if (moved_it != lod.mesh_map_state.map.end()) {
+								moved_it->second.update_list_index = index;
+							}
+						}
+					}
+				}
+""", 1)
+old = """	if (mesh_block.update_list_index != -1) {
+		// Update settings before the task is scheduled"""
+assert s.count(old) == 1
+s = s.replace(old, """	// TechnoApe P11: trust the index only while it still names this block's entry
+	if (mesh_block.update_list_index >= 0 && mesh_block.update_list_index < int(update_list.size()) &&
+		update_list[mesh_block.update_list_index].position == bpos) {
+		// Update settings before the task is scheduled""", 1)
+open(p, 'w', encoding='utf-8', newline='\n').write(s)
+print('patched pending-list indices')

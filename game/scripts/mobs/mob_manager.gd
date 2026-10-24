@@ -327,7 +327,7 @@ static func is_solid(m: int) -> bool:
 
 
 func is_liquid(p: Vector3i) -> bool:
-	var m := get_voxel(p)
+	var m := GameMaterials.material_of_voxel(get_voxel(p))
 	return m > 0 and _def_of(m).get("cell_type", "solid") == "liquid"
 
 

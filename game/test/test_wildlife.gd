@@ -141,3 +141,28 @@ func test_water_map_sees_the_sea_and_not_the_ice() -> void:
 			open += 1
 	# mostly ice: the dithered border with the open ocean leaves the same few holes the sea ice has
 	assert_int(open).override_failure_message("kelp under the ice").is_less(64)
+
+
+## Stands in for main: lava everywhere below y = 4, air above.
+class LavaPool extends Node:
+	func get_world_voxel(p: Vector3i) -> int:
+		return GameMaterials.LAVA if p.y < 4 else GameMaterials.AIR
+
+
+## Animals burn in lava like the player (bug report 2026-10-25: a pig stood in lava unharmed).
+func test_animals_burn_in_lava() -> void:
+	var mm := _manager()
+	mm.main = auto_free(LavaPool.new())
+	var pig := _mob(mm, "pig", Vector3(0.5, 1.0, 0.5))
+	var start := pig.health
+	pig._touch_heat()
+	assert_bool(pig.is_burning()).is_true()
+	for i in 20:   # 2 s at 10 Hz
+		pig._burn_step(0.1)
+	assert_int(pig.health).is_less(start - 2)
+	# out of the lava it still burns a while, then goes out
+	pig.position.y = 10.0
+	for i in 60:
+		pig._touch_heat()
+		pig._burn_step(0.1)
+	assert_bool(pig.is_burning()).is_false()
