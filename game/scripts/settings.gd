@@ -105,6 +105,12 @@ var water_c := -8.0                      # in water
 var cellar_c := 8.0                      # containers 3 m and more under the surface (spoilage)
 var climate_probe_s := 1.5               # how often shelter and heat are measured
 var rigid_pieces := true                # cut-loose trees and limbs fall as rigid bodies (P12, ADR 0037); rigid_pieces=0 turns it off
+# playtest gadgets (/kit gadgets, PlaytestTools): debug items, not progression
+var laser_range_m := 64.0               # the laser cutter reaches this far
+var laser_depth_m := 3.0                # and cuts this deep past the first solid voxel (through a big trunk)
+var laser_pulse_s := 0.06               # one cut along the beam this often while the button is held
+var laser_check_s := 0.3                # what the cuts freed is checked this often (a tree check is 24-80 ms on the sim thread)
+var crater_radius_m := 3.0              # the crater rod's blast; sneaking doubles it
 var particles := true                   # particles=0 turns every effect off (benchmarks against the old game)
 var particle_pool_chips := 2048         # block chips alive at once at most
 var particle_pool_sprites := 6144       # smoke, splashes, hearts, waterfall spray...

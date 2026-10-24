@@ -84,7 +84,9 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   world). `autopilot=1` or `play=1` skip it; `menu_test=1` checks the menus.
 - Playtest tools (ADR 0018): T chat + slash commands (`/help`), `/gamemode`, F3
   debug screen, F4 playtest menu, F9 bug reports, `/cam` free camera (`/fell cam` films a felling from a
-  spot with a clear view). When the developer mentions a
+  spot with a clear view). Playtest gadgets (`/kit gadgets`, `scripts/items/playtest_tools.gd`): laser cutter
+  (hold LMB, cuts 3 m deep, Ctrl + wheel = width), crater rod, water/sand/lava bombs, instant tree, tape measure;
+  scripted: `/gadget <item> [sneak]`, `/laser [s] [sweep_deg]`. When the developer mentions a
   bug report, read the newest folder in `game/out/bug_reports/` (report.md,
   state.json, screenshot.png, log.txt); from the exported build (`build/windows/TechnoApe.exe`,
   export command in `game/README.md`) they are in `%APPDATA%/Godot/app_userdata/TechnoApe/bug_reports/`.

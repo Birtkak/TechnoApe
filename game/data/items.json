@@ -162,6 +162,13 @@
     {"id": "daub_wall", "name": "Wattle and Daub", "tags": ["block"], "stack": 64, "material": "daub_wall"},
     {"id": "straw_bed", "name": "Straw Bed", "tags": ["furniture"], "stack": 1, "furniture": "straw_bed", "_note": "sleep and set your spawn before you have wool"},
     {"id": "torch", "name": "Torch", "tags": ["light"], "stack": 64, "material": "torch"},
-    {"id": "firewood", "name": "Firewood", "tags": ["firewood"], "stack": 64, "fuel_ticks": 100, "work": "firewood_pile", "_note": "split from a log with an axe; stack piles on the ground, seal them with soil and light them: a charcoal pit (ADR 0030)"}
+    {"id": "firewood", "name": "Firewood", "tags": ["firewood"], "stack": 64, "fuel_ticks": 100, "work": "firewood_pile", "_note": "split from a log with an axe; stack piles on the ground, seal them with soil and light them: a charcoal pit (ADR 0030)"},
+    {"id": "laser_cutter", "name": "Laser Cutter", "tags": ["tool", "debug"], "stack": 1, "found_only": true, "playtest": {"kind": "laser"}, "_note": "playtest gadget: hold left click, the beam cuts 3 m through anything breakable; Ctrl + wheel widens it; cut-loose wood falls"},
+    {"id": "crater_rod", "name": "Crater Rod", "tags": ["tool", "debug"], "stack": 1, "found_only": true, "playtest": {"kind": "crater"}, "_note": "playtest gadget: right click blasts a 3 m crater where you look (sneak: 6 m); what it frees falls"},
+    {"id": "water_balloon", "name": "Water Balloon", "tags": ["debug"], "stack": 16, "found_only": true, "playtest": {"kind": "bomb", "material": "water", "radius_m": 2.0}, "_note": "playtest gadget: right click drops a 2 m ball of water where you look"},
+    {"id": "sand_bomb", "name": "Sand Bomb", "tags": ["debug"], "stack": 16, "found_only": true, "playtest": {"kind": "bomb", "material": "sand", "radius_m": 2.0}, "_note": "playtest gadget: right click drops a 2 m ball of sand where you look"},
+    {"id": "lava_bomb", "name": "Lava Bomb", "tags": ["debug"], "stack": 16, "found_only": true, "playtest": {"kind": "bomb", "material": "lava", "radius_m": 1.5}, "_note": "playtest gadget: right click drops a 1.5 m ball of lava where you look"},
+    {"id": "instant_tree", "name": "Instant Tree", "tags": ["tool", "debug"], "stack": 1, "found_only": true, "playtest": {"kind": "tree"}, "_note": "playtest gadget: right click on the ground grows a 1 m thick, 8 m tall test tree with a crown (sneak: 2 m thick, 16 m tall), something big to cut"},
+    {"id": "tape_measure", "name": "Tape Measure", "tags": ["tool", "debug"], "stack": 1, "found_only": true, "playtest": {"kind": "measure"}, "_note": "playtest gadget: right click two voxels, the chat shows the distance between them"}
   ]
 }

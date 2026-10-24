@@ -296,7 +296,9 @@ func _finish() -> void:
 	for v in ft:
 		sum += v
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(out_dir))
-	get_viewport().get_texture().get_image().save_png(out_dir + "/final.png")
+	var final_img := get_viewport().get_texture().get_image()
+	if final_img:   # null with --headless: the JSON line still comes
+		final_img.save_png(out_dir + "/final.png")
 	if _strip and _strip.count() > 0:
 		_strip.save(out_dir + "/strip.png")
 	var s: Dictionary = _main.snapshot()

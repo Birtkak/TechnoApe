@@ -45,6 +45,7 @@ var _flint_age_test: FlintAgeTest
 var _craft_test: CraftTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
+var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
 var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
 var quest_toast: QuestToast
 var pause_menu: PauseMenu            # Esc: pause, settings, save and quit (ADR 0032)
@@ -408,6 +409,14 @@ func _ready() -> void:
 		survival.load_dict(_survival_save)
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(builder.warm_materials(), player.camera)
+	gadgets = PlaytestTools.new()
+	gadgets.name = "PlaytestTools"
+	add_child(gadgets)
+	gadgets.setup(self)
+	player.playtest_laser = gadgets.laser
+	player.playtest_use = gadgets.use
+	if not warmup.is_queued_for_deletion():
+		warmup.add_materials(gadgets.warm_materials(), player.camera)
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
 	player_inv.tool_broke.connect(_on_tool_broke)
@@ -1331,6 +1340,7 @@ func snapshot() -> Dictionary:
 		"quests": quests.summary() if quests else {},
 		"quest_check_ms_max": snappedf(quest_check_ms_max, 0.001),
 		"projectiles": projectiles.stats if projectiles else {},
+		"gadgets": gadgets.stats if gadgets else {},
 		"torches": torch_lights.stats if torch_lights else {},
 		"mobs": mobs.summary() if mobs else {},
 		"farm": farming.summary() if farming else {},

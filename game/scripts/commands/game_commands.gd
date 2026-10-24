@@ -21,6 +21,7 @@ const KITS := {
 	"smith": {"stone_anvil": 1, "firepit": 1, "copper_hammer": 1, "copper_ingot": 6, "oak_log": 8 * 64, "firestarter": 1,
 		"flint_axe_head": 1, "copper_saw_blade": 1, "stick": 8, "cordage": 4},   # crafting in the world (ADR 0042)
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64},
+	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
 }
 
 ## What WorldGen.find_nearest can look for (biome names work too).
@@ -80,6 +81,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("box", "/box <build|dig|select> <x1> <y1> <z1> <x2> <y2> <z2> | go", "Box mode by coordinates (V in game); go digs a marked box at once", _box)
 	reg.register("prefab", "/prefab save <category> <name> | place <category> <name> [at x y z] | list", "Save the selected box as a prefab, place one, or list them", _prefab)
 	reg.register("chop", "/chop [cam]", "Chop through the nearest big trunk 8-20 m away like a player would: 1 m brush digs at 1.5 m up, one every 0.3 s", _chop)
+	reg.register("gadget", "/gadget <item> [sneak]", "Use a playtest gadget where you look, as a right click would (/kit gadgets gives them all)", _gadget, [_gadget_ids, ["sneak"]])
+	reg.register("laser", "/laser [seconds] [sweep_deg]", "Fire the laser cutter where you look for a while (default 1.5 s), turning across sweep_deg (default 20)", _laser)
 	reg.register("fell", "/fell [direction_deg|pillar] [cam]", "Fell the thickest tree 8-20 m away, across your view", _fell)
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 	var atmo: Node = main.get("atmosphere") if main != null else null
@@ -394,6 +397,32 @@ func _kit(args: PackedStringArray) -> Dictionary:
 		if not r["ok"]:
 			return r
 	return CommandRegistry.ok("Gave the %s kit" % args[0].to_lower())
+
+
+func _gadget_ids() -> Array:
+	return player_inv.items.all_ids().filter(func(id: String) -> bool: return player_inv.items.get_def(id).has("playtest")) if player_inv else []
+
+
+func _gadget(args: PackedStringArray) -> Dictionary:
+	if main == null or main.gadgets == null or player_inv == null:
+		return CommandRegistry.fail("No world")
+	if args.is_empty() or not player_inv.items.has(args[0]) or not player_inv.items.get_def(args[0]).has("playtest"):
+		return CommandRegistry.fail("Gadgets: %s" % ", ".join(_gadget_ids()))
+	var cam: Camera3D = player.camera
+	var dir := -cam.global_transform.basis.z
+	var hit: VoxelRaycastResult = main.world.raycast(cam.global_position, dir, Settings.m2v(Settings.laser_range_m))
+	if not main.gadgets.use(player_inv.items.get_def(args[0]), hit, cam.global_position, dir, args.size() > 1 and args[1] == "sneak"):
+		return CommandRegistry.fail("%s did nothing there" % player_inv.items.display_name(args[0]))
+	return CommandRegistry.ok("Used [%s]" % player_inv.items.display_name(args[0]))
+
+
+func _laser(args: PackedStringArray) -> Dictionary:
+	if main == null or main.gadgets == null:
+		return CommandRegistry.fail("No world")
+	var secs := float(args[0]) if args.size() > 0 and args[0].is_valid_float() else 1.5
+	var sweep := float(args[1]) if args.size() > 1 and args[1].is_valid_float() else 20.0
+	main.gadgets.fire_for(clampf(secs, 0.1, 30.0), sweep)
+	return CommandRegistry.ok("Laser for %.1f s across %.0f deg" % [secs, sweep])
 
 
 func _spawn(_args: PackedStringArray) -> Dictionary:

@@ -114,7 +114,7 @@ func _build_panel() -> void:
 		["Survival", "/gamemode survival"], ["Creative", "/gamemode creative"], ["Toggle fly", _toggle_fly],
 		["Heal", "/heal"], ["Kill", "/kill"], ["Clear inventory", "/clear"]])
 	_section(box, "Kits", [
-		["Tools", "/kit tools"], ["Building blocks", "/kit builder"], ["Stations + ores", "/kit stations"], ["Wand + spells", "/kit magic"]])
+		["Tools", "/kit tools"], ["Building blocks", "/kit builder"], ["Stations + ores", "/kit stations"], ["Wand + spells", "/kit magic"], ["Gadgets (laser ...)", "/kit gadgets"]])
 	_section(box, "Time", [
 		["Sunrise", "/time set sunrise"], ["Noon", "/time set noon"], ["Sunset", "/time set sunset"], ["Midnight", "/time set midnight"],
 		["Day cycle on", "/daycycle on"], ["Freeze sun", "/daycycle off"]])

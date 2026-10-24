@@ -194,6 +194,9 @@ PALETTES = {
     "leather": ramp("#2e1808", "#6a3a18", "#945428", "#b06c38", "#cc8c54"),
     "daub": ramp("#4a3e30", "#8a7a62", "#b2a084", "#c8b89c", "#e0d4bc"),
     "seed": ramp("#3a2c10", "#6e5824", "#9a8034", "#bca048", "#e0cc7a"),
+    "sand": ramp("#6a5430", "#b8985a", "#dcc084", "#ead49c", "#f8ecc6"),
+    "lava": ramp("#3a0802", "#8a1c04", "#d04a0a", "#f48a1c", "#ffd25a"),
+    "hazard": ramp("#4a3a04", "#a88a0c", "#e0c020", "#f2d84a", "#fff090"),
 }
 
 
@@ -687,6 +690,31 @@ put(g, 12, 1, "q")
 put(g, 13, 2, "q")
 shape("fire_bomb", g, {"q": "#ff7a1a", "r": "#8a6a40", "Y": "#ffe27a"})
 
+# playtest gadgets (PlaytestTools): laser cutter, tape measure, sparkle over the instant tree
+g = new()
+line(g, 4, 10, 11, 3, "#", 3)      # the barrel
+rect(g, 3, 10, 5, 14, "#")         # the grip
+g = shade(g)
+for (x, y) in [(12, 2), (13, 2), (12, 3), (13, 1)]:
+    put(g, x, y, "r")
+put(g, 14, 1, "R")
+put(g, 15, 0, "R")
+for (x, y) in [(7, 8), (8, 7), (9, 6)]:
+    put(g, x, y, "r")              # the glowing coil along the barrel
+shape("laser_cutter", outline(g), {"r": "#ff3a20", "R": "#ffd8a0"})
+g = shade(rect(new(), 2, 4, 11, 13))
+ellipse(g, 6.5, 8.5, 2.4, 2.4, "c")
+put(g, 6, 8, "k")
+g = outline(g)
+line(g, 12, 12, 15, 12, "t")
+line(g, 12, 13, 15, 13, "T")
+shape("tape_measure", g, {"c": "#3a3a3a", "k": "#d0d0d0", "t": "#f4e870", "T": "#b8a830"})
+shape("sparkle", art([
+    "..y.............", ".yYy............", "..y..........y..", "............yYy.",
+    ".............y..", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................"]), {"y": "#fff2a0", "Y": "#ffffff"})
+
 # cube faces (drawn as an isometric cube in icons, a cube mesh in the world)
 shape("bricks_face", bricks(new(), 0, 0, 15, 15), BRICK)
 rnd = random.Random(7)
@@ -1002,6 +1030,13 @@ sp("oxeye_daisy", ("flower_stem", "leaf"), ("flower_head", None, {"p": "#f4f2ea"
 sp("allium", ("flower_stem", "leaf"), ("allium_head", None, ramp("#3a1450", "#6a2a8a", "#9446b8", "#b46ad4", "#dca8f0")))
 sp("wand_basic", ("wand_stick", "handle"), ("wand_gem", "gem"))
 sp("fire_bomb", ("fire_bomb", "bomb"))
+sp("laser_cutter", ("laser_cutter", "steel"))
+sp("crater_rod", ("wand_stick", "iron"), ("wand_gem", "lava"))
+sp("water_balloon", ("fire_bomb", "water", {"q": "#c0e0ff"}))
+sp("sand_bomb", ("fire_bomb", "sand", {"q": "#8a6a3a"}))
+sp("lava_bomb", ("fire_bomb", "lava", {"q": "#ffe27a"}))
+sp("instant_tree", ("sapling", "leaf"), "sparkle")
+sp("tape_measure", ("tape_measure", "hazard"))
 sp("bricks", "bricks_face", cube=True)
 sp("coal_block", ("coal_block_face", "coal"), cube=True)
 sp("glass", ("glass_face", "glass"), cube=True)

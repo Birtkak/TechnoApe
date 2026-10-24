@@ -64,6 +64,9 @@ var autopilot_hold := false      # scripted checks: the right button is held
 var _hold_at := ""
 var _hold_t := 0.0
 var describe_block: Callable     # (voxel) -> String: an extra line for the look-at panel ("" = none)
+var playtest_laser: Callable     # (firing, from, dir, delta, brush_size) -> void: a held laser cutter (PlaytestTools)
+var playtest_use: Callable       # (def, hit, from, dir, sneaking) -> bool: a right click with a playtest gadget
+var _lasering := false
 var _look_key := ""              # what the look-at panel shows now (rebuilt only when it changes)
 var _look_refresh := 0
 var farm: Farming
@@ -590,6 +593,15 @@ func _update_mining(delta: float) -> void:
 	# keep placing while the button is held (vanilla repeats every 4 ticks)
 	if not autopilot and not ui_open and not building and _mouse_captured and Input.is_action_pressed("action_place") and _place_cooldown <= 0.0:
 		_use(false)
+	# the laser cutter (PlaytestTools): its beam replaces breaking
+	var laser_held := playtest_laser.is_valid() and inventory != null and PlaytestTools.kind_of(inventory.held_def()) == "laser"
+	if laser_held or _lasering:
+		_lasering = laser_held and holding
+		playtest_laser.call(_lasering, camera.global_position, -camera.global_transform.basis.z, delta, brush_size)
+		if laser_held:
+			_highlight.visible = false
+			_reset_mining()
+			return
 	# knapping (ADR 0023): a left click chips a cell instead of mining; holding repeats
 	if holding and hit and _break_cooldown <= 0.0 and work_hit.is_valid():
 		if work_hit.call(hit, camera.global_position, -camera.global_transform.basis.z, Input.is_action_pressed("sprint")):
@@ -818,6 +830,13 @@ func _use(first_press: bool) -> void:
 	var hit := _aim()
 	if first_press and inventory.held_def().has("throw") and throw_item.is_valid():
 		_throw()
+		return
+	if first_press and inventory.held_def().has("playtest") and playtest_use.is_valid():
+		var pdef := inventory.held_def()
+		if playtest_use.call(pdef, hit, camera.global_position, -camera.global_transform.basis.z, Input.is_action_pressed("sprint")):
+			if GameMode.rule(game_mode, "consumes_items") and not ("tool" in pdef.get("tags", [])):
+				inventory.consume_held(1)
+			_after_use()
 		return
 	if first_press:
 		var mob = aimed_mob(hit)

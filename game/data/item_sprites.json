@@ -46,7 +46,10 @@
     "scraped_hide": {"o": "#5a4a36", "d": "#a08a6a", "m": "#c8b08a", "l": "#dcc8a4", "h": "#f0e4c8"},
     "leather": {"o": "#2e1808", "d": "#6a3a18", "m": "#945428", "l": "#b06c38", "h": "#cc8c54"},
     "daub": {"o": "#4a3e30", "d": "#8a7a62", "m": "#b2a084", "l": "#c8b89c", "h": "#e0d4bc"},
-    "seed": {"o": "#3a2c10", "d": "#6e5824", "m": "#9a8034", "l": "#bca048", "h": "#e0cc7a"}
+    "seed": {"o": "#3a2c10", "d": "#6e5824", "m": "#9a8034", "l": "#bca048", "h": "#e0cc7a"},
+    "sand": {"o": "#6a5430", "d": "#b8985a", "m": "#dcc084", "l": "#ead49c", "h": "#f8ecc6"},
+    "lava": {"o": "#3a0802", "d": "#8a1c04", "m": "#d04a0a", "l": "#f48a1c", "h": "#ffd25a"},
+    "hazard": {"o": "#4a3a04", "d": "#a88a0c", "m": "#e0c020", "l": "#f2d84a", "h": "#fff090"}
   },
   "shapes": {
     "handle": {
@@ -1353,6 +1356,69 @@
         ".....ooooo......"
       ]
     },
+    "laser_cutter": {
+      "colors": {"r": "#ff3a20", "R": "#ffd8a0"},
+      "rows": [
+        ".............ooR",
+        "............orRo",
+        "...........orro.",
+        "..........ohrlo.",
+        ".........ohmdo..",
+        "........ohmdo...",
+        ".......ohrdo....",
+        "......ohrdo.....",
+        ".....ohrdo......",
+        "...oohmdo.......",
+        "..ohlmdo........",
+        "..olmdo.........",
+        "..olmdo.........",
+        "..olmdo.........",
+        "..olddo.........",
+        "...ooo.........."
+      ]
+    },
+    "tape_measure": {
+      "colors": {"c": "#3a3a3a", "k": "#d0d0d0", "t": "#f4e870", "T": "#b8a830"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "..oooooooooo....",
+        ".ohlllllllllo...",
+        ".olmmmmmmmmdo...",
+        ".olmmcccmmmdo...",
+        ".olmcccccmmdo...",
+        ".olmcckccmmdo...",
+        ".olmcccccmmdo...",
+        ".olmmcccmmmdo...",
+        ".olmmmmmmmmdo...",
+        ".olmmmmmmmmdtttt",
+        ".oldddddddddTTTT",
+        "..oooooooooo....",
+        "................"
+      ]
+    },
+    "sparkle": {
+      "colors": {"y": "#fff2a0", "Y": "#ffffff"},
+      "rows": [
+        "..y.............",
+        ".yYy............",
+        "..y..........y..",
+        "............yYy.",
+        ".............y..",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
     "bricks_face": {
       "colors": {"b": "#8e3e2a", "B": "#ac5640", "j": "#5a4a40", "o": "#2a1610"},
       "rows": [
@@ -2197,6 +2263,13 @@
     "allium": {"layers": [{"shape": "flower_stem", "palette": "leaf"}, {"shape": "allium_head", "colors": {"o": "#3a1450", "d": "#6a2a8a", "m": "#9446b8", "l": "#b46ad4", "h": "#dca8f0"}}]},
     "wand_basic": {"layers": [{"shape": "wand_stick", "palette": "handle"}, {"shape": "wand_gem", "palette": "gem"}]},
     "fire_bomb": {"layers": [{"shape": "fire_bomb", "palette": "bomb"}]},
+    "laser_cutter": {"layers": [{"shape": "laser_cutter", "palette": "steel"}]},
+    "crater_rod": {"layers": [{"shape": "wand_stick", "palette": "iron"}, {"shape": "wand_gem", "palette": "lava"}]},
+    "water_balloon": {"layers": [{"shape": "fire_bomb", "palette": "water", "colors": {"q": "#c0e0ff"}}]},
+    "sand_bomb": {"layers": [{"shape": "fire_bomb", "palette": "sand", "colors": {"q": "#8a6a3a"}}]},
+    "lava_bomb": {"layers": [{"shape": "fire_bomb", "palette": "lava", "colors": {"q": "#ffe27a"}}]},
+    "instant_tree": {"layers": [{"shape": "sapling", "palette": "leaf"}, {"shape": "sparkle"}]},
+    "tape_measure": {"layers": [{"shape": "tape_measure", "palette": "hazard"}]},
     "bricks": {"layers": [{"shape": "bricks_face"}], "cube": true},
     "coal_block": {"layers": [{"shape": "coal_block_face", "palette": "coal"}], "cube": true},
     "glass": {"layers": [{"shape": "glass_face", "palette": "glass"}], "cube": true},
