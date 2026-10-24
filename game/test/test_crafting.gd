@@ -58,16 +58,19 @@ func test_shaped_sticks_anywhere_in_grid() -> void:
 	assert_str(recipes.match_grid(_g(["oak_planks", "", "", "oak_planks"])).get("id", "")).is_equal("sticks")
 	assert_str(recipes.match_grid(_g(["", "oak_planks", "", "", "oak_planks"])).get("id", "")).is_equal("sticks")
 	assert_str(recipes.match_grid(_g(["", "", "", "", "", "oak_planks", "", "", "oak_planks"])).get("id", "")).is_equal("sticks")
-	# horizontal pair is NOT sticks
-	assert_dict(recipes.match_grid(_g(["oak_planks", "oak_planks"]))).is_empty()
+	# a horizontal pair too: no other recipe takes two planks, so any layout counts (ADR 0046)
+	assert_str(recipes.match_grid(_g(["oak_planks", "oak_planks"])).get("id", "")).is_equal("sticks")
 
 
-func test_shaped_pickaxe_requires_station_and_exact_shape() -> void:
+func test_shaped_pickaxe_requires_station() -> void:
 	var pick := _g(["iron_ingot", "iron_ingot", "iron_ingot", "", "stick", "", "", "stick", ""])
 	assert_dict(recipes.match_grid(pick, "")).is_empty()  # needs a crafting table
 	assert_str(recipes.match_grid(pick, "crafting_table").get("id", "")).is_equal("iron_pickaxe")
-	var wrong := _g(["iron_ingot", "iron_ingot", "iron_ingot", "stick", "", "", "stick", "", ""])
-	assert_dict(recipes.match_grid(wrong, "crafting_table")).is_empty()
+	# laid out otherwise it is still the pickaxe: nothing else takes three iron and two sticks (ADR 0046)
+	var loose := _g(["iron_ingot", "iron_ingot", "iron_ingot", "stick", "", "", "stick", "", ""])
+	assert_str(recipes.match_grid(loose, "crafting_table").get("id", "")).is_equal("iron_pickaxe")
+	var too_many := _g(["iron_ingot", "iron_ingot", "iron_ingot", "stick", "stick", "stick", "", "", ""])
+	assert_dict(recipes.match_grid(too_many, "crafting_table")).is_empty()
 
 
 func test_shaped_mirroring() -> void:
@@ -197,3 +200,50 @@ func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
 	assert_array(missing).is_empty()
 	assert_bool(have.has("iron_pickaxe")).is_true()
 	assert_bool(have.has("spell_fire_bolt")).is_true()
+
+
+# ---------- clarity (ADR 0046) ----------
+
+func test_shaped_recipes_take_any_layout_unless_another_shares_the_ingredients() -> void:
+	var g := ["", "", "", "", "", "", "", "", ""]
+	# the furnace's eight cobblestones bunched however: still a furnace (no other recipe takes eight cobble)
+	var cobble := g.duplicate()
+	for i in 8:
+		cobble[i] = "cobblestone"
+	assert_str(recipes.match_grid(cobble, "crafting_table").get("id", "")).is_equal("furnace")
+	assert_bool(recipes.any_layout(recipes.recipes["furnace"])).is_true()
+	# three iron and two sticks make a pickaxe or an axe: the shape decides
+	var loose := ["iron_ingot", "stick", "iron_ingot", "stick", "iron_ingot", "", "", "", ""]
+	var pick: Dictionary = recipes.recipes["iron_pickaxe"]
+	if not recipes.any_layout(pick):
+		assert_dict(recipes.match_grid(loose, "crafting_table")).is_empty()
+
+
+func test_the_grid_says_why_it_makes_nothing() -> void:
+	var cg := CraftingGrid.new(items, recipes, 2, "")
+	cg.grid.set_slot(0, {"id": "flint", "count": 1})
+	cg.grid.set_slot(3, {"id": "flint", "count": 1})
+	cg.grid.set_slot(1, {"id": "oak_log", "count": 10})   # ten voxels: not a block
+	cg.grid.set_slot(2, {"id": "oak_log", "count": items.units("oak_log")})
+	assert_dict(cg.preview_output()).is_empty()
+	assert_array(cg.short_slots()).is_equal([1])
+	assert_str(cg.hint()).contains("64")
+	cg.grid.set_slot(1, {"id": "oak_log", "count": items.units("oak_log")})
+	assert_dict(cg.preview_output()).is_equal({"id": "crafting_table", "count": 1})   # flint and logs in any layout
+	assert_str(cg.hint()).is_empty()
+	# a table recipe in the hand grid: says what it needs
+	var hand := CraftingGrid.new(items, recipes, 3, "")
+	for i in 3:
+		hand.grid.set_slot(i, {"id": "wheat", "count": 1})
+	assert_str(hand.hint()).contains("Crafting Table")
+
+
+func test_the_browser_counts_like_the_inventory() -> void:
+	var b := RecipeBrowser.new(items, recipes)
+	var l := b.layout(recipes.recipes["planks_from_log"])
+	assert_int(b.cell_amount(l["inputs"][0]["spec"])).is_equal(items.units("oak_log"))
+	assert_int(b.output_amount(l)).is_equal(2 * items.units("oak_planks"))
+	b.have = func(id: String) -> int: return 100 if id == "oak_log" else 0
+	var need: Array = b.needs_list(l)
+	assert_int(need[0]["need"]).is_equal(64)
+	assert_int(need[0]["have"]).is_greater_equal(100)

@@ -22,6 +22,7 @@ var _panel: Control
 var _slots: Array[SlotView] = []
 var _craft_slots: Array[SlotView] = []
 var _output: SlotView
+var _craft_hint: Label                    # why the grid makes nothing (ADR 0046)
 var _cursor_icon: ItemIcon
 var _title: Label
 var _inv_label: Label
@@ -45,6 +46,8 @@ func setup(p_inv: PlayerInventory) -> void:
 	player_inv.changed.connect(_refresh)
 	browser = RecipeBrowser.new(player_inv.items, player_inv.recipes)
 	browser.set_mining(MiningTable.load_default())
+	browser.have = func(id: String) -> int:
+		return player_inv.inv.count_of(id) + (player_inv.bag.count_of(id) if player_inv.has_bag() else 0)
 	# bookmarks are the player's (user://); autopilot runs stay reproducible and take bookmarks=a,b instead
 	var args := OS.get_cmdline_user_args()
 	if not args.has("autopilot=1"):
@@ -183,6 +186,9 @@ func _clear_mode_slots() -> void:
 	if _output:
 		_output.queue_free()
 		_output = null
+	if _craft_hint:
+		_craft_hint.queue_free()
+		_craft_hint = null
 	if _container:
 		_container.changed.disconnect(_refresh)
 		_container = null
@@ -204,6 +210,15 @@ func _build_craft_slots(width: int) -> void:
 	_output.is_output = true
 	_output.clicked.connect(_on_output_clicked)
 	_panel.add_child(_output)
+	_craft_hint = Label.new()
+	_craft_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_craft_hint.add_theme_font_size_override("font_size", 12)
+	_craft_hint.add_theme_color_override("font_color", Color(0.6, 0.1, 0.08))
+	_craft_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_craft_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_craft_hint.size = Vector2(150, 40)
+	_craft_hint.position = _output.position + Vector2(S / 2.0 - 75.0, S + 2)
+	_panel.add_child(_craft_hint)
 
 
 ## Opens with the personal 2x2 grid, or a station grid (3 = crafting table).
@@ -279,10 +294,15 @@ func _refresh() -> void:
 		return
 	for i in _slots.size():
 		_slots[i].set_stack(player_inv.items, player_inv.inv.get_slot(i))
+	var short := player_inv.craft.short_slots()
 	for i in _craft_slots.size():
-		_craft_slots[i].set_stack(player_inv.items, player_inv.craft.grid.get_slot(i))
+		var st := player_inv.craft.grid.get_slot(i)
+		_craft_slots[i].need = player_inv.items.units(st["id"]) if i in short else 0
+		_craft_slots[i].set_stack(player_inv.items, st)
 	if _output:
 		_output.set_stack(player_inv.items, player_inv.craft.preview_output())
+	if _craft_hint:
+		_craft_hint.text = player_inv.craft.hint()
 	if _container:
 		for i in _container_slots.size():
 			_container_slots[i].set_stack(player_inv.items, _container.inv.get_slot(i))
@@ -337,6 +357,13 @@ func _update_tooltip() -> void:
 			stack = st
 			break
 		w = w.get_parent() as Control
+	if player_inv.items.is_voxel_item(id):
+		# voxel items count 12.5 cm voxels; recipes take them a block (BLOCK^3) at a time (ADR 0046)
+		var u := player_inv.items.units(id)
+		var n := int(stack.get("count", 0))
+		text += "
+A block is %d voxels" % u if n == 0 else "
+%d voxels = %d block%s%s" % [n, n / u, "" if n / u == 1 else "s", "" if n % u == 0 else " + %d" % (n % u)]
 	var days := float(player_inv.items.get_def(id).get("spoil_days", 0.0))
 	if days > 0.0:
 		var sp := float(stack.get("spoil", 0.0))
@@ -501,6 +528,12 @@ class SlotView:
 	var group := ""           # PlayerInventory slot group ("inv", "bag", "craft", "container"); "" = no drags
 	var is_output := false
 	var hint := ""            # drawn faintly while the slot is empty (the bag slot)
+	var need := 0:            # crafting grid: a voxel item short of one block; marked with what it needs (ADR 0046)
+		set(v):
+			if v != need:
+				need = v
+				_need_mark.queue_redraw()
+	var _need_mark: Control   # above the icon
 	var _icon: ItemIcon
 	var _hover := false
 
@@ -512,6 +545,17 @@ class SlotView:
 		_icon.size = Vector2(S - 4, S - 4)
 		_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_icon)
+		_need_mark = Control.new()
+		_need_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_need_mark.size = size
+		_need_mark.draw.connect(func() -> void:
+			if need > 0:
+				_need_mark.draw_rect(Rect2(2, 2, size.x - 4, size.y - 4), Color(0.85, 0.1, 0.05, 0.35))
+				var f := ThemeDB.fallback_font
+				var txt := "/%d" % need
+				_need_mark.draw_string(f, Vector2(4, 14), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0, 0, 0, 0.9))
+				_need_mark.draw_string(f, Vector2(3, 13), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1.0, 0.8, 0.75)))
+		add_child(_need_mark)
 		mouse_entered.connect(func() -> void: _hover = true; queue_redraw())
 		mouse_exited.connect(func() -> void: _hover = false; queue_redraw())
 

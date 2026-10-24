@@ -42,6 +42,7 @@ var bookmarks: Array = []   # item ids, oldest first
 var _mining := {}           # pseudo-recipe id ("mining:<block>:<drop>") -> recipe
 var _mining_makes := {}     # drop item id -> [pseudo-recipe id]
 var _mining_uses := {}      # block item id -> [pseudo-recipe id]
+var have: Callable          # item id -> how many the player carries (the inventory screen sets it): have / need lines
 
 
 func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry) -> void:
@@ -417,8 +418,10 @@ func layout(r: Dictionary) -> Dictionary:
 				inputs.append({"cell": Vector2i(i, 0), "spec": ing[i]})
 	var info := ""
 	match r["type"]:
+		"shaped":
+			info = "Any layout" if recipes.any_layout(r) else "Lay it out as shown"
 		"shapeless":
-			info = "Shapeless"
+			info = "Any layout"
 			for k in r.get("keep", []):
 				info += ", keeps the " + (k.substr(1) if k.begins_with("#") else items.display_name(k))
 		"smelt":
@@ -484,6 +487,37 @@ func members(spec: String) -> Array:
 	var m := items.items_with_tag(spec.substr(1))
 	m.sort_custom(func(a: String, b: String) -> bool: return _order.get(a, 0) < _order.get(b, 0))
 	return m
+
+
+## What one input cell stands for, counted as the inventory counts it: a block's worth
+## of voxels for a voxel item (64), one of anything else (ADR 0046).
+func cell_amount(spec: String) -> int:
+	var m := members(spec)
+	return items.units(m[0]) if not m.is_empty() else 1
+
+
+## The output as the inventory counts it (2 planks by recipe = 128 plank voxels).
+func output_amount(l: Dictionary) -> int:
+	return int(l["output"].get("count", 1)) * items.units(l["output"]["id"])
+
+
+## Per distinct ingredient of a layout: {spec, name, need, have}; have is -1 without a player.
+func needs_list(l: Dictionary) -> Array:
+	var out := []
+	var at := {}
+	for inp in l["inputs"]:
+		var spec: String = inp["spec"]
+		if not at.has(spec):
+			at[spec] = out.size()
+			var nm: String = spec.substr(1).capitalize() if spec.begins_with("#") else items.display_name(spec)
+			var h := -1
+			if have.is_valid():
+				h = 0
+				for id in members(spec):
+					h += int(have.call(id))
+			out.append({"spec": spec, "name": nm, "need": 0, "have": h})
+		out[at[spec]]["need"] += cell_amount(spec)
+	return out
 
 
 ## The member shown at time step `t` (JEI cycles tag ingredients each second).

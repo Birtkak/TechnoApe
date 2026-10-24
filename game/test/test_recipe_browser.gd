@@ -96,7 +96,7 @@ func test_layouts_place_inputs() -> void:
 	assert_int(pick["inputs"].size()).is_equal(5)
 	assert_str(pick["needs"]).is_equal("Crafting Table")
 	var bronze := b.layout(recipes.recipes["bronze_alloy"])
-	assert_str(bronze["info"]).is_equal("Shapeless")
+	assert_str(bronze["info"]).is_equal("Any layout")
 	assert_str(b.category_of(recipes.recipes["bronze_alloy"])).is_equal("station:furnace")
 	assert_str(b.category_title("station:furnace")).is_equal("Furnace")
 

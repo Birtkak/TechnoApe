@@ -323,21 +323,55 @@ func smelting_for(item_id: String, station: String = "furnace") -> Dictionary:
 # ---------------- matching ----------------
 
 ## grid: Array of 9 item ids ("" = empty), row-major 3x3. Returns the recipe
-## Dictionary or {} when nothing matches. `station` filters recipes that need one.
-func match_grid(grid: Array, station: String = "") -> Dictionary:
+## Dictionary or {} when nothing matches. `station` filters recipes that need one
+## (ignore_station: any station, for hints). Shaped recipes match in any layout too
+## (ADR 0046) when exactly one recipe takes those ingredients; when several do (the
+## iron pickaxe and the iron axe), the shape decides.
+func match_grid(grid: Array, station: String = "", ignore_station := false) -> Dictionary:
+	var loose: Array = []
 	for rid in recipes:
 		var r: Dictionary = recipes[rid]
 		var needs: String = r.get("station", "")
-		if needs != "" and needs != station:
+		if needs != "" and needs != station and not ignore_station:
 			continue
 		match r["type"]:
 			"shaped":
 				if _match_shaped(r, grid):
 					return r
+				if _match_shapeless(shaped_ingredients(r), grid):
+					loose.append(r)
 			"shapeless":
 				if _match_shapeless(r["ingredients"], grid):
 					return r
-	return {}
+	return loose[0] if loose.size() == 1 else {}
+
+
+## A shaped recipe's ingredients as a list (one spec per filled cell).
+func shaped_ingredients(r: Dictionary) -> Array:
+	var out := []
+	for row in r["pattern"]:
+		for ch in String(row):
+			if ch != " ":
+				out.append(r["key"][ch])
+	return out
+
+
+## Whether the grid takes this recipe in any layout: shapeless, or shaped with no
+## other grid recipe for the same station taking the same ingredients.
+func any_layout(r: Dictionary) -> bool:
+	if r["type"] != "shaped":
+		return r["type"] == "shapeless"
+	var mine := shaped_ingredients(r)
+	mine.sort()
+	for rid in recipes:
+		var o: Dictionary = recipes[rid]
+		if o["id"] == r["id"] or o["type"] not in ["shaped", "shapeless"] or o.get("station", "") != r.get("station", ""):
+			continue
+		var theirs: Array = shaped_ingredients(o) if o["type"] == "shaped" else o["ingredients"].duplicate()
+		theirs.sort()
+		if theirs == mine:
+			return false
+	return true
 
 
 func _match_shapeless(specs: Array, grid: Array) -> bool:

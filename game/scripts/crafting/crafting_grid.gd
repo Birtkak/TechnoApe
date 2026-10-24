@@ -38,6 +38,42 @@ func current_recipe() -> Dictionary:
 	return recipes.match_grid(as_3x3(), station)
 
 
+## Grid slots holding a voxel item short of one recipe unit (a block's worth): they
+## count as empty, and the screen marks them with what they need (ADR 0046).
+func short_slots() -> Array[int]:
+	var out: Array[int] = []
+	for i in grid.size():
+		var s: Dictionary = grid.get_slot(i)
+		if not s.is_empty() and int(s["count"]) < items.units(s["id"]):
+			out.append(i)
+	return out
+
+
+## Why the grid makes nothing, in a line for under the output slot ("" when it makes
+## something or holds nothing): too little of a voxel item, or the wrong station.
+func hint() -> String:
+	if not current_recipe().is_empty():
+		return ""
+	var full := []   # the grid as if every short slot held a whole unit
+	full.resize(9)
+	full.fill("")
+	for y in width:
+		for x in width:
+			var s: Dictionary = grid.get_slot(y * width + x)
+			full[y * 3 + x] = s.get("id", "")
+	if full.all(func(id: String) -> bool: return id == ""):
+		return ""
+	var short := short_slots()
+	if not short.is_empty() and not recipes.match_grid(full, station).is_empty():
+		var id: String = grid.get_slot(short[0])["id"]
+		return "Each slot needs %d %s (one block)" % [items.units(id), items.display_name(id)]
+	var any := recipes.match_grid(full, station, true)
+	if not any.is_empty():
+		var st: String = any.get("station", "")
+		return "Needs a %s" % (items.display_name(st) if items.has(st) else st.capitalize())
+	return ""
+
+
 func preview_output() -> Dictionary:
 	var r := current_recipe()
 	if r.is_empty():

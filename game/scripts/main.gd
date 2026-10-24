@@ -1050,13 +1050,22 @@ func _set_station_material(e: RefCounted, material: int) -> void:
 
 
 ## Debug (with open_inventory=1): search=text filters the item list,
-## browse=item_id[:uses] opens its recipes (or uses) in the recipe view.
+## browse=item_id[:uses] opens its recipes (or uses) in the recipe view,
+## craft_grid=id:count,,id:count fills the hand grid slot by slot (empty = skip a slot).
 func _debug_browser() -> void:
 	var args := {}
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=", true, 1)
 		if kv.size() == 2:
 			args[kv[0]] = kv[1]
+	if args.has("craft_grid"):
+		var cells: PackedStringArray = args["craft_grid"].split(",")
+		for i in mini(cells.size(), inv_screen.player_inv.craft.grid.size()):
+			var p := cells[i].split(":")
+			if p.size() == 2:
+				inv_screen.player_inv.craft.grid.set_slot(i, {"id": p[0], "count": int(p[1])})
+		inv_screen.player_inv.changed.emit()
+		print("debug craft_grid hint=%s out=%s" % [inv_screen.player_inv.craft.hint(), inv_screen.player_inv.craft.preview_output()])
 	if args.has("search"):
 		inv_screen.browser_view._search.text = args["search"]
 		inv_screen.browser_view._search.text_changed.emit(args["search"])

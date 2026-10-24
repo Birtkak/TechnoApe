@@ -260,14 +260,27 @@ func _build_recipe() -> void:
 	for inp in l["inputs"]:
 		var cell: Vector2i = inp["cell"]
 		var c := BrowserCell.new(items, "", inp["spec"])
+		c.count = model.cell_amount(inp["spec"])
 		c.position = origin + Vector2(cell.x * S if l["kind"] != "row" else cell.x * (S + 4), cell.y * S)
 		c.clicked.connect(_on_cell_clicked)
 		_add(c, c.position)
 		_spec_cells.append(c)
 	var out := BrowserCell.new(items, l["output"]["id"])
-	out.count = int(l["output"].get("count", 1))
+	out.count = model.output_amount(l)
 	out.clicked.connect(_on_cell_clicked)
 	_add(out, Vector2(244, 120))
+	# have / need per ingredient, in the inventory's own counts (ADR 0046)
+	if l["kind"] in ["grid", "row", "smelt"] and r["type"] != "mining":
+		var y := 162.0
+		for n in model.needs_list(l):
+			if n["have"] < 0:
+				break
+			var ok: bool = n["have"] >= n["need"]
+			var lb := _label("%s %d/%d" % [n["name"], n["have"], n["need"]], Vector2(196, y), 12)
+			lb.add_theme_color_override("font_color", Color(0.1, 0.4, 0.1) if ok else Color(0.65, 0.1, 0.08))
+			lb.clip_text = true
+			lb.size = Vector2(PANEL.x - 200, 15)
+			y += 15.0
 	# info, station requirement, catalysts
 	if l["info"] != "":
 		_label(l["info"], Vector2(40, 200), 14)
