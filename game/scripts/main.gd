@@ -1288,7 +1288,7 @@ func _update_items(delta: float) -> void:
 			item_stats["expired"] += 1
 			e.queue_free()
 			continue
-		if e.can_pickup() and e.position.distance_to(centre) <= radius:
+		if e.can_pickup() and e.position.distance_to(centre) <= radius and GameMode.rule(player.game_mode, "interacts"):
 			var left := player_inv.pickup(e.stack["id"], e.stack["count"], e.stack)
 			var got: int = e.stack["count"] - left
 			if got > 0:

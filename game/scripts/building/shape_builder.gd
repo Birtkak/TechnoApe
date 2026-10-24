@@ -275,7 +275,7 @@ func _set_state(s: State) -> void:
 # ---------------- input ----------------
 
 func _unhandled_input(event: InputEvent) -> void:
-	if player == null or player.autopilot or player.ui_open or player.free_cam:
+	if player == null or player.autopilot or player.ui_open or player.free_cam or not GameMode.rule(player.game_mode, "interacts"):
 		return
 	if event is InputEventKey and event.keycode == KEY_V and not event.echo:
 		if event.pressed and not menu.visible:

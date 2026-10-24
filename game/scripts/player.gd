@@ -31,6 +31,7 @@ var mining: MiningTable
 var viewmodel: Viewmodel
 var hud: GameHud
 var flying := true
+var noclip := false                  # flight passes through voxels (spectator, or /noclip while flying)
 var game_mode := GameMode.SURVIVAL   # rules in GameMode (ADR 0018); set with set_game_mode or /gamemode
 var ui_open := false
 var edits_locked := false   # no breaking or placing while the loading screen is up (ADR 0020)
@@ -164,6 +165,11 @@ func set_game_mode(mode: String) -> void:
 	game_mode = mode
 	if not GameMode.rule(mode, "can_fly"):
 		flying = false
+	noclip = GameMode.rule(mode, "noclip")
+	if GameMode.rule(mode, "always_fly"):
+		flying = true
+	if model:
+		model.visible = model.visible and not noclip   # a spectator has no body to see
 	_mine_progress = 0.0
 	_mine_target = Vector3i(1 << 30, 0, 0)
 	game_mode_changed.emit(mode)
@@ -220,9 +226,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		capture_mouse(false)
 		pause_requested.emit()
 	elif event.is_action_pressed("toggle_fly"):
-		if GameMode.rule(game_mode, "can_fly"):
+		if GameMode.rule(game_mode, "can_fly") and not GameMode.rule(game_mode, "always_fly"):
 			flying = not flying
-	elif event.is_action_pressed("jump") and GameMode.rule(game_mode, "can_fly"):
+	elif event.is_action_pressed("jump") and GameMode.rule(game_mode, "can_fly") and not GameMode.rule(game_mode, "always_fly"):
 		var now := Time.get_ticks_msec()
 		if now - _last_jump_ms < 300:
 			flying = not flying
@@ -396,7 +402,11 @@ func _physics_step(delta: float) -> void:
 		var speed := Settings.m2v(autopilot_speed_m if autopilot else Settings.fly_speed_m)
 		velocity = dir * speed
 		velocity.y = up_down * speed
-		_move(delta, false)
+		if noclip:
+			position += velocity * delta   # through rock and trees: no collision at all
+			_on_floor = false
+		else:
+			_move(delta, false)
 		_fall_peak_y = position.y
 		return
 	var speed_m := Settings.sprint_speed_m if (Input.is_action_pressed("sprint") and not ui_open) else Settings.walk_speed_m
@@ -437,6 +447,8 @@ func _physics_step(delta: float) -> void:
 ## A voxel placed or simulated into the body (falling sand) would trap it:
 ## if the feet are inside a solid voxel, lift to its top and stop falling.
 func _unstick_from_voxels() -> void:
+	if noclip:
+		return   # inside rock on purpose
 	var feet := Vector3i((position + Vector3(0, 0.05, 0)).floor())
 	if feet.y < 0 or not _is_solid_voxel(feet):
 		return
@@ -576,7 +588,7 @@ func _update_mining(delta: float) -> void:
 	var holding := false
 	if autopilot:
 		holding = autopilot_action == "mine"
-	if edits_locked:
+	if edits_locked or not GameMode.rule(game_mode, "interacts"):
 		holding = false
 	elif not autopilot:
 		holding = _mouse_captured and not ui_open and not free_cam and not building and Input.is_action_pressed("action_break")
@@ -830,7 +842,7 @@ func _reset_mining() -> void:
 # ---------------- using the held item (right click) ----------------
 
 func _use(first_press: bool) -> void:
-	if inventory == null or edits_locked:
+	if inventory == null or edits_locked or not GameMode.rule(game_mode, "interacts"):
 		return
 	var hit := _aim()
 	if first_press and inventory.held_def().has("throw") and throw_item.is_valid():
@@ -1030,7 +1042,7 @@ func aimed_mob(hit: VoxelRaycastResult = null):
 
 ## Left click: hit the animal in front (Minecraft: hand 1, tools 2 + tier).
 func _attack() -> void:
-	if _attack_cooldown > 0.0 or edits_locked or ui_open or not entity_attack.is_valid():
+	if _attack_cooldown > 0.0 or edits_locked or ui_open or not entity_attack.is_valid() or not GameMode.rule(game_mode, "interacts"):
 		return
 	var mob = aimed_mob(_aim())
 	if mob == null:

@@ -47,6 +47,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	main = p_main
 	reg.register("gamemode", "/gamemode <survival|creative>", "Switch game mode (0, 1, s and c work too)",
 		_gamemode, [GameMode.names()], ["gm"])
+	reg.register("noclip", "/noclip [on|off]", "Fly through everything (creative or spectator); toggles without an argument", _noclip, [["on", "off"]])
 	reg.register("give", "/give <item> [count]", "Give yourself items", _give, [_item_ids])
 	reg.register("clear", "/clear [item]", "Empty your inventory, or remove one item", _clear, [_item_ids])
 	reg.register("tp", "/tp <x> <y> <z>", "Teleport to a voxel position; ~ is relative (~ ~10 ~)",
@@ -108,9 +109,25 @@ func _gamemode(args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.ok("Game mode: %s" % player.game_mode)
 	var mode := GameMode.parse(args[0])
 	if mode == "":
-		return CommandRegistry.fail("Unknown game mode: %s (survival, creative)" % args[0])
+		return CommandRegistry.fail("Unknown game mode: %s (survival, creative, spectator)" % args[0])
 	player.set_game_mode(mode)
 	return CommandRegistry.ok("Set own game mode to %s Mode" % mode.capitalize())
+
+
+## /noclip: flight that passes through voxels, for looking around inside the world (debugging).
+func _noclip(args: PackedStringArray) -> Dictionary:
+	if player == null:
+		return CommandRegistry.fail("No player")
+	if not GameMode.rule(player.game_mode, "can_fly"):
+		return CommandRegistry.fail("Noclip needs creative or spectator mode")
+	var on: bool = not player.noclip if args.is_empty() else args[0] in ["on", "1", "true"]
+	player.noclip = on
+	if on:
+		player.flying = true
+	elif GameMode.rule(player.game_mode, "noclip"):
+		player.noclip = true
+		return CommandRegistry.fail("Spectators always pass through")
+	return CommandRegistry.ok("Noclip %s" % ("on" if on else "off"))
 
 
 func _give(args: PackedStringArray) -> Dictionary:

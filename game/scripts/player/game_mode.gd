@@ -7,17 +7,22 @@ extends RefCounted
 
 const SURVIVAL := "survival"
 const CREATIVE := "creative"
+const SPECTATOR := "spectator"   # flies through everything, touches nothing, nothing touches it (2026-10-25)
 
 const RULES := {
 	SURVIVAL: {"id": 0, "can_fly": false, "instant_break": false, "drops": true,
-		"consumes_items": true, "takes_damage": true, "item_picker": false},
+		"consumes_items": true, "takes_damage": true, "item_picker": false, "interacts": true},
 	CREATIVE: {"id": 1, "can_fly": true, "instant_break": true, "drops": false,
-		"consumes_items": false, "takes_damage": false, "item_picker": true},
+		"consumes_items": false, "takes_damage": false, "item_picker": true, "interacts": true},
+	SPECTATOR: {"id": 3, "can_fly": true, "instant_break": false, "drops": false,
+		"consumes_items": false, "takes_damage": false, "item_picker": false, "interacts": false,
+		"always_fly": true, "noclip": true},
 }
 
 const ALIASES := {
 	"0": SURVIVAL, "s": SURVIVAL, "survival": SURVIVAL,
 	"1": CREATIVE, "c": CREATIVE, "creative": CREATIVE,
+	"3": SPECTATOR, "sp": SPECTATOR, "spectator": SPECTATOR,
 }
 
 

@@ -40,7 +40,7 @@ func test_unknown_and_empty_commands_fail_politely() -> void:
 func test_help_lists_every_command() -> void:
 	var r := reg.execute("/help")
 	assert_bool(r["ok"]).is_true()
-	for n in ["gamemode", "give", "tp", "time", "kill", "kit", "goto", "bug"]:
+	for n in ["gamemode", "give", "tp", "time", "kill", "kit", "goto", "bug", "noclip"]:
 		assert_str(r["text"]).contains("/" + n)
 	assert_str(reg.execute("/help gm")["text"]).contains("/gamemode")
 
@@ -48,7 +48,7 @@ func test_help_lists_every_command() -> void:
 func test_complete_command_names_and_arguments() -> void:
 	assert_array(reg.complete("/gam")).is_equal(["/gamemode"])
 	assert_array(reg.complete("/gamemode c")).is_equal(["/gamemode creative"])
-	assert_array(reg.complete("/gamemode ")).is_equal(["/gamemode creative", "/gamemode survival"])
+	assert_array(reg.complete("/gamemode ")).is_equal(["/gamemode creative", "/gamemode spectator", "/gamemode survival"])
 	assert_array(reg.complete("/give oak_l")).contains(["/give oak_log"])
 	assert_array(reg.complete("/time set no")).is_equal(["/time set noon"])
 	assert_array(reg.complete("hello")).is_empty()
@@ -62,7 +62,9 @@ func test_game_mode_parse_accepts_minecraft_forms() -> void:
 		assert_str(GameMode.parse(s)).is_equal(GameMode.CREATIVE)
 	for s in ["0", "s", "survival"]:
 		assert_str(GameMode.parse(s)).is_equal(GameMode.SURVIVAL)
-	assert_str(GameMode.parse("spectator")).is_equal("")
+	for s in ["3", "sp", "spectator"]:
+		assert_str(GameMode.parse(s)).is_equal(GameMode.SPECTATOR)
+	assert_str(GameMode.parse("adventure")).is_equal("")
 
 
 func test_game_mode_rules() -> void:
@@ -72,6 +74,13 @@ func test_game_mode_rules() -> void:
 	assert_bool(GameMode.rule(GameMode.SURVIVAL, "can_fly")).is_false()
 	assert_bool(GameMode.rule(GameMode.SURVIVAL, "drops")).is_true()
 	assert_bool(GameMode.rule("nonsense", "takes_damage")).is_true()   # unknown = survival
+	# spectator: always flying, through everything, touching nothing (2026-10-25)
+	for r in ["can_fly", "always_fly", "noclip"]:
+		assert_bool(GameMode.rule(GameMode.SPECTATOR, r)).is_true()
+	for r in ["interacts", "takes_damage", "drops"]:
+		assert_bool(GameMode.rule(GameMode.SPECTATOR, r)).is_false()
+	assert_bool(GameMode.rule(GameMode.SURVIVAL, "interacts")).is_true()
+	assert_bool(GameMode.rule(GameMode.CREATIVE, "noclip")).is_false()
 
 
 func test_gamemode_command_switches_and_lands() -> void:
@@ -83,8 +92,20 @@ func test_gamemode_command_switches_and_lands() -> void:
 	assert_bool(reg.execute("/gm s")["ok"]).is_true()
 	assert_str(player.game_mode).is_equal(GameMode.SURVIVAL)
 	assert_bool(player.flying).is_false()  # survival lands the player
-	assert_bool(reg.execute("/gamemode spectator")["ok"]).is_false()
+	assert_bool(reg.execute("/gamemode adventure")["ok"]).is_false()
 	assert_str(player.game_mode).is_equal(GameMode.SURVIVAL)
+	# spectator flies through everything; /noclip lends creative the same flight
+	assert_bool(reg.execute("/gamemode spectator")["ok"]).is_true()
+	assert_bool(player.flying and player.noclip).is_true()
+	assert_bool(reg.execute("/noclip off")["ok"]).is_false()   # a spectator always passes through
+	assert_bool(player.noclip).is_true()
+	assert_bool(reg.execute("/gm c")["ok"]).is_true()
+	assert_bool(player.noclip).is_false()
+	assert_bool(reg.execute("/noclip")["ok"]).is_true()
+	assert_bool(player.noclip and player.flying).is_true()
+	reg.execute("/gm s")
+	assert_bool(player.noclip or player.flying).is_false()
+	assert_bool(reg.execute("/noclip")["ok"]).is_false()        # survival cannot
 
 
 # ---------- items ----------
