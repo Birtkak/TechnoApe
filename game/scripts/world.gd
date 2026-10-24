@@ -8,6 +8,7 @@ var terrain: VoxelLodTerrain
 var generator: TerrainGenerator
 var atlas_material: ShaderMaterial
 var liquid_material: ShaderMaterial
+var gas_material: ShaderMaterial    # steam and smoke as soft clouds (terrain_gas.gdshader)
 var spray: WaterfallSpray          # mist at waterfall feet; ParticleFx reads its falls (ADR 0026)
 var prop_material: ShaderMaterial   # atlas material without stains: item cubes, viewmodel (they are not at their voxel)
 var _tool: VoxelTool
@@ -42,6 +43,10 @@ func _ready() -> void:
 	liquid_material.shader = load("res://assets/shaders/terrain_liquid.gdshader")
 	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "grass_top_tile", "grass_side_tile", "pattern_tiles", "far_fade_start", "far_fade_end"]:
 		liquid_material.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
+	gas_material = ShaderMaterial.new()
+	gas_material.shader = load("res://assets/shaders/terrain_gas.gdshader")
+	for k in ["atlas", "atlas_tiles", "far_fade_start", "far_fade_end", "pattern_tiles"]:
+		gas_material.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
 	prop_material = atlas_material.duplicate()
 	prop_material.shader = load("res://assets/shaders/terrain_prop.gdshader")
 	generator = TerrainGenerator.new()
@@ -58,7 +63,7 @@ func _ready() -> void:
 			fm.set_shader_parameter("fluid_tile", float(d["tiles"][0]))
 			fluid_materials[int(d["fluid_slot"])] = fm
 	var mesher := VoxelMesherBlocky.new()
-	mesher.library = GameMaterials.build_library(atlas_material, liquid_material, fluid_materials)
+	mesher.library = GameMaterials.build_library(atlas_material, liquid_material, fluid_materials, gas_material)
 
 	terrain = VoxelLodTerrain.new()
 	terrain.name = "Terrain"

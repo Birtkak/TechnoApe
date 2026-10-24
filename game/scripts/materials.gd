@@ -502,7 +502,8 @@ static func name_of(id: int) -> String:
 ## (terrain_fluid.gdshader); empty = liquids stay cubes. With them, every liquid
 ## with a fluid_slot is a VoxelBlockyModelFluid at full level, and the partial
 ## levels follow at FLUID_LEVEL_BASE (empty models fill the gap).
-static func build_library(atlas_material: Material, liquid_material: Material = null, fluid_materials: Dictionary = {}) -> VoxelBlockyLibrary:
+## `gas_material`: soft cloud material for gases (terrain_gas.gdshader); null = the liquid material.
+static func build_library(atlas_material: Material, liquid_material: Material = null, fluid_materials: Dictionary = {}, gas_material: Material = null) -> VoxelBlockyLibrary:
 	var lib := VoxelBlockyLibrary.new()
 	var models: Array = [VoxelBlockyModelEmpty.new()]
 	var fluids := {}   # slot -> VoxelBlockyFluid
@@ -560,6 +561,10 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 		if d.get("transparent", false) and passable and not d.has("micro"):
 			cube.transparency_index = 1
 		cube.set_material_override(0, liquid_material if (liquid_material != null and passable and d.get("transparent", false)) else atlas_material)
+		if gas_material != null and ct == "gas":
+			# a cloud of its own index: water under steam keeps its surface, gas against gas is culled
+			cube.transparency_index = 2
+			cube.set_material_override(0, gas_material)
 		if passable:
 			cube.collision_mask = 0
 			cube.set_mesh_collision_enabled(0, false)

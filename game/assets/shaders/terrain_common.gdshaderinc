@@ -170,6 +170,36 @@ vec3 tile_emission(float idx, vec3 c) {
 	return vec3(0.0);
 }
 
+// Lava, one colour per voxel (bug report 2026-10-25: it was a flat glowing yellow): dark crust plates
+// a few voxels across that drift and churn, with glowing cracks between them. `cell` is the voxel
+// (world, floored). Returns the albedo; `emission` gets the glow, strong only in the cracks so the
+// bloom outlines them instead of washing the pool out.
+float lava_hash(vec3 p) {
+	return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+}
+
+float lava_noise(vec3 p) {
+	vec3 i = floor(p);
+	vec3 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float a = mix(mix(lava_hash(i), lava_hash(i + vec3(1, 0, 0)), f.x), mix(lava_hash(i + vec3(0, 1, 0)), lava_hash(i + vec3(1, 1, 0)), f.x), f.y);
+	float b = mix(mix(lava_hash(i + vec3(0, 0, 1)), lava_hash(i + vec3(1, 0, 1)), f.x), mix(lava_hash(i + vec3(0, 1, 1)), lava_hash(i + vec3(1, 1, 1)), f.x), f.y);
+	return mix(a, b, f.z);
+}
+
+vec3 lava_color(vec3 cell, float t, out vec3 emission) {
+	vec3 c = cell + 0.5;
+	float plates = lava_noise(c * 0.21 + vec3(t * 0.06, t * 0.025, -t * 0.04));
+	float crack = 1.0 - smoothstep(0.02, 0.16, abs(plates - 0.5));
+	float churn = lava_noise(c * 0.55 + vec3(0.0, t * 0.18, t * 0.11));
+	float heat = clamp(crack * (0.65 + 0.55 * churn) + 0.12 * churn * churn, 0.0, 1.0);
+	float speck = lava_hash(cell);
+	vec3 crust = mix(vec3(0.13, 0.045, 0.03), vec3(0.30, 0.09, 0.04), speck * (0.6 + 0.4 * churn));
+	vec3 hot = mix(vec3(0.95, 0.28, 0.03), vec3(1.0, 0.66, 0.18), churn);
+	emission = hot * heat * lava_glow * 0.75 + crust * 0.35;
+	return mix(crust, hot, heat);
+}
+
 // Ripple normal (world space) for a horizontal water surface at world xz p:
 // two travelling sine fields, cheap, tileable, no texture.
 vec3 ripple_normal(vec2 p) {

@@ -69,6 +69,11 @@ void fragment() {
 	METALLIC = 0.0;
 	SPECULAR = 0.0;
 	EMISSION = tile_emission(fluid_tile, c.rgb);
+	if (abs(fluid_tile - lava_tile) < 0.5) {
+		vec3 glow;
+		ALBEDO = lava_color(floor(v_world - n * 0.01), TIME, glow) * vcol.rgb * face_tint(n);
+		EMISSION = glow;
+	}
 	if (top && abs(fluid_tile - water_tile) < 0.5) {
 		NORMAL = normalize((VIEW_MATRIX * vec4(ripple_normal(v_world.xz + shift), 0.0)).xyz);
 		SPECULAR = water_specular * 0.6;   // the sky sheen washed the colour out
