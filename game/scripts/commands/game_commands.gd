@@ -18,6 +18,8 @@ const KITS := {
 	"stone": {"flint": 8, "stick": 16, "clay_ball": 16, "dry_grass": 12, "loose_stone": 4, "loose_copper_ore": 8, "firestarter": 1, "oak_log": 8, "cordage": 6},   # Vintage Story early game (ADR 0023)
 	"flint": {"flint_spear": 1, "flint_knife": 1, "flint_axe": 1, "raw_hide": 2, "firewood": 32, "dirt": 32, "firestarter": 1, "torch": 16,
 		"pan": 1, "cooking_pot": 1, "clay_bowl": 3, "raw_meat": 4, "dry_grass": 24, "wattle": 8, "daub": 8, "leather_bag": 1},   # the deeper Flint Age (ADR 0030)
+	"smith": {"stone_anvil": 1, "firepit": 1, "copper_hammer": 1, "copper_ingot": 6, "oak_log": 8 * 64, "firestarter": 1,
+		"flint_axe_head": 1, "copper_saw_blade": 1, "stick": 8, "cordage": 4},   # crafting in the world (ADR 0042)
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64},
 }
 

@@ -12,7 +12,7 @@ extends RefCounted
 
 signal quest_completed(id: String)
 
-const EVENTS := ["fired", "charcoal_pit", "panned"]
+const EVENTS := ["fired", "charcoal_pit", "panned", "assembled", "heated", "smithed"]
 
 var items: ItemRegistry
 var chapters: Array = []   # raw chapter dicts, quests inside, in file order

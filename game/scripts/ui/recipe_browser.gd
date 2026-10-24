@@ -19,11 +19,12 @@ const CATEGORY_ORDER := ["crafting", "knapping", "clayforming", "pit_kiln", "sta
 const BOOKMARKS_PATH := "user://bookmarks.json"
 const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace"], "knapping": ["flint"],
 	"clayforming": ["clay_ball"], "pit_kiln": ["dry_grass", "firestarter"], "scraping": ["flint_knife", "copper_knife"],
-	"charcoal_pit": ["firewood", "firestarter"]}
+	"charcoal_pit": ["firewood", "firestarter"], "smithing": ["stone_anvil", "copper_hammer"]}
 ## Vintage Story work types (ADR 0023) -> browser category and title.
 const WORK_CATEGORIES := {"knap": ["knapping", "Knapping"], "clayform": ["clayforming", "Clay forming"],
 	"kiln": ["pit_kiln", "Pit kiln"], "cast": ["casting", "Casting"], "scrape": ["scraping", "Scraping hides"],
-	"dry": ["drying", "Drying"], "charcoal_pit": ["charcoal_pit", "Charcoal pit"]}
+	"dry": ["drying", "Drying"], "charcoal_pit": ["charcoal_pit", "Charcoal pit"],
+	"assemble": ["assembly", "Assembly on the ground"], "smith": ["smithing", "Smithing"]}
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
@@ -386,9 +387,14 @@ func layout(r: Dictionary) -> Dictionary:
 		"mining":
 			kind = "mine"
 			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
-		"knap", "clayform":
+		"knap", "clayform", "smith":
 			kind = "pattern"
 			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
+		"assemble":
+			kind = "row"
+			var parts: Array = r["parts"]
+			for i in parts.size():
+				inputs.append({"cell": Vector2i(i, 0), "spec": parts[i]})
 		"kiln", "sift", "dry":
 			kind = "smelt"
 			inputs.append({"cell": Vector2i(0, 0), "spec": r["input"]})
@@ -423,6 +429,11 @@ func layout(r: Dictionary) -> Dictionary:
 			info = "Chip off the dark cells"
 		"clayform":
 			info = "%d layers, %d clay" % [r["layers"].size(), ClayFormEntity.balls_for(r)]
+		"assemble":
+			info = "Lay the first part on the ground, then add the rest in order"
+		"smith":
+			var n := AnvilEntity.ingots_for(r)
+			info = "%d hot ingot%s on an anvil; hammer it to shape" % [n, "" if n == 1 else "s"]
 		"kiln":
 			info = "4 dry grass, 8 sticks, %d s" % int(Settings.pit_kiln_burn_s)
 		"melt":
@@ -456,7 +467,7 @@ func layout(r: Dictionary) -> Dictionary:
 static func pattern_heights(r: Dictionary) -> PackedInt32Array:
 	var h := PackedInt32Array()
 	h.resize(64)
-	var layers: Array = r["layers"] if r["type"] == "clayform" else [r["pattern"]]
+	var layers: Array = r["layers"] if r["type"] == "clayform" or r["type"] == "smith" else [r["pattern"]]
 	for l in layers:
 		for z in 8:
 			var row := String(l[z])

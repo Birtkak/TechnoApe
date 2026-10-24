@@ -62,6 +62,16 @@ func _draw() -> void:
 			col = col.lerp(Color(0.45, 0.3, 0.12), clampf((sp - 0.5) * 2.0, 0.0, 1.0))
 		draw_rect(Rect2(Vector2(1, s.y - 3), Vector2(s.x - 2, 2)), Color(0, 0, 0, 0.8))
 		draw_rect(Rect2(Vector2(1, s.y - 3), Vector2((s.x - 2) * (1.0 - sp), 2)), col)
+	if int(stack.get("wear", 0)) > 0:
+		# tool wear (ADR 0042): Minecraft's durability bar, green to red
+		var dur := float(items.get_def(id).get("durability", 1))
+		var left := clampf(1.0 - float(stack["wear"]) / dur, 0.0, 1.0)
+		draw_rect(Rect2(Vector2(1, s.y - 3), Vector2(s.x - 2, 2)), Color(0, 0, 0, 0.8))
+		draw_rect(Rect2(Vector2(1, s.y - 3), Vector2((s.x - 2) * left, 2)), Color.from_hsv(left / 3.0, 0.9, 0.9))
+	if Inventory.heat_of(stack) > 0.0:
+		# hot metal (ADR 0042): it glows, orange to dull red as it cools
+		var h := Inventory.heat_of(stack)
+		draw_rect(Rect2(Vector2.ZERO, s), Color(1.0, 0.35 + 0.35 * h, 0.05, 0.15 + 0.3 * h))
 	var count := int(stack.get("count", 1))
 	if count > 1:
 		var txt := str(count)

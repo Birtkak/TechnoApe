@@ -58,4 +58,4 @@ Per system, see the research doc (four options each, pros and cons there).
   and a `GEN_VERSION` bump.
 - Traders need an economy (what they buy, sell and at which rates): its own ADR when it starts.
 - Combat stays minimal on purpose; revisit when dungeons exist.
-- Open: the order of the work and the magic design in Phase 3. The lighting grade is decided in ADR 0041 (golden).
+- Open: the order of the work and the magic design in Phase 3. The lighting grade is decided in ADR 0041 (golden); crafting in the world in ADR 0042.

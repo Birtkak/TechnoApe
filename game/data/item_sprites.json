@@ -309,6 +309,26 @@
         "................"
       ]
     },
+    "work_piece": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "...oooo.........",
+        "..ohhhhoooo.....",
+        ".olllllhhhhooo..",
+        "ollmmmlllllhhho.",
+        "olmmdmmmmmllllo.",
+        ".ommmmmdmmmmmdo.",
+        "..oddmmmmmmddo..",
+        "...oodddddooo...",
+        ".....ooooo......",
+        "................",
+        "................",
+        "................"
+      ]
+    },
     "nugget": {
       "rows": [
         "................",
@@ -1975,6 +1995,27 @@
         "oooooooooooooooo",
         "................"
       ]
+    },
+    "hammer_mold": {
+      "colors": {"i": "#3a1a0e", "I": "#24100a"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "oooooooooooooooo",
+        "hlllllllllllllll",
+        "lmmmmmmmmmmmmmmd",
+        "lmmmmmmmmmmmmmmd",
+        "lmmmmIIImmmmmmmd",
+        "lmmmIiiiIImmmmmd",
+        "lmmmmiiiiiIImmmd",
+        "lmmmmmmmiiiiImmd",
+        "lmmmmmmmmiiimmmd",
+        "lmmmmmmmmmmmmmmd",
+        "lddddddddddddddd",
+        "oooooooooooooooo",
+        "................"
+      ]
     }
   },
   "sprites": {
@@ -2029,6 +2070,8 @@
     "iron_knife": {"layers": [{"shape": "short_handle", "palette": "handle"}, {"shape": "knife_blade", "palette": "iron"}]},
     "copper_knife_head": {"layers": [{"shape": "knife_blade", "palette": "copper"}]},
     "iron_knife_head": {"layers": [{"shape": "knife_blade", "palette": "iron"}]},
+    "copper_saw_blade": {"layers": [{"shape": "saw_blade", "palette": "copper"}]},
+    "copper_work_piece": {"layers": [{"shape": "work_piece", "palette": "copper"}]},
     "copper_chisel": {"layers": [{"shape": "short_handle", "palette": "handle"}, {"shape": "chisel_blade", "palette": "copper"}]},
     "copper_chisel_head": {"layers": [{"shape": "chisel_blade", "palette": "copper"}]},
     "copper_prospecting_pick": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "prospecting_head", "palette": "copper"}]},
@@ -2052,6 +2095,8 @@
     "raw_knife_mold": {"layers": [{"shape": "knife_mold", "palette": "clay", "colors": {"i": "#5a606a", "I": "#3a3e46"}}]},
     "hoe_mold": {"layers": [{"shape": "hoe_mold", "palette": "terracotta"}]},
     "raw_hoe_mold": {"layers": [{"shape": "hoe_mold", "palette": "clay", "colors": {"i": "#5a606a", "I": "#3a3e46"}}]},
+    "hammer_mold": {"layers": [{"shape": "hammer_mold", "palette": "terracotta"}]},
+    "raw_hammer_mold": {"layers": [{"shape": "hammer_mold", "palette": "clay", "colors": {"i": "#5a606a", "I": "#3a3e46"}}]},
     "crucible_copper": {"layers": [{"shape": "crucible", "palette": "terracotta", "colors": {"i": "#ffa030"}}]},
     "dry_grass": {"layers": [{"shape": "fiber", "palette": "straw"}]},
     "firestarter": {"layers": [{"shape": "firestarter", "palette": "handle"}]},

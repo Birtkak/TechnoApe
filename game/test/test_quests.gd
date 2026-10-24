@@ -47,10 +47,17 @@ func test_bad_data_is_reported() -> void:
 
 
 ## Every task's items can be made from what lies on the ground (ADR 0023),
-## what animals drop and what a pan or a charcoal pit gives (ADR 0030).
+## what animals drop and what a pan or a charcoal pit gives (ADR 0030), and,
+## once a copper pickaxe is made, what it mines out of rock (the Copper Age's anvil, ADR 0042).
 func test_every_task_is_reachable_from_ground_pickups() -> void:
 	var have := recipes.reachable_from(GROUND)
-	for g in GROUND:
+	assert_bool(have.has("copper_pickaxe")).is_true()
+	var start := GROUND.duplicate()
+	var mined := MiningTable.load_default().drops("stone", items.get_def("copper_pickaxe"))
+	assert_str(String(mined.get("id", ""))).is_equal("cobblestone")
+	start.append(mined["id"])
+	have = recipes.reachable_from(start)
+	for g in start:
 		have[g] = true
 	for id in book.quests:
 		for t in book.quests[id]["tasks"]:
@@ -62,21 +69,29 @@ func test_every_task_is_reachable_from_ground_pickups() -> void:
 			assert_bool(ok).override_failure_message("%s: %s not reachable" % [id, QuestBook.task_specs(t)]).is_true()
 
 
-## The main road leads to the final quest and the round side quests do not:
-## a quest is marked optional exactly when copper_tool does not need it.
+## The main road leads to its chapter's final quest and the round side quests do not:
+## a quest is marked optional exactly when its chapter's final quest does not need it
+## (deps into an earlier chapter end the road there).
 func test_optional_marks_the_side_roads() -> void:
-	var needed := {}
-	var stack := ["copper_tool"]
-	while not stack.is_empty():
-		var id: String = stack.pop_back()
-		if needed.has(id):
-			continue
-		needed[id] = true
-		stack.append_array(book.quests[id].get("deps", []))
-	for id in book.quests:
-		assert_bool(book.quests[id].get("optional", false)).override_failure_message(
-			"%s: optional should be %s" % [id, not needed.has(id)]).is_equal(not needed.has(id))
-	assert_int(needed.size()).is_equal(17)
+	for c in book.chapters:
+		var needed := {}
+		var stack := []
+		for q in c["quests"]:
+			if q.get("final", false):
+				stack.append(q["id"])
+		assert_int(stack.size()).override_failure_message("%s: one final quest" % c["id"]).is_equal(1)
+		while not stack.is_empty():
+			var id: String = stack.pop_back()
+			if needed.has(id) or book.quests[id]["chapter"] != c["id"]:
+				continue
+			needed[id] = true
+			stack.append_array(book.quests[id].get("deps", []))
+		for q in c["quests"]:
+			var id: String = q["id"]
+			assert_bool(q.get("optional", false)).override_failure_message(
+				"%s: optional should be %s" % [id, not needed.has(id)]).is_equal(not needed.has(id))
+		if c["id"] == "flint_age":
+			assert_int(needed.size()).is_equal(17)
 
 
 ## No two quests share a spot on the page, and no dependency line runs
@@ -173,9 +188,29 @@ func test_flint_age_walkthrough() -> void:
 		else:
 			_give(what, s[1])
 	assert_bool(book.is_done("copper_tool")).is_true()
-	for id in book.quests:
-		assert_bool(book.is_done(id)).override_failure_message("%s: done should be %s" % [id, not book.quests[id].get("optional", false)]).is_equal(
-			not book.quests[id].get("optional", false))
+	for q in book.chapter_quests("flint_age"):
+		var id: String = q["id"]
+		assert_bool(book.is_done(id)).override_failure_message("%s: done should be %s" % [id, not q.get("optional", false)]).is_equal(
+			not q.get("optional", false))
+	assert_bool(book.is_done("ingot")).is_false()   # the Copper Age opens after the Flint Age
+
+
+## The Copper Age (ADR 0042) after it: ingots, a hammer, an anvil, hot metal, a smithed head, the saw.
+func test_copper_age_walkthrough() -> void:
+	for q in book.chapter_quests("flint_age"):
+		book.complete(q["id"])
+	var steps := [["copper_ingot", 2], ["-copper_ingot", 1], ["copper_hammer", 1], ["stone_anvil", 1],
+		["!heated", "copper_ingot"], ["!smithed", "copper_saw_blade"], ["copper_saw", 1]]
+	for s in steps:
+		var what: String = s[0]
+		if what.begins_with("!"):
+			book.note(what.substr(1), s[1])
+		elif what.begins_with("-"):
+			p.inv.remove(what.substr(1), s[1])
+		else:
+			_give(what, s[1])
+	for q in book.chapter_quests("copper_age"):
+		assert_bool(book.is_done(q["id"])).override_failure_message(q["id"]).is_true()
 
 
 ## A real pit kiln firing a raw mold reaches the book through GroundEntity.fired

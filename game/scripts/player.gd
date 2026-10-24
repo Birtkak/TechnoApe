@@ -625,6 +625,7 @@ func _update_mining(delta: float) -> void:
 			var mat_name := GameMaterials.name_of(mat)
 			var drops := mining.roll_drops(mat_name, inventory.held_def(), _drop_rng) if mining and GameMode.rule(game_mode, "drops") else []
 			voxel_broken.emit(p, drops)
+			_wear(1)
 		else:
 			_dig_cells = _dig_selection(p, size)   # the world may have changed while digging
 			var counts := {}
@@ -637,6 +638,8 @@ func _update_mining(delta: float) -> void:
 					func(n: String) -> bool: return GameMaterials.is_plain_voxel(GameMaterials.id_of(n)),
 					_dig_carry, _drop_rng, Settings.BLOCK * Settings.BLOCK * Settings.BLOCK)
 			voxels_dug.emit(_dig_cells.duplicate(), drops, Brush.dig_bounds(p, size, brush_shape).get_center())
+			if not _dig_cells.is_empty():
+				_wear(ceili(_dig_cells.size() / float(Settings.BLOCK * Settings.BLOCK * Settings.BLOCK)))   # a use per block dug
 		if viewmodel:
 			viewmodel.swing()
 		_break_cooldown = Settings.break_cooldown_s
@@ -862,6 +865,7 @@ func _use(first_press: bool) -> void:
 				if farm.till(c):
 					tilled += 1
 			if tilled > 0:
+				_wear(1)
 				_after_use()
 		return
 	if def.has("plants") and farm != null and farm.is_farmland_material(farm.get_voxel.call(target)):   # Main's view: the bubble is ahead of the terrain
@@ -1009,6 +1013,7 @@ func _attack() -> void:
 	elif "tool" in def.get("tags", []):
 		dmg = 2 + int(def.get("tier", 0))
 	entity_attack.call(mob, dmg)
+	_wear(1 if "weapon" in def.get("tags", []) else 2)   # Minecraft: a tool used as a weapon wears twice
 	_attack_cooldown = 0.25
 	if viewmodel:
 		viewmodel.swing()
@@ -1020,12 +1025,18 @@ func _throw() -> void:
 	var def := inventory.held_def()
 	var stack := {"id": def["id"], "count": 1}
 	if GameMode.rule(game_mode, "consumes_items"):
-		stack = inventory.inv.take(inventory.selected, 1)
+		stack = Inventory.wear_stack(inventory.items, inventory.inv.take(inventory.selected, 1))   # broken: it shatters where it lands
 	var dir := -camera.global_transform.basis.z
 	throw_item.call(stack, camera.global_position + dir * 0.6, dir)
 	_attack_cooldown = 0.5
 	if viewmodel:
 		viewmodel.swing()
+
+
+## Wears the held tool by `uses` in survival (ADR 0042); creative tools never wear.
+func _wear(uses: int) -> void:
+	if inventory != null and GameMode.rule(game_mode, "consumes_items") and uses > 0:
+		inventory.wear_held(uses)
 
 
 ## Beds and chairs: the clicked face's neighbour is the anchor; the footprint must be free.

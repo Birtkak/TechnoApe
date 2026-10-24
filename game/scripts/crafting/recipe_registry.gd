@@ -115,6 +115,25 @@ func _validate(r) -> bool:
 			if not r.has("input") or not r.has("tool") or int(r.get("strokes", 0)) <= 0:
 				errors.append("scrape recipe %s needs input, tool and strokes" % r["id"])
 				return false
+		"assemble":
+			var parts = r.get("parts")
+			if not (parts is Array) or parts.size() < 2 or parts.size() > 6:
+				errors.append("assemble recipe %s needs 2..6 parts" % r["id"])
+				return false
+		"smith":
+			var layers = r.get("layers")
+			if not r.has("input") or not (layers is Array) or layers.is_empty() or layers.size() > AnvilEntity.MAX_H:
+				errors.append("smith recipe %s needs input and 1..%d layers" % [r["id"], AnvilEntity.MAX_H])
+				return false
+			for i in layers.size():
+				if not _is_grid(layers[i]):
+					errors.append("smith recipe %s: every layer is 8 rows of 8" % r["id"])
+					return false
+				for z in 8:
+					for x in 8:
+						if i > 0 and String(layers[i][z])[x] == "#" and String(layers[i - 1][z])[x] != "#":
+							errors.append("smith recipe %s: metal over nothing at layer %d (%d, %d)" % [r["id"], i, x, z])
+							return false
 		"cast":
 			if not r.has("input") or not r.has("mold"):
 				errors.append("cast recipe %s needs input and mold" % r["id"])
@@ -173,6 +192,13 @@ func ingredient_specs(r: Dictionary) -> Array:
 			return out
 		"cast":
 			return [r["input"], r["mold"]]
+		"assemble":
+			return r["parts"].duplicate()
+		"smith":
+			var out := []
+			for i in AnvilEntity.ingots_for(r):
+				out.append(r["input"])
+			return out
 	return []
 
 

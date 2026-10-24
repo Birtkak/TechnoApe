@@ -72,6 +72,11 @@ var torch_lights_max := 24              # the torches nearest the player that ge
 var torch_light_range_m := 7.0          # how far one torch lights
 var torch_light_radius_m := 48.0        # torches farther from the player than this stay unlit
 var pan_shakes := 6                     # right clicks to wash one pan of sand or gravel
+# Crafting in the world (ADR 0042)
+var metal_heat_s := 8.0                 # an ingot or work piece on a lit firepit is fully hot after this long
+var metal_cool_s := 40.0                # fully hot metal is cold again this long after leaving the fire (Inventory.clock_s)
+var smith_min_heat := 0.1               # below this heat the hammer does nothing: reheat the work piece
+var firepit_fuel_max := 8               # fuel items a firepit holds (laid on one right click at a time)
 
 # Particles (ADR 0026): two GPU pools, every particle emitted by script
 # Survival (ADR 0040): hunger, body temperature, food spoilage. Seconds are real time, days game days.

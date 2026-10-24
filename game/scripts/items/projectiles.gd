@@ -81,4 +81,10 @@ func _orient(f: Dictionary) -> void:
 
 func _land(f: Dictionary, at: Vector3, vel: Vector3) -> void:
 	f["node"].queue_free()
+	if f["stack"].get("broken", false):
+		stats["broke"] = int(stats.get("broke", 0)) + 1   # worn out on this throw (ADR 0042)
+		var fx: ParticleFx = main.get("fx")
+		if fx:
+			fx.burst("poof", at, {"material": 0, "normal": Vector3.UP})
+		return
 	main.spawn_item(f["stack"], at, vel)

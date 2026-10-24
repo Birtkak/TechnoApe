@@ -329,6 +329,13 @@ shape("brick", outline(art([
     "..lmmmmmmmmmmd..", "..lmmmmmmmmmmd..", "..mmmmmmmmmmmd..", "..mmmmmmmmmmmd..",
     "..dddddddddddd..", "................", "................", "................"])))
 
+# a half-smithed work piece (ADR 0042): a flattened, hammer-dented bar
+shape("work_piece", outline(art([
+    "................", "................", "................", "................",
+    "................", "...hhhh.........", "..lllllhhhh.....", ".llmmmlllllhhh..",
+    ".lmmdmmmmmllll..", "..mmmmmdmmmmmd..", "...ddmmmmmmdd...", ".....ddddd......",
+    "................", "................", "................", "................"])))
+
 # nugget cluster
 shape("nugget", body(art([
     "................", "................", "................", "................",
@@ -875,6 +882,8 @@ for m in ("flint", "copper", "iron"):
     sp(m + "_knife", SH, ("knife_blade", m))
 for m in ("copper", "iron"):
     sp(m + "_knife_head", ("knife_blade", m))
+sp("copper_saw_blade", ("saw_blade", "copper"))   # smithed (ADR 0042)
+sp("copper_work_piece", ("work_piece", "copper"))
 sp("copper_chisel", SH, ("chisel_blade", "copper"))
 sp("copper_chisel_head", ("chisel_blade", "copper"))
 sp("copper_prospecting_pick", H, ("prospecting_head", "copper"))
@@ -889,7 +898,7 @@ sp("flint_hoe", H, ("hoe_head", "flint"))
 sp("copper_hoe", H, ("hoe_head", "copper"))
 sp("copper_hoe_head", ("hoe_head", "copper"))
 for t, head in (("axe", "axe_head"), ("pickaxe", "pickaxe_head"), ("shovel", "shovel_head"),
-                ("knife", "knife_blade"), ("hoe", "hoe_head")):
+                ("knife", "knife_blade"), ("hoe", "hoe_head"), ("hammer", "hammer_head")):
     shape(t + "_mold", mold_of(head), {"i": "#3a1a0e", "I": "#24100a"})
     sp(t + "_mold", (t + "_mold", "terracotta"))
     sp("raw_" + t + "_mold", (t + "_mold", "clay", {"i": "#5a606a", "I": "#3a3e46"}))

@@ -34,6 +34,8 @@ const PALETTE: Array = [
 	[120, 86, 60],     # SOIL (pit cover in the view, unused by the world)
 	[86, 196, 82],     # PLACE: the clay form's guide, cells to fill (green)
 	[200, 62, 52],     # AVOID: the clay form's guide, cells that stay empty (red)
+	[244, 128, 52],    # GLOW: hot metal on the anvil (ADR 0042)
+	[98, 98, 104],     # ANVIL: the worked stone face
 ]
 const FLINT := 0
 const FLINT_MARK := 1
@@ -58,8 +60,10 @@ const CHARCOAL := 19
 const SOIL := 20
 const PLACE := 21
 const AVOID := 22
+const GLOW := 23
+const ANVIL := 24
 const GUIDE_GRID := 32   # guide plates are meshed 4x finer: 3x3 coloured, a one-cell gap as grid lines
-const ATLAS := Vector2i(23, 1)
+const ATLAS := Vector2i(25, 1)
 
 static var _material: StandardMaterial3D
 static var _ghost: StandardMaterial3D
@@ -74,7 +78,7 @@ static func material() -> StandardMaterial3D:
 	rng.seed = 2323
 	for t in PALETTE.size():
 		var base: Array = PALETTE[t]
-		var spread := 3 if t == MOLTEN or t == EMBER else 8
+		var spread := 3 if t == MOLTEN or t == EMBER or t == GLOW else 8
 		for y in 16:
 			for x in 16:
 				var k := rng.randi_range(-spread, spread)
@@ -152,7 +156,7 @@ static func box(cells: PackedInt32Array, size: Vector3i, a: Vector3i, b: Vector3
 
 ## A node for a piece at voxel `pos`: the solid cells and (optionally) ghost
 ## cells and a guide (cells on GUIDE_GRID, opaque, no shadow).
-static func make_view(pos: Vector3i, solid: Dictionary, ghost: Dictionary = {}, guide: Dictionary = {}) -> Node3D:
+static func make_view(pos: Vector3i, solid: Dictionary, ghost: Dictionary = {}, guide: Dictionary = {}, laid: Array = []) -> Node3D:
 	var root := Node3D.new()
 	root.position = Vector3(pos)
 	root.scale = Vector3.ONE * Settings.BLOCK   # a piece is one 0.5 m block of BLOCK^3 voxels (ADR 0034)
@@ -161,7 +165,25 @@ static func make_view(pos: Vector3i, solid: Dictionary, ghost: Dictionary = {}, 
 		_add_mesh(root, ghost, ghost_material())
 	if not guide.is_empty():
 		_add_mesh(root, guide, material(), GUIDE_GRID)
+	for it in laid:
+		_add_item(root, it)
 	return root
+
+
+## An item drawn as its own sprite (ADR 0042: tool parts on the ground, food over a fire): `at` in
+## block fractions, `yaw` in degrees, `scale` in blocks; lying flat unless `upright`.
+static func _add_item(root: Node3D, it: Dictionary) -> void:
+	var id: String = it.get("id", "")
+	if not ItemSprites.get_default().has(id):
+		return
+	var mi := MeshInstance3D.new()
+	mi.mesh = BlockMeshes.sprite(id)
+	var b := Basis(Vector3.UP, deg_to_rad(float(it.get("yaw", 0.0))))
+	if not it.get("upright", false):
+		b = b * Basis(Vector3.RIGHT, -PI / 2.0)
+	mi.transform = Transform3D(b.scaled(Vector3.ONE * float(it.get("scale", 0.5))), it.get("at", Vector3(0.5, 0.02, 0.5)))
+	mi.visibility_range_end = 96.0
+	root.add_child(mi)
 
 
 ## A guide plate for one layer of an N x N work grid: each cell a 3x3 tile of

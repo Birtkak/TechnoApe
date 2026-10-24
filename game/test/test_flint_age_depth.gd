@@ -36,13 +36,28 @@ func test_data_loads_clean() -> void:
 		assert_array(recipes.of_type(t)).override_failure_message("no %s recipes" % t).is_not_empty()
 
 
+## Tools are assembled on the ground since ADR 0042, not in the grid.
 func test_flint_heads_need_a_binding_copper_heads_do_not() -> void:
-	assert_dict(recipes.match_grid(_grid(["flint_axe_head", "stick"]))).is_empty()
-	assert_str(recipes.match_grid(_grid(["flint_axe_head", "stick", "cordage"])).get("id", "")).is_equal("flint_axe")
-	assert_str(recipes.match_grid(_grid(["flint_knife_blade", "leather_strip", "stick"])).get("id", "")).is_equal("flint_knife")
-	assert_str(recipes.match_grid(_grid(["copper_pickaxe_head", "stick"])).get("id", "")).is_equal("copper_pickaxe")
+	assert_dict(recipes.match_grid(_grid(["flint_axe_head", "stick", "cordage"]))).is_empty()
+	assert_str(_assemble(["flint_axe_head", "stick"])).is_equal("")
+	assert_str(_assemble(["flint_axe_head", "stick", "cordage"])).is_equal("flint_axe")
+	assert_str(_assemble(["flint_knife_blade", "stick", "leather_strip"])).is_equal("flint_knife")
+	assert_str(_assemble(["copper_pickaxe_head", "stick"])).is_equal("copper_pickaxe")
 	assert_str(recipes.match_grid(_grid(["plant_fiber", "plant_fiber", "plant_fiber"])).get("id", "")).is_equal("cordage")
-	assert_str(recipes.match_grid(_grid(["flint_spear_head", "stick", "stick", "cordage"])).get("id", "")).is_equal("flint_spear")
+	assert_str(_assemble(["flint_spear_head", "stick", "stick", "cordage"])).is_equal("flint_spear")
+
+
+## What laying `ids` on the ground in order makes ("" when it is not a tool yet or a part does not fit).
+func _assemble(ids: Array) -> String:
+	var a := AssemblyEntity.new(recipes, Vector3i.ZERO)
+	a.parts.append(ids[0])
+	for id in ids.slice(1):
+		var r: Dictionary = a.use(items.get_def(id))
+		if r["consume"] == 0:
+			return ""
+		if not r["done"].is_empty():
+			return r["done"]["id"]
+	return ""
 
 
 func test_fiber_drops_by_hand() -> void:
@@ -65,12 +80,12 @@ func test_splitting_firewood_keeps_the_axe() -> void:
 	g.grid.set_slot(0, {"id": "oak_log", "count": 2 * u})
 	g.grid.set_slot(1, {"id": "flint_axe", "count": 1})
 	assert_dict(g.craft_once()).is_equal({"id": "firewood", "count": 4})
-	assert_dict(g.grid.get_slot(1)).is_equal({"id": "flint_axe", "count": 1})
+	assert_dict(g.grid.get_slot(1)).is_equal({"id": "flint_axe", "count": 1, "wear": 1})   # the kept axe wears (ADR 0042)
 	assert_int(int(g.grid.get_slot(0)["count"])).is_equal(u)
 	var all := g.craft_all()
 	assert_dict(all).is_equal({"id": "firewood", "count": 4})
 	assert_bool(g.grid.is_empty_slot(0)).is_true()
-	assert_dict(g.grid.get_slot(1)).is_equal({"id": "flint_axe", "count": 1})
+	assert_dict(g.grid.get_slot(1)).is_equal({"id": "flint_axe", "count": 1, "wear": 2})
 
 
 func test_serving_stew_gives_the_pot_back() -> void:

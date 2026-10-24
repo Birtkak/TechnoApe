@@ -31,6 +31,7 @@ var farming: Farming                 # tilled farmland and crops (ADR 0022)
 var pieces: FallingPieces            # rigid voxel pieces (P12), null with rigid_pieces=0
 var builder: ShapeBuilder            # shape building, box mode, prefabs (ADR 0038)
 var survival: Survival               # hunger, body temperature, food spoilage (ADR 0040)
+var tools_broken := 0                # tools that wore out this session (ADR 0042, debug JSON)
 var _survival_save := {}             # loaded with the player, before Survival exists
 var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
@@ -39,6 +40,7 @@ var _furniture_views := {}           # anchor -> MeshInstance3D
 var work: WorkSystem                 # knapping, clay forming, pit kilns, firepits, sieves (ADR 0023)
 var _stone_age_test: StoneAgeTest
 var _flint_age_test: FlintAgeTest
+var _craft_test: CraftTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
@@ -238,7 +240,7 @@ func _ready() -> void:
 
 	DebugCapture.attach(self)
 	for stack in DebugCapture.give:
-		player_inv.pickup(stack["id"], stack["count"], float(stack.get("spoil", 0.0)))
+		player_inv.pickup(stack["id"], stack["count"], stack)
 	if DebugCapture.autopilot:
 		player.autopilot = true
 		player.flying = true
@@ -321,6 +323,10 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_flint_age_test = FlintAgeTest.new()
 				_flint_age_test.run(self))
+		if DebugCapture.craft_test:
+			_after_load(func() -> void:
+				_craft_test = CraftTest.new()
+				_craft_test.run(self))
 		if DebugCapture.scatter_items:
 			# one entity per given item, in a row two metres ahead, so a screenshot shows them
 			var fwd := -player.camera.global_transform.basis.z
@@ -400,6 +406,7 @@ func _ready() -> void:
 		warmup.add_materials(builder.warm_materials(), player.camera)
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
+	player_inv.tool_broke.connect(_on_tool_broke)
 
 
 ## Spiral out from the origin for dry, flat-ish land (plains or forest).
@@ -416,7 +423,8 @@ func _find_spawn() -> Vector2i:
 	return Vector2i.ZERO
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	Inventory.clock_s += delta   # play time: hot metal cools against it (ADR 0042)
 	bubble.follow(player.position)
 	stains.follow(player.position)
 
@@ -598,11 +606,12 @@ func _player_dict() -> Dictionary:
 	return {"version": 1, "pos": [p.x, p.y, p.z], "yaw": player._yaw, "pitch": player._pitch, "spawn": [s.x, s.y, s.z],
 		"game_mode": player.game_mode, "flying": player.flying, "health": player_inv.health, "selected": player_inv.selected,
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
-		"survival": survival.to_dict() if survival else {}}
+		"survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s}
 
 
 func _load_player() -> void:
 	var d := _load_json(_save_path("player"))
+	Inventory.clock_s = float(d.get("clock_s", 0.0))   # before the stacks: hot metal cools against it (ADR 0042)
 	if d.is_empty() or int(d.get("version", 0)) != 1:
 		return
 	var p: Array = d.get("pos", [])
@@ -633,10 +642,7 @@ func _load_player() -> void:
 func _stack_of(v) -> Dictionary:
 	if not (v is Dictionary) or not v.has("id") or not items.has(String(v["id"])):
 		return {}
-	var out := {"id": String(v["id"]), "count": int(v.get("count", 1))}
-	if v.has("spoil"):
-		out["spoil"] = float(v["spoil"])   # food freshness (ADR 0040)
-	return out
+	return Inventory.make_stack(items, String(v["id"]), int(v.get("count", 1)), v)   # freshness, wear, heat, work (ADR 0040, 0042)
 
 
 func _can_open_overlay() -> bool:
@@ -875,6 +881,16 @@ var _last_health := -1
 
 
 ## Losing health bleeds: a splatter at the feet, liquid blood for heavy hits.
+## A tool wore out (ADR 0042): a word in the chat and a puff where the hand is.
+func _on_tool_broke(id: String) -> void:
+	tools_broken += 1
+	if chat:
+		chat.add_message("Your %s broke." % items.display_name(id))
+	if fx:
+		var cam := player.camera.global_transform
+		fx.burst("poof", cam.origin - cam.basis.z * Settings.m2v(0.6) + Vector3(0, -Settings.m2v(0.3), 0), {"material": 0, "normal": Vector3.UP})
+
+
 func _on_health_changed(h: int) -> void:
 	if _last_health > h:
 		stains.bleed(player.position, _last_health - h)
@@ -1194,7 +1210,7 @@ func _update_items(delta: float) -> void:
 			e.queue_free()
 			continue
 		if e.can_pickup() and e.position.distance_to(centre) <= radius:
-			var left := player_inv.pickup(e.stack["id"], e.stack["count"], float(e.stack.get("spoil", 0.0)))
+			var left := player_inv.pickup(e.stack["id"], e.stack["count"], e.stack)
 			var got: int = e.stack["count"] - left
 			if got > 0:
 				picked_up_total[e.stack["id"]] = int(picked_up_total.get(e.stack["id"], 0)) + got
@@ -1220,9 +1236,10 @@ func _update_items(delta: float) -> void:
 				if room <= 0:
 					continue
 				var take: int = mini(room, b.stack["count"])
-				if a.stack.has("spoil"):   # food freshness averages by count (ADR 0040)
-					var n: int = a.stack["count"] + take
-					a.stack["spoil"] = (float(a.stack["spoil"]) * a.stack["count"] + float(b.stack.get("spoil", 0.0)) * take) / n
+				var merged: Dictionary = a.stack.duplicate()
+				Inventory.merge_into(merged, take, b.stack)   # freshness and heat average by count (ADR 0040, 0042)
+				merged.erase("count")
+				a.stack.merge(merged, true)
 				a.set_count(a.stack["count"] + take)
 				if take >= b.stack["count"]:
 					item_stats["merged"] += 1

@@ -117,6 +117,11 @@ Godot_..._console.exe --path game -- autopilot=1 target=forest walk=1 speed=0 du
 #       chat: /kit flint; progression book: open_inventory=1 quest_book=1 [quest_select=id] [quests_done=a,b|all]
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=40 stone_age_test=1 mob_spawn=0 vsync=0 out=res://out/stone_age
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=90 flint_age_test=1 mob_spawn=0 vsync=0 out=res://out/flint_age
+# Crafting in the world (ADR 0042): craft_test=1 assembles a flint axe on the ground, works a firepit by hand (logs, meat,
+#       firestarter, then heats an ingot), smiths a hammer head on a stone anvil (taking the piece off half way and back on)
+#       and wears an axe out; prints "debug craft {...}" (every field true) and saves craft_*.png (craft_shots=0 skips them,
+#       and then it also runs with --headless); chat: /kit smith
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=60 craft_test=1 mob_spawn=0 vsync=0 out=res://out/craft
 # Menus (ADR 0032): the title screen is the main scene; autopilot=1 or play=1 skip it (play=1 seed=... starts that
 #       world directly). menu_test=1 drives title -> new world -> settings -> play -> Esc pause -> preset applied live ->
 #       save and quit -> reload (inventory and position kept) -> delete; prints "debug menu_test {...}".

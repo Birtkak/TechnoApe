@@ -61,6 +61,12 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		"firewood_pile":
 			e = FirewoodPileEntity.new(recipes, pos)
 			_ticking.append(e)
+		# crafting in the world (ADR 0042)
+		"assembly":
+			e = AssemblyEntity.new(recipes, pos)
+		"anvil":
+			e = AnvilEntity.new(recipes, pos)
+			_ticking.append(e)
 		_:
 			push_error("unknown block entity kind " + kind)
 			return null
@@ -74,7 +80,7 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 const SINGLE := ["torch"]   # entities that are one voxel
 ## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
 ## a knapping stone or a mold on the ground is one voxel high, a firepit two.
-const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2}
+const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "assembly": 1}
 
 
 ## The voxels an entity covers (ADR 0034).
@@ -144,7 +150,7 @@ func all_furniture() -> Array:
 	return out
 
 
-const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile"]
+const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil"]
 
 
 func all_of(p_kind: String) -> Array:

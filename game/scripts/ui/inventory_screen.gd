@@ -329,17 +329,25 @@ func _update_tooltip() -> void:
 	var c := get_viewport().gui_get_hovered_control()
 	if c and c.has_method("hover_tag") and c.hover_tag() != "":
 		text += "\nany " + c.hover_tag()
+	var stack := {}
+	var w := c
+	while w != null and w != _root:   # the hovered slot's stack, if it has one
+		var st: Variant = w.get("stack")
+		if st is Dictionary and not st.is_empty():
+			stack = st
+			break
+		w = w.get_parent() as Control
 	var days := float(player_inv.items.get_def(id).get("spoil_days", 0.0))
 	if days > 0.0:
-		var sp := 0.0
-		var w := c
-		while w != null and w != _root:   # the hovered slot's stack, if it has one
-			var st: Variant = w.get("stack")
-			if st is Dictionary and st.has("spoil"):
-				sp = float(st["spoil"])
-				break
-			w = w.get_parent() as Control
+		var sp := float(stack.get("spoil", 0.0))
 		text += "\n%s (%.1f days left at 16 C)" % [Survival.freshness_name(sp), (1.0 - sp) * days]
+	var dur := int(player_inv.items.get_def(id).get("durability", 0))
+	if dur > 0:
+		text += "\nDurability %d / %d" % [dur - int(stack.get("wear", 0)), dur]   # ADR 0042
+	if Inventory.heat_of(stack) > 0.0:
+		text += "\nHot (%d s to cool)" % int(ceil(float(stack["hot_until"]) - Inventory.clock_s))
+	if stack.has("work"):
+		text += "\nWork piece: %s" % player_inv.items.display_name(String(stack["work"].get("output", "")))
 	_tooltip.text = text
 	_tooltip.reset_size()
 	var p := _root.get_local_mouse_position() + Vector2(14, -10)

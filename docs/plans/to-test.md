@@ -132,3 +132,19 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] Golden is the default look: walk a forest at midday, watch a sunset, go into a cave with a torch. Does the warm
       haze still feel right while playing, and is the cave torch light too orange?
 - [ ] `/grade natural` and `/grade clear` switch live for comparison; `/grade golden` goes back.
+
+## 2026-10-24: crafting in the world (ADR 0042)
+
+`/kit smith` gives an anvil, a firepit, a hammer, six copper ingots, logs, a flint axe head, a saw blade, sticks and cordage.
+- [ ] Tools on the ground: right click a top face with the flint axe head, then the stick, then cordage. Does the tool
+      read as it grows? An empty hand takes the last part back. No tool is made in the grid any more.
+- [ ] Wear: dig and chop with a flint tool until it breaks. Is the bar under the icon clear, and do flint tools last
+      long enough (knife 32 uses, axe/pickaxe/shovel 48, a use per block dug)?
+- [ ] The firepit without a screen: right click logs onto it (one at a time, up to 8), meat on, light it with the
+      firestarter, take the cooked meat off with an empty hand. A crucible, then copper stones, melt the same way.
+- [ ] Smithing: a copper ingot on the lit firepit until it glows (about 8 s), take it off, right click the anvil with
+      it and pick a shape. With the hammer, left click drives the top of a column away from you, right click splits a
+      cell off; green = missing, red = too much. Is it fun or fiddly? Does walking round to push the other way work?
+      Let it cool (40 s): take the piece off, reheat it, put it back.
+- [ ] A saw: smith the blade, put it on a stick; a log and the saw make four planks.
+- [ ] The Copper Age chapter in the book follows the Flint Age.

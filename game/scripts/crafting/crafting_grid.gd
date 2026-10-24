@@ -10,6 +10,7 @@ var recipes: RecipeRegistry
 var grid: Inventory
 var width: int
 var station: String
+var tools_broken: Array[String] = []   # kept tools that wore out while crafting (ADR 0042); the owner reads and clears it
 
 
 func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_width: int = 3, p_station: String = "crafting_table") -> void:
@@ -48,7 +49,7 @@ func preview_output() -> Dictionary:
 ## the output stack, or {} if nothing matches. A recipe's "keep" specs (the
 ## axe that splits a log) stay in their slot; "remainder" turns an ingredient
 ## into another item in place (the pot of stew leaves its pot, Minecraft's
-## milk bucket) (ADR 0030).
+## milk bucket) (ADR 0030). A kept tool wears by one use (ADR 0042).
 func craft_once() -> Dictionary:
 	var r := current_recipe()
 	if r.is_empty():
@@ -67,6 +68,9 @@ func craft_once() -> Dictionary:
 				kept = true
 				break
 		if kept:
+			var broke := grid.wear_slot(i, 1)   # the kept axe or knife wears (ADR 0042)
+			if broke != "":
+				tools_broken.append(broke)
 			continue
 		grid.take(i, items.units(id))
 		if remainder.has(id):

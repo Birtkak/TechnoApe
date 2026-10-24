@@ -163,8 +163,9 @@ func run(p_main: Node) -> void:
 	_empty_hand()
 	main._aim_use(Vector3(m_at) + Vector3(0.5, 0.2, 0.5) * Settings.BLOCK)
 	r["head_in_hand"] = inv.inv.count_of("copper_pickaxe_head") == 1
-	var grid := ["copper_pickaxe_head", "stick", "", "", "", "", "", "", ""]
-	r["pickaxe_recipe"] = main.recipes.match_grid(grid).get("id", "")
+	var pa := AssemblyEntity.new(main.recipes, Vector3i.ZERO)   # put together on the ground (ADR 0042)
+	pa.parts.append("copper_pickaxe_head")
+	r["pickaxe_recipe"] = pa.use(main.items.get_def("stick"))["done"].get("id", "")
 	var pick: Dictionary = main.items.get_def("copper_pickaxe")
 	r["stone_drops_with_copper"] = main.mining.drops("stone", pick)
 	r["stone_drops_with_flint"] = main.mining.drops("stone", main.items.get_def("flint_pickaxe"))

@@ -9,7 +9,10 @@ extends Node
 ## their results to the player's hand, and keeps one view node per piece,
 ## rebuilt from the entity's view_parts() when it changes. ADR 0030 adds the
 ## pan (washing sand and gravel under water) and the charcoal pit: firewood
-## piles that must be sealed with soil while they smoulder.
+## piles that must be sealed with soil while they smoulder. ADR 0042 adds crafting in the world:
+## tools assembled on the ground part by part, the firepit worked by hand (no screen), and
+## smithing on a stone anvil with a hammer. Tools used here wear (the knife scraping, the
+## firestarter, the hammer).
 
 var main: Node          # Main: blocks, items, recipes, player, set/get_world_voxel, spawn_item, chat, inv_screen
 var picker: WorkPicker
@@ -23,6 +26,7 @@ var _pan_shakes := 0
 var _seal_accum := 0.0
 var stats := {"placed": 0, "chips": 0, "clay_cells": 0, "finished": [], "kilns_lit": 0, "casts": 0, "sifts": 0,
 	"pans": 0, "scrapes": 0, "pits_lit": 0, "pits_charred": 0, "pits_burnt": 0, "seal_ms_max": 0.0,
+	"assembled": 0, "firepit_uses": 0, "smith_hits": 0, "smith_splits": 0, "smithed": 0,
 	"rebuild_ms_max": 0.0, "use_ms_max": 0.0, "hit_ms_max": 0.0}   # one piece's mesh, one right / left click
 
 
@@ -128,7 +132,7 @@ func _rebuild_view(p: Vector3i) -> void:
 	if not BlockEntities.is_work(e):
 		return
 	var parts: Dictionary = e.view_parts()
-	var v := WorkPalette.make_view(p, parts.get("solid", {}), parts.get("ghost", {}), parts.get("guide", {}))
+	var v := WorkPalette.make_view(p, parts.get("solid", {}), parts.get("ghost", {}), parts.get("guide", {}), parts.get("items", []))
 	_root.add_child(v)
 	_views[p] = v
 
@@ -204,10 +208,13 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary) -> bool:
 		kind = "ground"
 	elif work != "":
 		kind = work
+	elif AssemblyEntity.starts(main.recipes, id):
+		kind = "assembly"   # a tool head: the first part of a tool (ADR 0042)
 	if kind == "":
 		return false
-	var solid := kind == "sieve" or kind == "firewood_pile"
-	var p := _spot_for(hit, solid, kind)
+	var any_face := kind == "sieve" or kind == "firewood_pile"
+	var solid := any_face or kind == "anvil"
+	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
 	var e := _create(p, kind, GameMaterials.WORK_BLOCK if solid else GameMaterials.WORK_SPOT)
@@ -222,6 +229,12 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary) -> bool:
 			_mark(p)
 			if _consumes():
 				main.player_inv.consume_held(1)
+		"assembly":
+			e.parts.append(id)
+			_mark(p)
+			if _consumes():
+				main.player_inv.consume_held(1)
+			_say("Next: " + " or ".join(e.next_specs().map(func(s: String) -> String: return e._spec_name(s))))
 		_:
 			if _consumes():
 				main.player_inv.consume_held(1)
@@ -229,11 +242,14 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary) -> bool:
 
 
 func _open_picker(e: RefCounted) -> void:
-	var t := "knap" if e is KnapEntity else "clayform"
+	var t := "knap" if e is KnapEntity else ("smith" if e is AnvilEntity else "clayform")
 	var opts := []
-	for r in main.recipes.of_type(t):
-		if main.items.matches(e.input, r["input"]):
-			opts.append(r)
+	if e is AnvilEntity:
+		opts = e.options()
+	else:
+		for r in main.recipes.of_type(t):
+			if main.items.matches(e.input, r["input"]):
+				opts.append(r)
 	if opts.is_empty():
 		return
 	_picking = e
@@ -241,8 +257,10 @@ func _open_picker(e: RefCounted) -> void:
 	var extra := Callable()
 	if t == "clayform":
 		extra = func(r: Dictionary) -> String: return "%d clay" % ClayFormEntity.balls_for(r)
+	elif t == "smith":
+		extra = func(r: Dictionary) -> String: return "%d ingot%s" % [AnvilEntity.ingots_for(r), "" if AnvilEntity.ingots_for(r) == 1 else "s"]
 	var t0 := Time.get_ticks_usec()
-	picker.open("Knapping" if t == "knap" else "Clay forming", opts, main.items, extra)
+	picker.open({"knap": "Knapping", "clayform": "Clay forming", "smith": "Smithing"}[t], opts, main.items, extra)
 	stats["picker_ms_max"] = maxf(stats.get("picker_ms_max", 0.0), (Time.get_ticks_usec() - t0) / 1000.0)
 	if main.player.autopilot:
 		picker.close()   # automation picks through choose_id
@@ -257,7 +275,7 @@ func _on_chosen(r: Dictionary) -> void:
 ## Sets a piece's recipe without the picker (automation).
 func choose(p: Vector3i, rid: String) -> bool:
 	var e: RefCounted = main.blocks.at(p)
-	if not (e is KnapEntity or e is ClayFormEntity) or not main.recipes.recipes.has(rid):
+	if not (e is KnapEntity or e is ClayFormEntity or e is AnvilEntity) or not main.recipes.recipes.has(rid):
 		return false
 	e.set_recipe(main.recipes.recipes[rid])
 	return true
@@ -306,11 +324,16 @@ func _particles(effect: String, at: Vector3, material: int) -> void:
 		fx.burst(effect, at, {"material": material, "normal": Vector3.UP})
 
 
+## Stacks to the player (they keep their per-stack data: a hot ingot, a work piece), the rest dropped.
 func _give(stacks: Array, at: Vector3) -> void:
 	for s in stacks:
-		var left: int = main.player_inv.pickup(s["id"], int(s["count"]))
+		if s.is_empty():
+			continue
+		var left: int = main.player_inv.pickup(s["id"], int(s["count"]), s)
 		if left > 0:
-			main.spawn_item({"id": s["id"], "count": left}, at, Vector3(0, 1.5, 0))
+			var rest: Dictionary = s.duplicate(true)
+			rest["count"] = left
+			main.spawn_item(rest, at, Vector3(0, 1.5, 0))
 
 
 func _is_work_voxel(p: Vector3i) -> bool:
@@ -386,9 +409,19 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		if res["done"]:
 			_finish(e, e.output())
 		return true
+	if e is AssemblyEntity:
+		if first_press:
+			_use_assembly(e, held)
+		return true
+	if e is AnvilEntity:
+		if first_press:
+			_use_anvil(e, held, from, dir)
+		return true
 	if not first_press:
 		if e is SieveEntity and e.input != "":
 			pass   # holding right click keeps shaking
+		elif e is FirepitEntity and held.get("id", "") != "" and not "firestarter" in held.get("tags", []):
+			pass   # holding right click keeps laying fuel or food on
 		elif e is GroundEntity and not main.recipes.first_of("scrape", {"input": e.item}).is_empty():
 			pass   # holding right click keeps scraping
 		elif e is FirewoodPileEntity and held.get("id", "") == "firewood":
@@ -404,10 +437,12 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		if res["replace_held"] != "":
 			main.player_inv.replace_held_one(res["replace_held"])
 			stats["casts"] += 1
-		if e.is_lit():
-			stats["kilns_lit"] += 1 if res["msg"] == "The pit kiln is lit." else 0
+		if e.is_lit() and res["msg"] == "The pit kiln is lit.":
+			stats["kilns_lit"] += 1
+			_wear_held()   # the firestarter
 		if res.get("stroke", false):
 			stats["scrapes"] += 1
+			_wear_held()   # the knife
 			_particles("block_hit", _at(p, Vector3(0.5, 0.08, 0.5)), GameMaterials.DIRT)
 		_give(res["give"], _at(p, Vector3(0.5, 0.5, 0.5)))
 		if res["remove"]:
@@ -415,11 +450,19 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_say(res["msg"])
 		return true
 	if e is FirepitEntity:
-		if "firestarter" in held.get("tags", []):
-			_say("The firepit is lit." if e.ignite() else "Put fuel in the firepit first.")
-			return true
-		main.player.set_ui_open(true, false)
-		main.inv_screen.open_container(e)
+		var stack: Dictionary = main.player_inv.held()
+		var res: Dictionary = e.use(stack, held)
+		stats["firepit_uses"] += 1
+		if res["consume"] > 0 and _consumes():
+			main.player_inv.consume_held(res["consume"])
+		if res["ignited"]:
+			_wear_held()   # the firestarter
+		for s in res["give"]:
+			if Inventory.heat_of(s) >= 0.5:
+				_note("heated", s["id"])   # hot metal off the fire (the progression book, ADR 0042)
+		_give(res["give"], _at(p, Vector3(0.5, 0.5, 0.5)))
+		if first_press:
+			_say(res["msg"])
 		return true
 	if e is SieveEntity:
 		var sifting: String = e.input
@@ -453,6 +496,9 @@ func _hit(hit_r: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool
 		return false
 	var p := _work_at(hit_r)
 	var e: RefCounted = main.blocks.at(p) if p.y >= 0 else null
+	if e is AnvilEntity and e.has_piece() and "hammer" in main.player_inv.held_def().get("tags", []):
+		_smith(e, from, dir, false)
+		return true
 	if not (e is KnapEntity) or not e.has_recipe():
 		return false
 	var c = plane_cell(p, 1.0, from, dir)
@@ -468,6 +514,130 @@ func _hit(hit_r: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool
 	if r == "done":
 		_finish(e, e.output())
 	return true
+
+
+# ---------------- crafting in the world (ADR 0042) ----------------
+
+## Wears the held tool by one use in survival (a firestarter lighting, a knife scraping, a hammer blow).
+func _wear_held() -> void:
+	if _consumes():
+		main.player_inv.wear_held(1)
+
+
+## Right click on a tool being assembled: the next part goes on, an empty hand takes the last one back.
+func _use_assembly(e: AssemblyEntity, held: Dictionary) -> void:
+	var res: Dictionary = e.use(held)
+	if res["consume"] > 0 and _consumes():
+		main.player_inv.consume_held(res["consume"])
+	_give(res["give"], _at(e.pos, Vector3(0.5, 0.3, 0.5)))
+	if not res["done"].is_empty():
+		stats["assembled"] += 1
+		_note("assembled", res["done"]["id"])
+		_finish(e, res["done"])
+		return
+	if res["remove"]:
+		remove_piece(e)
+		return
+	if res["consume"] > 0:
+		_particles("block_hit", _at(e.pos, Vector3(0.5, 0.1, 0.5)), GameMaterials.DIRT)
+		var next: Array[String] = e.next_specs()
+		_say("Next: " + " or ".join(next.map(func(s: String) -> String: return e._spec_name(s))))
+	else:
+		_say(res["msg"])
+
+
+## Right click on an anvil: a hot ingot starts a piece (or adds metal), a work piece goes back on, a
+## hammer splits the aimed cell off, an empty hand takes the piece off (to reheat it).
+func _use_anvil(e: AnvilEntity, held: Dictionary, from: Vector3, dir: Vector3) -> void:
+	var stack: Dictionary = main.player_inv.held()
+	var id: String = held.get("id", "")
+	if id == "":
+		if not e.has_piece():
+			_say("Lay a hot ingot on the anvil.")
+			return
+		var piece := e.take_piece()
+		_give([piece], _at(e.pos, Vector3(0.5, 1.0, 0.5)))
+		return
+	if "hammer" in held.get("tags", []):
+		if e.has_piece():
+			_smith(e, from, dir, true)
+		else:
+			_say("Lay a hot ingot on the anvil first.")
+		return
+	if stack.has("work"):
+		var why: String = e.put_piece(stack)
+		if why == "":
+			main.player_inv.consume_held(1)
+			if not e.has_recipe():
+				_open_picker(e)
+		else:
+			_say(why)
+		return
+	if held.has("work_piece"):
+		var why: String = e.add_ingot(stack)
+		if why != "":
+			_say(why)
+			return
+		if _consumes():
+			main.player_inv.consume_held(1)
+		if not e.has_recipe():
+			_open_picker(e)
+		elif e.short_of() > 0:
+			_say("Still %d cells short: lay on another hot ingot." % e.short_of())
+		return
+	_say("Smith hot ingots on the anvil with a hammer.")
+
+
+## A hammer blow on the anvil's piece: left click drives the top cell of the aimed column one cell
+## away from the player, right click (split) cuts it away.
+func _smith(e: AnvilEntity, from: Vector3, dir: Vector3, split: bool) -> void:
+	if not e.has_recipe():
+		_open_picker(e)
+		return
+	var col := _anvil_column(e, from, dir)
+	if col.x < 0:
+		return
+	var push := Vector2i(int(signf(dir.x)), 0) if absf(dir.x) >= absf(dir.z) else Vector2i(0, int(signf(dir.z)))
+	var r: String = e.split(col.x, col.y) if split else e.hit(col.x, col.y, push)
+	match r:
+		"cold":
+			_say("The metal is too cold to work. Take it off and heat it in a firepit.")
+		"stuck":
+			_say("The metal cannot go further that way.")
+		"hit", "done":
+			stats["smith_splits" if split else "smith_hits"] += 1
+			_wear_held()
+			var at := _at(e.pos, Vector3((col.x + 0.5) / 8.0, (AnvilEntity.BASE_H + e.height(col.x, col.y)) / 8.0, (col.y + 0.5) / 8.0))
+			_particles("ember", at, 0)   # sparks off the hot metal
+			_particles("block_hit", at, GameMaterials.STONE)
+	if r == "done":
+		stats["smithed"] += 1
+		var out := e.finish()
+		_note("smithed", out["id"])
+		main.spawn_item(out, _at(e.pos, Vector3(0.5, 1.1, 0.5)), Vector3(0, 1.5, 0))
+		stats["finished"].append(out["id"])
+
+
+## The column of the anvil's work grid the camera ray meets first (its top or its side), stepping
+## along the ray a tenth of a cell at a time through the grid's box; (-1, -1) when it misses.
+func _anvil_column(e: AnvilEntity, from: Vector3, dir: Vector3) -> Vector2i:
+	var k := float(Settings.BLOCK) / AnvilEntity.N   # voxels per cell
+	var o := (from - Vector3(e.pos)) / k              # the eye in cells from the anvil's corner
+	var d := dir.normalized()
+	var box := AABB(Vector3(0, AnvilEntity.BASE_H, 0), Vector3(AnvilEntity.N, AnvilEntity.MAX_H, AnvilEntity.N))
+	var hit = box.intersects_ray(o, d)
+	if hit == null and not box.has_point(o):
+		return Vector2i(-1, -1)
+	var t: float = 0.0 if hit == null else (hit - o).length()
+	for i in 200:
+		var q := o + d * (t + i * 0.1)
+		if not box.grow(0.01).has_point(q):
+			break
+		var x := clampi(int(floor(q.x)), 0, AnvilEntity.N - 1)
+		var z := clampi(int(floor(q.z)), 0, AnvilEntity.N - 1)
+		if q.y - AnvilEntity.BASE_H < e.height(x, z):
+			return Vector2i(x, z)
+	return Vector2i(-1, -1)
 
 
 # ---------------- the pan (ADR 0030) ----------------
@@ -553,6 +723,7 @@ func _use_pile(e: FirewoodPileEntity, hit: VoxelRaycastResult, held: Dictionary,
 		for p in pit:
 			main.blocks.at(p).light()
 		stats["pits_lit"] += 1
+		_wear_held()   # the firestarter
 		_say("The charcoal pit is lit (%d firewood). Seal every side with soil within %d s." % [_pit_firewood(pit), int(Settings.charcoal_pit_grace_s)])
 		return true
 	if id == "":

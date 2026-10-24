@@ -11,6 +11,7 @@ extends RefCounted
 signal changed
 signal selection_changed(index: int)
 signal health_changed(health: int)
+signal tool_broke(id: String)          # a tool wore out in the hand or the grid (ADR 0042)
 
 const HOTBAR := 9
 const MAIN := 27
@@ -89,6 +90,15 @@ func consume_held(count: int = 1) -> int:
 	return int(t.get("count", 0))
 
 
+## Wears the held tool by `uses` (ADR 0042); at its durability it breaks and the hand empties.
+## Returns true when it broke.
+func wear_held(uses: int = 1) -> bool:
+	var broke := inv.wear_slot(selected, uses)
+	if broke != "":
+		tool_broke.emit(broke)
+	return broke != ""
+
+
 ## Replaces one of the held items with another one (bucket -> water bucket).
 ## The rest of the old stack stays; the new item goes to the hand when the
 ## slot frees up, else into the inventory. Returns the leftover (to drop).
@@ -161,12 +171,12 @@ func creative_take(id: String, into_inventory: bool) -> bool:
 
 ## Picks up a stack: merges into existing stacks first, then fills empty
 ## slots hotbar-first (vanilla order). Returns the leftover that did not fit.
-func pickup(id: String, count: int, spoil: float = 0.0) -> int:
-	var left := _add_in_range(id, count, 0, SIZE, true, spoil)
+func pickup(id: String, count: int, data: Dictionary = {}) -> int:
+	var left := _add_in_range(id, count, 0, SIZE, true, data)
 	if left > 0:
-		left = _add_in_range(id, left, 0, SIZE, false, spoil)
+		left = _add_in_range(id, left, 0, SIZE, false, data)
 	if left > 0 and has_bag():
-		left = bag.add(id, left, spoil)
+		left = bag.add(id, left, data)
 	return left
 
 
@@ -310,6 +320,7 @@ func click_craft_output(shift: bool) -> void:
 			if left > 0:
 				# inventory full: the rest waits in the cursor like vanilla would refuse; keep it visible
 				cursor = {"id": total["id"], "count": left} if cursor.is_empty() else cursor
+		_report_broken()
 		changed.emit()
 		return
 	if cursor.is_empty():
@@ -317,7 +328,14 @@ func click_craft_output(shift: bool) -> void:
 	elif cursor["id"] == out["id"] and cursor["count"] + out["count"] <= items.max_stack(out["id"]):
 		var c := craft.craft_once()
 		cursor["count"] += c["count"]
+	_report_broken()
 	changed.emit()
+
+
+func _report_broken() -> void:
+	for id in craft.tools_broken:
+		tool_broke.emit(id)
+	craft.tools_broken.clear()
 
 
 # ---------------- Mouse Tweaks (the Minecraft mod) ----------------
@@ -424,7 +442,7 @@ func wheel_move(group: String, i: int, down: bool) -> void:
 		if not d.is_empty() and d["id"] == s["id"]:
 			var one := there.take(j, 1)
 			var merged := s.duplicate()
-			Inventory.merge_into(merged, 1, float(one.get("spoil", 0.0)))
+			Inventory.merge_into(merged, 1, one)
 			here.set_slot(i, merged)
 			changed.emit()
 			return
@@ -436,7 +454,7 @@ func close_screen() -> Array:
 	container = null
 	var dropped: Array = craft.return_contents(inv)
 	if not cursor.is_empty():
-		var sp := float(cursor.get("spoil", 0.0))
+		var sp := Inventory.data_of(cursor)
 		var left := inv.add(cursor["id"], cursor["count"], sp)
 		if left > 0 and has_bag():
 			left = bag.add(cursor["id"], left, sp)
@@ -475,7 +493,7 @@ func respawn() -> void:
 # ---------------- helpers ----------------
 
 ## Adds into slots [from, to): merge pass (into same-id stacks) or fill pass (empties).
-func _add_in_range(id: String, count: int, from: int, to: int, merge_only: bool, spoil: float = 0.0) -> int:
+func _add_in_range(id: String, count: int, from: int, to: int, merge_only: bool, data: Dictionary = {}) -> int:
 	var max_stack := items.max_stack(id)
 	for i in range(from, to):
 		if count <= 0:
@@ -485,12 +503,12 @@ func _add_in_range(id: String, count: int, from: int, to: int, merge_only: bool,
 			if not s.is_empty() and s["id"] == id and s["count"] < max_stack:
 				var take := mini(count, max_stack - s["count"])
 				var merged := s.duplicate()
-				Inventory.merge_into(merged, take, spoil)
+				Inventory.merge_into(merged, take, data)
 				inv.set_slot(i, merged)
 				count -= take
 		elif s.is_empty():
 			var take := mini(count, max_stack)
-			inv.set_slot(i, {"id": id, "count": take, "spoil": spoil})
+			inv.set_slot(i, Inventory.make_stack(items, id, take, data))
 			count -= take
 	return count
 
@@ -502,14 +520,14 @@ func _move_slot(src: Inventory, i: int, from: int, to: int) -> void:
 		return
 	var id: String = s["id"]
 	var count: int = s["count"]
-	var sp := float(s.get("spoil", 0.0))
+	var sp := Inventory.data_of(s)
 	# take first so the source slot never counts as a merge target
 	src.take(i, count)
 	var left := _add_in_range(id, count, from, to, true, sp)
 	if left > 0:
 		left = _add_in_range(id, left, from, to, false, sp)
 	if left > 0:
-		src.put(i, {"id": id, "count": left, "spoil": sp})
+		src.put(i, Inventory.make_stack(items, id, left, sp))
 	changed.emit()
 
 
@@ -536,7 +554,7 @@ func _move_count(src: Inventory, i: int, dst: Inventory, order: Array, n_max: in
 		return
 	var id: String = s["id"]
 	var count: int = int(s["count"]) if n_max < 0 else mini(n_max, int(s["count"]))
-	var sp := float(s.get("spoil", 0.0))
+	var sp := Inventory.data_of(s)
 	var max_stack := items.max_stack(id)
 	src.take(i, count)
 	for pass_merge in [true, false]:
@@ -554,10 +572,10 @@ func _move_count(src: Inventory, i: int, dst: Inventory, order: Array, n_max: in
 				count -= n
 			elif not pass_merge and d.is_empty():
 				var n := mini(count, max_stack)
-				dst.set_slot(j, {"id": id, "count": n, "spoil": sp})
+				dst.set_slot(j, Inventory.make_stack(items, id, n, sp))
 				count -= n
 	if count > 0:
-		src.put(i, {"id": id, "count": count, "spoil": sp})
+		src.put(i, Inventory.make_stack(items, id, count, sp))
 	changed.emit()
 
 

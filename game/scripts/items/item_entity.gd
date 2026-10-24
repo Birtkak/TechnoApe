@@ -39,9 +39,7 @@ func set_initial_velocity(v: Vector3) -> void:
 static func create(p_items: ItemRegistry, p_stack: Dictionary, atlas_material: Material) -> ItemEntity:
 	var e := ItemEntity.new()
 	e.items = p_items
-	e.stack = {"id": p_stack["id"], "count": int(p_stack["count"])}
-	if p_stack.has("spoil"):
-		e.stack["spoil"] = float(p_stack["spoil"])
+	e.stack = Inventory.make_stack(p_items, p_stack["id"], int(p_stack["count"]), p_stack)   # keeps freshness, wear, heat
 	e.name = "Item_" + p_stack["id"]
 	e._build(atlas_material)
 	return e
