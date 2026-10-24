@@ -14,8 +14,8 @@ All numbers are tunables in `Settings` (seconds of real time, game days, degrees
 1. **Hunger** (0..20, Minecraft's bar) with a **saturation** buffer that drains first. It drains one
    point per 40 s, faster when sprinting or swimming (x2.5) and when cold (x1.5). Eating works whenever
    the bar is not full: food gives its `hunger` points and `saturation`; stale food half. Full (17+)
-   regenerates one health per 6 s; empty hurts one health per 8 s **down to 1** (hunger alone does not
-   kill: a default the developer may change).
+   regenerates one health per 6 s; empty hurts one health per 8 s **until death**, like Vintage Story
+   (the developer's call, 2026-10-24).
 2. **Environment temperature** where the player stands: climate (-1..1 to -14..38 C) plus the season
    (+-7 C over the year), the hour (-4 C at night, +3 C at noon); 4 m and more under the surface
    blends to 10 C (caves, cellars); water is 8 C colder. **Shelter:** a native flood fill through open

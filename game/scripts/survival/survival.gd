@@ -156,9 +156,10 @@ func _hunger_step(delta: float, fast: bool) -> void:
 		_starve_t += delta
 		if _starve_t >= Settings.starve_s:
 			_starve_t = 0.0
-			if inv.health > 1:
-				inv.damage(1)
-				stats["starved"] += 1
+			inv.damage(1)   # starving kills, like Vintage Story (the developer's call)
+			stats["starved"] += 1
+			if inv.is_dead():
+				player.died.emit()
 	else:
 		_starve_t = 0.0
 	if hunger >= Settings.regen_hunger and inv.health < inv.max_health:

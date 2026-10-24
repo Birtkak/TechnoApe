@@ -121,7 +121,7 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 ## 2026-10-24: hunger, body temperature, spoilage (ADR 0040)
 
 - [ ] Survival: the drumsticks (right, above the hotbar) empty over about 13 minutes at rest, faster sprinting.
-      Eating works whenever you are not full. An empty bar hurts down to one heart (not to death): right call?
+      Eating works whenever you are not full. An empty bar hurts one heart every 8 s until you die.
 - [ ] The thermometer left of the hotbar: at night in a cold biome it drops; standing by a lit firepit warms you; a
       closed hut (walls, roof, floor, no gaps) pulls the air halfway to 18 C (`/survival` shows the air and "in a room").
 - [ ] Food spoils: raw meat rots in about 2 game days at 16 C (slower when cold, in a storage pot or a cellar 3 m
