@@ -23,6 +23,8 @@ const SPRITE_PX := 8
 const AMBIENT_HZ := 20.0   # Minecraft's client tick
 const WHERE := ["any", "air_above", "air_below", "water_above", "furnace_front"]
 
+signal burst_played(name: String, pos: Vector3, opts: Dictionary)   # only for names in sound_bursts (ADR 0044)
+
 var errors: Array[String] = []
 var effects := {}       # name -> effect dict, voxel units (see _compile_effect)
 var motion_index := {}  # name -> index into the shader's motion arrays
@@ -35,6 +37,7 @@ var bubble: SimBubble     # ambient sampling
 var spray: WaterfallSpray # the waterfalls near the camera
 var player: Player
 var main_blocks: BlockEntities   # lit firepits and pit kilns smoke
+var sound_bursts := {}           # burst name -> true: GameAudio hears these (the ambient ones stay silent and free)
 var stats := {"emitted": 0, "dropped": 0, "culled": 0, "bursts": {}, "ambient_hits": 0, "ambient_samples": 0,
 	"waterfalls": 0, "ms_max": 0.0, "ms_avg": 0.0, "ms_worst_part": ""}
 var _ms_sum := 0.0
@@ -307,6 +310,8 @@ static func _average(img: Image, r: Rect2i) -> Color:
 ## tile tint, floor), normal (face direction), fall_m / speed_ms (extra count),
 ## velocity (added), floor (y; else found below pos), color (overrides the colours).
 func burst(name: String, pos: Vector3, opts: Dictionary = {}) -> int:
+	if sound_bursts.has(name):
+		burst_played.emit(name, pos, opts)
 	var e: Dictionary = effects.get(name, {})
 	if e.is_empty() or _chips == null:
 		return 0

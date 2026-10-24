@@ -5,7 +5,8 @@ extends Control
 ## menu. Video: a graphics preset (low / medium / high, from ADR 0031's
 ## measurements) and the values it sets, which can be changed one by one
 ## (the preset then reads "Custom"), plus field of view, vsync, frame cap and
-## fullscreen. Controls: mouse sensitivity, invert Y and the key list. Every
+## fullscreen. Audio: master, music, effects and interface volume (ADR 0044).
+## Controls: mouse sensitivity, invert Y and the key list. Every
 ## change applies at once and is saved to user://settings.cfg.
 
 signal done
@@ -34,6 +35,7 @@ var _fullscreen: CheckBox
 var _sens: HSlider
 var _sens_label: Label
 var _invert: CheckBox
+var _volumes := {}   # Settings key -> HSlider
 var _syncing := false
 
 
@@ -47,6 +49,7 @@ func _ready() -> void:
 	tabs.custom_minimum_size = Vector2(600, 380)
 	box.add_child(tabs)
 	tabs.add_child(_video_tab())
+	tabs.add_child(_audio_tab())
 	tabs.add_child(_controls_tab())
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_END
@@ -155,6 +158,32 @@ func _video_tab() -> Control:
 	return g
 
 
+## Master, music, effects and interface volume (ADR 0044), 0-100 %.
+func _audio_tab() -> Control:
+	var g := _grid("Audio")
+	for v in [["Master volume", "volume_master"], ["Music", "volume_music"], ["Effects", "volume_effects"], ["Interface", "volume_ui"]]:
+		var row := HBoxContainer.new()
+		var s := HSlider.new()
+		s.min_value = 0.0
+		s.max_value = 1.0
+		s.step = 0.05
+		s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var l := UiStyle.label("100%")
+		l.custom_minimum_size.x = 56
+		var key: String = v[1]
+		s.value_changed.connect(func(x: float) -> void:
+			l.text = "%d%%" % roundi(x * 100.0)
+			if not _syncing:
+				Settings.set(key, x)
+				_edited())
+		row.add_child(s)
+		row.add_child(l)
+		_row(g, v[0], row)
+		_volumes[key] = s
+	return g
+
+
 func _controls_tab() -> Control:
 	var v := VBoxContainer.new()
 	v.name = "Controls"
@@ -210,6 +239,8 @@ func sync_from_settings() -> void:
 	_sens.value = Settings.mouse_sensitivity / 0.0025
 	_sens_label.text = "%d%%" % roundi(_sens.value * 100.0)
 	_invert.button_pressed = Settings.invert_y
+	for k in _volumes:
+		_volumes[k].value = Settings.get(k)
 	_syncing = false
 
 

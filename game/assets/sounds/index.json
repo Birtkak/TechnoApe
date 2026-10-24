@@ -1,0 +1,555 @@
+{
+ "block/chest_close": [
+  "block/chest_close_0.ogg",
+  "block/chest_close_1.ogg"
+ ],
+ "block/chest_open": [
+  "block/chest_open.ogg"
+ ],
+ "block/latch": [
+  "block/latch_0.ogg",
+  "block/latch_1.ogg"
+ ],
+ "block/pot": [
+  "block/pot_0.ogg",
+  "block/pot_1.ogg",
+  "block/pot_2.ogg"
+ ],
+ "book/close": [
+  "book/close.ogg"
+ ],
+ "book/flip": [
+  "book/flip_0.ogg",
+  "book/flip_1.ogg",
+  "book/flip_2.ogg"
+ ],
+ "book/open": [
+  "book/open.ogg"
+ ],
+ "break/cloth": [
+  "break/cloth_0.ogg",
+  "break/cloth_1.ogg",
+  "break/cloth_2.ogg",
+  "break/cloth_3.ogg"
+ ],
+ "break/dirt": [
+  "break/dirt_0.ogg",
+  "break/dirt_1.ogg",
+  "break/dirt_2.ogg",
+  "break/dirt_3.ogg",
+  "break/dirt_4.ogg",
+  "break/dirt_5.ogg"
+ ],
+ "break/glass": [
+  "break/glass_0.ogg",
+  "break/glass_1.ogg",
+  "break/glass_2.ogg",
+  "break/glass_3.ogg"
+ ],
+ "break/gravel": [
+  "break/gravel_0.ogg",
+  "break/gravel_1.ogg",
+  "break/gravel_2.ogg",
+  "break/gravel_3.ogg",
+  "break/gravel_4.ogg"
+ ],
+ "break/leaves": [
+  "break/leaves_0.ogg",
+  "break/leaves_1.ogg",
+  "break/leaves_2.ogg",
+  "break/leaves_3.ogg",
+  "break/leaves_4.ogg",
+  "break/leaves_5.ogg"
+ ],
+ "break/metal": [
+  "break/metal_0.ogg",
+  "break/metal_1.ogg",
+  "break/metal_2.ogg",
+  "break/metal_3.ogg",
+  "break/metal_4.ogg"
+ ],
+ "break/mud": [
+  "break/mud_0.ogg",
+  "break/mud_1.ogg",
+  "break/mud_2.ogg",
+  "break/mud_3.ogg",
+  "break/mud_4.ogg"
+ ],
+ "break/plank": [
+  "break/plank_0.ogg",
+  "break/plank_1.ogg",
+  "break/plank_2.ogg",
+  "break/plank_3.ogg",
+  "break/plank_4.ogg"
+ ],
+ "break/plant": [
+  "break/plant_0.ogg",
+  "break/plant_1.ogg",
+  "break/plant_2.ogg",
+  "break/plant_3.ogg",
+  "break/plant_4.ogg",
+  "break/plant_5.ogg"
+ ],
+ "break/sand": [
+  "break/sand_0.ogg",
+  "break/sand_1.ogg",
+  "break/sand_2.ogg",
+  "break/sand_3.ogg",
+  "break/sand_4.ogg"
+ ],
+ "break/snow": [
+  "break/snow_0.ogg",
+  "break/snow_1.ogg",
+  "break/snow_2.ogg",
+  "break/snow_3.ogg",
+  "break/snow_4.ogg"
+ ],
+ "break/stone": [
+  "break/stone_0.ogg",
+  "break/stone_1.ogg",
+  "break/stone_2.ogg",
+  "break/stone_3.ogg",
+  "break/stone_4.ogg",
+  "break/stone_5.ogg"
+ ],
+ "break/twig": [
+  "break/twig_0.ogg",
+  "break/twig_1.ogg",
+  "break/twig_2.ogg",
+  "break/twig_3.ogg",
+  "break/twig_4.ogg"
+ ],
+ "break/wood": [
+  "break/wood_0.ogg",
+  "break/wood_1.ogg",
+  "break/wood_2.ogg",
+  "break/wood_3.ogg",
+  "break/wood_4.ogg"
+ ],
+ "craft/anvil": [
+  "craft/anvil_0.ogg",
+  "craft/anvil_1.ogg",
+  "craft/anvil_2.ogg",
+  "craft/anvil_3.ogg",
+  "craft/anvil_4.ogg",
+  "craft/anvil_5.ogg",
+  "craft/anvil_6.ogg",
+  "craft/anvil_7.ogg"
+ ],
+ "craft/assemble": [
+  "craft/assemble_0.ogg",
+  "craft/assemble_1.ogg",
+  "craft/assemble_2.ogg",
+  "craft/assemble_3.ogg",
+  "craft/assemble_4.ogg"
+ ],
+ "craft/clay": [
+  "craft/clay_0.ogg",
+  "craft/clay_1.ogg",
+  "craft/clay_2.ogg",
+  "craft/clay_3.ogg",
+  "craft/clay_4.ogg"
+ ],
+ "craft/done": [
+  "craft/done.ogg"
+ ],
+ "craft/grid": [
+  "craft/grid_0.ogg",
+  "craft/grid_1.ogg",
+  "craft/grid_2.ogg",
+  "craft/grid_3.ogg"
+ ],
+ "craft/knap": [
+  "craft/knap_0.ogg",
+  "craft/knap_1.ogg",
+  "craft/knap_2.ogg",
+  "craft/knap_3.ogg",
+  "craft/knap_4.ogg",
+  "craft/knap_5.ogg"
+ ],
+ "craft/shear": [
+  "craft/shear_0.ogg",
+  "craft/shear_1.ogg",
+  "craft/shear_2.ogg",
+  "craft/shear_3.ogg"
+ ],
+ "craft/sieve": [
+  "craft/sieve_0.ogg",
+  "craft/sieve_1.ogg",
+  "craft/sieve_2.ogg",
+  "craft/sieve_3.ogg"
+ ],
+ "hit/glass": [
+  "hit/glass_0.ogg",
+  "hit/glass_1.ogg",
+  "hit/glass_2.ogg",
+  "hit/glass_3.ogg"
+ ],
+ "hit/grass": [
+  "hit/grass_0.ogg",
+  "hit/grass_1.ogg",
+  "hit/grass_2.ogg",
+  "hit/grass_3.ogg",
+  "hit/grass_4.ogg",
+  "hit/grass_5.ogg"
+ ],
+ "hit/gravel": [
+  "hit/gravel_0.ogg",
+  "hit/gravel_1.ogg",
+  "hit/gravel_2.ogg",
+  "hit/gravel_3.ogg",
+  "hit/gravel_4.ogg",
+  "hit/gravel_5.ogg"
+ ],
+ "hit/metal": [
+  "hit/metal_0.ogg",
+  "hit/metal_1.ogg",
+  "hit/metal_2.ogg",
+  "hit/metal_3.ogg",
+  "hit/metal_4.ogg"
+ ],
+ "hit/soft": [
+  "hit/soft_0.ogg",
+  "hit/soft_1.ogg",
+  "hit/soft_2.ogg",
+  "hit/soft_3.ogg",
+  "hit/soft_4.ogg"
+ ],
+ "hit/stone": [
+  "hit/stone_0.ogg",
+  "hit/stone_1.ogg",
+  "hit/stone_2.ogg",
+  "hit/stone_3.ogg",
+  "hit/stone_4.ogg",
+  "hit/stone_5.ogg"
+ ],
+ "hit/wood": [
+  "hit/wood_0.ogg",
+  "hit/wood_1.ogg",
+  "hit/wood_2.ogg",
+  "hit/wood_3.ogg",
+  "hit/wood_4.ogg",
+  "hit/wood_5.ogg"
+ ],
+ "loop/fire_big": [
+  "loop/fire_big.ogg"
+ ],
+ "loop/fire_small": [
+  "loop/fire_small.ogg"
+ ],
+ "loop/lava": [
+  "loop/lava.ogg"
+ ],
+ "loop/sand": [
+  "loop/sand.ogg"
+ ],
+ "loop/steam": [
+  "loop/steam.ogg"
+ ],
+ "loop/underwater": [
+  "loop/underwater.ogg"
+ ],
+ "loop/water": [
+  "loop/water.ogg"
+ ],
+ "loop/water_fall": [
+  "loop/water_fall.ogg"
+ ],
+ "mob/bear": [
+  "mob/bear_0.ogg",
+  "mob/bear_1.ogg"
+ ],
+ "mob/bear_growl": [
+  "mob/bear_growl_0.ogg",
+  "mob/bear_growl_1.ogg",
+  "mob/bear_growl_2.ogg"
+ ],
+ "mob/bear_roar": [
+  "mob/bear_roar_0.ogg",
+  "mob/bear_roar_1.ogg",
+  "mob/bear_roar_2.ogg",
+  "mob/bear_roar_3.ogg"
+ ],
+ "mob/chicken": [
+  "mob/chicken_0.ogg",
+  "mob/chicken_1.ogg",
+  "mob/chicken_2.ogg",
+  "mob/chicken_3.ogg",
+  "mob/chicken_4.ogg",
+  "mob/chicken_5.ogg"
+ ],
+ "mob/chicken_hurt": [
+  "mob/chicken_hurt_0.ogg",
+  "mob/chicken_hurt_1.ogg",
+  "mob/chicken_hurt_2.ogg",
+  "mob/chicken_hurt_3.ogg",
+  "mob/chicken_hurt_4.ogg"
+ ],
+ "mob/death": [
+  "mob/death_0.ogg",
+  "mob/death_1.ogg"
+ ],
+ "mob/graze": [
+  "mob/graze_0.ogg",
+  "mob/graze_1.ogg",
+  "mob/graze_2.ogg"
+ ],
+ "mob/hit": [
+  "mob/hit_0.ogg",
+  "mob/hit_1.ogg",
+  "mob/hit_2.ogg",
+  "mob/hit_3.ogg",
+  "mob/hit_4.ogg"
+ ],
+ "mob/pig": [
+  "mob/pig_0.ogg",
+  "mob/pig_1.ogg",
+  "mob/pig_2.ogg",
+  "mob/pig_3.ogg",
+  "mob/pig_4.ogg",
+  "mob/pig_5.ogg",
+  "mob/pig_6.ogg",
+  "mob/pig_7.ogg"
+ ],
+ "mob/sheep": [
+  "mob/sheep_0.ogg",
+  "mob/sheep_1.ogg",
+  "mob/sheep_2.ogg",
+  "mob/sheep_3.ogg",
+  "mob/sheep_4.ogg",
+  "mob/sheep_5.ogg",
+  "mob/sheep_6.ogg",
+  "mob/sheep_7.ogg",
+  "mob/sheep_8.ogg"
+ ],
+ "music/beginning_3": [
+  "music/beginning_3.ogg"
+ ],
+ "music/beginning_5": [
+  "music/beginning_5.ogg"
+ ],
+ "music/beginning_6": [
+  "music/beginning_6.ogg"
+ ],
+ "music/beginning_7": [
+  "music/beginning_7.ogg"
+ ],
+ "music/budding": [
+  "music/budding.ogg"
+ ],
+ "music/deep_blue": [
+  "music/deep_blue.ogg"
+ ],
+ "music/first_light": [
+  "music/first_light.ogg"
+ ],
+ "music/sunset_plains": [
+  "music/sunset_plains.ogg"
+ ],
+ "music/title": [
+  "music/title.ogg"
+ ],
+ "player/bubbles": [
+  "player/bubbles_0.ogg",
+  "player/bubbles_1.ogg",
+  "player/bubbles_2.ogg",
+  "player/bubbles_3.ogg",
+  "player/bubbles_4.ogg",
+  "player/bubbles_5.ogg",
+  "player/bubbles_6.ogg",
+  "player/bubbles_7.ogg"
+ ],
+ "player/eat": [
+  "player/eat_0.ogg",
+  "player/eat_1.ogg",
+  "player/eat_2.ogg"
+ ],
+ "player/hurt": [
+  "player/hurt.ogg"
+ ],
+ "player/hurt_big": [
+  "player/hurt_big.ogg"
+ ],
+ "player/land": [
+  "player/land_0.ogg",
+  "player/land_1.ogg",
+  "player/land_2.ogg",
+  "player/land_3.ogg"
+ ],
+ "player/pickup": [
+  "player/pickup_0.ogg",
+  "player/pickup_1.ogg",
+  "player/pickup_2.ogg"
+ ],
+ "player/splash": [
+  "player/splash.ogg"
+ ],
+ "player/splash_big": [
+  "player/splash_big_0.ogg",
+  "player/splash_big_1.ogg"
+ ],
+ "player/splash_small": [
+  "player/splash_small.ogg"
+ ],
+ "player/swim": [
+  "player/swim_0.ogg",
+  "player/swim_1.ogg",
+  "player/swim_2.ogg",
+  "player/swim_3.ogg",
+  "player/swim_4.ogg"
+ ],
+ "player/tool_break": [
+  "player/tool_break_0.ogg",
+  "player/tool_break_1.ogg",
+  "player/tool_break_2.ogg"
+ ],
+ "sim/explosion": [
+  "sim/explosion_0.ogg",
+  "sim/explosion_1.ogg"
+ ],
+ "sim/explosion_far": [
+  "sim/explosion_far.ogg"
+ ],
+ "sim/ignite": [
+  "sim/ignite_0.ogg",
+  "sim/ignite_1.ogg"
+ ],
+ "sim/sizzle": [
+  "sim/sizzle_0.ogg",
+  "sim/sizzle_1.ogg",
+  "sim/sizzle_2.ogg",
+  "sim/sizzle_3.ogg"
+ ],
+ "step/cloth": [
+  "step/cloth_0.ogg",
+  "step/cloth_1.ogg",
+  "step/cloth_2.ogg",
+  "step/cloth_3.ogg",
+  "step/cloth_4.ogg",
+  "step/cloth_5.ogg",
+  "step/cloth_6.ogg",
+  "step/cloth_7.ogg"
+ ],
+ "step/dirt": [
+  "step/dirt_0.ogg",
+  "step/dirt_1.ogg",
+  "step/dirt_2.ogg",
+  "step/dirt_3.ogg",
+  "step/dirt_4.ogg",
+  "step/dirt_5.ogg",
+  "step/dirt_6.ogg",
+  "step/dirt_7.ogg"
+ ],
+ "step/grass": [
+  "step/grass_0.ogg",
+  "step/grass_1.ogg",
+  "step/grass_2.ogg",
+  "step/grass_3.ogg",
+  "step/grass_4.ogg",
+  "step/grass_5.ogg",
+  "step/grass_6.ogg",
+  "step/grass_7.ogg"
+ ],
+ "step/gravel": [
+  "step/gravel_0.ogg",
+  "step/gravel_1.ogg",
+  "step/gravel_2.ogg",
+  "step/gravel_3.ogg",
+  "step/gravel_4.ogg",
+  "step/gravel_5.ogg",
+  "step/gravel_6.ogg",
+  "step/gravel_7.ogg"
+ ],
+ "step/leaves": [
+  "step/leaves_0.ogg",
+  "step/leaves_1.ogg",
+  "step/leaves_2.ogg",
+  "step/leaves_3.ogg"
+ ],
+ "step/mud": [
+  "step/mud_0.ogg",
+  "step/mud_1.ogg",
+  "step/mud_2.ogg",
+  "step/mud_3.ogg",
+  "step/mud_4.ogg",
+  "step/mud_5.ogg"
+ ],
+ "step/sand": [
+  "step/sand_0.ogg",
+  "step/sand_1.ogg",
+  "step/sand_2.ogg",
+  "step/sand_3.ogg",
+  "step/sand_4.ogg",
+  "step/sand_5.ogg",
+  "step/sand_6.ogg",
+  "step/sand_7.ogg"
+ ],
+ "step/snow": [
+  "step/snow_0.ogg",
+  "step/snow_1.ogg",
+  "step/snow_2.ogg",
+  "step/snow_3.ogg",
+  "step/snow_4.ogg"
+ ],
+ "step/stone": [
+  "step/stone_0.ogg",
+  "step/stone_1.ogg",
+  "step/stone_2.ogg",
+  "step/stone_3.ogg",
+  "step/stone_4.ogg"
+ ],
+ "step/water": [
+  "step/water_0.ogg",
+  "step/water_1.ogg",
+  "step/water_2.ogg",
+  "step/water_3.ogg",
+  "step/water_4.ogg"
+ ],
+ "step/wood": [
+  "step/wood_0.ogg",
+  "step/wood_1.ogg",
+  "step/wood_2.ogg",
+  "step/wood_3.ogg",
+  "step/wood_4.ogg"
+ ],
+ "tree/crash": [
+  "tree/crash_0.ogg",
+  "tree/crash_1.ogg",
+  "tree/crash_2.ogg",
+  "tree/crash_3.ogg"
+ ],
+ "tree/creak": [
+  "tree/creak_0.ogg",
+  "tree/creak_1.ogg",
+  "tree/creak_2.ogg",
+  "tree/creak_3.ogg"
+ ],
+ "tree/leaves": [
+  "tree/leaves_0.ogg",
+  "tree/leaves_1.ogg",
+  "tree/leaves_2.ogg",
+  "tree/leaves_3.ogg"
+ ],
+ "tree/thud": [
+  "tree/thud_0.ogg",
+  "tree/thud_1.ogg",
+  "tree/thud_2.ogg"
+ ],
+ "ui/click": [
+  "ui/click_0.ogg",
+  "ui/click_1.ogg",
+  "ui/click_2.ogg"
+ ],
+ "ui/confirm": [
+  "ui/confirm_0.ogg",
+  "ui/confirm_1.ogg",
+  "ui/confirm_2.ogg",
+  "ui/confirm_3.ogg"
+ ],
+ "ui/error": [
+  "ui/error_0.ogg",
+  "ui/error_1.ogg",
+  "ui/error_2.ogg",
+  "ui/error_3.ogg"
+ ]
+}

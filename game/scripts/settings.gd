@@ -165,6 +165,10 @@ var invert_y := false
 var vsync := true
 var max_fps := 120                      # 0 = unlimited (project default 120: 500 fps on a menu only heats the GPU)
 var fullscreen := false
+var volume_master := 0.8                # linear 0..1 (ADR 0044); the Audio tab
+var volume_music := 0.6
+var volume_effects := 1.0               # the World bus: effects and sim loops
+var volume_ui := 0.7
 var world_name := ""                    # the title screen's world being played (WorldList)
 
 # World
@@ -278,6 +282,10 @@ func load_user_settings() -> void:
 	fullscreen = bool(cf.get_value("video", "fullscreen", fullscreen))
 	mouse_sensitivity = float(cf.get_value("controls", "mouse_sensitivity", mouse_sensitivity))
 	invert_y = bool(cf.get_value("controls", "invert_y", invert_y))
+	volume_master = clampf(float(cf.get_value("audio", "master", volume_master)), 0.0, 1.0)
+	volume_music = clampf(float(cf.get_value("audio", "music", volume_music)), 0.0, 1.0)
+	volume_effects = clampf(float(cf.get_value("audio", "effects", volume_effects)), 0.0, 1.0)
+	volume_ui = clampf(float(cf.get_value("audio", "interface", volume_ui)), 0.0, 1.0)
 	if not SHADOW_QUALITY.has(shadow_quality):
 		shadow_quality = "high"
 	graphics_preset = matching_preset()
@@ -298,6 +306,10 @@ func save_user_settings() -> void:
 	cf.set_value("video", "fullscreen", fullscreen)
 	cf.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	cf.set_value("controls", "invert_y", invert_y)
+	cf.set_value("audio", "master", volume_master)
+	cf.set_value("audio", "music", volume_music)
+	cf.set_value("audio", "effects", volume_effects)
+	cf.set_value("audio", "interface", volume_ui)
 	cf.save(user_settings_path)
 
 

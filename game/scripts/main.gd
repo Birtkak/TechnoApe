@@ -420,6 +420,7 @@ func _ready() -> void:
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
 	player_inv.tool_broke.connect(_on_tool_broke)
+	Sound.attach(self)   # it listens to the player, particles, pieces and mobs (ADR 0044)
 
 
 ## Spiral out from the origin for dry, flat-ish land (plains or forest).
@@ -1345,6 +1346,7 @@ func snapshot() -> Dictionary:
 		"mobs": mobs.summary() if mobs else {},
 		"farm": farming.summary() if farming else {},
 		"particles": fx.stats if fx else {},
+		"sound": Sound.stats(),
 		"mem_mb": OS.get_static_memory_usage() / 1048576.0,
 		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		"primitives": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),

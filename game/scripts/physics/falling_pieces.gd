@@ -13,6 +13,11 @@ extends Node3D
 const SETTLED_FRAMES := 30      # a settled piece's mesh stays this long, until the terrain paste shows its voxels
 const BREAKS_PER_TICK := 8      # break particles per simulation tick (a crown crashing down breaks thousands)
 const UPLOAD_BUDGET_MS := 1.5   # mesh blocks handed to the renderer per frame (a felled crown is ~100 of them)
+const IMPACT_FALL_MS := 2.5     # a piece falling at least this fast that suddenly slows has hit something (sound)
+
+## For sound (ADR 0044): "spawned" (a piece cut loose), "impact" (it hit the ground), "breaks" (it shed
+## leaves or twigs); pos is world voxels, size the piece's voxels (or the break count).
+signal piece_event(kind: String, pos: Vector3, size: int)
 
 var rp: RigidPieces
 var bubble: SimBubble
@@ -28,6 +33,7 @@ var tick_ms_max := 0.0
 var track: Array = []   # debug: [s since the first piece, id, world position of the first piece's origin, tilt deg, contacts] every 0.5 s
 var _track_ticks := 0
 var _parts_max := {"collect": 0.0, "uploads": 0.0, "effects": 0.0}   # main-thread cost per part, ms
+var _fall := {}          # piece id -> last vertical speed (voxels/s, down negative): impacts for sound
 
 
 func setup(p_bubble: SimBubble, atlas_material: ShaderMaterial, p_fx: ParticleFx) -> void:
@@ -73,6 +79,10 @@ func tick(dt: float) -> void:
 		node.transform = rp.get_transform(id, 0.0)
 		_pieces[id] = node
 		_blocks[id] = {}
+		if piece_event.get_connections().size() > 0:
+			var info: Dictionary = rp.get_info(id)
+			piece_event.emit("spawned", node.transform.origin, int(info.get("wood", 0)) + int(info.get("leaves", 0)))
+	_sound_events(r["breaks"])
 	var meshes: Dictionary = r["meshes"]
 	for id in meshes:
 		var blocks: Dictionary = meshes[id]
@@ -91,6 +101,25 @@ func tick(dt: float) -> void:
 			var t := rp.get_transform(id, 1.0)
 			track.append([snappedf(_track_ticks * dt, 0.1), id, (t.origin / Settings.m2v(1.0)).snapped(Vector3.ONE * 0.1), snappedf(rad_to_deg(t.basis.y.angle_to(Vector3.UP)), 1.0), rp.get_contact_info(id)])
 	tick_ms_max = maxf(tick_ms_max, (Time.get_ticks_usec() - t0) / 1000.0)
+
+
+## Impacts (a falling piece suddenly slowed) and breaks for whoever listens (GameAudio). The driver
+## thread is idle here: tick() runs between collect() and queue_step().
+func _sound_events(br: PackedInt32Array) -> void:
+	if piece_event.get_connections().is_empty():
+		return
+	if not br.is_empty():
+		piece_event.emit("breaks", Vector3(br[0], br[1], br[2]), br.size() / 4)
+	for id in _pieces:
+		var info: Dictionary = rp.get_info(id)
+		var vy: float = Vector3(info.get("vel", Vector3.ZERO)).y
+		var was: float = _fall.get(id, 0.0)
+		if was < -Settings.m2v(IMPACT_FALL_MS) and vy > was * 0.4:
+			piece_event.emit("impact", (_pieces[id] as Node3D).transform.origin, int(info.get("wood", 0)) + int(info.get("leaves", 0)))
+		_fall[id] = vy
+	for id in _fall.keys():
+		if not _pieces.has(id):
+			_fall.erase(id)
 
 
 ## Break particles for a list of (x, y, z, material), spread over the whole list.

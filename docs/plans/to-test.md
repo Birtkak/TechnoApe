@@ -10,6 +10,28 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## 2026-10-24: sound (ADR 0044)
+
+Everything is CC0 and cut by our tool, so a sound that feels wrong is a one-line swap: say which one
+(`/sound list`, `/sound <name>` replays it). Volumes: Settings > Audio.
+
+- [ ] Title screen: a soft piano piece starts after a second; buttons give one soft click; nothing else in the menus makes a sound.
+- [ ] Walk over grass, dirt, stone, gravel, sand, leaf litter, snow, planks: do the steps sound like the ground?
+      Sprinting steps come further apart and louder.
+- [ ] Dig and place a few materials: hits while mining (4 a second), a break sound, a place sound.
+- [ ] Jump off something 3-5 m high: a thud by the ground you land on.
+- [ ] Wade in and swim: splash going in, strokes, head under water muffles everything and you hear the underwater bed.
+- [ ] Walk into a cave: steps and digging get a little echo; out in a forest they stay dry.
+- [ ] Fell a tree (`/fell`): creak, crash, leaves rustling as the crown breaks.
+- [ ] `/blast 3` and the crater rod: a deep boom. Water bomb: water rushing as it spreads; lava (`/blast 1 lava`) bubbles.
+- [ ] Fire (`/kit flint`, light a firepit; or set grass alight): crackle near by, louder as it spreads.
+- [ ] Animals: sheep bleat, chickens cluck, pigs grunt now and then; hit one: a hurt sound; a hunting bear roars.
+      (All approved on the sound check page; this is the in-game check.)
+- [ ] Crafting: knapping clicks, clay squishes, the anvil rings, the sieve rattles, chests creak open and shut,
+      the progression book opens with a page sound.
+- [ ] Music: 1-3 minutes after loading a track plays, then 5-12 minutes of quiet. Too often, too rare, right mood?
+      `/music next` skips through them (day: Holizna "Beginning" pieces and Yoiyami; night: Yoiyami).
+
 ## Build of 2026-10-24 late: your bug reports (crash, drops, animals, bushes, leaves, fiber)
 
 New world for the bushes and the water (generator change, `GEN_VERSION` 14). Not touched yet: far trees.

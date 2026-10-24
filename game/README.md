@@ -127,6 +127,13 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=60 craf
 #       save and quit -> reload (inventory and position kept) -> delete; prints "debug menu_test {...}".
 #       graphics=low|medium|high|ultra picks a graphics preset for a run; frame_parts in the JSON says where a frame goes
 Godot_..._console.exe --path game -- menu_test=1 minimized=0
+# Sound (ADR 0044): the Sound autoload (scripts/audio/game_audio.gd) plays data/sounds.json; JSON "sound" (plays by name,
+#       last 24 with positions, culled / stolen / cooldown, sim loop levels, music, underwater, reverb, ms_avg / ms_max).
+#       sound=0 / music=0 turn it off; chat: /sound <name> [x y z] | list | stats, /music [next|stop|<track>].
+#       Assets: python tools/make_sounds.py [--only step/] [--sheet] cuts assets/sounds/** from the CC0 downloads in
+#       ~/Tools/downloads/sounds/ (sources in tools/sound_recipes.json; needs ffmpeg in ~/Tools/ffmpeg/ and numpy),
+#       then --import; --sheet draws every variant's waveform to out/sound_sheet.png
+Godot_..._console.exe --headless --path game -- autopilot=1 target=forest walk=1 speed=1 duration=30 load_cap_s=30 "later=/summon sheep 4;/fell;wait 5;/blast 3" out=res://out/sound
 # Windows build for playtests (export_presets.cfg): a debug-template export, because the sim and
 #       voxel extensions are built and measured as template_debug (ADR 0020). Output: build/windows/TechnoApe.exe
 #       (+ .pck and the two DLLs; TechnoApe.console.exe shows the log). The first launch on a machine compiles

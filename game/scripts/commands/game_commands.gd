@@ -85,6 +85,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("laser", "/laser [seconds] [sweep_deg]", "Fire the laser cutter where you look for a while (default 1.5 s), turning across sweep_deg (default 20)", _laser)
 	reg.register("fell", "/fell [direction_deg|pillar] [cam]", "Fell the thickest tree 8-20 m away, across your view", _fell)
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
+	reg.register("sound", "/sound <name> [x y z] | list | stats", "Play a sound (ADR 0044), list them, or show the sound stats", _sound, [Sound.sound_names() + ["list", "stats"]])
+	reg.register("music", "/music [next|stop|<track>]", "Show, skip to the next, stop or pick a music track", _music, [["next", "stop"]])
 	var atmo: Node = main.get("atmosphere") if main != null else null
 	if atmo != null:
 		sky = SkyCommands.new(atmo)
@@ -504,7 +506,39 @@ func _blast(args: PackedStringArray) -> Dictionary:
 	if mat != GameMaterials.AIR:
 		at.y += r + 2.0   # a ball above the spot, so it falls and spreads
 	var n: int = main.bubble.blast(at, r, mat)
+	if n > 0 and mat == GameMaterials.AIR:
+		Sound.play("sim/blast", at, {"db": clampf(float(args[0]) - 3.0, -6.0, 4.0)})
 	return CommandRegistry.ok("Blast of %s m: %d voxels" % [args[0], n])
+
+
+## /sound <name> [x y z] plays a sound (at the player, or a voxel position); list and stats report.
+func _sound(args: PackedStringArray) -> Dictionary:
+	if args.is_empty() or args[0] == "stats":
+		return CommandRegistry.ok(JSON.stringify(Sound.stats()))
+	if args[0] == "list":
+		return CommandRegistry.ok(", ".join(Sound.sound_names()))
+	if not Sound.has_sound(args[0]):
+		return CommandRegistry.fail("Unknown sound: %s (/sound list)" % args[0])
+	var at := player.position + Vector3(0, Settings.m2v(1.0), 0) if player else Vector3.INF
+	if args.size() >= 4:
+		at = Vector3(float(args[1]), float(args[2]), float(args[3]))
+	return CommandRegistry.ok("Played %s" % args[0]) if Sound.play(args[0], at) else CommandRegistry.fail("Not played (cooling down, out of range or sound=0)")
+
+
+func _music(args: PackedStringArray) -> Dictionary:
+	match args[0] if args.size() > 0 else "":
+		"next":
+			return CommandRegistry.ok("Playing %s" % Sound.next_music())
+		"stop":
+			Sound.stop_music()
+			return CommandRegistry.ok("Music stopped; the next track comes after the usual silence")
+		"":
+			var now: String = Sound.stats()["music"]
+			return CommandRegistry.ok("Playing %s" % now if now != "" else "No music playing")
+	if not args[0].begins_with("music/"):
+		args[0] = "music/" + args[0]
+	Sound.play_music(args[0])
+	return CommandRegistry.ok("Playing %s" % Sound.stats()["music"])
 
 
 func _stations(_args: PackedStringArray) -> Dictionary:

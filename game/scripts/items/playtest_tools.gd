@@ -143,6 +143,7 @@ func _cut(at: Vector3, dir: Vector3, r: float) -> void:
 	stats["laser_ms_max"] = maxf(stats["laser_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
 	if main.fx and first > 0:
 		main.fx.block_break(Vector3i(at.floor()), first)
+	Sound.play("sim/sizzle", at)
 
 
 ## Emptied cells just inside a sphere's rim, around the beam: their faces touch what is left on
@@ -191,6 +192,7 @@ func _crater(hit: VoxelRaycastResult, from: Vector3, radius_m: float) -> bool:
 	if main.bubble.blast(at, r) <= 0:
 		return false
 	stats["craters"] += 1
+	Sound.play("sim/blast", at, {"db": clampf(radius_m - 3.0, -4.0, 4.0)})
 	if main.fx and first > 0:
 		main.fx.block_break(hit.position, first)
 	if main.pieces:
@@ -216,6 +218,7 @@ func _bomb(hit: VoxelRaycastResult, from: Vector3, dir: Vector3, material: Strin
 	if main.bubble.blast(at, r, mat) <= 0:
 		return false
 	stats["bombs"] += 1
+	Sound.play("sim/explosion", at, {"db": -6.0, "pitch": 1.3})
 	return true
 
 
