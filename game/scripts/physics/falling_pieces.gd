@@ -151,6 +151,7 @@ func stats() -> Dictionary:
 		return {}
 	var s := rp.get_stats()
 	return {"pieces": s["pieces"], "spawned": s["spawned"], "settled": s["settled"], "broken": s["crushed"], "shed": s["shed"],
+		"decayed": s.get("decayed", 0), "max_decay_ms": snappedf(s.get("max_decay_ms", 0.0), 0.01),
 		"snapped": s["snapped"], "max_check_ms": snappedf(s["max_check_ms"], 0.01), "max_step_ms": snappedf(s["max_step_ms"], 0.01),
 		"max_settle_ms": snappedf(s["max_settle_ms"], 0.01), "max_job_ms": snappedf(s["max_job_ms"], 0.01), "tick_ms_max": snappedf(tick_ms_max, 0.01),
 		"tick_parts_max_ms": _parts_max, "track_m": track, "made": s.get("made", []), "rest": s.get("rest", [])}

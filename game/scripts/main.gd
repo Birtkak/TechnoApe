@@ -1188,7 +1188,7 @@ func _place_debug_stations() -> void:
 
 
 func _on_item_dropped(stack: Dictionary, from: Vector3, velocity: Vector3) -> void:
-	spawn_item(stack, from, velocity, Settings.item_pickup_delay_s * 3.0)
+	spawn_item(stack, from, velocity, Settings.item_pickup_delay_s * 2.0).throw()
 
 
 func _on_inventory_toggled(open: bool) -> void:
@@ -1215,7 +1215,7 @@ func _on_died() -> void:
 func spawn_item(stack: Dictionary, pos: Vector3, velocity: Vector3 = Vector3.ZERO, extra_delay: float = 0.0) -> ItemEntity:
 	var e := ItemEntity.create(items, stack, world.prop_material)
 	e.position = pos
-	e.age = -extra_delay
+	e.pickup_delay += extra_delay   # (was a negative age, which also held a thrown item in the air that long)
 	e.set_initial_velocity(velocity)
 	e.world = world
 	_items_root.add_child(e)

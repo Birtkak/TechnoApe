@@ -338,19 +338,25 @@ func _drain_push(budget_ms: float) -> void:
 			break
 		if interval > 0 and now - int(_last_push.get(wc, -100000)) < interval:
 			continue   # pasted moments ago: let more changes pile up, one remesh instead of several
-		_push_one(wc)
+		if not _push_one(wc):
+			continue   # its terrain block streamed out: keep it until it is back or leaves the window
 		_last_push[wc] = now
 		done.append(wc)
 	for wc in done:
 		_push_queue.erase(wc)
 
 
-func _push_one(wc: Vector3i) -> void:
+## False while the chunk's terrain is not loaded: a paste there is dropped, and an edit to a block
+## that unloads before godot_voxel flushes it used to crash the game (bug report 2026-10-24).
+func _push_one(wc: Vector3i) -> bool:
 	if not is_chunk_in_window(wc - origin):
-		return   # left the window (flushed on the move already)
+		return true   # left the window (flushed on the move already)
+	if not world.is_area_loaded(wc):
+		return false
 	world.write_chunk(wc, sim.get_chunk_bytes(wc - origin, 2))
 	chunks_pushed += 1
 	_frame_cost()["pushed"] += 1
+	return true
 
 
 ## Before moving by d: push everything queued that is about to leave the

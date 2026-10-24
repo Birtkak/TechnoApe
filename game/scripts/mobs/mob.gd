@@ -142,7 +142,7 @@ func _apply_size() -> void:
 	_height_v = Settings.m2v(float(s[1])) * k
 	_body = VoxelBody.new(AABB(Vector3(-_half_v, 0, -_half_v), Vector3(_half_v * 2.0, _height_v, _half_v * 2.0)), Settings.m2v(0.55))
 	if model:
-		model.scale = Vector3.ONE * k
+		model.scale = Vector3.ONE * k * MobModel.UNIT
 		model.head.scale = Vector3.ONE * (1.45 if is_baby() else 1.0)   # babies have big heads
 
 

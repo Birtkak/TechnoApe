@@ -874,9 +874,15 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     case Mat::PUMPKIN:
                         if (lx >= 1 && lx <= 2 && lz >= 1 && lz <= 2) { veg = Mat::PUMPKIN; veg_h = 2; }
                         break;
-                    case Mat::BLUEBERRY_BUSH:
-                        if (lx < 3 && lz < 3 && (hv & 3) != 0) { veg = Mat::BLUEBERRY_BUSH; veg_h = 1 + (int)((hv >> 2) & 1); }
+                    case Mat::BLUEBERRY_BUSH: {
+                        // a rounded leafy dome filling the 0.5 m column: 4 voxels high in the middle, 2-3 at
+                        // the edges, a ragged 0-1 at the corners (a flat 3x3 patch did not read as a bush)
+                        const int ex = (lx == 0 || lx == 3) ? 1 : 0, ez = (lz == 0 || lz == 3) ? 1 : 0;
+                        const int edge = ex + ez;
+                        const int hh = edge == 0 ? 4 - (int)((hv >> 2) % 4 == 0) : (edge == 1 ? 2 + (int)((hv >> 2) & 1) : (int)((hv >> 2) & 1));
+                        if (hh > 0) { veg = Mat::BLUEBERRY_BUSH; veg_h = hh; }
                         break;
+                    }
                     default:
                         if (is_flower(kind)) {
                             if (centre) { veg = Mat::TALL_GRASS; veg_h = 2; veg_head = kind; }

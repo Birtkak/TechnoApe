@@ -79,3 +79,29 @@ func test_a_fallen_piece_settles_back_into_voxels() -> void:
 	assert_int(wood).is_less_equal(16 * 4 + 432)
 	# it lies down: nothing of it stands above 3 m any more
 	assert_int(sim.count_in_box(Vector3i(0, 24, 0), Vector3i(64, 64, 64), GameMaterials.WOOD)).is_equal(0)
+
+
+## Leaves left with no wood within reach fall as crumbs (bug report 2026-10-24: a laser cut through a
+## crown left a cloud of leaves in the air).
+func test_orphaned_leaves_fall() -> void:
+	var w := _world()
+	var sim: SimWorld = w[0]
+	var rp: RigidPieces = w[1]
+	sim.fill_box(Vector3i(20, 30, 20), Vector3i(27, 36, 27), GameMaterials.LEAVES)   # a crown whose branch was cut
+	sim.set_voxel(Vector3i(23, 29, 23), GameMaterials.AIR)
+	rp.check([Vector3i(23, 29, 23)], Vector3.ZERO)
+	assert_int(sim.count_in_box(Vector3i(0, 0, 0), Vector3i(64, 64, 64), GameMaterials.LEAVES)).is_equal(0)
+	assert_int(int(rp.get_stats()["decayed"])).is_equal(7 * 6 * 7)
+
+
+func test_leaves_near_wood_stay() -> void:
+	var w := _world()
+	var sim: SimWorld = w[0]
+	var rp: RigidPieces = w[1]
+	_pillar(sim, 12, false)
+	sim.fill_box(Vector3i(26, 34, 26), Vector3i(38, 40, 38), GameMaterials.LEAVES)
+	sim.fill_box(Vector3i(30, 34, 30), Vector3i(34, 40, 34), GameMaterials.WOOD)   # the trunk runs through them
+	var before := sim.count_in_box(Vector3i(0, 0, 0), Vector3i(64, 64, 64), GameMaterials.LEAVES)
+	sim.set_voxel(Vector3i(26, 37, 26), GameMaterials.AIR)   # a leaf at the crown's edge cut
+	rp.check([Vector3i(26, 37, 26)], Vector3.ZERO)
+	assert_int(sim.count_in_box(Vector3i(0, 0, 0), Vector3i(64, 64, 64), GameMaterials.LEAVES)).is_equal(before - 1)

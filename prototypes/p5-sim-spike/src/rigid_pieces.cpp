@@ -407,6 +407,7 @@ PackedInt32Array RigidPieces::check_cells(const std::vector<Vector3i> &p_cells, 
         make_piece(wood, mine, p_push_from, strength);
         make_ms += now_ms() - tm;
     }
+    if (strength) decay_orphan_leaves(p_cells);
     last_filled_ = filled;
     split_ms_[0] = t_fill - t0;
     split_ms_[1] = t_strength - t_fill;
@@ -415,6 +416,79 @@ PackedInt32Array RigidPieces::check_cells(const std::vector<Vector3i> &p_cells, 
     last_check_ms_ = now_ms() - t0;
     max_check_ms_ = std::max(max_check_ms_, last_check_ms_);
     return out;
+}
+
+// Leaves left with no wood (or ground) within leaf_reach through leaves fall as crumbs, like Minecraft's
+// leaf decay: a cut through a crown (the laser, a blast) left clouds of leaves hanging in the air
+// (bug report 2026-10-24). From the cut, leaves are explored to depth 2 * reach (so the wood of any
+// leaf within reach of the cut is inside the explored set), then measured from the wood; the
+// unreached ones within reach of the cut go, and become the next cut, until none go. A crown too big
+// to explore (cap) is left as it is: never drop leaves whose wood might lie just outside.
+void RigidPieces::decay_orphan_leaves(const std::vector<Vector3i> &p_cells) {
+    const double t0 = now_ms();
+    constexpr int EXPLORE_CAP = 120000, DECAY_CAP = 60000;
+    const int R = leaf_reach_;
+    std::vector<Vector3i> frontier = p_cells;
+    std::vector<int64_t> order, wq;
+    FlatMap depth, wd;
+    int total = 0;
+    while (!frontier.empty() && total < DECAY_CAP) {
+        depth.reset();
+        order.clear();
+        wq.clear();
+        bool capped = false;
+        for (const Vector3i &c : frontier)
+            for (int d = 0; d < 6; d++) {
+                const int x = c.x + DX[d], y = c.y + DY[d], z = c.z + DZ[d];
+                const int64_t k = key(x, y, z);
+                if (cls_at(x, y, z) == LEAF && depth.put(k, 1)) order.push_back(k);
+            }
+        for (size_t h = 0; h < order.size(); h++) {
+            if (order.size() > EXPLORE_CAP) { capped = true; break; }
+            int x, y, z;
+            unkey(order[h], x, y, z);
+            const int dd = *depth.get(order[h]);
+            bool held = false;
+            for (int e = 0; e < 6; e++) {
+                const int nx = x + DX[e], ny = y + DY[e], nz = z + DZ[e];
+                const uint8_t cl = cls_at(nx, ny, nz);
+                if (cl == WOOD || cl == GROUND) held = true;
+                else if (cl == LEAF && dd < 2 * R && depth.put(key(nx, ny, nz), dd + 1)) order.push_back(key(nx, ny, nz));
+            }
+            if (held) wq.push_back(order[h]);
+        }
+        if (capped) break;
+        wd.reset();
+        for (int64_t k : wq) wd.put(k, 1);
+        for (size_t h = 0; h < wq.size(); h++) {
+            const int dist = *wd.get(wq[h]);
+            if (dist >= R) continue;
+            int x, y, z;
+            unkey(wq[h], x, y, z);
+            for (int e = 0; e < 6; e++) {
+                const int64_t nk = key(x + DX[e], y + DY[e], z + DZ[e]);
+                if (depth.has(nk) && wd.put(nk, dist + 1)) wq.push_back(nk);
+            }
+        }
+        std::vector<Vector3i> next;
+        for (int64_t k : order) {
+            if (*depth.get(k) > R || wd.has(k)) continue;
+            int x, y, z;
+            unkey(k, x, y, z);
+            bool open;
+            const uint8_t m = mat_at(x, y, z, open);
+            crumbs_.push_back(x);
+            crumbs_.push_back(y);
+            crumbs_.push_back(z);
+            crumbs_.push_back(m);
+            set_at(x, y, z, 0);
+            next.push_back(Vector3i(x, y, z));
+        }
+        total += (int)next.size();
+        frontier = std::move(next);
+    }
+    decayed_ += total;
+    max_decay_ms_ = std::max(max_decay_ms_, now_ms() - t0);
 }
 
 // Max flow from the sources S (the wood just above a hole) to the ground through wood, one unit per
@@ -1251,6 +1325,8 @@ Dictionary RigidPieces::live_stats() const {
     d["hits_wood"] = hit_wood_;
     d["snapped"] = snapped_total_;
     d["torn"] = torn_;   // wood torn along strength splits
+    d["decayed"] = decayed_;   // orphaned leaves dropped as crumbs
+    d["max_decay_ms"] = max_decay_ms_;
     Array cl;
     for (const Vector4i &c : contact_log_) cl.push_back(c);
     d["contact_log"] = cl;   // the first 64 contacts: world cell, class * 10 + (1 inside, 2 at a face)

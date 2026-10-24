@@ -173,7 +173,8 @@ private:
     int last_paths_ = 0, last_region_ = 0, last_side_ = 0;
     double last_strength_ms_ = 0.0;
     double split_ms_[4] = {};
-    int hit_ground_ = 0, hit_wood_ = 0, snapped_total_ = 0, shed_ = 0, torn_ = 0;
+    int hit_ground_ = 0, hit_wood_ = 0, snapped_total_ = 0, shed_ = 0, torn_ = 0, decayed_ = 0;
+    double max_decay_ms_ = 0.0;
     float impact_k_ = 20.0f;              // impact_k * speed^2 (voxels/s) breaks a voxel of that hardness
     int max_leaf_points_ = 2000;
     PackedInt32Array breaks_;
@@ -233,6 +234,7 @@ private:
     Dictionary live_stats() const;
     const View *find_view(int id) const;
     bool strength_split(const std::vector<int64_t> &S, std::vector<int64_t> &piece);
+    void decay_orphan_leaves(const std::vector<Vector3i> &cells);
     // hinged: a cut (not a snapped limb) pivots on the edge of its base that faces the fall
     void make_piece(const std::vector<int64_t> &wood, const std::vector<int64_t> &leaves, Vector3 push_from, bool hinged);
     void hold_hinge(Piece &p, float dt);

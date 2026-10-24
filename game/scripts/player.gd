@@ -1216,8 +1216,9 @@ func _drop(whole: bool) -> void:
 	var stack := inventory.drop_held(whole)
 	if stack.is_empty():
 		return
-	var from := camera.global_position - camera.global_transform.basis.z * 0.5
-	var vel := -camera.global_transform.basis.z * Settings.m2v(Settings.drop_throw_speed_m) + Vector3(0, Settings.m2v(1.0), 0)
+	var from := camera.global_position - camera.global_transform.basis.z * Settings.m2v(0.3) - Vector3(0, Settings.m2v(0.25), 0)
+	# in blocks per second, the unit spawn_item takes (voxels per second here threw it 4x too fast)
+	var vel := (-camera.global_transform.basis.z * Settings.drop_throw_speed_m + Vector3(0, 1.0, 0)) / (Settings.BLOCK * Settings.VOXEL_M)
 	item_dropped.emit(stack, from, vel)
 	if viewmodel:
 		viewmodel.swing()

@@ -1,7 +1,7 @@
 class_name ItemEntity
 extends Node3D
 
-## A dropped stack lying in the world (ADR 0005): a tiny textured cube or the
+## A dropped stack lying in the world (ADR 0005): a small textured cube or the
 ## item's extruded sprite (a coloured card for items with neither) that falls, bobs, spins, merges with
 ## equal stacks nearby, is picked up by walking over it and despawns after
 ## Settings.item_despawn_s. Pure Minecraft behaviour; the matter inside is
@@ -12,12 +12,14 @@ extends Node3D
 ## tick), a small bounce, and sleep once at rest (re-checked 4 times a second
 ## so mining the block underneath drops it).
 
-const SIZE := 0.5 * Settings.BLOCK  # voxels (25 cm box, like vanilla's 0.25 m)
+const SIZE := 0.6 * Settings.BLOCK  # voxels (30 cm box; vanilla's is 0.25 m)
+const VISUAL := 0.8 * Settings.BLOCK   # drawn 40 cm across: at 25 cm a flint on sand was hard to find (bug report 2026-10-24)
 const BOUNCE := 0.15
 const SLEEP_SPEED := 0.05 * Settings.BLOCK   # voxels/s
 
 var stack := {}
 var age := 0.0
+var pickup_delay := Settings.item_pickup_delay_s
 var items: ItemRegistry
 var world: World          # voxel data for movement and the pop-out check
 var velocity := Vector3.ZERO
@@ -55,7 +57,7 @@ func _build(atlas_material: Material) -> void:
 		_visual.mesh = BlockMeshes.cube(mat_id, atlas_material)
 	else:
 		_visual.mesh = BlockMeshes.card(stack["id"])
-	_visual.scale = Vector3.ONE * 0.5 * Settings.BLOCK
+	_visual.scale = Vector3.ONE * VISUAL
 	_visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_visual)
 	_phase = randf() * TAU
@@ -70,7 +72,7 @@ func _process(delta: float) -> void:
 			frozen = false
 			velocity = _initial_velocity
 	_phase += delta
-	_visual.position.y = SIZE / 2.0 + (0.08 + sin(_phase * 2.0) * 0.06) * Settings.BLOCK   # mesh is centred, position is the box bottom
+	_visual.position.y = VISUAL / 2.0 + (0.08 + sin(_phase * 2.0) * 0.06) * Settings.BLOCK   # mesh is centred, position is the box bottom
 	_visual.rotation.y = _phase * 1.2
 
 
@@ -143,8 +145,14 @@ func _solid_at(p: Vector3) -> bool:
 	return ct == "solid" or ct == "powder"
 
 
+## Thrown from the player's hand: flies at once (the frozen wait is for a voxel just mined into air).
+func throw() -> void:
+	frozen = false
+	velocity = _initial_velocity
+
+
 func can_pickup() -> bool:
-	return age >= Settings.item_pickup_delay_s
+	return age >= pickup_delay
 
 
 func expired() -> bool:

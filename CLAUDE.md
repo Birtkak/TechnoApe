@@ -152,7 +152,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   furniture, 76..87 and 90..101 content passes, 88..89 work spots, 103..107 Flint Age, 108 leaf litter,
   109 cobblestone, 110 bricks.
   Atlas 8x13 tiles (84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
-  stones; 98 cobblestone, 99 bricks; 100..103 free; after editing `tools/make_atlas.py` run `--import`, or the game draws
+  stones; 98 cobblestone, 99 bricks; 100 blueberry bush; 101..103 free; after editing `tools/make_atlas.py` run `--import`, or the game draws
   the old texture). `"pattern": true` materials lay their tile over the grid, one texel per voxel (ADR 0039). Ground pickups are voxel shapes (stone chunks on a 0.5 m patch, sticks as `FineGen::STICK` stamps). `MicroMesher` builds the
   models of stations, furniture, work pieces, mobs and the ape at 6.25 cm cells; it winds triangles
   counter-clockwise, so pass its meshes through `MobModel.outward` (which reads an ArrayMesh back and

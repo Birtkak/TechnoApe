@@ -13,7 +13,7 @@ Tiles (index = row*4 + col):
 66-68 terracotta orange/red/cream 69 basalt top 70 basalt side 71 packed ice
 72 fern frond; 73 birch bark 74 birch top 75 birch leaves 76 blueberries
 77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84 leaf litter; 85 oak bark; 86 pebbles 87 flint
-88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98 cobblestone 99 bricks (patterned, ADR 0039); 100-103 free (8x13)
+88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98 cobblestone 99 bricks (patterned, ADR 0039); 100 blueberry bush; 101-103 free (8x13)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -436,6 +436,7 @@ PAL = {
     "jungle_leaves": [("#3d9132", 5), ("#2f7a28", 4), ("#4ea33c", 3), ("#256622", 2)],
     "birch_leaves": [("#86ac4c", 5), ("#96bb58", 4), ("#75993f", 3), ("#a6c565", 2)],
     "fern": [("#4f9a3e", 5), ("#5daa48", 4), ("#3f8432", 3)],
+    "berry_bush": [("#3d7430", 5), ("#4a8538", 4), ("#2f5f26", 3), ("#58943f", 2), ("#3b4fb4", 2), ("#2a3a8e", 1)],
     "basalt": [("#4a4a50", 5), ("#3e3e44", 4), ("#56565c", 3), ("#333338", 2)],
     "packed_ice": [("#8cb0de", 5), ("#9cbce4", 4), ("#b0ccec", 3)],
     "ice": [("#aacdf0", 5), ("#bcd8f4", 4), ("#9cc0e6", 3), ("#d2e6fa", 1)],
@@ -626,6 +627,7 @@ tiles = [
     palette(PICKUP["twigs_bark"], 97),                        # 97 twigs sides (bark)
     cobblestone(),                                            # 98 cobblestone (patterned)
     bricks(),                                                 # 99 bricks (patterned)
+    palette(PAL["berry_bush"], 100),                          # 100 blueberry bush: leaves dotted with berries
 ]
 assert len(tiles) <= COLS * ROWS, len(tiles)
 

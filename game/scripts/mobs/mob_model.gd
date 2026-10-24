@@ -10,6 +10,10 @@ extends Node3D
 ## The animal faces +Z, feet at y = 0, in voxel units.
 
 const GRID := 16
+## The cells were laid out for the old 0.5 m voxel (16 cells = 50 cm, 3.1 cm each); since ADR 0033 a
+## voxel is 12.5 cm, so the model node is scaled by a block's worth of voxels (Mob._apply_size).
+## Unscaled, every animal was a quarter of its size (bug report 2026-10-24).
+const UNIT := float(Settings.BLOCK)
 const ATLAS := Vector2i(8, 2)
 
 # palette tiles (paint = tile + 1)
@@ -184,7 +188,7 @@ func _part(part: String, pos: Vector3) -> MeshInstance3D:
 	mi.mesh = _mesh(part)
 	mi.material_override = material()
 	mi.position = pos
-	mi.visibility_range_end = 120.0
+	mi.visibility_range_end = Settings.m2v(96.0)   # world units: 120 voxels hid animals past 15 m
 	add_child(mi)
 	return mi
 

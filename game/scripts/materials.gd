@@ -240,7 +240,7 @@ static func _content_pass2_defs() -> Array:
 	var birch_leaves := {"name": "birch_leaves", "cell_type": "solid", "rigid": "leaf", "density": 10, "hp": 20, "tiles": [75, 75, 75], "transparent": true}
 	birch_leaves.merge(plant_burn)
 	birch_leaves["generates_smoke"] = 6
-	var bush := {"name": "blueberry_bush", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [76, 29, 29], "transparent": false, "micro": "berry_bush"}
+	var bush := {"name": "blueberry_bush", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [100, 100, 100], "transparent": false, "micro": "berry_bush"}
 	bush.merge(plant_burn)
 	var pumpkin := {"name": "pumpkin", "cell_type": "solid", "density": 6, "hp": 60, "tiles": [78, 77, 77], "transparent": false}
 	_content2.append_array([birch, birch_leaves, bush, pumpkin])
@@ -530,9 +530,10 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 		if passable:
 			cube.collision_mask = 0
 			cube.set_mesh_collision_enabled(0, false)
-			if defs().find(d) + 1 in GROUND_PICKUPS:
+			if defs().find(d) + 1 in GROUND_PICKUPS or d.has("micro"):
 				# a box only the aim ray hits: sticks and stones are aimed at, dug and picked up whole,
-				# but walked through (ADR 0043)
+				# but walked through (ADR 0043); plants too, or the ray passes through grass, ferns and
+				# reeds into the ground and they never drop their fiber (bug report 2026-10-24)
 				cube.collision_aabbs = [AABB(Vector3.ZERO, Vector3.ONE)]
 				cube.collision_mask = MASK_TARGET
 		models.append(cube)

@@ -10,6 +10,27 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Build of 2026-10-24 late: your bug reports (crash, drops, animals, bushes, leaves, fiber)
+
+New world for the bushes (generator change). Not touched yet: water looks (a rework is planned),
+far trees.
+
+- [ ] The river crash: laser or dig next to a river until the water runs, then walk and fly
+      around. The game kept crashing in godot_voxel when water was written to terrain that had
+      just streamed out; that is patched (and the sim now waits until the terrain is loaded).
+- [ ] Knapping: bare hands do nothing ("Knap with a stone in hand"); flint or a loose stone in
+      hand chips.
+- [ ] Plant fiber: aim at tall grass, ferns or reeds and dig them (they are aimed at now, the ray
+      used to pass through them). Grass gives fiber 3 times in 10, reeds always.
+- [ ] Q drops: the item leaves your hand at once and lands a few metres ahead (it used to hang
+      in front of you for 1.6 s and then shoot off). Dropped items are bigger (40 cm).
+- [ ] Animals: sheep, pigs, chickens, bears at their real size (they were a quarter of it), and
+      visible further than 15 m.
+- [ ] Blueberry bushes: rounded leafy domes with blue berries, named "Blueberry Bush" when aimed at
+      (the "blue oak log" was one of these, aimed through).
+- [ ] Laser through a crown: leaves with no wood within 3 m fall away (crumbs); a tree's own
+      crown stays.
+
 ## Build of 2026-10-23 night: voxel world only, loading, textures (ADR 0036)
 
 Fixes your bug report (grey world that never loaded): the Settings screen still offered the old

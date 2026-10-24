@@ -49,6 +49,7 @@ func run(p_main: Node) -> void:
 	r["flint_used"] = flints - inv.inv.count_of("flint")
 	if k is KnapEntity:
 		main.work.choose(a, "knap_flint_axe_head")
+		main._hold("loose_stone")   # chipped with a stone in hand, never bare hands
 		var todo: int = k.remaining()
 		var clicks := 0
 		while main.blocks.at(a) == k and clicks < 200:

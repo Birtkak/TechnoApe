@@ -24,6 +24,7 @@ var _rng := RandomNumberGenerator.new()
 var _pan_at := Vector3i(-1, -1, -1)   # the bed voxel being panned
 var _pan_shakes := 0
 var _seal_accum := 0.0
+var _knap_hint_ms := -100000    # last "knap with a stone" hint (a held click repeats)
 var stats := {"placed": 0, "chips": 0, "clay_cells": 0, "finished": [], "kilns_lit": 0, "casts": 0, "sifts": 0,
 	"pans": 0, "scrapes": 0, "pits_lit": 0, "pits_charred": 0, "pits_burnt": 0, "seal_ms_max": 0.0,
 	"assembled": 0, "firepit_uses": 0, "smith_hits": 0, "smith_splits": 0, "smithed": 0,
@@ -470,6 +471,11 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 	return true
 
 
+## Vintage Story knaps with a stone in hand: flint or any loose stone (tag "rock"), never bare hands.
+static func knapping_stone(def: Dictionary) -> bool:
+	return def.get("id", "") == "flint" or "rock" in def.get("tags", [])
+
+
 ## Left click. True when it chipped (or aimed at) a knapping piece; sneaking
 ## (Shift) falls through to mining so a piece can be broken.
 func hit(hit_r: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool) -> bool:
@@ -489,6 +495,11 @@ func _hit(hit_r: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool
 		return true
 	if not (e is KnapEntity) or not e.has_recipe():
 		return false
+	if not knapping_stone(main.player_inv.held_def()):
+		if Time.get_ticks_msec() - _knap_hint_ms > 3000:
+			_knap_hint_ms = Time.get_ticks_msec()
+			_say("Knap with a stone in hand (flint or a loose stone)")
+		return true
 	var c = plane_cell(p, 1.0, from, dir)
 	if c == null:
 		return true
