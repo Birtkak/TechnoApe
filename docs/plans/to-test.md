@@ -85,7 +85,7 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
       stone with orange-green / dark brown / rust voxels). Digging one voxel picks up the whole thing.
 - [ ] Water: clear turquoise over the bed in the shallows, deep teal further out, no texture.
 
-## Prototype of 2026-10-24: falling trees (P12, start the game with `rigid_pieces=1`)
+## 2026-10-24: falling trees (P12, on by default; `rigid_pieces=0` turns them off)
 
 - [ ] `/fell pillar` on open ground: a log pillar with a leaf crown appears ahead and falls across
       your view; the crown bursts into leaves where it hits, the log stays lying as voxels.

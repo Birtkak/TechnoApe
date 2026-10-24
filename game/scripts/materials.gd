@@ -129,9 +129,20 @@ const SOLID_MICRO := ["wattle", "storage_pot"]   # micro models with full body c
 const MASK_TARGET := 2      # collision bit of boxes only the aim ray hits (VoxelBody uses bit 1, VoxelBody.MASK_SOLID)
 
 
+static var _defs := []
+
+
+## Every material definition (index = id - 1). Built once and shared: read it, never change it (it was
+## rebuilt on every call, and a 1 m dig called it per cell: 60 ms).
 ## "rigid": "wood" carries support and breaks off with what it holds (RigidPieces, P12);
 ## "leaf" hangs on wood and carries nothing.
 static func defs() -> Array:
+	if _defs.is_empty():
+		_defs = _build_defs()
+	return _defs
+
+
+static func _build_defs() -> Array:
 	return [
 		{"name": "stone", "cell_type": "solid", "density": 10, "hp": 1000, "tiles": [0, 0, 0], "transparent": false},
 		{"name": "dirt", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [1, 1, 1], "transparent": false},

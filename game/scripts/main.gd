@@ -28,7 +28,7 @@ var _save_accum := 0.0
 var _loading: LoadingScreen
 var startup_ms := {}   # ms since _ready began, per startup step (printed, and in DebugCapture's JSON)
 var farming: Farming                 # tilled farmland and crops (ADR 0022)
-var pieces: FallingPieces            # rigid voxel pieces (P12), null unless rigid_pieces=1
+var pieces: FallingPieces            # rigid voxel pieces (P12), null with rigid_pieces=0
 var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
 var _furniture_root: Node3D
@@ -293,6 +293,10 @@ func _ready() -> void:
 			_after_load(_debug_hands)
 		if DebugCapture.swim_test:
 			_after_load(_debug_swim)
+		if DebugCapture.chop_test != "":
+			_after_load(func() -> void:
+				await get_tree().create_timer(1.5).timeout
+				chat.send("/chop " + DebugCapture.chop_test.replace(",", " ").replace("1", "")))
 		if DebugCapture.fell_test != "":
 			_after_load(func() -> void:
 				await get_tree().create_timer(1.5).timeout

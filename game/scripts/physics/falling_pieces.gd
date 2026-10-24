@@ -8,7 +8,7 @@ extends Node3D
 ## up until the terrain paste shows its voxels, and turns what pieces break (leaves, snapped twigs)
 ## into break particles. The native work (finding pieces, physics, settling, meshes) runs on the sim's
 ## driver thread just before each sim tick (RigidPieces.set_async); this node queues it and collects
-## the results between ticks. Behind rigid_pieces=1 while it is a prototype.
+## the results between ticks. On by default; rigid_pieces=0 turns it off.
 
 const SETTLED_FRAMES := 30      # a settled piece's mesh stays this long, until the terrain paste shows its voxels
 const BREAKS_PER_TICK := 8      # break particles per simulation tick (a crown crashing down breaks thousands)
@@ -194,6 +194,33 @@ func _clusters(cols: Dictionary, step: int) -> Array:
 ## `around`, 2 m above its ground, falling across the line of sight (turned by `dir_deg`), so a camera
 ## at `around` sees it from the side. Returns {centre, columns, cut} or {}.
 func fell_nearest(around: Vector3, radius_m: float, dir_deg: float, world: World, min_m := 8.0) -> Dictionary:
+	var tr := find_trunk(around, radius_m, world, min_m)
+	if tr.is_empty():
+		return {}
+	var mid: Vector2 = tr["mid"]
+	var top: int = tr["top"]
+	var rad: float = tr["rad"] + 6.0   # the root flare and bark around the standing columns
+	var cells := []
+	for z in range(int(mid.y - rad), int(mid.y + rad) + 1):
+		for x in range(int(mid.x - rad), int(mid.x + rad) + 1):
+			if Vector2(x - mid.x, z - mid.y).length() > rad:
+				continue
+			for y in range(top + 16, top + 20):
+				var q := Vector3i(x, y, z)
+				var m := bubble.get_voxel(q)
+				if m > 0 and GameMaterials.defs()[m - 1].get("rigid", "") == "wood":
+					bubble.set_voxel(q, GameMaterials.AIR)
+					cells.append(q)
+	var sight := (mid - Vector2(around.x, around.z)).normalized()
+	var fall := Vector2(-sight.y, sight.x).rotated(deg_to_rad(dir_deg))
+	var from := Vector3(mid.x - 40.0 * fall.x, top + 18.0, mid.y - 40.0 * fall.y)
+	check(cells, from)
+	return {"centre": Vector3(mid.x, top, mid.y), "columns": tr["columns"], "cut": cells.size()}
+
+
+## Debug: the thickest standing trunk between `min_m` and `radius_m` from `around`: {mid (x, z), top
+## (highest ground under it), rad (voxels from mid to its outermost standing column), columns} or {}.
+func find_trunk(around: Vector3, radius_m: float, world: World, min_m := 8.0) -> Dictionary:
 	# every 4th column first (0.5 m; a trunk worth felling is wider), then every column of the best trunk
 	var r := int(Settings.m2v(radius_m))
 	var c := Vector3i(around.floor())
@@ -234,25 +261,34 @@ func fell_nearest(around: Vector3, radius_m: float, dir_deg: float, world: World
 		var gh: int = cols[p]
 		top = maxi(top, gh)
 	mid /= best.size()
-	var rad := 6.0
+	var rad := 0.0
 	for p: Vector2i in best:
-		rad = maxf(rad, (Vector2(p) - mid).length() + 6.0)
-	var cells := []
+		rad = maxf(rad, (Vector2(p) - mid).length())
+	return {"mid": mid, "top": top, "rad": rad, "columns": best.size()}
+
+
+## Debug (/chop): where a player with the biggest cube brush (1 m) digs to chop through a trunk 1.5 m
+## above its ground: the snapped brush cubes over its cross-section (bark included), nearest to `from`
+## first. Returns {centre, hits: [Vector3i aimed voxel per dig], size}.
+func chop_plan(tr: Dictionary, from: Vector3) -> Dictionary:
+	var size := 8
+	var mid: Vector2 = tr["mid"]
+	var top: int = tr["top"]
+	var rad: float = tr["rad"] + 2.0
+	var y := int(floor(float(top + Settings.m2v(1.5)) / size)) * size
+	var hits := []
+	var seen := {}
 	for z in range(int(mid.y - rad), int(mid.y + rad) + 1):
 		for x in range(int(mid.x - rad), int(mid.x + rad) + 1):
 			if Vector2(x - mid.x, z - mid.y).length() > rad:
 				continue
-			for y in range(top + 16, top + 20):
-				var q := Vector3i(x, y, z)
-				var m := bubble.get_voxel(q)
-				if m > 0 and GameMaterials.defs()[m - 1].get("rigid", "") == "wood":
-					bubble.set_voxel(q, GameMaterials.AIR)
-					cells.append(q)
-	var sight := (mid - Vector2(around.x, around.z)).normalized()
-	var fall := Vector2(-sight.y, sight.x).rotated(deg_to_rad(dir_deg))
-	var from := Vector3(mid.x - 40.0 * fall.x, top + 18.0, mid.y - 40.0 * fall.y)
-	check(cells, from)
-	return {"centre": Vector3(mid.x, top, mid.y), "columns": best.size(), "cut": cells.size()}
+			var cell := Vector2i(floori(float(x) / size) * size, floori(float(z) / size) * size)
+			if not seen.has(cell):
+				seen[cell] = true
+				hits.append(Vector3i(cell.x + size / 2, y + size / 2, cell.y + size / 2))
+	hits.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return Vector2(a.x - from.x, a.z - from.z).length_squared() < Vector2(b.x - from.x, b.z - from.z).length_squared())
+	return {"centre": Vector3(mid.x, top, mid.y), "hits": hits, "size": size}
 
 
 ## Debug (/fell pillar): an oak log pillar (1 m square, 8 m tall, a leaf crown) on the ground 12 m

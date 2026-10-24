@@ -158,3 +158,17 @@ Still open:
   loaded check per neighbour) is most of it.
 - A frame over budget in a real chop could still come from the terrain remesh of thousands of broken
   leaves; the break budget bounds it per tick but it was not measured with a player's chop.
+
+## Out of the flag (2026-10-24)
+- `/chop [cam]` chops like a player: 1 m brush cubes (the biggest brush) over the trunk's cross-section
+  1.5 m up, one every 0.3 s, through `Main._on_dug`. The old oak falls after 4 digs, the same piece as
+  `/fell` (5 868 wood + 40 055 leaves), rests at 49 deg on its crown.
+- A 1 m dig into wood cost **16-63 ms** on the main thread before P12 ever ran: `GameMaterials.defs()`
+  rebuilt the whole material table (about 110 dictionaries) on every call, and `_on_dug` called it per
+  cell through `is_plain_voxel`. It is built once now (a static cache, like `_content_pass2_defs`): a 1 m
+  dig costs 1.0-1.8 ms, `/chop`'s trunk scan 30 ms (was 110 ms for `/fell`), and every other per-voxel
+  `defs()` caller got the same speedup.
+- Chop run in the forest: p99 6.55 ms, one frame over 16.7 ms (the `/chop` command's own GDScript
+  trunk scan). Standard budget run (`autopilot=1 duration=20`) with pieces on: `budget_ok` true,
+  p99 3.35 ms, max 12.35 ms.
+- `Settings.rigid_pieces` is on by default; `rigid_pieces=0` turns it off.

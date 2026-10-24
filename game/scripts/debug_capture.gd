@@ -45,7 +45,8 @@ var hands_test := false # hands_test=1: till, sow, chair, bed, feed, shear, kill
 var menu_test := false   # menu_test=1: title, worlds, Esc menu, settings, save and reload a world (ADR 0032, JSON line "debug menu_test")
 var _menu_test: MenuTest
 var flint_age_test := false # flint_age_test=1: hides, charcoal pit, pan, spear, torches, shelter, bed, pot, bag, stew (ADR 0030, JSON line "debug flint_age")
-var fell_test := ""         # fell_test=<deg>[,cam]: 1.5 s after loading, /fell <deg> [cam] (P12 rigid pieces; needs rigid_pieces=1)
+var chop_test := ""         # chop_test=1[,cam]: 1.5 s after loading, /chop [cam] (P12 rigid pieces)
+var fell_test := ""         # fell_test=<deg>[,cam]: 1.5 s after loading, /fell <deg> [cam] (P12 rigid pieces)
 var stone_age_test := false # stone_age_test=1: knap, form clay, pit kiln, firepit, cast, sieve through the player's clicks (ADR 0023, JSON line "debug stone_age")
 var mob_spawning := true # mob_spawn=0: no herds spawn as land loads (benchmarks without animals)
 var _blast_accum := 0.0
@@ -144,6 +145,7 @@ func _ready() -> void:
 	hands_test = args.get("hands_test", "0") == "1"
 	swim_test = args.get("swim_test", "0") == "1"
 	fell_test = args.get("fell_test", "")
+	chop_test = args.get("chop_test", "")
 	stone_age_test = args.get("stone_age_test", "0") == "1"
 	flint_age_test = args.get("flint_age_test", "0") == "1"
 	menu_test = args.get("menu_test", "0") == "1"

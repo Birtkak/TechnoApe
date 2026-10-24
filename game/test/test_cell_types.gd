@@ -52,3 +52,12 @@ func test_noita_spelling_still_reads_as_powder() -> void:
 	var w := _world(defs)
 	_pour(w)
 	assert_int(w.count_in_box(Vector3i(10, 2, 22), Vector3i(15, 6, 27), GameMaterials.SAND)).is_greater(0)
+
+
+## defs() is built once and shared: rebuilt per call, a 1 m dig (512 cells, one call each) cost 60 ms.
+func test_material_table_is_built_once() -> void:
+	assert_bool(is_same(GameMaterials.defs(), GameMaterials.defs())).is_true()
+	var t0 := Time.get_ticks_usec()
+	for i in 1000:
+		GameMaterials.is_plain_voxel(GameMaterials.WOOD)
+	assert_int(Time.get_ticks_usec() - t0).is_less(5000)   # 1000 lookups under 5 ms

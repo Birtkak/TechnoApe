@@ -71,7 +71,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
 		_quests, [["list", "complete", "reset"], _quest_ids])
 	reg.register("cam", "/cam [off | <x> <y> <z> [<look_x> <look_y> <look_z>]]", "Free camera: flies anywhere while you, the terrain detail and the simulation stay put", _cam_cmd)
-	reg.register("fell", "/fell [direction_deg|pillar] [cam]", "Fell the thickest tree 8-20 m away, across your view (rigid_pieces=1)", _fell)
+	reg.register("chop", "/chop [cam]", "Chop through the nearest big trunk 8-20 m away like a player would: 1 m brush digs at 1.5 m up, one every 0.3 s", _chop)
+	reg.register("fell", "/fell [direction_deg|pillar] [cam]", "Fell the thickest tree 8-20 m away, across your view", _fell)
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 	var atmo: Node = main.get("atmosphere") if main != null else null
 	if atmo != null:
@@ -534,9 +535,37 @@ func _vantage(c: Vector3, away: Vector3) -> Dictionary:
 	return best
 
 
+func _chop(args: PackedStringArray) -> Dictionary:
+	if main == null or player == null or main.pieces == null:
+		return CommandRegistry.fail("Rigid pieces are off (started with rigid_pieces=0)")
+	var tr: Dictionary = main.pieces.find_trunk(player.position, 20.0, main.world)
+	if tr.is_empty():
+		return CommandRegistry.fail("No standing trunk 8-20 m away")
+	var plan: Dictionary = main.pieces.chop_plan(tr, player.position)
+	var c: Vector3 = plan["centre"]
+	var eye: Vector3 = player.camera.global_position
+	var look: Vector3 = c + Vector3(0, Settings.m2v(5.0), 0) - eye
+	player._yaw = atan2(-look.x, -look.z)
+	player._pitch = atan2(look.y, Vector2(look.x, look.z).length())
+	player._apply_look()
+	if args.has("cam"):
+		var v: Dictionary = _vantage(c, Vector3(eye.x - c.x, 0.0, eye.z - c.z).normalized())
+		if not v.is_empty():
+			_debug_cam().enable(v["at"], c + Vector3(0, Settings.m2v(8.0), 0))
+	_chop_run(plan)
+	return CommandRegistry.ok("Chopping a trunk of %d columns: %d digs" % [tr["columns"], plan["hits"].size()])
+
+
+func _chop_run(plan: Dictionary) -> void:
+	for hit: Vector3i in plan["hits"]:
+		await main.get_tree().create_timer(0.3).timeout
+		var cells := Brush.dig_cells(hit, plan["size"], "cube")
+		main._on_dug(cells, [], Vector3(hit) + Vector3(0.5, 0.5, 0.5))
+
+
 func _fell(args: PackedStringArray) -> Dictionary:
 	if main == null or player == null or main.pieces == null:
-		return CommandRegistry.fail("Rigid pieces are off (start with rigid_pieces=1)")
+		return CommandRegistry.fail("Rigid pieces are off (started with rigid_pieces=0)")
 	var deg := float(args[0]) if args.size() > 0 and args[0].is_valid_float() else 0.0
 	var with_cam := args.has("cam")
 	var t: Dictionary

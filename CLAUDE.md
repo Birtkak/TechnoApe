@@ -121,7 +121,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   bulk), ages into GregTech, hunger + temperature + spoilage, biting wildlife and dangerous places (calm
   surface, combat a side system), patterned voxels for built materials, structures / dungeons / cave
   biomes / roads / traders, new systems keep state server-side. Magic is decided in Phase 3.
-  **Rigid pieces (P12, `rigid_pieces=1`):** `RigidPieces` (technosim) cuts loose wood (support fill, max-flow
+  **Rigid pieces (P12, on by default, `rigid_pieces=0` turns them off):** `RigidPieces` (technosim) cuts loose wood (support fill, max-flow
   strength, hardness breaking), flies it and settles it back into voxels. It runs on the sim's driver thread before each
   tick (`set_async`; `get_voxel` does not wait for that phase); a forest felling holds p99 7.2 ms, the main thread pays
   ~2 ms (`prototypes/p12-rigid-pieces/README.md`). Trees never weld (FineGen gap).

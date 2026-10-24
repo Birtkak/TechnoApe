@@ -74,7 +74,7 @@ var torch_light_radius_m := 48.0        # torches farther from the player than t
 var pan_shakes := 6                     # right clicks to wash one pan of sand or gravel
 
 # Particles (ADR 0026): two GPU pools, every particle emitted by script
-var rigid_pieces := false               # rigid_pieces=1: cut-loose trees and limbs fall as rigid bodies (P12, ADR 0037; prototype)
+var rigid_pieces := true                # cut-loose trees and limbs fall as rigid bodies (P12, ADR 0037); rigid_pieces=0 turns it off
 var particles := true                   # particles=0 turns every effect off (benchmarks against the old game)
 var particle_pool_chips := 2048         # block chips alive at once at most
 var particle_pool_sprites := 6144       # smoke, splashes, hearts, waterfall spray...

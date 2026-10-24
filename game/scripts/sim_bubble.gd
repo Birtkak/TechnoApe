@@ -32,7 +32,7 @@ var _tick_accum := 0.0
 var _pending := {}
 var _player := Vector3.ZERO
 var _ready := false
-var pieces: FallingPieces          # rigid voxel pieces (P12), null unless rigid_pieces=1
+var pieces: FallingPieces          # rigid voxel pieces (P12), null with rigid_pieces=0
 
 # stats for the HUD / capture
 var last_tick_ms := 0.0
