@@ -112,6 +112,9 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=90 flin
 #       and wears an axe out; prints "debug craft {...}" (every field true) and saves craft_*.png (craft_shots=0 skips them,
 #       and then it also runs with --headless); chat: /kit smith
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=60 craft_test=1 mob_spawn=0 vsync=0 out=res://out/craft
+# Reservoirs (ADR 0045): water_test=1 next to a river digs a trench into its bank and checks it fills to the river's level,
+#       nothing above, the river kept its level, the sim went quiet; prints "debug water {...}" (ok true), water_before/after.png
+Godot_..._console.exe --path game -- autopilot=1 target=river walk=1 speed=0 duration=50 mob_spawn=0 load_cap_s=30 water_test=1 out=res://out/water
 # Menus (ADR 0032): the title screen is the main scene; autopilot=1 or play=1 skip it (play=1 seed=... starts that
 #       world directly). menu_test=1 drives title -> new world -> settings -> play -> Esc pause -> preset applied live ->
 #       save and quit -> reload (inventory and position kept) -> delete; prints "debug menu_test {...}".

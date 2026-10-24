@@ -82,6 +82,7 @@ SimWorld::SimWorld() {
 SimWorld::~SimWorld() { stop_driver(); pool_.shutdown(); }
 
 void SimWorld::_bind_methods() {
+    ClassDB::bind_integer_constant(get_class_static(), StringName(), "RESERVOIR_REACH", RESERVOIR_REACH);
     ClassDB::bind_method(D_METHOD("configure", "chunks", "threads", "seed"), &SimWorld::configure);
     ClassDB::bind_method(D_METHOD("set_materials", "defs"), &SimWorld::set_materials);
     ClassDB::bind_method(D_METHOD("set_reactions", "reactions"), &SimWorld::set_reactions);
@@ -630,6 +631,88 @@ void SimWorld::try_loosen(int x, int y, int z, int i, Ctx &c) {
     mark_cell(x, y, z, c, false);
 }
 
+bool SimWorld::same_reservoir(int x, int y, int z, int slot) const {
+    if (!is_open(x, y, z)) return false;
+    const MaterialDef &t = mats_[cells_[idx(x, y, z)].mat];
+    return t.liquid_static && t.cell_type == CELL_LIQUID && t.fluid_slot == slot;
+}
+
+// Reservoirs (ADR 0045): generated water (rivers, lakes, the sea: liquid_static) never drains; an opening
+// dug, blasted or cut beside or under it fills with reservoir water instead, Minecraft-style but still:
+// filled cells (FLAG_FILLED, aux = their distance from the generated water) fill straight down through air
+// (a breach becomes a column to the floor below) and sideways over anything but the reservoir's own
+// generated cells, up to RESERVOIR_REACH cells out, then rest. Rivers slope, so without the reach an
+// upstream stretch would flood every valley below it; and air over a river's own lower stretch (each
+// 12.5 cm step of its surface) is never an opening, or every river would spread forever. Generated water
+// only answers a fresh opening (changed this or last tick), then stays awake (FLAG_SHAKEN) until it has
+// nothing left to fill: after a reload, filled water reads as generated and must not creep further.
+// Moving liquid of its kind in an opening is taken over; moving liquid that comes to rest on the
+// reservoir joins it (update_liquid), so what pours in does not pile up.
+void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
+    const uint8_t self = cells_[i].mat;
+    const MaterialDef &md = mats_[self];
+    if (md.fluid_slot < 0) return;
+    const uint8_t flow = (uint8_t)slot_material_[md.fluid_slot];
+    const bool filled = (cells_[i].flags & FLAG_FILLED) != 0;
+    const bool awake = filled || (cells_[i].flags & FLAG_SHAKEN);
+    const int dist = filled ? cells_[i].aux : 0;
+    const uint16_t prev = (uint16_t)(stamp_ - 1);
+    bool fresh = false;
+    auto open_cell = [&](int nx, int ny, int nz) -> int {
+        if (!is_open(nx, ny, nz)) return -1;
+        const int ni = idx(nx, ny, nz);
+        if (moved_[ni] == stamp_) return -1;
+        const uint8_t t = cells_[ni].mat;
+        if (!open_air(t) && !(flow != 0 && t == flow)) return -1;
+        const uint16_t m = moved_[ni];   // 0: never changed (fresh loads, the stamp's wrap)
+        if (m != 0 && (m == prev || m == (uint16_t)(stamp_ - 2))) fresh = true;
+        return ni;
+    };
+    int tx[5], ty[5], tz[5], td[5], n = 0;
+    if (y > 0 && open_cell(x, y - 1, z) >= 0) { tx[n] = x; ty[n] = y - 1; tz[n] = z; td[n] = dist; n++; }
+    if (dist + 1 <= RESERVOIR_REACH)
+        for (int d = 0; d < 4; d++) {
+            const int nx = x + DX4[d], nz = z + DZ4[d];
+            const bool was_fresh = fresh;
+            if (open_cell(nx, y, nz) < 0) continue;
+            if (y > 0 && same_reservoir(nx, y - 1, nz, md.fluid_slot) && !(cells_[idx(nx, y - 1, nz)].flags & FLAG_FILLED)) {
+                fresh = was_fresh;   // air over its own generated cells: not an opening
+                continue;
+            }
+            tx[n] = nx; ty[n] = y; tz[n] = nz; td[n] = dist + 1; n++;
+        }
+    if (n > 0 && !awake) {
+        if (!fresh) n = 0;   // generated water only answers a fresh opening
+        else cells_[i].flags |= FLAG_SHAKEN;
+    }
+    if (n == 0) {
+        cells_[i].flags &= ~FLAG_SHAKEN;
+        // nowhere to fill: sleep, unless something it reacts with touches it (water on a sludge pool)
+        if (any_reactions_ && reactive_[self])
+            for (int d = 0; d < 6; d++) {
+                const int nx = x + NX6[d], ny = y + NY6[d], nz = z + NZ6[d];
+                if (!is_open(nx, ny, nz)) continue;
+                const uint8_t b = cells_[idx(nx, ny, nz)].mat;
+                if (react_lut_[self * MAX_MATERIALS + b] >= 0 || react_lut_[b * MAX_MATERIALS + self] >= 0) {
+                    mark_cell(x, y, z, c, false);
+                    break;
+                }
+            }
+        return;
+    }
+    mark_cell(x, y, z, c, false);   // somewhere to fill: stay awake
+    const uint32_t r = rnd(c);
+    if ((r & 0xFFFF) >= md.loosen) return;
+    const int k = ty[0] < y ? 0 : (int)((r >> 16) % (uint32_t)n);   // below first
+    const int ti = idx(tx[k], ty[k], tz[k]);
+    place(ti, self);
+    cells_[ti].flags = FLAG_FILLED;
+    cells_[ti].aux = (uint8_t)td[k];
+    moved_[ti] = stamp_;
+    mark_cell(tx[k], ty[k], tz[k], c, true);
+    c.moved++;
+}
+
 // v5: falling powders and liquids keep a velocity in aux (1/16 cell per tick) and move up to
 // MAX_DISP cells down per tick (the parity scheme allows < CS/2); landing clears it.
 // Returns true when the cell fell at least one cell.
@@ -671,6 +754,17 @@ void SimWorld::update_powder(int x, int y, int z, int i, Ctx &c) {
 }
 
 void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
+    // a reservoir's sink: moving liquid resting on reservoir liquid of its kind joins it (ADR 0045)
+    {
+        const MaterialDef &m = mats_[cells_[i].mat];
+        if (m.fluid_slot >= 0 && same_reservoir(x, y - 1, z, m.fluid_slot)) {
+            place(i, 0);
+            moved_[i] = stamp_;
+            mark_cell(x, y, z, c, true);
+            c.moved++;
+            return;
+        }
+    }
     if (fullness_) { update_liquid_fullness(x, y, z, i, c); return; }
     const uint8_t self = cells_[i].mat;
     const MaterialDef &m = mats_[self];
@@ -986,6 +1080,7 @@ void SimWorld::update_chunk(int ci) {
                     case CELL_SOLID: break;
                     case CELL_LIQUID:
                     case CELL_POWDER:
+                        if (md.liquid_static && md.cell_type == CELL_LIQUID) { reservoir(x, y, z, i, c); break; }
                         if (md.liquid_static && !(cells_[i].flags & FLAG_LOOSE)) { try_loosen(x, y, z, i, c); break; }
                         if (md.cell_type == CELL_POWDER) update_powder(x, y, z, i, c);
                         else update_liquid(x, y, z, i, c);
@@ -1245,6 +1340,7 @@ void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p
                 if (v >= (int)mats_.size()) v = 0;
                 const int ci = idx(x0 + x, y0 + y, z0 + z);
                 place(ci, (uint8_t)v);
+                moved_[ci] = 0;   // loaded, not changed: no stale stamp may read as a fresh opening
                 if (e) cells_[ci].pad = (uint8_t)e;
             }
     int ci = cidx(c.x, c.y, c.z);
@@ -1279,6 +1375,7 @@ void SimWorld::set_column_bytes(Vector3i c, int ncy, const PackedByteArray &p_by
                     if (v >= (int)mats_.size()) v = 0;
                     const int ci = idx(x0 + x, y0 + y, z0 + z);
                     place(ci, (uint8_t)v);
+                    moved_[ci] = 0;
                     if (e) cells_[ci].pad = (uint8_t)e;
                 }
         const int ci = cidx(c.x, cy, c.z);

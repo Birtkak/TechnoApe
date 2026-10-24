@@ -1156,7 +1156,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     const bool inland = hy.lake || hy.river > 0.0f || hy.marsh || side_fill;
                     if (wy + step >= water_level && cold && (hy.lake || hy.marsh)) mat = Mat::ICE;
                     else if (wy + step >= water_level && !inland && technosim_biome::SURFACE_ICE[col.biome] >= 0) mat = (uint16_t)technosim_biome::SURFACE_ICE[col.biome];
-                    else mat = inland ? Mat::WATER_STATIC : Mat::WATER;
+                    else mat = Mat::WATER_STATIC;   // rivers, lakes and the sea are reservoirs (ADR 0045)
                 } else if (hy.fall_top * FS > wy) {
                     mat = Mat::WATER_STATIC;   // waterfall sheet hanging from the lip
                 } else if (far_canopy && wy < far_top) {

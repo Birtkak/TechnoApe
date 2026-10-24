@@ -144,7 +144,8 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   `Inventory.make_stack`. `craft_test=1` checks it all (headless with `craft_shots=0`).
   **Water look (ADR 0045):** godot_voxel fluid patch (`voxel_patch_fluid.py`: corners next to open air drop, steps
   become ramps), FineGen rivers interpolated per voxel and their trenches and low banks filled; `tools/water_surface_probe.gd`
-  counts holes and glass edges. Next: settle still water in the sim, open bubble edges for rivers.
+  counts holes and glass edges. Generated water (rivers, lakes, sea) is a reservoir in the sim (`SimWorld::reservoir`):
+  it fills what is opened beside or under it, still, up to 3 m out, and never drains; `water_test=1 target=river` checks it.
   **Held right clicks (ADR 0043):** ground pickups are whole pieces (`GroundPickups`): aimable (aim-only box), a dig takes the
   whole stick, a 1 s held right click pops it into an item on the ground; firepit moves are held too (`hold_key`/`hold_done`).
   **Sound (ADR 0044):** the `Sound` autoload (`GameAudio`, `scripts/audio/`) plays `data/sounds.json` (material groups,

@@ -48,6 +48,8 @@ var flint_age_test := false # flint_age_test=1: hides, charcoal pit, pan, spear,
 var later: PackedStringArray = []   # later=/a;wait 1.5;/b: chat commands after loading, in order ("wait <s>" pauses)
 var chop_test := ""         # chop_test=1[,cam]: 1.5 s after loading, /chop [cam] (P12 rigid pieces)
 var fell_test := ""         # fell_test=<deg>[,cam]: 1.5 s after loading, /fell <deg> [cam] (P12 rigid pieces)
+var water_test := false     # water_test=1 (with target=river): dig a trench into the bank, check it fills to the river's level (ADR 0045, JSON line "debug water")
+var water_shots := true     # water_shots=0: no screenshots in the water test
 var craft_test := false     # craft_test=1: assemble an axe, work a firepit by hand, smith a hammer head, wear a tool out (ADR 0042, JSON line "debug craft")
 var stone_age_test := false # stone_age_test=1: knap, form clay, pit kiln, firepit, cast, sieve through the player's clicks (ADR 0023, JSON line "debug stone_age")
 var mob_spawning := true # mob_spawn=0: no herds spawn as land loads (benchmarks without animals)
@@ -152,6 +154,8 @@ func _ready() -> void:
 	stone_age_test = args.get("stone_age_test", "0") == "1"
 	flint_age_test = args.get("flint_age_test", "0") == "1"
 	craft_test = args.get("craft_test", "0") == "1"
+	water_test = args.get("water_test", "0") == "1"
+	water_shots = args.get("water_shots", "1") != "0"
 	menu_test = args.get("menu_test", "0") == "1"
 	if args.has("voxel_threads"):   # godot_voxel worker threads for this run (project default: voxel/threads/count)
 		VoxelEngine.set_thread_count(int(args["voxel_threads"]))

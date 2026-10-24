@@ -43,6 +43,7 @@ var work: WorkSystem                 # knapping, clay forming, pit kilns, firepi
 var _stone_age_test: StoneAgeTest
 var _flint_age_test: FlintAgeTest
 var _craft_test: CraftTest
+var _water_test: WaterTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
@@ -332,6 +333,10 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_craft_test = CraftTest.new()
 				_craft_test.run(self))
+		if DebugCapture.water_test:
+			_after_load(func() -> void:
+				_water_test = WaterTest.new()
+				_water_test.run(self))
 		if DebugCapture.scatter_items:
 			# one entity per given item, in a row two metres ahead, so a screenshot shows them
 			var fwd := -player.camera.global_transform.basis.z

@@ -39,7 +39,11 @@ public:
     // moves like its loose kind (Noita's static -> dynamic) until something places it again.
     // FLAG_SHAKEN: static ground that saw a fresh opening; it keeps rolling its loosen chance while the
     // opening stays open (crumbles over time instead of only on the tick of the change).
-    enum Flags : uint8_t { FLAG_BURNING = 1, FLAG_LOOSE = 2, FLAG_SHAKEN = 4 };
+    // FLAG_FILLED: reservoir liquid that filled an opening (ADR 0045), aux = its distance from the
+    // generated water; more may spread over it, while a reservoir never spreads over its own generated
+    // cells (each step of a river surface). FLAG_SHAKEN on generated reservoir liquid: it saw a fresh
+    // opening and fills until there is none.
+    enum Flags : uint8_t { FLAG_BURNING = 1, FLAG_LOOSE = 2, FLAG_SHAKEN = 4, FLAG_FILLED = 8 };
     static constexpr int CS = 16;
     static constexpr int MAX_MATERIALS = 256;
     static constexpr int MAX_DISP = 7; // must stay < CS/2 for the parity scheme
@@ -48,6 +52,7 @@ public:
     // cell keeps its material id. get_chunk_bytes / set_chunk_bytes (2 bytes) encode and
     // decode it, so the terrain shows the fullness and a reload restores it.
     static constexpr int FLUID_LEVEL_BASE = 256;
+    static constexpr int RESERVOIR_REACH = 24;   // cells (3 m) reservoir water fills sideways from its body (ADR 0045)
 
     struct MaterialDef {
         uint8_t cell_type = CELL_GAS; // air default
@@ -310,6 +315,8 @@ private:
     inline bool try_move(int sx, int sy, int sz, int tx, int ty, int tz, Ctx &c);
     bool fall(int x, int y, int z, int i, Ctx &c);
     void try_loosen(int x, int y, int z, int i, Ctx &c);
+    void reservoir(int x, int y, int z, int i, Ctx &c);
+    bool same_reservoir(int x, int y, int z, int slot) const;
     void update_powder(int x, int y, int z, int i, Ctx &c);
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);

@@ -39,7 +39,10 @@ New world for the bushes and the water (generator change, `GEN_VERSION` 14). Not
 **Water (ADR 0045)**: `/goto river`, `/goto lake`
 - [ ] Rivers are one continuous sheet that steps down 12.5 cm at a time (soft ramps), no glass walls
       at the steps and no "holes" along the banks: the water reaches the bank everywhere.
-- [ ] Dig a pocket beside a pond: the water should run into it (the simulation wakes next to a dig).
+- [ ] Dig a trench into a river bank or beside a pond: it fills up to the water's level and the river
+      stays full (rivers, lakes and the sea never drain). A breach under a lake pours down; the water
+      spreads at most 3 m from the lake and then rests.
+- [ ] Throw a water bomb into a lake: it disappears into the lake instead of piling up.
 - [ ] Still there, not mine: small dark pinwheels on the water are underwater plants poking through.
 
 - [ ] The river crash: laser or dig next to a river until the water runs, then walk and fly

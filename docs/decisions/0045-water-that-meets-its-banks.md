@@ -1,6 +1,6 @@
 # ADR 0045: Water that meets its banks (Lay of the Land look)
 
-Status: accepted (2026-10-24)
+Status: accepted (2026-10-24, reservoirs 2026-10-25)
 
 ## Context
 The developer, after playing (bug report 2026-10-24): "water still is blocky and ugly, not flowing and
@@ -35,7 +35,30 @@ What made the holes, measured with `tools/water_surface_probe.gd` (seed 21168547
    interpolated level fills up to it as static water over a lake bed (river trenches, low banks):
    generated water is placed already settled, near and at the horizon alike.
 
-`GEN_VERSION` 14 (with the round blueberry bushes of the same day).
+4. **Reservoirs** (`SimWorld::reservoir`, decided by the developer 2026-10-25 over drainable water).
+   Generated water (rivers, lakes and now the sea: all `water_static`) never drains; it fills what is
+   opened beside or under it, and moving water that comes to rest on it joins it. Everything else
+   (spills, bombs, what breaks loose) stays mass-conserving Noita water. Why not keep the sim's
+   mass-conserving water for world water too, with the bubble's edges open (the first plan): the
+   bubble follows the player and writes its state back to the terrain, so a river that drains or
+   refills while awake is baked in half-empty when the player walks on, and the woken stretch meets
+   frozen water at the bubble's edge.
+   - The developer's rule: only liquid that touches air beside or below it is simulated, until only
+     its top touches air. A reservoir cell is awake exactly then; it fills the opening instead of
+     moving (the cell it left would be the next opening, and the river would drain cell by cell).
+   - Filled cells are reservoir water too (`FLAG_FILLED`, `aux` = distance from the generated water):
+     still, so a trench or pocket is as quiet as the lake once full. They fill straight down through
+     air and sideways over anything but the reservoir's own generated cells, up to
+     `RESERVOIR_REACH` = 24 cells (3 m), like Minecraft's 7 blocks: rivers slope, so without a reach an
+     upstream stretch floods every valley below it (the first try never let the loading screen lift).
+   - Air over a river's own lower stretch (each 12.5 cm step of its surface) is never an opening, or
+     every river would spread forever. Generated water only answers a fresh opening (changed this or
+     the last two ticks; stamp 0 means never), then stays awake (`FLAG_SHAKEN`) until it is full:
+     after a reload, filled water reads as generated and must not creep further.
+   - A reservoir that touches something it reacts with stays awake (water on a sulfur cave's sludge
+     pool still cleans it).
+
+`GEN_VERSION` 14 (with the round blueberry bushes of the same day; the sea is `water_static` too).
 
 ## Measured
 - Glass edges in the report's 128 m square: 258 -> 3 (all one voxel, which the ramps cover); water
@@ -47,20 +70,24 @@ What made the holes, measured with `tools/water_surface_probe.gd` (seed 21168547
 - Budget run at a river (`target=river`, vsync off, no other Godot): p99 4.49 ms, max 6.52 ms,
   `budget_ok`.
 - Screenshots: `game/out/water_p13d/shots/` (before: the bug report's screenshot).
+- Reservoirs, `water_test=1 target=river` (the game finds the bank, digs a 12-cell trench 7 wide into
+  it from 0.5 m under the surface): the trench is 99-100 % full to the river's level after 12 s,
+  nothing above it, the river's column unchanged, nothing past the trench, 0 sim chunks awake after.
+  A 2 m blast into the river: 151 chunk pushes, sim quiet (the first, unlimited rule: 238 310 pushes
+  and a loading screen that never lifted). Budget runs at a river: p99 4.5-5.1 ms, max 10-14 ms (one
+  run had a single 18 ms render-thread stall while streaming, not the sim). Unit tests: breach,
+  pocket, river steps, pouring onto a lake, the reach, a reload (`test_sim_v6.gd`).
 
 ## Not done (next)
-- **Settle in the simulation.** Still water whose side is open could wake once when it enters the
-  sim bubble, run into the pocket and go static again, which would clean up whatever the generator
-  gets wrong near the player. Rivers cannot do that yet: a sloped surface in a mass-conserving
-  kernel drains downhill and piles up at the bubble's edge (the "huge effect" when a river woke on
-  2026-10-24). They need open edges: where a river crosses the bubble boundary, upstream refills
-  from the generator's level and downstream drains.
 - A flow animation down the ramps that reads at a distance; waterfalls (`fall_top`) still hang as
   static sheets.
+- Filled water stays when its source is cut off (Minecraft removes flowing water then): a dam does not
+  dry the trench behind it.
 
 ## Alternatives
 - Our own water mesher (a heightfield surface per chunk drawn by its own nodes): full control over
   the shape and the look, but it would have to follow godot_voxel's streaming and LODs out to 2 km.
   The patch gets the shape inside the existing meshing, LODs included.
-- Simulating every surface cell (the developer's question): too many cells at 12.5 cm and only near
-  the player, and without open edges it drains rivers. The generator places settled water instead.
+- Simulating every surface cell: too many cells at 12.5 cm, only near the player, and with mass
+  conserved it drains rivers. Only cells with an opening beside or under them are awake (point 4).
+- Drainable world water with open bubble edges: see point 4 (baked-in levels, seams at the edge).
