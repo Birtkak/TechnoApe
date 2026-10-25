@@ -103,11 +103,22 @@ func check_frost(now_days: float) -> Array:
 	return out
 
 
-## The crop at p dies: it leaves a dead plant and is no longer tracked (nothing drops).
+## The crop at p dies: it leaves a dead plant of the same shape and is no longer tracked (nothing drops).
+## Part C's multi-voxel crops (ADR 0053): the plant's cells come from Farming.stamp_of and _remove_crop
+## clears its parts; without them (one voxel per crop) the anchor is the whole plant.
 func kill(p: Vector3i) -> void:
 	var c: Dictionary = farming.crops[p]
-	farming.crops.erase(p)
-	farming.dirty = true
+	var alive: bool = farming.get_voxel.call(p) == farming.look_of(c["kind"], c["age"])
+	var cells: Dictionary = farming.stamp_of(p) if farming.has_method("stamp_of") else {Vector3i.ZERO: 0}
+	if farming.has_method("_remove_crop"):
+		farming._remove_crop(p)
+	else:
+		farming.crops.erase(p)
+		farming.dirty = true
 	stats["killed"] += 1
-	if farming.get_voxel.call(p) == farming.look_of(c["kind"], c["age"]):
-		farming.set_voxel.call(p, GameMaterials.id_of(DEAD_CROP))
+	if not alive:
+		return   # burnt or overwritten: nothing to paint
+	var dead := GameMaterials.id_of(DEAD_CROP)
+	for o: Vector3i in cells:
+		if o == Vector3i.ZERO or farming.get_voxel.call(p + o) == GameMaterials.AIR:
+			farming.set_voxel.call(p + o, dead)
