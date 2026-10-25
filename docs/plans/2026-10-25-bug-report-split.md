@@ -38,6 +38,10 @@ The split follows the code, so no two sessions edit the same native sources:
   `docs/plans/to-test.md` under one heading per part. Commit on your branch; merge order at the end:
   D, C, E, F, B, A (the native-heavy ones last, they rebuild the DLL from the merged tree).
 - Something in another part's files? Message that session instead of editing it.
+- **Merge notes** (hunks a part made in another part's files, to check when merging):
+  - D: an optional `only` parameter on `SimBubble.blast` (part A's file, for the world vacuum); two
+    sprites in `tools/make_item_sprites.py` (part C's file, just above "validate + write"). Regenerate
+    `data/item_sprites.json` after merging.
 
 ---
 
@@ -203,7 +207,9 @@ no new screens where the world can do it). Build the starred ones first; the res
   temperature (`Survival`); bone fish hooks, harpoon, antler pick.
 - ★ Spear-thrower (atlatl): throws the existing spear about twice as far and hard (`Projectiles`).
 - Keeping fire: tinder fungus holds an ember to carry fire; the Flint Age striker is flint + pyrite
-  (flint and steel is Iron Age: part D is told).
+  under its own id (e.g. `pyrite_striker`). Part D keeps `flint_and_steel` as the Iron Age item (flint +
+  iron ingot); giving the striker `"ignites": true` and the `firestarter` tag makes it work with D's
+  fire code, no hook needed.
 - Ochre and cave painting: dig red/yellow ochre, grind it on a stone, mix with fat, paint hand stencils
   and animals onto walls as a patterned overlay; a quest.
 - Fat lamps: a hollowed stone with fat and a moss wick, a carried light for caves (part C does the
