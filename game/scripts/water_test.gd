@@ -1,7 +1,7 @@
 class_name WaterTest
 extends RefCounted
 
-## Debug (water_test=1, ADR 0045): reservoirs in the running game. From the river the autopilot stands
+## Debug (water_test=1, ADR 0045, 0049): still water in the running game. From the river the autopilot stands
 ## in (target=river), it finds the bank, digs a trench into it from 0.5 m under the surface up into the
 ## open air, and after a while measures how full the trench is up to the river's level, that nothing
 ## stands above that level, that the river kept its level, that the flood stayed within the reach and
@@ -93,17 +93,23 @@ func run(p_main: Node) -> void:
 		hi = hi.max(c)
 	main._debug_fill(lo, hi + Vector3i.ONE, GameMaterials.AIR)
 	var t0 := Time.get_ticks_msec()
-	await tree.create_timer(12.0).timeout
-	# up to the river's level the trench fills; above it, nothing
+	# up to the river's level the trench fills (checked every second, 20 s at most); above it, nothing
 	var below := 0
 	var below_water := 0
 	var above_water := 0
-	for c in cells:
-		if c.y <= top:
-			below += 1
-			below_water += 1 if _water(c) else 0
-		elif _water(c):
-			above_water += 1
+	for sec in 20:
+		await tree.create_timer(1.0).timeout
+		below = 0
+		below_water = 0
+		above_water = 0
+		for c in cells:
+			if c.y <= top:
+				below += 1
+				below_water += 1 if _water(c) else 0
+			elif _water(c):
+				above_water += 1
+		if float(below_water) / maxf(below, 1.0) >= 0.98:
+			break
 	r["trench_cells_to_level"] = below
 	r["trench_filled"] = below_water
 	r["trench_full_share"] = snappedf(float(below_water) / maxf(below, 1.0), 0.01)
@@ -111,7 +117,7 @@ func run(p_main: Node) -> void:
 	r["river_after"] = _count_water_column(river_probe)
 	# the reach: nothing beyond the trench end plus the reach (it ends in the bank, so nothing at all)
 	var beyond := 0
-	for a in range(length + 1, length + 1 + SimWorld.RESERVOIR_REACH + 8):
+	for a in range(length + 1, length + 32):
 		for b in range(-3, 4):
 			if _water(start + dir * a + side * b):
 				beyond += 1
@@ -120,7 +126,60 @@ func run(p_main: Node) -> void:
 	r["waited_ms"] = Time.get_ticks_msec() - t0
 	if DebugCapture.water_shots:
 		await _shot(tree, "water_after", cam_at, cam_look)
-	r["ok"] = r["trench_full_share"] >= 0.95 and above_water == 0 and r["river_after"] == r["river_before"] and beyond == 0
+	# ADR 0049: a 2.5 m crater where the river meets its bank (bug report 02-19-55) fills with flowing water up to
+	# the river's level and the river keeps its level
+	var cc: Vector3 = Vector3(start - dir * 2 + side * 14 + Vector3i(0, -4, 0)) + Vector3(0.5, 0.5, 0.5)
+	var cr := int(Settings.m2v(2.5))
+	var probe2: Vector3i = Vector3i(cc.floor()) - dir * (int(Settings.m2v(2.5)) + 10)   # in the river, outside the crater
+	probe2.y = top
+	r["crater_river_before"] = _count_water_column(probe2)
+	if DebugCapture.water_shots:   # watch it fill (the filmstrip, capture_every=...)
+		var at: Vector3 = cc - Vector3(dir) * 28.0 + Vector3(side) * 18.0 + Vector3(0, 30, 0)
+		var spot := "%d %d %d %d %d %d" % [at.x, at.y, at.z, cc.x, cc.y, cc.z]
+		main.chat.send("/cam off")
+		main.chat.send("/cam " + spot)
+		await tree.create_timer(1.0).timeout
+	main.bubble.blast(cc, float(cr))
+	var t1 := Time.get_ticks_msec()
+	var filled_at := -1
+	var shares: Array = []
+	var c_below := 0
+	var c_water := 0
+	var c_above := 0
+	for s in 30:
+		await tree.create_timer(1.0).timeout
+		c_below = 0
+		c_water = 0
+		c_above = 0
+		for z in range(-cr, cr + 1):
+			for y in range(-cr, cr + 1):
+				for x in range(-cr, cr + 1):
+					var c := Vector3i((cc + Vector3(x, y, z)).floor())
+					if Vector3(x, y, z).length() > cr - 1.0:
+						continue
+					if c.y <= top:
+						c_below += 1
+						c_water += 1 if _water(c) else 0
+					elif _water(c):
+						c_above += 1
+		shares.append(snappedf(float(c_water) / maxf(c_below, 1.0), 0.01))
+		if filled_at < 0 and float(c_water) / maxf(c_below, 1.0) >= 0.95:
+			filled_at = s + 1
+			break
+	if DebugCapture.water_shots:
+		main.chat.send("/shot water_crater")
+		await tree.create_timer(0.5).timeout
+		main.chat.send("/cam off")
+	r["crater_cells_to_level"] = c_below
+	r["crater_full_share"] = snappedf(float(c_water) / maxf(c_below, 1.0), 0.01)
+	r["crater_filled_s"] = filled_at
+	r["crater_share_by_s"] = shares
+	r["crater_water_above_level"] = c_above
+	r["crater_river_after"] = _count_water_column(probe2)
+	r["crater_waited_ms"] = Time.get_ticks_msec() - t1
+	r["bubble"] = {"bodies": main.bubble.stats().get("bodies", 0), "bodies_drained": main.bubble.stats().get("bodies_drained", 0)}
+	r["ok"] = r["trench_full_share"] >= 0.95 and above_water == 0 and r["river_after"] == r["river_before"] and beyond == 0 \
+		and r["crater_full_share"] >= 0.95 and c_above == 0 and r["crater_river_after"] == r["crater_river_before"]
 	_done("")
 
 

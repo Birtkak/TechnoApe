@@ -3,11 +3,12 @@ extends Node
 
 ## The Noita-style simulation bubble (ADR 0033): the native SimWorld ticks the
 ## world's own 12.5 cm voxels in a wrapped window of Settings.sim_window_chunks
-## (64 x 32 x 64 m) around the player. Moving the window moves an offset, not
+## (64 x 64 x 64 m, ADR 0050) around the player. Moving the window moves an offset, not
 ## memory (SimWorld.set_wrapped): the chunks that enter are loaded from the
 ## terrain one chunk column per copy, nearest first, under a main-thread budget;
 ## until loaded they are walls. Chunks the simulation changed are pasted back
-## into the terrain through a budgeted queue (ADR 0010). Outside it the world is frozen.
+## into the terrain through a budgeted queue (ADR 0010). Outside it the world is frozen, except in pins: small
+## windows left where something still moved when the window walked on (ADR 0050).
 ##
 ## Local chunk (0..N) <-> world chunk = local + origin; the kernel maps local to
 ## physical memory itself.
@@ -33,6 +34,23 @@ var _pending := {}
 var _player := Vector3.ZERO
 var _ready := false
 var pieces: FallingPieces          # rigid voxel pieces (P12), null with rigid_pieces=0
+# ADR 0050: what still moves when the window walks away keeps simulating in a pinned window (a small SimBubble that
+# never moves, a child of the main one) until it settles. Chunks the main window covers are walls in a pin.
+const PIN_CHUNKS := Vector3i(8, 8, 8)   # 16 m cube
+const PIN_MAX := 2
+const PIN_QUIET_TICKS := 60             # nothing active this long: the pin lets go
+const PIN_MAX_S := 90.0
+const PIN_PUSH_SHARE := 0.3              # a pin pastes on a third of the main window's budget (one chunk a frame)
+var pinned := false                # this bubble is a pin
+var owner_bubble: SimBubble        # a pin's main window
+var pins: Array[SimBubble] = []
+var pins_made := 0
+var pin_ms_max := 0.0
+var _pin_worst := {}               # the worst frame any pin had (its own cost breakdown)
+var _pin_quiet := 0
+var _recent := {}                  # world chunk -> ticks_total when the sim last changed it (what still moves)
+const RECENT_TICKS := 15
+var _pin_age := 0.0
 
 # stats for the HUD / capture
 var last_tick_ms := 0.0
@@ -96,11 +114,22 @@ func _commit_cost() -> void:
 		_worst.resize(WORST_KEEP)
 
 
-func setup(p_world: World, center_world: Vector3) -> void:
+func setup(p_world: World, center_world: Vector3, pin_of: SimBubble = null) -> void:
 	world = p_world
 	size_chunks = Settings.sim_window_chunks
+	if pin_of:
+		pinned = true
+		owner_bubble = pin_of
+		size_chunks = PIN_CHUNKS
+	for a in OS.get_cmdline_user_args():
+		if pinned:
+			break
+		if a.begins_with("sim_window="):   # sim_window=32,16,32 (chunks, powers of two): window size benchmarks
+			var v := a.get_slice("=", 1).split(",")
+			if v.size() == 3:
+				size_chunks = Vector3i(int(v[0]), int(v[1]), int(v[2]))
 	sim = SimWorld.new()
-	sim.configure(size_chunks, Settings.sim_threads, Settings.world_seed)
+	sim.configure(size_chunks, mini(2, Settings.sim_threads) if pinned else Settings.sim_threads, Settings.world_seed)
 	if not sim.set_wrapped(true):
 		push_error("SimBubble: window chunk counts must be powers of two")
 	sim.set_materials(GameMaterials.defs())
@@ -116,9 +145,21 @@ func setup(p_world: World, center_world: Vector3) -> void:
 	sim.mark_all_loaded(false)
 	_player = center_world
 	origin = _target(center_world)
+	if pinned:
+		origin = Vector3i((center_world / Settings.CHUNK).floor()) - size_chunks / 2
+		# the terrain keeps full-detail data only near a viewer (render_distance_m): a data-only viewer keeps it here
+		var v := VoxelViewer.new()
+		v.name = "Viewer"
+		v.requires_visuals = false
+		v.requires_collisions = false
+		v.view_distance = int(Settings.m2v(Settings.render_distance_m + 8.0))
+		v.position = center_world
+		add_child(v)
 	_queue_box(origin, size_chunks)
 	_ready = true
 	for a in OS.get_cmdline_user_args():
+		if pinned:
+			break
 		if a.begins_with("fire_test="):
 			_fire_test = int(a.get_slice("=", 1))
 
@@ -161,13 +202,21 @@ func _process(delta: float) -> void:
 		ticks_total += 1
 		_tick_running = false
 		_collect_dirty()
+		if pinned:
+			_pin_quiet = _pin_quiet + 1 if active_chunks == 0 and columns_loaded > 0 else 0
 	if _tick_running:
 		return
-	_move_window()
+	if pinned:
+		_pin_age += delta
+		if _pin_quiet >= PIN_QUIET_TICKS or _pin_age >= PIN_MAX_S:
+			release()
+			return
+	else:
+		_move_window()
 	_load_pending()
 	if not _push_queue.is_empty() and not hold_pushes:
 		var t1 := Time.get_ticks_usec()
-		_drain_push(Settings.sim_push_budget_ms)
+		_drain_push(Settings.sim_push_budget_ms * (PIN_PUSH_SHARE if pinned else 1.0))
 		push_ms = (Time.get_ticks_usec() - t1) / 1000.0
 		_frame_cost()["push_ms"] += push_ms
 	var period := 1.0 / Settings.sim_tick_hz
@@ -195,6 +244,7 @@ func _move_window() -> void:
 	var want := _target(_player)
 	var d := want - origin
 	var t0 := Time.get_ticks_usec()
+	var leaving_active := _leaving_active(d)
 	_flush_leaving(d)   # chunks sliding out of the window must reach the terrain first
 	var t1 := Time.get_ticks_usec()
 	sim.shift(d)        # wrapped: an offset moves; the vacated chunks are walls until loaded
@@ -205,6 +255,7 @@ func _move_window() -> void:
 	for k in _pending.keys():
 		if k.x < origin.x or k.y < origin.z or k.x >= origin.x + size_chunks.x or k.y >= origin.z + size_chunks.z:
 			_pending.erase(k)
+			_retry_at.erase(k)
 	if d.y != 0:
 		# every column that stays shifts its mask; the rows that entered at the top or bottom wait
 		var n := mini(absi(d.y), size_chunks.y)
@@ -224,6 +275,10 @@ func _move_window() -> void:
 			if in_z and wx >= old.x and wx < old.x + size_chunks.x:
 				continue
 			_pending[Vector2i(wx, wz)] = full
+	if not leaving_active.is_empty():
+		_pin.call_deferred(leaving_active)   # in a frame of its own (a pin sets up a SimWorld and a viewer)
+	for p in pins:
+		p.wall_off()
 	var cost := _frame_cost()
 	cost["flush_ms"] += (t1 - t0) / 1000.0
 	cost["shift_ms"] += (Time.get_ticks_usec() - t1) / 1000.0
@@ -235,12 +290,15 @@ func _move_window() -> void:
 ## Settings.sim_load_budget_ms (at least one per frame). Columns whose terrain is
 ## not streamed in yet wait.
 const NEAREST := 8
+const RETRY_MS := 250
+var _retry_at := {}   # column -> msec before which it is not tried again (its terrain was not in)
 
 
 func _load_pending() -> void:
 	if _pending.is_empty():
 		return
 	var t0 := Time.get_ticks_usec()
+	var now := Time.get_ticks_msec()
 	var budget_us := int(Settings.sim_load_budget_ms * 1000.0)
 	var pc := Vector2(_player.x, _player.z) / Settings.CHUNK - Vector2(0.5, 0.5)
 	# the NEAREST waiting columns, nearest first, from one pass over the queue (cheaper than
@@ -248,6 +306,8 @@ func _load_pending() -> void:
 	var near: Array[Vector2i] = []
 	var near_d := PackedFloat32Array()
 	for k in _pending:
+		if now < int(_retry_at.get(k, 0)):
+			continue   # its terrain was not in a moment ago: let the next ones load meanwhile
 		var dd := (Vector2(k) - pc).length_squared()
 		if near.size() == NEAREST and dd >= near_d[NEAREST - 1]:
 			continue
@@ -267,18 +327,31 @@ func _load_pending() -> void:
 		if m == 0:
 			_pending.erase(best)
 			continue
-		var lo := 0
-		while (m >> lo) & 1 == 0:
-			lo += 1
-		var hi := lo
-		while hi < size_chunks.y and (m >> hi) & 1 == 1:
-			hi += 1
-		var w0 := Vector3i(best.x, origin.y + lo, best.y)
-		if not world.is_box_loaded(w0 * Settings.CHUNK, Vector3i(Settings.CHUNK, (hi - lo) * Settings.CHUNK, Settings.CHUNK)):
+		if pinned:
+			m &= ~_owner_rows(best)   # the main window holds those: walls here
+			if m == 0:
+				continue
+		# the waiting chunk nearest the player's height whose terrain is in, grown up and down through waiting
+		# chunks whose terrain is in too (ADR 0050: a 64 m window reaches past the terrain's data above and below)
+		var py := int(floor(_player.y / Settings.CHUNK)) - origin.y
+		var lo := -1
+		for dk in size_chunks.y * 2:
+			var k := py + (dk + 1) / 2 * (1 if dk % 2 == 1 else -1)
+			if k >= 0 and k < size_chunks.y and (m >> k) & 1 == 1 and _terrain_in(best, k):
+				lo = k
+				break
+		if lo < 0:
+			_retry_at[best] = now + RETRY_MS   # no terrain data there yet (or ever: beyond full detail)
 			continue
+		var hi := lo + 1
+		while hi < size_chunks.y and (m >> hi) & 1 == 1 and _terrain_in(best, hi):
+			hi += 1
+		while lo > 0 and (m >> (lo - 1)) & 1 == 1 and _terrain_in(best, lo - 1):
+			lo -= 1
+		var w0 := Vector3i(best.x, origin.y + lo, best.y)
 		var bytes: PackedByteArray = world.read_column(w0, hi - lo)
 		sim.set_column_bytes(Vector3i(best.x - origin.x, lo, best.y - origin.z), hi - lo, bytes, 2)
-		m &= ~(((1 << (hi - lo)) - 1) << lo)
+		m = int(_pending[best]) & ~(((1 << (hi - lo)) - 1) << lo)
 		if m == 0:
 			_pending.erase(best)
 		else:
@@ -290,6 +363,101 @@ func _load_pending() -> void:
 		var c := _frame_cost()
 		c["load_ms"] += (Time.get_ticks_usec() - t0) / 1000.0
 		c["loads"] += n
+
+
+## ADR 0050: the active chunks (world coords) that a move by d takes out of the window.
+func _leaving_active(d: Vector3i) -> Array[Vector3i]:
+	var out: Array[Vector3i] = []
+	if pins.size() >= PIN_MAX:
+		return out
+	# active and changed in the last RECENT_TICKS ticks: a chunk that only loaded is active once, and is no mover
+	for wc in _recent.keys():
+		if ticks_total - int(_recent[wc]) > RECENT_TICKS:
+			_recent.erase(wc)
+	if _recent.is_empty():
+		return out
+	for lc in sim.get_active_chunks():
+		var wc: Vector3i = lc + origin
+		if _recent.has(wc) and not is_chunk_in_window(wc - origin - d) and not _pinned_at(wc):
+			out.append(wc)
+	return out
+
+
+func _pinned_at(wc: Vector3i) -> bool:
+	for p in pins:
+		if p.is_chunk_in_window(wc - p.origin):
+			return true
+	return false
+
+
+## A pin around what still moves (centred on the leaving active chunks).
+func _pin(active: Array[Vector3i]) -> void:
+	var c := Vector3.ZERO
+	for wc in active:
+		c += Vector3(wc)
+	c = c / active.size() + Vector3(0.5, 0.5, 0.5)
+	var t0 := Time.get_ticks_usec()
+	var p := SimBubble.new()
+	p.name = "SimPin%d" % pins_made
+	add_child(p)
+	p.setup(world, c * Settings.CHUNK, self)
+	p.hold_pushes = false
+	pins.append(p)
+	pins_made += 1
+	pin_ms_max = maxf(pin_ms_max, (Time.get_ticks_usec() - t0) / 1000.0)
+	_frame_cost()["edit_ms"] += (Time.get_ticks_usec() - t0) / 1000.0
+
+
+## A pin: bit k set = local chunk row k of column `col` (world chunk x, z) lies inside the main window.
+func _owner_rows(col: Vector2i) -> int:
+	var o := owner_bubble
+	if col.x < o.origin.x or col.y < o.origin.z or col.x >= o.origin.x + o.size_chunks.x or col.y >= o.origin.z + o.size_chunks.z:
+		return 0
+	var m := 0
+	for k in size_chunks.y:
+		var wy := origin.y + k
+		if wy >= o.origin.y and wy < o.origin.y + o.size_chunks.y:
+			m |= 1 << k
+	return m
+
+
+## A pin, after the main window moved: chunks it now covers are pushed to the terrain and become walls here (they
+## wait, and load again once the main window leaves them).
+func wall_off() -> void:
+	if _tick_running:
+		sim.finish_tick()
+		_tick_running = false
+		_collect_dirty()
+	for z in size_chunks.z:
+		for x in size_chunks.x:
+			var col := Vector2i(origin.x + x, origin.z + z)
+			var rows := _owner_rows(col)
+			if rows == 0:
+				continue
+			var m := int(_pending.get(col, 0))
+			for k in size_chunks.y:
+				if rows & (1 << k) and not m & (1 << k):
+					var wc := Vector3i(col.x, origin.y + k, col.y)
+					if _push_queue.has(wc):
+						_push_one(wc)
+						_push_queue.erase(wc)
+					sim.set_chunk_loaded(wc - origin, false)
+			_pending[col] = m | rows
+
+
+## A pin lets go: everything reaches the terrain, then it frees itself.
+func release() -> void:
+	flush_all()
+	if owner_bubble and not _worst.is_empty() and float(_worst[0]["total_ms"]) > float(owner_bubble._pin_worst.get("total_ms", 0.0)):
+		owner_bubble._pin_worst = _worst[0]
+	_ready = false
+	if owner_bubble:
+		owner_bubble.pins.erase(self)
+	queue_free()
+
+
+func _terrain_in(col: Vector2i, k: int) -> bool:
+	return world.is_box_loaded(Vector3i(col.x, origin.y + k, col.y) * Settings.CHUNK, Vector3i.ONE * Settings.CHUNK)
 
 
 ## Records a slow frame with Godot's own monitors (previous frame) next to the
@@ -318,6 +486,8 @@ func _collect_dirty() -> void:
 		if not _is_unloaded(wc):   # never paste a chunk before it was loaded
 			_push_queue[wc] = true
 			changed.append(wc)
+			if not pinned:
+				_recent[wc] = ticks_total
 	if not changed.is_empty():
 		chunks_changed.emit(changed)
 	sim.clear_dirty()
@@ -374,6 +544,8 @@ func _flush_leaving(d: Vector3i) -> void:
 
 ## Pushes everything now (tests, saving, quitting).
 func flush_all() -> void:
+	for p in pins:
+		p.flush_all()
 	if _tick_running:
 		sim.finish_tick()
 		_tick_running = false
@@ -425,6 +597,8 @@ func blast(center: Vector3, radius: float, material := GameMaterials.AIR, only :
 			if not only.has(i) or _keep.has(i):
 				keep.append(i)
 	var n := sim.fill_sphere(center - Vector3(origin * Settings.CHUNK), radius, material, keep)
+	if pieces and material == GameMaterials.AIR:
+		pieces.carve(center, radius)   # pieces in flight take the cut too
 	var ms := (Time.get_ticks_usec() - t0) / 1000.0
 	_frame_cost()["edit_ms"] = _frame_cost().get("edit_ms", 0.0) + ms
 	blasts += 1
@@ -609,6 +783,9 @@ func _burning_count() -> int:
 func stats() -> Dictionary:
 	if not _ready:
 		return {}
+	for p in pins:
+		if not p._worst.is_empty() and float(p._worst[0]["total_ms"]) > float(_pin_worst.get("total_ms", 0.0)):
+			_pin_worst = p._worst[0]
 	return {
 		"origin_chunk": origin, "size_chunks": size_chunks, "unloaded_chunks": _count_unloaded(), "pending_columns": _pending.size(),
 		"tick_ms": snappedf(last_tick_ms, 0.01), "ticks": ticks_total, "active_chunks": active_chunks, "scanned_max": scanned_max,
@@ -616,4 +793,6 @@ func stats() -> Dictionary:
 		"shifts": shifts, "worst_frames": _worst, "slow_frames": _slow, "push_queue": _push_queue.size(), "push_queue_max": push_queue_max,
 		"burning": _burning_count(), "fire_ignited": fire_ignited,
 		"blasts": blasts, "blast_voxels": blast_voxels, "blast_ms_max": snappedf(blast_ms_max, 0.01),
+		"pins": pins.size(), "pins_made": pins_made, "pin_ms_max": snappedf(pin_ms_max, 0.01), "pin_worst": _pin_worst, "bodies": sim.get_stats().get("bodies_measured", 0),
+		"bodies_drained": sim.get_stats().get("bodies_drained", 0),
 	}

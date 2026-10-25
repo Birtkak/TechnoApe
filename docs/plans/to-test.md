@@ -179,6 +179,27 @@ New world needed (`GEN_VERSION` 16; the world is 640 m tall now). Handy: `/goto 
 - [ ] Far trees (24-120 m): slimmer trunks, smoother crowns, no thick brown pillars.
 - [ ] Blueberry bushes and mushrooms are rarer (about a third of before): still enough to find food?
 
+## Part A: water that flows, a taller live zone, cuttable falling trees (ADR 0049, 0050)
+
+`/goto river`, `/gamemode creative`, `/kit gadgets` (crater rod, water and sand bombs, laser cutter).
+
+- [ ] Crater rod on a river bank (sneak for the big one): water pours in and runs down into the crater, not
+      teleported still water; it fills up to the river's level and the river keeps its level.
+- [ ] Crater rod right in a river: the hole fills back from all sides, no dent left in the surface.
+- [ ] Wall off a little pocket of river water (a few blocks), then dig around and under it: it spills what it held
+      and no more. A small pond (smaller than about 8 x 8 x 1 m) dug into drains and its level drops.
+- [ ] A big lake or the sea dug into: fills the hole, keeps its level.
+- [ ] Sand bomb over a river or lake: the sand sinks to the bottom instead of resting on the surface.
+- [ ] `/blast 1 lava` high up (or a cave lava pocket opened): it pours as one stream, not scattered bits.
+- [ ] Pour water down a deep shaft or a water bomb on a slope, then fly away 30-40 m: it keeps flowing while you are
+      gone (what still moves when the window leaves it keeps simulating in a "pin" until it rests), and is settled when
+      you come back. The live zone reaches ~11 m further down and ~5 m further up than before (the terrain only holds
+      full detail 24 m around you).
+- [ ] `/goto waterfall`: foam streaks run down the sheet and you hear it roar from a distance.
+- [ ] `/goto lush_cave` and swim/look around water in cave walls: no blue spikes in the stone.
+- [ ] `/fell` a tree, then laser through the falling crown (or the crater rod on it in the air): the beam stops on it,
+      cuts a hole, and a part cut off flies on as its own piece.
+
 ## 2026-10-24: sound (ADR 0044)
 
 Everything is CC0 and cut by our tool, so a sound that feels wrong is a one-line swap: say which one
