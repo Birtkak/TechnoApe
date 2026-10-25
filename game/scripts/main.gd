@@ -760,12 +760,16 @@ func _can_open_overlay() -> bool:
 	return not player.ui_open and not player.autopilot and not inv_screen.is_open
 
 
+var _overlay_over_ui := false   # the bug report box opened over the inventory or another window
+
+
 func _on_overlay_opened() -> void:
+	_overlay_over_ui = player.ui_open
 	player.set_ui_open(true, false)
 
 
 func _on_overlay_closed() -> void:
-	if not chat.is_open and not debug_menu.is_open:
+	if not chat.is_open and not debug_menu.is_open and not _overlay_over_ui:
 		player.set_ui_open(false)
 
 

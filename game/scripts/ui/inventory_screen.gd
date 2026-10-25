@@ -97,6 +97,8 @@ func setup_quests(book: QuestBook) -> void:
 func open_book() -> void:
 	if quest_view and is_open:
 		_tooltip.visible = false
+		_root.move_child(quest_view, -1)   # over the side panels docked after it (bug report 2026-10-25)
+		_root.move_child(_cursor_icon, -1)
 		quest_view.open()
 
 
@@ -459,6 +461,13 @@ A block is %d voxels" % u if n == 0 else "
 	if days > 0.0:
 		var sp := float(stack.get("spoil", 0.0))
 		text += "\n%s (%.1f days left at 16 C)" % [Survival.freshness_name(sp), (1.0 - sp) * days]
+	var cloth: Dictionary = player_inv.items.get_def(id).get("clothing", {})
+	if cloth.get("armor", 0) > 0:
+		text += "
+Armor %d" % int(cloth["armor"])
+	if cloth.get("warmth_c", 0.0) > 0.0:
+		text += "
+Warmth +%.1f C" % float(cloth["warmth_c"])
 	var dur := Inventory.durability_of(player_inv.items, stack)   # with dur_x (ADR 0059)
 	if dur > 0:
 		text += "\nDurability %d / %d" % [dur - int(stack.get("wear", 0)), dur]   # ADR 0042

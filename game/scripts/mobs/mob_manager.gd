@@ -606,6 +606,8 @@ func maul(m: Mob, prey: Mob, damage: int) -> void:
 func maul_player(m: Mob, damage: int) -> void:
 	if not player_attackable():
 		return
+	if main.stone_age and main.stone_age.clothing:
+		damage = main.stone_age.clothing.armor_cut(damage)
 	main.player_inv.damage(damage)
 	var away: Vector3 = main.player.position - m.position
 	away.y = 0.0

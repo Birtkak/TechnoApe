@@ -237,6 +237,7 @@ func open(force: bool = false) -> void:
 func close() -> void:
 	_panel.visible = false
 	_bug_panel.visible = false
+	layer = 9
 	_set_open(false)
 
 
@@ -345,10 +346,13 @@ func _menu_bug() -> void:
 
 
 ## F9: keeps the frame on screen now, then asks what went wrong.
+## Works over the inventory, the book and other windows too (bug report 2026-10-25): the layer
+## goes above them while the box is up.
 func start_bug_report() -> void:
-	if not is_open and can_open.is_valid() and not can_open.call():
+	if main.player.autopilot:
 		return
 	_bug_shot = get_viewport().get_texture().get_image()
+	layer = 11
 	_panel.visible = false
 	_bug_panel.visible = true
 	_bug_text.text = ""
@@ -360,6 +364,7 @@ func _close_bug() -> void:
 	_bug_panel.visible = false
 	_bug_text.release_focus()
 	_bug_shot = null
+	layer = 9
 	_set_open(_panel.visible)
 
 

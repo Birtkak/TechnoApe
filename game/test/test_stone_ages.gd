@@ -481,3 +481,27 @@ func test_clothing_panel_puts_on_and_takes_off() -> void:
 	panel.click("body")
 	assert_str(p.cursor.get("id", "")).is_equal("fur_cloak")
 	assert_dict(c.worn).is_empty()
+
+
+func test_leather_and_copper_armor_craft_and_cut_mob_hits() -> void:
+	var g := func(rows: Array, m: String) -> Array:
+		var out: Array = []
+		for r in rows:
+			for ch in r:
+				out.append(m if ch == "M" else "")
+		return out
+	var sets := {"leather": ["leather_cap", "leather_tunic", "leather_boots"], "copper_ingot": ["copper_helmet", "copper_chestplate", "copper_boots"]}
+	var shapes := [["MMM", "M M", "   "], ["M M", "MMM", "MMM"], ["M M", "M M", "   "]]
+	for m in sets:
+		for i in 3:
+			var grid: Array = g.call(shapes[i], m)
+			assert_str(recipes.match_grid(grid, "crafting_table").get("output", {}).get("id", "")).is_equal(sets[m][i])
+			assert_dict(recipes.match_grid(grid, "")).is_empty()   # a crafting table recipe, not the 2x2
+	var c := Clothing.new(items)
+	for id in sets["copper_ingot"]:
+		c.wear({"id": id, "count": 1})
+	assert_int(c.armor()).is_equal(9)
+	var total := 0
+	for i in 1000:
+		total += c.armor_cut(10)
+	assert_int(total).is_between(6100, 6700)   # 36% off on average

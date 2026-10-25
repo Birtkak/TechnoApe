@@ -69,11 +69,11 @@ func setup(p_main: Node) -> void:
 		_diet_follows_panel = true
 	# the prospecting pick rides on the work system's right click
 	var inner: Callable = main.player.work_use
-	main.player.work_use = func(hit, first_press: bool, from: Vector3, dir: Vector3) -> bool:
+	main.player.work_use = func(hit, first_press: bool, from: Vector3, dir: Vector3, sneaking := false) -> bool:
 		var def: Dictionary = main.player_inv.held_def()
 		if first_press and def.has("prospects") and prospecting.use(main, hit, def, discoveries):
 			return true
-		return inner.call(hit, first_press, from, dir) if inner.is_valid() else false
+		return inner.call(hit, first_press, from, dir, sneaking) if inner.is_valid() else false
 	_load()
 	commands = LoopCommands.new(self)
 	commands.register(main.commands)

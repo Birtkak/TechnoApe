@@ -41,6 +41,21 @@ func take_off(slot: String) -> Dictionary:
 	return old
 
 
+## Armor points of all worn pieces (items.json clothing.armor): leather 5 for the set, copper 9.
+func armor() -> int:
+	var a := 0
+	for slot in worn:
+		a += int(items.get_def(worn[slot]["id"]).get("clothing", {}).get("armor", 0))
+	return a
+
+
+## A mob hit of `damage` after armor: 4% less per point (Minecraft-like), the fraction rounded by
+## chance so one-heart bites still get blocked sometimes.
+func armor_cut(damage: int) -> int:
+	var d := float(damage) * maxf(0.2, 1.0 - 0.04 * armor())
+	return int(d) + (1 if randf() < d - floorf(d) else 0)
+
+
 ## Degrees C all worn pieces add.
 func warmth_c() -> float:
 	var w := 0.0
@@ -75,4 +90,5 @@ func summary() -> Dictionary:
 	for slot in worn:
 		out[slot] = worn[slot]["id"]
 	out["warmth_c"] = warmth_c()
+	out["armor"] = armor()
 	return out
