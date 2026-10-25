@@ -97,6 +97,18 @@ var regen_s := 6.0
 var starve_s := 8.0                      # an empty bar hurts one health per this, until death
 var comfort_min_c := 10.0                # environment band where the body stays at 37 C (clothing widens it later)
 var comfort_max_c := 30.0
+# the four Stone Age stages (ADR 0059)
+var tinder_fungus_chance := 0.08        # a peel of birch bark brings tinder fungus with it
+var net_catch_chance := 0.35            # a cast of a fishing net brings up a fish
+var fish_bite_min_h := 0.3              # a fishing line bites after this many game hours (0.3 h = 15 s)
+var fish_bite_max_h := 1.2
+var canoe_thrust_m := 2.2               # paddling: m/s per second along the bow
+var canoe_turn_rad := 1.2               # turning: rad/s at full A or D
+var canoe_drag := 0.6                   # speed lost per second (exp), so it glides on and slows
+var canoe_current_m := 0.8              # a river's push downstream (m/s)
+var dugout_min_m := 2.5                 # a canoe needs a trunk at least this long
+var dugout_burn_h := 3.0                # game hours the fire takes to burn out its hollow
+var tame_meat := 3                      # pieces of raw meat that tame a wolf
 var body_ease_s := 90.0                  # the body temperature eases toward its target over about this long
 var cold_c := 35.5                       # below: cold (hunger x hunger_cold_mult)
 var shiver_c := 34.0                     # below: slowed to shiver_speed

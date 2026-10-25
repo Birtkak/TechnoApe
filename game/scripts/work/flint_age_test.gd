@@ -20,6 +20,7 @@ var r := {}
 var shots := []
 var base := Vector3i.ZERO
 var g0 := 0
+var stone_ages: StoneAgesTest
 
 
 func run(p_main: Node) -> void:
@@ -274,6 +275,9 @@ func run(p_main: Node) -> void:
 	r["quests"] = main.quests.summary()
 	r["shots"] = shots
 	print("debug flint_age " + JSON.stringify(r))
+	# then the four Stone Age stages (ADR 0059) on their own strip
+	stone_ages = StoneAgesTest.new()
+	await stone_ages.run(main)
 
 
 ## What the aim ray hits when the player looks at `at`: [hit voxel, its material, the voxel before it].

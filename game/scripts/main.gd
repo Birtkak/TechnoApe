@@ -35,6 +35,8 @@ var pickups_popped := 0              # sticks and stones picked up by hand (ADR 
 var _pickup_rng := RandomNumberGenerator.new()
 var tools_broken := 0                # tools that wore out this session (ADR 0042, debug JSON)
 var _survival_save := {}             # loaded with the player, before Survival exists
+var stone_age: StoneAge               # the four Stone Age stages: earth ovens, racks, canoes, megaliths ... (ADR 0059)
+var _stone_age_save := {}             # its part of the player's save, loaded before it exists
 var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
 var _furniture_root: Node3D
@@ -43,6 +45,7 @@ var work: WorkSystem                 # knapping, clay forming, pit kilns, firepi
 var _stone_age_test: StoneAgeTest
 var _flint_age_test: FlintAgeTest
 var _craft_test: CraftTest
+var _stone_ages_test: StoneAgesTest   # the four Stone Age stages (ADR 0059)
 var _water_test: WaterTest
 var _looks_test: LooksTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
@@ -341,6 +344,10 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_flint_age_test = FlintAgeTest.new()
 				_flint_age_test.run(self))
+		if DebugCapture.stone_ages_test:
+			_after_load(func() -> void:
+				_stone_ages_test = StoneAgesTest.new()
+				_stone_ages_test.run(self))
 		if DebugCapture.craft_test:
 			_after_load(func() -> void:
 				_craft_test = CraftTest.new()
@@ -429,6 +436,12 @@ func _ready() -> void:
 		game_hud.survival = survival
 	if not _survival_save.is_empty():
 		survival.load_dict(_survival_save)
+	stone_age = StoneAge.new()
+	stone_age.name = "StoneAge"
+	add_child(stone_age)
+	stone_age.setup(self)
+	stone_age.load_player(_stone_age_save)
+	player.item_use = stone_age.use
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(builder.warm_materials(), player.camera)
 	gadgets = PlaytestTools.new()
@@ -548,6 +561,8 @@ func _save_blocks() -> void:
 		return
 	if blocks != null and blocks.dirty:
 		blocks.save_file(_blocks_path())
+	if stone_age != null:
+		stone_age.save_world()
 	if quests != null and quests.dirty:
 		_save_json(_save_path("quests"), quests.to_dict())
 		quests.dirty = false
@@ -690,7 +705,8 @@ func _player_dict() -> Dictionary:
 	return {"version": 1, "pos": [p.x, p.y, p.z], "yaw": player._yaw, "pitch": player._pitch, "spawn": [s.x, s.y, s.z],
 		"game_mode": player.game_mode, "flying": player.flying, "health": player_inv.health, "selected": player_inv.selected,
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
-		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s}
+		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s,
+		"stone_age": stone_age.player_dict() if stone_age else {}}
 
 
 func _load_player() -> void:
@@ -725,6 +741,7 @@ func _load_player() -> void:
 	player_inv.health = clampi(int(d.get("health", player_inv.max_health)), 1, player_inv.max_health)
 	player_inv.health_changed.emit(player_inv.health)
 	_survival_save = d.get("survival", {})
+	_stone_age_save = d.get("stone_age", {})
 
 
 ## A saved stack (JSON numbers are floats), or {} for an empty or unknown one.
@@ -1598,6 +1615,7 @@ func snapshot() -> Dictionary:
 		"browser": inv_screen.browser.summary(),
 		"blocks": blocks.summary(),
 		"work": work.summary() if work else {},
+		"stone_age": stone_age.summary() if stone_age else {},
 		"quests": quests.summary() if quests else {},
 		"quest_check_ms_max": snappedf(quest_check_ms_max, 0.001),
 		"projectiles": projectiles.stats if projectiles else {},

@@ -60,6 +60,7 @@ var throw_item: Callable         # (stack, from, dir) -> void: a thrown spear fl
 var entity_use: Callable         # (mob, held def) -> bool (true: one held item used up)
 var place_furniture: Callable    # (kind, anchor, facing) -> bool
 var work_use: Callable           # (hit, first_press, from, dir, sneaking) -> bool: a work piece took the right click (ADR 0023)
+var item_use: Callable           # (hit, first_press, from, dir) -> bool: the Stone Age took it, before anything else (ADR 0059)
 var work_hit: Callable           # (hit, from, dir, sneaking) -> bool: a knapping piece took the left click
 var hold_key: Callable           # (hit) -> String: what a held right click works on ("" = an instant use) (ADR 0043)
 var hold_done: Callable          # (hit) -> void: right click was held Settings.hold_use_s on it
@@ -906,6 +907,9 @@ func _use(first_press: bool) -> void:
 		_use(first_press)
 		inventory.swap_hands()
 		_offhand_turn = false
+		return
+	if item_use.is_valid() and item_use.call(hit, first_press, camera.global_position, -camera.global_transform.basis.z):
+		_after_use()
 		return
 	if first_press and inventory.held_def().has("throw") and throw_item.is_valid():
 		_throw()

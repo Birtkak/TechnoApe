@@ -24,9 +24,11 @@ const KITS := {
 		"water_bucket": 2, "shears": 1, "bed": 1, "chair": 4, "wool": 16, "carpet": 16},
 	"stone": {"flint": 8, "stick": 16, "clay_ball": 16, "dry_grass": 12, "plant_fiber": 8, "loose_stone": 4, "loose_copper_ore": 8,
 		"firestarter": 1, "oak_log": 8, "cordage": 6},   # Vintage Story early game (ADR 0023)
-	"flint": {"flint_spear": 1, "flint_knife": 1, "flint_axe": 1, "flint_pickaxe": 1, "flint_shovel": 1, "flint_hoe": 1, "raw_hide": 2,
-		"firewood": 32, "dirt": 32, "firestarter": 1, "torch": 16, "pan": 1, "cooking_pot": 1, "clay_bowl": 3, "raw_meat": 4,
-		"dry_grass": 24, "wattle": 8, "daub": 8, "leather_bag": 1},   # the deeper Flint Age (ADR 0030)
+	"flint": {"flint_knife": 1, "flint_shovel": 1, "flint_spear": 1, "atlatl": 1, "bow": 1, "arrow": 16, "firestarter": 1, "firepit": 1,
+		"birch_tar": 8, "tempered_flint": 8, "bone_needle": 1, "fur_pelt": 6, "cordage": 16, "drying_rack": 1, "raw_meat": 4,
+		"axe_roughout": 1, "sand": 1, "dirt": 2, "loose_stone": 8, "stick": 32, "dry_grass": 24, "einkorn": 8, "flax": 8,
+		"linen_thread": 8, "loom": 1, "flint_adze": 1, "dugout_canoe": 1, "lever": 1, "wooden_wedge": 12, "oak_log": 2,
+		"red_paint": 1, "fat_lamp": 1, "basket_trap": 1, "tinder_fungus": 4},   # the four Stone Age stages (ADR 0059)
 	"smith": {"stone_anvil": 1, "firepit": 1, "copper_hammer": 1, "copper_ingot": 6, "oak_log": 8, "firestarter": 1, "crucible": 1,
 		"ingot_mold": 1, "loose_copper_ore": 16, "flint_axe_head": 1, "copper_saw_blade": 1, "stick": 8, "cordage": 4},   # crafting in the world (ADR 0042)
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64, "fire_essence": 16},

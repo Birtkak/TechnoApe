@@ -54,6 +54,12 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   in `tools/sound_recipes.json`, ffmpeg in `~/Tools/ffmpeg/`). It listens instead of being called: player signals,
   `ParticleFx.burst_played` (names in `fx.sound_bursts`), `FallingPieces.piece_event`, every UI button via `node_added`;
   call `Sound.play(name, pos)` only where nothing else tells the story. Buses Music / World / UI; JSON "sound"; `sound=0`.
+  **Four Stone Age stages (ADR 0059):** the book's Old, Middle, New and Copper Stone Age chapters; `StoneAge`
+  (`scripts/work/stone_age/`, hooked first into the player's right click as `item_use`) runs earth ovens (tar, tempered
+  flint), racks (dry/smoke), stroke work (polish, quern, sew, loom), water work (retting, traps), canoes, megaliths and
+  circles, cave paintings, clothing; items/recipes in `data/stone_age_*.json` (new types bury, rack, stroke, soak, trap;
+  slow work in calendar game hours via `StoneAge.now_days`); per-stack `dur_x` for tar/tempered tools. Scripted check:
+  `stone_ages_test=1` (with `walk=1 speed=0 mob_spawn=0`; `flint_age_test=1` runs it too).
   **Next:** the rest of the ADR 0037 work order; still open from before: fire/smoke pacing per cell, fast flight vs
   generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
   list in `docs/plans/to-test.md`.

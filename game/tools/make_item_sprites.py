@@ -1179,6 +1179,10 @@ sp("world_vacuum", ("world_vacuum", "hazard"))
 import item_sprites_e  # noqa: E402  rock kinds, clutter, fish (ADR 0057, 0058)
 item_sprites_e.add(globals())
 
+# the four Stone Age stages (ADR 0059): their own file, so the parts merge cleanly
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import stone_age_sprites  # noqa: E402
+stone_age_sprites.add(globals())
 
 # ---------- validate + write ----------
 

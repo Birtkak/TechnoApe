@@ -201,8 +201,8 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	var tags: Array = held.get("tags", [])
 	var work: String = held.get("work", "")
 	var kind := ""
-	if id == "flint":
-		kind = "knap"
+	if id == "flint" or not main.recipes.first_of("knap", {"input": id}).is_empty():
+		kind = "knap"   # flint, tempered flint, bone, antler, native copper (ADR 0059)
 	elif id == "clay_ball" or (id == CLAY_BLOCK and sneaking):
 		kind = "clayform"   # a clay block forms only while sneaking; a plain click places it (bug report 2026-10-25)
 	elif "ground_place" in tags:
@@ -222,8 +222,10 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	match kind:
 		"knap", "clayform":
 			# clay is paid for while forming; flint and everything else now
-			if kind == "knap" and _consumes():
-				main.player_inv.consume_held(1)
+			if kind == "knap":
+				e.input = id
+				if _consumes():
+					main.player_inv.consume_held(1)
 			_open_picker(e)
 		"ground":
 			e.item = id
@@ -232,6 +234,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 				main.player_inv.consume_held(1)
 		"assembly":
 			e.parts.append(id)
+			e.part_data.append(Inventory.data_of(main.player_inv.held()))   # a tempered head's dur_x (ADR 0059)
 			_mark(p)
 			if _consumes():
 				main.player_inv.consume_held(1)
@@ -314,7 +317,12 @@ func _finish(e: RefCounted, out: Dictionary) -> void:
 	_particles("poof", _at(p, Vector3(0.5, 0.3, 0.5)), 0)
 	remove_piece(e)
 	if not out.is_empty():
-		main.spawn_item({"id": out["id"], "count": int(out.get("count", 1))}, _at(p, Vector3(0.5, 0.3, 0.5)), Vector3(0, 1.5, 0))
+		var s := out.duplicate()   # with its per-stack data: a tar-hafted tool's dur_x (ADR 0059)
+		s["count"] = int(out.get("count", 1))
+		var kx := float(main.items.get_def(e.input).get("knap_x", 1.0)) if e is KnapEntity else 1.0
+		if kx != 1.0:
+			s["dur_x"] = kx   # heads of tempered flint last longer (ADR 0059)
+		main.spawn_item(s, _at(p, Vector3(0.5, 0.3, 0.5)), Vector3(0, 1.5, 0))
 		stats["finished"].append(out["id"])
 
 
@@ -579,13 +587,15 @@ func _wear_held() -> void:
 
 ## Right click on a tool being assembled: the next part goes on, an empty hand takes the last one back.
 func _use_assembly(e: AssemblyEntity, held: Dictionary) -> void:
-	var res: Dictionary = e.use(held)
+	var res: Dictionary = e.use(held, main.player_inv.held())
 	if res["consume"] > 0 and _consumes():
 		main.player_inv.consume_held(res["consume"])
 	_give(res["give"], _at(e.pos, Vector3(0.5, 0.3, 0.5)))
 	if not res["done"].is_empty():
 		stats["assembled"] += 1
 		_note("assembled", res["done"]["id"])
+		if float(res["done"].get("dur_x", 1.0)) >= 2.0:
+			_note("tar_hafted", res["done"]["id"])   # glued with birch tar (ADR 0059)
 		_finish(e, res["done"])
 		return
 	if res["remove"]:

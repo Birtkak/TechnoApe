@@ -64,7 +64,7 @@ func _draw() -> void:
 		draw_rect(Rect2(Vector2(1, s.y - 3), Vector2((s.x - 2) * (1.0 - sp), 2)), col)
 	if int(stack.get("wear", 0)) > 0:
 		# tool wear (ADR 0042): Minecraft's durability bar, green to red
-		var dur := float(items.get_def(id).get("durability", 1))
+		var dur := float(maxi(Inventory.durability_of(items, stack), 1))   # with dur_x (ADR 0059)
 		var left := clampf(1.0 - float(stack["wear"]) / dur, 0.0, 1.0)
 		draw_rect(Rect2(Vector2(1, s.y - 3), Vector2(s.x - 2, 2)), Color(0, 0, 0, 0.8))
 		draw_rect(Rect2(Vector2(1, s.y - 3), Vector2((s.x - 2) * left, 2)), Color.from_hsv(left / 3.0, 0.9, 0.9))

@@ -90,6 +90,22 @@ The split follows the code, so no two sessions edit the same native sources:
     `materials.gd` has placeholders for ids 116-159 (replace with A-D's) and defines ids 200-202 (pyrite,
     red and yellow ochre: placed by E's generator, used by F); atlas tiles 168-170 hold those three.
     Small hooks in `fine_gen.cpp` (part B's) call `rock_types.cpp`: keep them when B's rework lands.
+  - F: `player.gd` `item_use` hook (checked first in `_use`, wired in `main.gd` with `stone_age`, its save
+    and summary); `work_system.gd` knapping any `knap` input (+ `e.input`), `dur_x` on knapped heads, the
+    held stack into `AssemblyEntity.use`, `tar_hafted`; `assembly_entity.gd` part data; `inventory.gd`
+    `durability_of` + `dur_x` merge, read in `item_icon.gd` and `inventory_screen.gd`; `projectiles.gd`
+    `throw(..., speed_x, damage_x)`; `mining_table.gd` tool `speed`; `work_palette.gd` five colours (atlas 30);
+    `block_entities.gd` creating StoneAge kinds, `footprint_cells`, heights; `survival.gd` `clothing` +
+    `felt_c`; `quest_book.gd` events; `recipe_browser.gd` categories + info fallback; `recipe_registry.gd`
+    and `item_registry.gd` load `stone_age_*.json`, `stub` items; `settings.gd` a Stone Age block;
+    `make_item_sprites.py` imports `stone_age_sprites.py` above "validate + write" (regenerate the JSON);
+    `game_commands.gd` the `flint` kit; `mining.json` seeds from tall grass/reeds; `crops.json` einkorn,
+    emmer, flax; `items.json` tags (flint `knappable`, cordage/strips `bowstring`, loose copper ore
+    `ground_place`); knap recipes take `#knappable`. Part E's items are `"stub"` entries in
+    `stone_age_items.json`: delete the stubs once E is merged. Ids 200-202 are E's (pyrite, ochres).
+    At the merge with D: put the `item_use` check after D's `_offhand_builds(hit)` line in `player._use`; pass D's
+    `sneaking` through `_try_place`; write the `flint` kit in D's block counts (sand 1, dirt 2, oak_log 2: D's kits
+    count blocks of voxel items); the clothing panel docks itself once `InventoryScreen.add_side_panel` is there.
 
 ---
 

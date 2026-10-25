@@ -95,7 +95,8 @@ func break_time(material_name: String, held: Dictionary = {}) -> float:
 		return hardness * 1.5 / hand_speed
 	if tool_class(held) == needed and int(held.get("tier", 0)) >= int(e.get("min_tier", 0)):
 		var tier := clampi(int(held.get("tier", 0)), 0, tier_speed.size() - 1)
-		return clampf(hardness * float(right_tool["factor"]) / float(tier_speed[tier]), float(right_tool["min_s"]), float(right_tool["max_s"]))
+		var speed := float(tier_speed[tier]) * float(held.get("speed", 1.0))   # the polished stone axe (ADR 0059)
+		return clampf(hardness * float(right_tool["factor"]) / speed, float(right_tool["min_s"]), float(right_tool["max_s"]))
 	return clampf(hardness * float(wrong_tool["s_per_hardness"]), float(wrong_tool["min_s"]), float(wrong_tool["max_s"]))
 
 

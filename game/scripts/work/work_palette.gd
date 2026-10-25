@@ -36,6 +36,11 @@ const PALETTE: Array = [
 	[200, 62, 52],     # AVOID: the clay form's guide, cells that stay empty (red)
 	[244, 128, 52],    # GLOW: hot metal on the anvil (ADR 0042)
 	[98, 98, 104],     # ANVIL: the worked stone face
+	[214, 190, 132],   # SAND: an earth oven's cover, grit on a grinding slab (ADR 0059)
+	[38, 26, 20],      # TAR: birch tar, burnt-out wood
+	[226, 216, 190],   # BONE
+	[122, 92, 62],     # FUR
+	[196, 186, 160],   # LINEN
 ]
 const FLINT := 0
 const FLINT_MARK := 1
@@ -62,8 +67,13 @@ const PLACE := 21
 const AVOID := 22
 const GLOW := 23
 const ANVIL := 24
+const SAND := 25
+const TAR := 26
+const BONE := 27
+const FUR := 28
+const LINEN := 29
 const GUIDE_GRID := 32   # guide plates are meshed 4x finer: 3x3 coloured, a one-cell gap as grid lines
-const ATLAS := Vector2i(25, 1)
+const ATLAS := Vector2i(30, 1)
 
 static var _material: StandardMaterial3D
 static var _ghost: StandardMaterial3D

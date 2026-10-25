@@ -98,6 +98,38 @@ New world needed (the generator changed). `/summon <species>` spawns any animal 
       ducks paddle out; crabs on beaches; fish in rivers and lakes (they flop on land); bats in caves;
       cave spiders bite on sight. Do they look and sound right, move at sensible speeds?
 
+## Part F: a deeper Flint Age, four Stone Age stages (ADR 0059)
+
+`/kit flint` has most of it. The book (inventory, top left) now has four Stone Age chapters before the
+Copper Age; old worlds keep their ticks.
+
+- [ ] Book: Old, Middle, New and Copper Stone Age chapters read well; the main road (square quests) feels
+      the right length to copper; side roads (round) are clearly optional.
+- [ ] Birch tar: knife on a birch trunk's white bark peels bark; shovel on dirt digs an earth oven; 4 bark,
+      2 dirt, 4 sticks, firestarter; 2 game hours later dig out tar (sleeping counts).
+- [ ] Tempered flint: the same oven in sand with flint, 3 hours. Knap it: the head's tooltip says it lasts
+      longer; haft it with birch tar instead of cordage: "Lasts 3.0x as long".
+- [ ] Bone needle (knap a bone with a stone in hand), fur pelt (leave a raw hide unscraped), sew a cloak on
+      the ground (pelts, cordage, needle strokes), right click to wear it: warmer at night (`/survival`).
+- [ ] Atlatl: spear in the inventory, atlatl in hand, right click: the spear flies about twice as far.
+- [ ] Bow: arrows (microlith, stick, tar, feather on the ground), right click shoots; pick the arrows up again.
+- [ ] Drying rack beside a lit firepit: smoke rises, meat smokes in 10 game hours; away from fire it dries in a day.
+- [ ] Polished axe: roughout on sandstone next to water, sand on it, 48 strokes with a loose stone. Chops wood
+      twice as fast as the flint axe?
+- [ ] Grain: einkorn/emmer seeds from tall grass (rare), farm them, grind on a flat rock, flour + water = dough,
+      bake on the firepit.
+- [ ] Linen: flax in water (36 h), break over a stick, spin with a drop spindle, loom + thread + stick strokes.
+- [ ] Salt: cooking pot dipped in the sea, boiled dry on a firepit.
+- [ ] Dugout canoe: adze on a lying trunk (or 6 logs in a row, a block wide), dry grass, light it, adze strokes.
+      Launch it, get in, paddle: does it glide, turn and stop at the bank the way a boat should? River current?
+- [ ] Megalith: 6 wooden wedges into bare rock (3 blocks in a row), 2 logs and 2 cordage on it, lever it along,
+      sneak + lever to stand it up. A ring of 5+ with a heel stone toward the midsummer sunrise (northeast):
+      a circle; an empty hand on it makes it home; two circles let you travel.
+- [ ] Paint: ochre or charcoal ground on a rock, mixed with fat; right click a cave wall. Do the pictures look good?
+- [ ] Fat lamp in hand lights a cave (needs part C's held lights).
+- [ ] Copper awl / beads from a copper nugget (knap it with a stone); a green stone fired in a pit kiln gives copper.
+- [ ] Longhouse: V, Prefabs, blueprints: longhouse and small longhouse.
+
 ## 2026-10-24: sound (ADR 0044)
 
 Everything is CC0 and cut by our tool, so a sound that feels wrong is a one-line swap: say which one
