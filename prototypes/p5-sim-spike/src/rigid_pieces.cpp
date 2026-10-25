@@ -115,6 +115,8 @@ void RigidPieces::_bind_methods() {
     ClassDB::bind_method(D_METHOD("queue_check_packed", "cells", "push_from"), &RigidPieces::queue_check_packed);
     ClassDB::bind_method(D_METHOD("collect"), &RigidPieces::collect);
     ClassDB::bind_method(D_METHOD("get_contact_info", "id"), &RigidPieces::get_contact_info);
+    ClassDB::bind_method(D_METHOD("queue_carve", "center", "radius"), &RigidPieces::queue_carve);
+    ClassDB::bind_method(D_METHOD("raycast", "from", "dir", "max_distance"), &RigidPieces::raycast);
 }
 
 void RigidPieces::setup(const Ref<SimWorld> &p_sim, const Array &p_defs, Vector2i p_atlas_tiles) {
@@ -617,9 +619,7 @@ void RigidPieces::make_piece(const std::vector<int64_t> &wood, const std::vector
     p.size = Vector3i(hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1);
     p.grid.assign((size_t)p.size.x * p.size.y * p.size.z, 0);
     p.hash_origin = Vector3(lo[0], lo[1], lo[2]);
-    Vector3 msum;
-    double mass = 0.0;
-    auto take = [&](const std::vector<int64_t> &ks, float m) {
+    auto take = [&](const std::vector<int64_t> &ks, float) {
         for (int64_t k : ks) {
             int x, y, z;
             unkey(k, x, y, z);
@@ -627,18 +627,76 @@ void RigidPieces::make_piece(const std::vector<int64_t> &wood, const std::vector
             const uint8_t mat = mat_at(x, y, z, open);
             const int lx = x - lo[0], ly = y - lo[1], lz = z - lo[2];
             p.grid[lx + p.size.x * (ly + p.size.y * lz)] = mat;
-            msum += Vector3(lx + 0.5f, ly + 0.5f, lz + 0.5f) * m;
-            mass += m;
             set_at(x, y, z, 0);
         }
     };
     take(wood, WOOD_MASS);
     take(leaves, LEAF_MASS);
-    p.wood = (int)wood.size();
-    p.leaves = (int)leaves.size();
+    finish_body(p);
+    p.pos = p.prev_pos = p.hash_origin + p.com;
+    p.rot = Quaternion();
+    p.prev_rot = p.rot;
+    // topple away from the cut: spin about the base so the bottom stays put
+    Vector3 dir = p.pos - push_from;
+    dir.y = 0.0f;
+    if (dir.length_squared() < 1e-4f) dir = Vector3(1, 0, 0);
+    dir.normalize();
+    p.ang = Vector3(0, 1, 0).cross(dir) * push_;
+    Vector3 base = Vector3(p.com.x, 0.0f, p.com.z) - p.com;
+    if (hinged) {
+        // the pivot: the bottom wood voxel furthest along the fall, at its outer bottom edge (like the
+        // hinge wood a feller leaves), so the trunk rotates off its stump instead of sliding about on it
+        int ymin = INT32_MAX;
+        for (int64_t k : wood) {
+            int x, y, z;
+            unkey(k, x, y, z);
+            ymin = std::min(ymin, y);
+        }
+        float best = -1e9f;
+        for (int64_t k : wood) {
+            int x, y, z;
+            unkey(k, x, y, z);
+            if (y != ymin) continue;
+            const Vector3 c(x - lo[0] + 0.5f, 0.0f, z - lo[2] + 0.5f);
+            const float d = (c - Vector3(p.com.x, 0.0f, p.com.z)).dot(dir);
+            if (d > best) {
+                best = d;
+                base = Vector3(c.x + dir.x * 0.5f, (float)(ymin - lo[1]), c.z + dir.z * 0.5f) - p.com;
+            }
+        }
+        p.hinged = true;
+        p.hinge_r = base;
+        p.hinge_world = p.pos + base;
+    }
+    p.vel = -p.ang.cross(base);
+    spawned_ids_.push_back(p.id);
+    if (made_.size() < 16) made_.push_back(Vector3i(p.id, p.wood, p.leaves));
+    pieces_.push_back(std::move(p));
+    spawned_++;
+}
+
+// The body of a piece from its grid: mass, centre of mass, inertia about it (each voxel a unit cube), the wood
+// surface as contact points, the leaf surface as shredding points, mesh blocks. False when the grid is empty.
+bool RigidPieces::finish_body(Piece &p) {
+    double mass = 0.0;
+    Vector3 msum;
+    p.wood = p.leaves = 0;
+    for (int z = 0; z < p.size.z; z++)
+        for (int y = 0; y < p.size.y; y++)
+            for (int x = 0; x < p.size.x; x++) {
+                const uint8_t m = p.grid[x + p.size.x * (y + p.size.y * z)];
+                if (!m) continue;
+                const float w = cls_[m] == WOOD ? WOOD_MASS : LEAF_MASS;
+                (cls_[m] == WOOD ? p.wood : p.leaves)++;
+                msum += Vector3(x + 0.5f, y + 0.5f, z + 0.5f) * w;
+                mass += w;
+            }
+    if (mass <= 0.0) return false;
     p.mass = (float)mass;
     p.inv_mass = 1.0f / p.mass;
     p.com = msum / p.mass;
+    p.points.clear();
+    p.leaf_points.clear();
     // inertia about the centre of mass (each voxel a unit cube) and the wood surface as contact points
     double I[3][3] = {};
     std::vector<Vector3> pts;
@@ -680,46 +738,7 @@ void RigidPieces::make_piece(const std::vector<int64_t> &wood, const std::vector
     for (size_t i = 0; i < lpts.size(); i += lstride) p.leaf_points.push_back(lpts[i]);
     p.blocks = Vector3i((p.size.x + MESH_BLOCK - 1) / MESH_BLOCK, (p.size.y + MESH_BLOCK - 1) / MESH_BLOCK, (p.size.z + MESH_BLOCK - 1) / MESH_BLOCK);
     p.block_dirty.assign((size_t)p.blocks.x * p.blocks.y * p.blocks.z, 0);
-    p.pos = p.prev_pos = p.hash_origin + p.com;
-    p.rot = Quaternion();
-    p.prev_rot = p.rot;
-    // topple away from the cut: spin about the base so the bottom stays put
-    Vector3 dir = p.pos - push_from;
-    dir.y = 0.0f;
-    if (dir.length_squared() < 1e-4f) dir = Vector3(1, 0, 0);
-    dir.normalize();
-    p.ang = Vector3(0, 1, 0).cross(dir) * push_;
-    Vector3 base = Vector3(p.com.x, 0.0f, p.com.z) - p.com;
-    if (hinged) {
-        // the pivot: the bottom wood voxel furthest along the fall, at its outer bottom edge (like the
-        // hinge wood a feller leaves), so the trunk rotates off its stump instead of sliding about on it
-        int ymin = INT32_MAX;
-        for (int64_t k : wood) {
-            int x, y, z;
-            unkey(k, x, y, z);
-            ymin = std::min(ymin, y);
-        }
-        float best = -1e9f;
-        for (int64_t k : wood) {
-            int x, y, z;
-            unkey(k, x, y, z);
-            if (y != ymin) continue;
-            const Vector3 c(x - lo[0] + 0.5f, 0.0f, z - lo[2] + 0.5f);
-            const float d = (c - Vector3(p.com.x, 0.0f, p.com.z)).dot(dir);
-            if (d > best) {
-                best = d;
-                base = Vector3(c.x + dir.x * 0.5f, (float)(ymin - lo[1]), c.z + dir.z * 0.5f) - p.com;
-            }
-        }
-        p.hinged = true;
-        p.hinge_r = base;
-        p.hinge_world = p.pos + base;
-    }
-    p.vel = -p.ang.cross(base);
-    spawned_ids_.push_back(p.id);
-    if (made_.size() < 16) made_.push_back(Vector3i(p.id, p.wood, p.leaves));
-    pieces_.push_back(std::move(p));
-    spawned_++;
+    return true;
 }
 
 // ---- physics ----
@@ -1317,6 +1336,7 @@ Dictionary RigidPieces::get_stats() const {
 Dictionary RigidPieces::live_stats() const {
     Dictionary d;
     d["last_job_ms"] = last_job_ms_;
+    d["carved"] = carved_;   // piece cells cut in flight
     Array made;
     for (const Vector3i &m : made_) made.push_back(m);
     d["made"] = made;   // (id, wood, leaves) of the first 16 pieces
@@ -1394,15 +1414,210 @@ void RigidPieces::queue_step(float p_dt) {
     pending_dt_ += p_dt;
 }
 
+// Bug report 2026-10-25 02-51-52: pieces in flight take cuts like voxels. Every queued sphere (world voxels) empties
+// the piece cells whose centres lie in it; a piece cut in two flies on as two (each part keeps the parent's motion),
+// parts smaller than min_piece drop as crumbs, a piece cut to nothing is gone. Driver thread, before the step.
+void RigidPieces::carve_now(const Vector3 &c, float r) {
+    const float r2 = r * r;
+    const size_t n0 = pieces_.size();
+    for (size_t pi = 0; pi < n0; pi++) {
+        Piece *pp = &pieces_[pi];
+        const Basis inv = Basis(pp->rot).inverse();
+        const Vector3 lc = inv.xform(c - pp->pos) + pp->com;   // the sphere's centre in the piece's cells
+        const int x0 = std::max(0, (int)std::floor(lc.x - r)), x1 = std::min(pp->size.x - 1, (int)std::floor(lc.x + r));
+        const int y0 = std::max(0, (int)std::floor(lc.y - r)), y1 = std::min(pp->size.y - 1, (int)std::floor(lc.y + r));
+        const int z0 = std::max(0, (int)std::floor(lc.z - r)), z1 = std::min(pp->size.z - 1, (int)std::floor(lc.z + r));
+        int cut = 0;
+        for (int z = z0; z <= z1; z++)
+            for (int y = y0; y <= y1; y++)
+                for (int x = x0; x <= x1; x++) {
+                    const int k = x + pp->size.x * (y + pp->size.y * z);
+                    if (!pp->grid[k] || (Vector3(x + 0.5f, y + 0.5f, z + 0.5f) - lc).length_squared() > r2) continue;
+                    pp->grid[k] = 0;
+                    mark_block(*pp, k);
+                    cut++;
+                }
+        if (!cut) continue;
+        carved_ += cut;
+        pp->mesh_dirty = true;
+        pp->mesh_wait = mesh_every_;
+        pp->hinged = false;   // cut off its stump
+        // the parts that are left, by 6-connected fill over the grid
+        std::vector<int> label(pp->grid.size(), -1);
+        std::vector<std::vector<int>> parts;
+        std::vector<int> q;
+        for (int k0 = 0; k0 < (int)pp->grid.size(); k0++) {
+            if (!pp->grid[k0] || label[k0] >= 0) continue;
+            const int id = (int)parts.size();
+            parts.emplace_back();
+            q.assign(1, k0);
+            label[k0] = id;
+            for (size_t h = 0; h < q.size(); h++) {
+                const int k = q[h];
+                parts[id].push_back(k);
+                const int x = k % pp->size.x, y = k / pp->size.x % pp->size.y, z = k / pp->size.x / pp->size.y;
+                for (int e = 0; e < 6; e++) {
+                    const int nx = x + DX[e], ny = y + DY[e], nz = z + DZ[e];
+                    if (nx < 0 || ny < 0 || nz < 0 || nx >= pp->size.x || ny >= pp->size.y || nz >= pp->size.z) continue;
+                    const int nk = nx + pp->size.x * (ny + pp->size.y * nz);
+                    if (pp->grid[nk] && label[nk] < 0) { label[nk] = id; q.push_back(nk); }
+                }
+            }
+        }
+        // the biggest part stays this piece; the others fly off as new pieces or drop as crumbs
+        int keep = -1;
+        for (int i = 0; i < (int)parts.size(); i++)
+            if (keep < 0 || parts[i].size() > parts[keep].size()) keep = i;
+        const Basis rot(pp->rot);
+        for (int i = 0; i < (int)parts.size(); i++) {
+            if (i == keep) continue;
+            if ((int)parts[i].size() < min_piece_) {
+                for (int k : parts[i]) {
+                    const int x = k % pp->size.x, y = k / pp->size.x % pp->size.y, z = k / pp->size.x / pp->size.y;
+                    const Vector3 w = pp->pos + rot.xform(Vector3(x + 0.5f, y + 0.5f, z + 0.5f) - pp->com);
+                    crumbs_.push_back((int)std::floor(w.x));
+                    crumbs_.push_back((int)std::floor(w.y));
+                    crumbs_.push_back((int)std::floor(w.z));
+                    crumbs_.push_back(pp->grid[k]);
+                    pp->grid[k] = 0;
+                    mark_block(*pp, k);
+                }
+                continue;
+            }
+            int lo[3] = {INT32_MAX, INT32_MAX, INT32_MAX}, hi[3] = {INT32_MIN, INT32_MIN, INT32_MIN};
+            for (int k : parts[i]) {
+                const int v[3] = {k % pp->size.x, k / pp->size.x % pp->size.y, k / pp->size.x / pp->size.y};
+                for (int a = 0; a < 3; a++) { lo[a] = std::min(lo[a], v[a]); hi[a] = std::max(hi[a], v[a]); }
+            }
+            Piece np;
+            np.id = next_id_++;
+            np.size = Vector3i(hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1);
+            np.grid.assign((size_t)np.size.x * np.size.y * np.size.z, 0);
+            for (int k : parts[i]) {
+                const int x = k % pp->size.x - lo[0], y = k / pp->size.x % pp->size.y - lo[1], z = k / pp->size.x / pp->size.y - lo[2];
+                np.grid[x + np.size.x * (y + np.size.y * z)] = pp->grid[k];
+                pp->grid[k] = 0;
+                mark_block(*pp, k);
+            }
+            if (!finish_body(np)) continue;
+            const Vector3 off(lo[0], lo[1], lo[2]);
+            np.hash_origin = pp->hash_origin + off;
+            np.rot = pp->rot;
+            np.prev_rot = pp->prev_rot;
+            np.pos = pp->pos + rot.xform(off + np.com - pp->com);
+            np.prev_pos = pp->prev_pos + Basis(pp->prev_rot).xform(off + np.com - pp->com);
+            np.vel = pp->vel + pp->ang.cross(np.pos - pp->pos);
+            np.ang = pp->ang;
+            np.age = pp->age;
+            spawned_ids_.push_back(np.id);
+            spawned_++;
+            pieces_.push_back(std::move(np));
+            pp = &pieces_[pi];   // the vector may have moved
+        }
+        // what is left keeps its grid (its mesh blocks stay put); its centre of mass moves, its position with it
+        const Vector3 old_com = pp->com;
+        if (!finish_body(*pp)) {
+            pp->grid.clear();   // cut to nothing: removed below
+            continue;
+        }
+        const Vector3 d = pp->com - old_com;
+        pp->pos += Basis(pp->rot).xform(d);
+        pp->prev_pos += Basis(pp->prev_rot).xform(d);
+    }
+    for (size_t i = 0; i < pieces_.size();) {
+        if (pieces_[i].grid.empty()) {
+            settled_out_.push_back(pieces_[i].id);   // the caller frees its mesh
+            pieces_.erase(pieces_.begin() + i);
+            continue;
+        }
+        i++;
+    }
+}
+
+void RigidPieces::queue_carve(Vector3 p_center, float p_radius) {
+    if (!async_) {   // tests, the bench: at once
+        carve_now(p_center, p_radius);
+        return;
+    }
+    std::lock_guard<std::mutex> lk(job_m_);
+    carves_.push_back(Vector4(p_center.x, p_center.y, p_center.z, p_radius));
+}
+
+// The nearest piece cell along a ray (world voxels), as of the last step: {id, position (world, the hit face),
+// distance}; {} when none within p_max. Waits for a running tick (pieces move on the driver thread).
+Dictionary RigidPieces::raycast(Vector3 p_from, Vector3 p_dir, float p_max) const {
+    Dictionary out;
+    if (sim_.is_valid()) sim_->wait_idle();
+    if (p_dir.length_squared() < 1e-8f) return out;
+    const Vector3 dir = p_dir.normalized();
+    float best = p_max;
+    int best_id = -1;
+    for (const Piece &p : pieces_) {
+        const Basis inv = Basis(p.rot).inverse();
+        const Vector3 o = inv.xform(p_from - p.pos) + p.com;
+        const Vector3 d = inv.xform(dir);
+        // enter the grid's box (slab test), then walk its cells (Amanatides-Woo)
+        float t0 = 0.0f, t1 = best;
+        const float lo[3] = {0.0f, 0.0f, 0.0f}, hi[3] = {(float)p.size.x, (float)p.size.y, (float)p.size.z};
+        const float ov[3] = {o.x, o.y, o.z}, dv[3] = {d.x, d.y, d.z};
+        bool miss = false;
+        for (int a = 0; a < 3 && !miss; a++) {
+            if (std::fabs(dv[a]) < 1e-9f) {
+                if (ov[a] < lo[a] || ov[a] > hi[a]) miss = true;
+                continue;
+            }
+            float ta = (lo[a] - ov[a]) / dv[a], tb = (hi[a] - ov[a]) / dv[a];
+            if (ta > tb) std::swap(ta, tb);
+            t0 = std::max(t0, ta);
+            t1 = std::min(t1, tb);
+            if (t0 > t1) miss = true;
+        }
+        if (miss) continue;
+        const Vector3 e = o + d * (t0 + 1e-4f);
+        int c[3] = {std::clamp((int)std::floor(e.x), 0, p.size.x - 1), std::clamp((int)std::floor(e.y), 0, p.size.y - 1), std::clamp((int)std::floor(e.z), 0, p.size.z - 1)};
+        const int sz[3] = {p.size.x, p.size.y, p.size.z};
+        int st[3];
+        float tmax[3], tdel[3];
+        const float ev[3] = {e.x, e.y, e.z};
+        for (int a = 0; a < 3; a++) {
+            st[a] = dv[a] > 0 ? 1 : -1;
+            tdel[a] = std::fabs(dv[a]) < 1e-9f ? 1e30f : std::fabs(1.0f / dv[a]);
+            const float edge = dv[a] > 0 ? (float)(c[a] + 1) : (float)c[a];
+            tmax[a] = std::fabs(dv[a]) < 1e-9f ? 1e30f : t0 + (edge - ev[a]) / dv[a];
+        }
+        float t = t0;
+        while (t <= t1) {
+            if (p.grid[c[0] + p.size.x * (c[1] + p.size.y * c[2])]) {
+                if (t < best) { best = t; best_id = p.id; }
+                break;
+            }
+            const int a = tmax[0] < tmax[1] ? (tmax[0] < tmax[2] ? 0 : 2) : (tmax[1] < tmax[2] ? 1 : 2);
+            t = tmax[a];
+            c[a] += st[a];
+            if (c[a] < 0 || c[a] >= sz[a]) break;
+            tmax[a] += tdel[a];
+        }
+    }
+    if (best_id < 0) return out;
+    out["id"] = best_id;
+    out["position"] = p_from + dir * best;
+    out["distance"] = best;
+    return out;
+}
+
 void RigidPieces::run_job() {
     std::vector<PendingCheck> todo;
+    std::vector<Vector4> carves;
     float dt;
     {
         std::lock_guard<std::mutex> lk(job_m_);
         todo.swap(pending_);
+        carves.swap(carves_);
         dt = pending_dt_;
         pending_dt_ = 0.0f;
     }
+    if (!pieces_.empty())
+        for (const Vector4 &cv : carves) carve_now(Vector3(cv.x, cv.y, cv.z), cv.w);
     if (todo.empty() && (dt <= 0.0f || (pieces_.empty() && snapped_.empty()))) return;
     const double t0 = now_ms();
     for (const PendingCheck &c : todo) check_cells(c.cells, c.from, true);

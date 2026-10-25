@@ -108,7 +108,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   biomes.json, hydrology, caves with pools, GregTech ore veins, ruins); aged trees with bark trunks,
   roots and clumped crowns, young trees, a forest floor of leaf litter, logs, stumps, bushes, ferns and
   mushrooms; far forests as leaf domes. Flat colours: one texel of the material's tile per voxel
-  (`voxel_sample`); props use `terrain_prop.gdshader`. `SimBubble` ticks a wrapped 64 x 32 x 64 m window
+  (`voxel_sample`); props use `terrain_prop.gdshader`. `SimBubble` ticks a wrapped 64 x 64 x 64 m window
   of the world's voxels (Noita kernel: sand, water, fire, gas). Brush digging and building
   (`scripts/player/brush.gd`: Ctrl + wheel size, B shape); voxel items count voxels, recipes blocks of 64
   (`ItemRegistry.units`); block entities cover footprints (`BlockEntities.footprint`). The loading screen
@@ -144,8 +144,9 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   `Inventory.make_stack`. `craft_test=1` checks it all (headless with `craft_shots=0`).
   **Water look (ADR 0045):** godot_voxel fluid patch (`voxel_patch_fluid.py`: corners next to open air drop, steps
   become ramps), FineGen rivers interpolated per voxel and their trenches and low banks filled; `tools/water_surface_probe.gd`
-  counts holes and glass edges. Generated water (rivers, lakes, sea) is a reservoir in the sim (`SimWorld::reservoir`):
-  it fills what is opened beside or under it, still, up to 3 m out, and never drains; `water_test=1 target=river` checks it.
+  counts holes and glass edges. Generated water is still until disturbed; then the sim measures its body (ADR 0049): a big
+  one (64 m^3+, or past the window) pours flowing water into the hole and keeps its level, a small one drains like any spill;
+  `water_test=1 target=river` checks a trench and a crater. What still moves when the window walks on finishes in a pin (ADR 0050).
   **Held right clicks (ADR 0043):** ground pickups are whole pieces (`GroundPickups`): aimable (aim-only box), a dig takes the
   whole stick, a 1 s held right click pops it into an item on the ground; firepit moves are held too (`hold_key`/`hold_done`).
   **Sound (ADR 0044):** the `Sound` autoload (`GameAudio`, `scripts/audio/`) plays `data/sounds.json` (material groups,

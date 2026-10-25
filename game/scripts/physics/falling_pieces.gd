@@ -56,6 +56,20 @@ func check(cells: Array, from: Vector3) -> void:
 		rp.queue_check(cells, from)
 
 
+## Pieces in flight are cut like voxels (bug report 2026-10-25 02-51-52): every cell within `radius` voxels of
+## `center` (world voxels) goes before the next step; a piece cut in two flies on as two. Cheap with no pieces.
+func carve(center: Vector3, radius: float) -> void:
+	if rp != null and not _pieces.is_empty():
+		rp.queue_carve(center, radius)
+
+
+## The nearest piece cell along a ray (world voxels): {id, position, distance} or {}.
+func raycast(from: Vector3, dir: Vector3, max_distance: float) -> Dictionary:
+	if rp == null or _pieces.is_empty():
+		return {}
+	return rp.raycast(from, dir, max_distance)
+
+
 ## One simulation tick; SimBubble calls it while the SimWorld is idle (just before it starts a tick):
 ## take what the last jobs did, then queue the next step.
 func tick(dt: float) -> void:
@@ -183,7 +197,7 @@ func stats() -> Dictionary:
 		"decayed": s.get("decayed", 0), "max_decay_ms": snappedf(s.get("max_decay_ms", 0.0), 0.01),
 		"snapped": s["snapped"], "max_check_ms": snappedf(s["max_check_ms"], 0.01), "max_step_ms": snappedf(s["max_step_ms"], 0.01),
 		"max_settle_ms": snappedf(s["max_settle_ms"], 0.01), "max_job_ms": snappedf(s["max_job_ms"], 0.01), "tick_ms_max": snappedf(tick_ms_max, 0.01),
-		"tick_parts_max_ms": _parts_max, "track_m": track, "made": s.get("made", []), "rest": s.get("rest", [])}
+		"tick_parts_max_ms": _parts_max, "track_m": track, "made": s.get("made", []), "rest": s.get("rest", []), "carved": s.get("carved", 0)}
 
 
 const NOT_STANDING := -1000000

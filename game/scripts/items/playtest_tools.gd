@@ -95,9 +95,13 @@ func _fire(firing: bool, from: Vector3, dir: Vector3, delta: float, brush_size: 
 		return
 	var hit: VoxelRaycastResult = main.world.raycast(from, dir, Settings.m2v(Settings.laser_range_m))
 	var end := (Vector3(hit.position) + Vector3(0.5, 0.5, 0.5)) if hit else from + dir * Settings.m2v(Settings.laser_range_m)
+	# a piece in flight (a falling crown) in front of the ground stops the beam and takes the cut
+	var piece: Dictionary = main.pieces.raycast(from, dir, from.distance_to(end)) if main.pieces else {}
+	if not piece.is_empty():
+		end = piece["position"] + dir * 0.5
 	_show_beam(from, end)
 	_pulse_t -= delta
-	if hit and _pulse_t <= 0.0:
+	if (hit or not piece.is_empty()) and _pulse_t <= 0.0:
 		_pulse_t = Settings.laser_pulse_s
 		_cut(end, dir, maxf(brush_size * 0.5, 1.0))
 	_check_t -= delta

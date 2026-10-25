@@ -103,6 +103,11 @@ public:
     Dictionary collect();
     // Debug, as of collect(): {load (highest wood contact load over its snapping load, last tick), wood, ground (contacts)}.
     Dictionary get_contact_info(int p_id) const;
+    // Bug report 2026-10-25 02-51-52: pieces in flight are cut like voxels. queue_carve empties the piece cells in a
+    // sphere (world voxels) before the next step (a piece cut in two flies on as two); raycast finds the nearest
+    // piece cell along a ray: {id, position, distance} or {}.
+    void queue_carve(Vector3 p_center, float p_radius);
+    Dictionary raycast(Vector3 p_from, Vector3 p_dir, float p_max) const;
 
 protected:
     static void _bind_methods();
@@ -202,6 +207,10 @@ private:
     bool async_ = false;
     std::mutex job_m_;
     std::vector<PendingCheck> pending_;
+    std::vector<Vector4> carves_;   // queued carves: centre xyz, radius
+    int carved_ = 0;
+    void carve_now(const Vector3 &c, float r);
+    bool finish_body(Piece &p);
     float pending_dt_ = 0.0f;
     PackedInt32Array settled_out_;
     Dictionary meshes_out_;

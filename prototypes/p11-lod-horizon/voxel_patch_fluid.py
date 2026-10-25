@@ -66,6 +66,14 @@ new = '''		FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_fluid_l
 		//  5 4 3     |      corner 2: diagonal 6, sides 3 7    corner 3: diagonal 8, sides 5 7
 		//  2 1 0  x--o
 		open_neighbors &= ~covered_neighbors;
+		// A cell capped by a solid block (water in a cave wall, under a ledge) keeps its corners: its top is hidden,
+		// and dropped corners drew spikes poking out of the stone (bug report 2026-10-25 02-02-16).
+		if (library.has_model(top_voxel_id) && !library.models[top_voxel_id].empty) {
+			open_neighbors = 0;
+		}
+		// A lone cell (no fluid beside it on any side, its top open: water left on a cave wall's step) lies flat as a
+		// film: dropping only its open corners drew it as a spike.
+		const bool lone = (fluid_neighbors & 0b010'101'010) == 0 && open_neighbors != 0;
 		FixedArray<bool, 4> open_corner;
 		{
 			const uint32_t o = open_neighbors, f = fluid_neighbors;
@@ -76,6 +84,9 @@ new = '''		FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_fluid_l
 			open_corner[0] = drops(2, 1, 5);
 			open_corner[2] = drops(6, 3, 7);
 			open_corner[3] = drops(8, 5, 7);
+			if (lone) {
+				open_corner[0] = open_corner[1] = open_corner[2] = open_corner[3] = true;
+			}
 			for (int c = 0; c < 4; ++c) {
 				if (open_corner[c]) {
 					corner_levels[c] = 0;

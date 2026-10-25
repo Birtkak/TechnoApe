@@ -26,6 +26,20 @@ func _load_slab(w: SimWorld, chunk: Vector3i, y0: int, y1: int, mat: int) -> voi
 	w.set_chunk_bytes(chunk, b, 2)
 
 
+## As SimBubble runs it: liquids in eighths, columns falling together, gravity.
+func _game_world() -> SimWorld:
+	var w := _world()
+	w.set_liquid_fullness(true)
+	w.set_cascade(true)
+	w.set_gravity(0.17)
+	return w
+
+
+## Water of either kind (moving, or still: filled water at rest beside a big body joins it, ADR 0049).
+func _wet(w: SimWorld, lo: Vector3i, hi: Vector3i) -> int:
+	return w.count_in_box(lo, hi, GameMaterials.WATER) + w.count_in_box(lo, hi, GameMaterials.WATER_STATIC)
+
+
 func _run(w: SimWorld, ticks: int) -> void:
 	for i in ticks:
 		w.tick(1)
@@ -66,43 +80,100 @@ func test_dirt_wall_holds_sand_slumps() -> void:
 	assert_int(w.count_in_box(Vector3i(28, 1, 16), Vector3i(40, 12, 24), GameMaterials.SAND_STATIC)).is_greater(20)
 
 
-## Reservoirs (ADR 0045): generated water fills an opening with moving water and never drains.
-func test_reservoir_fills_a_breach_and_stays_full() -> void:
-	var w := _world()
-	w.set_liquid_fullness(true)
-	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 1, 48), GameMaterials.STONE)
-	_load_slab(w, Vector3i(0, 0, 0), 1, 6, GameMaterials.WATER_STATIC)   # a generated lake
+## Still water (ADR 0045, 0049): a big body (64 m^3 or more, or one that runs past the window) keeps its level and
+## pours moving water into what is opened; a small one turns into moving water and drains. A lake touching the
+## world's edge counts as big (it goes on out there).
+func test_big_lake_fills_a_breach_and_stays_full() -> void:
+	var w := _game_world()
+	_load_slab(w, Vector3i(0, 0, 0), 1, 6, GameMaterials.WATER_STATIC)   # a generated lake at the edge
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 1, 48), GameMaterials.STONE)   # its bed
 	w.fill_box(Vector3i(16, 1, 0), Vector3i(17, 6, 16), GameMaterials.STONE)   # its shore (edit, then removed)
 	_run(w, 3)
 	w.fill_box(Vector3i(16, 1, 0), Vector3i(17, 6, 16), 0)    # break the shore
-	_run(w, 120)
+	_run(w, 240)
 	assert_int(w.count_in_box(Vector3i(0, 1, 0), Vector3i(16, 6, 16), GameMaterials.WATER_STATIC)).is_equal(16 * 5 * 16)
-	# the flat floor past the shore floods at the lake's level (still water: it stands on ground)
-	var out := w.count_in_box(Vector3i(17, 1, 0), Vector3i(48, 6, 48), GameMaterials.WATER_STATIC) 		+ w.count_in_box(Vector3i(17, 1, 0), Vector3i(48, 6, 48), GameMaterials.WATER)
-	assert_int(out).is_greater(50)
-	assert_int(w.count_in_box(Vector3i(0, 6, 0), Vector3i(48, 48, 48), GameMaterials.WATER_STATIC)).is_equal(0)   # never above it
+	# the floor past the shore floods, never above the lake's level
+	assert_int(_wet(w, Vector3i(17, 1, 0), Vector3i(48, 6, 48))).is_greater(50)
+	assert_int(_wet(w, Vector3i(0, 6, 0), Vector3i(48, 48, 48))).is_equal(0)
+	assert_int(int(w.get_stats()["bodies_measured"])).is_greater(0)
 
 
-func test_reservoir_fills_a_pocket_then_sleeps() -> void:
-	var w := _world()
-	w.set_liquid_fullness(true)
-	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 12, 48), GameMaterials.STONE)
-	w.fill_box(Vector3i(8, 4, 8), Vector3i(24, 12, 24), GameMaterials.WATER_STATIC)   # a pond 8 deep
-	_run(w, 3)
-	w.fill_box(Vector3i(24, 6, 12), Vector3i(28, 12, 16), 0)   # a pocket dug into the bank, below the surface
-	var settled := -1
-	var quiet := 0   # the reservoir fills on a roll each tick: one quiet tick is not yet settled
-	for t in 600:
+## Ticks until nothing moved for 20 ticks in a row (the pour rolls each tick), -1 if never.
+func _settle(w: SimWorld, limit: int) -> int:
+	var quiet := 0
+	for t in limit:
 		var r: Dictionary = w.tick(1)
 		quiet = quiet + 1 if int(r["moved_cells_per_tick"]) == 0 else 0
 		if quiet >= 20:
-			settled = t
-			break
-	assert_int(settled).override_failure_message("never settled").is_greater(0)
-	# the pocket is part of the pond now: still water, nothing left moving, the pond as full as before
-	assert_int(w.count_in_box(Vector3i(24, 6, 12), Vector3i(28, 12, 16), GameMaterials.WATER_STATIC)).is_equal(4 * 6 * 4)
-	assert_int(w.count_material(GameMaterials.WATER)).is_equal(0)
-	assert_int(w.count_in_box(Vector3i(8, 4, 8), Vector3i(24, 12, 24), GameMaterials.WATER_STATIC)).is_equal(16 * 8 * 16)
+			return t
+	return -1
+
+
+func test_small_pond_drains_into_a_pocket() -> void:
+	var w := _game_world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 12, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(8, 4, 8), Vector3i(24, 12, 24), GameMaterials.WATER_STATIC)   # a pond 8 deep: 2048 cells, small
+	_run(w, 3)
+	var mass := w.count_liquid_eighths(GameMaterials.WATER_STATIC)
+	w.fill_box(Vector3i(24, 6, 12), Vector3i(28, 12, 16), 0)   # a pocket dug into the bank, below the surface
+	assert_int(_settle(w, 900)).override_failure_message("never settled").is_greater(0)
+	# the whole pond is moving water now, no more and no less of it, and the pocket filled from it
+	assert_int(w.count_material(GameMaterials.WATER_STATIC)).is_equal(0)
+	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).is_equal(mass)
+	assert_int(w.count_in_box(Vector3i(24, 6, 12), Vector3i(28, 11, 16), GameMaterials.WATER)).is_equal(4 * 5 * 4)
+	assert_int(int(w.get_stats()["bodies_drained"])).is_equal(1)
+
+
+func test_big_pond_refills_a_pocket_with_moving_water() -> void:
+	var w := _game_world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 12, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(0, 4, 0), Vector3i(24, 12, 24), GameMaterials.WATER_STATIC)   # runs to the world's edge: big
+	_run(w, 3)
+	w.fill_box(Vector3i(24, 6, 12), Vector3i(28, 12, 16), 0)
+	assert_int(_settle(w, 900)).override_failure_message("never settled").is_greater(0)
+	assert_int(w.count_in_box(Vector3i(0, 4, 0), Vector3i(24, 12, 24), GameMaterials.WATER_STATIC)).is_equal(24 * 8 * 24)
+	assert_int(_wet(w, Vector3i(24, 6, 12), Vector3i(28, 12, 16))).is_equal(4 * 6 * 4)
+
+
+## The developer's 3x3x3 pocket (bug report 2026-10-25 02-17-32): water walled off from a lake is a small body; dug
+## free, it spills what it holds and no more.
+func test_walled_off_pocket_is_finite() -> void:
+	var w := _game_world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 20, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(20, 8, 20), Vector3i(32, 20, 32), GameMaterials.WATER_STATIC)   # 12^3, open on top
+	_run(w, 3)
+	w.fill_box(Vector3i(16, 1, 16), Vector3i(36, 8, 36), 0)   # a big room dug out under it
+	assert_int(_settle(w, 1500)).override_failure_message("never settled").is_greater(0)
+	assert_int(w.count_material(GameMaterials.WATER_STATIC)).is_equal(0)
+	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).is_equal(12 * 12 * 12 * 8)
+
+
+## Sand sinks through still water to the bed (bug report 02-17-49); the lake keeps its level.
+func test_sand_sinks_through_a_lake() -> void:
+	var w := _game_world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 1, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(0, 1, 0), Vector3i(48, 12, 48), GameMaterials.WATER_STATIC)
+	_run(w, 3)
+	w.fill_box(Vector3i(20, 16, 20), Vector3i(24, 20, 24), GameMaterials.SAND)   # a sand bomb over the lake
+	_run(w, 200)
+	assert_int(w.count_in_box(Vector3i(0, 12, 0), Vector3i(48, 48, 48), GameMaterials.SAND)).is_equal(0)
+	assert_int(w.count_in_box(Vector3i(0, 1, 0), Vector3i(48, 4, 48), GameMaterials.SAND)).is_greater(32)
+	assert_int(w.count_in_box(Vector3i(0, 11, 0), Vector3i(48, 12, 48), GameMaterials.WATER_STATIC)).is_equal(48 * 48)
+
+
+## Lava pours as a stream: gravity never waits for its viscosity roll (bug report 02-23-24).
+func test_lava_falls_every_tick() -> void:
+	var w := _game_world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 1, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(20, 40, 20), Vector3i(21, 46, 21), GameMaterials.LAVA)   # a column of 6 cells
+	_run(w, 14)
+	# under gravity a cell falls 39 cells in about 20 ticks; with the old roll some cells lagged behind
+	var hist: PackedInt32Array = w.layer_histogram(GameMaterials.LAVA)
+	var top := -1
+	for y in hist.size():
+		if hist[y] > 0:
+			top = y
+	assert_int(top).is_less(36)
 
 
 func test_river_steps_stay_quiet() -> void:
@@ -205,18 +276,19 @@ func test_dirty_boxes_cover_every_changed_cell() -> void:
 				assert_bool(inside).override_failure_message("step %d: %s cell %s outside %s" % [step, c, cell, bx]).is_true()
 
 
-func test_reservoir_spreads_no_further_than_its_reach() -> void:
-	var w := _world()
-	w.set_liquid_fullness(true)
-	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 1, 48), GameMaterials.STONE)
+func test_breach_into_a_valley_stops_pouring() -> void:
+	var w := _game_world()
 	_load_slab(w, Vector3i(0, 0, 0), 1, 6, GameMaterials.WATER_STATIC)
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 1, 48), GameMaterials.STONE)   # the bed (the slab left y 0 empty)
 	w.fill_box(Vector3i(16, 1, 0), Vector3i(17, 6, 16), GameMaterials.STONE)
 	_run(w, 3)
-	w.fill_box(Vector3i(16, 1, 0), Vector3i(17, 6, 16), 0)   # the shore breaks onto an endless flat floor
+	w.fill_box(Vector3i(16, 1, 0), Vector3i(17, 6, 16), 0)   # the shore breaks onto the open floor
 	_run(w, 900)
-	var reach := SimWorld.RESERVOIR_REACH
-	assert_int(w.count_in_box(Vector3i(16, 1, 0), Vector3i(16 + reach, 2, 16), GameMaterials.WATER_STATIC)).is_greater(reach * 16 / 2)
-	assert_int(w.count_in_box(Vector3i(16 + reach + 1, 0, 0), Vector3i(48, 48, 48), GameMaterials.WATER_STATIC)).is_equal(0)
+	# the lake keeps its level; what poured out is at most the budget of its breached face (16 x 5 cells)
+	assert_int(w.count_in_box(Vector3i(0, 1, 0), Vector3i(16, 6, 16), GameMaterials.WATER_STATIC)).is_equal(16 * 5 * 16)
+	var out := w.count_liquid_eighths(GameMaterials.WATER) + w.count_liquid_eighths(GameMaterials.WATER_STATIC) - 16 * 5 * 16 * 8
+	assert_int(out).is_less_equal(16 * 5 * SimWorld.POUR_BUDGET * 8)
+	assert_int(out).is_greater(16 * 5 * 8)
 
 
 ## After a reload, water that once filled an opening reads as generated: it must not creep further.

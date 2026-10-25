@@ -24,6 +24,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace godot {
@@ -39,11 +40,10 @@ public:
     // moves like its loose kind (Noita's static -> dynamic) until something places it again.
     // FLAG_SHAKEN: static ground that saw a fresh opening; it keeps rolling its loosen chance while the
     // opening stays open (crumbles over time instead of only on the tick of the change).
-    // FLAG_FILLED: reservoir liquid that filled an opening (ADR 0045), aux = its distance from the
-    // generated water; more may spread over it, while a reservoir never spreads over its own generated
-    // cells (each step of a river surface). FLAG_SHAKEN on generated reservoir liquid: it saw a fresh
-    // opening and fills until there is none.
-    enum Flags : uint8_t { FLAG_BURNING = 1, FLAG_LOOSE = 2, FLAG_SHAKEN = 4, FLAG_FILLED = 8 };
+    // FLAG_SHAKEN on generated (still) liquid: it saw a fresh opening; as part of a big body it pours
+    // moving liquid into it until there is none (ADR 0049), aux = cells poured while loaded.
+    // FLAG_JOINED: still liquid that was moving liquid filling a big body's opening (ADR 0049); what lands on it stays.
+    enum Flags : uint8_t { FLAG_BURNING = 1, FLAG_LOOSE = 2, FLAG_SHAKEN = 4, FLAG_JOINED = 8 };
     static constexpr int CS = 16;
     static constexpr int MAX_MATERIALS = 256;
     static constexpr int MAX_DISP = 7; // must stay < CS/2 for the parity scheme
@@ -52,7 +52,14 @@ public:
     // cell keeps its material id. get_chunk_bytes / set_chunk_bytes (2 bytes) encode and
     // decode it, so the terrain shows the fullness and a reload restores it.
     static constexpr int FLUID_LEVEL_BASE = 256;
-    static constexpr int RESERVOIR_REACH = 24;   // cells (3 m) reservoir water fills sideways from its body (ADR 0045)
+    // ADR 0049: disturbed still liquid is measured: a connected body of at least BIG_BODY_CELLS cells (64 m^3 at
+    // 12.5 cm), or one that runs past the window or into a chunk still loading, is big and keeps its level (it pours
+    // moving liquid into what is opened, at most POUR_BUDGET cells per source cell until it rests); a smaller one
+    // turns into moving liquid and drains.
+    static constexpr int BIG_BODY_CELLS = 32768;
+    static constexpr int POUR_BUDGET = 255;
+    static constexpr int BODY_CACHE_TICKS = 150;
+    static constexpr int MAX_FILLS_PER_TICK = 16;
 
     struct MaterialDef {
         uint8_t cell_type = CELL_GAS; // air default
@@ -100,6 +107,10 @@ public:
     int fill_sphere(Vector3 p_center, float p_radius, int p_material, const PackedInt32Array &p_keep);
     int ignite_box(Vector3i p_min, Vector3i p_max);
     void mark_all_loaded(bool p_loaded);
+    // ADR 0050 pinned windows: one chunk becomes a wall (not ticked, never read as open) or open again; the active
+    // chunks (anything still moving) as window-local chunk coords.
+    void set_chunk_loaded(Vector3i p_chunk, bool p_loaded);
+    Array get_active_chunks() const;
     // v5 (P10): fall acceleration in cells/tick^2 for powders and liquids (0 = one cell per tick, P5 behaviour).
     // At 6.25 cm and 30 Hz, 9.8 m/s^2 is 0.174 cells/tick^2.
     void set_gravity(float p_cells_per_tick2);
@@ -160,6 +171,11 @@ public:
     // flags) for loaded cells whose material has a nonzero byte in p_mask (256 bytes) or that burn.
     // Never waits: returns nothing while a tick runs (the caller tries again next frame).
     PackedInt32Array sample_cells(Vector3i p_center, int p_radius, int p_count, int p_seed, const PackedByteArray &p_mask) const;
+    // Minimap feed (part D): the top non-air cell of every step-th column of the window, nearest the sky first.
+    // {size: Vector2i columns, step, ids: PackedByteArray (material, 0 = none or still loading), heights:
+    // PackedInt32Array (window-local y, -1 = none)}; column (cx, cz) at index cx + size.x * cz is local cell
+    // (cx * step, cz * step). Waits for a running tick like get_voxel (not for the pre-tick phase).
+    Dictionary surface_map(int p_step) const;
     PackedInt32Array layer_histogram(int p_material) const;
     PackedInt32Array material_histogram() const;
     Dictionary chunk_info(Vector3i p_chunk) const;
@@ -316,7 +332,17 @@ private:
     bool fall(int x, int y, int z, int i, Ctx &c);
     void try_loosen(int x, int y, int z, int i, Ctx &c);
     void reservoir(int x, int y, int z, int i, Ctx &c);
-    bool same_reservoir(int x, int y, int z, int slot) const;
+    bool still_liquid(int x, int y, int z, int slot) const;   // generated (static) liquid of that fluid slot
+    bool step_of(int x, int y, int z, int slot) const;        // still_liquid, but not FLAG_JOINED
+    // ADR 0049 body size: 0 = not measured yet (ask with request_body), 1 = small, 2 = big
+    int body_class(int i) const;
+    void request_body(int x, int y, int z);
+    void measure_bodies();   // driver thread, between ticks: answers the requests
+    std::mutex req_m_;
+    std::vector<Vector3i> body_req_;
+    struct BodyEntry { uint32_t until; uint8_t cls; };
+    std::unordered_map<int, BodyEntry> body_;   // physical cell index -> class, valid until tick
+    int bodies_measured_ = 0, bodies_drained_ = 0, body_cells_max_ = 0;
     void update_powder(int x, int y, int z, int i, Ctx &c);
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);

@@ -29,6 +29,7 @@ uniform float water_alpha_min = 0.22;
 uniform float water_alpha_max = 0.94;
 uniform float water_rim_m = 0.1;      // the pale shore rim fades out over this much water
 uniform float water_rim = 0.35;
+uniform float waterfall_speed = 40.0;  // voxels per second the foam streaks run down a falling face (5 m/s)
 #endif
 
 varying vec2 v_flow;
@@ -92,6 +93,16 @@ void fragment() {
 		vec3 col = mix(water_shallow, water_deep, 1.0 - exp(-d_m / water_depth_m));
 		ALBEDO = mix(col, vec3(0.86, 0.96, 0.95), rim) * face_tint(n);
 		ALPHA = clamp(mix(water_alpha_min, water_alpha_max, 1.0 - exp(-d_m / water_clear_m)) + (1.0 - facing) * edge_alpha_boost + rim, 0.0, 1.0);
+		if (an.y < 0.5) {
+			// ADR 0049: water falling down a face (a waterfall sheet, a spill over a ledge) reads as foam streaks
+			// running down in voxel-wide lanes, each at its own speed, so a still sheet no longer looks frozen
+			float lane = floor(wc.x);
+			float speed = waterfall_speed * (0.75 + 0.5 * lava_hash(vec3(lane, 1.0, 3.0)));
+			float v = fract((wc.y - TIME * speed) * 0.125 + lava_hash(vec3(lane, 7.0, 2.0)));
+			float streak = smoothstep(0.6, 0.95, v) * (0.55 + 0.45 * lava_hash(vec3(lane, 4.0, 9.0)));
+			ALBEDO = mix(ALBEDO, vec3(0.9, 0.97, 1.0), streak * 0.7);
+			ALPHA = clamp(max(ALPHA, 0.55) + streak * 0.35, 0.0, 1.0);
+		}
 	} else {
 		ALPHA = clamp(liquid_alpha + (1.0 - facing) * edge_alpha_boost, 0.0, 1.0);
 	}

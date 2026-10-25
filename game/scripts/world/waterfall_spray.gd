@@ -122,6 +122,7 @@ func _process(delta: float) -> void:
 		e.process_material = pm
 		e.visibility_aabb = AABB(Vector3(-width - 8, -2, -width - 8), Vector3(2 * width + 16, 20, 2 * width + 16))
 		e.position = Vector3(key.x + 0.5, key.y + 0.4, key.z + 0.5)
+		e.add_child(_roar(energy))
 		add_child(e)
 		_emitters[key] = e
 		_count += 1
@@ -130,6 +131,28 @@ func _process(delta: float) -> void:
 			_emitters[key].queue_free()
 			_emitters.erase(key)
 			_falls.erase(key)
+
+
+## The roar at a fall's foot (bug report 2026-10-25 02-09-43: falls had no sound). The sim's "waterfall" loop
+## only hears moving water over air, and a generated sheet is still water: each fall gets its own looping player
+## of the same sound (data/sounds.json "loop/water_fall"), louder for a wider, taller fall.
+func _roar(energy: float) -> Node3D:
+	var v := AudioStreamPlayer3D.new()
+	v.name = "Roar"
+	var s: Dictionary = Sound._sounds.get("loop/water_fall", {}) if Sound else {}
+	if s.is_empty():
+		return v
+	var st: AudioStream = Sound._stream(s["files"][0])
+	if st is AudioStreamOggVorbis:
+		(st as AudioStreamOggVorbis).loop = true
+	v.stream = st
+	v.bus = "World"
+	v.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_DISABLED
+	v.unit_size = s.get("ref_v", 16.0) * clampf(energy / 6.0, 1.0, 3.0)
+	v.max_distance = Settings.m2v(radius_m)
+	v.volume_db = s.get("db", -10.0) + 4.0
+	v.autoplay = true
+	return v
 
 
 ## The waterfalls in range: the generator's dicts (x, y = foot, z, top, dir_x, dir_z, width in voxels).

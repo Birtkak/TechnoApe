@@ -11,7 +11,7 @@ const SEA_LEVEL_VOXEL := 1024           # 128 m
 
 # Distances (metres)
 var simulation_distance_m := 24.0       # nominal reach of the simulation (HUD); the window itself is sim_window_chunks
-var sim_window_chunks := Vector3i(32, 16, 32)   # the wrapped simulation window: 64 x 32 x 64 m of 12.5 cm voxels (powers of two)
+var sim_window_chunks := Vector3i(32, 32, 32)   # the wrapped simulation window: 64 x 64 x 64 m of 12.5 cm voxels (powers of two; 64 m tall since ADR 0050)
 var sim_cell_budget := 1500000          # cells scanned per tick at most; the furthest active chunks wait (ADR 0013)
 var sim_lod_m := 12.0                   # chunks further than this from the player tick every second tick
 var render_distance_m := 24.0           # full-detail (LOD 0) radius. Our godot_voxel build lifts stock's 64 m clamp (ADR 0020): 96 m holds at 20 m/s (not at 40), 128 m costs p99 10 ms and 2 GB VRAM

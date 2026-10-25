@@ -119,3 +119,26 @@ func test_a_felled_crown_leaves_nothing_hanging() -> void:
 	assert_int(rp.check(cut, Vector3(0, 12, 32)).size()).is_equal(1)
 	assert_int(sim.count_in_box(Vector3i(0, 0, 0), Vector3i(64, 64, 64), GameMaterials.LEAVES)).is_equal(0)
 	assert_int(int(rp.get_stats()["decayed"])).is_greater(0)
+
+
+## Bug report 2026-10-25 02-51-52: a piece in flight takes cuts like voxels; cut through, it flies on as two.
+func test_a_piece_in_flight_is_cut_in_two() -> void:
+	var w := _world()
+	var sim: SimWorld = w[0]
+	var rp: RigidPieces = w[1]
+	var ids := rp.check(_pillar(sim, 12, true), Vector3(0, 12, 32))
+	assert_int(ids.size()).is_equal(1)
+	rp.step(1.0 / 30.0)
+	# the beam finds it: a ray across the pillar's middle hits its near face
+	var hit: Dictionary = rp.raycast(Vector3(10, 26.5, 32), Vector3(1, 0, 0), 64.0)
+	assert_int(int(hit.get("id", -1))).is_equal(ids[0])
+	assert_float(float(hit["distance"])).is_between(19.0, 21.5)
+	# a sphere through the whole cross-section at mid height
+	rp.queue_carve(Vector3(32, 26, 32), 3.5)
+	var now := rp.get_ids()
+	assert_int(now.size()).is_equal(2)
+	var wood := 0
+	for id in now:
+		wood += int(rp.get_info(id)["wood"])
+	assert_int(wood).is_less(16 * 27)
+	assert_int(wood).is_greater(16 * 27 - 16 * 8)
