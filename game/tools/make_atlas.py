@@ -15,7 +15,7 @@ Tiles (index = row*4 + col):
 77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84 leaf litter; 85 oak bark; 86 pebbles 87 flint
 88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98 cobblestone 99 bricks (patterned, ADR 0039); 100 blueberry bush; 101 kelp 102 seagrass 103 seashell (ADR 0047);
 104-111 reserved (part B of the 2026-10-25 split); 112-114 wheat stalks green / turning / golden, 115 wheat ear,
-116 carrot leaves 117 carrot shoulder, 118 torch stick 119 torch wrap (ADR 0053); 120-127 free (part C); 128+ parts D, E
+116 carrot leaves 117 carrot shoulder, 118 torch stick 119 torch wrap 120 torch flame (ADR 0053); 121-127 free (part C); 128+ parts D, E
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -816,11 +816,12 @@ tiles = [
     stripes(["#1c3a12", "#2f5a1c", "#3e7224", "#4d872c", "#5e9c36", "#73b043", "#8cc456", "#c8d97a"], 112, "cols"),   # 112 wheat, green blades
     stripes(["#3c4a14", "#5e6e1e", "#7a8a28", "#94a032", "#aab23e", "#c2c04c", "#d6cc62", "#e8dc8a"], 113, "cols"),   # 113 wheat, turning
     stripes(["#6a4a14", "#93691e", "#b08428", "#c49a34", "#d4ae44", "#e2c258", "#eed474", "#f8e8a8"], 114, "cols"),   # 114 wheat, golden stalks
-    stones_pattern(["#5a3a0e", "#7e5616", "#a0741f", "#bc8e2a", "#cc9e34", "#ddb648", "#f0d26a", "#fff0b0"], 115, n=56),   # 115 wheat ear: kernels
+    stripes(["#6a4410", "#b8861e", "#cc9c2a", "#dcb036", "#e8c248", "#f2d460", "#fae890", "#fff6c8"], 115, "rows", (1, 1), 0.12),   # 115 wheat ear: rows of kernels
     stripes(["#163a10", "#22561a", "#2f7024", "#3d882c", "#4e9e36", "#63b444", "#7fca58", "#b4e07e"], 116, "diag", (1, 1), 0.1),   # 116 carrot leaves: feathery
     stripes(["#7a2c08", "#a83e0c", "#c85412", "#dc6a18", "#ea7c20", "#f4922e", "#ffb050", "#5e2206"], 117, "rows", (1, 1)),   # 117 carrot shoulder: rings
     wood_grain(["#1e1208", "#33200f", "#4a3018", "#5e3e20", "#734e2a", "#8a6036", "#a07448", "#2a1a0c"], 118),   # 118 torch stick: dark wood
-    stones_pattern(["#1a0d07", "#2e1a0e", "#4a2a14", "#6b3a1a", "#8a4a1e", "#c0621e", "#f08a2a", "#ffd070"], 119, n=48),   # 119 torch wrap: charred cloth, embers
+    stones_pattern(["#3a1a0a", "#5e2c12", "#7e3e18", "#a0521e", "#c06a24", "#e08a30", "#f8b048", "#ffe08a"], 119, n=48),   # 119 torch wrap: cloth glowing with embers
+    stripes(["#c03408", "#e0580e", "#f07418", "#f89028", "#fcae3c", "#ffc850", "#ffe070", "#fff4c0"], 120, "rows", (1, 2), 0.1),   # 120 torch flame: red to a pale tip (glows, flame_tile)
 ]
 assert len(tiles) <= COLS * ROWS, len(tiles)
 

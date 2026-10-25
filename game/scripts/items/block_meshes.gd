@@ -10,6 +10,9 @@ extends RefCounted
 static var _cache := {}
 static var _card_cache := {}
 static var _sprite_cache := {}
+## Items held and dropped as a voxel model, the same as they stand in the world (ADR 0053): id -> mesh
+## builder (1 unit tall, centred, like a sprite mesh). The inventory icon stays the sprite.
+static var MODELS := {"torch": TorchEntity.item_mesh}
 
 
 static func cube(material_id: int, surface_material: Material) -> Mesh:
@@ -60,6 +63,9 @@ static func _quad(st: SurfaceTool, n: Vector3, c: Array, uvs: Array) -> void:
 ## edges walled in that pixel's colour.
 static func sprite(item_id: String) -> Mesh:
 	if _sprite_cache.has(item_id):
+		return _sprite_cache[item_id]
+	if MODELS.has(item_id):
+		_sprite_cache[item_id] = MODELS[item_id].call()   # a voxel model instead of the flat sprite (ADR 0053)
 		return _sprite_cache[item_id]
 	var sprites := ItemSprites.get_default()
 	var m := StandardMaterial3D.new()

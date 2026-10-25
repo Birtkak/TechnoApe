@@ -6,10 +6,18 @@ extends Node
 ##   godot_console.exe --path game res://tools/mob_style_sheet.tscn -- out=res://out/mobs/styles.png
 ## (a scene, not --script: --script runs without the autoloads, and the models read Settings)
 ## cells=1,2,4 picks the rows; walk=0.5 poses them mid-stride. Not headless (needs the renderer).
+## film=1: a filmstrip instead: a sheep and a pig walking at their walk_m speed (mobs.json),
+## a frame every 100 ms for 1.6 s, side on (motion is never judged from one frame).
 
 var out_path := "res://out/mobs/styles.png"
 var cells := [1, 2, 4]
 var _walk := 0.0
+var _film := false
+var _t := 0.0
+var _next_t := 0.0
+const FILM_DT := 0.1
+const FILM_FRAMES := 16
+const WALK_M := {"sheep": 1.1, "pig": 1.2, "chicken": 1.0}
 var _frames := 0
 var _shots: Array[Image] = []
 var _cams: Array[Camera3D] = []
@@ -24,27 +32,36 @@ func _ready() -> void:
 		match kv[0]:
 			"out": out_path = kv[1]
 			"walk": _walk = float(kv[1])
+			"film": _film = kv[1] == "1"
 			"cells":
 				cells = []
 				for c in kv[1].split(","):
 					cells.append(int(c))
 	var root3d := Node3D.new()
 	add_child(root3d)
+	if _film:
+		cells = [MobModel.cell]
 	var z := 0.0
 	for c in cells:
 		MobModel.cell = c
 		var x := 0.0
-		for e in [["sheep", false], ["sheep", true], ["pig", false], ["chicken", false], ["bear", false]]:
+		var lineup := [["sheep", false], ["pig", false]] if _film else [["sheep", false], ["sheep", true], ["pig", false], ["chicken", false], ["bear", false]]
+		for e in lineup:
 			var m := MobModel.create(e[0], e[1])
 			root3d.add_child(m)
 			m.position = Vector3(x, 0, z)
-			m.rotation.y = -0.5
+			m.rotation.y = -0.5 if not _film else PI / 2.0   # film: walking toward +x, side on
+			if _film:
+				m.position = Vector3(-3.0 - _models.size() * 3.5, 0, z)
 			_models.append(m)
 			x += 3.4 if e[0] != "bear" else 4.0
 		var cam := Camera3D.new()
 		cam.fov = 34
 		root3d.add_child(cam)
-		cam.look_at_from_position(Vector3(6.6, 4.2, z + 13.0), Vector3(6.6, 1.0, z))
+		if _film:
+			cam.look_at_from_position(Vector3(-4.6, 1.6, z + 7.5), Vector3(-4.6, 1.0, z))
+		else:
+			cam.look_at_from_position(Vector3(6.6, 4.2, z + 13.0), Vector3(6.6, 1.0, z))
 		_cams.append(cam)
 		z += 40.0
 	MobModel.cell = 2
@@ -96,6 +113,9 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_frames += 1
+	if _film:
+		_film_step()
+		return
 	for m in _models:
 		m.animate(delta, 0.0, 0.0, 0.2, 0.0, 0.0)
 		if _walk > 0.0:
@@ -118,4 +138,36 @@ func _process(delta: float) -> void:
 	DirAccess.make_dir_recursive_absolute(abs_path.get_base_dir())
 	sheet.save_png(abs_path)
 	print(JSON.stringify({"mob_style_sheet": abs_path, "rows": _shots.size(), "cells": cells}))
+	get_tree().quit(0)
+
+
+## Walks the animals with a fixed step (so the strip shows game time, not render time) and grabs a
+## frame every FILM_DT; then lays the frames side by side.
+func _film_step() -> void:
+	var dt := 1.0 / 60.0
+	if _frames < 4:
+		return
+	for m in _models:
+		var mps: float = WALK_M.get(m.species, 1.0)
+		m.animate(dt, mps / Settings.VOXEL_M, 0.0, 0.0, 0.0, 0.0)
+		m.position.x += mps * 2.0 * dt   # sheet units: 1 = 0.5 m
+	_t += dt
+	_cams[0].position.x = _models[0].position.x - 1.6
+	if _t + 1e-6 >= _next_t:
+		_next_t += FILM_DT
+		_shots.append(get_viewport().get_texture().get_image())
+	if _shots.size() < FILM_FRAMES:
+		return
+	var w := _shots[0].get_width() / 2
+	var h := _shots[0].get_height() / 2
+	var cols := 4
+	var sheet := Image.create(w * cols, h * (FILM_FRAMES / cols), false, Image.FORMAT_RGB8)
+	for j in _shots.size():
+		var img := _shots[j]
+		img.resize(w, h)
+		sheet.blit_rect(img, Rect2i(0, 0, w, h), Vector2i((j % cols) * w, (j / cols) * h))
+	var abs_path := ProjectSettings.globalize_path(out_path)
+	DirAccess.make_dir_recursive_absolute(abs_path.get_base_dir())
+	sheet.save_png(abs_path)
+	print(JSON.stringify({"mob_film": abs_path, "frames": _shots.size(), "dt_ms": FILM_DT * 1000.0}))
 	get_tree().quit(0)

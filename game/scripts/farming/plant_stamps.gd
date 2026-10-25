@@ -150,55 +150,44 @@ static func crop_anchor(soil: Vector3i) -> Vector3i:
 
 static func crop(kind: String, age: int, look: int, p: Vector3i) -> Dictionary:
 	var s := seed_of(p)
-	# one stalk at the anchor, a second on the other diagonal (or beside it), leaves in between
-	var d2 := Vector3i(1, 0, 1) if s & 1 else Vector3i(1, 0, 0)
-	var side_a := Vector3i(1, 0, 0) if d2 != Vector3i(1, 0, 0) else Vector3i(0, 0, 1)
-	var side_b := Vector3i(0, 0, 1) if d2 != Vector3i(1, 0, 0) else Vector3i(1, 0, 1)
+	# all four columns of the 2 x 2 carry a stalk, of a few heights, so a ripe field reads as a crop
+	# (2026-10-25: "denser fields"); the anchor's column is the tallest
+	var cols := [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 1), Vector3i(1, 0, 1)]
+	var drop := [0, 1 + ((s >> 1) & 1), 1 + ((s >> 2) & 1), (s >> 3) & 1]
 	var out := {}
 	if kind == "wheat":
 		var m := look
+		var ear := GameMaterials.id_of("wheat_ear")
 		var h: int = [1, 1, 2, 3, 4, 5, 6, 6][age]
-		var h2: int = maxi(h - 1 - ((s >> 2) & 1), 0)
-		for y in h:
-			out[Vector3i(0, y, 0)] = m
-		for y in h2:
-			out[d2 + Vector3i(0, y, 0)] = m
-		if age >= 2:
-			out[side_a] = m   # blades at the foot
-		if age >= 4 and age < 7:
-			out[side_b + Vector3i(0, 1, 0)] = m
-		if age >= 6:
-			# ears: the top of each stalk (two voxels when ripe)
-			var ear := GameMaterials.id_of("wheat_ear")
-			var n := 2 if age == 7 else 1
-			for k in n:
-				out[Vector3i(0, h - 1 - k, 0)] = ear if h - 1 - k > 0 else m
-				if h2 - 1 - k > 0:
-					out[d2 + Vector3i(0, h2 - 1 - k, 0)] = ear
+		for i in 4:
+			if age < 2 and i > 1:
+				continue   # sprouts: two blades
+			var ch: int = maxi(h - int(drop[i]), 1)
+			var ears := 0 if age < 6 else (2 if age == 7 else 1)
+			for y in ch:
+				out[cols[i] + Vector3i(0, y, 0)] = ear if y >= ch - ears and y > 0 else m
+		out[Vector3i.ZERO] = m   # the anchor keeps the age material
 		return out
-	# carrots: feathery leaves rising from the anchor; a ripe carrot shows its orange shoulder
+	# carrots: a tuft of feathery leaves over the 2 x 2; a ripe carrot shows its orange shoulders
 	var leaf := GameMaterials.id_of("carrots_0")
-	out[Vector3i.ZERO] = look
 	var stage: int = [0, 0, 1, 1, 2, 2, 2, 3][age]
 	var h: int = [2, 3, 4, 4][stage]
-	for y in range(1, h):
-		out[Vector3i(0, y, 0)] = leaf
-	if stage >= 1:
-		out[side_a + Vector3i(0, h - 2, 0)] = leaf
-		out[d2 + Vector3i(0, h - 1, 0)] = leaf
-	if stage >= 2:
-		out[side_b + Vector3i(0, h - 1, 0)] = leaf
-		out[side_a + Vector3i(0, h - 1, 0)] = leaf
-		out[Vector3i(0, h, 0)] = leaf
+	out[Vector3i.ZERO] = look
+	for i in 4:
+		var ch: int = maxi(h - int(drop[i]), 1)
+		if stage == 0 and i > 1:
+			continue
+		for y in range(0 if i > 0 else 1, ch):
+			out[cols[i] + Vector3i(0, y, 0)] = leaf
 	if stage == 3:
-		out[d2] = look   # a second shoulder beside the first
+		out[cols[3]] = look   # a second shoulder on the other diagonal
 	return out
 
 
 # ---------------- torches ----------------
 
-## A torch: a stick of three, a wrap of ember cloth around its top and the flame (the anchor material,
-## "torch") above it. `wall` is the direction to the wall it hangs on (ZERO = standing on a floor):
+## A torch: a stick of four, a cross of ember cloth on its top and a big flame on that (the "torch"
+## material: tile 120, which glows and flickers). `wall` is the direction to the wall it hangs on (ZERO = standing on a floor):
 ## then the stick leans out from the wall, its foot against it. Offsets are from the placed voxel.
 static func torch(wall: Vector3i) -> Dictionary:
 	var stick := GameMaterials.id_of("torch_stick")
@@ -206,24 +195,31 @@ static func torch(wall: Vector3i) -> Dictionary:
 	var flame := GameMaterials.id_of("torch")
 	var out := {}
 	var lean := -wall
-	var top := Vector3i(0, 3, 0)
+	var top := Vector3i(0, 4, 0)
 	if wall == Vector3i.ZERO:
-		for y in 3:
+		for y in 4:
 			out[Vector3i(0, y, 0)] = stick
 	else:
 		out[Vector3i.ZERO] = stick
 		out[Vector3i(0, 1, 0)] = stick
 		out[lean + Vector3i(0, 2, 0)] = stick
-		top = lean + Vector3i(0, 3, 0)
-	out[top] = wrap
-	for d in [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]:
-		if d != wall:
-			out[top + d] = wrap
-	out[top + Vector3i(0, 1, 0)] = flame
-	out[top + Vector3i(0, 2, 0)] = flame
+		out[lean + Vector3i(0, 3, 0)] = stick
+		top = lean + Vector3i(0, 4, 0)
+	# a big burning head (2026-10-25: "bigger"): a cross of ember cloth, a 3 x 3 of flame on it, a cross
+	# above that and a two-voxel tip
+	var cross := [Vector3i.ZERO, Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]
+	for d in cross:
+		out[top + d] = wrap
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			out[top + Vector3i(dx, 1, dz)] = flame
+	for d in cross:
+		out[top + d + Vector3i(0, 2, 0)] = flame
+	out[top + Vector3i(0, 3, 0)] = flame
+	out[top + Vector3i(0, 4, 0)] = flame
 	return out
 
 
 ## Offset of the flame (the light's place) in a torch stamp.
 static func torch_flame(wall: Vector3i) -> Vector3i:
-	return Vector3i(0, 4, 0) if wall == Vector3i.ZERO else -wall + Vector3i(0, 4, 0)
+	return Vector3i(0, 6, 0) if wall == Vector3i.ZERO else -wall + Vector3i(0, 6, 0)

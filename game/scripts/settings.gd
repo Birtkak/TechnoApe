@@ -69,9 +69,13 @@ var cast_cool_s := 10.0                 # metal in a mold cools this long before
 var charcoal_pit_burn_s := 120.0        # a sealed pit smoulders this long (Vintage Story: about 18 game hours)
 var charcoal_pit_grace_s := 20.0        # after lighting, this long to finish sealing it before the wood burns away
 var firewood_per_pile := 16             # firewood in one pile voxel; two make one charcoal
-var torch_lights_max := 24              # the torches nearest the player that get a real light
-var torch_light_range_m := 7.0          # how far one torch lights
-var torch_light_radius_m := 48.0        # torches farther from the player than this stay unlit
+var torch_lights_max := 24              # the light sources nearest the player that get a real light (TorchLights)
+var torch_light_range_m := 16.0         # how far one torch lights (2026-10-25: 7 m read as a small glow; ADR 0053)
+var torch_light_energy := 1.3           # a torch's light at its flame
+var torch_light_attenuation := 0.7      # OmniLight3D falloff: < 1 spreads the light and fades it gently to the range
+var torch_light_radius_m := 64.0        # light sources farther from the player than this stay unlit
+var fire_light_range_m := 18.0          # a lit firepit, furnace, kiln or firewood pile (TorchLights)
+var fire_light_energy := 1.6
 var pan_shakes := 6                     # right clicks to wash one pan of sand or gravel
 # Crafting in the world (ADR 0042)
 var metal_heat_s := 8.0                 # an ingot or work piece on a lit firepit is fully hot after this long

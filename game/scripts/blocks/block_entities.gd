@@ -193,6 +193,15 @@ func all_of(p_kind: String) -> Array:
 	return out
 
 
+## Entities burning now (furnaces, firepits, kilns, firewood piles): TorchLights lights them.
+func lit() -> Array:
+	var out := []
+	for e in _ticking:
+		if e.is_lit():
+			out.append(e)
+	return out
+
+
 static func is_work(e: RefCounted) -> bool:
 	return e != null and e.kind in WORK_KINDS
 

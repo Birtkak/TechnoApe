@@ -50,6 +50,9 @@ var later: PackedStringArray = []   # later=/a;wait 1.5;/b: chat commands after 
 var chop_test := ""         # chop_test=1[,cam]: 1.5 s after loading, /chop [cam] (P12 rigid pieces)
 var fell_test := ""         # fell_test=<deg>[,cam]: 1.5 s after loading, /fell <deg> [cam] (P12 rigid pieces)
 var water_test := false     # water_test=1 (with target=river): dig a trench into the bank, check it fills to the river's level (ADR 0045, JSON line "debug water")
+var looks_test := false     # looks_test=1: part C's multi-voxel crops, flowers, torches, table and lights on a patch, shot (ADR 0053, "debug looks")
+var looks_shots := true     # looks_shots=0: looks_test without screenshots
+var looks_budget := false   # looks_budget=1: looks_test only sets ten torches and a held one at night (the budget case)
 var water_shots := true     # water_shots=0: no screenshots in the water test
 var craft_test := false     # craft_test=1: assemble an axe, work a firepit by hand, smith a hammer head, wear a tool out (ADR 0042, JSON line "debug craft")
 var stone_age_test := false # stone_age_test=1: knap, form clay, pit kiln, firepit, cast, sieve through the player's clicks (ADR 0023, JSON line "debug stone_age")
@@ -158,6 +161,9 @@ func _ready() -> void:
 	flint_age_test = args.get("flint_age_test", "0") == "1"
 	craft_test = args.get("craft_test", "0") == "1"
 	water_test = args.get("water_test", "0") == "1"
+	looks_test = args.get("looks_test", "0") == "1"
+	looks_shots = args.get("looks_shots", "1") != "0"
+	looks_budget = args.get("looks_budget", "0") == "1"
 	water_shots = args.get("water_shots", "1") != "0"
 	menu_test = args.get("menu_test", "0") == "1"
 	if args.has("voxel_threads"):   # godot_voxel worker threads for this run (project default: voxel/threads/count)

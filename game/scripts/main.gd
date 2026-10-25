@@ -44,6 +44,7 @@ var _stone_age_test: StoneAgeTest
 var _flint_age_test: FlintAgeTest
 var _craft_test: CraftTest
 var _water_test: WaterTest
+var _looks_test: LooksTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
@@ -339,6 +340,10 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_water_test = WaterTest.new()
 				_water_test.run(self))
+		if DebugCapture.looks_test:
+			_after_load(func() -> void:
+				_looks_test = LooksTest.new()
+				_looks_test.run(self))
 		if DebugCapture.scatter_items:
 			# one entity per given item, in a row two metres ahead, so a screenshot shows them
 			var fwd := -player.camera.global_transform.basis.z
@@ -380,7 +385,7 @@ func _ready() -> void:
 	warmup.setup(world.terrain.mesher as VoxelMesherBlocky, player.camera)
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(player.warm_materials(), player.camera)
-		warmup.add_meshes([StationEntity.model_mesh()], player.camera)
+		warmup.add_meshes([StationEntity.model_mesh(), BlockMeshes.sprite("torch"), BlockMeshes.sprite("iron_ore")], player.camera)   # the table; item sprites, extruded and cube (held and dropped)
 	# chips, dust, splashes, smoke, hearts, lava pops, drips and waterfall spray (scripts/visuals/particle_fx.gd)
 	if Settings.particles:
 		fx = ParticleFx.load_default()

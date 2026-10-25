@@ -327,8 +327,8 @@ static func _flint_age_defs() -> Array:
 		thatch,
 		wattle,
 		{"name": "daub_wall", "cell_type": "solid", "rigid": "wood", "density": 9, "hp": 400, "tiles": [90, 90, 90], "transparent": false},
-		# the flame of a multi-voxel torch (ADR 0053): fire on every face; stands on floors and hangs on walls
-		{"name": "torch", "cell_type": "solid", "density": 5, "hp": 5, "tiles": [12, 12, 12], "transparent": false, "micro": "torch", "entity": "torch", "light": true},
+		# the flame of a multi-voxel torch (ADR 0053): tile 120 glows and flickers (flame_tile); stands on floors and hangs on walls
+		{"name": "torch", "cell_type": "solid", "pattern": true, "density": 5, "hp": 5, "tiles": [120, 120, 120], "transparent": false, "micro": "torch", "entity": "torch", "light": true},
 		{"name": "storage_pot", "cell_type": "solid", "density": 9, "hp": 80, "tiles": [66, 3, 66], "transparent": false, "micro": "storage_pot", "interact": "chest", "entity": "storage_pot"},
 	])
 	return _flint_age
