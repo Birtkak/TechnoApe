@@ -38,6 +38,10 @@ The split follows the code, so no two sessions edit the same native sources:
   `docs/plans/to-test.md` under one heading per part. Commit on your branch; merge order at the end:
   D, C, E, F, B, A (the native-heavy ones last, they rebuild the DLL from the merged tree).
 - Something in another part's files? Message that session instead of editing it.
+- **Patterned tiles above 127:** the terrain shader's `pattern_tiles` is `int[4]` (a bit mask), so only
+  atlas tiles 0-127 can be `"pattern": true` (`terrain_common.gdshaderinc`, `ti < 128`). Part E widens
+  it to `int[8]` (tiles up to 255) as one small hunk and lists it under the merge notes; D and F use
+  patterned tiles at 128+ only on top of E's change (until the merge, test them below 128 or plain).
 - **Merge notes** (hunks a part made in another part's files, to check when merging):
   - D: an optional `only` parameter on `SimBubble.blast` (part A's file, for the world vacuum); two
     sprites in `tools/make_item_sprites.py` (part C's file, just above "validate + write"). Regenerate
@@ -212,8 +216,10 @@ no new screens where the world can do it). Build the starred ones first; the res
   fire code, no hook needed.
 - Ochre and cave painting: dig red/yellow ochre, grind it on a stone, mix with fat, paint hand stencils
   and animals onto walls as a patterned overlay; a quest.
-- Fat lamps: a hollowed stone with fat and a moss wick, a carried light for caves (part C does the
-  light from held light sources: use its system).
+- Fat lamps: a hollowed stone with fat and a moss wick, a carried light for caves. Part C's
+  `scripts/visuals/torch_lights.gd` lights any item with `"light": {}` in `data/items.json` (optional
+  `{"range_m": 7.0, "energy": 1.5, "color": "#ffb86b"}`, torch values are the defaults) while held and
+  while dropped; nothing else to register.
 
 **2. Middle Stone Age (water and the bow)**
 - ★ Microliths and the bow: tiny flint bladelets set in tar make arrowheads; a bow from a stave with a
