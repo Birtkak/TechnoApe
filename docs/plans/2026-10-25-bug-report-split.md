@@ -13,6 +13,7 @@ The split follows the code, so no two sessions edit the same native sources:
 | B | World generation | `p5/src/world_gen.*`, `fine_gen.*`, `biomes.json`, `GEN_VERSION` | yes |
 | C | How things look: crops, items, models, animals, light | `tools/make_item_sprites.py`, `tools/make_atlas.py`, `scripts/farming/`, `scripts/mobs/`, `scripts/blocks/*_entity.gd`, `scripts/visuals/` | no |
 | D | Player, inventory, interaction, fire and weather | `scripts/player/`, `scripts/ui/inventory_screen.gd`, `scripts/crafting/inventory.gd`, `scripts/items/`, `scripts/work/`, `scripts/commands/`, new `scripts/world/weather.gd` | no |
+| E | New content: more animals, stone types, clutter items (added after A-D started; not from a report) | `data/mobs.json` (new species), new stone and clutter entries in `materials.gd`/`items.json`/`mining.json`, new FineGen content in its own source file with small hooks | yes |
 
 ## Rules for all four
 
@@ -22,18 +23,19 @@ The split follows the code, so no two sessions edit the same native sources:
   then run `--headless --path game --import` once.
 - **Headless runs only** unless the developer says they are free (they may be playing).
 - **Reserved numbers**, so branches merge without clashes:
-  - ADRs: A 0049-0050, B 0051-0052, C 0053-0054, D 0055-0056.
-  - Material ids (definition order, append only): A 116-119, B 120-129, C 130-149, D 150-159. A part
-    that appends fewer leaves the gap as reserved placeholders, so ids stay put whatever the merge order.
-  - Atlas tiles (atlas is full at 104; add rows): B 104-111, C 112-127, D 128-135. Grow the atlas to
-    the rows your tiles need; the merge of `make_atlas.py` is by hand.
+  - ADRs: A 0049-0050, B 0051-0052, C 0053-0054, D 0055-0056, E 0057-0058.
+  - Material ids (definition order, append only): A 116-119, B 120-129, C 130-149, D 150-159,
+    E 160-199. A part that appends fewer leaves the gap as reserved placeholders, so ids stay put
+    whatever the merge order.
+  - Atlas tiles (atlas is full at 104; add rows): B 104-111, C 112-127, D 128-135, E 136-167. Grow the
+    atlas to the rows your tiles need; the merge of `make_atlas.py` is by hand.
   - `GEN_VERSION`: only B bumps it.
 - **Ask the developer first** about the direction calls listed in your part (working principle 3);
   everything else: sensible default, recorded.
 - Before handing back: gdUnit passes, the part's scripted checks pass, a budget run (`autopilot=1`,
   `load_cap_s=30`) shows `budget_ok`, screenshots or filmstrips for anything visual. Add your items to
   `docs/plans/to-test.md` under one heading per part. Commit on your branch; merge order at the end:
-  D, C, B, A (the native-heavy ones last, they rebuild the DLL from the merged tree).
+  D, C, E, B, A (the native-heavy ones last, they rebuild the DLL from the merged tree).
 - Something in another part's files? Message that session instead of editing it.
 
 ---
@@ -150,6 +152,38 @@ Checks: gdUnit for inventory moves (offhand, trash, drops keep per-stack data: `
 `craft_test=1`, the menu and hands tests, a scripted forest fire with `later=` and a filmstrip of it
 burning and the rain putting it out, a budget run during the fire.
 
+## Part E: more animals, stone types and clutter items
+
+Not from a report: the developer asked for more content alongside A-D. Three kinds, each data first
+(principle 6: data + schema + tests), each fitting the voxel look (memory "voxel objects big and
+readable": big, thick, irregular, varied, 8-colour patterns, one piece, all of a kind alike).
+
+1. **Animals.** New species in `data/mobs.json` with models built like the existing ones (`MobModel`,
+   MicroMesher at 6.25 cm), behaviour from the existing kinds (grazer, prey, hunter like the bear), spawn
+   biomes, drops, sounds (`data/sounds.json` mobs, CC0 sources as ADR 0044). Ideas to pick from with the
+   developer: deer, boar, rabbit, fox, wolf, goat in the mountains, duck/frog by water, fish in rivers,
+   crab on beaches, bats and cave spiders underground. Part C restyles the existing animals (report
+   02-12-28): message part C for its style decision before modelling, so new and old animals match.
+2. **Stone types.** Real rock kinds with their own palette and pattern (granite, diorite, andesite,
+   limestone, sandstone variants, slate, marble, chalk, tuff ...), placed as strata and regions in the
+   world, each with hardness, drops, a cobble and a brick form where it makes sense, and a place in the
+   ages (Vintage Story-style rock types decide which ores show up). Placement lives in the generator,
+   which part B is reworking: put the rock-type selection in its own function/file
+   (e.g. `src/rock_types.*`) called from FineGen with a small hook, and message part B about the hook.
+3. **Clutter items.** More ADR 0047 pieces that dig whole: e.g. pine cones, acorns, feathers, bones,
+   antlers, snail shells, driftwood, berries, nuts, small rock kinds matching the new stone types, ice
+   shards, cave crystals. Each is a voxel piece on the ground, an item with a sprite, and is placed by
+   biome. Generator placement again through a separate function with a small hook in `floor_features`.
+
+Direction calls to ask first: which animals (and which bite), which stone types and how many, which
+clutter items and what each is for (a use in crafting, food, or only decoration). Show model and
+material sheets before committing to a look. New materials use ids 160-199, tiles 136-167, ADR
+0057-0058. Do not bump `GEN_VERSION` (part B does it once); tell part B your generator change needs it.
+
+Checks: gdUnit (every item has a sprite, mobs.json schema, rock types deterministic from seed),
+`tools/item_sheet.gd`, model sheets, `tools/clutter_probe.gd`, a filmstrip of each new animal moving,
+`fine_gen_bench.gd` (no big cost growth), a budget run in a forest with the new clutter and herds.
+
 ---
 
 ## Briefs to paste into each session
@@ -165,3 +199,5 @@ Each session reads `CLAUDE.md`, this file and its own part, then starts with the
   screenshots, show me sheets before you finish each look."
 - **D:** "Take part D of docs/plans/2026-10-25-bug-report-split.md (player, inventory, fire, weather). Own
   worktree. Read the screenshots, ask me the direction calls, then build."
+- **E:** "Take part E of docs/plans/2026-10-25-bug-report-split.md (more animals, stone types, clutter
+  items). Own worktree. Ask me which ones, show me sheets, coordinate with parts B and C as it says."
