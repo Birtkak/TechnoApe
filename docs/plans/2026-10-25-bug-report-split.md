@@ -14,6 +14,7 @@ The split follows the code, so no two sessions edit the same native sources:
 | C | How things look: crops, items, models, animals, light | `tools/make_item_sprites.py`, `tools/make_atlas.py`, `scripts/farming/`, `scripts/mobs/`, `scripts/blocks/*_entity.gd`, `scripts/visuals/` | no |
 | D | Player, inventory, interaction, fire and weather | `scripts/player/`, `scripts/ui/inventory_screen.gd`, `scripts/crafting/inventory.gd`, `scripts/items/`, `scripts/work/`, `scripts/commands/`, new `scripts/world/weather.gd` | no |
 | E | New content: more animals, stone types, clutter items (added after A-D started; not from a report) | `data/mobs.json` (new species), new stone and clutter entries in `materials.gd`/`items.json`/`mining.json`, new FineGen content in its own source file with small hooks | yes |
+| F | A deeper Flint Age: four Stone Age stages (added last; not from a report) | `data/quests.json`, `recipes.json`, new Flint Age items/materials, new mechanics in new files under `scripts/work/` and `scripts/survival/` | no |
 
 ## Rules for all four
 
@@ -23,19 +24,19 @@ The split follows the code, so no two sessions edit the same native sources:
   then run `--headless --path game --import` once.
 - **Headless runs only** unless the developer says they are free (they may be playing).
 - **Reserved numbers**, so branches merge without clashes:
-  - ADRs: A 0049-0050, B 0051-0052, C 0053-0054, D 0055-0056, E 0057-0058.
+  - ADRs: A 0049-0050, B 0051-0052, C 0053-0054, D 0055-0056, E 0057-0058, F 0059-0060.
   - Material ids (definition order, append only): A 116-119, B 120-129, C 130-149, D 150-159,
-    E 160-199. A part that appends fewer leaves the gap as reserved placeholders, so ids stay put
-    whatever the merge order.
-  - Atlas tiles (atlas is full at 104; add rows): B 104-111, C 112-127, D 128-135, E 136-167. Grow the
-    atlas to the rows your tiles need; the merge of `make_atlas.py` is by hand.
+    E 160-199, F 200-239. A part that appends fewer leaves the gap as reserved placeholders, so ids
+    stay put whatever the merge order.
+  - Atlas tiles (atlas is full at 104; add rows): B 104-111, C 112-127, D 128-135, E 136-167,
+    F 168-199. Grow the atlas to the rows your tiles need; the merge of `make_atlas.py` is by hand.
   - `GEN_VERSION`: only B bumps it.
 - **Ask the developer first** about the direction calls listed in your part (working principle 3);
   everything else: sensible default, recorded.
 - Before handing back: gdUnit passes, the part's scripted checks pass, a budget run (`autopilot=1`,
   `load_cap_s=30`) shows `budget_ok`, screenshots or filmstrips for anything visual. Add your items to
   `docs/plans/to-test.md` under one heading per part. Commit on your branch; merge order at the end:
-  D, C, E, B, A (the native-heavy ones last, they rebuild the DLL from the merged tree).
+  D, C, E, F, B, A (the native-heavy ones last, they rebuild the DLL from the merged tree).
 - Something in another part's files? Message that session instead of editing it.
 
 ---
@@ -184,6 +185,74 @@ Checks: gdUnit (every item has a sprite, mobs.json schema, rock types determinis
 `tools/item_sheet.gd`, model sheets, `tools/clutter_probe.gd`, a filmstrip of each new animal moving,
 `fine_gen_bench.gd` (no big cost growth), a budget run in a forest with the new clutter and herds.
 
+## Part F: a deeper Flint Age
+
+Not from a report: the developer asked for more progress steps in the Flint Age, historically
+grounded, and approved the whole list below (2026-10-25). Today the Flint Age is one chapter of 35
+quests (ADR 0023, 0028, 0030, 0042) running from knapping to copper casting. Part F splits it into the
+four real stages of the Stone Age, each its own chapter in the progression book, and adds the steps
+below as data plus in-world mechanics in the style of ADR 0030/0042 (work on the ground, held clicks,
+no new screens where the world can do it). Build the starred ones first; the rest follow in order.
+
+**1. Old Stone Age (hunter-gatherers)**
+- ★ Birch tar: roll birch bark, bury it under embers (a small sealed pit like the charcoal pit), get
+  tar. Tools hafted with tar wear half as fast as cordage-lashed ones (`durability`).
+- ★ Heat-treated flint: flint buried in sand under a burning firepit becomes tempered flint, which
+  knaps into sharper, longer-lasting heads.
+- ★ Bone and antler: an eyed bone needle sews fur clothing (cloak, hood, boots) that counts in body
+  temperature (`Survival`); bone fish hooks, harpoon, antler pick.
+- ★ Spear-thrower (atlatl): throws the existing spear about twice as far and hard (`Projectiles`).
+- Keeping fire: tinder fungus holds an ember to carry fire; the Flint Age striker is flint + pyrite
+  (flint and steel is Iron Age: part D is told).
+- Ochre and cave painting: dig red/yellow ochre, grind it on a stone, mix with fat, paint hand stencils
+  and animals onto walls as a patterned overlay; a quest.
+- Fat lamps: a hollowed stone with fat and a moss wick, a carried light for caves (part C does the
+  light from held light sources: use its system).
+
+**2. Middle Stone Age (water and the bow)**
+- ★ Microliths and the bow: tiny flint bladelets set in tar make arrowheads; a bow from a stave with a
+  sinew or cordage string.
+- ★ Dugout canoe: fell a big tree (rigid pieces), hollow the log with fire and an adze; the first boat.
+- Fishing: wattle fish weirs and basket traps in rivers, bone hooks, cordage nets (fish come from part E).
+- ★ Drying and smoking racks: meat hung over smoke keeps much longer (`spoil`).
+- The dog: tame a wolf with meat scraps; it follows and helps hunt (wolves come from part E).
+
+**3. New Stone Age (settling down)**
+- ★ Polished stone axe: grind a roughout on a sandstone slab with sand and water, many strokes; slow to
+  make, tough, fells big trees much faster.
+- ★ First farming: gather wild einkorn, emmer and flax, sow them; a saddle quern grinds grain to flour,
+  baked into flatbread on a hot stone.
+- Flax to linen: ret in water, break, spin with a drop spindle (clay whorl), weave on a warp-weighted
+  loom; cloth for clothes and bigger bags.
+- Flint mines: surface nodules are poor; good flint lies deep in chalk, mined with antler picks
+  (flint quality tiers). Needs chalk from part E's stone types.
+- ★ Megaliths: move a huge stone on log rollers with levers and ropes (rigid pieces), raise a dolmen or
+  stone circle lined up with the solstice sunrise (calendar); reward: a home shrine / respawn point
+  that marks the seasons.
+- Salt: boil brine in clay pots; salted food barely spoils.
+- Longhouses: prefab blueprints for shape building, plus storage pits.
+
+**4. Copper Stone Age (the bridge)**
+- ★ Native copper, cold-hammered with a stone into awls and beads before smelting; green malachite
+  (paint) turning into copper in a hot kiln is the discovery quest that opens the Copper Age.
+- Ötzi's kit as the finale: copper axe, flint dagger, birch-bark boxes, tinder fungus, grass cape,
+  bearskin cap; one capstone quest.
+
+Direction calls to ask first: how much of today's 35 quests moves into which stage (show the new book
+layout before rewriting it); the timing scale (minutes like the charcoal pit, or calendar days); what
+the megalith reward is exactly; how a boat handles. Everything else: sensible default, recorded in
+the ADR.
+
+Coordination: part D owns `scripts/work/` (the firepit fuel fix) and `scripts/player/`/inventory:
+put new mechanics in new files and keep hooks into existing ones small, and message part D about
+them. Part E brings fish, wolves, chalk and other stones: build against their names, message part E
+for them, and stub what is not there yet. Part C owns the light from held light sources and the
+model looks. New materials use ids 200-239, tiles 168-199, ADR 0059-0060.
+
+Checks: gdUnit for every new recipe type and the quest graph (every quest reachable, no orphan item),
+`flint_age_test=1` and `craft_test=1` extended so each new mechanic is driven through the player's own
+clicks, `/kit flint` updated, item sheet, a budget run, items in `docs/plans/to-test.md` under "Part F".
+
 ---
 
 ## Briefs to paste into each session
@@ -201,3 +270,5 @@ Each session reads `CLAUDE.md`, this file and its own part, then starts with the
   worktree. Read the screenshots, ask me the direction calls, then build."
 - **E:** "Take part E of docs/plans/2026-10-25-bug-report-split.md (more animals, stone types, clutter
   items). Own worktree. Ask me which ones, show me sheets, coordinate with parts B and C as it says."
+- **F:** "Take part F of docs/plans/2026-10-25-bug-report-split.md (a deeper Flint Age). Own worktree.
+  Ask me the direction calls, build the starred steps first, coordinate with parts C, D and E."
