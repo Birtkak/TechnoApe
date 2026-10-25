@@ -40,6 +40,10 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
     `prototypes/p5-sim-spike/frame_sheet.gd`. Never judge animation from one
     screenshot.
 
+11. **Token budget.** Offload with the `free-offload` skill before reading big files, searching
+    widely or writing boilerplate (Ask-Free -> Run-FreeAgent -> Run-Codex); keep design, native
+    work and final verification. Claude subagents bill the same allowance: not a saving.
+
 ## Stack (ADR 0001 accepted, 0002 accepted, 0003 proposed)
 
 - Godot 4.7.2 .NET at `~\Tools\Godot\4.7.2-mono\Godot_v4.7.2-stable_mono_win64\`
