@@ -102,74 +102,15 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
 
 - Phase 0 (research + direction) and Phase 1 (prototypes) done 2026-10-21; the spikes that shaped
   the retired 0.5 m / brick-world architecture were deleted with it (ADR 0036, git history keeps them).
-- Phase 2 (current): **the voxel world (ADR 0033-0036).** One 12.5 cm grid for terrain, simulation,
-  collision and rendering. Native `FineGen` draws the voxels over `WorldGen`'s 0.5 m macro layer
-  (landforms: ~8 km continents of plains, hill country and mountain ranges; climate, biomes from
-  biomes.json, hydrology, caves with pools, GregTech ore veins, ruins); aged trees with bark trunks,
-  roots and clumped crowns, young trees, a forest floor of leaf litter, logs, stumps, bushes, ferns and
-  mushrooms; far forests as leaf domes. Flat colours: one texel of the material's tile per voxel
-  (`voxel_sample`); props use `terrain_prop.gdshader`. `SimBubble` ticks a wrapped 64 x 32 x 64 m window
-  of the world's voxels (Noita kernel: sand, water, fire, gas). Brush digging and building
-  (`scripts/player/brush.gd`: Ctrl + wheel size, B shape); voxel items count voxels, recipes blocks of 64
-  (`ItemRegistry.units`); block entities cover footprints (`BlockEntities.footprint`). The loading screen
-  covers the start, respawns and long teleports until the ground is in, with the player and animals
-  frozen. Gameplay on top: player loop (ADR 0005), stations (0007), recipe browser (0008), collision and
-  swimming (0011), animals, farming, furniture (0022), Vintage Story early game (0023), progression book
-  (0028), Flint Age (0030), menus and saves (0032). Probes: `tools/terrain_map.gd`, `fine_gen_bench.gd`,
-  `fine_probe.gd`, `face_probe.gd`. Loads take 12-17 s: budget runs use `load_cap_s=30`.
-  Full detail is capped at 24 m (`Settings.MAX_DETAIL_M`): 32 m blows the budget in forests.
-  **Direction (ADR 0037, 2026-10-24):** rigid voxel pieces (trees, cut pieces, later buildings topple),
-  LotL shape building + box mode + prefabs from the start, tools and gear crafted in the world (grid for
-  bulk), ages into GregTech, hunger + temperature + spoilage, biting wildlife and dangerous places (calm
-  surface, combat a side system), patterned voxels for built materials, structures / dungeons / cave
-  biomes / roads / traders, new systems keep state server-side. Magic is decided in Phase 3.
-  **Rigid pieces (P12, on by default, `rigid_pieces=0` turns them off):** `RigidPieces` (technosim) cuts loose wood (support fill, max-flow
-  strength, hardness breaking), flies it and settles it back into voxels. It runs on the sim's driver thread before each
-  tick (`set_async`; `get_voxel` does not wait for that phase); a forest felling holds p99 7.2 ms, the main thread pays
-  ~2 ms (`prototypes/p12-rigid-pieces/README.md`). Trees never weld (FineGen gap).
-  **Shape building (ADR 0038):** V opens the build menu (brush, box, wall, cylinder, cone, sphere, stairs, slope,
-  box mode, box dig, select, prefabs); `ShapeBuilder` (`scripts/building/`) orchestrates, native `ShapeTool` rasterizes,
-  meshes and fills; prefabs in `user://prefabs/<category>/<name>.json`. Scripted checks: `later=/a;wait 1;/b` runs chat
-  commands after loading (`/shape ... at x y z`, `/shape drag`, `/shape menu`, `/box`, `/prefab`).
-  **Survival (ADR 0040):** `Survival` (`scripts/survival/`) runs hunger (Minecraft bar + saturation), body temperature
-  (climate, season, hour, caves, water, rooms from the native `ClimateProbe` flood fill, heat of fire cells and lit
-  entities) and food spoilage (perishable stacks carry `spoil` through every Inventory move, averaged on merge; rot).
-  Tunables in `Settings`; `/survival` reads and sets it. A new `class_name` needs an `--import` before the game sees it.
-  **Lighting grade (ADR 0041):** golden (warm sun, warm haze, ACES + S-curve LUT) is the look; `Atmosphere.GRADES` holds it
-  and the alternatives natural and clear (`/grade <name>`, `grade=`); fog is per km. `/shot <name>` saves a frame without the HUD.
-  **Crafting in the world (ADR 0042):** flint and copper tools are assembled on the ground part by part (`assemble` recipes,
-  `AssemblyEntity`), the firepit is worked by hand (no screen), tools wear (`durability` = uses), hot metal carries `hot_until`
-  against `Inventory.clock_s`, and a stone anvil smiths hot copper with a hammer (`smith` recipes, height per column,
-  `AnvilEntity`). Stacks keep per-stack data (`spoil`, `wear`, `hot_until`, `work`) through every move: build stacks with
-  `Inventory.make_stack`. `craft_test=1` checks it all (headless with `craft_shots=0`).
-  **Water look (ADR 0045):** godot_voxel fluid patch (`voxel_patch_fluid.py`: corners next to open air drop, steps
-  become ramps), FineGen rivers interpolated per voxel and their trenches and low banks filled; `tools/water_surface_probe.gd`
-  counts holes and glass edges. Generated water (rivers, lakes, sea) is a reservoir in the sim (`SimWorld::reservoir`):
-  it fills what is opened beside or under it, still, up to 3 m out, and never drains; `water_test=1 target=river` checks it.
-  **Held right clicks (ADR 0043):** ground pickups are whole pieces (`GroundPickups`): aimable (aim-only box), a dig takes the
-  whole stick, a 1 s held right click pops it into an item on the ground; firepit moves are held too (`hold_key`/`hold_done`).
-  **Sound (ADR 0044):** the `Sound` autoload (`GameAudio`, `scripts/audio/`) plays `data/sounds.json` (material groups,
-  bursts, mobs, sim loops, music) from CC0 assets cut by `tools/make_sounds.py` out of `~/Tools/downloads/sounds/` (recipes
-  in `tools/sound_recipes.json`, ffmpeg in `~/Tools/ffmpeg/`). It listens instead of being called: player signals,
-  `ParticleFx.burst_played` (names in `fx.sound_bursts`), `FallingPieces.piece_event`, every UI button via `node_added`;
-  call `Sound.play(name, pos)` only where nothing else tells the story. Buses Music / World / UI; JSON "sound"; `sound=0`.
-  **Next:** the rest of the ADR 0037 work order; still open from before: fire/smoke pacing per cell, fast flight vs
-  generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
-  list in `docs/plans/to-test.md`.
-- Material ids are definition order, append only (saves and the generator use them): 32..36 stations,
-  37..43 detail, 44 reserved (once `CHISELED`), 47 blood, 48..52 ground pickups, 57..75 animals, farming,
-  furniture, 76..87 and 90..101 content passes, 88..89 work spots, 103..107 Flint Age, 108 leaf litter,
-  109 cobblestone, 110 bricks, 111..115 clutter (plant stem, kelp, seagrass, seashell, mushroom stem; ADR 0047).
-  Atlas 8x13 tiles (84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
-  stones; 98 cobblestone, 99 bricks; 100 blueberry bush; 101 kelp, 102 seagrass, 103 seashell: full, add a row to grow;
-  after editing `tools/make_atlas.py` run `--import`, or the game draws the old texture). `"pattern": true` materials lay their tile over the grid, one texel per voxel (ADR 0039). Ground pickups are voxel shapes (stone chunks on a 0.5 m patch, sticks as `FineGen::STICK` stamps);
-  clutter (flowers, mushrooms, seashells, kelp, seagrass) and ore nuggets are voxel pieces that dig whole (ADR 0047,
-  `GroundPickups`, probe `tools/clutter_probe.gd`). Crafting: any layout, amounts in inventory counts (ADR 0046). `MicroMesher` builds the
-  models of stations, furniture, work pieces, mobs and the ape at 6.25 cm cells; it winds triangles
-  counter-clockwise, so pass its meshes through `MobModel.outward` (which reads an ArrayMesh back and
-  waits 4-6 ms for the render thread: never per edit).
-- When another session shares this checkout, stage files explicitly, never `git add -A`; Biome enum ids
-  0..12 in world_gen.h stay stable; biome_table.gen.h is generated.
+- Phase 2 (current): **the voxel world (ADR 0033-0036)**: one 12.5 cm grid for terrain, simulation, collision and
+  rendering, plus the gameplay built on it (direction ADR 0037). Per-system notes (FineGen, SimBubble, rigid pieces,
+  shape building, survival, lighting, crafting, water, pickups, sound) and the material id / atlas rules live in
+  **`docs/design/systems.md`**: read the part for the system you touch before changing it. Plan:
+  `docs/plans/lotl-overhaul.md`, playtest list `docs/plans/to-test.md`.
+- Material ids and atlas tiles are append only (saves and the generator use them); Biome enum ids 0..12 in
+  world_gen.h stay stable; biome_table.gen.h is generated. Details in `docs/design/systems.md`.
+- A new `class_name` needs an `--import` before the game sees it.
+- When another session shares this checkout, stage files explicitly, never `git add -A`.
 - Phase 3: wands/spells, machines, recipe browser depth (machine recipes, bookmarks)
 - Phase 4: automation depth, dedicated server on Unraid, auto-update
 
