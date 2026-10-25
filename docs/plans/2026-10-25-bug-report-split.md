@@ -14,7 +14,8 @@ The split follows the code, so no two sessions edit the same native sources:
 | C | How things look: crops, items, models, animals, light | `tools/make_item_sprites.py`, `tools/make_atlas.py`, `scripts/farming/`, `scripts/mobs/`, `scripts/blocks/*_entity.gd`, `scripts/visuals/` | no |
 | D | Player, inventory, interaction, fire and weather | `scripts/player/`, `scripts/ui/inventory_screen.gd`, `scripts/crafting/inventory.gd`, `scripts/items/`, `scripts/work/`, `scripts/commands/`, new `scripts/world/weather.gd` | no |
 | E | New content: more animals, stone types, clutter items (added after A-D started; not from a report) | `data/mobs.json` (new species), new stone and clutter entries in `materials.gd`/`items.json`/`mining.json`, new FineGen content in its own source file with small hooks | yes |
-| F | A deeper Flint Age: four Stone Age stages (added last; not from a report) | `data/quests.json`, `recipes.json`, new Flint Age items/materials, new mechanics in new files under `scripts/work/` and `scripts/survival/` | no |
+| F | A deeper Flint Age: four Stone Age stages (added later; not from a report) | `data/quests.json`, `recipes.json`, new Flint Age items/materials, new mechanics in new files under `scripts/work/` and `scripts/survival/` | no |
+| G | The survival loop: diet, seasons, prospecting, discoveries, HUD trackers (added later; not from a report) | `scripts/survival/`, `scripts/ui/quest_book_view.gd`, `recipe_browser*.gd`, `ui/hud.gd` trackers, new `scripts/items/prospecting.gd` | no |
 
 ## Rules for all four
 
@@ -24,19 +25,20 @@ The split follows the code, so no two sessions edit the same native sources:
   then run `--headless --path game --import` once.
 - **Headless runs only** unless the developer says they are free (they may be playing).
 - **Reserved numbers**, so branches merge without clashes:
-  - ADRs: A 0049-0050, B 0051-0052, C 0053-0054, D 0055-0056, E 0057-0058, F 0059-0060.
+  - ADRs: A 0049-0050, B 0051-0052, C 0053-0054, D 0055-0056, E 0057-0058, F 0059-0060, G 0061-0062.
   - Material ids (definition order, append only): A 116-119, B 120-129, C 130-149, D 150-159,
-    E 160-199, F 200-239. A part that appends fewer leaves the gap as reserved placeholders, so ids
-    stay put whatever the merge order.
+    E 160-199, F 200-239, G 240-249. A part that appends fewer leaves the gap as reserved
+    placeholders, so ids stay put whatever the merge order.
   - Atlas tiles (atlas is full at 104; add rows): B 104-111, C 112-127, D 128-135, E 136-167,
-    F 168-199. Grow the atlas to the rows your tiles need; the merge of `make_atlas.py` is by hand.
+    F 168-199, G 200-215. Grow the atlas to the rows your tiles need; the merge of `make_atlas.py` is
+    by hand.
   - `GEN_VERSION`: only B bumps it.
 - **Ask the developer first** about the direction calls listed in your part (working principle 3);
   everything else: sensible default, recorded.
 - Before handing back: gdUnit passes, the part's scripted checks pass, a budget run (`autopilot=1`,
   `load_cap_s=30`) shows `budget_ok`, screenshots or filmstrips for anything visual. Add your items to
   `docs/plans/to-test.md` under one heading per part. Commit on your branch; merge order at the end:
-  D, C, E, F, B, A (the native-heavy ones last, they rebuild the DLL from the merged tree).
+  D, C, E, F, G, B, A (the native-heavy ones last, they rebuild the DLL from the merged tree).
 - Something in another part's files? Message that session instead of editing it.
 - **Patterned tiles above 127:** the terrain shader's `pattern_tiles` is `int[4]` (a bit mask), so only
   atlas tiles 0-127 can be `"pattern": true` (`terrain_common.gdshaderinc`, `ti < 128`). Part E widens
@@ -169,6 +171,21 @@ animal (motion is never judged from one frame), screenshots of a farm at each st
    per material (average colour of its atlas tile, computed once per material). Cache explored map
    tiles as images per region; redraw the minimap a few times a second, not every frame.
 
+11. **Quality of life** (developer picks, added later):
+    - Auto-refill: when the held tool breaks or the held stack runs out, the same item moves into the
+      hand from the inventory.
+    - A durability bar on tool icons (hotbar and inventory) and a warning sound when a tool is nearly
+      worn out (`wear` per-stack data).
+    - A pickup feed ("+3 Flint" at the side of the screen) and an "inventory full" note.
+    - Key remapping in Settings (every action in `project.godot`'s input map, saved in
+      `user://settings.cfg`), including the new sprint/crouch and the map key.
+    - Chests: a sort button, quick-stack into chests near you (Terraria), labels on chests (shown when
+      aimed at), and favourite slots that sorting, quick-stack and shift-click leave alone.
+12. **Death with stakes:** dying drops the inventory into a grave at the death spot (a block entity
+    that keeps per-stack data and never despawns), marks it as a waypoint on the map, and says the
+    coordinates in chat. Today `Main._on_died` just respawns with everything. Ask the developer whether
+    the hotbar or armour stays and whether creative keeps everything (default: creative keeps all).
+
 Direction calls to ask first: the map style (flat colours or shaded relief, how waypoints look); the
 offhand key and what goes in it; how destructive fire may be (spread
 speed, how big a burn before rain, can it burn placed wood buildings?); rain everywhere sometimes, or
@@ -282,6 +299,45 @@ Checks: gdUnit for every new recipe type and the quest graph (every quest reacha
 `flint_age_test=1` and `craft_test=1` extended so each new mechanic is driven through the player's own
 clicks, `/kit flint` updated, item sheet, a budget run, items in `docs/plans/to-test.md` under "Part F".
 
+## Part G: the survival loop
+
+Not from a report: the developer picked these from a quality-of-life and gameplay-loop brainstorm
+(2026-10-25). They give the day-to-day loop reasons: eat well, prepare for winter, hunt for ore,
+explore for discoveries, and keep track of goals.
+
+1. **Food variety (Vintage Story nutrition).** Every food belongs to one or more groups (meat, grain,
+   fruit, vegetable, dairy); eating fills that group's bar, the bars slowly drain, and a balanced diet
+   raises max health (a single-food diet gives nothing extra). Groups are data on the items; the bars
+   live in `Survival` beside hunger and saturation, saved with the player, shown in the inventory.
+2. **Seasons that matter.** The calendar exists: crops stop growing and frost kills them in winter (per
+   crop data: hardy ones survive), wild berries and plants follow the season, animals are leaner in
+   winter. A **root cellar**: a closed room below ground (the room flood fill of `ClimateProbe`) is
+   cool, and food stored in chests there spoils much slower. Part F adds salting, drying and smoking:
+   use its items when they land, stub until then.
+3. **Prospecting pick.** A Copper Age tool (a flint version that only says "something" vs "nothing" is
+   a nice Flint Age teaser): tap rock and it reads which ores lie nearby and how rich they are, and marks
+   the find on part D's map as a waypoint. Ore data comes from the generator's ore veins (part B's
+   native code: if a query like "ore densities around x, y, z" is missing, ask part B to add it).
+4. **Discovery journal.** The first time you find each biome, ore, landmark, ruin or animal, it lands in a
+   Discoveries tab of the progression book with a short line of text and a small reward. Part B adds
+   landforms and landmarks, part E new animals and stones: read their names from the data, so new
+   entries appear without code changes.
+5. **HUD trackers.** Pin a recipe from the recipe browser: a small checklist on the HUD shows its
+   ingredients and ticks them off as the inventory fills. Track a quest from the book the same way.
+
+Direction calls to ask first: how hard the diet bites (bonus only, or also a penalty); how hard
+winter is (crops die vs only stop); the prospecting pick's range and how exact it is; what a discovery
+reward is.
+
+Coordination: part D owns the HUD layout and the inventory screen (minimap, pickup feed, durability
+bars land there too): agree with D where the trackers and nutrition bars sit, and keep your HUD code in
+your own nodes/files. Part F owns `data/quests.json` and the book's chapters: the Discoveries tab is a
+separate tab, agree its place with F. New materials use ids 240-249, tiles 200-215, ADR 0061-0062.
+
+Checks: gdUnit for nutrition (fill, drain, balanced bonus), seasonal crop rules, cellar spoilage rate
+and discovery triggers; a scripted run that eats, winters a crop, prospects and pins a recipe; a
+budget run; items in `docs/plans/to-test.md` under "Part G".
+
 ---
 
 ## Briefs to paste into each session
@@ -301,3 +357,6 @@ Each session reads `CLAUDE.md`, this file and its own part, then starts with the
   items). Own worktree. Ask me which ones, show me sheets, coordinate with parts B and C as it says."
 - **F:** "Take part F of docs/plans/2026-10-25-bug-report-split.md (a deeper Flint Age). Own worktree.
   Ask me the direction calls, build the starred steps first, coordinate with parts C, D and E."
+- **G:** "Take part G of docs/plans/2026-10-25-bug-report-split.md (the survival loop: diet, seasons,
+  prospecting, discoveries, HUD trackers). Own worktree. Ask me the direction calls, coordinate with
+  parts B, D, E and F as it says."
