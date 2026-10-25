@@ -87,6 +87,10 @@ func setup(p_main: Node) -> void:
 	clothing = Clothing.new(main.items)
 	if main.survival:
 		main.survival.clothing = clothing
+	if main.inv_screen and main.inv_screen.has_method("add_side_panel"):
+		var panel := ClothingPanel.new()   # docked left of the inventory (part D's side panels)
+		panel.setup(main.player_inv, clothing)
+		main.inv_screen.add_side_panel(panel, "left")
 	paintings = CavePaintings.new()
 	paintings.name = "CavePaintings"
 	add_child(paintings)

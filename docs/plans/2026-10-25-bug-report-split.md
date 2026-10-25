@@ -61,6 +61,9 @@ The split follows the code, so no two sessions edit the same native sources:
     emmer, flax; `items.json` tags (flint `knappable`, cordage/strips `bowstring`, loose copper ore
     `ground_place`); knap recipes take `#knappable`. Part E's items are `"stub"` entries in
     `stone_age_items.json`: delete the stubs once E is merged. Ids 200-202 are E's (pyrite, ochres).
+    At the merge with D: put the `item_use` check after D's `_offhand_builds(hit)` line in `player._use`; pass D's
+    `sneaking` through `_try_place`; write the `flint` kit in D's block counts (sand 1, dirt 2, oak_log 2: D's kits
+    count blocks of voxel items); the clothing panel docks itself once `InventoryScreen.add_side_panel` is there.
 
 ---
 

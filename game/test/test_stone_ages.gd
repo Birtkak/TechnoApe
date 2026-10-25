@@ -465,3 +465,19 @@ func test_longhouse_blueprints_load_as_prefabs() -> void:
 		count[m] = int(count.get(m, 0)) + 1
 	for name in ["daub_wall", "thatch", "wood"]:
 		assert_int(int(count.get(GameMaterials.id_of(name), 0))).override_failure_message(name).is_greater(100)
+
+
+func test_clothing_panel_puts_on_and_takes_off() -> void:
+	var p := PlayerInventory.new(items, recipes)
+	var c := Clothing.new(items)
+	var panel: ClothingPanel = auto_free(ClothingPanel.new())
+	panel.setup(p, c)
+	p.cursor = {"id": "fur_cloak", "count": 1}
+	panel.click("head")                     # the wrong slot: nothing happens
+	assert_dict(c.worn).is_empty()
+	panel.click("body")
+	assert_str(c.worn["body"]["id"]).is_equal("fur_cloak")
+	assert_dict(p.cursor).is_empty()
+	panel.click("body")
+	assert_str(p.cursor.get("id", "")).is_equal("fur_cloak")
+	assert_dict(c.worn).is_empty()
