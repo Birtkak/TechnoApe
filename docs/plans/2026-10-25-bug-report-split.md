@@ -99,6 +99,17 @@ filmstrips of the refill (never judge motion from one frame), `/fell` + laser th
    walls, same fault as 4 for generated pools.
 6. **Older, still open (2026-10-24 22:15):** far LOD trees look chunky and ugly (LOD 1-2 beyond the 24 m
    full-detail cap; `far forests as leaf domes`).
+7. **Trails** (developer request, added later): worn paths through the terrain in their own colour
+   (packed dirt, gravel, trodden grass), linking ruins, river crossings, passes and lakes, following
+   the land (no straight lines up cliffs), slightly sunk into the ground, narrower in forests. They
+   should read on the map too (part D's map uses `WorldGen.map_image`).
+8. **Scarcer wild food** (developer request): blueberry bushes and mushrooms are too common. Today the
+   densities are constants in `fine_gen.cpp` (bushes `(s.seed >> 26) % 6 == 0`, mushrooms
+   `(hs & 31) < 3` and `hh % 29 == 1`); move them into data (per biome in `biomes.json`, principle 6)
+   and lower them, and check the blueberry drop (`mining.json`: 1-3 per bush). Agree the numbers with the
+   developer (e.g. half or a third of today). Part G's food variety leans on this staying meaningful.
+9. **Placement hook for part E's ruin pots:** ruins get breakable pots (part E makes the pot and its
+   loot); give E a hook where ruins are stamped (a few pots per ruin, in corners and by walls).
 
 Direction calls to ask first: the list of landforms and landmarks to add and how rare each is; cave
 scale (how big is "epic", how many entrances per km^2); the mountain profile (show 2-3 variants with
@@ -217,6 +228,13 @@ readable": big, thick, irregular, varied, 8-colour patterns, one piece, all of a
    antlers, snail shells, driftwood, berries, nuts, small rock kinds matching the new stone types, ice
    shards, cave crystals. Each is a voxel piece on the ground, an item with a sprite, and is placed by
    biome. Generator placement again through a separate function with a small hook in `floor_features`.
+
+4. **Pots in ruins with loot** (developer request, added later): breakable clay pots (a clutter piece
+   with a few looks: amphora, jar, urn, some cracked) that shatter when hit (any tool, a short burst of
+   shards and a sound) and drop random loot from a data table (`data/loot.json`: weighted entries with
+   count ranges, per ruin kind or depth, so later dungeons reuse it): seeds, flint, cordage, copper
+   nuggets, an old tool with wear, rarely something good. Part B gives you the placement hook where
+   ruins are stamped. Loot is rolled when the pot breaks, deterministic from seed and position.
 
 Direction calls to ask first: which animals (and which bite), which stone types and how many, which
 clutter items and what each is for (a use in crafting, food, or only decoration). Show model and
