@@ -1,7 +1,7 @@
 extends SceneTree
 
 ## Debug (P13 water look): holes and walls in generated water surfaces around a point.
-##   godot --headless --path game --script res://tools/water_surface_probe.gd -- seed=2116854772 x=4 z=-1439 [r=64]
+##   godot --headless --path game --script res://tools/water_surface_probe.gd -- seed=2116854772 x=4 z=-1439 [r=64] [y0= hgt=48]
 ## Counts surface cells (water with air above) and, among the air cells at a surface level: holes
 ## (water on all four sides) and walls (water beside air that has no water under it: a glass edge).
 ## Prints a few holes with the column under them.
@@ -20,8 +20,9 @@ func _init() -> void:
 	var cx := int(args.get("x", "0"))
 	var cz := int(args.get("z", "0"))
 	var r := int(args.get("r", "64"))
-	var y0 := gen.height_at(cx, cz) - 24
-	var size := Vector3i(2 * r, 48, 2 * r)
+	# y0= and hgt= fix the window (to compare generator versions whose ground differs at the centre)
+	var y0 := int(args.get("y0", str(gen.height_at(cx, cz) - 24)))
+	var size := Vector3i(2 * r, int(args.get("hgt", "48")), 2 * r)
 	var org := Vector3i(cx - r, y0, cz - r)
 	var bytes: PackedByteArray = gen.generate_block(org, size, 0, 2)
 	var water := {GameMaterials.WATER: true, GameMaterials.WATER_STATIC: true}

@@ -8,7 +8,7 @@ extends RefCounted
 
 const NAME_RE := "^[a-z][a-z0-9_]*$"
 const ORE_KEYS := ["primary", "between", "secondary", "sporadic"]
-const WORLD_HEIGHT := 768
+const WORLD_HEIGHT := 1280   # macro voxels (0.5 m): Settings.WORLD_HEIGHT_VOXELS / 4
 
 var grid := {}
 var indicators := {}

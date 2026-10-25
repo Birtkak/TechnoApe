@@ -6,7 +6,7 @@ extends Node
 const VOXEL_M := 0.125
 const CHUNK := 16                       # voxels per chunk edge (2 m)
 const BLOCK := 4                        # voxels per 0.5 m block edge: the size stations, furniture and recipe units keep (ADR 0034)
-const WORLD_HEIGHT_VOXELS := 3072       # 384 m (ADR 0033)
+const WORLD_HEIGHT_VOXELS := 5120       # 640 m (ADR 0051: massive mountains; was 384 m, ADR 0033)
 const SEA_LEVEL_VOXEL := 1024           # 128 m
 
 # Distances (metres)

@@ -36,7 +36,8 @@ static func generate(reg: BiomeRegistry) -> String:
 	L.append("static const float TREE_MIX[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return _f(float(d.get("tree_mix", {}).get("share", 0.0))))))
 	L.append("// Ground decorations (biomes.json decor): chance per 8 m cell (one of bush / boulder / dead tree / fallen log),")
 	L.append("// spire chance per 12 m cell, its material (TERRACOTTA = strata) and height range in voxels.")
-	for k in ["bush", "boulder", "dead_tree", "fallen_log", "spire"]:
+	L.append("// Wild food (biomes.json decor): blueberry share of bushes, mushrooms per floor clutter cell and per mossy log voxel.")
+	for k in ["bush", "boulder", "dead_tree", "fallen_log", "spire"] + BiomeRegistry.FOOD_KINDS:
 		L.append("static const float DECOR_%s[COUNT] = {%s};" % [k.to_upper(), ", ".join(_map(reg.biomes, func(d): return _f(float(d.get("decor", {}).get(k, 0.0)))))])
 	L.append("static const int SPIRE_MATERIAL[COUNT] = {%s};" % ", ".join(_map(reg.biomes, func(d): return str(_mat(d.get("decor", {}).get("spire_material", ""))))))
 	L.append("static const int SPIRE_HEIGHT[COUNT][2] = {%s};" % ", ".join(_map(reg.biomes, func(d): return "{%d, %d}" % [int(d.get("decor", {}).get("spire_height", [0, 0])[0]), int(d.get("decor", {}).get("spire_height", [0, 0])[1])])))

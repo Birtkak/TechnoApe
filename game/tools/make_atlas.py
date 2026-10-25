@@ -14,7 +14,7 @@ Tiles (index = row*4 + col):
 72 fern frond; 73 birch bark 74 birch top 75 birch leaves 76 blueberries
 77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84 leaf litter; 85 oak bark; 86 pebbles 87 flint
 88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98 cobblestone 99 bricks (patterned, ADR 0039); 100 blueberry bush; 101 kelp 102 seagrass 103 seashell (ADR 0047);
-104-111 reserved (part B of the 2026-10-25 split); 112-114 wheat stalks green / turning / golden, 115 wheat ear,
+104 crystal (geodes, ADR 0052), 105-111 reserved (world generation); 112-114 wheat stalks green / turning / golden, 115 wheat ear,
 116 carrot leaves 117 carrot shoulder, 118 torch stick 119 torch wrap 120 torch flame (ADR 0053); 121-135 reserved (parts C, D)
 136-170 rock kinds, cobbles, bricks, clutter, pyrite and ochres (tools/atlas_rocks.py, ADR 0057)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
@@ -637,6 +637,29 @@ def stripes(cols, seed, direction="rows", width=(1, 2), fleck=0.06):
     return _cells_to_tile(cells)
 
 
+def crystal(seed):
+    """Geode crystal: violet facets, each a diagonal band of one shade with a bright edge, a few
+    near-white glints; the terrain shader makes it glow."""
+    rng = random.Random(seed)
+    c = [_hexc(h) for h in ["#2a1248", "#43206e", "#5c2f94", "#7a44b8", "#9a62d6", "#b98bea", "#d7b6f6", "#f4e8ff"]]
+    cells = []
+    for y in range(G):
+        row = []
+        for x in range(G):
+            facet = ((x + 2 * y) // 3 + (x - y) // 5) % 5
+            v = 1 + facet
+            if (x + 2 * y) % 3 == 0:
+                v = min(7, v + 1)
+            r = rng.random()
+            if r < 0.04:
+                v = 7
+            elif r < 0.08:
+                v = 0
+            row.append(c[v])
+        cells.append(row)
+    return _cells_to_tile(cells)
+
+
 def spotted_cap(cols, spot_cols, seed):
     """A red mushroom cap: three reds shaded in blotches, white spots 1-3 voxels across."""
     img = stones_pattern(cols, seed, n=30)
@@ -814,7 +837,8 @@ tiles = [
     stripes(["#1f2a0e", "#3b4a1a", "#4c5d22", "#5d6e2a", "#6f7f33", "#84903f", "#9aa34e", "#b5a253"], 101, "rows"),   # 101 kelp: olive segments (ADR 0047)
     stripes(["#1f4a1a", "#2f6a27", "#3f8433", "#4f9a3e", "#62ad4b", "#78c05c", "#93d276", "#d6e59a"], 102, "cols"),   # 102 seagrass: blades
     stripes(["#8a5a4a", "#c98f7c", "#dba795", "#e8bdaa", "#f2d0c0", "#f8e2d6", "#fff3ea", "#b06f5b"], 103, "diag", (1, 1)),   # 103 seashell: pink ribs
-] + [palette(PAL["stone"], 104 + i) for i in range(8)] + [   # 104-111 reserved for part B (replaced in its merge)
+    crystal(104),                                             # 104 crystal: geode lining (glows in the shader, ADR 0052)
+] + [palette(PAL["stone"], 105 + i) for i in range(7)] + [   # 105-111 reserved for world generation
     # multi-voxel crops and torches (ADR 0053): 8 colours, laid over the world grid ("pattern": true)
     stripes(["#1c3a12", "#2f5a1c", "#3e7224", "#4d872c", "#5e9c36", "#73b043", "#8cc456", "#c8d97a"], 112, "cols"),   # 112 wheat, green blades
     stripes(["#3c4a14", "#5e6e1e", "#7a8a28", "#94a032", "#aab23e", "#c2c04c", "#d6cc62", "#e8dc8a"], 113, "cols"),   # 113 wheat, turning

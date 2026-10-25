@@ -15,6 +15,9 @@ const MATERIALS := ["air", "stone", "dirt", "grass", "sand", "water", "wood", "l
 ## Ground decorations (biomes.json "decor"): chance per 8 m cell of a bush, boulder or
 ## dead tree (one per cell), and per 12 m cell of a spire of spire_material.
 const DECOR_KINDS := ["bush", "boulder", "dead_tree", "fallen_log", "spire"]
+## Wild food (2026-10-25, "too common": a third of before): berries = share of bushes that bear blueberries,
+## mushrooms = chance per forest-floor clutter cell, log_mushrooms = chance per mossy voxel on a fallen log.
+const FOOD_KINDS := ["berries", "mushrooms", "log_mushrooms"]
 ## Tree shapes and woods (biomes.json tree_kind); index = WorldGen tree kind.
 const TREE_KINDS := ["oak", "spruce", "acacia", "jungle", "birch"]
 
@@ -93,6 +96,9 @@ func _validate(d: Dictionary) -> void:
 				errors.append("biome %s: decor.%s must be 0..1" % [n, k])
 			if k != "spire":
 				cell_sum += v
+		elif k in FOOD_KINDS:
+			if float(dec[k]) < 0.0 or float(dec[k]) > 1.0:
+				errors.append("biome %s: decor.%s must be 0..1" % [n, k])
 		elif k == "spire_material":
 			if not MATERIALS.has(dec[k]):
 				errors.append("biome %s: unknown spire material %s" % [n, dec[k]])

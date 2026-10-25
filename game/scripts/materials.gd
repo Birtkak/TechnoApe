@@ -125,7 +125,9 @@ const KELP := 112                  # stands in water like Minecraft's waterlogge
 const SEAGRASS := 113
 const SEASHELL := 114
 const MUSHROOM_STEM := 115
-# 116..159: other parts of the 2026-10-25 split (placeholders until their branches merge)
+# 116..119 reserved for part A of the 2026-10-25 split (placeholders until it lands)
+const CRYSTAL := 120               # geode lining (ADR 0052): glows in the terrain shader
+# 121..129 reserved for world generation; 130..159 parts C and D
 # Rock kinds, their cobbles, bricks and loose stones, more clutter, ruin pots (ADR 0057)
 const GRANITE := 160
 const DIORITE := 161
@@ -249,7 +251,9 @@ static func _build_defs() -> Array:
 			"on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 5},
 		{"name": "cobblestone", "cell_type": "solid", "pattern": true, "density": 10, "hp": 1000, "tiles": [98, 98, 98], "transparent": false},
 		{"name": "bricks", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [99, 99, 99], "transparent": false},
-	] + _clutter_defs() + _reserved_defs(116, 129) + _looks_defs() + _reserved_defs(133, 159) + _rock_defs()
+	] + _clutter_defs() + _reserved_defs(116, 119) + [
+		{"name": "crystal", "cell_type": "solid", "pattern": true, "density": 10, "hp": 800, "tiles": [104, 104, 104], "transparent": false},
+	] + _reserved_defs(121, 129) + _looks_defs() + _reserved_defs(133, 159) + _rock_defs()
 
 
 ## Placeholders for ids other branches append (2026-10-25 split: A 116-119, B 120-129, C 130-149,

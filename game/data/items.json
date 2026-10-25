@@ -57,6 +57,7 @@
     {"id": "loose_iron_ore", "name": "Iron-Bearing Stone", "tags": ["rock", "loose_ore"], "stack": 64, "_note": "surface indicator: lies above an iron vein"},
     {"id": "sulfur", "name": "Sulfur", "tags": ["dust", "sulfur"], "stack": 64, "_note": "mined from sulfur cave crust"},
     {"id": "obsidian", "name": "Obsidian", "tags": ["block", "stone"], "stack": 64, "material": "obsidian", "_note": "lava quenched by water; needs an iron pickaxe"},
+    {"id": "crystal", "name": "Crystal", "tags": ["block", "crystal"], "stack": 64, "material": "crystal", "_note": "lines the geodes deep underground (ADR 0052); glows"},
     {"id": "wool", "name": "Wool", "tags": ["block", "wool"], "stack": 64, "material": "wool", "fuel_ticks": 100, "_note": "sheared from sheep (1-3) or dropped when one dies (ADR 0022)"},
     {"id": "carpet", "name": "Carpet", "tags": ["block", "carpet"], "stack": 64, "material": "carpet", "fuel_ticks": 67},
     {"id": "bed", "name": "Bed", "tags": ["furniture", "bed"], "stack": 1, "furniture": "bed", "_note": "1 x 2 m; right click at night sleeps to morning, always sets the respawn point"},

@@ -17,6 +17,7 @@ uniform float water_speed = 0.45;   // tiles per second along the flow direction
 uniform float lava_speed = 0.06;
 uniform float fire_speed = 1.6;
 uniform float glow_tile = 45.0;     // emissive tile (glow mushroom caps)
+uniform float glow_tile_b = 104.0;  // a second one (geode crystal, ADR 0052)
 uniform float glow_strength = 2.2;
 uniform float lava_glow = 2.4;      // > 1 so lava and fire bloom
 uniform float fire_glow = 2.0;
@@ -162,7 +163,7 @@ float face_tint(vec3 n) {
 }
 
 vec3 tile_emission(float idx, vec3 c) {
-	if (abs(idx - glow_tile) < 0.5) {
+	if (abs(idx - glow_tile) < 0.5 || abs(idx - glow_tile_b) < 0.5) {
 		return c * glow_strength;
 	} else if (abs(idx - lava_tile) < 0.5) {
 		return c * lava_glow;

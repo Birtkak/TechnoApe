@@ -10,7 +10,10 @@
 
 using namespace godot;
 
-WorldGen::WorldGen() { configure(1337, 256, 768); }
+// Every configure / set_variant takes a new epoch from here, unique across generators (tile_cached).
+static std::atomic<uint64_t> g_epoch{1};
+
+WorldGen::WorldGen() { configure(1337, 256, 1280); }
 
 void WorldGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("configure", "seed", "sea_level", "world_height"), &WorldGen::configure);
@@ -26,6 +29,8 @@ void WorldGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("waterfalls_near", "x", "z", "radius"), &WorldGen::waterfalls_near);
     ClassDB::bind_method(D_METHOD("hydrology_stats", "x", "z"), &WorldGen::hydrology_stats);
     ClassDB::bind_method(D_METHOD("vein_at", "x", "z"), &WorldGen::vein_at);
+    ClassDB::bind_method(D_METHOD("set_variant", "slot", "value"), &WorldGen::set_variant);
+    ClassDB::bind_method(D_METHOD("ruin_pots_near", "x", "z", "radius"), &WorldGen::ruin_pots_near);
     BIND_ENUM_CONSTANT(BIOME_DEEP_OCEAN);
     BIND_ENUM_CONSTANT(BIOME_OCEAN);
     BIND_ENUM_CONSTANT(BIOME_BEACH);
@@ -73,11 +78,25 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup(n_spag2_, seed_ + 9, 0.018f, 1);
     setup(n_ore_, seed_ + 10, 0.09f, 1); // ore vein lens edge wobble
     setup(n_jitter_, seed_ + 13, 0.02f, 2);
+    setup(n_cavern_, seed_ + 17, 1.0f / 300.0f, 2);   // ~150 m between halls
+    setup(n_ravine_, seed_ + 19, 1.0f / 900.0f, 1);   // ravine lines (|noise| near 0)
+    setup(n_ravmask_, seed_ + 20, 1.0f / 1400.0f, 1); // which stretches of those lines are open
+    setup(n_cliff_, seed_ + 21, 1.0f / 3000.0f, 2);   // ~1.5 km stretches of rocky coast
+    setup(n_meander_, seed_ + 22, 1.0f / 90.0f, 1);    // lowland river bends (~45 m)
+    epoch_.store(g_epoch.fetch_add(1) + 1);
     std::lock_guard<std::mutex> lk(hydro_mutex_);
     hydro_cache_.clear();
 }
 
 static inline int floor_div(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+
+void WorldGen::set_variant(int slot, int value) {
+    if (slot < 0 || slot >= VAR_COUNT) return;
+    variant_[slot] = value;
+    epoch_.store(g_epoch.fetch_add(1) + 1);
+    std::lock_guard<std::mutex> lk(hydro_mutex_);
+    hydro_cache_.clear();
+}
 
 uint32_t WorldGen::hash3(int a, int b, int c) {
     uint32_t h = (uint32_t)a * 374761393u + (uint32_t)b * 668265263u + (uint32_t)c * 2246822519u;
@@ -127,21 +146,71 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     // Regions: plains where the region noise is low, hill country in the middle and where the hill
     // mask says so, mountain ranges where it is high. Ranges may reach the coast (fjords, sea cliffs).
     const float region = n_region_.GetNoise(fx, fz);
-    const float mountainness = smoothstep(0.04f, 0.4f, region) * smoothstep(-0.05f, 0.2f, col.c);
+    float mountainness = smoothstep(0.04f, 0.4f, region) * smoothstep(-0.05f, 0.2f, col.c);
     const float hilly = std::clamp(smoothstep(-0.45f, -0.12f, region) + smoothstep(0.2f, 0.5f, n_hillmask_.GetNoise(fx, fz)), 0.0f, 1.0f) * inland;
     static const float ex[] = {-1.0f, -0.3f, 0.4f, 1.0f};
     static const float ey[] = {1.15f, 1.0f, 0.7f, 0.5f};
     const float relief_scale = spline(col.e, ex, ey, 4);
     // ranges: ridged noise, sharpened so the peaks stand out of broad flanks (up to ~220 m above the sea)
     const float ridge = col.pv * 0.5f + 0.5f;
-    float relief = std::pow(mountainness, 1.5f) * (50.0f + 400.0f * std::pow(ridge, 1.7f)) * relief_scale;
+    float relief;
+    if (variant_[VAR_MOUNTAINS] == 0) {
+        // the ranges of ADR 0035 (sheets only)
+        relief = std::pow(mountainness, 1.5f) * (50.0f + 400.0f * std::pow(ridge, 1.7f)) * relief_scale;
+    } else {
+        // Massif (variant 1, the world since ADR 0051: "a slower gradual increase around a huge foot that
+        // becomes more and more steep") and horns (2, sheets only): one broad mask (~3 km) carries a mountain mass whose height grows
+        // concavely toward its core; ridges cut valleys into its upper half instead of standing on a plain.
+        // The normalised height is then raised to a power: the foot flattens into a wide apron and the top
+        // steepens (horns: much more, near-vertical summits).
+        const float mw = smoothstep(-0.15f, 0.5f, region) * smoothstep(-0.1f, 0.2f, col.c);
+        const bool horns = variant_[VAR_MOUNTAINS] == 2;
+        const float hmax = (variant_[VAR_RELIEF] > 0 ? (float)variant_[VAR_RELIEF] : 400.0f) * 2.0f * (horns ? 1.12f : 1.0f);
+        const float shape = mw * mw * (0.45f + 0.55f * std::pow(ridge, horns ? 1.8f : 1.3f));
+        relief = hmax * std::pow(shape, horns ? 1.9f : 1.3f) * relief_scale;
+        mountainness = std::max(mountainness, mw);
+    }
     // hills: rolling 3-11 m humps, taller where the hill country is wide
     const float hn = n_hill_.GetNoise(fx, fz) * 0.5f + 0.5f;
     relief += hilly * (1.0f - mountainness) * std::pow(hn, 1.3f) * (12.0f + 10.0f * smoothstep(0.3f, 0.8f, hilly)) * relief_scale;
     if (base < 0.0f) relief *= 0.25f;
     float detail = n_detail_.GetNoise(fx, fz) * (1.2f + 3.5f * mountainness);
-    col.hf = std::clamp((float)sea_ + base + relief + detail, 8.0f, (float)(world_height_ - 8));
-    int h = (int)std::lround((float)sea_ + base + relief + detail);
+    float above_f = base + relief + detail;
+    // Rocky coasts (ADR 0051, developer 2026-10-25): where the cliff mask is up the land ends in a sea cliff
+    // 7-27 m tall along a wobbly line just inland of the coast, the cliff top sloping back down to the normal
+    // land over ~1 km; sea stacks (some of them arches) stand on the shelf in front of it.
+    if (col.c > -0.05f && col.c < 0.3f) {
+        const float cm = n_cliff_.GetNoise(fx, fz);
+        if (cm > 0.15f) {
+            const float hc = cliff_height(cm) * smoothstep(0.15f, 0.25f, cm);
+            const float edge = col.c - 0.004f * n_detail_.GetNoise(fx * 3.0f, fz * 3.0f);
+            above_f += hc * smoothstep(-0.006f, -0.001f, edge) * (1.0f - smoothstep(0.08f, 0.3f, col.c));
+            if (col.c < -0.004f && col.c > -0.04f) {
+                const int scx = floor_div(x, STACK_CELL), scz = floor_div(z, STACK_CELL);
+                for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++) {
+                        SeaStack st;
+                        if (!stack_at_cell(scx + dx, scz + dz, st)) continue;
+                        const float ddx = fx - st.x, ddz = fz - st.z;
+                        const float rr = st.r * (0.85f + 0.3f * n_detail_.GetNoise(fx * 5.0f, fz * 5.0f));
+                        if (ddx * ddx + ddz * ddz <= rr * rr) above_f = std::max(above_f, st.h - 2.0f * (ddx * ddx + ddz * ddz) / (rr * rr));
+                    }
+            }
+        }
+    }
+    // Monoliths: a lone rock dome with near-vertical sides on open lowland.
+    const float mono = (mountainness < 0.05f && col.c > 0.06f) ? monolith_height(x, z) : 0.0f;
+    if (mono > 0.0f) {
+        above_f += mono;
+        col.rock = TERRACOTTA;
+    }
+    if (variant_[VAR_MOUNTAINS] != 0) {
+        // soft ceiling: heights past 400 bend toward the world's top instead of being cut flat
+        const float a0 = 400.0f, room = (float)(world_height_ - 12 - sea_) - a0;
+        if (above_f > a0 && room > 0.0f) above_f = a0 + room * std::tanh((above_f - a0) / room);
+    }
+    col.hf = std::clamp((float)sea_ + above_f, 8.0f, (float)(world_height_ - 8));
+    int h = (int)std::lround((float)sea_ + above_f);
     col.height = std::clamp(h, 8, world_height_ - 8);
     col.slope = 0.0f;
     col.alpine = false;
@@ -216,7 +285,7 @@ int WorldGen::height_at(int x, int z) const {
     Hydro hy = hydro_at(x, z, c.height);
     if (hy.river > 0.0f) return std::min(c.height, hy.bed);
     if (hy.marsh) return marsh_floor(c.height, hy);
-    return c.height;
+    return hy.berm >= 0 ? std::max(c.height, hy.berm) : c.height;
 }
 
 // Marsh floor: the hollow is filled flat to marsh_level (wet ground); puddle
@@ -259,6 +328,8 @@ Dictionary WorldGen::column_info(int x, int z) const {
     d["puddle"] = hy.puddle;
     d["shore"] = hy.shore;
     d["fall_top"] = hy.fall_top;
+    d["lake_near"] = hy.lake_near;
+    d["base_height"] = c.height;
     const Dictionary vein = vein_at(x, z);
     d["vein"] = vein.has("name") ? vein["name"] : Variant(String());
     d["vein_y"] = vein.has("y") ? vein["y"] : Variant(-1);
@@ -429,17 +500,21 @@ const WorldGen::HydroTile *WorldGen::tile_cached(int tx, int tz) const {
     // LRU over 4 slots: one hydro_at() needs up to 3 tiles (owner + 2 seam
     // neighbours) and holds raw pointers to them, so eviction must never hit a
     // tile fetched in the same call (round-robin did, after ~64 tiles: crash).
-    struct Slot { int tx = 0, tz = 0; uint64_t used = 0; std::shared_ptr<HydroTile> t; };
+    // Slots remember the generator and its epoch: a reconfigured seed or variant never reads a stale tile.
+    struct Slot { int tx = 0, tz = 0; uint64_t used = 0, epoch = 0; const WorldGen *owner = nullptr; std::shared_ptr<HydroTile> t; };
     thread_local Slot slots[4];
     thread_local uint64_t tick = 0;
+    const uint64_t ep = epoch_.load(std::memory_order_relaxed);
     Slot *victim = &slots[0];
     for (auto &s : slots) {
-        if (s.t && s.tx == tx && s.tz == tz) { s.used = ++tick; return s.t.get(); }
+        if (s.t && s.tx == tx && s.tz == tz && s.owner == this && s.epoch == ep) { s.used = ++tick; return s.t.get(); }
         if (s.used < victim->used) victim = &s;
     }
     victim->t = hydro_tile(tx, tz);
     victim->tx = tx;
     victim->tz = tz;
+    victim->owner = this;
+    victim->epoch = ep;
     victim->used = ++tick;
     return victim->t.get();
 }
@@ -513,15 +588,27 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
     auto centre_x = [&](int k) { return (float)(wx0 + (k % HWIN) * HCELL + HCELL / 2) + t->jx[k]; };
     auto centre_z = [&](int k) { return (float)(wz0 + (k / HWIN) * HCELL + HCELL / 2) + t->jz[k]; };
     auto downstream = [&](int k) { return (k / HWIN + D8Z[t->dir[k]]) * HWIN + (k % HWIN + D8X[t->dir[k]]); };
-    // Lakes: the filled level of this cell or a neighbouring lake cell.
-    float lake_level = -1.0f;
+    // Lakes: the filled level of this cell or a neighbouring lake cell, and how far the column lies outside
+    // the nearest lake cell. Water reaches half a cell past its lake cells; where the ground further out is
+    // still below the level (a shallow lake on a flat plain), a berm one voxel over the water rims it, or
+    // the water ended at the edge of the 3x3 reach as a glass wall along a cell border (bug report
+    // 2026-10-25 02-11-15).
+    float lake_level = -1.0f, lake_dist = 1e9f;
     for (int dj = -1; dj <= 1; dj++)
         for (int di = -1; di <= 1; di++) {
             const int k = (j + dj) * HWIN + (i + di);
-            if (t->lake[k]) lake_level = std::max(lake_level, t->filled[k]);
+            if (!t->lake[k]) continue;
+            lake_level = std::max(lake_level, t->filled[k]);
+            const int x0 = wx0 + (i + di) * HCELL, z0 = wz0 + (j + dj) * HCELL;
+            const float ex = (float)std::max({x0 - x, 0, x - (x0 + HCELL - 1)}), ez = (float)std::max({z0 - z, 0, z - (z0 + HCELL - 1)});
+            lake_dist = std::min(lake_dist, std::sqrt(ex * ex + ez * ez));
         }
+    out.lake_near = lake_level;
     if (lake_level > 0.0f && (float)base_height >= lake_level - 0.5f && (float)base_height <= lake_level + 2.5f) out.shore = true;
-    if (lake_level > 0.0f && (float)base_height < lake_level - 0.5f) {
+    if (lake_level > 0.0f && (float)base_height < lake_level + 1.0f && lake_dist > HCELL * 0.5f) {
+        out.berm = (int)std::ceil(lake_level) + 1;
+        out.shore = true;
+    } else if (lake_level > 0.0f && (float)base_height < lake_level - 0.5f) {
         out.lake = true;
         out.water_level = (int)std::floor(lake_level);
     }
@@ -538,7 +625,27 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
             if (out.puddle) out.water_level = std::max(out.water_level, out.marsh_level);
         }
     }
-    // Rivers: segments from each nearby cell with enough drainage to its downstream cell.
+    // Rivers: segments from each nearby cell with enough drainage to its downstream cell. On flat land the
+    // point is warped by a slow noise (up to 6 m), so lowland rivers swing in meanders instead of running
+    // from cell centre to cell centre (ADR 0051); steep stretches and waterfalls stay as routed.
+    float rx = (float)x, rz = (float)z;
+    {
+        // the bend amplitude from the drop of the four nearest cells, blended so it never jumps at a cell border
+        auto cell_amp = [&](int k) {
+            if (t->dir[k] < 0) return 0.0f;
+            return 12.0f * (1.0f - smoothstep(0.5f, 3.0f, t->filled[k] - t->filled[downstream(k)]));
+        };
+        const float gx = ((float)x - (float)wx0) / HCELL - 0.5f, gz = ((float)z - (float)wz0) / HCELL - 0.5f;
+        const int i0 = std::clamp((int)std::floor(gx), 1, HWIN - 3), j0 = std::clamp((int)std::floor(gz), 1, HWIN - 3);
+        const float ax = std::clamp(gx - (float)i0, 0.0f, 1.0f), az = std::clamp(gz - (float)j0, 0.0f, 1.0f);
+        const int k00 = j0 * HWIN + i0;
+        const float amp = (cell_amp(k00) * (1.0f - ax) + cell_amp(k00 + 1) * ax) * (1.0f - az)
+                        + (cell_amp(k00 + HWIN) * (1.0f - ax) + cell_amp(k00 + HWIN + 1) * ax) * az;
+        if (amp > 0.0f) {
+            rx += amp * n_meander_.GetNoise((float)x, (float)z);
+            rz += amp * n_meander_.GetNoise((float)z + 7000.0f, (float)x - 7000.0f);
+        }
+    }
     float best_d = 1e9f;
     int best_k = -1;
     float best_t = 0.0f;
@@ -548,13 +655,17 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
             if (t->dir[k] < 0 || t->lake[k] || c.acc(k) < STREAM_ACC) continue;
             const int nk = downstream(k);
             float tt;
-            float d = seg_dist((float)x, (float)z, centre_x(k), centre_z(k), centre_x(nk), centre_z(nk), tt);
+            float d = seg_dist(rx, rz, centre_x(k), centre_z(k), centre_x(nk), centre_z(nk), tt);
             if (d < best_d) { best_d = d; best_k = k; best_t = tt; }
         }
     if (best_k >= 0) {
         const float strength = std::sqrt(c.acc(best_k) / STREAM_ACC);
-        const float half_w = river_half_width(strength);
-        const float depth = river_depth(strength);
+        // Deltas (ADR 0051): where a big river's surface reaches the sea it spreads up to three times as wide,
+        // shallow, braided around sandbar islands.
+        const float mouth_surf = std::min(t->filled[best_k], t->filled[downstream(best_k)]);
+        const float delta = mouth_surf <= (float)sea_ + 1.5f ? smoothstep(2.5f, 5.0f, strength) : 0.0f;
+        const float half_w = river_half_width(strength) * (1.0f + 2.0f * delta);
+        const float depth = river_depth(strength) * (1.0f - 0.5f * delta);
         const float bank_w = half_w * 1.5f + 6.0f; // gentle banks: valley floor widens with the river
         if (best_d < half_w + bank_w) {
             const int nk = downstream(best_k);
@@ -566,10 +677,13 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
                 out.fall_top = t->fall_top[best_k];
             const float mask = 1.0f - smoothstep(half_w, half_w + bank_w, best_d);
             out.river = mask;
+            out.delta = delta;
             const int water = (int)std::floor(surf) - 1;
             // flat-bottomed channel: full depth over the inner half, rising to the banks
             out.bed = (int)std::floor(surf) - 1 - (int)std::lround(depth * (1.0f - smoothstep(0.45f * half_w, half_w, best_d)));
-            if (best_d < half_w && water > out.bed) out.water_level = std::max(out.water_level, water);
+            if (delta > 0.0f && best_d < half_w * 0.85f && n_meander_.GetNoise((float)x * 2.3f + 300.0f, (float)z * 2.3f) > 0.62f - 0.3f * delta) {
+                out.bed = water + 1;   // a sandbar just above the water
+            } else if (best_d < half_w && water > out.bed) out.water_level = std::max(out.water_level, water);
             if (best_d >= half_w * 0.9f && best_d < half_w * 1.8f && base_height <= water + 2 && base_height >= water - 1) out.shore = true;
             if (out.fall_top >= 0 && out.fall_top <= out.water_level) out.fall_top = -1;
             // Springs: first cell of a stream (no upstream stream cells).
@@ -579,6 +693,17 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
                 upstream = t->dir[uk] >= 0 && c.acc(uk) >= STREAM_ACC && downstream(uk) == best_k;
             }
             out.spring = !upstream && best_t < 0.15f;
+        }
+    }
+    // A river trench carved below a neighbouring lake's level is part of the lake (bug report 2026-10-25
+    // 02-11-15: the lake stood 0.9 m above the dry trench beside it as a glass wall); in the berm ring the
+    // river keeps its water channel through the rim (its level there is the lake's).
+    if (out.berm >= 0 && out.water_level >= 0) out.berm = -1;
+    if (!out.lake && out.berm < 0 && lake_level > 0.0f && lake_dist <= HCELL * 0.5f && out.river > 0.0f && out.bed < base_height) {
+        const float carved = (float)base_height + ((float)out.bed - (float)base_height) * out.river;
+        if (carved < lake_level - 0.5f) {
+            out.lake = true;
+            out.water_level = std::max(out.water_level, (int)std::floor(lake_level));
         }
     }
     return out;
@@ -774,19 +899,217 @@ int WorldGen::ruins_near(int x0, int z0, int x1, int z1, Ruin *out, int max_out)
     return n;
 }
 
+Array WorldGen::ruin_pots_near(int x, int z, int radius) const {
+    Array out;
+    Ruin rs[16];
+    const int n = ruins_near(x - radius, z - radius, x + radius, z + radius, rs, 16);
+    for (int i = 0; i < n; i++) {
+        const Ruin &r = rs[i];
+        // candidate spots one voxel inside the walls: the four corners, then the middle of each wall
+        const int cx[8] = {r.x - r.hw + 1, r.x + r.hw - 1, r.x - r.hw + 1, r.x + r.hw - 1, r.x, r.x, r.x - r.hw + 1, r.x + r.hw - 1};
+        const int cz[8] = {r.z - r.hd + 1, r.z - r.hd + 1, r.z + r.hd - 1, r.z + r.hd - 1, r.z - r.hd + 1, r.z + r.hd - 1, r.z, r.z};
+        const uint32_t h = hash3((int)r.seed, 77, 13);
+        const int want = 2 + (int)(h % 3);
+        int placed = 0;
+        for (int k = 0; k < 8 && placed < want; k++) {
+            const int c = (int)((h >> 4) + (uint32_t)k * 5u) % 8;   // a seed-dependent walk over the spots
+            if (((h >> (8 + k)) & 3) == 0) continue;
+            const long dx = cx[c] - x, dz = cz[c] - z;
+            if (dx * dx + dz * dz > (long)radius * radius) { placed++; continue; }
+            Dictionary d;
+            d["x"] = cx[c];
+            d["y"] = r.base + 1;
+            d["z"] = cz[c];
+            d["ruin"] = (int)r.seed;
+            d["seed"] = (int)(hash3(cx[c], cz[c], (int)r.seed) & 0x7fffffff);
+            out.push_back(d);
+            placed++;
+        }
+    }
+    return out;
+}
+
 bool WorldGen::in_ruin(const Ruin &r, int x, int z, int margin) {
     return std::abs(x - r.x) <= r.hw + margin && std::abs(z - r.z) <= r.hd + margin;
 }
 
 inline bool WorldGen::is_cave(int x, int y, int z, int height) const {
-    if (y < 12 || y > height - 5) return false;
+    if (y < 12 || y > height - cave_roof(x, z)) return false;
+    return cave_value(x, y, z, height) > 0.0f;
+}
+
+float WorldGen::cave_value(int x, int y, int z, int height, bool small_only) const {
     const float fx = (float)x, fy = (float)y, fz = (float)z;
-    float depth = (float)(height - y);
-    float cheese_threshold = 0.62f - 0.12f * smoothstep(20.0f, 200.0f, depth);
-    if (n_cheese_.GetNoise(fx, fy * 1.6f, fz) > cheese_threshold) return true;
-    float s1 = n_spag1_.GetNoise(fx, fy * 1.3f, fz);
-    float s2 = n_spag2_.GetNoise(fx, fy * 1.3f, fz);
-    return (s1 * s1 + s2 * s2) < 0.0115f;
+    const float depth = (float)(height - y);
+    const bool epic = variant_[VAR_CAVES] != 0;
+    const float thr = (epic ? 0.58f : 0.62f) - 0.12f * smoothstep(20.0f, 200.0f, depth);
+    const float cheese = (n_cheese_.GetNoise(fx, fy * 1.6f, fz) - thr) / 0.08f;
+    const float s1 = n_spag1_.GetNoise(fx, fy * 1.3f, fz), s2 = n_spag2_.GetNoise(fx, fy * 1.3f, fz);
+    const float sw = epic ? 0.03f : 0.0115f;   // big caves: tunnels ~1.6x as wide (2-4 m)
+    float v = std::max(cheese, (sw - (s1 * s1 + s2 * s2)) / sw);
+    if (!epic) return v;
+    // Cave mouths: ramps that leave the ground and slope down into the rock, following the local surface.
+    if (depth < 80.0f) {
+        CaveMouth m[9];
+        const int n = mouths_near(x, z, m);
+        for (int i = 0; i < n; i++) {
+            float t;
+            const float d = seg_dist(fx, fz, m[i].x, m[i].z, m[i].x + m[i].dx * m[i].len, m[i].z + m[i].dz * m[i].len, t);
+            if (d > m[i].r) continue;
+            const float want = t * m[i].len * m[i].slope + m[i].r * 0.6f;   // tunnel centre depth below the ground
+            const float dy = (depth - want) / (m[i].r * 0.8f), dh = d / m[i].r;
+            v = std::max(v, (1.0f - (dy * dy + dh * dh)) * 4.0f);
+        }
+    }
+    // Arches: a tunnel through a sea stack at the waterline.
+    if (y > sea_ && y < sea_ + 16) {
+        const int scx = floor_div(x, STACK_CELL), scz = floor_div(z, STACK_CELL);
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++) {
+                SeaStack st;
+                if (!stack_at_cell(scx + dx, scz + dz, st) || !st.arch) continue;
+                const float px = fx - st.x, pz = fz - st.z;
+                const float across = std::fabs(-px * st.adz + pz * st.adx), along = std::fabs(px * st.adx + pz * st.adz);
+                if (along > st.r + 2.0f) continue;
+                const float ay = (fy - (float)(sea_ + 4)) / (st.r * 0.75f), az = across / (st.r * 0.55f);
+                v = std::max(v, (1.0f - (ay * ay + az * az)) * 4.0f);
+            }
+    }
+    if (small_only) return v;
+    v = std::max(v, cavern_value(n_cavern_.GetNoise(fx, fy * CAVERN_Y, fz), fy, depth));
+    return std::max(v, ravine_value(n_ravmask_.GetNoise(fx, fz), std::fabs(n_ravine_.GetNoise(fx, fz)), depth));
+}
+
+// Caverns: a slow 3D noise squashed in y, so halls are wide and flat-floored (40-120 m across, 15-40 m
+// tall, developer 2026-10-25 "big"), from 15 m under the ground down to bedrock. raw = n_cavern_ at
+// (x, y * CAVERN_Y, z); FineGen samples it on a coarse grid.
+float WorldGen::cavern_value(float raw, float fy, float depth) {
+    return (raw - CAVERN_THR) / 0.05f * smoothstep(30.0f, 70.0f, depth) * smoothstep(14.0f, 40.0f, fy);
+}
+
+// Ravines: along the zero line of a slow 2D noise (line = |n_ravine_|) where a mask (n_ravmask_) opens it,
+// a crack 8-20 m wide at the top narrowing to nothing 30-60 m down.
+float WorldGen::ravine_value(float mask, float line, float depth) {
+    if (mask <= 0.25f) return -1.0f;
+    const float deep = 60.0f + 60.0f * smoothstep(0.25f, 0.6f, mask);
+    const float half = 0.06f * smoothstep(0.25f, 0.4f, mask) * (1.0f - std::clamp(depth / deep, 0.0f, 1.0f));
+    return half > 0.0f ? (half - line) / 0.008f : -1.0f;
+}
+
+// Whether a cavern or a ravine may reach into the box (macro units), for the deep-rock shortcut of coarse
+// LODs: the cavern noise on a 16-voxel grid with a margin for what can rise between the samples.
+bool WorldGen::big_cave_possible(int x0, int y0, int z0, int x1, int y1, int z1, int ground_min) const {
+    if (variant_[VAR_CAVES] == 0) return false;
+    const bool ravine_deep_enough = y1 >= ground_min - 120;   // ravines end 60 m down at most
+    for (int z = z0;; z = std::min(z + 16, z1)) {
+        for (int x = x0;; x = std::min(x + 16, x1)) {
+            if (ravine_deep_enough && n_ravmask_.GetNoise((float)x, (float)z) > 0.15f) return true;
+            for (int y = y0;; y = std::min(y + 16, y1)) {
+                if (n_cavern_.GetNoise((float)x, (float)y * CAVERN_Y, (float)z) > CAVERN_THR - 0.15f) return true;
+                if (y == y1) break;
+            }
+            if (x == x1) break;
+        }
+        if (z == z1) break;
+    }
+    return false;
+}
+
+// Geodes: 1 in 9 cells of 96 m (~12 per 10 km^2), a hollow 3-6 m across, 25-90 m under the ground and
+// never below the lava line. The radius covers the hollow, its crystal lining and the basalt shell.
+bool WorldGen::geode_at_cell(int cx, int cz, Geode &out) const {
+    if (variant_[VAR_CAVES] == 0) return false;
+    const uint32_t h = hash3(cx, cz, seed_ + 4111);
+    if (h % 9 != 0) return false;
+    const float r = 6.0f + (float)((h >> 8) & 7) * 0.9f;   // 3-6 m
+    const int margin = 14;
+    out.x = (float)(cx * GEODE_CELL + margin) + (float)((h >> 12) & 255) / 255.0f * (float)(GEODE_CELL - 2 * margin);
+    out.z = (float)(cz * GEODE_CELL + margin) + (float)((h >> 20) & 255) / 255.0f * (float)(GEODE_CELL - 2 * margin);
+    const Column c = column_base((int)out.x, (int)out.z, false);
+    const float depth = 50.0f + (float)(hash3(cx, cz, seed_ + 4112) % 130);
+    out.y = std::max((float)c.height - depth, (float)(sea_ - 170));
+    if (out.y > (float)c.height - 30.0f || out.y < 24.0f) return false;
+    out.r = r;
+    out.seed = h;
+    return true;
+}
+
+// Sea stacks: 30 % of the 12 m cells on the shelf in front of a cliff coast; a quarter of them are arches.
+bool WorldGen::stack_at_cell(int cx, int cz, SeaStack &out) const {
+    const uint32_t h = hash3(cx, cz, seed_ + 5101);
+    if ((h & 1023) >= 307) return false;
+    out.x = (float)(cx * STACK_CELL + 6) + (float)((h >> 10) & 15) * 0.8f;
+    out.z = (float)(cz * STACK_CELL + 6) + (float)((h >> 14) & 15) * 0.8f;
+    const float c = n_cont_.GetNoise(out.x, out.z);
+    if (c >= -0.006f || c < -0.04f) return false;
+    const float cm = n_cliff_.GetNoise(out.x, out.z);
+    if (cm < 0.2f) return false;
+    out.r = 3.0f + (float)((h >> 18) & 7) * 0.6f;                       // 1.5-3.6 m
+    out.h = cliff_height(cm) * (0.55f + 0.45f * (float)((h >> 21) & 15) / 15.0f) + 2.0f;
+    out.arch = ((h >> 25) & 3) == 0 && out.r >= 4.5f;
+    const float a = (float)((h >> 27) & 31) / 31.0f * 3.14159f;
+    out.adx = std::cos(a);
+    out.adz = std::sin(a);
+    return true;
+}
+
+// Monoliths: 1 in 5 cells of 1.5 km, a dome 150-350 m long, 0.45-0.65 as wide and 40-80 m tall, a superellipse
+// footprint with near-vertical sides and a rounded top, grooved by rain.
+float WorldGen::monolith_height(int x, int z) const {
+    const int cx = floor_div(x, MONO_CELL), cz = floor_div(z, MONO_CELL);
+    const uint32_t h = hash3(cx, cz, seed_ + 6203);
+    if (h % 5 != 0) return 0.0f;
+    const float L = 300.0f + (float)((h >> 3) & 255) / 255.0f * 400.0f;   // half-length x 2 below, macro
+    const float W = L * (0.45f + 0.2f * (float)((h >> 11) & 15) / 15.0f);
+    const float mx = (float)(cx * MONO_CELL) + L + (float)((h >> 15) & 255) / 255.0f * ((float)MONO_CELL - 2.0f * L);
+    const float mz = (float)(cz * MONO_CELL) + L + (float)((h >> 23) & 255) / 255.0f * ((float)MONO_CELL - 2.0f * L);
+    const float ddx = (float)x - mx, ddz = (float)z - mz;
+    if (std::fabs(ddx) > L * 0.6f && std::fabs(ddz) > L * 0.6f) return 0.0f;
+    const float a = (float)(hash3(cx, cz, seed_ + 6204) & 1023) / 1023.0f * 3.14159f;
+    const float u = (ddx * std::cos(a) + ddz * std::sin(a)) / (L * 0.5f), v = (-ddx * std::sin(a) + ddz * std::cos(a)) / (W * 0.5f);
+    const float d = std::pow(std::pow(std::fabs(u), 3.0f) + std::pow(std::fabs(v), 3.0f), 1.0f / 3.0f);
+    if (d >= 1.0f) return 0.0f;
+    // the centre must be open lowland (not a mountain, lake or the sea)
+    const float region = n_region_.GetNoise(mx, mz), c = n_cont_.GetNoise(mx, mz);
+    if (region > 0.0f || c < 0.08f) return 0.0f;
+    const float H = 80.0f + (float)((h >> 7) & 255) / 255.0f * 80.0f;
+    const float groove = 1.0f - 0.06f * std::fabs(n_detail_.GetNoise((float)x * 4.0f, (float)z * 4.0f));
+    return H * std::sqrt(std::max(0.0f, 1.0f - std::pow(d, 8.0f))) * groove;
+}
+
+// Cave mouths on a 64 m grid (developer 2026-10-25: "big" caves, ~15-30 entrances per km^2).
+int WorldGen::mouths_near(int x, int z, CaveMouth *out) const {
+    const int cx = floor_div(x, MOUTH_CELL), cz = floor_div(z, MOUTH_CELL);
+    int n = 0;
+    for (int dz = -1; dz <= 1; dz++)
+        for (int dx = -1; dx <= 1; dx++) {
+            const uint32_t h = hash3(cx + dx, cz + dz, seed_ + 9133);
+            if ((h & 1023) >= 100) continue;   // ~10 % of cells: ~24 per km^2
+            CaveMouth &m = out[n++];
+            m.x = (float)((cx + dx) * MOUTH_CELL) + (float)((h >> 10) & 127);
+            m.z = (float)((cz + dz) * MOUTH_CELL) + (float)((h >> 17) & 127);
+            const float a = (float)((h >> 24) & 255) / 255.0f * 6.2831853f;
+            m.dx = std::cos(a);
+            m.dz = std::sin(a);
+            const uint32_t h2 = hash3(cx + dx, cz + dz, seed_ + 9134);
+            m.len = 40.0f + (float)(h2 & 63) * 0.8f;                   // 20-45 m
+            m.slope = 0.45f + (float)((h2 >> 6) & 31) / 31.0f * 0.4f;  // 25-40 degrees
+            m.r = 3.0f + (float)((h2 >> 11) & 15) / 15.0f * 2.0f;      // 1.5-2.5 m
+        }
+    return n;
+}
+
+int WorldGen::cave_roof(int x, int z) const {
+    if (variant_[VAR_CAVES] == 0) return 5;
+    const float fx = (float)x, fz = (float)z;
+    if (ravine_value(n_ravmask_.GetNoise(fx, fz), std::fabs(n_ravine_.GetNoise(fx, fz)), 4.0f) > 0.0f) return 0;
+    CaveMouth m[9];
+    const int n = mouths_near(x, z, m);
+    for (int i = 0; i < n; i++) {
+        float t;
+        if (seg_dist(fx, fz, m[i].x, m[i].z, m[i].x + m[i].dx * m[i].len, m[i].z + m[i].dz * m[i].len, t) <= m[i].r + 1.0f && t * m[i].len < 16.0f) return 0;
+    }
+    return 5;
 }
 
 // ---------- ore veins (GregTech style, ore_veins.json) ----------
@@ -1023,6 +1346,55 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
         }
         return best;
     }
+    if (kind == "monolith" || kind == "sea_stack" || kind == "arch") {
+        const bool mono = kind == "monolith";
+        const int cell = mono ? MONO_CELL : STACK_CELL;
+        const int cx0 = floor_div(x, cell), cz0 = floor_div(z, cell);
+        const int rings = max_radius / cell + 1;
+        for (int ring = 0; ring <= rings; ring++) {
+            for (int dz = -ring; dz <= ring; dz++)
+                for (int dx = -ring; dx <= ring; dx++) {
+                    if (std::max(std::abs(dx), std::abs(dz)) != ring) continue;
+                    int px, pz;
+                    if (mono) {
+                        // the highest of a few samples over the cell
+                        float hb = 0.0f;
+                        px = pz = 0;
+                        for (int k = 0; k < 64; k++) {
+                            const int sx = (cx0 + dx) * cell + (k % 8) * cell / 8 + cell / 16, sz = (cz0 + dz) * cell + (k / 8) * cell / 8 + cell / 16;
+                            const float hm = monolith_height(sx, sz);
+                            if (hm > hb) { hb = hm; px = sx; pz = sz; }
+                        }
+                        if (hb <= 0.0f) continue;
+                    } else {
+                        SeaStack st;
+                        if (!stack_at_cell(cx0 + dx, cz0 + dz, st) || (kind == "arch" && !st.arch)) continue;
+                        px = (int)st.x;
+                        pz = (int)st.z;
+                    }
+                    const long d2 = (long)(px - x) * (px - x) + (long)(pz - z) * (pz - z);
+                    if (best_d2 < 0 || d2 < best_d2) { best_d2 = d2; best = Vector3i(px, height_at(px, pz), pz); }
+                }
+            if (best_d2 >= 0) break;
+        }
+        return best;
+    }
+    if (kind == "geode") {
+        const int cx0 = (int)std::floor((float)x / GEODE_CELL), cz0 = (int)std::floor((float)z / GEODE_CELL);
+        const int rings = max_radius / GEODE_CELL + 1;
+        for (int ring = 0; ring <= rings; ring++) {
+            for (int dz = -ring; dz <= ring; dz++)
+                for (int dx = -ring; dx <= ring; dx++) {
+                    if (std::max(std::abs(dx), std::abs(dz)) != ring) continue;
+                    Geode g;
+                    if (!geode_at_cell(cx0 + dx, cz0 + dz, g)) continue;
+                    long d2 = (long)(g.x - x) * (long)(g.x - x) + (long)(g.z - z) * (long)(g.z - z);
+                    if (best_d2 < 0 || d2 < best_d2) { best_d2 = d2; best = Vector3i((int)g.x, (int)(g.y - g.r * 0.4f), (int)g.z); }
+                }
+            if (best_d2 >= 0) break;
+        }
+        return best;
+    }
     // Ore veins: "<name>_vein" -> the nearest vein centre of that type under dry land
     // (above sea level), at ground height.
     if (kind.ends_with("_vein")) {
@@ -1087,6 +1459,21 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                     hit = true;
                     py = column_base(px, pz, false).height;
                 }
+                else if (kind == "ravine") {
+                    hit = c.height > sea_ + 4 && !hy.lake && hy.river < 0.05f
+                          && ravine_value(n_ravmask_.GetNoise((float)px, (float)pz), std::fabs(n_ravine_.GetNoise((float)px, (float)pz)), 30.0f) > 0.0f;
+                }
+                else if (kind == "cavern") {
+                    // a hall at least 10 m tall: the floor of the first such run of cavern 30..150 voxels down
+                    if (c.height > sea_ + 4 && !hy.lake && hy.river < 0.05f) {
+                        int run = 0;
+                        for (int y = c.height - 30; y >= std::max(24, c.height - 150); y--) {
+                            if (cavern_value(n_cavern_.GetNoise((float)px, (float)y * CAVERN_Y, (float)pz), (float)y, (float)(c.height - y)) > 0.0f) { run++; continue; }
+                            if (run >= 20) { hit = y > sea_ - 180; py = y + 1; break; }
+                            run = 0;
+                        }
+                    }
+                }
                 else if (kind == "cave" || kind == "deep_cave") {
                     // a room at least 5 voxels tall with a solid floor, 10..120 (deep: 50..170) voxels under dry land
                     const int from = kind == "cave" ? 10 : 50, to = kind == "cave" ? 120 : 170;
@@ -1115,6 +1502,7 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                 else if (kind == "lake") { hit = hy.lake; py = hy.water_level; }
                 else if (kind == "marsh") { hit = hy.marsh; }
                 else if (kind == "spring") { hit = hy.spring; py = hy.bed; }
+                else if (kind == "delta") { hit = hy.delta > 0.6f && hy.river > 0.8f; py = std::max(hy.bed, hy.water_level); }
                 else if (kind == "river") { hit = hy.river > 0.5f && !hy.spring; py = hy.bed; }
                 else if (kind == "alpine") { hit = c.alpine && !c.snow; }
                 else if (kind == "snow") { hit = c.snow; }

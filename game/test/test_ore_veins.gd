@@ -123,7 +123,10 @@ func test_vein_is_a_dense_mixed_ore_lens() -> void:
 	for k in OreVeinRegistry.ORE_KEYS:
 		own.append(OreVeinRegistry.material_id(String(d[k])))
 	var ore := _count(ids, ORES)
-	assert_int(ore).override_failure_message("only %d ore voxels in the vein centre" % ore).is_greater(16 * t * 16 / 8)
+	# a share of the rock: big caves (ADR 0052) may hollow part of the box
+	var rock := 16 * t * 16 - _count(ids, [0])
+	assert_int(rock).is_greater(16 * t * 16 / 2)
+	assert_int(ore).override_failure_message("only %d ore voxels in %d of rock in the vein centre" % [ore, rock]).is_greater(rock / 8)
 	assert_int(_count(ids, own)).is_equal(ore)   # nothing but the vein's own ores
 	assert_int(_count(ids, [OreVeinRegistry.material_id(String(d["primary"]))])).is_greater(0)
 
