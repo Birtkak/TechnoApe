@@ -29,7 +29,11 @@ The split follows the code, so no two sessions edit the same native sources:
   holding your part's name and the start time; delete it when the run ends. Before starting *any*
   Godot process (tests, imports, captures), check for the lock: if it exists and is under 10 minutes
   old, do other work and check again later; an older lock is stale, delete it. Keep a budget run under
-  5 minutes, and take the lock only for the run itself.
+  5 minutes, and take the lock only for the run itself. Windowed test runs (looks tests, captures)
+  count too. Before measuring, also check that no other Godot process is running.
+- **Own godot-cpp per worktree.** A part that builds native code builds against its own copy of
+  godot-cpp (copy `~/Tools/godot-cpp` into the worktree's scratch area and point `GODOT_CPP_PATH` at
+  it). The shared copy's library gets rebuilt by each worktree, and the builds race.
 - **Reserved numbers**, so branches merge without clashes:
   - ADRs: A 0049-0050, B 0051-0052, C 0053-0054, D 0055-0056, E 0057-0058, F 0059-0060, G 0061-0062.
   - Material ids (definition order, append only): A 116-119, B 120-129, C 130-149, D 150-159,
@@ -56,6 +60,22 @@ The split follows the code, so no two sessions edit the same native sources:
   it to `int[8]` (tiles up to 255) as one small hunk and lists it under the merge notes; D and F use
   patterned tiles at 128+ only on top of E's change (until the merge, test them below 128 or plain).
 - **Merge notes** (hunks a part made in another part's files, to check when merging):
+  - B (branch `claude/part-b-worldgen-6d5cbb`, c3449da and later):
+    1. World height: `Settings.WORLD_HEIGHT_VOXELS` 3072 -> 5120 (640 m), sea unchanged at 1024;
+       WorldGen/FineGen 768 -> 1280 macro; `ore_vein_registry.WORLD_HEIGHT` 1280.
+    2. `GEN_VERSION` 16 (`generator.gd`); it covers E's generator hooks too.
+    3. `materials.gd`: `_reserved_defs(116, 119)` placeholders, then 120 crystal after
+       `_clutter_defs()`. A replaces the placeholders with its 116-119. Parts C-G (ids 130+) merge
+       before B: the merger inserts `_reserved_defs(121, 129)` after 120 so their ids stay put.
+    4. Atlas: `make_atlas.py` ROWS 13 -> 14, tile 104 crystal; `materials.gd` ATLAS_TILES 8x14. Merge
+       by hand with the other parts' rows (C's 112-127 needs ROWS 16, and so on).
+    5. `terrain_common.gdshaderinc`: new uniform `glow_tile_b` (crystal); `world.gd` sets it and copies
+       it to the liquid/fluid materials.
+    6. `biomes.json` decor gets berries/mushrooms/log_mushrooms; `biome_registry` FOOD_KINDS;
+       `biome_table.gen.h` regenerated: rerun `tools/biome_codegen.gd` after merging if another part
+       touched `biomes.json`.
+    7. New `find_nearest` kinds: cavern, ravine, geode, monolith, sea_stack, arch, delta. New
+       `FineGen.ruin_pots_near` (for E), `surface_map`, `cave_map`; `WorldGen.set_variant` (debug).
   - D: an optional `only` parameter on `SimBubble.blast` (part A's file, for the world vacuum); two
     sprites in `tools/make_item_sprites.py` (part C's file, just above "validate + write"). Regenerate
     `data/item_sprites.json` after merging.
