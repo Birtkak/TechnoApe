@@ -402,8 +402,9 @@ func _run_fire_test() -> void:
 ## Only the window is edited; chunks still loading are skipped. The changed
 ## chunks reach the terrain through the budgeted push queue, and the kernel
 ## loosens static ground around the hole (ADR 0013), so craters collapse.
-## Returns the number of voxels changed.
-func blast(center: Vector3, radius: float, material := GameMaterials.AIR) -> int:
+## Returns the number of voxels changed. `only` (the world vacuum, ADR 0056): just these materials
+## change, everything else stays.
+func blast(center: Vector3, radius: float, material := GameMaterials.AIR, only := PackedInt32Array()) -> int:
 	if not _ready:
 		return 0
 	if _keep.is_empty():
@@ -417,7 +418,13 @@ func blast(center: Vector3, radius: float, material := GameMaterials.AIR) -> int
 		_tick_running = false
 		_collect_dirty()
 	var t0 := Time.get_ticks_usec()
-	var n := sim.fill_sphere(center - Vector3(origin * Settings.CHUNK), radius, material, _keep)
+	var keep := _keep
+	if not only.is_empty():
+		keep = PackedInt32Array()
+		for i in range(1, mini(GameMaterials.defs().size() + 1, 256)):
+			if not only.has(i) or _keep.has(i):
+				keep.append(i)
+	var n := sim.fill_sphere(center - Vector3(origin * Settings.CHUNK), radius, material, keep)
 	var ms := (Time.get_ticks_usec() - t0) / 1000.0
 	_frame_cost()["edit_ms"] = _frame_cost().get("edit_ms", 0.0) + ms
 	blasts += 1
@@ -585,6 +592,20 @@ func _count_unloaded() -> int:
 	return n
 
 
+var _burning := -1
+var _burning_at := -1000
+
+## Burning cells in the window for the stats (F3, the autopilot JSON): count_burning is a full pass over
+## the window, so it is taken at most every 30 ticks and only when stats are asked for, never in play.
+func _burning_count() -> int:
+	if _fire_test > 0 or not can_sample():
+		return _burning
+	if ticks_total - _burning_at >= 30:
+		_burning_at = ticks_total
+		_burning = sim.count_burning()
+	return _burning
+
+
 func stats() -> Dictionary:
 	if not _ready:
 		return {}
@@ -593,6 +614,6 @@ func stats() -> Dictionary:
 		"tick_ms": snappedf(last_tick_ms, 0.01), "ticks": ticks_total, "active_chunks": active_chunks, "scanned_max": scanned_max,
 		"chunks_pushed": chunks_pushed, "chunks_loaded": chunks_loaded, "columns_loaded": columns_loaded, "push_ms": snappedf(push_ms, 0.01),
 		"shifts": shifts, "worst_frames": _worst, "slow_frames": _slow, "push_queue": _push_queue.size(), "push_queue_max": push_queue_max,
-		"burning": sim.count_burning() if _fire_test == 0 else -1, "fire_ignited": fire_ignited,
+		"burning": _burning_count(), "fire_ignited": fire_ignited,
 		"blasts": blasts, "blast_voxels": blast_voxels, "blast_ms_max": snappedf(blast_ms_max, 0.01),
 	}

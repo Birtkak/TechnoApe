@@ -17,6 +17,7 @@ var title := "Chest"
 var pos: Vector3i
 var inv: Inventory
 var size := SIZE
+var label := ""      # the player's name for it: shown on its screen and when aimed at (plan item D11)
 
 
 func _init(p_items: ItemRegistry, p_pos: Vector3i, p_kind: String = "chest") -> void:
@@ -71,11 +72,12 @@ func contents() -> Array:
 
 ## Save data (BlockEntities writes it next to the world save).
 func to_dict() -> Dictionary:
-	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "slots": inv.to_array()}
+	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "slots": inv.to_array(), "label": label}
 
 
 func load_from(d: Dictionary) -> void:
 	var slots: Array = d.get("slots", [])
+	label = String(d.get("label", ""))
 	for i in mini(slots.size(), size):
 		inv.set_slot(i, slots[i])
 

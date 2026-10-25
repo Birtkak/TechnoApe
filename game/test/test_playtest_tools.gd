@@ -4,7 +4,7 @@ extends GdUnitTestSuite
 ## kind is one PlaytestTools handles, and bombs name a material that exists. The cutting itself is
 ## checked in game: later=/kit gadgets;/gadget instant_tree;/laser 2 25 (a felled test tree in pieces).
 
-const KINDS := ["laser", "crater", "bomb", "tree", "measure"]
+const KINDS := ["laser", "crater", "bomb", "tree", "measure", "vacuum"]
 
 var items: ItemRegistry
 

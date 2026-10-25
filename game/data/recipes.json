@@ -46,6 +46,7 @@
     {"id": "smith_copper_pickaxe_head", "type": "smith", "input": "copper_ingot", "layers": [["........", "..####..", ".######.", "##....##", "#......#", "........", "........", "........"], ["........", "..####..", ".######.", "##....##", "#......#", "........", "........", "........"]], "output": {"id": "copper_pickaxe_head", "count": 1}},
     {"id": "smith_copper_knife_head", "type": "smith", "input": "copper_ingot", "layers": [["........", "...##...", "...##...", "...##...", "...##...", "...##...", "...##...", "...#...."], ["........", "........", "...##...", "...##...", "...##...", "...#....", "........", "........"]], "output": {"id": "copper_knife_head", "count": 1}},
     {"id": "firestarter", "type": "shapeless", "ingredients": ["#stick", "#stick", "dry_grass"], "output": {"id": "firestarter", "count": 1}},
+    {"id": "flint_and_steel", "type": "shapeless", "ingredients": ["flint", "iron_ingot"], "output": {"id": "flint_and_steel", "count": 1}},
     {"id": "firepit", "type": "shapeless", "ingredients": ["#stick", "#stick", "loose_stone", "loose_stone"], "output": {"id": "firepit", "count": 1}},
     {"id": "clay_block", "type": "shapeless", "ingredients": ["clay_ball", "clay_ball", "clay_ball", "clay_ball"], "output": {"id": "clay", "count": 1}},
     {"id": "sieve", "type": "shaped", "pattern": ["PDP", "S S"], "key": {"P": "#planks", "D": "dry_grass", "S": "#stick"}, "output": {"id": "sieve", "count": 1}, "station": "crafting_table"},

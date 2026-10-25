@@ -35,6 +35,7 @@ var sunset_color := Color(1.0, 0.62, 0.35)
 var moon_color := Color(0.62, 0.70, 0.95)
 var shadow_distance_m := 96.0
 var cloud_coverage := 0.42
+var overcast := 0.0              # Weather (ADR 0056): 0 clear .. 1 a heavy rain sky: clouds close, the sun dims, fog thickens
 var fog_per_km := 2.8            # fog above ground in daylight, extinction per km (1 / e left after 1 / this km)
 var mist_per_km := 9.6           # the lowland ground mist by day (height fog), per km
 var fog_color_day := Color(0.74, 0.83, 0.95)
@@ -538,6 +539,8 @@ func _sample_camera() -> void:
 	set_meta("underground_target", clampf((depth_m - underground_start_m) / (underground_full_m - underground_start_m), 0.0, 1.0))
 
 
+var _overcast_shown := 0.0
+
 func _apply_states(instant: bool, delta: float = 0.0) -> void:
 	var target: float = get_meta("underground_target", 0.0)
 	if instant:
@@ -554,7 +557,11 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 	var light_target := exp(-_water_depth_m / water_light_m) if _submerged_name.begins_with("water") else 1.0
 	_water_light = light_target if instant else lerpf(_water_light, light_target, clampf(delta * 3.0, 0.0, 1.0))
 	if _sun_light >= 0.0:
-		sun.light_energy = _sun_light * _water_light
+		sun.light_energy = _sun_light * _water_light * lerpf(1.0, 0.3, overcast)
+	if overcast > 0.0 or _overcast_shown > 0.0:
+		_overcast_shown = overcast
+		sky_material.set_shader_parameter("cloud_coverage", lerpf(cloud_coverage, 1.0, overcast))
+	env.ambient_light_energy *= lerpf(1.0, 0.75, overcast)
 	if _submerged_name != "":
 		var t: Array = liquid_tints[_submerged_name]
 		var dark := 1.0 - _water_light
@@ -570,7 +577,7 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 		tint = Color(tc.r * lit, tc.g * lit, tc.b * lit, lerpf(tc.a, 0.5, dark))
 	else:
 		env.fog_light_color = fog_day.lerp(underground_fog_color, _underground)
-		env.fog_density = lerpf(fog_per_km / Settings.m2v(1000.0), underground_fog_density, _underground)
+		env.fog_density = lerpf(fog_per_km * (1.0 + 4.0 * overcast) / Settings.m2v(1000.0), underground_fog_density, _underground)
 		env.fog_aerial_perspective = lerpf(aerial, 0.0, _underground)
 		env.fog_sky_affect = lerpf(0.15, 0.0, _underground)
 		# faint ground mist in the lowlands by day, none underground or at night

@@ -9,8 +9,19 @@ extends CanvasLayer
 ## progression book (ADR 0028) opens from the button in the top left corner. Clicks go to PlayerInventory's
 ## cursor operations; the cursor stack follows the mouse. Closing returns
 ## grid contents; what does not fit is emitted for dropping.
+## ADR 0055: the offhand slot beside the bag slot, a trash slot left of the hotbar, a click outside
+## the panel drops the cursor stack (left: all, right: one) and Q over a slot drops from it (Ctrl: all).
 
 signal closed(dropped: Array)
+signal drop_requested(stack: Dictionary)   # thrown out into the world in front of the player
+## Plan item D11: Alt + click marks a favourite slot (sort, quick-stack, shift-click and refill leave it),
+## Sort sorts the main grid or the open chest, Stack moves what nearby chests already hold into them,
+## and a chest's name can be typed over its title.
+var nearby_chests: Callable   # () -> Array of chest entities within reach (Main)
+var _sort_button: Button
+var _stack_button: Button
+var _label_edit: LineEdit
+var _side_panels: Array = []   # [Control, side] docked beside the panel (add_side_panel)
 
 const S := 36          # slot pitch (vanilla 18 px at 2x)
 const PANEL := Vector2(352, 332)
@@ -33,6 +44,8 @@ var browser_view: RecipeBrowserView
 var _tooltip: Label
 var _bag_slot: SlotView                  # the worn bag (ADR 0030), personal inventory only
 var _bag_slots: Array[SlotView] = []     # its 9 slots, a row under the hotbar while a bag is worn
+var _offhand_slot: SlotView              # ADR 0055, personal inventory only
+var _trash_slot: SlotView                # left of the hotbar, on every screen
 var quest_view: QuestBookView
 var _book_button: QuestBookView.BookButton
 # Mouse Tweaks: a button held after a press on a slot drags over more slots
@@ -103,6 +116,7 @@ func _ready() -> void:
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.draw.connect(func() -> void: _root.draw_rect(Rect2(Vector2.ZERO, _root.size), Color(0, 0, 0, 0.45)))
+	_root.gui_input.connect(_on_root_input)
 	add_child(_root)
 	_panel = Control.new()
 	_panel.set_anchors_preset(Control.PRESET_CENTER)
@@ -156,6 +170,7 @@ func _build_player_slots() -> void:
 		sv.index = i
 		sv.group = "inv"
 		sv.clicked.connect(_on_slot_clicked.bind(i))
+		sv.alt_clicked.connect(func() -> void: player_inv.toggle_favourite(i))
 		_panel.add_child(sv)
 		_slots.append(sv)
 	for sv in _bag_slots:
@@ -176,6 +191,67 @@ func _build_player_slots() -> void:
 		_bag_slot.hint = "Bag"
 		_bag_slot.clicked.connect(func(_b: int, _s: bool) -> void: player_inv.click_bag_item())
 		_panel.add_child(_bag_slot)
+	if _offhand_slot == null:
+		_offhand_slot = SlotView.new()
+		_offhand_slot.position = Vector2(162, 120)
+		_offhand_slot.hint = "Off"
+		_offhand_slot.group = "offhand"
+		_offhand_slot.clicked.connect(func(button: int, shift: bool) -> void: player_inv.click_offhand(button, shift))
+		_panel.add_child(_offhand_slot)
+	if _sort_button == null:
+		_sort_button = _small_button("Sort", func() -> void:
+			if _container != null and _container.kind in ["chest", "storage_pot"]:
+				player_inv.sort_container()
+			else:
+				player_inv.sort_inventory())
+		_stack_button = _small_button("Stack", func() -> void:
+			if nearby_chests.is_valid():
+				player_inv.quick_stack(nearby_chests.call()))
+		_stack_button.tooltip_text = "Move what nearby chests already hold into them (favourites stay)"
+		_label_edit = LineEdit.new()
+		_label_edit.placeholder_text = "Name this chest"
+		_label_edit.add_theme_font_size_override("font_size", 13)
+		_label_edit.custom_minimum_size = Vector2(150, 0)
+		_label_edit.visible = false
+		_label_edit.text_changed.connect(func(t: String) -> void:
+			if _container != null and "label" in _container:
+				_container.label = t.strip_edges())
+		_panel.add_child(_label_edit)
+	if _trash_slot == null:
+		_trash_slot = SlotView.new()
+		_trash_slot.position = Vector2(-S - 12, 284)
+		_trash_slot.hint = "Trash"
+		_trash_slot.clicked.connect(func(_b: int, _s: bool) -> void: player_inv.click_trash())
+		_panel.add_child(_trash_slot)
+
+
+## Docks another part's control beside the panel while the screen is open: "below" (under the panel,
+## left-aligned; nutrition, part G) or "left" (left of the panel, top-aligned; clothing slots, part F).
+func add_side_panel(ctrl: Control, side: String = "below") -> void:
+	_root.add_child(ctrl)
+	_side_panels.append([ctrl, side])
+	_root.move_child(_cursor_icon, -1)
+	_root.move_child(_tooltip, -1)
+
+
+func _place_side_panels() -> void:
+	var r := _panel.get_global_rect()
+	for sp in _side_panels:
+		var c: Control = sp[0]
+		if sp[1] == "left":
+			c.global_position = Vector2(r.position.x - S - 24.0 - c.size.x, r.position.y)   # clear of the trash slot
+		else:
+			c.global_position = Vector2(r.position.x, r.end.y + 8.0)
+
+
+func _small_button(text: String, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 12)
+	b.pressed.connect(cb)
+	_panel.add_child(b)
+	return b
 
 
 func _clear_mode_slots() -> void:
@@ -259,7 +335,7 @@ func open_container(c: RefCounted) -> void:
 		sv.clicked.connect(_on_container_clicked.bind(i))
 		_panel.add_child(sv)
 		_container_slots.append(sv)
-	_title.text = c.title
+	_title.text = c.label if "label" in c and c.label != "" else c.title
 	_title.position = Vector2(16, 8) if c.kind == "chest" or c.kind == "storage_pot" else Vector2(176 - c.title.length() * 4, 8)
 	_inv_label.visible = true
 	_show()
@@ -294,6 +370,16 @@ func _refresh() -> void:
 		return
 	for i in _slots.size():
 		_slots[i].set_stack(player_inv.items, player_inv.inv.get_slot(i))
+		_slots[i].favourite = player_inv.favourites.has(i)
+	var chest: bool = _container != null and _container.kind in ["chest", "storage_pot"]
+	_sort_button.position = Vector2(PANEL.x - 56, 140) if not chest else Vector2(PANEL.x - 56, 4)
+	_stack_button.position = Vector2(PANEL.x - 112, 140)
+	_stack_button.visible = nearby_chests.is_valid()
+	_label_edit.visible = chest
+	if chest:
+		_label_edit.position = Vector2(PANEL.x - 220, 4)
+		if not _label_edit.has_focus():
+			_label_edit.text = _container.label
 	var short := player_inv.craft.short_slots()
 	for i in _craft_slots.size():
 		var st := player_inv.craft.grid.get_slot(i)
@@ -309,6 +395,10 @@ func _refresh() -> void:
 	var worn := player_inv.has_bag()
 	_bag_slot.visible = _container == null and player_inv.craft.width == 2
 	_bag_slot.set_stack(player_inv.items, player_inv.bag_item)
+	_offhand_slot.visible = _bag_slot.visible
+	_offhand_slot.set_stack(player_inv.items, player_inv.offhand())
+	_trash_slot.set_stack(player_inv.items, player_inv.trash)
+	_trash_slot.position.y = _slots[0].position.y
 	for i in _bag_slots.size():
 		_bag_slots[i].visible = worn
 		_bag_slots[i].set_stack(player_inv.items, player_inv.bag.get_slot(i))
@@ -317,6 +407,7 @@ func _refresh() -> void:
 		_panel.size = Vector2(PANEL.x, h)
 		_panel.position = -_panel.size / 2.0
 		_panel.queue_redraw()
+	_place_side_panels()
 	_cursor_icon.items = player_inv.items
 	_cursor_icon.stack = player_inv.cursor
 	_cursor_icon.visible = not player_inv.cursor.is_empty()
@@ -418,7 +509,7 @@ func _input(event: InputEvent) -> void:
 
 ## The visible slot (not an output) under a screen position, or null.
 func _slot_at(screen_pos: Vector2) -> SlotView:
-	for sv in _slots + _bag_slots + _craft_slots + _container_slots:
+	for sv in _slots + _bag_slots + _craft_slots + _container_slots + [_offhand_slot]:
 		if sv.visible and not sv.is_output and sv.group != "" and sv.get_global_rect().has_point(screen_pos):
 			return sv
 	return null
@@ -433,6 +524,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.keycode == KEY_ESCAPE and is_book_open():
 		close_book()
 		get_viewport().set_input_as_handled()
+		return
+	if event.is_action("drop"):
+		# Q over a slot drops one item from it, Ctrl + Q the stack (Minecraft)
+		var sv := _slot_at(_root.get_global_mouse_position())
+		if sv != null and player_inv.cursor.is_empty():
+			drop_requested.emit(player_inv.drop_from(sv.group, sv.index, event.ctrl_pressed))
+			get_viewport().set_input_as_handled()
 		return
 	match event.keycode:
 		KEY_R, KEY_U:
@@ -457,6 +555,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			if browser_view.is_showing_recipes():
 				browser_view.close_recipes()
 				get_viewport().set_input_as_handled()
+
+
+## A click on the dimmed screen outside the panel (and the recipe browser) with a stack on the cursor
+## throws it out: left all of it, right one (Minecraft).
+func _on_root_input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton) or not event.pressed or player_inv.cursor.is_empty():
+		return
+	if event.button_index != MOUSE_BUTTON_LEFT and event.button_index != MOUSE_BUTTON_RIGHT:
+		return
+	if _panel.get_global_rect().has_point(event.global_position) or is_book_open():
+		return
+	drop_requested.emit(player_inv.drop_cursor(event.button_index == MOUSE_BUTTON_LEFT))
+	_root.accept_event()
 
 
 func _on_slot_clicked(button: int, shift: bool, i: int) -> void:
@@ -524,7 +635,13 @@ func _draw_arrow(o: Vector2, w: float, c: Color) -> void:
 class SlotView:
 	extends Control
 	signal clicked(button: int, shift: bool)
+	signal alt_clicked
 	var index := 0
+	var favourite := false:   # a gold corner (plan item D11)
+		set(v):
+			if v != favourite:
+				favourite = v
+				queue_redraw()
 	var group := ""           # PlayerInventory slot group ("inv", "bag", "craft", "container"); "" = no drags
 	var is_output := false
 	var hint := ""            # drawn faintly while the slot is empty (the bag slot)
@@ -582,10 +699,15 @@ class SlotView:
 		draw_rect(Rect2(size.x - 2, 0, 2, size.y), Color.WHITE)
 		if _hover:
 			draw_rect(Rect2(2, 2, size.x - 4, size.y - 4), Color(1, 1, 1, 0.35))
+		if favourite:
+			draw_colored_polygon(PackedVector2Array([Vector2(size.x - 12, 2), Vector2(size.x - 2, 2), Vector2(size.x - 2, 12)]), Color(1.0, 0.8, 0.2))
 		if hint != "" and _icon.stack.is_empty():
 			draw_string(ThemeDB.fallback_font, Vector2(4, size.y / 2.0 + 5), hint, HORIZONTAL_ALIGNMENT_CENTER, size.x - 8, 12, Color(0.3, 0.3, 0.3))
 
 	func _gui_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed and (event.button_index == MOUSE_BUTTON_LEFT or event.button_index == MOUSE_BUTTON_RIGHT):
-			clicked.emit(event.button_index, event.shift_pressed)
+			if event.alt_pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				alt_clicked.emit()
+			else:
+				clicked.emit(event.button_index, event.shift_pressed)
 			accept_event()

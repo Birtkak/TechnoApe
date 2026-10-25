@@ -1050,6 +1050,23 @@ for item, glyph, kind in [("spell_spark_bolt", "spark", "projectile"), ("spell_f
     sp(item, ("spell_card", None, {"g": bg, "G": tint(bg, 1.35), "k": tint(bg, 0.7)}), "glyph_" + glyph)
 
 
+# part D (bug reports 2026-10-25, ADR 0056): flint and steel, the world vacuum
+shape("flint_and_steel", outline(art([
+    "................", "................", "...hlll.........", "..lmmmmd........",
+    "..lm...md.......", "..lm....d.......", "..lm....d.......", "..lmd...........",
+    "...dd......ff...", "..........fFFf..", ".........fFkFFf.", "........fFkkFFf.",
+    "........fFkkkFf.", ".........ffffff.", "................", "................"])),
+    {"f": "#2a2a34", "F": "#5a5a6e", "k": "#8e8ea8"})
+shape("world_vacuum", outline(art([
+    "................", "...........tT...", "..........tTd...", ".........tTd....",
+    "........tTd.....", "..lll..tTd......", ".lmmmltTd.......", "lmmmmmmd........",
+    "lmyymmmd........", "lmyymmmd........", "lmmmmmmd........", "lmmmmmmd........",
+    ".dddddd.........", "..g...g.........", "................", "................"])),
+    {"t": "#9ca6b2", "T": "#d0d8e2", "y": "#f2d84a", "g": "#1e1e22"})
+sp("flint_and_steel", ("flint_and_steel", "steel"))
+sp("world_vacuum", ("world_vacuum", "hazard"))
+
+
 # ---------- validate + write ----------
 
 

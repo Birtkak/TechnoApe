@@ -9,19 +9,33 @@ extends RefCounted
 ## Minecraft's named times on our clock (0 midnight, 0.25 sunrise, 0.5 noon).
 const TIMES := {"sunrise": 0.25, "day": 0.29, "noon": 0.5, "sunset": 0.75, "night": 0.79, "midnight": 0.0}
 
-## Playtest kits (/kit): item id -> count. test_commands.gd checks every id exists.
+## Playtest kits (/kit): item id -> count, in items or, for voxel items, blocks (BLOCK^3 voxels; until
+## 2026-10-25 they counted voxels, so "stone": 64 gave one block). test_commands.gd checks every id exists.
 const KITS := {
-	"tools": {"iron_pickaxe": 1, "copper_pickaxe": 1, "copper_axe": 1, "copper_shovel": 1, "flint_knife": 1, "bucket": 2, "water_bucket": 1, "lava_bucket": 1, "coal": 32, "oak_log": 64},
-	"builder": {"stone": 64, "cobblestone": 64, "dirt": 64, "grass_block": 64, "sand": 64, "oak_planks": 64, "oak_log": 64, "glass": 64, "sandstone": 64},
-	"stations": {"crafting_table": 4, "furnace": 4, "chest": 4, "iron_ore": 16, "copper_ore": 16, "tin_ore": 16, "coal": 32},
-	"farm": {"iron_hoe": 1, "wheat_seeds": 32, "carrot": 16, "wheat": 32, "water_bucket": 2, "shears": 1, "bed": 1, "chair": 4, "wool": 16},
-	"stone": {"flint": 8, "stick": 16, "clay_ball": 16, "dry_grass": 12, "loose_stone": 4, "loose_copper_ore": 8, "firestarter": 1, "oak_log": 8, "cordage": 6},   # Vintage Story early game (ADR 0023)
-	"flint": {"flint_spear": 1, "flint_knife": 1, "flint_axe": 1, "raw_hide": 2, "firewood": 32, "dirt": 32, "firestarter": 1, "torch": 16,
-		"pan": 1, "cooking_pot": 1, "clay_bowl": 3, "raw_meat": 4, "dry_grass": 24, "wattle": 8, "daub": 8, "leather_bag": 1},   # the deeper Flint Age (ADR 0030)
-	"smith": {"stone_anvil": 1, "firepit": 1, "copper_hammer": 1, "copper_ingot": 6, "oak_log": 8 * 64, "firestarter": 1,
-		"flint_axe_head": 1, "copper_saw_blade": 1, "stick": 8, "cordage": 4},   # crafting in the world (ADR 0042)
-	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64},
-	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
+	"tools": {"iron_pickaxe": 1, "copper_pickaxe": 1, "copper_axe": 1, "copper_shovel": 1, "copper_hoe": 1, "copper_knife": 1,
+		"copper_saw": 1, "copper_hammer": 1, "shears": 1, "flint_and_steel": 1, "pan": 1, "bucket": 2, "water_bucket": 1,
+		"lava_bucket": 1, "torch": 32, "coal": 32, "oak_log": 16},
+	"builder": {"stone": 64, "cobblestone": 64, "bricks": 64, "dirt": 64, "grass_block": 64, "sand": 64, "gravel": 64,
+		"oak_planks": 64, "oak_log": 64, "birch_log": 64, "spruce_log": 64, "glass": 64, "sandstone": 64, "terracotta": 64,
+		"basalt": 64, "clay": 64, "thatch": 64, "wattle": 64, "daub": 64, "torch": 64},
+	"stations": {"crafting_table": 4, "furnace": 4, "chest": 4, "storage_pot": 2, "firepit": 2, "sieve": 2, "stone_anvil": 1,
+		"cooking_pot": 1, "crucible": 1, "ingot_mold": 2, "bed": 1, "iron_ore": 16, "copper_ore": 16, "tin_ore": 16, "coal": 32},
+	"farm": {"iron_hoe": 1, "wheat_seeds": 32, "carrot": 16, "wheat": 32, "pumpkin": 4, "blueberry": 16, "egg": 8, "bread": 8,
+		"water_bucket": 2, "shears": 1, "bed": 1, "chair": 4, "wool": 16, "carpet": 16},
+	"stone": {"flint": 8, "stick": 16, "clay_ball": 16, "dry_grass": 12, "plant_fiber": 8, "loose_stone": 4, "loose_copper_ore": 8,
+		"firestarter": 1, "oak_log": 8, "cordage": 6},   # Vintage Story early game (ADR 0023)
+	"flint": {"flint_spear": 1, "flint_knife": 1, "flint_axe": 1, "flint_pickaxe": 1, "flint_shovel": 1, "flint_hoe": 1, "raw_hide": 2,
+		"firewood": 32, "dirt": 32, "firestarter": 1, "torch": 16, "pan": 1, "cooking_pot": 1, "clay_bowl": 3, "raw_meat": 4,
+		"dry_grass": 24, "wattle": 8, "daub": 8, "leather_bag": 1},   # the deeper Flint Age (ADR 0030)
+	"smith": {"stone_anvil": 1, "firepit": 1, "copper_hammer": 1, "copper_ingot": 6, "oak_log": 8, "firestarter": 1, "crucible": 1,
+		"ingot_mold": 1, "loose_copper_ore": 16, "flint_axe_head": 1, "copper_saw_blade": 1, "stick": 8, "cordage": 4},   # crafting in the world (ADR 0042)
+	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64, "fire_essence": 16},
+	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1,
+		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
+	"fire": {"flint_and_steel": 1, "firestarter": 1, "firepit": 1, "firewood": 32, "coal": 16, "oak_log": 16, "dry_grass": 16,
+		"torch": 16, "water_bucket": 4, "water_balloon": 16},   # forest fires and rain (ADR 0056)
+	"clutter": {"seashell": 16, "kelp": 16, "brown_mushroom": 16, "red_mushroom": 16, "dandelion": 16, "poppy": 16, "cornflower": 16,
+		"oxeye_daisy": 16, "allium": 16, "stick": 16, "flint": 16, "loose_stone": 16},   # ground pieces (ADR 0047)
 }
 
 ## What WorldGen.find_nearest can look for (biome names work too).
@@ -82,6 +96,10 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("box", "/box <build|dig|select> <x1> <y1> <z1> <x2> <y2> <z2> | go", "Box mode by coordinates (V in game); go digs a marked box at once", _box)
 	reg.register("prefab", "/prefab save <category> <name> | place <category> <name> [at x y z] | list", "Save the selected box as a prefab, place one, or list them", _prefab)
 	reg.register("chop", "/chop [cam]", "Chop through the nearest big trunk 8-20 m away like a player would: 1 m brush digs at 1.5 m up, one every 0.3 s", _chop)
+	reg.register("weather", "/weather [clear|rain] [seconds]", "Show or set the weather (rain turns to snow below 0 C); a forest fire brings rain on its own", _weather, [["clear", "rain"]])
+	reg.register("waypoint", "/waypoint [add <name>|remove <name>|list]", "Waypoints (also on the map, M): add one where you stand", _waypoint, [["add", "remove", "list"]], ["wp"])
+	reg.register("map", "/map", "Open the full map", _map)
+	reg.register("ignite", "/ignite", "Set what you look at on fire, as flint and steel would (up to the laser's range)", _ignite)
 	reg.register("gadget", "/gadget <item> [sneak]", "Use a playtest gadget where you look, as a right click would (/kit gadgets gives them all)", _gadget, [_gadget_ids, ["sneak"]])
 	reg.register("laser", "/laser [seconds] [sweep_deg]", "Fire the laser cutter where you look for a while (default 1.5 s), turning across sweep_deg (default 20)", _laser)
 	reg.register("fell", "/fell [direction_deg|pillar] [cam]", "Fell the thickest tree 8-20 m away, across your view", _fell)
@@ -412,7 +430,7 @@ func _kit(args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("Usage: /kit <%s>" % "|".join(KITS.keys()))
 	var kit: Dictionary = KITS[args[0].to_lower()]
 	for id in kit:
-		var r := _give(PackedStringArray([id, str(kit[id])]))
+		var r := _give(PackedStringArray([id, str(int(kit[id]) * player_inv.items.units(id))]))   # blocks of voxel items
 		if not r["ok"]:
 			return r
 	return CommandRegistry.ok("Gave the %s kit" % args[0].to_lower())
@@ -433,6 +451,61 @@ func _gadget(args: PackedStringArray) -> Dictionary:
 	if not main.gadgets.use(player_inv.items.get_def(args[0]), hit, cam.global_position, dir, args.size() > 1 and args[1] == "sneak"):
 		return CommandRegistry.fail("%s did nothing there" % player_inv.items.display_name(args[0]))
 	return CommandRegistry.ok("Used [%s]" % player_inv.items.display_name(args[0]))
+
+
+func _weather(args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("weather") == null:
+		return CommandRegistry.fail("No weather (weather=0 or no world)")
+	var w: Weather = main.weather
+	if args.is_empty():
+		return CommandRegistry.ok("Weather: %s" % JSON.stringify(w.summary()))
+	var secs := float(args[1]) if args.size() > 1 and args[1].is_valid_float() else 0.0
+	if not w.set_weather(args[0].to_lower(), secs):
+		return CommandRegistry.fail("Usage: /weather [clear|rain] [seconds]")
+	return CommandRegistry.ok("Weather: %s" % args[0].to_lower())
+
+
+func _waypoint(args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("waypoints") == null or player == null:
+		return CommandRegistry.fail("No world")
+	var wps: Waypoints = main.waypoints
+	var sub := args[0].to_lower() if args.size() > 0 else "list"
+	var wp_name := " ".join(args.slice(1)) if args.size() > 1 else ""
+	match sub:
+		"add":
+			var p := Vector3i(player.position.floor())
+			wps.add(wp_name, p)
+			return CommandRegistry.ok("Waypoint %s at %d %d %d" % [wps.list[-1]["name"], p.x, p.y, p.z])
+		"remove":
+			for w in wps.list:
+				if String(w["name"]).to_lower() == wp_name.to_lower():
+					wps.remove(int(w["id"]))
+					return CommandRegistry.ok("Removed %s" % wp_name)
+			return CommandRegistry.fail("No waypoint %s" % wp_name)
+		"list":
+			var lines := []
+			for w in wps.list:
+				var p: Vector3i = w["pos"]
+				lines.append("%s (%d %d %d)" % [w["name"], p.x, p.y, p.z])
+			return CommandRegistry.ok("Waypoints: " + (", ".join(lines) if not lines.is_empty() else "none"))
+	return CommandRegistry.fail("Usage: /waypoint [add <name>|remove <name>|list]")
+
+
+func _map(_args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("map_screen") == null:
+		return CommandRegistry.fail("No world")
+	main.call_deferred("_open_map")   # after the chat has closed and given the mouse back
+	return CommandRegistry.ok("Map")
+
+
+func _ignite(_args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("weather") == null:
+		return CommandRegistry.fail("No weather (weather=0 or no world)")
+	var cam: Camera3D = player.camera
+	var hit: VoxelRaycastResult = main.world.raycast(cam.global_position, -cam.global_transform.basis.z, Settings.m2v(Settings.laser_range_m))
+	if not main.weather.ignite(hit):
+		return CommandRegistry.fail("Nothing there catches fire (aim at a face with air in front, inside the simulated area)")
+	return CommandRegistry.ok("Fire at %s" % hit.previous_position)
 
 
 func _laser(args: PackedStringArray) -> Dictionary:

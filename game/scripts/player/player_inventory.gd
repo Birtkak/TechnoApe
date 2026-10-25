@@ -7,11 +7,16 @@ extends RefCounted
 ## selected hotbar index and health in half-hearts. Pure logic, no nodes.
 ## A worn bag (ADR 0030, Vintage Story's backpack) adds BAG slots of its own:
 ## pickups that do not fit go there, and the bag comes off only when empty.
+## ADR 0055 (bug reports 2026-10-25): an offhand slot (F swaps it with the held stack; work pieces
+## use the tool in it), a trash slot that keeps the last stack thrown away until the next one, and
+## drops from the screen (a click outside the panel, Q over a slot).
 
 signal changed
 signal selection_changed(index: int)
 signal health_changed(health: int)
 signal tool_broke(id: String)          # a tool wore out in the hand or the grid (ADR 0042)
+signal tool_low(id: String, left: int) # the held tool is nearly worn out (warning sound, plan item D11)
+signal refilled(id: String)            # the hand ran out and the same item moved into it (plan item D11)
 
 const HOTBAR := 9
 const MAIN := 27
@@ -26,6 +31,9 @@ var cursor := {}
 var bag_item := {}                 # the worn bag stack (leather_bag), or {}
 var bag: Inventory                 # its slots; usable while bag_item is set
 var container: RefCounted = null   # ChestEntity / FurnaceEntity while its screen is open (ADR 0007)
+var off: Inventory                 # the offhand: one slot (ADR 0055)
+var trash := {}                    # the last stack thrown in the trash slot; the next one replaces it
+var favourites := {}               # player slot -> true: sort, quick-stack, shift-click and refill leave it alone (D11)
 var selected := 0
 var max_health := 20
 var health := 20
@@ -42,6 +50,8 @@ func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_max_health: int =
 	craft.grid.changed.connect(_on_slot_changed)
 	bag = Inventory.new(items, BAG)
 	bag.changed.connect(_on_slot_changed)
+	off = Inventory.new(items, 1)
+	off.changed.connect(_on_slot_changed)
 
 
 ## Swaps in a bigger grid (crafting table: width 3) or back to the personal 2x2.
@@ -84,19 +94,140 @@ func held_def() -> Dictionary:
 	return items.get_def(h["id"]) if not h.is_empty() else {}
 
 
-## Removes `count` from the held stack. Returns how many were removed.
+## Removes `count` from the held stack. Returns how many were removed. A hand that runs out takes the
+## same item from the rest of the inventory (auto-refill).
 func consume_held(count: int = 1) -> int:
+	var id: String = held().get("id", "")
 	var t := inv.take(selected, count)
+	if inv.is_empty_slot(selected):
+		refill_hand(id)
 	return int(t.get("count", 0))
 
 
-## Wears the held tool by `uses` (ADR 0042); at its durability it breaks and the hand empties.
-## Returns true when it broke.
+## Wears the held tool by `uses` (ADR 0042); at its durability it breaks and the hand empties (and
+## takes another of the same tool, if there is one). Returns true when it broke.
 func wear_held(uses: int = 1) -> bool:
+	var before := Inventory.uses_left(items, held())
 	var broke := inv.wear_slot(selected, uses)
 	if broke != "":
 		tool_broke.emit(broke)
+		refill_hand(broke)
+	else:
+		_warn_low(held(), before)
 	return broke != ""
+
+
+## Warns once when a tool crosses into its last tenth (at least its last 3 uses).
+func _warn_low(s: Dictionary, before: int) -> void:
+	var left := Inventory.uses_left(items, s)
+	if left < 0:
+		return
+	var dur := int(items.get_def(s["id"]).get("durability", 0))
+	var low := maxi(3, dur / 10)
+	if left <= low and before > low:
+		tool_low.emit(s["id"], left)
+
+
+## The empty hand takes a stack of `id` from the main grid (else another hotbar slot); favourites
+## stay where they are. True when it found one.
+func refill_hand(id: String) -> bool:
+	if id == "" or not inv.is_empty_slot(selected):
+		return false
+	for i in range(HOTBAR, SIZE) + range(0, HOTBAR):
+		if i == selected or favourites.has(i):
+			continue
+		var s := inv.get_slot(i)
+		if not s.is_empty() and s["id"] == id:
+			inv.set_slot(selected, s.duplicate(true))
+			inv.set_slot(i, {})
+			refilled.emit(id)
+			return true
+	return false
+
+
+# ---------------- the offhand (ADR 0055) ----------------
+
+func offhand() -> Dictionary:
+	return off.get_slot(0)
+
+
+func offhand_def() -> Dictionary:
+	var h := offhand()
+	return items.get_def(h["id"]) if not h.is_empty() else {}
+
+
+## F: the held stack and the offhand stack change places, per-stack data and all.
+func swap_hands() -> void:
+	var a := inv.get_slot(selected).duplicate(true)
+	var b := off.get_slot(0).duplicate(true)
+	if a.is_empty() and b.is_empty():
+		return
+	inv.set_slot(selected, b)
+	off.set_slot(0, a)
+
+
+## Removes `count` from the offhand stack. Returns how many were removed.
+func consume_offhand(count: int = 1) -> int:
+	return int(off.take(0, count).get("count", 0))
+
+
+## Wears the offhand tool (a hammer smithing from the offhand). Returns true when it broke.
+func wear_offhand(uses: int = 1) -> bool:
+	var broke := off.wear_slot(0, uses)
+	if broke != "":
+		tool_broke.emit(broke)
+	return broke != ""
+
+
+## Click on the offhand slot of the screen: like a main slot; shift moves it into the inventory.
+func click_offhand(button: int, shift: bool) -> void:
+	if shift:
+		_move_stack(off, 0, inv, _player_order(false))
+		return
+	if button == MOUSE_BUTTON_RIGHT:
+		cursor = off.right_click(0, cursor)
+	else:
+		cursor = off.left_click(0, cursor)
+	changed.emit()
+
+
+# ---------------- trash and drops from the screen (ADR 0055) ----------------
+
+## Click on the trash slot: a stack on the cursor goes in (the one there before is gone for good);
+## with an empty cursor the last trashed stack comes back.
+func click_trash() -> void:
+	if cursor.is_empty():
+		cursor = trash
+		trash = {}
+	else:
+		trash = cursor
+		cursor = {}
+	changed.emit()
+
+
+## The cursor stack leaves the screen (a click outside the panel): all of it, or one item (one
+## block's worth of a voxel item). Returns the stack to drop in the world.
+func drop_cursor(whole: bool) -> Dictionary:
+	if cursor.is_empty():
+		return {}
+	var n: int = int(cursor["count"]) if whole else mini(items.units(cursor["id"]), int(cursor["count"]))
+	var out := Inventory.make_stack(items, cursor["id"], n, cursor)
+	cursor["count"] = int(cursor["count"]) - n
+	if int(cursor["count"]) <= 0:
+		cursor = {}
+	changed.emit()
+	return out
+
+
+## Q over a slot of the screen: one item (Ctrl: the stack) out of it. Returns the stack to drop.
+func drop_from(group: String, i: int, whole: bool) -> Dictionary:
+	var src := _group(group)
+	if src == null or i < 0 or i >= src.size() or src.is_empty_slot(i):
+		return {}
+	var s := src.get_slot(i)
+	var out := src.take(i, -1 if whole else mini(items.units(s["id"]), int(s["count"])))
+	changed.emit()
+	return out
 
 
 ## Replaces one of the held items with another one (bucket -> water bucket).
@@ -243,6 +374,8 @@ func drop_held(whole: bool = false) -> Dictionary:
 ## the rest without falling back, everything else moves hotbar <-> main.
 func click_slot(i: int, button: int, shift: bool) -> void:
 	if shift:
+		if favourites.has(i):
+			return   # a favourite slot stays put (plan item D11)
 		var s: Dictionary = inv.get_slot(i)
 		if container != null and not s.is_empty():
 			var targets: Array = container.shift_targets(s["id"])
@@ -338,6 +471,85 @@ func _report_broken() -> void:
 	craft.tools_broken.clear()
 
 
+# ---------------- sorting, quick-stack, favourites (plan item D11) ----------------
+
+## Alt + click: the slot becomes a favourite (or stops being one).
+func toggle_favourite(i: int) -> void:
+	if favourites.has(i):
+		favourites.erase(i)
+	else:
+		favourites[i] = true
+	changed.emit()
+
+
+## Sorts slots [from, to) of `target` (favourites of the player's own slots stay): equal stacks merge,
+## then by item id, fullest first. Per-stack data rides along; stacks that differ in it (worn tools,
+## work pieces) stay apart because they stack to 1.
+func sort_slots(target: Inventory, from: int, to: int, skip_favourites: bool) -> void:
+	var idx: Array[int] = []
+	var stacks: Array[Dictionary] = []
+	for i in range(from, to):
+		if skip_favourites and favourites.has(i):
+			continue
+		idx.append(i)
+		var s := target.get_slot(i)
+		if not s.is_empty():
+			stacks.append(s.duplicate(true))
+	# merge equal items (count-weighted data, Inventory.merge_into), then order
+	var merged: Array[Dictionary] = []
+	for s in stacks:
+		var left := int(s["count"])
+		var max_stack := items.max_stack(s["id"])
+		for m in merged:
+			if left <= 0:
+				break
+			if m["id"] == s["id"] and int(m["count"]) < max_stack:   # tools and work pieces stack to 1: never here
+				var n := mini(left, max_stack - int(m["count"]))
+				Inventory.merge_into(m, n, s)
+				left -= n
+		if left > 0:
+			merged.append(Inventory.make_stack(items, s["id"], left, s))
+	merged.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a["id"] != b["id"]:
+			return String(a["id"]) < String(b["id"])
+		return int(a["count"]) > int(b["count"]))
+	for k in idx.size():
+		target.set_slot(idx[k], merged[k] if k < merged.size() else {})
+	changed.emit()
+
+
+## The main grid (not the hotbar, not favourites) sorted.
+func sort_inventory() -> void:
+	sort_slots(inv, HOTBAR, SIZE, true)
+
+
+## The open chest sorted.
+func sort_container() -> void:
+	if container != null:
+		sort_slots(container.inv, 0, container.inv.size(), false)
+
+
+## Quick-stack (Terraria, Minecraft mods): every main-grid stack (not favourites, not the hotbar) whose
+## item a chest in `chests` already holds goes into that chest, as much as fits. Returns items moved.
+func quick_stack(chests: Array) -> int:
+	var moved := 0
+	for i in range(HOTBAR, SIZE):
+		if favourites.has(i) or inv.is_empty_slot(i):
+			continue
+		var id: String = inv.get_slot(i)["id"]
+		for c in chests:
+			var c_inv: Inventory = c.inv
+			if c_inv.count_of(id) == 0:
+				continue
+			var before := int(inv.get_slot(i).get("count", 0))
+			_move_stack(inv, i, c_inv, range(0, c_inv.size()))
+			moved += before - int(inv.get_slot(i).get("count", 0))
+			if inv.is_empty_slot(i):
+				break
+	changed.emit()
+	return moved
+
+
 # ---------------- Mouse Tweaks (the Minecraft mod) ----------------
 # Slots are addressed by group: "inv" (the 36 player slots), "bag", "craft"
 # (the crafting grid inputs) and "container" (the open chest or furnace).
@@ -350,6 +562,8 @@ func _group(group: String) -> Inventory:
 			return bag if has_bag() else null
 		"craft":
 			return craft.grid
+		"offhand":
+			return off
 		"container":
 			return container.inv if container != null else null
 	return null
@@ -396,6 +610,8 @@ func drag_shift(group: String, i: int) -> void:
 			click_bag_slot(i, MOUSE_BUTTON_LEFT, true)
 		"craft":
 			click_craft_slot(i, MOUSE_BUTTON_LEFT, true)
+		"offhand":
+			click_offhand(MOUSE_BUTTON_LEFT, true)
 		"container":
 			click_container_slot(i, MOUSE_BUTTON_LEFT, true)
 
@@ -595,4 +811,5 @@ func summary() -> Dictionary:
 		if not s.is_empty():
 			in_bag[s["id"]] = int(in_bag.get(s["id"], 0)) + int(s["count"])
 	return {"selected": selected, "hotbar": hotbar, "main": main, "cursor": cursor, "health": health,
-		"container": container.kind if container != null else "", "bag": bag_item.get("id", ""), "in_bag": in_bag}
+		"container": container.kind if container != null else "", "bag": bag_item.get("id", ""), "in_bag": in_bag,
+		"offhand": offhand(), "trash": trash}

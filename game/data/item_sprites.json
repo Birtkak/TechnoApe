@@ -2082,6 +2082,48 @@
         "oooooooooooooooo",
         "................"
       ]
+    },
+    "flint_and_steel": {
+      "colors": {"f": "#2a2a34", "F": "#5a5a6e", "k": "#8e8ea8"},
+      "rows": [
+        "................",
+        "...oooo.........",
+        "..ohlllo........",
+        ".olmmmmdo.......",
+        ".olmooomdo......",
+        ".olmo..odo......",
+        ".olmo..odo......",
+        ".olmdo..o..oo...",
+        "..oddo....offo..",
+        "...oo....ofFFfo.",
+        "........ofFkFFfo",
+        ".......ofFkkFFfo",
+        ".......ofFkkkFfo",
+        "........offffffo",
+        ".........oooooo.",
+        "................"
+      ]
+    },
+    "world_vacuum": {
+      "colors": {"t": "#9ca6b2", "T": "#d0d8e2", "y": "#f2d84a", "g": "#1e1e22"},
+      "rows": [
+        "...........oo...",
+        "..........otTo..",
+        ".........otTdo..",
+        "........otTdo...",
+        "..ooo..otTdo....",
+        ".olllootTdo.....",
+        "olmmmltTdo......",
+        "lmmmmmmdo.......",
+        "lmyymmmdo.......",
+        "lmyymmmdo.......",
+        "lmmmmmmdo.......",
+        "lmmmmmmdo.......",
+        "oddddddo........",
+        ".ogooogo........",
+        "..o...o.........",
+        "................"
+      ]
     }
   },
   "sprites": {
@@ -2281,6 +2323,8 @@
     "spell_freeze_charge": {"layers": [{"shape": "spell_card", "colors": {"g": "#24406e", "G": "#315694", "k": "#192d4d"}}, {"shape": "glyph_freeze"}]},
     "spell_water_trail": {"layers": [{"shape": "spell_card", "colors": {"g": "#24406e", "G": "#315694", "k": "#192d4d"}}, {"shape": "glyph_water"}]},
     "spell_double_cast": {"layers": [{"shape": "spell_card", "colors": {"g": "#2a5a30", "G": "#397a41", "k": "#1d3f22"}}, {"shape": "glyph_double"}]},
-    "spell_light": {"layers": [{"shape": "spell_card", "colors": {"g": "#6a5620", "G": "#8f742b", "k": "#4a3c16"}}, {"shape": "glyph_light"}]}
+    "spell_light": {"layers": [{"shape": "spell_card", "colors": {"g": "#6a5620", "G": "#8f742b", "k": "#4a3c16"}}, {"shape": "glyph_light"}]},
+    "flint_and_steel": {"layers": [{"shape": "flint_and_steel", "palette": "steel"}]},
+    "world_vacuum": {"layers": [{"shape": "world_vacuum", "palette": "hazard"}]}
   }
 }

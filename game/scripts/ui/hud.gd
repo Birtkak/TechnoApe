@@ -12,6 +12,8 @@ const GAP := 2
 var player_inv: PlayerInventory
 var _hotbar: Control
 var _icons: Array[ItemIcon] = []
+var _off_icon: ItemIcon      # ADR 0055: the offhand stack, left of the thermometer
+const OFF_X := -38.0         # its cell's right edge, from the hotbar's left edge
 var _hearts: Control
 var _hunger_row: Control     # ADR 0040: ten food icons, right half above the hotbar (vanilla's place)
 var _thermo: Control         # body temperature, left of the hotbar
@@ -74,6 +76,11 @@ func _ready() -> void:
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_hotbar.add_child(icon)
 		_icons.append(icon)
+	_off_icon = ItemIcon.new()
+	_off_icon.position = Vector2(OFF_X - SLOT + 6, 6)
+	_off_icon.size = Vector2(SLOT - 12, SLOT - 12)
+	_off_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hotbar.add_child(_off_icon)
 
 	_stain_bar = Control.new()
 	_stain_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -197,7 +204,76 @@ func set_hearts_visible(v: bool) -> void:
 	_thermo.visible = v
 
 
+# ---------------- the pickup feed (plan item D11) ----------------
+
+const FEED_S := 3.0
+const FEED_LINES := 6
+var _feed: VBoxContainer
+var _feed_rows: Array = []   # [{key, label: Label, count, t}]
+var _full_t := 0.0
+
+
+## "+3 Flint" in the bottom right corner; the same item within FEED_S adds to its line.
+func note_pickup(item_name: String, n: int) -> void:
+	_feed_line(item_name, n, Color(0.95, 0.95, 0.9))
+
+
+## "Inventory full", at most every 3 s.
+func note_full() -> void:
+	if _full_t > 0.0:
+		return
+	_full_t = 3.0
+	_feed_line("Inventory full", 0, Color(1.0, 0.45, 0.35))
+
+
+func _feed_line(key: String, n: int, c: Color) -> void:
+	if _feed == null:
+		_feed = VBoxContainer.new()
+		_feed.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+		_feed.alignment = BoxContainer.ALIGNMENT_END
+		_feed.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		_feed.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		_feed.position = Vector2(-16, -96)
+		_feed.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_feed)
+	for r in _feed_rows:
+		if r["key"] == key:
+			r["count"] += n
+			r["t"] = FEED_S
+			(r["label"] as Label).text = _feed_text(key, int(r["count"]))
+			(r["label"] as Label).modulate.a = 1.0
+			return
+	var l := Label.new()
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	l.add_theme_font_size_override("font_size", 15)
+	l.add_theme_color_override("font_color", c)
+	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	l.add_theme_constant_override("outline_size", 4)
+	l.text = _feed_text(key, n)
+	_feed.add_child(l)
+	_feed_rows.append({"key": key, "label": l, "count": n, "t": FEED_S})
+	while _feed_rows.size() > FEED_LINES:
+		(_feed_rows.pop_front()["label"] as Node).queue_free()
+
+
+static func _feed_text(key: String, n: int) -> String:
+	return key if n <= 0 else "+%d %s" % [n, key]
+
+
+func _update_feed(delta: float) -> void:
+	_full_t = maxf(0.0, _full_t - delta)
+	for i in range(_feed_rows.size() - 1, -1, -1):
+		var r: Dictionary = _feed_rows[i]
+		r["t"] -= delta
+		(r["label"] as Label).modulate.a = clampf(r["t"] / 0.6, 0.0, 1.0)
+		if r["t"] <= 0.0:
+			(r["label"] as Node).queue_free()
+			_feed_rows.remove_at(i)
+
+
 func _process(delta: float) -> void:
+	if not _feed_rows.is_empty() or _full_t > 0.0:
+		_update_feed(delta)
 	if _name_timer > 0.0:
 		_name_timer -= delta
 		_name_label.modulate.a = clampf(_name_timer / 0.5, 0.0, 1.0)
@@ -251,6 +327,8 @@ func _refresh() -> void:
 	for i in 9:
 		_icons[i].items = player_inv.items
 		_icons[i].stack = player_inv.inv.get_slot(i)
+	_off_icon.items = player_inv.items
+	_off_icon.stack = player_inv.offhand()
 	_hotbar.queue_redraw()
 	_hearts.queue_redraw()
 
@@ -311,6 +389,10 @@ func _draw_hotbar() -> void:
 	cell.set_corner_radius_all(4)
 	for i in 9:
 		_hotbar.draw_style_box(cell, Rect2(i * (SLOT + GAP), 0, SLOT, SLOT))
+	if player_inv and not player_inv.offhand().is_empty():
+		var off := Rect2(OFF_X - SLOT, 0, SLOT, SLOT)
+		_hotbar.draw_style_box(tray, off)
+		_hotbar.draw_style_box(cell, off)
 	if player_inv:
 		var r := Rect2(player_inv.selected * (SLOT + GAP), 0, SLOT, SLOT)
 		var glow := StyleBoxFlat.new()

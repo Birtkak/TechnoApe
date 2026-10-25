@@ -41,7 +41,9 @@ var sim_threads := maxi(2, OS.get_processor_count() - 2)
 
 # Player (metres, converted at use)
 var walk_speed_m := 4.3
-var sprint_speed_m := 7.0
+var sprint_speed_m := 7.0               # Ctrl (Minecraft; bug report 2026-10-25)
+var sneak_speed_m := 1.3                # Shift: Minecraft's sneak is 0.3 x walking
+var sneak_eye_drop_m := 0.25            # and lowers the eyes
 var fly_speed_m := 20.0
 var jump_height_m := 1.25
 var step_height_m := 0.55               # auto step-up: one 0.5 m block (BLOCK voxels) plus a little slack
@@ -55,7 +57,7 @@ var mouse_sensitivity := 0.0025
 # Interaction (ADR 0005)
 var max_health := 20                    # half-hearts, vanilla
 var fall_damage_safe_m := 3.0           # metres of fall before damage (vanilla: 3 blocks)
-var pickup_radius_m := 1.4              # item entities this close to the body centre are picked up
+var pickup_radius_m := 2.2              # item entities this close to the body centre are picked up (1.4 until bug report 2026-10-25: "a bit further")
 var item_pickup_delay_s := 0.5          # a freshly dropped item cannot be picked up at once
 var item_despawn_s := 300.0             # vanilla: 5 minutes
 var item_merge_radius_m := 0.75         # equal stacks closer than this merge
@@ -105,6 +107,28 @@ var cave_c := 10.0                       # 4 m and more under the surface
 var water_c := -8.0                      # in water
 var cellar_c := 8.0                      # containers 3 m and more under the surface (spoilage)
 var climate_probe_s := 1.5               # how often shelter and heat are measured
+# maps (plan item D10, ADR 0055)
+var quick_stack_m := 8.0                # the inventory's Stack button reaches chests this close (plan item D11)
+var map_explore_m := 48.0               # the map fills in this far around the player
+var waypoint_beam_m := 64.0             # a waypoint's beam rises this high
+var minimap_corner := "top_right"       # top_right | top_left | bottom_right | bottom_left (Settings screen)
+var minimap_size_px := 160              # 0 hides the minimap
+# weather and forest fires (ADR 0056; the developer chose "moderate" fire and random weather + fire rain)
+var weather := true                     # weather=0: always clear (benchmarks); weather=rain|clear starts with it
+var weather_roll_s := 600.0             # a random shower is rolled about this often ...
+var weather_rain_chance_dry := 0.08     # ... with this chance in a dry column (humidity 0) ...
+var weather_rain_chance_wet := 0.55     # ... and this in a wet one (humidity 1)
+var weather_rain_s := 180.0             # a shower lasts about this long
+var weather_fade_s := 8.0               # clouds and rain come and go over this long
+var weather_particles := 4000           # rain or snow particles around the camera (amount_ratio follows the intensity)
+var weather_scan_s := 0.5               # the sim is sampled for fire this often ...
+var weather_fire_scan_m := 24.0         # ... within this radius ...
+var weather_fire_samples := 4000        # ... with this many random cells (flames, smoke, burning cells; about 0.5 ms)
+var weather_fire_clear_s := 20.0        # the fire rain stops once no fire was seen for this long
+var fire_rain_delay_min_s := 60.0       # a forest fire brings rain after 60-180 s (a region burns, not the map)
+var fire_rain_delay_max_s := 180.0
+var rain_drops_per_s := 160.0           # water cells dropped on the fire cells the scans found while it rains (one each)
+var rain_db := -10.0                    # the rain loop at full rain
 var rigid_pieces := true                # cut-loose trees and limbs fall as rigid bodies (P12, ADR 0037); rigid_pieces=0 turns it off
 # playtest gadgets (/kit gadgets, PlaytestTools): debug items, not progression
 var laser_range_m := 64.0               # the laser cutter reaches this far
@@ -244,6 +268,10 @@ func apply_cmdline() -> Dictionary:
 			"cache_generated": cache_generated_blocks = kv[1] == "1"
 			"particles": particles = kv[1] == "1"
 			"rigid_pieces": rigid_pieces = kv[1] == "1"
+			"weather": weather = kv[1] != "0"
+			"fire_rain_delay_s":
+				fire_rain_delay_min_s = float(kv[1])
+				fire_rain_delay_max_s = float(kv[1])
 			"particle_ambient": particle_ambient = kv[1] == "1"
 			"particle_budget": particle_budget = int(kv[1])
 			"sim_tick_hz": sim_tick_hz = float(kv[1])
@@ -288,6 +316,12 @@ func load_user_settings() -> void:
 	volume_music = clampf(float(cf.get_value("audio", "music", volume_music)), 0.0, 1.0)
 	volume_effects = clampf(float(cf.get_value("audio", "effects", volume_effects)), 0.0, 1.0)
 	volume_ui = clampf(float(cf.get_value("audio", "interface", volume_ui)), 0.0, 1.0)
+	for a in REMAPPABLE:
+		var v := String(cf.get_value("keys", a[0], ""))
+		if v != "":
+			bind_key(a[0], key_event(v))
+	minimap_corner = String(cf.get_value("hud", "minimap_corner", minimap_corner))
+	minimap_size_px = clampi(int(cf.get_value("hud", "minimap_size_px", minimap_size_px)), 0, 400)
 	if not SHADOW_QUALITY.has(shadow_quality):
 		shadow_quality = "high"
 	graphics_preset = matching_preset()
@@ -312,7 +346,82 @@ func save_user_settings() -> void:
 	cf.set_value("audio", "music", volume_music)
 	cf.set_value("audio", "effects", volume_effects)
 	cf.set_value("audio", "interface", volume_ui)
+	for a in REMAPPABLE:
+		var ev := current_key(a[0])
+		if ev != null and key_text(ev) != key_text(default_key(a[0])):
+			cf.set_value("keys", a[0], key_string(ev))
+	cf.set_value("hud", "minimap_corner", minimap_corner)
+	cf.set_value("hud", "minimap_size_px", minimap_size_px)
 	cf.save(user_settings_path)
+
+
+# ---------------- key remapping (plan item D11) ----------------
+
+## The actions the Settings screen lets the player rebind, with their names there.
+const REMAPPABLE := [["move_forward", "Forward"], ["move_back", "Back"], ["move_left", "Left"], ["move_right", "Right"],
+	["jump", "Jump / fly up"], ["sprint", "Sprint"], ["sneak", "Sneak"], ["descend", "Fly down"],
+	["action_break", "Break / attack"], ["action_place", "Use / place"], ["inventory", "Inventory"], ["drop", "Drop"],
+	["swap_hands", "Swap hands"], ["map", "Map"], ["chat", "Chat"]]
+
+
+## The action's first event now (a key or a mouse button), or null.
+func current_key(action: String) -> InputEvent:
+	var evs := InputMap.action_get_events(action) if InputMap.has_action(action) else []
+	return evs[0] if not evs.is_empty() else null
+
+
+## The action's event in project.godot.
+func default_key(action: String) -> InputEvent:
+	var d = ProjectSettings.get_setting("input/" + action)
+	if d is Dictionary and not (d["events"] as Array).is_empty():
+		return d["events"][0]
+	return null
+
+
+## Makes `ev` the action's only event.
+func bind_key(action: String, ev: InputEvent) -> void:
+	if ev == null or not InputMap.has_action(action):
+		return
+	InputMap.action_erase_events(action)
+	InputMap.action_add_event(action, ev)
+
+
+func reset_keys() -> void:
+	for a in REMAPPABLE:
+		bind_key(a[0], default_key(a[0]))
+
+
+## "key:<physical keycode>" or "mouse:<button>".
+static func key_string(ev: InputEvent) -> String:
+	if ev is InputEventMouseButton:
+		return "mouse:%d" % ev.button_index
+	if ev is InputEventKey:
+		return "key:%d" % (ev.physical_keycode if ev.physical_keycode != 0 else ev.keycode)
+	return ""
+
+
+static func key_event(s: String) -> InputEvent:
+	var kv := s.split(":")
+	if kv.size() != 2 or not kv[1].is_valid_int():
+		return null
+	if kv[0] == "mouse":
+		var m := InputEventMouseButton.new()
+		m.button_index = int(kv[1]) as MouseButton
+		m.pressed = true
+		return m
+	var k := InputEventKey.new()
+	k.physical_keycode = int(kv[1]) as Key
+	return k
+
+
+## What the Settings screen shows for an event: "W", "Shift", "Left mouse".
+static func key_text(ev: InputEvent) -> String:
+	if ev is InputEventMouseButton:
+		return {MOUSE_BUTTON_LEFT: "Left mouse", MOUSE_BUTTON_RIGHT: "Right mouse", MOUSE_BUTTON_MIDDLE: "Middle mouse"}.get(ev.button_index, "Mouse %d" % ev.button_index)
+	if ev is InputEventKey:
+		var code: int = ev.physical_keycode if ev.physical_keycode != 0 else ev.keycode
+		return OS.get_keycode_string(DisplayServer.keyboard_get_keycode_from_physical(code) if ev.physical_keycode != 0 else code)
+	return "-"
 
 
 ## Sets every value of a graphics preset (low / medium / high).
