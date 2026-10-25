@@ -42,6 +42,9 @@ The split follows the code, so no two sessions edit the same native sources:
   `docs/plans/to-test.md` under one heading per part. Commit on your branch; merge order at the end:
   D, C, E, F, G, B, A (the native-heavy ones last, they rebuild the DLL from the merged tree).
 - Something in another part's files? Message that session instead of editing it.
+- **World height:** part B may raise `WORLD_HEIGHT_VOXELS` (`settings.gd`) for bigger mountains, if the
+  developer agrees. That is a change every part may lean on (sim window, climate probe, spawn, map
+  relief, saves): if it changes, B tells every running session and notes it under the merge notes.
 - **Patterned tiles above 127:** the terrain shader's `pattern_tiles` is `int[4]` (a bit mask), so only
   atlas tiles 0-127 can be `"pattern": true` (`terrain_common.gdshaderinc`, `ti < 128`). Part E widens
   it to `int[8]` (tiles up to 255) as one small hunk and lists it under the merge notes; D and F use
@@ -101,10 +104,7 @@ filmstrips of the refill (never judge motion from one frame), `/fell` + laser th
    walls, same fault as 4 for generated pools.
 6. **Older, still open (2026-10-24 22:15):** far LOD trees look chunky and ugly (LOD 1-2 beyond the 24 m
    full-detail cap; `far forests as leaf domes`).
-7. **Trails** (developer request, added later): worn paths through the terrain in their own colour
-   (packed dirt, gravel, trodden grass), linking ruins, river crossings, passes and lakes, following
-   the land (no straight lines up cliffs), slightly sunk into the ground, narrower in forests. They
-   should read on the map too (part D's map uses `WorldGen.map_image`).
+7. **Trails: moved to part H** (it needs B's new terrain first; see below).
 8. **Scarcer wild food** (developer request): blueberry bushes and mushrooms are too common. Today the
    densities are constants in `fine_gen.cpp` (bushes `(s.seed >> 26) % 6 == 0`, mushrooms
    `(hs & 31) < 3` and `hh % 29 == 1`); move them into data (per biome in `biomes.json`, principle 6)
@@ -357,6 +357,19 @@ separate tab, agree its place with F. New materials use ids 240-249, tiles 200-2
 Checks: gdUnit for nutrition (fill, drain, balanced bonus), seasonal crop rules, cellar spoilage rate
 and discovery triggers; a scripted run that eats, winters a crop, prospects and pins a recipe; a
 budget run; items in `docs/plans/to-test.md` under "Part G".
+
+## Part H: trails (starts after part B is merged)
+
+Moved out of part B, which asked for it: trails are a subsystem of their own and need B's new
+landforms, caves and mountains to route over. Start it once B's branch is on main.
+
+Worn paths through the terrain in their own colour (packed dirt, gravel, trodden grass), linking
+ruins, river crossings, passes and lakes; they follow the land (route search over the macro terrain,
+no straight lines up cliffs), sit slightly sunk into the ground and are narrower in forests. Native,
+in the generator (deterministic from seed, cheap per block: precompute routes per region like the
+hydrology tiles), and they colour `WorldGen.map_image` so part D's map shows them. Bump `GEN_VERSION`.
+Reserved: ADR 0063, material ids 250-254, tiles 216-219. Checks: `tools/terrain_map.gd` with trails,
+`fine_gen_bench.gd`, screenshots along a trail, a budget run.
 
 ---
 
