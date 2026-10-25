@@ -10,6 +10,34 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Part G: the survival loop (ADR 0061)
+
+Diet, seasons, the prospecting pick, the discovery journal and HUD trackers. Survival mode
+(`/gamemode survival`); `/diet`, `/frost`, `/discover` and `/date set january 5` help.
+
+- [ ] Inventory (E): a Diet panel under the inventory shows five bars (meat, grain, fruit, vegetable, dairy & eggs).
+      Eat cooked meat, bread, blueberries, a fried egg: each fills its bar; stew fills two.
+- [ ] Eat well from two or more groups (bars past the white mark): extra hearts appear (a second row past ten).
+      Live on one food for a while: no extra hearts; let a group run empty: a heart goes (never below six).
+- [ ] The bars drain over about a game day; sprinting drains them faster. Does the pace feel right?
+- [ ] Winter: plant wheat and carrots (`/frost plant wheat`, `/frost plant carrots 1` at your feet), jump to
+      January (`/date set january 5`, `/time set midnight`) in a cold place (taiga, tundra, mountains), wait or
+      `/frost`: the wheat dies to a dry brown plant, the carrots (hardy) survive. Crops under a roof live.
+- [ ] Blueberry bushes give berries in summer and autumn, nothing in winter and spring. Animals give less
+      meat in winter.
+- [ ] Root cellar: dig a room at least 1.5 m down, close it with a door or blocks, put raw meat in a chest
+      there and some in a chest outside: the cellar meat stays fresh far longer (hover to see freshness).
+- [ ] Prospecting: knap a flint prospecting head (flint), assemble it with a stick and binding; right click
+      rock: "Something" or "Nothing" within 12 m. Smith a copper prospecting head, assemble the copper pick:
+      right click rock lists each vein in 12 m with its ore shares and centre, and (once part D's map is in)
+      a waypoint. Does the tap feel right, and is 12 m the right reach?
+- [ ] Discoveries: open the book (top left of the inventory), the Discoveries entry under the chapters. Walk
+      into a new biome, meet an animal, pick up an ore, find a ruin, a waterfall, a cave: a blue "Discovered!"
+      toast and a chat line each, and the card fills in with its date.
+- [ ] Pin a recipe (Pin in the recipe view, top right of the panel): a checklist shows at the right edge under
+      the minimap and ticks off as you gather. Track a quest from the book ("Track on the HUD"): the same,
+      and it leaves when the quest completes. Three at most.
+
 ## 2026-10-24: sound (ADR 0044)
 
 Everything is CC0 and cut by our tool, so a sound that feels wrong is a one-line swap: say which one

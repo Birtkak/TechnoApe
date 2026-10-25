@@ -346,15 +346,16 @@ func _draw_hearts() -> void:
 	var red := Color(0.88, 0.12, 0.14)
 	var dark := Color(0.22, 0.2, 0.22)
 	var outline := Color(0.05, 0.02, 0.03, 0.95)
-	for i in 10:
+	for i in ceili(player_inv.max_health / 2.0):   # a balanced diet adds hearts (ADR 0061): ten to a row, more rows upward
 		var hp := player_inv.health - i * 2
-		var ox := i * 18
+		var ox := (i % 10) * 18
+		var oy := -(i / 10) * 20
 		# outline pass: every heart pixel grown by one HUD pixel in each direction
 		for y in HEART.size():
 			for x in 7:
 				if HEART[y][x] != "1":
 					continue
-				_hearts.draw_rect(Rect2(ox + x * px - 1, 2 + y * px - 1, px + 2, px + 2), outline)
+				_hearts.draw_rect(Rect2(ox + x * px - 1, oy + 2 + y * px - 1, px + 2, px + 2), outline)
 		for y in HEART.size():
 			for x in 7:
 				if HEART[y][x] != "1":
@@ -367,7 +368,7 @@ func _draw_hearts() -> void:
 						c = Color(1.0, 0.55, 0.55)
 					elif y >= 3:
 						c = Color(0.68, 0.07, 0.1)
-				_hearts.draw_rect(Rect2(ox + x * px, 2 + y * px, px, px), c)
+				_hearts.draw_rect(Rect2(ox + x * px, oy + 2 + y * px, px, px), c)
 
 
 # 7x7 pixel air bubble: rim, a light upper-left, a dark lower-right

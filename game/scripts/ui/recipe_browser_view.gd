@@ -34,6 +34,7 @@ var _bm_cells: Array[BrowserCell] = []
 var _bm_title: Label
 var _bm_cols := 0
 var _bm_rows := 0
+var trackers: Trackers          # HUD trackers (ADR 0061): the recipe view's Pin button
 
 
 func setup(p_model: RecipeBrowser) -> void:
@@ -269,6 +270,14 @@ func _build_recipe() -> void:
 	out.count = model.output_amount(l)
 	out.clicked.connect(_on_cell_clicked)
 	_add(out, Vector2(244, 120))
+	if trackers != null and r.get("type", "") != "mining":
+		var rid := String(r["id"])
+		var pin := _button("Unpin" if trackers.is_pinned("recipe", rid) else "Pin", func() -> void: pass)
+		pin.tooltip_text = "Show this recipe's ingredients on the HUD"
+		pin.pressed.connect(func() -> void:
+			trackers.toggle("recipe", rid)
+			pin.text = "Unpin" if trackers.is_pinned("recipe", rid) else "Pin")
+		_add(pin, Vector2(PANEL.x - 70, 76))
 	# have / need per ingredient, in the inventory's own counts (ADR 0046)
 	if l["kind"] in ["grid", "row", "smelt"] and r["type"] != "mining":
 		var y := 162.0

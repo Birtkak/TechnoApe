@@ -10,7 +10,7 @@ const SLIDE_S := 0.25
 const SIZE := Vector2(300, 64)
 
 var items: ItemRegistry
-var _queue: Array = []      # [icon id, title, final]
+var _queue: Array = []      # [icon id, title, final, header]
 var _box: Control
 var _icon: ItemIcon
 var _t := -1.0              # time into the shown toast, -1 = none
@@ -33,9 +33,10 @@ func _ready() -> void:
 	_box.add_child(_icon)
 
 
-func push(icon_id: String, title: String, final := false) -> void:
+## header: another first line than "Quest complete!" (the discovery journal's "Discovered!", ADR 0061).
+func push(icon_id: String, title: String, final := false, header := "") -> void:
 	if _queue.size() < 3:   # a burst (/quests complete all) shows its first few, not a minute of toasts
-		_queue.append([icon_id, title, final])
+		_queue.append([icon_id, title, final, header])
 
 
 func _process(delta: float) -> void:
@@ -65,10 +66,10 @@ func _draw_box() -> void:
 		return
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.13, 0.13, 0.16, 0.96)
-	sb.border_color = Color(0.98, 0.80, 0.30) if _current[2] else Color(0.42, 0.85, 0.42)
+	sb.border_color = Color(0.98, 0.80, 0.30) if _current[2] else (Color(0.45, 0.7, 1.0) if _current[3] != "" else Color(0.42, 0.85, 0.42))
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(6)
 	_box.draw_style_box(sb, Rect2(Vector2.ZERO, SIZE))
 	var font := ThemeDB.fallback_font
-	_box.draw_string(font, Vector2(62, 26), "Chapter complete!" if _current[2] else "Quest complete!", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, sb.border_color)
+	_box.draw_string(font, Vector2(62, 26), _current[3] if _current[3] != "" else ("Chapter complete!" if _current[2] else "Quest complete!"), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, sb.border_color)
 	_box.draw_string(font, Vector2(62, 48), _current[1], HORIZONTAL_ALIGNMENT_LEFT, SIZE.x - 70, 17, Color(0.95, 0.95, 0.97))

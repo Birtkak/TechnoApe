@@ -69,7 +69,7 @@
     "work_block":   {"hardness": 1.0, "tool": "axe", "_note": "sieve: drops through its work entity"},
     "birch_log": {"hardness": 2.0, "tool": "axe", "drops": "birch_log", "requires": true},
     "birch_leaves": {"hardness": 0.2, "drops": [{"id": "stick", "chance": 0.12}]},
-    "blueberry_bush": {"hardness": 0.0, "drops": [{"id": "blueberry", "count": [1, 3]}]},
+    "blueberry_bush": {"hardness": 0.0, "drops": [{"id": "blueberry", "count": [1, 3], "seasons": ["summer", "autumn"]}]},
     "pumpkin": {"hardness": 1.0, "tool": "axe", "drops": "pumpkin"},
     "cornflower": {"hardness": 0.0, "drops": "cornflower"},
     "oxeye_daisy": {"hardness": 0.0, "drops": "oxeye_daisy"},

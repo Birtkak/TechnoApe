@@ -104,6 +104,12 @@ var room_c := 18.0                       # a closed room pulls the temperature h
 var cave_c := 10.0                       # 4 m and more under the surface
 var water_c := -8.0                      # in water
 var cellar_c := 8.0                      # containers 3 m and more under the surface (spoilage)
+# The survival loop (ADR 0061): root cellars, preserved food, frost, prospecting
+var root_cellar_m := 1.5                 # a closed room this far under the surface is a root cellar
+var root_cellar_mult := 0.3              # containers there spoil at the cellar's 8 C times this
+var preserved_spoil_mult := 0.25         # foods tagged "preserved" (salted, dried, smoked) spoil this much as fast
+var frost_check_s := 10.0                # how often crops are checked for frost
+var discovery_check_s := 1.0             # how often the discovery journal looks around the player
 var climate_probe_s := 1.5               # how often shelter and heat are measured
 var rigid_pieces := true                # cut-loose trees and limbs fall as rigid bodies (P12, ADR 0037); rigid_pieces=0 turns it off
 # playtest gadgets (/kit gadgets, PlaytestTools): debug items, not progression

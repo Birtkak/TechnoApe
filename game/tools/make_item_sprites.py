@@ -1049,6 +1049,11 @@ for item, glyph, kind in [("spell_spark_bolt", "spark", "projectile"), ("spell_f
     bg = CARD[kind]
     sp(item, ("spell_card", None, {"g": bg, "G": tint(bg, 1.35), "k": tint(bg, 0.7)}), "glyph_" + glyph)
 
+# part G (ADR 0061): the flint prospecting pick and the loose heads (the copper pick is above)
+sp("flint_prospecting_pick", H, ("prospecting_head", "flint"))
+for m in ("flint", "copper"):
+    sp(m + "_prospecting_head", ("prospecting_head", m))
+
 
 # ---------- validate + write ----------
 
