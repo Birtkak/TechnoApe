@@ -443,6 +443,13 @@ PAL = {
 }
 
 
+def keep_rng(tile):
+    """A tile that replaced a noise_tile: draws that tile's numbers from the shared RNG first, so the
+    noise tiles after it keep their look."""
+    noise_tile((128, 128, 128), 0)
+    return tile
+
+
 def on_free_tile(entries, seed):
     """A palette on a tile that used to be a free noise_tile: still draws that tile's numbers from
     the shared RNG, so the noise tiles after it keep their look."""
@@ -464,6 +471,140 @@ HOST = [("#8e8a83", 5), ("#7c7872", 4), ("#9c978e", 3), ("#6a6661", 2)]
 PICKUP["copper_bearing"] = HOST + [("#d4692a", 2), ("#b0471f", 1.5), ("#3f9a6a", 1)]   # native copper, malachite
 PICKUP["tin_bearing"] = HOST + [("#3a2a1f", 2), ("#58402f", 1.5), ("#c8c2b0", 1)]  # cassiterite, a little quartz
 PICKUP["iron_bearing"] = HOST + [("#a8402a", 2), ("#c9662f", 1.5), ("#6e2e1c", 1)]     # hematite and limonite
+
+
+def _hexc(h):
+    return tuple(int(h[i:i + 2], 16) for i in (1, 3, 5)) + (255,)
+
+
+G = TILE   # pickup patterns: one texel per voxel ("pattern": true lays the tile over the world grid, ADR 0039)
+
+
+def _cells_to_tile(cells):
+    img = Image.new("RGBA", (TILE, TILE))
+    px = img.load()
+    for y in range(G):
+        for x in range(G):
+            px[x, y] = cells[y][x]
+    return img
+
+
+def stones_pattern(cols, seed, n=40):
+    """Pickup stones (2026-10-25: "more defined, colours in patterns, more contrast", up to 8):
+    rounded stones 2-4 cells across lit from the top-left (rim, body, shaded side), each stone one of
+    two body tones, dark gaps between them, a rare bright speck. cols = 8 colours: gap, deep shade,
+    shade, body A, body B, light, rim, speck. Wraps."""
+    rng = random.Random(seed)
+    seeds = [(rng.uniform(0, G), rng.uniform(0, G), rng.randint(0, 1)) for _ in range(n)]
+    gap, deep, shade, body_a, body_b, light, rim, speck = [_hexc(c) for c in cols]
+    cells = [[gap] * G for _ in range(G)]
+    for y in range(G):
+        for x in range(G):
+            d = []
+            for sx, sy, tone in seeds:
+                dx = min(abs(x + 0.5 - sx), G - abs(x + 0.5 - sx))
+                dy = min(abs(y + 0.5 - sy), G - abs(y + 0.5 - sy))
+                d.append((dx * dx + dy * dy, sx, sy, tone))
+            d.sort()
+            (d0, sx, sy, tone), d1 = d[0], d[1][0]
+            if d1 - d0 < 1.0:
+                continue   # the gap between two stones
+            ox, oy = (x + 0.5 - sx), (y + 0.5 - sy)
+            ox -= G * round(ox / G)
+            oy -= G * round(oy / G)
+            lit = -(ox + oy)
+            if lit > 1.2:
+                c = rim
+            elif lit > 0.4:
+                c = light
+            elif lit < -1.2:
+                c = deep
+            elif lit < -0.4:
+                c = shade
+            else:
+                c = body_a if tone == 0 else body_b
+            if rng.random() < 0.05:
+                c = speck
+            cells[y][x] = c
+    return _cells_to_tile(cells)
+
+
+def flint_pattern(seed):
+    """Flint: blue-black glassy nodules 4-6 voxels across with a lighter struck band, a gloss and a
+    shaded side, in a chalky rind. 8 colours, strong contrast. Wraps."""
+    rng = random.Random(seed)
+    rind, rind_mid, rind_dark, core, core_mid, band, gloss, deep = [_hexc(c) for c in
+        ("#ece5d2", "#d6ccb4", "#b9ae94", "#1b1f28", "#2b3140", "#3d4558", "#8a96b4", "#0f1117")]
+    nod = [(rng.uniform(0, G), rng.uniform(0, G), rng.uniform(2.0, 3.0)) for _ in range(9)]
+    cells = [[rind] * G for _ in range(G)]
+    for y in range(G):
+        for x in range(G):
+            best = None
+            for cx, cy, rr in nod:
+                dx = (x + 0.5 - cx); dy = (y + 0.5 - cy)
+                dx -= G * round(dx / G); dy -= G * round(dy / G)
+                r = (dx * dx + dy * dy) ** 0.5 / rr
+                if best is None or r < best[0]:
+                    best = (r, dx, dy)
+            r, dx, dy = best
+            if r > 1.25:
+                cells[y][x] = rind if rng.random() < 0.65 else rind_mid
+            elif r > 1.0:
+                cells[y][x] = rind_dark
+            elif abs(r - 0.55) < 0.12:
+                cells[y][x] = band
+            elif r < 0.3 and dx + dy < 0:
+                cells[y][x] = gloss
+            elif dx + dy > 0.8:
+                cells[y][x] = deep
+            else:
+                cells[y][x] = core if rng.random() < 0.7 else core_mid
+    return _cells_to_tile(cells)
+
+
+def wood_grain(cols, seed, across=False):
+    """Twig wood: grain stripes along the stick (rows), a knot. cols: 8, dark first: [0] knot or
+    furrow, [1..5] grain shades dark to light, [6] highlight, [7] bark: lichen / wood: dark fleck."""
+    rng = random.Random(seed)
+    c = [_hexc(h) for h in cols]
+    # diagonal bands 1-2 voxels wide: a stick lying along x, z or a diagonal crosses several
+    band = []
+    while len(band) < 2 * G:
+        band += [rng.choice([2, 3, 3, 4, 5])] * rng.randint(1, 2)
+    cells = []
+    for y in range(G):
+        row = []
+        for x in range(G):
+            v = band[(x + y) % (2 * G)] if not across else band[(x + 2 * y) % (2 * G)]
+            r = rng.random()
+            if across and r < 0.16:
+                v = 0 if rng.random() < 0.5 else 1    # a furrow
+            elif r < 0.07:
+                v = 7                                 # lichen on bark, a dark fleck on wood
+            elif r < 0.14:
+                v = 6                                 # a highlight
+            row.append(c[v])
+        cells.append(row)
+    for _ in range(3):
+        kx, ky = rng.randrange(G), rng.randrange(G)
+        cells[ky][kx] = c[0]
+        cells[ky][(kx + 1) % G] = c[1]
+    return _cells_to_tile(cells)
+
+
+def ore_stones_pattern(ore_cols, seed):
+    """Ore-bearing stones: the stones pattern in grey host rock, some stones veined with the ore."""
+    gap = "#3e3c38"
+    img = stones_pattern([gap, "#57534d", "#6f6b64", "#8e8a83", "#9a958b", "#b2ada2", "#cfc9bd", "#e4dfd3"], seed)
+    rng = random.Random(seed + 1)
+    px = img.load()
+    for _ in range(12):
+        cx, cy = rng.randrange(G), rng.randrange(G)
+        for k in range(rng.randint(2, 4)):
+            x, y = (cx + rng.randint(-1, 1)) % G, (cy + rng.randint(-1, 1)) % G
+            if px[x, y][:3] != _hexc(gap)[:3]:
+                px[x, y] = _hexc(ore_cols[k % len(ore_cols)])
+    return img
 
 
 def cobblestone():
@@ -613,18 +754,18 @@ tiles = [
     noise_tile((150, 46, 46), 12, (110, 28, 30), 0.25),       # 83 raw meat (carcasses)
     leaf_litter(),                                            # 84 leaf litter (forest floor)
     oak_bark(),                                               # 85 oak bark: grey-brown, dark grooves (trunks in the world)
-    on_free_tile(PICKUP["pebbles"], 86),                      # 86 pebbles (ground pickup)
-    on_free_tile(PICKUP["flint"], 87),                        # 87 flint stones (ground pickup)
+    keep_rng(stones_pattern(["#36332e", "#5e5a53", "#7f7a71", "#a39d91", "#b5ad9c", "#cdc6b6", "#ece6d8", "#8f6f52"], 86)),   # 86 pebbles: lit stones, dark gaps (ground pickup)
+    keep_rng(flint_pattern(87)),                              # 87 flint stones: dark core, chalky rind (ground pickup)
     thatch(True),                                             # 88 thatch top
     thatch(False),                                            # 89 thatch side
     daub(),                                                   # 90 daub (wattle and daub wall)
     noise_tile((176, 132, 76), 12, (140, 100, 54), 0.25),     # 91 wattle withy: peeled hazel, lighter than logs
     noise_tile((120, 30, 10), 18, (255, 120, 30), 0.35),      # 92 torch ember: charred wick glowing orange
-    palette(PICKUP["twigs"], 93),                             # 93 twigs (ground pickup)
-    palette(PICKUP["copper_bearing"], 94),                    # 94 copper-bearing stones
-    palette(PICKUP["tin_bearing"], 95),                       # 95 tin-bearing stones
-    palette(PICKUP["iron_bearing"], 96),                      # 96 iron-bearing stones
-    palette(PICKUP["twigs_bark"], 97),                        # 97 twigs sides (bark)
+    wood_grain(["#3a2414", "#6e4a2a", "#9e7c4c", "#b8925a", "#c9a46c", "#dcbc86", "#f0d9aa", "#4f331c"], 93),   # 93 twigs: pale wood, grain (ground pickup)
+    ore_stones_pattern(["#d4692a", "#3f9a6a"], 94),          # 94 copper-bearing stones: native copper, malachite
+    ore_stones_pattern(["#2a1d14", "#58402f"], 95),          # 95 tin-bearing stones: black cassiterite
+    ore_stones_pattern(["#a8402a", "#c9662f"], 96),          # 96 iron-bearing stones: hematite, limonite
+    wood_grain(["#1f1209", "#2e1c0f", "#432b17", "#573a20", "#6e4a2a", "#7f5733", "#9a6d42", "#9fae7a"], 97, across=True),   # 97 twigs sides: bark, lichen
     cobblestone(),                                            # 98 cobblestone (patterned)
     bricks(),                                                 # 99 bricks (patterned)
     palette(PAL["berry_bush"], 100),                          # 100 blueberry bush: leaves dotted with berries

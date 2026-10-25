@@ -189,7 +189,7 @@ static func _build_defs() -> Array:
 		{"name": "furnace_lit", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 36, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "chest", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [37, 38, 37], "transparent": false, "interact": "chest", "entity": "chest"},
 		{"name": "planks", "cell_type": "solid", "rigid": "wood", "pattern": true, "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false},
-		{"name": "pebbles", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [86, 86, 86], "transparent": false, "micro": "pebbles"},
+		{"name": "pebbles", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [86, 86, 86], "transparent": false, "micro": "pebbles"},
 		{"name": "mushroom_brown", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [40, 40, 40], "transparent": false, "clutter": "mushroom"},
 		{"name": "mushroom_red", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [41, 41, 41], "transparent": false, "clutter": "mushroom"},
 		{"name": "reed", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 44, 23], "transparent": false, "micro": "reed"},
@@ -202,11 +202,11 @@ static func _build_defs() -> Array:
 		# lifetime in sim ticks (30 Hz): the puddle soaks into the ground after ~7 s; the stain stays
 		{"name": "blood", "cell_type": "liquid", "fluid_slot": 3, "density": 1.1, "liquid_flow_speed": 0.7, "lifetime": 200, "tiles": [47, 47, 47], "transparent": true},
 		# ground pickups: hardness 0 in mining.json, they drop loose items (ADR 0019)
-		{"name": "copper_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [94, 94, 94], "transparent": false, "micro": "ore_stones"},
-		{"name": "tin_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [95, 95, 95], "transparent": false, "micro": "ore_stones"},
-		{"name": "iron_bearing_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [96, 96, 96], "transparent": false, "micro": "ore_stones"},
-		{"name": "flint_stones", "cell_type": "solid", "density": 10, "hp": 10, "tiles": [87, 87, 87], "transparent": false, "micro": "pebbles"},
-		{"name": "twigs", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 20, "autoignition_temperature": 20, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [93, 97, 97], "transparent": false, "micro": "twigs"},
+		{"name": "copper_bearing_stones", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [94, 94, 94], "transparent": false, "micro": "ore_stones"},
+		{"name": "tin_bearing_stones", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [95, 95, 95], "transparent": false, "micro": "ore_stones"},
+		{"name": "iron_bearing_stones", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [96, 96, 96], "transparent": false, "micro": "ore_stones"},
+		{"name": "flint_stones", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [87, 87, 87], "transparent": false, "micro": "pebbles"},
+		{"name": "twigs", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "burnable": true, "fire_hp": 20, "autoignition_temperature": 20, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [93, 97, 97], "transparent": false, "micro": "twigs"},
 		# sulfur caves (biomes.json sulfur_cave) and Noita chemistry (reactions below)
 		{"name": "toxic_sludge", "cell_type": "liquid", "fluid_slot": 4, "density": 1.3, "liquid_flow_speed": 0.4, "tiles": [48, 48, 48], "transparent": true},
 		{"name": "toxic_sludge_static", "cell_type": "liquid", "fluid_slot": 4, "liquid_static": true, "density": 1.3, "tiles": [48, 48, 48], "transparent": true, "loose": 53},
