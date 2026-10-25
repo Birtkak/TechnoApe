@@ -242,20 +242,19 @@ func _part_d(tree: SceneTree, inv: PlayerInventory, at: Callable) -> void:
 
 	# a seashell on the ground: a seashell block in hand builds onto it instead of picking it up
 	var shell := GameMaterials.id_of("seashell")
-	var s_at: Vector3i = at.call(3, -6)
+	var s_at: Vector3i = at.call(6, -4)
 	main.set_world_voxel(s_at, shell)
-	await tree.process_frame
-	inv.pickup("seashell", 4)
-	main._hold("seashell")
+	await tree.create_timer(0.4).timeout   # the aim ray reads the terrain, which gets the edit a push later
+	inv.inv.set_slot(inv.selected, {"id": "seashell", "count": 4})   # straight into the hand: the hotbar is full by now
 	var aimed: Vector3i = main._aim_use(Vector3(s_at) + Vector3(0.5, 0.999, 0.5))
 	await tree.process_frame
 	r["shell_aimed"] = aimed == s_at
 	r["shell_no_hold"] = main.player._hold_at == ""
-	var beside := 0   # new shell voxels lie against the aimed face (top or side, as the ray met it)
+	var beside := 0   # the new shell lies against the aimed face (top or side, as the ray met it)
 	for d in [Vector3i.UP, Vector3i.LEFT, Vector3i.RIGHT, Vector3i.FORWARD, Vector3i.BACK]:
 		if main.get_world_voxel(s_at + d) == shell:
 			beside += 1
-	r["shell_built_on"] = beside >= 1   # a voxel item: the brush lays a patch of it
+	r["shell_built_on"] = beside >= 1
 
 	# the offhand: a hammer there counts for smithing, and wears there
 	inv.pickup("copper_hammer", 1)
@@ -265,6 +264,38 @@ func _part_d(tree: SceneTree, inv: PlayerInventory, at: Callable) -> void:
 	main.work._wear_hand("off")
 	r["offhand_hammer_wear"] = int(inv.offhand().get("wear", 0))
 	inv.swap_hands()
+
+	# a grave (plan item D12): everything goes in with its data, a waypoint marks it, a right click gives it back
+	inv.pickup("flint_knife", 1, {"wear": 5})
+	var carried := 0
+	for i in inv.inv.size():
+		carried += 0 if inv.inv.is_empty_slot(i) else 1
+	carried += 0 if inv.offhand().is_empty() else 1
+	var g_feet: Vector3i = at.call(-5, -6)
+	var grave = main._make_grave(g_feet)
+	await tree.create_timer(0.4).timeout
+	r["grave_made"] = grave is GraveEntity
+	r["grave_stacks_match"] = grave is GraveEntity and grave.count() == carried
+	var left := 0
+	for i in inv.inv.size():
+		left += 0 if inv.inv.is_empty_slot(i) else 1
+	r["grave_hands_empty"] = left == 0 and inv.offhand().is_empty()
+	r["grave_waypoint"] = main.waypoints.list.any(func(w: Dictionary) -> bool: return w["kind"] == "grave")
+	if grave is GraveEntity:
+		_use_on(grave.pos, Vector3(0.5, 0.5, 0.5))
+		await tree.process_frame
+		r["grave_gone"] = main.blocks.at(grave.pos) == null
+		var wear := -1
+		for i in inv.inv.size():
+			if inv.inv.get_slot(i).get("id", "") == "flint_knife":
+				wear = int(inv.inv.get_slot(i).get("wear", -1))
+		r["grave_knife_wear"] = wear
+		r["grave_waypoint_gone"] = not main.waypoints.list.any(func(w: Dictionary) -> bool: return w["kind"] == "grave")
+	# the map (plan item D10): explored cells, a waypoint with its beam
+	r["map"] = main.world_map.summary()
+	main.waypoints.add("Test", at.call(0, -6), "")
+	await tree.process_frame
+	r["waypoint_beams"] = main.waypoint_markers.get_child_count()
 
 
 ## A hammer blow from the side the push goes away from: the player stands 0.8 m off the anvil

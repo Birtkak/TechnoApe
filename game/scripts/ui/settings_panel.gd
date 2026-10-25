@@ -15,11 +15,12 @@ const PRESETS := ["low", "medium", "high"]
 const SHADOWS := ["off", "low", "medium", "high"]
 const RENDER_M := [16.0, 24.0]   # Settings.MIN_DETAIL_M .. MAX_DETAIL_M
 const VIEW_M := [1024.0, 2048.0]
-const KEYS := [["W A S D", "walk"], ["Space", "jump; fly up (twice: fly, creative)"], ["Ctrl", "sprint"],
-	["Shift", "sneak (no falling off edges; right click places against a station); fly down"], ["F", "swap main hand and offhand"],
-	["Left / right click", "break / use, place"], ["E", "inventory, progression book top left"], ["Q", "drop (Ctrl: the stack)"],
-	["1-9, wheel", "hotbar"], ["R / U / A", "recipes / uses / bookmark (in the inventory)"], ["T, /", "chat and commands"],
-	["F3 / F5", "debug screen / camera view"], ["F2 / F9", "screenshot / bug report"], ["F4", "playtest menu"], ["Esc", "pause menu"]]
+## Keys that cannot be rebound (the rest are rows above them, plan item D11).
+const KEYS := [["Space twice", "fly (creative)"], ["Ctrl + wheel", "brush size, laser width"], ["Ctrl + Q", "drop the stack"],
+	["1-9, wheel", "hotbar"], ["R / U / A", "recipes / uses / bookmark (in the inventory)"], ["Alt + click", "favourite slot (in the inventory)"],
+	["/", "commands"], ["F3 / F5", "debug screen / camera view"], ["F2 / F9", "screenshot / bug report"], ["F4", "playtest menu"], ["Esc", "pause menu"]]
+var _key_buttons := {}     # action -> Button
+var _rebinding := ""       # the action waiting for a key
 
 var _preset: OptionButton
 var _shadows: OptionButton
@@ -32,6 +33,10 @@ var _fov_label: Label
 var _vsync: CheckBox
 var _fps: OptionButton
 var _fullscreen: CheckBox
+var _mini_corner: OptionButton
+var _mini_size: OptionButton
+const MINIMAP_CORNERS := ["top_right", "top_left", "bottom_right", "bottom_left"]
+const MINIMAP_SIZES := [0, 120, 160, 220, 300]
 var _sens: HSlider
 var _sens_label: Label
 var _invert: CheckBox
@@ -155,6 +160,14 @@ func _video_tab() -> Control:
 		Settings.fullscreen = _fullscreen.button_pressed
 		_edited())
 	_row(g, "Fullscreen", _fullscreen)
+	_mini_corner = _options(["Top right", "Top left", "Bottom right", "Bottom left"], func() -> void:
+		Settings.minimap_corner = MINIMAP_CORNERS[_mini_corner.selected]
+		_edited())
+	_row(g, "Minimap corner", _mini_corner)
+	_mini_size = _options(["Off", "Small", "Medium", "Large", "Huge"], func() -> void:
+		Settings.minimap_size_px = MINIMAP_SIZES[_mini_size.selected]
+		_edited())
+	_row(g, "Minimap size", _mini_size)
 	return g
 
 
@@ -185,8 +198,12 @@ func _audio_tab() -> Control:
 
 
 func _controls_tab() -> Control:
+	var scroll := ScrollContainer.new()   # the key rows make it taller than the tab
+	scroll.name = "Controls"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	var v := VBoxContainer.new()
-	v.name = "Controls"
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(v)
 	v.add_theme_constant_override("separation", 14)
 	var g := _grid("Options")
 	v.add_child(g)
@@ -211,7 +228,31 @@ func _controls_tab() -> Control:
 		Settings.invert_y = _invert.button_pressed
 		_edited())
 	_row(g, "Invert mouse Y", _invert)
-	v.add_child(UiStyle.label("Keys", 19, UiStyle.ACCENT))
+	v.add_child(UiStyle.label("Keys (click one, then press the new key or mouse button; Esc cancels)", 17, UiStyle.ACCENT))
+	var binds := GridContainer.new()
+	binds.columns = 4
+	binds.add_theme_constant_override("h_separation", 16)
+	for a in Settings.REMAPPABLE:
+		binds.add_child(UiStyle.label(a[1], 15, UiStyle.DIM))
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(130, 0)
+		b.focus_mode = Control.FOCUS_NONE
+		var action: String = a[0]
+		b.pressed.connect(func() -> void:
+			_rebinding = action
+			_refresh_keys())
+		binds.add_child(b)
+		_key_buttons[action] = b
+	v.add_child(binds)
+	var reset := Button.new()
+	reset.text = "Reset keys"
+	reset.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	reset.pressed.connect(func() -> void:
+		Settings.reset_keys()
+		_rebinding = ""
+		_edited())
+	v.add_child(reset)
+	_refresh_keys()
 	var keys := GridContainer.new()
 	keys.columns = 2
 	keys.add_theme_constant_override("h_separation", 24)
@@ -219,7 +260,39 @@ func _controls_tab() -> Control:
 		keys.add_child(UiStyle.label(k[0], 15, UiStyle.ACCENT))
 		keys.add_child(UiStyle.label(k[1], 15, UiStyle.DIM))
 	v.add_child(keys)
-	return v
+	return scroll
+
+
+func _refresh_keys() -> void:
+	for action in _key_buttons:
+		(_key_buttons[action] as Button).text = "press a key..." if action == _rebinding else Settings.key_text(Settings.current_key(action))
+
+
+## While a key button waits: the next key or mouse button press becomes that action's binding.
+func _input(event: InputEvent) -> void:
+	if _rebinding == "" or not is_visible_in_tree():
+		return
+	var ev: InputEvent = null
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_ESCAPE:
+			_rebinding = ""
+			_refresh_keys()
+			get_viewport().set_input_as_handled()
+			return
+		ev = InputEventKey.new()
+		(ev as InputEventKey).physical_keycode = event.physical_keycode
+	elif event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE, MOUSE_BUTTON_XBUTTON1, MOUSE_BUTTON_XBUTTON2]:
+		if event.button_index == MOUSE_BUTTON_LEFT and _key_buttons[_rebinding].get_global_rect().has_point(event.global_position):
+			return   # the click that started it
+		ev = InputEventMouseButton.new()
+		(ev as InputEventMouseButton).button_index = event.button_index
+		(ev as InputEventMouseButton).pressed = true
+	if ev == null:
+		return
+	Settings.bind_key(_rebinding, ev)
+	_rebinding = ""
+	get_viewport().set_input_as_handled()
+	_edited()
 
 
 ## Every control shows the current Settings values (after a preset changed several).
@@ -236,9 +309,12 @@ func sync_from_settings() -> void:
 	_vsync.button_pressed = Settings.vsync
 	_fps.select(maxi(0, Settings.MAX_FPS_CHOICES.find(Settings.max_fps)))
 	_fullscreen.button_pressed = Settings.fullscreen
+	_mini_corner.select(maxi(0, MINIMAP_CORNERS.find(Settings.minimap_corner)))
+	_mini_size.select(_nearest(MINIMAP_SIZES, Settings.minimap_size_px))
 	_sens.value = Settings.mouse_sensitivity / 0.0025
 	_sens_label.text = "%d%%" % roundi(_sens.value * 100.0)
 	_invert.button_pressed = Settings.invert_y
+	_refresh_keys()
 	for k in _volumes:
 		_volumes[k].value = Settings.get(k)
 	_syncing = false

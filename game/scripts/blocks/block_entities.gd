@@ -67,6 +67,8 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		"anvil":
 			e = AnvilEntity.new(recipes, pos)
 			_ticking.append(e)
+		"grave":
+			e = GraveEntity.new(items, pos)   # what a dead player carried (plan item D12)
 		_:
 			push_error("unknown block entity kind " + kind)
 			return null
@@ -150,7 +152,7 @@ func all_furniture() -> Array:
 	return out
 
 
-const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil"]
+const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave"]
 
 
 func all_of(p_kind: String) -> Array:

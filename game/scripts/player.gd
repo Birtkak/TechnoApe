@@ -21,6 +21,7 @@ signal game_mode_changed(mode: String)
 signal stain_drip(at: Vector3, colour: Color)   # a stained body drips on the ground (StainMap.drip)
 signal landed(feet_voxel: Vector3i, fall_m: float)   # touched ground after a fall (farmland trampling, ADR 0022)
 signal ate(item_id: String)
+signal map_requested    # M: the full map (plan item D10)
 
 var world: World
 var camera: Camera3D
@@ -232,6 +233,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("release_mouse"):
 		capture_mouse(false)
 		pause_requested.emit()
+	elif event.is_action_pressed("map"):
+		map_requested.emit()
 	elif event.is_action_pressed("swap_hands"):
 		inventory.swap_hands()   # F: main hand <-> offhand (Minecraft; flight toggles with a double jump)
 	elif event.is_action_pressed("jump") and GameMode.rule(game_mode, "can_fly") and not GameMode.rule(game_mode, "always_fly"):

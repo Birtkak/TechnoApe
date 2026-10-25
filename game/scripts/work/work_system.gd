@@ -428,6 +428,10 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		if first_press:
 			_use_anvil(e, held, from, dir)
 		return true
+	if e is GraveEntity:
+		if first_press:
+			_open_grave(e)
+		return true
 	if not first_press:
 		if e is SieveEntity and (e.input != "" or _sifts(main.player_inv.offhand_def())):
 			pass   # holding right click keeps shaking (and refills from the offhand, ADR 0055)
@@ -707,6 +711,24 @@ func _use_firepit(e: FirepitEntity, held: Dictionary, say: bool) -> void:
 		main.spawn_item(s, _at(e.pos, Vector3(0.5, 0.5, 0.5)) + side * Settings.BLOCK * 0.4, side * 1.2 + Vector3(0, 2.0, 0))
 	if say:
 		_say(res["msg"])
+
+
+# ---------------- graves (plan item D12) ----------------
+
+## A right click on a grave: everything goes back to the player (what does not fit pops out), the grave
+## and its waypoint go.
+func _open_grave(e: GraveEntity) -> void:
+	var stacks: Array = e.take_all()
+	var at := _at(e.pos, Vector3(0.5, 0.6, 0.5))
+	remove_piece(e)
+	_give(stacks, at)
+	var wps: Waypoints = main.get("waypoints")
+	if wps:
+		for w in wps.list.duplicate():
+			if w["kind"] == "grave" and (w["pos"] as Vector3i) == e.pos:
+				wps.remove(int(w["id"]))
+	_particles("poof", at, 0)
+	_say("You took back %d stack%s from the grave." % [stacks.size(), "" if stacks.size() == 1 else "s"])
 
 
 # ---------------- held right clicks (ADR 0043) ----------------

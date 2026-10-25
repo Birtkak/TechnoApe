@@ -38,6 +38,21 @@ frame times.
       `/weather rain 60` or `/weather clear` sets it. Is it scary enough, too slow, too fast?
 - [ ] Random weather: now and then a shower (more often in wet biomes), snow when it is below 0 C. Outside in rain the
       ape gets wet.
+- [ ] Minimap top right (Settings > Video: corner and size, Off). Coordinates and biome under it. Fly around: the map
+      fills in around you and stays filled. With F3 open it moves down. (Until part A's sim change is merged it shows
+      the generated land, so your own digs appear only after that merge.)
+- [ ] M opens the full map: drag to move, wheel to zoom, Space back to you, right click to add a waypoint (name it),
+      right click a pin to rename, change colour or delete. In the world each waypoint has a light beam with its
+      name and distance. Waypoints survive save and quit.
+- [ ] Auto-refill: use up a stack of torches or break a tool with another in the inventory: the next one jumps into
+      the hand. A tool near the end of its life beeps once and says how many uses are left.
+- [ ] Pick things up: "+3 Flint" lines bottom right; with a full inventory "Inventory full".
+- [ ] Settings > Controls: rebind keys (click, press the new key or mouse button, Esc cancels), Reset keys.
+- [ ] Chests: Sort button on a chest and in your inventory, Stack button (puts what nearby chests already hold into
+      them), type a name for a chest top right of its screen; aiming at it shows the name. Alt + click a slot marks it
+      as a favourite (gold corner): Sort, Stack, shift-click and refill leave it alone.
+- [ ] Die in survival (`/kill`): a grave with everything stands where you fell, the chat gives its coordinates, the map
+      has a grave waypoint. Right click it: you get it all back (tools keep their wear).
 
 ## 2026-10-24: sound (ADR 0044)
 

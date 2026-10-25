@@ -15,6 +15,8 @@ signal changed
 signal selection_changed(index: int)
 signal health_changed(health: int)
 signal tool_broke(id: String)          # a tool wore out in the hand or the grid (ADR 0042)
+signal tool_low(id: String, left: int) # the held tool is nearly worn out (warning sound, plan item D11)
+signal refilled(id: String)            # the hand ran out and the same item moved into it (plan item D11)
 
 const HOTBAR := 9
 const MAIN := 27
@@ -31,6 +33,7 @@ var bag: Inventory                 # its slots; usable while bag_item is set
 var container: RefCounted = null   # ChestEntity / FurnaceEntity while its screen is open (ADR 0007)
 var off: Inventory                 # the offhand: one slot (ADR 0055)
 var trash := {}                    # the last stack thrown in the trash slot; the next one replaces it
+var favourites := {}               # player slot -> true: sort, quick-stack, shift-click and refill leave it alone (D11)
 var selected := 0
 var max_health := 20
 var health := 20
@@ -91,19 +94,55 @@ func held_def() -> Dictionary:
 	return items.get_def(h["id"]) if not h.is_empty() else {}
 
 
-## Removes `count` from the held stack. Returns how many were removed.
+## Removes `count` from the held stack. Returns how many were removed. A hand that runs out takes the
+## same item from the rest of the inventory (auto-refill).
 func consume_held(count: int = 1) -> int:
+	var id: String = held().get("id", "")
 	var t := inv.take(selected, count)
+	if inv.is_empty_slot(selected):
+		refill_hand(id)
 	return int(t.get("count", 0))
 
 
-## Wears the held tool by `uses` (ADR 0042); at its durability it breaks and the hand empties.
-## Returns true when it broke.
+## Wears the held tool by `uses` (ADR 0042); at its durability it breaks and the hand empties (and
+## takes another of the same tool, if there is one). Returns true when it broke.
 func wear_held(uses: int = 1) -> bool:
+	var before := Inventory.uses_left(items, held())
 	var broke := inv.wear_slot(selected, uses)
 	if broke != "":
 		tool_broke.emit(broke)
+		refill_hand(broke)
+	else:
+		_warn_low(held(), before)
 	return broke != ""
+
+
+## Warns once when a tool crosses into its last tenth (at least its last 3 uses).
+func _warn_low(s: Dictionary, before: int) -> void:
+	var left := Inventory.uses_left(items, s)
+	if left < 0:
+		return
+	var dur := int(items.get_def(s["id"]).get("durability", 0))
+	var low := maxi(3, dur / 10)
+	if left <= low and before > low:
+		tool_low.emit(s["id"], left)
+
+
+## The empty hand takes a stack of `id` from the main grid (else another hotbar slot); favourites
+## stay where they are. True when it found one.
+func refill_hand(id: String) -> bool:
+	if id == "" or not inv.is_empty_slot(selected):
+		return false
+	for i in range(HOTBAR, SIZE) + range(0, HOTBAR):
+		if i == selected or favourites.has(i):
+			continue
+		var s := inv.get_slot(i)
+		if not s.is_empty() and s["id"] == id:
+			inv.set_slot(selected, s.duplicate(true))
+			inv.set_slot(i, {})
+			refilled.emit(id)
+			return true
+	return false
 
 
 # ---------------- the offhand (ADR 0055) ----------------
@@ -335,6 +374,8 @@ func drop_held(whole: bool = false) -> Dictionary:
 ## the rest without falling back, everything else moves hotbar <-> main.
 func click_slot(i: int, button: int, shift: bool) -> void:
 	if shift:
+		if favourites.has(i):
+			return   # a favourite slot stays put (plan item D11)
 		var s: Dictionary = inv.get_slot(i)
 		if container != null and not s.is_empty():
 			var targets: Array = container.shift_targets(s["id"])
@@ -428,6 +469,85 @@ func _report_broken() -> void:
 	for id in craft.tools_broken:
 		tool_broke.emit(id)
 	craft.tools_broken.clear()
+
+
+# ---------------- sorting, quick-stack, favourites (plan item D11) ----------------
+
+## Alt + click: the slot becomes a favourite (or stops being one).
+func toggle_favourite(i: int) -> void:
+	if favourites.has(i):
+		favourites.erase(i)
+	else:
+		favourites[i] = true
+	changed.emit()
+
+
+## Sorts slots [from, to) of `target` (favourites of the player's own slots stay): equal stacks merge,
+## then by item id, fullest first. Per-stack data rides along; stacks that differ in it (worn tools,
+## work pieces) stay apart because they stack to 1.
+func sort_slots(target: Inventory, from: int, to: int, skip_favourites: bool) -> void:
+	var idx: Array[int] = []
+	var stacks: Array[Dictionary] = []
+	for i in range(from, to):
+		if skip_favourites and favourites.has(i):
+			continue
+		idx.append(i)
+		var s := target.get_slot(i)
+		if not s.is_empty():
+			stacks.append(s.duplicate(true))
+	# merge equal items (count-weighted data, Inventory.merge_into), then order
+	var merged: Array[Dictionary] = []
+	for s in stacks:
+		var left := int(s["count"])
+		var max_stack := items.max_stack(s["id"])
+		for m in merged:
+			if left <= 0:
+				break
+			if m["id"] == s["id"] and int(m["count"]) < max_stack:   # tools and work pieces stack to 1: never here
+				var n := mini(left, max_stack - int(m["count"]))
+				Inventory.merge_into(m, n, s)
+				left -= n
+		if left > 0:
+			merged.append(Inventory.make_stack(items, s["id"], left, s))
+	merged.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a["id"] != b["id"]:
+			return String(a["id"]) < String(b["id"])
+		return int(a["count"]) > int(b["count"]))
+	for k in idx.size():
+		target.set_slot(idx[k], merged[k] if k < merged.size() else {})
+	changed.emit()
+
+
+## The main grid (not the hotbar, not favourites) sorted.
+func sort_inventory() -> void:
+	sort_slots(inv, HOTBAR, SIZE, true)
+
+
+## The open chest sorted.
+func sort_container() -> void:
+	if container != null:
+		sort_slots(container.inv, 0, container.inv.size(), false)
+
+
+## Quick-stack (Terraria, Minecraft mods): every main-grid stack (not favourites, not the hotbar) whose
+## item a chest in `chests` already holds goes into that chest, as much as fits. Returns items moved.
+func quick_stack(chests: Array) -> int:
+	var moved := 0
+	for i in range(HOTBAR, SIZE):
+		if favourites.has(i) or inv.is_empty_slot(i):
+			continue
+		var id: String = inv.get_slot(i)["id"]
+		for c in chests:
+			var c_inv: Inventory = c.inv
+			if c_inv.count_of(id) == 0:
+				continue
+			var before := int(inv.get_slot(i).get("count", 0))
+			_move_stack(inv, i, c_inv, range(0, c_inv.size()))
+			moved += before - int(inv.get_slot(i).get("count", 0))
+			if inv.is_empty_slot(i):
+				break
+	changed.emit()
+	return moved
 
 
 # ---------------- Mouse Tweaks (the Minecraft mod) ----------------

@@ -107,6 +107,12 @@ var cave_c := 10.0                       # 4 m and more under the surface
 var water_c := -8.0                      # in water
 var cellar_c := 8.0                      # containers 3 m and more under the surface (spoilage)
 var climate_probe_s := 1.5               # how often shelter and heat are measured
+# maps (plan item D10, ADR 0055)
+var quick_stack_m := 8.0                # the inventory's Stack button reaches chests this close (plan item D11)
+var map_explore_m := 48.0               # the map fills in this far around the player
+var waypoint_beam_m := 64.0             # a waypoint's beam rises this high
+var minimap_corner := "top_right"       # top_right | top_left | bottom_right | bottom_left (Settings screen)
+var minimap_size_px := 160              # 0 hides the minimap
 # weather and forest fires (ADR 0056; the developer chose "moderate" fire and random weather + fire rain)
 var weather := true                     # weather=0: always clear (benchmarks); weather=rain|clear starts with it
 var weather_roll_s := 600.0             # a random shower is rolled about this often ...
@@ -310,6 +316,12 @@ func load_user_settings() -> void:
 	volume_music = clampf(float(cf.get_value("audio", "music", volume_music)), 0.0, 1.0)
 	volume_effects = clampf(float(cf.get_value("audio", "effects", volume_effects)), 0.0, 1.0)
 	volume_ui = clampf(float(cf.get_value("audio", "interface", volume_ui)), 0.0, 1.0)
+	for a in REMAPPABLE:
+		var v := String(cf.get_value("keys", a[0], ""))
+		if v != "":
+			bind_key(a[0], key_event(v))
+	minimap_corner = String(cf.get_value("hud", "minimap_corner", minimap_corner))
+	minimap_size_px = clampi(int(cf.get_value("hud", "minimap_size_px", minimap_size_px)), 0, 400)
 	if not SHADOW_QUALITY.has(shadow_quality):
 		shadow_quality = "high"
 	graphics_preset = matching_preset()
@@ -334,7 +346,82 @@ func save_user_settings() -> void:
 	cf.set_value("audio", "music", volume_music)
 	cf.set_value("audio", "effects", volume_effects)
 	cf.set_value("audio", "interface", volume_ui)
+	for a in REMAPPABLE:
+		var ev := current_key(a[0])
+		if ev != null and key_text(ev) != key_text(default_key(a[0])):
+			cf.set_value("keys", a[0], key_string(ev))
+	cf.set_value("hud", "minimap_corner", minimap_corner)
+	cf.set_value("hud", "minimap_size_px", minimap_size_px)
 	cf.save(user_settings_path)
+
+
+# ---------------- key remapping (plan item D11) ----------------
+
+## The actions the Settings screen lets the player rebind, with their names there.
+const REMAPPABLE := [["move_forward", "Forward"], ["move_back", "Back"], ["move_left", "Left"], ["move_right", "Right"],
+	["jump", "Jump / fly up"], ["sprint", "Sprint"], ["sneak", "Sneak"], ["descend", "Fly down"],
+	["action_break", "Break / attack"], ["action_place", "Use / place"], ["inventory", "Inventory"], ["drop", "Drop"],
+	["swap_hands", "Swap hands"], ["map", "Map"], ["chat", "Chat"]]
+
+
+## The action's first event now (a key or a mouse button), or null.
+func current_key(action: String) -> InputEvent:
+	var evs := InputMap.action_get_events(action) if InputMap.has_action(action) else []
+	return evs[0] if not evs.is_empty() else null
+
+
+## The action's event in project.godot.
+func default_key(action: String) -> InputEvent:
+	var d = ProjectSettings.get_setting("input/" + action)
+	if d is Dictionary and not (d["events"] as Array).is_empty():
+		return d["events"][0]
+	return null
+
+
+## Makes `ev` the action's only event.
+func bind_key(action: String, ev: InputEvent) -> void:
+	if ev == null or not InputMap.has_action(action):
+		return
+	InputMap.action_erase_events(action)
+	InputMap.action_add_event(action, ev)
+
+
+func reset_keys() -> void:
+	for a in REMAPPABLE:
+		bind_key(a[0], default_key(a[0]))
+
+
+## "key:<physical keycode>" or "mouse:<button>".
+static func key_string(ev: InputEvent) -> String:
+	if ev is InputEventMouseButton:
+		return "mouse:%d" % ev.button_index
+	if ev is InputEventKey:
+		return "key:%d" % (ev.physical_keycode if ev.physical_keycode != 0 else ev.keycode)
+	return ""
+
+
+static func key_event(s: String) -> InputEvent:
+	var kv := s.split(":")
+	if kv.size() != 2 or not kv[1].is_valid_int():
+		return null
+	if kv[0] == "mouse":
+		var m := InputEventMouseButton.new()
+		m.button_index = int(kv[1]) as MouseButton
+		m.pressed = true
+		return m
+	var k := InputEventKey.new()
+	k.physical_keycode = int(kv[1]) as Key
+	return k
+
+
+## What the Settings screen shows for an event: "W", "Shift", "Left mouse".
+static func key_text(ev: InputEvent) -> String:
+	if ev is InputEventMouseButton:
+		return {MOUSE_BUTTON_LEFT: "Left mouse", MOUSE_BUTTON_RIGHT: "Right mouse", MOUSE_BUTTON_MIDDLE: "Middle mouse"}.get(ev.button_index, "Mouse %d" % ev.button_index)
+	if ev is InputEventKey:
+		var code: int = ev.physical_keycode if ev.physical_keycode != 0 else ev.keycode
+		return OS.get_keycode_string(DisplayServer.keyboard_get_keycode_from_physical(code) if ev.physical_keycode != 0 else code)
+	return "-"
 
 
 ## Sets every value of a graphics preset (low / medium / high).

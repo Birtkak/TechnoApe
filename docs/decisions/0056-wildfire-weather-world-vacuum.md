@@ -53,7 +53,10 @@ to a burning cell puts it out. Only cells in the SimBubble window burn.
 Fire cells found per scan (4000 samples): 0 -> 19 by 55 s, when the rain set in; it kept growing in the
 canopies to ~55 at 65-110 s, then fell to 3 by 160 s (`out/d_fire_win2`, filmstrip). Weather cost:
 scan 0.7 ms max, drops 0.26 ms max. The frame budget could not be judged: other sessions' Godot
-processes ran on the machine (a fire run without weather had process p50 22 ms as well).
+processes ran on the machine (a fire run without weather had process p50 22 ms as well). A later run
+under the GPU lock, with one other session's Godot (2 GB) still running: p50 15.4 ms, p99 26.6 ms over
+120 s of fire and rain (render CPU p50 5.4, GPU 8.2 ms; the weather's own work under 1 ms). To be
+measured again on a quiet machine before the merge.
 
 ## Consequences
 - A fire set in a forest burns a patch of it and the rain ends it: the map is not lost.

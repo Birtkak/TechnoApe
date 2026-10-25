@@ -48,6 +48,11 @@ var quests: QuestBook                # the progression book's quests and progres
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
 var weather: Weather                 # rain and snow, the rain that answers forest fires (ADR 0056); null with weather=0
+var world_map := WorldMap.new()      # the explored map and the waypoints (plan item D10, ADR 0055)
+var waypoints: Waypoints = world_map.waypoints   # add(name, pos, kind) for graves, finds ...
+var map_screen: MapScreen            # M
+var minimap: Minimap
+var waypoint_markers: WaypointMarkers
 var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
 var quest_toast: QuestToast
 var pause_menu: PauseMenu            # Esc: pause, settings, save and quit (ADR 0032)
@@ -125,6 +130,7 @@ func _ready() -> void:
 	player.voxels_placed.connect(_on_placed_many)
 	player.item_dropped.connect(_on_item_dropped)
 	player.inventory_toggled.connect(_on_inventory_toggled)
+	player.map_requested.connect(_open_map)
 	player.died.connect(_on_died)
 	player.block_used.connect(_on_block_used)
 	player.landed.connect(trample)
@@ -181,6 +187,7 @@ func _ready() -> void:
 	inv_screen.setup(player_inv)
 	inv_screen.closed.connect(_on_screen_closed)
 	inv_screen.drop_requested.connect(player.throw_stack)   # a click outside the panel, Q over a slot (ADR 0055)
+	inv_screen.nearby_chests = _nearby_chests
 	_setup_quests()
 	work = WorkSystem.new()
 	work.name = "Work"
@@ -425,6 +432,9 @@ func _ready() -> void:
 	player.playtest_use = gadgets.use
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(gadgets.warm_materials(), player.camera)
+	_setup_maps()
+	if not warmup.is_queued_for_deletion():
+		warmup.add_materials(waypoint_markers.warm_materials(), player.camera)
 	if Settings.weather:
 		weather = Weather.new()
 		weather.name = "Weather"
@@ -436,6 +446,10 @@ func _ready() -> void:
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
 	player_inv.tool_broke.connect(_on_tool_broke)
+	player_inv.tool_low.connect(func(id: String, left: int) -> void:
+		Sound.play("ui/error")
+		if game_hud:
+			game_hud.show_toast("%s: %d use%s left" % [items.display_name(id), left, "" if left == 1 else "s"]))
 	Sound.attach(self)   # it listens to the player, particles, pieces and mobs (ADR 0044)
 
 
@@ -539,6 +553,7 @@ func _save_blocks() -> void:
 		mobs.save_file(_save_path("mobs"))   # animals move all the time: always written
 	if atmosphere != null:
 		_save_json(_save_path("calendar"), atmosphere.calendar.to_dict())   # the date moves all the time too
+	world_map.save()   # explored map tiles that changed
 
 
 ## The progression book (ADR 0028): progress saved per world, item tasks
@@ -546,6 +561,10 @@ func _save_blocks() -> void:
 ## The look-at panel's extra line for a work piece: what it makes and how far it is.
 func _describe_block(p: Vector3i) -> String:
 	var e: RefCounted = blocks.at(p)
+	if e is ChestEntity and e.label != "":
+		return e.label   # the chest's name (plan item D11)
+	if e is GraveEntity:
+		return "Your things (%d stacks)%s: right click" % [e.count(), (", " + e.died_at) if e.died_at != "" else ""]
 	if e is ClayFormEntity:
 		var c := e as ClayFormEntity
 		if not c.has_recipe():
@@ -664,7 +683,7 @@ func _player_dict() -> Dictionary:
 	return {"version": 1, "pos": [p.x, p.y, p.z], "yaw": player._yaw, "pitch": player._pitch, "spawn": [s.x, s.y, s.z],
 		"game_mode": player.game_mode, "flying": player.flying, "health": player_inv.health, "selected": player_inv.selected,
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
-		"offhand": player_inv.offhand(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s}
+		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s}
 
 
 func _load_player() -> void:
@@ -691,6 +710,10 @@ func _load_player() -> void:
 	for i in mini(bag.size(), player_inv.bag.size()):
 		player_inv.bag.set_slot(i, _stack_of(bag[i]))
 	player_inv.off.set_slot(0, _stack_of(d.get("offhand")))   # ADR 0055
+	world_map.waypoints.load_array(d.get("waypoints", []))
+	player_inv.favourites.clear()
+	for i in d.get("favourites", []):
+		player_inv.favourites[int(i)] = true
 	player_inv.select(int(d.get("selected", 0)))
 	player_inv.health = clampi(int(d.get("health", player_inv.max_health)), 1, player_inv.max_health)
 	player_inv.health_changed.emit(player_inv.health)
@@ -806,6 +829,10 @@ func _on_broken(p: Vector3i, drops: Array) -> void:
 	if _break_station(p, drops):
 		return
 	var piece: RefCounted = blocks.at(p)
+	if piece is GraveEntity:
+		for w in waypoints.list.duplicate():
+			if w["kind"] == "grave" and (w["pos"] as Vector3i) == piece.pos:
+				waypoints.remove(int(w["id"]))
 	if work and BlockEntities.is_work(piece):
 		# any voxel of a work piece takes all of it, view and footprint (bug report 2026-10-25: a broken
 		# firepit's other voxels stayed as ghosts when the break was not on its anchor)
@@ -1262,6 +1289,49 @@ func _on_inventory_toggled(open: bool) -> void:
 		inv_screen.open()
 	else:
 		inv_screen.close()
+		if map_screen:
+			map_screen.close()
+
+
+## Chests and storage pots within Settings.quick_stack_m of the player (quick-stack, plan item D11).
+func _nearby_chests() -> Array:
+	var out := []
+	var r := Settings.m2v(Settings.quick_stack_m)
+	for k in ["chest", "storage_pot"]:
+		for e in blocks.all_of(k):
+			if (Vector3(e.pos) + Vector3.ONE * Settings.BLOCK * 0.5).distance_to(player.position) <= r:
+				out.append(e)
+	return out
+
+
+## M: the full map (plan item D10).
+func _open_map() -> void:
+	if map_screen == null or player.ui_open:
+		return
+	player.set_ui_open(true, false)
+	map_screen.open()
+
+
+## The explored map, the minimap, the map screen and the waypoint beams.
+func _setup_maps() -> void:
+	world_map.name = "WorldMap"
+	add_child(world_map)
+	world_map.setup(self)
+	minimap = Minimap.new()
+	minimap.name = "Minimap"
+	game_hud.add_child(minimap)
+	minimap.setup(self)
+	map_screen = MapScreen.new()
+	map_screen.name = "MapScreen"
+	add_child(map_screen)
+	map_screen.setup(self)
+	map_screen.closed.connect(func() -> void:
+		if player.ui_open:
+			player.set_ui_open(false))
+	waypoint_markers = WaypointMarkers.new()
+	waypoint_markers.name = "WaypointMarkers"
+	add_child(waypoint_markers)
+	waypoint_markers.setup(self)
 
 
 func _on_screen_closed(dropped: Array) -> void:
@@ -1271,9 +1341,55 @@ func _on_screen_closed(dropped: Array) -> void:
 
 func _on_died() -> void:
 	print("player died at %s, respawning" % player.position)
+	if GameMode.rule(player.game_mode, "consumes_items"):
+		_make_grave(Vector3i(player.position.floor()))   # survival: it all stays where you fell (plan item D12)
 	player.respawn_at(_spawn_pos)
 	if survival:
 		survival.reset()
+
+
+## Everything the player carries (inventory, offhand, bag and what is in it, the cursor, the crafting
+## grid) goes into a grave at the first free block at or above `feet` (lava, water and plants make way;
+## up to 32 blocks up). It gets a waypoint and its coordinates go to chat. Nothing to keep: no grave.
+func _make_grave(feet: Vector3i) -> GraveEntity:
+	if inv_screen and inv_screen.is_open:
+		inv_screen.close()
+	var stacks: Array = []
+	for i in player_inv.inv.size():
+		stacks.append(player_inv.inv.get_slot(i))
+		player_inv.inv.set_slot(i, {})
+	stacks.append(player_inv.offhand())
+	player_inv.off.set_slot(0, {})
+	for i in player_inv.bag.size():
+		stacks.append(player_inv.bag.get_slot(i))
+		player_inv.bag.set_slot(i, {})
+	stacks.append(player_inv.bag_item)
+	player_inv.bag_item = {}
+	stacks.append(player_inv.cursor)
+	player_inv.cursor = {}
+	stacks = stacks.filter(func(s: Dictionary) -> bool: return not s.is_empty())
+	if stacks.is_empty() or work == null:
+		return null
+	var anchor := BlockEntities.anchor_for(feet)
+	for _k in 32:
+		var free := true
+		for c in BlockEntities.cube(anchor):
+			var m := get_world_voxel(c)
+			if not (m == GameMaterials.AIR or player._placeable(m)):
+				free = false
+				break
+		if free:
+			break
+		anchor += Vector3i(0, Settings.BLOCK, 0)
+	var g: GraveEntity = work._create(anchor, "grave", GameMaterials.WORK_BLOCK)
+	g.set_stacks(stacks)
+	if atmosphere:
+		g.died_at = atmosphere.calendar.date_text()
+	waypoints.add("Grave", anchor, "grave")
+	if chat:
+		chat.add_message("You died. Your things are in a grave at %d %d %d (a waypoint on the map, M)." % [anchor.x, anchor.y, anchor.z])
+	player_inv.changed.emit()
+	return g
 
 
 # ---------------- item entities ----------------
@@ -1315,6 +1431,11 @@ func _update_items(delta: float) -> void:
 			var got: int = e.stack["count"] - left
 			if got > 0:
 				picked_up_total[e.stack["id"]] = int(picked_up_total.get(e.stack["id"], 0)) + got
+				if game_hud:
+					var u := items.units(e.stack["id"])   # voxel items count in blocks here
+					game_hud.note_pickup(items.display_name(e.stack["id"]), maxi(1, got / u) if u > 1 else got)
+			if left > 0 and game_hud:
+				game_hud.note_full()
 			if left <= 0:
 				item_stats["picked"] += 1
 				e.queue_free()
@@ -1408,6 +1529,7 @@ func snapshot() -> Dictionary:
 		"projectiles": projectiles.stats if projectiles else {},
 		"gadgets": gadgets.stats if gadgets else {},
 		"weather": weather.summary() if weather else {},
+		"map": world_map.summary(),
 		"torches": torch_lights.stats if torch_lights else {},
 		"mobs": mobs.summary() if mobs else {},
 		"farm": farming.summary() if farming else {},

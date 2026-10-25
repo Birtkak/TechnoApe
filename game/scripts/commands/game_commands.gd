@@ -97,6 +97,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("prefab", "/prefab save <category> <name> | place <category> <name> [at x y z] | list", "Save the selected box as a prefab, place one, or list them", _prefab)
 	reg.register("chop", "/chop [cam]", "Chop through the nearest big trunk 8-20 m away like a player would: 1 m brush digs at 1.5 m up, one every 0.3 s", _chop)
 	reg.register("weather", "/weather [clear|rain] [seconds]", "Show or set the weather (rain turns to snow below 0 C); a forest fire brings rain on its own", _weather, [["clear", "rain"]])
+	reg.register("waypoint", "/waypoint [add <name>|remove <name>|list]", "Waypoints (also on the map, M): add one where you stand", _waypoint, [["add", "remove", "list"]], ["wp"])
+	reg.register("map", "/map", "Open the full map", _map)
 	reg.register("ignite", "/ignite", "Set what you look at on fire, as flint and steel would (up to the laser's range)", _ignite)
 	reg.register("gadget", "/gadget <item> [sneak]", "Use a playtest gadget where you look, as a right click would (/kit gadgets gives them all)", _gadget, [_gadget_ids, ["sneak"]])
 	reg.register("laser", "/laser [seconds] [sweep_deg]", "Fire the laser cutter where you look for a while (default 1.5 s), turning across sweep_deg (default 20)", _laser)
@@ -461,6 +463,39 @@ func _weather(args: PackedStringArray) -> Dictionary:
 	if not w.set_weather(args[0].to_lower(), secs):
 		return CommandRegistry.fail("Usage: /weather [clear|rain] [seconds]")
 	return CommandRegistry.ok("Weather: %s" % args[0].to_lower())
+
+
+func _waypoint(args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("waypoints") == null or player == null:
+		return CommandRegistry.fail("No world")
+	var wps: Waypoints = main.waypoints
+	var sub := args[0].to_lower() if args.size() > 0 else "list"
+	var wp_name := " ".join(args.slice(1)) if args.size() > 1 else ""
+	match sub:
+		"add":
+			var p := Vector3i(player.position.floor())
+			wps.add(wp_name, p)
+			return CommandRegistry.ok("Waypoint %s at %d %d %d" % [wps.list[-1]["name"], p.x, p.y, p.z])
+		"remove":
+			for w in wps.list:
+				if String(w["name"]).to_lower() == wp_name.to_lower():
+					wps.remove(int(w["id"]))
+					return CommandRegistry.ok("Removed %s" % wp_name)
+			return CommandRegistry.fail("No waypoint %s" % wp_name)
+		"list":
+			var lines := []
+			for w in wps.list:
+				var p: Vector3i = w["pos"]
+				lines.append("%s (%d %d %d)" % [w["name"], p.x, p.y, p.z])
+			return CommandRegistry.ok("Waypoints: " + (", ".join(lines) if not lines.is_empty() else "none"))
+	return CommandRegistry.fail("Usage: /waypoint [add <name>|remove <name>|list]")
+
+
+func _map(_args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("map_screen") == null:
+		return CommandRegistry.fail("No world")
+	main.call_deferred("_open_map")   # after the chat has closed and given the mouse back
+	return CommandRegistry.ok("Map")
 
 
 func _ignite(_args: PackedStringArray) -> Dictionary:

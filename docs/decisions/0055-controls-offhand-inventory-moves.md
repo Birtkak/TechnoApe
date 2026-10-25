@@ -1,4 +1,4 @@
-# ADR 0055: Minecraft controls, the offhand, and inventory moves from the screen
+# ADR 0055: Minecraft controls, the offhand, inventory moves, maps, quality of life, graves
 
 Status: accepted (2026-10-25)
 
@@ -12,6 +12,9 @@ Bug reports of 2026-10-25 (part D of `docs/plans/2026-10-25-bug-report-split.md`
 - 02-56-13: drop items by clicking outside the inventory or with Q over a slot; a trash slot.
 - 02-57-10: an offhand like Minecraft and Vintage Story, to make in-world crafting easier.
 - 02-23-50: update the kits.
+- Later requests the same night (plan items D10-D12): a minimap and a full map with waypoints, quality of
+  life (auto-refill, durability warnings, a pickup feed, key remapping, chest sorting / quick-stack /
+  labels / favourite slots), and death with stakes (a grave).
 
 Shift used to sprint and to sneak at once (the `sprint` action), Ctrl flew down, F toggled flight.
 
@@ -48,6 +51,31 @@ Shift used to sprint and to sneak at once (the `sprint` action), Ctrl flew down,
    freshness, wear, heat, work pieces and gadget data survive.
 8. **Kits** count blocks for voxel items (they counted voxels: `"stone": 64` gave one block), and every
    kit lists today's items; new `fire` and `clutter` kits.
+
+9. **Maps (plan item D10; developer: shaded relief, coloured pins with a beam, minimap top right, square,
+   north up).** `WorldMap` keeps the explored world as 128 m tiles of 0.5 m pixels (RGBA8, saved per
+   world as PNGs): alpha 0 unexplored, 255 the generated terrain's colour (`FineGen.map_image` on a
+   worker thread, 1 m samples), else the real surface (material, liquid depth, height) from the native
+   `SimWorld.surface_map` of the live window (part A adds it; until it is merged the map shows
+   generated terrain only, so digs and builds appear once it is in). `map_relief.gdshader` colours
+   each material by its atlas tile's average and shades the relief from the north-west; water darkens
+   with depth. `MapView` draws tiles, pins and the player arrow; the HUD `Minimap` (corner and size in
+   Settings, 10 redraws a second, voxel coordinates and the biome below it, moved down under F3's text)
+   and `MapScreen` (M: drag, wheel zoom, Space centres, right click adds / renames / recolours / deletes
+   waypoints). `Waypoints` (`main.waypoints.add(name, pos, kind)`) are saved with the player;
+   `WaypointMarkers` raise a beam of the pin's colour with the name and distance above it.
+10. **Quality of life (plan item D11).** Auto-refill (a hand that runs out or whose tool breaks takes the
+    same item from the inventory), a warning sound and toast when a tool enters its last tenth (durability
+    bars existed), a pickup feed ("+3 Flint", "Inventory full") bottom right, every gameplay key rebindable
+    in Settings (saved under `[keys]` in user://settings.cfg; fixed keys listed below), chests with a
+    Sort button, a Stack button (quick-stack into chests within `Settings.quick_stack_m` that already hold
+    the item) and a name shown on the screen and when aimed at, and favourite slots (Alt + click, a gold
+    corner) that sort, quick-stack, shift-click and refill leave alone.
+11. **Graves (plan item D12; developer: nothing stays).** Dying in survival puts everything carried
+    (inventory, offhand, bag and its contents, cursor) into a `GraveEntity` at the death spot (the first
+    free block upward), with a "grave" waypoint and the coordinates in chat. It never despawns; a right
+    click gives it all back (what does not fit pops out) and removes it and its waypoint; breaking it
+    spills it. Creative keeps everything.
 
 ## Consequences
 - Muscle memory from Minecraft works; Shift no longer sprints.

@@ -14,6 +14,13 @@ extends CanvasLayer
 
 signal closed(dropped: Array)
 signal drop_requested(stack: Dictionary)   # thrown out into the world in front of the player
+## Plan item D11: Alt + click marks a favourite slot (sort, quick-stack, shift-click and refill leave it),
+## Sort sorts the main grid or the open chest, Stack moves what nearby chests already hold into them,
+## and a chest's name can be typed over its title.
+var nearby_chests: Callable   # () -> Array of chest entities within reach (Main)
+var _sort_button: Button
+var _stack_button: Button
+var _label_edit: LineEdit
 
 const S := 36          # slot pitch (vanilla 18 px at 2x)
 const PANEL := Vector2(352, 332)
@@ -162,6 +169,7 @@ func _build_player_slots() -> void:
 		sv.index = i
 		sv.group = "inv"
 		sv.clicked.connect(_on_slot_clicked.bind(i))
+		sv.alt_clicked.connect(func() -> void: player_inv.toggle_favourite(i))
 		_panel.add_child(sv)
 		_slots.append(sv)
 	for sv in _bag_slots:
@@ -189,12 +197,41 @@ func _build_player_slots() -> void:
 		_offhand_slot.group = "offhand"
 		_offhand_slot.clicked.connect(func(button: int, shift: bool) -> void: player_inv.click_offhand(button, shift))
 		_panel.add_child(_offhand_slot)
+	if _sort_button == null:
+		_sort_button = _small_button("Sort", func() -> void:
+			if _container != null and _container.kind in ["chest", "storage_pot"]:
+				player_inv.sort_container()
+			else:
+				player_inv.sort_inventory())
+		_stack_button = _small_button("Stack", func() -> void:
+			if nearby_chests.is_valid():
+				player_inv.quick_stack(nearby_chests.call()))
+		_stack_button.tooltip_text = "Move what nearby chests already hold into them (favourites stay)"
+		_label_edit = LineEdit.new()
+		_label_edit.placeholder_text = "Name this chest"
+		_label_edit.add_theme_font_size_override("font_size", 13)
+		_label_edit.custom_minimum_size = Vector2(150, 0)
+		_label_edit.visible = false
+		_label_edit.text_changed.connect(func(t: String) -> void:
+			if _container != null and "label" in _container:
+				_container.label = t.strip_edges())
+		_panel.add_child(_label_edit)
 	if _trash_slot == null:
 		_trash_slot = SlotView.new()
 		_trash_slot.position = Vector2(-S - 12, 284)
 		_trash_slot.hint = "Trash"
 		_trash_slot.clicked.connect(func(_b: int, _s: bool) -> void: player_inv.click_trash())
 		_panel.add_child(_trash_slot)
+
+
+func _small_button(text: String, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 12)
+	b.pressed.connect(cb)
+	_panel.add_child(b)
+	return b
 
 
 func _clear_mode_slots() -> void:
@@ -278,7 +315,7 @@ func open_container(c: RefCounted) -> void:
 		sv.clicked.connect(_on_container_clicked.bind(i))
 		_panel.add_child(sv)
 		_container_slots.append(sv)
-	_title.text = c.title
+	_title.text = c.label if "label" in c and c.label != "" else c.title
 	_title.position = Vector2(16, 8) if c.kind == "chest" or c.kind == "storage_pot" else Vector2(176 - c.title.length() * 4, 8)
 	_inv_label.visible = true
 	_show()
@@ -313,6 +350,16 @@ func _refresh() -> void:
 		return
 	for i in _slots.size():
 		_slots[i].set_stack(player_inv.items, player_inv.inv.get_slot(i))
+		_slots[i].favourite = player_inv.favourites.has(i)
+	var chest: bool = _container != null and _container.kind in ["chest", "storage_pot"]
+	_sort_button.position = Vector2(PANEL.x - 56, 140) if not chest else Vector2(PANEL.x - 56, 4)
+	_stack_button.position = Vector2(PANEL.x - 112, 140)
+	_stack_button.visible = nearby_chests.is_valid()
+	_label_edit.visible = chest
+	if chest:
+		_label_edit.position = Vector2(PANEL.x - 220, 4)
+		if not _label_edit.has_focus():
+			_label_edit.text = _container.label
 	var short := player_inv.craft.short_slots()
 	for i in _craft_slots.size():
 		var st := player_inv.craft.grid.get_slot(i)
@@ -567,7 +614,13 @@ func _draw_arrow(o: Vector2, w: float, c: Color) -> void:
 class SlotView:
 	extends Control
 	signal clicked(button: int, shift: bool)
+	signal alt_clicked
 	var index := 0
+	var favourite := false:   # a gold corner (plan item D11)
+		set(v):
+			if v != favourite:
+				favourite = v
+				queue_redraw()
 	var group := ""           # PlayerInventory slot group ("inv", "bag", "craft", "container"); "" = no drags
 	var is_output := false
 	var hint := ""            # drawn faintly while the slot is empty (the bag slot)
@@ -625,10 +678,15 @@ class SlotView:
 		draw_rect(Rect2(size.x - 2, 0, 2, size.y), Color.WHITE)
 		if _hover:
 			draw_rect(Rect2(2, 2, size.x - 4, size.y - 4), Color(1, 1, 1, 0.35))
+		if favourite:
+			draw_colored_polygon(PackedVector2Array([Vector2(size.x - 12, 2), Vector2(size.x - 2, 2), Vector2(size.x - 2, 12)]), Color(1.0, 0.8, 0.2))
 		if hint != "" and _icon.stack.is_empty():
 			draw_string(ThemeDB.fallback_font, Vector2(4, size.y / 2.0 + 5), hint, HORIZONTAL_ALIGNMENT_CENTER, size.x - 8, 12, Color(0.3, 0.3, 0.3))
 
 	func _gui_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed and (event.button_index == MOUSE_BUTTON_LEFT or event.button_index == MOUSE_BUTTON_RIGHT):
-			clicked.emit(event.button_index, event.shift_pressed)
+			if event.alt_pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				alt_clicked.emit()
+			else:
+				clicked.emit(event.button_index, event.shift_pressed)
 			accept_event()
