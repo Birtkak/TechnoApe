@@ -31,6 +31,9 @@ The split follows the code, so no two sessions edit the same native sources:
   old, do other work and check again later; an older lock is stale, delete it. Keep a budget run under
   5 minutes, and take the lock only for the run itself. Windowed test runs (looks tests, captures)
   count too. Before measuring, also check that no other Godot process is running.
+  "Old" means the file's last-write time: while you hold the lock, refresh it every 2 minutes
+  (PowerShell: `(Get-Item $env:TEMP\technoape-gpu.lock).LastWriteTime = Get-Date`; Git Bash:
+  `touch "$TEMP/technoape-gpu.lock"`), so a long run is never taken for stale.
 - **Own godot-cpp per worktree.** A part that builds native code builds against its own copy of
   godot-cpp (copy `~/Tools/godot-cpp` into the worktree's scratch area and point `GODOT_CPP_PATH` at
   it). The shared copy's library gets rebuilt by each worktree, and the builds race.
