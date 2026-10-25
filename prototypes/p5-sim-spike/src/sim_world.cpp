@@ -113,7 +113,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("count_burning"), &SimWorld::count_burning);
     ClassDB::bind_method(D_METHOD("sample_cells", "center", "radius", "count", "seed", "mask"), &SimWorld::sample_cells);
     ClassDB::bind_method(D_METHOD("layer_histogram", "material"), &SimWorld::layer_histogram);
-    ClassDB::bind_method(D_METHOD("surface_map", "step"), &SimWorld::surface_map, DEFVAL(1));
+    ClassDB::bind_method(D_METHOD("surface_map", "min_xz", "count", "step", "y_base"), &SimWorld::surface_map);
     ClassDB::bind_method(D_METHOD("material_histogram"), &SimWorld::material_histogram);
     ClassDB::bind_method(D_METHOD("chunk_info", "chunk"), &SimWorld::chunk_info);
     ClassDB::bind_method(D_METHOD("get_stats"), &SimWorld::get_stats);
@@ -1758,35 +1758,33 @@ PackedInt32Array SimWorld::sample_cells(Vector3i p_center, int p_radius, int p_c
     return out;
 }
 
-Dictionary SimWorld::surface_map(int p_step) const {
-    wait_readable();
+PackedInt32Array SimWorld::surface_map(Vector2i p_min_xz, Vector2i p_count, int p_step, int p_y_base) const {
+    PackedInt32Array out;
+    if (busy_.load() || p_count.x <= 0 || p_count.y <= 0) return out;   // never waits: empty while a tick runs
     const int st = std::max(1, p_step);
-    const int nx = (W_ + st - 1) / st, nz = (D_ + st - 1) / st;
-    PackedByteArray ids;
-    PackedInt32Array heights;
-    ids.resize(nx * nz);
-    heights.resize(nx * nz);
-    uint8_t *iw = ids.ptrw();
-    int32_t *hw = heights.ptrw();
-    for (int cz = 0; cz < nz; cz++)
-        for (int cx = 0; cx < nx; cx++) {
-            const int x = cx * st, z = cz * st;
-            uint8_t m = 0;
-            int h = -1;
-            for (int y = H_ - 1; y >= 0; y--) {
-                if ((y & (CS - 1)) == CS - 1 && loaded_[cidx(x >> 4, y >> 4, z >> 4)] != 1) { y -= CS - 1; continue; }
-                const uint8_t c = cells_[idx(x, y, z)].mat;
-                if (c != 0) { m = c; h = y; break; }
+    out.resize((int64_t)p_count.x * p_count.y);
+    int32_t *w = out.ptrw();
+    for (int cz = 0; cz < p_count.y; cz++)
+        for (int cx = 0; cx < p_count.x; cx++) {
+            const int x = p_min_xz.x + cx * st, z = p_min_xz.y + cz * st;
+            int32_t e = 0;
+            if (x >= 0 && z >= 0 && x < W_ && z < D_) {
+                for (int y = H_ - 1; y >= 0; y--) {
+                    // chunks still loading (or never: above and below the terrain's full detail) are passed over
+                    if ((y & (CS - 1)) == CS - 1 && loaded_[cidx(x >> 4, y >> 4, z >> 4)] != 1) { y -= CS - 1; continue; }
+                    const uint8_t m = cells_[idx(x, y, z)].mat;
+                    const uint8_t ct = mats_[m].cell_type;
+                    if (m == 0 || ct == CELL_GAS || ct == CELL_FIRE) continue;
+                    int depth = 0;
+                    if (ct == CELL_LIQUID)
+                        for (int d = y; d >= 0 && depth < 255 && mats_[cells_[idx(x, d, z)].mat].cell_type == CELL_LIQUID; d--) depth++;
+                    e = (int32_t)m | (depth << 8) | ((y + p_y_base) << 16);
+                    break;
+                }
             }
-            iw[cx + nx * cz] = m;
-            hw[cx + nx * cz] = h;
+            w[cx + p_count.x * cz] = e;
         }
-    Dictionary d;
-    d["size"] = Vector2i(nx, nz);
-    d["step"] = st;
-    d["ids"] = ids;
-    d["heights"] = heights;
-    return d;
+    return out;
 }
 
 PackedInt32Array SimWorld::layer_histogram(int p_material) const {

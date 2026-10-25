@@ -664,16 +664,6 @@ func sample_cells(center_world: Vector3i, radius: int, count: int, rng_seed: int
 	return r
 
 
-## Minimap feed: the top non-air cell of every `step`-th column of the window (SimWorld.surface_map) plus
-## "origin" (world voxel of column (0, 0) and of height 0): world x = origin.x + cx * step, world y = origin.y + h.
-func surface_map(step := 4) -> Dictionary:
-	if not _ready:
-		return {}
-	var d := sim.surface_map(step)
-	d["origin"] = origin * Settings.CHUNK
-	return d
-
-
 ## True when the local chunk `lc` lies inside the window.
 func is_chunk_in_window(lc: Vector3i) -> bool:
 	return lc.x >= 0 and lc.y >= 0 and lc.z >= 0 and lc.x < size_chunks.x and lc.y < size_chunks.y and lc.z < size_chunks.z

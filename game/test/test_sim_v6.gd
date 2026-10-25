@@ -299,3 +299,21 @@ func test_loaded_water_stays_where_it_is() -> void:
 	_load_slab(w, Vector3i(0, 0, 0), 1, 6, GameMaterials.WATER_STATIC)   # beside open floor, as loaded
 	_run(w, 120)
 	assert_int(w.count_material(GameMaterials.WATER_STATIC)).is_equal(16 * 5 * 16)
+
+
+## Part D's minimap feed: the top cell that is not air, gas or fire, packed with the depth of a liquid top.
+func test_surface_map_packs_the_top_cell() -> void:
+	var w := _world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 10, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(4, 10, 4), Vector3i(8, 13, 8), GameMaterials.WATER)   # a pool 3 deep
+	w.fill_box(Vector3i(20, 10, 20), Vector3i(21, 14, 21), GameMaterials.STEAM)   # gas is passed over
+	var m: PackedInt32Array = w.surface_map(Vector2i(0, 0), Vector2i(12, 12), 4, 100)
+	assert_int(m.size()).is_equal(144)
+	var pool: int = m[1 + 12 * 1]   # column (4, 4)
+	assert_int(pool & 255).is_equal(GameMaterials.WATER)
+	assert_int((pool >> 8) & 255).is_equal(3)
+	assert_int(pool >> 16).is_equal(12 + 100)
+	var rock: int = m[5 + 12 * 5]   # column (20, 20): stone under the steam
+	assert_int(rock & 255).is_equal(GameMaterials.STONE)
+	assert_int(rock >> 16).is_equal(9 + 100)
+	assert_int(w.surface_map(Vector2i(60, 0), Vector2i(1, 1), 1, 0)[0]).is_equal(0)   # outside the window

@@ -171,11 +171,11 @@ public:
     // flags) for loaded cells whose material has a nonzero byte in p_mask (256 bytes) or that burn.
     // Never waits: returns nothing while a tick runs (the caller tries again next frame).
     PackedInt32Array sample_cells(Vector3i p_center, int p_radius, int p_count, int p_seed, const PackedByteArray &p_mask) const;
-    // Minimap feed (part D): the top non-air cell of every step-th column of the window, nearest the sky first.
-    // {size: Vector2i columns, step, ids: PackedByteArray (material, 0 = none or still loading), heights:
-    // PackedInt32Array (window-local y, -1 = none)}; column (cx, cz) at index cx + size.x * cz is local cell
-    // (cx * step, cz * step). Waits for a running tick like get_voxel (not for the pre-tick phase).
-    Dictionary surface_map(int p_step) const;
+    // Minimap feed (part D): count.x * count.y columns from window-local (min_xz.x, min_xz.y), every step voxels,
+    // index cx + count.x * cz. Each: the first cell from the window top down that is not air, gas or fire, as
+    // material | liquid_depth << 8 | (y + y_base) << 16 (liquid_depth: liquid cells down from a liquid top, at most
+    // 255, else 0); 0 = nothing there or not loaded (chunks still loading are passed over). Empty while a tick runs.
+    PackedInt32Array surface_map(Vector2i p_min_xz, Vector2i p_count, int p_step, int p_y_base) const;
     PackedInt32Array layer_histogram(int p_material) const;
     PackedInt32Array material_histogram() const;
     Dictionary chunk_info(Vector3i p_chunk) const;
