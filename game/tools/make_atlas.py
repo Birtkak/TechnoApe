@@ -15,7 +15,8 @@ Tiles (index = row*4 + col):
 77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84 leaf litter; 85 oak bark; 86 pebbles 87 flint
 88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98 cobblestone 99 bricks (patterned, ADR 0039); 100 blueberry bush; 101 kelp 102 seagrass 103 seashell (ADR 0047);
 104-111 reserved (part B of the 2026-10-25 split); 112-114 wheat stalks green / turning / golden, 115 wheat ear,
-116 carrot leaves 117 carrot shoulder, 118 torch stick 119 torch wrap 120 torch flame (ADR 0053); 121-127 free (part C); 128+ parts D, E
+116 carrot leaves 117 carrot shoulder, 118 torch stick 119 torch wrap 120 torch flame (ADR 0053); 121-135 reserved (parts C, D)
+136-170 rock kinds, cobbles, bricks, clutter, pyrite and ochres (tools/atlas_rocks.py, ADR 0057)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -23,9 +24,11 @@ import random
 
 from PIL import Image
 
+import atlas_rocks
+
 TILE = 16
 COLS = 8
-ROWS = 16  # 128 tiles; rows grow at the bottom so tile indices keep their meaning
+ROWS = 22  # 176 tiles; rows grow at the bottom so tile indices keep their meaning
 
 random.seed(1337)
 
@@ -823,6 +826,9 @@ tiles = [
     stones_pattern(["#3a1a0a", "#5e2c12", "#7e3e18", "#a0521e", "#c06a24", "#e08a30", "#f8b048", "#ffe08a"], 119, n=48),   # 119 torch wrap: cloth glowing with embers
     stripes(["#c03408", "#e0580e", "#f07418", "#f89028", "#fcae3c", "#ffc850", "#ffe070", "#fff4c0"], 120, "rows", (1, 2), 0.1),   # 120 torch flame: red to a pale tip (glows, flame_tile)
 ]
+# 104-135: other parts' rows (2026-10-25 split); empty here until the branches merge
+tiles += [Image.new("RGBA", (TILE, TILE)) for _ in range(136 - len(tiles))]
+tiles += atlas_rocks.tiles(palette, stones_pattern, stripes, spotted_cap)   # 136-170 (ADR 0057)
 assert len(tiles) <= COLS * ROWS, len(tiles)
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))

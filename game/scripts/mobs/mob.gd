@@ -358,6 +358,8 @@ func _think() -> void:
 func _think_goal() -> void:
 	if def.has("predator") and _predator_goal():
 		return
+	if WildMoves.think(self):   # flee, swim, fly, paddle (ADR 0058)
+		return
 	# panic: run to random spots around until it wears off
 	if _panic_t > 0.0:
 		goal = "panic"
@@ -465,7 +467,7 @@ func _predator_goal() -> bool:
 			return true
 	if _hunger_t <= 0.0 and not is_baby():
 		if _prey == null or not is_instance_valid(_prey) or _prey.is_dead():
-			_prey = manager.find_prey(self)
+			_prey = WildMoves.pack_prey(self, manager.find_prey(self))
 			if _prey == null:
 				_hunger_t = 20.0   # nothing about: look again later
 				return false
@@ -549,6 +551,8 @@ func _finish_graze() -> void:
 # ---------------- movement ----------------
 
 func _move(delta: float) -> void:
+	if WildMoves.move(self, delta):   # swimmers and fliers (ADR 0058)
+		return
 	var want := Vector3.ZERO
 	if _target != Vector3.INF and _speed > 0.0:
 		if _reached():
@@ -583,6 +587,7 @@ func _move(delta: float) -> void:
 		velocity.y -= Settings.m2v(Settings.gravity_m) * delta
 		if def.get("slow_fall", false):
 			velocity.y = maxf(velocity.y, -Settings.m2v(1.2))   # chickens flap down
+	WildMoves.hop(self, want)
 	var got := _body.move(position, velocity, delta, world.terrain, on_floor)
 	position += got
 	var blocked := _body.blocked.x > 0.0 or _body.blocked.z > 0.0

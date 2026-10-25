@@ -47,7 +47,7 @@ const PALETTE: Array = [
 	[236, 236, 230], [214, 212, 204], [218, 190, 160], [150, 120, 96], [240, 162, 160], [212, 116, 120],
 	[250, 250, 248], [26, 22, 22], [120, 52, 60], [250, 186, 182], [226, 212, 186],
 	[200, 40, 36], [236, 186, 60], [104, 70, 44], [70, 46, 30], [160, 124, 90],
-]
+] + WildModels.PALETTE   # the wild animals' colours (ADR 0058), from index WildModels.BASE
 
 static var _material: StandardMaterial3D
 static var _tiles: PackedInt32Array
@@ -58,6 +58,7 @@ var head: MeshInstance3D
 var body: MeshInstance3D
 var legs: Array[MeshInstance3D] = []   # front left, front right, back left, back right (chickens: left, right)
 var wings: Array[MeshInstance3D] = []  # chickens
+var tails: Array[MeshInstance3D] = []  # foxes, wolves, fish (WildModels.animate)
 var flapping := false                  # set by Mob while in the air
 var _phase := 0.0
 var _time := 0.0
@@ -108,6 +109,10 @@ static func prewarm() -> void:
 		m.species = key[0]
 		for part in key[1]:
 			m._mesh(part)
+	for sp in WildModels.LAYOUT:
+		m.species = sp
+		for part in WildModels.parts(sp):
+			m._mesh(part)
 	m.free()
 
 
@@ -121,7 +126,9 @@ static func create(p_species: String, sheared: bool) -> MobModel:
 func _ready() -> void:
 	material()
 	var s := 1.0 / GRID
-	if species == "chicken":
+	if WildModels.has(species):
+		WildModels.layout(self)
+	elif species == "chicken":
 		body = _part("body", Vector3(0, 7, 0) * s)
 		head = _part("head", Vector3(0, 15, 6) * s)
 		for p in [Vector3(2.5, 8, 0), Vector3(-2.5, 8, 0)]:
@@ -188,11 +195,8 @@ func animate(delta: float, speed: float, graze: float, head_yaw: float, head_pit
 		_phase += delta * minf(mps, 4.0) * STRIDE_RAD_PER_M
 	var amp := clampf(mps / 1.2, 0.0, 1.0) * 0.6 if moving else 0.0
 	var sw := sin(_phase) * amp
-	legs[0].rotation.x = sw
-	legs[1].rotation.x = -sw
-	if legs.size() == 4:
-		legs[3].rotation.x = sw
-		legs[2].rotation.x = -sw
+	for i in legs.size():   # pairs, left and right opposite, each pair opposite the one before
+		legs[i].rotation.x = sw if (i % 2 == 0) == ((i / 2) % 2 == 0) else -sw
 	for i in wings.size():
 		var flap := sin(_time * 28.0) * 0.9 if flapping else 0.0
 		wings[i].rotation.z = flap * (1.0 if i == 0 else -1.0)
@@ -202,6 +206,8 @@ func animate(delta: float, speed: float, graze: float, head_yaw: float, head_pit
 	head.rotation = Vector3(head_pitch * (1.0 - graze) + graze * 1.05 + chew, head_yaw * (1.0 - graze), 0)
 	head.position = _head_rest + Vector3(0, -graze * 0.35, graze * 0.05)
 	rotation.z = dying * PI * 0.5
+	if not tails.is_empty() or WildModels.has(species):
+		WildModels.animate(self, Settings.v2m(speed))
 
 
 func _part(part: String, pos: Vector3) -> MeshInstance3D:
@@ -246,7 +252,7 @@ static func outward(mesh: ArrayMesh) -> ArrayMesh:
 # ---------------- cell models ----------------
 
 ## Paints that are features (eyes, noses, beaks, combs): they win a merged cell and keep one shade.
-const FEATURES := [EYE, EYE_WHITE, NOSTRIL, RED, YELLOW, SKIN_DARK, PINK_DARK, MUZZLE]
+const FEATURES := [EYE, EYE_WHITE, NOSTRIL, RED, YELLOW, SKIN_DARK, PINK_DARK, MUZZLE, WildModels.TUSK, WildModels.BILL, WildModels.SPIDER_EYE, WildModels.ANTLER]
 const CRISP := [EYE, EYE_WHITE, NOSTRIL]
 
 
@@ -326,6 +332,8 @@ static func _build(sp: String, part: String) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(sp + part)
 	var s := 1.0 / GRID
+	if WildModels.has(sp):
+		return WildModels.build(sp, part)
 	if sp == "chicken":
 		match part:
 			"body":

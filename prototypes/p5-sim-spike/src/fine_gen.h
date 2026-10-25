@@ -11,6 +11,7 @@
 // ids in godot_voxel VoxelBuffer order (y fastest, then x, then z).
 
 #include "world_gen.h"
+#include "rock_types.h"
 
 #include <vector>
 
@@ -107,6 +108,7 @@ private:
     Ref<WorldGen> g_;
     bool uniform_blocks_ = false;
     FastNoiseLite n_ground_, n_ground2_, n_hump_, n_leaf_, n_litter_, n_meadow_, n_pool_;
+    technosim_rock::RockTypes rocks_;   // rock kinds, strata, new clutter (ADR 0057, rock_types.cpp)
 
     MacroPt macro_point(int mx, int mz, const WorldGen::Ruin *ruins, int nruins) const;
     float ground_noise(int x, int z) const;

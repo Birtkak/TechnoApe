@@ -20,7 +20,10 @@ func _init() -> void:
 	var points := int(args.get("points", "6"))
 	var spacing := Settings.m2v(float(args.get("spacing_m", "300")))
 	var watch := ["flower", "flower_red", "cornflower", "oxeye_daisy", "allium", "plant_stem", "mushroom_brown", "mushroom_red",
-		"mushroom_stem", "seashell", "kelp", "seagrass", "coal_ore", "iron_ore", "copper_ore", "tin_ore"]
+		"mushroom_stem", "seashell", "kelp", "seagrass", "coal_ore", "iron_ore", "copper_ore", "tin_ore",
+		"wild_strawberries", "hazelnuts", "acorns", "bones", "feathers", "pine_cone", "driftwood", "antler", "ice_shard",
+		"cave_crystal", "pyrite", "red_ochre", "yellow_ochre", "pebbles", "granite_stones", "diorite_stones", "limestone_stones",
+		"slate_stones", "marble_stones", "chalk_stones", "basalt_stones"]   # ADR 0057
 	var centers := []
 	for pz in points:
 		for px in points:

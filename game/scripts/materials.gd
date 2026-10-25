@@ -125,8 +125,26 @@ const KELP := 112                  # stands in water like Minecraft's waterlogge
 const SEAGRASS := 113
 const SEASHELL := 114
 const MUSHROOM_STEM := 115
+# 116..159: other parts of the 2026-10-25 split (placeholders until their branches merge)
+# Rock kinds, their cobbles, bricks and loose stones, more clutter, ruin pots (ADR 0057)
+const GRANITE := 160
+const DIORITE := 161
+const LIMESTONE := 162
+const SLATE := 163
+const MARBLE := 164
+const CHALK := 165
+const ROCK_KINDS := ["granite", "diorite", "limestone", "slate", "marble", "chalk"]   # natural, ids 160..165
+const COBBLE_KINDS := ["granite", "diorite", "limestone", "slate", "marble", "chalk", "basalt"]   # <kind>_cobble 166..172, <kind>_stones 181..187
+const BRICK_KINDS := ["stone", "granite", "diorite", "limestone", "slate", "marble", "chalk", "basalt"]   # <kind>_bricks 173..180
+const WILD_STRAWBERRIES := 188
+const CAVE_CRYSTAL := 197
+const CLAY_POT := 198              # ruin pots: any hit shatters them and rolls data/loot.json
+const CLAY_POT_CRACKED := 199
+const PYRITE := 200                # placed by E's generator for part F (striker): ids 200..202 are the start of F's range
+const RED_OCHRE := 201
+const YELLOW_OCHRE := 202
 
-const ATLAS_TILES := Vector2i(8, 16)   # rows grow at the bottom, so tile indices keep their meaning
+const ATLAS_TILES := Vector2i(8, 22)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -231,11 +249,11 @@ static func _build_defs() -> Array:
 			"on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 5},
 		{"name": "cobblestone", "cell_type": "solid", "pattern": true, "density": 10, "hp": 1000, "tiles": [98, 98, 98], "transparent": false},
 		{"name": "bricks", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [99, 99, 99], "transparent": false},
-	] + _clutter_defs() + _reserved_defs(116, 129) + _looks_defs() + _reserved_defs(133, 149)
+	] + _clutter_defs() + _reserved_defs(116, 129) + _looks_defs() + _reserved_defs(133, 159) + _rock_defs()
 
 
 ## Placeholders for ids other branches append (2026-10-25 split: A 116-119, B 120-129, C 130-149,
-## D 150-159), so every branch keeps its ids whatever order they merge in; a merge swaps a
+## D 150-159; E from 160), so every branch keeps its ids whatever order they merge in; a merge swaps a
 ## placeholder for the real definition. Nothing draws, collides or generates them.
 static func _reserved_defs(from: int, to: int) -> Array:
 	var out := []
@@ -259,6 +277,55 @@ static func _looks_defs() -> Array:
 		ear.merge(_crop_defs()[0], false)
 		_looks.append(ear)
 	return _looks
+
+
+static var _rocks := []
+
+## Ids 160..202 (ADR 0057): the six new rock kinds (stone and basalt make eight), a cobble for each
+## kind but stone (which has cobblestone), cut-stone bricks for all eight, loose stones lying on the
+## ground in each kind's colours (clutter pieces like the pebbles), new clutter, ruin pots, and pyrite
+## and the ochres for part F. Hardness lives in mining.json.
+static func _rock_defs() -> Array:
+	if not _rocks.is_empty():
+		return _rocks
+	var plant_burn := {"burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2}
+	var wood_burn := {"burnable": true, "fire_hp": 60, "autoignition_temperature": 30, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2}
+	var dens := {"granite": 11, "diorite": 11, "limestone": 9, "slate": 10, "marble": 11, "chalk": 7, "basalt": 11, "stone": 10}
+	for i in ROCK_KINDS.size():
+		var k: String = ROCK_KINDS[i]
+		_rocks.append({"name": k, "cell_type": "solid", "density": dens[k], "hp": 1000, "tiles": [136 + i, 136 + i, 136 + i], "transparent": false})
+	for i in COBBLE_KINDS.size():
+		_rocks.append({"name": COBBLE_KINDS[i] + "_cobble", "cell_type": "solid", "pattern": true, "density": dens[COBBLE_KINDS[i]], "hp": 1000, "tiles": [142 + i, 142 + i, 142 + i], "transparent": false})
+	for i in BRICK_KINDS.size():
+		_rocks.append({"name": BRICK_KINDS[i] + "_bricks", "cell_type": "solid", "pattern": true, "density": dens[BRICK_KINDS[i]], "hp": 1200, "tiles": [149 + i, 149 + i, 149 + i], "transparent": false})
+	for i in COBBLE_KINDS.size():
+		_rocks.append({"name": COBBLE_KINDS[i] + "_stones", "cell_type": "solid", "pattern": true, "density": dens[COBBLE_KINDS[i]], "hp": 10, "tiles": [142 + i, 142 + i, 142 + i], "transparent": false, "clutter": COBBLE_KINDS[i] + "_stones"})
+	var strawberries := {"name": "wild_strawberries", "cell_type": "solid", "pattern": true, "density": 8, "hp": 5, "tiles": [157, 157, 157], "transparent": false, "clutter": "flower"}   # on plant_stem leaves: one piece
+	strawberries.merge(plant_burn)
+	var pine_cone := {"name": "pine_cone", "cell_type": "solid", "pattern": true, "density": 6, "hp": 5, "tiles": [162, 162, 162], "transparent": false, "clutter": "pine_cone"}
+	pine_cone.merge(wood_burn)
+	var driftwood := {"name": "driftwood", "cell_type": "solid", "pattern": true, "density": 6, "hp": 10, "tiles": [163, 163, 163], "transparent": false, "clutter": "driftwood"}
+	driftwood.merge(wood_burn)
+	var feathers := {"name": "feathers", "cell_type": "solid", "pattern": true, "density": 2, "hp": 2, "tiles": [161, 161, 161], "transparent": false, "clutter": "feathers"}
+	feathers.merge(plant_burn)
+	_rocks.append_array([
+		strawberries,
+		{"name": "hazelnuts", "cell_type": "solid", "pattern": true, "density": 8, "hp": 5, "tiles": [158, 158, 158], "transparent": false, "clutter": "hazelnuts"},
+		{"name": "acorns", "cell_type": "solid", "pattern": true, "density": 8, "hp": 5, "tiles": [159, 159, 159], "transparent": false, "clutter": "acorns"},
+		{"name": "bones", "cell_type": "solid", "pattern": true, "density": 9, "hp": 20, "tiles": [160, 160, 160], "transparent": false, "clutter": "bones"},
+		feathers,
+		pine_cone,
+		driftwood,
+		{"name": "antler", "cell_type": "solid", "pattern": true, "density": 9, "hp": 20, "tiles": [164, 164, 164], "transparent": false, "clutter": "antler"},
+		{"name": "ice_shard", "cell_type": "solid", "density": 9, "hp": 10, "tiles": [27, 27, 27], "transparent": false, "clutter": "ice_shard"},
+		{"name": "cave_crystal", "cell_type": "solid", "pattern": true, "density": 12, "hp": 30, "tiles": [167, 167, 167], "transparent": false, "clutter": "cave_crystal"},
+		{"name": "clay_pot", "cell_type": "solid", "pattern": true, "density": 8, "hp": 10, "tiles": [165, 165, 165], "transparent": false, "clutter": "clay_pot", "shatter": "ruin_pot"},
+		{"name": "clay_pot_cracked", "cell_type": "solid", "pattern": true, "density": 8, "hp": 5, "tiles": [166, 166, 166], "transparent": false, "clutter": "clay_pot", "shatter": "ruin_pot"},
+		{"name": "pyrite", "cell_type": "solid", "pattern": true, "density": 12, "hp": 600, "tiles": [168, 168, 168], "transparent": false},
+		{"name": "red_ochre", "cell_type": "powder", "liquid_static": true, "density": 4, "tiles": [169, 169, 169], "transparent": false},
+		{"name": "yellow_ochre", "cell_type": "powder", "liquid_static": true, "density": 4, "tiles": [170, 170, 170], "transparent": false},
+	])
+	return _rocks
 
 
 static var _clutter := []
@@ -485,7 +552,7 @@ static var _ids := {}
 ## of a texel picked by the voxel's hash. Bit t of the result's int t / 32 is set for tile t: every tile
 ## of a material with "pattern": true (terrain_common.gdshaderinc, pattern_tiles).
 static func pattern_tiles() -> PackedInt32Array:
-	var bits := PackedInt32Array([0, 0, 0, 0])
+	var bits := PackedInt32Array([0, 0, 0, 0, 0, 0, 0, 0])   # tiles 0..255 (terrain_common.gdshaderinc)
 	for d in defs():
 		if d.get("pattern", false):
 			for t in d.get("tiles", []):

@@ -1176,6 +1176,9 @@ shape("world_vacuum", outline(art([
 sp("flint_and_steel", ("flint_and_steel", "steel"))
 sp("world_vacuum", ("world_vacuum", "hazard"))
 
+import item_sprites_e  # noqa: E402  rock kinds, clutter, fish (ADR 0057, 0058)
+item_sprites_e.add(globals())
+
 
 # ---------- validate + write ----------
 

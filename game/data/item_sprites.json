@@ -56,7 +56,27 @@
     "mushroom_brown": {"o": "#3a2414", "d": "#7a5131", "m": "#a8744a", "l": "#c08a5c", "h": "#efd7b0"},
     "mushroom_red": {"o": "#4a0c0c", "d": "#a51c1c", "m": "#c42828", "l": "#e04848", "h": "#f06a5a"},
     "kelp": {"o": "#1f2a0e", "d": "#4c5d22", "m": "#6f7f33", "l": "#9aa34e", "h": "#c8c070"},
-    "shell": {"o": "#8a5a4a", "d": "#c98f7c", "m": "#e8bdaa", "l": "#f8e2d6", "h": "#fff3ea"}
+    "shell": {"o": "#8a5a4a", "d": "#c98f7c", "m": "#e8bdaa", "l": "#f8e2d6", "h": "#fff3ea"},
+    "rock_granite": {"o": "#3b2f2b", "d": "#6e5850", "m": "#ad8b7e", "l": "#c7a99c", "h": "#e0cbc1"},
+    "rock_diorite": {"o": "#3e3d3a", "d": "#77766f", "m": "#b7b6b0", "l": "#dcdad4", "h": "#f1f0eb"},
+    "rock_limestone": {"o": "#4e4636", "d": "#7d7259", "m": "#b0a385", "l": "#d3c8ab", "h": "#e9e0c9"},
+    "rock_slate": {"o": "#1f2228", "d": "#353a42", "m": "#4e5560", "l": "#6c7480", "h": "#858d99"},
+    "rock_marble": {"o": "#6d6a65", "d": "#a8a59f", "m": "#d6d3cc", "l": "#efede8", "h": "#fbfaf7"},
+    "rock_chalk": {"o": "#7d7663", "d": "#b3ac97", "m": "#ddd7c6", "l": "#f2eee3", "h": "#fdfbf5"},
+    "rock_basalt": {"o": "#141417", "d": "#26262b", "m": "#3b3b41", "l": "#55555d", "h": "#6b6b74"},
+    "pyrite": {"o": "#3b3220", "d": "#8a7a44", "m": "#c9b467", "l": "#e2cf7c", "h": "#f6ebae"},
+    "acorn": {"o": "#2c1f10", "d": "#5a3e1c", "m": "#8a6a34", "l": "#a8844a", "h": "#c8a466"},
+    "roasted": {"o": "#1c1008", "d": "#3a2210", "m": "#5a3a1c", "l": "#74502a", "h": "#94703e"},
+    "hazel": {"o": "#2e1d10", "d": "#5a3a1a", "m": "#8a5c2e", "l": "#b98a4e", "h": "#d6ae72"},
+    "cone": {"o": "#24160b", "d": "#3e2713", "m": "#6f4721", "l": "#9a6a37", "h": "#cfa86c"},
+    "driftwood": {"o": "#4a443a", "d": "#7a7266", "m": "#a39b8c", "l": "#c4bcac", "h": "#e2dccf"},
+    "antler": {"o": "#3e2f1f", "d": "#7d6548", "m": "#bba786", "l": "#e0d3b8", "h": "#f6efe0"},
+    "ice": {"o": "#3a5a7a", "d": "#7ea8d0", "m": "#b3d6f4", "l": "#d6ebfb", "h": "#ffffff"},
+    "crystal": {"o": "#2a0f3e", "d": "#5a2482", "m": "#8a44b8", "l": "#b88ae6", "h": "#f0e2ff"},
+    "fish": {"o": "#1e3040", "d": "#3e6078", "m": "#6a90a8", "l": "#9cbccc", "h": "#dceaf0"},
+    "cooked_fish": {"o": "#3a200c", "d": "#7a4a22", "m": "#a86e3a", "l": "#c89058", "h": "#e8c08a"},
+    "fur": {"o": "#3a1a08", "d": "#7a3c14", "m": "#b0601e", "l": "#d0843a", "h": "#ecb878"},
+    "strawberry": {"o": "#4a0a10", "d": "#8a1418", "m": "#c41e26", "l": "#e8473c", "h": "#ff9a80"}
   },
   "shapes": {
     "handle": {
@@ -2235,6 +2255,192 @@
         "..oooddddddooo..",
         ".....oooooo....."
       ]
+    },
+    "flint_and_steel": {
+      "colors": {"f": "#2a2a34", "F": "#5a5a6e", "k": "#8e8ea8"},
+      "rows": [
+        "................",
+        "...oooo.........",
+        "..ohlllo........",
+        ".olmmmmdo.......",
+        ".olmooomdo......",
+        ".olmo..odo......",
+        ".olmo..odo......",
+        ".olmdo..o..oo...",
+        "..oddo....offo..",
+        "...oo....ofFFfo.",
+        "........ofFkFFfo",
+        ".......ofFkkFFfo",
+        ".......ofFkkkFfo",
+        "........offffffo",
+        ".........oooooo.",
+        "................"
+      ]
+    },
+    "world_vacuum": {
+      "colors": {"t": "#9ca6b2", "T": "#d0d8e2", "y": "#f2d84a", "g": "#1e1e22"},
+      "rows": [
+        "...........oo...",
+        "..........otTo..",
+        ".........otTdo..",
+        "........otTdo...",
+        "..ooo..otTdo....",
+        ".olllootTdo.....",
+        "olmmmltTdo......",
+        "lmmmmmmdo.......",
+        "lmyymmmdo.......",
+        "lmyymmmdo.......",
+        "lmmmmmmdo.......",
+        "lmmmmmmdo.......",
+        "oddddddo........",
+        ".ogooogo........",
+        "..o...o.........",
+        "................"
+      ]
+    },
+    "strawberry": {
+      "colors": {"s": "#f6e27a", "g": "#3e7e2a"},
+      "rows": [
+        "................",
+        "................",
+        "........g.......",
+        "........g.......",
+        "......g.g.g.....",
+        "....ogogogog....",
+        "...ohlllllllo...",
+        "...olmmmsmmdo...",
+        "...olsmmmmsdo...",
+        "...olmmmmmmso...",
+        "....olsmmsdo....",
+        ".....olmmdo.....",
+        ".....olsmdo.....",
+        "......oldo......",
+        ".......oo.......",
+        "................"
+      ]
+    },
+    "hazelnut": {
+      "colors": {"p": "#e8d6a8"},
+      "rows": [
+        "................",
+        "................",
+        "........o.......",
+        "......oodo......",
+        "....oohllloo....",
+        "...ohlmmmmllo...",
+        "..ohmmmmmmmmlo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "...oldmppmddo...",
+        "....ooppppoo....",
+        "......oooo......",
+        "................"
+      ]
+    },
+    "acorn": {
+      "colors": {"c": "#7c6a3a", "C": "#56482a"},
+      "rows": [
+        "................",
+        "........o.......",
+        "......ooCo......",
+        "...oooccccooo...",
+        "..occccCccccco..",
+        "..occcCcccCcco..",
+        "..ocCcccCcccCo..",
+        "..occCcccCccco..",
+        "...ohmccccmlo...",
+        "...olmmmmmmdo...",
+        "...olmmmmmmdo...",
+        "...olmmmmmmdo...",
+        "....olmmmmdo....",
+        "....oldddddo....",
+        ".....ooodoo.....",
+        "........o......."
+      ]
+    },
+    "pine_cone": {
+      "rows": [
+        "................",
+        ".......oo.......",
+        "......ohlo......",
+        ".....ohdmdo.....",
+        "....ohmmmmlo....",
+        "...odmdmdmdlo...",
+        "...olmmmmmmdo...",
+        "...oldmdmdmdo...",
+        "...olmmmmmmdo...",
+        "...odmdmdmddo...",
+        "...olmmmmmmdo...",
+        "...oldmdmdmdo...",
+        "....olmmmmdo....",
+        ".....odmddo.....",
+        "......oldo......",
+        ".......oo......."
+      ]
+    },
+    "driftwood": {
+      "rows": [
+        "................",
+        "................",
+        ".............oo.",
+        ".........oo.ohlo",
+        "........ohlohdo.",
+        "........oldldo..",
+        ".......ohdoldo..",
+        ".......olmldo...",
+        "......oolddo....",
+        ".....ohldoo.....",
+        "....ohdoo.......",
+        "...ohdo.........",
+        "..ohdo..........",
+        ".ohdo...........",
+        "..oo............",
+        "................"
+      ]
+    },
+    "antler": {
+      "rows": [
+        "................",
+        "......oo....oo..",
+        ".....ohlo..ohlo.",
+        ".....oldooohdo..",
+        ".....oldohlddoo.",
+        "......olldoolllo",
+        "..oo..oldo..ooo.",
+        ".ohloohdo.......",
+        "..olloldo.......",
+        "...olldo........",
+        "....oldo........",
+        "...ohdo.........",
+        "...oldo.........",
+        "..ohdo..........",
+        "..oldo..........",
+        "...oo..........."
+      ]
+    },
+    "fish": {
+      "colors": {"e": "#101418"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        ".....oooo.....o.",
+        "...oohllloo..oho",
+        "..oddddddddoohdo",
+        ".ohmmmmmmmmllmdo",
+        "ohmmemmmmmmmmmdo",
+        ".olmmmmmmmmddmdo",
+        "..oldmmmmddooldo",
+        "...ooldddoo..olo",
+        ".....oooo.....o.",
+        "................",
+        "................",
+        "................"
+      ]
     }
   },
   "sprites": {
@@ -2441,6 +2647,28 @@
     "spell_freeze_charge": {"layers": [{"shape": "spell_card", "colors": {"g": "#24406e", "G": "#315694", "k": "#192d4d"}}, {"shape": "glyph_freeze"}]},
     "spell_water_trail": {"layers": [{"shape": "spell_card", "colors": {"g": "#24406e", "G": "#315694", "k": "#192d4d"}}, {"shape": "glyph_water"}]},
     "spell_double_cast": {"layers": [{"shape": "spell_card", "colors": {"g": "#2a5a30", "G": "#397a41", "k": "#1d3f22"}}, {"shape": "glyph_double"}]},
-    "spell_light": {"layers": [{"shape": "spell_card", "colors": {"g": "#6a5620", "G": "#8f742b", "k": "#4a3c16"}}, {"shape": "glyph_light"}]}
+    "spell_light": {"layers": [{"shape": "spell_card", "colors": {"g": "#6a5620", "G": "#8f742b", "k": "#4a3c16"}}, {"shape": "glyph_light"}]},
+    "flint_and_steel": {"layers": [{"shape": "flint_and_steel", "palette": "steel"}]},
+    "world_vacuum": {"layers": [{"shape": "world_vacuum", "palette": "hazard"}]},
+    "granite_stone": {"layers": [{"shape": "rock", "palette": "rock_granite"}]},
+    "diorite_stone": {"layers": [{"shape": "rock", "palette": "rock_diorite"}]},
+    "limestone_stone": {"layers": [{"shape": "rock", "palette": "rock_limestone"}]},
+    "slate_stone": {"layers": [{"shape": "rock", "palette": "rock_slate"}]},
+    "marble_stone": {"layers": [{"shape": "rock", "palette": "rock_marble"}]},
+    "chalk_stone": {"layers": [{"shape": "rock", "palette": "rock_chalk"}]},
+    "basalt_stone": {"layers": [{"shape": "rock", "palette": "rock_basalt"}]},
+    "wild_strawberry": {"layers": [{"shape": "strawberry", "palette": "strawberry"}]},
+    "hazelnut": {"layers": [{"shape": "hazelnut", "palette": "hazel"}]},
+    "acorn": {"layers": [{"shape": "acorn", "palette": "acorn"}]},
+    "roasted_acorn": {"layers": [{"shape": "acorn", "palette": "roasted", "colors": {"c": "#3a2a14", "C": "#24180c"}}]},
+    "pine_cone": {"layers": [{"shape": "pine_cone", "palette": "cone"}]},
+    "driftwood": {"layers": [{"shape": "driftwood", "palette": "driftwood"}]},
+    "antler": {"layers": [{"shape": "antler", "palette": "antler"}]},
+    "ice_shard": {"layers": [{"shape": "crystal", "palette": "ice"}]},
+    "cave_crystal": {"layers": [{"shape": "crystal", "palette": "crystal"}]},
+    "pyrite": {"layers": [{"shape": "nugget", "palette": "pyrite"}]},
+    "raw_fish": {"layers": [{"shape": "fish", "palette": "fish"}]},
+    "cooked_fish": {"layers": [{"shape": "fish", "palette": "cooked_fish"}]},
+    "fur": {"layers": [{"shape": "hide", "palette": "fur"}]}
   }
 }
