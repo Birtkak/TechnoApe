@@ -51,6 +51,9 @@ func test_eating_fills_its_groups_stale_half_and_capped() -> void:
 	var wild := {"id": "wild_strawberry", "tags": ["food", "berry"], "food": {"hunger": 2}}
 	assert_dict(n.food_groups(wild)).is_equal({"fruit": 2.0})
 	assert_dict(n.food_groups({"id": "x", "tags": ["food"], "food": {"hunger": 2}})).is_empty()
+	# other parts' foods by id in nutrition.json (part F's cured meat): no line of theirs to touch
+	assert_dict(n.food_groups({"id": "smoked_meat", "tags": ["food"], "food": {"hunger": 6}})).is_equal({"meat": 4.0})
+	assert_dict(n.food_groups({"id": "smoked_meat", "nutrition": {"meat": 5}})).is_equal({"meat": 5.0})   # its own wins
 
 
 func test_bars_drain_with_time_and_effort() -> void:

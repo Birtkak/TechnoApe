@@ -18,6 +18,7 @@ var bonus_min_groups := 2
 var penalty_hp := 2
 var min_health := 12
 var tag_rules: Array = []
+var by_id := {}               # item id -> {group: points}: other parts' foods, kept in nutrition.json
 var errors: Array[String] = []
 
 static var _default := {}
@@ -47,9 +48,18 @@ func load_data(d: Dictionary) -> bool:
 	min_health = int(d.get("min_health", 12))
 	groups = d.get("groups", [])
 	tag_rules = d.get("tag_rules", [])
+	by_id.clear()
+	var ids_in: Dictionary = d.get("items", {})
+	for id in ids_in:
+		if ids_in[id] is Dictionary:
+			by_id[String(id)] = ids_in[id]
 	if groups.is_empty():
 		errors.append("nutrition.json: no groups")
 	var ids := group_ids()
+	for id in by_id:
+		for g in by_id[id]:
+			if not String(g) in ids:
+				errors.append("nutrition.json: %s names unknown group %s" % [id, g])
 	for r in tag_rules:
 		if not String(r.get("group", "")) in ids:
 			errors.append("nutrition.json: tag rule %s names unknown group %s" % [r.get("tag", "?"), r.get("group", "?")])
@@ -70,7 +80,7 @@ func reset() -> void:
 ## What eating one of `def` gives, {group: points}, before freshness.
 func food_groups(def: Dictionary) -> Dictionary:
 	var out := {}
-	var n: Variant = def.get("nutrition", null)
+	var n: Variant = def.get("nutrition", by_id.get(String(def.get("id", "")), null))
 	if n is Dictionary:
 		for g in n:
 			if bars.has(String(g)):

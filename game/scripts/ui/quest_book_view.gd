@@ -42,7 +42,7 @@ var _drag_from := Vector2.INF
 var _dragged := false
 var _cycle: Array = []    # [ItemIcon, ids] task icons that show several items, one per second
 var _cycle_t := 0.0
-## The Discoveries tab (ADR 0061): a sidebar entry below the chapters that shows DiscoveryView over the canvas.
+## The Discoveries tab (ADR 0061): a sidebar entry above the chapters that shows DiscoveryView over the canvas.
 const JOURNAL := "#discoveries"
 var discoveries: Discoveries
 var trackers: Trackers       # the HUD trackers: a Track button on each quest
@@ -210,6 +210,17 @@ func _rebuild() -> void:
 func _build_chapters() -> void:
 	for c in _chapters.get_children():
 		c.queue_free()
+	if discoveries != null:   # the Discoveries tab, above the chapters (not a chapter: quests.json stays part F's)
+		var j := ChapterButton.new()
+		j.items = items
+		j.icon_id = "copper_prospecting_pick"
+		j.title = "Discoveries"
+		j.progress = discoveries.total_progress()
+		j.active = chapter == JOURNAL
+		j.custom_minimum_size = Vector2(SIDEBAR - 24, 52)
+		j.pressed.connect(open_chapter.bind(JOURNAL))
+		_chapters.add_child(j)
+		_chapters.add_child(HSeparator.new())
 	for c in book.chapters:
 		var b := ChapterButton.new()
 		b.items = items
@@ -220,17 +231,6 @@ func _build_chapters() -> void:
 		b.custom_minimum_size = Vector2(SIDEBAR - 24, 52)
 		b.pressed.connect(open_chapter.bind(c["id"]))
 		_chapters.add_child(b)
-	if discoveries != null:
-		_chapters.add_child(HSeparator.new())
-		var j := ChapterButton.new()
-		j.items = items
-		j.icon_id = "copper_prospecting_pick"
-		j.title = "Discoveries"
-		j.progress = discoveries.total_progress()
-		j.active = chapter == JOURNAL
-		j.custom_minimum_size = Vector2(SIDEBAR - 24, 52)
-		j.pressed.connect(open_chapter.bind(JOURNAL))
-		_chapters.add_child(j)
 
 
 func _build_nodes() -> void:

@@ -31,7 +31,7 @@ Diet, seasons, the prospecting pick, the discovery journal and HUD trackers. Sur
       rock: "Something" or "Nothing" within 12 m. Smith a copper prospecting head, assemble the copper pick:
       right click rock lists each vein in 12 m with its ore shares and centre, and (once part D's map is in)
       a waypoint. Does the tap feel right, and is 12 m the right reach?
-- [ ] Discoveries: open the book (top left of the inventory), the Discoveries entry under the chapters. Walk
+- [ ] Discoveries: open the book (top left of the inventory), the Discoveries entry above the chapters. Walk
       into a new biome, meet an animal, pick up an ore, find a ruin, a waterfall, a cave: a blue "Discovered!"
       toast and a chat line each, and the card fills in with its date.
 - [ ] Pin a recipe (Pin in the recipe view, top right of the panel): a checklist shows at the right edge under

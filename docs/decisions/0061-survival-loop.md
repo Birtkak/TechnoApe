@@ -16,8 +16,9 @@ nutrition groups"); this ADR adds them, at the developer's request. The develope
 ## Decision
 1. **Food groups** (`Nutrition`, `data/nutrition.json`, Vintage Story's model). Five bars of 0..10:
    meat, grain, fruit, vegetable, dairy (eggs count as dairy, so it is reachable before cheese).
-   A food's items.json `"nutrition": {group: points}` fills them; a food without it falls back to the
-   first tag rule (`berry` -> fruit, `mushroom` -> vegetable, `fish` -> meat, ...) worth 0.8 of its hunger
+   A food's items.json `"nutrition": {group: points}` fills them, else its id's entry in nutrition.json
+   `"items"` (other parts' foods: part F's cured meat, flatbread, einkorn, emmer; part E's fish, nuts and
+   berries, so their items.json lines stay theirs); a food with neither falls back to the first tag rule (`berry` -> fruit, `mushroom` -> vegetable, `fish` -> meat, ...) worth 0.8 of its hunger
    points, so other parts' new foods count as soon as they carry a tag. Stale food gives half. Every bar
    drains one point per 150 s at rest (a full bar lasts about a game day), with hunger's sprint, swim and
    cold multipliers. **Bonus:** each group at 5 or more is "well fed"; two or more well-fed groups give
@@ -38,8 +39,9 @@ nutrition groups"); this ADR adds them, at the developer's request. The develope
 3. **Root cellar.** A container in a closed room at least 1.5 m under the surface spoils at the cellar's
    8 C and 0.3 of that again (raw meat: 2 days on the surface at 16 C, about 13 in a root cellar); 3 m and
    deeper without a room stays ADR 0040's 8 C cellar; the storage pot still halves it. The room test is
-   the ClimateProbe fill from the air beside the container, cached 30 s. Foods tagged `preserved`
-   (part F's salted, dried and smoked food) spoil at 0.25: the stub until F's items land.
+   the ClimateProbe fill from the air beside the container, cached 30 s. Part F gives its cured foods
+   longer `spoil_days` (dried about 4x, smoked 8x, salted 15x raw), which stacks with the cellar; a food
+   tagged `preserved` also spoils at 0.25, for cured food that keeps the raw item's spoil_days.
 4. **Prospecting pick** (`Prospecting`, `scripts/items/prospecting.gd`). Two tools: the flint pick
    (knapped head, assembled with a stick and binding) only says "something" or "nothing" within 12 m, a
    Flint Age teaser; the copper pick (smithed head) lists every vein within 12 m, nearest first: its share
@@ -59,7 +61,8 @@ nutrition groups"); this ADR adds them, at the developer's request. The develope
    has it, water features), 6 m and more under the surface out of water (cave), a ruin or waterfall within
    20 m every 5 s, a living animal within 16 m, an item of the entry in the inventory, a copper pick's
    reading. A first find shows a "Discovered!" toast (QuestToast's header) and a chat line, and is saved
-   with its date. The book gets a Discoveries entry below its chapters (part F owns the chapters); its
+   with its date. The book gets a Discoveries entry above its chapters, not a chapter in quests.json
+   (part F owns the chapters and that file; agreed with F); its
    page shows each kind with found/total and a card per entry (found: icon, name, line, date; else "???").
    An entry's line is `texts["kind:name"]` in the data, else the source's `"lore"`, else the kind's template.
 6. **HUD trackers** (`Trackers`, `TrackerHud`). The recipe view has a Pin button, a quest's detail pane a
