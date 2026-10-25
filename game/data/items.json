@@ -218,9 +218,9 @@
     {"id": "ice_shard", "name": "Ice Shard", "tags": ["ice"], "stack": 64, "_note": "on snowy ground and frozen shores; cools, decoration for now"},
     {"id": "cave_crystal", "name": "Cave Crystal", "tags": ["crystal", "decoration"], "stack": 64, "_note": "violet clusters on deep cave floors; decoration for now, magic later (Phase 3)"},
     {"id": "clay_pot", "name": "Old Clay Pot", "tags": ["decoration"], "stack": 16, "material": "clay_pot", "_note": "ruin pots shatter when hit and drop loot (data/loot.json); placed ones too"},
-    {"id": "pyrite", "name": "Pyrite", "tags": ["mineral", "striker"], "stack": 64, "_note": "brassy nodules in slate and chalk; struck on flint it sparks (part F)"},
-    {"id": "red_ochre", "name": "Red Ochre", "tags": ["pigment", "mineral"], "stack": 64, "material": "red_ochre", "_note": "soft red earth in limestone country and clay banks: paint (part F)"},
-    {"id": "yellow_ochre", "name": "Yellow Ochre", "tags": ["pigment", "mineral"], "stack": 64, "material": "yellow_ochre", "_note": "soft yellow earth: paint (part F)"},
+    {"id": "pyrite", "name": "Pyrite", "tags": ["mineral", "striker", "rock", "pyrite"], "stack": 64, "_note": "brassy nodules in slate and chalk; struck on flint it sparks (part F)"},
+    {"id": "red_ochre", "name": "Red Ochre", "tags": ["pigment", "mineral", "ochre"], "stack": 64, "material": "red_ochre", "_note": "soft red earth in limestone country and clay banks: paint (part F)"},
+    {"id": "yellow_ochre", "name": "Yellow Ochre", "tags": ["pigment", "mineral", "ochre"], "stack": 64, "material": "yellow_ochre", "_note": "soft yellow earth: paint (part F)"},
     {"id": "raw_fish", "name": "Raw Fish", "tags": ["food", "fish"], "stack": 64, "food": {"hunger": 2, "saturation": 0.6}, "spoil_days": 1, "_note": "fish in rivers and lakes (ADR 0058)"},
     {"id": "cooked_fish", "name": "Cooked Fish", "tags": ["food", "fish"], "stack": 64, "food": {"hunger": 5, "saturation": 5}, "spoil_days": 3},
     {"id": "fur", "name": "Fur", "tags": ["hide", "fur"], "stack": 16, "_note": "foxes, wolves and rabbits: warm clothing later (part F)"}

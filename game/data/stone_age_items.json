@@ -83,12 +83,6 @@
     {"id": "grass_cape", "name": "Grass Cape", "tags": ["clothing"], "stack": 1, "clothing": {"slot": "body", "warmth_c": 5.0}},
     {"id": "bearskin_cap", "name": "Bearskin Cap", "tags": ["clothing"], "stack": 1, "clothing": {"slot": "head", "warmth_c": 6.0}},
 
-    {"id": "pyrite", "name": "Pyrite", "tags": ["rock", "pyrite"], "stack": 64, "stub": "part_e"},
-    {"id": "red_ochre", "name": "Red Ochre", "tags": ["ochre"], "stack": 64, "stub": "part_e"},
-    {"id": "yellow_ochre", "name": "Yellow Ochre", "tags": ["ochre"], "stack": 64, "stub": "part_e"},
-    {"id": "antler", "name": "Antler", "tags": ["antler"], "stack": 64, "stub": "part_e"},
-    {"id": "raw_fish", "name": "Raw Fish", "tags": ["food", "fish"], "stack": 64, "food": {"hunger": 2, "saturation": 1}, "spoil_days": 2, "stub": "part_e"},
-    {"id": "chalk_stone", "name": "Chalk", "tags": ["rock", "chalk"], "stack": 64, "stub": "part_e"},
-    {"id": "floorstone_flint", "name": "Floorstone Flint", "tags": ["knappable", "flint"], "stack": 64, "knap_x": 1.3, "stub": "part_e"}
+    {"id": "floorstone_flint", "name": "Floorstone Flint", "tags": ["knappable", "flint"], "stack": 64, "knap_x": 1.3}
   ]
 }
