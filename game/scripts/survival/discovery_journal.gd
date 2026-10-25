@@ -18,6 +18,7 @@ var main: Node
 var book: Discoveries
 var _t := 0.0
 var _slow_t := 0.0
+var _pending := false
 var stats := {"checks": 0, "noted": 0}
 
 
@@ -25,7 +26,10 @@ func setup(p_main: Node, p_book: Discoveries) -> void:
 	main = p_main
 	book = p_book
 	book.discovered.connect(_on_discovered)
-	main.player_inv.changed.connect(check_inventory)
+	main.player_inv.changed.connect(func() -> void:   # once per frame at most (shift-click crafts)
+		if not _pending:
+			_pending = true
+			check_inventory.call_deferred())
 
 
 func _process(delta: float) -> void:
@@ -84,6 +88,7 @@ func check_here(slow := true) -> void:
 
 ## Ores, minerals and stones count once one is held.
 func check_inventory() -> void:
+	_pending = false
 	var inv: PlayerInventory = main.player_inv
 	for i in inv.inv.size():
 		var s: Dictionary = inv.inv.get_slot(i)

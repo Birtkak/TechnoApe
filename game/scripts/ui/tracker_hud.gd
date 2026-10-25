@@ -17,13 +17,17 @@ var _box: Control
 var _icons: Array[ItemIcon] = []
 var _views: Array = []
 var _t := 0.0
+var _pending := false
 
 
 func setup(p_trackers: Trackers, p_items: ItemRegistry, inv_changed: Signal) -> void:
 	trackers = p_trackers
 	items = p_items
 	trackers.changed.connect(refresh)
-	inv_changed.connect(refresh)
+	inv_changed.connect(func() -> void:   # once per frame at most: a shift-click craft changes slots hundreds of times
+		if not _pending:
+			_pending = true
+			refresh.call_deferred())
 	refresh()
 
 
@@ -31,7 +35,6 @@ func _ready() -> void:
 	layer = 5
 	_box = Control.new()
 	_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_box.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	_box.draw.connect(_draw_box)
 	add_child(_box)
 
@@ -44,6 +47,7 @@ func _process(delta: float) -> void:
 
 
 func refresh() -> void:
+	_pending = false
 	if trackers == null or _box == null:
 		return
 	_views = trackers.views()
@@ -51,7 +55,7 @@ func refresh() -> void:
 	for v in _views:
 		h += HEAD + v["rows"].size() * ROW + 8.0 + GAP
 	_box.size = Vector2(WIDTH, h)
-	_box.position = Vector2(-WIDTH - 12.0, TOP)
+	_box.position = Vector2(_box.get_viewport_rect().size.x - WIDTH - 12.0, TOP)   # refreshed each second: follows a resize
 	while _icons.size() < _views.size():
 		var ic := ItemIcon.new()
 		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE

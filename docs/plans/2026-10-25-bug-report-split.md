@@ -48,6 +48,14 @@ The split follows the code, so no two sessions edit the same native sources:
   - D: an optional `only` parameter on `SimBubble.blast` (part A's file, for the world vacuum); two
     sprites in `tools/make_item_sprites.py` (part C's file, just above "validate + write"). Regenerate
     `data/item_sprites.json` after merging.
+  - G: `scripts/player/mining_table.gd` (part D's) `roll_list` reads `Seasons.season` (two lines: "seasons"
+    filter, "winter_mult"); `scripts/ui/hud.gd` hearts wrap past ten (max health above 20); three sprites in
+    `tools/make_item_sprites.py` (part C's, above "validate + write"; regenerate `data/item_sprites.json`);
+    `scripts/main.gd` sets up `SurvivalLoop` after Survival and adds `loop` to the stats JSON; SurvivalLoop
+    adds its `NutritionPanel` as a child of `InventoryScreen._panel` and wraps `player.work_use`; Seasons
+    frost erases from `Farming.crops` and writes through its `set_voxel` (part C: if crops stop being one
+    material per voxel, `Seasons.kill` follows); `"nutrition"` on 10 foods in items.json, `"winter_mult"` on
+    raw meat in mobs.json, `"seasons"` on the blueberry bush in mining.json, `"frost_c"` in crops.json.
 
 ---
 
