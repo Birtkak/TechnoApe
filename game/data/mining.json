@@ -85,6 +85,7 @@
     "wattle": {"hardness": 0.6, "tool": "axe", "drops": "wattle"},
     "daub_wall": {"hardness": 1.0, "tool": "shovel", "drops": "daub_wall"},
     "torch": {"hardness": 0.0, "drops": "torch"},
+    "torch_stick": {"hardness": 0.0, "drops": "torch"}, "torch_wrap": {"hardness": 0.0, "drops": "torch"}, "wheat_ear": {"hardness": 0.0},
     "storage_pot": {"hardness": 0.5, "drops": "storage_pot", "_note": "spills its 9 slots like a chest"},
     "mushroom_brown": {"hardness": 0.0, "drops": "brown_mushroom", "_note": "a whole mushroom (cap and stem) is one piece (ADR 0047)"},
     "mushroom_red": {"hardness": 0.0, "drops": "red_mushroom"},

@@ -54,6 +54,24 @@ frame times.
 - [ ] Die in survival (`/kill`): a grave with everything stands where you fell, the chat gives its coordinates, the map
       has a grave waypoint. Right click it: you get it all back (tools keep their wear).
 
+## Part C (2026-10-25 bug reports): how things look (ADR 0053)
+
+- [ ] Farming: till a patch, sow wheat and carrots. Plants stand four to a 0.5 m block and grow stalks and leaves
+      through every stage, every column of a plant a stalk; ripe wheat turns gold with ears on top, ripe carrots show an orange shoulder. Breaking any
+      leaf takes the whole plant and drops once. Does a field read as plants, not a slab? (`/kit farm`)
+- [ ] Place a flower, a mushroom and a seashell: they grow into the same multi-voxel piece the world scatters
+      (a stem with leaves and a head, a capped mushroom, a ribbed shell), and dig whole.
+- [ ] Held and dropped: mushrooms, kelp and seashells show a sprite in the hand and on the ground, not a cube.
+- [ ] Torches: a 1 m torch, a dark stick with a big flickering flame. Click a floor to stand one, a wall to hang one
+      leaning out. Breaking any part takes the whole torch. Held and dropped it is the same model.
+- [ ] The crafting table is a 1 m workbench (legs, grid, saw and hammer). It needs a 1 m x 1 m spot; with no room it
+      drops back and says so. Load a saved world: the tables still show (they used to vanish).
+- [ ] Ores in the inventory, in the hand and dropped: Minecraft 1.17-style ore blocks (stone with chunky clusters).
+- [ ] Animals: half-voxel cells with 8-shade patterns; they walk at a calm pace now (their legs raced before).
+- [ ] Night: hold a torch (or a lava bucket) and walk around: the ground around you lights up. Drop it: it keeps
+      lighting where it lies. Light now reaches ~16 m with a soft edge; lit firepits and furnaces light up too.
+      Ten or twenty torches in view should stay smooth.
+
 ## 2026-10-24: sound (ADR 0044)
 
 Everything is CC0 and cut by our tool, so a sound that feels wrong is a one-line swap: say which one

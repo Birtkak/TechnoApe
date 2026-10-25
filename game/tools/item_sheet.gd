@@ -1,10 +1,11 @@
-extends SceneTree
+extends Node
 
 ## Renders every item as the game draws it and saves one PNG: the inventory
 ## icon (ItemIcon) of each item in items.json and each sprite, then a row of
 ## dropped-item meshes (BlockMeshes.sprite) under a sun, so the looks can be
 ## checked without playing:
-##   godot_console.exe --path game --script res://tools/item_sheet.gd -- out=res://out/items.png
+##   godot_console.exe --path game res://tools/item_sheet.tscn -- out=res://out/items.png
+## (a scene, not --script: --script runs without the autoloads, and the item meshes read Settings)
 ## Not headless (needs the renderer); quits after the frame is saved.
 
 const ICON := 40
@@ -15,7 +16,7 @@ var out_path := "res://out/items.png"
 var _frames := 0
 
 
-func _init() -> void:
+func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=")
 		if kv.size() == 2 and kv[0] == "out":
@@ -28,7 +29,7 @@ func _init() -> void:
 			ids.append(id)
 	# 3D: dropped-item meshes on a strip, lit like the world
 	var root3d := Node3D.new()
-	get_root().add_child(root3d)
+	add_child(root3d)
 	for i in MESH_IDS.size():
 		var mi := MeshInstance3D.new()
 		mi.mesh = BlockMeshes.sprite(MESH_IDS[i])
@@ -57,7 +58,7 @@ func _init() -> void:
 	# 2D: icon grid over the top part of the window
 	var rows := int(ceil(ids.size() / float(COLS)))
 	var layer := CanvasLayer.new()
-	get_root().add_child(layer)
+	add_child(layer)
 	var bg := ColorRect.new()
 	bg.color = Color(0.22, 0.22, 0.26)
 	bg.size = Vector2(COLS * (ICON + 6) + 6, rows * (ICON + 6) + 6)
@@ -75,18 +76,17 @@ func _init() -> void:
 		slot.add_child(icon)
 		icon.stack = {"id": ids[i], "count": 1}
 	var size := Vector2i(int(bg.size.x), int(bg.size.y) + 260)
-	get_root().size = size
+	get_window().size = size
 	DisplayServer.window_set_size(size)
 	print(JSON.stringify({"tool": "item_sheet", "items": ids.size(), "sprites": sprites.sprites.size(), "errors": sprites.errors}))
 
 
-func _process(_delta: float) -> bool:
+func _process(_delta: float) -> void:
 	_frames += 1
 	if _frames == 6:
-		var img := get_root().get_viewport().get_texture().get_image()
+		var img := get_viewport().get_texture().get_image()
 		var abs_path := ProjectSettings.globalize_path(out_path)
 		DirAccess.make_dir_recursive_absolute(abs_path.get_base_dir())
 		img.save_png(abs_path)
 		print("saved ", abs_path)
-		return true
-	return false
+		get_tree().quit(0)

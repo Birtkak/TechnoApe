@@ -49,7 +49,14 @@
     "seed": {"o": "#3a2c10", "d": "#6e5824", "m": "#9a8034", "l": "#bca048", "h": "#e0cc7a"},
     "sand": {"o": "#6a5430", "d": "#b8985a", "m": "#dcc084", "l": "#ead49c", "h": "#f8ecc6"},
     "lava": {"o": "#3a0802", "d": "#8a1c04", "m": "#d04a0a", "l": "#f48a1c", "h": "#ffd25a"},
-    "hazard": {"o": "#4a3a04", "d": "#a88a0c", "m": "#e0c020", "l": "#f2d84a", "h": "#fff090"}
+    "hazard": {"o": "#4a3a04", "d": "#a88a0c", "m": "#e0c020", "l": "#f2d84a", "h": "#fff090"},
+    "iron_ore": {"o": "#7a4a34", "d": "#b8805e", "m": "#d8a684", "l": "#ecc4a4", "h": "#fff0e2"},
+    "copper_ore": {"o": "#6a2a10", "d": "#b0501e", "m": "#e07434", "l": "#f49a58", "h": "#ffd2a8"},
+    "tin_ore": {"o": "#0e0a08", "d": "#24180f", "m": "#3e2c20", "l": "#5e4634", "h": "#d8d2c0"},
+    "mushroom_brown": {"o": "#3a2414", "d": "#7a5131", "m": "#a8744a", "l": "#c08a5c", "h": "#efd7b0"},
+    "mushroom_red": {"o": "#4a0c0c", "d": "#a51c1c", "m": "#c42828", "l": "#e04848", "h": "#f06a5a"},
+    "kelp": {"o": "#1f2a0e", "d": "#4c5d22", "m": "#6f7f33", "l": "#9aa34e", "h": "#c8c070"},
+    "shell": {"o": "#8a5a4a", "d": "#c98f7c", "m": "#e8bdaa", "l": "#f8e2d6", "h": "#fff3ea"}
   },
   "shapes": {
     "handle": {
@@ -2083,46 +2090,150 @@
         "................"
       ]
     },
-    "flint_and_steel": {
-      "colors": {"f": "#2a2a34", "F": "#5a5a6e", "k": "#8e8ea8"},
+    "iron_ore_face": {
+      "colors": {"s": "#6f6f6c", "t": "#7f7f7c", "u": "#8e8e8a", "v": "#9d9d98", "w": "#5c5c5a", "x": "#adada7"},
+      "rows": [
+        "tusvussvsuvvssst",
+        "thmmousuutwtutus",
+        "ulmdouuvuhmowuuu",
+        "tooootuuulmotxut",
+        "xvttwvttumdotuuu",
+        "txvstuvtuooouuxu",
+        "sxuuvhmdovuxuhov",
+        "uusslmdooxvsmmot",
+        "xvuuoooovtsslmdo",
+        "uvxutxsusutvoooo",
+        "vthmouutuutuvtuu",
+        "utlmotuvhmmousvu",
+        "xvmdosutlmdosutx",
+        "svoooutuoooovuuu",
+        "svttvustuutuusxu",
+        "sutxusuuuutsvstu"
+      ]
+    },
+    "copper_ore_face": {
+      "colors": {"s": "#6f6f6c", "t": "#7f7f7c", "u": "#8e8e8a", "v": "#9d9d98", "w": "#5c5c5a", "x": "#adada7", "g": "#3fa88a"},
+      "rows": [
+        "uvuuvuuutvvxstuu",
+        "whmmovxsttuvusvv",
+        "slgdosttvhmoutuu",
+        "uoooouuvulgouuuw",
+        "vxvtvvtxxmdovuts",
+        "xuuvsvttvooossus",
+        "vvvtuhmdotwvuhou",
+        "suvtlmgoouwwmmou",
+        "uustoooosutwlgdo",
+        "usuustvutttuoooo",
+        "uustuussttustuxu",
+        "tuutuuxthmmottuu",
+        "uvsuusuulgdouttu",
+        "tsuvuuvvoooohmdo",
+        "usvussxtuuvlmgoo",
+        "tssuvtwwvvvoooos"
+      ]
+    },
+    "tin_ore_face": {
+      "colors": {"s": "#6f6f6c", "t": "#7f7f7c", "u": "#8e8e8a", "v": "#9d9d98", "w": "#5c5c5a", "x": "#adada7"},
+      "rows": [
+        "ttsuvututsuuuttt",
+        "xhmmoutxtttsvtsu",
+        "vlmdovvvvhmotstt",
+        "toooovtvtlmosvwv",
+        "uvuuutsutmdowuvw",
+        "sttsutsutoootvtu",
+        "tuxxthmdovusuhou",
+        "suuvlmdoousvmmot",
+        "usvuoooouvsvlmdo",
+        "sstuvvsuutstoooo",
+        "sshmotutsxtusuuv",
+        "tvlmossuhmmovutv",
+        "utmdovuslmdotvvu",
+        "xtooosuxoooouuvs",
+        "tsuvsustuutwssxs",
+        "vutttuuwvvuswtsu"
+      ]
+    },
+    "mushroom": {
+      "colors": {"S": "#e8e0cc", "s": "#d4cab2", "T": "#b4a88e"},
       "rows": [
         "................",
-        "...oooo.........",
-        "..ohlllo........",
-        ".olmmmmdo.......",
-        ".olmooomdo......",
-        ".olmo..odo......",
-        ".olmo..odo......",
-        ".olmdo..o..oo...",
-        "..oddo....offo..",
-        "...oo....ofFFfo.",
-        "........ofFkFFfo",
-        ".......ofFkkFFfo",
-        ".......ofFkkkFfo",
-        "........offffffo",
-        ".........oooooo.",
+        "................",
+        ".......oo.......",
+        "....ooohlooo....",
+        "..oohllmmllloo..",
+        ".ohlmmmmmmmmllo.",
+        ".olmmmmmmmmmmdo.",
+        ".olmmmmmmmmmmdo.",
+        ".oldmmmmmmmmddo.",
+        "..ooldSsSdddoo..",
+        "....ooSsSooo....",
+        ".....oSsTo......",
+        ".....oSsTo......",
+        "....oSSsTTo.....",
+        ".....ooooo......",
         "................"
       ]
     },
-    "world_vacuum": {
-      "colors": {"t": "#9ca6b2", "T": "#d0d8e2", "y": "#f2d84a", "g": "#1e1e22"},
+    "red_mushroom": {
+      "colors": {"S": "#ece4d0", "T": "#b8ac92", "w": "#fbf6ea"},
       "rows": [
-        "...........oo...",
-        "..........otTo..",
-        ".........otTdo..",
-        "........otTdo...",
-        "..ooo..otTdo....",
-        ".olllootTdo.....",
-        "olmmmltTdo......",
-        "lmmmmmmdo.......",
-        "lmyymmmdo.......",
-        "lmyymmmdo.......",
-        "lmmmmmmdo.......",
-        "lmmmmmmdo.......",
-        "oddddddo........",
-        ".ogooogo........",
-        "..o...o.........",
+        "................",
+        ".....oooooo.....",
+        "...oohllllloo...",
+        "..ohlmmmmwmllo..",
+        ".ohmmwwmmmmmmlo.",
+        ".olmmmmmmmwwmdo.",
+        "ohmmmmmmmmmmmmlo",
+        ".olwmmmwmmmmmdo.",
+        ".olmmmmmmmmmwdo.",
+        "..oooooSSooooo..",
+        "......oSSo......",
+        "......oSSTo.....",
+        "......oSSTo.....",
+        ".....oSSSTo.....",
+        "......oooo......",
         "................"
+      ]
+    },
+    "kelp": {
+      "colors": {"b": "#b5a253"},
+      "rows": [
+        "......o.oo......",
+        ".....olomdo.....",
+        "......olmdo.....",
+        "......oomdlo....",
+        "....oobmdmo.....",
+        "...olomdoo......",
+        "....olmdo.o.....",
+        ".....omdoolo....",
+        "......omdmbo....",
+        ".....olomdo.....",
+        "......olmdo.....",
+        ".....o.omdlo....",
+        "....obomdmo.....",
+        "...olomdoo......",
+        "....olmdo.......",
+        ".....ooo........"
+      ]
+    },
+    "seashell": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        ".......oo.......",
+        "......ohho......",
+        ".....oldmdo.....",
+        "....olmdmdmo....",
+        "...oldmdmdmdo...",
+        "..olmdmdmdmdmo..",
+        ".oldmdmdmdmdmdo.",
+        ".oldmdmdmdmdmdo.",
+        ".oldmdmdmdmdmdo.",
+        ".oldmdmdmdmdmdo.",
+        ".oldmdmdmdmdmdo.",
+        "..oooddddddooo..",
+        ".....oooooo....."
       ]
     }
   },
@@ -2315,6 +2426,13 @@
     "bricks": {"layers": [{"shape": "bricks_face"}], "cube": true},
     "coal_block": {"layers": [{"shape": "coal_block_face", "palette": "coal"}], "cube": true},
     "glass": {"layers": [{"shape": "glass_face", "palette": "glass"}], "cube": true},
+    "iron_ore": {"layers": [{"shape": "iron_ore_face", "palette": "iron_ore"}], "cube": true},
+    "copper_ore": {"layers": [{"shape": "copper_ore_face", "palette": "copper_ore"}], "cube": true},
+    "tin_ore": {"layers": [{"shape": "tin_ore_face", "palette": "tin_ore"}], "cube": true},
+    "brown_mushroom": {"layers": [{"shape": "mushroom", "palette": "mushroom_brown"}]},
+    "red_mushroom": {"layers": [{"shape": "red_mushroom", "palette": "mushroom_red"}]},
+    "kelp": {"layers": [{"shape": "kelp", "palette": "kelp"}]},
+    "seashell": {"layers": [{"shape": "seashell", "palette": "shell"}]},
     "spell_spark_bolt": {"layers": [{"shape": "spell_card", "colors": {"g": "#5a3428", "G": "#7a4636", "k": "#3f241c"}}, {"shape": "glyph_spark"}]},
     "spell_fire_bolt": {"layers": [{"shape": "spell_card", "colors": {"g": "#5a3428", "G": "#7a4636", "k": "#3f241c"}}, {"shape": "glyph_fire"}]},
     "spell_bomb": {"layers": [{"shape": "spell_card", "colors": {"g": "#5a3428", "G": "#7a4636", "k": "#3f241c"}}, {"shape": "glyph_bomb"}]},
@@ -2323,8 +2441,6 @@
     "spell_freeze_charge": {"layers": [{"shape": "spell_card", "colors": {"g": "#24406e", "G": "#315694", "k": "#192d4d"}}, {"shape": "glyph_freeze"}]},
     "spell_water_trail": {"layers": [{"shape": "spell_card", "colors": {"g": "#24406e", "G": "#315694", "k": "#192d4d"}}, {"shape": "glyph_water"}]},
     "spell_double_cast": {"layers": [{"shape": "spell_card", "colors": {"g": "#2a5a30", "G": "#397a41", "k": "#1d3f22"}}, {"shape": "glyph_double"}]},
-    "spell_light": {"layers": [{"shape": "spell_card", "colors": {"g": "#6a5620", "G": "#8f742b", "k": "#4a3c16"}}, {"shape": "glyph_light"}]},
-    "flint_and_steel": {"layers": [{"shape": "flint_and_steel", "palette": "steel"}]},
-    "world_vacuum": {"layers": [{"shape": "world_vacuum", "palette": "hazard"}]}
+    "spell_light": {"layers": [{"shape": "spell_card", "colors": {"g": "#6a5620", "G": "#8f742b", "k": "#4a3c16"}}, {"shape": "glyph_light"}]}
   }
 }

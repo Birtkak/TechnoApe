@@ -5,7 +5,7 @@ extends RefCounted
 ## that a voxel id alone cannot hold (chests, furnaces, beds and chairs, work
 ## pieces). Every entity covers a footprint of 12.5 cm voxels (ADR 0034): a
 ## BLOCK^3 cube with its anchor (pos) at the min corner, furniture its own
-## cells, a torch its one voxel; every covered voxel maps to the anchor through
+## cells, a torch the voxels of its piece (ADR 0053); every covered voxel maps to the anchor through
 ## _cells, so at() finds the entity from any of them. Created when such a
 ## block is placed (material "entity" key), lazily when one is opened that
 ## has none (generated or debug-placed blocks), removed with their contents
@@ -79,7 +79,7 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 	return e
 
 
-const SINGLE := ["torch"]   # entities that are one voxel
+const SINGLE := []   # entities that are one voxel (torches have their own cells since ADR 0053)
 ## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
 ## a knapping stone or a mold on the ground is one voxel high, a firepit two.
 const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "assembly": 1}
@@ -87,11 +87,30 @@ const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "assembly": 1}
 
 ## The voxels an entity covers (ADR 0034).
 static func footprint(e: RefCounted) -> Array[Vector3i]:
-	if e is FurnitureEntity:
+	if e is FurnitureEntity or e is TorchEntity:
 		return e.cells
 	if e.kind in SINGLE:
 		return [e.pos]
+	if e.kind == "station":
+		return box(e.pos, StationEntity.SIZE)   # the 1 m workbench (ADR 0053)
 	return cube(e.pos, height_of(e.kind))
+
+
+## The voxels a station of `p_kind` would cover from `anchor` (placement checks).
+static func footprint_of(p_kind: String, anchor: Vector3i) -> Array[Vector3i]:
+	if p_kind == "station":
+		return box(anchor, StationEntity.SIZE)
+	return cube(anchor, height_of(p_kind))
+
+
+## size.x x size.y x size.z voxels from `anchor` (min corner).
+static func box(anchor: Vector3i, size: Vector3i) -> Array[Vector3i]:
+	var out: Array[Vector3i] = []
+	for z in size.z:
+		for y in size.y:
+			for x in size.x:
+				out.append(anchor + Vector3i(x, y, z))
+	return out
 
 
 ## Footprint height in voxels of a block entity kind.
@@ -120,6 +139,19 @@ static func anchor_for(front: Vector3i) -> Vector3i:
 
 func _mark_dirty() -> void:
 	dirty = true
+
+
+## A multi-voxel torch whose flame-side piece starts at `pos` (PlantStamps.torch); `wall` is the
+## direction to the wall it hangs on, ZERO for a floor.
+func create_torch(pos: Vector3i, wall: Vector3i) -> TorchEntity:
+	remove(pos)
+	var e := TorchEntity.new(pos)
+	e.set_mount(wall)
+	_by_pos[pos] = e
+	_register_cells(e)
+	e.changed.connect(_mark_dirty)
+	dirty = true
+	return e
 
 
 ## A bed or chair anchored at `anchor`; registers every voxel it covers.
@@ -160,6 +192,15 @@ func all_of(p_kind: String) -> Array:
 	for p in _by_pos:
 		if _by_pos[p].kind == p_kind:
 			out.append(_by_pos[p])
+	return out
+
+
+## Entities burning now (furnaces, firepits, kilns, firewood piles): TorchLights lights them.
+func lit() -> Array:
+	var out := []
+	for e in _ticking:
+		if e.is_lit():
+			out.append(e)
 	return out
 
 

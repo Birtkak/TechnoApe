@@ -14,7 +14,17 @@ const GRID := 16
 ## voxel is 12.5 cm, so the model node is scaled by a block's worth of voxels (Mob._apply_size).
 ## Unscaled, every animal was a quarter of its size (bug report 2026-10-24).
 const UNIT := float(Settings.BLOCK)
-const ATLAS := Vector2i(8, 2)
+## Every palette colour is a ramp of SHADES flat tiles (dark and cool to light and warm); each cell picks
+## one by a clumpy hash and its height, the 8-colour patterns of the clutter and pickups (bug report
+## 2026-10-25 02-12-28: the smooth animals did not fit the patterned voxel world any more).
+const SHADES := 8
+const ATLAS_COLS := 16
+## Cell size: 1 = the 3.1 cm cells the models are drawn in, 2 = 6.25 cm, 4 = the world's 12.5 cm voxel.
+## The models are drawn once at GRID and merged down (eyes and other features win their cell): draw
+## faces on even cells, 2 x 2 or more, or they smear on the half-voxel grid.
+static var cell := 2   # 2026-10-25: the developer picked the half-voxel look
+const STRIDE_RAD_PER_M := 8.8
+const VOXEL_M := preload("res://scripts/settings.gd").VOXEL_M
 
 # palette tiles (paint = tile + 1)
 const WOOL := 0
@@ -56,27 +66,35 @@ var _head_rest := Vector3.ZERO
 var _overlay: StandardMaterial3D
 
 
+static func atlas() -> Vector2i:
+	return Vector2i(ATLAS_COLS, ceili(float(PALETTE.size() * SHADES) / ATLAS_COLS))
+
+
+## Shade k (0..SHADES-1) of a palette colour: dark ends lean cool, light ends warm.
+static func shade_color(base: Array, k: int) -> Color:
+	var t := float(k) / (SHADES - 1)       # 0 darkest .. 1 lightest
+	var f := lerpf(0.66, 1.14, t)
+	var warm := (t - 0.5) * 14.0
+	return Color8(clampi(int(base[0] * f + warm), 0, 255), clampi(int(base[1] * f), 0, 255), clampi(int(base[2] * f - warm), 0, 255))
+
+
 static func material() -> StandardMaterial3D:
 	if _material:
 		return _material
-	var img := Image.create(ATLAS.x * 16, ATLAS.y * 16, false, Image.FORMAT_RGBA8)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 7171
+	var at := atlas()
+	var img := Image.create(at.x * 4, at.y * 4, false, Image.FORMAT_RGBA8)
 	for t in PALETTE.size():
-		var base: Array = PALETTE[t]
-		var spread := 7 if t in [WOOL, WOOL_SHADE, SHORN, FUR, FUR_DARK] else 4
-		for y in 16:
-			for x in 16:
-				var k := rng.randi_range(-spread, spread)
-				img.set_pixel((t % ATLAS.x) * 16 + x, (t / ATLAS.x) * 16 + y, Color8(clampi(base[0] + k, 0, 255), clampi(base[1] + k, 0, 255), clampi(base[2] + k, 0, 255)))
+		for k in SHADES:
+			var i := t * SHADES + k
+			img.fill_rect(Rect2i((i % at.x) * 4, (i / at.x) * 4, 4, 4), shade_color(PALETTE[t], k))
 	_material = StandardMaterial3D.new()
 	_material.albedo_texture = ImageTexture.create_from_image(img)
-	_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	_material.roughness = 0.95
 	_tiles = PackedInt32Array()
-	_tiles.resize(PALETTE.size() + 1)
+	_tiles.resize(PALETTE.size() * SHADES + 1)
 	_tiles[0] = -1
-	for i in PALETTE.size():
+	for i in PALETTE.size() * SHADES:
 		_tiles[i + 1] = i
 	return _material
 
@@ -162,10 +180,13 @@ func set_hurt(amount: float) -> void:
 ## relative to the body; dying 0..1 tips the animal on its side.
 func animate(delta: float, speed: float, graze: float, head_yaw: float, head_pitch: float, dying: float) -> void:
 	_time += delta
-	var moving := speed > 0.15
+	# speed comes in voxels/s (ADR 0033); the stride was tuned in metres, so at 8 voxels a metre the
+	# legs had raced (bug report 2026-10-25 02-12-28). About 1.4 strides a second at a 1 m/s walk.
+	var mps := speed * VOXEL_M
+	var moving := mps > 0.05
 	if moving:
-		_phase += delta * minf(speed, 10.0) * 2.4
-	var amp := clampf(speed / 3.0, 0.0, 1.0) * 0.75 if moving else 0.0
+		_phase += delta * minf(mps, 4.0) * STRIDE_RAD_PER_M
+	var amp := clampf(mps / 1.2, 0.0, 1.0) * 0.6 if moving else 0.0
 	var sw := sin(_phase) * amp
 	legs[0].rotation.x = sw
 	legs[1].rotation.x = -sw
@@ -177,7 +198,7 @@ func animate(delta: float, speed: float, graze: float, head_yaw: float, head_pit
 		wings[i].rotation.z = flap * (1.0 if i == 0 else -1.0)
 	body.position.y = body.position.y   # the body stays; the hips carry it
 	# grazing: the head drops to the grass and chews
-	var chew := sin(_time * 18.0) * 0.08 * graze
+	var chew := sin(_time * 9.0) * 0.08 * graze
 	head.rotation = Vector3(head_pitch * (1.0 - graze) + graze * 1.05 + chew, head_yaw * (1.0 - graze), 0)
 	head.position = _head_rest + Vector3(0, -graze * 0.35, graze * 0.05)
 	rotation.z = dying * PI * 0.5
@@ -194,11 +215,11 @@ func _part(part: String, pos: Vector3) -> MeshInstance3D:
 
 
 func _mesh(part: String) -> ArrayMesh:
-	var key := species + "/" + part
+	var key := "%s/%s/%d" % [species, part, cell]
 	if not _meshes.has(key):
-		var spec: Array = _build(species, part)
+		var spec: Array = shaded(_build(species, part), species + part)
 		material()
-		_meshes[key] = outward(MicroMesher.build(spec[0], spec[1], GRID, _tiles, ATLAS, spec[2]))
+		_meshes[key] = outward(MicroMesher.build(spec[0], spec[1], GRID / cell, _tiles, atlas(), spec[2]))
 	return _meshes[key]
 
 
@@ -223,6 +244,82 @@ static func outward(mesh: ArrayMesh) -> ArrayMesh:
 
 
 # ---------------- cell models ----------------
+
+## Paints that are features (eyes, noses, beaks, combs): they win a merged cell and keep one shade.
+const FEATURES := [EYE, EYE_WHITE, NOSTRIL, RED, YELLOW, SKIN_DARK, PINK_DARK, MUZZLE]
+const CRISP := [EYE, EYE_WHITE, NOSTRIL]
+
+
+## A built part ([cells, size, origin], paint = palette + 1) merged down to `cell` and shaded:
+## paint = palette * SHADES + shade + 1.
+static func shaded(spec: Array, seed_key: String) -> Array:
+	var c: PackedInt32Array = spec[0]
+	var size: Vector3i = spec[1]
+	if cell > 1:
+		var merged := _merge(c, size, cell)
+		c = merged[0]
+		size = merged[1]
+	var out := PackedInt32Array()
+	out.resize(c.size())
+	var h0 := hash(seed_key)
+	for z in size.z:
+		for y in size.y:
+			for x in size.x:
+				var i := x + size.x * (y + size.y * z)
+				var paint := c[i]
+				if paint <= 0:
+					continue
+				var base := paint - 1
+				var k := 5
+				if not (base in CRISP):
+					# clumps of 2 cells (1 when merged) and a single-cell speckle, darker towards the belly
+					var cl := 2 if cell == 1 else 1
+					var n1 := float(hash(Vector4i(x / cl, y / cl, z / cl, h0)) % 1000) / 999.0
+					var n2 := float(hash(Vector4i(x, y, z, h0 + 1)) % 1000) / 999.0
+					var up := float(y) / maxf(size.y - 1, 1.0)
+					k = clampi(int(round(0.4 + n1 * 5.4 + (n2 - 0.5) * 2.6 + up * 1.6)), 0, SHADES - 1)
+					# the top of a column catches the sun
+					if y + 1 >= size.y or c[x + size.x * (y + 1 + size.y * z)] <= 0:
+						k = mini(k + 1, SHADES - 1)
+				out[i] = base * SHADES + k + 1
+	return [out, size, spec[2]]
+
+
+## Majority merge of f^3 blocks: a block is filled when half its cells are; a feature in it wins.
+static func _merge(c: PackedInt32Array, size: Vector3i, f: int) -> Array:
+	var ns := Vector3i(ceili(size.x / float(f)), ceili(size.y / float(f)), ceili(size.z / float(f)))
+	var out := _cells(ns)
+	for bz in ns.z:
+		for by in ns.y:
+			for bx in ns.x:
+				var counts := {}
+				var filled := 0
+				var feature := 0
+				for z in range(bz * f, mini(bz * f + f, size.z)):
+					for y in range(by * f, mini(by * f + f, size.y)):
+						for x in range(bx * f, mini(bx * f + f, size.x)):
+							var m := c[x + size.x * (y + size.y * z)]
+							if m <= 0:
+								continue
+							filled += 1
+							counts[m] = int(counts.get(m, 0)) + 1
+				# a feature takes the cell when it fills a quarter of it (two cells of eight at half size)
+				var need := maxi(1, f * f * f / 4)
+				for m in counts:
+					if (m - 1) in FEATURES and counts[m] >= need and (feature == 0 or counts[m] > counts[feature]):
+						feature = m
+				if filled * 2 < f * f * f and feature == 0:
+					continue
+				var best := feature
+				if best == 0:
+					var top := 0
+					for m in counts:
+						if counts[m] > top:
+							top = counts[m]
+							best = m
+				_put(out, ns, Vector3i(bx, by, bz), best)
+	return [out, ns]
+
 
 ## [cells, size, origin (voxels)] of one part; the origin puts the part's pivot at its node position.
 static func _build(sp: String, part: String) -> Array:
@@ -283,8 +380,8 @@ static func _build(sp: String, part: String) -> Array:
 				_box(c, size, Vector3i(6, 6, 21), Vector3i(10, 8, 22), EYE + 1)    # nose
 				for x in [0, 12]:
 					_box(c, size, Vector3i(x, 15, 6), Vector3i(x + 4, 18, 9), FUR_DARK + 1)   # ears
-				for x in [2, 11]:
-					_box(c, size, Vector3i(x, 9, 15), Vector3i(x + 3, 11, 16), EYE + 1)
+				for x in [2, 12]:
+					_box(c, size, Vector3i(x, 10, 15), Vector3i(x + 2, 12, 16), EYE + 1)
 				return [c, size, Vector3(-8, -6, -2) * s]
 			"leg":
 				var size := Vector3i(10, 20, 10)
@@ -311,11 +408,11 @@ static func _build(sp: String, part: String) -> Array:
 				var c := _cells(size)
 				_box(c, size, Vector3i(0, 0, 0), Vector3i(16, 16, 16), PINK + 1)
 				_box(c, size, Vector3i(4, 2, 16), Vector3i(12, 8, 19), PINK_DARK + 1)
-				for x in [6, 9]:
+				for x in [4, 10]:
 					_box(c, size, Vector3i(x, 4, 18), Vector3i(x + 2, 6, 19), NOSTRIL + 1)
-				for x in [1, 11]:
-					_box(c, size, Vector3i(x, 9, 15), Vector3i(x + 4, 12, 16), EYE_WHITE + 1)
-					_box(c, size, Vector3i(x + (2 if x == 1 else 0), 9, 15), Vector3i(x + (4 if x == 1 else 2), 11, 16), EYE + 1)
+				for e in [[2, 4], [12, 10]]:   # [white x, pupil x], on even cells (cell = 2)
+					_box(c, size, Vector3i(e[0], 10, 15), Vector3i(e[0] + 2, 12, 16), EYE_WHITE + 1)
+					_box(c, size, Vector3i(e[1], 10, 15), Vector3i(e[1] + 2, 12, 16), EYE + 1)
 				# ears flop forward over the eyes' corners
 				_box(c, size, Vector3i(0, 16, 6), Vector3i(5, 18, 12), PINK_DARK + 1)
 				_box(c, size, Vector3i(11, 16, 6), Vector3i(16, 18, 12), PINK_DARK + 1)
@@ -361,10 +458,11 @@ static func _build(sp: String, part: String) -> Array:
 			_box(c, size, Vector3i(2, 4, 0), Vector3i(16, 14, 8), WOOL + 1)        # fleece behind the cheeks
 			_box(c, size, Vector3i(0, 8, 6), Vector3i(3, 10, 10), SKIN + 1)        # ears
 			_box(c, size, Vector3i(15, 8, 6), Vector3i(18, 10, 10), SKIN + 1)
-			for x in [4, 11]:
-				_box(c, size, Vector3i(x, 6, 15), Vector3i(x + 3, 8, 16), EYE_WHITE + 1)
-				_box(c, size, Vector3i(x + (1 if x == 4 else 0), 6, 15), Vector3i(x + (3 if x == 4 else 2), 7, 16), EYE + 1)
-			_box(c, size, Vector3i(7, 1, 15), Vector3i(11, 3, 16), SKIN_DARK + 1)   # nose
+			# eyes and nose on even cells, so they keep their shape on the half-voxel grid (cell = 2)
+			for e in [[4, 6], [12, 10]]:   # [white x, pupil x]
+				_box(c, size, Vector3i(e[0], 6, 15), Vector3i(e[0] + 2, 8, 16), EYE_WHITE + 1)
+				_box(c, size, Vector3i(e[1], 6, 15), Vector3i(e[1] + 2, 8, 16), EYE + 1)
+			_box(c, size, Vector3i(8, 2, 15), Vector3i(10, 4, 16), SKIN_DARK + 1)   # nose
 			return [c, size, Vector3(-9, -4, -2) * s]
 		"leg", "leg_shorn":
 			# 4 x 12 x 4 px: skin and a hoof below, fleece over the top half
