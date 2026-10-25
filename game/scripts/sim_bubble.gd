@@ -592,6 +592,20 @@ func _count_unloaded() -> int:
 	return n
 
 
+var _burning := -1
+var _burning_at := -1000
+
+## Burning cells in the window for the stats (F3, the autopilot JSON): count_burning is a full pass over
+## the window, so it is taken at most every 30 ticks and only when stats are asked for, never in play.
+func _burning_count() -> int:
+	if _fire_test > 0 or not can_sample():
+		return _burning
+	if ticks_total - _burning_at >= 30:
+		_burning_at = ticks_total
+		_burning = sim.count_burning()
+	return _burning
+
+
 func stats() -> Dictionary:
 	if not _ready:
 		return {}
@@ -600,6 +614,6 @@ func stats() -> Dictionary:
 		"tick_ms": snappedf(last_tick_ms, 0.01), "ticks": ticks_total, "active_chunks": active_chunks, "scanned_max": scanned_max,
 		"chunks_pushed": chunks_pushed, "chunks_loaded": chunks_loaded, "columns_loaded": columns_loaded, "push_ms": snappedf(push_ms, 0.01),
 		"shifts": shifts, "worst_frames": _worst, "slow_frames": _slow, "push_queue": _push_queue.size(), "push_queue_max": push_queue_max,
-		"burning": sim.count_burning() if _fire_test == 0 else -1, "fire_ignited": fire_ignited,
+		"burning": _burning_count(), "fire_ignited": fire_ignited,
 		"blasts": blasts, "blast_voxels": blast_voxels, "blast_ms_max": snappedf(blast_ms_max, 0.01),
 	}

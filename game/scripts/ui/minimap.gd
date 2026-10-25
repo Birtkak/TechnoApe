@@ -38,6 +38,14 @@ func setup(p_main: Node) -> void:
 	_place()
 
 
+## The screen y just under the minimap and its text (0 when hidden or not on the right): other HUD
+## pieces on the right edge start below it (part G's trackers).
+func bottom_y() -> float:
+	if not visible or not Settings.minimap_corner.ends_with("right") or Settings.minimap_corner.begins_with("bottom"):
+		return 0.0
+	return global_position.y + size.y + 6.0
+
+
 ## Corner and size from Settings.
 func _place() -> void:
 	var s := float(Settings.minimap_size_px)

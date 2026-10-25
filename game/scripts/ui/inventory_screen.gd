@@ -21,6 +21,7 @@ var nearby_chests: Callable   # () -> Array of chest entities within reach (Main
 var _sort_button: Button
 var _stack_button: Button
 var _label_edit: LineEdit
+var _side_panels: Array = []   # [Control, side] docked beside the panel (add_side_panel)
 
 const S := 36          # slot pitch (vanilla 18 px at 2x)
 const PANEL := Vector2(352, 332)
@@ -224,6 +225,25 @@ func _build_player_slots() -> void:
 		_panel.add_child(_trash_slot)
 
 
+## Docks another part's control beside the panel while the screen is open: "below" (under the panel,
+## left-aligned; nutrition, part G) or "left" (left of the panel, top-aligned; clothing slots, part F).
+func add_side_panel(ctrl: Control, side: String = "below") -> void:
+	_root.add_child(ctrl)
+	_side_panels.append([ctrl, side])
+	_root.move_child(_cursor_icon, -1)
+	_root.move_child(_tooltip, -1)
+
+
+func _place_side_panels() -> void:
+	var r := _panel.get_global_rect()
+	for sp in _side_panels:
+		var c: Control = sp[0]
+		if sp[1] == "left":
+			c.global_position = Vector2(r.position.x - S - 24.0 - c.size.x, r.position.y)   # clear of the trash slot
+		else:
+			c.global_position = Vector2(r.position.x, r.end.y + 8.0)
+
+
 func _small_button(text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -387,6 +407,7 @@ func _refresh() -> void:
 		_panel.size = Vector2(PANEL.x, h)
 		_panel.position = -_panel.size / 2.0
 		_panel.queue_redraw()
+	_place_side_panels()
 	_cursor_icon.items = player_inv.items
 	_cursor_icon.stack = player_inv.cursor
 	_cursor_icon.visible = not player_inv.cursor.is_empty()
