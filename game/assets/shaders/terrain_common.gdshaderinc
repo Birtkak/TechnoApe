@@ -32,7 +32,7 @@ uniform float grass_side_tile = 3.0;
 // Patterned tiles (ADR 0039, GameMaterials.pattern_tiles): bit t of pattern_tiles[t / 32] set = tile t
 // is a pattern laid over the world grid, one texel per voxel (plank rows, brick courses, cobble, bark),
 // instead of one texel picked by the voxel's hash.
-uniform int pattern_tiles[4];
+uniform int pattern_tiles[8];
 uniform float far_fade_start = 300.0;
 uniform float far_fade_end = 1200.0;
 
@@ -123,7 +123,7 @@ float voxel_sample(vec2 uv_in, vec3 wpos, vec3 n, vec3 cam, out vec4 c) {
 	ivec3 vox = ivec3(floor(wpos - n * 0.02));
 	int ti = int(idx + 0.5);
 	ivec2 cell;
-	if (ti >= 0 && ti < 128 && (pattern_tiles[ti >> 5] & (1 << (ti & 31))) != 0) {
+	if (ti >= 0 && ti < 256 && (pattern_tiles[ti >> 5] & (1 << (ti & 31))) != 0) {
 		// the tile across the face's plane: walls show it upright, floors from above
 		vec3 an = abs(n);
 		ivec2 q = an.y > 0.5 ? vox.xz : (an.x > an.z ? ivec2(vox.z, -vox.y - 1) : ivec2(vox.x, -vox.y - 1));

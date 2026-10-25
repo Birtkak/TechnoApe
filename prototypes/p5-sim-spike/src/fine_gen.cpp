@@ -122,6 +122,7 @@ void FineGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup_noise(n_litter_, p_seed + 105, 1.0f / 14.0f, 2);   // leaf litter vs grass under trees
     setup_noise(n_meadow_, p_seed + 106, 1.0f / 48.0f, 2);   // thick and thin grass, flower patches
     setup_noise(n_pool_, p_seed + 107, 1.0f / 88.0f, 1);     // ~11 m blobs: where cave floors hold their biome's pool
+    rocks_.configure(p_seed, p_sea_level);
 }
 
 // ---------- surface ----------
@@ -590,12 +591,14 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             const int px = cx * CL + 3, pz = cz * CL + 3;
             const int mx = floor_div(px, FS), mz = floor_div(pz, FS);
             const WorldGen::Column col = g.column_base(mx, mz, false);
-            if (col.height <= g.sea_ || col.alpine || col.snow) continue;
+            if (col.height <= g.sea_) continue;
+            const bool snowy = col.alpine || col.snow;
             const bool beach = col.biome == WorldGen::BIOME_BEACH || (col.biome == WorldGen::BIOME_OCEAN && col.c > -0.4f);
             const float dens = technosim_biome::TREE_DENSITY[col.biome];
             int kind = 0;
             uint16_t m = Mat::AIR;
-            if (beach) {
+            if (snowy) {
+            } else if (beach) {
                 if ((hs & 15) == 0) { kind = SHELL_S; m = Mat::SEASHELL; }
             } else if (col.height <= g.sea_ + 1) {
                 continue;
@@ -607,6 +610,7 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
                     m = FL[h3(px >> 5, pz >> 5, g.seed_ + 37) % 5];
                 }
             }
+            if (kind == 0) rocks_.clutter_pick(col.biome, beach, snowy, dens >= 0.2f, hs, kind, m);   // ADR 0057
             if (kind == 0) continue;
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
             if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh) continue;
@@ -690,6 +694,7 @@ uint16_t FineGen::clutter_voxel(const FStamp &s, int dx, int dy, int dz) {
                     return Mat::AIR;
             }
         }
+        default: return technosim_rock::RockTypes::clutter_voxel(s.kind, s.seed, s.wood, dx, dy, dz);   // ADR 0057
     }
     return Mat::AIR;
 }
@@ -712,6 +717,7 @@ float FineGen::stick_dist(const FStamp &s, float x, float z, float *fork_out) {
 
 uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const {
     const float dx = x - s.x, dz = z - s.z, fy = (float)y;
+    if (s.kind >= technosim_rock::RockTypes::KIND_BASE) return Mat::AIR;   // clutter pieces (ADR 0057), laid per column
     switch (s.kind) {
         case WorldGen::STAMP_BOULDER: {
             const float rx = s.size * (0.85f + 0.3f * (float)(s.seed & 7) / 7.0f) + grow, rz = s.size + grow, ry = s.size * 0.7f + grow;
@@ -822,12 +828,20 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
     // reach CAVE_MOUTH_DEPTH, so a block wholly below the sandstone, the cave mouths and the ground's
     // swells is all stone. One voxel of it tells the caller to fill the block (TerrainGenerator); the
     // per-voxel pass cost 0.16 ms a block and the clipboxes are half rock.
-    if (uniform_blocks_ && lod >= 1 && origin.y >= 8 * FS && (float)y_top <= hmin_m * FS - (float)DEEP_ROCK_MARGIN) {
+    uint16_t deep_rock = Mat::STONE;
+    bool deep = uniform_blocks_ && lod >= 1 && origin.y >= 8 * FS && (float)y_top <= hmin_m * FS - (float)DEEP_ROCK_MARGIN;
+    if (deep) {
+        // the rock kind of the block (ADR 0057); where strata cross it, the full path
+        const technosim_rock::RockCol rc4[4] = {rocks_.column(lx0, lz0, lat[0].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0, lat[nx - 1].hc * FS),
+            rocks_.column(lx0, lz0 + (nz - 1) * L, lat[(size_t)(nz - 1) * nx].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0 + (nz - 1) * L, lat[(size_t)nz * nx - 1].hc * FS)};
+        deep = rocks_.uniform(rc4, 4, origin.y, y_top, deep_rock);
+    }
+    if (deep) {
         const int bpv = (bytes_per_voxel == 1 || bytes_per_voxel == 4) ? bytes_per_voxel : 2;
         out.resize(bpv);
         uint8_t *o = out.ptrw();
         std::memset(o, 0, bpv);
-        o[0] = (uint8_t)Mat::STONE;
+        o[0] = (uint8_t)deep_rock;
         return out;
     }
     // Trees (lod <= 3 as shapes, from lod 4 only a leaf-coloured surface) and decorations (lod <= 2).
@@ -890,6 +904,11 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
     const int reach_top = std::max({(hmax_m + 12) * FS, wl_max * FS + 1, fall_max * FS + 1, feature_top + 1, (hmax_m + 1) * FS + 12, far_canopy_top});
     if (origin.y >= reach_top) return out;
 
+    // Rock kinds (ADR 0057): strata per lattice point, interpolated per column like the surface.
+    std::vector<technosim_rock::RockCol> rlat((size_t)nx * nz);
+    for (int j = 0; j < nz; j++)
+        for (int i = 0; i < nx; i++) rlat[(size_t)j * nx + i] = rocks_.column(lx0 + i * L, lz0 + j * L, lat[(size_t)j * nx + i].hc * FS);
+
     // Caves: a field on the macro lattice (lod 0, and cave mouths at lod 1), interpolated per voxel.
     const bool do_caves = lod <= 1;
     const bool do_ores = lod == 0;
@@ -929,6 +948,8 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             const float jx = ((float)(cj & 255) / 255.0f - 0.5f) * 0.6f, jz = ((float)((cj >> 8) & 255) / 255.0f - 0.5f) * 0.6f;
             const bool ex = tx + jx >= 0.5f, ez = tz + jz >= 0.5f;
             const MacroPt &m = ez ? (ex ? c11 : c01) : (ex ? c10 : c00);
+            const size_t ri = (size_t)j * nx + i;
+            const technosim_rock::RockCol rc = technosim_rock::RockTypes::blend(rlat[ri], rlat[ri + 1], rlat[ri + nx], rlat[ri + nx + 1], tx, tz, rlat[ri + (ez ? nx : 0) + (ex ? 1 : 0)]);
             const int mx = floor_div(wx, FS), mz = floor_div(wz, FS);
             const float hf = bilerp(c00.hc, c10.hc, c01.hc, c11.hc, tx, tz) * FS + ground_noise(wx, wz) * bilerp(c00.gw, c10.gw, c01.gw, c11.gw, tx, tz);
             const int h = std::clamp((int)std::floor(hf + 0.5f), 8 * FS, world_h - 8 * FS);
@@ -997,6 +1018,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 if (technosim_biome::SURFACE_STEEP[col.biome] >= 0 && slope > 0.6f) top_m = (uint16_t)technosim_biome::SURFACE_STEEP[col.biome];
             }
             if (spike > 0) top_m = under_m = spire_m;
+            under_m = rocks_.soil(rc, under_m, h, wx, wz);   // ochre patches (ADR 0057)
             const bool strata = under_m == Mat::TERRACOTTA;
             const int soil = SOIL_FINE + (int)(ph >> 8) % 4;
             const int sandstone_depth = FS * (col.biome == technosim_biome::BADLANDS ? 24 : col.biome == WorldGen::BIOME_DESERT ? 16
@@ -1066,7 +1088,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                             if (grassy && (hv & 7) < 2) { veg = Mat::TALL_GRASS; veg_h = 1; }
                         } else if (pickup) {
                             veg_h = pickup_shape(kind, lx, lz, h3(mx, mz, g.seed_ + 41));
-                            if (veg_h > 0) veg = kind;
+                            if (veg_h > 0) veg = kind == Mat::PEBBLES ? rocks_.loose(rc, h) : kind;   // loose stones of the local rock (ADR 0057)
                         } else if (centre) {
                             veg = kind; veg_h = 1;   // mushrooms, wild crops, carcasses: one voxel
                         } else if (grassy && !pickup && (hv & 7) < 2) {
@@ -1256,6 +1278,8 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             } else {
                 std::fill(cave.begin(), cave.end(), 0);
             }
+            int crystal_roll = 0;
+            const int crystal_h = (lod == 0 && !cav.empty()) ? rocks_.crystal_height(wx, wz, crystal_roll) : 0;
             uint16_t *colp = w + sy * (x + sx * z);
             for (int y = 0; y < sy; y++) {
                 const int wy = origin.y + y * step;
@@ -1269,6 +1293,8 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                             mat = (vh & 15) < (uint32_t)(2 + (my - ruin->base)) ? Mat::AIR : Mat::STONE;
                         } else if (rubble && my == ruin->base + 1) mat = Mat::STONE;
                         else if (wy < h) mat = top_m;
+                        else if (lod == 0 && my > ruin->base && my <= ruin->base + 2)   // pots inside (ADR 0057)
+                            mat = technosim_rock::RockTypes::ruin_pot_voxel(ruin->x, ruin->z, ruin->hw, ruin->hd, ruin->seed, mx, mz, wx - mx * FS, wz - mz * FS, wy - (ruin->base + 1) * FS);
                         colp[y] = mat;
                         if (mat != Mat::AIR) any = true;
                         continue;
@@ -1294,6 +1320,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     }
                 if (mat == Mat::AIR && wy >= h - 8)
                     for (int k = 0; k < ncs && mat == Mat::AIR; k++) mat = stamp_voxel(*cst[k], (float)wx, wy, (float)wz, grow);
+                if (mat == Mat::STONE) mat = rocks_.at(rc, wx, wy, wz);   // boulders of the local rock (ADR 0057)
                 if (mat != Mat::AIR) { colp[y] = mat; any = true; continue; }
                 if (wy < 3 * FS) {
                     mat = Mat::BEDROCK;
@@ -1306,6 +1333,19 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     const int depth = h - wy;
                     if (cave[y + 1]) {
                         mat = (wy < sea - 180 * FS) ? Mat::LAVA : Mat::AIR;
+                        if (mat == Mat::AIR && crystal_h > 0) {
+                            // cave crystals (ADR 0057) on the floor below, when the floor and the whole spike lie in
+                            // this block's 16-voxel band (a neighbour block never draws half of one)
+                            int k = y;
+                            while (k >= 0 && cave[k]) k--;   // cave[k] = voxel y = k - 1
+                            const int floor_wy = origin.y + (k - 1) * step, dy = (wy - floor_wy) / step - 1;
+                            if (k >= 0 && dy < crystal_h && ((floor_wy + 1) >> 4) == ((floor_wy + crystal_h) >> 4)) {
+                                const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)wy / FS, (float)mz);
+                                const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth / FS, technosim_biome::DEPTH_BAND_COUNT);
+                                const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
+                                if (technosim_rock::RockTypes::crystal_allowed(crystal_roll, depth, technosim_biome::cave_biome(ti, hi, di, ni))) mat = (uint16_t)technosim_rock::CAVE_CRYSTAL;
+                            }
+                        }
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
                         if (d_top <= sandstone_depth) mat = strata ? g.strata_at(mx, floor_div(wy, FS), mz) : Mat::SANDSTONE;
                         else if (vein_ht > 0.0f) {
@@ -1320,7 +1360,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                                 const uint32_t hh = h3(wx >> 2, wz >> 2, (wy >> 2) * 1031 + g.seed_ + 7759);
                                 const int corner = (ox != 2) + (oy != 2) + (oz != 2);
                                 const bool chipped = corner == 3 && ((hh >> 20) >> (((ox >> 1) | ((oy >> 1) << 1) | ((oz >> 1) << 2)) & 7) & 1);
-                                if ((float)(hh & 1023) < std::min(1.0f, DENSITY[vein.type] * NUGGET_FILL) * 1024.0f && !chipped) {
+                                if ((float)(hh & 1023) < std::min(1.0f, DENSITY[vein.type] * NUGGET_FILL * rocks_.ore_bias(rc, wy, vein.type)) * 1024.0f && !chipped) {
                                     if ((float)((hh >> 10) & 1023) < SPORADIC_CHANCE * 1024.0f) mat = (uint16_t)SPORADIC[vein.type];
                                     else {
                                         const float t = (std::floor((float)wy / FS) + 0.5f - (float)vein.y + vein_ht) / (2.0f * vein_ht);
@@ -1365,6 +1405,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 } else if (veg_head != Mat::AIR && wy == h + veg_h) {
                     mat = veg_head;
                 }
+                if (mat == Mat::STONE) mat = rocks_.at(rc, wx, wy, wz);   // the local rock kind (ADR 0057)
                 if (mat == Mat::AIR && clut_base != INT32_MIN && wy >= clut_base && wy < clut_base + CLUTTER_H) mat = clut[wy - clut_base];
                 else if (mat == Mat::WATER_STATIC && aqua_h > 0 && wy >= h && wy < h + aqua_h) mat = aqua;
                 colp[y] = mat;

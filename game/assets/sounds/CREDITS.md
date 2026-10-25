@@ -109,3 +109,12 @@ Every file here is cut from CC0 (public domain) recordings by `tools/make_sounds
 | music/budding | `oga-yoiyami/the_budding_of_consciousness.wav` |
 | mob/bear_growl | `bigsoundbank/0658.ogg` |
 | mob/death | `bigsoundbank/2452.ogg`, `bigsoundbank/2453.ogg` |
+| mob/deer | `bigsoundbank/3616.ogg` |
+| mob/duck | `bigsoundbank/0276.ogg` |
+| mob/frog | `bigsoundbank/0819.ogg` |
+| mob/bat | `bigsoundbank/0458.ogg` |
+| mob/wolf | `bigsoundbank/1060.ogg` |
+| mob/wolf_bark | `bigsoundbank/2953.ogg` |
+| mob/fox | `bigsoundbank/2955.ogg`, `bigsoundbank/0682.ogg` |
+| mob/spider | `bigsoundbank/0227.ogg` |
+| break/pot | `bigsoundbank/1643.ogg`, `bigsoundbank/1644.ogg`, `bigsoundbank/1646.ogg` |

@@ -12,7 +12,7 @@
          "tasks": [{"type": "item", "item": "flint", "count": 3}]},
         {"id": "sticks_stones", "title": "Sticks and Stones", "icon": "loose_stone", "pos": [0, 6],
          "description": "Twigs and pebbles lie on the ground almost everywhere. Leaves sometimes drop a stick too.",
-         "tasks": [{"type": "item", "item": "#stick", "count": 6}, {"type": "item", "item": "loose_stone", "count": 2}]},
+         "tasks": [{"type": "item", "item": "#stick", "count": 6}, {"type": "item", "item": "#rock", "count": 2}]},
         {"id": "knapping", "title": "Knapping", "icon": "flint_knife_blade", "pos": [1, 3], "deps": ["gather_flint"],
          "description": "Hold flint and right click the top of a solid block. Choose the knife blade, then left click the dark cells to chip them away. A wrong click costs nothing.",
          "tasks": [{"type": "item", "item": "flint_knife_blade"}]},

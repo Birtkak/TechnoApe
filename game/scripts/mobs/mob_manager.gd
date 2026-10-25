@@ -255,6 +255,7 @@ func _populate(c: Vector2i) -> void:
 	var season := _season()
 	var herd_chance := chance * (0.5 if season == 0 else 1.0)
 	var baby_chance := 0.4 if season == 1 else 0.1
+	WildMoves.populate(self, c)   # fish, shore and cave groups roll on their own (ADR 0058)
 	if rng.randf() >= herd_chance:
 		return
 	var cx := int((c.x + 0.5) * cell_v)
@@ -263,7 +264,7 @@ func _populate(c: Vector2i) -> void:
 	var total := 0
 	var options := []
 	for k in defs:
-		if biome in defs[k].get("biomes", []):
+		if biome in defs[k].get("biomes", []) and WildMoves.habitat(defs[k]) == "land":
 			options.append(k)
 			total += int(defs[k].get("weight", 1))
 	if total <= 0:
@@ -291,7 +292,7 @@ func _populate(c: Vector2i) -> void:
 		var h := world.surface_height(x, z)
 		var y := stand_height(x, z, h + 1, 4 * Settings.BLOCK, height)
 		var ground := get_voxel(Vector3i(x, y - 1, z))
-		if y == -1 or (ground != GameMaterials.GRASS and ground != GameMaterials.SNOW):
+		if y == -1 or not WildMoves.ground_ok(defs[species], ground):
 			continue
 		spawn(species, Vector3(x + 0.5, y + 0.05, z + 0.5), rng.randf() < baby_chance, rng.randf() * TAU)
 		placed += 1
@@ -367,7 +368,7 @@ func safe_ahead(m: Mob, dir: Vector3, panicking: bool) -> bool:
 		if v == GameMaterials.LAVA:
 			return false
 		if v > 0 and _def_of(v).get("cell_type", "") == "liquid":
-			return panicking or m.in_liquid
+			return panicking or m.in_liquid or WildMoves.water_ok(m)
 		if is_solid(v):
 			return k <= Mob.MAX_DROP_V + 1
 	return false

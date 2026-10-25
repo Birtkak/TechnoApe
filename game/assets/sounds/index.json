@@ -90,6 +90,11 @@
   "break/plant_4.ogg",
   "break/plant_5.ogg"
  ],
+ "break/pot": [
+  "break/pot_0.ogg",
+  "break/pot_1.ogg",
+  "break/pot_2.ogg"
+ ],
  "break/sand": [
   "break/sand_0.ogg",
   "break/sand_1.ogg",
@@ -255,6 +260,12 @@
  "loop/water_fall": [
   "loop/water_fall.ogg"
  ],
+ "mob/bat": [
+  "mob/bat_0.ogg",
+  "mob/bat_1.ogg",
+  "mob/bat_2.ogg",
+  "mob/bat_3.ogg"
+ ],
  "mob/bear": [
   "mob/bear_0.ogg",
   "mob/bear_1.ogg"
@@ -289,6 +300,31 @@
   "mob/death_0.ogg",
   "mob/death_1.ogg"
  ],
+ "mob/deer": [
+  "mob/deer_0.ogg",
+  "mob/deer_1.ogg",
+  "mob/deer_2.ogg",
+  "mob/deer_3.ogg",
+  "mob/deer_4.ogg"
+ ],
+ "mob/duck": [
+  "mob/duck_0.ogg",
+  "mob/duck_1.ogg",
+  "mob/duck_2.ogg",
+  "mob/duck_3.ogg",
+  "mob/duck_4.ogg",
+  "mob/duck_5.ogg"
+ ],
+ "mob/fox": [
+  "mob/fox_0.ogg",
+  "mob/fox_1.ogg"
+ ],
+ "mob/frog": [
+  "mob/frog_0.ogg",
+  "mob/frog_1.ogg",
+  "mob/frog_2.ogg",
+  "mob/frog_3.ogg"
+ ],
  "mob/graze": [
   "mob/graze_0.ogg",
   "mob/graze_1.ogg",
@@ -321,6 +357,23 @@
   "mob/sheep_6.ogg",
   "mob/sheep_7.ogg",
   "mob/sheep_8.ogg"
+ ],
+ "mob/spider": [
+  "mob/spider.ogg"
+ ],
+ "mob/wolf": [
+  "mob/wolf_0.ogg",
+  "mob/wolf_1.ogg",
+  "mob/wolf_2.ogg",
+  "mob/wolf_3.ogg",
+  "mob/wolf_4.ogg"
+ ],
+ "mob/wolf_bark": [
+  "mob/wolf_bark_0.ogg",
+  "mob/wolf_bark_1.ogg",
+  "mob/wolf_bark_2.ogg",
+  "mob/wolf_bark_3.ogg",
+  "mob/wolf_bark_4.ogg"
  ],
  "music/beginning_3": [
   "music/beginning_3.ogg"

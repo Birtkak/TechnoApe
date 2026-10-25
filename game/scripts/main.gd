@@ -816,6 +816,7 @@ func _on_broken(p: Vector3i, drops: Array) -> void:
 func _on_dug(cells: Array, drops: Array, center: Vector3) -> void:
 	var first := 0
 	var events := []
+	RuinLoot.shatter(self, cells)   # ruin pots break into shards and loot (ADR 0057)
 	for c in cells:
 		var was := get_world_voxel(c)
 		if was <= 0:
@@ -847,6 +848,8 @@ func pop_pickup(cells: Array[Vector3i]) -> void:
 	if split["pieces"].is_empty():
 		return
 	var pc: Dictionary = split["pieces"][0]
+	if not RuinLoot.shatter(self, pc["cells"]).is_empty():
+		return   # a pot: shards and loot, never the pot (ADR 0057)
 	for c in pc["cells"]:
 		set_world_voxel(c, GameMaterials.AIR)
 	if fx:

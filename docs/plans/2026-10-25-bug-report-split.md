@@ -48,6 +48,12 @@ The split follows the code, so no two sessions edit the same native sources:
   - D: an optional `only` parameter on `SimBubble.blast` (part A's file, for the world vacuum); two
     sprites in `tools/make_item_sprites.py` (part C's file, just above "validate + write"). Regenerate
     `data/item_sprites.json` after merging.
+  - E: `pattern_tiles` widened to `int[8]` (tiles 0-255) in `assets/shaders/terrain_common.gdshaderinc` and
+    `GameMaterials.pattern_tiles()`; `tools/make_atlas.py` grows to the rows E needs and appends
+    `tools/atlas_rocks.py`'s tiles after empty placeholders for 104-135 (replace them with B/C/D's tiles);
+    `materials.gd` has placeholders for ids 116-159 (replace with A-D's) and defines ids 200-202 (pyrite,
+    red and yellow ochre: placed by E's generator, used by F); atlas tiles 168-170 hold those three.
+    Small hooks in `fine_gen.cpp` (part B's) call `rock_types.cpp`: keep them when B's rework lands.
 
 ---
 

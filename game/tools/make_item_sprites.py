@@ -1050,6 +1050,10 @@ for item, glyph, kind in [("spell_spark_bolt", "spark", "projectile"), ("spell_f
     sp(item, ("spell_card", None, {"g": bg, "G": tint(bg, 1.35), "k": tint(bg, 0.7)}), "glyph_" + glyph)
 
 
+import item_sprites_e  # noqa: E402  rock kinds, clutter, fish (ADR 0057, 0058)
+item_sprites_e.add(globals())
+
+
 # ---------- validate + write ----------
 
 

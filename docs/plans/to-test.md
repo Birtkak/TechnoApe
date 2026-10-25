@@ -10,6 +10,32 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Part E: rock kinds, clutter, ruin pots, wild animals (ADR 0057, 0058)
+
+New world needed (the generator changed). `/summon <species>` spawns any animal where you look.
+
+- [ ] Cliffs, mountain flanks, river cuts and cave walls show tilted bands of different rock; walk a
+      few hundred metres and the rock changes (granite pink, diorite white-black, limestone cream,
+      slate blue-grey, marble white, chalk soft white, basalt near-black). Any band too stripy or too plain?
+- [ ] Mine a few kinds: each drops its own cobble; smelt a cobble back into its rock in a furnace; four
+      rocks make four bricks at a crafting table. Chalk breaks without a copper pick.
+- [ ] Loose stones on the ground match the rock under them; any of them works for a firepit and the
+      first quest ("Sticks and Stones").
+- [ ] Glinting brassy pyrite nodules in slate and chalk; red and yellow ochre patches under the topsoil
+      in limestone and chalk country.
+- [ ] Clutter: wild strawberries (meadows, forest edges), hazelnuts and acorns (forests), pine cones
+      (taiga), bones and feathers, driftwood (beaches), antlers (rare, forests), ice shards (snow),
+      violet crystals on deep cave floors (many in crystal caves). Each picks up whole; are they too
+      rare, too common, readable from a few metres?
+- [ ] Roast acorns and cook fish at a firepit; split driftwood into sticks.
+- [ ] Ruins (`/goto ruin`): clay pots in the inside corners. Any hit shatters one with shards and a
+      clatter, and it drops loot (seeds, flint, cordage, nuggets, now and then a worn old tool, rarely an
+      ingot). Some pots are empty.
+- [ ] Animals: deer and rabbits bolt when you come close; foxes hunt rabbits and chickens; wolf packs
+      hunt deer and sheep, some go for you; a boar you hit charges back; ducks and frogs by water,
+      ducks paddle out; crabs on beaches; fish in rivers and lakes (they flop on land); bats in caves;
+      cave spiders bite on sight. Do they look and sound right, move at sensible speeds?
+
 ## 2026-10-24: sound (ADR 0044)
 
 Everything is CC0 and cut by our tool, so a sound that feels wrong is a one-line swap: say which one

@@ -13,7 +13,8 @@ Tiles (index = row*4 + col):
 66-68 terracotta orange/red/cream 69 basalt top 70 basalt side 71 packed ice
 72 fern frond; 73 birch bark 74 birch top 75 birch leaves 76 blueberries
 77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84 leaf litter; 85 oak bark; 86 pebbles 87 flint
-88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98 cobblestone 99 bricks (patterned, ADR 0039); 100 blueberry bush; 101 kelp 102 seagrass 103 seashell (ADR 0047); atlas full (8x13)
+88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98 cobblestone 99 bricks (patterned, ADR 0039); 100 blueberry bush; 101 kelp 102 seagrass 103 seashell (ADR 0047);
+104-135 reserved for the 2026-10-25 parts B, C, D; 136-170 rock kinds, cobbles, bricks, clutter, pyrite and ochres (tools/atlas_rocks.py, ADR 0057)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import os
@@ -21,9 +22,11 @@ import random
 
 from PIL import Image
 
+import atlas_rocks
+
 TILE = 16
 COLS = 8
-ROWS = 13  # 104 tiles; rows grow at the bottom so tile indices keep their meaning
+ROWS = 22  # 176 tiles; rows grow at the bottom so tile indices keep their meaning
 
 random.seed(1337)
 
@@ -810,6 +813,9 @@ tiles = [
     stripes(["#1f4a1a", "#2f6a27", "#3f8433", "#4f9a3e", "#62ad4b", "#78c05c", "#93d276", "#d6e59a"], 102, "cols"),   # 102 seagrass: blades
     stripes(["#8a5a4a", "#c98f7c", "#dba795", "#e8bdaa", "#f2d0c0", "#f8e2d6", "#fff3ea", "#b06f5b"], 103, "diag", (1, 1)),   # 103 seashell: pink ribs
 ]
+# 104-135: other parts' rows (2026-10-25 split); empty here until the branches merge
+tiles += [Image.new("RGBA", (TILE, TILE)) for _ in range(136 - len(tiles))]
+tiles += atlas_rocks.tiles(palette, stones_pattern, stripes, spotted_cap)   # 136-170 (ADR 0057)
 assert len(tiles) <= COLS * ROWS, len(tiles)
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))
