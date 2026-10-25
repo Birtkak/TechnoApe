@@ -443,10 +443,10 @@ PAL = {
 }
 
 
-def keep_rng(tile):
-    """A tile that replaced a noise_tile: draws that tile's numbers from the shared RNG first, so the
-    noise tiles after it keep their look."""
-    noise_tile((128, 128, 128), 0)
+def keep_rng(tile, *noise_args):
+    """A tile that replaced a noise_tile: draws that tile's numbers from the shared RNG (same
+    arguments as the old tile) after building, so the noise tiles after it keep their look."""
+    noise_tile(*(noise_args or ((128, 128, 128), 0)))
     return tile
 
 
@@ -607,6 +607,43 @@ def ore_stones_pattern(ore_cols, seed):
     return img
 
 
+def stripes(cols, seed, direction="rows", width=(1, 2), fleck=0.06):
+    """Clutter in bands (2026-10-25, the pickups' treatment for every clutter kind): 8 colours, dark
+    first; bands 1-2 voxels wide of shades 1..6 along rows (kelp segments), columns (stems, blades) or
+    diagonals (shell ribs), with the darkest and the lightest as flecks. Laid over the world grid."""
+    rng = random.Random(seed)
+    c = [_hexc(h) for h in cols]
+    band = []
+    while len(band) < 2 * G:
+        band += [rng.randint(1, 6)] * rng.randint(*width)
+    cells = []
+    for y in range(G):
+        row = []
+        for x in range(G):
+            i = {"rows": y, "cols": x, "diag": x + y}[direction]
+            v = band[i % (2 * G)]
+            r = rng.random()
+            if r < fleck:
+                v = 0
+            elif r < 2 * fleck:
+                v = 7
+            row.append(c[v])
+        cells.append(row)
+    return _cells_to_tile(cells)
+
+
+def spotted_cap(cols, spot_cols, seed):
+    """A red mushroom cap: three reds shaded in blotches, white spots 1-3 voxels across."""
+    img = stones_pattern(cols, seed, n=30)
+    rng = random.Random(seed + 7)
+    px = img.load()
+    for _ in range(9):
+        cx, cy = rng.randrange(G), rng.randrange(G)
+        for dx, dy in [(0, 0), (1, 0), (0, 1), (1, 1)][:rng.randint(1, 4)]:
+            px[(cx + dx) % G, (cy + dy) % G] = _hexc(spot_cols[(dx + dy) % len(spot_cols)])
+    return img
+
+
 def cobblestone():
     """Rounded stones about 4 voxels across with dark gaps; wraps at the tile edge (patterned: the
     tile repeats every 16 voxels in the world)."""
@@ -706,9 +743,9 @@ tiles = [
     chest_tile(True),                                         # 37 chest top
     chest_tile(False),                                        # 38 chest side with latch
     planks(),                                                 # 39 oak planks
-    noise_tile((150, 100, 60), 14, (120, 80, 45), 0.2),       # 40 mushroom cap, brown (micro-voxel detail)
-    spotted((200, 40, 40), (240, 235, 220)),                  # 41 mushroom cap, red with white spots
-    noise_tile((225, 215, 190), 8, (200, 190, 165), 0.15),    # 42 mushroom stem
+    keep_rng(stones_pattern(["#3a2414", "#5e3d22", "#7a5131", "#94633b", "#a8744a", "#c08a5c", "#d9a979", "#efd7b0"], 40, n=30), (150, 100, 60), 14, (120, 80, 45), 0.2),   # 40 mushroom cap, brown: mottled, a pale rim
+    keep_rng(spotted_cap(["#4a0c0c", "#7d1414", "#a51c1c", "#c42828", "#d23232", "#e04848", "#f06a5a", "#ffd9c9"], ["#fbf6ea", "#e9e0cc"], 41), (200, 40, 40), 12, None, 0),   # 41 mushroom cap, red with white spots
+    keep_rng(stripes(["#8d8068", "#b9ad94", "#c9bea6", "#d6ccb5", "#e1d8c3", "#ebe4d2", "#f5f0e3", "#a89a7e"], 42, "cols"), (225, 215, 190), 8, (200, 190, 165), 0.15),   # 42 mushroom stem: fibres
     noise_tile((110, 175, 70), 10, (150, 200, 90), 0.2),      # 43 lily pad, lighter than grass so it reads on a puddle
     noise_tile((150, 120, 70), 12, (120, 95, 55), 0.2),       # 44 reed head, brown
     spotted((70, 200, 210), (190, 250, 255)),                 # 45 glow mushroom cap (emissive in the shader)
@@ -769,9 +806,9 @@ tiles = [
     cobblestone(),                                            # 98 cobblestone (patterned)
     bricks(),                                                 # 99 bricks (patterned)
     palette(PAL["berry_bush"], 100),                          # 100 blueberry bush: leaves dotted with berries
-    noise_tile((70, 92, 38), 12, (100, 120, 50), 0.2),        # 101 kelp: olive brown-green (ADR 0047)
-    noise_tile((80, 150, 70), 12, (120, 185, 90), 0.2),       # 102 seagrass
-    noise_tile((240, 205, 190), 8, (250, 235, 225), 0.25),    # 103 seashell: pink cream
+    stripes(["#1f2a0e", "#3b4a1a", "#4c5d22", "#5d6e2a", "#6f7f33", "#84903f", "#9aa34e", "#b5a253"], 101, "rows"),   # 101 kelp: olive segments (ADR 0047)
+    stripes(["#1f4a1a", "#2f6a27", "#3f8433", "#4f9a3e", "#62ad4b", "#78c05c", "#93d276", "#d6e59a"], 102, "cols"),   # 102 seagrass: blades
+    stripes(["#8a5a4a", "#c98f7c", "#dba795", "#e8bdaa", "#f2d0c0", "#f8e2d6", "#fff3ea", "#b06f5b"], 103, "diag", (1, 1)),   # 103 seashell: pink ribs
 ]
 assert len(tiles) <= COLS * ROWS, len(tiles)
 

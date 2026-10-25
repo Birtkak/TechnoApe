@@ -648,6 +648,15 @@ uint16_t FineGen::clutter_voxel(const FStamp &s, int dx, int dy, int dz) {
         }
         case MUSHROOM_S: {
             const bool big = (s.seed % 3) == 0;
+            if ((s.seed % 3) == 1 && ((s.seed >> 6) & 1)) {
+                // tall and thin: a 4-5 high stem under a small domed cap (2026-10-25: variety)
+                const int T = 4 + (int)((s.seed >> 7) & 1);
+                if (dx == 0 && dz == 0 && dy < T) return Mat::MUSHROOM_STEM;
+                if (dy == T && adx <= 1 && adz <= 1 && adx + adz < 2) return s.wood;
+                if (dy == T && adx == 1 && adz == 1 && ((s.seed >> 8) & 1)) return s.wood;
+                if (dy == T + 1 && dx == 0 && dz == 0) return s.wood;
+                return Mat::AIR;
+            }
             const int H = big ? 3 + (int)((s.seed >> 2) & 1) : 2;
             if (big) {
                 // 2x2 stem (dx, dz in 0..1), a 4x4 cap without corners, a 2x2 crown
@@ -665,9 +674,21 @@ uint16_t FineGen::clutter_voxel(const FStamp &s, int dx, int dy, int dz) {
         case SHELL_S: {
             const bool turn = s.seed & 1;
             const int a = turn ? dz : dx, b = turn ? dx : dz;   // a across the fan, b along it
-            if (dy == 0 && std::abs(a) <= 1 && (b == 0 || b == 1)) return s.wood;
-            if (dy == 1 && a == 0 && (b == 0 || b == 1)) return s.wood;
-            return Mat::AIR;
+            switch ((s.seed >> 3) % 3) {
+                case 0:   // a ribbed fan, 3 across, 2 along, ridged
+                    if (dy == 0 && std::abs(a) <= 1 && (b == 0 || b == 1)) return s.wood;
+                    if (dy == 1 && a == 0 && (b == 0 || b == 1)) return s.wood;
+                    return Mat::AIR;
+                case 1:   // a clam: a 4x3 dome, 2 high
+                    if (dy == 0 && a >= -2 && a <= 1 && b >= -1 && b <= 1 && !(std::abs(b) == 1 && (a == -2 || a == 1))) return s.wood;
+                    if (dy == 1 && a >= -1 && a <= 0 && std::abs(b) <= 1 && !(std::abs(b) == 1 && ((s.seed >> 5) & 1))) return s.wood;
+                    return Mat::AIR;
+                default:  // a snail shell: a whorl climbing to a point
+                    if (dy == 0 && a >= -1 && a <= 1 && b >= 0 && b <= 1) return s.wood;
+                    if (dy == 1 && a >= -1 && a <= 0 && b >= 0 && b <= 1) return s.wood;
+                    if (dy == 2 && a == -1 && b == 1) return s.wood;
+                    return Mat::AIR;
+            }
         }
     }
     return Mat::AIR;

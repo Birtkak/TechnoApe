@@ -170,6 +170,8 @@ func set_game_mode(mode: String) -> void:
 		flying = true
 	if model:
 		model.visible = model.visible and not noclip   # a spectator has no body to see
+	if viewmodel:
+		viewmodel.visible = GameMode.rule(mode, "interacts")   # nor hands
 	_mine_progress = 0.0
 	_mine_target = Vector3i(1 << 30, 0, 0)
 	game_mode_changed.emit(mode)
@@ -285,7 +287,7 @@ func set_perspective(p: int) -> void:
 	if model:
 		model.visible = p != 0
 	if viewmodel:
-		viewmodel.visible = p == 0
+		viewmodel.visible = p == 0 and GameMode.rule(game_mode, "interacts")
 	_apply_look()
 
 

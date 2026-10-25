@@ -190,8 +190,8 @@ static func _build_defs() -> Array:
 		{"name": "chest", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [37, 38, 37], "transparent": false, "interact": "chest", "entity": "chest"},
 		{"name": "planks", "cell_type": "solid", "rigid": "wood", "pattern": true, "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false},
 		{"name": "pebbles", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [86, 86, 86], "transparent": false, "micro": "pebbles"},
-		{"name": "mushroom_brown", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [40, 40, 40], "transparent": false, "clutter": "mushroom"},
-		{"name": "mushroom_red", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [41, 41, 41], "transparent": false, "clutter": "mushroom"},
+		{"name": "mushroom_brown", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "tiles": [40, 40, 40], "transparent": false, "clutter": "mushroom"},
+		{"name": "mushroom_red", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "tiles": [41, 41, 41], "transparent": false, "clutter": "mushroom"},
 		{"name": "reed", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 44, 23], "transparent": false, "micro": "reed"},
 		{"name": "lily_pad", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [43, 43, 43], "transparent": false, "micro": "lilypad"},
 		{"name": "stalactite", "cell_type": "solid", "density": 10, "hp": 300, "tiles": [0, 0, 0], "transparent": false, "micro": "stalactite"},
@@ -243,10 +243,10 @@ static func _clutter_defs() -> Array:
 	stem.merge(plant_burn)
 	_clutter.append_array([
 		stem,
-		{"name": "kelp", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [101, 101, 101], "transparent": false, "clutter": "kelp", "waterlogged": true},
-		{"name": "seagrass", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [102, 102, 102], "transparent": false, "clutter": "seagrass", "waterlogged": true},
-		{"name": "seashell", "cell_type": "solid", "density": 8, "hp": 10, "tiles": [103, 103, 103], "transparent": false, "clutter": "seashell"},
-		{"name": "mushroom_stem", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [42, 42, 42], "transparent": false, "clutter": "mushroom", "stem": true},
+		{"name": "kelp", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "tiles": [101, 101, 101], "transparent": false, "clutter": "kelp", "waterlogged": true},
+		{"name": "seagrass", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "tiles": [102, 102, 102], "transparent": false, "clutter": "seagrass", "waterlogged": true},
+		{"name": "seashell", "cell_type": "solid", "pattern": true, "density": 8, "hp": 10, "tiles": [103, 103, 103], "transparent": false, "clutter": "seashell"},
+		{"name": "mushroom_stem", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "tiles": [42, 42, 42], "transparent": false, "clutter": "mushroom", "stem": true},
 	])
 	return _clutter
 
