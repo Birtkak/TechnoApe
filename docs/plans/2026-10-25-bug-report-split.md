@@ -28,7 +28,9 @@ The split follows the code, so no two sessions edit the same native sources:
   - ADRs: A 0049-0050, B 0051-0052, C 0053-0054, D 0055-0056, E 0057-0058, F 0059-0060, G 0061-0062.
   - Material ids (definition order, append only): A 116-119, B 120-129, C 130-149, D 150-159,
     E 160-199, F 200-239, G 240-249. A part that appends fewer leaves the gap as reserved
-    placeholders, so ids stay put whatever the merge order.
+    placeholders, so ids stay put whatever the merge order. Exception: E defines 200-202 (pyrite,
+    red_ochre, yellow_ochre) so the generator can place them; F starts at 203 and may extend their
+    item definitions.
   - Atlas tiles (atlas is full at 104; add rows): B 104-111, C 112-127, D 128-135, E 136-167,
     F 168-199, G 200-215. Grow the atlas to the rows your tiles need; the merge of `make_atlas.py` is
     by hand.
