@@ -24,6 +24,12 @@ The split follows the code, so no two sessions edit the same native sources:
   is made: copy `game/addons/technosim/bin/` and `game/addons/zylann.voxel/bin/` from the main checkout,
   then run `--headless --path game --import` once.
 - **Headless runs only** unless the developer says they are free (they may be playing).
+- **GPU lock for budget runs.** Budget runs fail when another Godot runs (`other_godot_processes`).
+  Before a budget run, create `%TEMP%\technoape-gpu.lock` (`$TEMP/technoape-gpu.lock` in Git Bash)
+  holding your part's name and the start time; delete it when the run ends. Before starting *any*
+  Godot process (tests, imports, captures), check for the lock: if it exists and is under 10 minutes
+  old, do other work and check again later; an older lock is stale, delete it. Keep a budget run under
+  5 minutes, and take the lock only for the run itself.
 - **Reserved numbers**, so branches merge without clashes:
   - ADRs: A 0049-0050, B 0051-0052, C 0053-0054, D 0055-0056, E 0057-0058, F 0059-0060, G 0061-0062.
   - Material ids (definition order, append only): A 116-119, B 120-129, C 130-149, D 150-159,
