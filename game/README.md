@@ -106,7 +106,15 @@ Godot_..._console.exe --path game -- autopilot=1 target=forest walk=1 speed=0 du
 #       cooks stew; prints "debug flint_age {...}" and saves flint_age_*.png (flint_age_shots=0 skips them);
 #       chat: /kit flint; progression book: open_inventory=1 quest_book=1 [quest_select=id] [quests_done=a,b|all]
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=40 stone_age_test=1 mob_spawn=0 vsync=0 out=res://out/stone_age
-Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=90 flint_age_test=1 mob_spawn=0 vsync=0 out=res://out/flint_age
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=280 flint_age_test=1 mob_spawn=0 vsync=0 out=res://out/flint_age
+# Four Stone Age stages (ADR 0059): stone_ages_test=1 (flint_age_test=1 runs it after its own checks) drives every new
+#       mechanic through the player's clicks on its own strip: birch bark, earth ovens (tar, tempered flint), a tempered
+#       head hafted with tar (dur_x 3), bone needle, fur pelt, sewn cloak worn, atlatl, bow, smoking rack, polished axe on
+#       sandstone, quern, dough and flatbread, retting and a basket trap, loom, cold-hammered copper, malachite in a kiln,
+#       an ember, a fishing line, a dugout burnt out, launched and paddled, a megalith quarried, levered and raised into a
+#       circle (home, midsummer sunrise), cave paintings; prints "debug stone_ages {...}" (no zero or false field) and
+#       saves stone_ages_*.png in a rendered run; chat: /kit flint
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=170 stone_ages_test=1 mob_spawn=0 vsync=0 out=res://out/stone_ages
 # Crafting in the world (ADR 0042): craft_test=1 assembles a flint axe on the ground, works a firepit by hand (logs, meat,
 #       firestarter, then heats an ingot), smiths a hammer head on a stone anvil (taking the piece off half way and back on)
 #       and wears an axe out; prints "debug craft {...}" (every field true) and saves craft_*.png (craft_shots=0 skips them,

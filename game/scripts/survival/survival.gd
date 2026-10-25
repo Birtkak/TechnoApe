@@ -15,6 +15,7 @@ const ENTITY_HEAT_M := 8.0  # lit entities further than this give nothing
 var main: Node
 var player: Player
 var probe := ClimateProbe.new()
+var clothing: Clothing = null   # what the player wears (ADR 0059), set by StoneAge
 
 var hunger := 20.0
 var saturation := 5.0
@@ -133,7 +134,7 @@ func _process(delta: float) -> void:
 	var survival := GameMode.rule(player.game_mode, "takes_damage")
 	var flat := Vector2(player.velocity.x, player.velocity.z).length()
 	var fast := flat > Settings.m2v(Settings.walk_speed_m) * 1.15 or (player.in_liquid and flat > 1.0)
-	body_c = body_step(body_c, env_c, delta, player.in_liquid)
+	body_c = body_step(body_c, felt_c(), delta, player.in_liquid)
 	player.speed_mult = Settings.shiver_speed if survival and body_c < Settings.shiver_c else 1.0
 	if survival:
 		_hunger_step(delta, fast)
@@ -301,6 +302,11 @@ func status() -> String:
 	return ""
 
 
+## The temperature the body feels: the air's, warmed by clothing in the cold (ADR 0059).
+func felt_c() -> float:
+	return Clothing.felt_c(env_c, clothing.warmth_c()) if clothing else env_c
+
+
 func to_dict() -> Dictionary:
 	return {"hunger": hunger, "saturation": saturation, "body_c": body_c}
 
@@ -313,5 +319,5 @@ func load_dict(d: Dictionary) -> void:
 
 func snapshot() -> Dictionary:
 	return {"hunger": snappedf(hunger, 0.01), "saturation": snappedf(saturation, 0.01), "body_c": snappedf(body_c, 0.01),
-		"env_c": snappedf(env_c, 0.1), "in_room": in_room, "heat": snappedf(heat, 0.01), "underground_m": snappedf(underground_m, 0.1),
+		"env_c": snappedf(env_c, 0.1), "felt_c": snappedf(felt_c(), 0.1), "in_room": in_room, "heat": snappedf(heat, 0.01), "underground_m": snappedf(underground_m, 0.1),
 		"status": status(), "stats": stats}

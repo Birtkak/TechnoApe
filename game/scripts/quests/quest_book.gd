@@ -12,7 +12,10 @@ extends RefCounted
 
 signal quest_completed(id: String)
 
-const EVENTS := ["fired", "charcoal_pit", "panned", "assembled", "heated", "smithed"]
+const EVENTS := ["fired", "charcoal_pit", "panned", "assembled", "heated", "smithed",
+	# the four Stone Age stages (ADR 0059)
+	"baked", "dried", "smoked", "worked", "caught", "painted", "worn", "launched", "ember", "paddled", "quarried",
+	"megalith_moved", "raised", "megalith", "shrine", "travelled", "solstice", "tamed", "tar_hafted"]
 
 var items: ItemRegistry
 var chapters: Array = []   # raw chapter dicts, quests inside, in file order

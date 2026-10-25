@@ -7,7 +7,8 @@ extends RefCounted
 ## - wear (ADR 0042): uses a tool ("durability") has spent; tools stack to 1, so wear never merges;
 ## - hot_until (ADR 0042): heatable metal ("heatable" tag): the clock_s when it is cold again, averaged
 ##   on merge; dropped once it has passed;
-## - work (ADR 0042): a smithing work piece's metal cells and recipe (stack 1).
+## - work (ADR 0042): a smithing work piece's metal cells and recipe (stack 1);
+## - dur_x (ADR 0059): a durability multiplier (tar-hafted tools, heads of tempered flint), averaged on merge.
 ## Pure logic, no nodes. The UI drives it through the cursor operations below,
 ## which reproduce vanilla behaviour: left-click picks up / places a whole
 ## stack, right-click picks up half / places one, shift-click moves a stack
@@ -91,13 +92,21 @@ static func merge_into(s: Dictionary, count: int, data: Dictionary = {}) -> void
 			s["hot_until"] = clock_s + left
 		else:
 			s.erase("hot_until")
+	if s.has("dur_x") or data.has("dur_x"):
+		s["dur_x"] = (float(s.get("dur_x", 1.0)) * (n - count) + float(data.get("dur_x", 1.0)) * count) / maxf(n, 1)
 	s["count"] = n
+
+
+## A tool stack's durability in uses: its item's durability times the stack's dur_x (ADR 0059), 0 for none.
+static func durability_of(p_items: ItemRegistry, s: Dictionary) -> int:
+	var dur := int(p_items.get_def(s.get("id", "")).get("durability", 0))
+	return int(round(dur * float(s.get("dur_x", 1.0)))) if dur > 0 else 0
 
 
 ## A tool stack after `uses` more uses (ADR 0042): wear grows; at the item's durability the stack comes
 ## back with broken = true (the caller empties the slot). Items without durability are returned as they are.
 static func wear_stack(p_items: ItemRegistry, s: Dictionary, uses: int = 1) -> Dictionary:
-	var dur := int(p_items.get_def(s.get("id", "")).get("durability", 0))
+	var dur := durability_of(p_items, s)
 	if s.is_empty() or dur <= 0 or uses <= 0:
 		return s
 	var out := s.duplicate(true)
@@ -126,7 +135,7 @@ func wear_slot(i: int, uses: int = 1) -> String:
 
 ## Uses left of a tool stack (its durability minus wear), or -1 for items without durability.
 static func uses_left(p_items: ItemRegistry, s: Dictionary) -> int:
-	var dur := int(p_items.get_def(s.get("id", "")).get("durability", 0))
+	var dur := durability_of(p_items, s)
 	return dur - int(s.get("wear", 0)) if dur > 0 else -1
 
 

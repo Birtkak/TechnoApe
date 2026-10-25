@@ -12,6 +12,7 @@ var _units := {}         # id -> voxels per recipe unit, for items that place a 
 static func load_default() -> ItemRegistry:
 	var r := ItemRegistry.new()
 	r.load_file("res://data/items.json")
+	r.load_file("res://data/stone_age_items.json")   # the four Stone Age stages (ADR 0059)
 	return r
 
 
@@ -46,6 +47,8 @@ func _validate(d) -> bool:
 		errors.append("item without id/name: %s" % str(d))
 		return false
 	if items.has(d["id"]):
+		if d.has("stub"):
+			return false   # another part's item, already defined by that part (ADR 0059)
 		errors.append("duplicate item id %s" % d["id"])
 		return false
 	if d.has("stack") and (int(d["stack"]) < 1 or int(d["stack"]) > 64):

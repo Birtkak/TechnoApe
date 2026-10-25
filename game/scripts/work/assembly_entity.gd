@@ -13,6 +13,7 @@ signal changed
 var kind := "assembly"
 var pos: Vector3i
 var parts: Array[String] = []   # item ids laid so far, in order
+var part_data: Array = []       # each part's per-stack data (Inventory.data_of): a tempered head's dur_x (ADR 0059)
 var recipes: RecipeRegistry
 
 
@@ -64,24 +65,32 @@ func finished_recipe() -> Dictionary:
 	return {}
 
 
-## Right click with `held` (an item definition, {} for an empty hand).
+## Right click with `held` (an item definition, {} for an empty hand) from the held `stack`.
 ## Returns {consume: n, give: [stacks], remove: bool, done: output stack or {}, msg: text}.
-func use(held: Dictionary) -> Dictionary:
+func use(held: Dictionary, stack: Dictionary = {}) -> Dictionary:
 	var id: String = held.get("id", "")
 	var res := {"consume": 0, "give": [], "remove": false, "done": {}, "msg": ""}
 	if id == "":
 		if not parts.is_empty():
-			res["give"] = [{"id": parts.pop_back(), "count": 1}]
+			var d: Dictionary = part_data.pop_back() if part_data.size() == parts.size() else {}
+			res["give"] = [Inventory.make_stack(recipes.items, parts.pop_back(), 1, d)]
 			res["remove"] = parts.is_empty()
 			changed.emit()
 		return res
 	for spec in next_specs():
 		if recipes.items.matches(id, spec):
 			parts.append(id)
+			while part_data.size() < parts.size() - 1:
+				part_data.append({})   # parts laid without their data (old saves, tests)
+			part_data.resize(parts.size() - 1)
+			part_data.append(Inventory.data_of(stack))
 			res["consume"] = 1
 			var r := finished_recipe()
 			if not r.is_empty() and next_specs().is_empty():
 				res["done"] = {"id": r["output"]["id"], "count": int(r["output"].get("count", 1))}
+				var x := StoneAge.hafted_x(recipes.items, parts, part_data)   # tar and tempered flint (ADR 0059)
+				if x != 1.0 and recipes.items.get_def(res["done"]["id"]).has("durability"):
+					res["done"]["dur_x"] = x
 				res["remove"] = true
 			changed.emit()
 			return res
@@ -97,8 +106,9 @@ func _spec_name(spec: String) -> String:
 
 func contents() -> Array:
 	var out := []
-	for id in parts:
-		out.append({"id": id, "count": 1})
+	for i in parts.size():
+		var d: Dictionary = part_data[i] if i < part_data.size() and part_data[i] is Dictionary else {}
+		out.append(Inventory.make_stack(recipes.items, parts[i], 1, d))
 	return out
 
 
@@ -137,14 +147,19 @@ func view_parts() -> Dictionary:
 
 
 func to_dict() -> Dictionary:
-	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "parts": parts.duplicate()}
+	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "parts": parts.duplicate(), "part_data": part_data.duplicate(true)}
 
 
 func load_from(d: Dictionary) -> void:
 	parts.clear()
-	for id in d.get("parts", []):
-		if recipes.items.has(String(id)):
-			parts.append(String(id))
+	part_data.clear()
+	var pd: Array = d.get("part_data", [])
+	var ids: Array = d.get("parts", [])
+	for i in ids.size():
+		var id := String(ids[i])
+		if recipes.items.has(id):
+			parts.append(id)
+			part_data.append(pd[i] if i < pd.size() and pd[i] is Dictionary else {})
 
 
 func summary() -> Dictionary:

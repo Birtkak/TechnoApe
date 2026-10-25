@@ -368,9 +368,11 @@ A block is %d voxels" % u if n == 0 else "
 	if days > 0.0:
 		var sp := float(stack.get("spoil", 0.0))
 		text += "\n%s (%.1f days left at 16 C)" % [Survival.freshness_name(sp), (1.0 - sp) * days]
-	var dur := int(player_inv.items.get_def(id).get("durability", 0))
+	var dur := Inventory.durability_of(player_inv.items, stack)   # with dur_x (ADR 0059)
 	if dur > 0:
 		text += "\nDurability %d / %d" % [dur - int(stack.get("wear", 0)), dur]   # ADR 0042
+	if float(stack.get("dur_x", 1.0)) > 1.0:
+		text += "\nLasts %.1fx as long" % float(stack["dur_x"])
 	if Inventory.heat_of(stack) > 0.0:
 		text += "\nHot (%d s to cool)" % int(ceil(float(stack["hot_until"]) - Inventory.clock_s))
 	if stack.has("work"):

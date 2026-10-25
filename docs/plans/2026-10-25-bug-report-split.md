@@ -48,6 +48,19 @@ The split follows the code, so no two sessions edit the same native sources:
   - D: an optional `only` parameter on `SimBubble.blast` (part A's file, for the world vacuum); two
     sprites in `tools/make_item_sprites.py` (part C's file, just above "validate + write"). Regenerate
     `data/item_sprites.json` after merging.
+  - F: `player.gd` `item_use` hook (checked first in `_use`, wired in `main.gd` with `stone_age`, its save
+    and summary); `work_system.gd` knapping any `knap` input (+ `e.input`), `dur_x` on knapped heads, the
+    held stack into `AssemblyEntity.use`, `tar_hafted`; `assembly_entity.gd` part data; `inventory.gd`
+    `durability_of` + `dur_x` merge, read in `item_icon.gd` and `inventory_screen.gd`; `projectiles.gd`
+    `throw(..., speed_x, damage_x)`; `mining_table.gd` tool `speed`; `work_palette.gd` five colours (atlas 30);
+    `block_entities.gd` creating StoneAge kinds, `footprint_cells`, heights; `survival.gd` `clothing` +
+    `felt_c`; `quest_book.gd` events; `recipe_browser.gd` categories + info fallback; `recipe_registry.gd`
+    and `item_registry.gd` load `stone_age_*.json`, `stub` items; `settings.gd` a Stone Age block;
+    `make_item_sprites.py` imports `stone_age_sprites.py` above "validate + write" (regenerate the JSON);
+    `game_commands.gd` the `flint` kit; `mining.json` seeds from tall grass/reeds; `crops.json` einkorn,
+    emmer, flax; `items.json` tags (flint `knappable`, cordage/strips `bowstring`, loose copper ore
+    `ground_place`); knap recipes take `#knappable`. Part E's items are `"stub"` entries in
+    `stone_age_items.json`: delete the stubs once E is merged. Ids 200-202 are E's (pyrite, ochres).
 
 ---
 

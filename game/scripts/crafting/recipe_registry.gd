@@ -20,6 +20,7 @@ func _init(p_items: ItemRegistry) -> void:
 static func load_default(p_items: ItemRegistry) -> RecipeRegistry:
 	var r := RecipeRegistry.new(p_items)
 	r.load_file("res://data/recipes.json")
+	r.load_file("res://data/stone_age_recipes.json")   # the four Stone Age stages (ADR 0059)
 	return r
 
 
@@ -134,6 +135,24 @@ func _validate(r) -> bool:
 						if i > 0 and String(layers[i][z])[x] == "#" and String(layers[i - 1][z])[x] != "#":
 							errors.append("smith recipe %s: metal over nothing at layer %d (%d, %d)" % [r["id"], i, x, z])
 							return false
+		"bury", "rack", "stroke", "soak", "trap":
+			# in-world Stone Age work (ADR 0059): every unit in ingredients, slow ones in game hours
+			if not (r.get("ingredients") is Array) or r["ingredients"].is_empty():
+				errors.append("%s recipe %s needs ingredients" % [r["type"], r["id"]])
+				return false
+			if r["type"] in ["bury", "rack", "soak"] and float(r.get("hours", 0.0)) <= 0.0:
+				errors.append("%s recipe %s needs hours" % [r["type"], r["id"]])
+				return false
+			if r["type"] == "stroke" and (int(r.get("strokes", 0)) <= 0 or not r.get("on", "") in StoneAge.SURFACES):
+				errors.append("stroke recipe %s needs strokes and on (%s)" % [r["id"], ", ".join(StoneAge.SURFACES)])
+				return false
+			if r["type"] == "rack" and not r.get("mode", "") in ["dry", "smoke"]:
+				errors.append("rack recipe %s: mode is dry or smoke" % r["id"])
+				return false
+			for k in ["cover", "fuel", "tool", "grit"]:
+				if r.has(k) and String(r[k]) != "" and not _spec_exists(String(r[k])):
+					errors.append("%s recipe %s: %s %s matches no item" % [r["type"], r["id"], k, r[k]])
+					return false
 		"cast":
 			if not r.has("input") or not r.has("mold"):
 				errors.append("cast recipe %s needs input and mold" % r["id"])
@@ -175,6 +194,17 @@ func ingredient_specs(r: Dictionary) -> Array:
 			return out
 		"shapeless", "spellcraft":
 			return r["ingredients"].duplicate()
+		"bury", "rack", "stroke", "soak", "trap":
+			# what is used up, then the earth oven's cover and fuel, the tool and the grit (ADR 0059)
+			var out: Array = r["ingredients"].duplicate()
+			for i in int(r.get("cover_count", 1 if r.has("cover") else 0)):
+				out.append(r["cover"])
+			for i in int(r.get("fuel_count", 1 if r.has("fuel") else 0)):
+				out.append(r["fuel"])
+			for k in ["tool", "grit"]:
+				if String(r.get(k, "")) != "":
+					out.append(r[k])
+			return out
 		"smelt", "knap", "clayform", "kiln", "sift", "dry":
 			return [r["input"]]
 		"scrape":

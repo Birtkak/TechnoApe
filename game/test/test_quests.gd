@@ -3,10 +3,14 @@ extends GdUnitTestSuite
 ## Headless tests for the progression book (ADR 0028): quests.json against
 ## the item list, every task reachable from ground pickups, latching item
 ## tasks, deps cascading, "any" quests, the pit kiln event, saving, and the
-## whole Flint Age walked through a player inventory to a copper tool.
+## main road of the four Stone Age chapters (ADR 0059) walked through a player inventory to a copper tool.
 
 const GROUND := ["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball", "dry_grass", "oak_log", "gravel", "sand",
-	"plant_fiber", "dirt", "raw_hide", "raw_meat", "carrot"]
+	"plant_fiber", "dirt", "raw_hide", "raw_meat", "carrot",
+	# drops and finds the Stone Age chapters lean on (ADR 0059): animals, tall grass, part E's stones and fish
+	"bone", "feather", "bear_hide", "animal_fat", "antler", "pyrite", "red_ochre", "yellow_ochre", "floorstone_flint",
+	"einkorn_seeds", "emmer_seeds", "flax_seeds", "birch_log"]
+const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age"]
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
@@ -28,12 +32,13 @@ func _give(id: String, n: int = 1) -> void:
 
 func test_data_loads_clean() -> void:
 	assert_array(book.errors).is_empty()
-	assert_array(book.chapter_quests("flint_age")).is_not_empty()
+	assert_array(book.chapters.map(func(c: Dictionary) -> String: return c["id"])).is_equal(CHAPTERS)
 	var finals := []
-	for q in book.chapter_quests("flint_age"):
-		if q.get("final", false):
-			finals.append(q["id"])
-	assert_array(finals).is_equal(["copper_tool"])
+	for c in CHAPTERS:
+		for q in book.chapter_quests(c):
+			if q.get("final", false):
+				finals.append(q["id"])
+	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw"])
 
 
 func test_bad_data_is_reported() -> void:
@@ -53,6 +58,7 @@ func test_every_task_is_reachable_from_ground_pickups() -> void:
 	var have := recipes.reachable_from(GROUND)
 	assert_bool(have.has("copper_pickaxe")).is_true()
 	var start := GROUND.duplicate()
+	start.append_array(StoneAge.WORLD_SOURCES.keys())
 	var mined := MiningTable.load_default().drops("stone", items.get_def("copper_pickaxe"))
 	assert_str(String(mined.get("id", ""))).is_equal("cobblestone")
 	start.append(mined["id"])
@@ -91,13 +97,18 @@ func test_optional_marks_the_side_roads() -> void:
 			assert_bool(q.get("optional", false)).override_failure_message(
 				"%s: optional should be %s" % [id, not needed.has(id)]).is_equal(not needed.has(id))
 		if c["id"] == "flint_age":
-			assert_int(needed.size()).is_equal(17)
+			assert_int(needed.size()).is_equal(11)
 
 
 ## No two quests share a spot on the page, and no dependency line runs
 ## through a third quest's node (the book stays readable).
 func test_layout_has_no_overlaps_or_lines_through_nodes() -> void:
-	var qs := book.chapter_quests("flint_age")
+	for c in CHAPTERS:
+		_check_layout(c)
+
+
+func _check_layout(chapter: String) -> void:
+	var qs := book.chapter_quests(chapter)
 	var spots := {}
 	for q in qs:
 		var k := "%s,%s" % [q["pos"][0], q["pos"][1]]
@@ -107,6 +118,8 @@ func test_layout_has_no_overlaps_or_lines_through_nodes() -> void:
 		var b := Vector2(q["pos"][0], q["pos"][1])
 		for d in q.get("deps", []):
 			var a := Vector2(book.quests[d]["pos"][0], book.quests[d]["pos"][1])
+			if book.quests[d]["chapter"] != chapter:
+				continue   # a road from an earlier chapter is not drawn on this page
 			for o in qs:
 				if o["id"] == q["id"] or o["id"] == d:
 					continue
@@ -165,17 +178,20 @@ func test_completion_signals_once_and_save_round_trip() -> void:
 	assert_bool(b2.is_done("gather_flint")).is_false()
 
 
-## The Flint Age main road in play order, through the inventory: each step
-## holds what the player would, spends what they would, and the book ends at
-## copper with only the optional side quests left.
+## The main road of the four Stone Age chapters in play order, through the inventory: each step
+## holds what the player would, spends what they would, and the book ends at copper with only the
+## optional side quests left.
 func test_flint_age_walkthrough() -> void:
 	var steps := [
 		["flint", 6], ["stick", 12], ["loose_stone", 2],
 		["flint_knife_blade", 1], ["cordage", 3], ["-cordage", 1], ["-flint_knife_blade", 1], ["flint_knife", 1],
 		["-cordage", 1], ["flint_shovel", 1],
-		["dry_grass", 9], ["firestarter", 1], ["clay_ball", 8], ["-clay_ball", 8],
+		["dry_grass", 9], ["firestarter", 1], ["firepit", 1], ["birch_tar", 2], ["-birch_tar", 1], ["!tar_hafted", "flint_axe"],
+		["microlith", 8], ["-microlith", 2], ["bow", 1], ["arrow", 8],
+		["clay_ball", 8], ["-clay_ball", 8], ["clay_bowl", 3], ["cooking_pot", 1], ["polished_stone_axe", 1],
+		["copper_awl", 1], ["!fired", "copper_nugget"], ["clay_ball", 8], ["-clay_ball", 8],
 		["raw_pickaxe_mold", 1], ["raw_crucible", 1], ["-raw_pickaxe_mold", 1], ["-raw_crucible", 1],
-		["!fired", "pickaxe_mold"], ["!fired", "crucible"], ["crucible", 1], ["firepit", 1], ["-firepit", 1],
+		["!fired", "pickaxe_mold"], ["!fired", "crucible"], ["crucible", 1], ["-firepit", 1],
 		["loose_copper_ore", 4], ["-loose_copper_ore", 4], ["-crucible", 1], ["crucible_copper", 1],
 		["-crucible_copper", 1], ["crucible", 1], ["copper_pickaxe_head", 1], ["-copper_pickaxe_head", 1], ["copper_pickaxe", 1],
 	]
@@ -188,17 +204,19 @@ func test_flint_age_walkthrough() -> void:
 		else:
 			_give(what, s[1])
 	assert_bool(book.is_done("copper_tool")).is_true()
-	for q in book.chapter_quests("flint_age"):
-		var id: String = q["id"]
-		assert_bool(book.is_done(id)).override_failure_message("%s: done should be %s" % [id, not q.get("optional", false)]).is_equal(
-			not q.get("optional", false))
+	for c in CHAPTERS.slice(0, 4):
+		for q in book.chapter_quests(c):
+			var id: String = q["id"]
+			assert_bool(book.is_done(id)).override_failure_message("%s: done should be %s" % [id, not q.get("optional", false)]).is_equal(
+				not q.get("optional", false))
 	assert_bool(book.is_done("ingot")).is_false()   # the Copper Age opens after the Flint Age
 
 
 ## The Copper Age (ADR 0042) after it: ingots, a hammer, an anvil, hot metal, a smithed head, the saw.
 func test_copper_age_walkthrough() -> void:
-	for q in book.chapter_quests("flint_age"):
-		book.complete(q["id"])
+	for c in CHAPTERS.slice(0, 4):
+		for q in book.chapter_quests(c):
+			book.complete(q["id"])
 	var steps := [["copper_ingot", 2], ["-copper_ingot", 1], ["copper_hammer", 1], ["stone_anvil", 1],
 		["!heated", "copper_ingot"], ["!smithed", "copper_saw_blade"], ["copper_saw", 1]]
 	for s in steps:

@@ -24,7 +24,9 @@ const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace"], "kn
 const WORK_CATEGORIES := {"knap": ["knapping", "Knapping"], "clayform": ["clayforming", "Clay forming"],
 	"kiln": ["pit_kiln", "Pit kiln"], "cast": ["casting", "Casting"], "scrape": ["scraping", "Scraping hides"],
 	"dry": ["drying", "Drying"], "charcoal_pit": ["charcoal_pit", "Charcoal pit"],
-	"assemble": ["assembly", "Assembly on the ground"], "smith": ["smithing", "Smithing"]}
+	"assemble": ["assembly", "Assembly on the ground"], "smith": ["smithing", "Smithing"],
+	"bury": ["earth_oven", "Earth oven"], "rack": ["rack", "Drying rack"], "stroke": ["stroke", "Grinding, sewing, weaving"],
+	"soak": ["soak", "Laid in water"], "trap": ["trap", "Traps"]}
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
@@ -453,6 +455,8 @@ func layout(r: Dictionary) -> Dictionary:
 			info = "Lies on the ground %d s" % int(r.get("seconds", 60))
 		"charcoal_pit":
 			info = "Piles sealed with soil, %d s" % int(Settings.charcoal_pit_burn_s)
+		_:
+			info = String(r.get("info", ""))   # the Stone Age types say it themselves (ADR 0059)
 	var st: String = r.get("station", "")
 	var needs := ""
 	if r["type"] == "mining":

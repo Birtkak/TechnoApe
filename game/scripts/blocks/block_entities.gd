@@ -68,8 +68,12 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			e = AnvilEntity.new(recipes, pos)
 			_ticking.append(e)
 		_:
-			push_error("unknown block entity kind " + kind)
-			return null
+			e = StoneAge.create_entity(self, pos, kind)   # the Stone Age pieces (ADR 0059)
+			if e == null:
+				push_error("unknown block entity kind " + kind)
+				return null
+			if StoneAge.ticks(kind):
+				_ticking.append(e)
 	_by_pos[pos] = e
 	_register_cells(e)
 	e.changed.connect(_mark_dirty)
@@ -87,6 +91,8 @@ const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "assembly": 1}
 static func footprint(e: RefCounted) -> Array[Vector3i]:
 	if e is FurnitureEntity:
 		return e.cells
+	if e.has_method("footprint_cells"):
+		return e.footprint_cells()   # a megalith's three blocks (ADR 0059)
 	if e.kind in SINGLE:
 		return [e.pos]
 	return cube(e.pos, height_of(e.kind))
@@ -94,7 +100,7 @@ static func footprint(e: RefCounted) -> Array[Vector3i]:
 
 ## Footprint height in voxels of a block entity kind.
 static func height_of(p_kind: String) -> int:
-	return int(HEIGHT.get(p_kind, Settings.BLOCK))
+	return int(HEIGHT.get(p_kind, StoneAge.HEIGHTS.get(p_kind, Settings.BLOCK)))
 
 
 ## BLOCK x height x BLOCK voxels from `anchor` (min corner): a station's or work piece's footprint.
@@ -162,7 +168,7 @@ func all_of(p_kind: String) -> Array:
 
 
 static func is_work(e: RefCounted) -> bool:
-	return e != null and e.kind in WORK_KINDS
+	return e != null and (e.kind in WORK_KINDS or e.kind in StoneAge.KINDS)
 
 
 func all_work() -> Array:

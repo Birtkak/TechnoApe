@@ -15,7 +15,8 @@ var _flying: Array = []   # {stack, pos, vel, age, damage, node}
 var stats := {"thrown": 0, "hits": 0, "landed": 0}
 
 
-func throw(stack: Dictionary, from: Vector3, dir: Vector3) -> void:
+## speed_x and damage_x: an atlatl throws a spear harder (ADR 0059).
+func throw(stack: Dictionary, from: Vector3, dir: Vector3, speed_x: float = 1.0, damage_x: float = 1.0) -> void:
 	if stack.is_empty():
 		return
 	var t: Dictionary = main.items.get_def(stack["id"]).get("throw", {})
@@ -23,8 +24,8 @@ func throw(stack: Dictionary, from: Vector3, dir: Vector3) -> void:
 	node.mesh = BlockMeshes.sprite(stack["id"])
 	node.position = from
 	add_child(node)
-	var f := {"stack": stack, "pos": from, "vel": dir.normalized() * Settings.m2v(float(t.get("speed_m", 12.0))),
-		"age": 0.0, "damage": int(t.get("damage", 2)), "node": node}
+	var f := {"stack": stack, "pos": from, "vel": dir.normalized() * Settings.m2v(float(t.get("speed_m", 12.0))) * speed_x,
+		"age": 0.0, "damage": int(round(int(t.get("damage", 2)) * damage_x)), "node": node}
 	_orient(f)
 	_flying.append(f)
 	stats["thrown"] += 1

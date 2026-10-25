@@ -51,6 +51,7 @@ var chop_test := ""         # chop_test=1[,cam]: 1.5 s after loading, /chop [cam
 var fell_test := ""         # fell_test=<deg>[,cam]: 1.5 s after loading, /fell <deg> [cam] (P12 rigid pieces)
 var water_test := false     # water_test=1 (with target=river): dig a trench into the bank, check it fills to the river's level (ADR 0045, JSON line "debug water")
 var water_shots := true     # water_shots=0: no screenshots in the water test
+var stone_ages_test := false # stone_ages_test=1: the four Stone Age stages alone (flint_age_test=1 runs them too; ADR 0059, JSON line "debug stone_ages")
 var craft_test := false     # craft_test=1: assemble an axe, work a firepit by hand, smith a hammer head, wear a tool out (ADR 0042, JSON line "debug craft")
 var stone_age_test := false # stone_age_test=1: knap, form clay, pit kiln, firepit, cast, sieve through the player's clicks (ADR 0023, JSON line "debug stone_age")
 var mob_spawning := true # mob_spawn=0: no herds spawn as land loads (benchmarks without animals)
@@ -157,6 +158,7 @@ func _ready() -> void:
 	stone_age_test = args.get("stone_age_test", "0") == "1"
 	flint_age_test = args.get("flint_age_test", "0") == "1"
 	craft_test = args.get("craft_test", "0") == "1"
+	stone_ages_test = args.get("stone_ages_test", "0") == "1"
 	water_test = args.get("water_test", "0") == "1"
 	water_shots = args.get("water_shots", "1") != "0"
 	menu_test = args.get("menu_test", "0") == "1"

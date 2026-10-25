@@ -1050,6 +1050,11 @@ for item, glyph, kind in [("spell_spark_bolt", "spark", "projectile"), ("spell_f
     sp(item, ("spell_card", None, {"g": bg, "G": tint(bg, 1.35), "k": tint(bg, 0.7)}), "glyph_" + glyph)
 
 
+# the four Stone Age stages (ADR 0059): their own file, so the parts merge cleanly
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import stone_age_sprites  # noqa: E402
+stone_age_sprites.add(globals())
+
 # ---------- validate + write ----------
 
 
