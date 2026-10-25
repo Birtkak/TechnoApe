@@ -23,6 +23,9 @@ constexpr float HUMP_AMP = 1.5f;      // ~2.5 m hummocks
 constexpr float GROUND_AMP2 = 0.6f;   // ~1 m roughness
 // At lod 1 caves are carved only this close to the surface (cave mouths, ADR 0020).
 constexpr int CAVE_MOUTH_DEPTH = 24 * FS;
+// Fallen sticks' half-widths in voxels (FStamp::r): thin (one voxel), medium (two), thick (two
+// across, two tall along the middle).
+constexpr float STICK_THICK[3] = {0.72f, 1.05f, 1.45f};
 // Below this many voxels under the lowest carved surface of a block's columns nothing but stone is
 // generated from LOD 1 on: past the deepest sandstone and badlands strata (24 macro), the cave mouths
 // (CAVE_MOUTH_DEPTH) and the ground's swells, with room to spare.
@@ -59,14 +62,21 @@ bool is_pickup(uint16_t m) {
 // turned per patch; loose stones are a size smaller with a chip beside them. The voxels touch, so the player picks the whole
 // chunk up at once (player.gd _dig_selection).
 int pickup_shape(uint16_t kind, int lx, int lz, uint32_t s) {
-    if (s & 1) lx = FS - 1 - lx;
-    if ((s >> 1) & 1) std::swap(lx, lz);
-    static const int CHUNK[FS][FS] = {{1, 2, 2, 1}, {2, 2, 2, 2}, {2, 2, 2, 1}, {1, 2, 1, 0}};   // [z][x]
-    static const int STONES[FS][FS] = {{0, 0, 0, 0}, {1, 2, 1, 0}, {1, 1, 1, 0}, {0, 0, 0, 1}};
-    const int v = (kind == WorldGen::PEBBLES ? STONES : CHUNK)[lz][lx];
-    // one of the thick cells sits a voxel lower, so chunks are not all the same block
-    if (v == 2 && ((s >> 2) & 3) == (uint32_t)((lx + lz) & 3)) return 1;
-    return v;
+    // An irregular lump over the patch (2026-10-25: "a bit bigger, irregular, variety, thicker"): a
+    // dome with its own centre, radii and height per patch (2-3 voxels, loose stones 1-2), its edge
+    // eroded cell by cell. Every patch differs; the cells stay touching, so it is one piece.
+    const bool loose = kind == WorldGen::PEBBLES;
+    const float cx = 1.6f + 0.8f * (float)(s & 15) / 15.0f, cz = 1.6f + 0.8f * (float)((s >> 4) & 15) / 15.0f;
+    const float rx = 1.7f + 0.9f * (float)((s >> 8) & 15) / 15.0f, rz = 1.7f + 0.9f * (float)((s >> 12) & 15) / 15.0f;
+    const int H = loose ? 1 + (int)((s >> 16) % 3) : 2 + (int)((s >> 16) % 3);   // stones 1-3, chunks and flint 2-4
+    const float dx = ((float)lx + 0.5f - cx) / rx, dz = ((float)lz + 0.5f - cz) / rz;
+    const float d = dx * dx + dz * dz;
+    if (d > 1.0f) return 0;
+    const uint32_t hh = WorldGen::hash3(lx, lz, (int)(s >> 3));
+    if (d > 0.55f && (hh & 3) == 0) return 0;              // a bite out of the rim
+    int h = (int)std::ceil((float)H * (1.0f - d * 0.8f));
+    if (h > 1 && ((hh >> 2) & 3) == 0) h--;                  // lumpy top
+    return std::clamp(h, 1, H);
 }
 } // namespace
 
@@ -533,7 +543,7 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
     // Fallen sticks (the twigs pickup, Vintage Story style in voxels): 1-1.5 m long, one voxel thick,
     // a forked side branch, lying at any angle; the column loop lays them on the ground. Half the
     // 2 m cells of a forest hold one, a few in open land.
-    constexpr int SM = 12;
+    constexpr int SM = 16;   // a stick reaches ~15 voxels from its cell's point
     const int sx0 = floor_div(x_lo - SM, FC), sx1 = floor_div(x_hi + SM, FC);
     const int sz0 = floor_div(z_lo - SM, FC), sz1 = floor_div(z_hi + SM, FC);
     for (int cz = sz0; cz <= sz1; cz++)
@@ -561,7 +571,8 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             const float an = (float)(s.seed & 1023) / 1023.0f * 3.1416f;
             s.dx = std::cos(an);
             s.dz = std::sin(an);
-            s.size = 4.0f + (float)((s.seed >> 10) & 7) * 0.4f;   // half length: 8-12 voxels long
+            s.size = 4.5f + (float)((s.seed >> 10) & 7) * 0.45f;   // half length: 9-15 voxels long
+            s.r = STICK_THICK[(s.seed >> 20) % 3];                // thin, medium or thick (2026-10-25)
             s.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
             out.push_back(s);
         }
@@ -662,15 +673,20 @@ uint16_t FineGen::clutter_voxel(const FStamp &s, int dx, int dy, int dz) {
     return Mat::AIR;
 }
 
-float FineGen::stick_dist(const FStamp &s, float x, float z) {
+float FineGen::stick_dist(const FStamp &s, float x, float z, float *fork_out) {
     const float d = std::sqrt(seg_dist2(x, 0.0f, z, s.x - s.dx * s.size, 0.0f, s.z - s.dz * s.size, s.x + s.dx * s.size, 0.0f, s.z + s.dz * s.size));
     // the fork: a third of the way along, 3-4 voxels out at 40 degrees to one side, pointing forward
     const float along = s.size * (((s.seed >> 14) & 1) ? 0.35f : -0.35f);
     const float side = ((s.seed >> 15) & 1) ? 1.0f : -1.0f;
     const float bx = s.x + s.dx * along, bz = s.z + s.dz * along;
-    const float bl = 3.0f + (float)((s.seed >> 16) & 1);
+    const float bl = 3.0f + (float)((s.seed >> 16) & 3);   // 3-6 voxels
     const float ex = bx + (s.dx * 0.77f - s.dz * side * 0.64f) * bl, ez = bz + (s.dz * 0.77f + s.dx * side * 0.64f) * bl;
-    return std::min(d, std::sqrt(seg_dist2(x, 0.0f, z, bx, 0.0f, bz, ex, 0.0f, ez)));
+    const float f = std::sqrt(seg_dist2(x, 0.0f, z, bx, 0.0f, bz, ex, 0.0f, ez));
+    if (fork_out) {
+        *fork_out = f;   // the side branch, measured apart: it stays thin on a thick stick
+        return d;
+    }
+    return std::min(d, f);
 }
 
 uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const {
@@ -1124,12 +1140,22 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             }
             // fallen sticks lie on this column's ground, on a strip the grass and ferns keep clear of
             if (do_veg && ncs > 0 && !pickup && h > water_level && hy.fall_top < 0) {
-                float sd = 1e9f;
-                for (int k = 0; k < ncs; k++) if (cst[k]->kind == STICK) sd = std::min(sd, stick_dist(*cst[k], (float)wx, (float)wz));
-                if (sd <= 0.72f) { veg = Mat::TWIGS; veg_h = 1; veg_head = Mat::AIR; }
-                else if (sd <= 2.5f) veg = veg_head = Mat::AIR;
+                float sd = 1e9f, th = 0.72f, fd = 1e9f;
+                for (int k = 0; k < ncs; k++) {
+                    if (cst[k]->kind != STICK) continue;
+                    float f;
+                    const float d = stick_dist(*cst[k], (float)wx, (float)wz, &f);
+                    if (d - cst[k]->r < sd - th) { sd = d; th = cst[k]->r; }
+                    fd = std::min(fd, f);
+                }
+                // round in section: thick sticks rise to two voxels along their middle; the side branch
+                // is always one voxel thin
+                if (sd <= th) { veg = Mat::TWIGS; veg_h = (th > 1.0f && sd <= th - 0.75f) ? 2 : 1; veg_head = Mat::AIR; }
+                else if (fd <= 0.6f) { veg = Mat::TWIGS; veg_h = 1; veg_head = Mat::AIR; }
+                else if (std::min(sd - th, fd - 0.6f) <= 1.8f) veg = veg_head = Mat::AIR;
+                sd = std::min(sd, fd + th - 0.6f);
                 // a rim of bare soil under and beside it, so the pale stick reads against grass and litter
-                if (sd <= 1.6f && (top_m == Mat::GRASS || top_m == Mat::LEAF_LITTER)) top_m = Mat::DIRT;
+                if (sd <= th + 0.9f && (top_m == Mat::GRASS || top_m == Mat::LEAF_LITTER)) top_m = Mat::DIRT;
             }
             // clutter pieces standing on this column (ADR 0047): their voxels from their own ground up
             int clut_base = INT32_MIN;

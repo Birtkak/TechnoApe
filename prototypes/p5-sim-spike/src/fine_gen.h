@@ -121,7 +121,7 @@ private:
     // Clutter piece voxel at (dx, dy, dz) from its stamp's centre column and ground (dy = 0: the first voxel above it).
     static uint16_t clutter_voxel(const FStamp &s, int dx, int dy, int dz);
     uint16_t stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const;
-    static float stick_dist(const FStamp &s, float x, float z);   // ground-plane distance to a stick and its branch
+    static float stick_dist(const FStamp &s, float x, float z, float *fork_out = nullptr);   // ground-plane distance to a stick and its branch
     float cave_field(int mx, int my, int mz, int height) const;
 };
 
