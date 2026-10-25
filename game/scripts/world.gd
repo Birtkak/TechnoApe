@@ -34,6 +34,7 @@ func _ready() -> void:
 	atlas_material.set_shader_parameter("lava_tile", float(GameMaterials.defs()[GameMaterials.LAVA - 1]["tiles"][0]))
 	atlas_material.set_shader_parameter("fire_tile", float(GameMaterials.defs()[GameMaterials.FIRE - 1]["tiles"][0]))
 	atlas_material.set_shader_parameter("glow_tile", float(GameMaterials.defs()[GameMaterials.GLOW_MUSHROOM - 1]["tiles"][0]))
+	atlas_material.set_shader_parameter("glow_tile_b", float(GameMaterials.defs()[GameMaterials.CRYSTAL - 1]["tiles"][0]))
 	atlas_material.set_shader_parameter("grass_top_tile", float(GameMaterials.defs()[GameMaterials.GRASS - 1]["tiles"][0]))
 	atlas_material.set_shader_parameter("grass_side_tile", float(GameMaterials.defs()[GameMaterials.GRASS - 1]["tiles"][1]))
 	atlas_material.set_shader_parameter("pattern_tiles", GameMaterials.pattern_tiles())
@@ -42,7 +43,7 @@ func _ready() -> void:
 	# liquids and gases: same uniforms, alpha + depth write + water glint (terrain_liquid.gdshader)
 	liquid_material = ShaderMaterial.new()
 	liquid_material.shader = load("res://assets/shaders/terrain_liquid.gdshader")
-	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "grass_top_tile", "grass_side_tile", "pattern_tiles", "far_fade_start", "far_fade_end"]:
+	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "glow_tile_b", "grass_top_tile", "grass_side_tile", "pattern_tiles", "far_fade_start", "far_fade_end"]:
 		liquid_material.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
 	gas_material = ShaderMaterial.new()
 	gas_material.shader = load("res://assets/shaders/terrain_gas.gdshader")
@@ -59,7 +60,7 @@ func _ready() -> void:
 		if d.has("fluid_slot") and not d.get("liquid_static", false):
 			var fm := ShaderMaterial.new()
 			fm.shader = load("res://assets/shaders/terrain_fluid.gdshader" if d.get("transparent", false) else "res://assets/shaders/terrain_fluid_opaque.gdshader")
-			for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile"]:
+			for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "glow_tile_b"]:
 				fm.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
 			fm.set_shader_parameter("fluid_tile", float(d["tiles"][0]))
 			fluid_materials[int(d["fluid_slot"])] = fm

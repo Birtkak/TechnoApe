@@ -316,7 +316,29 @@ can get quite deep and dark".
   (p50 2.0 vs 6.8 ms, p99 8.2 vs 12.2 ms). Other Godot processes were running in
   both runs, so neither is a budget check.
 
+## Massifs, big caves and landforms (2026-10-25, GEN_VERSION 16, ADR 0051-0052)
+The developer's playtest asked for more massive mountains ("a huge foot that becomes more and more
+steep"), "epic" caves with entrances, and real-world landforms; sheets showed the old ranges already hit
+the 384 m ceiling.
+- **640 m world**, sea still at 128 m. **Massif** mountains: a widened 3 km mask, height
+  `400 m x (mask^2 x (0.45 + 0.55 ridge^1.3))^1.3`: a long gentle apron, steepening to ~400 m peaks; heights
+  over 200 m bend softly toward the top. Old ranges and "horns" stay as sheet variants (`set_variant`).
+- **Caves**: tunnels 2-4 m, halls 40-120 m (squashed 3D noise, carved up to LOD 2), ravines ~10-20 m wide
+  and 30-60 m deep, cave-mouth ramps (~24 per km^2) that leave the ground, crystal geodes (material 120).
+  Cave pools need rock on all four sides (no more draped sludge).
+- **Landforms**: sea cliffs 7-27 m on rocky stretches of coast, sea stacks and arches in front of them,
+  Uluru-like monoliths on open lowland, meandering lowland rivers (domain warp), braided deltas at big
+  river mouths. Lakes reach half a cell past their lake cells and get a rim beyond (no glass wall along
+  a cell border).
+- Wild food densities are per biome in `biomes.json` decor (`berries`, `mushrooms`, `log_mushrooms`).
+- Ruin pot spots: `ruin_pots_near(x, z, radius)` (placed by the game, not generated).
+- `find_nearest`: `cavern`, `ravine`, `geode`, `monolith`, `sea_stack`, `arch`, `delta`.
+- Sheets without a window: `tools/landscape_sheet.gd` (map, height-field view, profile; rows of
+  variant:world height:relief) and `tools/cave_sheet.gd` (cave share, mouths, vertical slice).
+- Far trees: wood widens by 0.2 x step at coarse LODs (was 0.45, the "chunky" trunks), leaf lumps fade.
+
 ## Next
+- Fjords where cold ranges meet the sea, oxbow lakes beside meanders.
 - Small ores between veins (single blocks dropping nuggets) and the copper
   prospecting pick (reads `vein_at` within ~16 m): `progression.md` "Ores".
 - The Noita-style dungeons (underground stamps from a per-region RNG) - parked.

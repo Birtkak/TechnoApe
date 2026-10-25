@@ -25,6 +25,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <algorithm>
+#include <atomic>
 #include <future>
 #include <mutex>
 #include <unordered_map>
@@ -62,7 +64,9 @@ public:
         // 103..107 Flint Age (never generated)
         LEAF_LITTER = 108,  // the shaded forest floor (2026-10-23)
         // 109..110 patterned building materials (never generated); clutter as voxel pieces (ADR 0047)
-        PLANT_STEM = 111, KELP = 112, SEAGRASS = 113, SEASHELL = 114, MUSHROOM_STEM = 115
+        PLANT_STEM = 111, KELP = 112, SEAGRASS = 113, SEASHELL = 114, MUSHROOM_STEM = 115,
+        // 116..119 reserved (part A of the 2026-10-25 split); world generation 120..129
+        CRYSTAL = 120
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,
@@ -104,6 +108,16 @@ public:
     // Debug: the ore vein of the cell holding (x, z): {name, type, x, y, z, size, thickness,
     // half_thickness (lens thickness / 2 at this column, 0 outside), indicator} or {} when none.
     Dictionary vein_at(int x, int z) const;
+    // Loot pot spots in the ruins within radius of (x, z) (hook for breakable pots, part E of the 2026-10-25
+    // split): [{x, y, z, ruin, seed}] in macro voxels, y = the first air voxel on the ruin floor; two to four
+    // per ruin, in inside corners and against the walls. Nothing is generated there: the caller places them.
+    Array ruin_pots_near(int x, int z, int radius) const;
+    // Debug: switch a generator variant for comparison sheets (clears the hydrology cache; not thread-safe
+    // against running generation). Slot VAR_MOUNTAINS: 0 the ranges of ADR 0035, 1 massif (default, ADR
+    // 0051), 2 horns; VAR_CAVES: 0 the caves of ADR 0035, 1 caverns, ravines and mouths (default, ADR 0052);
+    // VAR_RELIEF: mountain relief in metres (0: 400 m).
+    enum { VAR_MOUNTAINS = 0, VAR_CAVES = 1, VAR_RELIEF = 2, VAR_COUNT = 4 };
+    void set_variant(int slot, int value);
 
 protected:
     static void _bind_methods();
@@ -120,6 +134,7 @@ private:
         float slope;     // |dh/dx|, |dh/dz| max (voxels per voxel), only computed on mountains
         bool alpine;     // above the tree line
         bool snow;       // permanent snow
+        uint16_t rock = 0;   // a landmark's own rock for its faces and top (monoliths), 0 = none
     };
     // ---- hydrology ----
     static constexpr int HCELL = 32;          // voxels per hydrology cell (16 m)
@@ -154,6 +169,9 @@ private:
         int marsh_level;  // marsh floor / water surface (exclusive), -1 none
         int fall_top;     // waterfall sheet: static water from water_level up to this (exclusive), -1 none
         bool shore;       // dry ground within ~1 m of a lake or river surface (reeds)
+        float lake_near = -1.0f;   // the level of a lake within reach (debug: column_info), -1 none
+        float delta = 0.0f;   // 0..1 how far this river column is into a delta (ADR 0051)
+        int berm = -1;    // ground raised to at least this (a shallow lake's rim on flat land), -1 none
     };
     // Which tile owns a column, plus the neighbour tiles its accumulation blends with
     // near the core border (so river width does not jump at tile seams).
@@ -186,10 +204,14 @@ private:
     struct Ruin { int x, z, hw, hd, base; uint32_t seed; };
 
     int seed_ = 1337;
+    int variant_[VAR_COUNT] = {1, 1, 0, 0};
     int sea_ = 256;
-    int world_height_ = 768;
+    int world_height_ = 1280;
     FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_jitter_, n_cavebiome_;
     FastNoiseLite n_region_, n_hillmask_, n_hill_;   // landform regions (plains, hills, mountain ranges) and hill shapes
+    FastNoiseLite n_cavern_, n_ravine_, n_ravmask_;   // caverns and ravines (VAR_CAVES 1)
+    FastNoiseLite n_cliff_;   // rocky coasts: where the land ends in a sea cliff (ADR 0051)
+    FastNoiseLite n_meander_; // lowland river bends
     // Global tile cache: a tile is built outside the lock by the first thread
     // that asks for it, others wait on its future; least recently used tiles
     // are evicted past HYDRO_CACHE_MAX (ADR 0020: a build under the lock
@@ -200,6 +222,7 @@ private:
     mutable std::mutex hydro_mutex_;
     mutable std::unordered_map<uint64_t, HydroEntry> hydro_cache_;
     mutable uint64_t hydro_tick_ = 0;
+    std::atomic<uint64_t> epoch_{0};   // new on every configure and set_variant (tile_cached slots)
 
     Column column(int x, int z) const;
     Column column_base(int x, int z, bool with_slope) const;
@@ -221,6 +244,34 @@ private:
     int ruins_near(int x0, int z0, int x1, int z1, Ruin *out, int max_out) const;
     static bool in_ruin(const Ruin &r, int x, int z, int margin);
     inline bool is_cave(int x, int y, int z, int height) const;
+    // The cave field (macro units): positive inside a cave. FineGen interpolates it per voxel.
+    // small_only: tunnels, rooms and mouths without the caverns and ravines (FineGen adds those from coarse
+    // samples: cavern_value, ravine_value).
+    float cave_value(int x, int y, int z, int height, bool small_only = false) const;
+    static constexpr float CAVERN_THR = 0.45f, CAVERN_Y = 2.4f;
+    static float cavern_value(float raw, float fy, float depth);
+    static float ravine_value(float mask, float line, float depth);
+    // Whether a cavern or a ravine may reach into the box (macro units), for the deep-rock shortcut.
+    bool big_cave_possible(int x0, int y0, int z0, int x1, int y1, int z1, int ground_min) const;
+    // How far below the surface caves stop at this column (macro voxels): 5 normally, 0 where a cave mouth
+    // or a ravine may open onto the surface.
+    int cave_roof(int x, int z) const;
+    // ---- landforms (ADR 0051) ----
+    // Sea stacks off cliff coasts: one chance per 12 m cell; some are arches (a tunnel at the waterline).
+    static constexpr int STACK_CELL = 24;
+    struct SeaStack { float x, z, r, h; bool arch; float adx, adz; };
+    bool stack_at_cell(int cx, int cz, SeaStack &out) const;
+    float cliff_height(float cliff_mask) const { return 14.0f + 40.0f * std::clamp((cliff_mask - 0.15f) / 0.45f, 0.0f, 1.0f); }
+    // Monoliths (Uluru-like) on open lowland: one chance per 1.5 km cell.
+    static constexpr int MONO_CELL = 3000;
+    float monolith_height(int x, int z) const;   // extra height at (x, z), 0 outside
+    static constexpr int MOUTH_CELL = 128;   // macro voxels (64 m)
+    struct CaveMouth { float x, z, dx, dz, len, slope, r; };
+    int mouths_near(int x, int z, CaveMouth *out) const;   // the mouths whose ramps may reach (x, z), at most 9
+    // Crystal geodes (ADR 0052): at most one per 96 m cell, deep in the rock. Macro units.
+    static constexpr int GEODE_CELL = 192;
+    struct Geode { float x, y, z, r; uint32_t seed; };
+    bool geode_at_cell(int cx, int cz, Geode &out) const;
     // ---- ore veins (technosim_ore tables) ----
     struct Vein { int type, x, y, z; };
     bool vein_at_cell(int cx, int cz, Vein &out) const;

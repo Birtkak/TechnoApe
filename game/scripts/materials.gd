@@ -125,8 +125,11 @@ const KELP := 112                  # stands in water like Minecraft's waterlogge
 const SEAGRASS := 113
 const SEASHELL := 114
 const MUSHROOM_STEM := 115
+# 116..119 reserved for part A of the 2026-10-25 bug report split (placeholders until it lands)
+const CRYSTAL := 120               # geode lining (ADR 0052): glows in the terrain shader
+# 121..129 reserved for world generation
 
-const ATLAS_TILES := Vector2i(8, 13)   # rows grow at the bottom, so tile indices keep their meaning
+const ATLAS_TILES := Vector2i(8, 14)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -228,7 +231,18 @@ static func _build_defs() -> Array:
 		{"name": "leaf_litter", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [84, 84, 1], "transparent": false},
 		{"name": "cobblestone", "cell_type": "solid", "pattern": true, "density": 10, "hp": 1000, "tiles": [98, 98, 98], "transparent": false},
 		{"name": "bricks", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [99, 99, 99], "transparent": false},
-	] + _clutter_defs()
+	] + _clutter_defs() + _reserved_defs(116, 119) + [
+		{"name": "crystal", "cell_type": "solid", "pattern": true, "density": 10, "hp": 800, "tiles": [104, 104, 104], "transparent": false},
+	]
+
+
+## Placeholders that keep later ids in place while other branches fill them (the 2026-10-25 split reserves
+## id ranges per part): never generated, never placed, drawn as nothing.
+static func _reserved_defs(first: int, last: int) -> Array:
+	var out := []
+	for id in range(first, last + 1):
+		out.append({"name": "reserved_%d" % id, "cell_type": "solid", "density": 10, "hp": 1000, "tiles": [0, 0, 0], "transparent": true, "model": "empty"})
+	return out
 
 
 static var _clutter := []

@@ -104,8 +104,10 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   the retired 0.5 m / brick-world architecture were deleted with it (ADR 0036, git history keeps them).
 - Phase 2 (current): **the voxel world (ADR 0033-0036).** One 12.5 cm grid for terrain, simulation,
   collision and rendering. Native `FineGen` draws the voxels over `WorldGen`'s 0.5 m macro layer
-  (landforms: ~8 km continents of plains, hill country and mountain ranges; climate, biomes from
-  biomes.json, hydrology, caves with pools, GregTech ore veins, ruins); aged trees with bark trunks,
+  (landforms: ~8 km continents of plains, hill country and massif mountains to ~400 m in a 640 m world,
+  sea cliffs and stacks, monoliths, meanders, deltas (ADR 0051); climate, biomes from biomes.json,
+  hydrology, big caves: halls carved to LOD 2, ravines, cave mouths, geodes (ADR 0052); GregTech ore
+  veins, ruins); sheets without a window: `tools/landscape_sheet.gd`, `tools/cave_sheet.gd`; aged trees with bark trunks,
   roots and clumped crowns, young trees, a forest floor of leaf litter, logs, stumps, bushes, ferns and
   mushrooms; far forests as leaf domes. Flat colours: one texel of the material's tile per voxel
   (`voxel_sample`); props use `terrain_prop.gdshader`. `SimBubble` ticks a wrapped 64 x 32 x 64 m window
@@ -159,9 +161,10 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
 - Material ids are definition order, append only (saves and the generator use them): 32..36 stations,
   37..43 detail, 44 reserved (once `CHISELED`), 47 blood, 48..52 ground pickups, 57..75 animals, farming,
   furniture, 76..87 and 90..101 content passes, 88..89 work spots, 103..107 Flint Age, 108 leaf litter,
-  109 cobblestone, 110 bricks, 111..115 clutter (plant stem, kelp, seagrass, seashell, mushroom stem; ADR 0047).
-  Atlas 8x13 tiles (84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
-  stones; 98 cobblestone, 99 bricks; 100 blueberry bush; 101 kelp, 102 seagrass, 103 seashell: full, add a row to grow;
+  109 cobblestone, 110 bricks, 111..115 clutter (plant stem, kelp, seagrass, seashell, mushroom stem; ADR 0047),
+  116..119 placeholders (part A), 120 crystal (geodes, ADR 0052), 121..129 reserved for world generation.
+  Atlas 8x14 tiles (row 104-111 world generation: 104 crystal); (84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
+  stones; 98 cobblestone, 99 bricks; 100 blueberry bush; 101 kelp, 102 seagrass, 103 seashell; add a row to grow;
   after editing `tools/make_atlas.py` run `--import`, or the game draws the old texture). `"pattern": true` materials lay their tile over the grid, one texel per voxel (ADR 0039). Ground pickups are voxel shapes (stone chunks on a 0.5 m patch, sticks as `FineGen::STICK` stamps);
   clutter (flowers, mushrooms, seashells, kelp, seagrass) and ore nuggets are voxel pieces that dig whole (ADR 0047,
   `GroundPickups`, probe `tools/clutter_probe.gd`). Crafting: any layout, amounts in inventory counts (ADR 0046). `MicroMesher` builds the

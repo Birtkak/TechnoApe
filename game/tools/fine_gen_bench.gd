@@ -2,15 +2,24 @@ extends SceneTree
 
 ## Benchmark: FineGen.generate_block per LOD (ADR 0033), single thread, the
 ## blocks a flight over the spawn area asks for (surface, above, below).
-##   godot --headless --path game --script res://tools/fine_gen_bench.gd [-- biome=forest]
-## With biome=<name> it runs over the nearest place of that biome (forests cost the most).
+##   godot --headless --path game --script res://tools/fine_gen_bench.gd [-- biome=forest] [deep=1] [seed=1337]
+## With biome=<name> it runs over the nearest place of that biome (forests cost the most). deep=1 times the
+## blocks 3-8 below the ground with the deep-rock shortcut on, as the game streams them (caves, ADR 0052).
 
 const Settings := preload("res://scripts/settings.gd")
 
 
 func _init() -> void:
 	var gen := FineGen.new()
-	gen.configure(1337, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var deep := false
+	var seed := 1337
+	for a in OS.get_cmdline_user_args():
+		if a == "deep=1":
+			deep = true
+		elif a.begins_with("seed="):
+			seed = int(a.substr(5))
+	gen.configure(seed, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	gen.set_uniform_blocks(deep)
 	var cx := 1000
 	var cz := -700
 	for a in OS.get_cmdline_user_args():
@@ -31,7 +40,7 @@ func _init() -> void:
 				var x := bx * size + cx
 				var z := bz * size + cz
 				var h := gen.height_at(x + size / 2, z + size / 2)
-				for by in [-2, -1, 0, 1, 2]:
+				for by in ([-8, -7, -6, -5, -4, -3] if deep else [-2, -1, 0, 1, 2]):
 					var y: int = (floori(float(h) / size) + int(by)) * size
 					var t0 := Time.get_ticks_usec()
 					var b: PackedByteArray = gen.generate_block(Vector3i(x, y, z), Vector3i(16, 16, 16), lod, 2)

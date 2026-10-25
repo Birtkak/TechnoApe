@@ -38,12 +38,19 @@ public:
     bool get_uniform_blocks() const { return uniform_blocks_; }
 
     PackedByteArray map_image(int center_x, int center_z, int radius, int step) const;
+    // Debug sheets: n x n columns from (x0, z0) every step voxels, three ints each: fine surface height,
+    // water surface (fine, -1 none) and a cover code (0 grass, 1 rock, 2 snow, 3 sand, 4 forest).
+    PackedInt32Array surface_map(int x0, int z0, int n, int step) const;
+    // Debug sheets: n x n columns (fine coordinates), two bytes each: the share of the column under the
+    // ground that is cave (0..255, macro samples) and 1 where a cave opens onto the surface.
+    PackedByteArray cave_map(int x0, int z0, int n, int step) const;
     PackedByteArray climate_map(int x0, int z0, int n, int step) const;
     PackedInt32Array water_floor_map(int x0, int z0, int n, int step) const;
     Vector3i find_nearest(const String &kind, int x, int z, int max_radius) const;
     Array waterfalls_near(int x, int z, int radius) const;
     Dictionary hydrology_stats(int x, int z) const;
     Dictionary vein_at(int x, int z) const;
+    Array ruin_pots_near(int x, int z, int radius) const;   // WorldGen's, in fine voxels (the spot's lowest air voxel)
     Ref<WorldGen> get_macro() const { return g_; }
 
 protected:
@@ -60,6 +67,7 @@ private:
         bool lakebed = false, riverbed = false, marshbed = false;
         int ruin = -1;          // index into the block's ruins
         int spike = 0;
+        int roof = 5;           // caves stop this many macro voxels under the ground (0: a cave mouth may open)
         float gw = 1.0f;        // weight of the fine ground relief: 0 at water, rivers and ruins, interpolated
     };
     struct Blob { float x, y, z, rx, ry, rz; };
@@ -101,6 +109,7 @@ private:
         float dx, dz;           // log direction
         uint16_t wood, bark, leaves;
         bool mossy;
+        int biome = 0;          // where it stands (wild food chances, biomes.json decor)
         uint32_t seed;
     };
 
@@ -122,7 +131,6 @@ private:
     static uint16_t clutter_voxel(const FStamp &s, int dx, int dy, int dz);
     uint16_t stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const;
     static float stick_dist(const FStamp &s, float x, float z, float *fork_out = nullptr);   // ground-plane distance to a stick and its branch
-    float cave_field(int mx, int my, int mz, int height) const;
 };
 
 } // namespace godot

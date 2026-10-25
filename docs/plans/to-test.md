@@ -10,6 +10,27 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Part B (2026-10-25): world generation (ADR 0051, 0052)
+
+New world needed (`GEN_VERSION` 16; the world is 640 m tall now). Handy: `/goto cavern`, `ravine`,
+`geode`, `monolith`, `sea_stack`, `arch`, `delta`, `mountain`, `sulfur_cave`.
+
+- [ ] Mountains: from a plain, walk toward a range: a long gentle foot that gets steeper and steeper, peaks
+      ~400 m over the sea, snow on the upper part. Massive enough? Too much of the land mountain now?
+- [ ] Caves: find a cave mouth on a hillside (a 2-4 m tunnel sloping down) and walk in; tunnels wide
+      enough to move through; `/goto cavern` stands in a hall: does it feel big (40-120 m)? Bring torches.
+- [ ] `/goto ravine`: a crack 10-20 m wide and 30-60 m deep, caves opening off its walls.
+- [ ] `/goto geode`: a 3-6 m hollow lined with glowing violet crystal in a dark basalt shell; mine a crystal.
+- [ ] `/goto sulfur_cave` (or `lush_cave`): sludge and water pools sit flat in hollows of the floor, never
+      as a skin draped over a slope with green walls.
+- [ ] `/goto sea_stack`, `/goto arch`: a cliff coast with rock pillars in the sea, some with a hole at the waterline.
+- [ ] `/goto monolith`: a lone orange rock dome on a plain, near-vertical sides.
+- [ ] `/goto delta` and lowland rivers: braided river mouths with sandbars, rivers that bend.
+- [ ] The river of report 02-11-15 (`/tp 10118 1160 30835` in seed 1866545922): no water standing above
+      its gravel bank; lakes on flat land end at a low rim instead of a glass wall.
+- [ ] Far trees (24-120 m): slimmer trunks, smoother crowns, no thick brown pillars.
+- [ ] Blueberry bushes and mushrooms are rarer (about a third of before): still enough to find food?
+
 ## 2026-10-24: sound (ADR 0044)
 
 Everything is CC0 and cut by our tool, so a sound that feels wrong is a one-line swap: say which one
