@@ -2,10 +2,11 @@ class_name TrackerHud
 extends CanvasLayer
 
 ## The HUD trackers (ADR 0061): one small checklist per pinned recipe or tracked quest, at the right
-## edge under part D's minimap (TOP px down), each row ticked as the inventory fills. Draws Trackers'
-## views; redrawn when the inventory or the pins change and once a second.
+## edge under part D's minimap (its bottom_y(), which moves with its size setting, corner and F3), each
+## row ticked as the inventory fills. Draws Trackers' views; redrawn when the inventory or the pins change
+## and once a second.
 
-const TOP := 230.0
+const TOP := 230.0           # before part D's minimap reports its edge
 const WIDTH := 240.0
 const ROW := 17.0
 const HEAD := 26.0
@@ -18,6 +19,7 @@ var _icons: Array[ItemIcon] = []
 var _views: Array = []
 var _t := 0.0
 var _pending := false
+var minimap: Object          # part D's minimap: bottom_y() is its lower edge when top right, else 0
 
 
 func setup(p_trackers: Trackers, p_items: ItemRegistry, inv_changed: Signal) -> void:
@@ -40,6 +42,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_place()
 	_t -= delta
 	if _t <= 0.0:
 		_t = 1.0
@@ -55,7 +58,7 @@ func refresh() -> void:
 	for v in _views:
 		h += HEAD + v["rows"].size() * ROW + 8.0 + GAP
 	_box.size = Vector2(WIDTH, h)
-	_box.position = Vector2(_box.get_viewport_rect().size.x - WIDTH - 12.0, TOP)   # refreshed each second: follows a resize
+	_place()
 	while _icons.size() < _views.size():
 		var ic := ItemIcon.new()
 		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -73,6 +76,16 @@ func refresh() -> void:
 		ic.position = Vector2(6, y + 3)
 		y += HEAD + _views[i]["rows"].size() * ROW + 8.0 + GAP
 	_box.queue_redraw()
+
+
+## Right edge, under the minimap when it sits top right (each frame: F3 and settings move it).
+func _place() -> void:
+	if _box == null:
+		return
+	var top := TOP
+	if minimap != null and minimap.has_method("bottom_y"):
+		top = maxf(float(minimap.bottom_y()) + 8.0, 12.0)
+	_box.position = Vector2(_box.get_viewport_rect().size.x - WIDTH - 12.0, top)
 
 
 ## What the trackers show (stats JSON, tests).

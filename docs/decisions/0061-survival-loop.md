@@ -26,7 +26,7 @@ nutrition groups"); this ADR adds them, at the developer's request. The develope
    costs a heart, but max health never drops below 6 hearts. A new player starts every bar at 4 (no
    bonus, no penalty). Survival drains the bars in survival mode, sets `PlayerInventory.max_health` once
    a second and saves the bars and the health (above 20) with the player. The bars show in the inventory
-   screen (`NutritionPanel`, under the panel); the hearts row wraps into a second row past ten.
+   screen (`NutritionPanel`, docked under the panel through part D's `InventoryScreen.add_side_panel`); the hearts row wraps into a second row past ten.
 2. **Seasons that matter** (`Seasons`). The calendar already rests crops in winter (ADR 0025). Frost:
    every 10 s each tracked crop's column temperature (the ADR 0040 environment formula, the hour
    included, so a cold night counts) is compared with its crops.json `frost_c` (default 0 C; wheat -1,
@@ -68,7 +68,8 @@ nutrition groups"); this ADR adds them, at the developer's request. The develope
 6. **HUD trackers** (`Trackers`, `TrackerHud`). The recipe view has a Pin button, a quest's detail pane a
    "Track on the HUD" button; up to three trackers (the oldest drops) show at the right edge under part
    D's minimap, each a checklist of ingredients or tasks with have/need counts in the inventory's own
-   counts (ADR 0046), ticked as they fill; a finished quest leaves the list. Saved per world.
+   counts (ADR 0046), ticked as they fill (placed under the minimap's `bottom_y()` each frame: its size,
+   corner and F3 move it; the pickup feed is bottom right); a finished quest leaves the list. Saved per world.
 7. **Glue.** `SurvivalLoop` (one node, set up by Main after Survival) owns all of it, wraps the player's
    `work_use` for the pick's right click, saves `user://worlds/journal_<seed>_g<gen>.json` (discoveries,
    trackers, marked veins) every 30 s and on leaving, and adds `loop` to the stats JSON. Commands:

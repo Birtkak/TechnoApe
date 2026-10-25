@@ -20,6 +20,7 @@ var tracker_hud: TrackerHud
 var diet_panel: NutritionPanel
 var commands: LoopCommands   # held: the registry keeps only Callables, which die with a freed RefCounted
 var _frost_t := 0.0
+var _diet_follows_panel := false
 var _save_t := 30.0
 var stats := {"frost_ms_max": 0.0}
 
@@ -50,17 +51,22 @@ func setup(p_main: Node) -> void:
 	tracker_hud = TrackerHud.new()
 	tracker_hud.name = "TrackerHud"
 	add_child(tracker_hud)
+	tracker_hud.minimap = main.get("minimap")   # part D's; null until it lands
 	tracker_hud.setup(trackers, main.items, main.player_inv.changed)
 	main.quests.quest_completed.connect(func(_id: String) -> void: trackers.prune())
 	main.inv_screen.browser_view.trackers = trackers
 	var qv: QuestBookView = main.inv_screen.quest_view
 	qv.discoveries = discoveries
 	qv.trackers = trackers
-	# the diet, under the inventory panel (part D's screen: one child, moved with the panel)
+	# the diet, under the inventory panel: part D's side-panel dock, else a child moved with the panel
 	diet_panel = NutritionPanel.new()
 	diet_panel.nutrition = main.survival.nutrition
 	diet_panel.base_health = Settings.max_health
-	main.inv_screen._panel.add_child(diet_panel)
+	if main.inv_screen.has_method("add_side_panel"):
+		main.inv_screen.add_side_panel(diet_panel, "below")
+	else:
+		main.inv_screen._panel.add_child(diet_panel)
+		_diet_follows_panel = true
 	# the prospecting pick rides on the work system's right click
 	var inner: Callable = main.player.work_use
 	main.player.work_use = func(hit, first_press: bool, from: Vector3, dir: Vector3) -> bool:
@@ -84,7 +90,9 @@ func _process(delta: float) -> void:
 		return
 	var cal: Calendar = main.atmosphere.calendar
 	Seasons.season = cal.season()
-	if diet_panel != null:
+	if tracker_hud.minimap == null:
+		tracker_hud.minimap = main.get("minimap")   # part D's, whenever it is made
+	if _diet_follows_panel:
 		diet_panel.position = Vector2(0, diet_panel.get_parent().size.y + 8)
 	_frost_t -= delta * DebugCapture.farm_speed
 	if _frost_t <= 0.0:
