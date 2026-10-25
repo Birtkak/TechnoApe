@@ -310,7 +310,7 @@ func test_new_materials() -> void:
 	assert_int(GameMaterials.defs().size()).is_greater_equal(GameMaterials.LEAF_LITTER)   # ids only ever get appended
 	assert_str(GameMaterials.name_of(GameMaterials.LEAF_LITTER)).is_equal("leaf_litter")
 	var torch: Dictionary = GameMaterials.defs()[GameMaterials.TORCH - 1]
-	assert_bool(torch.get("floor_only", false)).is_true()
+	assert_bool(torch.get("floor_only", false)).is_false()   # since ADR 0053 torches hang on walls too
 	assert_str(torch["entity"]).is_equal("torch")
 	assert_int(int(torch["tiles"][0])).is_equal(int(GameMaterials.defs()[GameMaterials.FIRE - 1]["tiles"][0]))   # the flame glows like fire
 	for kind in ["wattle", "torch", "storage_pot"]:

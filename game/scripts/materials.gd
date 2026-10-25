@@ -126,7 +126,7 @@ const SEAGRASS := 113
 const SEASHELL := 114
 const MUSHROOM_STEM := 115
 
-const ATLAS_TILES := Vector2i(8, 13)   # rows grow at the bottom, so tile indices keep their meaning
+const ATLAS_TILES := Vector2i(8, 16)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -228,7 +228,34 @@ static func _build_defs() -> Array:
 		{"name": "leaf_litter", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [84, 84, 1], "transparent": false},
 		{"name": "cobblestone", "cell_type": "solid", "pattern": true, "density": 10, "hp": 1000, "tiles": [98, 98, 98], "transparent": false},
 		{"name": "bricks", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [99, 99, 99], "transparent": false},
-	] + _clutter_defs()
+	] + _clutter_defs() + _reserved_defs(116, 129) + _looks_defs() + _reserved_defs(133, 149)
+
+
+## Placeholders for ids other branches append (2026-10-25 split: A 116-119, B 120-129, C 130-149,
+## D 150-159), so every branch keeps its ids whatever order they merge in; a merge swaps a
+## placeholder for the real definition. Nothing draws, collides or generates them.
+static func _reserved_defs(from: int, to: int) -> Array:
+	var out := []
+	for id in range(from, to + 1):
+		out.append({"name": "reserved_%d" % id, "cell_type": "solid", "density": 10, "hp": 5, "tiles": [0, 0, 0], "transparent": true, "model": "empty"})
+	return out
+
+
+static var _looks := []
+
+## Ids 130..132 (ADR 0053): the parts of multi-voxel torches and crops (PlantStamps). A torch is its
+## flame (the "torch" voxel, the block entity's anchor) on a wrap of ember cloth on a stick; all of
+## them belong to the torch's entity and break with it. Wheat ears crown ripe wheat stalks.
+static func _looks_defs() -> Array:
+	if _looks.is_empty():
+		_looks.append_array([
+			{"name": "torch_stick", "cell_type": "solid", "pattern": true, "density": 5, "hp": 5, "tiles": [118, 118, 118], "transparent": false, "micro": "torch", "entity": "torch"},
+			{"name": "torch_wrap", "cell_type": "solid", "pattern": true, "density": 5, "hp": 5, "tiles": [119, 119, 119], "transparent": false, "micro": "torch", "entity": "torch"},
+		])
+		var ear := {"name": "wheat_ear", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "tiles": [115, 115, 115], "transparent": false, "micro": "wheat:7", "crop": "wheat"}
+		ear.merge(_crop_defs()[0], false)
+		_looks.append(ear)
+	return _looks
 
 
 static var _clutter := []
@@ -300,7 +327,8 @@ static func _flint_age_defs() -> Array:
 		thatch,
 		wattle,
 		{"name": "daub_wall", "cell_type": "solid", "rigid": "wood", "density": 9, "hp": 400, "tiles": [90, 90, 90], "transparent": false},
-		{"name": "torch", "cell_type": "solid", "density": 5, "hp": 5, "tiles": [12, 6, 92], "transparent": false, "micro": "torch", "entity": "torch", "light": true, "floor_only": true},
+		# the flame of a multi-voxel torch (ADR 0053): fire on every face; stands on floors and hangs on walls
+		{"name": "torch", "cell_type": "solid", "density": 5, "hp": 5, "tiles": [12, 12, 12], "transparent": false, "micro": "torch", "entity": "torch", "light": true},
 		{"name": "storage_pot", "cell_type": "solid", "density": 9, "hp": 80, "tiles": [66, 3, 66], "transparent": false, "micro": "storage_pot", "interact": "chest", "entity": "storage_pot"},
 	])
 	return _flint_age
@@ -337,17 +365,23 @@ static func _content_pass_defs() -> Array:
 
 static var _crops := []
 
-## wheat_0..wheat_7 and carrots_0..carrots_3: micro models "wheat:<age>" /
-## "carrots:<look>" (tiles: [ripe, stalk, root]). Burnable like tall grass.
+## wheat_0..wheat_7 and carrots_0..carrots_3: the anchor voxel of a multi-voxel crop (ADR 0053,
+## PlantStamps) and its stalks and leaves; the tile follows the age (green, turning, golden; carrot
+## leaves, the orange shoulder of a ripe carrot). Burnable like tall grass.
+const WHEAT_TILES := [112, 112, 112, 112, 112, 113, 113, 114]
+const CARROT_TILES := [116, 116, 116, 117]
+
 static func _crop_defs() -> Array:
 	if _crops.is_empty():
 		var burn := {"burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2}
 		for age in 8:
-			var d := {"name": "wheat_%d" % age, "cell_type": "solid", "density": 10, "hp": 5, "tiles": [54, 29, 23], "transparent": false, "micro": "wheat:%d" % age, "crop": "wheat"}
+			var t: int = WHEAT_TILES[age]
+			var d := {"name": "wheat_%d" % age, "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "tiles": [t, t, t], "transparent": false, "micro": "wheat:%d" % age, "crop": "wheat"}
 			d.merge(burn)
 			_crops.append(d)
 		for look in 4:
-			var d := {"name": "carrots_%d" % look, "cell_type": "solid", "density": 10, "hp": 5, "tiles": [55, 29, 23], "transparent": false, "micro": "carrots:%d" % look, "crop": "carrots"}
+			var t: int = CARROT_TILES[look]
+			var d := {"name": "carrots_%d" % look, "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "tiles": [t, t, t], "transparent": false, "micro": "carrots:%d" % look, "crop": "carrots"}
 			d.merge(burn)
 			_crops.append(d)
 	return _crops

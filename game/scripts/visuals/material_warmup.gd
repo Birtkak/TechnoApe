@@ -57,6 +57,18 @@ func add_materials(materials: Array, camera: Camera3D) -> void:
 		_extra.append(mi)
 
 
+## Meshes with their own materials first drawn mid-game (the crafting table, ADR 0053): drawn tiny
+## with the terrain mesh, so their pipelines (vertex format and material) compile now.
+func add_meshes(meshes: Array, camera: Camera3D) -> void:
+	for i in meshes.size():
+		var mi := MeshInstance3D.new()
+		mi.mesh = meshes[i]
+		mi.extra_cull_margin = 16384.0
+		camera.add_child(mi)
+		mi.transform = Transform3D(Basis.from_scale(Vector3.ONE * 0.0005), Vector3(0.5 - 0.004 * i, 0.004, -1.0))
+		_extra.append(mi)
+
+
 func _process(_delta: float) -> void:
 	_frames += 1
 	if _frames >= FRAMES:

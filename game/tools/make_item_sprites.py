@@ -1040,6 +1040,116 @@ sp("tape_measure", ("tape_measure", "hazard"))
 sp("bricks", "bricks_face", cube=True)
 sp("coal_block", ("coal_block_face", "coal"), cube=True)
 sp("glass", ("glass_face", "glass"), cube=True)
+
+# ---------- part C of the 2026-10-25 playtest (ADR 0053) ----------
+# Ore blocks like Minecraft's 1.17+ ores (bug report 02-21-05): grey stone with cracks, and chunky ore
+# clusters that each have a dark rim, a body, a lit top-left and a bright glint. The cube shows in the
+# inventory, in the hand and on the ground; the nuggets in the rock keep their terrain tile.
+STONE_FACE = {"s": "#6f6f6c", "t": "#7f7f7c", "u": "#8e8e8a", "v": "#9d9d98", "w": "#5c5c5a", "x": "#adada7"}
+
+
+def ore_face(seed, clusters, accent=None):
+    rnd = random.Random(seed)
+    g = new()
+    for y in range(N):
+        for x in range(N):
+            v = rnd.random()
+            g[y][x] = "x" if v < 0.05 else ("v" if v < 0.25 else ("u" if v < 0.6 else ("t" if v < 0.85 else "s")))
+    # a few dark cracks, two or three pixels long
+    for _ in range(5):
+        x, y = rnd.randrange(N), rnd.randrange(N)
+        for k in range(rnd.randint(2, 3)):
+            put(g, x + k, y + (k if rnd.random() < 0.5 else 0), "w")
+    for (cx, cy, kind) in clusters:
+        blob = {(0, 0), (1, 0), (0, 1), (1, 1)}
+        blob |= set([[(2, 0), (2, 1)], [(0, 2), (1, 2)], [(-1, 1), (2, 0)], [(1, -1), (2, 1)]][kind % 4])
+        for (dx, dy) in blob:
+            put(g, cx + dx, cy + dy, "m")
+        # rim: right and bottom neighbours outside the blob get the dark ore edge
+        for (dx, dy) in blob:
+            for (ex, ey) in ((1, 0), (0, 1), (1, 1)):
+                if (dx + ex, dy + ey) not in blob:
+                    put(g, cx + dx + ex, cy + dy + ey, "o")
+        top = min(blob, key=lambda q: (q[1], q[0]))
+        put(g, cx + top[0], cy + top[1], "h")
+        for (dx, dy) in blob:
+            if (dx - 1, dy) not in blob and (dx, dy) != top:
+                put(g, cx + dx, cy + dy, "l")
+                break
+        for (dx, dy) in blob:
+            if (dx + 1, dy) not in blob and (dx, dy + 1) not in blob:
+                put(g, cx + dx, cy + dy, "d")
+        if accent:
+            put(g, cx + 1, cy + 1, accent)
+    return g
+
+
+ORE_SPOTS = [(1, 1, 0), (9, 2, 1), (5, 6, 2), (12, 7, 3), (2, 10, 1), (8, 11, 0), (12, 13, 2)]
+for item, seed in (("iron_ore", 171), ("copper_ore", 181), ("tin_ore", 191)):
+    spots = [(x, y, k) for (x, y, k) in ORE_SPOTS]
+    random.Random(seed).shuffle(spots)
+    shape(item + "_face", ore_face(seed, spots[:6], "g" if item == "copper_ore" else None),
+          dict(STONE_FACE, **({"g": "#3fa88a"} if item == "copper_ore" else {})))
+PALETTES["iron_ore"] = ramp("#7a4a34", "#b8805e", "#d8a684", "#ecc4a4", "#fff0e2")       # raw iron: peach
+PALETTES["copper_ore"] = ramp("#6a2a10", "#b0501e", "#e07434", "#f49a58", "#ffd2a8")     # copper: orange, teal spots
+PALETTES["tin_ore"] = ramp("#0e0a08", "#24180f", "#3e2c20", "#5e4634", "#d8d2c0")        # cassiterite: black-brown, a pale glint
+for item in ("iron_ore", "copper_ore", "tin_ore"):
+    sp(item, (item + "_face", item), cube=True)
+
+# clutter in the hand and on the ground (bug report 02-28-54: a mushroom was a cube)
+shape("mushroom", outline(compose(
+    shade(ellipse(new(), 8.0, 7.0, 6.2, 3.6), "#", "l", "m", "d", "h"),
+    art(["................", "................", "................", "................",
+         "................", "................", "................", "................",
+         "................", "......SsS.......", "......SsS.......", "......SsT.......",
+         "......SsT.......", ".....SSsTT......", "................", "................"]))),
+    {"S": "#e8e0cc", "s": "#d4cab2", "T": "#b4a88e"})
+g = shade(ellipse(new(), 8.0, 6.5, 6.6, 4.4), "#", "l", "m", "d", "h")
+for (x, y) in [(5, 4), (6, 4), (10, 5), (11, 5), (7, 7), (3, 7), (12, 8), (9, 3)]:
+    put(g, x, y, "w")
+rect(g, 1, 9, 14, 10, ".")
+for y in range(9, 14):
+    for x in (7, 8):
+        put(g, x, y, "S")
+put(g, 6, 13, "S")
+put(g, 9, 13, "T")
+put(g, 9, 11, "T")
+put(g, 9, 12, "T")
+shape("red_mushroom", outline(g), {"S": "#ece4d0", "T": "#b8ac92", "w": "#fbf6ea"})
+g = new()
+for y in range(1, 15):
+    x = 7 + round(1.4 * math.sin(y * 0.8))
+    put(g, x, y, "m")
+    put(g, x + 1, y, "d")
+    if y % 4 == 2:
+        put(g, x - 1, y, "l")
+        put(g, x - 2, y - 1, "l")
+    if y % 4 == 0:
+        put(g, x + 2, y, "m")
+        put(g, x + 3, y - 1, "l")
+for (x, y) in [(6, 4), (10, 8), (5, 12)]:
+    put(g, x, y, "b")
+shape("kelp", outline(g), {"b": "#b5a253"})
+g = new()
+for y in range(4, 14):
+    half = max(1, min(6, (y - 3)))
+    for x in range(8 - half, 8 + half):
+        put(g, x, y, "d" if x % 2 else "m")   # ribs
+for x in range(5, 11):
+    put(g, x, 14, "d")
+for y in range(4, 14):
+    put(g, 8 - max(1, min(6, y - 3)), y, "l")
+put(g, 8, 4, "h")
+put(g, 7, 4, "h")
+shape("seashell", outline(g))
+PALETTES["mushroom_brown"] = ramp("#3a2414", "#7a5131", "#a8744a", "#c08a5c", "#efd7b0")
+PALETTES["mushroom_red"] = ramp("#4a0c0c", "#a51c1c", "#c42828", "#e04848", "#f06a5a")
+PALETTES["kelp"] = ramp("#1f2a0e", "#4c5d22", "#6f7f33", "#9aa34e", "#c8c070")
+PALETTES["shell"] = ramp("#8a5a4a", "#c98f7c", "#e8bdaa", "#f8e2d6", "#fff3ea")
+sp("brown_mushroom", ("mushroom", "mushroom_brown"))
+sp("red_mushroom", ("red_mushroom", "mushroom_red"))
+sp("kelp", ("kelp", "kelp"))
+sp("seashell", ("seashell", "shell"))
 CARD = {"projectile": "#5a3428", "modifier": "#24406e", "multicast": "#2a5a30", "utility": "#6a5620"}
 for item, glyph, kind in [("spell_spark_bolt", "spark", "projectile"), ("spell_fire_bolt", "fire", "projectile"),
                           ("spell_bomb", "bomb", "projectile"), ("spell_digging_bolt", "dig", "projectile"),

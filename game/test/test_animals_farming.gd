@@ -211,14 +211,14 @@ func test_block_scale_farming() -> void:
 		for z in b:
 			farm.till(Vector3i(x, 0, z))
 			farm.plant(Vector3i(x, 0, z), "wheat")
-	assert_float(farm.growth_speed(Vector3i(1, 1, 1))).is_equal_approx(2.0, 0.001)
+	assert_float(farm.growth_speed(Vector3i(0, 1, 0))).is_equal_approx(2.0, 0.001)   # plants stand on a 2-voxel grid (ADR 0053)
 	# patches one block away on both axes halve it, as rows of crop blocks do
 	for x in b:
 		for z in b:
 			for o in [Vector3i(b, 0, 0), Vector3i(0, 0, b)]:
 				farm.till(Vector3i(x, 0, z) + o)
 				farm.plant(Vector3i(x, 0, z) + o, "wheat")
-	assert_float(farm.growth_speed(Vector3i(1, 1, 1))).is_less(2.0)
+	assert_float(farm.growth_speed(Vector3i(0, 1, 0))).is_less(2.0)
 	# water 1.5 m away (12 voxels) and one block up keeps farmland wet; 2.5 m away does not
 	vox[Vector3i(12, b, 0)] = GameMaterials.WATER
 	assert_bool(farm.near_water(Vector3i(0, 0, 0))).is_true()

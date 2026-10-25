@@ -97,6 +97,7 @@ func _ready() -> void:
 		push_error("data: " + err)
 	farming.get_voxel = get_world_voxel
 	farming.set_voxel = set_world_voxel
+	farming.is_editable = world.is_editable
 	if Settings.persist_world:
 		farming.load_dict(_load_json(_save_path("farms")))
 	mark.call("data")
@@ -379,6 +380,7 @@ func _ready() -> void:
 	warmup.setup(world.terrain.mesher as VoxelMesherBlocky, player.camera)
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(player.warm_materials(), player.camera)
+		warmup.add_meshes([StationEntity.model_mesh()], player.camera)
 	# chips, dust, splashes, smoke, hearts, lava pops, drips and waterfall spray (scripts/visuals/particle_fx.gd)
 	if Settings.particles:
 		fx = ParticleFx.load_default()
@@ -780,6 +782,8 @@ func set_world_voxel(p: Vector3i, material: int) -> void:
 ## Reads where set_world_voxel writes: the bubble first (it is ahead of the
 ## terrain until the next push), else the terrain.
 func get_world_voxel(p: Vector3i) -> int:
+	if bubble == null:
+		return world.get_voxel(p)   # station views are rebuilt in _ready before the bubble exists
 	var m := bubble.get_voxel(p)
 	return m if m >= 0 else world.get_voxel(p)
 
@@ -793,6 +797,8 @@ func _on_broken(p: Vector3i, drops: Array) -> void:
 		_remove_furniture(furn, GameMode.rule(player.game_mode, "drops"))
 		return
 	if _break_station(p, drops):
+		return
+	if _break_torch(p, drops):
 		return
 	set_world_voxel(p, GameMaterials.AIR)
 	for s in blocks.remove(p):   # chest / furnace contents spill like vanilla; work pieces give their parts back
@@ -938,6 +944,9 @@ func _on_placed(p: Vector3i, material: int) -> void:
 	if material > 0 and GameMaterials.is_station(material):
 		_place_station(p, material)
 		return
+	if material > 0 and GameMaterials.defs()[material - 1].get("entity", "") == "torch":
+		_place_torch(p)
+		return
 	set_world_voxel(p, material)
 	_spawn_drop_events(farming.on_placed(p, material))
 	if material > 0:
@@ -945,6 +954,46 @@ func _on_placed(p: Vector3i, material: int) -> void:
 		var d: Dictionary = GameMaterials.defs()[material - 1]
 		if d.has("entity"):
 			blocks.create(p, d["entity"])
+		# a placed flower, mushroom or seashell grows into the piece the generator lays (ADR 0053)
+		var st := PlantStamps.for_placed(material, p)
+		for o in st:
+			if o != Vector3i.ZERO and PlantStamps.is_free_cell(get_world_voxel(p + o)):
+				set_world_voxel(p + o, st[o])
+		if not st.is_empty() and st.get(Vector3i.ZERO, material) != material:
+			set_world_voxel(p, st[Vector3i.ZERO])   # the stem's foot
+
+
+## A torch (ADR 0053): a piece of voxels standing on the floor, or leaning out from the wall beside
+## it when there is no floor; its cells go only where they are free.
+func _place_torch(p: Vector3i) -> void:
+	var wall := Vector3i.ZERO
+	if not MobManager.is_solid(get_world_voxel(p + Vector3i.DOWN)):
+		for d in [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]:
+			if MobManager.is_solid(get_world_voxel(p + d)):
+				wall = d
+				break
+	var e := blocks.create_torch(p, wall)
+	var st := PlantStamps.torch(wall)
+	for o in st:
+		var q: Vector3i = p + o
+		if o == Vector3i.ZERO or PlantStamps.is_free_cell(get_world_voxel(q)):
+			set_world_voxel(q, st[o])
+			stains.clear_cell(q)
+
+
+## Breaks a whole torch from any of its voxels; false when `p` is not part of one.
+func _break_torch(p: Vector3i, drops: Array) -> bool:
+	var e = blocks.at(p)
+	if not (e is TorchEntity):
+		return false
+	for c in e.cells:
+		var m := get_world_voxel(c)
+		if m > 0 and GameMaterials.defs()[m - 1].get("entity", "") == "torch":
+			set_world_voxel(c, GameMaterials.AIR)
+	blocks.remove(e.pos)
+	for d in drops:
+		spawn_item(d, e.flame(), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+	return true
 
 
 var _last_health := -1
@@ -976,7 +1025,17 @@ var _station_views := {}   # anchor -> MeshInstance3D
 
 
 func _place_station(anchor: Vector3i, material: int) -> void:
-	var e: RefCounted = blocks.create(anchor, GameMaterials.defs()[material - 1]["entity"])
+	var kind: String = GameMaterials.defs()[material - 1]["entity"]
+	# the 1 m crafting table is bigger than the block the player's check covered (ADR 0053): no room, no table
+	for c in BlockEntities.footprint_of(kind, anchor):
+		var m := get_world_voxel(c)
+		if not (PlantStamps.is_free_cell(m) or GameMaterials.is_liquid(GameMaterials.material_of_voxel(m))):
+			if GameMode.rule(player.game_mode, "consumes_items"):
+				spawn_item({"id": items.item_for_material(GameMaterials.name_of(material)), "count": 1}, Vector3(anchor) + Vector3.ONE * (Settings.BLOCK * 0.5))
+			if chat:
+				chat.add_message("No room for the %s here." % GameMaterials.name_of(material).replace("_", " "))
+			return
+	var e: RefCounted = blocks.create(anchor, kind)
 	for c in BlockEntities.footprint(e):
 		set_world_voxel(c, material)
 		stains.clear_cell(c)
@@ -991,6 +1050,13 @@ func _add_station_view(e: RefCounted) -> void:
 		m = GameMaterials.id_of({"station": "crafting_table", "chest": "chest", "furnace": "furnace", "storage_pot": "storage_pot"}.get(e.kind, "chest"))
 	var mi := MeshInstance3D.new()
 	var d: Dictionary = GameMaterials.defs()[m - 1]
+	if e is StationEntity:
+		mi.mesh = StationEntity.model_mesh()   # the 1 m workbench, in voxel units (ADR 0053)
+		mi.position = Vector3(e.pos)
+		mi.visibility_range_end = 160.0
+		_station_root.add_child(mi)
+		_station_views[e.pos] = mi
+		return
 	if d.has("micro"):
 		mi.mesh = _micro_view_mesh(d)
 		mi.position = Vector3(e.pos)
