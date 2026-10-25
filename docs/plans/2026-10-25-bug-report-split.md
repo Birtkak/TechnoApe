@@ -67,6 +67,9 @@ The developer's main complaint: the Noita water does not behave like water. Repo
    (`voxel_patch_fluid.py`: corners next to open air drop; here they drop against solid voxels).
 7. **02-09-43** waterfalls do not work and have no sound (`WorldGen.waterfalls_near`, `waterfall_spray.gd`,
    the `waterfall` sim loop in `data/sounds.json` needs moving water with air below).
+9. **For part D's map** (small): a native `SimWorld.surface_map()` returning, per column of the live
+   window, the top non-air material and its height (PackedByteArray/PackedInt32Array), so the minimap
+   shows real edits. Agree the exact signature with part D.
 8. **02-51-52** "meshes should still be destructible": a felled tree in flight (a `RigidPieces` mesh) cannot
    be cut with the laser or dug. Pieces in flight should take digs/cuts like voxels.
 
@@ -153,7 +156,21 @@ animal (motion is never judged from one frame), screenshots of a farm at each st
    kernel needs changing, ask part A. Rain is new (`scripts/world/weather.gd`): sky, particles, sound,
    wet ground, and it puts fires out.
 
-Direction calls to ask first: the offhand key and what goes in it; how destructive fire may be (spread
+10. **Minimap and world map** (developer request, added later): a minimap on the HUD whose corner
+   and size are set in Settings (`user://settings.cfg`, the ADR 0032 Settings screen), with the
+   coordinates and the biome in small text under it; M opens a full map. Both show only what you have
+   explored, and they update as you go, so your base, digs and builds show up. You can place, name
+   and delete waypoints on the full map (shown on both maps and as a marker in the world); they are
+   saved with the player, and the explored area is saved with the world.
+   Suggested build (keep GDScript out of per-voxel loops, principle 8): far terrain from
+   `WorldGen.map_image` (exists, deterministic, part B's: read only), shown only where the explored mask
+   is set; near terrain from the real voxels, so edits show: part A adds a small native
+   `SimWorld.surface_map()` (top material and height per column of the live window) that you colour
+   per material (average colour of its atlas tile, computed once per material). Cache explored map
+   tiles as images per region; redraw the minimap a few times a second, not every frame.
+
+Direction calls to ask first: the map style (flat colours or shaded relief, how waypoints look); the
+offhand key and what goes in it; how destructive fire may be (spread
 speed, how big a burn before rain, can it burn placed wood buildings?); rain everywhere sometimes, or
 only as the answer to fires. New materials or items use ids 150-159, tiles 128-135.
 
