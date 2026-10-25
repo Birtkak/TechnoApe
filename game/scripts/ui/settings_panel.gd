@@ -15,8 +15,8 @@ const PRESETS := ["low", "medium", "high"]
 const SHADOWS := ["off", "low", "medium", "high"]
 const RENDER_M := [16.0, 24.0]   # Settings.MIN_DETAIL_M .. MAX_DETAIL_M
 const VIEW_M := [1024.0, 2048.0]
-const KEYS := [["W A S D", "walk"], ["Space", "jump; fly up (twice: fly, creative)"], ["Shift", "sprint; with right click, place against a station"],
-	["Ctrl / F", "fly down / toggle flying (creative)"],
+const KEYS := [["W A S D", "walk"], ["Space", "jump; fly up (twice: fly, creative)"], ["Ctrl", "sprint"],
+	["Shift", "sneak (no falling off edges; right click places against a station); fly down"], ["F", "swap main hand and offhand"],
 	["Left / right click", "break / use, place"], ["E", "inventory, progression book top left"], ["Q", "drop (Ctrl: the stack)"],
 	["1-9, wheel", "hotbar"], ["R / U / A", "recipes / uses / bookmark (in the inventory)"], ["T, /", "chat and commands"],
 	["F3 / F5", "debug screen / camera view"], ["F2 / F9", "screenshot / bug report"], ["F4", "playtest menu"], ["Esc", "pause menu"]]

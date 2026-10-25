@@ -356,6 +356,12 @@
    "dur": 16,
    "loop": 2.0
   },
+  "loop/rain": {
+   "src": "bigsoundbank/1289.ogg",
+   "start": 6,
+   "dur": 16,
+   "loop": 2.0
+  },
   "loop/sand": {
    "src": "bigsoundbank/0201.ogg",
    "start": 2,

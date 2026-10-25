@@ -39,6 +39,7 @@ const FAR_MOVE_M := 24.0   # past the full-detail radius, the ground there may n
 var _last_jump_ms := -1000           # creative: double-tap jump toggles flying
 var _yaw := 0.0
 var _pitch := -0.2
+var _eye_drop := 0.0                 # voxels the eyes sit lower while sneaking
 var _mouse_captured := false
 var autopilot := false
 var free_cam := false        # a DebugCamera has the view: no moving, looking or mining from input
@@ -57,16 +58,18 @@ var entity_attack: Callable      # (mob, damage) -> void
 var throw_item: Callable         # (stack, from, dir) -> void: a thrown spear flies (ADR 0030)
 var entity_use: Callable         # (mob, held def) -> bool (true: one held item used up)
 var place_furniture: Callable    # (kind, anchor, facing) -> bool
-var work_use: Callable           # (hit, first_press, from, dir) -> bool: a work piece took the right click (ADR 0023)
+var work_use: Callable           # (hit, first_press, from, dir, sneaking) -> bool: a work piece took the right click (ADR 0023)
 var work_hit: Callable           # (hit, from, dir, sneaking) -> bool: a knapping piece took the left click
 var hold_key: Callable           # (hit) -> String: what a held right click works on ("" = an instant use) (ADR 0043)
 var hold_done: Callable          # (hit) -> void: right click was held Settings.hold_use_s on it
 var autopilot_hold := false      # scripted checks: the right button is held
+var autopilot_sneak := false     # scripted checks: Shift is held
 var _hold_at := ""
 var _hold_t := 0.0
 var describe_block: Callable     # (voxel) -> String: an extra line for the look-at panel ("" = none)
 var playtest_laser: Callable     # (firing, from, dir, delta, brush_size) -> void: a held laser cutter (PlaytestTools)
 var playtest_use: Callable       # (def, hit, from, dir, sneaking) -> bool: a right click with a playtest gadget
+var ignite_at: Callable          # (hit) -> bool: flint and steel sets the aimed face on fire (Weather, ADR 0056)
 var _lasering := false
 var _look_key := ""              # what the look-at panel shows now (rebuilt only when it changes)
 var _look_refresh := 0
@@ -156,7 +159,9 @@ func setup_inventory(p_inv: PlayerInventory, p_mining: MiningTable, atlas_materi
 	viewmodel.atlas_material = atlas_material
 	camera.add_child(viewmodel)
 	inventory.selection_changed.connect(func(_i: int) -> void: viewmodel.show_item(inventory.held()))
-	inventory.changed.connect(func() -> void: viewmodel.show_item(inventory.held()))
+	inventory.changed.connect(func() -> void:
+		viewmodel.show_item(inventory.held())
+		viewmodel.show_offhand(inventory.offhand()))
 
 
 ## Survival takes flight away (and lands the player); creative allows F and
@@ -227,9 +232,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("release_mouse"):
 		capture_mouse(false)
 		pause_requested.emit()
-	elif event.is_action_pressed("toggle_fly"):
-		if GameMode.rule(game_mode, "can_fly") and not GameMode.rule(game_mode, "always_fly"):
-			flying = not flying
+	elif event.is_action_pressed("swap_hands"):
+		inventory.swap_hands()   # F: main hand <-> offhand (Minecraft; flight toggles with a double jump)
 	elif event.is_action_pressed("jump") and GameMode.rule(game_mode, "can_fly") and not GameMode.rule(game_mode, "always_fly"):
 		var now := Time.get_ticks_msec()
 		if now - _last_jump_ms < 300:
@@ -293,7 +297,7 @@ func set_perspective(p: int) -> void:
 
 func _apply_look() -> void:
 	rotation = Vector3(0, _yaw, 0)
-	var eye := Vector3(0, Settings.m2v(Settings.eye_height_m), 0)
+	var eye := Vector3(0, Settings.m2v(Settings.eye_height_m) - _eye_drop, 0)
 	if perspective == 0:
 		camera.position = eye
 		camera.rotation = Vector3(_pitch, 0, 0)
@@ -411,7 +415,16 @@ func _physics_step(delta: float) -> void:
 			_move(delta, false)
 		_fall_peak_y = position.y
 		return
-	var speed_m := Settings.sprint_speed_m if (Input.is_action_pressed("sprint") and not ui_open) else Settings.walk_speed_m
+	var sneak := sneaking()
+	var drop := move_toward(_eye_drop, Settings.m2v(Settings.sneak_eye_drop_m) if sneak else 0.0, Settings.m2v(2.0) * delta)
+	if drop != _eye_drop:
+		_eye_drop = drop
+		_apply_look()
+	var speed_m := Settings.walk_speed_m
+	if sneak:
+		speed_m = Settings.sneak_speed_m
+	elif Input.is_action_pressed("sprint") and not ui_open:
+		speed_m = Settings.sprint_speed_m
 	if autopilot:
 		speed_m = minf(autopilot_speed_m, Settings.sprint_speed_m)   # speed=0 stands still
 	in_liquid = _check_liquid()
@@ -432,6 +445,8 @@ func _physics_step(delta: float) -> void:
 		velocity.y -= Settings.m2v(Settings.gravity_m) * delta
 		if _on_floor and Input.is_action_just_pressed("jump") and not ui_open:
 			velocity.y = sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(Settings.jump_height_m))
+	if sneak and _on_floor and not in_liquid:
+		_hold_edge(delta)   # sneaking never walks off a ledge (Minecraft)
 	t0 = Time.get_ticks_usec()
 	_move(delta, _on_floor or in_liquid)   # in water the body also steps up out of the shallows
 	_cost("player_move", t0)
@@ -444,6 +459,40 @@ func _physics_step(delta: float) -> void:
 		t0 = Time.get_ticks_usec()
 		_use(true)
 		_cost("player_place", t0)
+
+
+## Shift (Minecraft's sneak; Ctrl sprints since bug report 2026-10-25): slower, lower eyes, no
+## falling off edges, and a right click places against stations instead of opening them. Flying
+## Shift descends instead.
+func sneaking() -> bool:
+	if autopilot:
+		return autopilot_sneak
+	return not flying and not ui_open and not free_cam and Input.is_action_pressed("sneak")
+
+
+## Sneaking on the ground: an axis whose move would leave no ground under any corner of the body
+## (within a step's depth) is stopped, so the body stays on the ledge.
+func _hold_edge(delta: float) -> void:
+	for axis in [0, 2]:
+		if velocity[axis] == 0.0:
+			continue
+		var next := position
+		next[axis] += velocity[axis] * delta
+		if not _ground_under(next):
+			velocity[axis] = 0.0
+
+
+func _ground_under(at: Vector3) -> bool:
+	var r := Settings.m2v(Settings.player_radius_m) * 0.9
+	var feet := int(floor(at.y + 0.05))
+	var depth := int(Settings.m2v(Settings.step_height_m)) + 1
+	for c in [Vector2(-r, -r), Vector2(r, -r), Vector2(-r, r), Vector2(r, r)]:
+		var x := int(floor(at.x + c.x))
+		var z := int(floor(at.z + c.y))
+		for d in range(1, depth + 1):
+			if _is_solid_voxel(Vector3i(x, feet - d, z)):
+				return true
+	return false
 
 
 ## A voxel placed or simulated into the body (falling sand) would trap it:
@@ -610,7 +659,7 @@ func _update_mining(delta: float) -> void:
 	if not autopilot and not ui_open and not building and _mouse_captured and Input.is_action_pressed("action_place") and _place_cooldown <= 0.0:
 		_use(false)
 	# the laser cutter (PlaytestTools): its beam replaces breaking
-	var laser_held := playtest_laser.is_valid() and inventory != null and PlaytestTools.kind_of(inventory.held_def()) == "laser"
+	var laser_held := playtest_laser.is_valid() and inventory != null and PlaytestTools.is_beam(inventory.held_def())
 	if laser_held or _lasering:
 		_lasering = laser_held and holding
 		playtest_laser.call(_lasering, camera.global_position, -camera.global_transform.basis.z, delta, brush_size)
@@ -620,7 +669,7 @@ func _update_mining(delta: float) -> void:
 			return
 	# knapping (ADR 0023): a left click chips a cell instead of mining; holding repeats
 	if holding and hit and _break_cooldown <= 0.0 and work_hit.is_valid():
-		if work_hit.call(hit, camera.global_position, -camera.global_transform.basis.z, Input.is_action_pressed("sprint")):
+		if work_hit.call(hit, camera.global_position, -camera.global_transform.basis.z, sneaking()):
 			_break_cooldown = Settings.work_repeat_s
 			_reset_mining()
 			if viewmodel:
@@ -847,12 +896,20 @@ func _use(first_press: bool) -> void:
 	if inventory == null or edits_locked or not GameMode.rule(game_mode, "interacts"):
 		return
 	var hit := _aim()
+	if _offhand_builds(hit):
+		# Minecraft: an empty main hand places the offhand's block (torches in the left hand, ADR 0055)
+		_offhand_turn = true
+		inventory.swap_hands()
+		_use(first_press)
+		inventory.swap_hands()
+		_offhand_turn = false
+		return
 	if first_press and inventory.held_def().has("throw") and throw_item.is_valid():
 		_throw()
 		return
 	if first_press and inventory.held_def().has("playtest") and playtest_use.is_valid():
 		var pdef := inventory.held_def()
-		if playtest_use.call(pdef, hit, camera.global_position, -camera.global_transform.basis.z, Input.is_action_pressed("sprint")):
+		if playtest_use.call(pdef, hit, camera.global_position, -camera.global_transform.basis.z, sneaking()):
 			if GameMode.rule(game_mode, "consumes_items") and not ("tool" in pdef.get("tags", [])):
 				inventory.consume_held(1)
 			_after_use()
@@ -878,17 +935,22 @@ func _use(first_press: bool) -> void:
 			_hold_t = 0.0
 		return
 	# Vintage Story work pieces (ADR 0023): knapping, clay forming, pit kilns, firepits, sieves
-	if work_use.is_valid() and work_use.call(hit, first_press, camera.global_position, -camera.global_transform.basis.z):
+	if work_use.is_valid() and work_use.call(hit, first_press, camera.global_position, -camera.global_transform.basis.z, sneaking()):
 		_after_use()
 		return
 	# stations open on right click; sneaking (Shift) places against them instead (vanilla)
-	if first_press and not Input.is_action_pressed("sprint"):
+	if first_press and not sneaking():
 		var tm := world.get_voxel(target)
 		if tm > 0 and GameMaterials.defs()[tm - 1].get("interact", "work") != "work":   # work pieces: the work system above
 			block_used.emit(target, tm)
 			return
 	var def := inventory.held_def()
 	if def.is_empty():
+		return
+	if def.get("ignites", false):
+		if first_press and ignite_at.is_valid() and ignite_at.call(hit):
+			_wear(1)
+			_after_use()
 		return
 	# farming (ADR 0022): hoes till, seeds and carrots plant on a farmland top face
 	# farming (ADR 0022, 0034): the hoe tills, seeds plant over the brush's patch of ground
@@ -960,6 +1022,22 @@ func _use(first_press: bool) -> void:
 	else:
 		inventory.consume_held(1)
 	_after_use()
+
+
+var _offhand_turn := false
+
+## The main hand is empty, the offhand holds something that builds, and the aimed voxel is plain
+## (no station, work piece or pickup that an empty hand works on).
+func _offhand_builds(hit: VoxelRaycastResult) -> bool:
+	if _offhand_turn or hit == null or not inventory.held().is_empty():
+		return false
+	var off := inventory.offhand_def()
+	if not (off.has("material") or off.has("plants") or off.has("furniture")):
+		return false
+	var m := world.get_voxel(hit.position)
+	if m <= 0 or m > GameMaterials.defs().size() or m == GameMaterials.WORK_SPOT or m == GameMaterials.WORK_BLOCK or GroundPickups.is_pickup(m):
+		return false
+	return not GameMaterials.defs()[m - 1].has("interact")
 
 
 ## Places the held voxel item as the brush shape against the aimed face (ADR
@@ -1202,6 +1280,9 @@ func _update_hold(delta: float) -> void:
 	var pressed := autopilot_hold if autopilot else (_mouse_captured and not ui_open and not building and Input.is_action_pressed("action_place"))
 	var hit: VoxelRaycastResult = _aim() if pressed and not edits_locked else null
 	if hit == null or hold_key.call(hit) != _hold_at:
+		if not pressed and hud and _hold_t < Settings.hold_use_s * 0.8:
+			# let go early: a short click on a firepit or a pickup did nothing (bug report 2026-10-25)
+			hud.show_toast("Hold right click for a second" + (" on the firepit" if _hold_at.begins_with("firepit:") else " to pick it up"))
 		_hold_at = ""
 		if hud:
 			hud.break_progress = 0.0
@@ -1241,7 +1322,11 @@ func _overlaps_player(p: Vector3i) -> bool:
 func _drop(whole: bool) -> void:
 	if inventory == null:
 		return
-	var stack := inventory.drop_held(whole)
+	throw_stack(inventory.drop_held(whole))
+
+
+## Throws a stack out in front of the eyes (Q, and drops from the inventory screen, ADR 0055).
+func throw_stack(stack: Dictionary) -> void:
 	if stack.is_empty():
 		return
 	var from := camera.global_position - camera.global_transform.basis.z * Settings.m2v(0.3) - Vector3(0, Settings.m2v(0.25), 0)

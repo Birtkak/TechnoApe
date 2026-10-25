@@ -61,6 +61,7 @@ Every file here is cut from CC0 (public domain) recordings by `tools/make_sounds
 | loop/fire_big | `bigsoundbank/0988.ogg` |
 | loop/water | `bigsoundbank/0864.ogg` |
 | loop/water_fall | `bigsoundbank/0219.ogg` |
+| loop/rain | `bigsoundbank/1289.ogg` |
 | loop/sand | `bigsoundbank/0201.ogg` |
 | loop/lava | `bigsoundbank/0491.ogg` |
 | loop/steam | `bigsoundbank/0805.ogg` |

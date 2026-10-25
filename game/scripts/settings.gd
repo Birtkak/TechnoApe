@@ -41,7 +41,9 @@ var sim_threads := maxi(2, OS.get_processor_count() - 2)
 
 # Player (metres, converted at use)
 var walk_speed_m := 4.3
-var sprint_speed_m := 7.0
+var sprint_speed_m := 7.0               # Ctrl (Minecraft; bug report 2026-10-25)
+var sneak_speed_m := 1.3                # Shift: Minecraft's sneak is 0.3 x walking
+var sneak_eye_drop_m := 0.25            # and lowers the eyes
 var fly_speed_m := 20.0
 var jump_height_m := 1.25
 var step_height_m := 0.55               # auto step-up: one 0.5 m block (BLOCK voxels) plus a little slack
@@ -55,7 +57,7 @@ var mouse_sensitivity := 0.0025
 # Interaction (ADR 0005)
 var max_health := 20                    # half-hearts, vanilla
 var fall_damage_safe_m := 3.0           # metres of fall before damage (vanilla: 3 blocks)
-var pickup_radius_m := 1.4              # item entities this close to the body centre are picked up
+var pickup_radius_m := 2.2              # item entities this close to the body centre are picked up (1.4 until bug report 2026-10-25: "a bit further")
 var item_pickup_delay_s := 0.5          # a freshly dropped item cannot be picked up at once
 var item_despawn_s := 300.0             # vanilla: 5 minutes
 var item_merge_radius_m := 0.75         # equal stacks closer than this merge
@@ -105,6 +107,22 @@ var cave_c := 10.0                       # 4 m and more under the surface
 var water_c := -8.0                      # in water
 var cellar_c := 8.0                      # containers 3 m and more under the surface (spoilage)
 var climate_probe_s := 1.5               # how often shelter and heat are measured
+# weather and forest fires (ADR 0056; the developer chose "moderate" fire and random weather + fire rain)
+var weather := true                     # weather=0: always clear (benchmarks); weather=rain|clear starts with it
+var weather_roll_s := 600.0             # a random shower is rolled about this often ...
+var weather_rain_chance_dry := 0.08     # ... with this chance in a dry column (humidity 0) ...
+var weather_rain_chance_wet := 0.55     # ... and this in a wet one (humidity 1)
+var weather_rain_s := 180.0             # a shower lasts about this long
+var weather_fade_s := 8.0               # clouds and rain come and go over this long
+var weather_particles := 4000           # rain or snow particles around the camera (amount_ratio follows the intensity)
+var weather_scan_s := 0.5               # the sim is sampled for fire this often ...
+var weather_fire_scan_m := 24.0         # ... within this radius ...
+var weather_fire_samples := 4000        # ... with this many random cells (flames, smoke, burning cells; about 0.5 ms)
+var weather_fire_clear_s := 20.0        # the fire rain stops once no fire was seen for this long
+var fire_rain_delay_min_s := 60.0       # a forest fire brings rain after 60-180 s (a region burns, not the map)
+var fire_rain_delay_max_s := 180.0
+var rain_drops_per_s := 160.0           # water cells dropped on the fire cells the scans found while it rains (one each)
+var rain_db := -10.0                    # the rain loop at full rain
 var rigid_pieces := true                # cut-loose trees and limbs fall as rigid bodies (P12, ADR 0037); rigid_pieces=0 turns it off
 # playtest gadgets (/kit gadgets, PlaytestTools): debug items, not progression
 var laser_range_m := 64.0               # the laser cutter reaches this far
@@ -244,6 +262,10 @@ func apply_cmdline() -> Dictionary:
 			"cache_generated": cache_generated_blocks = kv[1] == "1"
 			"particles": particles = kv[1] == "1"
 			"rigid_pieces": rigid_pieces = kv[1] == "1"
+			"weather": weather = kv[1] != "0"
+			"fire_rain_delay_s":
+				fire_rain_delay_min_s = float(kv[1])
+				fire_rain_delay_max_s = float(kv[1])
 			"particle_ambient": particle_ambient = kv[1] == "1"
 			"particle_budget": particle_budget = int(kv[1])
 			"sim_tick_hz": sim_tick_hz = float(kv[1])

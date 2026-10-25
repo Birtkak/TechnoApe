@@ -9,6 +9,9 @@ extends Node3D
 ##   bomb     right click: a ball of "material" ("radius_m") dropped where you look (/blast with a material)
 ##   tree     right click on the ground: a straight test tree (bark over wood, a leaf crown) to cut
 ##   measure  right click two voxels: the chat shows the distance between them
+##   vacuum   (ADR 0056) right click a voxel: its material joins the filter the stack carries ("filter",
+##            material names; sneak + right click clears it); hold left click: what matches is sucked
+##            out of a nozzle-sized sphere where you aim (the brush size, Ctrl + wheel), nothing else
 ## Every cut is native (SimBubble.blast = SimWorld.fill_sphere, fill_box): GDScript only lays the
 ## spheres along the beam and the seed cells for the rigid piece check.
 
@@ -16,7 +19,8 @@ const BEAM_RADIUS_M := 0.03
 const SEED_RING := 8           # seed cells around each sphere of a cut, for the rigid piece check
 
 var main: Node
-var stats := {"laser_pulses": 0, "laser_spheres": 0, "laser_ms_max": 0.0, "laser_checks": 0, "craters": 0, "bombs": 0, "trees": 0}
+var stats := {"laser_pulses": 0, "laser_spheres": 0, "laser_ms_max": 0.0, "laser_checks": 0, "craters": 0, "bombs": 0, "trees": 0,
+	"vacuum_pulses": 0, "vacuumed": 0}
 var _beam: MeshInstance3D
 var _beam_mat: StandardMaterial3D
 var _pulse_t := 0.0
@@ -59,6 +63,11 @@ static func kind_of(def: Dictionary) -> String:
 	return str(def.get("playtest", {}).get("kind", ""))
 
 
+## Gadgets held down with the left button (Player hands them the beam every frame).
+static func is_beam(def: Dictionary) -> bool:
+	return kind_of(def) in ["laser", "vacuum"]
+
+
 # ---------------- laser ----------------
 
 ## /laser: fire for `seconds` without the mouse, turning across `sweep_deg` (it starts half of it to
@@ -80,8 +89,15 @@ func _process(delta: float) -> void:
 	_fire(_script_t > 0.0, cam.global_position, -cam.global_transform.basis.z, delta, p.brush_size)
 
 
-## Every frame while a laser is held. `firing`: the break button is down.
+## Every frame while a laser (or the vacuum) is held. `firing`: the break button is down.
 func laser(firing: bool, from: Vector3, dir: Vector3, delta: float, brush_size: int) -> void:
+	if kind_of(main.player_inv.held_def()) == "vacuum":
+		_beam.visible = false
+		if firing:
+			_vacuum(from, dir, delta, brush_size)
+		else:
+			_pulse_t = 0.0
+		return
 	if _script_t > 0.0:
 		return   # /laser has the beam
 	_fire(firing, from, dir, delta, brush_size)
@@ -166,6 +182,80 @@ func _flush_check(from: Vector3) -> void:
 	_seeds.clear()
 
 
+# ---------------- the world vacuum (ADR 0056) ----------------
+
+## The material ids a vacuum stack's filter takes: each named material with its static and loose
+## variants (sand and sand_static), so a filter picked on a dune also takes the sand that moved.
+static func filter_ids(stack: Dictionary) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var names: Array = stack.get("filter", [])
+	if names.is_empty():
+		return out
+	var defs := GameMaterials.defs()
+	var bases := {}
+	for n in names:
+		var m := GameMaterials.id_of(String(n))
+		if m > 0:
+			bases[int(defs[m - 1].get("loose", m))] = true
+	for i in defs.size():
+		var id := i + 1
+		if bases.has(id) or bases.has(int(defs[i].get("loose", -1))):
+			out.append(id)
+	return out
+
+
+## A right click with the vacuum: the aimed voxel's material joins the filter (sneaking clears it).
+func _vacuum_pick(hit: VoxelRaycastResult, sneaking: bool) -> bool:
+	var inv: PlayerInventory = main.player_inv
+	var s: Dictionary = inv.held().duplicate(true)
+	var names: Array = s.get("filter", [])
+	if sneaking:
+		names = []
+		main.chat.add_message("World Vacuum: filter cleared")
+	elif hit != null:
+		var m: int = main.get_world_voxel(hit.position)
+		if m <= 0 or m > GameMaterials.defs().size():
+			return false
+		var d: Dictionary = GameMaterials.defs()[m - 1]
+		var name := GameMaterials.name_of(int(d.get("loose", m)))
+		if names.has(name):
+			names.erase(name)
+		else:
+			names.append(name)
+		main.chat.add_message("World Vacuum takes: %s" % (", ".join(names) if not names.is_empty() else "nothing (right click voxels to choose)"))
+	else:
+		return false
+	s["filter"] = names
+	inv.inv.set_slot(inv.selected, s)
+	return true
+
+
+## Held left click: every laser_pulse_s, the filter's materials go from a sphere (the brush size in
+## voxels) around the first voxel the aim meets, up to laser_range_m away.
+func _vacuum(from: Vector3, dir: Vector3, delta: float, brush_size: int) -> void:
+	_pulse_t -= delta
+	if _pulse_t > 0.0:
+		return
+	_pulse_t = Settings.laser_pulse_s
+	var only := filter_ids(main.player_inv.held())
+	if only.is_empty():
+		if main.player.hud:
+			main.player.hud.show_toast("Right click voxels to choose what the vacuum takes")
+		_pulse_t = 1.0
+		return
+	var hit: VoxelRaycastResult = main.world.raycast(from, dir, Settings.m2v(Settings.laser_range_m))
+	if hit == null:
+		return
+	var at := Vector3(hit.position) + Vector3(0.5, 0.5, 0.5)
+	var n: int = main.bubble.blast(at, maxf(brush_size, 2.0), GameMaterials.AIR, only)
+	stats["vacuum_pulses"] += 1
+	stats["vacuumed"] += n
+	if n > 0:
+		if main.fx:
+			main.fx.block_break(hit.position, main.get_world_voxel(hit.position))
+		Sound.play("sim/sizzle", at, {"db": -8.0, "pitch": 0.6})
+
+
 # ---------------- right click gadgets ----------------
 
 ## A right click with a gadget. True when it did something (the player swings, a bomb is used up).
@@ -180,6 +270,8 @@ func use(def: Dictionary, hit: VoxelRaycastResult, from: Vector3, dir: Vector3, 
 			return _tree(hit, sneaking)
 		"measure":
 			return _measure(hit)
+		"vacuum":
+			return _vacuum_pick(hit, sneaking)
 	return false
 
 

@@ -196,15 +196,15 @@ func _create(p: Vector3i, kind: String, material: int) -> RefCounted:
 	return e
 
 
-func _try_place(hit: VoxelRaycastResult, held: Dictionary) -> bool:
+func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) -> bool:
 	var id: String = held.get("id", "")
 	var tags: Array = held.get("tags", [])
 	var work: String = held.get("work", "")
 	var kind := ""
 	if id == "flint":
 		kind = "knap"
-	elif id == "clay_ball":
-		kind = "clayform"
+	elif id == "clay_ball" or (id == CLAY_BLOCK and sneaking):
+		kind = "clayform"   # a clay block forms only while sneaking; a plain click places it (bug report 2026-10-25)
 	elif "ground_place" in tags:
 		kind = "ground"
 	elif work != "":
@@ -356,15 +356,16 @@ func _work_at(hit: VoxelRaycastResult) -> Vector3i:
 	return Vector3i(-1, -1, -1)
 
 
-## Right click. True when a work piece (or a work item) took it.
-func use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector3) -> bool:
+## Right click. True when a work piece (or a work item) took it. `sneaking`: Shift is held (a clay
+## block then starts clay forming instead of being placed).
+func use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector3, sneaking := false) -> bool:
 	var t0 := Time.get_ticks_usec()
-	var took := _use(hit, first_press, from, dir)
+	var took := _use(hit, first_press, from, dir, sneaking)
 	stats["use_ms_max"] = maxf(stats["use_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
 	return took
 
 
-func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector3) -> bool:
+func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector3, sneaking := false) -> bool:
 	if hit == null:
 		return false
 	var held: Dictionary = main.player_inv.held_def()
@@ -375,7 +376,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 	if m != GameMaterials.WORK_SPOT and m != GameMaterials.WORK_BLOCK:
 		if not first_press:
 			return false
-		return _try_place(hit, held)
+		return _try_place(hit, held, sneaking)
 	var e: RefCounted = main.blocks.at(p)
 	if not BlockEntities.is_work(e):
 		main.set_world_voxel(p, GameMaterials.AIR)   # a stray work voxel without its piece
@@ -393,20 +394,29 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 			if first_press:
 				_open_picker(e)
 			return true
-		if held.get("id", "") != e.input:
+		var per := _clay_per_ball(held.get("id", ""), e.input)
+		var from_off := false
+		if per <= 0 and held.is_empty():
+			per = _clay_per_ball(main.player_inv.offhand().get("id", ""), e.input)   # an empty hand works the offhand's clay (ADR 0055)
+			from_off = per > 0
+		if per <= 0:
 			if first_press:
 				_say("Add clay with right clicks while holding clay.")
 			return true
 		var c = plane_cell(p, e.active_layer(), from, dir)
 		if c == null:
 			return true
-		var balls: int = main.player_inv.held().get("count", 0) if _consumes() else 1 << 20
+		var clay_stack: Dictionary = main.player_inv.offhand() if from_off else main.player_inv.held()
+		var balls: int = int(clay_stack.get("count", 0)) / per if _consumes() else 1 << 20
 		var res: Dictionary = e.add(int(floor(c.x - 0.5)), int(floor(c.y - 0.5)), balls)
 		stats["clay_cells"] += res["added"]
 		if res["added"] > 0:
 			_particles("block_hit", _at(p, Vector3(c.x / 8.0, e.active_layer() / 8.0 + 0.02, c.y / 8.0)), GameMaterials.CLAY)
 		if res["balls_used"] > 0 and _consumes():
-			main.player_inv.consume_held(res["balls_used"])
+			if from_off:
+				main.player_inv.consume_offhand(res["balls_used"] * per)
+			else:
+				main.player_inv.consume_held(res["balls_used"] * per)
 		if res["done"]:
 			_finish(e, e.output())
 		return true
@@ -419,8 +429,8 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 			_use_anvil(e, held, from, dir)
 		return true
 	if not first_press:
-		if e is SieveEntity and e.input != "":
-			pass   # holding right click keeps shaking
+		if e is SieveEntity and (e.input != "" or _sifts(main.player_inv.offhand_def())):
+			pass   # holding right click keeps shaking (and refills from the offhand, ADR 0055)
 		elif e is FirepitEntity and held.get("id", "") != "" and not "firestarter" in held.get("tags", []):
 			pass   # holding right click keeps laying fuel or food on
 		elif e is GroundEntity and not main.recipes.first_of("scrape", {"input": e.item}).is_empty():
@@ -455,12 +465,16 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		return true
 	if e is SieveEntity:
 		var sifting: String = e.input
-		var res: Dictionary = e.use(held, _rng)
+		var off_load := sifting == "" and not _sifts(held) and _sifts(main.player_inv.offhand_def())
+		var res: Dictionary = e.use(main.player_inv.offhand_def() if off_load else held, _rng)
 		if sifting != "":
 			var fx: ParticleFx = main.get("fx")
 			_particles("sprint", _at(p, Vector3(0.5, 0.9, 0.5)), fx.material_id(sifting) if fx else 0)
 		if res["consume"] > 0 and _consumes():
-			main.player_inv.consume_held(res["consume"])
+			if off_load:
+				main.player_inv.consume_offhand(res["consume"])
+			else:
+				main.player_inv.consume_held(res["consume"])
 		if e.input == "" and res["consume"] == 0 and res["msg"] == "":
 			stats["sifts"] += 1
 		for s in res["drops"]:
@@ -471,9 +485,45 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 	return true
 
 
+const CLAY_BLOCK := "clay"
+
+## Held items a clay form takes per clay ball: 1 of its own input, or the voxels of a clay block that
+## four balls make (a clay block counts voxels, ADR 0034); 0 when the held item is no clay.
+func _clay_per_ball(held_id: String, input: String) -> int:
+	if held_id == input:
+		return 1
+	if held_id == CLAY_BLOCK and input == "clay_ball":
+		return maxi(main.items.units(CLAY_BLOCK) / 4, 1)
+	return 0
+
+
 ## Vintage Story knaps with a stone in hand: flint or any loose stone (tag "rock"), never bare hands.
 static func knapping_stone(def: Dictionary) -> bool:
 	return def.get("id", "") == "flint" or "rock" in def.get("tags", [])
+
+
+## A sieve takes this item (gravel, sand).
+func _sifts(def: Dictionary) -> bool:
+	return not def.is_empty() and not main.recipes.sift_table(def["id"], "sieve").is_empty()
+
+
+## The hand that holds a tool with `tag` (ADR 0055): "main", else "off" (the offhand), else "".
+func _tool_hand(tag: String) -> String:
+	if tag in main.player_inv.held_def().get("tags", []):
+		return "main"
+	if tag in main.player_inv.offhand_def().get("tags", []):
+		return "off"
+	return ""
+
+
+## Wears the tool in `hand` by one use in survival.
+func _wear_hand(hand: String) -> void:
+	if not _consumes():
+		return
+	if hand == "off":
+		main.player_inv.wear_offhand(1)
+	else:
+		main.player_inv.wear_held(1)
 
 
 ## Left click. True when it chipped (or aimed at) a knapping piece; sneaking
@@ -490,12 +540,12 @@ func _hit(hit_r: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool
 		return false
 	var p := _work_at(hit_r)
 	var e: RefCounted = main.blocks.at(p) if p.y >= 0 else null
-	if e is AnvilEntity and e.has_piece() and "hammer" in main.player_inv.held_def().get("tags", []):
-		_smith(e, from, dir, false)
+	if e is AnvilEntity and e.has_piece() and _tool_hand("hammer") != "":
+		_smith(e, from, dir, false)   # the hammer may be in the offhand (ADR 0055)
 		return true
 	if not (e is KnapEntity) or not e.has_recipe():
 		return false
-	if not knapping_stone(main.player_inv.held_def()):
+	if not knapping_stone(main.player_inv.held_def()) and not knapping_stone(main.player_inv.offhand_def()):
 		if Time.get_ticks_msec() - _knap_hint_ms > 3000:
 			_knap_hint_ms = Time.get_ticks_msec()
 			_say("Knap with a stone in hand (flint or a loose stone)")
@@ -605,7 +655,7 @@ func _smith(e: AnvilEntity, from: Vector3, dir: Vector3, split: bool) -> void:
 			_say("The metal cannot go further that way.")
 		"hit", "done":
 			stats["smith_splits" if split else "smith_hits"] += 1
-			_wear_held()
+			_wear_hand(_tool_hand("hammer"))
 			var at := _at(e.pos, Vector3((col.x + 0.5) / 8.0, (AnvilEntity.BASE_H + e.height(col.x, col.y)) / 8.0, (col.y + 0.5) / 8.0))
 			_particles("ember", at, 0)   # sparks off the hot metal
 			_particles("block_hit", at, GameMaterials.STONE)
@@ -676,6 +726,8 @@ func hold_key(hit: VoxelRaycastResult) -> String:
 		var drop: String = main.mining.drops(GameMaterials.name_of(m)).get("id", "") if main.mining else ""
 		if not (held.is_empty() or "tool" in held.get("tags", []) or held.get("id", "") == drop):
 			return ""
+		if held.has("material"):
+			return ""   # a block in hand builds onto the piece (bug report 2026-10-25: seashells)
 		if not _hold_cells.has(hit.position):
 			var pc := GroundPickups.piece(main.get_world_voxel, hit.position)
 			_hold_cells.clear()
@@ -908,6 +960,9 @@ func _check_pits() -> void:
 		stats["pits_burnt"] += 1
 		for p in pit:
 			remove_piece(main.blocks.at(p), GameMaterials.FIRE)
+		var weather: Weather = main.get("weather")
+		if weather:
+			weather.fire_started(Vector3(top))   # the rain timer starts (ADR 0056)
 		_say("The charcoal pit was open to the air: the wood burst into flames.")
 	stats["seal_ms_max"] = maxf(stats["seal_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
 

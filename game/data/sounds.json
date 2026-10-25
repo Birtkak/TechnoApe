@@ -67,6 +67,7 @@
   "loop/fire_big": {"db": -2, "range_m": 40, "ref_m": 4},
   "loop/water": {"db": -8, "range_m": 24, "ref_m": 3},
   "loop/water_fall": {"db": -4, "range_m": 40, "ref_m": 4},
+  "loop/rain": {"db": -10, "range_m": 1000, "ref_m": 1000},
   "loop/sand": {"db": -8, "range_m": 20, "ref_m": 2},
   "loop/lava": {"db": -6, "range_m": 24, "ref_m": 3},
   "loop/steam": {"db": -14, "range_m": 16, "ref_m": 2},

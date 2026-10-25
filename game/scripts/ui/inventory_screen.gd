@@ -9,8 +9,11 @@ extends CanvasLayer
 ## progression book (ADR 0028) opens from the button in the top left corner. Clicks go to PlayerInventory's
 ## cursor operations; the cursor stack follows the mouse. Closing returns
 ## grid contents; what does not fit is emitted for dropping.
+## ADR 0055: the offhand slot beside the bag slot, a trash slot left of the hotbar, a click outside
+## the panel drops the cursor stack (left: all, right: one) and Q over a slot drops from it (Ctrl: all).
 
 signal closed(dropped: Array)
+signal drop_requested(stack: Dictionary)   # thrown out into the world in front of the player
 
 const S := 36          # slot pitch (vanilla 18 px at 2x)
 const PANEL := Vector2(352, 332)
@@ -33,6 +36,8 @@ var browser_view: RecipeBrowserView
 var _tooltip: Label
 var _bag_slot: SlotView                  # the worn bag (ADR 0030), personal inventory only
 var _bag_slots: Array[SlotView] = []     # its 9 slots, a row under the hotbar while a bag is worn
+var _offhand_slot: SlotView              # ADR 0055, personal inventory only
+var _trash_slot: SlotView                # left of the hotbar, on every screen
 var quest_view: QuestBookView
 var _book_button: QuestBookView.BookButton
 # Mouse Tweaks: a button held after a press on a slot drags over more slots
@@ -103,6 +108,7 @@ func _ready() -> void:
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.draw.connect(func() -> void: _root.draw_rect(Rect2(Vector2.ZERO, _root.size), Color(0, 0, 0, 0.45)))
+	_root.gui_input.connect(_on_root_input)
 	add_child(_root)
 	_panel = Control.new()
 	_panel.set_anchors_preset(Control.PRESET_CENTER)
@@ -176,6 +182,19 @@ func _build_player_slots() -> void:
 		_bag_slot.hint = "Bag"
 		_bag_slot.clicked.connect(func(_b: int, _s: bool) -> void: player_inv.click_bag_item())
 		_panel.add_child(_bag_slot)
+	if _offhand_slot == null:
+		_offhand_slot = SlotView.new()
+		_offhand_slot.position = Vector2(162, 120)
+		_offhand_slot.hint = "Off"
+		_offhand_slot.group = "offhand"
+		_offhand_slot.clicked.connect(func(button: int, shift: bool) -> void: player_inv.click_offhand(button, shift))
+		_panel.add_child(_offhand_slot)
+	if _trash_slot == null:
+		_trash_slot = SlotView.new()
+		_trash_slot.position = Vector2(-S - 12, 284)
+		_trash_slot.hint = "Trash"
+		_trash_slot.clicked.connect(func(_b: int, _s: bool) -> void: player_inv.click_trash())
+		_panel.add_child(_trash_slot)
 
 
 func _clear_mode_slots() -> void:
@@ -309,6 +328,10 @@ func _refresh() -> void:
 	var worn := player_inv.has_bag()
 	_bag_slot.visible = _container == null and player_inv.craft.width == 2
 	_bag_slot.set_stack(player_inv.items, player_inv.bag_item)
+	_offhand_slot.visible = _bag_slot.visible
+	_offhand_slot.set_stack(player_inv.items, player_inv.offhand())
+	_trash_slot.set_stack(player_inv.items, player_inv.trash)
+	_trash_slot.position.y = _slots[0].position.y
 	for i in _bag_slots.size():
 		_bag_slots[i].visible = worn
 		_bag_slots[i].set_stack(player_inv.items, player_inv.bag.get_slot(i))
@@ -418,7 +441,7 @@ func _input(event: InputEvent) -> void:
 
 ## The visible slot (not an output) under a screen position, or null.
 func _slot_at(screen_pos: Vector2) -> SlotView:
-	for sv in _slots + _bag_slots + _craft_slots + _container_slots:
+	for sv in _slots + _bag_slots + _craft_slots + _container_slots + [_offhand_slot]:
 		if sv.visible and not sv.is_output and sv.group != "" and sv.get_global_rect().has_point(screen_pos):
 			return sv
 	return null
@@ -433,6 +456,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.keycode == KEY_ESCAPE and is_book_open():
 		close_book()
 		get_viewport().set_input_as_handled()
+		return
+	if event.is_action("drop"):
+		# Q over a slot drops one item from it, Ctrl + Q the stack (Minecraft)
+		var sv := _slot_at(_root.get_global_mouse_position())
+		if sv != null and player_inv.cursor.is_empty():
+			drop_requested.emit(player_inv.drop_from(sv.group, sv.index, event.ctrl_pressed))
+			get_viewport().set_input_as_handled()
 		return
 	match event.keycode:
 		KEY_R, KEY_U:
@@ -457,6 +487,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			if browser_view.is_showing_recipes():
 				browser_view.close_recipes()
 				get_viewport().set_input_as_handled()
+
+
+## A click on the dimmed screen outside the panel (and the recipe browser) with a stack on the cursor
+## throws it out: left all of it, right one (Minecraft).
+func _on_root_input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton) or not event.pressed or player_inv.cursor.is_empty():
+		return
+	if event.button_index != MOUSE_BUTTON_LEFT and event.button_index != MOUSE_BUTTON_RIGHT:
+		return
+	if _panel.get_global_rect().has_point(event.global_position) or is_book_open():
+		return
+	drop_requested.emit(player_inv.drop_cursor(event.button_index == MOUSE_BUTTON_LEFT))
+	_root.accept_event()
 
 
 func _on_slot_clicked(button: int, shift: bool, i: int) -> void:

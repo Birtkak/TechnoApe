@@ -182,12 +182,89 @@ func run(p_main: Node) -> void:
 	main.player._wear(1)
 	r["axe_broke"] = main.tools_broken - broke_before == 1 and inv.inv.count_of("copper_axe") == 0
 
+	await _part_d(tree, inv, at)
+
 	main.atmosphere.set_time_of_day(0.45)
 	await _shot(tree, "all", Vector3(at.call(0, -3)) + Vector3(0.5, 0.0, 0.5) * B, 3.5)
 	r["work"] = main.work.summary()
 	r["work"].erase("pieces")
 	r["shots"] = shots
 	print("debug craft " + JSON.stringify(r))
+
+
+## Part D (bug reports 2026-10-25, ADR 0055): coal on a firepit, a firepit broken through a voxel that is
+## not its anchor (no ghosts), a clay block formed with Shift + right click (a plain click places it),
+## a block built onto a seashell, and the offhand hammer.
+func _part_d(tree: SceneTree, inv: PlayerInventory, at: Callable) -> void:
+	var c_at: Vector3i = at.call(-3, -6)
+	inv.pickup("firepit", 1)
+	main._hold("firepit")
+	_click_top(c_at - Vector3i.UP)
+	await tree.create_timer(0.2).timeout
+	var cp = main.blocks.at(c_at)
+	inv.pickup("coal", 4)
+	main._hold("coal")
+	_use_on(c_at, Vector3(0.5, 0.2, 0.5))
+	r["coal_needs_a_hold"] = cp is FirepitEntity and cp.inv.is_empty_slot(FirepitEntity.FUEL)
+	await _hold_on(c_at, Vector3(0.5, 0.2, 0.5), 2)
+	r["coal_on"] = int(cp.inv.get_slot(FirepitEntity.FUEL).get("count", 0)) if cp is FirepitEntity else -1
+	var cells: Array[Vector3i] = BlockEntities.footprint(cp) if cp != null else []
+	main.player.voxel_broken.emit(c_at + Vector3i(3, 1, 2), [])   # a corner voxel, not the anchor
+	await tree.process_frame
+	await tree.process_frame
+	var ghosts := 0
+	for c in cells:
+		if main.get_world_voxel(c) == GameMaterials.WORK_SPOT:
+			ghosts += 1
+	r["firepit_break_ghost_voxels"] = ghosts
+	r["firepit_break_view_gone"] = main.blocks.at(c_at) == null and not main.work._views.has(c_at)
+
+	# a clay block: Shift + right click starts clay forming and the form takes the block's voxels as balls
+	var k_at: Vector3i = at.call(-1, -6)
+	var u: int = main.items.units("clay")
+	inv.pickup("clay", 2 * u)
+	main._hold("clay")
+	main.player.autopilot_sneak = true
+	_click_top(k_at - Vector3i.UP)
+	main.player.autopilot_sneak = false
+	await tree.process_frame
+	r["clay_block_forms"] = main.blocks.at(k_at) is ClayFormEntity
+	if main.blocks.at(k_at) is ClayFormEntity:
+		main.work.choose(k_at, "form_ingot_mold")
+		var before := inv.inv.count_of("clay")
+		_use_on(k_at, Vector3(0.3, 0.02, 0.3))
+		r["clay_block_cells_added"] = main.work.stats["clay_cells"]
+		r["clay_block_voxels_used"] = before - inv.inv.count_of("clay")
+	var p_at: Vector3i = at.call(1, -6)
+	_click_top(p_at - Vector3i.UP)
+	await tree.process_frame
+	r["clay_block_places"] = main.blocks.at(p_at) == null and main.get_world_voxel(p_at) == GameMaterials.CLAY
+
+	# a seashell on the ground: a seashell block in hand builds onto it instead of picking it up
+	var shell := GameMaterials.id_of("seashell")
+	var s_at: Vector3i = at.call(3, -6)
+	main.set_world_voxel(s_at, shell)
+	await tree.process_frame
+	inv.pickup("seashell", 4)
+	main._hold("seashell")
+	var aimed: Vector3i = main._aim_use(Vector3(s_at) + Vector3(0.5, 0.999, 0.5))
+	await tree.process_frame
+	r["shell_aimed"] = aimed == s_at
+	r["shell_no_hold"] = main.player._hold_at == ""
+	var beside := 0   # new shell voxels lie against the aimed face (top or side, as the ray met it)
+	for d in [Vector3i.UP, Vector3i.LEFT, Vector3i.RIGHT, Vector3i.FORWARD, Vector3i.BACK]:
+		if main.get_world_voxel(s_at + d) == shell:
+			beside += 1
+	r["shell_built_on"] = beside >= 1   # a voxel item: the brush lays a patch of it
+
+	# the offhand: a hammer there counts for smithing, and wears there
+	inv.pickup("copper_hammer", 1)
+	main._hold("copper_hammer")
+	inv.swap_hands()
+	r["offhand_hammer_hand"] = main.work._tool_hand("hammer")
+	main.work._wear_hand("off")
+	r["offhand_hammer_wear"] = int(inv.offhand().get("wear", 0))
+	inv.swap_hands()
 
 
 ## A hammer blow from the side the push goes away from: the player stands 0.8 m off the anvil

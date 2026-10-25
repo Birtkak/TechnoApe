@@ -402,8 +402,9 @@ func _run_fire_test() -> void:
 ## Only the window is edited; chunks still loading are skipped. The changed
 ## chunks reach the terrain through the budgeted push queue, and the kernel
 ## loosens static ground around the hole (ADR 0013), so craters collapse.
-## Returns the number of voxels changed.
-func blast(center: Vector3, radius: float, material := GameMaterials.AIR) -> int:
+## Returns the number of voxels changed. `only` (the world vacuum, ADR 0056): just these materials
+## change, everything else stays.
+func blast(center: Vector3, radius: float, material := GameMaterials.AIR, only := PackedInt32Array()) -> int:
 	if not _ready:
 		return 0
 	if _keep.is_empty():
@@ -417,7 +418,13 @@ func blast(center: Vector3, radius: float, material := GameMaterials.AIR) -> int
 		_tick_running = false
 		_collect_dirty()
 	var t0 := Time.get_ticks_usec()
-	var n := sim.fill_sphere(center - Vector3(origin * Settings.CHUNK), radius, material, _keep)
+	var keep := _keep
+	if not only.is_empty():
+		keep = PackedInt32Array()
+		for i in range(1, mini(GameMaterials.defs().size() + 1, 256)):
+			if not only.has(i) or _keep.has(i):
+				keep.append(i)
+	var n := sim.fill_sphere(center - Vector3(origin * Settings.CHUNK), radius, material, keep)
 	var ms := (Time.get_ticks_usec() - t0) / 1000.0
 	_frame_cost()["edit_ms"] = _frame_cost().get("edit_ms", 0.0) + ms
 	blasts += 1

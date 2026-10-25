@@ -47,6 +47,7 @@ var _water_test: WaterTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
+var weather: Weather                 # rain and snow, the rain that answers forest fires (ADR 0056); null with weather=0
 var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
 var quest_toast: QuestToast
 var pause_menu: PauseMenu            # Esc: pause, settings, save and quit (ADR 0032)
@@ -179,6 +180,7 @@ func _ready() -> void:
 	add_child(inv_screen)
 	inv_screen.setup(player_inv)
 	inv_screen.closed.connect(_on_screen_closed)
+	inv_screen.drop_requested.connect(player.throw_stack)   # a click outside the panel, Q over a slot (ADR 0055)
 	_setup_quests()
 	work = WorkSystem.new()
 	work.name = "Work"
@@ -423,6 +425,14 @@ func _ready() -> void:
 	player.playtest_use = gadgets.use
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(gadgets.warm_materials(), player.camera)
+	if Settings.weather:
+		weather = Weather.new()
+		weather.name = "Weather"
+		add_child(weather)
+		weather.setup(self)
+		player.ignite_at = weather.ignite   # flint and steel
+		if not warmup.is_queued_for_deletion():
+			warmup.add_materials(weather.warm_materials(), player.camera)
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
 	player_inv.tool_broke.connect(_on_tool_broke)
@@ -654,7 +664,7 @@ func _player_dict() -> Dictionary:
 	return {"version": 1, "pos": [p.x, p.y, p.z], "yaw": player._yaw, "pitch": player._pitch, "spawn": [s.x, s.y, s.z],
 		"game_mode": player.game_mode, "flying": player.flying, "health": player_inv.health, "selected": player_inv.selected,
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
-		"survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s}
+		"offhand": player_inv.offhand(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s}
 
 
 func _load_player() -> void:
@@ -680,6 +690,7 @@ func _load_player() -> void:
 	var bag: Array = d.get("bag", [])
 	for i in mini(bag.size(), player_inv.bag.size()):
 		player_inv.bag.set_slot(i, _stack_of(bag[i]))
+	player_inv.off.set_slot(0, _stack_of(d.get("offhand")))   # ADR 0055
 	player_inv.select(int(d.get("selected", 0)))
 	player_inv.health = clampi(int(d.get("health", player_inv.max_health)), 1, player_inv.max_health)
 	player_inv.health_changed.emit(player_inv.health)
@@ -793,6 +804,17 @@ func _on_broken(p: Vector3i, drops: Array) -> void:
 		_remove_furniture(furn, GameMode.rule(player.game_mode, "drops"))
 		return
 	if _break_station(p, drops):
+		return
+	var piece: RefCounted = blocks.at(p)
+	if work and BlockEntities.is_work(piece):
+		# any voxel of a work piece takes all of it, view and footprint (bug report 2026-10-25: a broken
+		# firepit's other voxels stayed as ghosts when the break was not on its anchor)
+		var stacks: Array = piece.contents()
+		work.remove_piece(piece)
+		for s in stacks:
+			spawn_item(s, Vector3(piece.pos) + Vector3(0.5, 0.5, 0.5) * Settings.BLOCK, Vector3(randf_range(-1.5, 1.5), 2.5, randf_range(-1.5, 1.5)))
+		for d in drops:
+			spawn_item(d, Vector3(p) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
 		return
 	set_world_voxel(p, GameMaterials.AIR)
 	for s in blocks.remove(p):   # chest / furnace contents spill like vanilla; work pieces give their parts back
@@ -1385,6 +1407,7 @@ func snapshot() -> Dictionary:
 		"quest_check_ms_max": snappedf(quest_check_ms_max, 0.001),
 		"projectiles": projectiles.stats if projectiles else {},
 		"gadgets": gadgets.stats if gadgets else {},
+		"weather": weather.summary() if weather else {},
 		"torches": torch_lights.stats if torch_lights else {},
 		"mobs": mobs.summary() if mobs else {},
 		"farm": farming.summary() if farming else {},

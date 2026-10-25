@@ -4,16 +4,20 @@ extends Node3D
 ## First-person arm and held item, Minecraft style: with an empty hand the
 ## ape's right arm (ApeModel.build_arm_mesh, hand at this node's origin) pokes
 ## into the view from the lower right; a held block (a small cube) or item
-## (its extruded sprite) replaces the arm. The whole node swings on use.
-## Hidden in third person.
+## (its extruded sprite) replaces the arm. The hand swings on use. The
+## offhand stack (ADR 0055) sits still in the lower left. Hidden in third person.
 
 var items: ItemRegistry
 var atlas_material: Material
+var _hand: Node3D           # the right hand: arm or held item; it swings
 var _mesh: MeshInstance3D
 var _arm: MeshInstance3D
+var _off: MeshInstance3D    # the offhand stack, lower left
+var _off_id := ""
 var _swing := 0.0        # 0 = rest, 1 = fully swung
 var _swinging := false
 var _rest_pos := Vector3(0.5, -0.54, -0.82)
+const OFF_POS := Vector3(-0.5, -0.56, -0.82)
 var _current_id := ""
 
 # held like a Minecraft tool: handle in the hand, head up and away from the view
@@ -25,19 +29,25 @@ const SPRITE_HAND := Vector3(0.24, -0.1, -0.12)        # where the handle end si
 
 
 func _ready() -> void:
+	_hand = Node3D.new()
+	add_child(_hand)
 	_arm = ApeModel.build_arm_mesh()
 	_arm.rotation_degrees = Vector3(62, 0, -28)   # hand at the origin, arm back towards the camera's lower right
 	_arm.rotate_object_local(Vector3.UP, PI)      # back of the hand and the outer sleeve towards the camera
 	_arm.scale = Vector3.ONE * 0.8
-	add_child(_arm)
+	_hand.add_child(_arm)
 	_mesh = MeshInstance3D.new()
 	_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_mesh.position = HAND
-	add_child(_mesh)
+	_hand.add_child(_mesh)
+	_off = MeshInstance3D.new()
+	_off.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_off.visible = false
+	add_child(_off)
 	# laid out in blocks (0.5 m) in front of the camera; the world unit is a 12.5 cm voxel (ADR 0033)
 	scale = Vector3.ONE * Settings.BLOCK
-	position = _rest_pos * Settings.BLOCK
-	rotation_degrees = Vector3(0, 20, 0)
+	_hand.position = _rest_pos
+	_hand.rotation_degrees = Vector3(0, 20, 0)
 	show_item({})
 
 
@@ -52,26 +62,47 @@ func show_item(stack: Dictionary) -> void:
 		_mesh.visible = false
 		return
 	_mesh.visible = true
-	_mesh.position = HAND
+	_dress(_mesh, id, HAND, 1.0)
+
+
+## The offhand stack, mirrored into the lower left; it does not swing.
+func show_offhand(stack: Dictionary) -> void:
+	var id: String = stack.get("id", "")
+	if id == _off_id:
+		return
+	_off_id = id
+	_off.visible = id != ""
+	if id != "":
+		_dress(_off, id, Vector3.ZERO, -1.0)
+		_off.position += OFF_POS
+		_off.rotation_degrees.y -= 40.0
+
+
+## Gives `mi` the look of item `id` held at `at` (a sprite has its own grip point); `side` -1
+## mirrors a sprite's pose for the left hand.
+func _dress(mi: MeshInstance3D, id: String, at: Vector3, side: float) -> void:
+	mi.position = at
 	var mat_id := ItemIcon.material_id_for(items, id)
 	var sprites := ItemSprites.get_default()
 	if sprites.is_cube(id):
-		_mesh.mesh = BlockMeshes.sprite(id)
-		_mesh.scale = Vector3.ONE * 0.24
-		_mesh.rotation_degrees = Vector3.ZERO
+		mi.mesh = BlockMeshes.sprite(id)
+		mi.scale = Vector3.ONE * 0.24
+		mi.rotation_degrees = Vector3.ZERO
 	elif sprites.has(id):
-		_mesh.mesh = BlockMeshes.sprite(id)
-		_mesh.scale = Vector3.ONE * HELD_SPRITE_SCALE
-		_mesh.rotation_degrees = HELD_SPRITE_ROTATION
-		_mesh.position = SPRITE_HAND - Basis.from_euler(HELD_SPRITE_ROTATION * PI / 180.0) * (SPRITE_GRIP * HELD_SPRITE_SCALE)
+		var rot := HELD_SPRITE_ROTATION * Vector3(1, side, side)
+		mi.mesh = BlockMeshes.sprite(id)
+		mi.scale = Vector3.ONE * HELD_SPRITE_SCALE
+		mi.rotation_degrees = rot
+		var hand := SPRITE_HAND * Vector3(side, 1, 1)
+		mi.position = hand - Basis.from_euler(rot * PI / 180.0) * (SPRITE_GRIP * HELD_SPRITE_SCALE)
 	elif mat_id > 0:
-		_mesh.mesh = BlockMeshes.cube(mat_id, atlas_material)
-		_mesh.scale = Vector3.ONE * 0.24
-		_mesh.rotation_degrees = Vector3.ZERO
+		mi.mesh = BlockMeshes.cube(mat_id, atlas_material)
+		mi.scale = Vector3.ONE * 0.24
+		mi.rotation_degrees = Vector3.ZERO
 	else:
-		_mesh.mesh = BlockMeshes.card(id)
-		_mesh.scale = Vector3.ONE * 0.3
-		_mesh.rotation_degrees = Vector3(0, 0, -30)
+		mi.mesh = BlockMeshes.card(id)
+		mi.scale = Vector3.ONE * 0.3
+		mi.rotation_degrees = Vector3(0, 0, -30 * side)
 
 
 ## Stain colour on the bare arm (Player._apply_stain_tint); null clears it.
@@ -95,5 +126,5 @@ func _process(delta: float) -> void:
 	else:
 		_swing = maxf(0.0, _swing - delta * 5.0)
 	var s := sin(_swing * PI)
-	position = (_rest_pos + Vector3(-0.18 * s, -0.08 * s, -0.28 * s)) * Settings.BLOCK
-	rotation_degrees = Vector3(-40 * s, 20 - 25 * s, 0)
+	_hand.position = _rest_pos + Vector3(-0.18 * s, -0.08 * s, -0.28 * s)
+	_hand.rotation_degrees = Vector3(-40 * s, 20 - 25 * s, 0)

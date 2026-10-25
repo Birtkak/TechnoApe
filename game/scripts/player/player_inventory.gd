@@ -7,6 +7,9 @@ extends RefCounted
 ## selected hotbar index and health in half-hearts. Pure logic, no nodes.
 ## A worn bag (ADR 0030, Vintage Story's backpack) adds BAG slots of its own:
 ## pickups that do not fit go there, and the bag comes off only when empty.
+## ADR 0055 (bug reports 2026-10-25): an offhand slot (F swaps it with the held stack; work pieces
+## use the tool in it), a trash slot that keeps the last stack thrown away until the next one, and
+## drops from the screen (a click outside the panel, Q over a slot).
 
 signal changed
 signal selection_changed(index: int)
@@ -26,6 +29,8 @@ var cursor := {}
 var bag_item := {}                 # the worn bag stack (leather_bag), or {}
 var bag: Inventory                 # its slots; usable while bag_item is set
 var container: RefCounted = null   # ChestEntity / FurnaceEntity while its screen is open (ADR 0007)
+var off: Inventory                 # the offhand: one slot (ADR 0055)
+var trash := {}                    # the last stack thrown in the trash slot; the next one replaces it
 var selected := 0
 var max_health := 20
 var health := 20
@@ -42,6 +47,8 @@ func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_max_health: int =
 	craft.grid.changed.connect(_on_slot_changed)
 	bag = Inventory.new(items, BAG)
 	bag.changed.connect(_on_slot_changed)
+	off = Inventory.new(items, 1)
+	off.changed.connect(_on_slot_changed)
 
 
 ## Swaps in a bigger grid (crafting table: width 3) or back to the personal 2x2.
@@ -97,6 +104,91 @@ func wear_held(uses: int = 1) -> bool:
 	if broke != "":
 		tool_broke.emit(broke)
 	return broke != ""
+
+
+# ---------------- the offhand (ADR 0055) ----------------
+
+func offhand() -> Dictionary:
+	return off.get_slot(0)
+
+
+func offhand_def() -> Dictionary:
+	var h := offhand()
+	return items.get_def(h["id"]) if not h.is_empty() else {}
+
+
+## F: the held stack and the offhand stack change places, per-stack data and all.
+func swap_hands() -> void:
+	var a := inv.get_slot(selected).duplicate(true)
+	var b := off.get_slot(0).duplicate(true)
+	if a.is_empty() and b.is_empty():
+		return
+	inv.set_slot(selected, b)
+	off.set_slot(0, a)
+
+
+## Removes `count` from the offhand stack. Returns how many were removed.
+func consume_offhand(count: int = 1) -> int:
+	return int(off.take(0, count).get("count", 0))
+
+
+## Wears the offhand tool (a hammer smithing from the offhand). Returns true when it broke.
+func wear_offhand(uses: int = 1) -> bool:
+	var broke := off.wear_slot(0, uses)
+	if broke != "":
+		tool_broke.emit(broke)
+	return broke != ""
+
+
+## Click on the offhand slot of the screen: like a main slot; shift moves it into the inventory.
+func click_offhand(button: int, shift: bool) -> void:
+	if shift:
+		_move_stack(off, 0, inv, _player_order(false))
+		return
+	if button == MOUSE_BUTTON_RIGHT:
+		cursor = off.right_click(0, cursor)
+	else:
+		cursor = off.left_click(0, cursor)
+	changed.emit()
+
+
+# ---------------- trash and drops from the screen (ADR 0055) ----------------
+
+## Click on the trash slot: a stack on the cursor goes in (the one there before is gone for good);
+## with an empty cursor the last trashed stack comes back.
+func click_trash() -> void:
+	if cursor.is_empty():
+		cursor = trash
+		trash = {}
+	else:
+		trash = cursor
+		cursor = {}
+	changed.emit()
+
+
+## The cursor stack leaves the screen (a click outside the panel): all of it, or one item (one
+## block's worth of a voxel item). Returns the stack to drop in the world.
+func drop_cursor(whole: bool) -> Dictionary:
+	if cursor.is_empty():
+		return {}
+	var n: int = int(cursor["count"]) if whole else mini(items.units(cursor["id"]), int(cursor["count"]))
+	var out := Inventory.make_stack(items, cursor["id"], n, cursor)
+	cursor["count"] = int(cursor["count"]) - n
+	if int(cursor["count"]) <= 0:
+		cursor = {}
+	changed.emit()
+	return out
+
+
+## Q over a slot of the screen: one item (Ctrl: the stack) out of it. Returns the stack to drop.
+func drop_from(group: String, i: int, whole: bool) -> Dictionary:
+	var src := _group(group)
+	if src == null or i < 0 or i >= src.size() or src.is_empty_slot(i):
+		return {}
+	var s := src.get_slot(i)
+	var out := src.take(i, -1 if whole else mini(items.units(s["id"]), int(s["count"])))
+	changed.emit()
+	return out
 
 
 ## Replaces one of the held items with another one (bucket -> water bucket).
@@ -350,6 +442,8 @@ func _group(group: String) -> Inventory:
 			return bag if has_bag() else null
 		"craft":
 			return craft.grid
+		"offhand":
+			return off
 		"container":
 			return container.inv if container != null else null
 	return null
@@ -396,6 +490,8 @@ func drag_shift(group: String, i: int) -> void:
 			click_bag_slot(i, MOUSE_BUTTON_LEFT, true)
 		"craft":
 			click_craft_slot(i, MOUSE_BUTTON_LEFT, true)
+		"offhand":
+			click_offhand(MOUSE_BUTTON_LEFT, true)
 		"container":
 			click_container_slot(i, MOUSE_BUTTON_LEFT, true)
 
@@ -595,4 +691,5 @@ func summary() -> Dictionary:
 		if not s.is_empty():
 			in_bag[s["id"]] = int(in_bag.get(s["id"], 0)) + int(s["count"])
 	return {"selected": selected, "hotbar": hotbar, "main": main, "cursor": cursor, "health": health,
-		"container": container.kind if container != null else "", "bag": bag_item.get("id", ""), "in_bag": in_bag}
+		"container": container.kind if container != null else "", "bag": bag_item.get("id", ""), "in_bag": in_bag,
+		"offhand": offhand(), "trash": trash}

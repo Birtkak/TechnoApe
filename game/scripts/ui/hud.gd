@@ -12,6 +12,8 @@ const GAP := 2
 var player_inv: PlayerInventory
 var _hotbar: Control
 var _icons: Array[ItemIcon] = []
+var _off_icon: ItemIcon      # ADR 0055: the offhand stack, left of the thermometer
+const OFF_X := -38.0         # its cell's right edge, from the hotbar's left edge
 var _hearts: Control
 var _hunger_row: Control     # ADR 0040: ten food icons, right half above the hotbar (vanilla's place)
 var _thermo: Control         # body temperature, left of the hotbar
@@ -74,6 +76,11 @@ func _ready() -> void:
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_hotbar.add_child(icon)
 		_icons.append(icon)
+	_off_icon = ItemIcon.new()
+	_off_icon.position = Vector2(OFF_X - SLOT + 6, 6)
+	_off_icon.size = Vector2(SLOT - 12, SLOT - 12)
+	_off_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hotbar.add_child(_off_icon)
 
 	_stain_bar = Control.new()
 	_stain_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -251,6 +258,8 @@ func _refresh() -> void:
 	for i in 9:
 		_icons[i].items = player_inv.items
 		_icons[i].stack = player_inv.inv.get_slot(i)
+	_off_icon.items = player_inv.items
+	_off_icon.stack = player_inv.offhand()
 	_hotbar.queue_redraw()
 	_hearts.queue_redraw()
 
@@ -311,6 +320,10 @@ func _draw_hotbar() -> void:
 	cell.set_corner_radius_all(4)
 	for i in 9:
 		_hotbar.draw_style_box(cell, Rect2(i * (SLOT + GAP), 0, SLOT, SLOT))
+	if player_inv and not player_inv.offhand().is_empty():
+		var off := Rect2(OFF_X - SLOT, 0, SLOT, SLOT)
+		_hotbar.draw_style_box(tray, off)
+		_hotbar.draw_style_box(cell, off)
 	if player_inv:
 		var r := Rect2(player_inv.selected * (SLOT + GAP), 0, SLOT, SLOT)
 		var glow := StyleBoxFlat.new()

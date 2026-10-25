@@ -225,7 +225,10 @@ static func _build_defs() -> Array:
 		{"name": "work_spot", "cell_type": "solid", "density": 8, "hp": 50, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": "aim", "cross": true, "interact": "work"},
 		{"name": "work_block", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": true, "model": "empty", "collision": true, "interact": "work"},
 	] + _content_pass2_defs() + _flint_age_defs() + [
-		{"name": "leaf_litter", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [84, 84, 1], "transparent": false},
+		# leaf litter carries a forest fire along the floor and leaves bare dirt (ADR 0056)
+		{"name": "leaf_litter", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [84, 84, 1], "transparent": false,
+			"burnable": true, "fire_hp": 45, "autoignition_temperature": 30, "temperature_of_fire": 50, "on_fire_convert_to_material": 2,
+			"on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 5},
 		{"name": "cobblestone", "cell_type": "solid", "pattern": true, "density": 10, "hp": 1000, "tiles": [98, 98, 98], "transparent": false},
 		{"name": "bricks", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [99, 99, 99], "transparent": false},
 	] + _clutter_defs()

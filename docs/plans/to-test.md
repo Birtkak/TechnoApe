@@ -10,6 +10,35 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Part D (2026-10-25): controls, offhand, inventory, fire and weather (ADR 0055, 0056)
+
+- [ ] Ctrl sprints, Shift sneaks: slower, eyes lower, you stop at a ledge instead of falling off. Flying, Shift goes down.
+      Ctrl + wheel still sizes the brush and the laser. F swaps hands (double-tap space still toggles flight).
+- [ ] Clay: Shift + right click with a clay block on the ground starts clay forming (the picker opens); right clicks then
+      add clay from the block (a block = 4 balls). A plain right click places the block as before.
+- [ ] Hold a seashell (or flower, mushroom) block and right click a seashell on the ground: it builds on it, no pickup.
+      Empty hand + held right click still picks the shell up.
+- [ ] Firepit: a quick click with coal says "Hold right click"; holding lays coal on (a piece a second). Break a firepit
+      anywhere on it: it is gone completely, no ghost stones (`/kit fire` has one).
+- [ ] Items on the ground get picked up from about 2 m now.
+- [ ] Inventory: click outside the panel with a stack on the cursor throws it (left all, right one). Q over a slot drops
+      one, Ctrl + Q the stack. The trash slot left of the hotbar row: drop a stack in; click it with an empty cursor to
+      get the last one back.
+- [ ] Offhand: the slot right of the bag slot; F swaps it in play. It shows on the HUD left of the thermometer and in your
+      left hand. Try: torches in the offhand, empty main hand, right click a wall (places the torch); hammer in the
+      offhand + work piece on the anvil, left click smiths; gravel in the offhand + empty hand on a sieve, hold right
+      click (it keeps refilling); clay balls in the offhand + empty hand on a clay form.
+- [ ] `/kit` lists: tools, builder, stations, farm, stone, flint, smith, magic, gadgets, fire, clutter. Builder gives full
+      stacks of blocks now (it gave one block of each before).
+- [ ] World vacuum (`/kit gadgets`): right click sand and gravel to choose them (chat lists the filter), hold left click
+      on a beach: only sand and gravel go. Shift + right click clears the filter.
+- [ ] Fire: `/kit fire`, flint and steel on the foot of a tree in a forest (`/goto forest`). It should take the tree in
+      about 20 s and creep along the leaf litter to the next trees. After 1-3 minutes the sky closes, rain falls (and
+      stops under roofs and trees), the rain sound plays, and the fire dies down. `/weather` shows the state;
+      `/weather rain 60` or `/weather clear` sets it. Is it scary enough, too slow, too fast?
+- [ ] Random weather: now and then a shower (more often in wet biomes), snow when it is below 0 C. Outside in rain the
+      ape gets wet.
+
 ## 2026-10-24: sound (ADR 0044)
 
 Everything is CC0 and cut by our tool, so a sound that feels wrong is a one-line swap: say which one
