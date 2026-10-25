@@ -32,6 +32,7 @@
       "drops": [
         {
           "id": "raw_meat",
+          "winter_mult": 0.5,
           "count": [
             1,
             2
@@ -82,6 +83,7 @@
       "drops": [
         {
           "id": "raw_meat",
+          "winter_mult": 0.5,
           "count": [
             1,
             3
@@ -117,7 +119,8 @@
       ],
       "drops": [
         {
-          "id": "raw_meat"
+          "id": "raw_meat",
+          "winter_mult": 0.5
         },
         {
           "id": "feather",
@@ -163,6 +166,7 @@
       "drops": [
         {
           "id": "raw_meat",
+          "winter_mult": 0.5,
           "count": [
             2,
             4

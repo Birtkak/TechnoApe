@@ -42,6 +42,11 @@ var _drag_from := Vector2.INF
 var _dragged := false
 var _cycle: Array = []    # [ItemIcon, ids] task icons that show several items, one per second
 var _cycle_t := 0.0
+## The Discoveries tab (ADR 0061): a sidebar entry above the chapters that shows DiscoveryView over the canvas.
+const JOURNAL := "#discoveries"
+var discoveries: Discoveries
+var trackers: Trackers       # the HUD trackers: a Track button on each quest
+var _journal: DiscoveryView
 
 
 func setup(p_book: QuestBook, p_items: ItemRegistry) -> void:
@@ -68,6 +73,9 @@ func _ready() -> void:
 	_canvas.draw.connect(_draw_canvas)
 	_canvas.gui_input.connect(_on_canvas_input)
 	_frame.add_child(_canvas)
+	_journal = DiscoveryView.new()
+	_journal.visible = false
+	_canvas.add_child(_journal)
 	_chapters = VBoxContainer.new()
 	_chapters.add_theme_constant_override("separation", 6)
 	_frame.add_child(_chapters)
@@ -202,6 +210,17 @@ func _rebuild() -> void:
 func _build_chapters() -> void:
 	for c in _chapters.get_children():
 		c.queue_free()
+	if discoveries != null:   # the Discoveries tab, above the chapters (not a chapter: quests.json stays part F's)
+		var j := ChapterButton.new()
+		j.items = items
+		j.icon_id = "copper_prospecting_pick"
+		j.title = "Discoveries"
+		j.progress = discoveries.total_progress()
+		j.active = chapter == JOURNAL
+		j.custom_minimum_size = Vector2(SIDEBAR - 24, 52)
+		j.pressed.connect(open_chapter.bind(JOURNAL))
+		_chapters.add_child(j)
+		_chapters.add_child(HSeparator.new())
 	for c in book.chapters:
 		var b := ChapterButton.new()
 		b.items = items
@@ -233,6 +252,12 @@ func _build_nodes() -> void:
 	_place_nodes()
 	for q in book.chapter_quests(chapter):
 		_nodes[q["id"]].set_icon(q["icon"])
+	_journal.visible = chapter == JOURNAL and discoveries != null
+	if _journal.visible:
+		_journal.book = discoveries
+		_journal.items = items
+		_journal.size = _canvas.size
+		_journal.refresh()
 
 
 func _mid() -> Vector2:
@@ -283,6 +308,16 @@ func _build_detail() -> void:
 	for c in _detail.get_children():
 		c.queue_free()
 	_cycle.clear()
+	if selected == "" and chapter == JOURNAL and discoveries != null:
+		var t := discoveries.total_progress()
+		_detail.add_child(_label("Discoveries", 22, C_TEXT))
+		_detail.add_child(_label("The first time you find a biome, a landmark, an animal, an ore or a vein, it is written here.", 15, C_DIM, true))
+		_detail.add_child(_label("%d of %d found" % [t.x, t.y], 15, C_DONE if t.x == t.y else C_TEXT))
+		for k in discoveries.kinds:
+			var kp := discoveries.kind_progress(k["id"])
+			if kp.y > 0:
+				_detail.add_child(_label("%s: %d / %d" % [k["title"], kp.x, kp.y], 14, C_DONE if kp.x == kp.y else C_DIM))
+		return
 	if selected == "":
 		for c in book.chapters:
 			if c["id"] == chapter:
@@ -306,6 +341,15 @@ func _build_detail() -> void:
 		status = "Locked: finish " + ", ".join(need) + " first"
 	_detail.add_child(_label(status, 14, C_DONE if st == "done" else (C_OPEN if st == "open" else C_DIM), true))
 	_detail.add_child(_label(q.get("description", ""), 15, Color(0.82, 0.82, 0.86), true))
+	if trackers != null and st != "done":
+		var tb := Button.new()
+		tb.focus_mode = Control.FOCUS_NONE
+		tb.text = "Untrack" if trackers.is_pinned("quest", selected) else "Track on the HUD"
+		var qid := selected
+		tb.pressed.connect(func() -> void:
+			trackers.toggle("quest", qid)
+			_build_detail())
+		_detail.add_child(tb)
 	_detail.add_child(_label("Tasks (any one)" if q.get("mode", "all") == "any" else "Tasks", 16, C_TEXT))
 	var tasks: Array = q["tasks"]
 	for i in tasks.size():
@@ -327,6 +371,11 @@ func _build_detail() -> void:
 
 ## The task as a line of text: its own "text", or the item's name / "Any <tag>".
 func task_text(t: Dictionary) -> String:
+	return task_text_for(items, t)
+
+
+## task_text without a view (the HUD trackers, ADR 0061).
+static func task_text_for(items: ItemRegistry, t: Dictionary) -> String:
 	if t.has("text"):
 		return t["text"]
 	var specs := QuestBook.task_specs(t)

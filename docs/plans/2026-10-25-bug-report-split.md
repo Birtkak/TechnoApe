@@ -107,6 +107,17 @@ The split follows the code, so no two sessions edit the same native sources:
     `sneaking` through `_try_place`; write the `flint` kit in D's block counts (sand 1, dirt 2, oak_log 2: D's kits
     count blocks of voxel items); the clothing panel docks itself once `InventoryScreen.add_side_panel` is there.
 
+  - G: `scripts/player/mining_table.gd` (part D's) `roll_list` reads `Seasons.season` (two lines: "seasons"
+    filter, "winter_mult"); `scripts/ui/hud.gd` hearts wrap past ten (max health above 20); three sprites in
+    `tools/make_item_sprites.py` (part C's, above "validate + write"; regenerate `data/item_sprites.json`);
+    `scripts/main.gd` sets up `SurvivalLoop` after Survival and adds `loop` to the stats JSON; SurvivalLoop
+    docks its `NutritionPanel` through part D's `inv_screen.add_side_panel(ctrl, "below")` (falls back to a child of
+    `InventoryScreen._panel` before D's merge), places the trackers under `main.minimap.bottom_y()`, and wraps
+    `player.work_use`; Seasons
+    frost erases from `Farming.crops` and writes through its `set_voxel` (part C: if crops stop being one
+    material per voxel, `Seasons.kill` follows); `"nutrition"` on 10 foods in items.json, `"winter_mult"` on
+    raw meat in mobs.json, `"seasons"` on the blueberry bush in mining.json, `"frost_c"` in crops.json.
+
 ---
 
 ## Part A: liquids, simulation and falling pieces

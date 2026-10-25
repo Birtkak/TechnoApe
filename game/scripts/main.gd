@@ -59,6 +59,7 @@ var minimap: Minimap
 var waypoint_markers: WaypointMarkers
 var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
 var quest_toast: QuestToast
+var survival_loop: SurvivalLoop       # diet, seasons, prospecting, discoveries, HUD trackers (ADR 0061)
 var pause_menu: PauseMenu            # Esc: pause, settings, save and quit (ADR 0032)
 var quest_check_ms_max := 0.0        # slowest progression-book inventory check (debug JSON)
 var _farm_accum := 0.0
@@ -442,6 +443,10 @@ func _ready() -> void:
 	stone_age.setup(self)
 	stone_age.load_player(_stone_age_save)
 	player.item_use = stone_age.use
+	survival_loop = SurvivalLoop.new()
+	survival_loop.name = "SurvivalLoop"
+	add_child(survival_loop)
+	survival_loop.setup(self)
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(builder.warm_materials(), player.camera)
 	gadgets = PlaytestTools.new()
@@ -1602,6 +1607,7 @@ func snapshot() -> Dictionary:
 		"pieces": pieces.stats() if pieces else {},
 		"build": builder.snapshot() if builder else {},
 		"survival": survival.snapshot() if survival else {},
+		"loop": survival_loop.snapshot() if survival_loop else {},
 		"stains": stains.stats() if stains else {},
 		"look": look,
 		"player": player_inv.summary(),

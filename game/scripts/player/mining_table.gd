@@ -150,6 +150,8 @@ static func roll_list(list: Array, rng: RandomNumberGenerator, held_class: Strin
 	for d in list:
 		if d.get("tool", "") != "" and d["tool"] != held_class:
 			continue
+		if not Seasons.in_season(d, Seasons.season):   # "seasons": wild food bears in its season (ADR 0061)
+			continue
 		if rng.randf() >= float(d.get("chance", 1.0)):
 			continue
 		var r := _count_range(d)
@@ -158,6 +160,7 @@ static func roll_list(list: Array, rng: RandomNumberGenerator, held_class: Strin
 			for _i in int(d["binomial"][0]):
 				if rng.randf() < float(d["binomial"][1]):
 					n += 1
+		n = Seasons.lean(n, d, Seasons.season, rng)   # "winter_mult": leaner animals in winter
 		if n > 0:
 			out.append({"id": d["id"], "count": n})
 	return out

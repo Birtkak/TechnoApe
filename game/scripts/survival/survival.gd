@@ -5,6 +5,8 @@ extends Node
 ## headless); this node gathers what they need (climate, calendar, shelter and heat from the native
 ## ClimateProbe, lit entities), keeps the state, ages perishable stacks, and hurts or slows the player.
 ## Creative mode keeps the readings and never hurts or slows. State saves with the player.
+## Food groups (ADR 0061, `Nutrition`) drain beside hunger and set max health; containers in a root
+## cellar (a closed room under ground) and "preserved" foods spoil slower (`Seasons`).
 
 const DAY_S := 1200.0       # one game day of real seconds (the calendar's 20-minute day)
 const HEAT_C := 1.0         # degrees per unit of heat (a lit firepit is 10 units at its edge)
@@ -32,6 +34,10 @@ var _spoil_t := 0.0
 var _last_days := -1.0
 var _open := PackedByteArray()
 var _heat_mat := PackedFloat32Array()
+var nutrition := Nutrition.load_default()
+var _health_t := 0.0
+var _rooms := {}             # container position -> [closed room, valid until clock s] (root cellars)
+const ROOM_CACHE_S := 30.0
 var stats := {"probe_ms_max": 0.0, "spoil_ms_max": 0.0, "rotted": 0, "eaten": 0, "starved": 0, "froze": 0, "overheated": 0}
 
 
@@ -102,10 +108,12 @@ static func age_inventory(inv: Inventory, days: float, rate: float) -> int:
 		var s: Dictionary = inv.get_slot(i)
 		if s.is_empty() or not s.has("spoil"):
 			continue
-		var sd := float(inv.items.get_def(s["id"]).get("spoil_days", 0.0))
+		var def := inv.items.get_def(s["id"])
+		var sd := float(def.get("spoil_days", 0.0))
 		if sd <= 0.0:
 			continue
-		var sp := float(s["spoil"]) + days * rate / sd
+		var k := Settings.preserved_spoil_mult if "preserved" in def.get("tags", []) else 1.0   # salted, dried, smoked (part F)
+		var sp := float(s["spoil"]) + days * rate * k / sd
 		if sp >= 1.0:
 			inv.set_slot(i, {"id": "rot", "count": s["count"]})
 			rotted += 1
@@ -139,6 +147,11 @@ func _process(delta: float) -> void:
 	if survival:
 		_hunger_step(delta, fast)
 		_harm_step(delta)
+		nutrition.drain(delta, hunger_rate(fast, body_c < Settings.cold_c) * Settings.hunger_drain_s)
+	_health_t -= delta
+	if _health_t <= 0.0:
+		_health_t = 1.0
+		apply_max_health()
 	_spoil_t -= delta
 	if _spoil_t <= 0.0:
 		_spoil_t = 2.0
@@ -256,12 +269,13 @@ func _age_food() -> void:
 		if not (c is Inventory) or not (e.get("pos") is Vector3i):
 			continue
 		var at: Vector3i = e.pos
-		var temp := Settings.cellar_c
-		if main.world.surface_height(at.x, at.z) - at.y < int(Settings.m2v(3.0)):
+		var below := Settings.v2m(main.world.surface_height(at.x, at.z) - at.y)
+		var outdoor := Settings.cellar_c
+		if below < 3.0:
 			var cl := float(gen.column_info(at.x, at.z)["temperature"])
-			temp = environment_c(cl, cal.day_of_year(), cal.year_days(), cal.month_days, cal.time, 0.0, false, false, 0.0)
-		var r := spoil_rate(temp) * (0.5 if String(e.get("kind")) == "storage_pot" else 1.0)
-		n += age_inventory(c, days, r)
+			outdoor = environment_c(cl, cal.day_of_year(), cal.year_days(), cal.month_days, cal.time, 0.0, false, false, 0.0)
+		var room := below >= Settings.root_cellar_m and container_in_room(at)
+		n += age_inventory(c, days, Seasons.container_rate(below, room, outdoor, String(e.get("kind"))))
 	stats["rotted"] += n
 	stats["spoil_ms_max"] = maxf(stats["spoil_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
 
@@ -273,19 +287,26 @@ func wants_food() -> bool:
 	return hunger < Settings.hunger_max - 0.5 or player.inventory.health < player.inventory.max_health
 
 
-## Eating `def` at `spoil`: hunger and saturation (stale food half).
+var last_meal := {}   # the groups the last food filled (chat, tests)
+
+
+## Eating `def` at `spoil`: hunger and saturation (stale food half), and its food groups.
 func eat(def: Dictionary, spoil: float) -> void:
 	var f: Dictionary = def.get("food", {})
 	var k := 0.5 if spoil >= 0.5 else 1.0
 	hunger = minf(Settings.hunger_max, hunger + float(f.get("hunger", 1)) * k)
 	saturation = minf(hunger, saturation + float(f.get("saturation", 0)) * k)
 	stats["eaten"] += 1
+	last_meal = nutrition.eat(def, spoil)
+	apply_max_health()
 
 
 func reset() -> void:
 	hunger = Settings.hunger_max
 	saturation = 5.0
 	body_c = 37.0
+	nutrition.reset()
+	apply_max_health()
 
 
 func status() -> String:
@@ -308,16 +329,67 @@ func felt_c() -> float:
 
 
 func to_dict() -> Dictionary:
-	return {"hunger": hunger, "saturation": saturation, "body_c": body_c}
+	return {"hunger": hunger, "saturation": saturation, "body_c": body_c, "nutrition": nutrition.to_dict(),
+		"health": player.inventory.health if player != null else 0}
 
 
 func load_dict(d: Dictionary) -> void:
 	hunger = clampf(float(d.get("hunger", Settings.hunger_max)), 0.0, Settings.hunger_max)
 	saturation = clampf(float(d.get("saturation", 5.0)), 0.0, hunger)
 	body_c = clampf(float(d.get("body_c", 37.0)), 25.0, 45.0)
+	var nd: Variant = d.get("nutrition", {})
+	nutrition.load_dict(nd if nd is Dictionary else {})
+	apply_max_health()
+	if player != null and d.has("health"):   # the save may hold more than the base 20 (a balanced diet)
+		var inv: PlayerInventory = player.inventory
+		inv.health = clampi(int(d["health"]), 1, inv.max_health)
+		inv.health_changed.emit(inv.health)
 
 
 func snapshot() -> Dictionary:
 	return {"hunger": snappedf(hunger, 0.01), "saturation": snappedf(saturation, 0.01), "body_c": snappedf(body_c, 0.01),
 		"env_c": snappedf(env_c, 0.1), "felt_c": snappedf(felt_c(), 0.1), "in_room": in_room, "heat": snappedf(heat, 0.01), "underground_m": snappedf(underground_m, 0.1),
-		"status": status(), "stats": stats}
+		"status": status(), "nutrition": nutrition.snapshot(),
+		"max_health": player.inventory.max_health if player != null else 0, "stats": stats}
+
+
+## Max health from the diet (ADR 0061); health above a lowered max is cut.
+func apply_max_health() -> void:
+	if player == null:
+		return
+	var inv: PlayerInventory = player.inventory
+	var m := nutrition.max_health(Settings.max_health)
+	if m == inv.max_health:
+		return
+	inv.max_health = m
+	if inv.health > m:
+		inv.health = m
+	inv.health_changed.emit(inv.health)
+
+
+## Is the voxel cell in a closed room (the ClimateProbe fill, no heat)? False outside the sim window.
+func room_at(cell: Vector3i) -> bool:
+	var bubble: SimBubble = main.bubble if main != null else null
+	if bubble == null or bubble.sim == null:
+		return false
+	var r: Dictionary = probe.probe(bubble.sim, cell - bubble.origin * Settings.CHUNK, Vector3i(64, 32, 64), 65536, _open, PackedFloat32Array(), 0, 1.0)
+	return bool(r["enclosed"])
+
+
+## Does the container at `at` (its footprint corner) stand in a closed room? Tried from the cells beside
+## and above it, kept for ROOM_CACHE_S.
+func container_in_room(at: Vector3i) -> bool:
+	var hit: Array = _rooms.get(at, [])
+	if not hit.is_empty() and Inventory.clock_s < float(hit[1]):
+		return hit[0]
+	var b := Settings.BLOCK
+	var room := false
+	for o in [Vector3i(b / 2, b, b / 2), Vector3i(-1, 1, b / 2), Vector3i(b, 1, b / 2), Vector3i(b / 2, 1, -1), Vector3i(b / 2, 1, b)]:
+		var cell: Vector3i = at + o
+		if main.world.get_voxel(cell) == GameMaterials.AIR:
+			room = room_at(cell)
+			break
+	if _rooms.size() > 512:
+		_rooms.clear()
+	_rooms[at] = [room, Inventory.clock_s + ROOM_CACHE_S]
+	return room
