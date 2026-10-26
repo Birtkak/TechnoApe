@@ -17,7 +17,8 @@ var preview: MeshInstance3D
 var preview_mat: StandardMaterial3D
 var bubble: SimBubble              # set by Main; null in tests: native ops then do nothing
 var stats := {"preview_builds": 0, "preview_ms_max": 0.0, "native_digs": 0, "native_places": 0, "native_paints": 0,
-	"native_voxels": 0, "native_ms_max": 0.0, "native_slice_ms_max": 0.0, "cells_builds": 0, "cells_ms_max": 0.0}
+	"native_voxels": 0, "native_ms_max": 0.0, "native_slice_ms_max": 0.0, "cells_builds": 0, "cells_ms_max": 0.0,
+	"last_dig": {}, "last_place": {}}   # the newest dig / placement: aim, face normal, box, cells (run JSON, bug reports)
 var _st := ShapeTool.new()
 var _key := ""
 var _jobs: Array[Dictionary] = []
@@ -113,7 +114,8 @@ func warm_cache() -> void:
 
 # ---------------- the preview ----------------
 
-## Shows the shell for this aim; null hit hides it. Big brushes show a half-resolution shell (the
+## Shows the shell for this aim; null hit hides it. The box shapes (cube, flat, column) are one unit
+## shell scaled to the box, exact at any size. Big round brushes show a half-resolution shell (the
 ## same shape at size / 2, drawn twice as large): their full meshes took up to 28 ms to build.
 func show_at(hit: VoxelRaycastResult, size: int, shape: String, place: bool) -> void:
 	if hit == null or size <= 1:
@@ -121,13 +123,14 @@ func show_at(hit: VoxelRaycastResult, size: int, shape: String, place: bool) -> 
 		return
 	var front: Vector3i = hit.previous_position
 	var normal: Vector3i = front - hit.position
-	var key := "%s %d %s %s" % [shape, size, normal, place]
+	var boxy := shape in Brush.BOX_SHAPES
+	var key := "box" if boxy else "%s %d %s %s" % [shape, size, normal, place]
 	var lo := anchor(hit.position, front, size, shape, place)
-	var coarse := size > Brush.NATIVE_ABOVE
+	var coarse := size > Brush.NATIVE_ABOVE and not boxy
 	if key != _key:
 		_key = key
 		var t0 := Time.get_ticks_usec()
-		var rel := rel_cells(Vector3i.ZERO, normal, size / 2, shape, place) if coarse else rel_cells(hit.position, front, size, shape, place)
+		var rel := PackedInt32Array([0, 0, 0]) if boxy else (rel_cells(Vector3i.ZERO, normal, size / 2, shape, place) if coarse else rel_cells(hit.position, front, size, shape, place))
 		var hi := Vector3i.ZERO
 		for i in range(0, rel.size(), 3):
 			hi = Vector3i(maxi(hi.x, rel[i] + 1), maxi(hi.y, rel[i + 1] + 1), maxi(hi.z, rel[i + 2] + 1))
@@ -137,10 +140,14 @@ func show_at(hit: VoxelRaycastResult, size: int, shape: String, place: bool) -> 
 			m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 			m.surface_set_material(0, preview_mat)
 		preview.mesh = m
-		preview.scale = Vector3.ONE * (2.0 if coarse else 1.0)
 		stats["preview_builds"] += 1
 		stats["preview_ms_max"] = maxf(stats["preview_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
-	preview_mat.albedo_color = Color(0.35, 0.8, 1.0, 0.16) if place else Color(1.0, 0.55, 0.25, 0.14)
+	if boxy:
+		preview.scale = Vector3(Brush.region(hit.position, front, size, shape, place)["size"])
+	else:
+		preview.scale = Vector3.ONE * (2.0 if coarse else 1.0)
+	preview_mat.albedo_color = Color(0.35, 0.8, 1.0, 0.16) if place else Color(1.0, 0.55, 0.25, 0.2)
+	preview_mat.no_depth_test = not place   # a dig lies inside the terrain (flush with the aimed face): the shell shows through
 	if preview.is_inside_tree():
 		var at := Vector3(lo)
 		if coarse:
@@ -150,6 +157,13 @@ func show_at(hit: VoxelRaycastResult, size: int, shape: String, place: bool) -> 
 			at += (full - half) * 0.5
 		preview.global_position = at
 	preview.visible = true
+
+
+## Records a dig or a placement for the run's JSON and bug reports: where it was aimed and what box it covered.
+func note(kind: String, aim: Vector3i, normal: Vector3i, box: AABB, cells: int) -> void:
+	stats["last_" + kind] = {"aim": "%d %d %d" % [aim.x, aim.y, aim.z], "normal": "%d %d %d" % [normal.x, normal.y, normal.z],
+		"lo": "%d %d %d" % [int(box.position.x), int(box.position.y), int(box.position.z)],
+		"size": "%d %d %d" % [int(box.size.x), int(box.size.y), int(box.size.z)], "cells": cells}
 
 
 ## A one-voxel shell in the preview's vertex format and material, for MaterialWarmup.

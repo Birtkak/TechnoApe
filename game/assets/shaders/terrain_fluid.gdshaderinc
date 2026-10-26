@@ -122,7 +122,8 @@ vec3 lava_surface(vec3 q, float t, out vec3 emission) {
 }
 
 void fragment() {
-	if (fade_discard(FRAGCOORD.xy, v_world, CAMERA_POSITION_WORLD)) {
+	float hz = horizon_mix(v_world, CAMERA_POSITION_WORLD);
+	if (hz >= 1.0) {
 		discard;
 	}
 	vec3 n = v_normal_world;
@@ -214,9 +215,14 @@ void fragment() {
 			col = mix(col, foam_color, s * foam);
 			a = clamp(max(a, 0.55) + s * 0.35, 0.0, 1.0);
 		}
-		ALPHA = a;
+		ALPHA = a * (1.0 - hz);   // the horizon: the terrain behind blends into the sky (ADR 0073)
 #endif
 		ALBEDO = col * tint;
 		EMISSION = col * glow;
+	}
+	if (hz > 0.0) {
+		// the horizon: lit colour out, the sky behind in (ADR 0073)
+		ALBEDO *= 1.0 - hz;
+		EMISSION = mix(EMISSION, horizon_sky(v_world, CAMERA_POSITION_WORLD), hz);
 	}
 }

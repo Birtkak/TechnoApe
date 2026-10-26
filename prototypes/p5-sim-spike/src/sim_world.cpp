@@ -636,6 +636,9 @@ void SimWorld::try_loosen(int x, int y, int z, int i, Ctx &c) {
     const uint8_t self = cells_[i].mat;
     const uint16_t prev = (uint16_t)(stamp_ - 1);
     const bool shaken = (cells_[i].flags & FLAG_SHAKEN) != 0;
+    // this cell was just placed or changed (an edit stamps it): a still powder set down over nothing
+    // falls like Minecraft's sand (ADR 0073), while one set down on ground keeps its shape
+    const bool fresh_self = moved_[i] == stamp_ || moved_[i] == prev;
     auto open = [&](int nx, int ny, int nz) -> bool {
         return is_open(nx, ny, nz) && can_displace(self, cells_[idx(nx, ny, nz)].mat);
     };
@@ -649,7 +652,7 @@ void SimWorld::try_loosen(int x, int y, int z, int i, Ctx &c) {
     uint32_t r = rnd(c);
     bool hit = false, go = false;
     if (md.loosen) {
-        bool t = trigger(x, y - 1, z);
+        bool t = trigger(x, y - 1, z) || (fresh_self && md.cell_type == CELL_POWDER && open(x, y - 1, z));
         if (!t && md.cell_type == CELL_LIQUID)   // static water: any opening beside it
             for (int k = 0; k < 4 && !t; k++) t = trigger(x + DX4[k], y, z + DZ4[k]);
         if (t) { hit = true; go = (r & 0xFFFF) < md.loosen; }

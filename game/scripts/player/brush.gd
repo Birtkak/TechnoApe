@@ -1,24 +1,28 @@
 class_name Brush
 extends RefCounted
 
-## The dig and build brush (ADR 0034, ADR 0065): which 12.5 cm voxels one dig or one
+## The dig and build brush (ADR 0034, ADR 0065, ADR 0073): which 12.5 cm voxels one dig or one
 ## placement touches. Pure logic, headless testable.
-##   cube      a size^3 cube snapped to the size grid (size 4 = a 0.5 m block,
-##             so building on the old block grid stays easy)
+##   cube      a size^3 cube
 ##   sphere    a ball of diameter `size` centred on the aimed voxel
 ##   cylinder  an upright cylinder, diameter and height `size`
 ##   flat      a size x size square in the aimed face's plane, one voxel deep (shaving a wall,
-##             levelling a floor, laying a floor or a wall skin); snapped like the cube
+##             levelling a floor, laying a floor or a wall skin)
 ##   column    a size/2 wide square bar 2 x size long along the aimed face's normal: into the
 ##             material when digging (a shaft down, a tunnel in), out of the face when placing (a
 ##             pillar up, a beam out)
-## Digging takes the shape around the aimed voxel; placing sets it against the
-## aimed face (the cube snaps around the voxel in front of the face). `normal` is the
-## aimed face's direction (front - hit), only flat and column use it.
+## Where it goes (ADR 0073, "placing was off centre"): the round shapes dig around the aimed voxel
+## and sit on the aimed face when placing. The box shapes (cube, flat, column) are **flush with the
+## aimed face**, into the material when digging and out of it when placing, and **centred on the
+## aim across the face**, snapped there to the 0.5 m block grid (BLOCK voxels) from size BLOCK up so
+## placed blocks tile without gaps, and to their own size below it. A 1 m cube dug from a floor is a
+## 1 m hole 1 m deep under the crosshair; placed on it, a 1 m cube standing on the floor there.
+## `normal` is the aimed face's direction (front - hit).
 ## Sizes up to 8 are survival's (MiningTable.dig_cap caps digging by tool tier); creative adds
 ## 16 and 32 (4 m), which go through the native ShapeTool (`region`) instead of GDScript cells.
 
 const SHAPES := ["cube", "sphere", "cylinder", "flat", "column"]
+const BOX_SHAPES := ["cube", "flat", "column"]
 const SIZES := [1, 2, 4, 8]
 const CREATIVE_SIZES := [1, 2, 4, 8, 16, 32]
 const NATIVE_ABOVE := 8   # brushes bigger than this are filled natively (ShapeTool), never cell by cell
@@ -33,7 +37,7 @@ static func sizes_for(creative: bool) -> Array:
 static func dig_cells(hit: Vector3i, size: int, shape: String, normal := Vector3i.UP) -> Array[Vector3i]:
 	if size <= 1:
 		return [hit]
-	if shape in ["cube", "flat", "column"]:
+	if shape in BOX_SHAPES:
 		var b := _dig_box(hit, size, shape, normal)
 		return _box(b.position, b.size)
 	return _round(Vector3(hit) + Vector3(0.5, 0.5, 0.5), size, shape)
@@ -44,7 +48,7 @@ static func dig_cells(hit: Vector3i, size: int, shape: String, normal := Vector3
 static func place_cells(hit: Vector3i, front: Vector3i, size: int, shape: String) -> Array[Vector3i]:
 	if size <= 1:
 		return [front]
-	if shape in ["cube", "flat", "column"]:
+	if shape in BOX_SHAPES:
 		var b := _place_box(hit, front, size, shape)
 		return _box(b.position, b.size)
 	return _round(_place_centre(hit, front, size), size, shape)
@@ -54,10 +58,19 @@ static func place_cells(hit: Vector3i, front: Vector3i, size: int, shape: String
 static func dig_bounds(hit: Vector3i, size: int, shape: String, normal := Vector3i.UP) -> AABB:
 	if size <= 1:
 		return AABB(Vector3(hit), Vector3.ONE)
-	if shape in ["cube", "flat", "column"]:
-		var b := _dig_box(hit, size, shape, normal)
-		return AABB(Vector3(b.position), Vector3(b.size))
+	if shape in BOX_SHAPES:
+		return _dig_box(hit, size, shape, normal)
 	var c := Vector3(hit) + Vector3(0.5, 0.5, 0.5)
+	return AABB(c - Vector3.ONE * size * 0.5, Vector3.ONE * size)
+
+
+## The world box a placement covers: the highlight outline.
+static func place_bounds(hit: Vector3i, front: Vector3i, size: int, shape: String) -> AABB:
+	if size <= 1:
+		return AABB(Vector3(front), Vector3.ONE)
+	if shape in BOX_SHAPES:
+		return _place_box(hit, front, size, shape)
+	var c := _place_centre(hit, front, size)
 	return AABB(c - Vector3.ONE * size * 0.5, Vector3.ONE * size)
 
 
@@ -65,11 +78,10 @@ static func dig_bounds(hit: Vector3i, size: int, shape: String, normal := Vector
 ## preview): {lo: Vector3i, size: Vector3i, params: Dictionary for ShapeTool.cells(params, lo)}.
 ## Round shapes take an odd box (size + 1) centred on the voxel, like the GDScript cells.
 static func region(hit: Vector3i, front: Vector3i, size: int, shape: String, place: bool) -> Dictionary:
-	if shape in ["cube", "flat", "column"] or size <= 1:
+	if shape in BOX_SHAPES or size <= 1:
 		var b: AABB = AABB(Vector3(front if place else hit), Vector3.ONE)
 		if size > 1:
-			var bi := _place_box(hit, front, size, shape) if place else _dig_box(hit, size, shape, front - hit)
-			b = AABB(Vector3(bi.position), Vector3(bi.size))
+			b = _place_box(hit, front, size, shape) if place else _dig_box(hit, size, shape, front - hit)
 		var s := Vector3i(b.size)
 		return {"lo": Vector3i(b.position), "size": s, "params": {"shape": "box", "size": s}}
 	var c := _place_centre(hit, front, size) if place else Vector3(hit) + Vector3(0.5, 0.5, 0.5)
@@ -95,6 +107,26 @@ static func describe(size: int, shape: String) -> String:
 	return "%s %s" % [shape, _len(size)]
 
 
+## What a dig and a placement of this brush do, in words, for the tools panel and the HUD
+## ("dig: a 1 m cube into the aimed face", "place: a 1 m cube against it").
+static func explain(size: int, shape: String, place: bool) -> String:
+	if size <= 1:
+		return "the voxel in front of the aimed face" if place else "the aimed voxel"
+	match shape:
+		"cube":
+			return "a %s cube %s" % [_len(size), "standing on the aimed face" if place else "into the aimed face"]
+		"sphere":
+			return "a %s ball %s" % [_len(size), "resting on the aimed face" if place else "around the aimed voxel"]
+		"cylinder":
+			return "an upright %s cylinder %s" % [_len(size), "resting on the aimed face" if place else "around the aimed voxel"]
+		"flat":
+			return "a %s square one voxel thick %s" % [_len(size), "laid on the aimed face" if place else "shaved off the aimed face"]
+		"column":
+			var d := column_dims(size)
+			return "a %s wide, %s long bar %s" % [_len(d.x), _len(d.y), "out of the aimed face" if place else "into the aimed face"]
+	return describe(size, shape)
+
+
 static func _len(v: int) -> String:
 	var m := v * Settings.VOXEL_M
 	return ("%d cm" % roundi(m * 100.0)) if m < 1.0 else ("%s m" % str(snappedf(m, 0.25)))
@@ -109,48 +141,54 @@ static func _axis(normal: Vector3i) -> int:
 	return 1
 
 
-static func _dig_box(hit: Vector3i, size: int, shape: String, normal: Vector3i) -> AABB:
+## The low corner across the face: `extent` cells centred on voxel `c`, snapped to the grid blocks
+## tile on (BLOCK voxels from extent BLOCK up, the extent itself below).
+static func _centre_lo(c: int, extent: int) -> int:
+	var g := Settings.BLOCK if extent >= Settings.BLOCK else extent
+	return floori((float(c) + 0.5 - extent * 0.5) / g + 0.5) * g
+
+
+## The box a dig or a placement covers for the box shapes: `across` cells centred on the aim across
+## the face, `depth` cells along its normal, into the material (dig) or out of the face (place). A
+## zero normal (the ray started inside the voxel) counts as a top face.
+static func _face_box(hit: Vector3i, normal: Vector3i, across: int, depth: int, place: bool) -> AABB:
 	var ax := _axis(normal)
-	var lo := _snap(hit, size)
-	var s := Vector3i.ONE * size
-	if shape == "flat":
-		lo[ax] = hit[ax]
-		s[ax] = 1
-	elif shape == "column":
-		var d := column_dims(size)
-		lo = _snap(hit, d.x)
-		s = Vector3i.ONE * d.x
-		s[ax] = d.y
-		# into the material: away from the face
-		lo[ax] = hit[ax] - d.y + 1 if normal[ax] >= 0 else hit[ax]
+	var sgn := -1 if normal[ax] < 0 else 1
+	var lo := Vector3i(_centre_lo(hit.x, across), _centre_lo(hit.y, across), _centre_lo(hit.z, across))
+	var s := Vector3i.ONE * across
+	s[ax] = depth
+	if place:
+		var front := hit[ax] + sgn
+		lo[ax] = front if sgn > 0 else front - depth + 1
+	else:
+		lo[ax] = hit[ax] - depth + 1 if sgn > 0 else hit[ax]
 	return AABB(Vector3(lo), Vector3(s))
+
+
+static func _dig_box(hit: Vector3i, size: int, shape: String, normal: Vector3i) -> AABB:
+	match shape:
+		"flat":
+			return _face_box(hit, normal, size, 1, false)
+		"column":
+			var d := column_dims(size)
+			return _face_box(hit, normal, d.x, d.y, false)
+	return _face_box(hit, normal, size, size, false)
 
 
 static func _place_box(hit: Vector3i, front: Vector3i, size: int, shape: String) -> AABB:
 	var normal := front - hit
-	var ax := _axis(normal)
-	var lo := _snap(front, size)
-	var s := Vector3i.ONE * size
-	if shape == "flat":
-		lo[ax] = front[ax]
-		s[ax] = 1
-	elif shape == "column":
-		var d := column_dims(size)
-		lo = _snap(front, d.x)
-		s = Vector3i.ONE * d.x
-		s[ax] = d.y
-		# out of the face: towards the player
-		lo[ax] = front[ax] if normal[ax] >= 0 else front[ax] - d.y + 1
-	return AABB(Vector3(lo), Vector3(s))
+	match shape:
+		"flat":
+			return _face_box(hit, normal, size, 1, true)
+		"column":
+			var d := column_dims(size)
+			return _face_box(hit, normal, d.x, d.y, true)
+	return _face_box(hit, normal, size, size, true)
 
 
 static func _place_centre(hit: Vector3i, front: Vector3i, size: int) -> Vector3:
 	var n := Vector3(front - hit)
 	return Vector3(front) + Vector3(0.5, 0.5, 0.5) + n * (size * 0.5 - 0.5)
-
-
-static func _snap(p: Vector3i, size: int) -> Vector3i:
-	return Vector3i(floori(float(p.x) / size) * size, floori(float(p.y) / size) * size, floori(float(p.z) / size) * size)
 
 
 static func _box(o: Variant, sz: Variant) -> Array[Vector3i]:

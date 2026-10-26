@@ -13,8 +13,7 @@ signal done
 
 const PRESETS := ["low", "medium", "high"]
 const SHADOWS := ["off", "low", "medium", "high"]
-const RENDER_M := [16.0, 24.0]   # Settings.MIN_DETAIL_M .. MAX_DETAIL_M
-const VIEW_M := [200.0, 400.0]   # ADR 0071: 4 or 5 LODs, the haze hides the edge
+const VIEW_M := Settings.VIEW_CHOICES_M   # ADR 0073: the one box of full-detail voxels; 40 m is the budget's edge
 ## Keys that cannot be rebound (the rest are rows above them, plan item D11).
 const KEYS := [["Space twice", "fly (creative)"], ["G", "world tools panel: brush, build modes, keys"], ["Ctrl + wheel", "brush size, laser width"], ["B / Shift + B", "brush shape: next / previous"],
 	["Shift + right click", "paint the brush with the held block (creative)"], ["Ctrl + Q", "drop the stack"],
@@ -25,7 +24,6 @@ var _rebinding := ""       # the action waiting for a key
 
 var _preset: OptionButton
 var _shadows: OptionButton
-var _render: OptionButton
 var _view: OptionButton
 var _ssao: CheckBox
 var _bloom: CheckBox
@@ -112,15 +110,13 @@ func _video_tab() -> Control:
 		Settings.shadow_quality = SHADOWS[_shadows.selected]
 		_edited())
 	_row(g, "Shadows", _shadows)
-	_render = _options(["16 m", "24 m"], func() -> void:
-		Settings.render_distance_m = RENDER_M[_render.selected]
-		Settings.lod_ring_m = maxf(Settings.render_distance_m, 32.0)   # ADR 0072: 32 m rings unless the detail radius is wider
-		_edited())
-	_row(g, "Full detail to", _render)
-	_view = _options(["200 m", "400 m"], func() -> void:
+	var names: Array = []
+	for v in VIEW_M:
+		names.append("%d m" % int(v))
+	_view = _options(names, func() -> void:
 		Settings.view_distance_m = VIEW_M[_view.selected]
-		Settings.lod_count = Settings.lods_for_view(Settings.view_distance_m)
 		_edited())
+	_view.tooltip_text = "How far the world is drawn, at full detail all the way; it ends in the sky. Further costs frame time and memory."
 	_row(g, "View distance", _view)
 	_ssao = _check(func() -> void:
 		Settings.ssao = _ssao.button_pressed
@@ -302,7 +298,6 @@ func sync_from_settings() -> void:
 	_syncing = true
 	_preset.select(PRESETS.find(Settings.graphics_preset) if Settings.graphics_preset in PRESETS else PRESETS.size())
 	_shadows.select(maxi(0, SHADOWS.find(Settings.shadow_quality)))
-	_render.select(_nearest(RENDER_M, Settings.render_distance_m))
 	_view.select(_nearest(VIEW_M, Settings.view_distance_m))
 	_ssao.button_pressed = Settings.ssao
 	_bloom.button_pressed = Settings.bloom

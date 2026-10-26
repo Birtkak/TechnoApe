@@ -20,7 +20,7 @@ Godot_v4.7.2-stable_mono_win64_console.exe --path game
 
 # unattended check for Claude: fly forward 20 s, filmstrip every second, JSON on stdout
 Godot_v4.7.2-stable_mono_win64_console.exe --path game -- autopilot=1 duration=20 capture_every=1 vsync=0 out=res://out/run1
-# any Settings value can be overridden: render_distance_m=32 view_distance_m=400 lod_ring_m=32 sim_tick_hz=30 ...
+# any Settings value can be overridden: view_distance_m=32 sim_tick_hz=30 ... (view_distance_m = the one box of voxels, ADR 0073)
 # park at a feature and look down: target=lake|ruin|ruin_<kind> (data/ruins.json)|crypt_room (with inside=1)|spring|river|waterfall|marsh|alpine|snow|mountain|<biome> speed=0 offset=15 alt=20 pitch=-0.7
 # walk instead of fly (gravity + 1-voxel auto step-up): walk=1 ; JSON reports travelled_horizontal_m
 # pick a world: seed=1337 or seed="any text" (hashed); see docs/design/seeds.md
@@ -60,9 +60,8 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=3 f3=1 
 # 8 m ahead (scattered over mob_bench_r m), measures from 2 s later; JSON mobs.step_ms = think/move/collide/animate ms per physics step
 # far view + streaming (ADR 0017): JSON voxel_backlog = pending voxel tasks while moving (max/mean/busy_share/
 # max_busy_s/threads); voxel_threads=N overrides the worker count; persist=1 seed=<unused seed> measures the
-# save-file load path (never use the seed you play); lod_fade_s=0 turns the LOD cross-fade off (default 0.35 s, ADR 0020);
-# lod_ring_m=24 narrows the LOD rings back to godot_voxel's default (LOD n ends at render_distance_m + lod_ring_m * 2^n, ADR 0020);
-# terrain_threaded_update=1 moves VoxelLodTerrain's LOD bookkeeping to a worker thread;
+# save-file load path (never use the seed you play); terrain_threaded_update=1 moves VoxelLodTerrain's streaming
+# bookkeeping to a worker thread;
 # load_cap_s=120 waits longer than 10 s for the first load to settle (slow horizons); the JSON's
 # voxel_backlog.peak_by_type tells a generator backlog from a meshing one; every spike lists phys_cost (ms per
 # physics callback: player and its sub-steps, items, item_bodies, blocks)
@@ -194,7 +193,7 @@ recipe by design (found only); spells do.
 | `scripts/settings.gd` | Autoload. Every budget is a setting, in metres. One world unit = one voxel = 12.5 cm (ADR 0033). |
 | `scripts/materials.gd` | Material table (Noita attribute names) + atlas tiles; builds the blocky library. |
 | `scripts/generator.gd` | Bridge to the native `FineGen` (12.5 cm voxels over `WorldGen`'s 0.5 m landforms, climate, hydrology, ores); see `docs/design/world-generation.md`. `tools/terrain_map.gd` draws the land. |
-| `scripts/world.gd` | `VoxelLodTerrain` (clipbox streaming, 7 LODs) + copy/paste helpers. |
+| `scripts/world.gd` | `VoxelLodTerrain` with one LOD: a clipbox of full-detail voxels to `view_distance_m`, the horizon blend into the sky (ADR 0073) + copy/paste helpers. |
 | `scripts/sim_bubble.gd` | Sliding window of the native `SimWorld` around the player; load/tick/push. |
 | `scripts/player.gd` | First-person walk/fly/swim against the voxel grid (`scripts/physics/voxel_body.gd`, ADR 0011), mouse look, hold-to-mine with progress, place/use (buckets), hotbar keys, drop, fall damage, held-item viewmodel (`scripts/player/viewmodel.gd`). |
 | `scripts/player/player_inventory.gd` | Player model: 36-slot inventory (hotbar = slots 0..8), cursor stack, 2x2/3x3 crafting grid, health. Pure logic, tested. |
@@ -225,8 +224,8 @@ recipe by design (found only); spells do.
 
 ## Architecture in one paragraph
 
-godot_voxel owns the *static* world: generation, streaming, LOD rings, meshes,
-collisions. The native `SimWorld` owns a *bubble* of chunks around the player
+godot_voxel owns the *static* world: generation, streaming (one box of full-detail voxels,
+no LOD, ADR 0073), meshes, collisions. The native `SimWorld` owns a *bubble* of chunks around the player
 (Settings.simulation_distance_m): chunks are copied in from the terrain when
 they enter the bubble, ticked at `sim_tick_hz` with the Falling Everything
 rules, and chunks the simulation changed are pasted back through
@@ -242,8 +241,6 @@ nothing moves. Server and client will share this split (ADR 0002).
 - Station blocks (ADR 0007) have no facing; no double chests. Their entities save as JSON beside the
   world database (every 30 s and on exit), not yet in the region format.
 - Material 44 (once `CHISELED`, ADR 0006, retired by ADR 0036) stays reserved and renders as nothing.
-- Micro-voxel plants/detail live in LOD 0 blocks only; after an edit, godot_voxel downsamples them into
-  LOD 1/2 where they show as full voxels.
 - Player body is a box 0.6 m (~5 voxels) wide: a shaft one block (0.5 m) wide is not enterable; dig two blocks wide.
 - No terrain physics colliders (ADR 0011): new movers use VoxelBody or voxel ray-casts. Swimming is minimal.
 
@@ -269,5 +266,5 @@ cp project/addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll <r
 ```
 
 The stock CI DLL still runs the game (`voxel.gdextension` can point `windows.debug`
-back at `libvoxel.windows.editor.x86_64.dll`), but then set `lod_fade_s=0`: the
-stock fade needs a `terrain.material` and costs 30-60 ms frames.
+back at `libvoxel.windows.editor.x86_64.dll`) without the fluid height field, the
+remesh and upload budgets and the stream key cache.

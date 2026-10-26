@@ -137,6 +137,7 @@ var _depth_check_accum := 0.0
 
 func setup(p_world: World, p_camera: Camera3D) -> void:
 	world = p_world
+	_push_grade()   # the terrain materials take the sky's colours too (ADR 0073)
 	camera = p_camera
 	_apply_season()   # _ready ran before the world was known
 
@@ -291,11 +292,20 @@ func _push_grade() -> void:
 	env.ssao_intensity = ssao_intensity
 	env.fog_sun_scatter = sun_scatter
 	env.fog_aerial_perspective = aerial
-	sky_material.set_shader_parameter("sunset_color", Vector3(sunset_color.r, sunset_color.g, sunset_color.b))
-	sky_material.set_shader_parameter("zenith_color", Vector3(zenith_color.r, zenith_color.g, zenith_color.b))
-	sky_material.set_shader_parameter("horizon_color", Vector3(horizon_color.r, horizon_color.g, horizon_color.b))
-	# below the horizon the sky is the haze the terrain dissolves into (ADR 0072), not a grey ground
-	sky_material.set_shader_parameter("ground_color", Vector3(fog_color_day.r, fog_color_day.g, fog_color_day.b))
+	_set_sky("sunset_color", Vector3(sunset_color.r, sunset_color.g, sunset_color.b))
+	_set_sky("zenith_color", Vector3(zenith_color.r, zenith_color.g, zenith_color.b))
+	_set_sky("horizon_color", Vector3(horizon_color.r, horizon_color.g, horizon_color.b))
+	# below the horizon the sky is the haze the terrain blends into (ADR 0073), not a grey ground
+	_set_sky("ground_color", Vector3(fog_color_day.r, fog_color_day.g, fog_color_day.b))
+
+
+## A sky uniform shared with the terrain materials, which blend into the sky's own colour at the
+## horizon (sky_common.gdshaderinc, ADR 0073).
+func _set_sky(param: String, value: Variant) -> void:
+	sky_material.set_shader_parameter(param, value)
+	if world:
+		for m in world.horizon_materials():
+			m.set_shader_parameter(param, value)
 
 
 ## A 1D lookup: each channel is remapped through its own curve (Godot reads r from .r, g from .g ...).
@@ -432,13 +442,13 @@ func _update_sun() -> void:
 		_sun_light = sun_light
 	sun.light_energy = _sun_light * _water_light
 	sun.shadow_opacity = shadow_opacity if not is_moon else 0.6
-	sky_material.set_shader_parameter("sun_dir", sd)
+	_set_sky("sun_dir", sd)
 	sky_material.set_shader_parameter("moon_dir", moon_draw)
 	sky_material.set_shader_parameter("moon_size", size)
 	sky_material.set_shader_parameter("pole_dir", pole)
 	sky_material.set_shader_parameter("world_to_sky", basis.transposed())
 	sky_material.set_shader_parameter("solar_eclipse", solar)
-	sky_material.set_shader_parameter("eclipse_dark", cover)
+	_set_sky("eclipse_dark", cover)
 	sky_material.set_shader_parameter("lunar_shadow", shadow)
 	sky_material.set_shader_parameter("constellation_lines", 1.0 if show_constellations else 0.0)
 	# the autumn moons rise orange; the rest are a cool white

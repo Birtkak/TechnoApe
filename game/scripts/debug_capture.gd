@@ -104,7 +104,7 @@ const OTHERS_EVERY_S := 10.0
 var _backlog := PackedInt32Array()   # pending voxel tasks (generation + meshing + streaming), sampled every 0.25 s after load
 var _backlog_accum := 0.0
 var _backlog_peak := {}              # per task type (generation, meshing, streaming, main_thread, gpu)
-var _detail_missing := PackedInt32Array()   # 1 = the ground 18 m around the player had no full-detail (LOD 0) mesh yet, sampled with the backlog
+var _detail_missing := PackedInt32Array()   # 1 = the ground 18 m around the player had no mesh yet, sampled with the backlog
 var _compile_delta := 0.0
 var _elapsed := 0.0
 var _capture_accum := 0.0
@@ -317,7 +317,7 @@ func _process(delta: float) -> void:
 		_backlog.push_back(int(t.get("generation", 0)) + int(t.get("meshing", 0)) + int(t.get("streaming", 0)) + int(t.get("main_thread", 0)))
 		for k in t:   # per-type peak, to tell a generator backlog from a meshing one
 			_backlog_peak[k] = maxi(int(_backlog_peak.get(k, 0)), int(t[k]))
-		# what a flying player sees: is the ground around them at full detail yet (bug report 2026-10-25)
+		# what a flying player sees: is the ground around them drawn yet (bug report 2026-10-25)
 		var pp: Vector3 = _main.player.position
 		var r := Settings.m2v(18.0)
 		var ground := float(_main.world.generator.gen.height_at(int(pp.x), int(pp.z)))
@@ -443,8 +443,8 @@ func _finish() -> void:
 			at.append(GameMaterials.name_of(_main.world.get_voxel(c)))
 		s["blast_terrain_at_centres"] = at
 	s["startup_ms"] = _main.startup_ms
-	s["settings"] = {"seed": Settings.world_seed, "seed_text": Settings.world_seed_text, "render_distance_m": Settings.render_distance_m, "view_distance_m": Settings.view_distance_m,
-		"simulation_distance_m": Settings.simulation_distance_m, "lod_count": Settings.lod_count, "sim_tick_hz": Settings.sim_tick_hz}
+	s["settings"] = {"seed": Settings.world_seed, "seed_text": Settings.world_seed_text, "view_distance_m": Settings.view_distance_m,
+		"simulation_distance_m": Settings.simulation_distance_m, "sim_tick_hz": Settings.sim_tick_hz}
 	print(JSON.stringify(s))
 	if _main.has_method("save_terrain"):
 		_main.save_terrain(5.0)   # persist=1 runs keep their edits, as a save-and-quit does

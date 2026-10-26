@@ -326,7 +326,7 @@ func _ready() -> void:
 			inv_screen.open()
 			_debug_browser.call_deferred()
 		if DebugCapture.stations:
-			_after_load(_place_debug_stations)   # an edit before the LOD rings exist cascades into nothing
+			_after_load(_place_debug_stations)   # an edit before the terrain is loaded goes into nothing
 		if DebugCapture.animals > 0:
 			_after_load(_debug_animals)
 		if DebugCapture.farm_test:

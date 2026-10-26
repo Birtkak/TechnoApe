@@ -2,7 +2,7 @@
 
 3D first-person voxel game: Minecraft/GregTech building and automation,
 Noita-style simulated materials and wand/spell play, procedurally generated
-world drawn to a 200 m horizon that ends in haze (ADR 0072). Windows client (Android dropped, ADR 0009), dedicated Linux
+world drawn as one 40 m box of full-detail voxels that ends in the sky, no LOD (ADR 0073). Windows client (Android dropped, ADR 0009), dedicated Linux
 server on the home server (Unraid) over Tailscale. Solo developer; Claude
 Code does most implementation, the developer steers, plays, decides.
 
@@ -50,13 +50,13 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   (`_console.exe` for CLI). .NET SDK 8.0.426 (tooling only).
 - godot_voxel GDExtension, **our own build** of commit 045ff932 (the 2026-10-01
   master CI build at `~\Tools\downloads\libvoxel-36898667256\`) with the
-  patches in `prototypes/p11-lod-horizon/voxel_patch.py` (ADR 0020: LOD
-  distance cap, cheap cross-fade through an instance parameter). Source at
+  patches in `prototypes/p11-lod-horizon/voxel_patch*.py` (fluid height field, remesh and upload
+  budgets, stream key cache, box mover; the LOD parts are unused since ADR 0073). Source at
   `~\Tools\godot_voxel`; build with `target=template_debug` (the editor target
   does not compile with GCC 16) and copy the DLL to `game/addons/zylann.voxel/bin/`,
-  see `game/README.md`. Terrain: `VoxelLodTerrain` + `VoxelMesherBlocky` +
-  `streaming_system = CLIPBOX`; never set `terrain.material` (it overrides the
-  library's per-surface materials, ADR 0020).
+  see `game/README.md`. Terrain: `VoxelLodTerrain` with `lod_count = 1` (one box of full-detail voxels, `view_distance_m`,
+  ADR 0073) + `VoxelMesherBlocky` + `streaming_system = CLIPBOX`; never set `terrain.material` (it
+  overrides the library's per-surface materials, ADR 0020).
 - Tests: gdUnit4 v6.2.2 (source at `~\Tools\downloads\gdUnit4\`).
 - C++ toolchain: portable MinGW-w64 GCC 16.2 at
   `~\Tools\mingw-dl\mingw64\bin` (add to PATH), SCons via

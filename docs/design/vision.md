@@ -156,13 +156,15 @@ prototype (P5, falling-sand-3D spike) before the architecture is locked.
    the dev PC as the reference machine (ADR 0009); the server pushes
    updates so friends never install builds by hand.
 6. **A horizon that never looks worse than the world.** The voxel world is
-   drawn to about 200 m and ends in haze (ADR 0072): up close, blocks are
-   full quality; coarser rings behind, which include player edits; past
-   them the air hides what is not drawn. The 2 km voxel LOD horizon of the
-   early plan (ADR 0020, "Voxy / Distant Horizons") looked worse than
-   nothing at 12.5 cm voxels and streamed too slowly in flight; distant
-   mountains and far builds come back only with a technique that draws
-   them well (a painted far layer or impostors), decided then.
+   one box of full-detail voxels, 40 m around the player, and ends in the
+   sky (ADR 0073): everything drawn is the real thing, editable and
+   simulated, and the last quarter blends into the sky's own colour. There
+   is no level of detail: the 2 km LOD horizon of the early plan (ADR 0020,
+   "Voxy / Distant Horizons") and the 200 m one of ADR 0072 looked worse
+   than nothing at 12.5 cm voxels, streamed too slowly in flight, and hid
+   the detail under the player behind coarse parents. Distant mountains
+   and far builds come back only with a technique that draws them well (a
+   painted far layer or impostors), decided then.
 
 ## Fixed decisions (see ADRs)
 - Perspective: 3D first-person.

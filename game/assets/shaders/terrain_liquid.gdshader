@@ -19,7 +19,8 @@ void vertex() {
 }
 
 void fragment() {
-	if (fade_discard(FRAGCOORD.xy, v_world, CAMERA_POSITION_WORLD)) {
+	float hz = horizon_mix(v_world, CAMERA_POSITION_WORLD);
+	if (hz >= 1.0) {
 		discard;
 	}
 	vec4 c;
@@ -35,5 +36,5 @@ void fragment() {
 		ROUGHNESS = water_roughness;
 	}
 	float facing = abs(dot(normalize(VIEW), NORMAL));
-	ALPHA = clamp(liquid_alpha + (1.0 - facing) * edge_alpha_boost, 0.0, 1.0);
+	ALPHA = clamp(liquid_alpha + (1.0 - facing) * edge_alpha_boost, 0.0, 1.0) * (1.0 - hz);   // the horizon: the terrain behind blends into the sky (ADR 0073)
 }

@@ -13,7 +13,7 @@ var _keep := {}
 func before_test() -> void:
 	DirAccess.make_dir_recursive_absolute(DIR)
 	_wipe()
-	for k in ["graphics_preset", "shadow_quality", "ssao", "bloom", "render_distance_m", "lod_ring_m", "view_distance_m", "fov"]:
+	for k in ["graphics_preset", "shadow_quality", "ssao", "bloom", "view_distance_m", "fov"]:
 		_keep[k] = Settings.get(k)
 
 
@@ -104,12 +104,12 @@ func test_presets_set_their_values_and_custom_is_detected() -> void:
 		assert_bool(Settings.SHADOW_QUALITY.has(Settings.shadow_quality)).is_true()
 	Settings.apply_graphics_preset("high")
 	assert_str(Settings.shadow_quality).is_equal("high")
-	assert_float(Settings.render_distance_m).is_equal(24.0)
+	assert_float(Settings.view_distance_m).is_equal(40.0)
 	Settings.ssao = false
 	assert_str(Settings.matching_preset()).is_equal("custom")
 	Settings.apply_graphics_preset("low")
 	assert_bool(Settings.ssao).is_false()
-	assert_float(Settings.render_distance_m).is_equal(16.0)
+	assert_float(Settings.view_distance_m).is_equal(24.0)
 
 
 func test_settings_screen_shows_the_settings() -> void:

@@ -229,14 +229,14 @@ func _shot() -> void:
 	_skip = true
 
 
-## Which detail rings around the player are meshed: LOD 0 within 16 m, LOD 1 within 48 m, LOD 2 within 96 m.
+## Which rings around the player are meshed: within 16 m and within 32 m (one LOD, ADR 0073).
 func _meshed() -> Array:
 	var p: Vector3 = main.player.position
 	var out := []
-	for e in [[0, 16.0], [1, 48.0], [2, 96.0]]:
-		var rr := Settings.m2v(e[1])
+	for r_m in [16.0, 32.0]:
+		var rr := Settings.m2v(r_m)
 		var box := AABB(Vector3(p.x - rr, p.y - rr * 0.25, p.z - rr), Vector3(rr * 2.0, rr * 0.5, rr * 2.0))
-		out.append(main.world.terrain.is_area_meshed(box, e[0]))
+		out.append(main.world.terrain.is_area_meshed(box, 0))
 	return out
 
 

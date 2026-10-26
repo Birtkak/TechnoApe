@@ -123,7 +123,7 @@ func _collect() -> void:
 		"Sim: tick %.2f ms, %d active chunks, %d burning, push queue %d, %d loads pending" % [
 			float(sim.get("tick_ms", 0.0)), int(sim.get("active_chunks", 0)), int(sim.get("burning", 0)),
 			int(sim.get("push_queue", 0)), int(sim.get("pending_loads", 0))],
-		"C: lod0 %d m, view %d m, %d lods, mesh block %d" % [Settings.render_distance_m, Settings.view_distance_m, Settings.lod_count, Settings.terrain_mesh_block],
+		"C: view %d m (one full-detail box, no LOD), mesh block %d" % [Settings.view_distance_m, Settings.terrain_mesh_block],
 		"E: %d items, %d block entities" % [main._item_entities.size(), main.blocks.size()],
 		"",
 		"XYZ: %.3f / %.3f / %.3f  (%.1f / %.1f / %.1f m)" % [pos.x, pos.y, pos.z, Settings.v2m(pos.x), Settings.v2m(pos.y), Settings.v2m(pos.z)],

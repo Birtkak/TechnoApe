@@ -20,7 +20,8 @@ void vertex() {
 }
 
 void fragment() {
-	if (fade_discard(FRAGCOORD.xy, v_world, CAMERA_POSITION_WORLD)) {
+	float hz = horizon_mix(v_world, CAMERA_POSITION_WORLD);
+	if (hz >= 1.0) {
 		discard;
 	}
 	vec4 c;
@@ -39,5 +40,5 @@ void fragment() {
 	float facing = abs(dot(normalize(VIEW), NORMAL));
 	ALBEDO = base * mix(0.85, 1.1, puff);
 	ROUGHNESS = 1.0;
-	ALPHA = gas_alpha * smoothstep(0.2, 0.75, puff) * (0.55 + 0.45 * facing) * clamp(behind / soft_voxels, 0.0, 1.0);
+	ALPHA = gas_alpha * smoothstep(0.2, 0.75, puff) * (0.55 + 0.45 * facing) * clamp(behind / soft_voxels, 0.0, 1.0) * (1.0 - hz);
 }

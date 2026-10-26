@@ -80,6 +80,29 @@ func test_dirt_wall_holds_sand_slumps() -> void:
 	assert_int(w.count_in_box(Vector3i(28, 1, 16), Vector3i(40, 12, 24), GameMaterials.SAND_STATIC)).is_greater(20)
 
 
+## A still powder set down by the player (placed sand is sand_static, ADR 0071) keeps its shape on the ground
+## and falls where nothing holds it (ADR 0073: "placed sand not simulated"), like Minecraft's sand.
+func test_placed_still_sand_keeps_its_shape_on_ground_and_falls_in_the_air() -> void:
+	var w := _game_world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 1, 48), GameMaterials.STONE)
+	_run(w, 3)
+	# a 1 m cube set down on the floor, as the brush places it
+	for c in Brush.place_cells(Vector3i(8, 0, 8), Vector3i(8, 1, 8), 8, "cube"):
+		w.set_voxel(c, GameMaterials.SAND_STATIC)
+	# the same cube set down in the air, 2 m up
+	for c in Brush.place_cells(Vector3i(32, 16, 32), Vector3i(32, 17, 32), 8, "cube"):
+		w.set_voxel(c, GameMaterials.SAND_STATIC)
+	_run(w, 150)
+	var ground := Brush.place_bounds(Vector3i(8, 0, 8), Vector3i(8, 1, 8), 8, "cube")
+	assert_int(w.count_in_box(Vector3i(ground.position), Vector3i(ground.end), GameMaterials.SAND_STATIC)).is_equal(512)
+	var air := Brush.place_bounds(Vector3i(32, 16, 32), Vector3i(32, 17, 32), 8, "cube")
+	var still_up := w.count_in_box(Vector3i(air.position), Vector3i(air.end), GameMaterials.SAND_STATIC) + w.count_in_box(Vector3i(air.position), Vector3i(air.end), GameMaterials.SAND)
+	assert_int(still_up).override_failure_message("sand left floating: %d" % still_up).is_less(64)
+	var lo := Vector3i(air.position.x - 8, 1, air.position.z - 8)
+	var hi := Vector3i(air.end.x + 8, 12, air.end.z + 8)
+	assert_int(w.count_in_box(lo, hi, GameMaterials.SAND) + w.count_in_box(lo, hi, GameMaterials.SAND_STATIC)).is_greater(400)
+
+
 ## Still water (ADR 0068): generated water sleeps until a fresh opening touches it; then it is finite moving water.
 ## A lake whose shore breaks drains onto the floor past it, its level drops, and the world holds exactly as much
 ## water afterwards as before (no reservoir, no pouring source).

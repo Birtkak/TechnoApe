@@ -42,7 +42,7 @@ func test_voxel_values_map_back_to_materials() -> void:
 func _sim() -> SimWorld:
 	var w := SimWorld.new()
 	w.configure(Vector3i(4, 2, 4), 2, 9)
-	w.set_materials(GameMaterials.defs())
+	w.set_materials(_no_films(GameMaterials.defs()))   # these count exact mass; films drying up (ADR 0069 B3) loses it on purpose
 	w.set_reactions(GameMaterials.reactions())
 	w.mark_all_loaded(true)
 	w.set_liquid_fullness(true)
@@ -77,3 +77,12 @@ func test_levels_survive_the_trip_through_the_terrain() -> void:
 			copy.set_chunk_bytes(c, bytes, 2)
 	assert_int(partial).override_failure_message("no partly full cells reached the terrain").is_greater(0)
 	assert_int(copy.count_liquid_eighths(GameMaterials.WATER)).is_equal(w.count_liquid_eighths(GameMaterials.WATER))
+
+
+static func _no_films(defs: Array) -> Array:
+	var out := []
+	for d in defs:
+		var c: Dictionary = d.duplicate()
+		c.erase("film_lifetime_ticks")
+		out.append(c)
+	return out

@@ -15,7 +15,8 @@ void vertex() {
 }
 
 void fragment() {
-	if (fade_discard(FRAGCOORD.xy, v_world, CAMERA_POSITION_WORLD)) {
+	float hz = horizon_mix(v_world, CAMERA_POSITION_WORLD);
+	if (hz >= 1.0) {
 		discard;
 	}
 	vec4 c;
@@ -32,5 +33,10 @@ void fragment() {
 		float detail = 0.7 + 0.6 * dot(c.rgb, vec3(0.333));
 		ALBEDO = mix(ALBEDO, st.rgb * detail * vcol.rgb * face_tint(v_normal_world), st.a);
 		EMISSION *= 1.0 - st.a;
+	}
+	if (hz > 0.0) {
+		// the horizon: lit colour out, the sky behind in (ADR 0073)
+		ALBEDO *= 1.0 - hz;
+		EMISSION = mix(EMISSION, horizon_sky(v_world, CAMERA_POSITION_WORLD), hz);
 	}
 }

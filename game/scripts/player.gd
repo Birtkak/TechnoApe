@@ -106,6 +106,7 @@ var _mine_time := -1.0
 var _break_cooldown := 0.0
 var _place_cooldown := 0.0
 var _highlight: MeshInstance3D
+var _highlight_mat: StandardMaterial3D   # the outline's lines: drawn through the terrain for a dig
 var _crack: Node3D
 var crack_material: ShaderMaterial   # MaterialWarmup draws it under the loading screen
 var _swing_t := 0.0                  # mining: time to the next arm swing
@@ -342,7 +343,7 @@ func _update_brush_info() -> void:
 		return
 	var text := ""
 	if GameMode.rule(game_mode, "interacts"):
-		text = "Brush %s  [G tools, B shape, Ctrl+wheel size]" % Brush.describe(dig_size(), brush_shape)
+		text = "Brush %s  [G: tools, B: shape, Ctrl+wheel: size]" % Brush.describe(dig_size(), brush_shape)
 		if dig_size() < brush_size:
 			text += "\n(tool caps it; set %s)" % Brush.describe(brush_size, brush_shape)
 		elif GameMode.rule(game_mode, "instant_break"):
@@ -744,12 +745,10 @@ func _update_mining(delta: float) -> void:
 		_highlight.visible = true
 		var placing := _places_voxels() and not holding   # breaking shows what the dig takes
 		var size := place_size() if placing else dig_size()
-		var hb := Brush.dig_bounds(hit.position, size, brush_shape, hit.previous_position - hit.position)
-		if placing:
-			var r := Brush.region(hit.position, hit.previous_position, size, brush_shape, true)
-			hb = AABB(Vector3(r["lo"]), Vector3(r["size"]))
+		var hb := Brush.place_bounds(hit.position, hit.previous_position, size, brush_shape) if placing else Brush.dig_bounds(hit.position, size, brush_shape, hit.previous_position - hit.position)
 		_highlight.global_position = hb.position
 		_highlight.scale = hb.size
+		_highlight_mat.no_depth_test = not placing   # a dig lies inside the terrain: its outline shows through
 		brush_tool.show_at(hit, size, brush_shape, placing)
 	else:
 		_highlight.visible = false
@@ -840,6 +839,7 @@ func _update_mining(delta: float) -> void:
 						d["at"] = pc["center"]
 						drops.append(d)
 			voxels_dug.emit(_dig_cells.duplicate(), drops, Brush.dig_bounds(p, size, brush_shape, _dig_normal).get_center())
+			brush_tool.note("dig", p, _dig_normal, Brush.dig_bounds(p, size, brush_shape, _dig_normal), _dig_cells.size())
 			if not _dig_cells.is_empty():
 				_wear(ceili(_dig_cells.size() / float(Settings.BLOCK * Settings.BLOCK * Settings.BLOCK)))   # a use per block dug
 		if viewmodel:
@@ -866,7 +866,8 @@ func _dig_big(hit: VoxelRaycastResult, size: int) -> void:
 	for m in 256:
 		if mask[m] != 0 and farm != null and farm.is_crop_material(m):
 			mask[m] = 0   # crops go through Farming: the small brush takes them
-	brush_tool.dig(hit.position, hit.previous_position, size, brush_shape, mask, world.get_voxel(hit.position))
+	var n := brush_tool.dig(hit.position, hit.previous_position, size, brush_shape, mask, world.get_voxel(hit.position))
+	brush_tool.note("dig", hit.position, hit.previous_position - hit.position, Brush.dig_bounds(hit.position, size, brush_shape, hit.previous_position - hit.position), n)
 	if viewmodel:
 		viewmodel.swing()
 	_break_cooldown = Settings.break_cooldown_s
@@ -1189,8 +1190,11 @@ func _place_voxels(hit: VoxelRaycastResult, mat: int) -> void:
 			if hud:
 				hud.show_toast("You are standing in it")
 			return
-		if not brush_tool.busy() and brush_tool.place(hit.position, hit.previous_position, size, brush_shape, mat, BrushTool.place_mask(_placeable)) > 0:
-			_after_use()
+		if not brush_tool.busy():
+			var n := brush_tool.place(hit.position, hit.previous_position, size, brush_shape, mat, BrushTool.place_mask(_placeable))
+			brush_tool.note("place", hit.position, hit.previous_position - hit.position, Brush.place_bounds(hit.position, hit.previous_position, size, brush_shape), n)
+			if n > 0:
+				_after_use()
 		return
 	for c in Brush.place_cells(hit.position, hit.previous_position, size, brush_shape):
 		if not creative and cells.size() >= have:
@@ -1203,6 +1207,7 @@ func _place_voxels(hit: VoxelRaycastResult, mat: int) -> void:
 		cells.append(c)
 	if cells.is_empty():
 		return
+	brush_tool.note("place", hit.position, hit.previous_position - hit.position, Brush.place_bounds(hit.position, hit.previous_position, size, brush_shape), cells.size())
 	voxels_placed.emit(cells, mat)
 	if not creative:
 		inventory.consume_held(cells.size())
@@ -1514,6 +1519,7 @@ func throw_stack(stack: Dictionary) -> void:
 func _make_box_outline() -> MeshInstance3D:
 	var im := ImmediateMesh.new()
 	var m := StandardMaterial3D.new()
+	_highlight_mat = m
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.albedo_color = Color(0, 0, 0, 0.8)
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA

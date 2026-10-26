@@ -65,7 +65,7 @@ var scanned_max := 0
 var _tick_running := false
 var _push_queue := {}          # world chunk -> true, insertion order = oldest first (ADR 0010)
 var hold_pushes := true        # no pastes into the terrain until the first streaming burst is done (ADR 0020): an edit
-                               # cascades to every LOD, and parents that are not loaded yet log "destination block not found"
+                               # into blocks that are not loaded yet logs "destination block not found"
 var push_queue_max := 0
 var _last_push := {}           # world chunk -> msec of its last paste (Settings.sim_push_interval_ms)
 var _fire_test := -1           # debug: fire_test=N ignites burnables within N voxels once loaded
@@ -147,12 +147,12 @@ func setup(p_world: World, center_world: Vector3, pin_of: SimBubble = null) -> v
 	origin = _target(center_world)
 	if pinned:
 		origin = Vector3i((center_world / Settings.CHUNK).floor()) - size_chunks / 2
-		# the terrain keeps full-detail data only near a viewer (render_distance_m): a data-only viewer keeps it here
+		# the terrain keeps voxel data only near a viewer (view_distance_m): a data-only viewer keeps it here
 		var v := VoxelViewer.new()
 		v.name = "Viewer"
 		v.requires_visuals = false
 		v.requires_collisions = false
-		v.view_distance = int(Settings.m2v(Settings.render_distance_m + 8.0))
+		v.view_distance = int(Settings.m2v(Settings.view_distance_m + 8.0))
 		v.position = center_world
 		add_child(v)
 	_queue_box(origin, size_chunks)

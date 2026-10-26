@@ -24,13 +24,37 @@ func test_placed_powders_are_the_still_kind() -> void:
 	assert_int(GameMaterials.still_of(0)).is_equal(0)
 
 
-func test_cube_snaps_to_its_grid() -> void:
+## A cube dug from a floor (top face) goes down into it from the aimed voxel, centred across the face
+## on the 0.5 m block grid (ADR 0073: "placing was off centre").
+func test_cube_is_flush_with_the_face_and_centred_on_the_block_grid() -> void:
 	var cells := Brush.dig_cells(Vector3i(5, 9, -3), 4, "cube")
 	assert_int(cells.size()).is_equal(64)
-	assert_bool(cells.has(Vector3i(4, 8, -4))).is_true()
-	assert_bool(cells.has(Vector3i(7, 11, -1))).is_true()
-	assert_bool(cells.has(Vector3i(8, 8, -4))).is_false()
-	assert_object(Brush.dig_bounds(Vector3i(5, 9, -3), 4, "cube")).is_equal(AABB(Vector3(4, 8, -4), Vector3(4, 4, 4)))
+	assert_object(Brush.dig_bounds(Vector3i(5, 9, -3), 4, "cube")).is_equal(AABB(Vector3(4, 6, -4), Vector3(4, 4, 4)))
+	assert_bool(cells.has(Vector3i(5, 9, -3))).is_true()
+	assert_bool(cells.has(Vector3i(5, 10, -3))).is_false()   # nothing above the floor
+	# a 1 m cube: the block grid keeps it within a quarter block of the aim, never a whole metre off
+	for hx in range(0, 12):
+		var b := Brush.dig_bounds(Vector3i(hx, 9, 0), 8, "cube")
+		assert_float(b.get_center().x).override_failure_message("aim x %d: cube centre %s" % [hx, b.get_center()]).is_between(hx + 0.5 - 2.0, hx + 0.5 + 2.0)
+		assert_int(int(b.position.x) % 4).is_equal(0)
+		assert_float(b.end.y).is_equal(10.0)
+	# dug from a wall facing -x: the cube goes into the wall (+x), its outer layer at the aimed x
+	var wall := Brush.dig_bounds(Vector3i(20, 9, 0), 8, "cube", Vector3i(-1, 0, 0))
+	assert_float(wall.position.x).is_equal(20.0)
+	assert_float(wall.size.x).is_equal(8.0)
+	# placed on the floor the same cube stands on it, over the same footprint
+	var up := Brush.place_bounds(Vector3i(5, 9, -3), Vector3i(5, 10, -3), 8, "cube")
+	assert_float(up.position.y).is_equal(10.0)
+	assert_object(up.position).is_equal(Vector3(Brush.dig_bounds(Vector3i(5, 9, -3), 8, "cube").position.x, 10, Brush.dig_bounds(Vector3i(5, 9, -3), 8, "cube").position.z))
+	# placed against a wall facing -x: it stands off the wall towards the player
+	var out := Brush.place_bounds(Vector3i(20, 9, 0), Vector3i(19, 9, 0), 8, "cube")
+	assert_float(out.end.x).is_equal(20.0)
+	# region (the native path and the preview) agrees with the cells
+	var r := Brush.region(Vector3i(5, 9, -3), Vector3i(5, 10, -3), 4, "cube", true)
+	assert_object(r["lo"]).is_equal(Vector3i(up.position.x, 10, up.position.z) if false else Vector3i(Brush.place_bounds(Vector3i(5, 9, -3), Vector3i(5, 10, -3), 4, "cube").position))
+	assert_object(r["size"]).is_equal(Vector3i(4, 4, 4))
+	# the size-2 cube snaps to its own grid
+	assert_object(Brush.dig_bounds(Vector3i(5, 9, 0), 2, "cube").position).is_equal(Vector3(4, 8, 0))
 
 
 func test_size_one_is_the_aimed_voxel() -> void:
@@ -128,9 +152,11 @@ func test_flat_is_one_voxel_deep_in_the_face_plane() -> void:
 	assert_int(cells.size()).is_equal(64)
 	for c in cells:
 		assert_int(c.x).is_equal(5)
-	# a floor: a level square at the aimed height
-	for c in Brush.dig_cells(Vector3i(5, 9, -3), 4, "flat", Vector3i.UP):
+	# a floor: a level square at the aimed height, around the aim
+	var floor_cells := Brush.dig_cells(Vector3i(5, 9, -3), 4, "flat", Vector3i.UP)
+	for c in floor_cells:
 		assert_int(c.y).is_equal(9)
+	assert_bool(floor_cells.has(Vector3i(5, 9, -3))).is_true()
 	# placing lays it on the face, never into the aimed voxel
 	for c in Brush.place_cells(Vector3i(5, 9, -3), Vector3i(5, 10, -3), 4, "flat"):
 		assert_int(c.y).is_equal(10)
@@ -161,7 +187,7 @@ func test_creative_has_bigger_brushes_and_the_region_matches() -> void:
 	assert_array(Brush.sizes_for(false)).is_equal([1, 2, 4, 8])
 	assert_array(Brush.sizes_for(true)).contains([16, 32])
 	var r := Brush.region(Vector3i(3, 3, 3), Vector3i(3, 4, 3), 32, "cube", false)
-	assert_object(r["lo"]).is_equal(Vector3i(0, 0, 0))
+	assert_object(r["lo"]).is_equal(Vector3i(-12, -28, -12))   # 4 m down from the floor, centred on the aim
 	assert_object(r["size"]).is_equal(Vector3i(32, 32, 32))
 	# native cells of a big sphere: about 4/3 pi 16.5^3, centred on the aimed voxel
 	var st := ShapeTool.new()
@@ -177,13 +203,19 @@ func test_brush_preview_cells_match_the_dig() -> void:
 	var hit := Vector3i(7, 7, 7)
 	var c := bt.cells(hit, hit + Vector3i.UP, 8, "sphere", false)
 	assert_int(c.size() / 3).is_equal(Brush.dig_cells(hit, 8, "sphere").size())
-	assert_object(BrushTool.anchor(hit, hit + Vector3i.UP, 8, "cube", false)).is_equal(Vector3i(0, 0, 0))
+	assert_object(BrushTool.anchor(hit, hit + Vector3i.UP, 8, "cube", false)).is_equal(Vector3i(4, 0, 4))
 
 
 func test_brush_sizes_described() -> void:
 	assert_str(Brush.describe(4, "cube")).is_equal("cube 50 cm")
 	assert_str(Brush.describe(32, "sphere")).is_equal("sphere 4.0 m")
 	assert_str(Brush.describe(8, "column")).is_equal("column 50 cm wide, 2.0 m long")
+	assert_str(Brush.explain(8, "cube", false)).is_equal("a 1.0 m cube into the aimed face")
+	assert_str(Brush.explain(8, "cube", true)).is_equal("a 1.0 m cube standing on the aimed face")
+	assert_str(Brush.explain(1, "sphere", true)).is_equal("the voxel in front of the aimed face")
+	for s in Brush.SHAPES:
+		for place in [false, true]:
+			assert_str(Brush.explain(16, s, place)).is_not_empty()
 
 
 ## Big brushes keep their cells relative to the box corner: shifted back, they are ShapeTool's

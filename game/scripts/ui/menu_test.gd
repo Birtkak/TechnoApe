@@ -53,7 +53,7 @@ func run(dc: Node, title: Control) -> void:
 	Settings.apply_graphics_preset("low")
 	Settings.user_settings_edited()
 	r["low_shadows"] = main.atmosphere.sun.directional_shadow_mode == DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS and not main.atmosphere.env.ssao_enabled
-	r["low_render_distance"] = main.world.terrain.lod_distance == Settings.render_distance_voxels()
+	r["low_render_distance"] = main.world.terrain.lod_distance == Settings.view_distance_voxels()
 	Settings.apply_graphics_preset("high")
 	Settings.user_settings_edited()
 	r["high_again"] = main.atmosphere.sun.directional_shadow_mode == DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS and main.atmosphere.env.ssao_enabled

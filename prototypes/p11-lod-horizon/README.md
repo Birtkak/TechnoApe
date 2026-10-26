@@ -1,5 +1,10 @@
 # P11 – Seamless LOD horizon: how far can godot_voxel carry detail, and can LOD switches be hidden?
 
+**2026-10-26, ADR 0073:** the game runs with **one LOD** (a 40 m box of full-detail voxels, no
+rings, no cross-fade). The LOD parts of these patches (`MAXIMUM_LOD_DISTANCE`, the instance-parameter
+fade, `lod_vertical_ratio`) stay in the DLL unused; the fluid, remesh, upload-budget, stream and
+box-mover patches are what the game still needs from this build.
+
 **Question.** The user wants seamless travel: no visible pops when terrain
 blocks change LOD, detail further out, and a clean horizon. Three knobs sit
 inside godot_voxel rather than the game: the LOD0 radius is clamped to

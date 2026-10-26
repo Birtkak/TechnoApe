@@ -1,8 +1,8 @@
 class_name World
 extends Node3D
 
-## Owns the godot_voxel LOD terrain (static world + horizon), the blocky
-## library with the texture atlas, and exposes copy/paste for the sim bubble.
+## Owns the godot_voxel terrain (the static world: one box of full-detail voxels, no LOD, ADR 0073),
+## the blocky library with the texture atlas, and exposes copy/paste for the sim bubble.
 
 var terrain: VoxelLodTerrain
 var generator: TerrainGenerator
@@ -12,6 +12,7 @@ var gas_material: ShaderMaterial    # steam and smoke as soft clouds (terrain_ga
 var edits := 0                      # terrain writes so far: the autosave skips the terrain when none came since the last
 var spray: WaterfallSpray          # mist at waterfall feet; ParticleFx reads its falls (ADR 0026)
 var prop_material: ShaderMaterial   # atlas material without stains: item cubes, viewmodel (they are not at their voxel)
+var fluid_materials := {}           # fluid slot -> material (terrain_fluid.gdshader, one per liquid)
 var _tool: VoxelTool
 
 
@@ -57,7 +58,6 @@ func _ready() -> void:
 
 	# Minecraft-style liquid surfaces with levels (terrain_fluid.gdshader), one material per liquid,
 	# each with its own look from data/liquid_looks.json (water's treatment for every liquid)
-	var fluid_materials := {}
 	var looks := liquid_looks()
 	for d in GameMaterials.defs():
 		if d.has("fluid_slot") and not d.get("liquid_static", false):
@@ -73,19 +73,20 @@ func _ready() -> void:
 	var mesher := VoxelMesherBlocky.new()
 	mesher.library = GameMaterials.build_library(atlas_material, liquid_material, fluid_materials, gas_material)
 
+	# One LOD (ADR 0073): the whole drawn world is one clipbox of full-detail voxels, view_distance_m
+	# around the viewer, and ends in the sky (the shaders' horizon blend). The 12.5 cm voxel LODs of
+	# ADR 0020 / 0072 looked wrong from 50 m out, streamed too slowly in flight and hid the detail
+	# under the player behind coarse parents, so edits were drawn in a mesh they never touched.
 	terrain = VoxelLodTerrain.new()
 	terrain.name = "Terrain"
 	terrain.mesher = mesher
 	terrain.generator = generator
-	terrain.lod_count = Settings.lod_count
-	terrain.lod_distance = Settings.render_distance_voxels()
-	terrain.secondary_lod_distance = Settings.m2v(Settings.lod_ring_m)
-	if "lod_vertical_ratio" in terrain:
-		terrain.lod_vertical_ratio = Settings.lod_vertical_ratio
+	terrain.lod_count = 1
+	terrain.lod_distance = Settings.view_distance_voxels()
 	terrain.threaded_update_enabled = Settings.terrain_threaded_update
 	terrain.view_distance = Settings.view_distance_voxels()
 	terrain.streaming_system = 1  # CLIPBOX (P2: octree collapses at long range)
-	terrain.lod_fade_duration = Settings.lod_fade_s   # blocks blend between LODs (shader: lod_fade_discard)
+	terrain.lod_fade_duration = 0.0
 	terrain.mesh_block_size = Settings.terrain_mesh_block
 	if "mesh_upload_budget_mb" in terrain:   # our godot_voxel build only (ADR 0020)
 		terrain.mesh_upload_budget_mb = Settings.mesh_upload_budget_mb
@@ -93,17 +94,14 @@ func _ready() -> void:
 		terrain.edit_remesh_rate = Settings.edit_remesh_rate
 	# No terrain.material: VoxelLodTerrain would copy it per block and override
 	# every surface of the block mesh with it, so the liquid shader from the
-	# library never ran on the LOD terrain (water drew opaque) and every block
-	# carried its own ShaderMaterial. Surfaces keep the library's materials; the
-	# LOD cross-fade reaches the shaders as an instance parameter (ADR 0020).
+	# library never ran on the terrain (water drew opaque) and every block
+	# carried its own ShaderMaterial. Surfaces keep the library's materials (ADR 0020).
 	# Bodies collide against voxel data (VoxelBody, ADR 0011); mesh colliders
 	# rebuilt per edited block on the main thread were the frame spikes (ADR 0010).
 	terrain.generate_collisions = Settings.terrain_mesh_collisions
 	terrain.collision_lod_count = 1
 	terrain.full_load_mode_enabled = false
-	# Keep generated data for all LODs in range so edits near the player cascade
-	# to the horizon rings (otherwise godot_voxel logs "destination block not
-	# found when cascading edits" and far LODs never show the edit).
+	# Keep generated data in memory: edits write into it.
 	terrain.cache_generated_blocks = Settings.cache_generated_blocks
 	if Settings.persist_world:
 		# Edited blocks are saved to user://worlds/<seed>.sqlite when they unload
@@ -112,7 +110,7 @@ func _ready() -> void:
 		var stream := VoxelStreamSQLite.new()
 		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://worlds"))
 		stream.database_path = "user://worlds/world_%d_g%d.sqlite" % [Settings.world_seed, TerrainGenerator.GEN_VERSION]
-		# Every block of every LOD is asked from the stream before it is generated. Without
+		# Every block is asked from the stream before it is generated. Without
 		# the key cache each miss is a database query on one thread: ~12,000 queued blocks,
 		# the world never settles and detail trickles in for a minute (ADR 0017).
 		stream.set_key_cache_enabled(true)
@@ -127,8 +125,6 @@ func _ready() -> void:
 	_tool.channel = VoxelBuffer.CHANNEL_TYPE
 
 
-## Copies a 16^3 chunk (world chunk coords) out of the terrain as 16-bit bytes.
-## The Settings screen changed render or view distance (ADR 0032): the terrain re-rings live.
 ## data/liquid_looks.json: liquid material name -> fluid shader uniforms (keys starting "_" skipped).
 static func liquid_looks() -> Dictionary:
 	var data = JSON.parse_string(FileAccess.get_file_as_string("res://data/liquid_looks.json"))
@@ -151,12 +147,21 @@ static func apply_liquid_look(fm: ShaderMaterial, look: Dictionary) -> void:
 		fm.set_shader_parameter(k, v)
 
 
+## The Settings screen changed the view distance (ADR 0032): the box resizes live, the horizon with it.
 func apply_distances() -> void:
-	terrain.lod_distance = Settings.render_distance_voxels()
-	terrain.secondary_lod_distance = Settings.m2v(Settings.lod_ring_m)
-	if "lod_vertical_ratio" in terrain:
-		terrain.lod_vertical_ratio = Settings.lod_vertical_ratio
+	terrain.lod_distance = Settings.view_distance_voxels()
 	terrain.view_distance = Settings.view_distance_voxels()
+	for m in horizon_materials():
+		_set_horizon(m)
+
+
+## Every material that draws terrain and takes the horizon and sky uniforms (Atmosphere sets the sky's
+## colours on them, ADR 0073).
+func horizon_materials() -> Array:
+	var out: Array = [atlas_material, liquid_material, gas_material]
+	for k in fluid_materials:
+		out.append(fluid_materials[k])
+	return out
 
 
 func read_chunk(wc: Vector3i) -> PackedByteArray:
@@ -175,20 +180,17 @@ func read_column(wc: Vector3i, count: int) -> PackedByteArray:
 	return vb.get_channel_as_byte_array(VoxelBuffer.CHANNEL_TYPE)
 
 
-## Something is drawn at `p`: the ground there shows at one of the four finest detail levels. A short
-## teleport there needs no cover, its coarse meshes sharpen in place (ADR 0066).
+## Something is drawn at `p`: the ground there has its mesh. A short teleport there needs no cover
+## (ADR 0066).
 func is_view_ready(p: Vector3) -> bool:
 	var h: int = generator.gen.height_at(int(p.x), int(p.z))
-	return _shown_at(Vector3i(int(p.x), mini(h - 1, int(p.y)), int(p.z)), 3)
+	return _shown_at(Vector3i(int(p.x), mini(h - 1, int(p.y)), int(p.z)))
 
 
-## How much of the ground around the player is drawn at full detail, 0..1 (the teleport cover lifts at
-## 1, ADR 0066): 0 until the voxels under the feet are in (collision); then the share of sample points
-## on the generator's surface (rings out to 48 m at LOD 3 or finer)
-## whose mesh block is visible. A meshed block is not enough: clipbox shows a LOD only under an active
-## parent, from the coarsest LOD down, so fully meshed detail can stay hidden for seconds, and lifting
-## on mesh state left the player in a hole over the sea plane. Points far above or below the player
-## (a cave) are skipped.
+## How much of the ground around the player is drawn, 0..1 (the teleport cover lifts at 1, ADR 0066):
+## 0 until the voxels under the feet are in (collision); then the share of sample points on the
+## generator's surface (rings out to 32 m) whose mesh block is applied and visible. Points far above or
+## below the player (a cave) are skipped.
 func near_ready(p: Vector3) -> float:
 	var c := Vector3i((p / Settings.CHUNK).floor())
 	if not (is_area_loaded(c) and is_area_loaded(c - Vector3i(0, 1, 0))):
@@ -206,23 +208,19 @@ func near_ready(p: Vector3) -> float:
 			if absf(h - p.y) > Settings.m2v(12.0):
 				continue
 			total += 1
-			if _shown_at(Vector3i(x, h - 1, z), ring[1]):
+			if _shown_at(Vector3i(x, h - 1, z)):
 				shown += 1
 	return 1.0 if total == 0 else float(shown) / total
 
 
-const NEAR_RINGS := [[0.0, 3], [4.0, 3], [10.0, 3], [16.0, 3], [32.0, 3], [48.0, 3]]   # [metres, coarsest LOD that counts: 1 m cubes; the developer chose a shorter cover that sharpens after it]
+const NEAR_RINGS := [[0.0], [4.0], [10.0], [16.0], [32.0]]   # metres; the developer chose a short cover that fills in after it
 
 
-## The mesh block holding voxel `v` is applied and visible at some LOD up to `max_lod`.
-func _shown_at(v: Vector3i, max_lod: int) -> bool:
-	var bs: int = terrain.mesh_block_size
-	for lod in mini(max_lod + 1, terrain.lod_count):
-		var size := bs << lod
-		var info: Dictionary = terrain.debug_get_mesh_block_info(Vector3(floori(float(v.x) / size), floori(float(v.y) / size), floori(float(v.z) / size)), lod)
-		if info.get("meshed", false) and info.get("visible", false):
-			return true
-	return false
+## The mesh block holding voxel `v` is applied and visible.
+func _shown_at(v: Vector3i) -> bool:
+	var size: int = terrain.mesh_block_size
+	var info: Dictionary = terrain.debug_get_mesh_block_info(Vector3(floori(float(v.x) / size), floori(float(v.y) / size), floori(float(v.z) / size)), 0)
+	return info.get("meshed", false) and info.get("visible", false)
 
 
 func is_box_loaded(wmin: Vector3i, size: Vector3i) -> bool:
@@ -269,9 +267,9 @@ func surface_height(wx: int, wz: int) -> int:
 	return generator.height_at(wx, wz)
 
 
-## The horizon dissolve (ADR 0071): past horizon_start (world voxels from the camera) the terrain shaders
-## dither more and more pixels away until nothing is drawn at horizon_end, the LOD edge, so the voxel
-## world ends in the haze instead of at a wall of coarse cubes.
+## The horizon (ADR 0073): past horizon_start (world voxels from the camera) the terrain shaders blend
+## each pixel into the sky behind it until nothing is drawn at horizon_end, the edge of the voxel box, so
+## the world ends in sky instead of at a wall of cubes.
 func _set_horizon(m: ShaderMaterial) -> void:
 	m.set_shader_parameter("horizon_start", Settings.m2v(Settings.view_distance_m * Settings.horizon_fade_frac))
 	m.set_shader_parameter("horizon_end", Settings.m2v(Settings.view_distance_m))

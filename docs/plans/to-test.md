@@ -10,6 +10,18 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## No LOD, the brush flush and centred, placed sand falls (2026-10-26, ADR 0073)
+
+Start a new world. The view distance is now one box of full-detail voxels (Settings > Video: 24 / 32 / 40 m).
+
+- [ ] The world ends in sky about 40 m out, with no coarse rings, no dither pattern and no wall of cubes;
+      first load takes a few seconds. From the air the ground below fades out at 30-40 m.
+- [ ] Creative, 1 m cube brush: a left click on a floor digs a 1 m hole 1 m deep under the crosshair; a right
+      click with sand puts a 1 m cube standing there, over the same footprint. On a wall the cube goes into /
+      stands off the wall. The ghost (blue / orange shell and outline) shows exactly that at every size.
+- [ ] Sand placed on the ground keeps its shape; placed hanging in the air it falls.
+- [ ] G: the top of the panel says in words what left and right click do now; every mode has its line.
+
 ## Films dry up, smoother water (2026-10-26, ADR 0069 B3 and A2)
 
 - [ ] Spill a water balloon on flat ground: the puddle spreads thin and is gone after about half a minute. A lava

@@ -15,8 +15,8 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   (`scripts/player/brush.gd`: Ctrl + wheel size, B / Shift + B shape); voxel items count voxels, recipes blocks of 64
   (`ItemRegistry.units`); block entities cover footprints (`BlockEntities.footprint`). The loading screen
   covers the start until the world is in, and respawns and teleports past a 100 m hop (or onto terrain
-  not drawn yet) until the ground is in: voxels under the feet and full detail within 24 m, the horizon
-  streams in behind it (ADR 0066); the player and animals are frozen under it. `tp_test=1` times them. Gameplay on top: player loop (ADR 0005), stations (0007), recipe browser (0008), collision and
+  not drawn yet) until the ground is in: voxels under the feet and the ground within 32 m, the rest of the
+  40 m box streams in behind it (ADR 0066, 0073); the player and animals are frozen under it. `tp_test=1` times them. Gameplay on top: player loop (ADR 0005), stations (0007), recipe browser (0008), collision and
   swimming (0011), animals, farming, furniture (0022), Vintage Story early game (0023), progression book
   (0028), Flint Age (0030), menus and saves (0032). Probes: `tools/terrain_map.gd`, `fine_gen_bench.gd`,
   `fine_probe.gd`, `face_probe.gd`. Loads take 12-17 s: budget runs use `load_cap_s=30`.
@@ -34,9 +34,11 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   box mode, box dig, select, prefabs); `ShapeBuilder` (`scripts/building/`) orchestrates, native `ShapeTool` rasterizes,
   meshes and fills; prefabs in `user://prefabs/<category>/<name>.json`. Scripted checks: `later=/a;wait 1;/b` runs chat
   commands after loading (`/shape ... at x y z`, `/shape drag`, `/shape menu`, `/box`, `/prefab`).
-  **World tools panel (ADR 0071):** G (`/tools`) opens the panel: brush shape and size, builder modes, prefabs, the ghost
-  toggle (`Settings.brush_ghost`) and the keys, each with a tooltip (`scripts/ui/tools_menu.gd`). Placed powders go in as
-  their still kind (`GameMaterials.still_of`): sand built from dug sand no longer slides apart.
+  **World tools panel (ADR 0071, 0073):** G (`/tools`) opens the panel: two "Now" lines say what the left and right
+  click do in words (`Brush.explain`), then brush shape and size with the selected one described, builder modes with
+  their descriptions beside the buttons, prefabs, the ghost toggle (`Settings.brush_ghost`) and the keys
+  (`scripts/ui/tools_menu.gd`). Placed powders go in as their still kind (`GameMaterials.still_of`): sand built from
+  dug sand no longer slides apart; set down over nothing it falls (`SimWorld::try_loosen`, the edit stamp).
   **Survival (ADR 0040):** `Survival` (`scripts/survival/`) runs hunger (Minecraft bar + saturation), body temperature
   (climate, season, hour, caves, water, rooms from the native `ClimateProbe` flood fill, heat of fire cells and lit
   entities) and food spoilage (perishable stacks carry `spoil` through every Inventory move, averaged on merge; rot).
@@ -117,12 +119,14 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   circles, cave paintings, clothing; items/recipes in `data/stone_age_*.json` (new types bury, rack, stroke, soak, trap;
   slow work in calendar game hours via `StoneAge.now_days`); per-stack `dur_x` for tar/tempered tools. Scripted check:
   `stone_ages_test=1` (with `walk=1 speed=0 mob_spawn=0`; `flint_age_test=1` runs it too).
-  **Brush shapes and sizes (ADR 0065):** cube, sphere, cylinder, `flat` (a square one voxel deep in the aimed face's
-  plane) and `column` (size/2 wide, 2 x size long along the face normal: a shaft, tunnel, pillar or beam). Survival
+  **Brush shapes and sizes (ADR 0065, 0073):** cube, sphere, cylinder, `flat` (a square one voxel deep in the aimed
+  face's plane) and `column` (size/2 wide, 2 x size long along the face normal: a shaft, tunnel, pillar or beam). The
+  box shapes are flush with the aimed face (into it digging, out of it placing) and centred on the aim across it, on
+  the 0.5 m block grid from size 4 up (`Brush._face_box`); the round ones go around the aimed voxel / rest on the face. Survival
   sizes 1-8 voxels, digging capped by `MiningTable.dig_cap` and paid in time per voxel and a tool use per block; creative
   adds 16 and 32 (4 m), reaches 12 m and paints with Shift + right click (the dig shape takes the held block).
-  `BrushTool` (`scripts/player/brush_tool.gd`) draws the shell of the exact cells (orange dig, blue placement, half
-  resolution above 8) and runs brushes above 8 as `ShapeTool.fill` jobs of cached relative cells, 6000 cells a frame;
+  `BrushTool` (`scripts/player/brush_tool.gd`) draws the shell of the exact cells (orange dig, blue placement; box
+  shapes as one scaled shell, round ones half resolution above 8) and runs brushes above 8 as `ShapeTool.fill` jobs of cached relative cells, 6000 cells a frame;
   big creative digs drop nothing. HUD line right of the hotbar; `/brush <shape> [size] | hold <s>`; costs per shape and
   size: `tools/brush_bench.gd`.
   **TNT (ADR 0065):** material `tnt` (203), a voxel item placed with the brush; a charge is one 0.5 m block cell holding

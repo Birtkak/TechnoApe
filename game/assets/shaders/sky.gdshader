@@ -9,12 +9,6 @@ render_mode use_half_res_pass;
 // constellation lines, eclipses, and a scrolling layer of value-noise clouds.
 // Half-resolution pass: nothing here needs per-pixel shading.
 
-uniform vec3 zenith_color : source_color = vec3(0.23, 0.45, 0.85);
-uniform vec3 horizon_color : source_color = vec3(0.72, 0.82, 0.95);
-uniform vec3 ground_color : source_color = vec3(0.32, 0.36, 0.42);
-uniform vec3 sunset_color : source_color = vec3(1.0, 0.55, 0.25);
-uniform vec3 night_zenith : source_color = vec3(0.006, 0.010, 0.026);
-uniform vec3 night_horizon : source_color = vec3(0.035, 0.05, 0.09);
 uniform float sun_radius = 0.042;        // radians (about 8x the real 0.27 deg: a game sun)
 uniform float sun_halo = 0.45;
 uniform float moon_radius = 0.038;       // radians at mean distance; scaled by moon_size
@@ -26,8 +20,6 @@ uniform float cloud_scale = 2.2;
 uniform float cloud_height = 0.28;       // apparent altitude: smaller = clouds flatter towards the horizon
 uniform vec2 cloud_wind = vec2(0.006, 0.002);
 uniform float cloud_alpha = 0.92;
-uniform float exposure = 1.0;
-uniform vec3 sun_dir = vec3(0.3, 0.7, 0.4);    // true sun direction (the scene light becomes the moon at night)
 uniform vec3 moon_dir = vec3(-0.3, 0.5, -0.4);  // where the moon is drawn (eclipses move it onto the sun)
 uniform vec3 pole_dir = vec3(0.0, 0.707, -0.707); // north celestial pole (Polaris), for the moon's orientation
 uniform mat3 world_to_sky = mat3(1.0);           // world direction -> equatorial (x RA 0, y RA 90, z pole)
@@ -37,9 +29,10 @@ uniform float star_brightness = 2.2;
 uniform float milky_way_brightness = 0.10;
 uniform float constellation_lines = 0.0;  // 0 hidden .. 1 shown (/constellations)
 uniform float solar_eclipse = 0.0;        // 1 while an eclipse runs: the moon's dark disc covers the sun
-uniform float eclipse_dark = 0.0;         // 0..1 how much of the sun is covered (darkens the sky)
 uniform vec2 lunar_shadow = vec2(9.0, 0.0); // umbra centre in moon radii, in the moon's disc frame
 uniform float lunar_umbra = 2.7;            // umbra radius in moon radii
+
+#include "res://assets/shaders/sky_common.gdshaderinc"
 
 // --- noise -------------------------------------------------------------------
 
@@ -97,49 +90,13 @@ float moon_albedo(vec2 p) {
 }
 
 // --- sky ----------------------------------------------------------------------
+// The gradient itself (SkyLight, sky_light, gradient) is in sky_common.gdshaderinc, shared with the
+// terrain materials that blend into it at the horizon (ADR 0073).
 // Two passes: the half-resolution pass draws the gradient and the clouds (the
 // expensive fbm) and writes the cloud cover to ALPHA; the full-resolution pass
 // adds the sharp things (stars, Milky Way, sun, moon) behind those clouds:
 // final = half + (sharp - gradient) * (1 - cloud cover). The radiance cubemap
 // (ambient light) gets the whole sky at once.
-
-struct SkyLight {
-	float day;
-	float dusk;
-	vec3 zen;
-	vec3 hor;
-};
-
-SkyLight sky_light() {
-	SkyLight l;
-	float sun_up = clamp(normalize(sun_dir).y, -1.0, 1.0);
-	// daylight: 1 well above the horizon, 0 well below; dusk is the band between.
-	// A total solar eclipse brings dusk at noon.
-	l.day = smoothstep(-0.12, 0.18, sun_up) * (1.0 - 0.93 * eclipse_dark);
-	l.dusk = (1.0 - smoothstep(0.0, 0.35, abs(sun_up))) * smoothstep(-0.25, 0.0, sun_up);
-	l.zen = mix(night_zenith, zenith_color, l.day);
-	l.hor = mix(night_horizon, horizon_color, l.day);
-	l.hor = mix(l.hor, sunset_color, l.dusk * 0.6);
-	return l;
-}
-
-vec3 gradient(vec3 dir, SkyLight l) {
-	vec3 sun = normalize(sun_dir);
-	float h = dir.y;
-	vec3 hor = mix(l.hor, sunset_color * 0.5, eclipse_dark * 0.5 * smoothstep(0.1, 0.0, h)); // a sunset all round the horizon
-	float horizon_t = pow(1.0 - clamp(h, 0.0, 1.0), 3.5);
-	vec3 col = mix(l.zen, hor, horizon_t);
-	if (h < 0.0) {
-		vec3 gnd = mix(ground_color * 0.25, ground_color, l.day);
-		// a wide band: from a few metres up the terrain's dissolve (ADR 0072) meets this, so it is the haze colour
-		col = mix(hor, gnd, smoothstep(0.0, 0.35, -h));
-	}
-	// the sun side of the sky is warmer and brighter near the horizon
-	float toward = pow(clamp(dot(dir, sun), 0.0, 1.0), 4.0);
-	col += mix(vec3(0.0), sunset_color, l.dusk) * toward * 0.9 * (1.0 - clamp(h, 0.0, 1.0));
-	col += horizon_color * toward * 0.08 * l.day;
-	return col;
-}
 
 // rgb = cloud colour, a = cover
 vec4 clouds(vec3 dir, SkyLight l, float time) {
