@@ -39,6 +39,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   Tunables in `Settings`; `/survival` reads and sets it. A new `class_name` needs an `--import` before the game sees it.
   **Lighting grade (ADR 0041):** golden (warm sun, warm haze, ACES + S-curve LUT) is the look; `Atmosphere.GRADES` holds it
   and the alternatives natural and clear (`/grade <name>`, `grade=`); fog is per km. `/shot <name>` saves a frame without the HUD.
+  Underground (camera 2-10 m under the generator surface, unless `Atmosphere.sky_open`: a ray up through the loaded
+  voxels, then the cave map's ravine/mouth flag) the sun goes out, the fog loses its sun haze and covers the sky, and
+  the ambient is a dim neutral bounce: caves are lit by torches, lava and glow only (bug reports 2026-10-25_21-21-*).
   **Crafting in the world (ADR 0042):** flint and copper tools are assembled on the ground part by part (`assemble` recipes,
   `AssemblyEntity`), the firepit is worked by hand (no screen), tools wear (`durability` = uses), hot metal carries `hot_until`
   against `Inventory.clock_s`, and a stone anvil smiths hot copper with a hammer (`smith` recipes, height per column,
