@@ -342,7 +342,7 @@ func _update_brush_info() -> void:
 		return
 	var text := ""
 	if GameMode.rule(game_mode, "interacts"):
-		text = "Brush %s  [B shape, Ctrl+wheel size]" % Brush.describe(dig_size(), brush_shape)
+		text = "Brush %s  [G tools, B shape, Ctrl+wheel size]" % Brush.describe(dig_size(), brush_shape)
 		if dig_size() < brush_size:
 			text += "\n(tool caps it; set %s)" % Brush.describe(brush_size, brush_shape)
 		elif GameMode.rule(game_mode, "instant_break"):
@@ -740,7 +740,7 @@ func _update_mining(delta: float) -> void:
 	if hit and mob != null:
 		hit = null   # an animal is in front of the block: LMB hits it instead (_attack)
 	_update_brush_info()
-	if hit:
+	if hit and Settings.brush_ghost:
 		_highlight.visible = true
 		var placing := _places_voxels() and not holding   # breaking shows what the dig takes
 		var size := place_size() if placing else dig_size()

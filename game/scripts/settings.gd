@@ -219,6 +219,7 @@ var ssao := true
 var bloom := true
 var fov := 75.0                         # degrees, vertical
 var invert_y := false
+var brush_ghost := true   # the shell of the cells a dig or placement will touch (ADR 0065; off in the G panel)
 var vsync := true
 var max_fps := 120                      # 0 = unlimited (project default 120: 500 fps on a menu only heats the GPU)
 var fullscreen := false
@@ -344,6 +345,7 @@ func load_user_settings() -> void:
 	fullscreen = bool(cf.get_value("video", "fullscreen", fullscreen))
 	mouse_sensitivity = float(cf.get_value("controls", "mouse_sensitivity", mouse_sensitivity))
 	invert_y = bool(cf.get_value("controls", "invert_y", invert_y))
+	brush_ghost = bool(cf.get_value("controls", "brush_ghost", brush_ghost))
 	volume_master = clampf(float(cf.get_value("audio", "master", volume_master)), 0.0, 1.0)
 	volume_music = clampf(float(cf.get_value("audio", "music", volume_music)), 0.0, 1.0)
 	volume_effects = clampf(float(cf.get_value("audio", "effects", volume_effects)), 0.0, 1.0)
@@ -374,6 +376,7 @@ func save_user_settings() -> void:
 	cf.set_value("video", "fullscreen", fullscreen)
 	cf.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	cf.set_value("controls", "invert_y", invert_y)
+	cf.set_value("controls", "brush_ghost", brush_ghost)
 	cf.set_value("audio", "master", volume_master)
 	cf.set_value("audio", "music", volume_music)
 	cf.set_value("audio", "effects", volume_effects)

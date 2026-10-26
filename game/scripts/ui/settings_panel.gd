@@ -16,7 +16,7 @@ const SHADOWS := ["off", "low", "medium", "high"]
 const RENDER_M := [16.0, 24.0]   # Settings.MIN_DETAIL_M .. MAX_DETAIL_M
 const VIEW_M := [1024.0, 2048.0]
 ## Keys that cannot be rebound (the rest are rows above them, plan item D11).
-const KEYS := [["Space twice", "fly (creative)"], ["Ctrl + wheel", "brush size, laser width"], ["B / Shift + B", "brush shape: next / previous"],
+const KEYS := [["Space twice", "fly (creative)"], ["G", "world tools panel: brush, build modes, keys"], ["Ctrl + wheel", "brush size, laser width"], ["B / Shift + B", "brush shape: next / previous"],
 	["Shift + right click", "paint the brush with the held block (creative)"], ["Ctrl + Q", "drop the stack"],
 	["1-9, wheel", "hotbar"], ["R / U / A", "recipes / uses / bookmark (in the inventory)"], ["Alt + click", "favourite slot (in the inventory)"],
 	["/", "commands"], ["F3 / F5", "debug screen / camera view"], ["F2 / F9", "screenshot / bug report"], ["F4", "playtest menu"], ["Esc", "pause menu"]]
