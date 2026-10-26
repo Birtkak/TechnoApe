@@ -19,6 +19,9 @@
   "sim/sizzle": {"db": -10, "range_m": 16, "cooldown_s": 0.3},
   "sim/explosion": {"db": 0, "pitch": [0.85, 1.0], "range_m": 120, "ref_m": 6},
   "sim/blast": {"asset": "sim/explosion", "db": -4, "pitch": [0.6, 0.75], "range_m": 120, "ref_m": 6},
+  "tnt/light": {"asset": "sim/ignite", "db": -4, "pitch": [1.1, 1.25], "range_m": 24},
+  "tnt/fuse": {"asset": "sim/sizzle", "db": -7, "pitch": [1.35, 1.6], "range_m": 24, "ref_m": 3, "cooldown_s": 0.22},
+  "tnt/explode": {"asset": "sim/explosion", "db": 2, "pitch": [0.72, 0.9], "range_m": 160, "ref_m": 8, "cooldown_s": 0.06},
   "tree/creak": {"db": -6, "pitch": [0.85, 1.05], "range_m": 48, "ref_m": 4},
   "tree/crash": {"db": -3, "pitch": [0.8, 1.0], "range_m": 64, "ref_m": 4, "cooldown_s": 0.15},
   "tree/leaves": {"db": -8, "range_m": 40, "ref_m": 4, "cooldown_s": 0.2},
@@ -120,6 +123,7 @@
  },
  "cell_types": {"solid": "stone", "powder": "dirt", "liquid": "water", "gas": "none", "fire": "none"},
  "materials": {
+  "tnt": "cloth",
   "granite": "stone", "diorite": "stone", "limestone": "stone", "slate": "stone", "marble": "stone", "chalk": "stone", "pyrite": "stone",
   "granite_cobble": "stone", "diorite_cobble": "stone", "limestone_cobble": "stone", "slate_cobble": "stone", "marble_cobble": "stone", "chalk_cobble": "stone", "basalt_cobble": "stone",
   "stone_bricks": "stone", "granite_bricks": "stone", "diorite_bricks": "stone", "limestone_bricks": "stone", "slate_bricks": "stone", "marble_bricks": "stone", "chalk_bricks": "stone", "basalt_bricks": "stone",

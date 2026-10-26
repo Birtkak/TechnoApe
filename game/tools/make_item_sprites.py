@@ -1181,6 +1181,23 @@ shape("world_vacuum", outline(art([
 sp("flint_and_steel", ("flint_and_steel", "steel"))
 sp("world_vacuum", ("world_vacuum", "hazard"))
 
+# TNT and the blasting igniter (bug report 2026-10-25_21-10-33): a block face (red sticks, a paper
+# band with "TNT") and a plunger box with a fuse wire
+shape("tnt_face", art([
+    "dRRdRRRdRRRdRRRd", "dRrdRRrdRRrdRRrd", "dRrdRRrdRRrdRRrd", "dRrdRRrdRRrdRRrd",
+    "wwwwwwwwwwwwwwww", "wkkkwkwwkwkkkwww", "wwkwwkkwkwwkwwww", "wwkwwkwkkwwkwwww",
+    "wwkwwkwwkwwkwwww", "wwwwwwwwwwwwwwww", "dRrdRRrdRRrdRRrd", "dRrdRRrdRRrdRRrd",
+    "dRrdRRrdRRrdRRrd", "dRrdRRrdRRrdRRrd", "dRrdRRrdRRrdRRrd", "dddddddddddddddd"]),
+    {"R": "#d83a2a", "r": "#b02a1e", "d": "#6e140e", "w": "#ece6d6", "k": "#26201c"})
+shape("igniter", outline(art([
+    "................", "....hhhhhhh.....", "......lm........", "......lm........",
+    "......lm........", "......lm........", "..llllllllll....", "..lmmmmmmmmd....",
+    "..lmRmmmmmmd.ww.", "..lmmmmmmmmdw..w", "..lmmmmmmmmd...w", "..lmmmmmmmmd..w.",
+    "..dddddddddd.w..", "..............w.", "...............w", "................"])),
+    {"R": "#e03a2a", "w": "#c88a3a"})
+sp("tnt", ("tnt_face", None), cube=True)
+sp("igniter", ("igniter", "iron"))
+
 import item_sprites_e  # noqa: E402  rock kinds, clutter, fish (ADR 0057, 0058)
 item_sprites_e.add(globals())
 

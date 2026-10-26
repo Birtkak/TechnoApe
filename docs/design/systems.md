@@ -12,7 +12,7 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   mushrooms; far forests as leaf domes. Flat colours: one texel of the material's tile per voxel
   (`voxel_sample`); props use `terrain_prop.gdshader`. `SimBubble` ticks a wrapped 64 x 64 x 64 m window
   of the world's voxels (Noita kernel: sand, water, fire, gas). Brush digging and building
-  (`scripts/player/brush.gd`: Ctrl + wheel size, B shape); voxel items count voxels, recipes blocks of 64
+  (`scripts/player/brush.gd`: Ctrl + wheel size, B / Shift + B shape); voxel items count voxels, recipes blocks of 64
   (`ItemRegistry.units`); block entities cover footprints (`BlockEntities.footprint`). The loading screen
   covers the start, respawns and long teleports until the ground is in, with the player and animals
   frozen. Gameplay on top: player loop (ADR 0005), stations (0007), recipe browser (0008), collision and
@@ -81,6 +81,21 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   circles, cave paintings, clothing; items/recipes in `data/stone_age_*.json` (new types bury, rack, stroke, soak, trap;
   slow work in calendar game hours via `StoneAge.now_days`); per-stack `dur_x` for tar/tempered tools. Scripted check:
   `stone_ages_test=1` (with `walk=1 speed=0 mob_spawn=0`; `flint_age_test=1` runs it too).
+  **Brush shapes and sizes (ADR 0065):** cube, sphere, cylinder, `flat` (a square one voxel deep in the aimed face's
+  plane) and `column` (size/2 wide, 2 x size long along the face normal: a shaft, tunnel, pillar or beam). Survival
+  sizes 1-8 voxels, digging capped by `MiningTable.dig_cap` and paid in time per voxel and a tool use per block; creative
+  adds 16 and 32 (4 m), reaches 12 m and paints with Shift + right click (the dig shape takes the held block).
+  `BrushTool` (`scripts/player/brush_tool.gd`) draws the shell of the exact cells (orange dig, blue placement, half
+  resolution above 8) and runs brushes above 8 as `ShapeTool.fill` jobs of cached relative cells, 6000 cells a frame;
+  big creative digs drop nothing. HUD line right of the hotbar; `/brush <shape> [size] | hold <s>`; costs per shape and
+  size: `tools/brush_bench.gd`.
+  **TNT (ADR 0065):** material `tnt` (203), a voxel item placed with the brush; a charge is one 0.5 m block cell holding
+  TNT, its blast radius `tnt_radius_m` x cbrt(its TNT share). `Tnt` (`scripts/items/tnt.gd`) lights charges touched by
+  fire or lava, aimed at with flint and steel or the `igniter` (sneak: every charge in 16 m), or reached by a blast
+  (random 0.5-1.5 s fuse); a primed box blinks, hisses, sparks and falls for `tnt_fuse_s`, then three native spheres by
+  hardness (soft full radius, stone 3/4, hard rock 1/2, obsidian and bedrock never), rim seeds to the rigid piece check,
+  damage and knockback to 2 x radius, 30 % of the estimated take as drops. One blast per frame; a 20-block chain holds
+  max frame 12.4 ms. `/tnt grid [n] [spacing_m] | light | stats`, `/kit tnt`; JSON `tnt`.
   **Next:** the rest of the ADR 0037 work order; still open from before: fire/smoke pacing per cell, fast flight vs
   generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
   list in `docs/plans/to-test.md`.
@@ -90,8 +105,8 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   109 cobblestone, 110 bricks, 111..115 clutter (plant stem, kelp, seagrass, seashell, mushroom stem; ADR 0047),
   116..119 liquids (part A), 120 crystal (geodes, ADR 0052), 121..126 reserved for world generation, 127..129 savanna grass,
   savanna tall grass, red earth (ADR 0064; `GameMaterials.is_grass` / `is_tall_grass` treat them as grass), 130..132 torch and
-  wheat parts (ADR 0053), 160..202 rock kinds, clutter, pyrite and ochres (ADR 0057), Stone Age ids after (ADR 0059).
-  Atlas 8x22 tiles (16..19 ores, patterned since ADR 0064; 104 crystal, 109..111 savanna grass, tall grass, red earth, 112..120 crops and torches, 136..170 rocks; 84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
+  wheat parts (ADR 0053), 160..202 rock kinds, clutter, pyrite and ochres (ADR 0057), Stone Age ids after (ADR 0059), 203 tnt (ADR 0065).
+  Atlas 8x22 tiles (16..19 ores, patterned since ADR 0064; 104 crystal, 109..111 savanna grass, tall grass, red earth, 112..120 crops and torches, 136..170 rocks, 171..172 tnt side and top; 84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
   stones; 98 cobblestone, 99 bricks; 100 blueberry bush; 101 kelp, 102 seagrass, 103 seashell: full, add a row to grow;
   after editing `tools/make_atlas.py` run `--import`, or the game draws the old texture). `"pattern": true` materials lay their tile over the grid, one texel per voxel (ADR 0039). Ground pickups are voxel shapes (stone chunks on a 0.5 m patch, sticks as `FineGen::STICK` stamps);
   clutter (flowers, mushrooms, seashells, kelp, seagrass) and ore nuggets are voxel pieces that dig whole (ADR 0047,

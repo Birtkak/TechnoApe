@@ -34,6 +34,7 @@ const KITS := {
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64, "fire_essence": 16},
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
+	"tnt": {"tnt": 64, "igniter": 1, "flint_and_steel": 1, "sulfur": 8, "charcoal": 4, "sand": 2},   # TNT (ADR 0065)
 	"fire": {"flint_and_steel": 1, "firestarter": 1, "firepit": 1, "firewood": 32, "coal": 16, "oak_log": 16, "dry_grass": 16,
 		"torch": 16, "water_bucket": 4, "water_balloon": 16},   # forest fires and rain (ADR 0056)
 	"clutter": {"seashell": 16, "kelp": 16, "brown_mushroom": 16, "red_mushroom": 16, "dandelion": 16, "poppy": 16, "cornflower": 16,
@@ -81,6 +82,10 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("daycycle", "/daycycle <on|off|seconds>", "Run the sun (on = 20 min days) or freeze it", _daycycle, [["on", "off"]])
 	reg.register("blast", "/blast <radius_m> [material]", "Carve a crater where you look, or drop a ball of a material (water, sand, lava ...)",
 		_blast, [["1", "2", "4", "8"], _material_names])
+	reg.register("brush", "/brush <shape> [size] | hold <seconds>", "Set the dig/build brush (ADR 0065): cube, sphere, cylinder, flat, column; size in voxels (1-8, creative 16, 32); hold = keep the break button down (scripted checks)",
+		_brush, [Brush.SHAPES + ["hold"], ["1", "2", "4", "8", "16", "32"]])
+	reg.register("tnt", "/tnt <grid [n] [spacing_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); light lights the aimed charge",
+		_tnt, [["grid", "light", "stats"], ["1", "5", "20"], ["1", "1.5", "2"]])
 	reg.register("setblock", "/setblock <x> <y> <z> <material>", "Set one voxel; ~ is relative to you (~ ~-1 ~ is under your feet)",
 		_setblock, [["~"], ["~"], ["~"], _material_names])
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
@@ -601,6 +606,60 @@ func _blast(args: PackedStringArray) -> Dictionary:
 	if n > 0 and mat == GameMaterials.AIR:
 		Sound.play("sim/blast", at, {"db": clampf(float(args[0]) - 3.0, -6.0, 4.0)})
 	return CommandRegistry.ok("Blast of %s m: %d voxels" % [args[0], n])
+
+
+func _brush(args: PackedStringArray) -> Dictionary:
+	if player == null:
+		return CommandRegistry.fail("No player")
+	if args.size() == 2 and args[0] == "hold":
+		player.script_break_s = clampf(float(args[1]), 0.0, 60.0)
+		return CommandRegistry.ok("Breaking for %.1f s" % player.script_break_s)
+	if args.is_empty() or not Brush.SHAPES.has(args[0]):
+		return CommandRegistry.fail("Usage: /brush <%s> [size]" % "|".join(Brush.SHAPES))
+	var size := int(args[1]) if args.size() > 1 else player.brush_size
+	if not Brush.sizes_for(true).has(size):
+		return CommandRegistry.fail("Sizes: %s" % str(Brush.sizes_for(true)))
+	player.set_brush(size, args[0])
+	return CommandRegistry.ok("Brush: %s (digs %s)" % [Brush.describe(size, args[0]), Brush.describe(player.dig_size(), args[0])])
+
+
+## /tnt grid [n] [spacing_m]: n TNT blocks in a square grid on the ground where you look (block
+## grid, `spacing_m` apart, default 1.5 m: each in the next one's blast), the nearest lit.
+func _tnt(args: PackedStringArray) -> Dictionary:
+	if main == null or player == null or main.tnt == null:
+		return CommandRegistry.fail("No world")
+	var tnt: Tnt = main.tnt
+	var cam: Camera3D = player.camera
+	var hit: VoxelRaycastResult = main.world.raycast(cam.global_position, -cam.global_transform.basis.z, Settings.m2v(48.0))
+	match args[0] if args.size() > 0 else "":
+		"stats":
+			return CommandRegistry.ok(JSON.stringify(tnt.snapshot()))
+		"light":
+			return CommandRegistry.ok("Lit") if tnt.light_at(hit) else CommandRegistry.fail("Aim at TNT")
+		"grid":
+			if hit == null:
+				return CommandRegistry.fail("Aim at the ground")
+			var n := clampi(int(args[1]) if args.size() > 1 else 20, 1, 400)
+			var step := maxi(Settings.BLOCK, roundi(Settings.m2v(float(args[2]) if args.size() > 2 else 1.5) / Settings.BLOCK) * Settings.BLOCK)
+			var side := ceili(sqrt(n))
+			var origin := Tnt.anchor_of(hit.position) - Vector3i(side / 2 * step, 0, side / 2 * step)
+			var placed: Array[Vector3i] = []
+			for i in n:
+				var a := origin + Vector3i((i % side) * step, 0, (i / side) * step)
+				a.y += Settings.BLOCK   # all at the aimed block's top: level, so the chain is the same on any ground
+				if main.bubble.fill_box(a, a + Vector3i.ONE * Settings.BLOCK, GameMaterials.TNT) < 0:
+					continue
+				tnt.register_cells([a])
+				placed.append(a)
+			if placed.is_empty():
+				return CommandRegistry.fail("Place it inside the simulated area around you")
+			var near := placed[0]
+			for a in placed:
+				if Vector3(a).distance_to(player.position) < Vector3(near).distance_to(player.position):
+					near = a
+			tnt.light(near)
+			return CommandRegistry.ok("TNT: %d blocks, %.2f m apart, the nearest lit" % [placed.size(), Settings.v2m(step)])
+	return CommandRegistry.fail("Usage: /tnt <grid [n] [spacing_m]|light|stats>")
 
 
 ## /sound <name> [x y z] plays a sound (at the player, or a voxel position); list and stats report.

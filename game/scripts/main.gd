@@ -52,6 +52,8 @@ var _liquids_test: LiquidsTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
+var tnt: Tnt                         # TNT charges, fuses and blasts (ADR 0065)
+var _tnt_save := []                  # its charges from the player's save, loaded before it exists
 var weather: Weather                 # rain and snow, the rain that answers forest fires (ADR 0056); null with weather=0
 var world_map := WorldMap.new()      # the explored map and the waypoints (plan item D10, ADR 0055)
 var waypoints: Waypoints = world_map.waypoints   # add(name, pos, kind) for graves, finds ...
@@ -135,6 +137,8 @@ func _ready() -> void:
 	player.voxel_placed.connect(_on_placed)
 	player.voxels_dug.connect(_on_dug)
 	player.voxels_placed.connect(_on_placed_many)
+	player.big_dug.connect(_on_big_dug)
+	player.brush_filled.connect(_on_brush_filled)
 	player.item_dropped.connect(_on_item_dropped)
 	player.inventory_toggled.connect(_on_inventory_toggled)
 	player.map_requested.connect(_open_map)
@@ -392,6 +396,7 @@ func _ready() -> void:
 	if DebugCapture.f3:
 		hud.toggle()
 	bubble.setup(world, player.position)
+	player.brush_tool.bubble = bubble
 	# blood, oil and soot stains on the voxels they touch (scripts/visuals/stain_map.gd)
 	stains = StainMap.new()
 	stains.name = "Stains"
@@ -462,6 +467,15 @@ func _ready() -> void:
 	player.playtest_use = gadgets.use
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(gadgets.warm_materials(), player.camera)
+	tnt = Tnt.new()
+	tnt.name = "Tnt"
+	add_child(tnt)
+	tnt.setup(self)
+	tnt.load_array(_tnt_save)
+	player.ignite_at = _ignite
+	if not warmup.is_queued_for_deletion():
+		warmup.add_meshes(tnt.warm_meshes() + [player.brush_tool.warm_mesh()], player.camera)
+	player.brush_tool.warm_cache()   # the big round brushes, rasterised under the loading screen
 	_setup_maps()
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(waypoint_markers.warm_materials(), player.camera)
@@ -470,7 +484,6 @@ func _ready() -> void:
 		weather.name = "Weather"
 		add_child(weather)
 		weather.setup(self)
-		player.ignite_at = weather.ignite   # flint and steel
 		if not warmup.is_queued_for_deletion():
 			warmup.add_materials(weather.warm_materials(), player.camera)
 	_last_health = player_inv.health
@@ -716,7 +729,7 @@ func _player_dict() -> Dictionary:
 		"game_mode": player.game_mode, "flying": player.flying, "health": player_inv.health, "selected": player_inv.selected,
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
 		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s,
-		"stone_age": stone_age.player_dict() if stone_age else {}}
+		"stone_age": stone_age.player_dict() if stone_age else {}, "tnt": tnt.to_array() if tnt else _tnt_save}
 
 
 func _load_player() -> void:
@@ -752,6 +765,7 @@ func _load_player() -> void:
 	player_inv.health_changed.emit(player_inv.health)
 	_survival_save = d.get("survival", {})
 	_stone_age_save = d.get("stone_age", {})
+	_tnt_save = d.get("tnt", [])
 
 
 ## A saved stack (JSON numbers are floats), or {} for an empty or unknown one.
@@ -957,6 +971,48 @@ func _on_placed_many(cells: Array, material: int) -> void:
 	for c in cells:
 		set_world_voxel(c, material)
 		stains.clear_cell(c)
+	if material == GameMaterials.TNT and tnt:
+		tnt.register_cells(cells)
+
+
+## A big creative brush dug natively (ADR 0065): one burst of chips, and the cut checked for rigid
+## pieces from seeds on a sphere around the box (like a crater's rim). Crops are left to the small
+## brush (the mask skips them).
+func _on_big_dug(box: AABB, material: int) -> void:
+	var center := box.get_center()
+	if fx and material > 0:
+		fx.block_break(Vector3i(center.floor()), material)
+	if pieces:
+		pieces.check(PlaytestTools.rim_seeds(center, box.size.length() * 0.5 + 1.0), player.position)
+
+
+## A big brush placement or a paint (filled natively): TNT in it becomes charges.
+func _on_brush_filled(box: AABB, material: int) -> void:
+	if material != GameMaterials.TNT or tnt == null:
+		return
+	var b := Settings.BLOCK
+	var lo := Tnt.anchor_of(Vector3i(box.position.floor()))
+	var hi := Vector3i(box.end.ceil()) + Vector3i.ONE
+	for y in range(lo.y, hi.y, b):
+		for z in range(lo.z, hi.z, b):
+			for x in range(lo.x, hi.x, b):
+				tnt.charges[Vector3i(x, y, z)] = true   # light() checks what is really there
+
+
+## A right click with a firestarter (flint and steel, the igniter): TNT aimed at is lit (ADR 0065);
+## flint and steel sets anything else on fire (Weather, ADR 0056); the igniter only lights TNT, and
+## sneaking with it lights every charge within Settings.igniter_range_m.
+func _ignite(hit: VoxelRaycastResult) -> bool:
+	var def := player_inv.held_def()
+	if tnt and tnt.light_at(hit):
+		return true
+	if str(def.get("ignites", "")) == "tnt":
+		if player.sneaking() and tnt:
+			var n := tnt.light_near(player.position, Settings.igniter_range_m)
+			chat.add_message("Igniter: %d charge%s lit" % [n, "" if n == 1 else "s"])
+			return n > 0
+		return false
+	return weather.ignite(hit) if weather else false
 
 
 ## Farming results ({pos, drops}) become item entities.
@@ -1649,6 +1705,8 @@ func snapshot() -> Dictionary:
 		"quest_check_ms_max": snappedf(quest_check_ms_max, 0.001),
 		"projectiles": projectiles.stats if projectiles else {},
 		"gadgets": gadgets.stats if gadgets else {},
+		"tnt": tnt.snapshot() if tnt else {},
+		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size()}),
 		"weather": weather.summary() if weather else {},
 		"map": world_map.summary(),
 		"torches": torch_lights.stats if torch_lights else {},
