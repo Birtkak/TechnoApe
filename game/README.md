@@ -129,6 +129,10 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=60 craf
 # Reservoirs (ADR 0045): water_test=1 next to a river digs a trench into its bank and checks it fills to the river's level,
 #       nothing above, the river kept its level, the sim went quiet; prints "debug water {...}" (ok true), water_before/after.png
 Godot_..._console.exe --path game -- autopilot=1 target=river walk=1 speed=0 duration=50 mob_spawn=0 load_cap_s=30 water_test=1 out=res://out/water
+# Teleports (ADR 0066): tp_test=1 jumps 15/60/95 m, 500 m, 3 km, /spawn, /goto, /kill on foot in survival; per jump the
+# cover time, frame times under it and in the 4 s after it, the landing, a filmstrip row (tp_strip.png); JSON line "debug tp"
+# (ok = no fall, no hang, no frame over 16.7 ms after the cover / the cut). tp_only=hop_60m,far_500m runs a subset
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 tp_test=1 duration=330 vsync=0 mob_spawn=0 seed=1579829108 out=res://out/tp
 # Menus (ADR 0032): the title screen is the main scene; autopilot=1 or play=1 skip it (play=1 seed=... starts that
 #       world directly). menu_test=1 drives title -> new world -> settings -> play -> Esc pause -> preset applied live ->
 #       save and quit -> reload (inventory and position kept) -> delete; prints "debug menu_test {...}".
@@ -246,6 +250,7 @@ python <repo>/prototypes/p11-lod-horizon/voxel_patch_unloaded.py ~/Tools/godot_v
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_fluid.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_vertical.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_stream.py ~/Tools/godot_voxel
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_priority.py ~/Tools/godot_voxel
 GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=template_debug use_mingw=yes use_static_cpp=yes -j12
 cp project/addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll <repo>/game/addons/zylann.voxel/bin/
 ```

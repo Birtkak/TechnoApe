@@ -18,7 +18,7 @@ signal inventory_toggled(open: bool)
 signal block_used(pos: Vector3i, material: int)
 signal pause_requested   # Esc with nothing else open: the pause menu (ADR 0032)   # right click on a block with an "interact" key (ADR 0007)
 signal died
-signal moved_far           # a teleport or respawn beyond FAR_MOVE_M: Main covers it until the terrain is in
+signal moved_far           # a teleport or respawn that needs a cover (_needs_cover): Main covers it until the ground is in
 signal game_mode_changed(mode: String)
 signal stain_drip(at: Vector3, colour: Color)   # a stained body drips on the ground (StainMap.drip)
 signal landed(feet_voxel: Vector3i, fall_m: float)   # touched ground after a fall (farmland trampling, ADR 0022)
@@ -39,6 +39,7 @@ var game_mode := GameMode.SURVIVAL   # rules in GameMode (ADR 0018); set with se
 var ui_open := false
 var edits_locked := false   # no breaking or placing while the loading screen is up (ADR 0020)
 const FAR_MOVE_M := 24.0   # past the full-detail radius, the ground there may not exist yet
+const HOP_M := 100.0       # a jump shorter than this onto terrain already drawn gets no cover (ADR 0066)
 var _last_jump_ms := -1000           # creative: double-tap jump toggles flying
 var _yaw := 0.0
 var _pitch := -0.2
@@ -195,12 +196,22 @@ func set_game_mode(mode: String) -> void:
 
 ## /tp: move without fall damage from the jump.
 func teleport(pos: Vector3) -> void:
-	var far := position.distance_to(pos) > Settings.m2v(FAR_MOVE_M)
+	var far := _needs_cover(pos)
 	position = pos
 	velocity = Vector3.ZERO
 	_fall_peak_y = pos.y
 	if far:
 		moved_far.emit()
+
+
+## A jump to `pos` needs the loading cover: it leaves the full-detail radius and either goes further
+## than a hop or lands where nothing is drawn yet. A hop onto drawn terrain is instant: the coarse
+## meshes there sharpen in place and _ground_ready holds the body until its voxels are in (ADR 0066).
+func _needs_cover(pos: Vector3) -> bool:
+	var d := position.distance_to(pos)
+	if d <= Settings.m2v(FAR_MOVE_M):
+		return false
+	return d > Settings.m2v(HOP_M) or world == null or not world.is_view_ready(pos)
 
 
 func set_look(yaw: float, pitch: float) -> void:
@@ -627,7 +638,7 @@ func _update_air(delta: float) -> void:
 
 
 func respawn_at(pos: Vector3) -> void:
-	var far := position.distance_to(pos) > Settings.m2v(FAR_MOVE_M)
+	var far := _needs_cover(pos)
 	position = pos
 	velocity = Vector3.ZERO
 	_fall_peak_y = pos.y

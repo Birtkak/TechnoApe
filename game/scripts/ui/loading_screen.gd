@@ -7,14 +7,24 @@ extends CanvasLayer
 ## respawn and after a long teleport, and freezes the player and the animals
 ## under it: when it lifts, the world is there. Progress is 1 - pending / peak
 ## pending tasks (monotonic); a generous cap only guards against a hang.
+## A teleport cover (`world` and `player` set, ADR 0066) waits only for the ground: voxel data under the
+## feet and visible meshes around them (World.near_ready, also its bar), not the 2 km horizon (that
+## streams in behind it under the normal upload budget). Its title and bar show only if it lasts.
 
 signal finished   # the cover starts fading: the terrain around the player is in
 
 const CAP_S := 120.0       # generation may take its time (the user); the cap only guards against a hang
 const IDLE_FRAMES := 20        # frames with no voxel task before the fade starts
 const FADE_S := 0.6
+const NEAR_CAP_S := 20.0      # a teleport cover lifts after this even if some ground never shows (an edited surface)
+const NEAR_IDLE_FRAMES := 3
+const NEAR_SHOWN := 0.95      # share of the ground samples around the player that must be drawn (World.near_ready)
+const NEAR_FADE_S := 0.35
+const NEAR_SHOW_TEXT_S := 0.6  # a teleport cover shows its title and bar only after this
 
 var bubble: SimBubble
+var world: Node        # set: a teleport cover (near ground only)
+var player: Node3D
 var title := "Generating world"
 var _cover: ColorRect
 var _bar: ColorRect
@@ -52,6 +62,9 @@ func _ready() -> void:
 	_bar.position = Vector2.ZERO
 	_bar.size = Vector2(0, 6)
 	_bar_bg.add_child(_bar)
+	if world != null:
+		_label.visible = false
+		_bar_bg.visible = false
 
 
 func _process(delta: float) -> void:
@@ -61,18 +74,30 @@ func _process(delta: float) -> void:
 	var t: Dictionary = VoxelEngine.get_stats().get("tasks", {})
 	var pending: int = int(t.get("generation", 0)) + int(t.get("meshing", 0)) + int(t.get("streaming", 0)) + int(t.get("main_thread", 0))
 	_peak = maxi(_peak, pending)
-	if _peak > 0:
+	var near: float = world.near_ready(player.position) if world != null else 0.0
+	if world != null:
+		_progress = maxf(_progress, near)
+	elif _peak > 0:
 		_progress = maxf(_progress, 1.0 - float(pending) / float(_peak))
 	_bar.size.x = 300.0 * _progress
 	var bubble_ready := bubble == null or bubble.is_loaded()
-	_idle = _idle + 1 if (pending == 0 and bubble_ready and _elapsed > 0.5) else 0
-	if _idle >= IDLE_FRAMES or _elapsed >= CAP_S:
+	var near_ok := false
+	if world != null:
+		if _elapsed >= NEAR_SHOW_TEXT_S:
+			_label.visible = true
+			_bar_bg.visible = true
+		near_ok = bubble_ready and near >= NEAR_SHOWN
+		_idle = _idle + 1 if near_ok else 0
+	else:
+		_idle = _idle + 1 if (pending == 0 and bubble_ready and _elapsed > 0.5) else 0
+	var cap := NEAR_CAP_S if world != null else CAP_S
+	if _idle >= (NEAR_IDLE_FRAMES if world != null else IDLE_FRAMES) or _elapsed >= cap:
 		_fading = true
 		_bar.size.x = 300.0
-		print("loading cover '%s' lifted after %.1f s%s" % [title, _elapsed, "" if _elapsed < CAP_S else " (cap)"])
+		print("loading cover '%s' lifted after %.2f s%s" % [title, _elapsed, "" if _elapsed < cap else " (cap)"])
 		finished.emit()
 		var tw := create_tween()
-		tw.tween_property(_cover, "modulate:a", 0.0, FADE_S)
+		tw.tween_property(_cover, "modulate:a", 0.0, NEAR_FADE_S if world != null else FADE_S)
 		tw.tween_callback(queue_free)
 
 

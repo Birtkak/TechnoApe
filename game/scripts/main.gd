@@ -49,6 +49,7 @@ var _stone_ages_test: StoneAgesTest   # the four Stone Age stages (ADR 0059)
 var _water_test: WaterTest
 var _looks_test: LooksTest
 var _liquids_test: LiquidsTest
+var _tp_test: TpTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
@@ -188,7 +189,7 @@ func _ready() -> void:
 	# covers the start until the terrain around the player and the bubble are in (ADR 0020)
 	cover_until_loaded("Generating world")
 	_loading.finished.connect(func() -> void: bubble.hold_pushes = false)
-	player.moved_far.connect(func() -> void: cover_until_loaded("Loading"))
+	player.moved_far.connect(func() -> void: cover_until_loaded("Loading", true))
 	mark.call("bubble_hud_loading")
 	game_hud.setup(player_inv)
 	player.hud = game_hud
@@ -358,6 +359,10 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_craft_test = CraftTest.new()
 				_craft_test.run(self))
+		if DebugCapture.tp_test:
+			_after_load(func() -> void:
+				_tp_test = TpTest.new()
+				_tp_test.run(self))
 		if DebugCapture.water_test:
 			_after_load(func() -> void:
 				_water_test = WaterTest.new()
@@ -805,20 +810,25 @@ func _embedded_in_editor() -> bool:
 ## The loading screen until the world around the player is in: at the start (new world or save),
 ## after a respawn and after a long teleport. The player and the animals stand still under it, so
 ## nothing happens before you can see it; workers and mesh uploads run flat out, since the cover
-## hides any stutter. Autopilot runs only get the first cover and freeze nothing (their scripts act
-## from the start).
-func cover_until_loaded(title: String) -> void:
+## hides any stutter. near = a teleport or respawn cover: it lifts once the ground around the player
+## is in (voxels under the feet, full detail within 24 m), not the whole 2 km horizon, which streams
+## in behind it (ADR 0066). Autopilot runs only get the first cover and freeze nothing (their scripts
+## act from the start), except tp_test=1, which measures the teleport covers.
+func cover_until_loaded(title: String, near := false) -> void:
 	if _loading != null and is_instance_valid(_loading) and not _loading.is_done():
 		return
 	var first := _loading == null
-	if not first and DebugCapture.autopilot:
+	if not first and DebugCapture.autopilot and not DebugCapture.tp_test:
 		return
 	_loading = LoadingScreen.new()
 	_loading.name = "LoadingScreen"
 	_loading.title = title
 	_loading.bubble = bubble
+	if near:   # a teleport: lift once the ground around the player is in, not the whole horizon (ADR 0066)
+		_loading.world = world
+		_loading.player = player
 	player.edits_locked = true
-	var frozen := not DebugCapture.autopilot
+	var frozen := not DebugCapture.autopilot or (DebugCapture.tp_test and not first)
 	if frozen:
 		player.process_mode = Node.PROCESS_MODE_DISABLED
 		mobs.process_mode = Node.PROCESS_MODE_DISABLED
@@ -827,12 +837,18 @@ func cover_until_loaded(title: String) -> void:
 	var has_budget := "mesh_upload_budget_mb" in world.terrain
 	if has_budget:
 		world.terrain.mesh_upload_budget_mb = 0.0
+	# the coarse blocks over the player first: clipbox shows the near detail only under them (ADR 0066)
+	var chain := near and "viewer_chain_first" in world.terrain
+	if chain:
+		world.terrain.viewer_chain_first = true
 	_loading.finished.connect(func() -> void:
 		player.edits_locked = false
 		if frozen:
 			player.process_mode = Node.PROCESS_MODE_INHERIT
 			mobs.process_mode = Node.PROCESS_MODE_INHERIT
 		VoxelEngine.set_thread_count(threads)
+		if chain:
+			world.terrain.viewer_chain_first = false
 		if has_budget:
 			world.terrain.mesh_upload_budget_mb = Settings.mesh_upload_budget_mb)
 	add_child(_loading)

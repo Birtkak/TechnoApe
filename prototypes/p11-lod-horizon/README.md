@@ -88,3 +88,11 @@ The fade is visible as a dithered edge in `game/out/fade_vis2/zoom_far.png`.
   load until the generator's hydrology tile cache was fixed (4.4 s after).
 - LOD0 96 m: fine at 20 m/s, a 19.5 ms frame at 40 m/s. Not default.
 - Mesh upload budget at apply time: within noise on the water spill.
+
+### Teleport priority (2026-10-26, ADR 0066)
+`voxel_patch_priority.py`: clipbox shows a LOD only under an active parent, from the coarsest LOD down,
+and stock priority runs every finer LOD before any coarser one, so after a far teleport the meshed
+full-detail ground stays hidden until most of the horizon is generated. `VoxelLodTerrain.viewer_chain_first`
+(global, off by default; the game turns it on under a teleport cover) puts the blocks within 128 << lod
+voxels of the viewer first. 3 km jump: ground under the player visible after ~7.5 s instead of ~11 s.
+Always on it cost flight streaming ~1.3 ms p99 (speed=20), off it is unchanged.
