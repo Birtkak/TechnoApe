@@ -1128,7 +1128,7 @@ func _use(first_press: bool) -> void:
 		return
 	if not def.has("material"):
 		return
-	var mat := ItemIcon.material_id_for(inventory.items, def["id"])
+	var mat := GameMaterials.still_of(ItemIcon.material_id_for(inventory.items, def["id"]))
 	if mat <= 0:
 		return
 	if inventory.items.is_voxel_item(def["id"]):
