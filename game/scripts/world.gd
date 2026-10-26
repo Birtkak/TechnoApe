@@ -54,8 +54,10 @@ func _ready() -> void:
 	generator = TerrainGenerator.new()
 	generator.set_seed(Settings.world_seed)
 
-	# Minecraft-style liquid surfaces with levels (terrain_fluid.gdshader), one material per liquid
+	# Minecraft-style liquid surfaces with levels (terrain_fluid.gdshader), one material per liquid,
+	# each with its own look from data/liquid_looks.json (water's treatment for every liquid)
 	var fluid_materials := {}
+	var looks := liquid_looks()
 	for d in GameMaterials.defs():
 		if d.has("fluid_slot") and not d.get("liquid_static", false):
 			var fm := ShaderMaterial.new()
@@ -63,6 +65,8 @@ func _ready() -> void:
 			for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "glow_tile_b"]:
 				fm.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
 			fm.set_shader_parameter("fluid_tile", float(d["tiles"][0]))
+			fm.set_shader_parameter("flow_speed", 0.35 * float(d.get("liquid_flow_speed", 1.0)))
+			apply_liquid_look(fm, looks.get(d["name"], {}))
 			fluid_materials[int(d["fluid_slot"])] = fm
 	var mesher := VoxelMesherBlocky.new()
 	mesher.library = GameMaterials.build_library(atlas_material, liquid_material, fluid_materials, gas_material)
@@ -123,6 +127,28 @@ func _ready() -> void:
 
 ## Copies a 16^3 chunk (world chunk coords) out of the terrain as 16-bit bytes.
 ## The Settings screen changed render or view distance (ADR 0032): the terrain re-rings live.
+## data/liquid_looks.json: liquid material name -> fluid shader uniforms (keys starting "_" skipped).
+static func liquid_looks() -> Dictionary:
+	var data = JSON.parse_string(FileAccess.get_file_as_string("res://data/liquid_looks.json"))
+	var out := {}
+	if data is Dictionary:
+		for k in data:
+			if not String(k).begins_with("_") and data[k] is Dictionary:
+				out[k] = data[k]
+	return out
+
+
+## Sets one liquid's look on its fluid material: [r, g, b] arrays become colours.
+static func apply_liquid_look(fm: ShaderMaterial, look: Dictionary) -> void:
+	for k in look:
+		var v = look[k]
+		if v is Array and v.size() == 3:
+			v = Color(float(v[0]), float(v[1]), float(v[2]))
+		elif v is int:
+			v = float(v)
+		fm.set_shader_parameter(k, v)
+
+
 func apply_distances() -> void:
 	terrain.lod_distance = Settings.render_distance_voxels()
 	terrain.secondary_lod_distance = Settings.m2v(Settings.lod_ring_m)

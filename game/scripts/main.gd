@@ -48,6 +48,7 @@ var _craft_test: CraftTest
 var _stone_ages_test: StoneAgesTest   # the four Stone Age stages (ADR 0059)
 var _water_test: WaterTest
 var _looks_test: LooksTest
+var _liquids_test: LiquidsTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
@@ -71,7 +72,7 @@ var _spawned := false
 var _spawn_xz := Vector2(0, 0)
 var _spawn_pos := Vector3.ZERO
 var picked_up_total := {}    # item id -> count, for debug JSON
-var item_stats := {"spawned": 0, "picked": 0, "merged": 0, "expired": 0, "invalid": 0}
+var item_stats := {"spawned": 0, "picked": 0, "merged": 0, "expired": 0, "invalid": 0, "burned": 0}
 
 
 func _ready() -> void:
@@ -361,6 +362,10 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_looks_test = LooksTest.new()
 				_looks_test.run(self))
+		if DebugCapture.liquids_test:
+			_after_load(func() -> void:
+				_liquids_test = LiquidsTest.new()
+				_liquids_test.run(self))
 		if DebugCapture.scatter_items:
 			# one entity per given item, in a row two metres ahead, so a screenshot shows them
 			var fwd := -player.camera.global_transform.basis.z
@@ -1526,6 +1531,9 @@ func _update_items(delta: float) -> void:
 			item_stats["expired"] += 1
 			e.queue_free()
 			continue
+		if e.burning():
+			_burn_item(e)
+			continue
 		if e.can_pickup() and e.position.distance_to(centre) <= radius and GameMode.rule(player.game_mode, "interacts"):
 			var left := player_inv.pickup(e.stack["id"], e.stack["count"], e.stack)
 			var got: int = e.stack["count"] - left
@@ -1574,6 +1582,17 @@ func _update_items(delta: float) -> void:
 				kept.append(e)
 		alive = kept
 	_item_entities = alive
+
+
+## A dropped stack that touched lava burns up (bug report 2026-10-25): gone, with a flare of
+## flame and a puff of smoke where it went in (`item_burn` sizzles, data/sounds.json).
+func _burn_item(e: ItemEntity) -> void:
+	item_stats["burned"] += 1
+	if fx:
+		var at := e.position + Vector3(0, ItemEntity.SIZE * 0.5, 0)
+		fx.burst("item_burn", at, {"material": 0, "normal": Vector3.UP})
+		fx.burst("item_burn_smoke", at, {"material": 0, "normal": Vector3.UP})
+	e.queue_free()
 
 
 func _items_sample() -> Array:

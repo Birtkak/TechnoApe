@@ -1160,6 +1160,70 @@
     "#ffffff",
     "#f4f8ff"
    ]
+  },
+  "item_burn": {
+   "channel": "sprites",
+   "sprite": "flame",
+   "motion": "flame",
+   "count": [
+    6,
+    9
+   ],
+   "life": [
+    0.35,
+    0.7
+   ],
+   "size": [
+    0.1,
+    0.18
+   ],
+   "speed": [
+    0.2,
+    0.7
+   ],
+   "dir": "up",
+   "spread": 40,
+   "box": [
+    0.2,
+    0.08,
+    0.2
+   ],
+   "colors": [
+    "#ffffff"
+   ]
+  },
+  "item_burn_smoke": {
+   "channel": "sprites",
+   "sprite": "smoke",
+   "motion": "smoke",
+   "count": [
+    6,
+    10
+   ],
+   "life": [
+    0.9,
+    1.8
+   ],
+   "size": [
+    0.14,
+    0.26
+   ],
+   "speed": [
+    0.3,
+    0.9
+   ],
+   "dir": "up",
+   "spread": 35,
+   "box": [
+    0.2,
+    0.1,
+    0.2
+   ],
+   "colors": [
+    "#3c3c3c",
+    "#555555",
+    "#6a6a6a"
+   ]
   }
  },
  "ambient": {
