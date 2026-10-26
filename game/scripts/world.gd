@@ -173,6 +173,56 @@ func read_column(wc: Vector3i, count: int) -> PackedByteArray:
 	return vb.get_channel_as_byte_array(VoxelBuffer.CHANNEL_TYPE)
 
 
+## Something is drawn at `p`: the ground there shows at one of the four finest detail levels. A short
+## teleport there needs no cover, its coarse meshes sharpen in place (ADR 0066).
+func is_view_ready(p: Vector3) -> bool:
+	var h: int = generator.gen.height_at(int(p.x), int(p.z))
+	return _shown_at(Vector3i(int(p.x), mini(h - 1, int(p.y)), int(p.z)), 3)
+
+
+## How much of the ground around the player is drawn at full detail, 0..1 (the teleport cover lifts at
+## 1, ADR 0066): 0 until the voxels under the feet are in (collision); then the share of sample points
+## on the generator's surface (rings out to 16 m at LOD 2 or finer, at 32 and 48 m at LOD 3 or finer)
+## whose mesh block is visible. A meshed block is not enough: clipbox shows a LOD only under an active
+## parent, from the coarsest LOD down, so fully meshed detail can stay hidden for seconds, and lifting
+## on mesh state left the player in a hole over the sea plane. Points far above or below the player
+## (a cave) are skipped.
+func near_ready(p: Vector3) -> float:
+	var c := Vector3i((p / Settings.CHUNK).floor())
+	if not (is_area_loaded(c) and is_area_loaded(c - Vector3i(0, 1, 0))):
+		return 0.0
+	var total := 0
+	var shown := 0
+	for ring in NEAR_RINGS:
+		var rv := Settings.m2v(ring[0])
+		var n: int = 1 if ring[0] == 0.0 else 8
+		for k in n:
+			var a := TAU * k / n
+			var x := int(p.x + cos(a) * rv)
+			var z := int(p.z + sin(a) * rv)
+			var h: int = generator.gen.height_at(x, z)
+			if absf(h - p.y) > Settings.m2v(12.0):
+				continue
+			total += 1
+			if _shown_at(Vector3i(x, h - 1, z), ring[1]):
+				shown += 1
+	return 1.0 if total == 0 else float(shown) / total
+
+
+const NEAR_RINGS := [[0.0, 2], [4.0, 2], [10.0, 2], [16.0, 2], [32.0, 3], [48.0, 3]]   # [metres, coarsest LOD that counts: the ground may sharpen after the cover]
+
+
+## The mesh block holding voxel `v` is applied and visible at some LOD up to `max_lod`.
+func _shown_at(v: Vector3i, max_lod: int) -> bool:
+	var bs: int = terrain.mesh_block_size
+	for lod in mini(max_lod + 1, terrain.lod_count):
+		var size := bs << lod
+		var info: Dictionary = terrain.debug_get_mesh_block_info(Vector3(floori(float(v.x) / size), floori(float(v.y) / size), floori(float(v.z) / size)), lod)
+		if info.get("meshed", false) and info.get("visible", false):
+			return true
+	return false
+
+
 func is_box_loaded(wmin: Vector3i, size: Vector3i) -> bool:
 	return _tool.is_area_editable(AABB(Vector3(wmin), Vector3(size)))
 
