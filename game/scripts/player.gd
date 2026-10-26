@@ -94,6 +94,9 @@ var brush_shape := "cube"
 var brush_tool := BrushTool.new()
 var _dig_normal := Vector3i.UP         # the aimed face's direction when the current dig started
 var _brush_info := ""
+var spectator_speed_mul := 1.0   # wheel in spectator scales the fly speed (2026-10-26)
+const SPECTATOR_SPEED_STEP := 1.25
+const SPECTATOR_SPEED_RANGE := Vector2(0.1, 20.0)
 var script_break_s := 0.0              # /brush hold: the break button is held this long (scripted checks)
 var _dig_cells: Array[Vector3i] = []   # the voxels the current dig removes
 var _dig_carry := {}                   # fractional drops carried between digs (MiningTable.voxel_drops)
@@ -265,6 +268,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_last_jump_ms = -1000
 		else:
 			_last_jump_ms = now
+	elif event is InputEventMouseButton and event.pressed and game_mode == GameMode.SPECTATOR and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		step_spectator_speed(1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1)
 	elif event is InputEventMouseButton and event.pressed and event.ctrl_pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 		step_brush_size(1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1)
 	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_B:
@@ -299,6 +304,13 @@ func set_brush(size: int, shape: String) -> void:
 		var capped := dig_size() < brush_size
 		hud.show_toast("Brush: %s%s" % [Brush.describe(brush_size, shape), " (this tool digs %s)" % Brush.describe(dig_size(), shape) if capped else ""])
 	_update_brush_info()
+
+
+## Wheel in spectator: fly faster (up) or slower (down).
+func step_spectator_speed(dir: int) -> void:
+	spectator_speed_mul = clampf(spectator_speed_mul * pow(SPECTATOR_SPEED_STEP, dir), SPECTATOR_SPEED_RANGE.x, SPECTATOR_SPEED_RANGE.y)
+	if hud:
+		hud.show_toast("Fly speed: %.0f m/s (x%.2f)" % [Settings.fly_speed_m * spectator_speed_mul, spectator_speed_mul])
 
 
 ## Ctrl + wheel: the next brush size up or down (creative has 16 and 32 too).
@@ -470,7 +482,8 @@ func _physics_step(delta: float) -> void:
 		if autopilot and autopilot_speed_m <= 0.0:
 			velocity = Vector3.ZERO
 			return
-		var speed := Settings.m2v(autopilot_speed_m if autopilot else Settings.fly_speed_m)
+		var speed_mul := spectator_speed_mul if game_mode == GameMode.SPECTATOR else 1.0
+		var speed := Settings.m2v(autopilot_speed_m if autopilot else Settings.fly_speed_m * speed_mul)
 		velocity = dir * speed + _knock
 		velocity.y = up_down * speed + _knock.y
 		_knock = _knock.move_toward(Vector3.ZERO, Settings.m2v(30.0) * delta)
