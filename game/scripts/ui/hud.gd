@@ -21,6 +21,7 @@ var survival: Survival       # set by Main
 var _shown_hunger := -1
 var _shown_body := -1
 var _name_label: Label
+var _brush_label: Label     # the dig/build brush and its keys, right of the hotbar
 var _pill: Control          # rounded backdrop behind the item name
 var _font: Font
 var _name_timer := 0.0
@@ -142,6 +143,17 @@ func _ready() -> void:
 	_pill.modulate.a = 0.0
 	add_child(_pill)
 	move_child(_pill, _name_label.get_index())
+
+	_brush_label = Label.new()
+	_brush_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_brush_label.add_theme_font_size_override("font_size", 13)
+	_brush_label.add_theme_color_override("font_color", Color(0.92, 0.9, 0.84, 0.9))
+	_brush_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	_brush_label.add_theme_constant_override("shadow_offset_x", 1)
+	_brush_label.add_theme_constant_override("shadow_offset_y", 1)
+	_brush_label.position = Vector2((9 * SLOT + 8 * GAP) / 2.0 + SLOT + 20, -SLOT - 6)
+	_brush_label.size = Vector2(260, 40)
+	add_child(_brush_label)
 
 
 ## What the crosshair is on: {title, line?, tool?, ok?, drops?}; {} hides the panel.
@@ -342,6 +354,12 @@ func _on_selection(_i: int) -> void:
 		_pill.modulate.a = 0.0
 		return
 	show_toast(player_inv.items.display_name(h["id"]))
+
+
+## The brush line right of the hotbar ("" hides it): shape, size and the keys that change them.
+func set_brush_info(text: String) -> void:
+	if _brush_label and _brush_label.text != text:
+		_brush_label.text = text
 
 
 ## A short line above the hotbar (the held item's name, the brush size), fading after 2 s.

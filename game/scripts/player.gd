@@ -11,6 +11,8 @@ signal voxel_broken(pos: Vector3i, drops: Array)
 signal voxel_placed(pos: Vector3i, material: int)
 signal voxels_dug(cells: Array, drops: Array, center: Vector3)   # a brush dig (ADR 0034)
 signal voxels_placed(cells: Array, material: int)                # a brush placement of a voxel item
+signal brush_filled(box: AABB, material: int)
+signal big_dug(box: AABB, material: int)   # a big creative brush dug natively: the box it took from (no drops: world editing)                    # a big brush filled natively: the box it may have touched (ADR 0065)
 signal item_dropped(stack: Dictionary, from: Vector3, velocity: Vector3)
 signal inventory_toggled(open: bool)
 signal block_used(pos: Vector3i, material: int)
@@ -83,10 +85,15 @@ var _attack_cooldown := 0.0
 const EAT_S := 1.6               # Minecraft: 32 ticks
 
 # mining state
-# Brush (ADR 0034): size in voxels (1, 2, 4, 8; Ctrl + wheel) and shape (B); the
-# dig size is capped by the held tool (MiningTable.dig_cap).
+# Brush (ADR 0034, 0065): size in voxels (1, 2, 4, 8, creative also 16, 32; Ctrl + wheel) and shape
+# (B / Shift + B: cube, sphere, cylinder, flat, column); the survival dig size is capped by the held
+# tool (MiningTable.dig_cap). BrushTool draws the shape's shell and runs the big brushes natively.
 var brush_size := 4
 var brush_shape := "cube"
+var brush_tool := BrushTool.new()
+var _dig_normal := Vector3i.UP         # the aimed face's direction when the current dig started
+var _brush_info := ""
+var script_break_s := 0.0              # /brush hold: the break button is held this long (scripted checks)
 var _dig_cells: Array[Vector3i] = []   # the voxels the current dig removes
 var _dig_carry := {}                   # fractional drops carried between digs (MiningTable.voxel_drops)
 var _mine_target := Vector3i(1 << 30, 0, 0)
@@ -102,6 +109,7 @@ const SWING_EVERY_S := 0.25          # the arm keeps swinging while a block is b
 
 # movement (ADR 0011)
 var velocity := Vector3.ZERO
+var _knock := Vector3.ZERO        # sideways push from a blast (Tnt), added to walking and dying away
 var body: VoxelBody
 var _on_floor := false
 var in_liquid := false
@@ -144,6 +152,7 @@ func _ready() -> void:
 	_highlight = _make_box_outline()
 	_highlight.visible = false
 	get_tree().root.call_deferred("add_child", _highlight)
+	get_tree().root.call_deferred("add_child", brush_tool.preview)
 	_stain_overlay = _make_stain_overlay(false)
 	_stain_overlay_burn = _make_stain_overlay(true)
 	_crack = _make_crack_box()
@@ -246,11 +255,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			_last_jump_ms = now
 	elif event is InputEventMouseButton and event.pressed and event.ctrl_pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
-		var i := Brush.SIZES.find(brush_size)
-		i = clampi(i + (1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1), 0, Brush.SIZES.size() - 1)
-		set_brush(Brush.SIZES[i], brush_shape)
+		step_brush_size(1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1)
 	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_B:
-		set_brush(brush_size, Brush.SHAPES[(Brush.SHAPES.find(brush_shape) + 1) % Brush.SHAPES.size()])
+		var n := Brush.SHAPES.size()
+		set_brush(brush_size, Brush.SHAPES[(Brush.SHAPES.find(brush_shape) + (n - 1 if event.shift_pressed else 1)) % n])
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_MIDDLE:
 		_pick_block()
 	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F5:
@@ -277,16 +285,57 @@ func set_brush(size: int, shape: String) -> void:
 	brush_shape = shape
 	_reset_mining()
 	if hud:
-		hud.show_toast("Brush: %s, %d cm" % [shape, int(size * Settings.VOXEL_M * 100.0)])
+		var capped := dig_size() < brush_size
+		hud.show_toast("Brush: %s%s" % [Brush.describe(brush_size, shape), " (this tool digs %s)" % Brush.describe(dig_size(), shape) if capped else ""])
+	_update_brush_info()
 
 
-## The dig brush's size with the held item (the tool caps it).
+## Ctrl + wheel: the next brush size up or down (creative has 16 and 32 too).
+func step_brush_size(dir: int) -> void:
+	var sizes := Brush.sizes_for(GameMode.rule(game_mode, "instant_break"))
+	var i := sizes.find(brush_size)
+	if i < 0:
+		i = sizes.size() - 1
+		while i > 0 and sizes[i] > brush_size:
+			i -= 1
+	set_brush(sizes[clampi(i + dir, 0, sizes.size() - 1)], brush_shape)
+
+
+## The dig brush's size with the held item: survival tools cap it by tier, creative digs the whole brush.
 func dig_size() -> int:
-	return mini(brush_size, MiningTable.dig_cap(inventory.held_def() if inventory else {}))
+	if GameMode.rule(game_mode, "instant_break"):
+		return brush_size
+	return mini(mini(brush_size, Brush.NATIVE_ABOVE), MiningTable.dig_cap(inventory.held_def() if inventory else {}))
+
+
+## The placement brush's size: survival places up to the biggest survival brush (and what the stack holds).
+func place_size() -> int:
+	return brush_size if not GameMode.rule(game_mode, "consumes_items") else mini(brush_size, Brush.NATIVE_ABOVE)
+
+
+## The HUD line right of the hotbar: the brush and its keys.
+func _update_brush_info() -> void:
+	if hud == null:
+		return
+	var text := ""
+	if GameMode.rule(game_mode, "interacts"):
+		text = "Brush %s  [B shape, Ctrl+wheel size]" % Brush.describe(dig_size(), brush_shape)
+		if dig_size() < brush_size:
+			text += "\n(tool caps it; set %s)" % Brush.describe(brush_size, brush_shape)
+		elif GameMode.rule(game_mode, "instant_break"):
+			text += "\nShift+right click paints it"
+	if text != _brush_info:
+		_brush_info = text
+		hud.set_brush_info(text)
 
 
 func _aim() -> VoxelRaycastResult:
-	return world.raycast(camera.global_position, -camera.global_transform.basis.z, Settings.m2v(Settings.reach_m))
+	return world.raycast(camera.global_position, -camera.global_transform.basis.z, Settings.m2v(reach()))
+
+
+## How far the hand reaches: creative world editing reaches further (big brushes, ADR 0065).
+func reach() -> float:
+	return Settings.creative_reach_m if GameMode.rule(game_mode, "instant_break") else Settings.reach_m
 
 
 ## F5 view: 0 = first person, 1 = behind, 2 = in front (facing the player).
@@ -381,6 +430,7 @@ func _physics_step(delta: float) -> void:
 	_place_cooldown = maxf(0.0, _place_cooldown - delta)
 	t0 = Time.get_ticks_usec()
 	_update_mining(delta)
+	_brush_jobs_done()
 	_update_hold(delta)
 	_cost("player_mining", t0)
 	if seat != Vector3.INF:
@@ -410,8 +460,9 @@ func _physics_step(delta: float) -> void:
 			velocity = Vector3.ZERO
 			return
 		var speed := Settings.m2v(autopilot_speed_m if autopilot else Settings.fly_speed_m)
-		velocity = dir * speed
-		velocity.y = up_down * speed
+		velocity = dir * speed + _knock
+		velocity.y = up_down * speed + _knock.y
+		_knock = _knock.move_toward(Vector3.ZERO, Settings.m2v(30.0) * delta)
 		if noclip:
 			position += velocity * delta   # through rock and trees: no collision at all
 			_on_floor = false
@@ -433,8 +484,9 @@ func _physics_step(delta: float) -> void:
 		speed_m = minf(autopilot_speed_m, Settings.sprint_speed_m)   # speed=0 stands still
 	in_liquid = _check_liquid()
 	var speed := Settings.m2v(speed_m) * (0.5 if in_liquid else 1.0) * speed_mult
-	velocity.x = dir.x * speed
-	velocity.z = dir.z * speed
+	velocity.x = dir.x * speed + _knock.x
+	velocity.z = dir.z * speed + _knock.z
+	_knock = _knock.move_toward(Vector3.ZERO, Settings.m2v(30.0 if _on_floor else 6.0) * delta)
 	var jump := Input.is_action_pressed("jump") and not ui_open and not autopilot and not free_cam
 	if in_liquid:
 		# Minecraft-style swimming: drift down slowly, hold jump to rise
@@ -463,6 +515,16 @@ func _physics_step(delta: float) -> void:
 		t0 = Time.get_ticks_usec()
 		_use(true)
 		_cost("player_place", t0)
+
+
+## A blast's push (voxels per second): up at once, sideways through _knock so walking keeps it.
+func knock(v: Vector3) -> void:
+	if noclip:
+		return
+	_knock += Vector3(v.x, v.y if flying else 0.0, v.z)
+	if not flying:
+		velocity.y = maxf(velocity.y, v.y)
+		_on_floor = false
 
 
 ## Shift (Minecraft's sneak; Ctrl sprints since bug report 2026-10-25): slower, lower eyes, no
@@ -625,7 +687,7 @@ func _apply_stain_tint() -> void:
 
 ## Materials MaterialWarmup draws under the loading screen (their first draw compiles a pipeline).
 func warm_materials() -> Array:
-	return [crack_material, _stain_overlay, _stain_overlay_burn]
+	return [crack_material, _stain_overlay, _stain_overlay_burn, brush_tool.preview_mat]
 
 
 static func _make_stain_overlay(burning: bool) -> StandardMaterial3D:
@@ -641,24 +703,33 @@ static func _make_stain_overlay(burning: bool) -> StandardMaterial3D:
 
 func _update_mining(delta: float) -> void:
 	var holding := false
+	script_break_s = maxf(0.0, script_break_s - delta)
 	if autopilot:
-		holding = autopilot_action == "mine"
+		holding = autopilot_action == "mine" or script_break_s > 0.0
 	if edits_locked or not GameMode.rule(game_mode, "interacts"):
 		holding = false
 	elif not autopilot:
-		holding = _mouse_captured and not ui_open and not free_cam and not building and Input.is_action_pressed("action_break")
+		holding = script_break_s > 0.0 or (_mouse_captured and not ui_open and not free_cam and not building and Input.is_action_pressed("action_break"))
 	var hit: VoxelRaycastResult = _aim() if (holding or (_mouse_captured and not ui_open and not autopilot)) else null
 	var mob = aimed_mob(hit) if (_mouse_captured and not ui_open and not autopilot) else null
 	_update_look(hit, mob)
 	if hit and mob != null:
 		hit = null   # an animal is in front of the block: LMB hits it instead (_attack)
+	_update_brush_info()
 	if hit:
 		_highlight.visible = true
-		var hb := Brush.dig_bounds(hit.position, dig_size(), brush_shape)
+		var placing := _places_voxels() and not holding   # breaking shows what the dig takes
+		var size := place_size() if placing else dig_size()
+		var hb := Brush.dig_bounds(hit.position, size, brush_shape, hit.previous_position - hit.position)
+		if placing:
+			var r := Brush.region(hit.position, hit.previous_position, size, brush_shape, true)
+			hb = AABB(Vector3(r["lo"]), Vector3(r["size"]))
 		_highlight.global_position = hb.position
 		_highlight.scale = hb.size
+		brush_tool.show_at(hit, size, brush_shape, placing)
 	else:
 		_highlight.visible = false
+		brush_tool.hide()
 	# keep placing while the button is held (vanilla repeats every 4 ticks)
 	if not autopilot and not ui_open and not building and _mouse_captured and Input.is_action_pressed("action_place") and _place_cooldown <= 0.0:
 		_use(false)
@@ -669,6 +740,7 @@ func _update_mining(delta: float) -> void:
 		playtest_laser.call(_lasering, camera.global_position, -camera.global_transform.basis.z, delta, brush_size)
 		if laser_held:
 			_highlight.visible = false
+			brush_tool.hide()
 			_reset_mining()
 			return
 	# knapping (ADR 0023): a left click chips a cell instead of mining; holding repeats
@@ -684,9 +756,14 @@ func _update_mining(delta: float) -> void:
 		return
 	var p: Vector3i = hit.position
 	var size := dig_size()
-	var key: Vector3i = Vector3i(Brush.dig_bounds(p, size, brush_shape).position.floor()) if size > 1 and brush_shape == "cube" else p
-	if key != _mine_target:
+	var normal: Vector3i = hit.previous_position - hit.position
+	if size > Brush.NATIVE_ABOVE:
+		_dig_big(hit, size)
+		return
+	var key: Vector3i = Vector3i(Brush.dig_bounds(p, size, brush_shape, normal).position.floor()) if size > 1 and brush_shape in ["cube", "flat", "column"] else p
+	if key != _mine_target or normal != _dig_normal:
 		_mine_target = key
+		_dig_normal = normal
 		_mine_progress = 0.0
 		_dig_cells = _dig_selection(p, size)
 		_mine_time = _dig_time(p, _dig_cells)
@@ -738,7 +815,7 @@ func _update_mining(delta: float) -> void:
 					for d in mining.roll_drops(GameMaterials.name_of(pc["material"]), inventory.held_def(), _drop_rng):
 						d["at"] = pc["center"]
 						drops.append(d)
-			voxels_dug.emit(_dig_cells.duplicate(), drops, Brush.dig_bounds(p, size, brush_shape).get_center())
+			voxels_dug.emit(_dig_cells.duplicate(), drops, Brush.dig_bounds(p, size, brush_shape, _dig_normal).get_center())
 			if not _dig_cells.is_empty():
 				_wear(ceili(_dig_cells.size() / float(Settings.BLOCK * Settings.BLOCK * Settings.BLOCK)))   # a use per block dug
 		if viewmodel:
@@ -754,6 +831,32 @@ func _update_mining(delta: float) -> void:
 			_yaw += PI / 2.0
 			_apply_look()
 		_reset_mining()
+
+
+## A creative brush above Brush.NATIVE_ABOVE (2 m, 4 m): instant and native (BrushTool.dig), one dig
+## per break cooldown; what it frees is checked for rigid pieces, drops follow the histogram.
+func _dig_big(hit: VoxelRaycastResult, size: int) -> void:
+	if brush_tool.busy():
+		return   # the last big brush is still being written
+	var mask := BrushTool.dig_mask(true, {}, mining, _is_plant)
+	for m in 256:
+		if mask[m] != 0 and farm != null and farm.is_crop_material(m):
+			mask[m] = 0   # crops go through Farming: the small brush takes them
+	brush_tool.dig(hit.position, hit.previous_position, size, brush_shape, mask, world.get_voxel(hit.position))
+	if viewmodel:
+		viewmodel.swing()
+	_break_cooldown = Settings.break_cooldown_s
+
+
+## Big brushes finished writing this frame (BrushTool.tick): Main gets the chips, the rigid piece
+## check and TNT charges.
+func _brush_jobs_done() -> void:
+	for j in brush_tool.tick():
+		if j["kind"] == "dig":
+			if int(j["n"]) > 0:
+				big_dug.emit(j["box"], int(j["hint"]))
+		elif int(j["n"]) > 0:
+			brush_filled.emit(j["box"], int(j["material"]))
 
 
 ## A plant or ground pickup voxel (grass, flowers, reeds, pebbles, twigs): dug
@@ -779,7 +882,7 @@ func _dig_selection(p: Vector3i, size: int) -> Array[Vector3i]:
 	var held := inventory.held_def() if inventory else {}
 	var t_hit := mining.break_time(GameMaterials.name_of(hit_mat), held) if mining else 0.0
 	var times := {}
-	for c in Brush.dig_cells(p, size, brush_shape):
+	for c in Brush.dig_cells(p, size, brush_shape, _dig_normal):
 		var m := world.get_voxel(c)
 		if m <= 0 or not (GameMaterials.is_plain_voxel(m) or _is_plant(m)):
 			continue
@@ -1005,6 +1108,8 @@ func _use(first_press: bool) -> void:
 	if mat <= 0:
 		return
 	if inventory.items.is_voxel_item(def["id"]):
+		if Input.is_key_pressed(KEY_SHIFT) and GameMode.rule(game_mode, "instant_break") and _paint(hit, mat):
+			return
 		_place_voxels(hit, mat)
 		return
 	if GameMaterials.is_station(mat):
@@ -1054,7 +1159,16 @@ func _place_voxels(hit: VoxelRaycastResult, mat: int) -> void:
 	var cells: Array = []
 	var have := int(inventory.held().get("count", 0))
 	var creative := not GameMode.rule(game_mode, "consumes_items")
-	for c in Brush.place_cells(hit.position, hit.previous_position, brush_size, brush_shape):
+	var size := place_size()
+	if size > Brush.NATIVE_ABOVE:
+		if brush_tool.overlaps(hit.position, hit.previous_position, size, brush_shape, true, _body_box()):
+			if hud:
+				hud.show_toast("You are standing in it")
+			return
+		if not brush_tool.busy() and brush_tool.place(hit.position, hit.previous_position, size, brush_shape, mat, BrushTool.place_mask(_placeable)) > 0:
+			_after_use()
+		return
+	for c in Brush.place_cells(hit.position, hit.previous_position, size, brush_shape):
 		if not creative and cells.size() >= have:
 			break
 		if c.y < 0 or c.y >= Settings.WORLD_HEIGHT_VOXELS or _overlaps_player(c):
@@ -1069,6 +1183,33 @@ func _place_voxels(hit: VoxelRaycastResult, mat: int) -> void:
 	if not creative:
 		inventory.consume_held(cells.size())
 	_after_use()
+
+
+## Creative Shift + right click with a block: the dig shape around the aimed voxel takes the held
+## material wherever it is a plain voxel (recolouring a hillside, a wall, a floor). Any size, native.
+func _paint(hit: VoxelRaycastResult, mat: int) -> bool:
+	var mask := BrushTool.paint_mask()
+	var aimed := world.get_voxel(hit.position)
+	if aimed <= 0 or aimed >= mask.size() or mask[aimed] == 0:
+		return false   # a station, plant or work piece: the right click goes on as usual
+	if not brush_tool.busy():
+		brush_tool.paint(hit.position, hit.previous_position, dig_size(), brush_shape, mat, mask)
+	_after_use()
+	return true
+
+
+## The player's body box in voxels (placements never fill it).
+func _body_box() -> AABB:
+	var r := Settings.m2v(Settings.player_radius_m)
+	return AABB(position - Vector3(r, 0, r), Vector3(2 * r, Settings.m2v(Settings.player_height_m), 2 * r))
+
+
+## The held item places voxels with the brush (a voxel item): the preview shows the placement.
+func _places_voxels() -> bool:
+	if inventory == null:
+		return false
+	var def := inventory.held_def()
+	return def.has("material") and inventory.items.is_voxel_item(def["id"])
 
 
 ## A station item (crafting table, chest, furnace, pot) fills a BLOCK^3
@@ -1090,7 +1231,7 @@ func _place_station(hit: VoxelRaycastResult, mat: int) -> void:
 ## surface within a voxel of the aimed height (open air above it).
 func _farm_patch(target: Vector3i) -> Array[Vector3i]:
 	var out: Array[Vector3i] = []
-	var n := maxi(brush_size, 1)
+	var n := clampi(brush_size, 1, Brush.NATIVE_ABOVE)
 	var o := Vector3i(floori(float(target.x) / n) * n, target.y, floori(float(target.z) / n) * n)
 	for dz in n:
 		for dx in n:

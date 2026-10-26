@@ -149,6 +149,7 @@ const CLAY_POT_CRACKED := 199
 const PYRITE := 200                # placed by E's generator for part F (striker): ids 200..202 are the start of F's range
 const RED_OCHRE := 201
 const YELLOW_OCHRE := 202
+const TNT := 203                   # placeable explosive (ADR 0065): a charge per 0.5 m block, lit by Tnt, never burnt by the sim
 
 const ATLAS_TILES := Vector2i(8, 22)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -257,7 +258,10 @@ static func _build_defs() -> Array:
 		{"name": "bricks", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [99, 99, 99], "transparent": false},
 	] + _clutter_defs() + _reserved_defs(116, 119) + [
 		{"name": "crystal", "cell_type": "solid", "pattern": true, "density": 10, "hp": 800, "tiles": [104, 104, 104], "transparent": false},
-	] + _reserved_defs(121, 126) + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs()
+	] + _reserved_defs(121, 126) + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
+		# 203 (ADR 0065): TNT. Not burnable: the sim would burn it away; Tnt lights it when fire touches it.
+		{"name": "tnt", "cell_type": "solid", "pattern": true, "density": 6, "hp": 50, "tiles": [172, 171, 172], "transparent": false},
+	]
 
 
 ## The savanna floor, ids 127..129 (bug report 2026-10-25 20-37-22): grass and tussocks that act like
