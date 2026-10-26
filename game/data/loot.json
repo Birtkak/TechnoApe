@@ -1,5 +1,5 @@
 {
-  "_comment": "Loot tables (ADR 0057). A material with \"shatter\": \"<table>\" (materials.gd) breaks at any hit and drops a roll of that table instead of itself: ruin pots today, dungeon chests and urns later. A table: rolls [min, max] picks of its entries (weighted, with replacement), empty_chance = the share of breaks that hold nothing; an entry: id, weight, count n or [min, max], wear [min, max] = share of the item's durability already used (old tools). deeper: {depth_m, table} switches to another table when the break is that far below the surface. The roll is deterministic from the world seed and the piece's lowest voxel.",
+  "_comment": "Loot tables (ADR 0057). A material with \"shatter\": \"<table>\" (materials.gd) breaks at any hit and drops a roll of that table instead of itself: ruin pots today (each ruin kind rolls its own table, data/ruins.json \"loot\", ADR 0062), dungeon chests and urns later. A table: rolls [min, max] picks of its entries (weighted, with replacement), empty_chance = the share of breaks that hold nothing; an entry: id, weight, count n or [min, max], wear [min, max] = share of the item's durability already used (old tools). deeper: {depth_m, table} switches to another table when the break is that far below the surface. The roll is deterministic from the world seed and the piece's lowest voxel.",
   "tables": {
     "ruin_pot": {
       "rolls": [1, 3],
@@ -32,6 +32,110 @@
         {"id": "copper_ingot", "weight": 4},
         {"id": "bronze_ingot", "weight": 2},
         {"id": "cave_crystal", "weight": 4, "count": [1, 2]}
+      ]
+    },
+    "tower_pot": {
+      "rolls": [1, 3],
+      "empty_chance": 0.25,
+      "entries": [
+        {"id": "flint", "weight": 14, "count": [2, 4]},
+        {"id": "cordage", "weight": 12, "count": [1, 3]},
+        {"id": "torch", "weight": 10, "count": [1, 3]},
+        {"id": "leather_strip", "weight": 10, "count": [1, 3]},
+        {"id": "firewood", "weight": 8, "count": [2, 4]},
+        {"id": "flint_spear", "weight": 6, "wear": [0.5, 0.9]},
+        {"id": "leather_cap", "weight": 3, "wear": [0.4, 0.8]},
+        {"id": "copper_knife", "weight": 4, "wear": [0.4, 0.8]},
+        {"id": "copper_axe", "weight": 2, "wear": [0.4, 0.8]},
+        {"id": "copper_helmet", "weight": 2, "wear": [0.5, 0.9]},
+        {"id": "bronze_ingot", "weight": 1}
+      ]
+    },
+    "circle_pot": {
+      "rolls": [1, 2],
+      "empty_chance": 0.2,
+      "entries": [
+        {"id": "red_ochre", "weight": 14, "count": [1, 3]},
+        {"id": "yellow_ochre", "weight": 12, "count": [1, 3]},
+        {"id": "feather", "weight": 10, "count": [2, 5]},
+        {"id": "antler", "weight": 8},
+        {"id": "seashell", "weight": 8, "count": [1, 3]},
+        {"id": "bone", "weight": 8, "count": [1, 3]},
+        {"id": "pyrite", "weight": 6, "count": [1, 2]},
+        {"id": "cave_crystal", "weight": 5, "count": [1, 2]},
+        {"id": "mana_dust", "weight": 3, "count": [1, 2]},
+        {"id": "crystal", "weight": 1}
+      ]
+    },
+    "crypt_pot": {
+      "rolls": [2, 3],
+      "empty_chance": 0.1,
+      "entries": [
+        {"id": "bone", "weight": 16, "count": [1, 4]},
+        {"id": "copper_nugget", "weight": 10, "count": [2, 4]},
+        {"id": "copper_ingot", "weight": 8},
+        {"id": "cave_crystal", "weight": 6, "count": [1, 2]},
+        {"id": "tin_ingot", "weight": 5},
+        {"id": "bronze_ingot", "weight": 4},
+        {"id": "iron_nugget", "weight": 4, "count": [1, 2]},
+        {"id": "mana_dust", "weight": 4, "count": [1, 3]},
+        {"id": "copper_knife", "weight": 4, "wear": [0.3, 0.7]},
+        {"id": "copper_helmet", "weight": 3, "wear": [0.3, 0.7]},
+        {"id": "crystal", "weight": 2},
+        {"id": "copper_chestplate", "weight": 1, "wear": [0.4, 0.8]},
+        {"id": "spell_spark_bolt", "weight": 1}
+      ]
+    },
+    "mud_house_pot": {
+      "rolls": [1, 3],
+      "empty_chance": 0.3,
+      "entries": [
+        {"id": "wheat_seeds", "weight": 18, "count": [2, 5]},
+        {"id": "plant_fiber", "weight": 12, "count": [2, 5]},
+        {"id": "wheat", "weight": 10, "count": [1, 3]},
+        {"id": "dry_grass", "weight": 10, "count": [2, 6]},
+        {"id": "cordage", "weight": 8, "count": [1, 2]},
+        {"id": "clay_ball", "weight": 8, "count": [2, 4]},
+        {"id": "clay_bowl", "weight": 6},
+        {"id": "copper_nugget", "weight": 6, "count": [1, 3]},
+        {"id": "tin_nugget", "weight": 3, "count": [1, 2]},
+        {"id": "flint_knife", "weight": 3, "wear": [0.5, 0.9]},
+        {"id": "glass", "weight": 2, "count": [1, 2]},
+        {"id": "bronze_ingot", "weight": 1}
+      ]
+    },
+    "shrine_pot": {
+      "rolls": [1, 2],
+      "empty_chance": 0.2,
+      "entries": [
+        {"id": "hazelnut", "weight": 12, "count": [2, 5]},
+        {"id": "acorn", "weight": 10, "count": [2, 5]},
+        {"id": "blueberry", "weight": 10, "count": [2, 6]},
+        {"id": "brown_mushroom", "weight": 8, "count": [1, 3]},
+        {"id": "plant_fiber", "weight": 8, "count": [2, 4]},
+        {"id": "red_mushroom", "weight": 6, "count": [1, 2]},
+        {"id": "poppy", "weight": 6, "count": [1, 3]},
+        {"id": "cave_crystal", "weight": 5, "count": [1, 2]},
+        {"id": "mana_dust", "weight": 4, "count": [1, 2]},
+        {"id": "fire_essence", "weight": 1}
+      ]
+    },
+    "wreck_pot": {
+      "rolls": [1, 3],
+      "empty_chance": 0.2,
+      "entries": [
+        {"id": "seashell", "weight": 14, "count": [1, 4]},
+        {"id": "cordage", "weight": 14, "count": [2, 4]},
+        {"id": "kelp", "weight": 10, "count": [2, 5]},
+        {"id": "driftwood", "weight": 8, "count": [1, 3]},
+        {"id": "raw_fish", "weight": 8, "count": [1, 2]},
+        {"id": "wool", "weight": 6, "count": [1, 3]},
+        {"id": "leather", "weight": 5, "count": [1, 2]},
+        {"id": "glass_flask", "weight": 4},
+        {"id": "copper_ingot", "weight": 4},
+        {"id": "iron_nugget", "weight": 4, "count": [1, 3]},
+        {"id": "bronze_ingot", "weight": 2},
+        {"id": "iron_ingot", "weight": 1}
       ]
     }
   }

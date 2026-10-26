@@ -22,6 +22,7 @@
 #include "FastNoiseLite.h"
 #include "biome_table.gen.h" // generated from game/data/biomes.json (36 biomes, classify(), classify_3d())
 #include "ore_veins.gen.h"   // generated from game/data/ore_veins.json (vein types, grid, indicators)
+#include "ruins.h"           // ruin kinds and shapes (ruin_table.gen.h from game/data/ruins.json, ADR 0062)
 
 #include <cstdint>
 #include <memory>
@@ -108,10 +109,12 @@ public:
     // Debug: the ore vein of the cell holding (x, z): {name, type, x, y, z, size, thickness,
     // half_thickness (lens thickness / 2 at this column, 0 outside), indicator} or {} when none.
     Dictionary vein_at(int x, int z) const;
-    // Loot pot spots in the ruins within radius of (x, z) (hook for breakable pots, part E of the 2026-10-25
-    // split): [{x, y, z, ruin, seed}] in macro voxels, y = the first air voxel on the ruin floor; two to four
-    // per ruin, in inside corners and against the walls. Nothing is generated there: the caller places them.
+    // The clay pots of the ruins within radius of (x, z) (ADR 0057, 0062): [{x, y, z, ruin, seed, kind}] in
+    // macro voxels, y = the macro cell the pot stands in; one to four per ruin, the same spots the generator
+    // puts its pot voxels in (technosim_ruin::pot_spots).
     Array ruin_pots_near(int x, int z, int radius) const;
+    // The ruin whose region (footprint + 2 cells) holds macro (x, z): {kind, x, y (floor), z, half_x, half_z, rot}, {} when none.
+    Dictionary ruin_at(int x, int z) const;
     // Debug: switch a generator variant for comparison sheets (clears the hydrology cache; not thread-safe
     // against running generation). Slot VAR_MOUNTAINS: 0 the ranges of ADR 0035, 1 massif (default, ADR
     // 0051), 2 horns; VAR_CAVES: 0 the caves of ADR 0035, 1 caverns, ravines and mouths (default, ADR 0052);
@@ -201,7 +204,7 @@ private:
     int stamps_near(int x0, int z0, int x1, int z1, Stamp *out, int max_out) const;
     static constexpr int RUIN_CELL = 160;
     static constexpr int RUIN_MAX_HALF = 10;
-    struct Ruin { int x, z, hw, hd, base; uint32_t seed; };
+    using Ruin = technosim_ruin::Ruin;
 
     int seed_ = 1337;
     int variant_[VAR_COUNT] = {1, 1, 0, 0};

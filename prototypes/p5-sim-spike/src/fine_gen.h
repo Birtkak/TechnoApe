@@ -22,6 +22,7 @@ class FineGen : public RefCounted {
 
 public:
     static constexpr int FS = 4;   // fine voxels per macro unit (0.5 m / 12.5 cm)
+    static constexpr int RUIN_RAMP = 4;   // macro cells round a ruin over which the ground ramps to its floor (ADR 0062)
 
     FineGen();
 
@@ -52,6 +53,7 @@ public:
     Dictionary hydrology_stats(int x, int z) const;
     Dictionary vein_at(int x, int z) const;
     Array ruin_pots_near(int x, int z, int radius) const;   // WorldGen's, in fine voxels (the spot's lowest air voxel)
+    Dictionary ruin_at(int x, int z) const;                 // WorldGen's, in fine voxels ({} outside every ruin)
     Ref<WorldGen> get_macro() const { return g_; }
 
 protected:

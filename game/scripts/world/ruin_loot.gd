@@ -22,6 +22,19 @@ static func table_of(material: int) -> String:
 	return String(GameMaterials.defs()[material - 1].get("shatter", ""))
 
 
+## The table a pot at `cell` rolls: a ruin pot rolls its ruin kind's own table (data/ruins.json "loot",
+## ADR 0062); anything else, or a pot outside every ruin (one the player placed), keeps `table`.
+## `gen` = the FineGen (anything with ruin_at(x, z)), null = no lookup.
+static func table_at(table: String, gen, cell: Vector3i) -> String:
+	if table != "ruin_pot" or gen == null or not gen.has_method("ruin_at"):
+		return table
+	var r: Dictionary = gen.ruin_at(cell.x, cell.z)
+	if r.is_empty():
+		return table
+	var t := RuinTable.get_default().loot_of(String(r.get("kind", "")))
+	return t if t != "" and tables().has(t) else table
+
+
 ## Stacks from `table` for the piece whose lowest voxel is `key`, depth_m below the surface.
 static func roll(table: String, world_seed: int, key: Vector3i, depth_m: float, items: ItemRegistry) -> Array:
 	var t: Dictionary = tables().get(table, {})
@@ -88,6 +101,7 @@ static func shatter(main: Node, cells: Array) -> Dictionary:
 		if not GameMode.rule(main.player.game_mode, "drops"):
 			continue
 		var depth_m := Settings.v2m(maxf(0.0, main.world.surface_height(key.x, key.z) - key.y))
-		for s in roll(table, Settings.world_seed, key, depth_m, main.items):
+		var gen = main.world.generator.gen if main.world and main.world.generator else null
+		for s in roll(table_at(table, gen, key), Settings.world_seed, key, depth_m, main.items):
 			main.spawn_item(s, centre, Vector3(randf_range(-1.0, 1.0), 2.5, randf_range(-1.0, 1.0)))
 	return done

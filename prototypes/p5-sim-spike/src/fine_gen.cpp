@@ -107,8 +107,10 @@ void FineGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("hydrology_stats", "x", "z"), &FineGen::hydrology_stats);
     ClassDB::bind_method(D_METHOD("vein_at", "x", "z"), &FineGen::vein_at);
     ClassDB::bind_method(D_METHOD("ruin_pots_near", "x", "z", "radius"), &FineGen::ruin_pots_near);
+    ClassDB::bind_method(D_METHOD("ruin_at", "x", "z"), &FineGen::ruin_at);
     ClassDB::bind_method(D_METHOD("get_macro"), &FineGen::get_macro);
     ClassDB::bind_integer_constant(get_class_static(), StringName(), "FS", FS);
+    ClassDB::bind_integer_constant(get_class_static(), StringName(), "RUIN_RAMP", RUIN_RAMP);
 }
 
 static void setup_noise(FastNoiseLite &n, int seed, float freq, int octaves) {
@@ -159,10 +161,14 @@ FineGen::MacroPt FineGen::macro_point(int mx, int mz, const WorldGen::Ruin *ruin
     }
     for (int i = 0; i < nruins; i++)
         if (WorldGen::in_ruin(ruins[i], mx, mz, 2)) { m.ruin = i; break; }
-    if (m.ruin >= 0) {
-        const float ground = (float)ruins[m.ruin].base;
-        if (WorldGen::in_ruin(ruins[m.ruin], mx, mz, 0)) h = ground;
-        else if (h > ground + 1.0f) h = ground + 1.0f;
+    // A ruin's floor is level; round it the ground ramps to the land's own height over RUIN_RAMP cells,
+    // a cell up or down per cell out, so it neither stands on a plinth nor sinks into a slope (ADR 0062).
+    for (int i = 0; i < nruins; i++) {
+        const int d = std::max(std::abs(mx - ruins[i].x) - ruins[i].hw, std::abs(mz - ruins[i].z) - ruins[i].hd);
+        if (d > RUIN_RAMP) continue;
+        const float ground = (float)ruins[i].base;
+        h = d <= 0 ? ground : std::clamp(h, ground - (float)d, ground + (float)d);
+        break;
     }
     if (technosim_biome::DECOR_SPIRE[m.col.biome] > 0.0f && m.ruin < 0 && !m.lakebed && !m.riverbed && !m.marshbed && h > (float)m.water_level) {
         m.spike = g.spire_at(m.col.biome, mx, mz);
@@ -457,7 +463,7 @@ void FineGen::young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
             if (hy.river > 0.05f || hy.lake || hy.puddle) continue;
             bool blocked = false;
-            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, 3);
+            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP + 4);
             if (blocked) continue;
             WorldGen::Tree big;
             if (g.tree_at_cell(floor_div(mx, WorldGen::TREE_CELL), floor_div(mz, WorldGen::TREE_CELL), big)) {
@@ -529,7 +535,7 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
             if (hy.river > 0.05f || hy.lake || hy.puddle) continue;
             bool blocked = false;
-            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, 2);
+            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP);
             if (blocked) continue;
             FStamp s;
             s.seed = h3(cx, cz, g.seed_ + 607);
@@ -578,7 +584,7 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
             if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh) continue;
             bool blocked = false;
-            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, 2);
+            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP);
             if (blocked) continue;
             FStamp s{};
             s.kind = STICK;
@@ -631,7 +637,7 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
             if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh) continue;
             bool blocked = false;
-            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, 2);
+            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP);
             if (blocked) continue;
             FStamp s{};
             s.kind = kind;
@@ -815,6 +821,8 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
     const int mx0 = lx0 / FS, mz0 = lz0 / FS, mstep = L / FS;
     WorldGen::Ruin ruins[4];
     const int nruins = g.ruins_near(mx0 - 1, mz0 - 1, mx0 + nx * mstep + 1, mz0 + nz * mstep + 1, ruins, 4);
+    technosim_ruin::Prepared rprep[4];
+    for (int i = 0; i < nruins; i++) technosim_ruin::prepare(ruins[i], rprep[i]);
     std::vector<MacroPt> lat((size_t)nx * nz);
     int hmax_m = 0, wl_max = 0, fall_max = -1;
     float hmin_m = 1e9f;
@@ -864,7 +872,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             trees.reserve(nt + 16);
             for (int i = 0; i < nt; i++) {
                 bool blocked = false;
-                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mtrees[i].x, mtrees[i].z, 3);
+                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mtrees[i].x, mtrees[i].z, RUIN_RAMP + 4);
                 if (blocked) continue;
                 const WorldGen::Tree &mt = mtrees[i];
                 const uint32_t ts = h3(mt.x, mt.z, g.seed_ + 77);
@@ -895,7 +903,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             const int ns = g.stamps_near(floor_div(x_lo, FS) - 2, floor_div(z_lo, FS) - 2, floor_div(x_hi, FS) + 2, floor_div(z_hi, FS) + 2, ms, MAXS);
             for (int i = 0; i < ns; i++) {
                 bool blocked = false;
-                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], ms[i].x, ms[i].z, 2);
+                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], ms[i].x, ms[i].z, RUIN_RAMP);
                 if (blocked) continue;
                 FStamp s;
                 build_stamp(ms[i], s);
@@ -1311,25 +1319,10 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     aqua_h = std::min(1 + (int)((ah >> 4) % 3), depth - 1);
                 }
             }
-            // ruin walls (macro geometry: 0.5 m stones)
-            int wall_top = -1;
-            uint32_t wall_seed = 0;
-            bool rubble = false;
-            if (ruin) {
-                const int ax = std::abs(mx - ruin->x), az = std::abs(mz - ruin->z);
-                const bool on_perimeter = (ax == ruin->hw && az <= ruin->hd) || (az == ruin->hd && ax <= ruin->hw);
-                const bool corner = ax == ruin->hw && az == ruin->hd;
-                if (on_perimeter) {
-                    const int seg = corner ? 99 : ((ax == ruin->hw) ? (mz - ruin->z + ruin->hd) / 4 + 100 * (mx > ruin->x) : (mx - ruin->x + ruin->hw) / 4 + 200 * (mz > ruin->z));
-                    const uint32_t sh = h3((int)ruin->seed, seg, 7);
-                    int hgt = corner ? 6 + (int)(sh % 4) : (int)(sh % 7);
-                    if (!corner && ((sh >> 8) & 7) == 0) hgt = 0;
-                    wall_top = ruin->base + hgt;
-                    wall_seed = h3(mx, mz, (int)ruin->seed);
-                } else if (!WorldGen::in_ruin(*ruin, mx, mz, 0)) {
-                    rubble = (h3(mx, mz, (int)ruin->seed + 5) & 15) == 0;
-                }
-            }
+            // the ruin whose region holds this column (ADR 0062: its shape decides the voxels in its reach)
+            const technosim_ruin::Prepared *rp = nullptr;
+            for (int k = 0; k < nruins && !rp; k++)
+                if (WorldGen::in_ruin(ruins[k], mx, mz, 2)) rp = &rprep[k];
             // cave mask for the column, one voxel beyond the block on both ends
             const int no_cave_above = (hy.lake || hy.river > 0.0f || hy.marsh) ? water_level - 40 * FS : -1;
             const int cave_band = 1 << 30;   // coarse LODs carry only the big caves below the mouths (cave_field)
@@ -1360,19 +1353,11 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             for (int y = 0; y < sy; y++) {
                 const int wy = origin.y + y * step;
                 uint16_t mat = Mat::AIR;
-                if (ruin) {
-                    const int my = floor_div(wy, FS);
-                    if (my >= ruin->base && my <= ruin->base + 10 && WorldGen::in_ruin(*ruin, mx, mz, 2)) {
-                        if (my == ruin->base && WorldGen::in_ruin(*ruin, mx, mz, 0)) mat = (h3(mx, mz, 3) & 3) ? Mat::STONE : Mat::GRAVEL_STATIC;
-                        else if (wall_top >= 0 && my > ruin->base && my <= wall_top) {
-                            const uint32_t vh = h3(my, (int)wall_seed, 11);
-                            mat = (vh & 15) < (uint32_t)(2 + (my - ruin->base)) ? Mat::AIR : Mat::STONE;
-                        } else if (rubble && my == ruin->base + 1) mat = Mat::STONE;
-                        else if (wy < h) mat = top_m;
-                        else if (lod == 0 && my > ruin->base && my <= ruin->base + 2)   // pots inside (ADR 0057)
-                            mat = technosim_rock::RockTypes::ruin_pot_voxel(ruin->x, ruin->z, ruin->hw, ruin->hd, ruin->seed, mx, mz, wx - mx * FS, wz - mz * FS, wy - (ruin->base + 1) * FS);
-                        colp[y] = mat;
-                        if (mat != Mat::AIR) any = true;
+                if (rp && technosim_ruin::in_reach(rp->r, floor_div(wy, FS))) {
+                    const uint16_t rm = technosim_ruin::voxel(*rp, FS, wx, wy, wz, h, top_m, lod == 0);   // pots at LOD 0 (ADR 0057)
+                    if (rm != technosim_ruin::PASS) {
+                        colp[y] = rm;
+                        if (rm != Mat::AIR) any = true;
                         continue;
                     }
                 }
@@ -1627,6 +1612,17 @@ Dictionary FineGen::vein_at(int x, int z) const {
         d["z"] = (int)d["z"] * FS + 2;
         d["half_thickness"] = (float)d["half_thickness"] * FS;
     }
+    return d;
+}
+
+Dictionary FineGen::ruin_at(int x, int z) const {
+    Dictionary d = g_->ruin_at(floor_div(x, FS), floor_div(z, FS));
+    if (d.is_empty()) return d;
+    d["x"] = (int)d["x"] * FS + 2;
+    d["y"] = (int)d["y"] * FS;
+    d["z"] = (int)d["z"] * FS + 2;
+    d["half_x"] = (int)d["half_x"] * FS;
+    d["half_z"] = (int)d["half_z"] * FS;
     return d;
 }
 
