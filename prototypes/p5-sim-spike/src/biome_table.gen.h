@@ -74,7 +74,7 @@ static const int SURFACE_UNDER[COUNT] = {22, 22, 21, 2, 2, 21, 2, 2, 2, 1, 22, 2
 static const int SURFACE_STEEP[COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 82, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 // Caves: the ceiling over a cave cell and static pools on cave floors (-1 = plain stone, no pools).
 static const int SURFACE_CEILING[COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 85, 55};
-static const int SURFACE_POOL[COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 23, -1, -1, -1, -1, -1, -1, 23, -1, -1, -1, -1, -1, -1, 7, 54};
+static const int SURFACE_POOL[COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 23, -1, -1, -1, -1, -1, -1, 23, -1, -1, -1, -1, -1, -1, 121, 54};
 // What the top voxel of open water freezes into (-1 = it stays water).
 static const int SURFACE_ICE[COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 30, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 

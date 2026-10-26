@@ -25,12 +25,18 @@ func _init() -> void:
 	var size := Vector3i(2 * r, int(args.get("hgt", "48")), 2 * r)
 	var org := Vector3i(cx - r, y0, cz - r)
 	var bytes: PackedByteArray = gen.generate_block(org, size, 0, 2)
+	# every liquid counts as the surface (liquid=water keeps the old water-only count); still kinds included
 	var water := {GameMaterials.WATER: true, GameMaterials.WATER_STATIC: true}
+	if String(args.get("liquid", "all")) == "all":
+		for m in [GameMaterials.LAVA, GameMaterials.LAVA_STATIC, GameMaterials.TOXIC_SLUDGE, GameMaterials.TOXIC_SLUDGE_STATIC]:
+			water[m] = true
 	var at := func(x: int, y: int, z: int) -> int:
 		if x < 0 or y < 0 or z < 0 or x >= size.x or y >= size.y or z >= size.z:
 			return -1
 		return bytes.decode_u16((y + size.y * (x + size.x * z)) * 2)
 	var surface := 0
+	var lone := 0   # surface cells with no liquid on any side and open air beside them (ADR 0069 C: the generator drops them)
+	var boxed := 0   # ... with rock on all four sides: a one-cell puddle in a one-cell hollow, allowed
 	var holes := []
 	var walls := 0
 	var wall_samples := []
@@ -41,6 +47,19 @@ func _init() -> void:
 				var m: int = at.call(x, y, z)
 				if water.has(m) and at.call(x, y + 1, z) == GameMaterials.AIR:
 					surface += 1
+					var side := 0
+					var open := 0
+					for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+						var nm: int = at.call(x + d.x, y, z + d.y)
+						if water.has(nm):
+							side += 1
+						elif nm == GameMaterials.AIR:
+							open += 1
+					if side == 0:
+						if open > 0:
+							lone += 1
+						else:
+							boxed += 1
 				if m != GameMaterials.AIR:
 					continue
 				var wn := 0
@@ -136,11 +155,30 @@ func _init() -> void:
 			for y in range(1, size.y - 1):
 				if water.has(at.call(x, y, z)) and at.call(x, y + 1, z) == GameMaterials.AIR:
 					tops[Vector2i(x, z)] = y
+	# a step of three or more between neighbouring surface cells is a cascade when the bed under them drops as much
+	# (the river runs down a slope steeper than 2:1: the ground's doing) and a terrace otherwise (a generator fault)
+	var cascades := 0
+	var terraces := 0
+	var terrace_samples := []
+	var bed_at := func(x: int, z: int, y: int) -> int:
+		var b := y
+		while b > 0 and water.has(at.call(x, b, z)):
+			b -= 1
+		return b
 	for k2 in tops:
 		for d in [Vector2i(1, 0), Vector2i(0, 1)]:
 			if tops.has(k2 + d):
 				var dy: int = absi(tops[k2] - tops[k2 + d])
 				steps[dy] = int(steps.get(dy, 0)) + 1
+				if dy >= 3:
+					var b1: int = bed_at.call(k2.x, k2.y, tops[k2])
+					var b2: int = bed_at.call(k2.x + d.x, k2.y + d.y, tops[k2 + d])
+					if absi(b1 - b2) >= dy - 1:
+						cascades += 1
+					else:
+						terraces += 1
+						if terrace_samples.size() < 3:
+							terrace_samples.append([org + Vector3i(k2.x, tops[k2], k2.y), dy, b1 - b2])
 	var seams := 0
 	var lips := 0
 	var wall_corners := 0   # a column at the corner that the two cells see differently (out of reach): a terrace or rapid
@@ -177,8 +215,11 @@ func _init() -> void:
 									stack.append(GameMaterials.name_of(at.call(key.x + dx, yy, key.y + dz)).left(5))
 								cols.append(stack)
 						seam_samples.append([org + Vector3i(key.x, list[a][0], key.y), list[a][1], list[b][0] - list[a][0], list[b][1], cols])
-	print("water probe at ", Vector2i(cx, cz), " r ", r, ": surface cells ", surface, ", holes ", holes.size(), ", glass edges ", walls, " by height ", depth_hist)
+	print("water probe at ", Vector2i(cx, cz), " r ", r, ": surface cells ", surface, ", lone cells ", lone, " (boxed one-cell puddles ", boxed, "), holes ", holes.size(), ", glass edges ", walls, " by height ", depth_hist)
 	print("  rule ", rule, ": corner seams ", seams, ", wall corners ", wall_corners, ", lips ", lips, " (", corners.size(), " corner points); surface steps by height ", steps)
+	print("  steps of 3+: cascades (the bed drops as much) ", cascades, ", terraces (it does not) ", terraces)
+	for ts in terrace_samples:
+		print("  terrace at ", ts[0], ": step ", ts[1], ", bed difference ", ts[2])
 	for sm in seam_samples:
 		print("  seam at corner ", sm[0], ": ", snappedf(sm[1], 0.001), " vs ", snappedf(sm[3], 0.001), " (dy ", sm[2], ") columns (-x-z, +x-z, -x+z, +x+z) from y-2 up: ", sm[4])
 	for w in wall_samples:

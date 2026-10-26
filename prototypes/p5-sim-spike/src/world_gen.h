@@ -58,6 +58,7 @@ public:
         // 75 furniture (never generated); content pass: tree kinds, badlands strata, basalt, ice fields, ferns
         SPRUCE_LOG = 76, SPRUCE_LEAVES = 77, ACACIA_LOG = 78, ACACIA_LEAVES = 79, JUNGLE_LOG = 80, JUNGLE_LEAVES = 81,
         TERRACOTTA = 82, TERRACOTTA_RED = 83, TERRACOTTA_CREAM = 84, BASALT = 85, PACKED_ICE = 86, FERN = 87,
+        LAVA_STATIC = 121, // still lava: cave pools and the deep lava sea, finite moving lava once opened (ADR 0069 C)
         // 88..89 work pieces (ADR 0023, never generated); content pass 2
         BIRCH_LOG = 90, BIRCH_LEAVES = 91, BLUEBERRY_BUSH = 92, PUMPKIN = 93, CORNFLOWER = 94, OXEYE_DAISY = 95, ALLIUM = 96,
         OAK_BARK = 97, SPRUCE_BARK = 98, ACACIA_BARK = 99, JUNGLE_BARK = 100, BIRCH_BARK = 101,

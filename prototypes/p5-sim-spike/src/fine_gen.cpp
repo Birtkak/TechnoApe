@@ -1144,8 +1144,10 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     // only corners that hold water: hydrology marks a river's whole trench (river ~1) but
                     // gives only its channel a level; the rest of the trench is filled from it here
                     if ((cs[k]->hy.river <= 0.0f && !cs[k]->hy.lake) || cs[k]->hy.water_level < 0) continue;
-                    sum += std::max(ws[k], 0.02f) * (float)cs[k]->water_level;
-                    wsum += std::max(ws[k], 0.02f);
+                    // plain bilinear weights: a floor on them (once 0.02) made the surface jump by up to a macro step
+                    // (4 voxels) at every lattice cell border where the set of wet corners changes (ADR 0069 C)
+                    sum += ws[k] * (float)cs[k]->water_level;
+                    wsum += ws[k];
                 }
                 if (wsum > 0.0f) {
                     const int wl = (int)std::floor(sum / wsum * FS + 0.5f);
@@ -1500,7 +1502,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     const int n_soil = std::clamp(soil + 1 - d_top, 0, n_solid);
                     const int depth = h - wy;
                     if (cave[y + 1]) {
-                        mat = (wy < sea - 180 * FS) ? Mat::LAVA : Mat::AIR;
+                        mat = (wy < sea - 180 * FS) ? Mat::LAVA_STATIC : Mat::AIR;   // the deep lava sea: still until opened (ADR 0069 C)
                         if (mat == Mat::AIR && crystal_h > 0) {
                             // cave crystals (ADR 0057) on the floor below, when the floor and the whole spike lie in
                             // this block's 16-voxel band (a neighbour block never draws half of one)
@@ -1586,6 +1588,24 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
         }
     }
     if (!any) return out;
+    // No lone liquid cells (ADR 0069 C): a still liquid cell with air above, no liquid of its kind on any side and
+    // open air beside it (a one-cell puddle on a cave wall's step, a scrap at a bank) is dropped; it drew as a spike
+    // or a film and woke the simulation for nothing. Cells on the block's edge keep (their neighbours are unknown).
+    {
+        auto still = [](uint16_t m) { return m == Mat::WATER_STATIC || m == Mat::TOXIC_SLUDGE_STATIC || m == Mat::LAVA_STATIC; };
+        for (int z = 1; z < sz - 1; z++)
+            for (int x = 1; x < sx - 1; x++) {
+                uint16_t *cp = w + sy * (x + sx * z);
+                for (int y = 0; y < sy - 1; y++) {
+                    const uint16_t m = cp[y];
+                    if (!still(m) || cp[y + 1] != Mat::AIR) continue;
+                    const uint16_t nxm = w[y + sy * (x - 1 + sx * z)], pxm = w[y + sy * (x + 1 + sx * z)];
+                    const uint16_t nzm = w[y + sy * (x + sx * (z - 1))], pzm = w[y + sy * (x + sx * (z + 1))];
+                    if (nxm == m || pxm == m || nzm == m || pzm == m) continue;
+                    if (nxm == Mat::AIR || pxm == Mat::AIR || nzm == Mat::AIR || pzm == Mat::AIR) cp[y] = Mat::AIR;
+                }
+            }
+    }
     const int bpv = (bytes_per_voxel == 1 || bytes_per_voxel == 4) ? bytes_per_voxel : 2;
     out.resize(n * bpv);
     uint8_t *o = out.ptrw();

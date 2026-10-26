@@ -671,6 +671,11 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
     float best_d = 1e9f;
     int best_k = -1;
     float best_t = 0.0f;
+    // every stream segment near this column (ADR 0069 C): the surface blends between them by distance, so
+    // where the nearest segment changes (a bend, a steep reach) the level does not jump by metres along a line
+    struct Cand { int k; float d, tt; };
+    Cand cands[9];
+    int ncand = 0;
     for (int dj = -1; dj <= 1; dj++)
         for (int di = -1; di <= 1; di++) {
             const int k = (j + dj) * HWIN + (i + di);
@@ -678,6 +683,7 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
             const int nk = downstream(k);
             float tt;
             float d = seg_dist(rx, rz, centre_x(k), centre_z(k), centre_x(nk), centre_z(nk), tt);
+            cands[ncand++] = {k, d, tt};
             if (d < best_d) { best_d = d; best_k = k; best_t = tt; }
         }
     if (best_k >= 0) {
@@ -693,6 +699,19 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
             const int nk = downstream(best_k);
             const float up = t->filled[best_k], down = t->filled[nk];
             float surf = up + (down - up) * best_t;
+            {
+                // blend the surfaces of all segments in reach, weighted by (1 - d / reach)^2 (ADR 0069 C)
+                const float reach = half_w + bank_w;
+                float wsum = 0.0f, ssum = 0.0f;
+                for (int q = 0; q < ncand; q++) {
+                    if (cands[q].d >= reach) continue;
+                    const float w = (1.0f - cands[q].d / reach) * (1.0f - cands[q].d / reach);
+                    const int qk = cands[q].k, qn = downstream(qk);
+                    ssum += w * (t->filled[qk] + (t->filled[qn] - t->filled[qk]) * cands[q].tt);
+                    wsum += w;
+                }
+                if (wsum > 0.0f) surf = ssum / wsum;
+            }
             surf = std::min(surf, (float)base_height); // never above the local ground
             // Waterfall sheet over the cliff part of this segment (precomputed per cell).
             if (t->fall_t0[best_k] >= 0.0f && best_t >= t->fall_t0[best_k] && best_t <= t->fall_t1[best_k] && best_d < half_w * 0.6f)

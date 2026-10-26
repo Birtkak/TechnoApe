@@ -1,6 +1,6 @@
 # ADR 0069: The fluid baseline (generated, simulated, drawn)
 
-Status: parts A and B1-B2 accepted and done (2026-10-26); B3 and C proposed, the marked taste calls are the developer's
+Status: parts A, B1-B2 and C accepted and done (2026-10-26); B3 proposed, the marked taste calls are the developer's
 
 ## Context
 Fluids have been reworked four times in three days (ADR 0045 ramps and reservoirs, 0049 bodies that pour, 0068 all
@@ -117,21 +117,42 @@ except at a declared fall.
    frame earlier than before and runs down the slope sooner; the lava ball slumps the same in both. B3 (films)
    gets its test when decided.
 
-### C. Generated: every liquid placed settled and still
-1. **A still kind for every generated liquid**: add `lava_static` (and any other pool liquid that lacks one);
-   `biomes.json` pools use the still kinds. A cave lava pool then stays until someone opens it, like a lake.
-2. **Pools lie flat in hollows** (FineGen): a pool's surface is one level over its whole hollow, filled to the
-   rim and never above the lowest rim cell (the to-test item for sulfur and lush caves); no single liquid cells on
-   wall steps (a cell with no liquid neighbour and open air beside it is dropped at generation).
-3. Rivers keep the per-voxel interpolation, the filled trenches and low banks and no waterfall sheet, but **no step
-   of more than two cells between adjacent surface cells** except at a declared fall: today the channel's edge
-   line stands 3-4 cells above the water beside it (one macro step) and the old waterfall sites descend as 3-4 cell
-   stairs (measured in A). With that, A draws every river slope as a sheet.
-4. Check: `water_surface_probe.gd` over a sulfur cave and a lava cave: zero lone cells, zero cells above the
-   rim; `/goto lava_cave` screenshot.
+### C. Generated: every liquid placed settled and still (done 2026-10-26)
+1. **A still kind for every generated liquid**: `lava_static` (material 121, one of the ids reserved for world
+   generation) with lava's slot, density and heat; the magma cave pool (`biomes.json`) and the deep lava sea in
+   caves use it, and water quenches it like moving lava. A cave lava pool stays until someone opens it, like a
+   lake, instead of running the moment the window loads it (bug report 2026-10-25 02-23-24).
+2. **Pools lie flat in hollows**: cave pools already need rock on all four sides (ADR 0051's `enclosed`) and sit
+   in the floor two voxels deep, so nothing to change there. **No lone liquid cells**: after a block is filled,
+   a still liquid cell with air above, none of its kind on any side and open air beside it is dropped (a one-cell
+   puddle on a cave wall's step, a scrap at a bank: it drew as a spike or film and woke the sim for nothing).
+3. **River steps are the ground's, not the generator's.** The "terraces" found in A were traced column by column
+   (`tools/column_probe.gd`): across the step line the macro ground itself drops 3 units (1.5 m) between adjacent
+   0.5 m columns, and the river's surface is clamped to the ground (`surf = min(surf, base_height)`), so the water
+   runs down a 3:1 slope as a cascade. A river cannot lie flatter than its bed; that reach *is* the fall. Two
+   generator faults that could also make jumps were closed on the way: the interpolation of ADR 0045 point 2 gave
+   every wet corner a weight floor of 0.02 (a possible jump at each lattice cell border), and a column took the
+   surface of its single nearest stream segment (a jump where the nearest segment changes); now plain bilinear
+   weights, and a distance-weighted blend of every segment in reach. The rule is therefore: a step of three or
+   more cells between neighbouring surface cells is allowed where the bed under them drops as much (a cascade),
+   and the probe counts the others as terraces.
+4. Checks: `water_surface_probe.gd` counts every liquid now (`liquid=water` for the old count) and lone surface
+   cells; the report's river before and after, a magma cave screenshot, `GEN_VERSION` 22.
+
+#### Measured (C)
+- The report's river (seed 1128002456, x 90 z -2870, r 64, every liquid): 3877 surface cells, **0 lone cells**, 0
+  seams; steps of three or more between neighbouring surface cells: 340 cascades (the bed drops as much), 20 counted
+  as terraces (bed difference 1-2 cells short of the step: gravel and clay lumps in the bed, left as they are).
+  The step histogram barely moved with the two interpolation fixes (3-cell steps 305 -> 320, 2-cell 550 -> 541):
+  the stairs were the ground's all along.
+- A magma cave (x 17858 z 25410, y 350..410, r 48): 2455 lava surface cells, 0 lone cells beside air, 34 one-cell
+  puddles boxed in rock (allowed: a pool cell needs rock on all four sides), 0 terraces, and the cave loads with
+  `still_woken` 0: the lava stays put.
+- Full suite 526 tests green (`test_liquid_looks` and the material tests take the new id). Screenshot of the
+  report's river with the new generator: `game/out/fluidC_river/final.png`.
 
 ### Order
-A, B1 and B2 are done; then C (with the river terraces found in A), then B3 if taste call 1 is yes. Each step: its check, a screenshot or filmstrip, then the developer
+A, B1, B2 and C are done; B3 (films dry up) waits for taste call 1. Each step: its check, a screenshot or filmstrip, then the developer
 plays it.
 
 ## Taste calls for the developer

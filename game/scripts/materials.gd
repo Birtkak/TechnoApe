@@ -127,6 +127,7 @@ const SEASHELL := 114
 const MUSHROOM_STEM := 115
 # 116..119 reserved for part A of the 2026-10-25 split (placeholders until it lands)
 const CRYSTAL := 120               # geode lining (ADR 0052): glows in the terrain shader
+const LAVA_STATIC := 121           # generated cave lava pools and the deep lava sea: still until disturbed, then finite lava (ADR 0069 C)
 # 121..126 reserved for world generation; 130..159 parts C and D
 # The dry savanna floor (bug report 2026-10-25 20-37-22): straw grass, its tussocks, bare red earth
 const SAVANNA_GRASS := 127
@@ -258,7 +259,11 @@ static func _build_defs() -> Array:
 		{"name": "bricks", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [99, 99, 99], "transparent": false},
 	] + _clutter_defs() + _reserved_defs(116, 119) + [
 		{"name": "crystal", "cell_type": "solid", "pattern": true, "density": 10, "hp": 800, "tiles": [104, 104, 104], "transparent": false},
-	] + _reserved_defs(121, 126) + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
+	] + [
+		# 121 (was reserved): still lava for cave pools and the deep lava sea, finite moving lava once something opens
+		# beside or under it, like water_static (ADR 0069 C)
+		{"name": "lava_static", "cell_type": "liquid", "fluid_slot": 1, "liquid_static": true, "density": 5, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false, "loose": 7},
+	] + _reserved_defs(122, 126) + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
 		# 203 (ADR 0065): TNT. Not burnable: the sim would burn it away; Tnt lights it when fire touches it.
 		{"name": "tnt", "cell_type": "solid", "pattern": true, "density": 6, "hp": 50, "tiles": [172, 171, 172], "transparent": false},
 	]
@@ -485,6 +490,7 @@ static func reactions() -> Array:
 		# water quenches lava into obsidian (static lake water too, once the sim wakes it)
 		{"input_cell1": LAVA, "input_cell2": WATER, "output_cell1": OBSIDIAN, "output_cell2": STEAM, "probability": 0.5},
 		{"input_cell1": LAVA, "input_cell2": WATER_STATIC, "output_cell1": OBSIDIAN, "output_cell2": STEAM, "probability": 0.5},
+		{"input_cell1": LAVA_STATIC, "input_cell2": WATER, "output_cell1": OBSIDIAN, "output_cell2": STEAM, "probability": 0.5},   # a still pool a stream of water reaches
 		# Noita: water dilutes toxic sludge until only water is left
 		{"input_cell1": TOXIC_SLUDGE, "input_cell2": WATER, "output_cell1": WATER, "output_cell2": WATER, "probability": 0.15},
 		{"input_cell1": TOXIC_SLUDGE_STATIC, "input_cell2": WATER, "output_cell1": WATER, "output_cell2": WATER, "probability": 0.15},

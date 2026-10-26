@@ -208,7 +208,7 @@
      "borders": ["deep_cave", "magma_cave", "cave", "lush_cave", "dripstone_cave", "fungal_cave", "sulfur_cave"],
      "notes": "Rare deep pockets (cave noise high): gem ores and mana crystals, the exploration gate for spell materials."},
     {"id": 35, "name": "magma_cave",        "display": "Magma Cave",        "band": "cave", "tags": ["underground", "deep", "hot"],
-     "surface": {"top": "basalt", "under": "basalt", "ceiling": "basalt", "pool": "lava"}, "tree_density": 0.0, "color": [200, 70, 30],
+     "surface": {"top": "basalt", "under": "basalt", "ceiling": "basalt", "pool": "lava_static"}, "tree_density": 0.0, "color": [200, 70, 30],
      "borders": ["deep_cave", "deep_dark", "crystal_cave", "cave", "lush_cave", "dripstone_cave", "fungal_cave", "sulfur_cave"],
      "notes": "Deep layer under hot surface: lava pools, basalt floors and ceilings."},
     {"id": 36, "name": "sulfur_cave",       "display": "Sulfur Cave",       "band": "cave", "tags": ["underground", "toxic"],
