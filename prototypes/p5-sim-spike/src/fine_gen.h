@@ -61,6 +61,7 @@ protected:
     static void _bind_methods();
 
 private:
+    friend class FarMesh;   // the far layer samples the same macro lattice and ground noise (ADR 0074)
     using Mat = WorldGen::Mat;
     // One macro column of the lattice, with everything the fine columns near it need.
     struct MacroPt {

@@ -131,6 +131,7 @@ protected:
 private:
     // ---- terrain columns ----
     friend class FineGen;   // the 12.5 cm voxel layer samples these fields (ADR 0033)
+    friend class FarMesh;   // the far layer's columns and trees (ADR 0074)
     struct Column {
         int height;      // base terrain height (no rivers/lakes)
         float hf;        // the same before rounding (FineGen interpolates it)
