@@ -133,6 +133,8 @@ private:
     void floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, bool clutter, std::vector<FStamp> &out) const;
     // Clutter piece voxel at (dx, dy, dz) from its stamp's centre column and ground (dy = 0: the first voxel above it).
     static uint16_t clutter_voxel(const FStamp &s, int dx, int dy, int dz);
+    // A voxel of an ore vein's lens: host stone or the ore of its lump (ADR 0064).
+    static uint16_t vein_voxel(const WorldGen::Vein &v, float ht, int wx, int wy, int wz, float bias, int seed);
     uint16_t stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const;
     static float stick_dist(const FStamp &s, float x, float z, float *fork_out = nullptr);   // ground-plane distance to a stick and its branch
 };

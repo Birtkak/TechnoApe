@@ -127,7 +127,7 @@ func is_farmland_material(m: int) -> bool:
 ## Hoe on a voxel: grass or dirt with air above becomes dry farmland.
 func till(p: Vector3i) -> bool:
 	var m: int = get_voxel.call(p)
-	if m != GameMaterials.GRASS and m != GameMaterials.DIRT:
+	if not GameMaterials.is_grass(m) and m != GameMaterials.DIRT and m != GameMaterials.RED_EARTH:
 		return false
 	if get_voxel.call(p + Vector3i.UP) != GameMaterials.AIR:
 		return false

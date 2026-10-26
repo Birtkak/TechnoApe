@@ -127,7 +127,11 @@ const SEASHELL := 114
 const MUSHROOM_STEM := 115
 # 116..119 reserved for part A of the 2026-10-25 split (placeholders until it lands)
 const CRYSTAL := 120               # geode lining (ADR 0052): glows in the terrain shader
-# 121..129 reserved for world generation; 130..159 parts C and D
+# 121..126 reserved for world generation; 130..159 parts C and D
+# The dry savanna floor (bug report 2026-10-25 20-37-22): straw grass, its tussocks, bare red earth
+const SAVANNA_GRASS := 127
+const SAVANNA_TALL_GRASS := 128
+const RED_EARTH := 129
 # Rock kinds, their cobbles, bricks and loose stones, more clutter, ruin pots (ADR 0057)
 const GRANITE := 160
 const DIORITE := 161
@@ -188,10 +192,10 @@ static func _build_defs() -> Array:
 		{"name": "bedrock", "cell_type": "solid", "density": 15, "hp": 1000000, "tiles": [13, 13, 13], "transparent": false},
 		{"name": "snow", "cell_type": "powder", "liquid_static": true, "density": 2, "tiles": [14, 14, 14], "transparent": false},
 		{"name": "gravel", "cell_type": "powder", "density": 4, "tiles": [15, 15, 15], "transparent": false},
-		{"name": "coal_ore", "cell_type": "solid", "density": 10, "hp": 900, "burnable": true, "fire_hp": 240, "autoignition_temperature": 90, "on_fire_convert_to_material": 1, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 8, "tiles": [16, 16, 16], "transparent": false},
-		{"name": "iron_ore", "cell_type": "solid", "density": 11, "hp": 1200, "tiles": [17, 17, 17], "transparent": false},
-		{"name": "copper_ore", "cell_type": "solid", "density": 11, "hp": 1100, "tiles": [18, 18, 18], "transparent": false},
-		{"name": "tin_ore", "cell_type": "solid", "density": 11, "hp": 1100, "tiles": [19, 19, 19], "transparent": false},
+		{"name": "coal_ore", "cell_type": "solid", "pattern": true, "density": 10, "hp": 900, "burnable": true, "fire_hp": 240, "autoignition_temperature": 90, "on_fire_convert_to_material": 1, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 8, "tiles": [16, 16, 16], "transparent": false},
+		{"name": "iron_ore", "cell_type": "solid", "pattern": true, "density": 11, "hp": 1200, "tiles": [17, 17, 17], "transparent": false},
+		{"name": "copper_ore", "cell_type": "solid", "pattern": true, "density": 11, "hp": 1100, "tiles": [18, 18, 18], "transparent": false},
+		{"name": "tin_ore", "cell_type": "solid", "pattern": true, "density": 11, "hp": 1100, "tiles": [19, 19, 19], "transparent": false},
 		{"name": "leaves", "cell_type": "solid", "rigid": "leaf", "density": 10, "hp": 20, "burnable": true, "fire_hp": 40, "autoignition_temperature": 30, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [20, 20, 20], "transparent": true},
 		{"name": "sand_static", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [4, 4, 4], "transparent": false, "loose": 4},
 		{"name": "gravel_static", "cell_type": "powder", "liquid_static": true, "density": 4, "tiles": [15, 15, 15], "transparent": false, "loose": 15},
@@ -253,7 +257,18 @@ static func _build_defs() -> Array:
 		{"name": "bricks", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [99, 99, 99], "transparent": false},
 	] + _clutter_defs() + _reserved_defs(116, 119) + [
 		{"name": "crystal", "cell_type": "solid", "pattern": true, "density": 10, "hp": 800, "tiles": [104, 104, 104], "transparent": false},
-	] + _reserved_defs(121, 129) + _looks_defs() + _reserved_defs(133, 159) + _rock_defs()
+	] + _reserved_defs(121, 126) + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs()
+
+
+## The savanna floor, ids 127..129 (bug report 2026-10-25 20-37-22): grass and tussocks that act like
+## grass and tall grass (is_grass, is_tall_grass), and bare red earth dug like dirt.
+static func _savanna_defs() -> Array:
+	return [
+		{"name": "savanna_grass", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [109, 109, 1], "transparent": false},
+		# tall grass, drier: catches and burns a little faster
+		{"name": "savanna_tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [110, 110, 110], "transparent": false, "micro": "tuft", "replaceable": true},
+		{"name": "red_earth", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [111, 111, 111], "transparent": false},
+	]
 
 
 ## Placeholders for ids other branches append (2026-10-25 split: A 116-119, B 120-129, C 130-149,
@@ -535,6 +550,16 @@ static func blocks_bodies(id: int) -> bool:
 static var _liquids := PackedByteArray()
 
 ## True for liquid cell types (water, lava, oil, their static kinds).
+## Grass ground: meadow grass or the savanna's straw grass (both are hoed, grazed and spawned on).
+static func is_grass(id: int) -> bool:
+	return id == GRASS or id == SAVANNA_GRASS
+
+
+## A tuft of grass: meadow or savanna (both are eaten by grazers and cut for dry grass).
+static func is_tall_grass(id: int) -> bool:
+	return id == TALL_GRASS or id == SAVANNA_TALL_GRASS
+
+
 static func is_liquid(id: int) -> bool:
 	if _liquids.is_empty():
 		var d := defs()

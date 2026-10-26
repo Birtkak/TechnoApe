@@ -162,7 +162,7 @@
      "borders": ["beach", "stony_shore", "forest", "old_growth_forest", "jungle", "taiga", "highlands", "river", "lake"],
      "notes": "Only on low flat ground (<= 24 voxels above sea, erosion >= 0.05); shallow pools and clay later."},
     {"id": 22, "name": "savanna",           "display": "Savanna",           "band": "lowland", "tags": ["warm", "hot", "dry", "open"],
-     "surface": {"top": "grass", "under": "dirt"}, "tree_density": 0.04, "tree_kind": "acacia", "decor": {"berries": 0.056, "bush": 0.12, "dead_tree": 0.05}, "color": [190, 180, 80],
+     "surface": {"top": "savanna_grass", "under": "red_earth"}, "tree_density": 0.022, "tree_kind": "acacia", "decor": {"berries": 0.0, "bush": 0.06, "dead_tree": 0.05}, "color": [190, 180, 80],
      "borders": ["beach", "stony_shore", "shrubland", "plains", "desert", "jungle", "highlands", "badlands", "river", "lake"]},
     {"id": 23, "name": "jungle",            "display": "Jungle",            "band": "lowland", "tags": ["hot", "warm", "wet", "forest"],
      "surface": {"top": "grass", "under": "dirt"}, "tree_density": 0.7, "tree_kind": "jungle", "decor": {"berries": 0.056, "mushrooms": 0.031, "log_mushrooms": 0.012, "bush": 0.8, "fallen_log": 0.06}, "color": [30, 140, 50],

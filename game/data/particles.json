@@ -351,7 +351,7 @@
  },
  "tiles": {
   "_doc": "which atlas tile a material's chips use when not its side tile",
-  "grass": "bottom",
+  "grass": "bottom", "savanna_grass": "bottom",
   "leaf_litter": "bottom",
   "farmland": "bottom",
   "farmland_moist": "bottom",

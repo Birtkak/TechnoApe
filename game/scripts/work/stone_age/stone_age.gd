@@ -28,7 +28,7 @@ const WORLD_SOURCES := {"birch_bark": "a knife on a birch trunk's bark", "tinder
 	"einkorn": "sown einkorn seeds", "emmer": "sown emmer seeds", "flax": "sown flax seeds", "raw_fish": "a fishing line or net"}
 ## Blueprints for the build menu (tools/make_blueprints.py), copied into the prefab folder once.
 const BLUEPRINTS := ["longhouse", "small longhouse"]
-const DIGGABLE := ["dirt", "grass", "sand", "sand_static", "gravel", "gravel_static", "clay", "farmland", "podzol", "coarse_dirt", "mud"]
+const DIGGABLE := ["dirt", "grass", "sand", "sand_static", "gravel", "gravel_static", "clay", "farmland", "podzol", "coarse_dirt", "mud", "savanna_grass", "red_earth"]
 
 ## The calendar's days since the world began, with the time of day (set every frame by the node; tests
 ## set it themselves). Entities measure game hours against it.

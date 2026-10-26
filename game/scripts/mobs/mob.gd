@@ -528,7 +528,7 @@ func _random_land_target(h: int, v: int, herd: bool) -> Vector3:
 			continue
 		var p := Vector3(x + 0.5, y, z + 0.5)
 		var score := _rng.randf()
-		if manager.get_voxel(Vector3i(x, y - 1, z)) == GameMaterials.GRASS:
+		if GameMaterials.is_grass(manager.get_voxel(Vector3i(x, y - 1, z))):
 			score += 10.0
 		if centre != Vector3.INF:
 			score -= maxf(0.0, (p.distance_to(centre) - 8.0 * Settings.BLOCK) / Settings.BLOCK) * 0.6

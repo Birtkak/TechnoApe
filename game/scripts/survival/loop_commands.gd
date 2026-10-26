@@ -104,7 +104,7 @@ func _plant(kind: String, dx: int) -> Dictionary:
 				if main.world.get_voxel(soil + Vector3i(0, up, 0)) != GameMaterials.AIR and not GameMaterials.blocks_bodies(main.world.get_voxel(soil + Vector3i(0, up, 0))):
 					farm.set_voxel.call(soil + Vector3i(0, up, 0), GameMaterials.AIR)
 			var m: int = main.world.get_voxel(soil)
-			if m != GameMaterials.GRASS and m != GameMaterials.DIRT:
+			if not GameMaterials.is_grass(m) and m != GameMaterials.DIRT:
 				farm.set_voxel.call(soil, GameMaterials.DIRT)   # a debug patch: any ground will do
 			farm.till(soil)
 			if farm.plant(soil, kind):

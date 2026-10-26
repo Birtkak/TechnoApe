@@ -248,6 +248,12 @@ GregTech-style veins replace the 3D ore noise (developer, ADR 0019; plan in
   the lens is ore: primary in the top third, between in the middle,
   secondary at the bottom, 12 % of ore voxels the sporadic ore. Between
   veins there is no ore at all. Ores stay lod 0 only.
+  Since ADR 0064 the ore lies in bunched lumps: Voronoi lumps around points
+  5 voxels apart, parted by a seam of stone (each digs as one piece), ore
+  or not as a whole by a pocket field (~3 m pockets, richest at the lens
+  centre); the layer of a lump follows its height, the pocket field wobbles
+  the layer borders. About 30-40 % of the lens is ore. Ore tiles are
+  patterned (one picture across a lump).
 - Surface indicators: ore-bearing stones (micro `ore_stones` with the ore's
   tile, ids 48-50) on grass, dirt, gravel, stone, sand, snow or clay within
   44 voxels of a vein centre, 1 % of columns when the vein top reaches the
