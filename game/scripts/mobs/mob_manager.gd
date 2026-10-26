@@ -378,7 +378,7 @@ func safe_ahead(m: Mob, dir: Vector3, panicking: bool) -> bool:
 func can_graze(m: Mob) -> bool:
 	var feet := Vector3i(m.position.floor())
 	var here := get_voxel(feet)
-	return here == GameMaterials.TALL_GRASS or get_voxel(feet + Vector3i.DOWN) == GameMaterials.GRASS
+	return GameMaterials.is_tall_grass(here) or GameMaterials.is_grass(get_voxel(feet + Vector3i.DOWN))
 
 
 ## Eats the tuft at the feet (it becomes air). Grass blocks are grazed but kept:
@@ -386,12 +386,13 @@ func can_graze(m: Mob) -> bool:
 func graze(m: Mob) -> bool:
 	var feet := Vector3i(m.position.floor())
 	var fx := _fx()
-	if get_voxel(feet) == GameMaterials.TALL_GRASS:
+	var tuft := get_voxel(feet)
+	if GameMaterials.is_tall_grass(tuft):
 		main.set_world_voxel(feet, GameMaterials.AIR)
 		if fx:
-			fx.block_break(feet, GameMaterials.TALL_GRASS)
+			fx.block_break(feet, tuft)
 		return true
-	var ate := get_voxel(feet + Vector3i.DOWN) == GameMaterials.GRASS
+	var ate := GameMaterials.is_grass(get_voxel(feet + Vector3i.DOWN))
 	if ate and fx:
 		fx.burst("graze", Vector3(m.eye().x, feet.y + 0.1, m.eye().z), {"material": GameMaterials.TALL_GRASS, "floor": float(feet.y)})
 	return ate

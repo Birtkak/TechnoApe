@@ -11,9 +11,17 @@ using namespace godot;
 
 namespace {
 constexpr int FS = FineGen::FS;
-// Ore nuggets fill ~23 of a cell's 64 voxels: cells hold one this much more often than the old 25 cm
-// grains were ore, so a vein still gives roughly the ore it did (ADR 0047).
-constexpr float NUGGET_FILL = 2.4f;
+// Ore lumps in a vein's lens (ADR 0064): Voronoi lumps around jittered points NUGGET_CELL voxels apart,
+// squashed NUGGET_FLAT times in y (ore lies in the flat lens), parted by a seam of host rock where the
+// two nearest points are within NUGGET_SEAM of each other (in that squashed metric), so a lump digs out
+// as one piece (ADR 0047). POCKET_* shape the field that bunches the lumps: rich pockets ~3 m across,
+// lumps between them only now and then.
+constexpr int NUGGET_CELL = 5;
+constexpr float NUGGET_FLAT = 1.35f;
+constexpr float NUGGET_SEAM = 1.0f;
+constexpr float POCKET_XZ = 22.0f, POCKET_Y = 12.0f;   // pocket field lattice, voxels
+constexpr float POCKET_RICH = 3.0f;    // lump chance in a pocket, times the vein's density and the host rock's bias
+constexpr float POCKET_STRAY = 0.2f;  // ... and between pockets
 // Soil under the top voxel: about a metre of the biome's under material.
 constexpr int SOIL_FINE = 8;
 // Ground relief on dry land (fine voxels): swells, hummocks and roughness the 0.5 m fields cannot
@@ -43,6 +51,60 @@ inline float bilerp(float a00, float a10, float a01, float a11, float tx, float 
     return (a00 * (1.0f - tx) + a10 * tx) * (1.0f - tz) + (a01 * (1.0f - tx) + a11 * tx) * tz;
 }
 inline uint32_t h3(int a, int b, int c) { return WorldGen::hash3(a, b, c); }
+// Smooth value noise, 0..1, on the integer lattice of (x, y, z).
+inline float value_noise3(float x, float y, float z, int seed) {
+    const int ix = (int)std::floor(x), iy = (int)std::floor(y), iz = (int)std::floor(z);
+    float fx = x - (float)ix, fy = y - (float)iy, fz = z - (float)iz;
+    fx = fx * fx * (3.0f - 2.0f * fx);
+    fy = fy * fy * (3.0f - 2.0f * fy);
+    fz = fz * fz * (3.0f - 2.0f * fz);
+    auto v = [&](int a, int b, int c) { return (float)(h3(ix + a, iz + c, (iy + b) * 1031 + seed) & 0xFFFF) / 65535.0f; };
+    const float x00 = v(0, 0, 0) + (v(1, 0, 0) - v(0, 0, 0)) * fx, x10 = v(0, 1, 0) + (v(1, 1, 0) - v(0, 1, 0)) * fx;
+    const float x01 = v(0, 0, 1) + (v(1, 0, 1) - v(0, 0, 1)) * fx, x11 = v(0, 1, 1) + (v(1, 1, 1) - v(0, 1, 1)) * fx;
+    const float y0 = x00 + (x10 - x00) * fy, y1 = x01 + (x11 - x01) * fy;
+    return y0 + (y1 - y0) * fz;
+}
+// A voxel of a vein's lens (ADR 0064; the caller checks it lies in the lens): host stone or the ore of its
+// lump. A lump is ore or not as a whole, decided at its point by the pocket field, and takes its layer
+// (GregTech primary on top, secondary below, between in the middle; ADR 0047) from its point's height,
+// with the pocket field wobbling the layer borders; a few lumps are the sporadic ore.
+} // namespace
+uint16_t FineGen::vein_voxel(const WorldGen::Vein &v, float ht, int wx, int wy, int wz, float bias, int seed) {
+    using namespace technosim_ore;
+    constexpr int NC = NUGGET_CELL;
+    constexpr float J = (float)NC / 256.0f;
+    const int cx = floor_div(wx, NC), cy = floor_div(wy, NC), cz = floor_div(wz, NC);
+    const float px = (float)wx + 0.5f, py = (float)wy + 0.5f, pz = (float)wz + 0.5f;
+    float d0 = 1e30f, d1 = 1e30f, fy = 0.0f, fx = 0.0f, fz = 0.0f;
+    int bx = 0, by = 0, bz = 0;
+    for (int k = -1; k <= 1; k++)
+        for (int j = -1; j <= 1; j++)
+            for (int i = -1; i <= 1; i++) {
+                const int gx = cx + i, gy = cy + k, gz = cz + j;
+                const uint32_t h = h3(gx, gz, gy * 1031 + seed + 7759);
+                const float qx = (float)(gx * NC) + ((float)(h & 255) + 0.5f) * J;
+                const float qy = (float)(gy * NC) + ((float)((h >> 8) & 255) + 0.5f) * J;
+                const float qz = (float)(gz * NC) + ((float)((h >> 16) & 255) + 0.5f) * J;
+                const float dx = px - qx, dy = (py - qy) * NUGGET_FLAT, dz = pz - qz;
+                const float d = dx * dx + dy * dy + dz * dz;
+                if (d < d0) { d1 = d0; d0 = d; fx = qx; fy = qy; fz = qz; bx = gx; by = gy; bz = gz; }
+                else if (d < d1) d1 = d;
+            }
+    if (std::sqrt(d1) - std::sqrt(d0) < NUGGET_SEAM) return WorldGen::STONE;
+    const float pocket = 0.65f * value_noise3(fx / POCKET_XZ, fy / POCKET_Y, fz / POCKET_XZ, seed + 7771)
+                       + 0.35f * value_noise3(fx / (POCKET_XZ * 0.45f), fy / (POCKET_Y * 0.45f), fz / (POCKET_XZ * 0.45f), seed + 7779);
+    // the lens is richest at its heart: a prospector who finds the centre finds ore
+    const float cdx = fx - (float)(v.x * FS), cdz = fz - (float)(v.z * FS);
+    const float heart = std::max(0.0f, 1.0f - std::sqrt(cdx * cdx + cdz * cdz) / (0.5f * (float)(SIZE[v.type] * FS)));
+    const float rich = smoothstep(0.36f, 0.52f, pocket + 0.3f * heart * heart);
+    const float p = DENSITY[v.type] * bias * (POCKET_STRAY + (POCKET_RICH - POCKET_STRAY) * rich);
+    const uint32_t hl = h3(bx + 7, bz - 3, by * 1031 + seed + 7789);
+    if ((float)(hl & 1023) >= std::min(1.0f, p) * 1024.0f) return WorldGen::STONE;
+    if ((float)((hl >> 10) & 1023) < SPORADIC_CHANCE * 1024.0f) return (uint16_t)SPORADIC[v.type];
+    const float t = (fy / (float)FS - (float)v.y + ht) / (2.0f * ht) + 0.35f * (pocket - 0.5f);
+    return (uint16_t)(t > 0.6667f ? PRIMARY[v.type] : (t < 0.3333f ? SECONDARY[v.type] : BETWEEN[v.type]));
+}
+namespace {
 inline float seg_dist2(float px, float py, float pz, float ax, float ay, float az, float bx, float by, float bz) {
     const float vx = bx - ax, vy = by - ay, vz = bz - az;
     const float wx = px - ax, wy = py - ay, wz = pz - az;
@@ -1092,6 +1154,12 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 under_m = (uint16_t)technosim_biome::SURFACE_UNDER[col.biome];
                 if (col.biome == WorldGen::BIOME_OCEAN && !beach_sand) top_m = under_m = Mat::GRAVEL_STATIC;
                 if (technosim_biome::SURFACE_STEEP[col.biome] >= 0 && slope > 0.6f) top_m = (uint16_t)technosim_biome::SURFACE_STEEP[col.biome];
+                if (top_m == Mat::SAVANNA_GRASS) {
+                    // bare red earth between the tussocks, in patches a few metres across with ragged
+                    // edges (bug report 2026-10-25 20-37-22: the savanna looked like a lush meadow)
+                    const float bare = n_meadow_.GetNoise((float)wx * 0.8f + 9100.0f, (float)wz * 0.8f - 7300.0f);
+                    if (bare > 0.36f || (bare > 0.2f && (ph & 3) == 0)) top_m = Mat::RED_EARTH;
+                }
             }
             if (spike > 0) top_m = under_m = spire_m;
             under_m = rocks_.soil(rc, under_m, h, wx, wz);   // ochre patches (ADR 0057)
@@ -1221,8 +1289,9 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             // The forest floor and open grass (2026-10-23): leaf litter, ferns, mushrooms at the foot of
             // trunks and twigs under the canopy; grass that thickens and thins in patches, with patches of
             // one kind of flower, in the open.
-            if (top_m == Mat::GRASS && !ruin && spike == 0 && h > water_level && hy.fall_top < 0) {
-                const bool forest = technosim_biome::TREE_DENSITY[col.biome] >= 0.2f;
+            if ((top_m == Mat::GRASS || top_m == Mat::SAVANNA_GRASS || top_m == Mat::RED_EARTH) && !ruin && spike == 0 && h > water_level && hy.fall_top < 0) {
+                const bool dry = top_m != Mat::GRASS;   // the savanna floor
+                const bool forest = !dry && technosim_biome::TREE_DENSITY[col.biome] >= 0.2f;
                 const bool under = forest && shaded;
                 if (under && n_litter_.GetNoise((float)wx, (float)wz) > -0.4f) top_m = Mat::LEAF_LITTER;
                 if (do_veg && h > sea && !pickup && (veg == Mat::AIR || veg == Mat::TALL_GRASS) && veg_head == Mat::AIR) {
@@ -1240,6 +1309,16 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                         if (near_wood && r10 < 150) { veg = Mat::FERN; veg_h = 1 + (int)((fh >> 12) & 1); }   // mushrooms are stamps (ADR 0047)
                         else if (r10 < 300) { veg = Mat::FERN; veg_h = 2 + (int)((fh >> 12) % 3); }
                         else if (r10 < 420) { veg = Mat::TALL_GRASS; veg_h = 1 + (int)((fh >> 12) & 1); }
+                    } else if (dry) {
+                        // savanna: tussocks of straw grass in clumps, up to knee high, the red earth between them
+                        // nearly bare; no flowers, ferns or litter
+                        const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
+                        const float cover = top_m == Mat::RED_EARTH ? 0.02f : std::max(0.025f, 0.045f + 0.17f * mead);
+                        if ((float)r10 / 1024.0f < cover) {
+                            const uint32_t th = (fh >> 10) % 20;
+                            veg = Mat::SAVANNA_TALL_GRASS;
+                            veg_h = (th < 7 ? 1 : (th < 14 ? 2 : (th < 18 ? 3 : 4))) + (mead > 0.35f ? 1 : 0);
+                        }
                     } else {
                         const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
                         const float cover = 0.12f + 0.3f * mead + (forest ? 0.1f : 0.0f);   // every tuft costs ~10 faces
@@ -1275,6 +1354,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 sd = std::min(sd, fd + th - 0.6f);
                 // a rim of bare soil under and beside it, so the pale stick reads against grass and litter
                 if (sd <= th + 0.9f && (top_m == Mat::GRASS || top_m == Mat::LEAF_LITTER)) top_m = Mat::DIRT;
+                else if (sd <= th + 0.9f && top_m == Mat::SAVANNA_GRASS) top_m = Mat::RED_EARTH;
             }
             // clutter pieces standing on this column (ADR 0047): their voxels from their own ground up
             int clut_base = INT32_MIN;
@@ -1425,25 +1505,10 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
                         if (d_top <= sandstone_depth) mat = strata ? g.strata_at(mx, floor_div(wy, FS), mz) : Mat::SANDSTONE;
                         else if (vein_ht > 0.0f) {
-                            // GregTech layers in the lens, as nuggets (ADR 0047): each 0.5 m cell of the lens may hold
-                            // one, a 3x3x3 lump with chipped corners in the cell's upper corner, so a voxel of stone
-                            // parts it from the next and it digs out as one piece
-                            using namespace technosim_ore;
+                            // GregTech layers in the lens as bunched lumps (ADR 0064)
                             const float dy = (float)wy / FS - (float)vein.y;
-                            mat = Mat::STONE;
-                            const int ox = wx & (FS - 1), oy = wy & (FS - 1), oz = wz & (FS - 1);
-                            if (dy <= vein_ht && dy >= -vein_ht && ox > 0 && oy > 0 && oz > 0) {
-                                const uint32_t hh = h3(wx >> 2, wz >> 2, (wy >> 2) * 1031 + g.seed_ + 7759);
-                                const int corner = (ox != 2) + (oy != 2) + (oz != 2);
-                                const bool chipped = corner == 3 && ((hh >> 20) >> (((ox >> 1) | ((oy >> 1) << 1) | ((oz >> 1) << 2)) & 7) & 1);
-                                if ((float)(hh & 1023) < std::min(1.0f, DENSITY[vein.type] * NUGGET_FILL * rocks_.ore_bias(rc, wy, vein.type)) * 1024.0f && !chipped) {
-                                    if ((float)((hh >> 10) & 1023) < SPORADIC_CHANCE * 1024.0f) mat = (uint16_t)SPORADIC[vein.type];
-                                    else {
-                                        const float t = (std::floor((float)wy / FS) + 0.5f - (float)vein.y + vein_ht) / (2.0f * vein_ht);
-                                        mat = (uint16_t)(t > 0.6667f ? PRIMARY[vein.type] : (t < 0.3333f ? SECONDARY[vein.type] : BETWEEN[vein.type]));
-                                    }
-                                }
-                            }
+                            mat = (dy <= vein_ht && dy >= -vein_ht)
+                                ? vein_voxel(vein, vein_ht, wx, wy, wz, rocks_.ore_bias(rc, wy, vein.type), g.seed_) : (uint16_t)Mat::STONE;
                         } else mat = Mat::STONE;
                         if (spike > 0 && wy >= h - spike) mat = spire_m == Mat::TERRACOTTA ? g.strata_at(mx, floor_div(wy, FS), mz) : spire_m;
                         if (cave[y + 2] && mat == Mat::STONE) {

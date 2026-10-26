@@ -1151,7 +1151,8 @@ uint16_t WorldGen::indicator_at(const Vein &v, int x, int z, int ground, uint16_
     using namespace technosim_ore;
     const int ind = INDICATOR[v.type];
     if (ind < 0) return AIR;
-    if (!(top == GRASS || top == DIRT || top == GRAVEL_STATIC || top == STONE || top == SAND_STATIC || top == SNOW || top == CLAY)) return AIR;
+    if (!(top == GRASS || top == DIRT || top == GRAVEL_STATIC || top == STONE || top == SAND_STATIC || top == SNOW || top == CLAY
+          || top == SAVANNA_GRASS || top == RED_EARTH)) return AIR;
     const int dx = x - v.x, dz = z - v.z;
     if (dx * dx + dz * dz > INDICATOR_RADIUS * INDICATOR_RADIUS) return AIR;
     const int depth = ground - (v.y + THICKNESS[v.type] / 2);
@@ -1214,7 +1215,7 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
     const int r = (int)(v & 1023);
     using namespace technosim_biome;
     // Reeds on lake and river shores (not in cold biomes: no reeds in snow).
-    if (hy.shore && !col.snow && col.t > -0.42f && (top == GRASS || top == DIRT || top == CLAY || top == SAND_STATIC) && r < 330) {
+    if (hy.shore && !col.snow && col.t > -0.42f && (top == GRASS || top == SAVANNA_GRASS || top == DIRT || top == CLAY || top == SAND_STATIC) && r < 330) {
         height = 2;
         return REED;
     }
@@ -1238,7 +1239,7 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
     // Pebbles on bare rock and gravel, flint on gravel (ground pickups, ADR 0019).
     if ((top == GRAVEL_STATIC || top == STONE) && r < 50 && !marsh) return PEBBLES;
     if (top == GRAVEL_STATIC && r >= 50 && r < 66 && !marsh) return FLINT_STONES;
-    if (top != GRASS && !(marsh && top == DIRT)) return AIR;
+    if (top != GRASS && top != SAVANNA_GRASS && !(marsh && top == DIRT)) return AIR;
     // Wild crops (ADR 0022): rare patches, a good reason to start a farm. A 24 m cell
     // holds a patch with a small chance (plains: wheat every ~140 m, carrots every
     // ~170 m); the patch is a 1.5 m disc around a jittered centre, a quarter of its
@@ -1281,7 +1282,7 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
         case ALPINE: grass = 25; flower = 6; pebble = 30; flint = 3; break;
         case TAIGA: grass = 90; shroom = 12; pebble = 8; twig = 12; flint = 1; fern = 50; berry = 10; break;
         case SHRUBLAND: grass = 120; bush = 40; pebble = 14; twig = 4; flint = 3; break;
-        case SAVANNA: grass = 420; bush = 12; twig = 3; flint = 2; break;
+        case SAVANNA: grass = 420; bush = 8; twig = 2; flint = 2; break;   // the column loop lays dry tussocks (fine_gen.cpp)
         case JUNGLE: grass = 350; flower = 20; shroom = 14; twig = 10; fern = 110; break;
         case SWAMP: grass = 450; shroom = 18; twig = 6; fern = 40; break;
         default: break;

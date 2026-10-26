@@ -1688,7 +1688,7 @@ func _debug_farm() -> void:
 					var p := Vector3i(cx + bx * B + vx, gy, cz + bz * B + vz)
 					for k in range(1, 3 * B):
 						set_world_voxel(p + Vector3i(0, k, 0), GameMaterials.AIR)
-					if get_world_voxel(p) != GameMaterials.GRASS and get_world_voxel(p) != GameMaterials.DIRT:
+					if not GameMaterials.is_grass(get_world_voxel(p)) and get_world_voxel(p) != GameMaterials.DIRT:
 						set_world_voxel(p, GameMaterials.DIRT)
 					if bx == 0 and bz == 0:
 						set_world_voxel(p, GameMaterials.WATER_STATIC)

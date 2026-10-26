@@ -66,7 +66,9 @@ public:
         // 109..110 patterned building materials (never generated); clutter as voxel pieces (ADR 0047)
         PLANT_STEM = 111, KELP = 112, SEAGRASS = 113, SEASHELL = 114, MUSHROOM_STEM = 115,
         // 116..119 reserved (part A of the 2026-10-25 split); world generation 120..129
-        CRYSTAL = 120
+        CRYSTAL = 120,
+        // the dry savanna floor (bug report 2026-10-25 20-37-22): straw grass, its tussocks, bare red earth
+        SAVANNA_GRASS = 127, SAVANNA_TALL_GRASS = 128, RED_EARTH = 129
     };
     // The first 13 ids are stable (bound to GDScript); the rest come from
     // biomes.json through biome_table.gen.h (technosim_biome::Id, NAMES, COLORS,

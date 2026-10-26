@@ -33,7 +33,7 @@ static func ground_ok(def: Dictionary, ground: int) -> bool:
 			if ground == GameMaterials.id_of(String(g)):
 				return true
 		return false
-	return ground == GameMaterials.GRASS or ground == GameMaterials.SNOW
+	return GameMaterials.is_grass(ground) or ground == GameMaterials.SNOW
 
 
 # ---------------- brain ----------------

@@ -4,7 +4,7 @@ Tiles (index = row*4 + col):
  0 stone  1 dirt   2 grass_top  3 grass_side
  4 sand   5 water  6 wood       7 lava
  8 ash    9 oil   10 steam     11 smoke
-12 fire  13 bedrock 14 snow 15 gravel 16-19 ores 20 leaves 21 sandstone 22 clay
+12 fire  13 bedrock 14 snow 15 gravel 16-19 ores (patterned, ADR 0064) 20 leaves 21 sandstone 22 clay
 23 tall_grass 24 flower 25 cactus 26 dead_bush 27 ice 28 flower_red
 29-31 plant colours 32 crafting_table top 33 crafting_table side 34 furnace top
 35 furnace front 36 furnace front lit 37 chest top 38 chest side 39 planks 40-50 detail, sludge, sulfur, obsidian
@@ -14,11 +14,12 @@ Tiles (index = row*4 + col):
 72 fern frond; 73 birch bark 74 birch top 75 birch leaves 76 blueberries
 77 pumpkin side 78 pumpkin top 79-81 petals blue / white / purple; 82 bone 83 raw meat; 84 leaf litter; 85 oak bark; 86 pebbles 87 flint
 88 thatch top 89 thatch side 90 daub 91 wattle withy 92 torch ember (ADR 0030); 93 twigs 94-96 copper, tin, iron-bearing stones; 97 twig bark; 98 cobblestone 99 bricks (patterned, ADR 0039); 100 blueberry bush; 101 kelp 102 seagrass 103 seashell (ADR 0047);
-104 crystal (geodes, ADR 0052), 105-111 reserved (world generation); 112-114 wheat stalks green / turning / golden, 115 wheat ear,
+104 crystal (geodes, ADR 0052), 105-108 reserved (world generation), 109-111 savanna grass, tall grass, red earth; 112-114 wheat stalks green / turning / golden, 115 wheat ear,
 116 carrot leaves 117 carrot shoulder, 118 torch stick 119 torch wrap 120 torch flame (ADR 0053); 121-135 reserved (parts C, D)
 136-170 rock kinds, cobbles, bricks, clutter, pyrite and ochres (tools/atlas_rocks.py, ADR 0057)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
+import math
 import os
 import random
 
@@ -612,6 +613,51 @@ def ore_stones_pattern(ore_cols, seed):
     return img
 
 
+def ore_vein_pattern(cols, seed, n=9, veinlet=1):
+    """Ore in a vein (ADR 0064, "pattern": true): one 16x16 picture laid over the world grid, so a lump of
+    ore voxels shows one continuous texture instead of a texel per voxel picked at random. Crystals 4-8
+    cells long, stretched along a diagonal like grains in a vein, each lit from the top-left (a bevel of
+    light and shade round a flat body) with a thin dark matrix between them; `veinlet` thin wandering veins of the accent mineral cross the
+    tile; a few glints. cols = 8 colours: matrix, deep shade, shade, body A, body B, light, rim, accent.
+    Wraps."""
+    rng = random.Random(seed)
+    matrix, deep, shade, body_a, body_b, light, rim, accent = [_hexc(c) for c in cols]
+    seeds = [(rng.uniform(0, G), rng.uniform(0, G), rng.randint(0, 2)) for _ in range(n)]
+    ax, ay = 0.8, -0.6   # the grain's long axis (unit), a diagonal
+
+    def dist(x, y, sx, sy):
+        dx = (x + 0.5 - sx + G / 2) % G - G / 2
+        dy = (y + 0.5 - sy + G / 2) % G - G / 2
+        along = dx * ax + dy * ay
+        across = -dx * ay + dy * ax
+        return along * along * 0.35 + across * across, dx, dy
+
+    cells = [[matrix] * G for _ in range(G)]
+    for y in range(G):
+        for x in range(G):
+            d = sorted((dist(x, y, sx, sy) + (tone,)) for sx, sy, tone in seeds)
+            (d0, dx, dy, tone), d1 = d[0], d[1][0]
+            edge = d1 ** 0.5 - d0 ** 0.5
+            if edge < 0.3:
+                continue   # the thin matrix between crystals
+            lit = -(dx + dy)   # toward the top-left: lit
+            if edge < 1.2:
+                c = (rim if lit > 2.5 else light) if lit > 0 else (deep if lit < -2.5 else shade)   # the crystal's bevel
+            else:
+                c = [body_a, body_b, body_a][tone]
+            cells[y][x] = c
+    for _ in range(veinlet):
+        y0, ph, amp = rng.randrange(G), rng.uniform(0, 6.283), rng.choice([1.5, 2.5])
+        for x in range(G):
+            y = int(round(y0 + amp * math.sin(ph + x * 6.283 / G) + 0.6 * math.sin(2 * ph + x * 6.283 * 2 / G))) % G
+            cells[y][x] = accent
+            if rng.random() < 0.3:
+                cells[(y + 1) % G][x] = accent
+    for _ in range(3):
+        cells[rng.randrange(G)][rng.randrange(G)] = rim
+    return _cells_to_tile(cells)
+
+
 def stripes(cols, seed, direction="rows", width=(1, 2), fleck=0.06):
     """Clutter in bands (2026-10-25, the pickups' treatment for every clutter kind): 8 colours, dark
     first; bands 1-2 voxels wide of shades 1..6 along rows (kelp segments), columns (stems, blades) or
@@ -747,10 +793,11 @@ tiles = [
     palette(PAL["bedrock"], 13),                              # 13 bedrock
     palette(PAL["snow"], 14),                                 # 14 snow
     palette(PAL["gravel"], 15),                               # 15 gravel
-    palette(PAL["coal"], 16),                                 # 16 coal ore: mostly ore, a little host rock
-    palette(PAL["iron"], 17),                                 # 17 iron ore
-    palette(PAL["copper"], 18),                               # 18 copper ore (with malachite green)
-    palette(PAL["tin"], 19),                                  # 19 tin ore
+    # ores (ADR 0064): patterned, one picture across a lump; crystals in a dark matrix, veinlets of a second mineral
+    ore_vein_pattern(["#0b0b0d", "#17171b", "#222328", "#2e3036", "#3a3c44", "#5a6070", "#93a0b8", "#c8a94a"], 16),   # 16 coal: glossy black, brassy pyrite
+    ore_vein_pattern(["#1e0a08", "#3a1410", "#5a1e16", "#74261b", "#86301f", "#a8482c", "#c8704a", "#9aa2b0"], 17),   # 17 iron: hematite, limonite, specular steel-grey
+    ore_vein_pattern(["#2b170c", "#5c2a12", "#8a401c", "#b75a28", "#cf7638", "#e89a58", "#f8c88c", "#2e9a6c"], 18, veinlet=2),   # 18 copper: native copper, malachite green
+    ore_vein_pattern(["#1a110b", "#24170f", "#3a2717", "#5a3b22", "#6a4628", "#94632f", "#d09a50", "#e8e2d4"], 19, veinlet=2),   # 19 tin: cassiterite, resin glints, quartz veins
     palette(PAL["leaves"], 20),                               # 20 leaves (oak)
     palette(PAL["sandstone"], 21),                            # 21 sandstone
     palette(PAL["clay"], 22),                                 # 22 clay
@@ -838,7 +885,11 @@ tiles = [
     stripes(["#1f4a1a", "#2f6a27", "#3f8433", "#4f9a3e", "#62ad4b", "#78c05c", "#93d276", "#d6e59a"], 102, "cols"),   # 102 seagrass: blades
     stripes(["#8a5a4a", "#c98f7c", "#dba795", "#e8bdaa", "#f2d0c0", "#f8e2d6", "#fff3ea", "#b06f5b"], 103, "diag", (1, 1)),   # 103 seashell: pink ribs
     crystal(104),                                             # 104 crystal: geode lining (glows in the shader, ADR 0052)
-] + [palette(PAL["stone"], 105 + i) for i in range(7)] + [   # 105-111 reserved for world generation
+] + [palette(PAL["stone"], 105 + i) for i in range(4)] + [   # 105-108 reserved for world generation
+    # the dry savanna floor (bug report 2026-10-25 20-37-22)
+    palette([("#b4a058", 5), ("#a48e4a", 4), ("#c4b068", 3), ("#958040", 2), ("#8c8c4c", 2), ("#d2bf7c", 1), ("#7a683a", 1)], 109),   # 109 savanna grass: straw, a hint of olive
+    palette([("#d4ba68", 5), ("#c6a858", 4), ("#e0cb80", 3), ("#b49548", 2), ("#a9a25c", 1), ("#ead9a0", 1)], 110),   # 110 savanna tall grass: golden tussocks
+    palette([("#8e4c30", 5), ("#7e432b", 4), ("#9c5a3a", 3), ("#6e3c26", 2), ("#a86a46", 1), ("#6a4c36", 2)], 111),   # 111 red earth: laterite
     # multi-voxel crops and torches (ADR 0053): 8 colours, laid over the world grid ("pattern": true)
     stripes(["#1c3a12", "#2f5a1c", "#3e7224", "#4d872c", "#5e9c36", "#73b043", "#8cc456", "#c8d97a"], 112, "cols"),   # 112 wheat, green blades
     stripes(["#3c4a14", "#5e6e1e", "#7a8a28", "#94a032", "#aab23e", "#c2c04c", "#d6cc62", "#e8dc8a"], 113, "cols"),   # 113 wheat, turning
