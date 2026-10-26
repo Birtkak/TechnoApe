@@ -42,6 +42,9 @@ var worst_frame_ms := 0.0
 var _cost_sum := 0.0
 var _cost_frames := 0
 var frame_us := 0             # physics time of the manager and every mob since the last frame (Mob adds its own)
+var part_us := PackedInt64Array([0, 0, 0, 0])   # think / move / animate / collide (VoxelBody, inside move) of every mob, summed since setup (JSON: per-step means)
+var _steps := 0               # physics steps since setup
+var collides := 0             # VoxelBody moves since setup
 
 var _active: Array[Mob] = []
 var _dormant: Array = []       # Mob.to_dict() + "slept_at"
@@ -52,6 +55,9 @@ var _hearts_t := {}            # uid -> seconds to the next heart
 var _rng := RandomNumberGenerator.new()
 var _seed := 0
 var _searches := SEARCHES_PER_FRAME
+const GRID_V := 2 * 2 * Settings.BLOCK   # neighbour grid cell: 2 m
+var _grid := {}                # Vector2i cell -> Array of active mobs (neighbours())
+var _grid_frame := -1
 
 
 ## A mob may run one walk-target search this frame (spreads the voxel reads of many brains).
@@ -128,6 +134,8 @@ func configure(data: Dictionary) -> void:
 func _physics_process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	_searches = SEARCHES_PER_FRAME
+	if not _active.is_empty():
+		_steps += 1
 	game_time += delta
 	_scan_t -= delta
 	if _scan_t <= 0.0:
@@ -406,9 +414,33 @@ func landed(m: Mob, fall_m: float) -> void:
 		_fx().landing(Vector3i((m.position + Vector3(0, -0.1, 0)).floor()), fall_m, m.position)
 
 
+## Animals in the 3 x 3 grid cells (GRID_V voxels, wider than any two half-widths) around p.
+## The grid is rebuilt at most once per physics frame: separate() ran over every animal for every
+## brain, 10 000 pair tests a think with 100 bears.
+func neighbours(p: Vector3) -> Array:
+	var f := Engine.get_physics_frames()
+	if f != _grid_frame:
+		_grid_frame = f
+		_grid.clear()
+		for o in _active:
+			var k := Vector2i(floori(o.position.x / GRID_V), floori(o.position.z / GRID_V))
+			if _grid.has(k):
+				_grid[k].append(o)
+			else:
+				_grid[k] = [o]
+	var out := []
+	var c := Vector2i(floori(p.x / GRID_V), floori(p.z / GRID_V))
+	for dx in range(-1, 2):
+		for dz in range(-1, 2):
+			var a = _grid.get(c + Vector2i(dx, dz))
+			if a != null:
+				out.append_array(a)
+	return out
+
+
 ## Pushes overlapping animals (and the player) apart, Minecraft's entity push.
 func separate(m: Mob) -> void:
-	for o in _active:
+	for o: Mob in neighbours(m.position):
 		if o == m or o.is_dead():
 			continue
 		var d := Vector2(m.position.x - o.position.x, m.position.z - o.position.z)
@@ -721,4 +753,5 @@ func summary() -> Dictionary:
 	for m in _active.slice(0, 6):
 		if is_instance_valid(m):
 			sample.append(m.summary())
-	return {"active": _active.size(), "dormant": _dormant.size(), "frame_ms": snappedf(last_frame_ms, 0.001), "worst_frame_ms": snappedf(worst_frame_ms, 0.001), "avg_frame_ms": snappedf(_cost_sum / maxi(1, _cost_frames), 0.001), "by_species": by, "goals": goals, "stats": stats, "sample": sample}
+	return {"active": _active.size(), "dormant": _dormant.size(), "frame_ms": snappedf(last_frame_ms, 0.001), "worst_frame_ms": snappedf(worst_frame_ms, 0.001), "avg_frame_ms": snappedf(_cost_sum / maxi(1, _cost_frames), 0.001),
+		"step_ms": {"think": snappedf(part_us[0] / 1000.0 / maxi(1, _steps), 0.001), "move": snappedf(part_us[1] / 1000.0 / maxi(1, _steps), 0.001), "animate": snappedf(part_us[2] / 1000.0 / maxi(1, _steps), 0.001), "collide": snappedf(part_us[3] / 1000.0 / maxi(1, _steps), 0.001), "collides_per_step": snappedf(float(collides) / maxi(1, _steps), 0.1)},"by_species": by, "goals": goals, "stats": stats, "sample": sample}

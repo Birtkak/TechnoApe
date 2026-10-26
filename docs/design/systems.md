@@ -37,6 +37,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   (climate, season, hour, caves, water, rooms from the native `ClimateProbe` flood fill, heat of fire cells and lit
   entities) and food spoilage (perishable stacks carry `spoil` through every Inventory move, averaged on merge; rot).
   Tunables in `Settings`; `/survival` reads and sets it. A new `class_name` needs an `--import` before the game sees it.
+  **Animal crowds (ADR 0067):** body moves go through godot_voxel's `VoxelBoxMover`, which needs the
+  `voxel_patch_boxmover.py` build (per-block reads; a bear's move cost 0.5 ms without it). `Mob` steps every frame
+  within 16 m, every 2nd to 40 m, every 4th beyond (running animals full rate, standing ones at most every 2nd);
+  `MobManager.neighbours` is the 2 m grid for pushes. Check with `mob_bench=100` and the JSON's `mobs.step_ms`.
   **Lighting grade (ADR 0041):** golden (warm sun, warm haze, ACES + S-curve LUT) is the look; `Atmosphere.GRADES` holds it
   and the alternatives natural and clear (`/grade <name>`, `grade=`); fog is per km. `/shot <name>` saves a frame without the HUD.
   Underground (camera 2-10 m under the generator surface, unless `Atmosphere.sky_open`: a ray up through the loaded

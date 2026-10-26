@@ -56,6 +56,8 @@ Godot_..._console.exe --path game --render-thread safe -- autopilot=1 duration=2
 # MSYS_NO_PATHCONV=1 or it rewrites /arguments into Windows paths.
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=3 f3=1 "commands=/gamemode creative;/kit tools" out=res://out/chat
 # liquid spill stress: blast=1.5 blast_material=water blast_every=2 (passes for ~20 s; minutes of flow do not yet)
+# animal crowd (ADR 0067): mob_bench=100 [animal=bear] [mob_bench_r=6] speed=0 load_cap_s=60 stands on the ground before N animals
+# 8 m ahead (scattered over mob_bench_r m), measures from 2 s later; JSON mobs.step_ms = think/move/collide/animate ms per physics step
 # far view + streaming (ADR 0017): JSON voxel_backlog = pending voxel tasks while moving (max/mean/busy_share/
 # max_busy_s/threads); voxel_threads=N overrides the worker count; persist=1 seed=<unused seed> measures the
 # save-file load path (never use the seed you play); lod_fade_s=0 turns the LOD cross-fade off (default 0.35 s, ADR 0020);
@@ -240,6 +242,7 @@ python <repo>/prototypes/p11-lod-horizon/voxel_patch_unloaded.py ~/Tools/godot_v
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_fluid.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_vertical.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_stream.py ~/Tools/godot_voxel
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_boxmover.py ~/Tools/godot_voxel   # ADR 0067: VoxelBoxMover reads per block
 GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=template_debug use_mingw=yes use_static_cpp=yes -j12
 cp project/addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll <repo>/game/addons/zylann.voxel/bin/
 ```
