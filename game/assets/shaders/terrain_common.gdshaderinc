@@ -38,6 +38,10 @@ uniform float grass_side_tile = 3.0;
 uniform int pattern_tiles[8];
 uniform float far_fade_start = 300.0;
 uniform float far_fade_end = 1200.0;
+// The horizon (ADR 0071): from horizon_start (world voxels from the camera) pixels dither away until
+// nothing draws at horizon_end, where the voxel LODs stop; the haze colours what is left. 0 = off.
+uniform float horizon_start = 0.0;
+uniform float horizon_end = 0.0;
 
 // LOD cross-fade (ADR 0017): while VoxelLodTerrain.lod_fade_duration > 0 the
 // terrain sets this per mesh block, x = progress 0..1, y = 1 fading in / 0 out;
@@ -145,14 +149,30 @@ float voxel_sample(vec2 uv_in, vec3 wpos, vec3 n, vec3 cam, out vec4 c) {
 	return idx;
 }
 
+float bayer4(vec2 fragcoord) {
+	const mat4 bayer = mat4(vec4(0.0, 8.0, 2.0, 10.0), vec4(12.0, 4.0, 14.0, 6.0), vec4(3.0, 11.0, 1.0, 9.0), vec4(15.0, 7.0, 13.0, 5.0));
+	ivec2 p = ivec2(mod(fragcoord, 4.0));
+	return (bayer[p.x][p.y] + 0.5) / 16.0;
+}
+
 bool lod_fade_discard(vec2 fragcoord) {
 	if (u_lod_fade.x <= 0.0 && u_lod_fade.y <= 0.0) {
 		return false;
 	}
-	const mat4 bayer = mat4(vec4(0.0, 8.0, 2.0, 10.0), vec4(12.0, 4.0, 14.0, 6.0), vec4(3.0, 11.0, 1.0, 9.0), vec4(15.0, 7.0, 13.0, 5.0));
-	ivec2 p = ivec2(mod(fragcoord, 4.0));
-	float h = (bayer[p.x][p.y] + 0.5) / 16.0;
+	float h = bayer4(fragcoord);
 	return u_lod_fade.y > 0.5 ? h > u_lod_fade.x : h < u_lod_fade.x;
+}
+
+// LOD cross-fade or the horizon dissolve: either drops this pixel.
+bool fade_discard(vec2 fragcoord, vec3 wpos, vec3 cam) {
+	if (lod_fade_discard(fragcoord)) {
+		return true;
+	}
+	if (horizon_end <= 0.0) {
+		return false;
+	}
+	float t = smoothstep(horizon_start, horizon_end, distance(wpos, cam));
+	return t > 0.0 && bayer4(fragcoord + vec2(1.0, 2.0)) < t;
 }
 
 float face_tint(vec3 n) {

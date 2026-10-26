@@ -15,13 +15,14 @@ var sim_window_chunks := Vector3i(32, 32, 32)   # the wrapped simulation window:
 var sim_cell_budget := 1500000          # cells scanned per tick at most; the furthest active chunks wait (ADR 0013)
 var sim_lod_m := 12.0                   # chunks further than this from the player tick every second tick
 var render_distance_m := 24.0           # full-detail (LOD 0) radius. Our godot_voxel build lifts stock's 64 m clamp (ADR 0020): 96 m holds at 20 m/s (not at 40), 128 m costs p99 10 ms and 2 GB VRAM
-var view_distance_m := 2048.0           # LOD horizon (vision: 2 km). ADR 0020: free at 7 LODs (LOD6 reaches 3 km with 48 m rings); an 8th LOD makes the first load 22 s (lod-7 blocks span more hydrology tiles than the generator's cache holds)
-var lod_count := 8
-var lod_ring_m := 24.0                  # clipbox: LOD n ends at render_distance_m + lod_ring_m * 2^n (ADR 0020: 48 m = 2-voxel cubes to 160 m, 4-voxel to 256 m; godot_voxel's default is 24 m; 64 m looks better still but 40 m/s flight then has 20-27 ms frames)
+var view_distance_m := 200.0            # the horizon (ADR 0072): voxel LODs end here, haze and a dithered dissolve hide the edge. 2 km of 8 voxel LODs looked worse than nothing from 50 m out and streamed too slowly in flight
+var lod_count := 4                      # derived from view_distance_m (lods_for_view) unless given on the command line
+var horizon_fade_frac := 0.75           # the terrain dissolves into the haze from this fraction of view_distance_m to the edge (terrain_common.gdshaderinc)
+var lod_ring_m := 32.0                  # clipbox: LOD n ends at render_distance_m + lod_ring_m * 2^n. ADR 0072: 32 m = 25 cm cubes to 56 m, 50 cm to 88 m, 1 m to 152 m, four LODs to the 200 m horizon; the ring, not LOD 0, is the cheap quality lever (first load 11.5 -> 18.5 s, 32 m LOD 0 costs 23 s)
 var lod_vertical_ratio := 1.0           # LOD 1+ boxes this flat (our godot_voxel build, 1 = cubes). 0.35 cut 20 m/s flight work 10x but lost the trees under you from 120 m up (2026-10-25)
 var terrain_threaded_update := true     # VoxelLodTerrain's LOD/streaming bookkeeping on a worker thread (ADR 0020: the 17 ms burst frame at 64 m rings became 9 ms)
 var far_fade_start_m := 40.0            # terrain textures fade toward their tile's average colour from here (ADR 0017)
-var far_fade_end_m := 200.0
+var far_fade_end_m := 160.0
 var lod_fade_s := 0.35                  # dithered cross-fade when a terrain block changes LOD (ADR 0020: free with our godot_voxel build; stock godot_voxel copies every fading block and costs 30-60 ms frames)
 var mesh_upload_budget_mb := 4.0        # terrain mesh data applied per frame (ADR 0020, our godot_voxel build); 0 = unlimited. 4 MB since the forests (2026-10-23): a 15 MB frame cost 16 ms
 var edit_remesh_rate := 300.0           # edit-caused terrain remeshes per second, token bucket (ADR 0020, our godot_voxel build): the water spill's p99 8.3 -> 5.1 ms, 60 s of flow p99 3.8; 0 = unlimited
@@ -200,10 +201,13 @@ var user_settings_path := "user://settings.cfg"   # menu_test=1 points it elsewh
 ## 24 m with 32 m rings 9.4 ms, 32 m 21 ms and 3.7 GB (ADR 0035).
 const MIN_DETAIL_M := 16.0
 const MAX_DETAIL_M := 24.0
+const MAX_RING_M := 48.0                # ADR 0072: 48 m rings load 31 s and 2 GB VRAM; one setting away, never a default
+const MIN_VIEW_M := 100.0
+const MAX_VIEW_M := 400.0               # 5 LODs; the settings menu offers 200 and 400 m (ADR 0071)
 const GRAPHICS_PRESETS := {
 	"low": {"shadow_quality": "low", "ssao": false, "bloom": false, "render_distance_m": 16.0, "lod_ring_m": 16.0},
 	"medium": {"shadow_quality": "medium", "ssao": true, "bloom": true, "render_distance_m": 24.0, "lod_ring_m": 24.0},
-	"high": {"shadow_quality": "high", "ssao": true, "bloom": true, "render_distance_m": 24.0, "lod_ring_m": 24.0},
+	"high": {"shadow_quality": "high", "ssao": true, "bloom": true, "render_distance_m": 24.0, "lod_ring_m": 32.0},
 }
 ## Sun shadows per quality: Atmosphere mode, cascades, distance and filter (ADR 0031's knobs).
 const SHADOW_QUALITY := {
@@ -271,6 +275,15 @@ func view_distance_voxels() -> int:
 	return int(m2v(view_distance_m))
 
 
+## LODs needed to reach `view_m`: LOD n (n >= 1) ends at render_distance_m + lod_ring_m * 2^n (ADR 0020),
+## so 4 LODs reach 216 m with 24 m rings, 5 reach 408 m.
+func lods_for_view(view_m: float) -> int:
+	var n := 1
+	while render_distance_m + lod_ring_m * pow(2.0, n - 1) < view_m and n < 8:
+		n += 1
+	return n
+
+
 func apply_cmdline() -> Dictionary:
 	## Lets Claude (or a script) override settings and request captures:
 	##   godot --path game -- autopilot=1 duration=20 capture_every=1 sim_tick_hz=60 render_distance_m=64
@@ -322,6 +335,8 @@ func apply_cmdline() -> Dictionary:
 			"gamemode": game_mode = kv[1]
 			"minimized": start_minimized = kv[1] == "1"
 			"graphics": apply_graphics_preset(kv[1])   # graphics=low|medium|high (ADR 0032)
+	if not args.has("lod_count"):
+		lod_count = lods_for_view(view_distance_m)
 	return args
 
 
@@ -336,8 +351,9 @@ func load_user_settings() -> void:
 	bloom = bool(cf.get_value("video", "bloom", bloom))
 	# 0.5 m-era files hold 48-96 m: at 12.5 cm that never finishes loading (6 GB, nothing drawn)
 	render_distance_m = clampf(float(cf.get_value("video", "render_distance_m", render_distance_m)), MIN_DETAIL_M, MAX_DETAIL_M)
-	lod_ring_m = clampf(float(cf.get_value("video", "lod_ring_m", lod_ring_m)), MIN_DETAIL_M, MAX_DETAIL_M)
-	view_distance_m = float(cf.get_value("video", "view_distance_m", view_distance_m))
+	lod_ring_m = clampf(float(cf.get_value("video", "lod_ring_m", lod_ring_m)), MIN_DETAIL_M, MAX_RING_M)
+	# files from before ADR 0071 hold 1-2 km
+	view_distance_m = clampf(float(cf.get_value("video", "view_distance_m", view_distance_m)), MIN_VIEW_M, MAX_VIEW_M)
 	fov = float(cf.get_value("video", "fov", fov))
 	vsync = bool(cf.get_value("video", "vsync", vsync))
 	max_fps = int(cf.get_value("video", "max_fps", max_fps))

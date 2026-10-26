@@ -131,7 +131,8 @@ vec3 gradient(vec3 dir, SkyLight l) {
 	vec3 col = mix(l.zen, hor, horizon_t);
 	if (h < 0.0) {
 		vec3 gnd = mix(ground_color * 0.25, ground_color, l.day);
-		col = mix(hor, gnd, smoothstep(0.0, 0.12, -h));
+		// a wide band: from a few metres up the terrain's dissolve (ADR 0072) meets this, so it is the haze colour
+		col = mix(hor, gnd, smoothstep(0.0, 0.35, -h));
 	}
 	// the sun side of the sky is warmer and brighter near the horizon
 	float toward = pow(clamp(dot(dir, sun), 0.0, 1.0), 4.0);

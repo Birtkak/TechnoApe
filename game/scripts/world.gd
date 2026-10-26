@@ -40,14 +40,15 @@ func _ready() -> void:
 	atlas_material.set_shader_parameter("pattern_tiles", GameMaterials.pattern_tiles())
 	atlas_material.set_shader_parameter("far_fade_start", Settings.m2v(Settings.far_fade_start_m))
 	atlas_material.set_shader_parameter("far_fade_end", Settings.m2v(Settings.far_fade_end_m))
+	_set_horizon(atlas_material)
 	# liquids and gases: same uniforms, alpha + depth write + water glint (terrain_liquid.gdshader)
 	liquid_material = ShaderMaterial.new()
 	liquid_material.shader = load("res://assets/shaders/terrain_liquid.gdshader")
-	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "glow_tile_b", "grass_top_tile", "grass_side_tile", "pattern_tiles", "far_fade_start", "far_fade_end"]:
+	for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "glow_tile_b", "grass_top_tile", "grass_side_tile", "pattern_tiles", "far_fade_start", "far_fade_end", "horizon_start", "horizon_end"]:
 		liquid_material.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
 	gas_material = ShaderMaterial.new()
 	gas_material.shader = load("res://assets/shaders/terrain_gas.gdshader")
-	for k in ["atlas", "atlas_tiles", "far_fade_start", "far_fade_end", "pattern_tiles"]:
+	for k in ["atlas", "atlas_tiles", "far_fade_start", "far_fade_end", "pattern_tiles", "horizon_start", "horizon_end"]:
 		gas_material.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
 	prop_material = atlas_material.duplicate()
 	prop_material.shader = load("res://assets/shaders/terrain_prop.gdshader")
@@ -65,6 +66,7 @@ func _ready() -> void:
 			for k in ["atlas", "atlas_tiles", "water_tile", "lava_tile", "fire_tile", "glow_tile", "glow_tile_b"]:
 				fm.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
 			fm.set_shader_parameter("fluid_tile", float(d["tiles"][0]))
+			_set_horizon(fm)
 			fm.set_shader_parameter("flow_speed", 0.35 * float(d.get("liquid_flow_speed", 1.0)))
 			apply_liquid_look(fm, looks.get(d["name"], {}))
 			fluid_materials[int(d["fluid_slot"])] = fm
@@ -265,3 +267,11 @@ func raycast(from: Vector3, dir: Vector3, max_dist: float, mask: int = 0xFFFFFFF
 
 func surface_height(wx: int, wz: int) -> int:
 	return generator.height_at(wx, wz)
+
+
+## The horizon dissolve (ADR 0071): past horizon_start (world voxels from the camera) the terrain shaders
+## dither more and more pixels away until nothing is drawn at horizon_end, the LOD edge, so the voxel
+## world ends in the haze instead of at a wall of coarse cubes.
+func _set_horizon(m: ShaderMaterial) -> void:
+	m.set_shader_parameter("horizon_start", Settings.m2v(Settings.view_distance_m * Settings.horizon_fade_frac))
+	m.set_shader_parameter("horizon_end", Settings.m2v(Settings.view_distance_m))

@@ -36,7 +36,7 @@ var moon_color := Color(0.62, 0.70, 0.95)
 var shadow_distance_m := 96.0
 var cloud_coverage := 0.42
 var overcast := 0.0              # Weather (ADR 0056): 0 clear .. 1 a heavy rain sky: clouds close, the sun dims, fog thickens
-var fog_per_km := 2.8            # fog above ground in daylight, extinction per km (1 / e left after 1 / this km)
+var fog_per_km := 6.0            # fog above ground in daylight, extinction per km (1 / e left after 1 / this km). 6: a hazy day, 30 % left at the 200 m horizon (ADR 0071)
 var mist_per_km := 9.6           # the lowland ground mist by day (height fog), per km
 var fog_color_day := Color(0.74, 0.83, 0.95)
 var fog_color_night := Color(0.05, 0.06, 0.10)
@@ -92,7 +92,7 @@ const GRADES := {
 		"curve": [[0.0, Color(0.0, 0.01, 0.03)], [0.25, Color(0.22, 0.22, 0.24)], [0.5, Color(0.52, 0.5, 0.46)],
 			[0.75, Color(0.79, 0.76, 0.70)], [1.0, Color(1.0, 0.97, 0.9)]],
 		"sun_color": Color(1.0, 0.82, 0.6), "sunset_color": Color(1.0, 0.5, 0.22), "sun_energy": 1.6,
-		"ambient_mult": 0.8, "shadow_opacity": 0.9, "fog_color_day": Color(0.85, 0.79, 0.69), "fog_per_km": 2.8,
+		"ambient_mult": 0.8, "shadow_opacity": 0.9, "fog_color_day": Color(0.85, 0.79, 0.69), "fog_per_km": 6.0,
 		"aerial": 0.72, "sun_scatter": 0.35, "ssao_intensity": 2.0, "glow_intensity": 0.7, "glow_bloom": 0.03,
 		"glow_threshold": 1.2, "zenith_color": Color(0.22, 0.42, 0.78), "horizon_color": Color(0.84, 0.79, 0.70),
 	},
@@ -101,7 +101,7 @@ const GRADES := {
 		"curve": [[0.0, Color(0.0, 0.0, 0.01)], [0.25, Color(0.21, 0.215, 0.23)], [0.5, Color(0.5, 0.5, 0.5)],
 			[0.75, Color(0.79, 0.785, 0.77)], [1.0, Color(1.0, 1.0, 0.99)]],
 		"sun_color": Color(1.0, 0.97, 0.92), "sunset_color": Color(1.0, 0.58, 0.3), "sun_energy": 1.4,
-		"ambient_mult": 0.95, "shadow_opacity": 0.92, "fog_color_day": Color(0.62, 0.76, 0.95), "fog_per_km": 1.1,
+		"ambient_mult": 0.95, "shadow_opacity": 0.92, "fog_color_day": Color(0.62, 0.76, 0.95), "fog_per_km": 3.0,
 		"aerial": 0.55, "sun_scatter": 0.08, "ssao_intensity": 2.2, "glow_intensity": 0.5, "glow_bloom": 0.0,
 		"glow_threshold": 1.5, "zenith_color": Color(0.12, 0.36, 0.88), "horizon_color": Color(0.58, 0.74, 0.95),
 	},
@@ -294,6 +294,8 @@ func _push_grade() -> void:
 	sky_material.set_shader_parameter("sunset_color", Vector3(sunset_color.r, sunset_color.g, sunset_color.b))
 	sky_material.set_shader_parameter("zenith_color", Vector3(zenith_color.r, zenith_color.g, zenith_color.b))
 	sky_material.set_shader_parameter("horizon_color", Vector3(horizon_color.r, horizon_color.g, horizon_color.b))
+	# below the horizon the sky is the haze the terrain dissolves into (ADR 0072), not a grey ground
+	sky_material.set_shader_parameter("ground_color", Vector3(fog_color_day.r, fog_color_day.g, fog_color_day.b))
 
 
 ## A 1D lookup: each channel is remapped through its own curve (Godot reads r from .r, g from .g ...).

@@ -2,7 +2,7 @@
 
 3D first-person voxel game: Minecraft/GregTech building and automation,
 Noita-style simulated materials and wand/spell play, procedurally generated
-world with 2 km LOD horizons. Windows client (Android dropped, ADR 0009), dedicated Linux
+world drawn to a 200 m horizon that ends in haze (ADR 0072). Windows client (Android dropped, ADR 0009), dedicated Linux
 server on the home server (Unraid) over Tailscale. Solo developer; Claude
 Code does most implementation, the developer steers, plays, decides.
 
@@ -86,6 +86,9 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
 - The title screen is the main scene (ADR 0032: worlds list, Settings with graphics presets in
   `user://settings.cfg`, Esc pauses with Settings and save-and-quit, the player is saved with the
   world). `autopilot=1` or `play=1` skip it; `menu_test=1` checks the menus.
+- To judge how materials or ground pickups look, use the look check, not a hunt through the world:
+  `-- autopilot=1 walk=1 speed=0 duration=40 showcase=flint_stones,pebbles showcase_on=gravel out=res://out/showcase`
+  (one ~30 s run, one sheet `showcase.png`; `/showcase` in chat; `scripts/visuals/showcase.gd`, `game/README.md`).
 - Playtest tools (ADR 0018): T chat + slash commands (`/help`), `/gamemode`, F3
   debug screen, F4 playtest menu, F9 bug reports, `/cam` free camera (`/fell cam` films a felling from a
   spot with a clear view). Playtest gadgets (`/kit gadgets`, `scripts/items/playtest_tools.gd`): laser cutter

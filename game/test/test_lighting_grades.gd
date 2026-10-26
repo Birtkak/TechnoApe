@@ -17,9 +17,9 @@ func test_grades_switch_and_reset_to_natural() -> void:
 	var a := Atmosphere.new()
 	assert_bool(a._load_grade("golden")).is_true()
 	assert_str(a.tonemap).is_equal("aces")
-	assert_float(a.fog_per_km).is_equal(2.8)
+	assert_float(a.fog_per_km).is_equal(6.0)
 	assert_bool(a._load_grade("clear")).is_true()
-	assert_float(a.fog_per_km).is_equal(1.1)
+	assert_float(a.fog_per_km).is_equal(3.0)
 	assert_bool(a._load_grade("natural")).is_true()   # keys a grade leaves out go back to natural's
 	assert_str(a.tonemap).is_equal("agx")
 	assert_bool(a.curve.is_empty()).is_true()

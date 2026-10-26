@@ -155,11 +155,14 @@ prototype (P5, falling-sand-3D spike) before the architecture is locked.
 5. **Runs perfect on ordinary gaming PCs.** One Windows client tuned against
    the dev PC as the reference machine (ADR 0009); the server pushes
    updates so friends never install builds by hand.
-6. **Epic horizons.** Distant mountains and player builds are always in
-   view through level-of-detail terrain (think Voxy / Distant Horizons in
-   Minecraft). Up close, blocks are full quality; far away, the same world
-   is drawn coarser but never missing. LOD must include player edits, not
-   just generator output.
+6. **A horizon that never looks worse than the world.** The voxel world is
+   drawn to about 200 m and ends in haze (ADR 0072): up close, blocks are
+   full quality; coarser rings behind, which include player edits; past
+   them the air hides what is not drawn. The 2 km voxel LOD horizon of the
+   early plan (ADR 0020, "Voxy / Distant Horizons") looked worse than
+   nothing at 12.5 cm voxels and streamed too slowly in flight; distant
+   mountains and far builds come back only with a technique that draws
+   them well (a painted far layer or impostors), decided then.
 
 ## Fixed decisions (see ADRs)
 - Perspective: 3D first-person.

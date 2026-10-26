@@ -14,7 +14,7 @@ signal done
 const PRESETS := ["low", "medium", "high"]
 const SHADOWS := ["off", "low", "medium", "high"]
 const RENDER_M := [16.0, 24.0]   # Settings.MIN_DETAIL_M .. MAX_DETAIL_M
-const VIEW_M := [1024.0, 2048.0]
+const VIEW_M := [200.0, 400.0]   # ADR 0071: 4 or 5 LODs, the haze hides the edge
 ## Keys that cannot be rebound (the rest are rows above them, plan item D11).
 const KEYS := [["Space twice", "fly (creative)"], ["Ctrl + wheel", "brush size, laser width"], ["B / Shift + B", "brush shape: next / previous"],
 	["Shift + right click", "paint the brush with the held block (creative)"], ["Ctrl + Q", "drop the stack"],
@@ -114,11 +114,12 @@ func _video_tab() -> Control:
 	_row(g, "Shadows", _shadows)
 	_render = _options(["16 m", "24 m"], func() -> void:
 		Settings.render_distance_m = RENDER_M[_render.selected]
-		Settings.lod_ring_m = Settings.render_distance_m
+		Settings.lod_ring_m = maxf(Settings.render_distance_m, 32.0)   # ADR 0072: 32 m rings unless the detail radius is wider
 		_edited())
 	_row(g, "Full detail to", _render)
-	_view = _options(["1 km", "2 km"], func() -> void:
+	_view = _options(["200 m", "400 m"], func() -> void:
 		Settings.view_distance_m = VIEW_M[_view.selected]
+		Settings.lod_count = Settings.lods_for_view(Settings.view_distance_m)
 		_edited())
 	_row(g, "View distance", _view)
 	_ssao = _check(func() -> void:

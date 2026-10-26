@@ -122,7 +122,7 @@ vec3 lava_surface(vec3 q, float t, out vec3 emission) {
 }
 
 void fragment() {
-	if (lod_fade_discard(FRAGCOORD.xy)) {
+	if (fade_discard(FRAGCOORD.xy, v_world, CAMERA_POSITION_WORLD)) {
 		discard;
 	}
 	vec3 n = v_normal_world;

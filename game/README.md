@@ -20,7 +20,7 @@ Godot_v4.7.2-stable_mono_win64_console.exe --path game
 
 # unattended check for Claude: fly forward 20 s, filmstrip every second, JSON on stdout
 Godot_v4.7.2-stable_mono_win64_console.exe --path game -- autopilot=1 duration=20 capture_every=1 vsync=0 out=res://out/run1
-# any Settings value can be overridden: render_distance_m=64 view_distance_m=1024 lod_count=8 sim_tick_hz=30 ...
+# any Settings value can be overridden: render_distance_m=32 view_distance_m=400 lod_ring_m=32 sim_tick_hz=30 ...
 # park at a feature and look down: target=lake|ruin|ruin_<kind> (data/ruins.json)|crypt_room (with inside=1)|spring|river|waterfall|marsh|alpine|snow|mountain|<biome> speed=0 offset=15 alt=20 pitch=-0.7
 # walk instead of fly (gravity + 1-voxel auto step-up): walk=1 ; JSON reports travelled_horizontal_m
 # pick a world: seed=1337 or seed="any text" (hashed); see docs/design/seeds.md
@@ -128,6 +128,12 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=170 sto
 #       and wears an axe out; prints "debug craft {...}" (every field true) and saves craft_*.png (craft_shots=0 skips them,
 #       and then it also runs with --headless); chat: /kit smith
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=60 craft_test=1 mob_spawn=0 vsync=0 out=res://out/craft
+# Look check (Showcase): showcase=a,b,c sets those materials side by side on a pad 5 m above the spawn (stone pickups as the
+#       generator stamps them, three patches each; other materials placed as a click would) and films front, top and a
+#       close-up of each (up to six) into <out>/showcase.png, left to right in the order given, then quits (~30 s).
+#       showcase_on=<material> picks the pad (default grass; sand/gravel use their still kind). In play: /showcase a b [on=x]
+#       writes out/showcase/showcase.png. Items are not drawn there: their looks are tools/item_sheet.gd's.
+Godot_..._console.exe --path game --resolution 1280x720 -- autopilot=1 walk=1 speed=0 duration=40 vsync=0 mob_spawn=0 showcase=flint_stones,pebbles,basalt_stones showcase_on=gravel out=res://out/showcase
 # Scripted checks: commands=... runs chat commands at start, commands_after=/tp 46 1030 194;wait 6;/blast 2 lava runs them once
 #       the world has loaded ("wait N" pauses N s); with pitch=-1.3 the blast lands at the player's feet. A lava ball in a river
 #       (ADR 0068): read sim.still_woken, active_chunks and tick_ms from the JSON line; they must settle, not grow

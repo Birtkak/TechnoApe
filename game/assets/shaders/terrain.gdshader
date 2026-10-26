@@ -15,7 +15,7 @@ void vertex() {
 }
 
 void fragment() {
-	if (lod_fade_discard(FRAGCOORD.xy)) {
+	if (fade_discard(FRAGCOORD.xy, v_world, CAMERA_POSITION_WORLD)) {
 		discard;
 	}
 	vec4 c;
