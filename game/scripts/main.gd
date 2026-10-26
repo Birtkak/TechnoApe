@@ -131,6 +131,13 @@ func _ready() -> void:
 	mark.call("spawn")
 	atmosphere.setup(world, player.camera)
 	mark.call("atmosphere")
+	if Settings.far_layer:
+		# the far layer past the box (ADR 0074): its own view behind the sky, see far_layer.gd
+		world.far_layer = FarLayer.new()
+		world.far_layer.name = "FarLayer"
+		world.add_child(world.far_layer)
+		world.far_layer.setup(world, atmosphere)
+		mark.call("far_layer")
 	ocean_life = OceanLife.new()
 	ocean_life.name = "OceanLife"
 	add_child(ocean_life)
@@ -539,6 +546,12 @@ func _find_spawn() -> Vector2i:
 
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("main", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	Inventory.clock_s += delta   # play time: hot metal cools against it (ADR 0042)
 	bubble.follow(player.position)
 	stains.follow(player.position)

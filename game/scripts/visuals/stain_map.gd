@@ -112,6 +112,12 @@ func follow(pos: Vector3) -> void:
 
 
 func _process(_delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(_delta)
+	DebugCapture.note_proc("stains", _pt0)
+
+
+func _process_timed(_delta: float) -> void:
 	if _test > 0:
 		_run_test()   # also with stains=0: the same spill without stains, for A/B runs
 	if _tex == null:

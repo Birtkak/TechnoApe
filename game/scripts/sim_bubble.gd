@@ -186,6 +186,12 @@ func _is_unloaded(wc: Vector3i) -> bool:
 
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("bubble", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	if not _ready:
 		return
 	if delta * 1000.0 > SLOW_MS and Engine.get_process_frames() > 120:

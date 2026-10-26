@@ -74,6 +74,8 @@ func _process(delta: float) -> void:
 	_elapsed += delta
 	var t: Dictionary = VoxelEngine.get_stats().get("tasks", {})
 	var pending: int = int(t.get("generation", 0)) + int(t.get("meshing", 0)) + int(t.get("streaming", 0)) + int(t.get("main_thread", 0))
+	if world != null and world.far_layer != null:
+		pending += world.far_layer.pending_count()   # the far layer's first tiles (ADR 0074)
 	_peak = maxi(_peak, pending)
 	var near: float = world.near_ready(player.position) if world != null else 0.0
 	if world != null:

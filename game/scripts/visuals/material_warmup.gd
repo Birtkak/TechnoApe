@@ -70,6 +70,12 @@ func add_meshes(meshes: Array, camera: Camera3D) -> void:
 
 
 func _process(_delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(_delta)
+	DebugCapture.note_proc("warmup", _pt0)
+
+
+func _process_timed(_delta: float) -> void:
 	_frames += 1
 	if _frames >= FRAMES:
 		if _mesh:

@@ -67,6 +67,12 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("ocean", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	if world == null or camera == null or world.generator == null:
 		return
 	_update_map()

@@ -37,6 +37,6 @@ void fragment() {
 	if (hz > 0.0) {
 		// the horizon: lit colour out, the sky behind in (ADR 0073)
 		ALBEDO *= 1.0 - hz;
-		EMISSION = mix(EMISSION, horizon_sky(v_world, CAMERA_POSITION_WORLD), hz);
+		EMISSION = mix(EMISSION, horizon_sky(v_world, CAMERA_POSITION_WORLD, SCREEN_UV), hz);
 	}
 }

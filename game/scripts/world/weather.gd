@@ -205,6 +205,12 @@ func _note_fire(p: Vector3i) -> void:
 # ---------------- per frame ----------------
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("weather", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	if main == null or main.player == null:
 		return
 	_clock += delta

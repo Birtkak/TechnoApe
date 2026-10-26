@@ -28,6 +28,10 @@ uniform sampler2D milky_way : hint_default_black, filter_linear, repeat_enable;
 uniform float star_brightness = 2.2;
 uniform float milky_way_brightness = 0.10;
 uniform float constellation_lines = 0.0;  // 0 hidden .. 1 shown (/constellations)
+// The far layer (ADR 0074): the far view's texture, transparent where there is no far terrain, laid
+// over the sky at the pixel (far_layer.gd sets it on the sky and on the terrain materials).
+uniform sampler2D far_tex : hint_default_transparent, filter_linear;
+uniform bool far_on = false;
 uniform float solar_eclipse = 0.0;        // 1 while an eclipse runs: the moon's dark disc covers the sun
 uniform vec2 lunar_shadow = vec2(9.0, 0.0); // umbra centre in moon radii, in the moon's disc frame
 uniform float lunar_umbra = 2.7;            // umbra radius in moon radii
@@ -216,5 +220,9 @@ void sky() {
 		vec3 g = gradient(dir, l);
 		vec3 sharp = celestial(dir, g, l, TIME);
 		COLOR = HALF_RES_COLOR.rgb + (sharp - g) * (1.0 - HALF_RES_COLOR.a) * exposure;
+		if (far_on) {
+			vec4 f = texture(far_tex, SCREEN_UV);
+			COLOR = mix(COLOR, f.rgb, f.a);
+		}
 	}
 }

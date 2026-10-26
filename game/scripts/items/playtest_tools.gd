@@ -80,6 +80,12 @@ func fire_for(seconds: float, sweep_deg: float) -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("gadgets", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	if _script_t <= 0.0:
 		return
 	_script_t -= delta

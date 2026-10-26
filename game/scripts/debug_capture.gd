@@ -92,6 +92,8 @@ const SPIKES_KEEP := 10
 var _process_t0 := 0
 var _physics_t0 := 0
 var _process_us := 0     # previous frame's _process phase
+var proc_cost := {}      # ms per node's _process this frame (note_proc); the spike record shows the previous frame's
+var _proc_prev := {}
 var _physics_us := 0     # physics steps since the previous frame (0, 1 or more)
 var _physics_acc_us := 0
 var _prev_mesh_b := 0.0      # RENDER_BUFFER_MEM_USED last frame: a spike's upload volume is the delta
@@ -211,6 +213,11 @@ func _ready() -> void:
 		add_child(end)
 
 
+## A node's _process cost this frame (ms since t0), for the spike records ("proc_cost").
+func note_proc(name: String, t0: int) -> void:
+	proc_cost[name] = maxf(float(proc_cost.get(name, 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
+
+
 ## Runs after every other node's _process / _physics_process and closes the phase clocks.
 class _FrameEnd extends Node:
 	var cap: Node
@@ -221,6 +228,8 @@ class _FrameEnd extends Node:
 
 	func _process(_d: float) -> void:
 		cap._process_us = Time.get_ticks_usec() - cap._process_t0
+		cap._proc_prev = cap.proc_cost
+		cap.proc_cost = {}
 
 	func _physics_process(_d: float) -> void:
 		cap._physics_acc_us += Time.get_ticks_usec() - cap._physics_t0
@@ -411,6 +420,8 @@ func _finish() -> void:
 	s["capture_stalls"] = _capture_stalls.size()
 	s["capture_stall_max_ms"] = snappedf(Array(_capture_stalls).max() if _capture_stalls.size() else 0.0, 0.01)
 	s["vram_mb"] = snappedf(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0, 1)
+	if _main != null and _main.world != null and _main.world.far_layer != null:
+		s["far"] = _main.world.far_layer.get_stats()
 	var host := _host_probe()
 	s["rss_mb"] = host["rss_mb"]
 	if _others_task >= 0:
@@ -468,6 +479,7 @@ func _note_spike(ms: float, process_us: int) -> void:
 		"other_ms": snappedf(maxf(ms - pms - phys - rcpu, 0.0), 0.01),
 		"bubble": _main.bubble.last_frame_cost(),
 		"phys_cost": _main.phys_cost.duplicate(),
+		"proc_cost": _proc_prev.duplicate(),
 		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		"primitives_m": snappedf(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1e6, 0.01),
 		"mesh_mb": snappedf(Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED) / 1048576.0, 1),
@@ -520,6 +532,8 @@ func _print_probe_voxels() -> void:
 func _world_settled() -> bool:
 	var t: Dictionary = VoxelEngine.get_stats().get("tasks", {})
 	var busy: int = int(t.get("generation", 0)) + int(t.get("meshing", 0)) + int(t.get("main_thread", 0)) + int(t.get("streaming", 0))
+	if _main.world != null and _main.world.far_layer != null:
+		busy += _main.world.far_layer.pending_count()
 	_idle_frames = _idle_frames + 1 if busy == 0 and _main.bubble.is_loaded() else 0
 	_settled = _idle_frames >= SETTLE_FRAMES
 	return _settled

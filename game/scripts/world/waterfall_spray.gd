@@ -86,6 +86,12 @@ func _make_emitter() -> GPUParticles3D:
 
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("spray", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	if _warm:
 		var c := get_viewport().get_camera_3d()
 		if c:

@@ -14,6 +14,7 @@ var spray: WaterfallSpray          # mist at waterfall feet; ParticleFx reads it
 var prop_material: ShaderMaterial   # atlas material without stains: item cubes, viewmodel (they are not at their voxel)
 var fluid_materials := {}           # fluid slot -> material (terrain_fluid.gdshader, one per liquid)
 var _tool: VoxelTool
+var far_layer: FarLayer             # the far layer past the box (ADR 0074), null unless Settings.far_layer
 
 
 func _ready() -> void:
@@ -234,6 +235,8 @@ func write_chunk(wc: Vector3i, bytes16: PackedByteArray) -> void:
 	vb.set_channel_from_byte_array(VoxelBuffer.CHANNEL_TYPE, bytes16)
 	_tool.paste(wc * Settings.CHUNK, vb, 1 << VoxelBuffer.CHANNEL_TYPE)
 	edits += 1
+	if far_layer != null:
+		far_layer.mark_chunk(wc)
 
 
 func is_area_loaded(wc: Vector3i) -> bool:
@@ -249,6 +252,8 @@ func get_voxel(p: Vector3i) -> int:
 func set_voxel(p: Vector3i, material: int) -> void:
 	_tool.set_voxel(p, material)
 	edits += 1
+	if far_layer != null:
+		far_layer.mark_chunk(Vector3i(p.x >> 4, p.y >> 4, p.z >> 4))
 
 
 ## False while the voxel's block is not loaded (set_voxel would be dropped).

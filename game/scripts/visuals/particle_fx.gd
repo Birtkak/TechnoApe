@@ -456,6 +456,12 @@ func landing(feet_voxel: Vector3i, fall_m: float, at: Vector3) -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("particles", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	if _chips == null:
 		return
 	var t0 := Time.get_ticks_usec()

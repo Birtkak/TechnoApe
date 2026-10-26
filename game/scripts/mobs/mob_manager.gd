@@ -148,6 +148,12 @@ func _physics_process(delta: float) -> void:
 
 ## Mob physics this frame into Main.phys_cost (DebugCapture lists it on a spike).
 func _process(_delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(_delta)
+	DebugCapture.note_proc("mobs", _pt0)
+
+
+func _process_timed(_delta: float) -> void:
 	if main != null and "phys_cost" in main:
 		main.phys_cost["mobs"] = maxf(float(main.phys_cost.get("mobs", 0.0)), frame_us / 1000.0)
 	last_frame_ms = frame_us / 1000.0

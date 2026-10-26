@@ -90,6 +90,12 @@ func _rebuild() -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("waypoints", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	_t -= delta
 	if _t > 0.0 or main == null or main.player == null:
 		return

@@ -217,6 +217,12 @@ func load_array(arr: Array) -> void:
 # ---------------- every frame ----------------
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("tnt", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	if main == null or main.bubble == null:
 		return
 	var t0 := Time.get_ticks_usec()

@@ -66,6 +66,12 @@ static func _apply(l: OmniLight3D, def: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("torches", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	_accum += delta
 	if _accum >= 0.25:
 		_accum = 0.0

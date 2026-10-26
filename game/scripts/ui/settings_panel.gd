@@ -25,6 +25,7 @@ var _rebinding := ""       # the action waiting for a key
 var _preset: OptionButton
 var _shadows: OptionButton
 var _view: OptionButton
+var _far: OptionButton
 var _ssao: CheckBox
 var _bloom: CheckBox
 var _fov: HSlider
@@ -118,6 +119,14 @@ func _video_tab() -> Control:
 		_edited())
 	_view.tooltip_text = "How far the world is drawn, at full detail all the way; it ends in the sky. Further costs frame time and memory."
 	_row(g, "View distance", _view)
+	_far = _options(["Off (the world ends in the sky)", "384 m", "768 m", "1.5 km"], func() -> void:
+		var m: float = Settings.FAR_CHOICES_M[_far.selected]
+		Settings.far_layer = m > 0.0
+		if m > 0.0:
+			Settings.far_distance_m = m
+		_edited())
+	_far.tooltip_text = "The far horizon (ADR 0074): the land past the full-detail box as a smooth skin with far trees. Takes effect when a world is next loaded."
+	_row(g, "Far horizon", _far)
 	_ssao = _check(func() -> void:
 		Settings.ssao = _ssao.button_pressed
 		_edited())
@@ -299,6 +308,7 @@ func sync_from_settings() -> void:
 	_preset.select(PRESETS.find(Settings.graphics_preset) if Settings.graphics_preset in PRESETS else PRESETS.size())
 	_shadows.select(maxi(0, SHADOWS.find(Settings.shadow_quality)))
 	_view.select(_nearest(VIEW_M, Settings.view_distance_m))
+	_far.select(_nearest(Settings.FAR_CHOICES_M, Settings.far_distance_m) if Settings.far_layer else 0)
 	_ssao.button_pressed = Settings.ssao
 	_bloom.button_pressed = Settings.bloom
 	_fov.value = Settings.fov

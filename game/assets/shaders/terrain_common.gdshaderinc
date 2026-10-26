@@ -43,6 +43,10 @@ uniform float far_fade_end = 1200.0;
 // horizon_end, the box's edge, so the world ends in sky, never in a wall of cubes or a dither. 0 = off.
 uniform float horizon_start = 0.0;
 uniform float horizon_end = 0.0;
+// The far layer (ADR 0074): where the far view drew something behind this pixel, the horizon blend
+// goes into that instead of the sky (far_layer.gd sets far_tex and far_on).
+uniform sampler2D far_tex : hint_default_transparent, filter_linear;
+uniform bool far_on = false;
 
 #include "res://assets/shaders/sky_common.gdshaderinc"
 
@@ -154,10 +158,16 @@ float horizon_mix(vec3 wpos, vec3 cam) {
 	return smoothstep(horizon_start, horizon_end, distance(wpos, cam));
 }
 
-// The sky's own colour behind this pixel (sky_common: the gradient sky.gdshader draws), what the
-// terrain blends into. Fog is applied after, as on the sky itself.
-vec3 horizon_sky(vec3 wpos, vec3 cam) {
-	return gradient(normalize(wpos - cam), sky_light()) * exposure;
+// What is behind this pixel: the far layer where it drew something (ADR 0074), else the sky's own
+// colour (sky_common: the gradient sky.gdshader draws). What the terrain blends into; fog is applied
+// after, as on the sky itself.
+vec3 horizon_sky(vec3 wpos, vec3 cam, vec2 screen_uv) {
+	vec3 sky = gradient(normalize(wpos - cam), sky_light()) * exposure;
+	if (far_on) {
+		vec4 f = texture(far_tex, screen_uv);
+		sky = mix(sky, f.rgb, f.a);
+	}
+	return sky;
 }
 
 float face_tint(vec3 n) {

@@ -176,6 +176,12 @@ func _upload() -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("pieces", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	_since_tick += delta
 	var a := clampf(_since_tick / _period, 0.0, 1.0)
 	for id in _pieces:

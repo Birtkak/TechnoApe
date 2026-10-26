@@ -140,6 +140,12 @@ func _write(cell_px: Vector2i, src: Image, masked: bool) -> void:
 # ---------------- exploring ----------------
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("map", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	if main == null or main.player == null or main.world == null:
 		return
 	_step_t -= delta

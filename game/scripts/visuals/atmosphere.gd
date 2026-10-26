@@ -382,6 +382,12 @@ func _apply_cmdline() -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	DebugCapture.note_proc("atmosphere", _pt0)
+
+
+func _process_timed(delta: float) -> void:
 	if day_length_s > 0.0:
 		calendar.advance(delta / day_length_s)
 		_update_sun()
