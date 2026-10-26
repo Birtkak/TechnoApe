@@ -183,6 +183,7 @@ static uint8_t clamp8(double v) { return (uint8_t)std::clamp(v, 0.0, 255.0); }
 void SimWorld::set_materials(const Array &p_defs) {
     mats_.clear();
     mats_.resize(1); // air
+    max_speed_ = 1;
     for (int16_t &s : slot_material_) s = 0;
     any_fire_ = false;
     for (int i = 0; i < p_defs.size() && mats_.size() < MAX_MATERIALS; i++) {
@@ -203,6 +204,7 @@ void SimWorld::set_materials(const Array &p_defs) {
         m.density = clamp8(dget_f(d, "density", 1.0) * 16.0);
         m.disp = (uint8_t)std::clamp((int)std::lround(dget_f(d, "liquid_flow_speed", 0.9) * MAX_DISP), 0, MAX_DISP);
         m.gravity_prob = clamp8(dget_f(d, "liquid_gravity", 0.5) * 2.0 * 255.0); // 0.5 -> always falls
+        m.speed = (uint8_t)std::clamp(dget_int(d, "liquid_speed", 1), 1, 4);   // ADR 0069 B: water 3, oil 2, lava 1
         m.gas_up = clamp8(dget_f(d, "gas_upwards_speed", 100));
         m.gas_horizontal = clamp8(dget_f(d, "gas_horizontal_speed", 100));
         m.gas_down = clamp8(dget_f(d, "gas_downwards_speed", 0));
@@ -235,6 +237,7 @@ void SimWorld::set_materials(const Array &p_defs) {
         }
         if (m.cell_type == CELL_FIRE || m.burnable) any_fire_ = true;
         if (m.fluid_slot >= 0 && !m.liquid_static && slot_material_[m.fluid_slot] == 0) slot_material_[m.fluid_slot] = (int16_t)mats_.size();
+        if (m.cell_type == CELL_LIQUID && !m.liquid_static) max_speed_ = std::max(max_speed_, (int)m.speed);
         mats_.push_back(m);
     }
     rebuild_reaction_lut();
@@ -451,7 +454,7 @@ int SimWorld::fill_sphere(Vector3 p_center, float p_radius, int p_material, cons
                     const uint8_t cur = cells_[i].mat;
                     if (cur == m || keep[cur]) continue;
                     place(i, m);
-                    moved_[i] = stamp_;   // fresh change: static ground next to the crater may loosen (ADR 0013)
+                    moved_[i] = mark_;   // fresh change: static ground next to the crater may loosen (ADR 0013)
                     n++;
                     const int l[3] = {x & (CS - 1), y & (CS - 1), z & (CS - 1)};
                     for (int a = 0; a < 3; a++) { lo[a] = std::min(lo[a], l[a]); hi[a] = std::max(hi[a], l[a]); }
@@ -596,7 +599,7 @@ inline bool SimWorld::try_move(int sx, int sy, int sz, int tx, int ty, int tz, C
     if (!is_open(tx, ty, tz)) return false;
     int ti = idx(tx, ty, tz);
     int si = idx(sx, sy, sz);
-    if (moved_[ti] == stamp_) return false;
+    if (moved_[ti] == mark_) return false;
     if (!can_displace(cells_[si].mat, cells_[ti].mat)) {
         const MaterialDef &sm = mats_[cells_[si].mat];
         const MaterialDef &tm = mats_[cells_[ti].mat];
@@ -616,9 +619,9 @@ inline bool SimWorld::try_move(int sx, int sy, int sz, int tx, int ty, int tz, C
         }
     }
     std::swap(cells_[ti], cells_[si]);
-    moved_[ti] = stamp_;
+    moved_[ti] = mark_;
     // cascade: the vacated air cell may be entered again this tick ("previous tick" still reads as fresh for loosening)
-    moved_[si] = (cascade_ && cells_[si].mat == 0) ? (uint16_t)(stamp_ - 1) : stamp_;
+    moved_[si] = (cascade_ && cells_[si].mat == 0) ? (uint16_t)(stamp_ - 1) : mark_;
     mark_cell(sx, sy, sz, c, true);
     mark_cell(tx, ty, tz, c, true);
     return true;
@@ -662,7 +665,7 @@ void SimWorld::try_loosen(int x, int y, int z, int i, Ctx &c) {
         return;
     }
     cells_[i].flags = (uint8_t)((cells_[i].flags & ~FLAG_SHAKEN) | FLAG_LOOSE);
-    moved_[i] = stamp_;
+    moved_[i] = mark_;
     mark_cell(x, y, z, c, false);
 }
 
@@ -715,7 +718,7 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
     cells_[i].flags = 0;
     cells_[i].aux = 0;
     cells_[i].pad &= 15u;   // fullness kept, momentum cleared
-    moved_[i] = stamp_;
+    moved_[i] = mark_;
     still_woken_.fetch_add(1, std::memory_order_relaxed);
     mark_cell(x, y, z, c, true);
     c.moved++;
@@ -792,7 +795,7 @@ void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
             int px = x + DX4[dd] * s, pz = z + DZ4[dd] * s;
             if (!is_open(px, y, pz)) break;
             int pi = idx(px, y, pz);
-            if (!can_displace(self, cells_[pi].mat) || moved_[pi] == stamp_) break;
+            if (!can_displace(self, cells_[pi].mat) || moved_[pi] == mark_) break;
             best_x = px; best_z = pz;
             uint8_t below = y > 0 ? cells_[idx(px, y - 1, pz)].mat : self;
             if (y > 0 && can_displace(self, below)) { ledge = true; break; }
@@ -838,19 +841,29 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
     auto over_still = [&](int px, int pz) -> bool { return !on_still && y > 0 && m.fluid_slot >= 0 && still_liquid(px, y - 1, pz, m.fluid_slot); };
     // 1. fall into anything it displaces, as a whole cell (keeps velocity). Gravity does not wait for the
     // viscosity roll: a thick liquid (lava) pours as a stream, it only spreads slowly (ADR 0049)
-    if (fall(x, y, z, i, c)) { c.moved++; return; }
+    if (substep_ > 0) {
+        // a substep spreads and pours; falling stays with the main pass (gravity once a tick, like everything else).
+        // A cell that would fall, or that stands on a cell that moved this tick (a falling column, a stream), waits:
+        // spreading it sideways now would scatter what is on its way down
+        if (y > 0 && is_open(x, y - 1, z)) {
+            const int bi = idx(x, y - 1, z);
+            if (can_displace(self, cells_[bi].mat)) return;
+            const uint16_t mb = moved_[bi];
+            if (mb == stamp_ || ((mb & 0x8000u) && ((mb >> 2) & 0x1FFFu) == stamp_)) return;
+        }
+    } else if (fall(x, y, z, i, c)) { c.moved++; return; }
     int f = full(i);
     if ((r & 0xFF) > m.gravity_prob) return;
     // 2. pour into a partly full cell of the same liquid below
     if (is_open(x, y - 1, z)) {
         int bi = idx(x, y - 1, z);
-        if (cells_[bi].mat == self && moved_[bi] != stamp_) {
+        if (cells_[bi].mat == self && moved_[bi] != mark_) {
             int fb = full(bi);
             if (fb < 8) {
                 int t = std::min(8 - fb, f);
                 set_full(bi, fb + t);
-                moved_[bi] = stamp_;
-                moved_[i] = stamp_;
+                moved_[bi] = mark_;
+                moved_[i] = mark_;
                 if (t >= f) { place(i, 0); mark_cell(x, y, z, c, true); }
                 else { set_full(i, f - t); mark_cell(x, y, z, c, false); }
                 mark_cell(x, y - 1, z, c, false);
@@ -859,11 +872,14 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
             }
         }
     }
-    // 3. run down a slope as a whole cell
+    // 3. run down a slope as a whole cell (the main pass only: a substep spreads, it does not descend, or a column
+    // standing on its own liquid would scatter sideways while it falls)
     int d = (r >> 8) & 3;
-    for (int k = 0; k < 4; k++) {
-        int dd = (d + k) & 3;
-        if (try_move(x, y, z, x + DX4[dd], y - 1, z + DZ4[dd], c)) { c.moved++; return; }
+    if (substep_ == 0) {
+        for (int k = 0; k < 4; k++) {
+            int dd = (d + k) & 3;
+            if (try_move(x, y, z, x + DX4[dd], y - 1, z + DZ4[dd], c)) { c.moved++; return; }
+        }
     }
     if (f < 2) {
         // a one-eighth droplet on top of full cells wanders until it can pour into a lower cell;
@@ -886,7 +902,7 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
                 int px = x + DX4[dd] * s, pz = z + DZ4[dd] * s;
                 if (!is_open(px, y, pz)) break;
                 int pi = idx(px, y, pz);
-                if (!open_air(cells_[pi].mat) || moved_[pi] == stamp_ || over_still(px, pz)) break;
+                if (!open_air(cells_[pi].mat) || moved_[pi] == mark_ || over_still(px, pz)) break;
                 best_x = px; best_z = pz;
                 if (y > 0 && is_open(px, y - 1, pz) && open_air(cells_[idx(px, y - 1, pz)].mat)) break;   // ledge: drop there
             }
@@ -909,7 +925,7 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
         int nx = x + DX4[dd], nz = z + DZ4[dd];
         if (!is_open(nx, y, nz)) continue;
         int ni = idx(nx, y, nz);
-        if (moved_[ni] == stamp_) continue;
+        if (moved_[ni] == mark_) continue;
         const uint8_t t = cells_[ni].mat;
         if (open_air(t)) {   // empty, or a plant the water washes away
             if (over_still(nx, nz)) continue;
@@ -917,8 +933,8 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
             place(ni, self);
             set_full(ni, g);
             set_full(i, f - g);
-            moved_[ni] = stamp_;
-            moved_[i] = stamp_;
+            moved_[ni] = mark_;
+            moved_[i] = mark_;
             mark_cell(nx, y, nz, c, true);
             mark_cell(x, y, z, c, false);
             c.moved++;
@@ -926,11 +942,12 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
         }
         if (t == self) {
             int fn = full(ni);
-            if (fn <= f - 2) {
-                set_full(ni, fn + 1);
-                set_full(i, f - 1);
-                moved_[ni] = stamp_;
-                moved_[i] = stamp_;
+            if (fn <= f - 2) {   // even out: half the difference (ADR 0069 B), so a flood ends flat in a few ticks
+                const int t = (f - fn) / 2;
+                set_full(ni, fn + t);
+                set_full(i, f - t);
+                moved_[ni] = mark_;
+                moved_[i] = mark_;
                 mark_cell(nx, y, nz, c, false);
                 mark_cell(x, y, z, c, false);
                 c.moved++;
@@ -1006,13 +1023,13 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
             c.reacted++;
         }
         // Spawn flame or smoke into an air neighbour.
-        if (cells_[ni].mat == 0 && moved_[ni] != stamp_) {
+        if (cells_[ni].mat == 0 && moved_[ni] != mark_) {
             uint8_t spawn = 0;
             if (((r >> 8) & 0xFF) < m.generates_smoke && m.on_fire_smoke_material) spawn = m.on_fire_smoke_material;
             else if (((r >> 16) & 0xFF) < 160 && m.on_fire_flame_material) spawn = m.on_fire_flame_material;
             if (spawn) {
                 place(ni, spawn);
-                moved_[ni] = stamp_;
+                moved_[ni] = mark_;
                 mark_cell(nx, ny, nz, c, true);
             }
         }
@@ -1041,13 +1058,13 @@ void SimWorld::try_react(int x, int y, int z, int i, Ctx &c) {
     if (ri < 0) return;
     const Reaction &rx = reactions_[ri];
     if ((r >> 8 & 0xFFFF) >= rx.probability) return;
-    if (moved_[ni] == stamp_) return;
+    if (moved_[ni] == mark_) return;
     uint8_t oa = swapped ? rx.out2 : rx.out1;
     uint8_t ob = swapped ? rx.out1 : rx.out2;
     place(i, oa);
     place(ni, ob);
-    moved_[i] = stamp_;
-    moved_[ni] = stamp_;
+    moved_[i] = mark_;
+    moved_[ni] = mark_;
     mark_cell(x, y, z, c, true);
     mark_cell(nx, ny, nz, c, true);
     c.reacted++;
@@ -1080,14 +1097,16 @@ void SimWorld::update_chunk(int ci) {
                 int i = idx(x, y, z);
                 uint8_t m = cells_[i].mat;
                 if (m == 0 || inert_[m]) continue;
-                if (moved_[i] == stamp_) continue;
+                if (moved_[i] == mark_) continue;
                 const MaterialDef &md = mats_[m];
+                // ADR 0069 B: a liquid substep moves only the liquids that still have substeps left this tick
+                if (substep_ > 0 && (md.cell_type != CELL_LIQUID || md.liquid_static || md.speed <= substep_)) continue;
                 // Lifetime (gases, short-lived liquids, fire): count down, vanish.
-                if (md.lifetime && !(cells_[i].flags & FLAG_BURNING)) {
+                if (substep_ == 0 && md.lifetime && !(cells_[i].flags & FLAG_BURNING)) {
                     if (cells_[i].aux > 0) { cells_[i].aux--; mark_cell(x, y, z, c, false); }
                     if (cells_[i].aux == 0) { place(i, 0); mark_cell(x, y, z, c, true); continue; }
                 }
-                if (cells_[i].flags & FLAG_BURNING) update_burning(x, y, z, i, c);
+                if (substep_ == 0 && (cells_[i].flags & FLAG_BURNING)) update_burning(x, y, z, i, c);
                 if (cells_[i].mat != m) continue; // burnt away
                 switch (md.cell_type) {
                     case CELL_SOLID: break;
@@ -1101,7 +1120,7 @@ void SimWorld::update_chunk(int ci) {
                     case CELL_GAS: update_gas(x, y, z, i, c); break;
                     case CELL_FIRE: update_fire(x, y, z, i, c); break;
                 }
-                if (any_reactions_ && reactive_[cells_[i].mat] && moved_[i] != stamp_) try_react(x, y, z, i, c);
+                if (substep_ == 0 && any_reactions_ && reactive_[cells_[i].mat] && moved_[i] != mark_) try_react(x, y, z, i, c);
             }
         }
     flush_marks(c);
@@ -1125,7 +1144,8 @@ void SimWorld::tick_once(TickOut &o) {
     size_t nc = (size_t)CX_ * CY_ * CZ_;
     tick_++;
     stamp_++;
-    if (stamp_ == 0) { std::fill(moved_.begin(), moved_.end(), 0); stamp_ = 1; }
+    if (stamp_ >= 0x2000) { std::fill(moved_.begin(), moved_.end(), 0); stamp_ = 1; }   // keep clear of the substep marks
+    mark_ = stamp_;
     for (size_t i = 0; i < nc; i++) {
         active_now_[i].store(active_next_[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
         active_next_[i].store(0, std::memory_order_relaxed);
@@ -1178,13 +1198,24 @@ void SimWorld::tick_once(TickOut &o) {
     std::vector<int> work;
     work.reserve(nc / 8 + 1);
     uint64_t active = 0;
-    for (int pass = 0; pass < 8; pass++) {
-        work.clear();
-        for (int ci : pass_lists_[pass])
-            if (active_now_[ci].load(std::memory_order_relaxed)) work.push_back(ci);
-        active += work.size();
-        pool_.run(work, [this](int ci) { update_chunk(ci); });
+    // ADR 0069 B: after the main pass, liquids with liquid_speed > 1 get extra passes over the same chunks (a new
+    // move stamp each), so water spreads two or three times per tick while powders, lava, fire and gas keep the tick
+    // The tick's stamp stays one per tick (freshness of openings and edits counts in ticks); a substep marks the
+    // cells it moves with a value of its own (top bit set, unique per tick and substep) so a cell may move once per
+    // pass. moved_ is cleared when the stamp reaches the marks' range (every 8192 ticks, as the wrap did).
+    for (int sub = 0; sub < max_speed_; sub++) {
+        substep_ = sub;
+        mark_ = sub == 0 ? stamp_ : (uint16_t)(0x8000u | ((uint32_t)stamp_ << 2) | (uint32_t)sub);
+        for (int pass = 0; pass < 8; pass++) {
+            work.clear();
+            for (int ci : pass_lists_[pass])
+                if (active_now_[ci].load(std::memory_order_relaxed)) work.push_back(ci);
+            if (sub == 0) active += work.size();
+            pool_.run(work, [this](int ci) { update_chunk(ci); });
+        }
     }
+    substep_ = 0;
+    mark_ = stamp_;
     o.ms = std::chrono::duration<double, std::milli>(clock::now() - t0).count();
     o.active = active;
     o.moved = moved_count_.load();

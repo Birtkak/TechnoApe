@@ -59,6 +59,7 @@ public:
         uint8_t density = 0;           // 0..255 (Noita 0..15 scaled by 16)
         uint8_t disp = 0;              // lateral dispersion cells for liquids (from liquid_flow_speed)
         uint8_t gravity_prob = 255;    // chance per tick to fall (from liquid_gravity)
+        uint8_t speed = 1;             // liquid substeps per tick (liquid_speed, ADR 0069 B): spreading runs this often
         uint8_t gas_up = 100, gas_horizontal = 100, gas_down = 0; // 0..255 chances
         uint8_t lifetime = 0;          // ticks (0 = infinite), scaled: aux = lifetime
         uint8_t fire_hp = 0;           // ticks a burning cell lasts
@@ -246,7 +247,8 @@ private:
     int threads_ = 1;
     uint32_t seed_ = 1;
     uint32_t tick_ = 0;
-    uint16_t stamp_ = 1;
+    uint16_t stamp_ = 1;           // the tick's stamp: freshness (openings, edits, cascades) counts in ticks
+    uint16_t mark_ = 1;            // "moved this pass" marker: the tick's stamp in the main pass, a value with the top bit set in a substep (ADR 0069 B)
 
     std::vector<MaterialDef> mats_;
     std::vector<Reaction> reactions_;
@@ -285,6 +287,8 @@ private:
     TickOut last_;
     bool dirty_boxes_ = true;
     bool fullness_ = false;
+    int max_speed_ = 1;            // the largest liquid_speed among the materials: extra passes per tick
+    int substep_ = 0;              // 0 = the main pass; 1.. = a liquid substep (only liquids with speed > substep_ move)
     bool cascade_ = false;
     // toroidal window (set_wrapped): physical = (local + offset) & mask; non-wrapped: offset 0, mask -1
     bool wrapped_ = false;

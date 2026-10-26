@@ -10,6 +10,16 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Fluid baseline, parts A and B (2026-10-26, ADR 0069)
+
+`/goto river`, `/gamemode creative`, `/kit gadgets`.
+
+- [ ] River surfaces are smooth sheets where they slope: no triangles or wedges (the report of 15-53-53). Where a river
+      used to have its waterfall it now descends as a staircase of water faces: that is the generator's steps, part C.
+- [ ] Water balloon / `/blast 1 water` on flat ground: the puddle spreads two to three times as fast as before and ends
+      flat; sand bombs feel as before; `/blast 1 lava` still creeps slowly. Water poured onto a lake levels out in a second.
+- [ ] A water bomb dropped from high up still lands as one splash, not a spray of cells drifting sideways.
+
 ## Liquid looks and burning items (2026-10-26)
 
 - [ ] Every liquid now has water's look: oil a dark glossy film with a faint rainbow, blood deep red, toxic sludge
@@ -193,6 +203,9 @@ New world needed (`GEN_VERSION` 16; the world is 640 m tall now). Handy: `/goto 
 - [ ] Blueberry bushes and mushrooms are rarer (about a third of before): still enough to find food?
 
 ## Part A: water that flows, a taller live zone, cuttable falling trees (ADR 0049, 0050)
+
+ADR 0068 made all water finite: the items below about rivers and lakes keeping their level, and the waterfall,
+no longer apply (a crater in a river stays a dent with a lower pool; there is no waterfall sheet).
 
 `/goto river`, `/gamemode creative`, `/kit gadgets` (crater rod, water and sand bombs, laser cutter).
 

@@ -76,7 +76,12 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   it beside or below; then the cell becomes plain mass-conserving `water` and drains into the hole, cell by cell (the cell it
   leaves is the next opening); the river beside a hole drops, nothing refills it. Air over a river's own lower step never wakes
   it, moving water in a hole never climbs out onto still water, but water that rests on a still body spreads flat over it.
-  Lava sinking through still water trades places with it (the water rises, finite). `water_test=1 target=river` checks a
+  Lava sinking through still water trades places with it (the water rises, finite).
+  **Liquid speed (ADR 0069 B):** `liquid_speed` substeps per material (water 3, oil, blood, sludge 2, lava 1): after
+  the main pass the kernel runs extra passes that only spread and pour moving liquids with substeps left (no falling,
+  no downhill run, nothing standing on a cell that moved this tick); `mark_` is the per-pass move marker, `stamp_`
+  still counts ticks. A surface evens out by half the difference to a lower neighbour (ends flat), rests at a
+  difference under two eighths. `test/test_liquid_speed.gd`. `water_test=1 target=river` checks a
   trench and a crater; kernel tests `test/test_sim_v6.gd`. What still moves when the window walks on finishes in a pin (ADR 0050).
   No waterfalls (the sheet, spray, roar and landmark are gone, GEN_VERSION 21): a river just drops over its cliff.
   **Every liquid looks like water (2026-10-25):** one fluid shader body (`terrain_fluid.gdshaderinc`), no atlas texture;

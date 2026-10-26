@@ -1,6 +1,6 @@
 # ADR 0069: The fluid baseline (generated, simulated, drawn)
 
-Status: part A accepted and done (2026-10-26); B and C proposed, the marked taste calls are the developer's
+Status: parts A and B1-B2 accepted and done (2026-10-26); B3 and C proposed, the marked taste calls are the developer's
 
 ## Context
 Fluids have been reworked four times in three days (ADR 0045 ramps and reservoirs, 0049 bodies that pour, 0068 all
@@ -82,17 +82,25 @@ except at a declared fall.
   with the next budget run: if the spike is the mesher's, PADDING 2 is the suspect (a 36^3 instead of 34^3 meshing
   buffer per 32 block).
 
-### B. Simulated: per-liquid speed, faster levelling, films that go away
-1. **`liquid_speed` substeps per material** (data, like `liquid_flow_speed`): water 3, oil and blood 2, sludge 2,
-   lava 1. The kernel keeps 30 Hz (powders feel right); after the main pass it runs `liquid_speed - 1` extra
-   passes over the active chunks' dirty boxes that update only liquid cells whose material still has substeps
-   left. Cost: two more sweeps of liquid cells only (sim tick today 2 ms; measure). The parity scheme holds per
-   pass. Why not 60 or 90 Hz for everything: powders would need per-tick probabilities to feel the same, and
-   fire, gas and reactions would all pay.
+### B. Simulated: per-liquid speed, faster levelling, films that go away (B1, B2 done 2026-10-26)
+1. **`liquid_speed` substeps per material** (data, like `liquid_flow_speed`): water 3, oil, blood and sludge 2,
+   lava 1 (`materials.gd`). The kernel keeps 30 Hz (powders feel right); after the main pass `tick_once` runs
+   `liquid_speed - 1` extra passes over the same active chunks that update only moving liquids whose material
+   still has substeps left. A substep spreads and pours (steps 2, 4a, 4b of `update_liquid_fullness`); it never
+   falls or runs downhill (gravity stays once a tick, like everything else), and a cell that could fall or that
+   stands on a cell that moved this tick waits, so a falling column or stream is not scattered sideways. Lifetime,
+   burning, reactions, still-liquid waking and powders run in the main pass only.
+   The "moved this pass" marker is now `mark_`, distinct from the tick stamp `stamp_`: the stamp still counts
+   ticks (fresh openings, edits, cascades read "this or the last two ticks"), a substep marks what it moved with
+   a value of its own (top bit set, unique per tick and substep), and `moved_` is cleared every 8192 ticks as the
+   wrap did. The first try bumped the stamp per substep and sand stopped slumping (openings went stale in one
+   tick): `test_dirt_wall_holds_sand_slumps` caught it.
+   Why not 60 or 90 Hz for everything: powders would need per-tick probabilities to feel the same, and fire, gas
+   and reactions would all pay.
 2. **Level to the mean.** A surface cell beside a lower neighbour of its kind hands over **half the difference**
-   (at least one eighth) instead of one eighth: a flood evens out in a few ticks and ends flat. The rest rule
-   (neighbours settle when they differ by less than two eighths) stays, so pools come to rest and the sim goes
-   quiet. This also removes ADR 0049's "mosaic of specks" cause without any joining rule.
+   instead of one eighth: a flood evens out in a few ticks and ends flat. The rest rule (neighbours settle when
+   they differ by less than two eighths) stays, so pools come to rest and the sim goes quiet. This also removes
+   ADR 0049's "mosaic of specks" cause without any joining rule.
 3. **Thin films dry up** (taste call 1). A one-eighth water cell resting on a floor that is not its liquid, with no
    liquid of its kind beside it, evaporates after ~10 s (`film_lifetime_ticks`, data; 0 = never). Lava's film
    becomes a basalt crust instead. Why: today every spill leaves a permanent wet speckle on the floor. Mass is
@@ -100,10 +108,14 @@ except at a declared fall.
 4. Kept, not reopened: finite water, still-until-disturbed, river steps are walls, cascades, density swaps, the
    window's moving water baked as `water` when the player walks on. Flowing rivers (spring to sea, real
    waterfalls) remain Phase 3.
-5. Checks: `test_sim_v6.gd` gains substep tests (a water column spreads three times as far per tick as lava's,
-   mass conserved by `count_liquid_eighths`), the half-difference level test (a 2 m pour ends within one eighth
-   of flat in under 2 s), the film test. Filmstrip (`frame_sheet.gd`) of a 1 m^3 water bomb and a lava bomb on
-   flat ground: time to rest and radius, before and after.
+5. Checks: `test/test_liquid_speed.gd` (a 4^3 block of water spreads at least 6 cells wider in two ticks with three
+   substeps than with one, same mass; lava spreads far less than water; a falling column lands the same with one
+   or three substeps; a heap on a 2 m pool is flat to one eighth and at rest within 60 ticks, same mass);
+   `test_sim_v6.gd` and `test_liquid_fullness.gd` unchanged and green (22 tests). Films of a 1 m water and lava
+   bomb on a plains hillside (`/blast 1 water|lava`, 0.5 s a frame, old kernel above, new below):
+   `game/out/fluidB_{water,lava}_after/compare_before_above_after_below.png`. The water is a thin wide sheet one
+   frame earlier than before and runs down the slope sooner; the lava ball slumps the same in both. B3 (films)
+   gets its test when decided.
 
 ### C. Generated: every liquid placed settled and still
 1. **A still kind for every generated liquid**: add `lava_static` (and any other pool liquid that lacks one);
@@ -119,8 +131,7 @@ except at a declared fall.
    rim; `/goto lava_cave` screenshot.
 
 ### Order
-A is done; then B1 and B2 together (one kernel change, one test file), then C (with the river terraces found in
-A), then B3 if taste call 1 is yes. Each step: its check, a screenshot or filmstrip, then the developer
+A, B1 and B2 are done; then C (with the river terraces found in A), then B3 if taste call 1 is yes. Each step: its check, a screenshot or filmstrip, then the developer
 plays it.
 
 ## Taste calls for the developer

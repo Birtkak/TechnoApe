@@ -182,11 +182,11 @@ static func _build_defs() -> Array:
 		{"name": "dirt", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [1, 1, 1], "transparent": false},
 		{"name": "grass", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [2, 2, 1], "transparent": false},
 		{"name": "sand", "cell_type": "powder", "density": 3, "tiles": [4, 4, 4], "transparent": false},
-		{"name": "water", "cell_type": "liquid", "fluid_slot": 0, "density": 1, "liquid_flow_speed": 1.0, "tiles": [5, 5, 5], "transparent": true},
+		{"name": "water", "cell_type": "liquid", "fluid_slot": 0, "density": 1, "liquid_flow_speed": 1.0, "liquid_speed": 3, "tiles": [5, 5, 5], "transparent": true},
 		{"name": "wood", "cell_type": "solid", "rigid": "wood", "density": 10, "burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [56, 6, 56], "transparent": false},
 		{"name": "lava", "cell_type": "liquid", "fluid_slot": 1, "density": 5, "liquid_flow_speed": 0.3, "liquid_gravity": 0.3, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false},
 		{"name": "ash", "cell_type": "powder", "density": 2, "tiles": [8, 8, 8], "transparent": false},
-		{"name": "oil", "cell_type": "liquid", "fluid_slot": 2, "density": 0.8, "liquid_flow_speed": 0.6, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
+		{"name": "oil", "cell_type": "liquid", "fluid_slot": 2, "density": 0.8, "liquid_flow_speed": 0.6, "liquid_speed": 2, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
 		{"name": "steam", "cell_type": "gas", "density": 0, "gas_upwards_speed": 200, "gas_horizontal_speed": 60, "lifetime": 180, "tiles": [10, 10, 10], "transparent": true},
 		{"name": "smoke", "cell_type": "gas", "density": 0, "gas_upwards_speed": 120, "gas_horizontal_speed": 90, "lifetime": 240, "tiles": [11, 11, 11], "transparent": true},
 		{"name": "fire", "cell_type": "fire", "density": 0, "lifetime": 24, "temperature_of_fire": 60, "gas_upwards_speed": 120, "gas_horizontal_speed": 80, "tiles": [12, 12, 12], "transparent": true},
@@ -225,7 +225,7 @@ static func _build_defs() -> Array:
 		{"name": "glow_mushroom", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [45, 42, 42], "transparent": false, "micro": "mushroom"},
 		{"name": "moss", "cell_type": "solid", "density": 10, "hp": 8, "burnable": true, "fire_hp": 40, "autoignition_temperature": 35, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [46, 46, 46], "transparent": false, "micro": "carpet"},
 		# lifetime in sim ticks (30 Hz): the puddle soaks into the ground after ~7 s; the stain stays
-		{"name": "blood", "cell_type": "liquid", "fluid_slot": 3, "density": 1.1, "liquid_flow_speed": 0.7, "lifetime": 200, "tiles": [47, 47, 47], "transparent": true},
+		{"name": "blood", "cell_type": "liquid", "fluid_slot": 3, "density": 1.1, "liquid_flow_speed": 0.7, "liquid_speed": 2, "lifetime": 200, "tiles": [47, 47, 47], "transparent": true},
 		# ground pickups: hardness 0 in mining.json, they drop loose items (ADR 0019)
 		{"name": "copper_bearing_stones", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [94, 94, 94], "transparent": false, "micro": "ore_stones"},
 		{"name": "tin_bearing_stones", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [95, 95, 95], "transparent": false, "micro": "ore_stones"},
@@ -233,7 +233,7 @@ static func _build_defs() -> Array:
 		{"name": "flint_stones", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [87, 87, 87], "transparent": false, "micro": "pebbles"},
 		{"name": "twigs", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "burnable": true, "fire_hp": 20, "autoignition_temperature": 20, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [93, 97, 97], "transparent": false, "micro": "twigs"},
 		# sulfur caves (biomes.json sulfur_cave) and Noita chemistry (reactions below)
-		{"name": "toxic_sludge", "cell_type": "liquid", "fluid_slot": 4, "density": 1.3, "liquid_flow_speed": 0.4, "tiles": [48, 48, 48], "transparent": true},
+		{"name": "toxic_sludge", "cell_type": "liquid", "fluid_slot": 4, "density": 1.3, "liquid_flow_speed": 0.4, "liquid_speed": 2, "tiles": [48, 48, 48], "transparent": true},
 		{"name": "toxic_sludge_static", "cell_type": "liquid", "fluid_slot": 4, "liquid_static": true, "density": 1.3, "tiles": [48, 48, 48], "transparent": true, "loose": 53},
 		{"name": "sulfur", "cell_type": "solid", "density": 10, "hp": 400, "tiles": [49, 49, 49], "transparent": false},
 		{"name": "obsidian", "cell_type": "solid", "density": 12, "hp": 6000, "tiles": [50, 50, 50], "transparent": false},
