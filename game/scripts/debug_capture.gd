@@ -53,6 +53,7 @@ var water_test := false     # water_test=1 (with target=river): dig a trench int
 var looks_test := false     # looks_test=1: part C's multi-voxel crops, flowers, torches, table and lights on a patch, shot (ADR 0053, "debug looks")
 var looks_shots := true     # looks_shots=0: looks_test without screenshots
 var looks_budget := false   # looks_budget=1: looks_test only sets ten torches and a held one at night (the budget case)
+var liquids_test := false   # liquids_test=1: a pool of every liquid side by side, shot by day and night, and items dropped into lava (bug reports 2026-10-25, "debug liquids")
 var water_shots := true     # water_shots=0: no screenshots in the water test
 var stone_ages_test := false # stone_ages_test=1: the four Stone Age stages alone (flint_age_test=1 runs them too; ADR 0059, JSON line "debug stone_ages")
 var craft_test := false     # craft_test=1: assemble an axe, work a firepit by hand, smith a hammer head, wear a tool out (ADR 0042, JSON line "debug craft")
@@ -166,6 +167,7 @@ func _ready() -> void:
 	looks_test = args.get("looks_test", "0") == "1"
 	looks_shots = args.get("looks_shots", "1") != "0"
 	looks_budget = args.get("looks_budget", "0") == "1"
+	liquids_test = args.get("liquids_test", "0") == "1"
 	water_shots = args.get("water_shots", "1") != "0"
 	menu_test = args.get("menu_test", "0") == "1"
 	if args.has("voxel_threads"):   # godot_voxel worker threads for this run (project default: voxel/threads/count)

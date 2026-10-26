@@ -145,6 +145,34 @@ func _solid_at(p: Vector3) -> bool:
 	return ct == "solid" or ct == "powder"
 
 
+## True when material `m` burns a dropped item that touches it (bug report 2026-10-25 "make items burn
+## in lava"): a hot liquid, one with a "temperature_of_fire" (lava). Fire cells only light things.
+static func burns_items(m: int) -> bool:
+	if m <= 0 or m > GameMaterials.defs().size():
+		return false
+	var d: Dictionary = GameMaterials.defs()[m - 1]
+	return d.get("cell_type", "") == "liquid" and d.has("temperature_of_fire")
+
+
+## True when a stack of `id` lying with its box bottom at `pos` touches a burning liquid: the voxel at
+## its bottom, its middle or just under it (an item resting on the lava's crust). Items tagged
+## "fireproof" (obsidian, a lava bucket) never burn. `voxel_at` maps a Vector3i to a material id.
+static func burns_at(p_items: ItemRegistry, id: String, pos: Vector3, voxel_at: Callable) -> bool:
+	if p_items != null and p_items.has_tag(id, "fireproof"):
+		return false
+	for dy in [-0.05 * Settings.BLOCK, 0.0, SIZE * 0.5]:
+		if burns_items(int(voxel_at.call(Vector3i((pos + Vector3(0, dy, 0)).floor())))):
+			return true
+	return false
+
+
+## This item touches lava (checked by Main each frame; it burns the item with a puff).
+func burning() -> bool:
+	if world == null or frozen:
+		return false
+	return burns_at(items, stack["id"], position, world.get_voxel)
+
+
 ## Thrown from the player's hand: flies at once (the frozen wait is for a voxel just mined into air).
 func throw() -> void:
 	frozen = false

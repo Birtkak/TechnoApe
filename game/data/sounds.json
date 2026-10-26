@@ -150,7 +150,8 @@
  "particles": {
   "bleed": "player/hurt",
   "splash": "player/splash",
-  "graze": "mob/graze"
+  "graze": "mob/graze",
+  "item_burn": "sim/sizzle"
  },
  "mobs": {
   "sheep": {"idle": "mob/sheep", "hurt": "mob/sheep_hurt", "baby": "mob/sheep_baby", "every_s": [10, 30]},
