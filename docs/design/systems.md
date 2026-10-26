@@ -49,6 +49,12 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   counts holes and glass edges. Generated water is still until disturbed; then the sim measures its body (ADR 0049): a big
   one (64 m^3+, or past the window) pours flowing water into the hole and keeps its level, a small one drains like any spill;
   `water_test=1 target=river` checks a trench and a crater. What still moves when the window walks on finishes in a pin (ADR 0050).
+  **Every liquid looks like water (2026-10-25):** one fluid shader body (`terrain_fluid.gdshaderinc`), no atlas texture;
+  each liquid's character (colours by depth, rim, ripples, gloss, glow, oil sheen, sludge bubbles, lava crack scale) is
+  data in `data/liquid_looks.json`, set per fluid material by `World.apply_liquid_look` (`test_liquid_looks.gd` checks
+  every key is a uniform). `liquids_test=1` pours a pool of each and shoots them by day and night.
+  **Items burn in lava:** a dropped stack touching a liquid with `temperature_of_fire` burns up with `item_burn` +
+  `item_burn_smoke` and a sizzle (`ItemEntity.burns_at`); items tagged `fireproof` (obsidian, lava bucket) survive.
   **Held right clicks (ADR 0043):** ground pickups are whole pieces (`GroundPickups`): aimable (aim-only box), a dig takes the
   whole stick, a 1 s held right click pops it into an item on the ground; firepit moves are held too (`hold_key`/`hold_done`).
   **Sound (ADR 0044):** the `Sound` autoload (`GameAudio`, `scripts/audio/`) plays `data/sounds.json` (material groups,

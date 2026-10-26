@@ -10,6 +10,13 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Liquid looks and burning items (2026-10-26)
+
+- [ ] Every liquid now has water's look: oil a dark glossy film with a faint rainbow, blood deep red, toxic sludge
+      glowing green with bubbles, lava dark crust drifting on glowing cracks. Try a lush cave (sludge) and a magma
+      cave (`/goto magma_cave`); `/gadget lava_bomb` or a bucket pours some anywhere.
+- [ ] Throw a stack into lava (Q): it burns up with flames, smoke and a sizzle. Obsidian and a lava bucket survive.
+
 ## Part D (2026-10-25): controls, offhand, inventory, fire and weather (ADR 0055, 0056)
 
 - [ ] Ctrl sprints, Shift sneaks: slower, eyes lower, you stop at a ledge instead of falling off. Flying, Shift goes down.
