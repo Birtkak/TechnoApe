@@ -197,9 +197,13 @@ func test_pickups_are_big_enough_to_see() -> void:
 			var seen := {}
 			for i in ids.size():
 				var m := ids[i]
-				if not m in [GameMaterials.PEBBLES, GameMaterials.FLINT_STONES, GameMaterials.TWIGS] or seen.has(i):
+				# loose stones come in the local rock's colours (ADR 0057, ids 181..187): all count as pebbles
+				var pebble := m == GameMaterials.PEBBLES or (m != GameMaterials.FLINT_STONES and GameMaterials.name_of(m).ends_with("_stones"))
+				if not (pebble or m in [GameMaterials.FLINT_STONES, GameMaterials.TWIGS]) or seen.has(i):
 					continue
 				var cluster := _cluster(ids, i, m)
+				if pebble:
+					m = GameMaterials.PEBBLES
 				seen.merge(cluster)
 				# voxel order is y fastest, then x, then z; skip shapes that may run over the block edge
 				var x := (i / 32) % 32

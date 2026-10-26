@@ -99,6 +99,7 @@ func test_empty_groups_cost_a_heart_each_but_never_below_the_floor() -> void:
 func _farm() -> Array:
 	var vox := {}
 	var f := Farming.load_default()
+	f.block = 1   # the Minecraft rules on one-voxel blocks (crop stamps need a 4 m cell and farmland under the anchor)
 	f.get_voxel = func(p: Vector3i) -> int: return int(vox.get(p, GameMaterials.AIR))
 	f.set_voxel = func(p: Vector3i, m: int) -> void:
 		if m == GameMaterials.AIR:
