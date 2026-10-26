@@ -1,0 +1,54 @@
+{
+  "_comment": "Ruin kinds (ADR 0062). Each ruin cell (80 m) may hold one ruin; its kind is a weighted pick among the kinds whose biomes list holds the biome at its centre (coast kinds only on shores 0.5-2 m above the sea, the others only higher). shape = the geometry in prototypes/p5-sim-spike/src/ruins.cpp (house, watchtower, stone_circle, crypt, mud_house, shrine, wreck); half_u_m / half_v_m = half the footprint along its own axes [min, max] (at most 5 m; v defaults to u); top_m / depth_m = how far it reaches above / below its floor; wall, trim, floor, extra = materials the shape uses (see the shape for which goes where); pots = most clay pots it holds (1..4); loot = the data/loot.json table its pots roll. Regenerate the header after a change: tools/ruin_codegen.gd.",
+  "kinds": {
+    "house": {
+      "shape": "house", "weight": 10,
+      "biomes": ["plains", "forest", "highlands", "shrubland", "taiga", "tundra", "snowy_tundra", "old_growth_forest", "frozen_highlands"],
+      "half_u_m": [2.5, 5.0], "half_v_m": [2.5, 5.0], "top_m": 5.0, "depth_m": 0.0,
+      "wall": "stone", "trim": "gravel_static", "floor": "stone", "extra": "cobblestone",
+      "pots": 4, "loot": "ruin_pot"
+    },
+    "watchtower": {
+      "shape": "watchtower", "weight": 6,
+      "biomes": ["highlands", "plains", "shrubland", "tundra", "taiga", "frozen_highlands", "snowy_tundra"],
+      "half_u_m": [3.0, 3.5], "top_m": 7.5, "depth_m": 0.0,
+      "wall": "cobblestone", "trim": "stone_bricks", "floor": "gravel_static", "extra": "planks",
+      "pots": 2, "loot": "tower_pot"
+    },
+    "stone_circle": {
+      "shape": "stone_circle", "weight": 5,
+      "biomes": ["plains", "highlands", "tundra", "snowy_tundra", "shrubland", "savanna", "frozen_highlands"],
+      "half_u_m": [3.5, 5.0], "top_m": 4.0, "depth_m": 0.0,
+      "wall": "granite", "trim": "moss", "floor": "stone", "extra": "granite",
+      "pots": 2, "loot": "circle_pot"
+    },
+    "crypt": {
+      "shape": "crypt", "weight": 5,
+      "biomes": ["forest", "plains", "taiga", "old_growth_forest", "highlands", "swamp", "snowy_taiga"],
+      "half_u_m": [2.0, 2.5], "half_v_m": [4.5, 5.0], "top_m": 1.5, "depth_m": 4.0,
+      "wall": "stone_bricks", "trim": "cobblestone", "floor": "slate_bricks", "extra": "gravel_static",
+      "pots": 4, "loot": "crypt_pot"
+    },
+    "mud_house": {
+      "shape": "mud_house", "weight": 10,
+      "biomes": ["desert", "savanna", "badlands", "shrubland"],
+      "half_u_m": [2.5, 4.0], "half_v_m": [2.0, 3.5], "top_m": 3.5, "depth_m": 0.0,
+      "wall": "terracotta_cream", "trim": "acacia_log", "floor": "sandstone", "extra": "sand_static",
+      "pots": 4, "loot": "mud_house_pot"
+    },
+    "shrine": {
+      "shape": "shrine", "weight": 6,
+      "biomes": ["forest", "old_growth_forest", "jungle", "swamp", "taiga", "snowy_taiga"],
+      "half_u_m": [2.0, 2.5], "top_m": 5.0, "depth_m": 0.0,
+      "wall": "stone_bricks", "trim": "moss", "floor": "cobblestone", "extra": "leaves",
+      "pots": 2, "loot": "shrine_pot"
+    },
+    "wreck": {
+      "shape": "wreck", "weight": 1, "coast": true,
+      "biomes": ["beach", "snowy_beach", "stony_shore", "ocean"],
+      "half_u_m": [3.5, 4.5], "half_v_m": [1.5, 2.0], "top_m": 3.5, "depth_m": 1.5,
+      "wall": "planks", "trim": "wood", "floor": "planks", "extra": "sand_static",
+      "pots": 3, "loot": "wreck_pot"
+    }
+  }
+}

@@ -102,6 +102,13 @@ random height 0–6 with some segments collapsed and random missing stones
 (more missing near the top); corner pillars 6–9 high; rubble stones
 scattered just outside. Trees keep off ruins.
 
+2026-10-26 (ADR 0062): seven kinds from `game/data/ruins.json` (house as above, watchtower, stone
+circle, crypt, mud house, shrine, wreck), picked by the biome at the centre; shapes in
+`prototypes/p5-sim-spike/src/ruins.cpp`, data header `ruin_table.gen.h` (`tools/ruin_codegen.gd`).
+Level ground only (centre and eight points a cell outside within 1.5 m); the footprint is flattened
+and the ground ramps to the land over 4 cells round it. 1-4 pots per ruin, each kind its own loot
+table. `find_nearest("ruin_<kind>")`, `find_nearest("crypt_room")`, `ruin_at(x, z)`.
+
 ## Biome blending (2026-10-22)
 Temperature, humidity and the height thresholds are jittered by a 50 m noise
 (±0.09, ±6 voxels), so biome borders dither over ~20 m instead of a line.
@@ -331,7 +338,7 @@ the 384 m ceiling.
   river mouths. Lakes reach half a cell past their lake cells and get a rim beyond (no glass wall along
   a cell border).
 - Wild food densities are per biome in `biomes.json` decor (`berries`, `mushrooms`, `log_mushrooms`).
-- Ruin pot spots: `ruin_pots_near(x, z, radius)` (placed by the game, not generated).
+- Ruin pot spots: `ruin_pots_near(x, z, radius)` (the generated pots' spots, with the ruin kind, ADR 0062).
 - `find_nearest`: `cavern`, `ravine`, `geode`, `monolith`, `sea_stack`, `arch`, `delta`.
 - Sheets without a window: `tools/landscape_sheet.gd` (map, height-field view, profile; rows of
   variant:world height:relief) and `tools/cave_sheet.gd` (cave share, mouths, vertical slice).

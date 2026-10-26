@@ -49,9 +49,9 @@ public:
     int crystal_height(int wx, int wz, int &roll) const;
     static bool crystal_allowed(int roll, int depth, int cave_biome);
 
-    // Ruin pots: the material at a voxel of a ruin's floor cell (macro coordinates mx, mz, the ruin's
-    // centre rx, rz, half sizes hw, hd), dy voxels above the floor; AIR when no pot stands there.
-    static uint16_t ruin_pot_voxel(int rx, int rz, int hw, int hd, uint32_t rseed, int mx, int mz, int lx, int lz, int dy);
+    // Ruin pots: the material of voxel (lx, lz) (0..3) of a pot's 0.5 m cell, dy voxels above the floor
+    // it stands on; h = the pot's seed (its look). AIR outside the pot. Where pots stand: ruins.cpp.
+    static uint16_t pot_shape(uint32_t h, int lx, int lz, int dy);
 
 private:
     int seed_ = 0, sea_ = 0;

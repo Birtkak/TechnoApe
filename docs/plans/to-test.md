@@ -93,6 +93,12 @@ New world needed (the generator changed). `/summon <species>` spawns any animal 
 - [ ] Ruins (`/goto ruin`): clay pots in the inside corners. Any hit shatters one with shards and a
       clatter, and it drops loot (seeds, flint, cordage, nuggets, now and then a worn old tool, rarely an
       ingot). Some pots are empty.
+- [ ] Ruin kinds (ADR 0062): `/goto ruin_watchtower`, `ruin_stone_circle`, `ruin_crypt` (then
+      `/goto crypt_room` for the room), `ruin_mud_house` (desert, savanna), `ruin_shrine` (forests),
+      `ruin_wreck` (shores, rare; may need a few km). Does each read as what it is, sit on the ground
+      without a pit or a plinth round it, hold at most 4 pots, and do the pots drop loot that fits it
+      (ochre and feathers at the stones, bones and ingots in the crypt, seeds in the mud house, nuts
+      and mushrooms at the shrine, shells and cordage in the wreck)? Can you walk down the crypt stairs?
 - [ ] Animals: deer and rabbits bolt when you come close; foxes hunt rabbits and chickens; wolf packs
       hunt deer and sheep, some go for you; a boar you hit charges back; ducks and frogs by water,
       ducks paddle out; crabs on beaches; fish in rivers and lakes (they flop on land); bats in caves;

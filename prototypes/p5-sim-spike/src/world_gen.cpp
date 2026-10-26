@@ -31,6 +31,7 @@ void WorldGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("vein_at", "x", "z"), &WorldGen::vein_at);
     ClassDB::bind_method(D_METHOD("set_variant", "slot", "value"), &WorldGen::set_variant);
     ClassDB::bind_method(D_METHOD("ruin_pots_near", "x", "z", "radius"), &WorldGen::ruin_pots_near);
+    ClassDB::bind_method(D_METHOD("ruin_at", "x", "z"), &WorldGen::ruin_at);
     BIND_ENUM_CONSTANT(BIOME_DEEP_OCEAN);
     BIND_ENUM_CONSTANT(BIOME_OCEAN);
     BIND_ENUM_CONSTANT(BIOME_BEACH);
@@ -854,34 +855,43 @@ int WorldGen::stamps_near(int x0, int z0, int x1, int z1, Stamp *out, int max_ou
 }
 
 bool WorldGen::ruin_at_cell(int cx, int cz, Ruin &out) const {
+    // ADR 0062: one ruin in some 80 m cells; its kind fits the biome at its centre (data/ruins.json).
     uint32_t hsh = hash3(cx, cz, seed_ + 991);
-    if ((hsh & 0xFF) > 30) return false;
-    int hw = 5 + (int)((hsh >> 8) % 6);
-    int hd = 5 + (int)((hsh >> 12) % 6);
+    if ((hsh & 0xFF) > 36) return false;
     int margin = RUIN_MAX_HALF + 4;
     int span = RUIN_CELL - 2 * margin;
     int x = cx * RUIN_CELL + margin + (int)((hsh >> 16) % (uint32_t)span);
     int z = cz * RUIN_CELL + margin + (int)((hsh >> 24) % (uint32_t)span);
     Column c = column_base(x, z, false);
-    if (c.height < sea_ + 5 || c.alpine) return false;
+    const bool coast = c.height >= sea_ + 1 && c.height <= sea_ + 4;   // a shore: wrecks
+    if (!coast && c.height < sea_ + 5) return false;
+    if (c.alpine || c.snow || c.height - sea_ > technosim_biome::HIGHLAND_MAX) return false; // lowland and highland biomes only
+    const int kind = technosim_ruin::pick_kind(c.biome, coast, hash3(cx, cz, seed_ + 992));
+    if (kind < 0) return false;
     Hydro hy = hydro_at(x, z, c.height);
     if (hy.river > 0.05f || hy.lake || hy.marsh) return false;
-    if (c.alpine || c.snow || c.height - sea_ > technosim_biome::HIGHLAND_MAX) return false; // lowland and highland biomes only
+    Ruin r;
+    r.x = x;
+    r.z = z;
+    r.seed = hsh;
+    r.kind = kind;
+    technosim_ruin::shape_ruin(r);
+    // Level ground only: the centre and eight points a cell outside the footprint within 1.5 m of each
+    // other, so the flattened floor and the ramp round it (FineGen::macro_point) never cut a step into a
+    // slope or leave the floor hanging over it.
     int hmin = c.height, hmax = c.height;
-    const int cxs[4] = {x - hw, x + hw, x - hw, x + hw};
-    const int czs[4] = {z - hd, z - hd, z + hd, z + hd};
-    for (int k = 0; k < 4; k++) {
-        int hh = column_base(cxs[k], czs[k], false).height;
+    const int ex = r.hw + 1, ez = r.hd + 1;
+    const int sx[8] = {-ex, ex, -ex, ex, 0, 0, -ex, ex};
+    const int sz[8] = {-ez, -ez, ez, ez, -ez, ez, 0, 0};
+    for (int k = 0; k < 8; k++) {
+        const int hh = column_base(x + sx[k], z + sz[k], false).height;
         hmin = std::min(hmin, hh);
         hmax = std::max(hmax, hh);
+        if (hmax - hmin > 3) return false;
     }
-    if (hmax - hmin > 4) return false;
-    out.x = x;
-    out.z = z;
-    out.hw = hw;
-    out.hd = hd;
-    out.base = (hmin + hmax) / 2;
-    out.seed = hsh;
+    r.base = (hmin + hmax + 1) / 2;
+    if (coast) r.base = std::max(r.base, sea_ + 1);
+    out = r;
     return true;
 }
 
@@ -905,28 +915,40 @@ Array WorldGen::ruin_pots_near(int x, int z, int radius) const {
     const int n = ruins_near(x - radius, z - radius, x + radius, z + radius, rs, 16);
     for (int i = 0; i < n; i++) {
         const Ruin &r = rs[i];
-        // candidate spots one voxel inside the walls: the four corners, then the middle of each wall
-        const int cx[8] = {r.x - r.hw + 1, r.x + r.hw - 1, r.x - r.hw + 1, r.x + r.hw - 1, r.x, r.x, r.x - r.hw + 1, r.x + r.hw - 1};
-        const int cz[8] = {r.z - r.hd + 1, r.z - r.hd + 1, r.z + r.hd - 1, r.z + r.hd - 1, r.z - r.hd + 1, r.z + r.hd - 1, r.z, r.z};
-        const uint32_t h = hash3((int)r.seed, 77, 13);
-        const int want = 2 + (int)(h % 3);
-        int placed = 0;
-        for (int k = 0; k < 8 && placed < want; k++) {
-            const int c = (int)((h >> 4) + (uint32_t)k * 5u) % 8;   // a seed-dependent walk over the spots
-            if (((h >> (8 + k)) & 3) == 0) continue;
-            const long dx = cx[c] - x, dz = cz[c] - z;
-            if (dx * dx + dz * dz > (long)radius * radius) { placed++; continue; }
+        technosim_ruin::PotSpot spots[4];
+        const int ns = technosim_ruin::pot_spots(r, spots);
+        for (int k = 0; k < ns; k++) {
+            const long dx = spots[k].mx - x, dz = spots[k].mz - z;
+            if (dx * dx + dz * dz > (long)radius * radius) continue;
             Dictionary d;
-            d["x"] = cx[c];
-            d["y"] = r.base + 1;
-            d["z"] = cz[c];
+            d["x"] = spots[k].mx;
+            d["y"] = spots[k].y;
+            d["z"] = spots[k].mz;
             d["ruin"] = (int)r.seed;
-            d["seed"] = (int)(hash3(cx[c], cz[c], (int)r.seed) & 0x7fffffff);
+            d["seed"] = (int)(spots[k].h & 0x7fffffff);
+            d["kind"] = String(technosim_ruin::KIND_NAMES[r.kind]);
             out.push_back(d);
-            placed++;
         }
     }
     return out;
+}
+
+Dictionary WorldGen::ruin_at(int x, int z) const {
+    Dictionary d;
+    Ruin rs[4];
+    const int n = ruins_near(x, z, x, z, rs, 4);
+    for (int i = 0; i < n; i++) {
+        if (!in_ruin(rs[i], x, z, 2)) continue;
+        d["kind"] = String(technosim_ruin::KIND_NAMES[rs[i].kind]);
+        d["x"] = rs[i].x;
+        d["y"] = rs[i].base;
+        d["z"] = rs[i].z;
+        d["half_x"] = rs[i].hw;
+        d["half_z"] = rs[i].hd;
+        d["rot"] = rs[i].rot;
+        break;
+    }
+    return d;
 }
 
 bool WorldGen::in_ruin(const Ruin &r, int x, int z, int margin) {
@@ -1330,7 +1352,13 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
     int cave_kind = -1;   // a named cave biome ("sulfur_cave", "lush_cave", ...); "cave" and "deep_cave" are plain rooms
     for (int b = 0; b < technosim_biome::COUNT; b++)
         if (kind == technosim_biome::NAMES[b] && kind.ends_with("_cave") && kind != "deep_cave") cave_kind = b;
-    if (kind == "ruin") {
+    if (kind == "ruin" || kind.begins_with("ruin_") || kind == "crypt_room") {
+        // "ruin", "ruin_<kind>" (data/ruins.json), or "crypt_room": a free spot of a crypt's room floor
+        int want = -1;
+        if (kind == "crypt_room") want = -2;
+        for (int k = 0; k < technosim_ruin::NKIND; k++)
+            if (kind == String("ruin_") + technosim_ruin::KIND_NAMES[k]) want = k;
+        if (want == -1 && kind != "ruin") return best;
         const int cx0 = (int)std::floor((float)x / RUIN_CELL), cz0 = (int)std::floor((float)z / RUIN_CELL);
         const int rings = max_radius / RUIN_CELL + 1;
         for (int ring = 0; ring <= rings; ring++) {
@@ -1339,8 +1367,20 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                     if (std::max(std::abs(dx), std::abs(dz)) != ring) continue;
                     Ruin r;
                     if (!ruin_at_cell(cx0 + dx, cz0 + dz, r)) continue;
+                    if (want >= 0 && r.kind != want) continue;
+                    if (want == -2 && technosim_ruin::KIND_SHAPE[r.kind] != technosim_ruin::S_CRYPT) continue;
                     long d2 = (long)(r.x - x) * (r.x - x) + (long)(r.z - z) * (r.z - z);
-                    if (best_d2 < 0 || d2 < best_d2) { best_d2 = d2; best = Vector3i(r.x, r.base, r.z); }
+                    if (best_d2 < 0 || d2 < best_d2) {
+                        best_d2 = d2;
+                        best = Vector3i(r.x, r.base, r.z);
+                        if (want == -2) {   // beside the coffin, between the room's far pots
+                            const int U = (r.rot & 1) ? r.hd : r.hw, V = (r.rot & 1) ? r.hw : r.hd;
+                            const int u = U - 2, v = -(V - 2) + 2;
+                            int ddx = 0, ddz = 0;
+                            switch (r.rot & 3) { case 0: ddx = u; ddz = v; break; case 1: ddx = -v; ddz = u; break; case 2: ddx = -u; ddz = -v; break; default: ddx = v; ddz = -u; break; }
+                            best = Vector3i(r.x + ddx, r.base - std::max(4, r.depth - 1) + 1, r.z + ddz);
+                        }
+                    }
                 }
             if (best_d2 >= 0) break;
         }

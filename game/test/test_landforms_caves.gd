@@ -128,7 +128,7 @@ func test_ruin_pot_spots_stand_inside_ruins() -> void:
 	var r: Vector3i = gen.find_nearest("ruin", 0, 0, FAR)
 	assert_int(r.y).is_greater(0)
 	var pots: Array = gen.ruin_pots_near(r.x, r.z, int(S.m2v(20.0)))
-	assert_int(pots.size()).is_between(2, 4)
+	assert_int(pots.size()).is_between(1, 4)   # ADR 0062: 1..4 per ruin, by kind
 	# the same spots whatever radius they are asked with
 	var again: Array = gen.ruin_pots_near(r.x + 8, r.z, int(S.m2v(40.0)))
 	assert_int(again.size()).is_greater_equal(pots.size())
