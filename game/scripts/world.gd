@@ -182,7 +182,7 @@ func is_view_ready(p: Vector3) -> bool:
 
 ## How much of the ground around the player is drawn at full detail, 0..1 (the teleport cover lifts at
 ## 1, ADR 0066): 0 until the voxels under the feet are in (collision); then the share of sample points
-## on the generator's surface (rings out to 16 m at LOD 2 or finer, at 32 and 48 m at LOD 3 or finer)
+## on the generator's surface (rings out to 48 m at LOD 3 or finer)
 ## whose mesh block is visible. A meshed block is not enough: clipbox shows a LOD only under an active
 ## parent, from the coarsest LOD down, so fully meshed detail can stay hidden for seconds, and lifting
 ## on mesh state left the player in a hole over the sea plane. Points far above or below the player
@@ -209,7 +209,7 @@ func near_ready(p: Vector3) -> float:
 	return 1.0 if total == 0 else float(shown) / total
 
 
-const NEAR_RINGS := [[0.0, 2], [4.0, 2], [10.0, 2], [16.0, 2], [32.0, 3], [48.0, 3]]   # [metres, coarsest LOD that counts: the ground may sharpen after the cover]
+const NEAR_RINGS := [[0.0, 3], [4.0, 3], [10.0, 3], [16.0, 3], [32.0, 3], [48.0, 3]]   # [metres, coarsest LOD that counts: 1 m cubes; the developer chose a shorter cover that sharpens after it]
 
 
 ## The mesh block holding voxel `v` is applied and visible at some LOD up to `max_lod`.

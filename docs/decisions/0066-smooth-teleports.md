@@ -66,3 +66,12 @@ first main-thread voxel read (particles, the player's physics) waits for it.
   but the bar stalls; a time-budgeted dequeue in godot_voxel would fix it.
 - The build needs `voxel_patch_priority.py` applied; without it `viewer_chain_first` is absent and the
   covers are ~4 s longer (Main checks for the property).
+
+## Amendment 2026-10-26: shorter covers
+
+The developer chose a shorter cover that shows coarse ground sharpening after it. The cover now lifts when
+the ground out to 48 m shows at LOD 3 (1 m cubes) or finer, and waits only for the sim chunks within 1 chunk
+(2 m) of the player (`LoadingScreen.NEAR_BUBBLE_R`) instead of the 9x9 near window, which the trace showed
+was the last thing holding it (ground visible at ~3 s, bubble at ~7 s). `tp_test=1`, same seed, a perf agent's
+Godot run alongside: covers 1.6-4.5 s (were 5-18 s), no falls or hangs, 7 frames over 16.7 ms after the
+covers (worst 23.8 ms).

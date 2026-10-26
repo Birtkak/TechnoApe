@@ -740,18 +740,20 @@ func is_chunk_loaded(lc: Vector3i) -> bool:
 
 ## True once every chunk within the near part of the window holds terrain data
 ## (the loading screen and DebugCapture wait for it; the far columns keep loading).
-func is_loaded() -> bool:
+## `r` chunks around the player count; a teleport cover passes a smaller one (ADR 0066).
+func is_loaded(r := 4) -> bool:
 	if not _ready:
 		return false
 	if _pending.is_empty():
 		return true
 	var pc := Vector3i((_player / Settings.CHUNK).floor())
-	var near := 0   # local y rows within 3 chunks of the player
-	for y in range(pc.y - origin.y - 3, pc.y - origin.y + 4):
+	var near := 0   # local y rows within mini(r, 3) chunks of the player
+	var ry := mini(r, 3)
+	for y in range(pc.y - origin.y - ry, pc.y - origin.y + ry + 1):
 		if y >= 0 and y < size_chunks.y:
 			near |= 1 << y
 	for k in _pending:
-		if absi(k.x - pc.x) <= 4 and absi(k.y - pc.z) <= 4 and int(_pending[k]) & near != 0:
+		if absi(k.x - pc.x) <= r and absi(k.y - pc.z) <= r and int(_pending[k]) & near != 0:
 			return false
 	return true
 

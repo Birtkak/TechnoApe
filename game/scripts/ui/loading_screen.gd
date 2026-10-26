@@ -21,6 +21,7 @@ const NEAR_IDLE_FRAMES := 3
 const NEAR_SHOWN := 0.95      # share of the ground samples around the player that must be drawn (World.near_ready)
 const NEAR_FADE_S := 0.35
 const NEAR_SHOW_TEXT_S := 0.6  # a teleport cover shows its title and bar only after this
+const NEAR_BUBBLE_R := 1       # sim chunks (2 m) around the player a teleport cover waits for; the rest loads behind it
 
 var bubble: SimBubble
 var world: Node        # set: a teleport cover (near ground only)
@@ -80,7 +81,7 @@ func _process(delta: float) -> void:
 	elif _peak > 0:
 		_progress = maxf(_progress, 1.0 - float(pending) / float(_peak))
 	_bar.size.x = 300.0 * _progress
-	var bubble_ready := bubble == null or bubble.is_loaded()
+	var bubble_ready := bubble == null or bubble.is_loaded(NEAR_BUBBLE_R if world != null else 4)
 	var near_ok := false
 	if world != null:
 		if _elapsed >= NEAR_SHOW_TEXT_S:
