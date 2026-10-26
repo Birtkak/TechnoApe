@@ -115,6 +115,8 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   world_gen.h stay stable; biome_table.gen.h is generated. Details in `docs/design/systems.md`.
 - A new `class_name` needs an `--import` before the game sees it.
 - When another session shares this checkout, stage files explicitly, never `git add -A`.
+- A batch of bug reports split over parallel agents: follow the `overseer` skill; every agent worktree
+  starts with `bash tools/agent_worktree_setup.sh [--native]`.
 - Phase 3: wands/spells, machines, recipe browser depth (machine recipes, bookmarks)
 - Phase 4: automation depth, dedicated server on Unraid, auto-update
 
