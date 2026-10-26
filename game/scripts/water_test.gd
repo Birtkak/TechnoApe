@@ -1,11 +1,12 @@
 class_name WaterTest
 extends RefCounted
 
-## Debug (water_test=1, ADR 0045, 0049): still water in the running game. From the river the autopilot stands
+## Debug (water_test=1, ADR 0068): finite still water in the running game. From the river the autopilot stands
 ## in (target=river), it finds the bank, digs a trench into it from 0.5 m under the surface up into the
-## open air, and after a while measures how full the trench is up to the river's level, that nothing
-## stands above that level, that the river kept its level, that the flood stayed within the reach and
-## that the simulation went quiet again. Screenshots of before and after go to the run's out dir
+## open air, and after a while measures how much of the trench (up to the river's level) took water, that
+## nothing stands above that level, that the river beside it lost water (it is finite: no reservoir refills
+## it), that nothing flowed past the trench and that the simulation went quiet again; then the same for a
+## crater blasted where the river meets its bank. Screenshots of before and after go to the run's out dir
 ## (water_shots=0 skips them); one JSON line "debug water {...}" says what happened.
 
 const DIRS := [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]
@@ -93,7 +94,7 @@ func run(p_main: Node) -> void:
 		hi = hi.max(c)
 	main._debug_fill(lo, hi + Vector3i.ONE, GameMaterials.AIR)
 	var t0 := Time.get_ticks_msec()
-	# up to the river's level the trench fills (checked every second, 20 s at most); above it, nothing
+	# the trench takes water from the river beside it (checked every second, 20 s at most); above the level, nothing
 	var below := 0
 	var below_water := 0
 	var above_water := 0
@@ -108,7 +109,7 @@ func run(p_main: Node) -> void:
 				below_water += 1 if _water(c) else 0
 			elif _water(c):
 				above_water += 1
-		if float(below_water) / maxf(below, 1.0) >= 0.98:
+		if float(below_water) / maxf(below, 1.0) >= 0.98 or (sec >= 8 and main.bubble.active_chunks == 0):
 			break
 	r["trench_cells_to_level"] = below
 	r["trench_filled"] = below_water
@@ -126,8 +127,8 @@ func run(p_main: Node) -> void:
 	r["waited_ms"] = Time.get_ticks_msec() - t0
 	if DebugCapture.water_shots:
 		await _shot(tree, "water_after", cam_at, cam_look)
-	# ADR 0049: a 2.5 m crater where the river meets its bank (bug report 02-19-55) fills with flowing water up to
-	# the river's level and the river keeps its level
+	# a 2.5 m crater where the river meets its bank (bug report 02-19-55) takes water from the river; finite water
+	# (ADR 0068): the river beside it drops, nothing stands above its level
 	var cc: Vector3 = Vector3(start - dir * 2 + side * 14 + Vector3i(0, -4, 0)) + Vector3(0.5, 0.5, 0.5)
 	var cr := int(Settings.m2v(2.5))
 	var probe2: Vector3i = Vector3i(cc.floor()) - dir * (int(Settings.m2v(2.5)) + 10)   # in the river, outside the crater
@@ -166,6 +167,8 @@ func run(p_main: Node) -> void:
 		if filled_at < 0 and float(c_water) / maxf(c_below, 1.0) >= 0.95:
 			filled_at = s + 1
 			break
+		if s >= 8 and main.bubble.active_chunks == 0:
+			break
 	if DebugCapture.water_shots:
 		main.chat.send("/shot water_crater")
 		await tree.create_timer(0.5).timeout
@@ -177,9 +180,13 @@ func run(p_main: Node) -> void:
 	r["crater_water_above_level"] = c_above
 	r["crater_river_after"] = _count_water_column(probe2)
 	r["crater_waited_ms"] = Time.get_ticks_msec() - t1
-	r["bubble"] = {"bodies": main.bubble.stats().get("bodies", 0), "bodies_drained": main.bubble.stats().get("bodies_drained", 0)}
-	r["ok"] = r["trench_full_share"] >= 0.95 and above_water == 0 and r["river_after"] == r["river_before"] and beyond == 0 \
-		and r["crater_full_share"] >= 0.95 and c_above == 0 and r["crater_river_after"] == r["crater_river_before"]
+	r["bubble"] = {"still_woken": main.bubble.stats().get("still_woken", 0)}
+	r["sim_active_chunks_after"] = main.bubble.active_chunks
+	# finite: both holes took water, the river lost some (never gained), nothing above its level, nothing past the trench
+	r["crater_water"] = c_water
+	r["ok"] = r["trench_filled"] >= 30 and above_water == 0 and r["river_after"] <= r["river_before"] and beyond == 0 \
+		and c_water >= 100 and c_above == 0 and r["crater_river_after"] <= r["crater_river_before"] \
+		and int(r["bubble"]["still_woken"]) > 0
 	_done("")
 
 

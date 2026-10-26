@@ -367,6 +367,13 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_water_test = WaterTest.new()
 				_water_test.run(self))
+		if not DebugCapture.chat_commands_after.is_empty():
+			_after_load(func() -> void:
+				for c in DebugCapture.chat_commands_after:
+					if c.begins_with("wait "):   # commands_after=/tp 10 1030 20;wait 3;/blast 2 lava
+						await get_tree().create_timer(float(c.substr(5))).timeout
+					else:
+						chat.send(c))
 		if DebugCapture.looks_test:
 			_after_load(func() -> void:
 				_looks_test = LooksTest.new()

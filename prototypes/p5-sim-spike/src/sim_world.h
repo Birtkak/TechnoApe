@@ -40,10 +40,8 @@ public:
     // moves like its loose kind (Noita's static -> dynamic) until something places it again.
     // FLAG_SHAKEN: static ground that saw a fresh opening; it keeps rolling its loosen chance while the
     // opening stays open (crumbles over time instead of only on the tick of the change).
-    // FLAG_SHAKEN on generated (still) liquid: it saw a fresh opening; as part of a big body it pours
-    // moving liquid into it until there is none (ADR 0049), aux = cells poured while loaded.
-    // FLAG_JOINED: still liquid that was moving liquid filling a big body's opening (ADR 0049); what lands on it stays.
-    enum Flags : uint8_t { FLAG_BURNING = 1, FLAG_LOOSE = 2, FLAG_SHAKEN = 4, FLAG_JOINED = 8 };
+    // FLAG_SHAKEN on generated (still) liquid: it touches something it reacts with and stays awake for it.
+    enum Flags : uint8_t { FLAG_BURNING = 1, FLAG_LOOSE = 2, FLAG_SHAKEN = 4 };
     static constexpr int CS = 16;
     static constexpr int MAX_MATERIALS = 256;
     static constexpr int MAX_DISP = 7; // must stay < CS/2 for the parity scheme
@@ -52,14 +50,6 @@ public:
     // cell keeps its material id. get_chunk_bytes / set_chunk_bytes (2 bytes) encode and
     // decode it, so the terrain shows the fullness and a reload restores it.
     static constexpr int FLUID_LEVEL_BASE = 256;
-    // ADR 0049: disturbed still liquid is measured: a connected body of at least BIG_BODY_CELLS cells (64 m^3 at
-    // 12.5 cm), or one that runs past the window or into a chunk still loading, is big and keeps its level (it pours
-    // moving liquid into what is opened, at most POUR_BUDGET cells per source cell until it rests); a smaller one
-    // turns into moving liquid and drains.
-    static constexpr int BIG_BODY_CELLS = 32768;
-    static constexpr int POUR_BUDGET = 255;
-    static constexpr int BODY_CACHE_TICKS = 150;
-    static constexpr int MAX_FILLS_PER_TICK = 16;
 
     struct MaterialDef {
         uint8_t cell_type = CELL_GAS; // air default
@@ -333,16 +323,7 @@ private:
     void try_loosen(int x, int y, int z, int i, Ctx &c);
     void reservoir(int x, int y, int z, int i, Ctx &c);
     bool still_liquid(int x, int y, int z, int slot) const;   // generated (static) liquid of that fluid slot
-    bool step_of(int x, int y, int z, int slot) const;        // still_liquid, but not FLAG_JOINED
-    // ADR 0049 body size: 0 = not measured yet (ask with request_body), 1 = small, 2 = big
-    int body_class(int i) const;
-    void request_body(int x, int y, int z);
-    void measure_bodies();   // driver thread, between ticks: answers the requests
-    std::mutex req_m_;
-    std::vector<Vector3i> body_req_;
-    struct BodyEntry { uint32_t until; uint8_t cls; };
-    std::unordered_map<int, BodyEntry> body_;   // physical cell index -> class, valid until tick
-    int bodies_measured_ = 0, bodies_drained_ = 0, body_cells_max_ = 0;
+    std::atomic<int> still_woken_{0};   // still liquid cells that became moving liquid (ADR 0068)
     void update_powder(int x, int y, int z, int i, Ctx &c);
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);

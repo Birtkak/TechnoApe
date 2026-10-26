@@ -128,8 +128,12 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=170 sto
 #       and wears an axe out; prints "debug craft {...}" (every field true) and saves craft_*.png (craft_shots=0 skips them,
 #       and then it also runs with --headless); chat: /kit smith
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=60 craft_test=1 mob_spawn=0 vsync=0 out=res://out/craft
-# Reservoirs (ADR 0045): water_test=1 next to a river digs a trench into its bank and checks it fills to the river's level,
-#       nothing above, the river kept its level, the sim went quiet; prints "debug water {...}" (ok true), water_before/after.png
+# Scripted checks: commands=... runs chat commands at start, commands_after=/tp 46 1030 194;wait 6;/blast 2 lava runs them once
+#       the world has loaded ("wait N" pauses N s); with pitch=-1.3 the blast lands at the player's feet. A lava ball in a river
+#       (ADR 0068): read sim.still_woken, active_chunks and tick_ms from the JSON line; they must settle, not grow
+# Finite water (ADR 0068): water_test=1 next to a river digs a trench into its bank and blasts a crater, and checks both took
+#       water from the river, nothing above its level, nothing past the trench, the sim went quiet; prints "debug water {...}"
+#       (ok true), water_before/after.png
 Godot_..._console.exe --path game -- autopilot=1 target=river walk=1 speed=0 duration=50 mob_spawn=0 load_cap_s=30 water_test=1 out=res://out/water
 # Teleports (ADR 0066): tp_test=1 jumps 15/60/95 m, 500 m, 3 km, /spawn, /goto, /kill on foot in survival; per jump the
 # cover time, frame times under it and in the 4 s after it, the landing, a filmstrip row (tp_strip.png); JSON line "debug tp"

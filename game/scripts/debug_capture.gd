@@ -28,6 +28,7 @@ var stations := false         # place a crafting table, chest and furnace in fro
 var open_screen := ""          # open=crafting_table|chest|furnace: open that station's screen (needs stations=1)
 var give: Array = []  # give=oak_log:12,wooden_pickaxe  -> starting items
 var chat_commands: PackedStringArray = []  # commands=/gamemode creative;/time set noon  -> run through the chat at start (ADR 0018)
+var chat_commands_after: PackedStringArray = []  # commands_after=/tp 10 1030 20;wait 3;/blast 2 lava  -> run once the world has loaded ("wait N" pauses N s)
 var chat_text := ""   # chat_text=/give oak  -> chat box open with this typed (screenshot of hints)
 var debug_menu := false   # debug_menu=1: open the F4 playtest menu
 var f3 := false       # f3=1: the F3 overlay on
@@ -146,6 +147,7 @@ func _ready() -> void:
 	stations = args.get("stations", "0") == "1"
 	open_screen = args.get("open", "")
 	chat_commands = String(args.get("commands", "")).split(";", false)
+	chat_commands_after = String(args.get("commands_after", "")).split(";", false)
 	chat_text = args.get("chat_text", "")
 	debug_menu = args.get("debug_menu", "0") == "1"
 	f3 = args.get("f3", "0") == "1"

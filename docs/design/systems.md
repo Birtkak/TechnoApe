@@ -64,9 +64,14 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   `menu_test=1` presses both (JSON `grid_fill`, shots `craft_fill_button`, `craft_filled`, `inventory_clear`).
   **Water look (ADR 0045):** godot_voxel fluid patch (`voxel_patch_fluid.py`: corners next to open air drop, steps
   become ramps), FineGen rivers interpolated per voxel and their trenches and low banks filled; `tools/water_surface_probe.gd`
-  counts holes and glass edges. Generated water is still until disturbed; then the sim measures its body (ADR 0049): a big
-  one (64 m^3+, or past the window) pours flowing water into the hole and keeps its level, a small one drains like any spill;
-  `water_test=1 target=river` checks a trench and a crater. What still moves when the window walks on finishes in a pin (ADR 0050).
+  counts holes and glass edges. **All water is finite (ADR 0068, replacing the reservoirs of ADR 0045 and the big bodies of
+  ADR 0049):** generated water (`water_static`) is still until a fresh opening (air that changed in the last two ticks) touches
+  it beside or below; then the cell becomes plain mass-conserving `water` and drains into the hole, cell by cell (the cell it
+  leaves is the next opening); the river beside a hole drops, nothing refills it. Air over a river's own lower step never wakes
+  it, moving water in a hole never climbs out onto still water, but water that rests on a still body spreads flat over it.
+  Lava sinking through still water trades places with it (the water rises, finite). `water_test=1 target=river` checks a
+  trench and a crater; kernel tests `test/test_sim_v6.gd`. What still moves when the window walks on finishes in a pin (ADR 0050).
+  No waterfalls (the sheet, spray, roar and landmark are gone, GEN_VERSION 21): a river just drops over its cliff.
   **Every liquid looks like water (2026-10-25):** one fluid shader body (`terrain_fluid.gdshaderinc`), no atlas texture;
   each liquid's character (colours by depth, rim, ripples, gloss, glow, oil sheen, sludge bubbles, lava crack scale) is
   data in `data/liquid_looks.json`, set per fluid material by `World.apply_liquid_look` (`test_liquid_looks.gd` checks

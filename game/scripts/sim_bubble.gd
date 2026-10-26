@@ -795,6 +795,5 @@ func stats() -> Dictionary:
 		"shifts": shifts, "worst_frames": _worst, "slow_frames": _slow, "push_queue": _push_queue.size(), "push_queue_max": push_queue_max,
 		"burning": _burning_count(), "fire_ignited": fire_ignited,
 		"blasts": blasts, "blast_voxels": blast_voxels, "blast_ms_max": snappedf(blast_ms_max, 0.01),
-		"pins": pins.size(), "pins_made": pins_made, "pin_ms_max": snappedf(pin_ms_max, 0.01), "pin_worst": _pin_worst, "bodies": sim.get_stats().get("bodies_measured", 0),
-		"bodies_drained": sim.get_stats().get("bodies_drained", 0),
+		"pins": pins.size(), "pins_made": pins_made, "pin_ms_max": snappedf(pin_ms_max, 0.01), "pin_worst": _pin_worst, "still_woken": sim.get_stats().get("still_woken", 0),
 	}

@@ -1,6 +1,6 @@
 # ADR 0049: Water that flows (big bodies keep their level, small ones drain)
 
-Status: accepted (2026-10-25)
+Status: superseded by ADR 0068 (2026-10-26): no bodies are measured, no body pours; all water is finite
 
 ## Context
 Playtest reports of 2026-10-25 (part A of `docs/plans/2026-10-25-bug-report-split.md`):

@@ -1410,7 +1410,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 }
             }
             // kelp forests and seagrass on the sea floor (ADR 0047): whole voxels standing in the water,
-            // which refills their cells when they are cut (generated water is a reservoir, ADR 0045)
+            // (still water, which stays put when they are cut unless something disturbs it)
             uint16_t aqua = Mat::AIR;
             int aqua_h = 0;
             if (lod == 0 && h < water_level && hy.river <= 0.05f && (top_m == Mat::SAND || top_m == Mat::GRAVEL_STATIC || top_m == Mat::GRAVEL || top_m == Mat::SAND_STATIC || top_m == Mat::DIRT)) {
@@ -1569,9 +1569,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     const bool inland = hy.lake || hy.river > 0.0f || hy.marsh || side_fill;
                     if (wy + step >= water_level && cold && (hy.lake || hy.marsh)) mat = Mat::ICE;
                     else if (wy + step >= water_level && !inland && technosim_biome::SURFACE_ICE[col.biome] >= 0) mat = (uint16_t)technosim_biome::SURFACE_ICE[col.biome];
-                    else mat = Mat::WATER_STATIC;   // rivers, lakes and the sea are reservoirs (ADR 0045)
-                } else if (hy.fall_top * FS > wy) {
-                    mat = Mat::WATER_STATIC;   // waterfall sheet hanging from the lip
+                    else mat = Mat::WATER_STATIC;   // rivers, lakes and the sea: still until disturbed, then finite (ADR 0068)
                 } else if (far_canopy && wy < far_top) {
                     mat = far_leaves;
                 } else if (veg != Mat::AIR && wy < h + veg_h) {
@@ -1682,6 +1680,10 @@ Vector3i FineGen::find_nearest(const String &kind, int x, int z, int max_radius)
 }
 
 Array FineGen::waterfalls_near(int x, int z, int radius) const {
+    // No waterfalls (the developer, 2026-10-26, ADR 0068): the hanging still-water sheet is gone, and with it the
+    // spray, the roar and the landmark. The river still drops over its cliff (world_gen keeps the lip and the
+    // channel); a waterfall of real falling water waits for flowing rivers.
+    if (true) return Array();
     Array a = g_->waterfalls_near(floor_div(x, FS), floor_div(z, FS), std::max(1, radius / FS));
     for (int i = 0; i < a.size(); i++) {
         Dictionary d = a[i];

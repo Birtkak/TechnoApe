@@ -35,6 +35,7 @@ uniform float rim = 0.35;
 uniform vec3 foam_color : source_color = vec3(0.9, 0.97, 1.0);
 uniform float foam = 0.7;             // how strongly the streaks on a falling face show
 uniform float fall_speed = 40.0;      // voxels per second the streaks run down a falling face (5 m/s)
+uniform float sheet_m = 1.5;          // a falling face colours as water this deep at most (a sheet, not an abyss)
 uniform float ripple_scale = 1.0;     // ripple frequency (< 1 = broad swell)
 uniform float ripple_speed = 1.0;
 uniform float ripple_amount = 1.0;
@@ -69,12 +70,21 @@ vec3 liquid_ripple(vec2 p) {
 	return normalize(vec3(dx * k, 1.0, dz * k));
 }
 
-// streaks running down a falling face in voxel-wide lanes, each at its own speed (ADR 0049)
+// foam running down a falling face: lanes two voxels wide, each at its own speed, carrying long soft streaks
+// (several metres, fading in and out) that are brightest down the lane's middle; a lane without a streak this
+// moment stays plain water. Voxel-wide lanes with short bands read as a knitted chevron pattern on a still sheet
+// (bug report 2026-10-25 21-01-01 "broken waterfall").
 float fall_streak(vec2 wc) {
-	float lane = floor(wc.x);
-	float speed = fall_speed * (0.75 + 0.5 * lava_hash(vec3(lane, 1.0, 3.0)));
-	float v = fract((wc.y - TIME * speed) * 0.125 + lava_hash(vec3(lane, 7.0, 2.0)));
-	return smoothstep(0.6, 0.95, v) * (0.55 + 0.45 * lava_hash(vec3(lane, 4.0, 9.0)));
+	float lx = wc.x * 0.5;
+	float lane = floor(lx);
+	float across = 1.0 - abs(fract(lx) * 2.0 - 1.0);   // 0 at the lane's edges, 1 in the middle
+	float speed = fall_speed * (0.7 + 0.6 * lava_hash(vec3(lane, 1.0, 3.0)));
+	float along = (wc.y - TIME * speed) * 0.03125 + lava_hash(vec3(lane, 7.0, 2.0));   // one period = 32 voxels (4 m)
+	float v = fract(along);
+	float streak = smoothstep(0.2, 0.5, v) * (1.0 - smoothstep(0.75, 1.0, v));   // a long tail, a soft head
+	float present = step(0.35, lava_hash(vec3(lane, floor(along), 4.0)));           // some periods carry no foam
+	float wisp = 0.6 + 0.4 * sin(wc.y * 1.7 + lane * 3.1);                           // texture along the streak
+	return streak * present * wisp * smoothstep(0.0, 0.7, across) * (0.6 + 0.4 * lava_hash(vec3(lane, 4.0, 9.0)));
 }
 
 // bubbles on a 3-voxel grid: one in some cells, swelling to a ring and popping, each on its own clock
@@ -168,6 +178,9 @@ void fragment() {
 		if (zb > 0.0) {
 			vec4 vb = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, zb, 1.0);
 			d_m = max(length(vb.xyz / vb.w) - length(VERTEX), 0.0) * metres_per_unit;
+		}
+		if (!top) {
+			d_m = min(d_m, sheet_m);   // a falling face is a thin sheet (a waterfall, a pour): never the deep colour
 		}
 		float rim_k = (1.0 - smoothstep(0.0, rim_m, d_m)) * rim;
 		col = mix(liquid_shallow, liquid_deep, 1.0 - exp(-d_m / depth_m)) * (1.0 + m);

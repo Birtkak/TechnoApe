@@ -142,9 +142,9 @@ set by `set_chunk_bytes`, carried through `shift`). Cost ≈ 5–10 % per tick.
   and lakes get an ice voxel on top.
 - **Waterfalls**: where a stream segment drops >= 10 voxels between cells the
   channel keeps the upstream level to a lip at 55 % of the segment and then
-  steps down; a 2-voxel band past the lip is filled with static water from the
-  pool up to the upper surface (a hanging sheet). Mountain streams become
-  stair cascades. `find_nearest("waterfall")` and the map (white) find them.
+  steps down. The hanging still-water sheet, spray and roar were removed with
+  ADR 0068 (`waterfalls_near` lists nothing). Mountain streams become
+  stair cascades. `find_nearest("waterfall")` and the map (white) find the drops.
 - **Tile seams**: margin 1 km -> 1.5 km, and within 12 cells of a tile's core
   border the accumulation is blended with the neighbour tile (50/50 on the
   border). `tools/seam_probe.gd` walks the x = 4096 and z = 4096 seams:

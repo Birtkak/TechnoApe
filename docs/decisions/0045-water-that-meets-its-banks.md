@@ -1,6 +1,6 @@
 # ADR 0045: Water that meets its banks (Lay of the Land look)
 
-Status: accepted (2026-10-24, reservoirs 2026-10-25)
+Status: accepted (2026-10-24); point 4 (reservoirs) superseded by ADR 0049, then ADR 0068 (all water finite)
 
 ## Context
 The developer, after playing (bug report 2026-10-24): "water still is blocky and ugly, not flowing and
