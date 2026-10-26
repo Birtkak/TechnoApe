@@ -1,5 +1,8 @@
 # Hand-off: a mesher and LOD system like Lay of the Land's
 
+**Done 2026-10-26 (branch `claude/far-mesh-lod`):** research note `docs/research/2026-10-26-lay-of-the-land-distance.md`,
+spike `prototypes/p13-far-mesh/README.md`, decision ADR 0074 (proposed, off by default: Settings > Video > Far horizon, `far=1`).
+
 For a fresh session in this repo (`C:\Users\dev\Desktop\AI shizzle\TechnoApe`, read `CLAUDE.md` first). It is a
 research-and-build job for the strongest model; expect native C++ work and days of iteration. Work in a branch;
 the 40 m no-LOD world (ADR 0073) stays the shipped default until the new horizon beats it in play.

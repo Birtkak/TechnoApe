@@ -9,7 +9,7 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   sea cliffs and stacks, monoliths, meanders, deltas (ADR 0051); climate, biomes from biomes.json,
   hydrology, big caves: halls carved to LOD 2, ravines, cave mouths, geodes (ADR 0052); GregTech ore veins, ruins; ledges of 3-8 voxels on the ground and 0.5 m in caves, cliff bands on the massifs, a 110 m sea (ADR 0063)); aged trees with bark trunks,
   roots and clumped crowns, young trees, a forest floor of leaf litter, logs, stumps, bushes, ferns and
-  mushrooms; far forests as leaf domes. Flat colours: one texel of the material's tile per voxel
+  mushrooms; far forests as leaf domes. **The far horizon (ADR 0074, proposed, off by default):** past the box, native `FarMesh` + `scripts/visuals/far_layer.gd` draw a column height-field skin with CDLOD rings, far water and tree instances behind the near box through its own SubViewport (`far=1`, Settings > Video > Far horizon; `game/README.md`, `prototypes/p13-far-mesh/README.md`). Flat colours: one texel of the material's tile per voxel
   (`voxel_sample`); props use `terrain_prop.gdshader`. `SimBubble` ticks a wrapped 64 x 64 x 64 m window
   of the world's voxels (Noita kernel: sand, water, fire, gas). Brush digging and building
   (`scripts/player/brush.gd`: Ctrl + wheel size, B / Shift + B shape); voxel items count voxels, recipes blocks of 64

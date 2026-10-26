@@ -10,6 +10,23 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## The far horizon, off by default (2026-10-26, ADR 0074, proposed)
+
+Settings > Video > **Far horizon**: Off (the world ends in the sky, as ADR 0073) or 384 m / 768 m / 1.5 km;
+takes effect when a world is next loaded. Or start with `far=1` (`far_m=1536`). Judge it against Off in the
+same spots; F9 when something looks wrong.
+
+- [ ] Standing on a beach or a hilltop: the ground runs on past 40 m with no line, no ring and no pop where
+      the voxels end; the far ground is smooth and flat-coloured with a faint speckle, trees are blobs with
+      trunks to ~200 m and a leaf-coloured mass beyond.
+- [ ] Walk and fly (creative, 20 m/s): no tiles appear or vanish in view, no cracks between the rings; far
+      lakes and the sea are flat sheets at their level, never black. Known: a fast flight hitches where the
+      near box streams a forest edge (ADR 0074, open); say whether it is worse than with the horizon Off.
+- [ ] From 100 m up: forests, rivers and the coast read as such to the horizon; mountains have their shape.
+- [ ] Dig a crater and place a 4 m cube, walk 150 m away: both show in the far ground within a second or two
+      (felled far trees still stand as blobs: known).
+- [ ] Frame time (F3) next to Off at the same spot; first load a second or two longer.
+
 ## No LOD, the brush flush and centred, placed sand falls (2026-10-26, ADR 0073)
 
 Start a new world. The view distance is now one box of full-detail voxels (Settings > Video: 24 / 32 / 40 m).

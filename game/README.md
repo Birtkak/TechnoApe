@@ -186,6 +186,19 @@ mirroring, shapeless, smelt, spellcraft; `makes`, `uses_of`, `search`,
 `CraftingGrid` (preview, craft once/all, return contents). Wands have no
 recipe by design (found only); spells do.
 
+## The far horizon (ADR 0074, proposed; off by default)
+
+`far=1` (or Settings > Video > Far horizon) draws the land past the 40 m box as a column height-field skin
+with far trees, built by native `FarMesh` (`prototypes/p5-sim-spike/src/far_mesh.cpp`) and managed by
+`scripts/visuals/far_layer.gd`: rings of 25 cm .. 8 m cells that morph into each other (CDLOD), flat water
+sheets, instanced tree blobs to ~400 m, a baked canopy beyond, player edits re-read per chunk column.
+It renders into its own SubViewport (`FarView`, lit by its own copy of the sun) and the sky and the
+terrain's horizon blend read that texture per pixel, so nothing of it is drawn over the near voxels.
+Args: `far_m=<reach m>` (default 1536), `far_speckle=0..1`, `far_mesher=nets` (the P13 surface-nets
+candidate, for comparison only), `far_debug=flat|nocustom`. Run JSON key `far`. Probe:
+`godot --headless --path . --script res://tools/far_probe.gd -- seed=272905368 x=-160 z=-277`.
+Measurements and the look comparison: `prototypes/p13-far-mesh/README.md`, `out/far/`.
+
 ## Layout
 
 | Path | What |
