@@ -129,6 +129,156 @@ func craft_all(max_times: int = 64) -> Dictionary:
 	return total
 
 
+# ---------------- fill from the recipe browser (bug report 2026-10-25) ----------------
+
+## Whether recipe r is a grid recipe at all (shaped or shapeless): the Fill button shows for these.
+static func is_grid_recipe(r: Dictionary) -> bool:
+	return r.get("type", "") in ["shaped", "shapeless"]
+
+
+## Why this grid cannot take recipe r ("" when it can): another station, or too wide for the 2x2.
+func cannot_hold(r: Dictionary) -> String:
+	if not is_grid_recipe(r):
+		return "Not a grid recipe"
+	var st: String = r.get("station", "")
+	if st != "" and st != station:
+		return "Needs a %s" % (items.display_name(st) if items.has(st) else st.capitalize())
+	if _cells_for(r).is_empty():
+		return "Needs a 3x3 grid (crafting table)"
+	return ""
+
+
+## Where recipe r's ingredients go: [[grid slot, spec], ...] (shaped as drawn from the top left,
+## shapeless in reading order), or [] when it does not fit this grid's width.
+func _cells_for(r: Dictionary) -> Array:
+	var out := []
+	if r["type"] == "shaped":
+		var pattern: Array = r["pattern"]
+		if pattern.size() > width:
+			return []
+		for y in pattern.size():
+			var row := String(pattern[y])
+			for x in row.length():
+				if row[x] == " ":
+					continue
+				if x >= width:
+					return []
+				out.append([y * width + x, r["key"][row[x]]])
+	else:
+		var ing: Array = r["ingredients"]
+		if ing.size() > width * width:
+			return []
+		for i in ing.size():
+			out.append([i, ing[i]])
+	return out
+
+
+## Puts the grid's contents back into `sources` (inventories, first one first). What does not fit
+## stays in its slot. Returns true when the grid ended up empty.
+func return_to(sources: Array) -> bool:
+	var empty := true
+	for i in grid.size():
+		var s := grid.take(i)
+		if s.is_empty():
+			continue
+		var left: int = s["count"]
+		for inv in sources:
+			left = (inv as Inventory).add(s["id"], left, Inventory.data_of(s))
+			if left <= 0:
+				break
+		if left > 0:
+			grid.set_slot(i, Inventory.make_stack(items, s["id"], left, s))
+			empty = false
+	return empty
+
+
+## Lays recipe r out in the grid from `sources` (the player's inventory, then the bag): the grid's
+## contents go back first, then every cell gets one recipe unit per craft for as many crafts as
+## `times` asks (Shift: all), as the sources hold (grid contents count, they come back first) and as
+## a slot's stack holds. A kept tool (the saw, ADR 0042) goes in once, not per craft. A tag ingredient
+## takes the member the player has most of. All or nothing: when not even one craft is there, nothing
+## moves and "missing" lists [{id, need, have}]; "error" says why nothing happened.
+## `dry_run` only answers. Returns {crafts, missing, error}.
+func fill(r: Dictionary, sources: Array, times: int = 1, dry_run := false) -> Dictionary:
+	var why := cannot_hold(r)
+	if why != "":
+		return {"crafts": 0, "missing": [], "error": why}
+	var cells := _cells_for(r)
+	var avail := func(id: String) -> int:
+		var n := 0
+		for inv in sources:
+			n += (inv as Inventory).count_of(id)
+		for i in grid.size():
+			var s: Dictionary = grid.get_slot(i)
+			if not s.is_empty() and s["id"] == id:
+				n += int(s["count"])
+		return n
+	var keep: Array = r.get("keep", []).duplicate()
+	var per_craft := {}   # id -> units per craft
+	var once := {}        # id -> units for kept tools
+	var plan := []        # [slot, id, kept]
+	var cap := maxi(times, 1)
+	for c in cells:
+		var spec: String = c[1]
+		var best := spec
+		if spec.begins_with("#"):
+			best = ""
+			var most := -1
+			for m in items.items_with_tag(spec.substr(1)):
+				var n: int = avail.call(m)
+				if n > most:
+					most = n
+					best = m
+		var kept := keep.has(spec)
+		if kept:
+			keep.erase(spec)
+			once[best] = int(once.get(best, 0)) + items.units(best)
+		else:
+			per_craft[best] = int(per_craft.get(best, 0)) + items.units(best)
+			cap = mini(cap, items.max_stack(best) / items.units(best))
+		plan.append([c[0], best, kept])
+	var missing := []
+	for id in per_craft.keys() + once.keys():
+		var have: int = avail.call(id)
+		var need: int = int(per_craft.get(id, 0)) + int(once.get(id, 0))
+		if have < need:
+			if not missing.any(func(m: Dictionary) -> bool: return m["id"] == id):
+				missing.append({"id": id, "need": need, "have": have})
+		elif per_craft.has(id):
+			cap = mini(cap, (have - int(once.get(id, 0))) / int(per_craft[id]))
+	if not missing.is_empty():
+		return {"crafts": 0, "missing": missing, "error": "Missing " + ", ".join(PackedStringArray(missing.map(func(m: Dictionary) -> String:
+			return "%s %d/%d" % [items.display_name(m["id"]) if items.has(m["id"]) else m["id"], m["have"], m["need"]])))}
+	if dry_run:
+		return {"crafts": cap, "missing": [], "error": ""}
+	if not return_to(sources):
+		return {"crafts": 0, "missing": [], "error": "Inventory full"}
+	for p in plan:
+		var id: String = p[1]
+		grid.set_slot(p[0], _pull(sources, id, items.units(id) * (1 if p[2] else cap)))
+	return {"crafts": cap, "missing": [], "error": ""}
+
+
+## Takes `count` of id out of `sources` as one stack, keeping its data (a tool's wear, food's spoil).
+## Main inventory before the hotbar: slots are emptied from the back, as Inventory.remove does.
+func _pull(sources: Array, id: String, count: int) -> Dictionary:
+	var out := {}
+	for inv: Inventory in sources:
+		for i in range(inv.size() - 1, -1, -1):
+			if count <= 0:
+				return out
+			var s := inv.get_slot(i)
+			if s.is_empty() or s["id"] != id:
+				continue
+			var t := inv.take(i, count)
+			count -= int(t["count"])
+			if out.is_empty():
+				out = t
+			else:
+				Inventory.merge_into(out, int(t["count"]), Inventory.data_of(t))
+	return out
+
+
 ## Returns all grid contents to `inv` (closing the table). Anything that does
 ## not fit is returned so the caller can drop it in the world.
 func return_contents(inv: Inventory) -> Array:

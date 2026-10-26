@@ -44,6 +44,16 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   against `Inventory.clock_s`, and a stone anvil smiths hot copper with a hammer (`smith` recipes, height per column,
   `AnvilEntity`). Stacks keep per-stack data (`spoil`, `wear`, `hot_until`, `work`) through every move: build stacks with
   `Inventory.make_stack`. `craft_test=1` checks it all (headless with `craft_shots=0`).
+  **Grid Fill and Clear (bug report 2026-10-25):** the recipe view shows **Fill** right of the output for a grid recipe
+  (shaped/shapeless) while a crafting grid is on screen: it returns the grid's contents to the inventory, then lays the
+  recipe out (shaped as drawn from the top left, shapeless in reading order) from the inventory and the worn bag, and closes
+  the recipe view so the grid shows. Shift fills as many crafts as the inventory holds and a slot's stack allows (one
+  stack of each ingredient); a kept tool (saw, knife) goes in once with its wear; a tag ingredient takes the member the player has most of
+  (members are not mixed: 1 oak and 1 birch stick do not make a two-stick recipe). All or nothing: when not one craft is
+  there, Fill is greyed out and its tooltip says what is short (also for another station or a recipe too big for the 2x2).
+  With no recipe chosen, the panel's **Clear** button (left of the grid) puts the grid back in the inventory. Logic:
+  `CraftingGrid.fill` / `return_to`, `PlayerInventory.fill_craft_grid` / `clear_craft_grid`; tests `test/test_grid_fill.gd`;
+  `menu_test=1` presses both (JSON `grid_fill`, shots `craft_fill_button`, `craft_filled`, `inventory_clear`).
   **Water look (ADR 0045):** godot_voxel fluid patch (`voxel_patch_fluid.py`: corners next to open air drop, steps
   become ramps), FineGen rivers interpolated per voxel and their trenches and low banks filled; `tools/water_surface_probe.gd`
   counts holes and glass edges. Generated water is still until disturbed; then the sim measures its body (ADR 0049): a big

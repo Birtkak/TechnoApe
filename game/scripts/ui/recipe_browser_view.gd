@@ -35,6 +35,8 @@ var _bm_title: Label
 var _bm_cols := 0
 var _bm_rows := 0
 var trackers: Trackers          # HUD trackers (ADR 0061): the recipe view's Pin button
+var grid_fill: Callable         # fn(recipe, all, dry_run) -> CraftingGrid.fill's answer, while a crafting grid is on screen
+var fill_button: Button         # the recipe view's Fill button, or null (tests and menu_test press it)
 
 
 func setup(p_model: RecipeBrowser) -> void:
@@ -236,6 +238,7 @@ func _build_recipe() -> void:
 		n.queue_free()
 	_recipe_nodes.clear()
 	_spec_cells.clear()
+	fill_button = null
 	_overlay.visible = true
 	var r := model.current_recipe()
 	var cat := model.current_category()
@@ -278,6 +281,8 @@ func _build_recipe() -> void:
 			trackers.toggle("recipe", rid)
 			pin.text = "Unpin" if trackers.is_pinned("recipe", rid) else "Pin")
 		_add(pin, Vector2(PANEL.x - 70, 76))
+	if grid_fill.is_valid() and CraftingGrid.is_grid_recipe(r):
+		_add_fill_button(r)
 	# have / need per ingredient, in the inventory's own counts (ADR 0046)
 	if l["kind"] in ["grid", "row", "smelt"] and r["type"] != "mining":
 		var y := 162.0
@@ -321,6 +326,26 @@ func _build_recipe() -> void:
 	_cycle_t = -1
 	_update_cycle()
 	_recipe_panel.queue_redraw()
+
+
+## Fill (bug report 2026-10-25): right of the output, lays the shown recipe out in the open crafting
+## grid from the inventory; Shift fills as many crafts as the inventory and the stacks allow. Greyed
+## out, with the reason as its tooltip, when the grid cannot take it or ingredients are short.
+func _add_fill_button(r: Dictionary) -> void:
+	var b := _button("Fill", func() -> void: pass)
+	var check: Dictionary = grid_fill.call(r, true, true)
+	b.disabled = check["error"] != ""
+	b.tooltip_text = check["error"] if b.disabled else \
+		"Put the ingredients in the grid (Shift: enough for %d)" % int(check["crafts"])
+	b.pressed.connect(func() -> void:
+		var res: Dictionary = grid_fill.call(r, Input.is_key_pressed(KEY_SHIFT), false)
+		if res["error"] == "":
+			close_recipes()   # show the filled grid
+		else:
+			b.disabled = true
+			b.tooltip_text = res["error"])
+	_add(b, Vector2(PANEL.x - 70, 124))
+	fill_button = b
 
 
 func _add(n: Control, pos: Vector2) -> void:

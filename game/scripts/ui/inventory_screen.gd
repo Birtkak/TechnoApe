@@ -34,6 +34,7 @@ var _slots: Array[SlotView] = []
 var _craft_slots: Array[SlotView] = []
 var _output: SlotView
 var _craft_hint: Label                    # why the grid makes nothing (ADR 0046)
+var _clear_button: Button                 # the grid's contents back to the inventory (bug report 2026-10-25)
 var _cursor_icon: ItemIcon
 var _title: Label
 var _inv_label: Label
@@ -267,6 +268,11 @@ func _clear_mode_slots() -> void:
 	if _craft_hint:
 		_craft_hint.queue_free()
 		_craft_hint = null
+	if _clear_button:
+		_clear_button.queue_free()
+		_clear_button = null
+	if browser_view:
+		browser_view.grid_fill = Callable()
 	if _container:
 		_container.changed.disconnect(_refresh)
 		_container = null
@@ -297,6 +303,16 @@ func _build_craft_slots(width: int) -> void:
 	_craft_hint.size = Vector2(150, 40)
 	_craft_hint.position = _output.position + Vector2(S / 2.0 - 75.0, S + 2)
 	_panel.add_child(_craft_hint)
+	_clear_button = _small_button("Clear", func() -> void: player_inv.clear_craft_grid())
+	_clear_button.tooltip_text = "Put everything in the grid back in the inventory"
+	_clear_button.position = Vector2(140, 54) if width == 2 else Vector2(12, 34 + S)
+	if browser_view:
+		browser_view.grid_fill = _grid_fill   # the recipe view's Fill button
+
+
+## The recipe view's Fill button: recipe r laid out in the open grid (all: Shift, as many as possible).
+func _grid_fill(r: Dictionary, all: bool, dry_run: bool) -> Dictionary:
+	return player_inv.fill_craft_grid(r, all, dry_run)
 
 
 ## Opens with the personal 2x2 grid, or a station grid (3 = crafting table).

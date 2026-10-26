@@ -37,6 +37,7 @@ func run(dc: Node, title: Control) -> void:
 	if main == null:
 		return _end()
 	main.player_inv.pickup("flint", 5)
+	await _grid_fill(main)
 	main.player.position += Vector3(3, 0, 0)
 	await _frames(10)
 	var before: Vector3 = main.player.position
@@ -80,6 +81,42 @@ func run(dc: Node, title: Control) -> void:
 			r["deleted_files"] = title3.worlds.delete(title3.worlds.find_seed(Settings.world_seed))
 			r["gone"] = title3.worlds.find_seed(Settings.world_seed).is_empty()
 	_end()
+
+
+## The crafting table screen's Fill and Clear buttons (bug report 2026-10-25): the bug report's
+## 10 sticks and 21 dry grass, the firestarter's recipe view, Fill, then Clear.
+func _grid_fill(main) -> void:
+	var pi: PlayerInventory = main.player_inv
+	pi.pickup("stick", 10)
+	pi.pickup("dry_grass", 21)
+	var sticks := pi.inv.count_of("stick")
+	var grass := pi.inv.count_of("dry_grass")
+	main.player.set_ui_open(true, false)
+	main.inv_screen.open(3, "crafting_table", "Crafting")
+	var bv: RecipeBrowserView = main.inv_screen.browser_view
+	bv.show_item("firestarter", "recipes")
+	var f := {"button": bv.fill_button != null}
+	if bv.fill_button != null:
+		f["enabled"] = not bv.fill_button.disabled
+		f["tooltip"] = bv.fill_button.tooltip_text
+		await _shot("craft_fill_button")
+		bv.fill_button.pressed.emit()
+		await _frames(2)
+		f["recipe_view_closed"] = not bv.is_showing_recipes()
+		f["grid_makes"] = pi.craft.current_recipe().get("id", "")
+		f["sticks_left"] = pi.inv.count_of("stick")
+		await _shot("craft_filled")
+		var shift := pi.fill_craft_grid(pi.recipes.recipes["firestarter"], true)
+		f["shift_crafts"] = shift["crafts"]
+		main.inv_screen._clear_button.pressed.emit()
+		f["cleared"] = pi.inv.count_of("stick") == sticks and pi.inv.count_of("dry_grass") == grass
+	main.inv_screen.close()
+	main.inv_screen.open()   # the personal 2x2 grid has its Clear button too
+	await _shot("inventory_clear")
+	main.inv_screen.close()
+	main.player.set_ui_open(false, false)   # as the player's own E / Esc does
+	await _frames(2)
+	r["grid_fill"] = f
 
 
 func _end() -> void:

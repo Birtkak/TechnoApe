@@ -465,6 +465,27 @@ func click_craft_output(shift: bool) -> void:
 	changed.emit()
 
 
+## The inventories the grid fills from and returns to: the player's slots, then the worn bag.
+func craft_sources() -> Array:
+	return [inv, bag] if has_bag() else [inv]
+
+
+## The recipe browser's Fill button (bug report 2026-10-25): lays recipe r out in the grid from the
+## inventory, once or (all) as many times as it allows. Returns CraftingGrid.fill's answer.
+func fill_craft_grid(r: Dictionary, all: bool, dry_run := false) -> Dictionary:
+	var res := craft.fill(r, craft_sources(), 1 << 20 if all else 1, dry_run)
+	if not dry_run:
+		changed.emit()
+	return res
+
+
+## The panel's Clear button: the grid's contents back into the inventory. False when some did not fit.
+func clear_craft_grid() -> bool:
+	var ok := craft.return_to(craft_sources())
+	changed.emit()
+	return ok
+
+
 func _report_broken() -> void:
 	for id in craft.tools_broken:
 		tool_broke.emit(id)
