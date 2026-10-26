@@ -159,6 +159,8 @@
     {"id": "roast_acorn", "type": "smelt", "input": "acorn", "output": {"id": "roasted_acorn", "count": 1}, "ticks": 200, "station": "firepit"},
     {"id": "cook_fish_firepit", "type": "smelt", "input": "raw_fish", "output": {"id": "cooked_fish", "count": 1}, "ticks": 250, "station": "firepit"},
     {"id": "cook_fish_furnace", "type": "smelt", "input": "raw_fish", "output": {"id": "cooked_fish", "count": 1}, "ticks": 150, "station": "furnace"},
-    {"id": "split_driftwood", "type": "shapeless", "ingredients": ["driftwood"], "output": {"id": "stick", "count": 3}}
+    {"id": "split_driftwood", "type": "shapeless", "ingredients": ["driftwood"], "output": {"id": "stick", "count": 3}},
+    {"id": "tnt", "type": "shapeless", "ingredients": ["sulfur", "sulfur", "charcoal", "sand"], "output": {"id": "tnt", "count": 1}, "_note": "ADR 0065: black powder (sulfur, charcoal) packed in sand, one block"},
+    {"id": "igniter", "type": "shapeless", "ingredients": ["flint", "iron_ingot", "copper_ingot"], "output": {"id": "igniter", "count": 1}, "_note": "ADR 0065"}
   ]
 }

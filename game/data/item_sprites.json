@@ -2320,6 +2320,48 @@
         "................"
       ]
     },
+    "tnt_face": {
+      "colors": {"R": "#d83a2a", "r": "#b02a1e", "d": "#6e140e", "w": "#ece6d6", "k": "#26201c"},
+      "rows": [
+        "dRRdRRRdRRRdRRRd",
+        "dRrdRRrdRRrdRRrd",
+        "dRrdRRrdRRrdRRrd",
+        "dRrdRRrdRRrdRRrd",
+        "wwwwwwwwwwwwwwww",
+        "wkkkwkwwkwkkkwww",
+        "wwkwwkkwkwwkwwww",
+        "wwkwwkwkkwwkwwww",
+        "wwkwwkwwkwwkwwww",
+        "wwwwwwwwwwwwwwww",
+        "dRrdRRrdRRrdRRrd",
+        "dRrdRRrdRRrdRRrd",
+        "dRrdRRrdRRrdRRrd",
+        "dRrdRRrdRRrdRRrd",
+        "dRrdRRrdRRrdRRrd",
+        "dddddddddddddddd"
+      ]
+    },
+    "igniter": {
+      "colors": {"R": "#e03a2a", "w": "#c88a3a"},
+      "rows": [
+        "....ooooooo.....",
+        "...ohhhhhhho....",
+        "....oolmooo.....",
+        ".....olmo.......",
+        ".....olmo.......",
+        "..oooolmoooo....",
+        ".ollllllllllo...",
+        ".olmmmmmmmmdooo.",
+        ".olmRmmmmmmdowwo",
+        ".olmmmmmmmmdwoow",
+        ".olmmmmmmmmdo.ow",
+        ".olmmmmmmmmdoowo",
+        ".oddddddddddowo.",
+        "..oooooooooo.owo",
+        "..............ow",
+        "...............o"
+      ]
+    },
     "strawberry": {
       "colors": {"s": "#f6e27a", "g": "#3e7e2a"},
       "rows": [
@@ -3342,6 +3384,8 @@
     "copper_prospecting_head": {"layers": [{"shape": "prospecting_head", "palette": "copper"}]},
     "flint_and_steel": {"layers": [{"shape": "flint_and_steel", "palette": "steel"}]},
     "world_vacuum": {"layers": [{"shape": "world_vacuum", "palette": "hazard"}]},
+    "tnt": {"layers": [{"shape": "tnt_face"}], "cube": true},
+    "igniter": {"layers": [{"shape": "igniter", "palette": "iron"}]},
     "granite_stone": {"layers": [{"shape": "rock", "palette": "rock_granite"}]},
     "diorite_stone": {"layers": [{"shape": "rock", "palette": "rock_diorite"}]},
     "limestone_stone": {"layers": [{"shape": "rock", "palette": "rock_limestone"}]},

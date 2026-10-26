@@ -191,6 +191,7 @@ func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
 		"plant_fiber", "raw_hide",   # grass by hand, sheep and pigs (ADR 0030)
 		"animal_fat", "pyrite", "red_ochre", "yellow_ochre", "antler", "einkorn_seeds", "emmer_seeds", "flax_seeds"]   # drops and part E's finds (ADR 0059)
 	raw.append_array(StoneAge.WORLD_SOURCES.keys())   # bark, embers, dough, brine ... (ADR 0059)
+	raw.append("sulfur")   # mined from sulfur cave crust (mining.json): TNT's powder (ADR 0065)
 	var have := recipes.reachable_from(raw)
 	var missing := []
 	for id in items.all_ids():

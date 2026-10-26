@@ -60,6 +60,7 @@
     "tin_bearing_stones":    {"hardness": 0.0, "drops": "loose_tin_ore"},
     "iron_bearing_stones":   {"hardness": 0.0, "drops": "loose_iron_ore"},
     "wool":         {"hardness": 0.8, "tool": "shears", "drops": "wool"},
+    "tnt":          {"hardness": 0.0, "drops": "tnt"},
     "carpet":       {"hardness": 0.1, "drops": "carpet"},
     "farmland":     {"hardness": 0.6, "tool": "shovel", "drops": "dirt"},
     "farmland_moist": {"hardness": 0.6, "tool": "shovel", "drops": "dirt"},

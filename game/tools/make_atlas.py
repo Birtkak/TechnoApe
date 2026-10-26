@@ -17,6 +17,7 @@ Tiles (index = row*4 + col):
 104 crystal (geodes, ADR 0052), 105-108 reserved (world generation), 109-111 savanna grass, tall grass, red earth; 112-114 wheat stalks green / turning / golden, 115 wheat ear,
 116 carrot leaves 117 carrot shoulder, 118 torch stick 119 torch wrap 120 torch flame (ADR 0053); 121-135 reserved (parts C, D)
 136-170 rock kinds, cobbles, bricks, clutter, pyrite and ochres (tools/atlas_rocks.py, ADR 0057)
+171 tnt side 172 tnt top (patterned: a 4-voxel period, one 0.5 m TNT block per period; ADR 0065)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import math
@@ -904,6 +905,30 @@ tiles = [
 # 104-135: other parts' rows (2026-10-25 split); empty here until the branches merge
 tiles += [Image.new("RGBA", (TILE, TILE)) for _ in range(136 - len(tiles))]
 tiles += atlas_rocks.tiles(palette, stones_pattern, stripes, spotted_cap)   # 136-170 (ADR 0057)
+
+
+def tnt(top):
+    """TNT, patterned (one texel per voxel, a 4-voxel period = one 0.5 m block): the side is red sticks
+    with a paper band across the middle two rows, the top red with a grey fuse in each block's centre."""
+    img = Image.new("RGBA", (TILE, TILE))
+    px = img.load()
+    rng = random.Random(171 + top)
+    for y in range(TILE):
+        for x in range(TILE):
+            ix, iy = x % 4, y % 4
+            if top:
+                c = (70, 70, 74) if ix in (1, 2) and iy in (1, 2) else ((150, 30, 22) if ix in (0, 3) and iy in (0, 3) else (204, 52, 38))
+            elif iy in (1, 2):
+                c = (232, 226, 210) if (x + y) % 3 else (40, 34, 30)   # the paper band, dark letters
+            else:
+                c = (120, 20, 14) if ix == 0 else (212, 56, 40)
+            d = rng.randint(-6, 6)
+            px[x, y] = (max(0, min(255, c[0] + d)), max(0, min(255, c[1] + d)), max(0, min(255, c[2] + d)), 255)
+    return img
+
+
+assert len(tiles) == 171, len(tiles)
+tiles += [tnt(False), tnt(True)]   # 171 tnt side, 172 tnt top (ADR 0065)
 assert len(tiles) <= COLS * ROWS, len(tiles)
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))

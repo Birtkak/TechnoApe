@@ -292,16 +292,21 @@ func _crater(hit: VoxelRaycastResult, from: Vector3, radius_m: float) -> bool:
 	if main.fx and first > 0:
 		main.fx.block_break(hit.position, first)
 	if main.pieces:
-		# seeds on the crater's rim (a Fibonacci sphere): a trunk standing in it is cut wherever it was
-		var seeds := []
-		var count := clampi(int(4.0 * PI * r * r / 6.0), 64, 4096)
-		for i in count:
-			var y := 1.0 - 2.0 * (i + 0.5) / count
-			var ring := sqrt(1.0 - y * y)
-			var a := i * 2.39996323   # the golden angle
-			seeds.append(Vector3i((at + Vector3(cos(a) * ring, y, sin(a) * ring) * (r - 0.5)).floor()))
-		main.pieces.check(seeds, from)
+		main.pieces.check(rim_seeds(at, r), from)
 	return true
+
+
+## Seed cells on a crater's rim (a Fibonacci sphere just inside radius `r` around `at`): a trunk standing
+## in it is cut wherever it was, so the rigid piece check starts there (the crater rod, TNT).
+static func rim_seeds(at: Vector3, r: float) -> Array:
+	var seeds := []
+	var count := clampi(int(4.0 * PI * r * r / 6.0), 64, 4096)
+	for i in count:
+		var y := 1.0 - 2.0 * (i + 0.5) / count
+		var ring := sqrt(1.0 - y * y)
+		var a := i * 2.39996323   # the golden angle
+		seeds.append(Vector3i((at + Vector3(cos(a) * ring, y, sin(a) * ring) * (r - 0.5)).floor()))
+	return seeds
 
 
 func _bomb(hit: VoxelRaycastResult, from: Vector3, dir: Vector3, material: String, radius_m: float) -> bool:

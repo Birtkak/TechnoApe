@@ -351,7 +351,8 @@
  },
  "tiles": {
   "_doc": "which atlas tile a material's chips use when not its side tile",
-  "grass": "bottom", "savanna_grass": "bottom",
+  "grass": "bottom",
+  "savanna_grass": "bottom",
   "leaf_litter": "bottom",
   "farmland": "bottom",
   "farmland_moist": "bottom",
@@ -1223,6 +1224,137 @@
     "#3c3c3c",
     "#555555",
     "#6a6a6a"
+   ]
+  },
+  "tnt_fuse": {
+   "channel": "sprites",
+   "sprite": "spark",
+   "motion": "spark",
+   "count": [
+    2,
+    4
+   ],
+   "life": [
+    0.3,
+    0.7
+   ],
+   "size": [
+    0.04,
+    0.07
+   ],
+   "speed": [
+    0.8,
+    1.8
+   ],
+   "dir": "up",
+   "spread": 35,
+   "box": [
+    0.04,
+    0.0,
+    0.04
+   ],
+   "colors": [
+    "#ffd860",
+    "#ffb030",
+    "#ffffff"
+   ]
+  },
+  "tnt_flash": {
+   "channel": "sprites",
+   "sprite": "flame",
+   "motion": "flame",
+   "count": [
+    40,
+    60
+   ],
+   "life": [
+    0.25,
+    0.6
+   ],
+   "size": [
+    0.4,
+    0.9
+   ],
+   "speed": [
+    2.0,
+    7.0
+   ],
+   "dir": "any",
+   "spread": 180,
+   "box": [
+    0.6,
+    0.6,
+    0.6
+   ],
+   "colors": [
+    "#ffffff"
+   ]
+  },
+  "tnt_smoke": {
+   "channel": "sprites",
+   "sprite": "smoke",
+   "motion": "large_smoke",
+   "count": [
+    30,
+    45
+   ],
+   "life": [
+    1.5,
+    3.5
+   ],
+   "size": [
+    0.6,
+    1.2
+   ],
+   "speed": [
+    0.8,
+    3.0
+   ],
+   "dir": "any",
+   "spread": 180,
+   "box": [
+    1.0,
+    0.8,
+    1.0
+   ],
+   "colors": [
+    "#2e2e2e",
+    "#444444",
+    "#5a5a5a",
+    "#6e6a64"
+   ]
+  },
+  "tnt_sparks": {
+   "channel": "sprites",
+   "sprite": "spark",
+   "motion": "spark",
+   "count": [
+    30,
+    50
+   ],
+   "life": [
+    0.6,
+    1.4
+   ],
+   "size": [
+    0.05,
+    0.1
+   ],
+   "speed": [
+    4.0,
+    10.0
+   ],
+   "dir": "any",
+   "spread": 180,
+   "box": [
+    0.3,
+    0.3,
+    0.3
+   ],
+   "colors": [
+    "#ffd860",
+    "#ffb030",
+    "#ff7020"
    ]
   }
  },

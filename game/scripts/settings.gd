@@ -51,6 +51,7 @@ var player_height_m := 1.8
 var player_radius_m := 0.3
 var eye_height_m := 1.62
 var reach_m := 5.0
+var creative_reach_m := 12.0            # creative world editing: big brushes need room (ADR 0065)
 var gravity_m := 9.8 * 2.0              # Minecraft-ish snappy gravity
 var mouse_sensitivity := 0.0025
 
@@ -158,6 +159,15 @@ var laser_depth_m := 3.0                # and cuts this deep past the first soli
 var laser_pulse_s := 0.06               # one cut along the beam this often while the button is held
 var laser_check_s := 0.3                # what the cuts freed is checked this often (a tree check is 24-80 ms on the sim thread)
 var crater_radius_m := 3.0              # the crater rod's blast; sneaking doubles it
+# TNT (ADR 0065): one 0.5 m block of it; a part-filled block blasts with the cube root of its share
+var tnt_radius_m := 2.5                 # crater radius in soft ground; stone takes 3/4 of it, hard rock 1/2, obsidian none
+var tnt_fuse_s := 3.0                   # lit by hand, fire or the igniter
+var tnt_chain_fuse_s := Vector2(0.5, 1.5)   # lit by another blast: a random fuse in this range (Minecraft)
+var tnt_damage := 16                    # health at the centre, falling to 0 at twice the radius (armour later)
+var tnt_knockback_m := 12.0             # m/s at the centre, falling like the damage
+var tnt_drop_fraction := 0.3            # share of the blasted voxels that drops as items (Minecraft: 1 / power)
+var tnt_blasts_per_frame := 1           # fuses that run out together wait their turn: one crater per frame
+var igniter_range_m := 16.0             # the igniter's sneak use lights every charge this close
 var particles := true                   # particles=0 turns every effect off (benchmarks against the old game)
 var particle_pool_chips := 2048         # block chips alive at once at most
 var particle_pool_sprites := 6144       # smoke, splashes, hearts, waterfall spray...

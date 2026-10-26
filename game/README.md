@@ -68,6 +68,11 @@ Godot_..._console.exe --path game -- autopilot=1 speed=20 alt=30 duration=16 vsy
 # mass edits (ADR 0014): blast=R craters of R m on the ground around the player every blast_every s (default 2),
 # blast_count=N per volley; JSON sim.blasts, blast_voxels, blast_ms_max (native SimWorld.fill_sphere)
 Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=4 blast_every=1 duration=20 capture_every=1 out=res://out/blast
+# TNT chain (ADR 0065): 20 blocks 1.5 m apart, the nearest lit; JSON tnt (blasts, chain_lit, parts_max_ms); budget run without capture_every
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 target=plains pitch=-0.3 duration=11 capture_every=0.25 mob_spawn=0 load_cap_s=30 "later=/gamemode creative;/tnt grid 20 1.5" out=res://out/tnt_chain
+# brush shapes (ADR 0065): /brush <shape> <size> then /brush hold <s> holds the break button; JSON brush
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 target=plains pitch=-0.35 duration=10 mob_spawn=0 load_cap_s=30 "later=/gamemode creative;wait 0.5;/brush sphere 32;/brush hold 0.2;wait 2;/brush cube 32;/brush hold 0.2" out=res://out/brush_bench
+Godot_..._console.exe --headless --path game --script res://tools/brush_bench.gd   # cells and shell mesh cost per shape and size
 Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=1 blast_count=50 duration=20 out=res://out/tnt
 
 # generator probes (headless, ADR 0033/0035): landform map, block timings, materials and faces
