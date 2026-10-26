@@ -263,14 +263,12 @@ bool RockTypes::crystal_allowed(int roll, int depth, int cave_biome) {
 }
 
 uint16_t RockTypes::ruin_pot_voxel(int rx, int rz, int hw, int hd, uint32_t rseed, int mx, int mz, int lx, int lz, int dy) {
-    // Pots stand in the ruin's inside corners and now and then along a wall, never side by side (a pot
-    // is one piece: two that touch would shatter as one).
+    // Pots stand in the ruin's inside corners only: 4 at most per ruin, never side by side.
     const int ax = mx - rx, az = mz - rz;
     if (std::abs(ax) >= hw || std::abs(az) >= hd) return AIR;   // inside the walls only
     const bool corner = std::abs(ax) == hw - 1 && std::abs(az) == hd - 1;
-    const bool wall = (std::abs(ax) == hw - 1 || std::abs(az) == hd - 1) && ((ax + az) & 1) == 0;
     const uint32_t h = hash3(mx, mz, (int)rseed + 37);
-    if (!(corner ? (h & 3) != 0 : (wall && (h & 7) == 0))) return AIR;
+    if (!(corner && (h & 3) != 0)) return AIR;
     const uint16_t m = ((h >> 3) % 3) == 0 ? (uint16_t)CLAY_POT_CRACKED : (uint16_t)CLAY_POT;
     // shapes over the 4x4 voxels of the cell: r = distance class from its middle (0 inner 2x2, 1 edge, 2 corner)
     const int ex = (lx == 0 || lx == 3) ? 1 : 0, ez = (lz == 0 || lz == 3) ? 1 : 0;
