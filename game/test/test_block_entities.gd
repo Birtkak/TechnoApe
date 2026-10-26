@@ -104,9 +104,9 @@ func test_chest_cursor_clicks() -> void:
 
 # ---------- furnace ----------
 
-func test_furnace_smelts_iron_with_coal() -> void:
+func test_furnace_chars_logs_with_coal() -> void:
 	var f := _furnace()
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 3 * items.units("iron_ore")})   # three blocks of ore voxels (ADR 0034)
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "oak_log", "count": 3 * items.units("oak_log")})   # three blocks of log voxels (ADR 0034)
 	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 1})
 	assert_int(_run(f, 1)).is_equal(1)      # lights on the first tick
 	assert_bool(f.is_lit()).is_true()
@@ -114,9 +114,9 @@ func test_furnace_smelts_iron_with_coal() -> void:
 	_run(f, 198)
 	assert_bool(f.inv.is_empty_slot(FurnaceEntity.OUTPUT)).is_true()
 	_run(f, 1)                              # tick 200: first ingot (vanilla 10 s)
-	assert_dict(f.inv.get_slot(FurnaceEntity.OUTPUT)).is_equal({"id": "iron_ingot", "count": 1})
+	assert_dict(f.inv.get_slot(FurnaceEntity.OUTPUT)).is_equal({"id": "charcoal", "count": 1})
 	_run(f, 400)
-	assert_dict(f.inv.get_slot(FurnaceEntity.OUTPUT)).is_equal({"id": "iron_ingot", "count": 3})
+	assert_dict(f.inv.get_slot(FurnaceEntity.OUTPUT)).is_equal({"id": "charcoal", "count": 3})
 	assert_bool(f.inv.is_empty_slot(FurnaceEntity.INPUT)).is_true()
 	assert_bool(f.is_lit()).is_true()       # coal burns 1600 ticks = 8 items, keeps burning empty
 	assert_int(_run(f, 1001)).is_equal(1)   # and goes out once, on tick 1601
@@ -143,7 +143,7 @@ func test_furnace_lava_bucket_leaves_bucket() -> void:
 
 func test_furnace_output_full_stops_and_progress_decays() -> void:
 	var f := _furnace()
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 5 * items.units("iron_ore")})
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "oak_log", "count": 5 * items.units("oak_log")})
 	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "stick", "count": 1})   # 100 ticks of fire
 	_run(f, 100)
 	assert_int(f.cook).is_equal(100)           # half an item per stick, like vanilla
@@ -159,26 +159,26 @@ func test_furnace_output_full_stops_and_progress_decays() -> void:
 
 func test_furnace_input_change_resets_progress() -> void:
 	var f := _furnace()
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 2 * items.units("iron_ore")})
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "oak_log", "count": 2 * items.units("oak_log")})
 	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 1})
 	_run(f, 50)
 	assert_int(f.cook).is_equal(50)
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "copper_ore", "count": 2 * items.units("copper_ore")})
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "sand", "count": 2 * items.units("sand")})
 	assert_int(f.cook).is_equal(0)
 
 
 func test_furnace_slot_rules_and_shift_click() -> void:
 	var f := _furnace()
 	p.open_container(f)
-	p.inv.set_slot(9, {"id": "iron_ore", "count": 4})
+	p.inv.set_slot(9, {"id": "sand", "count": 4})
 	p.inv.set_slot(10, {"id": "coal", "count": 3})
 	p.inv.set_slot(11, {"id": "oak_log", "count": 2})   # smeltable and fuel: vanilla prefers the input
 	p.inv.set_slot(12, {"id": "dirt", "count": 2})
 	p.click_slot(9, MOUSE_BUTTON_LEFT, true)
 	p.click_slot(10, MOUSE_BUTTON_LEFT, true)
-	assert_dict(f.inv.get_slot(FurnaceEntity.INPUT)).is_equal({"id": "iron_ore", "count": 4})
+	assert_dict(f.inv.get_slot(FurnaceEntity.INPUT)).is_equal({"id": "sand", "count": 4})
 	assert_dict(f.inv.get_slot(FurnaceEntity.FUEL)).is_equal({"id": "coal", "count": 3})
-	p.click_slot(11, MOUSE_BUTTON_LEFT, true)            # input taken by ore: stays put
+	p.click_slot(11, MOUSE_BUTTON_LEFT, true)            # input taken by sand: stays put
 	assert_dict(p.inv.get_slot(11)).is_equal({"id": "oak_log", "count": 2})
 	p.click_slot(12, MOUSE_BUTTON_LEFT, true)            # neither: main -> hotbar
 	assert_dict(p.inv.get_slot(0)).is_equal({"id": "dirt", "count": 2})
@@ -228,7 +228,7 @@ func test_save_and_load_round_trip() -> void:
 	var c: ChestEntity = store.create(Vector3i(5, 6, 7), "chest")
 	c.inv.set_slot(26, {"id": "coal", "count": 7})
 	var f := _furnace()
-	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 4 * items.units("iron_ore")})
+	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "oak_log", "count": 4 * items.units("oak_log")})
 	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 2})
 	_run(f, 150)
 	assert_bool(store.dirty).is_true()
@@ -245,6 +245,6 @@ func test_save_and_load_round_trip() -> void:
 	assert_int(f2.lit_time).is_equal(f.lit_time)
 	assert_dict(f2.inv.get_slot(FurnaceEntity.FUEL)).is_equal({"id": "coal", "count": 1})
 	_run(f2, 50)                                  # carries on where it stopped
-	assert_dict(f2.inv.get_slot(FurnaceEntity.OUTPUT)).is_equal({"id": "iron_ingot", "count": 1})
+	assert_dict(f2.inv.get_slot(FurnaceEntity.OUTPUT)).is_equal({"id": "charcoal", "count": 1})
 	assert_bool(other.load_dict({"version": 99})).is_false()
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

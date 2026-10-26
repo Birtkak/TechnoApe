@@ -19,7 +19,7 @@ const CATEGORY_ORDER := ["crafting", "knapping", "clayforming", "pit_kiln", "sta
 const BOOKMARKS_PATH := "user://bookmarks.json"
 const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace"], "knapping": ["flint"],
 	"clayforming": ["clay_ball"], "pit_kiln": ["dry_grass", "firestarter"], "scraping": ["flint_knife", "copper_knife"],
-	"charcoal_pit": ["firewood", "firestarter"], "smithing": ["stone_anvil", "copper_hammer"]}
+	"charcoal_pit": ["firewood", "firestarter"], "smithing": ["stone_anvil", "bronze_anvil", "copper_hammer"]}
 ## Vintage Story work types (ADR 0023) -> browser category and title.
 const WORK_CATEGORIES := {"knap": ["knapping", "Knapping"], "clayform": ["clayforming", "Clay forming"],
 	"kiln": ["pit_kiln", "Pit kiln"], "cast": ["casting", "Casting"], "scrape": ["scraping", "Scraping hides"],
@@ -428,6 +428,8 @@ func layout(r: Dictionary) -> Dictionary:
 				info += ", keeps the " + (k.substr(1) if k.begins_with("#") else items.display_name(k))
 		"smelt":
 			info = "%.1f s" % (float(r.get("ticks", 200)) / 20.0)
+			if int(r.get("count", 1)) > 1:
+				info = "%d x %s, %s" % [int(r["count"]), items.display_name(r["input"]) if items.has(r["input"]) else r["input"], info]
 		"mining":
 			info = r["info"]
 		"knap":

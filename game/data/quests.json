@@ -274,6 +274,58 @@
          "description": "Smith a saw blade (only the anvil makes one) and put it on a stick. A log and the saw in the grid make four planks, twice what your hands get.",
          "tasks": [{"type": "item", "item": "copper_saw"}]}
       ]
+    },
+    {
+      "id": "bronze_age",
+      "title": "Bronze Age",
+      "icon": "bronze_pickaxe",
+      "description": "Tin melted into copper makes bronze: harder tools, and a pickaxe that breaks iron ore (ADR 0070).",
+      "quests": [
+        {"id": "tin", "title": "Tin", "icon": "loose_tin_ore", "pos": [0, 2], "deps": ["copper_tool"], "mode": "any",
+         "description": "Dark tin-bearing stones lie above cassiterite veins, and a pan or a sieve washes tin nuggets out of sand. A copper pickaxe mines tin ore.",
+         "tasks": [{"type": "item", "item": "tin_nugget", "count": 2}, {"type": "item", "item": "loose_tin_ore"}, {"type": "item", "item": "tin_ore"}]},
+        {"id": "molten_bronze", "title": "Molten Bronze", "icon": "crucible_bronze", "pos": [1, 2], "deps": ["tin", "melt_copper"],
+         "description": "Melt copper in a crucible on the firepit and leave the molten crucible on the fire. Lay on 2 tin nuggets, a tin-bearing stone or a block of tin ore: it melts into the copper.",
+         "tasks": [{"type": "item", "item": "crucible_bronze"}]},
+        {"id": "bronze_casting", "title": "Bronze Casting", "icon": "bronze_pickaxe_head", "pos": [2, 1], "deps": ["molten_bronze"],
+         "description": "Pour molten bronze into a mold on the ground, the same molds that take copper.",
+         "tasks": [{"type": "item", "item": "#bronze_head", "text": "Cast a bronze tool head"}]},
+        {"id": "bronze_bar", "title": "Bronze Bars", "icon": "bronze_ingot", "pos": [2, 3], "deps": ["molten_bronze"], "optional": true,
+         "description": "Cast bronze ingots in an ingot mold. Heated on the firepit they smith like copper; the saw blade only comes from the anvil.",
+         "tasks": [{"type": "item", "item": "bronze_ingot", "count": 2}]},
+        {"id": "bronze_tool", "title": "Bronze Age", "icon": "bronze_pickaxe", "pos": [3, 2], "deps": ["bronze_casting"], "final": true,
+         "description": "Put a bronze pickaxe head on a stick on the ground. A bronze pickaxe breaks iron ore.",
+         "tasks": [{"type": "item", "item": "bronze_pickaxe"}]},
+        {"id": "bronze_anvil", "title": "Bronze Anvil", "icon": "bronze_anvil", "pos": [3, 3.5], "deps": ["bronze_bar"], "optional": true,
+         "description": "Seven bronze ingots on a crafting table make a bronze anvil. Iron is too hard for the stone one.",
+         "tasks": [{"type": "item", "item": "bronze_anvil"}]}
+      ]
+    },
+    {
+      "id": "iron_age",
+      "title": "Iron Age",
+      "icon": "iron_pickaxe",
+      "description": "Iron does not melt in any fire you can build: a bloomery sweats it out of the ore as a bloom, and the smith beats the bloom into iron (ADR 0070).",
+      "quests": [
+        {"id": "iron_ore", "title": "Red Rock", "icon": "loose_iron_ore", "pos": [0, 2], "deps": ["bronze_tool"], "mode": "any",
+         "description": "Rusty iron-bearing stones lie above iron veins, deeper than copper and tin. A bronze pickaxe mines the ore; a sieve finds iron nuggets in gravel now and then.",
+         "tasks": [{"type": "item", "item": "iron_nugget", "count": 8}, {"type": "item", "item": "loose_iron_ore", "count": 4}, {"type": "item", "item": "iron_ore"}]},
+        {"id": "bloomery", "title": "Bloomery", "icon": "bloomery", "pos": [1, 1], "deps": ["bronze_tool"],
+         "description": "Eight fired clay bricks on a crafting table make a bloomery. Place it on the ground.",
+         "tasks": [{"type": "item", "item": "bloomery"}]},
+        {"id": "bloom", "title": "The Bloom", "icon": "iron_bloom", "pos": [2, 2], "deps": ["iron_ore", "bloomery"],
+         "description": "Lay the ore into the bloomery (8 nuggets, 4 iron-bearing stones or a block of ore) and charcoal, then light it. Keep it fed for two minutes and take the glowing bloom out with an empty hand.",
+         "tasks": [{"type": "item", "item": "iron_bloom"}]},
+        {"id": "forge", "title": "Forge", "icon": "forge", "pos": [1, 3], "deps": ["bronze_tool"],
+         "description": "Eight loose stones round a lump of charcoal or coal make a forge: the only fire hot enough for iron. It burns charcoal or coal.",
+         "tasks": [{"type": "item", "item": "forge"}]},
+        {"id": "wrought_iron", "title": "Wrought Iron", "icon": "iron_ingot", "pos": [3, 2], "deps": ["bloom", "forge", "bronze_anvil"],
+         "description": "Heat the bloom in the forge, lay it on a bronze anvil and beat it into a bar. Iron cools fast: back to the forge when the hammer stops biting.",
+         "tasks": [{"type": "event", "event": "smithed", "item": "iron_ingot", "text": "Smith an iron ingot"}]},
+        {"id": "iron_tool", "title": "Iron Age", "icon": "iron_pickaxe", "pos": [4, 2], "deps": ["wrought_iron"], "final": true,
+         "description": "Smith an iron pickaxe head (two hot ingots) on the bronze anvil and put it on a stick. Iron is only smithed, never cast.",
+         "tasks": [{"type": "item", "item": "iron_pickaxe"}]}
+      ]
     }
   ]
 }

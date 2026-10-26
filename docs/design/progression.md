@@ -68,6 +68,9 @@ You spawn with nothing.
 
 ## Bronze age
 
+Built as ADR 0070 (2026-10-26): tin into molten copper on the firepit, a one-block bloomery worked by hand, a
+forge for iron and a bronze anvil; the numbers below are the plan, the ADR has what shipped.
+
 - Bronze = 3 copper + 1 tin in the furnace (in the game today).
 - Bronze tools. **Iron ore needs tier 2** (bronze pickaxe).
 - **Bloomery** (clay bricks): iron nuggets ×4 + coal ×3, or iron ore + coal ×2,

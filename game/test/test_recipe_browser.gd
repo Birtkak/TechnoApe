@@ -43,14 +43,18 @@ func test_paging_wraps() -> void:
 	assert_int(b.page).is_equal(0)
 
 
-func test_recipes_for_ingot_is_smelting() -> void:
-	assert_bool(b.show("iron_ingot", "recipes")).is_true()
+func test_recipes_for_glass_is_smelting() -> void:
+	assert_bool(b.show("glass", "recipes")).is_true()
 	assert_str(b.current_category()["id"]).is_equal("smelting")
-	assert_str(b.current_recipe()["id"]).is_equal("smelt_iron")
+	assert_str(b.current_recipe()["id"]).is_equal("smelt_glass")
 	var l := b.layout(b.current_recipe())
 	assert_str(l["kind"]).is_equal("smelt")
 	assert_str(l["info"]).is_equal("10.0 s")
 	assert_str(l["needs"]).is_equal("")
+	# a bloomery takes its ore in batches (ADR 0070)
+	var bl := b.layout(b.recipe("bloom_iron_nugget"))
+	assert_str(bl["info"]).is_equal("8 x Iron Nugget, 120.0 s")
+	assert_str(bl["needs"]).is_equal("Bloomery")
 
 
 func test_uses_of_planks_and_navigation() -> void:
@@ -92,13 +96,13 @@ func test_layouts_place_inputs() -> void:
 	var sticks := b.layout(recipes.recipes["sticks"])
 	assert_str(sticks["kind"]).is_equal("grid")
 	assert_array(sticks["inputs"].map(func(i: Dictionary) -> Vector2i: return i["cell"])).contains_exactly([Vector2i(0, 0), Vector2i(0, 1)])
-	var pick := b.layout(recipes.recipes["iron_pickaxe"])
-	assert_int(pick["inputs"].size()).is_equal(5)
-	assert_str(pick["needs"]).is_equal("Crafting Table")
-	var bronze := b.layout(recipes.recipes["bronze_alloy"])
-	assert_str(bronze["info"]).is_equal("Any layout")
-	assert_str(b.category_of(recipes.recipes["bronze_alloy"])).is_equal("station:furnace")
-	assert_str(b.category_title("station:furnace")).is_equal("Furnace")
+	var anvil := b.layout(recipes.recipes["bronze_anvil"])
+	assert_int(anvil["inputs"].size()).is_equal(7)
+	assert_str(anvil["needs"]).is_equal("Crafting Table")
+	var bronze := b.layout(recipes.recipes["alloy_bronze_tin_nugget"])
+	assert_str(bronze["info"]).is_equal("2 x Tin Nugget, 15 s")
+	assert_str(b.category_of(recipes.recipes["alloy_bronze_tin_nugget"])).is_equal("station:firepit")
+	assert_str(b.category_title("station:firepit")).is_equal("Firepit")
 
 
 func test_every_recipe_lays_out_and_every_ingredient_resolves() -> void:
@@ -119,9 +123,9 @@ func test_tag_ingredients_cycle() -> void:
 
 
 func test_summary_is_serialisable() -> void:
-	b.show("iron_ingot", "recipes")
+	b.show("glass", "recipes")
 	var s := b.summary()
-	assert_str(s["view"]["recipe"]).is_equal("smelt_iron")
+	assert_str(s["view"]["recipe"]).is_equal("smelt_glass")
 	assert_str(JSON.stringify(s)).is_not_empty()
 
 

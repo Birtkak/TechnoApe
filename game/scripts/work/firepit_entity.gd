@@ -13,6 +13,8 @@ extends RefCounted
 ## empty hand, and the view shows what lies on it. A "heatable" item in the input (an
 ## ingot, a smithing work piece) heats while the fire burns: its hot_until climbs to
 ## fully hot over Settings.metal_heat_s.
+## The forge and the bloomery (ADR 0070) are firepits too, with their own station, fuel and heat:
+## a smelt recipe may take `count` units of its input at once, and `hot` hands its output out hot.
 
 signal changed
 
@@ -54,6 +56,16 @@ func _on_slot_changed(i: int) -> void:
 			_last_key = key
 			cook = 0
 	changed.emit()
+
+
+## Fuel this fire takes (the firepit: anything that burns).
+func burns(id: String) -> bool:
+	return fuel_ticks(id) > 0
+
+
+## Heatable metal this fire gets hot (the firepit: not iron, which needs a forge).
+func heats(id: String) -> bool:
+	return items.has_tag(id, "heatable") and not items.has_tag(id, "forge_heat")
 
 
 func fuel_ticks(id: String) -> int:
@@ -98,8 +110,8 @@ func current_recipe() -> Dictionary:
 		if not m.is_empty() and int(input["count"]) >= int(m.get("count", 1)) * items.units(input["id"]):
 			return m
 		return {}
-	var r := recipes.smelting_for(input["id"], STATION)
-	if r.is_empty() or int(input["count"]) < items.units(input["id"]):
+	var r := recipes.smelting_for(input["id"], station)
+	if r.is_empty() or int(input["count"]) < int(r.get("count", 1)) * items.units(input["id"]):
 		return {}
 	var o := inv.get_slot(OUTPUT)
 	if not o.is_empty() and (o["id"] != r["output"]["id"] or int(o["count"]) + int(r["output"]["count"]) > items.max_stack(o["id"])):
@@ -112,7 +124,7 @@ func may_place(slot: int, id: String) -> bool:
 		INPUT:
 			return true
 		FUEL:
-			return fuel_ticks(id) > 0
+			return burns(id)
 		VESSEL:
 			return not recipes.first_of("melt", {"vessel": id}).is_empty() or _is_melt_output(id)
 	return false
@@ -129,9 +141,9 @@ func is_output(slot: int) -> bool:
 func shift_targets(id: String) -> Array:
 	if may_place(VESSEL, id):
 		return [VESSEL]
-	if not recipes.first_of("melt", {"input": id}).is_empty() or not recipes.smelting_for(id, STATION).is_empty():
+	if not recipes.first_of("melt", {"input": id}).is_empty() or not recipes.smelting_for(id, station).is_empty():
 		return [INPUT]
-	if fuel_ticks(id) > 0:
+	if burns(id):
 		return [FUEL]
 	return []
 
@@ -180,7 +192,7 @@ var _heat_step := -1
 ## heat crosses a quarter.
 func _heat_input() -> void:
 	var s: Dictionary = inv.get_slot(INPUT)
-	if s.is_empty() or not items.has_tag(s["id"], "heatable"):
+	if s.is_empty() or not heats(s["id"]):
 		_heat_step = -1
 		return
 	var h := minf(1.0, Inventory.heat_of(s) + TICK / Settings.metal_heat_s + TICK / Settings.metal_cool_s)
@@ -197,10 +209,13 @@ func _finish(r: Dictionary) -> void:
 		inv.take(INPUT, int(r.get("count", 1)) * items.units(inv.get_slot(INPUT)["id"]))
 		inv.set_slot(VESSEL, {"id": r["output"]["id"], "count": 1})
 		return
-	inv.take(INPUT, items.units(inv.get_slot(INPUT)["id"]))
+	inv.take(INPUT, int(r.get("count", 1)) * items.units(inv.get_slot(INPUT)["id"]))
 	var o := inv.get_slot(OUTPUT)
 	var out: Dictionary = r["output"]
-	inv.set_slot(OUTPUT, {"id": out["id"], "count": int(out["count"]) * items.units(out["id"]) + (int(o["count"]) if not o.is_empty() else 0)})
+	var made_stack := {"id": out["id"], "count": int(out["count"]) * items.units(out["id"]) + (int(o["count"]) if not o.is_empty() else 0)}
+	if r.get("hot", false):
+		made_stack["hot_until"] = Inventory.clock_s + Settings.metal_cool_s   # a glowing bloom (ADR 0070)
+	inv.set_slot(OUTPUT, made_stack)
 
 
 # ---------------- by hand (ADR 0042) ----------------
@@ -261,7 +276,7 @@ func use(stack: Dictionary, def: Dictionary, dry := false) -> Dictionary:
 			inv.set_slot(INPUT, merged)
 		res["consume"] = n
 		return res
-	if fuel_ticks(id) > 0:
+	if burns(id):
 		var f := inv.get_slot(FUEL)
 		if not f.is_empty() and f["id"] != id:
 			res["msg"] = "The firepit burns %s now." % items.display_name(f["id"])
@@ -275,7 +290,11 @@ func use(stack: Dictionary, def: Dictionary, dry := false) -> Dictionary:
 			res["consume"] = n
 		return res
 	var melt := recipes.first_of("melt", {"input": id})
-	if not melt.is_empty():
+	if items.has_tag(id, "heatable"):
+		res["msg"] = "%s needs a forge's heat." % items.display_name(id)
+	elif fuel_ticks(id) > 0:
+		res["msg"] = "The %s burns only charcoal or coal." % title.to_lower()
+	elif not melt.is_empty():
 		res["msg"] = "Set a %s on the fire first." % items.display_name(melt["vessel"]).to_lower()
 	else:
 		res["msg"] = "%s does not go on a firepit." % items.display_name(id)
@@ -285,14 +304,14 @@ func use(stack: Dictionary, def: Dictionary, dry := false) -> Dictionary:
 ## Food and ore go on the fire (a cook recipe here, a melt recipe for the vessel on it), and so does
 ## anything heatable.
 func _cooks_here(id: String) -> bool:
-	if items.has_tag(id, "heatable") or not recipes.smelting_for(id, STATION).is_empty():
+	if heats(id) or not recipes.smelting_for(id, station).is_empty():
 		return true
 	var vessel := inv.get_slot(VESSEL)
 	return not vessel.is_empty() and not recipes.first_of("melt", {"input": id, "vessel": vessel["id"]}).is_empty()
 
 
 func contents() -> Array:
-	var out := [{"id": "firepit", "count": 1}]
+	var out := [{"id": kind, "count": 1}]   # the firepit, forge or bloomery item
 	for s in inv.to_array():
 		if not s.is_empty():
 			out.append(s)

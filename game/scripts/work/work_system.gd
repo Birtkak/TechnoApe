@@ -214,7 +214,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile"
-	var solid := any_face or kind == "anvil"
+	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery"]
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -664,7 +664,7 @@ func _smith(e: AnvilEntity, from: Vector3, dir: Vector3, split: bool) -> void:
 	var r: String = e.split(col.x, col.y) if split else e.hit(col.x, col.y, push)
 	match r:
 		"cold":
-			_say("The metal is too cold to work. Take it off and heat it in a firepit.")
+			_say("The metal is too cold to work. Take it off and heat it again%s." % (" in a forge" if main.items.has_tag(e.metal, "forge_heat") else ""))
 		"stuck":
 			_say("The metal cannot go further that way.")
 		"hit", "done":
@@ -718,7 +718,8 @@ func _use_firepit(e: FirepitEntity, held: Dictionary, say: bool) -> void:
 	for s in res["give"]:
 		if Inventory.heat_of(s) >= 0.5:
 			_note("heated", s["id"])   # hot metal off the fire (the progression book, ADR 0042)
-		main.spawn_item(s, _at(e.pos, Vector3(0.5, 0.5, 0.5)) + side * Settings.BLOCK * 0.4, side * 1.2 + Vector3(0, 2.0, 0))
+		var out := 0.95 if e is BloomeryEntity else 0.4   # out of the solid bloomery's shaft
+		main.spawn_item(s, _at(e.pos, Vector3(0.5, 0.5, 0.5)) + side * Settings.BLOCK * out, side * 1.2 + Vector3(0, 2.0, 0))
 	if say:
 		_say(res["msg"])
 

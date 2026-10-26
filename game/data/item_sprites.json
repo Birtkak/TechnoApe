@@ -3492,6 +3492,17 @@
     "standing_stone": {"layers": [{"shape": "menhir", "palette": "stone"}]},
     "red_ochre": {"layers": [{"shape": "lump", "palette": "ochre_red"}]},
     "yellow_ochre": {"layers": [{"shape": "lump", "palette": "ochre_yellow"}]},
-    "floorstone_flint": {"layers": [{"shape": "flint_shard", "palette": "floorstone"}]}
+    "floorstone_flint": {"layers": [{"shape": "flint_shard", "palette": "floorstone"}]},
+    "bronze_knife": {"layers": [{"shape": "short_handle", "palette": "handle"}, {"shape": "knife_blade", "palette": "bronze"}]},
+    "bronze_knife_head": {"layers": [{"shape": "knife_blade", "palette": "bronze"}]},
+    "bronze_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "bronze"}]},
+    "bronze_hoe_head": {"layers": [{"shape": "hoe_head", "palette": "bronze"}]},
+    "bronze_saw_blade": {"layers": [{"shape": "saw_blade", "palette": "bronze"}]},
+    "bronze_work_piece": {"layers": [{"shape": "work_piece", "palette": "bronze"}]},
+    "iron_hoe_head": {"layers": [{"shape": "hoe_head", "palette": "iron"}]},
+    "iron_saw_blade": {"layers": [{"shape": "saw_blade", "palette": "iron"}]},
+    "iron_work_piece": {"layers": [{"shape": "work_piece", "palette": "iron"}]},
+    "crucible_bronze": {"layers": [{"shape": "crucible", "palette": "terracotta", "colors": {"i": "#f0c060"}}]},
+    "bronze_anvil": {"layers": [{"shape": "anvil", "palette": "bronze"}]}
   }
 }

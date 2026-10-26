@@ -31,6 +31,10 @@ const KITS := {
 		"red_paint": 1, "fat_lamp": 1, "basket_trap": 1, "tinder_fungus": 4},   # the four Stone Age stages (ADR 0059)
 	"smith": {"stone_anvil": 1, "firepit": 1, "copper_hammer": 1, "copper_ingot": 6, "oak_log": 8, "firestarter": 1, "crucible": 1,
 		"ingot_mold": 1, "loose_copper_ore": 16, "flint_axe_head": 1, "copper_saw_blade": 1, "stick": 8, "cordage": 4},   # crafting in the world (ADR 0042)
+	"bronze": {"firepit": 1, "crucible_copper": 2, "tin_nugget": 8, "loose_tin_ore": 4, "axe_mold": 1, "pickaxe_mold": 1, "ingot_mold": 1,
+		"bronze_ingot": 8, "stone_anvil": 1, "copper_hammer": 1, "firestarter": 1, "firewood": 16, "stick": 8},   # the bronze age (ADR 0070)
+	"iron": {"bloomery": 1, "forge": 1, "bronze_anvil": 1, "bronze_hammer": 1, "charcoal": 32, "iron_nugget": 16, "loose_iron_ore": 8,
+		"iron_ingot": 6, "iron_bloom": 1, "firestarter": 1, "stick": 8},   # the iron age (ADR 0070)
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64, "fire_essence": 16},
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
@@ -97,6 +101,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_quests, [["list", "complete", "reset"], _quest_ids])
 	reg.register("grade", "/grade [%s]" % "|".join(Atmosphere.GRADES.keys()), "Switch the lighting grade (ADR 0041), or show the current one", _grade, [Atmosphere.GRADES.keys()])
 	reg.register("shot", "/shot <name> [hud]", "Save the view as out/shots/<name>.png, without the HUD unless hud is given", _shot)
+	reg.register("showcase", "/showcase <name> [<name> ...] [on=<material>]", "Set materials or items side by side on a pad above you and film them into out/showcase/showcase.png", _showcase)
 	reg.register("cam", "/cam [off | <x> <y> <z> [<look_x> <look_y> <look_z>]]", "Free camera: flies anywhere while you, the terrain detail and the simulation stay put", _cam_cmd)
 	reg.register("survival", "/survival [hunger <0..20> | body <C> | spoil <0..1>]", "Hunger, body temperature and the air around you (ADR 0040); spoil sets the held food's freshness", _survival)
 	reg.register("shape", "/shape <box|wall|cylinder|cone|sphere|stairs|slope> [w h d] [hollow n] [at x y z] | commit | cancel | turn [tip] | mirror", "Shape building (V in game): set a shape down at the crosshair, then commit", _shape)
@@ -740,6 +745,20 @@ func _save_shot(dir: String, file: String, with_hud: bool) -> void:
 	for i in layers.size():
 		if layers[i] != null:
 			layers[i].visible = was[i]
+
+
+func _showcase(args: PackedStringArray) -> Dictionary:
+	if main == null or args.is_empty():
+		return CommandRegistry.fail("Usage: /showcase <name> [<name> ...] [on=<material>]")
+	var names := PackedStringArray()
+	var on := "grass"
+	for a in args:
+		if a.begins_with("on="):
+			on = a.substr(3)
+		else:
+			names.append(a)
+	Showcase.new().run(main, names, on)
+	return CommandRegistry.ok("Filming %d on a pad above you" % names.size())
 
 
 func _cam_cmd(args: PackedStringArray) -> Dictionary:

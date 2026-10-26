@@ -12,6 +12,8 @@ extends RefCounted
 ## (Inventory.heat_of over hot_until); an empty hand takes the piece off as a work piece item that
 ## keeps its cells, so it can go back on the fire and back onto the anvil. Another hot ingot of
 ## the same metal adds a lump on top when the piece is short of metal.
+## Since ADR 0070 there are two anvils: the stone anvil (tier 0) and the bronze anvil (tier 1, kind
+## "bronze_anvil"); a metal whose item has "anvil_tier" above the anvil's (iron) does not go on.
 
 signal changed
 
@@ -21,6 +23,8 @@ const BASE_H := 4                 # the stone under the work face, in cells
 const CELLS_PER_INGOT := 32       # one ingot: a 4 x 4 lump two cells high
 
 var kind := "anvil"
+var item := "stone_anvil"         # what breaking it gives
+var tier := 0                     # the highest "anvil_tier" of metal it takes
 var pos: Vector3i
 var recipes: RecipeRegistry
 var metal := ""                   # the ingot id the piece was started from ("" = an empty anvil)
@@ -31,9 +35,13 @@ var hits := 0
 var splits := 0
 
 
-func _init(p_recipes: RecipeRegistry, p_pos: Vector3i) -> void:
+func _init(p_recipes: RecipeRegistry, p_pos: Vector3i, p_kind := "anvil") -> void:
 	recipes = p_recipes
 	pos = p_pos
+	kind = p_kind
+	if kind == "bronze_anvil":
+		item = "bronze_anvil"
+		tier = 1
 	heights.resize(N * N)
 	heights.fill(0)
 
@@ -102,8 +110,10 @@ func _add_lump() -> bool:
 ## A hot ingot of `id` (a stack carrying hot_until) laid on the anvil: starts a piece, or adds metal
 ## to one of the same metal. Returns "" when it took it, else why not.
 func add_ingot(stack: Dictionary) -> String:
+	if not takes(stack["id"]):
+		return "%s needs a bronze anvil." % recipes.items.display_name(stack["id"])
 	if Inventory.heat_of(stack) < Settings.smith_min_heat:
-		return "Heat the ingot in a firepit first."
+		return "Heat it in a %s first." % ("forge" if recipes.items.has_tag(stack["id"], "forge_heat") else "firepit")
 	if has_piece() and stack["id"] != metal:
 		return "There is %s on the anvil already." % recipes.items.display_name(metal)
 	if not _add_lump():
@@ -112,6 +122,11 @@ func add_ingot(stack: Dictionary) -> String:
 	hot_until = maxf(hot_until, float(stack["hot_until"]))
 	changed.emit()
 	return ""
+
+
+## Whether metal `id` (an ingot, bloom or work piece) goes on this anvil.
+func takes(id: String) -> bool:
+	return int(recipes.items.get_def(id).get("anvil_tier", 0)) <= tier
 
 
 func set_recipe(r: Dictionary) -> void:
@@ -225,6 +240,8 @@ func put_piece(stack: Dictionary) -> String:
 	var hs: Array = w.get("heights", [])
 	if hs.size() != N * N or not recipes.items.has(String(w.get("metal", ""))):
 		return "That work piece is spoilt."
+	if not takes(String(w["metal"])):
+		return "%s needs a bronze anvil." % recipes.items.display_name(stack["id"])
 	metal = String(w["metal"])
 	for i in N * N:
 		heights[i] = clampi(int(hs[i]), 0, MAX_H)
@@ -236,7 +253,7 @@ func put_piece(stack: Dictionary) -> String:
 
 ## What breaking the anvil gives: the anvil, and the piece as an item.
 func contents() -> Array:
-	var out := [{"id": "stone_anvil", "count": 1}]
+	var out := [{"id": item, "count": 1}]
 	var piece := _piece_stack()
 	if not piece.is_empty():
 		out.append(piece)
@@ -263,10 +280,12 @@ func view_parts() -> Dictionary:
 	var size := Vector3i(N, N, N)
 	var c := WorkPalette.new_cells(size)
 	# the stone: a wide foot, a waist, a flat face on top
-	WorkPalette.box(c, size, Vector3i(0, 0, 1), Vector3i(8, 1, 7), WorkPalette.STONE)
-	WorkPalette.box(c, size, Vector3i(1, 1, 2), Vector3i(7, 3, 6), WorkPalette.STONE)
-	WorkPalette.box(c, size, Vector3i(0, 3, 0), Vector3i(8, BASE_H, 8), WorkPalette.ANVIL)
-	var paint := WorkPalette.GLOW if heat() >= 0.5 else (WorkPalette.MOLTEN if heat() >= Settings.smith_min_heat else WorkPalette.COPPER)
+	var body := WorkPalette.COPPER if tier > 0 else WorkPalette.STONE   # the bronze anvil is cast metal
+	WorkPalette.box(c, size, Vector3i(0, 0, 1), Vector3i(8, 1, 7), body)
+	WorkPalette.box(c, size, Vector3i(1, 1, 2), Vector3i(7, 3, 6), body)
+	WorkPalette.box(c, size, Vector3i(0, 3, 0), Vector3i(8, BASE_H, 8), body if tier > 0 else WorkPalette.ANVIL)
+	var cold := WorkPalette.ANVIL if metal.begins_with("iron") else WorkPalette.COPPER
+	var paint := WorkPalette.GLOW if heat() >= 0.5 else (WorkPalette.MOLTEN if heat() >= Settings.smith_min_heat else cold)
 	var g := WorkPalette.new_cells(size)
 	var ghost_any := false
 	for z in N:

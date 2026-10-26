@@ -429,3 +429,13 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] Left click one end of a stick: the whole stick goes and one stick pops out. No half sticks left over.
 - [ ] Firepit: hold right click to lay logs on (one a second while you hold), food on, and with an empty hand to take
       things off; they pop out beside the fire. The firestarter still lights at once.
+
+## Bronze and iron ages (ADR 0070; `/kit bronze`, `/kit iron`)
+
+- [ ] Lay a molten copper crucible back on a lit firepit and hold right click with 2 tin nuggets: molten bronze after ~15 s.
+      Cast it in an ingot mold and an axe mold. Bronze pickaxe breaks iron ore; copper does not.
+- [ ] Bloomery: place it, hold right click with 8 iron nuggets (or 4 iron-bearing stones), then 2 charcoal, light it.
+      Does the clay shaft look right, lit and unlit? After 2 minutes take the glowing bloom out with an empty hand.
+- [ ] An iron ingot or bloom on a firepit is refused ("needs a forge's heat"); the forge heats it. Does the forge read as one?
+- [ ] The stone anvil refuses hot iron; the bronze anvil takes the bloom: beat it into a bar (hit the tall middle first).
+      Then two hot iron ingots make a pickaxe head. Is iron enough grind, or too much?

@@ -62,14 +62,14 @@ func test_shaped_sticks_anywhere_in_grid() -> void:
 	assert_str(recipes.match_grid(_g(["oak_planks", "oak_planks"])).get("id", "")).is_equal("sticks")
 
 
-func test_shaped_pickaxe_requires_station() -> void:
-	var pick := _g(["iron_ingot", "iron_ingot", "iron_ingot", "", "stick", "", "", "stick", ""])
-	assert_dict(recipes.match_grid(pick, "")).is_empty()  # needs a crafting table
-	assert_str(recipes.match_grid(pick, "crafting_table").get("id", "")).is_equal("iron_pickaxe")
-	# laid out otherwise it is still the pickaxe: nothing else takes three iron and two sticks (ADR 0046)
-	var loose := _g(["iron_ingot", "iron_ingot", "iron_ingot", "stick", "", "", "stick", "", ""])
-	assert_str(recipes.match_grid(loose, "crafting_table").get("id", "")).is_equal("iron_pickaxe")
-	var too_many := _g(["iron_ingot", "iron_ingot", "iron_ingot", "stick", "stick", "stick", "", "", ""])
+func test_shaped_anvil_requires_station() -> void:
+	var anvil := _g(["bronze_ingot", "bronze_ingot", "bronze_ingot", "", "bronze_ingot", "", "bronze_ingot", "bronze_ingot", "bronze_ingot"])
+	assert_dict(recipes.match_grid(anvil, "")).is_empty()  # needs a crafting table
+	assert_str(recipes.match_grid(anvil, "crafting_table").get("id", "")).is_equal("bronze_anvil")
+	# laid out otherwise it is still the anvil: nothing else takes seven bronze (ADR 0046)
+	var loose := _g(["bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "", ""])
+	assert_str(recipes.match_grid(loose, "crafting_table").get("id", "")).is_equal("bronze_anvil")
+	var too_many := _g(["bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", ""])
 	assert_dict(recipes.match_grid(too_many, "crafting_table")).is_empty()
 
 
@@ -82,13 +82,13 @@ func test_shaped_mirroring() -> void:
 func test_tag_ingredients_accept_any_member() -> void:
 	var furnace := _g(["cobblestone", "cobblestone", "cobblestone", "cobblestone", "", "cobblestone", "cobblestone", "cobblestone", "cobblestone"])
 	assert_str(recipes.match_grid(furnace, "crafting_table").get("id", "")).is_equal("furnace")
-	var iron := _g(["iron_ingot", "iron_ingot", "iron_ingot", "", "stick", "", "", "stick", ""])
-	assert_str(recipes.match_grid(iron, "crafting_table").get("id", "")).is_equal("iron_pickaxe")
+	var bucket := _g(["iron_ingot", "", "iron_ingot", "", "iron_ingot", ""])
+	assert_str(recipes.match_grid(bucket, "crafting_table").get("id", "")).is_equal("bucket")
 
 
-func test_shapeless_alloy_counts_must_match() -> void:
-	assert_str(recipes.match_grid(_g(["copper_ingot", "copper_ingot", "copper_ingot", "tin_ingot"]), "furnace").get("id", "")).is_equal("bronze_alloy")
-	assert_dict(recipes.match_grid(_g(["copper_ingot", "copper_ingot", "tin_ingot", "tin_ingot"]), "furnace")).is_empty()
+func test_shapeless_counts_must_match() -> void:
+	assert_str(recipes.match_grid(_g(["sulfur", "sulfur", "charcoal", "sand"])).get("id", "")).is_equal("tnt")
+	assert_dict(recipes.match_grid(_g(["sulfur", "charcoal", "charcoal", "sand"]))).is_empty()
 
 
 # ---------- crafting grid flow ----------
@@ -179,7 +179,8 @@ func test_browser_queries() -> void:
 	assert_array(recipes.makes("glass")).is_equal(["smelt_glass"])
 	assert_array(recipes.search("pick")).contains(["flint_pickaxe", "copper_pickaxe", "iron_pickaxe"])
 	assert_array(items.search("ingot")).contains(["iron_ingot", "copper_ingot", "tin_ingot", "bronze_ingot"])
-	assert_array(recipes.by_station("furnace")).contains(["smelt_iron", "smelt_glass", "bronze_alloy"])
+	assert_array(recipes.by_station("furnace")).contains(["smelt_glass", "smelt_charcoal"])
+	assert_array(recipes.by_station("bloomery")).contains(["bloom_iron_nugget", "bloom_loose_iron_ore", "bloom_iron_ore"])
 
 
 func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
@@ -219,11 +220,6 @@ func test_shaped_recipes_take_any_layout_unless_another_shares_the_ingredients()
 		cobble[i] = "cobblestone"
 	assert_str(recipes.match_grid(cobble, "crafting_table").get("id", "")).is_equal("furnace")
 	assert_bool(recipes.any_layout(recipes.recipes["furnace"])).is_true()
-	# three iron and two sticks make a pickaxe or an axe: the shape decides
-	var loose := ["iron_ingot", "stick", "iron_ingot", "stick", "iron_ingot", "", "", "", ""]
-	var pick: Dictionary = recipes.recipes["iron_pickaxe"]
-	if not recipes.any_layout(pick):
-		assert_dict(recipes.match_grid(loose, "crafting_table")).is_empty()
 
 
 func test_the_grid_says_why_it_makes_nothing() -> void:

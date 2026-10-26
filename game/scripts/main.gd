@@ -45,6 +45,7 @@ var work: WorkSystem                 # knapping, clay forming, pit kilns, firepi
 var _stone_age_test: StoneAgeTest
 var _flint_age_test: FlintAgeTest
 var _craft_test: CraftTest
+var _metal_age_test: MetalAgeTest   # the bronze and iron ages (ADR 0070)
 var _stone_ages_test: StoneAgesTest   # the four Stone Age stages (ADR 0059)
 var _water_test: WaterTest
 var _looks_test: LooksTest
@@ -359,6 +360,10 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_craft_test = CraftTest.new()
 				_craft_test.run(self))
+		if DebugCapture.metal_age_test:
+			_after_load(func() -> void:
+				_metal_age_test = MetalAgeTest.new()
+				_metal_age_test.run(self))
 		if DebugCapture.tp_test:
 			_after_load(func() -> void:
 				_tp_test = TpTest.new()

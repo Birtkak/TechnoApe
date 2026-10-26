@@ -56,6 +56,13 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		"firepit":
 			e = FirepitEntity.new(items, recipes, pos)
 			_ticking.append(e)
+		# the bronze and iron ages (ADR 0070)
+		"forge":
+			e = ForgeEntity.new(items, recipes, pos)
+			_ticking.append(e)
+		"bloomery":
+			e = BloomeryEntity.new(items, recipes, pos)
+			_ticking.append(e)
 		"sieve":
 			e = SieveEntity.new(recipes, pos)
 		"firewood_pile":
@@ -64,8 +71,8 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		# crafting in the world (ADR 0042)
 		"assembly":
 			e = AssemblyEntity.new(recipes, pos)
-		"anvil":
-			e = AnvilEntity.new(recipes, pos)
+		"anvil", "bronze_anvil":
+			e = AnvilEntity.new(recipes, pos, kind)
 			_ticking.append(e)
 		"grave":
 			e = GraveEntity.new(items, pos)   # what a dead player carried (plan item D12)
@@ -86,7 +93,7 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 const SINGLE := []   # entities that are one voxel (torches have their own cells since ADR 0053)
 ## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
 ## a knapping stone or a mold on the ground is one voxel high, a firepit two.
-const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "assembly": 1}
+const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 2, "assembly": 1}
 
 
 ## The voxels an entity covers (ADR 0034).
@@ -190,7 +197,8 @@ func all_furniture() -> Array:
 	return out
 
 
-const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave"]
+const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave",
+	"forge", "bloomery", "bronze_anvil"]
 
 
 func all_of(p_kind: String) -> Array:

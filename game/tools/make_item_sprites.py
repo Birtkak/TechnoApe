@@ -1206,6 +1206,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import stone_age_sprites  # noqa: E402
 stone_age_sprites.add(globals())
 
+import metal_age_sprites  # noqa: E402  the bronze and iron ages (ADR 0070)
+metal_age_sprites.add(globals())
+
 # ---------- validate + write ----------
 
 

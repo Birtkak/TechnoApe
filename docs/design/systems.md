@@ -52,6 +52,11 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   against `Inventory.clock_s`, and a stone anvil smiths hot copper with a hammer (`smith` recipes, height per column,
   `AnvilEntity`). Stacks keep per-stack data (`spoil`, `wear`, `hot_until`, `work`) through every move: build stacks with
   `Inventory.make_stack`. `craft_test=1` checks it all (headless with `craft_shots=0`).
+  **Bronze and iron ages (ADR 0070):** tin laid into a molten copper crucible on the firepit makes bronze (cast or
+  smithed, tier 2); a bloomery (`BloomeryEntity`) turns iron ore and charcoal into a hot bloom, only a forge
+  (`ForgeEntity`; both are `FirepitEntity` subclasses) heats `forge_heat` items, and only the bronze anvil (`AnvilEntity`
+  kind `bronze_anvil`, tier 1) takes metal with `anvil_tier` 1; iron is smithed, never cast (tier 3). Smelt recipes take
+  `count` and `hot`. The furnace smelts no ore. Check: `test_metal_ages.gd`, `metal_age_test=1`.
   **Grid Fill and Clear (bug report 2026-10-25):** the recipe view shows **Fill** right of the output for a grid recipe
   (shaped/shapeless) while a crafting grid is on screen: it returns the grid's contents to the inventory, then lays the
   recipe out (shaped as drawn from the top left, shapeless in reading order) from the inventory and the worn bag, and closes

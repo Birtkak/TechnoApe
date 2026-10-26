@@ -43,13 +43,13 @@ func test_items_with_identity_data_stack_to_one() -> void:
 			assert_bool(items.has(d["work_piece"]) and items.has_tag(d["id"], "heatable")).override_failure_message(d["id"]).is_true()
 
 
-## Flint and copper tools are assembled on the ground; the firestarter is a simple grid craft, and the
-## older iron tools wait for the iron age.
-func test_no_flint_or_copper_tool_is_made_in_the_grid() -> void:
+## Flint, copper, bronze and iron tools are assembled on the ground (ADR 0042, 0070); the firestarter
+## is a simple grid craft.
+func test_no_age_tool_is_made_in_the_grid() -> void:
 	for r in recipes.recipes.values():
 		if r["type"] in ["shaped", "shapeless"]:
 			var d := items.get_def(r["output"]["id"])
-			var age_tool: bool = "tool" in d.get("tags", []) and d.has("tier") and int(d["tier"]) <= 1
+			var age_tool: bool = "tool" in d.get("tags", []) and d.has("tier")
 			assert_bool(age_tool).override_failure_message(r["id"]).is_false()
 
 

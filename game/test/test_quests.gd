@@ -9,8 +9,10 @@ const GROUND := ["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball
 	"plant_fiber", "dirt", "raw_hide", "raw_meat", "carrot",
 	# drops and finds the Stone Age chapters lean on (ADR 0059): animals, tall grass, part E's stones and fish
 	"bone", "feather", "bear_hide", "animal_fat", "antler", "pyrite", "red_ochre", "yellow_ochre", "floorstone_flint",
-	"einkorn_seeds", "emmer_seeds", "flax_seeds", "birch_log"]
-const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age"]
+	"einkorn_seeds", "emmer_seeds", "flax_seeds", "birch_log",
+	# ore-bearing stones above veins and ore mined out of them (ADR 0070)
+	"loose_tin_ore", "loose_iron_ore", "tin_ore", "iron_ore"]
+const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age"]
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
@@ -38,7 +40,7 @@ func test_data_loads_clean() -> void:
 		for q in book.chapter_quests(c):
 			if q.get("final", false):
 				finals.append(q["id"])
-	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw"])
+	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw", "bronze_tool", "iron_tool"])
 
 
 func test_bad_data_is_reported() -> void:
@@ -228,6 +230,26 @@ func test_copper_age_walkthrough() -> void:
 		else:
 			_give(what, s[1])
 	for q in book.chapter_quests("copper_age"):
+		assert_bool(book.is_done(q["id"])).override_failure_message(q["id"]).is_true()
+
+
+## Bronze then iron (ADR 0070): tin, molten bronze, a cast head, the pickaxe; ore, bloomery, bloom,
+## forge, a bronze anvil, the smithed bar and the iron pickaxe close both chapters.
+func test_bronze_and_iron_age_walkthrough() -> void:
+	for c in CHAPTERS.slice(0, 5):
+		for q in book.chapter_quests(c):
+			book.complete(q["id"])
+	for id in ["tin_nugget", "tin_nugget", "crucible_bronze", "bronze_pickaxe_head", "bronze_ingot", "bronze_ingot",
+			"bronze_pickaxe", "bronze_anvil"]:
+		_give(id)
+	for q in book.chapter_quests("bronze_age"):
+		assert_bool(book.is_done(q["id"])).override_failure_message(q["id"]).is_true()
+	for id in ["loose_iron_ore", "loose_iron_ore", "loose_iron_ore", "loose_iron_ore", "bloomery", "iron_bloom", "forge"]:
+		_give(id)
+	assert_bool(book.is_done("wrought_iron")).is_false()
+	book.note("smithed", "iron_ingot")
+	_give("iron_pickaxe")
+	for q in book.chapter_quests("iron_age"):
 		assert_bool(book.is_done(q["id"])).override_failure_message(q["id"]).is_true()
 
 
