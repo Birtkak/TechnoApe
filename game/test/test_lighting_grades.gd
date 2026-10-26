@@ -34,3 +34,28 @@ func test_the_curve_is_a_per_channel_lookup() -> void:
 	assert_int(t.width).is_equal(256)
 	var c := t.gradient.sample(1.0)
 	assert_float(c.b).is_less(c.r)   # warm highlights
+
+
+## Bug reports 2026-10-25_21-21-36 / 21-21-14: deep in a cave the sun lit hall walls past the shadow
+## range, the fog glowed orange towards the sun and holes in far LOD meshes showed a bright sky.
+func test_deep_underground_has_no_sun_no_sun_haze_and_fogged_sky() -> void:
+	var a := Atmosphere.new()
+	a.env = Environment.new()
+	a.sun = DirectionalLight3D.new()
+	a.sky_material = ShaderMaterial.new()
+	a.overlay = ColorRect.new()
+	a.fog_on = true
+	a._sun_light = 1.5
+	a.set_meta("underground_target", 0.0)
+	a._apply_states(true)
+	assert_float(a.sun.light_energy).is_greater(1.0)
+	assert_float(a.env.fog_sun_scatter).is_equal_approx(a.sun_scatter, 0.001)
+	a.set_meta("underground_target", 1.0)
+	a._apply_states(true)
+	assert_float(a.sun.light_energy).is_equal(0.0)
+	assert_float(a.env.fog_sun_scatter).is_equal(0.0)
+	assert_float(a.env.fog_sky_affect).is_equal(1.0)
+	assert_float(a.env.ambient_light_sky_contribution).is_equal(0.0)
+	a.sun.free()
+	a.overlay.free()
+	a.free()

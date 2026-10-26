@@ -42,9 +42,11 @@ var fog_color_day := Color(0.74, 0.83, 0.95)
 var fog_color_night := Color(0.05, 0.06, 0.10)
 var underground_start_m := 2.0   # metres below the surface where the cave look begins
 var underground_full_m := 10.0   # ... and where it is complete
-var underground_ambient := 0.30  # ambient energy multiplier fully underground (no torches exist yet)
+var sky_probe_m := 24.0          # how far up sky_open() follows the loaded voxels before it asks the generator
+var underground_ambient := 0.30  # ambient energy multiplier fully underground (torches, lava and glow light the rest)
 var underground_fog_density := 0.0045
 var underground_fog_color := Color(0.012, 0.012, 0.018)
+var underground_ambient_color := Color(0.5, 0.5, 0.56)  # neutral rock bounce, no sky tint (sRGB; x underground_ambient)
 var liquid_tints := {            # material name -> [fog colour, fog density, screen tint]
 	"water": [Color(0.05, 0.22, 0.42), 0.09, Color(0.1, 0.3, 0.6, 0.28)],
 	"water_static": [Color(0.05, 0.22, 0.42), 0.09, Color(0.1, 0.3, 0.6, 0.28)],
@@ -536,7 +538,30 @@ func _sample_camera() -> void:
 	# below the surface?
 	var surface := world.surface_height(int(floor(p.x)), int(floor(p.z)))
 	var depth_m := Settings.v2m(float(surface) - p.y)
-	set_meta("underground_target", clampf((depth_m - underground_start_m) / (underground_full_m - underground_start_m), 0.0, 1.0))
+	var target := clampf((depth_m - underground_start_m) / (underground_full_m - underground_start_m), 0.0, 1.0)
+	# the bottom of a ravine or a mouth is below the surface height but under the open sky
+	if target > 0.0 and sky_open(p, surface):
+		target = 0.0
+	set_meta("underground_target", target)
+
+
+## True when nothing solid stands between `p` and the sky: a vertical ray through the loaded voxels
+## (sky_probe_m, so dug shafts and built roofs count), and past them the generator's cave map (does
+## a cave break through the ground in this column: a ravine or a cave mouth).
+func sky_open(p: Vector3, surface: int) -> bool:
+	var depth_v := float(surface) - p.y
+	if depth_v <= 0.0:
+		return true
+	var reach := minf(depth_v + 1.0, Settings.m2v(sky_probe_m))
+	if world.raycast(p, Vector3.UP, reach) != null:
+		return false
+	if reach > depth_v:
+		return true
+	var gen = world.generator.gen if world.generator != null else null
+	if gen == null:
+		return false
+	var cm: PackedByteArray = gen.cave_map(int(floor(p.x)), int(floor(p.z)), 1, 1)
+	return cm.size() >= 2 and cm[1] == 1
 
 
 var _overcast_shown := 0.0
@@ -551,17 +576,23 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 	var fog_day: Color = get_meta("fog_day_color", fog_color_day)
 
 	env.ambient_light_energy = lerpf(ambient_mult, underground_ambient, _underground)
-	env.ambient_light_sky_contribution = lerpf(1.0, 0.25, _underground)
+	# underground the ambient is a dim neutral bounce, not a share of the (golden, sunlit) sky
+	env.ambient_light_color = underground_ambient_color
+	env.ambient_light_sky_contribution = 1.0 - _underground
 	var tint := Color(0, 0, 0, 0)
 	# water swallows light with depth: the sea floor at 100 m is close to black (2026-10-23)
 	var light_target := exp(-_water_depth_m / water_light_m) if _submerged_name.begins_with("water") else 1.0
 	_water_light = light_target if instant else lerpf(_water_light, light_target, clampf(delta * 3.0, 0.0, 1.0))
 	if _sun_light >= 0.0:
-		sun.light_energy = _sun_light * _water_light * lerpf(1.0, 0.3, overcast)
+		# no sun in deep caves (bug 2026-10-25_21-21-36): the shadow map ends at shadow_distance_m and its
+		# coarse cascades leak, so hall walls past it were sunlit through 80 m of rock
+		sun.light_energy = _sun_light * _water_light * lerpf(1.0, 0.3, overcast) * (1.0 - _underground)
 	if overcast > 0.0 or _overcast_shown > 0.0:
 		_overcast_shown = overcast
 		sky_material.set_shader_parameter("cloud_coverage", lerpf(cloud_coverage, 1.0, overcast))
 	env.ambient_light_energy *= lerpf(1.0, 0.75, overcast)
+	# no glow towards a sun the cave hides (the orange haze of bug 2026-10-25_21-21-36)
+	env.fog_sun_scatter = sun_scatter * (1.0 - _underground)
 	if _submerged_name != "":
 		var t: Array = liquid_tints[_submerged_name]
 		var dark := 1.0 - _water_light
@@ -579,7 +610,9 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 		env.fog_light_color = fog_day.lerp(underground_fog_color, _underground)
 		env.fog_density = lerpf(fog_per_km * (1.0 + 4.0 * overcast) / Settings.m2v(1000.0), underground_fog_density, _underground)
 		env.fog_aerial_perspective = lerpf(aerial, 0.0, _underground)
-		env.fog_sky_affect = lerpf(0.15, 0.0, _underground)
+		# underground the fog hides everything far, the sky too: a hole in the far LOD meshes shows
+		# cave fog, not a bright sky (bug 2026-10-25_21-21-14)
+		env.fog_sky_affect = lerpf(0.15, 1.0, _underground)
 		# faint ground mist in the lowlands by day, none underground or at night
 		env.fog_height_density = mist_per_km / Settings.m2v(1000.0) * day * (1.0 - _underground)
 	overlay.color = tint
