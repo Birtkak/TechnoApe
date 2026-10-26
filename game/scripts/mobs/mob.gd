@@ -97,6 +97,11 @@ var _provoked_t := 0.0          # predators: hurt by the player, chases them for
 var _lay_t := 0.0               # chickens: seconds to the next egg
 var _burn_t := 0.0              # seconds still alight after touching lava or fire
 var _burn_hurt_t := 0.0
+var _every := 1                 # step every n-th physics frame (distance to the player, set by the brain)
+var _skipped := 0.0             # seconds since the last step
+var _anim_still := false        # the model already shows the standing pose
+const NEAR_M := 16.0
+const FAR_M := 40.0
 
 
 static func create(p_manager: MobManager, p_species: String, p_def: Dictionary, baby: bool) -> Mob:
@@ -273,9 +278,16 @@ func set_sheared(on: bool) -> void:
 
 # ---------------- per frame ----------------
 
+## Far animals step less often (ADR 0067): every physics frame within NEAR_M of the player,
+## every 2nd within FAR_M, every 4th beyond, staggered by uid, with the time they skipped.
 func _physics_process(delta: float) -> void:
+	_skipped += delta
+	if _every > 1 and (Engine.get_physics_frames() + uid) % _every != 0:
+		return
 	var t0 := Time.get_ticks_usec()
-	_step(delta)
+	var d := _skipped
+	_skipped = 0.0
+	_step(d)
 	manager.frame_us += Time.get_ticks_usec() - t0
 
 
@@ -291,11 +303,18 @@ func _step(delta: float) -> void:
 		return   # never fall into terrain that has not streamed in
 	_timers(delta)
 	_think_t -= delta
+	var t0 := Time.get_ticks_usec()
 	if _think_t <= 0.0:
 		_think_t += THINK_S
 		_think()
+	var t1 := Time.get_ticks_usec()
 	_move(delta)
+	var t2 := Time.get_ticks_usec()
 	_animate(delta)
+	var t3 := Time.get_ticks_usec()
+	manager.part_us[0] += t1 - t0
+	manager.part_us[1] += t2 - t1
+	manager.part_us[2] += t3 - t2
 
 
 func _timers(delta: float) -> void:
@@ -341,6 +360,12 @@ func _chance_per_tick(p: float) -> bool:
 
 
 func _think() -> void:
+	var eye_p: Vector3 = manager.player_eye()
+	var dp: float = 0.0 if eye_p == Vector3.INF else position.distance_to(eye_p)   # no player (tests): full rate
+	var running := _target != Vector3.INF and _speed > Settings.m2v(2.0)   # chases and bolts keep full rate
+	_every = 1 if dp < Settings.m2v(NEAR_M) or running else (2 if dp < Settings.m2v(FAR_M) else 4)
+	if _every == 1 and _target == Vector3.INF and on_floor and not in_liquid and dying == 0.0:
+		_every = 2   # standing (at most pushed by the herd): 30 Hz is plenty
 	manager.separate(self)
 	in_liquid = manager.is_liquid(Vector3i((position + Vector3(0, _height_v * 0.4, 0)).floor()))
 	_touch_heat()
@@ -588,7 +613,10 @@ func _move(delta: float) -> void:
 		if def.get("slow_fall", false):
 			velocity.y = maxf(velocity.y, -Settings.m2v(1.2))   # chickens flap down
 	WildMoves.hop(self, want)
+	var tc := Time.get_ticks_usec()
 	var got := _body.move(position, velocity, delta, world.terrain, on_floor)
+	manager.part_us[3] += Time.get_ticks_usec() - tc
+	manager.collides += 1
 	position += got
 	var blocked := _body.blocked.x > 0.0 or _body.blocked.z > 0.0
 	on_floor = _body.on_floor
@@ -647,7 +675,13 @@ func _animate(delta: float) -> void:
 	if _eat_t > 0.0:
 		graze = clampf(_eat_t * 2.0, 0.0, 1.0)   # tearing at the kill
 	model.flapping = not on_floor and not in_liquid
-	model.animate(delta, Vector2(velocity.x, velocity.z).length(), graze, _head_yaw, _head_pitch, 0.0)
+	var speed := Vector2(velocity.x, velocity.z).length()
+	# standing still with the head straight: the pose of the last call holds (most animals, most of the time)
+	var still := Settings.v2m(speed) <= 0.05 and graze == 0.0 and _head_yaw == 0.0 and _head_pitch == 0.0 and not model.flapping
+	if still and _anim_still:
+		return
+	_anim_still = still and not WildModels.has(species)   # wild models may move on their own (tails)
+	model.animate(delta, speed, graze, _head_yaw, _head_pitch, 0.0)
 
 
 # ---------------- saving ----------------

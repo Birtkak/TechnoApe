@@ -60,6 +60,10 @@ var stone_ages_test := false # stone_ages_test=1: the four Stone Age stages alon
 var craft_test := false     # craft_test=1: assemble an axe, work a firepit by hand, smith a hammer head, wear a tool out (ADR 0042, JSON line "debug craft")
 var stone_age_test := false # stone_age_test=1: knap, form clay, pit kiln, firepit, cast, sieve through the player's clicks (ADR 0023, JSON line "debug stone_age")
 var mob_spawning := true # mob_spawn=0: no herds spawn as land loads (benchmarks without animals)
+var mob_bench := 0       # mob_bench=N: N animals (animal=, default bear) within 6 m of the player standing on the ground once loaded; frames count from 2 s later (bug report 2026-10-25 21-11-51: 100 bears, 4 fps)
+var mob_bench_r := 6.0  # mob_bench_r=M: scatter radius in metres around the spot 8 m ahead
+var _bench_wait := -1.0
+var _probe_ms_max := 0.0   # the detail probe's own cost (is_area_meshed), JSON detail.probe_ms_max
 var _blast_accum := 0.0
 var _blast_i := 0
 var _blast_centres: Array[Vector3i] = []   # first craters: the JSON reports what the terrain holds there
@@ -149,6 +153,8 @@ func _ready() -> void:
 	blast_count = int(args.get("blast_count", "1"))
 	blast_every = float(args.get("blast_every", "2"))
 	animals = int(args.get("animals", "0"))
+	mob_bench = int(args.get("mob_bench", "0"))
+	mob_bench_r = float(args.get("mob_bench_r", "6"))
 	animal_species = args.get("animal", "")
 	animal_babies = args.get("animal_babies", "0") == "1"
 	animal_love = args.get("animal_love", "0") == "1"
@@ -263,9 +269,17 @@ func _process(delta: float) -> void:
 		_capture_stalls.push_back(ms)
 	elif _loaded_at < 0.0:
 		_load_max_ms = maxf(_load_max_ms, ms)
-		if _world_settled() or _elapsed >= settle_cap_s:
-			_loaded_at = _elapsed
-			_print_probe_voxels()
+		if _bench_wait > 0.0:
+			_bench_wait -= delta
+			if _bench_wait <= 0.0:
+				_loaded_at = _elapsed
+		elif _world_settled() or _elapsed >= settle_cap_s:
+			if mob_bench > 0 and _bench_wait < 0.0:
+				_spawn_mob_bench()
+				_bench_wait = 2.0   # the models build and the clump settles; then the measured frames start
+			else:
+				_loaded_at = _elapsed
+				_print_probe_voxels()
 	else:
 		_frame_ms.push_back(ms)
 		# where a normal frame goes: script and physics time every frame; the render
@@ -300,7 +314,9 @@ func _process(delta: float) -> void:
 		var r := Settings.m2v(18.0)
 		var ground := float(_main.world.generator.gen.height_at(int(pp.x), int(pp.z)))
 		var box := AABB(Vector3(pp.x - r, ground - r * 0.5, pp.z - r), Vector3(r * 2.0, r, r * 2.0))
+		var tp := Time.get_ticks_usec()
 		_detail_missing.push_back(0 if _main.world.terrain.is_area_meshed(box, 0) else 1)
+		_probe_ms_max = maxf(_probe_ms_max, (Time.get_ticks_usec() - tp) / 1000.0)
 	_others_accum += delta
 	if _others_accum >= OTHERS_EVERY_S and (_others_task < 0 or WorkerThreadPool.is_task_completed(_others_task)):
 		if _others_task >= 0:
@@ -320,6 +336,29 @@ func _process(delta: float) -> void:
 			_skip_next = true
 	if _loaded_at >= 0.0 and _elapsed >= _loaded_at + duration:   # `duration` seconds of measured, loaded frames
 		_finish()
+
+
+## mob_bench=N: the player stands on the ground looking at N animals scattered within mob_bench_r (6) m of a
+## spot 8 m ahead (a /summon clump, the bug report's case); the JSON "mobs" block holds their cost.
+func _spawn_mob_bench() -> void:
+	var pl: Node3D = _main.player
+	pl.autopilot_speed_m = 0.0
+	pl.flying = false
+	var gh: int = _main.world.surface_height(int(floor(pl.position.x)), int(floor(pl.position.z)))
+	pl.position.y = gh + 2
+	var fwd: Vector3 = -pl.camera.global_transform.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.FORWARD
+	var centre: Vector3 = pl.position + fwd * Settings.m2v(8.0)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1234
+	var sp: String = animal_species if animal_species != "" else "bear"
+	for i in mob_bench:
+		var q := centre + Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)) * Settings.m2v(mob_bench_r)
+		var y: int = _main.world.surface_height(int(floor(q.x)), int(floor(q.z))) + 1
+		_main.mobs.spawn(sp, Vector3(q.x, y + 0.05, q.z), false, rng.randf() * TAU)
+	pl.set_look(atan2(-fwd.x, -fwd.z), -0.35)
+	print("mob_bench: %d %s spawned" % [mob_bench, sp])
 
 
 func _finish() -> void:
@@ -385,7 +424,7 @@ func _finish() -> void:
 		"threads": VoxelEngine.get_thread_count()}
 	var dm := Array(_detail_missing)
 	s["detail"] = {"samples": dm.size(), "missing_share": snappedf(float(dm.count(1)) / maxi(dm.size(), 1), 0.01),
-		"max_missing_s": _longest_run(dm) * 0.25}
+		"max_missing_s": _longest_run(dm) * 0.25, "probe_ms_max": snappedf(_probe_ms_max, 0.01)}
 	if mine:
 		s["mined_log"] = _main.player.mined_log
 	if blast_m > 0.0:
