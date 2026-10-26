@@ -62,9 +62,16 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   With no recipe chosen, the panel's **Clear** button (left of the grid) puts the grid back in the inventory. Logic:
   `CraftingGrid.fill` / `return_to`, `PlayerInventory.fill_craft_grid` / `clear_craft_grid`; tests `test/test_grid_fill.gd`;
   `menu_test=1` presses both (JSON `grid_fill`, shots `craft_fill_button`, `craft_filled`, `inventory_clear`).
-  **Water look (ADR 0045):** godot_voxel fluid patch (`voxel_patch_fluid.py`: corners next to open air drop, steps
-  become ramps), FineGen rivers interpolated per voxel and their trenches and low banks filled; `tools/water_surface_probe.gd`
-  counts holes and glass edges. **All water is finite (ADR 0068, replacing the reservoirs of ADR 0045 and the big bodies of
+  **Water look (ADR 0045, surface ADR 0069 A):** godot_voxel fluid patch (`voxel_patch_fluid.py`, sets the blocky
+  mesher's PADDING to 2): the surface is one height field, each top corner the mean of the surface tops of the
+  up-to-four columns around it (a column's highest cell of the fluid within two cells up or down; an open column with
+  none in reach votes the bottom of the lowest fluid cell at that corner; solid does not vote), so every cell agrees on
+  a shared corner and slopes up to two cells per cell are sheets, not wedges; the flow state follows the corner
+  heights, no side face toward a column one or two cells lower, capped cells keep the stock corners. A drop of three or
+  more cells between neighbouring surface cells (the generator's terraces and the old waterfall sites) is out of reach
+  and draws as a vertical water face. FineGen rivers interpolated per voxel and their trenches and low banks filled;
+  `tools/water_surface_probe.gd` counts holes, glass edges, corner seams (`rule=field|ramps`; 0 for field), out-of-reach
+  wall corners and the histogram of surface steps. **All water is finite (ADR 0068, replacing the reservoirs of ADR 0045 and the big bodies of
   ADR 0049):** generated water (`water_static`) is still until a fresh opening (air that changed in the last two ticks) touches
   it beside or below; then the cell becomes plain mass-conserving `water` and drains into the hole, cell by cell (the cell it
   leaves is the next opening); the river beside a hole drops, nothing refills it. Air over a river's own lower step never wakes

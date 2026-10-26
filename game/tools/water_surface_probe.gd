@@ -67,7 +67,120 @@ func _init() -> void:
 							if water.has(at.call(x + d.x, y, z + d.y)):
 								wall_samples.append([org + Vector3i(x, y, z), org + Vector3i(x + d.x, y, z + d.y), deep])
 								break
+	# Seams (ADR 0069 part A): the mesher's surface rule mirrored here, so a corner shared by neighbouring surface
+	# cells can be checked for agreement. rule=field (default): a corner is the mean of the surface tops of the
+	# columns around it, each column's highest water within two cells up or down (voxel_patch_fluid.py). rule=ramps: the ADR 0045 rule (a corner next to open air drops to
+	# the cell's bottom). A seam is two adjacent surface cells, at most two voxels apart in height, that give the
+	# corner they share different heights: every seam is a wedge on screen. Lips (adjacent surface cells three or
+	# more voxels apart, beyond the mesher's two-cell reach) are a drop, not a seam, and are counted apart; so are wall
+	# corners, where a column at the corner holds water three or more cells above the lower cell (a generator terrace,
+	# drawn as a vertical water face).
+	var rule := String(args.get("rule", "field"))
+	const TOP := 0.9375   # a full cell's surface (BakedFluid::TOP_HEIGHT); generated water is always full
+	var corners := {}   # Vector2i corner point -> [[cell y, height], ...]
+	var col_top := func(x: int, z: int, yref: int) -> Array:   # [votes, world height] by the field rule
+		for dy in [2, 1, 0, -1, -2]:   # the column's highest water within two cells of the viewer
+			if water.has(at.call(x, yref + dy, z)):
+				return [true, yref + dy + TOP]
+		if at.call(x, yref, z) == GameMaterials.AIR:
+			return [true, -1.0]   # open, nothing in reach: votes the bottom of the lowest water cell at the corner
+		return [false, 0.0]
+	for z in range(1, size.z - 1):
+		for x in range(1, size.x - 1):
+			for y in range(1, size.y - 1):
+				if not water.has(at.call(x, y, z)) or at.call(x, y + 1, z) != GameMaterials.AIR:
+					continue
+				for oz in [0, 1]:
+					for ox in [0, 1]:
+						var h := 0.0
+						if rule == "field":
+							var sum := 0.0
+							var n := 0
+							var dry := 0
+							var low := 1e9
+							for dz in [-1, 0]:
+								for dx in [-1, 0]:
+									var v: Array = col_top.call(x + ox + dx, z + oz + dz, y)
+									if not v[0]:
+										continue
+									if v[1] < 0.0:
+										dry += 1
+									else:
+										sum += v[1]
+										low = minf(low, floorf(v[1]))
+										n += 1
+							h = (sum + dry * low) / (n + dry)
+						else:
+							# ramps: the corner drops when an open cell sits side by side with water around it
+							h = y + TOP
+							var side_a: int = at.call(x + (1 if ox == 1 else -1), y, z)
+							var side_b: int = at.call(x, y, z + (1 if oz == 1 else -1))
+							var diag: int = at.call(x + (1 if ox == 1 else -1), y, z + (1 if oz == 1 else -1))
+							var covered := func(px: int, pz: int) -> bool:
+								return water.has(at.call(px, y, pz)) and water.has(at.call(px, y + 1, pz))
+							var open_a := side_a == GameMaterials.AIR
+							var open_b := side_b == GameMaterials.AIR
+							var open_d := diag == GameMaterials.AIR
+							if open_a or open_b or (open_d and (water.has(side_a) or water.has(side_b))):
+								h = float(y)
+							elif covered.call(x + (1 if ox == 1 else -1), z) or covered.call(x, z + (1 if oz == 1 else -1)):
+								h = y + 1.0
+						var key := Vector2i(x + ox, z + oz)
+						if not corners.has(key):
+							corners[key] = []
+						corners[key].append([y, h])
+	var steps := {}   # height difference between horizontally adjacent surface cells (0 = level)
+	var tops := {}
+	for z in range(1, size.z - 1):
+		for x in range(1, size.x - 1):
+			for y in range(1, size.y - 1):
+				if water.has(at.call(x, y, z)) and at.call(x, y + 1, z) == GameMaterials.AIR:
+					tops[Vector2i(x, z)] = y
+	for k2 in tops:
+		for d in [Vector2i(1, 0), Vector2i(0, 1)]:
+			if tops.has(k2 + d):
+				var dy: int = absi(tops[k2] - tops[k2 + d])
+				steps[dy] = int(steps.get(dy, 0)) + 1
+	var seams := 0
+	var lips := 0
+	var wall_corners := 0   # a column at the corner that the two cells see differently (out of reach): a terrace or rapid
+	var seam_samples := []
+	for key in corners:
+		var list: Array = corners[key]
+		for a in range(list.size()):
+			for b in range(a + 1, list.size()):
+				var dy: int = absi(list[a][0] - list[b][0])
+				if dy >= 3:
+					lips += 1
+				elif absf(list[a][1] - list[b][1]) > 0.001:
+					# out of reach: a column at the corner that the two cells see differently (its top more than two
+					# cells from one of them): a terrace or rapid the mesher draws as a vertical face, not a seam
+					var wall := false
+					for dz in [-1, 0]:
+						for dx in [-1, 0]:
+							var va: Array = col_top.call(key.x + dx, key.y + dz, list[a][0])
+							var vb: Array = col_top.call(key.x + dx, key.y + dz, list[b][0])
+							if va[0] != vb[0] or (va[0] and absf(va[1] - vb[1]) > 0.001):
+								wall = true
+					if wall:
+						wall_corners += 1
+						continue
+					seams += 1
+					if seam_samples.size() < 4:
+						# the four columns around the corner, materials from two below the lower cell to two above the upper
+						var ya: int = mini(list[a][0], list[b][0])
+						var cols := []
+						for dz in [-1, 0]:
+							for dx in [-1, 0]:
+								var stack := []
+								for yy in range(ya - 2, ya + 5):
+									stack.append(GameMaterials.name_of(at.call(key.x + dx, yy, key.y + dz)).left(5))
+								cols.append(stack)
+						seam_samples.append([org + Vector3i(key.x, list[a][0], key.y), list[a][1], list[b][0] - list[a][0], list[b][1], cols])
 	print("water probe at ", Vector2i(cx, cz), " r ", r, ": surface cells ", surface, ", holes ", holes.size(), ", glass edges ", walls, " by height ", depth_hist)
+	print("  rule ", rule, ": corner seams ", seams, ", wall corners ", wall_corners, ", lips ", lips, " (", corners.size(), " corner points); surface steps by height ", steps)
+	for sm in seam_samples:
+		print("  seam at corner ", sm[0], ": ", snappedf(sm[1], 0.001), " vs ", snappedf(sm[3], 0.001), " (dy ", sm[2], ") columns (-x-z, +x-z, -x+z, +x+z) from y-2 up: ", sm[4])
 	for w in wall_samples:
 		print("  edge ", w[0], " (", w[2], " high) dry: ", gen.column_info(w[0].x, w[0].z))
 		print("      wet ", w[1], ": ", gen.column_info(w[1].x, w[1].z))

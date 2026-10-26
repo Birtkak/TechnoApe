@@ -1,109 +1,189 @@
-# Patch for the custom godot_voxel build: liquid surfaces slope down to open air instead of
-# standing as glass walls (P13 water look, Lay of the Land).
+# Patch for the custom godot_voxel build: liquid surfaces are one height field (ADR 0069, part A).
 # Stock VoxelBlockyFluid raises each top corner to the highest of the four cells around it, so full
-# water next to air stays flat up to a vertical see-through wall: every pool edge over a lower bank
-# and every step of a river surface showed as a staircase of walls (bug report 2026-10-24, "voxel
-# shaped holes on the bank"). Here a corner touching an open cell (air: no model or an empty one)
-# drops to the cell's bottom: a step in a surface becomes a ramp that meets the lower
-# surface (its edge rises to full height through the covered-neighbour rule), a pool over a lower
-# bank slopes to its rim. Corners against solid ground stay where they were, so lakes meet their
-# banks flat. The flow state follows the ramps (the shader scrolls down them).
-# Run with the godot_voxel root as argv[1].
+# water next to air stands as a glass wall; our first patch (ADR 0045) dropped a corner next to open air
+# to the cell's bottom instead. That is right for a single step (a pool's rim meets the lower surface),
+# but a river slope is a step in every cell, so each cell dropped a different set of corners, cells did
+# not agree on the height of the corner they share, and every disagreement drew a wedge (bug report
+# 2026-10-26 15-53-53, "all these triangles in fluids").
+# Now a corner's height is the mean of the surface tops of the up-to-four columns around it. A column's
+# top is its highest cell of the fluid within two cells up or down of the cell being meshed, whatever sits at that
+# height (water over a shelf of ground counts); an open column with no fluid in reach votes the bottom of the lowest
+# fluid cell around that corner (a lip over a drop, the same from every viewer), a solid or foreign column with none
+# does not vote. A column whose fluid stands three or more cells above a viewer is out of reach: such terraces (a
+# generator matter) draw as vertical water faces, not as a sheet. Every cell sharing a corner computes the same
+# number, so the surface is continuous: a slope is a sheet, a filled crater is flat. The flow state comes
+# from the corner heights, so the shader runs downhill on every slope. A side face toward a column whose
+# fluid is one cell lower is collapsed (the lower surface rises to meet this one, the face would sit
+# inside the water). A cell capped by a solid block keeps the stock corners (its top is hidden; dropped
+# corners drew spikes out of cave walls, bug report 2026-10-25 02-02-16). A lone cell (no fluid beside it,
+# open air beside it with nothing below) lies flat as a film instead of a spike.
+# The reach is two cells up and down: on a diagonal slope the columns around one corner span three heights, and
+# with a one-cell reach the lowest cell could not see the highest column's top (seams of half a cell, measured by
+# tools/water_surface_probe.gd). So the blocky mesher's PADDING goes from 1 to 2 (every blocky loop reads it).
+# Run with the godot_voxel root as argv[1] on the stock files (git checkout them first).
 import sys
 root = sys.argv[1]
+
+ph = root + '/meshers/blocky/voxel_mesher_blocky.h'
+h = open(ph, encoding='utf-8').read()
+old = 'static const int PADDING = 1;'
+new = 'static const int PADDING = 2; // TechnoApe: the fluid height field reads two cells up and down'
+assert h.count(old) == 1, h.count(old)
+open(ph, 'w', encoding='utf-8', newline='\n').write(h.replace(old, new, 1))
 
 p = root + '/meshers/blocky/blocky_fluids_meshing_impl.h'
 s = open(p, encoding='utf-8').read()
 
-old = '''		FixedArray<uint8_t, 9> fluid_levels;
-		uint32_t covered_neighbors = 0;'''
-new = '''		FixedArray<uint8_t, 9> fluid_levels;
-		uint32_t covered_neighbors = 0;
-		uint32_t open_neighbors = 0; // TechnoApe: air (no model or an empty one) beside the fluid
-		uint32_t fluid_neighbors = 0; // TechnoApe: the same fluid beside it'''
-assert s.count(old) == 1, s.count(old)
-s = s.replace(old, new, 1)
-
-old = '''					if (nm.fluid_index == voxel.fluid_index) {
-						fluid_levels[i] = nm.fluid_level;
-'''
-new = '''					if (nm.fluid_index == voxel.fluid_index) {
-						fluid_levels[i] = nm.fluid_level;
-						fluid_neighbors |= (1 << i); // TechnoApe
-'''
-assert s.count(old) == 1, s.count(old)
-s = s.replace(old, new, 1)
-
-old = '''					} else {
-						fluid_levels[i] = 0;
-					}
-				} else {
-					fluid_levels[i] = 0;
-				}
-
-				++i;'''
-new = '''					} else {
-						fluid_levels[i] = 0;
-						if (nm.empty) { // only air: a plant standing in the water is no hole in it
-							open_neighbors |= (1 << i);
+old = '''		const FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_fluid_levels(fluid_levels);
+		const VoxelBlockyFluid::FlowState flow_state = get_fluid_flow_state_from_corner_levels(corner_levels);'''
+new = '''		const FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_fluid_levels(fluid_levels);
+		// TechnoApe (ADR 0069): one height field. Each corner is the mean of the surface tops of the columns
+		// around it, read the same way from every cell that shares it (see voxel_patch_fluid.py).
+		//  8 7 6     z      corner 0 (+x,-z): columns 1 2 4 5    corner 1 (-x,-z): columns 0 1 3 4
+		//  5 4 3     |      corner 2 (-x,+z): columns 3 4 6 7    corner 3 (+x,+z): columns 4 5 7 8
+		//  2 1 0  x--o
+		const bool field = !(library.has_model(top_voxel_id) && !library.models[top_voxel_id].empty);
+		FixedArray<float, 4> field_heights;
+		uint32_t step_sides = 0; // side columns (1 3 5 7) holding this fluid one cell lower: no side face there
+		VoxelBlockyFluid::FlowState field_flow = VoxelBlockyFluid::FLOW_IDLE;
+		if (field) {
+			const float max_level_inv = 1.f / static_cast<float>(fluid.max_level);
+			auto l2h = [max_level_inv](uint8_t level) {
+				return math::lerp(BakedFluid::BOTTOM_HEIGHT, BakedFluid::TOP_HEIGHT, static_cast<float>(level) * max_level_inv);
+			};
+			FixedArray<float, 9> tops;
+			uint32_t votes = 0, same = 0, dry_open = 0;
+			unsigned int k = 0;
+			for (int dz = -1; dz <= 1; ++dz) {
+				for (int dx = -1; dx <= 1; ++dx, ++k) {
+					const uint32_t nloc = voxel_index + dx * x_jump_size + dz * z_jump_size;
+					tops[k] = 0.f;
+					// the column's vote: its highest cell of this fluid within two cells up or down, whatever sits at
+					// this height (water over a shelf of ground is still that column's surface)
+					bool found = false;
+					for (int dy = 2; dy >= -2 && !found; --dy) {
+						const uint32_t cid = type_buffer[nloc + dy * static_cast<int>(y_jump_size)];
+						if (library.has_model(cid)) {
+							const BakedModel &cm = library.models[cid];
+							if (cm.fluid_index == voxel.fluid_index) {
+								tops[k] = static_cast<float>(dy) + l2h(cm.fluid_level);
+								votes |= 1u << k;
+								if (dy < 0) {
+									step_sides |= 1u << k;
+								}
+								found = true;
+							}
 						}
 					}
-				} else {
-					fluid_levels[i] = 0;
-					open_neighbors |= (1 << i);
+					const uint32_t nid = type_buffer[nloc];
+					const bool has = library.has_model(nid);
+					if (has && library.models[nid].fluid_index == voxel.fluid_index) {
+						same |= 1u << k;
+					}
+					if (!found && (!has || library.models[nid].empty)) {
+						// open air with no fluid in reach: the surface drops here, to the bottom of the lowest fluid
+						// cell around the corner (decided per corner below: the same from every viewer)
+						dry_open |= 1u << k;
+					}
+					// solid, a plant or another fluid with no fluid above or below in reach: no vote, the surface keeps
+					// its level there (a lake meets its bank flat)
 				}
-
-				++i;'''
-assert s.count(old) == 1, s.count(old)
-s = s.replace(old, new, 1)
-
-old = '''		const FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_fluid_levels(fluid_levels);'''
-new = '''		FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_fluid_levels(fluid_levels);
-		// TechnoApe: a corner drops to the very bottom when, in the 2x2 cells around it, an open cell sits
-		// side by side with fluid (an open cell touching it only diagonally is hidden: no dimple). The
-		// rule reads the same from each cell sharing the corner, so their surfaces stay joined.
-		//  8 7 6     z      corner 1: diagonal 0, sides 1 3    corner 0: diagonal 2, sides 1 5
-		//  5 4 3     |      corner 2: diagonal 6, sides 3 7    corner 3: diagonal 8, sides 5 7
-		//  2 1 0  x--o
-		open_neighbors &= ~covered_neighbors;
-		// A cell capped by a solid block (water in a cave wall, under a ledge) keeps its corners: its top is hidden,
-		// and dropped corners drew spikes poking out of the stone (bug report 2026-10-25 02-02-16).
-		if (library.has_model(top_voxel_id) && !library.models[top_voxel_id].empty) {
-			open_neighbors = 0;
-		}
-		// A lone cell (no fluid beside it on any side, its top open: water left on a cave wall's step) lies flat as a
-		// film: dropping only its open corners drew it as a spike.
-		const bool lone = (fluid_neighbors & 0b010'101'010) == 0 && open_neighbors != 0;
-		FixedArray<bool, 4> open_corner;
-		{
-			const uint32_t o = open_neighbors, f = fluid_neighbors;
-			auto drops = [o, f](int d, int a, int b) {
-				return ((o >> a) & 1) || ((o >> b) & 1) || (((o >> d) & 1) && (((f >> a) & 1) || ((f >> b) & 1)));
-			};
-			open_corner[1] = drops(0, 1, 3);
-			open_corner[0] = drops(2, 1, 5);
-			open_corner[2] = drops(6, 3, 7);
-			open_corner[3] = drops(8, 5, 7);
-			if (lone) {
-				open_corner[0] = open_corner[1] = open_corner[2] = open_corner[3] = true;
 			}
+			static const uint8_t CORNER_COLS[4][4] = { { 1, 2, 4, 5 }, { 0, 1, 3, 4 }, { 3, 4, 6, 7 }, { 4, 5, 7, 8 } };
+			const bool lone = (same & 0b010'101'010) == 0 && (dry_open & 0b010'101'010) != 0;
 			for (int c = 0; c < 4; ++c) {
-				if (open_corner[c]) {
-					corner_levels[c] = 0;
+				float sum = 0.f;
+				float low = 3.f; // bottom of the lowest fluid cell voting at this corner (its own cell always votes)
+				int n = 0;
+				for (int j = 0; j < 4; ++j) {
+					const unsigned int col = CORNER_COLS[c][j];
+					if ((votes >> col) & 1u) {
+						sum += tops[col];
+						low = math::min(low, Math::floor(tops[col]));
+						++n;
+					}
 				}
+				for (int j = 0; j < 4; ++j) {
+					const unsigned int col = CORNER_COLS[c][j];
+					if ((dry_open >> col) & 1u) {
+						sum += low;
+						++n;
+					}
+				}
+				field_heights[c] = lone ? 0.f : math::clamp(sum / static_cast<float>(n), -2.f, 3.f);
 			}
-		}'''
+			const float h_min = math::min(field_heights[0], field_heights[1], field_heights[2], field_heights[3]);
+			const uint8_t mask = //
+					(static_cast<uint8_t>(field_heights[0] <= h_min + 0.001f) << 3) | //
+					(static_cast<uint8_t>(field_heights[1] <= h_min + 0.001f) << 2) | //
+					(static_cast<uint8_t>(field_heights[2] <= h_min + 0.001f) << 1) | //
+					(static_cast<uint8_t>(field_heights[3] <= h_min + 0.001f) << 0);
+			field_flow = g_min_corners_mask_to_flowstate[mask];
+		}
+		const VoxelBlockyFluid::FlowState flow_state =
+				field ? field_flow : get_fluid_flow_state_from_corner_levels(corner_levels);'''
 assert s.count(old) == 1, s.count(old)
 s = s.replace(old, new, 1)
 
-# open corners reach the cell bottom (level 0 alone is BOTTOM_HEIGHT, 1/16 up: a thin dark wall at each step)
-old = '''		FixedArray<float, 4> corner_heights = get_corner_heights_from_corner_levels(corner_levels, fluid);'''
-new = '''		FixedArray<float, 4> corner_heights = get_corner_heights_from_corner_levels(corner_levels, fluid);
-		for (int c = 0; c < 4; ++c) {
-			if (open_corner[c]) {
-				corner_heights[c] = 0.f; // TechnoApe
+old = '''		FixedArray<float, 4> corner_heights = get_corner_heights_from_corner_levels(corner_levels, fluid);
+
+		//  8 7 6     z
+		//  5 4 3     |
+		//  2 1 0  x--o
+		// Covered neighbors need to be considered at full height
+		if ((covered_neighbors & 0b000'001'011) != 0) {
+			corner_heights[1] = 1.f;
+		}
+		if ((covered_neighbors & 0b000'100'110) != 0) {
+			corner_heights[0] = 1.f;
+		}
+		if ((covered_neighbors & 0b011'001'000) != 0) {
+			corner_heights[2] = 1.f;
+		}
+		if ((covered_neighbors & 0b110'100'000) != 0) {
+			corner_heights[3] = 1.f;
+		}
+'''
+new = '''		FixedArray<float, 4> corner_heights =
+				field ? field_heights : get_corner_heights_from_corner_levels(corner_levels, fluid);
+
+		//  8 7 6     z
+		//  5 4 3     |
+		//  2 1 0  x--o
+		// Covered neighbors need to be considered at full height (stock rule, capped cells only: TechnoApe)
+		if (!field) {
+			if ((covered_neighbors & 0b000'001'011) != 0) {
+				corner_heights[1] = 1.f;
 			}
-		}'''
+			if ((covered_neighbors & 0b000'100'110) != 0) {
+				corner_heights[0] = 1.f;
+			}
+			if ((covered_neighbors & 0b011'001'000) != 0) {
+				corner_heights[2] = 1.f;
+			}
+			if ((covered_neighbors & 0b110'100'000) != 0) {
+				corner_heights[3] = 1.f;
+			}
+		}
+'''
+assert s.count(old) == 1, s.count(old)
+s = s.replace(old, new, 1)
+
+old = '''		// For the top side, we assume vertices are counter-clockwise, and the first is at (+x, -z)'''
+new = '''		// TechnoApe: no side face toward a column whose fluid lies one cell lower; the lower surface rises to
+		// meet this one at the shared corners, and the face would stand inside the water.
+		if (field) {
+			static const Cube::SideAxis STEP_SIDE[4] = { Cube::SIDE_NEGATIVE_Z, Cube::SIDE_NEGATIVE_X, Cube::SIDE_POSITIVE_X, Cube::SIDE_POSITIVE_Z };
+			static const unsigned int STEP_COL[4] = { 1, 3, 5, 7 };
+			for (int j = 0; j < 4; ++j) {
+				if ((step_sides >> STEP_COL[j]) & 1u) {
+					BakedModel::SideSurface &side_surface = fluid_sides[STEP_SIDE[j]][surface_index];
+					side_surface.positions[2].y = 0.f;
+					side_surface.positions[3].y = 0.f;
+				}
+			}
+		}
+		// For the top side, we assume vertices are counter-clockwise, and the first is at (+x, -z)'''
 assert s.count(old) == 1, s.count(old)
 s = s.replace(old, new, 1)
 
