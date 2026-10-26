@@ -350,6 +350,23 @@ the 384 m ceiling.
   variant:world height:relief) and `tools/cave_sheet.gd` (cave share, mouths, vertical slice).
 - Far trees: wood widens by 0.2 x step at coarse LODs (was 0.45, the "chunky" trunks), leaf lumps fade.
 
+## Ledges, cliff bands, deeper sea (2026-10-26, GEN_VERSION 20, ADR 0063)
+Four bug reports of 2026-10-25: shallow oceans, mountains too easy to walk up, trees floating over steep
+slot ravines, and "lego" single-voxel steps everywhere with tiny cave pools.
+- **Sea**: the spline now reaches 12 m at c -0.15, 32 m at -0.3, 60 m at -0.45 and 110 m at c -1.
+- **Mountains**: arêtes on the ridge crests and cliff bands: the massif relief is cut into tiers 8-18 m tall
+  with near-vertical risers (6 % of a tier's span), their edges wobbling with the detail noise. The
+  auto step-up climbs 4 voxels; around the report spot 6.7 % of neighbour rises are now more than that.
+- **Ledges**: `FineGen::ground_f` rounds the fine ground to levels 3-8 voxels apart (patches of ~150 m),
+  keeping 15 % of the slope, with hummocks added after so treads are textured, not pillared. Water, rivers,
+  marsh and ruins fade it out through the ground weight.
+- **Caves**: the cave field is read per 4-voxel band (`cave_band_y`), so cave floors are flat treads with
+  0.5 m ledges; pools come in ~25 m blobs and fill whole treads.
+- **Ravines**: 10-40 m deep, both depth and width fading in with the mask, walls flaring toward the rim
+  ((1 - depth)^2.2). `WorldGen::ravine_near` keeps trees, stamps, sticks and clutter off the rim.
+- Probe: `tools/relief_probe.gd` (rise histograms on land, mountain and cave floor, sea depths, ravine
+  cross-sections and trunks over ravines; `bench=1` times surface blocks wherever the ground went).
+
 ## Next
 - Fjords where cold ranges meet the sea, oxbow lakes beside meanders.
 - Small ores between veins (single blocks dropping nuggets) and the copper

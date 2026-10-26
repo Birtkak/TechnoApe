@@ -118,12 +118,12 @@ private:
 
     Ref<WorldGen> g_;
     bool uniform_blocks_ = false;
-    FastNoiseLite n_ground_, n_ground2_, n_hump_, n_leaf_, n_litter_, n_meadow_, n_pool_;
+    FastNoiseLite n_ground_, n_ground2_, n_hump_, n_leaf_, n_litter_, n_meadow_, n_pool_, n_terrace_;
     technosim_rock::RockTypes rocks_;   // rock kinds, strata, new clutter (ADR 0057, rock_types.cpp)
 
     MacroPt macro_point(int mx, int mz, const WorldGen::Ruin *ruins, int nruins) const;
-    float ground_noise(int x, int z) const;
     float surface_f(int x, int z) const;        // standalone fine surface (4 lattice corners)
+    float ground_f(float base, int x, int z, float w) const;   // swells, ledges and hummocks over a macro height (weight w)
     float tree_age(const WorldGen::Tree &t, uint32_t seed) const;
     void build_tree(int kind, float fx, float fz, int trunk_h, int radius, float age, bool old_growth, uint32_t seed, FTree &out) const;
     bool col_tree(const FTree &t, float x, float z, float grow, ColTree &out) const;

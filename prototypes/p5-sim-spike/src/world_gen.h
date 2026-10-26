@@ -217,6 +217,7 @@ private:
     FastNoiseLite n_cavern_, n_ravine_, n_ravmask_;   // caverns and ravines (VAR_CAVES 1)
     FastNoiseLite n_cliff_;   // rocky coasts: where the land ends in a sea cliff (ADR 0051)
     FastNoiseLite n_meander_; // lowland river bends
+    FastNoiseLite n_band_;    // mountain cliff bands: where the slopes break into tiers and how tall they are
     // Global tile cache: a tile is built outside the lock by the first thread
     // that asks for it, others wait on its future; least recently used tiles
     // are evicted past HYDRO_CACHE_MAX (ADR 0020: a build under the lock
@@ -256,6 +257,9 @@ private:
     static constexpr float CAVERN_THR = 0.45f, CAVERN_Y = 2.4f;
     static float cavern_value(float raw, float fy, float depth);
     static float ravine_value(float mask, float line, float depth);
+    // Whether a ravine has cut the ground within r macro columns of (x, z): nothing stands there (trees,
+    // stamps, sticks), or it would hang over the hole (bug report 2026-10-25 20-18-57).
+    bool ravine_near(int x, int z, int r) const;
     // Whether a cavern or a ravine may reach into the box (macro units), for the deep-rock shortcut.
     bool big_cave_possible(int x0, int y0, int z0, int x1, int y1, int z1, int ground_min) const;
     // How far below the surface caves stop at this column (macro voxels): 5 normally, 0 where a cave mouth

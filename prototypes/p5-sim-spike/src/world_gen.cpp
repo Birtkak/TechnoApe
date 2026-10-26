@@ -84,6 +84,7 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup(n_ravmask_, seed_ + 20, 1.0f / 1400.0f, 1); // which stretches of those lines are open
     setup(n_cliff_, seed_ + 21, 1.0f / 3000.0f, 2);   // ~1.5 km stretches of rocky coast
     setup(n_meander_, seed_ + 22, 1.0f / 90.0f, 1);    // lowland river bends (~45 m)
+    setup(n_band_, seed_ + 23, 1.0f / 700.0f, 1);      // mountain cliff bands (~350 m patches)
     epoch_.store(g_epoch.fetch_add(1) + 1);
     std::lock_guard<std::mutex> lk(hydro_mutex_);
     hydro_cache_.clear();
@@ -137,11 +138,12 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     col.t_noise = t_noise;
     col.h = n_hum_.GetNoise(fx, fz) + jit2 * technosim_biome::JITTER;
 
-    // Sea floor: a shallow shelf off the beach (-1.5 .. -18 voxels), a continental slope down to the
-    // deep-ocean line (c -0.55, ~-95), then an abyssal plain 100 m below the surface. Land rises slowly
-    // inland: coasts and plains lie a few metres above the sea, the heart of a continent ~30 m.
+    // Sea floor (bug report 2026-10-25 20-49-22, "oceans should be deeper"): a short shelf off the beach
+    // (-1.5 .. -40 voxels, 20 m at its edge), a continental slope down to the deep-ocean line (c -0.55,
+    // ~-160), then an abyssal plain ~110 m below the surface (18 m over the bedrock floor). Land rises
+    // slowly inland: coasts and plains lie a few metres above the sea, the heart of a continent ~30 m.
     static const float cx[] = {-1.0f, -0.75f, -0.6f, -0.45f, -0.3f, -0.15f, -0.05f, 0.05f, 0.3f, 0.6f, 1.0f};
-    static const float cy[] = {-200.0f, -160.0f, -120.0f, -55.0f, -18.0f, -7.0f, -1.5f, 4.0f, 14.0f, 34.0f, 60.0f};
+    static const float cy[] = {-220.0f, -205.0f, -175.0f, -120.0f, -64.0f, -24.0f, -1.5f, 4.0f, 14.0f, 34.0f, 60.0f};
     float base = spline(col.c, cx, cy, 11);
     const float inland = smoothstep(0.0f, 0.25f, col.c);
     // Regions: plains where the region noise is low, hill country in the middle and where the hill
@@ -154,6 +156,7 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     const float relief_scale = spline(col.e, ex, ey, 4);
     // ranges: ridged noise, sharpened so the peaks stand out of broad flanks (up to ~220 m above the sea)
     const float ridge = col.pv * 0.5f + 0.5f;
+    const float dn = n_detail_.GetNoise(fx, fz);   // fine relief; also wobbles the cliff bands
     float relief;
     if (variant_[VAR_MOUNTAINS] == 0) {
         // the ranges of ADR 0035 (sheets only)
@@ -170,12 +173,30 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
         const float shape = mw * mw * (0.45f + 0.55f * std::pow(ridge, horns ? 1.8f : 1.3f));
         relief = hmax * std::pow(shape, horns ? 1.9f : 1.3f) * relief_scale;
         mountainness = std::max(mountainness, mw);
+        // Arêtes and cliff bands (bug report 2026-10-25 20-58-48: "mountains feel epic now but still are super
+        // easy to traverse"): the auto step-up climbed any smooth slope, so the upper mountain gets walls.
+        // A knife ridge stands on the crest lines of the ridged noise, and the relief breaks into tiers
+        // 8-18 m tall whose risers are near vertical (a riser is 6 % of a tier's span of the smooth height,
+        // so it is ~16x as steep as the slope it replaces; on the gentle foot that stays a walkable ledge).
+        // Their edges wander with the detail noise, so the bands do not follow contour lines.
+        if (mw > 0.05f) {
+            relief += mw * mw * smoothstep(0.86f, 0.98f, ridge) * 50.0f * relief_scale;
+            const float band = n_band_.GetNoise(fx, fz);
+            const float wcl = smoothstep(0.12f, 0.45f, mw) * (0.5f + 0.5f * smoothstep(-0.35f, 0.25f, band));
+            if (wcl > 0.0f) {
+                const float T = 16.0f + 20.0f * std::clamp(band * 0.5f + 0.5f, 0.0f, 1.0f);   // macro voxels
+                const float wob = dn * 7.0f;
+                const float q = (relief + wob) / T, k = std::floor(q);
+                const float tiered = (k + smoothstep(0.94f, 1.0f, q - k)) * T - wob;
+                relief += (tiered - relief) * wcl;
+            }
+        }
     }
     // hills: rolling 3-11 m humps, taller where the hill country is wide
     const float hn = n_hill_.GetNoise(fx, fz) * 0.5f + 0.5f;
     relief += hilly * (1.0f - mountainness) * std::pow(hn, 1.3f) * (12.0f + 10.0f * smoothstep(0.3f, 0.8f, hilly)) * relief_scale;
     if (base < 0.0f) relief *= 0.25f;
-    float detail = n_detail_.GetNoise(fx, fz) * (1.2f + 3.5f * mountainness);
+    float detail = dn * (1.2f + 3.5f * mountainness);
     float above_f = base + relief + detail;
     // Rocky coasts (ADR 0051, developer 2026-10-25): where the cliff mask is up the land ends in a sea cliff
     // 7-27 m tall along a wobbly line just inland of the coast, the cliff top sloping back down to the normal
@@ -758,6 +779,7 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     if (above > tree_line - 60) density *= std::clamp((tree_line - above) / 60.0f, 0.1f, 1.0f);
     float roll = (float)((hsh >> 6) & 1023) / 1023.0f;
     if (roll >= density) return false;
+    if (ravine_near(tx, tz, 5)) return false;   // trunk, roots and crown footing clear of a ravine's rim
     out.x = tx;
     out.z = tz;
     out.base = hy.marsh ? marsh_floor(col.height, hy) : col.height;
@@ -829,6 +851,7 @@ bool WorldGen::stamp_at_cell(int cx, int cz, Stamp &out) const {
     else return false;
     Hydro hy = hydro_at(out.x, out.z, col.height);
     if (hy.river > 0.05f || hy.lake || hy.puddle) return false;
+    if (ravine_near(out.x, out.z, 3)) return false;
     out.seed = hash3(out.x, out.z, seed_ + 409);
     out.tree_kind = TREE_KIND[col.biome];
     if ((float)((out.seed >> 12) & 1023) / 1024.0f < TREE_MIX[col.biome]) out.tree_kind = TREE_MIX_KIND[col.biome];
@@ -1010,12 +1033,31 @@ float WorldGen::cavern_value(float raw, float fy, float depth) {
 }
 
 // Ravines: along the zero line of a slow 2D noise (line = |n_ravine_|) where a mask (n_ravmask_) opens it,
-// a crack 8-20 m wide at the top narrowing to nothing 30-60 m down.
+// a gorge ~10-30 m wide at the top narrowing to nothing 10-40 m down. The width falls off as (1 - depth)^2.2,
+// so the walls flare out toward the rim and steepen below; upper walls rise ~2 per run where they were 5-13
+// (bug report 2026-10-25 20-18-57, "ravines seem a tad bit steep").
 float WorldGen::ravine_value(float mask, float line, float depth) {
     if (mask <= 0.25f) return -1.0f;
-    const float deep = 60.0f + 60.0f * smoothstep(0.25f, 0.6f, mask);
-    const float half = 0.06f * smoothstep(0.25f, 0.4f, mask) * (1.0f - std::clamp(depth / deep, 0.0f, 1.0f));
+    // Both the depth and the width fade in where the mask opens, so a ravine's ends are shallow trenches
+    // instead of deep slots a few voxels wide (the old width faded to nothing while the depth stayed 30 m).
+    const float open = smoothstep(0.25f, 0.45f, mask);
+    const float deep = (20.0f + 60.0f * smoothstep(0.3f, 0.6f, mask)) * open;
+    if (deep <= 0.0f) return -1.0f;
+    const float u = 1.0f - std::clamp(depth / deep, 0.0f, 1.0f);
+    const float half = 0.14f * (0.35f + 0.65f * open) * std::pow(u, 2.2f);
     return half > 0.0f ? (half - line) / 0.008f : -1.0f;
+}
+
+bool WorldGen::ravine_near(int x, int z, int r) const {
+    if (variant_[VAR_CAVES] == 0) return false;
+    if (n_ravmask_.GetNoise((float)x, (float)z) <= 0.2f) return false;   // ravines open only past 0.25
+    static const int OX[9] = {0, 1, -1, 0, 0, 1, 1, -1, -1}, OZ[9] = {0, 0, 0, 1, -1, 1, -1, 1, -1};
+    for (int k = 0; k < 9; k++) {
+        const float px = (float)(x + OX[k] * r), pz = (float)(z + OZ[k] * r);
+        // a voxel under the ground: the rim of the cut, not only its middle
+        if (ravine_value(n_ravmask_.GetNoise(px, pz), std::fabs(n_ravine_.GetNoise(px, pz)), 1.0f) > -1.5f) return true;
+    }
+    return false;
 }
 
 // Whether a cavern or a ravine may reach into the box (macro units), for the deep-rock shortcut of coarse

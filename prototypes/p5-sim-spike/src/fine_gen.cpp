@@ -34,6 +34,13 @@ constexpr int CAVE_MOUTH_DEPTH = 24 * FS;
 // Caverns and ravines are carved up to this LOD (to ~120 m from the camera), so a big hall has walls past the
 // 24 m full-detail edge instead of a hole into nothing (ADR 0052).
 constexpr int BIG_CAVE_LOD = 2;
+// The cave field is read once per CAVE_STEP voxels up (at the middle of each band), so cave floors, walls and
+// ceilings change height in ledges of 0.5 m instead of single-voxel stairs, and floors have flat treads that
+// hold bigger pools (bug report 2026-10-25 21-23-02). Bands are aligned to the world grid: neighbouring
+// columns share their levels.
+constexpr int CAVE_STEP = 4;
+// Cave pools: where n_pool_ (~25 m blobs) is above this, a flat stretch of cave floor holds its biome's pool.
+constexpr float POOL_THR = 0.0f;
 // Fallen sticks' half-widths in voxels (FStamp::r): thin (one voxel), medium (two), thick (two
 // across, two tall along the middle).
 constexpr float STICK_THICK[3] = {0.72f, 1.05f, 1.45f};
@@ -43,6 +50,7 @@ constexpr float STICK_THICK[3] = {0.72f, 1.05f, 1.45f};
 constexpr int DEEP_ROCK_MARGIN = (24 * FS > CAVE_MOUTH_DEPTH ? 24 * FS : CAVE_MOUTH_DEPTH) + 24 * FS;
 
 inline int floor_div(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+inline float cave_band_y(int wy) { return (float)(floor_div(wy, CAVE_STEP) * CAVE_STEP) + 0.5f * (float)(CAVE_STEP - 1); }
 inline float smoothstep(float a, float b, float x) {
     const float t = std::clamp((x - a) / (b - a), 0.0f, 1.0f);
     return t * t * (3.0f - 2.0f * t);
@@ -191,7 +199,8 @@ void FineGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup_noise(n_leaf_, p_seed + 103, 1.0f / 6.0f, 1);      // lumps on leaf clumps
     setup_noise(n_litter_, p_seed + 105, 1.0f / 14.0f, 2);   // leaf litter vs grass under trees
     setup_noise(n_meadow_, p_seed + 106, 1.0f / 48.0f, 2);   // thick and thin grass, flower patches
-    setup_noise(n_pool_, p_seed + 107, 1.0f / 88.0f, 1);     // ~11 m blobs: where cave floors hold their biome's pool
+    setup_noise(n_pool_, p_seed + 107, 1.0f / 200.0f, 1);    // ~25 m blobs: where cave floors hold their biome's pool
+    setup_noise(n_terrace_, p_seed + 108, 1.0f / 1200.0f, 1); // ~150 m patches: how tall the ground's ledges are
     rocks_.configure(p_seed, p_sea_level);
 }
 
@@ -248,11 +257,6 @@ FineGen::MacroPt FineGen::macro_point(int mx, int mz, const WorldGen::Ruin *ruin
     return m;
 }
 
-float FineGen::ground_noise(int x, int z) const {
-    const float fx = (float)x, fz = (float)z;
-    return n_ground_.GetNoise(fx, fz) * GROUND_AMP + n_hump_.GetNoise(fx, fz) * HUMP_AMP + n_ground2_.GetNoise(fx, fz) * GROUND_AMP2;
-}
-
 float FineGen::surface_f(int x, int z) const {
     const int mx = floor_div(x, FS), mz = floor_div(z, FS);
     WorldGen::Ruin ruins[4];
@@ -260,7 +264,25 @@ float FineGen::surface_f(int x, int z) const {
     const MacroPt a = macro_point(mx, mz, ruins, nr), b = macro_point(mx + 1, mz, ruins, nr);
     const MacroPt c = macro_point(mx, mz + 1, ruins, nr), d = macro_point(mx + 1, mz + 1, ruins, nr);
     const float tx = (float)(x - mx * FS) / FS, tz = (float)(z - mz * FS) / FS;
-    return bilerp(a.hc, b.hc, c.hc, d.hc, tx, tz) * FS + ground_noise(x, z) * bilerp(a.gw, b.gw, c.gw, d.gw, tx, tz);
+    return ground_f(bilerp(a.hc, b.hc, c.hc, d.hc, tx, tz) * FS, x, z, bilerp(a.gw, b.gw, c.gw, d.gw, tx, tz));
+}
+
+// The fine ground over the interpolated macro height `base` (fine voxels), with the ground's weight w (zero
+// at water, rivers, marsh and ruins). Swells (~8 m) are added, then the ground is rounded to ledges
+// (bug report 2026-10-25 21-23-02: "having every 1 single voxel step up makes everything feel like lego"):
+// levels T voxels apart, so a slope is flat ground broken by drops of several voxels instead of a staircase
+// of single ones. T changes in ~150 m patches (3, 4, 5, 6, rarely 8 voxels; past 4 a drop needs a jump); the
+// rounding keeps 15 % of the slope so a tread is not dead flat. Hummocks and roughness go on after the
+// rounding at 40 % on full ground, so they texture the treads instead of standing up as lone pillars.
+float FineGen::ground_f(float base, int x, int z, float w) const {
+    if (w <= 0.0f) return base;
+    const float fx = (float)x, fz = (float)z;
+    const float hf = base + n_ground_.GetNoise(fx, fz) * GROUND_AMP * w;
+    const float tn = n_terrace_.GetNoise(fx, fz);
+    const float T = tn < -0.3f ? 3.0f : (tn < 0.05f ? 4.0f : (tn < 0.35f ? 5.0f : (tn < 0.6f ? 6.0f : 8.0f)));
+    const float q = std::floor(hf / T + 0.5f) * T;
+    const float small = n_hump_.GetNoise(fx, fz) * HUMP_AMP + n_ground2_.GetNoise(fx, fz) * GROUND_AMP2;
+    return hf + (q - hf) * 0.85f * w + small * w * (1.0f - 0.6f * w);
 }
 
 int FineGen::height_at(int x, int z) const {
@@ -302,7 +324,7 @@ void FineGen::build_tree(int kind, float fx, float fz, int trunk_h, int radius, 
     o.x = fx;
     o.z = fz;
     o.ground = (int)std::floor(surface_f((int)std::floor(fx), (int)std::floor(fz)) + 0.5f);
-    o.base = o.ground - 6;
+    o.base = o.ground - 10;   // deep enough to meet the lower tread when a ledge (up to 8 voxels) runs past the trunk
     o.log = WorldGen::tree_log(kind);
     o.bark = WorldGen::tree_bark(kind);
     o.leaves = WorldGen::tree_leaves(kind);
@@ -524,6 +546,7 @@ void FineGen::young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen
             if (roll >= std::min(0.7f, dens * 0.55f)) continue;
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
             if (hy.river > 0.05f || hy.lake || hy.puddle) continue;
+            if (g.ravine_near(mx, mz, 4)) continue;
             bool blocked = false;
             for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP + 4);
             if (blocked) continue;
@@ -596,6 +619,7 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             if (dens <= 0.0f && roll < p_stump) continue;   // logs and stumps come from trees
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
             if (hy.river > 0.05f || hy.lake || hy.puddle) continue;
+            if (g.ravine_near(mx, mz, 3)) continue;
             bool blocked = false;
             for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP);
             if (blocked) continue;
@@ -645,6 +669,7 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             if (roll >= 0.05f + 0.5f * std::clamp(dens / 0.5f, 0.0f, 1.0f)) continue;
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
             if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh) continue;
+            if (g.ravine_near(mx, mz, 3)) continue;
             bool blocked = false;
             for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP);
             if (blocked) continue;
@@ -698,6 +723,7 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             if (kind == 0) continue;
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
             if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh) continue;
+            if (g.ravine_near(mx, mz, 1)) continue;
             bool blocked = false;
             for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP);
             if (blocked) continue;
@@ -1062,7 +1088,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
     // The cave field at any voxel of the block's lattice (neighbour columns of a cave pool).
     auto cave_at = [&](int wx, int wy, int wz) {
         if (cav.empty()) return false;
-        const float fx = (float)(wx - lx0) / FS, fz = (float)(wz - lz0) / FS, fy = (float)wy / FS - (float)cy0;
+        const float fx = (float)(wx - lx0) / FS, fz = (float)(wz - lz0) / FS, fy = cave_band_y(wy) / FS - (float)cy0;
         const int ci = std::clamp((int)std::floor(fx), 0, nx - 2), cj = std::clamp((int)std::floor(fz), 0, nz - 2);
         const int k = std::clamp((int)std::floor(fy), 0, cny - 2);
         const float tx = std::clamp(fx - ci, 0.0f, 1.0f), tz = std::clamp(fz - cj, 0.0f, 1.0f), ty = std::clamp(fy - (float)k, 0.0f, 1.0f);
@@ -1095,7 +1121,8 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             const size_t ri = (size_t)j * nx + i;
             const technosim_rock::RockCol rc = technosim_rock::RockTypes::blend(rlat[ri], rlat[ri + 1], rlat[ri + nx], rlat[ri + nx + 1], tx, tz, rlat[ri + (ez ? nx : 0) + (ex ? 1 : 0)]);
             const int mx = floor_div(wx, FS), mz = floor_div(wz, FS);
-            const float hf = bilerp(c00.hc, c10.hc, c01.hc, c11.hc, tx, tz) * FS + ground_noise(wx, wz) * bilerp(c00.gw, c10.gw, c01.gw, c11.gw, tx, tz);
+            const float gwf = bilerp(c00.gw, c10.gw, c01.gw, c11.gw, tx, tz);
+            const float hf = ground_f(bilerp(c00.hc, c10.hc, c01.hc, c11.hc, tx, tz) * FS, wx, wz, gwf);
             const int h = std::clamp((int)std::floor(hf + 0.5f), 8 * FS, world_h - 8 * FS);
             // real slope of the interpolated surface (fine voxels per fine voxel)
             const float gx = ((c10.hc - c00.hc) * (1.0f - tz) + (c11.hc - c01.hc) * tz) * FS / L;
@@ -1416,7 +1443,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     const int wy = origin.y + y * step;
                     bool c = wy >= 12 * FS && wy < h - m.roof * FS && h - wy <= cave_band && (no_cave_above < 0 || wy < no_cave_above) && !(wy < sea && h < sea + 2 * FS);
                     if (c) {
-                        const float fy = (float)wy / FS - (float)cy0;
+                        const float fy = cave_band_y(wy) / FS - (float)cy0;
                         const int k = std::clamp((int)std::floor(fy), 0, cny - 2);
                         const float ty = std::clamp(fy - (float)k, 0.0f, 1.0f);
                         auto lerp_y = [&](const float *p) { return p[k] + (p[k + 1] - p[k]) * ty; };
@@ -1505,14 +1532,14 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                             mat = (uint16_t)technosim_biome::SURFACE_TOP[cb];
                             // the biome's pool (biomes.json surface.pool: water, toxic sludge) lies in the floor in patches
                             const int pool = technosim_biome::SURFACE_POOL[cb];
-                            if (pool >= 0 && cave[y] == 0 && n_pool_.GetNoise((float)wx, (float)wz) > 0.35f && enclosed(wx, wy, wz)) mat = (uint16_t)pool;
+                            if (pool >= 0 && cave[y] == 0 && n_pool_.GetNoise((float)wx, (float)wz) > POOL_THR && enclosed(wx, wy, wz)) mat = (uint16_t)pool;
                         } else if (y + 3 < sy + 2 && cave[y + 3] && !cave[y + 2] && mat == Mat::STONE && depth >= technosim_biome::SOIL_DEPTH * FS) {
                             // the second voxel of a pool, under its surface voxel: pools are 25 cm deep
                             const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)(wy + step) / FS, (float)mz);
                             const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)(depth - step) / FS, technosim_biome::DEPTH_BAND_COUNT);
                             const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
                             const int pool = technosim_biome::SURFACE_POOL[technosim_biome::cave_biome(ti, hi, di, ni)];
-                            if (pool >= 0 && cave[y] == 0 && n_pool_.GetNoise((float)wx, (float)wz) > 0.35f && enclosed(wx, wy + step, wz) && enclosed(wx, wy, wz)) mat = (uint16_t)pool;
+                            if (pool >= 0 && cave[y] == 0 && n_pool_.GetNoise((float)wx, (float)wz) > POOL_THR && enclosed(wx, wy + step, wz) && enclosed(wx, wy, wz)) mat = (uint16_t)pool;
                         } else if (cave[y] && mat == Mat::STONE && depth >= technosim_biome::SOIL_DEPTH * FS) {
                             const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)wy / FS, (float)mz);
                             const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth / FS, technosim_biome::DEPTH_BAND_COUNT);

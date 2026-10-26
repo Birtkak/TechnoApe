@@ -73,6 +73,7 @@ Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast
 # generator probes (headless, ADR 0033/0035): landform map, block timings, materials and faces
 Godot_..._console.exe --headless --path game --script res://tools/terrain_map.gd -- km=12 px=384   # hillshaded map + plains/hills/mountains mix
 Godot_..._console.exe --headless --path game --script res://tools/fine_gen_bench.gd -- biome=old_growth_forest   # ms per block per LOD
+Godot_..._console.exe --headless --path game --script res://tools/relief_probe.gd -- seed=1579829108   # ledges, cliffs, sea depth, cave pools, ravines (ADR 0063); bench=1 times surface blocks
 Godot_..._console.exe --headless --path game --script res://tools/fine_probe.gd -- x=0 y=1040 z=0   # material mix of one block (vein=1: an ore vein)
 Godot_..._console.exe --headless --path game --script res://tools/face_probe.gd -- biome=forest lod=0 m=16   # exposed faces per material (draw cost)
 Godot_..._console.exe --headless --path game --script res://tools/seam_probe.gd -- seed=1337   # rivers across hydrology tile borders

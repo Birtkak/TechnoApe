@@ -7,7 +7,7 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   collision and rendering. Native `FineGen` draws the voxels over `WorldGen`'s 0.5 m macro layer
   (landforms: ~8 km continents of plains, hill country and massif mountains to ~400 m in a 640 m world,
   sea cliffs and stacks, monoliths, meanders, deltas (ADR 0051); climate, biomes from biomes.json,
-  hydrology, big caves: halls carved to LOD 2, ravines, cave mouths, geodes (ADR 0052); GregTech ore veins, ruins); aged trees with bark trunks,
+  hydrology, big caves: halls carved to LOD 2, ravines, cave mouths, geodes (ADR 0052); GregTech ore veins, ruins; ledges of 3-8 voxels on the ground and 0.5 m in caves, cliff bands on the massifs, a 110 m sea (ADR 0063)); aged trees with bark trunks,
   roots and clumped crowns, young trees, a forest floor of leaf litter, logs, stumps, bushes, ferns and
   mushrooms; far forests as leaf domes. Flat colours: one texel of the material's tile per voxel
   (`voxel_sample`); props use `terrain_prop.gdshader`. `SimBubble` ticks a wrapped 64 x 64 x 64 m window
