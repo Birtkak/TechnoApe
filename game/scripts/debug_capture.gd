@@ -51,6 +51,8 @@ var later: PackedStringArray = []   # later=/a;wait 1.5;/b: chat commands after 
 var chop_test := ""         # chop_test=1[,cam]: 1.5 s after loading, /chop [cam] (P12 rigid pieces)
 var fell_test := ""         # fell_test=<deg>[,cam]: 1.5 s after loading, /fell <deg> [cam] (P12 rigid pieces)
 var water_test := false     # water_test=1 (with target=river): dig a trench into the bank, check it fills to the river's level (ADR 0045, JSON line "debug water")
+var showcase := ""         # showcase=flint_stones,pebbles [showcase_on=grass]: those side by side on a pad, one sheet, then quit (Showcase)
+var showcase_on := "grass"
 var looks_test := false     # looks_test=1: part C's multi-voxel crops, flowers, torches, table and lights on a patch, shot (ADR 0053, "debug looks")
 var looks_shots := true     # looks_shots=0: looks_test without screenshots
 var looks_budget := false   # looks_budget=1: looks_test only sets ten torches and a held one at night (the budget case)
@@ -175,6 +177,8 @@ func _ready() -> void:
 	metal_age_test = args.get("metal_age_test", "0") == "1"
 	stone_ages_test = args.get("stone_ages_test", "0") == "1"
 	water_test = args.get("water_test", "0") == "1"
+	showcase = args.get("showcase", "")
+	showcase_on = args.get("showcase_on", "grass")
 	looks_test = args.get("looks_test", "0") == "1"
 	looks_shots = args.get("looks_shots", "1") != "0"
 	looks_budget = args.get("looks_budget", "0") == "1"

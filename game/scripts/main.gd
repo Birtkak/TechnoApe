@@ -379,6 +379,9 @@ func _ready() -> void:
 						await get_tree().create_timer(float(c.substr(5))).timeout
 					else:
 						chat.send(c))
+		if DebugCapture.showcase != "":
+			_after_load(func() -> void:
+				Showcase.new().run(self, DebugCapture.showcase.split(",", false), DebugCapture.showcase_on, true))
 		if DebugCapture.looks_test:
 			_after_load(func() -> void:
 				_looks_test = LooksTest.new()

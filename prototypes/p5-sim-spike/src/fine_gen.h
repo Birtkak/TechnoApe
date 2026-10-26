@@ -52,6 +52,7 @@ public:
     Array waterfalls_near(int x, int z, int radius) const;
     Dictionary hydrology_stats(int x, int z) const;
     Dictionary vein_at(int x, int z) const;
+    PackedInt32Array pickup_heights(int kind, int seed) const;   // a stone pickup's stamp: 16 column heights, x fastest (showcase)
     Array ruin_pots_near(int x, int z, int radius) const;   // WorldGen's, in fine voxels (the spot's lowest air voxel)
     Dictionary ruin_at(int x, int z) const;                 // WorldGen's, in fine voxels ({} outside every ruin)
     Ref<WorldGen> get_macro() const { return g_; }

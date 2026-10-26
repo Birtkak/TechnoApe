@@ -135,6 +135,19 @@ bool is_pickup(uint16_t m) {
 // turned per patch; loose stones are a size smaller with a chip beside them. The voxels touch, so the player picks the whole
 // chunk up at once (player.gd _dig_selection).
 int pickup_shape(uint16_t kind, int lx, int lz, uint32_t s) {
+    if (kind == WorldGen::FLINT_STONES) {
+        // A shard, not a lump (2026-10-26: "looks too much like normal pebbles"): a sharp spine 3
+        // voxels tall along x, z or a diagonal, its flanks one voxel high, the ends pinched to points.
+        static const float AX[4][2] = {{1.0f, 0.0f}, {0.0f, 1.0f}, {0.7071f, 0.7071f}, {0.7071f, -0.7071f}};
+        const int dir = (int)((s >> 20) & 3);
+        const float cx = dir >= 2 ? 2.0f : 1.5f + (float)(s & 1), cz = dir >= 2 ? 2.0f : 1.5f + (float)((s >> 1) & 1);
+        const float len = 1.9f + 0.5f * (float)((s >> 8) & 15) / 15.0f, wid = 1.35f + 0.25f * (float)((s >> 12) & 15) / 15.0f;
+        const float px = (float)lx + 0.5f - cx, pz = (float)lz + 0.5f - cz;
+        const float a = std::abs(px * AX[dir][0] + pz * AX[dir][1]) / len;
+        const float b = std::abs(-px * AX[dir][1] + pz * AX[dir][0]) / wid;
+        if (a > 1.0f || b > 1.0f - 0.55f * a * a) return 0;
+        return std::clamp((int)std::ceil(3.0f * (1.0f - b) * (1.0f - 0.45f * a)), 1, 3);
+    }
     // An irregular lump over the patch (2026-10-25: "a bit bigger, irregular, variety, thicker"): a
     // dome with its own centre, radii and height per patch (2-3 voxels, loose stones 1-2), its edge
     // eroded cell by cell. Every patch differs; the cells stay touching, so it is one piece.
@@ -176,6 +189,7 @@ void FineGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("waterfalls_near", "x", "z", "radius"), &FineGen::waterfalls_near);
     ClassDB::bind_method(D_METHOD("hydrology_stats", "x", "z"), &FineGen::hydrology_stats);
     ClassDB::bind_method(D_METHOD("vein_at", "x", "z"), &FineGen::vein_at);
+    ClassDB::bind_method(D_METHOD("pickup_heights", "kind", "seed"), &FineGen::pickup_heights);
     ClassDB::bind_method(D_METHOD("ruin_pots_near", "x", "z", "radius"), &FineGen::ruin_pots_near);
     ClassDB::bind_method(D_METHOD("ruin_at", "x", "z"), &FineGen::ruin_at);
     ClassDB::bind_method(D_METHOD("get_macro"), &FineGen::get_macro);
@@ -189,6 +203,19 @@ static void setup_noise(FastNoiseLite &n, int seed, float freq, int octaves) {
     n.SetFrequency(freq);
     n.SetFractalType(octaves > 1 ? FastNoiseLite::FractalType_FBm : FastNoiseLite::FractalType_None);
     n.SetFractalOctaves(octaves);
+}
+
+// The shape the generator gives a stone pickup of `kind` on a patch hashed to `seed` (the showcase
+// sets pickups down as the world lays them). Kinds that are not stone pickups count as loose stones.
+PackedInt32Array FineGen::pickup_heights(int kind, int seed) const {
+    PackedInt32Array out;
+    out.resize(FS * FS);
+    const uint16_t k = is_pickup((uint16_t)kind) ? (uint16_t)kind : (uint16_t)WorldGen::PEBBLES;
+    const uint32_t s = WorldGen::hash3(seed, 41, 977);
+    for (int lz = 0; lz < FS; lz++)
+        for (int lx = 0; lx < FS; lx++)
+            out.set(lz * FS + lx, pickup_shape(k, lx, lz, s));
+    return out;
 }
 
 void FineGen::configure(int p_seed, int p_sea_level, int p_world_height) {

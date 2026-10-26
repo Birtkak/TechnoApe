@@ -537,35 +537,37 @@ def stones_pattern(cols, seed, n=40):
 
 
 def flint_pattern(seed):
-    """Flint: blue-black glassy nodules 4-6 voxels across with a lighter struck band, a gloss and a
-    shaded side, in a chalky rind. 8 colours, strong contrast. Wraps."""
+    """Flint: blue-black glassy stone with conchoidal ripple bands, blue gloss flecks and only small
+    chalky cortex patches, so a shard of a few voxels reads dark and glassy, never like the pale
+    pebbles (2026-10-26). 8 colours, strong contrast. Wraps."""
     rng = random.Random(seed)
-    rind, rind_mid, rind_dark, core, core_mid, band, gloss, deep = [_hexc(c) for c in
-        ("#ece5d2", "#d6ccb4", "#b9ae94", "#1b1f28", "#2b3140", "#3d4558", "#8a96b4", "#0f1117")]
-    nod = [(rng.uniform(0, G), rng.uniform(0, G), rng.uniform(2.0, 3.0)) for _ in range(9)]
-    cells = [[rind] * G for _ in range(G)]
+    rind, rind_dark, core, core_mid, band, gloss, shine, deep = [_hexc(c) for c in
+        ("#e6dfcc", "#b3a88e", "#1b1f28", "#262b38", "#39425a", "#6f7fa6", "#a9b8dc", "#0d0f14")]
+    # ripples: rings around a few strike points (conchoidal fracture)
+    strikes = [(rng.uniform(0, G), rng.uniform(0, G), rng.uniform(1.6, 2.4)) for _ in range(5)]
+    cortex = [(rng.uniform(0, G), rng.uniform(0, G), rng.uniform(1.0, 1.6)) for _ in range(3)]
+    def wrap(d):
+        return d - G * round(d / G)
+    cells = [[core] * G for _ in range(G)]
     for y in range(G):
         for x in range(G):
-            best = None
-            for cx, cy, rr in nod:
-                dx = (x + 0.5 - cx); dy = (y + 0.5 - cy)
-                dx -= G * round(dx / G); dy -= G * round(dy / G)
-                r = (dx * dx + dy * dy) ** 0.5 / rr
-                if best is None or r < best[0]:
-                    best = (r, dx, dy)
-            r, dx, dy = best
-            if r > 1.25:
-                cells[y][x] = rind if rng.random() < 0.65 else rind_mid
-            elif r > 1.0:
+            r = min(((wrap(x + 0.5 - cx) ** 2 + wrap(y + 0.5 - cy) ** 2) ** 0.5 / sp for cx, cy, sp in strikes))
+            c = min(((wrap(x + 0.5 - cx) ** 2 + wrap(y + 0.5 - cy) ** 2) ** 0.5 / cr for cx, cy, cr in cortex))
+            q = rng.random()
+            if c < 0.8:
+                cells[y][x] = rind if q < 0.7 else rind_dark
+            elif c < 1.0:
                 cells[y][x] = rind_dark
-            elif abs(r - 0.55) < 0.12:
-                cells[y][x] = band
-            elif r < 0.3 and dx + dy < 0:
+            elif q < 0.05:
+                cells[y][x] = shine
+            elif q < 0.13:
                 cells[y][x] = gloss
-            elif dx + dy > 0.8:
+            elif (r % 1.0) < 0.22:
+                cells[y][x] = band
+            elif q < 0.30:
                 cells[y][x] = deep
             else:
-                cells[y][x] = core if rng.random() < 0.7 else core_mid
+                cells[y][x] = core if q < 0.75 else core_mid
     return _cells_to_tile(cells)
 
 
@@ -868,7 +870,7 @@ tiles = [
     leaf_litter(),                                            # 84 leaf litter (forest floor)
     oak_bark(),                                               # 85 oak bark: grey-brown, dark grooves (trunks in the world)
     keep_rng(stones_pattern(["#36332e", "#5e5a53", "#7f7a71", "#a39d91", "#b5ad9c", "#cdc6b6", "#ece6d8", "#8f6f52"], 86)),   # 86 pebbles: lit stones, dark gaps (ground pickup)
-    keep_rng(flint_pattern(87)),                              # 87 flint stones: dark core, chalky rind (ground pickup)
+    keep_rng(flint_pattern(87)),                              # 87 flint stones: glassy blue-black, small chalky patches (ground pickup)
     thatch(True),                                             # 88 thatch top
     thatch(False),                                            # 89 thatch side
     daub(),                                                   # 90 daub (wattle and daub wall)
