@@ -23,6 +23,7 @@ var commands: CommandRegistry      # slash commands (ADR 0018)
 var game_commands: GameCommands
 var chat: ChatBox
 var debug_menu: DebugMenu
+var tools_menu: ToolsMenu            # the world tools panel on G (ADR 0071)
 var _tick_accum := 0.0
 var _save_accum := 0.0
 var _loading: LoadingScreen
@@ -239,6 +240,13 @@ func _ready() -> void:
 	add_child(debug_menu)
 	debug_menu.opened.connect(_on_overlay_opened)
 	debug_menu.closed.connect(_on_overlay_closed)
+	tools_menu = ToolsMenu.new()
+	tools_menu.name = "ToolsMenu"
+	tools_menu.main = self
+	tools_menu.can_open = _can_open_overlay
+	add_child(tools_menu)
+	tools_menu.opened.connect(_on_overlay_opened)
+	tools_menu.closed.connect(_on_overlay_closed)
 	player.game_mode_changed.connect(_on_game_mode_changed)
 	var mode := GameMode.parse(Settings.game_mode)
 	player.set_game_mode(mode if mode != "" else GameMode.SURVIVAL)
@@ -808,7 +816,7 @@ func _on_overlay_opened() -> void:
 
 
 func _on_overlay_closed() -> void:
-	if not chat.is_open and not debug_menu.is_open and not _overlay_over_ui:
+	if not chat.is_open and not debug_menu.is_open and not tools_menu.is_open and not _overlay_over_ui:
 		player.set_ui_open(false)
 
 

@@ -15,6 +15,15 @@ func _per_block() -> int:
 	return Settings.BLOCK * Settings.BLOCK * Settings.BLOCK
 
 
+func test_placed_powders_are_the_still_kind() -> void:
+	# sand built on a beach slid apart (bug report 2026-10-26_19-38-35): placed sand is the still kind
+	assert_int(GameMaterials.still_of(GameMaterials.id_of("sand"))).is_equal(GameMaterials.id_of("sand_static"))
+	assert_int(GameMaterials.still_of(GameMaterials.id_of("gravel"))).is_equal(GameMaterials.id_of("gravel_static"))
+	assert_int(GameMaterials.still_of(GameMaterials.id_of("water"))).is_equal(GameMaterials.id_of("water"))
+	assert_int(GameMaterials.still_of(GameMaterials.id_of("stone"))).is_equal(GameMaterials.id_of("stone"))
+	assert_int(GameMaterials.still_of(0)).is_equal(0)
+
+
 func test_cube_snaps_to_its_grid() -> void:
 	var cells := Brush.dig_cells(Vector3i(5, 9, -3), 4, "cube")
 	assert_int(cells.size()).is_equal(64)

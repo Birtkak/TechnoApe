@@ -627,6 +627,19 @@ static func is_plain_voxel(id: int) -> bool:
 	return d.get("cell_type", "solid") in ["solid", "powder"]
 
 
+## The still kind of a live powder (sand -> sand_static), the one the generator lays: a placed
+## powder keeps its shape until something disturbs it, like the ground does (bug report
+## 2026-10-26_19-38-35: sand built on a beach slid apart). Liquids and everything else stay as they are.
+static func still_of(id: int) -> int:
+	var d := defs()
+	if id <= 0 or id > d.size() or d[id - 1].get("cell_type", "") != "powder":
+		return id
+	for i in d.size():
+		if int(d[i].get("loose", 0)) == id and d[i].get("liquid_static", false):
+			return i + 1
+	return id
+
+
 static func name_of(id: int) -> String:
 	if id == 0:
 		return "air"

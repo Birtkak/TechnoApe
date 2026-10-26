@@ -88,6 +88,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_blast, [["1", "2", "4", "8"], _material_names])
 	reg.register("brush", "/brush <shape> [size] | hold <seconds>", "Set the dig/build brush (ADR 0065): cube, sphere, cylinder, flat, column; size in voxels (1-8, creative 16, 32); hold = keep the break button down (scripted checks)",
 		_brush, [Brush.SHAPES + ["hold"], ["1", "2", "4", "8", "16", "32"]])
+	reg.register("tools", "/tools", "Open the world tools panel (the G key): brush shape and size, build modes, prefabs and their keys, with tooltips", _tools)
 	reg.register("tnt", "/tnt <grid [n] [spacing_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); light lights the aimed charge",
 		_tnt, [["grid", "light", "stats"], ["1", "5", "20"], ["1", "1.5", "2"]])
 	reg.register("setblock", "/setblock <x> <y> <z> <material>", "Set one voxel; ~ is relative to you (~ ~-1 ~ is under your feet)",
@@ -626,6 +627,13 @@ func _brush(args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("Sizes: %s" % str(Brush.sizes_for(true)))
 	player.set_brush(size, args[0])
 	return CommandRegistry.ok("Brush: %s (digs %s)" % [Brush.describe(size, args[0]), Brush.describe(player.dig_size(), args[0])])
+
+
+func _tools(_args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("tools_menu") == null:
+		return CommandRegistry.fail("No world")
+	main.tools_menu.open.call_deferred(true)   # after the chat has closed: it would otherwise keep the mouse free
+	return CommandRegistry.ok("World tools panel open (G or Esc closes it)")
 
 
 ## /tnt grid [n] [spacing_m]: n TNT blocks in a square grid on the ground where you look (block

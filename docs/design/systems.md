@@ -34,6 +34,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   box mode, box dig, select, prefabs); `ShapeBuilder` (`scripts/building/`) orchestrates, native `ShapeTool` rasterizes,
   meshes and fills; prefabs in `user://prefabs/<category>/<name>.json`. Scripted checks: `later=/a;wait 1;/b` runs chat
   commands after loading (`/shape ... at x y z`, `/shape drag`, `/shape menu`, `/box`, `/prefab`).
+  **World tools panel (ADR 0071):** G (`/tools`) opens the panel: brush shape and size, builder modes, prefabs, the ghost
+  toggle (`Settings.brush_ghost`) and the keys, each with a tooltip (`scripts/ui/tools_menu.gd`). Placed powders go in as
+  their still kind (`GameMaterials.still_of`): sand built from dug sand no longer slides apart.
   **Survival (ADR 0040):** `Survival` (`scripts/survival/`) runs hunger (Minecraft bar + saturation), body temperature
   (climate, season, hour, caves, water, rooms from the native `ClimateProbe` flood fill, heat of fire cells and lit
   entities) and food spoilage (perishable stacks carry `spoil` through every Inventory move, averaged on merge; rot).

@@ -114,7 +114,7 @@ func _held_material() -> int:
 	var def: Dictionary = player.inventory.held_def()
 	if def.is_empty() or not player.inventory.items.is_voxel_item(def["id"]):
 		return 0
-	return ItemIcon.material_id_for(player.inventory.items, def["id"])
+	return GameMaterials.still_of(ItemIcon.material_id_for(player.inventory.items, def["id"]))
 
 
 func _open_menu() -> void:
