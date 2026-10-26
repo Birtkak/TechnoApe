@@ -253,7 +253,7 @@ python <repo>/prototypes/p11-lod-horizon/voxel_patch.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_budget.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_remesh.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_unloaded.py ~/Tools/godot_voxel
-python <repo>/prototypes/p11-lod-horizon/voxel_patch_fluid.py ~/Tools/godot_voxel   # ADR 0069 A: fluid height field; sets VoxelMesherBlocky::PADDING to 2
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_fluid.py ~/Tools/godot_voxel   # ADR 0069 A, A3: fluid height field; sets VoxelMesherBlocky::PADDING to 6
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_vertical.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_stream.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_priority.py ~/Tools/godot_voxel

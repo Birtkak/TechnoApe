@@ -1151,7 +1151,15 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 }
                 if (wsum > 0.0f) {
                     const int wl = (int)std::floor(sum / wsum * FS + 0.5f);
-                    if ((hy.river > 0.0f || hy.lake) && hy.water_level >= 0) water_level = wl;
+                    if ((hy.river > 0.0f || hy.lake) && hy.water_level >= 0) {
+                        water_level = wl;
+                        // ADR 0069 A3: on a steep river the ground rises above the interpolated level on part of
+                        // every step, and those columns stood dry: the cascade drew as stripes of water panels with
+                        // ground between. A channel column up to 1 m above the level carries a one-voxel sheet, so
+                        // the falling river is one wet surface that follows its bed
+                        if (hy.river > 0.0f && !hy.lake && h >= water_level && h < water_level + 2 * FS)
+                            water_level = h + 1;
+                    }
                     else if (wl > water_level && h < wl) { water_level = wl; side_fill = true; }
                 }
             }

@@ -209,6 +209,8 @@ void SimWorld::set_materials(const Array &p_defs) {
         m.gas_horizontal = clamp8(dget_f(d, "gas_horizontal_speed", 100));
         m.gas_down = clamp8(dget_f(d, "gas_downwards_speed", 0));
         m.lifetime = clamp8(dget_int(d, "lifetime", 0));
+        m.film_life = (uint16_t)std::clamp(dget_int(d, "film_lifetime_ticks", 0), 0, 65535);
+        m.film_to = clamp8(dget_int(d, "film_convert_to_material", 0));
         m.fire_hp = clamp8(dget_int(d, "fire_hp", 0));
         m.temperature_of_fire = clamp8(dget_int(d, "temperature_of_fire", 10));
         m.autoignition_temperature = clamp8(dget_int(d, "autoignition_temperature", 100));
@@ -853,6 +855,26 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
         }
     } else if (fall(x, y, z, i, c)) { c.moved++; return; }
     int f = full(i);
+    // ADR 0069 B3: a one-eighth film on a floor that is not its liquid, with nothing deeper of its kind beside it
+    // (a lone speck or a spill thinned to a sheet; a pool's rim next to deeper water stays), dries up (or crusts) after about
+    // film_life ticks: a spill leaves no permanent wet speckle. Mass is lost on purpose. Before the viscosity roll,
+    // so a slow liquid's film keeps its clock; the film stays awake while it waits
+    if (f == 1 && substep_ == 0 && m.film_life && y > 0 && is_open(x, y - 1, z) && cells_[idx(x, y - 1, z)].mat != self) {
+        bool alone = true;
+        for (int k = 0; k < 4 && alone; k++) {
+            const int nx = x + DX4[k], nz = z + DZ4[k];
+            if (is_open(nx, y, nz) && cells_[idx(nx, y, nz)].mat == self && full(idx(nx, y, nz)) > 1) alone = false;
+        }
+        if (alone) {
+            if (rnd(c) % m.film_life == 0) {
+                place(i, m.film_to);
+                mark_cell(x, y, z, c, true);
+                c.moved++;
+                return;
+            }
+            mark_cell(x, y, z, c, false);
+        }
+    }
     if ((r & 0xFF) > m.gravity_prob) return;
     // 2. pour into a partly full cell of the same liquid below
     if (is_open(x, y - 1, z)) {

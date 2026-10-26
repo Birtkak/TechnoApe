@@ -10,7 +10,7 @@ const N := 3
 func _world(defs: Array) -> SimWorld:
 	var w := SimWorld.new()
 	w.configure(Vector3i(N, N, N), 2, 5)
-	w.set_materials(defs)
+	w.set_materials(_no_films(defs))
 	w.set_reactions(GameMaterials.reactions())
 	w.mark_all_loaded(true)
 	w.set_liquid_fullness(true)
@@ -129,3 +129,13 @@ func test_pour_levels_to_the_mean_and_rests() -> void:
 			if levels.has(k + d):
 				worst = maxi(worst, absi(levels[k] - levels[k + d]))
 	assert_int(worst).override_failure_message("surface steps of %d eighths" % worst).is_less_equal(1)
+
+
+## These tests count exact mass: films drying up (ADR 0069 B3) loses mass on purpose, so they run without it.
+static func _no_films(defs: Array) -> Array:
+	var out := []
+	for d in defs:
+		var c: Dictionary = d.duplicate()
+		c.erase("film_lifetime_ticks")
+		out.append(c)
+	return out

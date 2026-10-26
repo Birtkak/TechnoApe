@@ -18,7 +18,8 @@
 #include "res://assets/shaders/terrain_common.gdshaderinc"
 
 uniform float fluid_tile = 5.0;           // the liquid's atlas tile (lava picks its own path by it)
-uniform float flow_speed = 0.35;          // surface tiles per second along the flow
+uniform float flow_speed = 0.35;
+uniform float steep_alpha = 0.7;          // opacity floor of a steep top (a cascade sheet, ADR 0069 A3)          // surface tiles per second along the flow
 uniform float liquid_alpha : hint_range(0.0, 1.0) = 0.68;
 uniform float edge_alpha_boost = 0.25;
 
@@ -197,6 +198,16 @@ void fragment() {
 			float b = bubble_ring(p);
 			col = mix(col, rim_color, clamp(b * bubbles, 0.0, 1.0));
 			a = max(a, b * bubbles);
+		}
+		if (top) {
+			// ADR 0069 A3: a steep top (a cascade: the height field's sheet over stair-stepped ground) is a
+			// falling sheet. Its depth to the ground swings between nothing and three cells every column, and
+			// the thickness alpha drew that as stripes of clear water beside opaque panels. Give it the side
+			// faces' floor and a touch of foam, by the geometric slope of the triangle
+			vec3 gn = normalize(cross(dFdx(v_world), dFdy(v_world)));
+			float steep = smoothstep(0.85, 0.55, abs(gn.y));
+			col = mix(col, foam_color, steep * foam * 0.35);
+			a = mix(a, clamp(max(a, steep_alpha), 0.0, 1.0), steep);
 		}
 		if (an.y < 0.5) {
 			float s = fall_streak(wc);

@@ -9,7 +9,7 @@ const N := 3
 func _world() -> SimWorld:
 	var w := SimWorld.new()
 	w.configure(Vector3i(N, N, N), 2, 5)
-	w.set_materials(GameMaterials.defs())
+	w.set_materials(_no_films(GameMaterials.defs()))
 	w.set_reactions(GameMaterials.reactions())
 	w.mark_all_loaded(true)
 	return w
@@ -298,3 +298,13 @@ func test_surface_map_packs_the_top_cell() -> void:
 	assert_int(rock & 255).is_equal(GameMaterials.STONE)
 	assert_int(rock >> 16).is_equal(9 + 100)
 	assert_int(w.surface_map(Vector2i(60, 0), Vector2i(1, 1), 1, 0)[0]).is_equal(0)   # outside the window
+
+
+## These tests count exact mass: films drying up (ADR 0069 B3) loses mass on purpose, so they run without it.
+static func _no_films(defs: Array) -> Array:
+	var out := []
+	for d in defs:
+		var c: Dictionary = d.duplicate()
+		c.erase("film_lifetime_ticks")
+		out.append(c)
+	return out

@@ -1,6 +1,6 @@
 # ADR 0069: The fluid baseline (generated, simulated, drawn)
 
-Status: parts A, B1-B2 and C accepted and done (2026-10-26); B3 proposed, the marked taste calls are the developer's
+Status: accepted; parts A, A2, B1-B3 and C done (2026-10-26). Taste calls 1 and 3 decided by the developer: films dry up, more smoothing. A3 (cascades as one sheet) done the same day
 
 ## Context
 Fluids have been reworked four times in three days (ADR 0045 ramps and reservoirs, 0049 bodies that pour, 0068 all
@@ -152,8 +152,36 @@ except at a declared fall.
   report's river with the new generator: `game/out/fluidC_river/final.png`.
 
 ### Order
-A, B1, B2 and C are done; B3 (films dry up) waits for taste call 1. Each step: its check, a screenshot or filmstrip, then the developer
+A, A2, B1-B3 and C are done. Each step: its check, a screenshot or filmstrip, then the developer
 plays it.
+
+### Done 2026-10-26: B3 and A2
+- **B3 (films dry up)**: as point B3 above, loosened so a spill thinned to a sheet goes too: a one-eighth film on a
+  foreign floor with no neighbour of its kind deeper than one eighth goes with chance 1/`film_lifetime_ticks` per tick
+  (water and lava 300 = ~10 s; lava becomes basalt, `film_convert_to_material` 85). A pool's rim beside deeper water
+  stays. `test/test_liquid_films.gd`; the mass-counting tests run with films off.
+- **A2 (more smoothing)**: each corner adds the twelve columns around its 2x2 with a 1 3 3 1 kernel per axis (the 2x2
+  weighs 9 each, ring votes only where the column holds the fluid in reach). Shots: `game/out/fluidA2_after/final.png`
+  (the report's river; the steep staircase still shows shingles and gaps where steps exceed the two-cell reach, as in
+  `fluidA_after`: the generator's terraces), `game/out/fluidB3_pour2/final.png` (a 1 m water ball down a stone bank:
+  one smooth sheet).
+
+### Done 2026-10-26: A3, cascades as one sheet
+The developer saw the river's steep stretch as "defined repeating geometry". Four causes, four fixes, each seen in a
+shot at the report's spot (`game/out/fluidA3{,b,e,f}`):
+1. **Reach six cells** (`VoxelMesherBlocky::PADDING` 2 -> 6): the cascade steps 3 to 5 cells per column (probe:
+   178 of 3400 step edges at 3+, none above 5), out of the two-cell reach, so each column drew its own tilted tile.
+   Cost: the blocky meshing buffer is 44^3 instead of 36^3 for a 32 block.
+2. **Cells under the top hide side faces** toward a column whose surface lies lower in reach: they stood up
+   through the sloped sheet as vertical shards.
+3. **A corner is never below the bottom of the highest water cell around it**: the mean of a three-cell step lay
+   under the higher column's ground, and every stair nose poked through as a diagonal slit.
+4. **Steep tops get an opacity floor** (`steep_alpha` 0.7) and a touch of foam (shader, by the triangle's slope):
+   over stair-stepped ground the thickness alpha drew clear stripes beside opaque panels.
+Also in the generator: a river channel column up to 1 m above its interpolated level carries a one-voxel sheet
+(none were found dry at the report's spot, kept as a guard). Left: spikes where the cascade meets its bank (bank
+ground above the sheet). Budget at a river: p99 5.0 ms, one 27 ms frame (the known first-draw compile spike), so
+`budget_ok` false as before.
 
 ## Taste calls for the developer
 1. Films dry up (B3): yes / no. Default proposed: yes for water, crust for lava.

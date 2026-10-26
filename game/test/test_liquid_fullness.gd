@@ -9,7 +9,7 @@ const N := 4   # chunks per axis (64 cells)
 func _world() -> SimWorld:
 	var w := SimWorld.new()
 	w.configure(Vector3i(N, 2, N), 2, 9)
-	w.set_materials(GameMaterials.defs())
+	w.set_materials(_no_films(GameMaterials.defs()))
 	w.set_reactions(GameMaterials.reactions())
 	w.mark_all_loaded(true)
 	w.set_liquid_fullness(true)
@@ -52,3 +52,13 @@ func test_front_moves_about_a_cell_per_tick() -> void:
 		w.tick(1)
 	# after 30 ticks the front has run at least 20 cells (P5 liquids: a few cells)
 	assert_int(w.count_in_box(Vector3i(28, 1, 0), Vector3i(29, 2, 64), GameMaterials.WATER)).is_greater(0)
+
+
+## These tests count exact mass: films drying up (ADR 0069 B3) loses mass on purpose, so they run without it.
+static func _no_films(defs: Array) -> Array:
+	var out := []
+	for d in defs:
+		var c: Dictionary = d.duplicate()
+		c.erase("film_lifetime_ticks")
+		out.append(c)
+	return out

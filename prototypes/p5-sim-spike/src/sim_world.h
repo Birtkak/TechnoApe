@@ -74,6 +74,8 @@ public:
         uint16_t loosen = 0;   // static ground: chance per tick (0..65535) to turn loose when the cell below just opened
         uint16_t erode = 0;    // static powder: chance per tick to slide off an edge that just opened beside and below it
         bool replaceable = false;      // a plant liquids and powders wash away
+        uint16_t film_life = 0;        // ADR 0069 B3: mean ticks a lone one-eighth film on a foreign floor lasts (0 = forever)
+        uint8_t film_to = 0;           // what the film becomes when it goes (0 = air: dries; lava: a basalt crust)
     };
 
     struct Reaction {

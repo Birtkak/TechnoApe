@@ -27,7 +27,7 @@ root = sys.argv[1]
 ph = root + '/meshers/blocky/voxel_mesher_blocky.h'
 h = open(ph, encoding='utf-8').read()
 old = 'static const int PADDING = 1;'
-new = 'static const int PADDING = 2; // TechnoApe: the fluid height field reads two cells up and down'
+new = 'static const int PADDING = 6; // TechnoApe: the fluid height field reads six cells up and down (ADR 0069 A3)'
 assert h.count(old) == 1, h.count(old)
 open(ph, 'w', encoding='utf-8', newline='\n').write(h.replace(old, new, 1))
 
@@ -61,7 +61,7 @@ new = '''		const FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_f
 					// the column's vote: its highest cell of this fluid within two cells up or down, whatever sits at
 					// this height (water over a shelf of ground is still that column's surface)
 					bool found = false;
-					for (int dy = 2; dy >= -2 && !found; --dy) {
+					for (int dy = VoxelMesherBlocky::PADDING; dy >= -VoxelMesherBlocky::PADDING && !found; --dy) {
 						const uint32_t cid = type_buffer[nloc + dy * static_cast<int>(y_jump_size)];
 						if (library.has_model(cid)) {
 							const BakedModel &cm = library.models[cid];
@@ -94,12 +94,14 @@ new = '''		const FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_f
 			for (int c = 0; c < 4; ++c) {
 				float sum = 0.f;
 				float low = 3.f; // bottom of the lowest fluid cell voting at this corner (its own cell always votes)
+				float hi_floor = -100.f; // bottom of the highest voting fluid cell: the ground under it reaches there
 				int n = 0;
 				for (int j = 0; j < 4; ++j) {
 					const unsigned int col = CORNER_COLS[c][j];
 					if ((votes >> col) & 1u) {
 						sum += tops[col];
 						low = math::min(low, Math::floor(tops[col]));
+						hi_floor = math::max(hi_floor, Math::floor(tops[col]));
 						++n;
 					}
 				}
@@ -110,7 +112,37 @@ new = '''		const FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_f
 						++n;
 					}
 				}
-				field_heights[c] = lone ? 0.f : math::clamp(sum / static_cast<float>(n), -2.f, 3.f);
+				// ADR 0069 A2: a wider, gentler mean. The 2x2 mean above weighs 9 per column; the ring of twelve
+				// columns around those four adds its votes with weight 3 (edge) or 1 (diagonal), a 1 3 3 1 kernel
+				// on each axis. Dry and foreign columns in the ring do not vote (the rim rule stays the 2x2's).
+				// Every cell sharing the corner sees the same 4x4 columns, so the surface stays one sheet.
+				const int sx = (c == 0 || c == 3) ? 1 : -1;
+				const int sz = (c == 2 || c == 3) ? 1 : -1;
+				float ring = 0.f, ring_w = 0.f;
+				for (int b = 0; b < 4; ++b) {
+					for (int a = 0; a < 4; ++a) {
+						if (a >= 1 && a <= 2 && b >= 1 && b <= 2) {
+							continue;
+						}
+						const int dx = sx > 0 ? a - 1 : a - 2;
+						const int dz = sz > 0 ? b - 1 : b - 2;
+						const float w = static_cast<float>(((a == 0 || a == 3) ? 1 : 3) * ((b == 0 || b == 3) ? 1 : 3));
+						const uint32_t nloc = voxel_index + dx * x_jump_size + dz * z_jump_size;
+						for (int dy = VoxelMesherBlocky::PADDING; dy >= -VoxelMesherBlocky::PADDING; --dy) {
+							const uint32_t cid = type_buffer[nloc + dy * static_cast<int>(y_jump_size)];
+							if (library.has_model(cid) && library.models[cid].fluid_index == voxel.fluid_index) {
+								ring += w * (static_cast<float>(dy) + l2h(library.models[cid].fluid_level));
+								ring_w += w;
+								break;
+							}
+						}
+					}
+				}
+				// ADR 0069 A3: never below the bottom of the highest water cell at this corner. On a cascade the mean of
+				// a three-cell step lies under the higher column's ground, and every stair nose poked through the sheet
+				// as a diagonal slit. Every sharing cell computes the same floor, so the sheet stays one surface
+				const float mean = math::max((36.f * (sum / static_cast<float>(n)) + ring) / (36.f + ring_w), hi_floor);
+				field_heights[c] = lone ? 0.f : math::clamp(mean, -float(VoxelMesherBlocky::PADDING), float(VoxelMesherBlocky::PADDING) + 1.f);
 			}
 			const float h_min = math::min(field_heights[0], field_heights[1], field_heights[2], field_heights[3]);
 			const uint8_t mask = //
@@ -184,6 +216,37 @@ new = '''		// TechnoApe: no side face toward a column whose fluid lies one cell 
 			}
 		}
 		// For the top side, we assume vertices are counter-clockwise, and the first is at (+x, -z)'''
+assert s.count(old) == 1, s.count(old)
+s = s.replace(old, new, 1)
+
+# ADR 0069 A3: cells under the top hide side faces toward a lower surface in reach (shards on cascades)
+old = '''	if (fluid_top_covered) {
+		// No top side'''
+new = '''	if (fluid_top_covered) {
+		// TechnoApe (ADR 0069 A3): a cell under the column's top cell hides its side face toward a column whose
+		// fluid surface lies lower within reach: the height field's sheet slopes down over it, and the face stuck
+		// up through the sheet as a row of shards on every cascade. A true drop (no fluid in reach) keeps its face.
+		static const Cube::SideAxis CSIDE[4] = { Cube::SIDE_NEGATIVE_Z, Cube::SIDE_NEGATIVE_X, Cube::SIDE_POSITIVE_X, Cube::SIDE_POSITIVE_Z };
+		static const int CDX[4] = { 0, -1, 1, 0 };
+		static const int CDZ[4] = { -1, 0, 0, 1 };
+		for (int j = 0; j < 4; ++j) {
+			const int nloc = voxel_index + CDX[j] * x_jump_size + CDZ[j] * z_jump_size;
+			const uint32_t nid = type_buffer[nloc];
+			if (library.has_model(nid) && !library.models[nid].empty) {
+				continue;
+			}
+			for (int dy = -1; dy >= -VoxelMesherBlocky::PADDING; --dy) {
+				const uint32_t cid = type_buffer[nloc + dy * y_jump_size];
+				if (library.has_model(cid) && library.models[cid].fluid_index == voxel.fluid_index) {
+					fluid_sides[CSIDE[j]][surface_index].clear();
+					break;
+				}
+			}
+		}
+	}
+
+	if (fluid_top_covered) {
+		// No top side'''
 assert s.count(old) == 1, s.count(old)
 s = s.replace(old, new, 1)
 

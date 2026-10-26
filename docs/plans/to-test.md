@@ -10,6 +10,12 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Films dry up, smoother water (2026-10-26, ADR 0069 B3 and A2)
+
+- [ ] Spill a water balloon on flat ground: the puddle spreads thin and is gone after about half a minute. A lava
+      spill leaves dark basalt specks at its thin edge.
+- [ ] Gentle river slopes and spills on a slope look softer, with no visible cell edges.
+
 ## Fluid baseline, parts A and B (2026-10-26, ADR 0069)
 
 `/goto river`, `/gamemode creative`, `/kit gadgets`.
