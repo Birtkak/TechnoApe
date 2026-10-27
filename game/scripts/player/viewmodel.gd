@@ -21,7 +21,7 @@ const OFF_POS := Vector3(-0.5, -0.56, -0.82)
 var _current_id := ""
 
 # held like a Minecraft tool: handle in the hand, head up and away from the view
-const HELD_SPRITE_SCALE := 0.44
+const HELD_SPRITE_SCALE := 0.6    # bigger in the hand (developer, 2026-10-27)
 const HELD_SPRITE_ROTATION := Vector3(0, 155, -10)   # back face toward the view: head up and to the left
 const SPRITE_GRIP := Vector3(-0.3, -0.3, 0.0)         # handle end of a tool sprite (pixel 3, 13), in mesh units
 const HAND := Vector3(0.0, 0.02, -0.16)
@@ -86,7 +86,7 @@ func _dress(mi: MeshInstance3D, id: String, at: Vector3, side: float) -> void:
 	var sprites := ItemSprites.get_default()
 	if sprites.is_cube(id):
 		mi.mesh = BlockMeshes.sprite(id)
-		mi.scale = Vector3.ONE * 0.24
+		mi.scale = Vector3.ONE * 0.32
 		mi.rotation_degrees = Vector3.ZERO
 	elif sprites.has(id):
 		var rot := HELD_SPRITE_ROTATION * Vector3(1, side, side)
@@ -97,11 +97,11 @@ func _dress(mi: MeshInstance3D, id: String, at: Vector3, side: float) -> void:
 		mi.position = hand - Basis.from_euler(rot * PI / 180.0) * (SPRITE_GRIP * HELD_SPRITE_SCALE)
 	elif mat_id > 0:
 		mi.mesh = BlockMeshes.cube(mat_id, atlas_material)
-		mi.scale = Vector3.ONE * 0.24
+		mi.scale = Vector3.ONE * 0.32
 		mi.rotation_degrees = Vector3.ZERO
 	else:
 		mi.mesh = BlockMeshes.card(id)
-		mi.scale = Vector3.ONE * 0.3
+		mi.scale = Vector3.ONE * 0.4
 		mi.rotation_degrees = Vector3(0, 0, -30 * side)
 
 

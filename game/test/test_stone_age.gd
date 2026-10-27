@@ -290,7 +290,7 @@ func test_pieces_survive_save_and_load() -> void:
 	g.use(items.get_def("dry_grass"))
 	var f := store.create(Vector3i(3 * n, 10, 0), "firepit") as FirepitEntity
 	f.inv.set_slot(FirepitEntity.VESSEL, {"id": "crucible", "count": 1})
-	var s := store.create(Vector3i(4 * n, 10, 0), "sieve") as SieveEntity
+	var s := store.create(Vector3i(5 * n, 10, 0), "sieve") as SieveEntity   # past the 1 m firepit (ADR 0076)
 	s.input = "gravel"
 	s.shakes = 3
 	var d := store.to_dict()
@@ -304,7 +304,7 @@ func test_pieces_survive_save_and_load() -> void:
 	assert_bool(c2.is_filled(0, 0, 0)).is_true()
 	assert_int((other.at(Vector3i(0, 10, 0)) as GroundEntity).grass).is_equal(1)
 	assert_dict((other.at(Vector3i(3 * n, 10, 0)) as FirepitEntity).inv.get_slot(FirepitEntity.VESSEL)).is_equal({"id": "crucible", "count": 1})
-	assert_int((other.at(Vector3i(4 * n, 10, 0)) as SieveEntity).shakes).is_equal(3)
+	assert_int((other.at(Vector3i(5 * n, 10, 0)) as SieveEntity).shakes).is_equal(3)
 	assert_int(other.all_work().size()).is_equal(5)
 
 

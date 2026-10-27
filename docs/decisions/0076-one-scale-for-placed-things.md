@@ -18,6 +18,13 @@ body's dark tone, thin tool heads.
   builds the model by material name (`crafting_table`, `chest`, `furnace`, `furnace_lit`) from one
   shared palette and material. `BlockEntities.footprint_of` reads `SIZES`; kinds not in it keep the
   BLOCK^3 cube (the storage pot, the work pieces).
+- **The big work pieces are 1 m too** (developer, 2026-10-27: at 0.5 m the anvils, forge, bloomery
+  and firepit read as toys next to the furnace). `BlockEntities.WIDE` names them; `width_of(kind)`
+  is two blocks for them, their footprint height doubles with it, `WorkPalette.make_view` draws
+  their 8-cell grid at one voxel per cell, and the anvil's hammering grid, the drop and light
+  positions and `WorkSystem._at` follow `width_of`. Knapping slabs, clay forms, molds on the ground,
+  the sieve and the Stone Age pieces stay one block. Held items in the viewmodel grew with them
+  (sprites 0.6, cubes 0.32).
 - **Every cell model is shaded, with darker edges.** `WorkPalette.shade_cells` gives each paint
   `MobModel.SHADES` tones: a hash per cell with a grain along x and a lift towards the top (the
   workbench's and the animals' rule), and cells with empty neighbours on two axes (a convex edge)

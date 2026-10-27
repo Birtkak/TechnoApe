@@ -11,6 +11,7 @@ extends Node
 ## shadows, for a few frames, then freed.
 
 const FRAMES := 8
+const MESHER_PADDING := 6   # VoxelMesherBlocky::PADDING of our build (voxel_patch_fluid.py, ADR 0069 A3): a smaller buffer meshes nothing
 
 var _mesh: MeshInstance3D
 var _extra: Array[MeshInstance3D] = []
@@ -24,11 +25,12 @@ func setup(mesher: VoxelMesherBlocky, camera: Camera3D) -> void:
 		queue_free()
 		return
 	var n := lib.models.size()
+	var P := MESHER_PADDING
 	var buf := VoxelBuffer.new()
-	buf.create(n * 2 + 2, 3, 3)   # one voxel per model with air around it; 1 voxel of padding (mesher)
+	buf.create(n * 2 + 2 * P, 2 * P + 1, 2 * P + 1)   # one voxel per model with air around it, inside the mesher's padding
 	buf.set_channel_depth(VoxelBuffer.CHANNEL_TYPE, VoxelBuffer.DEPTH_16_BIT)
 	for id in range(1, n):
-		buf.set_voxel(id, 1 + id * 2, 1, 1, VoxelBuffer.CHANNEL_TYPE)
+		buf.set_voxel(id, P + id * 2, P, P, VoxelBuffer.CHANNEL_TYPE)
 	var mesh := mesher.build_mesh(buf, lib.get_materials())
 	if mesh == null:
 		queue_free()

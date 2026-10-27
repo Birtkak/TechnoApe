@@ -27,13 +27,21 @@ func run(p_main: Node) -> void:
 	var gy := func(x: int, z: int) -> int: return main.world.surface_height(x, z)
 	# a flat 15 x 7 block grass strip ahead at the player's ground height, so every aim ray hits the ground
 	var g0: int = gy.call(base.x, base.z)
-	var lo := Vector3i(base.x - 7 * B, g0 - 1, base.z - 6 * B)
+	var lo := Vector3i(base.x - 7 * B, g0 - 4 * B, base.z - 6 * B)   # 2 m of dirt: a thin slab over a hollow falls in the sim
 	var hi := Vector3i(base.x + 8 * B, g0 + 1, base.z + B)
 	_fill(lo, Vector3i(hi.x, g0, hi.z), GameMaterials.DIRT)
 	_fill(Vector3i(lo.x, g0, lo.z), Vector3i(hi.x, g0 + 1, hi.z), GameMaterials.GRASS)
 	_fill(Vector3i(lo.x, g0 + 1, lo.z), Vector3i(hi.x, g0 + 6 * B, hi.z), GameMaterials.AIR)
-	await tree.create_timer(1.5).timeout   # the cleared strip reaches the terrain the aim ray reads
 	var spot := func(dx: int) -> Vector3i: return Vector3i(base.x + dx * B, g0 + 1, base.z - 3 * B)
+	await tree.create_timer(1.5).timeout   # the cleared strip reaches the terrain the aim ray reads
+	# the strip's corners are the last chunks the sim pushes to the terrain: wait until the ray can see them
+	var corners: Array[Vector3i] = [Vector3i(lo.x, g0, lo.z), Vector3i(hi.x - 1, g0, lo.z), Vector3i(lo.x, g0, hi.z - 1), Vector3i(hi.x - 1, g0, hi.z - 1)]
+	var waited := 0
+	while waited < 600 and corners.any(func(c: Vector3i) -> bool: return main.world.get_voxel(c) != GameMaterials.GRASS or main.world.get_voxel(c + Vector3i.UP) != GameMaterials.AIR):
+		await tree.process_frame
+		waited += 1
+	r["strip_frames"] = waited
+	r["strip_corners"] = corners.map(func(c: Vector3i) -> String: return GameMaterials.name_of(main.world.get_voxel(c)))
 	var inv: PlayerInventory = main.player_inv
 	r["survival"] = GameMode.rule(main.player.game_mode, "consumes_items")
 

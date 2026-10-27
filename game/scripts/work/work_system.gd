@@ -133,7 +133,8 @@ func _rebuild_view(p: Vector3i) -> void:
 	if not BlockEntities.is_work(e):
 		return
 	var parts: Dictionary = e.view_parts()
-	var v := WorkPalette.make_view(p, parts.get("solid", {}), parts.get("ghost", {}), parts.get("guide", {}), parts.get("items", []))
+	var v := WorkPalette.make_view(p, parts.get("solid", {}), parts.get("ghost", {}), parts.get("guide", {}), parts.get("items", []),
+		float(BlockEntities.width_of(e.kind)) / Settings.BLOCK)
 	_root.add_child(v)
 	_views[p] = v
 
@@ -158,9 +159,11 @@ func _say(text: String) -> void:
 		main.chat.add_message(text)
 
 
-## A piece in world voxels: `v` in blocks from its anchor (a piece is one 0.5 m block, ADR 0034).
-static func _at(p: Vector3i, v: Vector3) -> Vector3:
-	return Vector3(p) + v * Settings.BLOCK
+## A piece in world voxels: `v` in fractions of its width from its anchor (one 0.5 m block, ADR 0034,
+## or a wide piece's two, ADR 0076).
+func _at(p: Vector3i, v: Vector3) -> Vector3:
+	var e: RefCounted = main.blocks.at(p)
+	return Vector3(p) + v * (BlockEntities.width_of(e.kind) if e != null else Settings.BLOCK)
 
 
 ## A new piece stands on a solid top face (or, for a sieve or firewood pile, in
@@ -177,12 +180,17 @@ func _spot_for(hit: VoxelRaycastResult, any_face: bool, kind: String = "") -> Ve
 	var anchor := BlockEntities.anchor_for(p)
 	var next_to: RefCounted = main.blocks.at(t)
 	if BlockEntities.is_work(next_to):
-		anchor = next_to.pos + (p - t) * Settings.BLOCK
-	for c in BlockEntities.cube(anchor, BlockEntities.height_of(kind)):
+		# flush against it: step by the neighbour's size on its far sides, by the new piece's own on the near ones
+		var d := p - t
+		var k: String = next_to.kind
+		anchor = next_to.pos + d * Vector3i(BlockEntities.width_of(k) if d.x > 0 else BlockEntities.width_of(kind),
+			BlockEntities.height_of(k) if d.y > 0 else BlockEntities.height_of(kind),
+			BlockEntities.width_of(k) if d.z > 0 else BlockEntities.width_of(kind))
+	for c in BlockEntities.footprint_of(kind, anchor):
 		var m: int = main.get_world_voxel(c)
 		if m != GameMaterials.AIR and not (m > 0 and GameMaterials.defs()[m - 1].get("replaceable", false)):
 			return Vector3i(-1, -1, -1)
-		if any_face and main.player._overlaps_player(c):
+		if main.player._overlaps_player(c):
 			return Vector3i(-1, -1, -1)
 	return anchor
 
@@ -684,7 +692,7 @@ func _smith(e: AnvilEntity, from: Vector3, dir: Vector3, split: bool) -> void:
 ## The column of the anvil's work grid the camera ray meets first (its top or its side), stepping
 ## along the ray a tenth of a cell at a time through the grid's box; (-1, -1) when it misses.
 func _anvil_column(e: AnvilEntity, from: Vector3, dir: Vector3) -> Vector2i:
-	var k := float(Settings.BLOCK) / AnvilEntity.N   # voxels per cell
+	var k := float(BlockEntities.width_of(e.kind)) / AnvilEntity.N   # voxels per cell
 	var o := (from - Vector3(e.pos)) / k              # the eye in cells from the anvil's corner
 	var d := dir.normalized()
 	var box := AABB(Vector3(0, AnvilEntity.BASE_H, 0), Vector3(AnvilEntity.N, AnvilEntity.MAX_H, AnvilEntity.N))
@@ -719,7 +727,7 @@ func _use_firepit(e: FirepitEntity, held: Dictionary, say: bool) -> void:
 		if Inventory.heat_of(s) >= 0.5:
 			_note("heated", s["id"])   # hot metal off the fire (the progression book, ADR 0042)
 		var out := 0.95 if e is BloomeryEntity else 0.4   # out of the solid bloomery's shaft
-		main.spawn_item(s, _at(e.pos, Vector3(0.5, 0.5, 0.5)) + side * Settings.BLOCK * out, side * 1.2 + Vector3(0, 2.0, 0))
+		main.spawn_item(s, _at(e.pos, Vector3(0.5, 0.5, 0.5)) + side * BlockEntities.width_of(e.kind) * out, side * 1.2 + Vector3(0, 2.0, 0))
 	if say:
 		_say(res["msg"])
 

@@ -94,6 +94,14 @@ const SINGLE := []   # entities that are one voxel (torches have their own cells
 ## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
 ## a knapping stone or a mold on the ground is one voxel high, a firepit two.
 const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 2, "assembly": 1, "anvil": 6, "bronze_anvil": 6}
+## Work pieces drawn and placed at the stations' 1 m scale (ADR 0076): their view cell is a voxel,
+## not half of one, and their footprint and height double.
+const WIDE := ["firepit", "forge", "bloomery", "anvil", "bronze_anvil"]
+
+
+## Footprint width in voxels of a work piece kind.
+static func width_of(p_kind: String) -> int:
+	return Settings.BLOCK * 2 if p_kind in WIDE else Settings.BLOCK
 
 
 ## The voxels an entity covers (ADR 0034).
@@ -111,7 +119,8 @@ static func footprint(e: RefCounted) -> Array[Vector3i]:
 static func footprint_of(p_kind: String, anchor: Vector3i) -> Array[Vector3i]:
 	if StationEntity.SIZES.has(p_kind):
 		return box(anchor, StationEntity.SIZES[p_kind])   # the 1 m workbench, chest and furnace (ADR 0053, 0076)
-	return cube(anchor, height_of(p_kind))
+	var w := width_of(p_kind)
+	return box(anchor, Vector3i(w, height_of(p_kind), w))
 
 
 ## size.x x size.y x size.z voxels from `anchor` (min corner).
@@ -124,9 +133,10 @@ static func box(anchor: Vector3i, size: Vector3i) -> Array[Vector3i]:
 	return out
 
 
-## Footprint height in voxels of a block entity kind.
+## Footprint height in voxels of a block entity kind (a wide piece's doubles with its width).
 static func height_of(p_kind: String) -> int:
-	return int(HEIGHT.get(p_kind, StoneAge.HEIGHTS.get(p_kind, Settings.BLOCK)))
+	var h := int(HEIGHT.get(p_kind, StoneAge.HEIGHTS.get(p_kind, Settings.BLOCK)))
+	return h * 2 if p_kind in WIDE else h
 
 
 ## BLOCK x height x BLOCK voxels from `anchor` (min corner): a station's or work piece's footprint.

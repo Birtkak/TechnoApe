@@ -246,6 +246,7 @@ func _part_d(tree: SceneTree, inv: PlayerInventory, at: Callable) -> void:
 	main.set_world_voxel(s_at, shell)
 	await tree.create_timer(0.4).timeout   # the aim ray reads the terrain, which gets the edit a push later
 	inv.inv.set_slot(inv.selected, {"id": "seashell", "count": 4})   # straight into the hand: the hotbar is full by now
+	_stand_before(s_at, 1)
 	var aimed: Vector3i = main._aim_use(Vector3(s_at) + Vector3(0.5, 0.999, 0.5))
 	await tree.process_frame
 	r["shell_aimed"] = aimed == s_at
@@ -301,7 +302,7 @@ func _part_d(tree: SceneTree, inv: PlayerInventory, at: Callable) -> void:
 ## A hammer blow from the side the push goes away from: the player stands 0.8 m off the anvil
 ## opposite `push`, looks down at the top of column (x, z) and the left click goes through the work system.
 func _blow(tree: SceneTree, anvil: AnvilEntity, x: int, z: int, push: Vector2i) -> void:
-	var k := float(Settings.BLOCK) / AnvilEntity.N
+	var k := float(BlockEntities.width_of(anvil.kind)) / AnvilEntity.N
 	var top := Vector3(anvil.pos) + Vector3((x + 0.5) * k, (AnvilEntity.BASE_H + anvil.height(x, z)) * k - 0.02, (z + 0.5) * k)
 	var back := Vector3(-push.x, 0, -push.y) * Settings.m2v(0.8)
 	main.player.position = top + back + Vector3(0, Settings.m2v(0.7), 0) - Vector3(0, main.player.camera.position.y, 0)
@@ -330,7 +331,7 @@ func _empty_hand() -> void:
 ## Walks onto the spot so what popped out of a finished piece is picked up.
 func _pick_up_near(tree: SceneTree, p: Vector3i) -> void:
 	var keep: Vector3 = main.player.position
-	main.player.position = Vector3(p) + Vector3(0.5, 0.0, 1.6) * Settings.BLOCK   # beside it: an anvil is solid
+	main.player.position = Vector3(p) + Vector3(0.5, 0.0, 1.6) * _w(p)   # beside it: an anvil is solid
 	await tree.create_timer(Settings.item_pickup_delay_s + 0.5).timeout
 	main.player.position = keep
 	await tree.process_frame
@@ -339,7 +340,8 @@ func _pick_up_near(tree: SceneTree, p: Vector3i) -> void:
 ## Right click held at a point of the piece anchored at p (block fractions) for `times` holds (ADR 0043).
 func _hold_on(p: Vector3i, frac: Vector3, times: int = 1) -> void:
 	var tree := main.get_tree()
-	var at := Vector3(p) + frac * Settings.BLOCK
+	_stand_before(p, _w(p))
+	var at := Vector3(p) + frac * _w(p)
 	var cam: Camera3D = main.player.camera
 	var dir := (at - cam.global_position).normalized()
 	main.player.set_look(atan2(-dir.x, -dir.z), asin(dir.y))
@@ -352,7 +354,14 @@ func _hold_on(p: Vector3i, frac: Vector3, times: int = 1) -> void:
 
 ## Right click at a point of the piece anchored at p (block fractions).
 func _use_on(p: Vector3i, frac: Vector3) -> void:
-	main._aim_use(Vector3(p) + frac * Settings.BLOCK)
+	_stand_before(p, _w(p))
+	main._aim_use(Vector3(p) + frac * _w(p))
+
+
+## The width of the piece at p (a wide piece spans two blocks, ADR 0076), a block when none stands there.
+func _w(p: Vector3i) -> int:
+	var e: RefCounted = main.blocks.at(p)
+	return BlockEntities.width_of(e.kind) if e != null else Settings.BLOCK
 
 
 func _fill(lo: Vector3i, hi: Vector3i, m: int) -> void:
@@ -365,7 +374,16 @@ func _fill(lo: Vector3i, hi: Vector3i, m: int) -> void:
 
 
 func _click_top(t: Vector3i) -> void:
+	_stand_before(t + Vector3i.UP, BlockEntities.width_of(String(main.player_inv.held_def().get("work", ""))))
 	main._aim_use(Vector3(t) + Vector3(0.5, 0.999, 0.5))
+
+
+## Stands the player south of the `w`-wide footprint at anchor p, 0.75 m off it, so the aim ray from
+## there meets the target and not a 1 m piece in between (ADR 0076: pieces are taller than the eye line
+## from across the strip).
+func _stand_before(p: Vector3i, w: int) -> void:
+	main.player.position = Vector3(p.x + w * 0.5, p.y, p.z + w + Settings.m2v(0.75))
+	main.player.velocity = Vector3.ZERO
 
 
 func _fast_forward(ticks: int) -> void:

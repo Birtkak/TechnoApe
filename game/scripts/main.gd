@@ -952,7 +952,7 @@ func _on_broken(p: Vector3i, drops: Array) -> void:
 		var stacks: Array = piece.contents()
 		work.remove_piece(piece)
 		for s in stacks:
-			spawn_item(s, Vector3(piece.pos) + Vector3(0.5, 0.5, 0.5) * Settings.BLOCK, Vector3(randf_range(-1.5, 1.5), 2.5, randf_range(-1.5, 1.5)))
+			spawn_item(s, Vector3(piece.pos) + Vector3(0.5, 0.5, 0.5) * BlockEntities.width_of(piece.kind), Vector3(randf_range(-1.5, 1.5), 2.5, randf_range(-1.5, 1.5)))
 		for d in drops:
 			spawn_item(d, Vector3(p) + Vector3(0.5, 0.5, 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
 		return
@@ -1902,6 +1902,20 @@ func _hold(id: String) -> void:
 		if not st.is_empty() and st["id"] == id:
 			player_inv.select(i)
 			return
+	# a full hotbar: swap it in from the main grid, into an empty hotbar slot or the selected one
+	for j in range(PlayerInventory.HOTBAR, player_inv.inv.size()):
+		var st: Dictionary = player_inv.inv.get_slot(j)
+		if st.is_empty() or st["id"] != id:
+			continue
+		var i: int = player_inv.selected
+		for h in PlayerInventory.HOTBAR:
+			if player_inv.inv.is_empty_slot(h):
+				i = h
+				break
+		player_inv.inv.set_slot(j, player_inv.inv.get_slot(i))
+		player_inv.inv.set_slot(i, st)
+		player_inv.select(i)
+		return
 	push_error("_hold: %s went to the main grid, not the hotbar" % id)
 
 

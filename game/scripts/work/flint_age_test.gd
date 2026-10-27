@@ -33,7 +33,7 @@ func run(p_main: Node) -> void:
 	# the grass layer's top voxel just under a multiple of BLOCK, so the blocks above it are on the grid
 	g0 = floori(float(main.world.surface_height(base.x, base.z)) / B) * B - 1
 	# a flat 19 x 9 block grass strip ahead
-	var lo := Vector3i(base.x - 9 * B, g0 - 2 * B, base.z - 8 * B)
+	var lo := Vector3i(base.x - 9 * B, g0 - 4 * B, base.z - 8 * B)   # 2 m of dirt: a thin slab over a hollow falls in the sim
 	var hi := Vector3i(base.x + 10 * B, g0 + 1, base.z + B)
 	_fill(lo, Vector3i(hi.x, g0, hi.z), GameMaterials.DIRT)
 	_fill(Vector3i(lo.x, g0, lo.z), Vector3i(hi.x, g0 + 1, hi.z), GameMaterials.GRASS)
@@ -198,13 +198,14 @@ func run(p_main: Node) -> void:
 	main.player._place_cooldown = 0.0
 	r["torch2_aim"] = _aim_info(Vector3(t2 - Vector3i.UP) + Vector3(0.5, 0.999, 0.5))
 	_click_top(t2 - Vector3i.UP)
-	var wall: Vector3i = at.call(-3, -1)
+	var wall: Vector3i = at.call(-3, -1) + Vector3i(0, 2 * B, 0)   # at eye level, so the ray meets its side and not its top
 	_block(wall, GameMaterials.STONE)
 	await tree.create_timer(0.3).timeout
-	main._aim_use(Vector3(wall) + Vector3(0.001, 0.5, 0.5) * Settings.BLOCK)   # the stone's west face
+	main._aim_use(Vector3(wall) + Vector3(B - 0.001, 0.5 * B, 0.5 * B))   # the stone's east face, the player's side
 	await tree.create_timer(0.4).timeout
-	r["torches_placed"] = [main.get_world_voxel(t1) == GameMaterials.TORCH, main.get_world_voxel(t2) == GameMaterials.TORCH]
-	r["torch_on_wall"] = main.get_world_voxel(wall + Vector3i(-1, B / 2, B / 2)) == GameMaterials.TORCH
+	# a torch is a stamp whose base voxel is the stick (ADR 0053): judge it by its entity
+	r["torches_placed"] = [main.blocks.at(t1) is TorchEntity, main.blocks.at(t2) is TorchEntity]
+	r["torch_on_wall"] = main.blocks.all_of("torch").any(func(e) -> bool: return e.wall != Vector3i.ZERO)
 	r["torch_lights"] = main.torch_lights.stats.duplicate()
 
 	# ---- shelter: thatch, wattle, wattle and daub ----

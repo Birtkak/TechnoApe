@@ -207,7 +207,7 @@ func run(p_main: Node) -> void:
 ## own ray meets this column (as a player shifts their aim), so a column nearer the player as tall as
 ## this one does not take the blow (the bar's ends are low next to a tall middle).
 func _blow(tree: SceneTree, anvil: AnvilEntity, x: int, z: int, push: Vector2i) -> void:
-	var k := float(Settings.BLOCK) / AnvilEntity.N
+	var k := float(BlockEntities.width_of(anvil.kind)) / AnvilEntity.N
 	var cam: Camera3D = main.player.camera
 	for f in [0.3, 0.45, 0.1, -0.2, -0.4]:
 		var top := Vector3(anvil.pos) + Vector3((x + 0.5 + f * push.x) * k, (AnvilEntity.BASE_H + anvil.height(x, z)) * k - 0.02, (z + 0.5 + f * push.y) * k)

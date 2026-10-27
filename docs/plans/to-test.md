@@ -10,6 +10,19 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Start to iron, playtest readiness (2026-10-27)
+
+New world. Scripted checks of the whole road (knapping, pit kilns, copper, crafting in the world, bronze,
+bloomery, forge, bronze anvil) pass again; two fixes you may notice:
+
+- [ ] Anvils, the forge, the bloomery and the firepit are 1 m pieces now, like the table and the furnace
+      (ADR 0076). They need a free 1 m footprint ("No room" otherwise); a piece placed against another
+      lines up flush with it. Smithing on the anvil: the 8x8 grid cells are 12.5 cm now, is aiming at a
+      column easier? Old saves keep their 0.5 m bodies under a 1 m view: break and replace them.
+- [ ] Held tools and blocks are bigger in the hand. Too big, right, or still small?
+- [ ] First load: no hitch the first time a fire or liquid shows up (every terrain material's pipeline
+      is compiled under the loading screen again; it had silently stopped doing so).
+
 ## The far horizon, off by default (2026-10-27, ADR 0075, proposed)
 
 Settings > Video > **Far horizon**: Off (the world ends in the sky, as ADR 0073) or 384 m / 768 m / 1.5 km;

@@ -177,7 +177,7 @@ func _push(e: MegalithEntity, dir: Vector3) -> void:
 		return
 	e.push += 1
 	main.work._wear_held()
-	main.work._particles("block_hit", WorkSystem._at(e.pos, Vector3(0.5, 0.1, 0.5)), GameMaterials.DIRT)
+	main.work._particles("block_hit", main.work._at(e.pos, Vector3(0.5, 0.1, 0.5)), GameMaterials.DIRT)
 	if e.push < PUSH_STROKES:
 		return
 	e.push = 0

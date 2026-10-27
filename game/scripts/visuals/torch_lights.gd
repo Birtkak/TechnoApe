@@ -120,7 +120,8 @@ func _assign() -> void:
 			near.append([d2, at, {}])
 	var fire := {"range_m": Settings.fire_light_range_m, "energy": Settings.fire_light_energy, "color": FIRE_COLOR.to_html(false)}
 	for e in main.blocks.lit():
-		var at := Vector3(e.pos) + Vector3(Settings.BLOCK * 0.5, Settings.m2v(0.4), Settings.BLOCK * 0.5)
+		var w := BlockEntities.width_of(e.kind) * 0.5
+		var at := Vector3(e.pos) + Vector3(w, Settings.m2v(0.4), w)
 		var d2 := at.distance_squared_to(eye)
 		if d2 <= r2:
 			near.append([d2, at, fire])

@@ -200,16 +200,16 @@ func test_furnace_slot_rules_and_shift_click() -> void:
 # ---------- store ----------
 
 func test_store_remove_returns_contents_and_ticks_furnaces() -> void:
-	var c: ChestEntity = store.create(Vector3i(5, 5, 5), "chest")
+	var c: ChestEntity = store.create(Vector3i(20, 5, 5), "chest")
 	c.inv.set_slot(2, {"id": "coal", "count": 7})
 	var f := _furnace()
 	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "sand", "count": items.units("sand")})
 	f.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 1})
 	var flipped := store.tick()
 	assert_array(flipped).contains_exactly([Vector3i(1, 2, 3)])
-	assert_object(store.get_or_create(Vector3i(5, 5, 5), "chest")).is_same(c)
-	assert_array(store.remove(Vector3i(5, 5, 5))).contains_exactly([{"id": "coal", "count": 7}])
-	assert_bool(store.has(Vector3i(5, 5, 5))).is_false()
+	assert_object(store.get_or_create(Vector3i(20, 5, 5), "chest")).is_same(c)
+	assert_array(store.remove(Vector3i(20, 5, 5))).contains_exactly([{"id": "coal", "count": 7}])
+	assert_bool(store.has(Vector3i(20, 5, 5))).is_false()
 	assert_int(store.size()).is_equal(1)
 	var s := store.summary()
 	assert_int(s["count"]).is_equal(1)
@@ -225,7 +225,7 @@ func test_crafting_table_recipes_need_the_table() -> void:
 
 
 func test_save_and_load_round_trip() -> void:
-	var c: ChestEntity = store.create(Vector3i(5, 6, 7), "chest")
+	var c: ChestEntity = store.create(Vector3i(20, 6, 7), "chest")
 	c.inv.set_slot(26, {"id": "coal", "count": 7})
 	var f := _furnace()
 	f.inv.set_slot(FurnaceEntity.INPUT, {"id": "oak_log", "count": 4 * items.units("oak_log")})
@@ -238,7 +238,7 @@ func test_save_and_load_round_trip() -> void:
 	var other := BlockEntities.new(items, recipes)
 	assert_bool(other.load_file(path)).is_true()
 	assert_int(other.size()).is_equal(2)
-	var c2: ChestEntity = other.at(Vector3i(5, 6, 7))
+	var c2: ChestEntity = other.at(Vector3i(20, 6, 7))
 	assert_dict(c2.inv.get_slot(26)).is_equal({"id": "coal", "count": 7})
 	var f2: FurnaceEntity = other.at(Vector3i(1, 2, 3))
 	assert_int(f2.cook).is_equal(150)

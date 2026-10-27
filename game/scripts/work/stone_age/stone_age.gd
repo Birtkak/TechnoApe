@@ -176,7 +176,7 @@ func _each_second() -> void:
 		var was: bool = e.smoky
 		e.smoky = _fire_near(e.pos)
 		if e.smoky:
-			main.work._particles("smoke", WorkSystem._at(e.pos, Vector3(0.5, 1.1, 0.5)), 0)
+			main.work._particles("smoke", main.work._at(e.pos, Vector3(0.5, 1.1, 0.5)), 0)
 		if was != e.smoky:
 			e.changed.emit()
 	var inv: Inventory = main.player_inv.inv
@@ -379,7 +379,7 @@ func _dig_oven(hit: VoxelRaycastResult) -> bool:
 			return true
 	_new_piece(p, "earth_oven")
 	main.work._wear_held()
-	main.work._particles("block_hit", WorkSystem._at(p, Vector3(0.5, 0.5, 0.5)), GameMaterials.DIRT)
+	main.work._particles("block_hit", main.work._at(p, Vector3(0.5, 0.5, 0.5)), GameMaterials.DIRT)
 	stats["ovens_dug"] += 1
 	main.work._say("An earth oven: lay birch bark (for tar) or flint (to temper it) in it.")
 	return true
@@ -570,19 +570,19 @@ func _use_piece(e: RefCounted, held: Dictionary, first_press: bool, hit: VoxelRa
 func _apply(e: RefCounted, res: Dictionary, held: Dictionary, say: bool = true) -> void:
 	if int(res.get("consume", 0)) > 0 and _consumes():
 		main.player_inv.consume_held(int(res["consume"]))
-	main.work._give(res.get("give", []), WorkSystem._at(e.pos, Vector3(0.5, 0.5, 0.5)))
+	main.work._give(res.get("give", []), main.work._at(e.pos, Vector3(0.5, 0.5, 0.5)))
 	if res.get("stroke", false):
 		stats["strokes"] += 1
 		main.work._wear_held()
 		var mat := GameMaterials.BIRCH_LOG if e is DugoutEntity else (GameMaterials.SANDSTONE if e.station == "sandstone" else (GameMaterials.STONE if e.station == "stone" else GameMaterials.DIRT))
-		main.work._particles("block_hit", WorkSystem._at(e.pos, Vector3(0.5, 0.1, 0.5)), mat)
+		main.work._particles("block_hit", main.work._at(e.pos, Vector3(0.5, 0.1, 0.5)), mat)
 	if res.get("pick", false):
 		_pick(e, stroke_options(e.station, e.loaded[0]))
 	var done: Dictionary = res.get("done", {})
 	if not done.is_empty():
 		stats["worked"].append(done["id"])
 		main.work._note("worked", done["id"])
-		main.spawn_item(done, WorkSystem._at(e.pos, Vector3(0.5, 0.3, 0.5)), Vector3(0, 1.5, 0))
+		main.spawn_item(done, main.work._at(e.pos, Vector3(0.5, 0.3, 0.5)), Vector3(0, 1.5, 0))
 	if res.get("remove", false):
 		main.work.remove_piece(e, GameMaterials.WATER_STATIC if e is WaterWorkEntity else GameMaterials.AIR)
 	if say and String(res.get("msg", "")) != "":
