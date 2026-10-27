@@ -116,7 +116,13 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   no downhill run, nothing standing on a cell that moved this tick); `mark_` is the per-pass move marker, `stamp_`
   still counts ticks. A surface evens out by half the difference to a lower neighbour (ends flat), rests at a
   difference under two eighths. `test/test_liquid_speed.gd`. `water_test=1 target=river` checks a
-  trench and a crater; kernel tests `test/test_sim_v6.gd`. What still moves when the window walks on finishes in a pin (ADR 0050).
+  trench and a crater; kernel tests `test/test_sim_v6.gd`. A still body beside a dug hole (2026-10-27) also wakes at its
+  own moving water two eighths lower beside it, and at a river step whose lower cell has moving water beside it (a
+  drained bank's edge), so it no longer sleeps as a 45-degree wall with the hole a third full (`tools/water_bench.gd`).
+  **Gases and flames (2026-10-27):** they move through air (the displace table never let density-0 cells enter air, so
+  smoke, steam and flames sat where born); a `lifetime` past 255 ticks counts down every other tick (smoke 330 = 11 s).
+  Tall grass and ferns catch at 0.6 and burn 2 s, so a meadow or forest floor fire keeps going while touching tufts
+  connect; it dies out at ~20 % cover, on bare ground, at water and at the sim window (`tools/fire_bench.gd` forest_floor). What still moves when the window walks on finishes in a pin (ADR 0050).
   No waterfalls (the sheet, spray, roar and landmark are gone, GEN_VERSION 21): a river just drops over its cliff.
   **Every liquid looks like water (2026-10-25):** one fluid shader body (`terrain_fluid.gdshaderinc`), no atlas texture;
   each liquid's character (colours by depth, rim, ripples, gloss, glow, oil sheen, sludge bubbles) is

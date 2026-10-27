@@ -94,3 +94,24 @@ func test_sample_cells_flags_moving_cells_and_fresh_gas() -> void:
 	assert_int(moving).is_greater(0)
 	assert_int(resting).is_greater(0)
 	assert_int(fresh).is_greater(0)
+
+
+## Smoke lives 11 s and rises fast (bug report 2026-10-27 18-11-32): its 330-tick lifetime is past a byte, so the
+## kernel counts it down every other tick; a puff in a closed box is still there at 300 ticks and gone by 340.
+func test_smoke_outlives_a_byte_of_ticks() -> void:
+	var w := _world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 48, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(8, 8, 8), Vector3i(40, 40, 40), 0)
+	w.fill_box(Vector3i(20, 10, 20), Vector3i(22, 12, 22), GameMaterials.SMOKE)
+	_run(w, 300)
+	assert_int(w.count_material(GameMaterials.SMOKE)).is_greater(0)
+	_run(w, 40)
+	assert_int(w.count_material(GameMaterials.SMOKE)).is_equal(0)
+
+
+## A puff in open air is near the top of a 6 m box within 2 s (at the old pace it reached about half as high).
+func test_smoke_rises_fast() -> void:
+	var w := _world()
+	w.fill_box(Vector3i(20, 2, 20), Vector3i(22, 4, 22), GameMaterials.SMOKE)
+	_run(w, 60)
+	assert_int(w.count_in_box(Vector3i(0, 40, 0), Vector3i(48, 48, 48), GameMaterials.SMOKE)).is_greater(4)

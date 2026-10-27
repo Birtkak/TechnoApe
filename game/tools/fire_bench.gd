@@ -34,6 +34,7 @@ func _init() -> void:
 	results.append(_run("wood_wall", _wall))
 	results.append(_run("tree", _tree))
 	results.append(_run("grass_field", _grass))
+	results.append(_run("forest_floor", _floor))
 	results.append(_run("wood_by_water", _wet))
 	for r in results:
 		if not r.get("skipped", false):
@@ -78,6 +79,15 @@ func _tree(w: SimWorld) -> Dictionary:
 func _grass(w: SimWorld) -> Dictionary:
 	w.fill_box(Vector3i(0, 3, 0), Vector3i(96, 4, 96), GameMaterials.DIRT)
 	w.fill_box(Vector3i(0, 4, 0), Vector3i(96, 5, 96), GameMaterials.TALL_GRASS)
+	return {"ignite": [Vector3i(48, 4, 48)], "origin": Vector3i(48, 4, 48), "axis": Vector3i(1, 0, 0), "mat": GameMaterials.TALL_GRASS}
+
+
+## Tufts on 30 % of the ground (a FineGen meadow or forest floor): near the cover where touching tufts stop
+## connecting, so "left" says whether a grass fire keeps going (at 20 % it dies out whatever the tuning).
+func _floor(w: SimWorld) -> Dictionary:
+	w.fill_box(Vector3i(0, 3, 0), Vector3i(96, 4, 96), GameMaterials.DIRT)
+	w.scatter(Vector3i(0, 4, 0), Vector3i(96, 5, 96), GameMaterials.TALL_GRASS, 0.3, 11)
+	w.fill_box(Vector3i(46, 4, 46), Vector3i(51, 5, 51), GameMaterials.TALL_GRASS)   # a lit patch to start from
 	return {"ignite": [Vector3i(48, 4, 48)], "origin": Vector3i(48, 4, 48), "axis": Vector3i(1, 0, 0), "mat": GameMaterials.TALL_GRASS}
 
 
