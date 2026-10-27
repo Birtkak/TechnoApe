@@ -86,14 +86,17 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   it beside or below; then the cell becomes plain mass-conserving `water` and drains into the hole, cell by cell (the cell it
   leaves is the next opening); the river beside a hole drops, nothing refills it. Air over a river's own lower step never wakes
   it, moving water in a hole never climbs out onto still water, but water that rests on a still body spreads flat over it.
-  Lava sinking through still water trades places with it (the water rises, finite).
+  Lava sinking through still water trades places with it (the water rises, finite). **ADR 0081:** a lone still cell
+  (none of its kind on its six sides: the specks the generator leaves on cave walls) wakes at any air beside or below it;
+  reactions of one pair chain (`Reaction::next`, rolled in data order): lava + water boils the water to steam at 0.6 and
+  only then crusts to obsidian at 0.25, so the steam grows with the water the lava touches.
   **Generated liquids (ADR 0069 C):** every pool and sea is a still kind (`water_static`, `toxic_sludge_static`,
   `lava_static`; the deep lava sea too); FineGen drops lone still cells (air above, none of its kind beside, air beside);
   river surfaces interpolate with plain bilinear weights and blend every stream segment in reach by distance, so
   they are continuous; a drop of three or more cells between neighbouring surface cells is a cascade where the bed
   drops as much (the river's surface is clamped to the ground), and `water_surface_probe.gd` counts the rest as
   terraces; `tools/column_probe.gd` prints a column's hydrology. GEN_VERSION 22.
-  **Liquid speed (ADR 0069 B):** `liquid_speed` substeps per material (water 3, oil, blood, sludge 2, lava 1): after
+  **Liquid speed (ADR 0069 B):** `liquid_speed` substeps per material (water 4 since ADR 0081, oil, blood, sludge 2, lava 1): after
   the main pass the kernel runs extra passes that only spread and pour moving liquids with substeps left (no falling,
   no downhill run, nothing standing on a cell that moved this tick); `mark_` is the per-pass move marker, `stamp_`
   still counts ticks. A surface evens out by half the difference to a lower neighbour (ends flat), rests at a
@@ -113,6 +116,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   in `tools/sound_recipes.json`, ffmpeg in `~/Tools/ffmpeg/`). It listens instead of being called: player signals,
   `ParticleFx.burst_played` (names in `fx.sound_bursts`), `FallingPieces.piece_event`, every UI button via `node_added`;
   call `Sound.play(name, pos)` only where nothing else tells the story. Buses Music / World / UI; JSON "sound"; `sound=0`.
+  Sim loops (ADR 0081) key on `sample_cells` flag bits: `"where": "moving"` (the cell moved this or the last tick: sand,
+  gravel, earth and snow loops, one asset at a `pitch` and `db` per loop) and `"fresh"` (a gas just born: the sizzle of
+  steam off lava).
   **Four Stone Age stages (ADR 0059):** the book's Old, Middle, New and Copper Stone Age chapters; `StoneAge`
   (`scripts/work/stone_age/`, hooked first into the player's right click as `item_use`) runs earth ovens (tar, tempered
   flint), racks (dry/smoke), stroke work (polish, quern, sew, loom), water work (retting, traps), canoes, megaliths and

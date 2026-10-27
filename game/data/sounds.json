@@ -179,9 +179,13 @@
   "embers": {"sound": "loop/fire_small", "materials": ["furnace_lit"], "full_hits": 2},
   "water": {"sound": "loop/water", "materials": ["water"], "where": "air_above", "full_hits": 30},
   "waterfall": {"sound": "loop/water_fall", "materials": ["water"], "where": "air_below", "full_hits": 12},
-  "sand": {"sound": "loop/sand", "materials": ["sand", "gravel"], "where": "air_below", "full_hits": 8},
+  "sand": {"sound": "loop/sand", "materials": ["sand", "sand_static", "red_earth", "ash", "red_ochre", "yellow_ochre"], "where": "moving", "full_hits": 8},
+  "gravel": {"sound": "loop/sand", "pitch": 0.75, "db": -7, "materials": ["gravel", "gravel_static"], "where": "moving", "full_hits": 8},
+  "earth": {"sound": "loop/sand", "pitch": 0.6, "db": -11, "materials": ["dirt", "grass", "savanna_grass", "farmland", "farmland_moist", "leaf_litter"], "where": "moving", "full_hits": 8},
+  "snow": {"sound": "loop/sand", "pitch": 1.35, "db": -14, "materials": ["snow"], "where": "moving", "full_hits": 8},
   "lava": {"sound": "loop/lava", "materials": ["lava"], "where": "air_above", "full_hits": 12},
-  "steam": {"sound": "loop/steam", "materials": ["steam"], "full_hits": 30}
+  "steam": {"sound": "loop/steam", "materials": ["steam"], "full_hits": 30},
+  "sizzle": {"sound": "loop/steam", "pitch": 1.8, "db": -6, "materials": ["steam"], "where": "fresh", "full_hits": 6}
  },
  "music": {
   "db": -8,

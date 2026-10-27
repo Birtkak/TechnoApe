@@ -81,7 +81,11 @@ public:
     struct Reaction {
         uint8_t in1, in2, out1, out2;
         uint16_t probability; // 0..65535 per tick per neighbour test
+        int16_t next = -1;    // the next reaction of the same input pair (ADR 0081): each rolls in turn, the first hit fires
     };
+    // sample_cells flag bits beyond Flags: the cell moved this or the last tick (SAMPLE_MOVED), or is a gas or fire
+    // born within the last eight ticks (SAMPLE_FRESH); sound loops key off them (ADR 0081)
+    enum SampleBits : uint8_t { SAMPLE_MOVED = 8, SAMPLE_FRESH = 16 };
 
     SimWorld();
     ~SimWorld();
