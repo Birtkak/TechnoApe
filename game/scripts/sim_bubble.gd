@@ -220,6 +220,10 @@ func _process_timed(delta: float) -> void:
 	else:
 		_move_window()
 	_load_pending()
+	# a fire rewrites chunks faster than godot_voxel can apply their remeshes: slow the remeshing while it does
+	var rate := Settings.edit_remesh_rate_busy if _push_queue.size() > Settings.remesh_busy_queue else Settings.edit_remesh_rate
+	if "edit_remesh_rate" in world.terrain and world.terrain.edit_remesh_rate != rate:
+		world.terrain.edit_remesh_rate = rate
 	if not _push_queue.is_empty() and not hold_pushes:
 		var t1 := Time.get_ticks_usec()
 		_drain_push(Settings.sim_push_budget_ms * (PIN_PUSH_SHARE if pinned else 1.0))

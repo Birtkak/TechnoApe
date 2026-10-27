@@ -30,6 +30,8 @@ var far_fade_start_m := 28.0            # terrain textures fade toward their til
 var far_fade_end_m := 40.0
 var mesh_upload_budget_mb := 4.0        # terrain mesh data applied per frame (ADR 0020, our godot_voxel build); 0 = unlimited. 4 MB since the forests (2026-10-23): a 15 MB frame cost 16 ms
 var edit_remesh_rate := 300.0           # edit-caused terrain remeshes per second, token bucket (ADR 0020, our godot_voxel build): the water spill's p99 8.3 -> 5.1 ms, 60 s of flow p99 3.8; 0 = unlimited
+var edit_remesh_rate_busy := 60.0       # ... while the sim's push backlog is over remesh_busy_queue chunks (a forest fire: ~1600): each applied remesh costs the main thread ms, 300/s gave p99 ~48 ms, 60/s ~32
+var remesh_busy_queue := 256            # a 35k-voxel water fill peaks at ~90 queued chunks
 var terrain_mesh_block := 32            # 16 or 32 voxels; 32 = 3x fewer draw calls (measured), coarser re-mesh granularity
 var cache_generated_blocks := true      # keep generated voxel data in memory (edits write into it; off = memory for re-generation)
 # Simulation

@@ -372,14 +372,15 @@ void SimWorld::set_voxel(Vector3i p, int p_material) {
     touch(p.x, p.y, p.z);
 }
 
+// Single-cell reads never wait for a running tick: a tick only swaps cells in place (cells_ is never
+// reallocated while busy), so a byte read is safe and at worst sees a moving cell one tick early or late.
+// Waiting here stalled the main thread for the rest of the tick, up to 30 ms in a forest fire.
 int SimWorld::get_voxel(Vector3i p) const {
-    wait_readable();
     if (!in_world(p.x, p.y, p.z)) return -1;
     return cells_[idx(p.x, p.y, p.z)].mat;
 }
 
 int SimWorld::get_flags(Vector3i p) const {
-    wait_readable();
     if (!in_world(p.x, p.y, p.z)) return 0;
     return cells_[idx(p.x, p.y, p.z)].flags;
 }

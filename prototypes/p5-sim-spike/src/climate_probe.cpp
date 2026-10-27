@@ -18,7 +18,7 @@ Dictionary ClimateProbe::probe(const Ref<SimWorld> &sim, Vector3i start, Vector3
     out["heat"] = 0.0;
     out["heat_cells"] = 0;
     if (sim.is_null()) return out;
-    sim->wait_readable();
+    // no wait for a running tick (SimWorld::get_voxel): an approximate reading, and waiting stalled play 10-14 ms in a fire
     auto mat = [&](int x, int y, int z) -> int {   // -1 outside the window or unloaded
         if (!sim->is_open(x, y, z)) return -1;
         return sim->cells_[sim->idx(x, y, z)].mat;
