@@ -17,9 +17,9 @@ static const bool KIND_COAST[NKIND] = {false, false, false, false, false, false,
 // bit b set = biome id b (world_gen.h / biome_table.gen.h) may hold the kind
 static const uint64_t KIND_BIOMES[NKIND] = {0x00000000051a00d8ULL, 0x00000000011a00c8ULL, 0x00000000015200c8ULL, 0x00000000042c0098ULL, 0x0000000002500020ULL, 0x0000000004ac0010ULL, 0x000000000000c006ULL};
 // sizes in macro cells (0.5 m)
-static const int KIND_HALF_U[NKIND][2] = {{5, 10}, {6, 7}, {7, 10}, {4, 5}, {5, 8}, {4, 5}, {7, 9}};
-static const int KIND_HALF_V[NKIND][2] = {{5, 10}, {6, 7}, {7, 10}, {9, 10}, {4, 7}, {4, 5}, {3, 4}};
-static const int KIND_TOP[NKIND] = {10, 15, 8, 3, 7, 10, 7};
+static const int KIND_HALF_U[NKIND][2] = {{5, 10}, {6, 7}, {10, 14}, {4, 5}, {5, 8}, {4, 5}, {7, 9}};
+static const int KIND_HALF_V[NKIND][2] = {{5, 10}, {6, 7}, {10, 14}, {9, 10}, {4, 7}, {4, 5}, {3, 4}};
+static const int KIND_TOP[NKIND] = {10, 15, 12, 3, 7, 10, 7};
 static const int KIND_DEPTH[NKIND] = {0, 0, 0, 8, 0, 0, 3};
 // material ids: wall, trim, floor, extra
 static const uint16_t KIND_MAT[NKIND][4] = {{1, 22, 1, 109}, {109, 173, 22, 36}, {160, 46, 1, 160}, {173, 109, 177, 22}, {84, 78, 24, 21}, {173, 46, 109, 20}, {36, 6, 36, 21}};

@@ -32,10 +32,10 @@ struct Prepared {
     uint16_t mat[4] = {};             // wall, trim, floor, extra
     PotSpot pots[4];
     int npots = 0;
-    // stone circle: up to 12 stones (centre u, v; radial direction; height; fallen)
+    // stone circle: up to 16 stones (centre u, v; radial direction; height; fallen)
     int nstones = 0;
-    float st_u[12] = {}, st_v[12] = {}, st_c[12] = {}, st_s[12] = {}, st_h[12] = {};
-    bool st_fallen[12] = {};
+    float st_u[16] = {}, st_v[16] = {}, st_c[16] = {}, st_s[16] = {}, st_h[16] = {};
+    bool st_fallen[16] = {};
 };
 
 static constexpr uint16_t PASS = 0xFFFF;   // voxel(): leave it to the normal generator

@@ -207,7 +207,7 @@ private:
     bool stamp_at_cell(int cx, int cz, Stamp &out) const;
     int stamps_near(int x0, int z0, int x1, int z1, Stamp *out, int max_out) const;
     static constexpr int RUIN_CELL = 160;
-    static constexpr int RUIN_MAX_HALF = 10;
+    static constexpr int RUIN_MAX_HALF = 14;
     using Ruin = technosim_ruin::Ruin;
 
     int seed_ = 1337;

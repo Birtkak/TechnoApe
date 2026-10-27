@@ -41,9 +41,13 @@ constexpr int BIG_CAVE_LOD = 2;
 constexpr int CAVE_STEP = 4;
 // Cave pools: where n_pool_ (~25 m blobs) is above this, a flat stretch of cave floor holds its biome's pool.
 constexpr float POOL_THR = 0.0f;
-// Ore stringers (ADR 0077): sheets where a value noise sits within STRINGER_HALF of its middle (about one voxel
-// thick, ~4 % of the rock), from STRINGER_MIN_DEPTH down, within STRINGER_REACH voxels of cave air.
-constexpr float STRINGER_HALF = 0.012f;   // 0.022 sugar-coated the shafts (capture 2026-10-27)
+// Ore stringers (ADR 0077, 0086): sheets where a value noise sits within STRINGER_HALF of its middle (two to three
+// voxels thick), from STRINGER_MIN_DEPTH down, within STRINGER_REACH voxels of cave air. Ore lies only in the sheet's
+// clumps (a value noise STRINGER_CLUMP voxels across over a threshold), not in single voxels picked one by one (bug
+// report 2026-10-27 17-49-40); the sheet is 2.5 times the old one and the clumps hold 1/2.5 of it, so the amount of
+// ore stays as before.
+constexpr float STRINGER_HALF = 0.03f;    // 0.012 with per-voxel picks; 0.022 that way sugar-coated the shafts
+constexpr float STRINGER_CLUMP = 3.5f;
 constexpr int STRINGER_MIN_DEPTH = 40 * FS;   // 20 m
 constexpr int STRINGER_REACH = 12;            // 1.5 m
 // Fallen sticks' half-widths in voxels (FStamp::r): thin (one voxel), medium (two), thick (two
@@ -1645,10 +1649,15 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                         for (int k = std::max(0, y + 1 - STRINGER_REACH / step); k <= std::min(sy + 1, y + 1 + STRINGER_REACH / step) && !near; k++) near = cave[k];
                         if (!near) near = cave_at(wx - STRINGER_REACH, wy, wz) || cave_at(wx + STRINGER_REACH, wy, wz) || cave_at(wx, wy, wz - STRINGER_REACH) || cave_at(wx, wy, wz + STRINGER_REACH);
                         if (near) {
-                            const uint32_t hs = h3(wx, wz, wy * 1031 + g.seed_ + 7807);
-                            const float p = 0.2f + 0.25f * smoothstep(80.0f * FS, 400.0f * FS, (float)(h - wy));
-                            if ((float)(hs & 1023) < p * 1024.0f)
-                                mat = (uint16_t)(((hs >> 10) & 3) == 0 ? technosim_ore::SECONDARY[stringer] : technosim_ore::PRIMARY[stringer]);
+                            // richer deeper: 8 % of the sheet in clumps at 20 m down, 18 % from 200 m (threshold
+                            // from the value noise's spread, measured)
+                            const float thr = 0.765f - 0.085f * smoothstep(80.0f * FS, 400.0f * FS, (float)(h - wy));
+                            constexpr float C = STRINGER_CLUMP;
+                            if (value_noise3((float)wx / C, (float)wy / C, (float)wz / C, g.seed_ + 7811) > thr) {
+                                // one ore per clump-sized cell, so a clump digs out mostly as one ore
+                                const uint32_t hs = h3(floor_div(wx, 4), floor_div(wz, 4), floor_div(wy, 4) * 1031 + g.seed_ + 7807);
+                                mat = (uint16_t)((hs & 3) == 0 ? technosim_ore::SECONDARY[stringer] : technosim_ore::PRIMARY[stringer]);
+                            }
                         }
                     }
                 }

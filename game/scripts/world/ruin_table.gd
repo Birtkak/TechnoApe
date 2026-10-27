@@ -7,7 +7,7 @@ extends RefCounted
 
 const HEADER_PATH := "prototypes/p5-sim-spike/src/ruin_table.gen.h"
 const MACRO_PER_M := 2           # the generator lays ruins out in 0.5 m macro cells (FineGen::FS voxels)
-const MAX_HALF_M := 5.0          # WorldGen::RUIN_MAX_HALF macro cells
+const MAX_HALF_M := 7.0          # WorldGen::RUIN_MAX_HALF macro cells
 const MAX_TOP_M := 8.0
 const MAX_DEPTH_M := 4.5
 const MAX_POTS := 4              # the developer's limit (2026-10-25 bug report)

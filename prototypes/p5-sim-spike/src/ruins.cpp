@@ -155,7 +155,7 @@ void prepare(const Ruin &r, Prepared &p) {
     p.nstones = 0;
     if (p.shape == S_STONE_CIRCLE) {
         const uint32_t h = hash((int)r.seed, 41, 3);
-        p.nstones = 8 + (int)(h % 5);
+        p.nstones = 10 + (int)(h % 5);   // up to 14: ruins.h holds 16
         const float rad = (float)p.U - 1.5f;
         for (int i = 0; i < p.nstones; i++) {
             const uint32_t sh = hash((int)r.seed, i, 43);
@@ -165,7 +165,7 @@ void prepare(const Ruin &r, Prepared &p) {
             p.st_s[i] = std::sin(a);
             p.st_u[i] = rad * p.st_c[i];
             p.st_v[i] = rad * p.st_s[i];
-            p.st_h[i] = 4.0f + (float)((sh >> 8) % 4) + (float)((sh >> 12) & 3) * 0.25f;
+            p.st_h[i] = 7.0f + (float)((sh >> 8) % 5) + (float)((sh >> 12) & 3) * 0.25f;   // 3.5..5.9 m: under top_m
             p.st_fallen[i] = ((sh >> 16) & 3) == 0;
         }
     }
@@ -294,7 +294,7 @@ uint16_t stone_circle(const Prepared &p, const Ctx &c) {
     const Ruin &r = p.r;
     if (c.fy < 0.0f) return TERRAIN;
     // the altar stone in the middle
-    if (std::fabs(c.fu) <= 1.0f && std::fabs(c.fv) <= 0.55f && c.fy < 1.0f) return p.mat[M_FLOOR];
+    if (std::fabs(c.fu) <= 1.5f && std::fabs(c.fv) <= 0.8f && c.fy < 1.25f) return p.mat[M_FLOOR];
     const float R = (float)p.U;
     for (int i = 0; i < p.nstones; i++) {
         const float ru = c.fu - p.st_u[i], rv = c.fv - p.st_v[i];
@@ -302,17 +302,17 @@ uint16_t stone_circle(const Prepared &p, const Ctx &c) {
         const float h = p.st_h[i];
         if (!p.st_fallen[i]) {
             if (c.fy >= h) continue;
-            float half = 1.1f;
-            if (c.fy > h - 1.0f) half *= 1.0f - 0.45f * (c.fy - (h - 1.0f));   // a rounded top
-            if (std::fabs(radial) <= 0.6f && std::fabs(tang) <= half) {
+            float half = 1.7f;
+            if (c.fy > h - 1.5f) half *= 1.0f - 0.3f * (c.fy - (h - 1.5f));   // a rounded top
+            if (std::fabs(radial) <= 0.9f && std::fabs(tang) <= half) {
                 if (c.fy >= h - 0.3f && (hash(c.wx, c.wz, (int)r.seed + 45) & 1)) return p.mat[M_TRIM];   // moss
                 return p.mat[M_WALL];
             }
         } else {
             // toppled inward, never as far as the altar or the pots beside it
-            const float len = std::min(h, R - 4.5f);
-            if (radial <= 0.6f && radial >= -len && std::fabs(tang) <= 1.1f && c.fy < 1.2f) {
-                if (c.fy >= 0.95f && (hash(c.wx, c.wz, (int)r.seed + 47) & 1)) return p.mat[M_TRIM];
+            const float len = std::min(h, R - 6.0f);
+            if (radial <= 0.9f && radial >= -len && std::fabs(tang) <= 1.7f && c.fy < 1.8f) {
+                if (c.fy >= 1.5f && (hash(c.wx, c.wz, (int)r.seed + 47) & 1)) return p.mat[M_TRIM];
                 return p.mat[M_EXTRA];
             }
         }

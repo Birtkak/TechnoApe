@@ -903,7 +903,7 @@ bool WorldGen::ruin_at_cell(int cx, int cz, Ruin &out) const {
     // ADR 0062: one ruin in some 80 m cells; its kind fits the biome at its centre (data/ruins.json).
     uint32_t hsh = hash3(cx, cz, seed_ + 991);
     if ((hsh & 0xFF) > 36) return false;
-    int margin = RUIN_MAX_HALF + 4;
+    int margin = 14;   // the old RUIN_MAX_HALF + 4: ruins stay where they were when stone circles grew (ADR 0086)
     int span = RUIN_CELL - 2 * margin;
     int x = cx * RUIN_CELL + margin + (int)((hsh >> 16) % (uint32_t)span);
     int z = cz * RUIN_CELL + margin + (int)((hsh >> 24) % (uint32_t)span);

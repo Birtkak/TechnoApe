@@ -108,6 +108,7 @@ circle, crypt, mud house, shrine, wreck), picked by the biome at the centre; sha
 Level ground only (centre and eight points a cell outside within 1.5 m); the footprint is flattened
 and the ground ramps to the land over 4 cells round it. 1-4 pots per ruin, each kind its own loot
 table. `find_nearest("ruin_<kind>")`, `find_nearest("crypt_room")`, `ruin_at(x, z)`.
+Footprints are at most 7 m from the centre (`RUIN_MAX_HALF`); stone circles 5-7 m with stones up to 6 m (ADR 0086).
 
 ## Biome blending (2026-10-22)
 Temperature, humidity and the height thresholds are jittered by a 50 m noise
