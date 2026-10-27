@@ -434,22 +434,36 @@ static func _build(sp: String, part: String) -> Array:
 	# sheep
 	match part:
 		"body":
-			# fleece 10 x 8 x 18 px around the 8 x 6 x 16 px body, curly shading
-			var size := Vector3i(20, 16, 36)
+			# a full, cloudy fleece: the 10 x 8 x 18 px core plus lumps of wool all over, curly shading
+			var size := Vector3i(24, 20, 40)
 			var c := _cells(size)
-			_box(c, size, Vector3i(0, 0, 0), size, WOOL + 1)
-			for i in 160:
-				_put(c, size, Vector3i(rng.randi_range(0, 19), rng.randi_range(0, 15), rng.randi_range(0, 35)), WOOL_SHADE + 1)
-			# rounded edges: shave the 12 box edges
-			for x in [0, 19]:
-				for y in [0, 15]:
-					for z in 36:
+			_box(c, size, Vector3i(2, 2, 2), Vector3i(22, 18, 38), WOOL + 1)
+			# rounded core: shave the 12 edges of the core box
+			for x in [2, 21]:
+				for y in [2, 17]:
+					for z in range(2, 38):
 						_put(c, size, Vector3i(x, y, z), 0)
-			for z in [0, 35]:
-				for y in [0, 15]:
-					for x in 20:
+			for z in [2, 37]:
+				for y in [2, 17]:
+					for x in range(2, 22):
 						_put(c, size, Vector3i(x, y, z), 0)
-			return [c, size, Vector3(-10, 0, -18) * s]
+			for i in 70:   # lumps: 2-thick tufts on the sides, back, rump and shoulders
+				var w := rng.randi_range(3, 6)
+				var h := rng.randi_range(3, 6)
+				var x0 := rng.randi_range(2, 22 - w)
+				var y0 := rng.randi_range(3, 18 - h)
+				var z0 := rng.randi_range(3, 38 - w)
+				match i % 5:
+					0: _box(c, size, Vector3i(0, y0, z0), Vector3i(3, y0 + h, z0 + w), WOOL + 1)
+					1: _box(c, size, Vector3i(21, y0, z0), Vector3i(24, y0 + h, z0 + w), WOOL + 1)
+					2: _box(c, size, Vector3i(x0, 17, z0), Vector3i(x0 + w, 20, z0 + w), WOOL + 1)
+					3: _box(c, size, Vector3i(x0, y0, 0), Vector3i(x0 + w, y0 + h, 3), WOOL + 1)
+					4: _box(c, size, Vector3i(x0, y0, 37), Vector3i(x0 + w, y0 + h, 40), WOOL + 1)
+			for i in 260:
+				var p := Vector3i(rng.randi_range(0, 23), rng.randi_range(0, 19), rng.randi_range(0, 39))
+				if c[p.x + size.x * (p.y + size.y * p.z)] > 0:
+					_put(c, size, p, WOOL_SHADE + 1)
+			return [c, size, Vector3(-12, -2, -20) * s]
 		"body_shorn":
 			var size := Vector3i(16, 12, 32)
 			var c := _cells(size)

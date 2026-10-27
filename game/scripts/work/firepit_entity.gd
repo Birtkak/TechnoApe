@@ -321,16 +321,22 @@ func contents() -> Array:
 func view_parts() -> Dictionary:
 	var size := Vector3i(8, 6, 8)
 	var c := WorkPalette.new_cells(size)
-	# a ring of stones, crossed sticks, ash or embers in the middle
-	for z in 8:
-		for x in 8:
-			var dx := x - 3.5
-			var dz := z - 3.5
-			var r2 := dx * dx + dz * dz
-			if r2 > 9.0 and r2 < 16.5 and (x + z) % 3 != 0:
-				c[WorkPalette.idx(size, x, 0, z)] = WorkPalette.STONE + 1
-			elif r2 <= 6.5:
-				c[WorkPalette.idx(size, x, 0, z)] = (WorkPalette.EMBER if is_lit() else WorkPalette.ASH) + 1
+	# a ring of big boulders (2 x 2 cells, one to three high, three stone tones) round a 4 x 4 bed of ash or
+	# embers; charred logs when there is no fuel
+	for z in range(0, 8, 2):
+		for x in range(0, 8, 2):
+			if x in [2, 4] and z in [2, 4]:
+				continue
+			var h := 1 + hash(Vector3i(x, 0, z)) % 3
+			var tone: int = WorkPalette.WALL_STONE[hash(Vector3i(x, 1, z)) % 3]
+			WorkPalette.box(c, size, Vector3i(x, 0, z), Vector3i(x + 2, h, z + 2), tone)
+			WorkPalette.box(c, size, Vector3i(x, h - 1, z), Vector3i(x + 2, h, z + 2), WorkPalette.STONE_LIGHT)
+	for z in range(2, 6):
+		for x in range(2, 6):
+			c[WorkPalette.idx(size, x, 0, z)] = (WorkPalette.EMBER if is_lit() else WorkPalette.ASH) + 1
+	if inv.get_slot(FUEL).is_empty() and inv.get_slot(VESSEL).is_empty() and inv.get_slot(INPUT).is_empty():
+		WorkPalette.box(c, size, Vector3i(2, 1, 3), Vector3i(6, 2, 4), WorkPalette.WOOD_DARK)
+		WorkPalette.box(c, size, Vector3i(3, 1, 2), Vector3i(4, 2, 6), WorkPalette.CHARCOAL)
 	# the fuel laid on: one more crossed stick per fuel item, up to firepit_fuel_max
 	var fuel := inv.get_slot(FUEL)
 	var logs := 0 if fuel.is_empty() else int(fuel["count"]) / maxi(items.units(fuel["id"]), 1)

@@ -259,12 +259,24 @@ static func build(sp: String, part: String) -> Array:
 			o = Vector3(-(10 + k) / 2.0, -4, -2)
 		"fox/tail", "wolf/tail":
 			var wolf := sp == "wolf"
-			size = Vector3i(6, 8, 16)
-			c = MobModel._cells(size)
-			_box(c, size, Vector3i(0, 2, 0), Vector3i(6, 8, 16), WOLF if wolf else FOX)
-			_box(c, size, Vector3i(0, 2, 0), Vector3i(6, 8, 4), WOLF_DARK if wolf else FOX_WHITE)   # the tip
-			_box(c, size, Vector3i(1, 0, 4), Vector3i(5, 2, 12), WOLF if wolf else FOX)   # it droops
-			o = Vector3(-3, -6, -16)
+			if wolf:
+				size = Vector3i(6, 8, 16)
+				c = MobModel._cells(size)
+				_box(c, size, Vector3i(0, 2, 0), Vector3i(6, 8, 16), WOLF)
+				_box(c, size, Vector3i(0, 2, 0), Vector3i(6, 8, 4), WOLF_DARK)   # the tip
+				_box(c, size, Vector3i(1, 0, 4), Vector3i(5, 2, 12), WOLF)   # it droops
+				o = Vector3(-3, -6, -16)
+			else:
+				# a bushy brush: narrow root, fat middle, white tip, fluff sticking out of the middle
+				size = Vector3i(10, 12, 22)
+				c = MobModel._cells(size)
+				_box(c, size, Vector3i(2, 4, 16), Vector3i(8, 10, 22), FOX)               # root
+				_box(c, size, Vector3i(1, 2, 8), Vector3i(9, 11, 16), FOX)                # the thick of it
+				_box(c, size, Vector3i(0, 3, 10), Vector3i(10, 9, 14), FOX)               # puffed out
+				_box(c, size, Vector3i(2, 0, 6), Vector3i(8, 4, 14), FOX_DARK)             # dark underside
+				_box(c, size, Vector3i(3, 4, 0), Vector3i(7, 8, 6), FOX_WHITE)             # white tip
+				_speckle(c, size, rng, 30, FOX_DARK, Vector3i(0, 6, 8), Vector3i(9, 11, 18))
+				o = Vector3(-5, -8, -22)
 		"fox/leg", "wolf/leg":
 			var wolf := sp == "wolf"
 			size = Vector3i(4, 16, 4) if wolf else Vector3i(4, 10, 4)
@@ -428,12 +440,17 @@ static func build(sp: String, part: String) -> Array:
 			_box(c, size, Vector3i(6, 0, 7), Vector3i(8, 2, 8), BOAR_DARK)
 			o = Vector3(-5, -2, 0)
 		"cave_spider/leg_l", "cave_spider/leg_r":
-			size = Vector3i(18, 16, 2)
+			# bent like a real spider's: out from the body, up to a high knee, then a long diagonal down
+			size = Vector3i(18, 20, 2)
 			c = MobModel._cells(size)
-			_box(c, size, Vector3i(0, 10, 0), Vector3i(10, 12, 2), SPIDER)           # out from the body
-			_box(c, size, Vector3i(8, 12, 0), Vector3i(12, 16, 2), SPIDER)           # up to the knee
-			_box(c, size, Vector3i(10, 14, 0), Vector3i(14, 16, 2), FOX_DARK)
-			_box(c, size, Vector3i(14, 0, 0), Vector3i(16, 16, 2), SPIDER)           # and down to the ground
+			_box(c, size, Vector3i(0, 12, 0), Vector3i(6, 14, 2), SPIDER)            # out from the body
+			_box(c, size, Vector3i(4, 14, 0), Vector3i(8, 18, 2), SPIDER)            # up
+			_box(c, size, Vector3i(6, 18, 0), Vector3i(12, 20, 2), SPIDER)           # over the knee
+			_box(c, size, Vector3i(6, 17, 0), Vector3i(10, 20, 2), FOX_DARK)         # dark knee joint
+			_box(c, size, Vector3i(10, 12, 0), Vector3i(14, 18, 2), SPIDER)          # down, a step at a time
+			_box(c, size, Vector3i(12, 6, 0), Vector3i(16, 12, 2), SPIDER)
+			_box(c, size, Vector3i(14, 0, 0), Vector3i(18, 6, 2), SPIDER)
+			_box(c, size, Vector3i(15, 0, 0), Vector3i(18, 2, 2), FOX_DARK)          # the foot
 			var l := part == "leg_l"
 			o = Vector3(0 if l else -18, -12, -1)
 			if not l:

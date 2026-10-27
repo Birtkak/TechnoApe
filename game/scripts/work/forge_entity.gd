@@ -27,20 +27,18 @@ func may_place(slot: int, id: String) -> bool:
 
 
 func view_parts() -> Dictionary:
-	var size := Vector3i(8, 6, 8)
+	var size := Vector3i(8, 4, 8)
 	var c := WorkPalette.new_cells(size)
-	# a ring of stones two high round a bed of coal, glowing while it burns
-	for z in 8:
-		for x in 8:
-			var dx := x - 3.5
-			var dz := z - 3.5
-			var r2 := dx * dx + dz * dz
-			if r2 > 7.0 and r2 < 16.5:
-				c[WorkPalette.idx(size, x, 0, z)] = WorkPalette.STONE + 1
-				if (x + 2 * z) % 3 != 0:
-					c[WorkPalette.idx(size, x, 1, z)] = WorkPalette.STONE + 1
-			elif r2 <= 7.0:
-				c[WorkPalette.idx(size, x, 0, z)] = WorkPalette.ASH + 1
+	# a cobblestone trough like the furnace's masonry: thick walls four courses high round a 4 x 4 bed of
+	# coal that fills it nearly to the rim (the fuel sits at y = 1) and glows red when lit
+	var tones := [WorkPalette.STONE, WorkPalette.STONE_WARM, WorkPalette.IRON_DARK]
+	WorkPalette.wall_box(c, size, Vector3i(0, 0, 0), Vector3i(8, 4, 8), tones, WorkPalette.STONE_DARK)
+	for z in range(2, 6):
+		for x in range(2, 6):
+			c[WorkPalette.idx(size, x, 0, z)] = WorkPalette.ASH + 1
+			c[WorkPalette.idx(size, x, 1, z)] = (WorkPalette.EMBER if is_lit() else WorkPalette.CHARCOAL) + 1
+			c[WorkPalette.idx(size, x, 2, z)] = (WorkPalette.EMBER if is_lit() else WorkPalette.CHARCOAL) + 1
+			c[WorkPalette.idx(size, x, 3, z)] = 0
 	var fuel := inv.get_slot(FUEL)
 	var lumps := 0 if fuel.is_empty() else int(fuel["count"]) / maxi(items.units(fuel["id"]), 1)
 	var bed := WorkPalette.EMBER if is_lit() else WorkPalette.CHARCOAL

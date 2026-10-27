@@ -31,23 +31,26 @@ func may_place(slot: int, id: String) -> bool:
 func view_parts() -> Dictionary:
 	var size := Vector3i(8, 12, 8)
 	var c := WorkPalette.new_cells(size)
-	# a tapering shaft of fired clay with a mouth at the front (+z) and a glow inside while it burns
-	for y in 12:
-		var r := 3.9 if y < 5 else (3.4 if y < 9 else 2.9)
-		for z in 8:
-			for x in 8:
-				var dx := x - 3.5
-				var dz := z - 3.5
-				var d2 := dx * dx + dz * dz
-				if d2 > r * r:
-					continue
-				var mouth := y >= 1 and y <= 3 and z >= 6 and x >= 3 and x <= 4
-				if d2 > (r - 1.2) * (r - 1.2) and not mouth:
-					c[WorkPalette.idx(size, x, y, z)] = (WorkPalette.FIRED if (x + y + z) % 5 != 0 else WorkPalette.CLAY) + 1
-				elif y == 0 or (mouth and y == 1):
-					c[WorkPalette.idx(size, x, y, z)] = (WorkPalette.EMBER if is_lit() else WorkPalette.ASH) + 1
-				elif is_lit() and y <= 3:
-					c[WorkPalette.idx(size, x, y, z)] = WorkPalette.GLOW + 1
+	# a stepped brick stack: a wide base, two narrower tiers and a cap slab, courses of brick with dark mortar;
+	# a small arched mouth at the front (+z) with the fire glowing in it, a hollow in the base, a chimney hole
+	WorkPalette.wall_box(c, size, Vector3i(0, 0, 0), Vector3i(8, 5, 8), WorkPalette.WALL_BRICK, WorkPalette.BRICK_DARK)
+	WorkPalette.wall_box(c, size, Vector3i(1, 5, 1), Vector3i(7, 8, 7), WorkPalette.WALL_BRICK, WorkPalette.BRICK_DARK)
+	WorkPalette.wall_box(c, size, Vector3i(2, 8, 2), Vector3i(6, 11, 6), WorkPalette.WALL_BRICK, WorkPalette.BRICK_DARK)
+	WorkPalette.box(c, size, Vector3i(1, 11, 1), Vector3i(7, 12, 7), WorkPalette.BRICK_LIGHT)   # cap slab
+	WorkPalette.box(c, size, Vector3i(3, 11, 3), Vector3i(5, 12, 5), WorkPalette.SOOT)          # chimney hole
+	for z in range(2, 6):   # the hollow the fire burns in
+		for y in range(0, 4):
+			for x in range(2, 6):
+				c[WorkPalette.idx(size, x, y, z)] = 0
+	WorkPalette.box(c, size, Vector3i(2, 0, 2), Vector3i(6, 1, 6), WorkPalette.ASH if not is_lit() else WorkPalette.EMBER)
+	if is_lit():
+		WorkPalette.box(c, size, Vector3i(3, 1, 3), Vector3i(5, 3, 5), WorkPalette.GLOW)
+	for y in range(1, 4):   # the mouth, through the front wall into the hollow
+		for x in range(3, 5):
+			for z in range(5, 8):
+				c[WorkPalette.idx(size, x, y, z)] = 0
+	WorkPalette.box(c, size, Vector3i(3, 1, 5), Vector3i(5, 2, 8), WorkPalette.EMBER if is_lit() else WorkPalette.ASH)
+	WorkPalette.box(c, size, Vector3i(3, 4, 7), Vector3i(5, 5, 8), WorkPalette.SOOT)            # soot above the mouth
 	var laid := []
 	var out := inv.get_slot(OUTPUT)
 	if not out.is_empty():

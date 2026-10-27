@@ -19,7 +19,8 @@ signal changed
 
 const N := 8
 const MAX_H := 4                  # cells of metal a column holds on the anvil (25 cm)
-const BASE_H := 4                 # the stone under the work face, in cells
+const BASE_H := 7                 # the pedestal under the work face, in cells (a tall anvil, ADR 0076)
+const HORN := 4                   # cells of horn beyond the work grid on the +x side (looks only)
 const CELLS_PER_INGOT := 32       # one ingot: a 4 x 4 lump two cells high
 
 var kind := "anvil"
@@ -277,18 +278,29 @@ func is_lit() -> bool:
 
 
 func view_parts() -> Dictionary:
-	var size := Vector3i(N, N, N)
+	var size := Vector3i(N + HORN, BASE_H + MAX_H, N)
 	var c := WorkPalette.new_cells(size)
-	if tier > 0:
-		# the bronze anvil is cast metal: a wide foot, a waist, the block with its face on top
-		WorkPalette.box(c, size, Vector3i(0, 0, 1), Vector3i(8, 1, 7), WorkPalette.COPPER)
-		WorkPalette.box(c, size, Vector3i(2, 1, 2), Vector3i(6, 2, 6), WorkPalette.COPPER)
-		WorkPalette.box(c, size, Vector3i(0, 2, 0), Vector3i(8, BASE_H, 8), WorkPalette.COPPER)
-	else:
-		# the stone anvil: a flat boulder with a worked face, set on a log stump
-		WorkPalette.box(c, size, Vector3i(1, 0, 1), Vector3i(7, 2, 7), WorkPalette.WOOD_DARK)
-		WorkPalette.box(c, size, Vector3i(0, 2, 0), Vector3i(8, BASE_H - 1, 8), WorkPalette.STONE)
-		WorkPalette.box(c, size, Vector3i(0, BASE_H - 1, 0), Vector3i(8, BASE_H, 8), WorkPalette.ANVIL)
+	# a classic anvil, each part its own tone so the shape reads: a stepped foot, a flared waist with a narrow
+	# neck, a plate whose dark sides and lighter underside frame a bright work face, a horn one cell lower
+	# than the plate tapering off the +x side, a hardy hole and a pritchel hole in the face
+	var bronze := tier > 0
+	var foot := WorkPalette.IRON_DARK if bronze else WorkPalette.STONE_WARM
+	var waist := WorkPalette.BRICK_LIGHT if bronze else WorkPalette.STONE
+	var under := WorkPalette.BRICK_DARK if bronze else WorkPalette.STONE_DARK
+	var side := WorkPalette.BRICK if bronze else WorkPalette.ANVIL
+	var face := WorkPalette.COPPER if bronze else WorkPalette.STONE_LIGHT
+	WorkPalette.box(c, size, Vector3i(0, 0, 1), Vector3i(8, 1, 7), foot)                    # foot
+	WorkPalette.box(c, size, Vector3i(1, 1, 2), Vector3i(7, 2, 6), foot)                    # its step
+	WorkPalette.box(c, size, Vector3i(1, 2, 2), Vector3i(7, 3, 6), waist)                   # flare
+	WorkPalette.box(c, size, Vector3i(2, 3, 3), Vector3i(6, 4, 5), waist)                   # narrow neck
+	WorkPalette.box(c, size, Vector3i(1, 4, 1), Vector3i(7, 5, 7), under)                   # plate underside, inset
+	WorkPalette.box(c, size, Vector3i(0, 5, 0), Vector3i(8, 6, 8), side)                    # plate sides
+	WorkPalette.box(c, size, Vector3i(0, 6, 0), Vector3i(8, BASE_H, 8), face)               # the work face
+	WorkPalette.box(c, size, Vector3i(8, 5, 2), Vector3i(10, 6, 6), side)                   # horn root, one cell lower
+	WorkPalette.box(c, size, Vector3i(10, 5, 3), Vector3i(12, 6, 5), side)                  # horn tip
+	WorkPalette.box(c, size, Vector3i(8, 4, 3), Vector3i(10, 5, 5), under)                  # its belly
+	WorkPalette.box(c, size, Vector3i(1, 6, 1), Vector3i(2, BASE_H, 2), WorkPalette.SOOT)   # hardy hole
+	WorkPalette.box(c, size, Vector3i(5, 6, 5), Vector3i(6, BASE_H, 6), WorkPalette.SOOT)   # pritchel hole
 	var cold := WorkPalette.ANVIL if metal.begins_with("iron") else WorkPalette.COPPER
 	var paint := WorkPalette.GLOW if heat() >= 0.5 else (WorkPalette.MOLTEN if heat() >= Settings.smith_min_heat else cold)
 	var g := WorkPalette.new_cells(size)

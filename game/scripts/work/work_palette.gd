@@ -41,6 +41,14 @@ const PALETTE: Array = [
 	[226, 216, 190],   # BONE
 	[122, 92, 62],     # FUR
 	[196, 186, 160],   # LINEN
+	[146, 144, 136],   # STONE_LIGHT (fieldstone tones, like the furnace)
+	[52, 50, 48],      # STONE_DARK: mortar
+	[122, 106, 88],    # STONE_WARM
+	[30, 26, 24],      # SOOT
+	[84, 88, 96],      # IRON_DARK
+	[190, 98, 58],     # BRICK: fired clay brick
+	[208, 120, 74],    # BRICK_LIGHT
+	[96, 52, 36],      # BRICK_DARK: brick mortar
 ]
 const FLINT := 0
 const FLINT_MARK := 1
@@ -72,13 +80,21 @@ const TAR := 26
 const BONE := 27
 const FUR := 28
 const LINEN := 29
+const STONE_LIGHT := 30
+const STONE_DARK := 31
+const STONE_WARM := 32
+const SOOT := 33
+const IRON_DARK := 34
+const BRICK := 35
+const BRICK_LIGHT := 36
+const BRICK_DARK := 37
 const GUIDE_GRID := 32   # guide plates are meshed 4x finer: 3x3 coloured, a one-cell gap as grid lines
 ## Every paint comes in MobModel.SHADES tones (tile = paint * SHADES + tone), so a piece is not one flat
 ## colour: shade_cells hashes a tone per cell and darkens the cells on a convex edge, which draws the
 ## shape's outline the way the item sprites' dark edge pixels do.
 const SHADES := MobModel.SHADES
 const FLAT := [MOLTEN, EMBER, GLOW, PLACE, AVOID]   # signal colours: one tone, no grain, no edge
-const ATLAS := Vector2i(SHADES, 30)
+const ATLAS := Vector2i(SHADES, 38)
 
 static var _material: StandardMaterial3D
 static var _ghost: StandardMaterial3D
@@ -197,6 +213,31 @@ static func new_cells(size: Vector3i) -> PackedInt32Array:
 
 static func idx(size: Vector3i, x: int, y: int, z: int) -> int:
 	return x + size.x * (y + size.y * z)
+
+
+## One cell of a courses-of-blocks wall (the furnace's look): rows of blocks two cells high with a
+## mortar row between, blocks four cells long (three plus a joint) shifted every other course, seen
+## the same from every side because the position along the wall is x + z. `y` counts from the wall's base.
+static func wall_paint(x: int, y: int, z: int, tones: Array, mortar: int) -> int:
+	if y % 3 == 2:
+		return mortar
+	var course := y / 3
+	var u := x + z + (course % 2) * 2
+	if u % 4 == 3:
+		return mortar
+	return tones[hash(Vector3i(u / 4, course, 0)) % tones.size()]
+
+
+const WALL_STONE := [STONE, STONE_LIGHT, STONE_WARM]
+const WALL_BRICK := [BRICK, BRICK_LIGHT, FIRED]
+
+
+## A box of that wall (a..b, b exclusive).
+static func wall_box(cells: PackedInt32Array, size: Vector3i, a: Vector3i, b: Vector3i, tones: Array = WALL_STONE, mortar: int = STONE_DARK) -> void:
+	for z in range(maxi(a.z, 0), mini(b.z, size.z)):
+		for y in range(maxi(a.y, 0), mini(b.y, size.y)):
+			for x in range(maxi(a.x, 0), mini(b.x, size.x)):
+				cells[idx(size, x, y, z)] = wall_paint(x, y - a.y, z, tones, mortar) + 1
 
 
 static func box(cells: PackedInt32Array, size: Vector3i, a: Vector3i, b: Vector3i, paint: int) -> void:

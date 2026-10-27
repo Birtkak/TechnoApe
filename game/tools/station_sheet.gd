@@ -11,6 +11,8 @@ var _frames := 0
 var _names: Array[String] = []   # one tile per model
 var _cam: Camera3D
 var _sheet: Image
+var _nodes: Array[Node3D] = []   # the model drawn in tile k, for framing
+var _label: Label
 const TILE := 360
 const COLS := 8
 const STEP := 4.0   # metres between models
@@ -31,6 +33,7 @@ func _ready() -> void:
 		mi.scale = Vector3.ONE / Settings.BLOCK * 0.5   # voxel units -> metres
 		mi.position = Vector3(i * STEP, 0, 0)
 		root3d.add_child(mi)
+		_nodes.append(mi)
 		_names.append(name)
 		i += 1
 	# the real work pieces, fresh from their entities, and the furniture
@@ -45,6 +48,7 @@ func _ready() -> void:
 		v.scale = Vector3.ONE * 0.5
 		v.position = Vector3(i * STEP + 0.25, 0, 0.25)
 		root3d.add_child(v)
+		_nodes.append(v)
 		_names.append(kind)
 		i += 1
 	for kind in FurnitureEntity.KINDS:
@@ -54,6 +58,7 @@ func _ready() -> void:
 		mi.scale = Vector3.ONE * 0.5
 		mi.position = Vector3(i * STEP + 0.5, 0, 0.5)
 		root3d.add_child(mi)
+		_nodes.append(mi)
 		_names.append(kind)
 		i += 1
 	var sun := DirectionalLight3D.new()
@@ -73,16 +78,34 @@ func _ready() -> void:
 	_cam.fov = 45
 	root3d.add_child(_cam)
 	_cam.current = true
+	_label = Label.new()
+	_label.position = Vector2(8, 4)
+	_label.add_theme_font_size_override("font_size", 22)
+	_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	_label.add_theme_constant_override("outline_size", 6)
+	var ui := CanvasLayer.new()
+	ui.add_child(_label)
+	add_child(ui)
 	_aim(0)
 	get_tree().root.size = Vector2i(TILE, TILE)
 	DisplayServer.window_set_size(Vector2i(TILE, TILE))
 	_sheet = Image.create(COLS * TILE, ceili(float(_names.size()) / COLS) * TILE, false, Image.FORMAT_RGBA8)
 
 
-## Looks at model `k` from the front-right, a little above (models stand on 0..1 m at x = k * STEP).
+## Looks at model `k` from the front-right, a little above, framed to its own bounds.
 func _aim(k: int) -> void:
-	var at := Vector3(k * STEP + 0.5, 0.35, 0.5)
-	_cam.look_at_from_position(at + Vector3(1.6, 1.3, 2.2), at)
+	var box := AABB()
+	var first := true
+	for n in [_nodes[k]] + _nodes[k].find_children("*", "MeshInstance3D", true, false):
+		if n is MeshInstance3D and n.mesh != null:
+			var b: AABB = n.global_transform * n.get_aabb()
+			box = b if first else box.merge(b)
+			first = false
+	if first:
+		box = AABB(_nodes[k].position, Vector3.ONE * 0.1)   # nothing to draw (needs state)
+	var at := box.get_center()
+	_cam.look_at_from_position(at + Vector3(0.7, 0.55, 0.9).normalized() * maxf(box.size.length(), 0.15) * 1.4, at)
+	_label.text = _names[k]
 
 
 func _process(_delta: float) -> void:
