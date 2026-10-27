@@ -110,7 +110,8 @@ var _mine_time := -1.0
 var _break_cooldown := 0.0
 var _place_cooldown := 0.0
 var _highlight: MeshInstance3D
-var _highlight_mat: StandardMaterial3D   # the outline's lines: drawn through the terrain for a dig
+var _highlight_mat: StandardMaterial3D   # the outline's lines, depth-tested
+var _highlight_hidden_mat: StandardMaterial3D   # a dig's buried lines, faint through the terrain: all at full strength the box read as standing on the ground
 var _station_ghost: MeshInstance3D       # the held station's own model where a click puts it
 var script_aim := false                  # /use aim: the aim and its ghost show under autopilot too (evidence runs)
 var _crack: Node3D
@@ -1753,6 +1754,8 @@ func _make_box_outline() -> MeshInstance3D:
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.no_depth_test = false
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_highlight_hidden_mat = m.duplicate()
+	_highlight_hidden_mat.no_depth_test = true
 	var mi := MeshInstance3D.new()
 	mi.mesh = ImmediateMesh.new()
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -1767,7 +1770,8 @@ func _set_outline(pos: Vector3, size: Vector3, colour: Color, through: bool) -> 
 	_highlight.global_position = pos
 	_highlight.scale = Vector3.ONE
 	_highlight_mat.albedo_color = colour
-	_highlight_mat.no_depth_test = through
+	_highlight_hidden_mat.albedo_color = Color(colour, colour.a * 0.3)
+	_highlight_mat.next_pass = _highlight_hidden_mat if through else null
 	if size == _outline_size:
 		return
 	_outline_size = size

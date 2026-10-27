@@ -9,6 +9,8 @@ config/features=PackedStringArray("4.7")
 ; play is capped at 120 fps: 500 fps on a menu or an empty view only heats the GPU. Autopilot
 ; runs with vsync=0 lift the cap (DebugCapture) so they measure the real frame cost
 run/max_fps=120
+boot_splash/show_image=false
+boot_splash/bg_color=Color(0.04, 0.04, 0.05, 1)
 
 [autoload]
 
