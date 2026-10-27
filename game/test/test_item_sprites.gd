@@ -83,7 +83,7 @@ func test_meshes() -> void:
 	var flat := BlockMeshes.sprite("iron_ingot")
 	var box := flat.get_aabb()
 	assert_float(box.size.x).is_between(0.7, 1.0)
-	assert_float(box.size.z).is_equal_approx(1.0 / ItemSprites.SIZE, 0.001)
+	assert_float(box.size.z).is_equal_approx(BlockMeshes.SPRITE_DEPTH_PX / ItemSprites.SIZE, 0.001)
 	assert_int(flat.surface_get_array_len(0)).is_greater(8)   # front, back and edge walls
 	assert_bool(sprites.is_cube("bricks")).is_true()
 	var cube := BlockMeshes.sprite("bricks")

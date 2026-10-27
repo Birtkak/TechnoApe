@@ -26,6 +26,10 @@ const HELD_SPRITE_ROTATION := Vector3(0, 155, -10)   # back face toward the view
 const SPRITE_GRIP := Vector3(-0.3, -0.3, 0.0)         # handle end of a tool sprite (pixel 3, 13), in mesh units
 const HAND := Vector3(0.0, 0.02, -0.16)
 const SPRITE_HAND := Vector3(0.24, -0.1, -0.12)        # where the handle end sits: lower right, like Minecraft
+# a handled tool (pickaxe, axe, knife...) is held bigger and more upright, Minecraft's first-person tool pose
+const TOOL_SCALE := 1.05
+const TOOL_ROTATION := Vector3(0, 125, -5)
+const TOOL_HAND := Vector3(0.42, -0.14, -0.05)
 
 
 func _ready() -> void:
@@ -89,12 +93,14 @@ func _dress(mi: MeshInstance3D, id: String, at: Vector3, side: float) -> void:
 		mi.scale = Vector3.ONE * 0.32
 		mi.rotation_degrees = Vector3.ZERO
 	elif sprites.has(id):
-		var rot := HELD_SPRITE_ROTATION * Vector3(1, side, side)
+		var tool := _is_tool(sprites, id)
+		var sc := TOOL_SCALE if tool else HELD_SPRITE_SCALE
+		var rot := (TOOL_ROTATION if tool else HELD_SPRITE_ROTATION) * Vector3(1, side, side)
 		mi.mesh = BlockMeshes.sprite(id)
-		mi.scale = Vector3.ONE * HELD_SPRITE_SCALE
+		mi.scale = Vector3.ONE * sc
 		mi.rotation_degrees = rot
-		var hand := SPRITE_HAND * Vector3(side, 1, 1)
-		mi.position = hand - Basis.from_euler(rot * PI / 180.0) * (SPRITE_GRIP * HELD_SPRITE_SCALE)
+		var hand := (TOOL_HAND if tool else SPRITE_HAND) * Vector3(side, 1, 1)
+		mi.position = hand - Basis.from_euler(rot * PI / 180.0) * (SPRITE_GRIP * sc)
 	elif mat_id > 0:
 		mi.mesh = BlockMeshes.cube(mat_id, atlas_material)
 		mi.scale = Vector3.ONE * 0.32
@@ -103,6 +109,12 @@ func _dress(mi: MeshInstance3D, id: String, at: Vector3, side: float) -> void:
 		mi.mesh = BlockMeshes.card(id)
 		mi.scale = Vector3.ONE * 0.4
 		mi.rotation_degrees = Vector3(0, 0, -30 * side)
+
+
+## A tool sprite starts with a handle layer (make_item_sprites.py: H / SH).
+static func _is_tool(sprites: ItemSprites, id: String) -> bool:
+	var layers: Array = sprites.sprites[id].get("layers", [])
+	return not layers.is_empty() and layers[0].get("shape", "") in ["handle", "short_handle", "saw_handle"]
 
 
 ## Stain colour on the bare arm (Player._apply_stain_tint); null clears it.

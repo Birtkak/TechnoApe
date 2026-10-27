@@ -251,64 +251,72 @@ def shape(name, g, colors=None):
 
 
 # handles
-shape("handle", body(diag(2, 13, 10)))
-shape("short_handle", outline(art([
-    "................", "................", "................", "................",
-    "................", "................", "................", "................",
-    "................", "......l.........", ".....lmd........", "....lmd.........",
-    "...lmd..........", "..lmd...........", "..md............", "................"])))
+def mc_handle(x0, y0, length):
+    """A Minecraft tool handle: a one-pixel diagonal core with a wood grain, outlined (3 px across)."""
+    g = new()
+    for i in range(length):
+        put(g, x0 + i, y0 - i, "l" if i % 3 == 0 else ("d" if i % 3 == 2 else "m"))
+    return outline(g)
+
+
+def mask(rows_spec):
+    """'#' mask from {y: [(x0, x1), ...]} runs."""
+    g = new()
+    for y, runs in rows_spec.items():
+        for a, b in runs:
+            rect(g, a, y, b, y)
+    return g
+
+
+shape("handle", mc_handle(2, 13, 10))
+shape("short_handle", mc_handle(2, 13, 5))
 shape("stick", body(diag(2, 13, 11)))
 
-# pickaxe head: top arm mirrored across the anti-diagonal
-g = new()
-for x in range(4, 11):
-    put(g, x, 1, "#")
-for x in range(2, 13):
-    put(g, x, 2, "#")
-for x in range(9, 14):
-    put(g, x, 3, "#")
-shape("pickaxe_head", body(mirror_diag(g)))
+# Minecraft-style heads (developer, 2026-10-27): big and two pixels thick, over the handle's top end
+# pickaxe head: a thick crescent, the top arm mirrored across the anti-diagonal
+# (2026-10-27: the developer's reference, Minecraft's pickaxe head pixel for pixel; the handle is ours)
+shape("pickaxe_head", art([
+    "................", "................", "......ooooo.....", ".....ohlmmlo....",
+    "......oooomm....", "...........lmo..", "............mlo.", "............omo.",
+    "............omo.", "............olo.", "............oho.", ".............o..",
+    "................", "................", "................", "................"]))
 
-# axe head: wedge across the handle tip, blade toward the upper left
-g = poly(new(), tool_pts([(-1.8, -1.4), (-1.8, 1.4), (2.4, 1.6), (6.6, 4.9), (7.3, 0.0), (6.6, -4.9), (2.4, -1.6)]))
-g = shade(g)
+# axe head: a broad blade to the upper left of the handle's end, honed along its left edge
+g = shade(mask({1: [(5, 8)], 2: [(4, 10)], 3: [(4, 11)], 4: [(4, 12)], 5: [(4, 6), (9, 12)], 6: [(4, 5), (10, 11)]}))
 for y in range(N):
-    for x in range(N):
-        if g[y][x] != "." and (x + 0.5 - TIP[0]) * NRM[0] + (y + 0.5 - TIP[1]) * NRM[1] > 5.2:
-            g[y][x] = "h"   # honed edge
+    xs = [x for x in range(N) if g[y][x] != "."]
+    if xs:
+        g[y][xs[0]] = "h"   # honed edge
 shape("axe_head", outline(g))
 
-# shovel: rounded spade beyond the tip
-c = (TIP[0] + 1.5 * U[0], TIP[1] + 1.5 * U[1])
-shape("shovel_head", body(ellipse(new(), c[0], c[1], 3.6, 2.9, ang=-45)))
+# shovel: a wide spade beyond the handle, rounded at the tip
+shape("shovel_head", body(poly(new(), tool_pts([(-2.7, 0.0), (2.7, 0.0), (2.7, 4.4), (1.3, 6.3), (-1.3, 6.3), (-2.7, 4.4)], (8.8, 7.2)))))
 
 # hammer: a thick block across the tip (5 px deep, 9 long)
 shape("hammer_head", body(poly(new(), tool_pts([(-4.4, -2.4), (-4.4, 2.6), (4.4, 2.6), (4.4, -2.4)], (11.0, 5.0)))))
 
-# saw: blade along the handle direction with teeth on the lower-right side
+# saw (developer, 2026-10-27): a hand saw rising one pixel per two columns, so the lower edge is flat
+# two-pixel steps and a lit tooth hangs crisply under each step (the dark outline cuts the notch between);
+# the blade tapers from 4 pixels deep at the grip to 2 at the tip; the D grip is its own wooden shape
 g = new()
-B0 = (6.0, 10.0)
-for y in range(N):
-    for x in range(N):
-        px, py = x + 0.5 - B0[0], y + 0.5 - B0[1]
-        t = px * U[0] + py * U[1]
-        s = px * NRM[0] + py * NRM[1]
-        if 0.0 <= t <= 10.5 and -0.3 <= s <= 2.2:
-            put(g, x, y, "#")
+for x in range(5, 15):
+    ye = 12 - (x - 5) // 2
+    rect(g, x, ye - (4 - (x - 5) * 2 // 10) + 1, x, ye)
 g = shade(g)
-for y in range(N):
-    for x in range(N):
-        px, py = x + 0.5 - B0[0], y + 0.5 - B0[1]
-        t = px * U[0] + py * U[1]
-        s = px * NRM[0] + py * NRM[1]
-        if 0.5 <= t <= 10.0 and -1.5 <= s < -0.3 and x % 2 == 0 and g[y][x] == ".":
-            put(g, x, y, "l")   # teeth (x + y is constant along the blade, so step on x)
+for x in range(5, 15):
+    put(g, x, min(y for y in range(N) if g[y][x] != "."), "l")   # an even spine, so only the teeth look toothy
+for x in range(6, 14, 2):
+    put(g, x, 12 - (x - 5) // 2 + 1, "h")   # a tooth under the left pixel of each step
 shape("saw_blade", outline(g))
+g = rect(new(), 1, 8, 5, 13)
+g = shade(g)
+rect(g, 2, 10, 3, 11, ".")   # the hand hole
+shape("saw_handle", outline(g))
 
 # knife: tapered blade, spine on the upper-left side
-shape("knife_blade", body(poly(new(), tool_pts([(-1.2, 0.0), (1.1, 0.0), (1.1, 2.0), (0.2, 7.0), (-0.4, 8.0), (-1.2, 5.5)], (6.5, 9.5)))))
-# chisel: narrow straight bar with a flat edge
-shape("chisel_blade", body(poly(new(), tool_pts([(-0.9, 0.0), (0.9, 0.0), (0.9, 6.5), (-0.9, 6.5)], (6.5, 9.5)))))
+shape("knife_blade", body(poly(new(), tool_pts([(-1.6, 0.0), (1.6, 0.0), (1.6, 3.0), (0.4, 7.8), (-0.4, 8.6), (-1.6, 6.4)], (6.2, 9.8)))))
+# chisel: a straight bar with a flat edge
+shape("chisel_blade", body(poly(new(), tool_pts([(-1.3, 0.0), (1.3, 0.0), (1.3, 6.8), (-1.3, 6.8)], (6.2, 9.8)))))
 
 # prospecting pick: pointed arm one side, small hammer face the other
 g = new()
@@ -322,11 +330,12 @@ rect(g, 11, 3, 14, 8)
 shape("prospecting_head", body(g))
 
 # ingot and brick
-shape("ingot", outline(art([
-    "................", "................", "................", "................",
-    ".....hhhhhh.....", "....hhhhhhhh....", "...llllllllll...", "..llllllllllll..",
-    "..lmmmmmmmmmmd..", "..lmmmmmmmmmmd..", "..mmmmmmmmmmmd..", "..dddddddddddd..",
-    "................", "................", "................", "................"])))
+# ingot (2026-10-27 retry): Minecraft's bar lying on the diagonal, a lit top and two shaded sides
+g = poly(new(), [(1, 9.5), (6, 12.5), (6, 15), (1, 12)], "m")                 # front-left end
+poly(g, [(6, 12.5), (15, 7), (15, 9.5), (6, 15)], "d")                         # long front side
+poly(g, [(1, 9.5), (10, 4), (15, 7), (6, 12.5)], "l")                          # top
+line(g, 2, 9, 9, 5, "h")                                                       # lit back edge of the top
+shape("ingot", outline(g))
 shape("brick", outline(art([
     "................", "................", "................", "................",
     "................", "....hlllllll....", "...lllllllll....", "..llllllllllm...",
@@ -852,7 +861,7 @@ g = compose(line(new(), 4, 12, 11, 4, "#", 2), ellipse(new(), 3.5, 12.5, 1.8, 1.
 shape("bone", outline(shade(g)))
 g = shade(poly(new(), [(2, 5), (6, 3), (10, 3), (14, 5), (13, 10), (14, 14), (8, 12.5), (2, 14), (3, 10)]))
 shape("hide", outline(g))
-shape("hoe_head", body(poly(new(), tool_pts([(-0.6, -1.4), (5.2, -1.4), (5.2, 0.9), (-0.6, 0.9)]))))
+shape("hoe_head", body(mask({2: [(6, 13)], 3: [(6, 13)], 4: [(6, 7)], 5: [(6, 7)]})))   # Minecraft hoe: a bar over the handle end, bent down at the far side
 g = compose(line(new(), 3, 3, 10, 10, "#", 2), line(new(), 12, 3, 5, 10, "#", 2))
 g = shade(g)
 ring = compose(ellipse(new(), 4, 12.5, 2.4, 2.4, "r"), ellipse(new(), 11.5, 12.5, 2.4, 2.4, "r"))
@@ -901,7 +910,7 @@ for m in ("copper", "bronze", "iron"):
     sp(m + "_axe_head", ("axe_head", m))
     sp(m + "_shovel", H, ("shovel_head", m))
     sp(m + "_shovel_head", ("shovel_head", m))
-    sp(m + "_saw", SH, ("saw_blade", m))
+    sp(m + "_saw", ("saw_handle", "handle"), ("saw_blade", m))
     sp(m + "_saw_head", ("saw_blade", m))
     sp(m + "_hammer", H, ("hammer_head", m))
     sp(m + "_hammer_head", ("hammer_head", m))
@@ -1209,6 +1218,25 @@ stone_age_sprites.add(globals())
 
 import metal_age_sprites  # noqa: E402  the bronze and iron ages (ADR 0070)
 metal_age_sprites.add(globals())
+
+# loose heads and blades (crafting parts): the same shape as on the tool, moved to the middle of the icon
+_heads = {s["layers"][1]["shape"] for s in SP.values()
+          if len(s["layers"]) == 2 and s["layers"][0]["shape"] in ("handle", "short_handle", "saw_handle")}
+for _id, _s in SP.items():
+    _l = _s["layers"]
+    if len(_l) != 1 or _l[0]["shape"] not in _heads:
+        continue
+    _name = _l[0]["shape"] + "_loose"
+    if _name not in S:
+        _r = S[_l[0]["shape"]]["rows"]
+        _pts = [(x, y) for y in range(N) for x in range(N) if _r[y][x] != "."]
+        _dx = (N - 1 - max(p[0] for p in _pts) - min(p[0] for p in _pts)) // 2
+        _dy = (N - 1 - max(p[1] for p in _pts) - min(p[1] for p in _pts)) // 2
+        _g = new()
+        for x, y in _pts:
+            put(_g, x + _dx, y + _dy, _r[y][x])
+        S[_name] = dict(S[_l[0]["shape"]], rows=rows(_g))
+    _l[0]["shape"] = _name
 
 # ---------- validate + write ----------
 

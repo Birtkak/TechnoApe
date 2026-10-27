@@ -59,7 +59,7 @@ static func _quad(st: SurfaceTool, n: Vector3, c: Array, uvs: Array) -> void:
 
 ## An item's sprite as a mesh, 1 unit across, centred on the origin. Block-face
 ## sprites become a cube; the rest are extruded Minecraft-style: the sprite on
-## the front and back, one pixel thick, and every opaque pixel's exposed
+## the front and back, SPRITE_DEPTH_PX pixels thick, and every opaque pixel's exposed
 ## edges walled in that pixel's colour.
 static func sprite(item_id: String) -> Mesh:
 	if _sprite_cache.has(item_id):
@@ -85,10 +85,13 @@ static func sprite(item_id: String) -> Mesh:
 	return mesh
 
 
+const SPRITE_DEPTH_PX := 3.0   # extrusion depth in sprite pixels: thicker than Minecraft's 1 (developer, 2026-10-27)
+
+
 static func _extrude(img: Image, surface_material: Material) -> Mesh:
 	var n := img.get_width()
 	var p := 1.0 / n
-	var hz := p * 0.5
+	var hz := p * SPRITE_DEPTH_PX * 0.5
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var u := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]

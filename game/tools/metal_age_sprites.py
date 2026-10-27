@@ -15,7 +15,7 @@ def add(G):
              "pickaxe": "pickaxe_head", "hammer": "hammer_head", "saw": "saw_blade"}
     for m in ("bronze", "iron"):
         for t, shape in heads.items():
-            handle = SH if t in ("knife", "saw") else H
+            handle = SH if t == "knife" else (("saw_handle", "handle") if t == "saw" else H)
             once("%s_%s" % (m, t), handle, (shape, m))
             once("%s_%s" % (m, "saw_blade" if t == "saw" else t + "_head"), (shape, m))
         once(m + "_work_piece", ("work_piece", m))
