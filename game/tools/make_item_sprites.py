@@ -868,6 +868,11 @@ ring = compose(ellipse(new(), 4, 12.5, 2.4, 2.4, "r"), ellipse(new(), 11.5, 12.5
 for (cx, cy) in [(4, 12.5), (11.5, 12.5)]:
     ellipse(ring, cx, cy, 1.1, 1.1, ".")
 shape("shears", outline(compose(ring, g)), {"r": "#8a3a2a"})
+# tongs (ADR 0087): two green-wood arms, spread at the grip, crossing at a cord lashing, jaws closed at the top right
+g = shade(compose(line(new(), 1, 11, 13, 2, "#", 2), line(new(), 4, 14, 13, 3, "#", 2)))
+lash = new()
+rect(lash, 9, 4, 10, 6, "r")
+shape("tongs", outline(compose(g, lash)), {"r": "#c8b078"})
 shape("chair", outline(art([
     "................", "...d............", "...dl...........", "...dl...........",
     "...dl...........", "...dlll.........", "...dl...........", "...dl...........",
@@ -1031,6 +1036,7 @@ sp("firewood", ("firewood", "wood"))
 for m, item in (("wood", "wooden_hoe"), ("stone", "stone_hoe"), ("iron", "iron_hoe")):
     sp(item, H, ("hoe_head", m))
 sp("shears", ("shears", "iron"))
+sp("tongs", ("tongs", "wood"))
 sp("torch", ("torch", "handle"))
 sp("oak_sapling", ("sapling", "leaf"))
 sp("dandelion", ("flower_stem", "leaf"), ("flower_head", None, {"p": "#f4d23c", "c": "#d08a1c"}))

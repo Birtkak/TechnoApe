@@ -43,6 +43,7 @@ func _draw() -> void:
 	var s := size
 	var sprites := ItemSprites.get_default()
 	var mat := material_id_for(items, id)
+	var heat := Inventory.heat_of(stack)
 	if sprites.has(id):
 		var tex := sprites.texture(id)
 		var full := Rect2(Vector2.ZERO, tex.get_size())
@@ -50,6 +51,12 @@ func _draw() -> void:
 			_draw_iso(tex, full, full, s)
 		else:
 			draw_texture_rect(tex, Rect2(Vector2.ZERO, s), false)
+			if heat > 0.0:
+				# hot metal (ADR 0087): the sprite itself glows, dull red to yellow-white (modulate above 1
+				# brightens it); warm but not glowing yet, a faint red cast
+				var g := Inventory.glow_color(heat)
+				var tint := Color(g.r * 2.6, g.g * 2.6, g.b * 2.6, g.a) if g.a > 0.0 else Color(1.5, 0.7, 0.5, 0.35)
+				draw_texture_rect(tex, Rect2(Vector2.ZERO, s), false, tint)
 	elif mat > 0:
 		_draw_cube(mat, s)
 	else:
@@ -68,10 +75,9 @@ func _draw() -> void:
 		var left := clampf(1.0 - float(stack["wear"]) / dur, 0.0, 1.0)
 		draw_rect(Rect2(Vector2(1, s.y - 3), Vector2(s.x - 2, 2)), Color(0, 0, 0, 0.8))
 		draw_rect(Rect2(Vector2(1, s.y - 3), Vector2((s.x - 2) * left, 2)), Color.from_hsv(left / 3.0, 0.9, 0.9))
-	if Inventory.heat_of(stack) > 0.0:
-		# hot metal (ADR 0042): it glows, orange to dull red as it cools
-		var h := Inventory.heat_of(stack)
-		draw_rect(Rect2(Vector2.ZERO, s), Color(1.0, 0.35 + 0.35 * h, 0.05, 0.15 + 0.3 * h))
+	if heat > 0.0 and (not sprites.has(id) or sprites.is_cube(id)):
+		# hot metal without a flat sprite (ADR 0042): a glow over the slot
+		draw_rect(Rect2(Vector2.ZERO, s), Color(1.0, 0.35 + 0.35 * heat, 0.05, 0.15 + 0.3 * heat))
 	var count := int(stack.get("count", 1))
 	if count > 1:
 		var txt := str(count)

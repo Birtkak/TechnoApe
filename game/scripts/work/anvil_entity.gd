@@ -221,7 +221,7 @@ func look_lines() -> Array[String]:
 	if h < Settings.smith_min_heat:
 		out.append("Too cold: take it off, heat it in a %s" % ("forge" if items.has_tag(metal, "forge_heat") else "firepit"))
 	else:
-		out.append("Hot (%d%%): work it now" % roundi(h * 100.0))
+		out.append("Hot (%d °C): work it now" % Inventory.temp_c({"hot_until": hot_until}))
 	if not has_recipe():
 		out.append("Right click with metal or a hammer to pick a shape")
 		return out

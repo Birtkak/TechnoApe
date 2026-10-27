@@ -264,7 +264,7 @@ static func make_view(pos: Vector3i, solid: Dictionary, ghost: Dictionary = {}, 
 
 
 ## An item drawn as its own sprite (ADR 0042: tool parts on the ground, food over a fire): `at` in
-## block fractions, `yaw` in degrees, `scale` in blocks; lying flat unless `upright`.
+## block fractions, `yaw` in degrees, `scale` in blocks; lying flat unless `upright`; `heat` (0..1) makes it glow.
 static func _add_item(root: Node3D, it: Dictionary) -> void:
 	var id: String = it.get("id", "")
 	if not ItemSprites.get_default().has(id):
@@ -275,6 +275,7 @@ static func _add_item(root: Node3D, it: Dictionary) -> void:
 	if not it.get("upright", false):
 		b = b * Basis(Vector3.RIGHT, -PI / 2.0)
 	mi.transform = Transform3D(b.scaled(Vector3.ONE * float(it.get("scale", 0.5))), it.get("at", Vector3(0.5, 0.02, 0.5)))
+	mi.material_override = BlockMeshes.heat_material(id, float(it.get("heat", 0.0)))   # hot metal glows (ADR 0087)
 	mi.visibility_range_end = 96.0
 	root.add_child(mi)
 

@@ -65,6 +65,7 @@ func run(p_main: Node) -> void:
 	r["flint_axe"] = inv.inv.count_of("flint_axe")
 
 	# ---- a firepit by hand: logs, meat, light it, take the meat off, then heat an ingot ----
+	inv.off.set_slot(0, {"id": "tongs", "count": 1})   # hot metal is picked up and held with tongs (ADR 0087)
 	var f_at: Vector3i = at.call(0, -3)
 	inv.pickup("firepit", 1)
 	main._hold("firepit")
@@ -151,6 +152,7 @@ func run(p_main: Node) -> void:
 		r["hammer_head"] = inv.inv.count_of("copper_hammer_head")
 		await _shot(tree, "anvil_done", Vector3(n_at) + Vector3(0.5, 0.6, 0.5) * B, 1.1)
 
+	inv.off.set_slot(0, {})
 	# ---- sticks on the ground (ADR 0043): a held right click picks one up whole; digging one voxel takes all of it ----
 	var t1: Vector3i = at.call(-3, -5)
 	var t2: Vector3i = at.call(1, -5)

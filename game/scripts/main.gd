@@ -1677,6 +1677,21 @@ func _make_grave(feet: Vector3i) -> GraveEntity:
 
 # ---------------- item entities ----------------
 
+## Hot metal in a hand without tongs in the other (ADR 0087): it falls at the player's feet and burns.
+func _burn_hands() -> void:
+	var dropped := player_inv.take_hot_from_hands()
+	if dropped.is_empty():
+		return
+	for s in dropped:
+		spawn_item(s, player.position + Vector3(0, Settings.BLOCK, 0) - player.global_transform.basis.z * Settings.BLOCK, Vector3(0, 1.5, 0), 1.0)
+	if chat:
+		chat.add_message("Too hot to hold: pick hot metal up with tongs in the other hand.")
+	if GameMode.rule(player.game_mode, "takes_damage"):
+		player_inv.damage(Settings.hot_hand_damage)
+		if player_inv.is_dead():
+			player.died.emit()
+
+
 func spawn_item(stack: Dictionary, pos: Vector3, velocity: Vector3 = Vector3.ZERO, extra_delay: float = 0.0) -> ItemEntity:
 	var e := ItemEntity.create(items, stack, world.prop_material)
 	e.position = pos
@@ -1700,6 +1715,7 @@ func _update_items(delta: float) -> void:
 	var do_merge := _merge_accum >= 0.5
 	if do_merge:
 		_merge_accum = 0.0
+		_burn_hands()
 	var alive: Array[ItemEntity] = []
 	for e in _item_entities:
 		if not is_instance_valid(e) or e.is_queued_for_deletion():
@@ -1712,7 +1728,7 @@ func _update_items(delta: float) -> void:
 		if e.burning():
 			_burn_item(e)
 			continue
-		if e.can_pickup() and e.position.distance_to(centre) <= radius and GameMode.rule(player.game_mode, "interacts"):
+		if e.can_pickup() and e.position.distance_to(centre) <= radius and GameMode.rule(player.game_mode, "interacts") 				and (Inventory.heat_of(e.stack) <= 0.0 or player_inv.has_tongs()):   # hot metal only with tongs (ADR 0087)
 			var left := player_inv.pickup(e.stack["id"], e.stack["count"], e.stack)
 			var got: int = e.stack["count"] - left
 			if got > 0:
@@ -1735,7 +1751,7 @@ func _update_items(delta: float) -> void:
 				continue
 			for j in range(i + 1, alive.size()):
 				var b := alive[j]
-				if b.is_queued_for_deletion() or b.stack["id"] != a.stack["id"]:
+				if b.is_queued_for_deletion() or not Inventory.same_kind(a.stack, b.stack["id"], b.stack):
 					continue
 				if a.position.distance_to(b.position) > merge_r:
 					continue

@@ -32,6 +32,7 @@ func run(p_main: Node) -> void:
 	var mid := Vector3(0.5, 0.2, 0.5)
 
 	# ---- bronze: tin into molten copper on a firepit, cast in an ingot mold ----
+	inv.off.set_slot(0, {"id": "tongs", "count": 1})   # hot metal is picked up and held with tongs (ADR 0087)
 	var f_at: Vector3i = at.call(-3, -3)
 	inv.pickup("firepit", 1)
 	main._hold("firepit")

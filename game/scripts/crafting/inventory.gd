@@ -6,7 +6,8 @@ extends RefCounted
 ## - spoil (ADR 0040): perishable food ("spoil_days"), 0 fresh .. 1 rotten, averaged by count on merge;
 ## - wear (ADR 0042): uses a tool ("durability") has spent; tools stack to 1, so wear never merges;
 ## - hot_until (ADR 0042): heatable metal ("heatable" tag): the clock_s when it is cold again, averaged
-##   on merge; dropped once it has passed;
+##   on merge; dropped once it has passed. Hot and cold stacks of one item never merge (ADR 0087:
+##   one hot ingot no longer heats a stack of cold ones): merges check same_kind();
 ## - work (ADR 0042): a smithing work piece's metal cells and recipe (stack 1);
 ## - dur_x (ADR 0059): a durability multiplier (tar-hafted tools, heads of tempered flint), averaged on merge.
 ## Pure logic, no nodes. The UI drives it through the cursor operations below,
@@ -144,6 +145,30 @@ static func heat_of(s: Dictionary) -> float:
 	return clampf((float(s.get("hot_until", 0.0)) - clock_s) / Settings.metal_cool_s, 0.0, 1.0)
 
 
+## Whether stack s may take items of `id` carrying `data` (ADR 0087): same id, and both hot or both cold.
+static func same_kind(s: Dictionary, id: String, data: Dictionary) -> bool:
+	return not s.is_empty() and s["id"] == id and (heat_of(s) > 0.0) == (heat_of(data) > 0.0)
+
+
+## A stack's temperature in degrees Celsius (ADR 0087): 20 cold .. Settings.metal_hot_c out of the forge.
+static func temp_c(s: Dictionary) -> int:
+	return roundi(lerpf(20.0, Settings.metal_hot_c, heat_of(s)))
+
+
+## The glow of metal at heat h (ADR 0087): none below about 500 C (alpha 0), then dull red, orange,
+## yellow and yellow-white at full heat; alpha is how strongly it glows.
+static func glow_color(h: float) -> Color:
+	var t := inverse_lerp(Settings.glow_from_heat, 1.0, h)
+	if t <= 0.0:
+		return Color(0, 0, 0, 0)
+	var stops := [Color(0.55, 0.06, 0.02), Color(0.95, 0.30, 0.05), Color(1.0, 0.75, 0.25), Color(1.0, 0.97, 0.80)]
+	var f := t * (stops.size() - 1)
+	var k := mini(int(f), stops.size() - 2)
+	var c: Color = stops[k].lerp(stops[k + 1], f - k)
+	c.a = lerpf(0.75, 1.0, t)
+	return c
+
+
 func count_of(id: String) -> int:
 	var n := 0
 	for s in slots:
@@ -160,7 +185,7 @@ func add(id: String, count: int, data: Dictionary = {}) -> int:
 		if count <= 0:
 			break
 		var s: Dictionary = slots[i]
-		if not s.is_empty() and s["id"] == id and s["count"] < max_stack:
+		if same_kind(s, id, data) and s["count"] < max_stack:
 			var take := mini(count, max_stack - s["count"])
 			merge_into(s, take, data)
 			count -= take
@@ -226,7 +251,7 @@ func put(i: int, stack: Dictionary) -> Dictionary:
 		changed.emit(i)
 		var left: int = stack["count"] - n
 		return {} if left <= 0 else _mk(stack["id"], left, sp)
-	if s["id"] == stack["id"]:
+	if same_kind(s, stack["id"], sp):
 		var max_stack := items.max_stack(stack["id"])
 		var n := mini(stack["count"], max_stack - s["count"])
 		merge_into(s, n, sp)
@@ -259,14 +284,13 @@ func right_click(i: int, cursor: Dictionary) -> Dictionary:
 	var n := mini(items.units(cursor["id"]), int(cursor["count"]))
 	var one := _mk(cursor["id"], n, cursor)
 	var left := put(i, one)
-	if left.is_empty() or left["id"] == cursor["id"]:
+	if left.is_empty() or same_kind(left, cursor["id"], cursor):
 		cursor["count"] -= n - int(left.get("count", 0))
 		return {} if cursor["count"] <= 0 else cursor
-	if left["id"] != cursor["id"]:
-		# swapped with a different stack: Minecraft keeps the swapped stack in the cursor
-		# only on left click; on right click nothing happens. Undo the swap.
-		slots[i] = _mk(left["id"], left["count"], left)
-		changed.emit(i)
+	# swapped with a different stack (or the same item hotter or colder): Minecraft keeps the swapped
+	# stack in the cursor only on left click; on right click nothing happens. Undo the swap.
+	slots[i] = _mk(left["id"], left["count"], left)
+	changed.emit(i)
 	return cursor
 
 

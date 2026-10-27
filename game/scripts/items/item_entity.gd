@@ -58,6 +58,7 @@ func _build(atlas_material: Material) -> void:
 	else:
 		_visual.mesh = BlockMeshes.card(stack["id"])
 	_visual.scale = Vector3.ONE * VISUAL
+	_visual.material_override = BlockMeshes.heat_material(stack["id"], Inventory.heat_of(stack))   # hot metal glows (ADR 0087)
 	_visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_visual)
 	_phase = randf() * TAU
@@ -74,6 +75,8 @@ func _process(delta: float) -> void:
 	_phase += delta
 	_visual.position.y = VISUAL / 2.0 + (0.08 + sin(_phase * 2.0) * 0.06) * Settings.BLOCK   # mesh is centred, position is the box bottom
 	_visual.rotation.y = _phase * 1.2
+	if stack.has("hot_until") and int(_phase * 2.0) != int((_phase - delta) * 2.0):
+		_visual.material_override = BlockMeshes.heat_material(stack["id"], Inventory.heat_of(stack))   # cools as it lies (ADR 0087)
 
 
 func _physics_process(delta: float) -> void:

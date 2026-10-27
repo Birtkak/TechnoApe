@@ -112,6 +112,7 @@
     {"id": "copper_prospecting_pick", "name": "Copper Prospecting Pick", "tags": ["tool", "prospecting_pick"], "stack": 1, "tier": 1, "durability": 128, "prospects": {"range_m": 12.0, "exact": true}, "_note": "right click on rock: every ore vein within 12 m, its share of each ore and its centre, marked on the map (ADR 0061)"},
     {"id": "copper_hammer_head", "name": "Copper Hammer Head", "tags": ["tool_head", "copper_head"], "stack": 64, "_note": "cast in a hammer mold or smithed (ADR 0042)"},
     {"id": "copper_hammer", "name": "Copper Hammer", "tags": ["tool", "hammer"], "stack": 1, "tier": 1, "durability": 160, "_note": "works hot metal on an anvil: left click drives the metal away from you, right click splits a cell off"},
+    {"id": "tongs", "name": "Tongs", "tags": ["tool", "tongs"], "stack": 1, "durability": 400, "_note": "green-wood tongs: hot metal may be held only with these in the other hand (ADR 0087)"},
     {"id": "copper_saw_blade", "name": "Copper Saw Blade", "tags": ["tool_head", "copper_head"], "stack": 64, "_note": "smithed only (ADR 0042)"},
     {"id": "copper_saw", "name": "Copper Saw", "tags": ["tool", "saw"], "stack": 1, "tier": 1, "durability": 160, "_note": "saws a log into four planks (two by hand)"},
     {"id": "copper_work_piece", "name": "Copper Work Piece", "tags": ["heatable", "work_piece"], "stack": 1, "_note": "half-smithed copper: it keeps its shape; heat it and lay it back on the anvil"},

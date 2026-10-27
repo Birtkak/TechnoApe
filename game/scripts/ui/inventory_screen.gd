@@ -490,7 +490,7 @@ Warmth +%.1f C" % float(cloth["warmth_c"])
 	if float(stack.get("dur_x", 1.0)) > 1.0:
 		text += "\nLasts %.1fx as long" % float(stack["dur_x"])
 	if Inventory.heat_of(stack) > 0.0:
-		text += "\nHot (%d s to cool)" % int(ceil(float(stack["hot_until"]) - Inventory.clock_s))
+		text += "\nHot: %d °C (%d s to cool)" % [Inventory.temp_c(stack), int(ceil(float(stack["hot_until"]) - Inventory.clock_s))]   # ADR 0087
 	if stack.has("work"):
 		text += "\nWork piece: %s" % player_inv.items.display_name(String(stack["work"].get("output", "")))
 	_tooltip.text = text
