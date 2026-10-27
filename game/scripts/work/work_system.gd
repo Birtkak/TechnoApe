@@ -617,6 +617,9 @@ func _use_assembly(e: AssemblyEntity, held: Dictionary) -> void:
 		_note("assembled", res["done"]["id"])
 		if float(res["done"].get("dur_x", 1.0)) >= 2.0:
 			_note("tar_hafted", res["done"]["id"])   # glued with birch tar (ADR 0059)
+		var work: String = main.items.get_def(res["done"]["id"]).get("work", "")
+		if work != "" and _build_in_place(e, work):
+			return
 		_finish(e, res["done"])
 		return
 	if res["remove"]:
@@ -628,6 +631,24 @@ func _use_assembly(e: AssemblyEntity, held: Dictionary) -> void:
 		_say("Next: " + " or ".join(next.map(func(s: String) -> String: return e._spec_name(s))))
 	else:
 		_say(res["msg"])
+
+
+## A finished assembly that is a work piece (the firepit, ADR 0083) becomes that piece where its parts
+## lie, centred on them, instead of dropping as an item; its bottom layer may cut into plain ground (a pit
+## dug in, so a 1 m hearth fits on bumpy grass). False (nothing changed) when there is no room.
+func _build_in_place(e: AssemblyEntity, work: String) -> bool:
+	var off := (BlockEntities.width_of(work) - BlockEntities.width_of(e.kind)) / 2
+	var anchor: Vector3i = e.pos - Vector3i(off, 0, off)
+	for c in BlockEntities.footprint_of(work, anchor):
+		var m: int = main.get_world_voxel(c)
+		var free: bool = PlantStamps.is_clearable_cell(m) or main.blocks.at(c) == e 			or (c.y == anchor.y and GameMaterials.is_plain_voxel(GameMaterials.material_of_voxel(m)))
+		if not free or main.player._overlaps_player(c):
+			return false
+	_particles("poof", _at(e.pos, Vector3(0.5, 0.3, 0.5)), 0)
+	remove_piece(e)
+	_create(anchor, work, GameMaterials.WORK_SPOT)
+	stats["finished"].append(work)
+	return true
 
 
 ## Right click on an anvil: a hot ingot starts a piece (or adds metal), a work piece goes back on, a

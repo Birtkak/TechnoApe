@@ -108,6 +108,8 @@ var _break_cooldown := 0.0
 var _place_cooldown := 0.0
 var _highlight: MeshInstance3D
 var _highlight_mat: StandardMaterial3D   # the outline's lines: drawn through the terrain for a dig
+var _station_ghost: MeshInstance3D       # the held station's own model where a click puts it
+var script_aim := false                  # /use aim: the aim and its ghost show under autopilot too (evidence runs)
 var _crack: Node3D
 var crack_material: ShaderMaterial   # MaterialWarmup draws it under the loading screen
 var _swing_t := 0.0                  # mining: time to the next arm swing
@@ -159,6 +161,10 @@ func _ready() -> void:
 	_highlight.visible = false
 	get_tree().root.call_deferred("add_child", _highlight)
 	get_tree().root.call_deferred("add_child", brush_tool.preview)
+	_station_ghost = MeshInstance3D.new()
+	_station_ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_station_ghost.visible = false
+	get_tree().root.call_deferred("add_child", _station_ghost)
 	_stain_overlay = _make_stain_overlay(false)
 	_stain_overlay_burn = _make_stain_overlay(true)
 	_crack = _make_crack_box()
@@ -761,13 +767,21 @@ func _update_mining(delta: float) -> void:
 		holding = false
 	elif not autopilot:
 		holding = script_break_s > 0.0 or (_mouse_captured and not ui_open and not free_cam and not building and Input.is_action_pressed("action_break"))
-	var hit: VoxelRaycastResult = _aim() if (holding or (_mouse_captured and not ui_open and not autopilot)) else null
+	var hit: VoxelRaycastResult = _aim() if (holding or (_mouse_captured and not ui_open and not autopilot) or (script_aim and not ui_open)) else null
 	var mob = aimed_mob(hit) if (_mouse_captured and not ui_open and not autopilot) else null
 	_update_look(hit, mob)
 	if hit and mob != null:
 		hit = null   # an animal is in front of the block: LMB hits it instead (_attack)
 	_update_brush_info()
-	if hit and Settings.brush_ghost:
+	var station_mat := _held_station()
+	_station_ghost.visible = false
+	if hit and Settings.brush_ghost and station_mat > 0 and not holding:
+		var tm := world.get_voxel(hit.position)
+		_highlight.visible = false
+		brush_tool.hide()
+		if sneaking() or tm <= 0 or GameMaterials.defs()[tm - 1].get("interact", "work") == "work":   # a click there opens it, places nothing
+			_show_station_ghost(hit, station_mat)
+	elif hit and Settings.brush_ghost:
 		_highlight.visible = true
 		var placing := _places_voxels() and not holding   # breaking shows what the dig takes
 		var size := place_size() if placing else dig_size()
@@ -775,6 +789,7 @@ func _update_mining(delta: float) -> void:
 		_highlight.global_position = hb.position
 		_highlight.scale = hb.size
 		_highlight_mat.no_depth_test = not placing   # a dig lies inside the terrain: its outline shows through
+		_highlight_mat.albedo_color = Color(0, 0, 0, 0.8)
 		brush_tool.show_at(hit, size, brush_shape, placing)
 	else:
 		_highlight.visible = false
@@ -1301,18 +1316,64 @@ func _places_voxels() -> bool:
 	return def.has("material") and inventory.items.is_voxel_item(def["id"])
 
 
-## A station item (crafting table, chest, furnace, pot) fills a BLOCK^3
-## footprint standing on the aimed face (ADR 0034), when all of it is free.
+## A station item (crafting table, chest, furnace, pot) fills its footprint standing on the aimed
+## face (ADR 0034), when all of it is free.
 func _place_station(hit: VoxelRaycastResult, mat: int) -> void:
-	var anchor := BlockEntities.anchor_for(hit.previous_position)
-	for c in BlockEntities.cube(anchor):
-		var m := world.get_voxel(c)
-		if not _placeable(m) or _overlaps_player(c):
-			return
+	var spot := station_spot(hit, mat)
+	if not spot["free"]:
+		return
+	var anchor: Vector3i = spot["anchor"]
 	voxel_placed.emit(anchor, mat)
 	if GameMode.rule(game_mode, "consumes_items"):
 		inventory.consume_held(1)
 	_after_use()
+
+
+## The material of the held station item (chest, crafting table, furnace, pot), 0 for anything else.
+func _held_station() -> int:
+	if inventory == null or not GameMode.rule(game_mode, "interacts"):
+		return 0
+	var def := inventory.held_def()
+	if not def.has("material") or inventory.items.is_voxel_item(def["id"]):
+		return 0
+	var mat := ItemIcon.material_id_for(inventory.items, def["id"])
+	return mat if mat > 0 and GameMaterials.is_station(mat) else 0
+
+
+## Where a station placed at this aim goes: its footprint centred on the aimed 0.5 m block (a 1 m
+## chest used to grow off one corner), standing on the aimed face, lifted up to a voxel over bumpy
+## ground. {anchor, size, free}: free is false when no lift clears it (the ghost turns red).
+func station_spot(hit: VoxelRaycastResult, mat: int) -> Dictionary:
+	var kind: String = GameMaterials.defs()[mat - 1]["entity"]
+	var size: Vector3i = StationEntity.SIZES.get(kind, Vector3i(Settings.BLOCK, BlockEntities.height_of(kind), Settings.BLOCK))
+	var front: Vector3i = hit.position if _replaceable(world.get_voxel(hit.position)) else hit.previous_position
+	var anchor := BlockEntities.anchor_for(front) - Vector3i((size.x - Settings.BLOCK) / 2, 0, (size.z - Settings.BLOCK) / 2)
+	for lift in 2:
+		var a := anchor + Vector3i(0, lift, 0)
+		var ok := true
+		for c in BlockEntities.box(a, size):
+			var v := world.get_voxel(c)
+			if not (_placeable(v) or PlantStamps.is_clearable_cell(v)) or _overlaps_player(c):
+				ok = false
+				break
+		if ok:
+			return {"anchor": a, "size": size, "free": true}
+	return {"anchor": anchor, "size": size, "free": false}
+
+
+func _show_station_ghost(hit: VoxelRaycastResult, mat: int) -> void:
+	var spot := station_spot(hit, mat)
+	var has_model := StationEntity.SIZES.has(GameMaterials.defs()[mat - 1]["entity"])
+	if has_model:
+		_station_ghost.mesh = StationEntity.ghost_mesh(GameMaterials.name_of(mat))
+		_station_ghost.global_position = Vector3(spot["anchor"])
+		_station_ghost.visible = true
+		StationEntity.ghost_tint(not spot["free"])
+	_highlight.visible = true   # the footprint's outline: the pot and anything without a model show only this
+	_highlight.global_position = Vector3(spot["anchor"])
+	_highlight.scale = Vector3(spot["size"])
+	_highlight_mat.no_depth_test = false
+	_highlight_mat.albedo_color = Color(0, 0, 0, 0.8) if spot["free"] else Color(0.9, 0.1, 0.1, 0.9)
 
 
 ## The ground voxels a hoe or seeds work on: the brush's square (brush_size

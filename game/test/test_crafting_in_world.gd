@@ -172,6 +172,25 @@ func test_assembly_saves_and_loads() -> void:
 	assert_array((b.at(Vector3i(0, 10, 0)) as AssemblyEntity).view_parts()["items"]).has_size(2)
 
 
+## The firepit is laid on the ground like a tool (ADR 0083): four stones in a ring, then two sticks; it is
+## no grid recipe any more.
+func test_firepit_is_laid_stone_by_stone() -> void:
+	assert_bool(AssemblyEntity.starts(recipes, "loose_stone")).is_true()
+	assert_bool(AssemblyEntity.starts(recipes, "granite_stone")).is_true()
+	assert_str(recipes.recipes["firepit"]["type"]).is_equal("assemble")
+	var a := store.create(Vector3i(0, 10, 0), "assembly") as AssemblyEntity
+	a.parts.append("loose_stone")
+	assert_str(a.use(items.get_def("stick"))["msg"]).contains("rock")   # the ring comes first
+	for i in 3:
+		assert_int(a.use(items.get_def("slate_stone"))["consume"]).is_equal(1)
+	assert_dict(a.use(items.get_def("stick"))["done"]).is_empty()
+	var r := a.use(items.get_def("stick"))
+	assert_dict(r["done"]).is_equal({"id": "firepit", "count": 1})
+	assert_str(String(items.get_def("firepit").get("work", ""))).is_equal("firepit")   # WorkSystem builds it in place
+	var ring: Array = a.view_parts()["items"]
+	assert_float((ring[0]["at"] as Vector3).distance_to(ring[2]["at"])).is_greater(0.5)   # stones lie apart, round the sticks
+
+
 # ---------- the firepit by hand ----------
 
 func test_firepit_by_hand_cooks_and_hands_back() -> void:

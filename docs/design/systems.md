@@ -56,7 +56,8 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   (overhangs stay lit). The mist lies below the camera; Video settings Fog (air haze off) and Brightness (ambient x
   `Atmosphere.brightness_mult`). Steep liquid tops (cascades) do not gloss; lava tops sample the crust on one plane.
   **Crafting in the world (ADR 0042):** flint and copper tools are assembled on the ground part by part (`assemble` recipes,
-  `AssemblyEntity`), the firepit is worked by hand (no screen), tools wear (`durability` = uses), hot metal carries `hot_until`
+  `AssemblyEntity`), the firepit is laid the same way (four stones, two sticks) and becomes a firepit where it lies
+  (ADR 0083) and is worked by hand (no screen), tools wear (`durability` = uses), hot metal carries `hot_until`
   against `Inventory.clock_s`, and a stone anvil smiths hot copper with a hammer (`smith` recipes, height per column,
   `AnvilEntity`). Stacks keep per-stack data (`spoil`, `wear`, `hot_until`, `work`) through every move: build stacks with
   `Inventory.make_stack`. `craft_test=1` checks it all (headless with `craft_shots=0`). Stations load on a plain

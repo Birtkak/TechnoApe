@@ -491,3 +491,11 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] The ground is drawn where it is (fixed 2026-10-27: since the fluid patch of 2026-10-26 every terrain mesh sat
       62 cm off its data, so stations were buried and edits showed beside the cursor). Stations stand on the grass,
       a dug block vanishes under the cursor, you stand on the ground and not in it; water surfaces still look right.
+
+## Placement ghosts, chest lid, laid firepit (ADR 0083)
+
+- [ ] Hold a chest, crafting table or furnace: its see-through model shows where it will stand, blue when it fits,
+      red when it does not; it lands exactly there, centred on the block you aim at. Easy to see?
+- [ ] Open a chest: the lid swings up on the far side and shuts when you close the screen. Speed right?
+- [ ] Right click the ground with a loose stone, then three more, then two sticks: a firepit appears where the ring
+      lay. The Hearth quest completes. Does the ring of stones read before the sticks go in?

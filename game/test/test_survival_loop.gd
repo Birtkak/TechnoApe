@@ -266,9 +266,9 @@ func test_a_pinned_recipe_ticks_off_as_the_inventory_fills() -> void:
 	var v := t.view(t.pins[0])
 	assert_str(String(v["title"])).is_equal(items.display_name("firepit"))
 	assert_bool(v["done"]).is_false()
-	assert_int(v["rows"].size()).is_equal(2)   # sticks and loose stones
+	assert_int(v["rows"].size()).is_equal(2)   # loose stones and sticks (laid on the ground, ADR 0083)
 	inv.add("stick", 2)
-	inv.add("loose_stone", 1)
+	inv.add("loose_stone", 3)
 	v = t.view(t.pins[0])
 	assert_bool(v["done"]).is_false()
 	inv.add("loose_stone", 1)
