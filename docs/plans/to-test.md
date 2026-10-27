@@ -475,3 +475,6 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] An iron ingot or bloom on a firepit is refused ("needs a forge's heat"); the forge heats it. Does the forge read as one?
 - [ ] The stone anvil refuses hot iron; the bronze anvil takes the bloom: beat it into a bar (hit the tall middle first).
       Then two hot iron ingots make a pickaxe head. Is iron enough grind, or too much?
+- [ ] The ground is drawn where it is (fixed 2026-10-27: since the fluid patch of 2026-10-26 every terrain mesh sat
+      62 cm off its data, so stations were buried and edits showed beside the cursor). Stations stand on the grass,
+      a dug block vanishes under the cursor, you stand on the ground and not in it; water surfaces still look right.

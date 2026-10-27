@@ -236,19 +236,19 @@ func use(stack: Dictionary, def: Dictionary, dry := false) -> Dictionary:
 				if not dry:
 					res["give"] = [inv.take(slot)]
 				return res
-		res["msg"] = "Lay fuel on the firepit, then light it with a firestarter."
+		res["msg"] = "Lay fuel on the %s, then light it with a firestarter." % title.to_lower()
 		return res
 	if "firestarter" in def.get("tags", []):
 		if is_lit():
-			res["msg"] = "The firepit is burning."
+			res["msg"] = "The %s is burning." % title.to_lower()
 		elif dry:
 			res["act"] = fuel_ticks(inv.get_slot(FUEL).get("id", "")) > 0
 		elif ignite():
 			res["ignited"] = true
 			res["act"] = true
-			res["msg"] = "The firepit is lit."
+			res["msg"] = "The %s is lit." % title.to_lower()
 		else:
-			res["msg"] = "Lay fuel on the firepit first."
+			res["msg"] = "Lay fuel on the %s first." % title.to_lower()
 		return res
 	var n := items.units(id)
 	if may_place(VESSEL, id):
@@ -279,10 +279,10 @@ func use(stack: Dictionary, def: Dictionary, dry := false) -> Dictionary:
 	if burns(id):
 		var f := inv.get_slot(FUEL)
 		if not f.is_empty() and f["id"] != id:
-			res["msg"] = "The firepit burns %s now." % items.display_name(f["id"])
+			res["msg"] = "The %s burns %s now." % [title.to_lower(), items.display_name(f["id"])]
 			return res
 		if int(f.get("count", 0)) / maxi(n, 1) >= Settings.firepit_fuel_max:
-			res["msg"] = "The firepit holds no more fuel."
+			res["msg"] = "The %s holds no more fuel." % title.to_lower()
 			return res
 		res["act"] = true
 		if not dry:
@@ -297,7 +297,7 @@ func use(stack: Dictionary, def: Dictionary, dry := false) -> Dictionary:
 	elif not melt.is_empty():
 		res["msg"] = "Set a %s on the fire first." % items.display_name(melt["vessel"]).to_lower()
 	else:
-		res["msg"] = "%s does not go on a firepit." % items.display_name(id)
+		res["msg"] = "%s does not go on a %s." % [items.display_name(id), title.to_lower()]
 	return res
 
 

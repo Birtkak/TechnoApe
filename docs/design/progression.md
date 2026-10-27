@@ -16,8 +16,8 @@ they follow. Numbers below are first guesses to tune in play.
 |---|---|---|---|---|
 | Stone | flint picked up from the ground, knapped | 0 | flint knife, axe, shovel, hoe, pickaxe | 2×2 hand grid, crafting table (flint + logs), firepit, pit kiln |
 | Copper | surface copper melted in a fired crucible and cast in clay molds | 1 | copper pickaxe, axe, shovel, knife, hoe | sieve, furnace |
-| Bronze | copper + tin, alloyed | 2 | bronze pickaxe, axe, shovel, saw, hammer | bloomery |
-| Iron | iron blooms hammered into ingots | 3 | iron pickaxe, axe, shovel, saw, hammer, knife | blast furnace |
+| Bronze | tin laid into molten copper | 2 | bronze pickaxe, axe, shovel, hoe, knife, saw, hammer | bloomery, bronze anvil |
+| Iron | iron blooms hammered into ingots | 3 | iron pickaxe, axe, shovel, hoe, knife, saw, hammer | forge |
 | Steel | iron + coal in the blast furnace | 4 | steel pickaxe | (machines, later) |
 
 Until electricity the game plays like **Vintage Story** (developer,
@@ -68,23 +68,24 @@ You spawn with nothing.
 
 ## Bronze age
 
-Built as ADR 0070 (2026-10-26): tin into molten copper on the firepit, a one-block bloomery worked by hand, a
-forge for iron and a bronze anvil; the numbers below are the plan, the ADR has what shipped.
+Built as ADR 0070 (2026-10-26); the ADR has the numbers.
 
-- Bronze = 3 copper + 1 tin in the furnace (in the game today).
-- Bronze tools. **Iron ore needs tier 2** (bronze pickaxe).
-- **Bloomery** (clay bricks): iron nuggets ×4 + coal ×3, or iron ore + coal ×2,
-  make an **iron bloom**. Furnaces no longer smelt iron.
-- **Bronze hammer** beats a bloom into an iron ingot (tool stays in the grid).
+- **Bronze:** lay 2 tin nuggets (or a tin-bearing stone, a block of tin ore) into a crucible of molten copper
+  on a lit firepit. Molten bronze casts in every copper mold. The furnace smelts no ore.
+- Bronze tools are tier 2. **Iron ore needs tier 2** (bronze pickaxe).
+- **Bloomery** (8 fired clay bricks, worked by hand): 8 iron nuggets, 4 iron-bearing stones or a block of
+  iron ore plus charcoal or coal make one hot **iron bloom** in 2 minutes.
+- **Forge** (loose stones round a coal): the only fire that heats iron. On the **bronze anvil** a hammer
+  beats the bloom into an iron ingot; the stone anvil refuses iron.
 
-The grind the developer asked for: 3 iron ingots for a pickaxe = 3 blooms =
-12 iron nuggets ≈ 300 sifts of gravel at 4 %, unless the player reaches
+The grind the developer asked for: 2 iron ingots for a pickaxe head = 2 blooms =
+16 iron nuggets ≈ 400 sifts of gravel at 4 %, unless the player reaches
 iron ore with a bronze pickaxe first. Both routes are valid; ore is faster
 once found, sifting is safe.
 
 ## Iron and steel
 
-- Iron tools (iron pickaxe is in the game today, tier 2 → becomes tier 3).
+- Iron tools are tier 3, smithed from iron ingots on the bronze anvil (never cast).
 - Fire clay → fire bricks → **blast furnace** (wraps a furnace).
   Steel = iron + 2 coal there. Steel pickaxe, tier 4: what deep ores require.
 - Machines (GregTech side) start here; not designed yet.

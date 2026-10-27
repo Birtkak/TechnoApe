@@ -31,6 +31,15 @@ new = 'static const int PADDING = 6; // TechnoApe: the fluid height field reads 
 assert h.count(old) == 1, h.count(old)
 open(ph, 'w', encoding='utf-8', newline='\n').write(h.replace(old, new, 1))
 
+# The mesher placed vertices at x - 1 (stock PADDING); with PADDING 6 the whole drawn terrain sat 5 voxels
+# (62 cm) off its data on every axis: stations buried, edits drawn beside the cursor (2026-10-27).
+pc = root + '/meshers/blocky/voxel_mesher_blocky.cpp'
+c = open(pc, encoding='utf-8').read()
+old = 'const Vector3f pos(x - 1, y - 1, z - 1);'
+assert c.count(old) == 2, c.count(old)
+c = c.replace(old, 'const Vector3f pos(x - VoxelMesherBlocky::PADDING, y - VoxelMesherBlocky::PADDING, z - VoxelMesherBlocky::PADDING); // TechnoApe: the padding is not 1')
+open(pc, 'w', encoding='utf-8', newline='\n').write(c)
+
 p = root + '/meshers/blocky/blocky_fluids_meshing_impl.h'
 s = open(p, encoding='utf-8').read()
 
