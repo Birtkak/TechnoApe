@@ -28,7 +28,7 @@ extends RefCounted
 const SHAPES := ["cube", "sphere", "cylinder", "flat", "column", "tunnel"]
 const BOX_SHAPES := ["cube", "flat", "column", "tunnel"]
 const SIZES := [1, 2, 4, 8]
-const CREATIVE_SIZES := [1, 2, 4, 8, 16, 32]
+const CREATIVE_SIZES := [1, 2, 4, 8, 16, 32, 64]
 const NATIVE_ABOVE := 8   # brushes bigger than this are filled natively (ShapeTool), never cell by cell
 
 static var tunnel_floor_y := 0   # the voxel row the player stands in (Player sets it while on the ground)

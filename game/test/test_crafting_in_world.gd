@@ -49,7 +49,7 @@ func test_no_age_tool_is_made_in_the_grid() -> void:
 	for r in recipes.recipes.values():
 		if r["type"] in ["shaped", "shapeless"]:
 			var d := items.get_def(r["output"]["id"])
-			var age_tool: bool = "tool" in d.get("tags", []) and d.has("tier")
+			var age_tool: bool = "tool" in d.get("tags", []) and d.has("tier") and int(d["tier"]) < 4   # steam-age tools (tier 4) are grid-made, no ground assembly (ADR 0099)
 			assert_bool(age_tool).override_failure_message(r["id"]).is_false()
 
 

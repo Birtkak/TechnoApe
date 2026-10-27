@@ -38,7 +38,9 @@ const KITS := {
 	"iron": {"bloomery": 1, "forge": 1, "bronze_anvil": 1, "bronze_hammer": 1, "charcoal": 32, "iron_nugget": 16, "loose_iron_ore": 8,
 		"iron_ingot": 6, "iron_bloom": 1, "firestarter": 1, "stick": 8},   # the iron age (ADR 0070)
 	"steam": {"small_boiler": 1, "bronze_pipe": 8, "copper_pipe": 8, "steam_hammer": 1, "steam_sieve": 1, "forge": 1, "coal": 32, "water_bucket": 4,
-		"bucket": 2, "iron_ingot": 8, "iron_plate": 4, "gravel": 16, "firestarter": 1, "goggles": 1, "leather_apron": 1, "wrench": 1},   # the steam age (ADR 0097)
+		"bucket": 2, "iron_ingot": 8, "iron_plate": 4, "gravel": 16, "firestarter": 1, "goggles": 1, "leather_apron": 1, "wrench": 1,
+		"steel_boiler": 1, "blast_furnace": 1, "ore_crusher": 1, "water_tank": 1, "steam_turbine": 1, "iron_ore": 8, "fire_brick": 4,
+		"miners_helmet": 1, "travelers_backpack": 1, "steam_drill": 1, "boiler_suit": 1, "jetpack": 1, "surveyors_stake": 4, "compressor": 1},   # the steam age (ADR 0097, 0099)
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64, "fire_essence": 16},
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools

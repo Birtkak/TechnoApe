@@ -119,6 +119,16 @@ var steam_per_use := 0.02               # pressure one hammer strike or sieve sh
 var steam_hammer_strike_s := 0.5        # between strikes at working pressure; faster above, slower below
 var steam_sieve_shake_s := 0.6          # between shakes at working pressure
 var steam_sieve_loads := 8              # blocks of gravel or sand a steam sieve holds
+# stage 2 and the turbine (ADR 0099)
+var steel_boiler_x := 2.5               # the steel boiler builds pressure this many times faster than the small one
+var tank_buckets := 16                  # water buckets a water tank holds
+var ore_crusher_crush_s := 1.0          # between crushes at working pressure
+var ore_crusher_loads := 16             # blocks of ore an ore crusher holds
+var turbine_rpm := 600.0                # a turbine's speed at working pressure (a number to look at, nothing uses it yet)
+var jetpack_rise_m := 2.0               # the steam jetpack climbs this fast with jump held
+var jetpack_sink_m := 0.6               # ...and sinks this fast with it released (a hover)
+var jetpack_air_s := 90.0               # seconds of climbing one fill of compressed air gives (hovering costs a quarter)
+var compressor_fill_s := 60.0           # a compressor fills its air tank in this long at working pressure
 var hold_use_s := 1.0                 # right click held this long picks up a stick or stone, lays a thing on a firepit or takes it off (ADR 0043)
 
 # Particles (ADR 0026): two GPU pools, every particle emitted by script

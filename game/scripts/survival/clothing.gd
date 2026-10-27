@@ -9,7 +9,7 @@ extends RefCounted
 
 signal changed
 
-const SLOTS := ["head", "body", "feet"]
+const SLOTS := ["head", "body", "feet", "back"]   # back: the jetpack (ADR 0099)
 
 var items: ItemRegistry
 var worn := {}   # slot -> stack

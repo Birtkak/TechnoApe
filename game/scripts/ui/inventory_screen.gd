@@ -179,9 +179,9 @@ func _build_player_slots() -> void:
 	for sv in _bag_slots:
 		sv.queue_free()
 	_bag_slots.clear()
-	for i in PlayerInventory.BAG:
+	for i in PlayerInventory.BAG * 2:   # two rows: the traveler's backpack fills both (ADR 0099)
 		var sv := SlotView.new()
-		sv.position = Vector2(16 + i * S, 332)
+		sv.position = Vector2(16 + (i % PlayerInventory.BAG) * S, 332 + (i / PlayerInventory.BAG) * S)
 		sv.index = i
 		sv.group = "bag"
 		sv.clicked.connect(func(button: int, shift: bool) -> void: player_inv.click_bag_slot(i, button, shift))
@@ -432,9 +432,9 @@ func _refresh() -> void:
 	_trash_slot.set_stack(player_inv.items, player_inv.trash)
 	_trash_slot.position.y = _slots[0].position.y
 	for i in _bag_slots.size():
-		_bag_slots[i].visible = worn
-		_bag_slots[i].set_stack(player_inv.items, player_inv.bag.get_slot(i))
-	var h := PANEL.y + (48.0 if worn else 0.0)
+		_bag_slots[i].visible = worn and i < player_inv.bag.size()
+		_bag_slots[i].set_stack(player_inv.items, player_inv.bag.get_slot(i) if i < player_inv.bag.size() else {})
+	var h := PANEL.y + (48.0 + S * (player_inv.bag.size() / PlayerInventory.BAG - 1) if worn else 0.0)
 	if _panel.size.y != h:
 		_panel.size = Vector2(PANEL.x, h)
 		_panel.position = -_panel.size / 2.0

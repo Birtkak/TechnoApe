@@ -28,7 +28,13 @@ var recipes: RecipeRegistry
 var inv: Inventory
 var craft: CraftingGrid
 var cursor := {}
-var bag_item := {}                 # the worn bag stack (leather_bag), or {}
+var bag_item := {}:                # the worn bag stack (leather_bag), or {}
+	set(v):
+		bag_item = v
+		var n := int(items.get_def(String(v.get("id", ""))).get("bag_slots", BAG)) if not v.is_empty() else BAG
+		if bag != null and bag.size() != n:   # a traveler's backpack has more (ADR 0099); a bag only comes off empty
+			bag = Inventory.new(items, n)
+			bag.changed.connect(_on_slot_changed)
 var bag: Inventory                 # its slots; usable while bag_item is set
 var container: RefCounted = null   # ChestEntity / FurnaceEntity while its screen is open (ADR 0007)
 var off: Inventory                 # the offhand: one slot (ADR 0055)
@@ -335,7 +341,7 @@ func has_bag() -> bool:
 
 
 func bag_is_empty() -> bool:
-	for i in BAG:
+	for i in bag.size():
 		if not bag.is_empty_slot(i):
 			return false
 	return true
@@ -897,7 +903,7 @@ func summary() -> Dictionary:
 		if not s.is_empty():
 			main[s["id"]] = int(main.get(s["id"], 0)) + int(s["count"])
 	var in_bag := {}
-	for i in BAG:
+	for i in bag.size():
 		var s: Dictionary = bag.get_slot(i)
 		if not s.is_empty():
 			in_bag[s["id"]] = int(in_bag.get(s["id"], 0)) + int(s["count"])

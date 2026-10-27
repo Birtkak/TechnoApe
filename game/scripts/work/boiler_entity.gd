@@ -17,6 +17,9 @@ var pressure := 0.0
 var wear := 0.0           # 0..1, rusted through at 1
 var dry_ticks := 0
 var _whistle := 0
+var item := "small_boiler"   # or "steel_boiler" (ADR 0099): steel_boiler_x the steam, a safety valve at STEEL_VALVE that sticks with rust
+
+const STEEL_VALVE := 2.0     # bar the steel boiler's valve blows off at (while wear < 0.5)
 
 
 func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_pos: Vector3i) -> void:
@@ -39,7 +42,16 @@ func may_place(slot: int, id: String) -> bool:
 
 
 func screaming() -> bool:
-	return is_lit() and (pressure > 1.0 or water <= 0.0)
+	return is_lit() and (pressure > (STEEL_VALVE if steel() else 1.0) or water <= 0.0)
+
+
+func steel() -> bool:
+	return item == "steel_boiler"
+
+
+## How fast it builds pressure against the small boiler.
+func strength() -> float:
+	return Settings.steel_boiler_x if steel() else 1.0
 
 
 ## A machine takes `amount` of pressure. False when there is not that much.
@@ -56,11 +68,13 @@ func tick() -> bool:
 		wear = minf(1.0, wear + TICK / Settings.boiler_wear_s)
 		if water > 0.0:
 			water = maxf(0.0, water - TICK / Settings.boiler_boil_s)
-			pressure += TICK / Settings.boiler_build_s * (1.0 - wear)
+			pressure += TICK / Settings.boiler_build_s * strength() * (1.0 - wear)
+			if steel() and pressure > STEEL_VALVE and wear < 0.5:
+				pressure = STEEL_VALVE   # the safety valve blows off; rusted past half it sticks
 			dry_ticks = 0
 		else:
 			dry_ticks += 1
-		if pressure >= Settings.boiler_burst_at or dry_ticks * TICK >= Settings.boiler_dry_s:
+		if pressure >= Settings.boiler_burst_at * strength() or dry_ticks * TICK >= Settings.boiler_dry_s:
 			lit_time = 0   # the blast puts it out (WorkSystem removes the piece); once
 			pressure = 0.0
 			water = 0.0
@@ -123,6 +137,8 @@ func look_lines() -> Array[String]:
 		out.append("Fuel: %s" % _count_name(fuel))
 	out.append("Water: %d%%%s" % [roundi(water * 100.0), " (DRY: it will burst!)" if is_lit() and water <= 0.0 else ""])
 	out.append("Pressure: %.2f bar%s" % [pressure, " (over pressure: vent it!)" if pressure > 1.0 else ""])
+	if steel():
+		out.append("Safety valve at %.2f bar%s" % [STEEL_VALVE, " (STUCK with rust: fit an iron plate!)" if wear >= 0.5 else ""])
 	if wear >= 1.0:
 		out.append("Rusted through: fit an iron plate")
 	elif wear > 0.5:
@@ -153,6 +169,7 @@ func view_parts() -> Dictionary:
 	var cy := 13.0
 	var cz := n / 2.0
 	var r := 6.0
+	var body := WorkPalette.ANVIL if steel() else WorkPalette.IRON_DARK   # steel is the brighter drum
 	for x in range(1, n - 1):
 		var rx := r if x > 2 and x < n - 3 else r - 1.0   # the ends round off
 		for y in range(7, n):
@@ -160,15 +177,17 @@ func view_parts() -> Dictionary:
 				var d2 := (y - cy) * (y - cy) + (z + 0.5 - cz) * (z + 0.5 - cz)
 				if d2 > rx * rx:
 					continue
-				var tone := WorkPalette.IRON_DARK
+				var tone := body
 				if d2 >= (rx - 1.0) * (rx - 1.0):
 					if x % 4 == 2 and x > 2 and x < n - 3:
-						tone = WorkPalette.ANVIL     # a rivet ring
+						tone = WorkPalette.IRON_DARK if steel() else WorkPalette.ANVIL     # a rivet ring
 					elif absi(int(z + 0.5 - cz)) == 0 and y > cy:
 						tone = WorkPalette.STONE_DARK   # the top seam
 				c[WorkPalette.idx(size, x, y, z)] = tone + 1
 	WorkPalette.box(c, size, Vector3i(n - 5, 17, 9), Vector3i(n - 3, n, 11), WorkPalette.SOOT)        # the chimney
 	WorkPalette.box(c, size, Vector3i(8, 19, 9), Vector3i(11, n, 11), WorkPalette.BRONZE)             # the filler cap
+	if steel():
+		WorkPalette.box(c, size, Vector3i(4, 19, 9), Vector3i(6, n, 11), WorkPalette.AVOID if pressure >= STEEL_VALVE else WorkPalette.BRONZE)   # the safety valve
 	var gauge := WorkPalette.AVOID if pressure > 1.0 else (WorkPalette.GLOW if pressure > 0.3 else WorkPalette.COPPER)
 	WorkPalette.box(c, size, Vector3i(0, 11, 8), Vector3i(1, 15, 12), WorkPalette.BRONZE)              # the gauge's rim
 	WorkPalette.box(c, size, Vector3i(0, 12, 9), Vector3i(1, 14, 11), gauge)                           # its face
@@ -179,8 +198,15 @@ func view_parts() -> Dictionary:
 	return {"solid": {"cells": WorkPalette.rotate_y(c, size, facing), "size": size, "grid": n}}
 
 
+func contents() -> Array:
+	var out := super()
+	out[0] = {"id": item, "count": 1}   # the small or the steel boiler, not the kind
+	return out
+
+
 func to_dict() -> Dictionary:
 	var d := super()
+	d["item"] = item
 	d["water"] = water
 	d["pressure"] = pressure
 	d["wear"] = wear
@@ -191,6 +217,7 @@ func to_dict() -> Dictionary:
 func load_from(d: Dictionary) -> void:
 	super(d)
 	facing = int(d.get("facing", 0))
+	item = String(d.get("item", "small_boiler"))
 	water = float(d.get("water", 0.0))
 	pressure = float(d.get("pressure", 0.0))
 	wear = float(d.get("wear", 0.0))
@@ -230,5 +257,8 @@ static func feed(store: BlockEntities) -> void:
 					seen[o.pos] = seen[e.pos] + (2 if o.item == "copper_pipe" else 1)   # soft copper carries half as far
 					if seen[o.pos] <= Settings.steam_pipe_max:
 						queue.append(o)
+				elif o.kind == "tank":   # a tank on the pipes tops the boiler up, a bucket a second (ADR 0099)
+					if b.water <= 1.0 - Settings.boiler_bucket_fill and o.take_bucket():
+						b.water += Settings.boiler_bucket_fill
 				elif "boiler" in o:
 					o.boiler = b

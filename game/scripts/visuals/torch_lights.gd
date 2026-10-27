@@ -109,6 +109,9 @@ func _follow_hand() -> void:
 		if light_of(main.items, id).is_empty():   # a torch in the left hand lights too (bug 2026-10-27_15-41-51)
 			id = String(main.player_inv.offhand().get("id", ""))
 			hand.x = -hand.x
+		if light_of(main.items, id).is_empty() and main.get("stone_age") != null:   # a miner's helmet lights hands-free (ADR 0099)
+			id = String(main.stone_age.clothing.worn.get("head", {}).get("id", ""))
+			hand = Vector3(0.0, 0.15, -0.1)
 	var def := light_of(main.items, id)
 	_held.visible = not def.is_empty()
 	stats["held"] = _held.visible

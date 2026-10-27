@@ -67,6 +67,13 @@ func _process(delta: float) -> void:
 				var at := _at(b.pos, Vector3(0.5, 1.0, 0.5))
 				Sound.play("steam/whistle", at)
 				_particles("large_smoke", at, 0, 6)
+			if b.steel() and b.pressure >= BoilerEntity.STEEL_VALVE and b.wear < 0.5:   # the safety valve blowing off (ADR 0099)
+				Sound.play("steam/hiss", _at(b.pos, Vector3(0.5, 1.0, 0.5)), {"db": -6.0})
+				_particles("large_smoke", _at(b.pos, Vector3(0.5, 1.0, 0.5)), 0, 3)
+		for t in main.blocks.all_of("turbine"):   # a turning turbine hums and leaks a wisp (ADR 0099)
+			if t.rpm > 0.0:
+				Sound.play("steam/hiss", _at(t.pos, Vector3(0.5, 0.5, 0.5)), {"db": -14.0, "pitch": 0.6})
+				_particles("smoke", _at(t.pos, Vector3(0.5, 0.9, 0.5)), 0)
 
 
 # ---------------- views ----------------
@@ -138,7 +145,7 @@ func _on_struck(p: Vector3i, col: Vector2i) -> void:
 ## A steam sieve's shake: the sieve's rattle and a spray of what it sifts.
 func _on_shook(p: Vector3i, material: String) -> void:
 	var at := _at(p, Vector3(0.5, 0.9, 0.5))
-	Sound.play("craft/sieve", at)
+	Sound.play("craft/anvil" if main.blocks.at(p) is OreCrusherEntity else "craft/sieve", at)   # the crusher's jaws bite
 	var fx: ParticleFx = main.get("fx")
 	_particles("sprint", at, fx.material_id(material) if fx else 0)
 
@@ -304,7 +311,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile"
-	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve"]
+	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor"]
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -326,6 +333,10 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 			e.item = id
 			e.axis = posmod(roundi(main.player.rotation_degrees.y / 90.0), 2)   # along the way the player faces (ADR 0097)
 			_mark(p)
+			if _consumes():
+				main.player_inv.consume_held(1)
+		"boiler":
+			e.item = id   # the small or the steel boiler (ADR 0099)
 			if _consumes():
 				main.player_inv.consume_held(1)
 		"assembly":
@@ -654,6 +665,13 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		return true
 	if e is FirepitEntity:
 		_use_firepit(e, held, first_press, sneaking)
+		return true
+	if e is TankEntity or e is TurbineEntity or e is CompressorEntity:   # ADR 0099
+		var res: Dictionary = e.use(main.player_inv.held() if e is CompressorEntity else held)   # the compressor charges the held jetpack in place
+		if res["consume"] > 0 and _consumes():
+			main.player_inv.consume_held(res["consume"])
+		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
+		_say(res["msg"])
 		return true
 	if e is SieveEntity:
 		var sifting: String = e.input

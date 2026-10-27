@@ -189,11 +189,11 @@ static func _count_range(d: Dictionary) -> Array:
 # ---------------- brush digging (ADR 0034) ----------------
 
 ## Largest dig brush (voxels edge) a held item allows: bare hands and non-tools
-## 2, tools 4, iron and steel (tier 3+) 8.
+## 4, tools 6, iron and steel (tier 3+) 8 (the developer asked for lenient caps, 2026-10-27).
 static func dig_cap(held: Dictionary) -> int:
 	if tool_class(held) == "":
-		return 2
-	return 8 if int(held.get("tier", 0)) >= 3 else 4
+		return 4
+	return 8 if int(held.get("tier", 0)) >= 3 else 6
 
 
 ## What digging `counts` (material name -> voxels) yields with `held`.

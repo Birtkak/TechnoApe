@@ -86,6 +86,14 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   on the machines at the ends: the steam hammer (`SteamHammerEntity`, an anvil that strikes by itself, `strike()`) and
   the steam sieve (`SteamSieveEntity`, `loads` and `found`). All three rust (`wear`) and an iron plate mends them. Check:
   `test_steam_age.gd`, `/kit steam`.
+  **Stage 2, the turbine and the helpers (ADR 0099):** `BlastFurnaceEntity` (a bloomery that only cooks under steam:
+  iron ingot to steel), the steel boiler (the same `BoilerEntity` with `item = "steel_boiler"`: 2.5x the build rate,
+  a safety valve at `STEEL_VALVE` that sticks past half wear), `OreCrusherEntity` (a block of ore to two `crushed`
+  items), `TankEntity` (feed() lets boilers drink from tanks on the pipes), `TurbineEntity` (spins, powers nothing),
+  `CompressorEntity` (fills `air`, a held jetpack takes it). Helpers: the miner's helmet (`TorchLights` lights from the
+  worn head piece), the traveler's backpack (`bag_slots`: `PlayerInventory.bag` is rebuilt to the worn bag's size),
+  the steam drill (`speed` 2.5), the boiler suit, the jetpack (clothing slot `back`, `Player._worn_with`, air in the
+  stack), the surveyor's stake (`waypoint` field). Tier 4 tools are grid recipes. Check: `test_steam_age_2.gd`.
   **Grid Fill and Clear (bug report 2026-10-25):** the recipe view shows **Fill** right of the output for a grid recipe
   (shaped/shapeless) while a crafting grid is on screen: it returns the grid's contents to the inventory, then lays the
   recipe out (shaped as drawn from the top left, shapeless in reading order) from the inventory and the worn bag, and closes

@@ -77,6 +77,21 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		"steam_sieve":
 			e = SteamSieveEntity.new(recipes, pos)
 			_ticking.append(e)
+		# stage 2 and the turbine (ADR 0099)
+		"blast_furnace":
+			e = BlastFurnaceEntity.new(items, recipes, pos)
+			_ticking.append(e)
+		"ore_crusher":
+			e = OreCrusherEntity.new(recipes, pos)
+			_ticking.append(e)
+		"tank":
+			e = TankEntity.new(pos)
+		"turbine":
+			e = TurbineEntity.new(pos)
+			_ticking.append(e)
+		"compressor":
+			e = CompressorEntity.new(pos)
+			_ticking.append(e)
 		"firewood_pile":
 			e = FirewoodPileEntity.new(recipes, pos)
 			_ticking.append(e)
@@ -108,11 +123,12 @@ const SINGLE := []   # entities that are one voxel (torches have their own cells
 ## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
 ## a knapping stone or a mold on the ground is one voxel high, a firepit two.
 const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 2, "assembly": 1, "laid_tool": 1, "anvil": 6, "bronze_anvil": 6,
-	"boiler": 4, "steam_hammer": 9, "pipe": 2}
+	"boiler": 4, "steam_hammer": 9, "pipe": 2, "ore_crusher": 5, "tank": 6}
 ## Work pieces bigger than one 0.5 m block: their footprint width and height multiply by this many blocks
 ## (the stations' 1 m scale, ADR 0076; the steam age's 1.5 m hammer and 2.5 m boiler, ADR 0097). A view
 ## of 8 cells still spans the width, so a 1 m piece's cell is a voxel; a bigger piece names its own grid.
-const SCALE := {"firepit": 2, "forge": 2, "bloomery": 2, "anvil": 2, "bronze_anvil": 2, "steam_hammer": 3, "boiler": 5}
+const SCALE := {"firepit": 2, "forge": 2, "bloomery": 2, "anvil": 2, "bronze_anvil": 2, "steam_hammer": 3, "boiler": 5,
+	"blast_furnace": 2, "ore_crusher": 2, "tank": 2, "turbine": 2, "compressor": 2}
 
 
 ## Footprint width in voxels of a work piece kind.
@@ -236,7 +252,8 @@ func all_furniture() -> Array:
 
 
 const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave",
-	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile", "boiler", "pipe", "steam_hammer", "steam_sieve"]
+	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile", "boiler", "pipe", "steam_hammer", "steam_sieve",
+	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor"]
 
 
 ## The machines a boiler's pipes feed (ADR 0097): everything with a `boiler` slot.

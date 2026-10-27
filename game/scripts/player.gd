@@ -554,6 +554,14 @@ func _physics_step(delta: float) -> void:
 		velocity.y -= Settings.m2v(Settings.gravity_m) * delta
 		if _on_floor and Input.is_action_just_pressed("jump") and not ui_open:
 			velocity.y = sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(Settings.jump_height_m))
+		var pack := _worn_with("jetpack")   # the steam jetpack (ADR 0099): on compressed air, hold jump to rise slowly, let go to hover down
+		if not pack.is_empty() and float(pack.get("air", 0.0)) > 0.0:
+			pack["air"] = maxf(0.0, float(pack["air"]) - delta / Settings.jetpack_air_s * (1.0 if jump else 0.25))
+			if jump:
+				velocity.y = move_toward(velocity.y, Settings.m2v(Settings.jetpack_rise_m), Settings.m2v(Settings.gravity_m) * 2.0 * delta)
+			else:
+				velocity.y = maxf(velocity.y, -Settings.m2v(Settings.jetpack_sink_m))
+			_fall_peak_y = position.y
 		if _on_ladder():
 			# Minecraft ladders: walk into one or hold jump to climb, sneak to hang, else slide down slowly
 			var climb := Settings.m2v(Settings.climb_speed_m)
@@ -645,6 +653,17 @@ func _is_solid_voxel(v: Vector3i) -> bool:
 
 
 # ---------------- health ----------------
+
+## The worn stack whose "clothing" has `key` (the jetpack, ADR 0099), or {}.
+func _worn_with(key: String) -> Dictionary:
+	var m := get_parent()
+	if m == null or m.get("stone_age") == null:
+		return {}
+	for s in m.stone_age.clothing.worn.values():
+		if m.items.get_def(s["id"]).get("clothing", {}).has(key):
+			return s
+	return {}
+
 
 ## Vanilla fall damage: 1 per block fallen beyond the safe distance.
 func _update_fall_damage() -> void:
@@ -1184,6 +1203,13 @@ func _use(first_press: bool) -> void:
 		return
 	if first_press and inventory.held_def().has("fills") and _scoop(_aimed_liquid(hit, true)):
 		return   # the aim ray passes through liquids: a bucket takes the first one it crosses
+	if first_press and inventory.held_def().has("waypoint"):   # a surveyor's stake (ADR 0099): marks the spot on the map
+		var m := get_parent()
+		m.waypoints.add("%s %d" % [inventory.held_def()["waypoint"], m.waypoints.list.size() + 1], Vector3i(position.floor()), "stake")
+		if GameMode.rule(game_mode, "consumes_items"):
+			inventory.consume_held(1)
+		_after_use()
+		return
 	if first_press and inventory.held_def().has("playtest") and playtest_use.is_valid():
 		var pdef := inventory.held_def()
 		if playtest_use.call(pdef, hit, camera.global_position, -camera.global_transform.basis.z, sneaking()):

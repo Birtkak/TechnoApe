@@ -99,7 +99,7 @@ once found, sifting is safe.
 
 - Iron tools are tier 3, smithed from iron ingots on the bronze anvil (never cast).
 
-## Steam age (developer, 2026-10-27, ADR 0096; stage 1 built as ADR 0097)
+## Steam age (developer, 2026-10-27, ADR 0096; stage 1 built as ADR 0097, stage 2, the turbine and the helpers as ADR 0099)
 
 A slowly improving steampunk era. Each stage needs parts from the one
 before, and each gives back a chore the player has done by hand many times.
@@ -130,6 +130,15 @@ the water coming (by hand, then by pipe) or lose the room.
      hauling from far veins.
    - Ends with a **steam turbine** and copper wire: the first generator, the
      door to the electrical age.
+
+Built so far (ADR 0099): all of stage 2, the turbine and copper wire, the compressor; of stage 3 the
+transport (hoppers, conveyors, rails, minecart) is still open. **Helpers, two a stage** (developer,
+2026-10-27): stage 1 the miner's helmet (light) and the traveler's backpack (18 bag slots); stage 2 the
+steam drill (2.5x a steel pick) and the boiler suit; stage 3 the jetpack (compressed air from the
+compressor; hold jump to climb, release to hover) and the surveyor's stake (a map waypoint). Intermediates
+for flavour: iron gear, glass lens, copper coil, steam cell. **From the steam age on, tools are made at
+the crafting table; ground assembly ends with the iron age.** The dig brush is lenient: creative to 64
+voxels, survival hands 4, tools 6, iron and steel 8.
 
 ## The GregTech mindset (late steam age onward)
 

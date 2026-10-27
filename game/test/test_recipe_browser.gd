@@ -25,7 +25,7 @@ func test_search_terms_and_tags() -> void:
 	assert_array(b.filtered()).contains_exactly(["iron_ingot"])
 	b.set_query("#metal")
 	assert_array(b.filtered()).contains_exactly_in_any_order(["iron_ingot", "copper_ingot", "bronze_ingot", "tin_ingot",
-		"iron_plate", "iron_rod", "bronze_pipe", "copper_pipe"])   # the steam age's metal parts (ADR 0097)
+		"iron_plate", "iron_rod", "bronze_pipe", "copper_pipe", "steel_ingot", "steel_plate", "copper_wire", "iron_gear", "copper_coil"])   # the steam age's metal parts (ADR 0097, 0099)
 	b.set_query("#fuel")
 	assert_array(b.filtered()).contains(["coal", "charcoal"])
 	b.set_query("zzz")
