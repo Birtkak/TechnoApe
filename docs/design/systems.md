@@ -112,9 +112,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   they are continuous; a drop of three or more cells between neighbouring surface cells is a cascade where the bed
   drops as much (the river's surface is clamped to the ground), and `water_surface_probe.gd` counts the rest as
   terraces; `tools/column_probe.gd` prints a column's hydrology. GEN_VERSION 22.
-  **Liquid speed (ADR 0069 B):** `liquid_speed` substeps per material (water 4 since ADR 0081, oil, blood, sludge 2, lava 1): after
+  **Liquid speed (ADR 0069 B):** `liquid_speed` substeps per material (water 8 since 2026-10-27, cap 8, oil, blood, sludge 2, lava 1): after
   the main pass the kernel runs extra passes that only spread and pour moving liquids with substeps left (no falling,
-  no downhill run, nothing standing on a cell that moved this tick); `mark_` is the per-pass move marker, `stamp_`
+  no downhill run, nothing standing on a falling cell; its own liquid that only evened out underneath does not hold it); `mark_` is the per-pass move marker, `stamp_`
   still counts ticks. A surface evens out by half the difference to a lower neighbour (ends flat), rests at a
   difference under two eighths. `test/test_liquid_speed.gd`. `water_test=1 target=river` checks a
   trench and a crater; kernel tests `test/test_sim_v6.gd`. A still body beside a dug hole (2026-10-27) also wakes at its

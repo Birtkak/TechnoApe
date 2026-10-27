@@ -204,7 +204,7 @@ void SimWorld::set_materials(const Array &p_defs) {
         m.density = clamp8(dget_f(d, "density", 1.0) * 16.0);
         m.disp = (uint8_t)std::clamp((int)std::lround(dget_f(d, "liquid_flow_speed", 0.9) * MAX_DISP), 0, MAX_DISP);
         m.gravity_prob = clamp8(dget_f(d, "liquid_gravity", 0.5) * 2.0 * 255.0); // 0.5 -> always falls
-        m.speed = (uint8_t)std::clamp(dget_int(d, "liquid_speed", 1), 1, 4);   // ADR 0069 B: water 3, oil 2, lava 1
+        m.speed = (uint8_t)std::clamp(dget_int(d, "liquid_speed", 1), 1, 8);   // ADR 0069 B: water 3, oil 2, lava 1
         m.gas_up = clamp8(dget_f(d, "gas_upwards_speed", 100));
         m.gas_horizontal = clamp8(dget_f(d, "gas_horizontal_speed", 100));
         m.gas_down = clamp8(dget_f(d, "gas_downwards_speed", 0));
@@ -716,6 +716,9 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
         // (bug report 2026-10-27 17-59-05)
         if (side && cells_[ni].mat == flow) { const int f = cells_[ni].pad & 15; return f != 0 && f <= 6; }
         if (!open_air(cells_[ni].mat)) return false;
+        // air over its own moving water beside it: that water is lower, drain into it however long the air has been
+        // there (a pit's air went stale as it filled and the pond slept a third full above it)
+        if (side && ny > 0 && is_open(nx, ny - 1, nz) && cells_[idx(nx, ny - 1, nz)].mat == flow) return true;
         if (side && ny > 0 && still_liquid(nx, ny - 1, nz, md.fluid_slot)) {
             // a river's own step never wakes, unless that step is a drained bank's edge (its own moving water beside
             // it): a dug hole left a 45-degree wall of still water sleeping over it (bug report 2026-10-27 17-59-05)
@@ -887,13 +890,15 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
     // viscosity roll: a thick liquid (lava) pours as a stream, it only spreads slowly (ADR 0049)
     if (substep_ > 0) {
         // a substep spreads and pours; falling stays with the main pass (gravity once a tick, like everything else).
-        // A cell that would fall, or that stands on a cell that moved this tick (a falling column, a stream), waits:
-        // spreading it sideways now would scatter what is on its way down
+        // A cell that would fall, or that stands on a falling cell (a column, a stream: its own liquid with a fall
+        // velocity, or another material that moved this tick), waits: spreading it sideways now would scatter what is on
+        // its way down. Its own liquid that only evened out under it does not hold it, or a moving pool spread at the
+        // main pass's pace and drained as a 45-degree heap
         if (y > 0 && is_open(x, y - 1, z)) {
             const int bi = idx(x, y - 1, z);
             if (can_displace(self, cells_[bi].mat)) return;
             const uint16_t mb = moved_[bi];
-            if (mb == stamp_ || ((mb & 0x8000u) && ((mb >> 2) & 0x1FFFu) == stamp_)) return;
+            if ((mb == stamp_ || ((mb & 0x8000u) && ((mb >> 2) & 0x1FFFu) == stamp_)) && (cells_[bi].mat != self || cells_[bi].aux > 0)) return;
         }
     } else if (fall(x, y, z, i, c)) { c.moved++; return; }
     int f = full(i);

@@ -17,11 +17,12 @@ func _world() -> SimWorld:
 	return w
 
 
-## A little water let go on a wide floor thins to films, which then dry up: nothing is left after a minute.
+## A little water let go on a wide floor thins to films, which then dry up: nothing is left after 90 s (the last
+## film's dry roll is random: water speed 4 emptied at ~60 s, speed 8 at ~65 s).
 func test_spill_dries_up() -> void:
 	var w := _world()
 	w.fill_box(Vector3i(31, 1, 31), Vector3i(33, 3, 33), GameMaterials.WATER)   # 8 cells: thins to a film sheet
-	for i in 60 * 30:
+	for i in 90 * 30:
 		w.tick(1)
 	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).is_equal(0)
 

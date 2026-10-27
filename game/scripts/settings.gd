@@ -36,6 +36,7 @@ var terrain_mesh_block := 32            # 16 or 32 voxels; 32 = 3x fewer draw ca
 var cache_generated_blocks := true      # keep generated voxel data in memory (edits write into it; off = memory for re-generation)
 # Simulation
 var sim_tick_hz := 30.0
+var sim_gravity_x := 3.0                # falling sand and water: real gravity rounds to 1/16 cell/tick^2, a stream took 2 s to reach speed
 var sim_load_budget_ms := 1.0           # main-thread time per frame for copying terrain columns into the bubble
 var sim_push_budget_ms := 1.5           # main-thread time per frame for pasting simulated chunks back into the terrain
 var sim_push_interval_ms := 0.0         # a chunk is pasted at most this often (each paste = remesh)

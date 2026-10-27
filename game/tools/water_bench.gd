@@ -25,7 +25,7 @@ func _init() -> void:
 	w.mark_all_loaded(true)
 	w.set_liquid_fullness(true)
 	w.set_cascade(true)
-	w.set_gravity(9.8 / 0.125 / (HZ * HZ))   # as SimBubble sets it (12.5 cm voxels, the game's 30 Hz)
+	w.set_gravity(3.0 * 9.8 / 0.125 / (HZ * HZ))   # as SimBubble sets it (12.5 cm voxels, the game's 30 Hz, Settings.sim_gravity_x 3)
 	w.fill_box(Vector3i(0, 0, 0), Vector3i(96, 24, 96), GameMaterials.STONE)
 	w.fill_box(Vector3i(8, 16, 32), Vector3i(40, 24, 64), GameMaterials.WATER_STATIC)
 	for t in 3:

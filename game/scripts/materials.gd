@@ -183,7 +183,7 @@ static func _build_defs() -> Array:
 		{"name": "dirt", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [1, 1, 1], "transparent": false},
 		{"name": "grass", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [2, 2, 1], "transparent": false},
 		{"name": "sand", "cell_type": "powder", "density": 3, "tiles": [4, 4, 4], "transparent": false},
-		{"name": "water", "cell_type": "liquid", "fluid_slot": 0, "density": 1, "liquid_flow_speed": 1.0, "liquid_speed": 4, "film_lifetime_ticks": 300, "tiles": [5, 5, 5], "transparent": true},
+		{"name": "water", "cell_type": "liquid", "fluid_slot": 0, "density": 1, "liquid_flow_speed": 1.0, "liquid_speed": 8, "film_lifetime_ticks": 300, "tiles": [5, 5, 5], "transparent": true},
 		{"name": "wood", "cell_type": "solid", "rigid": "wood", "density": 10, "burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [56, 6, 56], "transparent": false},
 		{"name": "lava", "cell_type": "liquid", "fluid_slot": 1, "density": 5, "liquid_flow_speed": 0.3, "liquid_gravity": 0.3, "temperature_of_fire": 150, "film_lifetime_ticks": 300, "film_convert_to_material": 85, "tiles": [7, 7, 7], "transparent": false},
 		{"name": "ash", "cell_type": "powder", "density": 2, "tiles": [8, 8, 8], "transparent": false},
