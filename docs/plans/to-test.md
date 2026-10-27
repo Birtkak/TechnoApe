@@ -17,14 +17,16 @@ takes effect when a world is next loaded. Or start with `far=1` (`far_m=1536`). 
 same spots; F9 when something looks wrong.
 
 - [ ] Standing on a beach or a hilltop: the ground runs on past 40 m with no line, no ring and no pop where
-      the voxels end; the far ground is smooth and flat-coloured with a faint speckle, trees are blobs with
-      trunks to ~200 m and a leaf-coloured mass beyond.
+      the voxels end; the far ground keeps a speckle, small relief and a hue drift per patch, cliffs show
+      strata; trees are lumpy crowns (oaks clustered, spruces cones, acacias plates, birches slender) with
+      trunks to ~200 m and a leaf-coloured mass beyond. The haze is thinner than the near world's
+      (`far_fog=0.35`): the horizon should be visible to 1-1.5 km at noon; say if the box's edge shows a step.
 - [ ] Walk and fly (creative, 20 m/s): no tiles appear or vanish in view, no cracks between the rings; far
       lakes and the sea are flat sheets at their level, never black. Known: a fast flight hitches where the
       near box streams a forest edge (ADR 0074, open); say whether it is worse than with the horizon Off.
 - [ ] From 100 m up: forests, rivers and the coast read as such to the horizon; mountains have their shape.
 - [ ] Dig a crater and place a 4 m cube, walk 150 m away: both show in the far ground within a second or two
-      (felled far trees still stand as blobs: known).
+      (felled far trees still stand as crowns: known), and both are still there after save and reload.
 - [ ] Frame time (F3) next to Off at the same spot; first load a second or two longer.
 
 ## No LOD, the brush flush and centred, placed sand falls (2026-10-26, ADR 0073)

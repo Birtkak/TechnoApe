@@ -31,6 +31,7 @@ public:
     static constexpr int BASE_STEP = 2;    // voxels per cell at level 0 (25 cm)
     static constexpr int MAX_LEVEL = 6;
     static constexpr int TREE_LEVEL = 3;   // trees are instances up to this level (384 m with R0 48 m), baked canopy after
+    static constexpr int TREE_KINDS = 5;   // WorldGen::TreeKind: oak, spruce, acacia, jungle, birch
 
     void configure(Ref<FineGen> gen);
     // index = material id, the colour a top face of that material averages to (the atlas tile's mean)
@@ -41,7 +42,9 @@ public:
     // One tile. Keys: "vertices", "normals", "colors", "uvs" (x = parent height, y = 0), "custom0"
     // (parent colour, RGBA8), "indices" for the ground; "water_vertices", "water_normals", "water_colors"
     // (rgb = bed colour, a = depth in metres / 8, clamped), "water_indices"; "trees": PackedFloat32Array of
-    // 7 floats per tree (x, ground y, z, crown radius, crown height, kind, age); "ms": build time.
+    // 7 floats per tree (x, ground y, z, crown radius, crown height, kind, age); "crowns": Array of TREE_KINDS
+    // MultiMesh buffers (16 floats per instance: the transform's rows, scaled and turned about y, then rgba),
+    // "trunks": one such buffer (level <= 1); "ms": build time.
     // `overrides` (edits, ADR 0074): Vector2i chunk column (16 x 16 voxels) -> PackedInt32Array of 256 surface
     // heights (world y of the top solid voxel + 1, x fastest), -1 where the column is as generated.
     Dictionary build_tile(int level, int tx, int tz, const Dictionary &overrides = Dictionary()) const;

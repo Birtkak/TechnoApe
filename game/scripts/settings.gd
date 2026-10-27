@@ -19,7 +19,9 @@ var far_layer := false                  # ADR 0074 (spike): draw the far layer p
 var far_distance_m := 1536.0
 var far_mesher := "field"              # far_mesher=field|nets: the height-field skin or surface nets over coarse voxels (P13)
 var far_speckle := 0.35                 # per-voxel colour noise on the far skin, 0..1 (Lay of the Land keeps the speckle at distance)
-var far_threads := 0                    # far_threads=N: the far layer's worker threads (0 = cores / 6, 1..2, low priority)
+var far_fog := 0.35                     # the far view's fog and ground mist as a fraction of the near world's (1 = the same: a beige wash past 400 m; 0.35 sees 1-1.5 km)
+var far_relief := 1.0                   # far_relief=0..1: the far skin's noise relief (far_ground.gdshader)
+var far_threads := 0                   # far_threads=N: the far layer's worker threads (0 = cores / 6, 1..2, low priority)
 var far_scale := 1.0                    # far_scale=0.5: the far view renders at this fraction of the screen size
 var far_debug := ""                     # far_debug=flat|nocustom: render checks of the far layer (far_layer.gd)
 var horizon_fade_frac := 0.75           # the terrain blends into the sky from this fraction of view_distance_m to the edge (terrain_common.gdshaderinc)
@@ -294,6 +296,8 @@ func apply_cmdline() -> Dictionary:
 			"far_scale": far_scale = float(kv[1])
 			"far_threads": far_threads = int(kv[1])
 			"far_speckle": far_speckle = float(kv[1])
+			"far_fog": far_fog = float(kv[1])
+			"far_relief": far_relief = float(kv[1])
 			"far_mesher": far_mesher = kv[1]
 			"terrain_threaded_update": terrain_threaded_update = kv[1] == "1"
 			"far_fade_start_m": far_fade_start_m = float(kv[1])

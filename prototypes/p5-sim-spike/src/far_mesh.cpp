@@ -49,6 +49,7 @@ void FarMesh::_bind_methods() {
     ClassDB::bind_integer_constant(get_class_static(), StringName(), "BASE_STEP", BASE_STEP);
     ClassDB::bind_integer_constant(get_class_static(), StringName(), "MAX_LEVEL", MAX_LEVEL);
     ClassDB::bind_integer_constant(get_class_static(), StringName(), "TREE_LEVEL", TREE_LEVEL);
+    ClassDB::bind_integer_constant(get_class_static(), StringName(), "TREE_KINDS", TREE_KINDS);
 }
 
 void FarMesh::configure(Ref<FineGen> gen) { gen_ = gen; }
@@ -347,10 +348,13 @@ Dictionary FarMesh::build_tile(int level, int tx, int tz, const Dictionary &over
         const int cells = (T / FS) / WorldGen::TREE_CELL + 3;
         std::vector<WorldGen::Tree> trees((size_t)cells * cells);
         const int nt = g.trees_near(mx_lo, mz_lo, mx_hi, mz_hi, trees.data(), (int)trees.size());
-        PackedFloat32Array tf, crowns, trunks;
-        // MultiMesh buffers (TRANSFORM_3D + colours): 12 floats of the transform's rows, then rgba
-        auto push_instance = [](PackedFloat32Array &buf, const Vector3 &scale, const Vector3 &pos, const Color &c) {
-            const float row[12] = {scale.x, 0.0f, 0.0f, pos.x, 0.0f, scale.y, 0.0f, pos.y, 0.0f, 0.0f, scale.z, pos.z};
+        PackedFloat32Array tf, trunks;
+        PackedFloat32Array crowns[TREE_KINDS];   // one buffer per kind: each kind has its own baked crown mesh
+        // MultiMesh buffers (TRANSFORM_3D + colours): 12 floats of the transform's rows (scaled, turned by yaw
+        // about y), then rgba
+        auto push_instance = [](PackedFloat32Array &buf, const Vector3 &scale, const Vector3 &pos, const Color &c, float yaw) {
+            const float cy = std::cos(yaw), sy = std::sin(yaw);
+            const float row[12] = {scale.x * cy, 0.0f, scale.z * sy, pos.x, 0.0f, scale.y, 0.0f, pos.y, -scale.x * sy, 0.0f, scale.z * cy, pos.z};
             for (float v : row) buf.push_back(v);
             buf.push_back(c.r); buf.push_back(c.g); buf.push_back(c.b); buf.push_back(c.a);
         };
@@ -385,14 +389,18 @@ Dictionary FarMesh::build_tile(int level, int tx, int tz, const Dictionary &over
             const float var = 0.92f + 0.16f * unit(ts >> 3);   // a little per-tree variation
             lc = Color(lc.r * var, lc.g * var, lc.b * var, 1.0f);
             const float rw = rc * (spruce ? 0.8f : 1.0f);
-            push_instance(crowns, Vector3(rw, H * (spruce ? 0.5f : 0.4f), rw), pos + Vector3(0.0f, H * (spruce ? 0.5f : 0.6f), 0.0f), lc);
+            const int kind = std::clamp((int)tr.kind, 0, TREE_KINDS - 1);
+            const float yaw = unit(ts >> 13) * 6.2832f;
+            push_instance(crowns[kind], Vector3(rw, H * (spruce ? 0.5f : 0.4f), rw), pos + Vector3(0.0f, H * (spruce ? 0.5f : 0.6f), 0.0f), lc, yaw);
             if (level <= 1) {
                 const float tw = std::max(2.0f, rc * 0.12f), th = H * (spruce ? 0.5f : 0.3f);
-                push_instance(trunks, Vector3(tw, th, tw), pos + Vector3(0.0f, th * 0.5f, 0.0f), color_of(WorldGen::tree_bark(tr.kind)));
+                push_instance(trunks, Vector3(tw, th, tw), pos + Vector3(0.0f, th * 0.5f, 0.0f), color_of(WorldGen::tree_bark(tr.kind)), 0.0f);
             }
         }
         out["trees"] = tf;
-        out["crowns"] = crowns;
+        Array crown_arr;
+        for (int k = 0; k < TREE_KINDS; k++) crown_arr.push_back(crowns[k]);
+        out["crowns"] = crown_arr;
         out["trunks"] = trunks;
     }
     out["ms"] = (double)(Time::get_singleton()->get_ticks_usec() - t0) / 1000.0;

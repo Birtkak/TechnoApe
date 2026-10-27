@@ -1,9 +1,10 @@
 shader_type spatial;
 render_mode cull_back, depth_draw_opaque, world_vertex_coords;
 
-// Far trees (ADR 0074): crown blobs and trunks as MultiMesh instances, coloured per instance with the
-// leaves' tile average. On the last level that draws instances they shrink into the ground over the
-// ring's morph band, where the next level bakes the canopy into the skin instead.
+// Far trees (ADR 0074): crowns (a baked cluster of leaf clumps per kind, far_layer.gd) and trunks as
+// MultiMesh instances, coloured per instance with the leaves' tile average times the clump's shade
+// (UV.x, 1 for the trunk box). On the last level that draws instances they shrink into the ground
+// over the ring's morph band, where the next level bakes the canopy into the skin instead.
 
 uniform float morph_start = 1e9;
 uniform float morph_end = 2e9;
@@ -21,7 +22,7 @@ void vertex() {
 	VERTEX = origin + (VERTEX - origin) * (1.0 - m);
 	v_world = VERTEX;
 	v_nrm = NORMAL;
-	v_col = COLOR.rgb;
+	v_col = COLOR.rgb * (UV.y > 1.5 ? UV.x : 1.0);   // a crown clump marks its shade with UV.y = 2
 }
 
 void fragment() {

@@ -137,6 +137,8 @@ func _ready() -> void:
 		world.far_layer.name = "FarLayer"
 		world.add_child(world.far_layer)
 		world.far_layer.setup(world, atmosphere)
+		if Settings.persist_world:
+			world.far_layer.load_dict(_load_json(_save_path("far_edits")))
 		mark.call("far_layer")
 	ocean_life = OceanLife.new()
 	ocean_life.name = "OceanLife"
@@ -635,6 +637,9 @@ func _save_blocks() -> void:
 	if farming != null and farming.dirty:
 		_save_json(_save_path("farms"), farming.to_dict())
 		farming.dirty = false
+	if world != null and world.far_layer != null and world.far_layer.dirty:
+		_save_json(_save_path("far_edits"), world.far_layer.to_dict())
+		world.far_layer.dirty = false
 	if mobs != null:
 		mobs.save_file(_save_path("mobs"))   # animals move all the time: always written
 	if atmosphere != null:

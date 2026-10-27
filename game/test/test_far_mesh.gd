@@ -121,7 +121,20 @@ func test_trees_stand_on_the_ground_with_multimesh_buffers() -> void:
 	var tf: PackedFloat32Array = d["trees"]
 	var n := tf.size() / 7
 	assert_int(n).override_failure_message("no trees in the forest tile").is_greater(0)
-	assert_int((d["crowns"] as PackedFloat32Array).size()).is_equal(n * 16)
+	var crowns: Array = d["crowns"]
+	assert_int(crowns.size()).is_equal(FarMesh.TREE_KINDS)   # one MultiMesh buffer per kind (its own crown mesh)
+	var floats := 0
+	for buf in crowns:
+		floats += (buf as PackedFloat32Array).size()
+	assert_int(floats).is_equal(n * 16)
+	for buf in crowns:
+		var b: PackedFloat32Array = buf
+		for i in b.size() / 16:
+			# the transform's rows: scaled, turned about y (a yaw per tree), so the x and z columns stay orthogonal
+			var bx := Vector3(b[i * 16], 0.0, b[i * 16 + 8])
+			var bz := Vector3(b[i * 16 + 2], 0.0, b[i * 16 + 10])
+			assert_float(absf(bx.dot(bz))).is_less(0.01)
+			assert_float(bx.length()).is_equal_approx(bz.length(), 0.01)
 	assert_int((d["trunks"] as PackedFloat32Array).size()).is_equal(0)   # trunks only to level 1
 	for i in n:
 		var o := i * 7
@@ -133,6 +146,23 @@ func test_trees_stand_on_the_ground_with_multimesh_buffers() -> void:
 	var d1 := _tile_at(fm, 1, X, Z)
 	var n1 := (d1["trees"] as PackedFloat32Array).size() / 7
 	assert_int((d1["trunks"] as PackedFloat32Array).size()).is_equal(n1 * 16)
+
+
+func test_edited_columns_survive_a_save_and_load() -> void:
+	var a := FarLayer.new()
+	var tops := PackedInt32Array()
+	tops.resize(256)
+	tops.fill(-1)
+	tops[17] = 1234
+	a.overrides[Vector2i(-3, 7)] = tops
+	var d: Dictionary = JSON.parse_string(JSON.stringify(a.to_dict()))   # the round trip through the save file
+	var b := FarLayer.new()
+	b.load_dict(d)
+	assert_bool(b.overrides.has(Vector2i(-3, 7))).is_true()
+	assert_int((b.overrides[Vector2i(-3, 7)] as PackedInt32Array)[17]).is_equal(1234)
+	assert_int((b.overrides[Vector2i(-3, 7)] as PackedInt32Array)[0]).is_equal(-1)
+	a.free()
+	b.free()
 
 
 func test_coarse_levels_bake_the_canopy_and_stay_in_range() -> void:

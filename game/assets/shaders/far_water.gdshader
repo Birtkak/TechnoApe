@@ -6,8 +6,10 @@ render_mode cull_back, depth_draw_opaque, world_vertex_coords;
 // is the water's own colour, as the near fluids look from a distance.
 
 uniform float near_cut = 0.0;
-uniform vec3 water_color : source_color = vec3(0.22, 0.45, 0.58);
-uniform vec3 deep_color : source_color = vec3(0.05, 0.17, 0.30);
+// the near fluid's tints (terrain_fluid.gdshaderinc liquid_shallow / liquid_deep), so a lake runs on
+// past the box in the same colour
+uniform vec3 water_color : source_color = vec3(0.22, 0.82, 0.70);
+uniform vec3 deep_color : source_color = vec3(0.02, 0.34, 0.40);
 uniform float water_specular = 0.5;
 uniform float water_roughness = 0.18;
 

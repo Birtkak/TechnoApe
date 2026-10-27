@@ -36,7 +36,7 @@ var max_level := 4
 var ground_mats: Array[ShaderMaterial] = []
 var water_mats: Array[ShaderMaterial] = []
 var tree_mats: Array[ShaderMaterial] = []
-var crown_mesh: Mesh
+var crown_meshes: Array[Mesh] = []      # per tree kind (FarMesh.TREE_KINDS): a lumpy crown in the unit sphere
 var trunk_mesh: Mesh
 var leaf_colors := PackedColorArray()   # per tree kind (oak, spruce, acacia, jungle, birch), linear
 var trunk_color := Color(0.33, 0.24, 0.15)
@@ -56,6 +56,7 @@ var _done: Array = []  # [key, level, tx, tz, Dictionary] handed back by the wor
 var _done_mutex := Mutex.new()
 var _since := 1.0
 var overrides := {}      # Vector2i chunk column -> PackedInt32Array(256) real surface heights where edited (-1 = as generated)
+var dirty := false       # overrides changed since the last save (main.gd writes them with the world)
 var _dirty := {}         # Vector2i chunk column -> true: edited since the last scan
 var _edit_since := 0.0
 var _scans := {}         # Vector2i -> true while a worker re-reads it
@@ -100,12 +101,8 @@ func setup(p_world: World, p_atmosphere: Atmosphere) -> void:
 		leaf_colors.append(colors[kind] if kind < colors.size() else Color(0.3, 0.5, 0.2))
 	trunk_color = colors[GameMaterials.WOOD] if GameMaterials.WOOD < colors.size() else trunk_color
 	_make_materials()
-	var sph := SphereMesh.new()
-	sph.radius = 1.0
-	sph.height = 2.0
-	sph.radial_segments = 6
-	sph.rings = 3
-	crown_mesh = sph
+	for kind in FarMesh.TREE_KINDS:
+		crown_meshes.append(_crown_mesh(kind))
 	trunk_mesh = BoxMesh.new()
 	_make_view()
 	_start_threads()
@@ -118,6 +115,67 @@ func setup(p_world: World, p_atmosphere: Atmosphere) -> void:
 	atmosphere.sky_material.set_shader_parameter("far_on", true)
 	# the main sun lights the near box only; the far layer has its own, shadowless copy
 	atmosphere.sun.light_cull_mask &= ~(1 << LAYER_BIT)
+
+
+## A far crown as FineGen's trees read from 50-400 m: a handful of leaf clumps (lumpy, each a little
+## lighter or darker: UV.x is the shade the shader multiplies in) inside the unit sphere the native
+## instance transform scales. Oaks and jungle trees are clusters of clumps, birches slender stacks,
+## spruces a cone of flattened layers, acacias flat plates.
+func _crown_mesh(kind: int) -> Mesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1000 + kind
+	var shade := func() -> float: return rng.randf_range(0.78, 1.18)
+	match kind:   # WorldGen::TreeKind: 0 oak, 1 spruce, 2 acacia, 3 jungle, 4 birch
+		1:
+			var layers := [[-0.75, 0.95, 0.4], [-0.25, 0.72, 0.38], [0.25, 0.48, 0.36], [0.7, 0.24, 0.42]]
+			for l in layers:
+				_add_clump(st, Vector3(rng.randf_range(-0.05, 0.05), l[0], rng.randf_range(-0.05, 0.05)), l[1], l[2], shade.call(), 7)
+		2:
+			_add_clump(st, Vector3(0.0, 0.2, 0.0), 0.55, 0.14, shade.call())
+			for i in 3:
+				var a := i * TAU / 3.0 + rng.randf_range(-0.3, 0.3)
+				_add_clump(st, Vector3(cos(a) * 0.5, rng.randf_range(0.05, 0.4), sin(a) * 0.5), rng.randf_range(0.5, 0.65), 0.13, shade.call())
+		4:
+			for i in 5:
+				var a := i * 2.4 + rng.randf_range(-0.4, 0.4)
+				var y := -0.6 + i * 0.3
+				_add_clump(st, Vector3(cos(a) * 0.3, y, sin(a) * 0.3), rng.randf_range(0.36, 0.46), 0.38, shade.call())
+			_add_clump(st, Vector3(0.0, 0.75, 0.0), 0.3, 0.3, shade.call())
+		_:   # oak, jungle
+			_add_clump(st, Vector3(0.0, 0.2, 0.0), 0.58, 0.5, shade.call())
+			for i in 6:
+				var a := i * TAU / 6.0 + rng.randf_range(-0.3, 0.3)
+				_add_clump(st, Vector3(cos(a) * 0.52, rng.randf_range(-0.2, 0.15), sin(a) * 0.52), rng.randf_range(0.4, 0.5), rng.randf_range(0.35, 0.45), shade.call())
+			for i in 2:
+				var a := rng.randf_range(0.0, TAU)
+				_add_clump(st, Vector3(cos(a) * 0.3, -0.5, sin(a) * 0.3), 0.42, 0.35, shade.call())
+	return st.commit()
+
+
+## One leaf clump: a rounded bipyramid of two rings (smooth normals), radius rx, half height ry.
+func _add_clump(st: SurfaceTool, c: Vector3, rx: float, ry: float, shade: float, n := 6) -> void:
+	var ring := func(y: float, r: float) -> Array[Vector3]:
+		var out: Array[Vector3] = []
+		for i in n:
+			var a := i * TAU / n
+			out.append(Vector3(cos(a) * r, y, sin(a) * r))
+		return out
+	var rings: Array = [ring.call(0.5, 0.9), ring.call(-0.5, 0.75)]
+	var top := Vector3(0.0, 1.0, 0.0)
+	var bottom := Vector3(0.0, -1.0, 0.0)
+	var add := func(p: Vector3) -> void:
+		st.set_normal(p.normalized())
+		st.set_uv(Vector2(shade, 2.0))
+		st.add_vertex(c + Vector3(p.x * rx, p.y * ry, p.z * rx))
+	# Godot front faces wind clockwise seen from outside
+	for i in n:
+		var j := (i + 1) % n
+		add.call(top); add.call(rings[0][j]); add.call(rings[0][i])
+		add.call(rings[0][i]); add.call(rings[0][j]); add.call(rings[1][j])
+		add.call(rings[0][i]); add.call(rings[1][j]); add.call(rings[1][i])
+		add.call(rings[1][i]); add.call(rings[1][j]); add.call(bottom)
 
 
 func _make_materials() -> void:
@@ -134,6 +192,7 @@ func _make_materials() -> void:
 		gm.set_shader_parameter("morph_end", r_end)
 		gm.set_shader_parameter("near_cut", near_cut)
 		gm.set_shader_parameter("speckle", Settings.far_speckle)
+		gm.set_shader_parameter("relief", Settings.far_relief)
 		ground_mats.append(gm)
 		var wm := ShaderMaterial.new()
 		wm.shader = water_shader
@@ -315,7 +374,9 @@ func _cull_inside(p: Vector3) -> void:
 
 
 ## The far view's environment follows the world's: fog, ambient and sky change with the time of day,
-## the weather and the grade (atmosphere.gd); the tonemap and the post effects stay off here.
+## the weather and the grade (atmosphere.gd); the tonemap and the post effects stay off here. The fog
+## is thinner by Settings.far_fog: the near world's 6 / km is a beige wash by 400 m, the horizon wants
+## 1-1.5 km of visibility (Lay of the Land's haze); the box's horizon blend hides the difference at 40 m.
 func _sync_environment() -> void:
 	var e := atmosphere.env
 	env_bg.sky = e.sky
@@ -330,12 +391,12 @@ func _sync_environment() -> void:
 	env_bg.fog_mode = e.fog_mode
 	env_bg.fog_light_color = e.fog_light_color
 	env_bg.fog_light_energy = e.fog_light_energy
-	env_bg.fog_density = e.fog_density
+	env_bg.fog_density = e.fog_density * Settings.far_fog
 	env_bg.fog_sun_scatter = e.fog_sun_scatter
 	env_bg.fog_aerial_perspective = e.fog_aerial_perspective
 	env_bg.fog_sky_affect = e.fog_sky_affect
 	env_bg.fog_height = e.fog_height
-	env_bg.fog_height_density = e.fog_height_density
+	env_bg.fog_height_density = e.fog_height_density * Settings.far_fog
 	env_bg.fog_depth_curve = e.fog_depth_curve
 	env_bg.fog_depth_begin = e.fog_depth_begin
 	env_bg.fog_depth_end = e.fog_depth_end
@@ -488,6 +549,7 @@ func _scan_edits() -> void:
 			touched[ck] = true
 	if touched.is_empty():
 		return
+	dirty = true
 	_st["edited_columns"] = overrides.size()
 	_overrides_snapshot = overrides.duplicate(false)
 	# rebuild every drawn tile over an edited column (all levels: the coarse ones show it from afar)
@@ -585,14 +647,15 @@ func _make_tile(level: int, tx: int, tz: int, d: Dictionary) -> Tile:
 		t.nodes.append(mi)
 		t.tris += (d["water_indices"] as PackedInt32Array).size() / 3
 	if d.has("crowns") and Settings.far_debug != "notrees":
-		var crowns: PackedFloat32Array = d["crowns"]
-		var n := crowns.size() / 16
-		if n > 0:
-			t.trees = n
-			t.nodes.append(_multimesh(crown_mesh, crowns, tree_mats[level]))
-			var trunks: PackedFloat32Array = d.get("trunks", PackedFloat32Array())
-			if trunks.size() > 0:
-				t.nodes.append(_multimesh(trunk_mesh, trunks, tree_mats[level]))
+		var crowns: Array = d["crowns"]
+		for kind in crowns.size():
+			var buf: PackedFloat32Array = crowns[kind]
+			if buf.size() > 0:
+				t.trees += buf.size() / 16
+				t.nodes.append(_multimesh(crown_meshes[kind], buf, tree_mats[level]))
+		var trunks: PackedFloat32Array = d.get("trunks", PackedFloat32Array())
+		if t.trees > 0 and trunks.size() > 0:
+			t.nodes.append(_multimesh(trunk_mesh, trunks, tree_mats[level]))
 	return t
 
 
@@ -663,6 +726,27 @@ func _free_tile(t: Tile) -> void:
 			else:
 				n.queue_free()
 	t.nodes.clear()
+
+
+## The edited columns, saved with the world (ADR 0074): "x,z" -> 256 surface heights (-1 = as generated).
+func to_dict() -> Dictionary:
+	var cols := {}
+	for ck in overrides:
+		cols["%d,%d" % [ck.x, ck.y]] = Array(overrides[ck])
+	return {"version": 1, "columns": cols}
+
+
+## Restore the saved edits before the first tiles build, so a reload keeps craters and placed shapes far off.
+func load_dict(d: Dictionary) -> void:
+	var cols: Dictionary = d.get("columns", {})
+	for key in cols:
+		var p: PackedStringArray = str(key).split(",")
+		var arr := PackedInt32Array(cols[key])
+		if p.size() != 2 or arr.size() != 256:
+			continue
+		overrides[Vector2i(int(p[0]), int(p[1]))] = arr
+	_overrides_snapshot = overrides.duplicate(false)
+	_st["edited_columns"] = overrides.size()
 
 
 ## Tiles still building or waiting to be uploaded (the loading screen and the settle check count them).
