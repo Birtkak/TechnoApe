@@ -130,19 +130,28 @@ func look_lines() -> Array[String]:
 func view_parts() -> Dictionary:
 	var parts := super()
 	var old: Vector3i = parts["solid"]["size"]
-	var size := Vector3i(old.x, 16, old.z)
+	var size := Vector3i(old.x, 18, old.z)
 	var c := _taller(parts["solid"]["cells"], old, size)
 	var top := AnvilEntity.BASE_H + AnvilEntity.MAX_H   # 11: the highest a metal cell stands
 	var post := WorkPalette.IRON_DARK
 	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(2, size.y, 2), post)             # the posts, behind the anvil
 	WorkPalette.box(c, size, Vector3i(6, 0, 0), Vector3i(8, size.y, 2), post)
-	WorkPalette.box(c, size, Vector3i(0, size.y - 2, 0), Vector3i(8, size.y, 8), post)    # the crossbeam
-	WorkPalette.box(c, size, Vector3i(2, top + 3, 2), Vector3i(6, size.y - 2, 6), WorkPalette.ANVIL if powered() else WorkPalette.STONE_DARK)   # the cylinder
-	# the head hangs just over the face, and drops onto the metal for a few ticks after a blow
+	WorkPalette.box(c, size, Vector3i(0, size.y - 2, 0), Vector3i(8, size.y, 3), post)    # the crossbeam
+	# the press (the developer's reference): an iron-framed block with wood panels in its faces, a valve
+	# bracket on its +x side and a wood-handled piston on top; it hangs just over the face and drops
+	# onto the metal for a few ticks after a blow
 	var drop := 1 if _head_down > 0 else 0
-	WorkPalette.box(c, size, Vector3i(3, top + 2 - drop, 3), Vector3i(5, top + 3, 5), WorkPalette.ANVIL)   # the piston rod
-	WorkPalette.box(c, size, Vector3i(1, top - drop, 1), Vector3i(7, top + 2 - drop, 7), post)
-	WorkPalette.box(c, size, Vector3i(6, 2, 0), Vector3i(7, top + 3, 1), WorkPalette.BRONZE)   # the steam inlet up the post
+	var y0 := top + 1 - drop
+	WorkPalette.box(c, size, Vector3i(1, y0, 1), Vector3i(7, y0 + 4, 7), post)                  # the frame
+	for side in [[Vector3i(2, y0 + 1, 1), Vector3i(6, y0 + 3, 2)], [Vector3i(2, y0 + 1, 6), Vector3i(6, y0 + 3, 7)],
+			[Vector3i(1, y0 + 1, 2), Vector3i(2, y0 + 3, 6)], [Vector3i(6, y0 + 1, 2), Vector3i(7, y0 + 3, 6)]]:
+		WorkPalette.box(c, size, side[0], side[1], WorkPalette.WOOD)                            # the panels
+	WorkPalette.box(c, size, Vector3i(2, y0 + 4, 2), Vector3i(6, y0 + 5, 6), WorkPalette.ANVIL)  # the ring on top
+	WorkPalette.box(c, size, Vector3i(3, y0 + 4, 3), Vector3i(5, y0 + 7, 5), WorkPalette.WOOD)   # the piston's wooden handle
+	WorkPalette.box(c, size, Vector3i(3, y0 + 7, 3), Vector3i(5, y0 + 8, 5), WorkPalette.ANVIL if powered() else WorkPalette.STONE_DARK)   # its cap
+	WorkPalette.box(c, size, Vector3i(7, y0 + 1, 3), Vector3i(8, y0 + 3, 5), WorkPalette.BRONZE) # the valve bracket
+	WorkPalette.box(c, size, Vector3i(2, y0 - 1, 2), Vector3i(6, y0, 6), post)                   # the die under it
+	WorkPalette.box(c, size, Vector3i(6, 2, 0), Vector3i(7, y0 + 2, 1), WorkPalette.BRONZE)      # the steam inlet up the post
 	if wear > 0.5:
 		WorkPalette.box(c, size, Vector3i(0, 2, 0), Vector3i(2, 5, 2), WorkPalette.BRICK_DARK)   # rust
 	if parts.has("ghost"):

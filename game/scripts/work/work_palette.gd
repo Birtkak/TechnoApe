@@ -208,6 +208,24 @@ static func mesh(cells: PackedInt32Array, size: Vector3i, grid: int = GameMateri
 	return m
 
 
+## The cells turned `quarters` quarter turns about y (clockwise seen from above), for a square x/z box:
+## a piece with a `facing` draws once and turns (ADR 0097).
+static func rotate_y(cells: PackedInt32Array, size: Vector3i, quarters: int) -> PackedInt32Array:
+	quarters = posmod(quarters, 4)
+	if quarters == 0 or size.x != size.z:
+		return cells
+	var out := new_cells(size)
+	var n := size.x
+	for z in n:
+		for y in size.y:
+			for x in n:
+				var p := Vector2i(x, z)
+				for q in quarters:
+					p = Vector2i(n - 1 - p.y, p.x)
+				out[idx(size, p.x, y, p.y)] = cells[idx(size, x, y, z)]
+	return out
+
+
 static func new_cells(size: Vector3i) -> PackedInt32Array:
 	var c := PackedInt32Array()
 	c.resize(size.x * size.y * size.z)

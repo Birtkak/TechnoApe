@@ -106,8 +106,8 @@ func test_boiler_rust_mends_with_a_plate() -> void:
 
 func test_steam_hammer_smiths_a_plate_over_pipes() -> void:
 	var b := _boiler()
-	store.create(Vector3i(5 * B, 0, 0), "bronze_pipe")   # the boiler is 5 blocks wide
-	store.create(Vector3i(6 * B, 0, 0), "bronze_pipe")
+	store.create(Vector3i(5 * B, 0, 0), "pipe")   # the boiler is 5 blocks wide
+	store.create(Vector3i(6 * B, 0, 0), "pipe")
 	var h: SteamHammerEntity = store.create(Vector3i(7 * B, 0, 0), "steam_hammer")
 	assert_str(h.add_ingot(_hot("iron_ingot"))).is_equal("")
 	h.set_recipe(recipes.recipes["smith_iron_plate"])
@@ -127,9 +127,19 @@ func test_steam_hammer_smiths_a_plate_over_pipes() -> void:
 	# too far: the ninth pipe reaches no steam
 	var far: SteamHammerEntity = store.create(Vector3i(-(Settings.steam_pipe_max + 2) * B, 0, 0), "steam_hammer")
 	for i in range(1, Settings.steam_pipe_max + 2):
-		store.create(Vector3i(-i * B, 0, 0), "bronze_pipe")
+		store.create(Vector3i(-i * B, 0, 0), "pipe")
 	_ticks(20)
 	assert_object(far.boiler).is_null()
+	# copper pipes count double: four of them reach, five do not
+	var near: SteamHammerEntity = store.create(Vector3i(0, 0, 9 * B), "steam_hammer")
+	for i in range(5, 9):
+		store.create(Vector3i(0, 0, i * B), "pipe").item = "copper_pipe"
+	_ticks(20)
+	assert_object(near.boiler).is_same(b)
+	store.create(Vector3i(0, 0, 12 * B), "pipe").item = "copper_pipe"
+	var past: SteamHammerEntity = store.create(Vector3i(0, 0, 13 * B), "steam_hammer")
+	_ticks(20)
+	assert_object(past.boiler).is_null()
 
 
 func test_hammer_strike_moves_metal_toward_the_shape() -> void:
@@ -150,7 +160,7 @@ func test_hammer_strike_moves_metal_toward_the_shape() -> void:
 
 func test_steam_sieve_sifts_by_itself() -> void:
 	var b := _boiler()
-	store.create(Vector3i(5 * B, 0, 0), "bronze_pipe")
+	store.create(Vector3i(5 * B, 0, 0), "pipe")
 	var s: SteamSieveEntity = store.create(Vector3i(6 * B, 0, 0), "steam_sieve")
 	var rng := RandomNumberGenerator.new()
 	for i in 3:
@@ -169,6 +179,27 @@ func test_steam_sieve_sifts_by_itself() -> void:
 	assert_array(s.found).is_empty()
 
 
+# ---------- the wrench ----------
+
+func test_wrench_recipe_and_turning() -> void:
+	assert_bool(items.has("wrench")).is_true()
+	assert_array(recipes.recipes["wrench"]["ingredients"]).contains_exactly_in_any_order(["iron_rod", "#stick"])
+	var size := Vector3i(4, 1, 4)
+	var c := WorkPalette.new_cells(size)
+	c[WorkPalette.idx(size, 0, 0, 0)] = 7   # the min corner
+	var once := WorkPalette.rotate_y(c, size, 1)
+	assert_int(once[WorkPalette.idx(size, 3, 0, 0)]).is_equal(7)   # a quarter turn moves it to +x
+	assert_int(once[WorkPalette.idx(size, 0, 0, 0)]).is_equal(0)
+	assert_array(WorkPalette.rotate_y(c, size, 4)).is_equal(c)
+	var b: BoilerEntity = store.create(Vector3i.ZERO, "boiler")
+	b.facing = 3
+	var d: Dictionary = JSON.parse_string(JSON.stringify(b.to_dict()))
+	var b2 := BoilerEntity.new(items, recipes, Vector3i.ZERO)
+	b2.load_from(d)
+	assert_int(b2.facing).is_equal(3)
+	assert_int(b2.view_parts()["solid"]["cells"].size()).is_equal(20 * 20 * 20)
+
+
 # ---------- saves ----------
 
 func test_saves_keep_steam_state() -> void:
@@ -180,7 +211,7 @@ func test_saves_keep_steam_state() -> void:
 	var s: SteamSieveEntity = store.create(Vector3i(10 * B, 0, 0), "steam_sieve")
 	s.use({"id": "gravel", "count": 64}, RandomNumberGenerator.new())
 	s.found = [{"id": "flint", "count": 2}]
-	store.create(Vector3i(12 * B, 0, 0), "bronze_pipe")
+	store.create(Vector3i(12 * B, 0, 0), "pipe").axis = 1
 	var other := BlockEntities.new(items, recipes)
 	assert_bool(other.load_dict(JSON.parse_string(JSON.stringify(store.to_dict())))).is_true()
 	var b2: BoilerEntity = other.at(Vector3i.ZERO)
@@ -193,4 +224,5 @@ func test_saves_keep_steam_state() -> void:
 	var s2: SteamSieveEntity = other.at(Vector3i(10 * B, 0, 0))
 	assert_int(s2.loads).is_equal(1)
 	assert_str(s2.found[0]["id"]).is_equal("flint")
-	assert_str(other.at(Vector3i(12 * B, 0, 0)).kind).is_equal("bronze_pipe")
+	assert_str(other.at(Vector3i(12 * B, 0, 0)).kind).is_equal("pipe")
+	assert_int(other.at(Vector3i(12 * B, 0, 0)).axis).is_equal(1)

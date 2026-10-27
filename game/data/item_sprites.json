@@ -3826,6 +3826,26 @@
         "..oldddddddddo..",
         "...oooooooooo..."
       ]
+    },
+    "wrench": {
+      "rows": [
+        "................",
+        "............o...",
+        "...........oho..",
+        "..........oho...",
+        ".........ohdo...",
+        "........ohmmlo..",
+        "........olmdo...",
+        ".......ohdlo....",
+        "......ohdoo.....",
+        ".....ohdo.......",
+        "....ohdo........",
+        "...ohdo.........",
+        "..ohdo..........",
+        ".ohdo...........",
+        "..oo............",
+        "................"
+      ]
     }
   },
   "sprites": {
@@ -4170,9 +4190,11 @@
     "iron_work_piece": {"layers": [{"shape": "work_piece", "palette": "iron"}]},
     "crucible_bronze": {"layers": [{"shape": "crucible", "palette": "terracotta", "colors": {"i": "#f0c060"}}]},
     "bronze_anvil": {"layers": [{"shape": "anvil", "palette": "bronze"}]},
+    "wrench": {"layers": [{"shape": "wrench", "palette": "iron"}]},
     "iron_plate": {"layers": [{"shape": "plate", "palette": "iron"}]},
     "iron_rod": {"layers": [{"shape": "stick", "palette": "iron"}]},
     "bronze_pipe": {"layers": [{"shape": "pipe", "palette": "bronze"}]},
+    "copper_pipe": {"layers": [{"shape": "pipe", "palette": "copper"}]},
     "small_boiler": {"layers": [{"shape": "boiler"}]},
     "steam_hammer": {"layers": [{"shape": "steam_hammer", "palette": "iron"}]},
     "steam_sieve": {"layers": [{"shape": "steam_sieve", "palette": "wood"}]},

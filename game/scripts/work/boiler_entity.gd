@@ -11,6 +11,7 @@ extends FirepitEntity
 
 signal burst(p: Vector3i)
 
+var facing := 0           # quarter turns, a wrench turns it (ADR 0097)
 var water := 0.0          # of the tank, 0..1
 var pressure := 0.0
 var wear := 0.0           # 0..1, rusted through at 1
@@ -175,7 +176,7 @@ func view_parts() -> Dictionary:
 	WorkPalette.box(c, size, Vector3i(n - 1, 5, 9), Vector3i(n, 9, 11), WorkPalette.BRONZE)            # ...down to the pipes
 	if wear > 0.5:
 		WorkPalette.box(c, size, Vector3i(3, 7, 2), Vector3i(8, 10, 3), WorkPalette.BRICK_DARK)          # a rust streak
-	return {"solid": {"cells": c, "size": size, "grid": n}}
+	return {"solid": {"cells": WorkPalette.rotate_y(c, size, facing), "size": size, "grid": n}}
 
 
 func to_dict() -> Dictionary:
@@ -183,11 +184,13 @@ func to_dict() -> Dictionary:
 	d["water"] = water
 	d["pressure"] = pressure
 	d["wear"] = wear
+	d["facing"] = facing
 	return d
 
 
 func load_from(d: Dictionary) -> void:
 	super(d)
+	facing = int(d.get("facing", 0))
 	water = float(d.get("water", 0.0))
 	pressure = float(d.get("pressure", 0.0))
 	wear = float(d.get("wear", 0.0))
@@ -204,7 +207,8 @@ func summary() -> Dictionary:
 # ---------------- the steam network ----------------
 
 ## Every boiler hands itself to the machines at the ends of its bronze pipes: a walk from the boiler
-## over pipe entities, one block step at a time on the flat, at most steam_pipe_max pipes long.
+## over pipe entities, one block step at a time on the flat, at most steam_pipe_max bronze pipes long
+## (a copper pipe counts as two).
 ## Machines not reached this round lose their boiler. shortcut: pipes connect on one level only,
 ## add vertical steps when pipes climb walls.
 static func feed(store: BlockEntities) -> void:
@@ -222,7 +226,8 @@ static func feed(store: BlockEntities) -> void:
 				if o == null or seen.has(o.pos):
 					continue
 				seen[o.pos] = seen[e.pos] + 1
-				if o.kind == "bronze_pipe":
+				if o.kind == "pipe":
+					seen[o.pos] = seen[e.pos] + (2 if o.item == "copper_pipe" else 1)   # soft copper carries half as far
 					if seen[o.pos] <= Settings.steam_pipe_max:
 						queue.append(o)
 				elif "boiler" in o:

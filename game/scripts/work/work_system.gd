@@ -109,6 +109,21 @@ func _watch(e: RefCounted) -> void:
 	_dirty[p] = true
 
 
+## A wrench on a piece (ADR 0097): a pipe swaps its axis, a boiler turns a quarter; the rest does not turn.
+func _turn(e: RefCounted) -> void:
+	if "axis" in e:
+		e.axis = 1 - e.axis
+	elif "facing" in e and not e is FurnitureEntity:
+		e.facing = (e.facing + 1) % 4
+	else:
+		_say("That does not turn.")
+		return
+	_wear_held()
+	Sound.play("craft/assemble", _at(e.pos, Vector3(0.5, 0.5, 0.5)))
+	_mark(e.pos)
+	main.blocks.dirty = true
+
+
 ## A steam hammer's blow (ADR 0097): the anvil's clang, sparks off the metal, a hiss of spent steam.
 func _on_struck(p: Vector3i, col: Vector2i) -> void:
 	var e: RefCounted = main.blocks.at(p)
@@ -304,6 +319,12 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 			_open_picker(e)
 		"ground":
 			e.item = id
+			_mark(p)
+			if _consumes():
+				main.player_inv.consume_held(1)
+		"pipe":
+			e.item = id
+			e.axis = posmod(roundi(main.player.rotation_degrees.y / 90.0), 2)   # along the way the player faces (ADR 0097)
 			_mark(p)
 			if _consumes():
 				main.player_inv.consume_held(1)
@@ -541,6 +562,10 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		main.set_world_voxel(p, GameMaterials.AIR)   # a stray work voxel without its piece
 		return true
 	p = e.pos
+	if "wrench" in held.get("tags", []):
+		if first_press:
+			_turn(e)
+		return true
 	if e is KnapEntity:
 		if first_press:
 			if not e.has_recipe():

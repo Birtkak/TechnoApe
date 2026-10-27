@@ -41,6 +41,13 @@ number that speeds machines up, rust that an iron plate mends, and goggles and a
     puff of spent steam), the sieve's heap shifts per shake (`shook`: the rattle, a spray of the input),
     a lit boiler smokes from its chimney and hisses a wisp at the outlet under pressure, and screams
     with thick smoke when dry or over pressure.
+11. **Pipes** are one entity kind `pipe` with an `item` (bronze, or the cheap **copper pipe** from a copper
+    ingot on any anvil, which counts double against the boiler's reach) and an `axis` (the way the player
+    faced when laying it); drawn as a straight square tube with a flange at each end, the developer's
+    reference. The hammer's head is a **press** after the developer's reference: an iron frame with wood
+    panels, a valve bracket, a wood-handled piston on top.
+12. **The wrench** (an iron rod and a stick, cheap on purpose): a right click swaps a pipe's axis or turns
+    a boiler a quarter (`facing`, `WorkPalette.rotate_y`). The hammer and furniture do not turn yet.
 
 ## Consequences
 - `test_steam_age.gd` covers the data, pressure, both bursts, the pipe walk and its limit, the
