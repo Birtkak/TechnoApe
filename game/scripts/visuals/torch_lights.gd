@@ -16,6 +16,10 @@ extends Node3D
 
 const COLOR := Color(1.0, 0.72, 0.42)
 const FIRE_COLOR := Color(1.0, 0.62, 0.32)
+const LAVA_COLOR := Color(1.0, 0.45, 0.15)
+const LAVA_TTL_S := 15.0                   # a lava spot not sampled again for this long is dropped (quenched, dug out)
+const LAVA_SAMPLES := 4096                 # SimBubble.sample_cells per assign; a pool collects hits over a few seconds
+const LAVA_SAMPLE_M := 24.0
 const HELD_ENERGY := 0.85                  # a share of a placed torch's: it is right at the eye
 const HAND := Vector3(0.32, -0.28, -0.45)  # metres from the camera: the viewmodel's hand
 
@@ -24,10 +28,16 @@ var _pool: Array[OmniLight3D] = []
 var _held: OmniLight3D
 var _held_id := ""
 var _accum := 0.0
-var stats := {"torches": 0, "lit": 0, "dropped": 0, "held": false}
+var stats := {"torches": 0, "lit": 0, "dropped": 0, "held": false, "lava": 0}
+var _lava := {}           # grid cell -> [expires_s, light position]: lava found by random sampling
+var _lava_mask := PackedByteArray()
+var _lava_seed := 1
 
 
 func _ready() -> void:
+	_lava_mask.resize(256)
+	_lava_mask[GameMaterials.LAVA] = 1
+	_lava_mask[GameMaterials.LAVA_STATIC] = 1
 	for i in Settings.torch_lights_max:
 		var l := _light()
 		add_child(l)
@@ -141,6 +151,7 @@ func _assign() -> void:
 		if d2 <= r2:
 			near.append([d2, at, def])
 			dropped += 1
+	near.append_array(_lava_lights(eye, Time.get_ticks_msec() / 1000.0))
 	near.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
 	for i in _pool.size():
 		_pool[i].visible = i < near.size()
@@ -150,3 +161,40 @@ func _assign() -> void:
 	stats["torches"] = torches.size()
 	stats["dropped"] = dropped
 	stats["lit"] = mini(near.size(), _pool.size())
+
+
+## Light candidates [d2, at, def] for the lava nearest `eye`, after sampling the bubble for more (ADR 0092 follow-up:
+## lava glowed but lit nothing around it). Random sampling, like the ambient particles: a pool is found within
+## a second or two and each spot stays lit while sampling keeps hitting it.
+func _lava_lights(eye: Vector3, now: float) -> Array:
+	var bubble: SimBubble = main.bubble
+	if bubble != null and bubble.can_sample():
+		_lava_seed += 1
+		note_lava(bubble.sample_cells(Vector3i(eye.floor()), int(Settings.m2v(LAVA_SAMPLE_M)), LAVA_SAMPLES, _lava_seed, _lava_mask), now)
+	var def := {"range_m": Settings.lava_light_range_m, "energy": Settings.lava_light_energy, "color": LAVA_COLOR.to_html(false)}
+	var out: Array = []
+	for k in _lava.keys():
+		if _lava[k][0] < now:
+			_lava.erase(k)
+			continue
+		var at: Vector3 = _lava[k][1]
+		out.append([at.distance_squared_to(eye), at, def])
+	out.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
+	out.resize(mini(out.size(), Settings.lava_lights_max))
+	stats["lava"] = _lava.size()
+	return out
+
+
+## Folds SimBubble.sample_cells hits (7 ints each) into lava spots: one per lava_light_grid_m cell, lit half a
+## metre over the highest lava cell sampled in it. Burning cells come back too and are skipped.
+func note_lava(hits: PackedInt32Array, now: float) -> void:
+	var g := Settings.m2v(Settings.lava_light_grid_m)
+	for i in range(0, hits.size(), 7):
+		var m := hits[i + 3]
+		if m != GameMaterials.LAVA and m != GameMaterials.LAVA_STATIC:
+			continue
+		var at := Vector3(hits[i] + 0.5, hits[i + 1] + 1.0 + Settings.m2v(0.5), hits[i + 2] + 0.5)
+		var k := Vector3i((at / g).floor())
+		k.y = 0   # one light per column: the top of a deep pool, not every layer of it
+		var old: Array = _lava.get(k, [])
+		_lava[k] = [now + LAVA_TTL_S, at if old.is_empty() or at.y > old[1].y else old[1]]

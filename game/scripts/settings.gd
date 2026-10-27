@@ -85,6 +85,10 @@ var torch_light_attenuation := 0.7      # OmniLight3D falloff: < 1 spreads the l
 var torch_light_radius_m := 64.0        # light sources farther from the player than this stay unlit
 var fire_light_range_m := 18.0          # a lit firepit, furnace, kiln or firewood pile (TorchLights)
 var fire_light_energy := 1.6
+var lava_light_range_m := 14.0          # lava lights the rock around it (TorchLights): one light per lava_light_grid_m cell
+var lava_light_energy := 1.4
+var lava_light_grid_m := 4.0
+var lava_lights_max := 8                # of torch_lights_max: a lava sea never takes every light from the torches
 var pan_shakes := 6                     # right clicks to wash one pan of sand or gravel
 # Crafting in the world (ADR 0042)
 var metal_heat_s := 8.0                 # an ingot or work piece on a lit firepit is fully hot after this long
