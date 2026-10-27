@@ -40,6 +40,8 @@ var paintings: CavePaintings
 var canoes: Canoes
 var megaliths: Megaliths
 var _shot_cd := 0.0
+var draw_id := ""                 # the bow being drawn (right click held), "" when none
+var draw_t := 0.0                 # seconds it has been drawn
 var _sec := 0.0
 var _rng := RandomNumberGenerator.new()
 var _fish_until := -1.0         # a line in the water: the bite comes at this game day
@@ -160,6 +162,7 @@ func _on_caught(item: String) -> void:
 func _process(delta: float) -> void:
 	now_days = main.atmosphere.calendar.total()
 	_shot_cd = maxf(0.0, _shot_cd - delta)
+	_update_draw(delta)
 	_sec += delta
 	if _sec >= 1.0:
 		_sec = 0.0
@@ -212,6 +215,11 @@ func _sneaking() -> bool:
 func use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector3) -> bool:
 	var held: Dictionary = main.player_inv.held_def()
 	var id: String = held.get("id", "")
+	if held.has("shoots") and held["shoots"].has("draw_s"):
+		if first_press and draw_id == "" and _shot_cd <= 0.0:
+			draw_id = id   # drawn while held, shot on release (_update_draw)
+			draw_t = 0.0
+		return true
 	if held.has("launch") or held.has("shoots"):
 		if first_press:
 			_shoot(held, from, dir)
@@ -274,7 +282,38 @@ func _ammo_slot(spec: String) -> int:
 	return -1
 
 
-func _shoot(held: Dictionary, from: Vector3, dir: Vector3) -> void:
+## A drawn bow (bug report 2026-10-27_15-56-57): drawn while right click is held, shot on release
+## with draw_power; switching items lets it down.
+func _update_draw(delta: float) -> void:
+	if draw_id == "":
+		return
+	if main.player_inv.held_def().get("id", "") != draw_id:
+		draw_id = ""
+		return
+	if Input.is_action_pressed("action_place") and not main.player.ui_open:
+		draw_t += delta
+		return
+	loose()
+
+
+## Lets the drawn arrow fly along the look; too short a draw (Minecraft: under 0.1 power) shoots nothing.
+func loose() -> void:
+	var held: Dictionary = main.player_inv.held_def()
+	var power := draw_power(draw_t, float(held.get("shoots", {}).get("draw_s", 1.0)))
+	draw_id = ""
+	if power < 0.1:
+		return
+	var cam: Camera3D = main.player.camera
+	_shoot(held, cam.global_position, -cam.global_transform.basis.z, power)
+
+
+## Minecraft's bow: power (0..1) after `t` seconds of a `draw_s` full draw, (f^2 + 2f) / 3.
+static func draw_power(t: float, draw_s: float) -> float:
+	var f := clampf(t / maxf(draw_s, 0.01), 0.0, 1.0)
+	return (f * f + 2.0 * f) / 3.0
+
+
+func _shoot(held: Dictionary, from: Vector3, dir: Vector3, power: float = 1.0) -> void:
 	if _shot_cd > 0.0:
 		return
 	var spec: Dictionary = held.get("launch", held.get("shoots", {}))
@@ -293,7 +332,7 @@ func _shoot(held: Dictionary, from: Vector3, dir: Vector3) -> void:
 	if stack.is_empty():
 		main.work._say("No %s to %s." % [ammo.substr(1) + "s" if ammo.begins_with("#") else main.items.display_name(ammo), "throw" if held.has("launch") else "shoot"])
 		return
-	main.projectiles.throw(stack, from + dir * 0.6, dir, float(spec.get("speed_x", 1.0)), float(spec.get("damage_x", 1.0)))
+	main.projectiles.throw(stack, from + dir * 0.6, dir, float(spec.get("speed_x", 1.0)) * power, float(spec.get("damage_x", 1.0)) * power)
 	_shot_cd = float(spec.get("cooldown_s", 0.6))
 	stats["shots"] += 1
 	main.work._wear_held()

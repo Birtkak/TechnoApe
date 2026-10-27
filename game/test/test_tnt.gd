@@ -139,3 +139,25 @@ func test_fire_and_igniter_light_charges() -> void:
 	assert_int(t.light_near(Vector3(0, 0, 0), 16.0)).is_equal(1)   # the block 5 m away; the one 50 m away stays
 	assert_int(t.primed.size()).is_equal(2)
 	assert_bool(t.charges.has(Vector3i(400, 0, 0))).is_true()
+
+
+## A chain-lit pile goes off as one blast: charges near enough with a short fuse left merge into
+## the first, at the share-weighted centre (bug report 2026-10-27_15-48-13).
+func test_near_short_fuses_merge_into_one_bigger_blast() -> void:
+	var t: Tnt = auto_free(Tnt.new())
+	var b := float(Settings.BLOCK)
+	var first := {"node": Node3D.new(), "pos": Vector3.ZERO, "fuse": 0.0, "share": 1.0}
+	var near := {"node": Node3D.new(), "pos": Vector3(b, 0, 0), "fuse": Settings.tnt_merge_s * 0.5, "share": 1.0}
+	var late := {"node": Node3D.new(), "pos": Vector3(0, b, 0), "fuse": Settings.tnt_merge_s + 1.0, "share": 1.0}
+	var far := {"node": Node3D.new(), "pos": Vector3(Tnt.radius_of(1.0) + 3.0 * b, 0, 0), "fuse": 0.0, "share": 1.0}
+	t.primed.assign([first, near, late, far])
+	var q := t.merge_from(first)
+	assert_float(q["share"]).is_equal(2.0)
+	assert_vector(q["pos"]).is_equal_approx(Vector3(b * 0.5, 0, 0), Vector3.ONE * 0.001)
+	assert_bool(near.get("gone", false)).is_true()
+	assert_bool(late.get("gone", false)).is_false()
+	assert_bool(far.get("gone", false)).is_false()
+	assert_float(Tnt.radius_of(q["share"])).is_greater(Tnt.radius_of(1.0))
+	assert_float(Settings.tnt_chain_fuse_s.y).is_less_equal(Settings.tnt_merge_s + 0.001)   # a chain-lit neighbour always merges
+	late["node"].free()
+	far["node"].free()

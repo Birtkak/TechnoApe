@@ -41,6 +41,7 @@ var terrain_mesh_collisions := false    # physics colliders for terrain meshes; 
 var swim_up_speed_m := 2.0              # holding jump in water
 var sink_speed_m := 1.5                 # drifting down in water (to the floor, which can be walked on)
 var air_s := 15.0                       # breath under water (vanilla: 300 ticks)
+var suffocate_s := 2.0                  # breath with the head buried in sand or gravel (vanilla: damage at once)
 var drown_damage := 2                   # half-hearts per second once the air is gone (vanilla)
 var sim_threads := maxi(2, OS.get_processor_count() - 2)
 
@@ -167,7 +168,8 @@ var crater_radius_m := 3.0              # the crater rod's blast; sneaking doubl
 # TNT (ADR 0065): one 0.5 m block of it; a part-filled block blasts with the cube root of its share
 var tnt_radius_m := 2.5                 # crater radius in soft ground; stone takes 3/4 of it, hard rock 1/2, obsidian none
 var tnt_fuse_s := 3.0                   # lit by hand, fire or the igniter
-var tnt_chain_fuse_s := Vector2(0.5, 1.5)   # lit by another blast: a random fuse in this range (Minecraft)
+var tnt_chain_fuse_s := Vector2(0.1, 0.3)   # lit by another blast: a random fuse in this range (Minecraft 0.5-1.5 s; faster so a pile goes off as one)
+var tnt_merge_s := 0.3                  # a charge going off takes along primed charges in its reach with this little fuse left: one bigger blast
 var tnt_damage := 16                    # health at the centre, falling to 0 at twice the radius (armour later)
 var tnt_knockback_m := 12.0             # m/s at the centre, falling like the damage
 var tnt_drop_fraction := 0.3            # share of the blasted voxels that drops as items (Minecraft: 1 / power)

@@ -394,7 +394,9 @@ func _throwing() -> void:
 	_hold("bow")
 	_give("arrow", 4)
 	main.player.set_look(PI, 0.1)
-	main.player._use(true)
+	main.player._use(true)   # draws the bow; release shoots (a full draw here)
+	main.stone_age.draw_t = 1.0
+	main.stone_age.loose()
 	r["bow_shot"] = main.projectiles.stats["thrown"] - n0 - 1
 	r["arrows_left"] = inv.inv.count_of("arrow")
 	await tree.create_timer(1.0).timeout

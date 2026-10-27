@@ -153,10 +153,14 @@ func test_berries_follow_the_season_and_winter_meat_is_lean() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
 	var bush: Array = mining.entry("blueberry_bush")["drops"]
-	Seasons.season = 0   # winter
-	assert_array(MiningTable.roll_list(bush, rng)).is_empty()
+	Seasons.season = 0   # winter: only the lean off-season entry (bug report 2026-10-27_15-26-49)
+	var lean := MiningTable.roll_list(bush, rng)
+	assert_int(lean.size()).is_equal(1)
+	assert_int(int(lean[0]["count"])).is_less_equal(3)
 	Seasons.season = 2   # summer
-	assert_array(MiningTable.roll_list(bush, rng)).is_not_empty()
+	var ripe := MiningTable.roll_list(bush, rng)
+	assert_int(ripe.size()).is_equal(1)
+	assert_int(int(ripe[0]["count"])).is_greater_equal(6)
 	var meat := [{"id": "raw_meat", "count": [4, 4], "winter_mult": 0.5}]
 	assert_int(int(MiningTable.roll_list(meat, rng)[0]["count"])).is_equal(4)
 	Seasons.season = 0
