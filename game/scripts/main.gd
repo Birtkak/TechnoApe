@@ -7,7 +7,6 @@ extends Node3D
 
 var world: World
 var atmosphere: Atmosphere
-var ocean_life: OceanLife   # fish around the player (ADR 0027); kelp is voxels (ADR 0047)
 var stains: StainMap
 var player: Player
 var bubble: SimBubble
@@ -140,11 +139,6 @@ func _ready() -> void:
 		if Settings.persist_world:
 			world.far_layer.load_dict(_load_json(_save_path("far_edits")))
 		mark.call("far_layer")
-	ocean_life = OceanLife.new()
-	ocean_life.name = "OceanLife"
-	add_child(ocean_life)
-	ocean_life.setup(world, player.camera)
-	mark.call("ocean_life")
 	player.voxel_broken.connect(_on_broken)
 	player.voxel_placed.connect(_on_placed)
 	player.voxels_dug.connect(_on_dug)

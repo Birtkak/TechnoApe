@@ -135,8 +135,15 @@ func _layout(i: int, id: String) -> Dictionary:
 	for j in range(1, i):
 		if not items.has_tag(parts[j], "binding"):
 			behind += 1
-	var o := 0.1 * behind
-	return {"id": id, "at": Vector3(0.5 - o, 0.03 if i == 0 else 0.02 - 0.002 * behind, 0.5 + o), "yaw": 0.0, "scale": SCALE}
+	if i == 0:
+		# a loose head's sprite is centred in its icon: lay it back where it sits on the tool, or the
+		# stick runs through the blade (bug report 2026-10-27 15-23-56); sprite down is +z here
+		var off := Vector2(ItemSprites.get_default().loose_offset(id)) * SCALE / 16.0
+		return {"id": id, "at": Vector3(0.5 - off.x, 0.03, 0.5 - off.y), "yaw": 0.0, "scale": SCALE}
+	# a stick sprite reaches 2 px further up and right than a tool's handle: pulled back 2 px along
+	# itself, it ends in the head's eye instead of poking out past it
+	var o := 0.1 * (behind + 1)
+	return {"id": id, "at": Vector3(0.5 - o, 0.02 - 0.002 * behind, 0.5 + o), "yaw": 0.0, "scale": SCALE}
 
 
 func view_parts() -> Dictionary:

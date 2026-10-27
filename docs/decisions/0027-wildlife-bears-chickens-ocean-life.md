@@ -50,7 +50,7 @@ and GDScript must not iterate voxels.
   - **Kelp:** dark swaying strands (one MultiMesh, the sway is in the
     vertex shader) in patchy forests 2-30 m deep, at most 10 m tall.
   - **Seagrass** in the shallows.
-  - **Fish:** up to 6 schools of 8-12 fish swim between mid-water points,
+  - **Fish** (superseded by ADR 0084: OceanLife is gone, fish are the ADR 0058 mobs): up to 6 schools of 8-12 fish swim between mid-water points,
     and only through water voxels.
 
   Kelp is not waterlogged voxels: a block in water would leave a box of
