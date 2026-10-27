@@ -115,6 +115,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   every key is a uniform). `liquids_test=1` pours a pool of each and shoots them by day and night.
   **Items burn in lava:** a dropped stack touching a liquid with `temperature_of_fire` burns up with `item_burn` +
   `item_burn_smoke` and a sizzle (`ItemEntity.burns_at`); items tagged `fireproof` (obsidian, lava bucket) survive.
+  **Buckets (ADR 0091):** a bucket holds `Settings.bucket_m3` (1 m^3 = 512 voxels, `Bucket.capacity`). An empty one
+  scoops the connected cells of the liquid the aim ray crosses (`Bucket.scoop_cells`, whole cells); a filled one keeps
+  `fill` in its stack data (missing = full) and pours that many cells into the free space at the aimed face, never
+  above it, lowest first (`Bucket.pour_cells`). Written as plain liquid; the simulation is untouched.
   **Held right clicks (ADR 0043):** ground pickups are whole pieces (`GroundPickups`): aimable (aim-only box), a dig takes the
   whole stick, a 1 s held right click pops it into an item on the ground; firepit moves are held too (`hold_key`/`hold_done`).
   **Sound (ADR 0044):** the `Sound` autoload (`GameAudio`, `scripts/audio/`) plays `data/sounds.json` (material groups,
@@ -132,7 +136,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   slow work in calendar game hours via `StoneAge.now_days`); per-stack `dur_x` for tar/tempered tools. Scripted check:
   `stone_ages_test=1` (with `walk=1 speed=0 mob_spawn=0`; `flint_age_test=1` runs it too).
   **Brush shapes and sizes (ADR 0065, 0073):** cube, sphere, cylinder, `flat` (a square one voxel deep in the aimed
-  face's plane) and `column` (size/2 wide, 2 x size long along the face normal: a shaft, tunnel, pillar or beam). The
+  face's plane), `column` (size/2 wide, 2 x size long along the face normal: a shaft, tunnel, pillar or beam) and
+  `tunnel` (ADR 0091: a 1 m x 2 m hallway from the feet, `Brush.tunnel_floor_y`, size/2 deep per dig, on the block
+  grid; a shaft on floors; digs only). The brush ghost shows only where the brush works (`Player.brush_ghost_fits`:
+  terrain, plants, liquids; not stations, work pieces, furniture). The
   box shapes are flush with the aimed face (into it digging, out of it placing) and centred on the aim across it, on
   the 0.5 m block grid from size 4 up (`Brush._face_box`); the round ones go around the aimed voxel / rest on the face. Survival
   sizes 1-8 voxels, digging capped by `MiningTable.dig_cap` and paid in time per voxel and a tool use per block; creative

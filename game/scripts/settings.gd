@@ -136,6 +136,9 @@ var preserved_spoil_mult := 0.25         # foods tagged "preserved" (salted, dri
 var frost_check_s := 10.0                # how often crops are checked for frost
 var discovery_check_s := 1.0             # how often the discovery journal looks around the player
 var climate_probe_s := 1.5               # how often shelter and heat are measured
+var bucket_m3 := 1.0                      # a bucket holds this much liquid: 512 voxels, a 1 m pit (ADR 0091)
+var tunnel_width_m := 1.0                # the tunnel brush: a hallway the 0.6 m wide, 1.8 m tall body walks (ADR 0091)
+var tunnel_height_m := 2.0
 # maps (plan item D10, ADR 0055)
 var quick_stack_m := 8.0                # the inventory's Stack button reaches chests this close (plan item D11)
 var map_explore_m := 48.0               # the map fills in this far around the player

@@ -51,7 +51,7 @@ func _notification(what: int) -> void:
 
 ## Where a brush's box starts for this aim: its cells (rel_cells) are relative to it.
 static func anchor(hit: Vector3i, front: Vector3i, size: int, shape: String, place: bool) -> Vector3i:
-	if size > Brush.NATIVE_ABOVE or shape in ["cube", "flat", "column"] or size <= 1:
+	if size > Brush.NATIVE_ABOVE or shape in Brush.BOX_SHAPES or size <= 1:
 		return Brush.region(hit, front, size, shape, place)["lo"]
 	var c := Brush._place_centre(hit, front, size) if place else Vector3(hit) + Vector3(0.5, 0.5, 0.5)
 	return Vector3i((c - Vector3.ONE * size * 0.5).floor())
@@ -215,7 +215,7 @@ func _queue(kind: String, hit: Vector3i, front: Vector3i, size: int, shape: Stri
 		return 0
 	var lo := anchor(hit, front, size, shape, place)
 	var box := AABB(Vector3(lo), Vector3.ONE * (size + 1))
-	if size > Brush.NATIVE_ABOVE or shape in ["cube", "flat", "column"]:
+	if size > Brush.NATIVE_ABOVE or shape in Brush.BOX_SHAPES:
 		box = AABB(Vector3(lo), Vector3(Brush.region(hit, front, size, shape, place)["size"]))
 	_jobs.append({"kind": kind, "cells": rel, "lo": lo, "i": 0, "material": material, "mask": mask, "hint": hint, "box": box,
 		"n": 0, "ms": 0.0})
