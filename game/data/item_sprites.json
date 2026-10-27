@@ -3680,6 +3680,152 @@
         "................",
         "................"
       ]
+    },
+    "plate": {
+      "rows": [
+        "................",
+        "................",
+        "........oo......",
+        ".......ohlo.....",
+        ".....oohmmloo...",
+        "...oohlmmmmllo..",
+        "..ohlmmmmmmmmlo.",
+        ".ohmmmmmmmmmmdo.",
+        ".olmmmmmmmmddo..",
+        "..oldmmmmddoo...",
+        "...oolmmdoo.....",
+        ".....oldo.......",
+        "......oo........",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "pipe": {
+      "colors": {"i": "#1a1410"},
+      "rows": [
+        "................",
+        "................",
+        "............ooo.",
+        "...........ohiio",
+        "..........ohmiio",
+        "........oohmdiio",
+        ".......ohlmdooo.",
+        ".....oohmddo....",
+        "....ohlmdoo.....",
+        "...ohmddo.......",
+        "..ohmdoo........",
+        ".ohmdo..........",
+        "..olo...........",
+        "...o............",
+        "................",
+        "................"
+      ]
+    },
+    "boiler": {
+      "colors": {"b": "#8e3e2a", "B": "#ac5640", "j": "#5a4a40", "o": "#2a1610", "x": "#2a1a14", "y": "#ff8a24", "r": "#9ea2a8", "c": "#1a1410", "g": "#ffe066", "h": "#8a8e94", "l": "#6a6e74", "m": "#46494e", "d": "#2e3034"},
+      "rows": [
+        "............oo..",
+        "...........occo.",
+        "...ooooooooocco.",
+        "..orlllrlllrlo..",
+        ".ohmmmmmmmmmmlo.",
+        "ohmmmmmmmmmmmmlo",
+        "olgmmmmmmmmmmmdo",
+        ".olmmmmmmmmmmdo.",
+        "..oldddddddddo..",
+        ".oorooorooorooo.",
+        "oBBBBjBBBBjBBBBo",
+        "obbbbjxxxxjbbbbo",
+        "ojjjjjxyyxjjjjjo",
+        "oBBjBBxyyxBBBjBo",
+        "obbjbbxyyxbbbjbo",
+        ".oooooooooooooo."
+      ]
+    },
+    "steam_hammer": {
+      "colors": {"L": "#c4c8cc", "M": "#9ea2a8", "D": "#6a6e74", "H": "#eceff2", "e": "#d8a850", "f": "#b8863a", "k": "#8a5e22"},
+      "rows": [
+        "................",
+        "..oooooooooooo..",
+        ".ohlllllllllllo.",
+        ".olmmddddddmmdo.",
+        ".olmdoHLLLolmdo.",
+        ".olmdoLMMDolmdo.",
+        ".olmdoLMMDolmdo.",
+        ".olmdoLMMDolmdo.",
+        ".olmdoLDDDolmdo.",
+        ".olmeeeeeeolmdo.",
+        ".olmdefffkolmdo.",
+        ".olmdoefkoolmdo.",
+        ".olmdoefkoolmdo.",
+        ".olmdekkkeolmdo.",
+        ".olddoooooolddo.",
+        "..ooo......ooo.."
+      ]
+    },
+    "steam_sieve": {
+      "colors": {"n": "#c8b088", "N": "#3a2a18", "L": "#c4c8cc", "M": "#9ea2a8", "D": "#6a6e74", "H": "#eceff2"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        ".....oooooo.....",
+        "...oohllllloo...",
+        "..ohlmmmmmmllo..",
+        ".ohmNnNnNnNnmlo.",
+        "ohmNnNnNnNnNnmlo",
+        "olmnNnNnNnNnNmdo",
+        ".olmnNnNnNnNmdo.",
+        "..oldmmmmmmddo..",
+        ".oHLoldddddoHLo.",
+        ".oLDoooHLoooLDo.",
+        ".oLDo.oLDo.oLDo.",
+        ".oLDo.oLDo.oLDo.",
+        "..oo...oo...oo.."
+      ]
+    },
+    "goggles": {
+      "colors": {"w": "#a6d6e2", "s": "#6a3a18"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "o..ooo....ooo..o",
+        "soohlloooohlloos",
+        "shlwwwllllwwwlso",
+        "osmwwwmmmmwwwmso",
+        "olmwwwmmmmwwwmdo",
+        "oldwwwddddwwwddo",
+        ".oolddoooolddoo.",
+        "...ooo....ooo...",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "apron": {
+      "colors": {"s": "#2e1808"},
+      "rows": [
+        "................",
+        ".o...oooooo...o.",
+        "oso.ohlllllo.oso",
+        ".osoolmmmmdooso.",
+        ".osoolmmmmdooso.",
+        "..oslmmmmmmlso..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmdmmmmdmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "..oldddddddddo..",
+        "...oooooooooo..."
+      ]
     }
   },
   "sprites": {
@@ -4023,6 +4169,14 @@
     "iron_saw_blade": {"layers": [{"shape": "saw_blade_loose", "palette": "iron"}]},
     "iron_work_piece": {"layers": [{"shape": "work_piece", "palette": "iron"}]},
     "crucible_bronze": {"layers": [{"shape": "crucible", "palette": "terracotta", "colors": {"i": "#f0c060"}}]},
-    "bronze_anvil": {"layers": [{"shape": "anvil", "palette": "bronze"}]}
+    "bronze_anvil": {"layers": [{"shape": "anvil", "palette": "bronze"}]},
+    "iron_plate": {"layers": [{"shape": "plate", "palette": "iron"}]},
+    "iron_rod": {"layers": [{"shape": "stick", "palette": "iron"}]},
+    "bronze_pipe": {"layers": [{"shape": "pipe", "palette": "bronze"}]},
+    "small_boiler": {"layers": [{"shape": "boiler"}]},
+    "steam_hammer": {"layers": [{"shape": "steam_hammer", "palette": "iron"}]},
+    "steam_sieve": {"layers": [{"shape": "steam_sieve", "palette": "wood"}]},
+    "goggles": {"layers": [{"shape": "goggles", "palette": "bronze"}]},
+    "leather_apron": {"layers": [{"shape": "apron", "palette": "leather"}]}
   }
 }

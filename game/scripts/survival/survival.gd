@@ -11,7 +11,7 @@ extends Node
 const DAY_S := 1200.0       # one game day of real seconds (the calendar's 20-minute day)
 const HEAT_C := 1.0         # degrees per unit of heat (a lit firepit is 10 units at its edge)
 ## Heat of lit entities by kind, in the probe's units, and of hot cells (per cell).
-const ENTITY_HEAT := {"firepit": 10.0, "forge": 12.0, "bloomery": 10.0, "furnace": 8.0, "firewood_pile": 14.0, "ground": 8.0, "torch": 1.5}
+const ENTITY_HEAT := {"firepit": 10.0, "forge": 12.0, "bloomery": 10.0, "furnace": 8.0, "firewood_pile": 14.0, "ground": 8.0, "torch": 1.5, "boiler": 12.0}
 const ENTITY_HEAT_M := 8.0  # lit entities further than this give nothing
 
 var main: Node

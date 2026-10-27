@@ -105,7 +105,21 @@ var glow_from_heat := 0.4               # heat (~500 C) where metal starts to gl
 var forge_input_max := 2                # items (iron ingots) a forge holds at once, laid side by side on the coals (ADR 0087)
 var hot_hand_damage := 2                # hot metal in a hand without tongs in the other: dropped, and this much damage (ADR 0087)
 var firepit_fuel_max := 8               # fuel items a firepit holds (laid on one right click at a time)
-var hold_use_s := 1.0                   # right click held this long picks up a stick or stone, lays a thing on a firepit or takes it off (ADR 0043)
+# The steam age (ADR 0097): pressure is a fraction of the small boiler's working pressure
+var boiler_bucket_fill := 0.25          # of the tank one water bucket fills
+var boiler_boil_s := 240.0              # a full tank boils away in this long while lit
+var boiler_build_s := 20.0              # from empty to working pressure (1.0) in this long while lit with water
+var boiler_burst_at := 1.3              # pressure that blows the boiler up; the whistle screams above 1.0
+var boiler_dry_s := 8.0                 # lit and dry: the whistle, then after this long the blast
+var boiler_wear_s := 1200.0             # lit this long and the boiler is rusted through (an iron plate mends it); steam falls with wear
+var boiler_blast_m := 4.0               # within this a player is hurt by the blast
+var boiler_blast_damage := 8            # halved per steam_proof piece worn (goggles, apron)
+var steam_pipe_max := 8                 # bronze pipes a boiler feeds through, counted from it
+var steam_per_use := 0.02               # pressure one hammer strike or sieve shake draws
+var steam_hammer_strike_s := 0.5        # between strikes at working pressure; faster above, slower below
+var steam_sieve_shake_s := 0.6          # between shakes at working pressure
+var steam_sieve_loads := 8              # blocks of gravel or sand a steam sieve holds
+var hold_use_s := 1.0                 # right click held this long picks up a stick or stone, lays a thing on a firepit or takes it off (ADR 0043)
 
 # Particles (ADR 0026): two GPU pools, every particle emitted by script
 # Survival (ADR 0040): hunger, body temperature, food spoilage. Seconds are real time, days game days.

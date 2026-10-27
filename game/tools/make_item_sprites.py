@@ -1376,6 +1376,55 @@ def dump():
     return "\n".join(L) + "\n"
 
 
+# the steam age (ADR 0097)
+g = shade(poly(new(), [(1, 8), (9, 3), (15, 7), (7, 12)]))                       # a flat sheet on the diagonal
+shape("plate", outline(g))
+g = shade(poly(new(), [(2, 11), (3, 13), (14, 5), (13, 3)]))                     # a tube: a thick bar
+rect(g, 13, 3, 14, 5, "i")                                                      # its dark open end
+shape("pipe", outline(g), {"i": "#1a1410"})
+g = bricks(new(), 1, 10, 14, 14)
+rect(g, 6, 11, 9, 14, "x")
+rect(g, 7, 12, 8, 14, "y")
+d = shade(ellipse(new(), 8, 6, 7, 3.5))                                         # the drum
+for x in (3, 7, 11):
+    put(d, x, 3, "r"); put(d, x, 9, "r")
+rect(d, 12, 1, 13, 2, "c")                                                      # chimney
+put(d, 2, 6, "g")                                                               # the gauge
+shape("boiler", outline(compose(g, d)), dict(BRICK, x="#2a1a14", y="#ff8a24", r="#9ea2a8", c="#1a1410", g="#ffe066",
+    h="#8a8e94", l="#6a6e74", m="#46494e", d="#2e3034"))   # the iron drum, dark
+g = shade(compose(rect(new(), 2, 3, 4, 14), rect(new(), 11, 3, 13, 14), rect(new(), 2, 2, 13, 3)))   # the frame
+h = shade(rect(new(), 6, 4, 9, 8), "#", "L", "M", "D", "H")                                         # the head
+a = shade(art([
+    "................", "................", "................", "................", "................",
+    "................", "................", "................", "................", "....######......",
+    ".....#####......", "......###.......", "......###.......", ".....#####......", "................", "................"]), "#", "e", "f", "k", "e")
+shape("steam_hammer", outline(compose(g, h, a)), {"L": "#c4c8cc", "M": "#9ea2a8", "D": "#6a6e74", "H": "#eceff2", "e": "#d8a850", "f": "#b8863a", "k": "#8a5e22"})
+g = shade(ellipse(new(), 8, 8, 7, 4))
+for y in range(N):
+    for x in range(N):
+        dx, dy = x + 0.5 - 8, y + 0.5 - 8
+        if (dx / 5.2) ** 2 + (dy / 2.4) ** 2 <= 1:
+            g[y][x] = "n" if (x + y) % 2 else "N"
+f = shade(compose(rect(new(), 2, 11, 3, 14), rect(new(), 12, 11, 13, 14), rect(new(), 7, 12, 8, 14)), "#", "L", "M", "D", "H")
+shape("steam_sieve", outline(compose(f, g)), {"n": "#c8b088", "N": "#3a2a18", "L": "#c4c8cc", "M": "#9ea2a8", "D": "#6a6e74", "H": "#eceff2"})
+g = shade(compose(ellipse(new(), 4.5, 8, 3.5, 3), ellipse(new(), 11.5, 8, 3.5, 3), rect(new(), 7, 7, 8, 8)))
+ellipse(g, 4.5, 8, 2, 1.8, "w")
+ellipse(g, 11.5, 8, 2, 1.8, "w")
+line(g, 1, 7, 0, 5, "s"); line(g, 14, 7, 15, 5, "s")
+shape("goggles", outline(g), {"w": "#a6d6e2", "s": "#6a3a18"})
+g = shade(compose(rect(new(), 5, 2, 10, 4), rect(new(), 3, 5, 12, 14)))
+line(g, 3, 5, 1, 2, "s"); line(g, 12, 5, 14, 2, "s")
+put(g, 5, 9, "d"); put(g, 10, 9, "d")                                            # pocket seams
+shape("apron", outline(g), {"s": "#2e1808"})
+sp("iron_plate", ("plate", "iron"))
+sp("iron_rod", ("stick", "iron"))
+sp("bronze_pipe", ("pipe", "bronze"))
+sp("small_boiler", "boiler")
+sp("steam_hammer", ("steam_hammer", "iron"))
+sp("steam_sieve", ("steam_sieve", "wood"))
+sp("goggles", ("goggles", "bronze"))
+sp("leather_apron", ("apron", "leather"))
+
 path = os.path.join(REPO, "game", "data", "item_sprites.json")
 open(path, "w", encoding="utf8", newline="\n").write(dump())
 print("wrote", path, len(SP), "sprites", len(S), "shapes")

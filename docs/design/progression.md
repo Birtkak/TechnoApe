@@ -99,7 +99,7 @@ once found, sifting is safe.
 
 - Iron tools are tier 3, smithed from iron ingots on the bronze anvil (never cast).
 
-## Steam age (developer, 2026-10-27, ADR 0096; not built)
+## Steam age (developer, 2026-10-27, ADR 0096; stage 1 built as ADR 0097)
 
 A slowly improving steampunk era. Each stage needs parts from the one
 before, and each gives back a chore the player has done by hand many times.

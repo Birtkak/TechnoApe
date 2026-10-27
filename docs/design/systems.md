@@ -78,6 +78,14 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   (`ForgeEntity`; both are `FirepitEntity` subclasses) heats `forge_heat` items, and only the bronze anvil (`AnvilEntity`
   kind `bronze_anvil`, tier 1) takes metal with `anvil_tier` 1; iron is smithed, never cast (tier 3). Smelt recipes take
   `count` and `hot`. The furnace smelts no ore. Check: `test_metal_ages.gd`, `metal_age_test=1`.
+  **Steam age, stage 1 (ADR 0097):** iron plates and rods and bronze pipes are smithed; the small boiler (`BoilerEntity`,
+  a firepit subclass) burns coal under a water tank and builds `pressure` (1.0 = working), screams over 1.0 or dry and
+  bursts at `boiler_burst_at` or after `boiler_dry_s` dry (`burst` signal: `WorkSystem._on_burst` throws plates out,
+  a steam ball, ash and fire, hurts a near player, halved per `steam_proof` clothing). `BoilerEntity.feed` (every 20
+  ticks in `BlockEntities.tick`) walks bronze pipes (`PipeEntity`) on one level up to `steam_pipe_max` and sets `boiler`
+  on the machines at the ends: the steam hammer (`SteamHammerEntity`, an anvil that strikes by itself, `strike()`) and
+  the steam sieve (`SteamSieveEntity`, `loads` and `found`). All three rust (`wear`) and an iron plate mends them. Check:
+  `test_steam_age.gd`, `/kit steam`.
   **Grid Fill and Clear (bug report 2026-10-25):** the recipe view shows **Fill** right of the output for a grid recipe
   (shaped/shapeless) while a crafting grid is on screen: it returns the grid's contents to the inventory, then lays the
   recipe out (shaped as drawn from the top left, shapeless in reading order) from the inventory and the worn bag, and closes

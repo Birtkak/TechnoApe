@@ -39,7 +39,7 @@ func _ready() -> void:
 	# the real work pieces, fresh from their entities, and the furniture
 	var items := ItemRegistry.load_default()
 	var store := BlockEntities.new(items, RecipeRegistry.load_default(items))
-	for kind in ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "bronze_anvil", "forge", "bloomery", "grave", "earth_oven", "rack", "water_work", "stroke"]:
+	for kind in ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "bronze_anvil", "forge", "bloomery", "boiler", "bronze_pipe", "steam_hammer", "steam_sieve", "grave", "earth_oven", "rack", "water_work", "stroke"]:
 		var e: RefCounted = store.create(Vector3i(0, 0, 0), kind)
 		if e == null or not e.has_method("view_parts"):
 			continue

@@ -27,7 +27,7 @@ var _seal_accum := 0.0
 var _knap_hint_ms := -100000    # last "knap with a stone" hint (a held click repeats)
 var stats := {"placed": 0, "chips": 0, "clay_cells": 0, "finished": [], "kilns_lit": 0, "casts": 0, "sifts": 0,
 	"pans": 0, "scrapes": 0, "pits_lit": 0, "pits_charred": 0, "pits_burnt": 0, "seal_ms_max": 0.0,
-	"assembled": 0, "firepit_uses": 0, "smith_hits": 0, "smith_splits": 0, "smithed": 0,
+	"assembled": 0, "firepit_uses": 0, "smith_hits": 0, "smith_splits": 0, "smithed": 0, "bursts": 0,
 	"rebuild_ms_max": 0.0, "use_ms_max": 0.0, "hit_ms_max": 0.0}   # one piece's mesh, one right / left click
 
 
@@ -57,6 +57,16 @@ func _process(delta: float) -> void:
 	if _seal_accum >= 1.0:
 		_seal_accum = 0.0
 		_check_pits()
+		for b in main.blocks.all_of("boiler"):   # a boiler (ADR 0097): chimney smoke while lit, a wisp of steam at the
+			if b.is_lit():                       # outlet under pressure, the whistle when dry or over pressure
+				_particles("large_smoke" if b.pressure > 0.5 else "smoke", _at(b.pos, Vector3(0.8, 1.0, 0.5)), 0, 2)
+			if b.pressure > 0.2 and _rng.randf() < b.pressure:
+				_particles("smoke", _at(b.pos, Vector3(1.0, 0.5, 0.5)), 0)
+				Sound.play("steam/hiss", _at(b.pos, Vector3(1.0, 0.5, 0.5)), {"db": -16.0})
+			if b.screaming():
+				var at := _at(b.pos, Vector3(0.5, 1.0, 0.5))
+				Sound.play("steam/whistle", at)
+				_particles("large_smoke", at, 0, 6)
 
 
 # ---------------- views ----------------
@@ -90,7 +100,63 @@ func _watch(e: RefCounted) -> void:
 		e.charred.connect(_on_charred)
 	if e.has_signal("cooled") and not e.cooled.is_connected(_on_cooled):
 		e.cooled.connect(_on_cooled)
+	if e.has_signal("burst") and not e.burst.is_connected(_on_burst):
+		e.burst.connect(_on_burst)
+	if e.has_signal("struck") and not e.struck.is_connected(_on_struck):
+		e.struck.connect(_on_struck)
+	if e.has_signal("shook") and not e.shook.is_connected(_on_shook):
+		e.shook.connect(_on_shook)
 	_dirty[p] = true
+
+
+## A steam hammer's blow (ADR 0097): the anvil's clang, sparks off the metal, a hiss of spent steam.
+func _on_struck(p: Vector3i, col: Vector2i) -> void:
+	var e: RefCounted = main.blocks.at(p)
+	if e == null:
+		return
+	var at := _at(p, Vector3((col.x + 0.5) / 8.0, (AnvilEntity.BASE_H + e.height(col.x, col.y)) / 8.0, (col.y + 0.5) / 8.0))
+	Sound.play("craft/anvil", at)
+	_particles("ember", at, 0, 8)
+	_particles("smoke", _at(p, Vector3(0.8, 0.9, 0.1)), 0)
+
+
+## A steam sieve's shake: the sieve's rattle and a spray of what it sifts.
+func _on_shook(p: Vector3i, material: String) -> void:
+	var at := _at(p, Vector3(0.5, 0.9, 0.5))
+	Sound.play("craft/sieve", at)
+	var fx: ParticleFx = main.get("fx")
+	_particles("sprint", at, fx.material_id(material) if fx else 0)
+
+
+## A boiler ran dry or over pressure (ADR 0097): the blast takes the boiler, throws bent plates out,
+## leaves a steam cloud, fire and a ring of soot, and hurts a player near it (halved per steam-proof
+## piece worn: goggles, apron).
+func _on_burst(p: Vector3i) -> void:
+	var e: RefCounted = main.blocks.at(p)
+	if not (e is BoilerEntity):
+		return
+	var w := BlockEntities.width_of(e.kind)
+	var at := _at(p, Vector3(0.5, 0.5, 0.5))
+	stats["bursts"] += 1
+	remove_piece(e)
+	Sound.play("sim/blast", at)
+	_particles("poof", at, 0, 40)
+	for i in 1 + _rng.randi_range(0, 2):
+		main.spawn_item({"id": "iron_plate", "count": 1}, at, Vector3(_rng.randf_range(-3, 3), 4.0, _rng.randf_range(-3, 3)))
+	if main.get("bubble"):
+		main.bubble.blast(at + Vector3(0, w * 1.2, 0), Settings.m2v(1.0), GameMaterials.STEAM)
+	var r := Settings.m2v(1.5)
+	for dz in range(-r, w + r):
+		for dx in range(-r, w + r):
+			var c := p + Vector3i(dx, 0, dz)
+			if main.get_world_voxel(c) == GameMaterials.AIR and MobManager.is_solid(main.get_world_voxel(c + Vector3i.DOWN)):
+				main.set_world_voxel(c, GameMaterials.FIRE if _rng.randf() < 0.15 else GameMaterials.ASH)
+	if main.player.position.distance_to(at) < Settings.m2v(Settings.boiler_blast_m):
+		var dmg := Settings.boiler_blast_damage
+		for s in main.stone_age.clothing.worn.values():
+			if main.items.get_def(s["id"]).get("clothing", {}).get("steam_proof", false):
+				dmg /= 2
+		main.player_inv.damage(dmg, "a bursting boiler")
 
 
 ## The metal on an anvil got too cold to work: a hiss and a puff of steam say so (ADR 0078).
@@ -223,7 +289,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile"
-	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery"]
+	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve"]
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -735,11 +801,16 @@ func _use_anvil(e: AnvilEntity, held: Dictionary, from: Vector3, dir: Vector3) -
 	var stack: Dictionary = main.player_inv.held()
 	var id: String = held.get("id", "")
 	if id == "":
-		if not e.has_piece():
+		var piece := e.take_piece()   # a steam hammer hands its finished piece out first (ADR 0097)
+		if piece.is_empty():
 			_say("Lay a hot ingot on the anvil.")
 			return
-		var piece := e.take_piece()
 		_give([piece], _at(e.pos, Vector3(0.5, 1.0, 0.5)))
+		return
+	if id == "iron_plate" and "wear" in e and e.wear > 0.0:
+		e.wear = 0.0
+		main.player_inv.consume_held(1)
+		_say("The steam hammer is patched up.")
 		return
 	if "hammer" in held.get("tags", []):
 		if e.has_piece():
@@ -841,6 +912,9 @@ func _use_firepit(e: FirepitEntity, held: Dictionary, say: bool, sneaking := fal
 		main.player_inv.consume_held(res["consume"])
 	if res["ignited"]:
 		_wear_held()   # the firestarter
+	if res["msg"] == "Steam vents with a hiss.":
+		Sound.play("steam/hiss", _at(e.pos, Vector3(0.9, 1.1, 0.5)))
+		_particles("smoke", _at(e.pos, Vector3(0.9, 1.1, 0.5)), 0, 10)
 	var side: Vector3 = main.player.position - _at(e.pos, Vector3(0.5, 0.0, 0.5))
 	side.y = 0.0
 	side = side.normalized() if side.length() > 0.01 else Vector3.BACK

@@ -65,6 +65,18 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			_ticking.append(e)
 		"sieve":
 			e = SieveEntity.new(recipes, pos)
+		# the steam age (ADR 0097)
+		"boiler":
+			e = BoilerEntity.new(items, recipes, pos)
+			_ticking.append(e)
+		"bronze_pipe":
+			e = PipeEntity.new(pos)
+		"steam_hammer":
+			e = SteamHammerEntity.new(recipes, pos)
+			_ticking.append(e)
+		"steam_sieve":
+			e = SteamSieveEntity.new(recipes, pos)
+			_ticking.append(e)
 		"firewood_pile":
 			e = FirewoodPileEntity.new(recipes, pos)
 			_ticking.append(e)
@@ -95,15 +107,17 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 const SINGLE := []   # entities that are one voxel (torches have their own cells since ADR 0053)
 ## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
 ## a knapping stone or a mold on the ground is one voxel high, a firepit two.
-const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 2, "assembly": 1, "laid_tool": 1, "anvil": 6, "bronze_anvil": 6}
-## Work pieces drawn and placed at the stations' 1 m scale (ADR 0076): their view cell is a voxel,
-## not half of one, and their footprint and height double.
-const WIDE := ["firepit", "forge", "bloomery", "anvil", "bronze_anvil"]
+const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 2, "assembly": 1, "laid_tool": 1, "anvil": 6, "bronze_anvil": 6,
+	"boiler": 4, "steam_hammer": 8, "bronze_pipe": 2}
+## Work pieces bigger than one 0.5 m block: their footprint width and height multiply by this many blocks
+## (the stations' 1 m scale, ADR 0076; the steam age's 1.5 m hammer and 2.5 m boiler, ADR 0097). A view
+## of 8 cells still spans the width, so a 1 m piece's cell is a voxel; a bigger piece names its own grid.
+const SCALE := {"firepit": 2, "forge": 2, "bloomery": 2, "anvil": 2, "bronze_anvil": 2, "steam_hammer": 3, "boiler": 5}
 
 
 ## Footprint width in voxels of a work piece kind.
 static func width_of(p_kind: String) -> int:
-	return Settings.BLOCK * 2 if p_kind in WIDE else Settings.BLOCK
+	return Settings.BLOCK * int(SCALE.get(p_kind, 1))
 
 
 ## The voxels an entity covers (ADR 0034).
@@ -138,7 +152,7 @@ static func box(anchor: Vector3i, size: Vector3i) -> Array[Vector3i]:
 ## Footprint height in voxels of a block entity kind (a wide piece's doubles with its width).
 static func height_of(p_kind: String) -> int:
 	var h := int(HEIGHT.get(p_kind, StoneAge.HEIGHTS.get(p_kind, Settings.BLOCK)))
-	return h * 2 if p_kind in WIDE else h
+	return h * int(SCALE.get(p_kind, 1))
 
 
 ## BLOCK x height x BLOCK voxels from `anchor` (min corner): a station's or work piece's footprint.
@@ -222,7 +236,16 @@ func all_furniture() -> Array:
 
 
 const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave",
-	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile"]
+	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile", "boiler", "bronze_pipe", "steam_hammer", "steam_sieve"]
+
+
+## The machines a boiler's pipes feed (ADR 0097): everything with a `boiler` slot.
+func all_steam_machines() -> Array:
+	var out := []
+	for e in _ticking:
+		if "boiler" in e:
+			out.append(e)
+	return out
 
 
 func all_of(p_kind: String) -> Array:
@@ -295,7 +318,9 @@ func size() -> int:
 func tick() -> Array[Vector3i]:
 	ticks += 1
 	var flipped: Array[Vector3i] = []
-	for e in _ticking:
+	if ticks % 20 == 0:
+		BoilerEntity.feed(self)   # steam reaches the machines on the pipes once a second (ADR 0097)
+	for e in _ticking.duplicate():   # a bursting boiler removes itself
 		if e.tick():
 			flipped.append(e.pos)
 		if e.is_lit():

@@ -31,6 +31,8 @@
   "craft/clay": {"db": -10, "pitch": [0.9, 1.1], "range_m": 12, "cooldown_s": 0.1},
   "craft/anvil": {"db": -6, "pitch": [0.95, 1.05], "range_m": 32, "cooldown_s": 0.1},
   "craft/sieve": {"db": -12, "range_m": 12, "cooldown_s": 0.25},
+  "steam/whistle": {"asset": "loop/steam", "db": -2, "pitch": [2.2, 2.6], "range_m": 48, "ref_m": 4, "cooldown_s": 0.9},
+  "steam/hiss": {"asset": "loop/steam", "db": -8, "pitch": [1.2, 1.5], "range_m": 16, "cooldown_s": 0.3},
   "craft/dig_pit": {"asset": "hit/grass", "db": -10, "range_m": 12, "cooldown_s": 0.15},
   "craft/assemble": {"db": -8, "pitch": [0.9, 1.1], "range_m": 12},
   "craft/done": {"db": -8, "range_m": 16, "cooldown_s": 0.2},
