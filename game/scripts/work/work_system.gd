@@ -473,7 +473,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		else:
 			return true
 	if e is FirewoodPileEntity:
-		return _use_pile(e, hit, held, first_press)
+		return _use_pile(e, hit, held, first_press, sneaking)
 	if e is GroundEntity:
 		var res: Dictionary = e.use(held)
 		if res["consume"] > 0 and _consumes():
@@ -894,12 +894,14 @@ func _pan(hit: VoxelRaycastResult, first_press: bool) -> bool:
 
 # ---------------- the charcoal pit (ADR 0030) ----------------
 
-func _use_pile(e: FirewoodPileEntity, hit: VoxelRaycastResult, held: Dictionary, first_press: bool) -> bool:
+## Sneaking stacks as much of the held firewood on as the pile takes (ADR 0087, like the fires).
+func _use_pile(e: FirewoodPileEntity, hit: VoxelRaycastResult, held: Dictionary, first_press: bool, sneaking := false) -> bool:
 	var id: String = held.get("id", "")
 	if id == "firewood":
 		if e.state == "wood" and not e.is_full():
-			if e.add(1) > 0 and _consumes():
-				main.player_inv.consume_held(1)
+			var took := e.add(int(main.player_inv.held().get("count", 1)) if sneaking else 1)
+			if took > 0 and _consumes():
+				main.player_inv.consume_held(took)
 			return true
 		return _try_place(hit, held)   # full: the next pile goes in front of the clicked face
 	if not first_press:

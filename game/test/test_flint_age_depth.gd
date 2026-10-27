@@ -168,6 +168,31 @@ func _pit_world() -> Array:
 	return [m, w]
 
 
+## Sneak + right click with firewood fills a pile from the held stack in one go (ADR 0087, bug report
+## 2026-10-27_18-01-05), through WorkSystem's own click code; a plain click still lays one.
+func test_sneak_fills_a_firewood_pile_in_one_click() -> void:
+	var stub := GDScript.new()
+	stub.source_code = "extends Node
+var player_inv
+var player := {\"game_mode\": \"survival\"}
+"
+	stub.reload()
+	var main := Node.new()
+	main.set_script(stub)
+	main.player_inv = PlayerInventory.new(items, recipes)
+	main.player_inv.inv.set_slot(main.player_inv.selected, {"id": "firewood", "count": 40})
+	var ws := WorkSystem.new()
+	ws.main = main
+	var e: FirewoodPileEntity = store.create(Vector3i(0, 0, 0), "firewood_pile")
+	ws._use_pile(e, null, items.get_def("firewood"), true)
+	assert_int(e.count).is_equal(2)
+	ws._use_pile(e, null, items.get_def("firewood"), true, true)
+	assert_bool(e.is_full()).is_true()
+	assert_int(int(main.player_inv.held()["count"])).is_equal(40 - (Settings.firewood_per_pile - 1))
+	ws.free()
+	main.free()
+
+
 func test_piles_fill_to_sixteen_and_char_only_when_sealed() -> void:
 	var e: FirewoodPileEntity = store.create(Vector3i(0, 0, 0), "firewood_pile")
 	assert_int(e.add(40)).is_equal(Settings.firewood_per_pile - 1)
