@@ -74,13 +74,12 @@ func run(p_main: Node) -> void:
 	r["firepit_placed"] = fp is FirepitEntity
 	inv.pickup("oak_log", 4 * main.items.units("oak_log"))
 	main._hold("oak_log")
-	await _hold_on(f_at, Vector3(0.5, 0.2, 0.5), 4)   # held: a log a second (ADR 0043)
+	await _put_on(f_at, Vector3(0.5, 0.2, 0.5), 4)   # a log a click (ADR 0078)
 	r["logs_on"] = fp.inv.get_slot(FirepitEntity.FUEL).get("count", 0) / main.items.units("oak_log") if fp is FirepitEntity else 0
 	inv.pickup("raw_meat", 2)
 	main._hold("raw_meat")
 	_use_on(f_at, Vector3(0.5, 0.2, 0.5))
-	r["meat_needs_a_hold"] = fp is FirepitEntity and fp.inv.is_empty_slot(FirepitEntity.INPUT)
-	await _hold_on(f_at, Vector3(0.5, 0.2, 0.5))
+	r["meat_one_click"] = fp is FirepitEntity and not fp.inv.is_empty_slot(FirepitEntity.INPUT)
 	inv.pickup("firestarter", 1)
 	main._hold("firestarter")
 	_use_on(f_at, Vector3(0.5, 0.2, 0.5))
@@ -90,17 +89,17 @@ func run(p_main: Node) -> void:
 	await _shot(tree, "firepit_cooking", Vector3(f_at) + Vector3(0.5, 0.2, 0.5) * B, 1.1)
 	await _fast_forward(301)
 	_empty_hand()
-	await _hold_on(f_at, Vector3(0.5, 0.2, 0.5))
+	await _put_on(f_at, Vector3(0.5, 0.2, 0.5))
 	r["meat_popped_out"] = inv.inv.count_of("cooked_meat") == 0   # it lies beside the fire, not in the hand
 	await _pick_up_near(tree, f_at)
 	r["cooked_meat"] = inv.inv.count_of("cooked_meat")
 	inv.pickup("copper_ingot", 1)
 	main._hold("copper_ingot")
-	await _hold_on(f_at, Vector3(0.5, 0.2, 0.5))
+	await _put_on(f_at, Vector3(0.5, 0.2, 0.5))
 	await _fast_forward(int(Settings.metal_heat_s * 20.0) + 4)
 	await _shot(tree, "firepit_ingot", Vector3(f_at) + Vector3(0.5, 0.2, 0.5) * B, 1.1)
 	_empty_hand()
-	await _hold_on(f_at, Vector3(0.5, 0.2, 0.5))
+	await _put_on(f_at, Vector3(0.5, 0.2, 0.5))
 	await _pick_up_near(tree, f_at)
 	var slot := _slot_of(inv, "copper_ingot")
 	r["ingot_heat"] = snappedf(Inventory.heat_of(inv.inv.get_slot(slot)), 0.01) if slot >= 0 else -1.0
@@ -204,9 +203,7 @@ func _part_d(tree: SceneTree, inv: PlayerInventory, at: Callable) -> void:
 	var cp = main.blocks.at(c_at)
 	inv.pickup("coal", 4)
 	main._hold("coal")
-	_use_on(c_at, Vector3(0.5, 0.2, 0.5))
-	r["coal_needs_a_hold"] = cp is FirepitEntity and cp.inv.is_empty_slot(FirepitEntity.FUEL)
-	await _hold_on(c_at, Vector3(0.5, 0.2, 0.5), 2)
+	await _put_on(c_at, Vector3(0.5, 0.2, 0.5), 2)
 	r["coal_on"] = int(cp.inv.get_slot(FirepitEntity.FUEL).get("count", 0)) if cp is FirepitEntity else -1
 	var cells: Array[Vector3i] = BlockEntities.footprint(cp) if cp != null else []
 	main.player.voxel_broken.emit(c_at + Vector3i(3, 1, 2), [])   # a corner voxel, not the anchor
@@ -350,6 +347,13 @@ func _hold_on(p: Vector3i, frac: Vector3, times: int = 1) -> void:
 	await tree.create_timer(Settings.hold_use_s * times + 0.15).timeout
 	main.player.autopilot_hold = false
 	await tree.process_frame
+
+
+## `times` right clicks at a point of a firepit, forge or bloomery (they load on a click, ADR 0078).
+func _put_on(p: Vector3i, frac: Vector3, times: int = 1) -> void:
+	for i in times:
+		_use_on(p, frac)
+		await main.get_tree().process_frame
 
 
 ## Right click at a point of the piece anchored at p (block fractions).

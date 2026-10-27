@@ -131,6 +131,38 @@ func test_the_bloomery_makes_a_hot_bloom() -> void:
 	assert_bool(b.inv.is_empty_slot(FirepitEntity.INPUT)).is_true()
 
 
+# ---------- the look-at panel and cues (ADR 0078) ----------
+
+func test_a_forge_says_what_is_in_it() -> void:
+	var g := store.create(Vector3i(0, 10, 0), "forge") as ForgeEntity
+	assert_str(g.look_lines()[0]).contains("Not lit")
+	g.use({"id": "charcoal", "count": 4}, items.get_def("charcoal"))
+	g.use({"id": "charcoal", "count": 4}, items.get_def("charcoal"))
+	g.use({"id": "iron_ingot", "count": 1}, items.get_def("iron_ingot"))
+	g.ignite()
+	var text := "\n".join(g.look_lines())
+	assert_str(text).contains("Burning")
+	assert_str(text).contains("Fuel: 1 Charcoal")   # one of the two burns now
+	assert_str(text).contains("On the fire: 1 Iron Ingot")
+	assert_str(text).contains("% hot")
+
+
+func test_an_anvil_says_how_far_the_piece_is_and_hisses_when_it_cools() -> void:
+	var a := store.create(Vector3i(0, 10, 0), "anvil") as AnvilEntity
+	assert_str(a.look_lines()[0]).contains("Empty")
+	a.add_ingot(_hot("copper_ingot"))
+	a.set_recipe(a.options()[0])
+	var text := "\n".join(a.look_lines())
+	assert_str(text).contains("Hot")
+	assert_str(text).contains("extra cells")
+	var cooled := []
+	a.cooled.connect(func(p: Vector3i) -> void: cooled.append(p))
+	_ticks(1)
+	_ticks(int(Settings.metal_cool_s * 20.0))
+	assert_array(cooled).is_equal([Vector3i(0, 10, 0)])
+	assert_str("\n".join(a.look_lines())).contains("Too cold")
+
+
 func test_only_the_bronze_anvil_takes_iron() -> void:
 	var stone := store.create(Vector3i(0, 10, 0), "anvil") as AnvilEntity
 	assert_str(stone.add_ingot(_hot("iron_ingot"))).contains("bronze anvil")

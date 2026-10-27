@@ -310,6 +310,40 @@ func _cooks_here(id: String) -> bool:
 	return not vessel.is_empty() and not recipes.first_of("melt", {"input": id, "vessel": vessel["id"]}).is_empty()
 
 
+## The look-at panel's lines (ADR 0078): fire, fuel, what is on it and what is ready.
+func look_lines() -> Array[String]:
+	var out: Array[String] = []
+	var fuel := inv.get_slot(FUEL)
+	if is_lit():
+		out.append("Burning (%d%% of this fuel left)" % roundi(flame() * 100.0))
+	elif fuel.is_empty():
+		out.append("Not lit: lay fuel on, then use a firestarter")
+	else:
+		out.append("Not lit: light it with a firestarter")
+	if not fuel.is_empty():
+		out.append("Fuel: %s" % _count_name(fuel))
+	var vessel := inv.get_slot(VESSEL)
+	if not vessel.is_empty():
+		out.append("Vessel: %s" % items.display_name(vessel["id"]))
+	var input := inv.get_slot(INPUT)
+	if not input.is_empty():
+		var line := "On the fire: %s" % _count_name(input)
+		if heats(input["id"]):
+			line += " (%d%% hot)" % roundi(Inventory.heat_of(input) * 100.0)
+		elif cook > 0:
+			line += " (%d%% done)" % roundi(progress() * 100.0)
+		out.append(line)
+	var o := inv.get_slot(OUTPUT)
+	if not o.is_empty():
+		out.append("Ready: %s (empty hand takes it)" % _count_name(o))
+	return out
+
+
+## "3 Oak Log": counts in items, not voxels (a log is a block's worth of them, ADR 0034).
+func _count_name(s: Dictionary) -> String:
+	return "%d %s" % [int(s["count"]) / maxi(items.units(s["id"]), 1), items.display_name(s["id"])]
+
+
 func contents() -> Array:
 	var out := [{"id": kind, "count": 1}]   # the firepit, forge or bloomery item
 	for s in inv.to_array():

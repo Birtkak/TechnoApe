@@ -56,7 +56,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   `AssemblyEntity`), the firepit is worked by hand (no screen), tools wear (`durability` = uses), hot metal carries `hot_until`
   against `Inventory.clock_s`, and a stone anvil smiths hot copper with a hammer (`smith` recipes, height per column,
   `AnvilEntity`). Stacks keep per-stack data (`spoil`, `wear`, `hot_until`, `work`) through every move: build stacks with
-  `Inventory.make_stack`. `craft_test=1` checks it all (headless with `craft_shots=0`).
+  `Inventory.make_stack`. `craft_test=1` checks it all (headless with `craft_shots=0`). Stations load on a plain
+  right click, show their contents in the look-at panel (`look_lines()`), lit ones burn, and smithing blows answer
+  with sounds (ADR 0078).
   **Bronze and iron ages (ADR 0070):** tin laid into a molten copper crucible on the firepit makes bronze (cast or
   smithed, tier 2); a bloomery (`BloomeryEntity`) turns iron ore and charcoal into a hot bloom, only a forge
   (`ForgeEntity`; both are `FirepitEntity` subclasses) heats `forge_heat` items, and only the bronze anvil (`AnvilEntity`

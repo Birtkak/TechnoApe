@@ -88,7 +88,18 @@ func _watch(e: RefCounted) -> void:
 		e.fired.connect(_on_fired)
 	if e.has_signal("charred") and not e.charred.is_connected(_on_charred):
 		e.charred.connect(_on_charred)
+	if e.has_signal("cooled") and not e.cooled.is_connected(_on_cooled):
+		e.cooled.connect(_on_cooled)
 	_dirty[p] = true
+
+
+## The metal on an anvil got too cold to work: a hiss and a puff of steam say so (ADR 0078).
+func _on_cooled(p: Vector3i) -> void:
+	var at := _at(p, Vector3(0.5, 0.9, 0.5))
+	Sound.play("craft/quench", at)
+	_particles("smoke", at, 0)
+	if main.player.position.distance_to(at) < Settings.m2v(6.0):
+		_say("The metal on the anvil has gone cold. Take it off and heat it again.")
 
 
 ## A pit kiln fired its ware: the progression book counts it (ADR 0028).
@@ -281,6 +292,8 @@ func _open_picker(e: RefCounted) -> void:
 func _on_chosen(r: Dictionary) -> void:
 	if _picking != null and main.blocks.at(_picking.pos) == _picking:
 		_picking.set_recipe(r)
+		if _picking is AnvilEntity:
+			_say(AnvilEntity.HOW_TO)
 	_picking = null
 
 
@@ -670,10 +683,13 @@ func _smith(e: AnvilEntity, from: Vector3, dir: Vector3, split: bool) -> void:
 		return
 	var push := Vector2i(int(signf(dir.x)), 0) if absf(dir.x) >= absf(dir.z) else Vector2i(0, int(signf(dir.z)))
 	var r: String = e.split(col.x, col.y) if split else e.hit(col.x, col.y, push)
+	# every blow answers with a sound (ADR 0078, bug report 2026-10-27_16-00-17): a clang, a dull thud, a chime
 	match r:
 		"cold":
+			Sound.play("ui/error")
 			_say("The metal is too cold to work. Take it off and heat it again%s." % (" in a forge" if main.items.has_tag(e.metal, "forge_heat") else ""))
 		"stuck":
+			Sound.play("ui/error")
 			_say("The metal cannot go further that way.")
 		"hit", "done":
 			stats["smith_splits" if split else "smith_hits"] += 1
@@ -681,10 +697,15 @@ func _smith(e: AnvilEntity, from: Vector3, dir: Vector3, split: bool) -> void:
 			var at := _at(e.pos, Vector3((col.x + 0.5) / 8.0, (AnvilEntity.BASE_H + e.height(col.x, col.y)) / 8.0, (col.y + 0.5) / 8.0))
 			_particles("ember", at, 0)   # sparks off the hot metal
 			_particles("block_hit", at, GameMaterials.STONE)
+			if r == "hit" and e.column_right(col.x, col.y):
+				Sound.play("ui/click")   # this column now has its shape
 	if r == "done":
 		stats["smithed"] += 1
 		var out := e.finish()
 		_note("smithed", out["id"])
+		_particles("poof", _at(e.pos, Vector3(0.5, 1.1, 0.5)), 0)
+		Sound.play("ui/confirm")
+		_say("Smithed: %s." % main.items.display_name(out["id"]))
 		main.spawn_item(out, _at(e.pos, Vector3(0.5, 1.1, 0.5)), Vector3(0, 1.5, 0))
 		stats["finished"].append(out["id"])
 
@@ -756,8 +777,8 @@ var _hold_cells := {}        # the pickup piece the last hold_key looked at: cel
 var _hold_piece := ""        # its key
 
 ## What a held right click on `hit` works on, or "" for an instant use: a stick or stones on the
-## ground (with an empty hand, a tool or the same item in it), a firepit that would take the held
-## thing or give something back (not the firestarter, which lights at once).
+## ground (with an empty hand, a tool or the same item in it). Firepits, forges and bloomeries load
+## and empty on a plain click (ADR 0078, bug report 2026-10-27_15-58-30).
 func hold_key(hit: VoxelRaycastResult) -> String:
 	if hit == null:
 		return ""
@@ -778,25 +799,14 @@ func hold_key(hit: VoxelRaycastResult) -> String:
 				lo = Vector3i(mini(lo.x, c.x), mini(lo.y, c.y), mini(lo.z, c.z))
 			_hold_piece = "pickup:%s" % lo
 		return _hold_piece
-	var p := _work_at(hit)
-	var e: RefCounted = main.blocks.at(p) if p.y >= 0 else null
-	if e is FirepitEntity:
-		var held: Dictionary = main.player_inv.held_def()
-		if "firestarter" in held.get("tags", []):
-			return ""
-		if e.use(main.player_inv.held(), held, true)["act"]:
-			return "firepit:%s" % e.pos
 	return ""
 
 
 ## The right click was held long enough on `hit`.
 func hold_done(hit: VoxelRaycastResult) -> void:
-	var key := hold_key(hit)
-	if key.begins_with("pickup:"):
+	if hold_key(hit).begins_with("pickup:"):
 		_hold_cells.clear()
 		main.pop_pickup(GroundPickups.piece(main.get_world_voxel, hit.position))
-	elif key.begins_with("firepit:"):
-		_use_firepit(main.blocks.at(_work_at(hit)), main.player_inv.held_def(), true)
 
 
 # ---------------- the pan (ADR 0030) ----------------
