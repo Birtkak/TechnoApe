@@ -64,7 +64,12 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   glows (`temp_c`, `glow_color`, `BlockMeshes.heat_material`), a hand holds it only with tongs in the other, the
   forge holds two items, and sneak + right click loads a fire as full as it goes (ADR 0087). `craft_test=1` checks it all (headless with `craft_shots=0`). Stations load on a plain
   right click, show their contents in the look-at panel (`look_lines()`), lit ones burn, and smithing blows answer
-  with sounds (ADR 0078).
+  with sounds (ADR 0078). **Hand feedback (bug report 2026-10-27_18-03-10):** `Viewmodel.swing()` plays the craft
+  motion of the held item (`MOTIONS`: hammer or axe raise-and-slam, firestarter bow drill, knapping stone or flint and
+  steel strike, knife scrape, clay press, saw, pan shake; stroke work and the sieve call `play()`); every lighting
+  (`WorkSystem._wear_held` with a firestarter) puffs smoke and embers with `sim/ignite`; anvil blows throw 9 sparks,
+  knapping 4-5 chips. `craft_film=1` (run with `--fixed-fps 60`) saves burst sheets `film_firestarter`/`film_smithing`
+  (`craft_test`) and `film_knapping` (`stone_age_test`).
   **Bronze and iron ages (ADR 0070):** tin laid into a molten copper crucible on the firepit makes bronze (cast or
   smithed, tier 2); a bloomery (`BloomeryEntity`) turns iron ore and charcoal into a hot bloom, only a forge
   (`ForgeEntity`; both are `FirepitEntity` subclasses) heats `forge_heat` items, and only the bronze anvil (`AnvilEntity`

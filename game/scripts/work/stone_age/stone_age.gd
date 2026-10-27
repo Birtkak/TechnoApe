@@ -612,6 +612,7 @@ func _apply(e: RefCounted, res: Dictionary, held: Dictionary, say: bool = true) 
 	main.work._give(res.get("give", []), main.work._at(e.pos, Vector3(0.5, 0.5, 0.5)))
 	if res.get("stroke", false):
 		stats["strokes"] += 1
+		main.player.viewmodel.play("scrape")   # polishing, grinding, scraping: a stroke whatever is held
 		main.work._wear_held()
 		var mat := GameMaterials.BIRCH_LOG if e is DugoutEntity else (GameMaterials.SANDSTONE if e.station == "sandstone" else (GameMaterials.STONE if e.station == "stone" else GameMaterials.DIRT))
 		main.work._particles("block_hit", main.work._at(e.pos, Vector3(0.5, 0.1, 0.5)), mat)

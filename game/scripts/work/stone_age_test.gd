@@ -65,6 +65,8 @@ func run(p_main: Node) -> void:
 			if clicks == todo / 2:
 				await _shot(tree, "knapping", Vector3(a) + Vector3(0.5, 0.1, 0.5) * Settings.BLOCK)
 			_chip(a, cell)
+			if clicks == 0 and "craft_film=1" in OS.get_cmdline_user_args():
+				await FrameSheet.burst(main.get_viewport(), DebugCapture.out_dir + "/film_knapping.png")
 			clicks += 1
 			await tree.process_frame   # one click per frame at most, like a player
 		r["knap_clicks"] = clicks
@@ -263,7 +265,8 @@ func _chip(a: Vector3i, cell: Vector2i) -> void:
 	var cam: Camera3D = main.player.camera
 	var dir := (at - cam.global_position).normalized()
 	main.player.set_look(atan2(-dir.x, -dir.z), asin(dir.y))
-	main.work.hit(main.player._aim(), cam.global_position, -cam.global_transform.basis.z, false)
+	if main.work.hit(main.player._aim(), cam.global_position, -cam.global_transform.basis.z, false):
+		main.player.viewmodel.swing()   # as the player's left click does
 
 
 ## Waiting, sped up: 100 block-entity ticks (5 s of game) per frame.

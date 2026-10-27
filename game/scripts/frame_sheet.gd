@@ -41,3 +41,14 @@ func save(path: String) -> int:
 		sheet.blit_rect(f, Rect2i(0, 0, thumb_w, thumb_h), Vector2i(x, y))
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
 	return sheet.save_png(path)
+
+
+## A burst to watch motion in a scripted check (craft_film=1): `frames` consecutive frames saved as
+## one sheet at `path`. Run with `--fixed-fps 60` so every frame is 1/60 s of game time however long
+## reading it back stalls.
+static func burst(viewport: Viewport, path: String, frames := 36) -> void:
+	var sheet := FrameSheet.new(320, 180, 6)
+	for i in frames:
+		await viewport.get_tree().process_frame
+		sheet.add(viewport)
+	sheet.save(path)
