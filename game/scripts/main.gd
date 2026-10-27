@@ -221,6 +221,9 @@ func _ready() -> void:
 	player.hold_key = work.hold_key
 	player.hold_done = work.hold_done
 	player.describe_block = _describe_block
+	player.fire_at = func(v: Vector3i) -> bool:
+		var e: RefCounted = blocks.at(v)
+		return e is FirepitEntity and e.is_lit()
 	projectiles = Projectiles.new()
 	projectiles.name = "Projectiles"
 	projectiles.main = self
@@ -649,25 +652,47 @@ func _save_blocks() -> void:
 
 ## The progression book (ADR 0028): progress saved per world, item tasks
 ## counted whenever the inventory changes, a toast per completed quest.
-## The look-at panel's extra line for a work piece: what it makes and how far it is.
-func _describe_block(p: Vector3i) -> String:
+## The look-at panel's word on a block entity: {title?, line?} (line may hold several lines split
+## by "\n"). Work pieces get their own name, not "Work Spot", and stations show what is in them (ADR 0078).
+func _describe_block(p: Vector3i) -> Dictionary:
 	var e: RefCounted = blocks.at(p)
 	if e is ChestEntity and e.label != "":
-		return e.label   # the chest's name (plan item D11)
+		return {"line": e.label}   # the chest's name (plan item D11)
+	if not BlockEntities.is_work(e):
+		return {}
+	var info := {"title": _work_title(e)}
 	if e is GraveEntity:
-		return "Your things (%d stacks)%s: right click" % [e.count(), (", " + e.died_at) if e.died_at != "" else ""]
-	if e is ClayFormEntity:
+		info["line"] = "Your things (%d stacks)%s: right click" % [e.count(), (", " + e.died_at) if e.died_at != "" else ""]
+	elif e is ClayFormEntity:
 		var c := e as ClayFormEntity
 		if not c.has_recipe():
-			return "Clay: pick a shape"
-		var out: String = items.display_name(String(c.recipe.get("output", {}).get("id", "")))
-		return "%s: layer %d of %d" % [out, mini(c.active_layer() + 1, c.height()), c.height()]
-	if e is KnapEntity:
+			info["line"] = "Clay: pick a shape"
+		else:
+			var out: String = items.display_name(String(c.recipe.get("output", {}).get("id", "")))
+			info["line"] = "%s: layer %d of %d" % [out, mini(c.active_layer() + 1, c.height()), c.height()]
+	elif e is KnapEntity:
 		var k := e as KnapEntity
 		if not k.has_recipe():
-			return "Flint: pick a shape"
-		return "%s: %d chips left" % [items.display_name(String(k.recipe.get("output", {}).get("id", ""))), k.remaining()]
-	return ""
+			info["line"] = "Flint: pick a shape"
+		else:
+			info["line"] = "%s: %d chips left" % [items.display_name(String(k.recipe.get("output", {}).get("id", ""))), k.remaining()]
+	elif e is FirepitEntity or e is AnvilEntity:
+		info["line"] = "\n".join(e.look_lines())
+	return info
+
+
+func _work_title(e: RefCounted) -> String:
+	match e.kind:
+		"knap":
+			return "Knapping"
+		"clayform":
+			return "Clay forming"
+		"assembly":
+			return "Tool being assembled"
+		"ground":
+			return items.display_name(e.item) if e.item != "" else "Ground storage"
+	var id: String = e.item if e is AnvilEntity else e.kind
+	return items.display_name(id) if items.has(id) else String(e.kind).capitalize()
 
 
 func _setup_quests() -> void:

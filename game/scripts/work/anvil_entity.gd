@@ -16,7 +16,9 @@ extends RefCounted
 ## "bronze_anvil"); a metal whose item has "anvil_tier" above the anvil's (iron) does not go on.
 
 signal changed
+signal cooled(p: Vector3i)        # the piece just got too cold to work (ADR 0078: a hiss tells the player)
 
+const HOW_TO := "Fill the ghost shape with a hammer: left click drives the top cell away from you, right click cuts it off. Red metal is extra."
 const N := 8
 const MAX_H := 4                  # cells of metal a column holds on the anvil (25 cm)
 const BASE_H := 7                 # the pedestal under the work face, in cells (a tall anvil, ADR 0076)
@@ -192,6 +194,44 @@ func short_of() -> int:
 	return maxi(0, cells_of(recipe) - metal_cells()) if has_recipe() else 0
 
 
+func column_right(x: int, z: int) -> bool:
+	return height(x, z) == target(x, z)
+
+
+## Cells of metal standing where the shape has none (each must be driven away or cut off).
+func extra_cells() -> int:
+	var n := 0
+	for z in N:
+		for x in N:
+			n += maxi(0, height(x, z) - target(x, z))
+	return n
+
+
+## The look-at panel's lines for this anvil (ADR 0078): the piece, its heat, what is left to do.
+func look_lines() -> Array[String]:
+	var items: ItemRegistry = recipes.items
+	if not has_piece():
+		return ["Empty: lay a hot ingot on it"]
+	var out: Array[String] = []
+	var what := items.display_name(metal)
+	if has_recipe():
+		what += " into " + items.display_name(String(recipe.get("output", {}).get("id", "")))
+	out.append(what)
+	var h := heat()
+	if h < Settings.smith_min_heat:
+		out.append("Too cold: take it off, heat it in a %s" % ("forge" if items.has_tag(metal, "forge_heat") else "firepit"))
+	else:
+		out.append("Hot (%d%%): work it now" % roundi(h * 100.0))
+	if not has_recipe():
+		out.append("Right click with metal or a hammer to pick a shape")
+		return out
+	if short_of() > 0:
+		out.append("%d cells short: lay on another hot ingot" % short_of())
+	out.append("%d extra cells to drive or cut" % extra_cells())
+	out.append("Hammer: left click drives, right click cuts")
+	return out
+
+
 func output() -> Dictionary:
 	var o: Dictionary = recipe.get("output", {})
 	return {"id": o["id"], "count": int(o.get("count", 1))} if not o.is_empty() else {}
@@ -263,6 +303,7 @@ func contents() -> Array:
 
 ## A tick (1/20 s): only the glow changes, a few times as the metal cools.
 var _glow_step := -1
+var _workable := false
 
 func tick() -> bool:
 	if has_piece():
@@ -270,6 +311,10 @@ func tick() -> bool:
 		if step != _glow_step:
 			_glow_step = step
 			changed.emit()
+		var workable := heat() >= Settings.smith_min_heat
+		if _workable and not workable:
+			cooled.emit(pos)
+		_workable = workable
 	return false
 
 

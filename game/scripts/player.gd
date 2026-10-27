@@ -71,7 +71,8 @@ var autopilot_hold := false      # scripted checks: the right button is held
 var autopilot_sneak := false     # scripted checks: Shift is held
 var _hold_at := ""
 var _hold_t := 0.0
-var describe_block: Callable     # (voxel) -> String: an extra line for the look-at panel ("" = none)
+var describe_block: Callable     # (voxel) -> {title?, line?}: a block entity's word for the look-at panel
+var fire_at: Callable            # (voxel) -> bool: a lit firepit, forge or bloomery covers it (it burns, ADR 0078)
 var playtest_laser: Callable     # (firing, from, dir, delta, brush_size) -> void: a held laser cutter (PlaytestTools)
 var playtest_use: Callable       # (def, hit, from, dir, sneaking) -> bool: a right click with a playtest gadget
 var ignite_at: Callable          # (hit) -> bool: flint and steel sets the aimed face on fire (Weather, ADR 0056)
@@ -675,6 +676,14 @@ func _update_stains(delta: float) -> void:
 		var m := world.get_voxel(Vector3i((position + Vector3(0, h * f, 0)).floor()))
 		if m > 0:
 			touching.append(m)
+	# a lit fire piece burns like fire: standing in a campfire or on a bloomery's top (bug report 2026-10-27_15-34-22)
+	if fire_at.is_valid():
+		var feet := Vector3i(position.floor())
+		for v in [feet, feet + Vector3i.DOWN]:
+			var wm := world.get_voxel(v)
+			if (wm == GameMaterials.WORK_SPOT or wm == GameMaterials.WORK_BLOCK) and fire_at.call(v):
+				touching.append(GameMaterials.FIRE)
+				break
 	var dmg := stains.update(delta, touching)
 	if dmg > 0 and inventory and GameMode.rule(game_mode, "takes_damage"):
 		inventory.damage(dmg)
@@ -956,7 +965,10 @@ func _update_look(hit: VoxelRaycastResult, mob) -> void:
 	# a few times a second for live lines (health, a clay form's layer)
 	var held_id: String = inventory.held().get("id", "") if inventory else ""
 	var key := ""
-	if mob != null:
+	var liquid := _aimed_liquid(hit) if mob == null else Vector3i(1 << 30, 0, 0)
+	if liquid.x != 1 << 30:
+		key = "liquid %s %d" % [liquid, world.get_voxel(liquid)]
+	elif mob != null:
 		key = "mob %d %d" % [mob.uid, mob.health]
 	elif hit != null:
 		key = "%s %d %s %s" % [hit.position, world.get_voxel(hit.position), held_id, game_mode]
@@ -966,7 +978,12 @@ func _update_look(hit: VoxelRaycastResult, mob) -> void:
 	_look_key = key
 	_look_refresh = 15
 	var info := {}
-	if mob != null:
+	if liquid.x != 1 << 30:
+		var lm := GameMaterials.material_of_voxel(world.get_voxel(liquid))
+		var lname := _loose_name(lm)
+		var lid := inventory.items.item_for_material(lname) if inventory else ""
+		info = {"title": inventory.items.display_name(lid) if lid != "" else lname.capitalize()}
+	elif mob != null:
 		info = {"title": String(mob.species).capitalize(), "line": "Health %d / %d" % [mob.health, int(mob.def.get("health", 8))]}
 	elif hit != null:
 		var mat := world.get_voxel(hit.position)
@@ -975,15 +992,37 @@ func _update_look(hit: VoxelRaycastResult, mob) -> void:
 	hud.set_look(info)
 
 
+## The first liquid voxel the aim ray crosses before its hit (the aim ray passes through liquids),
+## else x = 1 << 30. Under a liquid the panel keeps showing blocks (bug report 2026-10-27_15-50-30).
+func _aimed_liquid(hit: VoxelRaycastResult) -> Vector3i:
+	var none := Vector3i(1 << 30, 0, 0)
+	if not _mouse_captured or ui_open:
+		return none
+	var from := camera.global_position
+	if GameMaterials.is_liquid(GameMaterials.material_of_voxel(world.get_voxel(Vector3i(from.floor())))):
+		return none
+	var dir := -camera.global_transform.basis.z
+	var dist := Settings.m2v(reach()) if hit == null else from.distance_to(Vector3(hit.position) + Vector3(0.5, 0.5, 0.5))
+	var last := Vector3i(from.floor())
+	for i in int(dist * 2.0):
+		var v := Vector3i((from + dir * (i * 0.5)).floor())
+		if v == last:
+			continue
+		last = v
+		if hit != null and v == hit.position:
+			break
+		if GameMaterials.is_liquid(GameMaterials.material_of_voxel(world.get_voxel(v))):
+			return v
+	return none
+
+
 func _block_info(p: Vector3i, mat: int) -> Dictionary:
 	var loose := _loose_name(mat)
 	var id := inventory.items.item_for_material(loose) if inventory else ""
 	var title := inventory.items.display_name(id) if id != "" else loose.capitalize()
 	var info := {"title": title}
 	if describe_block.is_valid():
-		var extra: String = describe_block.call(p)
-		if extra != "":
-			info["line"] = extra
+		info.merge(describe_block.call(p), true)
 	if mining == null or GameMode.rule(game_mode, "instant_break"):
 		return info
 	var name := GameMaterials.name_of(mat)
@@ -1063,7 +1102,7 @@ func _use(first_press: bool) -> void:
 	if not first_press and _place_cooldown > 0.0:
 		return
 	var target: Vector3i = hit.position
-	# picking up sticks and stones, laying things on a firepit and taking them off: hold for a second (ADR 0043)
+	# picking up sticks and stones: hold for a second (ADR 0043; firepits take a plain click, ADR 0078)
 	if hold_key.is_valid() and hold_key.call(hit) != "":
 		if first_press:
 			_hold_at = hold_key.call(hit)
@@ -1459,7 +1498,7 @@ func _update_hold(delta: float) -> void:
 	if hit == null or hold_key.call(hit) != _hold_at:
 		if not pressed and hud and _hold_t < Settings.hold_use_s * 0.8:
 			# let go early: a short click on a firepit or a pickup did nothing (bug report 2026-10-25)
-			hud.show_toast("Hold right click for a second" + (" on the firepit" if _hold_at.begins_with("firepit:") else " to pick it up"))
+			hud.show_toast("Hold right click for a second to pick it up")
 		_hold_at = ""
 		if hud:
 			hud.break_progress = 0.0

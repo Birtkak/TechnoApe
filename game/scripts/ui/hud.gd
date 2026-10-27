@@ -156,7 +156,7 @@ func _ready() -> void:
 	add_child(_brush_label)
 
 
-## What the crosshair is on: {title, line?, tool?, ok?, drops?}; {} hides the panel.
+## What the crosshair is on: {title, line? ("\n" for more lines), tool?, ok?, drops?}; {} hides the panel.
 func set_look(info: Dictionary) -> void:
 	_look_info = info
 	_look.queue_redraw()
@@ -170,7 +170,8 @@ func _draw_look() -> void:
 	var lines := []   # [text, size, colour, mark: "" | "ok" | "no"]
 	lines.append([String(_look_info["title"]), 17, Color(0.97, 0.95, 0.9), ""])
 	if _look_info.has("line"):
-		lines.append([String(_look_info["line"]), 13, Color(0.8, 0.82, 0.86), ""])
+		for l in String(_look_info["line"]).split("\n"):   # a station's contents: one line each (ADR 0078)
+			lines.append([l, 13, Color(0.8, 0.82, 0.86), ""])
 	if _look_info.has("tool"):
 		var ok: bool = _look_info.get("ok", false)
 		lines.append([String(_look_info["tool"]), 13, Color(0.5, 0.9, 0.45) if ok else Color(0.95, 0.45, 0.4), "ok" if ok else "no"])

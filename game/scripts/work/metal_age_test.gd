@@ -41,14 +41,14 @@ func run(p_main: Node) -> void:
 	r["firepit_placed"] = fp is FirepitEntity
 	inv.pickup("oak_log", 2 * main.items.units("oak_log"))
 	main._hold("oak_log")
-	await _hold_on(f_at, mid, 2)
+	await _put_on(f_at, mid, 2)
 	inv.pickup("crucible_copper", 1)
 	main._hold("crucible_copper")
-	await _hold_on(f_at, mid)
+	await _put_on(f_at, mid)
 	r["copper_on_fire"] = fp is FirepitEntity and fp.inv.get_slot(FirepitEntity.VESSEL).get("id", "") == "crucible_copper"
 	inv.pickup("tin_nugget", 2)
 	main._hold("tin_nugget")
-	await _hold_on(f_at, mid, 2)
+	await _put_on(f_at, mid, 2)
 	r["tin_on"] = int(fp.inv.get_slot(FirepitEntity.INPUT).get("count", 0)) if fp is FirepitEntity else -1
 	inv.pickup("firestarter", 1)
 	main._hold("firestarter")
@@ -57,7 +57,7 @@ func run(p_main: Node) -> void:
 	await _fast_forward(305)
 	await _shot(tree, "bronze_melt", Vector3(f_at) + mid * B, 1.1)
 	_empty_hand()
-	await _hold_on(f_at, mid)
+	await _put_on(f_at, mid)
 	await _pick_up_near(tree, f_at)
 	r["crucible_bronze"] = inv.inv.count_of("crucible_bronze")
 	if r["crucible_bronze"] == 0:
@@ -89,11 +89,11 @@ func run(p_main: Node) -> void:
 	r["bloomery_solid"] = main.get_world_voxel(b_at) == GameMaterials.WORK_BLOCK
 	inv.pickup("iron_nugget", 8)
 	main._hold("iron_nugget")
-	await _hold_on(b_at, Vector3(0.5, 0.5, 0.98), 8)
+	await _put_on(b_at, Vector3(0.5, 0.5, 0.98), 8)
 	r["nuggets_in"] = int(bl.inv.get_slot(FirepitEntity.INPUT).get("count", 0)) if bl is BloomeryEntity else -1
 	inv.pickup("charcoal", 2)
 	main._hold("charcoal")
-	await _hold_on(b_at, Vector3(0.5, 0.5, 0.98), 2)
+	await _put_on(b_at, Vector3(0.5, 0.5, 0.98), 2)
 	r["charcoal_in"] = int(bl.inv.get_slot(FirepitEntity.FUEL).get("count", 0)) if bl is BloomeryEntity else -1
 	main._hold("firestarter")
 	_use_on(b_at, Vector3(0.5, 0.5, 0.98))
@@ -103,7 +103,7 @@ func run(p_main: Node) -> void:
 	await _fast_forward(1205)
 	r["bloom_made"] = bl is BloomeryEntity and bl.inv.get_slot(FirepitEntity.OUTPUT).get("id", "") == "iron_bloom"
 	_empty_hand()
-	await _hold_on(b_at, Vector3(0.5, 0.5, 0.98))
+	await _put_on(b_at, Vector3(0.5, 0.5, 0.98))
 	await _pick_up_near(tree, b_at)
 	r["iron_bloom"] = inv.inv.count_of("iron_bloom")
 	if r["iron_bloom"] == 0:
@@ -121,16 +121,16 @@ func run(p_main: Node) -> void:
 	r["forge_placed"] = fg is ForgeEntity
 	inv.pickup("charcoal", 2)
 	main._hold("charcoal")
-	await _hold_on(g_at, mid, 2)
+	await _put_on(g_at, mid, 2)
 	main._hold("iron_bloom")
-	await _hold_on(g_at, mid)
+	await _put_on(g_at, mid)
 	r["bloom_in_forge"] = fg is ForgeEntity and fg.inv.get_slot(FirepitEntity.INPUT).get("id", "") == "iron_bloom"
 	main._hold("firestarter")
 	_use_on(g_at, mid)
 	await _fast_forward(int(Settings.metal_heat_s * 20.0) + 4)
 	await _shot(tree, "forge", Vector3(g_at) + mid * B, 1.1)
 	_empty_hand()
-	await _hold_on(g_at, mid)
+	await _put_on(g_at, mid)
 	await _pick_up_near(tree, g_at)
 	var slot := _slot_of(inv, "iron_bloom")
 	r["bloom_heat"] = snappedf(Inventory.heat_of(inv.inv.get_slot(slot)), 0.01) if slot >= 0 else -1.0
