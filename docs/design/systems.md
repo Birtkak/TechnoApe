@@ -9,7 +9,7 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   sea cliffs and stacks, monoliths, meanders, deltas (ADR 0051); climate, biomes from biomes.json,
   hydrology, big caves: halls carved to LOD 2, ravines, cave mouths, geodes (ADR 0052); GregTech ore veins, ruins; ledges of 3-8 voxels on the ground and 0.5 m in caves, cliff bands on the massifs, a 110 m sea (ADR 0063)); aged trees with bark trunks,
   roots and clumped crowns, young trees, a forest floor of leaf litter, logs, stumps, bushes, ferns and
-  mushrooms; far forests as leaf domes. **The far horizon (ADR 0075, proposed, off by default):** past the box, native `FarMesh::build_voxel_tile` + `scripts/visuals/far_layer.gd` draw voxel cubes from the generator's coarse data (rings of 25 cm cubes to 80 m doubling to 8 m, flat water sheets, the voxel trees and leaf domes, edited chunk columns laid over at 25 cm so builds show) behind the near box through its own SubViewport (`far=1`, Settings > Video > Far horizon; `game/README.md`, `prototypes/p13-far-mesh/README.md`). Flat colours: one texel of the material's tile per voxel
+  mushrooms; far forests as leaf domes. **The far horizon (ADR 0075, proposed, off by default):** past the box, native `FarMesh::build_voxel_tile` + `scripts/visuals/far_layer.gd` draw voxel cubes from the generator's coarse data (rings of 25 cm cubes to 80 m doubling to 8 m, flat water sheets, the voxel trees and leaf domes, edited chunk columns laid over at 25 cm so builds show) behind the near box through its own SubViewport (`far=1`, Settings > Video > Far horizon, live since ADR 0092; `game/README.md`, `prototypes/p13-far-mesh/README.md`). Flat colours: one texel of the material's tile per voxel
   (`voxel_sample`); props use `terrain_prop.gdshader`. `SimBubble` ticks a wrapped 64 x 64 x 64 m window
   of the world's voxels (Noita kernel: sand, water, fire, gas). Brush digging and building
   (`scripts/player/brush.gd`: Ctrl + wheel size, B / Shift + B shape); voxel items count voxels, recipes blocks of 64
@@ -53,7 +53,7 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   voxels, then the cave map's ravine/mouth flag) the sun goes out, the fog loses its sun haze and covers the sky, and
   the ambient is a dim neutral bounce: caves are lit by torches, lava and glow only (bug reports 2026-10-25_21-21-*).
   ADR 0082: that ray is cast from the camera's column and eight 2 m around it; a third of them open is daylight
-  (overhangs stay lit). The mist lies below the camera; Video settings Fog (air haze off) and Brightness (ambient x
+  (overhangs stay lit); the look fades in and out over 2.5 s (ADR 0092). The mist lies below the camera; Video settings Fog (air haze off) and Brightness (ambient x
   `Atmosphere.brightness_mult`). Steep liquid tops (cascades) do not gloss; lava tops sample the crust on one plane.
   **Crafting in the world (ADR 0042):** flint and copper tools are assembled on the ground part by part (`assemble` recipes,
   `AssemblyEntity`), the firepit is laid the same way (four stones, two sticks) and becomes a firepit where it lies
@@ -112,9 +112,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   trench and a crater; kernel tests `test/test_sim_v6.gd`. What still moves when the window walks on finishes in a pin (ADR 0050).
   No waterfalls (the sheet, spray, roar and landmark are gone, GEN_VERSION 21): a river just drops over its cliff.
   **Every liquid looks like water (2026-10-25):** one fluid shader body (`terrain_fluid.gdshaderinc`), no atlas texture;
-  each liquid's character (colours by depth, rim, ripples, gloss, glow, oil sheen, sludge bubbles, lava crack scale) is
+  each liquid's character (colours by depth, rim, ripples, gloss, glow, oil sheen, sludge bubbles) is
   data in `data/liquid_looks.json`, set per fluid material by `World.apply_liquid_look` (`test_liquid_looks.gd` checks
-  every key is a uniform). `liquids_test=1` pours a pool of each and shoots them by day and night.
+  every key is a uniform); lava is Minecraft's matte glowing orange with dark blotches in half-voxel pixels (ADR 0092). `liquids_test=1` pours a pool of each and shoots them by day and night.
   **Items burn in lava:** a dropped stack touching a liquid with `temperature_of_fire` burns up with `item_burn` +
   `item_burn_smoke` and a sizzle (`ItemEntity.burns_at`); items tagged `fireproof` (obsidian, lava bucket) survive.
   **Buckets (ADR 0091):** a bucket holds `Settings.bucket_m3` (1 m^3 = 512 voxels, `Bucket.capacity`). An empty one

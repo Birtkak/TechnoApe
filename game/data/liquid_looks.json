@@ -2,10 +2,8 @@
  "_comment": "Per-liquid look of the terrain fluid shader (assets/shaders/terrain_fluid.gdshaderinc; bug report 2026-10-25: every liquid gets water's treatment). Keys are GameMaterials liquid names (static kinds share their liquid's look); values are shader uniforms, colours as [r, g, b] 0..1. Anything left out keeps the shader default, which is water. Depths in metres: depth_m = liquid for ~63 % of the deep colour, clear_m = for ~63 % of the opacity. fall_speed in voxels/s (the streaks down a falling face). flow_speed comes from the material's liquid_flow_speed.",
  "water": {},
  "lava": {
-  "ripple_scale": 0.35, "ripple_speed": 0.25, "ripple_amount": 1.6,
-  "surface_specular": 0.25, "surface_roughness": 0.45,
-  "foam_color": [1.0, 0.6, 0.15], "foam": 0.8, "fall_speed": 10.0,
-  "lava_crack": 0.07
+  "ripple_scale": 0.35, "ripple_speed": 0.25, "ripple_amount": 0.2,
+  "foam_color": [1.0, 0.72, 0.22], "foam": 0.5, "fall_speed": 10.0
  },
  "oil": {
   "liquid_shallow": [0.16, 0.12, 0.06], "liquid_deep": [0.03, 0.025, 0.02],
