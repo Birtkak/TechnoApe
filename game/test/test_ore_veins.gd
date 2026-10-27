@@ -189,8 +189,9 @@ func test_starting_pickups_lie_in_forests() -> void:
 func test_pickups_are_big_enough_to_see() -> void:
 	var f: Vector3i = gen.find_nearest("plains", 0, 0, 4096)
 	var sizes := {}   # material -> cluster sizes
-	for bz in range(-128, 128, 32):
-		for bx in range(-128, 128, 32):
+	# 64 m square: sticks and stones are sparse since 2026-10-27 (ADR 0080)
+	for bz in range(-256, 256, 32):
+		for bx in range(-256, 256, 32):
 			var h := gen.height_at(f.x + bx + 16, f.z + bz + 16)
 			var o := Vector3i(f.x + bx, h - 16, f.z + bz)
 			var ids := _block(o, Vector3i(32, 32, 32))

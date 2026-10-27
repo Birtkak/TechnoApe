@@ -218,6 +218,7 @@ private:
     FastNoiseLite n_region_, n_hillmask_, n_hill_;   // landform regions (plains, hills, mountain ranges) and hill shapes
     FastNoiseLite n_cavern_, n_ravine_, n_ravmask_;   // caverns and ravines (VAR_CAVES 1)
     FastNoiseLite n_pillar_;                          // rock columns inside the halls (ADR 0077)
+    FastNoiseLite n_gallery_, n_galoff_;              // gallery routes per storey and the storeys' slow tilt (ADR 0080)
     FastNoiseLite n_cliff_;   // rocky coasts: where the land ends in a sea cliff (ADR 0051)
     FastNoiseLite n_meander_; // lowland river bends
     FastNoiseLite n_band_;    // mountain cliff bands: where the slopes break into tiers and how tall they are
