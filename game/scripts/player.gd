@@ -664,7 +664,7 @@ func _ride(delta: float) -> void:
 	var m := get_parent()
 	var store: BlockEntities = m.blocks
 	var rail: RefCounted = store.at(ride["rail"])
-	if not (rail is RailEntity) or sneaking():
+	if not (rail is RailEntity) or rail.cart != "minecart" or sneaking():
 		ride = {}
 		return
 	var n := Settings.BLOCK
@@ -684,15 +684,15 @@ func _ride(delta: float) -> void:
 			if nxt.is_empty():
 				t = 1.0   # the end of the line
 				break
-			rail.cart = false
+			rail.cart = ""
 			rail.changed.emit()
 			rail = nxt["rail"]
-			rail.cart = true
+			rail.cart = "minecart"
 			rail.changed.emit()
 			d = nxt["dir"]
 			t -= 1.0
 	ride = {"rail": rail.pos, "dir": d, "t": t}
-	position = Vector3(rail.pos) + Vector3(n, 0, n) * 0.5 + Vector3(d) * (t - 0.5) + Vector3(0, 1.0, 0)
+	position = Vector3(rail.pos) + Vector3(n, 0, n) * 0.5 + Vector3(d) * (t - 0.5) + Vector3(0, 1.0 + RailEntity.height_on(rail, d, t), 0)
 	velocity = Vector3.ZERO
 	_fall_peak_y = position.y
 

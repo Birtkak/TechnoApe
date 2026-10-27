@@ -100,7 +100,8 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			e = BeltEntity.new(self, pos)
 			_ticking.append(e)
 		"rail":
-			e = RailEntity.new(pos)
+			e = RailEntity.new(self, pos)
+			_ticking.append(e)   # a chest cart rolls by itself
 		"firewood_pile":
 			e = FirewoodPileEntity.new(recipes, pos)
 			_ticking.append(e)

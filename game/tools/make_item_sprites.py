@@ -1462,6 +1462,7 @@ sp("chute", ("bowl", "wood"))
 sp("belt", ("strips", "leather"), ("stick", "iron"))
 sp("rail", ("ladder", "iron"))
 sp("minecart", ("crucible", "iron"), ("ball", "iron"))
+sp("chest_cart", ("crucible", "iron"), ("brick", "wood"))
 
 path = os.path.join(REPO, "game", "data", "item_sprites.json")
 open(path, "w", encoding="utf8", newline="\n").write(dump())

@@ -255,6 +255,7 @@
     {"id": "chute", "type": "shaped", "pattern": ["L L", " L ", " R "], "key": {"L": "#planks", "R": "iron_rod"}, "output": {"id": "chute", "count": 2}, "station": "crafting_table", "_note": "ADR 0100"},
     {"id": "belt", "type": "shaped", "pattern": ["LLL", "GRG", "PPP"], "key": {"L": "leather", "G": "iron_gear", "R": "iron_rod", "P": "iron_plate"}, "output": {"id": "belt", "count": 4}, "station": "crafting_table", "_note": "ADR 0100"},
     {"id": "rail", "type": "shaped", "pattern": ["RSR", "RSR", "RSR"], "key": {"R": "iron_rod", "S": "#stick"}, "output": {"id": "rail", "count": 8}, "station": "crafting_table", "_note": "ADR 0100"},
-    {"id": "minecart", "type": "shaped", "pattern": ["P P", "PPP", "G G"], "key": {"P": "iron_plate", "G": "iron_gear"}, "output": {"id": "minecart", "count": 1}, "station": "crafting_table", "_note": "ADR 0100"}
+    {"id": "minecart", "type": "shaped", "pattern": ["P P", "PPP", "G G"], "key": {"P": "iron_plate", "G": "iron_gear"}, "output": {"id": "minecart", "count": 1}, "station": "crafting_table", "_note": "ADR 0100"},
+    {"id": "chest_cart", "type": "shapeless", "ingredients": ["minecart", "chest"], "output": {"id": "chest_cart", "count": 1}, "station": "crafting_table", "_note": "ADR 0100"}
   ]
 }

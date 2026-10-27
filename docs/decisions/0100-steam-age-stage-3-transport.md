@@ -26,14 +26,21 @@ from far veins. ADR 0099 built stage 2 and the turbine; the developer asked for 
    `cart` flag (drawn as an iron tub on wheels). A right click rides it: `Player.ride` holds the rail,
    the direction and the position along it, `_ride` rolls it at `minecart_speed_m` with forward and
    back, moves the cart flag from rail to rail, stops at the end of the line, and sneaking gets off.
-   Sneak and right click takes the cart back. No chest cart: the rider carries the ore.
+   Sneak and right click takes the cart back.
+   **Slopes** (developer, 2026-10-28): a rail's `rise` is the block step it climbs; the wrench cycles flat,
+   up one way, up the other, then the other axis. `next_of` goes up the slope a rail climbs, down onto a
+   slope whose top meets this level, and only turns corners on the flat; `height_on` lifts a cart along it.
+   **The chest cart** (a minecart and a chest; `cart` is "minecart" or "chest_cart", CARGO 9 slots): items
+   in hand go in, hoppers above load it and hoppers below empty it while it stands, and an empty hand pushes
+   it: it rolls by itself (`rolling`, `t`, the rail's `tick`) at `minecart_speed_m`, cart state moving from
+   rail to rail, until the line ends. A push at each end and a hopper over each end is the ore train.
 5. `/kit steam` carries hoppers, chutes, belts, rails, a minecart and two chests; sheet kinds and
    sprites added.
 
 ## Consequences
 - `test_transport.gd`: a chest-fed hopper over two belts into a hopper, a chute into a steam sieve and a
   belt that waits, rails round a corner with the cart flag, saves.
-- Not built: carts that carry items, sloped rails, hoppers that catch dropped items, belts that climb,
+- Not built: hoppers that catch dropped items, belts that climb, carts that keep rolling over the player,
   tanks and turbines as hopper targets, any in-game check of riding (unit tests and a headless boot only).
 - Hoppers and belts tick in `BlockEntities`: long lines are cheap (one item a second each), but a belt
   with items redraws its view every four ticks.

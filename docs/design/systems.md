@@ -97,7 +97,8 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   **Stage 3 transport (ADR 0100):** `Transport.give/pull` is the one place that knows how every piece loads and
   unloads; `HopperEntity` (hopper and chute, `item`) pulls from above (the chute from behind too) and pushes the
   way it faces or down; `BeltEntity` carries `carried` [{stack, t}] one block in `belt_s` and draws them riding;
-  `RailEntity` (`axis`, `cart` flag, `next_of` round corners) and `Player.ride`/`_ride` roll the player along at
+  `RailEntity` (`axis`, `rise` for slopes, `cart` "minecart" or "chest_cart" with `cargo`, `next_of` up slopes and round
+  corners, `height_on`; a pushed chest cart rolls in its own `tick`) and `Player.ride`/`_ride` roll the player along at
   `minecart_speed_m`. Facings: `Transport.DIRS`, laid with `facing_from_yaw`. Check: `test_transport.gd`.
   **Grid Fill and Clear (bug report 2026-10-25):** the recipe view shows **Fill** right of the output for a grid recipe
   (shaped/shapeless) while a crafting grid is on screen: it returns the grid's contents to the inventory, then lays the

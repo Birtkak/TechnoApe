@@ -4225,6 +4225,7 @@
     "chute": {"layers": [{"shape": "bowl", "palette": "wood"}]},
     "belt": {"layers": [{"shape": "strips", "palette": "leather"}, {"shape": "stick", "palette": "iron"}]},
     "rail": {"layers": [{"shape": "ladder", "palette": "iron"}]},
-    "minecart": {"layers": [{"shape": "crucible", "palette": "iron"}, {"shape": "ball", "palette": "iron"}]}
+    "minecart": {"layers": [{"shape": "crucible", "palette": "iron"}, {"shape": "ball", "palette": "iron"}]},
+    "chest_cart": {"layers": [{"shape": "crucible", "palette": "iron"}, {"shape": "brick", "palette": "wood"}]}
   }
 }

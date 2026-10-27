@@ -23,7 +23,7 @@ func _ticks(n: int) -> void:
 
 
 func test_items_and_recipes_exist() -> void:
-	for id in ["hopper", "chute", "belt", "rail", "minecart"]:
+	for id in ["hopper", "chute", "belt", "rail", "minecart", "chest_cart"]:
 		assert_bool(items.has(id)).override_failure_message(id).is_true()
 		assert_bool(recipes.recipes.has(id)).override_failure_message(id).is_true()
 	assert_int(Transport.facing_from_yaw(0.0)).is_equal(0)
@@ -82,13 +82,59 @@ func test_rails_join_round_corners_and_carry_the_cart_flag() -> void:
 	assert_object(n["rail"]).is_same(r2)
 	assert_bool(n["dir"] == Vector3i(B, 0, 0)).is_true()
 	assert_bool(RailEntity.next_of(store, r2, Vector3i(B, 0, 0)).is_empty()).is_true()
-	r2.cart = true
+	r2.cart = "minecart"
 	assert_array(r2.contents()).contains([{"id": "minecart", "count": 1}])
 	var d: Dictionary = JSON.parse_string(JSON.stringify(store.to_dict()))
 	var again := BlockEntities.new(items, recipes)
 	assert_bool(again.load_dict(d)).is_true()
-	assert_bool(again.at(Vector3i(B, 0, B)).cart).is_true()
+	assert_str(again.at(Vector3i(B, 0, B)).cart).is_equal("minecart")
 	assert_int(again.at(Vector3i(B, 0, B)).axis).is_equal(1)
+
+
+func test_slopes_climb_a_block_and_the_wrench_cycles_them() -> void:
+	var r0: RailEntity = store.create(Vector3i.ZERO, "rail")
+	var s: RailEntity = store.create(Vector3i(0, 0, B), "rail")
+	s.turn()   # up +z
+	assert_bool(s.rise == Vector3i(0, 0, B)).is_true()
+	var r2: RailEntity = store.create(Vector3i(0, B, 2 * B), "rail")
+	var d := Vector3i(0, 0, B)
+	assert_object(RailEntity.next_of(store, r0, d)["rail"]).is_same(s)
+	assert_object(RailEntity.next_of(store, s, d)["rail"]).is_same(r2)   # up the slope
+	assert_object(RailEntity.next_of(store, r2, -d)["rail"]).is_same(s)   # down onto it from above
+	assert_object(RailEntity.next_of(store, s, -d)["rail"]).is_same(r0)
+	assert_float(RailEntity.height_on(s, d, 0.5)).is_equal(B * 0.5)
+	assert_float(RailEntity.height_on(s, -d, 0.25)).is_equal(B * 0.75)
+	assert_float(RailEntity.height_on(r0, d, 0.5)).is_equal(0.0)
+	for i in 5:
+		s.turn()
+	assert_bool(s.rise == Vector3i.ZERO and s.axis == 0).is_true()   # six states round
+
+
+func test_chest_cart_rolls_to_the_end_and_hoppers_load_and_empty_it() -> void:
+	var rails: Array = []
+	for i in 4:
+		rails.append(store.create(Vector3i(0, 0, i * B), "rail"))
+	var top: HopperEntity = store.create(Vector3i(0, B, 0), "hopper")
+	top.use({"id": "coal", "count": 1})
+	var first: RailEntity = rails[0]
+	first.cart = "chest_cart"
+	_ticks(int(Settings.hopper_s * 20) + 5)
+	assert_str(first.cargo.get_slot(0).get("id", "")).is_equal("coal")   # the hopper above loaded it
+	first.rolling = Vector3i(0, 0, B)
+	_ticks(int(3 * B / Settings.m2v(Settings.minecart_speed_m) * 20) + 20)
+	var last: RailEntity = rails[3]
+	assert_str(last.cart).is_equal("chest_cart")
+	assert_str(first.cart).is_equal("")
+	assert_bool(last.rolling == Vector3i.ZERO).is_true()
+	assert_str(last.cargo.get_slot(0).get("id", "")).is_equal("coal")
+	var bottom: HopperEntity = store.create(Vector3i(0, -B, 3 * B), "hopper")
+	_ticks(int(Settings.hopper_s * 20) + 5)
+	assert_bool(last.cargo.is_empty_slot(0)).is_true()
+	assert_str(bottom.inv.get_slot(0).get("id", "")).is_equal("coal")
+	var d: Dictionary = JSON.parse_string(JSON.stringify(store.to_dict()))
+	var again := BlockEntities.new(items, recipes)
+	assert_bool(again.load_dict(d)).is_true()
+	assert_str(again.at(Vector3i(0, 0, 3 * B)).cart).is_equal("chest_cart")
 
 
 func test_saves_keep_hopper_and_belt_loads() -> void:

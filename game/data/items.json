@@ -319,6 +319,7 @@
     {"id": "chute", "name": "Chute", "tags": ["station"], "stack": 64, "work": "hopper", "_note": "stage 3 transport, in wood: pulls from above or behind and drops straight down (ADR 0100)"},
     {"id": "belt", "name": "Conveyor Belt", "tags": ["station"], "stack": 64, "work": "belt", "_note": "stage 3 transport: carries up to four items a block a second the way it faces, into the next belt, hopper or machine (ADR 0100)"},
     {"id": "rail", "name": "Rail", "tags": ["station"], "stack": 64, "work": "rail", "_note": "stage 3 transport: lay a line, corners join; a minecart rides it (ADR 0100)"},
-    {"id": "minecart", "name": "Minecart", "tags": ["minecart"], "stack": 1, "_note": "stage 3 transport: right click a rail to set it down, right click it to ride (W and S roll it, sneak gets off), sneak and right click takes it back (ADR 0100)"}
+    {"id": "minecart", "name": "Minecart", "tags": ["minecart"], "stack": 1, "_note": "stage 3 transport: right click a rail to set it down, right click it to ride (W and S roll it, sneak gets off), sneak and right click takes it back (ADR 0100)"},
+    {"id": "chest_cart", "name": "Chest Cart", "tags": ["minecart"], "stack": 1, "_note": "stage 3 transport: a minecart with a chest: set on a rail, items in hand go in, an empty hand pushes it down the line to its end, where hoppers empty it; sneak and right click takes it back (ADR 0100)"}
   ]
 }

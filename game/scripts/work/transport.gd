@@ -28,6 +28,8 @@ static func give(e: RefCounted, stack: Dictionary, items: ItemRegistry) -> int:
 			one[k] = stack[k]
 	if e is HopperEntity or e is BeltEntity:
 		return 1 if e.accept(one) else 0
+	if e is RailEntity:   # a chest cart standing on the rail
+		return 1 - e.cargo.add(one["id"], 1, one) if e.cart == "chest_cart" else 0
 	if e is ChestEntity:
 		return 1 - e.inv.add(one["id"], 1, one)
 	if e is FirepitEntity:
@@ -62,4 +64,8 @@ static func pull(e: RefCounted) -> Dictionary:
 		for i in e.inv.size():
 			if not e.inv.is_empty_slot(i):
 				return e.inv.take(i, 1)
+	if e is RailEntity and e.cart == "chest_cart" and e.rolling == Vector3i.ZERO:   # a standing chest cart unloads
+		for i in e.cargo.size():
+			if not e.cargo.is_empty_slot(i):
+				return e.cargo.take(i, 1)
 	return {}

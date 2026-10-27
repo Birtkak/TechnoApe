@@ -118,7 +118,9 @@ func _watch(e: RefCounted) -> void:
 
 ## A wrench on a piece (ADR 0097): a pipe swaps its axis, a boiler turns a quarter; the rest does not turn.
 func _turn(e: RefCounted) -> void:
-	if "axis" in e:
+	if e is RailEntity:
+		e.turn()   # flat, up one way, up the other, then the other axis (ADR 0100)
+	elif "axis" in e:
 		e.axis = 1 - e.axis
 	elif "facing" in e and not e is FurnitureEntity:
 		e.facing = (e.facing + 1) % 4
@@ -678,20 +680,40 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 	if e is FirepitEntity:
 		_use_firepit(e, held, first_press, sneaking)
 		return true
-	if e is RailEntity:   # a minecart on a rail (ADR 0100)
-		if held.get("id", "") == "minecart" and not e.cart:
-			e.cart = true
+	if e is RailEntity:   # a minecart or a chest cart on a rail (ADR 0100)
+		var id: String = held.get("id", "")
+		if (id == "minecart" or id == "chest_cart") and e.cart == "":
+			e.cart = id
 			if _consumes():
 				main.player_inv.consume_held(1)
-			_say("Right click the cart to ride it.")
-		elif e.cart and sneaking:
-			e.cart = false
-			_give([{"id": "minecart", "count": 1}], _at(p, Vector3(0.5, 1.0, 0.5)))
-		elif e.cart:
+			_say("Right click the cart to ride it." if id == "minecart" else "Items in hand go in; an empty hand pushes it down the line.")
+		elif e.cart != "" and sneaking:
+			var out := [{"id": e.cart, "count": 1}]
+			for s in e.cargo.to_array():
+				if not s.is_empty():
+					out.append(s)
+			for i in RailEntity.CARGO:
+				e.cargo.set_slot(i, {})
+			e.cart = ""
+			e.rolling = Vector3i.ZERO
+			_give(out, _at(p, Vector3(0.5, 1.0, 0.5)))
+		elif e.cart == "minecart":
 			main.player.ride = {"rail": e.pos, "dir": Vector3i.ZERO, "t": 0.5}
 			_say("W and S roll the cart; sneak to get off.")
+		elif e.cart == "chest_cart":
+			if id == "":
+				var look: Vector3 = -main.player.transform.basis.z
+				e.rolling = Transport.dir_of(2 if look.z >= 0.0 else 0) if e.axis == 0 else Transport.dir_of(1 if look.x >= 0.0 else 3)
+				e.t = 0.5
+				Sound.play("craft/assemble", _at(p, Vector3(0.5, 0.5, 0.5)))
+				_say("The cart rolls.")
+			elif e.cargo.add(id, 1, main.player_inv.held()) == 0:
+				if _consumes():
+					main.player_inv.consume_held(1)
+			else:
+				_say("The cart holds no more.")
 		else:
-			_say("A rail: set a minecart on it.")
+			_say("A rail: set a minecart or a chest cart on it.")
 		e.changed.emit()
 		return true
 	if e is HopperEntity or e is BeltEntity:   # ADR 0100

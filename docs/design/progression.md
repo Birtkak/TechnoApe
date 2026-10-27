@@ -132,8 +132,8 @@ the water coming (by hand, then by pipe) or lose the room.
      door to the electrical age.
 
 Built so far (ADR 0099, 0100): all of stage 2, the turbine and copper wire, the compressor, and the
-stage 3 transport: hoppers and chutes, conveyor belts, rails and a rideable minecart (flat rails, the
-rider carries the ore). **Helpers, two a stage** (developer,
+stage 3 transport: hoppers and chutes, conveyor belts, flat and sloped rails, a rideable minecart and a
+chest cart that hoppers load and empty and a push sends down the line. **Helpers, two a stage** (developer,
 2026-10-27): stage 1 the miner's helmet (light) and the traveler's backpack (18 bag slots); stage 2 the
 steam drill (2.5x a steel pick) and the boiler suit; stage 3 the jetpack (compressed air from the
 compressor; hold jump to climb, release to hover) and the surveyor's stake (a map waypoint). Intermediates
