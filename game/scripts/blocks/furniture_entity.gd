@@ -37,8 +37,8 @@ const KINDS := {
 	"fence_gate": {"size": Vector3i(2, 2, 1), "cells": Vector3i(16, 16, 4), "item": "fence_gate", "wall": true,
 		"box": [Vector3i(0, 0, 0), Vector3i(8, 12, 2)], "open": [Vector3i(0, 0, 0), Vector3i(2, 12, 8)],
 		"hinge": Vector3(1, 0, 1), "swing": Vector3(0, -PI / 2, 0)},
-	"ladder": {"size": Vector3i(1, 4, 1), "cells": Vector3i(8, 32, 2), "item": "ladder", "wall": true, "climb": true,
-		"box": [Vector3i(0, 0, 0), Vector3i(4, 16, 1)]},
+	"ladder": {"size": Vector3i(2, 4, 1), "cells": Vector3i(16, 32, 2), "item": "ladder", "wall": true, "climb": true,
+		"box": [Vector3i(0, 0, 0), Vector3i(8, 16, 1)]},
 	"window": {"size": Vector3i(2, 2, 1), "cells": Vector3i(16, 16, 2), "item": "window", "wall": true,
 		"box": [Vector3i(0, 0, 0), Vector3i(8, 8, 1)], "glass": true},
 	"painting": {"size": Vector3i(2, 2, 1), "cells": Vector3i(16, 16, 2), "item": "painting", "wall": true,
@@ -333,10 +333,10 @@ static func cells_for(p_kind: String) -> PackedInt32Array:
 		for i in 6:   # a brace from the hinge foot up to the latch side
 			box.call(Vector3i(2 + i * 2, 5 + i, 1), Vector3i(4 + i * 2, 6 + i, 3), PLANK)
 	elif p_kind == "ladder":
-		box.call(Vector3i(0, 0, 0), Vector3i(2, 32, 2), PLANK_DARK)
-		box.call(Vector3i(6, 0, 0), Vector3i(8, 32, 2), PLANK_DARK)
+		box.call(Vector3i(1, 0, 0), Vector3i(3, 32, 2), PLANK_DARK)
+		box.call(Vector3i(13, 0, 0), Vector3i(15, 32, 2), PLANK_DARK)
 		for y in range(3, 32, 5):
-			box.call(Vector3i(2, y, 0), Vector3i(6, y + 1, 2), PLANK)
+			box.call(Vector3i(3, y, 0), Vector3i(13, y + 1, 2), PLANK)
 	elif p_kind == "window":
 		box.call(Vector3i(0, 0, 0), Vector3i(16, 16, 2), PLANK_DARK)
 		for z in 2:   # four lights between the mullions: FurnitureEntity.glass_pane fills them
