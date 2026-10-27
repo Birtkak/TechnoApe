@@ -61,6 +61,7 @@ var liquids_test := false   # liquids_test=1: a pool of every liquid side by sid
 var water_shots := true     # water_shots=0: no screenshots in the water test
 var stone_ages_test := false # stone_ages_test=1: the four Stone Age stages alone (flint_age_test=1 runs them too; ADR 0059, JSON line "debug stone_ages")
 var craft_test := false     # craft_test=1: assemble an axe, work a firepit by hand, smith a hammer head, wear a tool out (ADR 0042, JSON line "debug craft")
+var info_test := false      # info_test=1: the look-at panel on ore and a loaded forge, R / U, station tabs, bookmarks: info.png (ADR 0093, "debug info")
 var metal_age_test := false # metal_age_test=1: bronze in a firepit, a bloomery's bloom, the forge, the bronze anvil (ADR 0070, JSON line "debug metal")
 var stone_age_test := false # stone_age_test=1: knap, form clay, pit kiln, firepit, cast, sieve through the player's clicks (ADR 0023, JSON line "debug stone_age")
 var mob_spawning := true # mob_spawn=0: no herds spawn as land loads (benchmarks without animals)
@@ -181,6 +182,7 @@ func _ready() -> void:
 	flint_age_test = args.get("flint_age_test", "0") == "1"
 	craft_test = args.get("craft_test", "0") == "1"
 	metal_age_test = args.get("metal_age_test", "0") == "1"
+	info_test = args.get("info_test", "0") == "1"
 	stone_ages_test = args.get("stone_ages_test", "0") == "1"
 	water_test = args.get("water_test", "0") == "1"
 	showcase = args.get("showcase", "")

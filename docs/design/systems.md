@@ -64,7 +64,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   glows (`temp_c`, `glow_color`, `BlockMeshes.heat_material`), a hand holds it only with tongs in the other, the
   forge holds two items, and sneak + right click loads a fire as full as it goes (ADR 0087). `craft_test=1` checks it all (headless with `craft_shots=0`). Stations load on a plain
   right click, show their contents in the look-at panel (`look_lines()`), lit ones burn, and smithing blows answer
-  with sounds (ADR 0078).
+  with sounds (ADR 0078). The look-at panel also draws the block's picture, its hardness and drops and a chest's or
+  furnace's contents; R / U look up the aimed block or held item from the world, the recipe view has a tab per
+  station, Fill works on the furnace and Mark bookmarks a recipe (ADR 0093, `info_test=1`).
   **Bronze and iron ages (ADR 0070):** tin laid into a molten copper crucible on the firepit makes bronze (cast or
   smithed, tier 2); a bloomery (`BloomeryEntity`) turns iron ore and charcoal into a hot bloom, only a forge
   (`ForgeEntity`; both are `FirepitEntity` subclasses) heats `forge_heat` items, and only the bronze anvil (`AnvilEntity`

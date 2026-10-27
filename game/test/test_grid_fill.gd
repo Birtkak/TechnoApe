@@ -150,3 +150,32 @@ func test_clear_returns_the_grid() -> void:
 	assert_int(p.inv.count_of("dry_grass")).is_equal(2)
 	for i in p.craft.grid.size():
 		assert_bool(p.craft.grid.is_empty_slot(i)).is_true()
+
+
+# ---------- Fill on a furnace screen (ADR 0093) ----------
+
+func test_fill_furnace_input_from_a_smelt_recipe() -> void:
+	var p := PlayerInventory.new(items, recipes)
+	var f := FurnaceEntity.new(items, recipes, Vector3i.ZERO)
+	p.open_container(f)
+	p.inv.add("sand", 5 * _u("sand"))
+	var r := _r("smelt_glass")   # "#sand": the member the inventory holds is picked
+	assert_int(p.fill_container(r, true, true)["crafts"]).is_equal(5)
+	assert_int(f.inv.count_of("sand")).is_equal(0)   # dry run moves nothing
+	assert_str(p.fill_container(r, false)["error"]).is_empty()
+	assert_int(f.inv.count_of("sand")).is_equal(_u("sand"))
+	assert_int(p.fill_container(r, true)["crafts"]).is_equal(4)
+	assert_int(f.inv.count_of("sand")).is_equal(5 * _u("sand"))
+	assert_int(p.inv.count_of("sand")).is_equal(0)
+	assert_str(p.fill_container(r, false)["error"]).is_equal("None in the inventory")
+
+
+func test_fill_furnace_refuses_other_stations_and_a_full_slot() -> void:
+	var p := PlayerInventory.new(items, recipes)
+	var f := FurnaceEntity.new(items, recipes, Vector3i.ZERO)
+	p.open_container(f)
+	assert_str(p.fill_container(_r("cook_meat_firepit"), false)["error"]).is_not_empty()
+	f.inv.set_slot(0, {"id": "cobblestone", "count": 4})
+	p.inv.add("sand", _u("sand"))
+	assert_str(p.fill_container(_r("smelt_glass"), false)["error"]).is_equal("The input slot holds Cobblestone")
+	assert_int(p.inv.count_of("sand")).is_equal(_u("sand"))

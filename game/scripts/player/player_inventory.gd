@@ -496,6 +496,59 @@ func fill_craft_grid(r: Dictionary, all: bool, dry_run := false) -> Dictionary:
 	return res
 
 
+## The recipe browser's Fill on a furnace screen (ADR 0093): a smelt recipe's input from the inventory
+## into the open container's input slot (slot 0), one item's worth or (all) as much as the slot takes.
+## {crafts, error} like fill_craft_grid; crafts = whole items moved (or that would move).
+func fill_container(r: Dictionary, all: bool, dry_run := false) -> Dictionary:
+	if container == null or not "station" in container or r.get("type", "") != "smelt":
+		return {"crafts": 0, "error": "Not a recipe for this station"}
+	var st: String = r.get("station", "furnace")
+	if st != container.station:
+		return {"crafts": 0, "error": "Needs a %s" % items.display_name(st)}
+	var c_inv: Inventory = container.inv
+	var slot := c_inv.get_slot(0)
+	var spec: String = r["input"]
+	var best := ""
+	var most := 0
+	var blocked := false   # some is carried, but the slot holds something else
+	for id in (items.items_with_tag(spec.substr(1)) if spec.begins_with("#") else [spec]):
+		var n := 0
+		for src in craft_sources():
+			n += (src as Inventory).count_of(id)
+		if n > 0 and not slot.is_empty() and slot["id"] != id:
+			blocked = true
+		elif n > most:
+			best = id
+			most = n
+	if best == "":
+		return {"crafts": 0, "error": ("The input slot holds %s" % items.display_name(slot["id"])) if blocked else "None in the inventory"}
+	var u := items.units(best)
+	var cap: int = container.input_max(best) if container.has_method("input_max") else items.max_stack(best)
+	var want := mini(cap - int(slot.get("count", 0)), most if all else u)
+	want -= want % u   # whole items only
+	if want <= 0:
+		return {"crafts": 0, "error": "The input slot is full"}
+	if not dry_run:
+		var left := want
+		for src in craft_sources():
+			for i in (src as Inventory).size():
+				var s: Dictionary = src.get_slot(i)
+				if left <= 0 or s.is_empty() or s["id"] != best:
+					continue
+				var cur := c_inv.get_slot(0)
+				if not cur.is_empty() and not Inventory.same_kind(cur, best, s):
+					continue   # a hot stack never merges with a cold one (ADR 0087)
+				var t: Dictionary = src.take(i, mini(left, int(s["count"])))
+				left -= int(t["count"])
+				var back := c_inv.put(0, t)
+				if not back.is_empty():
+					src.put(i, back)
+					left += int(back["count"])
+		changed.emit()
+		want -= left
+	return {"crafts": want / u, "error": ""}
+
+
 ## The panel's Clear button: the grid's contents back into the inventory. False when some did not fit.
 func clear_craft_grid() -> bool:
 	var ok := craft.return_to(craft_sources())

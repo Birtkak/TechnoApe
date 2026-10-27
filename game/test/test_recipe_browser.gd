@@ -86,7 +86,7 @@ func test_station_uses_include_its_category() -> void:
 	var cats: Array = b.view["categories"].map(func(c: Dictionary) -> String: return c["id"])
 	assert_array(cats).contains(["smelting"])
 	var smelting: Dictionary = b.view["categories"][cats.find("smelting")]
-	assert_int(smelting["recipes"].size()).is_equal(recipes.recipes.values().filter(func(r: Dictionary) -> bool: return r["type"] == "smelt").size())
+	assert_int(smelting["recipes"].size()).is_equal(recipes.recipes.values().filter(func(r: Dictionary) -> bool: return r["type"] == "smelt" and r.get("station", "furnace") == "furnace").size())   # firepit and forge have their own tabs (ADR 0093)
 	assert_bool(b.show("crafting_table", "uses")).is_true()
 	assert_str(b.current_category()["id"]).is_equal("crafting")
 	assert_array(b.catalysts("crafting")).contains_exactly(["crafting_table"])
@@ -194,3 +194,37 @@ func test_bookmarks_toggle_filter_and_persist() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	b2.load_bookmarks("user://missing_bookmarks.json")   # a missing file keeps what is there
 	assert_array(b2.bookmarks).is_equal(["coal", "furnace"])
+
+
+# ---------- R / U in the world, station tabs, recipe bookmarks (ADR 0093) ----------
+
+func test_lookup_takes_the_aimed_item_then_the_held_one() -> void:
+	assert_str(b.lookup(["glass", "stick"], "recipes")).is_equal("glass")
+	assert_str(b.lookup(["", "glass"], "recipes")).is_equal("glass")      # nothing aimed at: the held item
+	assert_str(b.lookup(["no_such_item", "stick"], "uses")).is_equal("stick")
+	assert_str(b.lookup(["", ""], "recipes")).is_empty()
+
+
+func test_show_recipe_opens_at_that_recipe_and_tabs_select() -> void:
+	assert_bool(b.show_recipe("cook_meat_firepit")).is_true()
+	assert_str(b.current_recipe()["id"]).is_equal("cook_meat_firepit")
+	var cats: Array = b.view["categories"]
+	assert_int(cats.size()).is_greater(1)   # furnace and firepit: a tab each
+	var other := 0 if b.view["cat"] != 0 else 1
+	b.select_category(other)
+	assert_int(b.view["cat"]).is_equal(other)
+	assert_int(b.view["index"]).is_equal(0)
+	assert_bool(b.show_recipe("no_such_recipe")).is_false()
+
+
+func test_recipe_bookmarks_persist() -> void:
+	var mark := RecipeBrowser.RECIPE_MARK + "smelt_glass"
+	assert_bool(b.toggle_bookmark(mark)).is_true()
+	assert_bool(b.toggle_bookmark(RecipeBrowser.RECIPE_MARK + "gone")).is_false()
+	b.toggle_bookmark("coal")
+	var path := "user://test_recipe_bookmarks.json"
+	assert_bool(b.save_bookmarks(path)).is_true()
+	var b2 := RecipeBrowser.new(items, recipes)
+	b2.load_bookmarks(path)
+	assert_array(b2.bookmarks).is_equal([mark, "coal"])
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
