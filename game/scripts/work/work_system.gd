@@ -876,6 +876,8 @@ func _smith(e: AnvilEntity, from: Vector3, dir: Vector3, split: bool) -> void:
 	var col := _anvil_column(e, from, dir)
 	if col.x < 0:
 		return
+	if e is SteamHammerEntity:
+		dir = e.to_local(dir, false)   # the blow drives metal away from the player in the grid's frame
 	var push := Vector2i(int(signf(dir.x)), 0) if absf(dir.x) >= absf(dir.z) else Vector2i(0, int(signf(dir.z)))
 	var r: String = e.split(col.x, col.y) if split else e.hit(col.x, col.y, push)
 	# every blow answers with a sound (ADR 0078, bug report 2026-10-27_16-00-17): a clang, a dull thud, a chime
@@ -911,6 +913,9 @@ func _anvil_column(e: AnvilEntity, from: Vector3, dir: Vector3) -> Vector2i:
 	var k := float(BlockEntities.width_of(e.kind)) / AnvilEntity.N   # voxels per cell
 	var o := (from - Vector3(e.pos)) / k              # the eye in cells from the anvil's corner
 	var d := dir.normalized()
+	if e is SteamHammerEntity:   # a turned hammer: the ray into the unturned grid (ADR 0097)
+		o = e.to_local(o, true)
+		d = e.to_local(d, false)
 	var box := AABB(Vector3(0, AnvilEntity.BASE_H, 0), Vector3(AnvilEntity.N, AnvilEntity.MAX_H, AnvilEntity.N))
 	var hit = box.intersects_ray(o, d)
 	if hit == null and not box.has_point(o):

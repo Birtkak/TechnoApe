@@ -282,6 +282,10 @@ static func make_view(pos: Vector3i, solid: Dictionary, ghost: Dictionary = {}, 
 		_add_mesh(root, guide, material(), GUIDE_GRID)
 	for it in laid:
 		_add_item(root, it)
+	var off: Vector3 = solid.get("offset", Vector3.ZERO)   # in widths: a piece drawn bigger than its footprint and turned (ADR 0097)
+	if off != Vector3.ZERO:
+		for ch in root.get_children():
+			ch.position += off
 	return root
 
 

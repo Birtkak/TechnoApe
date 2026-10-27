@@ -198,6 +198,16 @@ func test_wrench_recipe_and_turning() -> void:
 	b2.load_from(d)
 	assert_int(b2.facing).is_equal(3)
 	assert_int(b2.view_parts()["solid"]["cells"].size()).is_equal(20 * 20 * 20)
+	# the hammer turns too: its view is a 16-box drawn back half a width, and a ray maps back into the grid
+	var h: SteamHammerEntity = store.create(Vector3i(0, 0, 40), "steam_hammer")
+	h.facing = 1
+	var v := h.view_parts()
+	assert_that(v["solid"]["size"]).is_equal(Vector3i(16, 18, 16))
+	assert_that(v["solid"]["offset"]).is_equal(Vector3(-0.5, 0, -0.5))
+	assert_that(h.to_local(Vector3(8, 0, 0), true)).is_equal(Vector3(0, 0, 0))   # the +x corner was the min corner
+	assert_that(h.to_local(Vector3(1, 0, 0), false)).is_equal(Vector3(0, 0, -1))
+	h.facing = 4
+	assert_that(h.to_local(Vector3(3, 0, 5), true)).is_equal(Vector3(3, 0, 5))
 
 
 # ---------- saves ----------
