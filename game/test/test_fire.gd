@@ -54,13 +54,15 @@ func test_plank_wall_burns_down_and_leaves_ash() -> void:
 	assert_int(w.count_burning()).is_equal(0)
 
 
-func test_water_stops_the_fire() -> void:
+func test_water_slows_the_fire() -> void:
 	var w := _world()
 	w.fill_box(Vector3i(8, 4, 30), Vector3i(40, 5, 31), GameMaterials.WOOD)
 	w.fill_box(Vector3i(20, 4, 31), Vector3i(21, 5, 32), GameMaterials.WATER_STATIC)
 	w.ignite(Vector3i(8, 4, 30))
 	_run(w, 60.0)
-	assert_int(w.count_in_box(Vector3i(22, 4, 30), Vector3i(40, 5, 31), GameMaterials.WOOD)).is_equal(18)
+	# flames drift through air since 2026-10-27 and can hop a one-cell puddle: the water slows the fire, it no longer
+	# always stops it (it left 8 of 18 at the time); a beam fully burnt past it would mean water stopped mattering
+	assert_int(w.count_in_box(Vector3i(22, 4, 30), Vector3i(40, 5, 31), GameMaterials.WOOD)).is_greater(0)
 
 
 func test_fire_does_not_cross_stone() -> void:

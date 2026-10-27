@@ -62,6 +62,7 @@ public:
         uint8_t speed = 1;             // liquid substeps per tick (liquid_speed, ADR 0069 B): spreading runs this often
         uint8_t gas_up = 100, gas_horizontal = 100, gas_down = 0; // 0..255 chances
         uint8_t lifetime = 0;          // ticks (0 = infinite), scaled: aux = lifetime
+        uint8_t life_step = 1;         // aux counts down every life_step ticks (data lifetimes past 255 ticks)
         uint8_t fire_hp = 0;           // ticks a burning cell lasts
         uint8_t temperature_of_fire = 10;
         uint8_t autoignition_temperature = 100;

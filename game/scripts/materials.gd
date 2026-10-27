@@ -188,8 +188,8 @@ static func _build_defs() -> Array:
 		{"name": "lava", "cell_type": "liquid", "fluid_slot": 1, "density": 5, "liquid_flow_speed": 0.3, "liquid_gravity": 0.3, "temperature_of_fire": 150, "film_lifetime_ticks": 300, "film_convert_to_material": 85, "tiles": [7, 7, 7], "transparent": false},
 		{"name": "ash", "cell_type": "powder", "density": 2, "tiles": [8, 8, 8], "transparent": false},
 		{"name": "oil", "cell_type": "liquid", "fluid_slot": 2, "density": 0.8, "liquid_flow_speed": 0.6, "liquid_speed": 2, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
-		{"name": "steam", "cell_type": "gas", "density": 0, "gas_upwards_speed": 200, "gas_horizontal_speed": 60, "lifetime": 180, "tiles": [10, 10, 10], "transparent": true},
-		{"name": "smoke", "cell_type": "gas", "density": 0, "gas_upwards_speed": 120, "gas_horizontal_speed": 90, "lifetime": 240, "tiles": [11, 11, 11], "transparent": true},
+		{"name": "steam", "cell_type": "gas", "density": 0, "gas_upwards_speed": 220, "gas_horizontal_speed": 50, "lifetime": 240, "tiles": [10, 10, 10], "transparent": true},
+		{"name": "smoke", "cell_type": "gas", "density": 0, "gas_upwards_speed": 190, "gas_horizontal_speed": 60, "lifetime": 330, "tiles": [11, 11, 11], "transparent": true},
 		{"name": "fire", "cell_type": "fire", "density": 0, "lifetime": 24, "temperature_of_fire": 60, "gas_upwards_speed": 120, "gas_horizontal_speed": 80, "tiles": [12, 12, 12], "transparent": true},
 		{"name": "bedrock", "cell_type": "solid", "density": 15, "hp": 1000000, "tiles": [13, 13, 13], "transparent": false},
 		{"name": "snow", "cell_type": "powder", "liquid_static": true, "density": 2, "tiles": [14, 14, 14], "transparent": false},
@@ -204,7 +204,7 @@ static func _build_defs() -> Array:
 		{"name": "water_static", "cell_type": "liquid", "fluid_slot": 0, "liquid_static": true, "density": 1, "tiles": [5, 5, 5], "transparent": true, "loose": 5},
 		{"name": "sandstone", "cell_type": "solid", "density": 10, "hp": 600, "tiles": [21, 21, 21], "transparent": false},
 		{"name": "clay", "cell_type": "solid", "density": 9, "hp": 300, "tiles": [22, 22, 22], "transparent": false},
-		{"name": "tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 23, 23], "transparent": false, "micro": "tuft", "replaceable": true},
+		{"name": "tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 60, "ignite_chance": 0.6, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [23, 23, 23], "transparent": false, "micro": "tuft", "replaceable": true},
 		{"name": "flower", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [30, 30, 30], "transparent": false, "clutter": "flower", "floor_only": true},
 		{"name": "cactus", "cell_type": "solid", "density": 10, "hp": 40, "burnable": true, "fire_hp": 30, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [25, 25, 25], "transparent": false},
 		{"name": "dead_bush", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 24, "autoignition_temperature": 15, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [26, 26, 26], "transparent": false, "micro": "bush", "replaceable": true},
@@ -275,7 +275,7 @@ static func _savanna_defs() -> Array:
 	return [
 		{"name": "savanna_grass", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [109, 109, 1], "transparent": false},
 		# tall grass, drier: catches and burns a little faster
-		{"name": "savanna_tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [110, 110, 110], "transparent": false, "micro": "tuft", "replaceable": true},
+		{"name": "savanna_tall_grass", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 45, "ignite_chance": 0.7, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [110, 110, 110], "transparent": false, "micro": "tuft", "replaceable": true},
 		{"name": "red_earth", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [111, 111, 111], "transparent": false},
 	]
 
@@ -450,6 +450,7 @@ static func _content_pass_defs() -> Array:
 	var fern := {"name": "fern", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [72, 29, 72], "transparent": false, "micro": "fern", "replaceable": true}
 	fern.merge(leaf_burn)
 	fern["generates_smoke"] = 3
+	fern.merge({"fire_hp": 60, "ignite_chance": 0.6}, true)   # the forest floor carries a fire like tall grass (bug report 2026-10-27 18-12-07)
 	_content.append_array([
 		{"name": "terracotta", "cell_type": "solid", "density": 10, "hp": 500, "tiles": [66, 66, 66], "transparent": false},
 		{"name": "terracotta_red", "cell_type": "solid", "density": 10, "hp": 500, "tiles": [67, 67, 67], "transparent": false},

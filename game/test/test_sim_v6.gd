@@ -150,6 +150,20 @@ func test_small_pond_drains_into_a_pocket() -> void:
 	assert_int(int(w.get_stats()["still_woken"])).is_greater(0)
 
 
+## A deep pit dug against a pond fills to the level the two share (bug report 2026-10-27 17-59-05): water that left the
+## pond's side in a liquid substep keeps the opening fresh, so the pond does not go back to sleep with the pit a third full.
+func test_pond_drains_into_a_deep_pit_to_a_shared_level() -> void:
+	var w := _game_world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 24, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(4, 16, 8), Vector3i(24, 24, 40), GameMaterials.WATER_STATIC)   # 20 x 8 deep x 32
+	_run(w, 3)
+	w.fill_box(Vector3i(24, 8, 16), Vector3i(32, 24, 32), 0)   # an 8 x 16 x 16 pit against its side
+	assert_int(_settle(w, 1500)).override_failure_message("never settled").is_greater(0)
+	# shared level ~21: the pit holds ~1700 cells (it stalled near 600 before)
+	var pit := _wet(w, Vector3i(24, 8, 16), Vector3i(32, 24, 32))
+	assert_int(pit).override_failure_message("pit holds %d" % pit).is_greater(1300)
+
+
 ## The developer's 3x3x3 pocket (bug report 2026-10-25 02-17-32): water walled off from a lake is a small body; dug
 ## free, it spills what it holds and no more (ADR 0068: every still body does).
 func test_walled_off_pocket_is_finite() -> void:

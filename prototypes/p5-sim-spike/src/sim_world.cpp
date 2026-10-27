@@ -208,7 +208,11 @@ void SimWorld::set_materials(const Array &p_defs) {
         m.gas_up = clamp8(dget_f(d, "gas_upwards_speed", 100));
         m.gas_horizontal = clamp8(dget_f(d, "gas_horizontal_speed", 100));
         m.gas_down = clamp8(dget_f(d, "gas_downwards_speed", 0));
-        m.lifetime = clamp8(dget_int(d, "lifetime", 0));
+        {
+            const int life = std::max(0, dget_int(d, "lifetime", 0));
+            m.life_step = (uint8_t)std::clamp((life + 254) / 255, 1, 255);
+            m.lifetime = clamp8((life + m.life_step - 1) / m.life_step);
+        }
         m.film_life = (uint16_t)std::clamp(dget_int(d, "film_lifetime_ticks", 0), 0, 65535);
         m.film_to = clamp8(dget_int(d, "film_convert_to_material", 0));
         m.fire_hp = clamp8(dget_int(d, "fire_hp", 0));
@@ -283,6 +287,9 @@ void SimWorld::rebuild_reaction_lut() {
             const MaterialDef &m = mats_[a];
             const MaterialDef &t = mats_[b];
             bool ok = !(t.cell_type == CELL_SOLID || t.liquid_static) && (t.cell_type == CELL_FIRE || t.density < m.density);
+            // gases and flames move through air: density 0 like air, they never could, so smoke, steam and flames sat
+            // where they were born until their lifetime ran out (bug report 2026-10-27 18-11-32)
+            if (b == 0 && a != 0 && (m.cell_type == CELL_GAS || m.cell_type == CELL_FIRE)) ok = true;
             displace_lut_[a * MAX_MATERIALS + b] = ok ? 1 : 0;
         }
     for (size_t m = 1; m < mats_.size(); m++) {
@@ -703,8 +710,20 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
     auto fresh_air = [&](int nx, int ny, int nz, bool side) -> bool {
         if (!is_open(nx, ny, nz)) return false;
         const int ni = idx(nx, ny, nz);
+        // its own moving water beside it, two eighths or more lower (the rest step), is an opening too: the thin edge
+        // of what drained, resting against the body, would put it back to sleep with the hole half fed
+        // (bug report 2026-10-27 17-59-05)
+        if (side && cells_[ni].mat == flow) { const int f = cells_[ni].pad & 15; return f != 0 && f <= 6; }
         if (!open_air(cells_[ni].mat)) return false;
-        if (side && ny > 0 && still_liquid(nx, ny - 1, nz, md.fluid_slot)) return false;   // a river's own step
+        if (side && ny > 0 && still_liquid(nx, ny - 1, nz, md.fluid_slot)) {
+            // a river's own step never wakes, unless that step is a drained bank's edge (its own moving water beside
+            // it): a dug hole left a 45-degree wall of still water sleeping over it (bug report 2026-10-27 17-59-05)
+            for (int d = 0; d < 4; d++) {
+                const int sx = nx + DX4[d], sz = nz + DZ4[d];
+                if (is_open(sx, ny - 1, sz) && cells_[idx(sx, ny - 1, sz)].mat == flow) return true;
+            }
+            return false;
+        }
         const uint16_t m = moved_[ni];
         return m != 0 && (m == stamp_ || m == prev || m == prev2);
     };
@@ -1155,7 +1174,7 @@ void SimWorld::update_chunk(int ci) {
                 if (substep_ > 0 && (md.cell_type != CELL_LIQUID || md.liquid_static || md.speed <= substep_)) continue;
                 // Lifetime (gases, short-lived liquids, fire): count down, vanish.
                 if (substep_ == 0 && md.lifetime && !(cells_[i].flags & FLAG_BURNING)) {
-                    if (cells_[i].aux > 0) { cells_[i].aux--; mark_cell(x, y, z, c, false); }
+                    if (cells_[i].aux > 0) { if (tick_ % md.life_step == 0) cells_[i].aux--; mark_cell(x, y, z, c, false); }
                     if (cells_[i].aux == 0) { place(i, 0); mark_cell(x, y, z, c, true); continue; }
                 }
                 if (substep_ == 0 && (cells_[i].flags & FLAG_BURNING)) update_burning(x, y, z, i, c);
