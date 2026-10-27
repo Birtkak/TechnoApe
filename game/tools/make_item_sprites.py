@@ -878,6 +878,67 @@ shape("chair", outline(art([
     "...dl...........", "...dlll.........", "...dl...........", "...dl...........",
     "...dlwwwwwww....", "...dlmmmmmmmm...", "...dddddddddd...", "...d.......d....",
     "...d.......d....", "...d.......d....", "...d.......d....", "................"])), {"w": "#ecece4"})
+# base building and decoration (ADR 0094): wood-palette shapes, iron (i), glass (g), flame (f), paint
+shape("door", outline(art([
+    "................", "....dddddddd....", "....dlmlmlmd....", "....dlmlmlmd....",
+    "....dlmlmlmd....", "....dddddddd....", "....dlmlmlmd....", "....dlmlmiid....",
+    "....dlmlmlmd....", "....dddddddd....", "....dlmlmlmd....", "....dlmlmlmd....",
+    "....dlmlmlmd....", "....dlmlmlmd....", "....dddddddd....", "................"])), {"i": "#3a3c42"})
+shape("trapdoor", outline(art([
+    "................", "................", "................", "................",
+    "..dddddddddddd..", "..dlllllllllld..", "..dmmmmmmmmmmd..", "..dddddddddddd..",
+    "..dlllllllllld..", "..dmmmmmiimmmd..", "..dddddddddddd..", "................",
+    "................", "................", "................", "................"])), {"i": "#3a3c42"})
+shape("fence", outline(art([
+    "................", "................", "..dd........dd..", "..dl........dl..",
+    "..dlmmmmmmmmdl..", "..dllllllllldl..", "..dl........dl..", "..dl........dl..",
+    "..dlmmmmmmmmdl..", "..dllllllllldl..", "..dl........dl..", "..dl........dl..",
+    "..dl........dl..", "..dl........dl..", "..dd........dd..", "................"])))
+shape("fence_gate", outline(art([
+    "................", "................", "................", "..dd........dd..",
+    "..dlmmmmmmmmdl..", "..dllllllllldl..", "..dl.....ll.dl..", "..dl...ll...dl..",
+    "..dl.ll.....dl..", "..dlmmmmmmmmdl..", "..dllllllllldl..", "..dl........dl..",
+    "..dl........dl..", "..dl........dl..", "..dd........dd..", "................"])))
+shape("ladder", outline(art([
+    "................", "....d......d....", "....dmmmmmmd....", "....dllllllld...",
+    "....d......d....", "....d......d....", "....dmmmmmmd....", "....dllllllld...",
+    "....d......d....", "....d......d....", "....dmmmmmmd....", "....dllllllld...",
+    "....d......d....", "....d......d....", "....d......d....", "................"])))
+shape("window", outline(art([
+    "................", "................", "..dddddddddddd..", "..dgggghdggggd..",
+    "..dghggggdgghgd..", "..dgggggdggggd..", "..dgggggdggggd..", "..dgggggdggggd..",
+    "..dddddddddddd..", "..dgggghdggggd..", "..dghggggdgghgd.", "..dgggggdggggd..",
+    "..dgggggdggggd..", "..dddddddddddd..", "..mmmmmmmmmmmm..", "................"])),
+    {"g": "#a6d6e2", "h": "#eef8fc"})
+shape("table", outline(art([
+    "................", "................", "................", "................",
+    "................", "..hlllllllllll..", "..mmmmmmmmmmmm..", "..dddddddddddd..",
+    "...dd......dd...", "...dd......dd...", "...dd......dd...", "...dd......dd...",
+    "...dd......dd...", "...dd......dd...", "................", "................"])))
+shape("shelf", outline(art([
+    "................", "..dddddddddddd..", "..drrbbgyrbbgd..", "..drrbbgyrbbgd..",
+    "..drrbbgyrbbgd..", "..dllllllllllld.", "..dbgyyrrbgrrd..", "..dbgyyrrbgrrd..",
+    "..dbgyyrrbgrrd..", "..dllllllllllld.", "..dyrrbgbbyrgd..", "..dyrrbgbbyrgd..",
+    "..dyrrbgbbyrgd..", "..dllllllllllld.", "..dd........dd..", "................"])),
+    {"r": "#a82228", "b": "#34489a", "g": "#46843a", "y": "#c8a840"})
+shape("lantern", outline(art([
+    "................", "......iiii......", "......i..i......", ".....iiiiii.....",
+    "....iiiiiiii....", "....i.ffff.i....", "....i.fyyf.i....", "....i.fyyf.i....",
+    "....i.fyyf.i....", "....i.ffff.i....", "....iiiiiiii....", ".....iiiiii.....",
+    "................", "................", "................", "................"])),
+    {"i": "#45474e", "f": "#ffb050", "y": "#fff0a0"})
+shape("flower_pot", outline(art([
+    "................", "......yry.......", ".....yrrry......", "......yry.......",
+    ".......g........", "...gg..g..gg....", "....ggggggg.....", ".......g........",
+    "...tttttttttt...", "...TTTTTTTTTT...", "....tttttttt....", "....tttttttt....",
+    "....tttttttt....", ".....TTTTTT.....", "................", "................"])),
+    {"y": "#e2c440", "r": "#c43a2a", "g": "#46843a", "t": "#b05a34", "T": "#8a3e22"})
+shape("painting", outline(art([
+    "................", "................", ".dddddddddddddd.", ".dsssssssssyysd.",
+    ".dsssssssssyysd.", ".dssssssssssssd.", ".dsssgggsssssd..", ".dssgggggssgggd.",
+    ".dgggggggggggggd", ".dgggggggggggggd", ".dwwwwwwwwwwwwd.", ".dwwwwwwwwwwwwd.",
+    ".dddddddddddddd.", "................", "................", "................"])),
+    {"s": "#80ace0", "y": "#e2c440", "g": "#46843a", "w": "#34489a"})
 
 # ---------- sprites ----------
 SP = {}
@@ -1007,6 +1068,8 @@ sp("sieve", ("sieve", "wood"))
 sp("straw_bed", ("bed", "straw"))
 sp("bed", ("bed", "blanket"))
 sp("chair", ("chair", "wood"))
+for k in ("door", "trapdoor", "fence", "fence_gate", "ladder", "window", "table", "shelf", "lantern", "flower_pot", "painting"):
+    sp(k, (k, "wood"))
 sp("wheat_seeds", ("seeds", "seed"))
 sp("wheat", ("sheaf", "straw"))
 sp("carrot", ("carrot", "carrot"))

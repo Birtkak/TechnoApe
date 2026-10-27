@@ -18,7 +18,8 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   not drawn yet) until the ground is in: voxels under the feet and the ground within 32 m, the rest of the
   40 m box streams in behind it (ADR 0066, 0073); the player and animals are frozen under it. `tp_test=1` times them. Gameplay on top: player loop (ADR 0005), stations (0007), recipe browser (0008), collision and
   swimming (0011), animals, farming, furniture (0022), Vintage Story early game (0023), progression book
-  (0028), Flint Age (0030), menus and saves (0032). Probes: `tools/terrain_map.gd`, `fine_gen_bench.gd`,
+  (0028), Flint Age (0030), menus and saves (0032), doors, fences, ladders and decoration as thin furniture
+  (`box`, `open`, `wall`, `climb` in `FurnitureEntity.KINDS`, ADR 0094, `building_test=1`). Probes: `tools/terrain_map.gd`, `fine_gen_bench.gd`,
   `fine_probe.gd`, `face_probe.gd`. Loads take 12-17 s: budget runs use `load_cap_s=30`.
   Full detail is capped at 24 m (`Settings.MAX_DETAIL_M`): 32 m blows the budget in forests.
   **Direction (ADR 0037, 2026-10-24):** rigid voxel pieces (trees, cut pieces, later buildings topple),

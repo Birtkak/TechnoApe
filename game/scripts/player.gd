@@ -63,6 +63,7 @@ var entity_attack: Callable      # (mob, damage) -> void
 var throw_item: Callable         # (stack, from, dir) -> void: a thrown spear flies (ADR 0030)
 var entity_use: Callable         # (mob, held def) -> bool (true: one held item used up)
 var place_furniture: Callable    # (kind, anchor, facing) -> bool
+var furniture_is: Callable        # (voxel, "climb" | "use") -> bool: a ladder covers it, a click there does something (ADR 0094)
 var work_use: Callable           # (hit, first_press, from, dir, sneaking) -> bool: a work piece took the right click (ADR 0023)
 var item_use: Callable           # (hit, first_press, from, dir) -> bool: the Stone Age took it, before anything else (ADR 0059)
 var work_hit: Callable           # (hit, from, dir, sneaking) -> bool: a knapping piece took the left click
@@ -427,6 +428,18 @@ func _check_liquid() -> bool:
 	return false
 
 
+## A ladder's voxel touches the body's sides (one voxel out) at the feet or the waist.
+func _on_ladder() -> bool:
+	if not furniture_is.is_valid():
+		return false
+	var r := Settings.m2v(Settings.player_radius_m) + 0.5
+	for h in [0.5, Settings.m2v(Settings.player_height_m) * 0.5]:
+		for d in [Vector3(r, h, 0), Vector3(-r, h, 0), Vector3(0, h, r), Vector3(0, h, -r)]:
+			if furniture_is.call(Vector3i((position + d).floor()), "climb"):
+				return true
+	return false
+
+
 ## One move through the voxel grid; zeroes velocity on blocked axes.
 func _move(delta: float, allow_step: bool) -> void:
 	var got := body.move(position, velocity, delta, world.terrain, allow_step)
@@ -537,6 +550,16 @@ func _physics_step(delta: float) -> void:
 		velocity.y -= Settings.m2v(Settings.gravity_m) * delta
 		if _on_floor and Input.is_action_just_pressed("jump") and not ui_open:
 			velocity.y = sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(Settings.jump_height_m))
+		if _on_ladder():
+			# Minecraft ladders: walk into one or hold jump to climb, sneak to hang, else slide down slowly
+			var climb := Settings.m2v(Settings.climb_speed_m)
+			if jump or (dir != Vector3.ZERO and _wall_contact):
+				velocity.y = climb
+			elif sneak:
+				velocity.y = 0.0
+			else:
+				velocity.y = maxf(velocity.y, -climb)
+			_fall_peak_y = position.y
 	if sneak and _on_floor and not in_liquid:
 		_hold_edge(delta)   # sneaking never walks off a ledge (Minecraft)
 	t0 = Time.get_ticks_usec()
@@ -1184,8 +1207,9 @@ func _use(first_press: bool) -> void:
 	if first_press and not sneaking():
 		var tm := world.get_voxel(target)
 		if tm > 0 and GameMaterials.defs()[tm - 1].get("interact", "work") != "work":   # work pieces: the work system above
-			block_used.emit(target, tm)
-			return
+			if not (tm == GameMaterials.FURNITURE and furniture_is.is_valid() and not furniture_is.call(target, "use")):
+				block_used.emit(target, tm)
+				return
 	var def := inventory.held_def()
 	if def.is_empty():
 		return
@@ -1532,9 +1556,15 @@ func _place_furniture(hit: VoxelRaycastResult, def: Dictionary) -> void:
 	if not place_furniture.is_valid():
 		return
 	var kind: String = def["furniture"]
-	var anchor := BlockEntities.anchor_for(hit.position if _replaceable(world.get_voxel(hit.position)) else hit.previous_position)
+	var front := hit.position if _replaceable(world.get_voxel(hit.position)) else hit.previous_position
+	var anchor := BlockEntities.anchor_for(front)
 	var look := -camera.global_transform.basis.z
 	var facing := FurnitureEntity.facing_for(kind, look)
+	if FurnitureEntity.KINDS[kind].get("wall", false):
+		# a door, fence or painting goes in the clicked voxel's depth layer, wherever the wall is (ADR 0094)
+		var fwd := FurnitureEntity.DIRS[facing]
+		var d: Vector3i = front - FurnitureEntity.footprint(kind, anchor, facing)[0]
+		anchor += fwd * (d.x * fwd.x + d.z * fwd.z)
 	for c in FurnitureEntity.footprint(kind, anchor, facing):
 		var m := world.get_voxel(c)
 		if not _placeable(m) or _overlaps_player(c):
