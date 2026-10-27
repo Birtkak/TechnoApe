@@ -22,6 +22,11 @@ func heats(id: String) -> bool:
 	return items.has_tag(id, "heatable")
 
 
+## Two ingots (or blooms, or work pieces) lie on the coals at once (bug report 2026-10-27_18-02-35).
+func input_max(id: String) -> int:
+	return Settings.forge_input_max * items.units(id)
+
+
 func may_place(slot: int, id: String) -> bool:
 	return false if slot == VESSEL else super(slot, id)
 
@@ -51,5 +56,9 @@ func view_parts() -> Dictionary:
 	var laid := []
 	var input := inv.get_slot(INPUT)
 	if not input.is_empty():
-		laid.append({"id": input["id"], "at": Vector3(0.5, 0.3, 0.5), "yaw": 20.0, "scale": 0.5})
+		# each item on the coals side by side, lying on top of the bed, glowing with its heat (ADR 0087)
+		var on := mini(int(input["count"]) / maxi(items.units(input["id"]), 1), Settings.forge_input_max)
+		for j in on:
+			var z := 0.5 + (j - (on - 1) / 2.0) * 0.3
+			laid.append({"id": input["id"], "at": Vector3(0.5, 0.5, z), "yaw": 0.0, "scale": 0.32, "heat": Inventory.heat_of(input)})
 	return {"solid": {"cells": c, "size": size}, "items": laid}

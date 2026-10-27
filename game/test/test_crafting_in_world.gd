@@ -94,16 +94,69 @@ func test_player_pickup_keeps_the_data() -> void:
 
 
 func test_heat_cools_and_averages_on_merge() -> void:
-	var inv := Inventory.new(items, 2)
+	var inv := Inventory.new(items, 3)
 	inv.add("copper_ingot", 1, {"hot_until": Inventory.clock_s + Settings.metal_cool_s})
 	assert_float(Inventory.heat_of(inv.get_slot(0))).is_equal_approx(1.0, 1e-4)
-	inv.add("copper_ingot", 1)   # a cold one joins: half the heat left on average
+	inv.add("copper_ingot", 1, {"hot_until": Inventory.clock_s})   # a hot one joins: the heat left averages
+	inv.add("copper_ingot", 1, {"hot_until": Inventory.clock_s + 1e-3})
 	assert_int(int(inv.get_slot(0)["count"])).is_equal(2)
-	assert_float(Inventory.heat_of(inv.get_slot(0))).is_equal_approx(0.5, 1e-4)
+	assert_float(Inventory.heat_of(inv.get_slot(0))).is_equal_approx(0.5, 1e-3)
 	Inventory.clock_s += Settings.metal_cool_s
 	assert_float(Inventory.heat_of(inv.get_slot(0))).is_equal(0.0)
 	var t := inv.take(0, 1)
 	assert_bool(t.has("hot_until")).is_false()   # cold: the key is gone, so it stacks with any cold ingot
+
+
+## Bug report 2026-10-27_18-04-24 (ADR 0087): one hot ingot no longer heats a stack of cold ones.
+func test_hot_and_cold_never_merge() -> void:
+	var inv := Inventory.new(items, 3)
+	inv.add("copper_ingot", 10)
+	inv.add("copper_ingot", 1, _hot_ingot())
+	assert_int(int(inv.get_slot(0)["count"])).is_equal(10)
+	assert_float(Inventory.heat_of(inv.get_slot(0))).is_equal(0.0)
+	assert_float(Inventory.heat_of(inv.get_slot(1))).is_equal_approx(1.0, 1e-4)
+	var cursor := inv.left_click(1, {})   # the hot one on the cold stack swaps, right click leaves both
+	assert_float(Inventory.heat_of(inv.right_click(0, cursor))).is_greater(0.9)
+	assert_int(int(inv.get_slot(0)["count"])).is_equal(10)
+	cursor = inv.left_click(0, cursor)
+	assert_float(Inventory.heat_of(cursor)).is_equal(0.0)
+	assert_int(int(cursor["count"])).is_equal(10)
+	var p := PlayerInventory.new(items, recipes)
+	p.pickup("copper_ingot", 5)
+	p.pickup("copper_ingot", 1, _hot_ingot())
+	p.sort_slots(p.inv, 0, PlayerInventory.SIZE, false)
+	assert_int(p.inv.count_of("copper_ingot")).is_equal(6)
+	assert_int(int(p.inv.get_slot(0)["count"]) + int(p.inv.get_slot(1)["count"])).is_equal(6)
+	assert_bool(p.inv.get_slot(1).is_empty()).is_false()
+
+
+func test_heat_reads_in_celsius_and_glows_from_dull_red_to_white() -> void:
+	assert_int(Inventory.temp_c({"id": "copper_ingot", "count": 1})).is_equal(20)
+	assert_int(Inventory.temp_c(_hot_ingot())).is_equal(int(Settings.metal_hot_c))
+	assert_float(Inventory.glow_color(0.1).a).is_equal(0.0)
+	var dull := Inventory.glow_color(0.5)
+	var white := Inventory.glow_color(1.0)
+	assert_float(dull.a).is_greater(0.0)
+	assert_float(dull.r).is_greater(dull.g * 2.0)   # red
+	assert_float(white.b).is_greater(0.7)           # yellow-white
+	assert_object(BlockMeshes.heat_material("copper_ingot", 1.0)).is_not_null()
+	assert_object(BlockMeshes.heat_material("copper_ingot", 0.1)).is_null()
+
+
+func test_hot_metal_needs_tongs_in_the_other_hand() -> void:
+	var p := PlayerInventory.new(items, recipes)
+	p.inv.set_slot(p.selected, _hot_ingot())
+	var dropped := p.take_hot_from_hands()
+	assert_int(dropped.size()).is_equal(1)
+	assert_bool(p.held().is_empty()).is_true()
+	assert_float(Inventory.heat_of(dropped[0])).is_greater(0.9)
+	p.inv.set_slot(p.selected, _hot_ingot())
+	p.off.set_slot(0, {"id": "tongs", "count": 1})
+	assert_bool(p.has_tongs()).is_true()
+	assert_array(p.take_hot_from_hands()).is_empty()
+	p.swap_hands()   # tongs held, the hot ingot in the offhand: still fine
+	assert_array(p.take_hot_from_hands()).is_empty()
+	assert_dict(recipes.recipes.get("tongs", {})).is_not_empty()
 
 
 # ---------- tool wear ----------

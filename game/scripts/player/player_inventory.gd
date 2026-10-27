@@ -166,6 +166,23 @@ func swap_hands() -> void:
 	off.set_slot(0, a)
 
 
+## Tongs in either hand (ADR 0087): hot metal may be picked up and held.
+func has_tongs() -> bool:
+	return items.has_tag(held().get("id", ""), "tongs") or items.has_tag(offhand().get("id", ""), "tongs")
+
+
+## Hot metal burns a bare hand (ADR 0087, bug report 2026-10-27_18-04-24): a hot stack held or in the
+## offhand without tongs in the other hand is taken out of it. Returns the stacks taken (the caller drops
+## them and hurts the player).
+func take_hot_from_hands() -> Array:
+	var out := []
+	if Inventory.heat_of(held()) > 0.0 and not items.has_tag(offhand().get("id", ""), "tongs"):
+		out.append(inv.take(selected))
+	if Inventory.heat_of(offhand()) > 0.0 and not items.has_tag(held().get("id", ""), "tongs"):
+		out.append(off.take(0))
+	return out
+
+
 ## Removes `count` from the offhand stack. Returns how many were removed.
 func consume_offhand(count: int = 1) -> int:
 	return int(off.take(0, count).get("count", 0))
@@ -524,7 +541,7 @@ func sort_slots(target: Inventory, from: int, to: int, skip_favourites: bool) ->
 		for m in merged:
 			if left <= 0:
 				break
-			if m["id"] == s["id"] and int(m["count"]) < max_stack:   # tools and work pieces stack to 1: never here
+			if Inventory.same_kind(m, s["id"], s) and int(m["count"]) < max_stack:   # tools and work pieces stack to 1: never here
 				var n := mini(left, max_stack - int(m["count"]))
 				Inventory.merge_into(m, n, s)
 				left -= n
@@ -676,7 +693,7 @@ func wheel_move(group: String, i: int, down: bool) -> void:
 		if there == here and j == i:
 			continue
 		var d := there.get_slot(j)
-		if not d.is_empty() and d["id"] == s["id"]:
+		if Inventory.same_kind(d, s["id"], s):
 			var one := there.take(j, 1)
 			var merged := s.duplicate()
 			Inventory.merge_into(merged, 1, one)
@@ -737,7 +754,7 @@ func _add_in_range(id: String, count: int, from: int, to: int, merge_only: bool,
 			break
 		var s: Dictionary = inv.get_slot(i)
 		if merge_only:
-			if not s.is_empty() and s["id"] == id and s["count"] < max_stack:
+			if Inventory.same_kind(s, id, data) and s["count"] < max_stack:
 				var take := mini(count, max_stack - s["count"])
 				var merged := s.duplicate()
 				Inventory.merge_into(merged, take, data)
@@ -801,7 +818,7 @@ func _move_count(src: Inventory, i: int, dst: Inventory, order: Array, n_max: in
 			if dst == src and j == i:
 				continue
 			var d: Dictionary = dst.get_slot(j)
-			if pass_merge and not d.is_empty() and d["id"] == id and d["count"] < max_stack:
+			if pass_merge and Inventory.same_kind(d, id, sp) and d["count"] < max_stack:
 				var n := mini(count, max_stack - int(d["count"]))
 				var merged := d.duplicate()
 				Inventory.merge_into(merged, n, sp)

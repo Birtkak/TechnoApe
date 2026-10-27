@@ -114,6 +114,29 @@ func test_iron_does_not_heat_on_a_firepit_but_in_a_forge() -> void:
 	assert_array(g.contents().map(func(s: Dictionary) -> String: return s["id"])).contains(["forge"])
 
 
+## Bug report 2026-10-27_18-02-35 (ADR 0087): two ingots on the forge, both drawn on the coals.
+func test_a_forge_holds_two_ingots() -> void:
+	var g := store.create(Vector3i(0, 10, 0), "forge") as ForgeEntity
+	var ingot := items.get_def("iron_ingot")
+	assert_int(g.use({"id": "iron_ingot", "count": 5}, ingot)["consume"]).is_equal(1)
+	assert_int(g.use({"id": "iron_ingot", "count": 4}, ingot)["consume"]).is_equal(1)
+	var res := g.use({"id": "iron_ingot", "count": 3}, ingot)
+	assert_int(res["consume"]).is_equal(0)
+	assert_str(res["msg"]).contains("no more")
+	assert_int(g.view_parts()["items"].size()).is_equal(2)
+
+
+## Bug report 2026-10-27_18-01-05 (ADR 0087): sneaking loads as much of the held stack as fits.
+func test_sneak_loads_as_much_as_fits() -> void:
+	var b := store.create(Vector3i(0, 10, 0), "bloomery") as BloomeryEntity
+	var res := b.use({"id": "iron_nugget", "count": 64}, items.get_def("iron_nugget"), false, true)
+	assert_int(res["consume"]).is_equal(64)
+	res = b.use({"id": "charcoal", "count": 20}, items.get_def("charcoal"), false, true)
+	assert_int(res["consume"]).is_equal(Settings.firepit_fuel_max)
+	var g := store.create(Vector3i(8, 10, 0), "forge") as ForgeEntity
+	assert_int(g.use({"id": "iron_ingot", "count": 9}, items.get_def("iron_ingot"), false, true)["consume"]).is_equal(2)
+
+
 func test_the_bloomery_makes_a_hot_bloom() -> void:
 	var b := store.create(Vector3i(0, 10, 0), "bloomery") as BloomeryEntity
 	for i in 8:
@@ -144,7 +167,7 @@ func test_a_forge_says_what_is_in_it() -> void:
 	assert_str(text).contains("Burning")
 	assert_str(text).contains("Fuel: 1 Charcoal")   # one of the two burns now
 	assert_str(text).contains("On the fire: 1 Iron Ingot")
-	assert_str(text).contains("% hot")
+	assert_str(text).contains("°C")
 
 
 func test_an_anvil_says_how_far_the_piece_is_and_hisses_when_it_cools() -> void:

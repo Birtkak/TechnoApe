@@ -60,7 +60,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   (ADR 0083) and is worked by hand (no screen), tools wear (`durability` = uses), hot metal carries `hot_until`
   against `Inventory.clock_s`, and a stone anvil smiths hot copper with a hammer (`smith` recipes, height per column,
   `AnvilEntity`). Stacks keep per-stack data (`spoil`, `wear`, `hot_until`, `work`) through every move: build stacks with
-  `Inventory.make_stack`. `craft_test=1` checks it all (headless with `craft_shots=0`). Stations load on a plain
+  `Inventory.make_stack`. Hot and cold stacks never merge (`Inventory.same_kind`), hot metal reads in °C and
+  glows (`temp_c`, `glow_color`, `BlockMeshes.heat_material`), a hand holds it only with tongs in the other, the
+  forge holds two items, and sneak + right click loads a fire as full as it goes (ADR 0087). `craft_test=1` checks it all (headless with `craft_shots=0`). Stations load on a plain
   right click, show their contents in the look-at panel (`look_lines()`), lit ones burn, and smithing blows answer
   with sounds (ADR 0078).
   **Bronze and iron ages (ADR 0070):** tin laid into a molten copper crucible on the firepit makes bronze (cast or

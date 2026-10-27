@@ -224,7 +224,8 @@ func _finish(r: Dictionary) -> void:
 ## Returns {consume: n, give: [stacks], ignited: bool, act: bool, msg: text}; act says something
 ## changed. With `dry` nothing changes: act says whether it would (ADR 0043: only acts are held).
 ## A consumed item keeps its per-stack data in the slot (a hot ingot stays hot, food its freshness).
-func use(stack: Dictionary, def: Dictionary, dry := false) -> Dictionary:
+## With `all` (sneaking, ADR 0087) fuel and things to heat or cook go on as many as fit, not one.
+func use(stack: Dictionary, def: Dictionary, dry := false, all := false) -> Dictionary:
 	var res := {"consume": 0, "give": [], "ignited": false, "act": false, "msg": ""}
 	var id: String = stack.get("id", "")
 	if id == "":
@@ -260,11 +261,18 @@ func use(stack: Dictionary, def: Dictionary, dry := false) -> Dictionary:
 			inv.set_slot(VESSEL, Inventory.make_stack(items, id, 1, stack))
 			res["consume"] = 1
 		return res
+	var held_n := int(stack.get("count", 0))
 	if _cooks_here(id):
 		var s := inv.get_slot(INPUT)
-		if not s.is_empty() and (s["id"] != id or int(s["count"]) + n > items.max_stack(id)):
+		if not s.is_empty() and s["id"] != id:
 			res["msg"] = "Take the %s off first." % items.display_name(s["id"])
 			return res
+		var room := input_max(id) - int(s.get("count", 0))
+		if room < n:
+			res["msg"] = "The %s holds no more %s." % [title.to_lower(), items.display_name(id)]
+			return res
+		if all:
+			n = mini(room, held_n) / n * n
 		res["act"] = true
 		if dry:
 			return res
@@ -281,9 +289,12 @@ func use(stack: Dictionary, def: Dictionary, dry := false) -> Dictionary:
 		if not f.is_empty() and f["id"] != id:
 			res["msg"] = "The %s burns %s now." % [title.to_lower(), items.display_name(f["id"])]
 			return res
-		if int(f.get("count", 0)) / maxi(n, 1) >= Settings.firepit_fuel_max:
+		var lumps := int(f.get("count", 0)) / maxi(n, 1)
+		if lumps >= Settings.firepit_fuel_max:
 			res["msg"] = "The %s holds no more fuel." % title.to_lower()
 			return res
+		if all:
+			n *= maxi(mini(Settings.firepit_fuel_max - lumps, held_n / maxi(n, 1)), 1)
 		res["act"] = true
 		if not dry:
 			inv.set_slot(FUEL, {"id": id, "count": int(f.get("count", 0)) + n})
@@ -299,6 +310,11 @@ func use(stack: Dictionary, def: Dictionary, dry := false) -> Dictionary:
 	else:
 		res["msg"] = "%s does not go on a %s." % [items.display_name(id), title.to_lower()]
 	return res
+
+
+## How much of `id` the input holds (in voxels for voxel items): a stack here; the forge two (ADR 0087).
+func input_max(id: String) -> int:
+	return items.max_stack(id)
 
 
 ## Food and ore go on the fire (a cook recipe here, a melt recipe for the vessel on it), and so does
@@ -329,7 +345,7 @@ func look_lines() -> Array[String]:
 	if not input.is_empty():
 		var line := "On the fire: %s" % _count_name(input)
 		if heats(input["id"]):
-			line += " (%d%% hot)" % roundi(Inventory.heat_of(input) * 100.0)
+			line += " (%d °C)" % Inventory.temp_c(input)   # ADR 0087
 		elif cook > 0:
 			line += " (%d%% done)" % roundi(progress() * 100.0)
 		out.append(line)
@@ -395,7 +411,7 @@ func view_parts() -> Dictionary:
 	var laid := []
 	var input := inv.get_slot(INPUT)
 	if not input.is_empty() and vessel.is_empty():
-		laid.append({"id": input["id"], "at": Vector3(0.5, 0.42, 0.5), "yaw": 20.0, "scale": 0.5})
+		laid.append({"id": input["id"], "at": Vector3(0.5, 0.42, 0.5), "yaw": 20.0, "scale": 0.5, "heat": Inventory.heat_of(input)})
 	var out := inv.get_slot(OUTPUT)
 	if not out.is_empty():
 		laid.append({"id": out["id"], "at": Vector3(0.86, 0.03, 0.5), "yaw": 70.0, "scale": 0.4})

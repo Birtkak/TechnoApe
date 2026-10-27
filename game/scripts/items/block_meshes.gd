@@ -89,6 +89,26 @@ static func sprite(item_id: String) -> Mesh:
 	return mesh
 
 
+static var _hot_cache := {}
+
+## Item `item_id`'s sprite material glowing at heat h (ADR 0087: dull red to yellow-white, in 8 steps), or
+## null when it does not glow (cooler than Settings.glow_from_heat, or a voxel model).
+static func heat_material(item_id: String, h: float) -> Material:
+	if Inventory.glow_color(h).a <= 0.0 or MODELS.has(item_id) or not ItemSprites.get_default().has(item_id):
+		return null
+	var step := ceili(h * 8.0)
+	var key := "%s|%d" % [item_id, step]
+	if not _hot_cache.has(key):
+		var m := sprite(item_id).surface_get_material(0).duplicate() as StandardMaterial3D
+		var g := Inventory.glow_color(step / 8.0)
+		m.albedo_color = Color.WHITE.lerp(Color(g.r, g.g, g.b), 0.7 * g.a)
+		m.emission_enabled = true
+		m.emission = Color(g.r, g.g, g.b)
+		m.emission_energy_multiplier = 1.2 * g.a
+		_hot_cache[key] = m
+	return _hot_cache[key]
+
+
 const SPRITE_DEPTH_PX := 3.0   # extrusion depth in sprite pixels: thicker than Minecraft's 1 (developer, 2026-10-27)
 
 

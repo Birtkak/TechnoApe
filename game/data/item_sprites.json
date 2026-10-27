@@ -2005,6 +2005,27 @@
         "...oo.....ooo..."
       ]
     },
+    "tongs": {
+      "colors": {"r": "#c8b078"},
+      "rows": [
+        "................",
+        ".............oo.",
+        "............ohlo",
+        ".........ooohmdo",
+        "........orrlmdo.",
+        ".......oorrmdo..",
+        "......ohlrrldo..",
+        ".....ohdoohdo...",
+        "....ohdoohdo....",
+        "..oohdoohdo.....",
+        ".ohldoohdo......",
+        "ohdooohdo.......",
+        ".oo..oldo.......",
+        "....ohdo........",
+        "...ohdo.........",
+        "....oo.........."
+      ]
+    },
     "chair": {
       "colors": {"w": "#ecece4"},
       "rows": [
@@ -3604,6 +3625,7 @@
     "stone_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "stone"}]},
     "iron_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "iron"}]},
     "shears": {"layers": [{"shape": "shears", "palette": "iron"}]},
+    "tongs": {"layers": [{"shape": "tongs", "palette": "wood"}]},
     "torch": {"layers": [{"shape": "torch", "palette": "handle"}]},
     "oak_sapling": {"layers": [{"shape": "sapling", "palette": "leaf"}]},
     "dandelion": {"layers": [{"shape": "flower_stem", "palette": "leaf"}, {"shape": "flower_head", "colors": {"p": "#f4d23c", "c": "#d08a1c"}}]},

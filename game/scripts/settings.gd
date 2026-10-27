@@ -90,6 +90,10 @@ var pan_shakes := 6                     # right clicks to wash one pan of sand o
 var metal_heat_s := 8.0                 # an ingot or work piece on a lit firepit is fully hot after this long
 var metal_cool_s := 40.0                # fully hot metal is cold again this long after leaving the fire (Inventory.clock_s)
 var smith_min_heat := 0.1               # below this heat the hammer does nothing: reheat the work piece
+var metal_hot_c := 1200.0              # degrees C of fully hot metal; cold is 20 (ADR 0087: the tooltip and look-at readout)
+var glow_from_heat := 0.4               # heat (~500 C) where metal starts to glow dull red in icons and models (ADR 0087)
+var forge_input_max := 2                # items (iron ingots) a forge holds at once, laid side by side on the coals (ADR 0087)
+var hot_hand_damage := 2                # hot metal in a hand without tongs in the other: dropped, and this much damage (ADR 0087)
 var firepit_fuel_max := 8               # fuel items a firepit holds (laid on one right click at a time)
 var hold_use_s := 1.0                   # right click held this long picks up a stick or stone, lays a thing on a firepit or takes it off (ADR 0043)
 

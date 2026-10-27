@@ -494,7 +494,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_say(res["msg"])
 		return true
 	if e is FirepitEntity:
-		_use_firepit(e, held, first_press)
+		_use_firepit(e, held, first_press, sneaking)
 		return true
 	if e is SieveEntity:
 		var sifting: String = e.input
@@ -755,8 +755,9 @@ func _anvil_column(e: AnvilEntity, from: Vector3, dir: Vector3) -> Vector2i:
 
 ## A right click on a firepit (ADR 0042). What comes off pops out beside the fire, toward the player,
 ## to be picked up by walking over it (ADR 0043).
-func _use_firepit(e: FirepitEntity, held: Dictionary, say: bool) -> void:
-	var res: Dictionary = e.use(main.player_inv.held(), held)
+## Sneaking loads as much of the held stack as fits (bug report 2026-10-27_18-01-05).
+func _use_firepit(e: FirepitEntity, held: Dictionary, say: bool, sneaking := false) -> void:
+	var res: Dictionary = e.use(main.player_inv.held(), held, false, sneaking)
 	stats["firepit_uses"] += 1
 	if res["consume"] > 0 and _consumes():
 		main.player_inv.consume_held(res["consume"])

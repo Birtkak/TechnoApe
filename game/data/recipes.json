@@ -92,6 +92,7 @@
     {"id": "pumpkin_pie", "type": "shapeless", "ingredients": ["pumpkin", "wheat"], "output": {"id": "pumpkin_pie", "count": 1}},
     {"id": "fry_egg", "type": "smelt", "input": "egg", "output": {"id": "fried_egg", "count": 1}, "ticks": 200, "station": "furnace"},
     {"id": "fry_egg_firepit", "type": "smelt", "input": "egg", "output": {"id": "fried_egg", "count": 1}, "ticks": 300, "station": "firepit"},
+    {"id": "tongs", "type": "shapeless", "ingredients": ["#stick", "#stick", "cordage"], "output": {"id": "tongs", "count": 1}, "_note": "hot metal needs tongs in the other hand (ADR 0087)"},
     {"id": "cordage", "type": "shapeless", "ingredients": ["plant_fiber", "plant_fiber", "plant_fiber"], "output": {"id": "cordage", "count": 1}},
     {"id": "knap_flint_spear_head", "type": "knap", "input": "#knappable", "pattern": ["...##...", "..####..", "..####..", ".######.", ".######.", "..####..", "...##...", "...##..."], "output": {"id": "flint_spear_head", "count": 1}},
     {"id": "flint_spear", "type": "assemble", "parts": ["flint_spear_head", "#stick", "#stick", "#binding"], "output": {"id": "flint_spear", "count": 1}},
