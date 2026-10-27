@@ -136,6 +136,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   scoops the connected cells of the liquid the aim ray crosses (`Bucket.scoop_cells`, whole cells); a filled one keeps
   `fill` in its stack data (missing = full) and pours that many cells into the free space at the aimed face, never
   above it, lowest first (`Bucket.pour_cells`). Written as plain liquid; the simulation is untouched.
+  **Setting things down (ADR 0095):** sneak + right click lays a held `tool` flat on a top face (`laid_tool`) or leans it
+  on a wall (`leaning_tool`), and an `ingot` starts a pile (`ingot_pile`, up to `Settings.ingot_pile_max`, held ingots add one);
+  an empty hand takes it back (`LaidEntity`, `test_laid_items.gd`, `showcase=copper_axe,copper_ingot`).
   **Held right clicks (ADR 0043):** ground pickups are whole pieces (`GroundPickups`): aimable (aim-only box), a dig takes the
   whole stick, a 1 s held right click pops it into an item on the ground; firepit moves are held too (`hold_key`/`hold_done`).
   **Sound (ADR 0044):** the `Sound` autoload (`GameAudio`, `scripts/audio/`) plays `data/sounds.json` (material groups,

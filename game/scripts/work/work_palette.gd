@@ -49,6 +49,8 @@ const PALETTE: Array = [
 	[190, 98, 58],     # BRICK: fired clay brick
 	[208, 120, 74],    # BRICK_LIGHT
 	[96, 52, 36],      # BRICK_DARK: brick mortar
+	[176, 132, 70],    # BRONZE: ingots in a pile (ADR 0095)
+	[178, 182, 186],   # TIN
 ]
 const FLINT := 0
 const FLINT_MARK := 1
@@ -88,13 +90,15 @@ const IRON_DARK := 34
 const BRICK := 35
 const BRICK_LIGHT := 36
 const BRICK_DARK := 37
+const BRONZE := 38
+const TIN := 39
 const GUIDE_GRID := 32   # guide plates are meshed 4x finer: 3x3 coloured, a one-cell gap as grid lines
 ## Every paint comes in MobModel.SHADES tones (tile = paint * SHADES + tone), so a piece is not one flat
 ## colour: shade_cells hashes a tone per cell and darkens the cells on a convex edge, which draws the
 ## shape's outline the way the item sprites' dark edge pixels do.
 const SHADES := MobModel.SHADES
 const FLAT := [MOLTEN, EMBER, GLOW, PLACE, AVOID]   # signal colours: one tone, no grain, no edge
-const ATLAS := Vector2i(SHADES, 38)
+const ATLAS := Vector2i(SHADES, 40)
 
 static var _material: StandardMaterial3D
 static var _ghost: StandardMaterial3D
@@ -253,7 +257,7 @@ static func make_view(pos: Vector3i, solid: Dictionary, ghost: Dictionary = {}, 
 	var root := Node3D.new()
 	root.position = Vector3(pos)
 	root.scale = Vector3.ONE * Settings.BLOCK * blocks   # a piece is one 0.5 m block of BLOCK^3 voxels (ADR 0034), or two (ADR 0076)
-	_add_mesh(root, solid, material())
+	_add_mesh(root, solid, material(), solid.get("grid", GameMaterials.MICRO_GRID))   # a finer piece names its grid (ingot piles, ADR 0095)
 	if not ghost.is_empty():
 		_add_mesh(root, ghost, ghost_material())
 	if not guide.is_empty():
@@ -274,6 +278,9 @@ static func _add_item(root: Node3D, it: Dictionary) -> void:
 	var b := Basis(Vector3.UP, deg_to_rad(float(it.get("yaw", 0.0))))
 	if not it.get("upright", false):
 		b = b * Basis(Vector3.RIGHT, -PI / 2.0)
+	else:
+		# a tool leaning on a wall (ADR 0095): tipped back by `tilt`, turned in its own plane by `roll`
+		b = b * Basis(Vector3.RIGHT, deg_to_rad(float(it.get("tilt", 0.0)))) * Basis(Vector3.BACK, deg_to_rad(float(it.get("roll", 0.0))))
 	mi.transform = Transform3D(b.scaled(Vector3.ONE * float(it.get("scale", 0.5))), it.get("at", Vector3(0.5, 0.02, 0.5)))
 	mi.material_override = BlockMeshes.heat_material(id, float(it.get("heat", 0.0)))   # hot metal glows (ADR 0087)
 	mi.visibility_range_end = 96.0
@@ -305,6 +312,6 @@ static func _add_mesh(root: Node3D, part: Dictionary, mat: Material, grid: int =
 	mi.mesh = m
 	mi.material_override = mat
 	mi.visibility_range_end = 96.0
-	if mat == _ghost or grid != GameMaterials.MICRO_GRID:
+	if mat == _ghost or grid == GUIDE_GRID:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(mi)

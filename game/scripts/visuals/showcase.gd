@@ -7,7 +7,7 @@ extends RefCounted
 ##   showcase=flint_stones,pebbles,granite_stones [showcase_on=grass] (launch: runs after load, quits)
 ##   /showcase flint_stones pebbles [on=grass]                         (chat, while playing)
 ## A name is a material: stone pickups get the generator's own stamp (three patches each, front to
-## back), anything else is placed as a click would. Item looks have their own sheet (tools/item_sheet.gd):
+## back), anything else is placed as a click would. A tool or ingot is set down (ADR 0095). Other item looks have their own sheet (tools/item_sheet.gd):
 ## an item id is listed as "item" and not drawn (a dropped item on the pad never showed in the shots).
 ## Left to right in every shot and in the JSON line "debug showcase {...}": the order given.
 ## Sheet: front, top, then a close-up of each entry (up to six).
@@ -63,6 +63,8 @@ func run(p_main: Node, names: PackedStringArray, ground: String = "grass", quit_
 		elif id > 0:
 			how = "placed"
 			main._on_placed(c + Vector3i(1, 0, ROW + 1), id)
+		elif main.items.has(name) and LaidEntity.kind_for(main.items.get_def(name), Vector3i.UP) != "":
+			how = _lay(name, c)
 		elif main.items.has(name):
 			how = "item"
 		placed.append({"name": name, "as": how})
@@ -90,6 +92,26 @@ func run(p_main: Node, names: PackedStringArray, ground: String = "grass", quit_
 	_running.erase(self)
 	if quit_after:
 		tree.quit()
+
+
+## A tool or ingot set down as sneak + right click would (ADR 0095): a tool flat on the pad and leaning
+## on a stone wall behind it, ingots as a pile of 20 and a full one.
+func _lay(id: String, c: Vector3i) -> String:
+	var b := Settings.BLOCK
+	var stack := Inventory.make_stack(main.items, id, 1)
+	if LaidEntity.kind_for(main.items.get_def(id), Vector3i.UP) == "ingot_pile":
+		stack["count"] = 20
+		main.work.lay_at(c + Vector3i(0, 0, ROW + 1), "ingot_pile", stack, 0)
+		var full := stack.duplicate()
+		full["count"] = Settings.ingot_pile_max
+		main.work.lay_at(c + Vector3i(0, 0, 2 * ROW + 1), "ingot_pile", full, 0)
+		return "pile"
+	for x in range(-1, b + 1):
+		for y in 2 * b:
+			main.set_world_voxel(c + Vector3i(x, y, ROW - 1), GameMaterials.STONE)
+	main.work.lay_at(c + Vector3i(0, 0, ROW), "leaning_tool", stack, LaidEntity.yaw_of(Vector3i(0, 0, 1)))
+	main.work.lay_at(c + Vector3i(0, 0, 2 * ROW + 1), "laid_tool", stack.duplicate(), 45)
+	return "laid"
 
 
 func _shot(tree: SceneTree, at: Vector3, look: Vector3) -> Image:

@@ -74,6 +74,8 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		"anvil", "bronze_anvil":
 			e = AnvilEntity.new(recipes, pos, kind)
 			_ticking.append(e)
+		"laid_tool", "leaning_tool", "ingot_pile":
+			e = LaidEntity.new(items, pos, kind)   # tools and ingots set down (ADR 0095)
 		"grave":
 			e = GraveEntity.new(items, pos)   # what a dead player carried (plan item D12)
 		_:
@@ -93,7 +95,7 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 const SINGLE := []   # entities that are one voxel (torches have their own cells since ADR 0053)
 ## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
 ## a knapping stone or a mold on the ground is one voxel high, a firepit two.
-const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 2, "assembly": 1, "anvil": 6, "bronze_anvil": 6}
+const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 2, "assembly": 1, "laid_tool": 1, "anvil": 6, "bronze_anvil": 6}
 ## Work pieces drawn and placed at the stations' 1 m scale (ADR 0076): their view cell is a voxel,
 ## not half of one, and their footprint and height double.
 const WIDE := ["firepit", "forge", "bloomery", "anvil", "bronze_anvil"]
@@ -220,7 +222,7 @@ func all_furniture() -> Array:
 
 
 const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave",
-	"forge", "bloomery", "bronze_anvil"]
+	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile"]
 
 
 func all_of(p_kind: String) -> Array:

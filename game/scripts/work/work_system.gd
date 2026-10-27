@@ -5,7 +5,7 @@ extends Node
 ## use() on right click and hit() on left click before its own handling;
 ## both return true when a work piece took the click. Places new pieces on
 ## top faces (flint -> knapping, clay -> clay forming, ground_place ware ->
-## ground storage, firepit and sieve items, firewood piles), works existing ones, applies
+## ground storage, firepit and sieve items, firewood piles; sneaking, tools and ingots set down, ADR 0095), works existing ones, applies
 ## their results to the player's hand, and keeps one view node per piece,
 ## rebuilt from the entity's view_parts() when it changes. ADR 0030 adds the
 ## pan (washing sand and gravel under water) and the charcoal pit: firewood
@@ -216,6 +216,8 @@ func _create(p: Vector3i, kind: String, material: int) -> RefCounted:
 
 
 func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) -> bool:
+	if sneaking and _lay(hit, held):
+		return true
 	var id: String = held.get("id", "")
 	var tags: Array = held.get("tags", [])
 	var work: String = held.get("work", "")
@@ -324,6 +326,48 @@ static func plane_cell(p: Vector3i, cells: float, from: Vector3, dir: Vector3):
 
 
 ## Removes a piece and empties its footprint (to `material`, air by default).
+## Sneak + right click with a tool or an ingot (ADR 0095): laid flat on a top face, a tool leaned against
+## a wall, ingots started as a pile. False when the held item is neither (the click goes on as before).
+func _lay(hit: VoxelRaycastResult, held: Dictionary) -> bool:
+	var normal: Vector3i = hit.previous_position - hit.position
+	var kind := LaidEntity.kind_for(held, normal)
+	if kind == "":
+		return false
+	var p := _spot_for(hit, false, kind) if kind != "leaning_tool" else _lean_spot(hit, normal)
+	if p.x == -1 and p.y == -1:
+		return true   # no room: still not a block placement
+	var s: Dictionary = main.player_inv.held()
+	lay_at(p, kind, Inventory.make_stack(main.items, s["id"], 1, Inventory.data_of(s)),
+		LaidEntity.yaw_of(normal) if kind == "leaning_tool" else 45 + 90 * posmod(roundi(main.player.rotation_degrees.y / 90.0), 4))
+	if _consumes():
+		main.player_inv.consume_held(1)
+	return true
+
+
+## A laid piece of `kind` holding `stack` at anchor p (also the showcase's way in).
+func lay_at(p: Vector3i, kind: String, stack: Dictionary, yaw: int) -> LaidEntity:
+	var e: LaidEntity = _create(p, kind, GameMaterials.WORK_BLOCK if kind == "ingot_pile" else GameMaterials.WORK_SPOT)
+	e.stack = stack
+	e.yaw = yaw
+	_mark(p)
+	return e
+
+
+## A leaning tool's block in front of a wall: free, not in the player, on solid ground; else (-1, -1, -1).
+func _lean_spot(hit: VoxelRaycastResult, normal: Vector3i) -> Vector3i:
+	var front: Vector3i = hit.previous_position
+	var a := LaidEntity.lean_anchor(front, normal)
+	if not MobManager.is_solid(main.get_world_voxel(Vector3i(front.x, a.y - 1, front.z))):
+		return Vector3i(-1, -1, -1)
+	for c in BlockEntities.footprint_of("leaning_tool", a):
+		var m: int = main.get_world_voxel(c)
+		if m != GameMaterials.AIR and not (m > 0 and GameMaterials.defs()[m - 1].get("replaceable", false)):
+			return Vector3i(-1, -1, -1)
+		if main.player._overlaps_player(c):
+			return Vector3i(-1, -1, -1)
+	return a
+
+
 func remove_piece(e: RefCounted, material := GameMaterials.AIR) -> void:
 	var cells := BlockEntities.footprint(e)
 	main.blocks.remove(e.pos)
@@ -461,6 +505,10 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 	if e is GraveEntity:
 		if first_press:
 			_open_grave(e)
+		return true
+	if e is LaidEntity:
+		if first_press:
+			_use_laid(e, hit, sneaking)
 		return true
 	if not first_press:
 		if e is SieveEntity and (e.input != "" or _sifts(main.player_inv.offhand_def())):
@@ -906,6 +954,19 @@ func _pan(hit: VoxelRaycastResult, first_press: bool) -> bool:
 # ---------------- the charcoal pit (ADR 0030) ----------------
 
 ## Sneaking stacks as much of the held firewood on as the pile takes (ADR 0087, like the fires).
+func _use_laid(e: LaidEntity, hit: VoxelRaycastResult, sneaking: bool) -> void:
+	var held: Dictionary = main.player_inv.held()
+	if e.kind == "ingot_pile" and e.is_full() and sneaking and not held.is_empty():
+		_try_place(hit, main.player_inv.held_def(), true)   # a full pile: the next one goes on top
+		return
+	var res := e.use(held)
+	if res["add"] > 0 and _consumes():
+		main.player_inv.consume_held(res["add"])
+	_give(res["give"], _at(e.pos, Vector3(0.5, 0.5, 0.5)))
+	if res["remove"]:
+		remove_piece(e)
+
+
 func _use_pile(e: FirewoodPileEntity, hit: VoxelRaycastResult, held: Dictionary, first_press: bool, sneaking := false) -> bool:
 	var id: String = held.get("id", "")
 	if id == "firewood":
