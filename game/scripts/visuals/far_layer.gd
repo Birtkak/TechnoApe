@@ -122,6 +122,22 @@ func setup(p_world: World, p_atmosphere: Atmosphere) -> void:
 	atmosphere.sun.light_cull_mask &= ~(1 << LAYER_BIT)
 
 
+## Off or rebuilt live from the Settings (ADR 0092): the near box and the sky stop blending the far view
+## in, the sun lights every layer again, and the node goes (_exit_tree stops the workers).
+func teardown() -> void:
+	for m in world.horizon_materials():
+		m.set_shader_parameter("far_on", false)
+	atmosphere.sky_material.set_shader_parameter("far_on", false)
+	atmosphere.sun.light_cull_mask |= 1 << LAYER_BIT
+	queue_free()
+
+
+## The view distance changed live: the far view starts where the near box now ends.
+func apply_near_cut() -> void:
+	for m in ground_mats + water_mats + tree_mats:
+		m.set_shader_parameter("near_cut", Settings.m2v(Settings.view_distance_m * Settings.horizon_fade_frac))
+
+
 ## A far crown as FineGen's trees read from 50-400 m: a handful of leaf clumps (lumpy, each a little
 ## lighter or darker: UV.x is the shade the shader multiplies in) inside the unit sphere the native
 ## instance transform scales. Oaks and jungle trees are clusters of clumps, birches slender stacks,

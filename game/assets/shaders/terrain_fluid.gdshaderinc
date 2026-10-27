@@ -13,7 +13,7 @@
 // normals with a sun glint on the top, a rim where it meets the shore, lanes of foam running down a
 // falling face. Each liquid's material sets its own character (data/liquid_looks.json, World): oil a
 // dark glossy film with a rainbow sheen, blood deep red, toxic sludge a faintly glowing green with
-// bubbles, lava (opaque) crust plates drifting on glowing cracks under a slow heavy swell.
+// bubbles, lava (opaque) Minecraft's matte glowing orange with dark blotches.
 
 #include "res://assets/shaders/terrain_common.gdshaderinc"
 
@@ -101,24 +101,20 @@ float bubble_ring(vec2 p) {
 	return (ring + dome) * step(0.45, h) * (1.0 - smoothstep(0.8, 1.0, phase));
 }
 
-// lava_color (terrain_common) sampled smoothly: crust plates a couple of metres across drifting and
-// churning, thin glowing cracks between them, the crust itself warm in places. `q` in voxels.
-uniform float lava_crack = 0.07;          // crack half-width in plate-noise units (smaller = thinner)
-uniform vec3 lava_crust_dark : source_color = vec3(0.10, 0.035, 0.025);
-uniform vec3 lava_crust_warm : source_color = vec3(0.34, 0.09, 0.035);
+// Minecraft's lava (bug 2026-10-27_17-57-29): bright orange with darker blotches and hot yellow streaks
+// that churn slowly, in pixels of half a voxel (16 a metre, Minecraft's texel), glowing all over. `q` in voxels.
+uniform vec3 lava_dark : source_color = vec3(0.62, 0.15, 0.02);
+uniform vec3 lava_body : source_color = vec3(0.90, 0.38, 0.05);
+uniform vec3 lava_hot : source_color = vec3(1.0, 0.72, 0.22);
 vec3 lava_surface(vec3 q, float t, out vec3 emission) {
-	float plates = lava_noise(q * 0.24 + vec3(t * 0.04, t * 0.015, -t * 0.03));
-	float plates2 = lava_noise(q * 0.55 + vec3(-t * 0.05, 0.0, t * 0.04));
-	float wob = (lava_noise(q * 1.3) - 0.5) * 0.05;   // ragged crack edges
-	float crack = 1.0 - smoothstep(lava_crack * 0.3, lava_crack, abs(plates - 0.5 + wob));
-	crack = max(crack, (1.0 - smoothstep(lava_crack * 0.15, lava_crack * 0.5, abs(plates2 - 0.5 + wob))) * 0.45);
-	float churn = lava_noise(q * 0.45 + vec3(0.0, t * 0.15, t * 0.09));
-	float warm = smoothstep(0.68, 0.95, lava_noise(q * 0.3 + vec3(t * 0.02, 3.0, 0.0)));
-	float heat = clamp(crack * (0.75 + 0.45 * churn) + warm * 0.08, 0.0, 1.0);
-	vec3 crust = mix(lava_crust_dark, lava_crust_warm, clamp((plates2 - 0.3) * 1.2 + warm * 0.5, 0.0, 1.0));
-	vec3 hot = mix(vec3(0.95, 0.26, 0.03), vec3(1.0, 0.62, 0.16), churn);
-	emission = hot * heat * heat * lava_glow * 0.7 + crust * 0.25;
-	return mix(crust, hot, heat);
+	vec3 px = floor(q * 2.0) * 0.5;
+	float n = lava_noise(px * 0.3 + vec3(t * 0.06, t * 0.04, -t * 0.05)) * 0.65
+		+ lava_noise(px * 0.8 + vec3(-t * 0.1, t * 0.07, t * 0.08)) * 0.35;
+	vec3 c = mix(lava_body, lava_dark, smoothstep(0.42, 0.32, n));
+	c = mix(c, lava_hot, smoothstep(0.6, 0.72, n));
+	c *= 0.94 + 0.12 * lava_hash(px);   // a texel's own grain
+	emission = c * lava_glow * 0.4;
+	return c;
 }
 
 void fragment() {
@@ -162,23 +158,21 @@ void fragment() {
 	}
 	float m = mottle > 0.0 ? (lava_noise(vec3(p * 0.18, TIME * 0.05)) - 0.5) * mottle : 0.0;
 	if (abs(fluid_tile - lava_tile) < 0.5) {
-		// lava: crust plates and glowing cracks (lava_color), now sampled smoothly and drifting with the flow
-		// instead of one colour per voxel; a falling face pours bright streaks
+		// lava: Minecraft's glowing orange (lava_surface); a falling face pours bright streaks
 		vec3 glow_c;
 		// one field in world space: tops slicing the noise at their own height cut dug, uneven lava into a
 		// mosaic of mismatched plates (bug 2026-10-27_15-45-02); every top now shares one plane
-		vec3 q = top ? vec3(v_world.x, 0.0, v_world.z) : v_world;
+		vec3 q = top ? vec3(v_world.x, 0.0, v_world.z) : v_world + vec3(0.0, TIME * flow_speed * 2.0, 0.0);   // a side pours down
 		vec3 c = lava_surface(q, TIME, glow_c);
 		if (!top) {
 			float s = fall_streak(wc);
 			c = mix(c, foam_color, s * foam);
 			glow_c += foam_color * s * foam * lava_glow * 0.6;
 		}
-		float heat = clamp(dot(glow_c, vec3(0.33)) / lava_glow, 0.0, 1.0);
 		ALBEDO = c * vcol.rgb * tint * (1.0 + m);
 		EMISSION = glow_c;
-		ROUGHNESS = top ? mix(mix(surface_roughness, 1.0, heat), 1.0, steep) : 1.0;   // the crust shines, the cracks glow
-		SPECULAR = top ? surface_specular * (1.0 - heat) * (1.0 - steep) : 0.0;
+		ROUGHNESS = 1.0;   // matte, no gloss: it reads as a glowing solid, not a see-through liquid
+		SPECULAR = 0.0;
 	} else {
 		vec3 col = liquid_shallow;
 		float a = liquid_alpha;

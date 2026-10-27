@@ -43,6 +43,7 @@ var fog_color_night := Color(0.05, 0.06, 0.10)
 var underground_start_m := 2.0   # metres below the surface where the cave look begins
 var underground_full_m := 10.0   # ... and where it is complete
 var sky_probe_m := 24.0          # how far up sky_open() follows the loaded voxels before it asks the generator
+var underground_fade := 0.4      # per second: 2.5 s from daylight to cave dark, as eyes adjust (it was 0.4 s, bug 2026-10-27_17-48-23)
 var underground_ambient := 0.30  # ambient energy multiplier fully underground (torches, lava and glow light the rest)
 var underground_fog_density := 0.0045
 var underground_fog_color := Color(0.012, 0.012, 0.018)
@@ -616,7 +617,7 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 	if instant:
 		_underground = target
 	else:
-		_underground = move_toward(_underground, target, delta * 2.5)
+		_underground = move_toward(_underground, target, delta * underground_fade)
 	var day: float = get_meta("daylight", 1.0)
 	var fog_day: Color = get_meta("fog_day_color", fog_color_day)
 

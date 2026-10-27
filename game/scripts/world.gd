@@ -154,6 +154,8 @@ func apply_distances() -> void:
 	terrain.view_distance = Settings.view_distance_voxels()
 	for m in horizon_materials():
 		_set_horizon(m)
+	if far_layer != null:
+		far_layer.apply_near_cut()
 
 
 ## Every material that draws terrain and takes the horizon and sky uniforms (Atmosphere sets the sky's

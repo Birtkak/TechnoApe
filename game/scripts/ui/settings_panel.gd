@@ -131,7 +131,7 @@ func _video_tab() -> Control:
 		if m > 0.0:
 			Settings.far_distance_m = m
 		_edited())
-	_far.tooltip_text = "The far horizon (ADR 0074): the land past the full-detail box as a smooth skin with far trees. Takes effect when a world is next loaded."
+	_far.tooltip_text = "The far horizon (ADR 0074): the land past the full-detail box as a smooth skin with far trees."
 	_row(g, "Far horizon", _far)
 	_ssao = _check(func() -> void:
 		Settings.ssao = _ssao.button_pressed
