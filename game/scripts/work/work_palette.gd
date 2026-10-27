@@ -73,7 +73,12 @@ const BONE := 27
 const FUR := 28
 const LINEN := 29
 const GUIDE_GRID := 32   # guide plates are meshed 4x finer: 3x3 coloured, a one-cell gap as grid lines
-const ATLAS := Vector2i(30, 1)
+## Every paint comes in MobModel.SHADES tones (tile = paint * SHADES + tone), so a piece is not one flat
+## colour: shade_cells hashes a tone per cell and darkens the cells on a convex edge, which draws the
+## shape's outline the way the item sprites' dark edge pixels do.
+const SHADES := MobModel.SHADES
+const FLAT := [MOLTEN, EMBER, GLOW, PLACE, AVOID]   # signal colours: one tone, no grain, no edge
+const ATLAS := Vector2i(SHADES, 30)
 
 static var _material: StandardMaterial3D
 static var _ghost: StandardMaterial3D
@@ -83,20 +88,14 @@ static var _tiles: PackedInt32Array
 static func material() -> StandardMaterial3D:
 	if _material:
 		return _material
-	var img := Image.create(ATLAS.x * 16, ATLAS.y * 16, false, Image.FORMAT_RGBA8)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 2323
+	var img := Image.create(ATLAS.x * 4, ATLAS.y * 4, false, Image.FORMAT_RGBA8)
 	for t in PALETTE.size():
-		var base: Array = PALETTE[t]
-		var spread := 3 if t == MOLTEN or t == EMBER or t == GLOW else 8
-		for y in 16:
-			for x in 16:
-				var k := rng.randi_range(-spread, spread)
-				img.set_pixel(t * 16 + x, y, Color8(clampi(base[0] + k, 0, 255), clampi(base[1] + k, 0, 255), clampi(base[2] + k, 0, 255)))
+		for k in SHADES:
+			img.fill_rect(Rect2i(k * 4, t * 4, 4, 4), tone_color(PALETTE[t], k))
 	var tex := ImageTexture.create_from_image(img)
 	_material = StandardMaterial3D.new()
 	_material.albedo_texture = tex
-	_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	_material.roughness = 0.9
 	_ghost = StandardMaterial3D.new()
 	_ghost.albedo_texture = tex
@@ -105,11 +104,54 @@ static func material() -> StandardMaterial3D:
 	_ghost.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_ghost.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	_tiles = PackedInt32Array()
-	_tiles.resize(PALETTE.size() + 1)
+	_tiles.resize(PALETTE.size() * SHADES + 1)
 	_tiles[0] = -1
-	for i in PALETTE.size():
+	for i in PALETTE.size() * SHADES:
 		_tiles[i + 1] = i
 	return _material
+
+
+## Tone k of a paint: 0 is the outline (half brightness), 1..SHADES-1 run dark to light around the
+## base colour (tone 5), warmer towards the light like MobModel.shade_color.
+static func tone_color(base: Array, k: int) -> Color:
+	if k == 0:
+		return Color8(base[0] / 2, base[1] / 2, base[2] / 2)
+	var t := float(k - 1) / (SHADES - 2)
+	var f := lerpf(0.72, 1.18, t)
+	var warm := (t - 0.5) * 14.0
+	return Color8(clampi(int(base[0] * f + warm), 0, 255), clampi(int(base[1] * f), 0, 255), clampi(int(base[2] * f - warm), 0, 255))
+
+
+## Tones per cell for a grid of paint + 1 cells: paint * SHADES + tone + 1, pixel-art style: a
+## little grain around the base tone, the bottom rim and the vertical edges in the outline tone,
+## the top rim lit. `flat` paints keep their colour (the base tone).
+static func shade_cells(c: PackedInt32Array, size: Vector3i, flat: Array = FLAT) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	out.resize(c.size())
+	var empty := func(x: int, y: int, z: int) -> bool:
+		return x < 0 or y < 0 or z < 0 or x >= size.x or y >= size.y or z >= size.z or c[idx(size, x, y, z)] <= 0
+	for z in size.z:
+		for y in size.y:
+			for x in size.x:
+				var i := idx(size, x, y, z)
+				if c[i] <= 0:
+					continue
+				var paint := c[i] - 1
+				var k := 5
+				if not (paint in flat):
+					var grain := float(hash(Vector3i(x / 3, y, z / 3)) % 1000) / 999.0
+					var n := float(hash(Vector3i(x, y, z) * 7 + Vector3i(1, 2, 3)) % 1000) / 999.0
+					var sx: bool = empty.call(x - 1, y, z) or empty.call(x + 1, y, z)
+					var sz: bool = empty.call(x, y, z - 1) or empty.call(x, y, z + 1)
+					k = int(round(4.3 + grain * 1.2 + n * 0.8))
+					if empty.call(x, y - 1, z) and (sx or sz):
+						k = 0           # bottom rim: outline
+					elif sx and sz:
+						k = 1           # vertical edge: dark
+					elif empty.call(x, y + 1, z) and (sx or sz):
+						k = 7           # top rim: lit
+				out[i] = paint * SHADES + clampi(k, 0, SHADES - 1) + 1
+	return out
 
 
 static func ghost_material() -> StandardMaterial3D:
@@ -132,7 +174,7 @@ static func mesh(cells: PackedInt32Array, size: Vector3i, grid: int = GameMateri
 	# triangles in the arrays before the mesh exists. MobModel.outward flips an
 	# ArrayMesh instead, and reading its arrays back waits for the render thread
 	# (ADR 0016): 4-6 ms per rebuild in game against 0.05 ms to mesh.
-	var a := MicroMesher.build_arrays(cells, size, grid, _tiles, ATLAS, Vector3.ZERO)
+	var a := MicroMesher.build_arrays(shade_cells(cells, size), size, grid, _tiles, ATLAS, Vector3.ZERO)
 	if a.is_empty():
 		return null
 	var ix: PackedInt32Array = a[Mesh.ARRAY_INDEX]

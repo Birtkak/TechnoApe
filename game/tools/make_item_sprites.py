@@ -143,8 +143,16 @@ REPO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 SHEET = sys.argv[1] if len(sys.argv) > 1 else ""
 
 
+def tint(h, f):
+    h = h.lstrip("#")
+    c = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+    c = [max(0, min(255, round(v * f))) for v in c]
+    return "#%02x%02x%02x" % tuple(c)
+
+
 def ramp(o, d, m, l, h):
-    return {"o": o, "d": d, "m": m, "l": l, "h": h}
+    # the outline goes darker than the ramp's darkest tone, so every edge reads as a line
+    return {"o": tint(o, 0.62), "d": d, "m": m, "l": l, "h": h}
 
 
 PALETTES = {
@@ -215,13 +223,6 @@ def body(g):
     return outline(shade(g))
 
 
-def tint(h, f):
-    h = h.lstrip("#")
-    c = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
-    c = [max(0, min(255, round(v * f))) for v in c]
-    return "#%02x%02x%02x" % tuple(c)
-
-
 U = (math.sqrt(0.5), -math.sqrt(0.5))     # along a tool handle, toward its tip
 NRM = (-math.sqrt(0.5), -math.sqrt(0.5))  # perpendicular, toward the upper left
 TIP = (12.0, 4.0)
@@ -281,8 +282,8 @@ shape("axe_head", outline(g))
 c = (TIP[0] + 1.5 * U[0], TIP[1] + 1.5 * U[1])
 shape("shovel_head", body(ellipse(new(), c[0], c[1], 3.6, 2.9, ang=-45)))
 
-# hammer: block across the tip
-shape("hammer_head", body(poly(new(), tool_pts([(-3.8, -1.9), (-3.8, 2.1), (3.8, 2.1), (3.8, -1.9)], (11.5, 4.5)))))
+# hammer: a thick block across the tip (5 px deep, 9 long)
+shape("hammer_head", body(poly(new(), tool_pts([(-4.4, -2.4), (-4.4, 2.6), (4.4, 2.6), (4.4, -2.4)], (11.0, 5.0)))))
 
 # saw: blade along the handle direction with teeth on the lower-right side
 g = new()

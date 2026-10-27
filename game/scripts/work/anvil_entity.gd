@@ -279,11 +279,16 @@ func is_lit() -> bool:
 func view_parts() -> Dictionary:
 	var size := Vector3i(N, N, N)
 	var c := WorkPalette.new_cells(size)
-	# the stone: a wide foot, a waist, a flat face on top
-	var body := WorkPalette.COPPER if tier > 0 else WorkPalette.STONE   # the bronze anvil is cast metal
-	WorkPalette.box(c, size, Vector3i(0, 0, 1), Vector3i(8, 1, 7), body)
-	WorkPalette.box(c, size, Vector3i(1, 1, 2), Vector3i(7, 3, 6), body)
-	WorkPalette.box(c, size, Vector3i(0, 3, 0), Vector3i(8, BASE_H, 8), body if tier > 0 else WorkPalette.ANVIL)
+	if tier > 0:
+		# the bronze anvil is cast metal: a wide foot, a waist, the block with its face on top
+		WorkPalette.box(c, size, Vector3i(0, 0, 1), Vector3i(8, 1, 7), WorkPalette.COPPER)
+		WorkPalette.box(c, size, Vector3i(2, 1, 2), Vector3i(6, 2, 6), WorkPalette.COPPER)
+		WorkPalette.box(c, size, Vector3i(0, 2, 0), Vector3i(8, BASE_H, 8), WorkPalette.COPPER)
+	else:
+		# the stone anvil: a flat boulder with a worked face, set on a log stump
+		WorkPalette.box(c, size, Vector3i(1, 0, 1), Vector3i(7, 2, 7), WorkPalette.WOOD_DARK)
+		WorkPalette.box(c, size, Vector3i(0, 2, 0), Vector3i(8, BASE_H - 1, 8), WorkPalette.STONE)
+		WorkPalette.box(c, size, Vector3i(0, BASE_H - 1, 0), Vector3i(8, BASE_H, 8), WorkPalette.ANVIL)
 	var cold := WorkPalette.ANVIL if metal.begins_with("iron") else WorkPalette.COPPER
 	var paint := WorkPalette.GLOW if heat() >= 0.5 else (WorkPalette.MOLTEN if heat() >= Settings.smith_min_heat else cold)
 	var g := WorkPalette.new_cells(size)

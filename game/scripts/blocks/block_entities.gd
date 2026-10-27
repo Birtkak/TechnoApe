@@ -104,15 +104,13 @@ static func footprint(e: RefCounted) -> Array[Vector3i]:
 		return e.footprint_cells()   # a megalith's three blocks (ADR 0059)
 	if e.kind in SINGLE:
 		return [e.pos]
-	if e.kind == "station":
-		return box(e.pos, StationEntity.SIZE)   # the 1 m workbench (ADR 0053)
-	return cube(e.pos, height_of(e.kind))
+	return footprint_of(e.kind, e.pos)
 
 
 ## The voxels a station of `p_kind` would cover from `anchor` (placement checks).
 static func footprint_of(p_kind: String, anchor: Vector3i) -> Array[Vector3i]:
-	if p_kind == "station":
-		return box(anchor, StationEntity.SIZE)
+	if StationEntity.SIZES.has(p_kind):
+		return box(anchor, StationEntity.SIZES[p_kind])   # the 1 m workbench, chest and furnace (ADR 0053, 0076)
 	return cube(anchor, height_of(p_kind))
 
 

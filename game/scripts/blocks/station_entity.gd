@@ -40,15 +40,18 @@ func summary() -> Dictionary:
 	return {"kind": kind, "pos": pos}
 
 
-# ---------------- model (ADR 0053) ----------------
+# ---------------- models (ADR 0053, 0076) ----------------
 ## The crafting table is a 1 m workbench (bug report 2026-10-25 02-44-58: "too small and ugly"): a
 ## footprint of SIZE voxels, drawn in 6.25 cm cells like the animals (MobModel.cell 2) with 8-shade
 ## patterned oak: four square legs, an apron, a thick plank top with a 3 x 3 inlaid grid, a saw and
-## a hammer on it and a shelf below.
+## a hammer on it and a shelf below. The chest and the furnace are the same size and kind of model
+## (ADR 0076: every placed station reads at one scale), keyed by material name.
 
 const SIZE := Vector3i(8, 6, 8)   # voxels: 1 m x 0.75 m x 1 m
+## footprint per entity kind, in voxels (kinds not listed keep BlockEntities.cube)
+const SIZES := {"station": SIZE, "chest": Vector3i(8, 6, 8), "furnace": Vector3i(8, 8, 8)}
 const CELLS := 2                  # cells per voxel
-const SHADES := 8
+const SHADES := MobModel.SHADES
 # paints (palette index + 1)
 const OAK_LIGHT := 1
 const OAK := 2
@@ -56,11 +59,26 @@ const OAK_DARK := 3
 const GRID := 4
 const IRON := 5
 const HANDLE := 6
-const PALETTE := [[196, 150, 96], [160, 116, 68], [104, 70, 40], [62, 40, 22], [150, 154, 160], [120, 78, 40]]
+const STONE := 7
+const STONE_DARK := 8
+const SOOT := 9
+const EMBER := 10
+const STONE_LIGHT := 11
+const STONE_WARM := 12
+const IRON_DARK := 13
+const BRASS := 14
+const EMBER_DARK := 15
+const ASH := 16
+const CHEST_WOOD := 17
+const CHEST_LIGHT := 18
+const PALETTE := [[196, 150, 96], [160, 116, 68], [104, 70, 40], [62, 40, 22], [150, 154, 160], [120, 78, 40],
+	[106, 106, 102], [52, 50, 48], [30, 26, 24], [255, 150, 40], [146, 144, 136], [122, 106, 88], [84, 88, 96],
+	[216, 172, 72], [184, 62, 16], [104, 100, 96], [150, 98, 52], [190, 136, 78]]
+const FLAT := [EMBER - 1, EMBER_DARK - 1]   # paint indices that keep one tone
 
 static var _material: StandardMaterial3D
 static var _tiles: PackedInt32Array
-static var _mesh: ArrayMesh
+static var _meshes := {}
 
 
 static func material() -> StandardMaterial3D:
@@ -72,7 +90,7 @@ static func material() -> StandardMaterial3D:
 	for t in PALETTE.size():
 		for k in SHADES:
 			var i := t * SHADES + k
-			img.fill_rect(Rect2i((i % cols) * 4, (i / cols) * 4, 4, 4), MobModel.shade_color(PALETTE[t], k))
+			img.fill_rect(Rect2i((i % cols) * 4, (i / cols) * 4, 4, 4), WorkPalette.tone_color(PALETTE[t], k))
 	_material = StandardMaterial3D.new()
 	_material.albedo_texture = ImageTexture.create_from_image(img)
 	_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
@@ -85,12 +103,13 @@ static func material() -> StandardMaterial3D:
 	return _material
 
 
-## The table's mesh in voxel units, its min corner at the origin (the entity's anchor).
-static func model_mesh() -> ArrayMesh:
-	if _mesh:
-		return _mesh
+## A station's mesh in voxel units, its min corner at the origin (the entity's anchor), by material
+## name: crafting_table, chest, furnace or furnace_lit.
+static func model_mesh(name: String = "crafting_table") -> ArrayMesh:
+	if _meshes.has(name):
+		return _meshes[name]
 	material()
-	var size := SIZE * CELLS
+	var size: Vector3i = SIZES.get({"crafting_table": "station", "furnace_lit": "furnace"}.get(name, name), SIZE) * CELLS
 	var c := PackedInt32Array()
 	c.resize(size.x * size.y * size.z)
 	var box := func(from: Vector3i, to: Vector3i, paint: int) -> void:
@@ -98,6 +117,82 @@ static func model_mesh() -> ArrayMesh:
 			for y in range(from.y, to.y):
 				for x in range(from.x, to.x):
 					c[x + size.x * (y + size.y * z)] = paint
+	match name:
+		"chest":
+			_chest(box, size)
+		"furnace", "furnace_lit":
+			_furnace(box, size, name == "furnace_lit")
+		_:
+			_table(box, c, size)
+	var mesh: ArrayMesh = MobModel.outward(MicroMesher.build(WorkPalette.shade_cells(c, size, FLAT), size, CELLS, _tiles, Vector2i(8, ceili(float(PALETTE.size() * SHADES) / 8)), Vector3.ZERO))
+	mesh.surface_set_material(0, _material)
+	_meshes[name] = mesh
+	return mesh
+
+
+## A chest: a dark oak box of three plank courses with a lighter plank lid that overhangs, two
+## dark iron bands with rivets, and a brass lock plate at the front.
+static func _chest(box: Callable, size: Vector3i) -> void:
+	var lid := size.y - 3
+	box.call(Vector3i(1, 0, 2), Vector3i(size.x - 1, lid, size.z - 2), CHEST_WOOD)
+	for y in range(2, lid, 3):   # plank seams round the body
+		box.call(Vector3i(1, y, 2), Vector3i(size.x - 1, y + 1, size.z - 2), OAK_DARK)
+	box.call(Vector3i(0, lid, 1), Vector3i(size.x, size.y, size.z - 1), CHEST_LIGHT)   # the lid overhangs a cell
+	box.call(Vector3i(0, lid, 1), Vector3i(size.x, lid + 1, size.z - 1), OAK_DARK)      # its underside rim
+	for z in range(3, size.z - 1, 4):   # lid planks run across, a dark joint between them
+		box.call(Vector3i(0, size.y - 1, z), Vector3i(size.x, size.y, z + 1), OAK_DARK)
+	for x in [3, size.x - 5]:
+		box.call(Vector3i(x, 0, 1), Vector3i(x + 2, size.y, size.z - 1), IRON_DARK)
+		for y in [1, lid - 2, size.y - 1]:   # rivets
+			box.call(Vector3i(x, y, 1), Vector3i(x + 2, y + 1, 2), IRON)
+			box.call(Vector3i(x, y, size.z - 2), Vector3i(x + 2, y + 1, size.z - 1), IRON)
+	var m := size.x / 2
+	for z in [1, size.z - 2]:   # a lock plate on both long sides: chests have no facing
+		box.call(Vector3i(m - 2, lid - 3, z), Vector3i(m + 2, lid + 2, z + 1), BRASS)
+		box.call(Vector3i(m - 1, lid - 2, z), Vector3i(m + 1, lid, z + 1), SOOT)   # keyhole
+
+
+## A furnace: courses of fieldstone in three tones with dark mortar, an arched mouth on every side
+## (stations have no facing) with soot above it and ash on its floor, a lighter cap and a chimney
+## stack; the fire glows when lit.
+static func _furnace(box: Callable, size: Vector3i, lit: bool) -> void:
+	var body := size.y - 2
+	var tones := [STONE, STONE_LIGHT, STONE_WARM]
+	box.call(Vector3i(1, 0, 1), Vector3i(size.x - 1, body, size.z - 1), STONE_DARK)   # mortar
+	for course in range(0, body, 4):
+		var off := (course / 4 % 2) * 3
+		for j in range(-off, size.x, 5):   # blocks seen from the front and back
+			var t: int = tones[hash(Vector3i(j, course, 0)) % 3]
+			box.call(Vector3i(maxi(j, 1), course, 1), Vector3i(mini(j + 4, size.x - 1), course + 3, size.z - 1), t)
+		for j in range(-off, size.z, 5):   # joints and tones seen from the sides
+			var t: int = tones[hash(Vector3i(j, course, 1)) % 3]
+			box.call(Vector3i(1, course, maxi(j, 1)), Vector3i(2, course + 3, mini(j + 4, size.z - 1)), t)
+			box.call(Vector3i(size.x - 2, course, maxi(j, 1)), Vector3i(size.x - 1, course + 3, mini(j + 4, size.z - 1)), t)
+	box.call(Vector3i(0, body - 1, 0), Vector3i(size.x, body + 1, size.z), STONE_LIGHT)   # the cap, a cell wider
+	var m := size.x / 2
+	box.call(Vector3i(m - 2, body, m - 2), Vector3i(m + 2, size.y, m + 2), STONE)         # chimney stack
+	box.call(Vector3i(m - 1, body, m - 1), Vector3i(m + 1, size.y, m + 1), SOOT)
+	var inner := EMBER if lit else SOOT
+	var deep := EMBER_DARK if lit else STONE_DARK
+	for side in 4:
+		var along := Vector3i(1, 0, 0) if side < 2 else Vector3i(0, 0, 1)   # the face runs along this axis
+		var into := Vector3i(0, 0, 1) if side < 2 else Vector3i(1, 0, 0)
+		var far := side % 2 == 1
+		var mouth := func(a: int, y0: int, y1: int, d0: int, d1: int, paint: int) -> void:
+			# cells a..a+w along the face, depth d0..d1 in from the face, rows y0..y1
+			var w := m + 3 - a
+			var lo := along * a + Vector3i(0, y0, 0) + into * (size.x - d1 if far else d0)
+			var hi := along * (a + w) + Vector3i(0, y1, 0) + into * (size.x - d0 if far else d1)
+			box.call(lo, hi, paint)
+		mouth.call(m - 3, 1, 6, 0, 4, 0)        # the opening
+		mouth.call(m - 2, 6, 7, 0, 4, 0)        # the arch
+		mouth.call(m - 3, 1, 2, 1, 4, ASH)      # ash on the floor
+		mouth.call(m - 3, 2, 7, 4, 5, deep)     # the back wall
+		mouth.call(m - 2, 2, 5, 4, 5, inner)    # the fire
+		mouth.call(m - 2, 7, 9, 0, 1, SOOT)     # soot above the arch
+
+
+static func _table(box: Callable, c: PackedInt32Array, size: Vector3i) -> void:
 	var top := size.y - 2   # the top is two cells thick
 	for lx in [1, size.x - 3]:
 		for lz in [1, size.z - 3]:
@@ -125,29 +220,8 @@ static func model_mesh() -> ArrayMesh:
 	tool.call(Vector3i(13, 0, 10), Vector3i(15, 0, 13), HANDLE)
 	tool.call(Vector3i(4, 0, 14), Vector3i(10, 0, 15), HANDLE)
 	tool.call(Vector3i(9, 0, 13), Vector3i(11, 0, 16), IRON)
-	_mesh = MobModel.outward(MicroMesher.build(_shade(c, size), size, CELLS, _tiles, Vector2i(8, ceili(float(PALETTE.size() * SHADES) / 8)), Vector3.ZERO))
-	_mesh.surface_set_material(0, _material)
-	return _mesh
 
 
 ## Tools lie on the top: they replace its top cell (the model keeps to its footprint).
 static func _put_tool(c: PackedInt32Array, size: Vector3i, p: Vector3i, paint: int) -> void:
 	c[p.x + size.x * (p.y + size.y * p.z)] = paint
-
-
-## 8-shade patterns: a hash per cell, grain along x for the wood, lighter towards the top.
-static func _shade(c: PackedInt32Array, size: Vector3i) -> PackedInt32Array:
-	var out := PackedInt32Array()
-	out.resize(c.size())
-	for z in size.z:
-		for y in size.y:
-			for x in size.x:
-				var i := x + size.x * (y + size.y * z)
-				if c[i] <= 0:
-					continue
-				var base := c[i] - 1
-				var grain := float(hash(Vector3i(x / 3, y, z)) % 1000) / 999.0
-				var n := float(hash(Vector3i(x, y, z) * 7 + Vector3i(1, 2, 3)) % 1000) / 999.0
-				var k := clampi(int(round(1.0 + grain * 3.6 + n * 2.0 + float(y) / size.y * 1.4)), 0, SHADES - 1)
-				out[i] = base * SHADES + k + 1
-	return out

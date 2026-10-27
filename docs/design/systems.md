@@ -153,4 +153,7 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   `GroundPickups`, probe `tools/clutter_probe.gd`). Crafting: any layout, amounts in inventory counts (ADR 0046). `MicroMesher` builds the
   models of stations, furniture, work pieces, mobs and the ape at 6.25 cm cells; it winds triangles
   counter-clockwise, so pass its meshes through `MobModel.outward` (which reads an ArrayMesh back and
-  waits 4-6 ms for the render thread: never per edit).
+  waits 4-6 ms for the render thread: never per edit). Stations (table, chest, furnace) are 1 m models
+  from `StationEntity.model_mesh(name)` with footprints in `StationEntity.SIZES`; every cell model goes
+  through `WorkPalette.shade_cells` (tones per cell, darker convex edges, ADR 0076); check with
+  `tools/station_sheet.tscn`.

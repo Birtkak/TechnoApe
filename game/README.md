@@ -84,6 +84,7 @@ Godot_..._console.exe --headless --path game --script res://tools/fine_probe.gd 
 Godot_..._console.exe --headless --path game --script res://tools/face_probe.gd -- biome=forest lod=0 m=16   # exposed faces per material (draw cost)
 Godot_..._console.exe --headless --path game --script res://tools/seam_probe.gd -- seed=1337   # rivers across hydrology tile borders
 Godot_..._console.exe --path game --script res://tools/model_sheet.gd -- out=res://out/models/sheet.png  # renders every micro model
+Godot_..._console.exe --path game res://tools/station_sheet.tscn -- out=res://out/stations.png            # the 1 m stations and three work pieces, shaded (ADR 0076)
 Godot_..._console.exe --path game --script res://tools/anim_probe.gd                       # terrain shader: animated tiles change, others do not
 Godot_..._console.exe --headless --path game --script res://tools/shore_probe.gd -- seed=1337   # hydrology flags along a lake waterline
 Godot_..._console.exe --path game -- autopilot=1 duration=8 capture_every=2 target=cave inside=1 speed=0.6 out=res://out/cave1  # inside a cave, with a torch (deep_cave: 50-170 voxels down)

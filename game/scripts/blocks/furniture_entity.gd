@@ -106,7 +106,7 @@ func summary() -> Dictionary:
 
 # ---------------- the model ----------------
 
-const ATLAS := Vector2i(8, 1)
+const ATLAS := Vector2i(WorkPalette.SHADES, 8)   # tone columns per paint (WorkPalette.shade_cells)
 const PLANK := 0
 const PLANK_DARK := 1
 const WOOL := 2
@@ -126,25 +126,18 @@ static var _meshes := {}
 static func material() -> StandardMaterial3D:
 	if _material:
 		return _material
-	var img := Image.create(ATLAS.x * 16, ATLAS.y * 16, false, Image.FORMAT_RGBA8)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 5151
+	var img := Image.create(ATLAS.x * 4, ATLAS.y * 4, false, Image.FORMAT_RGBA8)
 	for t in PALETTE.size():
-		var base: Array = PALETTE[t]
-		for y in 16:
-			for x in 16:
-				var k := rng.randi_range(-6, 6)
-				if t <= PLANK_DARK and y % 4 == 0:
-					k -= 10   # plank grain
-				img.set_pixel(t * 16 + x, y, Color8(clampi(base[0] + k, 0, 255), clampi(base[1] + k, 0, 255), clampi(base[2] + k, 0, 255)))
+		for k in WorkPalette.SHADES:
+			img.fill_rect(Rect2i(k * 4, t * 4, 4, 4), WorkPalette.tone_color(PALETTE[t], k))
 	_material = StandardMaterial3D.new()
 	_material.albedo_texture = ImageTexture.create_from_image(img)
-	_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	_material.roughness = 0.9
 	_tiles = PackedInt32Array()
-	_tiles.resize(PALETTE.size() + 1)
+	_tiles.resize(PALETTE.size() * WorkPalette.SHADES + 1)
 	_tiles[0] = -1
-	for i in PALETTE.size():
+	for i in PALETTE.size() * WorkPalette.SHADES:
 		_tiles[i + 1] = i
 	return _material
 
@@ -167,7 +160,7 @@ static func mesh_for(p_kind: String) -> ArrayMesh:
 		var size: Vector3i = KINDS[p_kind]["cells"]
 		var c := cells_for(p_kind)
 		# cell centres of voxel (0, 0, 0) sit on the node origin, so rotations keep the footprint on the grid
-		_meshes[p_kind] = MobModel.outward(MicroMesher.build(c, size, GameMaterials.MICRO_GRID, _tiles, ATLAS, Vector3(-0.5, 0, -0.5)))
+		_meshes[p_kind] = MobModel.outward(MicroMesher.build(WorkPalette.shade_cells(c, size, []), size, GameMaterials.MICRO_GRID, _tiles, ATLAS, Vector3(-0.5, 0, -0.5)))
 	return _meshes[p_kind]
 
 

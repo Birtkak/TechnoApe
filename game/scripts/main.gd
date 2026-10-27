@@ -449,7 +449,7 @@ func _ready() -> void:
 	warmup.setup(world.terrain.mesher as VoxelMesherBlocky, player.camera)
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(player.warm_materials(), player.camera)
-		warmup.add_meshes([StationEntity.model_mesh(), BlockMeshes.sprite("torch"), BlockMeshes.sprite("iron_ore")], player.camera)   # the table; item sprites, extruded and cube (held and dropped)
+		warmup.add_meshes([StationEntity.model_mesh(), StationEntity.model_mesh("chest"), StationEntity.model_mesh("furnace"), StationEntity.model_mesh("furnace_lit"), BlockMeshes.sprite("torch"), BlockMeshes.sprite("iron_ore")], player.camera)   # the stations; item sprites, extruded and cube (held and dropped)
 	# chips, dust, splashes, smoke, hearts, lava pops, drips and waterfall spray (scripts/visuals/particle_fx.gd)
 	if Settings.particles:
 		fx = ParticleFx.load_default()
@@ -1251,8 +1251,8 @@ func _add_station_view(e: RefCounted) -> void:
 		m = GameMaterials.id_of({"station": "crafting_table", "chest": "chest", "furnace": "furnace", "storage_pot": "storage_pot"}.get(e.kind, "chest"))
 	var mi := MeshInstance3D.new()
 	var d: Dictionary = GameMaterials.defs()[m - 1]
-	if e is StationEntity:
-		mi.mesh = StationEntity.model_mesh()   # the 1 m workbench, in voxel units (ADR 0053)
+	if StationEntity.SIZES.has(e.kind):
+		mi.mesh = StationEntity.model_mesh(d["name"])   # the 1 m workbench, chest or furnace, in voxel units (ADR 0053, 0076)
 		mi.position = Vector3(e.pos)
 		mi.visibility_range_end = 160.0
 		_station_root.add_child(mi)

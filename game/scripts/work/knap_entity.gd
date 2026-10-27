@@ -102,12 +102,13 @@ func is_lit() -> bool:
 
 
 func view_parts() -> Dictionary:
-	var size := Vector3i(N, 1, N)
+	var size := Vector3i(N, 2, N)   # a flat stone to knap on, the piece one cell above it
 	var c := WorkPalette.new_cells(size)
+	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(N, 1, N), WorkPalette.STONE)
 	for z in N:
 		for x in N:
 			if chipped[x + N * z] == 0:
-				c[WorkPalette.idx(size, x, 0, z)] = (WorkPalette.FLINT if keeps(x, z) else WorkPalette.FLINT_MARK) + 1
+				c[WorkPalette.idx(size, x, 1, z)] = (WorkPalette.FLINT if keeps(x, z) else WorkPalette.FLINT_MARK) + 1
 	return {"solid": {"cells": c, "size": size}}
 
 

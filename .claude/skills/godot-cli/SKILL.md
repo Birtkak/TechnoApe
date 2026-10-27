@@ -31,3 +31,4 @@ Rules:
 - Typed GDScript: `var x := call()` fails to infer on Variant returns; annotate.
 - Godot front faces are clockwise; CCW corner tables need index order 0,2,1 / 0,3,2.
 - Kill strays: `taskkill /F /IM Godot_v4.7.2-stable_mono_win64_console.exe`.
+- **Every run gets a hard cap**: prefix with `timeout <s>` (Git Bash) sized to the expected length plus a little (sheet tools 60 s, a 20 s autopilot 90 s, the full test suite 600 s), then `taskkill` the strays in the same command. A tool script that waits for frames also quits itself on a deadline (see `tools/station_sheet.gd` DEADLINE_MS). Never wait on an open-ended Godot process.
