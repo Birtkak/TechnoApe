@@ -24,6 +24,7 @@ var _seed_edit: LineEdit
 var _mode: OptionButton
 var _create_error: Label
 var _confirm: ConfirmationDialog
+var _old_gen: ConfirmationDialog   # the world's saves are from another generator version
 var _settings: SettingsPanel
 var _t := 0.0
 
@@ -53,6 +54,11 @@ func _ready() -> void:
 	_confirm.ok_button_text = "Delete"
 	_confirm.confirmed.connect(_delete_selected)
 	add_child(_confirm)
+	_old_gen = ConfirmationDialog.new()
+	_old_gen.title = "Older world"
+	_old_gen.ok_button_text = "Play anyway"
+	_old_gen.confirmed.connect(func() -> void: play(_selected()))
+	add_child(_old_gen)
 	show_page("main")
 	if DebugCapture.has_method("menu_test_ready"):
 		DebugCapture.menu_test_ready(self)
@@ -213,8 +219,15 @@ func _update_world_buttons() -> void:
 
 func _play_selected() -> void:
 	var e := _selected()
-	if not e.is_empty():
-		play(e)
+	if e.is_empty():
+		return
+	var g := worlds.saved_gen(e)
+	if g >= 0 and g != TerrainGenerator.GEN_VERSION:
+		_old_gen.dialog_text = ("\"%s\" was saved with world generator %d; this version has %d. It opens as a new world "
+			+ "with the same seed: new terrain, a fresh player. The old save stays on disk.") % [e["name"], g, TerrainGenerator.GEN_VERSION]
+		_old_gen.popup_centered()
+		return
+	play(e)
 
 
 func play(e: Dictionary) -> void:

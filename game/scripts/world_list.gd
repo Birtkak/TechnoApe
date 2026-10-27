@@ -115,6 +115,23 @@ func touch(e: Dictionary) -> void:
 	save_index()
 
 
+## The newest generator version this world has save files for, or -1 when it has none yet.
+## Saves are keyed by generator version, so after a GEN_VERSION bump the world opens empty.
+func saved_gen(e: Dictionary) -> int:
+	var best := -1
+	var da := DirAccess.open(dir)
+	if da == null:
+		return best
+	var key := "_%d_g" % int(e["seed"])
+	for f in da.get_files():
+		var i := f.find(key)
+		if i >= 0:
+			var g := f.substr(i + key.length()).get_slice(".", 0)
+			if g.is_valid_int():
+				best = maxi(best, int(g))
+	return best
+
+
 ## Deletes the world's entry and every save file of its seed (all generator versions).
 func delete(e: Dictionary) -> int:
 	var removed := 0

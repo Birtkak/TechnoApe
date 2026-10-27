@@ -749,6 +749,9 @@ func _on_pause_requested() -> void:
 
 ## Minecraft pauses when the window loses focus (not autopilot runs, not while loading).
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:   # the window's X / Alt+F4: _exit_tree is too late, the terrain has left
+		_save_blocks()
+		save_terrain(5.0)
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and pause_menu != null and is_instance_valid(_loading) == false:
 		_on_pause_requested()
 

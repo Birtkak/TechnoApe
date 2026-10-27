@@ -82,6 +82,16 @@ func test_old_saves_are_adopted_and_delete_removes_every_file() -> void:
 	assert_bool(_list().find_seed(4242).is_empty()).is_true()
 
 
+func test_saved_gen_is_the_newest_version_on_disk() -> void:
+	var w := _list()
+	var e := w.create("Delta", "5151", "survival")
+	assert_int(w.saved_gen(e)).is_equal(-1)   # a new world has no files yet: no warning
+	_touch("world_5151_g7.sqlite")
+	_touch("player_5151_g9.json.tmp")
+	_touch("world_15151_g30.sqlite")   # another seed that merely ends in 5151
+	assert_int(w.saved_gen(e)).is_equal(9)
+
+
 func test_select_points_settings_at_the_world() -> void:
 	var keep := [Settings.world_seed, Settings.world_seed_text, Settings.world_name, Settings.game_mode, Settings.persist_world]
 	var w := _list()
