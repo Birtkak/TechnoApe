@@ -2,7 +2,8 @@ class_name BrushTool
 extends RefCounted
 
 ## The brush's preview and its native path (ADR 0065). The player keeps the box outline; this adds a
-## see-through shell of the exact cells a dig (orange) or a placement (blue) would touch. Big
+## see-through shell of the exact cells a round dig (orange) or a placement would touch; a placement's
+## shell is the held material's own voxel pattern washed blue (brush_ghost.gdshader). Big
 ## creative brushes (above Brush.NATIVE_ABOVE) dig, place and paint through ShapeTool: the cells are
 ## rasterised, filtered by a material mask and written in C++, never one GDScript call per voxel
 ## (principle 8), CELLS_PER_FRAME at a time so a 4 m cube never costs one long frame.
@@ -15,6 +16,7 @@ extends RefCounted
 
 var preview: MeshInstance3D
 var preview_mat: StandardMaterial3D
+var ghost_mat: ShaderMaterial      # placements: the material's texture, blue and see-through
 var bubble: SimBubble              # set by Main; null in tests: native ops then do nothing
 var stats := {"preview_builds": 0, "preview_ms_max": 0.0, "native_digs": 0, "native_places": 0, "native_paints": 0,
 	"native_voxels": 0, "native_ms_max": 0.0, "native_slice_ms_max": 0.0, "cells_builds": 0, "cells_ms_max": 0.0,
@@ -33,6 +35,8 @@ func _init() -> void:
 	preview_mat.cull_mode = BaseMaterial3D.CULL_BACK   # outer faces only: from inside the shape (digging down in it) it is out of the way
 	preview_mat.no_depth_test = false
 	preview_mat.albedo_color = Color(1.0, 0.55, 0.25, 0.14)
+	ghost_mat = ShaderMaterial.new()
+	ghost_mat.shader = preload("res://assets/shaders/brush_ghost.gdshader")
 	preview = MeshInstance3D.new()
 	preview.name = "BrushPreview"
 	preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -114,11 +118,18 @@ func warm_cache() -> void:
 
 # ---------------- the preview ----------------
 
-## Shows the shell for this aim; null hit hides it. The box shapes (cube, flat, column) are one unit
+## The terrain's atlas for the build ghost (Player.setup_inventory).
+func set_atlas(atlas_material: ShaderMaterial) -> void:
+	for p in ["atlas", "atlas_tiles", "pattern_tiles", "water_tile", "lava_tile", "fire_tile", "far_fade_start", "far_fade_end"]:
+		ghost_mat.set_shader_parameter(p, atlas_material.get_shader_parameter(p))
+
+
+## Shows the shell for this aim; null hit hides it. A dig in a box shape shows none (the player's
+## outline is enough); a placement of material `mat` shows that material's ghost, even one voxel. The box shapes (cube, flat, column) are one unit
 ## shell scaled to the box, exact at any size. Big round brushes show a half-resolution shell (the
 ## same shape at size / 2, drawn twice as large): their full meshes took up to 28 ms to build.
-func show_at(hit: VoxelRaycastResult, size: int, shape: String, place: bool) -> void:
-	if hit == null or size <= 1:
+func show_at(hit: VoxelRaycastResult, size: int, shape: String, place: bool, mat: int = 0) -> void:
+	if hit == null or (not place and (size <= 1 or shape in Brush.BOX_SHAPES)):
 		preview.visible = false
 		return
 	var front: Vector3i = hit.previous_position
@@ -147,6 +158,10 @@ func show_at(hit: VoxelRaycastResult, size: int, shape: String, place: bool) -> 
 	else:
 		preview.scale = Vector3.ONE * (2.0 if coarse else 1.0)
 	preview_mat.albedo_color = Color(0.35, 0.8, 1.0, 0.16) if place else Color(1.0, 0.55, 0.25, 0.2)
+	preview.material_override = ghost_mat if place and mat > 0 else null
+	if place and mat > 0:
+		var t: Array = GameMaterials.defs()[mat - 1]["tiles"]
+		ghost_mat.set_shader_parameter("tiles", Vector3(float(t[0]), float(t[1]), float(t[2])))
 	preview_mat.no_depth_test = not place   # a dig lies inside the terrain (flush with the aimed face): the shell shows through
 	if preview.is_inside_tree():
 		var at := Vector3(lo)
@@ -166,12 +181,13 @@ func note(kind: String, aim: Vector3i, normal: Vector3i, box: AABB, cells: int) 
 		"size": "%d %d %d" % [int(box.size.x), int(box.size.y), int(box.size.z)], "cells": cells}
 
 
-## A one-voxel shell in the preview's vertex format and material, for MaterialWarmup.
+## A one-voxel shell in the preview's vertex format, once per material (dig shell, build ghost), for MaterialWarmup.
 func warm_mesh() -> Mesh:
 	var arr: Array = _st.mesh(PackedInt32Array([0, 0, 0]), Vector3i.ZERO, Vector3i.ONE)
 	var m := ArrayMesh.new()
-	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-	m.surface_set_material(0, preview_mat)
+	for i in 2:
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		m.surface_set_material(i, ghost_mat if i == 1 else preview_mat)
 	return m
 
 

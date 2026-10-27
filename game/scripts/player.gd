@@ -183,6 +183,8 @@ func setup_inventory(p_inv: PlayerInventory, p_mining: MiningTable, atlas_materi
 	viewmodel = Viewmodel.new()
 	viewmodel.items = inventory.items
 	viewmodel.atlas_material = atlas_material
+	if atlas_material is ShaderMaterial:
+		brush_tool.set_atlas(atlas_material)
 	camera.add_child(viewmodel)
 	inventory.selection_changed.connect(func(_i: int) -> void: viewmodel.show_item(inventory.held()))
 	inventory.changed.connect(func() -> void:
@@ -810,16 +812,16 @@ func _update_mining(delta: float) -> void:
 		brush_tool.hide()
 		if sneaking() or tm <= 0 or GameMaterials.defs()[tm - 1].get("interact", "work") == "work":   # a click there opens it, places nothing
 			_show_station_ghost(hit, station_mat)
-	elif hit and Settings.brush_ghost and brush_ghost_fits(world.get_voxel(hit.position)):
-		_highlight.visible = true
-		var placing := _places_voxels() and not holding   # breaking shows what the dig takes
+	elif hit and Settings.brush_ghost and brush_ghost_fits(world.get_voxel(hit.position)) and (holding or _places_voxels() or _mines_with_held()):
+		# a block shows its textured ghost, a bare hand or a tool the thick outline of what it digs;
+		# anything else (mushrooms, sticks, food) shows nothing until the button is held
+		var placing := _places_voxels() and not holding
 		var size := place_size() if placing else dig_size()
-		var hb := Brush.place_bounds(hit.position, hit.previous_position, size, brush_shape) if placing else Brush.dig_bounds(hit.position, size, brush_shape, hit.previous_position - hit.position)
-		_highlight.global_position = hb.position
-		_highlight.scale = hb.size
-		_highlight_mat.no_depth_test = not placing   # a dig lies inside the terrain: its outline shows through
-		_highlight_mat.albedo_color = Color(0, 0, 0, 0.8)
-		brush_tool.show_at(hit, size, brush_shape, placing)
+		_highlight.visible = not placing
+		if not placing:
+			var hb := Brush.dig_bounds(hit.position, size, brush_shape, hit.previous_position - hit.position)
+			_set_outline(hb.position, hb.size, Color(0.05, 0.05, 0.05, 0.85), true)   # a dig lies inside the terrain: its outline shows through
+		brush_tool.show_at(hit, size, brush_shape, placing, ItemIcon.material_id_for(inventory.items, inventory.held_def()["id"]) if placing else 0)
 	else:
 		_highlight.visible = false
 		brush_tool.hide()
@@ -1462,11 +1464,17 @@ func _show_station_ghost(hit: VoxelRaycastResult, mat: int) -> void:
 		_station_ghost.global_position = Vector3(spot["anchor"])
 		_station_ghost.visible = true
 		StationEntity.ghost_tint(not spot["free"])
-	_highlight.visible = true   # the footprint's outline: the pot and anything without a model show only this
-	_highlight.global_position = Vector3(spot["anchor"])
-	_highlight.scale = Vector3(spot["size"])
-	_highlight_mat.no_depth_test = false
-	_highlight_mat.albedo_color = Color(0, 0, 0, 0.8) if spot["free"] else Color(0.9, 0.1, 0.1, 0.9)
+	_highlight.visible = not has_model   # the pot and anything without a model show their footprint's outline
+	if not has_model:
+		_set_outline(Vector3(spot["anchor"]), Vector3(spot["size"]), Color(0.35, 0.7, 1.0, 0.85) if spot["free"] else Color(0.9, 0.1, 0.1, 0.9), false)
+
+
+## A bare hand or a tool: what mining is done with (anything else held shows no dig outline).
+func _mines_with_held() -> bool:
+	if inventory == null:
+		return false
+	var def := inventory.held_def()
+	return def.is_empty() or "tool" in def.get("tags", [])
 
 
 ## The ground voxels a hoe or seeds work on: the brush's square (brush_size
@@ -1738,26 +1746,55 @@ func throw_stack(stack: Dictionary) -> void:
 # ---------------- helpers: target outline and crack box ----------------
 
 func _make_box_outline() -> MeshInstance3D:
-	var im := ImmediateMesh.new()
 	var m := StandardMaterial3D.new()
 	_highlight_mat = m
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.albedo_color = Color(0, 0, 0, 0.8)
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.no_depth_test = false
-	im.surface_begin(Mesh.PRIMITIVE_LINES, m)
-	var e := 0.004
-	var a := -e
-	var b := 1.0 + e
-	var c := [Vector3(a, a, a), Vector3(b, a, a), Vector3(b, a, b), Vector3(a, a, b), Vector3(a, b, a), Vector3(b, b, a), Vector3(b, b, b), Vector3(a, b, b)]
-	for pair in [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]]:
-		im.surface_add_vertex(c[pair[0]])
-		im.surface_add_vertex(c[pair[1]])
-	im.surface_end()
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var mi := MeshInstance3D.new()
-	mi.mesh = im
+	mi.mesh = ImmediateMesh.new()
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
+
+
+var _outline_size := Vector3.ZERO
+
+## Puts the outline round the box at `pos` of `size` voxels: twelve bars as thick as a fraction of the
+## box (lines are one pixel wide in Godot), rebuilt only when the size changes.
+func _set_outline(pos: Vector3, size: Vector3, colour: Color, through: bool) -> void:
+	_highlight.global_position = pos
+	_highlight.scale = Vector3.ONE
+	_highlight_mat.albedo_color = colour
+	_highlight_mat.no_depth_test = through
+	if size == _outline_size:
+		return
+	_outline_size = size
+	var im := _highlight.mesh as ImmediateMesh
+	im.clear_surfaces()
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES, _highlight_mat)
+	var t := clampf(maxf(size.x, maxf(size.y, size.z)) * 0.07, 0.3, 1.0) * 0.5
+	for axis in 3:
+		for i in 4:
+			var lo := Vector3(-t, -t, -t)
+			var hi := Vector3(t, t, t)
+			hi[axis] = size[axis] + t
+			var u := (axis + 1) % 3
+			var w := (axis + 2) % 3
+			var off := Vector3.ZERO
+			off[u] = size[u] if i & 1 else 0.0
+			off[w] = size[w] if i & 2 else 0.0
+			_add_box(im, lo + off, hi + off)
+	im.surface_end()
+
+
+static func _add_box(im: ImmediateMesh, lo: Vector3, hi: Vector3) -> void:
+	var c := [Vector3(lo.x, lo.y, lo.z), Vector3(hi.x, lo.y, lo.z), Vector3(hi.x, lo.y, hi.z), Vector3(lo.x, lo.y, hi.z),
+		Vector3(lo.x, hi.y, lo.z), Vector3(hi.x, hi.y, lo.z), Vector3(hi.x, hi.y, hi.z), Vector3(lo.x, hi.y, hi.z)]
+	for f in [[0, 1, 2, 3], [7, 6, 5, 4], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]]:
+		for k in [0, 1, 2, 0, 2, 3]:
+			im.surface_add_vertex(c[f[k]])
 
 
 func _make_crack_box() -> Node3D:
