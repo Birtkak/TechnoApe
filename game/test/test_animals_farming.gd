@@ -335,7 +335,10 @@ func test_furniture_mesh_cells_fit_the_footprint() -> void:
 		var size: Vector3i = FurnitureEntity.KINDS[k]["cells"]
 		var foot: Vector3i = FurnitureEntity.KINDS[k]["size"]
 		assert_int(size.x).is_equal(foot.x * GameMaterials.MICRO_GRID)
-		assert_int(size.z).is_equal(foot.z * GameMaterials.MICRO_GRID)
+		if FurnitureEntity.KINDS[k].has("box"):
+			assert_int(size.z).is_less_equal(foot.z * GameMaterials.MICRO_GRID)   # thin pieces (ADR 0094)
+		else:
+			assert_int(size.z).is_equal(foot.z * GameMaterials.MICRO_GRID)
 		var c := FurnitureEntity.cells_for(k)
 		var filled := 0
 		for v in c:

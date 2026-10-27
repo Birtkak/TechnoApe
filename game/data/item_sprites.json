@@ -2047,6 +2047,233 @@
         "...o.......o...."
       ]
     },
+    "door": {
+      "colors": {"i": "#3a3c42"},
+      "rows": [
+        "....oooooooo....",
+        "...oddddddddo...",
+        "...odlmlmlmdo...",
+        "...odlmlmlmdo...",
+        "...odlmlmlmdo...",
+        "...oddddddddo...",
+        "...odlmlmlmdo...",
+        "...odlmlmiido...",
+        "...odlmlmlmdo...",
+        "...oddddddddo...",
+        "...odlmlmlmdo...",
+        "...odlmlmlmdo...",
+        "...odlmlmlmdo...",
+        "...odlmlmlmdo...",
+        "...oddddddddo...",
+        "....oooooooo...."
+      ]
+    },
+    "trapdoor": {
+      "colors": {"i": "#3a3c42"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "..oooooooooooo..",
+        ".oddddddddddddo.",
+        ".odlllllllllldo.",
+        ".odmmmmmmmmmmdo.",
+        ".oddddddddddddo.",
+        ".odlllllllllldo.",
+        ".odmmmmmiimmmdo.",
+        ".oddddddddddddo.",
+        "..oooooooooooo..",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "fence": {
+      "rows": [
+        "................",
+        "..oo........oo..",
+        ".oddo......oddo.",
+        ".odloooooooodlo.",
+        ".odlmmmmmmmmdlo.",
+        ".odllllllllldlo.",
+        ".odloooooooodlo.",
+        ".odloooooooodlo.",
+        ".odlmmmmmmmmdlo.",
+        ".odllllllllldlo.",
+        ".odloooooooodlo.",
+        ".odlo......odlo.",
+        ".odlo......odlo.",
+        ".odlo......odlo.",
+        ".oddo......oddo.",
+        "..oo........oo.."
+      ]
+    },
+    "fence_gate": {
+      "rows": [
+        "................",
+        "................",
+        "..oo........oo..",
+        ".oddooooooooddo.",
+        ".odlmmmmmmmmdlo.",
+        ".odllllllllldlo.",
+        ".odlooooollodlo.",
+        ".odlooollooodlo.",
+        ".odlollooooodlo.",
+        ".odlmmmmmmmmdlo.",
+        ".odllllllllldlo.",
+        ".odloooooooodlo.",
+        ".odlo......odlo.",
+        ".odlo......odlo.",
+        ".oddo......oddo.",
+        "..oo........oo.."
+      ]
+    },
+    "ladder": {
+      "rows": [
+        "....o......o....",
+        "...odoooooodo...",
+        "...odmmmmmmdo...",
+        "...odllllllldo..",
+        "...odoooooodo...",
+        "...odoooooodo...",
+        "...odmmmmmmdo...",
+        "...odllllllldo..",
+        "...odoooooodo...",
+        "...odoooooodo...",
+        "...odmmmmmmdo...",
+        "...odllllllldo..",
+        "...odoooooodo...",
+        "...odo....odo...",
+        "...odo....odo...",
+        "....o......o...."
+      ]
+    },
+    "window": {
+      "colors": {"g": "#a6d6e2", "h": "#eef8fc"},
+      "rows": [
+        "................",
+        "..oooooooooooo..",
+        ".oddddddddddddo.",
+        ".odgggghdggggdo.",
+        ".odghggggdgghgdo",
+        ".odgggggdggggdo.",
+        ".odgggggdggggdo.",
+        ".odgggggdggggdo.",
+        ".oddddddddddddo.",
+        ".odgggghdggggdo.",
+        ".odghggggdgghgdo",
+        ".odgggggdggggdo.",
+        ".odgggggdggggdo.",
+        ".oddddddddddddo.",
+        ".ommmmmmmmmmmmo.",
+        "..oooooooooooo.."
+      ]
+    },
+    "table": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "..oooooooooooo..",
+        ".ohlllllllllllo.",
+        ".ommmmmmmmmmmmo.",
+        ".oddddddddddddo.",
+        "..oddooooooddo..",
+        "..oddo....oddo..",
+        "..oddo....oddo..",
+        "..oddo....oddo..",
+        "..oddo....oddo..",
+        "..oddo....oddo..",
+        "...oo......oo...",
+        "................"
+      ]
+    },
+    "shelf": {
+      "colors": {"r": "#a82228", "b": "#34489a", "g": "#46843a", "y": "#c8a840"},
+      "rows": [
+        "..oooooooooooo..",
+        ".oddddddddddddo.",
+        ".odrrbbgyrbbgdo.",
+        ".odrrbbgyrbbgdo.",
+        ".odrrbbgyrbbgdo.",
+        ".odllllllllllldo",
+        ".odbgyyrrbgrrdo.",
+        ".odbgyyrrbgrrdo.",
+        ".odbgyyrrbgrrdo.",
+        ".odllllllllllldo",
+        ".odyrrbgbbyrgdo.",
+        ".odyrrbgbbyrgdo.",
+        ".odyrrbgbbyrgdo.",
+        ".odllllllllllldo",
+        ".oddooooooooddo.",
+        "..oo........oo.."
+      ]
+    },
+    "lantern": {
+      "colors": {"i": "#45474e", "f": "#ffb050", "y": "#fff0a0"},
+      "rows": [
+        "......oooo......",
+        ".....oiiiio.....",
+        ".....oiooio.....",
+        "....oiiiiiio....",
+        "...oiiiiiiiio...",
+        "...oioffffoio...",
+        "...oiofyyfoio...",
+        "...oiofyyfoio...",
+        "...oiofyyfoio...",
+        "...oioffffoio...",
+        "...oiiiiiiiio...",
+        "....oiiiiiio....",
+        ".....oooooo.....",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "flower_pot": {
+      "colors": {"y": "#e2c440", "r": "#c43a2a", "g": "#46843a", "t": "#b05a34", "T": "#8a3e22"},
+      "rows": [
+        "......ooo.......",
+        ".....oyryo......",
+        "....oyrrryo.....",
+        ".....oyryo......",
+        "...oo.ogo.oo....",
+        "..oggoogooggo...",
+        "...ogggggggo....",
+        "...oooogooooo...",
+        "..otttttttttto..",
+        "..oTTTTTTTTTTo..",
+        "...otttttttto...",
+        "...otttttttto...",
+        "...otttttttto...",
+        "....oTTTTTTo....",
+        ".....oooooo.....",
+        "................"
+      ]
+    },
+    "painting": {
+      "colors": {"s": "#80ace0", "y": "#e2c440", "g": "#46843a", "w": "#34489a"},
+      "rows": [
+        "................",
+        ".oooooooooooooo.",
+        "oddddddddddddddo",
+        "odsssssssssyysdo",
+        "odsssssssssyysdo",
+        "odssssssssssssdo",
+        "odsssgggsssssdo.",
+        "odssgggggssgggdo",
+        "odgggggggggggggd",
+        "odgggggggggggggd",
+        "odwwwwwwwwwwwwdo",
+        "odwwwwwwwwwwwwdo",
+        "oddddddddddddddo",
+        ".oooooooooooooo.",
+        "................",
+        "................"
+      ]
+    },
     "axe_mold": {
       "colors": {"i": "#3a1a0e", "I": "#24100a"},
       "rows": [
@@ -3595,6 +3822,17 @@
     "straw_bed": {"layers": [{"shape": "bed", "palette": "straw"}]},
     "bed": {"layers": [{"shape": "bed", "palette": "blanket"}]},
     "chair": {"layers": [{"shape": "chair", "palette": "wood"}]},
+    "door": {"layers": [{"shape": "door", "palette": "wood"}]},
+    "trapdoor": {"layers": [{"shape": "trapdoor", "palette": "wood"}]},
+    "fence": {"layers": [{"shape": "fence", "palette": "wood"}]},
+    "fence_gate": {"layers": [{"shape": "fence_gate", "palette": "wood"}]},
+    "ladder": {"layers": [{"shape": "ladder", "palette": "wood"}]},
+    "window": {"layers": [{"shape": "window", "palette": "wood"}]},
+    "table": {"layers": [{"shape": "table", "palette": "wood"}]},
+    "shelf": {"layers": [{"shape": "shelf", "palette": "wood"}]},
+    "lantern": {"layers": [{"shape": "lantern", "palette": "wood"}]},
+    "flower_pot": {"layers": [{"shape": "flower_pot", "palette": "wood"}]},
+    "painting": {"layers": [{"shape": "painting", "palette": "wood"}]},
     "wheat_seeds": {"layers": [{"shape": "seeds", "palette": "seed"}]},
     "wheat": {"layers": [{"shape": "sheaf", "palette": "straw"}]},
     "carrot": {"layers": [{"shape": "carrot", "palette": "carrot"}]},

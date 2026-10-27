@@ -52,6 +52,7 @@ var sneak_speed_m := 1.3                # Shift: Minecraft's sneak is 0.3 x walk
 var sneak_eye_drop_m := 0.25            # and lowers the eyes
 var fly_speed_m := 20.0
 var jump_height_m := 1.25
+var climb_speed_m := 2.4                # up or down a ladder (Minecraft's 2.35 blocks/s; ADR 0094)
 var step_height_m := 0.55               # auto step-up: one 0.5 m block (BLOCK voxels) plus a little slack
 var player_height_m := 1.8
 var player_radius_m := 0.3

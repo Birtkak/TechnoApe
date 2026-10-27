@@ -18,6 +18,8 @@ const KITS := {
 	"builder": {"stone": 64, "cobblestone": 64, "bricks": 64, "dirt": 64, "grass_block": 64, "sand": 64, "gravel": 64,
 		"oak_planks": 64, "oak_log": 64, "birch_log": 64, "spruce_log": 64, "glass": 64, "sandstone": 64, "terracotta": 64,
 		"basalt": 64, "clay": 64, "thatch": 64, "wattle": 64, "daub": 64, "torch": 64},
+	"house": {"door": 4, "trapdoor": 4, "fence": 16, "fence_gate": 4, "ladder": 16, "window": 8, "table": 2, "shelf": 2,
+		"lantern": 8, "flower_pot": 4, "painting": 4, "chair": 4, "bed": 1, "carpet": 16},   # ADR 0094
 	"stations": {"crafting_table": 4, "furnace": 4, "chest": 4, "storage_pot": 2, "firepit": 2, "sieve": 2, "stone_anvil": 1,
 		"cooking_pot": 1, "crucible": 1, "ingot_mold": 2, "bed": 1, "iron_ore": 16, "copper_ore": 16, "tin_ore": 16, "coal": 32},
 	"farm": {"iron_hoe": 1, "wheat_seeds": 32, "carrot": 16, "wheat": 32, "pumpkin": 4, "blueberry": 16, "egg": 8, "bread": 8,

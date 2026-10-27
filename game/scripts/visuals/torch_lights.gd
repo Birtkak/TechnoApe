@@ -139,6 +139,13 @@ func _assign() -> void:
 		var d2 := at.distance_squared_to(eye)
 		if d2 <= r2:
 			near.append([d2, at, fire])
+	for e in main.blocks.all_furniture():   # placed lanterns (ADR 0094): furniture whose item has "light"
+		var ldef := light_of(main.items, e.item_id())
+		if not ldef.is_empty():
+			var at: Vector3 = e.light_at()
+			var d2 := at.distance_squared_to(eye)
+			if d2 <= r2:
+				near.append([d2, at, ldef])
 	var dropped := 0
 	for it in main._item_entities:
 		if not is_instance_valid(it):

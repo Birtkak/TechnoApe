@@ -149,6 +149,14 @@ func _ready() -> void:
 	player.landed.connect(trample)
 	player.farm = farming
 	player.place_furniture = _place_furniture
+	player.furniture_is = func(p: Vector3i, what: String) -> bool:
+		var f := blocks.furniture_at(p)
+		if f == null:
+			return what == "use"   # a stray furniture voxel: _use_furniture clears it
+		var k: Dictionary = FurnitureEntity.KINDS[f.furniture]
+		if what == "use":   # a table or shelf takes no click: a pot or lantern goes on it
+			return f.furniture == "chair" or k.get("sleep", false) or f.can_open()
+		return k.get(what, false)
 
 	_items_root = Node3D.new()
 	_items_root.name = "Items"
@@ -333,6 +341,8 @@ func _ready() -> void:
 			_after_load(_debug_animals)
 		if DebugCapture.farm_test:
 			_after_load(_debug_farm)
+		if DebugCapture.building_test:
+			_after_load(_debug_building)
 		if DebugCapture.hands_test:
 			_after_load(_debug_hands)
 		if DebugCapture.swim_test:
@@ -1190,6 +1200,34 @@ func _remove_furniture(e: FurnitureEntity, drop: bool) -> void:
 		player.stand_up()
 
 
+## Opens or shuts a door, trapdoor or fence gate (ADR 0094): its voxels move to the other box and its
+## model swings there. Returns false when something stands in the way (a wall, the player).
+func toggle_door(e: FurnitureEntity) -> bool:
+	var k: Dictionary = FurnitureEntity.KINDS[e.furniture]
+	var mine := {}
+	for c in e.cells:
+		mine[c] = true
+	var to := FurnitureEntity.footprint(e.furniture, e.pos, e.facing, not e.open)
+	for c in to:
+		if not mine.has(c) and (not player._placeable(get_world_voxel(c)) or player._overlaps_player(c)):
+			return false
+	var now := {}
+	for c in to:
+		now[c] = true
+	for c in blocks.set_open(e, not e.open):
+		if not now.has(c) and get_world_voxel(c) == GameMaterials.FURNITURE:
+			set_world_voxel(c, GameMaterials.AIR)
+	for c in to:
+		if not mine.has(c):
+			set_world_voxel(c, GameMaterials.FURNITURE)
+	var hinge: Node3D = _furniture_views[e.pos].get_node_or_null("Hinge") if _furniture_views.has(e.pos) else null
+	if hinge != null:
+		var tw := create_tween()
+		tw.tween_property(hinge, "rotation", k["swing"] if e.open else Vector3.ZERO, CHEST_SWING_S).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	Sound.play("block/chest_open" if e.open else "block/chest_close", e.light_at())
+	return true
+
+
 ## Right click on a bed or straw bed: sleep through the night (Minecraft: 12542..23459 of its
 ## 24000 ticks = after sunset to before sunrise) and set the respawn point
 ## beside it; on a chair: sit down.
@@ -1201,6 +1239,11 @@ func _use_furniture(p: Vector3i) -> void:
 	if e.furniture == "chair":
 		player.sit(e.seat(), e.yaw())
 		return
+	if e.can_open():
+		toggle_door(e)
+		return
+	if not FurnitureEntity.KINDS[e.furniture].get("sleep", false):
+		return   # a table, shelf, window...: nothing to use
 	_spawn_pos = e.seat() + Vector3(0, 0.6, 0)
 	# night = the sun is down (sunset and sunrise move with the seasons, ADR 0025); wake at sunrise
 	var cal := atmosphere.calendar
@@ -2188,3 +2231,87 @@ func _debug_hands() -> void:
 	r["health_after_eating"] = player_inv.health
 	player.set_look(0.0, -0.5)
 	print("debug hands " + JSON.stringify(r))
+
+
+## Debug (building_test=1, ADR 0094): a planks room on a flat patch; places every door, fence, ladder
+## and decoration piece through the player's input code, films the room with the door shut and open,
+## stands at the ladder; prints one JSON line and saves out/building.png (shut | open).
+func _debug_building() -> void:
+	var r := {}
+	await get_tree().create_timer(0.6).timeout
+	player.autopilot_action = "look"
+	var B := Settings.BLOCK
+	var base := BlockEntities.anchor_for(Vector3i(player.position.floor()))
+	var g0 := floori(float(world.surface_height(base.x, base.z)) / B) * B - 1
+	var lo := Vector3i(base.x - 6 * B, g0 - B, base.z - 10 * B)
+	var hi := Vector3i(base.x + 6 * B, g0 + 1, base.z + 2 * B)
+	_debug_fill(lo, Vector3i(hi.x, g0 + 1, hi.z), GameMaterials.PLANKS)
+	_debug_fill(Vector3i(lo.x, g0 + 1, lo.z), Vector3i(hi.x, g0 + 1 + 8 * B, hi.z), GameMaterials.AIR)
+	var back := base.z - 9 * B   # the back wall, one voxel thick, and a doorframe off the block grid
+	var zp := base.z - 5 * B - 1
+	_debug_fill(Vector3i(lo.x, g0 + 1, back), Vector3i(hi.x, g0 + 1 + 6 * B, back + 1), GameMaterials.PLANKS)
+	_debug_fill(Vector3i(base.x + 2 * B, g0 + 1, zp), Vector3i(base.x + 6 * B, g0 + 1 + 5 * B, zp + 1), GameMaterials.PLANKS)
+	_debug_fill(Vector3i(base.x + 3 * B, g0 + 1, zp), Vector3i(base.x + 5 * B, g0 + 1 + 4 * B, zp + 1), GameMaterials.AIR)
+	await get_tree().create_timer(1.0).timeout
+	var stand := Vector3(base) + Vector3(0.5 * B, g0 + 1 - base.y, -3.5 * B)   # in reach of the back wall
+	var floor_at := func(x: int, z: int) -> Vector3: return Vector3(base.x + x * B + 0.5, g0 + 0.99, base.z + z * B + 0.5)
+	var wall_at := func(x: int, y: float) -> Vector3: return Vector3(base.x + x * B + 0.5, g0 + 1 + y * B, back + 0.01)
+	var placed := {}
+	var put := func(id: String, at: Vector3) -> void:
+		_hold(id)
+		if FurnitureEntity.KINDS[id].get("wall", false):   # wall pieces face the way you look: stand square in front
+			player.position = Vector3(at.x, g0 + 1, minf(at.z + 3 * B, base.z + 2 * B))
+		else:
+			player.position = stand
+		r["hit_" + id] = GameMaterials.name_of(get_world_voxel(_aim_use(at)))
+		placed[id] = blocks.all_furniture().filter(func(e: FurnitureEntity) -> bool: return e.furniture == id).size() > 0
+	put.call("painting", wall_at.call(-4, 2.5))
+	put.call("ladder", wall_at.call(1, 0.1))
+	put.call("shelf", floor_at.call(-1, -8))
+	put.call("table", floor_at.call(-5, -6))
+	await get_tree().create_timer(0.3).timeout   # the table's voxels reach the terrain the aim ray reads
+	var top := Vector3i(0, -1000000, 0)
+	for e in blocks.all_furniture():
+		if e.furniture == "table":
+			for c in e.cells:
+				if c.y > top.y:
+					top = c
+	put.call("flower_pot", Vector3(top) + Vector3(0.5, 0.99, 0.5))
+	put.call("lantern", floor_at.call(1, -6))
+	put.call("window", floor_at.call(-1, -4))
+	put.call("trapdoor", floor_at.call(2, -1))
+	put.call("fence", floor_at.call(-5, -2))
+	put.call("fence_gate", floor_at.call(-3, -2))
+	player.position = Vector3(base.x + 4 * B, g0 + 1, zp + 3 * B)   # a door faces the way you look: face the doorway
+	put.call("door", Vector3(base.x + 4 * B + 0.5, g0 + 0.99, zp + 0.5))
+	r["placed"] = placed
+	await get_tree().create_timer(0.5).timeout
+	var door: FurnitureEntity = null
+	for e in blocks.all_furniture():
+		if e.furniture == "door":
+			door = e
+	var eye := Vector3(base) + Vector3(0.5 * B, g0 + 1 - base.y, 3.5 * B)
+	player.position = eye
+	player.set_look(0.0, -0.3)
+	await get_tree().create_timer(1.0).timeout
+	var shut := get_viewport().get_texture().get_image()
+	if door != null:
+		_hold("stick")
+		player.position = Vector3(base.x + 4 * B, g0 + 1, zp + 3 * B)
+		_aim_use(Vector3(door.cells[door.cells.size() / 2]) + Vector3(0.5, 0.5, 0.5))
+		r["door_open"] = door.open
+		r["doorway_voxel"] = GameMaterials.name_of(get_world_voxel(Vector3i(base.x + 4 * B, g0 + 1 + B, zp)))
+		player.position = eye
+		player.set_look(0.0, -0.3)
+	await get_tree().create_timer(1.0).timeout
+	var open := get_viewport().get_texture().get_image()
+	var sheet := Image.create(shut.get_width() * 2, shut.get_height(), false, shut.get_format())
+	sheet.blit_rect(shut, Rect2i(Vector2i.ZERO, shut.get_size()), Vector2i.ZERO)
+	sheet.blit_rect(open, Rect2i(Vector2i.ZERO, open.get_size()), Vector2i(shut.get_width(), 0))
+	DirAccess.make_dir_recursive_absolute(DebugCapture.out_dir)
+	sheet.save_png(DebugCapture.out_dir + "/building.png")
+	# stand at the ladder: the climb check sees it
+	player.position = Vector3(base.x + 1 * B + 2, g0 + 1, back + 2 + Settings.m2v(Settings.player_radius_m) + 0.2)
+	r["on_ladder"] = player._on_ladder()
+	r["lights"] = torch_lights.stats
+	print("debug building " + JSON.stringify(r))

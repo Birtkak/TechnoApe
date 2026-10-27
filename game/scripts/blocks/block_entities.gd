@@ -186,6 +186,20 @@ func create_furniture(anchor: Vector3i, furniture: String, facing: int) -> Furni
 	return e
 
 
+## Swings a door, trapdoor or gate open or shut (ADR 0094): its voxels move to the other box. Returns
+## the cells it covered before; Main empties those it no longer covers and fills the new ones.
+func set_open(e: FurnitureEntity, p_open: bool) -> Array[Vector3i]:
+	var old := e.cells
+	for c in old:
+		if _cells.get(c) == e.pos:
+			_cells.erase(c)
+	e.open = p_open and e.can_open()
+	e.cells = FurnitureEntity.footprint(e.furniture, e.pos, e.facing, e.open)
+	_register_cells(e)
+	dirty = true
+	return old
+
+
 func _register_cells(e: RefCounted) -> void:
 	for c in footprint(e):
 		_cells[c] = e.pos

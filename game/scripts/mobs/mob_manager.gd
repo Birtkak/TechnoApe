@@ -88,7 +88,7 @@ func setup(p_world: World, p_main: Node, world_seed: int) -> void:
 	_prewarm_fx.call_deferred()
 
 
-## A pig and a chair in front of the camera while the loading screen is up: their
+## A pig and a window in front of the camera while the loading screen is up: their
 ## first draw compiles pipelines (a 180 ms frame otherwise). ParticleFx warms its own.
 func _prewarm_fx() -> void:
 	var cam: Camera3D = main.player.camera if main != null and main.player != null else null
@@ -101,7 +101,7 @@ func _prewarm_fx() -> void:
 	warm.add_child(MobModel.create("pig", false))
 	warm.add_child(MobModel.create("chicken", false))
 	warm.add_child(MobModel.create("bear", false))
-	warm.add_child(FurnitureEntity.new(Vector3i.ZERO, "chair", 0).make_view())
+	warm.add_child(FurnitureEntity.new(Vector3i.ZERO, "window", 0).make_view())   # the furniture palette and window glass
 	get_tree().create_timer(0.5).timeout.connect(warm.queue_free)
 
 
