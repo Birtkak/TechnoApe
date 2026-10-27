@@ -114,8 +114,8 @@ func _ready() -> void:
 	add_child(_hunger_row)
 	_thermo = Control.new()
 	_thermo.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_thermo.position = Vector2(-w / 2.0 - 30, -SLOT - 8)
-	_thermo.size = Vector2(22, SLOT)
+	_thermo.position = Vector2(-w / 2.0 - 38, -SLOT - 8 - 30)   # reaches above the hotbar: reading, tube, bulb
+	_thermo.size = Vector2(32, SLOT + 30)
 	_thermo.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_thermo.draw.connect(_draw_thermo)
 	add_child(_thermo)
@@ -515,23 +515,37 @@ func _draw_hunger() -> void:
 				_hunger_row.draw_rect(Rect2(ox + x * px, 2 + y * px, px, px), c)
 
 
-## The body temperature: a tube from 31 to 43 C, the fill blue when cold, red when hot, a mark at 37.
+## The body temperature as a pixel thermometer: a glass tube from 31 to 43 C over a round bulb, the
+## fill blue when cold, red when hot, green between, a tick at 37 and the reading written above it
+## (a bare bar read as nothing, playtest 2026-10-27).
 func _draw_thermo() -> void:
 	if survival == null:
 		return
-	var r := Rect2(Vector2(6, 2), Vector2(10, _thermo.size.y - 4))
-	_thermo.draw_rect(r.grow(2), Color(0.03, 0.03, 0.05, 0.75))
 	var b := survival.body_c
-	var f := clampf((b - 31.0) / 12.0, 0.0, 1.0)
 	var c := Color(0.35, 0.8, 0.35)
 	if b < Settings.cold_c:
 		c = Color(0.3, 0.55, 1.0)
 	elif b > Settings.hot_c:
 		c = Color(1.0, 0.35, 0.2)
-	var h := r.size.y * f
-	_thermo.draw_rect(Rect2(r.position + Vector2(0, r.size.y - h), Vector2(r.size.x, h)), c)
-	var mark := r.position.y + r.size.y * (1.0 - (37.0 - 31.0) / 12.0)
-	_thermo.draw_line(Vector2(r.position.x - 3, mark), Vector2(r.end.x + 3, mark), Color(1, 1, 1, 0.8), 1.0)
+	var outline := Color(0.05, 0.03, 0.04, 0.95)
+	var cx := roundf(_thermo.size.x / 2.0)
+	var bulb_y := _thermo.size.y - 12.0
+	var tube := Rect2(cx - 3, 18, 6, bulb_y - 16)
+	# the bulb is a 10 x 10 pixel disc: a plus of two rects
+	var bulb := [Rect2(cx - 5, bulb_y + 2, 10, 6), Rect2(cx - 3, bulb_y, 6, 10)]
+	for r in [tube] + bulb:
+		_thermo.draw_rect(r.grow(2), outline)
+	_thermo.draw_rect(tube, Color(0.82, 0.86, 0.9, 0.35))   # empty glass
+	for r in bulb:
+		_thermo.draw_rect(r, c)
+	var h := roundf(tube.size.y * clampf((b - 31.0) / 12.0, 0.0, 1.0))
+	_thermo.draw_rect(Rect2(tube.position.x, tube.end.y - h, tube.size.x, h), c)
+	_thermo.draw_rect(Rect2(cx - 3, bulb_y + 2, 2, 2), Color(1, 1, 1, 0.55))   # glint on the bulb
+	var mark := roundf(tube.position.y + tube.size.y * (1.0 - (37.0 - 31.0) / 12.0))
+	_thermo.draw_rect(Rect2(tube.end.x + 2, mark - 1, 4, 2), Color(1, 1, 1, 0.85))
+	var font := ThemeDB.fallback_font
+	_thermo.draw_string_outline(font, Vector2(0, 12), "%d°" % roundi(b), HORIZONTAL_ALIGNMENT_CENTER, _thermo.size.x, 13, 4, outline)
+	_thermo.draw_string(font, Vector2(0, 12), "%d°" % roundi(b), HORIZONTAL_ALIGNMENT_CENTER, _thermo.size.x, 13, c)
 
 
 func _draw_crosshair() -> void:
