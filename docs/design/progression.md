@@ -10,6 +10,16 @@ The working recipe list lives in the recipe book artifact (see
 an `age` and are marked `idea` until promoted; this document is the plan
 they follow. Numbers below are first guesses to tune in play.
 
+## Three eras (developer, 2026-10-27, ADR 0096)
+
+| Era | Ages / stages | Feel |
+|---|---|---|
+| **Material age** | stone → copper → bronze → iron | Vintage Story: everything by hand, in the world, one piece at a time |
+| **Steam age** | low pressure → high pressure → steam works | steampunk: machines you build slowly take the old chores off your hands |
+| **Electrical age** | LV onward | GregTech: machines that craft for you, automation |
+
+There is no mechanical power (water wheels, windmills): iron leads straight into steam.
+
 ## The ladder
 
 | Age | Unlocked by | Tool tier | Tools | Key stations |
@@ -18,12 +28,14 @@ they follow. Numbers below are first guesses to tune in play.
 | Copper | surface copper melted in a fired crucible and cast in clay molds | 1 | copper pickaxe, axe, shovel, knife, hoe | sieve, furnace |
 | Bronze | tin laid into molten copper | 2 | bronze pickaxe, axe, shovel, hoe, knife, saw, hammer | bloomery, bronze anvil |
 | Iron | iron blooms hammered into ingots | 3 | iron pickaxe, axe, shovel, hoe, knife, saw, hammer | forge |
-| Steel | iron + coal in the blast furnace | 4 | steel pickaxe | (machines, later) |
+| Steam: low pressure | iron plates + bronze pipe → small boiler | 3 | — | small boiler, steam forge hammer, steam sieve |
+| Steam: high pressure | steel from the blast furnace | 4 | steel pickaxe, excavator | blast furnace, steel boiler, ore crusher, pipes, tanks |
+| Steam works | belts and hoppers | 4 | steam drill | conveyors, rails, steam turbine |
 
-Until electricity the game plays like **Vintage Story** (developer,
-2026-10-23): work by hand, in the world, one piece at a time. Electricity is
-where it turns into GregTech: machines that craft for you. Mechanics and
-numbers as built: ADR 0023.
+The material age plays like **Vintage Story** (developer, 2026-10-23): work
+by hand, in the world, one piece at a time. Mechanics and numbers as built:
+ADR 0023, 0070. The steam age hands those chores to machines; the
+electrical age is GregTech.
 
 Spells run beside the ladder: mana crystals from crystal caves, crafted at
 the spell altar. Wands stay found-only (vision.md).
@@ -83,12 +95,56 @@ The grind the developer asked for: 2 iron ingots for a pickaxe head = 2 blooms =
 iron ore with a bronze pickaxe first. Both routes are valid; ore is faster
 once found, sifting is safe.
 
-## Iron and steel
+## Iron
 
 - Iron tools are tier 3, smithed from iron ingots on the bronze anvil (never cast).
-- Fire clay → fire bricks → **blast furnace** (wraps a furnace).
-  Steel = iron + 2 coal there. Steel pickaxe, tier 4: what deep ores require.
-- Machines (GregTech side) start here; not designed yet.
+
+## Steam age (developer, 2026-10-27, ADR 0096; not built)
+
+A slowly improving steampunk era. Each stage needs parts from the one
+before, and each gives back a chore the player has done by hand many times.
+Stage 1 machines get a steel version in stage 2, so what you own keeps
+getting better instead of being thrown away. Steam, water and fire are
+simulated materials: a boiler can leak, overheat and flood.
+
+**Boilers explode.** A boiler that runs dry while hot blows up: a blast
+crater, scalding steam and fire, like the crater rod and lava bomb do. Keep
+the water coming (by hand, then by pipe) or lose the room.
+
+1. **Low pressure (iron and bronze).**
+   - **Small coal boiler**: iron plates, bronze pipe, a firebox. Burns coal or
+     charcoal, takes water poured in, gives a slow stream of steam.
+   - **Steam forge hammer**: finishes a head shape the player has smithed by
+     hand once; also makes **plates and rods**, the parts every steam machine
+     is built from.
+   - **Steam sieve**: runs the gravel and sand grind unattended.
+2. **High pressure (steel).**
+   - Fire clay → fire bricks → **blast furnace** (steam bellows):
+     steel = iron + 2 coal. Steel pickaxe, tier 4: what deep ores require.
+   - **High-pressure steel boiler**: 2–3× the steam, several machines at once.
+   - **Ore crusher**: crushed ore smelts to **2× the metal per ore block**.
+   - **Pipes and tanks** for water and steam: one boiler feeds a row of machines.
+3. **Steam works.**
+   - **Hoppers, chutes, conveyor belts**: ore in one end, ingots out the other.
+   - **Steam drill / 3×3 steel excavator**, **rails and a steam minecart** for
+     hauling from far veins.
+   - Ends with a **steam turbine** and copper wire: the first generator, the
+     door to the electrical age.
+
+## The GregTech mindset (late steam age onward)
+
+From steam works on, and fully in the electrical age, recipes follow
+GregTech: **many intermediate products, and lots of each.** A machine is
+built from plates, rods, gears, pipes, wire and circuits, each made by its
+own machine from its own material. Every ore the world holds is needed for
+something sooner or later, and in quantity.
+
+What this asks of the player: **plan expeditions.** Find a vein with the
+prospecting pick, go out equipped, and bring back as much of it as you can
+carry, because it will all be used. Storage, hauling (minecart, rails) and
+the 2× crusher are what make those trips pay. Recipe design rule: no ore is
+a dead end, and mid-game parts should cost enough that a single small trip
+never covers a machine.
 
 ## Smithing: Vintage Story style (developer, 2026-10-22)
 

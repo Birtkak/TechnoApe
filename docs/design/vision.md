@@ -70,6 +70,10 @@ disagrees with older text, this wins.
   Flint tools first, shave bark, sift gravel for nuggets; copper before
   iron; an iron pickaxe takes real grinding. Ages: flint, copper, bronze,
   iron, steel. Plan: `progression.md`, ADR 0019.
+- **Three eras (2026-10-27, ADR 0096):** material age (stone to iron, by
+  hand), steam age (slowly improving steampunk; steel, exploding boilers,
+  2× ore), electrical age (GregTech: many intermediates in quantity, so
+  players plan ore trips and bring back all they can).
 - Vintage Story smithing (heat, anvil, hammer to a shape), food and cooking
   with a **hunger bar** (survival pressure: yes, hunger), beds that skip the
   night, saplings, a sun and moon, and loose pickups on the ground
