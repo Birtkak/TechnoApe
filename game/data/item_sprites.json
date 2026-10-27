@@ -4220,6 +4220,11 @@
     "boiler_suit": {"layers": [{"shape": "apron", "palette": "iron", "colors": {"s": "#2e3034"}}]},
     "jetpack": {"layers": [{"shape": "flask", "palette": "steel"}, {"shape": "pipe", "palette": "bronze"}]},
     "surveyors_stake": {"layers": [{"shape": "stick", "palette": "wood"}, {"shape": "nugget", "palette": "copper"}]},
-    "compressor": {"layers": [{"shape": "crucible", "palette": "iron"}, {"shape": "pipe", "palette": "bronze"}]}
+    "compressor": {"layers": [{"shape": "crucible", "palette": "iron"}, {"shape": "pipe", "palette": "bronze"}]},
+    "hopper": {"layers": [{"shape": "bowl", "palette": "iron"}, {"shape": "pipe", "palette": "bronze"}]},
+    "chute": {"layers": [{"shape": "bowl", "palette": "wood"}]},
+    "belt": {"layers": [{"shape": "strips", "palette": "leather"}, {"shape": "stick", "palette": "iron"}]},
+    "rail": {"layers": [{"shape": "ladder", "palette": "iron"}]},
+    "minecart": {"layers": [{"shape": "crucible", "palette": "iron"}, {"shape": "ball", "palette": "iron"}]}
   }
 }

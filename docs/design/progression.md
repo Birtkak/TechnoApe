@@ -131,8 +131,9 @@ the water coming (by hand, then by pipe) or lose the room.
    - Ends with a **steam turbine** and copper wire: the first generator, the
      door to the electrical age.
 
-Built so far (ADR 0099): all of stage 2, the turbine and copper wire, the compressor; of stage 3 the
-transport (hoppers, conveyors, rails, minecart) is still open. **Helpers, two a stage** (developer,
+Built so far (ADR 0099, 0100): all of stage 2, the turbine and copper wire, the compressor, and the
+stage 3 transport: hoppers and chutes, conveyor belts, rails and a rideable minecart (flat rails, the
+rider carries the ore). **Helpers, two a stage** (developer,
 2026-10-27): stage 1 the miner's helmet (light) and the traveler's backpack (18 bag slots); stage 2 the
 steam drill (2.5x a steel pick) and the boiler suit; stage 3 the jetpack (compressed air from the
 compressor; hold jump to climb, release to hover) and the surveyor's stake (a map waypoint). Intermediates

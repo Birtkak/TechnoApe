@@ -311,7 +311,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile"
-	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor"]
+	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper"]
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -332,6 +332,18 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 		"pipe":
 			e.item = id
 			e.axis = posmod(roundi(main.player.rotation_degrees.y / 90.0), 2)   # along the way the player faces (ADR 0097)
+			_mark(p)
+			if _consumes():
+				main.player_inv.consume_held(1)
+		"hopper", "belt":   # stage 3 transport (ADR 0100): laid the way the player looks
+			e.facing = Transport.facing_from_yaw(main.player.rotation_degrees.y)
+			if kind == "hopper":
+				e.item = id
+			_mark(p)
+			if _consumes():
+				main.player_inv.consume_held(1)
+		"rail":
+			e.axis = posmod(roundi(main.player.rotation_degrees.y / 90.0), 2)
 			_mark(p)
 			if _consumes():
 				main.player_inv.consume_held(1)
@@ -665,6 +677,29 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		return true
 	if e is FirepitEntity:
 		_use_firepit(e, held, first_press, sneaking)
+		return true
+	if e is RailEntity:   # a minecart on a rail (ADR 0100)
+		if held.get("id", "") == "minecart" and not e.cart:
+			e.cart = true
+			if _consumes():
+				main.player_inv.consume_held(1)
+			_say("Right click the cart to ride it.")
+		elif e.cart and sneaking:
+			e.cart = false
+			_give([{"id": "minecart", "count": 1}], _at(p, Vector3(0.5, 1.0, 0.5)))
+		elif e.cart:
+			main.player.ride = {"rail": e.pos, "dir": Vector3i.ZERO, "t": 0.5}
+			_say("W and S roll the cart; sneak to get off.")
+		else:
+			_say("A rail: set a minecart on it.")
+		e.changed.emit()
+		return true
+	if e is HopperEntity or e is BeltEntity:   # ADR 0100
+		var res: Dictionary = e.use(main.player_inv.held())
+		if res["consume"] > 0 and _consumes():
+			main.player_inv.consume_held(res["consume"])
+		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
+		_say(res["msg"])
 		return true
 	if e is TankEntity or e is TurbineEntity or e is CompressorEntity:   # ADR 0099
 		var res: Dictionary = e.use(main.player_inv.held() if e is CompressorEntity else held)   # the compressor charges the held jetpack in place

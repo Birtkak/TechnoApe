@@ -129,6 +129,10 @@ var jetpack_rise_m := 2.0               # the steam jetpack climbs this fast wit
 var jetpack_sink_m := 0.6               # ...and sinks this fast with it released (a hover)
 var jetpack_air_s := 90.0               # seconds of climbing one fill of compressed air gives (hovering costs a quarter)
 var compressor_fill_s := 60.0           # a compressor fills its air tank in this long at working pressure
+# stage 3 transport (ADR 0100)
+var hopper_s := 1.0                     # a hopper or chute moves one item this often
+var belt_s := 1.0                       # a belt carries an item one block in this long
+var minecart_speed_m := 8.0             # a ridden minecart's speed
 var hold_use_s := 1.0                 # right click held this long picks up a stick or stone, lays a thing on a firepit or takes it off (ADR 0043)
 
 # Particles (ADR 0026): two GPU pools, every particle emitted by script

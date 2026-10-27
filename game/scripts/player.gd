@@ -35,6 +35,7 @@ var mining: MiningTable
 var viewmodel: Viewmodel
 var hud: GameHud
 var flying := true
+var ride := {}   # riding a minecart (ADR 0100): {rail: Vector3i, dir: Vector3i (a block step), t: 0..1 along it}
 var noclip := false                  # flight passes through voxels (spectator, or /noclip while flying)
 var game_mode := GameMode.SURVIVAL   # rules in GameMode (ADR 0018); set with set_game_mode or /gamemode
 var ui_open := false
@@ -480,6 +481,9 @@ func _physics_step(delta: float) -> void:
 	_cost("player_model", t0)
 	_break_cooldown = maxf(0.0, _break_cooldown - delta)
 	_place_cooldown = maxf(0.0, _place_cooldown - delta)
+	if not ride.is_empty():
+		_ride(delta)
+		return
 	t0 = Time.get_ticks_usec()
 	_update_mining(delta)
 	_brush_jobs_done()
@@ -653,6 +657,45 @@ func _is_solid_voxel(v: Vector3i) -> bool:
 
 
 # ---------------- health ----------------
+
+## One step of a minecart ride (ADR 0100): forward and back roll it along the rails, straight on or
+## round corners, the cart flag moving from rail to rail; the line's end stops it, sneaking gets off.
+func _ride(delta: float) -> void:
+	var m := get_parent()
+	var store: BlockEntities = m.blocks
+	var rail: RefCounted = store.at(ride["rail"])
+	if not (rail is RailEntity) or sneaking():
+		ride = {}
+		return
+	var n := Settings.BLOCK
+	var fwd := 0.0 if ui_open or autopilot else Input.get_axis("move_back", "move_forward")
+	var d: Vector3i = ride["dir"]
+	var t := float(ride["t"])
+	if d == Vector3i.ZERO and fwd != 0.0:
+		var look := -transform.basis.z   # start the way the player looks along the rail
+		d = Vector3i(0, 0, n * (1 if look.z >= 0.0 else -1)) if rail.axis == 0 else Vector3i(n * (1 if look.x >= 0.0 else -1), 0, 0)
+	if fwd < 0.0 and d != Vector3i.ZERO:
+		d = -d
+		t = 1.0 - t
+	if fwd != 0.0:
+		t += Settings.m2v(Settings.minecart_speed_m) * delta / n
+		while t >= 1.0:
+			var nxt := RailEntity.next_of(store, rail, d)
+			if nxt.is_empty():
+				t = 1.0   # the end of the line
+				break
+			rail.cart = false
+			rail.changed.emit()
+			rail = nxt["rail"]
+			rail.cart = true
+			rail.changed.emit()
+			d = nxt["dir"]
+			t -= 1.0
+	ride = {"rail": rail.pos, "dir": d, "t": t}
+	position = Vector3(rail.pos) + Vector3(n, 0, n) * 0.5 + Vector3(d) * (t - 0.5) + Vector3(0, 1.0, 0)
+	velocity = Vector3.ZERO
+	_fall_peak_y = position.y
+
 
 ## The worn stack whose "clothing" has `key` (the jetpack, ADR 0099), or {}.
 func _worn_with(key: String) -> Dictionary:

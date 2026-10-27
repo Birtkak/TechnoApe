@@ -94,6 +94,11 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   worn head piece), the traveler's backpack (`bag_slots`: `PlayerInventory.bag` is rebuilt to the worn bag's size),
   the steam drill (`speed` 2.5), the boiler suit, the jetpack (clothing slot `back`, `Player._worn_with`, air in the
   stack), the surveyor's stake (`waypoint` field). Tier 4 tools are grid recipes. Check: `test_steam_age_2.gd`.
+  **Stage 3 transport (ADR 0100):** `Transport.give/pull` is the one place that knows how every piece loads and
+  unloads; `HopperEntity` (hopper and chute, `item`) pulls from above (the chute from behind too) and pushes the
+  way it faces or down; `BeltEntity` carries `carried` [{stack, t}] one block in `belt_s` and draws them riding;
+  `RailEntity` (`axis`, `cart` flag, `next_of` round corners) and `Player.ride`/`_ride` roll the player along at
+  `minecart_speed_m`. Facings: `Transport.DIRS`, laid with `facing_from_yaw`. Check: `test_transport.gd`.
   **Grid Fill and Clear (bug report 2026-10-25):** the recipe view shows **Fill** right of the output for a grid recipe
   (shaped/shapeless) while a crafting grid is on screen: it returns the grid's contents to the inventory, then lays the
   recipe out (shaped as drawn from the top left, shapeless in reading order) from the inventory and the worn bag, and closes

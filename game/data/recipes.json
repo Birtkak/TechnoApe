@@ -250,6 +250,11 @@
     {"id": "boiler_suit", "type": "shaped", "pattern": ["LAL", "SPS", "L L"], "key": {"L": "leather", "A": "leather_apron", "S": "leather_strip", "P": "steel_plate"}, "output": {"id": "boiler_suit", "count": 1}, "station": "crafting_table", "_note": "ADR 0099"},
     {"id": "jetpack", "type": "shaped", "pattern": ["SPS", "CGC", "I I"], "key": {"S": "leather_strip", "P": "steel_plate", "C": "steam_cell", "G": "iron_gear", "I": "bronze_pipe"}, "output": {"id": "jetpack", "count": 1}, "station": "crafting_table", "_note": "ADR 0099"},
     {"id": "surveyors_stake", "type": "shapeless", "ingredients": ["iron_rod", "copper_wire", "glass_lens", "#stick"], "output": {"id": "surveyors_stake", "count": 4}, "_note": "ADR 0099"},
-    {"id": "compressor", "type": "shaped", "pattern": ["SIS", "GTG", "PPP"], "key": {"S": "steel_plate", "I": "bronze_pipe", "G": "iron_gear", "T": "water_tank", "P": "iron_plate"}, "output": {"id": "compressor", "count": 1}, "station": "crafting_table", "_note": "ADR 0099: a tank re-plumbed for air"}
+    {"id": "compressor", "type": "shaped", "pattern": ["SIS", "GTG", "PPP"], "key": {"S": "steel_plate", "I": "bronze_pipe", "G": "iron_gear", "T": "water_tank", "P": "iron_plate"}, "output": {"id": "compressor", "count": 1}, "station": "crafting_table", "_note": "ADR 0099: a tank re-plumbed for air"},
+    {"id": "hopper", "type": "shaped", "pattern": ["P P", "PGP", " I "], "key": {"P": "iron_plate", "G": "iron_gear", "I": "bronze_pipe"}, "output": {"id": "hopper", "count": 1}, "station": "crafting_table", "_note": "ADR 0100"},
+    {"id": "chute", "type": "shaped", "pattern": ["L L", " L ", " R "], "key": {"L": "#planks", "R": "iron_rod"}, "output": {"id": "chute", "count": 2}, "station": "crafting_table", "_note": "ADR 0100"},
+    {"id": "belt", "type": "shaped", "pattern": ["LLL", "GRG", "PPP"], "key": {"L": "leather", "G": "iron_gear", "R": "iron_rod", "P": "iron_plate"}, "output": {"id": "belt", "count": 4}, "station": "crafting_table", "_note": "ADR 0100"},
+    {"id": "rail", "type": "shaped", "pattern": ["RSR", "RSR", "RSR"], "key": {"R": "iron_rod", "S": "#stick"}, "output": {"id": "rail", "count": 8}, "station": "crafting_table", "_note": "ADR 0100"},
+    {"id": "minecart", "type": "shaped", "pattern": ["P P", "PPP", "G G"], "key": {"P": "iron_plate", "G": "iron_gear"}, "output": {"id": "minecart", "count": 1}, "station": "crafting_table", "_note": "ADR 0100"}
   ]
 }
