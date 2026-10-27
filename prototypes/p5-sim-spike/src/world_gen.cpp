@@ -83,7 +83,9 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup(n_ravine_, seed_ + 19, 1.0f / 900.0f, 1);   // ravine lines (|noise| near 0)
     setup(n_ravmask_, seed_ + 20, 1.0f / 1400.0f, 1); // which stretches of those lines are open
     setup(n_pillar_, seed_ + 21, 1.0f / 22.0f, 1);    // hall pillars ~2-3 m thick, ~11 m apart
-    setup(n_cliff_, seed_ + 21, 1.0f / 3000.0f, 2);   // ~1.5 km stretches of rocky coast
+    setup(n_gallery_, seed_ + 24, 1.0f / 120.0f, 1);  // gallery routes: a bend per ~30 m, a passage every ~30 m
+    setup(n_galoff_, seed_ + 25, 1.0f / 400.0f, 1);   // gallery storeys rise and fall ~5 m over ~100 m
+    setup(n_cliff_, seed_ + 21, 1.0f / 3000.0f, 2);  // ~1.5 km stretches of rocky coast
     setup(n_meander_, seed_ + 22, 1.0f / 90.0f, 1);    // lowland river bends (~45 m)
     setup(n_band_, seed_ + 23, 1.0f / 700.0f, 1);      // mountain cliff bands (~350 m patches)
     epoch_.store(g_epoch.fetch_add(1) + 1);
@@ -1016,6 +1018,19 @@ float WorldGen::cave_value(int x, int y, int z, int height, bool small_only) con
     const float sw = epic ? 0.03f : 0.0115f;   // big caves: tunnels ~1.6x as wide (2-4 m)
     float v = std::max(cheese, (sw - (s1 * s1 + s2 * s2)) / sw);
     if (!epic) return v;
+    // Galleries (ADR 0080): a storey of walkable passages every 14 m down, each a winding network along the zero
+    // lines of its own 2D noise, ~3 m wide and 2.5 m tall with a flat floor that tilts at most ~10 degrees, so a
+    // passage can be followed for hundreds of metres; noodles, chimneys and halls join the storeys.
+    if (depth > 12.0f && depth < 220.0f) {
+        constexpr float SP = 28.0f, HH = 2.5f, W = 0.16f;   // storey spacing, half height (macro), route half width
+        const float yo = fy - n_galoff_.GetNoise(fx, fz) * 10.0f;
+        const float lvl = std::floor(yo / SP + 0.5f);
+        const float dy = std::fabs(yo - lvl * SP);
+        if (dy < HH) {
+            const float r = std::fabs(n_gallery_.GetNoise(fx + lvl * 1013.0f, fz - lvl * 731.0f));
+            v = std::max(v, std::min((W - r) / W, (HH - dy) / HH) * 2.0f);
+        }
+    }
     // Entrances and connectors (ADR 0077): winding ramps that leave the ground, sinkholes, chimneys.
     if (depth < 520.0f) {
         CaveMouth m[9];
@@ -1383,8 +1398,8 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
         if (pn > 0.02f && pn <= 0.12f && r < 420) { height = 2; return REED; }
     }
     // Pebbles on bare rock and gravel, flint on gravel (ground pickups, ADR 0019).
-    if ((top == GRAVEL_STATIC || top == STONE) && r < 50 && !marsh) return PEBBLES;
-    if (top == GRAVEL_STATIC && r >= 50 && r < 66 && !marsh) return FLINT_STONES;
+    if ((top == GRAVEL_STATIC || top == STONE) && r < 22 && !marsh) return PEBBLES;   // about half (bug report 2026-10-27 15-16-47)
+    if (top == GRAVEL_STATIC && r >= 22 && r < 32 && !marsh) return FLINT_STONES;
     if (top != GRASS && top != SAVANNA_GRASS && !(marsh && top == DIRT)) return AIR;
     // Wild crops (ADR 0022): rare patches, a good reason to start a farm. A 24 m cell
     // holds a patch with a small chance (plains: wheat every ~140 m, carrots every
@@ -1420,14 +1435,14 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
     int berry = 0;  // blueberry bushes, per mille
     if (marsh) grass = 560;
     else switch (col.biome) {
-        case PLAINS: grass = 300; flower = 36; pebble = 6; twig = 2; flint = 2; break;
-        case FOREST: grass = 170; flower = 14; shroom = 10; pebble = 4; twig = 12; flint = 1; fern = 15; berry = 6; break;
-        case OLD_GROWTH_FOREST: grass = 200; flower = 10; shroom = 22; pebble = 3; twig = 16; fern = 70; berry = 4; break;
-        case HIGHLANDS: grass = 110; flower = 10; pebble = 20; twig = 2; flint = 4; break;
-        case MOUNTAINS: grass = 50; flower = 4; pebble = 30; flint = 4; break;
-        case ALPINE: grass = 25; flower = 6; pebble = 30; flint = 3; break;
-        case TAIGA: grass = 90; shroom = 12; pebble = 8; twig = 12; flint = 1; fern = 50; berry = 10; break;
-        case SHRUBLAND: grass = 120; bush = 40; pebble = 14; twig = 4; flint = 3; break;
+        case PLAINS: grass = 300; flower = 36; pebble = 3; twig = 2; flint = 2; break;
+        case FOREST: grass = 170; flower = 14; shroom = 10; pebble = 2; twig = 12; flint = 1; fern = 15; berry = 6; break;
+        case OLD_GROWTH_FOREST: grass = 200; flower = 10; shroom = 22; pebble = 2; twig = 16; fern = 70; berry = 4; break;
+        case HIGHLANDS: grass = 110; flower = 10; pebble = 10; twig = 2; flint = 4; break;
+        case MOUNTAINS: grass = 50; flower = 4; pebble = 15; flint = 4; break;
+        case ALPINE: grass = 25; flower = 6; pebble = 15; flint = 3; break;
+        case TAIGA: grass = 90; shroom = 12; pebble = 4; twig = 12; flint = 1; fern = 50; berry = 10; break;
+        case SHRUBLAND: grass = 120; bush = 40; pebble = 7; twig = 4; flint = 3; break;
         case SAVANNA: grass = 420; bush = 8; twig = 2; flint = 2; break;   // the column loop lays dry tussocks (fine_gen.cpp)
         case JUNGLE: grass = 350; flower = 20; shroom = 14; twig = 10; fern = 110; break;
         case SWAMP: grass = 450; shroom = 18; twig = 6; fern = 40; break;
@@ -1660,8 +1675,9 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                     // a hall at least 10 m tall: the floor of the first such run of cavern 30..150 voxels down
                     if (c.height > sea_ + 4 && !hy.lake && hy.river < 0.05f) {
                         int run = 0;
+                        const float pillar = n_pillar_.GetNoise((float)px, (float)pz);   // not inside a hall pillar (ADR 0077)
                         for (int y = c.height - 30; y >= std::max(24, c.height - 150); y--) {
-                            if (cavern_value(n_cavern_.GetNoise((float)px, (float)y * CAVERN_Y, (float)pz), (float)y, (float)(c.height - y)) > 0.0f) { run++; continue; }
+                            if (cavern_value(n_cavern_.GetNoise((float)px, (float)y * CAVERN_Y, (float)pz), (float)y, (float)(c.height - y), pillar) > 0.0f) { run++; continue; }
                             if (run >= 20) { hit = y > sea_ - 180; py = y + 1; break; }
                             run = 0;
                         }

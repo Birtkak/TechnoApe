@@ -639,7 +639,7 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             const uint32_t hs = h3(cx, cz, g.seed_ + 601);
             const float roll = (float)(hs & 1023) / 1024.0f;
             if (roll >= 0.3f) continue;
-            const float fx = (float)(cx * FC + 2 + (int)((hs >> 10) % (FC - 4))) + 0.5f;
+            const float fx = (float)(cx * FC + 2 +(int)((hs >> 10) % (FC - 4))) + 0.5f;
             const float fz = (float)(cz * FC + 2 + (int)((hs >> 16) % (FC - 4))) + 0.5f;
             const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
             const WorldGen::Column col = g.column_base(mx, mz, false);
@@ -691,14 +691,14 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
         for (int cx = sx0; cx <= sx1; cx++) {
             const uint32_t hs = h3(cx, cz, g.seed_ + 613);
             const float roll = (float)(hs & 1023) / 1024.0f;
-            if (roll >= 0.55f) continue;
+            if (roll >= 0.4f) continue;
             const float fx = (float)(cx * FC + 3 + (int)((hs >> 10) % (FC - 6))) + 0.5f;
             const float fz = (float)(cz * FC + 3 + (int)((hs >> 16) % (FC - 6))) + 0.5f;
             const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
             const WorldGen::Column col = g.column_base(mx, mz, false);
             if (col.height <= g.sea_ + 1 || col.alpine || col.snow) continue;
             const float dens = technosim_biome::TREE_DENSITY[col.biome];
-            if (roll >= 0.05f + 0.5f * std::clamp(dens / 0.5f, 0.0f, 1.0f)) continue;
+            if (roll >= 0.03f + 0.37f * std::clamp(dens / 0.5f, 0.0f, 1.0f)) continue;   // ~70 % of the 2026-10-25 rate (bug report 2026-10-27 15-16-47)
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
             if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh) continue;
             if (g.ravine_near(mx, mz, 3)) continue;
@@ -716,6 +716,11 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             s.size = 4.5f + (float)((s.seed >> 10) & 7) * 0.45f;   // half length: 9-15 voxels long
             s.r = STICK_THICK[(s.seed >> 20) % 3];                // thin, medium or thick (2026-10-25)
             s.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
+            // only on level ground: over a ledge or a cliff the column loop laid a few voxels of it on each step
+            // (bug report 2026-10-27 15-16-47, "twigs on cliffsides with like 3 voxels")
+            const float ex = s.dx * (s.size + 1.0f), ez = s.dz * (s.size + 1.0f);
+            const float e0 = surface_f((int)(fx + ex), (int)(fz + ez)), e1 = surface_f((int)(fx - ex), (int)(fz - ez));
+            if (std::max({std::fabs(e0 - s.ground), std::fabs(e1 - s.ground)}) > 2.0f) continue;
             out.push_back(s);
         }
     // Clutter pieces of whole voxels (ADR 0047): flowers in meadow patches, mushrooms on forest floors,
@@ -1050,7 +1055,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
     int cy0 = 0, cny = 0;
     std::vector<float> cav;
     if (do_caves && y_top > 12 * FS && origin.y < hmax_m * FS) {
-        cy0 = floor_div(origin.y - step, FS);
+        cy0 = floor_div(origin.y - step, FS) - 2;   // 2 below: open_top looks 9 voxels under the ground
         cny = floor_div(origin.y + sy * step, FS) - cy0 + 2;
         cav.resize((size_t)nx * nz * cny);
         // Caverns from a coarse grid of their noise (every 2 m across, 1 m up; the halls are tens of metres),
@@ -1500,7 +1505,14 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             }
             // where an entrance may cut the surface, no plant stands over the hole (the tufts in mid air over
             // sinkholes, developer 2026-10-27)
-            if (m.roof == 0 && (veg != Mat::AIR || veg_head != Mat::AIR) && cave_at(wx, h - 1, wz)) veg = veg_head = Mat::AIR;
+            // and a skin of ground thinner than two cave bands over the hole is opened too (the floating grass
+            // slabs over sinkholes and ravines, bug report 2026-10-27 15-20-15)
+            const bool open_top = m.roof == 0 && (cave_at(wx, h - 1, wz) || cave_at(wx, h - 1 - CAVE_STEP, wz) || cave_at(wx, h - 1 - 2 * CAVE_STEP, wz));
+            if (open_top) {
+                veg = veg_head = Mat::AIR;
+                for (int y = -1; y <= sy; y++)
+                    if (const int wy = origin.y + y * step; wy < h && wy >= h - 2 * CAVE_STEP) cave[y + 1] = 1;
+            }
             int crystal_roll = 0;
             const int crystal_h = (lod == 0 && !cav.empty()) ? rocks_.crystal_height(wx, wz, crystal_roll) : 0;
             uint16_t *colp = w + sy * (x + sx * z);

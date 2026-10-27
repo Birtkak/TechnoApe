@@ -384,6 +384,16 @@ The developer asked for a cave overhaul with the choices left open. Nothing new 
   `autopilot ... commands=/fullbright target=sinkhole` / `target=cavern inside=1` (fullbright: flat white
   ambient, no fog; without it cave captures are black). No plant stands over a surface voxel a cave carved.
 
+## Gallery storeys, open cave tops, level sticks (2026-10-27, GEN_VERSION 24, ADR 0080)
+- **Galleries** (`cave_value`): a storey every 14 m from 6 to 110 m down; passages on the zero lines of
+  `n_gallery_` (offset per storey), ~3 m wide, 2.5 m tall, flat floor, tilted by `n_galoff_` (under 10 degrees).
+  The followable layer; noodles, shafts and halls join the storeys.
+- **Open tops**: where `cave_roof == 0` and the field is within 3 bands of the ground, the top 2 bands open too
+  (no grass slabs over sinkholes and ravines).
+- **Sticks** only where both ends lie within 2 voxels of the middle's ground; sticks ~70 %, loose stones ~45 %
+  of before.
+- Check: `tools/cave_sheet.gd` shows the storeys as flat slots in the slice.
+
 ## Next
 - Fjords where cold ranges meet the sea, oxbow lakes beside meanders.
 - Small ores between veins (single blocks dropping nuggets) and the copper
