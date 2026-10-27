@@ -51,6 +51,7 @@ const SIZE := Vector3i(8, 6, 8)   # voxels: 1 m x 0.75 m x 1 m
 ## footprint per entity kind, in voxels (kinds not listed keep BlockEntities.cube)
 const SIZES := {"station": SIZE, "chest": Vector3i(8, 6, 8), "furnace": Vector3i(8, 8, 8)}
 const CELLS := 2                  # cells per voxel
+const CHEST_LID_Y := 4.5          # voxels: where the chest's lid sits on its body (its 12 cells less 3)
 const SHADES := MobModel.SHADES
 # paints (palette index + 1)
 const OAK_LIGHT := 1
@@ -79,6 +80,7 @@ const FLAT := [EMBER - 1, EMBER_DARK - 1]   # paint indices that keep one tone
 static var _material: StandardMaterial3D
 static var _tiles: PackedInt32Array
 static var _meshes := {}
+static var _ghost_material: StandardMaterial3D
 
 
 static func material() -> StandardMaterial3D:
@@ -104,12 +106,13 @@ static func material() -> StandardMaterial3D:
 
 
 ## A station's mesh in voxel units, its min corner at the origin (the entity's anchor), by material
-## name: crafting_table, chest, furnace or furnace_lit.
+## name: crafting_table, chest, furnace or furnace_lit; chest_body and chest_lid are the chest's two
+## parts for its lid animation (the lid is the top 3 cells, CHEST_LID_Y voxels up).
 static func model_mesh(name: String = "crafting_table") -> ArrayMesh:
 	if _meshes.has(name):
 		return _meshes[name]
 	material()
-	var size: Vector3i = SIZES.get({"crafting_table": "station", "furnace_lit": "furnace"}.get(name, name), SIZE) * CELLS
+	var size: Vector3i = SIZES.get({"crafting_table": "station", "furnace_lit": "furnace", "chest_body": "chest", "chest_lid": "chest"}.get(name, name), SIZE) * CELLS
 	var c := PackedInt32Array()
 	c.resize(size.x * size.y * size.z)
 	var box := func(from: Vector3i, to: Vector3i, paint: int) -> void:
@@ -118,8 +121,12 @@ static func model_mesh(name: String = "crafting_table") -> ArrayMesh:
 				for x in range(from.x, to.x):
 					c[x + size.x * (y + size.y * z)] = paint
 	match name:
-		"chest":
+		"chest", "chest_body", "chest_lid":
 			_chest(box, size)
+			if name == "chest_body":
+				box.call(Vector3i(0, size.y - 3, 0), size, 0)
+			elif name == "chest_lid":
+				box.call(Vector3i.ZERO, Vector3i(size.x, size.y - 3, size.z), 0)
 		"furnace", "furnace_lit":
 			_furnace(box, size, name == "furnace_lit")
 		_:
@@ -128,6 +135,27 @@ static func model_mesh(name: String = "crafting_table") -> ArrayMesh:
 	mesh.surface_set_material(0, _material)
 	_meshes[name] = mesh
 	return mesh
+
+
+## The see-through copy of a station's model the placement ghost draws (bug report 2026-10-27_15-31-39);
+## its material is shared, so tinting it (free or blocked) changes no pipeline.
+static func ghost_mesh(name: String) -> ArrayMesh:
+	var key := "ghost " + name
+	if not _meshes.has(key):
+		if _ghost_material == null:
+			_ghost_material = material().duplicate()
+			_ghost_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			_ghost_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			_ghost_material.albedo_color = Color(0.7, 0.9, 1.0, 0.55)
+		var m: ArrayMesh = model_mesh(name).duplicate()
+		m.surface_set_material(0, _ghost_material)
+		_meshes[key] = m
+	return _meshes[key]
+
+
+static func ghost_tint(blocked: bool) -> void:
+	if _ghost_material:
+		_ghost_material.albedo_color = Color(1.0, 0.35, 0.3, 0.5) if blocked else Color(0.7, 0.9, 1.0, 0.55)
 
 
 ## A chest: a dark oak box of three plank courses with a lighter plank lid that overhangs, two

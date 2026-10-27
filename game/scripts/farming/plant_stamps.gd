@@ -23,6 +23,18 @@ static func is_free_cell(m: int) -> bool:
 	return m > 0 and m <= GameMaterials.defs().size() and GameMaterials.defs()[m - 1].get("replaceable", false)
 
 
+## A cell a placed station or a built firepit may take (ADR 0083): a free cell, or passable ground
+## clutter (pebbles, flowers, grass) that the piece flattens, so a 1 m chest fits in a meadow.
+static func is_clearable_cell(v: int) -> bool:
+	if is_free_cell(v):
+		return true
+	var m := GameMaterials.material_of_voxel(v)
+	if m <= 0 or m > GameMaterials.defs().size():
+		return false
+	var d: Dictionary = GameMaterials.defs()[m - 1]
+	return (d.has("clutter") or d.has("micro")) and not d.has("interact") and not GameMaterials.blocks_bodies(m)
+
+
 ## The piece a placed clutter material grows into, or {} when it is not one (kelp and seagrass stay a voxel).
 static func for_placed(material: int, p: Vector3i) -> Dictionary:
 	var name := GameMaterials.name_of(material)

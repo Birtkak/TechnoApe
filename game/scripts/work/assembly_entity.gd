@@ -128,6 +128,12 @@ const SCALE := 0.8
 
 func _layout(i: int, id: String) -> Dictionary:
 	var items := recipes.items
+	if items.has_tag(parts[0], "rock"):
+		# a firepit being laid (ADR 0083): the stones in a ring, the sticks crossed inside it
+		if items.has_tag(id, "rock"):
+			var a := deg_to_rad(45.0 + 90.0 * i)
+			return {"id": id, "at": Vector3(0.5 + 0.55 * cos(a), 0.03, 0.5 + 0.55 * sin(a)), "yaw": 30.0 * i, "scale": 0.55}
+		return {"id": id, "at": Vector3(0.5, 0.04 + 0.01 * i, 0.5), "yaw": 45.0 + 90.0 * i, "scale": 0.7}
 	if i > 0 and items.has_tag(id, "binding"):
 		var tip := 3.5 / 16.0 * SCALE
 		return {"id": id, "at": Vector3(0.5 + tip, 0.04, 0.5 - tip), "yaw": 45.0, "scale": 0.3}

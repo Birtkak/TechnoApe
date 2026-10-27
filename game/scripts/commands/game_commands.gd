@@ -115,6 +115,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("map", "/map", "Open the full map", _map)
 	reg.register("ignite", "/ignite", "Set what you look at on fire, as flint and steel would (up to the laser's range)", _ignite)
 	reg.register("gadget", "/gadget <item> [sneak]", "Use a playtest gadget where you look, as a right click would (/kit gadgets gives them all)", _gadget, [_gadget_ids, ["sneak"]])
+	reg.register("use", "/use [aim|close]", "Right click with the held item where you look; aim shows the placement ghost in scripted runs, close shuts an open screen", _use_cmd, [["aim", "close"]])
 	reg.register("laser", "/laser [seconds] [sweep_deg]", "Fire the laser cutter where you look for a while (default 1.5 s), turning across sweep_deg (default 20)", _laser)
 	reg.register("fell", "/fell [direction_deg|pillar] [cam]", "Fell the thickest tree 8-20 m away, across your view", _fell)
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
@@ -475,6 +476,19 @@ func _gadget(args: PackedStringArray) -> Dictionary:
 	return CommandRegistry.ok("Used [%s]" % player_inv.items.display_name(args[0]))
 
 
+func _use_cmd(args: PackedStringArray) -> Dictionary:
+	if player == null:
+		return CommandRegistry.fail("No player")
+	if args.size() > 0 and args[0] == "aim":
+		player.script_aim = not player.script_aim
+		return CommandRegistry.ok("Aim ghost in scripted runs: %s" % ("on" if player.script_aim else "off"))
+	if args.size() > 0 and args[0] == "close":
+		player.set_ui_open(false)
+		return CommandRegistry.ok("Closed")
+	player._use(true)
+	return CommandRegistry.ok("Used")
+
+
 func _weather(args: PackedStringArray) -> Dictionary:
 	if main == null or main.get("weather") == null:
 		return CommandRegistry.fail("No weather (weather=0 or no world)")
@@ -749,7 +763,7 @@ func _shot(args: PackedStringArray) -> Dictionary:
 
 ## Hides the HUD and chat for two frames, saves the frame, shows them again (a coroutine).
 func _save_shot(dir: String, file: String, with_hud: bool) -> void:
-	var layers: Array = [] if with_hud else [main.get("game_hud"), main.get("chat")]
+	var layers: Array = [] if with_hud else [main.get("game_hud"), main.get("chat"), main.get("inv_screen")]
 	var was: Array = []
 	for l in layers:
 		was.append(l != null and l.visible)

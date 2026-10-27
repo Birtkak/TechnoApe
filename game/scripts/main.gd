@@ -452,7 +452,7 @@ func _ready() -> void:
 	warmup.setup(world.terrain.mesher as VoxelMesherBlocky, player.camera)
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(player.warm_materials(), player.camera)
-		warmup.add_meshes([StationEntity.model_mesh(), StationEntity.model_mesh("chest"), StationEntity.model_mesh("furnace"), StationEntity.model_mesh("furnace_lit"), BlockMeshes.sprite("torch"), BlockMeshes.sprite("iron_ore")], player.camera)   # the stations; item sprites, extruded and cube (held and dropped)
+		warmup.add_meshes([StationEntity.model_mesh(), StationEntity.model_mesh("chest"), StationEntity.model_mesh("furnace"), StationEntity.model_mesh("furnace_lit"), StationEntity.ghost_mesh("chest"), BlockMeshes.sprite("torch"), BlockMeshes.sprite("iron_ore")], player.camera)   # the stations; item sprites, extruded and cube (held and dropped)
 	# chips, dust, splashes, smoke, hearts, lava pops, drips and waterfall spray (scripts/visuals/particle_fx.gd)
 	if Settings.particles:
 		fx = ParticleFx.load_default()
@@ -1258,7 +1258,7 @@ func _place_station(anchor: Vector3i, material: int) -> void:
 	# the 1 m crafting table is bigger than the block the player's check covered (ADR 0053): no room, no table
 	for c in BlockEntities.footprint_of(kind, anchor):
 		var m := get_world_voxel(c)
-		if not (PlantStamps.is_free_cell(m) or GameMaterials.is_liquid(GameMaterials.material_of_voxel(m))):
+		if not (PlantStamps.is_clearable_cell(m) or GameMaterials.is_liquid(GameMaterials.material_of_voxel(m))):
 			if GameMode.rule(player.game_mode, "consumes_items"):
 				spawn_item({"id": items.item_for_material(GameMaterials.name_of(material)), "count": 1}, Vector3(anchor) + Vector3.ONE * (Settings.BLOCK * 0.5))
 			if chat:
@@ -1282,6 +1282,8 @@ func _add_station_view(e: RefCounted) -> void:
 	if StationEntity.SIZES.has(e.kind):
 		mi.mesh = StationEntity.model_mesh(d["name"])   # the 1 m workbench, chest or furnace, in voxel units (ADR 0053, 0076)
 		mi.position = Vector3(e.pos)
+		if d["name"] == "chest":
+			_add_chest_lid(mi)
 		mi.visibility_range_end = 160.0
 		_station_root.add_child(mi)
 		_station_views[e.pos] = mi
@@ -1296,6 +1298,41 @@ func _add_station_view(e: RefCounted) -> void:
 	mi.visibility_range_end = 160.0
 	_station_root.add_child(mi)
 	_station_views[e.pos] = mi
+
+
+## A chest is drawn as body + lid so the lid can swing open (bug report 2026-10-27_15-31-56): the lid
+## hangs on a "Hinge" node whose position _swing_chest_lid moves to the back edge it opens from.
+func _add_chest_lid(body: MeshInstance3D) -> void:
+	body.mesh = StationEntity.model_mesh("chest_body")
+	var hinge := Node3D.new()
+	hinge.name = "Hinge"
+	var lid := MeshInstance3D.new()
+	lid.name = "Lid"
+	lid.mesh = StationEntity.model_mesh("chest_lid")
+	hinge.add_child(lid)
+	body.add_child(hinge)
+
+
+const CHEST_OPEN_RAD := 1.25   # about 70 degrees
+const CHEST_SWING_S := 0.25
+var _open_chest := Vector3i.MAX   # the anchor of the chest whose screen is open
+
+
+## Swings a chest's lid open (hinged on the side away from the player, chests have no facing) or shut.
+func _swing_chest_lid(anchor: Vector3i, open: bool) -> void:
+	var view: Node = _station_views.get(anchor)
+	var hinge: Node3D = view.get_node_or_null("Hinge") if view else null
+	if hinge == null:
+		return
+	var lid: Node3D = hinge.get_node("Lid")
+	if open:
+		var depth := float(StationEntity.SIZES["chest"].z)
+		var back := 0.0 if player.position.z > Vector3(anchor).z + depth * 0.5 else depth
+		hinge.position = Vector3(0, StationEntity.CHEST_LID_Y, back)
+		lid.position = -hinge.position
+		hinge.rotation.x = 0.0
+	var tw := create_tween()
+	tw.tween_property(hinge, "rotation:x", (CHEST_OPEN_RAD if hinge.position.z > 0.0 else -CHEST_OPEN_RAD) if open else 0.0, CHEST_SWING_S) 		.set_trans(Tween.TRANS_BACK if open else Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT if open else Tween.EASE_IN)
 
 
 static var _micro_meshes := {}
@@ -1348,6 +1385,9 @@ func _on_block_used(p: Vector3i, material: int) -> void:
 			inv_screen.open(3, "crafting_table", "Crafting")
 		"chest", "furnace":
 			var e := blocks.get_or_create(p, d.get("entity", kind))
+			if e.kind == "chest":
+				_open_chest = e.pos
+				_swing_chest_lid(e.pos, true)
 			if material == GameMaterials.FURNACE_LIT and not e.is_lit():
 				_set_station_material(e, GameMaterials.FURNACE)   # lit block without fire (older save): put it out
 			player.set_ui_open(true, false)
@@ -1581,6 +1621,9 @@ func _setup_maps() -> void:
 
 
 func _on_screen_closed(dropped: Array) -> void:
+	if _open_chest != Vector3i.MAX:
+		_swing_chest_lid(_open_chest, false)
+		_open_chest = Vector3i.MAX
 	for s in dropped:
 		_on_item_dropped(s, player.camera.global_position, -player.camera.global_transform.basis.z * 2.0)
 
