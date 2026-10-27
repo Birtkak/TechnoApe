@@ -66,7 +66,12 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   right click, show their contents in the look-at panel (`look_lines()`), lit ones burn, and smithing blows answer
   with sounds (ADR 0078). The look-at panel also draws the block's picture, its hardness and drops and a chest's or
   furnace's contents; R / U look up the aimed block or held item from the world, the recipe view has a tab per
-  station, Fill works on the furnace and Mark bookmarks a recipe (ADR 0093, `info_test=1`).
+  station, Fill works on the furnace and Mark bookmarks a recipe (ADR 0093, `info_test=1`). **Hand feedback (bug report 2026-10-27_18-03-10):** `Viewmodel.swing()` plays the craft
+  motion of the held item (`MOTIONS`: hammer or axe raise-and-slam, firestarter bow drill, knapping stone or flint and
+  steel strike, knife scrape, clay press, saw, pan shake; stroke work and the sieve call `play()`); every lighting
+  (`WorkSystem._wear_held` with a firestarter) puffs smoke and embers with `sim/ignite`; anvil blows throw 9 sparks,
+  knapping 4-5 chips. `craft_film=1` (run with `--fixed-fps 60`) saves burst sheets `film_firestarter`/`film_smithing`
+  (`craft_test`) and `film_knapping` (`stone_age_test`).
   **Bronze and iron ages (ADR 0070):** tin laid into a molten copper crucible on the firepit makes bronze (cast or
   smithed, tier 2); a bloomery (`BloomeryEntity`) turns iron ore and charcoal into a hot bloom, only a forge
   (`ForgeEntity`; both are `FirepitEntity` subclasses) heats `forge_heat` items, and only the bronze anvil (`AnvilEntity`

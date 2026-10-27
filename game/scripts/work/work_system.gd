@@ -348,10 +348,11 @@ func _finish(e: RefCounted, out: Dictionary) -> void:
 
 
 ## A particle effect from Main's ParticleFx (ADR 0026), if there is one.
-func _particles(effect: String, at: Vector3, material: int) -> void:
+## `more` adds particles to the effect's own count.
+func _particles(effect: String, at: Vector3, material: int, more := 0) -> void:
 	var fx: ParticleFx = main.get("fx")
 	if fx:
-		fx.burst(effect, at, {"material": material, "normal": Vector3.UP})
+		fx.burst(effect, at, {"material": material, "normal": Vector3.UP, "count_bonus": more})
 
 
 ## Stacks to the player (they keep their per-stack data: a hot ingot, a work piece), the rest dropped.
@@ -501,6 +502,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		var off_load := sifting == "" and not _sifts(held) and _sifts(main.player_inv.offhand_def())
 		var res: Dictionary = e.use(main.player_inv.offhand_def() if off_load else held, _rng)
 		if sifting != "":
+			main.player.viewmodel.play("shake")
 			var fx: ParticleFx = main.get("fx")
 			_particles("sprint", _at(p, Vector3(0.5, 0.9, 0.5)), fx.material_id(sifting) if fx else 0)
 		if res["consume"] > 0 and _consumes():
@@ -592,7 +594,7 @@ func _hit(hit_r: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool
 	var r: String = e.chip(cell.x, cell.y)
 	if r != "":
 		stats["chips"] += 1
-		_particles("block_hit", _at(p, Vector3((cell.x + 0.5) / 8.0, 0.1, (cell.y + 0.5) / 8.0)), GameMaterials.FLINT_STONES)
+		_particles("block_hit", _at(p, Vector3((cell.x + 0.5) / 8.0, 0.1, (cell.y + 0.5) / 8.0)), GameMaterials.FLINT_STONES, 3)
 	if r == "done":
 		_finish(e, e.output())
 	return true
@@ -601,7 +603,16 @@ func _hit(hit_r: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool
 # ---------------- crafting in the world (ADR 0042) ----------------
 
 ## Wears the held tool by one use in survival (a firestarter lighting, a knife scraping, a hammer blow).
+## Every lighting comes through here: smoke, embers and the catch of the flame where the player aims
+## (bug report 2026-10-27_18-03-10).
 func _wear_held() -> void:
+	if "firestarter" in main.player_inv.held_def().get("tags", []):
+		var aim: VoxelRaycastResult = main.player._aim()
+		if aim != null:
+			var at := Vector3(aim.position) + Vector3(0.5, 0.6, 0.5)
+			_particles("smoke", at, 0, 6)
+			_particles("ember", at, 0, 6)
+			Sound.play("sim/ignite", at)
 	if _consumes():
 		main.player_inv.wear_held(1)
 
@@ -716,7 +727,7 @@ func _smith(e: AnvilEntity, from: Vector3, dir: Vector3, split: bool) -> void:
 			stats["smith_splits" if split else "smith_hits"] += 1
 			_wear_hand(_tool_hand("hammer"))
 			var at := _at(e.pos, Vector3((col.x + 0.5) / 8.0, (AnvilEntity.BASE_H + e.height(col.x, col.y)) / 8.0, (col.y + 0.5) / 8.0))
-			_particles("ember", at, 0)   # sparks off the hot metal
+			_particles("ember", at, 0, 8)   # sparks off the hot metal
 			_particles("block_hit", at, GameMaterials.STONE)
 			if r == "hit" and e.column_right(col.x, col.y):
 				Sound.play("ui/click")   # this column now has its shape

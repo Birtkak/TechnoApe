@@ -84,6 +84,8 @@ func run(p_main: Node) -> void:
 	inv.pickup("firestarter", 1)
 	main._hold("firestarter")
 	_use_on(f_at, Vector3(0.5, 0.2, 0.5))
+	if "craft_film=1" in OS.get_cmdline_user_args():
+		await FrameSheet.burst(main.get_viewport(), DebugCapture.out_dir + "/film_firestarter.png", 54)
 	r["firepit_lit"] = fp is FirepitEntity and fp.is_lit()
 	r["firestarter_wear"] = int(inv.held().get("wear", 0))
 	await tree.create_timer(0.3).timeout
@@ -143,6 +145,8 @@ func run(p_main: Node) -> void:
 			var b: Array = blows[i]
 			var before: int = anvil.hits
 			await _blow(tree, anvil, b[0], b[1], b[2])
+			if i == 0 and "craft_film=1" in OS.get_cmdline_user_args():
+				await FrameSheet.burst(main.get_viewport(), DebugCapture.out_dir + "/film_smithing.png")
 			landed += anvil.hits - before
 		r["blows_landed"] = landed
 		r["blows"] = blows.size()
@@ -310,7 +314,8 @@ func _blow(tree: SceneTree, anvil: AnvilEntity, x: int, z: int, push: Vector2i) 
 	var dir := (top - cam.global_position).normalized()
 	main.player.set_look(atan2(-dir.x, -dir.z), asin(dir.y))
 	var hit: VoxelRaycastResult = main.player._aim()
-	main.work.hit(hit, cam.global_position, -cam.global_transform.basis.z, false)
+	if main.work.hit(hit, cam.global_position, -cam.global_transform.basis.z, false):
+		main.player.viewmodel.swing()   # as the player's left click does
 
 
 func _slot_of(inv: PlayerInventory, id: String) -> int:
