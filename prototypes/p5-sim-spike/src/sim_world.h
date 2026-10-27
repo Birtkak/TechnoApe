@@ -45,6 +45,7 @@ public:
     static constexpr int CS = 16;
     static constexpr int MAX_MATERIALS = 256;
     static constexpr int MAX_DISP = 7; // must stay < CS/2 for the parity scheme
+    static constexpr int SURFACE_REACH = 7; // liquid surface levelling looks this far (< CS/2 like MAX_DISP)
     // Partly full liquid cells in the terrain (Minecraft-style fluid models, one per level):
     // voxel value FLUID_LEVEL_BASE + fluid_slot * 8 + (eighths - 1) for 1..7 eighths; a full
     // cell keeps its material id. get_chunk_bytes / set_chunk_bytes (2 bytes) encode and

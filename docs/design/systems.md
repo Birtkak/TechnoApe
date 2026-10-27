@@ -116,7 +116,8 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   the main pass the kernel runs extra passes that only spread and pour moving liquids with substeps left (no falling,
   no downhill run, nothing standing on a falling cell; its own liquid that only evened out underneath does not hold it); `mark_` is the per-pass move marker, `stamp_`
   still counts ticks. A surface evens out by half the difference to a lower neighbour (ends flat), rests at a
-  difference under two eighths. `test/test_liquid_speed.gd`. `water_test=1 target=river` checks a
+  difference under two eighths; a cell with no neighbour two eighths lower sends one eighth to one up to 7 cells along the
+  surface (`SURFACE_REACH`), so a surface ends flat instead of tilted an eighth per cell. `test/test_liquid_speed.gd`. `water_test=1 target=river` checks a
   trench and a crater; kernel tests `test/test_sim_v6.gd`. A still body beside a dug hole (2026-10-27) also wakes at its
   own moving water two eighths lower beside it, and at a river step whose lower cell has moving water beside it (a
   drained bank's edge), so it no longer sleeps as a 45-degree wall with the hole a third full (`tools/water_bench.gd`).

@@ -1026,6 +1026,33 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
             }
         }
     }
+    // 4c. no neighbour two eighths lower: look along the surface for one, and send it one eighth. Neighbours one eighth
+    // apart rest, so a surface could rest tilted one eighth per cell (a pond draining into a pit stopped at three
+    // quarters, its still steps asleep beside water just one eighth lower). Every transfer lowers the unevenness,
+    // so the surface still comes to rest, flat to an eighth over SURFACE_REACH cells
+    if (pressed) return;
+    for (int k = 0; k < 4; k++) {
+        int dd = (d + k) & 3;
+        for (int s = 1; s <= SURFACE_REACH; s++) {
+            int px = x + DX4[dd] * s, pz = z + DZ4[dd] * s;
+            if (!is_open(px, y, pz)) break;
+            int pi = idx(px, y, pz);
+            if (cells_[pi].mat != self) break;
+            int fp = full(pi);
+            if (fp > f) break;   // uphill: not this way
+            if (fp <= f - 2) {
+                if (moved_[pi] == mark_ || over_still(px, pz)) break;
+                set_full(pi, fp + 1);
+                set_full(i, f - 1);
+                moved_[pi] = mark_;
+                moved_[i] = mark_;
+                mark_cell(px, y, pz, c, false);
+                mark_cell(x, y, z, c, false);
+                c.moved++;
+                return;
+            }
+        }
+    }
 }
 
 void SimWorld::update_gas(int x, int y, int z, int i, Ctx &c) {
