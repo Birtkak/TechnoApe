@@ -266,7 +266,14 @@ void SimWorld::rebuild_reaction_lut() {
     inert_.assign(MAX_MATERIALS, 0);
     any_reactions_ = !reactions_.empty();
     for (size_t i = 0; i < reactions_.size(); i++) {
-        react_lut_[reactions_[i].in1 * MAX_MATERIALS + reactions_[i].in2] = (int16_t)i;
+        reactions_[i].next = -1;
+        int16_t &slot = react_lut_[reactions_[i].in1 * MAX_MATERIALS + reactions_[i].in2];
+        if (slot < 0) slot = (int16_t)i;
+        else {   // a second reaction of the same pair chains behind the first (lava + water: boil, or crust)
+            int16_t k = slot;
+            while (reactions_[k].next >= 0) k = reactions_[k].next;
+            reactions_[k].next = (int16_t)i;
+        }
         reactive_[reactions_[i].in1] = 1;
         reactive_[reactions_[i].in2] = 1;
     }
@@ -703,6 +710,18 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
     };
     bool open = y > 0 && fresh_air(x, y - 1, z, false);
     for (int d = 0; d < 4 && !open; d++) open = fresh_air(x + DX4[d], y, z + DZ4[d], true);
+    if (!open && flow != 0) {
+        // ADR 0081: a lone still cell (none of its kind on any of its six sides: the specks the generator leaves on
+        // cave walls and ledges) wakes at any air beside or below it, fresh or not, and drains or dries as moving
+        // liquid; a body's rim, a river's thread and a pool's bottom cell all have a neighbour of their kind
+        bool lone = true, air = false;
+        for (int d = 0; d < 6 && lone; d++) {
+            const int nx = x + NX6[d], ny = y + NY6[d], nz = z + NZ6[d];
+            if (still_liquid(nx, ny, nz, md.fluid_slot)) lone = false;
+            else if (NY6[d] <= 0 && is_open(nx, ny, nz) && open_air(cells_[idx(nx, ny, nz)].mat)) air = true;
+        }
+        open = lone && air;
+    }
     if (!open || flow == 0) {
         cells_[i].flags &= ~FLAG_SHAKEN;
         // asleep, unless something it reacts with touches it (water on a sludge pool)
@@ -1081,9 +1100,15 @@ void SimWorld::try_react(int x, int y, int z, int i, Ctx &c) {
     bool swapped = false;
     if (ri < 0) { ri = react_lut_[b * MAX_MATERIALS + a]; swapped = true; }
     if (ri < 0) return;
-    const Reaction &rx = reactions_[ri];
-    if ((r >> 8 & 0xFFFF) >= rx.probability) return;
     if (moved_[ni] == mark_) return;
+    // the pair's reactions roll in order; the first hit fires (ADR 0081: lava + water boils far more often than it crusts)
+    uint32_t roll = r >> 8;
+    while ((roll & 0xFFFF) >= reactions_[ri].probability) {
+        ri = reactions_[ri].next;
+        if (ri < 0) return;
+        roll = rnd(c);
+    }
+    const Reaction &rx = reactions_[ri];
     uint8_t oa = swapped ? rx.out2 : rx.out1;
     uint8_t ob = swapped ? rx.out1 : rx.out2;
     place(i, oa);
@@ -1643,7 +1668,12 @@ PackedInt32Array SimWorld::sample_cells(Vector3i p_center, int p_radius, int p_c
         out.push_back(x); out.push_back(y); out.push_back(z); out.push_back(c.mat);
         out.push_back(readable(x, y + 1, z) ? cells_[idx(x, y + 1, z)].mat : -1);
         out.push_back(readable(x, y - 1, z) ? cells_[idx(x, y - 1, z)].mat : -1);
-        out.push_back(c.flags);
+        const uint16_t mv = moved_[idx(x, y, z)];
+        const MaterialDef &md = mats_[c.mat];
+        int f = c.flags;
+        if (mv == stamp_ || mv == (uint16_t)(stamp_ - 1)) f |= SAMPLE_MOVED;
+        if (md.lifetime && c.aux + 8 >= md.lifetime) f |= SAMPLE_FRESH;
+        out.push_back(f);
     }
     return out;
 }

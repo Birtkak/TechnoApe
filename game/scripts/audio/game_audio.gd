@@ -22,7 +22,7 @@ const MOB_HZ := 4.0
 const PROBE_RANGE_M := 12.0
 const PROBE_DIRS := [Vector3(0, 1, 0), Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1),
 	Vector3(0.7, 0.7, 0), Vector3(-0.7, 0.7, 0), Vector3(0, 0.7, 0.7), Vector3(0, 0.7, -0.7), Vector3(0, -1, 0)]
-const WHERE := ["any", "air_above", "air_below"]
+const WHERE := ["any", "air_above", "air_below", "moving", "fresh"]   # moving / fresh: SimWorld::SampleBits (ADR 0081)
 ## Groups that wall a space in for the reverb: rock, earth and built walls. Not trunks, leaves or
 ## plants: a forest is open air.
 const ENCLOSING := ["stone", "dirt", "grass", "gravel", "sand", "snow", "mud", "glass", "metal", "plank"]
@@ -864,6 +864,12 @@ func _sample_loops() -> void:
 				"air_below":
 					if hits[i + 5] != GameMaterials.AIR:
 						continue
+				"moving":   # the cell moved this or the last tick: every voxel in motion murmurs
+					if not (hits[i + 6] & 8):
+						continue
+				"fresh":    # a gas born this instant: steam off lava sizzles
+					if not (hits[i + 6] & 16):
+						continue
 			var a: Array = acc.get(ln, [0, Vector3.ZERO])
 			a[0] += 1
 			a[1] += Vector3(hits[i], hits[i + 1], hits[i + 2])
@@ -906,8 +912,9 @@ func _make_loop(ln: String) -> Dictionary:
 		(st as AudioStreamOggVorbis).loop = true
 	v.stream = st
 	v.volume_db = -80.0
+	v.pitch_scale = float(_loop_defs[ln].get("pitch", 1.0))   # one asset serves several materials at different pitches
 	add_child(v)
-	var d := {"player": v, "level": 0.0, "target": 0.0, "pos": _listener(), "db": s.get("db", -10.0)}
+	var d := {"player": v, "level": 0.0, "target": 0.0, "pos": _listener(), "db": float(_loop_defs[ln].get("db", s.get("db", -10.0)))}
 	_loops[ln] = d
 	return d
 
