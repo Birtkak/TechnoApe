@@ -38,6 +38,9 @@ var _fps: OptionButton
 var _fullscreen: CheckBox
 var _mini_corner: OptionButton
 var _mini_size: OptionButton
+var _gui: OptionButton
+var _jei_shown: CheckBox
+var _jei_cols: OptionButton
 const MINIMAP_CORNERS := ["top_right", "top_left", "bottom_right", "bottom_left"]
 const MINIMAP_SIZES := [0, 120, 160, 220, 300]
 var _sens: HSlider
@@ -201,6 +204,24 @@ func _video_tab() -> Control:
 		Settings.minimap_size_px = MINIMAP_SIZES[_mini_size.selected]
 		_edited())
 	_row(g, "Minimap size", _mini_size)
+	var gui_items := []
+	for x in Settings.GUI_SCALES:
+		gui_items.append("%d%%" % roundi(x * 100.0))
+	_gui = _options(gui_items, func() -> void:
+		Settings.gui_scale = Settings.GUI_SCALES[_gui.selected]
+		_edited())
+	_row(g, "GUI scale", _gui)
+	_jei_shown = _check(func() -> void:
+		Settings.jei_shown = _jei_shown.button_pressed
+		_edited())
+	_row(g, "Recipe browser (JEI)", _jei_shown)
+	var jei_items := []
+	for c in Settings.JEI_COLS:
+		jei_items.append("Auto" if c == 0 else "%d columns" % c)
+	_jei_cols = _options(jei_items, func() -> void:
+		Settings.jei_cols = Settings.JEI_COLS[_jei_cols.selected]
+		_edited())
+	_row(g, "Recipe browser width", _jei_cols)
 	return g
 
 
@@ -347,6 +368,9 @@ func sync_from_settings() -> void:
 	_fullscreen.button_pressed = Settings.fullscreen
 	_mini_corner.select(maxi(0, MINIMAP_CORNERS.find(Settings.minimap_corner)))
 	_mini_size.select(_nearest(MINIMAP_SIZES, Settings.minimap_size_px))
+	_gui.select(_nearest(Settings.GUI_SCALES, Settings.gui_scale))
+	_jei_shown.button_pressed = Settings.jei_shown
+	_jei_cols.select(_nearest(Settings.JEI_COLS, Settings.jei_cols))
 	_sens.value = Settings.mouse_sensitivity / 0.0025
 	_sens_label.text = "%d%%" % roundi(_sens.value * 100.0)
 	_invert.button_pressed = Settings.invert_y

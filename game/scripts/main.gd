@@ -1438,6 +1438,14 @@ func _debug_browser() -> void:
 		var parts: PackedStringArray = args["browse"].split(":")
 		var ok := inv_screen.browser_view.show_item(parts[0], parts[1] if parts.size() > 1 else "recipes")
 		print("debug browse %s -> %s" % [args["browse"], ok])
+	if args.has("hover_slot"):   # a tooltip capture: the mouse is not reliable in an off-screen window
+		for _i in 30:
+			await get_tree().process_frame
+		var sv: Control = inv_screen._slots[int(args["hover_slot"])]
+		inv_screen.debug_hover = sv
+		for _i in 3:
+			await get_tree().process_frame
+		print("debug hover_slot %s tooltip=%s" % [args["hover_slot"], inv_screen._tooltip.text.replace("\n", " / ")])
 	if args.get("hover_test", "0") == "1":
 		# real input path: mouse over the 8th list cell (oak planks), R (recipes), then RMB on the 2nd cell (uses)
 		var bv := inv_screen.browser_view

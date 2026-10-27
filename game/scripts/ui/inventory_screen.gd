@@ -228,23 +228,32 @@ func _build_player_slots() -> void:
 		_panel.add_child(_trash_slot)
 
 
-## Docks another part's control beside the panel while the screen is open: "below" (under the panel,
-## left-aligned; nutrition, part G) or "left" (left of the panel, top-aligned; clothing slots, part F).
+## Docks another part's control beside the panel while the screen is open: "right" (right of the panel,
+## top-aligned; the diet, the recipe browser list moves over), "below" (under the panel, left-aligned) or "left" (left of the panel, top-aligned; clothing slots, part F).
 func add_side_panel(ctrl: Control, side: String = "below") -> void:
 	_root.add_child(ctrl)
 	_side_panels.append([ctrl, side])
+	_place_side_panels()
 	_root.move_child(_cursor_icon, -1)
 	_root.move_child(_tooltip, -1)
 
 
 func _place_side_panels() -> void:
-	var r := _panel.get_global_rect()
+	# from the viewport, not the anchored panel: it is not laid out yet when a side panel is added to an open screen
+	var r := Rect2(get_viewport().get_visible_rect().size / 2.0 - _panel.size / 2.0, _panel.size)
+	var inset := 0.0
 	for sp in _side_panels:
 		var c: Control = sp[0]
-		if sp[1] == "left":
+		if sp[1] == "right":
+			c.global_position = Vector2(r.end.x + 12.0, r.position.y)
+			inset = maxf(inset, c.size.x + 8.0)
+		elif sp[1] == "left":
 			c.global_position = Vector2(r.position.x - S - 24.0 - c.size.x, r.position.y)   # clear of the trash slot
 		else:
 			c.global_position = Vector2(r.position.x, r.end.y + 8.0)
+	if browser_view and not is_equal_approx(browser_view.right_inset, inset):
+		browser_view.right_inset = inset
+		browser_view.refresh()
 
 
 func _small_button(text: String, cb: Callable) -> Button:
@@ -439,9 +448,16 @@ func _process(_delta: float) -> void:
 		_update_tooltip()
 
 
+var debug_hover: Control   # captures: stands in for the mouse (main.gd hover_slot=)
+
+
+func _hovered_control() -> Control:
+	return debug_hover if is_instance_valid(debug_hover) else get_viewport().gui_get_hovered_control()
+
+
 ## The item under the mouse (inventory slot or browser cell), or "".
 func hovered_item() -> String:
-	var c := get_viewport().gui_get_hovered_control()
+	var c := _hovered_control()
 	while c != null and c != _root:
 		if c.has_method("hover_item_id"):
 			return c.hover_item_id()
@@ -455,13 +471,13 @@ func _update_tooltip() -> void:
 	if id == "":
 		return
 	var text := player_inv.items.display_name(id)
-	var c := get_viewport().gui_get_hovered_control()
+	var c := _hovered_control()
 	if c and c.has_method("hover_tag") and c.hover_tag() != "":
 		text += "\nany " + c.hover_tag()
 	var stack := {}
 	var w := c
 	while w != null and w != _root:   # the hovered slot's stack, if it has one
-		var st: Variant = w.get("stack")
+		var st: Variant = w.hover_stack() if w.has_method("hover_stack") else w.get("stack")   # a slot keeps its stack on its icon child
 		if st is Dictionary and not st.is_empty():
 			stack = st
 			break
@@ -486,7 +502,10 @@ Armor %d" % int(cloth["armor"])
 Warmth +%.1f C" % float(cloth["warmth_c"])
 	var dur := Inventory.durability_of(player_inv.items, stack)   # with dur_x (ADR 0059)
 	if dur > 0:
-		text += "\nDurability %d / %d" % [dur - int(stack.get("wear", 0)), dur]   # ADR 0042
+		if stack.is_empty():   # a browser cell: the maximum only
+			text += "\nDurability %d" % dur
+		else:
+			text += "\nDurability %d / %d" % [dur - int(stack.get("wear", 0)), dur]   # ADR 0042
 	if float(stack.get("dur_x", 1.0)) > 1.0:
 		text += "\nLasts %.1fx as long" % float(stack["dur_x"])
 	if Inventory.heat_of(stack) > 0.0:
@@ -711,6 +730,9 @@ class SlotView:
 
 	func hover_item_id() -> String:
 		return _icon.stack.get("id", "")
+
+	func hover_stack() -> Dictionary:
+		return _icon.stack
 
 	func _draw() -> void:
 		var sb := StyleBoxFlat.new()

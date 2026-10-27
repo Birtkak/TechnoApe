@@ -29,6 +29,7 @@ var _list_rect := Rect2()
 var _cols := 0
 var cheat_give: Callable        # creative (ADR 0018): fn(item_id, shift) -> bool; LMB on the list takes items
 var _rows := 0
+var right_inset := 0.0         # room a right-docked side panel (the diet) takes beside the inventory
 var _bm_panel: Control          # bookmarks, left of the panel
 var _bm_cells: Array[BrowserCell] = []
 var _bm_title: Label
@@ -91,6 +92,7 @@ func _ready() -> void:
 	move_child(_list_panel, -1)   # the item list and bookmarks stay clickable while a recipe is open (JEI)
 	move_child(_bm_panel, -1)
 	get_viewport().size_changed.connect(_layout)
+	Settings.user_settings_changed.connect(_layout)
 
 
 func _button(text: String, cb: Callable) -> Button:
@@ -113,11 +115,13 @@ func _layout() -> void:
 		return
 	var vw := get_viewport_rect().size   # own size is still 0 while the screen is hidden
 	var panel_right := vw.x / 2.0 + PANEL.x / 2.0
-	var x0 := panel_right + 12.0
+	var x0 := panel_right + 12.0 + right_inset
 	var w := vw.x - x0 - 8.0
 	_cols = int(w / S)
+	if Settings.jei_cols > 0:
+		_cols = mini(_cols, Settings.jei_cols)
 	_rows = int((vw.y - 16.0 - 34.0 - 40.0) / S)
-	_list_panel.visible = _cols >= 2 and _rows >= 2      # too narrow (phone): no list, R/U still work
+	_list_panel.visible = Settings.jei_shown and _cols >= 2 and _rows >= 2      # too narrow (phone): no list, R/U still work
 	_list_rect = Rect2(x0, 8, _cols * S + 8, _rows * S + 34 + 40 + 8)
 	_list_panel.position = _list_rect.position
 	_list_panel.size = _list_rect.size

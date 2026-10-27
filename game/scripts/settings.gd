@@ -221,6 +221,8 @@ const SHADOW_QUALITY := {
 	"medium": {"mode": "soft", "splits": 2, "distance_m": 64.0, "filter": 1},
 	"high": {"mode": "soft", "splits": 4, "distance_m": 96.0, "filter": 2},
 }
+const GUI_SCALES := [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]   # HUD and menus (window content_scale_factor; the 3D view keeps its resolution)
+const JEI_COLS := [0, 4, 6, 8, 10]   # recipe browser list width in columns; 0 = fill the room beside the panels
 const MAX_FPS_CHOICES := [60, 120, 144, 240, 0]   # 0 = unlimited
 var graphics_preset := "high"           # low | medium | high | custom (a value changed by hand)
 var shadow_quality := "high"            # off | low | medium | high
@@ -231,6 +233,9 @@ var brightness := 0.5                   # 0 moody .. 1 bright; 0.5 is the graded
 var fov := 75.0                         # degrees, vertical
 var invert_y := false
 var brush_ghost := true   # the shell of the cells a dig or placement will touch (ADR 0065; off in the G panel)
+var gui_scale := 1.0                     # one of GUI_SCALES; applies live (apply_display)
+var jei_shown := true                    # the recipe browser list beside the inventory
+var jei_cols := 0                        # one of JEI_COLS
 var vsync := true
 var max_fps := 120                      # 0 = unlimited (project default 120: 500 fps on a menu only heats the GPU)
 var fullscreen := false
@@ -333,6 +338,9 @@ func apply_cmdline() -> Dictionary:
 			"item_despawn_s": item_despawn_s = float(kv[1])
 			"gamemode": game_mode = kv[1]
 			"minimized": start_minimized = kv[1] == "1"
+			"gui_scale":
+				gui_scale = clampf(float(kv[1]), GUI_SCALES[0], GUI_SCALES[-1])
+				get_window().content_scale_factor = gui_scale
 			"graphics": apply_graphics_preset(kv[1])   # graphics=low|medium|high (ADR 0032)
 	return args
 
@@ -356,6 +364,9 @@ func load_user_settings() -> void:
 	vsync = bool(cf.get_value("video", "vsync", vsync))
 	max_fps = int(cf.get_value("video", "max_fps", max_fps))
 	fullscreen = bool(cf.get_value("video", "fullscreen", fullscreen))
+	gui_scale = clampf(float(cf.get_value("hud", "gui_scale", gui_scale)), GUI_SCALES[0], GUI_SCALES[-1])
+	jei_shown = bool(cf.get_value("hud", "jei_shown", jei_shown))
+	jei_cols = clampi(int(cf.get_value("hud", "jei_cols", jei_cols)), 0, 16)
 	mouse_sensitivity = float(cf.get_value("controls", "mouse_sensitivity", mouse_sensitivity))
 	invert_y = bool(cf.get_value("controls", "invert_y", invert_y))
 	brush_ghost = bool(cf.get_value("controls", "brush_ghost", brush_ghost))
@@ -400,6 +411,9 @@ func save_user_settings() -> void:
 		var ev := current_key(a[0])
 		if ev != null and key_text(ev) != key_text(default_key(a[0])):
 			cf.set_value("keys", a[0], key_string(ev))
+	cf.set_value("hud", "gui_scale", gui_scale)
+	cf.set_value("hud", "jei_shown", jei_shown)
+	cf.set_value("hud", "jei_cols", jei_cols)
 	cf.set_value("hud", "minimap_corner", minimap_corner)
 	cf.set_value("hud", "minimap_size_px", minimap_size_px)
 	cf.save(user_settings_path)
@@ -497,6 +511,7 @@ func matching_preset() -> String:
 
 ## Window, vsync and frame cap (not for autopilot runs: DebugCapture owns those).
 func apply_display() -> void:
+	get_window().content_scale_factor = gui_scale   # before the early outs: menu_test and captures scale too
 	if OS.get_cmdline_user_args().has("autopilot=1") or DisplayServer.get_name() == "headless":
 		return
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED)
