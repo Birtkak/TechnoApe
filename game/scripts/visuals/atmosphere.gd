@@ -194,7 +194,7 @@ func _ready() -> void:
 	env.ssao_light_affect = 0.08
 	env.ssao_ao_channel_affect = 0.0
 
-	env.fog_enabled = fog_on
+	env.fog_enabled = true   # caves and water always fog; fog_on gates the air's haze and mist (_apply_states)
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
 	env.fog_light_color = fog_color_day
 	env.fog_light_energy = 1.0
@@ -281,7 +281,7 @@ func _load_grade(p_name: String) -> bool:
 func _push_grade() -> void:
 	env.tonemap_mode = {"aces": Environment.TONE_MAPPER_ACES, "agx": Environment.TONE_MAPPER_AGX,
 		"filmic": Environment.TONE_MAPPER_FILMIC, "linear": Environment.TONE_MAPPER_LINEAR}.get(tonemap, Environment.TONE_MAPPER_ACES)
-	env.tonemap_exposure = exposure
+	env.tonemap_exposure = exposure * sqrt(brightness_mult())
 	env.tonemap_white = tonemap_white
 	env.adjustment_saturation = saturation
 	env.adjustment_contrast = contrast
@@ -325,6 +325,7 @@ static func _curve_texture(points: Array) -> GradientTexture1D:
 ## command-line args (ssao=, shadows=, shadow_splits= ...) override them after.
 func _read_user_settings() -> void:
 	ssao_on = Settings.ssao
+	fog_on = Settings.fog
 	glow_on = Settings.bloom
 	var q: Dictionary = Settings.SHADOW_QUALITY.get(Settings.shadow_quality, Settings.SHADOW_QUALITY["high"])
 	shadows = q["mode"]
@@ -349,7 +350,14 @@ func apply_graphics() -> void:
 	_read_user_settings()
 	env.ssao_enabled = ssao_on
 	env.glow_enabled = glow_on
+	env.tonemap_exposure = exposure * sqrt(brightness_mult())
 	_apply_shadows()
+
+
+## The Brightness setting as a light multiplier: 0.5 (the graded look) is 1, 0 halves, 1 doubles. The
+## ambient takes all of it (shadows, caves and night lift), the exposure its square root.
+static func brightness_mult() -> float:
+	return pow(2.0, (Settings.brightness - 0.5) * 2.0)
 
 
 func _apply_cmdline() -> void:
@@ -557,10 +565,28 @@ func _sample_camera() -> void:
 	var surface := world.surface_height(int(floor(p.x)), int(floor(p.z)))
 	var depth_m := Settings.v2m(float(surface) - p.y)
 	var target := clampf((depth_m - underground_start_m) / (underground_full_m - underground_start_m), 0.0, 1.0)
-	# the bottom of a ravine or a mouth is below the surface height but under the open sky
-	if target > 0.0 and sky_open(p, surface):
-		target = 0.0
+	# the bottom of a ravine or a mouth is below the surface height but under the open sky; under an
+	# overhang or a roof beside open sky it is partly lit, not a cave (bug 2026-10-27_15-41-13: one
+	# step under a ledge in a gorge went fully dark): a third of the columns around open is daylight
+	if target > 0.0:
+		target *= clampf(1.0 - 3.0 * sky_share(p), 0.0, 1.0)
 	set_meta("underground_target", target)
+
+
+## The share of the columns at and around `p` (SKY_AROUND, sky_around_m apart) open to the sky above
+## (sky_open); a point around inside rock is closed.
+func sky_share(p: Vector3) -> float:
+	var open := 0
+	for o: Vector2 in SKY_AROUND:
+		var q := p + Vector3(o.x, 0.0, o.y) * Settings.m2v(sky_around_m)
+		if world.get_voxel(Vector3i(q.floor())) == 0 and sky_open(q, world.surface_height(int(floor(q.x)), int(floor(q.z)))):
+			open += 1
+	return float(open) / SKY_AROUND.size()
+
+
+var sky_around_m := 2.0
+const SKY_AROUND: Array[Vector2] = [Vector2(0, 0), Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1),
+	Vector2(0.7, 0.7), Vector2(-0.7, 0.7), Vector2(0.7, -0.7), Vector2(-0.7, -0.7)]
 
 
 ## True when nothing solid stands between `p` and the sky: a vertical ray through the loaded voxels
@@ -609,7 +635,7 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 	if overcast > 0.0 or _overcast_shown > 0.0:
 		_overcast_shown = overcast
 		sky_material.set_shader_parameter("cloud_coverage", lerpf(cloud_coverage, 1.0, overcast))
-	env.ambient_light_energy *= lerpf(1.0, 0.75, overcast)
+	env.ambient_light_energy *= lerpf(1.0, 0.75, overcast) * brightness_mult()
 	# no glow towards a sun the cave hides (the orange haze of bug 2026-10-25_21-21-36)
 	env.fog_sun_scatter = sun_scatter * (1.0 - _underground)
 	if _submerged_name != "":
@@ -627,13 +653,18 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 		tint = Color(tc.r * lit, tc.g * lit, tc.b * lit, lerpf(tc.a, 0.5, dark))
 	else:
 		env.fog_light_color = fog_day.lerp(underground_fog_color, _underground)
-		env.fog_density = lerpf(fog_per_km * (1.0 + 4.0 * overcast) / Settings.m2v(1000.0), underground_fog_density, _underground)
+		var air := fog_per_km * (1.0 + 4.0 * overcast) / Settings.m2v(1000.0) if fog_on else 0.0
+		env.fog_density = lerpf(air, underground_fog_density, _underground)
 		env.fog_aerial_perspective = lerpf(aerial, 0.0, _underground)
 		# underground the fog hides everything far, the sky too: a hole in the far LOD meshes shows
 		# cave fog, not a bright sky (bug 2026-10-25_21-21-14)
 		env.fog_sky_affect = lerpf(0.15, 1.0, _underground)
 		# faint ground mist in the lowlands by day, none underground or at night
-		env.fog_height_density = mist_per_km / Settings.m2v(1000.0) * day * (1.0 - _underground)
+		env.fog_height_density = mist_per_km / Settings.m2v(1000.0) * day * (1.0 - _underground) if fog_on else 0.0
+		# Godot's height fog grows with the depth below fog_height, near or far: a ravine below sea level
+		# stood in a wall of mist (bug 2026-10-27_15-40-26). The mist lies below the camera, never around it.
+		if camera != null:
+			env.fog_height = minf(Settings.SEA_LEVEL_VOXEL + 6.0, camera.global_position.y - Settings.m2v(4.0))
 	overlay.color = tint
 	# sun cannot reach deep caves beyond its shadow range: fade it with depth too
 	sun.shadow_opacity = lerpf(shadow_opacity, 1.0, _underground)

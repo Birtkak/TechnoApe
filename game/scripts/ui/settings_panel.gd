@@ -28,6 +28,9 @@ var _view: OptionButton
 var _far: OptionButton
 var _ssao: CheckBox
 var _bloom: CheckBox
+var _fog: CheckBox
+var _bright: HSlider
+var _bright_label: Label
 var _fov: HSlider
 var _fov_label: Label
 var _vsync: CheckBox
@@ -135,6 +138,29 @@ func _video_tab() -> Control:
 		Settings.bloom = _bloom.button_pressed
 		_edited())
 	_row(g, "Bloom", _bloom)
+	_fog = _check(func() -> void:
+		Settings.fog = _fog.button_pressed
+		_edited())
+	_fog.tooltip_text = "The haze and lowland mist above ground. Caves and water keep their own."
+	_row(g, "Fog", _fog)
+	var bright_row := HBoxContainer.new()
+	_bright = HSlider.new()
+	_bright.min_value = 0.0
+	_bright.max_value = 1.0
+	_bright.step = 0.05
+	_bright.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_bright.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_bright.value_changed.connect(func(v: float) -> void:
+		_bright_label.text = "%d%%" % roundi(v * 100.0)
+		if not _syncing:
+			Settings.brightness = v
+			_edited())
+	bright_row.add_child(_bright)
+	_bright_label = UiStyle.label("50%")
+	_bright_label.custom_minimum_size.x = 48
+	bright_row.add_child(_bright_label)
+	_bright.tooltip_text = "Lifts shadows, caves and night (50% is the graded look)."
+	_row(g, "Brightness", bright_row)
 	var fov_row := HBoxContainer.new()
 	_fov = HSlider.new()
 	_fov.min_value = 60
@@ -311,6 +337,9 @@ func sync_from_settings() -> void:
 	_far.select(_nearest(Settings.FAR_CHOICES_M, Settings.far_distance_m) if Settings.far_layer else 0)
 	_ssao.button_pressed = Settings.ssao
 	_bloom.button_pressed = Settings.bloom
+	_fog.button_pressed = Settings.fog
+	_bright.value = Settings.brightness
+	_bright_label.text = "%d%%" % roundi(Settings.brightness * 100.0)
 	_fov.value = Settings.fov
 	_fov_label.text = "%d°" % int(Settings.fov)
 	_vsync.button_pressed = Settings.vsync

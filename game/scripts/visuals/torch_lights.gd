@@ -93,8 +93,12 @@ static func _flicker(t: float, i: int) -> float:
 
 func _follow_hand() -> void:
 	var id := ""
+	var hand := HAND
 	if main.player_inv != null and main.player != null and main.player.camera != null:
 		id = String(main.player_inv.held().get("id", ""))
+		if light_of(main.items, id).is_empty():   # a torch in the left hand lights too (bug 2026-10-27_15-41-51)
+			id = String(main.player_inv.offhand().get("id", ""))
+			hand.x = -hand.x
 	var def := light_of(main.items, id)
 	_held.visible = not def.is_empty()
 	stats["held"] = _held.visible
@@ -105,7 +109,7 @@ func _follow_hand() -> void:
 		_apply(_held, def)
 		_held.set_meta("energy", float(def["energy"]) * HELD_ENERGY)
 	var cam: Transform3D = main.player.camera.global_transform
-	_held.global_position = cam * (HAND / Settings.VOXEL_M)
+	_held.global_position = cam * (hand / Settings.VOXEL_M)
 
 
 func _assign() -> void:

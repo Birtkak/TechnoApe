@@ -80,7 +80,7 @@ var charcoal_pit_grace_s := 20.0        # after lighting, this long to finish se
 var firewood_per_pile := 16             # firewood in one pile voxel; two make one charcoal
 var torch_lights_max := 24              # the light sources nearest the player that get a real light (TorchLights)
 var torch_light_range_m := 16.0         # how far one torch lights (2026-10-25: 7 m read as a small glow; ADR 0053)
-var torch_light_energy := 1.3           # a torch's light at its flame
+var torch_light_energy := 1.8           # a torch's light at its flame (1.3 read as too soft, bug 2026-10-27_15-42-49)
 var torch_light_attenuation := 0.7      # OmniLight3D falloff: < 1 spreads the light and fades it gently to the range
 var torch_light_radius_m := 64.0        # light sources farther from the player than this stay unlit
 var fire_light_range_m := 18.0          # a lit firepit, furnace, kiln or firewood pile (TorchLights)
@@ -226,6 +226,8 @@ var graphics_preset := "high"           # low | medium | high | custom (a value 
 var shadow_quality := "high"            # off | low | medium | high
 var ssao := true
 var bloom := true
+var fog := true                          # the haze and lowland mist above ground (bug 2026-10-27_15-49-06; caves and water keep theirs)
+var brightness := 0.5                   # 0 moody .. 1 bright; 0.5 is the graded look (Atmosphere.brightness_mult)
 var fov := 75.0                         # degrees, vertical
 var invert_y := false
 var brush_ghost := true   # the shell of the cells a dig or placement will touch (ADR 0065; off in the G panel)
@@ -344,6 +346,8 @@ func load_user_settings() -> void:
 	shadow_quality = String(cf.get_value("video", "shadows", shadow_quality))
 	ssao = bool(cf.get_value("video", "ssao", ssao))
 	bloom = bool(cf.get_value("video", "bloom", bloom))
+	fog = bool(cf.get_value("video", "fog", fog))
+	brightness = clampf(float(cf.get_value("video", "brightness", brightness)), 0.0, 1.0)
 	# files from before ADR 0073 hold 200 m or 1-2 km of LOD horizon: at 12.5 cm one box of that never loads
 	view_distance_m = clampf(float(cf.get_value("video", "view_distance_m", view_distance_m)), MIN_VIEW_M, MAX_VIEW_M)
 	far_layer = bool(cf.get_value("video", "far_layer", far_layer))
@@ -376,6 +380,8 @@ func save_user_settings() -> void:
 	cf.set_value("video", "shadows", shadow_quality)
 	cf.set_value("video", "ssao", ssao)
 	cf.set_value("video", "bloom", bloom)
+	cf.set_value("video", "fog", fog)
+	cf.set_value("video", "brightness", brightness)
 	cf.set_value("video", "view_distance_m", view_distance_m)
 	cf.set_value("video", "far_layer", far_layer)
 	cf.set_value("video", "far_distance_m", far_distance_m)

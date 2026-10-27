@@ -148,17 +148,26 @@ void fragment() {
 	ROUGHNESS = 1.0;
 	METALLIC = 0.0;
 	SPECULAR = 0.0;
+	// ADR 0069 A3: a steep top (a cascade: the height field's sheet over stair-stepped ground) is a
+	// falling sheet, by the geometric slope of the triangle
+	float steep = 0.0;
 	if (top) {
+		vec3 gn = normalize(cross(dFdx(v_world), dFdy(v_world)));
+		steep = smoothstep(0.85, 0.55, abs(gn.y));
 		NORMAL = normalize((VIEW_MATRIX * vec4(liquid_ripple(v_world.xz + shift), 0.0)).xyz);
-		SPECULAR = surface_specular;
-		ROUGHNESS = surface_roughness;
+		// the ripple normal points up, so a cascade seen head on is a grazing mirror of the bright sky: a
+		// white wall, worst far away (bug 2026-10-27_15-15-44). A falling sheet does not gloss
+		SPECULAR = surface_specular * (1.0 - steep);
+		ROUGHNESS = mix(surface_roughness, 1.0, steep);
 	}
 	float m = mottle > 0.0 ? (lava_noise(vec3(p * 0.18, TIME * 0.05)) - 0.5) * mottle : 0.0;
 	if (abs(fluid_tile - lava_tile) < 0.5) {
 		// lava: crust plates and glowing cracks (lava_color), now sampled smoothly and drifting with the flow
 		// instead of one colour per voxel; a falling face pours bright streaks
 		vec3 glow_c;
-		vec3 q = top ? vec3(p.x, v_world.y, p.y) : vec3(p.x, p.y, (an.x > 0.5 ? v_world.x : v_world.z));
+		// one field in world space: tops slicing the noise at their own height cut dug, uneven lava into a
+		// mosaic of mismatched plates (bug 2026-10-27_15-45-02); every top now shares one plane
+		vec3 q = top ? vec3(v_world.x, 0.0, v_world.z) : v_world;
 		vec3 c = lava_surface(q, TIME, glow_c);
 		if (!top) {
 			float s = fall_streak(wc);
@@ -168,8 +177,8 @@ void fragment() {
 		float heat = clamp(dot(glow_c, vec3(0.33)) / lava_glow, 0.0, 1.0);
 		ALBEDO = c * vcol.rgb * tint * (1.0 + m);
 		EMISSION = glow_c;
-		ROUGHNESS = top ? mix(surface_roughness, 1.0, heat) : 1.0;   // the crust shines, the cracks glow
-		SPECULAR = top ? surface_specular * (1.0 - heat) : 0.0;
+		ROUGHNESS = top ? mix(mix(surface_roughness, 1.0, heat), 1.0, steep) : 1.0;   // the crust shines, the cracks glow
+		SPECULAR = top ? surface_specular * (1.0 - heat) * (1.0 - steep) : 0.0;
 	} else {
 		vec3 col = liquid_shallow;
 		float a = liquid_alpha;
@@ -184,7 +193,9 @@ void fragment() {
 		if (!top) {
 			d_m = min(d_m, sheet_m);   // a falling face is a thin sheet (a waterfall, a pour): never the deep colour
 		}
-		float rim_k = (1.0 - smoothstep(0.0, rim_m, d_m)) * rim;
+		// the pale rim is a shore, where a flat top thins out: a cascade or a fall hugs its rock the whole
+		// way down, and the rim turned it into a white wall (bug 2026-10-27_15-15-44)
+		float rim_k = (1.0 - smoothstep(0.0, rim_m, d_m)) * rim * (top ? 1.0 - steep : 0.0);
 		col = mix(liquid_shallow, liquid_deep, 1.0 - exp(-d_m / depth_m)) * (1.0 + m);
 		col = mix(col, rim_color, rim_k);
 		a = clamp(mix(alpha_min, alpha_max, 1.0 - exp(-d_m / clear_m)) + (1.0 - facing) * edge_alpha_boost + rim_k, 0.0, 1.0);
@@ -201,13 +212,10 @@ void fragment() {
 			a = max(a, b * bubbles);
 		}
 		if (top) {
-			// ADR 0069 A3: a steep top (a cascade: the height field's sheet over stair-stepped ground) is a
-			// falling sheet. Its depth to the ground swings between nothing and three cells every column, and
-			// the thickness alpha drew that as stripes of clear water beside opaque panels. Give it the side
-			// faces' floor and a touch of foam, by the geometric slope of the triangle
-			vec3 gn = normalize(cross(dFdx(v_world), dFdy(v_world)));
-			float steep = smoothstep(0.85, 0.55, abs(gn.y));
-			col = mix(col, foam_color, steep * foam * 0.35);
+			// a cascade's depth to the ground swings between nothing and three cells every column, and the
+			// thickness alpha drew that as stripes of clear water beside opaque panels: give it the side faces'
+			// floor and a trace of foam (more foam washed it white)
+			col = mix(col, foam_color, steep * foam * 0.12);
 			a = mix(a, clamp(max(a, steep_alpha), 0.0, 1.0), steep);
 		}
 		if (an.y < 0.5) {
