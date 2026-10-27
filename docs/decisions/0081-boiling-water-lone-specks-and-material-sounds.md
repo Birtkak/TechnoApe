@@ -35,7 +35,10 @@ slope were silent. Water ran three substeps a tick (ADR 0069 B).
    asset serves sand, gravel, earth and snow at their own pitch, and a `sizzle` loop (steam at pitch 1.8)
    plays where steam is being born: at the lava. Loops key on motion, not on air: a loose slope, a dirt
    collapse or placed sand falling all sound.
-4. **Water substeps 3 -> 4** (`liquid_speed`): a third faster spread for the price measured below.
+4. **Water substeps 3 -> 4** (`liquid_speed`): a third faster spread for the price measured below. The
+   film rule (ADR 0069 B3) no longer counts a two-eighth neighbour as deeper: a two-eighth cell walled in
+   by one-eighth films can neither split nor even out, and with four substeps a spill regularly ends in
+   such clumps that would never dry (`test_liquid_films.gd`).
 5. **Sand bombs:** measured, not changed in the sim (see Consequences).
 
 ## Consequences

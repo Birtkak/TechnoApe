@@ -880,12 +880,14 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
     // ADR 0069 B3: a one-eighth film on a floor that is not its liquid, with nothing deeper of its kind beside it
     // (a lone speck or a spill thinned to a sheet; a pool's rim next to deeper water stays), dries up (or crusts) after about
     // film_life ticks: a spill leaves no permanent wet speckle. Mass is lost on purpose. Before the viscosity roll,
-    // so a slow liquid's film keeps its clock; the film stays awake while it waits
+    // so a slow liquid's film keeps its clock; the film stays awake while it waits. A two-eighth neighbour does not
+    // count as deeper (ADR 0081): walled in by one-eighth films it can neither split nor even out, and if its films
+    // waited for it the clump would never dry
     if (f == 1 && substep_ == 0 && m.film_life && y > 0 && is_open(x, y - 1, z) && cells_[idx(x, y - 1, z)].mat != self) {
         bool alone = true;
         for (int k = 0; k < 4 && alone; k++) {
             const int nx = x + DX4[k], nz = z + DZ4[k];
-            if (is_open(nx, y, nz) && cells_[idx(nx, y, nz)].mat == self && full(idx(nx, y, nz)) > 1) alone = false;
+            if (is_open(nx, y, nz) && cells_[idx(nx, y, nz)].mat == self && full(idx(nx, y, nz)) > 2) alone = false;
         }
         if (alone) {
             if (rnd(c) % m.film_life == 0) {

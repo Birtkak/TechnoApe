@@ -55,7 +55,8 @@ func test_water_on_lava_makes_obsidian() -> void:
 	w.fill_box(Vector3i(15, 3, 15), Vector3i(25, 4, 25), GameMaterials.WATER)
 	_run(w, 200)
 	var obsidian := w.count_in_box(Vector3i(15, 1, 15), Vector3i(25, 8, 25), GameMaterials.OBSIDIAN)
-	assert_int(obsidian).is_greater(20)
+	# ADR 0081: lava boils about six cells of water for every one it crusts on, so 100 water cells leave ~14 obsidian
+	assert_int(obsidian).is_greater(5)
 	assert_int(w.count_in_box(Vector3i(15, 1, 15), Vector3i(25, 8, 25), GameMaterials.STONE)).is_equal(0)   # obsidian, not stone
 
 
