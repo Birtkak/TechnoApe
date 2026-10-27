@@ -1,5 +1,12 @@
 # P13 – A far layer like Lay of the Land's: which far mesher, at what cost?
 
+**2026-10-27, ADR 0075:** the developer judged the skin (b) against Lay of the Land's footage: not the
+voxel look, and a height field cannot show a built tower. A fourth candidate, (d) voxel cubes from the
+generator's coarse data at a cell size under ~3 px with the edited columns' real voxels laid in
+(`FarMesh::build_voxel_tile`), is now the far mesher; its numbers are in ADR 0075 (standing p99 7.0 ms,
+6.2 M triangles, 1.27 GB VRAM; the flight has 3 frames over 16.7 ms). (a), (b) and (c) below stand as
+measured.
+
 **Question.** ADR 0073 left the world as one 40 m box of full-detail voxels ending in the sky, because
 three attempts at voxel LODs with godot_voxel's blocky mesher looked worse than nothing at 12.5 cm
 (cubes of cubes, black water trenches, terrace rims, a dither that read as stitching, streaming that

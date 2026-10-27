@@ -15,11 +15,13 @@ extends Node3D
 ## in front of the near voxels: it only shows where the near box has nothing.
 
 const LAYER_BIT := 19            # visual layer 20: far meshes, the far sun and the far camera only
-const R0_M := 48.0               # level 0 (25 cm cells) reaches this far; level L ends at R0_M * 2^L (a cell stays
-                                 # about 5 px at 1280x720; 96 m doubled every ring and quadrupled the triangles)
+const R0_M := 80.0               # level 0 (25 cm cells) reaches this far; level L ends at R0_M * 2^L: a cell stays
+                                 # under ~3 px at 1280x720, where a cube's stairs are invisible (ADR 0075; the skin ran 48 m)
 const MORPH_FROM := 0.62         # a tile morphs into its parent from this fraction of its ring's radius
 const MAX_IN_FLIGHT := 6         # tiles queued or building at once
-const APPLY_PER_FRAME := 3       # tile meshes uploaded per frame (a level 0 tile is ~8 k triangles)
+const APPLY_MS := 2.5            # the main thread spends at most this long a frame handing tiles over (meshes are built
+                                 # on the workers, ~0.2 ms a tile here) ...
+const LOAD_LEVELS := 3           # the loading screen waits for tiles up to this level (640 m); coarser ones fill in behind
 const FREE_PER_FRAME := 4        # stale tiles recycled per frame
 const POOL_MAX := 400            # idle nodes kept per kind; beyond that one is freed
 const UPDATE_EVERY_S := 0.15
@@ -28,6 +30,8 @@ const EDIT_SCAN_S := 0.7         # edited chunk columns are re-read this often
 const EDIT_SCANS_PER_PASS := 6
 const EDIT_SPAN_CHUNKS := 20     # chunks of 2 m read around the generated ground per edited column (-16 .. +24 m)
 
+var apply_per_frame := 8         # ... and at most this many tiles: each one's vertex buffers (a level 0 tile is 4 MB) go
+                                 # up on the render thread, a burst of them stalled a flight; the loading screen sets 1 when it fades
 var world: World
 var atmosphere: Atmosphere
 var far_mesh: FarMesh
@@ -55,7 +59,8 @@ var _quit := false
 var _done: Array = []  # [key, level, tx, tz, Dictionary] handed back by the workers
 var _done_mutex := Mutex.new()
 var _since := 1.0
-var overrides := {}      # Vector2i chunk column -> PackedInt32Array(256) real surface heights where edited (-1 = as generated)
+var overrides := {}      # Vector2i chunk column -> the column's real voxels at lod 1 (FarMesh.edit_column) where edited; the
+                         # skin mesher reads PackedInt32Array(256) surface heights instead (far_mesher=field, no edits now)
 var dirty := false       # overrides changed since the last save (main.gd writes them with the world)
 var _dirty := {}         # Vector2i chunk column -> true: edited since the last scan
 var _edit_since := 0.0
@@ -186,13 +191,15 @@ func _make_materials() -> void:
 	for level in max_level + 1:
 		var r_end := Settings.m2v(R0_M * pow(2.0, level))
 		var r_start := r_end * MORPH_FROM
+		var voxel := Settings.far_mesher == "voxel"
 		var gm := ShaderMaterial.new()
 		gm.shader = ground_shader
-		gm.set_shader_parameter("morph_start", r_start)
-		gm.set_shader_parameter("morph_end", r_end)
+		# voxel tiles switch rings hard at <= 3 px cells and carry their own relief: no morph, no noise relief
+		gm.set_shader_parameter("morph_start", 1e9 if voxel else r_start)
+		gm.set_shader_parameter("morph_end", 2e9 if voxel else r_end)
 		gm.set_shader_parameter("near_cut", near_cut)
 		gm.set_shader_parameter("speckle", Settings.far_speckle)
-		gm.set_shader_parameter("relief", Settings.far_relief)
+		gm.set_shader_parameter("relief", 0.0 if voxel else Settings.far_relief)
 		ground_mats.append(gm)
 		var wm := ShaderMaterial.new()
 		wm.shader = water_shader
@@ -275,8 +282,9 @@ func _worker() -> void:
 			continue
 		if job[0] == "tile":
 			_build(job[1], job[2], job[3], job[4], job[5])
-		else:
+		elif job[0] == "scan":
 			_scan(job[1], job[2], job[3])
+		# "drop": a stale tile's mesh, released with the job
 
 
 func _enqueue(job: Array) -> void:
@@ -429,14 +437,28 @@ func _update_tiles(p: Vector3) -> void:
 		pending[key] = true
 		_enqueue(["tile", key, w[0], w[1], w[2], _overrides_snapshot])
 	# drop tiles no longer wanted once what replaces them is drawn (no holes): the replacement is an
-	# ancestor tile or the tile's children, down the quadtree
+	# ancestor tile or the wanted tiles under it, down the quadtree. A wanted tile not yet drawn blocks
+	# every ancestor (walking up is O(levels); recursing down 4^5 children per tile cost 11 ms a frame)
+	var blocked := {}
+	for key in desired:
+		if tiles.has(key):
+			continue
+		var w: Array = desired[key]
+		var l: int = w[0] + 1
+		var x: int = w[1] >> 1
+		var z: int = w[2] >> 1
+		while l <= max_level:
+			blocked["%d:%d:%d" % [l, x, z]] = true
+			l += 1
+			x >>= 1
+			z >>= 1
 	var stale: Array = []
 	for key in tiles:
 		if desired.has(key):
 			continue
 		var t: Tile = tiles[key]
 		var anc := _covered_by_ancestor(t.level, t.tx, t.tz, desired)
-		if anc == 1 or (anc == -1 and _children_drawn(t.level, t.tx, t.tz, desired, p, r_max)):
+		if anc == 1 or (anc == -1 and not blocked.has(key)):
 			stale.append(key)
 	for key in stale:
 		_to_free.append(tiles[key])
@@ -458,25 +480,6 @@ func _covered_by_ancestor(level: int, tx: int, tz: int, desired: Dictionary) -> 
 		x >>= 1
 		z >>= 1
 	return -1   # no ancestor wanted: the children decide
-
-
-## True when every wanted tile under this one is drawn; ground under it that no tile wants is out of
-## range and nothing to wait for.
-func _children_drawn(level: int, tx: int, tz: int, desired: Dictionary, p: Vector3, r_max: float) -> bool:
-	if level == 0:
-		return true
-	for j in 2:
-		for i in 2:
-			var cl := level - 1
-			var cx := tx * 2 + i
-			var cz := tz * 2 + j
-			var key := "%d:%d:%d" % [cl, cx, cz]
-			if desired.has(key):
-				if not tiles.has(key):
-					return false
-			elif _tile_distance(cl, cx, cz, p) < r_max and not _children_drawn(cl, cx, cz, desired, p, r_max):
-				return false
-	return true
 
 
 func _tile_distance(level: int, tx: int, tz: int, p: Vector3) -> float:
@@ -534,15 +537,11 @@ func _scan_edits() -> void:
 	for r in results:
 		var ck: Vector2i = r[0]
 		_scans.erase(ck)
-		var tops: PackedInt32Array = r[1]
-		var any := false
-		for v in tops:
-			if v >= 0:
-				any = true
-				break
+		var col: PackedByteArray = r[1]
+		var any := col.size() > 0
 		var had: bool = overrides.has(ck)
 		if any:
-			overrides[ck] = tops
+			overrides[ck] = col
 		elif had:
 			overrides.erase(ck)
 		if any or had:
@@ -566,15 +565,49 @@ func _scan_edits() -> void:
 				break
 
 
+## The column's real voxels at lod 1, or empty when the span is as generated (then the override goes).
 func _scan(ck: Vector2i, y0: int, bytes: PackedByteArray) -> void:
-	var tops: PackedInt32Array = far_mesh.column_tops(ck, y0, EDIT_SPAN_CHUNKS, bytes)
+	var col: PackedByteArray = far_mesh.edit_column(y0, EDIT_SPAN_CHUNKS, bytes)
+	var gen: PackedByteArray = far_mesh.edit_column(y0, EDIT_SPAN_CHUNKS, world.generator.gen.generate_block(Vector3i(ck.x * Settings.CHUNK, y0, ck.y * Settings.CHUNK), Vector3i(Settings.CHUNK, Settings.CHUNK * EDIT_SPAN_CHUNKS, Settings.CHUNK), 0, 2))
 	_done_mutex.lock()
-	_scanned.append([ck, tops])
+	_scanned.append([ck, col if col != gen else PackedByteArray()])
 	_done_mutex.unlock()
 
 
 func _build(key: String, level: int, tx: int, tz: int, _ov: Dictionary) -> void:
-	var d: Dictionary = far_mesh.build_nets_tile(level, tx, tz) if Settings.far_mesher == "nets" else far_mesh.build_tile(level, tx, tz, _ov)
+	var d: Dictionary
+	match Settings.far_mesher:
+		"nets": d = far_mesh.build_nets_tile(level, tx, tz)
+		"field": d = far_mesh.build_tile(level, tx, tz, {})
+		_: d = far_mesh.build_voxel_tile(level, tx, tz, _ov)
+	# the meshes are made here, off the main thread: a level 0 voxel tile is 100 k vertices and its upload
+	# cost the main thread 3-10 ms a tile (the flight's spikes)
+	if d.has("vertices"):
+		var arrays: Array = []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = d["vertices"]
+		arrays[Mesh.ARRAY_NORMAL] = d["normals"]
+		arrays[Mesh.ARRAY_COLOR] = d["colors"]
+		arrays[Mesh.ARRAY_INDEX] = d["indices"]
+		var flags := 0
+		if d.has("custom0"):   # the skin's parent values (CDLOD); voxel tiles carry none
+			arrays[Mesh.ARRAY_TEX_UV] = d["uvs"]
+			arrays[Mesh.ARRAY_TEX_UV2] = d["uvs2"]
+			arrays[Mesh.ARRAY_CUSTOM0] = d["custom0"]
+			flags = Mesh.ARRAY_CUSTOM_RGBA8_UNORM << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT
+		var m := ArrayMesh.new()
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, flags)
+		d["ground_mesh"] = m
+	if d.has("water_vertices"):
+		var arrays: Array = []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = d["water_vertices"]
+		arrays[Mesh.ARRAY_NORMAL] = d["water_normals"]
+		arrays[Mesh.ARRAY_COLOR] = d["water_colors"]
+		arrays[Mesh.ARRAY_INDEX] = d["water_indices"]
+		var m := ArrayMesh.new()
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		d["water_mesh"] = m
 	_done_mutex.lock()
 	_done.append([key, level, tx, tz, d])
 	_done_mutex.unlock()
@@ -582,11 +615,16 @@ func _build(key: String, level: int, tx: int, tz: int, _ov: Dictionary) -> void:
 
 func _apply_done() -> void:
 	var batch: Array = []
-	_done_mutex.lock()
-	while not _done.is_empty() and batch.size() < APPLY_PER_FRAME:
-		batch.append(_done.pop_front())
-	_done_mutex.unlock()
-	for e in batch:
+	var t_batch := Time.get_ticks_usec()
+	while true:
+		var e: Array = []
+		_done_mutex.lock()
+		if not _done.is_empty():
+			e = _done.pop_front()
+		_done_mutex.unlock()
+		if e.is_empty():
+			break
+		batch.append(e)
 		var key: String = e[0]
 		pending.erase(key)
 		var t0 := Time.get_ticks_usec()
@@ -601,6 +639,8 @@ func _apply_done() -> void:
 		var bms: float = float(e[4].get("ms", 0.0))
 		_st["build_ms_max"] = maxf(_st["build_ms_max"], bms)
 		_st["build_ms_sum"] += bms
+		if (Time.get_ticks_usec() - t_batch) / 1000.0 > APPLY_MS or batch.size() >= apply_per_frame:
+			break
 	if not batch.is_empty():
 		var tris := 0
 		var trees := 0
@@ -621,29 +661,14 @@ func _make_tile(level: int, tx: int, tz: int, d: Dictionary) -> Tile:
 	t.tx = tx
 	t.tz = tz
 	t.size = far_mesh.tile_voxels(level)
-	if d.has("vertices"):
-		var arrays: Array = []
-		arrays.resize(Mesh.ARRAY_MAX)
-		arrays[Mesh.ARRAY_VERTEX] = d["vertices"]
-		arrays[Mesh.ARRAY_NORMAL] = d["normals"]
-		arrays[Mesh.ARRAY_COLOR] = d["colors"]
-		arrays[Mesh.ARRAY_TEX_UV] = d["uvs"]
-		arrays[Mesh.ARRAY_TEX_UV2] = d["uvs2"]
-		arrays[Mesh.ARRAY_CUSTOM0] = d["custom0"]
-		arrays[Mesh.ARRAY_INDEX] = d["indices"]
+	if d.has("ground_mesh"):
 		var mi := _instance(ground_mats[level])
-		mi.mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, Mesh.ARRAY_CUSTOM_RGBA8_UNORM << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT)
+		mi.mesh = d["ground_mesh"]
 		t.nodes.append(mi)
 		t.tris += (d["indices"] as PackedInt32Array).size() / 3
-	if d.has("water_vertices"):
-		var arrays: Array = []
-		arrays.resize(Mesh.ARRAY_MAX)
-		arrays[Mesh.ARRAY_VERTEX] = d["water_vertices"]
-		arrays[Mesh.ARRAY_NORMAL] = d["water_normals"]
-		arrays[Mesh.ARRAY_COLOR] = d["water_colors"]
-		arrays[Mesh.ARRAY_INDEX] = d["water_indices"]
+	if d.has("water_mesh"):
 		var mi := _instance(water_mats[level])
-		mi.mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		mi.mesh = d["water_mesh"]
 		t.nodes.append(mi)
 		t.tris += (d["water_indices"] as PackedInt32Array).size() / 3
 	if d.has("crowns") and Settings.far_debug != "notrees":
@@ -681,12 +706,11 @@ func _multimesh(mesh: Mesh, buffer: PackedFloat32Array, mat: Material) -> MultiM
 	return mmi
 
 
-## A mesh instance with an empty ArrayMesh to fill, from the pool when one is idle.
+## A mesh instance for a worker-built mesh, from the pool when one is idle.
 func _instance(mat: Material) -> MeshInstance3D:
 	var mi: MeshInstance3D
 	if _pool_mesh.is_empty():
 		mi = MeshInstance3D.new()
-		mi.mesh = ArrayMesh.new()
 		mi.layers = 1 << LAYER_BIT
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		far_root.add_child(mi)
@@ -714,7 +738,10 @@ func _free_tile(t: Tile) -> void:
 	for n in t.nodes:
 		n.visible = false
 		if n is MeshInstance3D:
-			(n as MeshInstance3D).mesh.clear_surfaces()
+			# the mesh's last reference drops on a worker: a RenderingServer free blocks on the render
+			# thread (ADR 0020), not the main thread's business
+			_enqueue(["drop", (n as MeshInstance3D).mesh])
+			(n as MeshInstance3D).mesh = null
 			if _pool_mesh.size() < POOL_MAX:
 				_pool_mesh.append(n)
 			else:
@@ -728,30 +755,44 @@ func _free_tile(t: Tile) -> void:
 	t.nodes.clear()
 
 
-## The edited columns, saved with the world (ADR 0074): "x,z" -> 256 surface heights (-1 = as generated).
+## The edited columns, saved with the world (ADR 0075): "x,z" -> the column's lod-1 voxels, base64.
+## shortcut: JSON with base64 (~27 KB a column, a few MB for hundreds of edited columns), a binary file when
+## a save's far edits load in more than ~100 ms
 func to_dict() -> Dictionary:
 	var cols := {}
 	for ck in overrides:
-		cols["%d,%d" % [ck.x, ck.y]] = Array(overrides[ck])
-	return {"version": 1, "columns": cols}
+		cols["%d,%d" % [ck.x, ck.y]] = Marshalls.raw_to_base64(overrides[ck])
+	return {"version": 2, "columns": cols}
 
 
-## Restore the saved edits before the first tiles build, so a reload keeps craters and placed shapes far off.
+## Restore the saved edits before the first tiles build, so a reload keeps craters and builds far off.
 func load_dict(d: Dictionary) -> void:
+	if int(d.get("version", 0)) != 2:
+		return   # version 1 held surface heights for the skin: forgotten, the columns re-read when touched
 	var cols: Dictionary = d.get("columns", {})
 	for key in cols:
 		var p: PackedStringArray = str(key).split(",")
-		var arr := PackedInt32Array(cols[key])
-		if p.size() != 2 or arr.size() != 256:
+		var col := Marshalls.base64_to_raw(str(cols[key]))
+		if p.size() != 2 or col.size() < 8:
 			continue
-		overrides[Vector2i(int(p[0]), int(p[1]))] = arr
+		overrides[Vector2i(p[0].to_int(), p[1].to_int())] = col
 	_overrides_snapshot = overrides.duplicate(false)
 	_st["edited_columns"] = overrides.size()
 
 
-## Tiles still building or waiting to be uploaded (the loading screen and the settle check count them).
+## Tiles up to LOAD_LEVELS still building or waiting to be uploaded (the loading screen and the settle
+## check count them; the far rings fill in behind the haze).
 func pending_count() -> int:
-	return pending.size() + _done.size()
+	var n := 0
+	for key in pending:
+		if int(key.get_slice(":", 0)) <= LOAD_LEVELS:
+			n += 1
+	_done_mutex.lock()
+	for e in _done:
+		if int(e[1]) <= LOAD_LEVELS:
+			n += 1
+	_done_mutex.unlock()
+	return n
 
 
 ## For the run JSON and bug reports.

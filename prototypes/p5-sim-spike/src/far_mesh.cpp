@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 namespace godot {
@@ -43,8 +44,9 @@ void FarMesh::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_material_colors"), &FarMesh::get_material_colors);
     ClassDB::bind_method(D_METHOD("tile_voxels", "level"), &FarMesh::tile_voxels);
     ClassDB::bind_method(D_METHOD("build_tile", "level", "tx", "tz", "overrides"), &FarMesh::build_tile, DEFVAL(Dictionary()));
-    ClassDB::bind_method(D_METHOD("column_tops", "chunk", "y0", "count", "bytes"), &FarMesh::column_tops);
     ClassDB::bind_method(D_METHOD("build_nets_tile", "level", "tx", "tz"), &FarMesh::build_nets_tile);
+    ClassDB::bind_method(D_METHOD("build_voxel_tile", "level", "tx", "tz", "edits"), &FarMesh::build_voxel_tile, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("edit_column", "y0", "count", "bytes"), &FarMesh::edit_column);
     ClassDB::bind_integer_constant(get_class_static(), StringName(), "CELLS", CELLS);
     ClassDB::bind_integer_constant(get_class_static(), StringName(), "BASE_STEP", BASE_STEP);
     ClassDB::bind_integer_constant(get_class_static(), StringName(), "MAX_LEVEL", MAX_LEVEL);
@@ -417,10 +419,7 @@ inline bool nets_liquid(uint16_t m) {
 inline bool nets_solid(uint16_t m) { return m != 0 && !nets_liquid(m) && m != WorldGen::STEAM && m != WorldGen::SMOKE && m != WorldGen::FIRE; }
 } // namespace
 
-Dictionary FarMesh::build_nets_tile(int level, int tx, int tz) const {
-    Dictionary out;
-    if (gen_.is_null() || level < 0 || level > MAX_LEVEL) return out;
-    const uint64_t t0 = Time::get_singleton()->get_ticks_usec();
+void FarMesh::coarse_volume(int level, int tx, int tz, Vector3i &origin, Vector3i &size, std::vector<uint16_t> &vox) const {
     const FineGen &f = *gen_.ptr();
     const WorldGen &g = *f.g_.ptr();
     const int lod = level + 1;   // BASE_STEP 2 voxels per cell at level 0
@@ -445,9 +444,10 @@ Dictionary FarMesh::build_nets_tile(int level, int tx, int tz) const {
     y_hi = std::min(g.world_height_ * FS, floor_div(y_hi, step) * step + step);
     const int ny = (y_hi - y_lo) / step + 2;   // one cell of margin each side of the tile
     const int nxz = CELLS + 3;
-    const Vector3i origin(x0 - step, y_lo - step, z0 - step);
-    const PackedByteArray bytes = f.generate_block(origin, Vector3i(nxz, ny, nxz), lod, 2);
-    std::vector<uint16_t> vox((size_t)nxz * ny * nxz, 0);
+    origin = Vector3i(x0 - step, y_lo - step, z0 - step);
+    size = Vector3i(nxz, ny, nxz);
+    const PackedByteArray bytes = f.generate_block(origin, size, lod, 2);
+    vox.assign((size_t)nxz * ny * nxz, 0);
     if (bytes.size() == 2) {
         const uint16_t one = (uint16_t)(bytes[0] | (bytes[1] << 8));
         std::fill(vox.begin(), vox.end(), one);
@@ -455,6 +455,20 @@ Dictionary FarMesh::build_nets_tile(int level, int tx, int tz) const {
         const uint8_t *b = bytes.ptr();
         for (size_t i = 0; i < vox.size(); i++) vox[i] = (uint16_t)(b[2 * i] | (b[2 * i + 1] << 8));
     }
+}
+
+Dictionary FarMesh::build_nets_tile(int level, int tx, int tz) const {
+    Dictionary out;
+    if (gen_.is_null() || level < 0 || level > MAX_LEVEL) return out;
+    const uint64_t t0 = Time::get_singleton()->get_ticks_usec();
+    const int lod = level + 1;
+    const int step = 1 << lod;
+    const int T = CELLS * step;
+    const int x0 = tx * T, z0 = tz * T;
+    Vector3i origin, size;
+    std::vector<uint16_t> vox;
+    coarse_volume(level, tx, tz, origin, size, vox);
+    const int nxz = size.x, ny = size.y;
     auto at = [&](int x, int y, int z) -> uint16_t { return vox[(size_t)y + (size_t)ny * ((size_t)x + (size_t)nxz * z)]; };
 
     // Naive surface nets on a binary field: one vertex per cell whose 8 corners differ, at the mean of its
@@ -587,44 +601,198 @@ Dictionary FarMesh::build_nets_tile(int level, int tx, int tz) const {
 }
 
 
-// ---------- edits: the real surface of a chunk column against the generated one ----------
+// ---------- ADR 0075: voxel cubes from the coarse data, player edits included ----------
 
 namespace {
-inline bool tops_solid(uint16_t m) { return m != 0 && !nets_liquid(m) && m != WorldGen::STEAM && m != WorldGen::SMOKE && m != WorldGen::FIRE; }
+constexpr int FLUID_LEVEL_BASE = 256;   // SimWorld: a partly full terrain liquid (slot * 8 + eighths)
+inline bool vox_liquid(uint16_t m) { return m >= FLUID_LEVEL_BASE || nets_liquid(m); }
+inline bool vox_solid(uint16_t m) { return m != 0 && !vox_liquid(m) && m != WorldGen::STEAM && m != WorldGen::SMOKE && m != WorldGen::FIRE; }
+inline uint16_t rd16(const uint8_t *p, size_t i) { return (uint16_t)(p[2 * i] | (p[2 * i + 1] << 8)); }
+} // namespace
+
+PackedByteArray FarMesh::edit_column(int y0, int count, const PackedByteArray &bytes) const {
+    PackedByteArray out;
+    const int S = 16, H = S * count;
+    if (count <= 0 || bytes.size() != (int64_t)S * H * S * 2) return out;
+    const int C = S / 2, HC = H / 2;
+    out.resize(8 + (int64_t)C * HC * C * 2);
+    uint8_t *o = out.ptrw();
+    const int32_t head[2] = {y0, HC};
+    std::memcpy(o, head, 8);
+    const uint8_t *b = bytes.ptr();
+    for (int z = 0; z < C; z++)
+        for (int x = 0; x < C; x++)
+            for (int y = 0; y < HC; y++) {
+                uint16_t cell = 0;
+                bool liquid = false;
+                for (int dy = 1; dy >= 0 && !vox_solid(cell); dy--)
+                    for (int dz = 0; dz < 2; dz++)
+                        for (int dx = 0; dx < 2; dx++) {
+                            const uint16_t m = rd16(b, (size_t)(y * 2 + dy) + (size_t)H * ((size_t)(x * 2 + dx) + (size_t)S * (z * 2 + dz)));
+                            if (vox_solid(m)) { cell = m; break; }
+                            if (vox_liquid(m)) liquid = true;
+                        }
+                if (!vox_solid(cell)) cell = liquid ? (uint16_t)WorldGen::WATER_STATIC : 0;
+                const size_t i = 8 + 2 * ((size_t)y + (size_t)HC * ((size_t)x + (size_t)C * z));
+                o[i] = (uint8_t)(cell & 255);
+                o[i + 1] = (uint8_t)(cell >> 8);
+            }
+    return out;
 }
 
-PackedInt32Array FarMesh::column_tops(Vector2i chunk, int y0, int count, const PackedByteArray &bytes) const {
-    PackedInt32Array out;
-    out.resize(256);
-    out.fill(-1);
-    if (gen_.is_null() || count <= 0) return out;
-    const int S = 16, H = S * count;
-    if (bytes.size() != (int64_t)S * H * S * 2) return out;
-    const FineGen &f = *gen_.ptr();
-    const Vector3i origin(chunk.x * S, y0, chunk.y * S);
-    const PackedByteArray gen = f.generate_block(origin, Vector3i(S, H, S), 0, 2);
-    const bool gen_uniform = gen.size() == 2, gen_full = gen.size() == bytes.size();
-    const uint8_t *a = bytes.ptr();
-    const uint8_t *g = gen.ptr();
-    auto at = [&](const uint8_t *p, int x, int y, int z) -> uint16_t {
-        const size_t i = 2 * ((size_t)y + (size_t)H * ((size_t)x + (size_t)S * z));
-        return (uint16_t)(p[i] | (p[i + 1] << 8));
-    };
-    const uint16_t gen_one = gen_uniform ? (uint16_t)(g[0] | (g[1] << 8)) : 0;
-    for (int z = 0; z < S; z++)
-        for (int x = 0; x < S; x++) {
-            int ta = -1, tg = -1;
-            for (int y = H - 1; y >= 0 && ta < 0; y--)
-                if (tops_solid(at(a, x, y, z))) ta = y;
-            if (gen_full) {
-                for (int y = H - 1; y >= 0 && tg < 0; y--)
-                    if (tops_solid(at(g, x, y, z))) tg = y;
-            } else if (gen_uniform && tops_solid(gen_one)) {
-                tg = H - 1;
+Dictionary FarMesh::build_voxel_tile(int level, int tx, int tz, const Dictionary &edits) const {
+    Dictionary out;
+    if (gen_.is_null() || level < 0 || level > MAX_LEVEL) return out;
+    const uint64_t t0 = Time::get_singleton()->get_ticks_usec();
+    const int lod = level + 1;
+    const int step = 1 << lod;
+    Vector3i origin, size;
+    std::vector<uint16_t> vox;
+    coarse_volume(level, tx, tz, origin, size, vox);
+    const int nxz = size.x, ny = size.y;   // the tile's CELLS cells from index 1, a halo either side (and one spare)
+    auto idx = [&](int x, int y, int z) -> size_t { return (size_t)y + (size_t)ny * ((size_t)x + (size_t)nxz * z); };
+
+    // Edited chunk columns: their real voxels (at lod 1) replace the generated cells over their span, a cell
+    // being the highest solid in its 2^level cube of them, else liquid, else air (so thin walls stay).
+    if (!edits.is_empty()) {
+        const int S = 16, sub = step / 2;   // lod-1 cells per tile cell
+        const int cx0 = floor_div(origin.x, S), cx1 = floor_div(origin.x + nxz * step - 1, S);
+        const int cz0 = floor_div(origin.z, S), cz1 = floor_div(origin.z + nxz * step - 1, S);
+        for (int cz = cz0; cz <= cz1; cz++)
+            for (int cx = cx0; cx <= cx1; cx++) {
+                const Vector2i ck(cx, cz);
+                if (!edits.has(ck)) continue;
+                const PackedByteArray col = edits[ck];
+                if (col.size() < 8) continue;
+                int32_t head[2];
+                std::memcpy(head, col.ptr(), 8);
+                const int y0 = head[0], HC = head[1];
+                if (col.size() != 8 + (int64_t)8 * HC * 8 * 2) continue;
+                const uint8_t *cb = col.ptr() + 8;
+                // tile cells inside this chunk column
+                const int xa = std::max(0, floor_div(cx * S - origin.x, step)), xb = std::min(nxz - 1, floor_div(cx * S + S - 1 - origin.x, step));
+                const int za = std::max(0, floor_div(cz * S - origin.z, step)), zb = std::min(nxz - 1, floor_div(cz * S + S - 1 - origin.z, step));
+                for (int z = za; z <= zb; z++)
+                    for (int x = xa; x <= xb; x++)
+                        for (int y = 0; y < ny; y++) {
+                            const int fy = origin.y + y * step;   // the cell's fine y range: fy .. fy + step
+                            if (fy + step <= y0 || fy >= y0 + HC * 2) continue;   // outside the edited span: as generated
+                            uint16_t cell = 0;
+                            bool liquid = false, any = false;
+                            for (int dy = sub - 1; dy >= 0 && !vox_solid(cell); dy--) {
+                                const int ly = (fy - y0) / 2 + dy;
+                                if (ly < 0 || ly >= HC) continue;
+                                for (int dz = 0; dz < sub; dz++)
+                                    for (int dx = 0; dx < sub; dx++) {
+                                        const int lx = (origin.x + x * step - cx * S) / 2 + dx, lz = (origin.z + z * step - cz * S) / 2 + dz;
+                                        if (lx < 0 || lx >= 8 || lz < 0 || lz >= 8) continue;
+                                        any = true;
+                                        const uint16_t m = rd16(cb, (size_t)ly + (size_t)HC * ((size_t)lx + 8 * (size_t)lz));
+                                        if (vox_solid(m)) { cell = m; break; }
+                                        if (vox_liquid(m)) liquid = true;
+                                    }
+                            }
+                            if (!any) continue;
+                            if (!vox_solid(cell)) cell = liquid ? (uint16_t)WorldGen::WATER_STATIC : 0;
+                            vox[idx(x, y, z)] = cell;
+                        }
             }
-            if (ta < 0 || ta == tg) continue;   // emptied below the span (unknown) or as generated
-            out.set(z * S + x, y0 + ta + 1);
+    }
+
+    // One quad per run of exposed faces of the same material along a row (greedy along one axis). Godot
+    // front faces wind clockwise seen from outside: the order whose right-hand normal points inward.
+    PackedVector3Array verts, norms;
+    PackedColorArray cols;
+    PackedInt32Array ind;
+    auto quad = [&](const Vector3 &p0, const Vector3 &p1, const Vector3 &p2, const Vector3 &p3, const Vector3 &n, const Color &c) {
+        const int32_t b = verts.size();
+        for (const Vector3 *p : {&p0, &p1, &p2, &p3}) { verts.push_back(*p); norms.push_back(n); cols.push_back(c); }
+        const bool flip = (p1 - p0).cross(p2 - p0).dot(n) > 0.0f;
+        if (!flip) { ind.push_back(b); ind.push_back(b + 1); ind.push_back(b + 2); ind.push_back(b); ind.push_back(b + 2); ind.push_back(b + 3); }
+        else { ind.push_back(b); ind.push_back(b + 2); ind.push_back(b + 1); ind.push_back(b); ind.push_back(b + 3); ind.push_back(b + 2); }
+    };
+    const Vector3 o((float)origin.x, (float)origin.y, (float)origin.z);
+    const float s = (float)step;
+    // a solid face shows against air or gas; against a liquid it is under the opaque sheet (hidden)
+    auto exposed = [&](int x, int y, int z, int nx2, int ny2, int nz2) -> bool {
+        const uint16_t m = vox[idx(x, y, z)];
+        if (!vox_solid(m)) return false;
+        const uint16_t n = vox[idx(nx2, ny2, nz2)];
+        return !vox_solid(n) && !vox_liquid(n);
+    };
+    // dir: 0 +x, 1 -x, 2 +y, 3 -y, 4 +z, 5 -z; runs go along x for y / z faces, along z for x faces
+    static const int D[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    for (int dir = 0; dir < 6; dir++) {
+        const Vector3 n((float)D[dir][0], (float)D[dir][1], (float)D[dir][2]);
+        const int run_axis = dir < 2 ? 2 : 0;   // z for x faces, x otherwise
+        for (int z = 1; z <= CELLS; z++)
+            for (int y = 1; y < ny - 1; y++)
+                for (int x = 1; x <= CELLS; x++) {
+                    // start a run only at its first cell (the previous cell along the run axis does not continue it)
+                    const int px = x - (run_axis == 0 ? 1 : 0), pz = z - (run_axis == 2 ? 1 : 0);
+                    const uint16_t m = vox[idx(x, y, z)];
+                    if (!exposed(x, y, z, x + D[dir][0], y + D[dir][1], z + D[dir][2])) continue;
+                    if (px >= 1 && pz >= 1 && vox[idx(px, y, pz)] == m && exposed(px, y, pz, px + D[dir][0], y + D[dir][1], pz + D[dir][2])) continue;
+                    int len = 1;
+                    for (;;) {
+                        const int qx = x + (run_axis == 0 ? len : 0), qz = z + (run_axis == 2 ? len : 0);
+                        if (qx > CELLS || qz > CELLS) break;
+                        if (vox[idx(qx, y, qz)] != m || !exposed(qx, y, qz, qx + D[dir][0], y + D[dir][1], qz + D[dir][2])) break;
+                        len++;
+                    }
+                    const Vector3 a = o + Vector3((float)x, (float)y, (float)z) * s;
+                    const Vector3 ext = Vector3(run_axis == 0 ? (float)len : 1.0f, 1.0f, run_axis == 2 ? (float)len : 1.0f) * s;
+                    const Color c = color_of(m);
+                    // the face's plane and its two in-plane axes
+                    Vector3 p0 = a, u, v;
+                    if (dir < 2) { if (dir == 0) p0.x += ext.x; u = Vector3(0, ext.y, 0); v = Vector3(0, 0, ext.z); }
+                    else if (dir < 4) { if (dir == 2) p0.y += ext.y; u = Vector3(ext.x, 0, 0); v = Vector3(0, 0, ext.z); }
+                    else { if (dir == 4) p0.z += ext.z; u = Vector3(ext.x, 0, 0); v = Vector3(0, ext.y, 0); }
+                    quad(p0, p0 + u, p0 + u + v, p0 + v, n, c);
+                }
+    }
+    if (verts.size() > 0) {
+        out["vertices"] = verts;
+        out["normals"] = norms;
+        out["colors"] = cols;
+        out["indices"] = ind;
+    }
+
+    // Liquids: the top sheet of each liquid column (a liquid cell with no liquid above), rgb = the bed's
+    // colour, a = depth / 8 m; never a side face, so a river's step or a shore is no trench.
+    {
+        PackedVector3Array wv, wn;
+        PackedColorArray wc;
+        PackedInt32Array wi;
+        const Color bed_default = color_of(WorldGen::Mat::GRAVEL_STATIC);
+        for (int z = 1; z <= CELLS; z++)
+            for (int x = 1; x <= CELLS; x++)
+                for (int y = 1; y < ny - 1; y++) {
+                    const uint16_t m = vox[idx(x, y, z)];
+                    if (!vox_liquid(m) || vox_liquid(vox[idx(x, y + 1, z)]) || vox_solid(vox[idx(x, y + 1, z)])) continue;
+                    int depth = 1;
+                    Color bed = bed_default;
+                    for (int yy = y - 1; yy >= 0; yy--) {
+                        const uint16_t b = vox[idx(x, yy, z)];
+                        if (vox_liquid(b)) { depth++; continue; }
+                        if (vox_solid(b)) bed = color_of(b);
+                        break;
+                    }
+                    const Color c(bed.r, bed.g, bed.b, std::min(1.0f, (float)depth * s * 0.125f / 8.0f));
+                    const Vector3 p0 = o + Vector3((float)x, (float)(y + 1), (float)z) * s;
+                    const int32_t b = wv.size();
+                    wv.push_back(p0); wv.push_back(p0 + Vector3(s, 0, 0)); wv.push_back(p0 + Vector3(s, 0, s)); wv.push_back(p0 + Vector3(0, 0, s));
+                    for (int k = 0; k < 4; k++) { wn.push_back(Vector3(0, 1, 0)); wc.push_back(c); }
+                    wi.push_back(b); wi.push_back(b + 1); wi.push_back(b + 2); wi.push_back(b); wi.push_back(b + 2); wi.push_back(b + 3);
+                }
+        if (wv.size() > 0) {
+            out["water_vertices"] = wv;
+            out["water_normals"] = wn;
+            out["water_colors"] = wc;
+            out["water_indices"] = wi;
         }
+    }
+    out["ms"] = (double)(Time::get_singleton()->get_ticks_usec() - t0) / 1000.0;
     return out;
 }
 

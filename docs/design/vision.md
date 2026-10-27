@@ -164,10 +164,12 @@ prototype (P5, falling-sand-3D spike) before the architecture is locked.
    than nothing at 12.5 cm voxels, streamed too slowly in flight, and hid
    the detail under the player behind coarse parents. Distant mountains
    and far builds come back only with a technique that draws them well.
-   The candidate is ADR 0074 (proposed, off by default until the developer
-   prefers it in play): a far layer like Lay of the Land's, a smooth skin of
-   the generator's columns with far trees, composited behind the box so the
-   voxels fade into it per pixel.
+   The candidate is ADR 0075 (proposed, off by default until the developer
+   prefers it in play): a far layer like Lay of the Land's, voxel cubes from
+   the generator's coarse data at a size under a few pixels, with the
+   player's builds laid in, composited behind the box so the voxels fade
+   into it per pixel (its smooth-skin predecessor, ADR 0074, could show
+   neither the voxel look nor a built tower).
 
 ## Fixed decisions (see ADRs)
 - Perspective: 3D first-person.

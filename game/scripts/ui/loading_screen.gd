@@ -96,6 +96,8 @@ func _process(delta: float) -> void:
 	var cap := NEAR_CAP_S if world != null else CAP_S
 	if _idle >= (NEAR_IDLE_FRAMES if world != null else IDLE_FRAMES) or _elapsed >= cap:
 		_fading = true
+		if world != null and world.far_layer != null:
+			world.far_layer.apply_per_frame = 1   # in play, one tile's upload a frame (ADR 0075)
 		_bar.size.x = 300.0
 		print("loading cover '%s' lifted after %.2f s%s" % [title, _elapsed, "" if _elapsed < cap else " (cap)"])
 		finished.emit()

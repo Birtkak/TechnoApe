@@ -21,6 +21,8 @@
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_color_array.hpp>
 
+#include <vector>
+
 namespace godot {
 
 class FarMesh : public RefCounted {
@@ -48,15 +50,22 @@ public:
     // `overrides` (edits, ADR 0074): Vector2i chunk column (16 x 16 voxels) -> PackedInt32Array of 256 surface
     // heights (world y of the top solid voxel + 1, x fastest), -1 where the column is as generated.
     Dictionary build_tile(int level, int tx, int tz, const Dictionary &overrides = Dictionary()) const;
-    // The surface heights of one chunk column of the real voxel data where they differ from the generated
-    // ones: `bytes` is the 16 x (16 * count) x 16 block of 16-bit materials at (cx * 16, y0, cz * 16) in
-    // VoxelBuffer order (World.read_column). 256 entries, -1 = as generated or no surface in the span.
-    PackedInt32Array column_tops(Vector2i chunk, int y0, int count, const PackedByteArray &bytes) const;
     // Candidate (a) of P13: the same tile as a smoothed surface (naive surface nets) over FineGen's
     // coarse voxel data at lod = level + 1, vertex colours from the solid corners' materials; water as a
     // second surface. Same keys as build_tile (parent height = own height, parent colour = own colour:
     // no morphing), no trees (they are in the voxel data up to lod 3).
     Dictionary build_nets_tile(int level, int tx, int tz) const;
+    // ADR 0075: the same tile as voxel cubes from FineGen's coarse data at lod = level + 1 (2^(level + 1) voxels
+    // per cell), one merged quad run per exposed solid face with the material's colour; liquids as flat top
+    // sheets only (rgb = the bed's colour, a = depth / 8 m), no sides, so a shore never shows a trench. Trees
+    // and the far canopy are in the data. `edits`: Vector2i chunk column -> the column's real voxels from
+    // edit_column, which replace the generated ones in their span at every level (player structures show).
+    // Keys as build_tile without the parent values (no morph; CUSTOM0 / UV / UV2 absent).
+    Dictionary build_voxel_tile(int level, int tx, int tz, const Dictionary &edits) const;
+    // The real voxels of one chunk column (World.read_column bytes, 16 x (16 * count) x 16, 16-bit) at lod 1
+    // (2-voxel cells: the finest far level draws): a header (y0, cells high, both int32) then 8 x H x 8
+    // uint16 materials, y fastest. A cell is the highest solid voxel's material, else liquid, else air.
+    PackedByteArray edit_column(int y0, int count, const PackedByteArray &bytes) const;
 
 protected:
     static void _bind_methods();
@@ -80,6 +89,9 @@ private:
     float ground(int level, float base, int x, int z, float w) const;
     uint16_t top_material(const FineGen::MacroPt &m, float slope, int h, uint32_t ph) const;
     float canopy(int level, const Node &n, int x, int z) const;
+    // FineGen's coarse voxels under a tile with a one-cell halo: the block origin (fine voxels), its size
+    // in cells and the materials (y fastest, then x, then z)
+    void coarse_volume(int level, int tx, int tz, Vector3i &origin, Vector3i &size, std::vector<uint16_t> &vox) const;
 };
 
 } // namespace godot

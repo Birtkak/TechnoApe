@@ -17,7 +17,7 @@ var sim_lod_m := 12.0                   # chunks further than this from the play
 var view_distance_m := 40.0             # the horizon = the radius of the one box of full-detail voxels (ADR 0073: no LOD; 40 m holds the budget standing and in flight, 48 m does not: p99 32 ms standing). The terrain blends into the sky over the last quarter
 var far_layer := false                  # ADR 0074 (spike): draw the far layer past the box (far=1); far_m= its reach
 var far_distance_m := 1536.0
-var far_mesher := "field"              # far_mesher=field|nets: the height-field skin or surface nets over coarse voxels (P13)
+var far_mesher := "voxel"              # far_mesher=voxel|field|nets: voxel cubes from the coarse data (ADR 0075), the height-field skin or surface nets (P13)
 var far_speckle := 0.35                 # per-voxel colour noise on the far skin, 0..1 (Lay of the Land keeps the speckle at distance)
 var far_fog := 0.35                     # the far view's fog and ground mist as a fraction of the near world's (1 = the same: a beige wash past 400 m; 0.35 sees 1-1.5 km)
 var far_relief := 1.0                   # far_relief=0..1: the far skin's noise relief (far_ground.gdshader)

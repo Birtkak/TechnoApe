@@ -186,16 +186,20 @@ mirroring, shapeless, smelt, spellcraft; `makes`, `uses_of`, `search`,
 `CraftingGrid` (preview, craft once/all, return contents). Wands have no
 recipe by design (found only); spells do.
 
-## The far horizon (ADR 0074, proposed; off by default)
+## The far horizon (ADR 0075, proposed; off by default)
 
-`far=1` (or Settings > Video > Far horizon) draws the land past the 40 m box as a column height-field skin
-with far trees, built by native `FarMesh` (`prototypes/p5-sim-spike/src/far_mesh.cpp`) and managed by
-`scripts/visuals/far_layer.gd`: rings of 25 cm .. 8 m cells that morph into each other (CDLOD), flat water
-sheets, instanced tree blobs to ~400 m, a baked canopy beyond, player edits re-read per chunk column.
-It renders into its own SubViewport (`FarView`, lit by its own copy of the sun) and the sky and the
-terrain's horizon blend read that texture per pixel, so nothing of it is drawn over the near voxels.
-Args: `far_m=<reach m>` (default 1536), `far_speckle=0..1`, `far_mesher=nets` (the P13 surface-nets
-candidate, for comparison only), `far_debug=flat|nocustom`. Run JSON key `far`. Probe:
+`far=1` (or Settings > Video > Far horizon) draws the land past the 40 m box as voxel cubes from the
+generator's coarse data, built by native `FarMesh::build_voxel_tile` (`prototypes/p5-sim-spike/src/far_mesh.cpp`)
+on the layer's own worker threads and managed by `scripts/visuals/far_layer.gd`: rings of 25 cm cubes to
+80 m, 50 cm to 160 m, 1 m to 320 m ... (a cell under ~3 px, hard ring switches), flat water sheets with no
+side faces, the generator's voxel trees to 320 m and its leaf domes beyond, player edits re-read per chunk
+column at 25 cm and laid over the generated cells (towers, bridges and craters show from anywhere; saved
+with the world as `far_edits_<seed>`). It renders into its own SubViewport (`FarView`, lit by its own copy
+of the sun, fog at `far_fog` = 0.35 of the near world's) and the sky and the terrain's horizon blend read
+that texture per pixel, so nothing of it is drawn over the near voxels.
+Args: `far_m=<reach m>` (default 1536), `far_fog=0..1`, `far_speckle=0..1`, `far_mesher=field|nets` (the
+ADR 0074 height-field skin and the P13 surface nets, for comparison only), `far_debug=flat|nocustom|noview|
+nodraw|freeze|halfrate|notrees`. Run JSON key `far`. Probe:
 `godot --headless --path . --script res://tools/far_probe.gd -- seed=272905368 x=-160 z=-277`.
 Measurements and the look comparison: `prototypes/p13-far-mesh/README.md`, `out/far/`.
 

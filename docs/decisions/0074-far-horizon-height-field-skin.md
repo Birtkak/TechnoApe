@@ -1,8 +1,10 @@
 # ADR 0074: A far horizon like Lay of the Land's: a height-field skin behind the box, composited per pixel
 
-Status: proposed (2026-10-26). The 40 m box with no LOD (ADR 0073) stays the default; the far
-horizon is a Settings > Video option (off by default) and `far=1`, until the developer prefers it in
-play.
+Status: superseded by ADR 0075 (2026-10-27) as the far layer's mesher: the smooth skin neither read
+as the voxel world nor could show a player's build, so the far layer is now voxel cubes from the coarse
+data. Decisions 5, 6 and 8 (the compositing, the edit scan, the loading) carry over; the skin stays as
+`far_mesher=field` for comparison until ADR 0075 is accepted. The 40 m box with no LOD (ADR 0073)
+stays the default; the far horizon is a Settings > Video option (off by default) and `far=1`.
 
 ## Context
 ADR 0020, 0072 and 0073 tried voxel LODs with godot_voxel's blocky mesher three times at 12.5 cm and
