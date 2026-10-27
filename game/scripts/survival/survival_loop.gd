@@ -63,7 +63,7 @@ func setup(p_main: Node) -> void:
 	diet_panel.nutrition = main.survival.nutrition
 	diet_panel.base_health = Settings.max_health
 	if main.inv_screen.has_method("add_side_panel"):
-		main.inv_screen.add_side_panel(diet_panel, "below")
+		main.inv_screen.add_side_panel(diet_panel, "right")
 	else:
 		main.inv_screen._panel.add_child(diet_panel)
 		_diet_follows_panel = true
