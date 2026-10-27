@@ -13,6 +13,13 @@ func test_materials_map_to_stains() -> void:
 	assert_str(PlayerStains.stain_of(GameMaterials.STONE)).is_equal("")
 
 
+func test_partly_full_pool_voxel_stains() -> void:
+	var slot := int(GameMaterials.defs()[GameMaterials.TOXIC_SLUDGE - 1]["fluid_slot"])
+	var half := GameMaterials.FLUID_LEVEL_BASE + slot * 8 + 3
+	assert_int(GameMaterials.material_of_voxel(half)).is_equal(GameMaterials.TOXIC_SLUDGE)
+	assert_str(PlayerStains.stain_of(half)).is_equal("toxic")
+
+
 func test_one_stain_at_a_time() -> void:
 	var s := PlayerStains.new()
 	s.update(0.1, [GameMaterials.BLOOD])

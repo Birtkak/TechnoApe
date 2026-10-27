@@ -2,12 +2,12 @@ class_name Minimap
 extends Control
 
 ## The HUD minimap (plan item D10): a square, north-up MapView of the explored map around the player
-## with waypoints (off-view ones on the rim), and under it the voxel coordinates and the biome in small
+## with waypoints (off-view ones on the rim), and under it the voxel coordinates, the biome, the season with the outside temperature, and the date and time in small
 ## text. Corner and size come from Settings (minimap_corner, minimap_size_px; the Settings screen);
 ## redrawn 10 times a second, not every frame. With F3 open it moves down below F3's text.
 
 const MARGIN := 10.0
-const TEXT_H := 34.0
+const TEXT_H := 68.0
 const F3_DROP := 280.0
 var _f3 := false
 var main: Node
@@ -81,4 +81,8 @@ func _process(delta: float) -> void:
 		_biome_t = 1.0
 		var info: Dictionary = main.world.generator.column_info(int(p.x), int(p.z)) if main.world and main.world.generator else {}
 		_biome = String(info.get("biome_name", "")).replace("_", " ")
-	_text.text = "%d  %d  %d\n%s" % [int(floor(p.x)), int(floor(p.y)), int(floor(p.z)), _biome]
+	var cal: Calendar = main.atmosphere.calendar
+	var hours := cal.time * 24.0
+	_text.text = "%d  %d  %d\n%s\n%s  %d C\n%d %s  %02d:%02d" % [int(floor(p.x)), int(floor(p.y)), int(floor(p.z)), _biome,
+		cal.season_name(), roundi(main.survival.outside_c) if main.survival else 0, cal.day_of_month() + 1, Calendar.MONTHS[cal.month()],
+		int(hours), int(fmod(hours, 1.0) * 60.0)]
