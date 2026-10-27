@@ -18,7 +18,11 @@ static var MODELS := {"torch": TorchEntity.item_mesh}
 static func cube(material_id: int, surface_material: Material) -> Mesh:
 	if _cache.has(material_id):
 		return _cache[material_id]
-	var t: Array = GameMaterials.defs()[material_id - 1]["tiles"]
+	var d: Dictionary = GameMaterials.defs()[material_id - 1]
+	if d["name"] in StationEntity.MODELS:
+		_cache[material_id] = StationEntity.item_mesh(d["name"])   # the placed model, not an atlas cube (ADR 0084)
+		return _cache[material_id]
+	var t: Array = d["tiles"]
 	var mesh := _box(tile_uv(int(t[0])), tile_uv(int(t[1])), tile_uv(int(t[2])), surface_material)
 	_cache[material_id] = mesh
 	return mesh

@@ -30,6 +30,7 @@ const SPRITE_HAND := Vector3(0.24, -0.1, -0.12)        # where the handle end si
 const TOOL_SCALE := 1.05
 const TOOL_ROTATION := Vector3(0, 125, -5)
 const TOOL_HAND := Vector3(0.42, -0.14, -0.05)
+const HANDLE_TURN := Basis(Vector3(0.7071068, 0.7071068, 0), PI)   # half a turn about a tool sprite's handle
 
 
 func _ready() -> void:
@@ -96,11 +97,13 @@ func _dress(mi: MeshInstance3D, id: String, at: Vector3, side: float) -> void:
 		var tool := _is_tool(sprites, id)
 		var sc := TOOL_SCALE if tool else HELD_SPRITE_SCALE
 		var rot := (TOOL_ROTATION if tool else HELD_SPRITE_ROTATION) * Vector3(1, side, side)
+		var b := Basis.from_euler(rot * PI / 180.0)
+		if _edge_out(sprites, id):
+			b = b * HANDLE_TURN
 		mi.mesh = BlockMeshes.sprite(id)
-		mi.scale = Vector3.ONE * sc
-		mi.rotation_degrees = rot
+		mi.basis = b.scaled(Vector3.ONE * sc)
 		var hand := (TOOL_HAND if tool else SPRITE_HAND) * Vector3(side, 1, 1)
-		mi.position = hand - Basis.from_euler(rot * PI / 180.0) * (SPRITE_GRIP * sc)
+		mi.position = hand - b * (SPRITE_GRIP * sc)
 	elif mat_id > 0:
 		mi.mesh = BlockMeshes.cube(mat_id, atlas_material)
 		mi.scale = Vector3.ONE * 0.32
@@ -109,6 +112,16 @@ func _dress(mi: MeshInstance3D, id: String, at: Vector3, side: float) -> void:
 		mi.mesh = BlockMeshes.card(id)
 		mi.scale = Vector3.ONE * 0.4
 		mi.rotation_degrees = Vector3(0, 0, -30 * side)
+
+
+## An axe's honed edge is on its sprite's left, which the tool pose turns back toward the view (bug
+## report 2026-10-27 15-23-17, "the axe is the wrong way in hand"): the head is turned over about the
+## handle (the sprite's diagonal through its centre, so the grip stays put) to cut forward instead.
+static func _edge_out(sprites: ItemSprites, id: String) -> bool:
+	for l in sprites.sprites[id].get("layers", []):
+		if l.get("shape", "") == "axe_head":
+			return true
+	return false
 
 
 ## A tool sprite starts with a handle layer (make_item_sprites.py: H / SH).

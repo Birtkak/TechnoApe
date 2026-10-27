@@ -43,8 +43,10 @@ func _ready() -> void:
 		var e: RefCounted = store.create(Vector3i(0, 0, 0), kind)
 		if e == null or not e.has_method("view_parts"):
 			continue
+		if kind == "assembly":
+			e.parts.assign(["flint_axe_head", "stick"])   # half built: the head and its handle
 		var parts: Dictionary = e.view_parts()
-		var v := WorkPalette.make_view(Vector3i.ZERO, parts.get("solid", {}), parts.get("ghost", {}), parts.get("guide", {}), parts.get("laid", []))
+		var v := WorkPalette.make_view(Vector3i.ZERO, parts.get("solid", {}), parts.get("ghost", {}), parts.get("guide", {}), parts.get("laid", parts.get("items", [])))
 		v.scale = Vector3.ONE * 0.5
 		v.position = Vector3(i * STEP + 0.25, 0, 0.25)
 		root3d.add_child(v)

@@ -89,3 +89,28 @@ func test_meshes() -> void:
 	var cube := BlockMeshes.sprite("bricks")
 	assert_vector(cube.get_aabb().size).is_equal_approx(Vector3.ONE, Vector3.ONE * 0.001)
 	assert_object(BlockMeshes.sprite("iron_ingot")).is_same(flat)   # cached
+
+
+func test_station_items_draw_their_placed_model() -> void:
+	# ADR 0084: the crafting table, chest and furnace are held, dropped and shown in the inventory from
+	# the same cells as the placed model, so the three looks cannot drift apart
+	for name in ["crafting_table", "chest", "furnace"]:
+		var mat := GameMaterials.id_of(name)
+		var held := BlockMeshes.cube(mat, StandardMaterial3D.new())
+		assert_object(held).is_same(StationEntity.item_mesh(name))
+		var box := held.get_aabb()
+		assert_float(maxf(box.size.x, maxf(box.size.y, box.size.z))).is_equal_approx(1.0, 0.01)
+		assert_vector(box.get_center()).is_equal_approx(Vector3.ZERO, Vector3.ONE * 0.01)
+		var img := StationEntity.icon(name).get_image()
+		var used := img.get_used_rect()
+		assert_int(used.size.x).is_greater(StationEntity.ICON_PX * 3 / 4)   # the model fills the icon
+		# its top centre shows the model's top cells, lit
+		assert_float(img.get_pixel(StationEntity.ICON_PX / 2, used.position.y + 3).a).is_equal(1.0)
+	assert_object(StationEntity.icon("stone")).is_null()
+
+
+func test_loose_heads_know_where_they_sit_on_the_tool() -> void:
+	# AssemblyEntity lays a loose head back at its place on the tool, so the stick meets its eye
+	assert_vector(Vector2(sprites.loose_offset("flint_axe_head"))).is_equal(Vector2(-1, 4))
+	assert_vector(Vector2(sprites.loose_offset("stick"))).is_equal(Vector2.ZERO)
+	assert_vector(Vector2(sprites.loose_offset("flint_axe"))).is_equal(Vector2.ZERO)

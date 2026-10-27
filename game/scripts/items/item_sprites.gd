@@ -90,6 +90,27 @@ func is_cube(id: String) -> bool:
 	return sprites.has(id) and bool(sprites[id].get("cube", false))
 
 
+## How many pixels a loose head or blade was moved to the middle of its icon from where it sits on its
+## tool (make_item_sprites.py: the "_loose" shapes); zero for every other sprite.
+func loose_offset(id: String) -> Vector2i:
+	var layers: Array = sprites.get(id, {}).get("layers", [])
+	var sname := String(layers[0].get("shape", "")) if layers.size() == 1 else ""
+	var base := sname.trim_suffix("_loose")
+	if base == sname or not shapes.has(base):
+		return Vector2i.ZERO
+	return _corner(shapes[sname]["rows"]) - _corner(shapes[base]["rows"])
+
+
+static func _corner(rows: Array) -> Vector2i:
+	var c := Vector2i(1 << 20, 1 << 20)
+	for y in rows.size():
+		var r := String(rows[y])
+		for x in r.length():
+			if r[x] != ".":
+				c = Vector2i(mini(c.x, x), mini(c.y, y))
+	return c
+
+
 func image(id: String) -> Image:
 	if _images.has(id):
 		return _images[id]

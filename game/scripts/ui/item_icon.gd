@@ -86,6 +86,10 @@ func _draw() -> void:
 ## inventory icons. Each face is a unit square under an affine transform.
 func _draw_cube(mat: int, s: Vector2) -> void:
 	var d: Dictionary = GameMaterials.defs()[mat - 1]
+	var model := StationEntity.icon(d["name"])
+	if model:
+		draw_texture_rect(model, Rect2(Vector2.ZERO, s), false)   # the placed model's own cells (ADR 0084)
+		return
 	var t: Array = d["tiles"]
 	if d.get("cross", false):
 		# flat sprite for vegetation / cutout tiles

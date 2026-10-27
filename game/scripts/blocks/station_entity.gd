@@ -103,12 +103,17 @@ static func material() -> StandardMaterial3D:
 	return _material
 
 
-## A station's mesh in voxel units, its min corner at the origin (the entity's anchor), by material
-## name: crafting_table, chest, furnace or furnace_lit.
-static func model_mesh(name: String = "crafting_table") -> ArrayMesh:
-	if _meshes.has(name):
-		return _meshes[name]
-	material()
+## Material names drawn by these models. The placed model, the held and dropped mesh (item_mesh) and the
+## inventory icon (icon) all come from one cell grid (cells), so they cannot drift apart (ADR 0084).
+const MODELS := ["crafting_table", "chest", "furnace", "furnace_lit"]
+static var _cells := {}
+static var _icons := {}
+
+
+## A station's shaded cells and their grid size, by material name: [PackedInt32Array, Vector3i].
+static func cells(name: String) -> Array:
+	if _cells.has(name):
+		return _cells[name]
 	var size: Vector3i = SIZES.get({"crafting_table": "station", "furnace_lit": "furnace"}.get(name, name), SIZE) * CELLS
 	var c := PackedInt32Array()
 	c.resize(size.x * size.y * size.z)
@@ -124,10 +129,105 @@ static func model_mesh(name: String = "crafting_table") -> ArrayMesh:
 			_furnace(box, size, name == "furnace_lit")
 		_:
 			_table(box, c, size)
-	var mesh: ArrayMesh = MobModel.outward(MicroMesher.build(WorkPalette.shade_cells(c, size, FLAT), size, CELLS, _tiles, Vector2i(8, ceili(float(PALETTE.size() * SHADES) / 8)), Vector3.ZERO))
+	_cells[name] = [WorkPalette.shade_cells(c, size, FLAT), size]
+	return _cells[name]
+
+
+## A station's mesh in voxel units, its min corner at the origin (the entity's anchor), by material
+## name: crafting_table, chest, furnace or furnace_lit.
+static func model_mesh(name: String = "crafting_table") -> ArrayMesh:
+	if not _meshes.has(name):
+		_meshes[name] = _build(name, CELLS, Vector3.ZERO)
+	return _meshes[name]
+
+
+## The same model 1 unit across its widest side, centred on the origin like an item sprite: the
+## crafting table, chest and furnace in the hand and dropped on the ground (BlockMeshes.cube).
+static func item_mesh(name: String) -> ArrayMesh:
+	var key := name + "@item"
+	if not _meshes.has(key):
+		var size: Vector3i = cells(name)[1]
+		var g := maxi(size.x, maxi(size.y, size.z))
+		_meshes[key] = _build(name, g, -Vector3(size) * 0.5 / g)
+	return _meshes[key]
+
+
+static func _build(name: String, per_unit: int, origin: Vector3) -> ArrayMesh:
+	material()
+	var cs := cells(name)
+	var mesh: ArrayMesh = MobModel.outward(MicroMesher.build(cs[0], cs[1], per_unit, _tiles, Vector2i(8, ceili(float(PALETTE.size() * SHADES) / 8)), origin))
 	mesh.surface_set_material(0, _material)
-	_meshes[name] = mesh
 	return mesh
+
+
+const ICON_PX := 64
+const ICON_FACE := [0.6, 1.0, 0.8]   # x, y, z faces: shaded like ItemIcon's block cubes (top lit, left 0.8, right 0.6)
+
+
+## The inventory icon: the model's cells seen from the corner ItemIcon draws block cubes from (top,
+## +z face on the left, +x face on the right), ray-cast pixel by pixel; null for other materials.
+static func icon(name: String) -> ImageTexture:
+	if not name in MODELS:
+		return null
+	if _icons.has(name):
+		return _icons[name]
+	var cs := cells(name)
+	var c: PackedInt32Array = cs[0]
+	var size: Vector3i = cs[1]
+	var f := -Vector3(1.0, sqrt(2.0 / 3.0) * 1.0, 1.0).normalized()   # looking down about 30 degrees
+	var right := f.cross(Vector3.UP).normalized()
+	var up := right.cross(f).normalized()
+	var mid := Vector3(size) * 0.5
+	var ext := 0.0   # the box's widest projected half extent
+	for k in 8:
+		var corner := Vector3(size.x * (k & 1), size.y * (k >> 1 & 1), size.z * (k >> 2 & 1)) - mid
+		ext = maxf(ext, maxf(absf(corner.dot(right)), absf(corner.dot(up))))
+	var px := ext * 2.0 / (ICON_PX - 2)
+	var img := Image.create(ICON_PX, ICON_PX, false, Image.FORMAT_RGBA8)
+	var far := Vector3(size).length()
+	for v in ICON_PX:
+		for u in ICON_PX:
+			var o := mid + right * (u + 0.5 - ICON_PX * 0.5) * px - up * (v + 0.5 - ICON_PX * 0.5) * px - f * far
+			var hit := _cast(c, size, o, f)
+			if hit[0] > 0:
+				var t: int = hit[0] - 1
+				img.set_pixel(u, v, WorkPalette.tone_color(PALETTE[t / SHADES], t % SHADES) * ICON_FACE[hit[1]])
+	_icons[name] = ImageTexture.create_from_image(img)
+	return _icons[name]
+
+
+## First filled cell along the ray o + d * t through the grid: [cell value, axis of the face it entered by].
+static func _cast(c: PackedInt32Array, size: Vector3i, o: Vector3, d: Vector3) -> Array:
+	var t0 := 0.0
+	var t1 := INF
+	var axis := 0   # the face the ray came in by: the box wall it crossed last
+	for a in 3:   # clip the ray to the grid's box (d has no zero component)
+		var lo := -o[a] / d[a]
+		var hi := (size[a] - o[a]) / d[a]
+		if minf(lo, hi) > t0:
+			t0 = minf(lo, hi)
+			axis = a
+		t1 = minf(t1, maxf(lo, hi))
+	if t0 > t1:
+		return [0, 0]
+	var p := o + d * (t0 + 1e-4)
+	var cell := Vector3i(clampi(int(p.x), 0, size.x - 1), clampi(int(p.y), 0, size.y - 1), clampi(int(p.z), 0, size.z - 1))
+	var step := Vector3i(int(signf(d.x)), int(signf(d.y)), int(signf(d.z)))
+	var next := Vector3.ZERO   # t at which the ray crosses the next cell wall, per axis
+	var delta := Vector3.ZERO
+	for a in 3:
+		delta[a] = absf(1.0 / d[a])
+		next[a] = (cell[a] + (1 if step[a] > 0 else 0) - o[a]) / d[a]
+	while true:
+		var v := c[cell.x + size.x * (cell.y + size.y * cell.z)]
+		if v > 0:
+			return [v, axis]
+		axis = 0 if next.x < next.y and next.x < next.z else (1 if next.y < next.z else 2)
+		cell[axis] += step[axis]
+		if cell[axis] < 0 or cell[axis] >= size[axis]:
+			return [0, 0]
+		next[axis] += delta[axis]
+	return [0, 0]
 
 
 ## A chest: a dark oak box of three plank courses with a lighter plank lid that overhangs, two
