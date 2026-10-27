@@ -13,6 +13,7 @@ extends Node
 var main: Node
 var seasons := Seasons.new()
 var prospecting := Prospecting.load_default()
+var prospect_menu: ProspectMenu   # Shift + right click with a pick (ADR 0091)
 var discoveries: Discoveries
 var journal: DiscoveryJournal
 var trackers: Trackers
@@ -71,10 +72,21 @@ func setup(p_main: Node) -> void:
 	var inner: Callable = main.player.work_use
 	main.player.work_use = func(hit, first_press: bool, from: Vector3, dir: Vector3, sneaking := false) -> bool:
 		var def: Dictionary = main.player_inv.held_def()
+		if first_press and def.has("prospects") and sneaking:
+			prospect_menu.open(def)
+			return true
 		if first_press and def.has("prospects") and prospecting.use(main, hit, def, discoveries):
 			return true
 		return inner.call(hit, first_press, from, dir, sneaking) if inner.is_valid() else false
 	_load()
+	prospect_menu = ProspectMenu.new()
+	prospect_menu.name = "ProspectMenu"
+	prospect_menu.main = main
+	prospect_menu.prospecting = prospecting
+	prospect_menu.can_open = main._can_open_overlay
+	add_child(prospect_menu)
+	prospect_menu.opened.connect(main._on_overlay_opened)
+	prospect_menu.closed.connect(main._on_overlay_closed)
 	commands = LoopCommands.new(self)
 	commands.register(main.commands)
 	for a in OS.get_cmdline_user_args():

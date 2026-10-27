@@ -238,3 +238,47 @@ func test_big_brush_cells_are_cached_relative_to_the_box() -> void:
 	var body := AABB(Vector3(0, 1, 0), Vector3(4, 14, 4))
 	assert_bool(bt.overlaps(Vector3i.ZERO, Vector3i.UP, 16, "cube", true, body)).is_true()
 	assert_bool(bt.overlaps(Vector3i.ZERO, Vector3i.UP, 16, "cube", true, AABB(Vector3(100, 0, 0), Vector3.ONE))).is_false()
+
+
+## The tunnel (ADR 0091, bug report 2026-10-27_17-51-34): a 1 m x 2 m hallway from the feet up into
+## the aimed wall, on the block grid, so dig after dig makes one clean straight passage.
+func test_tunnel_digs_a_player_sized_hallway_from_the_feet() -> void:
+	Brush.tunnel_floor_y = 100
+	var d := Brush.tunnel_dims()
+	assert_object(d).is_equal(Vector2i(8, 16))
+	# a wall facing -x (the player west of it), aimed at eye height
+	var b := Brush.dig_bounds(Vector3i(21, 113, 6), 8, "tunnel", Vector3i(-1, 0, 0))
+	assert_float(b.position.y).is_equal(100.0)
+	assert_object(b.size).is_equal(Vector3(4, 16, 8))   # a 1 m brush digs 0.5 m deep a time
+	assert_int(int(b.position.x) % 4).is_equal(0)
+	assert_int(int(b.position.z) % 4).is_equal(0)
+	assert_bool(b.has_point(Vector3(21.5, 113.5, 6.5))).is_true()
+	assert_int(Brush.dig_cells(Vector3i(21, 113, 6), 8, "tunnel", Vector3i(-1, 0, 0)).size()).is_equal(8 * 8 * 8)
+	# the next dig, aimed at the face it left, continues the same hallway
+	var next := Brush.dig_bounds(Vector3i(int(b.end.x), 105, 7), 8, "tunnel", Vector3i(-1, 0, 0))
+	assert_float(next.position.x).is_equal(b.end.x)
+	assert_float(next.position.z).is_equal(b.position.z)
+	assert_float(next.position.y).is_equal(100.0)
+	# facing +z the same, into -z
+	var s := Brush.dig_bounds(Vector3i(3, 110, 41), 8, "tunnel", Vector3i(0, 0, 1))
+	assert_float(s.end.z).is_equal(44.0)   # the slice ends with the aimed voxel's block
+	assert_object(s.size).is_equal(Vector3(8, 16, 4))
+	# size 1: one voxel slice of the hallway, still from the feet
+	assert_object(Brush.dig_bounds(Vector3i(21, 113, 6), 1, "tunnel", Vector3i(-1, 0, 0)).size).is_equal(Vector3(1, 16, 8))
+	# on a floor: a shaft as wide as the hallway
+	assert_object(Brush.dig_bounds(Vector3i(5, 99, 5), 8, "tunnel", Vector3i.UP).size).is_equal(Vector3(8, 4, 8))
+	# the native path and the preview agree
+	var r := Brush.region(Vector3i(21, 113, 6), Vector3i(20, 113, 6), 8, "tunnel", false)
+	assert_object(r["lo"]).is_equal(Vector3i(b.position))
+	assert_object(r["size"]).is_equal(Vector3i(b.size))
+	assert_str(Brush.explain(8, "tunnel", false)).contains("hallway")
+
+
+## The brush ghost shows on terrain, not on a work piece or station (bug report 2026-10-27_18-06-58).
+func test_brush_ghost_only_where_the_brush_works() -> void:
+	assert_bool(Player.brush_ghost_fits(GameMaterials.STONE)).is_true()
+	assert_bool(Player.brush_ghost_fits(GameMaterials.TALL_GRASS)).is_true()
+	assert_bool(Player.brush_ghost_fits(GameMaterials.id_of("water"))).is_true()
+	assert_bool(Player.brush_ghost_fits(GameMaterials.WORK_BLOCK)).is_false()
+	assert_bool(Player.brush_ghost_fits(GameMaterials.WORK_SPOT)).is_false()
+	assert_bool(Player.brush_ghost_fits(GameMaterials.CRAFTING_TABLE)).is_false()

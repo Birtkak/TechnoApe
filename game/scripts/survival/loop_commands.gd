@@ -5,7 +5,7 @@ extends RefCounted
 ##   /diet [set <group> <points> | reset]     the food group bars and what they do to max health
 ##   /eat <item>                              eat one from the hotbar as a held right click does
 ##   /frost [plant <crop> [dx]]               check the farm for frost now, or till and plant a 0.5 m patch at your feet
-##   /prospect [flint|copper]                 tap the rock at the crosshair (or under you) with a pick
+##   /prospect [flint|copper|menu [mode]]     tap the rock at the crosshair (or under you) with a pick; menu opens its panel
 ##   /discover [list | reset | <kind:name>]   the discovery journal
 ##   /pin <recipe id> | clear                 pin a recipe to the HUD
 ##   /track <quest id> | clear                track a quest on the HUD
@@ -21,7 +21,7 @@ func register(reg: CommandRegistry) -> void:
 	reg.register("diet", "/diet [set <group> <points> | reset]", "Food groups (ADR 0061): the bars, the balanced-diet bonus, set one", _diet, [["set", "reset"], loop.main.survival.nutrition.group_ids()])
 	reg.register("eat", "/eat <item>", "Eat one of an item from the hotbar, as a held right click does", _eat)
 	reg.register("frost", "/frost [plant <crop> [dx]]", "Check the farm for frost now (crops below their frost_c die), or till and plant a patch dx blocks east of you", _frost, [["plant"], loop.main.farming.crops_def.keys()])
-	reg.register("prospect", "/prospect [flint|copper]", "Tap the rock you look at (or stand on) with the held, or the named, prospecting pick", _prospect, [["flint", "copper"]])
+	reg.register("prospect", "/prospect [flint|copper|menu [nearest|all|map]]", "Tap the rock you look at (or stand on) with the held, or the named, prospecting pick; menu opens the pick's settings", _prospect, [["flint", "copper", "menu"]])
 	reg.register("discover", "/discover [list | reset | <kind:name>]", "The discovery journal: progress, every entry, forget all, or mark one found", _discover, [["list", "reset"]])
 	reg.register("pin", "/pin <recipe id> | clear", "Pin a recipe's ingredients to the HUD (also: Pin in the recipe view)", _pin, [["clear"]])
 	reg.register("track", "/track <quest id> | clear", "Track a quest on the HUD (also: Track in the book)", _track, [["clear"]])
@@ -115,6 +115,11 @@ func _plant(kind: String, dx: int) -> Dictionary:
 func _prospect(args: PackedStringArray) -> Dictionary:
 	var main := loop.main
 	var def: Dictionary = main.player_inv.held_def()
+	if not args.is_empty() and args[0] == "menu":
+		if args.size() > 1 and Prospecting.MODES.has(args[1]):
+			loop.prospecting.mode = args[1]
+		loop.prospect_menu.open(def if def.has("prospects") else main.items.get_def("copper_prospecting_pick"), true)
+		return CommandRegistry.ok("Prospecting panel open")
 	if not args.is_empty():
 		def = main.items.get_def(args[0] + "_prospecting_pick")
 	if not def.has("prospects"):

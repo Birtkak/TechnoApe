@@ -15,6 +15,7 @@ const SHAPE_TIPS := {
 	"cylinder": "An upright cylinder as high as it is wide, placed like the ball.",
 	"flat": "A square one voxel thick in the aimed face: shave a wall, level a floor, lay a floor or wall skin.",
 	"column": "A bar half as wide as it is long along the aimed face: a shaft or tunnel when digging, a pillar or beam when placing.",
+	"tunnel": "A hallway you walk in (1 m wide, 2 m tall, floor at your feet), half the size deep per dig, on the block grid: keep digging straight ahead. Digs only; placing places the cube.",
 }
 const MODES := [
 	["brush", "Brush", "Left click digs the brush, right click places the held block as the brush (shape and size above)."],

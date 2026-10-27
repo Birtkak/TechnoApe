@@ -9,8 +9,15 @@ extends RefCounted
 ##   - not exact (flint, a Flint Age teaser): only "something" or "nothing".
 ## A vein is a flat lens size x thickness around its centre; distance is from the tap to the lens.
 ## No per-voxel work: a tap reads the few vein cells that can reach it.
+## Settings (ADR 0091, Shift + right click opens ProspectMenu): the search distance (up to the pick's
+## range_m), one ore to look for, and what a tap shows: the nearest vein, every vein in range, or a
+## density map of the square around the tap (row 0 north) the menu draws. The flint pick only takes
+## the distance: it cannot tell ores apart.
 
 const WAYPOINT_COLOUR := Color(0.95, 0.7, 0.25)
+const RANGES_M := [12.0, 24.0, 48.0, 96.0]
+const MODES := {"nearest": "Nearest vein", "all": "Every vein in range", "map": "Density map"}
+const MAP_N := 9   # density map cells per side
 
 var veins := {}              # vein name -> ore_veins.json entry
 var density := 0.6
@@ -21,6 +28,11 @@ var errors: Array[String] = []
 var last := {}               # the last reading (snapshot, tests)
 var marked := {}             # "x,y,z" of vein centres already put on the map
 var taps := 0
+var range_m := 0.0           # the chosen search distance; 0 = the pick's whole range
+var ore := ""                # only veins holding this ore material; "" = any
+var mode := "all"            # a key of MODES
+var map := PackedFloat32Array()   # the last density map, MAP_N x MAP_N shares of the ore, row 0 north
+var map_range_m := 0.0
 
 
 static func load_default() -> Prospecting:
@@ -66,6 +78,11 @@ func composition(vein_name: String) -> Dictionary:
 ## Veins whose lens comes within range_v voxels of pos: [{name, centre, dist_m, ores}], nearest first.
 ## vein_at is FineGen.vein_at (x, z) -> {name, x, y, z, size, thickness} or {} (tests pass a fake).
 func veins_near(vein_at: Callable, pos: Vector3i, range_v: float) -> Array:
+	return _lenses(vein_at, pos, range_v, false)
+
+
+## The lenses near pos: within range_v of it (3D), or with `ground` across the ground at any depth.
+func _lenses(vein_at: Callable, pos: Vector3i, range_v: float, ground: bool) -> Array:
 	var out := []
 	var r := range_v + max_size_v / 2.0
 	for cx in range(floori((pos.x - r) / cell_v), floori((pos.x + r) / cell_v) + 1):
@@ -79,26 +96,83 @@ func veins_near(vein_at: Callable, pos: Vector3i, range_v: float) -> Array:
 			var dh := maxf(0.0, Vector2(pos.x - c.x, pos.z - c.z).length() - size_v / 2.0)
 			var dv := maxf(0.0, absf(pos.y - c.y) - thick_v / 2.0)
 			var dist := sqrt(dh * dh + dv * dv)
-			if dist <= range_v:
-				out.append({"name": String(d["name"]), "centre": c, "dist_m": Settings.v2m(dist), "ores": composition(String(d["name"]))})
+			if (dh if ground else dist) <= range_v:
+				out.append({"name": String(d["name"]), "centre": c, "dist_m": Settings.v2m(dist), "ores": composition(String(d["name"])), "size_v": size_v})
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["dist_m"] < b["dist_m"])
 	return out
 
 
-## A reading at pos with a pick's "prospects" def: {found, veins, lines}.
+## Every ore any vein holds, sorted (the menu's ore choices).
+func ore_names() -> Array:
+	var out := {}
+	for v in veins:
+		for m in composition(v):
+			out[m] = true
+	var names := out.keys()
+	names.sort()
+	return names
+
+
+## The distance a tap searches with a pick's "prospects" def: the chosen one, capped by the pick.
+func reach_m(prospects: Dictionary) -> float:
+	var top := float(prospects.get("range_m", 12.0))
+	return minf(range_m, top) if range_m > 0.0 else top
+
+
+## What a share means for the chosen ore: its part of the lens, or every ore's with no ore chosen.
+func _share(f: Dictionary) -> float:
+	var ores: Dictionary = f["ores"]
+	if ore != "":
+		return float(ores.get(ore, 0.0))
+	var t := 0.0
+	for m in ores:
+		t += float(ores[m])
+	return t
+
+
+## The density map around pos: MAP_N x MAP_N cells over the square range_v around it, each the
+## biggest share of the chosen ore among the lenses over that cell (any depth), row 0 north (-z).
+func density_map(vein_at: Callable, pos: Vector3i, range_v: float) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	out.resize(MAP_N * MAP_N)
+	var lenses := _lenses(vein_at, pos, range_v * sqrt(2.0), true)
+	var cell := 2.0 * range_v / MAP_N
+	for row in MAP_N:
+		for col in MAP_N:
+			var p := Vector2(pos.x - range_v + (col + 0.5) * cell, pos.z - range_v + (row + 0.5) * cell)
+			var best := 0.0
+			for f in lenses:
+				var c: Vector3i = f["centre"]
+				if p.distance_to(Vector2(c.x, c.z)) <= float(f["size_v"]) / 2.0:
+					best = maxf(best, _share(f))
+			out[row * MAP_N + col] = best
+	return out
+
+
+
+## A reading at pos with a pick's "prospects" def and the chosen settings: {found, veins, lines}.
 func read(vein_at: Callable, pos: Vector3i, prospects: Dictionary) -> Dictionary:
-	var range_m := float(prospects.get("range_m", 12.0))
+	var range_m := reach_m(prospects)
 	var exact := bool(prospects.get("exact", false))
 	var found := veins_near(vein_at, pos, Settings.m2v(range_m))
+	if exact and ore != "":
+		found = found.filter(func(f: Dictionary) -> bool: return float(f["ores"].get(ore, 0.0)) > 0.0)
+	if exact and mode == "nearest" and found.size() > 1:
+		found = found.slice(0, 1)
+	map = PackedFloat32Array()
+	if exact and mode == "map":
+		map = density_map(vein_at, pos, Settings.m2v(range_m))
+		map_range_m = range_m
+	var what := "ore" if ore == "" or not exact else String(ore).capitalize()
 	var lines: Array[String] = []
 	if found.is_empty():
-		lines.append("Nothing in the rock within %d m." % roundi(range_m))
+		lines.append("No %s in the rock within %d m." % [what, roundi(range_m)] if what != "ore" else "Nothing in the rock within %d m." % roundi(range_m))
 	elif not exact:
 		lines.append("Something lies in the rock within %d m." % roundi(range_m))
 	else:
 		for f in found:
 			lines.append(describe(f, pos))
-	last = {"pos": [pos.x, pos.y, pos.z], "exact": exact, "range_m": range_m, "found": found.size(),
+	last = {"pos": [pos.x, pos.y, pos.z], "exact": exact, "range_m": range_m, "found": found.size(), "mode": mode, "ore": ore,
 		"veins": found.map(func(f: Dictionary) -> String: return f["name"]) if exact else [], "lines": lines}
 	return {"found": not found.is_empty(), "veins": found if exact else [], "lines": lines}
 
@@ -158,10 +232,13 @@ func use_at(main: Node, target: Vector3i, def: Dictionary, journal: Discoveries 
 
 
 func to_dict() -> Dictionary:
-	return {"marked": marked.keys()}
+	return {"marked": marked.keys(), "range_m": range_m, "ore": ore, "mode": mode}
 
 
 func load_dict(d: Dictionary) -> void:
+	range_m = float(d.get("range_m", 0.0))
+	ore = String(d.get("ore", ""))
+	mode = String(d.get("mode", "all")) if MODES.has(String(d.get("mode", "all"))) else "all"
 	marked.clear()
 	for k in d.get("marked", []):
 		marked[String(k)] = true

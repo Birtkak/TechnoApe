@@ -230,18 +230,18 @@ func drop_from(group: String, i: int, whole: bool) -> Dictionary:
 	return out
 
 
-## Replaces one of the held items with another one (bucket -> water bucket).
+## Replaces one of the held items with another one (bucket -> water bucket), with that stack's data.
 ## The rest of the old stack stays; the new item goes to the hand when the
 ## slot frees up, else into the inventory. Returns the leftover (to drop).
-func replace_held_one(new_id: String) -> int:
+func replace_held_one(new_id: String, data: Dictionary = {}) -> int:
 	var h := held()
 	if h.is_empty():
 		return 0
 	inv.take(selected, 1)
 	if inv.is_empty_slot(selected):
-		inv.set_slot(selected, {"id": new_id, "count": 1})
+		inv.set_slot(selected, Inventory.make_stack(items, new_id, 1, data))
 		return 0
-	return pickup(new_id, 1)
+	return pickup(new_id, 1, data)
 
 
 # ---------------- pick block / creative picker (ADR 0018) ----------------

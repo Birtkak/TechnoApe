@@ -760,6 +760,8 @@ static func _make_stain_overlay(burning: bool) -> StandardMaterial3D:
 
 func _update_mining(delta: float) -> void:
 	var holding := false
+	if is_on_floor() or flying:
+		Brush.tunnel_floor_y = floori(position.y + 0.05)   # the tunnel brush's floor: where the feet stand
 	script_break_s = maxf(0.0, script_break_s - delta)
 	if autopilot:
 		holding = autopilot_action == "mine" or script_break_s > 0.0
@@ -781,7 +783,7 @@ func _update_mining(delta: float) -> void:
 		brush_tool.hide()
 		if sneaking() or tm <= 0 or GameMaterials.defs()[tm - 1].get("interact", "work") == "work":   # a click there opens it, places nothing
 			_show_station_ghost(hit, station_mat)
-	elif hit and Settings.brush_ghost:
+	elif hit and Settings.brush_ghost and brush_ghost_fits(world.get_voxel(hit.position)):
 		_highlight.visible = true
 		var placing := _places_voxels() and not holding   # breaking shows what the dig takes
 		var size := place_size() if placing else dig_size()
@@ -824,7 +826,7 @@ func _update_mining(delta: float) -> void:
 	if size > Brush.NATIVE_ABOVE:
 		_dig_big(hit, size)
 		return
-	var key: Vector3i = Vector3i(Brush.dig_bounds(p, size, brush_shape, normal).position.floor()) if size > 1 and brush_shape in ["cube", "flat", "column"] else p
+	var key: Vector3i = Vector3i(Brush.dig_bounds(p, size, brush_shape, normal).position.floor()) if brush_shape in Brush.BOX_SHAPES else p
 	if key != _mine_target or normal != _dig_normal:
 		_mine_target = key
 		_dig_normal = normal
@@ -925,9 +927,16 @@ func _brush_jobs_done() -> void:
 			brush_filled.emit(j["box"], int(j["material"]))
 
 
+## The dig / build ghost belongs on what the brush digs or builds against: a station, work piece,
+## furniture or anything a click works on gets none (bug report 2026-10-27_18-06-58: a brush cube
+## outline sat on the anvil's work piece). Holding a station item shows its own ghost instead.
+static func brush_ghost_fits(m: int) -> bool:
+	return m <= 0 or GameMaterials.is_plain_voxel(m) or _is_plant(m) or GameMaterials.is_liquid(m)
+
+
 ## A plant or ground pickup voxel (grass, flowers, reeds, pebbles, twigs): dug
 ## with the brush, walked through.
-func _is_plant(m: int) -> bool:
+static func _is_plant(m: int) -> bool:
 	if m <= 0 or GameMaterials.is_plain_voxel(m) or GameMaterials.blocks_bodies(m) or GameMaterials.is_liquid(m):
 		return false
 	var d: Dictionary = GameMaterials.defs()[m - 1]
@@ -1025,10 +1034,10 @@ func _update_look(hit: VoxelRaycastResult, mob) -> void:
 
 
 ## The first liquid voxel the aim ray crosses before its hit (the aim ray passes through liquids),
-## else x = 1 << 30. Under a liquid the panel keeps showing blocks (bug report 2026-10-27_15-50-30).
-func _aimed_liquid(hit: VoxelRaycastResult) -> Vector3i:
+## else x = 1 << 30; scripted: also with the mouse free (a bucket used by /use). Under a liquid the panel keeps showing blocks (bug report 2026-10-27_15-50-30).
+func _aimed_liquid(hit: VoxelRaycastResult, scripted := false) -> Vector3i:
 	var none := Vector3i(1 << 30, 0, 0)
-	if not _mouse_captured or ui_open:
+	if (not _mouse_captured and not scripted) or ui_open:
 		return none
 	var from := camera.global_position
 	if GameMaterials.is_liquid(GameMaterials.material_of_voxel(world.get_voxel(Vector3i(from.floor())))):
@@ -1117,6 +1126,8 @@ func _use(first_press: bool) -> void:
 	if first_press and inventory.held_def().has("throw") and throw_item.is_valid():
 		_throw()
 		return
+	if first_press and inventory.held_def().has("fills") and _scoop(_aimed_liquid(hit, true)):
+		return   # the aim ray passes through liquids: a bucket takes the first one it crosses
 	if first_press and inventory.held_def().has("playtest") and playtest_use.is_valid():
 		var pdef := inventory.held_def()
 		if playtest_use.call(pdef, hit, camera.global_position, -camera.global_transform.basis.z, sneaking()):
@@ -1194,18 +1205,14 @@ func _use(first_press: bool) -> void:
 	if def.has("food"):
 		_start_eating()
 		return
-	var target_name := _loose_name(world.get_voxel(target))
-	# container pickup (bucket on water / lava)
-	if def.has("fills") and def["fills"].has(target_name):
-		voxel_placed.emit(target, GameMaterials.AIR)
-		if GameMode.rule(game_mode, "consumes_items"):
-			inventory.replace_held_one(def["fills"][target_name])
-		_after_use()
-		return
 	if not def.has("material"):
 		return
 	var mat := GameMaterials.still_of(ItemIcon.material_id_for(inventory.items, def["id"]))
 	if mat <= 0:
+		return
+	if def.has("empties_to") and GameMaterials.is_liquid(mat):
+		if first_press:   # held, the button would pour the next bucket straight after
+			_pour(hit, mat)
 		return
 	if inventory.items.is_voxel_item(def["id"]):
 		if Input.is_key_pressed(KEY_SHIFT) and GameMode.rule(game_mode, "instant_break") and _paint(hit, mat):
@@ -1250,6 +1257,47 @@ func _offhand_builds(hit: VoxelRaycastResult) -> bool:
 	if m <= 0 or m > GameMaterials.defs().size() or m == GameMaterials.WORK_SPOT or m == GameMaterials.WORK_BLOCK or GroundPickups.is_pickup(m):
 		return false
 	return not GameMaterials.defs()[m - 1].has("interact")
+
+
+## An empty bucket scoops the connected body of the liquid at `at`, up to a bucket's worth (ADR 0091).
+## False when there is no liquid it takes (at.x = 1 << 30: none crossed).
+func _scoop(at: Vector3i) -> bool:
+	if at.x == 1 << 30:
+		return false
+	var def := inventory.held_def()
+	var liquid := _loose_name(world.get_voxel(at))
+	if not def["fills"].has(liquid):
+		return false
+	var cells := Bucket.scoop_cells(world.get_voxel, at, func(m: int) -> bool: return _loose_name(m) == liquid, Bucket.capacity())
+	voxels_placed.emit(cells, GameMaterials.AIR)
+	if GameMode.rule(game_mode, "consumes_items"):
+		inventory.replace_held_one(def["fills"][liquid], {"fill": cells.size()})
+	if hud:
+		hud.show_toast("Scooped %d voxels of %s" % [cells.size(), liquid.capitalize()])
+	_after_use()
+	return true
+
+
+## A filled bucket pours what it holds into the free space at the aimed face (ADR 0091); creative
+## buckets never run dry.
+func _pour(hit: VoxelRaycastResult, mat: int) -> void:
+	var front: Vector3i = hit.previous_position
+	if _replaceable(world.get_voxel(hit.position)):
+		front = hit.position
+	var held := inventory.held()
+	var have := Bucket.fill_of(held)
+	var free := func(m: int) -> bool: return _placeable(m) and not GameMaterials.is_liquid(GameMaterials.material_of_voxel(m))
+	var cells := Bucket.pour_cells(world.get_voxel, front, free, have)
+	if cells.is_empty():
+		return
+	voxels_placed.emit(cells, mat)
+	if GameMode.rule(game_mode, "consumes_items"):
+		if cells.size() >= have:
+			inventory.replace_held_one(inventory.held_def()["empties_to"])
+		else:
+			held["fill"] = have - cells.size()
+			inventory.inv.set_slot(inventory.selected, held)
+	_after_use()
 
 
 ## Places the held voxel item as the brush shape against the aimed face (ADR

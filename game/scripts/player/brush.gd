@@ -11,6 +11,10 @@ extends RefCounted
 ##   column    a size/2 wide square bar 2 x size long along the aimed face's normal: into the
 ##             material when digging (a shaft down, a tunnel in), out of the face when placing (a
 ##             pillar up, a beam out)
+##   tunnel    a hallway the body walks (ADR 0091): Settings.tunnel_width_m x tunnel_height_m across a
+##             wall face, its floor at the feet (tunnel_floor_y), size / 2 voxels deep per dig (a 1 m
+##             brush digs 0.5 m: as many cells as the 1 m cube, the GDScript dig's budget), snapped to the block grid; on a floor or ceiling a shaft that wide. It digs
+##             only; placing with it places the cube.
 ## Where it goes (ADR 0073, "placing was off centre"): the round shapes dig around the aimed voxel
 ## and sit on the aimed face when placing. The box shapes (cube, flat, column) are **flush with the
 ## aimed face**, into the material when digging and out of it when placing, and **centred on the
@@ -21,11 +25,13 @@ extends RefCounted
 ## Sizes up to 8 are survival's (MiningTable.dig_cap caps digging by tool tier); creative adds
 ## 16 and 32 (4 m), which go through the native ShapeTool (`region`) instead of GDScript cells.
 
-const SHAPES := ["cube", "sphere", "cylinder", "flat", "column"]
-const BOX_SHAPES := ["cube", "flat", "column"]
+const SHAPES := ["cube", "sphere", "cylinder", "flat", "column", "tunnel"]
+const BOX_SHAPES := ["cube", "flat", "column", "tunnel"]
 const SIZES := [1, 2, 4, 8]
 const CREATIVE_SIZES := [1, 2, 4, 8, 16, 32]
 const NATIVE_ABOVE := 8   # brushes bigger than this are filled natively (ShapeTool), never cell by cell
+
+static var tunnel_floor_y := 0   # the voxel row the player stands in (Player sets it while on the ground)
 
 
 ## Sizes Ctrl + wheel steps through in a mode.
@@ -35,7 +41,7 @@ static func sizes_for(creative: bool) -> Array:
 
 ## Cells a dig at the aimed voxel `hit` touches.
 static func dig_cells(hit: Vector3i, size: int, shape: String, normal := Vector3i.UP) -> Array[Vector3i]:
-	if size <= 1:
+	if size <= 1 and shape != "tunnel":
 		return [hit]
 	if shape in BOX_SHAPES:
 		var b := _dig_box(hit, size, shape, normal)
@@ -56,7 +62,7 @@ static func place_cells(hit: Vector3i, front: Vector3i, size: int, shape: String
 
 ## The world box (position, size in voxels) a dig covers: the highlight outline.
 static func dig_bounds(hit: Vector3i, size: int, shape: String, normal := Vector3i.UP) -> AABB:
-	if size <= 1:
+	if size <= 1 and shape != "tunnel":
 		return AABB(Vector3(hit), Vector3.ONE)
 	if shape in BOX_SHAPES:
 		return _dig_box(hit, size, shape, normal)
@@ -80,7 +86,7 @@ static func place_bounds(hit: Vector3i, front: Vector3i, size: int, shape: Strin
 static func region(hit: Vector3i, front: Vector3i, size: int, shape: String, place: bool) -> Dictionary:
 	if shape in BOX_SHAPES or size <= 1:
 		var b: AABB = AABB(Vector3(front if place else hit), Vector3.ONE)
-		if size > 1:
+		if size > 1 or (shape == "tunnel" and not place):
 			b = _place_box(hit, front, size, shape) if place else _dig_box(hit, size, shape, front - hit)
 		var s := Vector3i(b.size)
 		return {"lo": Vector3i(b.position), "size": s, "params": {"shape": "box", "size": s}}
@@ -96,6 +102,16 @@ static func column_dims(size: int) -> Vector2i:
 	return Vector2i(maxi(1, size / 2), 2 * size)
 
 
+## The tunnel's width and height in voxels.
+static func tunnel_dims() -> Vector2i:
+	return Vector2i(roundi(Settings.m2v(Settings.tunnel_width_m)), roundi(Settings.m2v(Settings.tunnel_height_m)))
+
+
+## How deep one tunnel dig goes.
+static func tunnel_depth(size: int) -> int:
+	return maxi(1, size / 2)
+
+
 ## A short description for the HUD and toasts: "sphere 1 m", "flat 1 x 1 m", "column 0.5 x 2 m".
 static func describe(size: int, shape: String) -> String:
 	match shape:
@@ -104,13 +120,15 @@ static func describe(size: int, shape: String) -> String:
 		"column":
 			var d := column_dims(size)
 			return "column %s wide, %s long" % [_len(d.x), _len(d.y)]
+		"tunnel":
+			return "tunnel %s x %s, %s a dig" % [_len(tunnel_dims().x), _len(tunnel_dims().y), _len(tunnel_depth(size))]
 	return "%s %s" % [shape, _len(size)]
 
 
 ## What a dig and a placement of this brush do, in words, for the tools panel and the HUD
 ## ("dig: a 1 m cube into the aimed face", "place: a 1 m cube against it").
 static func explain(size: int, shape: String, place: bool) -> String:
-	if size <= 1:
+	if size <= 1 and (place or shape != "tunnel"):
 		return "the voxel in front of the aimed face" if place else "the aimed voxel"
 	match shape:
 		"cube":
@@ -124,6 +142,10 @@ static func explain(size: int, shape: String, place: bool) -> String:
 		"column":
 			var d := column_dims(size)
 			return "a %s wide, %s long bar %s" % [_len(d.x), _len(d.y), "out of the aimed face" if place else "into the aimed face"]
+		"tunnel":
+			if place:
+				return explain(size, "cube", true)
+			return "a %s wide, %s tall hallway %s into the aimed wall, floor at your feet" % [_len(tunnel_dims().x), _len(tunnel_dims().y), _len(tunnel_depth(size))]
 	return describe(size, shape)
 
 
@@ -172,7 +194,28 @@ static func _dig_box(hit: Vector3i, size: int, shape: String, normal: Vector3i) 
 		"column":
 			var d := column_dims(size)
 			return _face_box(hit, normal, d.x, d.y, false)
+		"tunnel":
+			return _tunnel_box(hit, tunnel_depth(size), normal)
 	return _face_box(hit, normal, size, size, false)
+
+
+## The tunnel's dig box: across a wall face the hallway from the feet up, its slice along the normal
+## on the block grid once it is a block deep, so step after step lines up; on a floor or ceiling a shaft.
+static func _tunnel_box(hit: Vector3i, depth: int, normal: Vector3i) -> AABB:
+	var w := tunnel_dims().x
+	var ax := _axis(normal)
+	if ax == 1:
+		return _face_box(hit, normal, w, depth, false)
+	var b := _face_box(hit, normal, w, depth, false)
+	var lo := Vector3i(b.position)
+	var s := Vector3i(b.size)
+	lo.y = tunnel_floor_y
+	s.y = tunnel_dims().y
+	if depth >= Settings.BLOCK:
+		var g := Settings.BLOCK
+		var blk := floori(float(hit[ax]) / g) * g
+		lo[ax] = blk + g - depth if normal[ax] > 0 else blk
+	return AABB(Vector3(lo), Vector3(s))
 
 
 static func _place_box(hit: Vector3i, front: Vector3i, size: int, shape: String) -> AABB:

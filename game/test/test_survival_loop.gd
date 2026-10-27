@@ -342,6 +342,76 @@ func test_the_copper_pick_reads_veins_in_range_exactly_the_flint_pick_only_sense
 	assert_str(String(nothing["lines"][0])).starts_with("Nothing")
 
 
+## The pick's panel settings (ADR 0091, bug report 2026-10-27_17-51-34): distance, ore, mode.
+func test_prospecting_settings_pick_distance_ore_and_mode() -> void:
+	var p := Prospecting.load_default()
+	var cu := {"name": "copper", "x": 100, "y": 900, "z": 100, "size": 64, "thickness": 16}
+	var fe := {"name": "iron", "x": p.cell_v + 300, "y": 900, "z": 100, "size": 64, "thickness": 16}
+	var va := _fake_veins({Vector2i(0, 0): cu, Vector2i(1, 0): fe}, p.cell_v)
+	var tap := Vector3i(100 + 128 + 40, 900, 100)   # 5 m beside copper, 84 m from the iron lens
+	var pick := {"range_m": 96.0, "exact": true}
+	assert_float(p.reach_m(pick)).is_equal(96.0)
+	assert_int(p.read(va, tap, pick)["veins"].size()).is_equal(2)
+	p.mode = "nearest"
+	var near: Array = p.read(va, tap, pick)["veins"]
+	assert_int(near.size()).is_equal(1)
+	assert_str(String(near[0]["name"])).is_equal("copper")
+	p.ore = "iron_ore"
+	p.mode = "all"
+	var r := p.read(va, tap, pick)
+	assert_int(r["veins"].size()).is_equal(2)   # copper veins hold sporadic iron too
+	p.ore = "tin_ore"
+	assert_int(p.read(va, tap, pick)["veins"].size()).is_equal(1)   # only the copper vein holds tin
+	p.ore = "gold_ore"
+	assert_str(String(p.read(va, tap, pick)["lines"][0])).starts_with("No Gold Ore")
+	p.ore = ""
+	p.range_m = 12.0
+	assert_int(p.read(va, tap, pick)["veins"].size()).is_equal(1)
+	assert_float(p.reach_m({"range_m": 24.0})).is_equal(12.0)
+	p.range_m = 48.0
+	assert_float(p.reach_m({"range_m": 24.0})).is_equal(24.0)   # capped by the pick
+	# the density map: bright over the copper lens, dark away from both
+	p.range_m = 48.0
+	p.mode = "map"
+	p.read(va, Vector3i(100, 600, 100), pick)
+	var n := Prospecting.MAP_N
+	assert_int(p.map.size()).is_equal(n * n)
+	assert_float(p.map[(n / 2) * n + n / 2]).is_greater(0.5)   # straight over the lens, 37 m above it
+	assert_float(p.map[0]).is_equal(0.0)
+	assert_str(String(p.last["mode"])).is_equal("map")
+	# the flint pick ignores ore and mode
+	p.ore = "coal_ore"
+	assert_str(String(p.read(va, tap, {"range_m": 24.0, "exact": false})["lines"][0])).starts_with("Something")
+	# saved with the world
+	var q := Prospecting.load_default()
+	q.load_dict(p.to_dict())
+	assert_str(q.ore).is_equal("coal_ore")
+	assert_str(q.mode).is_equal("map")
+	assert_float(q.range_m).is_equal(48.0)
+	assert_array(p.ore_names()).contains(["copper_ore", "iron_ore", "tin_ore", "coal_ore"])
+
+
+func test_the_prospecting_panel_shows_and_sets_the_settings() -> void:
+	var p := Prospecting.load_default()
+	var m := ProspectMenu.new()
+	m.prospecting = p
+	add_child(m)
+	m.open(items.get_def("flint_prospecting_pick"), true)
+	assert_bool(m.is_open).is_true()
+	assert_bool(m._buttons["range:96"].disabled).is_true()   # past the flint pick's 24 m
+	assert_bool(m._buttons["mode:map"].disabled).is_true()
+	m.close()
+	m.open(items.get_def("copper_prospecting_pick"), true)
+	assert_bool(m._buttons["range:96"].button_pressed).is_true()
+	m._buttons["mode:map"].pressed.emit()
+	assert_str(p.mode).is_equal("map")
+	assert_bool(m._map.visible).is_true()
+	m._buttons["range:24"].pressed.emit()
+	assert_float(p.range_m).is_equal(24.0)
+	m.close()
+	m.free()
+
+
 func test_the_picks_are_made_and_marked_as_prospecting_tools() -> void:
 	for id in ["flint_prospecting_pick", "copper_prospecting_pick"]:
 		var def := items.get_def(id)
