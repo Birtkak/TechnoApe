@@ -164,6 +164,7 @@ func _cut(at: Vector3, dir: Vector3, r: float) -> void:
 			_seed_ring(c, u, w, r)
 		n += 1
 		t += step
+	SimBubble.note_player_edit()
 	stats["laser_pulses"] += 1
 	stats["laser_spheres"] += n
 	stats["laser_ms_max"] = maxf(stats["laser_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)

@@ -67,6 +67,7 @@ var _push_queue := {}          # world chunk -> true, insertion order = oldest f
 var hold_pushes := true        # no pastes into the terrain until the first streaming burst is done (ADR 0020): an edit
                                # into blocks that are not loaded yet logs "destination block not found"
 var push_queue_max := 0
+static var player_edit_until_ms := 0   # big player edits remesh unlimited until then (Settings.edit_remesh_free_s)
 var _last_push := {}           # world chunk -> msec of its last paste (Settings.sim_push_interval_ms)
 var _fire_test := -1           # debug: fire_test=N ignites burnables within N voxels once loaded
 var _fire_test_at := -1.0
@@ -222,6 +223,8 @@ func _process_timed(delta: float) -> void:
 	_load_pending()
 	# a fire rewrites chunks faster than godot_voxel can apply their remeshes: slow the remeshing while it does
 	var rate := Settings.edit_remesh_rate_busy if _push_queue.size() > Settings.remesh_busy_queue else Settings.edit_remesh_rate
+	if Time.get_ticks_msec() < player_edit_until_ms:
+		rate = 0.0   # the player watches their own cut: show it now, the rate is for the sim's flows and fires
 	if "edit_remesh_rate" in world.terrain and world.terrain.edit_remesh_rate != rate:
 		world.terrain.edit_remesh_rate = rate
 	if not _push_queue.is_empty() and not hold_pushes:
@@ -240,6 +243,11 @@ func _process_timed(delta: float) -> void:
 		_frame_cost()["tick_ms"] += (Time.get_ticks_usec() - t0) / 1000.0   # main-thread cost of starting it
 	if _fire_test > 0:
 		_run_fire_test()
+
+
+## A big player edit (laser, creative brush) just happened: lift the edit remesh limit for a moment.
+static func note_player_edit() -> void:
+	player_edit_until_ms = Time.get_ticks_msec() + int(Settings.edit_remesh_free_s * 1000.0)
 
 
 ## The player's position (world voxels); the window follows it when idle.

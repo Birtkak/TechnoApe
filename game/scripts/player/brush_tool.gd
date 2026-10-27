@@ -250,6 +250,7 @@ func tick() -> Array:
 		var to := mini(from + budget, c.size() / 3)
 		var t0 := Time.get_ticks_usec()
 		# the window origin minus lo: ShapeTool reads the relative cells as world cells at lo
+		SimBubble.note_player_edit()
 		j["n"] += _st.fill(bubble.sim, c.slice(from * 3, to * 3), j["material"], PackedByteArray(), _window() - j["lo"], j["mask"])
 		var ms := (Time.get_ticks_usec() - t0) / 1000.0
 		stats["native_slice_ms_max"] = maxf(stats["native_slice_ms_max"], ms)
