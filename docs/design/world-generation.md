@@ -367,6 +367,23 @@ slot ravines, and "lego" single-voxel steps everywhere with tiny cave pools.
 - Probe: `tools/relief_probe.gd` (rise histograms on land, mountain and cave floor, sea depths, ravine
   cross-sections and trunks over ravines; `bench=1` times surface blocks wherever the ground went).
 
+## Cave storeys, entrances, pillars and ore stringers (2026-10-27, GEN_VERSION 23, ADR 0077)
+The developer asked for a cave overhaul with the choices left open. Nothing new in GDScript; all in
+`cave_value`, `mouths_near`, `cavern_value` and the FineGen column pass.
+- **Storeys**: the cheese y-squash eases from 1.6 to 0.5 past ~100-170 m down (`ysq`), so the deep is tall
+  rifts under the halls; tunnels at the top, the lava sea at the bottom.
+- **Entrances / connectors** on the 64 m mouth cell (`CaveMouth.kind`): ramps (10 %, now winding ±1.2 r),
+  **sinkholes** (6 %: a funnel twice the shaft radius at the rim, 2.5-4.5 m shaft 30-68 m deep), **chimneys**
+  (16 %: 1.5-3 m shaft from 15-47 m down, 80-180 m long, leaning, never open to the sky). `cave_roof` opens the
+  ground over sinkholes, `ravine_near` keeps trees off their rims. `find_nearest("sinkhole" | "chimney")`.
+- **Pillars**: `n_pillar_` (~11 m period); where it peaks a hall keeps a 2-3 m rock column floor to ceiling.
+- **Ore stringers** (`STRINGER_*` in fine_gen.cpp): below 20 m, in ~1-voxel wavy sheets (value noise near its
+  middle) within 1.5 m of cave air, 30-60 % of the sheet is ore in the column's 96 m cell's type
+  (`WorldGen::stringer_type`: the lens's type, else a weighted pick). Cave walls hint at the lens.
+- Check: `tools/cave_sheet.gd` (sinkholes show as red blobs on the map; the slice shows shafts and pillars),
+  `autopilot ... commands=/fullbright target=sinkhole` / `target=cavern inside=1` (fullbright: flat white
+  ambient, no fog; without it cave captures are black). No plant stands over a surface voxel a cave carved.
+
 ## Next
 - Fjords where cold ranges meet the sea, oxbow lakes beside meanders.
 - Small ores between veins (single blocks dropping nuggets) and the copper

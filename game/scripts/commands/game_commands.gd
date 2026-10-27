@@ -75,6 +75,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_tp, [["~"], ["~"], ["~"]], ["teleport"])
 	reg.register("time", "/time set <day|noon|sunset|night|midnight|sunrise|0..1>", "Set or show (/time query) the time of day",
 		_time, [["set", "query"], TIMES.keys()])
+	reg.register("fullbright", "/fullbright [on|off]", "Testing light: flat white ambient and no fog, so caves show their shape", _fullbright, [["on", "off"]])
 	reg.register("kill", "/kill", "Die and respawn at the world spawn", _kill)
 	reg.register("heal", "/heal", "Restore full health", _heal)
 	reg.register("stain", "/stain <wet|bloody|oily|toxic|burning|clear>", "Coat the ape like touching that liquid (Noita stains)", _stain, [PlayerStains.KINDS + ["clear"]])
@@ -317,6 +318,14 @@ func _fill(args: PackedStringArray) -> Dictionary:
 	if n < 0:
 		return CommandRegistry.fail("The box must lie inside the loaded sim bubble around you")
 	return CommandRegistry.ok("Filled %d voxels with %s" % [n, args[6].to_lower()])
+
+
+func _fullbright(args: PackedStringArray) -> Dictionary:
+	var atmo: Node = main.get("atmosphere") if main != null else null
+	if atmo == null:
+		return CommandRegistry.fail("No sky to change")
+	atmo.fullbright = args[0] == "on" if not args.is_empty() else not atmo.fullbright
+	return CommandRegistry.ok("Fullbright %s" % ("on" if atmo.fullbright else "off"))
 
 
 func _time(args: PackedStringArray) -> Dictionary:

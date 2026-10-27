@@ -583,6 +583,7 @@ func sky_open(p: Vector3, surface: int) -> bool:
 
 
 var _overcast_shown := 0.0
+var fullbright := false   # /fullbright: testing light, see _apply_states
 
 func _apply_states(instant: bool, delta: float = 0.0) -> void:
 	var target: float = get_meta("underground_target", 0.0)
@@ -636,3 +637,10 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 	overlay.color = tint
 	# sun cannot reach deep caves beyond its shadow range: fade it with depth too
 	sun.shadow_opacity = lerpf(shadow_opacity, 1.0, _underground)
+	# /fullbright (testing): flat white ambient, no fog, so cave captures show their shape
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR if fullbright else Environment.AMBIENT_SOURCE_SKY
+	if fullbright:
+		env.ambient_light_color = Color.WHITE
+		env.ambient_light_energy = 2.5
+		env.fog_density = 0.0
+		env.fog_height_density = 0.0

@@ -217,6 +217,7 @@ private:
     FastNoiseLite n_cont_, n_eros_, n_pv_, n_detail_, n_temp_, n_hum_, n_cheese_, n_spag1_, n_spag2_, n_ore_, n_jitter_, n_cavebiome_;
     FastNoiseLite n_region_, n_hillmask_, n_hill_;   // landform regions (plains, hills, mountain ranges) and hill shapes
     FastNoiseLite n_cavern_, n_ravine_, n_ravmask_;   // caverns and ravines (VAR_CAVES 1)
+    FastNoiseLite n_pillar_;                          // rock columns inside the halls (ADR 0077)
     FastNoiseLite n_cliff_;   // rocky coasts: where the land ends in a sea cliff (ADR 0051)
     FastNoiseLite n_meander_; // lowland river bends
     FastNoiseLite n_band_;    // mountain cliff bands: where the slopes break into tiers and how tall they are
@@ -257,10 +258,11 @@ private:
     // samples: cavern_value, ravine_value).
     float cave_value(int x, int y, int z, int height, bool small_only = false) const;
     static constexpr float CAVERN_THR = 0.45f, CAVERN_Y = 2.4f;
-    static float cavern_value(float raw, float fy, float depth);
+    // pillar: n_pillar_ at the column; where it is high the hall keeps a floor-to-ceiling column of rock (ADR 0077).
+    static float cavern_value(float raw, float fy, float depth, float pillar = -1.0f);
     static float ravine_value(float mask, float line, float depth);
-    // Whether a ravine has cut the ground within r macro columns of (x, z): nothing stands there (trees,
-    // stamps, sticks), or it would hang over the hole (bug report 2026-10-25 20-18-57).
+    // Whether a ravine or a sinkhole has cut the ground within r macro columns of (x, z): nothing stands there
+    // (trees, stamps, sticks), or it would hang over the hole (bug report 2026-10-25 20-18-57).
     bool ravine_near(int x, int z, int r) const;
     // Whether a cavern or a ravine may reach into the box (macro units), for the deep-rock shortcut.
     bool big_cave_possible(int x0, int y0, int z0, int x1, int y1, int z1, int ground_min) const;
@@ -277,8 +279,15 @@ private:
     static constexpr int MONO_CELL = 3000;
     float monolith_height(int x, int z) const;   // extra height at (x, z), 0 outside
     static constexpr int MOUTH_CELL = 128;   // macro voxels (64 m)
-    struct CaveMouth { float x, z, dx, dz, len, slope, r; };
-    int mouths_near(int x, int z, CaveMouth *out) const;   // the mouths whose ramps may reach (x, z), at most 9
+    // Cave entrances and connectors (ADR 0077), one chance per cell. kind 0: a winding ramp that leaves the ground
+    // (len, slope along dx/dz). kind 1: a sinkhole, a funnel in the ground over a shaft len deep. kind 2: a chimney,
+    // a shaft from `top` macro voxels under the ground down len more, joining the tunnels above to the halls and the
+    // deep below; it never opens onto the surface.
+    enum { MOUTH_RAMP = 0, MOUTH_SINKHOLE = 1, MOUTH_CHIMNEY = 2 };
+    struct CaveMouth { float x, z, dx, dz, len, slope, r, top; int kind; };
+    int mouths_near(int x, int z, CaveMouth *out) const;   // the mouths that may reach (x, z), at most 9
+    // The ore of the small veins (stringers) in a 96 m ore cell: its lens's type, or a weighted pick where it has none.
+    int stringer_type(int cx, int cz) const;
     // Crystal geodes (ADR 0052): at most one per 96 m cell, deep in the rock. Macro units.
     static constexpr int GEODE_CELL = 192;
     struct Geode { float x, y, z, r; uint32_t seed; };

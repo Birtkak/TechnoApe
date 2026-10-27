@@ -90,7 +90,8 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   `-- autopilot=1 walk=1 speed=0 duration=40 showcase=flint_stones,pebbles showcase_on=gravel out=res://out/showcase`
   (one ~30 s run, one sheet `showcase.png`; `/showcase` in chat; `scripts/visuals/showcase.gd`, `game/README.md`).
 - Playtest tools (ADR 0018): T chat + slash commands (`/help`), `/gamemode`, F3
-  debug screen, F4 playtest menu, F9 bug reports, `/cam` free camera (`/fell cam` films a felling from a
+  debug screen, F4 playtest menu, F9 bug reports, `/fullbright` (flat light, no fog: cave captures use
+  `commands=/fullbright`; from Git Bash set `MSYS_NO_PATHCONV=1` or the slash command becomes a path), `/cam` free camera (`/fell cam` films a felling from a
   spot with a clear view). Playtest gadgets (`/kit gadgets`, `scripts/items/playtest_tools.gd`): laser cutter
   (hold LMB, cuts 3 m deep, Ctrl + wheel = width), crater rod, water/sand/lava bombs, instant tree, tape measure;
   scripted: `/gadget <item> [sneak]`, `/laser [s] [sweep_deg]`. When the developer mentions a

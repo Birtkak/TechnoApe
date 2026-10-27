@@ -82,6 +82,7 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup(n_cavern_, seed_ + 17, 1.0f / 300.0f, 2);   // ~150 m between halls
     setup(n_ravine_, seed_ + 19, 1.0f / 900.0f, 1);   // ravine lines (|noise| near 0)
     setup(n_ravmask_, seed_ + 20, 1.0f / 1400.0f, 1); // which stretches of those lines are open
+    setup(n_pillar_, seed_ + 21, 1.0f / 22.0f, 1);    // hall pillars ~2-3 m thick, ~11 m apart
     setup(n_cliff_, seed_ + 21, 1.0f / 3000.0f, 2);   // ~1.5 km stretches of rocky coast
     setup(n_meander_, seed_ + 22, 1.0f / 90.0f, 1);    // lowland river bends (~45 m)
     setup(n_band_, seed_ + 23, 1.0f / 700.0f, 1);      // mountain cliff bands (~350 m patches)
@@ -1007,22 +1008,43 @@ float WorldGen::cave_value(int x, int y, int z, int height, bool small_only) con
     const float depth = (float)(height - y);
     const bool epic = variant_[VAR_CAVES] != 0;
     const float thr = (epic ? 0.58f : 0.62f) - 0.12f * smoothstep(20.0f, 200.0f, depth);
-    const float cheese = (n_cheese_.GetNoise(fx, fy * 1.6f, fz) - thr) / 0.08f;
+    // Three storeys (ADR 0077): rooms squashed flat near the top, and past ~100 m down the cheese stands up into
+    // tall rifts (the deep is chasms, not more rooms).
+    const float ysq = epic ? 1.6f - 1.1f * smoothstep(200.0f, 340.0f, depth) : 1.6f;
+    const float cheese = (n_cheese_.GetNoise(fx, fy * ysq, fz) - thr) / 0.08f;
     const float s1 = n_spag1_.GetNoise(fx, fy * 1.3f, fz), s2 = n_spag2_.GetNoise(fx, fy * 1.3f, fz);
     const float sw = epic ? 0.03f : 0.0115f;   // big caves: tunnels ~1.6x as wide (2-4 m)
     float v = std::max(cheese, (sw - (s1 * s1 + s2 * s2)) / sw);
     if (!epic) return v;
-    // Cave mouths: ramps that leave the ground and slope down into the rock, following the local surface.
-    if (depth < 80.0f) {
+    // Entrances and connectors (ADR 0077): winding ramps that leave the ground, sinkholes, chimneys.
+    if (depth < 520.0f) {
         CaveMouth m[9];
         const int n = mouths_near(x, z, m);
         for (int i = 0; i < n; i++) {
-            float t;
-            const float d = seg_dist(fx, fz, m[i].x, m[i].z, m[i].x + m[i].dx * m[i].len, m[i].z + m[i].dz * m[i].len, t);
-            if (d > m[i].r) continue;
-            const float want = t * m[i].len * m[i].slope + m[i].r * 0.6f;   // tunnel centre depth below the ground
-            const float dy = (depth - want) / (m[i].r * 0.8f), dh = d / m[i].r;
-            v = std::max(v, (1.0f - (dy * dy + dh * dh)) * 4.0f);
+            if (m[i].kind == MOUTH_RAMP) {
+                float t;
+                seg_dist(fx, fz, m[i].x, m[i].z, m[i].x + m[i].dx * m[i].len, m[i].z + m[i].dz * m[i].len, t);
+                // the tunnel winds: its centre line sways across the ramp direction, one bend per ~15 m
+                const float sway = std::sin(t * m[i].len * 0.21f + m[i].slope * 9.0f) * m[i].r * 1.2f;
+                const float cx = m[i].x + m[i].dx * t * m[i].len - m[i].dz * sway, cz = m[i].z + m[i].dz * t * m[i].len + m[i].dx * sway;
+                const float d = std::sqrt((fx - cx) * (fx - cx) + (fz - cz) * (fz - cz));
+                if (d > m[i].r) continue;
+                const float want = t * m[i].len * m[i].slope + m[i].r * 0.6f;   // tunnel centre depth below the ground
+                const float dy = (depth - want) / (m[i].r * 0.8f), dh = d / m[i].r;
+                v = std::max(v, (1.0f - (dy * dy + dh * dh)) * 4.0f);
+            } else {
+                // a shaft (sinkhole or chimney) from m.top to m.top + m.len below the ground, leaning a little
+                // with depth; the sinkhole flares into a funnel at the ground (twice its radius at the rim)
+                const float u = (depth - m[i].top) / m[i].len;
+                if (u < -0.1f || u > 1.1f) continue;
+                const float lean = u * m[i].len * 0.12f;
+                const float dx = fx - (m[i].x + m[i].dx * lean), dz = fz - (m[i].z + m[i].dz * lean);
+                float R = m[i].r;
+                if (m[i].kind == MOUTH_SINKHOLE) R *= 1.0f + 1.0f * (1.0f - smoothstep(0.0f, 3.0f * m[i].r, depth));
+                const float dh2 = (dx * dx + dz * dz) / (R * R);
+                const float cap = std::min(1.0f - u, u + 1.0f) * m[i].len / m[i].r;   // rounded ends
+                v = std::max(v, std::min(1.0f - dh2, cap) * 4.0f);
+            }
         }
     }
     // Arches: a tunnel through a sea stack at the waterline.
@@ -1040,15 +1062,18 @@ float WorldGen::cave_value(int x, int y, int z, int height, bool small_only) con
             }
     }
     if (small_only) return v;
-    v = std::max(v, cavern_value(n_cavern_.GetNoise(fx, fy * CAVERN_Y, fz), fy, depth));
+    v = std::max(v, cavern_value(n_cavern_.GetNoise(fx, fy * CAVERN_Y, fz), fy, depth, n_pillar_.GetNoise(fx, fz)));
     return std::max(v, ravine_value(n_ravmask_.GetNoise(fx, fz), std::fabs(n_ravine_.GetNoise(fx, fz)), depth));
 }
 
 // Caverns: a slow 3D noise squashed in y, so halls are wide and flat-floored (40-120 m across, 15-40 m
 // tall, developer 2026-10-25 "big"), from 15 m under the ground down to bedrock. raw = n_cavern_ at
 // (x, y * CAVERN_Y, z); FineGen samples it on a coarse grid.
-float WorldGen::cavern_value(float raw, float fy, float depth) {
-    return (raw - CAVERN_THR) / 0.05f * smoothstep(30.0f, 70.0f, depth) * smoothstep(14.0f, 40.0f, fy);
+float WorldGen::cavern_value(float raw, float fy, float depth, float pillar) {
+    const float v = (raw - CAVERN_THR) / 0.05f * smoothstep(30.0f, 70.0f, depth) * smoothstep(14.0f, 40.0f, fy);
+    // pillars (ADR 0077): where the column noise peaks the hall keeps rock from floor to ceiling, 2-3 m thick
+    const float p = smoothstep(0.5f, 0.62f, pillar);
+    return v * (1.0f - p) - p;
 }
 
 // Ravines: along the zero line of a slow 2D noise (line = |n_ravine_|) where a mask (n_ravmask_) opens it,
@@ -1069,6 +1094,13 @@ float WorldGen::ravine_value(float mask, float line, float depth) {
 
 bool WorldGen::ravine_near(int x, int z, int r) const {
     if (variant_[VAR_CAVES] == 0) return false;
+    CaveMouth m[9];
+    const int n = mouths_near(x, z, m);
+    for (int i = 0; i < n; i++) {
+        if (m[i].kind != MOUTH_SINKHOLE) continue;
+        const float dx = (float)x - m[i].x, dz = (float)z - m[i].z, reach = 2.0f * m[i].r + (float)r;
+        if (dx * dx + dz * dz <= reach * reach) return true;
+    }
     if (n_ravmask_.GetNoise((float)x, (float)z) <= 0.2f) return false;   // ravines open only past 0.25
     static const int OX[9] = {0, 1, -1, 0, 0, 1, 1, -1, -1}, OZ[9] = {0, 0, 0, 1, -1, 1, -1, 1, -1};
     for (int k = 0; k < 9; k++) {
@@ -1167,17 +1199,32 @@ int WorldGen::mouths_near(int x, int z, CaveMouth *out) const {
     for (int dz = -1; dz <= 1; dz++)
         for (int dx = -1; dx <= 1; dx++) {
             const uint32_t h = hash3(cx + dx, cz + dz, seed_ + 9133);
-            if ((h & 1023) >= 100) continue;   // ~10 % of cells: ~24 per km^2
+            const uint32_t roll = h & 1023;
+            // ~10 % of cells a ramp (~24 per km^2), 6 % a sinkhole (~15), 16 % a chimney (~40)
+            if (roll >= 330) continue;
             CaveMouth &m = out[n++];
+            m.kind = roll < 100 ? MOUTH_RAMP : (roll < 165 ? MOUTH_SINKHOLE : MOUTH_CHIMNEY);
             m.x = (float)((cx + dx) * MOUTH_CELL) + (float)((h >> 10) & 127);
             m.z = (float)((cz + dz) * MOUTH_CELL) + (float)((h >> 17) & 127);
             const float a = (float)((h >> 24) & 255) / 255.0f * 6.2831853f;
             m.dx = std::cos(a);
             m.dz = std::sin(a);
             const uint32_t h2 = hash3(cx + dx, cz + dz, seed_ + 9134);
-            m.len = 40.0f + (float)(h2 & 63) * 0.8f;                   // 20-45 m
-            m.slope = 0.45f + (float)((h2 >> 6) & 31) / 31.0f * 0.4f;  // 25-40 degrees
-            m.r = 3.0f + (float)((h2 >> 11) & 15) / 15.0f * 2.0f;      // 1.5-2.5 m
+            m.top = 0.0f;
+            if (m.kind == MOUTH_RAMP) {
+                m.len = 40.0f + (float)(h2 & 63) * 0.8f;                   // 20-45 m
+                m.slope = 0.45f + (float)((h2 >> 6) & 31) / 31.0f * 0.4f;  // 25-40 degrees
+                m.r = 3.0f + (float)((h2 >> 11) & 15) / 15.0f * 2.0f;      // 1.5-2.5 m
+            } else if (m.kind == MOUTH_SINKHOLE) {
+                m.len = 60.0f + (float)(h2 & 63) * 1.2f;                   // 30-68 m down: into the hall storey
+                m.slope = 0.0f;
+                m.r = 5.0f + (float)((h2 >> 11) & 15) / 15.0f * 4.0f;      // 2.5-4.5 m (the funnel rim twice that)
+            } else {
+                m.top = 30.0f + (float)((h2 >> 6) & 63);                   // starts 15-47 m down, in the tunnels
+                m.len = 160.0f + (float)(h2 & 127) * 1.6f;                 // 80-180 m: through the halls to the deep
+                m.slope = 0.0f;
+                m.r = 3.0f + (float)((h2 >> 11) & 15) / 15.0f * 3.0f;      // 1.5-3 m
+            }
         }
     return n;
 }
@@ -1189,8 +1236,15 @@ int WorldGen::cave_roof(int x, int z) const {
     CaveMouth m[9];
     const int n = mouths_near(x, z, m);
     for (int i = 0; i < n; i++) {
+        if (m[i].kind == MOUTH_CHIMNEY) continue;
+        if (m[i].kind == MOUTH_SINKHOLE) {
+            const float dx = fx - m[i].x, dz = fz - m[i].z, reach = 2.0f * m[i].r + 1.0f;
+            if (dx * dx + dz * dz <= reach * reach) return 0;
+            continue;
+        }
         float t;
-        if (seg_dist(fx, fz, m[i].x, m[i].z, m[i].x + m[i].dx * m[i].len, m[i].z + m[i].dz * m[i].len, t) <= m[i].r + 1.0f && t * m[i].len < 16.0f) return 0;
+        // the ramp sways up to 1.2 r off its line (cave_value)
+        if (seg_dist(fx, fz, m[i].x, m[i].z, m[i].x + m[i].dx * m[i].len, m[i].z + m[i].dz * m[i].len, t) <= m[i].r * 2.2f + 1.0f && t * m[i].len < 16.0f) return 0;
     }
     return 5;
 }
@@ -1214,6 +1268,15 @@ bool WorldGen::vein_at_cell(int cx, int cz, Vein &out) const {
     out.z = cz * CELL + CELL / 2 + (int)((hj >> 12) % span) - JITTER[t];
     out.y = Y_MIN[t] + (int)(hash3(cx - 5, cz + 11, seed_ + 7753) % (uint32_t)(Y_MAX[t] - Y_MIN[t] + 1));
     return true;
+}
+
+int WorldGen::stringer_type(int cx, int cz) const {
+    using namespace technosim_ore;
+    Vein v;
+    if (vein_at_cell(cx, cz, v)) return v.type;
+    int pick = (int)(hash3(cx + 3, cz + 9, seed_ + 7731) % (uint32_t)WEIGHT_TOTAL), t = 0;
+    while (t < COUNT - 1 && pick >= WEIGHT[t]) { pick -= WEIGHT[t]; t++; }
+    return t;
 }
 
 // A flat lens: radius wobbles between 60 % and 100 % of SIZE / 2 (never past
@@ -1476,6 +1539,34 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                     }
                     const long d2 = (long)(px - x) * (px - x) + (long)(pz - z) * (pz - z);
                     if (best_d2 < 0 || d2 < best_d2) { best_d2 = d2; best = Vector3i(px, height_at(px, pz), pz); }
+                }
+            if (best_d2 >= 0) break;
+        }
+        return best;
+    }
+    if (kind == "sinkhole" || kind == "chimney") {
+        // the nearest shaft of that kind under dry land: a sinkhole at its rim, a chimney 4 m into its top
+        const int want = kind == "sinkhole" ? MOUTH_SINKHOLE : MOUTH_CHIMNEY;
+        const int cx0 = floor_div(x, MOUTH_CELL), cz0 = floor_div(z, MOUTH_CELL);
+        const int rings = max_radius / MOUTH_CELL + 1;
+        for (int ring = 0; ring <= rings; ring++) {
+            for (int dz = -ring; dz <= ring; dz++)
+                for (int dx = -ring; dx <= ring; dx++) {
+                    if (std::max(std::abs(dx), std::abs(dz)) != ring) continue;
+                    CaveMouth m[9];
+                    const int n = mouths_near((cx0 + dx) * MOUTH_CELL + MOUTH_CELL / 2, (cz0 + dz) * MOUTH_CELL + MOUTH_CELL / 2, m);
+                    for (int i = 0; i < n; i++) {
+                        if (m[i].kind != want || floor_div((int)m[i].x, MOUTH_CELL) != cx0 + dx || floor_div((int)m[i].z, MOUTH_CELL) != cz0 + dz) continue;
+                        const Column c = column_base((int)m[i].x, (int)m[i].z, false);
+                        const Hydro hy = hydro_at((int)m[i].x, (int)m[i].z, c.height);
+                        if (c.height <= sea_ + 4 || hy.lake || hy.river > 0.0f || hy.marsh) continue;   // no caves under water
+                        long d2 = (long)(m[i].x - x) * (long)(m[i].x - x) + (long)(m[i].z - z) * (long)(m[i].z - z);
+                        if (best_d2 < 0 || d2 < best_d2) {
+                            best_d2 = d2;
+                            best = want == MOUTH_SINKHOLE ? Vector3i((int)(m[i].x + 2.0f * m[i].r + 2.0f), c.height, (int)m[i].z)
+                                                          : Vector3i((int)m[i].x, c.height - (int)m[i].top - 8, (int)m[i].z);
+                        }
+                    }
                 }
             if (best_d2 >= 0) break;
         }

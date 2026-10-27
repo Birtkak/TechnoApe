@@ -41,6 +41,11 @@ constexpr int BIG_CAVE_LOD = 2;
 constexpr int CAVE_STEP = 4;
 // Cave pools: where n_pool_ (~25 m blobs) is above this, a flat stretch of cave floor holds its biome's pool.
 constexpr float POOL_THR = 0.0f;
+// Ore stringers (ADR 0077): sheets where a value noise sits within STRINGER_HALF of its middle (about one voxel
+// thick, ~4 % of the rock), from STRINGER_MIN_DEPTH down, within STRINGER_REACH voxels of cave air.
+constexpr float STRINGER_HALF = 0.012f;   // 0.022 sugar-coated the shafts (capture 2026-10-27)
+constexpr int STRINGER_MIN_DEPTH = 40 * FS;   // 20 m
+constexpr int STRINGER_REACH = 12;            // 1.5 m
 // Fallen sticks' half-widths in voxels (FStamp::r): thin (one voxel), medium (two), thick (two
 // across, two tall along the middle).
 constexpr float STICK_THICK[3] = {0.72f, 1.05f, 1.45f};
@@ -1068,6 +1073,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 const int cmx = mx0 + i * mstep, cmz = mz0 + j * mstep;
                 const float rm = big ? g.n_ravmask_.GetNoise((float)cmx, (float)cmz) : 0.0f;
                 const float line = rm > 0.25f ? std::fabs(g.n_ravine_.GetNoise((float)cmx, (float)cmz)) : 1.0f;
+                const float pillar = big ? g.n_pillar_.GetNoise((float)cmx, (float)cmz) : -1.0f;
                 const float gfx = (float)(cmx - gx0) / 4.0f, gfz = (float)(cmz - gz0) / 4.0f;
                 const int gi = std::min((int)gfx, gnx - 2), gj = std::min((int)gfz, gnz - 2);
                 const float gtx = gfx - gi, gtz = gfz - gj;
@@ -1085,7 +1091,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                             return p[0] + (p[1] - p[0]) * gty;
                         };
                         const float raw = bilerp(at(0, 0), at(1, 0), at(0, 1), at(1, 1), gtx, gtz);
-                        v = std::max({v, WorldGen::cavern_value(raw, (float)cy, depth), WorldGen::ravine_value(rm, line, depth)});
+                        v = std::max({v, WorldGen::cavern_value(raw, (float)cy, depth, pillar), WorldGen::ravine_value(rm, line, depth)});
                     }
                     cav[((size_t)j * nx + i) * cny + k] = v;
                 }
@@ -1245,6 +1251,7 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             WorldGen::Vein vein;
             const bool has_vein = g.vein_at_cell(floor_div(mx, technosim_ore::CELL), floor_div(mz, technosim_ore::CELL), vein);
             const float vein_ht = (has_vein && do_ores) ? g.vein_half_thickness(vein, mx, mz) : 0.0f;
+            const int stringer = (do_ores && !cav.empty()) ? g.stringer_type(floor_div(mx, technosim_ore::CELL), floor_div(mz, technosim_ore::CELL)) : -1;
             // Plants: the macro column decides the kind, the fine column whether it stands here.
             uint16_t veg = Mat::AIR, veg_head = Mat::AIR;
             int veg_h = 0;
@@ -1491,6 +1498,9 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             } else {
                 std::fill(cave.begin(), cave.end(), 0);
             }
+            // where an entrance may cut the surface, no plant stands over the hole (the tufts in mid air over
+            // sinkholes, developer 2026-10-27)
+            if (m.roof == 0 && (veg != Mat::AIR || veg_head != Mat::AIR) && cave_at(wx, h - 1, wz)) veg = veg_head = Mat::AIR;
             int crystal_roll = 0;
             const int crystal_h = (lod == 0 && !cav.empty()) ? rocks_.crystal_height(wx, wz, crystal_roll) : 0;
             uint16_t *colp = w + sy * (x + sx * z);
@@ -1613,6 +1623,22 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                     mat = veg;
                 } else if (veg_head != Mat::AIR && wy == h + veg_h) {
                     mat = veg_head;
+                }
+                if (mat == Mat::STONE && stringer >= 0 && h - wy >= STRINGER_MIN_DEPTH) {
+                    // Ore stringers (ADR 0077): thin wavy sheets of ore through the rock, in the cell's ore, that show
+                    // where they cross a cave wall; only within STRINGER_REACH of cave air so the lenses stay the prize.
+                    const float s = value_noise3((float)wx / 16.0f, (float)wy / 11.0f, (float)wz / 16.0f, g.seed_ + 7801);
+                    if (std::fabs(s - 0.5f) < STRINGER_HALF) {
+                        bool near = false;
+                        for (int k = std::max(0, y + 1 - STRINGER_REACH / step); k <= std::min(sy + 1, y + 1 + STRINGER_REACH / step) && !near; k++) near = cave[k];
+                        if (!near) near = cave_at(wx - STRINGER_REACH, wy, wz) || cave_at(wx + STRINGER_REACH, wy, wz) || cave_at(wx, wy, wz - STRINGER_REACH) || cave_at(wx, wy, wz + STRINGER_REACH);
+                        if (near) {
+                            const uint32_t hs = h3(wx, wz, wy * 1031 + g.seed_ + 7807);
+                            const float p = 0.2f + 0.25f * smoothstep(80.0f * FS, 400.0f * FS, (float)(h - wy));
+                            if ((float)(hs & 1023) < p * 1024.0f)
+                                mat = (uint16_t)(((hs >> 10) & 3) == 0 ? technosim_ore::SECONDARY[stringer] : technosim_ore::PRIMARY[stringer]);
+                        }
+                    }
                 }
                 if (mat == Mat::STONE) mat = rocks_.at(rc, wx, wy, wz);   // the local rock kind (ADR 0057)
                 if (mat == Mat::AIR && clut_base != INT32_MIN && wy >= clut_base && wy < clut_base + CLUTTER_H) mat = clut[wy - clut_base];
