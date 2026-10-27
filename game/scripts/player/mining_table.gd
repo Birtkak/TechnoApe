@@ -166,6 +166,19 @@ static func roll_list(list: Array, rng: RandomNumberGenerator, held_class: Strin
 	return out
 
 
+## The look-at line for a material whose main drop bears in seasons (blueberry bushes): ripe now,
+## or when it will be (bug report 2026-10-27_15-26-49). "" for other materials or without seasons.
+func season_note(material_name: String, p_season: int) -> String:
+	var list = entry(material_name).get("drops", null)
+	if not (list is Array) or list.is_empty() or not list[0].has("seasons") or p_season < 0:
+		return ""
+	var main: Dictionary = list[0]
+	var what := String(main["id"]).capitalize()
+	if Seasons.in_season(main, p_season):
+		return "%s: ripe now" % what
+	return "%s: ripe in %s" % [what, " and ".join(main["seasons"])]
+
+
 static func _count_range(d: Dictionary) -> Array:
 	var c = d.get("count", 1)
 	if c is Array:
@@ -203,7 +216,7 @@ func voxel_drops(counts: Dictionary, held: Dictionary, units: Callable, plain: C
 			continue
 		var list: Array = e["drops"] if e["drops"] is Array else [{"id": e["drops"], "count": int(e.get("count", 1))}]
 		for d in list:
-			if d.get("tool", "") != "" and d["tool"] != cls:
+			if d.get("tool", "") != "" and d["tool"] != cls or not Seasons.in_season(d, Seasons.season):
 				continue
 			var r := _count_range(d)
 			var avg: float = (int(r[0]) + int(r[1])) * 0.5 * float(d.get("chance", 1.0))

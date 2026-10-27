@@ -227,15 +227,15 @@ func _process_timed(delta: float) -> void:
 		return
 	var t0 := Time.get_ticks_usec()
 	_fire_check(delta)
-	var i := 0
-	while i < primed.size():
-		var p := primed[i]
-		if _tick_primed(p, delta):
-			i += 1
-			continue
-		p["node"].queue_free()
-		primed.remove_at(i)
-		_queue.append({"pos": p["pos"], "share": p["share"]})
+	var expired: Array[Dictionary] = []
+	for p in primed:
+		if not _tick_primed(p, delta):
+			expired.append(p)
+	for p in expired:
+		if not p.get("gone", false):
+			_queue.append(merge_from(p))
+	if not expired.is_empty():
+		primed.assign(primed.filter(func(p: Dictionary) -> bool: return not p.get("gone", false)))
 	stats["queued_max"] = maxi(stats["queued_max"], _queue.size())
 	var n := 0
 	while not _queue.is_empty() and n < Settings.tnt_blasts_per_frame:
@@ -249,6 +249,27 @@ func _process_timed(delta: float) -> void:
 	if n > 0:
 		stats["frames_with_blast"] += 1
 	stats["process_ms_max"] = maxf(float(stats.get("process_ms_max", 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
+
+
+## A charge whose fuse ran out takes along every primed charge in its reach with at most
+## Settings.tnt_merge_s left (a chain-lit pile): one blast of their summed share at their
+## share-weighted centre, so it grows by the cube root (bug report 2026-10-27_15-48-13).
+## Marks the charges taken "gone"; returns the queue entry {pos, share}.
+func merge_from(p: Dictionary) -> Dictionary:
+	p["gone"] = true
+	(p["node"] as Node).queue_free()
+	var share: float = p["share"]
+	var sum: Vector3 = p["pos"] * share
+	var reach := radius_of(share) + Settings.BLOCK
+	for o in primed:
+		if o.get("gone", false) or float(o["fuse"]) > Settings.tnt_merge_s or (o["pos"] as Vector3).distance_to(p["pos"]) > reach:
+			continue
+		o["gone"] = true
+		(o["node"] as Node).queue_free()
+		share += float(o["share"])
+		sum += o["pos"] * float(o["share"])
+		stats["merged"] = int(stats.get("merged", 0)) + 1
+	return {"pos": sum / share, "share": share}
 
 
 ## Fuse, blink, sparks and falling of one primed block; false once the fuse ran out.
@@ -467,8 +488,10 @@ func _spawn_drops(counts: Dictionary, removed: int, pos: Vector3, r: float) -> v
 
 
 ## Damage and knockback, full at the centre and none at twice the radius; walls do not shield yet.
+## Damage grows with the radius: a merged pile hits harder.
 func _hit_entities(pos: Vector3, r: float) -> void:
 	var reach := 2.0 * r
+	var power := r / Settings.m2v(Settings.tnt_radius_m)
 	var p = main.player
 	if p == null:
 		return
@@ -478,7 +501,7 @@ func _hit_entities(pos: Vector3, r: float) -> void:
 		var f := 1.0 - d / reach
 		var away := (centre - pos).normalized() if d > 0.01 else Vector3.UP
 		p.knock((away + Vector3(0, 0.6, 0)).normalized() * Settings.m2v(Settings.tnt_knockback_m) * f)
-		var dmg := roundi(Settings.tnt_damage * f)
+		var dmg := roundi(Settings.tnt_damage * power * f)
 		if dmg > 0 and GameMode.rule(p.game_mode, "takes_damage") and main.player_inv:
 			main.player_inv.damage(dmg)
 			if main.player_inv.is_dead():
@@ -491,7 +514,7 @@ func _hit_entities(pos: Vector3, r: float) -> void:
 		if md >= reach:
 			continue
 		var f := 1.0 - md / reach
-		m.hurt(maxi(1, roundi(Settings.tnt_damage * f)), pos)
+		m.hurt(maxi(1, roundi(Settings.tnt_damage * power * f)), pos)
 		var away: Vector3 = (m.position - pos).normalized() if md > 0.01 else Vector3.UP
 		m.velocity += (away + Vector3(0, 0.5, 0)) * Settings.m2v(Settings.tnt_knockback_m) * f * 0.5
 		stats["entities_hit"] += 1

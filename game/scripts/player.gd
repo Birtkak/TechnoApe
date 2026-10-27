@@ -613,12 +613,14 @@ func _is_solid_voxel(v: Vector3i) -> bool:
 func _update_fall_damage() -> void:
 	# "landed" = floor contact, or any contact while no longer falling (standing
 	# on a voxel edge in a shaft reports a wall normal, not a floor)
-	var on_floor := is_on_floor() or in_liquid   # water breaks a fall, as in vanilla
+	# water breaks a fall, as in vanilla: the body in it, or a shallow layer at the feet
+	var wet := in_liquid or GameMaterials.is_liquid(world.get_voxel(Vector3i(position.floor())))
+	var on_floor := is_on_floor() or wet
 	if on_floor and not _was_on_floor:
 		var fall_m := Settings.v2m(_fall_peak_y - position.y)
-		if not in_liquid and fall_m > 0.5:
+		if not wet and fall_m > 0.5:
 			landed.emit(Vector3i((position + Vector3(0, -0.1, 0)).floor()), fall_m)
-		var dmg := int(floor(fall_m - Settings.fall_damage_safe_m))
+		var dmg := fall_damage(fall_m, wet)
 		if dmg > 0 and inventory and GameMode.rule(game_mode, "takes_damage"):
 			print("fall damage %d after %.1f m" % [dmg, fall_m])
 			inventory.damage(dmg)
@@ -629,17 +631,32 @@ func _update_fall_damage() -> void:
 	_was_on_floor = on_floor
 
 
-## Breath: the eyes under a liquid use it up in Settings.air_s, then the body
-## drowns (Settings.drown_damage per second); out of the liquid it refills in 2 s.
+## Fall damage for a fall of `fall_m` metres: none into water (bug report 2026-10-27_15-18-51).
+static func fall_damage(fall_m: float, into_water: bool) -> int:
+	return 0 if into_water else maxi(0, int(floor(fall_m - Settings.fall_damage_safe_m)))
+
+
+## Seconds of breath with the eyes in material `m`; 0 when it can be breathed (bug report 2026-10-27_15-55-49).
+static func breath_time(m: int) -> float:
+	if GameMaterials.is_liquid(m) or GameMaterials.is_waterlogged(m):
+		return Settings.air_s
+	if GameMaterials.is_powder(m):
+		return Settings.suffocate_s
+	return 0.0
+
+
+## Breath: the eyes under a liquid use it up in Settings.air_s, buried in a powder (sand, gravel
+## fallen on the head) in Settings.suffocate_s; then the body takes Settings.drown_damage per
+## second; out of it breath refills in 2 s.
 func _update_air(delta: float) -> void:
 	var eye := Vector3i((position + Vector3(0, Settings.m2v(Settings.eye_height_m), 0)).floor())
 	var eye_m := world.get_voxel(eye)
-	var under := GameMaterials.is_liquid(eye_m) or GameMaterials.is_waterlogged(eye_m)
-	if not under or not GameMode.rule(game_mode, "takes_damage"):
+	var breath_s := breath_time(eye_m)
+	if breath_s <= 0.0 or not GameMode.rule(game_mode, "takes_damage"):
 		air = minf(1.0, air + delta / 2.0)
 		_drown_t = 0.0
 	else:
-		air = maxf(0.0, air - delta / Settings.air_s)
+		air = maxf(0.0, air - delta / breath_s)
 		if air <= 0.0:
 			_drown_t -= delta
 			if _drown_t <= 0.0:
@@ -1023,6 +1040,10 @@ func _block_info(p: Vector3i, mat: int) -> Dictionary:
 	var info := {"title": title}
 	if describe_block.is_valid():
 		info.merge(describe_block.call(p), true)
+	if mining != null and not info.has("line"):
+		var ripe := mining.season_note(GameMaterials.name_of(mat), Seasons.season)
+		if ripe != "":
+			info["line"] = ripe
 	if mining == null or GameMode.rule(game_mode, "instant_break"):
 		return info
 	var name := GameMaterials.name_of(mat)
@@ -1097,7 +1118,7 @@ func _use(first_press: bool) -> void:
 				_after_use()
 			return
 	if hit == null:
-		_start_eating(first_press)
+		_start_eating()
 		return
 	if not first_press and _place_cooldown > 0.0:
 		return
@@ -1156,7 +1177,7 @@ func _use(first_press: bool) -> void:
 		_place_furniture(hit, def)
 		return
 	if def.has("food"):
-		_start_eating(first_press)
+		_start_eating()
 		return
 	var target_name := _loose_name(world.get_voxel(target))
 	# container pickup (bucket on water / lava)
@@ -1396,10 +1417,11 @@ func _place_furniture(hit: VoxelRaycastResult, def: Dictionary) -> void:
 
 # ---------------- eating ----------------
 
-## Holding right click with food eats it after EAT_S, when hungry or hurt (Survival, ADR 0040).
-func _start_eating(first_press: bool) -> void:
+## Holding right click with food eats it after EAT_S, when hungry or hurt (Survival, ADR 0040);
+## kept held, the next bite starts on its own (bug report 2026-10-27_15-36-07).
+func _start_eating() -> void:
 	var def := inventory.held_def()
-	if not def.has("food") or not first_press:
+	if not def.has("food") or _eat_id != "":
 		return
 	if survival != null:
 		if not survival.wants_food():

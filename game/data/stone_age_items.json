@@ -31,7 +31,7 @@
     {"id": "microlith", "name": "Microlith", "tags": ["microlith"], "stack": 64, "_note": "a tiny flint bladelet: set in tar, the tip of an arrow"},
     {"id": "arrow", "name": "Arrow", "tags": ["arrow"], "stack": 64, "throw": {"damage": 6, "speed_m": 38.0}, "_note": "shot from a bow; picked up again where it lands"},
     {"id": "bow_stave", "name": "Bow Stave", "tags": ["stave"], "stack": 16, "fuel_ticks": 100, "_note": "a split and shaved length of wood"},
-    {"id": "bow", "name": "Bow", "tags": ["tool", "bow", "weapon"], "stack": 1, "durability": 128, "shoots": {"ammo": "#arrow", "speed_x": 1.0, "damage_x": 1.0, "cooldown_s": 0.8}, "_note": "right click shoots an arrow from your inventory"},
+    {"id": "bow", "name": "Bow", "tags": ["tool", "bow", "weapon"], "stack": 1, "durability": 128, "shoots": {"ammo": "#arrow", "speed_x": 1.0, "damage_x": 1.0, "cooldown_s": 0.3, "draw_s": 1.0}, "_note": "hold right click to draw, release to shoot an arrow from your inventory"},
     {"id": "flint_adze_head", "name": "Flint Adze Head", "tags": ["tool_head", "flint_head"], "stack": 64},
     {"id": "flint_adze", "name": "Flint Adze", "tags": ["tool", "adze"], "stack": 1, "tier": 0, "durability": 64, "_note": "hollows a burnt-out log into a dugout"},
     {"id": "dugout_canoe", "name": "Dugout Canoe", "tags": ["boat"], "stack": 1, "boat": true, "_note": "right click water to launch it, right click it to get in; W/S paddle, A/D turn, jump or sneak gets out"},

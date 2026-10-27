@@ -579,6 +579,11 @@ static func is_liquid(id: int) -> bool:
 	return id > 0 and id < _liquids.size() and _liquids[id] == 1
 
 
+## Powder cell types (sand, gravel, dirt, snow ...): a head buried in one suffocates.
+static func is_powder(id: int) -> bool:
+	return id > 0 and id <= defs().size() and defs()[id - 1].get("cell_type", "solid") == "powder"
+
+
 ## Waterlogged clutter (kelp, seagrass, ADR 0047): a body in it is in water.
 static func is_waterlogged(id: int) -> bool:
 	return id > 0 and id <= defs().size() and defs()[id - 1].get("waterlogged", false)
