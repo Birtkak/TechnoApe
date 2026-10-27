@@ -37,7 +37,11 @@ var _bm_cols := 0
 var _bm_rows := 0
 var trackers: Trackers          # HUD trackers (ADR 0061): the recipe view's Pin button
 var grid_fill: Callable         # fn(recipe, all, dry_run) -> CraftingGrid.fill's answer, while a crafting grid is on screen
+var container_fill: Callable    # the same for a furnace's input slot while its screen is open (ADR 0093)
 var fill_button: Button         # the recipe view's Fill button, or null (tests and menu_test press it)
+var bookmark_button: Button     # the recipe view's Mark button (bookmarks the shown recipe, ADR 0093)
+var _tab_x := -1.0              # the selected station tab's left edge, for its highlight
+const TABS := 7
 
 
 func setup(p_model: RecipeBrowser) -> void:
@@ -178,9 +182,17 @@ func refresh_bookmarks() -> void:
 	_bm_panel.queue_redraw()
 	_bm_title.text = "Bookmarks" if not ids.is_empty() else "A over an item\nbookmarks it"
 	for i in ids.size():
-		var c := BrowserCell.new(items, ids[i])
+		var id := String(ids[i])
+		var rid := id.trim_prefix(RecipeBrowser.RECIPE_MARK) if id.begins_with(RecipeBrowser.RECIPE_MARK) else ""
+		var c := BrowserCell.new(items, id if rid == "" else String(model.recipe(rid).get("output", {}).get("id", "")))
 		c.position = Vector2(4 + (i % _bm_cols) * S, 34 + (i / _bm_cols) * S)
-		c.clicked.connect(_on_list_cell_clicked)
+		if rid == "":
+			c.clicked.connect(_on_list_cell_clicked)
+		else:
+			c.marked = true   # a gold corner: this one opens its recipe (ADR 0093)
+			c.clicked.connect(func(_id: String, _b: int) -> void:
+				if model.show_recipe(rid):
+					_build_recipe())
 		_bm_panel.add_child(c)
 		_bm_cells.append(c)
 
@@ -243,19 +255,31 @@ func _build_recipe() -> void:
 	_recipe_nodes.clear()
 	_spec_cells.clear()
 	fill_button = null
+	bookmark_button = null
 	_overlay.visible = true
 	var r := model.current_recipe()
 	var cat := model.current_category()
 	var l := model.layout(r)
 	var v: Dictionary = model.view
 	_label(("Recipes for " if v["mode"] == "recipes" else "Uses of ") + items.display_name(v["item"]), Vector2(16, 8), 16)
-	# category row
-	if v["categories"].size() > 1:
+	# station tabs (ADR 0093): one per category, its station's icon; a click opens it, < > page past TABS
+	var ncat: int = v["categories"].size()
+	if ncat > TABS:
 		_add(_button("<", func() -> void: model.turn_category(-1); _build_recipe()), Vector2(16, 34))
 		_add(_button(">", func() -> void: model.turn_category(1); _build_recipe()), Vector2(PANEL.x - 44, 34))
-	var title := _label(cat["title"], Vector2(48, 36), 16)
-	title.size = Vector2(PANEL.x - 96, 22)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var first := clampi(int(v["cat"]) - TABS / 2, 0, maxi(0, ncat - TABS))
+	_tab_x = -1.0
+	for i in range(first, mini(first + TABS, ncat)):
+		var c0: Dictionary = v["categories"][i]
+		var st := model.catalysts(c0["id"])
+		var tab := BrowserCell.new(items, st[0] if not st.is_empty() else String(model.recipe(c0["recipes"][0]).get("output", {}).get("id", "")))
+		tab.clicked.connect(func(_id: String, _b: int) -> void: model.select_category(i); _build_recipe())
+		var x := 48.0 + (i - first) * S
+		if i == int(v["cat"]):
+			_tab_x = x
+		_add(tab, Vector2(x, 30))
+	var title := _label(cat["title"], Vector2(16, 66), 13)
+	title.size = Vector2(PANEL.x - 100, 18)
 	# inputs
 	var origin := Vector2(40, 84)
 	match l["kind"]:
@@ -286,7 +310,21 @@ func _build_recipe() -> void:
 			pin.text = "Unpin" if trackers.is_pinned("recipe", rid) else "Pin")
 		_add(pin, Vector2(PANEL.x - 70, 76))
 	if grid_fill.is_valid() and CraftingGrid.is_grid_recipe(r):
-		_add_fill_button(r)
+		_add_fill_button(r, grid_fill)
+	elif container_fill.is_valid() and r.get("type", "") == "smelt":
+		_add_fill_button(r, container_fill)
+	if r.get("type", "") != "mining":
+		var mark := RecipeBrowser.RECIPE_MARK + String(r["id"])
+		var bm := _button("Unmark" if model.is_bookmarked(mark) else "Mark", func() -> void: pass)
+		bm.tooltip_text = "Bookmark this recipe at the left of the screen"
+		bm.pressed.connect(func() -> void:
+			model.toggle_bookmark(mark)
+			if not OS.get_cmdline_user_args().has("autopilot=1"):
+				model.save_bookmarks()
+			bm.text = "Unmark" if model.is_bookmarked(mark) else "Mark"
+			refresh_bookmarks())
+		_add(bm, Vector2(PANEL.x - 70, 252))
+		bookmark_button = bm
 	# have / need per ingredient, in the inventory's own counts (ADR 0046)
 	if l["kind"] in ["grid", "row", "smelt"] and r["type"] != "mining":
 		var y := 162.0
@@ -320,7 +358,7 @@ func _build_recipe() -> void:
 	pl.size = Vector2(PANEL.x - 96, 22)
 	pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var hint := Label.new()
-	hint.text = "LMB recipes  RMB uses  R / U / A (bookmark) over an item  Bksp back  Esc close"
+	hint.text = "LMB recipes  RMB uses  R / U / A (bookmark) over an item, also in the world  Bksp back  Esc close"
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 	hint.custom_minimum_size = Vector2(PANEL.x, 0)
@@ -335,14 +373,14 @@ func _build_recipe() -> void:
 ## Fill (bug report 2026-10-25): right of the output, lays the shown recipe out in the open crafting
 ## grid from the inventory; Shift fills as many crafts as the inventory and the stacks allow. Greyed
 ## out, with the reason as its tooltip, when the grid cannot take it or ingredients are short.
-func _add_fill_button(r: Dictionary) -> void:
+func _add_fill_button(r: Dictionary, fill: Callable) -> void:
 	var b := _button("Fill", func() -> void: pass)
-	var check: Dictionary = grid_fill.call(r, true, true)
+	var check: Dictionary = fill.call(r, true, true)
 	b.disabled = check["error"] != ""
 	b.tooltip_text = check["error"] if b.disabled else \
-		"Put the ingredients in the grid (Shift: enough for %d)" % int(check["crafts"])
+		"Put the ingredients in (Shift: enough for %d)" % int(check["crafts"])
 	b.pressed.connect(func() -> void:
-		var res: Dictionary = grid_fill.call(r, Input.is_key_pressed(KEY_SHIFT), false)
+		var res: Dictionary = fill.call(r, Input.is_key_pressed(KEY_SHIFT), false)
 		if res["error"] == "":
 			close_recipes()   # show the filled grid
 		else:
@@ -397,6 +435,8 @@ func _draw_recipe_panel() -> void:
 	_recipe_panel.draw_style_box(sb, Rect2(Vector2.ZERO, PANEL))
 	if not model.is_open():
 		return
+	if _tab_x >= 0.0:   # the open station tab: a frame round it
+		_recipe_panel.draw_rect(Rect2(Vector2(_tab_x - 2, 28), Vector2(S + 4, S + 4)), Color(0.15, 0.35, 0.8), false, 3.0)
 	var l := model.layout(model.current_recipe())
 	var c := Color(0.5, 0.5, 0.5)
 	# empty grid slots behind the ingredients

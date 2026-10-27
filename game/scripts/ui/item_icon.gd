@@ -42,7 +42,7 @@ func _draw() -> void:
 	var id: String = stack["id"]
 	var s := size
 	var sprites := ItemSprites.get_default()
-	var mat := material_id_for(items, id)
+	var mat := int(stack["mat"]) if stack.has("mat") else material_id_for(items, id)   # "mat": a block without an item (look-at panel)
 	var heat := Inventory.heat_of(stack)
 	if sprites.has(id):
 		var tex := sprites.texture(id)

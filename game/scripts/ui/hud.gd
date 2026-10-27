@@ -8,6 +8,7 @@ extends CanvasLayer
 
 const SLOT := 44
 const GAP := 2
+const LOOK_ICON := 40.0
 
 var player_inv: PlayerInventory
 var _hotbar: Control
@@ -35,11 +36,13 @@ var air := 1.0              # breath 0..1, set by the player; bubbles show while
 var _air_row: Control
 var _look: Control          # the look-at panel, top centre (like the Jade mod)
 var _look_info := {}
+var _look_icon: ItemIcon    # the block or item's picture, left of the panel's text (ADR 0093)
 var _shown_air := -1
 
 
 func setup(p_inv: PlayerInventory) -> void:
 	player_inv = p_inv
+	_look_icon.items = p_inv.items
 	player_inv.changed.connect(_refresh)
 	player_inv.selection_changed.connect(_on_selection)
 	player_inv.health_changed.connect(func(_h: int) -> void: _hearts.queue_redraw())
@@ -125,6 +128,10 @@ func _ready() -> void:
 	_look.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_look.draw.connect(_draw_look)
 	add_child(_look)
+	_look_icon = ItemIcon.new()
+	_look_icon.size = Vector2(LOOK_ICON, LOOK_ICON)
+	_look_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_look.add_child(_look_icon)
 
 	_name_label = Label.new()
 	_name_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -156,9 +163,16 @@ func _ready() -> void:
 	add_child(_brush_label)
 
 
-## What the crosshair is on: {title, line? ("\n" for more lines), tool?, ok?, drops?}; {} hides the panel.
+## What the crosshair is on: {title, icon? (item id), mat? (material id when no item), line? ("\n" for
+## more lines), tool?, ok?, mine? (hardness and drops), drops?}; {} hides the panel.
 func set_look(info: Dictionary) -> void:
 	_look_info = info
+	if info.get("icon", "") != "":
+		_look_icon.stack = {"id": info["icon"]}
+	elif int(info.get("mat", 0)) > 0:
+		_look_icon.stack = {"id": "", "mat": info["mat"]}
+	else:
+		_look_icon.stack = {}
 	_look.queue_redraw()
 
 
@@ -175,6 +189,8 @@ func _draw_look() -> void:
 	if _look_info.has("tool"):
 		var ok: bool = _look_info.get("ok", false)
 		lines.append([String(_look_info["tool"]), 13, Color(0.5, 0.9, 0.45) if ok else Color(0.95, 0.45, 0.4), "ok" if ok else "no"])
+	if _look_info.has("mine"):
+		lines.append([String(_look_info["mine"]), 12, Color(0.7, 0.72, 0.76), ""])
 	if not _look_info.get("drops", true):
 		lines.append(["Drops nothing with this", 12, Color(0.95, 0.7, 0.4), ""])
 	var w := 0.0
@@ -183,7 +199,11 @@ func _draw_look() -> void:
 		w = maxf(w, _font.get_string_size(l[0], HORIZONTAL_ALIGNMENT_LEFT, -1, l[1]).x + (16.0 if l[3] != "" else 0.0))
 		h += l[1] + 5
 	w += 28
+	var pic := 0.0 if _look_icon.stack.is_empty() else LOOK_ICON + 10.0
+	w += pic
+	h = maxf(h, LOOK_ICON + 12.0 if pic > 0.0 else 0.0)
 	var box := Rect2(-w / 2.0, 10, w, h)
+	_look_icon.position = box.position + Vector2(12, 6)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.03, 0.03, 0.05, 0.72)
 	sb.border_color = Color(1, 1, 1, 0.14)
@@ -193,7 +213,7 @@ func _draw_look() -> void:
 	var y := box.position.y + 6
 	for l in lines:
 		y += l[1]
-		var x := box.position.x + 14
+		var x := box.position.x + 14 + pic
 		if l[3] == "ok":   # a tick
 			_look.draw_polyline(PackedVector2Array([Vector2(x, y - 5), Vector2(x + 3, y - 2), Vector2(x + 9, y - 9)]), l[2], 2.0)
 			x += 16

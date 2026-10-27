@@ -46,6 +46,7 @@ var _stone_age_test: StoneAgeTest
 var _flint_age_test: FlintAgeTest
 var _craft_test: CraftTest
 var _metal_age_test: MetalAgeTest   # the bronze and iron ages (ADR 0070)
+var _info_test: RefCounted          # the look-at panel and recipe browser sheet (ADR 0093)
 var _stone_ages_test: StoneAgesTest   # the four Stone Age stages (ADR 0059)
 var _water_test: WaterTest
 var _looks_test: LooksTest
@@ -142,6 +143,7 @@ func _ready() -> void:
 	player.item_dropped.connect(_on_item_dropped)
 	player.inventory_toggled.connect(_on_inventory_toggled)
 	player.map_requested.connect(_open_map)
+	player.lookup_requested.connect(_lookup)
 	player.died.connect(_on_died)
 	player.block_used.connect(_on_block_used)
 	player.landed.connect(trample)
@@ -372,6 +374,10 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_metal_age_test = MetalAgeTest.new()
 				_metal_age_test.run(self))
+		if DebugCapture.info_test:
+			_after_load(func() -> void:
+				_info_test = InfoTest.new()
+				_info_test.run(self))
 		if DebugCapture.tp_test:
 			_after_load(func() -> void:
 				_tp_test = TpTest.new()
@@ -644,11 +650,19 @@ func _save_blocks() -> void:
 ## by "\n"). Work pieces get their own name, not "Work Spot", and stations show what is in them (ADR 0078).
 func _describe_block(p: Vector3i) -> Dictionary:
 	var e: RefCounted = blocks.at(p)
-	if e is ChestEntity and e.label != "":
-		return {"line": e.label}   # the chest's name (plan item D11)
+	if e is ChestEntity or e is FurnaceEntity:   # what is inside (ADR 0093)
+		var lines := PackedStringArray()
+		if e is ChestEntity and e.label != "":
+			lines.append(e.label)   # the chest's name (plan item D11)
+		if e is FurnaceEntity:
+			lines.append(("Burning" if e.is_lit() else "Not lit") + (", smelting %d%%" % (100 * e.cook / maxi(e.cook_total, 1)) if e.cook > 0 else ""))
+		lines.append(_holds_line(e.inv))
+		return {"line": "\n".join(lines)}
 	if not BlockEntities.is_work(e):
 		return {}
-	var info := {"title": _work_title(e)}
+	var info := {"title": _work_title(e), "mat": 0}   # the work block itself has no picture: the station's item has
+	var pic: String = {"knap": "flint", "clayform": "clay_ball"}.get(e.kind, e.item if "item" in e and e.item != "" else e.kind)
+	info["icon"] = pic if items.has(pic) else ""
 	if e is GraveEntity:
 		info["line"] = "Your things (%d stacks)%s: right click" % [e.count(), (", " + e.died_at) if e.died_at != "" else ""]
 	elif e is ClayFormEntity:
@@ -667,6 +681,20 @@ func _describe_block(p: Vector3i) -> Dictionary:
 	elif e is FirepitEntity or e is AnvilEntity:
 		info["line"] = "\n".join(e.look_lines())
 	return info
+
+
+## "Holds 12 Coal, 3 Iron Ore and 2 more": a container's stacks in items (not voxels), or "Empty".
+func _holds_line(inv: Inventory) -> String:
+	var counts := {}
+	for s in inv.to_array():
+		if not s.is_empty():
+			counts[s["id"]] = int(counts.get(s["id"], 0)) + int(s["count"])
+	if counts.is_empty():
+		return "Empty"
+	var parts := PackedStringArray()
+	for id in counts.keys().slice(0, 3):
+		parts.append("%d %s" % [counts[id] / maxi(items.units(id), 1), items.display_name(id)])
+	return "Holds " + ", ".join(parts) + (" and %d more" % (counts.size() - 3) if counts.size() > 3 else "")
 
 
 func _work_title(e: RefCounted) -> String:
@@ -1612,6 +1640,19 @@ func _nearby_chests() -> Array:
 			if (Vector3(e.pos) + Vector3.ONE * Settings.BLOCK * 0.5).distance_to(player.position) <= r:
 				out.append(e)
 	return out
+
+
+## R / U in the world (ADR 0093): the inventory opens on the recipes or uses of the aimed block's item,
+## else the held one; a toast when neither has any.
+func _lookup(ids: Array, mode: String) -> void:
+	if player.ui_open:
+		return
+	var id := inv_screen.browser.lookup(ids, mode)
+	if id == "":
+		hud.show_toast("No %s to show" % ("recipes" if mode == "recipes" else "uses"))
+		return
+	player.set_ui_open(true)
+	inv_screen.browser_view.show_item(id, mode)
 
 
 ## M: the full map (plan item D10).

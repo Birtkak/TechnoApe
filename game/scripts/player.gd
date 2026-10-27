@@ -24,6 +24,7 @@ signal stain_drip(at: Vector3, colour: Color)   # a stained body drips on the gr
 signal landed(feet_voxel: Vector3i, fall_m: float)   # touched ground after a fall (farmland trampling, ADR 0022)
 signal ate(item_id: String)
 signal map_requested    # M: the full map (plan item D10)
+signal lookup_requested(ids: Array, mode: String)   # R / U in the world: the aimed block's item, then the held one (ADR 0093)
 
 var world: World
 var camera: Camera3D
@@ -79,6 +80,7 @@ var ignite_at: Callable          # (hit) -> bool: flint and steel sets the aimed
 var _lasering := false
 var _look_key := ""              # what the look-at panel shows now (rebuilt only when it changes)
 var _look_refresh := 0
+var look_item := ""               # the look-at panel's item ("" for none): what R / U look up (ADR 0093)
 var farm: Farming
 var seat: Vector3 = Vector3.INF  # sitting on a chair: the seat surface (world voxels)
 var _eat_t := 0.0
@@ -280,6 +282,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		step_spectator_speed(1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1)
 	elif event is InputEventMouseButton and event.pressed and event.ctrl_pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 		step_brush_size(1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1)
+	elif event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_R, KEY_U] and not building:
+		lookup_requested.emit([look_item, String(inventory.held().get("id", ""))], "recipes" if event.keycode == KEY_R else "uses")
 	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_B:
 		var n := Brush.SHAPES.size()
 		set_brush(brush_size, Brush.SHAPES[(Brush.SHAPES.find(brush_shape) + (n - 1 if event.shift_pressed else 1)) % n])
@@ -1023,13 +1027,14 @@ func _update_look(hit: VoxelRaycastResult, mob) -> void:
 		var lm := GameMaterials.material_of_voxel(world.get_voxel(liquid))
 		var lname := _loose_name(lm)
 		var lid := inventory.items.item_for_material(lname) if inventory else ""
-		info = {"title": inventory.items.display_name(lid) if lid != "" else lname.capitalize()}
+		info = {"title": inventory.items.display_name(lid) if lid != "" else lname.capitalize(), "icon": lid}
 	elif mob != null:
 		info = {"title": String(mob.species).capitalize(), "line": "Health %d / %d" % [mob.health, int(mob.def.get("health", 8))]}
 	elif hit != null:
 		var mat := world.get_voxel(hit.position)
 		if mat > 0:
 			info = _block_info(hit.position, mat)
+	look_item = String(info.get("icon", ""))
 	hud.set_look(info)
 
 
@@ -1061,17 +1066,21 @@ func _block_info(p: Vector3i, mat: int) -> Dictionary:
 	var loose := _loose_name(mat)
 	var id := inventory.items.item_for_material(loose) if inventory else ""
 	var title := inventory.items.display_name(id) if id != "" else loose.capitalize()
-	var info := {"title": title}
+	var info := {"title": title, "icon": id, "mat": mat}
 	if describe_block.is_valid():
 		info.merge(describe_block.call(p), true)
 	if mining != null and not info.has("line"):
 		var ripe := mining.season_note(GameMaterials.name_of(mat), Seasons.season)
 		if ripe != "":
 			info["line"] = ripe
-	if mining == null or GameMode.rule(game_mode, "instant_break"):
+	if mining == null:
 		return info
 	var name := GameMaterials.name_of(mat)
 	var e := mining.entry(name)
+	if not e.is_empty():
+		info["mine"] = _mine_text(e)
+	if GameMode.rule(game_mode, "instant_break"):
+		return info
 	if e.is_empty():
 		info["tool"] = "Unbreakable"
 		info["ok"] = false
@@ -1086,6 +1095,18 @@ func _block_info(p: Vector3i, mat: int) -> Dictionary:
 	if not mining.yields(name, held):
 		info["drops"] = false
 	return info
+
+
+## "Hardness 3 · drops Iron Ore": the look-at panel's mining line from data/mining.json (ADR 0093).
+func _mine_text(e: Dictionary) -> String:
+	var names := PackedStringArray()
+	var raw = e.get("drops", [])
+	for d in (raw if raw is Array else [{"id": raw}]):
+		var n := inventory.items.display_name(String(d.get("id", "")))
+		if not n in names:
+			names.append(n)
+	var hard := "Hardness %s" % str(e.get("hardness", 0))
+	return hard if names.is_empty() else hard + " · drops " + ", ".join(names)   # no "drops": crops and stations drop their own way
 
 
 ## The voxel being mined (the crack is showing), else x = 1 << 30 (particles, ADR 0026).

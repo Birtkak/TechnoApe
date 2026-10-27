@@ -282,6 +282,7 @@ func _clear_mode_slots() -> void:
 		_clear_button = null
 	if browser_view:
 		browser_view.grid_fill = Callable()
+		browser_view.container_fill = Callable()
 	if _container:
 		_container.changed.disconnect(_refresh)
 		_container = null
@@ -362,6 +363,8 @@ func open_container(c: RefCounted) -> void:
 		sv.clicked.connect(_on_container_clicked.bind(i))
 		_panel.add_child(sv)
 		_container_slots.append(sv)
+	if browser_view and "station" in c:
+		browser_view.container_fill = player_inv.fill_container   # Fill on a smelt recipe (ADR 0093)
 	_title.text = c.label if "label" in c and c.label != "" else c.title
 	_title.position = Vector2(16, 8) if c.kind == "chest" or c.kind == "storage_pot" else Vector2(176 - c.title.length() * 4, 8)
 	_inv_label.visible = true

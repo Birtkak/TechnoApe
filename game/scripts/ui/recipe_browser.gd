@@ -13,10 +13,11 @@ extends RefCounted
 ##   on a grid; tag ingredients cycle through their members;
 ## - "mining" pseudo-recipes from data/mining.json (block -> drops, which tool),
 ##   added by set_mining(), so "how do I get flint" has an answer too;
-## - bookmarks (JEI's A key), kept in user://bookmarks.json by the screen.
+## - bookmarks (JEI's A key, or a recipe's Bookmark button), kept in user://bookmarks.json by the screen.
 
 const CATEGORY_ORDER := ["crafting", "knapping", "clayforming", "pit_kiln", "station:firepit", "casting", "scraping", "drying", "charcoal_pit", "station:sieve", "station:pan", "smelting", "spellcraft", "mining"]
 const BOOKMARKS_PATH := "user://bookmarks.json"
+const RECIPE_MARK := "recipe:"   # a bookmark of one recipe, not an item (ADR 0093)
 const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace"], "knapping": ["flint"],
 	"clayforming": ["clay_ball"], "pit_kiln": ["dry_grass", "firestarter"], "scraping": ["flint_knife", "copper_knife"],
 	"charcoal_pit": ["firewood", "firestarter"], "smithing": ["stone_anvil", "bronze_anvil", "copper_hammer"]}
@@ -118,8 +119,9 @@ func _all_recipe_ids() -> Array:
 
 func category_of(r: Dictionary) -> String:
 	match r["type"]:
-		"smelt":
-			return "smelting"
+		"smelt":   # a tab per station: the firepit, forge and bloomery are not the furnace (ADR 0093)
+			var fire: String = r.get("station", "furnace")
+			return "smelting" if fire == "furnace" else "station:" + fire
 		"spellcraft":
 			return "spellcraft"
 		"mining":
@@ -221,6 +223,35 @@ func show(item_id: String, mode: String) -> bool:
 		history.append(view.duplicate(true))
 	view = {"mode": mode, "item": item_id, "categories": cats, "cat": 0, "index": 0}
 	return true
+
+
+## R / U in the world (ADR 0093): the first of `ids` (the aimed block's item, then the held one) that has
+## something to show, else "".
+func lookup(ids: Array, mode: String) -> String:
+	for id in ids:
+		if id != "" and items.has(id) and not (recipes_for(id) if mode == "recipes" else uses_for(id)).is_empty():
+			return id
+	return ""
+
+
+## Opens the recipes of a recipe's output at that recipe (a recipe bookmark, ADR 0093).
+func show_recipe(rid: String) -> bool:
+	var r := recipe(rid)
+	if r.is_empty() or not show(String(r.get("output", {}).get("id", "")), "recipes"):
+		return false
+	for ci in view["categories"].size():
+		var k: int = view["categories"][ci]["recipes"].find(rid)
+		if k >= 0:
+			view["cat"] = ci
+			view["index"] = k
+	return true
+
+
+## A clicked station tab of the open view.
+func select_category(i: int) -> void:
+	if is_open():
+		view["cat"] = clampi(i, 0, view["categories"].size() - 1)
+		view["index"] = 0
 
 
 func back() -> void:
@@ -327,9 +358,15 @@ func is_bookmarked(item_id: String) -> bool:
 	return item_id in bookmarks
 
 
-## Adds or removes a bookmark; returns true when the item is now bookmarked.
+## Item ids, and "recipe:<id>" for one recipe of recipes.json (ADR 0093; mining pseudo-recipes are
+## added after the bookmarks load, so they are not bookmarked).
+func _bookmarkable(id: String) -> bool:
+	return items.has(id) or (id.begins_with(RECIPE_MARK) and recipes.recipes.has(id.trim_prefix(RECIPE_MARK)))
+
+
+## Adds or removes a bookmark (an item id or RECIPE_MARK + recipe id); returns true when it is now bookmarked.
 func toggle_bookmark(item_id: String) -> bool:
-	if item_id == "" or not items.has(item_id):
+	if item_id == "" or not _bookmarkable(item_id):
 		return false
 	if item_id in bookmarks:
 		bookmarks.erase(item_id)
@@ -342,7 +379,7 @@ func toggle_bookmark(item_id: String) -> bool:
 func set_bookmarks(ids: Array) -> void:
 	bookmarks = []
 	for id in ids:
-		if id is String and items.has(id) and not id in bookmarks:
+		if id is String and _bookmarkable(id) and not id in bookmarks:
 			bookmarks.append(id)
 
 
