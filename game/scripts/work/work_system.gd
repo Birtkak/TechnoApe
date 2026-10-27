@@ -219,19 +219,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if sneaking and _lay(hit, held):
 		return true
 	var id: String = held.get("id", "")
-	var tags: Array = held.get("tags", [])
-	var work: String = held.get("work", "")
-	var kind := ""
-	if id == "flint" or not main.recipes.first_of("knap", {"input": id}).is_empty():
-		kind = "knap"   # flint, tempered flint, bone, antler, native copper (ADR 0059)
-	elif id == "clay_ball" or (id == CLAY_BLOCK and sneaking):
-		kind = "clayform"   # a clay block forms only while sneaking; a plain click places it (bug report 2026-10-25)
-	elif "ground_place" in tags:
-		kind = "ground"
-	elif work != "":
-		kind = work
-	elif AssemblyEntity.starts(main.recipes, id):
-		kind = "assembly"   # a tool head: the first part of a tool (ADR 0042)
+	var kind := _place_kind(held, sneaking)
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile"
@@ -264,6 +252,37 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 			if _consumes():
 				main.player_inv.consume_held(1)
 	return true
+
+
+## The work piece a right click with `held` starts, "" for none.
+func _place_kind(held: Dictionary, sneaking: bool) -> String:
+	var id: String = held.get("id", "")
+	if id == "flint" or not main.recipes.first_of("knap", {"input": id}).is_empty():
+		return "knap"   # flint, tempered flint, bone, antler, native copper (ADR 0059)
+	if id == "clay_ball" or (id == CLAY_BLOCK and sneaking):
+		return "clayform"   # a clay block forms only while sneaking; a plain click places it (bug report 2026-10-25)
+	if "ground_place" in held.get("tags", []):
+		return "ground"
+	if held.get("work", "") != "":
+		return held["work"]
+	if AssemblyEntity.starts(main.recipes, id):
+		return "assembly"   # a tool head: the first part of a tool (ADR 0042)
+	return ""
+
+
+## Where the placement ghost of the held work item goes: {anchor, size, free}, or {} when a right click
+## here places no piece (no such item, a piece is aimed at, or a tool head / knapping / clay forming).
+func ghost_spot(hit: VoxelRaycastResult, sneaking: bool) -> Dictionary:
+	var held: Dictionary = main.player_inv.held_def()
+	var kind := _place_kind(held, sneaking)
+	if kind in ["", "knap", "clayform", "assembly"] or _work_at(hit).y != -1:
+		return {}
+	var p := _spot_for(hit, kind == "sieve" or kind == "firewood_pile", kind)
+	var free := p.y != -1
+	if not free:
+		p = BlockEntities.anchor_for(hit.previous_position)
+	var w := BlockEntities.width_of(kind)
+	return {"anchor": p, "size": Vector3i(w, BlockEntities.height_of(kind), w), "free": free}
 
 
 func _open_picker(e: RefCounted) -> void:

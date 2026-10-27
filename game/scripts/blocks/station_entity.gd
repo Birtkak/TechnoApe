@@ -246,7 +246,7 @@ static func ghost_mesh(name: String) -> ArrayMesh:
 			_ghost_material = material().duplicate()
 			_ghost_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			_ghost_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-			_ghost_material.albedo_color = Color(0.3, 0.55, 1.0, 0.6)
+			_ghost_material.albedo_color = Color(0.25, 0.6, 2.4, 0.7)
 		var m: ArrayMesh = model_mesh(name).duplicate()
 		m.surface_set_material(0, _ghost_material)
 		_meshes[key] = m
@@ -255,7 +255,7 @@ static func ghost_mesh(name: String) -> ArrayMesh:
 
 static func ghost_tint(blocked: bool) -> void:
 	if _ghost_material:
-		_ghost_material.albedo_color = Color(1.0, 0.35, 0.3, 0.5) if blocked else Color(0.3, 0.55, 1.0, 0.6)
+		_ghost_material.albedo_color = Color(1.0, 0.35, 0.3, 0.5) if blocked else Color(0.25, 0.6, 2.4, 0.7)
 
 
 ## A chest: a dark oak box of three plank courses with a lighter plank lid that overhangs, two

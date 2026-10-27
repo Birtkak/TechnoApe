@@ -67,6 +67,7 @@ var furniture_is: Callable        # (voxel, "climb" | "use") -> bool: a ladder c
 var work_use: Callable           # (hit, first_press, from, dir, sneaking) -> bool: a work piece took the right click (ADR 0023)
 var item_use: Callable           # (hit, first_press, from, dir) -> bool: the Stone Age took it, before anything else (ADR 0059)
 var work_hit: Callable           # (hit, from, dir, sneaking) -> bool: a knapping piece took the left click
+var work_ghost: Callable         # (hit, sneaking) -> {anchor, size, free} or {}: where the held work item's piece goes
 var hold_key: Callable           # (hit) -> String: what a held right click works on ("" = an instant use) (ADR 0043)
 var hold_done: Callable          # (hit) -> void: right click was held Settings.hold_use_s on it
 var autopilot_hold := false      # scripted checks: the right button is held
@@ -806,13 +807,21 @@ func _update_mining(delta: float) -> void:
 		hit = null   # an animal is in front of the block: LMB hits it instead (_attack)
 	_update_brush_info()
 	var station_mat := _held_station()
+	var held_def := inventory.held_def() if inventory != null and GameMode.rule(game_mode, "interacts") else {}
+	var work_spot: Dictionary = work_ghost.call(hit, sneaking()) if hit and work_ghost.is_valid() and not holding and not held_def.is_empty() else {}
 	_station_ghost.visible = false
-	if hit and Settings.brush_ghost and station_mat > 0 and not holding:
+	if hit and Settings.brush_ghost and (station_mat > 0 or held_def.has("furniture") or not work_spot.is_empty()) and not holding:
 		var tm := world.get_voxel(hit.position)
 		_highlight.visible = false
 		brush_tool.hide()
-		if sneaking() or tm <= 0 or GameMaterials.defs()[tm - 1].get("interact", "work") == "work":   # a click there opens it, places nothing
-			_show_station_ghost(hit, station_mat)
+		if not work_spot.is_empty():   # a firepit, sieve, anvil, mould...: its footprint's outline
+			_highlight.visible = true
+			_set_outline(Vector3(work_spot["anchor"]), Vector3(work_spot["size"]), Color(0.35, 0.7, 1.0, 0.85) if work_spot["free"] else Color(0.9, 0.1, 0.1, 0.9), false)
+		elif sneaking() or tm <= 0 or GameMaterials.defs()[tm - 1].get("interact", "work") == "work":   # a click there opens it, places nothing
+			if station_mat > 0:
+				_show_station_ghost(hit, station_mat)
+			else:
+				_show_furniture_ghost(hit, held_def["furniture"])
 	elif hit and Settings.brush_ghost and brush_ghost_fits(world.get_voxel(hit.position)) and (holding or _places_voxels() or _mines_with_held()):
 		# a block shows its textured ghost, a bare hand or a tool the thick outline of what it digs;
 		# anything else (mushrooms, sticks, food) shows nothing until the button is held
@@ -1462,7 +1471,7 @@ func _show_station_ghost(hit: VoxelRaycastResult, mat: int) -> void:
 	var has_model := StationEntity.SIZES.has(GameMaterials.defs()[mat - 1]["entity"])
 	if has_model:
 		_station_ghost.mesh = StationEntity.ghost_mesh(GameMaterials.name_of(mat))
-		_station_ghost.global_position = Vector3(spot["anchor"])
+		_station_ghost.global_transform = Transform3D(Basis(), Vector3(spot["anchor"]))   # the furniture ghost turns and scales it
 		_station_ghost.visible = true
 		StationEntity.ghost_tint(not spot["free"])
 	_highlight.visible = not has_model   # the pot and anything without a model show their footprint's outline
@@ -1564,24 +1573,39 @@ func _wear(uses: int) -> void:
 func _place_furniture(hit: VoxelRaycastResult, def: Dictionary) -> void:
 	if not place_furniture.is_valid():
 		return
-	var kind: String = def["furniture"]
+	var spot := furniture_spot(hit, def["furniture"])
+	if spot["free"] and place_furniture.call(def["furniture"], spot["anchor"], spot["facing"]):
+		if GameMode.rule(game_mode, "consumes_items"):
+			inventory.consume_held(1)
+		_after_use()
+
+
+## Where a piece of furniture placed at this aim goes: {anchor, facing, free}; free is false when a
+## footprint voxel is taken (the ghost turns red).
+func furniture_spot(hit: VoxelRaycastResult, kind: String) -> Dictionary:
 	var front := hit.position if _replaceable(world.get_voxel(hit.position)) else hit.previous_position
 	var anchor := BlockEntities.anchor_for(front)
-	var look := -camera.global_transform.basis.z
-	var facing := FurnitureEntity.facing_for(kind, look)
+	var facing := FurnitureEntity.facing_for(kind, -camera.global_transform.basis.z)
 	if FurnitureEntity.KINDS[kind].get("wall", false):
 		# a door, fence or painting goes in the clicked voxel's depth layer, wherever the wall is (ADR 0094)
 		var fwd := FurnitureEntity.DIRS[facing]
 		var d: Vector3i = front - FurnitureEntity.footprint(kind, anchor, facing)[0]
 		anchor += fwd * (d.x * fwd.x + d.z * fwd.z)
+	var free := true
 	for c in FurnitureEntity.footprint(kind, anchor, facing):
-		var m := world.get_voxel(c)
-		if not _placeable(m) or _overlaps_player(c):
-			return
-	if place_furniture.call(kind, anchor, facing):
-		if GameMode.rule(game_mode, "consumes_items"):
-			inventory.consume_held(1)
-		_after_use()
+		if not _placeable(world.get_voxel(c)) or _overlaps_player(c):
+			free = false
+			break
+	return {"anchor": anchor, "facing": facing, "free": free}
+
+
+## The held furniture's see-through model where a click puts it (the station ghost's material and tint).
+func _show_furniture_ghost(hit: VoxelRaycastResult, kind: String) -> void:
+	var spot := furniture_spot(hit, kind)
+	var f := FurnitureEntity.new(spot["anchor"], kind, spot["facing"])
+	_station_ghost.mesh = FurnitureEntity.ghost_mesh(kind, not spot["free"])
+	_station_ghost.global_transform = Transform3D(Basis(Vector3.UP, f.yaw()).scaled(Vector3.ONE * Settings.BLOCK), f._block_centre())
+	_station_ghost.visible = true
 
 
 # ---------------- eating ----------------

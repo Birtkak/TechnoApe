@@ -216,6 +216,7 @@ func _ready() -> void:
 	work.setup(self)
 	player.work_use = work.use
 	player.work_hit = work.hit
+	player.work_ghost = work.ghost_spot
 	player.hold_key = work.hold_key
 	player.hold_done = work.hold_done
 	player.describe_block = _describe_block

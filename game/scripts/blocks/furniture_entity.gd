@@ -185,6 +185,7 @@ const PALETTE: Array = [[184, 142, 86], [128, 92, 52], [238, 238, 232], [214, 21
 
 static var _material: StandardMaterial3D
 static var _glass: StandardMaterial3D
+static var _ghost_material: StandardMaterial3D
 static var _tiles: PackedInt32Array
 static var _meshes := {}
 
@@ -262,6 +263,22 @@ static func mesh_for(p_kind: String) -> ArrayMesh:
 		# cell centres of voxel (0, 0, 0) sit on the node origin, so rotations keep the footprint on the grid
 		_meshes[p_kind] = MobModel.outward(MicroMesher.build(WorkPalette.shade_cells(c, size, []), size, GameMaterials.MICRO_GRID, _tiles, ATLAS, Vector3(-0.5, 0, -0.5)))
 	return _meshes[p_kind]
+
+
+## The see-through copy of a kind's model the placement ghost draws, tinted red when `blocked`
+## (StationEntity.ghost_mesh's look; one shared material, so tinting changes no pipeline).
+static func ghost_mesh(p_kind: String, blocked: bool) -> ArrayMesh:
+	if _ghost_material == null:
+		_ghost_material = material().duplicate()
+		_ghost_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_ghost_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_ghost_material.albedo_color = Color(1.0, 0.35, 0.3, 0.5) if blocked else Color(0.25, 0.6, 2.4, 0.7)
+	var key := "ghost " + p_kind
+	if not _meshes.has(key):
+		var m: ArrayMesh = mesh_for(p_kind).duplicate()
+		m.surface_set_material(0, _ghost_material)
+		_meshes[key] = m
+	return _meshes[key]
 
 
 static func cells_for(p_kind: String) -> PackedInt32Array:
