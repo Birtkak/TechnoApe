@@ -242,13 +242,15 @@ func _place_side_panels() -> void:
 	# from the viewport, not the anchored panel: it is not laid out yet when a side panel is added to an open screen
 	var r := Rect2(get_viewport().get_visible_rect().size / 2.0 - _panel.size / 2.0, _panel.size)
 	var inset := 0.0
+	var left_y := 0.0
 	for sp in _side_panels:
 		var c: Control = sp[0]
 		if sp[1] == "right":
 			c.global_position = Vector2(r.end.x + 12.0, r.position.y)
 			inset = maxf(inset, c.size.x + 8.0)
 		elif sp[1] == "left":
-			c.global_position = Vector2(r.position.x - S - 24.0 - c.size.x, r.position.y)   # clear of the trash slot
+			c.global_position = Vector2(r.position.x - S - 24.0 - c.size.x, r.position.y + left_y)   # clear of the trash slot
+			left_y += c.size.y + 8.0   # several left panels stack downwards
 		else:
 			c.global_position = Vector2(r.position.x, r.end.y + 8.0)
 	if browser_view and not is_equal_approx(browser_view.right_inset, inset):

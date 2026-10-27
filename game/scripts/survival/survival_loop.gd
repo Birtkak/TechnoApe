@@ -68,6 +68,10 @@ func setup(p_main: Node) -> void:
 	else:
 		main.inv_screen._panel.add_child(diet_panel)
 		_diet_follows_panel = true
+	# the stains, under the clothing slots (added after them), and gone from beside the hotbar meanwhile
+	var stain_panel := StainPanel.new()
+	stain_panel.stains = main.player.stains
+	main.inv_screen.add_side_panel(stain_panel, "left")
 	# the prospecting pick rides on the work system's right click
 	var inner: Callable = main.player.work_use
 	main.player.work_use = func(hit, first_press: bool, from: Vector3, dir: Vector3, sneaking := false) -> bool:
@@ -102,6 +106,7 @@ func _process(delta: float) -> void:
 		return
 	var cal: Calendar = main.atmosphere.calendar
 	Seasons.season = cal.season()
+	main.game_hud._stain_bar.visible = not main.inv_screen.is_open   # the inventory shows them beside the clothing slots
 	if tracker_hud.minimap == null:
 		tracker_hud.minimap = main.get("minimap")   # part D's, whenever it is made
 	if _diet_follows_panel:

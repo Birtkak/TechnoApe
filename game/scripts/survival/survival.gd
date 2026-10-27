@@ -23,6 +23,7 @@ var hunger := 20.0
 var saturation := 5.0
 var body_c := 37.0
 var env_c := 18.0
+var outside_c := 18.0   # the open-air temperature here: no roof, no heat, not in water
 var in_room := false
 var heat := 0.0
 var underground_m := 0.0
@@ -224,6 +225,7 @@ func _measure() -> void:
 	heat = h_cells + _entity_heat(p)
 	env_c = environment_c(climate, cal.day_of_year(), cal.year_days(), cal.month_days, cal.time, underground_m,
 		player.in_liquid, in_room, heat * HEAT_C)
+	outside_c = environment_c(climate, cal.day_of_year(), cal.year_days(), cal.month_days, cal.time, 0.0, false, false, 0.0)   # the minimap's line
 	stats["probe_ms_max"] = maxf(stats["probe_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
 
 

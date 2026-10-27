@@ -49,9 +49,11 @@ func active() -> Array:
 	return KINDS.filter(func(k): return has(k))
 
 
-## The stain a material puts on whoever touches it ("" = none).
+## The stain a terrain voxel value puts on whoever touches it ("" = none). A partly full
+## pool voxel (fluid level, ADR 0068) counts as its liquid: the sludge pool in bug report
+## 2026-10-27_17-54-29 was all such voxels, so it never stained.
 static func stain_of(material: int) -> String:
-	match material:
+	match GameMaterials.material_of_voxel(material):
 		GameMaterials.WATER, GameMaterials.WATER_STATIC:
 			return "wet"
 		GameMaterials.BLOOD:
