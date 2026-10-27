@@ -56,7 +56,8 @@ Build C++ with the GODOT_CPP_PATH it prints. Keep scratch files in your worktree
 shared scratchpad. `/shot` may need `--render-thread safe`.
 CHECKS: run only the test files you touched or that cover your area; the overseer runs the
 full suite after merging. Known failures on main: <list them>. GODOT: every run capped (`timeout <s>` + `duration=`), `--headless`
-unless you need pixels; a window the developer closes stays closed (never relaunch it); never
+unless you need pixels; windowed runs also pass `--position -30000,-30000` (autopilot moves itself
+off-screen and kills itself past its deadline; `show=1` keeps it visible); a window the developer closes stays closed (never relaunch it); never
 `taskkill /IM` (kills other sessions' runs). Evidence: one before/after
 contact sheet, not a folder of shots. Do not chase failures outside your area.
 OUTPUT: commit on your branch (imperative subject, why in the body, Co-Authored-By line);

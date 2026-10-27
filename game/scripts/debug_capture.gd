@@ -132,6 +132,10 @@ func _ready() -> void:
 			Settings.persist_world = false  # unattended test runs never write world saves
 	duration = float(args.get("duration", "20"))
 	settle_cap_s = float(args.get("load_cap_s", str(SETTLE_CAP_S)))
+	if autopilot:
+		_start_watchdog(float(args.get("watchdog_s", str(settle_cap_s + duration + 60.0))))
+		if args.get("show", "0") != "1":   # unattended runs stay off the developer's screen; show=1 keeps it
+			DisplayServer.window_set_position(Vector2i(-30000, -30000))
 	capture_every = float(args.get("capture_every", "0"))
 	full_frames = args.get("full_frames", "0") == "1"
 	out_dir = args.get("out", "res://out")
@@ -460,6 +464,31 @@ func _finish() -> void:
 	if _main.has_method("save_terrain"):
 		_main.save_terrain(5.0)   # persist=1 runs keep their edits, as a save-and-quit does
 	get_tree().quit(0)
+
+
+## An autopilot run that hangs (loading, or quitting) kills itself instead of leaving a grey window:
+## a thread kills the process limit_s after start. It touches only the shared `_deadline` array
+## ([deadline_ms, stop]), never this node; a normal quit stops and joins it.
+var _watchdog: Thread
+var _deadline := [0, false]
+
+
+func _start_watchdog(limit_s: float) -> void:
+	_deadline[0] = Time.get_ticks_msec() + int(limit_s * 1000.0)
+	var deadline := _deadline
+	_watchdog = Thread.new()
+	_watchdog.start(func() -> void:
+		while not deadline[1] and Time.get_ticks_msec() < int(deadline[0]):
+			OS.delay_msec(250)
+		if not deadline[1]:
+			printerr("autopilot watchdog: the run did not finish in time, killing it")
+			OS.kill(OS.get_process_id()))
+
+
+func _exit_tree() -> void:
+	if _watchdog != null:
+		_deadline[1] = true
+		_watchdog.wait_to_finish()
 
 
 ## Where a slow frame went: delta is the time since the previous frame started, so it
