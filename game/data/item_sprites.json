@@ -3895,6 +3895,7 @@
     "iron_hammer_head": {"layers": [{"shape": "hammer_head_loose", "palette": "iron"}]},
     "flint_shovel": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "shovel_head", "palette": "flint"}]},
     "stone_hammer": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hammer_head", "palette": "stone"}]},
+    "deconstruction_hammer": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hammer_head", "palette": "stone"}]},
     "flint_knife": {"layers": [{"shape": "short_handle", "palette": "handle"}, {"shape": "knife_blade", "palette": "flint"}]},
     "copper_knife": {"layers": [{"shape": "short_handle", "palette": "handle"}, {"shape": "knife_blade", "palette": "copper"}]},
     "iron_knife": {"layers": [{"shape": "short_handle", "palette": "handle"}, {"shape": "knife_blade", "palette": "iron"}]},

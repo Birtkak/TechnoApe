@@ -269,6 +269,7 @@
     {"id": "iron_pickaxe_head", "name": "Iron Pickaxe Head", "tags": ["tool_head", "iron_head"], "stack": 64, "_note": "smithed only (ADR 0070)"},
     {"id": "iron_hammer_head", "name": "Iron Hammer Head", "tags": ["tool_head", "iron_head"], "stack": 64, "_note": "smithed only (ADR 0070)"},
     {"id": "iron_hammer", "name": "Iron Hammer", "tags": ["tool", "hammer"], "stack": 1, "tier": 3, "durability": 480},
+    {"id": "deconstruction_hammer", "name": "Deconstruction Hammer", "tags": ["tool"], "stack": 1, "deconstructs": true, "_note": "takes built blocks (mining.json `built`: planks, bricks, cobblestone, thatch...) apart at once, a 1 m brush at most, and gives them back; natural ground it does not touch"},
     {"id": "iron_saw_blade", "name": "Iron Saw Blade", "tags": ["tool_head", "iron_head"], "stack": 64, "_note": "smithed only (ADR 0070)"},
     {"id": "iron_saw", "name": "Iron Saw", "tags": ["tool", "saw"], "stack": 1, "tier": 3, "durability": 480},
     {"id": "bronze_work_piece", "name": "Bronze Work Piece", "tags": ["heatable", "work_piece"], "stack": 1, "_note": "half-smithed bronze: heat it and lay it back on the anvil"},

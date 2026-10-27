@@ -66,6 +66,12 @@ static func tool_class(held: Dictionary) -> String:
 	return ""
 
 
+## The deconstruction hammer: takes `built` materials (what players make: planks, bricks, thatch...)
+## apart at once and gives them back, and does nothing to the rest.
+static func deconstructs(held: Dictionary) -> bool:
+	return bool(held.get("deconstructs", false))
+
+
 ## True when `held` is the right tool class and tier for the material.
 func tool_fits(material_name: String, held: Dictionary) -> bool:
 	var e := entry(material_name)
@@ -88,6 +94,8 @@ func break_time(material_name: String, held: Dictionary = {}) -> float:
 	if e.is_empty():
 		return -1.0
 	var hardness := float(e["hardness"])
+	if deconstructs(held):
+		return 0.0 if e.get("built", false) else -1.0
 	if hardness <= 0.0:
 		return 0.0
 	var needed: String = e.get("tool", "")
@@ -104,6 +112,8 @@ func break_time(material_name: String, held: Dictionary = {}) -> float:
 ## for a "requires" material, or below its "drop_tier" (rock before copper, ADR 0023).
 func yields(material_name: String, held: Dictionary) -> bool:
 	var e := entry(material_name)
+	if deconstructs(held):
+		return bool(e.get("built", false))
 	if e.get("requires", false) and not tool_fits(material_name, held):
 		return false
 	if e.has("drop_tier"):
@@ -191,6 +201,8 @@ static func _count_range(d: Dictionary) -> Array:
 ## Largest dig brush (voxels edge) a held item allows: bare hands and non-tools
 ## 4, tools 6, iron and steel (tier 3+) 8 (the developer asked for lenient caps, 2026-10-27).
 static func dig_cap(held: Dictionary) -> int:
+	if deconstructs(held):
+		return 8
 	if tool_class(held) == "":
 		return 4
 	return 8 if int(held.get("tier", 0)) >= 3 else 6

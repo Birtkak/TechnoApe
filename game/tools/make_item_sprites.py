@@ -982,6 +982,7 @@ for m in ("copper", "bronze", "iron"):
     sp(m + "_hammer_head", ("hammer_head", m))
 sp("flint_shovel", H, ("shovel_head", "flint"))
 sp("stone_hammer", H, ("hammer_head", "stone"))
+sp("deconstruction_hammer", H, ("hammer_head", "stone"))
 for m in ("flint", "copper", "iron"):
     sp(m + "_knife", SH, ("knife_blade", m))
 for m in ("copper", "iron"):

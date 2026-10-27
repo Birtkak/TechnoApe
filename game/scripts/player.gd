@@ -360,7 +360,7 @@ func _update_brush_info() -> void:
 		return
 	var text := ""
 	if GameMode.rule(game_mode, "interacts"):
-		text = "Brush %s  [G: tools, B: shape, Ctrl+wheel: size]" % Brush.describe(dig_size(), brush_shape)
+		text = "Brush %s  [C: mine ring, V: build ring, G: tools]" % Brush.describe(dig_size(), brush_shape)
 		if dig_size() < brush_size:
 			text += "\n(tool caps it; set %s)" % Brush.describe(brush_size, brush_shape)
 		elif GameMode.rule(game_mode, "instant_break"):
@@ -1087,6 +1087,8 @@ func _dig_time(p: Vector3i, cells: Array[Vector3i]) -> float:
 		return mining.break_time(GameMaterials.name_of(hit_mat), held) if mining else 0.0
 	if cells.is_empty():
 		return -1.0
+	if MiningTable.deconstructs(held):
+		return 0.0   # built blocks come apart at once
 	var per := float(Settings.BLOCK * Settings.BLOCK * Settings.BLOCK)
 	var total := 0.0
 	var times := {}

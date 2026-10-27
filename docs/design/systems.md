@@ -12,8 +12,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   mushrooms; far forests as leaf domes. **The far horizon (ADR 0075, proposed, off by default):** past the box, native `FarMesh::build_voxel_tile` + `scripts/visuals/far_layer.gd` draw voxel cubes from the generator's coarse data (rings of 25 cm cubes to 80 m doubling to 8 m, flat water sheets, the voxel trees and leaf domes, edited chunk columns laid over at 25 cm so builds show) behind the near box through its own SubViewport (`far=1`, Settings > Video > Far horizon, live since ADR 0092; `game/README.md`, `prototypes/p13-far-mesh/README.md`). Flat colours: one texel of the material's tile per voxel
   (`voxel_sample`); props use `terrain_prop.gdshader`. `SimBubble` ticks a wrapped 64 x 64 x 64 m window
   of the world's voxels (Noita kernel: sand, water, fire, gas). Brush digging and building
-  (`scripts/player/brush.gd`: Ctrl + wheel size, B / Shift + B shape); voxel items count voxels, recipes blocks of 64
-  (`ItemRegistry.units`); block entities cover footprints (`BlockEntities.footprint`). The loading screen
+  (`scripts/player/brush.gd`: C holds the mine ring for the shape with the wheel sizing it, Ctrl + wheel size, B / Shift + B shape); voxel items count voxels, recipes blocks of 64
+  (`ItemRegistry.units`); the deconstruction hammer (`deconstructs` on the item, `built` on a mining.json material: planks,
+  bricks, thatch...) takes built blocks apart at once and gives them back, natural ground it leaves (`MiningTable.deconstructs`);
+  block entities cover footprints (`BlockEntities.footprint`). The loading screen
   covers the start until the world is in, and respawns and teleports past a 100 m hop (or onto terrain
   not drawn yet) until the ground is in: voxels under the feet and the ground within 32 m, the rest of the
   40 m box streams in behind it (ADR 0066, 0073); the player and animals are frozen under it. `tp_test=1` times them. Gameplay on top: player loop (ADR 0005), stations (0007), recipe browser (0008), collision and
@@ -31,8 +33,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   strength, hardness breaking), flies it and settles it back into voxels. It runs on the sim's driver thread before each
   tick (`set_async`; `get_voxel` does not wait for that phase); a forest felling holds p99 7.2 ms, the main thread pays
   ~2 ms (`prototypes/p12-rigid-pieces/README.md`). Trees never weld (FineGen gap).
-  **Shape building (ADR 0038):** V opens the build menu (brush, box, wall, cylinder, cone, sphere, stairs, slope,
-  box mode, box dig, select, prefabs); `ShapeBuilder` (`scripts/building/`) orchestrates, native `ShapeTool` rasterizes,
+  **Shape building (ADR 0038):** V holds the build ring (brush, box, wall, cylinder, cone, sphere, stairs, slope,
+  box mode, box dig, select, prefabs; release on a slice picks it); a placed shape's corner keeps to the snap grid
+  (N: off / 0.5 m / 1 m, `ShapeBuilder.snap`, x and z only), handle drags move in snap steps and the wheel over a
+  handle steps it one snap (the move handle up and down); `ShapeBuilder` (`scripts/building/`) orchestrates, native `ShapeTool` rasterizes,
   meshes and fills; prefabs in `user://prefabs/<category>/<name>.json`. Scripted checks: `later=/a;wait 1;/b` runs chat
   commands after loading (`/shape ... at x y z`, `/shape drag`, `/shape menu`, `/box`, `/prefab`).
   **World tools panel (ADR 0071, 0073):** G (`/tools`) opens the panel: two "Now" lines say what the left and right

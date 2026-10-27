@@ -2,10 +2,12 @@ class_name ShapeBuilder
 extends Node3D
 
 ## Shape building, box mode and prefabs (ADR 0038, Lay of the Land's building). Hold V for the build
-## menu. With a material in hand a shape's preview follows the aim; a left click sets it down; its
-## handles (aimed with the crosshair, dragged by holding the left button and turning) set height,
-## sides, hollow and position; R turns it, Shift+R tips it, X mirrors it; a left click away builds it
-## and takes the voxels from the inventory; a right click cancels. Box mode marks a box with two clicks
+## ring, C for the mine ring (brush shape, the wheel sizes it while held); release on a slice picks it.
+## With a material in hand a shape's preview follows the aim, snapped to the snap grid (N: off, 0.5 m,
+## 1 m; `snap`); a left click sets it down; its handles (aimed with the crosshair, dragged by holding
+## the left button and turning, or stepped one snap by the wheel over them; the move handle steps up
+## and down) set height, sides, hollow and position; R turns it, Shift+R tips it, X mirrors it; a left
+## click away builds it and takes the voxels from the inventory; a right click cancels. Box mode marks a box with two clicks
 ## (to build, or with a tool to dig); Select marks one to save as a prefab (/prefab save). GDScript
 ## orchestrates: cells, meshes and writes are native (ShapeTool).
 
@@ -16,6 +18,7 @@ const MAX_SIDE := 256          # voxels (32 m) per side
 const AIM_M := 32.0            # how far the builder aims (further than the hand reaches: big shapes)
 const HANDLE := 1.6            # handle cube size, voxels at 4 m (they grow with distance)
 const PREVIEW_HZ := 30.0
+const SNAPS := [1, Settings.BLOCK, 2 * Settings.BLOCK]   # N cycles: off, the 0.5 m block grid, 1 m
 
 enum State { OFF, AIM, EDIT, BOX_START, BOX_END, DIG_BOX, SELECTED }
 
@@ -35,6 +38,7 @@ var rot := 0
 var mirror := false
 var hollow := 0
 var step := Settings.BLOCK
+var snap: int = Settings.BLOCK   # the grid a placement's corner and its handle steps keep to (voxels)
 var grid := PackedByteArray()    # a prefab's materials (local)
 var grid_size := Vector3i.ZERO
 var prefab_label := ""
@@ -133,6 +137,20 @@ func _open_menu() -> void:
 	menu.open(_menu_items, "Build")
 
 
+## The mine ring (C): the brush shapes, the wheel sizes the brush while it is up.
+func _open_mine_menu() -> void:
+	player.input_grab = true
+	_menu_kind = "mine"
+	_menu_items = []
+	for s in Brush.SHAPES:
+		_menu_items.append({"id": "mine:" + s, "label": s.capitalize()})
+	menu.open(_menu_items, _mine_title(), Brush.SHAPES.find(player.brush_shape))
+
+
+func _mine_title() -> String:
+	return "Mine %s   (wheel: size)" % Brush._len(player.brush_size)
+
+
 func _open_prefab_menu() -> void:
 	_menu_kind = "prefabs"
 	_menu_items = []
@@ -163,6 +181,8 @@ func _close_menu() -> void:
 	elif id.begins_with("prefab:"):
 		var parts := id.substr(7).split("/")
 		start_prefab(parts[0], parts[1])
+	elif id.begins_with("mine:"):
+		player.set_brush(player.brush_size, id.substr(5))
 
 
 ## Starts placing a shape with the held material (also /shape).
@@ -277,9 +297,12 @@ func _set_state(s: State) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if player == null or player.autopilot or player.ui_open or player.free_cam or not GameMode.rule(player.game_mode, "interacts"):
 		return
-	if event is InputEventKey and event.keycode == KEY_V and not event.echo:
+	if event is InputEventKey and event.keycode in [KEY_V, KEY_C] and not event.echo:
 		if event.pressed and not menu.visible:
-			_open_menu()
+			if event.keycode == KEY_V:
+				_open_menu()
+			else:
+				_open_mine_menu()
 		elif not event.pressed and menu.visible:
 			_close_menu()
 		get_viewport().set_input_as_handled()
@@ -290,10 +313,20 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and _menu_kind == "prefabs":
 			_close_menu()
+		elif event is InputEventMouseButton and event.pressed and _menu_kind == "mine" and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+			player.step_brush_size(1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1)
+			menu.title = _mine_title()
+			menu.queue_redraw()
+			get_viewport().set_input_as_handled()
 		return
 	if state == State.OFF:
 		return
-	if event is InputEventMouseButton:
+	if event is InputEventMouseButton and event.pressed and not event.ctrl_pressed and state == State.EDIT and _hover != "" \
+			and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		if _apply(_hover, lo, wsize, hollow, snap if event.button_index == MOUSE_BUTTON_WHEEL_UP else -snap, false):
+			_move_handles()
+		get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				_left_press()
@@ -310,6 +343,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.keycode == KEY_X:
 			mirror = not mirror
 			_changed()
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_N:
+			snap = SNAPS[(SNAPS.find(snap) + 1) % SNAPS.size()]
+			_toast("Snap: " + _snap_text())
 			get_viewport().set_input_as_handled()
 
 
@@ -401,6 +438,16 @@ func _aim_in_box() -> bool:
 	return AABB(Vector3(lo), Vector3(wsize)).grow(0.5).intersects_ray(r[0], r[1]) != null
 
 
+## The placement's corner on the snap grid across the ground; y stays on the aimed face so a shape
+## set down on a floor stands on it. shortcut: y never snaps, add it if stacked floors drift.
+func _snapped(p: Vector3i) -> Vector3i:
+	return Vector3i(floori(float(p.x) / snap) * snap, p.y, floori(float(p.z) / snap) * snap)
+
+
+func _snap_text() -> String:
+	return "off" if snap <= 1 else Brush._len(snap)
+
+
 # ---------------- frame ----------------
 
 func _process(delta: float) -> void:
@@ -414,7 +461,7 @@ func _process(delta: float) -> void:
 			if p == null:
 				var r := _ray()
 				p = Vector3i((r[0] + r[1] * Settings.m2v(8.0)).floor())
-			var nlo: Vector3i = p - Vector3i(wsize.x / 2, 0, wsize.z / 2)
+			var nlo := _snapped(p - Vector3i(wsize.x / 2, 0, wsize.z / 2))
 			if nlo != lo:
 				lo = nlo
 				_dirty = true
@@ -545,11 +592,11 @@ func _update_hint() -> void:
 	var size_text := "%s x %s x %s m" % [snappedf(wsize.x * m, 0.01), snappedf(wsize.y * m, 0.01), snappedf(wsize.z * m, 0.01)]
 	match state:
 		State.AIM:
-			_hint.text = "%s %s   click to set down, R turn, Shift+R tip, X mirror, right click / V: leave\n%s" % [
-				prefab_label if mode == "prefab" else shape.capitalize(), size_text, _need_text]
+			_hint.text = "%s %s   click to set down, R turn, Shift+R tip, X mirror, N snap %s, right click / V: leave\n%s" % [
+				prefab_label if mode == "prefab" else shape.capitalize(), size_text, _snap_text(), _need_text]
 		State.EDIT:
-			_hint.text = "%s %s%s   drag the handles, click away to build, right click to move it again\n%s" % [
-				prefab_label if mode == "prefab" else shape.capitalize(), size_text, "  hollow %d" % hollow if hollow > 0 else "", _need_text]
+			_hint.text = "%s %s%s   drag or wheel over the handles (snap %s), click away to build, right click to move it again\n%s" % [
+				prefab_label if mode == "prefab" else shape.capitalize(), size_text, "  hollow %d" % hollow if hollow > 0 else "", _snap_text(), _need_text]
 		State.BOX_START:
 			_hint.text = {"box": "Box: click the first corner", "dig": "Box dig: click the first corner", "select": "Select: click the first corner"}.get(mode, "")
 		State.BOX_END:
@@ -671,41 +718,62 @@ func _plane_point(y: float) -> Vector3:
 func _update_drag() -> void:
 	var id: String = _drag["id"]
 	var l0: Vector3i = _drag["lo"]
-	var s0: Vector3i = _drag["wsize"]
-	var nlo := l0
-	var ns := s0
+	var changed := false
 	if id == "move":
 		var dp: Vector3 = _plane_point(float(_drag["pos"].y)) - (_drag["plane0"] as Vector3)
-		nlo = l0 + Vector3i(roundi(dp.x), 0, roundi(dp.z))
-	else:
-		var dv := roundi(_axis_param(_drag["pos"], _drag["axis"]) - float(_drag["s0"]))
-		match id:
-			"top":
-				if _drag["shift"]:
-					nlo.y = l0.y + dv
-				else:
-					ns.y = s0.y + dv
-			"+x":
-				ns.x = s0.x + dv
-			"-x":
-				ns.x = s0.x + dv
-				nlo.x = l0.x - (clampi(ns.x, 1, MAX_SIDE) - s0.x)
-			"+z":
-				ns.z = s0.z + dv
-			"-z":
-				ns.z = s0.z + dv
-				nlo.z = l0.z - (clampi(ns.z, 1, MAX_SIDE) - s0.z)
-			"hollow":
-				var h := clampi(int(_drag["hollow"]) + dv, 0, maxi(0, mini(s0.x, s0.z) / 2 - 1))
-				if h != hollow:
-					hollow = h
-					_dirty = true
-	ns = ns.clamp(Vector3i.ONE, Vector3i.ONE * MAX_SIDE)
-	if nlo != lo or ns != wsize:
+		var nlo := l0 + Vector3i(_snap_step(dp.x), 0, _snap_step(dp.z))
+		changed = nlo != lo
 		lo = nlo
-		wsize = ns
+	else:
+		var dv := _snap_step(_axis_param(_drag["pos"], _drag["axis"]) - float(_drag["s0"]))
+		changed = _apply(id, l0, _drag["wsize"], int(_drag["hollow"]), dv, _drag["shift"])
+	if changed:
 		_dirty = true
 		_move_handles()
+
+
+## A drag distance in voxels, in whole snap steps.
+func _snap_step(v: float) -> int:
+	return roundi(v / snap) * snap
+
+
+## Moves handle `id` by `dv` voxels from the placement (l0, s0, h0): sizes along its axis, the top
+## handle with shift (or the move handle) lifts instead; hollow in voxels. True when anything changed.
+func _apply(id: String, l0: Vector3i, s0: Vector3i, h0: int, dv: int, shift: bool) -> bool:
+	var nlo := l0
+	var ns := s0
+	match id:
+		"move":
+			nlo.y = l0.y + dv
+		"top":
+			if shift:
+				nlo.y = l0.y + dv
+			else:
+				ns.y = s0.y + dv
+		"+x":
+			ns.x = s0.x + dv
+		"-x":
+			ns.x = s0.x + dv
+			nlo.x = l0.x - (clampi(ns.x, 1, MAX_SIDE) - s0.x)
+		"+z":
+			ns.z = s0.z + dv
+		"-z":
+			ns.z = s0.z + dv
+			nlo.z = l0.z - (clampi(ns.z, 1, MAX_SIDE) - s0.z)
+		"hollow":
+			var h := clampi(h0 + signi(dv) * maxi(1, absi(dv) / snap), 0, maxi(0, mini(s0.x, s0.z) / 2 - 1))
+			if h != hollow:
+				hollow = h
+				_dirty = true
+				return true
+			return false
+	ns = ns.clamp(Vector3i.ONE, Vector3i.ONE * MAX_SIDE)
+	if nlo == lo and ns == wsize:
+		return false
+	lo = nlo
+	wsize = ns
+	_dirty = true
+	return true
 
 
 func _move_handles() -> void:

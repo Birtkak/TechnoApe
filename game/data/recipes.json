@@ -50,6 +50,7 @@
     {"id": "flint_prospecting_pick", "type": "assemble", "parts": ["flint_prospecting_head", "#stick", "#binding"], "output": {"id": "flint_prospecting_pick", "count": 1}},
     {"id": "copper_prospecting_pick", "type": "assemble", "parts": ["copper_prospecting_head", "#stick"], "output": {"id": "copper_prospecting_pick", "count": 1}},
     {"id": "copper_hammer", "type": "assemble", "parts": ["copper_hammer_head", "#stick"], "output": {"id": "copper_hammer", "count": 1}},
+    {"id": "deconstruction_hammer", "type": "shaped", "pattern": ["PPP", " S ", " S "], "key": {"P": "#planks", "S": "#stick"}, "output": {"id": "deconstruction_hammer", "count": 1}, "station": "crafting_table", "_note": "a wooden mallet: takes built blocks apart at once"},
     {"id": "copper_saw", "type": "assemble", "parts": ["copper_saw_blade", "#stick"], "output": {"id": "copper_saw", "count": 1}},
     {"id": "stone_anvil", "type": "shaped", "pattern": ["CCC", " C ", "CCC"], "key": {"C": "#cobble"}, "output": {"id": "stone_anvil", "count": 1}, "station": "crafting_table"},
     {"id": "planks_with_saw", "type": "shapeless", "ingredients": ["#log", "#saw"], "keep": ["#saw"], "output": {"id": "oak_planks", "count": 4}, "_note": "a saw wastes less than splitting by hand (ADR 0042)"},

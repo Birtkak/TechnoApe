@@ -15,7 +15,7 @@ const KITS := {
 	"tools": {"iron_pickaxe": 1, "copper_pickaxe": 1, "copper_axe": 1, "copper_shovel": 1, "copper_hoe": 1, "copper_knife": 1,
 		"copper_saw": 1, "copper_hammer": 1, "shears": 1, "flint_and_steel": 1, "pan": 1, "bucket": 2, "water_bucket": 1,
 		"lava_bucket": 1, "torch": 32, "coal": 32, "oak_log": 16},
-	"builder": {"stone": 64, "cobblestone": 64, "bricks": 64, "dirt": 64, "grass_block": 64, "sand": 64, "gravel": 64,
+	"builder": {"deconstruction_hammer": 1, "stone": 64, "cobblestone": 64, "bricks": 64, "dirt": 64, "grass_block": 64, "sand": 64, "gravel": 64,
 		"oak_planks": 64, "oak_log": 64, "birch_log": 64, "spruce_log": 64, "glass": 64, "sandstone": 64, "terracotta": 64,
 		"basalt": 64, "clay": 64, "thatch": 64, "wattle": 64, "daub": 64, "torch": 64},
 	"house": {"door": 4, "trapdoor": 4, "fence": 16, "fence_gate": 4, "ladder": 16, "window": 8, "table": 2, "shelf": 2,
