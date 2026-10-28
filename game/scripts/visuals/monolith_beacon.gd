@@ -60,7 +60,11 @@ func _process(_delta: float) -> void:
 	var foot := base + Vector3(0, Settings.m2v(HEIGHT_M) * 0.5, 0)   # the cylinder's centre
 	var d := Vector2(base.x - cam.x, base.z - cam.z).length()
 	var near := Settings.m2v(NEAR_M)
-	var t := 1.0 if d <= near else near / d
-	var sxz := maxf(t, MIN_WIDTH_M / (RADIUS_M * 2.0))
+	var th := 1.0 if d <= near else near / d   # the width as if only the horizontal distance were pulled in
+	var sxz := maxf(th, MIN_WIDTH_M / (RADIUS_M * 2.0))
+	# pull the whole beam (top included) inside NEAR: the far plane clips by view depth, so a beam only
+	# pulled in sideways lost its upper part when looked at straight on and shrank to a dot
+	var top := base + Vector3(0, Settings.m2v(HEIGHT_M), 0)
+	var t := minf(1.0, near / maxf(cam.distance_to(base), cam.distance_to(top)))
 	position = cam + (foot - cam) * t
-	scale = Vector3(sxz, t, sxz)
+	scale = Vector3(sxz * t / th, t, sxz * t / th)
