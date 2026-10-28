@@ -186,6 +186,8 @@ func set_worn(worn: Dictionary) -> void:
 					_gear_part(head, _helmet_cells(id), Vector3i(22, 8, 20), Vector3(-11, 9, -10) * s, tint)
 			"body":
 				_gear_part(torso, _vest_cells(), Vector3i(16, 15, 11), Vector3(-8, 6, -5) * s, tint)
+				for arm in [arm_r, arm_l]:   # sleeves over the coat's, down to the cuff
+					_gear_part(arm, _sleeve_cells(), Vector3i(8, 15, 8), Vector3(-4, -15, -4) * s, tint)
 			"feet":
 				for leg in [leg_r, leg_l]:
 					_gear_part(leg, _boot_cells(), Vector3i(8, 8, 9), Vector3(-4, -24, -4) * s, tint)
@@ -456,6 +458,14 @@ static func _vest_cells() -> PackedInt32Array:
 	_box(c, size, 0, 0, 0, 16, 15, 11, GEAR)
 	_box(c, size, 7, 0, 0, 9, 15, 1, STRAP)        # front seam
 	_box(c, size, 0, 0, 0, 16, 1, 11, STRAP)       # hem
+	return c
+
+
+static func _sleeve_cells() -> PackedInt32Array:
+	var size := Vector3i(8, 15, 8)
+	var c := _cells(size)
+	_box(c, size, 0, 1, 0, 8, 15, 8, GEAR)
+	_box(c, size, 0, 0, 0, 8, 1, 8, STRAP)         # hem
 	return c
 
 
