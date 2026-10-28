@@ -12,7 +12,7 @@ const GROUND := ["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball
 	"einkorn_seeds", "emmer_seeds", "flax_seeds", "birch_log",
 	# ore-bearing stones above veins and ore mined out of them (ADR 0070)
 	"loose_tin_ore", "loose_iron_ore", "tin_ore", "iron_ore"]
-const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age"]
+const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age", "steam_age"]
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
@@ -40,7 +40,7 @@ func test_data_loads_clean() -> void:
 		for q in book.chapter_quests(c):
 			if q.get("final", false):
 				finals.append(q["id"])
-	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw", "bronze_tool", "iron_tool"])
+	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw", "bronze_tool", "iron_tool", "ore_train"])
 
 
 func test_bad_data_is_reported() -> void:
@@ -269,3 +269,16 @@ func test_pit_kiln_fired_signal_counts_for_the_book() -> void:
 		store.tick()
 	assert_str(g.item).is_equal("pickaxe_mold")
 	assert_bool(book.task_done("pit_kiln", 1)).is_true()
+
+
+## The steam age ends on the ore train; the steel pickaxe is faster than iron and a melt takes several ore blocks.
+func test_steam_age_walkthrough_and_ore_counts() -> void:
+	for c in CHAPTERS.slice(0, 7):
+		for q in book.chapter_quests(c):
+			book.complete(q["id"])
+	for id in ["small_boiler", "fire_brick", "blast_furnace", "steel_ingot", "steel_pickaxe", "ore_crusher", "steam_turbine", "minecart", "hopper", "rail"]:
+		_give(id)
+	assert_bool(book.is_done("ore_train")).is_true()
+	var mining := MiningTable.load_default()
+	assert_float(mining.break_time("copper_ore", items.get_def("steel_pickaxe"))).is_less(mining.break_time("copper_ore", items.get_def("iron_pickaxe")))
+	assert_int(int(recipes.first_of("melt", {"id": "melt_copper_ore"})["count"])).is_greater(1)

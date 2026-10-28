@@ -138,7 +138,7 @@ const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 2, "assembly": 1
 ## (the stations' 1 m scale, ADR 0076; the steam age's 1.5 m hammer and 2.5 m boiler, ADR 0097). A view
 ## of 8 cells still spans the width, so a 1 m piece's cell is a voxel; a bigger piece names its own grid.
 const SCALE := {"firepit": 2, "forge": 2, "bloomery": 2, "anvil": 2, "bronze_anvil": 2, "steam_hammer": 3, "boiler": 5,
-	"blast_furnace": 2, "ore_crusher": 2, "tank": 2, "turbine": 2, "compressor": 2}
+	"blast_furnace": 3, "ore_crusher": 2, "tank": 2, "turbine": 2, "compressor": 2}
 
 
 ## Footprint width in voxels of a work piece kind.
