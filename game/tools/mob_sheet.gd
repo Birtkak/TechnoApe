@@ -1,9 +1,9 @@
-extends SceneTree
+extends Node
 
 ## Renders the animals and furniture of ADR 0022 without a world, for checking
 ## the models: a row of sheep, sheared sheep, lamb, pig and piglet, plus a bed
 ## and a chair, from the front-left, the side, the back-right and above.
-##   godot_console.exe --path game --script res://tools/mob_sheet.gd -- out=res://out/mobs/sheet.png
+##   godot_console.exe --path game res://tools/mob_sheet.tscn -- out=res://out/mobs/sheet.png
 ## graze=1 poses the animals grazing, walk=0.5 mid-stride.
 
 var out_path := "res://out/mobs/sheet.png"
@@ -16,7 +16,7 @@ var _graze := 0.0
 var _walk := 0.0
 
 
-func _init() -> void:
+func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=")
 		if kv.size() != 2:
@@ -26,7 +26,7 @@ func _init() -> void:
 			"graze": _graze = float(kv[1])
 			"walk": _walk = float(kv[1])
 	var root3d := Node3D.new()
-	get_root().add_child(root3d)
+	add_child(root3d)
 	var lineup := [["sheep", false, 1.0], ["sheep", true, 1.0], ["sheep", false, 0.5], ["pig", false, 1.0], ["pig", false, 0.5]]
 	var x := -6.0
 	for e in lineup:
@@ -79,7 +79,7 @@ func _init() -> void:
 	DisplayServer.window_set_size(Vector2i(480, 360))
 
 
-func _process(delta: float) -> bool:
+func _process(delta: float) -> void:
 	_frames += 1
 	if _frames == 1:
 		for m in _models:
@@ -91,13 +91,13 @@ func _process(delta: float) -> bool:
 			for i in 4:
 				m.legs[i].rotation.x = (0.6 if i in [0, 3] else -0.6) * _walk
 	if _frames % 4 != 0:
-		return false
+		return
 	var k := _frames / 4 - 1
 	if k >= 1:
-		_shots.append(get_root().get_viewport().get_texture().get_image())
+		_shots.append(get_viewport().get_texture().get_image())
 	if k < _cams.size():
 		_cams[k].current = true
-		return false
+		return
 	var w := _shots[0].get_width()
 	var h := _shots[0].get_height()
 	var cols := 4
@@ -109,5 +109,4 @@ func _process(delta: float) -> bool:
 	DirAccess.make_dir_recursive_absolute(abs_path.get_base_dir())
 	sheet.save_png(abs_path)
 	print(JSON.stringify({"mob_sheet": abs_path, "views": _shots.size()}))
-	quit(0)
-	return false
+	get_tree().quit(0)
