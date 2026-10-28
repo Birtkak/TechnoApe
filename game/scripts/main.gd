@@ -141,6 +141,11 @@ func _ready() -> void:
 	light.omni_attenuation = Settings.torch_light_attenuation
 	light.position = Monolith.light_pos(world, spawn)
 	add_child(light)
+	var hum := Sound.loop_voice("loop/monolith_hum")   # its deep hum, from the same spot
+	if hum:
+		hum.position = light.position
+		hum.autoplay = true
+		add_child(hum)
 	add_child(player)
 	add_child(MonolithBeacon.new(Monolith.beam_foot(world, spawn), player.camera))   # the sky beam over the spawn
 	player.setup_inventory(player_inv, mining, world.prop_material)
@@ -589,6 +594,9 @@ func _raise_monolith() -> void:
 				_monolith_up = true
 				print("monolith raised at %s" % Monolith.centre(_monolith_spawn))
 				if waypoints:
+					for w in waypoints.list.duplicate():   # a raised-again monolith (Monolith.VERSION) moves its tip
+						if w["name"] == "Monolith":
+							waypoints.remove(int(w["id"]))
 					waypoints.add("Monolith", Vector3i(Monolith.beam_foot(world, _monolith_spawn)), "", Color("#ff3ad8"))
 				return
 		else:
@@ -895,7 +903,7 @@ func _sync_far_layer(in_play := true) -> void:
 func _player_dict() -> Dictionary:
 	var p := player.position
 	var s := _spawn_pos
-	return {"version": 1, "pos": [p.x, p.y, p.z], "yaw": player._yaw, "pitch": player._pitch, "spawn": [s.x, s.y, s.z], "deaths": deaths, "monolith": _monolith_up,
+	return {"version": 1, "pos": [p.x, p.y, p.z], "yaw": player._yaw, "pitch": player._pitch, "spawn": [s.x, s.y, s.z], "deaths": deaths, "monolith": Monolith.VERSION if _monolith_up else 0,
 		"game_mode": player.game_mode, "flying": player.flying, "health": player_inv.health, "selected": player_inv.selected,
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
 		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s,
@@ -914,7 +922,7 @@ func _load_player() -> void:
 	if s.size() == 3:
 		_spawn_pos = Vector3(s[0], s[1], s[2])
 	deaths = int(d.get("deaths", 0))
-	_monolith_up = bool(d.get("monolith", false))
+	_monolith_up = int(d.get("monolith", 0)) == Monolith.VERSION   # older saves held true (1): raise it again
 	player.set_look(float(d.get("yaw", 0.0)), float(d.get("pitch", 0.0)))
 	var mode := GameMode.parse(String(d.get("game_mode", player.game_mode)))
 	if mode != "":

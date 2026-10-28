@@ -49,6 +49,13 @@ swirling back together on respawn.
 - **Light:** a magenta OmniLight in front of the seam washes the steps and plaza; `MonolithBeacon` is a
   2 km beam of additive light from the seam's tip, seen from anywhere: past 40 m it is scaled toward the
   camera around the camera (same picture, inside the 60 m far plane), its width held to a visible line.
+- **2026-10-28 (bug reports):** both columns 48 m (`Monolith.BLOCKS` = 24, ~54 m with base and tips;
+  one height, since the two heights read as a crooked top), the seam up to the tips in one box per block.
+  The sim window reaches ~38 m over a standing player, so the top blocks fill once the player comes up
+  near. The save holds `Monolith.VERSION` (2), so older monoliths are raised again. Sound: a deep hum
+  (`loop/monolith_hum`, `Sound.loop_voice`) from the light's spot, machine blips while the body is
+  reassembled and as the RECONSTRUCTING bar fills, a closing bloop (`gelvin/blip`, `gelvin/done`). All three
+  are synthesized in `tools/make_sounds.py` (`synth` recipes), no recordings.
 
 ## Consequences
 - Dying costs about 11 s of control, all of it animated.

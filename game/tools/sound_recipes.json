@@ -757,6 +757,19 @@
     "bigsoundbank/1646.ogg"
    ],
    "dur": 1.6
+  },
+  "loop/monolith_hum": {
+   "synth": "hum",
+   "loop": 0.5,
+   "level": -14
+  },
+  "gelvin/blip": {
+   "synth": "blips",
+   "trim": false
+  },
+  "gelvin/done": {
+   "synth": "done",
+   "trim": false
   }
  }
 }

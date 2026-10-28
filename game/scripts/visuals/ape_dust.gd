@@ -23,6 +23,7 @@ var _delay: PackedFloat32Array
 var _start: PackedVector3Array    # assemble: where each grain comes from
 var _assemble := false
 var _t := 0.0
+var _blip_t := 0.0                # assemble: when the next Gelvin blip plays
 
 
 ## Grains off the model's meshes, posed as they are now, relative to `body` (the player).
@@ -124,7 +125,11 @@ func _process(delta: float) -> void:
 	_t += delta
 	if _assemble:
 		_draw(0.0)
+		if _t >= _blip_t and _t < ASSEMBLE_S:   # the machine at work: blips that climb as the body fills in
+			Sound.play("player/gelvin_blip", Vector3.INF, {"pitch": 0.8 + 0.6 * _t / ASSEMBLE_S})
+			_blip_t = _t + randf_range(0.05, 0.14)
 		if _t >= ASSEMBLE_S + 0.2:
+			Sound.play("player/gelvin_done")
 			set_process(false)
 			finished.emit()
 		return

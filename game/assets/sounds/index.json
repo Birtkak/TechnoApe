@@ -184,6 +184,17 @@
   "craft/sieve_2.ogg",
   "craft/sieve_3.ogg"
  ],
+ "gelvin/blip": [
+  "gelvin/blip_0.ogg",
+  "gelvin/blip_1.ogg",
+  "gelvin/blip_2.ogg",
+  "gelvin/blip_3.ogg",
+  "gelvin/blip_4.ogg",
+  "gelvin/blip_5.ogg"
+ ],
+ "gelvin/done": [
+  "gelvin/done.ogg"
+ ],
  "hit/glass": [
   "hit/glass_0.ogg",
   "hit/glass_1.ogg",
@@ -244,6 +255,9 @@
  ],
  "loop/lava": [
   "loop/lava.ogg"
+ ],
+ "loop/monolith_hum": [
+  "loop/monolith_hum.ogg"
  ],
  "loop/rain": [
   "loop/rain.ogg"

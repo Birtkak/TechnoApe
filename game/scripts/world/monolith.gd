@@ -2,11 +2,12 @@ class_name Monolith
 extends RefCounted
 
 ## The Gelvin monolith at the world spawn (ADR 0098, docs/design/lore.md), after the developer's
-## reference: two ashlar columns (26 and 28 m) with glowing rune bands and a magenta seam between them,
-## pointed tops, a stepped base, four rune pylons and a broken flagstone plaza with rubble. All of it is
+## reference: two ashlar columns (48 m, as the developer asked for taller and one height so the top reads
+## straight) with glowing rune bands and a magenta seam between them, pointed tops, a stepped base, four rune pylons and a broken flagstone plaza with rubble. All of it is
 ## MONOLITH* material: never mined (not in mining.json), never blasted (hp past Tnt.NEVER_HP).
 ## boxes() lists [lo, hi, material] world boxes for SimBubble.fill_box. Overlapping boxes only overlap
-## inside the stone, so they can be filled in any order: Main retries the ones not loaded yet.
+## inside the stone, so they can be filled in any order: Main retries the ones not loaded yet (the top of
+## the columns waits for the player to come up within the sim window's reach).
 ## Courses and runes are patterned tiles (16 voxels = 2 m), so heights snap to that grid.
 
 const V := 8          # voxels per metre (ADR 0033)
@@ -15,6 +16,9 @@ const COLUMN_W := 3 * V
 const SEAM_W := 4
 const BASE_HALF := 7 * V
 const PLAZA_R := 18 * V
+const BLOCKS := 24    # 2 m blocks per column, ~54 m with base and tips. The sim window reaches ~38 m over a standing
+                      # player, so the top blocks fill once the player climbs or flies near (each block is its own box)
+const VERSION := 2    # saved with the world: an older monolith is raised again (2: taller, both columns one height)
 
 const M := GameMaterials.MONOLITH
 const MR := GameMaterials.MONOLITH_RUNE
@@ -47,18 +51,19 @@ static func boxes(world: World, spawn: Vector2i) -> Array:
 	var tallest := 0
 	for side in [-1, 1]:
 		var x0: int = c.x - SEAM_W / 2 - COLUMN_W if side < 0 else c.x + SEAM_W / 2
-		var blocks: int = 13 if side < 0 else 14
-		for b in blocks:
+		for b in BLOCKS:
 			var by := top + b * P
 			out.append([Vector3i(x0, by, z0), Vector3i(x0 + COLUMN_W, by + P - 1, z1), MR if b % 4 == 2 else M])
 			out.append([Vector3i(x0 + 1, by + P - 1, z0 + 1), Vector3i(x0 + COLUMN_W - 1, by + P, z1 - 1), M])
-		var ty := top + blocks * P
+		var ty := top + BLOCKS * P
 		for k in 4:   # the pointed top
 			var ins := 2 + k * 3
 			out.append([Vector3i(x0 + ins, ty + k * 3, z0 + ins), Vector3i(x0 + COLUMN_W - ins, ty + (k + 1) * 3, z1 - ins), M])
 		tallest = maxi(tallest, ty + 12)
-	# the seam: set back 2 voxels from the faces, it runs past the shorter column's tip
-	out.append([Vector3i(c.x - SEAM_W / 2, top, z0 + 2), Vector3i(c.x + SEAM_W / 2, top + 13 * P + 8, z1 - 2), MS])
+	# the seam: set back 2 voxels from the faces, up to the tips; one box per block, so the lower ones fill
+	# while the top still waits for its chunks
+	for b in BLOCKS + 1:
+		out.append([Vector3i(c.x - SEAM_W / 2, top + b * P, z0 + 2), Vector3i(c.x + SEAM_W / 2, mini(top + (b + 1) * P, tallest), z1 - 2), MS])
 	# four rune pylons at the corners: a foundation, one rune band, a cap with a seam tip
 	for o in [Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1)]:
 		var px: int = c.x + o.x * 10 * V
@@ -121,10 +126,10 @@ static func light_pos(world: World, spawn: Vector2i) -> Vector3:
 	return Vector3(c.x, world.surface_height(c.x, c.y) + 7 * V, c.y + COLUMN_W / 2 + 3 * V)
 
 
-## The foot of the sky beam (MonolithBeacon): the seam's tip, over the shorter column.
+## The foot of the sky beam (MonolithBeacon): the seam's tip, level with the columns' points.
 static func beam_foot(world: World, spawn: Vector2i) -> Vector3:
 	var c := centre(spawn)
 	var low := 1 << 30
 	for o in [Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1), Vector2i.ZERO]:
 		low = mini(low, world.surface_height(c.x + o.x * BASE_HALF, c.y + o.y * BASE_HALF))
-	return Vector3(c.x, snappedi(low, P) + 4 * V + 13 * P + 8, c.y)
+	return Vector3(c.x, snappedi(low, P) + 4 * V + BLOCKS * P + 12, c.y)

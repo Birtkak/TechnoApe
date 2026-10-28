@@ -10,6 +10,7 @@ how to cut it:
   "loop/fire": {"src": "bigsoundbank/0031.ogg", "start": 4, "dur": 10, "loop": 1.5}
                                                                     a seamless loop (crossfade in s)
   "music/x": {"src": "...", "music": true}                          stereo, levelled as a whole
+  "loop/monolith_hum": {"synth": "hum", "loop": 0.5}                made here (SYNTH below), no recording
 
 Optional keys: start / dur (s, before slicing), af (an extra ffmpeg filter), pitch (playback
 rate: 0.7 is lower and slower), gain_db (after levelling), level (target dBFS of the loudest
@@ -161,10 +162,45 @@ def make_loop(a: np.ndarray, xf: float) -> np.ndarray:
     return body
 
 
+def synth_hum() -> list:
+    """The Gelvin monolith: a deep drone on 41.25 Hz with harmonics, two partials 0.125 Hz apart beating
+    once per 8 s and a faint shimmer. Every frequency fits whole cycles in 8 s, so 8.5 s loops at 0.5 s."""
+    t = np.arange(int(RATE * 8.5)) / RATE
+    a = sum(g * np.sin(2 * np.pi * f * t) for f, g in [(41.25, 1.0), (41.375, 0.6), (82.5, 0.7), (123.75, 0.35),
+                                                         (165.0, 0.25), (247.5, 0.08)])
+    a = a * (0.85 + 0.15 * np.sin(2 * np.pi * 0.25 * t)) + 0.04 * np.sin(2 * np.pi * 660 * t) * np.sin(2 * np.pi * 0.125 * t) ** 2
+    return [a[:, None]]
+
+
+def synth_blips() -> list:
+    """Machine blips while the apetion is rebuilt: short sine/square chirps, some rising, some falling."""
+    out = []
+    for f0, f1, dur, sq in [(880, 1320, 0.05, 0), (1320, 990, 0.045, 1), (660, 1760, 0.07, 0), (1480, 1480, 0.035, 1),
+                            (990, 740, 0.06, 0), (520, 1040, 0.08, 1)]:
+        t = np.arange(int(RATE * dur)) / RATE
+        ph = 2 * np.pi * np.cumsum(np.geomspace(f0, f1, len(t))) / RATE
+        w = np.sin(ph) if not sq else np.tanh(4 * np.sin(ph)) * 0.6
+        out.append((w * np.exp(-t / (dur * 0.5)))[:, None])
+    return out
+
+
+def synth_done() -> list:
+    """The rebuild is done: a bloop down, then two rising tones."""
+    parts = []
+    for f0, f1, dur in [(700, 260, 0.12), (520, 520, 0.08), (780, 1040, 0.16)]:
+        t = np.arange(int(RATE * dur)) / RATE
+        ph = 2 * np.pi * np.cumsum(np.geomspace(f0, f1, len(t))) / RATE
+        parts.append(np.sin(ph) * np.minimum(1, t / 0.005) * np.exp(-t / (dur * 0.6)))
+    return [np.concatenate(parts)[:, None]]
+
+
+SYNTH = {"hum": synth_hum, "blips": synth_blips, "done": synth_done}
+
+
 def build(name: str, r: dict) -> list:
     music = bool(r.get("music"))
     channels = 2 if music else 1
-    srcs = r["src"] if isinstance(r["src"], list) else [r["src"]]
+    srcs = [] if "synth" in r else (r["src"] if isinstance(r["src"], list) else [r["src"]])
     files = []
     for s in srcs:
         found = sorted(glob.glob(str(ROOT / s)))
@@ -185,6 +221,8 @@ def build(name: str, r: dict) -> list:
                 parts.append(a[st:end])
         else:
             parts.append(a)
+    if "synth" in r:
+        parts = [p.astype(np.float32) for p in SYNTH[r["synth"]]()]
     parts = parts[: int(r.get("max", 99))]
     loop = r.get("loop")
     target = float(r.get("level", -16.0 if music else (-20.0 if loop else -12.0)))
@@ -240,7 +278,7 @@ def write_credits(data: dict) -> None:
     lines += [f"- `{k}`: {v}" for k, v in data["_sources"].items()]
     lines += ["", "## Sounds", "", "| Sound | Source |", "|---|---|"]
     for n, r in data["sounds"].items():
-        srcs = r["src"] if isinstance(r["src"], list) else [r["src"]]
+        srcs = r["src"] if isinstance(r.get("src"), list) else [r.get("src", f"synth: {r.get('synth')}, made in make_sounds.py")]
         lines.append(f"| {n} | {', '.join(f'`{s}`' for s in srcs)} |")
     (OUT / "CREDITS.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
