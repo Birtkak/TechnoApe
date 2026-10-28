@@ -10,6 +10,7 @@ func test_materials_map_to_stains() -> void:
 	assert_str(PlayerStains.stain_of(GameMaterials.OIL)).is_equal("oily")
 	assert_str(PlayerStains.stain_of(GameMaterials.TOXIC_SLUDGE_STATIC)).is_equal("toxic")
 	assert_str(PlayerStains.stain_of(GameMaterials.LAVA)).is_equal("burning")
+	assert_str(PlayerStains.stain_of(GameMaterials.LAVA_STATIC)).is_equal("burning")   # generated pools (bug report 2026-10-28_08-26-42)
 	assert_str(PlayerStains.stain_of(GameMaterials.STONE)).is_equal("")
 
 

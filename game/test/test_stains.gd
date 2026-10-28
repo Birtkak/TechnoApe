@@ -127,3 +127,21 @@ func test_window_slot_is_cleared_when_reused() -> void:
 	# and back: the stain is restored from the chunk map
 	s.follow(Vector3(8, 8, 8))
 	assert_float(s._layers[3].get_pixel(3, 3).a).is_greater(0.9)
+
+
+func test_bleeding_spills_about_twenty_blood_cells() -> void:
+	var w := _sim()
+	var s := _stains(_bubble(w))
+	var mats: Array[ShaderMaterial] = []
+	s.setup(null, s.bubble, mats)
+	var feet := Vector3(32, 4, 32)
+	var placed := s.bleed(feet, 1)
+	assert_int(placed).is_equal(20)
+	var blood := 0
+	for x in range(26, 39):
+		for z in range(26, 39):
+			for y in range(4, 14):
+				if w.get_voxel(Vector3i(x, y, z)) == GameMaterials.BLOOD:
+					blood += 1
+	assert_int(blood).is_equal(placed)
+	assert_int(s.bleed(feet, 0)).is_equal(0)

@@ -1359,7 +1359,7 @@ func _break_torch(p: Vector3i, drops: Array) -> bool:
 var _last_health := -1
 
 
-## Losing health bleeds: a splatter at the feet, liquid blood for heavy hits.
+## Losing health bleeds: liquid blood spills from the body (StainMap.bleed).
 ## A tool wore out (ADR 0042): a word in the chat and a puff where the hand is.
 func _on_tool_broke(id: String) -> void:
 	tools_broken += 1

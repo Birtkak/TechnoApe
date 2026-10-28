@@ -379,7 +379,7 @@ func safe_ahead(m: Mob, dir: Vector3, panicking: bool) -> bool:
 	for k in range(0, Mob.MAX_DROP_V + 2):
 		var p := Vector3i(x, y - k, z)
 		var v := get_voxel(p)
-		if v == GameMaterials.LAVA:
+		if GameMaterials.material_of_voxel(v) in [GameMaterials.LAVA, GameMaterials.LAVA_STATIC]:
 			return false
 		if v > 0 and _def_of(v).get("cell_type", "") == "liquid":
 			return panicking or m.in_liquid or WildMoves.water_ok(m)
