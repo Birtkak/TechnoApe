@@ -103,10 +103,10 @@ func test_placed_still_sand_keeps_its_shape_on_ground_and_falls_in_the_air() -> 
 	assert_int(w.count_in_box(lo, hi, GameMaterials.SAND) + w.count_in_box(lo, hi, GameMaterials.SAND_STATIC)).is_greater(400)
 
 
-## Still water (ADR 0068): generated water sleeps until a fresh opening touches it; then it is finite moving water.
-## A lake whose shore breaks drains onto the floor past it, its level drops, and the world holds exactly as much
-## water afterwards as before (no reservoir, no pouring source).
-func test_lake_drains_through_a_breach_and_keeps_its_mass() -> void:
+## Still water (ADR 0104): generated water sleeps until a fresh opening touches it; then it pours moving water into
+## the opening and keeps its own cells. A lake whose shore breaks floods the floor past it, never above its level,
+## and the lake itself is as it was (endless: the world holds more water afterwards).
+func test_lake_floods_through_a_breach_and_keeps_its_cells() -> void:
 	var w := _game_world()
 	_load_slab(w, Vector3i(0, 0, 0), 1, 6, GameMaterials.WATER_STATIC)   # a generated lake at the edge
 	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 1, 48), GameMaterials.STONE)   # its bed
@@ -114,13 +114,13 @@ func test_lake_drains_through_a_breach_and_keeps_its_mass() -> void:
 	_run(w, 3)
 	var mass := w.count_liquid_eighths(GameMaterials.WATER_STATIC) + w.count_liquid_eighths(GameMaterials.WATER)
 	w.fill_box(Vector3i(16, 1, 0), Vector3i(17, 6, 16), 0)    # break the shore
-	assert_int(_settle(w, 3000)).override_failure_message("never settled").is_greater(0)
+	_run(w, 600)
 	# the floor past the shore floods, never above the lake's level
 	assert_int(_wet(w, Vector3i(17, 1, 0), Vector3i(48, 6, 48))).is_greater(50)
 	assert_int(_wet(w, Vector3i(0, 6, 0), Vector3i(48, 48, 48))).is_equal(0)
-	# the lake gave what spilled: fewer still cells, the same water in all
-	assert_int(w.count_in_box(Vector3i(0, 1, 0), Vector3i(16, 6, 16), GameMaterials.WATER_STATIC)).is_less(16 * 5 * 16)
-	assert_int(w.count_liquid_eighths(GameMaterials.WATER_STATIC) + w.count_liquid_eighths(GameMaterials.WATER)).is_equal(mass)
+	# the lake gave nothing: every still cell is there, the world holds more water
+	assert_int(w.count_in_box(Vector3i(0, 1, 0), Vector3i(16, 6, 16), GameMaterials.WATER_STATIC)).is_equal(16 * 5 * 16)
+	assert_int(w.count_liquid_eighths(GameMaterials.WATER_STATIC) + w.count_liquid_eighths(GameMaterials.WATER)).is_greater(mass)
 	assert_int(int(w.get_stats()["still_woken"])).is_greater(0)
 
 
@@ -135,17 +135,17 @@ func _settle(w: SimWorld, limit: int) -> int:
 	return -1
 
 
-func test_small_pond_drains_into_a_pocket() -> void:
+func test_pond_fills_a_pocket_in_its_bank_and_settles() -> void:
 	var w := _game_world()
 	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 12, 48), GameMaterials.STONE)
-	w.fill_box(Vector3i(8, 4, 8), Vector3i(24, 12, 24), GameMaterials.WATER_STATIC)   # a pond 8 deep: 2048 cells, small
+	w.fill_box(Vector3i(8, 4, 8), Vector3i(24, 12, 24), GameMaterials.WATER_STATIC)   # a pond 8 deep: 2048 cells
 	_run(w, 3)
 	var mass := w.count_liquid_eighths(GameMaterials.WATER_STATIC)
 	w.fill_box(Vector3i(24, 6, 12), Vector3i(28, 12, 16), 0)   # a pocket dug into the bank, below the surface
 	assert_int(_settle(w, 1500)).override_failure_message("never settled").is_greater(0)
-	# the pocket took water from the pond, no more and no less of it in all; what lies under the pocket's floor sleeps on
-	assert_int(w.count_material(GameMaterials.WATER_STATIC)).is_less(16 * 16 * 8)
-	assert_int(w.count_liquid_eighths(GameMaterials.WATER) + w.count_liquid_eighths(GameMaterials.WATER_STATIC)).is_equal(mass)
+	# the pocket filled from the pond (ADR 0104: endless), the pond is as it was, and a closed pocket comes to rest
+	assert_int(w.count_material(GameMaterials.WATER_STATIC)).is_equal(16 * 16 * 8)
+	assert_int(w.count_liquid_eighths(GameMaterials.WATER) + w.count_liquid_eighths(GameMaterials.WATER_STATIC)).is_greater(mass)
 	assert_int(w.count_in_box(Vector3i(24, 6, 12), Vector3i(28, 11, 16), GameMaterials.WATER)).is_greater(12)
 	assert_int(int(w.get_stats()["still_woken"])).is_greater(0)
 
@@ -164,17 +164,18 @@ func test_pond_drains_into_a_deep_pit_to_a_shared_level() -> void:
 	assert_int(pit).override_failure_message("pit holds %d" % pit).is_greater(1300)
 
 
-## The developer's 3x3x3 pocket (bug report 2026-10-25 02-17-32): water walled off from a lake is a small body; dug
-## free, it spills what it holds and no more (ADR 0068: every still body does).
-func test_walled_off_pocket_is_finite() -> void:
+## The developer's 3x3x3 pocket (bug report 2026-10-25 02-17-32) under ADR 0104: a generated pocket is world water
+## like any other, so dug free from below it pours into the room until the room is full up to the pocket, then rests.
+func test_walled_off_pocket_fills_the_room_under_it() -> void:
 	var w := _game_world()
 	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 20, 48), GameMaterials.STONE)
 	w.fill_box(Vector3i(20, 8, 20), Vector3i(32, 20, 32), GameMaterials.WATER_STATIC)   # 12^3, open on top
 	_run(w, 3)
 	w.fill_box(Vector3i(16, 1, 16), Vector3i(36, 8, 36), 0)   # a big room dug out under it
-	assert_int(_settle(w, 1500)).override_failure_message("never settled").is_greater(0)
-	assert_int(w.count_material(GameMaterials.WATER_STATIC)).is_equal(0)
-	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).is_equal(12 * 12 * 12 * 8)
+	assert_int(_settle(w, 3000)).override_failure_message("never settled").is_greater(0)
+	assert_int(w.count_material(GameMaterials.WATER_STATIC)).is_equal(12 * 12 * 12)
+	var room := w.count_in_box(Vector3i(16, 1, 16), Vector3i(36, 8, 36), GameMaterials.WATER)
+	assert_int(room).override_failure_message("the room holds %d of 2800" % room).is_greater(2700)
 
 
 ## Sand sinks through still water to the bed (bug report 02-17-49); the lake keeps its level.
@@ -187,7 +188,9 @@ func test_sand_sinks_through_a_lake() -> void:
 	_run(w, 200)
 	assert_int(w.count_in_box(Vector3i(0, 12, 0), Vector3i(48, 48, 48), GameMaterials.SAND)).is_equal(0)
 	assert_int(w.count_in_box(Vector3i(0, 1, 0), Vector3i(48, 4, 48), GameMaterials.SAND)).is_greater(32)
-	assert_int(w.count_in_box(Vector3i(0, 11, 0), Vector3i(48, 12, 48), GameMaterials.WATER_STATIC)).is_equal(48 * 48)
+	# the lake keeps its level: the columns the sand sank through are moving water now (ADR 0104), still full
+	var top := w.count_in_box(Vector3i(0, 11, 0), Vector3i(48, 12, 48), GameMaterials.WATER_STATIC) + w.count_in_box(Vector3i(0, 11, 0), Vector3i(48, 12, 48), GameMaterials.WATER)
+	assert_int(top).is_equal(48 * 48)
 
 
 ## Lava pours as a stream: gravity never waits for its viscosity roll (bug report 02-23-24).

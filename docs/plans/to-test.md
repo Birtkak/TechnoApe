@@ -10,6 +10,17 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## World water is endless, only spills simulate (2026-10-28, ADR 0104)
+
+- [ ] Stand at a river, scoop with a bucket, drop a crater rod or laser a trench into the bank: the hole fills from
+      the river and the river stays where it was (no dent). F3: sim tick stays low and "active chunks" is a handful,
+      not hundreds, even after you touch the river in several places.
+- [ ] A river surface you have touched still looks like a river (flat, no field of small cubes).
+- [ ] Dig a tunnel from a river bank down into a cave: water follows you in as a stream and fills the cave up to the
+      river's level, then goes quiet. Breach a bank towards lower ground: it floods that ground slowly until you plug
+      the breach; it never rises above the river's surface.
+- [ ] Lava bomb in a river: it hisses, steams and crusts to obsidian; the river does not drain or pile up.
+
 ## Start to iron, playtest readiness (2026-10-27)
 
 New world. Scripted checks of the whole road (knapping, pit kilns, copper, crafting in the world, bronze,

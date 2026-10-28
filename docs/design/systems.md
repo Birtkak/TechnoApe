@@ -125,12 +125,15 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   (no drops in the air above it; a run past the reach gives none), and falling water (its run ends in air below) draws
   as full cubes with their side faces. FineGen rivers interpolated per voxel and their trenches and low banks filled;
   `tools/water_surface_probe.gd` counts holes, glass edges, corner seams (`rule=field|ramps`; 0 for field), out-of-reach
-  wall corners and the histogram of surface steps. **All water is finite (ADR 0068, replacing the reservoirs of ADR 0045 and the big bodies of
-  ADR 0049):** generated water (`water_static`) is still until a fresh opening (air that changed in the last two ticks) touches
-  it beside or below; then the cell becomes plain mass-conserving `water` and drains into the hole, cell by cell (the cell it
-  leaves is the next opening); the river beside a hole drops, nothing refills it. Air over a river's own lower step never wakes
-  it, moving water in a hole never climbs out onto still water, but water that rests on a still body spreads flat over it.
-  Lava sinking through still water trades places with it (the water rises, finite). **ADR 0081:** a lone still cell
+  wall corners and the histogram of surface steps. **World water is endless and never simulated (ADR 0104, replacing the finite water of ADR 0068):**
+  generated water (`water_static`: rivers, lakes, the sea, pools) sleeps until a fresh opening (air that changed in the last
+  two ticks) touches it beside or below; then it *pours*: the opening takes a full cell of moving `water` and the still cell
+  stays (`SimWorld::reservoir`). A hole under a river takes a stream until it is full, a breach in the bank fills to one cell
+  under the surface and goes on flooding lower ground past it (only the moving front costs: rested water sleeps). A side
+  opening is fed only by a cell with still water above it (head), so the surface and stray still cells on it never become
+  springs. Air over a river's own lower step never wakes it; water that rests on a still body spreads flat over it. Lava or
+  sand sinking through still water trades places with it and the lifted cell becomes moving water (finite, never a still cell
+  on top of a body). **ADR 0081:** a lone still cell
   (none of its kind on its six sides: the specks the generator leaves on cave walls) wakes at any air beside or below it;
   reactions of one pair chain (`Reaction::next`, rolled in data order): lava + water boils the water to steam at 0.6 and
   only then crusts to obsidian at 0.25, so the steam grows with the water the lava touches.

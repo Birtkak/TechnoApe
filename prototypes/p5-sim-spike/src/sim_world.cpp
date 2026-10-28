@@ -623,13 +623,12 @@ inline bool SimWorld::try_move(int sx, int sy, int sz, int tx, int ty, int tz, C
         const MaterialDef &tm = mats_[cells_[ti].mat];
         const uint8_t ct = sm.cell_type;
         if ((ct == CELL_LIQUID || ct == CELL_POWDER) && tm.liquid_static && tm.cell_type == CELL_LIQUID && tm.density < sm.density) {
-            // ADR 0049: sand (or a heavier liquid) sinks through still liquid. Inside the body (still liquid beside
-            // it) the still cell trades places, so the body stays whole; from above it, the body keeps its level
-            // and the cell is gone.
-            bool inside = false;
-            for (int k = 0; k < 4 && !inside; k++)
-                inside = in_world(sx + DX4[k], sy, sz + DZ4[k]) && cells_[idx(sx + DX4[k], sy, sz + DZ4[k])].mat == cells_[ti].mat;
-            if (!inside) place(ti, 0);
+            // sand (or a heavier liquid) sinks through still liquid: the still cell trades places and goes on as
+            // moving liquid (finite: as much as sank). It never stays still, or a pile of lifted still cells on a
+            // body would pour sideways without end (ADR 0104)
+            const int16_t flow = tm.fluid_slot >= 0 ? slot_material_[tm.fluid_slot] : 0;
+            if (flow > 0) { cells_[ti].mat = (uint8_t)flow; cells_[ti].flags = 0; cells_[ti].aux = 0; cells_[ti].pad = 0; }
+            else place(ti, 0);
         } else {
             // a plant cell in the way of a liquid or powder is washed away / buried (micro simulation only)
             if (!washable_[cells_[ti].mat] || (ct != CELL_LIQUID && ct != CELL_POWDER)) return false;
@@ -698,11 +697,12 @@ bool SimWorld::still_liquid(int x, int y, int z, int slot) const {
 
 // Still liquid (generated rivers, lakes, the sea, pools, waterfall sheets: liquid_static) sleeps until something
 // opens beside or under it: air that changed this or the last two ticks (stamp 0 means never, so neither a reload
-// nor the air the generator left wakes it). Then the cell becomes its moving kind, fullness kept, and is plain
-// mass-conserving Noita liquid from then on (ADR 0068: all water is finite). The cell it leaves is the next fresh
-// opening, so a hole beside a river drains the river into it cell by cell, and never more than the river holds.
-// Air beside it over the body's own still cells (each 12.5 cm step of a river surface) is no opening, or every
-// river would run down its own steps.
+// nor the air the generator left wakes it). Then the body pours: the opening takes a full cell of the moving kind
+// and the still cell stays (ADR 0104: world water is endless, only what it pours is simulated). A hole under a
+// river takes a stream until it is full; a breach in the bank fills to one cell under the surface, because a side
+// opening is fed only by a cell with still liquid above it (head): the surface itself has nothing pressing it
+// sideways, so a stray still cell on top of a body never becomes a spring. Air beside it over the body's own still
+// cells (each 12.5 cm step of a river surface) is no opening, or every river would run down its own steps.
 void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
     const uint8_t self = cells_[i].mat;
     const MaterialDef &md = mats_[self];
@@ -732,8 +732,13 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
         const uint16_t m = moved_[ni];
         return m != 0 && (m == stamp_ || m == prev || m == prev2);
     };
+    int tx = x, ty = y - 1, tz = z;
     bool open = y > 0 && fresh_air(x, y - 1, z, false);
-    for (int d = 0; d < 4 && !open; d++) open = fresh_air(x + DX4[d], y, z + DZ4[d], true);
+    const bool head = still_liquid(x, y + 1, z, md.fluid_slot);
+    for (int d = 0; d < 4 && !open && head; d++) {
+        tx = x + DX4[d]; ty = y; tz = z + DZ4[d];
+        open = fresh_air(tx, ty, tz, true);
+    }
     if (!open && flow != 0) {
         // ADR 0081: a lone still cell (none of its kind on any of its six sides: the specks the generator leaves on
         // cave walls and ledges) wakes at any air beside or below it, fresh or not, and drains or dries as moving
@@ -744,7 +749,17 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
             if (still_liquid(nx, ny, nz, md.fluid_slot)) lone = false;
             else if (NY6[d] <= 0 && is_open(nx, ny, nz) && open_air(cells_[idx(nx, ny, nz)].mat)) air = true;
         }
-        open = lone && air;
+        if (lone && air) {   // the speck itself drains away as moving liquid
+            cells_[i].mat = flow;
+            cells_[i].flags = 0;
+            cells_[i].aux = 0;
+            cells_[i].pad &= 15u;   // fullness kept, momentum cleared
+            moved_[i] = mark_;
+            still_woken_.fetch_add(1, std::memory_order_relaxed);
+            mark_cell(x, y, z, c, true);
+            c.moved++;
+            return;
+        }
     }
     if (!open || flow == 0) {
         cells_[i].flags &= ~FLAG_SHAKEN;
@@ -762,13 +777,11 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
             }
         return;
     }
-    cells_[i].mat = flow;
-    cells_[i].flags = 0;
-    cells_[i].aux = 0;
-    cells_[i].pad &= 15u;   // fullness kept, momentum cleared
-    moved_[i] = mark_;
+    const int ti = idx(tx, ty, tz);
+    place(ti, flow);   // a full moving cell in the opening; the still cell stays
+    moved_[ti] = mark_;
     still_woken_.fetch_add(1, std::memory_order_relaxed);
-    mark_cell(x, y, z, c, true);
+    mark_cell(tx, ty, tz, c, true);
     c.moved++;
 }
 

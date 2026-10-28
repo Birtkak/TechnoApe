@@ -1,7 +1,7 @@
 class_name WaterTest
 extends RefCounted
 
-## Debug (water_test=1, ADR 0068): finite still water in the running game. From the river the autopilot stands
+## Debug (water_test=1, ADR 0068; under ADR 0104 the river keeps its cells and the checks still hold): still water in the running game. From the river the autopilot stands
 ## in (target=river), it finds the bank, digs a trench into it from 0.5 m under the surface up into the
 ## open air, and after a while measures how much of the trench (up to the river's level) took water, that
 ## nothing stands above that level, that the river beside it lost water (it is finite: no reservoir refills
@@ -182,7 +182,7 @@ func run(p_main: Node) -> void:
 	r["crater_waited_ms"] = Time.get_ticks_msec() - t1
 	r["bubble"] = {"still_woken": main.bubble.stats().get("still_woken", 0)}
 	r["sim_active_chunks_after"] = main.bubble.active_chunks
-	# finite: both holes took water, the river lost some (never gained), nothing above its level, nothing past the trench
+	# both holes took water, the river never gained (ADR 0104: it keeps its cells), nothing above its level, nothing past the trench
 	r["crater_water"] = c_water
 	r["ok"] = r["trench_filled"] >= 30 and above_water == 0 and r["river_after"] <= r["river_before"] and beyond == 0 \
 		and c_water >= 100 and c_above == 0 and r["crater_river_after"] <= r["crater_river_before"] \
