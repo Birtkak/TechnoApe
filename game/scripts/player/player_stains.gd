@@ -62,7 +62,7 @@ static func stain_of(material: int) -> String:
 			return "oily"
 		GameMaterials.TOXIC_SLUDGE, GameMaterials.TOXIC_SLUDGE_STATIC:
 			return "toxic"
-		GameMaterials.FIRE, GameMaterials.LAVA:
+		GameMaterials.FIRE, GameMaterials.LAVA, GameMaterials.LAVA_STATIC:   # generated pools are LAVA_STATIC (bug report 2026-10-28_08-26-42)
 			return "burning"
 	return ""
 
@@ -93,7 +93,7 @@ func update(delta: float, touching: Array) -> int:
 		var k := stain_of(int(m))
 		if k == "":
 			continue
-		if int(m) == GameMaterials.LAVA:
+		if GameMaterials.material_of_voxel(int(m)) in [GameMaterials.LAVA, GameMaterials.LAVA_STATIC]:
 			amount["wet"] = 0.0
 		apply(k)
 	var dmg := 0

@@ -12,8 +12,7 @@ extends Node
 ##    each one in range is read once (one native copy) and its stain materials
 ##    are found with native PackedByteArray.count/find, so GDScript only
 ##    touches the hits (CLAUDE.md rule 8),
-##  - bleed(): a splatter around a position plus, for heavy hits, liquid blood
-##    that runs and soaks in.
+##  - bleed(): liquid blood from a hurt body that runs and soaks in.
 ## Storage: a sparse map world chunk -> 16 x 256 RGBA8 image (pixel (x, y*16+z),
 ## rgb = colour * amount, a = amount). The GPU sees a window around the player
 ## in a Texture2DArray (layer = world y, texel = world x, z; all wrapped), and
@@ -38,7 +37,6 @@ var wash_rate := 0.3
 var scan_budget_ms := 0.4      # main-thread time per sim tick for reading changed chunks
 var max_hits_per_material := 96
 var uploads_per_frame := 4     # 64 KB layers per frame
-var blood_color := Color(0.13, 0.002, 0.007)
 
 var world: World
 var bubble: SimBubble
@@ -200,29 +198,23 @@ func clear_cell(wp: Vector3i) -> void:
 	wash(wp, 1.0)
 
 
-## Bleeding: `hp_lost` half-hearts. Splatters stains on the floor around `at`
-## (world voxels, the feet) and, for heavy hits, spills liquid blood that runs
-## and soaks in (GameMaterials.BLOOD has a lifetime).
-func bleed(at: Vector3, hp_lost: int) -> void:
-	if hp_lost <= 0:
-		return
-	var n := (4 + hp_lost * 3) if _tex != null else 0   # stains=0: liquid blood only
-	var r := 0.8 + 0.35 * hp_lost
-	for i in n:
-		var ang := randf() * TAU
-		var dist := sqrt(randf()) * r
-		var p := Vector3i((at + Vector3(cos(ang) * dist, 0.5, sin(ang) * dist)).floor())
-		var floor_cell := _floor_below(p, 3)
-		if floor_cell.y > -1000:
-			deposit(floor_cell, blood_color, randf_range(0.25, 0.75))
-	if hp_lost >= 3 and bubble != null:
-		var feet := Vector3i(at.floor())
-		var spots := [feet, feet + Vector3i(1, 0, 0), feet + Vector3i(-1, 0, 0), feet + Vector3i(0, 0, 1), feet + Vector3i(0, 0, -1)]
-		var spill := mini(1 + hp_lost / 4, spots.size())
-		for i in spill:
-			var s: Vector3i = spots[i]
-			if _is_empty(_mat(s)):
-				bubble.set_voxel(s, GameMaterials.BLOOD)
+## Bleeding: `hp_lost` half-hearts. About 20 cells of liquid blood (more for heavy hits) burst
+## from the body around `at` (world voxels, the feet), fall, run and soak in, staining where they
+## go (GameMaterials.BLOOD has a lifetime). Real blood, no painted splatter (bug report 2026-10-28_08-35-43).
+## Returns how many blood cells were placed (none outside the simulated bubble).
+func bleed(at: Vector3, hp_lost: int) -> int:
+	if hp_lost <= 0 or bubble == null:
+		return 0
+	var n := mini(16 + 4 * hp_lost, 40)
+	var r := Settings.m2v(0.3)
+	var used := {}
+	for i in n * 3:   # full or already picked cells are skipped, so try more
+		if used.size() >= n:
+			break
+		var p := Vector3i((at + Vector3(randf_range(-r, r), randf_range(Settings.m2v(0.2), Settings.m2v(1.0)), randf_range(-r, r))).floor())
+		if not used.has(p) and _is_empty(_mat(p)) and bubble.set_voxel(p, GameMaterials.BLOOD):
+			used[p] = true
+	return used.size()
 
 
 ## The empty cell sitting on solid ground at or below `p` (within `depth`

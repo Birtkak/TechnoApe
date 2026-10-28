@@ -57,6 +57,7 @@ func setup(p_main: Node) -> void:
 	_open[GameMaterials.AIR] = 1
 	_heat_mat[GameMaterials.FIRE] = 0.4
 	_heat_mat[GameMaterials.LAVA] = 0.8
+	_heat_mat[GameMaterials.LAVA_STATIC] = 0.8   # cave pools and the lava sea (bug report 2026-10-28_08-26-42)
 
 
 # ---------------- the rules (static, headless tested) ----------------

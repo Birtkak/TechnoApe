@@ -173,7 +173,7 @@ func _touch_heat() -> void:
 		return
 	for f in [0.05, 0.4, 0.8]:
 		var m := GameMaterials.material_of_voxel(manager.get_voxel(Vector3i((position + Vector3(0, _height_v * f, 0)).floor())))
-		if m == GameMaterials.LAVA or m == GameMaterials.FIRE:
+		if m == GameMaterials.LAVA or m == GameMaterials.LAVA_STATIC or m == GameMaterials.FIRE:
 			if _burn_t <= 0.0:
 				_burn_hurt_t = 0.0   # catching fire hurts at once
 			_burn_t = BURN_S
@@ -202,6 +202,9 @@ func hurt(amount: int, from: Vector3) -> bool:
 		return false
 	health -= amount
 	_invuln_t = INVULNERABLE_S
+	var stains = manager.main.get("stains") if manager != null and manager.main != null else null
+	if stains != null:
+		stains.bleed(position, amount)   # anything hurt bleeds real blood (bug report 2026-10-28_08-35-43)
 	_hurt_t = 0.35
 	var away := position - from
 	away.y = 0
