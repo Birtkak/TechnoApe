@@ -6,7 +6,9 @@ extends RefCounted
 ## piece's solid part (facing 0), `mob_<species>_<part>` for an animal part, `ape_<part>` for the player.
 ## `layers` go bottom to top, each `size.z` rows of `size.x` characters: "." empty, "*" keep the game's
 ## cell there (the boiler's fire and gauge stay live), any other character = paint PAINTS.find(ch) of
-## that model's palette (WorkPalette, MobModel or ApeModel PALETTE).
+## that model's palette (WorkPalette, MobModel or ApeModel PALETTE). No dependencies on purpose: MobModel
+## and ApeModel reach it, and the --script tools that build them must compile without the game's autoloads.
+## A work piece goes through WorkPalette.art_parts (it turns the model with the piece).
 
 const DIR := "res://data/art_models/"
 const PAINTS := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -74,17 +76,3 @@ static func cells(name: String, game: PackedInt32Array, size: Vector3i, palette_
 			out[i] = 0
 	return out
 
-
-## A work piece's view_parts() with its solid part from the art model `work_<kind>`, turned to its facing.
-static func apply(e: RefCounted, parts: Dictionary) -> Dictionary:
-	var solid: Dictionary = parts.get("solid", {})
-	if solid.is_empty() or model("work_" + e.kind) == null:
-		return parts
-	var size: Vector3i = solid["size"]
-	var q: int = e.facing if "facing" in e else 0
-	var game := WorkPalette.rotate_y(solid["cells"], size, -q)
-	solid = solid.duplicate()
-	solid["cells"] = WorkPalette.rotate_y(cells("work_" + e.kind, game, size, WorkPalette.PALETTE.size()), size, q)
-	parts = parts.duplicate()
-	parts["solid"] = solid
-	return parts

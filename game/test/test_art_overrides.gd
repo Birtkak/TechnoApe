@@ -37,6 +37,6 @@ func test_work_model_is_built_facing_zero_and_turned_with_the_piece() -> void:
 	ArtModels._models["work_test_piece"] = ArtModels.parse({"size": [2, 1, 2], "layers": [["0.", ".*"]]})
 	var size := Vector3i(2, 1, 2)
 	var game := WorkPalette.rotate_y(PackedInt32Array([0, 0, 0, 9]), size, 1)   # the game's cells, already turned
-	var parts := ArtModels.apply(FakePiece.new(), {"solid": {"cells": game, "size": size, "grid": 2}})
+	var parts := WorkPalette.art_parts(FakePiece.new(), {"solid": {"cells": game, "size": size, "grid": 2}})
 	assert_array(Array(parts["solid"]["cells"])).is_equal(Array(WorkPalette.rotate_y(PackedInt32Array([1, 0, 0, 9]), size, 1)))
 	ArtModels._models.erase("work_test_piece")
