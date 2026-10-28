@@ -251,8 +251,8 @@ var user_settings_path := "user://settings.cfg"   # menu_test=1 points it elsewh
 ## View distances the menu allows (ADR 0073, measured at seed 272905368, vsync off, ADR 0014 method):
 ## 32 m p99 4.6 ms / 0.6 GB VRAM, 40 m p99 6.2 ms / 0.9 GB, 48 m p99 32 ms standing (fails) / 1.3 GB.
 const MIN_VIEW_M := 24.0
-const MAX_VIEW_M := 40.0
-const VIEW_CHOICES_M := [24.0, 32.0, 40.0]
+const MAX_VIEW_M := 100.0
+const VIEW_CHOICES_M := [24.0, 32.0, 40.0, 56.0, 72.0, 100.0]   # past 40 m: the developer's call (2026-10-27), over the frame budget
 const FAR_CHOICES_M := [0.0, 384.0, 768.0, 1536.0]   # the far horizon (ADR 0074): off, or how far the far layer reaches
 const GRAPHICS_PRESETS := {
 	"low": {"shadow_quality": "low", "ssao": false, "bloom": false, "view_distance_m": 24.0},

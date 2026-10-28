@@ -44,3 +44,7 @@ computers" and "the dev PC" describe the same bar.
 - Auto-update ships a Windows build and the server image only.
 - CLAUDE.md, vision.md and the platforms doc no longer list Android; ADR 0002
   keeps its history with a pointer here.
+
+## Amendment 2026-10-27: RAM budget 8 GB
+The developer raised the RAM budget from 4 GB to 8 GB ("8-10"); `DebugCapture` checks `rss_mb <= 8192`.
+Frame time and VRAM budgets are unchanged.

@@ -281,7 +281,7 @@ static func dig_mask(creative: bool, held: Dictionary, mining: MiningTable, is_p
 	mask.resize(256)
 	for i in mini(GameMaterials.defs().size(), 255):
 		var m := i + 1
-		if not (GameMaterials.is_plain_voxel(m) or is_plant.call(m)):
+		if GameMaterials.is_monolith(m) or not (GameMaterials.is_plain_voxel(m) or is_plant.call(m)):
 			continue
 		if not creative and mining and mining.break_time(GameMaterials.name_of(m), held) < 0.0:
 			continue
@@ -301,6 +301,6 @@ static func paint_mask() -> PackedByteArray:
 	var mask := PackedByteArray()
 	mask.resize(256)
 	for i in mini(GameMaterials.defs().size(), 255):
-		if GameMaterials.is_plain_voxel(i + 1):
+		if GameMaterials.is_plain_voxel(i + 1) and not GameMaterials.is_monolith(i + 1):
 			mask[i + 1] = 1
 	return mask

@@ -76,6 +76,13 @@ var _merge_accum := 0.0
 var _spawned := false
 var _spawn_xz := Vector2(0, 0)
 var _spawn_pos := Vector3.ZERO
+var deaths := 0   # apetions lost: the Gelvin monolith numbers each one it rebuilds (docs/design/lore.md)
+var death_screen: DeathScreen
+var _dying := false   # the death and rebuild sequence is running
+var _monolith_spawn := Vector2i.ZERO   # the Gelvin monolith (ADR 0098): raised once around the spawn, then saved
+var _monolith_boxes: Array = []        # Monolith.boxes still to fill (their chunks not loaded yet)
+var _monolith_next := 0
+var _monolith_up := false
 var picked_up_total := {}    # item id -> count, for debug JSON
 var item_stats := {"spawned": 0, "picked": 0, "merged": 0, "expired": 0, "invalid": 0, "burned": 0}
 
@@ -126,7 +133,16 @@ func _ready() -> void:
 	var h := world.surface_height(spawn.x, spawn.y)
 	player.position = Vector3(spawn.x + 0.5, h + 3, spawn.y + 0.5)
 	_spawn_pos = player.position
+	_monolith_spawn = spawn
+	var light := OmniLight3D.new()   # the monolith seam's magenta light on the plaza (ADR 0098)
+	light.light_color = Color(1.0, 0.25, 0.85)
+	light.light_energy = 4.0
+	light.omni_range = Settings.m2v(24.0)
+	light.omni_attenuation = Settings.torch_light_attenuation
+	light.position = Monolith.light_pos(world, spawn)
+	add_child(light)
 	add_child(player)
+	add_child(MonolithBeacon.new(Monolith.beam_foot(world, spawn), player.camera))   # the sky beam over the spawn
 	player.setup_inventory(player_inv, mining, world.prop_material)
 	mark.call("spawn")
 	atmosphere.setup(world, player.camera)
@@ -145,6 +161,8 @@ func _ready() -> void:
 	player.map_requested.connect(_open_map)
 	player.lookup_requested.connect(_lookup)
 	player.died.connect(_on_died)
+	death_screen = DeathScreen.new()
+	add_child(death_screen)
 	player.block_used.connect(_on_block_used)
 	player.landed.connect(trample)
 	player.farm = farming
@@ -458,6 +476,8 @@ func _ready() -> void:
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(player.warm_materials(), player.camera)
 		warmup.add_meshes([StationEntity.model_mesh(), StationEntity.model_mesh("chest"), StationEntity.model_mesh("furnace"), StationEntity.model_mesh("furnace_lit"), StationEntity.ghost_mesh("chest"), BlockMeshes.sprite("torch"), BlockMeshes.sprite("iron_ore")], player.camera)   # the stations; item sprites, extruded and cube (held and dropped)
+	ApeDust.warm(player.camera)   # the death and rebuild (ADR 0098)
+	death_screen.warm()
 	# chips, dust, splashes, smoke, hearts, lava pops, drips and waterfall spray (scripts/visuals/particle_fx.gd)
 	if Settings.particles:
 		fx = ParticleFx.load_default()
@@ -555,6 +575,25 @@ func _find_spawn() -> Vector2i:
 	return Vector2i.ZERO
 
 
+## The Gelvin monolith (ADR 0098, Monolith): up to 48 of its boxes per frame, round robin; a box whose
+## chunks are not loaded yet stays for a later frame. Saved as done, so a world raises it once.
+func _raise_monolith() -> void:
+	if _monolith_boxes.is_empty():
+		_monolith_boxes = Monolith.boxes(world, _monolith_spawn)
+	for _k in mini(48, _monolith_boxes.size()):
+		_monolith_next %= _monolith_boxes.size()
+		var b: Array = _monolith_boxes[_monolith_next]
+		if bubble.fill_box(b[0], b[1], b[2]) >= 0:
+			_monolith_boxes.remove_at(_monolith_next)
+			if _monolith_boxes.is_empty():
+				_monolith_up = true
+				print("monolith raised at %s" % Monolith.centre(_monolith_spawn))
+				if waypoints:
+					waypoints.add("Monolith", Vector3i(Monolith.beam_foot(world, _monolith_spawn)), "", Color("#ff3ad8"))
+				return
+		else:
+			_monolith_next += 1
+
 func _process(delta: float) -> void:
 	var _pt0 := Time.get_ticks_usec()
 	_process_timed(delta)
@@ -565,6 +604,8 @@ func _process_timed(delta: float) -> void:
 	Inventory.clock_s += delta   # play time: hot metal cools against it (ADR 0042)
 	bubble.follow(player.position)
 	stains.follow(player.position)
+	if not _monolith_up:
+		_raise_monolith()
 
 
 func _physics_process(delta: float) -> void:
@@ -854,7 +895,7 @@ func _sync_far_layer(in_play := true) -> void:
 func _player_dict() -> Dictionary:
 	var p := player.position
 	var s := _spawn_pos
-	return {"version": 1, "pos": [p.x, p.y, p.z], "yaw": player._yaw, "pitch": player._pitch, "spawn": [s.x, s.y, s.z],
+	return {"version": 1, "pos": [p.x, p.y, p.z], "yaw": player._yaw, "pitch": player._pitch, "spawn": [s.x, s.y, s.z], "deaths": deaths, "monolith": _monolith_up,
 		"game_mode": player.game_mode, "flying": player.flying, "health": player_inv.health, "selected": player_inv.selected,
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
 		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s,
@@ -872,6 +913,8 @@ func _load_player() -> void:
 	var s: Array = d.get("spawn", [])
 	if s.size() == 3:
 		_spawn_pos = Vector3(s[0], s[1], s[2])
+	deaths = int(d.get("deaths", 0))
+	_monolith_up = bool(d.get("monolith", false))
 	player.set_look(float(d.get("yaw", 0.0)), float(d.get("pitch", 0.0)))
 	var mode := GameMode.parse(String(d.get("game_mode", player.game_mode)))
 	if mode != "":
@@ -1738,9 +1781,37 @@ func _on_screen_closed(dropped: Array) -> void:
 
 
 func _on_died() -> void:
-	print("player died at %s, respawning" % player.position)
+	if _dying:
+		return   # hunger, cold, a bite... keep landing while the apetion is rebuilt
+	print("player died at %s (%s), respawning" % [player.position, player_inv.last_cause])
 	if GameMode.rule(player.game_mode, "consumes_items"):
 		_make_grave(Vector3i(player.position.floor()))   # survival: it all stays where you fell (plan item D12)
+	deaths += 1
+	if DebugCapture.tp_test:
+		_respawn()   # tp_test times the bare respawn
+		return
+	# ADR 0098: in third person the body crumbles to powder, the Gelvin terminal rebuilds it, and at
+	# the bed or spawn it swirls back together out of thin air before the view returns to the eyes
+	_dying = true
+	var view := player.perspective
+	var mode := player.process_mode
+	player.process_mode = Node.PROCESS_MODE_DISABLED   # frozen where it fell
+	player.set_perspective(1)
+	var dust := ApeDust.crumble(player.model, player, self)
+	await dust.finished
+	await get_tree().create_timer(0.4).timeout
+	await death_screen.play(deaths, player_inv.last_cause, _respawn)
+	dust.queue_free()
+	player.set_perspective(1)   # respawn_at may move the camera; the body stays hidden until built
+	dust = ApeDust.assemble(player.model, player, self)
+	await dust.finished
+	dust.queue_free()
+	player.set_perspective(view)
+	player.process_mode = mode
+	_dying = false
+
+
+func _respawn() -> void:
 	player.respawn_at(_spawn_pos)
 	if survival:
 		survival.reset()
@@ -1802,7 +1873,7 @@ func _burn_hands() -> void:
 	if chat:
 		chat.add_message("Too hot to hold: pick hot metal up with tongs in the other hand.")
 	if GameMode.rule(player.game_mode, "takes_damage"):
-		player_inv.damage(Settings.hot_hand_damage)
+		player_inv.damage(Settings.hot_hand_damage, "hot metal in bare hands")
 		if player_inv.is_dead():
 			player.died.emit()
 

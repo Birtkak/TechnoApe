@@ -23,6 +23,9 @@ uniform float lava_glow = 2.4;      // > 1 so lava and fire bloom
 uniform float fire_glow = 2.0;
 uniform float flame_tile = 120.0;   // torch flames (ADR 0053): an 8-colour patterned flame that glows and flickers
 uniform float flame_glow = 1.25;
+uniform float rune_tile = 174.0;   // the Gelvin monolith (ADR 0098): its magenta texels glow and breathe
+uniform float seam_tile = 175.0;
+uniform float rune_glow = 2.6;
 uniform float face_tint_side = 0.86; // x/z faces vs the top (bottom darker still)
 uniform float face_tint_bottom = 0.62;
 uniform float water_specular = 0.55;
@@ -187,6 +190,9 @@ vec3 tile_emission(float idx, vec3 c) {
 	} else if (abs(idx - flame_tile) < 0.5) {
 		// each colour of the flame breathes at its own phase: the flame flickers without a remesh
 		return c * flame_glow * (0.8 + 0.2 * sin(TIME * 9.0 + c.g * 23.0) + 0.08 * sin(TIME * 23.0 + c.r * 11.0));
+	} else if (abs(idx - rune_tile) < 0.5 || abs(idx - seam_tile) < 0.5) {
+		// only the magenta texels (runes, seam) glow, not the stone around them
+		return c * rune_glow * step(0.25, min(c.r, c.b) - c.g) * (0.8 + 0.2 * sin(TIME * 1.3));
 	}
 	return vec3(0.0);
 }

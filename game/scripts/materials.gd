@@ -151,6 +151,9 @@ const PYRITE := 200                # placed by E's generator for part F (striker
 const RED_OCHRE := 201
 const YELLOW_OCHRE := 202
 const TNT := 203                   # placeable explosive (ADR 0065): a charge per 0.5 m block, lit by Tnt, never burnt by the sim
+const MONOLITH := 204              # the Gelvin monolith (ADR 0098): ashlar, rune bands, the glowing seam; never mined or blasted
+const MONOLITH_RUNE := 205
+const MONOLITH_SEAM := 206
 
 const ATLAS_TILES := Vector2i(8, 22)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -266,6 +269,10 @@ static func _build_defs() -> Array:
 	] + _reserved_defs(122, 126) + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
 		# 203 (ADR 0065): TNT. Not burnable: the sim would burn it away; Tnt lights it when fire touches it.
 		{"name": "tnt", "cell_type": "solid", "pattern": true, "density": 6, "hp": 50, "tiles": [172, 171, 172], "transparent": false},
+		# 204..206 (ADR 0098): the Gelvin monolith and its plaza. Not in mining.json and hp past Tnt.NEVER_HP: indestructible.
+		{"name": "monolith", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [173, 173, 173], "transparent": false},
+		{"name": "monolith_rune", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [174, 174, 174], "transparent": false},
+		{"name": "monolith_seam", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [175, 175, 175], "transparent": false},
 	]
 
 
@@ -629,6 +636,11 @@ static func is_station(id: int) -> bool:
 
 ## True for a plain terrain voxel: a solid or powder cube with no entity,
 ## station or model of its own. Items placing one count in voxels (ADR 0034).
+## The Gelvin monolith (ADR 0098): no dig, brush or paint touches it, not even in creative.
+static func is_monolith(id: int) -> bool:
+	return id >= MONOLITH and id <= MONOLITH_SEAM
+
+
 static func is_plain_voxel(id: int) -> bool:
 	if id <= 0 or id > defs().size():
 		return false

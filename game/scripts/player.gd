@@ -722,7 +722,7 @@ func _update_fall_damage() -> void:
 		var dmg := fall_damage(fall_m, wet)
 		if dmg > 0 and inventory and GameMode.rule(game_mode, "takes_damage"):
 			print("fall damage %d after %.1f m" % [dmg, fall_m])
-			inventory.damage(dmg)
+			inventory.damage(dmg, "impact (fall %.0f m)" % fall_m)
 			if inventory.is_dead():
 				died.emit()
 	if on_floor or position.y > _fall_peak_y:
@@ -761,7 +761,7 @@ func _update_air(delta: float) -> void:
 			if _drown_t <= 0.0:
 				_drown_t = 1.0
 				if inventory:
-					inventory.damage(Settings.drown_damage)
+					inventory.damage(Settings.drown_damage, "drowning")
 					if inventory.is_dead():
 						died.emit()
 	if hud:
@@ -802,7 +802,7 @@ func _update_stains(delta: float) -> void:
 				break
 	var dmg := stains.update(delta, touching)
 	if dmg > 0 and inventory and GameMode.rule(game_mode, "takes_damage"):
-		inventory.damage(dmg)
+		inventory.damage(dmg, "exposure (burning or toxic coat)")
 	_drip_timer -= delta
 	if _drip_timer <= 0.0:
 		_drip_timer = DRIP_EVERY_S
@@ -1060,7 +1060,7 @@ func _dig_selection(p: Vector3i, size: int) -> Array[Vector3i]:
 	var times := {}
 	for c in Brush.dig_cells(p, size, brush_shape, _dig_normal):
 		var m := world.get_voxel(c)
-		if m <= 0 or not (GameMaterials.is_plain_voxel(m) or _is_plant(m)):
+		if m <= 0 or GameMaterials.is_monolith(m) or not (GameMaterials.is_plain_voxel(m) or _is_plant(m)):
 			continue
 		if creative:
 			out.append(c)
@@ -1078,7 +1078,7 @@ func _dig_selection(p: Vector3i, size: int) -> Array[Vector3i]:
 ## so a full 0.5 m cube of dirt takes what a Minecraft block did (ADR 0034).
 func _dig_time(p: Vector3i, cells: Array[Vector3i]) -> float:
 	var hit_mat := world.get_voxel(p)
-	if hit_mat <= 0:
+	if hit_mat <= 0 or GameMaterials.is_monolith(hit_mat):
 		return -1.0
 	if GameMode.rule(game_mode, "instant_break"):
 		return 0.0

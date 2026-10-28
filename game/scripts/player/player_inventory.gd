@@ -782,9 +782,13 @@ func close_screen() -> Array:
 
 # ---------------- health ----------------
 
-func damage(amount: int) -> void:
+var last_cause := ""   # what hurt last: the death screen names it (docs/design/lore.md)
+
+
+func damage(amount: int, cause: String = "unknown") -> void:
 	if amount <= 0:
 		return
+	last_cause = cause
 	health = maxi(0, health - amount)
 	health_changed.emit(health)
 

@@ -18,6 +18,7 @@ Tiles (index = row*4 + col):
 116 carrot leaves 117 carrot shoulder, 118 torch stick 119 torch wrap 120 torch flame (ADR 0053); 121-135 reserved (parts C, D)
 136-170 rock kinds, cobbles, bricks, clutter, pyrite and ochres (tools/atlas_rocks.py, ADR 0057)
 171 tnt side 172 tnt top (patterned: a 4-voxel period, one 0.5 m TNT block per period; ADR 0065)
+173 monolith ashlar 174 monolith runes 175 monolith seam (patterned, 16-voxel period; runes and seam glow, ADR 0098)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import math
@@ -931,6 +932,74 @@ def tnt(top):
 
 assert len(tiles) == 171, len(tiles)
 tiles += [tnt(False), tnt(True)]   # 171 tnt side, 172 tnt top (ADR 0065)
+
+
+def _px(img, x, y, c, rng, d=6):
+    v = rng.randint(-d, d)
+    img.putpixel((x, y), tuple(max(0, min(255, k + v)) for k in c) + (255,))
+
+
+def monolith_ashlar():
+    """Gelvin monolith stone, patterned (16 voxels = 2 m): 2 m x 1 m blocks in offset courses, dark
+    joints, a pale chipped top edge. Albedo near the rune tile's stone so bands blend."""
+    img = Image.new("RGBA", (TILE, TILE))
+    rng = random.Random(173)
+    for y in range(TILE):
+        for x in range(TILE):
+            off = 0 if y < 8 else 8
+            ix, iy = (x + off) % 16, y % 8
+            if iy == 7 or ix == 0:
+                c = (34, 32, 40)                       # joint
+            elif iy == 0 and rng.random() < 0.6:
+                c = (118, 114, 126)                    # worn top edge
+            else:
+                c = (78, 75, 88) if rng.random() > 0.08 else (58, 55, 66)
+            _px(img, x, y, c, rng)
+    return img
+
+
+GLYPHS = ["0100010", "0110110", "0011100", "0001000", "0011100", "0110110", "0100010",
+          "0111110", "0100010", "0101010", "0100010", "0111110", "0001000", "0001000",
+          "0001000", "0011000", "0101000", "0001110", "0001010", "0001001", "0001000",
+          "1000001", "0100010", "0010100", "0011100", "0001000", "0001000", "0001000"]
+
+
+def monolith_runes():
+    """A carved band: two glowing magenta glyphs per 2 m between thin glowing rules, on dark stone
+    (the shader glows only the magenta texels, ADR 0098)."""
+    img = Image.new("RGBA", (TILE, TILE))
+    rng = random.Random(174)
+    pink = (255, 60, 220)
+    for y in range(TILE):
+        for x in range(TILE):
+            c = (38, 36, 44) if rng.random() > 0.1 else (28, 26, 34)
+            if y in (1, 14):
+                c = pink
+            elif y in (0, 15):
+                c = (24, 22, 30)
+            _px(img, x, y, c, rng)
+    for g, ox in ((0, 0), (2, 8)):
+        for gy in range(7):
+            for gx in range(7):
+                rows = GLYPHS[g * 7:(g + 1) * 7]
+                if rows[gy][gx] == "1":
+                    _px(img, ox + gx, 4 + gy, pink, rng, 18)
+    return img
+
+
+def monolith_seam():
+    """The seam between the two columns: raw magenta light, hot white veins."""
+    img = Image.new("RGBA", (TILE, TILE))
+    rng = random.Random(175)
+    for y in range(TILE):
+        for x in range(TILE):
+            r = rng.random()
+            c = (255, 210, 250) if r < 0.08 else (240, 40, 210) if r < 0.6 else (190, 20, 170)
+            _px(img, x, y, c, rng, 10)
+    return img
+
+
+tiles += [monolith_ashlar(), monolith_runes(), monolith_seam()]   # 173..175 (ADR 0098)
 assert len(tiles) <= COLS * ROWS, len(tiles)
 
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))

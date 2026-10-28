@@ -430,7 +430,7 @@ func _quests(args: PackedStringArray) -> Dictionary:
 func _kill(_args: PackedStringArray) -> Dictionary:
 	if player == null or player_inv == null:
 		return CommandRegistry.fail("No player")
-	player_inv.damage(player_inv.health)   # bypasses creative: /kill works in every mode
+	player_inv.damage(player_inv.health, "termination order (/kill)")   # bypasses creative: /kill works in every mode
 	player.died.emit()
 	return CommandRegistry.ok("Killed the ape")
 

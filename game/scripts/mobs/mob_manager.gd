@@ -647,7 +647,7 @@ func maul_player(m: Mob, damage: int) -> void:
 		return
 	if main.stone_age and main.stone_age.clothing:
 		damage = main.stone_age.clothing.armor_cut(damage)
-	main.player_inv.damage(damage)
+	main.player_inv.damage(damage, "%s attack" % m.species)
 	var away: Vector3 = main.player.position - m.position
 	away.y = 0.0
 	if away.length() > 0.01:

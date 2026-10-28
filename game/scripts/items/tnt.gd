@@ -503,7 +503,7 @@ func _hit_entities(pos: Vector3, r: float) -> void:
 		p.knock((away + Vector3(0, 0.6, 0)).normalized() * Settings.m2v(Settings.tnt_knockback_m) * f)
 		var dmg := roundi(Settings.tnt_damage * power * f)
 		if dmg > 0 and GameMode.rule(p.game_mode, "takes_damage") and main.player_inv:
-			main.player_inv.damage(dmg)
+			main.player_inv.damage(dmg, "explosion")
 			if main.player_inv.is_dead():
 				p.died.emit()
 		stats["entities_hit"] += 1

@@ -95,3 +95,9 @@ grid for centring, the panel's wording.
   (the measurement runs and the look at seed 272905368; the dig / place run at the report's seed
   1078288609 and spot).
 - The sim extension is rebuilt (`prototypes/p5-sim-spike`, `SimWorld::try_loosen`).
+
+## Amendment 2026-10-27: view distances past the budget
+The developer asked for view distances up to 100 m. The menu now offers 24, 32, 40, 56, 72 and 100 m
+(`Settings.VIEW_CHOICES_M`, `MAX_VIEW_M` 100); the default and the high preset stay 40 m. Measured on the
+dev box (autopilot, seed 1337, vsync off): 40 m p99 2.7 ms, max 9 ms, budget OK; 100 m p99 7.9 ms but
+80 frames over 16.7 ms (worst 238 ms) and 4.7 GB RSS, so past 40 m the budget does not hold.

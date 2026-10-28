@@ -435,9 +435,9 @@ func _finish() -> void:
 	if _others_task >= 0:
 		WorkerThreadPool.wait_for_task_completion(_others_task)
 	s["other_godot_processes"] = maxi(host["other_godot"], _others_max)   # > 0 at any probe: timings shared the machine
-	# ADR 0009 reference-machine budget, after load: p99 <= 8.3 ms, no frame > 16.7 ms, RAM <= 4 GB, VRAM <= 6 GB
+	# ADR 0009 reference-machine budget, after load: p99 <= 8.3 ms, no frame > 16.7 ms, RAM <= 8 GB (raised from 4 GB, developer 2026-10-27), VRAM <= 6 GB
 	s["budget"] = {"p99": s["p99_frame_ms"] <= 8.3, "max": s["max_frame_ms"] <= 16.7,
-		"ram": s["rss_mb"] >= 0.0 and s["rss_mb"] <= 4096.0, "vram": s["vram_mb"] <= 6144.0, "loaded": _loaded_at >= 0.0}
+		"ram": s["rss_mb"] >= 0.0 and s["rss_mb"] <= 8192.0, "vram": s["vram_mb"] <= 6144.0, "loaded": _loaded_at >= 0.0}
 	# frames are counted only after load, so a run that never settled is judged on a
 	# streaming world from SETTLE_CAP_S on: still a valid budget check, flagged in load_settled
 	s["budget_ok"] = not s["budget"].values().has(false)

@@ -32,7 +32,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
    and disk explicitly, always pick the discrete GPU and log it, ship every
    system with a benchmark. See vision.md "Engineering requirements".
    Reference machine = the dev box (ADR 0009): default settings must hold
-   p99 frame <= 8.3 ms, no frame > 16.7 ms after load, RAM <= 4 GB, VRAM <= 6 GB.
+   p99 frame <= 8.3 ms, no frame > 16.7 ms after load, RAM <= 8 GB (4 GB until 2026-10-27), VRAM <= 6 GB.
 10. **Debug tools are for Claude too.** Anything about the running game must
     be reachable without eyes: JSON stats on stdout, log files, state dumps,
     and frame capture. To *watch* motion, capture a filmstrip (thumbnail

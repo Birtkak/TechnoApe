@@ -171,7 +171,7 @@ func _hunger_step(delta: float, fast: bool) -> void:
 		_starve_t += delta
 		if _starve_t >= Settings.starve_s:
 			_starve_t = 0.0
-			inv.damage(1)   # starving kills, like Vintage Story (the developer's call)
+			inv.damage(1, "starvation")   # starving kills, like Vintage Story (the developer's call)
 			stats["starved"] += 1
 			if inv.is_dead():
 				player.died.emit()
@@ -199,7 +199,7 @@ func _harm_step(delta: float) -> void:
 	_hurt_t += delta
 	if _hurt_t >= every:
 		_hurt_t = 0.0
-		player.inventory.damage(1)
+		player.inventory.damage(1, "hypothermia" if body_c < Settings.freeze_c else "heatstroke")
 		stats["froze" if body_c < Settings.freeze_c else "overheated"] += 1
 		if player.inventory.is_dead():
 			player.died.emit()
