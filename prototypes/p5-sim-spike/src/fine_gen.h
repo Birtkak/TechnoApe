@@ -21,6 +21,60 @@
 
 namespace godot {
 
+// A cache shared by the generation threads (ADR 0105): the first thread to need a key builds its value, the
+// others asking at the same time wait for that build instead of repeating it; the oldest keys go first.
+template <typename V>
+class SharedCache {
+public:
+    explicit SharedCache(int capacity) : per_shard_(capacity / SHARDS) {}
+    // The value for key (built by build() if absent); built = this call built it.
+    template <typename F>
+    std::shared_ptr<const V> get(uint64_t key, F &&build, bool *built = nullptr) {
+        Shard &sh = shards_[(key ^ (key >> 29)) % SHARDS];
+        std::shared_ptr<Slot> slot;
+        {
+            std::lock_guard<std::mutex> l(sh.lock);
+            auto it = sh.map.find(key);
+            if (it != sh.map.end()) {
+                slot = it->second;
+            } else {
+                while ((int)sh.map.size() >= per_shard_ && !sh.order.empty()) {
+                    sh.map.erase(sh.order.front());
+                    sh.order.pop_front();
+                }
+                slot = std::make_shared<Slot>();
+                sh.map.emplace(key, slot);
+                sh.order.push_back(key);
+            }
+        }
+        bool b = false;
+        std::call_once(slot->once, [&]() { slot->v = build(); b = true; });
+        if (built) *built = b;
+        return slot->v;
+    }
+    void clear() {
+        for (int i = 0; i < SHARDS; i++) {
+            std::lock_guard<std::mutex> l(shards_[i].lock);
+            shards_[i].map.clear();
+            shards_[i].order.clear();
+        }
+    }
+
+private:
+    static constexpr int SHARDS = 64;
+    struct Slot {
+        std::once_flag once;
+        std::shared_ptr<const V> v;
+    };
+    struct Shard {
+        std::mutex lock;
+        std::unordered_map<uint64_t, std::shared_ptr<Slot>> map;
+        std::deque<uint64_t> order;
+    };
+    int per_shard_;
+    std::unique_ptr<Shard[]> shards_ = std::make_unique<Shard[]>(SHARDS);
+};
+
 class FineGen : public RefCounted {
     GDCLASS(FineGen, RefCounted)
 
@@ -136,26 +190,26 @@ private:
         int hmax_m = 0, wl_max = 0, fall_max = -1;
         float hmin_m = 1e9f;
         int feat_top = 0;   // highest tree or stamp voxel over the footprint at any height (0: none)
+        // the trees (from the tree caches) and stamps reaching the footprint at any height, in drawing order
+        std::vector<std::shared_ptr<const FTree>> trees;
+        size_t n_mature = 0;
+        std::vector<FStamp> stamps;
     };
-    static constexpr int CTX_SHARDS = 64, CTX_PER_SHARD = 1024;   // 64k footprints: a 100 m box holds ~10k, a flight crosses more
-    // One footprint's slot: the first thread to need it builds it, the others (its neighbours in the same stack,
-    // queued at the same distance) wait for that build instead of repeating it.
-    struct CtxSlot {
-        std::once_flag once;
-        std::shared_ptr<const ColumnCtx> ctx;
+    mutable SharedCache<ColumnCtx> ctx_cache_{16384};   // 16k footprints (5-15 KB with their stamps): a 100 m box holds ~10k
+    // A young tree's cell (24 voxels): the tree standing in it, or none, before the ruins near a block decide.
+    struct YoungCell {
+        bool any = false;
+        int mx = 0, mz = 0;
+        FTree t;
     };
-    struct CtxShard {
-        std::mutex lock;
-        std::unordered_map<uint64_t, std::shared_ptr<CtxSlot>> map;
-        std::deque<uint64_t> order;   // insertion order: the oldest footprint goes first (the box leaves it behind)
-    };
-    mutable std::unique_ptr<CtxShard[]> ctx_cache_ = std::make_unique<CtxShard[]>(CTX_SHARDS);
+    mutable SharedCache<FTree> tree_cache_{16384};       // built mature trees (~2.3 KB) by trunk position
+    mutable SharedCache<YoungCell> young_cache_{16384};
     std::shared_ptr<const ColumnCtx> column_ctx(Vector3i origin, Vector3i size, int lod) const;
     std::shared_ptr<const ColumnCtx> build_column_ctx(Vector3i origin, Vector3i size, int lod) const;
     // Trees and stamps reaching the footprint at any height, in the order the block pass draws them; n_mature
     // = how many of the trees come from WorldGen's tree list (young trees follow).
     void gather_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, int lod,
-                         std::vector<FTree> &trees, size_t &n_mature, std::vector<FStamp> &stamps) const;
+                         std::vector<std::shared_ptr<const FTree>> &trees, size_t &n_mature, std::vector<FStamp> &stamps) const;
 
     Ref<WorldGen> g_;
     bool uniform_blocks_ = false;
@@ -169,7 +223,7 @@ private:
     void build_tree(int kind, float fx, float fz, int trunk_h, int radius, float age, bool old_growth, uint32_t seed, FTree &out) const;
     bool col_tree(const FTree &t, float x, float z, float grow, ColTree &out) const;
     uint16_t tree_voxel(const ColTree &c, float x, int y, float z, float grow, float &leaf_n) const;
-    void young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<FTree> &out) const;
+    void young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<std::shared_ptr<const FTree>> &out) const;
     void build_stamp(const WorldGen::Stamp &s, FStamp &out) const;
     void floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, bool clutter, std::vector<FStamp> &out) const;
     // Clutter piece voxel at (dx, dy, dz) from its stamp's centre column and ground (dy = 0: the first voxel above it).

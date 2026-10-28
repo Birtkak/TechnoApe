@@ -60,6 +60,25 @@ where the workers go at 100 m: 61 % of the blocks were sky at 145 us each, 39 % 
 Full blocks are now ~70 % of the worker time: the per-voxel pass of surface blocks and of rock with a cave in it
 is the next target. The 40 m box: p99 3.5 ms, no backlog.
 
+## Generation and streaming, second pass (same day)
+Stage timers in the full pass (removed again) showed a full block at ~720 us: 280 before the voxel loop (151 of it
+the tree and stamp search, repeated for every block of a stack), 209 of per-column setup, 189 in the voxel loop.
+- Trees are built once and shared: mature ones by trunk position, young ones by their cell (`SharedCache`,
+  build once, waiting threads share the build, FIFO). The footprint context keeps its trees (pointers) and stamps,
+  so a block only cuts them to its height band. The context cache is capped at 16k footprints (RAM).
+- Per column: plants, tufts, sticks, leaf litter and seagrass are skipped where the block lies wholly under the
+  column's top voxel; the vein and stringer lookups run once per 0.5 m column instead of per 12.5 cm column.
+- godot_voxel (`voxel_patch_apply_budget.py`): finished tasks are applied for at most 4 ms a frame, the rest wait in
+  order (a frame had applied 17,700 at once: 68 ms). `voxel_patch_unload.py` takes `loading_blocks_mutex` in
+  chunks of 256 and yields to the main thread while it applies results: Windows mutexes are not fair, and the
+  update task's 10k-block slabs starved it 7-22 ms per wait.
+- Tried and reverted: slicing `VoxelData::view_area` / `unview_area` the same way (the 32 ms `try_set_block`
+  wait stayed, and the update task got slower: p99 16-20 ms).
+
+`gen_hash` unchanged throughout. 100 m, 20 s flight, three runs: p99 7.8 / 9.7 / 9.6 ms (was 13-17), frames over
+16.7 ms 6 / 19 / 12 (was ~60), worst 35-38 ms; ~870 k blocks generated (was 470 k); RSS 4.6 GB. The generation
+queue still does not catch up in flight (~0.9 M pending, 70-75 % of the time near detail is missing).
+
 ## Consequences
 - The 200 ms stalls are gone; 100 m is still over budget (p99 15 ms, frames over 16.7 ms). In flight the
   generation queue never catches up: generation throughput and per-task overhead for ~1 M mostly

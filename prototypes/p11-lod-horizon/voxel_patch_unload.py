@@ -72,3 +72,63 @@ patch(C, '''					if (tls_missing_blocks.size() > 0) {
 							}
 						}
 					}''')
+
+# The same loops held loading_blocks_mutex for ~15 ms per slab (10k blocks), and the main thread waited for
+# it on every finished block in that time: they now let go of it every LOCK_CHUNK blocks. Each entry is
+# consistent on its own under the lock, so the main thread may run between chunks.
+patch(C, '''						ZN_PROFILE_SCOPE_NAMED("Add loading blocks");
+						MutexLock mlock(lod.loading_blocks_mutex);
+						for (const Vector3i bpos : tls_missing_blocks) {
+							add_loading_block(lod, bpos, lod_index, data_blocks_to_load);
+						}''', '''						ZN_PROFILE_SCOPE_NAMED("Add loading blocks");
+						constexpr size_t LOCK_CHUNK = 256; // TechnoApe ADR 0105
+						for (size_t i0 = 0; i0 < tls_missing_blocks.size(); i0 += LOCK_CHUNK) {
+							MutexLock mlock(lod.loading_blocks_mutex);
+							for (size_t i = i0; i < tls_missing_blocks.size() && i < i0 + LOCK_CHUNK; ++i) {
+								add_loading_block(lod, tls_missing_blocks[i], lod_index, data_blocks_to_load);
+							}
+						}''')
+patch(C, '''					if (tls_found_blocks_positions.size() > 0) {
+						MutexLock mlock(lod.loading_blocks_mutex);
+						for (const Vector3i bpos : tls_found_blocks_positions) {
+							// emit_data_block_unloaded(bpos);
+
+							// TODO If they were loaded, why would they be in loading blocks?
+							// Maybe to make sure they are not in here regardless
+							lod.loading_blocks.erase(bpos);
+						}
+					}''', '''					for (size_t i0 = 0; i0 < tls_found_blocks_positions.size(); i0 += 256) {
+						// TechnoApe ADR 0105: in chunks, see "Add loading blocks"
+						MutexLock mlock(lod.loading_blocks_mutex);
+						for (size_t i = i0; i < tls_found_blocks_positions.size() && i < i0 + 256; ++i) {
+							// TODO If they were loaded, why would they be in loading blocks?
+							// Maybe to make sure they are not in here regardless
+							lod.loading_blocks.erase(tls_found_blocks_positions[i]);
+						}
+					}''')
+patch(C, '''						{
+							MutexLock mlock(lod.loading_blocks_mutex);
+							for (const Vector3i bpos : tls_missing_blocks) {
+								unreference_data_block_from_loading_lists(lod.loading_blocks, tls_dropped_requests, bpos);
+							}
+						}''', '''						for (size_t i0 = 0; i0 < tls_missing_blocks.size(); i0 += 256) {
+							// TechnoApe ADR 0105: in chunks, see "Add loading blocks"
+							MutexLock mlock(lod.loading_blocks_mutex);
+							for (size_t i = i0; i < tls_missing_blocks.size() && i < i0 + 256; ++i) {
+								unreference_data_block_from_loading_lists(lod.loading_blocks, tls_dropped_requests, tls_missing_blocks[i]);
+							}
+						}''')
+
+# Before each chunk the worker lets the main thread through first (voxel_patch_apply_budget.py raises the flag
+# while it applies finished tasks; Windows mutexes are not fair, so a bare unlock/relock starved it).
+s = open(root + '/' + C, encoding='utf-8').read()
+n = s.count('\t\t\t\t\t\t\tMutexLock mlock(lod.loading_blocks_mutex);\n\t\t\t\t\t\t\tfor (size_t i = i0;')
+n += s.count('\t\t\t\t\t\tMutexLock mlock(lod.loading_blocks_mutex);\n\t\t\t\t\t\tfor (size_t i = i0;')
+assert n == 3, n
+for ind in ('\t\t\t\t\t\t\t', '\t\t\t\t\t\t'):
+    s = s.replace(ind + 'MutexLock mlock(lod.loading_blocks_mutex);\n' + ind + 'for (size_t i = i0;',
+                  ind + 'while (g_main_applying_results.load(std::memory_order_relaxed)) {\n' + ind + '\tstd::this_thread::yield();\n' + ind + '}\n'
+                  + ind + 'MutexLock mlock(lod.loading_blocks_mutex);\n' + ind + 'for (size_t i = i0;')
+s = s.replace('#include "voxel_lod_terrain_update_clipbox_streaming.h"\n', '#include "voxel_lod_terrain_update_clipbox_streaming.h"\n#include "../../util/tasks/threaded_task_runner.h"\n#include <thread>\n', 1)
+open(root + '/' + C, 'w', encoding='utf-8', newline='\n').write(s)
+
