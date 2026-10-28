@@ -14,6 +14,7 @@ The real project. Prototypes live in `../prototypes/`; decisions in
 #       /gamemode creative|survival (creative: F or double-tap Space flies, instant break, endless blocks,
 #       middle click picks a block, LMB on the recipe list takes a stack); F3 Minecraft-style debug screen;
 #       F4 (or the Debug button top right) playtest menu with saved start options; F9 bug report; F2 screenshot.
+#       F6 tuning panel: every Settings var as a live control; Save keeps changes in user://tune.cfg, Reset drops them.
 #       Playing from the editor starts minimized (turn off in F4 start options or with minimized=0).
 #       Bug reports land in game/out/bug_reports/<time>/ (report.md, state.json, screenshot.png, log.txt).
 Godot_v4.7.2-stable_mono_win64_console.exe --path game
@@ -137,7 +138,7 @@ Godot_..._console.exe --path game --resolution 1280x720 -- autopilot=1 walk=1 sp
 # Scripted checks: commands=... runs chat commands at start, commands_after=/tp 46 1030 194;wait 6;/blast 2 lava runs them once
 #       the world has loaded ("wait N" pauses N s); with pitch=-1.3 the blast lands at the player's feet. A lava ball in a river
 #       (ADR 0068): read sim.still_woken, active_chunks and tick_ms from the JSON line; they must settle, not grow
-# Finite water (ADR 0068): water_test=1 next to a river digs a trench into its bank and blasts a crater, and checks both took
+# Endless world water (ADR 0104, the test is from 0068): water_test=1 next to a river digs a trench into its bank and blasts a crater, and checks both took
 #       water from the river, nothing above its level, nothing past the trench, the sim went quiet; prints "debug water {...}"
 #       (ok true), water_before/after.png
 Godot_..._console.exe --path game -- autopilot=1 target=river walk=1 speed=0 duration=50 mob_spawn=0 load_cap_s=30 water_test=1 out=res://out/water

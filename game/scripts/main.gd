@@ -22,6 +22,7 @@ var commands: CommandRegistry      # slash commands (ADR 0018)
 var game_commands: GameCommands
 var chat: ChatBox
 var debug_menu: DebugMenu
+var tune_panel: TunePanel
 var tools_menu: ToolsMenu            # the world tools panel on G (ADR 0071)
 var _tick_accum := 0.0
 var _save_accum := 0.0
@@ -274,6 +275,12 @@ func _ready() -> void:
 	add_child(debug_menu)
 	debug_menu.opened.connect(_on_overlay_opened)
 	debug_menu.closed.connect(_on_overlay_closed)
+	tune_panel = TunePanel.new()
+	tune_panel.name = "TunePanel"
+	tune_panel.can_open = _can_open_overlay
+	add_child(tune_panel)
+	tune_panel.opened.connect(_on_overlay_opened)
+	tune_panel.closed.connect(_on_overlay_closed)
 	tools_menu = ToolsMenu.new()
 	tools_menu.name = "ToolsMenu"
 	tools_menu.main = self

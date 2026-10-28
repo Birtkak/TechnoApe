@@ -336,6 +336,7 @@ func apply_cmdline() -> Dictionary:
 	if not OS.get_cmdline_user_args().has("autopilot=1"):
 		load_user_settings()    # the player's options (ADR 0032)
 		load_playtest_prefs()   # the debug menu's start options; command-line values below still win
+		TunePanel.load_tune()   # the F6 tuning panel's saved values (user://tune.cfg)
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=")
 		if kv.size() != 2:
