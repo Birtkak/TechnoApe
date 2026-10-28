@@ -11,7 +11,7 @@
 - **2026-10-23:** jobs 1-4 (micro simulation, chisel, far field and near field of the brick world) are
   gone with the brick world (ADR 0033, 0036): one 12.5 cm grid, chiseling is the brush at size 1. Job
   numbers 5-8 are kept so older references still point at the right job.
-- Next free ADR number: **0037** (0031 = frame breakdown, 0032 = title screen, 0033 = Lay of the Land world, 0034 = brushes, 0035 = landforms and forests, 0036 = voxel world only); older note: (0028 = progression book, 0029 = micro simulation window, 0030 = Flint Age depth) (0022 = animals, farming and furniture; 0023 = Vintage Story early game; 0024 = content pass; 0025 = calendar and sky; 0026 = particles; 0027 = wildlife).
+- Next free ADR number: **0105** (0104 = world water is endless; the full list is `docs/decisions/`).
 
 Recommended order: 5-7 as Phase 3/4 start. 8 is ongoing.
 
