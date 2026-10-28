@@ -88,6 +88,8 @@ func _ready() -> void:
 	terrain.streaming_system = 1  # CLIPBOX (P2: octree collapses at long range)
 	terrain.lod_fade_duration = 0.0
 	terrain.mesh_block_size = Settings.terrain_mesh_block
+	if terrain.has_method("set_shadow_caster_distance"):   # our godot_voxel build (ADR 0105)
+		terrain.set_shadow_caster_distance(Settings.m2v(Settings.shadow_caster_m))
 	if Settings.ground_shell and terrain.has_method("set_ground_shell"):   # our godot_voxel build (ADR 0105)
 		terrain.set_ground_shell(Callable(generator.gen, "ground_range"), int(Settings.m2v(Settings.shell_below_m)),
 			int(Settings.m2v(Settings.shell_above_m)), int(Settings.m2v(Settings.shell_near_m)))

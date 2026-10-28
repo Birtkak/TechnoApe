@@ -125,6 +125,28 @@ With the band the box fills, and what is left is drawing it: render CPU grows wi
 of mesh blocks and faces does. Next: fewer draw calls (bigger mesh blocks than godot_voxel's 32-voxel maximum)
 and fewer triangles (merging coplanar faces of one material; occlusion of what hills and trees hide).
 
+## Drawing the box (same day, spectator flight)
+- **Band depth:** 8 m under the lowest ground of the columns a mesh block can touch, widened to whole mesh blocks
+  plus one data block (else the block holding the ground never meshes); 80 m where a cave opens to the sky (roof 0:
+  ravines, sinkholes, ramps), so openings seen from afar keep their depth. 24 -> 8 m at 72 m: draw calls 6.8 k -> 4.2 k.
+- **64-voxel mesh blocks** (`voxel_patch_mesh64.py`, now the default): draw calls ~5x fewer than 32 (72 m: 4.3 k ->
+  0.9 k, render CPU p99 8.4 -> 3.4 ms; 100 m: 47.7 -> 20.5 ms p99). An edit remeshes an 8 m block.
+- **Shadow casters:** the sun's shadow pass drew ~2/3 of all triangles (72 m: 18.2 M with shadows, 5.8 M without).
+  Mesh blocks farther than `shadow_caster_m` (40 m) from the camera cast no shadow (`voxel_patch_shadow_casters.py`):
+  72 m 18.2 M -> 12.3 M triangles, frames over 16.7 ms 13 -> 0. Two splits or 24 m each give ~10.6 ms at 72 m; with
+  no shadows 72 m holds the budget (8.2 ms): the base terrain's 5.8 M triangles are the floor.
+- **Tried and dropped:** an occlusion sheet under the ground (Godot occlusion culling, 32 m tiles from
+  `ground_range`): no triangle saved once the band had removed the underground, and tile builds cost main-thread time.
+
+| spectator flight | p99 | frames > 16.7 | triangles | draw calls | GPU p99 | RSS | near detail missing |
+|---|---|---|---|---|---|---|---|
+| 40 m | 6.6 ms | 0 | 11.8 M | 540 | 5.1 ms | 2.5 GB | 6 % |
+| 72 m | 14.9 ms | 7 | 13.1 M | 868 | 9.3 ms | 3.1 GB | 0 % |
+| 100 m | 17.7 ms | 47 | 21.1 M | 1.4 k | 10.1 ms | 4.2 GB | 37 % |
+
+Left: the GPU (base triangles and the shadow pass) and, at 100 m, generation in flight; a first load through the
+save streams every block of the box from SQLite at ~15 k blocks a second (a 100 m box: 30 s and more).
+
 ## Consequences
 - The 200 ms stalls are gone; 100 m is still over budget (p99 15 ms, frames over 16.7 ms). In flight the
   generation queue never catches up: generation throughput and per-task overhead for ~1 M mostly

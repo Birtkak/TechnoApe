@@ -338,7 +338,9 @@ func _process(delta: float) -> void:
 		var pp: Vector3 = _main.player.position
 		var r := Settings.m2v(18.0)
 		var ground := float(_main.world.generator.gen.height_at(int(pp.x), int(pp.z)))
-		var box := AABB(Vector3(pp.x - r, ground - r * 0.5, pp.z - r), Vector3(r * 2.0, r, r * 2.0))
+		# from 3 m under the ground up: deeper is buried, and the ground shell (ADR 0105) does not load it
+		var under := Settings.m2v(3.0)
+		var box := AABB(Vector3(pp.x - r, ground - under, pp.z - r), Vector3(r * 2.0, under + r * 0.5, r * 2.0))
 		var tp := Time.get_ticks_usec()
 		_detail_missing.push_back(0 if _main.world.terrain.is_area_meshed(box, 0) else 1)
 		_probe_ms_max = maxf(_probe_ms_max, (Time.get_ticks_usec() - tp) / 1000.0)

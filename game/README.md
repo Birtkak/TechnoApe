@@ -272,6 +272,8 @@ python <repo>/prototypes/p11-lod-horizon/voxel_patch_stream.py ~/Tools/godot_vox
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_priority.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_boxmover.py ~/Tools/godot_voxel   # ADR 0067: VoxelBoxMover reads per block
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_shell.py ~/Tools/godot_voxel      # ADR 0105: the box follows the ground (set_ground_shell)
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_mesh64.py ~/Tools/godot_voxel     # ADR 0105: 64-voxel mesh blocks
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_shadow_casters.py ~/Tools/godot_voxel   # ADR 0105: far blocks cast no shadow
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_apply_budget.py ~/Tools/godot_voxel   # ADR 0105: finished tasks applied 4 ms a frame; workers yield the loading lock to the main thread
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_profile.py ~/Tools/godot_voxel    # ADR 0105: ta_* main-thread timers in VoxelLodTerrain.get_statistics()
 GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=template_debug use_mingw=yes use_static_cpp=yes -j12

@@ -27,7 +27,9 @@ patch(D, '''		float edit_remesh_rate = 0.f;
 ''')
 patch(D, '''		ClipboxStreamingState clipbox_streaming;''', '''		ClipboxStreamingState clipbox_streaming;
 		// TechnoApe ADR 0105: each data column's (lowest, highest) ground from shell_provider, by column (blocks)
-		StdUnorderedMap<uint64_t, std::pair<int, int>> shell_ground;''')
+		StdUnorderedMap<uint64_t, std::pair<int, int>> shell_ground;
+		// ... and its band of data blocks [first, second), widened to whole mesh blocks (shell_column_ranges)
+		StdUnorderedMap<uint64_t, std::pair<int, int>> shell_band;''')
 
 H = 'terrain/variable_lod/voxel_lod_terrain.h'
 patch(H, '''	void set_edit_remesh_rate(float rate);''', '''	void set_edit_remesh_rate(float rate);
@@ -50,6 +52,7 @@ void VoxelLodTerrain::set_ground_shell(const Callable &provider, int below_voxel
 	s.shell_above = math::max(above_voxels, 0);
 	s.shell_near = math::max(near_voxels, 0);
 	_update_data->state.shell_ground.clear();
+	_update_data->state.shell_band.clear();
 }
 ''')
 patch(C, '''	ClassDB::bind_method(D_METHOD("set_edit_remesh_rate", "rate"), &Self::set_edit_remesh_rate);''', '''	ClassDB::bind_method(D_METHOD("set_edit_remesh_rate", "rate"), &Self::set_edit_remesh_rate);
@@ -125,19 +128,38 @@ ShellRanges shell_column_ranges(
 		return r;
 	}
 	const int bs = 1 << block_size_po2;
-	int lo = INT32_MAX, hi = INT32_MIN;
-	for (int dz = -1; dz <= 1; ++dz) {
-		for (int dx = -1; dx <= 1; ++dx) {
-			const std::pair<int, int> g = shell_column_ground(state, settings, x + dx, z + dz, bs);
-			lo = math::min(lo, g.first);
-			hi = math::max(hi, g.second);
+	// a mesh block meshes only with every data block of its footprint and one ring around loaded, top to bottom:
+	// the band is taken over all the columns a mesh block of this column can touch and widened to whole mesh
+	// blocks plus one data block, so the mesh block holding the ground always meshes
+	const int f = 1 << math::max(int(settings.mesh_block_size_po2) - block_size_po2, 0);
+	auto align = [f](int lo_b, int hi_b) {
+		return std::pair<int, int>(math::floordiv(lo_b, f) * f - 1, (math::floordiv(hi_b - 1, f) + 1) * f + 1);
+	};
+	const uint64_t key = (uint64_t(uint32_t(x)) << 32) | uint32_t(z);
+	auto it = state.shell_band.find(key);
+	std::pair<int, int> band;
+	if (it != state.shell_band.end()) {
+		band = it->second;
+	} else {
+		int lo = INT32_MAX, hi = INT32_MIN;
+		for (int dz = -f; dz <= f; ++dz) {
+			for (int dx = -f; dx <= f; ++dx) {
+				const std::pair<int, int> g = shell_column_ground(state, settings, x + dx, z + dz, bs);
+				lo = math::min(lo, g.first);
+				hi = math::max(hi, g.second);
+			}
 		}
+		band = align(math::floordiv(lo - settings.shell_below, bs), math::floordiv(hi + settings.shell_above, bs) + 1);
+		if (state.shell_band.size() > 400000) {
+			state.shell_band.clear();
+		}
+		state.shell_band.insert({ key, band });
 	}
 	const int y0 = box.position.y, y1 = box.position.y + box.size.y;
-	r.add(math::max(y0, math::floordiv(lo - settings.shell_below, bs)),
-		  math::min(y1, math::floordiv(hi + settings.shell_above, bs) + 1));
-	if (math::abs(x - vpos.x) <= near_blocks && math::abs(z - vpos.z) <= near_blocks) {
-		r.add(math::max(y0, vpos.y - near_blocks), math::min(y1, vpos.y + near_blocks + 1));
+	r.add(math::max(y0, band.first), math::min(y1, band.second));
+	if (math::abs(x - vpos.x) <= near_blocks + f && math::abs(z - vpos.z) <= near_blocks + f) {
+		const std::pair<int, int> nb = align(vpos.y - near_blocks, vpos.y + near_blocks + 1);
+		r.add(math::max(y0, nb.first), math::min(y1, nb.second));
 	}
 	return r;
 }

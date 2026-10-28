@@ -15,9 +15,10 @@ var sim_window_chunks := Vector3i(32, 32, 32)   # the wrapped simulation window:
 var sim_cell_budget := 1500000          # cells scanned per tick at most; the furthest active chunks wait (ADR 0013)
 var sim_lod_m := 12.0                   # chunks further than this from the player tick every second tick
 var ground_shell := true                # ADR 0105: the full-detail box follows the ground (shell=0: the whole cube)
-var shell_below_m := 24.0               # ... from this far under the lowest ground of a 6 m patch
+var shell_below_m := 8.0                # ... from this far under the lowest ground of a 6 m patch (80 m where a cave opens to the sky)
 var shell_above_m := 64.0               # ... to this far over its highest ground, water or tree
 var shell_near_m := 32.0                # ... plus everything this close to the player, any direction
+var shadow_caster_m := 40.0             # ADR 0105: terrain farther than this casts no sun shadow (the shadow pass drew 2/3 of the triangles)
 var view_distance_m := 40.0             # the horizon = the radius of the one box of full-detail voxels (ADR 0073: no LOD; 40 m holds the budget standing and in flight, 48 m does not: p99 32 ms standing). The terrain blends into the sky over the last quarter
 var horizon_fade_frac := 0.75           # the terrain blends into the sky from this fraction of view_distance_m to the edge (terrain_common.gdshaderinc)
 var terrain_threaded_update := true     # VoxelLodTerrain's streaming bookkeeping on a worker thread (ADR 0020: the 17 ms burst frame became 9 ms)
@@ -28,7 +29,7 @@ var edit_remesh_rate := 300.0           # edit-caused terrain remeshes per secon
 var edit_remesh_rate_busy := 60.0       # ... while the sim's push backlog is over remesh_busy_queue chunks (a forest fire: ~1600): each applied remesh costs the main thread ms, 300/s gave p99 ~48 ms, 60/s ~32
 var edit_remesh_free_s := 0.5          # no edit remesh limit this long after a big player edit (laser, creative brush): at 300/s a wide laser left 2 s of stale meshes, unlimited 0.5 s, worst frame 185 -> 50 ms
 var remesh_busy_queue := 256            # a 35k-voxel water fill peaks at ~90 queued chunks
-var terrain_mesh_block := 32            # 16 or 32 voxels; 32 = 3x fewer draw calls (measured), coarser re-mesh granularity
+var terrain_mesh_block := 64            # 16, 32 or 64 voxels (64: our godot_voxel build, ADR 0105): 64 = ~5x fewer draw calls than 32 at 72-100 m; an edit remeshes a 8 m block
 var cache_generated_blocks := true      # keep generated voxel data in memory (edits write into it; off = memory for re-generation)
 # Simulation
 var sim_tick_hz := 30.0
@@ -340,6 +341,7 @@ func apply_cmdline() -> Dictionary:
 			"simulation_distance_m": simulation_distance_m = float(kv[1])
 			"view_distance_m": view_distance_m = float(kv[1])
 			"shell": ground_shell = kv[1] == "1"
+			"shadow_caster_m": shadow_caster_m = float(kv[1])
 			"shell_below_m": shell_below_m = float(kv[1])
 			"shell_above_m": shell_above_m = float(kv[1])
 			"shell_near_m": shell_near_m = float(kv[1])
