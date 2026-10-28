@@ -44,6 +44,13 @@ func test_every_material_has_a_group_and_steps() -> void:
 	assert_str(audio.material_sound("step", GameMaterials.AIR)).is_empty()
 
 
+func test_bucket_fill_and_pour_have_sounds() -> void:
+	assert_bool(audio.has_sound("bucket/fill")).is_true()
+	for m in [GameMaterials.WATER, GameMaterials.LAVA]:
+		assert_str(audio.material_sound("place", m)).is_not_empty()
+		assert_bool(audio.has_sound(audio.material_sound("break", m))).is_false()   # digging through liquid stays silent
+
+
 func test_bursts_and_animals_exist() -> void:
 	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/sounds.json"))
 	var fx: ParticleFx = auto_free(ParticleFx.load_default())
