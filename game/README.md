@@ -188,6 +188,13 @@ mirroring, shapeless, smelt, spellcraft; `makes`, `uses_of`, `search`,
 `CraftingGrid` (preview, craft once/all, return contents). Wands have no
 recipe by design (found only); spells do.
 
+## Generator checks (ADR 0105)
+
+A generator speed-up must change no voxel: `godot --headless --path . --script res://tools/gen_hash.gd -- n=400`
+prints a hash over 4,000 blocks (sky, ground, forests, water, deep rock; LOD 0-3); run it before and after.
+Run JSON key `generation`: blocks by result (`air`, `uniform`, `full`, count and worker usec), the footprint
+cache's hits, misses and build time, and godot_voxel's worker time per generation task.
+
 ## Layout
 
 | Path | What |

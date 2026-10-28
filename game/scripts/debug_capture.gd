@@ -447,6 +447,9 @@ func _finish() -> void:
 		"busy_share": snappedf(float(bl.filter(func(v): return v > 0).size()) / maxi(bl.size(), 1), 0.01),
 		"max_busy_s": _longest_run(bl) * 0.25,
 		"threads": VoxelEngine.get_thread_count()}
+	# what generation spent its worker time on over the run (ADR 0105): FineGen by result, godot_voxel per task
+	var ts: Dictionary = _main.world.terrain.get_statistics() if _main != null and _main.world != null else {}
+	s["generation"] = {"finegen": FineGen.gen_stats(), "task_us": ts.get("ta_gen_run_sum", 0), "tasks": ts.get("ta_gen_run_n", 0)}
 	var dm := Array(_detail_missing)
 	s["detail"] = {"samples": dm.size(), "missing_share": snappedf(float(dm.count(1)) / maxi(dm.size(), 1), 0.01),
 		"max_missing_s": _longest_run(dm) * 0.25, "probe_ms_max": snappedf(_probe_ms_max, 0.01)}

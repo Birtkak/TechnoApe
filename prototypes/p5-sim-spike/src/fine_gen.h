@@ -13,6 +13,10 @@
 #include "world_gen.h"
 #include "rock_types.h"
 
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <vector>
 
 namespace godot {
@@ -34,6 +38,8 @@ public:
     int biome_at(int x, int z) const;
     Dictionary column_info(int x, int z) const;
     PackedByteArray generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel = 2) const;
+    // Blocks generated since the last call and the worker time they took, by result: air, uniform, full (usec).
+    static Dictionary gen_stats();
     // Deep rock from LOD 1 on comes back as one voxel (the block is all that material) when on; off: always
     // the whole block (probes and tests decode it voxel by voxel).
     void set_uniform_blocks(bool on) { uniform_blocks_ = on; }
@@ -62,6 +68,7 @@ protected:
 
 private:
     using Mat = WorldGen::Mat;
+    PackedByteArray generate_block_impl(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel) const;
     // One macro column of the lattice, with everything the fine columns near it need.
     struct MacroPt {
         WorldGen::Column col;
@@ -116,6 +123,39 @@ private:
         int biome = 0;          // where it stands (wild food chances, biomes.json decor)
         uint32_t seed;
     };
+
+    // What every block of one footprint (a vertical stack of blocks) shares: the macro lattice, the ruins
+    // near it and the highest tree or stamp voxel over it (ADR 0105). A stack of ~100 blocks built it ~100
+    // times; the cache builds it once.
+    struct ColumnCtx {
+        int x = 0, z = 0, sx = 0, sz = 0, lod = 0;   // the footprint it was built for
+        std::vector<MacroPt> lat;
+        WorldGen::Ruin ruins[4];
+        technosim_ruin::Prepared rprep[4];
+        int nruins = 0;
+        int hmax_m = 0, wl_max = 0, fall_max = -1;
+        float hmin_m = 1e9f;
+        int feat_top = 0;   // highest tree or stamp voxel over the footprint at any height (0: none)
+    };
+    static constexpr int CTX_SHARDS = 64, CTX_PER_SHARD = 1024;   // 64k footprints: a 100 m box holds ~10k, a flight crosses more
+    // One footprint's slot: the first thread to need it builds it, the others (its neighbours in the same stack,
+    // queued at the same distance) wait for that build instead of repeating it.
+    struct CtxSlot {
+        std::once_flag once;
+        std::shared_ptr<const ColumnCtx> ctx;
+    };
+    struct CtxShard {
+        std::mutex lock;
+        std::unordered_map<uint64_t, std::shared_ptr<CtxSlot>> map;
+        std::deque<uint64_t> order;   // insertion order: the oldest footprint goes first (the box leaves it behind)
+    };
+    mutable std::unique_ptr<CtxShard[]> ctx_cache_ = std::make_unique<CtxShard[]>(CTX_SHARDS);
+    std::shared_ptr<const ColumnCtx> column_ctx(Vector3i origin, Vector3i size, int lod) const;
+    std::shared_ptr<const ColumnCtx> build_column_ctx(Vector3i origin, Vector3i size, int lod) const;
+    // Trees and stamps reaching the footprint at any height, in the order the block pass draws them; n_mature
+    // = how many of the trees come from WorldGen's tree list (young trees follow).
+    void gather_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, int lod,
+                         std::vector<FTree> &trees, size_t &n_mature, std::vector<FStamp> &stamps) const;
 
     Ref<WorldGen> g_;
     bool uniform_blocks_ = false;

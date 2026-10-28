@@ -3,6 +3,8 @@
 #include <godot_cpp/core/class_db.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -189,6 +191,7 @@ void FineGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("column_info", "x", "z"), &FineGen::column_info);
     ClassDB::bind_method(D_METHOD("generate_block", "origin", "size", "lod", "bytes_per_voxel"), &FineGen::generate_block, DEFVAL(2));
     ClassDB::bind_method(D_METHOD("set_uniform_blocks", "on"), &FineGen::set_uniform_blocks);
+    ClassDB::bind_static_method("FineGen", D_METHOD("gen_stats"), &FineGen::gen_stats);
     ClassDB::bind_method(D_METHOD("get_uniform_blocks"), &FineGen::get_uniform_blocks);
     ClassDB::bind_method(D_METHOD("map_image", "center_x", "center_z", "radius", "step"), &FineGen::map_image);
     ClassDB::bind_method(D_METHOD("surface_map", "x0", "z0", "n", "step"), &FineGen::surface_map);
@@ -229,6 +232,11 @@ PackedInt32Array FineGen::pickup_heights(int kind, int seed) const {
 }
 
 void FineGen::configure(int p_seed, int p_sea_level, int p_world_height) {
+    for (int i = 0; i < CTX_SHARDS; i++) {   // a new seed is a new world
+        std::lock_guard<std::mutex> l(ctx_cache_[i].lock);
+        ctx_cache_[i].map.clear();
+        ctx_cache_[i].order.clear();
+    }
     g_->configure(p_seed, p_sea_level / FS, p_world_height / FS);
     setup_noise(n_ground_, p_seed + 101, 1.0f / 64.0f, 2);   // 8 m swells (fine voxels)
     setup_noise(n_ground2_, p_seed + 102, 1.0f / 9.0f, 1);   // ~1 m roughness
@@ -936,7 +944,146 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
 // smooth field, so the fine voxels can interpolate it instead of evaluating 3D noise each.
 // ---------- blocks ----------
 
+// Block counts and worker time by result (gen_stats, ADR 0105): what the generation queue spends on.
+// 0 = all air, 1 = one uniform material, 2 = the full per-voxel buffer.
+static std::atomic<uint64_t> s_gen_n[3], s_gen_us[3], s_ctx_hit, s_ctx_miss, s_ctx_build_us, s_sky;
+
 PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel) const {
+    const auto t0 = std::chrono::steady_clock::now();
+    PackedByteArray out = generate_block_impl(origin, size, lod, bytes_per_voxel);
+    const int kind = out.is_empty() ? 0 : (out.size() <= 4 ? 1 : 2);
+    s_gen_n[kind] += 1;
+    s_gen_us[kind] += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
+    return out;
+}
+
+Dictionary FineGen::gen_stats() {
+    Dictionary d;
+    const char *names[3] = {"air", "uniform", "full"};
+    for (int i = 0; i < 3; i++) {
+        d[String(names[i]) + "_n"] = (int64_t)s_gen_n[i].exchange(0);
+        d[String(names[i]) + "_us"] = (int64_t)s_gen_us[i].exchange(0);
+    }
+    d["ctx_hit"] = (int64_t)s_ctx_hit.exchange(0);
+    d["ctx_miss"] = (int64_t)s_ctx_miss.exchange(0);
+    d["ctx_build_us"] = (int64_t)s_ctx_build_us.exchange(0);
+    d["sky"] = (int64_t)s_sky.exchange(0);
+    d["ctx_bytes_lod0"] = (int64_t)(sizeof(ColumnCtx) + 25 * sizeof(MacroPt));   // a 16-voxel footprint's 5 x 5 lattice
+    return d;
+}
+
+void FineGen::gather_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, int lod,
+                              std::vector<FTree> &trees, size_t &n_mature, std::vector<FStamp> &stamps) const {
+    const WorldGen &g = *g_.ptr();
+    static constexpr int MAXT = 160, MAXS = 32;
+    n_mature = 0;
+    if (lod <= 3) {
+        // canopy trees reach up to ~7 m from their trunk: search 12 macro voxels beyond the block
+        WorldGen::Tree mtrees[MAXT];
+        const int nt = g.trees_near(floor_div(x_lo, FS) - 12, floor_div(z_lo, FS) - 12, floor_div(x_hi, FS) + 12, floor_div(z_hi, FS) + 12, mtrees, MAXT);
+        trees.reserve(nt + 16);
+        for (int i = 0; i < nt; i++) {
+            bool blocked = false;
+            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mtrees[i].x, mtrees[i].z, RUIN_RAMP + 4);
+            if (blocked) continue;
+            const WorldGen::Tree &mt = mtrees[i];
+            const uint32_t ts = h3(mt.x, mt.z, g.seed_ + 77);
+            const float fx = (float)(mt.x * FS + 2) + (float)((int)(ts & 3) - 1) * 0.5f;
+            const float fz = (float)(mt.z * FS + 2) + (float)((int)((ts >> 2) & 3) - 1) * 0.5f;
+            // cheap reject before the tree is built
+            const float bound = (12.0f + 4.0f) * FS;
+            if (fx + bound < x_lo || fx - bound > x_hi || fz + bound < z_lo || fz - bound > z_hi) continue;
+            FTree t;
+            build_tree(mt.kind, fx, fz, mt.trunk_h, mt.radius, tree_age(mt, ts), mt.biome == technosim_biome::OLD_GROWTH_FOREST, ts, t);
+            if (t.x + t.reach < x_lo || t.x - t.reach > x_hi || t.z + t.reach < z_lo || t.z - t.reach > z_hi) continue;
+            trees.push_back(t);
+        }
+        n_mature = trees.size();
+        if (lod <= 2) young_trees(x_lo, z_lo, x_hi, z_hi, ruins, nruins, trees);
+    }
+    if (lod <= 2) {
+        WorldGen::Stamp ms[MAXS];
+        const int ns = g.stamps_near(floor_div(x_lo, FS) - 2, floor_div(z_lo, FS) - 2, floor_div(x_hi, FS) + 2, floor_div(z_hi, FS) + 2, ms, MAXS);
+        for (int i = 0; i < ns; i++) {
+            bool blocked = false;
+            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], ms[i].x, ms[i].z, RUIN_RAMP);
+            if (blocked) continue;
+            FStamp s;
+            build_stamp(ms[i], s);
+            stamps.push_back(s);
+        }
+        floor_features(x_lo, z_lo, x_hi, z_hi, ruins, nruins, lod == 0, stamps);
+    }
+}
+
+std::shared_ptr<const FineGen::ColumnCtx> FineGen::column_ctx(Vector3i origin, Vector3i size, int lod) const {
+    const uint64_t key = ((uint64_t)(uint32_t)origin.x * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)(uint32_t)origin.z * 0xC2B2AE3D27D4EB4Full)
+        ^ ((uint64_t)lod << 56) ^ ((uint64_t)(size.x & 0xff) << 40) ^ ((uint64_t)(size.z & 0xff) << 48);
+    CtxShard &sh = ctx_cache_[key % CTX_SHARDS];
+    std::shared_ptr<CtxSlot> slot;
+    {
+        std::lock_guard<std::mutex> l(sh.lock);
+        auto it = sh.map.find(key);
+        if (it != sh.map.end()) {
+            slot = it->second;
+        } else {
+            while ((int)sh.map.size() >= CTX_PER_SHARD && !sh.order.empty()) {
+                sh.map.erase(sh.order.front());
+                sh.order.pop_front();
+            }
+            slot = std::make_shared<CtxSlot>();
+            sh.map.emplace(key, slot);
+            sh.order.push_back(key);
+        }
+    }
+    bool built = false;
+    std::call_once(slot->once, [&]() {
+        slot->ctx = build_column_ctx(origin, size, lod);
+        built = true;
+    });
+    const ColumnCtx &c = *slot->ctx;
+    if (c.x == origin.x && c.z == origin.z && c.sx == size.x && c.sz == size.z && c.lod == lod) {
+        (built ? s_ctx_miss : s_ctx_hit) += 1;
+        return slot->ctx;
+    }
+    s_ctx_miss += 1;   // two footprints with one key: this one is built and not kept
+    return build_column_ctx(origin, size, lod);
+}
+
+std::shared_ptr<const FineGen::ColumnCtx> FineGen::build_column_ctx(Vector3i origin, Vector3i size, int lod) const {
+    const auto tb = std::chrono::steady_clock::now();
+    const WorldGen &g = *g_.ptr();
+    const int step = 1 << lod;
+    const int L = std::max(FS, step);
+    const int lx0 = floor_div(origin.x, L) * L, lz0 = floor_div(origin.z, L) * L;
+    const int nx = floor_div(origin.x + (size.x - 1) * step - lx0, L) + 2;
+    const int nz = floor_div(origin.z + (size.z - 1) * step - lz0, L) + 2;
+    const int mx0 = lx0 / FS, mz0 = lz0 / FS, mstep = L / FS;
+    auto c = std::make_shared<ColumnCtx>();
+    c->x = origin.x, c->z = origin.z, c->sx = size.x, c->sz = size.z, c->lod = lod;
+    c->nruins = g.ruins_near(mx0 - 1, mz0 - 1, mx0 + nx * mstep + 1, mz0 + nz * mstep + 1, c->ruins, 4);
+    for (int i = 0; i < c->nruins; i++) technosim_ruin::prepare(c->ruins[i], c->rprep[i]);
+    c->lat.resize((size_t)nx * nz);
+    for (int j = 0; j < nz; j++)
+        for (int i = 0; i < nx; i++) {
+            MacroPt &m = c->lat[(size_t)j * nx + i];
+            m = macro_point(mx0 + i * mstep, mz0 + j * mstep, c->ruins, c->nruins);
+            c->hmin_m = std::min(c->hmin_m, m.hc);
+            c->hmax_m = std::max(c->hmax_m, (int)std::ceil(m.hc) + m.spike);
+            c->wl_max = std::max(c->wl_max, m.water_level);
+            c->fall_max = std::max(c->fall_max, m.hy.fall_top);
+        }
+    std::vector<FTree> trees;
+    std::vector<FStamp> stamps;
+    size_t n_mature = 0;
+    gather_features(origin.x, origin.z, origin.x + (size.x - 1) * step, origin.z + (size.z - 1) * step, c->ruins, c->nruins, lod, trees, n_mature, stamps);
+    for (const FTree &t : trees) c->feat_top = std::max(c->feat_top, t.y_hi);
+    for (const FStamp &s : stamps) c->feat_top = std::max(c->feat_top, s.ground + (int)(s.size + s.r) + 8);
+    s_ctx_build_us += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tb).count();
+    return c;
+}
+
+PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel) const {
     PackedByteArray out;
     const WorldGen &g = *g_.ptr();
     const int step = 1 << lod;
@@ -950,24 +1097,22 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
     const int nx = floor_div(origin.x + (sx - 1) * step - lx0, L) + 2;
     const int nz = floor_div(origin.z + (sz - 1) * step - lz0, L) + 2;
     const int mx0 = lx0 / FS, mz0 = lz0 / FS, mstep = L / FS;
-    WorldGen::Ruin ruins[4];
-    const int nruins = g.ruins_near(mx0 - 1, mz0 - 1, mx0 + nx * mstep + 1, mz0 + nz * mstep + 1, ruins, 4);
-    technosim_ruin::Prepared rprep[4];
-    for (int i = 0; i < nruins; i++) technosim_ruin::prepare(ruins[i], rprep[i]);
-    std::vector<MacroPt> lat((size_t)nx * nz);
-    int hmax_m = 0, wl_max = 0, fall_max = -1;
-    float hmin_m = 1e9f;
-    for (int j = 0; j < nz; j++)
-        for (int i = 0; i < nx; i++) {
-            MacroPt &m = lat[(size_t)j * nx + i];
-            m = macro_point(mx0 + i * mstep, mz0 + j * mstep, ruins, nruins);
-            hmin_m = std::min(hmin_m, m.hc);
-            hmax_m = std::max(hmax_m, (int)std::ceil(m.hc) + m.spike);
-            wl_max = std::max(wl_max, m.water_level);
-            fall_max = std::max(fall_max, m.hy.fall_top);
-        }
+    const std::shared_ptr<const ColumnCtx> ctx = column_ctx(origin, size, lod);
+    const WorldGen::Ruin *ruins = ctx->ruins;
+    const int nruins = ctx->nruins;
+    const technosim_ruin::Prepared *rprep = ctx->rprep;
+    const std::vector<MacroPt> &lat = ctx->lat;
+    const int hmax_m = ctx->hmax_m, wl_max = ctx->wl_max, fall_max = ctx->fall_max;
+    const float hmin_m = ctx->hmin_m;
     const int y_top = origin.y + sy * step;
     const bool above_sea = y_top > sea;
+    // Sky: at or above reach_top (below) with the footprint's highest feature at any height in place of the
+    // block's own, so never lower than the full pass's bound and the answer is the same: all air.
+    if (origin.y >= std::max({(hmax_m + 12) * FS, wl_max * FS + 1, fall_max * FS + 1, ctx->feat_top + 1, (hmax_m + 1) * FS + 12,
+                              (lod >= 4 && above_sea) ? (hmax_m + 2) * FS + 112 : 0})) {
+        s_sky += 1;
+        return out;
+    }
     // Deep rock (2026-10-25, fast flight vs generation): from LOD 1 on there are no ores and caves only
     // reach CAVE_MOUTH_DEPTH, so a block wholly below the sandstone, the cave mouths and the ground's
     // swells is all stone. One voxel of it tells the caller to fill the block (TerrainGenerator); the
@@ -990,59 +1135,30 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
         return out;
     }
     // Trees (lod <= 3 as shapes, from lod 4 only a leaf-coloured surface) and decorations (lod <= 2).
-    static constexpr int MAXT = 160, MAXS = 32;
-    WorldGen::Tree mtrees[MAXT];
     std::vector<FTree> trees;
     std::vector<FStamp> stamps;
     const int x_lo = origin.x, x_hi = origin.x + (sx - 1) * step, z_lo = origin.z, z_hi = origin.z + (sz - 1) * step;
     int feature_top = 0;
-    if (above_sea && origin.y < (hmax_m + 40) * FS) {
-        if (lod <= 3) {
-            // canopy trees reach up to ~7 m from their trunk: search 12 macro voxels beyond the block
-            const int nt = g.trees_near(floor_div(x_lo, FS) - 12, floor_div(z_lo, FS) - 12, floor_div(x_hi, FS) + 12, floor_div(z_hi, FS) + 12, mtrees, MAXT);
-            trees.reserve(nt + 16);
-            for (int i = 0; i < nt; i++) {
-                bool blocked = false;
-                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mtrees[i].x, mtrees[i].z, RUIN_RAMP + 4);
-                if (blocked) continue;
-                const WorldGen::Tree &mt = mtrees[i];
-                const uint32_t ts = h3(mt.x, mt.z, g.seed_ + 77);
-                const float fx = (float)(mt.x * FS + 2) + (float)((int)(ts & 3) - 1) * 0.5f;
-                const float fz = (float)(mt.z * FS + 2) + (float)((int)((ts >> 2) & 3) - 1) * 0.5f;
-                // cheap reject before the tree is built
-                const float bound = (12.0f + 4.0f) * FS;
-                if (fx + bound < x_lo || fx - bound > x_hi || fz + bound < z_lo || fz - bound > z_hi) continue;
-                FTree t;
-                build_tree(mt.kind, fx, fz, mt.trunk_h, mt.radius, tree_age(mt, ts), mt.biome == technosim_biome::OLD_GROWTH_FOREST, ts, t);
-                if (t.x + t.reach < x_lo || t.x - t.reach > x_hi || t.z + t.reach < z_lo || t.z - t.reach > z_hi) continue;
-                if (t.y_hi < origin.y || t.base >= y_top) continue;
-                feature_top = std::max(feature_top, t.y_hi);
-                trees.push_back(t);
-            }
-            if (lod <= 2) {
-                const size_t first = trees.size();
-                young_trees(x_lo, z_lo, x_hi, z_hi, ruins, nruins, trees);
-                for (size_t i = first; i < trees.size();) {
-                    if (trees[i].y_hi < origin.y || trees[i].base >= y_top) { trees[i] = trees.back(); trees.pop_back(); continue; }
-                    feature_top = std::max(feature_top, trees[i].y_hi);
-                    i++;
-                }
-            }
+    // Wholly below the ground's lowest point with the deep-rock margin: no tree, stamp or soil reaches here.
+    const bool deep_geo = origin.y >= 8 * FS && (float)y_top <= hmin_m * FS - (float)DEEP_ROCK_MARGIN;
+    if (above_sea && origin.y < (hmax_m + 40) * FS && !deep_geo) {
+        size_t n_mature = 0;
+        gather_features(x_lo, z_lo, x_hi, z_hi, ruins, nruins, lod, trees, n_mature, stamps);
+        // the block's own height band: the mature trees keep their order, the young ones are swapped out (as before)
+        size_t kept = 0;
+        for (size_t i = 0; i < n_mature; i++) {
+            if (trees[i].y_hi < origin.y || trees[i].base >= y_top) continue;
+            feature_top = std::max(feature_top, trees[i].y_hi);
+            if (kept != i) trees[kept] = trees[i];
+            kept++;
         }
-        if (lod <= 2) {
-            WorldGen::Stamp ms[MAXS];
-            const int ns = g.stamps_near(floor_div(x_lo, FS) - 2, floor_div(z_lo, FS) - 2, floor_div(x_hi, FS) + 2, floor_div(z_hi, FS) + 2, ms, MAXS);
-            for (int i = 0; i < ns; i++) {
-                bool blocked = false;
-                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], ms[i].x, ms[i].z, RUIN_RAMP);
-                if (blocked) continue;
-                FStamp s;
-                build_stamp(ms[i], s);
-                stamps.push_back(s);
-            }
-            floor_features(x_lo, z_lo, x_hi, z_hi, ruins, nruins, lod == 0, stamps);
-            for (const FStamp &s : stamps) feature_top = std::max(feature_top, s.ground + (int)(s.size + s.r) + 8);
+        trees.erase(trees.begin() + kept, trees.begin() + n_mature);
+        for (size_t i = kept; i < trees.size();) {
+            if (trees[i].y_hi < origin.y || trees[i].base >= y_top) { trees[i] = trees.back(); trees.pop_back(); continue; }
+            feature_top = std::max(feature_top, trees[i].y_hi);
+            i++;
         }
+        for (const FStamp &s : stamps) feature_top = std::max(feature_top, s.ground + (int)(s.size + s.r) + 8);
     }
     // Nothing reaches this block: all air.
     const int far_canopy_top = (lod >= 4 && above_sea) ? (hmax_m + 2) * FS + 112 : 0;   // far forests stand ~14 m tall
@@ -1123,6 +1239,38 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
                 if (gd.y * FS + R < origin.y || gd.y * FS - R > y_top) continue;
                 geodes[ngeo++] = gd;
             }
+    }
+    // Deep rock at full detail (ADR 0105): a buried block where the cave field is negative everywhere it is
+    // read (so no cave, pool, crystal, stringer or lava sea), no geode and no vein lens reaches, in one rock
+    // kind, is that stone throughout; the per-voxel pass cost ~0.7 ms a block and half the box is rock.
+    if (uniform_blocks_ && lod == 0 && deep_geo && ngeo == 0
+        && std::all_of(cav.begin(), cav.end(), [](float v) { return v <= 0.0f; })) {
+        bool vein_free = true;
+        const int my_lo = floor_div(origin.y, FS), my_hi = floor_div(y_top, FS);
+        const int bx_lo = floor_div(x_lo, FS), bx_hi = floor_div(x_hi, FS), bz_lo = floor_div(z_lo, FS), bz_hi = floor_div(z_hi, FS);
+        for (int cz = floor_div(bz_lo - 64, technosim_ore::CELL); cz <= floor_div(bz_hi + 64, technosim_ore::CELL) && vein_free; cz++)
+            for (int cx = floor_div(bx_lo - 64, technosim_ore::CELL); cx <= floor_div(bx_hi + 64, technosim_ore::CELL) && vein_free; cx++) {
+                WorldGen::Vein v;
+                if (!g.vein_at_cell(cx, cz, v)) continue;
+                // the lens at its widest and thickest (vein_half_thickness: radius 0.5 SIZE x <= 1, half THICKNESS)
+                const float r = 0.5f * (float)technosim_ore::SIZE[v.type] + 1.0f, t = 0.5f * (float)technosim_ore::THICKNESS[v.type] + 1.0f;
+                if ((float)my_hi < (float)v.y - t || (float)my_lo > (float)v.y + t) continue;
+                const float dx = std::max({0.0f, (float)(bx_lo - v.x), (float)(v.x - bx_hi)}), dz = std::max({0.0f, (float)(bz_lo - v.z), (float)(v.z - bz_hi)});
+                if (dx * dx + dz * dz < r * r) vein_free = false;
+            }
+        uint16_t rock = Mat::STONE;
+        if (vein_free) {
+            const technosim_rock::RockCol rc4[4] = {rocks_.column(lx0, lz0, lat[0].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0, lat[nx - 1].hc * FS),
+                rocks_.column(lx0, lz0 + (nz - 1) * L, lat[(size_t)(nz - 1) * nx].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0 + (nz - 1) * L, lat[(size_t)nz * nx - 1].hc * FS)};
+            if (rocks_.uniform(rc4, 4, origin.y, y_top, rock)) {
+                const int bpv = (bytes_per_voxel == 1 || bytes_per_voxel == 4) ? bytes_per_voxel : 2;
+                out.resize(bpv);
+                uint8_t *o = out.ptrw();
+                std::memset(o, 0, bpv);
+                o[0] = (uint8_t)rock;
+                return out;
+            }
+        }
     }
     const int n = sx * sy * sz;
     std::vector<uint16_t> tmp(n, 0);

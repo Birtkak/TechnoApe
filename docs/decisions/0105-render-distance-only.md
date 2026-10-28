@@ -41,6 +41,25 @@ scan ~40x cheaper, so it never showed.
 | share of time with near detail missing | 72 % | 75 % | 0 % |
 | RSS | 4.4 GB | 3.9 GB | 2.6 GB |
 
+## Generation (same day)
+The run JSON's `generation` key (`FineGen.gen_stats()` by result, godot_voxel's worker time per task) showed
+where the workers go at 100 m: 61 % of the blocks were sky at 145 us each, 39 % full per-voxel blocks at 734 us
+(74 % of the time), none uniform. Two changes, neither altering a voxel (`tools/gen_hash.gd`: the same hash over
+4,000 blocks before and after; `test_fine_gen_lod`: the shortcut's blocks equal the full pass):
+- **Deep rock at full detail**: a buried LOD 0 block whose cave field is negative everywhere it is read, with no
+  geode, no vein lens and one rock kind, comes back as one voxel (as LOD 1+ already did).
+- **Per-footprint context cache** (`FineGen::column_ctx`): the macro lattice, nearby ruins and the highest tree
+  or stamp voxel at any height are built once per vertical stack of blocks (~5 KB, up to 64k footprints, FIFO;
+  threads queued on the same stack wait for one build), and a block above all of it returns air at once.
+
+| 100 m, 20 s flight | blocks generated | sky | uniform | full |
+|---|---|---|---|---|
+| before | 470 k | 288 k @ 145 us | 0 | 182 k @ 734 us |
+| after | 665 k (+41 %) | 404 k @ 97 us (cache builds included) | 73 k @ 150 us | 188 k @ 702 us |
+
+Full blocks are now ~70 % of the worker time: the per-voxel pass of surface blocks and of rock with a cave in it
+is the next target. The 40 m box: p99 3.5 ms, no backlog.
+
 ## Consequences
 - The 200 ms stalls are gone; 100 m is still over budget (p99 15 ms, frames over 16.7 ms). In flight the
   generation queue never catches up: generation throughput and per-task overhead for ~1 M mostly

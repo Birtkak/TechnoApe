@@ -22,7 +22,7 @@ patch(H, 'namespace zylann::voxel {\n', '''namespace zylann::voxel {
 enum TaProf { TA_DEQUEUE, TA_DEQUEUE_N, TA_TIME_SPREAD, TA_PROGRESSIVE, TA_SYNC_VIEWERS, TA_PUSH_MESHES,
 	TA_COLLISION, TA_APPLY_UPDATE, TA_NEW_TASK, TA_FADING,
 	TA_TASK_MAX, TA_RESP_LOADING_LOCK, TA_RESP_SET_BLOCK, TA_RESP_LOADED_LOCK, TA_TASK_APPLY, TA_TASK_DELETE, TA_GEN_STREAM, TA_GEN_CALLBACK,
-	TA_RESP_ERASE_LOCK, TA_RESP_ERASE, TA_RESP_FIND, TA_COUNT };
+	TA_RESP_ERASE_LOCK, TA_RESP_ERASE, TA_RESP_FIND, TA_GEN_RUN_SUM, TA_GEN_RUN_N, TA_COUNT };
 extern std::atomic<uint64_t> g_ta_prof[TA_COUNT];
 extern const char *g_ta_slowest_task;
 inline void ta_prof_max(TaProf i, uint64_t v) {
@@ -132,10 +132,10 @@ patch(L, '''	d["blocked_lods"] = _stats.blocked_lods;
 	static const char *ta_names[TA_COUNT] = { "ta_dequeue", "ta_dequeue_n", "ta_time_spread", "ta_progressive",
 		"ta_sync_viewers", "ta_push_meshes", "ta_collision", "ta_apply_update", "ta_new_task", "ta_fading",
 		"ta_task_max", "ta_resp_loading_lock", "ta_resp_set_block", "ta_resp_loaded_lock", "ta_task_apply", "ta_task_delete", "ta_gen_stream", "ta_gen_callback",
-		"ta_resp_erase_lock", "ta_resp_erase", "ta_resp_find" };
+		"ta_resp_erase_lock", "ta_resp_erase", "ta_resp_find", "ta_gen_run_sum", "ta_gen_run_n" };
 	d["ta_slowest_task"] = String(g_ta_slowest_task);
 	for (int i = 0; i < TA_COUNT; ++i) {
-		d[ta_names[i]] = int64_t(g_ta_prof[i].exchange(0));
+		d[ta_names[i]] = int64_t(i >= TA_GEN_RUN_SUM ? g_ta_prof[i].load() : g_ta_prof[i].exchange(0));   // the sums run on
 	}
 ''')
 
@@ -194,3 +194,9 @@ patch(L, """			auto it = lod.loading_blocks.find(ob.position);
 				viewers = it->second.viewers;
 			}
 			ta_prof_max(TA_RESP_FIND, ta_now_us() - t1);""")
+patch(G, """	{
+		run_cpu_generation();""", """	{
+		const uint64_t ta = ta_now_us();
+		run_cpu_generation();
+		g_ta_prof[TA_GEN_RUN_SUM] += ta_now_us() - ta;   // sums, not maxima: worker time over all generation tasks
+		g_ta_prof[TA_GEN_RUN_N] += 1;""")

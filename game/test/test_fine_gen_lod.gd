@@ -165,3 +165,32 @@ func test_lod1_keeps_cave_mouths_near_the_surface() -> void:
 	assert_int(checked).is_greater(0)
 	assert_int(agree).is_equal(checked)
 	assert_int(deep_carved).is_equal(0)
+
+
+func test_lod0_deep_rock_shortcut_matches_the_full_pass() -> void:
+	# ADR 0105: a buried LOD 0 block may come back as one voxel (the block is that stone); wherever it does,
+	# the per-voxel pass must give that stone in every voxel (no cave, ore, geode or second rock kind lost)
+	var fast := _gen()
+	fast.set_uniform_blocks(true)
+	var full := _gen()
+	var size := Vector3i(16, 16, 16)
+	var hits := 0
+	var checked := 0
+	for i in 12:
+		var x := -3000 + i * 517
+		var z := 1800 - i * 433
+		var h := fast.height_at(x, z)
+		for y in range(64, h - 300, 160):
+			var o := Vector3i(x, y, z)
+			var b := fast.generate_block(o, size, 0, 2)
+			checked += 1
+			if b.size() != 2:
+				continue
+			hits += 1
+			var m := b.decode_u16(0)
+			var f := full.generate_block(o, size, 0, 2)
+			for k in range(0, f.size(), 2):
+				if f.decode_u16(k) != m:
+					fail("block %s: shortcut says %d, voxel %d is %d" % [o, m, k / 2, f.decode_u16(k)])
+					return
+	assert_int(hits).override_failure_message("no buried block took the shortcut (%d checked)" % checked).is_greater(0)
