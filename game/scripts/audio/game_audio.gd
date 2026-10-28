@@ -899,10 +899,13 @@ func _sample_loops() -> void:
 		stats_data["loops"][ln] = snappedf(st["target"], 0.01)
 
 
-func _make_loop(ln: String) -> Dictionary:
-	var s: Dictionary = _sounds.get(_loop_defs[ln]["sound"], {})
+## A looping 3D voice for sound `n` (its first file, ref_m, range_m, db), not yet in the tree: the
+## loops below and fixed sources such as the Gelvin monolith's hum. Null with sound=0.
+func loop_voice(n: String) -> AudioStreamPlayer3D:
+	if not enabled:
+		return null
+	var s: Dictionary = _sounds.get(n, {})
 	var v := AudioStreamPlayer3D.new()
-	v.name = "Loop_" + ln
 	v.bus = "World"
 	v.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_DISABLED
 	v.unit_size = s.get("ref_v", 16.0)
@@ -911,6 +914,14 @@ func _make_loop(ln: String) -> Dictionary:
 	if st is AudioStreamOggVorbis:
 		(st as AudioStreamOggVorbis).loop = true
 	v.stream = st
+	v.volume_db = s.get("db", -10.0)
+	return v
+
+
+func _make_loop(ln: String) -> Dictionary:
+	var s: Dictionary = _sounds.get(_loop_defs[ln]["sound"], {})
+	var v := loop_voice(_loop_defs[ln]["sound"])
+	v.name = "Loop_" + ln
 	v.volume_db = -80.0
 	v.pitch_scale = float(_loop_defs[ln].get("pitch", 1.0))   # one asset serves several materials at different pitches
 	add_child(v)

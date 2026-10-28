@@ -119,3 +119,6 @@ Every file here is cut from CC0 (public domain) recordings by `tools/make_sounds
 | mob/fox | `bigsoundbank/2955.ogg`, `bigsoundbank/0682.ogg` |
 | mob/spider | `bigsoundbank/0227.ogg` |
 | break/pot | `bigsoundbank/1643.ogg`, `bigsoundbank/1644.ogg`, `bigsoundbank/1646.ogg` |
+| loop/monolith_hum | `synth: hum, made in make_sounds.py` |
+| gelvin/blip | `synth: blips, made in make_sounds.py` |
+| gelvin/done | `synth: done, made in make_sounds.py` |

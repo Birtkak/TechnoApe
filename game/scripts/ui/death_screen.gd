@@ -70,9 +70,13 @@ func play(specimen: int, cause: String, respawn: Callable) -> void:
 	await t.finished
 	await _type("> APETION %04d  SIGNAL LOST\n> cause: %s\n> recovering voxel record ...\n" % [specimen, cause])
 	var head := _label.text
+	var shown := [-1]   # bar cells drawn so far: each new one blips
 	t = create_tween()
 	t.tween_method(func(f: float) -> void:
 		var n := int(f * BAR)
+		if n != shown[0]:
+			shown[0] = n
+			Sound.play("player/gelvin_blip", Vector3.INF, {"pitch": 0.6 + 0.5 * f, "db": -4.0})
 		_label.text = head + "> RECONSTRUCTING  [%s%s] %3d%%\n" % ["█".repeat(n), "░".repeat(BAR - n), int(f * 100)], 0.0, 1.0, 1.6)
 	t.tween_method(func(f: float) -> void: _shade(BLOCK_PX, f), 0.8, 1.0, 0.3)
 	await t.finished
