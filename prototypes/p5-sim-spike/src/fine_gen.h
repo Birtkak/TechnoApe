@@ -190,6 +190,7 @@ private:
         int hmax_m = 0, wl_max = 0, fall_max = -1;
         float hmin_m = 1e9f;
         int feat_top = 0;   // highest tree or stamp voxel over the footprint at any height (0: none)
+        std::vector<int> h;   // each fine column's ground height (x + sx * z): five noises a column, once per stack
         // the trees (from the tree caches) and stamps reaching the footprint at any height, in drawing order
         std::vector<std::shared_ptr<const FTree>> trees;
         size_t n_mature = 0;

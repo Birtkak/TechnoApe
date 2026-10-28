@@ -132,3 +132,38 @@ for ind in ('\t\t\t\t\t\t\t', '\t\t\t\t\t\t'):
 s = s.replace('#include "voxel_lod_terrain_update_clipbox_streaming.h"\n', '#include "voxel_lod_terrain_update_clipbox_streaming.h"\n#include "../../util/tasks/threaded_task_runner.h"\n#include <thread>\n', 1)
 open(root + '/' + C, 'w', encoding='utf-8', newline='\n').write(s)
 
+
+# VoxelData::unview_area freed the voxel buffers of the blocks it removed while it held the block map's write
+# lock (20-28 ms per slab at 100 m, the main thread waiting on it). The removed blocks now go to a list that is
+# destroyed after the locks are released.
+D = 'storage/voxel_data.cpp'
+patch(D, '''	SpatialLock3D::Write swlock(lod.spatial_lock, blocks_box);
+
+	// Locking for write because we are potentially going to remove blocks from the map.''', '''	// TechnoApe ADR 0105: removed blocks are freed here, after the locks below are released (declared first)
+	StdVector<VoxelDataBlock> removed_graveyard;
+
+	SpatialLock3D::Write swlock(lod.spatial_lock, blocks_box);
+
+	// Locking for write because we are potentially going to remove blocks from the map.''')
+patch(D, '''	blocks_box.for_each_cell_zxy([&lod, missing_blocks, removed_blocks, to_save, lod_index](Vector3i bpos) {
+		VoxelDataBlock *block = lod.map.get_block(bpos);
+		if (block != nullptr) {
+			block->viewers.remove();
+			if (block->viewers.get() == 0) {
+				if (to_save == nullptr) {
+					lod.map.remove_block(bpos, VoxelDataMap::NoAction());
+				} else {
+					lod.map.remove_block(bpos, BeforeUnloadSaveAction{ to_save, bpos, lod_index });
+				}''', '''	blocks_box.for_each_cell_zxy([&lod, missing_blocks, removed_blocks, to_save, lod_index, &removed_graveyard](Vector3i bpos) {
+		VoxelDataBlock *block = lod.map.get_block(bpos);
+		if (block != nullptr) {
+			block->viewers.remove();
+			if (block->viewers.get() == 0) {
+				if (to_save == nullptr) {
+					lod.map.remove_block(bpos, [&removed_graveyard](VoxelDataBlock &b) { removed_graveyard.push_back(std::move(b)); });
+				} else {
+					lod.map.remove_block(bpos, [&](VoxelDataBlock &b) {
+						BeforeUnloadSaveAction{ to_save, bpos, lod_index }(b);
+						removed_graveyard.push_back(std::move(b));
+					});
+				}''')

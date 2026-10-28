@@ -291,6 +291,10 @@ private:
     enum { MOUTH_RAMP = 0, MOUTH_SINKHOLE = 1, MOUTH_CHIMNEY = 2 };
     struct CaveMouth { float x, z, dx, dz, len, slope, r, top; int kind; };
     int mouths_near(int x, int z, CaveMouth *out) const;   // the mouths that may reach (x, z), at most 9
+    // What cave_value reads at (x, z) whatever the height: a column of cave samples fills it once (ADR 0105).
+    struct CaveColumn { int x = 0, z = 0; float galoff = 0.0f; int nmouths = 0; CaveMouth mouths[9]; };
+    void cave_column(int x, int z, CaveColumn &out) const;
+    float cave_value(const CaveColumn &col, int y, int height, bool small_only = false) const;
     // The ore of the small veins (stringers) in a 96 m ore cell: its lens's type, or a weighted pick where it has none.
     int stringer_type(int cx, int cz) const;
     // Crystal geodes (ADR 0052): at most one per 96 m cell, deep in the rock. Macro units.

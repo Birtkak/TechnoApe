@@ -72,17 +72,31 @@ inline float bilerp(float a00, float a10, float a01, float a11, float tx, float 
 }
 inline uint32_t h3(int a, int b, int c) { return WorldGen::hash3(a, b, c); }
 // Smooth value noise, 0..1, on the integer lattice of (x, y, z).
-inline float value_noise3(float x, float y, float z, int seed) {
+// The 8 lattice corners of the last cell value_noise3 read (a column walks up through the same cell for several voxels).
+struct ValueNoiseCell {
+    int ix = INT32_MIN, iy = 0, iz = 0, seed = 0;
+    float c[8];   // corner (a, b, c) at c[a + 2 * b + 4 * c]
+};
+inline float value_noise3(float x, float y, float z, int seed, ValueNoiseCell &cell) {
     const int ix = (int)std::floor(x), iy = (int)std::floor(y), iz = (int)std::floor(z);
     float fx = x - (float)ix, fy = y - (float)iy, fz = z - (float)iz;
     fx = fx * fx * (3.0f - 2.0f * fx);
     fy = fy * fy * (3.0f - 2.0f * fy);
     fz = fz * fz * (3.0f - 2.0f * fz);
-    auto v = [&](int a, int b, int c) { return (float)(h3(ix + a, iz + c, (iy + b) * 1031 + seed) & 0xFFFF) / 65535.0f; };
+    if (cell.ix != ix || cell.iy != iy || cell.iz != iz || cell.seed != seed) {
+        cell.ix = ix, cell.iy = iy, cell.iz = iz, cell.seed = seed;
+        for (int k = 0; k < 8; k++)
+            cell.c[k] = (float)(h3(ix + (k & 1), iz + (k >> 2), (iy + ((k >> 1) & 1)) * 1031 + seed) & 0xFFFF) / 65535.0f;
+    }
+    auto v = [&](int a, int b, int c) { return cell.c[a + 2 * b + 4 * c]; };
     const float x00 = v(0, 0, 0) + (v(1, 0, 0) - v(0, 0, 0)) * fx, x10 = v(0, 1, 0) + (v(1, 1, 0) - v(0, 1, 0)) * fx;
     const float x01 = v(0, 0, 1) + (v(1, 0, 1) - v(0, 0, 1)) * fx, x11 = v(0, 1, 1) + (v(1, 1, 1) - v(0, 1, 1)) * fx;
     const float y0 = x00 + (x10 - x00) * fy, y1 = x01 + (x11 - x01) * fy;
     return y0 + (y1 - y0) * fz;
+}
+inline float value_noise3(float x, float y, float z, int seed) {
+    ValueNoiseCell cell;
+    return value_noise3(x, y, z, seed, cell);
 }
 // A voxel of a vein's lens (ADR 0064; the caller checks it lies in the lens): host stone or the ore of its
 // lump. A lump is ore or not as a whole, decided at its point by the pocket field, and takes its layer
@@ -1066,6 +1080,26 @@ std::shared_ptr<const FineGen::ColumnCtx> FineGen::build_column_ctx(Vector3i ori
     gather_features(origin.x, origin.z, origin.x + (size.x - 1) * step, origin.z + (size.z - 1) * step, c->ruins, c->nruins, lod, c->trees, c->n_mature, c->stamps);
     for (const auto &t : c->trees) c->feat_top = std::max(c->feat_top, t->y_hi);
     for (const FStamp &s : c->stamps) c->feat_top = std::max(c->feat_top, s.ground + (int)(s.size + s.r) + 8);
+    // the fine ground of every column, as the block pass interpolates it
+    const int world_h = g.world_height_ * FS;
+    c->h.resize((size_t)size.x * size.z);
+    for (int z = 0; z < size.z; z++) {
+        const int wz = origin.z + z * step;
+        const float uz = (float)(wz - lz0) / L;
+        const int j = std::min((int)uz, nz - 2);
+        const float tz = uz - j;
+        for (int x = 0; x < size.x; x++) {
+            const int wx = origin.x + x * step;
+            const float ux = (float)(wx - lx0) / L;
+            const int i = std::min((int)ux, nx - 2);
+            const float tx = ux - i;
+            const MacroPt &c00 = c->lat[(size_t)j * nx + i], &c10 = c->lat[(size_t)j * nx + i + 1];
+            const MacroPt &c01 = c->lat[(size_t)(j + 1) * nx + i], &c11 = c->lat[(size_t)(j + 1) * nx + i + 1];
+            const float gwf = bilerp(c00.gw, c10.gw, c01.gw, c11.gw, tx, tz);
+            const float hf = ground_f(bilerp(c00.hc, c10.hc, c01.hc, c11.hc, tx, tz) * FS, wx, wz, gwf);
+            c->h[(size_t)x + (size_t)size.x * z] = std::clamp((int)std::floor(hf + 0.5f), 8 * FS, world_h - 8 * FS);
+        }
+    }
     s_ctx_build_us += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tb).count();
     return c;
 }
@@ -1192,11 +1226,13 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 const float gfx = (float)(cmx - gx0) / 4.0f, gfz = (float)(cmz - gz0) / 4.0f;
                 const int gi = std::min((int)gfx, gnx - 2), gj = std::min((int)gfz, gnz - 2);
                 const float gtx = gfx - gi, gtz = gfz - gj;
+                WorldGen::CaveColumn ccol;   // the column's mouths and gallery offset, read at every height below
+                g.cave_column(cmx, cmz, ccol);
                 for (int k = 0; k < cny; k++) {
                     const int cy = cy0 + k;
                     const float depth = (float)(m.col.height - cy);
                     // lod 0: everything; lod 1: tunnels and mouths near the ground; caverns and ravines up to lod 2
-                    float v = (lod == 0 || (lod == 1 && depth <= (float)(CAVE_MOUTH_DEPTH / FS + 2))) ? g.cave_value(cmx, cy, cmz, m.col.height, true) : -1.0f;
+                    float v = (lod == 0 || (lod == 1 && depth <= (float)(CAVE_MOUTH_DEPTH / FS + 2))) ? g.cave_value(ccol, cy, m.col.height, true) : -1.0f;
                     if (big) {
                         const float gfy = (float)(cy - gy0) / 2.0f;
                         const int gk = std::min((int)gfy, gny - 2);
@@ -1310,9 +1346,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             const size_t ri = (size_t)j * nx + i;
             const technosim_rock::RockCol rc = technosim_rock::RockTypes::blend(rlat[ri], rlat[ri + 1], rlat[ri + nx], rlat[ri + nx + 1], tx, tz, rlat[ri + (ez ? nx : 0) + (ex ? 1 : 0)]);
             const int mx = floor_div(wx, FS), mz = floor_div(wz, FS);
-            const float gwf = bilerp(c00.gw, c10.gw, c01.gw, c11.gw, tx, tz);
-            const float hf = ground_f(bilerp(c00.hc, c10.hc, c01.hc, c11.hc, tx, tz) * FS, wx, wz, gwf);
-            const int h = std::clamp((int)std::floor(hf + 0.5f), 8 * FS, world_h - 8 * FS);
+            const int h = ctx->h[(size_t)x + (size_t)sx * z];   // the column's ground (column_ctx)
             // the block lies wholly under this column's top voxel (h - 1): plants, tufts, sticks, leaf litter and
             // seagrass touch only that voxel and the air above it, so they are skipped (ADR 0105)
             const bool buried = y_top <= h - 1;
@@ -1679,6 +1713,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             int crystal_roll = 0;
             const int crystal_h = (lod == 0 && !cav.empty()) ? rocks_.crystal_height(wx, wz, crystal_roll) : 0;
             uint16_t *colp = w + sy * (x + sx * z);
+            ValueNoiseCell sheet_cell;   // the stringer sheet's noise cell, shared up the column
             for (int y = 0; y < sy; y++) {
                 const int wy = origin.y + y * step;
                 uint16_t mat = Mat::AIR;
@@ -1802,7 +1837,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 if (mat == Mat::STONE && stringer >= 0 && h - wy >= STRINGER_MIN_DEPTH) {
                     // Ore stringers (ADR 0077): thin wavy sheets of ore through the rock, in the cell's ore, that show
                     // where they cross a cave wall; only within STRINGER_REACH of cave air so the lenses stay the prize.
-                    const float s = value_noise3((float)wx / 16.0f, (float)wy / 11.0f, (float)wz / 16.0f, g.seed_ + 7801);
+                    const float s = value_noise3((float)wx / 16.0f, (float)wy / 11.0f, (float)wz / 16.0f, g.seed_ + 7801, sheet_cell);
                     if (std::fabs(s - 0.5f) < STRINGER_HALF) {
                         bool near = false;
                         for (int k = std::max(0, y + 1 - STRINGER_REACH / step); k <= std::min(sy + 1, y + 1 + STRINGER_REACH / step) && !near; k++) near = cave[k];

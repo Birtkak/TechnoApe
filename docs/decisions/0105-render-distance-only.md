@@ -79,6 +79,27 @@ the tree and stamp search, repeated for every block of a stack), 209 of per-colu
 16.7 ms 6 / 19 / 12 (was ~60), worst 35-38 ms; ~870 k blocks generated (was 470 k); RSS 4.6 GB. The generation
 queue still does not catch up in flight (~0.9 M pending, 70-75 % of the time near detail is missing).
 
+## Third pass (same day): what the cube costs when it is full
+- Generator: each column's ground height is kept with its footprint (5 noises a column, once per stack), the
+  stringer sheet's noise reuses its lattice corners up a column, and the cave field reads each lattice column's
+  cave mouths and gallery offset once instead of at every height. A full block 550 -> 375 us; ~1.25 M blocks a
+  20 s flight (was 870 k). `gen_hash` unchanged.
+- godot_voxel: `unview_area` frees removed blocks after its locks (`voxel_patch_unload.py`). Tried and reverted:
+  deferring a finished block when the map is locked (retries piled up outside the frame budget: p99 26-33 ms),
+  and a writer-preferring RWLock (no change; the 70 ms `try_set_block` waits come from a holder not yet found).
+- With faster generation more of the box actually loads, and the box's real cost shows. It grows with its
+  volume: every cave and ore below the player is meshed, drawn and kept at full size in memory.
+
+| box, 20 s autopilot | triangles | draw calls | VRAM | RSS | p99 | near detail missing |
+|---|---|---|---|---|---|---|
+| 40 m flight | 3.4 M | 918 | 0.55 GB | 2.3 GB | 3.6 ms | 0 % |
+| 72 m flight (fully loaded) | 33 M | 10.7 k | 4.2 GB | 4.3 GB | 50-53 ms | 18 % |
+| 100 m walk | 14.8 M | 3.5 k | 1.6 GB | 7.6 GB | 16.6 ms | 0 % |
+| 100 m flight (75 % unloaded) | 14 M | 4.6 k | 1.8 GB | 6.0 GB | 15-20 ms | 75 % |
+
+The 72 m result is the same with the generator before this pass (p99 50 ms, 33 M triangles): it is the box, not
+the speed-up. Beyond ~56 m the cube needs the underground it cannot see kept out of the draw and out of memory.
+
 ## Consequences
 - The 200 ms stalls are gone; 100 m is still over budget (p99 15 ms, frames over 16.7 ms). In flight the
   generation queue never catches up: generation throughput and per-task overhead for ~1 M mostly

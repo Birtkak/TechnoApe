@@ -1045,7 +1045,20 @@ inline bool WorldGen::is_cave(int x, int y, int z, int height) const {
     return cave_value(x, y, z, height) > 0.0f;
 }
 
+void WorldGen::cave_column(int x, int z, CaveColumn &out) const {
+    out.x = x, out.z = z;
+    out.galoff = n_galoff_.GetNoise((float)x, (float)z);
+    out.nmouths = mouths_near(x, z, out.mouths);
+}
+
 float WorldGen::cave_value(int x, int y, int z, int height, bool small_only) const {
+    CaveColumn col;
+    cave_column(x, z, col);
+    return cave_value(col, y, height, small_only);
+}
+
+float WorldGen::cave_value(const CaveColumn &col, int y, int height, bool small_only) const {
+    const int x = col.x, z = col.z;
     const float fx = (float)x, fy = (float)y, fz = (float)z;
     const float depth = (float)(height - y);
     const bool epic = variant_[VAR_CAVES] != 0;
@@ -1063,7 +1076,7 @@ float WorldGen::cave_value(int x, int y, int z, int height, bool small_only) con
     // passage can be followed for hundreds of metres; noodles, chimneys and halls join the storeys.
     if (depth > 12.0f && depth < 220.0f) {
         constexpr float SP = 28.0f, HH = 2.5f, W = 0.16f;   // storey spacing, half height (macro), route half width
-        const float yo = fy - n_galoff_.GetNoise(fx, fz) * 10.0f;
+        const float yo = fy - col.galoff * 10.0f;
         const float lvl = std::floor(yo / SP + 0.5f);
         const float dy = std::fabs(yo - lvl * SP);
         if (dy < HH) {
@@ -1073,8 +1086,8 @@ float WorldGen::cave_value(int x, int y, int z, int height, bool small_only) con
     }
     // Entrances and connectors (ADR 0077): winding ramps that leave the ground, sinkholes, chimneys.
     if (depth < 520.0f) {
-        CaveMouth m[9];
-        const int n = mouths_near(x, z, m);
+        const CaveMouth *m = col.mouths;
+        const int n = col.nmouths;
         for (int i = 0; i < n; i++) {
             if (m[i].kind == MOUTH_RAMP) {
                 float t;
