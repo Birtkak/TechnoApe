@@ -1518,6 +1518,36 @@ shape("minecart", outline(g), {"i": "#3a3e44", "j": "#5a5e64", "k": "#1a1a1c"})
 sp("minecart", ("minecart", "iron"))
 sp("chest_cart", ("crucible", "iron"), ("brick", "wood"))
 
+# hand-painted overrides: game/art/items/<item_id>.png (16x16) replaces the generated sprite (game/art/README.md)
+ART = os.path.join(REPO, "game", "art", "items")
+if os.path.isdir(ART):
+    from PIL import Image
+    KEYS = [c for c in map(chr, range(33, 0x300)) if c.isprintable() and c not in '."\\']   # one colour key per distinct colour
+    item_ids = {it["id"] for it in json.load(open(os.path.join(REPO, "game", "data", "items.json"), encoding="utf8"))["items"]}
+    for f in sorted(os.listdir(ART)):
+        if not f.endswith(".png"):
+            continue
+        item = f[:-4]
+        if item not in item_ids:
+            raise SystemExit("game/art/items/%s: no item %r in items.json" % (f, item))
+        im = Image.open(os.path.join(ART, f)).convert("RGBA")
+        if im.size != (N, N):
+            raise SystemExit("game/art/items/%s: must be %dx%d, is %dx%d" % (f, N, N, *im.size))
+        keys, grid = {}, []
+        for y in range(N):
+            r = ""
+            for x in range(N):
+                p = im.getpixel((x, y))
+                if p[3] == 0:
+                    r += "."
+                    continue
+                h = "#%02x%02x%02x" % p[:3] + ("%02x" % p[3] if p[3] < 255 else "")
+                r += keys.setdefault(h, KEYS[len(keys)])
+            grid.append(r)
+        S["art_" + item] = {"colors": {v: k for k, v in keys.items()}, "rows": grid}
+        SP[item] = dict(SP.get(item, {}), layers=[{"shape": "art_" + item}])
+        print("art override", f)
+
 path = os.path.join(REPO, "game", "data", "item_sprites.json")
 open(path, "w", encoding="utf8", newline="\n").write(dump())
 print("wrote", path, len(SP), "sprites", len(S), "shapes")
