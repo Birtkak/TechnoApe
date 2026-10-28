@@ -88,7 +88,9 @@ func rel_cells(hit: Vector3i, front: Vector3i, size: int, shape: String, place: 
 			out[i * 3 + 1] = c.y
 			out[i * 3 + 2] = c.z
 	if _cells.size() > 64:
-		_cells.clear()
+		for k in _cells.keys():
+			if String(k).get_slice_count(" ") > 2:
+				_cells.erase(k)   # keep the big round brushes warm_cache made (16-62 ms each to redo)
 	_cells[key] = out
 	stats["cells_builds"] += 1
 	stats["cells_ms_max"] = maxf(stats["cells_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
