@@ -94,6 +94,9 @@ public:
     PackedByteArray generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel = 2) const;
     // Blocks generated since the last call and the worker time they took, by result: air, uniform, full (usec).
     static Dictionary gen_stats();
+    // A data column's (lowest ground, highest voxel anything generated reaches) in fine voxels: the footprint
+    // (x, z) .. + size at LOD 0. godot_voxel's ground shell asks it from its update thread (ADR 0105).
+    Vector2i ground_range(int x, int z, int size) const;
     // Deep rock from LOD 1 on comes back as one voxel (the block is all that material) when on; off: always
     // the whole block (probes and tests decode it voxel by voxel).
     void set_uniform_blocks(bool on) { uniform_blocks_ = on; }

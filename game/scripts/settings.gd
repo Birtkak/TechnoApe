@@ -14,6 +14,10 @@ var simulation_distance_m := 24.0       # nominal reach of the simulation (HUD);
 var sim_window_chunks := Vector3i(32, 32, 32)   # the wrapped simulation window: 64 x 64 x 64 m of 12.5 cm voxels (powers of two; 64 m tall since ADR 0050)
 var sim_cell_budget := 1500000          # cells scanned per tick at most; the furthest active chunks wait (ADR 0013)
 var sim_lod_m := 12.0                   # chunks further than this from the player tick every second tick
+var ground_shell := true                # ADR 0105: the full-detail box follows the ground (shell=0: the whole cube)
+var shell_below_m := 24.0               # ... from this far under the lowest ground of a 6 m patch
+var shell_above_m := 64.0               # ... to this far over its highest ground, water or tree
+var shell_near_m := 32.0                # ... plus everything this close to the player, any direction
 var view_distance_m := 40.0             # the horizon = the radius of the one box of full-detail voxels (ADR 0073: no LOD; 40 m holds the budget standing and in flight, 48 m does not: p99 32 ms standing). The terrain blends into the sky over the last quarter
 var horizon_fade_frac := 0.75           # the terrain blends into the sky from this fraction of view_distance_m to the edge (terrain_common.gdshaderinc)
 var terrain_threaded_update := true     # VoxelLodTerrain's streaming bookkeeping on a worker thread (ADR 0020: the 17 ms burst frame became 9 ms)
@@ -335,6 +339,10 @@ func apply_cmdline() -> Dictionary:
 		match kv[0]:
 			"simulation_distance_m": simulation_distance_m = float(kv[1])
 			"view_distance_m": view_distance_m = float(kv[1])
+			"shell": ground_shell = kv[1] == "1"
+			"shell_below_m": shell_below_m = float(kv[1])
+			"shell_above_m": shell_above_m = float(kv[1])
+			"shell_near_m": shell_near_m = float(kv[1])
 			"terrain_threaded_update": terrain_threaded_update = kv[1] == "1"
 			"far_fade_start_m": far_fade_start_m = float(kv[1])
 			"far_fade_end_m": far_fade_end_m = float(kv[1])

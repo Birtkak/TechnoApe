@@ -100,6 +100,31 @@ queue still does not catch up in flight (~0.9 M pending, 70-75 % of the time nea
 The 72 m result is the same with the generator before this pass (p99 50 ms, 33 M triangles): it is the box, not
 the speed-up. Beyond ~56 m the cube needs the underground it cannot see kept out of the draw and out of memory.
 
+## The box follows the ground (developer's choice, same day)
+A flattened box was rejected (mountains would show as slices, lifted gas would hang under its lid); the box keeps its
+full reach sideways and follows the ground vertically instead (`voxel_patch_shell.py`,
+`VoxelLodTerrain.set_ground_shell`, Settings `ground_shell`, `shell_below_m` 24, `shell_above_m` 64, `shell_near_m`
+32; `shell=0` turns it off). A drawing viewer keeps a data column from the lowest ground of its 3 x 3 columns minus
+`below` to the highest ground, water or tree plus `above` (`FineGen.ground_range`, the same top bound as the
+generator's sky check), plus every block within `near` of it in any direction; the simulation bubble's data-only
+viewer keeps its whole box. Mountains follow, builds up to 64 m stand, caves load within 32 m of the player.
+
+Measured in spectator flight (the developer's test from now on: no walk runs; 20 s, seed 272905368):
+
+| box | band | p99 | frames > 16.7 | triangles | draw calls | GPU p99 | render CPU p99 | RSS | VRAM |
+|---|---|---|---|---|---|---|---|---|---|
+| 40 m | off | 11.7 ms | 2 | 11.2 M | 2.7 k | 4.6 ms | 5.4 ms | 2.5 GB | 1.2 GB |
+| 40 m | on | 9.0 ms | 0 | 10.0 M | 2.5 k | 4.6 ms | 4.9 ms | 2.5 GB | 1.1 GB |
+| 56 m | on | 21.8 ms | 196 | 15.2 M | 4.5 k | 7.5 ms | 9.4 ms | 2.8 GB | 1.6 GB |
+| 72 m | on | 33.2 ms | 725 | 23.0 M | 6.8 k | 11.1 ms | 17.1 ms | 3.2 GB | 2.4 GB |
+| 100 m | on | 54.4 ms | 514 | 38.6 M | 11.5 k | 12.7 ms | 23.6 ms | 5.0 GB | 4.3 GB |
+| 100 m | off | 18.9 ms (81 % of near detail missing) | 102 | 9.3 M | 3.3 k | 3.6 ms | 5.0 ms | 5.5 GB | 1.5 GB |
+
+With the band the box fills, and what is left is drawing it: render CPU grows with the draw calls (~2 ms per
+1,000) and the GPU with the triangles. Streaming, generation and memory no longer stop a bigger box; the number
+of mesh blocks and faces does. Next: fewer draw calls (bigger mesh blocks than godot_voxel's 32-voxel maximum)
+and fewer triangles (merging coplanar faces of one material; occlusion of what hills and trees hide).
+
 ## Consequences
 - The 200 ms stalls are gone; 100 m is still over budget (p99 15 ms, frames over 16.7 ms). In flight the
   generation queue never catches up: generation throughput and per-task overhead for ~1 M mostly

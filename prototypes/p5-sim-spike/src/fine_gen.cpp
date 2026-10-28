@@ -206,6 +206,7 @@ void FineGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("generate_block", "origin", "size", "lod", "bytes_per_voxel"), &FineGen::generate_block, DEFVAL(2));
     ClassDB::bind_method(D_METHOD("set_uniform_blocks", "on"), &FineGen::set_uniform_blocks);
     ClassDB::bind_static_method("FineGen", D_METHOD("gen_stats"), &FineGen::gen_stats);
+    ClassDB::bind_method(D_METHOD("ground_range", "x", "z", "size"), &FineGen::ground_range);
     ClassDB::bind_method(D_METHOD("get_uniform_blocks"), &FineGen::get_uniform_blocks);
     ClassDB::bind_method(D_METHOD("map_image", "center_x", "center_z", "radius", "step"), &FineGen::map_image);
     ClassDB::bind_method(D_METHOD("surface_map", "x0", "z0", "n", "step"), &FineGen::surface_map);
@@ -975,6 +976,14 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
     s_gen_n[kind] += 1;
     s_gen_us[kind] += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
     return out;
+}
+
+Vector2i FineGen::ground_range(int x, int z, int size) const {
+    const std::shared_ptr<const ColumnCtx> c = column_ctx(Vector3i(x, 0, z), Vector3i(size, size, size), 0);
+    const int lo = *std::min_element(c->h.begin(), c->h.end());
+    // the top bound generate_block's sky check uses: nothing generated reaches above it
+    const int hi = std::max({(c->hmax_m + 12) * FS, c->wl_max * FS + 1, c->fall_max * FS + 1, c->feat_top + 1, (c->hmax_m + 1) * FS + 12});
+    return Vector2i(lo, hi);
 }
 
 Dictionary FineGen::gen_stats() {
