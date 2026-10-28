@@ -45,6 +45,7 @@ const HOP_M := 100.0       # a jump shorter than this onto terrain already drawn
 var _last_jump_ms := -1000           # creative: double-tap jump toggles flying
 var _yaw := 0.0
 var _pitch := -0.2
+var _jet_thrust := false            # the jetpack fired this step (the body shows its exhaust)
 var _eye_drop := 0.0                 # voxels the eyes sit lower while sneaking
 var _mouse_captured := false
 var autopilot := false
@@ -207,7 +208,7 @@ func set_game_mode(mode: String) -> void:
 	if model:
 		model.visible = model.visible and not noclip   # a spectator has no body to see
 	if viewmodel:
-		viewmodel.visible = GameMode.rule(mode, "interacts")   # nor hands
+		viewmodel.visible = perspective == 0 and GameMode.rule(mode, "interacts")   # nor hands; none in third person
 	_mine_progress = 0.0
 	_mine_target = Vector3i(1 << 30, 0, 0)
 	game_mode_changed.emit(mode)
@@ -426,8 +427,12 @@ func _ground_ready() -> bool:
 
 ## Feet or chest in a liquid (water, lava, oil), or in kelp standing in water (ADR 0047).
 func _check_liquid() -> bool:
-	for h in [0.2, 0.5]:
-		var m := world.get_voxel(Vector3i((position + Vector3(0, Settings.m2v(Settings.player_height_m) * h, 0)).floor()))
+	# every voxel from knee to waist, not two samples: finite water churns with air gaps, and a
+	# sample in a gap dropped the swimmer to the bottom (bug report 2026-10-28_08-22-07)
+	var h := Settings.m2v(Settings.player_height_m)
+	var feet := Vector3i(position.floor())
+	for dy in range(int(h * 0.2), int(h * 0.5) + 1):
+		var m := world.get_voxel(feet + Vector3i(0, dy, 0))
 		if GameMaterials.is_liquid(m) or GameMaterials.is_waterlogged(m):
 			return true
 	return false
@@ -477,7 +482,9 @@ func _cost(name: String, t0: int) -> void:
 func _physics_step(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	if model and model.visible:
-		model.animate(delta, Vector2(velocity.x, velocity.z).length(), is_on_floor(), flying, _pitch, viewmodel.swing_amount() if viewmodel else 0.0)
+		model.animate(delta, Vector2(velocity.x, velocity.z).length(), is_on_floor(), flying, _pitch, viewmodel.swing_amount() if viewmodel else 0.0, sneaking())
+		model.jet_flame(_jet_thrust, Time.get_ticks_msec() / 1000.0)
+	_jet_thrust = false
 	_cost("player_model", t0)
 	_break_cooldown = maxf(0.0, _break_cooldown - delta)
 	_place_cooldown = maxf(0.0, _place_cooldown - delta)
@@ -561,6 +568,7 @@ func _physics_step(delta: float) -> void:
 		var pack := _worn_with("jetpack")   # the steam jetpack (ADR 0099): on compressed air, hold jump to rise slowly, let go to hover down
 		if not pack.is_empty() and float(pack.get("air", 0.0)) > 0.0:
 			pack["air"] = maxf(0.0, float(pack["air"]) - delta / Settings.jetpack_air_s * (1.0 if jump else 0.25))
+			_jet_thrust = jump
 			if jump:
 				velocity.y = move_toward(velocity.y, Settings.m2v(Settings.jetpack_rise_m), Settings.m2v(Settings.gravity_m) * 2.0 * delta)
 			else:

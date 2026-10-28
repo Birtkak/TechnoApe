@@ -93,6 +93,7 @@ func setup(p_main: Node) -> void:
 		var panel := ClothingPanel.new()   # docked left of the inventory (part D's side panels)
 		panel.setup(main.player_inv, clothing)
 		main.inv_screen.add_side_panel(panel, "left")
+	clothing.changed.connect(_show_worn)
 	paintings = CavePaintings.new()
 	paintings.name = "CavePaintings"
 	add_child(paintings)
@@ -129,6 +130,14 @@ static func install_blueprints(base: String) -> int:
 			f.store_string(text)
 			n += 1
 	return n
+
+
+## The worn clothing on the player's body and on the inventory's portrait.
+func _show_worn() -> void:
+	if main.player and main.player.model:
+		main.player.model.set_worn(clothing.worn)
+	if main.inv_screen and main.inv_screen.get("portrait"):
+		main.inv_screen.portrait.set_worn(clothing.worn)
 
 
 func _watch(e: RefCounted) -> void:

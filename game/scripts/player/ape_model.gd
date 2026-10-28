@@ -33,10 +33,19 @@ const BUCKLE := 13
 const STRAP := 14
 const EYE := 15
 const EYE_WHITE := 16
+const SLATE := 17         # jetpack and miner's helmet colours (bug report 2026-10-28 references)
+const SLATE_DARK := 18
+const SIGNAL_RED := 19
+const LEATHER := 20
+const HELMET := 21
+const NAVY := 22
+const LAMP := 23
+const GEAR := EYE_WHITE   # worn clothing cells drawn in this tile take the item's tint (set_worn)
 const PALETTE: Array = [
 	[95, 62, 38], [132, 90, 54], [214, 178, 138], [236, 236, 232], [206, 206, 200], [52, 54, 62],
 	[72, 205, 225], [28, 28, 32], [150, 236, 255], [84, 90, 102], [46, 40, 38], [190, 110, 110],
 	[70, 45, 30], [214, 184, 82], [92, 92, 98], [20, 20, 24], [246, 246, 244],
+	[108, 124, 140], [44, 54, 66], [222, 82, 76], [112, 58, 40], [204, 112, 52], [40, 48, 66], [255, 214, 96],
 ]
 const ATLAS := Vector2i(8, 3)
 
@@ -52,6 +61,10 @@ var leg_l: MeshInstance3D
 var tail: MeshInstance3D
 var _phase := 0.0
 var _time := 0.0
+var _crouch := 0.0          # 0 standing .. 1 sneaking, eased
+var _gear: Array = []       # meshes of the worn clothing (set_worn)
+var _flame: MeshInstance3D  # the jetpack's exhaust (jet_flame)
+static var _gear_mats := {}   # Color -> tinted copy of the material
 
 
 static func material() -> StandardMaterial3D:
@@ -112,8 +125,10 @@ func _part(cells: PackedInt32Array, size: Vector3i, origin: Vector3, grid: int =
 
 ## Walk cycle and idle motion. speed: horizontal speed in voxels/s.
 ## Rotations about +X with a positive angle swing a hanging limb forward (-Z).
-func animate(delta: float, speed: float, on_floor: bool, flying: bool, pitch: float, swing: float) -> void:
+## sneak: Minecraft's crouch, the torso leans forward and the hips drop back over bent legs.
+func animate(delta: float, speed: float, on_floor: bool, flying: bool, pitch: float, swing: float, sneak := false) -> void:
 	_time += delta
+	_crouch = move_toward(_crouch, 1.0 if sneak else 0.0, delta * 8.0)
 	var moving := speed > 0.2 and (on_floor or flying)
 	if moving:
 		_phase += delta * minf(speed, 12.0) * 1.1
@@ -133,7 +148,105 @@ func animate(delta: float, speed: float, on_floor: bool, flying: bool, pitch: fl
 		arm_r.rotation.x = 1.4 * sin(swing * PI)
 	head.rotation = Vector3(clampf(pitch, -0.9, 0.9), 0, 0)
 	tail.rotation = Vector3(0.1 + 0.12 * sin(_time * 2.3), 0.25 * sin(_time * 1.3), 0)
-	torso.rotation = Vector3(-0.05 * amp, 0, 0)
+	# crouch: the hips go back and down over legs swung forward, the torso (pivot at the
+	# skirt, cell 18) leans forward and carries the shoulders and the head with it
+	var lean := -0.35 * _crouch
+	var s := 1.0 / GRID
+	var hip := Vector3(0, -0.6 * _crouch, 2.0 * _crouch)
+	torso.rotation = Vector3(-0.05 * amp + lean, 0, 0)
+	torso.position = (Vector3(0, 18, 0) + hip) * s
+	var bend := Basis(Vector3.RIGHT, lean)
+	head.position = (Vector3(0, 18, 0) + hip + bend * Vector3(0, 23, 0)) * s
+	arm_r.position = (Vector3(0, 18, 0) + hip + bend * Vector3(10, 22, 0.5)) * s
+	arm_l.position = (Vector3(0, 18, 0) + hip + bend * Vector3(-10, 22, 0.5)) * s
+	tail.position = (Vector3(0, 18, 0) + hip + bend * Vector3(0, 2, 4)) * s
+	leg_r.position = (Vector3(3.5, 24, 0) + hip) * s
+	leg_l.position = (Vector3(-3.5, 24, 0) + hip) * s
+	leg_r.rotation.x += 0.2 * _crouch
+	leg_l.rotation.x += 0.2 * _crouch
+	arm_r.rotation.x += 0.25 * _crouch
+	arm_l.rotation.x += 0.25 * _crouch
+
+
+## Shows the worn clothing (Clothing.worn: slot -> stack) on the body: a cap or helmet on the head
+## (the miner's helmet with its lamp), a vest over the coat, boots, the jetpack's two steam cells
+## on the back. Each piece takes the average colour of its item sprite, so new clothing needs no art.
+func set_worn(worn: Dictionary) -> void:
+	for g in _gear:
+		g.queue_free()
+	_gear.clear()
+	_flame = null
+	var s := 1.0 / GRID
+	for slot in worn:
+		var id := String(worn[slot].get("id", ""))
+		var tint := gear_color(id)
+		match slot:
+			"head":
+				if id != "goggles":   # the head already wears its goggles pushed up
+					_gear_part(head, _helmet_cells(id), Vector3i(22, 8, 20), Vector3(-11, 9, -10) * s, tint)
+			"body":
+				_gear_part(torso, _vest_cells(), Vector3i(16, 15, 11), Vector3(-8, 6, -5) * s, tint)
+			"feet":
+				for leg in [leg_r, leg_l]:
+					_gear_part(leg, _boot_cells(), Vector3i(8, 8, 9), Vector3(-4, -24, -4) * s, tint)
+			"back":
+				_gear_part(torso, _jetpack_cells(), Vector3i(20, 18, 7), Vector3(-10, 4, 5) * s, tint)
+				if worn[slot].get("id", "") == "jetpack":
+					_flame = MeshInstance3D.new()
+					# pivot at the nozzles' bottom (cell y 1) so scaling stretches the plume downward
+					_flame.mesh = MobModel.outward(MicroMesher.build(_flame_cells(), Vector3i(20, 18, 7), GRID, _tiles, ATLAS, Vector3(-10, -1, 5) * s))
+					_flame.position = Vector3(0, 5, 0) * s
+					var fm: StandardMaterial3D = _material.duplicate()
+					fm.emission_enabled = true
+					fm.emission_texture = _material.albedo_texture
+					fm.emission = Color(1, 1, 1)
+					fm.emission_energy_multiplier = 0.35
+					_flame.material_override = fm
+					_flame.visible = false
+					torso.add_child(_flame)
+					_gear.append(_flame)
+
+
+## The average colour of the item's sprite, a little brighter (the outline darkens it).
+static func gear_color(id: String) -> Color:
+	var img := ItemSprites.get_default().image(id)
+	if img == null:
+		return Color(0.6, 0.6, 0.6)
+	var sum := Vector3.ZERO
+	var n := 0
+	for y in img.get_height():
+		for x in img.get_width():
+			var c := img.get_pixel(x, y)
+			if c.a > 0.5:
+				sum += Vector3(c.r, c.g, c.b)
+				n += 1
+	if n == 0:
+		return Color(0.6, 0.6, 0.6)
+	sum = sum / n * 1.2
+	return Color(minf(sum.x, 1.0), minf(sum.y, 1.0), minf(sum.z, 1.0))
+
+
+## One worn piece under `parent`: the GEAR cells drawn in `tint`, the rest in the palette.
+func _gear_part(parent: Node3D, cells: PackedInt32Array, size: Vector3i, origin: Vector3, tint: Color) -> void:
+	var base := cells.duplicate()
+	var detail := cells.duplicate()
+	for i in cells.size():
+		if cells[i] == GEAR + 1:
+			detail[i] = 0
+		else:
+			base[i] = 0
+	if not _gear_mats.has(tint):
+		var m: StandardMaterial3D = _material.duplicate()
+		m.albedo_color = tint
+		_gear_mats[tint] = m
+	for pair in [[base, _gear_mats[tint]], [detail, _material]]:
+		if (pair[0] as PackedInt32Array).count(0) == cells.size():
+			continue
+		var mi := MeshInstance3D.new()
+		mi.mesh = MobModel.outward(MicroMesher.build(pair[0], size, GRID, _tiles, ATLAS, origin))
+		mi.material_override = pair[1]
+		parent.add_child(mi)
+		_gear.append(mi)
 
 
 ## The first-person arm: a right arm with the hand at the origin, pointing +y
@@ -310,6 +423,87 @@ static func _leg_cells() -> PackedInt32Array:
 	_box(c, size, 0, 5, 1, 6, 6, 7, FUR_DARK)                    # boot rim
 	_box(c, size, 1, 2, 0, 5, 3, 1, ACCENT)                      # lace light
 	return c
+
+
+## Head-relative cell (x, y, z) sits at (x - 11, y + 9, z - 10): the dome clears the skull by one
+## cell; helmets get a brim and a dark band, the miner's helmet its lamp over the brow.
+static func _helmet_cells(id: String) -> PackedInt32Array:
+	var size := Vector3i(22, 8, 20)
+	var c := _cells(size)
+	var miner := id == "miners_helmet"
+	var dome := HELMET if miner else GEAR
+	_rounded_box(c, size, Vector3i(2, 1, 2), Vector3i(20, 7, 18), dome)
+	_rounded_box(c, size, Vector3i(5, 6, 5), Vector3i(17, 8, 15), dome)
+	if miner:   # copper dome, wide navy brim, two straps crossing over the top, the lamp in front
+		_rounded_box(c, size, Vector3i(0, 0, 0), Vector3i(22, 2, 20), NAVY)
+		for y in range(1, 8):
+			for z in size.z:
+				for x in size.x:
+					if _cell_get(c, size, x, y, z) == HELMET + 1 and (x == 10 or x == 11 or z == 9 or z == 10):
+						_cell_set(c, size, x, y, z, NAVY)
+		_box(c, size, 8, 2, 0, 14, 7, 2, NAVY)       # lamp housing
+		_box(c, size, 9, 3, 0, 13, 6, 1, LAMP)
+		_box(c, size, 10, 4, 0, 12, 5, 1, EYE_WHITE)
+	elif id.contains("helmet"):
+		_rounded_box(c, size, Vector3i(1, 0, 0), Vector3i(21, 2, 19), GEAR)   # brim
+		_repaint_shell(c, size, GEAR, STRAP, 2, 3)
+	return c
+
+
+static func _vest_cells() -> PackedInt32Array:
+	var size := Vector3i(16, 15, 11)
+	var c := _cells(size)
+	_box(c, size, 0, 0, 0, 16, 15, 11, GEAR)
+	_box(c, size, 7, 0, 0, 9, 15, 1, STRAP)        # front seam
+	_box(c, size, 0, 0, 0, 16, 1, 11, STRAP)       # hem
+	return c
+
+
+static func _boot_cells() -> PackedInt32Array:
+	var size := Vector3i(8, 8, 9)
+	var c := _cells(size)
+	_box(c, size, 0, 1, 0, 8, 8, 9, GEAR)
+	_box(c, size, 0, 0, 0, 8, 1, 9, BOOTS)         # sole
+	_box(c, size, 0, 7, 0, 8, 8, 9, FUR_DARK)      # cuff
+	return c
+
+
+## Torso-relative: cell z = 0 lies on the coat's back (origin (-10, 4, 5)). A slate back plate with
+## a dark panel and two leather straps between two slate tanks: red caps, a red band, a dark
+## recessed panel on the back face, a nozzle underneath.
+static func _jetpack_cells() -> PackedInt32Array:
+	var size := Vector3i(20, 18, 7)
+	var c := _cells(size)
+	_box(c, size, 6, 4, 0, 14, 14, 2, SLATE)               # back plate
+	_box(c, size, 7, 5, 1, 13, 13, 2, SLATE_DARK)
+	for x0 in [7, 11]:                                     # straps over the plate
+		_box(c, size, x0, 3, 2, x0 + 2, 15, 3, LEATHER)
+	_box(c, size, 4, 9, 1, 16, 12, 4, SLATE_DARK)          # arms out to the tanks
+	for x0 in [0, 16]:
+		_box(c, size, x0, 3, 1, x0 + 4, 17, 7, SLATE)       # tank
+		_box(c, size, x0 + 1, 16, 2, x0 + 3, 17, 6, SIGNAL_RED)   # cap
+		_box(c, size, x0, 5, 1, x0 + 4, 6, 7, SIGNAL_RED)   # band
+		_box(c, size, x0 + 1, 7, 6, x0 + 3, 15, 7, SLATE_DARK)   # recessed panel
+		_box(c, size, x0 + 1, 11, 6, x0 + 2, 14, 7, SLATE)  # its slit
+		_box(c, size, x0 + 1, 1, 2, x0 + 3, 3, 6, SLATE_DARK)   # nozzle
+	return c
+
+
+## The exhaust under the two nozzles, in jetpack cells (same origin): yellow core, orange edge.
+static func _flame_cells() -> PackedInt32Array:
+	var size := Vector3i(20, 18, 7)
+	var c := _cells(size)
+	for x0 in [0, 16]:
+		_box(c, size, x0 + 1, 0, 2, x0 + 3, 1, 6, HELMET)
+		_box(c, size, x0 + 1, 0, 3, x0 + 3, 1, 5, LAMP)
+	return c
+
+
+## Shows the jetpack's exhaust while it thrusts (no-op without a worn jetpack).
+func jet_flame(on: bool, t: float) -> void:
+	if _flame:
+		_flame.visible = on
+		_flame.scale = Vector3(1, 1.0 + 4.0 * (0.8 + 0.2 * sin(t * 40.0)), 1)
 
 
 static func _tail_cells() -> PackedInt32Array:
