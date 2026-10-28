@@ -123,7 +123,10 @@ func _fire(firing: bool, from: Vector3, dir: Vector3, delta: float, brush_size: 
 		end = piece["position"] + dir * 0.5
 	_show_beam(from, end)
 	_pulse_t -= delta
-	if (hit or not piece.is_empty()) and _pulse_t <= 0.0:
+	# a cut during a sim tick waits for it (~10 ms with sand and water moving): wait for an idle sim
+	# instead, at most one pulse late
+	var due: bool = _pulse_t <= 0.0 and (main.bubble.can_sample() or _pulse_t <= -Settings.laser_pulse_s)
+	if (hit or not piece.is_empty()) and due:
 		_pulse_t = Settings.laser_pulse_s
 		_cut(end, dir, maxf(brush_size * 0.5, 1.0))
 	_check_t -= delta
