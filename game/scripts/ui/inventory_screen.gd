@@ -157,7 +157,7 @@ func _ready() -> void:
 	tsb.border_color = Color(0.3, 0.1, 0.6)
 	tsb.set_border_width_all(2)
 	tsb.set_content_margin_all(5)
-	_tooltip.add_theme_stylebox_override("normal", tsb)
+	_tooltip.add_theme_stylebox_override("normal", UiStyle.skin("tooltip", tsb))
 	_tooltip.visible = false
 	_root.add_child(_tooltip)
 	_build_player_slots()
@@ -650,7 +650,7 @@ func _draw_panel() -> void:
 	sb.border_color = Color(0.2, 0.2, 0.2)
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(6)
-	_panel.draw_style_box(sb, Rect2(Vector2.ZERO, _panel.size))
+	_panel.draw_style_box(UiStyle.skin("inventory", sb), Rect2(Vector2.ZERO, _panel.size))
 	portrait.visible = not _container and player_inv != null and player_inv.craft.width == 2
 	if _container:
 		if _container.kind in ["furnace", "firepit"]:
@@ -756,9 +756,11 @@ class SlotView:
 		sb.border_width_bottom = 0
 		sb.border_width_right = 0
 		var r := Rect2(Vector2.ZERO, size)
-		draw_style_box(sb, r)
-		draw_rect(Rect2(0, size.y - 2, size.x, 2), Color.WHITE)
-		draw_rect(Rect2(size.x - 2, 0, 2, size.y), Color.WHITE)
+		var s := UiStyle.skin("slot", sb)
+		draw_style_box(s, r)
+		if s == sb:   # the flat look's bevel; a skin draws its own
+			draw_rect(Rect2(0, size.y - 2, size.x, 2), Color.WHITE)
+			draw_rect(Rect2(size.x - 2, 0, 2, size.y), Color.WHITE)
 		if _hover:
 			draw_rect(Rect2(2, 2, size.x - 4, size.y - 4), Color(1, 1, 1, 0.35))
 		if favourite:

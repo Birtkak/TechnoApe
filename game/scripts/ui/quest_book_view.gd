@@ -408,10 +408,12 @@ func _draw_frame() -> void:
 	sb.border_color = C_EDGE
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(8)
-	_frame.draw_style_box(sb, r)
+	_frame.draw_style_box(UiStyle.skin("book", sb), r)
 	# sidebar and detail panes
-	_frame.draw_rect(Rect2(6, 6, SIDEBAR - 12, r.size.y - 12), C_PANE)
-	_frame.draw_rect(Rect2(r.size.x - DETAIL + 6, 6, DETAIL - 12, r.size.y - 12), C_PANE)
+	var pane := StyleBoxFlat.new()
+	pane.bg_color = C_PANE
+	_frame.draw_style_box(UiStyle.skin("book_pane", pane), Rect2(6, 6, SIDEBAR - 12, r.size.y - 12))
+	_frame.draw_style_box(UiStyle.skin("book_pane", pane), Rect2(r.size.x - DETAIL + 6, 6, DETAIL - 12, r.size.y - 12))
 	var font := ThemeDB.fallback_font
 	_frame.draw_string(font, Vector2(18, 36), "Progression", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, C_TEXT)
 
@@ -646,7 +648,7 @@ class BookButton:
 		sb.border_color = Color(0.2, 0.2, 0.2)
 		sb.set_border_width_all(3)
 		sb.set_corner_radius_all(6)
-		draw_style_box(sb, Rect2(Vector2.ZERO, size))
+		draw_style_box(UiStyle.skin("book_button", sb), Rect2(Vector2.ZERO, size))
 		# 16x16 pixel book at 2.5x: pages, cover, spine, clasp, ribbon
 		var o := Vector2(8, 6)
 		var p := 2.5

@@ -16,9 +16,23 @@ Delete the PNG to go back to the generated look.
   - `pattern` materials (planks, bricks, cobble, bark, ores, ...) lay the tile over the world grid,
     one texel per voxel, repeating every 2 m (ADR 0039). Draw them seamless.
 
+Two more kinds live elsewhere, because the game reads them at run time (this folder only feeds the
+generators):
+
+- `data/art_models/<name>.json`: a cell model that replaces one model part, at exactly the part's size
+  (its pivot and animation are set in code around it). `work_<kind>` = a machine or work piece's
+  solid part, built facing 0 (the game turns it); `mob_<species>_<part>` = an animal part (every leg
+  of an animal shares one); `ape_<part>` = the player's head, torso, arm_r, arm_l (also the
+  first-person arm), leg_r, leg_l, tail. `layers` go bottom to top, each `size.z` rows of `size.x`
+  characters: `.` empty, a character of `0-9A-Za-z` = that colour of the family's palette
+  (`WorkPalette`, `MobModel` or `ApeModel` PALETTE), `*` = keep the game's own cell (a machine's fire
+  or gauge stays live). Code: `scripts/work/art_models.gd`.
+- `assets/ui/<skin>.png`: a nine-slice skin for a menu, HUD or inventory box (`UiStyle.SKINS` lists
+  the names); corners are a third of the image, drawn 3x. Needs `--import`. Code: `UiStyle.skin`.
+
 Any 16x16 PNG works (Aseprite, Pixelorama, Libresprite, Paint.NET). The Texture Studio artifact shows
-the current look, paints, previews in 3D the way the game draws it, and exports a zip laid out as this
-folder: unzip it into `game/`.
+the current look of all of these, edits them (a voxel editor for models), previews them the way the
+game draws them, and exports a zip laid out from `game/`: unzip it into `game/`.
 
 Apply:
 
@@ -28,5 +42,5 @@ python tools/make_item_sprites.py
 godot --headless --path . --import
 ```
 
-Refresh the Texture Studio's snapshot of the game: `godot --headless --path . --script res://tools/art_bundle.gd`
+Refresh the Texture Studio's snapshot of the game: `godot --headless --path . res://tools/art_bundle.tscn`
 (writes `out/art_bundle.json`), then ask Claude to republish the studio with it.

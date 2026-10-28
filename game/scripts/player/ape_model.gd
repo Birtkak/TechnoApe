@@ -98,20 +98,25 @@ func _ready() -> void:
 	# The part meshes come out facing -Z (cell z = 0 is the front), the player's
 	# forward; the right arm and leg are on +X, the player's right.
 	var s := 1.0 / GRID
-	torso = _part(_torso_cells(), Vector3i(14, 24, 9), Vector3(-7, 0, -4) * s)
+	torso = _part(art("torso", _torso_cells(), Vector3i(14, 24, 9)), Vector3i(14, 24, 9), Vector3(-7, 0, -4) * s)
 	torso.position = Vector3(0, 18, 0) * s
-	head = _part(_head_cells(), Vector3i(20, 16, 17), Vector3(-10, 0, -9) / HEAD_GRID, HEAD_GRID)
+	head = _part(art("head", _head_cells(), Vector3i(20, 16, 17)), Vector3i(20, 16, 17), Vector3(-10, 0, -9) / HEAD_GRID, HEAD_GRID)
 	head.position = Vector3(0, 41, 0) * s
-	arm_r = _part(_arm_cells(true), Vector3i(6, 22, 6), Vector3(-3, -22, -3) * s)
+	arm_r = _part(art("arm_r", _arm_cells(true), Vector3i(6, 22, 6)), Vector3i(6, 22, 6), Vector3(-3, -22, -3) * s)
 	arm_r.position = Vector3(10, 40, 0.5) * s
-	arm_l = _part(_arm_cells(false), Vector3i(6, 22, 6), Vector3(-3, -22, -3) * s)
+	arm_l = _part(art("arm_l", _arm_cells(false), Vector3i(6, 22, 6)), Vector3i(6, 22, 6), Vector3(-3, -22, -3) * s)
 	arm_l.position = Vector3(-10, 40, 0.5) * s
-	leg_r = _part(_leg_cells(), Vector3i(6, 24, 7), Vector3(-3, -24, -3) * s)
+	leg_r = _part(art("leg_r", _leg_cells(), Vector3i(6, 24, 7)), Vector3i(6, 24, 7), Vector3(-3, -24, -3) * s)
 	leg_r.position = Vector3(3.5, 24, 0) * s
-	leg_l = _part(_leg_cells(), Vector3i(6, 24, 7), Vector3(-3, -24, -3) * s)
+	leg_l = _part(art("leg_l", _leg_cells(), Vector3i(6, 24, 7)), Vector3i(6, 24, 7), Vector3(-3, -24, -3) * s)
 	leg_l.position = Vector3(-3.5, 24, 0) * s
-	tail = _part(_tail_cells(), Vector3i(4, 20, 14), Vector3(-2, 0, 0) * s)
+	tail = _part(art("tail", _tail_cells(), Vector3i(4, 20, 14)), Vector3i(4, 20, 14), Vector3(-2, 0, 0) * s)
 	tail.position = Vector3(0, 20, 4) * s
+
+
+## A body part's cells, or its hand-built art model ape_<part> (ArtModels).
+static func art(part: String, cells: PackedInt32Array, size: Vector3i) -> PackedInt32Array:
+	return ArtModels.cells("ape_" + part, cells, size, PALETTE.size())
 
 
 func _part(cells: PackedInt32Array, size: Vector3i, origin: Vector3, grid: int = GRID) -> MeshInstance3D:
@@ -254,7 +259,7 @@ func _gear_part(parent: Node3D, cells: PackedInt32Array, size: Vector3i, origin:
 static func build_arm_mesh() -> MeshInstance3D:
 	material()
 	var mi := MeshInstance3D.new()
-	mi.mesh = MobModel.outward(MicroMesher.build(_arm_cells(false), Vector3i(6, 22, 6), GRID, _tiles, ATLAS, Vector3(-3, -2.5, -3) / GRID))
+	mi.mesh = MobModel.outward(MicroMesher.build(art("arm_l", _arm_cells(false), Vector3i(6, 22, 6)), Vector3i(6, 22, 6), GRID, _tiles, ATLAS, Vector3(-3, -2.5, -3) / GRID))
 	# the arm sits in the camera's shadow most of the day: lift it with a little
 	# self-emission and ignore cast shadows, like Minecraft's flat-lit arm
 	var m: StandardMaterial3D = _material.duplicate()

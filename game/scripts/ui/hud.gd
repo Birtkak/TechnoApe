@@ -209,7 +209,7 @@ func _draw_look() -> void:
 	sb.border_color = Color(1, 1, 1, 0.14)
 	sb.set_border_width_all(1)
 	sb.set_corner_radius_all(8)
-	_look.draw_style_box(sb, box)
+	_look.draw_style_box(UiStyle.skin("hud_box", sb), box)
 	var y := box.position.y + 6
 	for l in lines:
 		y += l[1]
@@ -405,7 +405,7 @@ func _draw_pill() -> void:
 	sb.border_color = Color(1, 1, 1, 0.14)
 	sb.set_border_width_all(1)
 	sb.set_corner_radius_all(8)
-	_pill.draw_style_box(sb, Rect2(Vector2.ZERO, _pill.size))
+	_pill.draw_style_box(UiStyle.skin("hud_box", sb), Rect2(Vector2.ZERO, _pill.size))
 
 
 func _draw_hotbar() -> void:
@@ -420,12 +420,14 @@ func _draw_hotbar() -> void:
 	tray.shadow_color = Color(0, 0, 0, 0.45)
 	tray.shadow_size = 8
 	tray.shadow_offset = Vector2(0, 2)
+	tray = UiStyle.skin("hotbar", tray)
 	_hotbar.draw_style_box(tray, Rect2(0, 0, _hotbar.size.x, SLOT))
 	var cell := StyleBoxFlat.new()
 	cell.bg_color = Color(0, 0, 0, 0.38)
 	cell.border_color = Color(1, 1, 1, 0.07)
 	cell.set_border_width_all(1)
 	cell.set_corner_radius_all(4)
+	cell = UiStyle.skin("hotbar_slot", cell)
 	for i in 9:
 		_hotbar.draw_style_box(cell, Rect2(i * (SLOT + GAP), 0, SLOT, SLOT))
 	if player_inv and not player_inv.offhand().is_empty():
@@ -447,7 +449,7 @@ func _draw_hotbar() -> void:
 		sel.set_border_width_all(2)
 		sel.set_corner_radius_all(5)
 		sel.set_expand_margin_all(2)
-		_hotbar.draw_style_box(sel, r)
+		_hotbar.draw_style_box(UiStyle.skin("hotbar_selected", sel), r)
 	# slot numbers, small, top-left (vanilla has none; they help new players)
 	if _font == null:
 		_font = ThemeDB.fallback_font

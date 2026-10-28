@@ -233,7 +233,7 @@ func _rebuild_view(p: Vector3i) -> void:
 	var e: RefCounted = main.blocks.at(p)
 	if not BlockEntities.is_work(e):
 		return
-	var parts: Dictionary = e.view_parts()
+	var parts: Dictionary = ArtModels.apply(e, e.view_parts())
 	var v := WorkPalette.make_view(p, parts.get("solid", {}), parts.get("ghost", {}), parts.get("guide", {}), parts.get("items", []),
 		float(BlockEntities.width_of(e.kind)) / Settings.BLOCK)
 	_root.add_child(v)

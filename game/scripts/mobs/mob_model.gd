@@ -223,7 +223,9 @@ func _part(part: String, pos: Vector3) -> MeshInstance3D:
 func _mesh(part: String) -> ArrayMesh:
 	var key := "%s/%s/%d" % [species, part, cell]
 	if not _meshes.has(key):
-		var spec: Array = shaded(_build(species, part), species + part)
+		var spec: Array = _build(species, part)
+		spec[0] = ArtModels.cells("mob_%s_%s" % [species, part], spec[0], spec[1], PALETTE.size())
+		spec = shaded(spec, species + part)
 		material()
 		_meshes[key] = outward(MicroMesher.build(spec[0], spec[1], GRID / cell, _tiles, atlas(), spec[2]))
 	return _meshes[key]
