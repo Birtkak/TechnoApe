@@ -144,8 +144,10 @@ and fewer triangles (merging coplanar faces of one material; occlusion of what h
 | 72 m | 14.9 ms | 7 | 13.1 M | 868 | 9.3 ms | 3.1 GB | 0 % |
 | 100 m | 17.7 ms | 47 | 21.1 M | 1.4 k | 10.1 ms | 4.2 GB | 37 % |
 
-Left: the GPU (base triangles and the shadow pass) and, at 100 m, generation in flight; a first load through the
-save streams every block of the box from SQLite at ~15 k blocks a second (a 100 m box: 30 s and more).
+Left: the GPU (base triangles and the shadow pass) and, at 100 m, generation in flight. A first load through the save
+queued every block of the box as a serial SQLite load (~15 k a second: a new 100 m world waited 30 s and more), because
+the key cache that lets unsaved blocks skip that queue loaded only inside the first I/O task;
+`voxel_patch_keycache.py` loads it when the cache is turned on: a new 100 m world's cover lifts after 12.5 s.
 
 ## Consequences
 - The 200 ms stalls are gone; 100 m is still over budget (p99 15 ms, frames over 16.7 ms). In flight the
