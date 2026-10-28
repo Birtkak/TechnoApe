@@ -479,15 +479,14 @@ func _terrain_in(col: Vector2i, k: int) -> bool:
 
 
 ## Records a slow frame with Godot's own monitors (previous frame) next to the
-## bubble's costs, so a spike can be attributed without a profiler.
+## bubble's costs, so a spike can be attributed without a profiler. No RENDER_* monitors: they
+## wait for the render thread (ADR 0016), and at 120 fps every frame is over SLOW_MS.
 func _note_slow_frame(delta: float) -> void:
 	var prev: Dictionary = _cost if _cost.get("frame", -1) == Engine.get_process_frames() - 1 else {}
 	var t: Dictionary = world.terrain.get_statistics()
 	_slow.append({"frame_ms": snappedf(delta * 1000.0, 0.01),
 		"process_ms": snappedf(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, 0.01),
 		"physics_ms": snappedf(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, 0.01),
-		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
-		"vram_mb": snappedf(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0, 1),
 		"bubble_ms": prev.get("total_ms", 0.0), "pushed": prev.get("pushed", 0), "loads": prev.get("loads", 0),
 		"terrain_update_ms": t.get("time_update_task", 0), "terrain_mesh_req": t.get("time_mesh_requests", 0)})
 	_slow.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["frame_ms"] > b["frame_ms"])

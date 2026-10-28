@@ -21,6 +21,8 @@ var main: Node
 var visible_hud := true
 var _left: Array[String] = []
 var _right: Array[String] = []
+var _gpu_lines: Array[String] = []
+var _gpu_lines_ms := 0
 var _text_view: Control
 var _graph: Control
 var _axes: Control
@@ -150,13 +152,20 @@ func _collect() -> void:
 		"CPU: %dx %s" % [OS.get_processor_count(), OS.get_processor_name()],
 		"",
 		"Display: %dx%d" % [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y],
-		RenderingServer.get_video_adapter_name(),
-		"%s %s" % [RenderingServer.get_video_adapter_vendor(), RenderingServer.get_video_adapter_api_version()],
-		"VRAM: %d MB" % int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0),
-		"Draw calls %d, primitives %.2f M" % [Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
-			Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1e6],
-		"",
 	]
+	# the render server answers on the render thread (ADR 0016): read it once a second, not every refresh
+	var now := Time.get_ticks_msec()
+	if _gpu_lines.is_empty() or now - _gpu_lines_ms >= 1000:
+		_gpu_lines_ms = now
+		_gpu_lines = [
+			RenderingServer.get_video_adapter_name(),
+			"%s %s" % [RenderingServer.get_video_adapter_vendor(), RenderingServer.get_video_adapter_api_version()],
+			"VRAM: %d MB" % int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0),
+			"Draw calls %d, primitives %.2f M" % [Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+				Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1e6],
+			"",
+		]
+	_right.append_array(_gpu_lines)
 	_right.append_array(_target_lines(cam))
 
 
