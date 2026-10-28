@@ -300,12 +300,14 @@ vec4 surface_stain(vec3 wpos, vec3 n) {
 	vec3 px = floor(out_p * stain_px);
 	float h = stain_hash(px);
 	float blot = stain_hash(floor(out_p * 4.0) + 17.0);
-	float thr = 0.1 + 0.8 * (0.55 * h + 0.45 * blot);
+	float thr = 0.05 + 0.55 * (0.55 * h + 0.45 * blot);   // Noita coats: solid once soaked, ragged only at the edge
 	if (ax != 1) {
-		// walls: liquid sits low in the cell; the tide line wobbles per pixel column
+		// walls: liquid sits low in the cell; the tide line wobbles per pixel column. Liquid that ran down from
+		// the cell above wets the face top to bottom (a stream down a wall coats it, no stripes per voxel row).
 		float local_h = pq.y - cell.y;
 		float col_j = stain_hash(vec3(px.x + px.z, 3.0, px.x - px.z));
-		a *= step(local_h, 0.12 + 0.8 * a + 0.12 * (col_j - 0.5)) * 0.85;   // < 1: walls stay speckled
+		float above = stain_cell(ivec3(cell) + ivec3(0, 1, 0)).a;
+		a *= step(local_h, above > 0.02 ? 1.1 : 0.12 + 0.8 * a + 0.12 * (col_j - 0.5));
 	} else if (n.y < 0.0) {
 		a *= 0.35;            // ceilings: splashes and soot only
 	}
