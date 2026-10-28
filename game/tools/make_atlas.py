@@ -1002,6 +1002,19 @@ def monolith_seam():
 tiles += [monolith_ashlar(), monolith_runes(), monolith_seam()]   # 173..175 (ADR 0098)
 assert len(tiles) <= COLS * ROWS, len(tiles)
 
+# hand-painted overrides: game/art/tiles/<index>[_note].png (16x16) replaces tile <index> (game/art/README.md)
+ART = os.path.join(os.path.dirname(__file__), "..", "art", "tiles")
+if os.path.isdir(ART):
+    for f in sorted(os.listdir(ART)):
+        if not f.endswith(".png"):
+            continue
+        i = int(f.split("_")[0].split(".")[0])
+        im = Image.open(os.path.join(ART, f)).convert("RGBA")
+        if i >= len(tiles) or im.size != (TILE, TILE):
+            raise SystemExit("game/art/tiles/%s: needs an existing tile index and %dx%d pixels" % (f, TILE, TILE))
+        tiles[i] = im
+        print("art override", f)
+
 atlas = Image.new("RGBA", (COLS * TILE, ROWS * TILE))
 for i, t in enumerate(tiles):
     atlas.paste(t, ((i % COLS) * TILE, (i // COLS) * TILE))

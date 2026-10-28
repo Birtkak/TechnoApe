@@ -11,6 +11,43 @@ const DIM := Color(0.62, 0.62, 0.68)
 const PANEL := Color(0.06, 0.06, 0.08, 0.94)
 
 static var _theme: Theme
+## Hand-painted skins (game/art/README.md): assets/ui/<name>.png replaces a flat box as a nine-slice,
+## corners a third of the image, drawn SKIN_PIXEL screen pixels per image pixel. SKINS lists every name.
+const SKIN_DIR := "res://assets/ui/"
+const SKIN_PIXEL := 3
+const SKINS := ["button", "button_hover", "button_pressed", "button_disabled", "menu_panel", "tab", "tab_selected", "tab_pane",
+	"hotbar", "hotbar_slot", "hotbar_selected", "hud_box", "inventory", "slot", "tooltip", "book", "book_pane", "book_button"]
+static var _skins := {}   # name -> StyleBoxTexture or null
+
+
+## The skin `name` with fallback's content margins, or fallback when there is no such PNG.
+static func skin(name: String, fallback: StyleBox) -> StyleBox:
+	if not _skins.has(name):
+		_skins[name] = null
+		var path := SKIN_DIR + name + ".png"
+		if ResourceLoader.exists(path):
+			var img: Image = (load(path) as Texture2D).get_image()
+			if img.is_compressed():
+				img.decompress()
+			var m := img.get_width() / 3 * SKIN_PIXEL
+			var mv := img.get_height() / 3 * SKIN_PIXEL
+			img.resize(img.get_width() * SKIN_PIXEL, img.get_height() * SKIN_PIXEL, Image.INTERPOLATE_NEAREST)
+			var sb := StyleBoxTexture.new()
+			sb.texture = ImageTexture.create_from_image(img)
+			sb.texture_margin_left = m
+			sb.texture_margin_right = m
+			sb.texture_margin_top = mv
+			sb.texture_margin_bottom = mv
+			sb.axis_stretch_horizontal = StyleBoxTexture.AXIS_STRETCH_MODE_TILE_FIT
+			sb.axis_stretch_vertical = StyleBoxTexture.AXIS_STRETCH_MODE_TILE_FIT
+			_skins[name] = sb
+	var s: StyleBoxTexture = _skins[name]
+	if s == null:
+		return fallback
+	var out: StyleBoxTexture = s.duplicate()
+	for side in [SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM]:
+		out.set_content_margin(side, fallback.get_content_margin(side))
+	return out
 
 
 static func theme() -> Theme:
@@ -36,7 +73,8 @@ static func theme() -> Theme:
 			else:
 				sb.border_color = Color(ACCENT, 0.55) if state == "hover" else Color(1, 1, 1, 0.12)
 				sb.set_border_width_all(1)
-			t.set_stylebox(state, type, sb)
+			var skinned := {"normal": "button", "hover": "button_hover", "pressed": "button_pressed", "hover_pressed": "button_pressed", "disabled": "button_disabled"}
+			t.set_stylebox(state, type, skin(skinned[state], sb) if type in ["Button", "OptionButton"] and skinned.has(state) else sb)
 	t.set_stylebox("panel", "ItemList", t.get_stylebox("normal", "ItemList"))
 	for c in ["font_color", "font_hover_color", "font_focus_color", "font_pressed_color"]:
 		t.set_color(c, "Button", TEXT)
@@ -56,26 +94,26 @@ static func theme() -> Theme:
 	tab.set_corner_radius_all(5)
 	var tab_sel := tab.duplicate()
 	tab_sel.bg_color = Color(0.42, 0.36, 0.2)
-	t.set_stylebox("tab_unselected", "TabContainer", tab)
-	t.set_stylebox("tab_hovered", "TabContainer", tab)
-	t.set_stylebox("tab_selected", "TabContainer", tab_sel)
+	t.set_stylebox("tab_unselected", "TabContainer", skin("tab", tab))
+	t.set_stylebox("tab_hovered", "TabContainer", skin("tab", tab))
+	t.set_stylebox("tab_selected", "TabContainer", skin("tab_selected", tab_sel))
 	var pane := StyleBoxFlat.new()
 	pane.bg_color = Color(0.1, 0.1, 0.12)
 	pane.set_content_margin_all(14)
 	pane.set_corner_radius_all(6)
-	t.set_stylebox("panel", "TabContainer", pane)
+	t.set_stylebox("panel", "TabContainer", skin("tab_pane", pane))
 	_theme = t
 	return t
 
 
-static func panel() -> StyleBoxFlat:
+static func panel() -> StyleBox:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = PANEL
 	sb.border_color = Color(1, 1, 1, 0.18)
 	sb.set_border_width_all(1)
 	sb.set_corner_radius_all(10)
 	sb.set_content_margin_all(22)
-	return sb
+	return skin("menu_panel", sb)
 
 
 static func label(text: String, size: int = 17, color: Color = TEXT) -> Label:

@@ -9,6 +9,9 @@ extends Node3D
 ## meshes are built once per species (and per sheared look) and shared.
 ## The animal faces +Z, feet at y = 0, in voxel units.
 
+## Only Settings' constants and static helpers are used here: the preload keeps this class compiling
+## without the autoload, so the --script tools that reach it (sheets, probes, codegens) still work.
+const Settings := preload("res://scripts/settings.gd")
 const GRID := 16
 ## The cells were laid out for the old 0.5 m voxel (16 cells = 50 cm, 3.1 cm each); since ADR 0033 a
 ## voxel is 12.5 cm, so the model node is scaled by a block's worth of voxels (Mob._apply_size).
@@ -223,7 +226,9 @@ func _part(part: String, pos: Vector3) -> MeshInstance3D:
 func _mesh(part: String) -> ArrayMesh:
 	var key := "%s/%s/%d" % [species, part, cell]
 	if not _meshes.has(key):
-		var spec: Array = shaded(_build(species, part), species + part)
+		var spec: Array = _build(species, part)
+		spec[0] = ArtModels.cells("mob_%s_%s" % [species, part], spec[0], spec[1], PALETTE.size())
+		spec = shaded(spec, species + part)
 		material()
 		_meshes[key] = outward(MicroMesher.build(spec[0], spec[1], GRID / cell, _tiles, atlas(), spec[2]))
 	return _meshes[key]

@@ -1,11 +1,12 @@
-extends SceneTree
+extends Node
 
 ## Brush costs (ADR 0065) without a world: GDScript cells for survival sizes, ShapeTool cells and the
 ## preview mesh for every shape and size. Run:
-##   Godot_..._console.exe --headless --path game --script res://tools/brush_bench.gd
+##   Godot_..._console.exe --headless --path game res://tools/brush_bench.tscn
+## (a scene, not --script: Brush reads the Settings autoload's live tunables)
 
 
-func _init() -> void:
+func _ready() -> void:
 	var bt := BrushTool.new()
 	var st := ShapeTool.new()
 	var out := {}
@@ -23,4 +24,4 @@ func _init() -> void:
 			out[key] = {"cells": c.size() / 3, "cells_ms": snappedf((t1 - t0) / 1000.0, 0.01), "mesh_ms": snappedf((t2 - t1) / 1000.0, 0.01),
 				"verts": (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() if not arr.is_empty() else 0}
 	print(JSON.stringify({"brush_bench": out}))
-	quit()
+	get_tree().quit()

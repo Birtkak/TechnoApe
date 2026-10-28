@@ -1,8 +1,8 @@
-extends SceneTree
+extends Node
 
 ## Renders the player body (ApeModel) from the front, left, back and a head
 ## close-up into one PNG, for checking the model without a world:
-##   godot_console.exe --path game --script res://tools/ape_sheet.gd -- out=res://out/ape/sheet.png
+##   godot_console.exe --path game res://tools/ape_sheet.tscn -- out=res://out/ape/sheet.png
 
 var out_path := "res://out/ape/sheet.png"
 var _frames := 0
@@ -11,13 +11,13 @@ var _cams: Array[Camera3D] = []
 var _model: ApeModel
 
 
-func _init() -> void:
+func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=")
 		if kv.size() == 2 and kv[0] == "out":
 			out_path = kv[1]
 	var root3d := Node3D.new()
-	get_root().add_child(root3d)
+	add_child(root3d)
 	_model = ApeModel.new()
 	root3d.add_child(_model)
 	var sun := DirectionalLight3D.new()
@@ -46,16 +46,16 @@ func _init() -> void:
 	DisplayServer.window_set_size(Vector2i(500, 800))
 
 
-func _process(_delta: float) -> bool:
+func _process(_delta: float) -> void:
 	_frames += 1
 	if _frames % 4 != 0:
-		return false
+		return
 	var k := _frames / 4 - 1
 	if k >= 1:
-		_shots.append(get_root().get_viewport().get_texture().get_image())
+		_shots.append(get_viewport().get_texture().get_image())
 	if k < _cams.size():
 		_cams[k].current = true
-		return false
+		return
 	var w := _shots[0].get_width()
 	var h := _shots[0].get_height()
 	var sheet := Image.create(w * _shots.size(), h, false, Image.FORMAT_RGB8)
@@ -65,5 +65,4 @@ func _process(_delta: float) -> bool:
 	DirAccess.make_dir_recursive_absolute(abs_path.get_base_dir())
 	sheet.save_png(abs_path)
 	print(JSON.stringify({"ape_sheet": abs_path, "views": _shots.size()}))
-	quit(0)
-	return false
+	get_tree().quit(0)

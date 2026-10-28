@@ -226,6 +226,21 @@ static func rotate_y(cells: PackedInt32Array, size: Vector3i, quarters: int) -> 
 	return out
 
 
+## A work piece's view_parts() with its solid part from the art model (ArtModels) `work_<kind>`, turned to its facing.
+static func art_parts(e: RefCounted, parts: Dictionary) -> Dictionary:
+	var solid: Dictionary = parts.get("solid", {})
+	if solid.is_empty() or ArtModels.model("work_" + e.kind) == null:
+		return parts
+	var size: Vector3i = solid["size"]
+	var q: int = e.facing if "facing" in e else 0
+	var game := rotate_y(solid["cells"], size, -q)
+	solid = solid.duplicate()
+	solid["cells"] = rotate_y(ArtModels.cells("work_" + e.kind, game, size, PALETTE.size()), size, q)
+	parts = parts.duplicate()
+	parts["solid"] = solid
+	return parts
+
+
 static func new_cells(size: Vector3i) -> PackedInt32Array:
 	var c := PackedInt32Array()
 	c.resize(size.x * size.y * size.z)

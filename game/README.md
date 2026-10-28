@@ -74,7 +74,7 @@ Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 target=plains pitch=-0.3 duration=11 capture_every=0.25 mob_spawn=0 load_cap_s=30 "later=/gamemode creative;/tnt grid 20 1.5" out=res://out/tnt_chain
 # brush shapes (ADR 0065): /brush <shape> <size> then /brush hold <s> holds the break button; JSON brush
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 target=plains pitch=-0.35 duration=10 mob_spawn=0 load_cap_s=30 "later=/gamemode creative;wait 0.5;/brush sphere 32;/brush hold 0.2;wait 2;/brush cube 32;/brush hold 0.2" out=res://out/brush_bench
-Godot_..._console.exe --headless --path game --script res://tools/brush_bench.gd   # cells and shell mesh cost per shape and size
+Godot_..._console.exe --headless --path game res://tools/brush_bench.tscn   # cells and shell mesh cost per shape and size
 Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=1 blast_count=50 duration=20 out=res://out/tnt
 
 # generator probes (headless, ADR 0033/0035): landform map, block timings, materials and faces
@@ -90,7 +90,7 @@ Godot_..._console.exe --path game --script res://tools/anim_probe.gd            
 Godot_..._console.exe --headless --path game --script res://tools/shore_probe.gd -- seed=1337   # hydrology flags along a lake waterline
 Godot_..._console.exe --path game -- autopilot=1 duration=8 capture_every=2 target=cave inside=1 speed=0.6 out=res://out/cave1  # inside a cave, with a torch (deep_cave: 50-170 voxels down)
 Godot_..._console.exe --path game -- autopilot=1 duration=10 capture_every=1 target=waterfall alt=4 offset=10 speed=0.4 out=res://out/fall_spray  # waterfall with spray; read strip.png for the motion
-Godot_..._console.exe --path game --script res://tools/ape_sheet.gd -- out=res://out/ape/sheet.png     # player body from front/left/back + head close-up
+Godot_..._console.exe --path game res://tools/ape_sheet.tscn -- out=res://out/ape/sheet.png     # player body from front/left/back + head close-up
 Godot_..._console.exe --path game -- autopilot=1 duration=6 capture_every=0.5 walk=1 third_person=1 out=res://out/ape_walk  # third-person walk cycle (2 = camera in front)
 # look / atmosphere (scripts/visuals/atmosphere.gd): time=0..1 (0.25 sunrise, 0.5 noon, 0.75 sunset; default 0.40),
 # day_length=<seconds per day, 0 = frozen>, clouds=0..1, ssao=0|1, glow=0|1, fog=0|1, shadows=soft|hard|off, tonemap=aces|agx|filmic|linear, saturation=1.08, fxaa=1
@@ -166,7 +166,7 @@ Godot_..._console.exe --headless --path game -- autopilot=1 target=forest walk=1
 Godot_..._console.exe --headless --path game --export-debug "Windows Desktop" ../build/windows/TechnoApe.exe
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=15 animals=40 mob_spawn=0 give=wheat:8 vsync=0 out=res://out/animals
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=18 capture_every=1 hands_test=1 mob_spawn=0 out=res://out/hands
-Godot_..._console.exe --path game --script res://tools/mob_sheet.gd -- out=res://out/mobs/sheet.png   # sheep, shorn sheep, lamb, pig, piglet, bed, chair
+Godot_..._console.exe --path game res://tools/mob_sheet.tscn -- out=res://out/mobs/sheet.png   # sheep, shorn sheep, lamb, pig, piglet, bed, chair
 # stains (ADR 0015, scripts/visuals/stain_map.gd): stain_test=1 bleeds and drops oil + blood next to the player once loaded;
 # stains=0 turns stains off (same spill, for A/B), stain_uploads=N layers per frame, stain_scan=0 ignores the simulation
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 third_person=1 pitch=-0.75 stain_test=1 duration=14 out=res://out/stains
