@@ -121,7 +121,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   a shared corner and slopes up to two cells per cell are sheets, not wedges; the flow state follows the corner
   heights, no side face toward a column one or two cells lower, capped cells keep the stock corners. A drop of three or
   more cells between neighbouring surface cells (the generator's terraces and the old waterfall sites) is out of reach
-  and draws as a vertical water face. FineGen rivers interpolated per voxel and their trenches and low banks filled;
+  and draws as a vertical water face. **ADR 0103:** a column's vote is its surface connected to the meshed cell's height
+  (no drops in the air above it; a run past the reach gives none), and falling water (its run ends in air below) draws
+  as full cubes with their side faces. FineGen rivers interpolated per voxel and their trenches and low banks filled;
   `tools/water_surface_probe.gd` counts holes, glass edges, corner seams (`rule=field|ramps`; 0 for field), out-of-reach
   wall corners and the histogram of surface steps. **All water is finite (ADR 0068, replacing the reservoirs of ADR 0045 and the big bodies of
   ADR 0049):** generated water (`water_static`) is still until a fresh opening (air that changed in the last two ticks) touches
@@ -151,7 +153,8 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   smoke, steam and flames sat where born); a `lifetime` past 255 ticks counts down every other tick (smoke 330 = 11 s).
   Tall grass and ferns catch at 0.6 and burn 2 s, so a meadow or forest floor fire keeps going while touching tufts
   connect; it dies out at ~20 % cover, on bare ground, at water and at the sim window (`tools/fire_bench.gd` forest_floor). What still moves when the window walks on finishes in a pin (ADR 0050).
-  No waterfalls (the sheet, spray, roar and landmark are gone, GEN_VERSION 21): a river just drops over its cliff.
+  No waterfalls (the sheet, spray, roar and landmark are gone, GEN_VERSION 21): a river just drops over its cliff; the
+  waterfall loop hears the water that fell each tick (`SimWorld.get_falls`, ADR 0103).
   **Every liquid looks like water (2026-10-25):** one fluid shader body (`terrain_fluid.gdshaderinc`), no atlas texture;
   each liquid's character (colours by depth, rim, ripples, gloss, glow, oil sheen, sludge bubbles) is
   data in `data/liquid_looks.json`, set per fluid material by `World.apply_liquid_look` (`test_liquid_looks.gd` checks

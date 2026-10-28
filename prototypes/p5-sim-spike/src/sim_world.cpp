@@ -109,6 +109,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("count_in_box", "min", "max", "material"), &SimWorld::count_in_box);
     ClassDB::bind_method(D_METHOD("count_unsupported", "material"), &SimWorld::count_unsupported);
     ClassDB::bind_method(D_METHOD("count_burning"), &SimWorld::count_burning);
+    ClassDB::bind_method(D_METHOD("get_falls", "slot"), &SimWorld::get_falls);
     ClassDB::bind_method(D_METHOD("sample_cells", "center", "radius", "count", "seed", "mask"), &SimWorld::sample_cells);
     ClassDB::bind_method(D_METHOD("layer_histogram", "material"), &SimWorld::layer_histogram);
     ClassDB::bind_method(D_METHOD("surface_map", "min_xz", "count", "step", "y_base"), &SimWorld::surface_map);
@@ -824,7 +825,7 @@ void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
     const uint8_t self = cells_[i].mat;
     const MaterialDef &m = mats_[self];
     uint32_t r = rnd(c);
-    if (fall(x, y, z, i, c)) { c.moved++; return; }
+    if (fall(x, y, z, i, c)) { c.moved++; count_fall(m, x, y, z, c); return; }
     if ((r & 0xFF) > m.gravity_prob) return;
     int d = (r >> 8) & 3;
     for (int k = 0; k < 4; k++) {
@@ -900,7 +901,7 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
             const uint16_t mb = moved_[bi];
             if ((mb == stamp_ || ((mb & 0x8000u) && ((mb >> 2) & 0x1FFFu) == stamp_)) && (cells_[bi].mat != self || cells_[bi].aux > 0)) return;
         }
-    } else if (fall(x, y, z, i, c)) { c.moved++; return; }
+    } else if (fall(x, y, z, i, c)) { c.moved++; count_fall(m, x, y, z, c); return; }
     int f = full(i);
     // ADR 0069 B3: a one-eighth film on a floor that is not its liquid, with nothing deeper of its kind beside it
     // (a lone speck or a spill thinned to a sheet; a pool's rim next to deeper water stays), dries up (or crusts) after about
@@ -1230,6 +1231,9 @@ void SimWorld::update_chunk(int ci) {
     flush_marks(c);
     if (c.moved) moved_count_.fetch_add(c.moved, std::memory_order_relaxed);
     if (c.reacted) react_count_.fetch_add(c.reacted, std::memory_order_relaxed);
+    for (int s = 0; s < FALL_SLOTS; s++)
+        if (c.falls[s][0])
+            for (int k = 0; k < 4; k++) falls_[s][k].fetch_add(c.falls[s][k], std::memory_order_relaxed);
 }
 
 void SimWorld::defer_chunk(int ci) {
@@ -1299,6 +1303,7 @@ void SimWorld::tick_once(TickOut &o) {
     }
     moved_count_.store(0);
     react_count_.store(0);
+    for (auto &s : falls_) for (auto &v : s) v.store(0, std::memory_order_relaxed);
     std::vector<int> work;
     work.reserve(nc / 8 + 1);
     uint64_t active = 0;
@@ -1324,6 +1329,7 @@ void SimWorld::tick_once(TickOut &o) {
     o.active = active;
     o.moved = moved_count_.load();
     o.react = react_count_.load();
+    for (int s = 0; s < FALL_SLOTS; s++) for (int k = 0; k < 4; k++) falls_last_[s][k] = falls_[s][k].load(std::memory_order_relaxed);
     o.scanned = scanned;
     o.deferred = deferred;
 }
@@ -1700,6 +1706,17 @@ int SimWorld::count_burning() const {
     int n = 0;
     for (const Cell &c : cells_) n += (c.flags & FLAG_BURNING) != 0;
     return n;
+}
+
+// ADR 0103: liquid cells of a fluid slot that fell in the last finished tick: [count, mean x, y, z] (local cells), or
+// [0] when none did. A waterfall is a few hundred cells, which random sampling (sample_cells) almost never hits.
+PackedInt32Array SimWorld::get_falls(int p_slot) const {
+    PackedInt32Array r;
+    if (p_slot < 0 || p_slot >= FALL_SLOTS || falls_last_[p_slot][0] == 0) { r.push_back(0); return r; }
+    const int64_t n = falls_last_[p_slot][0];
+    r.push_back((int32_t)n);
+    for (int k = 1; k < 4; k++) r.push_back((int32_t)(falls_last_[p_slot][k] / n));
+    return r;
 }
 
 PackedInt32Array SimWorld::sample_cells(Vector3i p_center, int p_radius, int p_count, int p_seed, const PackedByteArray &p_mask) const {

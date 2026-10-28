@@ -674,6 +674,18 @@ func get_voxel(wp: Vector3i) -> int:
 	return sim.get_voxel(wp - origin * Settings.CHUNK)
 
 
+## Cells of a fluid slot's liquid that fell in the last sim tick (SimWorld.get_falls, ADR 0103): [count, their mean
+## position in world voxels]. Feeds the waterfall sound. shortcut: one centre for the whole window, so two falls
+## sound from between them; per-area sums if that gets noticed.
+func falls(slot: int) -> Array:
+	if not _ready:
+		return [0, Vector3.ZERO]
+	var f: PackedInt32Array = sim.get_falls(slot)
+	if f[0] == 0:
+		return [0, Vector3.ZERO]
+	return [f[0], Vector3(f[1], f[2], f[3]) + Vector3(origin * Settings.CHUNK)]
+
+
 ## Random cells around `center_world` for ambient particles (ADR 0026,
 ## SimWorld.sample_cells): 7 ints per hit (x, y, z in world voxels, material,
 ## material above, material below, flags). Empty while a tick runs (see can_sample).
