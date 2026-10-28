@@ -81,13 +81,14 @@ func snow_line(t: float) -> int:
 
 
 ## Altitude band index (BiomeRegistry.ALT_BANDS) for a column.
-func alt_band(above_sea: int, continentalness: float, t: float) -> int:
+## shore: open sea within a beach's width (WorldGen estimates it); low ground away from the sea is lowland.
+func alt_band(above_sea: int, continentalness: float, t: float, shore := true) -> int:
 	var a: Dictionary = reg.climate["altitude"]
 	if continentalness < float(a["deep_ocean_max_continentalness"]):
 		return 0
 	if above_sea < -1:
 		return 1
-	if above_sea <= int(a["coast_max"]):
+	if above_sea <= int(a["coast_max"]) and shore:
 		return 2
 	if above_sea > snow_line(t):
 		return 7
@@ -107,6 +108,7 @@ func alt_band(above_sea: int, continentalness: float, t: float) -> int:
 ##   above_sea: height - sea level (voxels)
 ##   continentalness, erosion, slope: generator noises / derived slope
 ##   river: 0..1 river mask; lake: bool (column is under lake water)
+##   shore: bool, the sea is within a beach's width (default true)
 func classify(col: Dictionary) -> int:
 	var tb := reg.tables
 	if col.get("lake", false):
@@ -119,14 +121,18 @@ func classify(col: Dictionary) -> int:
 	var ti := temp_band(t)
 	var hi := hum_band(h)
 	var frozen := ti == 0
-	match alt_band(above, float(col.get("continentalness", 0.0)), t):
+	var ai := alt_band(above, float(col.get("continentalness", 0.0)), t, bool(col.get("shore", true)))
+	if ai == 2 and float(col.get("slope", 0.0)) >= float(reg.climate["altitude"]["stony_shore_min_slope"]):
+		return reg.id_of(tb["coast"]["steep"])
+	for o in tb.get("band_overrides", []):
+		if o["bands"].has(BiomeRegistry.ALT_BANDS[ai]) and _override_matches(o.get("when", {}), ti, hi, above, col):
+			return reg.id_of(o["biome"])
+	match ai:
 		0:
 			return reg.id_of(tb["deep_ocean"])
 		1:
 			return reg.id_of(tb["ocean"]["frozen" if frozen else "default"])
 		2:
-			if float(col.get("slope", 0.0)) >= float(reg.climate["altitude"]["stony_shore_min_slope"]):
-				return reg.id_of(tb["coast"]["steep"])
 			return reg.id_of(tb["coast"]["frozen" if frozen else "default"])
 		3:
 			for o in tb.get("lowland_overrides", []):
@@ -232,6 +238,11 @@ func cells_of(name: String) -> Array:
 				var w: Dictionary = o["when"]
 				if (not w.has("temperature") or w["temperature"].has(trow)) and (not w.has("humidity") or w["humidity"].has(BiomeRegistry.HUM_BANDS[hi])):
 					here[3].append(o["biome"])
+			for o in tb.get("band_overrides", []):
+				var w: Dictionary = o.get("when", {})
+				if (not w.has("temperature") or w["temperature"].has(trow)) and (not w.has("humidity") or w["humidity"].has(BiomeRegistry.HUM_BANDS[hi])):
+					for b in o["bands"]:
+						here[BiomeRegistry.ALT_BANDS.find(b)].append(o["biome"])
 			for ai in here:
 				if here[ai].has(name):
 					out.append([ti, hi, ai])

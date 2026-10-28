@@ -79,7 +79,7 @@ public:
         BIOME_DEEP_OCEAN = 0, BIOME_OCEAN = 1, BIOME_BEACH = 2, BIOME_PLAINS = 3, BIOME_FOREST = 4,
         BIOME_DESERT = 5, BIOME_TUNDRA = 6, BIOME_HIGHLANDS = 7, BIOME_MOUNTAINS = 8, BIOME_SNOWY_PEAKS = 9,
         BIOME_RIVER = 10, BIOME_LAKE = 11, BIOME_ALPINE = 12,
-        BIOME_COUNT = 37
+        BIOME_COUNT = 41
     };
     static_assert(BIOME_COUNT == technosim_biome::COUNT, "biome_table.gen.h changed: regenerate and update BIOME_COUNT");
 
@@ -142,7 +142,12 @@ private:
         bool alpine;     // above the tree line
         bool snow;       // permanent snow
         uint16_t rock = 0;   // a landmark's own rock for its faces and top (monoliths), 0 = none
+        float shore = 1e9f;  // estimated signed distance to the coastline (voxels): > 0 inland, < 0 out at sea
+        float dn = 0.0f;     // the detail noise (~37 m patches): sea floor sand / mud / gravel
     };
+    // What the sea floor is made of here (fine and far meshes agree): sand in the shallows and on
+    // the foreshore, sand with mud and gravel patches on the shelf, mud in the deep, rock on steep slopes.
+    uint16_t seabed(const Column &col, float slope) const;
     // ---- hydrology ----
     static constexpr int HCELL = 32;          // voxels per hydrology cell (16 m)
     static constexpr int HTILE = 128;         // cells per tile (4096 voxels = 2 km)

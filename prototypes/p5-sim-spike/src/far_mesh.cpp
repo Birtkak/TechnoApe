@@ -89,19 +89,21 @@ uint16_t FarMesh::top_material(const FineGen::MacroPt &m, float slope, int h, ui
     const WorldGen::Column &col = m.col;
     const WorldGen::Hydro &hy = m.hy;
     const int water_level = m.water_level * FS;
-    const bool beach_sand = col.biome == WorldGen::BIOME_BEACH || (col.biome == WorldGen::BIOME_OCEAN && col.c > -0.4f);
+    const bool sea = col.biome == WorldGen::BIOME_OCEAN || col.biome == WorldGen::BIOME_DEEP_OCEAN || col.biome == technosim_biome::FROZEN_OCEAN;
+    if (sea && !m.lakebed && !m.riverbed && !m.marshbed) return gen_->get_macro()->seabed(col, slope);
     if (m.lakebed || m.riverbed || m.marshbed || h < water_level) {
-        if (h < water_level && beach_sand) return Mat::SAND_STATIC;
+        if (h < water_level && col.biome == WorldGen::BIOME_BEACH) return Mat::SAND_STATIC;
         const uint32_t bh = ph & 7;
         return bh < 3 ? Mat::CLAY : (bh < 5 ? Mat::SAND_STATIC : Mat::GRAVEL_STATIC);
     }
     if (hy.river > 0.08f && h <= water_level + 2 * FS) return Mat::SAND_STATIC;
     if (col.rock) return col.rock;
-    const bool steep = slope > 1.1f, scree = slope > 0.75f && slope <= 1.1f && col.alpine;
+    const bool volcanic = col.biome == technosim_biome::VOLCANIC;
+    const bool steep = slope > 1.1f, scree = slope > 0.75f && slope <= 1.1f && col.alpine && !volcanic;
     if (col.snow && !steep) return Mat::SNOW;
-    if (steep) return technosim_biome::SURFACE_UNDER[col.biome] == Mat::TERRACOTTA ? Mat::TERRACOTTA : Mat::STONE;
+    if (steep) return technosim_biome::SURFACE_UNDER[col.biome] == Mat::TERRACOTTA || technosim_biome::SURFACE_UNDER[col.biome] == Mat::BASALT ? (uint16_t)technosim_biome::SURFACE_UNDER[col.biome] : Mat::STONE;
     if (scree) return Mat::GRAVEL_STATIC;
-    if (col.alpine) {
+    if (col.alpine && !volcanic) {
         const uint32_t ah = ph & 7;
         return ah < 3 ? Mat::GRASS : (ah < 5 ? Mat::GRAVEL_STATIC : Mat::STONE);
     }
@@ -110,7 +112,6 @@ uint16_t FarMesh::top_material(const FineGen::MacroPt &m, float slope, int h, ui
         return mh < 2 ? Mat::CLAY : (mh < 5 ? Mat::DIRT : Mat::GRASS);
     }
     uint16_t top = (uint16_t)technosim_biome::SURFACE_TOP[col.biome];
-    if (col.biome == WorldGen::BIOME_OCEAN && !beach_sand) top = Mat::GRAVEL_STATIC;
     if (technosim_biome::SURFACE_STEEP[col.biome] >= 0 && slope > 0.6f) top = (uint16_t)technosim_biome::SURFACE_STEEP[col.biome];
     if (m.spike > 0) top = (uint16_t)technosim_biome::SPIRE_MATERIAL[col.biome];
     return top;

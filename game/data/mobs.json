@@ -59,7 +59,8 @@
       ],
       "grazes": true,
       "biomes": [
-        "plains"
+        "plains",
+        "flower_meadow"
       ],
       "weight": 12,
       "group": [
@@ -142,7 +143,8 @@
       "biomes": [
         "plains",
         "forest",
-        "savanna"
+        "savanna",
+        "flower_meadow"
       ],
       "weight": 10,
       "group": [
@@ -199,7 +201,8 @@
         "forest",
         "taiga",
         "old_growth_forest",
-        "snowy_taiga"
+        "snowy_taiga",
+        "birch_forest"
       ],
       "weight": 4,
       "group": [
@@ -246,7 +249,9 @@
         "old_growth_forest",
         "taiga",
         "plains",
-        "highlands"
+        "highlands",
+        "birch_forest",
+        "flower_meadow"
       ],
       "weight": 8,
       "group": [
@@ -302,7 +307,8 @@
         "forest",
         "old_growth_forest",
         "swamp",
-        "jungle"
+        "jungle",
+        "mangrove"
       ],
       "weight": 5,
       "group": [
@@ -344,7 +350,9 @@
         "forest",
         "tundra",
         "snowy_tundra",
-        "highlands"
+        "highlands",
+        "flower_meadow",
+        "birch_forest"
       ],
       "weight": 10,
       "group": [
@@ -400,7 +408,8 @@
         "taiga",
         "plains",
         "snowy_taiga",
-        "shrubland"
+        "shrubland",
+        "birch_forest"
       ],
       "weight": 3,
       "group": [
@@ -463,7 +472,8 @@
         "snowy_taiga",
         "snowy_tundra",
         "forest",
-        "tundra"
+        "tundra",
+        "birch_forest"
       ],
       "weight": 3,
       "group": [
@@ -518,7 +528,8 @@
         "river",
         "lake",
         "taiga",
-        "shrubland"
+        "shrubland",
+        "mangrove"
       ],
       "weight": 6,
       "group": [
@@ -553,7 +564,8 @@
         "forest",
         "jungle",
         "river",
-        "lake"
+        "lake",
+        "mangrove"
       ],
       "weight": 6,
       "group": [
@@ -590,7 +602,8 @@
       "biomes": [
         "beach",
         "stony_shore",
-        "snowy_beach"
+        "snowy_beach",
+        "mangrove"
       ],
       "weight": 10,
       "group": [
@@ -630,7 +643,8 @@
         "jungle",
         "savanna",
         "shrubland",
-        "highlands"
+        "highlands",
+        "mangrove"
       ],
       "weight": 10,
       "group": [

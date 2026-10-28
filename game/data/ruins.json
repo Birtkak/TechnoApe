@@ -3,28 +3,28 @@
   "kinds": {
     "house": {
       "shape": "house", "weight": 10,
-      "biomes": ["plains", "forest", "highlands", "shrubland", "taiga", "tundra", "snowy_tundra", "old_growth_forest", "frozen_highlands"],
+      "biomes": ["plains", "forest", "highlands", "shrubland", "taiga", "tundra", "snowy_tundra", "old_growth_forest", "frozen_highlands", "flower_meadow", "birch_forest"],
       "half_u_m": [2.5, 5.0], "half_v_m": [2.5, 5.0], "top_m": 5.0, "depth_m": 0.0,
       "wall": "stone", "trim": "gravel_static", "floor": "stone", "extra": "cobblestone",
       "pots": 4, "loot": "ruin_pot"
     },
     "watchtower": {
       "shape": "watchtower", "weight": 6,
-      "biomes": ["highlands", "plains", "shrubland", "tundra", "taiga", "frozen_highlands", "snowy_tundra"],
+      "biomes": ["highlands", "plains", "shrubland", "tundra", "taiga", "frozen_highlands", "snowy_tundra", "flower_meadow", "birch_forest"],
       "half_u_m": [3.0, 3.5], "top_m": 7.5, "depth_m": 0.0,
       "wall": "cobblestone", "trim": "stone_bricks", "floor": "gravel_static", "extra": "planks",
       "pots": 2, "loot": "tower_pot"
     },
     "stone_circle": {
       "shape": "stone_circle", "weight": 5,
-      "biomes": ["plains", "highlands", "tundra", "snowy_tundra", "shrubland", "savanna", "frozen_highlands"],
+      "biomes": ["plains", "highlands", "tundra", "snowy_tundra", "shrubland", "savanna", "frozen_highlands", "flower_meadow"],
       "half_u_m": [5.0, 7.0], "top_m": 6.0, "depth_m": 0.0,
       "wall": "granite", "trim": "moss", "floor": "stone", "extra": "granite",
       "pots": 2, "loot": "circle_pot"
     },
     "crypt": {
       "shape": "crypt", "weight": 5,
-      "biomes": ["forest", "plains", "taiga", "old_growth_forest", "highlands", "swamp", "snowy_taiga"],
+      "biomes": ["forest", "plains", "taiga", "old_growth_forest", "highlands", "swamp", "snowy_taiga", "flower_meadow", "birch_forest"],
       "half_u_m": [2.0, 2.5], "half_v_m": [4.5, 5.0], "top_m": 1.5, "depth_m": 4.0,
       "wall": "stone_bricks", "trim": "cobblestone", "floor": "slate_bricks", "extra": "gravel_static",
       "pots": 4, "loot": "crypt_pot"
@@ -38,14 +38,14 @@
     },
     "shrine": {
       "shape": "shrine", "weight": 6,
-      "biomes": ["forest", "old_growth_forest", "jungle", "swamp", "taiga", "snowy_taiga"],
+      "biomes": ["forest", "old_growth_forest", "jungle", "swamp", "taiga", "snowy_taiga", "birch_forest"],
       "half_u_m": [2.0, 2.5], "top_m": 5.0, "depth_m": 0.0,
       "wall": "stone_bricks", "trim": "moss", "floor": "cobblestone", "extra": "leaves",
       "pots": 2, "loot": "shrine_pot"
     },
     "wreck": {
       "shape": "wreck", "weight": 1, "coast": true,
-      "biomes": ["beach", "snowy_beach", "stony_shore", "ocean"],
+      "biomes": ["beach", "snowy_beach", "stony_shore", "ocean", "mangrove"],
       "half_u_m": [3.5, 4.5], "half_v_m": [1.5, 2.0], "top_m": 3.5, "depth_m": 1.5,
       "wall": "planks", "trim": "wood", "floor": "planks", "extra": "sand_static",
       "pots": 3, "loot": "wreck_pot"

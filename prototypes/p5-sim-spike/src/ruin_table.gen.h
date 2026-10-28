@@ -15,7 +15,7 @@ static const int KIND_SHAPE[NKIND] = {S_HOUSE, S_WATCHTOWER, S_STONE_CIRCLE, S_C
 static const int KIND_WEIGHT[NKIND] = {10, 6, 5, 5, 10, 6, 1};
 static const bool KIND_COAST[NKIND] = {false, false, false, false, false, false, true};
 // bit b set = biome id b (world_gen.h / biome_table.gen.h) may hold the kind
-static const uint64_t KIND_BIOMES[NKIND] = {0x00000000051a00d8ULL, 0x00000000011a00c8ULL, 0x00000000015200c8ULL, 0x00000000042c0098ULL, 0x0000000002500020ULL, 0x0000000004ac0010ULL, 0x000000000000c006ULL};
+static const uint64_t KIND_BIOMES[NKIND] = {0x00000060051a00d8ULL, 0x00000060011a00c8ULL, 0x00000040015200c8ULL, 0x00000060042c0098ULL, 0x0000000002500020ULL, 0x0000002004ac0010ULL, 0x000001000000c006ULL};
 // sizes in macro cells (0.5 m)
 static const int KIND_HALF_U[NKIND][2] = {{5, 10}, {6, 7}, {10, 14}, {4, 5}, {5, 8}, {4, 5}, {7, 9}};
 static const int KIND_HALF_V[NKIND][2] = {{5, 10}, {6, 7}, {10, 14}, {9, 10}, {4, 7}, {4, 5}, {3, 4}};

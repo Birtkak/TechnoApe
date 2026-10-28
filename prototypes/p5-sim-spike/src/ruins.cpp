@@ -420,7 +420,8 @@ uint16_t wreck(const Prepared &p, const Ctx &c) {
     if (yk < 0.0f || yk > dh) return c.my >= r.base ? TERRAIN : PASS;
     const float ws = w * std::sqrt(std::clamp(yk / 2.2f + 0.1f, 0.0f, 1.0f));
     if (std::fabs(c.fv) > ws) return c.my >= r.base ? TERRAIN : PASS;
-    const bool shell = std::fabs(c.fv) > ws - 0.55f || yk < 0.55f || a < -0.95f;   // thick enough to join face to face round the curve
+    if (std::fabs(a) > 0.9f) return p.mat[M_TRIM];   // stem and stern posts, keel to sheer: the tips' planks hang on them (no rib reaches past the last one)
+    const bool shell = std::fabs(c.fv) > ws - 0.55f || yk < 0.55f;   // thick enough to join face to face round the curve
     const float fr = c.fu / 1.5f - std::round(c.fu / 1.5f);
     const bool rib = std::fabs(fr) * 1.5f < 0.18f && (std::fabs(c.fv) > ws - 0.75f || yk < 0.75f);
     if (rib) return p.mat[M_TRIM];

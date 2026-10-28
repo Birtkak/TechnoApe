@@ -148,6 +148,30 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     static const float cx[] = {-1.0f, -0.75f, -0.6f, -0.45f, -0.3f, -0.15f, -0.05f, 0.05f, 0.3f, 0.6f, 1.0f};
     static const float cy[] = {-220.0f, -205.0f, -175.0f, -120.0f, -64.0f, -24.0f, -1.5f, 4.0f, 14.0f, 34.0f, 60.0f};
     float base = spline(col.c, cx, cy, 11);
+    // The shoreline (developer 2026-10-27: "fix beaches", "make the ocean floor and the way land meets sea
+    // more realistic"). Continentalness has an ~8 km period, so the spline alone left 100-200 m of land
+    // within 1.5 m of the sea (all of it beach) and as wide a plate of sea under 1 m of water. Near the coast
+    // the base follows the distance to the contour where the spline crosses sea level instead, estimated
+    // from the local gradient of c: a beach sloping up to a berm, then land rising gently; at sea a
+    // foreshore dropping to ~3 m, a sandbar ~22 m out, then a shelf sloping down until the continental
+    // slope of the spline takes over.
+    if (col.c > -0.35f && col.c < 0.3f) {
+        constexpr float SHORE_C = -0.05f + 1.5f / 55.0f;   // where the spline crosses 0 (between -0.05 and 0.05)
+        constexpr float E = 12.0f;
+        const float gx = (n_cont_.GetNoise(fx + E, fz) - col.c) / E;
+        const float gz = (n_cont_.GetNoise(fx, fz + E) - col.c) / E;
+        col.shore = (col.c - SHORE_C) / std::max(std::sqrt(gx * gx + gz * gz), 1e-7f);
+        const float s = col.shore;
+        if (s >= 0.0f) {
+            const float prof = 3.5f * smoothstep(0.0f, 36.0f, s) + 0.01f * s;   // berm 1.75 m up 18 m in, then 0.5 m per 25 m
+            base += (prof - base) * (1.0f - smoothstep(250.0f, 700.0f, s));
+        } else {
+            const float a = -s;
+            float prof = a < 70.0f ? -0.09f * a : -6.3f - 0.022f * (a - 70.0f);
+            prof += 1.6f * std::exp(-((a - 45.0f) * (a - 45.0f)) / 100.0f);   // the bar the waves break on
+            base = std::min(base, prof);
+        }
+    }
     const float inland = smoothstep(0.0f, 0.25f, col.c);
     // Regions: plains where the region noise is low, hill country in the middle and where the hill
     // mask says so, mountain ranges where it is high. Ranges may reach the coast (fjords, sea cliffs).
@@ -160,6 +184,7 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     // ranges: ridged noise, sharpened so the peaks stand out of broad flanks (up to ~220 m above the sea)
     const float ridge = col.pv * 0.5f + 0.5f;
     const float dn = n_detail_.GetNoise(fx, fz);   // fine relief; also wobbles the cliff bands
+    col.dn = dn;
     float relief;
     if (variant_[VAR_MOUNTAINS] == 0) {
         // the ranges of ADR 0035 (sheets only)
@@ -200,6 +225,7 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     relief += hilly * (1.0f - mountainness) * std::pow(hn, 1.3f) * (12.0f + 10.0f * smoothstep(0.3f, 0.8f, hilly)) * relief_scale;
     if (base < 0.0f) relief *= 0.25f;
     float detail = dn * (1.2f + 3.5f * mountainness);
+    detail *= 0.3f + 0.7f * smoothstep(8.0f, 60.0f, std::fabs(col.shore));   // a clean waterline: no puddles on the beach, no sand specks offshore
     float above_f = base + relief + detail;
     // Rocky coasts (ADR 0051, developer 2026-10-25): where the cliff mask is up the land ends in a sea cliff
     // 7-27 m tall along a wobbly line just inland of the coast, the cliff top sloping back down to the normal
@@ -261,8 +287,18 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     // Band thresholds see the jittered altitude (dithered borders); the coast
     // and the sea use the real one so no dry land is called ocean.
     const int above_j = above <= technosim_biome::COAST_MAX ? above : std::max(technosim_biome::COAST_MAX + 1, above - hj * 2);
-    col.biome = technosim_biome::classify(col.t, col.h, above_j, col.c, col.e, col.slope, 0.0f, false);
+    // a beach is a strip along the sea (15-26 m wide), not every low flat
+    const bool shore = col.shore < 52.0f * (0.8f + 0.2f * jit);
+    col.biome = technosim_biome::classify(col.t, col.h, above_j, col.c, col.e, col.slope, 0.0f, false, shore);
     return col;
+}
+
+uint16_t WorldGen::seabed(const Column &col, float slope) const {
+    const int depth = sea_ - col.height;
+    if (col.shore > -90.0f || depth <= 8) return SAND_STATIC;              // foreshore, bar, shallows
+    if (slope > 0.6f) return col.dn < 0.0f ? STONE : GRAVEL_STATIC;        // rock on steep slopes
+    if (depth <= 50) return col.dn > 0.3f ? CLAY : (col.dn < -0.35f ? GRAVEL_STATIC : SAND_STATIC);   // the shelf
+    return col.dn < -0.4f ? GRAVEL_STATIC : CLAY;                           // mud in the deep
 }
 
 WorldGen::Column WorldGen::column(int x, int z) const { return column_base(x, z, true); }
@@ -342,6 +378,7 @@ Dictionary WorldGen::column_info(int x, int z) const {
     d["temperature_noise"] = c.t_noise;
     d["humidity"] = c.h;
     d["slope"] = c.slope;
+    d["coast_dist"] = c.shore;   // estimated distance to the coastline (voxels), 1e9 away from coasts
     d["alpine"] = c.alpine;
     d["snow"] = c.snow;
     d["river"] = hy.river;
@@ -790,7 +827,7 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     int jx = (int)(hsh & 7), jz = (int)((hsh >> 3) & 7);
     int tx = cx * TREE_CELL + jx, tz = cz * TREE_CELL + jz;
     Column col = column_base(tx, tz, false);
-    if (col.height <= sea_ + 2 || col.alpine) return false;
+    if (col.height <= sea_ + (col.biome == technosim_biome::MANGROVE ? 0 : 2) || col.alpine) return false;
     Hydro hy = hydro_at(tx, tz, col.height);
     if (hy.river > 0.05f || hy.lake || hy.puddle) return false;
     float density = technosim_biome::TREE_DENSITY[col.biome];
@@ -934,6 +971,9 @@ bool WorldGen::ruin_at_cell(int cx, int cz, Ruin &out) const {
         hmax = std::max(hmax, hh);
         if (hmax - hmin > 3) return false;
     }
+    // a wreck lies up on the dry beach: since beaches slope into the sea (GEN_VERSION 26) a hull across the
+    // waterline had its seaward half over the falling foreshore
+    if (coast && hmin < sea_ + 1) return false;
     r.base = (hmin + hmax + 1) / 2;
     if (coast) r.base = std::max(r.base, sea_ + 1);
     out = r;
@@ -1398,8 +1438,13 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
         if (pn > 0.02f && pn <= 0.12f && r < 420) { height = 2; return REED; }
     }
     // Pebbles on bare rock and gravel, flint on gravel (ground pickups, ADR 0019).
-    if ((top == GRAVEL_STATIC || top == STONE) && r < 22 && !marsh) return PEBBLES;   // about half (bug report 2026-10-27 15-16-47)
+    if ((top == GRAVEL_STATIC || top == STONE || top == BASALT) && r < 22 && !marsh) return PEBBLES;   // about half (bug report 2026-10-27 15-16-47)
     if (top == GRAVEL_STATIC && r >= 22 && r < 32 && !marsh) return FLINT_STONES;
+    if (col.biome == VOLCANIC) return r < 30 ? DEAD_BUSH : AIR;   // scorched scrub between the basalt
+    if (col.biome == MANGROVE && top == DIRT) {   // the mud flats: reeds and ferns among the roots
+        if (r < 140) { height = 2; return REED; }
+        return r < 210 ? FERN : AIR;
+    }
     if (top != GRASS && top != SAVANNA_GRASS && !(marsh && top == DIRT)) return AIR;
     // Wild crops (ADR 0022): rare patches, a good reason to start a farm. A 24 m cell
     // holds a patch with a small chance (plains: wheat every ~140 m, carrots every
@@ -1446,15 +1491,18 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
         case SAVANNA: grass = 420; bush = 8; twig = 2; flint = 2; break;   // the column loop lays dry tussocks (fine_gen.cpp)
         case JUNGLE: grass = 350; flower = 20; shroom = 14; twig = 10; fern = 110; break;
         case SWAMP: grass = 450; shroom = 18; twig = 6; fern = 40; break;
+        case BIRCH_FOREST: grass = 210; flower = 22; shroom = 12; pebble = 2; twig = 12; flint = 1; fern = 25; berry = 8; break;
+        case FLOWER_MEADOW: grass = 240; flower = 170; pebble = 2; twig = 1; flint = 2; break;
+        case MANGROVE: grass = 300; shroom = 10; fern = 80; break;
         default: break;
     }
     if (bush > 0 && r >= 1000 - bush) return DEAD_BUSH;
     // the remains of an old kill (ADR 0027): rare, where predators and grazers meet
-    if (!marsh && (col.biome == PLAINS || col.biome == FOREST || col.biome == TAIGA || col.biome == SAVANNA || col.biome == SHRUBLAND)
+    if (!marsh && (col.biome == PLAINS || col.biome == FLOWER_MEADOW || col.biome == BIRCH_FOREST || col.biome == FOREST || col.biome == TAIGA || col.biome == SAVANNA || col.biome == SHRUBLAND)
             && (hash3(x, z, seed_ + 97) % 20000u) < 3u) return CARCASS;
     if (shroom > 0 && r >= 1000 - bush - shroom) {
         // red caps in the wet, dark biomes, brown elsewhere
-        const bool red = (col.biome == SWAMP || col.biome == OLD_GROWTH_FOREST || col.biome == JUNGLE) && ((v >> 14) & 3) == 0;
+        const bool red = (col.biome == SWAMP || col.biome == MANGROVE || col.biome == OLD_GROWTH_FOREST || col.biome == JUNGLE) && ((v >> 14) & 3) == 0;
         return red ? MUSHROOM_RED : MUSHROOM_BROWN;
     }
     if (pebble > 0 && r >= 1000 - bush - shroom - pebble) return PEBBLES;
@@ -1463,7 +1511,7 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
     if (berry > 0 && r >= 1000 - bush - shroom - pebble - twig - flint - berry) return BLUEBERRY_BUSH;
     if (flower > 0) {
         const float patch = n_detail_.GetNoise((float)x * 2.0f + 5000.0f, (float)z * 2.0f - 5000.0f);
-        flower = patch > 0.3f ? flower * 5 : flower / 4;
+        flower = patch > 0.3f ? flower * 5 : (col.biome == FLOWER_MEADOW ? flower : flower / 4);   // a meadow flowers everywhere
     }
     if (r < fern) return FERN;
     if (r < grass) return TALL_GRASS;
@@ -1474,9 +1522,9 @@ uint16_t WorldGen::vegetation_at(const Column &col, int x, int z, uint16_t top, 
         static const uint16_t UPLAND[4] = {CORNFLOWER, OXEYE_DAISY, FLOWER, CORNFLOWER};
         static const uint16_t WET[4] = {FLOWER_RED, ALLIUM, FLOWER_RED, ALLIUM};
         const uint16_t *mix = MEADOW;
-        if (col.biome == FOREST || col.biome == OLD_GROWTH_FOREST) mix = WOODS;
+        if (col.biome == FOREST || col.biome == OLD_GROWTH_FOREST || col.biome == BIRCH_FOREST) mix = WOODS;
         else if (col.biome == HIGHLANDS || col.biome == MOUNTAINS || col.biome == ALPINE) mix = UPLAND;
-        else if (col.biome == JUNGLE || col.biome == SWAMP) mix = WET;
+        else if (col.biome == JUNGLE || col.biome == SWAMP || col.biome == MANGROVE) mix = WET;
         // flowers grow in patches of one kind: the kind follows a coarse cell, not the column
         const uint32_t fk = hash3(x >> 3, z >> 3, seed_ + 223);
         return mix[fk & 3];
@@ -1718,9 +1766,13 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                 else if (kind == "mountain") { hit = c.height > sea_ + 200; }
                 else if (biome_kind >= 0) {
                     // a real patch of that biome, not one dithered cell: 4 samples 24 voxels out agree
+                    // (8 for the shore biomes: a beach is a strip ~20 m wide)
+                    const bool strip = biome_kind == technosim_biome::COAST_ID || biome_kind == technosim_biome::COAST_FROZEN_ID
+                        || biome_kind == technosim_biome::COAST_STEEP_ID || biome_kind == technosim_biome::MANGROVE;
+                    const int po = strip ? 8 : 24;
                     hit = c.biome == biome_kind && !hy.lake && hy.river < 0.05f;
                     for (int q = 0; q < 4 && hit; q++)
-                        hit = column_base(px + (q & 1 ? 24 : -24), pz + (q & 2 ? 24 : -24), false).biome == biome_kind;
+                        hit = column_base(px + (q & 1 ? po : -po), pz + (q & 2 ? po : -po), false).biome == biome_kind;
                 }
                 if (!hit) continue;
                 long d2 = (long)dx * dx + (long)dz * dz;

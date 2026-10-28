@@ -35,16 +35,16 @@ ocean (< −1), coast (≤ 3), lowland (≤ 70), highland (≤ 170), mountain, a
 Constraint checked by the registry: the coldest tree line (180) stays above
 the highland limit, so alpine never touches highlands without mountains between.
 
-## Surface biomes (27)
+## Surface biomes (31)
 
 Lowland table, rows = temperature, columns = humidity:
 
 | | arid | dry | neutral | humid | wet |
 |---|---|---|---|---|---|
 | frozen | ice_fields | snowy_tundra | snowy_tundra | snowy_taiga | snowy_taiga |
-| cold | tundra | tundra | taiga | taiga | taiga |
+| cold | tundra | tundra | taiga | birch_forest | taiga |
 | temperate | shrubland | plains | plains | forest | old_growth_forest* |
-| warm | savanna | savanna | plains | forest | jungle* |
+| warm | savanna | savanna | flower_meadow | forest | jungle* |
 | hot | desert | desert | savanna | jungle | jungle |
 
 \* **swamp** overrides temperate/warm + wet when the ground is low (≤ 24 above
@@ -53,7 +53,9 @@ sea) and flat (erosion ≥ 0.05).
 Highland table: frozen → frozen_highlands; cold/temperate/warm → highlands;
 hot + arid/dry → badlands, else highlands. Mountain band → mountains, alpine →
 alpine, snow → snowy_peaks. Coast → beach / snowy_beach (frozen) /
-stony_shore (slope ≥ 0.6). Ocean → ocean / frozen_ocean (frozen); deep ocean
+stony_shore (slope ≥ 0.6). The coast band is a strip within 15-26 m of the sea (ADR 0101).
+Band overrides: warm/hot + humid/wet coast → **mangrove**; warm/hot + arid..neutral mountain and
+alpine → **volcanic** (ADR 0101). Ocean → ocean / frozen_ocean (frozen); deep ocean
 → deep_ocean. River and lake overlay everything (hydrology pass).
 
 Each biome carries: `surface` {top, under, optional steep/bank/pool/ceiling/ice}

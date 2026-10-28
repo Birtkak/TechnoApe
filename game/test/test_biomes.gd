@@ -91,8 +91,10 @@ func test_lowland_table_corners() -> void:
 	assert_str(_lowland(-0.9, 0.9)).is_equal("snowy_taiga")
 	assert_str(_lowland(0.0, 0.0)).is_equal("plains")
 	assert_str(_lowland(0.0, 0.3)).is_equal("forest")
-	assert_str(_lowland(-0.4, 0.3)).is_equal("taiga")
+	assert_str(_lowland(-0.4, 0.0)).is_equal("taiga")
+	assert_str(_lowland(-0.4, 0.3)).is_equal("birch_forest")
 	assert_str(_lowland(0.4, -0.3)).is_equal("savanna")
+	assert_str(_lowland(0.4, 0.0)).is_equal("flower_meadow")
 
 
 func test_swamp_needs_low_flat_wet_ground() -> void:
@@ -113,7 +115,7 @@ func test_altitude_bands() -> void:
 	# Cold lowers the snow line: 300 above sea is snow when frozen, alpine when warm.
 	assert_str(_lowland(-1.0, 0.0, 300)).is_equal("snowy_peaks")
 	assert_str(_lowland(-1.0, 0.0, 175)).is_equal("mountains")   # coldest tree line stays above highland_max
-	assert_str(_lowland(0.5, 0.0, 300)).is_equal("alpine")
+	assert_str(_lowland(0.5, 0.6, 300)).is_equal("alpine")
 
 
 func test_coast_and_ocean() -> void:
@@ -123,6 +125,21 @@ func test_coast_and_ocean() -> void:
 	assert_str(_lowland(0.0, 0.0, -10)).is_equal("ocean")
 	assert_str(_lowland(-0.9, 0.0, -10)).is_equal("frozen_ocean")
 	assert_str(_lowland(0.0, 0.0, -60, {"continentalness": -0.8})).is_equal("deep_ocean")
+	# a beach only where the sea is near: low ground inland is plain land
+	assert_str(_lowland(0.0, 0.0, 2, {"shore": false})).is_equal("plains")
+	assert_str(_lowland(0.0, 0.0, 6)).is_equal("beach")
+	assert_str(_lowland(0.0, 0.0, 7)).is_equal("plains")
+
+
+func test_band_overrides() -> void:
+	assert_str(_lowland(0.4, 0.6, 2)).is_equal("mangrove")                     # warm wet coast
+	assert_str(_lowland(0.4, 0.6, 2, {"slope": 1.0})).is_equal("stony_shore")  # steep shores stay rock
+	assert_str(_lowland(0.4, -0.3, 2)).is_equal("beach")
+	assert_str(_lowland(0.8, -0.3, 200)).is_equal("volcanic")                  # hot dry mountain
+	assert_str(_lowland(0.4, 0.0, 250)).is_equal("volcanic")                   # warm, above the tree line
+	assert_str(_lowland(0.4, 0.6, 200)).is_equal("mountains")                  # wet mountains stay green
+	assert_str(_lowland(0.8, -0.3, 500)).is_equal("snowy_peaks")               # snow still caps them
+	assert_str(_lowland(0.8, -0.3, 100)).is_equal("badlands")
 
 
 func test_water_overrides() -> void:
@@ -169,7 +186,7 @@ func test_specific_borders() -> void:
 	assert_bool(rules.can_border("desert", "tundra")).is_false()
 	assert_bool(rules.can_border("snowy_peaks", "plains")).is_false()
 	var peaks_surface: Array = rules.neighbors("snowy_peaks")["common"].filter(func(n): return reg.get_def(n)["band"] != "cave")
-	assert_array(peaks_surface).is_equal(["alpine", "lake", "river"])  # tarns and springs; caves run beneath
+	assert_array(peaks_surface).is_equal(["alpine", "lake", "river", "volcanic"])  # tarns and springs, snow-capped volcanoes; caves run beneath
 	assert_bool(rules.can_border("river", "mountains")).is_true()
 	assert_bool(rules.can_border("lake", "mountains")).is_true()   # basin lakes in mountain valleys
 	assert_bool(rules.can_border("lake", "ocean")).is_false()

@@ -11,7 +11,7 @@ const HUM_BANDS := ["arid", "dry", "neutral", "humid", "wet"]
 ## Altitude bands from the sea floor up. Adjacent entries can border each other.
 const ALT_BANDS := ["deep_ocean", "ocean", "coast", "lowland", "highland", "mountain", "alpine", "snow"]
 ## Material names the surface entries may use (GameMaterials names; ids come from GameMaterials).
-const MATERIALS := ["air", "stone", "dirt", "grass", "savanna_grass", "red_earth", "sand", "water", "wood", "lava", "ash", "oil", "steam", "smoke", "fire", "bedrock", "snow", "gravel", "coal_ore", "iron_ore", "copper_ore", "tin_ore", "leaves", "sand_static", "gravel_static", "water_static", "toxic_sludge_static", "lava_static", "sulfur", "ice", "packed_ice", "basalt", "terracotta", "sandstone"]
+const MATERIALS := ["air", "stone", "dirt", "grass", "savanna_grass", "red_earth", "sand", "water", "wood", "lava", "ash", "oil", "steam", "smoke", "fire", "bedrock", "snow", "gravel", "coal_ore", "iron_ore", "copper_ore", "tin_ore", "leaves", "sand_static", "gravel_static", "water_static", "toxic_sludge_static", "lava_static", "sulfur", "ice", "packed_ice", "basalt", "terracotta", "sandstone", "obsidian", "clay"]
 ## Ground decorations (biomes.json "decor"): chance per 8 m cell of a bush, boulder or
 ## dead tree (one per cell), and per 12 m cell of a spire of spire_material.
 const DECOR_KINDS := ["bush", "boulder", "dead_tree", "fallen_log", "spire"]
@@ -220,6 +220,14 @@ func _validate_tables() -> void:
 		for nn in w.get("cave_noise", []):
 			if not cave_noise_band_names().has(nn):
 				errors.append("cave_overrides %s: unknown cave noise band %s" % [o.get("biome", ""), nn])
+	for o in tables.get("band_overrides", []):
+		var bands: Array = o.get("bands", [])
+		if bands.is_empty() or bands.any(func(b): return not ALT_BANDS.has(b)):
+			errors.append("band_overrides %s: bands must be from %s" % [o.get("biome", ""), ALT_BANDS])
+		elif by_name.has(o.get("biome", "")) and not bands.has(biomes[by_name[o["biome"]]].get("band", "")):
+			errors.append("band_overrides %s: its own band must be one of %s" % [o["biome"], bands])
+		elif not by_name.has(o.get("biome", "")):
+			errors.append("band_overrides: unknown biome %s" % o.get("biome", ""))
 	_check_name("tables.mountain", tables.get("mountain", ""), "mountain")
 	_check_name("tables.alpine", tables.get("alpine", ""), "alpine")
 	_check_name("tables.snow", tables.get("snow", ""), "snow")

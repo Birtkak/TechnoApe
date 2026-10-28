@@ -258,8 +258,8 @@ func test_voxel_tile_shows_a_placed_cube_from_an_edited_column() -> void:
 		var v := gv[i]
 		if v.x < ck.x * 16 or v.x > ck.x * 16 + 16 or v.z < ck.y * 16 or v.z > ck.y * 16 + 16:
 			continue
-		if absf(v.y - (ground + 48)) < 0.5 and gc[i].is_equal_approx(stone):
-			top += 1   # the merged top quad's corners lie on the column's boundary
+		if absf(v.y - (ground + 48)) <= 4.0 and gc[i].is_equal_approx(stone):
+			top += 1   # the merged top quad's corners lie on the column's boundary; the tile's 4-voxel cells may round it up
 		# strictly inside the column (its boundary carries the neighbours' walls down to the dug floor)
 		var inside := v.x > ck.x * 16 and v.x < ck.x * 16 + 16 and v.z > ck.y * 16 and v.z < ck.y * 16 + 16
 		if inside and absf(v.y - ground) < 3.0:

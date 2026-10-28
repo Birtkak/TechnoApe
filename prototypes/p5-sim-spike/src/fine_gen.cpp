@@ -14,14 +14,15 @@ constexpr int FS = FineGen::FS;
 // Ore lumps in a vein's lens (ADR 0064): Voronoi lumps around jittered points NUGGET_CELL voxels apart,
 // squashed NUGGET_FLAT times in y (ore lies in the flat lens), parted by a seam of host rock where the
 // two nearest points are within NUGGET_SEAM of each other (in that squashed metric), so a lump digs out
-// as one piece (ADR 0047). POCKET_* shape the field that bunches the lumps: rich pockets ~3 m across,
-// lumps between them only now and then.
-constexpr int NUGGET_CELL = 5;
+// as one piece (ADR 0047). POCKET_* shape the field that bunches the lumps: rich pockets ~4 m across,
+// hardly a lump between them (developer 2026-10-28: "make ores bunch up more so they are easier to mine";
+// pockets were ~3 m with one lump in eight strewn between; about the same amount of ore, in solid masses).
+constexpr int NUGGET_CELL = 7;   // 5 until 2026-10-28: bigger lumps, thinner share of seams, more ore per dig
 constexpr float NUGGET_FLAT = 1.35f;
 constexpr float NUGGET_SEAM = 1.0f;
-constexpr float POCKET_XZ = 22.0f, POCKET_Y = 12.0f;   // pocket field lattice, voxels
+constexpr float POCKET_XZ = 34.0f, POCKET_Y = 16.0f;   // pocket field lattice, voxels
 constexpr float POCKET_RICH = 3.0f;    // lump chance in a pocket, times the vein's density and the host rock's bias
-constexpr float POCKET_STRAY = 0.2f;  // ... and between pockets
+constexpr float POCKET_STRAY = 0.03f; // ... and between pockets
 // Soil under the top voxel: about a metre of the biome's under material.
 constexpr int SOIL_FINE = 8;
 // Ground relief on dry land (fine voxels): swells, hummocks and roughness the 0.5 m fields cannot
@@ -47,7 +48,7 @@ constexpr float POOL_THR = 0.0f;
 // report 2026-10-27 17-49-40); the sheet is 2.5 times the old one and the clumps hold 1/2.5 of it, so the amount of
 // ore stays as before.
 constexpr float STRINGER_HALF = 0.03f;    // 0.012 with per-voxel picks; 0.022 that way sugar-coated the shafts
-constexpr float STRINGER_CLUMP = 3.5f;
+constexpr float STRINGER_CLUMP = 6.0f;   // 3.5 until 2026-10-28: clumps ~75 cm across, so a strike is a few blocks of ore
 constexpr int STRINGER_MIN_DEPTH = 40 * FS;   // 20 m
 constexpr int STRINGER_REACH = 12;            // 1.5 m
 // Fallen sticks' half-widths in voxels (FStamp::r): thin (one voxel), medium (two), thick (two
@@ -113,7 +114,7 @@ uint16_t FineGen::vein_voxel(const WorldGen::Vein &v, float ht, int wx, int wy, 
     // the lens is richest at its heart: a prospector who finds the centre finds ore
     const float cdx = fx - (float)(v.x * FS), cdz = fz - (float)(v.z * FS);
     const float heart = std::max(0.0f, 1.0f - std::sqrt(cdx * cdx + cdz * cdz) / (0.5f * (float)(SIZE[v.type] * FS)));
-    const float rich = smoothstep(0.36f, 0.52f, pocket + 0.3f * heart * heart);
+    const float rich = smoothstep(0.44f, 0.54f, pocket + 0.3f * heart * heart);
     const float p = DENSITY[v.type] * bias * (POCKET_STRAY + (POCKET_RICH - POCKET_STRAY) * rich);
     const uint32_t hl = h3(bx + 7, bz - 3, by * 1031 + seed + 7789);
     if ((float)(hl & 1023) >= std::min(1.0f, p) * 1024.0f) return WorldGen::STONE;
@@ -577,7 +578,7 @@ void FineGen::young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen
             const float fz = (float)(cz * YC + 3 + (int)((hs >> 16) % (YC - 6))) + 0.5f;
             const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
             const WorldGen::Column col = g.column_base(mx, mz, false);
-            if (col.height <= g.sea_ + 2 || col.alpine) continue;
+            if (col.height <= g.sea_ + (col.biome == technosim_biome::MANGROVE ? 0 : 2) || col.alpine) continue;
             const float dens = technosim_biome::TREE_DENSITY[col.biome];
             if (roll >= std::min(0.7f, dens * 0.55f)) continue;
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
@@ -743,7 +744,7 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             const WorldGen::Column col = g.column_base(mx, mz, false);
             if (col.height <= g.sea_) continue;
             const bool snowy = col.alpine || col.snow;
-            const bool beach = col.biome == WorldGen::BIOME_BEACH || (col.biome == WorldGen::BIOME_OCEAN && col.c > -0.4f);
+            const bool beach = col.biome == WorldGen::BIOME_BEACH || (col.biome == WorldGen::BIOME_OCEAN && col.shore > -90.0f);
             const float dens = technosim_biome::TREE_DENSITY[col.biome];
             int kind = 0;
             uint16_t m = Mat::AIR;
@@ -755,7 +756,8 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             } else if (dens >= 0.2f) {
                 if ((float)((hs >> 12) & 1023) / 1024.0f < technosim_biome::DECOR_MUSHROOMS[col.biome]) { kind = MUSHROOM_S; m = ((hs >> 5) & 3) == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN; }
             } else if (technosim_biome::SURFACE_TOP[col.biome] == Mat::GRASS) {
-                if (n_meadow_.GetNoise((float)px * 0.37f + 500.0f, (float)pz * 0.37f - 500.0f) > 0.42f && (hs & 1)) {
+                const bool meadow = col.biome == technosim_biome::FLOWER_MEADOW;
+                if (n_meadow_.GetNoise((float)px * 0.37f + 500.0f, (float)pz * 0.37f - 500.0f) > (meadow ? -0.2f : 0.42f) && (meadow || (hs & 1))) {
                     kind = FLOWER_S;
                     m = FL[h3(px >> 5, pz >> 5, g.seed_ + 37) % 5];
                 }
@@ -1209,8 +1211,8 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             const WorldGen::Ruin *ruin = m.ruin >= 0 ? &ruins[m.ruin] : nullptr;
             const int spike = m.spike * FS;
             const uint16_t spire_m = spike > 0 ? (uint16_t)technosim_biome::SPIRE_MATERIAL[col.biome] : Mat::AIR;
-            const bool beach_sand = col.biome == WorldGen::BIOME_BEACH || (col.biome == WorldGen::BIOME_OCEAN && col.c > -0.4f);
-            const bool steep = slope > 1.1f, scree = slope > 0.75f && slope <= 1.1f && col.alpine;
+            const bool volcanic = col.biome == technosim_biome::VOLCANIC;   // bare basalt above the tree line too
+            const bool steep = slope > 1.1f, scree = slope > 0.75f && slope <= 1.1f && col.alpine && !volcanic;
             const bool cold = col.t < -0.45f || col.snow;
             const uint32_t ph = h3(wx >> 1, wz >> 1, g.seed_ + 19);   // 25 cm patches
             uint16_t top_m, under_m;
@@ -1225,10 +1227,10 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             } else if (col.snow && !steep) {
                 top_m = Mat::SNOW; under_m = Mat::STONE;
             } else if (steep) {
-                top_m = under_m = technosim_biome::SURFACE_UNDER[col.biome] == Mat::TERRACOTTA ? Mat::TERRACOTTA : Mat::STONE;
+                top_m = under_m = technosim_biome::SURFACE_UNDER[col.biome] == Mat::TERRACOTTA || technosim_biome::SURFACE_UNDER[col.biome] == Mat::BASALT ? (uint16_t)technosim_biome::SURFACE_UNDER[col.biome] : Mat::STONE;
             } else if (scree) {
                 top_m = under_m = Mat::GRAVEL_STATIC;
-            } else if (col.alpine) {
+            } else if (col.alpine && !volcanic) {
                 const uint32_t ah = h3(wx >> 2, wz >> 2, g.seed_ + 23) & 7;
                 top_m = ah < 3 ? Mat::GRASS : (ah < 5 ? Mat::GRAVEL_STATIC : Mat::STONE);
                 under_m = ah < 3 ? Mat::DIRT : Mat::STONE;
@@ -1239,7 +1241,8 @@ PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod,
             } else {
                 top_m = (uint16_t)technosim_biome::SURFACE_TOP[col.biome];
                 under_m = (uint16_t)technosim_biome::SURFACE_UNDER[col.biome];
-                if (col.biome == WorldGen::BIOME_OCEAN && !beach_sand) top_m = under_m = Mat::GRAVEL_STATIC;
+                if (col.biome == WorldGen::BIOME_OCEAN || col.biome == WorldGen::BIOME_DEEP_OCEAN || col.biome == technosim_biome::FROZEN_OCEAN)
+                    top_m = under_m = g.seabed(col, slope);
                 if (technosim_biome::SURFACE_STEEP[col.biome] >= 0 && slope > 0.6f) top_m = (uint16_t)technosim_biome::SURFACE_STEEP[col.biome];
                 if (top_m == Mat::SAVANNA_GRASS) {
                     // bare red earth between the tussocks, in patches a few metres across with ragged

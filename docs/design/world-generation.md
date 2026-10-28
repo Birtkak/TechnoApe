@@ -405,3 +405,9 @@ The developer asked for a cave overhaul with the choices left open. Nothing new 
 - Waterfall sound and a wet-rock darkening around the spray.
 - A per-thread cache for lake/ruin cells (they re-evaluate columns per block).
 - Glow mushrooms as real light sources (today they only glow themselves).
+
+## Shorelines and sea floor (2026-10-28, GEN_VERSION 26, ADR 0101)
+
+- Near coasts the base height follows an estimated distance to the coastline: beach and berm, foreshore,
+  sandbar, shelf; beaches only within 15-26 m of the sea; sea floor sand / mud / gravel by depth and patches
+  (`WorldGen::seabed`). Supersedes the flat shelf of GEN_VERSION 11 near the shore.
