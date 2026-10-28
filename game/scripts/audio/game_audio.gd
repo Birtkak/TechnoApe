@@ -270,7 +270,8 @@ func material_sound(event: String, material: int) -> String:
 	if _sounds.has(key):
 		return key
 	var gd: Dictionary = _groups.get(g, {})
-	var asset: String = gd.get("step" if event == "land" else ("break" if event == "place" else event), "")
+	# a group may name place / land itself (a liquid pours but is not dug); otherwise they borrow break / step
+	var asset: String = gd.get(event, gd.get("step" if event == "land" else ("break" if event == "place" else ""), ""))
 	if asset == "":
 		_sounds[key] = {}
 		return ""
@@ -459,7 +460,11 @@ func attach(p_main: Node) -> void:
 	_player = main.get("player")
 	main.tree_exiting.connect(_detach, CONNECT_ONE_SHOT)
 	var p := _player
-	p.voxel_placed.connect(func(at: Vector3i, m: int) -> void: play_material("place", m, at))
+	p.voxel_placed.connect(func(at: Vector3i, m: int) -> void:
+		if m == GameMaterials.AIR:   # only a bucket scooping a liquid places air
+			play("bucket/fill", Vector3(at) + Vector3(0.5, 0.5, 0.5))
+		else:
+			play_material("place", m, at))
 	p.voxels_placed.connect(func(cells: Array, m: int) -> void:
 		if not cells.is_empty():
 			play_material("place", m, cells[cells.size() / 2], {"db": 2.0 if cells.size() > 8 else 0.0}))

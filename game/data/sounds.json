@@ -10,6 +10,7 @@
   "player/splash": {"db": -8, "range_m": 24},
   "player/splash_big": {"db": -5, "range_m": 32},
   "player/splash_small": {"db": -12, "range_m": 16},
+  "bucket/fill": {"asset": "player/splash_small", "db": -10, "pitch": [0.9, 1.1], "range_m": 16},
   "player/bubbles": {"db": -16, "flat": true, "cooldown_s": 0.3},
   "player/pickup": {"db": -14, "pitch": [0.9, 1.2], "flat": true, "cooldown_s": 0.06},
   "player/tool_break": {"db": -6, "flat": true},
@@ -118,7 +119,7 @@
   "cloth": {"step": "step/cloth", "hit": "hit/soft", "break": "break/cloth"},
   "mud": {"step": "step/mud", "hit": "hit/soft", "break": "break/mud"},
   "metal": {"step": "step/stone", "hit": "hit/metal", "break": "break/metal"},
-  "water": {"step": "step/water"},
+  "water": {"step": "step/water", "place": "player/splash"},
   "none": {}
  },
  "cell_types": {"solid": "stone", "powder": "dirt", "liquid": "water", "gas": "none", "fire": "none"},
