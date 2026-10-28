@@ -183,7 +183,7 @@
   "fire": {"sound": "loop/fire_big", "burning": true, "materials": ["fire"], "full_hits": 25},
   "embers": {"sound": "loop/fire_small", "materials": ["furnace_lit"], "full_hits": 2},
   "water": {"sound": "loop/water", "materials": ["water"], "where": "air_above", "full_hits": 30},
-  "waterfall": {"sound": "loop/water_fall", "materials": ["water"], "where": "air_below", "full_hits": 12},
+  "waterfall": {"sound": "loop/water_fall", "materials": ["water"], "where": "falls", "full_hits": 40},
   "sand": {"sound": "loop/sand", "materials": ["sand", "sand_static", "red_earth", "ash", "red_ochre", "yellow_ochre"], "where": "moving", "full_hits": 8},
   "gravel": {"sound": "loop/sand", "pitch": 0.75, "db": -7, "materials": ["gravel", "gravel_static"], "where": "moving", "full_hits": 8},
   "earth": {"sound": "loop/sand", "pitch": 0.6, "db": -11, "materials": ["dirt", "grass", "savanna_grass", "farmland", "farmland_moist", "leaf_litter"], "where": "moving", "full_hits": 8},

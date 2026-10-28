@@ -22,7 +22,9 @@ const MOB_HZ := 4.0
 const PROBE_RANGE_M := 12.0
 const PROBE_DIRS := [Vector3(0, 1, 0), Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1),
 	Vector3(0.7, 0.7, 0), Vector3(-0.7, 0.7, 0), Vector3(0, 0.7, 0.7), Vector3(0, 0.7, -0.7), Vector3(0, -1, 0)]
-const WHERE := ["any", "air_above", "air_below", "moving", "fresh"]   # moving / fresh: SimWorld::SampleBits (ADR 0081)
+const WHERE := ["any", "air_above", "air_below", "moving", "fresh", "falls"]   # moving / fresh: SimWorld::SampleBits (ADR 0081)
+## falls: not sampled; the cells of the loop's liquid that fell in the last sim tick (SimBubble.falls, ADR 0103): a
+## waterfall is too thin for random samples to find
 ## Groups that wall a space in for the reverb: rock, earth and built walls. Not trunks, leaves or
 ## plants: a forest is open air.
 const ENCLOSING := ["stone", "dirt", "grass", "gravel", "sand", "snow", "mud", "glass", "metal", "plank"]
@@ -75,6 +77,7 @@ var _loop_t := 0.0
 var _loop_seed := 1
 var _loop_mask := PackedByteArray()
 var _loop_mats := {}           # material id -> Array of loop names
+var _fall_loops := {}          # loop name -> fluid slot of its liquid ("where": "falls")
 var _loops := {}               # loop name -> {player, level, target, pos, quiet_s}
 var _probe_i := 0
 var _probe_hits := PackedFloat32Array()
@@ -231,6 +234,9 @@ func load_dict(data: Dictionary) -> bool:
 		for mn in l.get("materials", []):
 			if not ids.has(mn):
 				errors.append("loop %s: unknown material %s" % [ln, mn])
+				continue
+			if l.get("where", "") == "falls":
+				_fall_loops[ln] = int(defs[ids[mn] - 1].get("fluid_slot", -1))
 				continue
 			_loop_mask[ids[mn]] = 1
 			if not _loop_mats.has(ids[mn]):
@@ -874,6 +880,10 @@ func _sample_loops() -> void:
 			a[0] += 1
 			a[1] += Vector3(hits[i], hits[i + 1], hits[i + 2])
 			acc[ln] = a
+	for ln in _fall_loops:
+		var f: Array = bubble.falls(_fall_loops[ln])
+		if f[0] > 0 and (f[1] as Vector3).distance_to(cam) < Settings.m2v(LOOP_RADIUS_M) * 2.0:
+			acc[ln] = [f[0], f[1] * f[0]]
 	# lit firepits and pit kilns are block entities, not cells: the nearest feeds the embers loop
 	var blocks = main.get("blocks")
 	if blocks and _loop_defs.has("embers"):

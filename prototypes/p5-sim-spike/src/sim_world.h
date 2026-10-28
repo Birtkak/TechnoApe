@@ -44,6 +44,7 @@ public:
     enum Flags : uint8_t { FLAG_BURNING = 1, FLAG_LOOSE = 2, FLAG_SHAKEN = 4 };
     static constexpr int CS = 16;
     static constexpr int MAX_MATERIALS = 256;
+    static constexpr int FALL_SLOTS = 4;   // fluid slots whose falls are counted (water, lava, oil, sludge)
     static constexpr int MAX_DISP = 7; // must stay < CS/2 for the parity scheme
     static constexpr int SURFACE_REACH = 7; // liquid surface levelling looks this far (< CS/2 like MAX_DISP)
     // Partly full liquid cells in the terrain (Minecraft-style fluid models, one per level):
@@ -169,6 +170,7 @@ public:
     // (local cells, a cube); returns 7 ints per hit (x, y, z, material, material above, material below,
     // flags) for loaded cells whose material has a nonzero byte in p_mask (256 bytes) or that burn.
     // Never waits: returns nothing while a tick runs (the caller tries again next frame).
+    PackedInt32Array get_falls(int p_slot) const;
     PackedInt32Array sample_cells(Vector3i p_center, int p_radius, int p_count, int p_seed, const PackedByteArray &p_mask) const;
     // Minimap feed (part D): count.x * count.y columns from window-local (min_xz.x, min_xz.y), every step voxels,
     // index cx + count.x * cz. Each: the first cell from the window top down that is not air, gas or fire, as
@@ -208,7 +210,8 @@ private:
     };
 
     struct Marks { uint32_t wake = 0; uint32_t dirty = 0; uint32_t box[27] = {}; uint32_t dbox[27] = {}; };
-    struct Ctx { int cx, cy, cz; Marks mk; uint32_t rng; uint64_t moved = 0; uint64_t reacted = 0; };
+    struct Ctx { int cx, cy, cz; Marks mk; uint32_t rng; uint64_t moved = 0; uint64_t reacted = 0;
+        int64_t falls[FALL_SLOTS][4] = {}; };   // liquid cells that fell this tick per fluid slot: count, sum x y z
     // Dirty box of a chunk packed in 25 bits: valid | min xyz | max xyz (4 bits each, local 0..15).
     static constexpr uint32_t BOX_VALID = 1u << 24;
     static constexpr uint32_t BOX_FULL = BOX_VALID | (15u << 12) | (15u << 16) | (15u << 20);
@@ -309,6 +312,8 @@ private:
     std::vector<int> pass_lists_[8];
     std::atomic<uint64_t> moved_count_{0};
     std::atomic<uint64_t> react_count_{0};
+    std::atomic<int64_t> falls_[FALL_SLOTS][4] = {};   // this tick's Ctx::falls, summed (the waterfall sound, ADR 0103)
+    int64_t falls_last_[FALL_SLOTS][4] = {};           // the last finished tick's, what get_falls returns
     Pool pool_;
 
     inline int idx(int x, int y, int z) const { return ((x + ox_) & mx_) + W_ * (((y + oy_) & my_) + H_ * ((z + oz_) & mz_)); }
@@ -337,6 +342,11 @@ private:
     bool still_liquid(int x, int y, int z, int slot) const;   // generated (static) liquid of that fluid slot
     std::atomic<int> still_woken_{0};   // still liquid cells that became moving liquid (ADR 0068)
     void update_powder(int x, int y, int z, int i, Ctx &c);
+    static inline void count_fall(const MaterialDef &m, int x, int y, int z, Ctx &c) {
+        if (m.fluid_slot < 0 || m.fluid_slot >= FALL_SLOTS) return;
+        int64_t *f = c.falls[m.fluid_slot];
+        f[0]++; f[1] += x; f[2] += y; f[3] += z;
+    }
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);
     void update_gas(int x, int y, int z, int i, Ctx &c);

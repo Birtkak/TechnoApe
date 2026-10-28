@@ -67,21 +67,14 @@ new = '''		const FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_f
 				for (int dx = -1; dx <= 1; ++dx, ++k) {
 					const uint32_t nloc = voxel_index + dx * x_jump_size + dz * z_jump_size;
 					tops[k] = 0.f;
-					// the column's vote: its highest cell of this fluid within two cells up or down, whatever sits at
-					// this height (water over a shelf of ground is still that column's surface)
-					bool found = false;
-					for (int dy = VoxelMesherBlocky::PADDING; dy >= -VoxelMesherBlocky::PADDING && !found; --dy) {
-						const uint32_t cid = type_buffer[nloc + dy * static_cast<int>(y_jump_size)];
-						if (library.has_model(cid)) {
-							const BakedModel &cm = library.models[cid];
-							if (cm.fluid_index == voxel.fluid_index) {
-								tops[k] = static_cast<float>(dy) + l2h(cm.fluid_level);
-								votes |= 1u << k;
-								if (dy < 0) {
-									step_sides |= 1u << k;
-								}
-								found = true;
-							}
+					// the column's vote: the top of its surface connected to this height (fluid_column_top)
+					int top_dy = 0;
+					const bool found = fluid_column_top(type_buffer, nloc, y_jump_size, voxel.fluid_index, library, top_dy);
+					if (found) {
+						tops[k] = static_cast<float>(top_dy) + l2h(library.models[type_buffer[nloc + top_dy * y_jump_size]].fluid_level);
+						votes |= 1u << k;
+						if (top_dy < 0) {
+							step_sides |= 1u << k;
 						}
 					}
 					const uint32_t nid = type_buffer[nloc];
@@ -100,6 +93,13 @@ new = '''		const FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_f
 			}
 			static const uint8_t CORNER_COLS[4][4] = { { 1, 2, 4, 5 }, { 0, 1, 3, 4 }, { 3, 4, 6, 7 }, { 4, 5, 7, 8 } };
 			const bool lone = (same & 0b010'101'010) == 0 && (dry_open & 0b010'101'010) != 0;
+			// falling water (its run of fluid ends in air below): a full box with all its side faces, not a film or a
+			// shard pulled toward whatever water lies in reach (bug report 2026-10-28 08-21-26). Full whatever its
+			// fullness: a falling eighth is spray through the whole cell, and slabs at its level drew a curtain of specks
+			const bool airborne = fluid_falls(type_buffer, voxel_index, y_jump_size, voxel.fluid_index, library);
+			if (airborne) {
+				step_sides = 0;
+			}
 			for (int c = 0; c < 4; ++c) {
 				float sum = 0.f;
 				float low = 3.f; // bottom of the lowest fluid cell voting at this corner (its own cell always votes)
@@ -137,13 +137,10 @@ new = '''		const FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_f
 						const int dz = sz > 0 ? b - 1 : b - 2;
 						const float w = static_cast<float>(((a == 0 || a == 3) ? 1 : 3) * ((b == 0 || b == 3) ? 1 : 3));
 						const uint32_t nloc = voxel_index + dx * x_jump_size + dz * z_jump_size;
-						for (int dy = VoxelMesherBlocky::PADDING; dy >= -VoxelMesherBlocky::PADDING; --dy) {
-							const uint32_t cid = type_buffer[nloc + dy * static_cast<int>(y_jump_size)];
-							if (library.has_model(cid) && library.models[cid].fluid_index == voxel.fluid_index) {
-								ring += w * (static_cast<float>(dy) + l2h(library.models[cid].fluid_level));
-								ring_w += w;
-								break;
-							}
+						int top_dy = 0;
+						if (fluid_column_top(type_buffer, nloc, y_jump_size, voxel.fluid_index, library, top_dy)) {
+							ring += w * (static_cast<float>(top_dy) + l2h(library.models[type_buffer[nloc + top_dy * y_jump_size]].fluid_level));
+							ring_w += w;
 						}
 					}
 				}
@@ -151,7 +148,7 @@ new = '''		const FixedArray<uint8_t, 4> corner_levels = get_corner_levels_from_f
 				// a three-cell step lies under the higher column's ground, and every stair nose poked through the sheet
 				// as a diagonal slit. Every sharing cell computes the same floor, so the sheet stays one surface
 				const float mean = math::max((36.f * (sum / static_cast<float>(n)) + ring) / (36.f + ring_w), hi_floor);
-				field_heights[c] = lone ? 0.f : math::clamp(mean, -float(VoxelMesherBlocky::PADDING), float(VoxelMesherBlocky::PADDING) + 1.f);
+				field_heights[c] = airborne ? BakedFluid::TOP_HEIGHT : lone ? 0.f : math::clamp(mean, -float(VoxelMesherBlocky::PADDING), float(VoxelMesherBlocky::PADDING) + 1.f);
 			}
 			const float h_min = math::min(field_heights[0], field_heights[1], field_heights[2], field_heights[3]);
 			const uint8_t mask = //
@@ -238,24 +235,99 @@ new = '''	if (fluid_top_covered) {
 		static const Cube::SideAxis CSIDE[4] = { Cube::SIDE_NEGATIVE_Z, Cube::SIDE_NEGATIVE_X, Cube::SIDE_POSITIVE_X, Cube::SIDE_POSITIVE_Z };
 		static const int CDX[4] = { 0, -1, 1, 0 };
 		static const int CDZ[4] = { -1, 0, 0, 1 };
-		for (int j = 0; j < 4; ++j) {
+		// Only under a sheet in reach: a stream or a pillar of water (its run rises past the reach, or it is falling) has
+		// no sheet over its sides, and hiding them drew it hollow (bug report 2026-10-28 08-21-26)
+		int own_top = 0;
+		const bool sheet = fluid_column_top(type_buffer, voxel_index, y_jump_size, voxel.fluid_index, library, own_top) &&
+				!fluid_falls(type_buffer, voxel_index, y_jump_size, voxel.fluid_index, library);
+		for (int j = 0; j < 4 && sheet; ++j) {
 			const int nloc = voxel_index + CDX[j] * x_jump_size + CDZ[j] * z_jump_size;
 			const uint32_t nid = type_buffer[nloc];
 			if (library.has_model(nid) && !library.models[nid].empty) {
 				continue;
 			}
-			for (int dy = -1; dy >= -VoxelMesherBlocky::PADDING; --dy) {
-				const uint32_t cid = type_buffer[nloc + dy * y_jump_size];
-				if (library.has_model(cid) && library.models[cid].fluid_index == voxel.fluid_index) {
-					fluid_sides[CSIDE[j]][surface_index].clear();
-					break;
-				}
+			int top_dy = 0;
+			if (fluid_column_top(type_buffer, nloc, y_jump_size, voxel.fluid_index, library, top_dy) && top_dy < 0) {
+				fluid_sides[CSIDE[j]][surface_index].clear();
 			}
 		}
 	}
 
 	if (fluid_top_covered) {
 		// No top side'''
+assert s.count(old) == 1, s.count(old)
+s = s.replace(old, new, 1)
+
+# ADR 0103: the column rules the height field and the A3 face rule share
+old = '''template <typename TModelID>
+bool generate_fluid_model('''
+new = '''// TechnoApe (ADR 0103): a column's surface as seen from one cell's height. If the column holds this fluid at that
+// height, its top is the top of that run; over open air, the first fluid straight below; inside solid (a shelf), the
+// first fluid straight above the solid. So a drop in the air above a surface is not the surface, and two cells at
+// different heights that share a corner read the same top (the old "highest fluid in reach" did not: cracks in moving
+// water, bug report 2026-10-28 08-21-48). False when there is none within the padding, or when the run rises past it
+// (a pillar or a stream: no sheet joins it).
+template <typename TModelID>
+inline bool fluid_column_top(const Span<const TModelID> type_buffer, const int loc, const int y_jump_size,
+		const unsigned int fluid_index, const BakedLibrary &library, int &out_dy) {
+	const int reach = VoxelMesherBlocky::PADDING;
+	auto kind = [&](int dy) -> int { // 0 open, 1 this fluid, 2 anything else
+		const uint32_t id = type_buffer[loc + dy * y_jump_size];
+		if (!library.has_model(id) || library.models[id].empty) {
+			return 0;
+		}
+		return library.models[id].fluid_index == fluid_index ? 1 : 2;
+	};
+	int dy = 0;
+	const int k0 = kind(0);
+	if (k0 == 0) {
+		dy = -1;
+		while (dy >= -reach && kind(dy) == 0) {
+			--dy;
+		}
+		if (dy < -reach || kind(dy) != 1) {
+			return false;
+		}
+		out_dy = dy;
+		return true;
+	}
+	if (k0 == 2) {
+		dy = 1;
+		while (dy <= reach && kind(dy) == 2) {
+			++dy;
+		}
+		if (dy > reach || kind(dy) != 1) {
+			return false;
+		}
+	}
+	while (dy < reach && kind(dy + 1) == 1) {
+		++dy;
+	}
+	if (dy >= reach) {
+		return false;
+	}
+	out_dy = dy;
+	return true;
+}
+
+// TechnoApe (ADR 0103): the run of this fluid under the cell ends in open air within the padding: falling water.
+template <typename TModelID>
+inline bool fluid_falls(const Span<const TModelID> type_buffer, const int loc, const int y_jump_size,
+		const unsigned int fluid_index, const BakedLibrary &library) {
+	for (int dy = -1; dy >= -VoxelMesherBlocky::PADDING; --dy) {
+		const uint32_t id = type_buffer[loc + dy * y_jump_size];
+		if (!library.has_model(id) || library.models[id].empty) {
+			return true;
+		}
+		if (library.models[id].fluid_index != fluid_index) {
+			return false;
+		}
+	}
+	return false;
+}
+
+template <typename TModelID>
+bool generate_fluid_model('''
 assert s.count(old) == 1, s.count(old)
 s = s.replace(old, new, 1)
 

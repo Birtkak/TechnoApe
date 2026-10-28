@@ -139,3 +139,19 @@ static func _no_films(defs: Array) -> Array:
 		c.erase("film_lifetime_ticks")
 		out.append(c)
 	return out
+
+
+## ADR 0103: get_falls counts the liquid that fell in the last tick, per fluid slot, with its mean position (the
+## waterfall sound reads it); nothing falling reads [0].
+func test_falls_counts_falling_water() -> void:
+	var w := _world(GameMaterials.defs())
+	w.fill_box(Vector3i(20, 30, 20), Vector3i(24, 34, 24), GameMaterials.WATER)
+	w.tick(1)
+	var f := w.get_falls(0)
+	assert_int(f[0]).is_greater(0)
+	assert_int(f[1]).is_between(20, 23)
+	assert_int(f[3]).is_between(20, 23)
+	assert_int(w.get_falls(1)[0]).is_equal(0)   # no lava
+	for t in 120:
+		w.tick(1)
+	assert_int(w.get_falls(0)[0]).is_equal(0)   # landed and spread: nothing falls
