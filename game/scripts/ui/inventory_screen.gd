@@ -47,6 +47,7 @@ var _bag_slot: SlotView                  # the worn bag (ADR 0030), personal inv
 var _bag_slots: Array[SlotView] = []     # its 9 slots, a row under the hotbar while a bag is worn
 var _offhand_slot: SlotView              # ADR 0055, personal inventory only
 var _trash_slot: SlotView                # left of the hotbar, on every screen
+var portrait: CharacterPreview           # the body in the portrait box (bug report 2026-10-28)
 var quest_view: QuestBookView
 var _book_button: QuestBookView.BookButton
 # Mouse Tweaks: a button held after a press on a slot drags over more slots
@@ -132,6 +133,10 @@ func _ready() -> void:
 	_title.add_theme_color_override("font_color", Color(0.25, 0.25, 0.25))
 	_title.add_theme_font_size_override("font_size", 16)
 	_panel.add_child(_title)
+	portrait = CharacterPreview.new()
+	portrait.position = Vector2(16, 16)
+	portrait.size = Vector2(104, 140)
+	_panel.add_child(portrait)
 	_inv_label = Label.new()
 	_inv_label.text = "Inventory"
 	_inv_label.position = Vector2(16, 142)
@@ -646,6 +651,7 @@ func _draw_panel() -> void:
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(6)
 	_panel.draw_style_box(sb, Rect2(Vector2.ZERO, _panel.size))
+	portrait.visible = not _container and player_inv != null and player_inv.craft.width == 2
 	if _container:
 		if _container.kind in ["furnace", "firepit"]:
 			_draw_furnace_gauges()

@@ -1451,18 +1451,71 @@ sp("iron_gear", ("flower_head", "iron"))
 sp("glass_lens", ("ball", "tin"))
 sp("copper_coil", ("twine", "copper"))
 sp("steam_cell", ("flask", "steel"))
-sp("miners_helmet", ("bowl", "iron"), ("sparkle", "mana"))
+# the miner's helmet (bug report 2026-10-28 reference): copper dome, navy straps and wide brim, yellow lamp
+g = ellipse(new(), 8, 10.5, 6.6, 8.2)
+for y in range(10, N):
+    for x in range(N):
+        put(g, x, y, ".")
+g = shade(g)
+for y in range(N):
+    if get(g, 9, y) != ".":
+        put(g, 9, y, "n")
+for x in range(N):
+    if get(g, x, 4) != ".":
+        put(g, x, 4, "n")
+rect(g, 0, 10, 15, 10, "n")
+rect(g, 1, 11, 14, 11, "k")
+rect(g, 3, 5, 7, 9, "n")
+rect(g, 4, 6, 6, 8, "y")
+put(g, 4, 6, "w")
+put(g, 6, 8, "Y")
+shape("miner_helmet", outline(g), {"n": "#2c3448", "k": "#1a2030", "y": "#ffd660", "Y": "#f0a030", "w": "#fff6d0"})
+sp("miners_helmet", ("miner_helmet", "copper"))
 sp("travelers_backpack", ("bag", "leather"), ("strips", "leather"))
 sp("steam_drill", H, ("pickaxe_head", "steel"), ("flask", "steel"))
 sp("boiler_suit", ("apron", "iron", {"s": "#2e3034"}))
-sp("jetpack", ("flask", "steel"), ("pipe", "bronze"))
+# the jetpack (bug report 2026-10-28 reference): two slate tanks with red caps and bands on a back
+# plate with leather straps, flame under the nozzles
+PALETTES["slate"] = ramp("#1e2630", "#3a4654", "#5a6878", "#7a8a9c", "#a4b4c4")
+g = new()
+rect(g, 0, 2, 4, 12)
+rect(g, 11, 2, 15, 12)
+g = shade(g)
+rect(g, 5, 4, 10, 11, "m")
+rect(g, 6, 5, 9, 10, "q")
+for x0 in (0, 11):
+    rect(g, x0 + 1, 2, x0 + 3, 2, "r")
+    rect(g, x0, 9, x0 + 4, 9, "r")
+    rect(g, x0 + 1, 4, x0 + 3, 7, "q")
+    put(g, x0 + 2, 5, "l")
+    rect(g, x0 + 1, 13, x0 + 3, 13, "Y")
+    put(g, x0 + 2, 13, "y")
+    put(g, x0 + 2, 14, "Y")
+for x in (6, 9):
+    rect(g, x, 3, x, 12, "s")
+    put(g, x, 12, "S")
+shape("jetpack", outline(g), {"q": "#2a3440", "r": "#de524c", "s": "#8a4a30", "S": "#5a2c1c", "y": "#ffe08a", "Y": "#f0a030"})
+sp("jetpack", ("jetpack", "slate"))
 sp("surveyors_stake", ("stick", "wood"), ("nugget", "copper"))
 sp("compressor", ("crucible", "iron"), ("pipe", "bronze"))
 sp("hopper", ("bowl", "iron"), ("pipe", "bronze"))
 sp("chute", ("bowl", "wood"))
 sp("belt", ("strips", "leather"), ("stick", "iron"))
 sp("rail", ("ladder", "iron"))
-sp("minecart", ("crucible", "iron"), ("ball", "iron"))
+# the minecart (bug report 2026-10-28 reference): a grey open iron box, light rim, dark inside,
+# rivet spots on the side, wheels peeking out below
+g = rect(new(), 1, 7, 14, 13)
+g = shade(g)
+rect(g, 1, 4, 14, 6, "h")
+rect(g, 3, 5, 12, 6, "i")
+rect(g, 4, 6, 11, 6, "j")
+rect(g, 2, 3, 13, 3, "l")
+for (x, y) in [(3, 9), (6, 10), (9, 9), (12, 11), (4, 12), (10, 12), (7, 8)]:
+    put(g, x, y, "d")
+rect(g, 3, 14, 4, 14, "k")
+rect(g, 11, 14, 12, 14, "k")
+shape("minecart", outline(g), {"i": "#3a3e44", "j": "#5a5e64", "k": "#1a1a1c"})
+sp("minecart", ("minecart", "iron"))
 sp("chest_cart", ("crucible", "iron"), ("brick", "wood"))
 
 path = os.path.join(REPO, "game", "data", "item_sprites.json")

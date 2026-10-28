@@ -98,7 +98,8 @@
     "salt": {"o": "#4c4c4f", "d": "#c4c4cc", "m": "#e4e4ec", "l": "#f2f2f8", "h": "#ffffff"},
     "chalk": {"o": "#42423e", "d": "#b8b8ae", "m": "#dcdcd2", "l": "#ececE4", "h": "#ffffff"},
     "floorstone": {"o": "#050507", "d": "#1c1c24", "m": "#30303c", "l": "#4a4a5a", "h": "#8484a0"},
-    "greenstone": {"o": "#0c1410", "d": "#2c4434", "m": "#46664e", "l": "#64886a", "h": "#9cc0a0"}
+    "greenstone": {"o": "#0c1410", "d": "#2c4434", "m": "#46664e", "l": "#64886a", "h": "#9cc0a0"},
+    "slate": {"o": "#13181e", "d": "#3a4654", "m": "#5a6878", "l": "#7a8a9c", "h": "#a4b4c4"}
   },
   "shapes": {
     "handle": {
@@ -3846,6 +3847,69 @@
         "..oo............",
         "................"
       ]
+    },
+    "miner_helmet": {
+      "colors": {"n": "#2c3448", "k": "#1a2030", "y": "#ffd660", "Y": "#f0a030", "w": "#fff6d0"},
+      "rows": [
+        "................",
+        ".......oo.......",
+        ".....oohloo.....",
+        "....ohlmmnlo....",
+        "...onnnnnnnno...",
+        "..onnnnnmnmmlo..",
+        ".ohnwyynmnmmmlo.",
+        ".olnyyynmnmmmdo.",
+        ".olnyyYnmnmmmdo.",
+        "ohdnnnnndnddddlo",
+        "nnnnnnnnnnnnnnnn",
+        "okkkkkkkkkkkkkko",
+        ".oooooooooooooo.",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "jetpack": {
+      "colors": {"q": "#2a3440", "r": "#de524c", "s": "#8a4a30", "S": "#5a2c1c", "y": "#ffe08a", "Y": "#f0a030"},
+      "rows": [
+        "................",
+        "ooooo......ooooo",
+        "hrrrloo..oohrrrl",
+        "lmmmdosoosolmmmd",
+        "lqqqdmsmmsmlqqqd",
+        "lqlqdmsqqsmlqlqd",
+        "lqqqdmsqqsmlqqqd",
+        "lqqqdmsqqsmlqqqd",
+        "lmmmdmsqqsmlmmmd",
+        "rrrrrmsqqsmrrrrr",
+        "lmmmdmsqqsmlmmmd",
+        "lmmmdmsmmsmlmmmd",
+        "lddddoSooSoldddd",
+        "oYyYo.o..o.oYyYo",
+        ".oYo........oYo.",
+        "..o..........o.."
+      ]
+    },
+    "minecart": {
+      "colors": {"i": "#3a3e44", "j": "#5a5e64", "k": "#1a1a1c"},
+      "rows": [
+        "................",
+        "................",
+        "..oooooooooooo..",
+        ".ollllllllllllo.",
+        "ohhhhhhhhhhhhhho",
+        "ohhiiiiiiiiiihho",
+        "ohhijjjjjjjjihho",
+        "ohlllllllllllllo",
+        "olmmmmmdmmmmmmdo",
+        "olmdmmmmmdmmmmdo",
+        "olmmmmdmmmmmmmdo",
+        "olmmmmmmmmmmdmdo",
+        "olmmdmmmmmdmmmdo",
+        "oldddddddddddddo",
+        ".ookkooooookkoo.",
+        "...oo......oo..."
+      ]
     }
   },
   "sprites": {
@@ -4215,18 +4279,18 @@
     "glass_lens": {"layers": [{"shape": "ball", "palette": "tin"}]},
     "copper_coil": {"layers": [{"shape": "twine", "palette": "copper"}]},
     "steam_cell": {"layers": [{"shape": "flask", "palette": "steel"}]},
-    "miners_helmet": {"layers": [{"shape": "bowl", "palette": "iron"}, {"shape": "sparkle", "palette": "mana"}]},
+    "miners_helmet": {"layers": [{"shape": "miner_helmet", "palette": "copper"}]},
     "travelers_backpack": {"layers": [{"shape": "bag", "palette": "leather"}, {"shape": "strips", "palette": "leather"}]},
     "steam_drill": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "pickaxe_head", "palette": "steel"}, {"shape": "flask", "palette": "steel"}]},
     "boiler_suit": {"layers": [{"shape": "apron", "palette": "iron", "colors": {"s": "#2e3034"}}]},
-    "jetpack": {"layers": [{"shape": "flask", "palette": "steel"}, {"shape": "pipe", "palette": "bronze"}]},
+    "jetpack": {"layers": [{"shape": "jetpack", "palette": "slate"}]},
     "surveyors_stake": {"layers": [{"shape": "stick", "palette": "wood"}, {"shape": "nugget", "palette": "copper"}]},
     "compressor": {"layers": [{"shape": "crucible", "palette": "iron"}, {"shape": "pipe", "palette": "bronze"}]},
     "hopper": {"layers": [{"shape": "bowl", "palette": "iron"}, {"shape": "pipe", "palette": "bronze"}]},
     "chute": {"layers": [{"shape": "bowl", "palette": "wood"}]},
     "belt": {"layers": [{"shape": "strips", "palette": "leather"}, {"shape": "stick", "palette": "iron"}]},
     "rail": {"layers": [{"shape": "ladder", "palette": "iron"}]},
-    "minecart": {"layers": [{"shape": "crucible", "palette": "iron"}, {"shape": "ball", "palette": "iron"}]},
+    "minecart": {"layers": [{"shape": "minecart", "palette": "iron"}]},
     "chest_cart": {"layers": [{"shape": "crucible", "palette": "iron"}, {"shape": "brick", "palette": "wood"}]}
   }
 }
