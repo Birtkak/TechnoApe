@@ -2,7 +2,7 @@
 
 3D first-person voxel game: Minecraft/GregTech building and automation,
 Noita-style simulated materials and wand/spell play, procedurally generated
-world drawn as one 40 m box of full-detail voxels that ends in the sky, no LOD (ADR 0073); an optional far horizon past it, voxel cubes from the generator's coarse data with player builds in them (ADR 0075, proposed, off by default). Windows client (Android dropped, ADR 0009), dedicated Linux
+world drawn as one 40 m box of full-detail voxels that ends in the sky, no LOD and no far horizon (ADR 0073, 0105): the render distance is the one setting, and pushing it out is a performance job. Windows client (Android dropped, ADR 0009), dedicated Linux
 server on the home server (Unraid) over Tailscale. Solo developer; Claude
 Code does most implementation, the developer steers, plays, decides.
 

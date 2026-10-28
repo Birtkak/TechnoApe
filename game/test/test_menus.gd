@@ -13,7 +13,7 @@ var _keep := {}
 func before_test() -> void:
 	DirAccess.make_dir_recursive_absolute(DIR)
 	_wipe()
-	for k in ["graphics_preset", "shadow_quality", "ssao", "bloom", "view_distance_m", "fov", "far_layer", "far_distance_m"]:
+	for k in ["graphics_preset", "shadow_quality", "ssao", "bloom", "view_distance_m", "fov"]:
 		_keep[k] = Settings.get(k)
 
 
@@ -133,21 +133,6 @@ func test_settings_screen_shows_the_settings() -> void:
 	Settings.ssao = false
 	panel.sync_from_settings()
 	assert_bool(panel._ssao.button_pressed).is_false()
-	# the far horizon row (ADR 0074): off, or the far layer's reach
-	Settings.far_layer = false
-	panel.sync_from_settings()
-	assert_int(panel._far.selected).is_equal(0)
-	Settings.far_layer = true
-	Settings.far_distance_m = 768.0
-	panel.sync_from_settings()
-	assert_int(panel._far.selected).is_equal(2)
-	panel._far.select(1)
-	panel._far.item_selected.emit(1)
-	assert_bool(Settings.far_layer).is_true()
-	assert_float(Settings.far_distance_m).is_equal(384.0)
-	panel._far.select(0)
-	panel._far.item_selected.emit(0)
-	assert_bool(Settings.far_layer).is_false()
 
 
 func test_title_skips_for_autopilot_runs() -> void:

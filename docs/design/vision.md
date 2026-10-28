@@ -167,13 +167,9 @@ prototype (P5, falling-sand-3D spike) before the architecture is locked.
    "Voxy / Distant Horizons") and the 200 m one of ADR 0072 looked worse
    than nothing at 12.5 cm voxels, streamed too slowly in flight, and hid
    the detail under the player behind coarse parents. Distant mountains
-   and far builds come back only with a technique that draws them well.
-   The candidate is ADR 0075 (proposed, off by default until the developer
-   prefers it in play): a far layer like Lay of the Land's, voxel cubes from
-   the generator's coarse data at a size under a few pixels, with the
-   player's builds laid in, composited behind the box so the voxels fade
-   into it per pixel (its smooth-skin predecessor, ADR 0074, could show
-   neither the voxel look nor a built tower).
+   and far builds come from a bigger box, not from a far layer: the far
+   layers of ADR 0074 and 0075 were removed (ADR 0105), and the render
+   distance grows as the full-detail box gets cheaper.
 
 ## Fixed decisions (see ADRs)
 - Perspective: 3D first-person.

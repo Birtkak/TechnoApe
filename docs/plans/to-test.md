@@ -34,30 +34,6 @@ bloomery, forge, bronze anvil) pass again; two fixes you may notice:
 - [ ] First load: no hitch the first time a fire or liquid shows up (every terrain material's pipeline
       is compiled under the loading screen again; it had silently stopped doing so).
 
-## The far horizon, off by default (2026-10-27, ADR 0075, proposed)
-
-Settings > Video > **Far horizon**: Off (the world ends in the sky, as ADR 0073) or 384 m / 768 m / 1.5 km;
-takes effect when a world is next loaded. Or start with `far=1` (`far_m=1536`). Judge it against Off in the
-same spots; F9 when something looks wrong. The far land is now voxels (cubes from the generator's coarse
-data, the voxel trees included), not the smooth skin of 2026-10-26.
-
-- [ ] Standing on a beach or a hilltop: the ground runs on past 40 m with no line, no ring and no pop where
-      the voxels end; the far land reads as the same voxel world, smaller: the speckle stays, cliffs keep
-      their faces, forests are voxel trees to ~300 m and a lumpy leaf mass beyond, no stairs on slopes and no
-      cube-of-cubes anywhere (a far cell stays under ~3 px). The haze is thinner than the near world's
-      (`far_fog=0.35`): the horizon should be visible to 1-1.5 km at noon; say if the box's edge shows a step.
-- [ ] Build something big (a tower, a wall, a bridge with a gap under it) and walk 150-500 m away: it is
-      there in the far land with its shape, its overhangs and its materials, within a second or two of the
-      last placed voxel; the same after save and reload.
-- [ ] Walk and fly (creative, 20 m/s): no tiles appear or vanish in view, no cracks between the rings; far
-      lakes and the sea are flat sheets at their level, never black. Known: a fast flight hitches where the
-      near box streams a forest edge (ADR 0074, open); say whether it is worse than with the horizon Off.
-- [ ] From 100 m up: forests, rivers and the coast read as such to the horizon; mountains have their shape.
-- [ ] Dig a crater and place a 4 m cube, walk 150 m away: both show in the far ground within a second or two
-      (a far tree felled from inside the box stays standing far off until its column is touched again: known),
-      and both are still there after save and reload.
-- [ ] Frame time (F3) next to Off at the same spot; first load a second or two longer.
-
 ## No LOD, the brush flush and centred, placed sand falls (2026-10-26, ADR 0073)
 
 Start a new world. The view distance is now one box of full-detail voxels (Settings > Video: 24 / 32 / 40 m).

@@ -489,7 +489,11 @@ func _note_slow_frame(delta: float) -> void:
 		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		"vram_mb": snappedf(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0, 1),
 		"bubble_ms": prev.get("total_ms", 0.0), "pushed": prev.get("pushed", 0), "loads": prev.get("loads", 0),
-		"terrain_update_ms": t.get("time_update_task", 0), "terrain_mesh_req": t.get("time_mesh_requests", 0)})
+		"terrain_update_ms": t.get("time_update_task", 0), "terrain_mesh_req": t.get("time_mesh_requests", 0),
+		"terrain_detect": t.get("time_detect_required_blocks", 0), "terrain_io_req": t.get("time_io_requests", 0)})
+	for k: String in t:   # our godot_voxel build: worst main-thread step times since the last read (usec)
+		if k.begins_with("ta_"):
+			_slow[-1][k] = t[k]
 	_slow.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["frame_ms"] > b["frame_ms"])
 	if _slow.size() > 8:
 		_slow.resize(8)

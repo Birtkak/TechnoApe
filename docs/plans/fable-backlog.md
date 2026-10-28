@@ -11,7 +11,7 @@
 - **2026-10-23:** jobs 1-4 (micro simulation, chisel, far field and near field of the brick world) are
   gone with the brick world (ADR 0033, 0036): one 12.5 cm grid, chiseling is the brush at size 1. Job
   numbers 5-8 are kept so older references still point at the right job.
-- Next free ADR number: **0105** (0104 = world water is endless; the full list is `docs/decisions/`).
+- Next free ADR number: **0106** (0105 = no far horizon, render distance only; the full list is `docs/decisions/`).
 
 Recommended order: 5-7 as Phase 3/4 start. 8 is ongoing.
 

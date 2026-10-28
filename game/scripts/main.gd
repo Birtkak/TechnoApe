@@ -153,9 +153,6 @@ func _ready() -> void:
 	mark.call("spawn")
 	atmosphere.setup(world, player.camera)
 	mark.call("atmosphere")
-	if Settings.far_layer:
-		_sync_far_layer(false)
-		mark.call("far_layer")
 	player.voxel_broken.connect(_on_broken)
 	player.voxel_placed.connect(_on_placed)
 	player.voxels_dug.connect(_on_dug)
@@ -701,9 +698,6 @@ func _save_blocks() -> void:
 	if farming != null and farming.dirty:
 		_save_json(_save_path("farms"), farming.to_dict())
 		farming.dirty = false
-	if world != null and world.far_layer != null and world.far_layer.dirty:
-		_save_json(_save_path("far_edits"), world.far_layer.to_dict())
-		world.far_layer.dirty = false
 	if mobs != null:
 		mobs.save_file(_save_path("mobs"))   # animals move all the time: always written
 	if atmosphere != null:
@@ -875,34 +869,6 @@ func _on_user_settings_changed() -> void:
 	atmosphere.apply_graphics()
 	player.camera.fov = Settings.fov
 	world.apply_distances()
-	_sync_far_layer()
-
-
-## The far layer past the box (ADR 0074; its own view behind the sky, see far_layer.gd) as the Settings
-## ask, live (ADR 0092): made, rebuilt at a new reach or freed; its edited columns are saved first and
-## the new one reads them back.
-func _sync_far_layer(in_play := true) -> void:
-	var old := world.far_layer
-	if old != null and Settings.far_layer and old.far_m == Settings.far_distance_m:
-		return
-	if old != null:
-		if old.dirty and Settings.persist_world:
-			_save_json(_save_path("far_edits"), old.to_dict())
-		old.teardown()
-		world.far_layer = null
-	if not Settings.far_layer:
-		return
-	var fl := FarLayer.new()
-	fl.name = "FarLayer"
-	world.far_layer = fl
-	world.add_child(fl)
-	fl.setup(world, atmosphere)
-	if Settings.persist_world:
-		fl.load_dict(_load_json(_save_path("far_edits")))
-	if in_play:
-		fl.apply_per_frame = 1   # as loading_screen.gd sets it once the world is shown
-		# builds and first draws its tiles behind the pause menu: the pipelines compile there, not in play
-		fl.process_mode = Node.PROCESS_MODE_ALWAYS
 
 
 # ---------------- the player's save (ADR 0032) ----------------

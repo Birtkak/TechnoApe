@@ -1,6 +1,6 @@
 # ADR 0075: The far horizon is voxels: our own cube meshes from the coarse data, player builds included
 
-Status: proposed (2026-10-27). Supersedes the height-field skin of ADR 0074 as the far layer's mesher; the
+Status: superseded by ADR 0105 (2026-10-28: the far layer is removed; render distance only). Was: proposed (2026-10-27). Supersedes the height-field skin of ADR 0074 as the far layer's mesher; the
 compositing of ADR 0074 (own SubViewport, per-pixel blend at the box's edge, far fog) stays. The 40 m box
 (ADR 0073) stays the default and the far horizon stays a Settings > Video option (`far=1`) until the
 developer prefers it in play.

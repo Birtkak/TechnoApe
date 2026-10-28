@@ -428,8 +428,6 @@ func _finish() -> void:
 	s["capture_stalls"] = _capture_stalls.size()
 	s["capture_stall_max_ms"] = snappedf(Array(_capture_stalls).max() if _capture_stalls.size() else 0.0, 0.01)
 	s["vram_mb"] = snappedf(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0, 1)
-	if _main != null and _main.world != null and _main.world.far_layer != null:
-		s["far"] = _main.world.far_layer.get_stats()
 	var host := _host_probe()
 	s["rss_mb"] = host["rss_mb"]
 	if _others_task >= 0:
@@ -565,8 +563,6 @@ func _print_probe_voxels() -> void:
 func _world_settled() -> bool:
 	var t: Dictionary = VoxelEngine.get_stats().get("tasks", {})
 	var busy: int = int(t.get("generation", 0)) + int(t.get("meshing", 0)) + int(t.get("main_thread", 0)) + int(t.get("streaming", 0))
-	if _main.world != null and _main.world.far_layer != null:
-		busy += _main.world.far_layer.pending_count()
 	_idle_frames = _idle_frames + 1 if busy == 0 and _main.bubble.is_loaded() else 0
 	_settled = _idle_frames >= SETTLE_FRAMES
 	return _settled

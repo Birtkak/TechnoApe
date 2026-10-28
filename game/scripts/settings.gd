@@ -15,15 +15,6 @@ var sim_window_chunks := Vector3i(32, 32, 32)   # the wrapped simulation window:
 var sim_cell_budget := 1500000          # cells scanned per tick at most; the furthest active chunks wait (ADR 0013)
 var sim_lod_m := 12.0                   # chunks further than this from the player tick every second tick
 var view_distance_m := 40.0             # the horizon = the radius of the one box of full-detail voxels (ADR 0073: no LOD; 40 m holds the budget standing and in flight, 48 m does not: p99 32 ms standing). The terrain blends into the sky over the last quarter
-var far_layer := false                  # ADR 0074 (spike): draw the far layer past the box (far=1); far_m= its reach
-var far_distance_m := 1536.0
-var far_mesher := "voxel"              # far_mesher=voxel|field|nets: voxel cubes from the coarse data (ADR 0075), the height-field skin or surface nets (P13)
-var far_speckle := 0.35                 # per-voxel colour noise on the far skin, 0..1 (Lay of the Land keeps the speckle at distance)
-var far_fog := 0.35                     # the far view's fog and ground mist as a fraction of the near world's (1 = the same: a beige wash past 400 m; 0.35 sees 1-1.5 km)
-var far_relief := 1.0                   # far_relief=0..1: the far skin's noise relief (far_ground.gdshader)
-var far_threads := 0                   # far_threads=N: the far layer's worker threads (0 = cores / 6, 1..2, low priority)
-var far_scale := 1.0                    # far_scale=0.5: the far view renders at this fraction of the screen size
-var far_debug := ""                     # far_debug=flat|nocustom: render checks of the far layer (far_layer.gd)
 var horizon_fade_frac := 0.75           # the terrain blends into the sky from this fraction of view_distance_m to the edge (terrain_common.gdshaderinc)
 var terrain_threaded_update := true     # VoxelLodTerrain's streaming bookkeeping on a worker thread (ADR 0020: the 17 ms burst frame became 9 ms)
 var far_fade_start_m := 28.0            # terrain textures fade toward their tile's average colour from here (ADR 0017): flat colour by the horizon blend
@@ -253,7 +244,6 @@ var user_settings_path := "user://settings.cfg"   # menu_test=1 points it elsewh
 const MIN_VIEW_M := 24.0
 const MAX_VIEW_M := 100.0
 const VIEW_CHOICES_M := [24.0, 32.0, 40.0, 56.0, 72.0, 100.0]   # past 40 m: the developer's call (2026-10-27), over the frame budget
-const FAR_CHOICES_M := [0.0, 384.0, 768.0, 1536.0]   # the far horizon (ADR 0074): off, or how far the far layer reaches
 const GRAPHICS_PRESETS := {
 	"low": {"shadow_quality": "low", "ssao": false, "bloom": false, "view_distance_m": 24.0},
 	"medium": {"shadow_quality": "medium", "ssao": true, "bloom": true, "view_distance_m": 32.0},
@@ -345,15 +335,6 @@ func apply_cmdline() -> Dictionary:
 		match kv[0]:
 			"simulation_distance_m": simulation_distance_m = float(kv[1])
 			"view_distance_m": view_distance_m = float(kv[1])
-			"far": far_layer = kv[1] == "1"
-			"far_m": far_distance_m = float(kv[1])
-			"far_debug": far_debug = kv[1]
-			"far_scale": far_scale = float(kv[1])
-			"far_threads": far_threads = int(kv[1])
-			"far_speckle": far_speckle = float(kv[1])
-			"far_fog": far_fog = float(kv[1])
-			"far_relief": far_relief = float(kv[1])
-			"far_mesher": far_mesher = kv[1]
 			"terrain_threaded_update": terrain_threaded_update = kv[1] == "1"
 			"far_fade_start_m": far_fade_start_m = float(kv[1])
 			"far_fade_end_m": far_fade_end_m = float(kv[1])
@@ -405,8 +386,6 @@ func load_user_settings() -> void:
 	brightness = clampf(float(cf.get_value("video", "brightness", brightness)), 0.0, 1.0)
 	# files from before ADR 0073 hold 200 m or 1-2 km of LOD horizon: at 12.5 cm one box of that never loads
 	view_distance_m = clampf(float(cf.get_value("video", "view_distance_m", view_distance_m)), MIN_VIEW_M, MAX_VIEW_M)
-	far_layer = bool(cf.get_value("video", "far_layer", far_layer))
-	far_distance_m = clampf(float(cf.get_value("video", "far_distance_m", far_distance_m)), 96.0, 3072.0)
 	fov = float(cf.get_value("video", "fov", fov))
 	vsync = bool(cf.get_value("video", "vsync", vsync))
 	max_fps = int(cf.get_value("video", "max_fps", max_fps))
@@ -441,8 +420,6 @@ func save_user_settings() -> void:
 	cf.set_value("video", "fog", fog)
 	cf.set_value("video", "brightness", brightness)
 	cf.set_value("video", "view_distance_m", view_distance_m)
-	cf.set_value("video", "far_layer", far_layer)
-	cf.set_value("video", "far_distance_m", far_distance_m)
 	cf.set_value("video", "fov", fov)
 	cf.set_value("video", "vsync", vsync)
 	cf.set_value("video", "max_fps", max_fps)
