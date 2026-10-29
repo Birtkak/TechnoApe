@@ -12,6 +12,7 @@ var capture_every := 0.0
 var out_dir := "res://out"
 var altitude_m := 30.0
 var speed_m := 6.0
+var fly_after_cover := false   # fly_after_cover=1: the autopilot holds still until the start cover lifts, as a player does
 var follow_ground := false   # fly at `alt` metres above the generated ground instead of a fixed height (low fast flight)
 var target := ""      # lake|ruin|spring|river|waterfall|marsh|alpine|snow|mountain|cave|<biome name>: start before the nearest one and fly over it
 var offset_m := 40.0  # start this far from the target (along +z)
@@ -143,6 +144,7 @@ func _ready() -> void:
 	out_dir = args.get("out", "res://out")
 	altitude_m = float(args.get("alt", "30"))
 	speed_m = float(args.get("speed", "6"))
+	fly_after_cover = args.get("fly_after_cover", "0") == "1"
 	follow_ground = args.get("follow_ground", "0") == "1"
 	target = args.get("target", "")
 	offset_m = float(args.get("offset", "40"))
@@ -336,13 +338,24 @@ func _process(delta: float) -> void:
 			_backlog_peak[k] = maxi(int(_backlog_peak.get(k, 0)), int(t[k]))
 		# what a flying player sees: is the ground around them drawn yet (bug report 2026-10-25)
 		var pp: Vector3 = _main.player.position
-		var r := Settings.m2v(18.0)
-		var ground := float(_main.world.generator.gen.height_at(int(pp.x), int(pp.z)))
-		# from 3 m under the ground up: deeper is buried, and the ground shell (ADR 0105) does not load it
+		# a 4 m patch every 4 m out to 18 m, each from 3 m under its own ground to 1 m over it: a flat box cut
+		# into hillsides deeper than the ground shell (ADR 0105) loads, and buried blocks are never drawn.
+		var step := Settings.m2v(4.0)
 		var under := Settings.m2v(3.0)
-		var box := AABB(Vector3(pp.x - r, ground - under, pp.z - r), Vector3(r * 2.0, under + r * 0.5, r * 2.0))
 		var tp := Time.get_ticks_usec()
-		_detail_missing.push_back(0 if _main.world.terrain.is_area_meshed(box, 0) else 1)
+		var drawn := true
+		for ix in range(-4, 5):
+			for iz in range(-4, 5):
+				var x := pp.x + ix * step
+				var z := pp.z + iz * step
+				var h := float(_main.world.generator.gen.height_at(int(x), int(z)))
+				var patch := AABB(Vector3(x - step * 0.5, h - under, z - step * 0.5), Vector3(step, under + Settings.m2v(1.0), step))
+				if not _patch_drawn(patch):
+					drawn = false
+					break
+			if not drawn:
+				break
+		_detail_missing.push_back(0 if drawn else 1)
 		_probe_ms_max = maxf(_probe_ms_max, (Time.get_ticks_usec() - tp) / 1000.0)
 	_others_accum += delta
 	if _others_accum >= OTHERS_EVERY_S and (_others_task < 0 or WorkerThreadPool.is_task_completed(_others_task)):
@@ -557,6 +570,27 @@ func _blast_volley() -> void:
 ## bubble alone loads in ~1 s, while the visible terrain is still meshing (frames with
 ## 0 primitives and 20-30 ms of main-thread mesh application).
 ## probe_voxels=x,y,z;x,y,z: what the world holds there once loaded (a save round trip: edit, leave, reload).
+
+## Every mesh block of the patch is drawn: meshed and up to date, or holding a visible mesh while a remesh waits
+## (an edit's remesh is rate-limited, ADR 0020: the ground stays drawn meanwhile).
+func _patch_drawn(patch: AABB) -> bool:
+	var terrain = _main.world.terrain
+	if terrain.is_area_meshed(patch, 0):
+		return true
+	var size := float(terrain.mesh_block_size)
+	var lo := Vector3i((patch.position / size).floor())
+	var hi := Vector3i(((patch.end - Vector3.ONE) / size).floor())
+	for x in range(lo.x, hi.x + 1):
+		for y in range(lo.y, hi.y + 1):
+			for z in range(lo.z, hi.z + 1):
+				var b := Vector3(x, y, z)
+				if terrain.is_area_meshed(AABB(b * size, Vector3.ONE * size), 0):
+					continue
+				var info: Dictionary = terrain.debug_get_mesh_block_info(b, 0)
+				if not (info.get("meshed", false) and info.get("visible", false)):
+					return false
+	return true
+
 func _print_probe_voxels() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("probe_voxels="):

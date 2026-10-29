@@ -50,7 +50,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
   (`_console.exe` for CLI). .NET SDK 8.0.426 (tooling only).
 - godot_voxel GDExtension, **our own build** of commit 045ff932 (the 2026-10-01
   master CI build at `~\Tools\downloads\libvoxel-36898667256\`) with the
-  patches in `prototypes/p11-lod-horizon/voxel_patch*.py` (merged cube faces, occlusion in the shader, fluid height field, remesh and upload
+  patches in `prototypes/p11-lod-horizon/voxel_patch*.py` (merged cube faces, occlusion in the shader, near-first task queue and sky blocks without tasks, fluid height field, remesh and upload
   budgets, stream key cache, box mover; the LOD parts are unused since ADR 0073). Source at
   `~\Tools\godot_voxel`; build with `target=template_debug` (the editor target
   does not compile with GCC 16) and copy the DLL to `game/addons/zylann.voxel/bin/`,

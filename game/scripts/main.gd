@@ -216,8 +216,8 @@ func _ready() -> void:
 	game_hud = GameHud.new()
 	game_hud.name = "Hud"
 	add_child(game_hud)
-	# covers the start until the terrain around the player and the bubble are in (ADR 0020)
-	cover_until_loaded("Generating world")
+	# covers the start until the ground around the player is in, like a teleport (ADR 0020, 0066): the rest of the box streams in behind it
+	cover_until_loaded("Generating world", true)
 	_loading.finished.connect(func() -> void: bubble.hold_pushes = false)
 	player.moved_far.connect(func() -> void: cover_until_loaded("Loading", true))
 	mark.call("bubble_hud_loading")
@@ -321,7 +321,9 @@ func _ready() -> void:
 		player.flying = true
 		if DebugCapture.third_person > 0:
 			player.set_perspective(DebugCapture.third_person)
-		player.autopilot_speed_m = DebugCapture.speed_m
+		player.autopilot_speed_m = 0.0 if DebugCapture.fly_after_cover else DebugCapture.speed_m
+		if DebugCapture.fly_after_cover:
+			_after_load(func() -> void: player.autopilot_speed_m = DebugCapture.speed_m)
 		if DebugCapture.target != "":
 			var t: Vector3i = world.generator.gen.find_nearest(DebugCapture.target, spawn.x, spawn.y, int(Settings.m2v(4000.0)))
 			if t.y >= 0 and DebugCapture.inside:
@@ -589,7 +591,10 @@ func _find_spawn() -> Vector2i:
 func _raise_monolith() -> void:
 	if _monolith_boxes.is_empty():
 		_monolith_boxes = Monolith.boxes(world, _monolith_spawn)
+	var t0 := Time.get_ticks_usec()
 	for _k in mini(48, _monolith_boxes.size()):
+		if Time.get_ticks_usec() - t0 > 2000:   # 2 ms a frame: the start cover lifts before its ground is in (ADR 0108)
+			return
 		_monolith_next %= _monolith_boxes.size()
 		var b: Array = _monolith_boxes[_monolith_next]
 		if bubble.fill_box(b[0], b[1], b[2]) >= 0:
@@ -994,7 +999,7 @@ func cover_until_loaded(title: String, near := false) -> void:
 		if frozen:
 			player.process_mode = Node.PROCESS_MODE_INHERIT
 			mobs.process_mode = Node.PROCESS_MODE_INHERIT
-		VoxelEngine.set_thread_count(threads)
+		VoxelEngine.set_thread_count(threads)   # parks the extra workers, no join (ADR 0108)
 		if chain:
 			world.terrain.viewer_chain_first = false
 		if has_budget:

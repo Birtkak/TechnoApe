@@ -10,10 +10,19 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Faster start, near ground first (2026-10-29, ADR 0108)
+
+- [ ] Create a new world: the loading screen lifts after 2-3 s (was ~9 s at 72 m, ~20 s at 100 m) with the ground
+      around you drawn; far terrain keeps appearing at the edge for a few seconds. Load a save the same way.
+- [ ] Set 100 m and fly (spectator) right after the loading screen: the ground under and around you is there, no
+      holes; frames stay smooth while the distance fills in.
+- [ ] Teleport far (`/tp`): the short cover and the ground under you as before.
+- [ ] The monolith near spawn still rises (its lower part first; the top as you climb).
+
 ## Render distance 72 m by default, merged faces (2026-10-29, ADR 0105-0107)
 
 - [ ] Render distance is now 72 m by default (check Settings > Video): flying (spectator) and walking feel smooth, F3 frame times stay under
-      8 ms most of the time. 100 m still stutters while new land streams in (known, next job).
+      8 ms most of the time.
 - [ ] The ground looks as before: same colours and occlusion shadows at the foot of steps and walls, no flickering
       single pixels or hairline cracks along flat ground and cliffs (watch while turning slowly). The corner shading
       is now drawn per pixel by the shader: dig a hole and build a wall, the dark corners follow right away.

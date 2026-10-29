@@ -280,6 +280,9 @@ python <repo>/prototypes/p11-lod-horizon/voxel_patch_merge_faces.py ~/Tools/godo
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_ao_pages.py ~/Tools/godot_voxel   # ADR 0107: occlusion in the shader from a bit volume per block, every cube face merges
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_apply_budget.py ~/Tools/godot_voxel   # ADR 0105: finished tasks applied 4 ms a frame; workers yield the loading lock to the main thread
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_profile.py ~/Tools/godot_voxel    # ADR 0105: ta_* main-thread timers in VoxelLodTerrain.get_statistics()
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_task_heap.py ~/Tools/godot_voxel  # ADR 0108: priority by real distance, worker queue is a heap, lowering threads parks them
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_sky.py ~/Tools/godot_voxel        # ADR 0108: blocks over the column's top bound are air without a task
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_upload_order.py ~/Tools/godot_voxel   # ADR 0108: meshes waiting on the upload budget go nearest first
 GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=template_debug use_mingw=yes use_static_cpp=yes -j12
 cp project/addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll <repo>/game/addons/zylann.voxel/bin/
 ```
