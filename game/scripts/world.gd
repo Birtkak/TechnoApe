@@ -11,6 +11,7 @@ var liquid_material: ShaderMaterial
 var gas_material: ShaderMaterial    # steam and smoke as soft clouds (terrain_gas.gdshader)
 var edits := 0                      # terrain writes so far: the autosave skips the terrain when none came since the last
 var spray: WaterfallSpray          # mist at waterfall feet; ParticleFx reads its falls (ADR 0026)
+var ao_pages: Array[Texture2DArray] = []   # ADR 0107: the terrain's occlusion pages
 var prop_material: ShaderMaterial   # atlas material without stains: item cubes, viewmodel (they are not at their voxel)
 var fluid_materials := {}           # fluid slot -> material (terrain_fluid.gdshader, one per liquid)
 var _tool: VoxelTool
@@ -92,6 +93,36 @@ func _ready() -> void:
 	terrain.mesh_block_size = Settings.terrain_mesh_block
 	if terrain.has_method("set_shadow_caster_distance"):   # our godot_voxel build (ADR 0105)
 		terrain.set_shadow_caster_distance(Settings.m2v(Settings.shadow_caster_m))
+	if Settings.ao_pages and Settings.merge_faces and terrain.has_method("set_ao_pages"):   # our godot_voxel build (ADR 0107)
+		# merged faces get their corner occlusion from the shader, which reads a bit per voxel of the mesh block
+		# and one voxel around it (a layer of ao_pages per block, VoxelMesherBlocky: edge x edge * bytes, R8)
+		var edge := Settings.terrain_mesh_block + 2
+		var col_bytes := ceili(edge / 8.0)
+		var page := Image.create(edge, edge * col_bytes, false, Image.FORMAT_R8)
+		var layers := Settings.ao_page_layers
+		if layers <= 0:
+			# mesh blocks in the largest box (the distance changes live): columns across it, about 4 blocks of
+			# ground band each (100 m used ~3.3)
+			var across := ceili(2.0 * Settings.m2v(Settings.MAX_VIEW_M) / Settings.terrain_mesh_block) + 1
+			layers = mini(across * across * 4 + 256, 4096)
+		# GPUs allow 2048 layers per array: the pages are split over two (terrain.gdshader picks by layer)
+		var per := mini(layers, 2048)
+		ao_pages.clear()
+		while ao_pages.size() * per < layers and ao_pages.size() < 2:
+			var pages: Array[Image] = []
+			pages.resize(mini(per, layers - ao_pages.size() * per))
+			pages.fill(page)
+			var tex := Texture2DArray.new()
+			tex.create_from_images(pages)
+			ao_pages.append(tex)
+		terrain.set_ao_pages(ao_pages.map(func(t: Texture2DArray) -> RID: return t.get_rid()), per, mini(layers, per * 2))
+		mesher.set_ao_pages(true)
+		atlas_material.set_shader_parameter("ao_pages", ao_pages[0])
+		atlas_material.set_shader_parameter("ao_pages_b", ao_pages[-1])
+		atlas_material.set_shader_parameter("ao_layers_per_page", per)
+		atlas_material.set_shader_parameter("ao_col_bytes", col_bytes)
+		atlas_material.set_shader_parameter("ao_darkness", mesher.occlusion_darkness / 3.0)   # per occluding neighbour, as the mesher bakes it
+		atlas_material.set_shader_parameter("ao_pages_on", true)
 	if Settings.ground_shell and terrain.has_method("set_ground_shell"):   # our godot_voxel build (ADR 0105)
 		terrain.set_ground_shell(Callable(generator.gen, "ground_range"), int(Settings.m2v(Settings.shell_below_m)),
 			int(Settings.m2v(Settings.shell_above_m)), int(Settings.m2v(Settings.shell_near_m)))

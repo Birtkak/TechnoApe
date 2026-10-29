@@ -430,6 +430,8 @@ func _finish() -> void:
 	s["capture_stalls"] = _capture_stalls.size()
 	s["capture_stall_max_ms"] = snappedf(Array(_capture_stalls).max() if _capture_stalls.size() else 0.0, 0.01)
 	s["vram_mb"] = snappedf(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0, 1)
+	if _main.world.terrain.has_method("get_ao_pages_used"):   # ADR 0107: occlusion page layers in use
+		s["ao_pages_used"] = _main.world.terrain.get_ao_pages_used()
 	var host := _host_probe()
 	s["rss_mb"] = host["rss_mb"]
 	if _others_task >= 0:

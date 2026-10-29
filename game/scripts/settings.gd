@@ -20,7 +20,9 @@ var shell_above_m := 64.0               # ... to this far over its highest groun
 var shell_near_m := 32.0                # ... plus everything this close to the player, any direction
 var shadow_caster_m := 40.0             # ADR 0105: terrain farther than this casts no sun shadow (the shadow pass drew 2/3 of the triangles)
 var merge_faces := true                 # ADR 0106: the mesher merges unshaded cube faces into rectangles (fewer triangles, same picture)
-var view_distance_m := 40.0             # the horizon = the radius of the one box of full-detail voxels (ADR 0073: no LOD; 40 m holds the budget standing and in flight, 48 m does not: p99 32 ms standing). The terrain blends into the sky over the last quarter
+var ao_pages := true                    # ADR 0107: merged faces keep their corner occlusion in texture pages (every cube face merges)
+var ao_page_layers := 0                 # ADR 0107: pages (256x256 R8 = 64 KB each), one per mesh block in view; 0 = sized from the render distance
+var view_distance_m := 72.0             # the horizon = the radius of the one box of full-detail voxels (ADR 0073: no LOD; 72 m holds the budget in flight since merged faces, ADR 0106). The terrain blends into the sky over the last quarter
 var horizon_fade_frac := 0.75           # the terrain blends into the sky from this fraction of view_distance_m to the edge (terrain_common.gdshaderinc)
 var terrain_threaded_update := true     # VoxelLodTerrain's streaming bookkeeping on a worker thread (ADR 0020: the 17 ms burst frame became 9 ms)
 var far_fade_start_m := 28.0            # terrain textures fade toward their tile's average colour from here (ADR 0017): flat colour by the horizon blend
@@ -249,11 +251,11 @@ var user_settings_path := "user://settings.cfg"   # menu_test=1 points it elsewh
 ## 32 m p99 4.6 ms / 0.6 GB VRAM, 40 m p99 6.2 ms / 0.9 GB, 48 m p99 32 ms standing (fails) / 1.3 GB.
 const MIN_VIEW_M := 24.0
 const MAX_VIEW_M := 100.0
-const VIEW_CHOICES_M := [24.0, 32.0, 40.0, 56.0, 72.0, 100.0]   # past 40 m: the developer's call (2026-10-27), over the frame budget
+const VIEW_CHOICES_M := [24.0, 32.0, 40.0, 56.0, 72.0, 100.0]   # 100 m: over the frame budget (ADR 0106)
 const GRAPHICS_PRESETS := {
 	"low": {"shadow_quality": "low", "ssao": false, "bloom": false, "view_distance_m": 24.0},
-	"medium": {"shadow_quality": "medium", "ssao": true, "bloom": true, "view_distance_m": 32.0},
-	"high": {"shadow_quality": "high", "ssao": true, "bloom": true, "view_distance_m": 40.0},
+	"medium": {"shadow_quality": "medium", "ssao": true, "bloom": true, "view_distance_m": 40.0},
+	"high": {"shadow_quality": "high", "ssao": true, "bloom": true, "view_distance_m": 72.0},
 }
 ## Sun shadows per quality: Atmosphere mode, cascades, distance and filter (ADR 0031's knobs).
 const SHADOW_QUALITY := {
@@ -344,6 +346,7 @@ func apply_cmdline() -> Dictionary:
 			"shell": ground_shell = kv[1] == "1"
 			"shadow_caster_m": shadow_caster_m = float(kv[1])
 			"merge_faces": merge_faces = kv[1] == "1"
+			"ao_pages": ao_pages = kv[1] == "1"
 			"shell_below_m": shell_below_m = float(kv[1])
 			"shell_above_m": shell_above_m = float(kv[1])
 			"shell_near_m": shell_near_m = float(kv[1])

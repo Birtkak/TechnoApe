@@ -52,3 +52,23 @@ func test_a_step_merges_into_strips_with_the_same_shading() -> void:
 	a.sort()
 	b.sort()
 	assert_array(b).is_equal(a)   # the occlusion at the step's foot is kept
+
+
+func test_with_shader_occlusion_a_step_merges_fully_and_marks_its_faces() -> void:
+	# ADR 0107: every cube face merges whatever its occlusion; UV2.x = 1 tells terrain.gdshader to shade it
+	if not VoxelMesherBlocky.new().has_method("set_ao_pages"):
+		return
+	var vb := _slab()
+	for x in 8:
+		vb.set_voxel(GameMaterials.STONE, PAD + x, PAD + 3, PAD, VoxelBuffer.CHANNEL_TYPE)
+	var m := VoxelMesherBlocky.new()
+	m.library = GameMaterials.build_library(StandardMaterial3D.new())
+	m.set_ao_pages(true)
+	var mesh := m.build_mesh(vb, [])
+	var a := mesh.surface_get_arrays(0)
+	# slab: top split by the step into 1 + the step's 5 open sides + bottom + 4 sides = at most 11 quads
+	assert_int(a[Mesh.ARRAY_INDEX].size() / 3).is_less_equal(11 * 2)
+	for uv: Vector2 in a[Mesh.ARRAY_TEX_UV2]:
+		assert_float(uv.x).is_equal(1.0)
+	for c: Color in a[Mesh.ARRAY_COLOR]:
+		assert_float(c.r).is_equal(1.0)   # no occlusion baked into the colours

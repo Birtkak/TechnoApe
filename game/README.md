@@ -276,6 +276,7 @@ python <repo>/prototypes/p11-lod-horizon/voxel_patch_keycache.py ~/Tools/godot_v
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_mesh64.py ~/Tools/godot_voxel     # ADR 0105: 64-voxel mesh blocks
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_shadow_casters.py ~/Tools/godot_voxel   # ADR 0105: far blocks cast no shadow
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_merge_faces.py ~/Tools/godot_voxel   # ADR 0106: cube faces that shade alike merge into rectangles and strips
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_ao_pages.py ~/Tools/godot_voxel   # ADR 0107: occlusion in the shader from a bit volume per block, every cube face merges
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_apply_budget.py ~/Tools/godot_voxel   # ADR 0105: finished tasks applied 4 ms a frame; workers yield the loading lock to the main thread
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_profile.py ~/Tools/godot_voxel    # ADR 0105: ta_* main-thread timers in VoxelLodTerrain.get_statistics()
 GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=template_debug use_mingw=yes use_static_cpp=yes -j12
