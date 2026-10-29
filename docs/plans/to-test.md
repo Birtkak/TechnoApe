@@ -10,6 +10,14 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Render distance 72 m, merged faces (2026-10-29, ADR 0105, 0106)
+
+- [ ] Settings > Video > Render distance 72 m: flying (spectator) and walking feel smooth, F3 frame times stay under
+      8 ms most of the time. 100 m still stutters while new land streams in (known, next job).
+- [ ] The ground looks as before: same colours and occlusion shadows at the foot of steps and walls, no flickering
+      single pixels or hairline cracks along flat ground and cliffs (watch while turning slowly).
+- [ ] Dig and build: the edited spot redraws right away (an edit now remeshes an 8 m block).
+
 ## World water is endless, only spills simulate (2026-10-28, ADR 0104)
 
 - [ ] Stand at a river, scoop with a bucket, drop a crater rod or laser a trench into the bank: the hole fills from

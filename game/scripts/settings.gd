@@ -19,6 +19,7 @@ var shell_below_m := 8.0                # ... from this far under the lowest gro
 var shell_above_m := 64.0               # ... to this far over its highest ground, water or tree
 var shell_near_m := 32.0                # ... plus everything this close to the player, any direction
 var shadow_caster_m := 40.0             # ADR 0105: terrain farther than this casts no sun shadow (the shadow pass drew 2/3 of the triangles)
+var merge_faces := true                 # ADR 0106: the mesher merges unshaded cube faces into rectangles (fewer triangles, same picture)
 var view_distance_m := 40.0             # the horizon = the radius of the one box of full-detail voxels (ADR 0073: no LOD; 40 m holds the budget standing and in flight, 48 m does not: p99 32 ms standing). The terrain blends into the sky over the last quarter
 var horizon_fade_frac := 0.75           # the terrain blends into the sky from this fraction of view_distance_m to the edge (terrain_common.gdshaderinc)
 var terrain_threaded_update := true     # VoxelLodTerrain's streaming bookkeeping on a worker thread (ADR 0020: the 17 ms burst frame became 9 ms)
@@ -342,6 +343,7 @@ func apply_cmdline() -> Dictionary:
 			"view_distance_m": view_distance_m = float(kv[1])
 			"shell": ground_shell = kv[1] == "1"
 			"shadow_caster_m": shadow_caster_m = float(kv[1])
+			"merge_faces": merge_faces = kv[1] == "1"
 			"shell_below_m": shell_below_m = float(kv[1])
 			"shell_above_m": shell_above_m = float(kv[1])
 			"shell_near_m": shell_near_m = float(kv[1])

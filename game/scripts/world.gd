@@ -72,6 +72,8 @@ func _ready() -> void:
 			fluid_materials[int(d["fluid_slot"])] = fm
 	var mesher := VoxelMesherBlocky.new()
 	mesher.library = GameMaterials.build_library(atlas_material, liquid_material, fluid_materials, gas_material)
+	if mesher.has_method("set_merge_faces"):   # our godot_voxel build (ADR 0106)
+		mesher.set_merge_faces(Settings.merge_faces)
 
 	# One LOD (ADR 0073): the whole drawn world is one clipbox of full-detail voxels, view_distance_m
 	# around the viewer, and ends in the sky (the shaders' horizon blend). The 12.5 cm voxel LODs of
