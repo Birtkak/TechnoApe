@@ -251,7 +251,7 @@ var user_settings_path := "user://settings.cfg"   # menu_test=1 points it elsewh
 ## 32 m p99 4.6 ms / 0.6 GB VRAM, 40 m p99 6.2 ms / 0.9 GB, 48 m p99 32 ms standing (fails) / 1.3 GB.
 const MIN_VIEW_M := 24.0
 const MAX_VIEW_M := 100.0
-const VIEW_CHOICES_M := [24.0, 32.0, 40.0, 56.0, 72.0, 100.0]   # 100 m: over the frame budget (ADR 0106)
+const VIEW_CHOICES_M := [24.0, 32.0, 40.0, 56.0, 72.0, 100.0]   # 100 m holds the budget in flight, a new world loads ~20 s (ADR 0105 amendment)
 const GRAPHICS_PRESETS := {
 	"low": {"shadow_quality": "low", "ssao": false, "bloom": false, "view_distance_m": 24.0},
 	"medium": {"shadow_quality": "medium", "ssao": true, "bloom": true, "view_distance_m": 40.0},

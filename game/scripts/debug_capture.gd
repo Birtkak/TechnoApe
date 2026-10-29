@@ -456,7 +456,8 @@ func _finish() -> void:
 	s["generation"] = {"finegen": FineGen.gen_stats(), "task_us": ts.get("ta_gen_run_sum", 0), "tasks": ts.get("ta_gen_run_n", 0)}
 	var dm := Array(_detail_missing)
 	s["detail"] = {"samples": dm.size(), "missing_share": snappedf(float(dm.count(1)) / maxi(dm.size(), 1), 0.01),
-		"max_missing_s": _longest_run(dm) * 0.25, "probe_ms_max": snappedf(_probe_ms_max, 0.01)}
+		"max_missing_s": _longest_run(dm) * 0.25, "probe_ms_max": snappedf(_probe_ms_max, 0.01),
+		"series": "".join(dm.map(func(v: int) -> String: return str(v)))}   # one char per 0.25 s, 1 = missing
 	if mine:
 		s["mined_log"] = _main.player.mined_log
 	if blast_m > 0.0:

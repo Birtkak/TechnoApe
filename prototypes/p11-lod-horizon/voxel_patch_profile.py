@@ -251,3 +251,17 @@ s = open(root + '/' + V, encoding='utf-8').read()
 if '#include "../engine/voxel_engine.h"' not in s:
     s = s.replace('#include "voxel_data.h"\n', '#include "voxel_data.h"\n#include "../engine/voxel_engine.h"\n', 1)
     open(root + '/' + V, 'w', encoding='utf-8', newline='\n').write(s)
+
+# whole-step totals (2026-10-29): VoxelLodTerrain::process and VoxelEngine::process, to tell voxel stalls from others
+patch(H, 'TA_VIEW_HOLD, TA_UNVIEW_HOLD, TA_GEN_RUN_SUM,', 'TA_VIEW_HOLD, TA_UNVIEW_HOLD, TA_TERRAIN_PROC, TA_ENGINE_PROC, TA_GEN_RUN_SUM,')
+patch('terrain/variable_lod/voxel_lod_terrain.cpp', '"ta_view_hold", "ta_unview_hold", "ta_gen_run_sum"', '"ta_view_hold", "ta_unview_hold", "ta_terrain_proc", "ta_engine_proc", "ta_gen_run_sum"')
+patch('terrain/variable_lod/voxel_lod_terrain.cpp', '''				VoxelEngineUpdater::ensure_existence(get_tree());
+				process(get_process_delta_time());''', '''				VoxelEngineUpdater::ensure_existence(get_tree());
+				const uint64_t ta_p = ta_now_us();
+				process(get_process_delta_time());
+				ta_prof_max(TA_TERRAIN_PROC, ta_now_us() - ta_p);''')
+patch('engine/voxel_engine_updater.cpp', '''			zylann::voxel::VoxelEngine::get_singleton().process();''', '''			{
+				const uint64_t ta_p = zylann::voxel::ta_now_us();
+				zylann::voxel::VoxelEngine::get_singleton().process();
+				zylann::voxel::ta_prof_max(zylann::voxel::TA_ENGINE_PROC, zylann::voxel::ta_now_us() - ta_p);
+			}''')

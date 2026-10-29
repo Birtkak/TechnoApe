@@ -158,3 +158,24 @@ the key cache that lets unsaved blocks skip that queue loaded only inside the fi
   task queue cheaper.
 - `game/README.md` lists the two new patches; the godot_voxel DLL must be rebuilt with them.
 - Removed far-horizon saves (`far_edits_<seed>`) are left on disk and ignored.
+
+## Amendment 2026-10-29: 100 m in flight
+With ADR 0106 / 0107 the GPU stopped being the limit (100 m GPU p99 ~5 ms). What was left:
+- **Most "missing near detail" was the benchmark.** It starts measuring at a 10 s cap while a 100 m first load is
+  still running (the real loading cover waits for every task, ~20 s for a new 100 m world). Measured after the load
+  settles (`load_cap_s=60`), near detail is never missing in a 290 m flight; a timeline of the probe
+  (`detail.series` in the JSON, one character per 0.25 s) shows the old misses were the first 4 s.
+- **`try_set_block` waited 13-33 ms** a few times per 20 s: the LOD 0 data map is a `std::unordered_map` of up to
+  ~1 M blocks, and an insert past a new size peak rehashed it all under the map's write lock.
+  `voxel_patch_reserve.py` reserves buckets for the whole box when the view distance is set or the maps reset;
+  the worst wait is now under 1 ms. (A yield in `view_area` / `unview_area` was tried first: no effect, removed.)
+- **The render thread spiked 11-20 ms** every 5 s: the shadow-caster pass re-sent every block's setting then.
+  Each block now keeps the state the pass last set (reset when its render instance is created), so only blocks
+  that cross the distance reach the RenderingServer.
+- `voxel_patch_profile.py` gained `ta_terrain_proc` / `ta_engine_proc` (whole-step totals) to tell voxel stalls
+  from others.
+
+Settled spectator flights, 20 s: 100 m p99 6.0-6.3 ms, worst frame 11.8 ms in two runs of three (one 19 ms frame
+in the third), GPU p99 4.5-5.1 ms, RSS ~4.1 GB, VRAM ~2.2 GB; 72 m p99 5.9 ms, worst frame 7-11 ms. A smaller air
+margin over the ground (`shell_above_m` 16 instead of 64) saved only 1.7 s of a 100 m first load (the ~260 k ground
+blocks are the cost, not the ~750 k sky ones) and was not taken.
