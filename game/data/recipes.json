@@ -50,6 +50,7 @@
     {"id": "bench", "type": "shaped", "pattern": ["PPP", "SSS"], "key": {"P": "oak_planks", "S": "#stick"}, "output": {"id": "bench", "count": 1}, "station": "crafting_table"},
     {"id": "candle", "type": "shapeless", "ingredients": ["animal_fat", "cordage"], "output": {"id": "candle", "count": 2}},
     {"id": "barrel", "type": "shaped", "pattern": ["PMP", "P P", "PMP"], "key": {"P": "#planks", "M": "#metal.copper"}, "output": {"id": "barrel", "count": 1}, "station": "crafting_table", "_note": "copper hoops (ADR 0121)"},
+    {"id": "storage_shelf", "type": "shaped", "pattern": ["PPP", "S S", "PPP"], "key": {"P": "#planks", "S": "#stick"}, "output": {"id": "storage_shelf", "count": 1}, "station": "crafting_table"},
     {"id": "spruce_door", "type": "shaped", "pattern": ["PP", "PP", "PP"], "key": {"P": "spruce_planks"}, "output": {"id": "spruce_door", "count": 1}, "station": "crafting_table"},
     {"id": "spruce_trapdoor", "type": "shaped", "pattern": ["PSP", "PPP"], "key": {"P": "spruce_planks", "S": "#stick"}, "output": {"id": "spruce_trapdoor", "count": 1}, "station": "crafting_table"},
     {"id": "spruce_fence", "type": "shaped", "pattern": ["SPS", "SPS"], "key": {"P": "spruce_planks", "S": "#stick"}, "output": {"id": "spruce_fence", "count": 3}, "station": "crafting_table"},

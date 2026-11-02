@@ -22,7 +22,7 @@ func register(reg: CommandRegistry) -> void:
 	reg.register("eat", "/eat <item>", "Eat one of an item from the hotbar, as a held right click does", _eat)
 	reg.register("frost", "/frost [plant <crop> [dx]]", "Check the farm for frost now (crops below their frost_c die), or till and plant a patch dx blocks east of you", _frost, [["plant"], loop.main.farming.crops_def.keys()])
 	reg.register("sapling", "/sapling <kind> [dx] [dz] | grow", "Plant a sapling dx blocks east (dz south) of you (ADR 0112), or grow every planted one now", _sapling, [["grow"] + loop.main.saplings.trees.keys()])
-	reg.register("furniture", "/furniture <kind> [dx] [dz]", "Set a piece of furniture (or a barrel) on the ground dx blocks east, dz south of you, facing you", _furniture, [FurnitureEntity.KINDS.keys() + ["barrel"]])
+	reg.register("furniture", "/furniture <kind> [dx] [dz]", "Set a piece of furniture (or a barrel) on the ground dx blocks east, dz south of you, facing you", _furniture, [FurnitureEntity.KINDS.keys() + ["barrel", "storage_shelf"]])
 	reg.register("sign", "/sign <text>", "Write on the sign you last right clicked; an empty text wipes it", _sign)
 	reg.register("prospect", "/prospect [flint|copper|menu [nearest|all|map]]", "Tap the rock you look at (or stand on) with the held, or the named, prospecting pick; menu opens the pick's settings", _prospect, [["flint", "copper", "menu"]])
 	reg.register("discover", "/discover [list | reset | <kind:name>]", "The discovery journal: progress, every entry, forget all, or mark one found", _discover, [["list", "reset"]])
@@ -128,15 +128,15 @@ func _ground(dx: int, dz: int) -> Vector3i:
 
 func _furniture(args: PackedStringArray) -> Dictionary:
 	var main := loop.main
-	if args.is_empty() or not (FurnitureEntity.KINDS.has(args[0]) or args[0] == "barrel"):
+	if args.is_empty() or not (FurnitureEntity.KINDS.has(args[0]) or args[0] in ["barrel", "storage_shelf"]):
 		return CommandRegistry.fail("Usage: /furniture <kind> [dx] [dz]")
 	var g := _ground(int(args[1]) if args.size() > 1 else 2, int(args[2]) if args.size() > 2 else 0)
 	if g.y < 0:
 		return CommandRegistry.fail("No ground here")
 	var b := Settings.BLOCK
 	var anchor := Vector3i(floori(float(g.x) / b) * b, g.y + 1, floori(float(g.z) / b) * b)   # on the block grid
-	if args[0] == "barrel":
-		main._place_station(anchor, GameMaterials.BARREL)
+	if args[0] in ["barrel", "storage_shelf"]:
+		main._place_station(anchor, GameMaterials.id_of(args[0]))
 	else:
 		var look: Vector3 = Vector3(anchor) - main.player.position
 		main._place_furniture(args[0], anchor, FurnitureEntity.facing_for(args[0], -look))

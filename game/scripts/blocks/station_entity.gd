@@ -49,7 +49,7 @@ func summary() -> Dictionary:
 
 const SIZE := Vector3i(8, 6, 8)   # voxels: 1 m x 0.75 m x 1 m
 ## footprint per entity kind, in voxels (kinds not listed keep BlockEntities.cube)
-const SIZES := {"station": SIZE, "chest": Vector3i(8, 6, 8), "furnace": Vector3i(8, 8, 8), "barrel": Vector3i(6, 8, 6)}
+const SIZES := {"station": SIZE, "chest": Vector3i(8, 6, 8), "furnace": Vector3i(8, 8, 8), "barrel": Vector3i(6, 8, 6), "storage_shelf": Vector3i(8, 8, 8)}
 const CELLS := 2                  # cells per voxel
 const CHEST_LID_Y := 4.5          # voxels: where the chest's lid sits on its body (its 12 cells less 3)
 const SHADES := MobModel.SHADES
@@ -107,7 +107,7 @@ static func material() -> StandardMaterial3D:
 
 ## Material names drawn by these models. The placed model, the held and dropped mesh (item_mesh) and the
 ## inventory icon (icon) all come from one cell grid (cells), so they cannot drift apart (ADR 0084).
-const MODELS := ["crafting_table", "chest", "furnace", "furnace_lit", "barrel"]
+const MODELS := ["crafting_table", "chest", "furnace", "furnace_lit", "barrel", "storage_shelf"]
 static var _cells := {}
 static var _icons := {}
 
@@ -136,6 +136,8 @@ static func cells(name: String) -> Array:
 			_furnace(box, size, name == "furnace_lit")
 		"barrel":
 			_barrel(box, size)
+		"storage_shelf":
+			_storage_shelf(box, size)
 		_:
 			_table(box, c, size)
 	_cells[name] = [WorkPalette.shade_cells(c, size, FLAT), size]
@@ -300,6 +302,30 @@ static func _barrel(box: Callable, size: Vector3i) -> void:
 				if y == size.y - 1 and d < r - 1.0:
 					paint = OAK_DARK if x % 3 == 0 else CHEST_LIGHT   # the lid boards
 				box.call(Vector3i(x, y, z), Vector3i(x + 1, y + 1, z + 1), paint)
+
+
+## Storage shelving (ADR 0121): four corner posts, three plank shelves and a back of boards, open on the
+## other sides (stations have no facing, so the back runs along -z), jars, crates and sacks on the shelves.
+static func _storage_shelf(box: Callable, size: Vector3i) -> void:
+	var t := size.y / 3   # three bays
+	for q in [Vector3i(0, 0, 0), Vector3i(size.x - 2, 0, 0), Vector3i(0, 0, size.z - 2), Vector3i(size.x - 2, 0, size.z - 2)]:
+		box.call(q, q + Vector3i(2, size.y, 2), CHEST_WOOD)
+	for i in 3:
+		box.call(Vector3i(0, i * t, 0), Vector3i(size.x, i * t + 1, size.z), CHEST_LIGHT)
+	box.call(Vector3i(2, 1, 0), Vector3i(size.x - 2, size.y - 1, 1), OAK_DARK)   # the back boards
+	box.call(Vector3i(0, size.y - 1, 0), Vector3i(size.x, size.y, size.z), CHEST_WOOD)   # the top
+	# the goods: jars and a crate on the bottom bay, sacks and a lidded crate in the middle, jars on top
+	box.call(Vector3i(2, 1, 3), Vector3i(5, 5, 6), STONE_WARM)
+	box.call(Vector3i(3, 5, 4), Vector3i(4, 6, 5), OAK_DARK)   # a jar's stopper
+	box.call(Vector3i(7, 1, 2), Vector3i(13, 5, 8), CHEST_WOOD)
+	box.call(Vector3i(7, 3, 2), Vector3i(13, 4, 8), IRON_DARK)   # its band
+	box.call(Vector3i(3, 1, 9), Vector3i(7, 4, 13), STONE_WARM)
+	box.call(Vector3i(2, t + 1, 2), Vector3i(7, t + 4, 8), ASH)
+	box.call(Vector3i(3, t + 4, 3), Vector3i(6, t + 5, 7), ASH)
+	box.call(Vector3i(9, t + 1, 6), Vector3i(14, t + 4, 12), CHEST_WOOD)
+	box.call(Vector3i(9, t + 4, 6), Vector3i(14, t + 5, 12), OAK)
+	for x in [3, 7, 11]:
+		box.call(Vector3i(x, 2 * t + 1, 4), Vector3i(x + 2, 2 * t + 4, 7), STONE_WARM)
 
 
 ## A furnace: courses of fieldstone in three tones with dark mortar, an arched mouth on every side
