@@ -47,6 +47,7 @@ var _sens_label: Label
 var _invert: CheckBox
 var _toggle_sprint: CheckBox
 var _toggle_sneak: CheckBox
+var _auto_step: CheckBox
 var _coords: CheckBox
 var _effects: CheckBox
 var _volumes := {}   # Settings key -> HSlider
@@ -300,6 +301,10 @@ func _controls_tab() -> Control:
 		Settings.toggle_sneak = _toggle_sneak.button_pressed
 		_edited())
 	_row(g, "Toggle sneak", _toggle_sneak)
+	_auto_step = _check(func() -> void:
+		Settings.auto_step = _auto_step.button_pressed
+		_edited())
+	_row(g, "Auto step up blocks", _auto_step)
 	v.add_child(UiStyle.label("Keys (click one, then press the new key or mouse button; Esc cancels)", 17, UiStyle.ACCENT))
 	var binds := GridContainer.new()
 	binds.columns = 4
@@ -393,6 +398,7 @@ func sync_from_settings() -> void:
 	_invert.button_pressed = Settings.invert_y
 	_toggle_sprint.button_pressed = Settings.toggle_sprint
 	_toggle_sneak.button_pressed = Settings.toggle_sneak
+	_auto_step.button_pressed = Settings.auto_step
 	_coords.button_pressed = Settings.hud_coords
 	_effects.button_pressed = Settings.screen_effects
 	_refresh_keys()
