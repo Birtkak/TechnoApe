@@ -49,6 +49,8 @@ func test_steam_reaches_a_turbine_over_thirty_pipes() -> void:
 	var net: Dictionary = Networks.networks["steam"][t.get_instance_id()]
 	assert_int(net["nodes"]).is_equal(32)
 	assert_float(net["cap"]).is_equal(Settings.pipe_steam_cap)
+	assert_str(Networks.look_line(t)).contains("Steam: 1.00 bar/s made")   # the look-at panel and the EU meter read every channel
+	assert_bool("Power:" in Networks.look_line(t)).is_false()   # no cables on it: the turbine is alone on the energy channel
 	# a pipe pulled out: the turbine stops next solve
 	store.remove(Vector3i(20 * B, 0, 0))
 	_ticks(40, b)
