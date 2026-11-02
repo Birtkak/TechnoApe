@@ -740,6 +740,13 @@ func verify_against_generator(gen: FineGen, radius_chunks := 3) -> Dictionary:
 				if expect.is_empty():
 					expect = PackedByteArray()
 					expect.resize(8192)
+				elif expect.size() == 2:   # a uniform block comes back as its one 16-bit value
+					var one := expect
+					expect = PackedByteArray()
+					expect.resize(8192)
+					for i in 4096:
+						expect[i * 2] = one[0]
+						expect[i * 2 + 1] = one[1]
 				if expect == got or got.size() < 8192:   # a chunk not loaded (yet) after a teleport has no bytes to compare
 					continue
 				mismatched += 1
