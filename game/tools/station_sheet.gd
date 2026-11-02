@@ -39,7 +39,7 @@ func _ready() -> void:
 	# the real work pieces, fresh from their entities, and the furniture
 	var items := ItemRegistry.load_default()
 	var store := BlockEntities.new(items, RecipeRegistry.load_default(items))
-	for kind in ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "bronze_anvil", "forge", "bloomery", "boiler", "pipe", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "minecart", "chest_cart", "grave", "earth_oven", "rack", "water_work", "stroke"]:
+	for kind in ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "bronze_anvil", "forge", "bloomery", "boiler", "pipe", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "hopper", "belt", "rail", "minecart", "chest_cart", "grave", "earth_oven", "rack", "water_work", "stroke"]:
 		var e: RefCounted = store.create(Vector3i(0, 0, 0), "rail" if kind.ends_with("cart") else kind)
 		if kind.ends_with("cart"):
 			e.cart = kind   # a cart standing on a rail

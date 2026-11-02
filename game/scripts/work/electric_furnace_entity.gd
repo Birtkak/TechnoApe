@@ -78,7 +78,7 @@ func look_lines() -> Array[String]:
 
 
 func view_parts() -> Dictionary:
-	return MachineEntity.box_model(WorkPalette.MOLTEN, is_lit())
+	return MachineEntity.box_model(WorkPalette.MOLTEN, is_lit(), "electric_furnace")
 
 
 func summary() -> Dictionary:
