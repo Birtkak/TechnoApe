@@ -73,10 +73,10 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup(n_detail_, seed_ + 4, 0.013f, 2); // ~75 voxel period: fewer, longer steps on flats
     setup(n_temp_, seed_ + 5, 0.0004f, 2);
     setup(n_hum_, seed_ + 6, 0.0005f, 2);
-    setup(n_cheese_, seed_ + 7, 0.011f, 2);
+    setup(n_cheese_, seed_ + 7, 0.0075f, 2);   // rooms ~1.5x the old size (ADR 0109)
     setup(n_cavebiome_, seed_ + 13, 1.0f / (technosim_biome::CAVE_NOISE_PERIOD_M * 2.0f), 1); // 3D, slow: deep dark / crystal / magma pockets
-    setup(n_spag1_, seed_ + 8, 0.018f, 1);
-    setup(n_spag2_, seed_ + 9, 0.018f, 1);
+    setup(n_spag1_, seed_ + 8, 0.012f, 1);   // tunnels: a bend per ~40 m, so one can be followed (ADR 0109)
+    setup(n_spag2_, seed_ + 9, 0.012f, 1);
     setup(n_ore_, seed_ + 10, 0.09f, 1); // ore vein lens edge wobble
     setup(n_jitter_, seed_ + 13, 0.02f, 2);
     setup(n_cavern_, seed_ + 17, 1.0f / 300.0f, 2);   // ~150 m between halls
@@ -1062,20 +1062,22 @@ float WorldGen::cave_value(const CaveColumn &col, int y, int height, bool small_
     const float fx = (float)x, fy = (float)y, fz = (float)z;
     const float depth = (float)(height - y);
     const bool epic = variant_[VAR_CAVES] != 0;
-    const float thr = (epic ? 0.58f : 0.62f) - 0.12f * smoothstep(20.0f, 200.0f, depth);
+    const float thr = (epic ? 0.55f : 0.62f) - 0.12f * smoothstep(20.0f, 200.0f, depth);
     // Three storeys (ADR 0077): rooms squashed flat near the top, and past ~100 m down the cheese stands up into
     // tall rifts (the deep is chasms, not more rooms).
     const float ysq = epic ? 1.6f - 1.1f * smoothstep(200.0f, 340.0f, depth) : 1.6f;
     const float cheese = (n_cheese_.GetNoise(fx, fy * ysq, fz) - thr) / 0.08f;
     const float s1 = n_spag1_.GetNoise(fx, fy * 1.3f, fz), s2 = n_spag2_.GetNoise(fx, fy * 1.3f, fz);
-    const float sw = epic ? 0.03f : 0.0115f;   // big caves: tunnels ~1.6x as wide (2-4 m)
+    // big caves: tunnels 3-5 m wide, swelling and narrowing along their length (the gallery offset noise doubles
+    // as the width: ~200 m between a tunnel's narrows and its widest stretch, ADR 0109)
+    const float sw = epic ? 0.045f * (1.0f + 0.5f * col.galoff) : 0.0115f;
     float v = std::max(cheese, (sw - (s1 * s1 + s2 * s2)) / sw);
     if (!epic) return v;
     // Galleries (ADR 0080): a storey of walkable passages every 14 m down, each a winding network along the zero
-    // lines of its own 2D noise, ~3 m wide and 2.5 m tall with a flat floor that tilts at most ~10 degrees, so a
+    // lines of its own 2D noise, ~4 m wide and 3 m tall with a flat floor that tilts at most ~10 degrees, so a
     // passage can be followed for hundreds of metres; noodles, chimneys and halls join the storeys.
     if (depth > 12.0f && depth < 220.0f) {
-        constexpr float SP = 28.0f, HH = 2.5f, W = 0.16f;   // storey spacing, half height (macro), route half width
+        constexpr float SP = 28.0f, HH = 3.2f, W = 0.22f;   // ~4 m wide, 3 m tall (ADR 0109)   // storey spacing, half height (macro), route half width
         const float yo = fy - col.galoff * 10.0f;
         const float lvl = std::floor(yo / SP + 0.5f);
         const float dy = std::fabs(yo - lvl * SP);

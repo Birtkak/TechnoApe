@@ -81,8 +81,8 @@ func test_placing_sits_against_the_face() -> void:
 
 
 func test_dig_cap_grows_with_the_tool() -> void:
-	assert_int(MiningTable.dig_cap({})).is_equal(2)
-	assert_int(MiningTable.dig_cap(items.get_def("flint_axe"))).is_equal(4)
+	assert_int(MiningTable.dig_cap({})).is_equal(4)   # lenient caps, the developer's call (2026-10-27)
+	assert_int(MiningTable.dig_cap(items.get_def("flint_axe"))).is_equal(6)
 	assert_int(MiningTable.dig_cap({"tags": ["pickaxe"], "tier": 3})).is_equal(8)
 
 

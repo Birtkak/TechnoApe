@@ -21,6 +21,7 @@ var _thermo: Control         # body temperature, left of the hotbar
 var survival: Survival       # set by Main
 var _shown_hunger := -1
 var _shown_body := -1
+var _shown_poison := false
 var _name_label: Label
 var _brush_label: Label     # the dig/build brush and its keys, right of the hotbar
 var _pill: Control          # rounded backdrop behind the item name
@@ -321,6 +322,9 @@ func _process(delta: float) -> void:
 		if bc != _shown_body:
 			_shown_body = bc
 			_thermo.queue_redraw()
+		if (survival.poison_s > 0.0) != _shown_poison:
+			_shown_poison = survival.poison_s > 0.0
+			_hearts.queue_redraw()
 	var bubbles := ceili(air * 10.0) if air < 1.0 else -1
 	if bubbles != _shown_air:
 		_shown_air = bubbles
@@ -329,6 +333,8 @@ func _process(delta: float) -> void:
 		_stain_bar.queue_redraw()
 		var burn := clampf(float(player_stains.amount["burning"]), 0.0, 1.0)
 		var tox := clampf(float(player_stains.amount["toxic"]), 0.0, 1.0)
+		if _shown_poison:
+			tox = maxf(tox, 0.8)
 		var tint := Color(1.0, 0.45, 0.1, 0.16 * burn) if burn > 0.0 else Color(0.4, 0.9, 0.15, 0.10 * tox)
 		_screen_tint.color = tint
 
@@ -467,6 +473,12 @@ func _draw_hearts() -> void:
 		return
 	var px := 2
 	var red := Color(0.88, 0.12, 0.14)
+	var light := Color(1.0, 0.55, 0.55)
+	var deep := Color(0.68, 0.07, 0.1)
+	if _shown_poison:   # poisoned hearts go green (Minecraft)
+		red = Color(0.42, 0.62, 0.12)
+		light = Color(0.72, 0.88, 0.38)
+		deep = Color(0.27, 0.42, 0.06)
 	var dark := Color(0.22, 0.2, 0.22)
 	var outline := Color(0.05, 0.02, 0.03, 0.95)
 	for i in ceili(player_inv.max_health / 2.0):   # a balanced diet adds hearts (ADR 0061): ten to a row, more rows upward
@@ -488,9 +500,9 @@ func _draw_hearts() -> void:
 				if filled:
 					# shading: a highlight on the upper-left lobe, deeper red on the lower rows
 					if y == 1 and (x == 1 or x == 2):
-						c = Color(1.0, 0.55, 0.55)
+						c = light
 					elif y >= 3:
-						c = Color(0.68, 0.07, 0.1)
+						c = deep
 				_hearts.draw_rect(Rect2(ox + x * px, oy + 2 + y * px, px, px), c)
 
 

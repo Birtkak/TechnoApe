@@ -183,7 +183,7 @@ static func move(m: Mob, delta: float) -> bool:
 static func hop(m: Mob, want: Vector3) -> void:
 	if moves(m) != "hop" or not m.on_floor or want == Vector3.ZERO or m.in_liquid:
 		return
-	var h := 0.35 if m.species != "frog" else 0.25
+	var h := 0.25 if m.species in ["frog", "poison_frog"] else 0.35
 	m.velocity.y = sqrt(2.0 * Settings.m2v(Settings.gravity_m) * Settings.m2v(h))
 
 

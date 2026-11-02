@@ -42,8 +42,17 @@ constexpr int BIG_CAVE_LOD = 2;
 // hold bigger pools (bug report 2026-10-25 21-23-02). Bands are aligned to the world grid: neighbouring
 // columns share their levels.
 constexpr int CAVE_STEP = 4;
-// Cave pools: where n_pool_ (~25 m blobs) is above this, a flat stretch of cave floor holds its biome's pool.
+// The tallest plant a column grows on its ground (reeds, cacti, tall grass): a block this far over the ground
+// still decides whether those plants stand over an opened cave top.
+constexpr int VEG_REACH = 4 * FS;
+// Jungle vines hang up to this many voxels under a leaf clump.
+constexpr int VINE_MAX = 18;
+// Cave water (ADR 0109): where n_pool_ (~40 m blobs) is above POOL_THR, the cave floor carries its biome's pool
+// as a sheet up to POOL_DEPTH voxels deep (deepest at the blob's middle, thinning to nothing at its edge): one
+// pond per blob in a hall, a stepped stream along a tilted gallery floor. Replaces the 25 cm puddle sunk into
+// every flat tread (bug report 2026-11-02 18-55-49, "a bunch of small ponds").
 constexpr float POOL_THR = 0.0f;
+constexpr int POOL_DEPTH = 12;   // 1.5 m; the cave lattice reaches this far under a block (cy0)
 // Ore stringers (ADR 0077, 0086): sheets where a value noise sits within STRINGER_HALF of its middle (two to three
 // voxels thick), from STRINGER_MIN_DEPTH down, within STRINGER_REACH voxels of cave air. Ore lies only in the sheet's
 // clumps (a value noise STRINGER_CLUMP voxels across over a threshold), not in single voxels picked one by one (bug
@@ -258,7 +267,7 @@ void FineGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup_noise(n_leaf_, p_seed + 103, 1.0f / 6.0f, 1);      // lumps on leaf clumps
     setup_noise(n_litter_, p_seed + 105, 1.0f / 14.0f, 2);   // leaf litter vs grass under trees
     setup_noise(n_meadow_, p_seed + 106, 1.0f / 48.0f, 2);   // thick and thin grass, flower patches
-    setup_noise(n_pool_, p_seed + 107, 1.0f / 200.0f, 1);    // ~25 m blobs: where cave floors hold their biome's pool
+    setup_noise(n_pool_, p_seed + 107, 1.0f / 320.0f, 1);    // ~40 m blobs: where cave floors hold their biome's pool
     setup_noise(n_terrace_, p_seed + 108, 1.0f / 1200.0f, 1); // ~150 m patches: how tall the ground's ledges are
     rocks_.configure(p_seed, p_sea_level);
 }
@@ -513,7 +522,7 @@ bool FineGen::col_tree(const FTree &t, float x, float z, float grow, ColTree &c)
         if (std::fabs(x - b.x) > rx || std::fabs(z - b.z) > rz) continue;
         c.bm |= 1ull << i;
         const float ry = b.ry * 1.25f + grow + 1.0f;
-        c.ylo = std::min(c.ylo, (int)std::floor(b.y - ry));
+        c.ylo = std::min(c.ylo, (int)std::floor(b.y - ry) - (t.kind == WorldGen::TREE_JUNGLE ? VINE_MAX : 0));
         c.yhi = std::max(c.yhi, (int)std::ceil(b.y + ry));
     }
     for (int i = 0; i < t.ns; i++) {
@@ -581,6 +590,19 @@ uint16_t FineGen::tree_voxel(const ColTree &c, float x, int y, float z, float gr
         if (grow == 0.0f && edge > 0.85f && (h3(ix, y, iz) & 15) == 0) continue;   // a few gaps at the edge (each costs faces)
         return t.leaves;
     }
+    if (t.kind == WorldGen::TREE_JUNGLE && grow < 1.0f) {
+        // vines (bug report 2026-11-02 18-54-25, "dense and green"): strands of leaves hanging from one column in
+        // ~28 under a jungle clump, from inside it (so a lumpy underside never leaves one floating) to 0.5-2.3 m
+        // below it
+        const uint32_t vh = h3(ix, iz, (int)t.seed + 811);
+        if (vh % 28 == 0)
+            for (uint64_t m = c.bm; m; m &= m - 1) {
+                const Blob &b = t.blobs[__builtin_ctzll(m)];
+                const float ex = (x - b.x) / b.rx, ez = (z - b.z) / b.rz, q = 1.0f - ex * ex - ez * ez;
+                if (q < 0.25f || fy > b.y) continue;
+                if (fy >= b.y - b.ry * std::sqrt(q) - (float)(4 + (int)((vh >> 8) % (VINE_MAX - 4)))) return t.leaves;
+            }
+    }
     return Mat::AIR;
 }
 
@@ -606,7 +628,7 @@ void FineGen::young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen
                 const WorldGen::Column col = g.column_base(mx, mz, false);
                 if (col.height <= g.sea_ + (col.biome == technosim_biome::MANGROVE ? 0 : 2) || col.alpine) return c;
                 const float dens = technosim_biome::TREE_DENSITY[col.biome];
-                if (roll >= std::min(0.7f, dens * 0.55f)) return c;
+                if (roll >= std::min(0.7f, dens * (col.biome == technosim_biome::JUNGLE ? 1.0f : 0.55f))) return c;   // the jungle's middle storey
                 const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
                 if (hy.river > 0.05f || hy.lake || hy.puddle) return c;
                 if (g.ravine_near(mx, mz, 4)) return c;
@@ -679,9 +701,11 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
             const WorldGen::Column col = g.column_base(mx, mz, false);
             if (col.height <= g.sea_ + 1 || col.alpine || col.snow) continue;
+            // the jungle's undergrowth: big leafy bushes in nearly every featured cell (bug report 2026-11-02 18-54-25)
+            const bool jungle = col.biome == technosim_biome::JUNGLE;
             const float dens = technosim_biome::TREE_DENSITY[col.biome];
             const float f = std::clamp(dens / 0.5f, 0.0f, 1.3f);
-            const float p_log = 0.05f * f, p_stump = p_log + 0.03f * f, p_bush = p_stump + 0.02f + 0.14f * f, p_rock = p_bush + 0.012f + 0.02f * f;
+            const float p_log = 0.05f * f, p_stump = p_log + 0.03f * f, p_bush = p_stump + 0.02f + (jungle ? 0.17f : 0.14f * f), p_rock = p_bush + 0.012f + 0.02f * f;
             if (roll >= p_rock) continue;
             if (dens <= 0.0f && roll < p_stump) continue;   // logs and stumps come from trees
             const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
@@ -710,7 +734,7 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             else if (roll < p_stump) { s.kind = STUMP; s.r = 2.5f + 4.0f * u1; s.size = 3.0f + 5.0f * u2; }
             else if (roll < p_bush) {
                 s.kind = WorldGen::STAMP_BUSH;
-                s.size = 2.5f + 4.0f * u1;
+                s.size = jungle ? 3.5f + 5.0f * u1 : 2.5f + 4.0f * u1;
                 if ((float)(s.seed >> 22) / 1024.0f < technosim_biome::DECOR_BERRIES[col.biome]) s.leaves = Mat::BLUEBERRY_BUSH;
             } else { s.kind = WorldGen::STAMP_BOULDER; s.size = 2.0f + 3.0f * u1; }
             s.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
@@ -756,6 +780,38 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             const float ex = s.dx * (s.size + 1.0f), ez = s.dz * (s.size + 1.0f);
             const float e0 = surface_f((int)(fx + ex), (int)(fz + ez)), e1 = surface_f((int)(fx - ex), (int)(fz - ez));
             if (std::max({std::fabs(e0 - s.ground), std::fabs(e1 - s.ground)}) > 2.0f) continue;
+            out.push_back(s);
+        }
+    // Giant flowers (bug report 2026-11-02 18-57-25, "tree sized flowers in the flower meadow"): about one per
+    // 8 m cell of the meadow, a 3.5-5.5 m stalk under a 2.5-3.5 m red head (stamp_voxel draws it).
+    constexpr int GC = 64, GM = 26;
+    for (int cz = floor_div(z_lo - GM, GC); cz <= floor_div(z_hi + GM, GC); cz++)
+        for (int cx = floor_div(x_lo - GM, GC); cx <= floor_div(x_hi + GM, GC); cx++) {
+            const uint32_t hs = h3(cx, cz, g.seed_ + 619);
+            if ((hs & 1023) >= 560) continue;
+            const float fx = (float)(cx * GC + 12 + (int)((hs >> 10) % (GC - 24))) + 0.5f;
+            const float fz = (float)(cz * GC + 12 + (int)((hs >> 16) % (GC - 24))) + 0.5f;
+            const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
+            const WorldGen::Column col = g.column_base(mx, mz, false);
+            if (col.biome != technosim_biome::FLOWER_MEADOW || col.height <= g.sea_ + 1) continue;
+            const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
+            if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh) continue;
+            if (g.ravine_near(mx, mz, 4)) continue;
+            bool blocked = false;
+            for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP + 4);
+            if (blocked) continue;
+            FStamp s{};
+            s.kind = GIANT_FLOWER;
+            s.seed = h3(cx, cz, g.seed_ + 623);
+            s.biome = col.biome;
+            s.x = fx;
+            s.z = fz;
+            const float an = (float)(s.seed & 1023) / 1023.0f * 6.2832f;
+            s.dx = std::cos(an);
+            s.dz = std::sin(an);
+            s.size = 28.0f + (float)((s.seed >> 10) & 15);        // stalk 28-43 voxels
+            s.r = 10.0f + (float)((s.seed >> 14) & 7) * 0.6f;      // head radius 10-14
+            s.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
             out.push_back(s);
         }
     // Clutter pieces of whole voxels (ADR 0047): flowers in meadow patches, mushrooms on forest floors,
@@ -883,14 +939,37 @@ uint16_t FineGen::clutter_voxel(const FStamp &s, int dx, int dy, int dz) {
 }
 
 float FineGen::stick_dist(const FStamp &s, float x, float z, float *fork_out) {
-    const float d = std::sqrt(seg_dist2(x, 0.0f, z, s.x - s.dx * s.size, 0.0f, s.z - s.dz * s.size, s.x + s.dx * s.size, 0.0f, s.z + s.dz * s.size));
-    // the fork: a third of the way along, 3-4 voxels out at 40 degrees to one side, pointing forward
+    // A crooked stick (bug report 2026-11-02 18-49-07, "more irregular, a cohesive twig/branch"): the shaft bends
+    // once, off its middle, 1-2.5 voxels to one side, and thins to one voxel toward both ends; a side twig
+    // forks off forward with a short sprig at its tip, and most sticks carry a second, shorter twig on the
+    // other side. The distance to the shaft comes back widened toward the ends (the taper), so the caller's
+    // half-width test thins it.
+    auto u = [&](int b, int n) { return (float)((s.seed >> b) & ((1u << n) - 1)) / (float)((1u << n) - 1); };
+    const float px = -s.dz, pz = s.dx;   // the stick's side
+    const float kt = (u(24, 3) - 0.5f) * 0.5f * s.size;                                   // the bend, along
+    const float kb = (1.0f + 1.5f * u(27, 3)) * (((s.seed >> 30) & 1) ? 1.0f : -1.0f);    // and aside
+    const float ax = s.x - s.dx * s.size, az = s.z - s.dz * s.size, bx2 = s.x + s.dx * s.size, bz2 = s.z + s.dz * s.size;
+    const float kx = s.x + s.dx * kt + px * kb, kz = s.z + s.dz * kt + pz * kb;
+    const float da = seg_dist2(x, 0.0f, z, ax, 0.0f, az, kx, 0.0f, kz), db = seg_dist2(x, 0.0f, z, kx, 0.0f, kz, bx2, 0.0f, bz2);
+    const float t = std::clamp(std::fabs((x - s.x) * s.dx + (z - s.z) * s.dz) / s.size, 0.0f, 1.0f);
+    const float d = std::sqrt(std::min(da, db)) + std::max(0.0f, s.r - 0.6f) * smoothstep(0.35f, 0.95f, t);
+    // the fork: a third of the way along, 3-6 voxels out at 40 degrees to one side, pointing forward, with a sprig
     const float along = s.size * (((s.seed >> 14) & 1) ? 0.35f : -0.35f);
     const float side = ((s.seed >> 15) & 1) ? 1.0f : -1.0f;
-    const float bx = s.x + s.dx * along, bz = s.z + s.dz * along;
+    const float fwd = along > 0.0f ? 1.0f : -1.0f;
+    const float bx = s.x + s.dx * along + px * kb * 0.5f, bz = s.z + s.dz * along + pz * kb * 0.5f;
     const float bl = 3.0f + (float)((s.seed >> 16) & 3);   // 3-6 voxels
-    const float ex = bx + (s.dx * 0.77f - s.dz * side * 0.64f) * bl, ez = bz + (s.dz * 0.77f + s.dx * side * 0.64f) * bl;
-    const float f = std::sqrt(seg_dist2(x, 0.0f, z, bx, 0.0f, bz, ex, 0.0f, ez));
+    const float ex = bx + (s.dx * fwd * 0.77f + px * side * 0.64f) * bl, ez = bz + (s.dz * fwd * 0.77f + pz * side * 0.64f) * bl;
+    const float sl = 1.5f + 1.5f * u(18, 2);
+    const float sx2 = ex + (s.dx * fwd * 0.2f - px * side * 0.98f) * sl, sz2 = ez + (s.dz * fwd * 0.2f - pz * side * 0.98f) * sl;
+    float f2 = std::min(seg_dist2(x, 0.0f, z, bx, 0.0f, bz, ex, 0.0f, ez), seg_dist2(x, 0.0f, z, ex - (ex - bx) * 0.3f, 0.0f, ez - (ez - bz) * 0.3f, sx2, 0.0f, sz2));
+    if ((s.seed & 3) != 0) {
+        // the second twig: from the other half, the other side, 2-4 voxels
+        const float a2 = -along * 0.6f, l2 = 2.0f + 2.0f * u(21, 2);
+        const float cx = s.x + s.dx * a2, cz = s.z + s.dz * a2;
+        f2 = std::min(f2, seg_dist2(x, 0.0f, z, cx, 0.0f, cz, cx + (-s.dx * fwd * 0.6f - px * side * 0.8f) * l2, 0.0f, cz + (-s.dz * fwd * 0.6f - pz * side * 0.8f) * l2));
+    }
+    const float f = std::sqrt(f2);
     if (fork_out) {
         *fork_out = f;   // the side branch, measured apart: it stays thin on a thick stick
         return d;
@@ -937,6 +1016,59 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
                 if (hh % 3 == 0) return Mat::MOSS;
                 if ((float)((hh >> 12) & 1023) / 1024.0f < technosim_biome::DECOR_LOG_MUSHROOMS[s.biome]) return (hh >> 8) % 3 == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN;
             }
+            return Mat::AIR;
+        }
+        case GIANT_FLOWER: {
+            // a stalk that leans into a curve, two long leaves, and a head tipped toward the lean: a domed
+            // yellow heart in a ring of 6-8 red petals that cup upward
+            const float H = s.size, R = s.r, yy = fy - (float)s.ground;
+            const float L = 2.5f + 3.5f * (float)((s.seed >> 18) & 7) / 7.0f;   // lean at the top, voxels
+            if (yy < -3.0f || yy > H + R * 0.6f + 4.0f || dx * dx + dz * dz > (R + L + 10.0f) * (R + L + 10.0f)) return Mat::AIR;
+            const float t = std::clamp(yy / H, 0.0f, 1.0f);
+            const float cx = s.x + s.dx * L * t * t, cz = s.z + s.dz * L * t * t;
+            if (yy <= H) {
+                const float rs = 1.7f - 0.5f * t + grow;
+                if ((x - cx) * (x - cx) + (z - cz) * (z - cz) <= rs * rs) return Mat::GIANT_STEM;
+                for (int i = 0; i < 2; i++) {
+                    // a leaf: a blade rising from the stalk, arching over and drooping at its tip
+                    const float lt = i ? 0.5f : 0.28f, ly = H * lt;
+                    const float la = (float)((s.seed >> (4 + 3 * i)) & 7) * 0.4f + (float)i * 3.1416f;
+                    const float ldx = std::cos(la), ldz = std::sin(la), len = 7.0f + (float)((s.seed >> (20 + i)) & 1) * 2.0f;
+                    const float ox = s.x + s.dx * L * lt * lt, oz = s.z + s.dz * L * lt * lt;
+                    const float a = (x - ox) * ldx + (z - oz) * ldz, b = -(x - ox) * ldz + (z - oz) * ldx;
+                    if (a < 0.5f || a > len) continue;
+                    const float w = 0.4f + 1.6f * std::sin(3.1416f * a / len) + grow;
+                    const float yc = ly + a * 0.9f - a * a * 0.11f;
+                    if (std::fabs(b) <= w && std::fabs(yy - yc) <= 0.6f + grow) return Mat::GIANT_STEM;
+                }
+            }
+            // the head, in a frame tipped toward the lean
+            const float hx = s.x + s.dx * L, hz = s.z + s.dz * L, hy = (float)s.ground + H;
+            float nx = s.dx * 0.45f, ny = 1.0f, nz = s.dz * 0.45f;
+            const float nl = 1.0f / std::sqrt(nx * nx + ny * ny + nz * nz);
+            nx *= nl, ny *= nl, nz *= nl;
+            const float vx = x - hx, vy = fy - hy, vz = z - hz;
+            const float hh = vx * nx + vy * ny + vz * nz;                  // height over the head's plane
+            const float qx = vx - nx * hh, qy = vy - ny * hh, qz = vz - nz * hh;
+            const float rho = std::sqrt(qx * qx + qy * qy + qz * qz);
+            if (rho > R + 1.0f + grow || hh < -3.5f || hh > R * 0.6f + 3.0f) return Mat::AIR;
+            const float Rh = R * 0.3f;
+            if (rho <= Rh + grow && hh >= -1.0f && hh <= 2.2f - 1.4f * (rho / Rh) * (rho / Rh)) return Mat::GIANT_HEART;
+            if (rho <= Rh + 1.0f + grow && hh < -1.0f && hh >= -3.0f + rho / (Rh + 1.0f)) return Mat::GIANT_STEM;   // the green cup under it
+            // petals: the angle round the head's normal, in the plane's frame (e1 = the lean's side)
+            const float e1x = -s.dz, e1z = s.dx;   // horizontal, so on the tipped plane up to a small error
+            const float e2x = ny * e1z, e2y = nz * e1x - nx * e1z, e2z = -ny * e1x;   // n x e1
+            const float th = std::atan2(qx * e2x + qy * e2y + qz * e2z, qx * e1x + qz * e1z);
+            const int P = 6 + (int)((s.seed >> 22) % 3);
+            const float sector = 6.2832f / (float)P, off = (float)((s.seed >> 25) & 63) / 63.0f * sector;
+            float dth = std::fmod(th - off + 12.5664f, sector);
+            if (dth > sector * 0.5f) dth -= sector;
+            const float u = (rho - Rh * 0.6f) / (R - Rh * 0.6f);
+            if (u < 0.0f || u > 1.0f) return Mat::AIR;
+            const float half = rho * std::sin(std::fabs(dth));            // across the petal's mid line
+            const float w = R * 0.34f * std::sin(3.1416f * std::min(1.0f, u * 0.85f + 0.15f)) + 0.6f + grow;
+            const float hc = 0.4f + 3.2f * u * u;                           // the petal cups up toward its tip
+            if (half <= w && std::fabs(dth) < sector * 0.5f && std::fabs(hh - hc) <= 0.75f + grow) return Mat::GIANT_PETAL;
             return Mat::AIR;
         }
         case STICK: case FLOWER_S: case MUSHROOM_S: case SHELL_S: return Mat::AIR;   // laid on each column's ground by the column loop
@@ -1215,9 +1347,19 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     const bool do_veg = lod <= 1;
     int cy0 = 0, cny = 0;
     std::vector<float> cav;
-    if (do_caves && y_top > 12 * FS && origin.y < hmax_m * FS) {
+    // A block over the ground still needs the field down to open_top's depth under the columns whose plants
+    // reach into it, or grass stood in mid air over a sinkhole the block below had opened (bug report
+    // 2026-11-02 18-55-21: the field was skipped above hmax_m, and the swells rise past it).
+    int h_lo = INT32_MAX, h_hi = INT32_MIN;
+    for (const int ch : ctx->h) {
+        h_hi = std::max(h_hi, ch);
+        if (ch >= origin.y - VEG_REACH) h_lo = std::min(h_lo, ch);
+    }
+    if (do_caves && y_top > 12 * FS && origin.y < std::max(hmax_m * FS, h_hi + VEG_REACH)) {
         cy0 = floor_div(origin.y - step, FS) - 2;   // 2 below: open_top looks 9 voxels under the ground
-        cny = floor_div(origin.y + sy * step, FS) - cy0 + 2;
+        if (h_lo != INT32_MAX) cy0 = std::min(cy0, floor_div(h_lo - 1 - 2 * CAVE_STEP, FS) - 1);
+        // nothing is carved above a column's ground, so the field stops at the block's highest ground
+        cny = std::max(2, floor_div(std::min(origin.y + sy * step, h_hi), FS) - cy0 + 2);
         cav.resize((size_t)nx * nz * cny);
         // Caverns from a coarse grid of their noise (every 2 m across, 1 m up; the halls are tens of metres),
         // ravines from two 2D noises per column: the big caves cost little even at coarse LODs.
@@ -1328,11 +1470,6 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
         auto lerp_y = [&](const float *p) { return p[k] + (p[k + 1] - p[k]) * ty; };
         return bilerp(lerp_y(&cav[((size_t)cj * nx + ci) * cny]), lerp_y(&cav[((size_t)cj * nx + ci + 1) * cny]),
                       lerp_y(&cav[((size_t)(cj + 1) * nx + ci) * cny]), lerp_y(&cav[((size_t)(cj + 1) * nx + ci + 1) * cny]), tx, tz) > 0.0f;
-    };
-    // A cave pool cell needs rock on all four sides at its height, so its surface never stands over a
-    // lower floor as a wall (bug report 2026-10-25 02-20-46: sludge draped over a slope).
-    auto enclosed = [&](int wx, int wy, int wz) {
-        return !cave_at(wx - step, wy, wz) && !cave_at(wx + step, wy, wz) && !cave_at(wx, wy, wz - step) && !cave_at(wx, wy, wz + step);
     };
     struct VeinCol {
         bool done = false, has = false;
@@ -1580,7 +1717,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             if (!ruin && spike == 0 && !lakebed && !riverbed && h >= water_level - FS) {
                 for (const FStamp &s : stamps) {
                     if (ncs >= 16) break;
-                    const float rr = s.kind >= FLOWER_S ? 2.6f : std::max(s.size * 1.3f, s.size + s.r) + 6.0f;
+                    const float rr = s.kind >= FLOWER_S ? 2.6f : s.kind == GIANT_FLOWER ? s.r + 18.0f : std::max(s.size * 1.3f, s.size + s.r) + 6.0f;
                     if (std::fabs((float)wx - s.x) <= rr && std::fabs((float)wz - s.z) <= rr) cst[ncs++] = &s;
                 }
             }
@@ -1591,13 +1728,18 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 const bool dry = top_m != Mat::GRASS;   // the savanna floor
                 const bool forest = !dry && technosim_biome::TREE_DENSITY[col.biome] >= 0.2f;
                 const bool under = forest && shaded;
-                if (under && n_litter_.GetNoise((float)wx, (float)wz) > -0.4f) top_m = Mat::LEAF_LITTER;
+                const bool jungle = col.biome == technosim_biome::JUNGLE;
+                if (under && n_litter_.GetNoise((float)wx, (float)wz) > (jungle ? 0.25f : -0.4f)) top_m = Mat::LEAF_LITTER;   // the jungle floor stays green
                 if (do_veg && h > sea && !pickup && (veg == Mat::AIR || veg == Mat::TALL_GRASS) && veg_head == Mat::AIR) {
                     const uint32_t fh = h3(wx, wz, g.seed_ + 31);
                     const uint32_t r10 = fh & 1023;
                     veg = Mat::AIR;
                     veg_h = 0;
-                    if (under) {
+                    if (jungle) {
+                        // waist-high ferns over most of the floor, grass between (bug report 2026-11-02 18-54-25)
+                        if (r10 < 520) { veg = Mat::FERN; veg_h = 2 + (int)((fh >> 12) % 5); }
+                        else if (r10 < 760) { veg = Mat::TALL_GRASS; veg_h = 1 + (int)((fh >> 12) % 3); }
+                    } else if (under) {
                         bool near_wood = false;
                         for (int k = 0; k < nct && !near_wood; k++) {
                             if (!ctrees[k].trunk) continue;
@@ -1729,11 +1871,31 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             }
             int crystal_roll = 0;
             const int crystal_h = (lod == 0 && !cav.empty()) ? rocks_.crystal_height(wx, wz, crystal_roll) : 0;
+            // cave water depth here, and the rock under the block's bottom cave air (the sheet crosses blocks)
+            const int pool_d = (lod == 0 && !cav.empty()) ? std::clamp((int)((n_pool_.GetNoise((float)wx, (float)wz) - POOL_THR) * 2.0f * POOL_DEPTH), 0, POOL_DEPTH) : 0;
+            int floor_wy = -(1 << 20), pool_cap = 0;
+            for (int j = 1; j <= pool_d; j++)
+                if (!cave_at(wx, origin.y - j, wz)) { floor_wy = origin.y - j; break; }
+            // Where the floor falls away within 1 m the sheet thins to one tread (a stream over steps) and where it
+            // falls two it ends, so a steep stair wall carries no water (the probes clamp to the lattice edge:
+            // shortcut: a cap may differ by a tread across a block border, fix if a water step shows there).
+            auto drop = [&](int dy) {
+                static const int OX[4] = {2 * CAVE_STEP, -2 * CAVE_STEP, 0, 0}, OZ[4] = {0, 0, 2 * CAVE_STEP, -2 * CAVE_STEP};
+                for (int k = 0; k < 4; k++)
+                    if (cave_at(wx + OX[k], floor_wy - dy, wz + OZ[k])) return true;
+                return false;
+            };
+            auto cap_pool = [&]() { pool_cap = drop(CAVE_STEP + 1) ? 0 : (drop(1) ? std::min(pool_d, CAVE_STEP) : pool_d); };
+            if (pool_d > 0 && floor_wy > -(1 << 20)) cap_pool();
             uint16_t *colp = w + sy * (x + sx * z);
             ValueNoiseCell sheet_cell;   // the stringer sheet's noise cell, shared up the column
             for (int y = 0; y < sy; y++) {
                 const int wy = origin.y + y * step;
                 uint16_t mat = Mat::AIR;
+                if (!cave[y + 1]) {
+                    floor_wy = wy;
+                    if (pool_d > 0 && cave[y + 2]) cap_pool();   // only under cave air
+                }
                 if (rp && technosim_ruin::in_reach(rp->r, floor_div(wy, FS))) {
                     const uint16_t rm = technosim_ruin::voxel(*rp, FS, wx, wy, wz, h, top_m, lod == 0);   // pots at LOD 0 (ADR 0057)
                     if (rm != technosim_ruin::PASS) {
@@ -1788,6 +1950,15 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                                 if (technosim_rock::RockTypes::crystal_allowed(crystal_roll, depth, technosim_biome::cave_biome(ti, hi, di, ni))) mat = (uint16_t)technosim_rock::CAVE_CRYSTAL;
                             }
                         }
+                        if (mat == Mat::AIR && pool_cap > 0 && wy - floor_wy <= pool_cap) {
+                            // the biome's pool (biomes.json surface.pool: water, toxic sludge, lava) on the floor
+                            const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)wy / FS, (float)mz);
+                            const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth / FS, technosim_biome::DEPTH_BAND_COUNT);
+                            const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
+                            const int cb = depth < technosim_biome::SOIL_DEPTH * FS ? col.biome : technosim_biome::cave_biome(ti, hi, di, ni);
+                            const int pool = technosim_biome::SURFACE_POOL[cb];
+                            if (pool >= 0) mat = (uint16_t)pool;
+                        }
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
                         if (d_top <= sandstone_depth) mat = strata ? g.strata_at(mx, floor_div(wy, FS), mz) : Mat::SANDSTONE;
                         else if (vein_ht > 0.0f) {
@@ -1804,16 +1975,6 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
                             const int cb = depth < technosim_biome::SOIL_DEPTH * FS ? col.biome : technosim_biome::cave_biome(ti, hi, di, ni);
                             mat = (uint16_t)technosim_biome::SURFACE_TOP[cb];
-                            // the biome's pool (biomes.json surface.pool: water, toxic sludge) lies in the floor in patches
-                            const int pool = technosim_biome::SURFACE_POOL[cb];
-                            if (pool >= 0 && cave[y] == 0 && n_pool_.GetNoise((float)wx, (float)wz) > POOL_THR && enclosed(wx, wy, wz)) mat = (uint16_t)pool;
-                        } else if (y + 3 < sy + 2 && cave[y + 3] && !cave[y + 2] && mat == Mat::STONE && depth >= technosim_biome::SOIL_DEPTH * FS) {
-                            // the second voxel of a pool, under its surface voxel: pools are 25 cm deep
-                            const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)(wy + step) / FS, (float)mz);
-                            const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)(depth - step) / FS, technosim_biome::DEPTH_BAND_COUNT);
-                            const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
-                            const int pool = technosim_biome::SURFACE_POOL[technosim_biome::cave_biome(ti, hi, di, ni)];
-                            if (pool >= 0 && cave[y] == 0 && n_pool_.GetNoise((float)wx, (float)wz) > POOL_THR && enclosed(wx, wy + step, wz) && enclosed(wx, wy, wz)) mat = (uint16_t)pool;
                         } else if (cave[y] && mat == Mat::STONE && depth >= technosim_biome::SOIL_DEPTH * FS) {
                             const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)wy / FS, (float)mz);
                             const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth / FS, technosim_biome::DEPTH_BAND_COUNT);

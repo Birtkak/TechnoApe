@@ -200,7 +200,10 @@ func load_dict(data: Dictionary) -> bool:
 	_group_of[0] = "none"
 	for i in defs.size():
 		var d: Dictionary = defs[i]
-		var g: String = mats.get(d["name"], by_type.get(d.get("cell_type", ""), ""))
+		# unnamed trunks and crowns (jungle_bark, spruce_leaves...) sound as wood / leaves, not as stone: a stone
+		# canopy walled the player in and played cave reverb in a jungle (bug 2026-11-02_18-54-58)
+		var by_rigid: String = {"wood": "wood", "leaf": "leaves"}.get(d.get("rigid", ""), "")
+		var g: String = mats.get(d["name"], by_rigid if by_rigid != "" else by_type.get(d.get("cell_type", ""), ""))
 		if g == "" or not _groups.has(g):
 			errors.append("material %s: no sound group" % d["name"])
 			g = "none"

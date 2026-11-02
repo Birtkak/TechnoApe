@@ -319,8 +319,6 @@ func _build_recipe() -> void:
 		bm.tooltip_text = "Bookmark this recipe at the left of the screen"
 		bm.pressed.connect(func() -> void:
 			model.toggle_bookmark(mark)
-			if not OS.get_cmdline_user_args().has("autopilot=1"):
-				model.save_bookmarks()
 			bm.text = "Unmark" if model.is_bookmarked(mark) else "Mark"
 			refresh_bookmarks())
 		_add(bm, Vector2(PANEL.x - 70, 252))

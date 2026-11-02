@@ -187,14 +187,26 @@ func test_bookmarks_toggle_filter_and_persist() -> void:
 	assert_bool(b.is_bookmarked("iron_ingot")).is_false()
 	b.set_bookmarks(["coal", "gone_item", "coal", "furnace"])
 	assert_array(b.bookmarks).is_equal(["coal", "furnace"])
-	var path := "user://test_bookmarks.json"
-	assert_bool(b.save_bookmarks(path)).is_true()
-	var b2 := RecipeBrowser.new(items, recipes)
-	b2.load_bookmarks(path)
+	var b2 := _through_player_save(b)
 	assert_array(b2.bookmarks).is_equal(["coal", "furnace"])
+	# the old user:// list (before ADR 0115) still loads as the start of a world saved without bookmarks
+	var path := "user://test_bookmarks.json"
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify({"bookmarks": ["glass", "gone_item"]}))
+	f.close()
+	b2.load_bookmarks(path)
+	assert_array(b2.bookmarks).is_equal(["glass"])
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	b2.load_bookmarks("user://missing_bookmarks.json")   # a missing file keeps what is there
-	assert_array(b2.bookmarks).is_equal(["coal", "furnace"])
+	assert_array(b2.bookmarks).is_equal(["glass"])
+
+
+## What main._player_dict / _load_player do with the bookmarks (ADR 0115): out as JSON, back through set_bookmarks.
+func _through_player_save(from: RecipeBrowser) -> RecipeBrowser:
+	var d = JSON.parse_string(JSON.stringify({"version": 1, "bookmarks": from.bookmarks}))
+	var to := RecipeBrowser.new(items, recipes)
+	to.set_bookmarks(d["bookmarks"])
+	return to
 
 
 # ---------- R / U in the world, station tabs, recipe bookmarks (ADR 0093) ----------
@@ -223,9 +235,58 @@ func test_recipe_bookmarks_persist() -> void:
 	assert_bool(b.toggle_bookmark(mark)).is_true()
 	assert_bool(b.toggle_bookmark(RecipeBrowser.RECIPE_MARK + "gone")).is_false()
 	b.toggle_bookmark("coal")
-	var path := "user://test_recipe_bookmarks.json"
-	assert_bool(b.save_bookmarks(path)).is_true()
-	var b2 := RecipeBrowser.new(items, recipes)
-	b2.load_bookmarks(path)
-	assert_array(b2.bookmarks).is_equal([mark, "coal"])
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	assert_array(_through_player_save(b).bookmarks).is_equal([mark, "coal"])
+
+
+func test_main_saves_bookmarks_with_the_player() -> void:
+	var src := FileAccess.get_file_as_string("res://scripts/main.gd")
+	assert_str(src).contains('"bookmarks": inv_screen.browser.bookmarks')
+	assert_str(src).contains('inv_screen.browser.set_bookmarks(d["bookmarks"])')
+
+
+# ---------- machine recipes as data (ADR 0115) ----------
+
+func test_process_recipes_tab_under_their_station() -> void:
+	assert_bool(b.show("crushed_iron_ore", "recipes")).is_true()
+	assert_str(b.current_category()["id"]).is_equal("station:ore_crusher")
+	assert_str(b.category_title("station:ore_crusher")).is_equal("Ore Crusher")
+	assert_array(b.catalysts("station:ore_crusher")).is_equal(["ore_crusher"])
+	var l := b.layout(b.current_recipe())
+	assert_str(l["needs"]).is_equal("Ore Crusher")
+	assert_str(l["info"]).is_equal("1.0 s, steam from a boiler")
+	assert_int(l["inputs"].size()).is_equal(1)
+	assert_int(int(l["output"]["count"])).is_equal(2)
+	# the machine's uses list every recipe it runs; the ore's uses include the crusher
+	assert_bool(b.show("ore_crusher", "uses")).is_true()
+	assert_int(b.current_category()["recipes"].size()).is_equal(3)
+	assert_bool(b.show("tin_ore", "uses")).is_true()
+	assert_bool(b.view["categories"].any(func(c: Dictionary) -> bool: return c["id"] == "station:ore_crusher")).is_true()
+
+
+func test_a_new_machine_plugs_in_by_data_alone() -> void:
+	var r := RecipeRegistry.new(items)
+	assert_bool(r.load_json(JSON.stringify({"recipes": [
+		{"id": "press_plate", "type": "process", "station": "steam_hammer", "ingredients": ["iron_ingot", "iron_ingot"],
+			"output": {"id": "iron_plate", "count": 1}, "seconds": 2.5}]}))).is_true()
+	var br := RecipeBrowser.new(items, r)
+	assert_bool(br.show("iron_plate", "recipes")).is_true()
+	assert_str(br.current_category()["id"]).is_equal("station:steam_hammer")
+	assert_str(br.layout(br.current_recipe())["info"]).is_equal("2.5 s")
+	assert_array(r.uses_of("iron_ingot")).contains(["press_plate"])
+	var bad := RecipeRegistry.new(items)
+	assert_bool(bad.load_json(JSON.stringify({"recipes": [
+		{"id": "x", "type": "process", "station": "no_such_machine", "ingredients": ["iron_ingot"], "output": {"id": "iron_plate"}}]}))).is_false()
+
+
+func test_crusher_recipes_match_the_crusher() -> void:
+	# the crusher runs on each ore's `crushed` field (ADR 0099); its recipe data must say the same
+	for id in items.all_ids():
+		var crushed := String(items.get_def(id).get("crushed", ""))
+		if crushed == "":
+			continue
+		var hit := recipes.of_type("process").filter(func(x: Dictionary) -> bool:
+			return x["station"] == "ore_crusher" and x["ingredients"] == [id])
+		assert_int(hit.size()).override_failure_message("no crusher recipe for " + id).is_equal(1)
+		assert_str(hit[0]["output"]["id"]).is_equal(crushed)
+		assert_int(int(hit[0]["output"]["count"])).is_equal(2)
+		assert_float(float(hit[0]["seconds"])).is_equal(Settings.ore_crusher_crush_s)

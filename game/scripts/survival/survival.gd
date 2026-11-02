@@ -37,6 +37,8 @@ var _open := PackedByteArray()
 var _heat_mat := PackedFloat32Array()
 var nutrition := Nutrition.load_default()
 var _health_t := 0.0
+var poison_s := 0.0          # seconds of poison left (a jungle dart frog's touch); it wears off
+var _poison_t := 0.0
 var _rooms := {}             # container position -> [closed room, valid until clock s] (root cellars)
 const ROOM_CACHE_S := 30.0
 var stats := {"probe_ms_max": 0.0, "spoil_ms_max": 0.0, "rotted": 0, "eaten": 0, "starved": 0, "froze": 0, "overheated": 0}
@@ -150,6 +152,7 @@ func _process(delta: float) -> void:
 		_hunger_step(delta, fast)
 		_harm_step(delta)
 		nutrition.drain(delta, hunger_rate(fast, body_c < Settings.cold_c) * Settings.hunger_drain_s)
+	_poison_step(delta, player.inventory if survival else null)
 	_health_t -= delta
 	if _health_t <= 0.0:
 		_health_t = 1.0
@@ -204,6 +207,25 @@ func _harm_step(delta: float) -> void:
 		stats["froze" if body_c < Settings.freeze_c else "overheated"] += 1
 		if player.inventory.is_dead():
 			player.died.emit()
+
+
+## Poisoned for `seconds` (at least; another touch refreshes it, it does not stack).
+func poison(seconds: float) -> void:
+	if poison_s <= 0.0:
+		_poison_t = 0.0
+	poison_s = maxf(poison_s, seconds)
+
+
+## Poison hurts one health per Settings.poison_every_s while it lasts, but never takes the last one.
+func _poison_step(delta: float, inv: PlayerInventory) -> void:
+	if poison_s <= 0.0:
+		return
+	poison_s = maxf(0.0, poison_s - delta)
+	_poison_t += delta
+	if _poison_t >= Settings.poison_every_s:
+		_poison_t -= Settings.poison_every_s
+		if inv != null and inv.health > 1:
+			inv.damage(1, "poison")
 
 
 ## Shelter, heat and the temperature where the player stands.
@@ -308,11 +330,14 @@ func reset() -> void:
 	hunger = Settings.hunger_max
 	saturation = 5.0
 	body_c = 37.0
+	poison_s = 0.0
 	nutrition.reset()
 	apply_max_health()
 
 
 func status() -> String:
+	if poison_s > 0.0:
+		return "Poisoned"
 	if body_c < Settings.freeze_c:
 		return "Freezing"
 	if body_c < Settings.shiver_c:
@@ -352,7 +377,7 @@ func load_dict(d: Dictionary) -> void:
 func snapshot() -> Dictionary:
 	return {"hunger": snappedf(hunger, 0.01), "saturation": snappedf(saturation, 0.01), "body_c": snappedf(body_c, 0.01),
 		"env_c": snappedf(env_c, 0.1), "felt_c": snappedf(felt_c(), 0.1), "in_room": in_room, "heat": snappedf(heat, 0.01), "underground_m": snappedf(underground_m, 0.1),
-		"status": status(), "nutrition": nutrition.snapshot(),
+		"status": status(), "poison_s": snappedf(poison_s, 0.1), "nutrition": nutrition.snapshot(),
 		"max_health": player.inventory.max_health if player != null else 0, "stats": stats}
 
 
