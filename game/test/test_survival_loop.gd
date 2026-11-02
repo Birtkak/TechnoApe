@@ -214,7 +214,11 @@ func test_the_journal_lists_entries_from_the_data() -> void:
 	for id in ["biome:forest", "biome:plains", "landmark:ruin", "landmark:cave", "animal:sheep", "animal:bear", "ore:copper_ore",
 			"ore:loose_tin_ore", "vein:copper", "vein:copper_iron"]:
 		assert_bool(d.has(id)).override_failure_message("missing " + id).is_true()
-	assert_bool(d.has("biome:lush_cave")).is_false()   # underground biomes need part B's cave query
+	assert_bool(d.has("biome:lush_cave")).is_false()   # underground biomes are the Caves kind's (FineGen.cave_biome_at)
+	for id in ["cave:lush_cave", "cave:dripstone_cave", "cave:deep_dark", "cave:sulfur_cave"]:
+		assert_bool(d.has(id)).override_failure_message("missing " + id).is_true()
+	assert_bool(d.has("cave:plains")).is_false()
+	assert_str(String(d.entries["cave:lush_cave"]["title"])).is_equal("Lush Cave")
 	assert_str(String(d.entries["biome:forest"]["text"])).contains("Oak")
 	assert_str(String(d.entries["animal:pig"]["title"])).is_equal("Pig")
 	for id in d.entries:

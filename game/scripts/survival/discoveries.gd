@@ -66,9 +66,12 @@ func _source_entries(k: Dictionary, sources: Dictionary) -> Array:
 	match String(k.get("from", "list")):
 		"biomes":
 			var skip: Array = k.get("skip_tags", [])
+			var only: Array = k.get("only_tags", [])
 			for b in sources.get("biomes", {}).get("biomes", []):
 				var tags: Array = b.get("tags", [])
 				if tags.any(func(t: String) -> bool: return t in skip):
+					continue
+				if not only.is_empty() and not tags.any(func(t: String) -> bool: return t in only):
 					continue
 				out.append({"name": String(b["name"]), "title": String(b.get("display", String(b["name"]).capitalize())), "lore": String(b.get("lore", ""))})
 		"landforms":   # part B's biomes.json "landforms": names or {name, display, lore}
