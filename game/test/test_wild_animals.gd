@@ -130,3 +130,15 @@ func test_a_hurt_animal_alarms_its_herd() -> void:
 	assert_float(far._panic_t).is_equal(0.0)
 	assert_float(pig._panic_t).is_equal(0.0)
 	assert_int(mm.stats["alarmed"]).is_equal(1)
+
+
+## Herds sleep at night (ADR 0120): a sheep stands still with its head down, a rabbit too (it hops).
+func test_grazers_sleep_at_night() -> void:
+	var mm := _manager()
+	mm.night_now = true
+	var sheep := _mob(mm, "sheep", Vector3(0, 100, 0))
+	var rabbit := _mob(mm, "rabbit", Vector3(30, 100, 0))
+	for m in [sheep, rabbit]:
+		m._think_goal()
+		assert_str(m.goal).is_equal("sleep")
+		assert_vector(m._target).is_equal(Vector3.INF)

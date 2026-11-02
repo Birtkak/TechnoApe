@@ -29,6 +29,7 @@ var active_radius_v := 128.0
 var max_active := 60
 var night_max := 6             # night creatures about at once (ADR 0120)
 var night_chance := 0.06       # a second, while under night_max
+var night_now := false         # is_night() of the last scan: grazers sleep (Mob._think_goal)
 var love_s := 30.0
 var breed_cooldown_s := 300.0
 var grow_up_s := 1200.0
@@ -337,6 +338,7 @@ func is_night() -> bool:
 ## creatures at once); after sunrise the ones still about fade into the light.
 func _night_tick() -> void:
 	var night := is_night()
+	night_now = night
 	var n := 0
 	for m in _active.duplicate():
 		if not m.def.get("night", false) or m.is_dead():
