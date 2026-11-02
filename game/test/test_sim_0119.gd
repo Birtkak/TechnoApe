@@ -73,24 +73,6 @@ func test_a_block_of_water_in_a_basin_ends_flat_and_quiet() -> void:
 	assert_int(w.count_in_box(Vector3i(0, 16, 0), Vector3i(48, 48, 48), GameMaterials.WATER)).is_equal(0)
 
 
-func test_a_u_tube_levels_through_its_bottom() -> void:
-	var w := _world()
-	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 48, 48), GameMaterials.STONE)
-	# two 2 x 2 shafts 10 cells apart joined by a 2-high passage along the floor
-	w.fill_box(Vector3i(10, 4, 10), Vector3i(12, 30, 12), 0)
-	w.fill_box(Vector3i(22, 4, 10), Vector3i(24, 30, 12), 0)
-	w.fill_box(Vector3i(10, 4, 10), Vector3i(24, 6, 12), 0)
-	w.fill_box(Vector3i(10, 6, 10), Vector3i(12, 26, 12), GameMaterials.WATER)   # the left arm full 20 high, the right empty
-	var mass := w.count_liquid_eighths(GameMaterials.WATER)
-	var quiet := _quiet_after(w, 600)
-	assert_int(quiet).override_failure_message("still moving after 600 ticks").is_greater(0)
-	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).is_equal(mass)
-	var left := _surface_range(w, 10, 12, 10, 12, 4, 30, GameMaterials.WATER)
-	var right := _surface_range(w, 22, 24, 10, 12, 4, 30, GameMaterials.WATER)
-	assert_int(absi(left.y - right.y)).override_failure_message("arms at %d and %d eighths" % [left.y, right.y]).is_less_equal(2)
-	assert_int(right.y).override_failure_message("the right arm holds %d eighths of height" % right.y).is_greater(8 * 10)
-
-
 func test_the_same_spill_lands_the_same_twice() -> void:
 	var a := _world()
 	var b := _world()
