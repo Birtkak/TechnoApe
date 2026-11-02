@@ -132,6 +132,13 @@ func _grid_fill(main) -> void:
 		f["shift_crafts"] = shift["crafts"]
 		main.inv_screen._clear_button.pressed.emit()
 		f["cleared"] = pi.inv.count_of("stick") == sticks and pi.inv.count_of("dry_grass") == grass
+		bv.show_item("firestarter", "recipes")   # ADR 0130: Craft makes one straight into the inventory
+		await _shot("craft_button")
+		if bv.craft_button != null:
+			bv.craft_button.pressed.emit()
+			await _frames(2)
+		f["crafted"] = pi.inv.count_of("firestarter")
+		f["grid_empty_after_craft"] = pi.craft.current_recipe().is_empty()
 	main.inv_screen.close()
 	main.inv_screen.open()   # the personal 2x2 grid has its Clear button too
 	await _shot("inventory_clear")

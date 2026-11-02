@@ -502,6 +502,17 @@ func fill_craft_grid(r: Dictionary, all: bool, dry_run := false) -> Dictionary:
 	return res
 
 
+## The recipe browser's Craft (ADR 0130): Fill, take the output into the inventory as a shift-click on
+## it does, and put what the recipe keeps (tools) back. {crafts, error} like fill_craft_grid.
+func craft_recipe(r: Dictionary, all: bool) -> Dictionary:
+	var res := fill_craft_grid(r, all)
+	if res["error"] != "":
+		return res
+	click_craft_output(true)
+	clear_craft_grid()
+	return res
+
+
 ## The recipe browser's Fill on a furnace screen (ADR 0093): a smelt recipe's input from the inventory
 ## into the open container's input slot (slot 0), one item's worth or (all) as much as the slot takes.
 ## {crafts, error} like fill_craft_grid; crafts = whole items moved (or that would move).

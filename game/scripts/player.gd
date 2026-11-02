@@ -1797,7 +1797,8 @@ func _pick_block() -> void:
 	var hit := _aim()
 	if hit == null:
 		return
-	var id := inventory.items.item_for_material(_loose_name(world.get_voxel(hit.position)))
+	# the look-at panel's item first: a machine, station or work piece is its item, not its voxels' material (ADR 0130)
+	var id := look_item if inventory.items.has(look_item) else inventory.items.item_for_material(_loose_name(world.get_voxel(hit.position)))
 	if id != "":
 		inventory.pick_block(id, GameMode.rule(game_mode, "item_picker"))
 

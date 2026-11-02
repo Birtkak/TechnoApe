@@ -101,3 +101,25 @@ func test_hurt_edge_flashes_and_obeys_the_setting() -> void:
 	assert_float(hud.edge_color().a).is_greater(0.3)
 	Settings.screen_effects = false
 	assert_float(hud.edge_color().a).is_equal(0.0)
+
+
+func test_craft_button_makes_it_into_the_inventory() -> void:
+	p.set_crafting_grid(3, "crafting_table")
+	p.pickup("oak_planks", 18 * items.units("oak_planks"))
+	var res := p.craft_recipe(recipes.recipes["chest"], false)
+	assert_str(res["error"]).is_empty()
+	assert_int(p.inv.count_of("chest")).is_equal(1)
+	assert_int(p.inv.count_of("oak_planks")).is_equal(10 * items.units("oak_planks"))   # 8 blocks went in
+	for i in p.craft.grid.size():
+		assert_bool(p.craft.grid.is_empty_slot(i)).is_true()
+	p.craft_recipe(recipes.recipes["chest"], true)   # Shift: as many as the planks make
+	assert_int(p.inv.count_of("chest")).is_equal(2)
+	assert_str(p.craft_recipe(recipes.recipes["chest"], false)["error"]).is_not_empty()
+
+
+func test_tooltip_facts() -> void:
+	assert_str(InventoryScreen.item_facts(items, recipes, "oak_log", false)).contains("Fuel: burns 15 s, smelts 1.5")
+	assert_str(InventoryScreen.item_facts(items, recipes, "cooked_meat", false)).contains("Food +6")
+	assert_str(InventoryScreen.item_facts(items, recipes, "chest", false)).contains("Made by: Crafting Table")
+	assert_str(InventoryScreen.item_facts(items, recipes, "oak_planks", false)).contains("Used in")
+	assert_str(InventoryScreen.item_facts(items, recipes, "oak_log", true)).contains("oak_log").contains("#wood")

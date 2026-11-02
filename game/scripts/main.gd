@@ -732,7 +732,15 @@ func _save_blocks() -> void:
 ## by "\n"). Work pieces get their own name, not "Work Spot", and stations show what is in them (ADR 0078).
 func _describe_block(p: Vector3i) -> Dictionary:
 	var e: RefCounted = blocks.at(p)
-	if e is ChestEntity or e is FurnaceEntity:   # what is inside (ADR 0093)
+	var info := _describe_entity(e)
+	var net := Networks.look_line(e)   # the energy network it is on (ADR 0130)
+	if net != "":
+		info["line"] = String(info.get("line", "")) + ("\n" if info.get("line", "") != "" else "") + net
+	return info
+
+
+func _describe_entity(e: RefCounted) -> Dictionary:
+	if e is ChestEntity or (e is FurnaceEntity and not e.has_method("look_lines")):   # what is inside (ADR 0093)
 		var lines := PackedStringArray()
 		if e is ChestEntity and e.label != "":
 			lines.append(e.label)   # the chest's name (plan item D11)
@@ -760,7 +768,7 @@ func _describe_block(p: Vector3i) -> Dictionary:
 			info["line"] = "Flint: pick a shape"
 		else:
 			info["line"] = "%s: %d chips left" % [items.display_name(String(k.recipe.get("output", {}).get("id", ""))), k.remaining()]
-	elif e is FirepitEntity or e is AnvilEntity:
+	elif e.has_method("look_lines"):   # firepits, anvils and every machine (ADR 0130: they had lines nobody showed)
 		info["line"] = "\n".join(e.look_lines())
 	return info
 
