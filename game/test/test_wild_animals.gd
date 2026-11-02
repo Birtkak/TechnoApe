@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## The wild animals of ADR 0058: the data, the models, and the behaviours (flee, hop, swim, fly, pack
 ## hunts, boars that turn on whoever hurt them).
 
-const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow"]
+const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow", "salmon", "jellyfish"]
 
 
 func _manager() -> MobManager:
@@ -116,3 +116,29 @@ func test_gloam_hounds_belong_to_the_night() -> void:
 	assert_bool(hound in mm.active()).is_false()
 	assert_bool(sheep in mm.active()).is_true()
 	assert_int(mm.stats["faded"]).is_equal(1)
+
+
+## A hurt sheep alarms its herd (ADR 0120): mates nearby bolt, a far one and another species do not.
+func test_a_hurt_animal_alarms_its_herd() -> void:
+	var mm := _manager()
+	var hit := _mob(mm, "sheep", Vector3(0, 100, 0))
+	var mate := _mob(mm, "sheep", Vector3(Settings.m2v(5.0), 100, 0))
+	var far := _mob(mm, "sheep", Vector3(Settings.m2v(30.0), 100, 0))
+	var pig := _mob(mm, "pig", Vector3(Settings.m2v(3.0), 100, 0))
+	assert_bool(hit.hurt(1, Vector3(-4, 100, 0))).is_true()
+	assert_float(mate._panic_t).is_greater(0.0)
+	assert_float(far._panic_t).is_equal(0.0)
+	assert_float(pig._panic_t).is_equal(0.0)
+	assert_int(mm.stats["alarmed"]).is_equal(1)
+
+
+## Herds sleep at night (ADR 0120): a sheep stands still with its head down, a rabbit too (it hops).
+func test_grazers_sleep_at_night() -> void:
+	var mm := _manager()
+	mm.night_now = true
+	var sheep := _mob(mm, "sheep", Vector3(0, 100, 0))
+	var rabbit := _mob(mm, "rabbit", Vector3(30, 100, 0))
+	for m in [sheep, rabbit]:
+		m._think_goal()
+		assert_str(m.goal).is_equal("sleep")
+		assert_vector(m._target).is_equal(Vector3.INF)

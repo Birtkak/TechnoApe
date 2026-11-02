@@ -219,6 +219,8 @@ func hurt(amount: int, from: Vector3) -> bool:
 			_provoked_t = 30.0
 	else:
 		_panic_t = PANIC_S
+		if manager != null:
+			manager.alarm(self)   # the herd bolts with it (ADR 0120)
 	_target = Vector3.INF
 	_graze_t = 0.0
 	if health <= 0:
@@ -435,6 +437,13 @@ func _think_goal() -> void:
 			goal = "follow"
 			_go(parent.position, Settings.m2v(float(def.get("walk_m", 1.0)) * 1.1), Settings.m2v(2.0))
 			return
+	# sleep (ADR 0120): at night the grazers stand still with their heads down until something wakes them
+	if manager.night_now and not def.has("predator") and not def.get("night", false) and WildMoves.moves_of(def) in ["walk", "hop"]:
+		goal = "sleep"
+		_stop()
+		_look = eye() + Vector3(sin(_yaw), -0.8, cos(_yaw)) * 2.0 * Settings.BLOCK
+		_look_t = THINK_S * 2.0
+		return
 	# graze
 	if _graze_t > 0.0:
 		goal = "graze"

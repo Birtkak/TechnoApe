@@ -940,6 +940,8 @@ func _watch_mobs(dt: float) -> void:
 		var angry: bool = m.goal in ["hunt", "attack"] and def.has("angry")
 		var left: float = _mob_next.get(m.uid, _rng.randf_range(0.0, float(every[1])))
 		left -= dt
+		if left <= 0.0 and m.goal == "sleep":
+			left = float(every[1])   # sleeping herds are quiet
 		if left <= 0.0:
 			var k := 0.3 if angry else 1.0   # a hunting bear roars more often, not constantly
 			left = _rng.randf_range(float(every[0]) * k, float(every[1]) * k)

@@ -390,10 +390,25 @@ func _summon(args: PackedStringArray) -> Dictionary:
 	var at := player.position + fwd.normalized() * Settings.m2v(3.0)
 	for i in n:
 		var q := at + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)) * Settings.m2v(2.0)
+		if WildMoves.habitat(main.mobs.defs[sp]) == "water":   # swimmers go into the water below, not onto the bank
+			var w := _water_below(Vector3i(q.floor()))
+			if w == Vector3.INF:
+				continue
+			q = w
 		var m: Mob = main.mobs.spawn(sp, Vector3(q.x, q.y + 0.5, q.z), baby, randf() * TAU)
 		if hungry and m != null:
 			m.make_hungry()
 	return CommandRegistry.ok("Summoned %d %s%s" % [n, "baby " if baby else "", sp])
+
+
+## A spot in the water within 4 m below `p` (two voxels under the surface where it is deep enough), or INF.
+func _water_below(p: Vector3i) -> Vector3:
+	for d in int(Settings.m2v(4.0)):
+		var c := p + Vector3i(0, -d, 0)
+		if main.mobs.is_liquid(c):
+			var deep: bool = main.mobs.is_liquid(c + Vector3i(0, -2, 0))
+			return Vector3(c.x + 0.5, c.y - (2 if deep else 0.4), c.z + 0.5)
+	return Vector3.INF
 
 
 func _book() -> QuestBook:
