@@ -59,7 +59,7 @@ const KITS := {
 }
 
 ## What WorldGen.find_nearest can look for (biome names work too).
-const FEATURES := ["cave", "deep_cave", "ruin", "ruin_house", "ruin_watchtower", "ruin_stone_circle", "ruin_crypt", "crypt_room", "ruin_mud_house", "ruin_shrine", "ruin_wreck", "waterfall", "lake", "river", "spring", "marsh", "alpine", "snow", "mountain", "forest", "old_growth_forest", "taiga", "jungle", "plains", "desert",
+const FEATURES := ["cave", "deep_cave", "ruin", "ruin_house", "ruin_watchtower", "ruin_stone_circle", "ruin_crypt", "crypt_room", "ruin_mud_house", "ruin_shrine", "ruin_wreck", "ruin_mine", "waterfall", "lake", "river", "spring", "marsh", "alpine", "snow", "mountain", "forest", "old_growth_forest", "taiga", "jungle", "plains", "desert",
 	"coal_vein", "copper_vein", "cassiterite_vein", "iron_vein", "copper_iron_vein",
 	"sulfur_cave", "lush_cave", "magma_cave", "crystal_cave", "fungal_cave", "aquifer", "magma_conduit"]
 
