@@ -1102,7 +1102,7 @@ PALETTES["birch_wood"] = ramp("#5a5040", "#b0a07c", "#d0c09a", "#e4d6b2", "#f6ec
 sp("bench", ("bench", "wood"))
 sp("candle", ("candle", "wax"))
 for w in ("spruce", "acacia", "jungle", "birch"):
-    for k in ("door", "trapdoor", "fence", "fence_gate", "table", "bench"):
+    for k in ("door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf"):
         sp(w + "_" + k, (k, w + "_wood"))
 sp("wheat_seeds", ("seeds", "seed"))
 sp("wheat", ("sheaf", "straw"))

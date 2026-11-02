@@ -8,7 +8,7 @@ RECIPES = "data/recipes.json"
 MINING = "data/mining.json"
 SOUNDS = "data/sounds.json"
 WOODS = ["spruce", "acacia", "jungle", "birch"]
-WOODED = ["door", "trapdoor", "fence", "fence_gate", "table", "bench"]   # FurnitureEntity.WOODED
+WOODED = ["door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf"]   # FurnitureEntity.WOODED
 
 
 def lines_of(path):
