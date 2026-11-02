@@ -988,6 +988,14 @@ for m in ("flint", "copper", "iron"):
 for m in ("copper", "iron"):
     sp(m + "_knife_head", ("knife_blade", m))
 sp("copper_saw_blade", ("saw_blade", "copper"))   # smithed (ADR 0042)
+# the steel set (ADR 0121): tools and their smithed heads
+for kind, head in (("axe", "axe_head"), ("shovel", "shovel_head"), ("hammer", "hammer_head"), ("hoe", "hoe_head")):
+    sp("steel_" + kind, H, (head, "steel"))
+    sp("steel_" + head, (head, "steel"))
+sp("steel_saw", ("saw_handle", "handle"), ("saw_blade", "steel"))
+sp("steel_saw_blade", ("saw_blade", "steel"))
+sp("steel_knife", SH, ("knife_blade", "steel"))
+sp("steel_knife_head", ("knife_blade", "steel"))
 sp("copper_work_piece", ("work_piece", "copper"))
 sp("copper_chisel", SH, ("chisel_blade", "copper"))
 sp("copper_chisel_head", ("chisel_blade", "copper"))
@@ -1039,7 +1047,6 @@ sp("cooked_meat", ("steak", "cooked_meat", {"f": "#d8b080", "b": "#e8dcc4"}))
 sp("clay_bowl", ("bowl", "terracotta"))
 sp("raw_clay_bowl", ("bowl", "clay", {"i": "#3a3e46"}))
 sp("meat_stew", ("bowl", "terracotta"), ("bowl_fill", None, {"q": "#7a4a22", "k": "#c87a4a"}))
-sp("berry_compote", ("bowl", "terracotta"), ("bowl_fill", None, {"q": "#6a1e48", "k": "#3a4ea0"}))
 sp("bucket", ("bucket", "iron"))
 sp("water_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#2e64c8", "Q": "#7ab0f0"}))
 sp("lava_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#e8541a", "Q": "#ffd060"}))
@@ -1089,12 +1096,19 @@ sp("leather_bag", ("bag", "leather"))
 sp("cordage", ("twine", "twine"))
 sp("flint_spear_head", ("spear_head", "flint"))
 sp("flint_spear", ("spear_shaft", "handle"), ("spear_tip", "flint"))
+for m in ("bronze", "iron", "steel"):   # ADR 0121
+    sp(m + "_spear", ("spear_shaft", "handle"), ("spear_tip", m))
 sp("pan", ("pan", "terracotta"))
 sp("raw_pan", ("pan", "clay", {"i": "#3a3e46", "j": "#5a606a"}))
 sp("storage_pot", ("jar", "terracotta"))
 sp("raw_storage_pot", ("jar", "clay", {"i": "#3a3e46"}))
 sp("pot_of_stew", ("cooking_pot", "terracotta"), ("pot_fill", None, {"q": "#7a4a22", "k": "#d07a30"}))
 sp("stew", ("bowl", "terracotta"), ("bowl_fill", None, {"q": "#7a4a22", "k": "#d07a30"}))
+# cooking-pot meals (ADR 0121): the pot and the bowl, filled with the meal's colours
+for meal, q, k in (("porridge", "#c8a874", "#efdcae"), ("fish_soup", "#a8a070", "#e8d8a0"),
+                   ("mushroom_soup", "#6a4a30", "#b08a62"), ("berry_compote", "#6a1e48", "#c03c5a")):
+    sp("pot_of_" + meal, ("cooking_pot", "terracotta"), ("pot_fill", None, {"q": q, "k": k}))
+    sp(meal, ("bowl", "terracotta"), ("bowl_fill", None, {"q": q, "k": k}))
 sp("daub", ("ball", "daub"))
 sp("firewood", ("firewood", "wood"))
 for m, item in (("wood", "wooden_hoe"), ("stone", "stone_hoe"), ("iron", "iron_hoe")):

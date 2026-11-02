@@ -240,6 +240,10 @@ def add(G):
     sp("copper_helmet", ("hood", "copper"))
     sp("copper_chestplate", ("cloak", "copper"))
     sp("copper_boots", ("boots", "copper"))
+    for m in ("bronze", "iron", "steel"):   # ADR 0121
+        sp(m + "_helmet", ("hood", m))
+        sp(m + "_chestplate", ("cloak", m))
+        sp(m + "_boots", ("boots", m))
     sp("atlatl", ("atlatl", "wood"))
     sp("animal_fat", ("lump", "fat"))
     sp("fat_lamp", ("lamp", "stone"))

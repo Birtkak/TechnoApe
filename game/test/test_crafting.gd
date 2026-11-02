@@ -69,7 +69,9 @@ func test_shaped_anvil_requires_station() -> void:
 	# laid out otherwise it is still the anvil: nothing else takes seven bronze (ADR 0046)
 	var loose := _g(["bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "", ""])
 	assert_str(recipes.match_grid(loose, "crafting_table").get("id", "")).is_equal("bronze_anvil")
-	var too_many := _g(["bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", ""])
+	var eight := _g(["bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", ""])
+	assert_str(recipes.match_grid(eight, "crafting_table").get("id", "")).is_equal("bronze_chestplate")   # ADR 0121
+	var too_many := _g(["bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot"])
 	assert_dict(recipes.match_grid(too_many, "crafting_table")).is_empty()
 
 
@@ -195,6 +197,7 @@ func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
 	raw.append("sulfur")   # mined from sulfur cave crust (mining.json): TNT's powder (ADR 0065)
 	raw.append("acorn")    # under oaks (mining.json "acorns", loot)
 	raw.append("crystal")  # mined from geodes (ADR 0052, mining.json)
+	raw.append("brown_mushroom")   # picked off the forest floor: mushroom soup (ADR 0121)
 	raw.append_array(items.items_with_tag("flower"))   # picked by hand: the flower pot's flower (ADR 0094)
 	for rock in ["basalt", "granite", "diorite", "limestone", "slate", "marble", "chalk"]:   # mined rock (ADR 0051, 0057)
 		raw.append(rock)

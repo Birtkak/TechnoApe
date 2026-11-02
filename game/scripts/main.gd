@@ -393,7 +393,7 @@ func _ready() -> void:
 					if c.begins_with("wait "):
 						await get_tree().create_timer(float(c.substr(5))).timeout
 					else:
-						chat.send(c)
+						print("later %s -> %s" % [c, chat.send(c).get("text", "")])   # scripted runs read the replies on stdout
 						await get_tree().process_frame)
 		if DebugCapture.chop_test != "":
 			_after_load(func() -> void:

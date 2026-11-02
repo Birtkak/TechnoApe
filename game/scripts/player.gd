@@ -1719,6 +1719,8 @@ func _update_eating(delta: float) -> void:
 	if _eat_t >= EAT_S:
 		if survival != null:
 			survival.eat(def, float(inventory.held().get("spoil", 0.0)))
+			if def.has("buff") and hud:
+				hud.show_toast(survival.buff_text())   # ADR 0121: what the meal does, and for how long
 		else:
 			inventory.heal(int(def["food"].get("hunger", 1)))
 		if GameMode.rule(game_mode, "consumes_items"):

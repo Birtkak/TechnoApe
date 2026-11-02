@@ -21,7 +21,7 @@ func register(reg: CommandRegistry) -> void:
 	reg.register("diet", "/diet [set <group> <points> | reset]", "Food groups (ADR 0061): the bars, the balanced-diet bonus, set one", _diet, [["set", "reset"], loop.main.survival.nutrition.group_ids()])
 	reg.register("eat", "/eat <item>", "Eat one of an item from the hotbar, as a held right click does", _eat)
 	reg.register("frost", "/frost [plant <crop> [dx]]", "Check the farm for frost now (crops below their frost_c die), or till and plant a patch dx blocks east of you", _frost, [["plant"], loop.main.farming.crops_def.keys()])
-	reg.register("sapling", "/sapling <kind> [dx] | grow", "Plant a sapling dx blocks east of you (ADR 0112), or grow every planted one now", _sapling, [["grow"] + loop.main.saplings.trees.keys()])
+	reg.register("sapling", "/sapling <kind> [dx] [dz] | grow", "Plant a sapling dx blocks east (dz south) of you (ADR 0112), or grow every planted one now", _sapling, [["grow"] + loop.main.saplings.trees.keys()])
 	reg.register("prospect", "/prospect [flint|copper|menu [nearest|all|map]]", "Tap the rock you look at (or stand on) with the held, or the named, prospecting pick; menu opens the pick's settings", _prospect, [["flint", "copper", "menu"]])
 	reg.register("discover", "/discover [list | reset | <kind:name>]", "The discovery journal: progress, every entry, forget all, or mark one found", _discover, [["list", "reset"]])
 	reg.register("pin", "/pin <recipe id> | clear", "Pin a recipe's ingredients to the HUD (also: Pin in the recipe view)", _pin, [["clear"]])
@@ -120,11 +120,12 @@ func _sapling(args: PackedStringArray) -> Dictionary:
 		for p: Vector3i in s.planted:
 			s.planted[p]["left_s"] = 0.0
 		var grown := s.tick(0.0)
-		return CommandRegistry.ok("Grew %d saplings, %d still planted" % [grown.size(), s.planted.size()])
+		return CommandRegistry.ok("Grew %d saplings, %d still planted%s" % [grown.size(), s.planted.size(), "" if s.planted.is_empty() else " (last blocked: %s)" % s.last_block])
 	if args.is_empty() or not s.trees.has(args[0]):
-		return CommandRegistry.fail("Usage: /sapling <%s> [dx] | grow" % "|".join(s.trees.keys()))
+		return CommandRegistry.fail("Usage: /sapling <%s> [dx] [dz] | grow" % "|".join(s.trees.keys()))
 	var dx := int(args[1]) if args.size() > 1 else 2
-	var p := Vector3i(main.player.position.floor()) + Vector3i(dx * Settings.BLOCK, 0, 0)
+	var dz := int(args[2]) if args.size() > 2 else 0
+	var p := Vector3i(main.player.position.floor()) + Vector3i(dx, 0, dz) * Settings.BLOCK
 	for up in range(16, -17, -1):   # the highest soil with air above, within 2 m
 		var q := p + Vector3i(0, up, 0)
 		if GameMaterials.is_soil(main.world.get_voxel(q)) and main.world.get_voxel(q + Vector3i.UP) == GameMaterials.AIR:
