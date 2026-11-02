@@ -78,12 +78,24 @@ for m, pts in armour.items():
 
 # spears: the flint spear's reach and throw, harder hitting per metal
 spear = by_id["flint_spear"]
+# a leaf blade over a socket: thick along the midrib
+SPEAR_HEAD = [["...##...", "..####..", "..####..", ".######.", "..####..", "...##...", "...##...", "..####.."],
+              ["........", "...##...", "...##...", "..####..", "...##...", "........", "........", "...##..."]]
 for m, tier, dur, hit, throw in (("bronze", 2, 160, 5, 9), ("iron", 3, 256, 6, 11), ("steel", 4, 400, 7, 13)):
     d = {"id": m + "_spear", "name": m.title() + " Spear", "tags": spear["tags"], "stack": 1, "tier": tier, "durability": dur,
          "attack_damage": hit, "throw": {"damage": throw, "speed_m": spear["throw"]["speed_m"]}}
     new_items.append(j(d))
-    new_recipes.append(j({"id": m + "_spear", "type": "shaped", "pattern": ["  M", " S ", "S  "], "key": {"M": "#metal." + m, "S": "#stick"},
-                          "output": {"id": m + "_spear", "count": 1}, "station": "crafting_table"}))
+    # metal age: the head is smithed on the anvil, then hafted like the other tools of that metal
+    new_items.append(j({"id": m + "_spear_head", "name": m.title() + " Spear Head", "tags": ["tool_head", m + "_head"], "stack": 64,
+                        "_note": "smithed only (ADR 0121)"}))
+    new_recipes.append(j({"id": "smith_%s_spear_head" % m, "type": "smith", "input": m + "_ingot", "layers": SPEAR_HEAD,
+                          "output": {"id": m + "_spear_head", "count": 1}}))
+    if m == "steel":
+        new_recipes.append(j({"id": m + "_spear", "type": "shaped", "pattern": [" H ", " S ", " S "], "key": {"H": m + "_spear_head", "S": "#stick"},
+                              "output": {"id": m + "_spear", "count": 1}, "station": "crafting_table", "_note": "ADR 0099 / 0121: steel tools at the crafting table"}))
+    else:
+        new_recipes.append(j({"id": m + "_spear", "type": "assemble", "parts": [m + "_spear_head", "#stick", "#stick"],
+                              "output": {"id": m + "_spear", "count": 1}}))
 
 n = insert_after(items, "steel_pickaxe", new_items)
 k = insert_after(recipes, "steel_pickaxe", new_recipes)

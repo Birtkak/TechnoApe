@@ -164,6 +164,7 @@ const MONOLITH_SEAM := 206
 const WOOD_KINDS := ["oak", "spruce", "acacia", "jungle", "birch"]   # the sapling order; planks skip oak
 const SPRUCE_PLANKS := 207         # 207..210: spruce, acacia, jungle, birch planks
 const OAK_SAPLING := 211           # 211..215: a sapling per WOOD_KINDS, grows into its tree (Saplings)
+const BARREL := 216                # ADR 0121: an 18-slot wooden barrel (a 0.75 x 1 m station like the chest); 217..227 this lane's
 
 const ATLAS_TILES := Vector2i(8, 23)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -287,7 +288,10 @@ static func _build_defs() -> Array:
 		{"name": "monolith", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [173, 173, 173], "transparent": false},
 		{"name": "monolith_rune", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [174, 174, 174], "transparent": false},
 		{"name": "monolith_seam", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [175, 175, 175], "transparent": false},
-	] + _wood_defs()
+	] + _wood_defs() + [
+		# 216 (ADR 0121): storage drawn by StationEntity like the chest
+		{"name": "barrel", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "barrel"},
+	]
 
 
 ## Ids 207..215 (ADR 0112): planks of the other woods (the oak planks' rules, their own tile 176..179),

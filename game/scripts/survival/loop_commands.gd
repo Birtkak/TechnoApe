@@ -22,6 +22,7 @@ func register(reg: CommandRegistry) -> void:
 	reg.register("eat", "/eat <item>", "Eat one of an item from the hotbar, as a held right click does", _eat)
 	reg.register("frost", "/frost [plant <crop> [dx]]", "Check the farm for frost now (crops below their frost_c die), or till and plant a patch dx blocks east of you", _frost, [["plant"], loop.main.farming.crops_def.keys()])
 	reg.register("sapling", "/sapling <kind> [dx] [dz] | grow", "Plant a sapling dx blocks east (dz south) of you (ADR 0112), or grow every planted one now", _sapling, [["grow"] + loop.main.saplings.trees.keys()])
+	reg.register("furniture", "/furniture <kind> [dx] [dz]", "Set a piece of furniture (or a barrel) on the ground dx blocks east, dz south of you, facing you", _furniture, [FurnitureEntity.KINDS.keys() + ["barrel"]])
 	reg.register("prospect", "/prospect [flint|copper|menu [nearest|all|map]]", "Tap the rock you look at (or stand on) with the held, or the named, prospecting pick; menu opens the pick's settings", _prospect, [["flint", "copper", "menu"]])
 	reg.register("discover", "/discover [list | reset | <kind:name>]", "The discovery journal: progress, every entry, forget all, or mark one found", _discover, [["list", "reset"]])
 	reg.register("pin", "/pin <recipe id> | clear", "Pin a recipe's ingredients to the HUD (also: Pin in the recipe view)", _pin, [["clear"]])
@@ -111,6 +112,34 @@ func _plant(kind: String, dx: int) -> Dictionary:
 			if farm.plant(soil, kind):
 				n += 1
 	return CommandRegistry.ok("Planted %d %s voxels at %d %d %d" % [n, kind, p.x, top, p.z]) if n > 0 else CommandRegistry.fail("Could not till here (grass or dirt with air above)")
+
+
+## The top of the ground (the first body-blocking voxel from 2 m up) dx, dz blocks from the player, -1 y when none.
+func _ground(dx: int, dz: int) -> Vector3i:
+	var main := loop.main
+	var p := Vector3i(main.player.position.floor()) + Vector3i(dx, 0, dz) * Settings.BLOCK
+	for up in range(16, -17, -1):
+		var q := p + Vector3i(0, up, 0)
+		if GameMaterials.blocks_bodies(main.world.get_voxel(q)) and not GameMaterials.blocks_bodies(main.world.get_voxel(q + Vector3i.UP)):
+			return q
+	return Vector3i(p.x, -1, p.z)
+
+
+func _furniture(args: PackedStringArray) -> Dictionary:
+	var main := loop.main
+	if args.is_empty() or not (FurnitureEntity.KINDS.has(args[0]) or args[0] == "barrel"):
+		return CommandRegistry.fail("Usage: /furniture <kind> [dx] [dz]")
+	var g := _ground(int(args[1]) if args.size() > 1 else 2, int(args[2]) if args.size() > 2 else 0)
+	if g.y < 0:
+		return CommandRegistry.fail("No ground here")
+	var b := Settings.BLOCK
+	var anchor := Vector3i(floori(float(g.x) / b) * b, g.y + 1, floori(float(g.z) / b) * b)   # on the block grid
+	if args[0] == "barrel":
+		main._place_station(anchor, GameMaterials.BARREL)
+	else:
+		var look: Vector3 = Vector3(anchor) - main.player.position
+		main._place_furniture(args[0], anchor, FurnitureEntity.facing_for(args[0], -look))
+	return CommandRegistry.ok("Placed %s at %d %d %d" % [args[0], anchor.x, anchor.y, anchor.z])
 
 
 func _sapling(args: PackedStringArray) -> Dictionary:

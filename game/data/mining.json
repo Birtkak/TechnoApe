@@ -62,6 +62,7 @@
     "bricks":       {"hardness": 2.0, "tool": "pickaxe", "requires": true, "drops": "bricks", "drop_tier": 1, "built": true},
     "crafting_table": {"hardness": 2.5, "tool": "axe", "drops": "crafting_table"},
     "chest":        {"hardness": 2.5, "tool": "axe", "drops": "chest"},
+    "barrel":       {"hardness": 2.5, "tool": "axe", "drops": "barrel"},
     "furnace":      {"hardness": 3.5, "tool": "pickaxe", "requires": true, "drops": "furnace"},
     "furnace_lit":  {"hardness": 3.5, "tool": "pickaxe", "requires": true, "drops": "furnace"},
     "pebbles":      {"hardness": 0.0, "drops": "loose_stone"},
