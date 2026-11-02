@@ -136,7 +136,7 @@ func test_every_kit_item_exists_and_kits_give() -> void:
 
 
 func test_commands_without_a_world_fail_instead_of_crashing() -> void:
-	for line in ["/tp 0 300 0", "/time set noon", "/spawn", "/goto cave", "/blast 4", "/stations", "/bug test"]:
+	for line in ["/tp 0 300 0", "/time set noon", "/spawn", "/goto cave", "/blast 4", "/stations", "/bug test", "/wear steel_helmet"]:
 		if line == "/tp 0 300 0":
 			continue   # /tp only needs the player
 		assert_bool(reg.execute(line)["ok"]).override_failure_message(line).is_false()

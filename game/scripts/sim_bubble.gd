@@ -739,7 +739,7 @@ func verify_against_generator(gen: FineGen, radius_chunks := 3) -> Dictionary:
 				if expect.is_empty():
 					expect = PackedByteArray()
 					expect.resize(8192)
-				if expect == got:
+				if expect == got or got.size() < 8192:   # a chunk not loaded (yet) after a teleport has no bytes to compare
 					continue
 				mismatched += 1
 				var aws := 0
