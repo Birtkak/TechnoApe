@@ -1389,6 +1389,8 @@ func _on_health_changed(h: int) -> void:
 		stains.bleed(player.position, _last_health - h)
 		if fx:
 			fx.burst("bleed", player.position + Vector3(0, Settings.m2v(1.0), 0), {"count_bonus": _last_health - h})
+		if h <= 0:
+			player.died.emit()   # any damage that kills dies here (a mob's bite did not); _on_died ignores repeats
 	_last_health = h
 
 
