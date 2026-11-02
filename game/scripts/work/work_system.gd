@@ -383,8 +383,8 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	var kind := _place_kind(held, sneaking)
 	if kind == "":
 		return false
-	var any_face := kind == "sieve" or kind == "firewood_pile"
-	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven"]
+	var any_face := kind == "sieve" or kind == "firewood_pile" or kind == "electric_lamp"   # a lamp hangs on walls too (ADR 0117)
+	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven"]
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
