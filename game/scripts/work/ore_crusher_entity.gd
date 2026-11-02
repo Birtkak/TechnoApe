@@ -99,10 +99,13 @@ func view_parts() -> Dictionary:
 		WorkPalette.box(c, size, q, q + Vector3i(1, 6, 1), WorkPalette.IRON_DARK)
 	WorkPalette.box(c, size, Vector3i(0, 6, 0), Vector3i(8, 7, 8), WorkPalette.IRON_DARK)          # the top ring
 	WorkPalette.box(c, size, Vector3i(1, 6, 1), Vector3i(7, 7, 7), 0 - 1)
-	WorkPalette.box(c, size, Vector3i(1, 7, 1), Vector3i(7, 10, 2), WorkPalette.IRON_DARK)         # the hopper walls
-	WorkPalette.box(c, size, Vector3i(1, 7, 6), Vector3i(7, 10, 7), WorkPalette.IRON_DARK)
-	WorkPalette.box(c, size, Vector3i(1, 7, 1), Vector3i(2, 10, 7), WorkPalette.IRON_DARK)
-	WorkPalette.box(c, size, Vector3i(6, 7, 1), Vector3i(7, 10, 7), WorkPalette.IRON_DARK)
+	WorkPalette.hazard_box(c, size, Vector3i(0, 6, 7), Vector3i(8, 7, 8))                          # its front edge
+	WorkPalette.box(c, size, Vector3i(1, 7, 1), Vector3i(7, 10, 2), WorkPalette.PAINT)             # the hopper walls
+	WorkPalette.box(c, size, Vector3i(1, 7, 6), Vector3i(7, 10, 7), WorkPalette.PAINT)
+	WorkPalette.box(c, size, Vector3i(1, 7, 1), Vector3i(2, 10, 7), WorkPalette.PAINT)
+	WorkPalette.box(c, size, Vector3i(6, 7, 1), Vector3i(7, 10, 7), WorkPalette.PAINT)
+	WorkPalette.box(c, size, Vector3i(1, 9, 1), Vector3i(7, 10, 7), WorkPalette.STEEL)             # its rim
+	WorkPalette.box(c, size, Vector3i(2, 7, 2), Vector3i(6, 10, 6), 0 - 1)
 	var j := sifted % 2   # the jaws close on every crush
 	WorkPalette.box(c, size, Vector3i(1, 1, 2), Vector3i(3 + j, 6, 6), WorkPalette.ANVIL)
 	WorkPalette.box(c, size, Vector3i(5 - j, 1, 2), Vector3i(7, 6, 6), WorkPalette.ANVIL)

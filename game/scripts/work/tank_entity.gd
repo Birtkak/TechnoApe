@@ -67,12 +67,13 @@ func view_parts() -> Dictionary:
 	var c := WorkPalette.new_cells(size)
 	for q in [Vector3i(1, 0, 1), Vector3i(6, 0, 1), Vector3i(1, 0, 6), Vector3i(6, 0, 6)]:
 		WorkPalette.box(c, size, q, q + Vector3i(1, 1, 1), WorkPalette.IRON_DARK)
-	for y in range(1, 11):
+	for y in range(1, 11):   # riveted steel plate in courses, dark iron bands with bright rivet heads (ADR 0129)
 		for z in 8:
 			for x in 8:
 				var d2 := (x + 0.5 - 4.0) * (x + 0.5 - 4.0) + (z + 0.5 - 4.0) * (z + 0.5 - 4.0)
 				if d2 <= 16.0:
-					c[WorkPalette.idx(size, x, y, z)] = (WorkPalette.ANVIL if y % 4 == 2 else WorkPalette.IRON_DARK) + 1   # rivet rings
+					var band := y % 4 == 2 or y == 10
+					c[WorkPalette.idx(size, x, y, z)] = ((WorkPalette.RIVET if (x + z) % 3 == 0 else WorkPalette.IRON_DARK) if band else WorkPalette.STEEL) + 1
 	WorkPalette.box(c, size, Vector3i(3, 11, 3), Vector3i(5, 12, 5), WorkPalette.BRONZE)   # the filler cap
 	WorkPalette.box(c, size, Vector3i(3, 0, 7), Vector3i(5, 2, 8), WorkPalette.BRONZE)     # the outlet to the pipes
 	var level := int(ceil(9.0 * buckets / float(Settings.tank_buckets)))

@@ -83,12 +83,13 @@ func view_parts() -> Dictionary:
 	var size := Vector3i(8, 8, 8)
 	var c := WorkPalette.new_cells(size)
 	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(8, 1, 8), WorkPalette.IRON_DARK)   # the base
-	for y in range(1, 6):   # the tank along x
+	WorkPalette.hazard_box(c, size, Vector3i(0, 0, 7), Vector3i(8, 1, 8))
+	for y in range(1, 6):   # the tank along x: engine-green plate, dark bands with rivets (ADR 0129)
 		for z in range(2, 8):
 			var d2 := (y - 3.0) * (y - 3.0) + (z - 4.5) * (z - 4.5)
 			if d2 <= 6.5:
 				for x in range(0, 8):
-					c[WorkPalette.idx(size, x, y, z)] = (WorkPalette.ANVIL if x % 3 == 1 else WorkPalette.IRON_DARK) + 1
+					c[WorkPalette.idx(size, x, y, z)] = (((WorkPalette.RIVET if (y + z) % 3 == 0 else WorkPalette.IRON_DARK) if x % 3 == 1 else WorkPalette.PAINT)) + 1
 	var up := 1 if _gauge < 10 and powered() and air < 1.0 else 0
 	WorkPalette.box(c, size, Vector3i(5, 1, 0), Vector3i(7, 5, 2), WorkPalette.BRONZE)              # the steam cylinder
 	WorkPalette.box(c, size, Vector3i(6, 5, 1), Vector3i(7, 7 + up, 2), WorkPalette.ANVIL)           # the piston rod

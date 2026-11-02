@@ -98,10 +98,10 @@ func _ticks(n: int) -> void:
 
 func test_turbine_powers_the_furnace_over_a_cable() -> void:
 	var t := _powered_turbine()
-	# the turbine is 2 blocks wide: cables at 8B and 9B, the furnace at 10B
-	store.create(Vector3i(8 * B, 0, 0), "cable")
+	# the turbine is 3 blocks wide: cables at 9B and 10B, the furnace at 11B
 	store.create(Vector3i(9 * B, 0, 0), "cable")
-	var f: ElectricFurnaceEntity = store.create(Vector3i(10 * B, 0, 0), "electric_furnace")
+	store.create(Vector3i(10 * B, 0, 0), "cable")
+	var f: ElectricFurnaceEntity = store.create(Vector3i(11 * B, 0, 0), "electric_furnace")
 	var r := f.use({"id": "raw_meat", "count": items.units("raw_meat")})
 	assert_int(r["consume"]).is_equal(items.units("raw_meat"))
 	_ticks(500)   # 25 s: the boiler reaches working pressure (boiler_build_s), the turbine turns, the furnace lights
@@ -120,7 +120,6 @@ func test_no_cable_or_cold_boiler_means_no_power() -> void:
 	f.use({"id": "raw_meat", "count": items.units("raw_meat")})
 	_ticks(500)
 	assert_bool(f.is_lit()).is_false()
-	store.create(Vector3i(8 * B, 0, 0), "cable")
 	store.create(Vector3i(9 * B, 0, 0), "cable")
 	store.create(Vector3i(10 * B, 0, 0), "cable")
 	store.create(Vector3i(11 * B, 0, 0), "cable")

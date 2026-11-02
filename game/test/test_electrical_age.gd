@@ -22,7 +22,7 @@ func after_test() -> void:
 	Inventory.clock_s = 0.0
 
 
-## A lit boiler at the origin, a pipe at 5B, the turbine at 6B (2 blocks wide), a cable at 8B: machines go at 9B.
+## A lit boiler at the origin, a pipe at 5B, the turbine at 6B (3 blocks wide), a cable at 9B: machines go at 10B.
 func _powered_line() -> BoilerEntity:
 	var b: BoilerEntity = store.create(Vector3i.ZERO, "boiler")
 	b.use({"id": "coal", "count": 8}, items.get_def("coal"), false, true)
@@ -31,7 +31,7 @@ func _powered_line() -> BoilerEntity:
 	assert_bool(b.ignite()).is_true()
 	store.create(Vector3i(5 * B, 0, 0), "pipe")
 	store.create(Vector3i(6 * B, 0, 0), "turbine")
-	store.create(Vector3i(8 * B, 0, 0), "cable")
+	store.create(Vector3i(9 * B, 0, 0), "cable")
 	return b
 
 
@@ -75,7 +75,7 @@ func test_tier_one_machines_cost_circuits_and_hulls() -> void:
 
 func test_lathe_turns_rods_on_power() -> void:
 	var b := _powered_line()
-	var lathe: MachineEntity = store.create(Vector3i(9 * B, 0, 0), "lathe")
+	var lathe: MachineEntity = store.create(Vector3i(10 * B, 0, 0), "lathe")
 	assert_float(lathe.eu_t).is_equal(8.0)
 	assert_int(lathe.use({"id": "copper_ingot", "count": 1})["consume"]).is_equal(0)   # not a lathe input
 	assert_int(lathe.use({"id": "iron_ingot", "count": 1})["consume"]).is_equal(1)
@@ -91,7 +91,7 @@ func test_lathe_turns_rods_on_power() -> void:
 
 func test_macerator_triples_and_a_hopper_can_unload_it() -> void:
 	var b := _powered_line()
-	var m: MachineEntity = store.create(Vector3i(9 * B, 0, 0), "macerator")
+	var m: MachineEntity = store.create(Vector3i(10 * B, 0, 0), "macerator")
 	assert_int(m.use({"id": "iron_ore", "count": items.units("iron_ore")})["consume"]).is_equal(items.units("iron_ore"))
 	_ticks(600, b)
 	assert_int(int(m.output.get("count", 0))).is_equal(3)
@@ -102,7 +102,7 @@ func test_macerator_triples_and_a_hopper_can_unload_it() -> void:
 
 func test_alloy_smelter_takes_two_inputs() -> void:
 	var b := _powered_line()
-	var a: MachineEntity = store.create(Vector3i(9 * B, 0, 0), "alloy_smelter")
+	var a: MachineEntity = store.create(Vector3i(10 * B, 0, 0), "alloy_smelter")
 	assert_int(a.inv.size()).is_equal(2)
 	a.use({"id": "copper_ingot", "count": 3})
 	assert_dict(a.current()).is_empty()   # tin missing
@@ -115,7 +115,7 @@ func test_alloy_smelter_takes_two_inputs() -> void:
 
 func test_assembler_doubles_circuits() -> void:
 	var b := _powered_line()
-	var a: MachineEntity = store.create(Vector3i(9 * B, 0, 0), "assembler")
+	var a: MachineEntity = store.create(Vector3i(10 * B, 0, 0), "assembler")
 	for id in ["vacuum_tube", "resistor", "insulated_wire", "coated_board"]:
 		a.use({"id": id, "count": 2})
 	assert_str(a.current()["id"]).is_equal("assemble_primitive_circuit")
@@ -127,10 +127,10 @@ func test_assembler_doubles_circuits() -> void:
 
 func test_battery_charges_from_surplus_and_gives_when_the_boiler_is_cold() -> void:
 	var b := _powered_line()
-	store.create(Vector3i(9 * B, 0, 0), "cable")
-	var bat: BatteryBoxEntity = store.create(Vector3i(10 * B, 0, 0), "battery_box")
-	var lamp: ElectricLampEntity = store.create(Vector3i(12 * B, 0, 0), "electric_lamp")
-	store.create(Vector3i(13 * B, 0, 0), "cable")
+	store.create(Vector3i(10 * B, 0, 0), "cable")
+	var bat: BatteryBoxEntity = store.create(Vector3i(11 * B, 0, 0), "battery_box")
+	var lamp: ElectricLampEntity = store.create(Vector3i(13 * B, 0, 0), "electric_lamp")
+	store.create(Vector3i(14 * B, 0, 0), "cable")
 	_ticks(500, b)
 	assert_bool(lamp.is_lit()).is_true()
 	assert_bool(bat.charge > 1000.0).override_failure_message("charge %.0f" % bat.charge).is_true()
@@ -160,15 +160,15 @@ func test_low_sinks_only_get_what_sinks_leave() -> void:
 
 
 func test_saves_keep_machine_state() -> void:
-	var a: MachineEntity = store.create(Vector3i(9 * B, 0, 0), "alloy_smelter")
+	var a: MachineEntity = store.create(Vector3i(10 * B, 0, 0), "alloy_smelter")
 	a.use({"id": "tin_nugget", "count": 3})
 	a.output = {"id": "bronze_ingot", "count": 4}
-	var bat: BatteryBoxEntity = store.create(Vector3i(12 * B, 0, 0), "battery_box")
+	var bat: BatteryBoxEntity = store.create(Vector3i(13 * B, 0, 0), "battery_box")
 	bat.charge = 500.0
 	var d := store.to_dict()
 	var store2 := BlockEntities.new(items, recipes)
 	assert_bool(store2.load_dict(d)).is_true()
-	var a2: MachineEntity = store2.at(Vector3i(9 * B, 0, 0))
+	var a2: MachineEntity = store2.at(Vector3i(10 * B, 0, 0))
 	assert_str(a2.inv.get_slot(0)["id"]).is_equal("tin_nugget")
 	assert_int(int(a2.output["count"])).is_equal(4)
-	assert_float(store2.at(Vector3i(12 * B, 0, 0)).charge).is_equal(500.0)
+	assert_float(store2.at(Vector3i(13 * B, 0, 0)).charge).is_equal(500.0)

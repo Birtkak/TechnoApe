@@ -212,18 +212,56 @@ func look_lines() -> Array[String]:
 
 
 ## An iron box with a dark door and a copper terminal on its back; the door's slit shows `door` while lit.
-static func box_model(door: int, lit: bool) -> Dictionary:
+## The machine hull (ADR 0129, industrial like the turbine): an iron plinth with a hazard-striped front
+## edge, dark iron corner posts and bands framing engine-green panels, vent slits in the sides, a steel-framed
+## window in the front (+z) that shows `door` while lit, the copper terminal at the back, and on top the
+## fitting that tells the kinds apart (`top` = the kind).
+static func box_model(door: int, lit: bool, top: String = "") -> Dictionary:
 	var size := Vector3i(8, 8, 8)
 	var c := WorkPalette.new_cells(size)
-	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(8, 8, 8), WorkPalette.IRON_DARK)
-	WorkPalette.box(c, size, Vector3i(2, 2, 7), Vector3i(6, 6, 8), WorkPalette.SOOT)   # the door
-	WorkPalette.box(c, size, Vector3i(3, 3, 7), Vector3i(5, 4, 8), door if lit else WorkPalette.SOOT + 1)
-	WorkPalette.box(c, size, Vector3i(3, 3, 0), Vector3i(5, 5, 1), WorkPalette.COPPER)   # the terminal
+	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(8, 1, 8), WorkPalette.IRON_DARK)   # the plinth
+	WorkPalette.hazard_box(c, size, Vector3i(0, 0, 7), Vector3i(8, 1, 8))
+	WorkPalette.box(c, size, Vector3i(0, 1, 0), Vector3i(8, 7, 8), WorkPalette.PAINT)       # the panels
+	for q in [Vector2i(0, 0), Vector2i(7, 0), Vector2i(0, 7), Vector2i(7, 7)]:
+		WorkPalette.box(c, size, Vector3i(q.x, 1, q.y), Vector3i(q.x + 1, 7, q.y + 1), WorkPalette.IRON_DARK)   # the posts
+	WorkPalette.box(c, size, Vector3i(0, 6, 0), Vector3i(8, 7, 8), WorkPalette.IRON_DARK)   # the top band
+	WorkPalette.box(c, size, Vector3i(1, 6, 1), Vector3i(7, 7, 7), WorkPalette.STEEL)       # the lid
+	for y in [3, 5]:   # the vents
+		WorkPalette.box(c, size, Vector3i(0, y, 2), Vector3i(8, y + 1, 6), WorkPalette.SOOT)
+	WorkPalette.box(c, size, Vector3i(1, 1, 1), Vector3i(7, 6, 7), WorkPalette.PAINT)
+	WorkPalette.box(c, size, Vector3i(2, 2, 7), Vector3i(6, 6, 8), WorkPalette.STEEL)       # the window frame
+	WorkPalette.box(c, size, Vector3i(3, 3, 7), Vector3i(5, 5, 8), WorkPalette.SOOT)
+	if lit:
+		WorkPalette.box(c, size, Vector3i(3, 3, 7), Vector3i(5, 4, 8), door)
+	for p in [Vector3i(2, 2, 7), Vector3i(5, 2, 7), Vector3i(2, 5, 7), Vector3i(5, 5, 7)]:
+		c[WorkPalette.idx(size, p.x, p.y, p.z)] = WorkPalette.RIVET + 1
+	WorkPalette.box(c, size, Vector3i(2, 2, 0), Vector3i(6, 6, 1), WorkPalette.IRON_DARK)   # the terminal plate
+	WorkPalette.box(c, size, Vector3i(3, 3, 0), Vector3i(5, 5, 1), WorkPalette.COPPER)
+	match top:
+		"lathe":   # the headstock's chuck along x
+			WorkPalette.box(c, size, Vector3i(1, 7, 3), Vector3i(7, 8, 5), WorkPalette.BRONZE)
+			WorkPalette.box(c, size, Vector3i(1, 7, 2), Vector3i(2, 8, 6), WorkPalette.IRON_DARK)
+		"bending_press":   # the ram
+			WorkPalette.box(c, size, Vector3i(2, 7, 2), Vector3i(6, 8, 6), WorkPalette.ANVIL)
+			WorkPalette.hazard_box(c, size, Vector3i(2, 7, 5), Vector3i(6, 8, 6))
+		"wiremill":   # a spool of copper wire between iron cheeks
+			WorkPalette.box(c, size, Vector3i(2, 7, 3), Vector3i(6, 8, 5), WorkPalette.COPPER)
+			for x in [2, 5]:
+				WorkPalette.box(c, size, Vector3i(x, 7, 2), Vector3i(x + 1, 8, 6), WorkPalette.IRON_DARK)
+		"macerator":   # the feed hopper, ore in it
+			WorkPalette.box(c, size, Vector3i(1, 7, 1), Vector3i(7, 8, 7), WorkPalette.STEEL)
+			WorkPalette.box(c, size, Vector3i(2, 7, 2), Vector3i(6, 8, 6), WorkPalette.GRAVEL)
+		"alloy_smelter", "electric_furnace":   # a short brick stack
+			WorkPalette.box(c, size, Vector3i(4, 7, 1), Vector3i(7, 8, 4), WorkPalette.BRICK)
+			c[WorkPalette.idx(size, 5, 7, 2)] = WorkPalette.SOOT + 1
+		"assembler":   # a little arm with a yellow tip
+			WorkPalette.box(c, size, Vector3i(5, 7, 4), Vector3i(6, 8, 5), WorkPalette.IRON_DARK)
+			WorkPalette.box(c, size, Vector3i(2, 7, 4), Vector3i(5, 8, 5), WorkPalette.HAZARD)
 	return {"solid": {"cells": c, "size": size}}
 
 
 func view_parts() -> Dictionary:
-	return box_model(int(DOOR.get(kind, WorkPalette.MOLTEN)), is_lit())
+	return box_model(int(DOOR.get(kind, WorkPalette.MOLTEN)), is_lit(), kind)
 
 
 func to_dict() -> Dictionary:
