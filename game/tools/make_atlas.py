@@ -152,6 +152,10 @@ def planks(base=(176, 136, 82)):
                 px[x, y] = (r - 45, g - 40, b - 30, 255)
             elif x == (5 if (y // 4) % 2 == 0 else 12):
                 px[x, y] = (r - 35, g - 30, b - 22, 255)
+            elif y % 4 == 0:   # lit top edge of each board (ADR 0129)
+                px[x, y] = (r + 16, g + 13, b + 8, 255)
+            elif y % 4 == 2 or x == (4 if (y // 4) % 2 == 0 else 11):   # shaded lower edge, end before the joint
+                px[x, y] = (r - 12, g - 11, b - 8, 255)
     return img
 
 
@@ -452,6 +456,32 @@ PAL = {
 }
 
 
+def grade(img, contrast=1.22, shift=14.0, sat=1.14):
+    """ADR 0129: hue-shifted ramps for every generated tile. Each texel moves away from the tile's mean
+    brightness, darker texels turn cooler (blue-violet) and lighter ones warmer (yellow), and saturation
+    lifts a little, so close shades separate and materials of one family stop reading as one grey."""
+    px = img.load()
+    lum = lambda r, g, b: 0.299 * r + 0.587 * g + 0.114 * b
+    ops = [px[x, y] for y in range(TILE) for x in range(TILE) if px[x, y][3]]
+    if not ops:
+        return img
+    mean = sum(lum(r, g, b) for r, g, b, _ in ops) / len(ops)
+    out = img.copy()
+    po = out.load()
+    for y in range(TILE):
+        for x in range(TILE):
+            r, g, b, a = px[x, y]
+            if not a:
+                continue
+            l = lum(r, g, b)
+            d = (mean + (l - mean) * contrast) - l
+            t = max(-1.0, min(1.0, (l - mean) / 48.0))
+            c = [l + (v - l) * sat + d for v in (r, g, b)]
+            c = [c[0] + shift * t * 0.7, c[1] + shift * t * 0.25, c[2] - shift * t]
+            po[x, y] = tuple(max(0, min(255, int(round(v)))) for v in c) + (a,)
+    return out
+
+
 def keep_rng(tile, *noise_args):
     """A tile that replaced a noise_tile: draws that tile's numbers from the shared RNG (same
     arguments as the old tile) after building, so the noise tiles after it keep their look."""
@@ -739,10 +769,15 @@ def cobblestone():
             for sx, sy, shade in seeds:
                 dx = min(abs(x + 0.5 - sx), TILE - abs(x + 0.5 - sx))
                 dy = min(abs(y + 0.5 - sy), TILE - abs(y + 0.5 - sy))
-                ds.append((dx * dx + dy * dy, shade))
+                ds.append((dx * dx + dy * dy, shade, sx, sy))
             ds.sort()
             gap = ds[1][0] ** 0.5 - ds[0][0] ** 0.5 < 0.75
             v = 142 + ds[0][1] + rng.randint(-6, 6)
+            sx, sy = ds[0][2], ds[0][3]   # lit from the top-left (ADR 0129): rim light, shaded far side
+            ox, oy = x + 0.5 - sx, y + 0.5 - sy
+            ox -= TILE * round(ox / TILE)
+            oy -= TILE * round(oy / TILE)
+            v += max(-20, min(18, int(-(ox + oy) * 7)))
             if gap:
                 v = 88 + rng.randint(-6, 6)
             px[x, y] = (v + 4, v, v - 8, 255)
@@ -768,6 +803,10 @@ def bricks():
             if key not in shades:
                 shades[key] = rng.randint(-20, 16)
             d = shades[key] + rng.randint(-7, 7)
+            if y % 4 == 0 or xs % 8 == 0:   # lit top and left edge of each brick (ADR 0129)
+                d += 18
+            elif y % 4 == 2 or xs % 8 == 6:
+                d -= 16
             px[x, y] = (max(0, 162 + d), max(0, 74 + d // 2), max(0, 52 + d // 2), 255)
     return img
 
@@ -1004,6 +1043,8 @@ tiles += [monolith_ashlar(), monolith_runes(), monolith_seam()]   # 173..175 (AD
 assert len(tiles) == 176, len(tiles)
 tiles += [planks(c) for c in [(118, 82, 50), (196, 110, 58), (166, 104, 82), (222, 204, 160)]]   # 176..179 spruce, acacia, jungle, birch planks
 assert len(tiles) <= COLS * ROWS, len(tiles)
+
+tiles = [grade(t) for t in tiles]   # one palette rule for every generated tile (ADR 0129)
 
 # hand-painted overrides: game/art/tiles/<index>[_note].png (16x16) replaces tile <index> (game/art/README.md)
 ART = os.path.join(os.path.dirname(__file__), "..", "art", "tiles")
