@@ -219,6 +219,8 @@ func hurt(amount: int, from: Vector3) -> bool:
 			_provoked_t = 30.0
 	else:
 		_panic_t = PANIC_S
+		if manager != null:
+			manager.alarm(self)   # the herd bolts with it (ADR 0120)
 	_target = Vector3.INF
 	_graze_t = 0.0
 	if health <= 0:

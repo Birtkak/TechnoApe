@@ -37,7 +37,7 @@ var mate_s := 3.0
 var feed_baby_speedup := 0.1
 var spawning := true
 var game_time := 0.0           # seconds this world has run (dormant mobs catch up from it)
-var stats := {"spawned": 0, "herds": 0, "bred": 0, "died": 0, "slept": 0, "woke": 0, "cells": 0, "kills": 0, "mauled": 0, "eggs": 0, "carcasses": 0, "night_spawned": 0, "faded": 0}
+var stats := {"spawned": 0, "herds": 0, "bred": 0, "died": 0, "slept": 0, "woke": 0, "cells": 0, "kills": 0, "mauled": 0, "eggs": 0, "carcasses": 0, "night_spawned": 0, "faded": 0, "alarmed": 0}
 var dirty := false
 var last_frame_ms := 0.0
 var worst_frame_ms := 0.0
@@ -531,6 +531,16 @@ func separate(m: Mob) -> void:
 
 
 # ---------------- social ----------------
+
+## A hurt animal alarms its herd: the others of its kind within 12 m bolt too (a stampede, not one
+## sheep at a time). Predators stand their ground.
+func alarm(m: Mob) -> void:
+	var r := Settings.m2v(12.0)
+	for o in _active:
+		if o != m and o.species == m.species and not o.is_dead() and o.position.distance_to(m.position) < r:
+			o.scare()
+			stats["alarmed"] += 1
+
 
 ## Position of a player holding this species' food within 10 m, or INF.
 func tempt_target(m: Mob) -> Vector3:
