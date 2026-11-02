@@ -144,7 +144,7 @@
   "ice_shard": "glass", "cave_crystal": "glass", "clay_pot": "none", "clay_pot_cracked": "none", "red_ochre": "dirt", "yellow_ochre": "dirt",
   "stone": "stone", "bedrock": "stone", "coal_ore": "stone", "iron_ore": "stone", "copper_ore": "stone", "tin_ore": "stone",
   "sandstone": "stone", "stalactite": "stone", "stalagmite": "stone", "chiseled": "stone", "obsidian": "stone",
-  "cobblestone": "stone", "bricks": "stone", "basalt": "stone", "dripstone": "stone", "magma_rock": "stone", "terracotta": "stone", "terracotta_red": "stone",
+  "cobblestone": "stone", "bricks": "stone", "basalt": "stone", "dripstone": "stone", "magma_rock": "stone", "rusted_rail": "stone", "terracotta": "stone", "terracotta_red": "stone",
   "terracotta_cream": "stone", "furnace": "stone", "furnace_lit": "stone", "sulfur": "gravel", "storage_pot": "stone",
   "dirt": "dirt", "farmland": "dirt", "farmland_moist": "mud", "ash": "sand", "work_spot": "dirt", "work_block": "dirt",
   "grass": "grass", "moss": "grass", "savanna_grass": "grass", "red_earth": "dirt",

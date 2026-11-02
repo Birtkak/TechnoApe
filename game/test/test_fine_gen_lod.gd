@@ -310,3 +310,25 @@ func test_cave_biome_at_names_cave_voxels_only() -> void:
 	var h := g.height_at(p.x, p.z)
 	assert_str(g.cave_biome_at(p.x, h + 40, p.z)).is_empty()
 	assert_str(g.cave_biome_at(p.x, 3 * 8 + 2, p.z)).is_empty()   # down in the bedrock
+
+
+## The abandoned mine ruin: rails and loot pots down in its gallery, under the ruin's floor.
+func test_abandoned_mine_has_rails_and_pots_underground() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var p: Vector3i = g.find_nearest("ruin_mine", 0, 0, 8000)
+	assert_int(p.y).override_failure_message("no mine").is_greater_equal(0)
+	var r: Dictionary = g.ruin_at(p.x, p.z)
+	var hx: int = r["half_x"] + 8
+	var hz: int = r["half_z"] + 8
+	var b: PackedByteArray = g.generate_block(Vector3i(p.x - hx, p.y - 48, p.z - hz), Vector3i(2 * hx, 48, 2 * hz), 0, 2)
+	var rails := 0
+	var pots := 0
+	for k in range(0, b.size(), 2):
+		var m := b.decode_u16(k)
+		if m == GameMaterials.RUSTED_RAIL:
+			rails += 1
+		elif GameMaterials.defs()[m - 1].has("shatter") if m > 0 else false:
+			pots += 1
+	assert_int(rails).is_greater(20)
+	assert_int(pots).is_greater(0)

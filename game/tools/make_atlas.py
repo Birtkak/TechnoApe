@@ -20,7 +20,7 @@ Tiles (index = row*4 + col):
 171 tnt side 172 tnt top (patterned: a 4-voxel period, one 0.5 m TNT block per period; ADR 0065)
 173 monolith ashlar 174 monolith runes 175 monolith seam (patterned, 16-voxel period; runes and seam glow, ADR 0098)
 176 spruce 177 acacia 178 jungle 179 birch planks (patterned like 39 oak planks); 180-191 other branches
-192 dripstone 193 cave vine 194 fungus stem 204 glow berries 205 magma rock 206 fungus cap (cave dressing; 204..207 glow)
+192 dripstone 193 cave vine 194 fungus stem 195 rusted rail 204 glow berries 205 magma rock 206 fungus cap (cave dressing; 204..207 glow)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import math
@@ -1101,6 +1101,12 @@ def cave_tiles():
         for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
             _px(img, (bx + dx) % TILE, (by + dy) % TILE, (120, 255, 230) if (dx or dy) else (220, 255, 250), rng, 6)
     out[206] = img
+    img = Image.new("RGBA", (TILE, TILE))   # 195 rusted rail: iron gone to rust, a worn bright top
+    for y in range(TILE):
+        for x in range(TILE):
+            c = (150, 152, 158) if y < 3 else ((128, 66, 34) if rng.random() > 0.35 else (96, 52, 30))
+            _px(img, x, y, c, rng, 10)
+    out[195] = img
     return out
 
 

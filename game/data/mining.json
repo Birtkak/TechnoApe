@@ -100,6 +100,7 @@
     "glow_berry_vine": {"hardness": 0.0, "drops": [{"id": "plant_fiber", "chance": 0.3}]},
     "fungus_stem": {"hardness": 0.4, "tool": "axe", "drops": [{"id": "plant_fiber", "count": [1, 2]}]},
     "fungus_cap": {"hardness": 0.2, "drops": [{"id": "plant_fiber", "chance": 0.5}]},
+    "rusted_rail": {"hardness": 0.8, "tool": "pickaxe", "drops": [{"id": "iron_nugget", "chance": 0.5}]},
     "magma_rock": {"hardness": 1.5, "tool": "pickaxe", "requires": true, "drops": "basalt", "drop_tier": 1},
     "giant_stem": {"hardness": 1.0, "tool": "axe", "drops": [{"id": "plant_fiber", "count": [1, 2]}]},
     "giant_petal": {"hardness": 0.1, "drops": [{"id": "poppy", "chance": 0.05}]},
