@@ -71,6 +71,7 @@ func check_here(slow := true) -> void:
 			book.note("landmark:marsh")
 	elif not main.player.in_liquid:
 		book.note("landmark:cave")
+		book.note("cave:" + gen.cave_biome_at(x, floori(p.y), z))   # "" in rock or water: no entry
 	# a conduit (ADR 0110) within 3 m of the body: standing in or beside its tube; the chamber from inside
 	var cn: Dictionary = gen.conduit_near(x, int(p.y), z)
 	if float(cn.get("dist_m", 1e9)) < 3.0:
@@ -88,6 +89,10 @@ func check_here(slow := true) -> void:
 			var r: Vector3i = gen.find_nearest("ruin", x, z, int(lm))
 			if r.y >= 0 and Vector2(r.x - x, r.z - z).length() <= lm:
 				book.note("landmark:ruin")
+		if not book.is_found("landmark:abandoned_mine"):
+			var mn: Vector3i = gen.find_nearest("ruin_mine", x, z, int(lm))
+			if mn.y >= 0 and Vector2(mn.x - x, mn.z - z).length() <= lm:
+				book.note("landmark:abandoned_mine")
 		if not book.is_found("landmark:waterfall") and not gen.waterfalls_near(x, z, int(lm)).is_empty():
 			book.note("landmark:waterfall")
 
