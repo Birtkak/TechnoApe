@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## The wild animals of ADR 0058: the data, the models, and the behaviours (flee, hop, swim, fly, pack
 ## hunts, boars that turn on whoever hurt them).
 
-const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow", "salmon", "jellyfish", "cave_salamander"]
+const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow", "salmon", "jellyfish", "cave_salamander", "songbird"]
 
 
 func _manager() -> MobManager:
@@ -150,3 +150,16 @@ func test_grazers_sleep_at_night() -> void:
 		m._think_goal()
 		assert_str(m.goal).is_equal("sleep")
 		assert_vector(m._target).is_equal(Vector3.INF)
+
+
+func test_songbirds_land_sit_and_take_off() -> void:
+	var mm := _manager()
+	var bird := _mob(mm, "songbird", Vector3(0, 100, 0))
+	bird.set_meta("landing", true)   # a landing flight that just arrived
+	assert_bool(WildMoves._perch(bird)).is_true()
+	assert_str(bird.goal).is_equal("perch")
+	assert_bool(WildMoves._perch(bird)).is_true()   # it keeps sitting
+	bird._panic_t = 1.0                              # a scare sends it up
+	assert_bool(WildMoves._perch(bird)).is_false()
+	assert_str(bird.goal).is_equal("fly")
+	assert_float(bird.velocity.y).is_greater(0.0)

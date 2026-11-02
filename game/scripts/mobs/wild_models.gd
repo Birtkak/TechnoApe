@@ -56,6 +56,10 @@ const SALA := BASE + 45          # cave salamander: a violet-black ramp with war
 const SALA_LIGHT := BASE + 46
 const SALA_DARK := BASE + 47
 const SALA_SPOT := BASE + 48
+const ROBIN := BASE + 49         # songbird: warm brown back, a cooler shade under it, an orange breast and a cream belly
+const ROBIN_DARK := BASE + 50
+const ROBIN_BREAST := BASE + 51
+const ROBIN_BELLY := BASE + 52
 const PALETTE: Array = [
 	[150, 102, 62], [218, 190, 152], [222, 208, 172], [96, 74, 58], [62, 46, 36], [238, 230, 208],
 	[164, 132, 100], [232, 222, 206], [210, 104, 40], [242, 234, 222], [52, 36, 30],
@@ -67,6 +71,7 @@ const PALETTE: Array = [
 	[214, 132, 120], [236, 210, 196], [96, 104, 132],
 	[176, 150, 214], [228, 206, 236], [112, 86, 168], [244, 96, 168],
 	[46, 40, 54], [78, 70, 84], [26, 20, 40], [246, 198, 58],
+	[124, 98, 74], [70, 56, 62], [226, 112, 50], [240, 228, 206],
 ]
 const EYE := 7          # MobModel.EYE
 const SKIN_DARK := 3    # MobModel.SKIN_DARK: hooves
@@ -99,6 +104,8 @@ const LAYOUT := {
 		["leg", "leg", Vector3(3, 11, -3)], ["leg", "leg", Vector3(-3, 11, -3)]],
 	"poison_frog": [["body", "body", Vector3(0, 3, -1)], ["head", "head", Vector3(0, 4, 5)],
 		["leg", "leg", Vector3(5, 4, 3)], ["leg", "leg", Vector3(-5, 4, 3)], ["hind", "leg", Vector3(6, 5, -4)], ["hind", "leg", Vector3(-6, 5, -4)]],
+	"songbird": [["body", "body", Vector3(0, 3, -1)], ["head", "head", Vector3(0, 8, 3)], ["tail", "tail", Vector3(0, 6, -4)],
+		["leg", "leg", Vector3(1, 4, 0)], ["leg", "leg", Vector3(-1, 4, 0)], ["wing_l", "wing", Vector3(3, 8, 0)], ["wing_r", "wing", Vector3(-3, 8, 0)]],
 	"cave_salamander": [["body", "body", Vector3(0, 3, 0)], ["head", "head", Vector3(0, 3, 9)], ["tail", "tail", Vector3(0, 4, -9)],
 		["leg", "leg", Vector3(5, 4, 5)], ["leg", "leg", Vector3(-5, 4, 5)], ["leg", "leg", Vector3(5, 4, -5)], ["leg", "leg", Vector3(-5, 4, -5)]],
 	"crab": [["body", "body", Vector3(0, 4, 0)], ["head", "head", Vector3(0, 6, 6)],
@@ -511,6 +518,41 @@ static func build(sp: String, part: String) -> Array:
 			_box(c, size, Vector3i.ZERO, size, JELLY_LIGHT)
 			_box(c, size, Vector3i(0, 0, 0), Vector3i(2, 6, 2), JELLY_DARK)            # the trailing ends fade darker
 			o = Vector3(-1, -14, -1)
+		"songbird/body":
+			size = Vector3i(6, 6, 8)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, ROBIN)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(6, 2, 8), ROBIN_BELLY)
+			_box(c, size, Vector3i(1, 1, 5), Vector3i(5, 5, 8), ROBIN_BREAST)          # the breast faces forward
+			_box(c, size, Vector3i(5, 2, 0), Vector3i(6, 6, 5), ROBIN_DARK)           # shaded right flank
+			o = Vector3(-3, 0, -4)
+		"songbird/head":
+			size = Vector3i(4, 4, 6)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(4, 4, 4), ROBIN)
+			_box(c, size, Vector3i(0, 0, 2), Vector3i(4, 2, 4), ROBIN_BREAST)
+			_box(c, size, Vector3i(1, 1, 4), Vector3i(3, 2, 6), BEAK)
+			for x in [0, 3]:
+				_box(c, size, Vector3i(x, 2, 2), Vector3i(x + 1, 3, 3), EYE)
+			o = Vector3(-2, -1, -1)
+		"songbird/tail":
+			size = Vector3i(2, 2, 6)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, ROBIN_DARK)
+			o = Vector3(-1, -1, -6)
+		"songbird/leg":
+			size = Vector3i(1, 4, 2)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, Vector3i(1, 4, 1), BEAK)
+			_box(c, size, Vector3i.ZERO, Vector3i(1, 1, 2), BEAK)
+			o = Vector3(-0.5, -4, -0.5)
+		"songbird/wing_l", "songbird/wing_r":
+			size = Vector3i(6, 2, 6)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, ROBIN)
+			_box(c, size, Vector3i(3, 0, 0), Vector3i(6, 2, 5), ROBIN_DARK)          # dark flight feathers
+			var lw := part == "wing_l"
+			o = Vector3(0 if lw else -6, -1, -3)
 		"cave_salamander/body":
 			size = Vector3i(8, 4, 18)
 			c = MobModel._cells(size)

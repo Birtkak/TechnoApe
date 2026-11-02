@@ -14,6 +14,8 @@ extends RefCounted
 
 const FLOP_HURT_S := 2.0       # a fish on land loses a half-heart this often
 const CAVE_CHANCE := 0.12      # per spawn cell: a cave group below it
+const PERCH_CHANCE := 0.7      # perching birds: share of new flights that come down to land
+const PERCH_TICKS := 400.0     # ... and sit about this many ticks (20 s) before flying on
 const SKY_CHANCE := 0.2        # per spawn cell: a flock of birds over its land (ADR 0120)
 const WATER_CHANCE := 0.25     # per spawn cell with water near its centre: fish or shore animals
 const CAVE_SCAN_M := 40.0      # how far below the surface a cave group may spawn
@@ -61,10 +63,17 @@ static func think(m: Mob) -> bool:
 					if y != -1:
 						m._go(Vector3(floor(t.x) + 0.5, y, floor(t.z) + 0.5), Settings.m2v(float(m.def.get("panic_m", 2.5))))
 			return true
+	if mv == "fly" and m.def.get("perches", false) and _perch(m):
+		return true
 	if mv == "swim" or mv == "fly":
 		m.goal = "panic" if m._panic_t > 0.0 else ("swim" if mv == "swim" else "fly")
 		if m._target == Vector3.INF or m.position.distance_to(m._target) < Settings.m2v(0.6) or m._chance_per_tick(1.0 / 160.0):
 			var t := _target_3d(m, mv == "swim")
+			if t != Vector3.INF and m.def.get("perches", false) and m._panic_t <= 0.0 and m._rng.randf() < PERCH_CHANCE:
+				var top := m.manager.world.surface_height(int(t.x), int(t.z)) + 1   # come down on the ground or a treetop
+				if m.manager.get_voxel(Vector3i(int(floor(t.x)), top, int(floor(t.z)))) == GameMaterials.AIR:
+					t.y = top + 0.5
+					m.set_meta("landing", true)
 			if t != Vector3.INF:
 				var sp := float(m.def.get("panic_m" if m._panic_t > 0.0 else "walk_m", 1.0))
 				m._go(t, Settings.m2v(sp), Settings.m2v(0.5))
@@ -75,6 +84,22 @@ static func think(m: Mob) -> bool:
 			m.goal = "paddle"
 			m._go(t, Settings.m2v(float(m.def.get("walk_m", 1.0))))
 			return true
+	return false
+
+
+## Perching birds (songbirds): a landing flight ends in "perch", sitting on the ground (Mob.on_floor, no
+## flapping) until a scare or a whim sends it up again. True while it sits.
+static func _perch(m: Mob) -> bool:
+	if m.get_meta("landing", false) and (m._target == Vector3.INF or m.position.distance_to(m._target) < Settings.m2v(0.6)):
+		m.set_meta("landing", false)
+		m.goal = "perch"
+		m._stop()
+	if m.goal != "perch":
+		return false
+	if m._panic_t <= 0.0 and not m._chance_per_tick(1.0 / PERCH_TICKS):
+		return true
+	m.goal = "fly"   # take off
+	m.velocity.y = Settings.m2v(2.5)
 	return false
 
 
@@ -162,9 +187,12 @@ static func move(m: Mob, delta: float) -> bool:
 			m.hurt(1, m.position)
 		m.set_meta("flop_t", t)
 	else:
-		if mv == "fly":
-			want.y += sin(m.model._time * 7.0) * Settings.m2v(0.6)   # the flutter
-		m.velocity = m.velocity.move_toward(want, acc)
+		if mv == "fly" and m.goal == "perch":   # sitting: it drops onto its perch and stays
+			m.velocity = Vector3(0.0, m.velocity.y - Settings.m2v(Settings.gravity_m) * delta, 0.0)
+		else:
+			if mv == "fly":
+				want.y += sin(m.model._time * 7.0) * Settings.m2v(0.6)   # the flutter
+			m.velocity = m.velocity.move_toward(want, acc)
 	var got := m._body.move(m.position, m.velocity, delta, m.world.terrain, m.on_floor)
 	m.position += got
 	m.on_floor = m._body.on_floor

@@ -183,10 +183,12 @@
   "frog": {"idle": "mob/frog", "hurt": "mob/frog", "baby": "mob/frog", "every_s": [6, 20]},
   "gloam_hound": {"idle": "mob/wolf", "hurt": "mob/wolf_bark", "baby": "mob/wolf", "angry": "mob/wolf_bark", "every_s": [6, 16]},
   "crow": {"idle": "mob/chicken_hurt", "hurt": "mob/chicken_hurt", "baby": "mob/chicken", "every_s": [10, 30]},
+  "songbird": {"idle": "amb/bird", "hurt": "mob/chicken_hurt", "baby": "amb/bird", "every_s": [6, 18]},
   "salmon": {"idle": "mob/fish", "hurt": "mob/fish", "baby": "mob/fish", "every_s": [10, 30]},
   "jellyfish": {"idle": "mob/fish", "hurt": "mob/fish", "baby": "mob/fish", "every_s": [20, 60]},
   "poison_frog": {"idle": "mob/frog", "hurt": "mob/frog", "baby": "mob/frog", "every_s": [8, 24]},
   "crab": {"idle": "mob/crab", "hurt": "mob/crab", "baby": "mob/crab", "every_s": [8, 20]},
+  "cave_salamander": {"idle": "mob/crab", "hurt": "mob/frog", "baby": "mob/crab", "every_s": [12, 30]},
   "fish": {"idle": "mob/fish", "hurt": "mob/fish", "baby": "mob/fish", "every_s": [10, 30]},
   "bat": {"idle": "mob/bat", "hurt": "mob/bat", "baby": "mob/bat", "every_s": [4, 12]},
   "cave_spider": {"idle": "mob/spider", "hurt": "mob/spider_hurt", "baby": "mob/spider", "angry": "mob/spider", "every_s": [12, 30]}
