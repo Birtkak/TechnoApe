@@ -43,6 +43,13 @@
       "wall": "stone_bricks", "trim": "moss", "floor": "cobblestone", "extra": "leaves",
       "pots": 2, "loot": "shrine_pot"
     },
+    "mine": {
+      "shape": "mine", "weight": 5,
+      "biomes": ["highlands", "taiga", "forest", "shrubland", "badlands", "frozen_highlands", "plains", "savanna", "birch_forest", "old_growth_forest", "snowy_taiga"],
+      "half_u_m": [2.0, 2.5], "half_v_m": [6.5, 7.0], "top_m": 4.5, "depth_m": 4.5,
+      "wall": "planks", "trim": "rusted_rail", "floor": "gravel_static", "extra": "gravel_static",
+      "pots": 3, "loot": "mine_pot"
+    },
     "wreck": {
       "shape": "wreck", "weight": 1, "coast": true,
       "biomes": ["beach", "snowy_beach", "stony_shore", "ocean", "mangrove"],

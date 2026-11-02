@@ -443,3 +443,10 @@ Asked for in bug reports 2026-11-02 18-55-21, 18-57-25, 18-54-25 and 18-49-07.
 - Over a vein within 16 m of the ground 2-4 crags (1-2 m tall, leaning, jagged) of the local rock stand 3-12 m from
   its centre, a third of their skin in streaks of the vein's primary ore; one crag over a vein 16-50 m down. Each
   crag needs dry land of its own (a vein centre is often under a river). `FineGen::OUTCROP` stamps.
+
+## Abandoned mines (2026-11-03 overnight)
+- A ruin kind `mine` (data/ruins.json, shape S_MINE): a timber head-frame and a spoil heap at the mouth, a decline
+  at 45 degrees (an open cut, then plank-roofed) 4 m down to a gallery 1.5 m wide and 2 m tall, timber sets every
+  2 m, rusted rails on sleepers, a gravel cave-in to squeeze past, two pots at the end and one at the decline's foot
+  (loot `mine_pot`: coal, torches, nuggets, worn copper and iron pickaxes, a lantern). Material 234 rusted_rail
+  (tile 195, mined for an iron nugget). Hills, forests, taiga, badlands, savanna, plains.

@@ -172,6 +172,7 @@ const GLOW_BERRY_VINE := 230
 const FUNGUS_STEM := 231
 const FUNGUS_CAP := 232
 const MAGMA_ROCK := 233
+const RUSTED_RAIL := 234           # an abandoned mine's rails (the "mine" ruin)
 const BARREL := 216                # ADR 0121: an 18-slot wooden barrel (a 0.75 x 1 m station like the chest); 217..227 this lane's
 
 const ATLAS_TILES := Vector2i(8, 26)   # rows grow at the bottom, so tile indices keep their meaning
@@ -299,7 +300,7 @@ static func _build_defs() -> Array:
 	] + _wood_defs() + [
 		# 216 (ADR 0121): storage drawn by StationEntity like the chest
 		{"name": "barrel", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "barrel"},
-	] + _reserved_defs(217, CAVE_IDS - 1) + _cave_defs() + _reserved_defs(CAVE_IDS + 6, 243)
+	] + _reserved_defs(217, CAVE_IDS - 1) + _cave_defs() + _reserved_defs(CAVE_IDS + 7, 243)
 
 
 ## Ids 207..215 (ADR 0112): planks of the other woods (the oak planks' rules, their own tile 176..179),
@@ -338,6 +339,7 @@ static func _cave_defs() -> Array:
 		{"name": "dripstone", "cell_type": "solid", "density": 10, "hp": 600, "tiles": [192, 192, 192], "transparent": false},
 		vine, berries, stem, cap,
 		{"name": "magma_rock", "cell_type": "solid", "density": 11, "hp": 900, "tiles": [205, 205, 205], "transparent": false},
+		{"name": "rusted_rail", "cell_type": "solid", "pattern": true, "density": 12, "hp": 300, "tiles": [195, 195, 195], "transparent": false},
 	]
 
 
