@@ -14,6 +14,7 @@ extends RefCounted
 
 const FLOP_HURT_S := 2.0       # a fish on land loses a half-heart this often
 const CAVE_CHANCE := 0.12      # per spawn cell: a cave group below it
+const SKY_CHANCE := 0.2        # per spawn cell: a flock of birds over its land (ADR 0120)
 const WATER_CHANCE := 0.25     # per spawn cell with water near its centre: fish or shore animals
 const CAVE_SCAN_M := 40.0      # how far below the surface a cave group may spawn
 
@@ -99,9 +100,12 @@ static func pack_prey(m: Mob, own: Mob) -> Mob:
 static func _target_3d(m: Mob, water: bool) -> Vector3:
 	if not m.manager.take_search():
 		return Vector3.INF
-	var h := Settings.m2v(4.0)
+	var sky := habitat(m.def) == "sky"
+	var h := Settings.m2v(14.0 if sky else 4.0)
 	for _i in 6:
 		var t := m.position + Vector3(m._rng.randf_range(-h, h), m._rng.randf_range(-h, h) * 0.4, m._rng.randf_range(-h, h))
+		if sky:   # birds keep 5-14 m over the ground under them
+			t.y = m.manager.world.surface_height(int(t.x), int(t.z)) + Settings.m2v(m._rng.randf_range(5.0, 14.0))
 		var p := Vector3i(t.floor())
 		if water:
 			if m.manager.is_liquid(p) and m.manager.is_liquid(p + Vector3i.UP):
@@ -205,6 +209,23 @@ static func populate(mm: MobManager, c: Vector2i) -> void:
 		_populate_water(mm, rng, cx, cz)
 	if rng.randf() < CAVE_CHANCE:
 		_populate_cave(mm, rng, cx, cz)
+	if rng.randf() < SKY_CHANCE:
+		_populate_sky(mm, rng, cx, cz)
+
+
+## A flock of birds 6-12 m over the cell centre, in the biomes they keep to.
+static func _populate_sky(mm: MobManager, rng: RandomNumberGenerator, cx: int, cz: int) -> void:
+	var biome := WorldGen.biome_name(int(mm.world.generator.gen.column_info(cx, cz)["biome"]))
+	var sp := _pick(mm, rng, ["sky"], biome)
+	if sp == "":
+		return
+	var g: Array = mm.defs[sp].get("group", [3, 6])
+	var y := mm.world.surface_height(cx, cz) + int(Settings.m2v(rng.randf_range(6.0, 12.0)))
+	for k in rng.randi_range(int(g[0]), int(g[1])):
+		var p := Vector3(cx + 0.5 + rng.randf_range(-2, 2) * Settings.BLOCK, y + rng.randf_range(-1, 1) * Settings.BLOCK, cz + 0.5 + rng.randf_range(-2, 2) * Settings.BLOCK)
+		if mm.get_voxel(Vector3i(p.floor())) == GameMaterials.AIR:
+			mm.spawn(sp, p, false, rng.randf() * TAU)
+	mm.stats["herds"] += 1
 
 
 static func _pick(mm: MobManager, rng: RandomNumberGenerator, habitats: Array, biome: String) -> String:

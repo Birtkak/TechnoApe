@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## The wild animals of ADR 0058: the data, the models, and the behaviours (flee, hop, swim, fly, pack
 ## hunts, boars that turn on whoever hurt them).
 
-const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound"]
+const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow"]
 
 
 func _manager() -> MobManager:
@@ -27,7 +27,7 @@ func test_data() -> void:
 		assert_bool(mm.defs.has(sp)).override_failure_message(sp).is_true()
 		var d: Dictionary = mm.defs[sp]
 		assert_str(String(d.get("name", ""))).override_failure_message("%s: a display name (the journal reads it)" % sp).is_not_empty()
-		assert_array(["land", "shore", "water", "cave"]).contains([WildMoves.habitat(d)])
+		assert_array(["land", "shore", "water", "cave", "sky"]).contains([WildMoves.habitat(d)])
 		assert_array(["walk", "hop", "swim", "fly", "paddle"]).contains([WildMoves.moves_of(d)])
 		for e in d.get("drops", []):
 			assert_bool(items.has(String(e["id"]))).override_failure_message("%s drops unknown %s" % [sp, e["id"]]).is_true()

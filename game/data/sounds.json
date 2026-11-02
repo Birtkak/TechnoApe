@@ -182,6 +182,7 @@
   "duck": {"idle": "mob/duck", "hurt": "mob/duck_hurt", "baby": "mob/duck_hurt", "every_s": [8, 25]},
   "frog": {"idle": "mob/frog", "hurt": "mob/frog", "baby": "mob/frog", "every_s": [6, 20]},
   "gloam_hound": {"idle": "mob/wolf", "hurt": "mob/wolf_bark", "baby": "mob/wolf", "angry": "mob/wolf_bark", "every_s": [6, 16]},
+  "crow": {"idle": "mob/chicken_hurt", "hurt": "mob/chicken_hurt", "baby": "mob/chicken", "every_s": [10, 30]},
   "poison_frog": {"idle": "mob/frog", "hurt": "mob/frog", "baby": "mob/frog", "every_s": [8, 24]},
   "crab": {"idle": "mob/crab", "hurt": "mob/crab", "baby": "mob/crab", "every_s": [8, 20]},
   "fish": {"idle": "mob/fish", "hurt": "mob/fish", "baby": "mob/fish", "every_s": [10, 30]},

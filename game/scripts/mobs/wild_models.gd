@@ -41,6 +41,10 @@ const GLOAM := BASE + 30        # the gloam hound's dusk-violet ramp (ADR 0129: 
 const GLOAM_LIGHT := BASE + 31
 const GLOAM_DARK := BASE + 32
 const GLOAM_EYE := BASE + 33
+const CROW := BASE + 34          # crow: blue-black ramp, warm grey flight feathers, a horn beak (ADR 0129)
+const CROW_LIGHT := BASE + 35
+const CROW_DARK := BASE + 36
+const BEAK := BASE + 37
 const PALETTE: Array = [
 	[150, 102, 62], [218, 190, 152], [222, 208, 172], [96, 74, 58], [62, 46, 36], [238, 230, 208],
 	[164, 132, 100], [232, 222, 206], [210, 104, 40], [242, 234, 222], [52, 36, 30],
@@ -48,6 +52,7 @@ const PALETTE: Array = [
 	[86, 150, 62], [206, 214, 142], [204, 72, 42], [140, 42, 26], [112, 142, 162], [222, 228, 222], [76, 98, 112],
 	[70, 56, 50], [42, 34, 34], [54, 42, 44], [214, 34, 34], [36, 96, 224], [18, 22, 34],
 	[64, 54, 84], [104, 94, 108], [30, 22, 56], [130, 255, 214],
+	[40, 40, 54], [96, 92, 98], [18, 18, 38], [70, 62, 58],
 ]
 const EYE := 7          # MobModel.EYE
 const SKIN_DARK := 3    # MobModel.SKIN_DARK: hooves
@@ -73,6 +78,8 @@ const LAYOUT := {
 		["leg", "leg", Vector3(5, 4, 3)], ["leg", "leg", Vector3(-5, 4, 3)], ["hind", "leg", Vector3(6, 5, -4)], ["hind", "leg", Vector3(-6, 5, -4)]],
 	"gloam_hound": [["body", "body", Vector3(0, 14, 0)], ["head", "head", Vector3(0, 23, 14)], ["tail", "tail", Vector3(0, 25, -15)],
 		["leg", "leg", Vector3(4, 16, 11)], ["leg", "leg", Vector3(-4, 16, 11)], ["leg", "leg", Vector3(4, 16, -11)], ["leg", "leg", Vector3(-4, 16, -11)]],
+	"crow": [["body", "body", Vector3(0, 5, -1)], ["head", "head", Vector3(0, 9, 6)], ["tail", "tail", Vector3(0, 8, -7)],
+		["leg", "leg", Vector3(2, 6, 0)], ["leg", "leg", Vector3(-2, 6, 0)], ["wing_l", "wing", Vector3(4, 11, 0)], ["wing_r", "wing", Vector3(-4, 11, 0)]],
 	"poison_frog": [["body", "body", Vector3(0, 3, -1)], ["head", "head", Vector3(0, 4, 5)],
 		["leg", "leg", Vector3(5, 4, 3)], ["leg", "leg", Vector3(-5, 4, 3)], ["hind", "leg", Vector3(6, 5, -4)], ["hind", "leg", Vector3(-6, 5, -4)]],
 	"crab": [["body", "body", Vector3(0, 4, 0)], ["head", "head", Vector3(0, 6, 6)],
@@ -461,6 +468,47 @@ static func build(sp: String, part: String) -> Array:
 			var l := part == "wing_l"
 			o = Vector3(0 if l else -16, -1, -6)
 			if not l:
+				c = _mirror_x(c, size)
+		"crow/body":
+			size = Vector3i(8, 8, 14)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, CROW)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(8, 2, 14), CROW_DARK)            # the shaded underside
+			_box(c, size, Vector3i(2, 6, 2), Vector3i(6, 8, 12), CROW_LIGHT)          # sheen along the back, lit from above
+			o = Vector3(-4, 0, -7)
+		"crow/head":
+			size = Vector3i(8, 8, 12)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(8, 8, 8), CROW)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(8, 2, 8), CROW_DARK)
+			_box(c, size, Vector3i(2, 2, 8), Vector3i(6, 6, 12), BEAK)                 # the heavy beak
+			_box(c, size, Vector3i(2, 2, 8), Vector3i(6, 3, 12), CROW_DARK)
+			for x in [0, 6]:
+				_box(c, size, Vector3i(x, 4, 5), Vector3i(x + 2, 6, 7), EYE)
+			o = Vector3(-4, -2, -2)
+		"crow/tail":
+			size = Vector3i(6, 2, 10)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, CROW_DARK)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(6, 2, 2), CROW_LIGHT)            # pale tips
+			o = Vector3(-3, -1, -10)
+		"crow/leg":
+			size = Vector3i(2, 6, 4)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(2, 6, 2), BEAK)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(2, 1, 4), BEAK)
+			o = Vector3(-1, -6, -1)
+		"crow/wing_l", "crow/wing_r":
+			size = Vector3i(18, 2, 12)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i(0, 0, 2), Vector3i(12, 2, 12), CROW)
+			_box(c, size, Vector3i(12, 0, 0), Vector3i(18, 2, 10), CROW_LIGHT)        # spread flight feathers
+			for x in [13, 15, 17]:
+				_box(c, size, Vector3i(x, 0, 0), Vector3i(x + 1, 2, 10), CROW_DARK)    # the gaps between them
+			_box(c, size, Vector3i(0, 0, 10), Vector3i(12, 2, 12), CROW_DARK)         # leading edge
+			var lw := part == "wing_l"
+			o = Vector3(0 if lw else -18, -1, -6)
+			if not lw:
 				c = _mirror_x(c, size)
 		"cave_spider/body":
 			size = Vector3i(16, 12, 18)
