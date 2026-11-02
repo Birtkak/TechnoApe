@@ -126,7 +126,6 @@ var ore_crusher_loads := 16             # blocks of ore an ore crusher holds
 var turbine_rpm := 600.0                # a turbine's speed at working pressure; its power scales with it (ADR 0113)
 var turbine_eu_t := 32.0                # ADR 0113: what a turbine at working pressure puts on the cables (EU per block tick)
 var cable_eu_t := 32.0                  # ADR 0113: a copper cable's capacity; a network moves at most its weakest cable
-var electric_furnace_eu_t := 16.0       # ADR 0113: the electric furnace wants this to run
 var jetpack_rise_m := 2.0               # the steam jetpack climbs this fast with jump held
 var jetpack_sink_m := 0.6               # ...and sinks this fast with it released (a hover)
 var jetpack_air_s := 90.0               # seconds of climbing one fill of compressed air gives (hovering costs a quarter)

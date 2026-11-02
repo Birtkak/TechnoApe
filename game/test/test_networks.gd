@@ -101,13 +101,13 @@ func test_turbine_powers_the_furnace_over_a_cable() -> void:
 	# the turbine is 2 blocks wide: cables at 8B and 9B, the furnace at 10B
 	store.create(Vector3i(8 * B, 0, 0), "cable")
 	store.create(Vector3i(9 * B, 0, 0), "cable")
-	var f: ElectricFurnaceEntity = store.create(Vector3i(10 * B, 0, 0), "electric_furnace")
+	var f: MachineEntity = store.create(Vector3i(10 * B, 0, 0), "electric_furnace")
 	var r := f.use({"id": "raw_meat", "count": items.units("raw_meat")})
 	assert_int(r["consume"]).is_equal(items.units("raw_meat"))
 	_ticks(500)   # 25 s: the boiler reaches working pressure (boiler_build_s), the turbine turns, the furnace lights
 	assert_bool(t.rpm > 0.0).is_true()
 	assert_bool(f.is_lit()).override_failure_message("furnace got %.1f EU/t" % f.eu).is_true()
-	assert_float(f.eu).is_equal_approx(Settings.electric_furnace_eu_t, 0.01)
+	assert_float(f.eu).is_equal_approx(f.eu_t, 0.01)
 	_ticks(260)
 	assert_int(f.smelted).is_greater(0)
 	assert_str(f.use({})["give"][0]["id"]).is_equal("cooked_meat")
@@ -116,7 +116,7 @@ func test_turbine_powers_the_furnace_over_a_cable() -> void:
 
 func test_no_cable_or_cold_boiler_means_no_power() -> void:
 	_powered_turbine()
-	var f: ElectricFurnaceEntity = store.create(Vector3i(12 * B, 0, 0), "electric_furnace")   # a gap: no cable
+	var f: MachineEntity = store.create(Vector3i(12 * B, 0, 0), "electric_furnace")   # a gap: no cable
 	f.use({"id": "raw_meat", "count": items.units("raw_meat")})
 	_ticks(500)
 	assert_bool(f.is_lit()).is_false()
@@ -136,7 +136,7 @@ func test_no_cable_or_cold_boiler_means_no_power() -> void:
 
 func test_save_keeps_the_furnace_and_the_cable() -> void:
 	store.create(Vector3i(8 * B, 0, 0), "cable").axis = 1
-	var f: ElectricFurnaceEntity = store.create(Vector3i(10 * B, 0, 0), "electric_furnace")
+	var f: MachineEntity = store.create(Vector3i(10 * B, 0, 0), "electric_furnace")
 	f.use({"id": "raw_meat", "count": items.units("raw_meat")})
 	var d := store.to_dict()
 	var store2 := BlockEntities.new(items, recipes)

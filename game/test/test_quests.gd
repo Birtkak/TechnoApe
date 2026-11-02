@@ -11,8 +11,9 @@ const GROUND := ["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball
 	"bone", "feather", "bear_hide", "animal_fat", "antler", "pyrite", "red_ochre", "yellow_ochre", "floorstone_flint",
 	"einkorn_seeds", "emmer_seeds", "flax_seeds", "birch_log",
 	# ore-bearing stones above veins and ore mined out of them (ADR 0070)
-	"loose_tin_ore", "loose_iron_ore", "tin_ore", "iron_ore"]
-const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age", "steam_age"]
+	"loose_tin_ore", "loose_iron_ore", "tin_ore", "iron_ore",
+	"sulfur"]   # mined from sulfur cave crust (mining.json): the electrical age's rubber (ADR 0113)
+const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age", "steam_age", "electrical_age"]
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
@@ -40,7 +41,7 @@ func test_data_loads_clean() -> void:
 		for q in book.chapter_quests(c):
 			if q.get("final", false):
 				finals.append(q["id"])
-	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw", "bronze_tool", "iron_tool", "ore_train"])
+	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw", "bronze_tool", "iron_tool", "ore_train", "first_machine"])
 
 
 func test_bad_data_is_reported() -> void:
