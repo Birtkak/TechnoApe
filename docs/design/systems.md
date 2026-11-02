@@ -144,7 +144,17 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   opening is fed only by a cell with still water above it (head), so the surface and stray still cells on it never become
   springs. Air over a river's own lower step never wakes it; water that rests on a still body spreads flat over it. Lava or
   sand sinking through still water trades places with it and the lifted cell becomes moving water (finite, never a still cell
-  on top of a body). **ADR 0081:** a lone still cell
+  on top of a body). **One fluid system (ADR 0119, 2026-11-03):** moving liquids level as *columns* by head
+  (`update_liquid_column`: half the height difference between neighbouring columns in whole eighths, a full cell under
+  the surface pours a cell into an opening beside it, the 4c reach rule flattens the rest; deterministic order; a spill
+  ends and its chunks sleep, where the eighth kernel sloshed for ever; `column_flow=0` runs the old kernel). Pastes are
+  box-sized (`get_dirty_boxes` -> `get_box_bytes` -> `World.write_box`). Heat lives on a 4^3 coarse grid (`cell_info`
+  reads it), lava / fire / burning cells heat it, it relaxes toward `Survival.outside_c`; pressure is gas over open cells
+  per chunk; materials carry `heat_c`, `boil_c` + `boil_rise_c` x pressure, `boils_to`, `condense_c`, `freeze_c`,
+  `melt_c` (water <-> steam <-> one-eighth drops, sludge <-> toxic gas 254, ice <-> water; still liquids never switch).
+  Gas looks: `data/gas_looks.json` (`gas_tint`, `gas_alpha`, `rise_speed`, one gas material copy per gas). The minimap's
+  last line shows the aimed cell's material, state, temperature and pressure. Bench `tools/fluid_bench.gd`, tests
+  `test/test_sim_0119.gd`. **ADR 0081:** a lone still cell
   (none of its kind on its six sides: the specks the generator leaves on cave walls) wakes at any air beside or below it;
   reactions of one pair chain (`Reaction::next`, rolled in data order): lava + water boils the water to steam at 0.6 and
   only then crusts to obsidian at 0.25, so the steam grows with the water the lava touches.

@@ -33,6 +33,7 @@ func test_every_gas_has_a_look_and_its_keys_are_uniforms() -> void:
 	for u in sh.get_shader_uniform_list():
 		names[u["name"]] = true
 	assert_bool(names.has("gas_tint")).is_true()
+	assert_int(GameMaterials.id_of("toxic_gas")).override_failure_message("toxic gas must sit at id 254 (ADR 0119 E)").is_equal(GameMaterials.TOXIC_GAS)
 	for d in GameMaterials.defs():
 		if d.get("cell_type", "") == "gas":
 			assert_bool(looks.has(d["name"])).override_failure_message("no look for gas " + d["name"]).is_true()

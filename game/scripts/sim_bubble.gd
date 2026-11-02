@@ -26,6 +26,7 @@ var world: World
 var sim: SimWorld
 var origin := Vector3i.ZERO          # world chunk coords of local chunk (0,0,0)
 var ambient_c := 18.0                # the outside temperature (Survival.outside_c), set by Main each frame (ADR 0119 C)
+var _has_states := false             # the DLL knows ADR 0119 C (set_ambient_c, cell_info)
 var size_chunks := Vector3i.ONE
 var _tick_accum := 0.0
 # Chunks waiting for terrain data, one bitmask per chunk column of the window:
@@ -140,8 +141,11 @@ func setup(p_world: World, center_world: Vector3, pin_of: SimBubble = null) -> v
 	sim.set_reactions(GameMaterials.reactions())
 	# liquids hold 1..8 eighths and spread into thin layers; the terrain draws the level (fluid models)
 	sim.set_liquid_fullness(true)
-	sim.set_column_flow(Settings.sim_column_flow)
-	sim.set_states(Settings.sim_states)
+	if sim.has_method("set_column_flow"):   # our technosim build (ADR 0119); a stale DLL runs the old kernel
+		sim.set_column_flow(Settings.sim_column_flow)
+	if sim.has_method("set_states"):
+		sim.set_states(Settings.sim_states)
+	_has_states = sim.has_method("set_ambient_c") and sim.has_method("cell_info")
 	sim.set_cascade(true)   # a column of sand or water falls together, not one 12.5 cm layer per tick
 	sim.set_gravity(Settings.sim_gravity_x * 9.8 / Settings.VOXEL_M / (Settings.sim_tick_hz * Settings.sim_tick_hz))
 	sim.set_lod(int(Settings.m2v(Settings.sim_lod_m) / Settings.CHUNK), 2)
@@ -244,7 +248,8 @@ func _process_timed(delta: float) -> void:
 		if pieces:
 			pieces.tick(period)   # the SimWorld is idle here: pieces crush, snap and settle into its cells
 		sim.set_focus(Vector3i(_player.floor()) - origin * Settings.CHUNK)
-		sim.set_ambient_c(ambient_c)   # ADR 0119 C: the heat field relaxes toward the outside temperature
+		if _has_states:
+			sim.set_ambient_c(ambient_c)   # ADR 0119 C: the heat field relaxes toward the outside temperature
 		_tick_running = sim.start_tick()
 		_frame_cost()["tick_ms"] += (Time.get_ticks_usec() - t0) / 1000.0   # main-thread cost of starting it
 	if _fire_test > 0:
@@ -736,7 +741,7 @@ func sample_cells(center_world: Vector3i, radius: int, count: int, rng_seed: int
 ## the window.
 func cell_info(p: Vector3i) -> Dictionary:
 	var lc := p - origin * Settings.CHUNK
-	if not is_chunk_in_window(lc / Settings.CHUNK):
+	if not _has_states or not is_chunk_in_window(lc / Settings.CHUNK):
 		return {}
 	return sim.cell_info(lc)
 

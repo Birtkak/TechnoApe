@@ -1,6 +1,6 @@
 # ADR 0119: One fluid system: column flow, native pushes, gases with heat and pressure
 
-Status: proposed (2026-11-02), for the overseer's go. Follows ADR 0069 (fluid baseline), 0104 (world water endless and
+Status: accepted (2026-11-03); A-D built, column flow and the heat pass on by default from 2026-11-03. Follows ADR 0069 (fluid baseline), 0104 (world water endless and
 never simulated), 0113 (machines: the boiler's `pressure`).
 
 ## Context
@@ -126,6 +126,13 @@ saved voxel over 255, so it needs a save version and a remap on load, recorded t
   physically fine and 64x cheaper to diffuse.
 - Pressure per sealed room by flood fill: exact but not local; a chunk ratio is deterministic, O(1) and good enough
   for boiling and the readout.
+
+## Built and switched on (2026-11-03)
+A (column flow, `Settings.sim_column_flow`, `column_flow=0` for the old kernel), B (box pastes), C (heat, pressure,
+states, gas looks, `states=0` to switch off), D (the minimap line). In-game A/B on one scene (a 2 m lava ball and two
+1.5 m water balls, 45 s, headless): old kernel 285 chunks awake, tick 335 ms, 74 698 whole-chunk pastes; new 85
+chunks, tick 4-5 ms, box pastes at a third of the cost each. Not delivered: communicating vessels (A.3), gas tiles of
+their own (tints instead), a per-block surface pre-pass for the mesher (B, left for a measured need).
 
 ## Order and milestones
 A (spike behind `set_column_flow`, bench + tests) -> B -> C (heat, pressure, states, looks) -> D -> polish. A report at
