@@ -217,7 +217,7 @@ func _ready() -> void:
 	player.entity_attack = func(m: Mob, dmg: int) -> void: mobs.attack(m, dmg, player.position)
 	player.entity_use = func(m: Mob, held: Dictionary) -> bool:
 		var r := mobs.interact(m, held)
-		return r == "love" or r == "grew"
+		return r in ["love", "grew", "milked"]   # these use up the held item
 
 	bubble = SimBubble.new()
 	bubble.name = "SimBubble"

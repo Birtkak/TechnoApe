@@ -60,6 +60,11 @@ const ROBIN := BASE + 49         # songbird: warm brown back, a cooler shade und
 const ROBIN_DARK := BASE + 50
 const ROBIN_BREAST := BASE + 51
 const ROBIN_BELLY := BASE + 52
+const GOAT := BASE + 53          # goat: a cream coat, cool violet-grey in the shade, warm in the light, a horn ramp
+const GOAT_SHADE := BASE + 54
+const GOAT_LIGHT := BASE + 55
+const HORN := BASE + 56
+const GOAT_DARK := BASE + 57
 const PALETTE: Array = [
 	[150, 102, 62], [218, 190, 152], [222, 208, 172], [96, 74, 58], [62, 46, 36], [238, 230, 208],
 	[164, 132, 100], [232, 222, 206], [210, 104, 40], [242, 234, 222], [52, 36, 30],
@@ -72,6 +77,7 @@ const PALETTE: Array = [
 	[176, 150, 214], [228, 206, 236], [112, 86, 168], [244, 96, 168],
 	[46, 40, 54], [78, 70, 84], [26, 20, 40], [246, 198, 58],
 	[124, 98, 74], [70, 56, 62], [226, 112, 50], [240, 228, 206],
+	[222, 212, 192], [160, 148, 152], [248, 242, 222], [128, 106, 80], [84, 72, 78],
 ]
 const EYE := 7          # MobModel.EYE
 const SKIN_DARK := 3    # MobModel.SKIN_DARK: hooves
@@ -104,6 +110,8 @@ const LAYOUT := {
 		["leg", "leg", Vector3(3, 11, -3)], ["leg", "leg", Vector3(-3, 11, -3)]],
 	"poison_frog": [["body", "body", Vector3(0, 3, -1)], ["head", "head", Vector3(0, 4, 5)],
 		["leg", "leg", Vector3(5, 4, 3)], ["leg", "leg", Vector3(-5, 4, 3)], ["hind", "leg", Vector3(6, 5, -4)], ["hind", "leg", Vector3(-6, 5, -4)]],
+	"goat": [["body", "body", Vector3(0, 15, 0)], ["head", "head", Vector3(0, 25, 11)], ["tail", "tail", Vector3(0, 25, -11)],
+		["leg", "leg", Vector3(4, 16, 8)], ["leg", "leg", Vector3(-4, 16, 8)], ["leg", "leg", Vector3(4, 16, -8)], ["leg", "leg", Vector3(-4, 16, -8)]],
 	"songbird": [["body", "body", Vector3(0, 3, -1)], ["head", "head", Vector3(0, 8, 3)], ["tail", "tail", Vector3(0, 6, -4)],
 		["leg", "leg", Vector3(1, 4, 0)], ["leg", "leg", Vector3(-1, 4, 0)], ["wing_l", "wing", Vector3(3, 8, 0)], ["wing_r", "wing", Vector3(-3, 8, 0)]],
 	"cave_salamander": [["body", "body", Vector3(0, 3, 0)], ["head", "head", Vector3(0, 3, 9)], ["tail", "tail", Vector3(0, 4, -9)],
@@ -518,6 +526,42 @@ static func build(sp: String, part: String) -> Array:
 			_box(c, size, Vector3i.ZERO, size, JELLY_LIGHT)
 			_box(c, size, Vector3i(0, 0, 0), Vector3i(2, 6, 2), JELLY_DARK)            # the trailing ends fade darker
 			o = Vector3(-1, -14, -1)
+		"goat/body":
+			size = Vector3i(12, 12, 22)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, GOAT)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(12, 2, 22), GOAT_SHADE)         # the shaded belly
+			_box(c, size, Vector3i(10, 2, 0), Vector3i(12, 10, 22), GOAT_SHADE)       # the far flank, away from the light
+			_box(c, size, Vector3i(0, 10, 0), Vector3i(6, 12, 22), GOAT_LIGHT)        # lit from the top left
+			_box(c, size, Vector3i(5, 11, 2), Vector3i(7, 12, 20), GOAT_DARK)         # a dark stripe down the back
+			o = Vector3(-6, 0, -11)
+		"goat/head":
+			size = Vector3i(8, 14, 12)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i(0, 2, 0), Vector3i(8, 10, 8), GOAT)
+			_box(c, size, Vector3i(2, 3, 8), Vector3i(6, 8, 12), GOAT)                # the long muzzle
+			_box(c, size, Vector3i(2, 3, 11), Vector3i(6, 5, 12), GOAT_DARK)          # nose and mouth
+			_box(c, size, Vector3i(0, 8, 0), Vector3i(4, 10, 8), GOAT_LIGHT)
+			_box(c, size, Vector3i(3, 0, 6), Vector3i(5, 3, 10), GOAT_SHADE)          # the beard
+			for x in [0, 6]:
+				_box(c, size, Vector3i(x, 6, 5), Vector3i(x + 2, 8, 7), EYE)
+				_box(c, size, Vector3i(x, 10, 2), Vector3i(x + 2, 12, 6), HORN)       # horns sweep back
+				_box(c, size, Vector3i(x, 12, 0), Vector3i(x + 2, 14, 3), HORN)
+				_box(c, size, Vector3i(x, 12, 0), Vector3i(x + 2, 13, 1), GOAT_DARK)
+			o = Vector3(-4, -4, -3)
+		"goat/tail":
+			size = Vector3i(4, 6, 2)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, GOAT_SHADE)
+			_box(c, size, Vector3i(0, 4, 0), Vector3i(4, 6, 2), GOAT)
+			o = Vector3(-2, -2, -2)
+		"goat/leg":
+			size = Vector3i(4, 16, 4)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, GOAT)
+			_box(c, size, Vector3i(2, 2, 0), Vector3i(4, 16, 4), GOAT_SHADE)
+			_box(c, size, Vector3i.ZERO, Vector3i(4, 2, 4), GOAT_DARK)                 # hooves
+			o = Vector3(-2, -16, -2)
 		"songbird/body":
 			size = Vector3i(6, 6, 8)
 			c = MobModel._cells(size)

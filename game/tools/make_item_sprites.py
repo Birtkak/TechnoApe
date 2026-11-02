@@ -1191,6 +1191,8 @@ for meal, q, k in (("porridge", "#c8a874", "#efdcae"), ("fish_soup", "#a8a070", 
                    ("mushroom_soup", "#6a4a30", "#b08a62"), ("berry_compote", "#6a1e48", "#c03c5a"), ("vegetable_soup", "#7a5a1e", "#c89a3a")):
     sp("pot_of_" + meal, ("cooking_pot", "terracotta"), ("pot_fill", None, {"q": q, "k": k}))
     sp(meal, ("bowl", "terracotta"), ("bowl_fill", None, {"q": q, "k": k}))
+sp("bowl_of_milk", ("bowl", "terracotta"), ("bowl_fill", None, {"q": "#d4d0c6", "k": "#fbf8f0"}))   # goats (ADR 0120)
+sp("milk_porridge", ("bowl", "terracotta"), ("bowl_fill", None, {"q": "#d2bc8e", "k": "#f6ecd2"}))
 sp("daub", ("ball", "daub"))
 sp("firewood", ("firewood", "wood"))
 for m, item in (("wood", "wooden_hoe"), ("stone", "stone_hoe"), ("iron", "iron_hoe")):

@@ -658,7 +658,7 @@ func attack(m: Mob, damage: int, from: Vector3) -> bool:
 
 
 ## Right click on an animal with `held` (item def). Returns what happened:
-## "love" / "grew" (fed: take one food), "sheared" (shears), or "".
+## "love" / "grew" (fed: take one food), "sheared" (shears), "milked" (takes the bowl), or "".
 func interact(m: Mob, held: Dictionary) -> String:
 	if held.is_empty() or m.is_dead():
 		return ""
@@ -677,6 +677,12 @@ func interact(m: Mob, held: Dictionary) -> String:
 			main.spawn_item(s, m.eye(), Vector3(_rng.randf_range(-1.5, 1.5), 3.0, _rng.randf_range(-1.5, 1.5)))
 		dirty = true
 		return "sheared"
+	var milk: Dictionary = m.def.get("milk", {})
+	if id == milk.get("with", "") and not m.sheared and not m.is_baby():   # the sheared flag is "milked": it refills as the animal grazes
+		m.set_sheared(true)
+		main.spawn_item({"id": milk["gives"], "count": 1}, m.eye(), Vector3(0.0, 2.0, 0.0))
+		dirty = true
+		return "milked"
 	return ""
 
 

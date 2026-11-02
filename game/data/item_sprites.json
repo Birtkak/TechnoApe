@@ -4460,6 +4460,8 @@
     "berry_compote": {"layers": [{"shape": "bowl", "palette": "terracotta"}, {"shape": "bowl_fill", "colors": {"q": "#6a1e48", "k": "#c03c5a"}}]},
     "pot_of_vegetable_soup": {"layers": [{"shape": "cooking_pot", "palette": "terracotta"}, {"shape": "pot_fill", "colors": {"q": "#7a5a1e", "k": "#c89a3a"}}]},
     "vegetable_soup": {"layers": [{"shape": "bowl", "palette": "terracotta"}, {"shape": "bowl_fill", "colors": {"q": "#7a5a1e", "k": "#c89a3a"}}]},
+    "bowl_of_milk": {"layers": [{"shape": "bowl", "palette": "terracotta"}, {"shape": "bowl_fill", "colors": {"q": "#d4d0c6", "k": "#fbf8f0"}}]},
+    "milk_porridge": {"layers": [{"shape": "bowl", "palette": "terracotta"}, {"shape": "bowl_fill", "colors": {"q": "#d2bc8e", "k": "#f6ecd2"}}]},
     "daub": {"layers": [{"shape": "ball", "palette": "daub"}]},
     "firewood": {"layers": [{"shape": "firewood", "palette": "wood"}]},
     "wooden_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "wood"}]},

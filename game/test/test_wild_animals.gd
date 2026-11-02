@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## The wild animals of ADR 0058: the data, the models, and the behaviours (flee, hop, swim, fly, pack
 ## hunts, boars that turn on whoever hurt them).
 
-const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow", "salmon", "jellyfish", "cave_salamander", "songbird"]
+const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow", "salmon", "jellyfish", "cave_salamander", "songbird", "goat"]
 
 
 func _manager() -> MobManager:
@@ -163,3 +163,21 @@ func test_songbirds_land_sit_and_take_off() -> void:
 	assert_bool(WildMoves._perch(bird)).is_false()
 	assert_str(bird.goal).is_equal("fly")
 	assert_float(bird.velocity.y).is_greater(0.0)
+
+
+func test_goats_give_milk_that_refills_when_they_graze() -> void:
+	var mm := _manager()
+	var gs := GDScript.new()
+	gs.source_code = "extends Node\nvar got := []\nfunc spawn_item(s, _p, _v = Vector3.ZERO, _d = 0.0):\n\tgot.append(s)\n"
+	gs.reload()
+	var stub: Node = auto_free(gs.new())
+	mm.main = stub
+	var goat := _mob(mm, "goat", Vector3(0, 100, 0))
+	var bowl := {"id": "clay_bowl", "tags": ["bowl"]}
+	assert_str(mm.interact(goat, bowl)).is_equal("milked")
+	assert_str(String(stub.got[0]["id"])).is_equal("bowl_of_milk")
+	assert_str(mm.interact(goat, bowl)).is_equal("")   # empty until it grazes
+	goat.set_sheared(false)
+	assert_str(mm.interact(goat, bowl)).is_equal("milked")
+	var items := ItemRegistry.load_default()
+	assert_bool(items.has("milk_porridge")).is_true()
