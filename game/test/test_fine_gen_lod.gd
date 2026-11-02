@@ -245,3 +245,31 @@ func test_flower_meadow_grows_giant_flowers() -> void:
 					if m in [GameMaterials.GIANT_STEM, GameMaterials.GIANT_PETAL, GameMaterials.GIANT_HEART]:
 						parts[m] = true
 	assert_int(parts.size()).override_failure_message("giant flower parts found: %s" % [parts.keys()]).is_equal(3)
+
+
+## Cave biomes are dressed (FineGen::cave_dressing): the dripstone cave grows dripstone, the lush cave vines and the
+## fungal cave toadstools, and no spike or vine voxel hangs alone in the air (each touches something above or below).
+func test_cave_biomes_are_dressed_and_nothing_floats() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var want := {"dripstone_cave": GameMaterials.DRIPSTONE, "lush_cave": GameMaterials.CAVE_VINE, "fungal_cave": GameMaterials.FUNGUS_STEM}
+	var hanging := [GameMaterials.DRIPSTONE, GameMaterials.CAVE_VINE, GameMaterials.GLOW_BERRY_VINE, GameMaterials.FUNGUS_STEM]
+	for biome in want:
+		var p: Vector3i = g.find_nearest(biome, 0, 0, int(Settings.m2v(4000.0)))
+		assert_int(p.y).override_failure_message("no %s" % biome).is_greater_equal(0)
+		var o := Vector3i(p.x - 48, p.y - 24, p.z - 48)
+		var size := Vector3i(96, 48, 96)
+		var b: PackedByteArray = g.generate_block(o, size, 0, 2)
+		var found := 0
+		var alone := 0
+		if b.size() == size.x * size.y * size.z * 2:
+			for z in size.z:
+				for x in size.x:
+					for y in range(1, size.y - 1):
+						var m := b.decode_u16(2 * (y + size.y * (x + size.x * z)))
+						if m == want[biome]:
+							found += 1
+						if m in hanging and b.decode_u16(2 * (y - 1 + size.y * (x + size.x * z))) == 0 and b.decode_u16(2 * (y + 1 + size.y * (x + size.x * z))) == 0:
+							alone += 1
+		assert_int(found).override_failure_message("%s near %s grows no %d" % [biome, p, want[biome]]).is_greater(0)
+		assert_int(alone).override_failure_message("%s: %d dressing voxels hang alone" % [biome, alone]).is_equal(0)

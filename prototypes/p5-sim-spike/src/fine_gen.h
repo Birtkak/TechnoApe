@@ -239,6 +239,9 @@ private:
     static uint16_t vein_voxel(const WorldGen::Vein &v, float ht, int wx, int wy, int wz, float bias, int seed);
     uint16_t stamp_voxel(const FStamp &s, float x, int y, float z, float grow) const;
     static float stick_dist(const FStamp &s, float x, float z, float *fork_out = nullptr);   // ground-plane distance to a stick and its branch
+    // What a cave biome hangs from its ceilings and stands on its floors (stalactites, icicles, vines, fungi, crust):
+    // df voxels over the floor, dc under the ceiling (-1: none within DRESS_MAX), rock = the local stone.
+    uint16_t cave_dressing(int biome, int wx, int wz, int df, int dc, uint16_t rock) const;
 };
 
 } // namespace godot

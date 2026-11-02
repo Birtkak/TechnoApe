@@ -19,7 +19,8 @@ Tiles (index = row*4 + col):
 136-170 rock kinds, cobbles, bricks, clutter, pyrite and ochres (tools/atlas_rocks.py, ADR 0057)
 171 tnt side 172 tnt top (patterned: a 4-voxel period, one 0.5 m TNT block per period; ADR 0065)
 173 monolith ashlar 174 monolith runes 175 monolith seam (patterned, 16-voxel period; runes and seam glow, ADR 0098)
-176 spruce 177 acacia 178 jungle 179 birch planks (patterned like 39 oak planks); 180-183 free
+176 spruce 177 acacia 178 jungle 179 birch planks (patterned like 39 oak planks); 180-191 other branches
+192 dripstone 193 cave vine 194 fungus stem 204 glow berries 205 magma rock 206 fungus cap (cave dressing; 204..207 glow)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import math
@@ -1045,6 +1046,70 @@ def monolith_seam():
 tiles += [monolith_ashlar(), monolith_runes(), monolith_seam()]   # 173..175 (ADR 0098)
 assert len(tiles) == 176, len(tiles)
 tiles += [planks(c) for c in [(118, 82, 50), (196, 110, 58), (166, 104, 82), (222, 204, 160)]]   # 176..179 spruce, acacia, jungle, birch planks
+
+
+def cave_tiles():
+    """Cave dressing (2026-11-02 overnight): 192 dripstone (tan, banded), 193 cave vine, 194 fungus stem;
+    204 glow berries on a vine, 205 magma rock (dark crust, glowing cracks), 206 fungus cap (glowing spots).
+    204..207 glow in the terrain shader, their bright texels only."""
+    out = {}
+    rng = random.Random(192)
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        band = (y * 3 + (y // 5)) % 7
+        for x in range(TILE):
+            c = [(176, 142, 104), (160, 126, 90), (190, 158, 118), (146, 112, 80), (176, 142, 104), (168, 134, 96), (200, 170, 130)][band]
+            _px(img, x, y, c, rng, 8)
+    out[192] = img
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            leaf = (x + y * 3) % 5 < 2 or rng.random() < 0.25
+            _px(img, x, y, (52, 120, 46) if leaf else (34, 82, 34), rng, 10)
+    out[193] = img
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            _px(img, x, y, (214, 204, 186) if (x % 4) else (186, 174, 156), rng, 8)
+    out[194] = img
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            _px(img, x, y, (40, 104, 40) if rng.random() > 0.3 else (28, 74, 30), rng, 8)
+    for _ in range(9):
+        bx, by = rng.randrange(1, 15), rng.randrange(1, 15)
+        for dx, dy in ((0, 0), (1, 0), (0, 1), (1, 1)):
+            _px(img, bx + dx - 1, by + dy - 1, (255, 176, 60) if (dx + dy) else (255, 226, 140), rng, 6)
+    out[204] = img
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            _px(img, x, y, (44, 32, 30) if rng.random() > 0.15 else (64, 44, 38), rng, 6)
+    for _ in range(4):
+        x, y = rng.randrange(TILE), rng.randrange(TILE)
+        for _ in range(12):
+            _px(img, x % TILE, y % TILE, (255, 120, 30) if rng.random() > 0.3 else (255, 200, 80), rng, 10)
+            x += rng.choice((-1, 0, 1, 1))
+            y += rng.choice((-1, 0, 1))
+    out[205] = img
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            _px(img, x, y, (98, 52, 138) if rng.random() > 0.2 else (80, 40, 116), rng, 8)
+    for _ in range(7):
+        bx, by = rng.randrange(1, 15), rng.randrange(1, 15)
+        for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
+            _px(img, (bx + dx) % TILE, (by + dy) % TILE, (120, 255, 230) if (dx or dy) else (220, 255, 250), rng, 6)
+    out[206] = img
+    return out
+
+
+ROWS = max(ROWS, 26)
+blank = Image.new("RGBA", (TILE, TILE), (255, 0, 255, 255))
+while len(tiles) < 208:
+    tiles.append(blank)
+for i, t in cave_tiles().items():
+    tiles[i] = t
 assert len(tiles) <= COLS * ROWS, len(tiles)
 
 tiles = [grade(t) for t in tiles]   # one palette rule for every generated tile (ADR 0129)
