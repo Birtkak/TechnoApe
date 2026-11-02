@@ -787,6 +787,46 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             if (std::max({std::fabs(e0 - s.ground), std::fabs(e1 - s.ground)}) > 2.0f) continue;
             out.push_back(s);
         }
+    // Ore outcrops: over a vein within 16 m of the ground 2-4 crags of the local rock 1-2 m tall stand within ~12 m of
+    // its centre, veined with the vein's ore (one crag over a vein down to 50 m): the find that says "dig here".
+    {
+        constexpr int VC = technosim_ore::CELL * FS, OM = 24;   // vein cells (fine voxels); a crag reaches ~20 voxels
+        for (int cz = floor_div(z_lo - VC / 2 - OM, VC); cz <= floor_div(z_hi + VC / 2 + OM, VC); cz++)
+            for (int cx = floor_div(x_lo - VC / 2 - OM, VC); cx <= floor_div(x_hi + VC / 2 + OM, VC); cx++) {
+                WorldGen::Vein v;
+                if (!g.vein_at_cell(cx, cz, v)) continue;
+                const float vx = (float)(v.x * FS + 2), vz = (float)(v.z * FS + 2);
+                if (vx + 14 * 8 + OM < x_lo || vx - 14 * 8 - OM > x_hi || vz + 14 * 8 + OM < z_lo || vz - 14 * 8 - OM > z_hi) continue;
+                const WorldGen::Column vc = g.column_base(v.x, v.z, false);
+                if (vc.height - v.y > 100) continue;
+                const uint32_t vs = h3(cx, cz, g.seed_ + 647);
+                const int n = vc.height - v.y <= 32 ? 2 + (int)(vs % 3) : 1;   // a deep vein (16-50 m) shows one crag
+                for (int i = 0; i < n; i++) {
+                    const uint32_t hs = h3(cx * 7 + i, cz, g.seed_ + 653);
+                    const float an = (float)(hs & 1023) / 1023.0f * 6.2832f, d = 24.0f + (float)((hs >> 10) & 63) * 1.1f;
+                    const float fx = vx + std::cos(an) * d, fz = vz + std::sin(an) * d;
+                    if (fx + OM < x_lo || fx - OM > x_hi || fz + OM < z_lo || fz - OM > z_hi) continue;
+                    const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
+                    const WorldGen::Column cc = g.column_base(mx, mz, false);   // each crag on dry land (the centre may be a river)
+                    if (cc.height <= g.sea_ + 1 || cc.alpine) continue;
+                    const WorldGen::Hydro hy = g.hydro_at(mx, mz, cc.height);
+                    if (hy.river > 0.05f || hy.lake || hy.puddle || g.ravine_near(mx, mz, 3)) continue;
+                    bool blocked = false;
+                    for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP);
+                    if (blocked) continue;
+                    FStamp s{};
+                    s.kind = OUTCROP;
+                    s.seed = hs;
+                    s.x = fx;
+                    s.z = fz;
+                    s.size = 4.0f + (float)((hs >> 16) & 7) * 0.6f;   // half width 4-8 voxels, twice as tall
+                    s.r = s.size;
+                    s.wood = (uint16_t)technosim_ore::PRIMARY[v.type];
+                    s.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
+                    out.push_back(s);
+                }
+            }
+    }
     // Giant flowers (bug report 2026-11-02 18-57-25, "tree sized flowers in the flower meadow"): about one per
     // 8 m cell of the meadow, a 3.5-5.5 m stalk under a 2.5-3.5 m red head (stamp_voxel draws it).
     constexpr int GC = 64, GM = 26;
@@ -1022,6 +1062,17 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
                 if ((float)((hh >> 12) & 1023) / 1024.0f < technosim_biome::DECOR_LOG_MUSHROOMS[s.biome]) return (hh >> 8) % 3 == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN;
             }
             return Mat::AIR;
+        }
+        case OUTCROP: {
+            // a jagged crag leaning a little, ore in streaks through it (a third of the voxels near its skin)
+            const float lean = 0.25f * (float)(((s.seed >> 20) & 7) - 3.5f) / 3.5f;
+            const float cy = (float)s.ground + s.size * 0.3f, ry = s.size * 1.6f + grow, rx = s.size + grow, rz = s.size * 0.8f + grow;
+            const float ex = (dx - lean * (fy - cy)) / rx, ey = (fy - cy) / ry, ez = dz / rz;
+            const float e = ex * ex + ey * ey + ez * ez;
+            const float wob = ((float)(h3((int)std::floor(x) >> 1, y >> 1, (int)std::floor(z) >> 1) & 15) / 15.0f - 0.5f) * 0.45f;
+            if (e > 1.0f + wob || fy < (float)s.ground - 3.0f) return Mat::AIR;
+            const uint32_t oh = h3((int)std::floor(x + z * 0.5f) >> 1, y, (int)s.seed);   // streaks: shared along a diagonal
+            return (e > 0.35f && (oh % 3) == 0) ? s.wood : Mat::STONE;
         }
         case GIANT_FLOWER: {
             // a stalk that leans into a curve, two long leaves, and a head tipped toward the lean: a domed

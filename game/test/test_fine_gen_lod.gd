@@ -273,3 +273,23 @@ func test_cave_biomes_are_dressed_and_nothing_floats() -> void:
 							alone += 1
 		assert_int(found).override_failure_message("%s near %s grows no %d" % [biome, p, want[biome]]).is_greater(0)
 		assert_int(alone).override_failure_message("%s: %d dressing voxels hang alone" % [biome, alone]).is_equal(0)
+
+
+## Ore outcrops: a shallow vein shows crags veined with its ore above the ground near its centre.
+func test_shallow_vein_shows_ore_outcrops() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var p: Vector3i = g.find_nearest("coal_vein", -3000, -3000, 6000)
+	var ores := 0
+	for bx in range(p.x - 128, p.x + 128, 32):
+		for bz in range(p.z - 128, p.z + 128, 32):
+			var h := g.height_at(bx + 16, bz + 16)
+			var b: PackedByteArray = g.generate_block(Vector3i(bx, h - 8, bz), Vector3i(32, 40, 32), 0, 2)
+			if b.size() < 32 * 40 * 32 * 2:
+				continue
+			for k in range(0, b.size(), 2):
+				if b.decode_u16(k) == GameMaterials.COAL_ORE:
+					var i := k / 2
+					if h - 8 + i % 40 >= g.height_at(bx + (i / 40) % 32, bz + i / 1280):
+						ores += 1
+	assert_int(ores).override_failure_message("no coal above the ground near the vein at %s" % p).is_greater(0)
