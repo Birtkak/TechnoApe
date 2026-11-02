@@ -1651,11 +1651,11 @@ func _place_debug_stations() -> void:
 	fwd.y = 0
 	fwd = fwd.normalized()
 	var right := fwd.cross(Vector3.UP)
-	var base := player.position + fwd * 4.0
+	var base := player.position + fwd * Settings.m2v(2.0)   # metres: the 1 m stations (8 voxels) need room
 	var kinds := [["crafting_table", GameMaterials.CRAFTING_TABLE], ["chest", GameMaterials.CHEST], ["furnace", GameMaterials.FURNACE]]
 	var spots: Array[Vector3i] = []
 	for i in kinds.size():
-		var q := base + right * (i - 1) * 2.0
+		var q := base + right * (i - 1) * Settings.m2v(1.5)
 		var x := int(floor(q.x))
 		var z := int(floor(q.z))
 		spots.append(Vector3i(x, world.surface_height(x, z) + 1, z))
@@ -1669,14 +1669,20 @@ func _place_debug_stations() -> void:
 			break
 		await get_tree().process_frame
 	for i in kinds.size():
+		# climb out of what surface_height does not see (the spawn monolith), to the first spot with room
+		var kind: String = GameMaterials.defs()[kinds[i][1] - 1]["entity"]
+		for _up in 40:
+			if BlockEntities.footprint_of(kind, spots[i]).all(func(c: Vector3i) -> bool: return PlantStamps.is_clearable_cell(get_world_voxel(c))):
+				break
+			spots[i].y += 1
 		var x := spots[i].x
 		var y := spots[i].y
 		var z := spots[i].z
 		_on_placed(Vector3i(x, y, z), kinds[i][1])
 		var e: RefCounted = blocks.at(Vector3i(x, y, z))
 		if e is FurnaceEntity:
-			e.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 8})
-			e.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 1})
+			e.inv.set_slot(FurnaceEntity.INPUT, {"id": "cobblestone", "count": 64})   # iron ore wants a bloomery now
+			e.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 64})   # a burn takes items.units() of each
 		elif e is ChestEntity:
 			e.inv.set_slot(0, {"id": "oak_log", "count": 32})
 			e.inv.set_slot(4, {"id": "cobblestone", "count": 64})

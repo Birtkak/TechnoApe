@@ -44,6 +44,17 @@ func test_every_material_has_a_group_and_steps() -> void:
 	assert_str(audio.material_sound("step", GameMaterials.AIR)).is_empty()
 
 
+## A canopy is open air: no trunk or crown counts as a cave wall (bug 2026-11-02_18-54-58).
+func test_trees_do_not_wall_in() -> void:
+	var defs := GameMaterials.defs()
+	for i in defs.size():
+		if defs[i].get("rigid", "") in ["wood", "leaf"] and not defs[i]["name"] in ["daub_wall", "planks"]:   # built walls
+			assert_bool(audio.group_of(i + 1) in GameAudio.ENCLOSING).override_failure_message(
+				"%s walls in as %s" % [defs[i]["name"], audio.group_of(i + 1)]).is_false()
+	assert_str(audio.group_of(GameMaterials.id_of("jungle_bark"))).is_equal("wood")
+	assert_str(audio.group_of(GameMaterials.id_of("jungle_leaves"))).is_equal("leaves")
+
+
 func test_bucket_fill_and_pour_have_sounds() -> void:
 	assert_bool(audio.has_sound("bucket/fill")).is_true()
 	for m in [GameMaterials.WATER, GameMaterials.LAVA]:
