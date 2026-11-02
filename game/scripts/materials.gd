@@ -127,6 +127,8 @@ const SEASHELL := 114
 const MUSHROOM_STEM := 115
 # 116..119 reserved for part A of the 2026-10-25 split (placeholders until it lands)
 const CRYSTAL := 120               # geode lining (ADR 0052): glows in the terrain shader
+const SPRING_STONE := 122          # the core of an aquifer's chamber (ADR 0110)
+const MAGMA_HEART := 123           # the core of a magma conduit's chamber (ADR 0110)
 const LAVA_STATIC := 121           # generated cave lava pools and the deep lava sea: still until disturbed, then finite lava (ADR 0069 C)
 # 121..126 reserved for world generation; 130..159 parts C and D
 # The dry savanna floor (bug report 2026-10-25 20-37-22): straw grass, its tussocks, bare red earth
@@ -266,7 +268,11 @@ static func _build_defs() -> Array:
 		# 121 (was reserved): still lava for cave pools and the deep lava sea, finite moving lava once something opens
 		# beside or under it, like water_static (ADR 0069 C)
 		{"name": "lava_static", "cell_type": "liquid", "fluid_slot": 1, "liquid_static": true, "density": 5, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false, "loose": 7},
-	] + _reserved_defs(122, 126) + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
+	] + [
+		# 122, 123 (ADR 0110): the cores of conduit chambers, hard enough to need a good pick
+		{"name": "spring_stone", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [105, 105, 105], "transparent": false},
+		{"name": "magma_heart", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [106, 106, 106], "transparent": false},
+	] + _reserved_defs(124, 126) + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
 		# 203 (ADR 0065): TNT. Not burnable: the sim would burn it away; Tnt lights it when fire touches it.
 		{"name": "tnt", "cell_type": "solid", "pattern": true, "density": 6, "hp": 50, "tiles": [172, 171, 172], "transparent": false},
 		# 204..206 (ADR 0098): the Gelvin monolith and its plaza. Not in mining.json and hp past Tnt.NEVER_HP: indestructible.

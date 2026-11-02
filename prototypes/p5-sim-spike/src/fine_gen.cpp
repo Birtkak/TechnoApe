@@ -220,6 +220,7 @@ void FineGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("water_floor_map", "x0", "z0", "n", "step"), &FineGen::water_floor_map);
     ClassDB::bind_method(D_METHOD("find_nearest", "kind", "x", "z", "max_radius"), &FineGen::find_nearest);
     ClassDB::bind_method(D_METHOD("waterfalls_near", "x", "z", "radius"), &FineGen::waterfalls_near);
+    ClassDB::bind_method(D_METHOD("conduit_near", "x", "y", "z"), &FineGen::conduit_near);
     ClassDB::bind_method(D_METHOD("hydrology_stats", "x", "z"), &FineGen::hydrology_stats);
     ClassDB::bind_method(D_METHOD("vein_at", "x", "z"), &FineGen::vein_at);
     ClassDB::bind_method(D_METHOD("pickup_heights", "kind", "seed"), &FineGen::pickup_heights);
@@ -1285,10 +1286,36 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 geodes[ngeo++] = gd;
             }
     }
+    // Conduits reaching the block (ADR 0110), as tube segments and chambers in fine voxels; a column keeps
+    // the few that pass within reach of it (cands), so a voxel measures at most those.
+    struct CSeg { float ax, ay, az, bx, by, bz, r; uint16_t liquid; };
+    struct CSrc { float x, y, z, r; uint16_t liquid, core; };
+    CSeg csegs[16];
+    CSrc csrcs[4];
+    int ncseg = 0, ncsrc = 0;
+    if (lod <= 1 && g.variant_[WorldGen::VAR_CAVES] != 0) {
+        WorldGen::Conduit cs[(2 * WorldGen::CONDUIT_RINGS + 1) * (2 * WorldGen::CONDUIT_RINGS + 1)];
+        const int nc = g.conduits_near(floor_div((x_lo + x_hi) / 2, FS), floor_div((z_lo + z_hi) / 2, FS), cs, (int)(sizeof(cs) / sizeof(cs[0])));
+        for (int i = 0; i < nc; i++) {
+            const WorldGen::Conduit &c = cs[i];
+            const uint16_t liquid = c.kind == WorldGen::CONDUIT_MAGMA ? Mat::LAVA_STATIC : Mat::WATER_STATIC;
+            const float R = c.src_r * FS + 1.0f;
+            if (ncsrc < 4 && c.x[0] * FS + R >= x_lo && c.x[0] * FS - R <= x_hi && c.z[0] * FS + R >= z_lo && c.z[0] * FS - R <= z_hi
+                && c.y[0] * FS + R >= origin.y && c.y[0] * FS - R <= y_top)
+                csrcs[ncsrc++] = {c.x[0] * FS, c.y[0] * FS, c.z[0] * FS, c.src_r * FS, liquid, (uint16_t)(c.kind == WorldGen::CONDUIT_MAGMA ? Mat::MAGMA_HEART : Mat::SPRING_STONE)};
+            const float tr = c.r * FS + 1.0f;
+            for (int s = 0; s < WorldGen::CONDUIT_SEGS && ncseg < 16; s++) {
+                const float ax = c.x[s] * FS, ay = c.y[s] * FS, az = c.z[s] * FS, bx = c.x[s + 1] * FS, by = c.y[s + 1] * FS, bz = c.z[s + 1] * FS;
+                if (std::max(ax, bx) + tr < x_lo || std::min(ax, bx) - tr > x_hi || std::max(az, bz) + tr < z_lo || std::min(az, bz) - tr > z_hi) continue;
+                if (std::max(ay, by) + tr < origin.y || std::min(ay, by) - tr > y_top) continue;
+                csegs[ncseg++] = {ax, ay, az, bx, by, bz, c.r * FS, liquid};
+            }
+        }
+    }
     // Deep rock at full detail (ADR 0105): a buried block where the cave field is negative everywhere it is
-    // read (so no cave, pool, crystal, stringer or lava sea), no geode and no vein lens reaches, in one rock
-    // kind, is that stone throughout; the per-voxel pass cost ~0.7 ms a block and half the box is rock.
-    if (uniform_blocks_ && lod == 0 && deep_geo && ngeo == 0
+    // read (so no cave, pool, crystal, stringer or lava sea), no geode, conduit or vein lens reaches, in one
+    // rock kind, is that stone throughout; the per-voxel pass cost ~0.7 ms a block and half the box is rock.
+    if (uniform_blocks_ && lod == 0 && deep_geo && ngeo == 0 && ncseg == 0 && ncsrc == 0
         && std::all_of(cav.begin(), cav.end(), [](float v) { return v <= 0.0f; })) {
         bool vein_free = true;
         const int my_lo = floor_div(origin.y, FS), my_hi = floor_div(y_top, FS);
@@ -1744,6 +1771,15 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             };
             auto cap_pool = [&]() { pool_cap = drop(CAVE_STEP + 1) ? 0 : (drop(1) ? std::min(pool_d, CAVE_STEP) : pool_d); };
             if (pool_d > 0 && floor_wy > -(1 << 20)) cap_pool();
+            // the conduit segments and chambers within reach of this column (ADR 0110)
+            int cand[16], ncand = 0, scand[4], nscand = 0;
+            for (int q = 0; q < ncseg; q++) {
+                if (WorldGen::seg_dist3((float)wx + 0.5f, 0.0f, (float)wz + 0.5f, csegs[q].ax, 0.0f, csegs[q].az, csegs[q].bx, 0.0f, csegs[q].bz) <= csegs[q].r + 1.0f) cand[ncand++] = q;
+            }
+            for (int q = 0; q < ncsrc; q++) {
+                const float dx = (float)wx + 0.5f - csrcs[q].x, dz = (float)wz + 0.5f - csrcs[q].z;
+                if (dx * dx + dz * dz <= (csrcs[q].r + 1.0f) * (csrcs[q].r + 1.0f)) scand[nscand++] = q;
+            }
             uint16_t *colp = w + sy * (x + sx * z);
             ValueNoiseCell sheet_cell;   // the stringer sheet's noise cell, shared up the column
             for (int y = 0; y < sy; y++) {
@@ -1856,6 +1892,22 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             mat = (d > R - 6.0f - (float)(sh & 7) * 0.9f && ((sh >> 3) & 3) != 0) ? Mat::CRYSTAL : Mat::AIR;
                         }
                         break;
+                    }
+                    // a conduit's tube or chamber through the rock (ADR 0110): still liquid, the chamber round a
+                    // core of spring stone / magma heart; the ground's top 4 m stays rock, so a tail seeps out
+                    // of a valley wall, never the lawn
+                    if ((ncand > 0 || nscand > 0) && mat != Mat::AIR && mat != Mat::BEDROCK && depth > 8 * FS) {
+                        const float px = (float)wx + 0.5f, py = (float)wy + 0.5f, pz = (float)wz + 0.5f;
+                        for (int q = 0; q < nscand; q++) {
+                            const CSrc &sc = csrcs[scand[q]];
+                            const float d = std::sqrt((px - sc.x) * (px - sc.x) + (py - sc.y) * (py - sc.y) + (pz - sc.z) * (pz - sc.z));
+                            if (d <= 1.5f * FS) mat = sc.core;
+                            else if (d <= sc.r) mat = sc.liquid;
+                        }
+                        for (int q = 0; q < ncand && mat != csegs[cand[q]].liquid; q++) {
+                            const CSeg &sg = csegs[cand[q]];
+                            if (WorldGen::seg_dist3(px, py, pz, sg.ax, sg.ay, sg.az, sg.bx, sg.by, sg.bz) <= sg.r) mat = sg.liquid;
+                        }
                     }
                 } else if ((water_level - wy) * 2 >= step) {
                     const bool inland = hy.lake || hy.river > 0.0f || hy.marsh || side_fill;
@@ -1991,6 +2043,18 @@ PackedByteArray FineGen::cave_map(int x0, int z0, int n, int step) const {
 
 PackedByteArray FineGen::climate_map(int x0, int z0, int n, int step) const {
     return g_->climate_map(floor_div(x0, FS), floor_div(z0, FS), n, std::max(1, step / FS));
+}
+
+Dictionary FineGen::conduit_near(int x, int y, int z) const {
+    Dictionary d;
+    int kind = -1;
+    float src = 1e9f;
+    const float dist = g_->conduit_dist((float)x / FS, (float)y / FS, (float)z / FS, kind, src);
+    if (kind < 0) return d;
+    d["dist_m"] = dist / FS * 0.5f;
+    d["source_dist_m"] = src / FS * 0.5f;
+    d["kind"] = kind == WorldGen::CONDUIT_MAGMA ? "magma_conduit" : "aquifer";
+    return d;
 }
 
 PackedInt32Array FineGen::water_floor_map(int x0, int z0, int n, int step) const {

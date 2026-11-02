@@ -11,6 +11,8 @@
     "sulfur":       {"hardness": 1.0, "tool": "pickaxe", "requires": true, "drops": "sulfur", "drop_tier": 1},
     "obsidian":     {"hardness": 15.0, "tool": "pickaxe", "requires": true, "drops": "obsidian", "min_tier": 3},
     "crystal":      {"hardness": 2.0, "tool": "pickaxe", "requires": true, "drops": "crystal", "drop_tier": 1},
+    "spring_stone": {"hardness": 4.0, "tool": "pickaxe", "requires": true, "drops": "spring_stone", "drop_tier": 2},
+    "magma_heart":  {"hardness": 4.0, "tool": "pickaxe", "requires": true, "drops": "magma_heart", "drop_tier": 2},
     "copper_ore":   {"hardness": 3.0, "tool": "pickaxe", "requires": true,  "drops": "copper_ore", "min_tier": 1},
     "tin_ore":      {"hardness": 3.0, "tool": "pickaxe", "requires": true,  "drops": "tin_ore", "min_tier": 1},
     "dirt":         {"hardness": 0.5, "tool": "shovel", "drops": "dirt"},

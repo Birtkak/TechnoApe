@@ -113,6 +113,8 @@ public:
     PackedInt32Array water_floor_map(int x0, int z0, int n, int step) const;
     Vector3i find_nearest(const String &kind, int x, int z, int max_radius) const;
     Array waterfalls_near(int x, int z, int radius) const;
+    // The nearest conduit (ADR 0110) to a voxel: dist_m (negative inside), kind, source_dist_m; empty when none
+    Dictionary conduit_near(int x, int y, int z) const;
     Dictionary hydrology_stats(int x, int z) const;
     Dictionary vein_at(int x, int z) const;
     PackedInt32Array pickup_heights(int kind, int seed) const;   // a stone pickup's stamp: 16 column heights, x fastest (showcase)

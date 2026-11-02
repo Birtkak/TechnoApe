@@ -4106,6 +4106,7 @@
     "fire_bomb": {"layers": [{"shape": "fire_bomb", "palette": "bomb"}]},
     "laser_cutter": {"layers": [{"shape": "laser_cutter", "palette": "steel"}]},
     "crater_rod": {"layers": [{"shape": "wand_stick", "palette": "iron"}, {"shape": "wand_gem", "palette": "lava"}]},
+    "sounding_rod": {"layers": [{"shape": "wand_stick", "palette": "iron"}, {"shape": "wand_gem", "palette": "steel"}]},
     "water_balloon": {"layers": [{"shape": "fire_bomb", "palette": "water", "colors": {"q": "#c0e0ff"}}]},
     "sand_bomb": {"layers": [{"shape": "fire_bomb", "palette": "sand", "colors": {"q": "#8a6a3a"}}]},
     "lava_bomb": {"layers": [{"shape": "fire_bomb", "palette": "lava", "colors": {"q": "#ffe27a"}}]},
