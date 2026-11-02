@@ -98,6 +98,12 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   worn head piece), the traveler's backpack (`bag_slots`: `PlayerInventory.bag` is rebuilt to the worn bag's size),
   the steam drill (`speed` 2.5), the boiler suit, the jetpack (clothing slot `back`, `Player._worn_with`, air in the
   stack), the surveyor's stake (`waypoint` field). Tier 4 tools are grid recipes. Check: `test_steam_age_2.gd`.
+  **Machines and networks (ADR 0113):** machines are work pieces (`work` on the item, a kind in
+  `BlockEntities.create`); every entity with `net(channel) -> {role, amount}` joins `Networks.solve` once a second
+  (20 block ticks): the native `NetworkSolver` unions the boxes that touch and moves min(supply, demand, weakest
+  conductor) per component, then each hears `net_in(channel, amount)`. Energy in EU/t: the turbine offers
+  `turbine_eu_t`, `CableEntity` carries `cable_eu_t`, `ElectricFurnaceEntity` (a fuel-less `FurnaceEntity`, worked
+  by right click) wants `electric_furnace_eu_t`. `/kit electric`; `test_networks.gd`, `tools/network_bench.gd`.
   **Stage 3 transport (ADR 0100):** `Transport.give/pull` is the one place that knows how every piece loads and
   unloads; `HopperEntity` (hopper and chute, `item`) pulls from above (the chute from behind too) and pushes the
   way it faces or down; `BeltEntity` carries `carried` [{stack, t}] one block in `belt_s` and draws them riding;

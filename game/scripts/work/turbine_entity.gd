@@ -28,6 +28,15 @@ func is_lit() -> bool:
 	return rpm > 0.0   # BlockEntities.tick redraws "lit" pieces: the wheel turns
 
 
+## On the energy network (ADR 0113) it is the generator: turbine_eu_t at working pressure.
+func net(channel: String) -> Dictionary:
+	return {"role": NetworkSolver.SOURCE, "amount": Settings.turbine_eu_t * rpm / Settings.turbine_rpm} if channel == "energy" else {}
+
+
+func net_in(_channel: String, _amount: float) -> void:
+	pass
+
+
 func tick() -> bool:
 	if not powered():
 		if rpm > 0.0:
@@ -46,7 +55,7 @@ func tick() -> bool:
 
 
 func use(_held: Dictionary) -> Dictionary:
-	return {"consume": 0, "give": [], "msg": "The turbine turns at %d rpm. A dynamo on its shaft would make this the electrical age." % roundi(rpm) if rpm > 0.0 else "A bladed wheel waiting for steam: the first generator, with nothing yet to power."}
+	return {"consume": 0, "give": [], "msg": "The turbine turns at %d rpm and gives %d EU/t to the cables that touch it." % [roundi(rpm), roundi(Settings.turbine_eu_t * rpm / Settings.turbine_rpm)] if rpm > 0.0 else "A bladed wheel waiting for steam: the generator; cables carry its power."}
 
 
 func contents() -> Array:
@@ -58,7 +67,7 @@ func look_lines() -> Array[String]:
 		return ["No steam: lay pipes from a boiler"]
 	if boiler.pressure <= 0.0:
 		return ["No pressure: the boiler is cold"]
-	return ["Turning at %d rpm (%.2f bar): nothing to power yet" % [roundi(rpm), boiler.pressure]]
+	return ["Turning at %d rpm (%.2f bar): %d EU/t on the cables" % [roundi(rpm), boiler.pressure, roundi(Settings.turbine_eu_t * rpm / Settings.turbine_rpm)]]
 
 
 ## An iron housing on a base with the wheel's blades showing through its open front (+z), turning a
