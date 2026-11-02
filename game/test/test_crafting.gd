@@ -69,7 +69,9 @@ func test_shaped_anvil_requires_station() -> void:
 	# laid out otherwise it is still the anvil: nothing else takes seven bronze (ADR 0046)
 	var loose := _g(["bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "", ""])
 	assert_str(recipes.match_grid(loose, "crafting_table").get("id", "")).is_equal("bronze_anvil")
-	var too_many := _g(["bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", ""])
+	var eight := _g(["bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", ""])
+	assert_str(recipes.match_grid(eight, "crafting_table").get("id", "")).is_equal("bronze_chestplate")   # ADR 0121
+	var too_many := _g(["bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot", "bronze_ingot"])
 	assert_dict(recipes.match_grid(too_many, "crafting_table")).is_empty()
 
 

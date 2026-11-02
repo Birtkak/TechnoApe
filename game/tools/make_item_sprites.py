@@ -988,6 +988,14 @@ for m in ("flint", "copper", "iron"):
 for m in ("copper", "iron"):
     sp(m + "_knife_head", ("knife_blade", m))
 sp("copper_saw_blade", ("saw_blade", "copper"))   # smithed (ADR 0042)
+# the steel set (ADR 0121): tools and their smithed heads
+for kind, head in (("axe", "axe_head"), ("shovel", "shovel_head"), ("hammer", "hammer_head"), ("hoe", "hoe_head")):
+    sp("steel_" + kind, H, (head, "steel"))
+    sp("steel_" + head, (head, "steel"))
+sp("steel_saw", ("saw_handle", "handle"), ("saw_blade", "steel"))
+sp("steel_saw_blade", ("saw_blade", "steel"))
+sp("steel_knife", SH, ("knife_blade", "steel"))
+sp("steel_knife_head", ("knife_blade", "steel"))
 sp("copper_work_piece", ("work_piece", "copper"))
 sp("copper_chisel", SH, ("chisel_blade", "copper"))
 sp("copper_chisel_head", ("chisel_blade", "copper"))
@@ -1089,6 +1097,8 @@ sp("leather_bag", ("bag", "leather"))
 sp("cordage", ("twine", "twine"))
 sp("flint_spear_head", ("spear_head", "flint"))
 sp("flint_spear", ("spear_shaft", "handle"), ("spear_tip", "flint"))
+for m in ("bronze", "iron", "steel"):   # ADR 0121
+    sp(m + "_spear", ("spear_shaft", "handle"), ("spear_tip", m))
 sp("pan", ("pan", "terracotta"))
 sp("raw_pan", ("pan", "clay", {"i": "#3a3e46", "j": "#5a606a"}))
 sp("storage_pot", ("jar", "terracotta"))
