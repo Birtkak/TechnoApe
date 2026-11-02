@@ -194,3 +194,54 @@ func test_lod0_deep_rock_shortcut_matches_the_full_pass() -> void:
 					fail("block %s: shortcut says %d, voxel %d is %d" % [o, m, k / 2, f.decode_u16(k)])
 					return
 	assert_int(hits).override_failure_message("no buried block took the shortcut (%d checked)" % checked).is_greater(0)
+
+
+## Bug report 2026-11-02 18-55-21: grass over a sinkhole stood in mid air, because the block over the ground had
+## no cave field and never saw the hole the block under it opened. Seed and spot of the report; every plant
+## voxel must stand on something.
+func test_no_plants_in_mid_air_over_an_open_cave_top() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var plants := [GameMaterials.TALL_GRASS, GameMaterials.FERN]
+	var floating := 0
+	var seen := 0
+	for bx in range(2016, 2064, 16):
+		for bz in range(2256, 2304, 16):
+			var lo: PackedByteArray = g.generate_block(Vector3i(bx, 1040, bz), Vector3i(16, 16, 16), 0, 2)
+			var hi: PackedByteArray = g.generate_block(Vector3i(bx, 1056, bz), Vector3i(16, 16, 16), 0, 2)
+			for z in 16:
+				for x in 16:
+					var col := PackedInt32Array()
+					for blk in [lo, hi]:
+						if blk.size() == 16 * 16 * 16 * 2:
+							col.append_array(_col(blk, Vector3i(16, 16, 16), x, z))
+						else:
+							var fill := PackedInt32Array()
+							fill.resize(16)
+							fill.fill(blk.decode_u16(0) if blk.size() >= 2 else GameMaterials.AIR)   # empty: sky; one voxel: uniform
+							col.append_array(fill)
+					for y in range(1, col.size()):
+						if col[y] in plants:
+							seen += 1
+							if col[y - 1] == GameMaterials.AIR:
+								floating += 1
+	assert_int(seen).override_failure_message("no plants near the sinkhole: the spot moved").is_greater(0)
+	assert_int(floating).is_equal(0)
+
+
+## Bug report 2026-11-02 18-57-25: the flower meadow grows tree-sized flowers.
+func test_flower_meadow_grows_giant_flowers() -> void:
+	var g := _gen()
+	var p: Vector3i = g.find_nearest("flower_meadow", 0, 0, int(Settings.m2v(8000.0)))
+	assert_int(p.y).override_failure_message("no flower meadow").is_greater_equal(0)
+	var parts := {}
+	for bx in range(p.x - 64, p.x + 64, 16):
+		for bz in range(p.z - 64, p.z + 64, 16):
+			var h := g.height_at(bx + 8, bz + 8)
+			for by in range(floori(h / 16.0) * 16, floori(h / 16.0) * 16 + 64, 16):
+				var b: PackedByteArray = g.generate_block(Vector3i(bx, by, bz), Vector3i(16, 16, 16), 0, 2)
+				for k in range(0, b.size(), 2):
+					var m := b.decode_u16(k)
+					if m in [GameMaterials.GIANT_STEM, GameMaterials.GIANT_PETAL, GameMaterials.GIANT_HEART]:
+						parts[m] = true
+	assert_int(parts.size()).override_failure_message("giant flower parts found: %s" % [parts.keys()]).is_equal(3)
