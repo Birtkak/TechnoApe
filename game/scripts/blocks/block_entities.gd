@@ -378,8 +378,9 @@ func tick() -> Array[Vector3i]:
 	ticks += 1
 	var flipped: Array[Vector3i] = []
 	if ticks % 20 == 0:
-		BoilerEntity.feed(self)   # steam reaches the machines on the pipes once a second (ADR 0097)
-		Networks.solve(self, "energy")   # and power the cables (ADR 0113)
+		Networks.solve(self, "energy")   # power over the cables (ADR 0113)
+		Networks.solve(self, "steam")    # steam over the pipes: every machine with a boiler slot (ADR 0122)
+		Networks.solve(self, "water")    # water over the pipes: pumps, tanks, boilers
 	for e in _ticking.duplicate():   # a bursting boiler removes itself
 		if e.tick():
 			flipped.append(e.pos)

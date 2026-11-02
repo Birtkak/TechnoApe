@@ -112,7 +112,7 @@ func test_turbine_powers_the_furnace_over_a_cable() -> void:
 	_ticks(260)
 	assert_int(f.smelted).is_greater(0)
 	assert_str(f.use({})["give"][0]["id"]).is_equal("cooked_meat")
-	assert_int(Networks.stats["nodes"]).is_equal(4)
+	assert_int(Networks.networks["energy"][f.get_instance_id()]["nodes"]).is_equal(4)   # stats hold the last channel solved (water, ADR 0122)
 
 
 func test_no_cable_or_cold_boiler_means_no_power() -> void:

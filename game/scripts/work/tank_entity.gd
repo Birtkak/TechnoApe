@@ -2,15 +2,17 @@ class_name TankEntity
 extends RefCounted
 
 ## The water tank (ADR 0099): an upright riveted drum that holds tank_buckets of water. Water
-## buckets fill it, an empty bucket draws one back, and every boiler whose pipes reach it drinks a
-## bucket a second while its own tank is low (BoilerEntity.feed). The chore it takes away: running
-## buckets to a boiler before it runs dry.
+## buckets fill it, an empty bucket draws one back. On the water channel (ADR 0122) it is storage like the
+## battery box on the energy one: a low sink while it fills (pumps feed it from what the boilers leave), a
+## source while it gives (boilers on the pipes drink a bucket a second); it flips by itself with a second's lag.
 
 signal changed
 
 var kind := "tank"
 var pos: Vector3i
 var buckets := 0
+var giving := false
+var _acc := 0.0   # fractional buckets owed either way by the water channel
 
 
 func _init(p_pos: Vector3i) -> void:
@@ -41,6 +43,37 @@ func use(held: Dictionary) -> Dictionary:
 		return res
 	res["msg"] = "Water buckets fill it; a boiler on its pipes drinks from it."
 	return res
+
+
+func net(channel: String) -> Dictionary:
+	if channel != "water":
+		return {}
+	if giving and buckets > 0:
+		return {"role": NetworkSolver.SOURCE, "amount": minf(Settings.pipe_water_cap, float(buckets))}
+	return {"role": NetworkSolver.SINK_LOW, "amount": minf(Settings.pipe_water_cap, float(Settings.tank_buckets - buckets))}
+
+
+func net_in(channel: String, amount: float) -> void:
+	if channel != "water":
+		return
+	if giving:
+		_acc += amount
+		while _acc >= 1.0 - 1e-6 and buckets > 0:
+			_acc -= 1.0
+			buckets -= 1
+			changed.emit()
+		if amount <= 0.0 or buckets <= 0:
+			giving = false
+			_acc = 0.0
+	else:
+		_acc += amount
+		while _acc >= 1.0 - 1e-6 and buckets < Settings.tank_buckets:
+			_acc -= 1.0
+			buckets += 1
+			changed.emit()
+		if amount <= 0.0 and buckets > 0:
+			giving = true
+			_acc = 0.0
 
 
 ## A pump puts a bucket in (ADR 0117); false when full.
@@ -93,11 +126,12 @@ func view_parts() -> Dictionary:
 
 
 func to_dict() -> Dictionary:
-	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "buckets": buckets}
+	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "buckets": buckets, "giving": giving}
 
 
 func load_from(d: Dictionary) -> void:
 	buckets = int(d.get("buckets", 0))
+	giving = bool(d.get("giving", false))
 
 
 func summary() -> Dictionary:

@@ -33,15 +33,27 @@ func needs_sim() -> bool:
 	return wants_water()
 
 
+var _acc := 0.0   # fractional buckets the water channel took
+
+
 func net(channel: String) -> Dictionary:
-	return {"role": NetworkSolver.SINK, "amount": Settings.pump_eu_t if buckets < Settings.pump_buckets else 0.0} if channel == "energy" else {}
+	if channel == "energy":
+		return {"role": NetworkSolver.SINK, "amount": Settings.pump_eu_t if buckets < Settings.pump_buckets else 0.0}
+	if channel == "water":   # ADR 0122: tanks and boilers on the pipes that touch it drink from it
+		return {"role": NetworkSolver.SOURCE, "amount": minf(Settings.pipe_water_cap, float(buckets))}
+	return {}
 
 
 func net_in(channel: String, amount: float) -> void:
-	if channel != "energy":
-		return
-	eu = amount
-	power_ticks = 21 if amount >= Settings.pump_eu_t - 1e-3 else 0
+	if channel == "energy":
+		eu = amount
+		power_ticks = 21 if amount >= Settings.pump_eu_t - 1e-3 else 0
+	elif channel == "water":
+		_acc += amount
+		while _acc >= 1.0 - 1e-6 and buckets > 0:
+			_acc -= 1.0
+			buckets -= 1
+			changed.emit()
 
 
 func tick() -> bool:
@@ -71,15 +83,6 @@ func draw_from(get_voxel: Callable, set_voxel: Callable, start: Vector3i) -> boo
 	return true
 
 
-## A bucket into the tank beside it (TankEntity.add_bucket). True when one moved.
-func push_to(tank: RefCounted) -> bool:
-	if buckets <= 0 or tank == null or not tank.has_method("add_bucket") or not tank.add_bucket():
-		return false
-	buckets -= 1
-	changed.emit()
-	return true
-
-
 func use(stack: Dictionary) -> Dictionary:
 	var res := {"consume": 0, "give": [], "msg": ""}
 	if stack.get("id", "") == "bucket":
@@ -91,7 +94,7 @@ func use(stack: Dictionary) -> Dictionary:
 		res["give"] = [{"id": "water_bucket", "count": 1}]
 		changed.emit()
 		return res
-	res["msg"] = "%d of %d buckets; %s. A bucket in hand takes one, a water tank beside it fills by itself." % [buckets, Settings.pump_buckets,
+	res["msg"] = "%d of %d buckets; %s. A bucket in hand takes one; tanks and boilers on its pipes drink from it." % [buckets, Settings.pump_buckets,
 		"pumping" if wants_water() else ("full" if buckets >= Settings.pump_buckets else "no power (%d EU/t)" % roundi(Settings.pump_eu_t))]
 	return res
 

@@ -72,16 +72,11 @@ func _process(delta: float) -> void:
 				Sound.play("steam/hiss", _at(b.pos, Vector3(0.5, 1.0, 0.5)), {"db": -6.0})
 				_particles("large_smoke", _at(b.pos, Vector3(0.5, 1.0, 0.5)), 0, 3)
 		machine_pins.update(main)   # ADR 0117: pumps keep a pin alive where the player is not
-		for p: PumpEntity in main.blocks.all_of("pump"):   # a pump draws a bucket a second from the water under it, hands it to a tank beside it
+		for p: PumpEntity in main.blocks.all_of("pump"):   # a pump draws a bucket a second from the water under it; the water channel moves it on
 			if p.wants_water():
 				var below: Vector3i = p.pos + Vector3i(Settings.BLOCK / 2, -1, Settings.BLOCK / 2)
 				if p.draw_from(machine_pins.get_voxel.bind(main), func(c: Vector3i, m: int) -> void: machine_pins.set_voxel(main, c, m), below):
 					_particles("splash", _at(p.pos, Vector3(0.5, 0.2, 0.5)), GameMaterials.WATER, 3)
-			var n := BlockEntities.width_of("pump")
-			for d in [Vector3i(-Settings.BLOCK, 0, 0), Vector3i(n, 0, 0), Vector3i(0, 0, -Settings.BLOCK), Vector3i(0, 0, n)]:
-				var o: RefCounted = main.blocks.at(p.pos + d)
-				if o != null and o.kind == "tank" and p.push_to(o):
-					break
 		for oven: CokeOvenEntity in main.blocks.all_of("coke_oven"):   # the multiblock check: 27 reads a second per oven
 			if oven.set_formed(CokeOvenEntity.formed_at(main.get_world_voxel, oven.pos)):
 				main.blocks.refit(oven)

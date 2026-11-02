@@ -124,20 +124,22 @@ func test_steam_hammer_smiths_a_plate_over_pipes() -> void:
 	var out := h.take_piece()
 	assert_str(out["id"]).is_equal("iron_plate")
 	assert_dict(h.ready).is_empty()
-	# too far: the ninth pipe reaches no steam
-	var far: SteamHammerEntity = store.create(Vector3i(-(Settings.steam_pipe_max + 2) * B, 0, 0), "steam_hammer")
-	for i in range(1, Settings.steam_pipe_max + 2):
+	# pipes have no reach limit on the steam channel (ADR 0122): twenty pipes still carry steam
+	var far: SteamHammerEntity = store.create(Vector3i(-23 * B, 0, 0), "steam_hammer")   # 3 blocks wide: -23B..-20B, the last pipe at -20B
+	for i in range(1, 21):
 		store.create(Vector3i(-i * B, 0, 0), "pipe")
 	_ticks(20)
-	assert_object(far.boiler).is_null()
-	# copper pipes count double: four of them reach, five do not
+	assert_object(far.boiler).is_same(b)
+	# a copper pipe carries half: the run is capped at half a bar a second, still plenty for one hammer
 	var near: SteamHammerEntity = store.create(Vector3i(0, 0, 9 * B), "steam_hammer")
 	for i in range(5, 9):
 		store.create(Vector3i(0, 0, i * B), "pipe").item = "copper_pipe"
 	_ticks(20)
 	assert_object(near.boiler).is_same(b)
-	store.create(Vector3i(0, 0, 12 * B), "pipe").item = "copper_pipe"
-	var past: SteamHammerEntity = store.create(Vector3i(0, 0, 13 * B), "steam_hammer")
+	assert_float(Networks.networks["steam"][near.get_instance_id()]["cap"]).is_equal_approx(Settings.pipe_steam_cap * 0.5, 0.001)
+	# a gap in the pipes reaches nothing (the hammer is 3 blocks wide: 9B..12B, so the gap starts at 12B)
+	store.create(Vector3i(0, 0, 14 * B), "pipe").item = "copper_pipe"
+	var past: SteamHammerEntity = store.create(Vector3i(0, 0, 15 * B), "steam_hammer")
 	_ticks(20)
 	assert_object(past.boiler).is_null()
 
