@@ -298,7 +298,7 @@
     {"id": "wrench", "name": "Wrench", "tags": ["tool", "wrench"], "stack": 1, "durability": 250, "_note": "right click a pipe or a boiler to turn it a quarter (ADR 0097); cheap: a rod and a stick"},
     {"id": "goggles", "name": "Brass Goggles", "tags": ["clothing", "armor"], "stack": 1, "clothing": {"slot": "head", "warmth_c": 0.5, "armor": 1, "steam_proof": true}, "_note": "halves a boiler blast's damage (ADR 0097)"},
     {"id": "leather_apron", "name": "Leather Apron", "tags": ["clothing", "armor"], "stack": 1, "clothing": {"slot": "body", "warmth_c": 2.0, "armor": 2, "steam_proof": true}, "_note": "halves a boiler blast's damage (ADR 0097)"},
-    {"id": "fire_clay", "name": "Fire Clay", "tags": ["ground_place", "raw_clay"], "stack": 16, "_note": "clay kneaded with sand; a pit kiln fires it into a fire brick (ADR 0099)"},
+    {"id": "fire_clay", "name": "Fire Clay", "tags": ["ground_place", "clay"], "stack": 16, "_note": "clay kneaded with sand; a pit kiln fires it into a fire brick (ADR 0099)"},
     {"id": "fire_brick", "name": "Fire Brick", "tags": ["brick", "fire_brick"], "stack": 64, "_note": "stands the blast furnace's heat and the steel boiler's firebox (ADR 0099)"},
     {"id": "steel_ingot", "name": "Steel Ingot", "tags": ["ingot", "metal.steel", "heatable", "forge_heat"], "stack": 64, "work_piece": "steel_work_piece", "anvil_tier": 1, "_note": "an iron ingot blown with coal in the blast furnace; smithed on the bronze anvil or the steam hammer (ADR 0099)"},
     {"id": "steel_work_piece", "name": "Steel Work Piece", "tags": ["heatable", "forge_heat", "work_piece"], "stack": 1, "anvil_tier": 1, "_note": "half-smithed steel: heat it in a forge and lay it back on the anvil"},
