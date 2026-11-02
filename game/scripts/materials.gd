@@ -129,6 +129,10 @@ const MUSHROOM_STEM := 115
 const CRYSTAL := 120               # geode lining (ADR 0052): glows in the terrain shader
 const LAVA_STATIC := 121           # generated cave lava pools and the deep lava sea: still until disturbed, then finite lava (ADR 0069 C)
 # 121..126 reserved for world generation; 130..159 parts C and D
+# Giant flowers in the flower meadow (bug report 2026-11-02 18-57-25): tree-sized, felled like a tree
+const GIANT_STEM := 124
+const GIANT_PETAL := 125
+const GIANT_HEART := 126
 # The dry savanna floor (bug report 2026-10-25 20-37-22): straw grass, its tussocks, bare red earth
 const SAVANNA_GRASS := 127
 const SAVANNA_TALL_GRASS := 128
@@ -266,7 +270,7 @@ static func _build_defs() -> Array:
 		# 121 (was reserved): still lava for cave pools and the deep lava sea, finite moving lava once something opens
 		# beside or under it, like water_static (ADR 0069 C)
 		{"name": "lava_static", "cell_type": "liquid", "fluid_slot": 1, "liquid_static": true, "density": 5, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false, "loose": 7},
-	] + _reserved_defs(122, 126) + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
+	] + _reserved_defs(122, 123) + _giant_flower_defs() + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
 		# 203 (ADR 0065): TNT. Not burnable: the sim would burn it away; Tnt lights it when fire touches it.
 		{"name": "tnt", "cell_type": "solid", "pattern": true, "density": 6, "hp": 50, "tiles": [172, 171, 172], "transparent": false},
 		# 204..206 (ADR 0098): the Gelvin monolith and its plaza. Not in mining.json and hp past Tnt.NEVER_HP: indestructible.
@@ -274,6 +278,20 @@ static func _build_defs() -> Array:
 		{"name": "monolith_rune", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [174, 174, 174], "transparent": false},
 		{"name": "monolith_seam", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [175, 175, 175], "transparent": false},
 	]
+
+
+## Giant flowers, ids 124..126: a stalk that fells like a trunk (rigid wood) under a head of petals round a
+## heart that fall with it (rigid leaf); tiles of the plant stem, the poppy and the dandelion.
+static func _giant_flower_defs() -> Array:
+	var burn := {"burnable": true, "fire_hp": 60, "autoignition_temperature": 30, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3}
+	var out := [
+		{"name": "giant_stem", "cell_type": "solid", "rigid": "wood", "density": 8, "hp": 60, "tiles": [29, 29, 29], "transparent": false},
+		{"name": "giant_petal", "cell_type": "solid", "rigid": "leaf", "density": 6, "hp": 10, "tiles": [31, 31, 31], "transparent": false},
+		{"name": "giant_heart", "cell_type": "solid", "rigid": "leaf", "density": 6, "hp": 10, "tiles": [30, 30, 30], "transparent": false},
+	]
+	for d in out:
+		d.merge(burn)
+	return out
 
 
 ## The savanna floor, ids 127..129 (bug report 2026-10-25 20-37-22): grass and tussocks that act like

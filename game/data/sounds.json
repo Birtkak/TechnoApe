@@ -149,7 +149,7 @@
   "planks": "plank", "furniture": "plank", "torch": "wood",
   "leaves": "leaves", "birch_leaves": "leaves", "leaf_litter": "leaves", "thatch": "leaves", "blueberry_bush": "leaves",
   "tall_grass": "plant", "savanna_tall_grass": "plant", "flower": "plant", "flower_red": "plant", "mushroom_brown": "plant", "mushroom_red": "plant",
-  "reed": "plant", "lily_pad": "plant", "plant_stem": "plant", "kelp": "plant", "seagrass": "plant", "mushroom_stem": "plant", "seashell": "gravel", "glow_mushroom": "plant", "wild_wheat": "plant", "wild_carrot": "plant",
+  "reed": "plant", "lily_pad": "plant", "plant_stem": "plant", "giant_stem": "plant", "giant_petal": "leaves", "giant_heart": "leaves", "kelp": "plant", "seagrass": "plant", "mushroom_stem": "plant", "seashell": "gravel", "glow_mushroom": "plant", "wild_wheat": "plant", "wild_carrot": "plant",
   "pumpkin": "plant", "fern": "plant", "dead_bush": "twig", "twigs": "twig",
   "snow": "snow", "ice": "glass", "packed_ice": "glass",
   "wool": "cloth", "carpet": "cloth", "carcass": "cloth",
