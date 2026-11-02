@@ -1560,6 +1560,8 @@ func _on_block_used(p: Vector3i, material: int) -> void:
 ## A furnace started or stopped burning: swap furnace <-> furnace_lit, or
 ## drop the entity when its block is gone (burnt, replaced by the sim).
 func _on_lit_flipped(p: Vector3i) -> void:
+	if BlockEntities.is_work(blocks.at(p)):
+		return   # a work piece (the electric furnace, ADR 0113) draws its own lit look through WorkSystem; no voxel to swap
 	var m := get_world_voxel(p)
 	if m != GameMaterials.FURNACE and m != GameMaterials.FURNACE_LIT:
 		for s in blocks.remove(p):

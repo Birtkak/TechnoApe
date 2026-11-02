@@ -24,15 +24,31 @@ recipes). Progression ends at the first electric tier (LV) for now.
   developer to confirm). Holds `battery_eu` (16 000), moves `battery_eu_t` (32).
 - **Electric lamp** (`ElectricLampEntity`): a sink of 1 EU/t, `is_lit()` while fed, so `TorchLights` lights the
   room from it (the fire colour for now; a cooler lamp colour is a one-line follow-up in TorchLights).
-- Units stay EU per block tick; one solve a second; the weakest cable caps a component (ADR 0113).
+- **Sinks are filled in order, not shared** (changed during the factory run): a machine either gets its whole
+  EU/t or waits; a proportional share browned every machine out together the moment demand passed supply
+  (33 > 32 EU/t). Sources and low sinks still share proportionally. The order is the entity store's (placement
+  order): the first machines built keep running when power is short. Default, developer to confirm.
+- **Machine pins** (`MachinePins`, `SimBubble.pin_at` + `keep_alive`): once a second WorkSystem keeps a pin
+  around every machine with `needs_sim()` that the main window does not cover, nearest first, at most
+  `machine_pins_max` (2). The **pump** is the first such machine: 4 EU/t, a bucket a second from the water under
+  it through `Bucket.scoop_cells` (the bucket's own edit path over the bubble, a pin or the terrain), into a
+  water tank beside it.
+- **The coke oven is the first multiblock**: a controller in front of a hollow 3 x 3 x 3 of bricks; WorkSystem
+  checks the pattern once a second (27 bubble-first reads) and the oven covers the hull's cells while formed, so a
+  hopper anywhere on the hull feeds it. It burns no power: coal to coal coke (twice coal's burn, one coke makes a
+  steel in the alloy smelter), logs to three charcoal. `enabled` on `MachineEntity` is the general hook: an
+  unpowered machine runs while enabled.
+- Units stay EU per block tick; one solve a second; the weakest cable caps a component (ADR 0113). The debug
+  layouts use the steel boiler: a small boiler left alone bursts after a minute (ADR 0097), which killed the
+  first unattended factory run.
 
 ## Not built (and why)
-- Machine pins (`keep_alive`) and the first multiblock: no machine needs the material simulation yet; designed in
-  ADR 0113, built with the pump.
 - Voltage tiers, cable loss, overload explosions: MV does not exist; they would only punish.
 - Fluid channels on the solver: the steam age's `feed` carries the only fluid and works.
 
 ## Evidence
+`test_electrical_age_2.gd` (pump over a fake world, tank hand-off, pins' needs_sim, the coke oven forming, coking
+and breaking, saves); `/stations factory` in the game (hopper-fed macerator and furnace, battery, lamp, assembler);
 `test_electrical_age.gd` (data, costs, lathe, macerator with hopper pull, two-input alloy smelter, assembler,
 battery charging then feeding a lamp with the boiler cold, SINK_LOW solver, saves); `/kit electric` and
 `/stations electric` in the game.

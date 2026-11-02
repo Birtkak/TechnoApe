@@ -42,6 +42,7 @@ const PIN_QUIET_TICKS := 60             # nothing active this long: the pin lets
 const PIN_MAX_S := 90.0
 const PIN_PUSH_SHARE := 0.3              # a pin pastes on a third of the main window's budget (one chunk a frame)
 var pinned := false                # this bubble is a pin
+var keep_alive := false            # ADR 0117: a machine pin (MachinePins): no quiet or age release while set
 var owner_bubble: SimBubble        # a pin's main window
 var pins: Array[SimBubble] = []
 var pins_made := 0
@@ -216,7 +217,7 @@ func _process_timed(delta: float) -> void:
 		return
 	if pinned:
 		_pin_age += delta
-		if _pin_quiet >= PIN_QUIET_TICKS or _pin_age >= PIN_MAX_S:
+		if not keep_alive and (_pin_quiet >= PIN_QUIET_TICKS or _pin_age >= PIN_MAX_S):
 			release()
 			return
 	else:
@@ -415,16 +416,25 @@ func _pin(active: Array[Vector3i]) -> void:
 	for wc in active:
 		c += Vector3(wc)
 	c = c / active.size() + Vector3(0.5, 0.5, 0.5)
+	pin_at(c * Settings.CHUNK)
+
+
+## A pin centred on a world voxel position (ADR 0117: machines that need the simulation ask for one
+## through MachinePins). Null when the pin limit is reached.
+func pin_at(center_world: Vector3) -> SimBubble:
+	if pins.size() >= PIN_MAX or not _ready:
+		return null
 	var t0 := Time.get_ticks_usec()
 	var p := SimBubble.new()
 	p.name = "SimPin%d" % pins_made
 	add_child(p)
-	p.setup(world, c * Settings.CHUNK, self)
+	p.setup(world, center_world, self)
 	p.hold_pushes = false
 	pins.append(p)
 	pins_made += 1
 	pin_ms_max = maxf(pin_ms_max, (Time.get_ticks_usec() - t0) / 1000.0)
 	_frame_cost()["edit_ms"] += (Time.get_ticks_usec() - t0) / 1000.0
+	return p
 
 
 ## A pin: bit k set = local chunk row k of column `col` (world chunk x, z) lies inside the main window.

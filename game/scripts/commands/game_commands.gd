@@ -47,7 +47,7 @@ const KITS := {
 		"raw_meat": 8, "iron_ore": 8, "firestarter": 1, "lathe": 1, "bending_press": 1, "wiremill": 1, "iron_ingot": 8, "copper_ingot": 8,
 		"primitive_circuit": 4, "machine_hull": 2, "electric_motor": 2, "rubber": 16, "insulated_wire": 16,
 		"macerator": 1, "alloy_smelter": 1, "assembler": 1, "battery_box": 1, "electric_lamp": 4, "tin_nugget": 12, "copper_ore": 4, "vacuum_tube": 4,
-		"resistor": 2, "coated_board": 2},   # the energy network and the electrical age (ADR 0113, 0117)
+		"resistor": 2, "coated_board": 2, "pump": 1, "coke_oven": 1, "bricks": 26, "hopper": 2},   # the energy network and the electrical age (ADR 0113, 0117)
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1, "sounding_rod": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
 	"water": {"bucket": 2, "water_bucket": 1, "crater_rod": 1, "laser_cutter": 1, "lava_bomb": 8, "water_balloon": 8, "cobblestone": 16},   # river tests (ADR 0104)
@@ -113,7 +113,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_setblock, [["~"], ["~"], ["~"], _material_names])
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
-	reg.register("stations", "/stations [electric]", "Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace (ADR 0113)", _stations, [["electric"]])
+	reg.register("stations", "/stations [electric|factory]", "Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp (ADR 0113, 0117)", _stations, [["electric", "factory"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
@@ -784,7 +784,7 @@ func _music(args: PackedStringArray) -> Dictionary:
 func _stations(args: PackedStringArray) -> Dictionary:
 	if main == null:
 		return CommandRegistry.fail("No world")
-	if args.size() > 0 and args[0] == "electric":   # ADR 0113: the energy line, 4 m ahead, along the player's right
+	if args.size() > 0 and args[0] in ["electric", "factory"]:   # ADR 0113, 0117: the energy line (or the whole factory), 4 m ahead, along the player's right
 		var fwd: Vector3 = -player.camera.global_transform.basis.z
 		fwd.y = 0
 		var right := Vector3i(fwd.normalized().cross(Vector3.UP).round())
@@ -793,7 +793,7 @@ func _stations(args: PackedStringArray) -> Dictionary:
 		var q := player.position + fwd.normalized() * Settings.m2v(4.0) - Vector3(right) * Settings.m2v(2.5)
 		var anchor := BlockEntities.anchor_for(Vector3i(q.floor()))
 		anchor.y = main.world.surface_height(anchor.x, anchor.z) + 1
-		return CommandRegistry.ok("Laid " + main.work.debug_electric_line(anchor, right))
+		return CommandRegistry.ok("Laid " + (main.work.debug_factory_line(anchor, right) if args[0] == "factory" else main.work.debug_electric_line(anchor, right)))
 	main.place_stations()
 	return CommandRegistry.ok("Placing a crafting table, chest and furnace ahead")
 

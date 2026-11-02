@@ -24,6 +24,7 @@ var _rng := RandomNumberGenerator.new()
 var _pan_at := Vector3i(-1, -1, -1)   # the bed voxel being panned
 var _pan_shakes := 0
 var _seal_accum := 0.0
+var machine_pins := MachinePins.new()   # ADR 0117: pins for machines that need the simulation (the pump)
 var _knap_hint_ms := -100000    # last "knap with a stone" hint (a held click repeats)
 var stats := {"placed": 0, "chips": 0, "clay_cells": 0, "finished": [], "kilns_lit": 0, "casts": 0, "sifts": 0,
 	"pans": 0, "scrapes": 0, "pits_lit": 0, "pits_charred": 0, "pits_burnt": 0, "seal_ms_max": 0.0,
@@ -70,6 +71,22 @@ func _process(delta: float) -> void:
 			if b.steel() and b.pressure >= BoilerEntity.STEEL_VALVE and b.wear < 0.5:   # the safety valve blowing off (ADR 0099)
 				Sound.play("steam/hiss", _at(b.pos, Vector3(0.5, 1.0, 0.5)), {"db": -6.0})
 				_particles("large_smoke", _at(b.pos, Vector3(0.5, 1.0, 0.5)), 0, 3)
+		machine_pins.update(main)   # ADR 0117: pumps keep a pin alive where the player is not
+		for p: PumpEntity in main.blocks.all_of("pump"):   # a pump draws a bucket a second from the water under it, hands it to a tank beside it
+			if p.wants_water():
+				var below: Vector3i = p.pos + Vector3i(Settings.BLOCK / 2, -1, Settings.BLOCK / 2)
+				if p.draw_from(machine_pins.get_voxel.bind(main), func(c: Vector3i, m: int) -> void: machine_pins.set_voxel(main, c, m), below):
+					_particles("splash", _at(p.pos, Vector3(0.5, 0.2, 0.5)), GameMaterials.WATER, 3)
+			var n := BlockEntities.width_of("pump")
+			for d in [Vector3i(-Settings.BLOCK, 0, 0), Vector3i(n, 0, 0), Vector3i(0, 0, -Settings.BLOCK), Vector3i(0, 0, n)]:
+				var o: RefCounted = main.blocks.at(p.pos + d)
+				if o != null and o.kind == "tank" and p.push_to(o):
+					break
+		for oven: CokeOvenEntity in main.blocks.all_of("coke_oven"):   # the multiblock check: 27 reads a second per oven
+			if oven.set_formed(CokeOvenEntity.formed_at(main.get_world_voxel, oven.pos)):
+				main.blocks.refit(oven)
+			if oven.is_lit():
+				_particles("large_smoke", _at(oven.pos, Vector3(0.5, 1.2, 0.5)), 0, 2)
 		for t in main.blocks.all_of("turbine"):   # a turning turbine hums and leaks a wisp (ADR 0099)
 			if t.rpm > 0.0:
 				Sound.play("steam/hiss", _at(t.pos, Vector3(0.5, 0.5, 0.5)), {"db": -14.0, "pitch": 0.6})
@@ -305,11 +322,47 @@ func _create(p: Vector3i, kind: String, material: int) -> RefCounted:
 	return e
 
 
+## Debug (/stations factory, ADR 0117): the electric line plus a macerator and an electric furnace each fed
+## from a chest of ore through a hopper on top, a battery, a lamp and an assembler, so a run shows ore
+## becoming ingots by itself.
+func debug_factory_line(base: Vector3i, right: Vector3i) -> String:
+	var B := Settings.BLOCK
+	debug_electric_line(base, right)
+	var mac: RefCounted = _create(base + right * 13 * B, "macerator", GameMaterials.WORK_BLOCK)   # touching the furnace (11B..13B): no cable needed
+	mac.use({"id": "iron_ore", "count": 64})   # one block to start on while the hopper trickles more
+	var hop: HopperEntity = _create(base + right * 13 * B + Vector3i(0, 2 * B, 0), "hopper", GameMaterials.WORK_SPOT)
+	hop.facing = 0
+	var chest_at := base + right * 13 * B + Vector3i(0, 3 * B, 0)
+	main._on_placed(chest_at, GameMaterials.CHEST)
+	var chest: RefCounted = main.blocks.at(chest_at)
+	if chest != null:
+		chest.inv.set_slot(0, {"id": "iron_ore", "count": 64 * 4})
+	var furnace: RefCounted = main.blocks.at(base + right * 11 * B)
+	if furnace != null:
+		var h2: HopperEntity = _create(base + right * 11 * B + Vector3i(0, 2 * B, 0), "hopper", GameMaterials.WORK_SPOT)
+		h2.facing = 0
+		var c2 := base + right * 11 * B + Vector3i(0, 3 * B, 0)
+		main._on_placed(c2, GameMaterials.CHEST)
+		var chest2: RefCounted = main.blocks.at(c2)
+		if chest2 != null:
+			chest2.inv.set_slot(0, {"id": "raw_meat", "count": 16})
+	_create(base + right * 15 * B, "cable", GameMaterials.WORK_SPOT)
+	_create(base + right * 16 * B, "battery_box", GameMaterials.WORK_BLOCK)
+	_create(base + right * 18 * B, "cable", GameMaterials.WORK_SPOT)
+	_create(base + right * 19 * B, "electric_lamp", GameMaterials.WORK_SPOT)
+	_create(base + right * 20 * B, "cable", GameMaterials.WORK_SPOT)
+	var asm: RefCounted = _create(base + right * 21 * B, "assembler", GameMaterials.WORK_BLOCK)
+	for id in ["vacuum_tube", "resistor", "insulated_wire", "coated_board"]:
+		asm.use({"id": id, "count": 4})
+	return "the electric line, a hopper-fed macerator and furnace, a battery, a lamp and an assembler from %s (%d pieces)" % [base, 16]
+
+
 ## Debug (/stations electric, ADR 0113): the energy line laid on the ground `fwd` of `base` along `right`:
 ## a lit boiler, a pipe, the turbine, two cables and an electric furnace loaded with meat. Returns what it laid.
 func debug_electric_line(base: Vector3i, right: Vector3i) -> String:
 	var B := Settings.BLOCK
 	var e: RefCounted = _create(base, "boiler", GameMaterials.WORK_BLOCK)
+	e.item = "steel_boiler"   # its safety valve holds; a small boiler bursts unattended after a minute (ADR 0097)
 	e.use({"id": "coal", "count": 8}, main.items.get_def("coal"), false, true)
 	for i in 4:
 		e.use({"id": "water_bucket", "count": 1}, main.items.get_def("water_bucket"))
@@ -331,7 +384,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile"
-	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box"]
+	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven"]
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -741,8 +794,8 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
 		_say(res["msg"])
 		return true
-	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity:   # ADR 0099, 0113, 0117
-		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
+	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity:   # ADR 0099, 0113, 0117
+		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is PumpEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
 		if res["consume"] > 0 and _consumes():
 			main.player_inv.consume_held(res["consume"])
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))

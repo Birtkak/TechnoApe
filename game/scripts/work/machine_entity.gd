@@ -27,6 +27,7 @@ var power_ticks := 0        # ticks of power left from the last solve
 var progress := 0           # ticks worked on the current recipe
 var total := 20
 var made := 0
+var enabled := true         # a machine with eu_t 0 (the coke oven) runs while this is set (formed)
 var _list: Array = []       # this station's process recipes
 
 
@@ -85,15 +86,17 @@ func _room_for(out: Dictionary) -> bool:
 
 
 func is_lit() -> bool:
-	return power_ticks > 0 and not current().is_empty()
+	return powered() and not current().is_empty()
 
 
 func powered() -> bool:
-	return power_ticks > 0
+	return power_ticks > 0 or (eu_t <= 0.0 and enabled)
 
 
 func net(channel: String) -> Dictionary:
 	if channel != "energy":
+		return {}
+	if eu_t <= 0.0:
 		return {}
 	return {"role": NetworkSolver.SINK, "amount": eu_t if not current().is_empty() else 0.0}
 
@@ -114,7 +117,7 @@ func tick() -> bool:
 	if power_ticks > 0:
 		power_ticks -= 1
 	var r := current()
-	if r.is_empty() or power_ticks <= 0:
+	if r.is_empty() or not powered():
 		if r.is_empty():
 			progress = 0
 		return was != is_lit()
