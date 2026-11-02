@@ -1900,19 +1900,38 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             const int crystal_h = (lod == 0 && !cav.empty()) ? rocks_.crystal_height(wx, wz, crystal_roll) : 0;
             // cave water depth here, and the rock under the block's bottom cave air (the sheet crosses blocks)
             const int pool_d = (lod == 0 && !cav.empty()) ? std::clamp((int)((n_pool_.GetNoise((float)wx, (float)wz) - POOL_THR) * 2.0f * POOL_DEPTH), 0, POOL_DEPTH) : 0;
-            int floor_wy = -(1 << 20), pool_cap = 0;
+            int floor_wy = -(1 << 20), pool_cap = 0, lip_top = 0;
             for (int j = 1; j <= pool_d; j++)
                 if (!cave_at(wx, origin.y - j, wz)) { floor_wy = origin.y - j; break; }
             // Where the floor falls away within 1 m the sheet thins to one tread (a stream over steps) and where it
             // falls two it ends, so a steep stair wall carries no water (the probes clamp to the lattice edge:
             // shortcut: a cap may differ by a tread across a block border, fix if a water step shows there).
-            auto drop = [&](int dy) {
+            auto drop = [&](int x, int z, int f, int dy) {
                 static const int OX[4] = {2 * CAVE_STEP, -2 * CAVE_STEP, 0, 0}, OZ[4] = {0, 0, 2 * CAVE_STEP, -2 * CAVE_STEP};
                 for (int k = 0; k < 4; k++)
-                    if (cave_at(wx + OX[k], floor_wy - dy, wz + OZ[k])) return true;
+                    if (cave_at(x + OX[k], f - dy, z + OZ[k])) return true;
                 return false;
             };
-            auto cap_pool = [&]() { pool_cap = drop(CAVE_STEP + 1) ? 0 : (drop(1) ? std::min(pool_d, CAVE_STEP) : pool_d); };
+            auto depth_at = [&](int x, int z) { return std::clamp((int)((n_pool_.GetNoise((float)x, (float)z) - POOL_THR) * 2.0f * POOL_DEPTH), 0, POOL_DEPTH); };
+            auto cap_at = [&](int x, int z, int f, int d) { return drop(x, z, f, CAVE_STEP + 1) ? 0 : (drop(x, z, f, 1) ? std::min(d, CAVE_STEP) : d); };
+            // A sheet never opens sideways onto air (test_landforms_caves): where a neighbour column's floor lies
+            // lower, its own sheet reaches only fn + its cap, so the water above that height in this column is
+            // a stone lip instead (the rim that holds the pond on its downhill side).
+            auto cap_pool = [&]() {
+                pool_cap = cap_at(wx, wz, floor_wy, pool_d);
+                lip_top = floor_wy + pool_cap;
+                if (pool_cap <= 0) return;
+                static const int NX[4] = {1, -1, 0, 0}, NZ[4] = {0, 0, 1, -1};
+                for (int k = 0; k < 4; k++) {
+                    // the neighbour's floor under our surface (rock at the surface: it bounds us) and its own
+                    // sheet on it; our water above that is the lip
+                    const int nx2 = wx + NX[k], nz2 = wz + NZ[k];
+                    int fn = floor_wy + pool_cap;
+                    while (fn > floor_wy - 2 * POOL_DEPTH && cave_at(nx2, fn, nz2)) fn--;
+                    const int dn = (fn == floor_wy + pool_cap || cave_at(nx2, fn, nz2)) ? 0 : cap_at(nx2, nz2, fn, depth_at(nx2, nz2));
+                    lip_top = std::min(lip_top, fn + dn);
+                }
+            };
             if (pool_d > 0 && floor_wy > -(1 << 20)) cap_pool();
             // the conduit segments and chambers within reach of this column (ADR 0110)
             int cand[16], ncand = 0, scand[4], nscand = 0;
@@ -1993,7 +2012,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
                             const int cb = depth < technosim_biome::SOIL_DEPTH * FS ? col.biome : technosim_biome::cave_biome(ti, hi, di, ni);
                             const int pool = technosim_biome::SURFACE_POOL[cb];
-                            if (pool >= 0) mat = (uint16_t)pool;
+                            if (pool >= 0) mat = wy <= lip_top ? (uint16_t)pool : (uint16_t)Mat::STONE;
                         }
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
                         if (d_top <= sandstone_depth) mat = strata ? g.strata_at(mx, floor_div(wy, FS), mz) : Mat::SANDSTONE;
@@ -2049,7 +2068,10 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                         }
                         for (int q = 0; q < ncand && mat != csegs[cand[q]].liquid; q++) {
                             const CSeg &sg = csegs[cand[q]];
-                            if (WorldGen::seg_dist3(px, py, pz, sg.ax, sg.ay, sg.az, sg.bx, sg.by, sg.bz) <= sg.r) mat = sg.liquid;
+                            // a voxel of rock stays between the tube and cave air beside it (no liquid face onto a
+                            // cave, test_landforms_caves): the tube is found by ear and opened by hand
+                            if (WorldGen::seg_dist3(px, py, pz, sg.ax, sg.ay, sg.az, sg.bx, sg.by, sg.bz) <= sg.r
+                                && !cave_at(wx + 1, wy, wz) && !cave_at(wx - 1, wy, wz) && !cave_at(wx, wy, wz + 1) && !cave_at(wx, wy, wz - 1)) mat = sg.liquid;
                         }
                     }
                 } else if ((water_level - wy) * 2 >= step) {
