@@ -38,6 +38,8 @@ var _bm_rows := 0
 var trackers: Trackers          # HUD trackers (ADR 0061): the recipe view's Pin button
 var grid_fill: Callable         # fn(recipe, all, dry_run) -> CraftingGrid.fill's answer, while a crafting grid is on screen
 var container_fill: Callable    # the same for a furnace's input slot while its screen is open (ADR 0093)
+var grid_craft: Callable        # fn(recipe, all) -> {crafts, error}: the Craft button makes it into the inventory (ADR 0130)
+var craft_button: Button        # below Fill while grid_craft is set, or null
 var fill_button: Button         # the recipe view's Fill button, or null (tests and menu_test press it)
 var bookmark_button: Button     # the recipe view's Mark button (bookmarks the shown recipe, ADR 0093)
 var _tab_x := -1.0              # the selected station tab's left edge, for its highlight
@@ -255,6 +257,7 @@ func _build_recipe() -> void:
 	_recipe_nodes.clear()
 	_spec_cells.clear()
 	fill_button = null
+	craft_button = null
 	bookmark_button = null
 	_overlay.visible = true
 	var r := model.current_recipe()
@@ -333,7 +336,7 @@ func _build_recipe() -> void:
 			var lb := _label("%s %d/%d" % [n["name"], n["have"], n["need"]], Vector2(196, y), 12)
 			lb.add_theme_color_override("font_color", Color(0.1, 0.4, 0.1) if ok else Color(0.65, 0.1, 0.08))
 			lb.clip_text = true
-			lb.size = Vector2(PANEL.x - 200, 15)
+			lb.size = Vector2(PANEL.x - 200 - (74 if craft_button else 0), 15)
 			y += 15.0
 	# info, station requirement, catalysts
 	if l["info"] != "":
@@ -386,6 +389,15 @@ func _add_fill_button(r: Dictionary, fill: Callable) -> void:
 			b.tooltip_text = res["error"])
 	_add(b, Vector2(PANEL.x - 70, 124))
 	fill_button = b
+	if fill == grid_fill and grid_craft.is_valid():   # ADR 0130: Fill and take the output in one press
+		var c := _button("Craft", func() -> void: pass)
+		c.disabled = b.disabled
+		c.tooltip_text = b.tooltip_text if b.disabled else "Craft one into the inventory (Shift: %d)" % int(check["crafts"])
+		c.pressed.connect(func() -> void:
+			grid_craft.call(r, Input.is_key_pressed(KEY_SHIFT))
+			_build_recipe())   # the have / need counts and the buttons again
+		_add(c, Vector2(PANEL.x - 70, 158))
+		craft_button = c
 
 
 func _add(n: Control, pos: Vector2) -> void:

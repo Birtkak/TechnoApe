@@ -23,6 +23,10 @@ frame times.
       the thermometer goes blue: frosty edges; near lava or in a desert noon: orange edges. Low health shakes the
       hearts, low food shakes the food row. "Hurt, cold and heat effects" off removes it all.
 - [ ] Every 30 s "Saving world..." shows bottom left for a moment.
+- [ ] Look at a turbine, cable, battery box, lathe or electric furnace: the top panel says what it is doing and
+      what its network makes, wants and moves. Middle click a machine or station: its item comes to hand.
+- [ ] Hover items in the inventory: food, fuel time, "Made by", "Used in N recipes"; hold Shift for id and tags.
+- [ ] Recipe view (R) at a crafting table or the 2x2 grid: Craft makes one straight into the inventory, Shift as many as you can.
 
 ## Playtest shortcuts (2026-11-02)
 

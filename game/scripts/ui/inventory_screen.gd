@@ -290,6 +290,7 @@ func _clear_mode_slots() -> void:
 		_clear_button = null
 	if browser_view:
 		browser_view.grid_fill = Callable()
+		browser_view.grid_craft = Callable()
 		browser_view.container_fill = Callable()
 	if _container:
 		_container.changed.disconnect(_refresh)
@@ -326,6 +327,7 @@ func _build_craft_slots(width: int) -> void:
 	_clear_button.position = Vector2(140, 54) if width == 2 else Vector2(12, 34 + S)
 	if browser_view:
 		browser_view.grid_fill = _grid_fill   # the recipe view's Fill button
+		browser_view.grid_craft = player_inv.craft_recipe   # and its Craft button (ADR 0130)
 
 
 ## The recipe view's Fill button: recipe r laid out in the open grid (all: Shift, as many as possible).
@@ -525,11 +527,61 @@ Warmth +%.1f C" % float(cloth["warmth_c"])
 		text += "\nHolds %d / %d voxels" % [Bucket.fill_of(stack), Bucket.capacity()]   # ADR 0091
 	if stack.has("work"):
 		text += "\nWork piece: %s" % player_inv.items.display_name(String(stack["work"].get("output", "")))
+	text += item_facts(player_inv.items, player_inv.recipes, id, Input.is_key_pressed(KEY_SHIFT))
 	_tooltip.text = text
 	_tooltip.reset_size()
 	var p := _root.get_local_mouse_position() + Vector2(14, -10)
 	p.x = minf(p.x, _root.size.x - _tooltip.size.x - 4)
 	_tooltip.position = p
+
+
+static var _facts_cache := {}   # item id -> the made / used lines (the recipes do not change while playing)
+
+
+## The tooltip's lines about what an item is good for (ADR 0130): food, fuel, attack, how it is made and
+## how many recipes use it; `advanced` (Shift held) adds its id and tags, like F3 + H.
+static func item_facts(items: ItemRegistry, recipes: RecipeRegistry, id: String, advanced: bool) -> String:
+	var def := items.get_def(id)
+	var text := ""
+	var food: Dictionary = def.get("food", {})
+	if not food.is_empty():
+		text += "\nFood +%s, saturation %s" % [str(food.get("hunger", 0)), str(food.get("saturation", 0))]
+	var fuel := int(def.get("fuel_ticks", 0))
+	if fuel > 0:
+		text += "\nFuel: burns %s s, smelts %s" % [("%.1f" % (fuel / 20.0)).trim_suffix(".0"), ("%.1f" % (fuel / 200.0)).trim_suffix(".0")]
+	if def.has("attack_damage"):
+		text += "\nAttack %s" % str(def["attack_damage"])
+	if recipes != null:
+		if not _facts_cache.has(id):
+			var ways := PackedStringArray()
+			for rid in recipes.makes(id):
+				var w := _method_name(items, recipes.recipes[rid])
+				if not w in ways:
+					ways.append(w)
+			var lines := ""
+			if not ways.is_empty():
+				lines += "\nMade by: " + ", ".join(ways.slice(0, 3)) + (" ..." if ways.size() > 3 else "") + "  (R)"
+			var n := recipes.uses_of(id).size()
+			if n > 0:
+				lines += "\nUsed in %d recipe%s  (U)" % [n, "" if n == 1 else "s"]
+			_facts_cache[id] = lines
+		text += _facts_cache[id]
+	if advanced:
+		text += "\n%s  %s" % [id, " ".join(PackedStringArray(Array(def.get("tags", [])).map(func(t) -> String: return "#" + String(t))))]
+	return text
+
+
+## How a recipe is made, in a word or two: its station's name, else its kind of work.
+static func _method_name(items: ItemRegistry, r: Dictionary) -> String:
+	var st := String(r.get("station", ""))
+	if st != "" and items.has(st):
+		return items.display_name(st)
+	var t := String(r.get("type", ""))
+	if RecipeBrowser.WORK_CATEGORIES.has(t):
+		return RecipeBrowser.WORK_CATEGORIES[t][1]
+	if t == "shaped" or t == "shapeless":
+		return "Crafting"
+	return (st if st != "" else t).capitalize()
 
 
 ## Mouse Tweaks: after a press on a slot, dragging with the right button puts
