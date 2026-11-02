@@ -54,6 +54,18 @@ func run(p_main: Node) -> void:
 	await _fast_forward(int(Settings.metal_heat_s * 20.0) + 4)
 	await _shot(tree, "info_forge", Vector3(g_at) + mid * B, 1.1)
 
+	# ---- ADR 0130: a powered line (boiler, pipe, turbine, cables, electric furnace); the panel on a cable ----
+	# on its own cleared strip 24 blocks south: the spawn monolith stands on the main strip
+	var line_at: Vector3i = at.call(-6, 24)
+	_fill(line_at - Vector3i(B, 2 * B, 2 * B), line_at + Vector3i(14 * B, 0, 3 * B), GameMaterials.DIRT)
+	_fill(line_at - Vector3i(B, 0, 2 * B), line_at + Vector3i(14 * B, 6 * B, 3 * B), GameMaterials.AIR)
+	await tree.create_timer(0.5).timeout
+	main.work.debug_electric_line(line_at, Vector3i.RIGHT)
+	await _fast_forward(int(Settings.boiler_build_s * 20.0) + 60)   # working pressure, then a network solve
+	var c_at := line_at + Vector3i.RIGHT * (6 * B + BlockEntities.width_of("turbine"))   # the first cable, at the turbine's side
+	await _shot(tree, "info_network", Vector3(c_at) + Vector3(0.5, 0.1, 0.5) * B, 1.0)
+	r["network_look"] = String(main._describe_block(c_at).get("line", ""))   # what the panel shows there
+
 	# ---- R in the world on the forge: its recipes; U on the iron ingot: station tabs ----
 	var bv: RecipeBrowserView = main.inv_screen.browser_view
 	main._lookup(["forge", ""], "recipes")
