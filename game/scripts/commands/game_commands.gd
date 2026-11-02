@@ -99,6 +99,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("spawn", "/spawn", "Teleport to the world spawn", _spawn)
 	reg.register("sethome", "/sethome", "Mark where you stand as home (a green waypoint; /home goes there)", _sethome)
 	reg.register("home", "/home", "Teleport to your home (/sethome marks it)", _home)
+	reg.register("lightmap", "/lightmap [on|off]", "The light overlay (F7): red marks always dark, yellow dark at night", _lightmap, [["on", "off"]])
 	reg.register("locate", "/locate <feature>", "Find the nearest cave, ruin, lake, biome ... (within 4 km)", _locate, [FEATURES])
 	reg.register("goto", "/goto <feature>", "Teleport to the nearest cave, ruin, lake, biome ...", _goto, [FEATURES])
 	reg.register("daycycle", "/daycycle <on|off|seconds>", "Run the sun (on = 20 min days) or freeze it", _daycycle, [["on", "off"]])
@@ -613,6 +614,14 @@ func _sethome(_args: PackedStringArray) -> Dictionary:
 	var at := Vector3i(player.position.floor())
 	main.waypoints.set_unique("home", "Home", at)
 	return CommandRegistry.ok("Home set at %d %d %d" % [at.x, at.y, at.z])
+
+
+func _lightmap(args: PackedStringArray) -> Dictionary:
+	if main == null or main.light_overlay == null:
+		return CommandRegistry.fail("No world")
+	if args.is_empty() or (args[0] == "on") != main.light_overlay.visible:
+		main.light_overlay.toggle()
+	return CommandRegistry.ok("Light overlay " + ("on" if main.light_overlay.visible else "off"))
 
 
 func _home(_args: PackedStringArray) -> Dictionary:

@@ -61,3 +61,14 @@ func test_chat_history_survives_a_restart() -> void:
 	b._history_step(-1)   # Up recalls the newest
 	assert_str(b._field.text).is_equal("/help")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_light_level_falls_off_to_each_sources_range() -> void:
+	var torch := [0.0, Vector3.ZERO, {}]   # a torch's light: torch_light_range_m
+	var r := Settings.m2v(Settings.torch_light_range_m)
+	assert_int(LightOverlay.light_level(Vector3.ZERO, [torch])).is_equal(15)
+	assert_int(LightOverlay.light_level(Vector3(r * 0.5, 0, 0), [torch])).is_equal(8)   # LIT: lit up to half the range
+	assert_int(LightOverlay.light_level(Vector3(r * 2.0, 0, 0), [torch])).is_equal(0)
+	var fire := [0.0, Vector3(r * 2.0, 0, 0), {"range_m": Settings.torch_light_range_m * 2.0}]
+	assert_int(LightOverlay.light_level(Vector3(r * 1.5, 0, 0), [torch, fire])).is_equal(11)   # the brightest wins
+	assert_int(LightOverlay.light_level(Vector3.ZERO, [])).is_equal(0)

@@ -126,9 +126,22 @@ func _follow_hand() -> void:
 
 
 func _assign() -> void:
-	var torches: Array = main.blocks.all_of("torch")
 	var eye: Vector3 = main.player.position
-	var r2 := Settings.m2v(Settings.torch_light_radius_m) ** 2
+	var near := sources(eye, Settings.m2v(Settings.torch_light_radius_m) ** 2)
+	near.append_array(_lava_lights(eye, Time.get_ticks_msec() / 1000.0))
+	near.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
+	for i in _pool.size():
+		_pool[i].visible = i < near.size()
+		if i < near.size():
+			_pool[i].position = near[i][1]
+			_apply(_pool[i], near[i][2])
+	stats["lit"] = mini(near.size(), _pool.size())
+
+
+## The placed light sources within sqrt(r2) voxels of `eye` as [d2, position, light def ({} = a torch's)]:
+## torches, lit fires, lanterns and dropped light items (no lava). The light overlay reads them too (ADR 0130).
+func sources(eye: Vector3, r2: float) -> Array:
+	var torches: Array = main.blocks.all_of("torch")
 	var near: Array = []
 	for e in torches:
 		var at: Vector3 = e.flame()
@@ -163,16 +176,9 @@ func _assign() -> void:
 		if d2 <= r2:
 			near.append([d2, at, def])
 			dropped += 1
-	near.append_array(_lava_lights(eye, Time.get_ticks_msec() / 1000.0))
-	near.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
-	for i in _pool.size():
-		_pool[i].visible = i < near.size()
-		if i < near.size():
-			_pool[i].position = near[i][1]
-			_apply(_pool[i], near[i][2])
 	stats["torches"] = torches.size()
 	stats["dropped"] = dropped
-	stats["lit"] = mini(near.size(), _pool.size())
+	return near
 
 
 ## Light candidates [d2, at, def] for the lava nearest `eye`, after sampling the bubble for more (ADR 0092 follow-up:

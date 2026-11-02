@@ -54,3 +54,12 @@ Each feature whose taste differs has its own switch in Settings (`user://setting
 12. **F1** hides the HUD, the minimap and the hand (F2 already saved screenshots).
 - Not done: a light-level overlay. There is no light field (torches are OmniLights, nothing spawns in the
   dark), so it would show a number nothing uses; worth it once darkness matters to gameplay.
+
+## Amendment (2026-11-03, batch 4)
+13. **Light overlay** (F7, `/lightmap`; the light-overlay "not done" above is superseded): `LightOverlay`
+    marks block tops within 8 m: red = no placed light at level 8+ and no open sky (32 m up), yellow = sky
+    only. A source gives 15 at its flame falling to 0 at its light's range (`TorchLights.sources`, the lights
+    the game draws); no shadows yet. 0.5 ms of raycasts a frame: a cave's p99 2.9 -> 3.5 ms (128 columns a
+    frame gave 11.9). Warmed under the loading screen.
+14. **Zoom** (hold Z, rebindable): the view narrows to 1 / `Settings.zoom_factor` (4) and the mouse turns finer.
+15. **Middle click sorts** the main grid or a chest, like the Sort button (Inventory Tweaks).

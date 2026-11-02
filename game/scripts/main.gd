@@ -66,6 +66,7 @@ var map_screen: MapScreen            # M
 var minimap: Minimap
 var waypoint_markers: WaypointMarkers
 var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
+var light_overlay: LightOverlay      # F7: the dark block tops around the player (ADR 0130)
 var quest_toast: QuestToast
 var survival_loop: SurvivalLoop       # diet, seasons, prospecting, discoveries, HUD trackers (ADR 0061)
 var pause_menu: PauseMenu            # Esc: pause, settings, save and quit (ADR 0032)
@@ -264,6 +265,10 @@ func _ready() -> void:
 	torch_lights.name = "TorchLights"
 	torch_lights.main = self
 	add_child(torch_lights)
+	light_overlay = LightOverlay.new()
+	light_overlay.name = "LightOverlay"
+	light_overlay.main = self
+	add_child(light_overlay)
 	mark.call("ui_work")
 
 	# chat, slash commands, game modes and the playtest debug menu (ADR 0018)
@@ -499,6 +504,7 @@ func _ready() -> void:
 		warmup.add_materials(player.warm_materials(), player.camera)
 		warmup.add_meshes([StationEntity.model_mesh(), StationEntity.model_mesh("chest"), StationEntity.model_mesh("furnace"), StationEntity.model_mesh("furnace_lit"), StationEntity.ghost_mesh("chest"), BlockMeshes.sprite("torch"), BlockMeshes.sprite("iron_ore")], player.camera)   # the stations; item sprites, extruded and cube (held and dropped)
 	ApeDust.warm(player.camera)   # the death and rebuild (ADR 0098)
+	light_overlay.warm(player.camera)
 	death_screen.warm()
 	# chips, dust, splashes, smoke, hearts, lava pops, drips and waterfall spray (scripts/visuals/particle_fx.gd)
 	if Settings.particles:
@@ -871,6 +877,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		hud.toggle()
 	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F1 and not player.ui_open:
 		toggle_hud()
+	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F7 and not player.ui_open:
+		game_hud.show_toast("Light overlay: %s (red: always dark, yellow: dark at night)" % ("on" if light_overlay.toggle() else "off"))
 
 
 ## F1 (Minecraft, ADR 0130): the HUD, the minimap in it and the hand go away for a clean view (F2 shoots it).

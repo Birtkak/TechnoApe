@@ -33,6 +33,10 @@ frame times.
       ground still walks; on again: you step up as before.
 - [ ] Send a few chat lines or commands, quit the game, start again: Up in the chat brings them back.
 - [ ] F1 hides the HUD, minimap and hand; F1 again shows them. F2 still saves a screenshot.
+- [ ] F7 (or `/lightmap`): in a cave the floor gets red marks; put torches down and the marks around them go; outside
+      at night open ground shows yellow. F7 again removes them. Frames stay smooth.
+- [ ] Hold Z: the view zooms in (mouse slower), let go: back. Rebind it in Settings > Controls.
+- [ ] In the inventory, middle click a main slot: the grid sorts; in a chest, middle click a chest slot: the chest sorts.
 
 ## Playtest shortcuts (2026-11-02)
 

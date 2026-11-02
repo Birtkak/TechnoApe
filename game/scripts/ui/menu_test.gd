@@ -108,6 +108,25 @@ func _qol_hud(main) -> void:
 	await _shot("hud_hidden")
 	main.toggle_hud()
 	r["f1_shows_again"] = hud.visible
+	# middle click on a main slot sorts the main grid (Inventory Tweaks)
+	var pi: PlayerInventory = main.player_inv
+	for i in range(PlayerInventory.HOTBAR, PlayerInventory.SIZE):
+		pi.inv.set_slot(i, {})
+	pi.inv.set_slot(30, {"id": "stick", "count": 3})
+	pi.inv.set_slot(22, {"id": "flint", "count": 2})
+	main.player.set_ui_open(true, false)
+	main.inv_screen.open()
+	await _frames(3)
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_MIDDLE
+	ev.pressed = true
+	ev.position = main.inv_screen._slots[20].get_global_rect().get_center()
+	main.inv_screen._input(ev)
+	r["middle_click_sorts"] = not pi.inv.is_empty_slot(PlayerInventory.HOTBAR) and pi.inv.is_empty_slot(30)
+	for i in range(PlayerInventory.HOTBAR, PlayerInventory.SIZE):
+		pi.inv.set_slot(i, {})   # the later flint_kept counts the 5 picked up at the start only
+	main.inv_screen.close()
+	main.player.set_ui_open(false, false)
 
 
 ## The crafting table screen's Fill and Clear buttons (bug report 2026-10-25): the bug report's
