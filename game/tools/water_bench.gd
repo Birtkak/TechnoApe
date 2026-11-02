@@ -11,9 +11,12 @@ const HZ := 30.0   # Settings.sim_tick_hz (autoloads do not run under --script)
 
 func _init() -> void:
 	var speed := -1
+	var column := false
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("speed="):
 			speed = int(a.substr(6))
+		if a == "column=1":   # ADR 0119 A: the column flow kernel
+			column = true
 	var defs := GameMaterials.defs()
 	for d in defs:
 		if d["name"] == "water" and speed > 0:
@@ -21,6 +24,7 @@ func _init() -> void:
 	var w := SimWorld.new()
 	w.configure(Vector3i(6, 2, 6), maxi(2, OS.get_processor_count() - 2), 7)
 	w.set_materials(defs)
+	w.set_column_flow(column)
 	w.set_reactions(GameMaterials.reactions())
 	w.mark_all_loaded(true)
 	w.set_liquid_fullness(true)

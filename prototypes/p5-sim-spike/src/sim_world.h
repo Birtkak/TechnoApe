@@ -128,6 +128,7 @@ public:
     // tick) and evens out with neighbours that differ by two or more eighths; mass is conserved and a
     // one-eighth film stays put, so floods settle. Off = P5 liquids (whole cells, lateral slides).
     void set_liquid_fullness(bool p_on);
+    void set_column_flow(bool p_on);
     // ADR 0029: a cell vacated by a move into air stays free this tick, so the cell above can follow at once and a
     // column falls together (one layer per tick otherwise: slow motion at 6.25 cm). Static ground still sees it as a
     // fresh opening (ADR 0013). It also lets a wall of pressed liquid next to air flow out every tick instead of one
@@ -298,6 +299,7 @@ private:
     TickOut last_;
     bool dirty_boxes_ = true;
     bool fullness_ = false;
+    bool column_flow_ = false;     // ADR 0119 A: moving liquids level as columns by head (set_column_flow)
     int max_speed_ = 1;            // the largest liquid_speed among the materials: extra passes per tick
     int substep_ = 0;              // 0 = the main pass; 1.. = a liquid substep (only liquids with speed > substep_ move)
     bool cascade_ = false;
@@ -349,6 +351,8 @@ private:
     }
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);
+    void update_liquid_column(int x, int y, int z, int i, Ctx &c);   // ADR 0119 A
+    static constexpr int COLUMN_REACH = 15;   // cells a column scan follows up or down (< CS, like MAX_DISP)
     void update_gas(int x, int y, int z, int i, Ctx &c);
     void update_fire(int x, int y, int z, int i, Ctx &c);
     void update_burning(int x, int y, int z, int i, Ctx &c);
