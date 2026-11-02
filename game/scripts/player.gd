@@ -1369,6 +1369,8 @@ func _use(first_press: bool) -> void:
 		var top_face := p == target or hit.previous_position == target + Vector3i.UP
 		if not top_face or not MobManager.is_solid(world.get_voxel(p - Vector3i.UP)):
 			return   # torches stand on a floor, not on a wall (ADR 0030)
+		if GameMaterials.defs()[mat - 1].has("sapling") and not GameMaterials.is_soil(world.get_voxel(p - Vector3i.UP)):
+			return   # saplings root in soil only (ADR 0112)
 	voxel_placed.emit(p, mat)
 	if not GameMode.rule(game_mode, "consumes_items"):
 		pass   # creative: blocks and buckets never run out

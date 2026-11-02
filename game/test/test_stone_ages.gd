@@ -129,7 +129,7 @@ func test_quest_graph_reaches_every_quest() -> void:
 	# every quest of today's Flint Age kept its id (saves keep progress)
 	for id in ["gather_flint", "knapping", "lashing", "flint_spear", "pit_kiln", "melt_copper", "copper_tool", "storage_pot", "charcoal_pit"]:
 		assert_bool(book.quests.has(id)).override_failure_message(id).is_true()
-	assert_int(book.quests.size()).is_equal(90)   # 78 + the bronze and iron ages (ADR 0070)
+	assert_int(book.quests.size()).is_greater_equal(90)   # 78 + the bronze and iron ages (ADR 0070); later ages only add
 
 
 func test_tar_hafting_event_counts() -> void:

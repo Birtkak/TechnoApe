@@ -50,6 +50,11 @@
     "sand": {"o": "#42341e", "d": "#b8985a", "m": "#dcc084", "l": "#ead49c", "h": "#f8ecc6"},
     "lava": {"o": "#240501", "d": "#8a1c04", "m": "#d04a0a", "l": "#f48a1c", "h": "#ffd25a"},
     "hazard": {"o": "#2e2402", "d": "#a88a0c", "m": "#e0c020", "l": "#f2d84a", "h": "#fff090"},
+    "spruce_leaf": {"o": "#07140c", "d": "#1e4028", "m": "#2c5a36", "l": "#3e7448", "h": "#5e9468"},
+    "acacia_leaf": {"o": "#181a07", "d": "#4a5420", "m": "#68742e", "l": "#86923e", "h": "#acb85e"},
+    "jungle_leaf": {"o": "#091e0a", "d": "#226a20", "m": "#2e8a2a", "l": "#44a83a", "h": "#78d060"},
+    "birch_leaf": {"o": "#152009", "d": "#4a6a22", "m": "#68903a", "l": "#86ae4e", "h": "#b0d478"},
+    "wool": {"o": "#423f3a", "d": "#c4beb0", "m": "#dcd6c8", "l": "#ece8dc", "h": "#fbf9f2"},
     "iron_ore": {"o": "#4c2e20", "d": "#b8805e", "m": "#d8a684", "l": "#ecc4a4", "h": "#fff0e2"},
     "copper_ore": {"o": "#421a0a", "d": "#b0501e", "m": "#e07434", "l": "#f49a58", "h": "#ffd2a8"},
     "tin_ore": {"o": "#090605", "d": "#24180f", "m": "#3e2c20", "l": "#5e4634", "h": "#d8d2c0"},
@@ -2401,6 +2406,47 @@
         "................"
       ]
     },
+    "wattle": {
+      "rows": [
+        "...oo..oo..oo...",
+        "..ohloohloohlo..",
+        "..oldooldooldo..",
+        ".ooldooldooldoo.",
+        "ohlmmllmmllmmllo",
+        "oldmmddmmddmmddo",
+        ".ooldooldooldoo.",
+        ".ooldooldooldoo.",
+        "ohlmmllmmllmmllo",
+        "oldmmddmmddmmddo",
+        ".ooldooldooldoo.",
+        ".ooldooldooldoo.",
+        "ohlmmllmmllmmllo",
+        "oldmmddmmddmmddo",
+        ".ooldooldooldoo.",
+        "...oo..oo..oo..."
+      ]
+    },
+    "carpet": {
+      "colors": {"f": "#d8d2c0"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        ".o.o.o.o.o.o.o..",
+        "ofofofofofofofo.",
+        "ohlllllllllllllo",
+        "olmmmmmmmmmmmmdo",
+        "olmmmmmmmmmmmmdo",
+        "olmmmmmmmmmmmmdo",
+        "olmmmmmmmmmmmmdo",
+        "oldddddddddddddo",
+        "ofofofofofofofo.",
+        ".o.o.o.o.o.o.o..",
+        "................",
+        "................"
+      ]
+    },
     "iron_ore_face": {
       "colors": {"s": "#6f6f6c", "t": "#7f7f7c", "u": "#8e8e8a", "v": "#9d9d98", "w": "#5c5c5a", "x": "#adada7"},
       "rows": [
@@ -4097,6 +4143,13 @@
     "tongs": {"layers": [{"shape": "tongs", "palette": "wood"}]},
     "torch": {"layers": [{"shape": "torch", "palette": "handle"}]},
     "oak_sapling": {"layers": [{"shape": "sapling", "palette": "leaf"}]},
+    "wattle": {"layers": [{"shape": "wattle", "palette": "handle"}]},
+    "carpet": {"layers": [{"shape": "carpet", "palette": "wool"}]},
+    "clay_pot": {"layers": [{"shape": "jar", "palette": "fire_brick", "colors": {"i": "#3a2a1a"}}]},
+    "spruce_sapling": {"layers": [{"shape": "sapling", "palette": "spruce_leaf", "colors": {"t": "#3a2614"}}]},
+    "acacia_sapling": {"layers": [{"shape": "sapling", "palette": "acacia_leaf", "colors": {"t": "#76665a"}}]},
+    "jungle_sapling": {"layers": [{"shape": "sapling", "palette": "jungle_leaf", "colors": {"t": "#5a4420"}}]},
+    "birch_sapling": {"layers": [{"shape": "sapling", "palette": "birch_leaf", "colors": {"t": "#d8d4c6"}}]},
     "dandelion": {"layers": [{"shape": "flower_stem", "palette": "leaf"}, {"shape": "flower_head", "colors": {"p": "#f4d23c", "c": "#d08a1c"}}]},
     "poppy": {"layers": [{"shape": "flower_stem", "palette": "leaf"}, {"shape": "flower_head", "colors": {"p": "#d8302a", "c": "#2a1a14"}}]},
     "cornflower": {"layers": [{"shape": "flower_stem", "palette": "leaf"}, {"shape": "flower_head", "colors": {"p": "#4a72e0", "c": "#24306a"}}]},
@@ -4275,6 +4328,8 @@
     "crushed_copper_ore": {"layers": [{"shape": "dust_pile", "palette": "copper_ore"}]},
     "crushed_tin_ore": {"layers": [{"shape": "dust_pile", "palette": "tin_ore"}]},
     "copper_wire": {"layers": [{"shape": "twine", "palette": "copper"}]},
+    "copper_cable": {"layers": [{"shape": "pipe", "palette": "copper", "colors": {"e": "#1c1410", "f": "#2a2018"}}]},
+    "electric_furnace": {"layers": [{"shape": "steam_hammer", "palette": "iron", "colors": {"e": "#e07434", "f": "#b0501e", "k": "#3a3a3e"}}]},
     "steam_turbine": {"layers": [{"shape": "steam_hammer", "palette": "steel", "colors": {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}}]},
     "iron_gear": {"layers": [{"shape": "flower_head", "palette": "iron"}]},
     "glass_lens": {"layers": [{"shape": "ball", "palette": "tin"}]},

@@ -92,6 +92,12 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		"compressor":
 			e = CompressorEntity.new(pos)
 			_ticking.append(e)
+		# the energy network (ADR 0113)
+		"cable":
+			e = CableEntity.new(pos)
+		"electric_furnace":
+			e = ElectricFurnaceEntity.new(items, recipes, pos)
+			_ticking.append(e)
 		# stage 3 transport (ADR 0100)
 		"hopper":
 			e = HopperEntity.new(self, pos)
@@ -133,12 +139,12 @@ const SINGLE := []   # entities that are one voxel (torches have their own cells
 ## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
 ## a knapping stone or a mold on the ground is one voxel high, a firepit two.
 const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 2, "assembly": 1, "laid_tool": 1, "anvil": 6, "bronze_anvil": 6,
-	"boiler": 4, "steam_hammer": 9, "pipe": 2, "ore_crusher": 5, "tank": 6, "belt": 2, "rail": 1}
+	"boiler": 4, "steam_hammer": 9, "pipe": 2, "ore_crusher": 5, "tank": 6, "belt": 2, "rail": 1, "cable": 1}
 ## Work pieces bigger than one 0.5 m block: their footprint width and height multiply by this many blocks
 ## (the stations' 1 m scale, ADR 0076; the steam age's 1.5 m hammer and 2.5 m boiler, ADR 0097). A view
 ## of 8 cells still spans the width, so a 1 m piece's cell is a voxel; a bigger piece names its own grid.
 const SCALE := {"firepit": 2, "forge": 2, "bloomery": 2, "anvil": 2, "bronze_anvil": 2, "steam_hammer": 3, "boiler": 5,
-	"blast_furnace": 3, "ore_crusher": 2, "tank": 2, "turbine": 2, "compressor": 2}
+	"blast_furnace": 3, "ore_crusher": 2, "tank": 2, "turbine": 2, "compressor": 2, "electric_furnace": 2}
 
 
 ## Footprint width in voxels of a work piece kind.
@@ -263,7 +269,7 @@ func all_furniture() -> Array:
 
 const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave",
 	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile", "boiler", "pipe", "steam_hammer", "steam_sieve",
-	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail"]
+	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace"]
 
 
 ## The machines a boiler's pipes feed (ADR 0097): everything with a `boiler` slot.
@@ -273,6 +279,10 @@ func all_steam_machines() -> Array:
 		if "boiler" in e:
 			out.append(e)
 	return out
+
+
+func all_entities() -> Array:
+	return _by_pos.values()
 
 
 func all_of(p_kind: String) -> Array:
@@ -347,6 +357,7 @@ func tick() -> Array[Vector3i]:
 	var flipped: Array[Vector3i] = []
 	if ticks % 20 == 0:
 		BoilerEntity.feed(self)   # steam reaches the machines on the pipes once a second (ADR 0097)
+		Networks.solve(self, "energy")   # and power the cables (ADR 0113)
 	for e in _ticking.duplicate():   # a bursting boiler removes itself
 		if e.tick():
 			flipped.append(e.pos)

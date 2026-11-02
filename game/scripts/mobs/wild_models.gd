@@ -35,12 +35,14 @@ const BAT := BASE + 24
 const BAT_WING := BASE + 25
 const SPIDER := BASE + 26
 const SPIDER_EYE := BASE + 27
+const DART := BASE + 28        # the poison dart frog's warning blue
+const DART_DARK := BASE + 29
 const PALETTE: Array = [
 	[150, 102, 62], [218, 190, 152], [222, 208, 172], [96, 74, 58], [62, 46, 36], [238, 230, 208],
 	[164, 132, 100], [232, 222, 206], [210, 104, 40], [242, 234, 222], [52, 36, 30],
 	[132, 130, 126], [200, 196, 188], [70, 68, 68], [42, 112, 72], [156, 134, 108], [240, 172, 44],
 	[86, 150, 62], [206, 214, 142], [204, 72, 42], [140, 42, 26], [112, 142, 162], [222, 228, 222], [76, 98, 112],
-	[70, 56, 50], [42, 34, 34], [54, 42, 44], [214, 34, 34],
+	[70, 56, 50], [42, 34, 34], [54, 42, 44], [214, 34, 34], [36, 96, 224], [18, 22, 34],
 ]
 const EYE := 7          # MobModel.EYE
 const SKIN_DARK := 3    # MobModel.SKIN_DARK: hooves
@@ -63,6 +65,8 @@ const LAYOUT := {
 	"duck": [["body", "body", Vector3(0, 6, 0)], ["head", "head", Vector3(0, 13, 6)],
 		["leg", "leg", Vector3(2.5, 7, 0)], ["leg", "leg", Vector3(-2.5, 7, 0)], ["wing", "wing", Vector3(5, 14, -1)], ["wing", "wing", Vector3(-5, 14, -1)]],
 	"frog": [["body", "body", Vector3(0, 3, -1)], ["head", "head", Vector3(0, 4, 5)],
+		["leg", "leg", Vector3(5, 4, 3)], ["leg", "leg", Vector3(-5, 4, 3)], ["hind", "leg", Vector3(6, 5, -4)], ["hind", "leg", Vector3(-6, 5, -4)]],
+	"poison_frog": [["body", "body", Vector3(0, 3, -1)], ["head", "head", Vector3(0, 4, 5)],
 		["leg", "leg", Vector3(5, 4, 3)], ["leg", "leg", Vector3(-5, 4, 3)], ["hind", "leg", Vector3(6, 5, -4)], ["hind", "leg", Vector3(-6, 5, -4)]],
 	"crab": [["body", "body", Vector3(0, 4, 0)], ["head", "head", Vector3(0, 6, 6)],
 		["leg_l", "leg", Vector3(8, 7, 3)], ["leg_r", "leg", Vector3(-8, 7, 3)], ["leg_l", "leg", Vector3(8, 7, -1)], ["leg_r", "leg", Vector3(-8, 7, -1)],
@@ -117,6 +121,21 @@ static func animate(m: MobModel, mps: float) -> void:
 
 # ---------------- cell models ----------------
 
+## The jungle's poison dart frog (bug 2026-11-02_18-54-25): the frog's shape in warning blue with black blotches.
+static func _dart_frog(spec: Array, part: String) -> Array:
+	var c: PackedInt32Array = spec[0]
+	var size: Vector3i = spec[1]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash("poison_frog" + part)
+	for i in c.size():
+		if c[i] == FROG + 1 or c[i] == FOX_DARK + 1:
+			c[i] = DART + 1
+		elif c[i] == FROG_BELLY + 1:
+			c[i] = DART_DARK + 1
+	_speckle(c, size, rng, c.size() / 12, DART_DARK)
+	return spec
+
+
 static func _box(c: PackedInt32Array, size: Vector3i, from: Vector3i, to: Vector3i, paint: int) -> void:
 	MobModel._box(c, size, from, to, paint + 1)
 
@@ -131,6 +150,8 @@ static func _speckle(c: PackedInt32Array, size: Vector3i, rng: RandomNumberGener
 
 ## [cells, size, origin (voxels)] as MobModel._build returns it.
 static func build(sp: String, part: String) -> Array:
+	if sp == "poison_frog":
+		return _dart_frog(build("frog", part), part)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(sp + part)
 	var s := 1.0 / MobModel.GRID

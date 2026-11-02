@@ -131,6 +131,10 @@ const SPRING_STONE := 122          # the core of an aquifer's chamber (ADR 0110)
 const MAGMA_HEART := 123           # the core of a magma conduit's chamber (ADR 0110)
 const LAVA_STATIC := 121           # generated cave lava pools and the deep lava sea: still until disturbed, then finite lava (ADR 0069 C)
 # 121..126 reserved for world generation; 130..159 parts C and D
+# Giant flowers in the flower meadow (bug report 2026-11-02 18-57-25): tree-sized, felled like a tree
+const GIANT_STEM := 124
+const GIANT_PETAL := 125
+const GIANT_HEART := 126
 # The dry savanna floor (bug report 2026-10-25 20-37-22): straw grass, its tussocks, bare red earth
 const SAVANNA_GRASS := 127
 const SAVANNA_TALL_GRASS := 128
@@ -156,8 +160,12 @@ const TNT := 203                   # placeable explosive (ADR 0065): a charge pe
 const MONOLITH := 204              # the Gelvin monolith (ADR 0098): ashlar, rune bands, the glowing seam; never mined or blasted
 const MONOLITH_RUNE := 205
 const MONOLITH_SEAM := 206
+# Per-wood planks and saplings (ADR 0112): oak keeps PLANKS (36) and grows from OAK_SAPLING
+const WOOD_KINDS := ["oak", "spruce", "acacia", "jungle", "birch"]   # the sapling order; planks skip oak
+const SPRUCE_PLANKS := 207         # 207..210: spruce, acacia, jungle, birch planks
+const OAK_SAPLING := 211           # 211..215: a sapling per WOOD_KINDS, grows into its tree (Saplings)
 
-const ATLAS_TILES := Vector2i(8, 22)   # rows grow at the bottom, so tile indices keep their meaning
+const ATLAS_TILES := Vector2i(8, 23)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -219,7 +227,7 @@ static func _build_defs() -> Array:
 		{"name": "furnace", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 35, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "furnace_lit", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 36, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
 		{"name": "chest", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [37, 38, 37], "transparent": false, "interact": "chest", "entity": "chest"},
-		{"name": "planks", "cell_type": "solid", "rigid": "wood", "pattern": true, "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false},
+		_planks_def(),
 		{"name": "pebbles", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [86, 86, 86], "transparent": false, "micro": "pebbles"},
 		{"name": "mushroom_brown", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "tiles": [40, 40, 40], "transparent": false, "clutter": "mushroom"},
 		{"name": "mushroom_red", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "tiles": [41, 41, 41], "transparent": false, "clutter": "mushroom"},
@@ -272,14 +280,50 @@ static func _build_defs() -> Array:
 		# 122, 123 (ADR 0110): the cores of conduit chambers, hard enough to need a good pick
 		{"name": "spring_stone", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [105, 105, 105], "transparent": false},
 		{"name": "magma_heart", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [106, 106, 106], "transparent": false},
-	] + _reserved_defs(124, 126) + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
+	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
 		# 203 (ADR 0065): TNT. Not burnable: the sim would burn it away; Tnt lights it when fire touches it.
 		{"name": "tnt", "cell_type": "solid", "pattern": true, "density": 6, "hp": 50, "tiles": [172, 171, 172], "transparent": false},
 		# 204..206 (ADR 0098): the Gelvin monolith and its plaza. Not in mining.json and hp past Tnt.NEVER_HP: indestructible.
 		{"name": "monolith", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [173, 173, 173], "transparent": false},
 		{"name": "monolith_rune", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [174, 174, 174], "transparent": false},
 		{"name": "monolith_seam", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [175, 175, 175], "transparent": false},
+	] + _wood_defs()
+
+
+## Ids 207..215 (ADR 0112): planks of the other woods (the oak planks' rules, their own tile 176..179),
+## then a sapling per WOOD_KINDS: a micro sprout of the kind's bark and leaf tiles [leaf, bark, bark].
+static func _wood_defs() -> Array:
+	var out := []
+	var oak: Dictionary = _planks_def()
+	for i in 4:
+		var d := oak.duplicate()
+		d["name"] = "%s_planks" % WOOD_KINDS[i + 1]
+		d["tiles"] = [176 + i, 176 + i, 176 + i]
+		out.append(d)
+	var plant_burn := {"burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2}
+	for k in [["oak", 20, 85], ["spruce", 59, 57], ["acacia", 62, 60], ["jungle", 65, 63], ["birch", 75, 73]]:
+		var d := {"name": "%s_sapling" % k[0], "cell_type": "solid", "density": 10, "hp": 5, "tiles": [k[1], k[2], k[2]], "transparent": false, "micro": "sapling", "floor_only": true, "sapling": k[0]}
+		d.merge(plant_burn)
+		out.append(d)
+	return out
+
+
+static func _planks_def() -> Dictionary:
+	return {"name": "planks", "cell_type": "solid", "rigid": "wood", "pattern": true, "density": 8, "burnable": true, "fire_hp": 120, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [39, 39, 39], "transparent": false}
+
+
+## Giant flowers, ids 124..126: a stalk that fells like a trunk (rigid wood) under a head of petals round a
+## heart that fall with it (rigid leaf); tiles of the plant stem, the poppy and the dandelion.
+static func _giant_flower_defs() -> Array:
+	var burn := {"burnable": true, "fire_hp": 60, "autoignition_temperature": 30, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3}
+	var out := [
+		{"name": "giant_stem", "cell_type": "solid", "rigid": "wood", "density": 8, "hp": 60, "tiles": [29, 29, 29], "transparent": false},
+		{"name": "giant_petal", "cell_type": "solid", "rigid": "leaf", "density": 6, "hp": 10, "tiles": [31, 31, 31], "transparent": false},
+		{"name": "giant_heart", "cell_type": "solid", "rigid": "leaf", "density": 6, "hp": 10, "tiles": [30, 30, 30], "transparent": false},
 	]
+	for d in out:
+		d.merge(burn)
+	return out
 
 
 ## The savanna floor, ids 127..129 (bug report 2026-10-25 20-37-22): grass and tussocks that act like
@@ -582,6 +626,11 @@ static var _liquids := PackedByteArray()
 ## Grass ground: meadow grass or the savanna's straw grass (both are hoed, grazed and spawned on).
 static func is_grass(id: int) -> bool:
 	return id == GRASS or id == SAVANNA_GRASS
+
+
+## Ground a sapling takes root in: grass, dirt, red earth, leaf litter.
+static func is_soil(id: int) -> bool:
+	return is_grass(id) or id == DIRT or id == RED_EARTH or id == LEAF_LITTER
 
 
 ## A tuft of grass: meadow or savanna (both are eaten by grazers and cut for dry grass).
@@ -1016,6 +1065,18 @@ static func micro_pattern(kind: String, tiles: Array) -> PackedInt32Array:
 			_cell(c, 7, 2, 4, 0)                            # eye socket
 			_cell(c, 0, 1, 5, bone)                         # a leg bone
 			_cell(c, 1, 1, 6, bone)
+		"sapling":
+			# a thin bark stem 6 cells tall with leaf tufts on top and two side twigs, tiles [leaf, bark]
+			var bark: int = tiles[1] + 1
+			for y in 6:
+				_cell(c, 3, y, 3, bark)
+			for o in [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1), Vector3i(0, 1, 0)]:
+				_cell(c, 3 + o.x, 6 + o.y, 3 + o.z, body)
+			for side in [[Vector3i(1, 0, 0), 3], [Vector3i(0, 0, -1), 4]]:
+				var d: Vector3i = side[0]
+				_cell(c, 3 + d.x, side[1], 3 + d.z, bark)
+				_cell(c, 3 + 2 * d.x, side[1] + 1, 3 + 2 * d.z, body)
+				_cell(c, 3 + 2 * d.x + d.z, side[1] + 1, 3 + 2 * d.z + d.x, body)
 		"berry_bush":
 			# a low leafy dome (leaf-green tile) dotted with berries (tile 0)
 			var leaf: int = tiles[1] + 1

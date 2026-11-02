@@ -153,6 +153,12 @@ func _validate(r) -> bool:
 				if r.has(k) and String(r[k]) != "" and not _spec_exists(String(r[k])):
 					errors.append("%s recipe %s: %s %s matches no item" % [r["type"], r["id"], k, r[k]])
 					return false
+		"process":
+			# a machine's recipe (ADR 0115): data only, shown under its station's tab; the machine's code runs it
+			var ing = r.get("ingredients")
+			if not items.has(String(r.get("station", ""))) or not (ing is Array) or ing.is_empty() or ing.size() > 9:
+				errors.append("process recipe %s needs a station item and 1..9 ingredients" % r["id"])
+				return false
 		"cast":
 			if not r.has("input") or not r.has("mold"):
 				errors.append("cast recipe %s needs input and mold" % r["id"])
@@ -192,7 +198,7 @@ func ingredient_specs(r: Dictionary) -> Array:
 					if ch != " ":
 						out.append(r["key"][ch])
 			return out
-		"shapeless", "spellcraft":
+		"shapeless", "spellcraft", "process":
 			return r["ingredients"].duplicate()
 		"bury", "rack", "stroke", "soak", "trap":
 			# what is used up, then the earth oven's cover and fuel, the tool and the grit (ADR 0059)

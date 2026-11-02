@@ -19,6 +19,7 @@ Tiles (index = row*4 + col):
 136-170 rock kinds, cobbles, bricks, clutter, pyrite and ochres (tools/atlas_rocks.py, ADR 0057)
 171 tnt side 172 tnt top (patterned: a 4-voxel period, one 0.5 m TNT block per period; ADR 0065)
 173 monolith ashlar 174 monolith runes 175 monolith seam (patterned, 16-voxel period; runes and seam glow, ADR 0098)
+176 spruce 177 acacia 178 jungle 179 birch planks (patterned like 39 oak planks); 180-183 free
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
 import math
@@ -31,7 +32,7 @@ import atlas_rocks
 
 TILE = 16
 COLS = 8
-ROWS = 22  # 176 tiles; rows grow at the bottom so tile indices keep their meaning
+ROWS = 23  # 184 tiles; rows grow at the bottom so tile indices keep their meaning
 
 random.seed(1337)
 
@@ -1003,6 +1004,8 @@ def monolith_seam():
 
 
 tiles += [monolith_ashlar(), monolith_runes(), monolith_seam()]   # 173..175 (ADR 0098)
+assert len(tiles) == 176, len(tiles)
+tiles += [planks(c) for c in [(118, 82, 50), (196, 110, 58), (166, 104, 82), (222, 204, 160)]]   # 176..179 spruce, acacia, jungle, birch planks
 assert len(tiles) <= COLS * ROWS, len(tiles)
 
 # hand-painted overrides: game/art/tiles/<index>[_note].png (16x16) replaces tile <index> (game/art/README.md)

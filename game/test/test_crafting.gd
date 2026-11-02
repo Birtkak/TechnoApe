@@ -184,7 +184,7 @@ func test_browser_queries() -> void:
 
 
 func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
-	var raw := ["oak_log", "cobblestone", "sand", "iron_ore", "copper_ore", "tin_ore", "coal", "mana_dust", "fire_essence", "wand_basic", "dirt", "gravel", "grass_block",
+	var raw := ["oak_log", "spruce_log", "acacia_log", "jungle_log", "birch_log", "cobblestone", "sand", "iron_ore", "copper_ore", "tin_ore", "coal", "mana_dust", "fire_essence", "wand_basic", "dirt", "gravel", "grass_block",
 		"wool", "raw_meat", "wheat", "carrot", "wheat_seeds",   # animal drops and wild crops (ADR 0022)
 		"flint", "loose_stone", "loose_copper_ore", "clay_ball", "dry_grass",   # ground pickups, clay, cut grass (ADR 0023)
 		"pumpkin", "blueberry",   # wild pumpkin patches, blueberry bushes (ADR 0024)
@@ -194,6 +194,7 @@ func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
 	raw.append_array(StoneAge.WORLD_SOURCES.keys())   # bark, embers, dough, brine ... (ADR 0059)
 	raw.append("sulfur")   # mined from sulfur cave crust (mining.json): TNT's powder (ADR 0065)
 	raw.append("acorn")    # under oaks (mining.json "acorns", loot)
+	raw.append("crystal")  # mined from geodes (ADR 0052, mining.json)
 	raw.append_array(items.items_with_tag("flower"))   # picked by hand: the flower pot's flower (ADR 0094)
 	for rock in ["basalt", "granite", "diorite", "limestone", "slate", "marble", "chalk"]:   # mined rock (ADR 0051, 0057)
 		raw.append(rock)

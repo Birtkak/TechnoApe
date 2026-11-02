@@ -305,6 +305,24 @@ func _create(p: Vector3i, kind: String, material: int) -> RefCounted:
 	return e
 
 
+## Debug (/stations electric, ADR 0113): the energy line laid on the ground `fwd` of `base` along `right`:
+## a lit boiler, a pipe, the turbine, two cables and an electric furnace loaded with meat. Returns what it laid.
+func debug_electric_line(base: Vector3i, right: Vector3i) -> String:
+	var B := Settings.BLOCK
+	var e: RefCounted = _create(base, "boiler", GameMaterials.WORK_BLOCK)
+	e.use({"id": "coal", "count": 8}, main.items.get_def("coal"), false, true)
+	for i in 4:
+		e.use({"id": "water_bucket", "count": 1}, main.items.get_def("water_bucket"))
+	e.ignite()
+	_create(base + right * 5 * B, "pipe", GameMaterials.WORK_SPOT)
+	_create(base + right * 6 * B, "turbine", GameMaterials.WORK_BLOCK)
+	_create(base + right * 8 * B, "cable", GameMaterials.WORK_SPOT)
+	_create(base + right * 9 * B, "cable", GameMaterials.WORK_SPOT)
+	var f: RefCounted = _create(base + right * 10 * B, "electric_furnace", GameMaterials.WORK_BLOCK)
+	f.use({"id": "raw_meat", "count": main.items.units("raw_meat")})
+	return "boiler, pipe, turbine, 2 cables, electric furnace from %s" % base
+
+
 func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) -> bool:
 	if sneaking and _lay(hit, held):
 		return true
@@ -313,7 +331,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile"
-	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper"]
+	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace"]
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -723,8 +741,8 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
 		_say(res["msg"])
 		return true
-	if e is TankEntity or e is TurbineEntity or e is CompressorEntity:   # ADR 0099
-		var res: Dictionary = e.use(main.player_inv.held() if e is CompressorEntity else held)   # the compressor charges the held jetpack in place
+	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is ElectricFurnaceEntity:   # ADR 0099, 0113
+		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is ElectricFurnaceEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
 		if res["consume"] > 0 and _consumes():
 			main.player_inv.consume_held(res["consume"])
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
