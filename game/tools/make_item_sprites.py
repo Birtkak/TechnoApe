@@ -150,9 +150,19 @@ def tint(h, f):
     return "#%02x%02x%02x" % tuple(c)
 
 
+def hue_shift(h, t):
+    """ADR 0129: t < 0 turns a shade cooler (toward blue-violet), t > 0 warmer (toward yellow)."""
+    h = h.lstrip("#")
+    c = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+    c = [c[0] + 20 * t, c[1] + 6 * t, c[2] - 20 * t]
+    return "#%02x%02x%02x" % tuple(max(0, min(255, round(v))) for v in c)
+
+
 def ramp(o, d, m, l, h):
-    # the outline goes darker than the ramp's darkest tone, so every edge reads as a line
-    return {"o": tint(o, 0.62), "d": d, "m": m, "l": l, "h": h}
+    # the outline goes darker than the ramp's darkest tone, so every edge reads as a line; shades turn
+    # cool and lights warm (ADR 0129), so close palettes (iron, tin, steel; the woods) separate
+    return {"o": hue_shift(tint(o, 0.62), -0.6), "d": hue_shift(tint(d, 0.92), -0.8), "m": m,
+            "l": hue_shift(l, 0.4), "h": hue_shift(h, 0.8)}
 
 
 PALETTES = {
@@ -1557,7 +1567,37 @@ sp("crushed_copper_ore", ("dust_pile", "copper_ore"))
 sp("crushed_tin_ore", ("dust_pile", "tin_ore"))
 sp("copper_wire", ("twine", "copper"))
 sp("copper_cable", ("pipe", "copper", {"e": "#1c1410", "f": "#2a2018"}))   # ADR 0113
-sp("electric_furnace", ("steam_hammer", "iron", {"e": "#e07434", "f": "#b0501e", "k": "#3a3a3e"}))
+sp("electric_furnace", ("machine", "iron", {"e": "#fca030", "f": "#c0300c", "k": "#b05a34", "K": "#8a3e22"}))
+# the industrial hull (ADR 0129), like MachineEntity.box_model: seen from the front, engine-green panels (q lit,
+# p, r shaded) in a dark iron frame (palette), a steel-framed window (s) glowing with the kind's colours (e over f),
+# vent slits (v), a hazard-striped plinth (y, b) and the kind's fitting on top (k, K)
+g = new()
+rect(g, 1, 3, 14, 13, "m")                   # the frame
+rect(g, 2, 4, 13, 11, "p")                   # the panels
+rect(g, 2, 4, 13, 4, "q"); rect(g, 2, 4, 2, 11, "q"); rect(g, 13, 5, 13, 11, "r"); rect(g, 3, 11, 12, 11, "r")
+rect(g, 3, 5, 9, 10, "s")                    # the window frame
+rect(g, 4, 6, 8, 9, "w")
+rect(g, 4, 8, 8, 8, "e"); rect(g, 4, 9, 8, 9, "f")
+for y in (6, 8, 10):
+    rect(g, 11, y, 12, y, "v")               # the vents
+rect(g, 1, 3, 14, 3, "l"); rect(g, 1, 3, 1, 13, "l"); rect(g, 14, 4, 14, 13, "d")
+for x in range(1, 15):
+    put(g, x, 13, "y" if (x // 2) % 2 == 0 else "b")
+for p in ((3, 5), (9, 5), (3, 10), (9, 10)):
+    put(g, p[0], p[1], "h")                  # rivets
+rect(g, 5, 1, 10, 2, "k"); rect(g, 9, 1, 10, 2, "K")
+shape("machine", outline(g), {"p": "#3a6852", "q": "#5a8e70", "r": "#24453a", "s": "#a6b0bc", "w": "#16181e",
+                              "v": "#16181e", "y": "#e8b830", "b": "#24232a", "k": "#9ea6b2", "K": "#5c6470",
+                              "e": "#fca030", "f": "#c0300c"})
+# its cube face (a hull block, the battery box): the frame round a riveted green panel
+g = new()
+rect(g, 0, 0, 15, 15, "m")
+rect(g, 2, 2, 13, 13, "p")
+rect(g, 2, 2, 13, 2, "q"); rect(g, 2, 2, 2, 13, "q"); rect(g, 13, 3, 13, 13, "r"); rect(g, 3, 13, 12, 13, "r")
+rect(g, 0, 0, 15, 0, "l"); rect(g, 0, 0, 0, 15, "l"); rect(g, 15, 1, 15, 15, "d"); rect(g, 1, 15, 15, 15, "d")
+for p in ((1, 1), (14, 1), (1, 14), (14, 14), (7, 1), (7, 14), (1, 7), (14, 7)):
+    put(g, p[0], p[1], "h")
+shape("hull_face", g, {"p": "#3a6852", "q": "#5a8e70", "r": "#24453a"})
 # the electrical age, tier 1 (ADR 0113): rubber, wire, boards, circuits, parts, machines
 sp("raw_rubber", ("lump", "oil"))
 sp("rubber", ("plate", "bomb"))
@@ -1567,16 +1607,16 @@ sp("vacuum_tube", ("flask", "glass"))
 sp("resistor", ("nugget", "terracotta"))
 sp("primitive_circuit", ("spell_card", None, {"g": "#2a5a30", "G": "#3e7e46", "k": "#1c3e22"}), ("nugget", "copper"))
 sp("iron_screw", ("nugget", "iron"))
-sp("machine_hull", ("bricks_face", "iron"), cube=True)
+sp("machine_hull", ("hull_face", "iron"), cube=True)
 sp("electric_motor", ("flower_head", "copper"))
 sp("electric_piston", ("plate", "iron"), ("stick", "copper"))
-sp("lathe", ("steam_hammer", "iron", {"e": "#d8a850", "f": "#8a5e22", "k": "#3a3a3e"}))
-sp("bending_press", ("steam_hammer", "iron", {"e": "#9ea2a8", "f": "#4a525e", "k": "#3a3a3e"}))
-sp("wiremill", ("steam_hammer", "iron", {"e": "#e08a55", "f": "#8a4424", "k": "#3a3a3e"}))
-sp("macerator", ("steam_hammer", "iron", {"e": "#8a8a96", "f": "#50505a", "k": "#3a3a3e"}))   # ADR 0117
-sp("alloy_smelter", ("steam_hammer", "iron", {"e": "#fca030", "f": "#c0300c", "k": "#3a3a3e"}))
-sp("assembler", ("steam_hammer", "iron", {"e": "#7ed43a", "f": "#2e7a10", "k": "#3a3a3e"}))
-sp("battery_box", ("bricks_face", "tin"), cube=True)
+sp("lathe", ("machine", "iron", {"e": "#f2d488", "f": "#b8863a", "k": "#d8a850", "K": "#8a5e22"}))
+sp("bending_press", ("machine", "iron", {"e": "#c4c8cc", "f": "#6a6e74", "k": "#e8b830", "K": "#24232a"}))
+sp("wiremill", ("machine", "iron", {"e": "#f6b98a", "f": "#c0663a", "k": "#e08a55", "K": "#8a4424"}))
+sp("macerator", ("machine", "iron", {"e": "#b0aaa0", "f": "#6a6460", "k": "#8a8a96", "K": "#50505a"}))   # ADR 0117
+sp("alloy_smelter", ("machine", "iron", {"e": "#ffe27a", "f": "#ec6418", "k": "#b05a34", "K": "#8a3e22"}))
+sp("assembler", ("machine", "iron", {"e": "#7ed43a", "f": "#2e7a10", "k": "#e8b830", "K": "#24232a"}))
+sp("battery_box", ("hull_face", "steel", {"p": "#9ca6b2", "q": "#c4ccd6", "r": "#5a6370"}), cube=True)
 sp("electric_lamp", ("lantern", "iron"))
 sp("steam_turbine", ("steam_hammer", "steel", {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}))
 sp("iron_gear", ("flower_head", "iron"))
