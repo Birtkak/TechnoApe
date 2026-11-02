@@ -70,29 +70,60 @@ func look_lines() -> Array[String]:
 	return ["Turning at %d rpm (%.2f bar): %d EU/t on the cables" % [roundi(rpm), boiler.pressure, roundi(Settings.turbine_eu_t * rpm / Settings.turbine_rpm)]]
 
 
-## An iron housing on a base with the wheel's blades showing through its open front (+z), turning a
-## step every five ticks; the bronze inlet at the back, the copper coil on the shaft's side.
+## 1.5 m on a side (SCALE 3), one cell per voxel (grid 12), big and industrial (ADR 0129): a cast-iron bed
+## plate with a hazard-striped front edge, two steel saddles under the engine-green casing (a drum along x
+## between riveted steel flanges) with a window in its front (+z) where the bladed wheel turns a step every
+## five ticks, the copper generator on the +x end under a terminal box, the bronze steam inlet at the back
+## with a yellow valve wheel, and a pressure gauge on top.
 func view_parts() -> Dictionary:
-	var size := Vector3i(8, 8, 8)
+	var n := 12
+	var size := Vector3i(n, n, n)
 	var c := WorkPalette.new_cells(size)
-	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(8, 1, 8), WorkPalette.IRON_DARK)   # the base
-	for y in range(1, 8):   # a drum lying along x, open at the front
-		for z in range(1, 8):
-			var d2 := (y - 4.0) * (y - 4.0) + (z - 4.0) * (z - 4.0)
-			if d2 <= 9.5 and d2 > 4.0:
-				for x in range(1, 7):
-					c[WorkPalette.idx(size, x, y, z)] = WorkPalette.IRON_DARK + 1
-	var phase := (spin / 5) % 4
-	for x in range(2, 6):   # four blades through the hub, turned by the phase
-		c[WorkPalette.idx(size, x, 4, 4)] = WorkPalette.ANVIL + 1
-		for r in [1, 2]:
-			var a: Vector2i = [Vector2i(r, 0), Vector2i(r, r), Vector2i(0, r), Vector2i(-r, r)][phase]
-			for s in [1, -1]:
-				c[WorkPalette.idx(size, x, 4 + a.x * s, 4 + a.y * s)] = WorkPalette.ANVIL + 1
-	WorkPalette.box(c, size, Vector3i(0, 3, 3), Vector3i(1, 5, 5), WorkPalette.COPPER)       # the coil on the shaft end
-	WorkPalette.box(c, size, Vector3i(7, 3, 3), Vector3i(8, 5, 5), WorkPalette.IRON_DARK)    # the bearing
-	WorkPalette.box(c, size, Vector3i(3, 0, 7), Vector3i(5, 3, 8), WorkPalette.BRONZE)       # the steam inlet
-	return {"solid": {"cells": c, "size": size}}
+	var cy := 6.5
+	var cz := 6.0
+	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(n, 1, n), WorkPalette.IRON_DARK)   # the bed plate
+	WorkPalette.hazard_box(c, size, Vector3i(0, 0, n - 1), Vector3i(n, 1, n))
+	for p in [Vector3i(0, 1, 0), Vector3i(n - 1, 1, 0), Vector3i(0, 1, n - 1), Vector3i(n - 1, 1, n - 1)]:
+		c[WorkPalette.idx(size, p.x, p.y, p.z)] = WorkPalette.RIVET + 1   # its bolts
+	for x in [2, 5]:   # the saddles
+		WorkPalette.box(c, size, Vector3i(x, 1, 2), Vector3i(x + 2, 3, 10), WorkPalette.STEEL)
+	WorkPalette.drum(c, size, 0, 1, cy, cz, 1.6, WorkPalette.STEEL)               # the bearing cap
+	WorkPalette.drum(c, size, 2, 7, cy, cz, 4.5, WorkPalette.PAINT, 1.2)          # the casing, hollow
+	for x in [1, 7]:
+		WorkPalette.drum(c, size, x, x + 1, cy, cz, 5.0, WorkPalette.IRON_DARK)   # the flanges
+		WorkPalette.drum_rivets(c, size, x, cy, cz, 5.0, 3)
+	for z in size.z:   # the window in the casing's front
+		for y in size.y:
+			if z + 0.5 - cz > 1.5 and absf(y + 0.5 - cy) < 2.0:
+				for x in range(3, 6):
+					c[WorkPalette.idx(size, x, y, z)] = 0
+	WorkPalette.drum(c, size, 1, 9, cy, cz, 1.0, WorkPalette.STEEL)               # the shaft and its hub
+	var turn := deg_to_rad(22.5 * ((spin / 5) % 4))
+	for x in range(2, 7):   # four blades, turned a step by the phase; every other row leans the other way
+		for k in 4:
+			var a := turn + k * PI / 2.0 + (0.2 if x % 2 == 0 else -0.2)
+			for r in [1.5, 2.3, 3.1]:
+				var y := int(floor(cy + r * sin(a)))
+				var z := int(floor(cz + r * cos(a)))
+				c[WorkPalette.idx(size, x, y, z)] = WorkPalette.TIN + 1
+	WorkPalette.drum(c, size, 8, 9, cy, cz, 2.0, WorkPalette.IRON_DARK)           # the coupling
+	WorkPalette.drum(c, size, 9, n, cy, cz, 3.6, WorkPalette.COPPER)              # the generator's windings
+	WorkPalette.drum(c, size, 11, n, cy, cz, 3.7, WorkPalette.IRON_DARK, 1.0)     # its end band
+	WorkPalette.drum(c, size, 11, n, cy, cz, 1.0, WorkPalette.STEEL)
+	WorkPalette.box(c, size, Vector3i(9, 1, 3), Vector3i(n, 3, 9), WorkPalette.STEEL)     # its foot
+	WorkPalette.box(c, size, Vector3i(9, 10, 4), Vector3i(n, 11, 8), WorkPalette.IRON_DARK)   # the terminal box
+	for z in [5, 6]:
+		c[WorkPalette.idx(size, 10, 11, z)] = WorkPalette.COPPER + 1             # its terminals
+	WorkPalette.box(c, size, Vector3i(3, 6, 0), Vector3i(6, 9, 3), WorkPalette.BRONZE)    # the steam inlet
+	WorkPalette.box(c, size, Vector3i(2, 5, 0), Vector3i(7, 10, 1), WorkPalette.STEEL)    # its flange
+	for p in [Vector3i(2, 5, 0), Vector3i(6, 5, 0), Vector3i(2, 9, 0), Vector3i(6, 9, 0)]:
+		c[WorkPalette.idx(size, p.x, p.y, p.z)] = WorkPalette.RIVET + 1
+	WorkPalette.box(c, size, Vector3i(4, 9, 1), Vector3i(5, 10, 2), WorkPalette.STEEL)    # the valve stem
+	WorkPalette.box(c, size, Vector3i(3, 10, 0), Vector3i(6, 11, 3), WorkPalette.HAZARD)  # its wheel
+	c[WorkPalette.idx(size, 4, 10, 1)] = WorkPalette.STEEL + 1
+	WorkPalette.box(c, size, Vector3i(3, 11, 5), Vector3i(6, 12, 8), WorkPalette.LINEN)   # the gauge face
+	c[WorkPalette.idx(size, 4 + (spin / 5) % 2 if rpm > 0.0 else 3, 11, 6)] = WorkPalette.SOOT + 1   # its needle
+	return {"solid": {"cells": c, "size": size, "grid": n}}
 
 
 func to_dict() -> Dictionary:

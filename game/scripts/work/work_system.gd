@@ -316,9 +316,9 @@ func debug_electric_line(base: Vector3i, right: Vector3i) -> String:
 	e.ignite()
 	_create(base + right * 5 * B, "pipe", GameMaterials.WORK_SPOT)
 	_create(base + right * 6 * B, "turbine", GameMaterials.WORK_BLOCK)
-	_create(base + right * 8 * B, "cable", GameMaterials.WORK_SPOT)
-	_create(base + right * 9 * B, "cable", GameMaterials.WORK_SPOT)
-	var f: RefCounted = _create(base + right * 10 * B, "electric_furnace", GameMaterials.WORK_BLOCK)
+	_create(base + right * 9 * B, "cable", GameMaterials.WORK_SPOT)   # the turbine is 3 blocks wide
+	_create(base + right * 10 * B, "cable", GameMaterials.WORK_SPOT)
+	var f: RefCounted = _create(base + right * 11 * B, "electric_furnace", GameMaterials.WORK_BLOCK)
 	f.use({"id": "raw_meat", "count": main.items.units("raw_meat")})
 	return "boiler, pipe, turbine, 2 cables, electric furnace from %s" % base
 
