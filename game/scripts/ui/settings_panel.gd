@@ -18,7 +18,7 @@ const VIEW_M := Settings.VIEW_CHOICES_M   # ADR 0073: the one box of full-detail
 const KEYS := [["Space twice", "fly (creative)"], ["G", "world tools panel: brush, build modes, keys"], ["Ctrl + wheel", "brush size, laser width"], ["B / Shift + B", "brush shape: next / previous"],
 	["Shift + right click", "paint the brush with the held block (creative)"], ["Ctrl + Q", "drop the stack"],
 	["1-9, wheel", "hotbar"], ["Alt + wheel", "turn the inventory rows into the hotbar"], ["Double click", "gather a stack (Shift: move all of it)"], ["R / U / A", "recipes / uses / bookmark (in the inventory)"], ["Alt + click", "favourite slot (in the inventory)"],
-	["/", "commands"], ["F3 / F5", "debug screen / camera view"], ["F2 / F9", "screenshot / bug report"], ["F4 / F6", "playtest menu / tuning panel"], ["Esc", "pause menu"]]
+	["/", "commands"], ["F3 / F5", "debug screen / camera view"], ["F1 / F2", "hide the HUD / screenshot"], ["F9", "bug report"], ["F4 / F6", "playtest menu / tuning panel"], ["Esc", "pause menu"]]
 var _key_buttons := {}     # action -> Button
 var _rebinding := ""       # the action waiting for a key
 

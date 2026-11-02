@@ -864,6 +864,15 @@ func _save_json(path: String, data: Dictionary) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_debug"):
 		hud.toggle()
+	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F1 and not player.ui_open:
+		toggle_hud()
+
+
+## F1 (Minecraft, ADR 0130): the HUD, the minimap in it and the hand go away for a clean view (F2 shoots it).
+func toggle_hud() -> void:
+	game_hud.visible = not game_hud.visible
+	if player.viewmodel:
+		player.viewmodel.visible = game_hud.visible and player.perspective == 0 and GameMode.rule(player.game_mode, "interacts")
 
 
 # ---------------- chat, debug menu, game modes (ADR 0018) ----------------
