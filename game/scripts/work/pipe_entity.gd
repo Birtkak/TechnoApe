@@ -3,7 +3,8 @@ extends RefCounted
 
 ## A bronze or copper pipe (ADR 0097) laid on the ground: a straight square tube with a flange at each end,
 ## along x or z (`axis`, the way the player faced when laying it). It holds nothing;
-## BoilerEntity.feed walks over pipes on all four sides to find the machines, whatever their axis.
+## On the steam and water channels (ADR 0122) it is a conductor: bronze carries pipe_steam_cap / pipe_water_cap a
+## second, soft copper half of each; the weakest pipe on a run caps the run.
 ## shortcut: a bend is two pipes meeting at a corner with no elbow drawn; add elbows when pipes get looks.
 
 signal changed
@@ -16,6 +17,19 @@ var axis := 0   # 0 along x, 1 along z
 
 func _init(p_pos: Vector3i) -> void:
 	pos = p_pos
+
+
+func net(channel: String) -> Dictionary:
+	var soft := 0.5 if item == "copper_pipe" else 1.0
+	if channel == "steam":
+		return {"role": NetworkSolver.CONDUCTOR, "amount": Settings.pipe_steam_cap * soft}
+	if channel == "water":
+		return {"role": NetworkSolver.CONDUCTOR, "amount": Settings.pipe_water_cap * soft}
+	return {}
+
+
+func net_in(_channel: String, _amount: float) -> void:
+	pass
 
 
 func contents() -> Array:

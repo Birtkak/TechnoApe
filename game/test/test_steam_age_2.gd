@@ -122,7 +122,7 @@ func test_water_tank_feeds_the_boiler_over_pipes() -> void:
 		assert_array(r["give"]).is_equal([{"id": "bucket", "count": 1}])
 	assert_int(t.buckets).is_equal(3)
 	b.water = 0.0
-	_ticks(40, b)   # two feeds
+	_ticks(60, b)   # the tank flips to giving after a solve asked nothing of it, then a bucket a second (ADR 0122)
 	assert_float(b.water).is_equal_approx(2 * Settings.boiler_bucket_fill, 0.01)
 	assert_int(t.buckets).is_equal(1)
 	assert_array(t.use(items.get_def("bucket"))["give"]).is_equal([{"id": "water_bucket", "count": 1}])

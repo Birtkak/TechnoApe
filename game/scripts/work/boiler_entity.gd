@@ -4,8 +4,8 @@ extends FirepitEntity
 ## The small boiler (ADR 0097): a riveted iron drum on a brick firebox. Coal or charcoal goes under
 ## it like on a forge, a water bucket fills the tank a quarter, a firestarter lights it. Lit with
 ## water it builds `pressure` (1.0 = working pressure) and boils the water away; bronze pipes laid
-## from it (feed(), every second) hand the pressure to the steam hammer and steam sieve at their
-## ends, which draw it down. Above 1.0 the whistle screams and above boiler_burst_at it bursts;
+## from it (the steam channel, ADR 0122, every second) hand the pressure to the steam hammer and steam
+## sieve on them, which draw it down. Above 1.0 the whistle screams and above boiler_burst_at it bursts;
 ## lit and dry it screams for boiler_dry_s, then bursts. An empty hand with nothing to take vents
 ## half the pressure. It rusts while lit (`wear`): steam falls with wear and an iron plate mends it.
 
@@ -233,32 +233,24 @@ func summary() -> Dictionary:
 
 # ---------------- the steam network ----------------
 
-## Every boiler hands itself to the machines at the ends of its bronze pipes: a walk from the boiler
-## over pipe entities, one block step at a time on the flat, at most steam_pipe_max bronze pipes long
-## (a copper pipe counts as two).
-## Machines not reached this round lose their boiler. shortcut: pipes connect on one level only,
-## add vertical steps when pipes climb walls.
-static func feed(store: BlockEntities) -> void:
-	for m in store.all_steam_machines():
-		m.boiler = null
-	for b in store.all_of("boiler"):
-		var seen := {b.pos: 0}
-		var queue := [b]
-		while not queue.is_empty():
-			var e: RefCounted = queue.pop_front()
-			var w := BlockEntities.width_of(e.kind)
-			var n := Settings.BLOCK
-			for d in [Vector3i(-n, 0, 0), Vector3i(w, 0, 0), Vector3i(0, 0, -n), Vector3i(0, 0, w)]:
-				var o: RefCounted = store.at(e.pos + d)
-				if o == null or seen.has(o.pos):
-					continue
-				seen[o.pos] = seen[e.pos] + 1
-				if o.kind == "pipe":
-					seen[o.pos] = seen[e.pos] + (2 if o.item == "copper_pipe" else 1)   # soft copper carries half as far
-					if seen[o.pos] <= Settings.steam_pipe_max:
-						queue.append(o)
-				elif o.kind == "tank":   # a tank on the pipes tops the boiler up, a bucket a second (ADR 0099)
-					if b.water <= 1.0 - Settings.boiler_bucket_fill and o.take_bucket():
-						b.water += Settings.boiler_bucket_fill
-				elif "boiler" in o:
-					o.boiler = b
+## On the fluid channels (ADR 0122): a steam source while it has pressure (machines on the pipes draw the real
+## pressure through draw()), a water sink wanting a bucket a second while its tank is low.
+func net(channel: String) -> Dictionary:
+	if channel == "steam":   # a pipe's worth: the machines read the real pressure and draw() it themselves
+		return {"role": NetworkSolver.SOURCE, "amount": Settings.pipe_steam_cap}
+	if channel == "water":
+		return {"role": NetworkSolver.SINK, "amount": 1.0 if water <= 1.0 - Settings.boiler_bucket_fill else 0.0}
+	return {}
+
+
+var _water_acc := 0.0   # buckets owed by the water channel, whole ones go in
+
+
+func net_in(channel: String, amount: float) -> void:
+	if channel != "water" or amount <= 0.0:
+		return
+	_water_acc += amount
+	while _water_acc >= 1.0 - 1e-6 and water <= 1.0 - Settings.boiler_bucket_fill:
+		_water_acc -= 1.0
+		water += Settings.boiler_bucket_fill
+		changed.emit()

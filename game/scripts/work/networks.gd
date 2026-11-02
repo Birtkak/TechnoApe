@@ -1,9 +1,12 @@
 class_name Networks
 extends RefCounted
 
-## Power and fluid networks (ADR 0113): once a second BlockEntities gathers every entity that answers
+## Power and fluid networks (ADR 0113, 0122): once a second BlockEntities gathers every entity that answers
 ## `net(channel)` (a box on the block grid with a role and an amount), the native NetworkSolver joins the
 ## boxes that touch and shares each component's flow, and every entity hears `net_in(channel, amount)`.
+## Channels: "energy" (EU/t), "steam" (bar a second: boilers give, every machine with a `boiler` slot wants
+## steam_per_use and gets its component's boiler to draw from), "water" (buckets a second: pumps give, tanks
+## store, boilers drink). Pipes conduct steam and water, cables energy.
 
 static var solver: NetworkSolver
 static var stats := {"nodes": 0, "ms_max": 0.0, "components": 0, "flow": 0.0}
@@ -21,9 +24,12 @@ static func solve(store: BlockEntities, channel: String) -> void:
 	var roles := PackedInt32Array()
 	var amounts := PackedFloat32Array()
 	for e in store.all_entities():
-		if not e.has_method("net"):
-			continue
-		var n: Dictionary = e.net(channel)
+		var n: Dictionary = {}
+		if e.has_method("net"):
+			n = e.net(channel)
+		if n.is_empty() and channel == "steam" and "boiler" in e:   # the steam age's machines (the turbine answers net for energy only): a sink of one use a second
+			n = {"role": NetworkSolver.SINK, "amount": Settings.steam_per_use}
+			e.boiler = null
 		if n.is_empty():
 			continue
 		var w := BlockEntities.width_of(e.kind)
@@ -37,8 +43,16 @@ static func solve(store: BlockEntities, channel: String) -> void:
 		return
 	var r: PackedFloat32Array = solver.solve(boxes, roles, amounts)
 	var comps := {}
+	var boiler_of := {}   # steam: component -> its first boiler
+	if channel == "steam":
+		for i in nodes.size():
+			if nodes[i] is BoilerEntity and not boiler_of.has(int(r[i * 2])):
+				boiler_of[int(r[i * 2])] = nodes[i]
 	for i in nodes.size():
-		nodes[i].net_in(channel, r[i * 2 + 1])
+		if channel == "steam" and "boiler" in nodes[i] and roles[i] == NetworkSolver.SINK:
+			nodes[i].boiler = boiler_of.get(int(r[i * 2])) if r[i * 2 + 1] > 0.0 else null   # it draws from that boiler itself
+		if nodes[i].has_method("net_in"):
+			nodes[i].net_in(channel, r[i * 2 + 1])
 		var c: Dictionary = comps.get(int(r[i * 2]), {})
 		if c.is_empty():
 			c = {"supply": 0.0, "demand": 0.0, "flow": 0.0, "cap": INF, "nodes": 0}

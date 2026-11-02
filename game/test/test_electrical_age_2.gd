@@ -50,7 +50,7 @@ func test_items_and_recipes_exist() -> void:
 
 func test_pump_draws_a_bucket_of_connected_water_into_a_tank() -> void:
 	var pump: PumpEntity = store.create(Vector3i(0, 20, 0), "pump")
-	var tank: TankEntity = store.create(Vector3i(B, 20, 0), "tank")
+	var tank: TankEntity = store.create(Vector3i(2 * B, 20, 0), "tank")   # the pump is 2 blocks wide
 	_fill(Vector3i(-8, 10, -8), Vector3i(20, 10, 20), GameMaterials.WATER)   # 4000 cells of water under it
 	var below := pump.pos + Vector3i(B / 2, -1, B / 2)
 	assert_bool(pump.draw_from(_gv, _sv, below)).is_true()   # the edit itself; WorkSystem calls it only while wants_water()
@@ -60,7 +60,9 @@ func test_pump_draws_a_bucket_of_connected_water_into_a_tank() -> void:
 		if world[p] == GameMaterials.WATER:
 			water += 1
 	assert_int(water).is_equal(4000 - Bucket.capacity())
-	assert_bool(pump.push_to(tank)).is_true()
+	# the water channel moves the bucket into the tank beside it (ADR 0122)
+	for i in 40:
+		store.tick()
 	assert_int(tank.buckets).is_equal(1)
 	assert_int(pump.buckets).is_equal(0)
 	# a puddle smaller than a bucket is left alone
