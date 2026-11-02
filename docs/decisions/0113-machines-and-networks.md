@@ -68,6 +68,19 @@ Boiler -> bronze pipe -> steam turbine -> copper cable -> electric furnace: the 
 boiler has pressure, the cable carries it, the furnace smelts without fuel while it gets its 16 EU/t and stops when
 the boiler goes cold (`test_networks.gd`, `/kit electric`).
 
+## The electrical age, tier 1 (added 2026-11-02 on the developer's ask)
+GregTech's shape, slow and dear on purpose so the first machines feel earned: rubber (birch tar kneaded with
+sulfur, cured 20 s in a furnace) wraps everything; insulated wire, coated boards (plank in rubber), vacuum tubes
+(glass, wire, rod) and resistors (coal between wires) make the **primitive circuit** (two tubes, a resistor, two
+wires on a board, by hand at the table); eight iron plates round a cable make a **machine hull**; wire, rod, plate
+and screws make the **electric motor**, a motor and plates the **electric piston**. Every tier-1 machine is two
+circuits, a hull, motors or pistons and plates: the **lathe** (ingot to two rods, rod to four screws; one screw
+can be sawn from a rod by hand, slowly, so the first motor is possible before the first lathe), the **bending press**
+(ingot to plate) and the **wiremill** (copper ingot to eight wires, the anvil gives four). Machines are
+`MachineEntity` (one class, `"machine": {station, eu_t}` on the item, recipes of type `smelt` with the machine as
+station, so the recipe browser lists them under the machine). The book has an Electrical Age chapter ending in
+"The First Machine".
+
 ## Open for the developer (taste)
 - Which machines come first (the electric furnace is the proof; GregTech starts with a macerator, a compressor,
   an extractor and a generator), and whether the first generator is the steam turbine (default) or a burning one.

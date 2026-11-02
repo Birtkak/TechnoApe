@@ -38,6 +38,7 @@ func run(dc: Node, title: Control) -> void:
 		return _end()
 	main.player_inv.pickup("flint", 5)
 	await _grid_fill(main)
+	await _qol_hud(main)
 	main.player.position += Vector3(3, 0, 0)
 	await _frames(10)
 	var before: Vector3 = main.player.position
@@ -50,6 +51,13 @@ func run(dc: Node, title: Control) -> void:
 	await _shot("pause")
 	main.pause_menu._open_settings()
 	await _shot("pause_settings")
+	var tabs: Array = main.pause_menu.find_children("*", "TabContainer", true, false)
+	if not tabs.is_empty():
+		var tc: TabContainer = tabs[0]
+		tc.current_tab = tc.get_tab_count() - 1   # Interface (ADR 0130)
+		r["interface_tab"] = tc.get_tab_title(tc.current_tab)
+		await _shot("settings_interface")
+		tc.current_tab = 0
 	Settings.apply_graphics_preset("low")
 	Settings.user_settings_edited()
 	r["low_shadows"] = main.atmosphere.sun.directional_shadow_mode == DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS and not main.atmosphere.env.ssao_enabled
@@ -81,6 +89,20 @@ func run(dc: Node, title: Control) -> void:
 			r["deleted_files"] = title3.worlds.delete(title3.worlds.find_seed(Settings.world_seed))
 			r["gone"] = title3.worlds.find_seed(Settings.world_seed).is_empty()
 	_end()
+
+
+## ADR 0130: the coordinates line and the red edge after a hit, on one shot.
+func _qol_hud(main) -> void:
+	var was := Settings.hud_coords
+	Settings.hud_coords = true
+	await _frames(2)
+	main.player_inv.damage(2, "menu test")
+	await _frames(1)
+	var hud: GameHud = main.game_hud
+	r["qol_hud"] = {"coords": hud._coords.text if hud._coords.visible else "", "hurt_edge": snappedf(hud.edge_color().a, 0.01)}
+	await _shot("hud_qol")
+	main.player_inv.heal(2)
+	Settings.hud_coords = was
 
 
 ## The crafting table screen's Fill and Clear buttons (bug report 2026-10-25): the bug report's

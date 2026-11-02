@@ -107,7 +107,7 @@ func test_turbine_powers_the_furnace_over_a_cable() -> void:
 	_ticks(500)   # 25 s: the boiler reaches working pressure (boiler_build_s), the turbine turns, the furnace lights
 	assert_bool(t.rpm > 0.0).is_true()
 	assert_bool(f.is_lit()).override_failure_message("furnace got %.1f EU/t" % f.eu).is_true()
-	assert_float(f.eu).is_equal_approx(Settings.electric_furnace_eu_t, 0.01)
+	assert_float(f.eu).is_equal_approx(f.eu_t, 0.01)
 	_ticks(260)
 	assert_int(f.smelted).is_greater(0)
 	assert_str(f.use({})["give"][0]["id"]).is_equal("cooked_meat")

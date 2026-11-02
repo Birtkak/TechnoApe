@@ -125,6 +125,9 @@ func _build_panel() -> void:
 	_section(box, "World tests (closes the menu)", [
 		["Place stations", "!/stations"], ["Crater 4 m", "!/blast 4"], ["Water ball", "!/blast 2 water"], ["Sand ball", "!/blast 2 sand"],
 		["Lava ball", "!/blast 1 lava"], ["Oil ball", "!/blast 2 oil"]])
+	_section(box, "To-test scenarios (closes the menu; /totest lists the open items)", [
+		["River + bucket", "!/scenario river"], ["Cave stream", "!/scenario cave_stream"], ["Lit station at night", "!/scenario lit_station"],
+		["Sneak ledge", "!/scenario ledge"], ["Open items", "/totest"]])
 	_section(box, "Debug", [
 		["F3 overlay", _toggle_f3], ["Camera view (F5)", _cycle_view], ["Screenshot (F2)", _menu_screenshot], ["Report a bug (F9)", _menu_bug]])
 

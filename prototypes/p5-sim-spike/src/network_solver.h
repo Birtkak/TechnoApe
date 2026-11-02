@@ -16,7 +16,7 @@ class NetworkSolver : public RefCounted {
     GDCLASS(NetworkSolver, RefCounted)
 
 public:
-    enum Role { CONDUCTOR = 0, SOURCE = 1, SINK = 2 };
+    enum Role { CONDUCTOR = 0, SOURCE = 1, SINK = 2, SINK_LOW = 3 };   // SINK_LOW: fed only from what the sinks leave (batteries)
     // boxes: 6 ints per node (min x, y, z in world voxels, size x, y, z in voxels); roles: one per node;
     // amounts: a conductor's capacity per tick, a source's offer, a sink's want. Returns per node
     // [component, flow]: flow = what a source gave or a sink got this tick (0 for conductors).

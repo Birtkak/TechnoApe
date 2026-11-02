@@ -37,6 +37,7 @@ var bubble: SimBubble     # ambient sampling
 var spray: WaterfallSpray # the waterfalls near the camera
 var player: Player
 var main_blocks: BlockEntities   # lit firepits and pit kilns smoke
+var calendar: Calendar           # timed ambient rules (ADR 0120); null reads Main's atmosphere
 var sound_bursts := {}           # burst name -> true: GameAudio hears these (the ambient ones stay silent and free)
 var stats := {"emitted": 0, "dropped": 0, "culled": 0, "bursts": {}, "ambient_hits": 0, "ambient_samples": 0,
 	"waterfalls": 0, "ms_max": 0.0, "ms_avg": 0.0, "ms_worst_part": ""}
@@ -122,7 +123,7 @@ func load_dict(data: Dictionary) -> bool:
 			elif not (r.get("where", "any") in WHERE):
 				errors.append("ambient %s: unknown where %s" % [k, r.get("where", "")])
 			else:
-				rules.append({"effect": r["effect"], "chance": float(r.get("chance", 1.0)), "where": r.get("where", "any")})
+				rules.append({"effect": r["effect"], "chance": float(r.get("chance", 1.0)), "where": r.get("where", "any"), "time": r.get("time", "")})
 		ambient[id] = rules
 	_build_material_tables()
 	return errors.is_empty()
@@ -596,6 +597,7 @@ func _ambient_tick(delta: float) -> void:
 		if not got:
 			return
 		_ambient_accum -= 1.0
+		stats["phase"] = _phase()
 		for i in range(0, hits.size(), 7):
 			_ambient_hit(Vector3i(hits[i], hits[i + 1], hits[i + 2]), hits[i + 3], hits[i + 4], hits[i + 5], hits[i + 6])
 	# lit stations (firepits, furnaces, forges, bloomeries...) are block entities, not materials: a few, checked
@@ -616,6 +618,17 @@ func _ambient_tick(delta: float) -> void:
 					burst("large_smoke", top + Vector3(0, 0.4, 0))
 
 
+## "day" or "night" for timed ambient rules (dusk counts as night: fireflies come out at sunset).
+func _phase() -> String:
+	var cal := calendar
+	var atmo: Node = get_parent().get("atmosphere") if cal == null and get_parent() != null else null
+	if atmo != null:
+		cal = atmo.calendar   # Main's, read live: the sky is made after the particles
+	if cal == null:
+		return "day"
+	return "day" if GameAudio.day_phase(cal.time, cal.sunrise(), cal.sunset()) == "day" else "night"
+
+
 ## The centre of a block entity's footprint top, in voxels.
 static func station_top(e: RefCounted) -> Vector3:
 	var w := BlockEntities.width_of(e.kind)
@@ -629,6 +642,8 @@ func _ambient_hit(p: Vector3i, m: int, above: int, below: int, flags: int) -> vo
 		rules = rules + ambient[-1]
 	for r in rules:
 		if _rng.randf() >= float(r["chance"]):
+			continue
+		if r["time"] != "" and r["time"] != _phase():
 			continue
 		var at := Vector3(p) + Vector3(0.5, 0.5, 0.5)
 		var opts := {"material": m}

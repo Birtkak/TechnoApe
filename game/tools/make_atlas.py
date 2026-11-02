@@ -929,7 +929,10 @@ tiles = [
     stripes(["#1f4a1a", "#2f6a27", "#3f8433", "#4f9a3e", "#62ad4b", "#78c05c", "#93d276", "#d6e59a"], 102, "cols"),   # 102 seagrass: blades
     stripes(["#8a5a4a", "#c98f7c", "#dba795", "#e8bdaa", "#f2d0c0", "#f8e2d6", "#fff3ea", "#b06f5b"], 103, "diag", (1, 1)),   # 103 seashell: pink ribs
     crystal(104),                                             # 104 crystal: geode lining (glows in the shader, ADR 0052)
-] + [palette(PAL["stone"], 105 + i) for i in range(4)] + [   # 105-108 reserved for world generation
+    # conduit chambers (ADR 0110): spring stone, blue-grey with wet veins; magma heart, black with orange cracks
+    palette([("#5a6e80", 5), ("#4c5e6e", 4), ("#6c8296", 3), ("#8fb0c4", 2), ("#3e4e5c", 2), ("#b8d8e8", 1), ("#2f3c48", 1)], 105),   # 105 spring stone
+    palette([("#2a2420", 5), ("#1e1a18", 4), ("#3a2e28", 3), ("#d85a18", 2), ("#f08a2a", 1), ("#8a3410", 2), ("#ffc040", 1)], 106),   # 106 magma heart
+] + [palette(PAL["stone"], 107 + i) for i in range(2)] + [   # 107-108 reserved for world generation
     # the dry savanna floor (bug report 2026-10-25 20-37-22)
     palette([("#b4a058", 5), ("#a48e4a", 4), ("#c4b068", 3), ("#958040", 2), ("#8c8c4c", 2), ("#d2bf7c", 1), ("#7a683a", 1)], 109),   # 109 savanna grass: straw, a hint of olive
     palette([("#d4ba68", 5), ("#c6a858", 4), ("#e0cb80", 3), ("#b49548", 2), ("#a9a25c", 1), ("#ead9a0", 1)], 110),   # 110 savanna tall grass: golden tussocks

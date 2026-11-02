@@ -331,7 +331,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile"
-	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace"]
+	var solid := any_face or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box"]
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -741,8 +741,8 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
 		_say(res["msg"])
 		return true
-	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is ElectricFurnaceEntity:   # ADR 0099, 0113
-		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is ElectricFurnaceEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
+	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity:   # ADR 0099, 0113, 0117
+		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
 		if res["consume"] > 0 and _consumes():
 			main.player_inv.consume_held(res["consume"])
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))

@@ -9,6 +9,8 @@ extends Node3D
 ##   bomb     right click: a ball of "material" ("radius_m") dropped where you look (/blast with a material)
 ##   tree     right click on the ground: a straight test tree (bark over wood, a leaf crown) to cut
 ##   measure  right click two voxels: the chat shows the distance between them
+##   sounding (ADR 0110) right click: taps the rock; the hum is higher and louder the nearer the closest
+##            conduit (aquifer or magma), silent past 120 m; sneak + right click says how far in the chat
 ##   vacuum   (ADR 0056) right click a voxel: its material joins the filter the stack carries ("filter",
 ##            material names; sneak + right click clears it); hold left click: what matches is sucked
 ##            out of a nozzle-sized sphere where you aim (the brush size, Ctrl + wheel), nothing else
@@ -17,6 +19,7 @@ extends Node3D
 
 const BEAM_RADIUS_M := 0.03
 const SEED_RING := 8           # seed cells around each sphere of a cut, for the rigid piece check
+const SOUNDING_RANGE_M := 120.0  # the sounding rod hears a conduit this far
 
 var main: Node
 var stats := {"laser_pulses": 0, "laser_spheres": 0, "laser_ms_max": 0.0, "laser_checks": 0, "craters": 0, "bombs": 0, "trees": 0,
@@ -281,6 +284,8 @@ func use(def: Dictionary, hit: VoxelRaycastResult, from: Vector3, dir: Vector3, 
 			return _tree(hit, sneaking)
 		"measure":
 			return _measure(hit)
+		"sounding":
+			return _sounding(from, sneaking)
 		"vacuum":
 			return _vacuum_pick(hit, sneaking)
 	return false
@@ -349,6 +354,26 @@ func _tree(hit: VoxelRaycastResult, giant: bool) -> bool:
 		return false
 	bubble.fill_box(base + Vector3i(1, 0, 1), base + Vector3i(w - 1, h, w - 1), GameMaterials.WOOD)
 	stats["trees"] += 1
+	return true
+
+
+## The sounding rod (ADR 0110): one tap, pitched by the distance to the nearest conduit (2.0 at the tube,
+## 0.5 at 120 m), so a player can walk it in by ear.
+func _sounding(from: Vector3, sneaking: bool) -> bool:
+	var gen: FineGen = main.world.generator.gen
+	var p := Vector3i(from.floor())
+	var near: Dictionary = gen.conduit_near(p.x, p.y, p.z)
+	var d := float(near.get("dist_m", 1e9))
+	Sound.play("hit/stone", from, {"db": -12.0})
+	if d > SOUNDING_RANGE_M:
+		if sneaking:
+			main.chat.add_message("Sounding rod: nothing within %d m" % int(SOUNDING_RANGE_M))
+		return true
+	var t := clampf(d / SOUNDING_RANGE_M, 0.0, 1.0)
+	Sound.play("gadget/sounding", from, {"db": -4.0 - 14.0 * t, "pitch": 2.0 - 1.5 * sqrt(t)})
+	if sneaking:
+		main.chat.add_message("Sounding rod: %s %.1f m away (its chamber %.0f m)" % [
+			str(near.get("kind", "")).replace("_", " "), maxf(d, 0.0), float(near.get("source_dist_m", 0.0))])
 	return true
 
 

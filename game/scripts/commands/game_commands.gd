@@ -44,9 +44,13 @@ const KITS := {
 		"hopper": 4, "chute": 4, "belt": 16, "rail": 32, "minecart": 1, "chest_cart": 1, "chest": 2},   # the steam age (ADR 0097, 0099)
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64, "fire_essence": 16},
 	"electric": {"small_boiler": 1, "bronze_pipe": 4, "steam_turbine": 1, "copper_cable": 16, "electric_furnace": 1, "coal": 32, "water_bucket": 4,
-		"raw_meat": 8, "iron_ore": 8, "firestarter": 1},   # the energy network (ADR 0113)
-	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1,
+		"raw_meat": 8, "iron_ore": 8, "firestarter": 1, "lathe": 1, "bending_press": 1, "wiremill": 1, "iron_ingot": 8, "copper_ingot": 8,
+		"primitive_circuit": 4, "machine_hull": 2, "electric_motor": 2, "rubber": 16, "insulated_wire": 16,
+		"macerator": 1, "alloy_smelter": 1, "assembler": 1, "battery_box": 1, "electric_lamp": 4, "tin_nugget": 12, "copper_ore": 4, "vacuum_tube": 4,
+		"resistor": 2, "coated_board": 2},   # the energy network and the electrical age (ADR 0113, 0117)
+	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1, "sounding_rod": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
+	"water": {"bucket": 2, "water_bucket": 1, "crater_rod": 1, "laser_cutter": 1, "lava_bomb": 8, "water_balloon": 8, "cobblestone": 16},   # river tests (ADR 0104)
 	"tnt": {"tnt": 64, "igniter": 1, "flint_and_steel": 1, "sulfur": 8, "charcoal": 4, "sand": 2},   # TNT (ADR 0065)
 	"fire": {"flint_and_steel": 1, "firestarter": 1, "firepit": 1, "firewood": 32, "coal": 16, "oak_log": 16, "dry_grass": 16,
 		"torch": 16, "water_bucket": 4, "water_balloon": 16},   # forest fires and rain (ADR 0056)
@@ -57,7 +61,7 @@ const KITS := {
 ## What WorldGen.find_nearest can look for (biome names work too).
 const FEATURES := ["cave", "deep_cave", "ruin", "ruin_house", "ruin_watchtower", "ruin_stone_circle", "ruin_crypt", "crypt_room", "ruin_mud_house", "ruin_shrine", "ruin_wreck", "waterfall", "lake", "river", "spring", "marsh", "alpine", "snow", "mountain", "forest", "old_growth_forest", "taiga", "jungle", "plains", "desert",
 	"coal_vein", "copper_vein", "cassiterite_vein", "iron_vein", "copper_iron_vein",
-	"sulfur_cave", "lush_cave", "magma_cave", "crystal_cave", "fungal_cave"]
+	"sulfur_cave", "lush_cave", "magma_cave", "crystal_cave", "fungal_cave", "aquifer", "magma_conduit"]
 
 ## /fill's limit: 64^3, about one bubble chunk column's worth of remeshing.
 const FILL_MAX := 262144
@@ -68,6 +72,7 @@ var player_inv: PlayerInventory
 var main: Node   # Main: atmosphere, spawn_item, spawn position
 var _cam: DebugCamera   # /cam, made on first use
 var sky: SkyCommands   # /date, /moon, /eclipse, /constellations (ADR 0025)
+var playtest := PlaytestCommands.new()   # /totest, /scenario
 
 
 func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_main: Node = null) -> void:
@@ -130,6 +135,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 	reg.register("sound", "/sound <name> [x y z] | list | stats", "Play a sound (ADR 0044), list them, or show the sound stats", _sound, [Sound.sound_names() + ["list", "stats"]])
 	reg.register("music", "/music [next|stop|<track>]", "Show, skip to the next, stop or pick a music track", _music, [["next", "stop"]])
+	playtest.register(reg, player)
 	var atmo: Node = main.get("atmosphere") if main != null else null
 	if atmo != null:
 		sky = SkyCommands.new(atmo)

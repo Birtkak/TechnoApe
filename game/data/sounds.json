@@ -18,6 +18,7 @@
 
   "sim/ignite": {"db": -10, "range_m": 16, "cooldown_s": 0.5},
   "sim/sizzle": {"db": -10, "range_m": 16, "cooldown_s": 0.3},
+  "gadget/sounding": {"asset": "gelvin/blip", "db": -8, "pitch": [1.0, 1.0], "range_m": 12, "cooldown_s": 0.15},
   "sim/explosion": {"db": 0, "pitch": [0.85, 1.0], "range_m": 120, "ref_m": 6},
   "sim/blast": {"asset": "sim/explosion", "db": -4, "pitch": [0.6, 0.75], "range_m": 120, "ref_m": 6},
   "tnt/light": {"asset": "sim/ignite", "db": -4, "pitch": [1.1, 1.25], "range_m": 24},
@@ -93,6 +94,11 @@
   "loop/water": {"db": -8, "range_m": 24, "ref_m": 3},
   "loop/water_fall": {"db": -4, "range_m": 40, "ref_m": 4},
   "loop/rain": {"db": -10, "range_m": 1000, "ref_m": 1000},
+  "loop/wind": {"db": -9, "range_m": 1000, "ref_m": 1000},
+  "amb/bird": {"db": -14, "pitch": [0.9, 1.12], "range_m": 40, "ref_m": 6, "cooldown_s": 0.5},
+  "amb/jungle": {"db": -12, "pitch": [0.9, 1.1], "range_m": 50, "ref_m": 8, "cooldown_s": 0.8},
+  "amb/cricket": {"db": -16, "pitch": [0.95, 1.05], "range_m": 24, "ref_m": 4, "cooldown_s": 0.3},
+  "amb/owl": {"db": -12, "pitch": [0.95, 1.05], "range_m": 60, "ref_m": 10, "cooldown_s": 4},
   "loop/sand": {"db": -8, "range_m": 20, "ref_m": 2},
   "loop/lava": {"db": -6, "range_m": 24, "ref_m": 3},
   "loop/steam": {"db": -14, "range_m": 16, "ref_m": 2},
@@ -181,7 +187,17 @@
   "bat": {"idle": "mob/bat", "hurt": "mob/bat", "baby": "mob/bat", "every_s": [4, 12]},
   "cave_spider": {"idle": "mob/spider", "hurt": "mob/spider_hurt", "baby": "mob/spider", "angry": "mob/spider", "every_s": [12, 30]}
  },
+ "ambience": {
+  "_doc": "ADR 0120: one-shots around the listener. when = day | dusk | night (dusk: around sunrise and sunset); tags = the biome must have one of these (data/biomes.json; underground when deep under the surface), not_tags = none of these; dry = silent in rain or snow; every_s = random interval; dist_m / up_m = where around the listener.",
+  "birds": {"sound": "amb/bird", "when": ["day", "dusk"], "tags": ["forest", "temperate", "open", "coast", "warm"], "not_tags": ["arid", "frozen", "underground", "ocean", "hot"], "dry": true, "every_s": [3, 10], "dist_m": [6, 26], "up_m": [2, 9]},
+  "jungle_calls": {"sound": "amb/jungle", "when": ["day", "dusk"], "tags": ["hot"], "not_tags": ["arid", "underground", "dry"], "every_s": [5, 14], "dist_m": [12, 34], "up_m": [3, 12]},
+  "savanna_birds": {"sound": "amb/bird", "when": ["dusk"], "tags": ["dry"], "dry": true, "every_s": [6, 16], "dist_m": [10, 30], "up_m": [1, 6]},
+  "crickets": {"sound": "amb/cricket", "when": ["dusk", "night"], "tags": ["temperate", "warm", "hot", "open"], "not_tags": ["frozen", "underground", "ocean", "cold"], "dry": true, "every_s": [1.2, 4], "dist_m": [3, 14], "up_m": [-1, 0.3]},
+  "owls": {"sound": "amb/owl", "when": ["night"], "tags": ["forest"], "not_tags": ["underground", "hot"], "every_s": [18, 50], "dist_m": [14, 40], "up_m": [5, 14]},
+  "night_frogs": {"sound": "mob/frog", "when": ["dusk", "night"], "tags": ["wet", "water", "coast"], "not_tags": ["frozen", "underground", "ocean"], "every_s": [2, 7], "dist_m": [6, 22], "up_m": [-1, 0.5]}
+ },
  "loops": {
+  "wind": {"sound": "loop/wind", "materials": [], "full_hits": 100},
   "fire": {"sound": "loop/fire_big", "burning": true, "materials": ["fire"], "full_hits": 25},
   "embers": {"sound": "loop/fire_small", "materials": ["furnace_lit"], "full_hits": 2},
   "water": {"sound": "loop/water", "materials": ["water"], "where": "air_above", "full_hits": 30},

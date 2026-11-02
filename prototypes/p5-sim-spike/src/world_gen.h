@@ -69,6 +69,7 @@ public:
         PLANT_STEM = 111, KELP = 112, SEAGRASS = 113, SEASHELL = 114, MUSHROOM_STEM = 115,
         // 116..119 reserved (part A of the 2026-10-25 split); world generation 120..129
         CRYSTAL = 120,
+        SPRING_STONE = 122, MAGMA_HEART = 123,   // the source of an aquifer / a magma conduit (ADR 0110)
         GIANT_STEM = 124, GIANT_PETAL = 125, GIANT_HEART = 126,   // giant flowers in the flower meadow
         // the dry savanna floor (bug report 2026-10-25 20-37-22): straw grass, its tussocks, bare red earth
         SAVANNA_GRASS = 127, SAVANNA_TALL_GRASS = 128, RED_EARTH = 129
@@ -300,6 +301,25 @@ private:
     int stringer_type(int cx, int cz) const;
     // Crystal geodes (ADR 0052): at most one per 96 m cell, deep in the rock. Macro units.
     static constexpr int GEODE_CELL = 192;
+    // Conduits, the veins of the world (ADR 0110): aquifers and magma conduits. One chance per CONDUIT_CELL
+    // cell: a polyline of CONDUIT_SEGS segments from a source chamber deep in the rock, wandering and rising
+    // toward a tail near the ground, as a tube of still liquid (finite once breached, ADR 0068 / 0069 C). The
+    // chamber holds the liquid round a core of spring stone / magma heart. Macro units.
+    static constexpr int CONDUIT_CELL = 512, CONDUIT_SEGS = 6;   // 256 m cells
+    static constexpr int CONDUIT_RINGS = 2;   // a conduit wanders at most 2 cells from its own
+    enum { CONDUIT_AQUIFER = 0, CONDUIT_MAGMA = 1 };
+    struct Conduit { int kind; float r, src_r; float x[CONDUIT_SEGS + 1], y[CONDUIT_SEGS + 1], z[CONDUIT_SEGS + 1]; };
+    bool conduit_at_cell(int cx, int cz, Conduit &out) const;
+    int conduits_near(int x, int z, Conduit *out, int max) const;   // the conduits that may reach (x, z)
+    // Distance (macro) from a point to the nearest conduit's tube or chamber surface (negative inside), with
+    // that conduit's kind and the distance to its chamber; 1e9 when none is in reach.
+    float conduit_dist(float x, float y, float z, int &kind, float &src_dist) const;
+    static inline float seg_dist3(float px, float py, float pz, float ax, float ay, float az, float bx, float by, float bz) {
+        const float dx = bx - ax, dy = by - ay, dz = bz - az, l2 = dx * dx + dy * dy + dz * dz;
+        const float t = l2 > 0.0f ? std::clamp(((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / l2, 0.0f, 1.0f) : 0.0f;
+        const float ex = px - (ax + dx * t), ey = py - (ay + dy * t), ez = pz - (az + dz * t);
+        return std::sqrt(ex * ex + ey * ey + ez * ez);
+    }
     struct Geode { float x, y, z, r; uint32_t seed; };
     bool geode_at_cell(int cx, int cz, Geode &out) const;
     // ---- ore veins (technosim_ore tables) ----
