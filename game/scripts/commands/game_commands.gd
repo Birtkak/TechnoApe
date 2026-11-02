@@ -43,6 +43,8 @@ const KITS := {
 		"miners_helmet": 1, "travelers_backpack": 1, "steam_drill": 1, "boiler_suit": 1, "jetpack": 1, "surveyors_stake": 4, "compressor": 1,
 		"hopper": 4, "chute": 4, "belt": 16, "rail": 32, "minecart": 1, "chest_cart": 1, "chest": 2},   # the steam age (ADR 0097, 0099)
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64, "fire_essence": 16},
+	"electric": {"small_boiler": 1, "bronze_pipe": 4, "steam_turbine": 1, "copper_cable": 16, "electric_furnace": 1, "coal": 32, "water_bucket": 4,
+		"raw_meat": 8, "iron_ore": 8, "firestarter": 1},   # the energy network (ADR 0113)
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
 	"water": {"bucket": 2, "water_bucket": 1, "crater_rod": 1, "laser_cutter": 1, "lava_bomb": 8, "water_balloon": 8, "cobblestone": 16},   # river tests (ADR 0104)
@@ -105,7 +107,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_setblock, [["~"], ["~"], ["~"], _material_names])
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
-	reg.register("stations", "/stations", "Place a crafting table, chest and furnace ahead", _stations)
+	reg.register("stations", "/stations [electric]", "Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace (ADR 0113)", _stations, [["electric"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
@@ -738,9 +740,19 @@ func _music(args: PackedStringArray) -> Dictionary:
 	return CommandRegistry.ok("Playing %s" % Sound.stats()["music"])
 
 
-func _stations(_args: PackedStringArray) -> Dictionary:
+func _stations(args: PackedStringArray) -> Dictionary:
 	if main == null:
 		return CommandRegistry.fail("No world")
+	if args.size() > 0 and args[0] == "electric":   # ADR 0113: the energy line, 4 m ahead, along the player's right
+		var fwd: Vector3 = -player.camera.global_transform.basis.z
+		fwd.y = 0
+		var right := Vector3i(fwd.normalized().cross(Vector3.UP).round())
+		if right == Vector3i.ZERO:
+			right = Vector3i.RIGHT
+		var q := player.position + fwd.normalized() * Settings.m2v(4.0) - Vector3(right) * Settings.m2v(2.5)
+		var anchor := BlockEntities.anchor_for(Vector3i(q.floor()))
+		anchor.y = main.world.surface_height(anchor.x, anchor.z) + 1
+		return CommandRegistry.ok("Laid " + main.work.debug_electric_line(anchor, right))
 	main.place_stations()
 	return CommandRegistry.ok("Placing a crafting table, chest and furnace ahead")
 

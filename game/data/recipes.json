@@ -1,7 +1,11 @@
 {
   "_comment": "Recipes. type: shaped (pattern rows + key), shapeless (ingredients list), smelt (input -> output, ticks), spellcraft (station recipe). ADR 0023 (Vintage Story early game): knap (input, 8x8 pattern, row = z, column = x, # = keep), clayform (input, layers bottom first, each 8x8, # = clay), kiln (pit kiln: input -> output), melt (firepit: count x input + vessel -> output vessel), cast (molten vessel on a mold -> output, returns the vessel), sift (sieve: input -> output with chance; same input = one loot table). Ingredient = item id or '#tag'. Minecraft semantics: shaped recipes may be translated anywhere in the grid and mirrored.",
   "recipes": [
-    {"id": "planks_from_log", "type": "shapeless", "ingredients": ["#log"], "output": {"id": "oak_planks", "count": 2}, "_note": "2 per log by hand (ADR 0019)"},
+    {"id": "planks_from_log", "type": "shapeless", "ingredients": ["oak_log"], "output": {"id": "oak_planks", "count": 2}, "_note": "2 per log by hand (ADR 0019); each wood its own planks (ADR 0112)"},
+    {"id": "spruce_planks_from_log", "type": "shapeless", "ingredients": ["spruce_log"], "output": {"id": "spruce_planks", "count": 2}},
+    {"id": "acacia_planks_from_log", "type": "shapeless", "ingredients": ["acacia_log"], "output": {"id": "acacia_planks", "count": 2}},
+    {"id": "jungle_planks_from_log", "type": "shapeless", "ingredients": ["jungle_log"], "output": {"id": "jungle_planks", "count": 2}},
+    {"id": "birch_planks_from_log", "type": "shapeless", "ingredients": ["birch_log"], "output": {"id": "birch_planks", "count": 2}},
     {"id": "sticks", "type": "shaped", "pattern": ["P", "P"], "key": {"P": "#planks"}, "output": {"id": "stick", "count": 4}},
     {"id": "crafting_table", "type": "shapeless", "ingredients": ["flint", "flint", "#log", "#log"], "output": {"id": "crafting_table", "count": 1}, "_note": "2 flint + 2 logs (ADR 0019), any layout: the shaped FF/LL was missed in play (bug report 2026-10-25)"},
     {"id": "chest", "type": "shaped", "pattern": ["PPP", "P P", "PPP"], "key": {"P": "#planks"}, "output": {"id": "chest", "count": 1}, "station": "crafting_table"},
@@ -53,7 +57,11 @@
     {"id": "deconstruction_hammer", "type": "shaped", "pattern": ["PPP", " S ", " S "], "key": {"P": "#planks", "S": "#stick"}, "output": {"id": "deconstruction_hammer", "count": 1}, "station": "crafting_table", "_note": "a wooden mallet: takes built blocks apart at once"},
     {"id": "copper_saw", "type": "assemble", "parts": ["copper_saw_blade", "#stick"], "output": {"id": "copper_saw", "count": 1}},
     {"id": "stone_anvil", "type": "shaped", "pattern": ["CCC", " C ", "CCC"], "key": {"C": "#cobble"}, "output": {"id": "stone_anvil", "count": 1}, "station": "crafting_table"},
-    {"id": "planks_with_saw", "type": "shapeless", "ingredients": ["#log", "#saw"], "keep": ["#saw"], "output": {"id": "oak_planks", "count": 4}, "_note": "a saw wastes less than splitting by hand (ADR 0042)"},
+    {"id": "planks_with_saw", "type": "shapeless", "ingredients": ["oak_log", "#saw"], "keep": ["#saw"], "output": {"id": "oak_planks", "count": 4}, "_note": "a saw wastes less than splitting by hand (ADR 0042)"},
+    {"id": "spruce_planks_with_saw", "type": "shapeless", "ingredients": ["spruce_log", "#saw"], "keep": ["#saw"], "output": {"id": "spruce_planks", "count": 4}},
+    {"id": "acacia_planks_with_saw", "type": "shapeless", "ingredients": ["acacia_log", "#saw"], "keep": ["#saw"], "output": {"id": "acacia_planks", "count": 4}},
+    {"id": "jungle_planks_with_saw", "type": "shapeless", "ingredients": ["jungle_log", "#saw"], "keep": ["#saw"], "output": {"id": "jungle_planks", "count": 4}},
+    {"id": "birch_planks_with_saw", "type": "shapeless", "ingredients": ["birch_log", "#saw"], "keep": ["#saw"], "output": {"id": "birch_planks", "count": 4}},
     {"id": "smith_copper_hammer_head", "type": "smith", "input": "copper_ingot", "layers": [["........", "........", "........", ".######.", ".######.", "........", "........", "........"], ["........", "........", "........", ".######.", ".######.", "........", "........", "........"], ["........", "........", "........", "..####..", "..####..", "........", "........", "........"]], "output": {"id": "copper_hammer_head", "count": 1}},
     {"id": "smith_copper_saw_blade", "type": "smith", "input": "copper_ingot", "layers": [["........", "........", "########", "########", ".#.#.#.#", "........", "........", "........"], ["........", "........", "########", "####....", "........", "........", "........", "........"]], "output": {"id": "copper_saw_blade", "count": 1}},
     {"id": "smith_copper_axe_head", "type": "smith", "input": "copper_ingot", "layers": [["........", "...###..", "..#####.", ".######.", "..#####.", "...###..", "........", "........"], ["........", "........", "...###..", "..####..", "...###..", "........", "........", "........"]], "output": {"id": "copper_axe_head", "count": 1}},
@@ -251,12 +259,17 @@
     {"id": "boiler_suit", "type": "shaped", "pattern": ["LAL", "SPS", "L L"], "key": {"L": "leather", "A": "leather_apron", "S": "leather_strip", "P": "steel_plate"}, "output": {"id": "boiler_suit", "count": 1}, "station": "crafting_table", "_note": "ADR 0099"},
     {"id": "jetpack", "type": "shaped", "pattern": ["SPS", "CGC", "I I"], "key": {"S": "leather_strip", "P": "steel_plate", "C": "steam_cell", "G": "iron_gear", "I": "bronze_pipe"}, "output": {"id": "jetpack", "count": 1}, "station": "crafting_table", "_note": "ADR 0099"},
     {"id": "surveyors_stake", "type": "shapeless", "ingredients": ["iron_rod", "copper_wire", "glass_lens", "#stick"], "output": {"id": "surveyors_stake", "count": 4}, "_note": "ADR 0099"},
+    {"id": "copper_cable", "type": "shaped", "pattern": ["WWW", "HHH"], "key": {"W": "copper_wire", "H": "#hide"}, "output": {"id": "copper_cable", "count": 6}, "_note": "ADR 0113: wire in a hide sleeve"},
+    {"id": "electric_furnace", "type": "shaped", "pattern": ["PWP", "PFP", "PCP"], "key": {"P": "iron_plate", "W": "copper_wire", "F": "furnace", "C": "copper_cable"}, "output": {"id": "electric_furnace", "count": 1}},
     {"id": "compressor", "type": "shaped", "pattern": ["SIS", "GTG", "PPP"], "key": {"S": "steel_plate", "I": "bronze_pipe", "G": "iron_gear", "T": "water_tank", "P": "iron_plate"}, "output": {"id": "compressor", "count": 1}, "station": "crafting_table", "_note": "ADR 0099: a tank re-plumbed for air"},
     {"id": "hopper", "type": "shaped", "pattern": ["P P", "PGP", " I "], "key": {"P": "iron_plate", "G": "iron_gear", "I": "bronze_pipe"}, "output": {"id": "hopper", "count": 1}, "station": "crafting_table", "_note": "ADR 0100"},
     {"id": "chute", "type": "shaped", "pattern": ["L L", " L ", " R "], "key": {"L": "#planks", "R": "iron_rod"}, "output": {"id": "chute", "count": 2}, "station": "crafting_table", "_note": "ADR 0100"},
     {"id": "belt", "type": "shaped", "pattern": ["LLL", "GRG", "PPP"], "key": {"L": "leather", "G": "iron_gear", "R": "iron_rod", "P": "iron_plate"}, "output": {"id": "belt", "count": 4}, "station": "crafting_table", "_note": "ADR 0100"},
     {"id": "rail", "type": "shaped", "pattern": ["RSR", "RSR", "RSR"], "key": {"R": "iron_rod", "S": "#stick"}, "output": {"id": "rail", "count": 8}, "station": "crafting_table", "_note": "ADR 0100"},
     {"id": "minecart", "type": "shaped", "pattern": ["P P", "PPP", "G G"], "key": {"P": "iron_plate", "G": "iron_gear"}, "output": {"id": "minecart", "count": 1}, "station": "crafting_table", "_note": "ADR 0100"},
-    {"id": "chest_cart", "type": "shapeless", "ingredients": ["minecart", "chest"], "output": {"id": "chest_cart", "count": 1}, "station": "crafting_table", "_note": "ADR 0100"}
+    {"id": "chest_cart", "type": "shapeless", "ingredients": ["minecart", "chest"], "output": {"id": "chest_cart", "count": 1}, "station": "crafting_table", "_note": "ADR 0100"},
+    {"id": "crush_iron_ore", "type": "process", "station": "ore_crusher", "ingredients": ["iron_ore"], "output": {"id": "crushed_iron_ore", "count": 2}, "seconds": 1.0, "info": "steam from a boiler", "_note": "shown by the browser; OreCrusherEntity crushes by the ore's crushed field (ADR 0099, 0115)"},
+    {"id": "crush_copper_ore", "type": "process", "station": "ore_crusher", "ingredients": ["copper_ore"], "output": {"id": "crushed_copper_ore", "count": 2}, "seconds": 1.0, "info": "steam from a boiler", "_note": "ADR 0099, 0115"},
+    {"id": "crush_tin_ore", "type": "process", "station": "ore_crusher", "ingredients": ["tin_ore"], "output": {"id": "crushed_tin_ore", "count": 2}, "seconds": 1.0, "info": "steam from a boiler", "_note": "ADR 0099, 0115"}
   ]
 }

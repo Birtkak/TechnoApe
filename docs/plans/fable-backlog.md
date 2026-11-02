@@ -11,7 +11,7 @@
 - **2026-10-23:** jobs 1-4 (micro simulation, chisel, far field and near field of the brick world) are
   gone with the brick world (ADR 0033, 0036): one 12.5 cm grid, chiseling is the brush at size 1. Job
   numbers 5-8 are kept so older references still point at the right job.
-- Next free ADR number: **0109** (0108 = near-first streaming, start cover lifts on near ground, 0107 = occlusion in the shader, 0106 = merged cube faces, 0105 = no far horizon, render distance only; the full list is `docs/decisions/`).
+- Next free ADR number: **0114** (0113 = machines and networks; 0109..0112 belong to the parallel agents of 2026-11-02) (0108 = near-first streaming, start cover lifts on near ground, 0107 = occlusion in the shader, 0106 = merged cube faces, 0105 = no far horizon, render distance only; the full list is `docs/decisions/`).
 
 Recommended order: 5-7 as Phase 3/4 start. 8 is ongoing.
 
@@ -33,7 +33,12 @@ modifiers and projectiles, cast order, mana and recharge, how a spell edits the
 sim under the mass-edit rule), the native evaluator, and the data schema with
 tests. Individual spells afterwards are data for a cheaper model.
 
-## 7. Machine, energy and fluid network architecture (Phase 3/4)
+## 7. Machine, energy and fluid network architecture (Phase 3/4) - done 2026-11-02 (ADR 0113)
+
+Landed: ADR 0113, native `NetworkSolver` (boxes that touch form components, flow = min(supply, demand, weakest
+conductor)), `Networks.solve` once a second, copper cable + electric furnace as data, `/kit electric`,
+`test_networks.gd`, `tools/network_bench.gd`. Designed, not built: machine pins (keep_alive), multiblocks, fluid
+channels. Open: first machines, voltage tiers, batteries, catch-up. Job 6 (wands) was dropped from this pass.
 
 GregTech depth: machines as block entities (ADR 0007 layer), power networks,
 pipes, multiblocks. Fable part: the ADR and the network solver (native if it

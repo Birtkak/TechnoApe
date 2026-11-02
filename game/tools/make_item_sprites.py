@@ -1103,6 +1103,29 @@ sp("shears", ("shears", "iron"))
 sp("tongs", ("tongs", "wood"))
 sp("torch", ("torch", "handle"))
 sp("oak_sapling", ("sapling", "leaf"))
+# the other woods' saplings (ADR 0112): their leaf colour, their bark on the stem
+PALETTES["spruce_leaf"] = ramp("#0c2014", "#1e4028", "#2c5a36", "#3e7448", "#5e9468")
+PALETTES["acacia_leaf"] = ramp("#262a0c", "#4a5420", "#68742e", "#86923e", "#acb85e")
+PALETTES["jungle_leaf"] = ramp("#0e3010", "#226a20", "#2e8a2a", "#44a83a", "#78d060")
+PALETTES["birch_leaf"] = ramp("#22340e", "#4a6a22", "#68903a", "#86ae4e", "#b0d478")
+# blocks that showed as a plain cube of their tile: wattle (woven withies), carpet (a rug), the ruin pot
+g = new()
+for x in (3, 7, 11):
+    rect(g, x, 1, x + 1, 14)
+for y in (4, 8, 12):
+    rect(g, 1, y, 14, y + 1)
+shape("wattle", outline(shade(g)))
+sp("wattle", ("wattle", "handle"))
+g = shade(rect(new(), 1, 6, 14, 11))
+for x in range(1, 15, 2):
+    put(g, x, 5, "f")
+    put(g, x, 12, "f")
+shape("carpet", outline(g), {"f": "#d8d2c0"})
+PALETTES["wool"] = ramp("#6a665e", "#c4beb0", "#dcd6c8", "#ece8dc", "#fbf9f2")
+sp("carpet", ("carpet", "wool"))
+sp("clay_pot", ("jar", "fire_brick", {"i": "#3a2a1a"}))
+for k, stem in (("spruce", "#3a2614"), ("acacia", "#76665a"), ("jungle", "#5a4420"), ("birch", "#d8d4c6")):
+    sp(k + "_sapling", ("sapling", k + "_leaf", {"t": stem}))
 sp("dandelion", ("flower_stem", "leaf"), ("flower_head", None, {"p": "#f4d23c", "c": "#d08a1c"}))
 sp("poppy", ("flower_stem", "leaf"), ("flower_head", None, {"p": "#d8302a", "c": "#2a1a14"}))
 sp("cornflower", ("flower_stem", "leaf"), ("flower_head", None, {"p": "#4a72e0", "c": "#24306a"}))
@@ -1446,6 +1469,8 @@ sp("crushed_iron_ore", ("dust_pile", "iron_ore"))
 sp("crushed_copper_ore", ("dust_pile", "copper_ore"))
 sp("crushed_tin_ore", ("dust_pile", "tin_ore"))
 sp("copper_wire", ("twine", "copper"))
+sp("copper_cable", ("pipe", "copper", {"e": "#1c1410", "f": "#2a2018"}))   # ADR 0113
+sp("electric_furnace", ("steam_hammer", "iron", {"e": "#e07434", "f": "#b0501e", "k": "#3a3a3e"}))
 sp("steam_turbine", ("steam_hammer", "steel", {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}))
 sp("iron_gear", ("flower_head", "iron"))
 sp("glass_lens", ("ball", "tin"))

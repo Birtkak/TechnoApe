@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## The wild animals of ADR 0058: the data, the models, and the behaviours (flee, hop, swim, fly, pack
 ## hunts, boars that turn on whoever hurt them).
 
-const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider"]
+const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog"]
 
 
 func _manager() -> MobManager:

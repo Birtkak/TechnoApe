@@ -598,12 +598,14 @@ func _ambient_tick(delta: float) -> void:
 		_ambient_accum -= 1.0
 		for i in range(0, hits.size(), 7):
 			_ambient_hit(Vector3i(hits[i], hits[i + 1], hits[i + 2]), hits[i + 3], hits[i + 4], hits[i + 5], hits[i + 6])
-	# lit firepits and pit kilns are block entities, not materials: a few, checked directly
+	# lit stations (firepits, furnaces, forges, bloomeries...) are block entities, not materials: a few, checked
+	# directly; the smoke leaves the top of the model, not its anchor corner (bug 2026-11-02_18-51-53)
 	if main_blocks != null and Engine.get_process_frames() % 6 == 0:
-		for e in main_blocks.all_work():
-			if e.has_method("is_lit") and e.is_lit() and not (e is SieveEntity):
-				var top := Vector3(e.pos) + Vector3(0.5, 0.25, 0.5)
-				if e is FirepitEntity:
+		for e in main_blocks.lit():
+			if not (e is SieveEntity or e is TorchEntity):
+				var top := station_top(e)
+				if e.kind == "firepit":   # forges and bloomeries are firepits too, but smoke from their top
+					top.y = e.pos.y + 1.0   # the flames sit on the bed, not on the stone ring's rim
 					if _rng.randf() < 0.8:
 						burst("flame", top)
 					if _rng.randf() < 0.4:
@@ -612,6 +614,13 @@ func _ambient_tick(delta: float) -> void:
 						burst("ember", top)
 				elif _rng.randf() < 0.5:
 					burst("large_smoke", top + Vector3(0, 0.4, 0))
+
+
+## The centre of a block entity's footprint top, in voxels.
+static func station_top(e: RefCounted) -> Vector3:
+	var w := BlockEntities.width_of(e.kind)
+	var size: Vector3i = StationEntity.SIZES.get(e.kind, Vector3i(w, BlockEntities.height_of(e.kind), w))
+	return Vector3(e.pos) + Vector3(size.x * 0.5, size.y, size.z * 0.5)
 
 
 func _ambient_hit(p: Vector3i, m: int, above: int, below: int, flags: int) -> void:

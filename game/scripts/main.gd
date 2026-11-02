@@ -29,6 +29,7 @@ var _save_accum := 0.0
 var _loading: LoadingScreen
 var startup_ms := {}   # ms since _ready began, per startup step (printed, and in DebugCapture's JSON)
 var farming: Farming                 # tilled farmland and crops (ADR 0022)
+var saplings: Saplings               # planted saplings growing into trees (ADR 0112)
 var pieces: FallingPieces            # rigid voxel pieces (P12), null with rigid_pieces=0
 var builder: ShapeBuilder            # shape building, box mode, prefabs (ADR 0038)
 var survival: Survival               # hunger, body temperature, food spoilage (ADR 0040)
@@ -125,6 +126,14 @@ func _ready() -> void:
 	farming.is_editable = world.is_editable
 	if Settings.persist_world:
 		farming.load_dict(_load_json(_save_path("farms")))
+	saplings = Saplings.load_default()
+	for err in saplings.errors:
+		push_error("data: " + err)
+	saplings.get_voxel = func(p: Vector3i) -> int: return bubble.get_voxel(p) if bubble else -1
+	saplings.fill_box = func(lo: Vector3i, hi: Vector3i, m: int) -> int: return bubble.fill_box(lo, hi, m)
+	saplings.fill_ball = func(c: Vector3, r: float, m: int) -> void: bubble.blast(c, r, m, PackedInt32Array([GameMaterials.AIR]))
+	if Settings.persist_world:
+		saplings.load_dict(_load_json(_save_path("saplings")))
 	mark.call("data")
 
 	player = Player.new()
@@ -646,6 +655,7 @@ func _physics_process(delta: float) -> void:
 		t0 = Time.get_ticks_usec()
 		farming.season_growth = atmosphere.calendar.crop_growth()   # crops rest in winter (ADR 0025)
 		_spawn_drop_events(farming.tick(ticks))
+		saplings.tick(ticks * BlockEntities.TICK_S)
 		phys_cost["farm"] = maxf(float(phys_cost.get("farm", 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
 	_save_accum += delta
 	if _save_accum >= 30.0:
@@ -703,6 +713,9 @@ func _save_blocks() -> void:
 	if farming != null and farming.dirty:
 		_save_json(_save_path("farms"), farming.to_dict())
 		farming.dirty = false
+	if saplings != null and saplings.dirty:
+		_save_json(_save_path("saplings"), saplings.to_dict())
+		saplings.dirty = false
 	if mobs != null:
 		mobs.save_file(_save_path("mobs"))   # animals move all the time: always written
 	if atmosphere != null:
@@ -885,7 +898,8 @@ func _player_dict() -> Dictionary:
 		"game_mode": player.game_mode, "flying": player.flying, "health": player_inv.health, "selected": player_inv.selected,
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
 		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s,
-		"stone_age": stone_age.player_dict() if stone_age else {}, "tnt": tnt.to_array() if tnt else _tnt_save}
+		"stone_age": stone_age.player_dict() if stone_age else {}, "tnt": tnt.to_array() if tnt else _tnt_save,
+		"bookmarks": inv_screen.browser.bookmarks}
 
 
 func _load_player() -> void:
@@ -915,6 +929,8 @@ func _load_player() -> void:
 		player_inv.bag.set_slot(i, _stack_of(bag[i]))
 	player_inv.off.set_slot(0, _stack_of(d.get("offhand")))   # ADR 0055
 	world_map.waypoints.load_array(d.get("waypoints", []))
+	if d.get("bookmarks") is Array and not OS.get_cmdline_user_args().has("autopilot=1"):
+		inv_screen.browser.set_bookmarks(d["bookmarks"])   # the recipe browser's bookmarks (ADR 0115)
 	player_inv.favourites.clear()
 	for i in d.get("favourites", []):
 		player_inv.favourites[int(i)] = true
@@ -1295,6 +1311,7 @@ func _on_placed(p: Vector3i, material: int) -> void:
 		return
 	set_world_voxel(p, material)
 	_spawn_drop_events(farming.on_placed(p, material))
+	saplings.on_placed(p, material)
 	if material > 0:
 		stains.clear_cell(p)   # a filled cell's old stain must not come back when it is mined
 		var d: Dictionary = GameMaterials.defs()[material - 1]
@@ -1644,8 +1661,6 @@ func _debug_use_block(at: Vector3i) -> void:
 	print("debug use %s -> screen open %s (%s)" % [at, inv_screen.is_open, player_inv.summary()["container"]])
 
 
-## Debug: a crafting table, chest and furnace on the ground ahead (stations=1);
-## the furnace starts smelting 8 iron ore with 1 coal, the chest holds samples.
 ## The real ground under a station's footprint near `at` (the generator's height_at is the coarse one): one
 ## above the highest cell that is not clearable, scanning from 4 m above the player down to 8 m below.
 func _debug_ground(material: int, at: Vector3i) -> int:
@@ -1663,6 +1678,8 @@ func _debug_ground(material: int, at: Vector3i) -> int:
 	return best + 1
 
 
+## Debug: a crafting table, chest and furnace on the ground ahead (stations=1);
+## the furnace starts smelting cobblestone, the chest holds samples.
 func _place_debug_stations() -> void:
 	var fwd := -player.camera.global_transform.basis.z
 	fwd.y = 0
@@ -2033,6 +2050,7 @@ func snapshot() -> Dictionary:
 		"projectiles": projectiles.stats if projectiles else {},
 		"gadgets": gadgets.stats if gadgets else {},
 		"tnt": tnt.snapshot() if tnt else {},
+		"networks": Networks.stats,
 		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size()}),
 		"weather": weather.summary() if weather else {},
 		"map": world_map.summary(),
