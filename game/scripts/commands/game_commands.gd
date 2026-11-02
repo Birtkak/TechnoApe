@@ -45,7 +45,7 @@ const KITS := {
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64, "fire_essence": 16},
 	"electric": {"small_boiler": 1, "bronze_pipe": 4, "steam_turbine": 1, "copper_cable": 16, "electric_furnace": 1, "coal": 32, "water_bucket": 4,
 		"raw_meat": 8, "iron_ore": 8, "firestarter": 1},   # the energy network (ADR 0113)
-	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1,
+	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1, "sounding_rod": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
 	"tnt": {"tnt": 64, "igniter": 1, "flint_and_steel": 1, "sulfur": 8, "charcoal": 4, "sand": 2},   # TNT (ADR 0065)
 	"fire": {"flint_and_steel": 1, "firestarter": 1, "firepit": 1, "firewood": 32, "coal": 16, "oak_log": 16, "dry_grass": 16,
@@ -57,7 +57,7 @@ const KITS := {
 ## What WorldGen.find_nearest can look for (biome names work too).
 const FEATURES := ["cave", "deep_cave", "ruin", "ruin_house", "ruin_watchtower", "ruin_stone_circle", "ruin_crypt", "crypt_room", "ruin_mud_house", "ruin_shrine", "ruin_wreck", "waterfall", "lake", "river", "spring", "marsh", "alpine", "snow", "mountain", "forest", "old_growth_forest", "taiga", "jungle", "plains", "desert",
 	"coal_vein", "copper_vein", "cassiterite_vein", "iron_vein", "copper_iron_vein",
-	"sulfur_cave", "lush_cave", "magma_cave", "crystal_cave", "fungal_cave"]
+	"sulfur_cave", "lush_cave", "magma_cave", "crystal_cave", "fungal_cave", "aquifer", "magma_conduit"]
 
 ## /fill's limit: 64^3, about one bubble chunk column's worth of remeshing.
 const FILL_MAX := 262144
