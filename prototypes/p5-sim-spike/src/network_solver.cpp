@@ -15,6 +15,7 @@ void NetworkSolver::_bind_methods() {
     BIND_ENUM_CONSTANT(CONDUCTOR);
     BIND_ENUM_CONSTANT(SOURCE);
     BIND_ENUM_CONSTANT(SINK);
+    BIND_ENUM_CONSTANT(SINK_LOW);
 }
 
 static inline uint64_t key_of(int x, int y, int z) {
@@ -57,29 +58,34 @@ PackedFloat32Array NetworkSolver::solve(const PackedInt32Array &boxes, const Pac
                     }
     }
     // per component: supply, demand, the weakest conductor
-    std::vector<double> supply(n, 0), demand(n, 0), cap(n, 1e30);
+    std::vector<double> supply(n, 0), demand(n, 0), low(n, 0), cap(n, 1e30);
     std::vector<int> comp(n);
     for (int i = 0; i < n; i++) {
         comp[i] = find(parent, i);
         const int r = roles[i];
         if (r == SOURCE) supply[comp[i]] += amounts[i];
         else if (r == SINK) demand[comp[i]] += amounts[i];
+        else if (r == SINK_LOW) low[comp[i]] += amounts[i];
         else cap[comp[i]] = std::min(cap[comp[i]], (double)amounts[i]);
     }
+    // the sinks first; low sinks (batteries charging) get what is left under the cap
+    auto flow_of = [&](int c) { return std::min(std::min(supply[c], demand[c]), cap[c]); };
+    auto low_of = [&](int c) { const double f = flow_of(c); return std::min(std::min(supply[c] - f, low[c]), cap[c] - f); };
     double s_all = 0, d_all = 0, f_all = 0;
     int count = 0;
     for (int i = 0; i < n; i++) {
         if (comp[i] != i) continue;
         count++;
         s_all += supply[i]; d_all += demand[i];
-        f_all += std::min(std::min(supply[i], demand[i]), cap[i]);
+        f_all += flow_of(i) + low_of(i);
     }
     for (int i = 0; i < n; i++) {
         const int c = comp[i];
-        const double flow = std::min(std::min(supply[c], demand[c]), cap[c]);
+        const double flow = flow_of(c), fl = low_of(c);
         float f = 0;
-        if (roles[i] == SOURCE && supply[c] > 0) f = (float)(flow * amounts[i] / supply[c]);
+        if (roles[i] == SOURCE && supply[c] > 0) f = (float)((flow + fl) * amounts[i] / supply[c]);
         else if (roles[i] == SINK && demand[c] > 0) f = (float)(flow * amounts[i] / demand[c]);
+        else if (roles[i] == SINK_LOW && low[c] > 0) f = (float)(fl * amounts[i] / low[c]);
         out[i * 2] = (float)c;
         out[i * 2 + 1] = f;
     }

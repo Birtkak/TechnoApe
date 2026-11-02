@@ -39,6 +39,17 @@ var _look: Control          # the look-at panel, top centre (like the Jade mod)
 var _look_info := {}
 var _look_icon: ItemIcon    # the block or item's picture, left of the panel's text (ADR 0093)
 var _shown_air := -1
+# ADR 0130: status at a glance
+var player: Node3D           # set by Main: the coordinates line reads its position and facing
+var _coords: Label           # top left with Settings.hud_coords: metres and the compass facing
+var _saved: Label            # bottom left for a moment after an autosave
+var _saved_t := 0.0
+var _edge: TextureRect       # the screen edge: red when hurt, frost when cold, orange when hot (Settings.screen_effects)
+var _hurt_t := 0.0
+var _last_health := -1
+var _jitter_tick := -1       # hearts at low health and food when starving shake, redrawn 20 times a second (vanilla)
+const HURT_S := 0.6
+const COMPASS := ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 
 
 func setup(p_inv: PlayerInventory) -> void:
@@ -46,7 +57,8 @@ func setup(p_inv: PlayerInventory) -> void:
 	_look_icon.items = p_inv.items
 	player_inv.changed.connect(_refresh)
 	player_inv.selection_changed.connect(_on_selection)
-	player_inv.health_changed.connect(func(_h: int) -> void: _hearts.queue_redraw())
+	player_inv.health_changed.connect(_on_health)
+	_last_health = p_inv.health
 	_refresh()
 
 
@@ -57,6 +69,20 @@ func _ready() -> void:
 	_screen_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_screen_tint.color = Color(0, 0, 0, 0)
 	add_child(_screen_tint)
+	_edge = TextureRect.new()
+	_edge.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_edge.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_edge.texture = _edge_texture()
+	_edge.modulate = Color(1, 1, 1, 0)
+	add_child(_edge)
+	_coords = _corner_label(13)
+	_coords.position = Vector2(8, 6)
+	_saved = _corner_label(13)
+	_saved.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_saved.position = Vector2(8, -24)
+	_saved.text = "Saving world..."
+	_saved.modulate.a = 0.0
 	_crosshair = Control.new()
 	_crosshair.set_anchors_preset(Control.PRESET_CENTER)
 	_crosshair.draw.connect(_draw_crosshair)
@@ -162,6 +188,75 @@ func _ready() -> void:
 	_brush_label.position = Vector2((9 * SLOT + 8 * GAP) / 2.0 + SLOT + 20, -SLOT - 6)
 	_brush_label.size = Vector2(260, 40)
 	add_child(_brush_label)
+
+
+func _corner_label(font_size: int) -> Label:
+	var l := Label.new()
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.add_theme_font_size_override("font_size", font_size)
+	l.add_theme_color_override("font_color", Color(0.95, 0.94, 0.9, 0.95))
+	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
+	l.add_theme_constant_override("shadow_offset_x", 1)
+	l.add_theme_constant_override("shadow_offset_y", 1)
+	add_child(l)
+	return l
+
+
+## A radial fade from clear in the middle to opaque white at the edges, tinted by modulate.
+static func _edge_texture() -> GradientTexture2D:
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 0))
+	g.set_offset(0, 0.55)
+	g.set_color(1, Color(1, 1, 1, 1))
+	var t := GradientTexture2D.new()
+	t.gradient = g
+	t.fill = GradientTexture2D.FILL_RADIAL
+	t.fill_from = Vector2(0.5, 0.5)
+	t.fill_to = Vector2(1.1, 0.5)
+	t.width = 128
+	t.height = 128
+	return t
+
+
+func _on_health(h: int) -> void:
+	if _last_health >= 0 and h < _last_health:
+		_hurt_t = HURT_S
+	_last_health = h
+	_hearts.queue_redraw()
+
+
+## The autosave ran: a short "Saving world..." bottom left (ADR 0130).
+func note_saved() -> void:
+	_saved_t = 1.5
+
+
+## "X 12.5  Y 40.0  Z -3.1 m  NE 45°" for a position in voxels and a yaw (0 = facing north, -Z).
+static func coords_text(pos: Vector3, yaw: float) -> String:
+	var heading := fposmod(rad_to_deg(-yaw), 360.0)
+	var m := pos * Settings.v2m(1.0)
+	return "X %.1f  Y %.1f  Z %.1f m   %s %d°" % [m.x, m.y, m.z, COMPASS[roundi(heading / 45.0) % 8], roundi(heading) % 360]
+
+
+## The edge colour now: hurt beats cold beats hot; clear without screen effects.
+func edge_color() -> Color:
+	if not Settings.screen_effects:
+		return Color(1, 1, 1, 0)
+	if _hurt_t > 0.0:
+		return Color(0.85, 0.05, 0.05, 0.6 * _hurt_t / HURT_S)
+	if survival == null or not _hearts.visible:
+		return Color(1, 1, 1, 0)
+	var cold := clampf((Settings.cold_c - survival.body_c) / (Settings.cold_c - Settings.freeze_c), 0.0, 1.0)
+	if cold > 0.0:
+		return Color(0.6, 0.85, 1.0, 0.15 + 0.4 * cold)
+	var hot := clampf((survival.body_c - Settings.hot_c) / (Settings.heatstroke_c - Settings.hot_c), 0.0, 1.0)
+	if hot > 0.0:
+		return Color(1.0, 0.45, 0.1, 0.12 + 0.35 * hot)
+	return Color(1, 1, 1, 0)
+
+
+## Vertical shake of icon i this tick (-2, 0 or 2 px) when `on`.
+func _jitter(i: int, on: bool) -> float:
+	return float(posmod(hash(_jitter_tick * 31 + i), 3) - 1) * 2.0 if on and Settings.screen_effects else 0.0
 
 
 ## What the crosshair is on: {title, icon? (item id), mat? (material id when no item), line? ("\n" for
@@ -306,6 +401,21 @@ func _update_feed(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	_hurt_t = maxf(0.0, _hurt_t - delta)
+	_edge.modulate = edge_color()
+	_coords.visible = Settings.hud_coords and player != null and _crosshair.visible   # F3 shows its own
+	if _coords.visible:
+		_coords.text = coords_text(player.position, float(player.get("_yaw")))
+	if _saved_t > 0.0:
+		_saved_t -= delta
+		_saved.modulate.a = clampf(_saved_t / 0.5, 0.0, 1.0)
+	var tick := Time.get_ticks_msec() / 50
+	if tick != _jitter_tick:
+		_jitter_tick = tick
+		if player_inv != null and (player_inv.health <= 4 or _hurt_t > 0.0):
+			_hearts.queue_redraw()
+		if survival != null and survival.hunger <= 6.0:
+			_hunger_row.queue_redraw()
 	if not _feed_rows.is_empty() or _full_t > 0.0:
 		_update_feed(delta)
 	if _name_timer > 0.0:
@@ -484,7 +594,7 @@ func _draw_hearts() -> void:
 	for i in ceili(player_inv.max_health / 2.0):   # a balanced diet adds hearts (ADR 0061): ten to a row, more rows upward
 		var hp := player_inv.health - i * 2
 		var ox := (i % 10) * 18
-		var oy := -(i / 10) * 20
+		var oy := -(i / 10) * 20 + _jitter(i, player_inv.health <= 4)
 		# outline pass: every heart pixel grown by one HUD pixel in each direction
 		for y in HEART.size():
 			for x in 7:
@@ -497,6 +607,8 @@ func _draw_hearts() -> void:
 					continue
 				var filled := hp >= 2 or (hp == 1 and x < 4)
 				var c := red if filled else dark
+				if not filled and _hurt_t > HURT_S * 0.5 and Settings.screen_effects:
+					c = Color(0.85, 0.85, 0.85)   # the lost hearts blink white for a moment (vanilla)
 				if filled:
 					# shading: a highlight on the upper-left lobe, deeper red on the lower rows
 					if y == 1 and (x == 1 or x == 2):
@@ -536,6 +648,7 @@ func _draw_hunger() -> void:
 	var h := survival.hunger
 	for i in 10:
 		var ox := (9 - i) * 18   # full from the right, emptying toward the left (vanilla)
+		var oy := 2.0 + _jitter(i, h <= 6.0)   # a starving row shakes (ADR 0130)
 		var v := h - i * 2.0
 		for y in FOOD.size():
 			for x in 7:
@@ -546,7 +659,7 @@ func _draw_hunger() -> void:
 				var filled := v >= 2.0 or (v >= 1.0 and x >= 3)
 				if not filled and k != "o":
 					c = empty
-				_hunger_row.draw_rect(Rect2(ox + x * px, 2 + y * px, px, px), c)
+				_hunger_row.draw_rect(Rect2(ox + x * px, oy + y * px, px, px), c)
 
 
 ## The body temperature as a pixel thermometer: a glass tube from 31 to 43 C over a round bulb, the

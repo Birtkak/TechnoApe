@@ -104,3 +104,26 @@ func test_play_cooldown_and_range() -> void:
 	assert_bool(s.play("no/such/sound")).is_false()
 	assert_int(s.stats_data["played"]).is_equal(before_n + 1)
 	assert_int(int(s.stats_data["missing"].get("no/such/sound", 0))).is_greater(0)
+
+
+## Ambience (ADR 0120): birds by day in a forest, crickets and owls at night, birds quiet in rain,
+## nothing of the surface underground; wind only in the open and strongest on peaks.
+func test_ambience_follows_biome_time_and_weather() -> void:
+	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/sounds.json"))
+	var rules: Dictionary = data["ambience"]
+	rules.erase("_doc")
+	assert_str(GameAudio.day_phase(0.5, 0.25, 0.75)).is_equal("day")
+	assert_str(GameAudio.day_phase(0.9, 0.25, 0.75)).is_equal("night")
+	assert_str(GameAudio.day_phase(0.76, 0.25, 0.75)).is_equal("dusk")
+	var forest := ["temperate", "forest"]
+	assert_array(GameAudio.rules_now(rules, forest, "day", false)).contains(["birds"])
+	assert_array(GameAudio.rules_now(rules, forest, "day", false)).not_contains(["crickets", "owls"])
+	assert_array(GameAudio.rules_now(rules, forest, "night", false)).contains(["crickets", "owls"])
+	assert_array(GameAudio.rules_now(rules, forest, "day", true)).not_contains(["birds"])
+	assert_array(GameAudio.rules_now(rules, ["hot", "warm", "wet", "forest"], "day", false)).contains(["jungle_calls"])
+	assert_array(GameAudio.rules_now(rules, ["underground"], "night", false)).is_empty()
+	assert_float(GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL, 0.0, ["underground"], false)).is_equal(0.0)
+	assert_float(GameAudio.wind_level(0.2, Settings.SEA_LEVEL_VOXEL + 800, 0.0, ["mountain"], false)).is_equal(0.0)   # roofed
+	var peak := GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 800, 2.0, ["mountain", "frozen"], false)
+	var woods := GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 40, 2.0, forest, false)
+	assert_float(peak).is_greater(woods + 0.4)

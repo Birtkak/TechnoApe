@@ -101,3 +101,19 @@ func test_station_smoke_leaves_the_top() -> void:
 	e.kind = "bloomery"
 	var w := BlockEntities.width_of("bloomery")
 	assert_vector(ParticleFx.station_top(e)).is_equal(Vector3(10 + w * 0.5, 20 + BlockEntities.height_of("bloomery"), 30 + w * 0.5))
+
+
+## Life in the air (ADR 0120): fireflies over grass only at night, pollen off flowers only by day.
+func test_timed_ambient_rules() -> void:
+	assert_array(fx.errors).is_empty()
+	var grass: Array = fx.ambient[GameMaterials.id_of("grass")]
+	assert_bool(grass.any(func(r: Dictionary) -> bool: return r["effect"] == "firefly" and r["time"] == "night")).is_true()
+	assert_bool(fx.ambient[GameMaterials.id_of("cornflower")].any(func(r: Dictionary) -> bool: return r["time"] == "day")).is_true()
+	var cal := Calendar.new()
+	fx.calendar = cal
+	cal.time = 0.5
+	assert_str(fx._phase()).is_equal("day")
+	cal.time = 0.95
+	assert_str(fx._phase()).is_equal("night")
+	fx.calendar = null
+	assert_str(fx._phase()).is_equal("day")

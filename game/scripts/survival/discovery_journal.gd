@@ -71,6 +71,12 @@ func check_here(slow := true) -> void:
 			book.note("landmark:marsh")
 	elif not main.player.in_liquid:
 		book.note("landmark:cave")
+	# a conduit (ADR 0110) within 3 m of the body: standing in or beside its tube; the chamber from inside
+	var cn: Dictionary = gen.conduit_near(x, int(p.y), z)
+	if float(cn.get("dist_m", 1e9)) < 3.0:
+		book.note("landmark:" + String(cn.get("kind", "")))
+		if float(cn.get("source_dist_m", 1e9)) < 0.0:
+			book.note("landmark:" + ("magma_heart" if String(cn.get("kind", "")) == "magma_conduit" else "spring_stone"))
 	if main.mobs != null:
 		var r2 := Settings.m2v(ANIMAL_M) * Settings.m2v(ANIMAL_M)
 		for m in main.mobs.active():

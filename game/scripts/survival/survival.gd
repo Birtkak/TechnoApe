@@ -38,6 +38,11 @@ var _heat_mat := PackedFloat32Array()
 var nutrition := Nutrition.load_default()
 var _health_t := 0.0
 var poison_s := 0.0          # seconds of poison left (a jungle dart frog's touch); it wears off
+var buffs := {}              # meal buffs (ADR 0121): kind -> {left_s, amount}; see BUFFS
+var _buff_regen_t := 0.0
+## Meal buffs (food "buff": {kind, amount, s}): warm / cool shift the felt temperature by amount C,
+## regen heals one health every amount seconds, haste multiplies walking speed by 1 + amount.
+const BUFFS := {"warm": "Warmed", "cool": "Cooled", "regen": "Mending", "haste": "Lively"}
 var _poison_t := 0.0
 var _rooms := {}             # container position -> [closed room, valid until clock s] (root cellars)
 const ROOM_CACHE_S := 30.0
@@ -148,6 +153,7 @@ func _process(delta: float) -> void:
 	var fast := flat > Settings.m2v(Settings.walk_speed_m) * 1.15 or (player.in_liquid and flat > 1.0)
 	body_c = body_step(body_c, felt_c(), delta, player.in_liquid)
 	player.speed_mult = Settings.shiver_speed if survival and body_c < Settings.shiver_c else 1.0
+	_buff_step(delta, player.inventory)
 	if survival:
 		_hunger_step(delta, fast)
 		_harm_step(delta)
@@ -324,6 +330,36 @@ func eat(def: Dictionary, spoil: float) -> void:
 	stats["eaten"] += 1
 	last_meal = nutrition.eat(def, spoil)
 	apply_max_health()
+	var b: Dictionary = def.get("buff", {})
+	if BUFFS.has(b.get("kind", "")):   # the same buff again refreshes the longer time, it does not stack
+		var old: Dictionary = buffs.get(b["kind"], {"left_s": 0.0})
+		buffs[b["kind"]] = {"left_s": maxf(float(old["left_s"]), float(b.get("s", 60.0))), "amount": float(b.get("amount", 0.0))}
+
+
+## Meal buffs wear off; regen heals while it lasts, haste speeds the walk.
+func _buff_step(delta: float, inv: PlayerInventory) -> void:
+	for k in buffs.keys():
+		buffs[k]["left_s"] = float(buffs[k]["left_s"]) - delta
+		if buffs[k]["left_s"] <= 0.0:
+			buffs.erase(k)
+	if buffs.has("haste") and player != null:
+		player.speed_mult *= 1.0 + float(buffs["haste"]["amount"])
+	if buffs.has("regen") and inv != null and inv.health < inv.max_health:
+		_buff_regen_t += delta
+		if _buff_regen_t >= float(buffs["regen"]["amount"]):
+			_buff_regen_t = 0.0
+			inv.heal(1)
+	else:
+		_buff_regen_t = 0.0
+
+
+## The buffs as one line ("Warmed 2:40, Mending 0:12"), "" without any.
+func buff_text() -> String:
+	var out := []
+	for k in buffs:
+		var t := int(buffs[k]["left_s"])
+		out.append("%s %d:%02d" % [BUFFS[k], t / 60, t % 60])
+	return ", ".join(out)
 
 
 func reset() -> void:
@@ -353,11 +389,12 @@ func status() -> String:
 
 ## The temperature the body feels: the air's, warmed by clothing in the cold (ADR 0059).
 func felt_c() -> float:
-	return Clothing.felt_c(env_c, clothing.warmth_c()) if clothing else env_c
+	var c := Clothing.felt_c(env_c, clothing.warmth_c()) if clothing else env_c
+	return c + float(buffs.get("warm", {}).get("amount", 0.0)) - float(buffs.get("cool", {}).get("amount", 0.0))
 
 
 func to_dict() -> Dictionary:
-	return {"hunger": hunger, "saturation": saturation, "body_c": body_c, "nutrition": nutrition.to_dict(),
+	return {"hunger": hunger, "saturation": saturation, "body_c": body_c, "nutrition": nutrition.to_dict(), "buffs": buffs.duplicate(true),
 		"health": player.inventory.health if player != null else 0}
 
 
@@ -365,6 +402,8 @@ func load_dict(d: Dictionary) -> void:
 	hunger = clampf(float(d.get("hunger", Settings.hunger_max)), 0.0, Settings.hunger_max)
 	saturation = clampf(float(d.get("saturation", 5.0)), 0.0, hunger)
 	body_c = clampf(float(d.get("body_c", 37.0)), 25.0, 45.0)
+	var bd: Variant = d.get("buffs", {})
+	buffs = bd.duplicate(true) if bd is Dictionary else {}
 	var nd: Variant = d.get("nutrition", {})
 	nutrition.load_dict(nd if nd is Dictionary else {})
 	apply_max_health()
@@ -377,7 +416,7 @@ func load_dict(d: Dictionary) -> void:
 func snapshot() -> Dictionary:
 	return {"hunger": snappedf(hunger, 0.01), "saturation": snappedf(saturation, 0.01), "body_c": snappedf(body_c, 0.01),
 		"env_c": snappedf(env_c, 0.1), "felt_c": snappedf(felt_c(), 0.1), "in_room": in_room, "heat": snappedf(heat, 0.01), "underground_m": snappedf(underground_m, 0.1),
-		"status": status(), "poison_s": snappedf(poison_s, 0.1), "nutrition": nutrition.snapshot(),
+		"status": status(), "poison_s": snappedf(poison_s, 0.1), "buffs": buff_text(), "nutrition": nutrition.snapshot(),
 		"max_health": player.inventory.max_health if player != null else 0, "stats": stats}
 
 

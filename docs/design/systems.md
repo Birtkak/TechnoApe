@@ -104,8 +104,11 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   `BlockEntities.create`); every entity with `net(channel) -> {role, amount}` joins `Networks.solve` once a second
   (20 block ticks): the native `NetworkSolver` unions the boxes that touch and moves min(supply, demand, weakest
   conductor) per component, then each hears `net_in(channel, amount)`. Energy in EU/t: the turbine offers
-  `turbine_eu_t`, `CableEntity` carries `cable_eu_t`, `ElectricFurnaceEntity` (a fuel-less `FurnaceEntity`, worked
-  by right click) wants `electric_furnace_eu_t`. `/kit electric`; `test_networks.gd`, `tools/network_bench.gd`.
+  `turbine_eu_t`, `CableEntity` carries `cable_eu_t`, `MachineEntity` (a fuel-less `FurnaceEntity`, worked by right click; the
+  item's `machine: {station, eu_t}`, recipes of type `smelt` at that station) wants its `eu_t`. **Electrical age tier 1:**
+  rubber (tar + sulfur, cured), insulated wire, coated board, vacuum tube, resistor, primitive circuit, machine hull,
+  electric motor, electric piston; machines electric furnace, lathe, bending press, wiremill; book chapter
+  `electrical_age`. `/kit electric`; `test_networks.gd`, `test_electrical_age.gd`, `tools/network_bench.gd`.
   **Stage 3 transport (ADR 0100):** `Transport.give/pull` is the one place that knows how every piece loads and
   unloads; `HopperEntity` (hopper and chute, `item`) pulls from above (the chute from behind too) and pushes the
   way it faces or down; `BeltEntity` carries `carried` [{stack, t}] one block in `belt_s` and draws them riding;

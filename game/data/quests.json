@@ -7,96 +7,685 @@
       "icon": "flint",
       "description": "Hunter-gatherers: bare hands to flint, fire, tar and fur. The round quests are side roads.",
       "quests": [
-        {"id": "gather_flint", "title": "Sharp Stones", "icon": "flint", "pos": [0, 4],
-         "description": "Flint lies loose on the ground: walk over it and pick it up. Rock itself gives you nothing until you have copper, so the ground is your quarry for now.",
-         "tasks": [{"type": "item", "item": "flint", "count": 3}]},
-        {"id": "sticks_stones", "title": "Sticks and Stones", "icon": "loose_stone", "pos": [0, 7],
-         "description": "Twigs and pebbles lie on the ground almost everywhere. Leaves sometimes drop a stick too.",
-         "tasks": [{"type": "item", "item": "#stick", "count": 6}, {"type": "item", "item": "#rock", "count": 2}]},
-        {"id": "knapping", "title": "Knapping", "icon": "flint_knife_blade", "pos": [1, 4], "deps": ["gather_flint"],
-         "description": "Hold flint and right click the top of a solid block. Choose the knife blade, then left click the dark cells to chip them away. A wrong click costs nothing. Bone, antler and tempered flint knap the same way.",
-         "tasks": [{"type": "item", "item": "flint_knife_blade"}]},
-        {"id": "lashing", "title": "Lashing", "icon": "cordage", "pos": [2, 4], "deps": ["knapping"],
-         "description": "Pull tall grass, ferns or reeds by hand for plant fiber. Three fibers twist into cordage, and every flint head needs one to stay on its handle.",
-         "tasks": [{"type": "item", "item": "cordage", "count": 3}]},
-        {"id": "flint_knife", "title": "A Keen Edge", "icon": "flint_knife", "pos": [3, 4], "deps": ["lashing"],
-         "description": "Lay the blade on the ground, then add a stick and cordage with right clicks. An empty hand takes the last part back off. Tools wear: watch the bar under the icon.",
-         "tasks": [{"type": "item", "item": "flint_knife"}]},
-        {"id": "flint_shovel", "title": "Dig In", "icon": "flint_shovel", "pos": [3, 5], "deps": ["lashing"],
-         "description": "Knap a shovel head and haft it on the ground like the axe. Dirt, sand, gravel and clay dig much faster with it.",
-         "tasks": [{"type": "item", "item": "flint_shovel"}]},
-        {"id": "dry_grass", "title": "Tinder", "icon": "dry_grass", "pos": [4, 4], "deps": ["flint_knife"],
-         "description": "Tall grass cut with a knife gives dry grass: tinder for fires, the straw bed of a pit kiln, thatch and torches. Two kilns and a firestarter take 9.",
-         "tasks": [{"type": "item", "item": "dry_grass", "count": 9}]},
-        {"id": "firestarter", "title": "Spark", "icon": "firestarter", "pos": [5, 4], "deps": ["dry_grass"],
-         "description": "Two sticks and dry grass make a firestarter. It lights pit kilns, firepits and charcoal pits.",
-         "tasks": [{"type": "item", "item": "firestarter"}]},
-        {"id": "firepit", "title": "Hearth", "icon": "firepit", "pos": [5, 6], "deps": ["sticks_stones"],
-         "description": "Build a firepit where it will burn: right click the ground with a loose stone, lay three more in a ring, then two sticks in the middle. Work it by hand: right click with fuel to lay it on, with food to cook it, with a firestarter to light it, and with an empty hand to take things off.",
-         "tasks": [{"type": "event", "event": "assembled", "item": "firepit", "text": "Lay a firepit on the ground"}]},
-        {"id": "birch_tar", "title": "Birch Tar", "icon": "birch_tar", "pos": [6, 5], "deps": ["firestarter", "firepit", "flint_shovel"],
-         "description": "Peel birch bark off a birch trunk with your knife (right click the white bark). Dig an earth oven: right click soil with your shovel. Lay four bark in it, cover them with two blocks of dirt, lay four sticks on top and light them. Two game hours later the fire is out: dig out the tar with an empty hand.",
-         "tasks": [{"type": "item", "item": "birch_tar", "count": 2}]},
-        {"id": "tar_haft", "title": "Pitch Perfect", "icon": "flint_axe", "pos": [7, 5], "deps": ["birch_tar"], "final": true,
-         "description": "Glue a head to its handle with birch tar instead of cordage when you put a tool together on the ground. A tar-hafted tool lasts twice as long. The Old Stone Age is behind you.",
-         "tasks": [{"type": "event", "event": "tar_hafted", "item": "#tool", "text": "Put a tool together with birch tar"}]},
-        {"id": "heat_treat", "title": "Fire-Hardened Flint", "icon": "tempered_flint", "pos": [7, 6], "deps": ["birch_tar"], "optional": true,
-         "description": "Bury four flint under two blocks of sand in an earth oven and burn a fire on top for three game hours. Tempered flint knaps into heads that last half as long again; with birch tar the tool lasts three times as long.",
-         "tasks": [{"type": "item", "item": "tempered_flint", "count": 4}]},
-        {"id": "tinder_fungus", "title": "Carry the Fire", "icon": "fire_ember", "pos": [6, 3], "deps": ["firestarter"], "optional": true,
-         "description": "Tinder fungus grows on birch: it comes off with the bark now and then. Hold it into a lit firepit (right click) and it smoulders for half a day: a firestarter you carry from camp to camp.",
-         "tasks": [{"type": "item", "item": "fire_ember"}]},
-        {"id": "pyrite_striker", "title": "Sparks", "icon": "pyrite_striker", "pos": [7, 3], "deps": ["tinder_fungus"], "optional": true,
-         "description": "Strike flint on pyrite and the sparks catch in dry tinder. Flint and pyrite in the crafting grid make a striker that lasts twice as long as a firestarter.",
-         "tasks": [{"type": "item", "item": "pyrite_striker"}]},
-        {"id": "flint_spear", "title": "Long Reach", "icon": "flint_spear", "pos": [2, 1], "deps": ["lashing"], "optional": true,
-         "description": "Knap a spear head and lay it on the ground, then right click it with two sticks and cordage, one at a time. Left click stabs; right click throws it, and you pick it up again where it lands.",
-         "tasks": [{"type": "item", "item": "flint_spear"}]},
-        {"id": "atlatl", "title": "Spear-Thrower", "icon": "atlatl", "pos": [3, 0], "deps": ["flint_spear"], "optional": true,
-         "description": "Two sticks, a bone and cordage make an atlatl. Hold it and right click: it throws a spear from your inventory twice as far and harder. Pick the spear up where it lands.",
-         "tasks": [{"type": "item", "item": "atlatl"}, {"type": "event", "event": "launched", "item": "atlatl", "text": "Throw a spear with it"}]},
-        {"id": "hunting", "title": "The Hunt", "icon": "raw_hide", "pos": [3, 1], "deps": ["flint_spear"], "optional": true,
-         "description": "Sheep and pigs drop raw hide and meat. Bears drop a big hide, but they hit back.",
-         "tasks": [{"type": "item", "items": ["raw_hide", "bear_hide"], "text": "Raw hide or a bear hide"}]},
-        {"id": "scraping", "title": "Scraping", "icon": "scraped_hide", "pos": [4, 1], "deps": ["hunting"], "optional": true,
-         "description": "Lay the hide on the ground (right click a top face with it) and scrape it with right clicks while you hold a knife.",
-         "tasks": [{"type": "item", "item": "scraped_hide"}]},
-        {"id": "leather", "title": "Leather", "icon": "leather", "pos": [5, 1], "deps": ["scraping"], "optional": true,
-         "description": "Leave the scraped hide where it lies: it dries into leather in a minute and a half. A knife cuts leather into strips that bind tools like cordage.",
-         "tasks": [{"type": "item", "item": "leather", "count": 6}]},
-        {"id": "leather_bag", "title": "Pack Animal", "icon": "leather_bag", "pos": [6, 1], "deps": ["leather"], "optional": true,
-         "description": "Six leather and two bindings on a crafting table make a bag. Put it in the bag slot beside your portrait: nine more slots while you wear it.",
-         "tasks": [{"type": "item", "item": "leather_bag"}]},
-        {"id": "bone_tools", "title": "Bone and Antler", "icon": "bone_needle", "pos": [4, 0], "deps": ["hunting"], "optional": true,
-         "description": "Knap a bone like flint (right click a block top with it, then chip with a stone): a needle, fish hooks or a harpoon head. An antler knaps into a pick.",
-         "tasks": [{"type": "item", "item": "bone_needle"}, {"type": "item", "item": "bone_fish_hook"}]},
-        {"id": "fur_clothing", "title": "Dressed for Winter", "icon": "fur_cloak", "pos": [5, 0], "deps": ["bone_tools", "hunting"], "optional": true,
-         "description": "Leave a raw hide on the ground without scraping it: it dries into a fur pelt. Lay pelts on the ground, add cordage, and sew with the needle: a hood, a cloak or boots. Right click to put it on; it keeps the cold off.",
-         "tasks": [{"type": "item", "item": "fur_cloak"}, {"type": "event", "event": "worn", "item": "#clothing", "text": "Put it on"}]},
-        {"id": "flint_axe", "title": "Chop Chop", "icon": "flint_axe", "pos": [3, 2], "deps": ["lashing"], "optional": true,
-         "description": "Knap an axe head and lay it on the ground: right click a top face with it, then right click it with a stick and then with cordage. Logs need an axe.",
-         "tasks": [{"type": "item", "item": "flint_axe"}]},
-        {"id": "timber", "title": "Timber", "icon": "oak_log", "pos": [4, 2], "deps": ["flint_axe"], "optional": true,
-         "description": "Chop a tree with your axe.",
-         "tasks": [{"type": "item", "item": "#log", "count": 4}]},
-        {"id": "crafting_table", "title": "Workbench", "icon": "crafting_table", "pos": [5, 2], "deps": ["timber"], "optional": true,
-         "description": "Two flint and two logs make a crafting table and its 3x3 grid.",
-         "tasks": [{"type": "item", "item": "crafting_table"}]},
-        {"id": "firewood", "title": "Firewood", "icon": "firewood", "pos": [5, 3], "deps": ["timber"], "optional": true,
-         "description": "A log and your axe in the crafting grid split into four firewood; the axe stays in the grid.",
-         "tasks": [{"type": "item", "item": "firewood", "count": 16}]},
-        {"id": "torches", "title": "Light", "icon": "torch", "pos": [1, 6], "deps": ["sticks_stones"], "optional": true,
-         "description": "A stick and dry grass make a torch; coal or charcoal and a stick make four. Torches stand on a floor and light the dark.",
-         "tasks": [{"type": "item", "item": "torch", "count": 4}]},
-        {"id": "fat_lamp", "title": "Fat Lamp", "icon": "fat_lamp", "pos": [2, 6], "deps": ["torches"], "optional": true,
-         "description": "Pigs and bears give animal fat. A loose stone, fat and a wick of dry grass make a lamp you carry: it lights the way while you hold it.",
-         "tasks": [{"type": "item", "item": "fat_lamp"}]},
-        {"id": "ochre", "title": "Red Earth", "icon": "red_pigment", "pos": [1, 8], "deps": ["sticks_stones"], "optional": true,
-         "description": "Ochre lies in red and yellow earth. Lay it on a flat rock (right click its top) and grind it with a loose stone in hand. Charcoal grinds black.",
-         "tasks": [{"type": "item", "items": ["red_pigment", "yellow_pigment", "black_pigment"], "text": "Any pigment"}]},
-        {"id": "cave_painting", "title": "Cave Painting", "icon": "red_paint", "pos": [2, 8], "deps": ["ochre"], "optional": true,
-         "description": "Pigment and animal fat make paint. Right click a wall with it: hands, aurochs, deer and horses. Right click a painting again to paint the next one over it.",
-         "tasks": [{"type": "event", "event": "painted", "item": "#paint", "text": "Paint three pictures", "count": 3}]}
+        {
+          "id": "gather_flint",
+          "title": "Sharp Stones",
+          "icon": "flint",
+          "pos": [
+            0,
+            4
+          ],
+          "description": "Flint lies loose on the ground: walk over it and pick it up. Rock itself gives you nothing until you have copper, so the ground is your quarry for now.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "flint",
+              "count": 3
+            }
+          ]
+        },
+        {
+          "id": "sticks_stones",
+          "title": "Sticks and Stones",
+          "icon": "loose_stone",
+          "pos": [
+            0,
+            7
+          ],
+          "description": "Twigs and pebbles lie on the ground almost everywhere. Leaves sometimes drop a stick too.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "#stick",
+              "count": 6
+            },
+            {
+              "type": "item",
+              "item": "#rock",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "id": "knapping",
+          "title": "Knapping",
+          "icon": "flint_knife_blade",
+          "pos": [
+            1,
+            4
+          ],
+          "deps": [
+            "gather_flint"
+          ],
+          "description": "Hold flint and right click the top of a solid block. Choose the knife blade, then left click the dark cells to chip them away. A wrong click costs nothing. Bone, antler and tempered flint knap the same way.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "flint_knife_blade"
+            }
+          ]
+        },
+        {
+          "id": "lashing",
+          "title": "Lashing",
+          "icon": "cordage",
+          "pos": [
+            2,
+            4
+          ],
+          "deps": [
+            "knapping"
+          ],
+          "description": "Pull tall grass, ferns or reeds by hand for plant fiber. Three fibers twist into cordage, and every flint head needs one to stay on its handle.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "cordage",
+              "count": 3
+            }
+          ]
+        },
+        {
+          "id": "flint_knife",
+          "title": "A Keen Edge",
+          "icon": "flint_knife",
+          "pos": [
+            3,
+            4
+          ],
+          "deps": [
+            "lashing"
+          ],
+          "description": "Lay the blade on the ground, then add a stick and cordage with right clicks. An empty hand takes the last part back off. Tools wear: watch the bar under the icon.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "flint_knife"
+            }
+          ]
+        },
+        {
+          "id": "flint_shovel",
+          "title": "Dig In",
+          "icon": "flint_shovel",
+          "pos": [
+            3,
+            5
+          ],
+          "deps": [
+            "lashing"
+          ],
+          "description": "Knap a shovel head and haft it on the ground like the axe. Dirt, sand, gravel and clay dig much faster with it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "flint_shovel"
+            }
+          ]
+        },
+        {
+          "id": "dry_grass",
+          "title": "Tinder",
+          "icon": "dry_grass",
+          "pos": [
+            4,
+            4
+          ],
+          "deps": [
+            "flint_knife"
+          ],
+          "description": "Tall grass cut with a knife gives dry grass: tinder for fires, the straw bed of a pit kiln, thatch and torches. Two kilns and a firestarter take 9.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "dry_grass",
+              "count": 9
+            }
+          ]
+        },
+        {
+          "id": "firestarter",
+          "title": "Spark",
+          "icon": "firestarter",
+          "pos": [
+            5,
+            4
+          ],
+          "deps": [
+            "dry_grass"
+          ],
+          "description": "Two sticks and dry grass make a firestarter. It lights pit kilns, firepits and charcoal pits.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "firestarter"
+            }
+          ]
+        },
+        {
+          "id": "firepit",
+          "title": "Hearth",
+          "icon": "firepit",
+          "pos": [
+            5,
+            6
+          ],
+          "deps": [
+            "sticks_stones"
+          ],
+          "description": "Build a firepit where it will burn: right click the ground with a loose stone, lay three more in a ring, then two sticks in the middle. Work it by hand: right click with fuel to lay it on, with food to cook it, with a firestarter to light it, and with an empty hand to take things off.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "assembled",
+              "item": "firepit",
+              "text": "Lay a firepit on the ground"
+            }
+          ]
+        },
+        {
+          "id": "birch_tar",
+          "title": "Birch Tar",
+          "icon": "birch_tar",
+          "pos": [
+            6,
+            5
+          ],
+          "deps": [
+            "firestarter",
+            "firepit",
+            "flint_shovel"
+          ],
+          "description": "Peel birch bark off a birch trunk with your knife (right click the white bark). Dig an earth oven: right click soil with your shovel. Lay four bark in it, cover them with two blocks of dirt, lay four sticks on top and light them. Two game hours later the fire is out: dig out the tar with an empty hand.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "birch_tar",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "id": "tar_haft",
+          "title": "Pitch Perfect",
+          "icon": "flint_axe",
+          "pos": [
+            7,
+            5
+          ],
+          "deps": [
+            "birch_tar"
+          ],
+          "final": true,
+          "description": "Glue a head to its handle with birch tar instead of cordage when you put a tool together on the ground. A tar-hafted tool lasts twice as long. The Old Stone Age is behind you.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "tar_hafted",
+              "item": "#tool",
+              "text": "Put a tool together with birch tar"
+            }
+          ]
+        },
+        {
+          "id": "heat_treat",
+          "title": "Fire-Hardened Flint",
+          "icon": "tempered_flint",
+          "pos": [
+            7,
+            6
+          ],
+          "deps": [
+            "birch_tar"
+          ],
+          "optional": true,
+          "description": "Bury four flint under two blocks of sand in an earth oven and burn a fire on top for three game hours. Tempered flint knaps into heads that last half as long again; with birch tar the tool lasts three times as long.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "tempered_flint",
+              "count": 4
+            }
+          ]
+        },
+        {
+          "id": "tinder_fungus",
+          "title": "Carry the Fire",
+          "icon": "fire_ember",
+          "pos": [
+            6,
+            3
+          ],
+          "deps": [
+            "firestarter"
+          ],
+          "optional": true,
+          "description": "Tinder fungus grows on birch: it comes off with the bark now and then. Hold it into a lit firepit (right click) and it smoulders for half a day: a firestarter you carry from camp to camp.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "fire_ember"
+            }
+          ]
+        },
+        {
+          "id": "pyrite_striker",
+          "title": "Sparks",
+          "icon": "pyrite_striker",
+          "pos": [
+            7,
+            3
+          ],
+          "deps": [
+            "tinder_fungus"
+          ],
+          "optional": true,
+          "description": "Strike flint on pyrite and the sparks catch in dry tinder. Flint and pyrite in the crafting grid make a striker that lasts twice as long as a firestarter.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "pyrite_striker"
+            }
+          ]
+        },
+        {
+          "id": "flint_spear",
+          "title": "Long Reach",
+          "icon": "flint_spear",
+          "pos": [
+            2,
+            1
+          ],
+          "deps": [
+            "lashing"
+          ],
+          "optional": true,
+          "description": "Knap a spear head and lay it on the ground, then right click it with two sticks and cordage, one at a time. Left click stabs; right click throws it, and you pick it up again where it lands.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "flint_spear"
+            }
+          ]
+        },
+        {
+          "id": "atlatl",
+          "title": "Spear-Thrower",
+          "icon": "atlatl",
+          "pos": [
+            3,
+            0
+          ],
+          "deps": [
+            "flint_spear"
+          ],
+          "optional": true,
+          "description": "Two sticks, a bone and cordage make an atlatl. Hold it and right click: it throws a spear from your inventory twice as far and harder. Pick the spear up where it lands.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "atlatl"
+            },
+            {
+              "type": "event",
+              "event": "launched",
+              "item": "atlatl",
+              "text": "Throw a spear with it"
+            }
+          ]
+        },
+        {
+          "id": "hunting",
+          "title": "The Hunt",
+          "icon": "raw_hide",
+          "pos": [
+            3,
+            1
+          ],
+          "deps": [
+            "flint_spear"
+          ],
+          "optional": true,
+          "description": "Sheep and pigs drop raw hide and meat. Bears drop a big hide, but they hit back.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "raw_hide",
+                "bear_hide"
+              ],
+              "text": "Raw hide or a bear hide"
+            }
+          ]
+        },
+        {
+          "id": "scraping",
+          "title": "Scraping",
+          "icon": "scraped_hide",
+          "pos": [
+            4,
+            1
+          ],
+          "deps": [
+            "hunting"
+          ],
+          "optional": true,
+          "description": "Lay the hide on the ground (right click a top face with it) and scrape it with right clicks while you hold a knife.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "scraped_hide"
+            }
+          ]
+        },
+        {
+          "id": "leather",
+          "title": "Leather",
+          "icon": "leather",
+          "pos": [
+            5,
+            1
+          ],
+          "deps": [
+            "scraping"
+          ],
+          "optional": true,
+          "description": "Leave the scraped hide where it lies: it dries into leather in a minute and a half. A knife cuts leather into strips that bind tools like cordage.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "leather",
+              "count": 6
+            }
+          ]
+        },
+        {
+          "id": "leather_bag",
+          "title": "Pack Animal",
+          "icon": "leather_bag",
+          "pos": [
+            6,
+            1
+          ],
+          "deps": [
+            "leather"
+          ],
+          "optional": true,
+          "description": "Six leather and two bindings on a crafting table make a bag. Put it in the bag slot beside your portrait: nine more slots while you wear it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "leather_bag"
+            }
+          ]
+        },
+        {
+          "id": "bone_tools",
+          "title": "Bone and Antler",
+          "icon": "bone_needle",
+          "pos": [
+            4,
+            0
+          ],
+          "deps": [
+            "hunting"
+          ],
+          "optional": true,
+          "description": "Knap a bone like flint (right click a block top with it, then chip with a stone): a needle, fish hooks or a harpoon head. An antler knaps into a pick.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bone_needle"
+            },
+            {
+              "type": "item",
+              "item": "bone_fish_hook"
+            }
+          ]
+        },
+        {
+          "id": "fur_clothing",
+          "title": "Dressed for Winter",
+          "icon": "fur_cloak",
+          "pos": [
+            5,
+            0
+          ],
+          "deps": [
+            "bone_tools",
+            "hunting"
+          ],
+          "optional": true,
+          "description": "Leave a raw hide on the ground without scraping it: it dries into a fur pelt. Lay pelts on the ground, add cordage, and sew with the needle: a hood, a cloak or boots. Right click to put it on; it keeps the cold off.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "fur_cloak"
+            },
+            {
+              "type": "event",
+              "event": "worn",
+              "item": "#clothing",
+              "text": "Put it on"
+            }
+          ]
+        },
+        {
+          "id": "flint_axe",
+          "title": "Chop Chop",
+          "icon": "flint_axe",
+          "pos": [
+            3,
+            2
+          ],
+          "deps": [
+            "lashing"
+          ],
+          "optional": true,
+          "description": "Knap an axe head and lay it on the ground: right click a top face with it, then right click it with a stick and then with cordage. Logs need an axe.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "flint_axe"
+            }
+          ]
+        },
+        {
+          "id": "timber",
+          "title": "Timber",
+          "icon": "oak_log",
+          "pos": [
+            4,
+            2
+          ],
+          "deps": [
+            "flint_axe"
+          ],
+          "optional": true,
+          "description": "Chop a tree with your axe.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "#log",
+              "count": 4
+            }
+          ]
+        },
+        {
+          "id": "crafting_table",
+          "title": "Workbench",
+          "icon": "crafting_table",
+          "pos": [
+            5,
+            2
+          ],
+          "deps": [
+            "timber"
+          ],
+          "optional": true,
+          "description": "Two flint and two logs make a crafting table and its 3x3 grid.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "crafting_table"
+            }
+          ]
+        },
+        {
+          "id": "firewood",
+          "title": "Firewood",
+          "icon": "firewood",
+          "pos": [
+            5,
+            3
+          ],
+          "deps": [
+            "timber"
+          ],
+          "optional": true,
+          "description": "A log and your axe in the crafting grid split into four firewood; the axe stays in the grid.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "firewood",
+              "count": 16
+            }
+          ]
+        },
+        {
+          "id": "torches",
+          "title": "Light",
+          "icon": "torch",
+          "pos": [
+            1,
+            6
+          ],
+          "deps": [
+            "sticks_stones"
+          ],
+          "optional": true,
+          "description": "A stick and dry grass make a torch; coal or charcoal and a stick make four. Torches stand on a floor and light the dark.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "torch",
+              "count": 4
+            }
+          ]
+        },
+        {
+          "id": "fat_lamp",
+          "title": "Fat Lamp",
+          "icon": "fat_lamp",
+          "pos": [
+            2,
+            6
+          ],
+          "deps": [
+            "torches"
+          ],
+          "optional": true,
+          "description": "Pigs and bears give animal fat. A loose stone, fat and a wick of dry grass make a lamp you carry: it lights the way while you hold it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "fat_lamp"
+            }
+          ]
+        },
+        {
+          "id": "ochre",
+          "title": "Red Earth",
+          "icon": "red_pigment",
+          "pos": [
+            1,
+            8
+          ],
+          "deps": [
+            "sticks_stones"
+          ],
+          "optional": true,
+          "description": "Ochre lies in red and yellow earth. Lay it on a flat rock (right click its top) and grind it with a loose stone in hand. Charcoal grinds black.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "red_pigment",
+                "yellow_pigment",
+                "black_pigment"
+              ],
+              "text": "Any pigment"
+            }
+          ]
+        },
+        {
+          "id": "cave_painting",
+          "title": "Cave Painting",
+          "icon": "red_paint",
+          "pos": [
+            2,
+            8
+          ],
+          "deps": [
+            "ochre"
+          ],
+          "optional": true,
+          "description": "Pigment and animal fat make paint. Right click a wall with it: hands, aurochs, deer and horses. Right click a painting again to paint the next one over it.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "painted",
+              "item": "#paint",
+              "text": "Paint three pictures",
+              "count": 3
+            }
+          ]
+        },
+        {
+          "id": "many_woods",
+          "title": "Many Woods",
+          "icon": "birch_planks",
+          "pos": [
+            4,
+            3
+          ],
+          "deps": [
+            "timber"
+          ],
+          "description": "Every tree gives its own planks: birch, spruce, acacia and jungle wood each build in their own colour.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "birch_planks",
+                "spruce_planks",
+                "acacia_planks",
+                "jungle_planks"
+              ]
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "replant",
+          "title": "Replant the Forest",
+          "icon": "oak_sapling",
+          "pos": [
+            3,
+            3
+          ],
+          "deps": [
+            "timber"
+          ],
+          "description": "A felled tree sometimes leaves a sapling. Plant it and a new tree grows where the old one stood.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "#sapling"
+            }
+          ],
+          "optional": true
+        }
       ]
     },
     {
@@ -105,39 +694,255 @@
       "icon": "bow",
       "description": "Water and the bow: microliths, arrows, boats, fish and smoked meat.",
       "quests": [
-        {"id": "microliths", "title": "Tiny Blades", "icon": "microlith", "pos": [0, 2], "deps": ["tar_haft"],
-         "description": "Knap flint into microliths: four tiny bladelets from one piece.",
-         "tasks": [{"type": "item", "item": "microlith", "count": 8}]},
-        {"id": "bow", "title": "Bow and Arrow", "icon": "bow", "pos": [1, 2], "deps": ["microliths"], "final": true,
-         "description": "A log and your knife make two bow staves. Lay a stave on the ground and string it with cordage. Arrows: a microlith, a stick, birch tar and a feather, laid one after another. Hold the bow and right click to shoot.",
-         "tasks": [{"type": "item", "item": "bow"}, {"type": "item", "item": "arrow", "count": 8}]},
-        {"id": "adze", "title": "The Adze", "icon": "flint_adze", "pos": [0, 0], "deps": ["tar_haft"], "optional": true,
-         "description": "Knap an adze head and haft it on a stick like an axe. It hollows wood.",
-         "tasks": [{"type": "item", "item": "flint_adze"}]},
-        {"id": "dugout", "title": "Dugout Canoe", "icon": "dugout_canoe", "pos": [1, 0], "deps": ["adze", "timber"], "optional": true,
-         "description": "Fell a big tree and let it lie. Right click the trunk with the adze to mark out a canoe, lay four dry grass on it and light it to burn out the hollow, then work it with the adze. Launch it on water and right click it to get in: W and S paddle, A and D turn.",
-         "tasks": [{"type": "item", "item": "dugout_canoe"}, {"type": "event", "event": "paddled", "item": "dugout_canoe", "text": "Paddle it"}]},
-        {"id": "dog", "title": "A Loyal Friend", "icon": "raw_meat", "pos": [2, 2], "deps": ["bow", "hunting"], "optional": true,
-         "description": "Wolves keep their distance. Feed one raw meat, a piece at a time, until it trusts you: it follows you and helps you hunt.",
-         "tasks": [{"type": "event", "event": "tamed", "item": "#meat", "text": "Tame a wolf"}]},
-        {"id": "drying_rack", "title": "Hung to Dry", "icon": "drying_rack", "pos": [0, 4], "deps": ["tar_haft"], "optional": true,
-         "description": "Four sticks and two cordage make a drying rack. Place it and hang raw meat or fish on it: dried in a game day, it keeps four times as long.",
-         "tasks": [{"type": "event", "event": "dried", "item": "#food", "text": "Dry meat or fish"}]},
-        {"id": "smoking", "title": "Smokehouse", "icon": "smoked_meat", "pos": [1, 4], "deps": ["drying_rack", "firepit"], "optional": true,
-         "description": "Set the rack right beside or over a lit firepit and the meat smokes: faster than drying, and it keeps twice as long again.",
-         "tasks": [{"type": "event", "event": "smoked", "item": "#food", "text": "Smoke meat or fish"}]},
-        {"id": "fishing", "title": "Gone Fishing", "icon": "raw_fish", "pos": [0, 6], "deps": ["bone_tools"], "optional": true,
-         "description": "A bone hook, cordage and a stick make a fishing line. Right click water with it and wait nearby for a bite.",
-         "tasks": [{"type": "event", "event": "caught", "item": "raw_fish", "text": "Catch a fish"}]},
-        {"id": "basket_trap", "title": "Basket Trap", "icon": "basket_trap", "pos": [1, 6], "deps": ["fishing"], "optional": true,
-         "description": "Weave a basket trap from sticks and plant fiber and set it in water (right click the water): fish swim in while you are away. Empty it with an empty hand.",
-         "tasks": [{"type": "item", "item": "basket_trap"}, {"type": "event", "event": "caught", "item": "raw_fish", "text": "Catch three fish", "count": 3}]},
-        {"id": "fish_weir", "title": "Fish Weir", "icon": "fish_weir", "pos": [2, 6], "deps": ["basket_trap"], "optional": true,
-         "description": "Two wattle and two sticks make a weir. Set it across a river: it catches twice as often as in still water.",
-         "tasks": [{"type": "item", "item": "fish_weir"}]},
-        {"id": "fish_net", "title": "Casting the Net", "icon": "fishing_net", "pos": [1, 7], "deps": ["fishing"], "optional": true,
-         "description": "Six cordage on a crafting grid make a net. Cast it at water with a right click: now and then a fish comes up at once.",
-         "tasks": [{"type": "item", "item": "fishing_net"}]}
+        {
+          "id": "microliths",
+          "title": "Tiny Blades",
+          "icon": "microlith",
+          "pos": [
+            0,
+            2
+          ],
+          "deps": [
+            "tar_haft"
+          ],
+          "description": "Knap flint into microliths: four tiny bladelets from one piece.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "microlith",
+              "count": 8
+            }
+          ]
+        },
+        {
+          "id": "bow",
+          "title": "Bow and Arrow",
+          "icon": "bow",
+          "pos": [
+            1,
+            2
+          ],
+          "deps": [
+            "microliths"
+          ],
+          "final": true,
+          "description": "A log and your knife make two bow staves. Lay a stave on the ground and string it with cordage. Arrows: a microlith, a stick, birch tar and a feather, laid one after another. Hold the bow and right click to shoot.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bow"
+            },
+            {
+              "type": "item",
+              "item": "arrow",
+              "count": 8
+            }
+          ]
+        },
+        {
+          "id": "adze",
+          "title": "The Adze",
+          "icon": "flint_adze",
+          "pos": [
+            0,
+            0
+          ],
+          "deps": [
+            "tar_haft"
+          ],
+          "optional": true,
+          "description": "Knap an adze head and haft it on a stick like an axe. It hollows wood.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "flint_adze"
+            }
+          ]
+        },
+        {
+          "id": "dugout",
+          "title": "Dugout Canoe",
+          "icon": "dugout_canoe",
+          "pos": [
+            1,
+            0
+          ],
+          "deps": [
+            "adze",
+            "timber"
+          ],
+          "optional": true,
+          "description": "Fell a big tree and let it lie. Right click the trunk with the adze to mark out a canoe, lay four dry grass on it and light it to burn out the hollow, then work it with the adze. Launch it on water and right click it to get in: W and S paddle, A and D turn.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "dugout_canoe"
+            },
+            {
+              "type": "event",
+              "event": "paddled",
+              "item": "dugout_canoe",
+              "text": "Paddle it"
+            }
+          ]
+        },
+        {
+          "id": "dog",
+          "title": "A Loyal Friend",
+          "icon": "raw_meat",
+          "pos": [
+            2,
+            2
+          ],
+          "deps": [
+            "bow",
+            "hunting"
+          ],
+          "optional": true,
+          "description": "Wolves keep their distance. Feed one raw meat, a piece at a time, until it trusts you: it follows you and helps you hunt.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "tamed",
+              "item": "#meat",
+              "text": "Tame a wolf"
+            }
+          ]
+        },
+        {
+          "id": "drying_rack",
+          "title": "Hung to Dry",
+          "icon": "drying_rack",
+          "pos": [
+            0,
+            4
+          ],
+          "deps": [
+            "tar_haft"
+          ],
+          "optional": true,
+          "description": "Four sticks and two cordage make a drying rack. Place it and hang raw meat or fish on it: dried in a game day, it keeps four times as long.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "dried",
+              "item": "#food",
+              "text": "Dry meat or fish"
+            }
+          ]
+        },
+        {
+          "id": "smoking",
+          "title": "Smokehouse",
+          "icon": "smoked_meat",
+          "pos": [
+            1,
+            4
+          ],
+          "deps": [
+            "drying_rack",
+            "firepit"
+          ],
+          "optional": true,
+          "description": "Set the rack right beside or over a lit firepit and the meat smokes: faster than drying, and it keeps twice as long again.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "smoked",
+              "item": "#food",
+              "text": "Smoke meat or fish"
+            }
+          ]
+        },
+        {
+          "id": "fishing",
+          "title": "Gone Fishing",
+          "icon": "raw_fish",
+          "pos": [
+            0,
+            6
+          ],
+          "deps": [
+            "bone_tools"
+          ],
+          "optional": true,
+          "description": "A bone hook, cordage and a stick make a fishing line. Right click water with it and wait nearby for a bite.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "caught",
+              "item": "raw_fish",
+              "text": "Catch a fish"
+            }
+          ]
+        },
+        {
+          "id": "basket_trap",
+          "title": "Basket Trap",
+          "icon": "basket_trap",
+          "pos": [
+            1,
+            6
+          ],
+          "deps": [
+            "fishing"
+          ],
+          "optional": true,
+          "description": "Weave a basket trap from sticks and plant fiber and set it in water (right click the water): fish swim in while you are away. Empty it with an empty hand.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "basket_trap"
+            },
+            {
+              "type": "event",
+              "event": "caught",
+              "item": "raw_fish",
+              "text": "Catch three fish",
+              "count": 3
+            }
+          ]
+        },
+        {
+          "id": "fish_weir",
+          "title": "Fish Weir",
+          "icon": "fish_weir",
+          "pos": [
+            2,
+            6
+          ],
+          "deps": [
+            "basket_trap"
+          ],
+          "optional": true,
+          "description": "Two wattle and two sticks make a weir. Set it across a river: it catches twice as often as in still water.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "fish_weir"
+            }
+          ]
+        },
+        {
+          "id": "fish_net",
+          "title": "Casting the Net",
+          "icon": "fishing_net",
+          "pos": [
+            1,
+            7
+          ],
+          "deps": [
+            "fishing"
+          ],
+          "optional": true,
+          "description": "Six cordage on a crafting grid make a net. Cast it at water with a right click: now and then a fish comes up at once.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "fishing_net"
+            }
+          ]
+        }
       ]
     },
     {
@@ -146,60 +951,471 @@
       "icon": "polished_stone_axe",
       "description": "Settling down: pottery, polished stone, the first fields, linen, salt and the great stones.",
       "quests": [
-        {"id": "clay", "title": "Clay", "icon": "clay_ball", "pos": [0, 3], "deps": ["flint_shovel"],
-         "description": "Look for clay along riverbanks and lake shores and dig it with your shovel. A crucible and a mold take 4 balls each.",
-         "tasks": [{"type": "item", "item": "clay_ball", "count": 8}]},
-        {"id": "pottery", "title": "Pottery", "icon": "clay_bowl", "pos": [1, 3], "deps": ["clay", "bow"],
-         "description": "Form bowls and a cooking pot from clay (hold clay, right click a block top), lay the raw ware on the ground, cover it with 4 dry grass and 8 sticks and light it: a pit kiln. A minute later it is fired.",
-         "tasks": [{"type": "item", "item": "clay_bowl", "count": 3}, {"type": "item", "item": "cooking_pot"}]},
-        {"id": "stew", "title": "Hot Meal", "icon": "stew", "pos": [2, 2], "deps": ["pottery", "firepit"], "optional": true,
-         "description": "Set the cooking pot on a lit firepit, then add two raw meat or three carrots. Craft the pot of stew with three bowls: three meals, and the pot comes back.",
-         "tasks": [{"type": "item", "item": "stew"}]},
-        {"id": "storage_pot", "title": "Keepsakes", "icon": "storage_pot", "pos": [2, 3], "deps": ["pottery"], "optional": true,
-         "description": "A tall clay jar fired in a pit kiln holds nine stacks. Place it anywhere and right click it, like a small chest.",
-         "tasks": [{"type": "item", "item": "storage_pot"}]},
-        {"id": "salt", "title": "Salt", "icon": "salt", "pos": [2, 4], "deps": ["pottery"], "optional": true,
-         "description": "Dip the cooking pot in the sea for brine and boil it dry on a lit firepit. The pot of salt crafts into four salt and the pot; raw meat and salt make salted meat that keeps for months.",
-         "tasks": [{"type": "item", "item": "salt", "count": 4}]},
-        {"id": "polished_axe", "title": "Polished Stone", "icon": "polished_stone_axe", "pos": [1, 1], "deps": ["pottery"], "final": true,
-         "description": "Knap an axe roughout, lay it on sandstone near water, add sand and grind it with a loose stone in hand: forty-eight strokes, sand every sixteen. Haft the polished head: it fells trees twice as fast and lasts.",
-         "tasks": [{"type": "item", "item": "polished_stone_axe"}]},
-        {"id": "flint_mine", "title": "Deep Flint", "icon": "floorstone_flint", "pos": [2, 1], "deps": ["polished_axe", "bone_tools"], "optional": true,
-         "description": "The best flint lies deep in chalk. Knap an antler into a pick, dig down through the chalk and bring up floorstone flint: it knaps into heads that last longer.",
-         "tasks": [{"type": "item", "item": "antler_pick"}, {"type": "item", "item": "floorstone_flint", "count": 4}]},
-        {"id": "megalith", "title": "Stone Circle", "icon": "standing_stone", "pos": [2, 0], "deps": ["polished_axe"], "optional": true,
-         "description": "Drive six wooden wedges into bare rock where three blocks lie in a row: a megalith splits loose. Two logs under it, two cordage round it, and a lever pole moves it. Sneak and lever to stand it up. Five or more in a ring, and a heel stone outside it toward the midsummer sunrise, make a circle: home, and a road to your other circles.",
-         "tasks": [{"type": "item", "item": "wooden_wedge", "count": 6}, {"type": "event", "event": "quarried", "item": "standing_stone", "text": "Split a megalith loose"}, {"type": "event", "event": "megalith", "item": "standing_stone", "text": "Raise a stone circle"}]},
-        {"id": "solstice", "title": "Midsummer", "icon": "standing_stone", "pos": [3, 0], "deps": ["megalith"], "optional": true,
-         "description": "Stand in your circle when the sun rises on midsummer's day and watch it come up over the heel stone.",
-         "tasks": [{"type": "event", "event": "solstice", "item": "standing_stone", "text": "See the midsummer sunrise"}]},
-        {"id": "wild_grain", "title": "Wild Grain", "icon": "einkorn_seeds", "pos": [0, 5], "deps": ["clay"], "optional": true,
-         "description": "Tall grass now and then drops wild einkorn, emmer or flax seeds; reeds drop flax.",
-         "tasks": [{"type": "item", "items": ["einkorn_seeds", "emmer_seeds", "flax_seeds"], "text": "Wild seeds", "count": 3}]},
-        {"id": "sowing", "title": "First Fields", "icon": "einkorn", "pos": [1, 5], "deps": ["wild_grain"], "optional": true,
-         "description": "Till soil near water with a hoe and sow the seeds. Grain ripens like wheat.",
-         "tasks": [{"type": "item", "items": ["einkorn", "emmer"], "text": "Harvest grain", "count": 4}]},
-        {"id": "quern", "title": "Saddle Quern", "icon": "flour", "pos": [2, 5], "deps": ["sowing"], "optional": true,
-         "description": "Lay two grain on a flat rock and grind them with a loose stone in hand: flour.",
-         "tasks": [{"type": "event", "event": "worked", "item": "flour", "text": "Grind flour"}]},
-        {"id": "flatbread", "title": "Daily Bread", "icon": "flatbread", "pos": [3, 5], "deps": ["quern", "firepit"], "optional": true,
-         "description": "Hold flour and right click water: dough. Bake it on a lit firepit.",
-         "tasks": [{"type": "item", "item": "flatbread", "count": 3}]},
-        {"id": "spinning", "title": "Spinning", "icon": "linen_thread", "pos": [2, 6], "deps": ["sowing"], "optional": true,
-         "description": "Lay flax in water to ret for a day and a half, break it over a stick, and spin the fiber with a drop spindle (a fired clay whorl on a stick).",
-         "tasks": [{"type": "item", "item": "linen_thread", "count": 4}]},
-        {"id": "weaving", "title": "Linen", "icon": "linen_cloth", "pos": [3, 6], "deps": ["spinning"], "optional": true,
-         "description": "Build a warp-weighted loom, hang four linen thread on it and beat the weft in with a stick. Sew the cloth into a tunic or a sack.",
-         "tasks": [{"type": "item", "item": "linen_cloth", "count": 2}]},
-        {"id": "shelter", "title": "Shelter", "icon": "daub_wall", "pos": [0, 7], "deps": ["sticks_stones"], "optional": true,
-         "description": "Four dry grass make a block of thatch for a roof. Four sticks weave wattle; wattle plastered with daub (clay, dry grass and dirt) makes a wall.",
-         "tasks": [{"type": "item", "item": "thatch", "count": 4}, {"type": "item", "item": "daub_wall", "count": 4}]},
-        {"id": "straw_bed", "title": "Hay Day", "icon": "straw_bed", "pos": [1, 7], "deps": ["shelter"], "optional": true,
-         "description": "Six dry grass on a crafting table make a straw bed. Sleep through the night and wake up here when you die.",
-         "tasks": [{"type": "item", "item": "straw_bed"}]},
-        {"id": "longhouse", "title": "Longhouse", "icon": "daub_wall", "pos": [1, 8], "deps": ["shelter"], "optional": true,
-         "description": "A farming family lived under one long roof: walls of wattle and daub, a thatched roof, the hearth in the middle. Build one: the build menu (V) has longhouse blueprints.",
-         "tasks": [{"type": "item", "item": "daub_wall", "count": 24}, {"type": "item", "item": "thatch", "count": 24}]}
+        {
+          "id": "clay",
+          "title": "Clay",
+          "icon": "clay_ball",
+          "pos": [
+            0,
+            3
+          ],
+          "deps": [
+            "flint_shovel"
+          ],
+          "description": "Look for clay along riverbanks and lake shores and dig it with your shovel. A crucible and a mold take 4 balls each.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "clay_ball",
+              "count": 8
+            }
+          ]
+        },
+        {
+          "id": "pottery",
+          "title": "Pottery",
+          "icon": "clay_bowl",
+          "pos": [
+            1,
+            3
+          ],
+          "deps": [
+            "clay",
+            "bow"
+          ],
+          "description": "Form bowls and a cooking pot from clay (hold clay, right click a block top), lay the raw ware on the ground, cover it with 4 dry grass and 8 sticks and light it: a pit kiln. A minute later it is fired.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "clay_bowl",
+              "count": 3
+            },
+            {
+              "type": "item",
+              "item": "cooking_pot"
+            }
+          ]
+        },
+        {
+          "id": "stew",
+          "title": "Hot Meal",
+          "icon": "stew",
+          "pos": [
+            2,
+            2
+          ],
+          "deps": [
+            "pottery",
+            "firepit"
+          ],
+          "optional": true,
+          "description": "Set the cooking pot on a lit firepit, then add two raw meat or three carrots. Craft the pot of stew with three bowls: three meals, and the pot comes back.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "stew"
+            }
+          ]
+        },
+        {
+          "id": "storage_pot",
+          "title": "Keepsakes",
+          "icon": "storage_pot",
+          "pos": [
+            2,
+            3
+          ],
+          "deps": [
+            "pottery"
+          ],
+          "optional": true,
+          "description": "A tall clay jar fired in a pit kiln holds nine stacks. Place it anywhere and right click it, like a small chest.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "storage_pot"
+            }
+          ]
+        },
+        {
+          "id": "salt",
+          "title": "Salt",
+          "icon": "salt",
+          "pos": [
+            2,
+            4
+          ],
+          "deps": [
+            "pottery"
+          ],
+          "optional": true,
+          "description": "Dip the cooking pot in the sea for brine and boil it dry on a lit firepit. The pot of salt crafts into four salt and the pot; raw meat and salt make salted meat that keeps for months.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "salt",
+              "count": 4
+            }
+          ]
+        },
+        {
+          "id": "polished_axe",
+          "title": "Polished Stone",
+          "icon": "polished_stone_axe",
+          "pos": [
+            1,
+            1
+          ],
+          "deps": [
+            "pottery"
+          ],
+          "final": true,
+          "description": "Knap an axe roughout, lay it on sandstone near water, add sand and grind it with a loose stone in hand: forty-eight strokes, sand every sixteen. Haft the polished head: it fells trees twice as fast and lasts.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "polished_stone_axe"
+            }
+          ]
+        },
+        {
+          "id": "flint_mine",
+          "title": "Deep Flint",
+          "icon": "floorstone_flint",
+          "pos": [
+            2,
+            1
+          ],
+          "deps": [
+            "polished_axe",
+            "bone_tools"
+          ],
+          "optional": true,
+          "description": "The best flint lies deep in chalk. Knap an antler into a pick, dig down through the chalk and bring up floorstone flint: it knaps into heads that last longer.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "antler_pick"
+            },
+            {
+              "type": "item",
+              "item": "floorstone_flint",
+              "count": 4
+            }
+          ]
+        },
+        {
+          "id": "megalith",
+          "title": "Stone Circle",
+          "icon": "standing_stone",
+          "pos": [
+            2,
+            0
+          ],
+          "deps": [
+            "polished_axe"
+          ],
+          "optional": true,
+          "description": "Drive six wooden wedges into bare rock where three blocks lie in a row: a megalith splits loose. Two logs under it, two cordage round it, and a lever pole moves it. Sneak and lever to stand it up. Five or more in a ring, and a heel stone outside it toward the midsummer sunrise, make a circle: home, and a road to your other circles.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "wooden_wedge",
+              "count": 6
+            },
+            {
+              "type": "event",
+              "event": "quarried",
+              "item": "standing_stone",
+              "text": "Split a megalith loose"
+            },
+            {
+              "type": "event",
+              "event": "megalith",
+              "item": "standing_stone",
+              "text": "Raise a stone circle"
+            }
+          ]
+        },
+        {
+          "id": "solstice",
+          "title": "Midsummer",
+          "icon": "standing_stone",
+          "pos": [
+            3,
+            0
+          ],
+          "deps": [
+            "megalith"
+          ],
+          "optional": true,
+          "description": "Stand in your circle when the sun rises on midsummer's day and watch it come up over the heel stone.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "solstice",
+              "item": "standing_stone",
+              "text": "See the midsummer sunrise"
+            }
+          ]
+        },
+        {
+          "id": "wild_grain",
+          "title": "Wild Grain",
+          "icon": "einkorn_seeds",
+          "pos": [
+            0,
+            5
+          ],
+          "deps": [
+            "clay"
+          ],
+          "optional": true,
+          "description": "Tall grass now and then drops wild einkorn, emmer or flax seeds; reeds drop flax.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "einkorn_seeds",
+                "emmer_seeds",
+                "flax_seeds"
+              ],
+              "text": "Wild seeds",
+              "count": 3
+            }
+          ]
+        },
+        {
+          "id": "sowing",
+          "title": "First Fields",
+          "icon": "einkorn",
+          "pos": [
+            1,
+            5
+          ],
+          "deps": [
+            "wild_grain"
+          ],
+          "optional": true,
+          "description": "Till soil near water with a hoe and sow the seeds. Grain ripens like wheat.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "einkorn",
+                "emmer"
+              ],
+              "text": "Harvest grain",
+              "count": 4
+            }
+          ]
+        },
+        {
+          "id": "quern",
+          "title": "Saddle Quern",
+          "icon": "flour",
+          "pos": [
+            2,
+            5
+          ],
+          "deps": [
+            "sowing"
+          ],
+          "optional": true,
+          "description": "Lay two grain on a flat rock and grind them with a loose stone in hand: flour.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "worked",
+              "item": "flour",
+              "text": "Grind flour"
+            }
+          ]
+        },
+        {
+          "id": "flatbread",
+          "title": "Daily Bread",
+          "icon": "flatbread",
+          "pos": [
+            3,
+            5
+          ],
+          "deps": [
+            "quern",
+            "firepit"
+          ],
+          "optional": true,
+          "description": "Hold flour and right click water: dough. Bake it on a lit firepit.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "flatbread",
+              "count": 3
+            }
+          ]
+        },
+        {
+          "id": "spinning",
+          "title": "Spinning",
+          "icon": "linen_thread",
+          "pos": [
+            2,
+            6
+          ],
+          "deps": [
+            "sowing"
+          ],
+          "optional": true,
+          "description": "Lay flax in water to ret for a day and a half, break it over a stick, and spin the fiber with a drop spindle (a fired clay whorl on a stick).",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "linen_thread",
+              "count": 4
+            }
+          ]
+        },
+        {
+          "id": "weaving",
+          "title": "Linen",
+          "icon": "linen_cloth",
+          "pos": [
+            3,
+            6
+          ],
+          "deps": [
+            "spinning"
+          ],
+          "optional": true,
+          "description": "Build a warp-weighted loom, hang four linen thread on it and beat the weft in with a stick. Sew the cloth into a tunic or a sack.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "linen_cloth",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "id": "shelter",
+          "title": "Shelter",
+          "icon": "daub_wall",
+          "pos": [
+            0,
+            7
+          ],
+          "deps": [
+            "sticks_stones"
+          ],
+          "optional": true,
+          "description": "Four dry grass make a block of thatch for a roof. Four sticks weave wattle; wattle plastered with daub (clay, dry grass and dirt) makes a wall.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "thatch",
+              "count": 4
+            },
+            {
+              "type": "item",
+              "item": "daub_wall",
+              "count": 4
+            }
+          ]
+        },
+        {
+          "id": "straw_bed",
+          "title": "Hay Day",
+          "icon": "straw_bed",
+          "pos": [
+            1,
+            7
+          ],
+          "deps": [
+            "shelter"
+          ],
+          "optional": true,
+          "description": "Six dry grass on a crafting table make a straw bed. Sleep through the night and wake up here when you die.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "straw_bed"
+            }
+          ]
+        },
+        {
+          "id": "longhouse",
+          "title": "Longhouse",
+          "icon": "daub_wall",
+          "pos": [
+            1,
+            8
+          ],
+          "deps": [
+            "shelter"
+          ],
+          "optional": true,
+          "description": "A farming family lived under one long roof: walls of wattle and daub, a thatched roof, the hearth in the middle. Build one: the build menu (V) has longhouse blueprints.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "daub_wall",
+              "count": 24
+            },
+            {
+              "type": "item",
+              "item": "thatch",
+              "count": 24
+            }
+          ]
+        },
+        {
+          "id": "porridge",
+          "title": "Porridge",
+          "icon": "porridge",
+          "pos": [
+            3,
+            3
+          ],
+          "deps": [
+            "stew"
+          ],
+          "description": "Three handfuls of grain in a cooking pot over the fire, served in clay bowls: the first warming meal.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "porridge"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "hearty_meals",
+          "title": "Hearty Meals",
+          "icon": "fish_soup",
+          "pos": [
+            4,
+            3
+          ],
+          "deps": [
+            "porridge"
+          ],
+          "description": "Fish, mushrooms or berries in the pot each make a meal that does more than fill you. Cook one of each.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "fish_soup"
+            },
+            {
+              "type": "item",
+              "item": "mushroom_soup"
+            },
+            {
+              "type": "item",
+              "item": "berry_compote"
+            }
+          ],
+          "optional": true
+        }
       ]
     },
     {
@@ -208,45 +1424,336 @@
       "icon": "copper_awl",
       "description": "The bridge: cold-hammered copper, the green stone that melts, and the first cast tool.",
       "quests": [
-        {"id": "native_copper", "title": "Cold Copper", "icon": "copper_awl", "pos": [0, 2], "deps": ["polished_axe"],
-         "description": "Copper nuggets from a pan or a sieve are native copper: soft enough to hammer cold. Knap one like flint, with a stone in hand: an awl that sews like a needle, or beads.",
-         "tasks": [{"type": "item", "items": ["copper_awl", "copper_beads"], "text": "An awl or beads"}]},
-        {"id": "malachite", "title": "Green Fire", "icon": "loose_copper_ore", "pos": [1, 2], "deps": ["native_copper"],
-         "description": "Green copper-bearing stone (malachite) grinds into paint. Lay one on the ground and fire it in a pit kiln like clay ware: copper comes out of the stone.",
-         "tasks": [{"type": "event", "event": "fired", "item": "copper_nugget", "text": "Fire a green stone in a pit kiln"}]},
-        {"id": "shape_mold", "title": "Shape a Mold", "icon": "raw_pickaxe_mold", "pos": [1, 4], "deps": ["clay"],
-         "description": "Hold clay and right click the top of a block. Choose a tool mold, then right click to lay the clay layer by layer, bottom first. The pickaxe mold is a good first pick.",
-         "tasks": [{"type": "item", "items": ["raw_pickaxe_mold", "raw_axe_mold", "raw_shovel_mold", "raw_knife_mold", "raw_hoe_mold"], "text": "Any raw tool mold"}]},
-        {"id": "shape_crucible", "title": "Shape a Crucible", "icon": "raw_crucible", "pos": [1, 5], "deps": ["clay"],
-         "description": "Form a crucible the same way. It is the pot your copper melts in.",
-         "tasks": [{"type": "item", "item": "raw_crucible"}]},
-        {"id": "pit_kiln", "title": "Pit Kiln", "icon": "crucible", "pos": [2, 4.5], "deps": ["shape_mold", "shape_crucible", "firestarter"],
-         "description": "Place raw clay ware on the ground, cover it with 4 dry grass, then 8 sticks, and light it with the firestarter. A minute later it is fired. Pick up the crucible, but leave the mold lying: you cast into it on the ground.",
-         "tasks": [{"type": "item", "item": "crucible"}, {"type": "event", "event": "fired", "item": "#mold", "text": "Fire a mold in a pit kiln"}]},
-        {"id": "surface_copper", "title": "Surface Copper", "icon": "loose_copper_ore", "pos": [2, 6], "mode": "any",
-         "description": "Green, copper-bearing stones lie on the ground above shallow copper veins. Four fill a crucible. Eight copper nuggets from a sieve or a pan do too.",
-         "tasks": [{"type": "item", "item": "loose_copper_ore", "count": 4}, {"type": "item", "item": "copper_nugget", "count": 8}]},
-        {"id": "melt_copper", "title": "Molten Copper", "icon": "crucible_copper", "pos": [3, 4.5], "deps": ["pit_kiln", "firepit", "surface_copper", "malachite"],
-         "description": "Right click the firepit with the crucible to set it on the fire, then with the copper, one stone at a time, and with wood. Light it with the firestarter. When the copper has melted, take the crucible off with an empty hand.",
-         "tasks": [{"type": "item", "item": "crucible_copper"}]},
-        {"id": "casting", "title": "Casting", "icon": "copper_pickaxe_head", "pos": [4, 4.5], "deps": ["melt_copper"],
-         "description": "Right click the fired mold with the molten crucible. Let it cool for a few seconds, then right click it with an empty hand to take the casting. The mold stays for the next one.",
-         "tasks": [{"type": "item", "item": "#copper_head", "text": "Any copper tool head"}]},
-        {"id": "copper_tool", "title": "Copper Age", "icon": "copper_pickaxe", "pos": [5, 4.5], "deps": ["casting"], "final": true,
-         "description": "Lay the head on the ground and right click it with a stick. A copper pickaxe finally gets stone, ore and coal out of rock. The Flint Age is behind you.",
-         "tasks": [{"type": "item", "items": ["copper_pickaxe", "copper_axe", "copper_shovel", "copper_knife", "copper_hoe"], "text": "Any copper tool"}]},
-        {"id": "panning", "title": "Panning", "icon": "pan", "pos": [3, 6], "deps": ["pit_kiln"], "optional": true,
-         "description": "Form a pan from clay and fire it. Hold it and right click sand or gravel under shallow water, and keep shaking: copper and tin nuggets wash out, and the riverbed goes with them.",
-         "tasks": [{"type": "item", "item": "pan"}, {"type": "event", "event": "panned", "item": "#nugget", "count": 3, "text": "Pan three nuggets"}]},
-        {"id": "charcoal_pit", "title": "Charcoal Burner", "icon": "charcoal", "pos": [0, 0], "deps": ["firewood", "firestarter"], "optional": true,
-         "description": "Dig a pit and stack firewood in it: right click with firewood builds piles, sixteen to a block. Light a pile with the firestarter, then seal every side of the piles with dirt or stone before the grace time runs out. A sealed pit smokes for two minutes and turns into charcoal; an open one bursts into flames. Break the piles to dig the charcoal out.",
-         "tasks": [{"type": "event", "event": "charcoal_pit", "item": "charcoal", "text": "Burn a charcoal pit"}, {"type": "item", "item": "charcoal", "count": 8}]},
-        {"id": "sieve", "title": "Sifting", "icon": "sieve", "pos": [0, 7], "deps": ["crafting_table"], "optional": true,
-         "description": "A sieve turns gravel into flint and copper nuggets, sand into tin. Load it, then right click to shake it.",
-         "tasks": [{"type": "item", "item": "sieve"}]},
-        {"id": "otzi", "title": "The Iceman", "icon": "copper_axe", "pos": [6, 2.5], "deps": ["copper_tool", "fur_clothing", "bow", "tinder_fungus"], "optional": true,
-         "description": "Five thousand years ago a man died in the Alps with his whole kit: a copper axe, a flint dagger, a bow, birch-bark boxes, tinder fungus, a grass cape and a bearskin cap. Gather the same.",
-         "tasks": [{"type": "item", "item": "copper_axe"}, {"type": "item", "item": "flint_dagger"}, {"type": "item", "item": "bow"}, {"type": "item", "item": "bark_box"}, {"type": "item", "item": "tinder_fungus"}, {"type": "item", "item": "grass_cape"}, {"type": "item", "item": "bearskin_cap"}]}
+        {
+          "id": "native_copper",
+          "title": "Cold Copper",
+          "icon": "copper_awl",
+          "pos": [
+            0,
+            2
+          ],
+          "deps": [
+            "polished_axe"
+          ],
+          "description": "Copper nuggets from a pan or a sieve are native copper: soft enough to hammer cold. Knap one like flint, with a stone in hand: an awl that sews like a needle, or beads.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "copper_awl",
+                "copper_beads"
+              ],
+              "text": "An awl or beads"
+            }
+          ]
+        },
+        {
+          "id": "malachite",
+          "title": "Green Fire",
+          "icon": "loose_copper_ore",
+          "pos": [
+            1,
+            2
+          ],
+          "deps": [
+            "native_copper"
+          ],
+          "description": "Green copper-bearing stone (malachite) grinds into paint. Lay one on the ground and fire it in a pit kiln like clay ware: copper comes out of the stone.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "fired",
+              "item": "copper_nugget",
+              "text": "Fire a green stone in a pit kiln"
+            }
+          ]
+        },
+        {
+          "id": "shape_mold",
+          "title": "Shape a Mold",
+          "icon": "raw_pickaxe_mold",
+          "pos": [
+            1,
+            4
+          ],
+          "deps": [
+            "clay"
+          ],
+          "description": "Hold clay and right click the top of a block. Choose a tool mold, then right click to lay the clay layer by layer, bottom first. The pickaxe mold is a good first pick.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "raw_pickaxe_mold",
+                "raw_axe_mold",
+                "raw_shovel_mold",
+                "raw_knife_mold",
+                "raw_hoe_mold"
+              ],
+              "text": "Any raw tool mold"
+            }
+          ]
+        },
+        {
+          "id": "shape_crucible",
+          "title": "Shape a Crucible",
+          "icon": "raw_crucible",
+          "pos": [
+            1,
+            5
+          ],
+          "deps": [
+            "clay"
+          ],
+          "description": "Form a crucible the same way. It is the pot your copper melts in.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "raw_crucible"
+            }
+          ]
+        },
+        {
+          "id": "pit_kiln",
+          "title": "Pit Kiln",
+          "icon": "crucible",
+          "pos": [
+            2,
+            4.5
+          ],
+          "deps": [
+            "shape_mold",
+            "shape_crucible",
+            "firestarter"
+          ],
+          "description": "Place raw clay ware on the ground, cover it with 4 dry grass, then 8 sticks, and light it with the firestarter. A minute later it is fired. Pick up the crucible, but leave the mold lying: you cast into it on the ground.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "crucible"
+            },
+            {
+              "type": "event",
+              "event": "fired",
+              "item": "#mold",
+              "text": "Fire a mold in a pit kiln"
+            }
+          ]
+        },
+        {
+          "id": "surface_copper",
+          "title": "Surface Copper",
+          "icon": "loose_copper_ore",
+          "pos": [
+            2,
+            6
+          ],
+          "mode": "any",
+          "description": "Green, copper-bearing stones lie on the ground above shallow copper veins. Four fill a crucible. Eight copper nuggets from a sieve or a pan do too.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "loose_copper_ore",
+              "count": 4
+            },
+            {
+              "type": "item",
+              "item": "copper_nugget",
+              "count": 8
+            }
+          ]
+        },
+        {
+          "id": "melt_copper",
+          "title": "Molten Copper",
+          "icon": "crucible_copper",
+          "pos": [
+            3,
+            4.5
+          ],
+          "deps": [
+            "pit_kiln",
+            "firepit",
+            "surface_copper",
+            "malachite"
+          ],
+          "description": "Right click the firepit with the crucible to set it on the fire, then with the copper, one stone at a time, and with wood. Light it with the firestarter. When the copper has melted, take the crucible off with an empty hand.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "crucible_copper"
+            }
+          ]
+        },
+        {
+          "id": "casting",
+          "title": "Casting",
+          "icon": "copper_pickaxe_head",
+          "pos": [
+            4,
+            4.5
+          ],
+          "deps": [
+            "melt_copper"
+          ],
+          "description": "Right click the fired mold with the molten crucible. Let it cool for a few seconds, then right click it with an empty hand to take the casting. The mold stays for the next one.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "#copper_head",
+              "text": "Any copper tool head"
+            }
+          ]
+        },
+        {
+          "id": "copper_tool",
+          "title": "Copper Age",
+          "icon": "copper_pickaxe",
+          "pos": [
+            5,
+            4.5
+          ],
+          "deps": [
+            "casting"
+          ],
+          "final": true,
+          "description": "Lay the head on the ground and right click it with a stick. A copper pickaxe finally gets stone, ore and coal out of rock. The Flint Age is behind you.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "copper_pickaxe",
+                "copper_axe",
+                "copper_shovel",
+                "copper_knife",
+                "copper_hoe"
+              ],
+              "text": "Any copper tool"
+            }
+          ]
+        },
+        {
+          "id": "panning",
+          "title": "Panning",
+          "icon": "pan",
+          "pos": [
+            3,
+            6
+          ],
+          "deps": [
+            "pit_kiln"
+          ],
+          "optional": true,
+          "description": "Form a pan from clay and fire it. Hold it and right click sand or gravel under shallow water, and keep shaking: copper and tin nuggets wash out, and the riverbed goes with them.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "pan"
+            },
+            {
+              "type": "event",
+              "event": "panned",
+              "item": "#nugget",
+              "count": 3,
+              "text": "Pan three nuggets"
+            }
+          ]
+        },
+        {
+          "id": "charcoal_pit",
+          "title": "Charcoal Burner",
+          "icon": "charcoal",
+          "pos": [
+            0,
+            0
+          ],
+          "deps": [
+            "firewood",
+            "firestarter"
+          ],
+          "optional": true,
+          "description": "Dig a pit and stack firewood in it: right click with firewood builds piles, sixteen to a block. Light a pile with the firestarter, then seal every side of the piles with dirt or stone before the grace time runs out. A sealed pit smokes for two minutes and turns into charcoal; an open one bursts into flames. Break the piles to dig the charcoal out.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "charcoal_pit",
+              "item": "charcoal",
+              "text": "Burn a charcoal pit"
+            },
+            {
+              "type": "item",
+              "item": "charcoal",
+              "count": 8
+            }
+          ]
+        },
+        {
+          "id": "sieve",
+          "title": "Sifting",
+          "icon": "sieve",
+          "pos": [
+            0,
+            7
+          ],
+          "deps": [
+            "crafting_table"
+          ],
+          "optional": true,
+          "description": "A sieve turns gravel into flint and copper nuggets, sand into tin. Load it, then right click to shake it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "sieve"
+            }
+          ]
+        },
+        {
+          "id": "otzi",
+          "title": "The Iceman",
+          "icon": "copper_axe",
+          "pos": [
+            6,
+            2.5
+          ],
+          "deps": [
+            "copper_tool",
+            "fur_clothing",
+            "bow",
+            "tinder_fungus"
+          ],
+          "optional": true,
+          "description": "Five thousand years ago a man died in the Alps with his whole kit: a copper axe, a flint dagger, a bow, birch-bark boxes, tinder fungus, a grass cape and a bearskin cap. Gather the same.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "copper_axe"
+            },
+            {
+              "type": "item",
+              "item": "flint_dagger"
+            },
+            {
+              "type": "item",
+              "item": "bow"
+            },
+            {
+              "type": "item",
+              "item": "bark_box"
+            },
+            {
+              "type": "item",
+              "item": "tinder_fungus"
+            },
+            {
+              "type": "item",
+              "item": "grass_cape"
+            },
+            {
+              "type": "item",
+              "item": "bearskin_cap"
+            }
+          ]
+        }
       ]
     },
     {
@@ -255,24 +1762,128 @@
       "icon": "copper_hammer",
       "description": "Smithing: hot copper hammered to shape on an anvil. Some tools only come from the anvil.",
       "quests": [
-        {"id": "ingot", "title": "Bar Stock", "icon": "copper_ingot", "pos": [0, 2], "deps": ["copper_tool"],
-         "description": "Form an ingot mold from clay, fire it, and cast molten copper in it. Ingots are what the smith works.",
-         "tasks": [{"type": "item", "item": "copper_ingot", "count": 2}]},
-        {"id": "hammer", "title": "Hammer Time", "icon": "copper_hammer", "pos": [1, 1], "deps": ["copper_tool"],
-         "description": "Form a hammer mold, fire it, cast a hammer head and put it on a stick on the ground.",
-         "tasks": [{"type": "item", "item": "copper_hammer"}]},
-        {"id": "anvil", "title": "Anvil", "icon": "stone_anvil", "pos": [1, 3], "deps": ["copper_tool"],
-         "description": "Seven blocks of cobblestone on a crafting table make a stone anvil. Your copper pickaxe gets the stone. Place it on the ground.",
-         "tasks": [{"type": "item", "item": "stone_anvil"}]},
-        {"id": "red_hot", "title": "Red Hot", "icon": "copper_ingot", "pos": [2, 2], "deps": ["ingot"],
-         "description": "Lay an ingot on a lit firepit and wait until it glows, then take it off with an empty hand. It stays hot for about forty seconds.",
-         "tasks": [{"type": "event", "event": "heated", "item": "#heatable", "text": "Heat an ingot"}]},
-        {"id": "smithing", "title": "Smithing", "icon": "copper_axe_head", "pos": [3, 2], "deps": ["red_hot", "hammer", "anvil"],
-         "description": "Right click the anvil with the hot ingot and pick a shape. With the hammer, left click drives the top of a column one cell away from you: walk round the anvil to push the other way. Right click splits a cell off. Green shows where metal is missing, red where there is too much. When it cools, take the piece off, heat it again and lay it back on.",
-         "tasks": [{"type": "event", "event": "smithed", "item": "#tool_head", "text": "Smith a tool head"}]},
-        {"id": "saw", "title": "Saw Mill", "icon": "copper_saw", "pos": [4, 2], "deps": ["smithing"], "final": true,
-         "description": "Smith a saw blade (only the anvil makes one) and put it on a stick. A log and the saw in the grid make four planks, twice what your hands get.",
-         "tasks": [{"type": "item", "item": "copper_saw"}]}
+        {
+          "id": "ingot",
+          "title": "Bar Stock",
+          "icon": "copper_ingot",
+          "pos": [
+            0,
+            2
+          ],
+          "deps": [
+            "copper_tool"
+          ],
+          "description": "Form an ingot mold from clay, fire it, and cast molten copper in it. Ingots are what the smith works.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "copper_ingot",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "id": "hammer",
+          "title": "Hammer Time",
+          "icon": "copper_hammer",
+          "pos": [
+            1,
+            1
+          ],
+          "deps": [
+            "copper_tool"
+          ],
+          "description": "Form a hammer mold, fire it, cast a hammer head and put it on a stick on the ground.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "copper_hammer"
+            }
+          ]
+        },
+        {
+          "id": "anvil",
+          "title": "Anvil",
+          "icon": "stone_anvil",
+          "pos": [
+            1,
+            3
+          ],
+          "deps": [
+            "copper_tool"
+          ],
+          "description": "Seven blocks of cobblestone on a crafting table make a stone anvil. Your copper pickaxe gets the stone. Place it on the ground.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "stone_anvil"
+            }
+          ]
+        },
+        {
+          "id": "red_hot",
+          "title": "Red Hot",
+          "icon": "copper_ingot",
+          "pos": [
+            2,
+            2
+          ],
+          "deps": [
+            "ingot"
+          ],
+          "description": "Lay an ingot on a lit firepit and wait until it glows, then take it off with an empty hand. It stays hot for about forty seconds.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "heated",
+              "item": "#heatable",
+              "text": "Heat an ingot"
+            }
+          ]
+        },
+        {
+          "id": "smithing",
+          "title": "Smithing",
+          "icon": "copper_axe_head",
+          "pos": [
+            3,
+            2
+          ],
+          "deps": [
+            "red_hot",
+            "hammer",
+            "anvil"
+          ],
+          "description": "Right click the anvil with the hot ingot and pick a shape. With the hammer, left click drives the top of a column one cell away from you: walk round the anvil to push the other way. Right click splits a cell off. Green shows where metal is missing, red where there is too much. When it cools, take the piece off, heat it again and lay it back on.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "smithed",
+              "item": "#tool_head",
+              "text": "Smith a tool head"
+            }
+          ]
+        },
+        {
+          "id": "saw",
+          "title": "Saw Mill",
+          "icon": "copper_saw",
+          "pos": [
+            4,
+            2
+          ],
+          "deps": [
+            "smithing"
+          ],
+          "final": true,
+          "description": "Smith a saw blade (only the anvil makes one) and put it on a stick. A log and the saw in the grid make four planks, twice what your hands get.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "copper_saw"
+            }
+          ]
+        }
       ]
     },
     {
@@ -281,24 +1892,184 @@
       "icon": "bronze_pickaxe",
       "description": "Tin melted into copper makes bronze: harder tools, and a pickaxe that breaks iron ore (ADR 0070).",
       "quests": [
-        {"id": "tin", "title": "Tin", "icon": "loose_tin_ore", "pos": [0, 2], "deps": ["copper_tool"], "mode": "any",
-         "description": "Dark tin-bearing stones lie above cassiterite veins, and a pan or a sieve washes tin nuggets out of sand. A copper pickaxe mines tin ore.",
-         "tasks": [{"type": "item", "item": "tin_nugget", "count": 2}, {"type": "item", "item": "loose_tin_ore"}, {"type": "item", "item": "tin_ore"}]},
-        {"id": "molten_bronze", "title": "Molten Bronze", "icon": "crucible_bronze", "pos": [1, 2], "deps": ["tin", "melt_copper"],
-         "description": "Melt copper in a crucible on the firepit and leave the molten crucible on the fire. Lay on 2 tin nuggets, a tin-bearing stone or two blocks of tin ore: it melts into the copper.",
-         "tasks": [{"type": "item", "item": "crucible_bronze"}]},
-        {"id": "bronze_casting", "title": "Bronze Casting", "icon": "bronze_pickaxe_head", "pos": [2, 1], "deps": ["molten_bronze"],
-         "description": "Pour molten bronze into a mold on the ground, the same molds that take copper.",
-         "tasks": [{"type": "item", "item": "#bronze_head", "text": "Cast a bronze tool head"}]},
-        {"id": "bronze_bar", "title": "Bronze Bars", "icon": "bronze_ingot", "pos": [2, 3], "deps": ["molten_bronze"], "optional": true,
-         "description": "Cast bronze ingots in an ingot mold. Heated on the firepit they smith like copper; the saw blade only comes from the anvil.",
-         "tasks": [{"type": "item", "item": "bronze_ingot", "count": 2}]},
-        {"id": "bronze_tool", "title": "Bronze Age", "icon": "bronze_pickaxe", "pos": [3, 2], "deps": ["bronze_casting"], "final": true,
-         "description": "Put a bronze pickaxe head on a stick on the ground. A bronze pickaxe breaks iron ore.",
-         "tasks": [{"type": "item", "item": "bronze_pickaxe"}]},
-        {"id": "bronze_anvil", "title": "Bronze Anvil", "icon": "bronze_anvil", "pos": [3, 3.5], "deps": ["bronze_bar"], "optional": true,
-         "description": "Seven bronze ingots on a crafting table make a bronze anvil. Iron is too hard for the stone one.",
-         "tasks": [{"type": "item", "item": "bronze_anvil"}]}
+        {
+          "id": "tin",
+          "title": "Tin",
+          "icon": "loose_tin_ore",
+          "pos": [
+            0,
+            2
+          ],
+          "deps": [
+            "copper_tool"
+          ],
+          "mode": "any",
+          "description": "Dark tin-bearing stones lie above cassiterite veins, and a pan or a sieve washes tin nuggets out of sand. A copper pickaxe mines tin ore.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "tin_nugget",
+              "count": 2
+            },
+            {
+              "type": "item",
+              "item": "loose_tin_ore"
+            },
+            {
+              "type": "item",
+              "item": "tin_ore"
+            }
+          ]
+        },
+        {
+          "id": "molten_bronze",
+          "title": "Molten Bronze",
+          "icon": "crucible_bronze",
+          "pos": [
+            1,
+            2
+          ],
+          "deps": [
+            "tin",
+            "melt_copper"
+          ],
+          "description": "Melt copper in a crucible on the firepit and leave the molten crucible on the fire. Lay on 2 tin nuggets, a tin-bearing stone or two blocks of tin ore: it melts into the copper.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "crucible_bronze"
+            }
+          ]
+        },
+        {
+          "id": "bronze_casting",
+          "title": "Bronze Casting",
+          "icon": "bronze_pickaxe_head",
+          "pos": [
+            2,
+            1
+          ],
+          "deps": [
+            "molten_bronze"
+          ],
+          "description": "Pour molten bronze into a mold on the ground, the same molds that take copper.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "#bronze_head",
+              "text": "Cast a bronze tool head"
+            }
+          ]
+        },
+        {
+          "id": "bronze_bar",
+          "title": "Bronze Bars",
+          "icon": "bronze_ingot",
+          "pos": [
+            2,
+            3
+          ],
+          "deps": [
+            "molten_bronze"
+          ],
+          "optional": true,
+          "description": "Cast bronze ingots in an ingot mold. Heated on the firepit they smith like copper; the saw blade only comes from the anvil.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bronze_ingot",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "id": "bronze_tool",
+          "title": "Bronze Age",
+          "icon": "bronze_pickaxe",
+          "pos": [
+            3,
+            2
+          ],
+          "deps": [
+            "bronze_casting"
+          ],
+          "final": true,
+          "description": "Put a bronze pickaxe head on a stick on the ground. A bronze pickaxe breaks iron ore.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bronze_pickaxe"
+            }
+          ]
+        },
+        {
+          "id": "bronze_anvil",
+          "title": "Bronze Anvil",
+          "icon": "bronze_anvil",
+          "pos": [
+            3,
+            3.5
+          ],
+          "deps": [
+            "bronze_bar"
+          ],
+          "optional": true,
+          "description": "Seven bronze ingots on a crafting table make a bronze anvil. Iron is too hard for the stone one.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bronze_anvil"
+            }
+          ]
+        },
+        {
+          "id": "bronze_spear",
+          "title": "Bronze Spear",
+          "icon": "bronze_spear",
+          "pos": [
+            4,
+            1
+          ],
+          "deps": [
+            "bronze_tool"
+          ],
+          "description": "A bronze head on a long shaft: the first metal weapon.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bronze_spear"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "bronze_armour",
+          "title": "Bronze Armour",
+          "icon": "bronze_chestplate",
+          "pos": [
+            4,
+            3
+          ],
+          "deps": [
+            "bronze_tool"
+          ],
+          "description": "Helmet, breastplate and boots of bronze: the first full set of metal armour.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bronze_helmet"
+            },
+            {
+              "type": "item",
+              "item": "bronze_chestplate"
+            },
+            {
+              "type": "item",
+              "item": "bronze_boots"
+            }
+          ],
+          "optional": true
+        }
       ]
     },
     {
@@ -307,24 +2078,161 @@
       "icon": "iron_pickaxe",
       "description": "Iron does not melt in any fire you can build: a bloomery sweats it out of the ore as a bloom, and the smith beats the bloom into iron (ADR 0070).",
       "quests": [
-        {"id": "iron_ore", "title": "Red Rock", "icon": "loose_iron_ore", "pos": [0, 2], "deps": ["bronze_tool"], "mode": "any",
-         "description": "Rusty iron-bearing stones lie above iron veins, deeper than copper and tin. A bronze pickaxe mines the ore; a sieve finds iron nuggets in gravel now and then.",
-         "tasks": [{"type": "item", "item": "iron_nugget", "count": 8}, {"type": "item", "item": "loose_iron_ore", "count": 4}, {"type": "item", "item": "iron_ore"}]},
-        {"id": "bloomery", "title": "Bloomery", "icon": "bloomery", "pos": [1, 1], "deps": ["bronze_tool"],
-         "description": "Eight fired clay bricks on a crafting table make a bloomery. Place it on the ground.",
-         "tasks": [{"type": "item", "item": "bloomery"}]},
-        {"id": "bloom", "title": "The Bloom", "icon": "iron_bloom", "pos": [2, 2], "deps": ["iron_ore", "bloomery"],
-         "description": "Lay the ore into the bloomery (8 nuggets, 4 iron-bearing stones or two blocks of ore) and charcoal, then light it. Keep it fed for two minutes and take the glowing bloom out with an empty hand.",
-         "tasks": [{"type": "item", "item": "iron_bloom"}]},
-        {"id": "forge", "title": "Forge", "icon": "forge", "pos": [1, 3], "deps": ["bronze_tool"],
-         "description": "Eight loose stones round a lump of charcoal or coal make a forge: the only fire hot enough for iron. It burns charcoal or coal.",
-         "tasks": [{"type": "item", "item": "forge"}]},
-        {"id": "wrought_iron", "title": "Wrought Iron", "icon": "iron_ingot", "pos": [3, 2], "deps": ["bloom", "forge", "bronze_anvil"],
-         "description": "Heat the bloom in the forge, lay it on a bronze anvil and beat it into a bar. Iron cools fast: back to the forge when the hammer stops biting.",
-         "tasks": [{"type": "event", "event": "smithed", "item": "iron_ingot", "text": "Smith an iron ingot"}]},
-        {"id": "iron_tool", "title": "Iron Age", "icon": "iron_pickaxe", "pos": [4, 2], "deps": ["wrought_iron"], "final": true,
-         "description": "Smith an iron pickaxe head (two hot ingots) on the bronze anvil and put it on a stick. Iron is only smithed, never cast.",
-         "tasks": [{"type": "item", "item": "iron_pickaxe"}]}
+        {
+          "id": "iron_ore",
+          "title": "Red Rock",
+          "icon": "loose_iron_ore",
+          "pos": [
+            0,
+            2
+          ],
+          "deps": [
+            "bronze_tool"
+          ],
+          "mode": "any",
+          "description": "Rusty iron-bearing stones lie above iron veins, deeper than copper and tin. A bronze pickaxe mines the ore; a sieve finds iron nuggets in gravel now and then.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "iron_nugget",
+              "count": 8
+            },
+            {
+              "type": "item",
+              "item": "loose_iron_ore",
+              "count": 4
+            },
+            {
+              "type": "item",
+              "item": "iron_ore"
+            }
+          ]
+        },
+        {
+          "id": "bloomery",
+          "title": "Bloomery",
+          "icon": "bloomery",
+          "pos": [
+            1,
+            1
+          ],
+          "deps": [
+            "bronze_tool"
+          ],
+          "description": "Eight fired clay bricks on a crafting table make a bloomery. Place it on the ground.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bloomery"
+            }
+          ]
+        },
+        {
+          "id": "bloom",
+          "title": "The Bloom",
+          "icon": "iron_bloom",
+          "pos": [
+            2,
+            2
+          ],
+          "deps": [
+            "iron_ore",
+            "bloomery"
+          ],
+          "description": "Lay the ore into the bloomery (8 nuggets, 4 iron-bearing stones or two blocks of ore) and charcoal, then light it. Keep it fed for two minutes and take the glowing bloom out with an empty hand.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "iron_bloom"
+            }
+          ]
+        },
+        {
+          "id": "forge",
+          "title": "Forge",
+          "icon": "forge",
+          "pos": [
+            1,
+            3
+          ],
+          "deps": [
+            "bronze_tool"
+          ],
+          "description": "Eight loose stones round a lump of charcoal or coal make a forge: the only fire hot enough for iron. It burns charcoal or coal.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "forge"
+            }
+          ]
+        },
+        {
+          "id": "wrought_iron",
+          "title": "Wrought Iron",
+          "icon": "iron_ingot",
+          "pos": [
+            3,
+            2
+          ],
+          "deps": [
+            "bloom",
+            "forge",
+            "bronze_anvil"
+          ],
+          "description": "Heat the bloom in the forge, lay it on a bronze anvil and beat it into a bar. Iron cools fast: back to the forge when the hammer stops biting.",
+          "tasks": [
+            {
+              "type": "event",
+              "event": "smithed",
+              "item": "iron_ingot",
+              "text": "Smith an iron ingot"
+            }
+          ]
+        },
+        {
+          "id": "iron_tool",
+          "title": "Iron Age",
+          "icon": "iron_pickaxe",
+          "pos": [
+            4,
+            2
+          ],
+          "deps": [
+            "wrought_iron"
+          ],
+          "final": true,
+          "description": "Smith an iron pickaxe head (two hot ingots) on the bronze anvil and put it on a stick. Iron is only smithed, never cast.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "iron_pickaxe"
+            }
+          ]
+        },
+        {
+          "id": "iron_gear",
+          "title": "Iron Arms",
+          "icon": "iron_chestplate",
+          "pos": [
+            5,
+            3
+          ],
+          "deps": [
+            "iron_tool"
+          ],
+          "description": "An iron breastplate and an iron spear.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "iron_chestplate"
+            },
+            {
+              "type": "item",
+              "item": "iron_spear"
+            }
+          ],
+          "optional": true
+        }
       ]
     },
     {
@@ -333,83 +2241,769 @@
       "icon": "steel_pickaxe",
       "description": "Fire-brick, steam and coal turn iron into steel, and steel into machines that crush, drive and carry (ADR 0097, 0099, 0100).",
       "quests": [
-        {"id": "boiler", "title": "Small Boiler", "icon": "small_boiler", "pos": [1, 1], "deps": ["iron_tool"],
-         "description": "A small boiler turns water and fuel into steam. Pipe the steam to the machines that need it.",
-         "tasks": [{"type": "item", "item": "small_boiler"}]},
-        {"id": "steam_hammer", "title": "Steam Hammer", "icon": "steam_hammer", "pos": [2, 0], "deps": ["boiler"], "optional": true,
-         "description": "An anvil that strikes by itself while a boiler feeds it steam over bronze pipes.",
-         "tasks": [{"type": "item", "item": "steam_hammer"}]},
-        {"id": "fire_brick", "title": "Fire Brick", "icon": "fire_brick", "pos": [1, 3], "deps": ["iron_tool"],
-         "description": "Fire clay (clay and sand) fired in a pit kiln makes bricks that survive a blast furnace.",
-         "tasks": [{"type": "item", "item": "fire_brick"}]},
-        {"id": "blast_furnace", "title": "Blast Furnace", "icon": "blast_furnace", "pos": [2, 2], "deps": ["fire_brick", "boiler"],
-         "description": "Eight fire bricks round a bronze pipe. Pipe a boiler to it, put coal under it and iron ingots in: it only works while the steam blows.",
-         "tasks": [{"type": "item", "item": "blast_furnace"}]},
-        {"id": "steel", "title": "Steel", "icon": "steel_ingot", "pos": [3, 2], "deps": ["blast_furnace"],
-         "description": "An iron ingot in the blast furnace comes out as steel. Steel is smithed on the anvil like iron.",
-         "tasks": [{"type": "item", "item": "steel_ingot"}]},
-        {"id": "steel_tool", "title": "Steel Pickaxe", "icon": "steel_pickaxe", "pos": [4, 2], "deps": ["steel"],
-         "description": "Smith a steel pickaxe head and put it on a stick at the crafting table. The fastest pick, and the deep ores need it.",
-         "tasks": [{"type": "item", "item": "steel_pickaxe"}]},
-        {"id": "crusher", "title": "Ore Crusher", "icon": "ore_crusher", "pos": [5, 1], "deps": ["steel_tool"],
-         "description": "Steel plates, iron and a bronze pipe make a crusher: a block of ore becomes two crushed ore, worth as much in the fire.",
-         "tasks": [{"type": "item", "item": "ore_crusher"}]},
-        {"id": "turbine", "title": "Steam Turbine", "icon": "steam_turbine", "pos": [5, 3], "deps": ["steel_tool"],
-         "description": "Copper wire round a steel frame turns steam into power.",
-         "tasks": [{"type": "item", "item": "steam_turbine"}]},
-        {"id": "ore_train", "title": "The Ore Train", "icon": "minecart", "pos": [6, 2], "deps": ["crusher", "turbine"], "final": true,
-         "description": "Rails, hoppers and a minecart carry ore from the mine to the machines without a hand on it.",
-         "tasks": [{"type": "item", "item": "minecart"}, {"type": "item", "item": "hopper"}, {"type": "item", "item": "rail"}]},
-        {"id": "steam_kit", "title": "Steam Fitter", "icon": "wrench", "pos": [0, 0], "deps": ["iron_tool"], "optional": true,
-         "description": "An iron rod on a stick makes a wrench; leather, glass and bronze make goggles; an apron keeps the sparks off.",
-         "tasks": [{"type": "item", "item": "wrench"}, {"type": "item", "item": "goggles"}, {"type": "item", "item": "leather_apron"}]},
-        {"id": "steam_sieve", "title": "Steam Sieve", "icon": "steam_sieve", "pos": [1, 0], "deps": ["boiler"], "optional": true,
-         "description": "A sieve in an iron frame with a bronze pipe shakes gravel by itself while the boiler feeds it.",
-         "tasks": [{"type": "item", "item": "steam_sieve"}]},
-        {"id": "water_tank", "title": "Water Tank", "icon": "water_tank", "pos": [3, 0], "deps": ["boiler"], "optional": true,
-         "description": "Iron plates round a bronze pipe: a boiler on the same pipes drinks from it and never runs dry.",
-         "tasks": [{"type": "item", "item": "water_tank"}]},
-        {"id": "steel_boiler", "title": "Steel Boiler", "icon": "steel_boiler", "pos": [4, 0], "deps": ["steel", "water_tank"], "optional": true,
-         "description": "Steel plates over a fire-brick firebox build steam two and a half times as fast, and a safety valve lets it off before it bursts.",
-         "tasks": [{"type": "item", "item": "steel_boiler"}]},
-        {"id": "miners_helmet", "title": "Miner's Helmet", "icon": "miners_helmet", "pos": [4, 4], "deps": ["steel"], "optional": true,
-         "description": "An iron cap with a geode crystal behind a ground glass lens lights the way wherever you look.",
-         "tasks": [{"type": "item", "item": "miners_helmet"}]},
-        {"id": "backpack", "title": "Traveler's Backpack", "icon": "travelers_backpack", "pos": [6, 4], "deps": ["iron_tool"], "optional": true,
-         "description": "A leather bag on an iron frame: worn, it carries far more than the bag alone.",
-         "tasks": [{"type": "item", "item": "travelers_backpack"}]},
-        {"id": "surveyor", "title": "Surveyor's Stake", "icon": "surveyors_stake", "pos": [2, 4], "deps": ["iron_tool"], "optional": true,
-         "description": "Iron, copper wire and a lens: drive one in to mark a place on the map.",
-         "tasks": [{"type": "item", "item": "surveyors_stake"}]},
-        {"id": "steam_drill", "title": "Steam Drill", "icon": "steam_drill", "pos": [4, 3], "deps": ["steel_tool"], "optional": true,
-         "description": "A steel pick head on gears and a steam cell digs two and a half times as fast as the pick.",
-         "tasks": [{"type": "item", "item": "steam_drill"}]},
-        {"id": "boiler_suit", "title": "Boiler Suit", "icon": "boiler_suit", "pos": [3, 4], "deps": ["steel"], "optional": true,
-         "description": "Leather over a steel plate: a burst boiler hurts half as much.",
-         "tasks": [{"type": "item", "item": "boiler_suit"}]},
-        {"id": "jetpack", "title": "Jetpack", "icon": "jetpack", "pos": [7, 3], "deps": ["steel_tool"], "optional": true,
-         "description": "A compressor fills the steam cells of a jetpack with air; worn on the back it lifts you.",
-         "tasks": [{"type": "item", "item": "compressor"}, {"type": "item", "item": "jetpack"}]},
-        {"id": "belts", "title": "Belts and Chutes", "icon": "belt", "pos": [7, 1], "deps": ["ore_train"], "optional": true,
-         "description": "Belts carry what a hopper pushes one block at a time; chutes drop it down; a chest cart rides the rails full.",
-         "tasks": [{"type": "item", "item": "belt"}, {"type": "item", "item": "chute"}, {"type": "item", "item": "chest_cart"}]}
+        {
+          "id": "boiler",
+          "title": "Small Boiler",
+          "icon": "small_boiler",
+          "pos": [
+            1,
+            1
+          ],
+          "deps": [
+            "iron_tool"
+          ],
+          "description": "A small boiler turns water and fuel into steam. Pipe the steam to the machines that need it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "small_boiler"
+            }
+          ]
+        },
+        {
+          "id": "steam_hammer",
+          "title": "Steam Hammer",
+          "icon": "steam_hammer",
+          "pos": [
+            2,
+            0
+          ],
+          "deps": [
+            "boiler"
+          ],
+          "optional": true,
+          "description": "An anvil that strikes by itself while a boiler feeds it steam over bronze pipes.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steam_hammer"
+            }
+          ]
+        },
+        {
+          "id": "fire_brick",
+          "title": "Fire Brick",
+          "icon": "fire_brick",
+          "pos": [
+            1,
+            3
+          ],
+          "deps": [
+            "iron_tool"
+          ],
+          "description": "Fire clay (clay and sand) fired in a pit kiln makes bricks that survive a blast furnace.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "fire_brick"
+            }
+          ]
+        },
+        {
+          "id": "blast_furnace",
+          "title": "Blast Furnace",
+          "icon": "blast_furnace",
+          "pos": [
+            2,
+            2
+          ],
+          "deps": [
+            "fire_brick",
+            "boiler"
+          ],
+          "description": "Eight fire bricks round a bronze pipe. Pipe a boiler to it, put coal under it and iron ingots in: it only works while the steam blows.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "blast_furnace"
+            }
+          ]
+        },
+        {
+          "id": "steel",
+          "title": "Steel",
+          "icon": "steel_ingot",
+          "pos": [
+            3,
+            2
+          ],
+          "deps": [
+            "blast_furnace"
+          ],
+          "description": "An iron ingot in the blast furnace comes out as steel. Steel is smithed on the anvil like iron.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steel_ingot"
+            }
+          ]
+        },
+        {
+          "id": "steel_tool",
+          "title": "Steel Pickaxe",
+          "icon": "steel_pickaxe",
+          "pos": [
+            4,
+            2
+          ],
+          "deps": [
+            "steel"
+          ],
+          "description": "Smith a steel pickaxe head and put it on a stick at the crafting table. The fastest pick, and the deep ores need it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steel_pickaxe"
+            }
+          ]
+        },
+        {
+          "id": "crusher",
+          "title": "Ore Crusher",
+          "icon": "ore_crusher",
+          "pos": [
+            5,
+            1
+          ],
+          "deps": [
+            "steel_tool"
+          ],
+          "description": "Steel plates, iron and a bronze pipe make a crusher: a block of ore becomes two crushed ore, worth as much in the fire.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "ore_crusher"
+            }
+          ]
+        },
+        {
+          "id": "turbine",
+          "title": "Steam Turbine",
+          "icon": "steam_turbine",
+          "pos": [
+            5,
+            3
+          ],
+          "deps": [
+            "steel_tool"
+          ],
+          "description": "Copper wire round a steel frame turns steam into power.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steam_turbine"
+            }
+          ]
+        },
+        {
+          "id": "ore_train",
+          "title": "The Ore Train",
+          "icon": "minecart",
+          "pos": [
+            6,
+            2
+          ],
+          "deps": [
+            "crusher",
+            "turbine"
+          ],
+          "final": true,
+          "description": "Rails, hoppers and a minecart carry ore from the mine to the machines without a hand on it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "minecart"
+            },
+            {
+              "type": "item",
+              "item": "hopper"
+            },
+            {
+              "type": "item",
+              "item": "rail"
+            }
+          ]
+        },
+        {
+          "id": "steam_kit",
+          "title": "Steam Fitter",
+          "icon": "wrench",
+          "pos": [
+            0,
+            0
+          ],
+          "deps": [
+            "iron_tool"
+          ],
+          "description": "An iron rod on a stick makes a wrench; leather, glass and bronze make goggles; an apron keeps the sparks off.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "wrench"
+            },
+            {
+              "type": "item",
+              "item": "goggles"
+            },
+            {
+              "type": "item",
+              "item": "leather_apron"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "steam_sieve",
+          "title": "Steam Sieve",
+          "icon": "steam_sieve",
+          "pos": [
+            1,
+            0
+          ],
+          "deps": [
+            "boiler"
+          ],
+          "description": "A sieve in an iron frame with a bronze pipe shakes gravel by itself while the boiler feeds it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steam_sieve"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "water_tank",
+          "title": "Water Tank",
+          "icon": "water_tank",
+          "pos": [
+            3,
+            0
+          ],
+          "deps": [
+            "boiler"
+          ],
+          "description": "Iron plates round a bronze pipe: a boiler on the same pipes drinks from it and never runs dry.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "water_tank"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "steel_boiler",
+          "title": "Steel Boiler",
+          "icon": "steel_boiler",
+          "pos": [
+            4,
+            0
+          ],
+          "deps": [
+            "steel",
+            "water_tank"
+          ],
+          "description": "Steel plates over a fire-brick firebox build steam two and a half times as fast, and a safety valve lets it off before it bursts.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steel_boiler"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "steel_tools",
+          "title": "Steel Tools",
+          "icon": "steel_axe",
+          "pos": [
+            3,
+            3
+          ],
+          "deps": [
+            "steel_tool"
+          ],
+          "description": "After the pickaxe, smith the rest of the set: a steel axe, saw and hammer.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steel_axe"
+            },
+            {
+              "type": "item",
+              "item": "steel_saw"
+            },
+            {
+              "type": "item",
+              "item": "steel_hammer"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "boiler_suit",
+          "title": "Boiler Suit",
+          "icon": "boiler_suit",
+          "pos": [
+            2,
+            3
+          ],
+          "deps": [
+            "steel"
+          ],
+          "description": "Leather over a steel plate: a burst boiler hurts half as much.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "boiler_suit"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "steel_armour",
+          "title": "Steel Armour",
+          "icon": "steel_chestplate",
+          "pos": [
+            2,
+            4
+          ],
+          "deps": [
+            "boiler_suit"
+          ],
+          "description": "After the suit, full plate: helmet, breastplate and boots of steel, the best armour there is.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steel_helmet"
+            },
+            {
+              "type": "item",
+              "item": "steel_chestplate"
+            },
+            {
+              "type": "item",
+              "item": "steel_boots"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "steam_drill",
+          "title": "Steam Drill",
+          "icon": "steam_drill",
+          "pos": [
+            4,
+            3
+          ],
+          "deps": [
+            "steel_tool"
+          ],
+          "description": "A steel pick head on gears and a steam cell digs two and a half times as fast as the pick.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steam_drill"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "miners_helmet",
+          "title": "Miner's Helmet",
+          "icon": "miners_helmet",
+          "pos": [
+            4,
+            4
+          ],
+          "deps": [
+            "steel"
+          ],
+          "description": "An iron cap with a geode crystal behind a ground glass lens lights the way wherever you look.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "miners_helmet"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "surveyor",
+          "title": "Surveyor's Stake",
+          "icon": "surveyors_stake",
+          "pos": [
+            1,
+            5
+          ],
+          "deps": [
+            "iron_tool"
+          ],
+          "description": "Iron, copper wire and a lens: drive one in to mark a place on the map.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "surveyors_stake"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "backpack",
+          "title": "Traveler's Backpack",
+          "icon": "travelers_backpack",
+          "pos": [
+            6,
+            4
+          ],
+          "deps": [
+            "iron_tool"
+          ],
+          "description": "A leather bag on an iron frame: worn, it carries far more than the bag alone.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "travelers_backpack"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "jetpack",
+          "title": "Jetpack",
+          "icon": "jetpack",
+          "pos": [
+            7,
+            3
+          ],
+          "deps": [
+            "steel_tool"
+          ],
+          "description": "A compressor fills the steam cells of a jetpack with air; worn on the back it lifts you.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "compressor"
+            },
+            {
+              "type": "item",
+              "item": "jetpack"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "belts",
+          "title": "Belts and Chutes",
+          "icon": "belt",
+          "pos": [
+            7,
+            1
+          ],
+          "deps": [
+            "ore_train"
+          ],
+          "description": "Belts carry what a hopper pushes one block at a time; chutes drop it down; a chest cart rides the rails full.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "belt"
+            },
+            {
+              "type": "item",
+              "item": "chute"
+            },
+            {
+              "type": "item",
+              "item": "chest_cart"
+            }
+          ],
+          "optional": true
+        }
       ]
     },
     {
       "id": "electrical_age",
       "title": "Electrical Age",
-      "icon": "copper_cable",
-      "description": "Copper wire round a steam turbine makes power, and cable carries it to machines that need no fire (ADR 0113).",
+      "icon": "primitive_circuit",
+      "description": "The turbine's power runs over copper cables into machines built of hulls, motors and circuits. Tier 1 is slow and dear: rubber from tar, boards and vacuum tubes by hand, and the first lathe is a relief (ADR 0113).",
       "quests": [
-        {"id": "copper_wire", "title": "Copper Wire", "icon": "copper_wire", "pos": [1, 1], "deps": ["turbine"],
-         "description": "Hammer a copper ingot on the anvil into thin wire.",
-         "tasks": [{"type": "item", "item": "copper_wire"}]},
-        {"id": "copper_cable", "title": "Copper Cable", "icon": "copper_cable", "pos": [2, 1], "deps": ["copper_wire"],
-         "description": "Wire wrapped in hide carries power block to block. Lay it from the turbine to the machine.",
-         "tasks": [{"type": "item", "item": "copper_cable", "count": 6}]},
-        {"id": "electric_furnace", "title": "Electric Furnace", "icon": "electric_furnace", "pos": [3, 1], "deps": ["copper_cable"], "final": true,
-         "description": "A furnace in iron plates with a copper winding smelts without fuel while the cable brings it power.",
-         "tasks": [{"type": "item", "item": "electric_furnace"}]}
+        {
+          "id": "rubber",
+          "title": "Rubber",
+          "icon": "rubber",
+          "pos": [
+            1,
+            1
+          ],
+          "deps": [
+            "turbine"
+          ],
+          "description": "Knead birch tar with sulfur and cure it in a furnace. Everything electrical is wrapped in it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "rubber"
+            }
+          ]
+        },
+        {
+          "id": "insulated_wire",
+          "title": "Insulated Wire",
+          "icon": "insulated_wire",
+          "pos": [
+            2,
+            0
+          ],
+          "deps": [
+            "rubber"
+          ],
+          "description": "Copper wire in a rubber sleeve.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "insulated_wire"
+            }
+          ]
+        },
+        {
+          "id": "coated_board",
+          "title": "Coated Board",
+          "icon": "coated_board",
+          "pos": [
+            2,
+            2
+          ],
+          "deps": [
+            "rubber"
+          ],
+          "description": "A plank sealed in rubber: the first circuit board.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "coated_board"
+            }
+          ]
+        },
+        {
+          "id": "vacuum_tube",
+          "title": "Vacuum Tube",
+          "icon": "vacuum_tube",
+          "pos": [
+            3,
+            0
+          ],
+          "deps": [
+            "insulated_wire"
+          ],
+          "description": "Glass over a copper wire on an iron rod: the first switch.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "vacuum_tube"
+            }
+          ]
+        },
+        {
+          "id": "primitive_circuit",
+          "title": "Primitive Circuit",
+          "icon": "primitive_circuit",
+          "pos": [
+            4,
+            1
+          ],
+          "deps": [
+            "vacuum_tube",
+            "coated_board"
+          ],
+          "description": "Two tubes and a resistor wired on a coated board. Every machine wants one or two; make them in batches.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "primitive_circuit"
+            }
+          ]
+        },
+        {
+          "id": "machine_hull",
+          "title": "Machine Hull",
+          "icon": "machine_hull",
+          "pos": [
+            3,
+            3
+          ],
+          "deps": [
+            "insulated_wire"
+          ],
+          "description": "Eight iron plates round a cable: the box a machine is built in.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "machine_hull"
+            }
+          ]
+        },
+        {
+          "id": "electric_motor",
+          "title": "Electric Motor",
+          "icon": "electric_motor",
+          "pos": [
+            4,
+            3
+          ],
+          "deps": [
+            "machine_hull"
+          ],
+          "description": "Wire wound round an iron core; screws come from a rod on the lathe, or hand-cut the first ones.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "electric_motor"
+            }
+          ]
+        },
+        {
+          "id": "first_machine",
+          "title": "The First Machine",
+          "icon": "lathe",
+          "pos": [
+            5,
+            2
+          ],
+          "deps": [
+            "primitive_circuit",
+            "electric_motor"
+          ],
+          "description": "A lathe, a bending press or a wiremill on the cables. Rods, plates and wire now come from the machine, not the anvil.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "lathe"
+            }
+          ],
+          "final": true
+        },
+        {
+          "id": "electric_furnace",
+          "title": "Electric Furnace",
+          "icon": "electric_furnace",
+          "pos": [
+            5,
+            0
+          ],
+          "deps": [
+            "primitive_circuit"
+          ],
+          "description": "A furnace that burns power instead of coal.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "electric_furnace"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "macerator",
+          "title": "Macerator",
+          "icon": "macerator",
+          "pos": [
+            6,
+            1
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "Grinds a block of ore into three crushed ore, where the steam crusher gave two.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "macerator"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "alloy_smelter",
+          "title": "Alloy Smelter",
+          "icon": "alloy_smelter",
+          "pos": [
+            6,
+            2
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "Bronze and steel straight from their metals, without a crucible or a blast furnace.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "alloy_smelter"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "assembler",
+          "title": "Assembler",
+          "icon": "assembler",
+          "pos": [
+            6,
+            3
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "Builds circuits two at a time and motors from fewer parts.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "assembler"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "battery_box",
+          "title": "Battery Box",
+          "icon": "battery_box",
+          "pos": [
+            6,
+            4
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "Stores the turbine's power for when the boiler is cold, and gives it back at night.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "battery_box"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "electric_lamp",
+          "title": "Electric Lamp",
+          "icon": "electric_lamp",
+          "pos": [
+            7,
+            4
+          ],
+          "deps": [
+            "battery_box"
+          ],
+          "description": "Light without fire: glass over a wire on an iron rod, lit from the cables.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "electric_lamp"
+            }
+          ],
+          "optional": true
+        }
       ]
     }
   ]

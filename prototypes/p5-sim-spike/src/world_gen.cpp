@@ -1202,6 +1202,62 @@ bool WorldGen::big_cave_possible(int x0, int y0, int z0, int x1, int y1, int z1,
 
 // Geodes: 1 in 9 cells of 96 m (~12 per 10 km^2), a hollow 3-6 m across, 25-90 m under the ground and
 // never below the lava line. The radius covers the hollow, its crystal lining and the basalt shell.
+bool WorldGen::conduit_at_cell(int cx, int cz, Conduit &out) const {
+    if (variant_[VAR_CAVES] == 0) return false;
+    const uint32_t h = hash3(cx, cz, seed_ + 5111);
+    if (h % 5 >= 2) return false;   // 40 % of cells: ~6 per km^2
+    out.kind = ((h >> 3) & 3) == 0 ? CONDUIT_MAGMA : CONDUIT_AQUIFER;   // one in four carries magma
+    const int margin = 64;
+    out.x[0] = (float)(cx * CONDUIT_CELL + margin) + (float)((h >> 12) & 255) / 255.0f * (float)(CONDUIT_CELL - 2 * margin);
+    out.z[0] = (float)(cz * CONDUIT_CELL + margin) + (float)((h >> 20) & 255) / 255.0f * (float)(CONDUIT_CELL - 2 * margin);
+    const Column c = column_base((int)out.x[0], (int)out.z[0], false);
+    if (c.height <= sea_ + 4) return false;   // not under the sea
+    // the chamber: aquifers 70-134 m down, magma 120-184 m, always above the lava sea (sea - 180)
+    const float depth = (out.kind == CONDUIT_MAGMA ? 240.0f : 140.0f) + (float)((h >> 5) & 127);
+    out.y[0] = std::max((float)c.height - depth, (float)(sea_ - 160));
+    if (out.y[0] < 40.0f) return false;
+    out.r = 2.0f + (float)((h >> 28) & 7) * 0.2f;      // tube 1-1.7 m
+    out.src_r = 9.0f + (float)((h >> 8) & 7);          // chamber 4.5-8 m
+    float a = (float)(hash3(cz, cx, seed_ + 5112) & 1023) / 1024.0f * 6.2831853f;
+    for (int i = 1; i <= CONDUIT_SEGS; i++) {
+        // each segment 40-72 m long, bending up to a radian, rising 4-11 m: the tail ends 4-110 m under the
+        // chamber's ground, so a conduit may seep out on a valley floor (a spring, a lava seep)
+        const uint32_t hs = hash3(cx, cz, seed_ + 5200 + i);
+        a += ((float)(hs & 255) / 255.0f - 0.5f) * 2.0f;
+        const float len = 80.0f + (float)((hs >> 8) & 63);
+        out.x[i] = out.x[i - 1] + std::cos(a) * len;
+        out.z[i] = out.z[i - 1] + std::sin(a) * len;
+        out.y[i] = out.y[i - 1] + 8.0f + (float)((hs >> 14) & 15);
+    }
+    return true;
+}
+
+int WorldGen::conduits_near(int x, int z, Conduit *out, int max) const {
+    const int cx = floor_div(x, CONDUIT_CELL), cz = floor_div(z, CONDUIT_CELL);
+    int n = 0;
+    for (int dz = -CONDUIT_RINGS; dz <= CONDUIT_RINGS && n < max; dz++)
+        for (int dx = -CONDUIT_RINGS; dx <= CONDUIT_RINGS && n < max; dx++)
+            if (conduit_at_cell(cx + dx, cz + dz, out[n])) n++;
+    return n;
+}
+
+float WorldGen::conduit_dist(float x, float y, float z, int &kind, float &src_dist) const {
+    Conduit cs[(2 * CONDUIT_RINGS + 1) * (2 * CONDUIT_RINGS + 1)];
+    const int n = conduits_near((int)x, (int)z, cs, (int)(sizeof(cs) / sizeof(cs[0])));
+    float best = 1e9f;
+    kind = -1;
+    src_dist = 1e9f;
+    for (int i = 0; i < n; i++) {
+        const Conduit &c = cs[i];
+        const float sd = std::sqrt((x - c.x[0]) * (x - c.x[0]) + (y - c.y[0]) * (y - c.y[0]) + (z - c.z[0]) * (z - c.z[0])) - c.src_r;
+        float d = sd;
+        for (int s = 0; s < CONDUIT_SEGS; s++)
+            d = std::min(d, seg_dist3(x, y, z, c.x[s], c.y[s], c.z[s], c.x[s + 1], c.y[s + 1], c.z[s + 1]) - c.r);
+        if (d < best) { best = d; kind = c.kind; src_dist = sd; }
+    }
+    return best;
+}
+
 bool WorldGen::geode_at_cell(int cx, int cz, Geode &out) const {
     if (variant_[VAR_CAVES] == 0) return false;
     const uint32_t h = hash3(cx, cz, seed_ + 4111);
@@ -1661,6 +1717,23 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                     if (!geode_at_cell(cx0 + dx, cz0 + dz, g)) continue;
                     long d2 = (long)(g.x - x) * (long)(g.x - x) + (long)(g.z - z) * (long)(g.z - z);
                     if (best_d2 < 0 || d2 < best_d2) { best_d2 = d2; best = Vector3i((int)g.x, (int)(g.y - g.r * 0.4f), (int)g.z); }
+                }
+            if (best_d2 >= 0) break;
+        }
+        return best;
+    }
+    // Conduits (ADR 0110): "aquifer" / "magma_conduit" -> the top of the nearest chamber of that kind
+    if (kind == "aquifer" || kind == "magma_conduit") {
+        const int want = kind == "aquifer" ? CONDUIT_AQUIFER : CONDUIT_MAGMA;
+        const int cx0 = floor_div(x, CONDUIT_CELL), cz0 = floor_div(z, CONDUIT_CELL);
+        for (int ring = 0; ring <= max_radius / CONDUIT_CELL + 1; ring++) {
+            for (int dz = -ring; dz <= ring; dz++)
+                for (int dx = -ring; dx <= ring; dx++) {
+                    if (std::max(std::abs(dx), std::abs(dz)) != ring) continue;
+                    Conduit c;
+                    if (!conduit_at_cell(cx0 + dx, cz0 + dz, c) || c.kind != want) continue;
+                    const long d2 = (long)(c.x[0] - x) * (long)(c.x[0] - x) + (long)(c.z[0] - z) * (long)(c.z[0] - z);
+                    if (best_d2 < 0 || d2 < best_d2) { best_d2 = d2; best = Vector3i((int)c.x[0], (int)(c.y[0] + c.src_r) - 3, (int)c.z[0]); }
                 }
             if (best_d2 >= 0) break;
         }

@@ -10,6 +10,29 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Quality of life: toggles, inventory gestures, status (2026-11-02, ADR 0130)
+
+- [ ] Settings > Controls: turn on Toggle sprint and Toggle sneak. Ctrl starts and stops sprinting, Shift starts
+      and stops sneaking (a toast says which); off again, both are held keys as before.
+- [ ] Alt + mouse wheel in game: the hotbar swaps with the inventory rows (wheel down brings the first row up).
+      A column with a favourite slot (Alt + click in the inventory) does not move.
+- [ ] In the inventory, pick up part of a stack, then double click a slot: every same item jumps onto the cursor.
+      Shift + double click a stack: all of that item moves to the other side (hotbar / main, or into an open chest).
+- [ ] Settings > Interface: Coordinates and compass shows "X Y Z m  NE 45°" top left (gone while F3 is open).
+- [ ] Take a hit (fall a bit): the screen edge flashes red, the lost hearts blink. Stand in snow or water until
+      the thermometer goes blue: frosty edges; near lava or in a desert noon: orange edges. Low health shakes the
+      hearts, low food shakes the food row. "Hurt, cold and heat effects" off removes it all.
+- [ ] Every 30 s "Saving world..." shows bottom left for a moment.
+
+## Playtest shortcuts (2026-11-02)
+
+- [ ] `/totest` (or F4 > "Open items") lists the newest unticked items of this list; `/totest 20` shows more.
+- [ ] `/scenario river` (F4 > To-test scenarios) takes you to a river in creative with buckets, a crater rod, the
+      laser and lava bombs (`/kit water`); `cave_stream` does the same and names the nearest cave to dig toward;
+      `lit_station` sets night and puts down a table, chest and a burning furnace; `ledge` stands you in survival
+      on a 6 m stone platform 3 m up to try Ctrl sprint and Shift stopping at the edge.
+- [ ] `/stations` places all three again (the chest and furnace said "No room"), on the real ground, furnace lit.
+
 ## Faster start, near ground first (2026-10-29, ADR 0108)
 
 - [ ] Create a new world: the loading screen lifts after 2-3 s (was ~9 s at 72 m, ~20 s at 100 m) with the ground

@@ -17,7 +17,7 @@ const VIEW_M := Settings.VIEW_CHOICES_M   # ADR 0073: the one box of full-detail
 ## Keys that cannot be rebound (the rest are rows above them, plan item D11).
 const KEYS := [["Space twice", "fly (creative)"], ["G", "world tools panel: brush, build modes, keys"], ["Ctrl + wheel", "brush size, laser width"], ["B / Shift + B", "brush shape: next / previous"],
 	["Shift + right click", "paint the brush with the held block (creative)"], ["Ctrl + Q", "drop the stack"],
-	["1-9, wheel", "hotbar"], ["R / U / A", "recipes / uses / bookmark (in the inventory)"], ["Alt + click", "favourite slot (in the inventory)"],
+	["1-9, wheel", "hotbar"], ["Alt + wheel", "turn the inventory rows into the hotbar"], ["Double click", "gather a stack (Shift: move all of it)"], ["R / U / A", "recipes / uses / bookmark (in the inventory)"], ["Alt + click", "favourite slot (in the inventory)"],
 	["/", "commands"], ["F3 / F5", "debug screen / camera view"], ["F2 / F9", "screenshot / bug report"], ["F4 / F6", "playtest menu / tuning panel"], ["Esc", "pause menu"]]
 var _key_buttons := {}     # action -> Button
 var _rebinding := ""       # the action waiting for a key
@@ -45,6 +45,10 @@ const MINIMAP_SIZES := [0, 120, 160, 220, 300]
 var _sens: HSlider
 var _sens_label: Label
 var _invert: CheckBox
+var _toggle_sprint: CheckBox
+var _toggle_sneak: CheckBox
+var _coords: CheckBox
+var _effects: CheckBox
 var _volumes := {}   # Settings key -> HSlider
 var _syncing := false
 
@@ -61,6 +65,7 @@ func _ready() -> void:
 	tabs.add_child(_video_tab())
 	tabs.add_child(_audio_tab())
 	tabs.add_child(_controls_tab())
+	tabs.add_child(_interface_tab())
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_END
 	box.add_child(row)
@@ -216,6 +221,20 @@ func _video_tab() -> Control:
 	return g
 
 
+## HUD extras (ADR 0130), each its own switch.
+func _interface_tab() -> Control:
+	var g := _grid("Interface")
+	_coords = _check(func() -> void:
+		Settings.hud_coords = _coords.button_pressed
+		_edited())
+	_row(g, "Coordinates and compass", _coords)
+	_effects = _check(func() -> void:
+		Settings.screen_effects = _effects.button_pressed
+		_edited())
+	_row(g, "Hurt, cold and heat effects", _effects)
+	return g
+
+
 ## Master, music, effects and interface volume (ADR 0044), 0-100 %.
 func _audio_tab() -> Control:
 	var g := _grid("Audio")
@@ -273,6 +292,14 @@ func _controls_tab() -> Control:
 		Settings.invert_y = _invert.button_pressed
 		_edited())
 	_row(g, "Invert mouse Y", _invert)
+	_toggle_sprint = _check(func() -> void:
+		Settings.toggle_sprint = _toggle_sprint.button_pressed
+		_edited())
+	_row(g, "Toggle sprint", _toggle_sprint)
+	_toggle_sneak = _check(func() -> void:
+		Settings.toggle_sneak = _toggle_sneak.button_pressed
+		_edited())
+	_row(g, "Toggle sneak", _toggle_sneak)
 	v.add_child(UiStyle.label("Keys (click one, then press the new key or mouse button; Esc cancels)", 17, UiStyle.ACCENT))
 	var binds := GridContainer.new()
 	binds.columns = 4
@@ -364,6 +391,10 @@ func sync_from_settings() -> void:
 	_sens.value = Settings.mouse_sensitivity / 0.0025
 	_sens_label.text = "%d%%" % roundi(_sens.value * 100.0)
 	_invert.button_pressed = Settings.invert_y
+	_toggle_sprint.button_pressed = Settings.toggle_sprint
+	_toggle_sneak.button_pressed = Settings.toggle_sneak
+	_coords.button_pressed = Settings.hud_coords
+	_effects.button_pressed = Settings.screen_effects
 	_refresh_keys()
 	for k in _volumes:
 		_volumes[k].value = Settings.get(k)

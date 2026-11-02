@@ -21,6 +21,7 @@ var fill_ball: Callable       # (Vector3 centre, float radius in voxels, materia
 var rng := RandomNumberGenerator.new()
 var dirty := false
 var stats := {"planted": 0, "grown": 0, "lost": 0, "blocked": 0}
+var last_block := ""          # why the last grow failed (/sapling grow says it)
 
 
 static func load_default() -> Saplings:
@@ -86,7 +87,7 @@ func tick(dt: float) -> Array:
 
 
 ## Grows `kind`'s tree with its trunk's foot on p. False (nothing changed) when part of the tree is
-## not simulated or the trunk's column holds anything but air, plants or the sapling.
+## not simulated or the trunk's column holds anything but air, plants, the sapling or (its lowest 0.5 m) soil.
 func grow(p: Vector3i, kind: String) -> bool:
 	var t: Dictionary = trees[kind]
 	var w := maxi(1, roundi(Settings.m2v(float(t["trunk_m"]))))
@@ -95,6 +96,7 @@ func grow(p: Vector3i, kind: String) -> bool:
 	var base := p - Vector3i(w / 2, 0, w / 2)
 	var c := ceili(crown)
 	if get_voxel.call(base - Vector3i(c, 0, c)) < 0 or get_voxel.call(base + Vector3i(w + c, h + c, w + c)) < 0:
+		last_block = "%s at %s: not all simulated" % [kind, p]
 		return false
 	var defs := GameMaterials.defs()
 	for y in range(1, h):   # the sapling's own layer is the ground it replaces
@@ -103,8 +105,12 @@ func grow(p: Vector3i, kind: String) -> bool:
 				var v: int = get_voxel.call(base + Vector3i(x, y, z))
 				if v < 0:
 					return false
-				if v != GameMaterials.AIR and not (defs[v - 1].get("replaceable", false) or defs[v - 1].has("sapling") or defs[v - 1].has("clutter")):
-					return false
+				if v == GameMaterials.AIR or defs[v - 1].get("replaceable", false) or defs[v - 1].has("sapling") or defs[v - 1].has("clutter"):
+					continue
+				if y < Settings.BLOCK and GameMaterials.is_soil(v):
+					continue   # a slope: the trunk's foot grows into the hillside
+				last_block = "%s at %s: %s %d voxels up" % [kind, p, GameMaterials.name_of(v) if v > 0 else "unloaded", y]
+				return false
 	var top := Vector3(base) + Vector3(w * 0.5, h, w * 0.5)
 	var leaves := GameMaterials.id_of(t["leaves"])
 	if t.get("crown", "ball") == "cone":

@@ -44,6 +44,8 @@ var _group_of := PackedStringArray()   # material id -> group
 var _particle_sounds := {}     # burst name -> sound
 var _mobs := {}
 var _loop_defs := {}
+var _ambience := {}             # rule name -> {sound, when, tags, not_tags, dry, every_s, dist_m, up_m} (ADR 0120)
+var _biome_tags := {}          # biome name -> tags (data/biomes.json)
 var _music := {}
 var _streams := {}             # file -> AudioStream (loaded on first use)
 var _rng := RandomNumberGenerator.new()
@@ -87,6 +89,12 @@ var _music_player: AudioStreamPlayer
 var _music_wait := -1.0        # seconds until the next track; < 0 not scheduled
 var _music_mode := ""          # "title" / "game" / ""
 var _music_tween: Tween
+var _amb_t := 0.0
+var _amb_next := {}            # ambience rule -> seconds until it may call again
+var _amb_tags: Array = []      # the tags where the listener is (biome, or underground)
+var _amb_phase := "day"
+var _amb_wet := false
+var _wind := 0.0
 
 
 func _ready() -> void:
@@ -224,6 +232,18 @@ func load_dict(data: Dictionary) -> bool:
 			if not _index.has(n):
 				errors.append("music %s: no asset %s" % [pool, n])
 	_loop_defs = data.get("loops", {})
+	_ambience = data.get("ambience", {})
+	_ambience.erase("_doc")
+	for an in _ambience:
+		_check_sound("ambience " + an, String(_ambience[an].get("sound", "")))
+		for w in _ambience[an].get("when", []):
+			if not (w in ["day", "dusk", "night"]):
+				errors.append("ambience %s: unknown time %s" % [an, w])
+	var bf := FileAccess.open("res://data/biomes.json", FileAccess.READ)
+	if bf != null:
+		var bd = JSON.parse_string(bf.get_as_text())
+		for b in (bd.get("biomes", []) if bd is Dictionary else []):
+			_biome_tags[String(b.get("name", ""))] = b.get("tags", [])
 	_loop_mask.resize(256)
 	_loop_mask.fill(0)
 	var ids := {}
@@ -539,6 +559,10 @@ func _process(delta: float) -> void:
 			_loop_t = 0.0
 		_ease_loops(delta)
 		_probe()
+		_amb_t += delta
+		if _amb_t >= 0.5:
+			_ambience_tick(_amb_t)
+			_amb_t = 0.0
 	var ms := (Time.get_ticks_usec() - t0) / 1000.0
 	stats_data["ms_max"] = maxf(stats_data["ms_max"], ms)
 	_ms_sum += ms
@@ -812,6 +836,93 @@ func _set_reverb(v: float) -> void:
 	AudioServer.set_bus_effect_enabled(w, 1, v > 0.02)
 
 
+# ---------------- ambience: birds, insects, night calls, wind (ADR 0120) ----------------
+
+## Twice a second: where the listener is (the biome's tags, or underground), the time of day and the
+## weather pick the ambience rules that may call; each calls at its own random interval, somewhere
+## around the listener. The wind loop follows how exposed the ear is.
+func _ambience_tick(dt: float) -> void:
+	var ear := _listener()
+	if ear == Vector3.INF:
+		return
+	_amb_tags = _tags_here(ear)
+	var cal = main.atmosphere.calendar if main.get("atmosphere") != null else null
+	_amb_phase = day_phase(cal.time, cal.sunrise(), cal.sunset()) if cal != null else "day"
+	var weather: Node = main.get("weather")
+	_amb_wet = weather != null and weather.kind != "clear" and weather.intensity > 0.2
+	var height_m := Settings.v2m(ear.y - float(main.world.generator.gen.height_at(int(ear.x), int(ear.z)))) if main.get("world") != null else 0.0
+	_wind = wind_level(1.0 - _reverb, ear.y, height_m, _amb_tags, _amb_wet)
+	var on := rules_now(_ambience, _amb_tags, _amb_phase, _amb_wet)
+	for an in on:
+		var r: Dictionary = _ambience[an]
+		var every: Array = r.get("every_s", [5, 15])
+		var left: float = _amb_next.get(an, _rng.randf_range(0.0, float(every[1]))) - dt
+		if left <= 0.0:
+			left = _rng.randf_range(float(every[0]), float(every[1]))
+			var dist: Array = r.get("dist_m", [8, 24])
+			var up: Array = r.get("up_m", [0, 4])
+			var a := _rng.randf() * TAU
+			var d := Settings.m2v(_rng.randf_range(float(dist[0]), float(dist[1])))
+			var at := ear + Vector3(cos(a) * d, Settings.m2v(_rng.randf_range(float(up[0]), float(up[1]))), sin(a) * d)
+			if play(String(r["sound"]), at, {"pitch": _rng.randf_range(0.92, 1.08)}):
+				stats_data["ambience_last"] = an
+		_amb_next[an] = left
+	for an in _amb_next.keys():
+		if not (an in on):
+			_amb_next.erase(an)
+	stats_data["ambience"] = {"tags": _amb_tags, "phase": _amb_phase, "wet": _amb_wet, "on": on, "wind": snappedf(_wind, 0.01)}
+
+
+## The listener's biome tags (data/biomes.json), or underground when deep under the surface.
+func _tags_here(ear: Vector3) -> Array:
+	var surv: Node = main.get("survival")
+	if surv != null and surv.underground_m > 4.0:
+		return ["underground"]
+	if main.get("world") == null or main.world.generator == null:
+		return []
+	var info: Dictionary = main.world.generator.gen.column_info(int(ear.x), int(ear.z))
+	return _biome_tags.get(WorldGen.biome_name(int(info.get("biome", 0))), [])
+
+
+## "dusk" for half an hour (game time) around sunrise and sunset, else "day" or "night".
+static func day_phase(time: float, sunrise: float, sunset: float) -> String:
+	if absf(time - sunrise) < 0.02 or absf(time - sunset) < 0.02:
+		return "dusk"
+	return "day" if time > sunrise and time < sunset else "night"
+
+
+## The ambience rules that may call: right time, a wanted tag, no unwanted one, and dry ones not in rain.
+static func rules_now(rules: Dictionary, tags: Array, phase: String, wet: bool) -> Array:
+	var out := []
+	for an in rules:
+		var r: Dictionary = rules[an]
+		if not (phase in r.get("when", ["day", "dusk", "night"])) or (wet and r.get("dry", false)):
+			continue
+		var want: Array = r.get("tags", [])
+		if not want.is_empty() and not want.any(func(t) -> bool: return t in tags):
+			continue
+		if r.get("not_tags", []).any(func(t) -> bool: return t in tags):
+			continue
+		out.append(an)
+	return out
+
+
+## Wind, 0..1: only where the ear is open to the sky, stronger high above the ground and the sea,
+## on mountains, frozen and open land, and in a storm.
+static func wind_level(open: float, ear_y: float, above_ground_m: float, tags: Array, wet: bool) -> float:
+	if "underground" in tags:
+		return 0.0
+	var w := 0.15 + clampf(Settings.v2m(ear_y - Settings.SEA_LEVEL_VOXEL) / 120.0, 0.0, 0.5) + clampf(above_ground_m / 30.0, 0.0, 0.3)
+	for t in ["mountain", "frozen", "open", "coast"]:
+		if t in tags:
+			w += 0.15
+	if "forest" in tags:
+		w -= 0.15
+	if wet:
+		w += 0.2
+	return clampf(w, 0.0, 1.0) * clampf((open - 0.4) / 0.5, 0.0, 1.0)
+
+
 # ---------------- animals ----------------
 
 func _watch_mobs(dt: float) -> void:
@@ -903,6 +1014,10 @@ func _sample_loops() -> void:
 				if d < best:
 					best = d
 					acc["embers"] = [int(_loop_defs["embers"].get("full_hits", 2)), at * int(_loop_defs["embers"].get("full_hits", 2))]
+	if _loop_defs.has("wind") and _wind > 0.0:   # no cells: the exposure sets it (_ambience_tick)
+		var full := int(_loop_defs["wind"].get("full_hits", 100))
+		var n := int(_wind * full)
+		acc["wind"] = [n, (cam + Vector3(0, Settings.m2v(3.0), 0)) * n]
 	for ln in _loop_defs:
 		var a: Array = acc.get(ln, [0, Vector3.ZERO])
 		var lv := clampf(float(a[0]) / float(_loop_defs[ln].get("full_hits", 20)), 0.0, 1.0)

@@ -545,9 +545,20 @@ func _input(event: InputEvent) -> void:
 			if sv != null:
 				player_inv.wheel_move(sv.group, sv.index, event.button_index == MOUSE_BUTTON_WHEEL_DOWN)
 				get_viewport().set_input_as_handled()
+		elif event.button_index == MOUSE_BUTTON_LEFT and event.pressed and event.double_click and _slot_at(event.position) != null:
+			# vanilla double click (ADR 0130): gather the cursor's item from every slot; with shift, move every stack
+			# of the clicked item across. The first click of the pair already ran as a normal click.
+			var sv := _slot_at(event.position)
+			if event.shift_pressed:
+				player_inv.shift_all(sv.group, _last_click_id)
+			else:
+				player_inv.collect_to_cursor()
+			_drag_button = 0
+			get_viewport().set_input_as_handled()
 		elif event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
 			if event.pressed:
 				var sv := _slot_at(event.position)
+				_last_click_id = String(sv.hover_item_id()) if sv != null else ""
 				_drag_button = event.button_index if sv != null else 0
 				_drag_shift = event.shift_pressed
 				_drag_seen = {sv: true}
@@ -564,6 +575,9 @@ func _input(event: InputEvent) -> void:
 			player_inv.drag_place_one(sv.group, sv.index)
 		else:
 			player_inv.drag_collect(sv.group, sv.index)
+
+
+var _last_click_id := ""   # the item in the slot the last press hit: shift + double click moves all of it
 
 
 ## The visible slot (not an output) under a screen position, or null.

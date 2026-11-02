@@ -11,7 +11,10 @@ const GROUND := ["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball
 	"bone", "feather", "bear_hide", "animal_fat", "antler", "pyrite", "red_ochre", "yellow_ochre", "floorstone_flint",
 	"einkorn_seeds", "emmer_seeds", "flax_seeds", "birch_log",
 	# ore-bearing stones above veins and ore mined out of them (ADR 0070)
-	"loose_tin_ore", "loose_iron_ore", "tin_ore", "iron_ore"]
+	"loose_tin_ore", "loose_iron_ore", "tin_ore", "iron_ore",
+	"sulfur",   # mined from sulfur cave crust (mining.json): the electrical age's rubber (ADR 0113)
+	"crystal",  # geodes (ADR 0052): the miner's helmet's lamp
+	"oak_sapling", "brown_mushroom", "blueberry"]   # leaves' drops, wild mushrooms and berry bushes: replanting and meals (ADR 0121)
 const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age", "steam_age", "electrical_age"]
 
 var items: ItemRegistry
@@ -40,7 +43,7 @@ func test_data_loads_clean() -> void:
 		for q in book.chapter_quests(c):
 			if q.get("final", false):
 				finals.append(q["id"])
-	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw", "bronze_tool", "iron_tool", "ore_train", "electric_furnace"])
+	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw", "bronze_tool", "iron_tool", "ore_train", "first_machine"])
 
 
 func test_bad_data_is_reported() -> void:
@@ -61,13 +64,9 @@ func test_every_task_is_reachable_from_ground_pickups() -> void:
 	assert_bool(have.has("copper_pickaxe")).is_true()
 	var start := GROUND.duplicate()
 	start.append_array(StoneAge.WORLD_SOURCES.keys())
-	var mining := MiningTable.load_default()
-	var mined := mining.drops("stone", items.get_def("copper_pickaxe"))
+	var mined := MiningTable.load_default().drops("stone", items.get_def("copper_pickaxe"))
 	assert_str(String(mined.get("id", ""))).is_equal("cobblestone")
 	start.append(mined["id"])
-	var gem := mining.drops("crystal", items.get_def("copper_pickaxe"))   # geodes (ADR 0052): the miner's helmet's lamp
-	assert_str(String(gem.get("id", ""))).is_equal("crystal")
-	start.append(gem["id"])
 	have = recipes.reachable_from(start)
 	for g in start:
 		have[g] = true
@@ -246,14 +245,14 @@ func test_bronze_and_iron_age_walkthrough() -> void:
 	for id in ["tin_nugget", "tin_nugget", "crucible_bronze", "bronze_pickaxe_head", "bronze_ingot", "bronze_ingot",
 			"bronze_pickaxe", "bronze_anvil"]:
 		_give(id)
-	for q in book.chapter_quests("bronze_age"):
+	for q in book.chapter_quests("bronze_age").filter(func(x: Dictionary) -> bool: return not x.get("optional", false)):   # side quests ask for more
 		assert_bool(book.is_done(q["id"])).override_failure_message(q["id"]).is_true()
 	for id in ["loose_iron_ore", "loose_iron_ore", "loose_iron_ore", "loose_iron_ore", "bloomery", "iron_bloom", "forge"]:
 		_give(id)
 	assert_bool(book.is_done("wrought_iron")).is_false()
 	book.note("smithed", "iron_ingot")
 	_give("iron_pickaxe")
-	for q in book.chapter_quests("iron_age"):
+	for q in book.chapter_quests("iron_age").filter(func(x: Dictionary) -> bool: return not x.get("optional", false)):   # side quests ask for more
 		assert_bool(book.is_done(q["id"])).override_failure_message(q["id"]).is_true()
 
 
