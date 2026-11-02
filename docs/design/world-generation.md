@@ -450,3 +450,10 @@ Asked for in bug reports 2026-11-02 18-55-21, 18-57-25, 18-54-25 and 18-49-07.
   2 m, rusted rails on sleepers, a gravel cave-in to squeeze past, two pots at the end and one at the decline's foot
   (loot `mine_pot`: coal, torches, nuggets, worn copper and iron pickaxes, a lantern). Material 234 rusted_rail
   (tile 195, mined for an iron nugget). Hills, forests, taiga, badlands, savanna, plains.
+  Mine pots can also hold rails and, rarely, a minecart.
+
+## Abandoned camps (2026-11-03 overnight)
+- A ruin kind `camp` (shape S_CAMP, no new materials): a ring of cobbles round a bed of ash, a lean-to of two posts,
+  a ridge pole and a leaf roof down to the ground behind the fire (whole strips of thatch gone), two logs to sit on,
+  two pots under the lean-to and one by the far log (loot `camp_pot`: food, cordage, flint, charcoal, torches, a worn
+  flint knife or copper axe, rarely a leather bag). Forests, taiga, plains, savanna, jungle, meadows, highlands, swamp.

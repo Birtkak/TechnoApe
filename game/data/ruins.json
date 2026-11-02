@@ -50,6 +50,13 @@
       "wall": "planks", "trim": "rusted_rail", "floor": "gravel_static", "extra": "gravel_static",
       "pots": 3, "loot": "mine_pot"
     },
+    "camp": {
+      "shape": "camp", "weight": 6,
+      "biomes": ["forest", "taiga", "plains", "shrubland", "savanna", "birch_forest", "old_growth_forest", "snowy_taiga", "jungle", "flower_meadow", "highlands", "swamp"],
+      "half_u_m": [2.5, 3.0], "half_v_m": [2.5, 3.0], "top_m": 2.0, "depth_m": 0.0,
+      "wall": "cobblestone", "trim": "wood", "floor": "ash", "extra": "leaves",
+      "pots": 3, "loot": "camp_pot"
+    },
     "wreck": {
       "shape": "wreck", "weight": 1, "coast": true,
       "biomes": ["beach", "snowy_beach", "stony_shore", "ocean", "mangrove"],

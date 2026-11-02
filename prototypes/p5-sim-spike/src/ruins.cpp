@@ -121,6 +121,12 @@ int pot_spots(const Ruin &r, PotSpot out[4]) {
             y = r.base - mine_d(r) + 1;
             break;
         }
+        case S_CAMP: {   // two under the lean-to, one by the far log
+            const int c[3][2] = {{-1, -2}, {1, -2}, {3, 2}};
+            for (int i = 0; i < 3; i++) { cu[n] = c[i][0]; cv[n] = c[i][1]; n++; }
+            y = r.base;
+            break;
+        }
         case S_WRECK: {
             const int c[3][2] = {{-2, 0}, {-4, 0}, {3, 0}};
             for (int i = 0; i < 3; i++) { cu[n] = c[i][0]; cv[n] = c[i][1]; n++; }
@@ -464,6 +470,35 @@ uint16_t mine(const Prepared &p, const Ctx &c) {
     return TERRAIN;
 }
 
+// An abandoned camp: a ring of stones round a bed of ash, a lean-to of poles and leaves behind it, logs to sit on.
+uint16_t camp(const Prepared &p, const Ctx &c) {
+    const Ruin &r = p.r;
+    if (c.my < r.base || c.fy >= 3.5f) return TERRAIN;
+    // the fire ring: stones 2 voxels high, a few missing, ash inside
+    const float rf = std::sqrt(c.fu * c.fu + c.fv * c.fv);
+    if (rf < 1.3f) {
+        if (rf >= 0.8f) return c.fy < 0.5f && (hash(c.wx >> 1, c.wz >> 1, (int)r.seed + 101) % 5) != 0 ? p.mat[M_WALL] : TERRAIN;
+        return c.fy < 0.25f ? p.mat[M_FLOOR] : AIR;
+    }
+    // the lean-to: a ridge pole 1.5 m up on two posts, a roof of leaves from it down to the ground behind
+    const float rv = -1.8f, gv = -3.6f, ry = 3.0f;
+    if (std::fabs(c.fu) <= 2.25f) {
+        if (std::fabs(std::fabs(c.fu) - 2.0f) < 0.25f && std::fabs(c.fv - rv) < 0.25f && c.fy < ry + 0.25f) return p.mat[M_TRIM];
+        if (std::fabs(c.fv - rv) < 0.25f && std::fabs(c.fy - ry) < 0.25f) return p.mat[M_TRIM];
+        if (c.fv <= rv && c.fv >= gv) {
+            const float roof = ry * (c.fv - gv) / (rv - gv);
+            // whole strips of thatch gone: each strip left still runs from the pole to the ground
+            const bool gone = (hash((int)std::floor(c.fu * 2.0f), 0, (int)r.seed + 103) % 5) == 0;
+            if (!gone && c.fy <= roof + 0.25f && c.fy > roof - 0.6f) return p.mat[M_EXTRA];
+        }
+    }
+    // logs to sit on: one across the front, one along the side
+    const float dy = c.fy - 0.3f;
+    if (std::fabs(c.fu) <= 1.2f && (c.fv - 2.2f) * (c.fv - 2.2f) + dy * dy < 0.12f) return p.mat[M_TRIM];
+    if (c.fv >= -0.5f && c.fv <= 1.5f && (c.fu + 2.4f) * (c.fu + 2.4f) + dy * dy < 0.12f) return p.mat[M_TRIM];
+    return TERRAIN;
+}
+
 uint16_t wreck(const Prepared &p, const Ctx &c) {
     const Ruin &r = p.r;
     const float L = (float)p.U - 0.3f, W = (float)p.V * 0.95f;
@@ -526,6 +561,7 @@ uint16_t voxel(const Prepared &p, int fs, int wx, int wy, int wz, int surf, uint
         case S_SHRINE: m = shrine(p, c); break;
         case S_WRECK: m = wreck(p, c); break;
         case S_MINE: m = mine(p, c); break;
+        case S_CAMP: m = camp(p, c); break;
         default: m = house(p, c); break;
     }
     (void)ground;
