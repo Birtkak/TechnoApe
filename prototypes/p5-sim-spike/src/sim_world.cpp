@@ -125,6 +125,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_cell_budget", "cells"), &SimWorld::set_cell_budget);
     ClassDB::bind_method(D_METHOD("set_liquid_fullness", "on"), &SimWorld::set_liquid_fullness);
     ClassDB::bind_method(D_METHOD("set_column_flow", "on"), &SimWorld::set_column_flow);
+    ClassDB::bind_method(D_METHOD("get_box_bytes", "chunk", "lo", "hi"), &SimWorld::get_box_bytes);
     ClassDB::bind_method(D_METHOD("set_ambient_c", "c", "fill"), &SimWorld::set_ambient_c, DEFVAL(false));
     ClassDB::bind_method(D_METHOD("set_states", "on"), &SimWorld::set_states);
     ClassDB::bind_method(D_METHOD("cell_info", "p"), &SimWorld::cell_info);
@@ -1750,6 +1751,30 @@ void SimWorld::stop_driver() {
 }
 
 // ---------- render feed ----------
+
+PackedByteArray SimWorld::get_box_bytes(Vector3i c, Vector3i lo, Vector3i hi) const {
+    wait_idle();
+    PackedByteArray out;
+    lo = Vector3i(std::clamp(lo.x, 0, CS - 1), std::clamp(lo.y, 0, CS - 1), std::clamp(lo.z, 0, CS - 1));
+    hi = Vector3i(std::clamp(hi.x, lo.x, CS - 1), std::clamp(hi.y, lo.y, CS - 1), std::clamp(hi.z, lo.z, CS - 1));
+    const int sx = hi.x - lo.x + 1, sy = hi.y - lo.y + 1, sz = hi.z - lo.z + 1;
+    out.resize(sx * sy * sz * 2);
+    uint8_t *w = out.ptrw();
+    const int x0 = c.x * CS + lo.x, y0 = c.y * CS + lo.y, z0 = c.z * CS + lo.z;
+    for (int z = 0; z < sz; z++)
+        for (int x = 0; x < sx; x++)
+            for (int y = 0; y < sy; y++) {
+                const Cell &cell = cells_[idx(x0 + x, y0 + y, z0 + z)];
+                const int o = (y + sy * (x + sx * z)) * 2;
+                int v = cell.mat;
+                const int e = cell.pad & 15;
+                if (e && mats_[cell.mat].fluid_slot >= 0 && mats_[cell.mat].cell_type == CELL_LIQUID)
+                    v = FLUID_LEVEL_BASE + mats_[cell.mat].fluid_slot * 8 + (e - 1);
+                w[o] = (uint8_t)(v & 0xFF);
+                w[o + 1] = (uint8_t)(v >> 8);
+            }
+    return out;
+}
 
 PackedByteArray SimWorld::get_chunk_bytes(Vector3i c, int p_depth_bytes) const {
     wait_idle();

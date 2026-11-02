@@ -102,11 +102,13 @@ func _cell_line(p: Vector3) -> String:
 		return ""
 	var mat := int(info.get("material", 0))
 	var mname := "air" if mat == 0 else GameMaterials.name_of(mat).replace("_", " ")
-	var state := ["solid", "liquid", "gas", "fire", "powder"][clampi(int(info.get("cell_type", 0)), 0, 4)]
+	var state: String = ["solid", "liquid", "gas", "fire", "powder"][clampi(int(info.get("cell_type", 0)), 0, 4)]
 	if bool(info.get("still", false)):
 		state = "still " + state
 	elif int(info.get("eighths", 0)) > 0:
 		state = "%s %d/8" % [state, int(info["eighths"])]
 	if bool(info.get("burning", false)):
 		state += " burning"
+	if mat == 0:
+		return "air  %d C  p %.2f" % [int(info.get("temp_c", 0)), float(info.get("pressure", 0.0))]
 	return "%s (%s)  %d C  p %.2f" % [mname, state, int(info.get("temp_c", 0)), float(info.get("pressure", 0.0))]

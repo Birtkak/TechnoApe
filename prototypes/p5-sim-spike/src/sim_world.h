@@ -155,6 +155,8 @@ public:
 
     // ---- render feed / world streaming ----
     PackedByteArray get_chunk_bytes(Vector3i p_chunk, int p_depth_bytes = 1) const;
+    // ADR 0119 B: the cells lo..hi (inclusive, chunk-local) of a chunk, 2 bytes each in VoxelBuffer order
+    PackedByteArray get_box_bytes(Vector3i p_chunk, Vector3i p_lo, Vector3i p_hi) const;
     void set_chunk_bytes(Vector3i p_chunk, const PackedByteArray &p_bytes, int p_depth_bytes = 1); // load from world; wakes, not dirty
     // A column of ncy chunks from (c.x, c.y, c.z) up, from one buffer of CS x (ncy * CS) x CS voxels in
     // godot_voxel order (y fastest, then x, then z): one terrain copy per column instead of one per chunk.

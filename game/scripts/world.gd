@@ -285,6 +285,16 @@ func is_box_loaded(wmin: Vector3i, size: Vector3i) -> bool:
 
 
 ## Writes a 16^3 chunk back (VoxelTool.paste: correct under load, see P5 §C).
+## ADR 0119 B: a box of cells (2 bytes each, VoxelBuffer order) pasted at a world voxel: a wobble of a few cells
+## pastes a few cells instead of its whole chunk.
+func write_box(pos: Vector3i, size: Vector3i, bytes16: PackedByteArray) -> void:
+	var vb := VoxelBuffer.new()
+	vb.create(size.x, size.y, size.z)
+	vb.set_channel_from_byte_array(VoxelBuffer.CHANNEL_TYPE, bytes16)
+	_tool.paste(pos, vb, 1 << VoxelBuffer.CHANNEL_TYPE)
+	edits += 1
+
+
 func write_chunk(wc: Vector3i, bytes16: PackedByteArray) -> void:
 	var vb := VoxelBuffer.new()
 	vb.create(Settings.CHUNK, Settings.CHUNK, Settings.CHUNK)
