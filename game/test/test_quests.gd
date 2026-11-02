@@ -12,7 +12,7 @@ const GROUND := ["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball
 	"einkorn_seeds", "emmer_seeds", "flax_seeds", "birch_log",
 	# ore-bearing stones above veins and ore mined out of them (ADR 0070)
 	"loose_tin_ore", "loose_iron_ore", "tin_ore", "iron_ore"]
-const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age", "steam_age"]
+const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age", "steam_age", "electrical_age"]
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
@@ -40,7 +40,7 @@ func test_data_loads_clean() -> void:
 		for q in book.chapter_quests(c):
 			if q.get("final", false):
 				finals.append(q["id"])
-	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw", "bronze_tool", "iron_tool", "ore_train"])
+	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw", "bronze_tool", "iron_tool", "ore_train", "electric_furnace"])
 
 
 func test_bad_data_is_reported() -> void:
@@ -61,9 +61,13 @@ func test_every_task_is_reachable_from_ground_pickups() -> void:
 	assert_bool(have.has("copper_pickaxe")).is_true()
 	var start := GROUND.duplicate()
 	start.append_array(StoneAge.WORLD_SOURCES.keys())
-	var mined := MiningTable.load_default().drops("stone", items.get_def("copper_pickaxe"))
+	var mining := MiningTable.load_default()
+	var mined := mining.drops("stone", items.get_def("copper_pickaxe"))
 	assert_str(String(mined.get("id", ""))).is_equal("cobblestone")
 	start.append(mined["id"])
+	var gem := mining.drops("crystal", items.get_def("copper_pickaxe"))   # geodes (ADR 0052): the miner's helmet's lamp
+	assert_str(String(gem.get("id", ""))).is_equal("crystal")
+	start.append(gem["id"])
 	have = recipes.reachable_from(start)
 	for g in start:
 		have[g] = true
