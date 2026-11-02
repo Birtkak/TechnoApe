@@ -72,9 +72,14 @@ const EMBER_DARK := 15
 const ASH := 16
 const CHEST_WOOD := 17
 const CHEST_LIGHT := 18
+const TERRA := 19
+const CREAM := 20
+const GLASS_GREEN := 21
+const SACK := 22
 const PALETTE := [[196, 150, 96], [160, 116, 68], [104, 70, 40], [62, 40, 22], [150, 154, 160], [120, 78, 40],
 	[106, 106, 102], [52, 50, 48], [30, 26, 24], [255, 150, 40], [146, 144, 136], [122, 106, 88], [84, 88, 96],
-	[216, 172, 72], [184, 62, 16], [104, 100, 96], [150, 98, 52], [190, 136, 78]]
+	[216, 172, 72], [184, 62, 16], [104, 100, 96], [150, 98, 52], [190, 136, 78], [182, 90, 52], [236, 224, 192],
+	[70, 142, 100], [200, 180, 126]]
 const FLAT := [EMBER - 1, EMBER_DARK - 1]   # paint indices that keep one tone
 
 static var _material: StandardMaterial3D
@@ -312,20 +317,34 @@ static func _storage_shelf(box: Callable, size: Vector3i) -> void:
 		box.call(q, q + Vector3i(2, size.y, 2), CHEST_WOOD)
 	for i in 3:
 		box.call(Vector3i(0, i * t, 0), Vector3i(size.x, i * t + 1, size.z), CHEST_LIGHT)
-	box.call(Vector3i(2, 1, 0), Vector3i(size.x - 2, size.y - 1, 1), OAK_DARK)   # the back boards
+	for x in range(2, size.x - 2):   # the back boards, alternate tones
+		box.call(Vector3i(x, 1, 0), Vector3i(x + 1, size.y - 1, 1), OAK_DARK if x % 3 == 0 else CHEST_WOOD)
 	box.call(Vector3i(0, size.y - 1, 0), Vector3i(size.x, size.y, size.z), CHEST_WOOD)   # the top
-	# the goods: jars and a crate on the bottom bay, sacks and a lidded crate in the middle, jars on top
-	box.call(Vector3i(2, 1, 3), Vector3i(5, 5, 6), STONE_WARM)
-	box.call(Vector3i(3, 5, 4), Vector3i(4, 6, 5), OAK_DARK)   # a jar's stopper
-	box.call(Vector3i(7, 1, 2), Vector3i(13, 5, 8), CHEST_WOOD)
-	box.call(Vector3i(7, 3, 2), Vector3i(13, 4, 8), IRON_DARK)   # its band
-	box.call(Vector3i(3, 1, 9), Vector3i(7, 4, 13), STONE_WARM)
-	box.call(Vector3i(2, t + 1, 2), Vector3i(7, t + 4, 8), ASH)
-	box.call(Vector3i(3, t + 4, 3), Vector3i(6, t + 5, 7), ASH)
+	for i in 3:   # dark shelf lips catch the eye (ADR 0129)
+		box.call(Vector3i(2, i * t, size.z - 1), Vector3i(size.x - 2, i * t + 1, size.z), OAK_DARK)
+	# the goods, in colours of their own: terracotta jars with cream labels and a crate on the bottom bay,
+	# grain sacks and green glass bottles and a lidded crate in the middle, a row of jars on top
+	for z in [2, 9]:
+		box.call(Vector3i(2, 1, z), Vector3i(6, 5, z + 4), TERRA)
+		box.call(Vector3i(2, 2, z), Vector3i(6, 3, z + 4), CREAM)
+		box.call(Vector3i(3, 5, z + 1), Vector3i(5, 6, z + 3), OAK_DARK)   # a stopper
+	box.call(Vector3i(8, 1, 2), Vector3i(14, 5, 8), CHEST_WOOD)
+	box.call(Vector3i(8, 3, 2), Vector3i(14, 4, 8), IRON_DARK)   # its band
+	box.call(Vector3i(8, 1, 9), Vector3i(13, 4, 14), SACK)
+	box.call(Vector3i(10, 4, 11), Vector3i(11, 5, 12), OAK_DARK)   # its tie
+	box.call(Vector3i(2, t + 1, 2), Vector3i(7, t + 4, 8), SACK)
+	box.call(Vector3i(3, t + 4, 3), Vector3i(6, t + 5, 7), SACK)
+	box.call(Vector3i(4, t + 4, 4), Vector3i(5, t + 5, 6), OAK_DARK)
+	for x in [3, 6]:
+		box.call(Vector3i(x, t + 1, 10), Vector3i(x + 2, t + 4, 12), GLASS_GREEN)
+		box.call(Vector3i(x, t + 4, 10), Vector3i(x + 1, t + 5, 11), OAK_DARK)   # the cork
 	box.call(Vector3i(9, t + 1, 6), Vector3i(14, t + 4, 12), CHEST_WOOD)
 	box.call(Vector3i(9, t + 4, 6), Vector3i(14, t + 5, 12), OAK)
+	box.call(Vector3i(11, t + 2, 11), Vector3i(12, t + 3, 12), BRASS)   # its hasp
 	for x in [3, 7, 11]:
-		box.call(Vector3i(x, 2 * t + 1, 4), Vector3i(x + 2, 2 * t + 4, 7), STONE_WARM)
+		var jar := TERRA if x == 7 else STONE_WARM
+		box.call(Vector3i(x, 2 * t + 1, 4), Vector3i(x + 2, 2 * t + 4, 7), jar)
+		box.call(Vector3i(x, 2 * t + 2, 4), Vector3i(x + 2, 2 * t + 3, 7), CREAM)
 
 
 ## A furnace: courses of fieldstone in three tones with dark mortar, an arched mouth on every side
