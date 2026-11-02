@@ -11,6 +11,8 @@ extends RefCounted
 signal changed
 
 const CARGO := 9
+const VIEW_SHIFT := 4   # cells (1/8 block) the view box reaches past the rail on each side, for the bigger cart
+const SEAT_M := 0.25   # a rider stands on the cart's floor, this far above the rail block's bottom
 
 var kind := "rail"
 var pos: Vector3i
@@ -127,35 +129,49 @@ func look_lines() -> Array[String]:
 	return out
 
 
-## Two iron rails on wooden sleepers, stepping up a slope; with a cart on it, an iron tub on four
-## wheels (a chest cart has a wooden lid), drawn where the cart is along the rail.
+## Two iron rails (a dark web under a bright head) on wooden sleepers, stepping up a slope; with a cart on
+## it, an open iron tub about 0.75 m by 0.9 m on four side wheels (a chest cart has a banded wooden lid). The
+## cart is wider and longer than the 0.5 m rail it stands on (bug report 2026-10-28_08-32-11: "way too small"),
+## so the view box is two blocks wide around the rail ("offset", as the steam hammer does). Cells are 1/8 block.
 func view_parts() -> Dictionary:
-	var size := Vector3i(8, 12, 8)
+	var size := Vector3i(16, 20, 16)
+	var o := Vector3i(VIEW_SHIFT, 0, VIEW_SHIFT)   # the rail's own block inside the view box
 	var c := WorkPalette.new_cells(size)
 	var slope := rise != Vector3i.ZERO
 	for z in 8:   # the slope is drawn climbing +z, then turned to its rise
 		var y := z if slope else 0
-		if z % 3 == 1:
-			WorkPalette.box(c, size, Vector3i(0, y, z), Vector3i(8, y + 1, z + 1), WorkPalette.WOOD_DARK)   # the sleepers
-		WorkPalette.box(c, size, Vector3i(1, y + 1, z), Vector3i(2, y + 2, z + 1), WorkPalette.IRON_DARK)
-		WorkPalette.box(c, size, Vector3i(6, y + 1, z), Vector3i(7, y + 2, z + 1), WorkPalette.IRON_DARK)
+		if z % 4 == 1 or z % 4 == 2:
+			WorkPalette.box(c, size, o + Vector3i(0, y, z), o + Vector3i(8, y + 1, z + 1), WorkPalette.WOOD_DARK if z % 4 == 1 else WorkPalette.WOOD)   # the sleepers
+		for x in [1, 6]:
+			WorkPalette.box(c, size, o + Vector3i(x, y + 1, z), o + Vector3i(x + 1, y + 2, z + 1), WorkPalette.IRON_DARK)   # the web
+			WorkPalette.box(c, size, o + Vector3i(x, y + 2, z), o + Vector3i(x + 1, y + 3, z + 1), WorkPalette.ANVIL)   # the head
 	if cart != "":
-		var cz := 0   # the cart's cell along the rail (a rolling chest cart moves along it)
-		if rolling != Vector3i.ZERO:
-			cz = clampi(int(t * 8.0) - 4, -3, 3)
-		var cy := (4 if cart == "chest_cart" and slope else 0) + (int(t * 8.0) if slope and rolling == rise else 0)
-		cy = mini(cy, 7)
-		for q in [Vector3i(1, 1, 1), Vector3i(6, 1, 1), Vector3i(1, 1, 6), Vector3i(6, 1, 6)]:
-			WorkPalette.box(c, size, q + Vector3i(0, cy, 0), q + Vector3i(1, cy + 2, 1), WorkPalette.ANVIL)   # the wheels
-		WorkPalette.wall_box(c, size, Vector3i(1, cy + 3, 0), Vector3i(7, cy + 6, 8), [WorkPalette.IRON_DARK], WorkPalette.IRON_DARK)
-		WorkPalette.box(c, size, Vector3i(1, cy + 3, 0), Vector3i(7, cy + 4, 8), WorkPalette.IRON_DARK)   # the tub floor
+		var cy := 4 if slope else 0   # level, at the slope's middle
+		for q in [Vector3i(2, 0, 3), Vector3i(13, 0, 3), Vector3i(2, 0, 10), Vector3i(13, 0, 10)]:
+			WorkPalette.box(c, size, q + Vector3i(0, cy + 1, 0), q + Vector3i(1, cy + 4, 3), WorkPalette.STONE_DARK)   # the wheels
+			WorkPalette.box(c, size, q + Vector3i(0, cy + 2, 1), q + Vector3i(1, cy + 3, 2), WorkPalette.ANVIL)   # their hubs
+		var lo := Vector3i(3, cy + 3, 1)
+		var hi := Vector3i(13, cy + 10, 15)
+		WorkPalette.box(c, size, lo, Vector3i(hi.x, lo.y + 1, hi.z), WorkPalette.IRON_DARK)   # the floor
+		for wall in [[lo, Vector3i(lo.x + 1, hi.y, hi.z)], [Vector3i(hi.x - 1, lo.y, lo.z), hi],
+				[lo, Vector3i(hi.x, hi.y, lo.z + 1)], [Vector3i(lo.x, lo.y, hi.z - 1), hi]]:
+			WorkPalette.box(c, size, wall[0], wall[1], WorkPalette.IRON_DARK)   # the sides
+		for wall in [[Vector3i(lo.x, hi.y - 1, lo.z), Vector3i(lo.x + 1, hi.y, hi.z)], [Vector3i(hi.x - 1, hi.y - 1, lo.z), Vector3i(hi.x, hi.y, hi.z)],
+				[Vector3i(lo.x, hi.y - 1, lo.z), Vector3i(hi.x, hi.y, lo.z + 1)], [Vector3i(lo.x, hi.y - 1, hi.z - 1), Vector3i(hi.x, hi.y, hi.z)]]:
+			WorkPalette.box(c, size, wall[0], wall[1], WorkPalette.ANVIL)   # the bright rim
+		for x in [lo.x, hi.x - 1]:
+			WorkPalette.box(c, size, Vector3i(x, lo.y + 2, lo.z + 3), Vector3i(x + 1, lo.y + 3, hi.z - 3), WorkPalette.STONE_DARK)   # a rivet band
 		if cart == "chest_cart":
-			WorkPalette.box(c, size, Vector3i(1, cy + 6, 0), Vector3i(7, cy + 7, 8), WorkPalette.WOOD)   # the lid
+			WorkPalette.box(c, size, Vector3i(lo.x, hi.y, lo.z), Vector3i(hi.x, hi.y + 2, hi.z), WorkPalette.WOOD)   # the lid
+			for z in [lo.z + 2, hi.z - 3]:
+				WorkPalette.box(c, size, Vector3i(lo.x, hi.y, z), Vector3i(hi.x, hi.y + 2, z + 1), WorkPalette.IRON_DARK)   # its bands
+			WorkPalette.box(c, size, Vector3i(7, hi.y, hi.z), Vector3i(9, hi.y + 1, hi.z + 1), WorkPalette.BRONZE)   # the latch
 	var quarters := axis
 	if slope:
 		quarters = Transport.DIRS.find(rise / Settings.BLOCK)   # +z is 2, -z 0, +x 1, -x 3
 		quarters = (quarters + 2) % 4   # drawn climbing +z
-	return {"solid": {"cells": WorkPalette.rotate_y(c, size, quarters), "size": size}}
+	var off := -Vector3(VIEW_SHIFT, 0, VIEW_SHIFT) / 8.0   # in blocks
+	return {"solid": {"cells": WorkPalette.rotate_y(c, size, quarters), "size": size, "offset": off}}
 
 
 func to_dict() -> Dictionary:

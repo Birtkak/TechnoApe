@@ -700,7 +700,7 @@ func _ride(delta: float) -> void:
 			d = nxt["dir"]
 			t -= 1.0
 	ride = {"rail": rail.pos, "dir": d, "t": t}
-	position = Vector3(rail.pos) + Vector3(n, 0, n) * 0.5 + Vector3(d) * (t - 0.5) + Vector3(0, 1.0 + RailEntity.height_on(rail, d, t), 0)
+	position = Vector3(rail.pos) + Vector3(n, 0, n) * 0.5 + Vector3(d) * (t - 0.5) + Vector3(0, Settings.m2v(RailEntity.SEAT_M) + RailEntity.height_on(rail, d, t), 0)
 	velocity = Vector3.ZERO
 	_fall_peak_y = position.y
 

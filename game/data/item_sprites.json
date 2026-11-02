@@ -3936,6 +3936,27 @@
         "..o..........o.."
       ]
     },
+    "rail_track": {
+      "colors": {"w": "#8a5a32", "W": "#5e3a1e", "i": "#4a4e56", "j": "#b4b8c0"},
+      "rows": [
+        ".ooojioooojiooo.",
+        "owwwjiwwwwjiwwwo",
+        "oWWWjiWWWWjiWWWo",
+        ".ooojioooojiooo.",
+        ".ooojioooojiooo.",
+        "owwwjiwwwwjiwwwo",
+        "oWWWjiWWWWjiWWWo",
+        ".ooojioooojiooo.",
+        ".ooojioooojiooo.",
+        "owwwjiwwwwjiwwwo",
+        "oWWWjiWWWWjiWWWo",
+        ".ooojioooojiooo.",
+        ".ooojioooojiooo.",
+        "owwwjiwwwwjiwwwo",
+        "oWWWjiWWWWjiWWWo",
+        ".ooojioooojiooo."
+      ]
+    },
     "minecart": {
       "colors": {"i": "#3a3e44", "j": "#5a5e64", "k": "#1a1a1c"},
       "rows": [
@@ -3955,6 +3976,27 @@
         "oldddddddddddddo",
         ".ookkooooookkoo.",
         "...oo......oo..."
+      ]
+    },
+    "cart_lid": {
+      "colors": {"k": "#3a3e44", "y": "#e0a040"},
+      "rows": [
+        "................",
+        ".oooooooooooooo.",
+        "ohllkllllllklllo",
+        "olmmkmmmmmmkmmdo",
+        "olmmkmmmmmmkmmdo",
+        "olmmkmmyymmkmmdo",
+        "olddkddddddkdddo",
+        ".oooooooooooooo.",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
       ]
     }
   },
@@ -4344,8 +4386,8 @@
     "hopper": {"layers": [{"shape": "bowl", "palette": "iron"}, {"shape": "pipe", "palette": "bronze"}]},
     "chute": {"layers": [{"shape": "bowl", "palette": "wood"}]},
     "belt": {"layers": [{"shape": "strips", "palette": "leather"}, {"shape": "stick", "palette": "iron"}]},
-    "rail": {"layers": [{"shape": "ladder", "palette": "iron"}]},
+    "rail": {"layers": [{"shape": "rail_track", "palette": "iron"}]},
     "minecart": {"layers": [{"shape": "minecart", "palette": "iron"}]},
-    "chest_cart": {"layers": [{"shape": "crucible", "palette": "iron"}, {"shape": "brick", "palette": "wood"}]}
+    "chest_cart": {"layers": [{"shape": "minecart", "palette": "iron"}, {"shape": "cart_lid", "palette": "wood"}]}
   }
 }

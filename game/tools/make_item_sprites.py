@@ -1526,7 +1526,16 @@ sp("compressor", ("crucible", "iron"), ("pipe", "bronze"))
 sp("hopper", ("bowl", "iron"), ("pipe", "bronze"))
 sp("chute", ("bowl", "wood"))
 sp("belt", ("strips", "leather"), ("stick", "iron"))
-sp("rail", ("ladder", "iron"))
+# the rail (bug report 2026-10-28_08-32-11: "ugly"): two iron rails, bright heads, on four wooden sleepers
+g = new()
+for y0 in (1, 5, 9, 13):
+    rect(g, 1, y0, 14, y0 + 1, "w")
+    rect(g, 1, y0 + 1, 14, y0 + 1, "W")
+for x0 in (4, 10):
+    rect(g, x0, 0, x0 + 1, 15, "i")
+    rect(g, x0, 0, x0, 15, "j")
+shape("rail_track", outline(g), {"w": "#8a5a32", "W": "#5e3a1e", "i": "#4a4e56", "j": "#b4b8c0"})
+sp("rail", ("rail_track", "iron"))
 # the minecart (bug report 2026-10-28 reference): a grey open iron box, light rim, dark inside,
 # rivet spots on the side, wheels peeking out below
 g = rect(new(), 1, 7, 14, 13)
@@ -1541,7 +1550,15 @@ rect(g, 3, 14, 4, 14, "k")
 rect(g, 11, 14, 12, 14, "k")
 shape("minecart", outline(g), {"i": "#3a3e44", "j": "#5a5e64", "k": "#1a1a1c"})
 sp("minecart", ("minecart", "iron"))
-sp("chest_cart", ("crucible", "iron"), ("brick", "wood"))
+# the chest cart: the minecart under a banded wooden lid with a brass latch
+g = rect(new(), 1, 2, 14, 6)
+g = shade(g)
+for x in (4, 11):
+    rect(g, x, 2, x, 6, "k")
+put(g, 7, 5, "y")
+put(g, 8, 5, "y")
+shape("cart_lid", outline(g), {"k": "#3a3e44", "y": "#e0a040"})
+sp("chest_cart", ("minecart", "iron"), ("cart_lid", "wood"))
 
 # hand-painted overrides: game/art/items/<item_id>.png (16x16) replaces the generated sprite (game/art/README.md)
 ART = os.path.join(REPO, "game", "art", "items")
