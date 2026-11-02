@@ -91,6 +91,7 @@ public:
     int height_at(int x, int z) const;          // solid voxels in the column (the top one is height - 1)
     int biome_at(int x, int z) const;
     Dictionary column_info(int x, int z) const;
+    String cave_biome_at(int x, int y, int z) const;   // the cave biome name at a cave voxel, "" elsewhere
     PackedByteArray generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel = 2) const;
     // Blocks generated since the last call and the worker time they took, by result: air, uniform, full (usec).
     static Dictionary gen_stats();

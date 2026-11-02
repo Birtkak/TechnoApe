@@ -217,6 +217,7 @@ void FineGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("height_at", "x", "z"), &FineGen::height_at);
     ClassDB::bind_method(D_METHOD("biome_at", "x", "z"), &FineGen::biome_at);
     ClassDB::bind_method(D_METHOD("column_info", "x", "z"), &FineGen::column_info);
+    ClassDB::bind_method(D_METHOD("cave_biome_at", "x", "y", "z"), &FineGen::cave_biome_at);
     ClassDB::bind_method(D_METHOD("generate_block", "origin", "size", "lod", "bytes_per_voxel"), &FineGen::generate_block, DEFVAL(2));
     ClassDB::bind_method(D_METHOD("set_uniform_blocks", "on"), &FineGen::set_uniform_blocks);
     ClassDB::bind_static_method("FineGen", D_METHOD("gen_stats"), &FineGen::gen_stats);
@@ -363,6 +364,23 @@ int FineGen::height_at(int x, int z) const {
 }
 
 int FineGen::biome_at(int x, int z) const { return g_->biome_at(floor_div(x, FS), floor_div(z, FS)); }
+
+// The cave biome at (x, y, z) when that voxel is cave air under the ground (the bands the generator dresses and pools
+// with: column climate, depth under the ground, the 3D cave noise); "" for rock, open air or water.
+String FineGen::cave_biome_at(int x, int y, int z) const {
+    const int h = height_at(x, z);
+    if (y >= h) return String();
+    const PackedByteArray b = generate_block(Vector3i(x, y, z), Vector3i(1, 1, 1), 0, 2);
+    if (b.size() >= 2 && (b[0] | (b[1] << 8)) != Mat::AIR) return String();   // an empty block is all air
+    const int mx = floor_div(x, FS), mz = floor_div(z, FS);
+    const WorldGen::Column col = g_->column_base(mx, mz, false);
+    const int ti = technosim_biome::band_of(technosim_biome::TEMP_BAND_MAX, col.t);
+    const int hi = technosim_biome::band_of(technosim_biome::HUM_BAND_MAX, col.h);
+    const float cn = g_->n_cavebiome_.GetNoise((float)mx, (float)y / FS, (float)mz);
+    const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)(h - y) / FS, technosim_biome::DEPTH_BAND_COUNT);
+    const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
+    return String(technosim_biome::NAMES[technosim_biome::cave_biome(ti, hi, di, ni)]);
+}
 
 Dictionary FineGen::column_info(int x, int z) const {
     Dictionary d = g_->column_info(floor_div(x, FS), floor_div(z, FS));
