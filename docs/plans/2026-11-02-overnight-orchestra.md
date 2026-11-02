@@ -35,8 +35,16 @@ encoding up in its ADR.
 - `f6ef52c` recipe browser: machine recipes as data, saved bookmarks (ADR 0115); the four old failures fixed
   (crystal counted as raw, fire clay tagged clay, quest count only grows, dig caps per the 2026-10-27 call).
 
+- Round 2 (main at the GEN_VERSION 28 bump): cave water lips and conduits (ADR 0110, the "veins of the world"
+  idea, built by the cave session), electrical age tier 1 (ADR 0117: rubber, circuits, motors, six machines,
+  battery box, lamp), steel tools, armour, metal spears, meals (ADR 0121), biome ambience and particles, QoL
+  toggles and status HUD (ADR 0130), bigger minecart, `/totest` and `/scenario`, Oct 28 triage, atlas regrade
+  (ADR 0129). Merge clashes resolved by keeping both sides (kit lists, a crafting test, to-test.md); the atlas
+  image was regenerated from the merged `make_atlas.py`. Suite: 677 cases, 2 failures, both the metal spears
+  crafted in the grid (sent back to the content session).
+
 ## Ideas parked for the developer
 
 - "Veins of the world" (cave session): a hidden world-scale network of aquifers, gas pockets and magma
-  conduits you can hear. The static-generation part went to the world generation lane; anything simulated
-  waits for the liquid ADR.
+  conduits you can hear. Built as static conduits by the cave session (ADR 0110); anything simulated waits for
+  the liquid ADR.
