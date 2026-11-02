@@ -176,7 +176,7 @@ static func build(sp: String, part: String) -> Array:
 	if sp == "poison_frog":
 		return _dart_frog(build("frog", part), part)
 	if sp == "gloam_hound":
-		return _recolor(build("wolf", part), {WOLF: GLOAM, WOLF_LIGHT: GLOAM_LIGHT, WOLF_DARK: GLOAM_DARK, EYE: GLOAM_EYE})
+		return _recolor(build("wolf", part), {WOLF: GLOAM, WOLF_LIGHT: GLOAM_LIGHT, WOLF_DARK: GLOAM_DARK, YELLOW: GLOAM_EYE})   # wolf eyes are YELLOW; EYE is its nose
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(sp + part)
 	var s := 1.0 / MobModel.GRID
