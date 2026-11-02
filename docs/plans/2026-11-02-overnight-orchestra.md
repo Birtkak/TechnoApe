@@ -9,7 +9,7 @@ merges into local `main` and bumps `GEN_VERSION`. Nothing is pushed.
 | Lane | Session | Owns | ADR | Material ids | Atlas tiles |
 |---|---|---|---|---|---|
 | Electrical age | phase3 (strong model) | `scripts/work/*`, networks, machine items/recipes | 0117, 0122, 0123 | 244..253 | 208..215 |
-| Liquid overhaul, then perf hunt | caves / "Fable Agent" | liquid sim, its mesh/shader, `sim_world.cpp` | 0119, 0124 | 254..255 | ask |
+| Liquids and gases (colours, state changes by pressure and temperature, readout under the minimap), then perf hunt | caves / "Fable Agent" | fluid sim, its mesh/shader, `sim_world.cpp` | 0119, 0124 | 254..255 | ask |
 | All world generation | surface-gen | `fine_gen.cpp`, `world_gen.cpp`, ruins, biomes | 0118, 0125 | 228..243 | 192..207 |
 | Life and ambience | smoke-sound-critters | mobs, audio, survival effects, particles | 0120, 0126 | none | none |
 | Things to make | content-pass | food, furniture, decor, tool/armour tiers, farming | 0121, 0127 | 216..227 | 180..191 |
