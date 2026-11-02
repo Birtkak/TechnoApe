@@ -43,7 +43,7 @@ func _sample(model: ApeModel, body: Node3D) -> void:
 		var k := rng.randi() % vs.size()
 		var uv: Vector2 = (part[2] as PackedVector2Array)[k]
 		var tile := clampi(int(uv.x * ApeModel.ATLAS.x), 0, ApeModel.ATLAS.x - 1) + clampi(int(uv.y * ApeModel.ATLAS.y), 0, ApeModel.ATLAS.y - 1) * ApeModel.ATLAS.x
-		var p: Array = ApeModel.PALETTE[mini(tile, ApeModel.PALETTE.size() - 1)]
+		var p: Array = ApeModel.PALETTE[mini(tile / ApeModel.SHADES, ApeModel.PALETTE.size() - 1)]
 		_target.append((part[0] as Transform3D) * vs[k])
 		_colour.append(Color8(p[0], p[1], p[2]))
 
