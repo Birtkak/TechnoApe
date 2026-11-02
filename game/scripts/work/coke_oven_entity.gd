@@ -8,7 +8,7 @@ extends MachineEntity
 ## power (eu_t 0): coal to coal coke, logs to charcoal, by its process recipes.
 
 var parts: Array[Vector3i] = []   # the hull's anchor cells while formed
-var facing := -1                  # which way the hull lies: index into DIRS, -1 = not formed
+var hull_dir := -1                # which way the hull lies: index into DIRS, -1 = not formed
 
 const DIRS := [Vector3i(0, 0, -1), Vector3i(1, 0, 0), Vector3i(0, 0, 1), Vector3i(-1, 0, 0)]
 
@@ -58,11 +58,11 @@ func set_formed(found: Dictionary) -> bool:
 	var was := enabled
 	if found.is_empty():
 		parts = []
-		facing = -1
+		hull_dir = -1
 		enabled = false
 	else:
 		parts = found["parts"]
-		facing = int(found["dir"])
+		hull_dir = int(found["dir"])
 		enabled = true
 	if was != enabled:
 		changed.emit()
@@ -95,7 +95,7 @@ func view_parts() -> Dictionary:
 
 func to_dict() -> Dictionary:
 	var d := super()
-	d["facing"] = facing
+	d["hull_dir"] = hull_dir
 	return d
 
 

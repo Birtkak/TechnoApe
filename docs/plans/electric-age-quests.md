@@ -16,6 +16,9 @@ Then the second half (ADR 0117), after `first_machine`:
 8. `macerator` (ore x3 instead of the crusher's x2), `alloy_smelter` (bronze and steel without the blast
    furnace), `assembler` (circuits two at a time, motors from fewer parts).
 9. `battery_box` (power at night), `electric_lamp` (optional, light without fire).
-10. Later: hoppers feed machines (ADR 0100 transport already works with them), the first multiblock.
+10. `pump` (water without buckets; keeps the simulation awake around it), `coke_oven` + `coal_coke` (the first
+    multiblock: a controller plus a hollow 3 x 3 x 3 of bricks, no power; say "26 bricks round a hole").
+11. Hoppers and belts feed machines and take from them (ADR 0100 transport works with every machine): a quest
+    "feed a machine from a chest" on `hopper` fits here, optional.
 
 Icons: the item ids above all have sprites. Keep LV the end of the tree for now (no MV).
