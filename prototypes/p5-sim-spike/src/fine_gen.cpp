@@ -42,8 +42,12 @@ constexpr int BIG_CAVE_LOD = 2;
 // hold bigger pools (bug report 2026-10-25 21-23-02). Bands are aligned to the world grid: neighbouring
 // columns share their levels.
 constexpr int CAVE_STEP = 4;
-// Cave pools: where n_pool_ (~25 m blobs) is above this, a flat stretch of cave floor holds its biome's pool.
+// Cave water (ADR 0109): where n_pool_ (~40 m blobs) is above POOL_THR, the cave floor carries its biome's pool
+// as a sheet up to POOL_DEPTH voxels deep (deepest at the blob's middle, thinning to nothing at its edge): one
+// pond per blob in a hall, a stepped stream along a tilted gallery floor. Replaces the 25 cm puddle sunk into
+// every flat tread (bug report 2026-11-02 18-55-49, "a bunch of small ponds").
 constexpr float POOL_THR = 0.0f;
+constexpr int POOL_DEPTH = 12;   // 1.5 m; the cave lattice reaches this far under a block (cy0)
 // Ore stringers (ADR 0077, 0086): sheets where a value noise sits within STRINGER_HALF of its middle (two to three
 // voxels thick), from STRINGER_MIN_DEPTH down, within STRINGER_REACH voxels of cave air. Ore lies only in the sheet's
 // clumps (a value noise STRINGER_CLUMP voxels across over a threshold), not in single voxels picked one by one (bug
@@ -258,7 +262,7 @@ void FineGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup_noise(n_leaf_, p_seed + 103, 1.0f / 6.0f, 1);      // lumps on leaf clumps
     setup_noise(n_litter_, p_seed + 105, 1.0f / 14.0f, 2);   // leaf litter vs grass under trees
     setup_noise(n_meadow_, p_seed + 106, 1.0f / 48.0f, 2);   // thick and thin grass, flower patches
-    setup_noise(n_pool_, p_seed + 107, 1.0f / 200.0f, 1);    // ~25 m blobs: where cave floors hold their biome's pool
+    setup_noise(n_pool_, p_seed + 107, 1.0f / 320.0f, 1);    // ~40 m blobs: where cave floors hold their biome's pool
     setup_noise(n_terrace_, p_seed + 108, 1.0f / 1200.0f, 1); // ~150 m patches: how tall the ground's ledges are
     rocks_.configure(p_seed, p_sea_level);
 }
@@ -1329,11 +1333,6 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
         return bilerp(lerp_y(&cav[((size_t)cj * nx + ci) * cny]), lerp_y(&cav[((size_t)cj * nx + ci + 1) * cny]),
                       lerp_y(&cav[((size_t)(cj + 1) * nx + ci) * cny]), lerp_y(&cav[((size_t)(cj + 1) * nx + ci + 1) * cny]), tx, tz) > 0.0f;
     };
-    // A cave pool cell needs rock on all four sides at its height, so its surface never stands over a
-    // lower floor as a wall (bug report 2026-10-25 02-20-46: sludge draped over a slope).
-    auto enclosed = [&](int wx, int wy, int wz) {
-        return !cave_at(wx - step, wy, wz) && !cave_at(wx + step, wy, wz) && !cave_at(wx, wy, wz - step) && !cave_at(wx, wy, wz + step);
-    };
     struct VeinCol {
         bool done = false, has = false;
         WorldGen::Vein vein{};
@@ -1729,11 +1728,31 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             }
             int crystal_roll = 0;
             const int crystal_h = (lod == 0 && !cav.empty()) ? rocks_.crystal_height(wx, wz, crystal_roll) : 0;
+            // cave water depth here, and the rock under the block's bottom cave air (the sheet crosses blocks)
+            const int pool_d = (lod == 0 && !cav.empty()) ? std::clamp((int)((n_pool_.GetNoise((float)wx, (float)wz) - POOL_THR) * 2.0f * POOL_DEPTH), 0, POOL_DEPTH) : 0;
+            int floor_wy = -(1 << 20), pool_cap = 0;
+            for (int j = 1; j <= pool_d; j++)
+                if (!cave_at(wx, origin.y - j, wz)) { floor_wy = origin.y - j; break; }
+            // Where the floor falls away within 1 m the sheet thins to one tread (a stream over steps) and where it
+            // falls two it ends, so a steep stair wall carries no water (the probes clamp to the lattice edge:
+            // shortcut: a cap may differ by a tread across a block border, fix if a water step shows there).
+            auto drop = [&](int dy) {
+                static const int OX[4] = {2 * CAVE_STEP, -2 * CAVE_STEP, 0, 0}, OZ[4] = {0, 0, 2 * CAVE_STEP, -2 * CAVE_STEP};
+                for (int k = 0; k < 4; k++)
+                    if (cave_at(wx + OX[k], floor_wy - dy, wz + OZ[k])) return true;
+                return false;
+            };
+            auto cap_pool = [&]() { pool_cap = drop(CAVE_STEP + 1) ? 0 : (drop(1) ? std::min(pool_d, CAVE_STEP) : pool_d); };
+            if (pool_d > 0 && floor_wy > -(1 << 20)) cap_pool();
             uint16_t *colp = w + sy * (x + sx * z);
             ValueNoiseCell sheet_cell;   // the stringer sheet's noise cell, shared up the column
             for (int y = 0; y < sy; y++) {
                 const int wy = origin.y + y * step;
                 uint16_t mat = Mat::AIR;
+                if (!cave[y + 1]) {
+                    floor_wy = wy;
+                    if (pool_d > 0 && cave[y + 2]) cap_pool();   // only under cave air
+                }
                 if (rp && technosim_ruin::in_reach(rp->r, floor_div(wy, FS))) {
                     const uint16_t rm = technosim_ruin::voxel(*rp, FS, wx, wy, wz, h, top_m, lod == 0);   // pots at LOD 0 (ADR 0057)
                     if (rm != technosim_ruin::PASS) {
@@ -1788,6 +1807,15 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                                 if (technosim_rock::RockTypes::crystal_allowed(crystal_roll, depth, technosim_biome::cave_biome(ti, hi, di, ni))) mat = (uint16_t)technosim_rock::CAVE_CRYSTAL;
                             }
                         }
+                        if (mat == Mat::AIR && pool_cap > 0 && wy - floor_wy <= pool_cap) {
+                            // the biome's pool (biomes.json surface.pool: water, toxic sludge, lava) on the floor
+                            const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)wy / FS, (float)mz);
+                            const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth / FS, technosim_biome::DEPTH_BAND_COUNT);
+                            const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
+                            const int cb = depth < technosim_biome::SOIL_DEPTH * FS ? col.biome : technosim_biome::cave_biome(ti, hi, di, ni);
+                            const int pool = technosim_biome::SURFACE_POOL[cb];
+                            if (pool >= 0) mat = (uint16_t)pool;
+                        }
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
                         if (d_top <= sandstone_depth) mat = strata ? g.strata_at(mx, floor_div(wy, FS), mz) : Mat::SANDSTONE;
                         else if (vein_ht > 0.0f) {
@@ -1804,16 +1832,6 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
                             const int cb = depth < technosim_biome::SOIL_DEPTH * FS ? col.biome : technosim_biome::cave_biome(ti, hi, di, ni);
                             mat = (uint16_t)technosim_biome::SURFACE_TOP[cb];
-                            // the biome's pool (biomes.json surface.pool: water, toxic sludge) lies in the floor in patches
-                            const int pool = technosim_biome::SURFACE_POOL[cb];
-                            if (pool >= 0 && cave[y] == 0 && n_pool_.GetNoise((float)wx, (float)wz) > POOL_THR && enclosed(wx, wy, wz)) mat = (uint16_t)pool;
-                        } else if (y + 3 < sy + 2 && cave[y + 3] && !cave[y + 2] && mat == Mat::STONE && depth >= technosim_biome::SOIL_DEPTH * FS) {
-                            // the second voxel of a pool, under its surface voxel: pools are 25 cm deep
-                            const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)(wy + step) / FS, (float)mz);
-                            const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)(depth - step) / FS, technosim_biome::DEPTH_BAND_COUNT);
-                            const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
-                            const int pool = technosim_biome::SURFACE_POOL[technosim_biome::cave_biome(ti, hi, di, ni)];
-                            if (pool >= 0 && cave[y] == 0 && n_pool_.GetNoise((float)wx, (float)wz) > POOL_THR && enclosed(wx, wy + step, wz) && enclosed(wx, wy, wz)) mat = (uint16_t)pool;
                         } else if (cave[y] && mat == Mat::STONE && depth >= technosim_biome::SOIL_DEPTH * FS) {
                             const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)wy / FS, (float)mz);
                             const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth / FS, technosim_biome::DEPTH_BAND_COUNT);
