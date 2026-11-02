@@ -438,3 +438,8 @@ Asked for in bug reports 2026-11-02 18-55-21, 18-57-25, 18-54-25 and 18-49-07.
   stem and glowing caps with glow mushrooms. Materials 228..233, tiles 192..194 and 204..206 (204..207 glow).
 - Check: `tools/cave_dress_sheet.gd` (a slice per cave biome, plus a camera line for a look check);
   `test_fine_gen_lod.gd` (dressed, nothing hangs alone).
+
+## Ore outcrops (2026-11-02 overnight)
+- Over a vein within 16 m of the ground 2-4 crags (1-2 m tall, leaning, jagged) of the local rock stand 3-12 m from
+  its centre, a third of their skin in streaks of the vein's primary ore; one crag over a vein 16-50 m down. Each
+  crag needs dry land of its own (a vein centre is often under a river). `FineGen::OUTCROP` stamps.
