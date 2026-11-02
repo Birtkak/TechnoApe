@@ -331,6 +331,9 @@ func _ready() -> void:
 
 	DebugCapture.attach(self)
 	for stack in DebugCapture.give:
+		if not items.has(stack["id"]):
+			push_warning("give=: no item %s" % stack["id"])   # a typo must not put a broken stack in the hotbar
+			continue
 		player_inv.pickup(stack["id"], stack["count"], stack)
 	if DebugCapture.autopilot:
 		player.autopilot = true
