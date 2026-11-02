@@ -17,11 +17,11 @@ func before_test() -> void:
 
 
 func test_network_line_sums_the_component() -> void:
-	var t: TurbineEntity = store.create(Vector3i(6 * B, 0, 0), "turbine")   # two blocks wide
+	var t: TurbineEntity = store.create(Vector3i(6 * B, 0, 0), "turbine")   # three blocks wide (ADR 0129)
 	t.rpm = Settings.turbine_rpm
-	var cable: RefCounted = store.create(Vector3i(8 * B, 0, 0), "cable")
-	store.create(Vector3i(9 * B, 0, 0), "cable")
-	store.create(Vector3i(10 * B, 0, 0), "electric_furnace")
+	var cable: RefCounted = store.create(Vector3i(9 * B, 0, 0), "cable")
+	store.create(Vector3i(10 * B, 0, 0), "cable")
+	store.create(Vector3i(11 * B, 0, 0), "electric_furnace")
 	var lone: RefCounted = store.create(Vector3i(40 * B, 0, 0), "cable")
 	Networks.solve(store, "energy")
 	var line := Networks.look_line(cable)
