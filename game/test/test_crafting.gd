@@ -196,6 +196,7 @@ func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
 	raw.append_array(StoneAge.WORLD_SOURCES.keys())   # bark, embers, dough, brine ... (ADR 0059)
 	raw.append("sulfur")   # mined from sulfur cave crust (mining.json): TNT's powder (ADR 0065)
 	raw.append("acorn")    # under oaks (mining.json "acorns", loot)
+	raw.append("brown_mushroom")   # picked off the forest floor: mushroom soup (ADR 0121)
 	raw.append_array(items.items_with_tag("flower"))   # picked by hand: the flower pot's flower (ADR 0094)
 	for rock in ["basalt", "granite", "diorite", "limestone", "slate", "marble", "chalk"]:   # mined rock (ADR 0051, 0057)
 		raw.append(rock)

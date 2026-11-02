@@ -140,3 +140,31 @@ func test_poison_hurts_then_wears_off() -> void:
 		s._poison_step(0.1, inv)
 	assert_int(inv.health).is_equal(1)
 	s._poison_step(0.1, null)   # creative: it wears off without hurting
+
+
+## Meal buffs (ADR 0121): a warming meal raises the felt temperature until it wears off, mending heals,
+## the same buff again refreshes without stacking, and the buffs are saved.
+func test_meal_buffs() -> void:
+	var s: Survival = auto_free(Survival.new())
+	var inv := PlayerInventory.new(items, RecipeRegistry.load_default(items))
+	var base := s.felt_c()
+	s.eat(items.get_def("porridge"), 0.0)
+	assert_float(s.felt_c()).is_equal_approx(base + float(items.get_def("porridge")["buff"]["amount"]), 0.01)
+	assert_str(s.buff_text()).starts_with("Warmed 5:00")
+	s.eat(items.get_def("stew"), 0.0)   # shorter: keeps the longer time
+	assert_float(float(s.buffs["warm"]["left_s"])).is_equal(300.0)
+	var again: Survival = auto_free(Survival.new())
+	again.load_dict(JSON.parse_string(JSON.stringify(s.to_dict())))
+	assert_bool(again.buffs.has("warm")).is_true()
+	s._buff_step(301.0, inv)
+	assert_float(s.felt_c()).is_equal_approx(base, 0.01)
+	assert_str(s.buff_text()).is_empty()
+	inv.health = 5
+	s.eat(items.get_def("mushroom_soup"), 0.0)
+	for i in 600:
+		s._buff_step(0.1, inv)
+	var heals := int(60.0 / float(items.get_def("mushroom_soup")["buff"]["amount"]))
+	assert_int(inv.health).is_between(5 + heals - 1, 5 + heals)   # the last heal and the end can fall on one tick
+	for id in ["porridge", "fish_soup", "mushroom_soup", "berry_compote"]:
+		var b: Dictionary = items.get_def(id)["buff"]
+		assert_bool(Survival.BUFFS.has(b["kind"])).override_failure_message(id).is_true()
