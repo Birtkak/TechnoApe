@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## The wild animals of ADR 0058: the data, the models, and the behaviours (flee, hop, swim, fly, pack
 ## hunts, boars that turn on whoever hurt them).
 
-const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog"]
+const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow"]
 
 
 func _manager() -> MobManager:
@@ -27,7 +27,7 @@ func test_data() -> void:
 		assert_bool(mm.defs.has(sp)).override_failure_message(sp).is_true()
 		var d: Dictionary = mm.defs[sp]
 		assert_str(String(d.get("name", ""))).override_failure_message("%s: a display name (the journal reads it)" % sp).is_not_empty()
-		assert_array(["land", "shore", "water", "cave"]).contains([WildMoves.habitat(d)])
+		assert_array(["land", "shore", "water", "cave", "sky"]).contains([WildMoves.habitat(d)])
 		assert_array(["walk", "hop", "swim", "fly", "paddle"]).contains([WildMoves.moves_of(d)])
 		for e in d.get("drops", []):
 			assert_bool(items.has(String(e["id"]))).override_failure_message("%s drops unknown %s" % [sp, e["id"]]).is_true()
@@ -101,3 +101,18 @@ func test_land_herds_spawn_on_their_ground() -> void:
 	assert_bool(WildMoves.ground_ok(mm.defs["crab"], GameMaterials.id_of("sand"))).is_true()
 	assert_bool(WildMoves.water_ok(_mob(mm, "duck", Vector3.ZERO))).is_true()
 	assert_bool(WildMoves.water_ok(_mob(mm, "deer", Vector3.ZERO))).is_false()
+
+
+## Night creatures (ADR 0120): gloam hounds never herd by day, hunt the player, and fade in daylight.
+func test_gloam_hounds_belong_to_the_night() -> void:
+	var mm := _manager()
+	var d: Dictionary = mm.defs["gloam_hound"]
+	assert_bool(d.get("night", false)).is_true()
+	assert_float(float(d["predator"]["aggressive_chance"])).is_equal(1.0)
+	assert_bool(mm.is_night()).is_false()   # no sky: day
+	var hound := _mob(mm, "gloam_hound", Vector3(0, 100, 0))
+	var sheep := _mob(mm, "sheep", Vector3(8, 100, 0))
+	mm._night_tick()
+	assert_bool(hound in mm.active()).is_false()
+	assert_bool(sheep in mm.active()).is_true()
+	assert_int(mm.stats["faded"]).is_equal(1)

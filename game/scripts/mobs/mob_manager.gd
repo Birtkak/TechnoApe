@@ -27,6 +27,8 @@ var chance := 0.1
 var spawn_radius_v := 96.0
 var active_radius_v := 128.0
 var max_active := 60
+var night_max := 6             # night creatures about at once (ADR 0120)
+var night_chance := 0.06       # a second, while under night_max
 var love_s := 30.0
 var breed_cooldown_s := 300.0
 var grow_up_s := 1200.0
@@ -35,7 +37,7 @@ var mate_s := 3.0
 var feed_baby_speedup := 0.1
 var spawning := true
 var game_time := 0.0           # seconds this world has run (dormant mobs catch up from it)
-var stats := {"spawned": 0, "herds": 0, "bred": 0, "died": 0, "slept": 0, "woke": 0, "cells": 0, "kills": 0, "mauled": 0, "eggs": 0, "carcasses": 0}
+var stats := {"spawned": 0, "herds": 0, "bred": 0, "died": 0, "slept": 0, "woke": 0, "cells": 0, "kills": 0, "mauled": 0, "eggs": 0, "carcasses": 0, "night_spawned": 0, "faded": 0}
 var dirty := false
 var last_frame_ms := 0.0
 var worst_frame_ms := 0.0
@@ -116,6 +118,8 @@ func configure(data: Dictionary) -> void:
 	spawn_radius_v = Settings.m2v(float(sp.get("spawn_radius_m", 48.0)))
 	active_radius_v = Settings.m2v(float(sp.get("active_radius_m", 64.0)))
 	max_active = int(sp.get("max_active", 60))
+	night_max = int(sp.get("night_max", 6))
+	night_chance = float(sp.get("night_chance", 0.06))
 	var br: Dictionary = data.get("breeding", {})
 	love_s = float(br.get("love_s", 30.0))
 	breed_cooldown_s = float(br.get("breed_cooldown_s", 300.0))
@@ -143,6 +147,7 @@ func _physics_process(delta: float) -> void:
 		_update_dormancy()
 		if spawning:
 			_update_spawning()
+		_night_tick()
 	frame_us += Time.get_ticks_usec() - t0
 
 
@@ -201,6 +206,9 @@ func _update_dormancy() -> void:
 		if not is_instance_valid(m):
 			continue
 		if not m.is_dead() and Vector2(m.position.x - pp.x, m.position.z - pp.z).length() > active_radius_v:
+			if m.def.get("night", false):   # night creatures are not kept: the next night brings others
+				m.queue_free()
+				continue
 			var d := m.to_dict()
 			d["slept_at"] = game_time
 			_dormant.append(d)
@@ -278,7 +286,7 @@ func _populate(c: Vector2i) -> void:
 	var total := 0
 	var options := []
 	for k in defs:
-		if biome in defs[k].get("biomes", []) and WildMoves.habitat(defs[k]) == "land":
+		if biome in defs[k].get("biomes", []) and WildMoves.habitat(defs[k]) == "land" and not defs[k].get("night", false):
 			options.append(k)
 			total += int(defs[k].get("weight", 1))
 	if total <= 0:
@@ -312,6 +320,62 @@ func _populate(c: Vector2i) -> void:
 		placed += 1
 	if placed > 0:
 		stats["herds"] += 1
+
+
+# ---------------- night creatures (ADR 0120) ----------------
+
+## True between dusk and dawn by Main's calendar; false without a sky (tests, benches).
+func is_night() -> bool:
+	var atmo: Node = main.get("atmosphere") if main != null else null
+	if atmo == null:
+		return false
+	var cal = atmo.calendar
+	return GameAudio.day_phase(cal.time, cal.sunrise(), cal.sunset()) == "night"
+
+
+## Once a second: at night a pack may come out 24-40 m from the player (up to spawn.night_max night
+## creatures at once); after sunrise the ones still about fade into the light.
+func _night_tick() -> void:
+	var night := is_night()
+	var n := 0
+	for m in _active.duplicate():
+		if not m.def.get("night", false) or m.is_dead():
+			continue
+		if night:
+			n += 1
+			continue
+		_poof(m.eye())
+		_active.erase(m)
+		m.queue_free()
+		stats["faded"] += 1
+	if not night or not spawning or n >= night_max or _rng.randf() >= night_chance:
+		return
+	var pp := _player_pos()
+	var a := _rng.randf() * TAU
+	var d := Settings.m2v(_rng.randf_range(24.0, 40.0))
+	var x := int(pp.x + cos(a) * d)
+	var z := int(pp.z + sin(a) * d)
+	var h := world.surface_height(x, z)
+	if not world.is_area_loaded(Vector3i(floori(float(x) / Settings.CHUNK), floori(float(h) / Settings.CHUNK), floori(float(z) / Settings.CHUNK))):
+		return
+	var biome := WorldGen.biome_name(int(world.generator.gen.column_info(x, z)["biome"]))
+	var options := []
+	for k in defs:
+		if defs[k].get("night", false) and biome in defs[k].get("biomes", []):
+			options.append(k)
+	if options.is_empty():
+		return
+	var species: String = options[_rng.randi() % options.size()]
+	var g: Array = defs[species].get("group", [1, 2])
+	var height := int(ceil(Settings.m2v(float(defs[species]["size_m"][1]))))
+	for i in mini(_rng.randi_range(int(g[0]), int(g[1])), night_max - n):
+		var px := x + _rng.randi_range(-3, 3) * Settings.BLOCK
+		var pz := z + _rng.randi_range(-3, 3) * Settings.BLOCK
+		var y := stand_height(px, pz, world.surface_height(px, pz) + 1, 4 * Settings.BLOCK, height)
+		if y == -1 or not WildMoves.ground_ok(defs[species], get_voxel(Vector3i(px, y - 1, pz))):
+			continue
+		spawn(species, Vector3(px + 0.5, y + 0.05, pz + 0.5), false, _rng.randf() * TAU)
+		stats["night_spawned"] += 1
 
 
 # ---------------- world queries (for Mob) ----------------
