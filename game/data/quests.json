@@ -640,6 +640,51 @@
               "count": 3
             }
           ]
+        },
+        {
+          "id": "many_woods",
+          "title": "Many Woods",
+          "icon": "birch_planks",
+          "pos": [
+            4,
+            3
+          ],
+          "deps": [
+            "timber"
+          ],
+          "description": "Every tree gives its own planks: birch, spruce, acacia and jungle wood each build in their own colour.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "birch_planks",
+                "spruce_planks",
+                "acacia_planks",
+                "jungle_planks"
+              ]
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "replant",
+          "title": "Replant the Forest",
+          "icon": "oak_sapling",
+          "pos": [
+            3,
+            3
+          ],
+          "deps": [
+            "timber"
+          ],
+          "description": "A felled tree sometimes leaves a sapling. Plant it and a new tree grows where the old one stood.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "#sapling"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -1322,6 +1367,54 @@
               "count": 24
             }
           ]
+        },
+        {
+          "id": "porridge",
+          "title": "Porridge",
+          "icon": "porridge",
+          "pos": [
+            3,
+            3
+          ],
+          "deps": [
+            "stew"
+          ],
+          "description": "Three handfuls of grain in a cooking pot over the fire, served in clay bowls: the first warming meal.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "porridge"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "hearty_meals",
+          "title": "Hearty Meals",
+          "icon": "fish_soup",
+          "pos": [
+            4,
+            3
+          ],
+          "deps": [
+            "porridge"
+          ],
+          "description": "Fish, mushrooms or berries in the pot each make a meal that does more than fill you. Cook one of each.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "fish_soup"
+            },
+            {
+              "type": "item",
+              "item": "mushroom_soup"
+            },
+            {
+              "type": "item",
+              "item": "berry_compote"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -1928,6 +2021,54 @@
               "item": "bronze_anvil"
             }
           ]
+        },
+        {
+          "id": "bronze_spear",
+          "title": "Bronze Spear",
+          "icon": "bronze_spear",
+          "pos": [
+            4,
+            1
+          ],
+          "deps": [
+            "bronze_tool"
+          ],
+          "description": "A bronze head on a long shaft: the first metal weapon.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bronze_spear"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "bronze_armour",
+          "title": "Bronze Armour",
+          "icon": "bronze_chestplate",
+          "pos": [
+            4,
+            3
+          ],
+          "deps": [
+            "bronze_tool"
+          ],
+          "description": "Helmet, breastplate and boots of bronze: the first full set of metal armour.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bronze_helmet"
+            },
+            {
+              "type": "item",
+              "item": "bronze_chestplate"
+            },
+            {
+              "type": "item",
+              "item": "bronze_boots"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -2067,6 +2208,30 @@
               "item": "iron_pickaxe"
             }
           ]
+        },
+        {
+          "id": "iron_gear",
+          "title": "Iron Arms",
+          "icon": "iron_chestplate",
+          "pos": [
+            5,
+            3
+          ],
+          "deps": [
+            "iron_tool"
+          ],
+          "description": "An iron breastplate and an iron spear.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "iron_chestplate"
+            },
+            {
+              "type": "item",
+              "item": "iron_spear"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -2258,6 +2423,303 @@
               "item": "rail"
             }
           ]
+        },
+        {
+          "id": "steam_kit",
+          "title": "Steam Fitter",
+          "icon": "wrench",
+          "pos": [
+            0,
+            0
+          ],
+          "deps": [
+            "iron_tool"
+          ],
+          "description": "An iron rod on a stick makes a wrench; leather, glass and bronze make goggles; an apron keeps the sparks off.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "wrench"
+            },
+            {
+              "type": "item",
+              "item": "goggles"
+            },
+            {
+              "type": "item",
+              "item": "leather_apron"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "steam_sieve",
+          "title": "Steam Sieve",
+          "icon": "steam_sieve",
+          "pos": [
+            1,
+            0
+          ],
+          "deps": [
+            "boiler"
+          ],
+          "description": "A sieve in an iron frame with a bronze pipe shakes gravel by itself while the boiler feeds it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steam_sieve"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "water_tank",
+          "title": "Water Tank",
+          "icon": "water_tank",
+          "pos": [
+            3,
+            0
+          ],
+          "deps": [
+            "boiler"
+          ],
+          "description": "Iron plates round a bronze pipe: a boiler on the same pipes drinks from it and never runs dry.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "water_tank"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "steel_boiler",
+          "title": "Steel Boiler",
+          "icon": "steel_boiler",
+          "pos": [
+            4,
+            0
+          ],
+          "deps": [
+            "steel",
+            "water_tank"
+          ],
+          "description": "Steel plates over a fire-brick firebox build steam two and a half times as fast, and a safety valve lets it off before it bursts.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steel_boiler"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "steel_tools",
+          "title": "Steel Tools",
+          "icon": "steel_axe",
+          "pos": [
+            3,
+            3
+          ],
+          "deps": [
+            "steel_tool"
+          ],
+          "description": "After the pickaxe, smith the rest of the set: a steel axe, saw and hammer.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steel_axe"
+            },
+            {
+              "type": "item",
+              "item": "steel_saw"
+            },
+            {
+              "type": "item",
+              "item": "steel_hammer"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "boiler_suit",
+          "title": "Boiler Suit",
+          "icon": "boiler_suit",
+          "pos": [
+            2,
+            3
+          ],
+          "deps": [
+            "steel"
+          ],
+          "description": "Leather over a steel plate: a burst boiler hurts half as much.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "boiler_suit"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "steel_armour",
+          "title": "Steel Armour",
+          "icon": "steel_chestplate",
+          "pos": [
+            2,
+            4
+          ],
+          "deps": [
+            "boiler_suit"
+          ],
+          "description": "After the suit, full plate: helmet, breastplate and boots of steel, the best armour there is.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steel_helmet"
+            },
+            {
+              "type": "item",
+              "item": "steel_chestplate"
+            },
+            {
+              "type": "item",
+              "item": "steel_boots"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "steam_drill",
+          "title": "Steam Drill",
+          "icon": "steam_drill",
+          "pos": [
+            4,
+            3
+          ],
+          "deps": [
+            "steel_tool"
+          ],
+          "description": "A steel pick head on gears and a steam cell digs two and a half times as fast as the pick.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steam_drill"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "miners_helmet",
+          "title": "Miner's Helmet",
+          "icon": "miners_helmet",
+          "pos": [
+            4,
+            4
+          ],
+          "deps": [
+            "steel"
+          ],
+          "description": "An iron cap with a geode crystal behind a ground glass lens lights the way wherever you look.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "miners_helmet"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "surveyor",
+          "title": "Surveyor's Stake",
+          "icon": "surveyors_stake",
+          "pos": [
+            1,
+            5
+          ],
+          "deps": [
+            "iron_tool"
+          ],
+          "description": "Iron, copper wire and a lens: drive one in to mark a place on the map.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "surveyors_stake"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "backpack",
+          "title": "Traveler's Backpack",
+          "icon": "travelers_backpack",
+          "pos": [
+            6,
+            4
+          ],
+          "deps": [
+            "iron_tool"
+          ],
+          "description": "A leather bag on an iron frame: worn, it carries far more than the bag alone.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "travelers_backpack"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "jetpack",
+          "title": "Jetpack",
+          "icon": "jetpack",
+          "pos": [
+            7,
+            3
+          ],
+          "deps": [
+            "steel_tool"
+          ],
+          "description": "A compressor fills the steam cells of a jetpack with air; worn on the back it lifts you.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "compressor"
+            },
+            {
+              "type": "item",
+              "item": "jetpack"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "belts",
+          "title": "Belts and Chutes",
+          "icon": "belt",
+          "pos": [
+            7,
+            1
+          ],
+          "deps": [
+            "ore_train"
+          ],
+          "description": "Belts carry what a hopper pushes one block at a time; chutes drop it down; a chest cart rides the rails full.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "belt"
+            },
+            {
+              "type": "item",
+              "item": "chute"
+            },
+            {
+              "type": "item",
+              "item": "chest_cart"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -2438,6 +2900,106 @@
             {
               "type": "item",
               "item": "electric_furnace"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "macerator",
+          "title": "Macerator",
+          "icon": "macerator",
+          "pos": [
+            6,
+            1
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "Grinds a block of ore into three crushed ore, where the steam crusher gave two.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "macerator"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "alloy_smelter",
+          "title": "Alloy Smelter",
+          "icon": "alloy_smelter",
+          "pos": [
+            6,
+            2
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "Bronze and steel straight from their metals, without a crucible or a blast furnace.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "alloy_smelter"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "assembler",
+          "title": "Assembler",
+          "icon": "assembler",
+          "pos": [
+            6,
+            3
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "Builds circuits two at a time and motors from fewer parts.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "assembler"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "battery_box",
+          "title": "Battery Box",
+          "icon": "battery_box",
+          "pos": [
+            6,
+            4
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "Stores the turbine's power for when the boiler is cold, and gives it back at night.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "battery_box"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "electric_lamp",
+          "title": "Electric Lamp",
+          "icon": "electric_lamp",
+          "pos": [
+            7,
+            4
+          ],
+          "deps": [
+            "battery_box"
+          ],
+          "description": "Light without fire: glass over a wire on an iron rod, lit from the cables.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "electric_lamp"
             }
           ],
           "optional": true

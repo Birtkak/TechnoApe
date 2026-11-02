@@ -76,6 +76,12 @@ func run(p_main: Node) -> void:
 	bv.show_item("crushed_iron_ore", "recipes")   # a machine's recipe from data alone (ADR 0115)
 	r["machine_view"] = main.inv_screen.browser.summary().get("view", {})
 	await _ui_shot(tree, "info_machine")
+	main.inv_screen.browser.close()
+	main.inv_screen.open_book()   # the progression book's last two chapters (bug report 2026-10-28_08-29-44)
+	for c in ["steam_age", "electrical_age"]:
+		main.inv_screen.quest_view.open_chapter(c)
+		await _ui_shot(tree, "info_book_" + c)
+	main.inv_screen.close_book()
 	r["sheet"] = _sheet()
 	print("debug info " + JSON.stringify(r))
 

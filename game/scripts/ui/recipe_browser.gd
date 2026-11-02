@@ -19,9 +19,10 @@ extends RefCounted
 const CATEGORY_ORDER := ["crafting", "knapping", "clayforming", "pit_kiln", "station:firepit", "casting", "scraping", "drying", "charcoal_pit", "station:sieve", "station:pan", "smelting", "spellcraft", "mining"]
 const BOOKMARKS_PATH := "user://bookmarks.json"   # before ADR 0115; now only the start of a world saved without them
 const RECIPE_MARK := "recipe:"   # a bookmark of one recipe, not an item (ADR 0093)
-const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace"], "knapping": ["flint"],
+const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace", "electric_furnace"], "knapping": ["flint"],
 	"clayforming": ["clay_ball"], "pit_kiln": ["dry_grass", "firestarter"], "scraping": ["flint_knife", "copper_knife"],
-	"charcoal_pit": ["firewood", "firestarter"], "smithing": ["stone_anvil", "bronze_anvil", "copper_hammer", "steam_hammer"],
+	"charcoal_pit": ["firewood", "firestarter"], "smithing": ["stone_anvil", "bronze_anvil", "copper_hammer", "steam_hammer", "forge"],
+	"rack": ["drying_rack"],
 	"station:sieve": ["sieve", "steam_sieve"]}
 ## Vintage Story work types (ADR 0023) -> browser category and title.
 const WORK_CATEGORIES := {"knap": ["knapping", "Knapping"], "clayform": ["clayforming", "Clay forming"],
@@ -191,6 +192,10 @@ func uses_for(item_id: String) -> Array:
 		if item_id in catalysts(cat):
 			for rid in _recipes_in(cat):
 				rids.append(rid)
+	for rid in _all_recipe_ids():   # worked at or on it without being used up: the loom, a machine (ADR 0115)
+		var r := recipe(rid)
+		if (r.get("station", "") == item_id or r.get("on", "") == item_id) and not rid in rids:
+			rids.append(rid)
 	for rid in recipes.uses_of(item_id) + _mining_uses.get(item_id, []):
 		if not rid in rids:
 			rids.append(rid)
