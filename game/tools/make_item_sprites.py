@@ -1469,6 +1469,8 @@ sp("crushed_iron_ore", ("dust_pile", "iron_ore"))
 sp("crushed_copper_ore", ("dust_pile", "copper_ore"))
 sp("crushed_tin_ore", ("dust_pile", "tin_ore"))
 sp("copper_wire", ("twine", "copper"))
+sp("copper_cable", ("pipe", "copper", {"e": "#1c1410", "f": "#2a2018"}))   # ADR 0113
+sp("electric_furnace", ("steam_hammer", "iron", {"e": "#e07434", "f": "#b0501e", "k": "#3a3a3e"}))
 sp("steam_turbine", ("steam_hammer", "steel", {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}))
 sp("iron_gear", ("flower_head", "iron"))
 sp("glass_lens", ("ball", "tin"))

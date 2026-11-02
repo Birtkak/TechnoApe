@@ -2036,6 +2036,7 @@ func snapshot() -> Dictionary:
 		"projectiles": projectiles.stats if projectiles else {},
 		"gadgets": gadgets.stats if gadgets else {},
 		"tnt": tnt.snapshot() if tnt else {},
+		"networks": Networks.stats,
 		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size()}),
 		"weather": weather.summary() if weather else {},
 		"map": world_map.summary(),

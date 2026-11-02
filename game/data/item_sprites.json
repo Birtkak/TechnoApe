@@ -4327,6 +4327,8 @@
     "crushed_copper_ore": {"layers": [{"shape": "dust_pile", "palette": "copper_ore"}]},
     "crushed_tin_ore": {"layers": [{"shape": "dust_pile", "palette": "tin_ore"}]},
     "copper_wire": {"layers": [{"shape": "twine", "palette": "copper"}]},
+    "copper_cable": {"layers": [{"shape": "pipe", "palette": "copper", "colors": {"e": "#1c1410", "f": "#2a2018"}}]},
+    "electric_furnace": {"layers": [{"shape": "steam_hammer", "palette": "iron", "colors": {"e": "#e07434", "f": "#b0501e", "k": "#3a3a3e"}}]},
     "steam_turbine": {"layers": [{"shape": "steam_hammer", "palette": "steel", "colors": {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}}]},
     "iron_gear": {"layers": [{"shape": "flower_head", "palette": "iron"}]},
     "glass_lens": {"layers": [{"shape": "ball", "palette": "tin"}]},
