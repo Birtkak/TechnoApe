@@ -685,6 +685,26 @@
             }
           ],
           "optional": true
+        },
+        {
+          "id": "candle",
+          "title": "Candles",
+          "icon": "candle",
+          "pos": [
+            1,
+            5
+          ],
+          "deps": [
+            "fat_lamp"
+          ],
+          "description": "Animal fat round a cord wick: a candle burns where you set it down, on a table or a shelf.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "candle"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -1415,6 +1435,34 @@
             }
           ],
           "optional": true
+        },
+        {
+          "id": "furnished",
+          "title": "A Furnished Home",
+          "icon": "table",
+          "pos": [
+            2,
+            8
+          ],
+          "deps": [
+            "longhouse"
+          ],
+          "description": "Planks and sticks make a table and a bench, wool on a frame a chair. Every wood gives its own colour.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "table"
+            },
+            {
+              "type": "item",
+              "item": "bench"
+            },
+            {
+              "type": "item",
+              "item": "chair"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -1883,6 +1931,26 @@
               "item": "copper_saw"
             }
           ]
+        },
+        {
+          "id": "barrel",
+          "title": "Barrel",
+          "icon": "barrel",
+          "pos": [
+            5,
+            2
+          ],
+          "deps": [
+            "saw"
+          ],
+          "description": "Sawn staves held by copper hoops: a barrel stores as much as a chest and stands anywhere.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "barrel"
+            }
+          ],
+          "optional": true
         }
       ]
     },
