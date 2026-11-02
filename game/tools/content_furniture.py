@@ -8,7 +8,7 @@ RECIPES = "data/recipes.json"
 MINING = "data/mining.json"
 SOUNDS = "data/sounds.json"
 WOODS = ["spruce", "acacia", "jungle", "birch"]
-WOODED = ["door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf", "sign"]   # FurnitureEntity.WOODED
+WOODED = ["door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf", "sign", "window"]   # FurnitureEntity.WOODED
 
 
 def lines_of(path):
@@ -64,7 +64,7 @@ new_recipes = [
 ]
 # the oak recipes take oak planks now, so each wood's planks make their own (any layout matches, ADR 0046)
 for k in WOODED:
-    if k in ("bench", "sign"):
+    if k in ("bench", "sign", "window"):   # new, or not made of planks (the oak window is sticks and glass)
         continue
     i, r = row(recipes, k)
     if r["key"].get("P") == "#planks":
@@ -88,6 +88,8 @@ for w in WOODS:
         r.pop("_note", None)
         r["id"] = "%s_%s" % (w, k)
         r["key"] = dict(r["key"], P="%s_planks" % w)
+        if k == "window":   # a plank frame round two panes: the wood shows which window it is
+            r["pattern"], r["key"] = ["PGP", "PGP"], {"P": "%s_planks" % w, "G": "glass"}
         r["output"] = {"id": "%s_%s" % (w, k), "count": r["output"]["count"]}
         new_recipes.append(j(r))
 

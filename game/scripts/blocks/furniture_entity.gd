@@ -63,7 +63,7 @@ const BASE_KINDS := {
 	"straw_mat": {"size": Vector3i(2, 1, 2), "cells": Vector3i(16, 1, 16), "item": "straw_mat", "box": [Vector3i(0, 0, 0), Vector3i(8, 1, 8)]},
 }
 ## The plank furniture made in every wood (ADR 0121): "<wood>_<kind>" is the oak kind in that wood's paints.
-const WOODED := ["door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf", "sign"]
+const WOODED := ["door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf", "sign", "window"]
 const WOODS := ["spruce", "acacia", "jungle", "birch"]
 static var KINDS := _with_woods()
 
