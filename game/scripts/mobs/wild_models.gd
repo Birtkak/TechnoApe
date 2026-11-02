@@ -45,6 +45,13 @@ const CROW := BASE + 34          # crow: blue-black ramp, warm grey flight feath
 const CROW_LIGHT := BASE + 35
 const CROW_DARK := BASE + 36
 const BEAK := BASE + 37
+const SALMON := BASE + 38        # salmon: silver-pink flanks over a cooler blue-grey back
+const SALMON_BELLY := BASE + 39
+const SALMON_FIN := BASE + 40
+const JELLY := BASE + 41         # jellyfish: a pale violet bell, warmer rim, a hot pink heart that catches the eye
+const JELLY_LIGHT := BASE + 42
+const JELLY_DARK := BASE + 43
+const JELLY_HEART := BASE + 44
 const PALETTE: Array = [
 	[150, 102, 62], [218, 190, 152], [222, 208, 172], [96, 74, 58], [62, 46, 36], [238, 230, 208],
 	[164, 132, 100], [232, 222, 206], [210, 104, 40], [242, 234, 222], [52, 36, 30],
@@ -53,6 +60,8 @@ const PALETTE: Array = [
 	[70, 56, 50], [42, 34, 34], [54, 42, 44], [214, 34, 34], [36, 96, 224], [18, 22, 34],
 	[64, 54, 84], [104, 94, 108], [30, 22, 56], [130, 255, 214],
 	[40, 40, 54], [96, 92, 98], [18, 18, 38], [70, 62, 58],
+	[214, 132, 120], [236, 210, 196], [96, 104, 132],
+	[176, 150, 214], [228, 206, 236], [112, 86, 168], [244, 96, 168],
 ]
 const EYE := 7          # MobModel.EYE
 const SKIN_DARK := 3    # MobModel.SKIN_DARK: hooves
@@ -80,6 +89,9 @@ const LAYOUT := {
 		["leg", "leg", Vector3(4, 16, 11)], ["leg", "leg", Vector3(-4, 16, 11)], ["leg", "leg", Vector3(4, 16, -11)], ["leg", "leg", Vector3(-4, 16, -11)]],
 	"crow": [["body", "body", Vector3(0, 5, -1)], ["head", "head", Vector3(0, 9, 6)], ["tail", "tail", Vector3(0, 8, -7)],
 		["leg", "leg", Vector3(2, 6, 0)], ["leg", "leg", Vector3(-2, 6, 0)], ["wing_l", "wing", Vector3(4, 11, 0)], ["wing_r", "wing", Vector3(-4, 11, 0)]],
+	"salmon": [["body", "body", Vector3(0, 0, 0)], ["head", "head", Vector3(0, 1, 10)], ["tail", "tail", Vector3(0, 4, -9)]],
+	"jellyfish": [["body", "body", Vector3(0, 10, 0)], ["head", "head", Vector3(0, 19, 0)], ["leg", "leg", Vector3(3, 11, 3)], ["leg", "leg", Vector3(-3, 11, 3)],
+		["leg", "leg", Vector3(3, 11, -3)], ["leg", "leg", Vector3(-3, 11, -3)]],
 	"poison_frog": [["body", "body", Vector3(0, 3, -1)], ["head", "head", Vector3(0, 4, 5)],
 		["leg", "leg", Vector3(5, 4, 3)], ["leg", "leg", Vector3(-5, 4, 3)], ["hind", "leg", Vector3(6, 5, -4)], ["hind", "leg", Vector3(-6, 5, -4)]],
 	"crab": [["body", "body", Vector3(0, 4, 0)], ["head", "head", Vector3(0, 6, 6)],
@@ -175,6 +187,8 @@ static func _speckle(c: PackedInt32Array, size: Vector3i, rng: RandomNumberGener
 static func build(sp: String, part: String) -> Array:
 	if sp == "poison_frog":
 		return _dart_frog(build("frog", part), part)
+	if sp == "salmon":
+		return _recolor(build("fish", part), {FISH: SALMON, FISH_BELLY: SALMON_BELLY, FISH_FIN: SALMON_FIN})
 	if sp == "gloam_hound":
 		return _recolor(build("wolf", part), {WOLF: GLOAM, WOLF_LIGHT: GLOAM_LIGHT, WOLF_DARK: GLOAM_DARK, YELLOW: GLOAM_EYE})   # wolf eyes are YELLOW; EYE is its nose
 	var rng := RandomNumberGenerator.new()
@@ -469,6 +483,26 @@ static func build(sp: String, part: String) -> Array:
 			o = Vector3(0 if l else -16, -1, -6)
 			if not l:
 				c = _mirror_x(c, size)
+		"jellyfish/body":
+			size = Vector3i(14, 10, 14)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(14, 6, 14), JELLY)               # the bell
+			_box(c, size, Vector3i(2, 6, 2), Vector3i(12, 9, 12), JELLY)
+			_box(c, size, Vector3i(2, 6, 2), Vector3i(12, 7, 12), JELLY_LIGHT)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(14, 1, 14), JELLY_DARK)          # the shaded rim
+			_box(c, size, Vector3i(5, 2, 5), Vector3i(9, 6, 9), JELLY_HEART)          # the glowing heart inside
+			o = Vector3(-7, 0, -7)
+		"jellyfish/head":
+			size = Vector3i(8, 2, 8)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, JELLY_LIGHT)                            # the lit crown of the bell
+			o = Vector3(-4, 0, -4)
+		"jellyfish/leg":
+			size = Vector3i(2, 14, 2)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, JELLY_LIGHT)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(2, 6, 2), JELLY_DARK)            # the trailing ends fade darker
+			o = Vector3(-1, -14, -1)
 		"crow/body":
 			size = Vector3i(8, 8, 14)
 			c = MobModel._cells(size)

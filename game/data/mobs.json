@@ -870,6 +870,75 @@
         3,
         6
       ]
+    },
+    "salmon": {
+      "name": "Salmon",
+      "health": 4,
+      "size_m": [
+        0.5,
+        0.3
+      ],
+      "walk_m": 1.0,
+      "panic_m": 2.8,
+      "tempt_m": 1.0,
+      "food": [],
+      "skittish_m": 5,
+      "habitat": "water",
+      "moves": "swim",
+      "legs": 0,
+      "drops": [
+        {
+          "id": "raw_fish",
+          "count": [
+            1,
+            2
+          ]
+        }
+      ],
+      "biomes": [
+        "river",
+        "lake",
+        "taiga",
+        "snowy_taiga",
+        "tundra",
+        "highlands",
+        "birch_forest",
+        "old_growth_forest"
+      ],
+      "weight": 7,
+      "group": [
+        3,
+        6
+      ]
+    },
+    "jellyfish": {
+      "name": "Jellyfish",
+      "health": 3,
+      "size_m": [
+        0.45,
+        0.6
+      ],
+      "walk_m": 0.3,
+      "panic_m": 0.6,
+      "tempt_m": 1.0,
+      "food": [],
+      "habitat": "water",
+      "moves": "swim",
+      "legs": 4,
+      "poison_s": 4.0,
+      "drops": [],
+      "biomes": [
+        "ocean",
+        "deep_ocean",
+        "beach",
+        "stony_shore",
+        "mangrove"
+      ],
+      "weight": 6,
+      "group": [
+        2,
+        5
+      ]
     }
   }
 }
