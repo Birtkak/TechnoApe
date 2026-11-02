@@ -209,7 +209,7 @@ func _build_player_slots() -> void:
 		_panel.add_child(_offhand_slot)
 	if _sort_button == null:
 		_sort_button = _small_button("Sort", func() -> void:
-			if _container != null and _container.kind in ["chest", "storage_pot"]:
+			if _container != null and _container is ChestEntity:
 				player_inv.sort_container()
 			else:
 				player_inv.sort_inventory())
@@ -376,7 +376,7 @@ func open_container(c: RefCounted) -> void:
 	if browser_view and "station" in c:
 		browser_view.container_fill = player_inv.fill_container   # Fill on a smelt recipe (ADR 0093)
 	_title.text = c.label if "label" in c and c.label != "" else c.title
-	_title.position = Vector2(16, 8) if c.kind == "chest" or c.kind == "storage_pot" else Vector2(176 - c.title.length() * 4, 8)
+	_title.position = Vector2(16, 8) if c is ChestEntity else Vector2(176 - c.title.length() * 4, 8)
 	_inv_label.visible = true
 	_show()
 
@@ -411,7 +411,7 @@ func _refresh() -> void:
 	for i in _slots.size():
 		_slots[i].set_stack(player_inv.items, player_inv.inv.get_slot(i))
 		_slots[i].favourite = player_inv.favourites.has(i)
-	var chest: bool = _container != null and _container.kind in ["chest", "storage_pot"]
+	var chest: bool = _container != null and _container is ChestEntity
 	_sort_button.position = Vector2(PANEL.x - 56, 140) if not chest else Vector2(PANEL.x - 56, 4)
 	_stack_button.position = Vector2(PANEL.x - 112, 140)
 	_stack_button.visible = nearby_chests.is_valid()

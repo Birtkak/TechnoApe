@@ -20,10 +20,14 @@ signal changed
 const DIRS: Array[Vector3i] = [Vector3i(0, 0, 1), Vector3i(1, 0, 0), Vector3i(0, 0, -1), Vector3i(-1, 0, 0)]
 ## kind -> footprint in 0.5 m blocks (x across, y up, z along the facing; BLOCK voxels each,
 ## ADR 0034) and the model's cell grid size (8 cells per block).
-const KINDS := {
+const BASE_KINDS := {
 	"bed": {"size": Vector3i(2, 1, 4), "cells": Vector3i(16, 12, 32), "item": "bed", "sleep": true},
 	"straw_bed": {"size": Vector3i(2, 1, 4), "cells": Vector3i(16, 6, 32), "item": "straw_bed", "sleep": true},
-	"chair": {"size": Vector3i(1, 2, 1), "cells": Vector3i(8, 16, 8), "item": "chair"},
+	"chair": {"size": Vector3i(1, 2, 1), "cells": Vector3i(8, 16, 8), "item": "chair", "sit": true},
+	# ADR 0121: a two-seat plank bench and a tallow candle that lights like a lantern
+	"bench": {"size": Vector3i(2, 1, 1), "cells": Vector3i(16, 7, 8), "item": "bench", "sit": true},
+	"candle": {"size": Vector3i(1, 1, 1), "cells": Vector3i(8, 8, 8), "item": "candle",
+		"box": [Vector3i(1, 0, 1), Vector3i(3, 3, 3)]},
 	# 1 x 2 m: the player is 0.6 m wide and 1.8 m tall, so a door is two blocks wide and four tall (ADR 0094)
 	"door": {"size": Vector3i(2, 4, 1), "cells": Vector3i(16, 32, 2), "item": "door", "wall": true,
 		"box": [Vector3i(0, 0, 0), Vector3i(8, 16, 1)], "open": [Vector3i(0, 0, 0), Vector3i(1, 16, 8)],
@@ -51,6 +55,27 @@ const KINDS := {
 	"flower_pot": {"size": Vector3i(1, 1, 1), "cells": Vector3i(8, 8, 8), "item": "flower_pot",
 		"box": [Vector3i(1, 0, 1), Vector3i(3, 4, 3)]},
 }
+## The plank furniture made in every wood (ADR 0121): "<wood>_<kind>" is the oak kind in that wood's paints.
+const WOODED := ["door", "trapdoor", "fence", "fence_gate", "table", "bench"]
+const WOODS := ["spruce", "acacia", "jungle", "birch"]
+static var KINDS := _with_woods()
+
+
+static func _with_woods() -> Dictionary:
+	var out := BASE_KINDS.duplicate(true)
+	for w in WOODS:
+		for k in WOODED:
+			var d: Dictionary = BASE_KINDS[k].duplicate(true)
+			d["item"] = "%s_%s" % [w, k]
+			d["base"] = k
+			d["wood"] = w
+			out["%s_%s" % [w, k]] = d
+	return out
+
+
+## Sitting furniture: chairs and benches (a right click sits down).
+static func sits(p_kind: String) -> bool:
+	return KINDS.get(p_kind, {}).get("sit", false)
 
 var kind := "furniture"      # BlockEntities kind
 var furniture := ""          # bed | chair
@@ -104,7 +129,7 @@ static func facing_for(p_kind: String, look: Vector3) -> int:
 		f = 1 if look.x > 0 else 3
 	else:
 		f = 0 if look.z > 0 else 2
-	return (f + 2) % 4 if p_kind == "chair" else f
+	return (f + 2) % 4 if sits(p_kind) else f
 
 
 func item_id() -> String:
@@ -162,7 +187,7 @@ func summary() -> Dictionary:
 
 # ---------------- the model ----------------
 
-const ATLAS := Vector2i(WorkPalette.SHADES, 16)   # tone columns per paint (WorkPalette.shade_cells)
+const ATLAS := Vector2i(WorkPalette.SHADES, 25)   # tone columns per paint (WorkPalette.shade_cells)
 const PLANK := 0
 const PLANK_DARK := 1
 const WOOL := 2
@@ -181,7 +206,11 @@ const BLUE := 14
 const SOIL := 15
 const PALETTE: Array = [[184, 142, 86], [128, 92, 52], [238, 238, 232], [214, 212, 204], [184, 40, 44], [146, 28, 34],
 	[208, 178, 88], [168, 136, 60], [64, 66, 72], [70, 132, 48], [226, 196, 64], [178, 92, 54], [128, 172, 222],
-	[255, 214, 120], [52, 72, 150], [72, 50, 34]]
+	[255, 214, 120], [52, 72, 150], [72, 50, 34],
+	[118, 82, 50], [74, 50, 30], [196, 110, 58], [140, 72, 34], [166, 104, 82], [116, 66, 52], [222, 204, 160], [176, 156, 116],
+	[238, 228, 196]]
+const WOOD_PAINTS := {"spruce": [16, 17], "acacia": [18, 19], "jungle": [20, 21], "birch": [22, 23]}   # [plank, dark]: the planks' tiles 176..179
+const WAX := 24
 
 static var _material: StandardMaterial3D
 static var _glass: StandardMaterial3D
@@ -282,7 +311,17 @@ static func ghost_mesh(p_kind: String, blocked: bool) -> ArrayMesh:
 
 
 static func cells_for(p_kind: String) -> PackedInt32Array:
-	var size: Vector3i = KINDS[p_kind]["cells"]
+	var k: Dictionary = KINDS[p_kind]
+	if k.has("base"):   # a wood variant: the oak model with its planks repainted
+		var c := cells_for(k["base"])
+		var wp: Array = WOOD_PAINTS[k["wood"]]
+		for i in c.size():
+			if c[i] == PLANK + 1:
+				c[i] = wp[0] + 1
+			elif c[i] == PLANK_DARK + 1:
+				c[i] = wp[1] + 1
+		return c
+	var size: Vector3i = k["cells"]
 	var c := PackedInt32Array()
 	c.resize(size.x * size.y * size.z)
 	c.fill(0)
@@ -404,6 +443,19 @@ static func cells_for(p_kind: String) -> PackedInt32Array:
 		box.call(Vector3i(3, 1, 3), Vector3i(5, 4, 5), FLAME)
 		box.call(Vector3i(3, 6, 3), Vector3i(5, 7, 5), IRON)
 		box.call(Vector3i(3, 7, 4), Vector3i(5, 8, 5), IRON)   # the bail
+	elif p_kind == "bench":
+		# a plank seat across two blocks on two board legs, a stretcher between them
+		for x in [1, 13]:
+			box.call(Vector3i(x, 0, 1), Vector3i(x + 2, 5, 7), PLANK_DARK)
+		box.call(Vector3i(3, 2, 3), Vector3i(13, 3, 5), PLANK_DARK)
+		box.call(Vector3i(0, 5, 0), Vector3i(16, 7, 8), PLANK)
+		for x in [5, 10]:
+			box.call(Vector3i(x, 6, 0), Vector3i(x + 1, 7, 8), PLANK_DARK)   # board seams
+	elif p_kind == "candle":
+		# a tallow candle on a little iron dish, the flame painted to glow
+		box.call(Vector3i(2, 0, 2), Vector3i(6, 1, 6), IRON)
+		box.call(Vector3i(3, 1, 3), Vector3i(5, 5, 5), WAX)
+		box.call(Vector3i(4, 5, 4), Vector3i(5, 7, 5), FLAME)
 	elif p_kind == "flower_pot":
 		box.call(Vector3i(2, 0, 2), Vector3i(6, 3, 6), TERRACOTTA)
 		box.call(Vector3i(1, 3, 1), Vector3i(7, 4, 7), TERRACOTTA)

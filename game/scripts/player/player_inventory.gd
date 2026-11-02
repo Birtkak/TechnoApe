@@ -405,7 +405,7 @@ func click_slot(i: int, button: int, shift: bool) -> void:
 			if not targets.is_empty():
 				_move_stack(inv, i, container.inv, targets)
 				return
-			if container.kind == "chest" or container.kind == "storage_pot":
+			if container is ChestEntity:
 				return
 		if i < HOTBAR:
 			_move_slot(inv, i, HOTBAR, SIZE)
@@ -773,7 +773,7 @@ func _other_side(group: String, i: int, id: String) -> Array:
 			var targets: Array = container.shift_targets(id)
 			if not targets.is_empty():
 				return [container.inv, targets]
-			if container.kind == "chest" or container.kind == "storage_pot":
+			if container is ChestEntity:
 				return []
 		return [inv, range(HOTBAR, SIZE) if i < HOTBAR else range(0, HOTBAR)]
 	if group == "container":

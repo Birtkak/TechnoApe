@@ -172,6 +172,7 @@ const GLOW_BERRY_VINE := 230
 const FUNGUS_STEM := 231
 const FUNGUS_CAP := 232
 const MAGMA_ROCK := 233
+const BARREL := 216                # ADR 0121: an 18-slot wooden barrel (a 0.75 x 1 m station like the chest); 217..227 this lane's
 
 const ATLAS_TILES := Vector2i(8, 26)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -295,7 +296,10 @@ static func _build_defs() -> Array:
 		{"name": "monolith", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [173, 173, 173], "transparent": false},
 		{"name": "monolith_rune", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [174, 174, 174], "transparent": false},
 		{"name": "monolith_seam", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [175, 175, 175], "transparent": false},
-	] + _wood_defs() + _reserved_defs(216, CAVE_IDS - 1) + _cave_defs() + _reserved_defs(CAVE_IDS + 6, 243)
+	] + _wood_defs() + [
+		# 216 (ADR 0121): storage drawn by StationEntity like the chest
+		{"name": "barrel", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "barrel"},
+	] + _reserved_defs(217, CAVE_IDS - 1) + _cave_defs() + _reserved_defs(CAVE_IDS + 6, 243)
 
 
 ## Ids 207..215 (ADR 0112): planks of the other woods (the oak planks' rules, their own tile 176..179),
