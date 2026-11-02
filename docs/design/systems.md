@@ -71,7 +71,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   right click, show their contents in the look-at panel (`look_lines()`), lit ones burn, and smithing blows answer
   with sounds (ADR 0078). The look-at panel also draws the block's picture, its hardness and drops and a chest's or
   furnace's contents; R / U look up the aimed block or held item from the world, the recipe view has a tab per
-  station, Fill works on the furnace and Mark bookmarks a recipe (ADR 0093, `info_test=1`). **Hand feedback (bug report 2026-10-27_18-03-10):** `Viewmodel.swing()` plays the craft
+  station, Fill works on the furnace and Mark bookmarks a recipe (ADR 0093, `info_test=1`). A machine shows in the
+  browser by recipe data alone (`process` type: `station`, `ingredients`, `seconds`, `info`), and bookmarks are
+  saved with the player (ADR 0115). **Hand feedback (bug report 2026-10-27_18-03-10):** `Viewmodel.swing()` plays the craft
   motion of the held item (`MOTIONS`: hammer or axe raise-and-slam, firestarter bow drill, knapping stone or flint and
   steel strike, knife scrape, clay press, saw, pan shake; stroke work and the sieve call `play()`); every lighting
   (`WorkSystem._wear_held` with a firestarter) puffs smoke and embers with `sim/ignite`; anvil blows throw 9 sparks,

@@ -72,6 +72,10 @@ func run(p_main: Node) -> void:
 	bv.refresh_bookmarks()
 	r["bookmarks"] = main.inv_screen.browser.bookmarks
 	await _ui_shot(tree, "info_bookmarks")
+	main.inv_screen.browser.close()
+	bv.show_item("crushed_iron_ore", "recipes")   # a machine's recipe from data alone (ADR 0115)
+	r["machine_view"] = main.inv_screen.browser.summary().get("view", {})
+	await _ui_shot(tree, "info_machine")
 	r["sheet"] = _sheet()
 	print("debug info " + JSON.stringify(r))
 

@@ -1,0 +1,37 @@
+# ADR 0115: Recipe browser depth: machine recipes as data, bookmarks saved with the player
+
+Status: accepted (2026-11-02)
+
+## Context
+
+Phase 3 lists "recipe browser depth (machine recipes, bookmarks)". The browser (ADR 0008, 0093) already
+shows every recipe type the data has, each under a station tab (crafting, knapping, clay forming, pit kiln,
+firepit, casting, smithing, bloomery, forge, blast furnace, sieve, pan, ...) with inputs, output, time or work
+note and the station line; U shows uses, a station's uses list its whole tab, and item and recipe bookmarks
+existed in `user://bookmarks.json`. Missing: a machine whose work is in code (the ore crusher, ADR 0099) had
+no recipe at all, a new machine needed a new recipe type in `RecipeRegistry` and the browser, and the
+bookmarks were one global list instead of the player's. Machines and energy (ADR 0113) are designed in
+parallel, so the browser must not depend on machine code.
+
+## Decision
+
+1. **`process` recipes.** A new recipe type for any machine: `station` (an item id, required), `ingredients`
+   (1..9 specs, ids or #tags), `output`, optional `seconds` and `info` (e.g. "steam from a boiler"). The browser
+   puts it under the tab `station:<station>` with the station's icon, lays the ingredients in a row and shows
+   "<seconds> s, <info>". A machine plugs into the browser by adding recipe data; its own code decides how and
+   whether it reads them. The grid ignores them.
+2. **The ore crusher's three recipes** are `process` data in `recipes.json`. The crusher keeps running on
+   each ore's `crushed` field; `test_crusher_recipes_match_the_crusher` keeps the two in step (output, two per
+   block, `ore_crusher_crush_s`).
+3. **Catalysts:** the steam hammer joins the smithing tab's stations, the steam sieve the sieve's.
+4. **Bookmarks are saved with the player** (`bookmarks` in the player save, ADR 0032), so each world has its
+   own list. A world saved without them starts from the old `user://bookmarks.json`, which is no longer
+   written. Autopilot runs still take `bookmarks=a,b`.
+
+## Consequences
+
+- `test_recipe_browser.gd` covers process recipes (tab, layout, uses, a new machine by data alone, a bad
+  station refused), the crusher sync, and bookmarks through the player save and the old file.
+- `info_test=1` adds the shot `info_machine` (crushed iron ore's crusher recipe) to `info.png`.
+- Not built: several outputs or byproducts per recipe, energy per recipe (ADR 0113 decides what a machine
+  needs), Fill for machines.

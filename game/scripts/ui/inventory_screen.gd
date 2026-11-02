@@ -63,7 +63,8 @@ func setup(p_inv: PlayerInventory) -> void:
 	browser.set_mining(MiningTable.load_default())
 	browser.have = func(id: String) -> int:
 		return player_inv.inv.count_of(id) + (player_inv.bag.count_of(id) if player_inv.has_bag() else 0)
-	# bookmarks are the player's (user://); autopilot runs stay reproducible and take bookmarks=a,b instead
+	# bookmarks are saved with the player (main._load_player, ADR 0115); the old user:// list starts a world saved
+	# without them. Autopilot runs stay reproducible and take bookmarks=a,b instead
 	var args := OS.get_cmdline_user_args()
 	if not args.has("autopilot=1"):
 		browser.load_bookmarks()
@@ -601,8 +602,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			var id := hovered_item()
 			if id != "":
 				browser.toggle_bookmark(id)
-				if not OS.get_cmdline_user_args().has("autopilot=1"):
-					browser.save_bookmarks()
 				browser_view.refresh_bookmarks()
 				get_viewport().set_input_as_handled()
 		KEY_BACKSPACE:

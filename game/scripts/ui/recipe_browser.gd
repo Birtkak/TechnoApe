@@ -13,14 +13,16 @@ extends RefCounted
 ##   on a grid; tag ingredients cycle through their members;
 ## - "mining" pseudo-recipes from data/mining.json (block -> drops, which tool),
 ##   added by set_mining(), so "how do I get flint" has an answer too;
-## - bookmarks (JEI's A key, or a recipe's Bookmark button), kept in user://bookmarks.json by the screen.
+## - bookmarks (JEI's A key, or a recipe's Mark button), saved with the player (ADR 0115);
+## - "process" recipes (ADR 0115): a machine plugs in with recipe data alone, its `station` names the tab.
 
 const CATEGORY_ORDER := ["crafting", "knapping", "clayforming", "pit_kiln", "station:firepit", "casting", "scraping", "drying", "charcoal_pit", "station:sieve", "station:pan", "smelting", "spellcraft", "mining"]
-const BOOKMARKS_PATH := "user://bookmarks.json"
+const BOOKMARKS_PATH := "user://bookmarks.json"   # before ADR 0115; now only the start of a world saved without them
 const RECIPE_MARK := "recipe:"   # a bookmark of one recipe, not an item (ADR 0093)
 const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace"], "knapping": ["flint"],
 	"clayforming": ["clay_ball"], "pit_kiln": ["dry_grass", "firestarter"], "scraping": ["flint_knife", "copper_knife"],
-	"charcoal_pit": ["firewood", "firestarter"], "smithing": ["stone_anvil", "bronze_anvil", "copper_hammer"]}
+	"charcoal_pit": ["firewood", "firestarter"], "smithing": ["stone_anvil", "bronze_anvil", "copper_hammer", "steam_hammer"],
+	"station:sieve": ["sieve", "steam_sieve"]}
 ## Vintage Story work types (ADR 0023) -> browser category and title.
 const WORK_CATEGORIES := {"knap": ["knapping", "Knapping"], "clayform": ["clayforming", "Clay forming"],
 	"kiln": ["pit_kiln", "Pit kiln"], "cast": ["casting", "Casting"], "scrape": ["scraping", "Scraping hides"],
@@ -383,14 +385,6 @@ func set_bookmarks(ids: Array) -> void:
 			bookmarks.append(id)
 
 
-func save_bookmarks(path := BOOKMARKS_PATH) -> bool:
-	var f := FileAccess.open(path, FileAccess.WRITE)
-	if f == null:
-		return false
-	f.store_string(JSON.stringify({"bookmarks": bookmarks}))
-	return true
-
-
 func load_bookmarks(path := BOOKMARKS_PATH) -> void:
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
@@ -494,6 +488,10 @@ func layout(r: Dictionary) -> Dictionary:
 			info = "Lies on the ground %d s" % int(r.get("seconds", 60))
 		"charcoal_pit":
 			info = "Piles sealed with soil, %d s" % int(Settings.charcoal_pit_burn_s)
+		"process":
+			info = "%s s" % str(snappedf(float(r.get("seconds", 0.0)), 0.1))
+			if r.has("info"):
+				info += ", " + String(r["info"])
 		_:
 			info = String(r.get("info", ""))   # the Stone Age types say it themselves (ADR 0059)
 	var st: String = r.get("station", "")
