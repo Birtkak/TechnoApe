@@ -43,3 +43,14 @@ Each feature whose taste differs has its own switch in Settings (`user://setting
 8. **Craft button** below Fill in the recipe view (a hook in the recipe browser: `grid_craft`):
    `PlayerInventory.craft_recipe` fills, takes the output into the inventory and returns kept tools.
    Shift crafts as many as the inventory allows.
+
+## Amendment (2026-11-02, batch 3)
+9. **Home and last death**: `/sethome` keeps one green "Home" waypoint, `/home` teleports there (ungated
+   like `/spawn`); a death without a grave (creative, keep-items modes) leaves one "Last death" waypoint
+   (`Waypoints.set_unique` / `of_kind`).
+10. **Auto step up blocks** (Settings > Controls, on): the old automatic 0.5 m step, Minecraft's auto-jump.
+    Off steps only `small_step_m` (0.3 m: rough voxel ground) and a block needs a jump (`Settings.step_voxels`).
+11. **Chat history** (Up / Down, already there) is saved to `user://chat_history.txt`, last 50 lines.
+12. **F1** hides the HUD, the minimap and the hand (F2 already saved screenshots).
+- Not done: a light-level overlay. There is no light field (torches are OmniLights, nothing spawns in the
+  dark), so it would show a number nothing uses; worth it once darkness matters to gameplay.

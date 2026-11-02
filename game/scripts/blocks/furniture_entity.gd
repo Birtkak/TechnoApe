@@ -47,6 +47,9 @@ const BASE_KINDS := {
 		"box": [Vector3i(0, 0, 0), Vector3i(8, 8, 1)], "glass": true},
 	"painting": {"size": Vector3i(2, 2, 1), "cells": Vector3i(16, 16, 2), "item": "painting", "wall": true,
 		"box": [Vector3i(0, 0, 0), Vector3i(8, 8, 1)]},
+	# ADR 0121: a plank board on the wall with a line of the player's text, shown when aimed at
+	"sign": {"size": Vector3i(2, 1, 1), "cells": Vector3i(16, 8, 2), "item": "sign", "wall": true, "write": true,
+		"box": [Vector3i(0, 0, 0), Vector3i(8, 4, 1)]},
 	"table": {"size": Vector3i(2, 2, 2), "cells": Vector3i(16, 12, 16), "item": "table",
 		"box": [Vector3i(0, 0, 0), Vector3i(8, 6, 8)]},
 	"shelf": {"size": Vector3i(2, 2, 1), "cells": Vector3i(16, 16, 8), "item": "shelf"},
@@ -54,9 +57,13 @@ const BASE_KINDS := {
 		"box": [Vector3i(1, 0, 1), Vector3i(3, 4, 3)]},
 	"flower_pot": {"size": Vector3i(1, 1, 1), "cells": Vector3i(8, 8, 8), "item": "flower_pot",
 		"box": [Vector3i(1, 0, 1), Vector3i(3, 4, 3)]},
+	# ADR 0121: flat 1 x 1 m floor coverings, one voxel of collision so they step like a trapdoor
+	"red_rug": {"size": Vector3i(2, 1, 2), "cells": Vector3i(16, 1, 16), "item": "red_rug", "box": [Vector3i(0, 0, 0), Vector3i(8, 1, 8)]},
+	"blue_rug": {"size": Vector3i(2, 1, 2), "cells": Vector3i(16, 1, 16), "item": "blue_rug", "box": [Vector3i(0, 0, 0), Vector3i(8, 1, 8)]},
+	"straw_mat": {"size": Vector3i(2, 1, 2), "cells": Vector3i(16, 1, 16), "item": "straw_mat", "box": [Vector3i(0, 0, 0), Vector3i(8, 1, 8)]},
 }
 ## The plank furniture made in every wood (ADR 0121): "<wood>_<kind>" is the oak kind in that wood's paints.
-const WOODED := ["door", "trapdoor", "fence", "fence_gate", "table", "bench"]
+const WOODED := ["door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf", "sign"]
 const WOODS := ["spruce", "acacia", "jungle", "birch"]
 static var KINDS := _with_woods()
 
@@ -82,6 +89,7 @@ var furniture := ""          # bed | chair
 var pos := Vector3i.ZERO     # anchor voxel (local cell 0, 0, 0)
 var facing := 0
 var open := false            # doors, trapdoors, gates: swung open, their voxels in the "open" box
+var text := ""               # a sign's words (ADR 0121)
 var cells: Array[Vector3i] = []
 
 
@@ -171,13 +179,14 @@ func can_open() -> bool:
 
 
 func to_dict() -> Dictionary:
-	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "furniture": furniture, "facing": facing, "open": open}
+	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "furniture": furniture, "facing": facing, "open": open, "text": text}
 
 
 func load_from(d: Dictionary) -> void:
 	furniture = String(d.get("furniture", "chair"))
 	facing = int(d.get("facing", 0))
 	open = bool(d.get("open", false)) and can_open()
+	text = String(d.get("text", ""))
 	cells = footprint(furniture, pos, facing, open)
 
 
@@ -401,6 +410,15 @@ static func cells_for(p_kind: String) -> PackedInt32Array:
 					if x != 7 and x != 8 and y != 7 and y != 8:
 						c[x + size.x * (y + size.y * z)] = 0
 		box.call(Vector3i(0, 0, 0), Vector3i(16, 1, 2), PLANK)   # sill
+	elif p_kind == "sign":
+		# boards in a dark frame on the wall side, two lines of dark strokes for the writing
+		box.call(Vector3i(0, 0, 1), Vector3i(16, 8, 2), PLANK_DARK)
+		box.call(Vector3i(1, 1, 1), Vector3i(15, 7, 2), PLANK)
+		box.call(Vector3i(1, 4, 1), Vector3i(15, 5, 2), PLANK_DARK)   # the seam between the two boards
+		for x in [3, 4, 6, 8, 9, 11, 12]:
+			box.call(Vector3i(x, 5, 0), Vector3i(x + 1, 6, 1), PLANK_DARK)
+		for x in [3, 5, 6, 7, 10, 11]:
+			box.call(Vector3i(x, 2, 0), Vector3i(x + 1, 3, 1), PLANK_DARK)
 	elif p_kind == "painting":
 		# a landscape on canvas in a dark frame, hung on the wall side (back cell layer)
 		box.call(Vector3i(0, 0, 1), Vector3i(16, 16, 2), PLANK_DARK)
@@ -453,9 +471,29 @@ static func cells_for(p_kind: String) -> PackedInt32Array:
 			box.call(Vector3i(x, 6, 0), Vector3i(x + 1, 7, 8), PLANK_DARK)   # board seams
 	elif p_kind == "candle":
 		# a tallow candle on a little iron dish, the flame painted to glow
-		box.call(Vector3i(2, 0, 2), Vector3i(6, 1, 6), IRON)
+		box.call(Vector3i(1, 0, 1), Vector3i(7, 1, 7), IRON)
+		box.call(Vector3i(6, 1, 3), Vector3i(7, 2, 5), IRON)   # the finger ring
 		box.call(Vector3i(3, 1, 3), Vector3i(5, 5, 5), WAX)
 		box.call(Vector3i(4, 5, 4), Vector3i(5, 7, 5), FLAME)
+	elif p_kind in ["red_rug", "blue_rug"]:
+		# a woven rug: a dark border, the dyed field, a pale diamond in the middle and pale fringe at the ends
+		var field := RED if p_kind == "red_rug" else BLUE
+		var edge := RED_SHADE if p_kind == "red_rug" else WOOL_SHADE
+		for z in 16:
+			for x in 16:
+				var paint := field
+				if z == 0 or z == 15:
+					paint = WOOL if x % 2 == 0 else WOOL_SHADE   # the fringe
+				elif x < 2 or x > 13 or z < 2 or z > 13:
+					paint = edge
+				elif absi(x * 2 - 15) + absi(z * 2 - 15) <= 9:
+					paint = WOOL if absi(x * 2 - 15) + absi(z * 2 - 15) > 5 else edge
+				box.call(Vector3i(x, 0, z), Vector3i(x + 1, 1, z + 1), paint)
+	elif p_kind == "straw_mat":
+		# plaited dry grass: a basket weave of light and dark strands
+		for z in 16:
+			for x in 16:
+				box.call(Vector3i(x, 0, z), Vector3i(x + 1, 1, z + 1), STRAW if (x / 4 + z / 4) % 2 == (x + z) % 2 else STRAW_SHADE)
 	elif p_kind == "flower_pot":
 		box.call(Vector3i(2, 0, 2), Vector3i(6, 3, 6), TERRACOTTA)
 		box.call(Vector3i(1, 3, 1), Vector3i(7, 4, 7), TERRACOTTA)

@@ -136,12 +136,14 @@ func _assign() -> void:
 		if d2 <= r2:
 			near.append([d2, at, {}])
 	var fire := {"range_m": Settings.fire_light_range_m, "energy": Settings.fire_light_energy, "color": FIRE_COLOR.to_html(false)}
+	var lamp := {"range_m": Settings.lamp_light_range_m, "energy": Settings.lamp_light_energy, "color": "fff1c8"}   # ADR 0117: an electric lamp, paler than fire
 	for e in main.blocks.lit():
 		var w := BlockEntities.width_of(e.kind) * 0.5
-		var at := Vector3(e.pos) + Vector3(w, Settings.m2v(0.4), w)
+		var is_lamp := e is ElectricLampEntity
+		var at := Vector3(e.pos) + Vector3(w, Settings.m2v(1.2 if is_lamp else 0.4), w)
 		var d2 := at.distance_squared_to(eye)
 		if d2 <= r2:
-			near.append([d2, at, fire])
+			near.append([d2, at, lamp if is_lamp else fire])
 	for e in main.blocks.all_furniture():   # placed lanterns (ADR 0094): furniture whose item has "light"
 		var ldef := light_of(main.items, e.item_id())
 		if not ldef.is_empty():

@@ -23,6 +23,7 @@ func register(reg: CommandRegistry) -> void:
 	reg.register("frost", "/frost [plant <crop> [dx]]", "Check the farm for frost now (crops below their frost_c die), or till and plant a patch dx blocks east of you", _frost, [["plant"], loop.main.farming.crops_def.keys()])
 	reg.register("sapling", "/sapling <kind> [dx] [dz] | grow", "Plant a sapling dx blocks east (dz south) of you (ADR 0112), or grow every planted one now", _sapling, [["grow"] + loop.main.saplings.trees.keys()])
 	reg.register("furniture", "/furniture <kind> [dx] [dz]", "Set a piece of furniture (or a barrel) on the ground dx blocks east, dz south of you, facing you", _furniture, [FurnitureEntity.KINDS.keys() + ["barrel"]])
+	reg.register("sign", "/sign <text>", "Write on the sign you last right clicked; an empty text wipes it", _sign)
 	reg.register("prospect", "/prospect [flint|copper|menu [nearest|all|map]]", "Tap the rock you look at (or stand on) with the held, or the named, prospecting pick; menu opens the pick's settings", _prospect, [["flint", "copper", "menu"]])
 	reg.register("discover", "/discover [list | reset | <kind:name>]", "The discovery journal: progress, every entry, forget all, or mark one found", _discover, [["list", "reset"]])
 	reg.register("pin", "/pin <recipe id> | clear", "Pin a recipe's ingredients to the HUD (also: Pin in the recipe view)", _pin, [["clear"]])
@@ -140,6 +141,15 @@ func _furniture(args: PackedStringArray) -> Dictionary:
 		var look: Vector3 = Vector3(anchor) - main.player.position
 		main._place_furniture(args[0], anchor, FurnitureEntity.facing_for(args[0], -look))
 	return CommandRegistry.ok("Placed %s at %d %d %d" % [args[0], anchor.x, anchor.y, anchor.z])
+
+
+func _sign(args: PackedStringArray) -> Dictionary:
+	var main := loop.main
+	var e: RefCounted = main.blocks.furniture_at(main.sign_at)
+	if e == null or not FurnitureEntity.KINDS[e.furniture].get("write", false):
+		return CommandRegistry.fail("Right click a sign first")
+	e.text = " ".join(args).strip_edges().left(60)
+	return CommandRegistry.ok("Wrote on the sign" if e.text != "" else "Wiped the sign")
 
 
 func _sapling(args: PackedStringArray) -> Dictionary:

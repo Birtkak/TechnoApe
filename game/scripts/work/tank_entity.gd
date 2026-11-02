@@ -43,6 +43,15 @@ func use(held: Dictionary) -> Dictionary:
 	return res
 
 
+## A pump puts a bucket in (ADR 0117); false when full.
+func add_bucket() -> bool:
+	if buckets >= Settings.tank_buckets:
+		return false
+	buckets += 1
+	changed.emit()
+	return true
+
+
 ## A boiler takes a bucket out; false when there is none.
 func take_bucket() -> bool:
 	if buckets <= 0:

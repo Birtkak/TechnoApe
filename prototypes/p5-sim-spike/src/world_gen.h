@@ -72,7 +72,7 @@ public:
         SPRING_STONE = 122, MAGMA_HEART = 123,   // the source of an aquifer / a magma conduit (ADR 0110)
         GIANT_STEM = 124, GIANT_PETAL = 125, GIANT_HEART = 126,   // giant flowers in the flower meadow
         // cave dressing (FineGen::cave_dressing): game/scripts/materials.gd CAVE_IDS
-        DRIPSTONE = 228, CAVE_VINE = 229, GLOW_BERRY_VINE = 230, FUNGUS_STEM = 231, FUNGUS_CAP = 232, MAGMA_ROCK = 233,
+        DRIPSTONE = 228, CAVE_VINE = 229, GLOW_BERRY_VINE = 230, FUNGUS_STEM = 231, FUNGUS_CAP = 232, MAGMA_ROCK = 233, RUSTED_RAIL = 234,
         // the dry savanna floor (bug report 2026-10-25 20-37-22): straw grass, its tussocks, bare red earth
         SAVANNA_GRASS = 127, SAVANNA_TALL_GRASS = 128, RED_EARTH = 129
     };

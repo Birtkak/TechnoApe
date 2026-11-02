@@ -8,6 +8,7 @@ extends FurnaceEntity
 
 var eu := 0.0        # what the last solve delivered, for the look-at panel
 var eu_t := 16.0
+var facing := 0      # a wrench turns it
 
 
 func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_pos: Vector3i) -> void:
@@ -78,7 +79,18 @@ func look_lines() -> Array[String]:
 
 
 func view_parts() -> Dictionary:
-	return MachineEntity.box_model(WorkPalette.MOLTEN, is_lit(), "electric_furnace")
+	return MachineEntity.turned(MachineEntity.box_model(WorkPalette.MOLTEN, is_lit(), "electric_furnace"), facing)
+
+
+func to_dict() -> Dictionary:
+	var d := super()
+	d["facing"] = facing
+	return d
+
+
+func load_from(d: Dictionary) -> void:
+	super(d)
+	facing = int(d.get("facing", 0))
 
 
 func summary() -> Dictionary:

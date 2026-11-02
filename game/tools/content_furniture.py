@@ -8,7 +8,7 @@ RECIPES = "data/recipes.json"
 MINING = "data/mining.json"
 SOUNDS = "data/sounds.json"
 WOODS = ["spruce", "acacia", "jungle", "birch"]
-WOODED = ["door", "trapdoor", "fence", "fence_gate", "table", "bench"]   # FurnitureEntity.WOODED
+WOODED = ["door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf", "sign"]   # FurnitureEntity.WOODED
 
 
 def lines_of(path):
@@ -50,6 +50,8 @@ new_items = [
        "light": {"color": "#ffc070"}, "_note": "a tallow candle: lights like a lantern, placed or held"}),
     j({"id": "barrel", "name": "Barrel", "tags": ["container", "storage"], "stack": 16, "material": "barrel", "fuel_ticks": 300,
        "_note": "18 slots: between the storage pot (9) and the chest (27)"}),
+    j({"id": "sign", "name": "Sign", "tags": ["furniture", "decoration"], "stack": 16, "furniture": "sign", "fuel_ticks": 100,
+       "_note": "click a wall to hang it, right click to write on it"}),
 ]
 new_recipes = [
     j({"id": "bench", "type": "shaped", "pattern": ["PPP", "SSS"], "key": {"P": "oak_planks", "S": "#stick"},
@@ -57,20 +59,23 @@ new_recipes = [
     j({"id": "candle", "type": "shapeless", "ingredients": ["animal_fat", "cordage"], "output": {"id": "candle", "count": 2}}),
     j({"id": "barrel", "type": "shaped", "pattern": ["PMP", "P P", "PMP"], "key": {"P": "#planks", "M": "#metal.copper"},
        "output": {"id": "barrel", "count": 1}, "station": "crafting_table", "_note": "copper hoops (ADR 0121)"}),
+    j({"id": "sign", "type": "shaped", "pattern": ["PPP", "PPP", " S "], "key": {"P": "oak_planks", "S": "#stick"},
+       "output": {"id": "sign", "count": 3}, "station": "crafting_table"}),
 ]
 # the oak recipes take oak planks now, so each wood's planks make their own (any layout matches, ADR 0046)
 for k in WOODED:
-    if k == "bench":
+    if k in ("bench", "sign"):
         continue
     i, r = row(recipes, k)
     if r["key"].get("P") == "#planks":
         r["key"]["P"] = "oak_planks"
         recipes[i] = j(r)
-_, bench_item = None, json.loads(new_items[0].strip().rstrip(","))
+fresh = {json.loads(l.strip().rstrip(","))["id"]: json.loads(l.strip().rstrip(",")) for l in new_items}
+fresh_r = {json.loads(l.strip().rstrip(","))["id"]: json.loads(l.strip().rstrip(",")) for l in new_recipes}
 for w in WOODS:
     for k in WOODED:
         _, base = row(items, k)
-        base = base or bench_item
+        base = base or fresh[k]
         d = {key: v for key, v in base.items() if key != "_note"}
         d["id"] = "%s_%s" % (w, k)
         d["name"] = "%s %s" % (w.title(), base["name"].replace("Wooden ", ""))
@@ -78,7 +83,7 @@ for w in WOODS:
         new_items.append(j(d))
         _, r = row(recipes, k)
         if r is None:
-            r = json.loads(new_recipes[0].strip().rstrip(","))
+            r = fresh_r[k]
         r = dict(r)
         r.pop("_note", None)
         r["id"] = "%s_%s" % (w, k)

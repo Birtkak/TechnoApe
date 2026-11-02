@@ -30,6 +30,10 @@ func _init(p_aabb: AABB, step_height: float = 0.0) -> void:
 
 ## Moves by velocity * delta as far as the voxels allow. Returns the motion
 ## actually possible (add it to the position). Step climbing only when
+func set_step_height(h: float) -> void:
+	_mover.set_max_step_height(h)
+
+
 ## allow_step (Minecraft only steps up while on the ground).
 func move(pos: Vector3, velocity: Vector3, delta: float, terrain: Node, allow_step: bool = false) -> Vector3:
 	var motion := velocity * delta

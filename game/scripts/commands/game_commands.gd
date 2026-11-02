@@ -47,7 +47,7 @@ const KITS := {
 		"raw_meat": 8, "iron_ore": 8, "firestarter": 1, "lathe": 1, "bending_press": 1, "wiremill": 1, "iron_ingot": 8, "copper_ingot": 8,
 		"primitive_circuit": 4, "machine_hull": 2, "electric_motor": 2, "rubber": 16, "insulated_wire": 16,
 		"macerator": 1, "alloy_smelter": 1, "assembler": 1, "battery_box": 1, "electric_lamp": 4, "tin_nugget": 12, "copper_ore": 4, "vacuum_tube": 4,
-		"resistor": 2, "coated_board": 2},   # the energy network and the electrical age (ADR 0113, 0117)
+		"resistor": 2, "coated_board": 2, "pump": 1, "coke_oven": 1, "bricks": 26, "hopper": 2, "coal_coke": 8, "water_tank": 1, "bucket": 2, "belt": 8, "wrench": 1},   # the energy network and the electrical age (ADR 0113, 0117)
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1, "sounding_rod": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
 	"water": {"bucket": 2, "water_bucket": 1, "crater_rod": 1, "laser_cutter": 1, "lava_bomb": 8, "water_balloon": 8, "cobblestone": 16},   # river tests (ADR 0104)
@@ -97,6 +97,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("wear", "/wear <item>", "Put on clothing or armour (as a right click with it would); what was in that slot is gone", _wear, [_clothing_ids])
 	reg.register("kit", "/kit <%s>" % "|".join(KITS.keys()), "Give a playtest kit", _kit, [KITS.keys()])
 	reg.register("spawn", "/spawn", "Teleport to the world spawn", _spawn)
+	reg.register("sethome", "/sethome", "Mark where you stand as home (a green waypoint; /home goes there)", _sethome)
+	reg.register("home", "/home", "Teleport to your home (/sethome marks it)", _home)
 	reg.register("locate", "/locate <feature>", "Find the nearest cave, ruin, lake, biome ... (within 4 km)", _locate, [FEATURES])
 	reg.register("goto", "/goto <feature>", "Teleport to the nearest cave, ruin, lake, biome ...", _goto, [FEATURES])
 	reg.register("daycycle", "/daycycle <on|off|seconds>", "Run the sun (on = 20 min days) or freeze it", _daycycle, [["on", "off"]])
@@ -111,7 +113,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_setblock, [["~"], ["~"], ["~"], _material_names])
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
-	reg.register("stations", "/stations [electric]", "Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace (ADR 0113)", _stations, [["electric"]])
+	reg.register("stations", "/stations [electric|factory]", "Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp (ADR 0113, 0117)", _stations, [["electric", "factory"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
@@ -388,10 +390,25 @@ func _summon(args: PackedStringArray) -> Dictionary:
 	var at := player.position + fwd.normalized() * Settings.m2v(3.0)
 	for i in n:
 		var q := at + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)) * Settings.m2v(2.0)
+		if WildMoves.habitat(main.mobs.defs[sp]) == "water":   # swimmers go into the water below, not onto the bank
+			var w := _water_below(Vector3i(q.floor()))
+			if w == Vector3.INF:
+				continue
+			q = w
 		var m: Mob = main.mobs.spawn(sp, Vector3(q.x, q.y + 0.5, q.z), baby, randf() * TAU)
 		if hungry and m != null:
 			m.make_hungry()
 	return CommandRegistry.ok("Summoned %d %s%s" % [n, "baby " if baby else "", sp])
+
+
+## A spot in the water within 4 m below `p` (two voxels under the surface where it is deep enough), or INF.
+func _water_below(p: Vector3i) -> Vector3:
+	for d in int(Settings.m2v(4.0)):
+		var c := p + Vector3i(0, -d, 0)
+		if main.mobs.is_liquid(c):
+			var deep: bool = main.mobs.is_liquid(c + Vector3i(0, -2, 0))
+			return Vector3(c.x + 0.5, c.y - (2 if deep else 0.4), c.z + 0.5)
+	return Vector3.INF
 
 
 func _book() -> QuestBook:
@@ -590,6 +607,24 @@ func _spawn(_args: PackedStringArray) -> Dictionary:
 	return CommandRegistry.ok("Teleported to spawn")
 
 
+func _sethome(_args: PackedStringArray) -> Dictionary:
+	if player == null or main == null:
+		return CommandRegistry.fail("No world")
+	var at := Vector3i(player.position.floor())
+	main.waypoints.set_unique("home", "Home", at)
+	return CommandRegistry.ok("Home set at %d %d %d" % [at.x, at.y, at.z])
+
+
+func _home(_args: PackedStringArray) -> Dictionary:
+	if player == null or main == null:
+		return CommandRegistry.fail("No world")
+	var w: Dictionary = main.waypoints.of_kind("home")
+	if w.is_empty():
+		return CommandRegistry.fail("No home yet: /sethome marks one")
+	player.teleport(Vector3(w["pos"]))
+	return CommandRegistry.ok("Teleported home")
+
+
 ## Nearest feature as a voxel position, or a fail() result.
 func _find(args: PackedStringArray) -> Variant:
 	if args.is_empty():
@@ -764,7 +799,7 @@ func _music(args: PackedStringArray) -> Dictionary:
 func _stations(args: PackedStringArray) -> Dictionary:
 	if main == null:
 		return CommandRegistry.fail("No world")
-	if args.size() > 0 and args[0] == "electric":   # ADR 0113: the energy line, 4 m ahead, along the player's right
+	if args.size() > 0 and args[0] in ["electric", "factory"]:   # ADR 0113, 0117: the energy line (or the whole factory), 4 m ahead, along the player's right
 		var fwd: Vector3 = -player.camera.global_transform.basis.z
 		fwd.y = 0
 		var right := Vector3i(fwd.normalized().cross(Vector3.UP).round())
@@ -773,7 +808,7 @@ func _stations(args: PackedStringArray) -> Dictionary:
 		var q := player.position + fwd.normalized() * Settings.m2v(4.0) - Vector3(right) * Settings.m2v(2.5)
 		var anchor := BlockEntities.anchor_for(Vector3i(q.floor()))
 		anchor.y = main.world.surface_height(anchor.x, anchor.z) + 1
-		return CommandRegistry.ok("Laid " + main.work.debug_electric_line(anchor, right))
+		return CommandRegistry.ok("Laid " + (main.work.debug_factory_line(anchor, right) if args[0] == "factory" else main.work.debug_electric_line(anchor, right)))
 	main.place_stations()
 	return CommandRegistry.ok("Placing a crafting table, chest and furnace ahead")
 

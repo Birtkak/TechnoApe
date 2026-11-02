@@ -27,6 +27,8 @@ var power_ticks := 0        # ticks of power left from the last solve
 var progress := 0           # ticks worked on the current recipe
 var total := 20
 var made := 0
+var enabled := true         # a machine with eu_t 0 (the coke oven) runs while this is set (formed)
+var facing := 0             # quarter turns; a wrench turns it (ADR 0097's rule, ADR 0117)
 var _list: Array = []       # this station's process recipes
 
 
@@ -85,15 +87,17 @@ func _room_for(out: Dictionary) -> bool:
 
 
 func is_lit() -> bool:
-	return power_ticks > 0 and not current().is_empty()
+	return powered() and not current().is_empty()
 
 
 func powered() -> bool:
-	return power_ticks > 0
+	return power_ticks > 0 or (eu_t <= 0.0 and enabled)
 
 
 func net(channel: String) -> Dictionary:
 	if channel != "energy":
+		return {}
+	if eu_t <= 0.0:
 		return {}
 	return {"role": NetworkSolver.SINK, "amount": eu_t if not current().is_empty() else 0.0}
 
@@ -114,7 +118,7 @@ func tick() -> bool:
 	if power_ticks > 0:
 		power_ticks -= 1
 	var r := current()
-	if r.is_empty() or power_ticks <= 0:
+	if r.is_empty() or not powered():
 		if r.is_empty():
 			progress = 0
 		return was != is_lit()
@@ -261,11 +265,22 @@ static func box_model(door: int, lit: bool, top: String = "") -> Dictionary:
 
 
 func view_parts() -> Dictionary:
-	return box_model(int(DOOR.get(kind, WorkPalette.MOLTEN)), is_lit(), kind)
+	return turned(box_model(int(DOOR.get(kind, WorkPalette.MOLTEN)), is_lit(), kind), facing)
+
+
+## A view turned `quarters` about up (every part of it).
+static func turned(view: Dictionary, quarters: int) -> Dictionary:
+	if quarters % 4 == 0:
+		return view
+	for k in view:
+		var part: Dictionary = view[k]
+		if part.has("cells") and part.has("size"):
+			part["cells"] = WorkPalette.rotate_y(part["cells"], part["size"], quarters)
+	return view
 
 
 func to_dict() -> Dictionary:
-	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "slots": inv.to_array(), "output": output, "progress": progress}
+	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "slots": inv.to_array(), "output": output, "progress": progress, "facing": facing}
 
 
 func load_from(d: Dictionary) -> void:
@@ -274,6 +289,7 @@ func load_from(d: Dictionary) -> void:
 		inv.set_slot(i, slots[i])
 	output = d.get("output", {})
 	progress = int(d.get("progress", 0))
+	facing = int(d.get("facing", 0))
 
 
 func summary() -> Dictionary:

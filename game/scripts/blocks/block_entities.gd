@@ -103,6 +103,12 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			_ticking.append(e)
 		"battery_box":
 			e = BatteryBoxEntity.new(pos)
+		"pump":
+			e = PumpEntity.new(pos)
+			_ticking.append(e)
+		"coke_oven":   # the first multiblock (ADR 0117)
+			e = CokeOvenEntity.new(items, recipes, pos)
+			_ticking.append(e)
 		"electric_lamp":
 			e = ElectricLampEntity.new(pos)
 		# stage 3 transport (ADR 0100)
@@ -151,7 +157,7 @@ const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 8, "assembly": 1
 ## (the stations' 1 m scale, ADR 0076; the steam age's 1.5 m hammer and 2.5 m boiler, ADR 0097). A view
 ## of 8 cells still spans the width, so a 1 m piece's cell is a voxel; a bigger piece names its own grid.
 const SCALE := {"firepit": 2, "forge": 2, "bloomery": 2, "anvil": 2, "bronze_anvil": 2, "steam_hammer": 3, "boiler": 5,
-	"blast_furnace": 3, "ore_crusher": 2, "tank": 2, "turbine": 3, "compressor": 2, "electric_furnace": 2, "lathe": 2, "bending_press": 2, "wiremill": 2, "macerator": 2, "alloy_smelter": 2, "assembler": 2, "battery_box": 2}
+	"blast_furnace": 3, "ore_crusher": 2, "tank": 2, "turbine": 3, "compressor": 2, "electric_furnace": 2, "lathe": 2, "bending_press": 2, "wiremill": 2, "macerator": 2, "alloy_smelter": 2, "assembler": 2, "battery_box": 2, "pump": 2}
 
 
 ## Footprint width in voxels of a work piece kind.
@@ -260,6 +266,15 @@ func _register_cells(e: RefCounted) -> void:
 		_cells[c] = e.pos
 
 
+## An entity's footprint changed (a multiblock formed or broke, ADR 0117): cover its cells again.
+func refit(e: RefCounted) -> void:
+	for c in _cells.keys():
+		if _cells[c] == e.pos:
+			_cells.erase(c)
+	_register_cells(e)
+	dirty = true
+
+
 ## The furniture covering voxel p, or null.
 func furniture_at(p: Vector3i) -> FurnitureEntity:
 	var a = _cells.get(p)
@@ -276,7 +291,7 @@ func all_furniture() -> Array:
 
 const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave",
 	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile", "boiler", "pipe", "steam_hammer", "steam_sieve",
-	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp"]
+	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "pump", "coke_oven"]
 
 
 ## The machines a boiler's pipes feed (ADR 0097): everything with a `boiler` slot.

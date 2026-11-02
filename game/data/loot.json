@@ -120,6 +120,22 @@
         {"id": "fire_essence", "weight": 1}
       ]
     },
+    "mine_pot": {
+      "rolls": [1, 3],
+      "empty_chance": 0.15,
+      "entries": [
+        {"id": "coal", "weight": 14, "count": [2, 6]},
+        {"id": "torch", "weight": 10, "count": [1, 4]},
+        {"id": "iron_nugget", "weight": 10, "count": [1, 4]},
+        {"id": "copper_nugget", "weight": 8, "count": [2, 5]},
+        {"id": "tin_nugget", "weight": 6, "count": [1, 3]},
+        {"id": "cordage", "weight": 6, "count": [1, 3]},
+        {"id": "copper_pickaxe", "weight": 3, "wear": [0.6, 0.9]},
+        {"id": "lantern", "weight": 2},
+        {"id": "iron_pickaxe", "weight": 1, "wear": [0.7, 0.95]},
+        {"id": "iron_ingot", "weight": 1}
+      ]
+    },
     "wreck_pot": {
       "rolls": [1, 3],
       "empty_chance": 0.2,

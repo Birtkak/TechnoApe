@@ -123,3 +123,12 @@ func test_tooltip_facts() -> void:
 	assert_str(InventoryScreen.item_facts(items, recipes, "chest", false)).contains("Made by: Crafting Table")
 	assert_str(InventoryScreen.item_facts(items, recipes, "oak_planks", false)).contains("Used in")
 	assert_str(InventoryScreen.item_facts(items, recipes, "oak_log", true)).contains("oak_log").contains("#wood")
+
+
+func test_auto_step_setting_picks_the_step_height() -> void:
+	var was := Settings.auto_step
+	Settings.auto_step = true
+	assert_float(Settings.step_voxels()).is_greater(float(Settings.BLOCK))   # a full block and some slack
+	Settings.auto_step = false
+	assert_float(Settings.step_voxels()).is_greater_equal(2.0).is_less(float(Settings.BLOCK))
+	Settings.auto_step = was

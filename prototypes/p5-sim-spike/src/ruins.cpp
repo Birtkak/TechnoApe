@@ -44,6 +44,8 @@ bool square_shape(int shape) { return shape == S_WATCHTOWER || shape == S_STONE_
 
 // crypt layout: the room's floor lies D macro cells under the ruin's floor
 inline int crypt_d(const Ruin &r) { return std::max(4, r.depth - 1); }
+// mine layout: the gallery's floor lies D macro cells under the ruin's floor, the decline from the mouth (+v) is D long
+inline int mine_d(const Ruin &r) { return std::max(4, r.depth - 1); }
 
 } // namespace
 
@@ -111,6 +113,12 @@ int pot_spots(const Ruin &r, PotSpot out[4]) {
             const int c[3][2] = {{-1, av}, {1, av}, {0, p}};
             for (int i = 0; i < 3; i++) { cu[n] = c[i][0]; cv[n] = c[i][1]; n++; }
             y = r.base + 2;
+            break;
+        }
+        case S_MINE: {   // the gallery's far end past the cave-in (1 m apart), and one at the foot of the decline
+            const int c[3][2] = {{-1, -(V - 1)}, {1, -(V - 1)}, {0, V - mine_d(r) - 2}};
+            for (int i = 0; i < 3; i++) { cu[n] = c[i][0]; cv[n] = c[i][1]; n++; }
+            y = r.base - mine_d(r) + 1;
             break;
         }
         case S_WRECK: {
@@ -404,6 +412,58 @@ uint16_t shrine(const Prepared &p, const Ctx &c) {
     return TERRAIN;
 }
 
+// An abandoned mine: a timber head-frame and a spoil heap at the mouth, a decline 45 degrees down to a gallery
+// 1.5 m wide and 2 m tall, timber sets every 2 m, rails on sleepers, a cave-in to squeeze past, pots at the end.
+uint16_t mine(const Prepared &p, const Ctx &c) {
+    const Ruin &r = p.r;
+    const int V = p.V, D = mine_d(r);
+    const int floor_my = r.base - D, au = std::abs(c.u);
+    const int base_f = r.base * c.fs, gal_f = (floor_my + 1) * c.fs, head = 4 * c.fs;   // 2 m of headroom
+    const int v_gal = V - D;                                   // where the decline meets the gallery
+    const int v_end = -(V - 1);
+    // the passage's floor here (fine voxels): down a voxel per voxel along the decline, then level
+    int sf = base_f - (int)std::floor(((float)V + 0.5f - c.fv) * (float)c.fs);
+    sf = std::max(sf, gal_f);
+    const bool in_run = au <= 1 && c.v >= v_end && c.v <= V;
+    if (in_run) {
+        if (c.wy < sf - c.fs) return c.my >= r.base ? TERRAIN : PASS;
+        if (c.wy < sf) return p.mat[M_FLOOR];
+        const int up = c.wy - sf;                              // voxels over the passage floor
+        if (up >= head) {
+            if (up < head + c.fs && sf + head < base_f) return p.mat[M_WALL];   // the plank roof where it is under ground
+            return c.my >= r.base ? TERRAIN : PASS;
+        }
+        // timber sets: posts at both walls and a cap under the roof, every 4 macro cells
+        const float fr = c.fv - 4.0f * std::floor(c.fv / 4.0f);
+        if (fr < 0.25f && c.v < V - 1 && (std::fabs(c.fu) >= 1.25f || up >= head - 1)) return p.mat[M_WALL];
+        if (c.v <= v_gal) {
+            // the cave-in: a heap of gravel across the gallery, a gap left over its low side
+            const float cv0 = (float)v_end + 3.5f;
+            if (std::fabs(c.fv - cv0) < 1.6f) {
+                const float pile = 2.6f - 0.9f * std::fabs(c.fv - cv0) - 0.45f * (c.fu + 1.5f);
+                if ((float)up / (float)c.fs < pile) return p.mat[M_EXTRA];
+            }
+            // rails on sleepers down the gallery, stopping short of the end
+            if (up == 0 && c.v > v_end + 1) {
+                if (std::fabs(std::fabs(c.fu) - 0.6f) < 0.13f && (hash(c.wx, c.wz, (int)r.seed + 91) % 9) != 0) return p.mat[M_TRIM];
+                const float fs2 = c.fv - 2.0f * std::floor(c.fv / 2.0f);
+                if (fs2 < 0.25f && std::fabs(c.fu) <= 0.9f) return p.mat[M_WALL];
+            }
+        }
+        return AIR;
+    }
+    if (c.my < r.base) return PASS;
+    // the head-frame: two posts beside the mouth, a beam across them 3 m up
+    const int mouth_v = V - 1;
+    if (au == 2 && c.v == mouth_v && c.my < r.base + 6) return p.mat[M_WALL];
+    if (au <= 2 && c.v == mouth_v && c.my == r.base + 6) return p.mat[M_WALL];
+    // the spoil heap: gravel dumped on one side of the mouth
+    const float hu = c.fu - 3.0f, hv = c.fv - (float)(V - 4);
+    const float heap = 1.8f - 0.35f * std::sqrt(hu * hu * 2.0f + hv * hv);
+    if (c.u >= 2 && c.fy < heap && c.fy >= 0.0f) return p.mat[M_EXTRA];
+    return TERRAIN;
+}
+
 uint16_t wreck(const Prepared &p, const Ctx &c) {
     const Ruin &r = p.r;
     const float L = (float)p.U - 0.3f, W = (float)p.V * 0.95f;
@@ -465,6 +525,7 @@ uint16_t voxel(const Prepared &p, int fs, int wx, int wy, int wz, int surf, uint
         case S_MUD_HOUSE: m = mud_house(p, c); break;
         case S_SHRINE: m = shrine(p, c); break;
         case S_WRECK: m = wreck(p, c); break;
+        case S_MINE: m = mine(p, c); break;
         default: m = house(p, c); break;
     }
     (void)ground;

@@ -78,6 +78,7 @@ var _merge_accum := 0.0
 var _spawned := false
 var _spawn_xz := Vector2(0, 0)
 var _spawn_pos := Vector3.ZERO
+var sign_at := Vector3i(0, -1048576, 0)   # the sign last right clicked: /sign writes on it (ADR 0121)
 var deaths := 0   # apetions lost: the Gelvin monolith numbers each one it rebuilds (docs/design/lore.md)
 var death_screen: DeathScreen
 var _dying := false   # the death and rebuild sequence is running
@@ -185,7 +186,7 @@ func _ready() -> void:
 			return what == "use"   # a stray furniture voxel: _use_furniture clears it
 		var k: Dictionary = FurnitureEntity.KINDS[f.furniture]
 		if what == "use":   # a table or shelf takes no click: a pot or lantern goes on it
-			return FurnitureEntity.sits(f.furniture) or k.get("sleep", false) or f.can_open()
+			return FurnitureEntity.sits(f.furniture) or k.get("sleep", false) or f.can_open() or k.get("write", false)
 		return k.get(what, false)
 
 	_items_root = Node3D.new()
@@ -740,6 +741,8 @@ func _describe_block(p: Vector3i) -> Dictionary:
 
 
 func _describe_entity(e: RefCounted) -> Dictionary:
+	if e is FurnitureEntity and e.text != "":
+		return {"line": "\"%s\"" % e.text}   # a sign's words
 	if e is ChestEntity or (e is FurnaceEntity and not e.has_method("look_lines")):   # what is inside (ADR 0093)
 		var lines := PackedStringArray()
 		if e is ChestEntity and e.label != "":
@@ -864,6 +867,15 @@ func _save_json(path: String, data: Dictionary) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_debug"):
 		hud.toggle()
+	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F1 and not player.ui_open:
+		toggle_hud()
+
+
+## F1 (Minecraft, ADR 0130): the HUD, the minimap in it and the hand go away for a clean view (F2 shoots it).
+func toggle_hud() -> void:
+	game_hud.visible = not game_hud.visible
+	if player.viewmodel:
+		player.viewmodel.visible = game_hud.visible and player.perspective == 0 and GameMode.rule(player.game_mode, "interacts")
 
 
 # ---------------- chat, debug menu, game modes (ADR 0018) ----------------
@@ -1299,6 +1311,10 @@ func _use_furniture(p: Vector3i) -> void:
 	if e.can_open():
 		toggle_door(e)
 		return
+	if FurnitureEntity.KINDS[e.furniture].get("write", false):
+		sign_at = e.pos
+		chat.open("/sign ")   # the next /sign writes on it
+		return
 	if not FurnitureEntity.KINDS[e.furniture].get("sleep", false):
 		return   # a table, shelf, window...: nothing to use
 	_spawn_pos = e.seat() + Vector3(0, 0.6, 0)
@@ -1389,6 +1405,8 @@ func _on_health_changed(h: int) -> void:
 		stains.bleed(player.position, _last_health - h)
 		if fx:
 			fx.burst("bleed", player.position + Vector3(0, Settings.m2v(1.0), 0), {"count_bonus": _last_health - h})
+		if h <= 0:
+			player.died.emit()   # any damage that kills dies here (a mob's bite did not); _on_died ignores repeats
 	_last_health = h
 
 
@@ -1542,6 +1560,8 @@ func _on_block_used(p: Vector3i, material: int) -> void:
 ## A furnace started or stopped burning: swap furnace <-> furnace_lit, or
 ## drop the entity when its block is gone (burnt, replaced by the sim).
 func _on_lit_flipped(p: Vector3i) -> void:
+	if BlockEntities.is_work(blocks.at(p)):
+		return   # a work piece (the electric furnace, ADR 0113) draws its own lit look through WorkSystem; no voxel to swap
 	var m := get_world_voxel(p)
 	if m != GameMaterials.FURNACE and m != GameMaterials.FURNACE_LIT:
 		for s in blocks.remove(p):
@@ -1817,6 +1837,8 @@ func _on_died() -> void:
 	print("player died at %s (%s), respawning" % [player.position, player_inv.last_cause])
 	if GameMode.rule(player.game_mode, "consumes_items"):
 		_make_grave(Vector3i(player.position.floor()))   # survival: it all stays where you fell (plan item D12)
+	else:
+		waypoints.set_unique("death", "Last death", Vector3i(player.position.floor()))   # no grave marks it (ADR 0130)
 	deaths += 1
 	if DebugCapture.tp_test:
 		_respawn()   # tp_test times the bare respawn

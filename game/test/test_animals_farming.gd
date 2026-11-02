@@ -88,8 +88,8 @@ func test_drop_lists_roll_counts_and_chances() -> void:
 	var fiber := 0
 	for i in 2000:
 		for s in mining.roll_drops("tall_grass", {}, rng):
-			# by hand: no dry grass (that needs a knife); wild einkorn, emmer and flax seeds now and then (ADR 0059)
-			assert_array(["wheat_seeds", "plant_fiber", "einkorn_seeds", "emmer_seeds", "flax_seeds"]).contains([s["id"]])
+			# by hand: no dry grass (that needs a knife); wild einkorn, emmer and flax seeds now and then (ADR 0059), wild potatoes, onions and beans (ADR 0121)
+			assert_array(["wheat_seeds", "plant_fiber", "einkorn_seeds", "emmer_seeds", "flax_seeds", "potato", "onion", "beans"]).contains([s["id"]])
 			if s["id"] == "wheat_seeds":
 				seeds += int(s["count"])
 			elif s["id"] == "plant_fiber":
@@ -344,4 +344,4 @@ func test_furniture_mesh_cells_fit_the_footprint() -> void:
 		for v in c:
 			if v != 0:
 				filled += 1
-		assert_int(filled).is_greater(50)
+		assert_int(filled).override_failure_message(k).is_greater(50)

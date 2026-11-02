@@ -27,6 +27,12 @@ frame times.
       what its network makes, wants and moves. Middle click a machine or station: its item comes to hand.
 - [ ] Hover items in the inventory: food, fuel time, "Made by", "Used in N recipes"; hold Shift for id and tags.
 - [ ] Recipe view (R) at a crafting table or the 2x2 grid: Craft makes one straight into the inventory, Shift as many as you can.
+- [ ] `/sethome`, walk away, `/home`: back there; the map (M) shows a green Home pin, a second /sethome moves it.
+      Die in creative (`/kill`): a grey "Last death" pin marks the spot (survival still makes a grave).
+- [ ] Settings > Controls "Auto step up blocks" off: walking into a 0.5 m block stops you (jump onto it), rough
+      ground still walks; on again: you step up as before.
+- [ ] Send a few chat lines or commands, quit the game, start again: Up in the chat brings them back.
+- [ ] F1 hides the HUD, minimap and hand; F1 again shows them. F2 still saves a screenshot.
 
 ## Playtest shortcuts (2026-11-02)
 

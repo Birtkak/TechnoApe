@@ -34,6 +34,8 @@ MEALS = {
                       {"kind": "regen", "amount": 5.0, "s": 60}, 2),
     "berry_compote": ("Berry Compote", [("wild_strawberry", 4), ("blueberry", 4)], {"hunger": 4, "saturation": 4}, {"fruit": 4},
                       {"kind": "cool", "amount": 6.0, "s": 300}, 5),
+    "vegetable_soup": ("Vegetable Soup", [("potato", 3), ("onion", 3), ("carrot", 3), ("beans", 3)], {"hunger": 7, "saturation": 7},
+                       {"vegetable": 5}, {"kind": "warm", "amount": 6.0, "s": 300}, 2),
 }
 
 items = lines_of(ITEMS)

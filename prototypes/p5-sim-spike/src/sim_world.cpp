@@ -918,12 +918,33 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
         }
     }
     if ((rnd(c) & 0xFF) > m.gravity_prob) return;   // viscosity: a thick liquid skips ticks
+    // a partly full cell of its liquid below takes what fits (a split landed on a partial cell): a column is full
+    // cells under one surface
+    if (y > 0 && is_open(x, y - 1, z)) {
+        const int bi = idx(x, y - 1, z);
+        if (cells_[bi].mat == self && moved_[bi] != mark_) {
+            const int fb = full(bi);
+            if (fb < 8) {
+                const int t = std::min(8 - fb, f);
+                set_full(bi, fb + t);
+                moved_[bi] = mark_;
+                moved_[i] = mark_;
+                if (t >= f) { place(i, 0); mark_cell(x, y, z, c, true); }
+                else { set_full(i, f - t); mark_cell(x, y, z, c, false); }
+                mark_cell(x, y - 1, z, c, false);
+                c.moved++;
+                return;
+            }
+        }
+    }
     // 2. the column's surface: up from here while the liquid continues
     int sy = y;
     while (sy - y < COLUMN_REACH && same(x, sy + 1, z)) sy++;
     const int si = idx(x, sy, z);
     const int H = 8 * sy + full(si);   // the surface height in eighths
     const bool surface = sy == y;
+    int avail = 0;   // what the column holds from this cell up: no give takes more (a partial under a partial holds less than H says)
+    for (int yy = y; yy <= sy; yy++) avail += full(idx(x, yy, z));
     // t eighths off the column's top
     auto take = [&](int t) {
         int ti = si, ty = sy;
@@ -985,22 +1006,46 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
                 return;
             }
             // an opening below the surface: the head above pours a whole cell into it
-            take(give(nx, y, nz, 8));
+            take(give(nx, y, nz, std::min(8, avail)));
             c.moved++;
             return;
         }
         if (t != self) continue;
         // the neighbour column's surface
-        int ny = y;
-        while (ny - y < COLUMN_REACH && same(nx, ny + 1, nz)) ny++;
+        int ny = y;   // its top, one short of the reach: what overflows lands within it
+        while (ny - y < COLUMN_REACH - 1 && same(nx, ny + 1, nz)) ny++;
         const int Hn = 8 * ny + full(idx(nx, ny, nz));
         if (Hn >= H - 1) continue;   // level, or higher: it levels toward us on its own visit
         if (moved_[idx(nx, ny, nz)] == mark_) continue;
-        const int dt = std::min(8, (H - Hn) / 2);
+        const int dt = std::min({8, (H - Hn) / 2, avail});
         if (dt < 1) continue;
         take(give(nx, ny, nz, dt));
         c.moved++;
         return;
+    }
+    // 3. no neighbour two eighths lower: a surface cell looks along the surface for one and sends it an eighth, so the
+    // surface ends flat to an eighth instead of tilted an eighth per cell (ADR 0069 B 4c)
+    if (!surface) return;
+    for (int k = 0; k < 4; k++) {
+        const int dd = (d0 + k) & 3;
+        for (int s = 1; s <= SURFACE_REACH; s++) {
+            const int px = x + DX4[dd] * s, pz = z + DZ4[dd] * s;
+            if (!same(px, y, pz)) break;
+            const int pi = idx(px, y, pz);
+            const int fp = full(pi);
+            if (fp > f || same(px, y + 1, pz)) break;   // uphill, or under more of its liquid: not this way
+            if (fp <= f - 2) {
+                if (moved_[pi] == mark_) break;
+                set_full(pi, fp + 1);
+                set_full(i, f - 1);
+                moved_[pi] = mark_;
+                moved_[i] = mark_;
+                mark_cell(px, y, pz, c, false);
+                mark_cell(x, y, z, c, false);
+                c.moved++;
+                return;
+            }
+        }
     }
 }
 void SimWorld::set_cascade(bool p_on) { cascade_ = p_on; }

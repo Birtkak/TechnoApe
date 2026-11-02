@@ -41,16 +41,17 @@ func test_solver_shares_by_component_and_weakest_cable() -> void:
 	assert_int(s.stats()["count"]).is_equal(2)
 
 
-func test_solver_splits_supply_and_demand_proportionally() -> void:
+func test_solver_shares_sources_and_fills_sinks_in_order() -> void:
 	var s := NetworkSolver.new()
-	# two sources (30, 10) feed two sinks (60, 20) over a wide cable: flow 40
+	# two sources (30, 10) feed two sinks (25, 20) over a wide cable: flow 40; the first sink is filled
+	# whole, the second gets what is left (a machine runs whole or waits: no brownouts, ADR 0117)
 	var boxes := _box(0) + _box(B) + _box(2 * B) + _box(3 * B) + _box(4 * B)
 	var roles := PackedInt32Array([NetworkSolver.SOURCE, NetworkSolver.SINK, NetworkSolver.CONDUCTOR, NetworkSolver.SINK, NetworkSolver.SOURCE])
-	var r := s.solve(boxes, roles, PackedFloat32Array([30, 60, 1000, 20, 10]))
+	var r := s.solve(boxes, roles, PackedFloat32Array([30, 25, 1000, 20, 10]))
 	assert_float(r[1]).is_equal_approx(30.0, 0.01)
 	assert_float(r[9]).is_equal_approx(10.0, 0.01)
-	assert_float(r[3]).is_equal_approx(30.0, 0.01)
-	assert_float(r[7]).is_equal_approx(10.0, 0.01)
+	assert_float(r[3]).is_equal_approx(25.0, 0.01)
+	assert_float(r[7]).is_equal_approx(15.0, 0.01)
 
 
 func test_big_boxes_touch_by_their_faces() -> void:

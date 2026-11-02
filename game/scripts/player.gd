@@ -464,6 +464,7 @@ func _on_ladder() -> bool:
 
 ## One move through the voxel grid; zeroes velocity on blocked axes.
 func _move(delta: float, allow_step: bool) -> void:
+	body.set_step_height(Settings.step_voxels())   # the setting applies at once
 	var got := body.move(position, velocity, delta, world.terrain, allow_step)
 	position += got
 	_on_floor = body.on_floor
