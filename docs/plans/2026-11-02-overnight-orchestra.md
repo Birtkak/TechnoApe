@@ -59,6 +59,10 @@ encoding up in its ADR.
   sprites and the workshop UI skin (ADR 0129). Clashes: the sprite JSON (regenerated from the merged script), the
   look test (the QoL lane's version kept), the furniture cell floor (back to 50 after the playtest lane lowered it).
   Suite: 722 cases, 0 failures.
+- Round 5 (GEN_VERSION 30): abandoned mines as a ruin kind; herds that bolt and sleep, salmon, jellyfish; a wrench
+  that turns machines, wall lamps, belts and chutes into machines (item pipes left out, belts are the item
+  transport); furniture, barrel and candle quests. Default for the developer to confirm (ADR 0117): when power is
+  short, the first-placed machines get it and the rest wait. Suite: 728 cases, 0 failures.
 
 ## Ideas parked for the developer
 
