@@ -58,6 +58,7 @@ var fly_speed_m := 20.0
 var jump_height_m := 1.25
 var climb_speed_m := 2.4                # up or down a ladder (Minecraft's 2.35 blocks/s; ADR 0094)
 var step_height_m := 0.55               # auto step-up: one 0.5 m block (BLOCK voxels) plus a little slack
+var small_step_m := 0.3                 # ... with auto_step off: rough ground (two voxels) still walks, a full block needs a jump
 var player_height_m := 1.8
 var player_radius_m := 0.3
 var eye_height_m := 1.62
@@ -197,6 +198,7 @@ var minimap_size_px := 160              # 0 hides the minimap
 var toggle_sprint := false              # Ctrl latches sprinting on and off instead of being held
 var toggle_sneak := false               # Shift latches sneaking on and off instead of being held
 var hud_coords := false                 # a line top left: position in metres and the facing (compass)
+var auto_step := true                   # walk up full 0.5 m blocks (Minecraft's auto-jump); off: jump onto them
 var screen_effects := true              # a red edge when hurt, frost or heat at the edges when the body is cold or hot
 # weather and forest fires (ADR 0056; the developer chose "moderate" fire and random weather + fire rain)
 var weather := true                     # weather=0: always clear (benchmarks); weather=rain|clear starts with it
@@ -323,6 +325,11 @@ func set_seed_text(s: String) -> void:
 	world_seed = seed_from_string(s)
 
 
+## The voxels the player's body steps up on its own (ADR 0130: auto_step off keeps only small steps).
+func step_voxels() -> float:
+	return m2v(step_height_m if auto_step else small_step_m)
+
+
 static func m2v(metres: float) -> float:
 	return metres / VOXEL_M
 
@@ -426,6 +433,7 @@ func load_user_settings() -> void:
 	brush_ghost = bool(cf.get_value("controls", "brush_ghost", brush_ghost))
 	toggle_sprint = bool(cf.get_value("controls", "toggle_sprint", toggle_sprint))
 	toggle_sneak = bool(cf.get_value("controls", "toggle_sneak", toggle_sneak))
+	auto_step = bool(cf.get_value("controls", "auto_step", auto_step))
 	hud_coords = bool(cf.get_value("hud", "coords", hud_coords))
 	screen_effects = bool(cf.get_value("hud", "screen_effects", screen_effects))
 	volume_master = clampf(float(cf.get_value("audio", "master", volume_master)), 0.0, 1.0)
@@ -461,6 +469,7 @@ func save_user_settings() -> void:
 	cf.set_value("controls", "brush_ghost", brush_ghost)
 	cf.set_value("controls", "toggle_sprint", toggle_sprint)
 	cf.set_value("controls", "toggle_sneak", toggle_sneak)
+	cf.set_value("controls", "auto_step", auto_step)
 	cf.set_value("hud", "coords", hud_coords)
 	cf.set_value("hud", "screen_effects", screen_effects)
 	cf.set_value("audio", "master", volume_master)

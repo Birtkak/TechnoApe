@@ -867,6 +867,15 @@ func _save_json(path: String, data: Dictionary) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_debug"):
 		hud.toggle()
+	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F1 and not player.ui_open:
+		toggle_hud()
+
+
+## F1 (Minecraft, ADR 0130): the HUD, the minimap in it and the hand go away for a clean view (F2 shoots it).
+func toggle_hud() -> void:
+	game_hud.visible = not game_hud.visible
+	if player.viewmodel:
+		player.viewmodel.visible = game_hud.visible and player.perspective == 0 and GameMode.rule(player.game_mode, "interacts")
 
 
 # ---------------- chat, debug menu, game modes (ADR 0018) ----------------
@@ -1824,6 +1833,8 @@ func _on_died() -> void:
 	print("player died at %s (%s), respawning" % [player.position, player_inv.last_cause])
 	if GameMode.rule(player.game_mode, "consumes_items"):
 		_make_grave(Vector3i(player.position.floor()))   # survival: it all stays where you fell (plan item D12)
+	else:
+		waypoints.set_unique("death", "Last death", Vector3i(player.position.floor()))   # no grave marks it (ADR 0130)
 	deaths += 1
 	if DebugCapture.tp_test:
 		_respawn()   # tp_test times the bare respawn

@@ -17,11 +17,12 @@ func before_test() -> void:
 
 
 func test_network_line_sums_the_component() -> void:
-	var t: TurbineEntity = store.create(Vector3i(6 * B, 0, 0), "turbine")   # two blocks wide
+	var t: TurbineEntity = store.create(Vector3i(6 * B, 0, 0), "turbine")
 	t.rpm = Settings.turbine_rpm
-	var cable: RefCounted = store.create(Vector3i(8 * B, 0, 0), "cable")
-	store.create(Vector3i(9 * B, 0, 0), "cable")
-	store.create(Vector3i(10 * B, 0, 0), "electric_furnace")
+	var x := 6 * B + BlockEntities.width_of("turbine")   # the cables start at its side, whatever its size
+	var cable: RefCounted = store.create(Vector3i(x, 0, 0), "cable")
+	store.create(Vector3i(x + B, 0, 0), "cable")
+	store.create(Vector3i(x + 2 * B, 0, 0), "electric_furnace")
 	var lone: RefCounted = store.create(Vector3i(40 * B, 0, 0), "cable")
 	Networks.solve(store, "energy")
 	var line := Networks.look_line(cable)
@@ -29,3 +30,34 @@ func test_network_line_sums_the_component() -> void:
 	assert_str(Networks.look_line(t)).is_equal(line)   # every part of a network reads the same
 	assert_str(Networks.look_line(lone)).is_empty()     # a cable on its own is no network
 	assert_str(Networks.look_line(null)).is_empty()
+
+
+func test_home_and_death_waypoints_are_unique() -> void:
+	var w := Waypoints.new()
+	w.add("Mine", Vector3i(1, 2, 3))
+	w.set_unique("home", "Home", Vector3i(10, 0, 0))
+	w.set_unique("home", "Home", Vector3i(20, 0, 0))
+	w.set_unique("death", "Last death", Vector3i(5, 5, 5))
+	assert_int(w.list.size()).is_equal(3)
+	assert_object(w.of_kind("home")["pos"]).is_equal(Vector3i(20, 0, 0))
+	assert_object(w.of_kind("home")["colour"]).is_equal(Waypoints.KIND_COLOURS["home"])
+	var back := Waypoints.new()
+	back.load_array(w.to_array())   # saved with the player
+	assert_str(String(back.of_kind("death").get("name", ""))).is_equal("Last death")
+
+
+func test_chat_history_survives_a_restart() -> void:
+	var path := "user://test_chat_history.txt"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	var a: ChatBox = auto_free(ChatBox.new())
+	a.history_path = path
+	add_child(a)
+	a._on_submitted("hello")
+	a._on_submitted("/help")
+	var b: ChatBox = auto_free(ChatBox.new())
+	b.history_path = path
+	add_child(b)
+	assert_array(b._history).contains_exactly(["hello", "/help"])
+	b._history_step(-1)   # Up recalls the newest
+	assert_str(b._field.text).is_equal("/help")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

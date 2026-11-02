@@ -103,6 +103,11 @@ func _qol_hud(main) -> void:
 	await _shot("hud_qol")
 	main.player_inv.heal(2)
 	Settings.hud_coords = was
+	main.toggle_hud()   # F1
+	r["f1_hides_hud"] = not hud.visible and not main.player.viewmodel.visible
+	await _shot("hud_hidden")
+	main.toggle_hud()
+	r["f1_shows_again"] = hud.visible
 
 
 ## The crafting table screen's Fill and Clear buttons (bug report 2026-10-25): the bug report's

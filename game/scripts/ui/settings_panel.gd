@@ -18,7 +18,7 @@ const VIEW_M := Settings.VIEW_CHOICES_M   # ADR 0073: the one box of full-detail
 const KEYS := [["Space twice", "fly (creative)"], ["G", "world tools panel: brush, build modes, keys"], ["Ctrl + wheel", "brush size, laser width"], ["B / Shift + B", "brush shape: next / previous"],
 	["Shift + right click", "paint the brush with the held block (creative)"], ["Ctrl + Q", "drop the stack"],
 	["1-9, wheel", "hotbar"], ["Alt + wheel", "turn the inventory rows into the hotbar"], ["Double click", "gather a stack (Shift: move all of it)"], ["R / U / A", "recipes / uses / bookmark (in the inventory)"], ["Alt + click", "favourite slot (in the inventory)"],
-	["/", "commands"], ["F3 / F5", "debug screen / camera view"], ["F2 / F9", "screenshot / bug report"], ["F4 / F6", "playtest menu / tuning panel"], ["Esc", "pause menu"]]
+	["/", "commands"], ["F3 / F5", "debug screen / camera view"], ["F1 / F2", "hide the HUD / screenshot"], ["F9", "bug report"], ["F4 / F6", "playtest menu / tuning panel"], ["Esc", "pause menu"]]
 var _key_buttons := {}     # action -> Button
 var _rebinding := ""       # the action waiting for a key
 
@@ -47,6 +47,7 @@ var _sens_label: Label
 var _invert: CheckBox
 var _toggle_sprint: CheckBox
 var _toggle_sneak: CheckBox
+var _auto_step: CheckBox
 var _coords: CheckBox
 var _effects: CheckBox
 var _volumes := {}   # Settings key -> HSlider
@@ -300,6 +301,10 @@ func _controls_tab() -> Control:
 		Settings.toggle_sneak = _toggle_sneak.button_pressed
 		_edited())
 	_row(g, "Toggle sneak", _toggle_sneak)
+	_auto_step = _check(func() -> void:
+		Settings.auto_step = _auto_step.button_pressed
+		_edited())
+	_row(g, "Auto step up blocks", _auto_step)
 	v.add_child(UiStyle.label("Keys (click one, then press the new key or mouse button; Esc cancels)", 17, UiStyle.ACCENT))
 	var binds := GridContainer.new()
 	binds.columns = 4
@@ -393,6 +398,7 @@ func sync_from_settings() -> void:
 	_invert.button_pressed = Settings.invert_y
 	_toggle_sprint.button_pressed = Settings.toggle_sprint
 	_toggle_sneak.button_pressed = Settings.toggle_sneak
+	_auto_step.button_pressed = Settings.auto_step
 	_coords.button_pressed = Settings.hud_coords
 	_effects.button_pressed = Settings.screen_effects
 	_refresh_keys()
