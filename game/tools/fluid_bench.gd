@@ -1,8 +1,8 @@
 extends SceneTree
 
 ## Fluid benchmark (ADR 0119, headless): the moving-liquid kernel alone, no terrain, no meshing. Two scenes, each
-## printed as one JSON line: "basin" (an 8^3 block of water dropped into a 30 x 30 basin: ticks until nothing moves
-## for 10 ticks, the surface's spread in eighths, tick ms avg / max) and "bombs" (ten 1.5 m water balls over an uneven
+## printed as one JSON line: "basin" (an 8^3 block of water dropped into a 30 x 30 basin: ticks until under 8 cells
+## move for 10 ticks (films drying are not motion), the surface's spread in eighths, tick ms avg / max) and "bombs" (ten 1.5 m water balls over an uneven
 ## stone floor with pits, one every 15 ticks: ticks to quiet after the last, the most chunks awake in one tick, tick ms).
 ##   godot --headless --path game --script res://tools/fluid_bench.gd [-- column=0]   (column=0: the eighth kernel of ADR 0069)
 ## Run old and new back to back and compare medians: the machine is shared.
@@ -37,8 +37,8 @@ func _settle(w: SimWorld, max_ticks: int, out: Dictionary) -> int:
 		sum += ms
 		mx = maxf(mx, ms)
 		n += 1
-		awake = maxi(awake, int(s.get("active_chunks", 0)))
-		if int(s.get("moved", 1)) == 0:
+		awake = maxi(awake, int(s.get("active_chunks_per_tick", 0)))
+		if int(s.get("moved_cells_per_tick", 1)) < 8:   # the odd film drying is not motion
 			still += 1
 			if still >= 10:
 				out["tick_ms_avg"] = snappedf(sum / n, 0.01)
@@ -56,17 +56,9 @@ func _settle(w: SimWorld, max_ticks: int, out: Dictionary) -> int:
 func _surface_spread(w: SimWorld, x0: int, x1: int, z0: int, z1: int, y0: int, y1: int) -> int:
 	var lo := 1 << 30
 	var hi := -1
-	for z in range(z0, z1):
-		for x in range(x0, x1):
-			var h := 0
-			for y in range(y0, y1):
-				var v := w.get_voxel(Vector3i(x, y, z))
-				if v == GameMaterials.WATER:
-					h = 8 * (y + 1)
-				elif v >= GameMaterials.FLUID_LEVEL_BASE and GameMaterials.material_of_voxel(v) == GameMaterials.WATER:
-					h = 8 * y + (v - GameMaterials.FLUID_LEVEL_BASE) % 8 + 1
-			lo = mini(lo, h)
-			hi = maxi(hi, h)
+	for h in load("res://test/test_sim_0119.gd").surface_heights(w, x0, x1, z0, z1, y0, y1, GameMaterials.WATER).values():
+		lo = mini(lo, h)
+		hi = maxi(hi, h)
 	return hi - lo
 
 
@@ -112,7 +104,7 @@ func _init() -> void:
 			sum += ms
 			mx = maxf(mx, ms)
 			n += 1
-			awake = maxi(awake, int(s.get("active_chunks", 0)))
+			awake = maxi(awake, int(s.get("active_chunks_per_tick", 0)))
 	out["tick_ms_avg_while_bombing"] = snappedf(sum / n, 0.01)
 	out["tick_ms_max_while_bombing"] = snappedf(mx, 0.01)
 	out["chunks_awake_max_while_bombing"] = awake

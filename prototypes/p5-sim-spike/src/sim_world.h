@@ -352,7 +352,7 @@ private:
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);
     void update_liquid_column(int x, int y, int z, int i, Ctx &c);   // ADR 0119 A
-    static constexpr int COLUMN_REACH = 15;   // cells a column scan follows up or down (< CS, like MAX_DISP)
+    static constexpr int COLUMN_REACH = 7;    // cells a column scan follows up or down (< CS / 2 like SURFACE_REACH: chunks two apart never touch one cell)
     void update_gas(int x, int y, int z, int i, Ctx &c);
     void update_fire(int x, int y, int z, int i, Ctx &c);
     void update_burning(int x, int y, int z, int i, Ctx &c);

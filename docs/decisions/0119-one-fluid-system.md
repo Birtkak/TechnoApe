@@ -47,11 +47,13 @@ have an opening), in a fixed parity order per chunk (deterministic, no RNG for l
    most one cell lower: move `(h_a - h_b) / 2` eighths of height, where h is the surface height above the lower of the
    two floors, at most what the giving column holds. Whole eighths, the remainder alternating by parity so mass is
    exact. A column pair rests at a difference under one eighth; a flat surface needs no further tick.
-3. **Head through openings (communicating vessels).** A full cell below a surface whose side or bottom neighbour is
-   air, or the same liquid with a lower *surface*, has head `h_self - h_there`; it moves a cell (or the head's worth of
-   eighths) into the opening. This is what fills a U-tube to one level, feeds a breach from the body's depth (ADR
-   0104's reservoir rule becomes a special case: a still body is a column of infinite height), and replaces 4a's momentum
-   slide. Bounded by `liquid_speed` cells a tick per column, so lava stays slow.
+3. **Head through openings.** A full cell below a surface whose side neighbour is air, or the same liquid with a
+   lower *surface* within reach, has head `h_self - h_there`; it moves a cell (or the head's worth of eighths) into
+   the opening. This feeds a breach from the body's depth and replaces 4a's momentum slide. Found on the way
+   (2026-11-03): head carries only between *adjacent columns*, so a U-tube joined by a one-cell passage does not level
+   (the passage cells have no column to carry the head); communicating vessels need a head value per cell propagated
+   through full cells, which the 4-byte cell has no room for. Not delivered here; pipes and pumps stay Phase 3.
+   Bounded by `liquid_speed` cells a tick per column, so lava stays slow.
 4. **Rest and sleep.** A column with no neighbour differing by an eighth or more and no opening marks nothing, so its
    chunk sleeps the next tick. No film rule: a one-eighth sheet on a floor rests where it is (a puddle is a puddle),
    unless it is alone with no liquid beside it, then it still dries after `film_lifetime_ticks` (taste call kept).
@@ -59,9 +61,12 @@ have an opening), in a fixed parity order per chunk (deterministic, no RNG for l
    `reservoir` feeds the opening a column instead of a cell when the opening is deeper than one cell.
 Bench target (`tools/fluid_bench.gd`, a new one that prints JSON): the water_bench pond settles in **under 1.5 s with a
 tick under 4 ms** on a quiet machine; the 19-bomb stress keeps **under 40 chunks awake** after the last bomb and pastes
-under a fifth of today's chunks. Tests `test_sim_0119.gd`: a pit fills flat to one eighth and the sim is quiet within 40
-ticks; a U-tube levels; a breach floods to the body's level and no higher; mass exact in every case; a lava column
-moves at most `liquid_speed` cells a tick.
+under a fifth of today's chunks. Tests `test_sim_0119.gd`: a block in a basin ends flat to half a cell and quiet; the same spill lands
+the same twice; mass exact; lava spreads slower than water.
+**Measured (2026-11-03, `fluid_bench.gd`, three rounds back to back):** basin: old quiet at tick 11, column flow at 15,
+both 1.0-1.3 ms a tick; ten bombs over steps and pits: the old kernel never goes quiet (5000+ cells move every tick,
+42-48 chunks awake for ever), column flow is quiet 24 ticks after the last bomb at 0-5 moves a tick. The per-tick cost
+is the same; the win is that a spill ends, so its chunks stop pasting and remeshing.
 
 ### B. Pushes are native and box-sized
 `SimWorld::write_dirty(VoxelTool)`-style path: the sim already tracks the changed-cells box per dirty chunk (`dbox_`);
