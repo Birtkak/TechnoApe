@@ -45,6 +45,7 @@ const KITS := {
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64, "fire_essence": 16},
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
+	"water": {"bucket": 2, "water_bucket": 1, "crater_rod": 1, "laser_cutter": 1, "lava_bomb": 8, "water_balloon": 8, "cobblestone": 16},   # river tests (ADR 0104)
 	"tnt": {"tnt": 64, "igniter": 1, "flint_and_steel": 1, "sulfur": 8, "charcoal": 4, "sand": 2},   # TNT (ADR 0065)
 	"fire": {"flint_and_steel": 1, "firestarter": 1, "firepit": 1, "firewood": 32, "coal": 16, "oak_log": 16, "dry_grass": 16,
 		"torch": 16, "water_bucket": 4, "water_balloon": 16},   # forest fires and rain (ADR 0056)
@@ -66,6 +67,7 @@ var player_inv: PlayerInventory
 var main: Node   # Main: atmosphere, spawn_item, spawn position
 var _cam: DebugCamera   # /cam, made on first use
 var sky: SkyCommands   # /date, /moon, /eclipse, /constellations (ADR 0025)
+var playtest := PlaytestCommands.new()   # /totest, /scenario
 
 
 func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_main: Node = null) -> void:
@@ -128,6 +130,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 	reg.register("sound", "/sound <name> [x y z] | list | stats", "Play a sound (ADR 0044), list them, or show the sound stats", _sound, [Sound.sound_names() + ["list", "stats"]])
 	reg.register("music", "/music [next|stop|<track>]", "Show, skip to the next, stop or pick a music track", _music, [["next", "stop"]])
+	playtest.register(reg, player)
 	var atmo: Node = main.get("atmosphere") if main != null else null
 	if atmo != null:
 		sky = SkyCommands.new(atmo)
