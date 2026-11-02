@@ -31,8 +31,8 @@ Godot_v4.7.2-stable_mono_win64_console.exe --path game -- autopilot=1 duration=2
 # scatter_items=1 drops one entity per given item in front; open_inventory=1 for a screen shot
 Godot_..._console.exe --path game -- autopilot=1 mine=1 duration=20 capture_every=2 give=wooden_pickaxe out=res://out/mine
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=4 open_inventory=1 give=oak_log:12,cobblestone:64,bucket:2 out=res://out/inv
-# station blocks (ADR 0007): stations=1 places a crafting table, chest and furnace ahead (furnace smelts 8 iron
-# ore on 1 coal, JSON "blocks"); open=crafting_table|chest|furnace right-clicks that one at 60 % of the run
+# station blocks (ADR 0007): stations=1 places a crafting table, chest and furnace ahead (furnace smelts 8 blocks of
+# cobblestone on 4 coal, JSON "blocks"); open=crafting_table|chest|furnace right-clicks that one at 60 % of the run
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 stations=1 open=furnace duration=24 capture_every=2 out=res://out/stations
 # recipe browser (ADR 0008), with open_inventory=1: browse=iron_pickaxe | browse=oak_planks:uses, search=#metal,
 # hover_test=1 (mouse over a cell + R + RMB through real input; prints the result); JSON "browser"

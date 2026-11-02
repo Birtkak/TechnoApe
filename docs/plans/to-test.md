@@ -24,6 +24,15 @@ frame times.
       hearts, low food shakes the food row. "Hurt, cold and heat effects" off removes it all.
 - [ ] Every 30 s "Saving world..." shows bottom left for a moment.
 
+## Playtest shortcuts (2026-11-02)
+
+- [ ] `/totest` (or F4 > "Open items") lists the newest unticked items of this list; `/totest 20` shows more.
+- [ ] `/scenario river` (F4 > To-test scenarios) takes you to a river in creative with buckets, a crater rod, the
+      laser and lava bombs (`/kit water`); `cave_stream` does the same and names the nearest cave to dig toward;
+      `lit_station` sets night and puts down a table, chest and a burning furnace; `ledge` stands you in survival
+      on a 6 m stone platform 3 m up to try Ctrl sprint and Shift stopping at the edge.
+- [ ] `/stations` places all three again (the chest and furnace said "No room"), on the real ground, furnace lit.
+
 ## Faster start, near ground first (2026-10-29, ADR 0108)
 
 - [ ] Create a new world: the loading screen lifts after 2-3 s (was ~9 s at 72 m, ~20 s at 100 m) with the ground

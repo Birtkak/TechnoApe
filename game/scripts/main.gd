@@ -1664,14 +1664,31 @@ func _debug_use_block(at: Vector3i) -> void:
 	print("debug use %s -> screen open %s (%s)" % [at, inv_screen.is_open, player_inv.summary()["container"]])
 
 
+## The real ground under a station's footprint near `at` (the generator's height_at is the coarse one): one
+## above the highest cell that is not clearable, scanning from 4 m above the player down to 8 m below.
+func _debug_ground(material: int, at: Vector3i) -> int:
+	var kind: String = GameMaterials.defs()[material - 1]["entity"]
+	var top := int(player.position.y + Settings.m2v(4.0))
+	var best := int(player.position.y + Settings.m2v(-8.0))
+	for c in BlockEntities.footprint_of(kind, Vector3i(at.x, 0, at.z)):
+		if c.y != 0:
+			continue
+		for y in range(top, best, -1):
+			var m := get_world_voxel(Vector3i(c.x, y, c.z))
+			if not (PlantStamps.is_clearable_cell(m) or GameMaterials.is_liquid(GameMaterials.material_of_voxel(m))):
+				best = y
+				break
+	return best + 1
+
+
 ## Debug: a crafting table, chest and furnace on the ground ahead (stations=1);
-## the furnace starts smelting 8 iron ore with 1 coal, the chest holds samples.
+## the furnace starts smelting cobblestone, the chest holds samples.
 func _place_debug_stations() -> void:
 	var fwd := -player.camera.global_transform.basis.z
 	fwd.y = 0
 	fwd = fwd.normalized()
 	var right := fwd.cross(Vector3.UP)
-	var base := player.position + fwd * Settings.m2v(2.0)   # metres: the 1 m stations (8 voxels) need room
+	var base := player.position + fwd * Settings.m2v(2.5)   # 1 m pieces (ADR 0076): clear of the player and each other
 	var kinds := [["crafting_table", GameMaterials.CRAFTING_TABLE], ["chest", GameMaterials.CHEST], ["furnace", GameMaterials.FURNACE]]
 	var spots: Array[Vector3i] = []
 	for i in kinds.size():
@@ -1689,20 +1706,14 @@ func _place_debug_stations() -> void:
 			break
 		await get_tree().process_frame
 	for i in kinds.size():
-		# climb out of what surface_height does not see (the spawn monolith), to the first spot with room
-		var kind: String = GameMaterials.defs()[kinds[i][1] - 1]["entity"]
-		for _up in 40:
-			if BlockEntities.footprint_of(kind, spots[i]).all(func(c: Vector3i) -> bool: return PlantStamps.is_clearable_cell(get_world_voxel(c))):
-				break
-			spots[i].y += 1
 		var x := spots[i].x
-		var y := spots[i].y
+		var y := _debug_ground(kinds[i][1], spots[i])
 		var z := spots[i].z
 		_on_placed(Vector3i(x, y, z), kinds[i][1])
 		var e: RefCounted = blocks.at(Vector3i(x, y, z))
 		if e is FurnaceEntity:
-			e.inv.set_slot(FurnaceEntity.INPUT, {"id": "cobblestone", "count": 64})   # iron ore wants a bloomery now
-			e.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 64})   # a burn takes items.units() of each
+			e.inv.set_slot(FurnaceEntity.INPUT, {"id": "cobblestone", "count": 8 * items.units("cobblestone")})   # whole blocks; iron ore went to the bloomery
+			e.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 4 * items.units("coal")})
 		elif e is ChestEntity:
 			e.inv.set_slot(0, {"id": "oak_log", "count": 32})
 			e.inv.set_slot(4, {"id": "cobblestone", "count": 64})
