@@ -442,7 +442,7 @@ func _draw_recipe_panel() -> void:
 	sb.border_color = Color(0.2, 0.2, 0.2)
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(6)
-	_recipe_panel.draw_style_box(sb, Rect2(Vector2.ZERO, PANEL))
+	_recipe_panel.draw_style_box(UiStyle.skin("inventory", sb), Rect2(Vector2.ZERO, PANEL))
 	if not model.is_open():
 		return
 	if _tab_x >= 0.0:   # the open station tab: a frame round it
@@ -539,6 +539,10 @@ class BrowserCell:
 		return spec if spec.begins_with("#") else ""
 
 	static func draw_slot(ci: CanvasItem, r: Rect2) -> void:
+		var skin := UiStyle.skin("slot", StyleBoxEmpty.new())
+		if skin is StyleBoxTexture:   # the inventory's slot skin (ADR 0129)
+			ci.draw_style_box(skin, r)
+			return
 		ci.draw_rect(r, Color(0.545, 0.545, 0.545))
 		ci.draw_rect(Rect2(r.position, Vector2(r.size.x, 2)), Color(0.22, 0.22, 0.22))
 		ci.draw_rect(Rect2(r.position, Vector2(2, r.size.y)), Color(0.22, 0.22, 0.22))

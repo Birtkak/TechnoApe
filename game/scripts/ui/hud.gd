@@ -527,23 +527,23 @@ func _draw_pill() -> void:
 func _draw_hotbar() -> void:
 	# one rounded tray behind the row; slots are recessed cells; the selected
 	# slot lifts out with a bright rim and a soft glow
-	var tray := StyleBoxFlat.new()
-	tray.bg_color = Color(0.04, 0.04, 0.06, 0.62)
-	tray.border_color = Color(1, 1, 1, 0.16)
-	tray.set_border_width_all(1)
-	tray.set_corner_radius_all(7)
-	tray.set_expand_margin_all(5)
-	tray.shadow_color = Color(0, 0, 0, 0.45)
-	tray.shadow_size = 8
-	tray.shadow_offset = Vector2(0, 2)
-	tray = UiStyle.skin("hotbar", tray)
+	var flat_tray := StyleBoxFlat.new()
+	flat_tray.bg_color = Color(0.04, 0.04, 0.06, 0.62)
+	flat_tray.border_color = Color(1, 1, 1, 0.16)
+	flat_tray.set_border_width_all(1)
+	flat_tray.set_corner_radius_all(7)
+	flat_tray.set_expand_margin_all(5)
+	flat_tray.shadow_color = Color(0, 0, 0, 0.45)
+	flat_tray.shadow_size = 8
+	flat_tray.shadow_offset = Vector2(0, 2)
+	var tray := UiStyle.skin("hotbar", flat_tray)   # a skin is a StyleBoxTexture, not flat
 	_hotbar.draw_style_box(tray, Rect2(0, 0, _hotbar.size.x, SLOT))
-	var cell := StyleBoxFlat.new()
-	cell.bg_color = Color(0, 0, 0, 0.38)
-	cell.border_color = Color(1, 1, 1, 0.07)
-	cell.set_border_width_all(1)
-	cell.set_corner_radius_all(4)
-	cell = UiStyle.skin("hotbar_slot", cell)
+	var flat_cell := StyleBoxFlat.new()
+	flat_cell.bg_color = Color(0, 0, 0, 0.38)
+	flat_cell.border_color = Color(1, 1, 1, 0.07)
+	flat_cell.set_border_width_all(1)
+	flat_cell.set_corner_radius_all(4)
+	var cell := UiStyle.skin("hotbar_slot", flat_cell)
 	for i in 9:
 		_hotbar.draw_style_box(cell, Rect2(i * (SLOT + GAP), 0, SLOT, SLOT))
 	if player_inv and not player_inv.offhand().is_empty():

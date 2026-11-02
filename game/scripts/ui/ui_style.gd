@@ -47,6 +47,8 @@ static func skin(name: String, fallback: StyleBox) -> StyleBox:
 	var out: StyleBoxTexture = s.duplicate()
 	for side in [SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM]:
 		out.set_content_margin(side, fallback.get_content_margin(side))
+		if fallback is StyleBoxFlat:   # a box drawn bigger than its rect (the hotbar tray, the selected slot) stays so
+			out.set_expand_margin(side, (fallback as StyleBoxFlat).get_expand_margin(side))
 	return out
 
 

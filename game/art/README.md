@@ -29,6 +29,8 @@ generators):
   or gauge stays live). Code: `scripts/work/art_models.gd`.
 - `assets/ui/<skin>.png`: a nine-slice skin for a menu, HUD or inventory box (`UiStyle.SKINS` lists
   the names); corners are a third of the image, drawn 3x. Needs `--import`. Code: `UiStyle.skin`.
+  `tools/make_ui_skins.py` draws them (ADR 0129) and overwrites the folder: keep a hand-painted skin as
+  `art/ui/<skin>.png` too, and it wins on every run.
 
 Any 16x16 PNG works (Aseprite, Pixelorama, Libresprite, Paint.NET). The Texture Studio artifact shows
 the current look of all of these, edits them (a voxel editor for models), previews them the way the
