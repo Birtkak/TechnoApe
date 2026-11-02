@@ -758,6 +758,27 @@
    ],
    "dur": 1.6
   },
+  "amb/bird": {
+   "synth": "birds",
+   "level": -18
+  },
+  "amb/jungle": {
+   "synth": "jungle",
+   "level": -16
+  },
+  "amb/cricket": {
+   "synth": "crickets",
+   "level": -22
+  },
+  "amb/owl": {
+   "synth": "owl",
+   "level": -16
+  },
+  "loop/wind": {
+   "synth": "wind",
+   "loop": 1.5,
+   "level": -22
+  },
   "loop/monolith_hum": {
    "synth": "hum",
    "loop": 0.5,
