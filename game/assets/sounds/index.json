@@ -1,4 +1,26 @@
 {
+ "amb/bird": [
+  "amb/bird_0.ogg",
+  "amb/bird_1.ogg",
+  "amb/bird_2.ogg",
+  "amb/bird_3.ogg",
+  "amb/bird_4.ogg"
+ ],
+ "amb/cricket": [
+  "amb/cricket_0.ogg",
+  "amb/cricket_1.ogg",
+  "amb/cricket_2.ogg"
+ ],
+ "amb/jungle": [
+  "amb/jungle_0.ogg",
+  "amb/jungle_1.ogg",
+  "amb/jungle_2.ogg",
+  "amb/jungle_3.ogg"
+ ],
+ "amb/owl": [
+  "amb/owl_0.ogg",
+  "amb/owl_1.ogg"
+ ],
  "block/chest_close": [
   "block/chest_close_0.ogg",
   "block/chest_close_1.ogg"
@@ -276,6 +298,9 @@
  ],
  "loop/water_fall": [
   "loop/water_fall.ogg"
+ ],
+ "loop/wind": [
+  "loop/wind.ogg"
  ],
  "mob/bat": [
   "mob/bat_0.ogg",

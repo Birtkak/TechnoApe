@@ -347,6 +347,20 @@
    "gravity": 10.0,
    "drag": 0.1,
    "floor": "die"
+  },
+  "firefly": {
+   "gravity": -0.03,
+   "drag": 2.0,
+   "floor": "none",
+   "glow": 10.0,
+   "sway": 0.45
+  },
+  "pollen": {
+   "gravity": -0.02,
+   "drag": 1.5,
+   "floor": "none",
+   "glow": 0.3,
+   "sway": 0.3
   }
  },
  "tiles": {
@@ -1356,10 +1370,113 @@
     "#ffb030",
     "#ff7020"
    ]
+  },
+  "firefly": {
+   "channel": "sprites",
+   "sprite": "mote",
+   "motion": "firefly",
+   "count": [
+    1,
+    1
+   ],
+   "life": [
+    4.0,
+    7.0
+   ],
+   "size": [
+    0.08,
+    0.11
+   ],
+   "speed": [
+    0.1,
+    0.35
+   ],
+   "dir": "up",
+   "spread": 70,
+   "box": [
+    0.4,
+    0.3,
+    0.4
+   ],
+   "lift": 0.15,
+   "colors": [
+    "#d8ff5a",
+    "#f4ff8a",
+    "#b8f040"
+   ]
+  },
+  "pollen": {
+   "channel": "sprites",
+   "sprite": "mote",
+   "motion": "pollen",
+   "count": [
+    1,
+    2
+   ],
+   "life": [
+    3.0,
+    5.0
+   ],
+   "size": [
+    0.02,
+    0.035
+   ],
+   "speed": [
+    0.05,
+    0.25
+   ],
+   "dir": "up",
+   "spread": 60,
+   "box": [
+    0.2,
+    0.1,
+    0.2
+   ],
+   "colors": [
+    "#fff2a0",
+    "#ffe070",
+    "#fffbe0"
+   ]
+  },
+  "dust_mote": {
+   "channel": "sprites",
+   "sprite": "mote",
+   "motion": "pollen",
+   "count": [
+    1,
+    1
+   ],
+   "life": [
+    5.0,
+    8.0
+   ],
+   "size": [
+    0.02,
+    0.03
+   ],
+   "speed": [
+    0.0,
+    0.08
+   ],
+   "dir": "any",
+   "spread": 180,
+   "box": [
+    0.5,
+    0.2,
+    0.5
+   ],
+   "colors": [
+    "#c8bca8",
+    "#a89c8c"
+   ],
+   "shade": [
+    0.6,
+    1.0
+   ]
   }
  },
  "ambient": {
-  "_doc": "per material name (or burning: cells the simulation marks burning): [{effect, chance per sampled cell, where}]",
+  "_doc": "per material name (or burning: cells the simulation marks burning): [{effect, chance per sampled cell, where}]; time = day | night (optional; dusk counts as night)",
   "lava": [
    {
     "effect": "lava_pop",
@@ -1420,6 +1537,11 @@
     "effect": "drip_water",
     "chance": 0.004,
     "where": "water_above"
+   },
+   {
+    "effect": "dust_mote",
+    "chance": 0.01,
+    "where": "air_below"
    }
   ],
   "glow_mushroom": [
@@ -1469,6 +1591,70 @@
     "effect": "sludge_bubble",
     "chance": 0.15,
     "where": "air_above"
+   }
+  ],
+  "grass": [
+   {
+    "effect": "firefly",
+    "chance": 0.12,
+    "where": "air_above",
+    "time": "night"
+   }
+  ],
+  "flower": [
+   {
+    "effect": "pollen",
+    "chance": 0.5,
+    "where": "any",
+    "time": "day"
+   }
+  ],
+  "flower_red": [
+   {
+    "effect": "pollen",
+    "chance": 0.5,
+    "where": "any",
+    "time": "day"
+   }
+  ],
+  "cornflower": [
+   {
+    "effect": "pollen",
+    "chance": 0.5,
+    "where": "any",
+    "time": "day"
+   }
+  ],
+  "oxeye_daisy": [
+   {
+    "effect": "pollen",
+    "chance": 0.5,
+    "where": "any",
+    "time": "day"
+   }
+  ],
+  "allium": [
+   {
+    "effect": "pollen",
+    "chance": 0.5,
+    "where": "any",
+    "time": "day"
+   }
+  ],
+  "tall_grass": [
+   {
+    "effect": "firefly",
+    "chance": 0.25,
+    "where": "any",
+    "time": "night"
+   }
+  ],
+  "fern": [
+   {
+    "effect": "firefly",
+    "chance": 0.25,
+    "where": "any",
+    "time": "night"
    }
   ]
  }

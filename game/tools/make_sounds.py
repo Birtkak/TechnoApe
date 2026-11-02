@@ -197,6 +197,111 @@ def synth_done() -> list:
 SYNTH = {"hum": synth_hum, "blips": synth_blips, "done": synth_done}
 
 
+# ---------------- ambience (ADR 0120): made here, the CC0 packs hold no birds, insects or wind ----------------
+
+def _env(n: int, attack: float, decay: float) -> np.ndarray:
+    t = np.arange(n) / RATE
+    return np.minimum(1, t / max(attack, 1e-4)) * np.exp(-t / max(decay, 1e-4))
+
+
+def _sweep(f0: float, f1: float, dur: float, vib: float = 0.0, vib_hz: float = 0.0) -> np.ndarray:
+    t = np.arange(int(RATE * dur)) / RATE
+    f = np.geomspace(f0, f1, len(t)) * (1 + vib * np.sin(2 * np.pi * vib_hz * t))
+    return np.sin(2 * np.pi * np.cumsum(f) / RATE)
+
+
+def _phrase(notes: list) -> np.ndarray:
+    """notes: [f0, f1, dur, gap, vib, vib_hz]; each a swept whistle with a soft edge."""
+    out = []
+    for f0, f1, dur, gap, vib, vh in notes:
+        w = _sweep(f0, f1, dur, vib, vh)
+        n = len(w)
+        w = w * np.minimum(1, np.arange(n) / (RATE * 0.006)) * np.minimum(1, (n - np.arange(n)) / (RATE * 0.012))
+        out += [w, np.zeros(int(RATE * gap))]
+    return np.concatenate(out)
+
+
+def synth_birds() -> list:
+    """Temperate songbirds by day: a falling trill, a two-note whistle, a warble, a chip-chip-chip."""
+    rng = np.random.default_rng(7)
+    out = [
+        _phrase([[4200 - i * 120, 3600 - i * 120, 0.045, 0.025, 0, 0] for i in range(9)]),
+        _phrase([[2900, 2950, 0.22, 0.12, 0.01, 6], [2300, 2250, 0.3, 0.0, 0.01, 6]]),
+        _phrase([[float(rng.uniform(2400, 4200)), float(rng.uniform(2400, 4200)), 0.07, 0.015, 0.05, 30] for _ in range(10)]),
+        _phrase([[5200, 3800, 0.03, 0.09, 0, 0]] * 4),
+        _phrase([[3300, 4400, 0.12, 0.06, 0, 0], [4400, 3100, 0.1, 0.05, 0, 0], [3600, 3700, 0.35, 0, 0.04, 22]]),
+    ]
+    return [o[:, None] * 0.8 for o in out]
+
+
+def synth_jungle() -> list:
+    """Hot wet forest calls: a rising-falling whoop, a hollow toucan croak, a cascade of piping notes."""
+    out = []
+    w = _sweep(500, 1400, 0.35) * _env(int(RATE * 0.35), 0.05, 0.3)
+    out.append(np.concatenate([w, np.zeros(int(RATE * 0.1)), _sweep(1500, 600, 0.5) * _env(int(RATE * 0.5), 0.01, 0.35)]))
+    croak = []
+    for i in range(3):
+        n = int(RATE * 0.12)
+        t = np.arange(n) / RATE
+        c = np.tanh(3 * np.sin(2 * np.pi * 310 * t)) * (0.5 + 0.5 * np.sign(np.sin(2 * np.pi * 70 * t))) * _env(n, 0.005, 0.08)
+        croak += [c, np.zeros(int(RATE * 0.11))]
+    out.append(np.concatenate(croak))
+    out.append(_phrase([[1900 - i * 90, 1750 - i * 90, 0.11, 0.07, 0.02, 9] for i in range(8)]))
+    out.append(_phrase([[800, 2400, 0.25, 0.05, 0, 0], [2400, 2300, 0.4, 0, 0.08, 7]]))
+    return [o[:, None] * 0.8 for o in out]
+
+
+def synth_crickets() -> list:
+    """Night crickets: chirps of 3-4 pulses of a 4.4 kHz carrier, a few per sound, each variant its own rate."""
+    out = []
+    for f, pulses, chirps, gap in [(4400, 3, 4, 0.32), (4700, 4, 3, 0.45), (4100, 3, 5, 0.26)]:
+        parts = []
+        for _ in range(chirps):
+            for _ in range(pulses):
+                n = int(RATE * 0.016)
+                t = np.arange(n) / RATE
+                parts += [np.sin(2 * np.pi * f * t) * np.sin(np.pi * t / t[-1]), np.zeros(int(RATE * 0.01))]
+            parts.append(np.zeros(int(RATE * gap)))
+        out.append(np.concatenate(parts)[:, None] * 0.7)
+    return out
+
+
+def synth_owl() -> list:
+    """An owl at night: a soft hoot, then a long wavering one (two variants at different pitches)."""
+    out = []
+    for f in [370, 330]:
+        h1 = _sweep(f * 1.04, f, 0.28) * _env(int(RATE * 0.28), 0.06, 0.16)
+        h2 = _sweep(f * 1.06, f * 0.94, 0.75, 0.015, 7) * _env(int(RATE * 0.75), 0.08, 0.45)
+        a = np.concatenate([h1, np.zeros(int(RATE * 0.3)), h2])
+        a = a + 0.15 * np.sin(2 * np.pi * 2 * np.cumsum(np.full(len(a), f)) / RATE) * np.abs(a)
+        out.append(a[:, None] * 0.8)
+    return out
+
+
+def synth_wind() -> list:
+    """An exposed wind bed: brown noise through a slowly moving band, swelling in gusts; loops at 1.5 s."""
+    rng = np.random.default_rng(11)
+    n = int(RATE * 14)
+    t = np.arange(n) / RATE
+    white = rng.standard_normal(n)
+    out = np.zeros(n)
+    centre = 350 + 250 * np.sin(2 * np.pi * t / 7.0) + 120 * np.sin(2 * np.pi * t / 2.3)
+    for lo in range(0, n, 2048):   # a band-pass per block: centre frequency follows the gusts
+        hi = min(n, lo + 2048 + 1024)
+        seg = white[lo:hi]
+        spec = np.fft.rfft(seg)
+        fr = np.fft.rfftfreq(len(seg), 1 / RATE)
+        c = centre[lo]
+        spec *= np.exp(-((np.log(np.maximum(fr, 1) / c)) ** 2) / 0.35)
+        blk = np.fft.irfft(spec, len(seg)) * np.hanning(len(seg))
+        out[lo:hi] += blk
+    gust = 0.55 + 0.45 * np.sin(2 * np.pi * t / 7.0) ** 2
+    return [(out * gust)[:, None]]
+
+
+SYNTH.update({"birds": synth_birds, "jungle": synth_jungle, "crickets": synth_crickets, "owl": synth_owl, "wind": synth_wind})
+
+
 def build(name: str, r: dict) -> list:
     music = bool(r.get("music"))
     channels = 2 if music else 1
