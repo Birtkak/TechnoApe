@@ -57,3 +57,12 @@ func test_barrel_is_storage() -> void:
 	var cs: Array = StationEntity.cells("barrel")
 	assert_int((cs[0] as PackedInt32Array).size() - (cs[0] as PackedInt32Array).count(0)).is_greater(100)
 	assert_str(String(MiningTable.load_default().entry("barrel").get("drops", ""))).is_equal("barrel")
+
+
+func test_rugs_lie_flat() -> void:
+	for k in ["red_rug", "blue_rug", "straw_mat"]:
+		var c := FurnitureEntity.cells_for(k)
+		assert_int(c.count(0)).override_failure_message(k + " has holes").is_equal(0)
+		assert_int(FurnitureEntity.KINDS[k]["box"][1].y).is_equal(1)
+	assert_str(recipes.match_grid(["wool", "wool", "cornflower", "", "", "", "", "", ""], "").get("id", "")).is_equal("blue_rug")
+	assert_str(recipes.match_grid(["dry_grass", "dry_grass", "dry_grass", "", "", "", "", "", ""], "").get("id", "")).is_equal("straw_mat")

@@ -1101,6 +1101,22 @@ PALETTES["jungle_wood"] = ramp("#3a1a26", "#7a4040", "#9e6252", "#b87c62", "#d29
 PALETTES["birch_wood"] = ramp("#5a5040", "#b0a07c", "#d0c09a", "#e4d6b2", "#f6ecce")
 sp("bench", ("bench", "wood"))
 sp("candle", ("candle", "wax"))
+# rugs (ADR 0121): a rug seen from above at a slant, fringe at both ends (ADR 0129 ramps: cool shadows, warm lights)
+shape("rug", outline(art([
+    "................", "................", "................", "...h.h.h.h.h.h..",
+    "..dddddddddddd..", "..dmmmmmmmmmmd..", "..dmmmmlmmmmmd..", "..dmmmlhlmmmmd..",
+    "..dmmlhhhlmmmd..", "..dmmmlhlmmmmd..", "..dmmmmlmmmmmd..", "..dmmmmmmmmmmd..",
+    "..dddddddddddd..", "...h.h.h.h.h.h..", "................", "................"])))
+shape("mat", outline(art([
+    "................", "................", "................", "................",
+    "..dlmlmlmlmlmd..", "..lmlmlmlmlmld..", "..mlmlmlmlmlmd..", "..lmlmlmlmlmld..",
+    "..mlmlmlmlmlmd..", "..lmlmlmlmlmld..", "..mlmlmlmlmlmd..", "..dddddddddddd..",
+    "................", "................", "................", "................"])))
+PALETTES["red_rug"] = ramp("#3a0e22", "#7a1a2a", "#b82c30", "#d85a40", "#f2e0c4")
+PALETTES["blue_rug"] = ramp("#0e1430", "#1e2c66", "#34489a", "#5a74c0", "#f0eadc")
+sp("red_rug", ("rug", "red_rug"))
+sp("blue_rug", ("rug", "blue_rug"))
+sp("straw_mat", ("mat", "straw"))
 for w in ("spruce", "acacia", "jungle", "birch"):
     for k in ("door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf"):
         sp(w + "_" + k, (k, w + "_wood"))

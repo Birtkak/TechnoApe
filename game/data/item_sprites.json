@@ -55,6 +55,8 @@
     "acacia_wood": {"o": "#2e1013", "d": "#8a3e26", "m": "#b85e34", "l": "#d27c44", "h": "#ec9e5c"},
     "jungle_wood": {"o": "#241018", "d": "#7a4040", "m": "#9e6252", "l": "#b87c62", "h": "#d29c7a"},
     "birch_wood": {"o": "#383228", "d": "#b0a07c", "m": "#d0c09a", "l": "#e4d6b2", "h": "#f6ecce"},
+    "red_rug": {"o": "#240915", "d": "#7a1a2a", "m": "#b82c30", "l": "#d85a40", "h": "#f2e0c4"},
+    "blue_rug": {"o": "#090c1e", "d": "#1e2c66", "m": "#34489a", "l": "#5a74c0", "h": "#f0eadc"},
     "spruce_leaf": {"o": "#07140c", "d": "#1e4028", "m": "#2c5a36", "l": "#3e7448", "h": "#5e9468"},
     "acacia_leaf": {"o": "#181a07", "d": "#4a5420", "m": "#68742e", "l": "#86923e", "h": "#acb85e"},
     "jungle_leaf": {"o": "#091e0a", "d": "#226a20", "m": "#2e8a2a", "l": "#44a83a", "h": "#78d060"},
@@ -2452,6 +2454,46 @@
         "....ooooooo....."
       ]
     },
+    "rug": {
+      "rows": [
+        "................",
+        "................",
+        "...o.o.o.o.o.o..",
+        "..ohohohohohoho.",
+        ".oddddddddddddo.",
+        ".odmmmmmmmmmmdo.",
+        ".odmmmmlmmmmmdo.",
+        ".odmmmlhlmmmmdo.",
+        ".odmmlhhhlmmmdo.",
+        ".odmmmlhlmmmmdo.",
+        ".odmmmmlmmmmmdo.",
+        ".odmmmmmmmmmmdo.",
+        ".oddddddddddddo.",
+        "..ohohohohohoho.",
+        "...o.o.o.o.o.o..",
+        "................"
+      ]
+    },
+    "mat": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "..oooooooooooo..",
+        ".odlmlmlmlmlmdo.",
+        ".olmlmlmlmlmldo.",
+        ".omlmlmlmlmlmdo.",
+        ".olmlmlmlmlmldo.",
+        ".omlmlmlmlmlmdo.",
+        ".olmlmlmlmlmldo.",
+        ".omlmlmlmlmlmdo.",
+        ".oddddddddddddo.",
+        "..oooooooooooo..",
+        "................",
+        "................",
+        "................"
+      ]
+    },
     "wattle": {
       "rows": [
         "...oo..oo..oo...",
@@ -4214,6 +4256,9 @@
     "painting": {"layers": [{"shape": "painting", "palette": "wood"}]},
     "bench": {"layers": [{"shape": "bench", "palette": "wood"}]},
     "candle": {"layers": [{"shape": "candle", "palette": "wax"}]},
+    "red_rug": {"layers": [{"shape": "rug", "palette": "red_rug"}]},
+    "blue_rug": {"layers": [{"shape": "rug", "palette": "blue_rug"}]},
+    "straw_mat": {"layers": [{"shape": "mat", "palette": "straw"}]},
     "spruce_door": {"layers": [{"shape": "door", "palette": "spruce_wood"}]},
     "spruce_trapdoor": {"layers": [{"shape": "trapdoor", "palette": "spruce_wood"}]},
     "spruce_fence": {"layers": [{"shape": "fence", "palette": "spruce_wood"}]},

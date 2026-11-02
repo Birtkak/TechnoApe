@@ -54,6 +54,10 @@ const BASE_KINDS := {
 		"box": [Vector3i(1, 0, 1), Vector3i(3, 4, 3)]},
 	"flower_pot": {"size": Vector3i(1, 1, 1), "cells": Vector3i(8, 8, 8), "item": "flower_pot",
 		"box": [Vector3i(1, 0, 1), Vector3i(3, 4, 3)]},
+	# ADR 0121: flat 1 x 1 m floor coverings, one voxel of collision so they step like a trapdoor
+	"red_rug": {"size": Vector3i(2, 1, 2), "cells": Vector3i(16, 1, 16), "item": "red_rug", "box": [Vector3i(0, 0, 0), Vector3i(8, 1, 8)]},
+	"blue_rug": {"size": Vector3i(2, 1, 2), "cells": Vector3i(16, 1, 16), "item": "blue_rug", "box": [Vector3i(0, 0, 0), Vector3i(8, 1, 8)]},
+	"straw_mat": {"size": Vector3i(2, 1, 2), "cells": Vector3i(16, 1, 16), "item": "straw_mat", "box": [Vector3i(0, 0, 0), Vector3i(8, 1, 8)]},
 }
 ## The plank furniture made in every wood (ADR 0121): "<wood>_<kind>" is the oak kind in that wood's paints.
 const WOODED := ["door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf"]
@@ -456,6 +460,25 @@ static func cells_for(p_kind: String) -> PackedInt32Array:
 		box.call(Vector3i(2, 0, 2), Vector3i(6, 1, 6), IRON)
 		box.call(Vector3i(3, 1, 3), Vector3i(5, 5, 5), WAX)
 		box.call(Vector3i(4, 5, 4), Vector3i(5, 7, 5), FLAME)
+	elif p_kind in ["red_rug", "blue_rug"]:
+		# a woven rug: a dark border, the dyed field, a pale diamond in the middle and pale fringe at the ends
+		var field := RED if p_kind == "red_rug" else BLUE
+		var edge := RED_SHADE if p_kind == "red_rug" else WOOL_SHADE
+		for z in 16:
+			for x in 16:
+				var paint := field
+				if z == 0 or z == 15:
+					paint = WOOL if x % 2 == 0 else WOOL_SHADE   # the fringe
+				elif x < 2 or x > 13 or z < 2 or z > 13:
+					paint = edge
+				elif absi(x * 2 - 15) + absi(z * 2 - 15) <= 9:
+					paint = WOOL if absi(x * 2 - 15) + absi(z * 2 - 15) > 5 else edge
+				box.call(Vector3i(x, 0, z), Vector3i(x + 1, 1, z + 1), paint)
+	elif p_kind == "straw_mat":
+		# plaited dry grass: a basket weave of light and dark strands
+		for z in 16:
+			for x in 16:
+				box.call(Vector3i(x, 0, z), Vector3i(x + 1, 1, z + 1), STRAW if (x / 4 + z / 4) % 2 == (x + z) % 2 else STRAW_SHADE)
 	elif p_kind == "flower_pot":
 		box.call(Vector3i(2, 0, 2), Vector3i(6, 3, 6), TERRACOTTA)
 		box.call(Vector3i(1, 3, 1), Vector3i(7, 4, 7), TERRACOTTA)
