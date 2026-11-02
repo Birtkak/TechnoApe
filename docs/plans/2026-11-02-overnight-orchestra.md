@@ -50,6 +50,15 @@ encoding up in its ADR.
   developer's uncommitted `station_entity.gd` edit stashed for the merge and restored cleanly. Suite: 707 cases,
   7 failures in three tests: small furniture under the cell floor (content), the look panel's network test after
   the turbine grew (QoL), the fluid spike's basin test (Fable). Each went back to its lane.
+- Round 3b: `FineGen.cave_biome_at` for the journal's cave discoveries, ore outcrops over shallow veins, conduit
+  liquid kept out of cave dressing (surface-gen).
+- Round 4: electric pump, coke oven (first multiblock), machine pins, `/stations factory`, lamp light, the solver
+  filling sinks in placement order (ADR 0117); column flow keeps mass and rests flat (ADR 0119, still off by
+  default); signs, rugs, straw mat, potatoes, onions, beans, soups, a real candle model; home and death waypoints,
+  auto step-up, kept chat lines, F1 hides the HUD; any killing damage now kills (hounds could not); hue-shifted
+  sprites and the workshop UI skin (ADR 0129). Clashes: the sprite JSON (regenerated from the merged script), the
+  look test (the QoL lane's version kept), the furniture cell floor (back to 50 after the playtest lane lowered it).
+  Suite: 722 cases, 0 failures.
 
 ## Ideas parked for the developer
 
