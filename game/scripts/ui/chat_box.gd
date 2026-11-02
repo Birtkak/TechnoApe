@@ -29,6 +29,7 @@ var can_open: Callable          # returns false while another screen owns input
 var is_open := false
 var messages: Array = []        # {text, color, t}
 var _history: Array[String] = []
+var history_path := "user://chat_history.txt"   # the sent lines survive a restart (ADR 0130); "" keeps them in memory
 var _hist_i := 0                # == _history.size() while editing a fresh line
 var _draft := ""
 var _completions: Array[String] = []
@@ -43,6 +44,7 @@ var _hint: Label
 
 func _ready() -> void:
 	layer = 8   # above the HUD (5), below inventory screens (10)
+	load_history()
 	_lines = VBoxContainer.new()
 	_lines.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_lines.offset_left = 8
@@ -246,12 +248,30 @@ func _on_submitted(text: String) -> void:
 		_history.append(t)
 		if _history.size() > HISTORY:
 			_history.remove_at(0)
+		_save_history()
 	send(t)
 
 
 func _on_text_changed(_t: String) -> void:
 	_comp_i = -1
 	_update_hint()
+
+
+func load_history() -> void:
+	var f := FileAccess.open(history_path, FileAccess.READ) if history_path != "" else null
+	if f == null:
+		return
+	_history.clear()
+	for line in f.get_as_text().split("\n", false):
+		_history.append(line)
+	_history = _history.slice(maxi(0, _history.size() - HISTORY))
+	_hist_i = _history.size()
+
+
+func _save_history() -> void:
+	var f := FileAccess.open(history_path, FileAccess.WRITE) if history_path != "" else null
+	if f != null:
+		f.store_string("\n".join(_history))
 
 
 func _history_step(d: int) -> void:

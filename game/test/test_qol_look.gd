@@ -44,3 +44,20 @@ func test_home_and_death_waypoints_are_unique() -> void:
 	var back := Waypoints.new()
 	back.load_array(w.to_array())   # saved with the player
 	assert_str(String(back.of_kind("death").get("name", ""))).is_equal("Last death")
+
+
+func test_chat_history_survives_a_restart() -> void:
+	var path := "user://test_chat_history.txt"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	var a: ChatBox = auto_free(ChatBox.new())
+	a.history_path = path
+	add_child(a)
+	a._on_submitted("hello")
+	a._on_submitted("/help")
+	var b: ChatBox = auto_free(ChatBox.new())
+	b.history_path = path
+	add_child(b)
+	assert_array(b._history).contains_exactly(["hello", "/help"])
+	b._history_step(-1)   # Up recalls the newest
+	assert_str(b._field.text).is_equal("/help")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
