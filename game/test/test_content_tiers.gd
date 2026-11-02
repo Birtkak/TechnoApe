@@ -49,3 +49,11 @@ func test_metal_spears() -> void:
 		last = int(d["attack_damage"])
 		assert_bool(d.has("throw")).is_true()
 		assert_bool(_made(m + "_spear")).is_true()
+
+
+func test_new_crops_plant_and_cook() -> void:
+	var f := Farming.load_default()
+	for crop in ["potatoes", "onions", "bean_plants"]:
+		var seed: String = f.crops_def[crop]["seed"]
+		assert_str(String(items.get_def(seed).get("plants", ""))).is_equal(crop)
+	assert_str(String(MiningTable.load_default().entry("tall_grass")["drops"][0]["id"])).is_equal("beans")

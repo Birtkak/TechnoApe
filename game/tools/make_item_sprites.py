@@ -1129,6 +1129,30 @@ for w in ("spruce", "acacia", "jungle", "birch"):
 sp("wheat_seeds", ("seeds", "seed"))
 sp("wheat", ("sheaf", "straw"))
 sp("carrot", ("carrot", "carrot"))
+# more crops (ADR 0121, ADR 0129 ramps: shadows cooler, highlights warmer)
+shape("potato", outline(art([
+    "................", "................", "................", "................",
+    ".....mmmmm......", "...mmlllhlmm....", "..mllhhlllmmm...", "..mlhlldllmmmd..",
+    ".mmlllllmmmdmd..", ".mmlmdmmmmmmdd..", ".dmmmmmmmmmdd...", "..ddmmmmdddd....",
+    "....dddddd......", "................", "................", "................"])))
+shape("onion", outline(art([
+    "........q.......", ".......qQ.......", ".......Qq.......", "........m.......",
+    ".......mlm......", "......mlhlm.....", ".....mllhllm....", "....mllhlllmd...",
+    "....mlhllllmd...", "....mllllmmmd...", ".....mmmmmmd....", "......dmmdd.....",
+    ".......hh.......", "......h..h......", "................", "................"])), {"q": "#5a9a30", "Q": "#2e5e1e"})
+shape("beans", outline(art([
+    "................", "................", "................", "................",
+    "....mmm.........", "...mlhlm..mmm...", "...mllmd.mlhlm..", "....mdd..mllmd..",
+    "..........mdd...", ".....mmm........", "....mlhlm.......", "....mllmd.......",
+    ".....mdd........", "................", "................", "................"])))
+PALETTES["potato"] = ramp("#3a2630", "#7a5a40", "#b08a5a", "#d2ac74", "#f0d498")
+PALETTES["baked_potato"] = ramp("#2a1820", "#5e3a26", "#8a5a34", "#b07c44", "#f2d27a")
+PALETTES["onion"] = ramp("#3a1a24", "#7a3a2a", "#b46a3a", "#d6964e", "#f4d08a")
+PALETTES["beans"] = ramp("#2a0e1a", "#5e1c22", "#94322e", "#bc5a40", "#e89a6a")
+sp("potato", ("potato", "potato"))
+sp("baked_potato", ("potato", "baked_potato"))
+sp("onion", ("onion", "onion"))
+sp("beans", ("beans", "beans"))
 sp("bread", ("bread", "bread"))
 sp("pumpkin_pie", ("pie", "bread"))
 sp("egg", ("egg", "egg"))
@@ -1154,7 +1178,7 @@ sp("pot_of_stew", ("cooking_pot", "terracotta"), ("pot_fill", None, {"q": "#7a4a
 sp("stew", ("bowl", "terracotta"), ("bowl_fill", None, {"q": "#7a4a22", "k": "#d07a30"}))
 # cooking-pot meals (ADR 0121): the pot and the bowl, filled with the meal's colours
 for meal, q, k in (("porridge", "#c8a874", "#efdcae"), ("fish_soup", "#a8a070", "#e8d8a0"),
-                   ("mushroom_soup", "#6a4a30", "#b08a62"), ("berry_compote", "#6a1e48", "#c03c5a")):
+                   ("mushroom_soup", "#6a4a30", "#b08a62"), ("berry_compote", "#6a1e48", "#c03c5a"), ("vegetable_soup", "#7a5a1e", "#c89a3a")):
     sp("pot_of_" + meal, ("cooking_pot", "terracotta"), ("pot_fill", None, {"q": q, "k": k}))
     sp(meal, ("bowl", "terracotta"), ("bowl_fill", None, {"q": q, "k": k}))
 sp("daub", ("ball", "daub"))

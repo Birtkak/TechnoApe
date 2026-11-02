@@ -41,6 +41,33 @@
       "looks": ["wheat_0", "wheat_1", "wheat_2", "wheat_3", "wheat_4", "wheat_5", "wheat_6", "wheat_7"],
       "drops_ripe": [{"id": "flax", "count": 1, "binomial": [2, 0.5]}, {"id": "flax_seeds", "count": 0, "binomial": [2, 0.5]}],
       "drops_young": [{"id": "flax_seeds"}]
+    },
+    "potatoes": {
+      "seed": "potato",
+      "frost_c": -2.0,
+      "ages": 8,
+      "looks": ["carrots_0", "carrots_0", "carrots_1", "carrots_1", "carrots_2", "carrots_2", "carrots_2", "carrots_3"],
+      "drops_ripe": [{"id": "potato", "count": 1, "binomial": [3, 0.5714286]}],
+      "drops_young": [{"id": "potato"}],
+      "_note": "shortcut: drawn with the carrot looks (ADR 0121), own looks need material ids 217..227"
+    },
+    "onions": {
+      "seed": "onion",
+      "frost_c": -2.0,
+      "ages": 8,
+      "looks": ["carrots_0", "carrots_0", "carrots_1", "carrots_1", "carrots_2", "carrots_2", "carrots_2", "carrots_3"],
+      "drops_ripe": [{"id": "onion", "count": 1, "binomial": [3, 0.5714286]}],
+      "drops_young": [{"id": "onion"}],
+      "_note": "shortcut: drawn with the carrot looks (ADR 0121), own looks need material ids 217..227"
+    },
+    "bean_plants": {
+      "seed": "beans",
+      "frost_c": -2.0,
+      "ages": 8,
+      "looks": ["carrots_0", "carrots_0", "carrots_1", "carrots_1", "carrots_2", "carrots_2", "carrots_2", "carrots_3"],
+      "drops_ripe": [{"id": "beans", "count": 1, "binomial": [3, 0.5714286]}],
+      "drops_young": [{"id": "beans"}],
+      "_note": "shortcut: drawn with the carrot looks (ADR 0121), own looks need material ids 217..227"
     }
   }
 }

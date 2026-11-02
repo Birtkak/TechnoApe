@@ -57,6 +57,10 @@
     "birch_wood": {"o": "#383228", "d": "#b0a07c", "m": "#d0c09a", "l": "#e4d6b2", "h": "#f6ecce"},
     "red_rug": {"o": "#240915", "d": "#7a1a2a", "m": "#b82c30", "l": "#d85a40", "h": "#f2e0c4"},
     "blue_rug": {"o": "#090c1e", "d": "#1e2c66", "m": "#34489a", "l": "#5a74c0", "h": "#f0eadc"},
+    "potato": {"o": "#24181e", "d": "#7a5a40", "m": "#b08a5a", "l": "#d2ac74", "h": "#f0d498"},
+    "baked_potato": {"o": "#1a0f14", "d": "#5e3a26", "m": "#8a5a34", "l": "#b07c44", "h": "#f2d27a"},
+    "onion": {"o": "#241016", "d": "#7a3a2a", "m": "#b46a3a", "l": "#d6964e", "h": "#f4d08a"},
+    "beans": {"o": "#1a0910", "d": "#5e1c22", "m": "#94322e", "l": "#bc5a40", "h": "#e89a6a"},
     "spruce_leaf": {"o": "#07140c", "d": "#1e4028", "m": "#2c5a36", "l": "#3e7448", "h": "#5e9468"},
     "acacia_leaf": {"o": "#181a07", "d": "#4a5420", "m": "#68742e", "l": "#86923e", "h": "#acb85e"},
     "jungle_leaf": {"o": "#091e0a", "d": "#226a20", "m": "#2e8a2a", "l": "#44a83a", "h": "#78d060"},
@@ -2514,6 +2518,67 @@
         "................"
       ]
     },
+    "potato": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        ".....ooooo......",
+        "...oommmmmoo....",
+        "..ommlllhlmmo...",
+        ".omllhhlllmmmo..",
+        ".omlhlldllmmmdo.",
+        "ommlllllmmmdmdo.",
+        "ommlmdmmmmmmddo.",
+        "odmmmmmmmmmddo..",
+        ".oddmmmmddddo...",
+        "..ooddddddoo....",
+        "....oooooo......",
+        "................",
+        "................"
+      ]
+    },
+    "onion": {
+      "colors": {"q": "#5a9a30", "Q": "#2e5e1e"},
+      "rows": [
+        ".......oqo......",
+        "......oqQo......",
+        "......oQqo......",
+        ".......omo......",
+        "......omlmo.....",
+        ".....omlhlmo....",
+        "....omllhllmo...",
+        "...omllhlllmdo..",
+        "...omlhllllmdo..",
+        "...omllllmmmdo..",
+        "....ommmmmmdo...",
+        ".....odmmddo....",
+        "......ohhoo.....",
+        ".....ohooho.....",
+        "......o..o......",
+        "................"
+      ]
+    },
+    "beans": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "....ooo.........",
+        "...ommmo..ooo...",
+        "..omlhlmoommmo..",
+        "..omllmdomlhlmo.",
+        "...omddoomllmdo.",
+        "....oooo.omddo..",
+        "....ommmo.ooo...",
+        "...omlhlmo......",
+        "...omllmdo......",
+        "....omddo.......",
+        ".....ooo........",
+        "................",
+        "................"
+      ]
+    },
     "wattle": {
       "rows": [
         "...oo..oo..oo...",
@@ -4315,6 +4380,10 @@
     "wheat_seeds": {"layers": [{"shape": "seeds", "palette": "seed"}]},
     "wheat": {"layers": [{"shape": "sheaf", "palette": "straw"}]},
     "carrot": {"layers": [{"shape": "carrot", "palette": "carrot"}]},
+    "potato": {"layers": [{"shape": "potato", "palette": "potato"}]},
+    "baked_potato": {"layers": [{"shape": "potato", "palette": "baked_potato"}]},
+    "onion": {"layers": [{"shape": "onion", "palette": "onion"}]},
+    "beans": {"layers": [{"shape": "beans", "palette": "beans"}]},
     "bread": {"layers": [{"shape": "bread", "palette": "bread"}]},
     "pumpkin_pie": {"layers": [{"shape": "pie", "palette": "bread"}]},
     "egg": {"layers": [{"shape": "egg", "palette": "egg"}]},
@@ -4347,6 +4416,8 @@
     "mushroom_soup": {"layers": [{"shape": "bowl", "palette": "terracotta"}, {"shape": "bowl_fill", "colors": {"q": "#6a4a30", "k": "#b08a62"}}]},
     "pot_of_berry_compote": {"layers": [{"shape": "cooking_pot", "palette": "terracotta"}, {"shape": "pot_fill", "colors": {"q": "#6a1e48", "k": "#c03c5a"}}]},
     "berry_compote": {"layers": [{"shape": "bowl", "palette": "terracotta"}, {"shape": "bowl_fill", "colors": {"q": "#6a1e48", "k": "#c03c5a"}}]},
+    "pot_of_vegetable_soup": {"layers": [{"shape": "cooking_pot", "palette": "terracotta"}, {"shape": "pot_fill", "colors": {"q": "#7a5a1e", "k": "#c89a3a"}}]},
+    "vegetable_soup": {"layers": [{"shape": "bowl", "palette": "terracotta"}, {"shape": "bowl_fill", "colors": {"q": "#7a5a1e", "k": "#c89a3a"}}]},
     "daub": {"layers": [{"shape": "ball", "palette": "daub"}]},
     "firewood": {"layers": [{"shape": "firewood", "palette": "wood"}]},
     "wooden_hoe": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "hoe_head", "palette": "wood"}]},
