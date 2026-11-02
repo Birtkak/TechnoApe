@@ -705,6 +705,32 @@
             }
           ],
           "optional": true
+        },
+        {
+          "id": "sign",
+          "title": "Signs",
+          "icon": "sign",
+          "pos": [
+            6,
+            2
+          ],
+          "deps": [
+            "crafting_table"
+          ],
+          "description": "Planks on a stick make three signs. Hang one on a wall and right click it to write: mark your base.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "sign",
+                "spruce_sign",
+                "birch_sign",
+                "acacia_sign",
+                "jungle_sign"
+              ]
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -1460,6 +1486,82 @@
             {
               "type": "item",
               "item": "chair"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "rugs",
+          "title": "Floor Coverings",
+          "icon": "red_rug",
+          "pos": [
+            4,
+            6
+          ],
+          "deps": [
+            "weaving"
+          ],
+          "description": "Plait dry grass into a mat, or weave wool into a rug dyed with a strawberry or a cornflower.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "straw_mat",
+                "red_rug",
+                "blue_rug"
+              ]
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "new_crops",
+          "title": "New Crops",
+          "icon": "potato",
+          "pos": [
+            1,
+            6
+          ],
+          "deps": [
+            "sowing"
+          ],
+          "description": "Wild potatoes, onions and beans turn up in tall grass. Plant them on farmland for a field of each.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "potato"
+            },
+            {
+              "type": "item",
+              "item": "onion"
+            },
+            {
+              "type": "item",
+              "item": "beans"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "garden_cooking",
+          "title": "Garden Cooking",
+          "icon": "vegetable_soup",
+          "pos": [
+            4,
+            4
+          ],
+          "deps": [
+            "hearty_meals"
+          ],
+          "description": "Bake a potato in the fire, and cook three of any vegetable in the pot for vegetable soup.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "baked_potato"
+            },
+            {
+              "type": "item",
+              "item": "vegetable_soup"
             }
           ],
           "optional": true
@@ -3068,6 +3170,50 @@
             {
               "type": "item",
               "item": "electric_lamp"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "coke_oven",
+          "title": "Coke Oven",
+          "icon": "coke_oven",
+          "pos": [
+            5,
+            1
+          ],
+          "deps": [
+            "primitive_circuit"
+          ],
+          "description": "The first multiblock: the controller in front of a hollow 3 x 3 x 3 of bricks, 26 bricks round a hole. No power: it bakes coal into coke, twice the burn of coal.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "coke_oven"
+            },
+            {
+              "type": "item",
+              "item": "coal_coke"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "pump",
+          "title": "Pump",
+          "icon": "pump",
+          "pos": [
+            5,
+            4
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "On 4 EU/t it draws a bucket of water a second from under it: water without buckets, into a tank beside it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "pump"
             }
           ],
           "optional": true

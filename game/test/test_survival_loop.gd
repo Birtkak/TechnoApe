@@ -211,7 +211,7 @@ func test_preserved_food_spoils_slower() -> void:
 func test_the_journal_lists_entries_from_the_data() -> void:
 	var d := Discoveries.load_default(items)
 	assert_array(d.errors).is_empty()
-	for id in ["biome:forest", "biome:plains", "landmark:ruin", "landmark:cave", "animal:sheep", "animal:bear", "ore:copper_ore",
+	for id in ["biome:forest", "biome:plains", "landmark:ruin", "landmark:cave", "landmark:abandoned_mine", "animal:sheep", "animal:bear", "ore:copper_ore",
 			"ore:loose_tin_ore", "vein:copper", "vein:copper_iron"]:
 		assert_bool(d.has(id)).override_failure_message("missing " + id).is_true()
 	assert_bool(d.has("biome:lush_cave")).is_false()   # underground biomes are the Caves kind's (FineGen.cave_biome_at)

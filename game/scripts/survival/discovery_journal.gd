@@ -89,6 +89,10 @@ func check_here(slow := true) -> void:
 			var r: Vector3i = gen.find_nearest("ruin", x, z, int(lm))
 			if r.y >= 0 and Vector2(r.x - x, r.z - z).length() <= lm:
 				book.note("landmark:ruin")
+		if not book.is_found("landmark:abandoned_mine"):
+			var mn: Vector3i = gen.find_nearest("ruin_mine", x, z, int(lm))
+			if mn.y >= 0 and Vector2(mn.x - x, mn.z - z).length() <= lm:
+				book.note("landmark:abandoned_mine")
 		if not book.is_found("landmark:waterfall") and not gen.waterfalls_near(x, z, int(lm)).is_empty():
 			book.note("landmark:waterfall")
 

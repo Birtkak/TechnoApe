@@ -6,7 +6,7 @@ extends GdUnitTestSuite
 ## main road of the four Stone Age chapters (ADR 0059) walked through a player inventory to a copper tool.
 
 const GROUND := ["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball", "dry_grass", "oak_log", "gravel", "sand",
-	"plant_fiber", "dirt", "raw_hide", "raw_meat", "carrot", "wool",
+	"plant_fiber", "dirt", "raw_hide", "raw_meat", "carrot", "wool", "potato", "onion", "beans", "wild_strawberry",
 	# drops and finds the Stone Age chapters lean on (ADR 0059): animals, tall grass, part E's stones and fish
 	"bone", "feather", "bear_hide", "animal_fat", "antler", "pyrite", "red_ochre", "yellow_ochre", "floorstone_flint",
 	"einkorn_seeds", "emmer_seeds", "flax_seeds", "birch_log",
@@ -14,6 +14,7 @@ const GROUND := ["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball
 	"loose_tin_ore", "loose_iron_ore", "tin_ore", "iron_ore",
 	"sulfur",   # mined from sulfur cave crust (mining.json): the electrical age's rubber (ADR 0113)
 	"crystal",  # geodes (ADR 0052): the miner's helmet's lamp
+	"coal",     # mined from coal ore: the coke oven (ADR 0117)
 	"oak_sapling", "brown_mushroom", "blueberry"]   # leaves' drops, wild mushrooms and berry bushes: replanting and meals (ADR 0121)
 const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age", "steam_age", "electrical_age"]
 
