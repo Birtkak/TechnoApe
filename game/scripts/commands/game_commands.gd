@@ -94,6 +94,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("heal", "/heal", "Restore full health", _heal)
 	reg.register("stain", "/stain <wet|bloody|oily|toxic|burning|clear>", "Coat the ape like touching that liquid (Noita stains)", _stain, [PlayerStains.KINDS + ["clear"]])
 	reg.register("seed", "/seed", "Show the world seed", _seed)
+	reg.register("wear", "/wear <item>", "Put on clothing or armour (as a right click with it would); what was in that slot is gone", _wear, [_clothing_ids])
 	reg.register("kit", "/kit <%s>" % "|".join(KITS.keys()), "Give a playtest kit", _kit, [KITS.keys()])
 	reg.register("spawn", "/spawn", "Teleport to the world spawn", _spawn)
 	reg.register("locate", "/locate <feature>", "Find the nearest cave, ruin, lake, biome ... (within 4 km)", _locate, [FEATURES])
@@ -474,6 +475,20 @@ func _kit(args: PackedStringArray) -> Dictionary:
 	return CommandRegistry.ok("Gave the %s kit" % args[0].to_lower())
 
 
+func _clothing_ids() -> Array:
+	return player_inv.items.all_ids().filter(func(id: String) -> bool: return Clothing.slot_of(player_inv.items.get_def(id)) != "") if player_inv else []
+
+
+func _wear(args: PackedStringArray) -> Dictionary:
+	var sa: Variant = main.get("stone_age") if main != null else null
+	if sa == null:
+		return CommandRegistry.fail("No world")
+	if args.is_empty() or not args[0] in _clothing_ids():
+		return CommandRegistry.fail("Usage: /wear <item>: one of %s" % ", ".join(_clothing_ids()))
+	sa.clothing.wear(Inventory.make_stack(player_inv.items, args[0], 1))
+	return CommandRegistry.ok("Wearing %s (armor %d)" % [args[0], sa.clothing.armor()])
+
+
 func _gadget_ids() -> Array:
 	return player_inv.items.all_ids().filter(func(id: String) -> bool: return player_inv.items.get_def(id).has("playtest")) if player_inv else []
 
@@ -605,6 +620,9 @@ func _goto(args: PackedStringArray) -> Dictionary:
 	var kind := args[0].to_lower()
 	# caves: stand in the room itself; surface features: drop in from a little above
 	var up := 0.1 if kind.ends_with("cave") else 3.0
+	if kind in ["aquifer", "magma_conduit"]:   # buried in rock or lava: land on the ground above, find it by ear
+		t.y = main.world.surface_height(t.x, t.z)
+		up = 3.0
 	player.teleport(Vector3(t.x + 0.5, t.y + up, t.z + 0.5))
 	return CommandRegistry.ok("Teleported to the nearest %s at %d, %d, %d" % [kind, t.x, t.y, t.z])
 
