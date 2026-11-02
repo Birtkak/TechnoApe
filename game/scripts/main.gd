@@ -231,6 +231,7 @@ func _ready() -> void:
 	player.moved_far.connect(func() -> void: cover_until_loaded("Loading", true))
 	mark.call("bubble_hud_loading")
 	game_hud.setup(player_inv)
+	game_hud.player = player
 	player.hud = game_hud
 	inv_screen = InventoryScreen.new()
 	inv_screen.name = "InventoryScreen"
@@ -660,6 +661,8 @@ func _physics_process(delta: float) -> void:
 	_save_accum += delta
 	if _save_accum >= 30.0:
 		_save_accum = 0.0
+		if Settings.persist_world:
+			game_hud.note_saved()
 		_save_blocks()
 		if bubble:
 			bubble.flush_all()

@@ -713,6 +713,48 @@ func drag_shift(group: String, i: int) -> void:
 			click_container_slot(i, MOUSE_BUTTON_LEFT, true)
 
 
+## Double click with a stack on the cursor (vanilla): every slot on the screen holding that item
+## gives to the cursor until it is full, the open container first. Favourite slots keep theirs.
+func collect_to_cursor() -> void:
+	if cursor.is_empty():
+		return
+	for g in ["container", "craft", "inv", "bag"]:
+		var src := _group(g)
+		if src == null or (g == "bag" and not has_bag()):
+			continue
+		for i in src.size():
+			if g == "inv" and favourites.has(i):
+				continue
+			drag_collect(g, i)
+
+
+## Shift + double click on a slot (vanilla): every stack of `id` in that slot's group is shift-clicked.
+func shift_all(group: String, id: String) -> void:
+	var src := _group(group)
+	if src == null or id == "":
+		return
+	for i in src.size():
+		if String(src.get_slot(i).get("id", "")) == id:
+			drag_shift(group, i)
+
+
+## Alt + wheel (ADR 0130): the hotbar and the three main rows turn like a drum, so +1 brings the
+## first main row into the hotbar and the hotbar to the bottom row. A column with a favourite slot stays.
+func cycle_rows(direction: int) -> void:
+	var rows := SIZE / HOTBAR
+	for c in HOTBAR:
+		var col: Array = []
+		var fav := false
+		for r in rows:
+			col.append(inv.get_slot(r * HOTBAR + c))
+			fav = fav or favourites.has(r * HOTBAR + c)
+		if fav:
+			continue
+		for r in rows:
+			inv.set_slot(r * HOTBAR + c, col[posmod(r + direction, rows)])
+	changed.emit()
+
+
 ## Where a slot's items go on a shift-click: [inventory, slot order], or [] for nowhere.
 func _other_side(group: String, i: int, id: String) -> Array:
 	if group == "inv":
