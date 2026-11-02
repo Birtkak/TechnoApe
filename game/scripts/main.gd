@@ -78,7 +78,7 @@ var _merge_accum := 0.0
 var _spawned := false
 var _spawn_xz := Vector2(0, 0)
 var _spawn_pos := Vector3.ZERO
-var sign_at := Vector3i(0, -1 << 20, 0)   # the sign last right clicked: /sign writes on it (ADR 0121)
+var sign_at := Vector3i(0, -1048576, 0)   # the sign last right clicked: /sign writes on it (ADR 0121)
 var deaths := 0   # apetions lost: the Gelvin monolith numbers each one it rebuilds (docs/design/lore.md)
 var death_screen: DeathScreen
 var _dying := false   # the death and rebuild sequence is running
