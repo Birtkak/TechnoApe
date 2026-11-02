@@ -344,4 +344,4 @@ func test_furniture_mesh_cells_fit_the_footprint() -> void:
 		for v in c:
 			if v != 0:
 				filled += 1
-		assert_int(filled).override_failure_message(k).is_greater(20)   # not empty; a candle is only ~34 cells
+		assert_int(filled).override_failure_message(k).is_greater(50)
