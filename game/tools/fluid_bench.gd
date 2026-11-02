@@ -113,6 +113,32 @@ func _init() -> void:
 	out["tick_ms_avg_after"] = after["tick_ms_avg"]
 	out["chunks_awake_max_after"] = after["chunks_awake_max"]
 	print(JSON.stringify(out))
+	# lava and water in the open (ADR 0119 C): a 2 m lava ball, then a 1.5 m water ball beside it, on a plain at 18 C:
+	# how many chunks the steam and the lava keep awake, with and without the state pass
+	for states in [false, true]:
+		w = _world(column, 6)
+		w.set_states(states)
+		w.set_ambient_c(18.0, true)
+		w.fill_box(Vector3i(0, 0, 0), Vector3i(96, 10, 96), GameMaterials.STONE)
+		w.fill_sphere(Vector3(40, 20, 48), 8.0, GameMaterials.LAVA, PackedInt32Array())
+		for t in 60:
+			w.tick(1)
+		w.fill_sphere(Vector3(56, 20, 48), 6.0, GameMaterials.WATER, PackedInt32Array())
+		out = {"scene": "lava_water", "states": states}
+		var t_lw := 0
+		for target in [100, 300, 600]:
+			var awake_lw := 0
+			sum = 0.0
+			while t_lw < target:
+				var t0 := Time.get_ticks_usec()
+				var s: Dictionary = w.tick(1)
+				sum += (Time.get_ticks_usec() - t0) / 1000.0
+				awake_lw = maxi(awake_lw, int(s.get("active_chunks_per_tick", 0)))
+				t_lw += 1
+			out["awake_max_to_%d" % target] = awake_lw
+			out["tick_ms_avg_to_%d" % target] = snappedf(sum / 100.0, 0.01) if target == 100 else snappedf(sum / (target - (100 if target == 300 else 300)), 0.01)
+			out["steam_at_%d" % target] = w.count_material(GameMaterials.STEAM)
+		print(JSON.stringify(out))
 	# steam box (ADR 0119 C): a sealed 16^3 room at 110 C with a quarter of water: boiling raises the pressure until it
 	# stops; tick cost with and without the state pass
 	for states in [false, true]:

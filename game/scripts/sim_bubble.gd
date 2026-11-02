@@ -139,6 +139,7 @@ func setup(p_world: World, center_world: Vector3, pin_of: SimBubble = null) -> v
 	# liquids hold 1..8 eighths and spread into thin layers; the terrain draws the level (fluid models)
 	sim.set_liquid_fullness(true)
 	sim.set_column_flow(Settings.sim_column_flow)
+	sim.set_states(Settings.sim_states)
 	sim.set_cascade(true)   # a column of sand or water falls together, not one 12.5 cm layer per tick
 	sim.set_gravity(Settings.sim_gravity_x * 9.8 / Settings.VOXEL_M / (Settings.sim_tick_hz * Settings.sim_tick_hz))
 	sim.set_lod(int(Settings.m2v(Settings.sim_lod_m) / Settings.CHUNK), 2)
