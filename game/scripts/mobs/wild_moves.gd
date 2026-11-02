@@ -233,7 +233,7 @@ static func _pick(mm: MobManager, rng: RandomNumberGenerator, habitats: Array, b
 	var total := 0
 	for k in mm.defs:
 		var d: Dictionary = mm.defs[k]
-		if habitat(d) in habitats and (biome in d.get("biomes", []) or "cave" in habitats):
+		if habitat(d) in habitats and biome in d.get("biomes", []):
 			options.append(k)
 			total += int(d.get("weight", 1))
 	if total <= 0:
@@ -291,13 +291,8 @@ static func _populate_water(mm: MobManager, rng: RandomNumberGenerator, cx: int,
 		return
 
 
-## Bats and cave spiders in a cave pocket below the cell centre.
+## Bats, cave spiders and salamanders in a cave pocket below the cell centre, picked by its cave biome.
 static func _populate_cave(mm: MobManager, rng: RandomNumberGenerator, cx: int, cz: int) -> void:
-	var sp := _pick(mm, rng, ["cave"], "")
-	if sp == "":
-		return
-	var d: Dictionary = mm.defs[sp]
-	var height := int(ceil(Settings.m2v(float(d["size_m"][1]))))
 	for _i in 3:
 		var x := cx + rng.randi_range(-8, 8) * Settings.BLOCK
 		var z := cz + rng.randi_range(-8, 8) * Settings.BLOCK
@@ -305,9 +300,14 @@ static func _populate_cave(mm: MobManager, rng: RandomNumberGenerator, cx: int, 
 		var lo := h - int(Settings.m2v(CAVE_SCAN_M))
 		if not mm.world.is_area_loaded(Vector3i(floori(float(x) / Settings.CHUNK), floori(float(lo) / Settings.CHUNK), floori(float(z) / Settings.CHUNK))):
 			continue
-		var y := mm.stand_height(x, z, (h + lo) / 2, (h - lo) / 2 - Settings.m2v(5.0), height + Settings.BLOCK)
+		var y := mm.stand_height(x, z, (h + lo) / 2, (h - lo) / 2 - Settings.m2v(5.0), Settings.m2v(1.0) + Settings.BLOCK)
 		if y == -1 or y > h - Settings.m2v(6.0):
 			continue
+		var biome: String = mm.world.generator.gen.cave_biome_at(x, y + 1, z)
+		var sp := _pick(mm, rng, ["cave"], biome if biome != "" else "cave")
+		if sp == "":
+			return
+		var d: Dictionary = mm.defs[sp]
 		var g: Array = d.get("group", [1, 3])
 		var n := rng.randi_range(int(g[0]), int(g[1]))
 		for k in n:

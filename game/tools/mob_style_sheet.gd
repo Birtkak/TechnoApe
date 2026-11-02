@@ -5,7 +5,7 @@ extends Node
 ## from the front-left, with a strip of patterned grass voxels under them for scale.
 ##   godot_console.exe --path game res://tools/mob_style_sheet.tscn -- out=res://out/mobs/styles.png
 ## (a scene, not --script: --script runs without the autoloads, and the models read Settings)
-## cells=1,2,4 picks the rows; walk=0.5 poses them mid-stride. Not headless (needs the renderer).
+## cells=1,2,4 picks the rows; walk=0.5 poses them mid-stride; species=a,b replaces the lineup. Not headless (needs the renderer).
 ## film=1: a filmstrip instead: a sheep and a pig walking at their walk_m speed (mobs.json),
 ## a frame every 100 ms for 1.6 s, side on (motion is never judged from one frame).
 
@@ -13,6 +13,7 @@ var out_path := "res://out/mobs/styles.png"
 var cells := [1, 2, 4]
 var _walk := 0.0
 var _film := false
+var _species := []
 var _t := 0.0
 var _next_t := 0.0
 const FILM_DT := 0.1
@@ -33,6 +34,7 @@ func _ready() -> void:
 			"out": out_path = kv[1]
 			"walk": _walk = float(kv[1])
 			"film": _film = kv[1] == "1"
+			"species": _species = Array(kv[1].split(","))
 			"cells":
 				cells = []
 				for c in kv[1].split(","):
@@ -46,6 +48,8 @@ func _ready() -> void:
 		MobModel.cell = c
 		var x := 0.0
 		var lineup := [["sheep", false], ["pig", false]] if _film else [["sheep", false], ["sheep", true], ["pig", false], ["chicken", false], ["bear", false]]
+		if not _species.is_empty():
+			lineup = _species.map(func(sp: String) -> Array: return [sp, false])
 		for e in lineup:
 			var m := MobModel.create(e[0], e[1])
 			root3d.add_child(m)

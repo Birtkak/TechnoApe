@@ -1708,6 +1708,40 @@
     "#ffcc22",
     "#f0b018"
    ]
+  },
+  "glow_worm": {
+   "channel": "sprites",
+   "sprite": "mote",
+   "motion": "firefly",
+   "count": [
+    1,
+    1
+   ],
+   "life": [
+    5.0,
+    8.0
+   ],
+   "size": [
+    0.05,
+    0.07
+   ],
+   "speed": [
+    0.0,
+    0.03
+   ],
+   "dir": "down",
+   "spread": 10,
+   "box": [
+    0.4,
+    0.0,
+    0.4
+   ],
+   "lift": -0.05,
+   "colors": [
+    "#7ae8ff",
+    "#a8f4ff",
+    "#5ad0f0"
+   ]
   }
  },
  "ambient": {
@@ -1950,6 +1984,27 @@
     "chance": 0.25,
     "where": "any",
     "time": "night"
+   }
+  ],
+  "moss": [
+   {
+    "effect": "glow_worm",
+    "chance": 0.35,
+    "where": "air_below"
+   }
+  ],
+  "cave_vine": [
+   {
+    "effect": "glow_worm",
+    "chance": 0.2,
+    "where": "air_below"
+   }
+  ],
+  "glow_berry_vine": [
+   {
+    "effect": "glow_worm",
+    "chance": 0.2,
+    "where": "air_below"
    }
   ]
  }

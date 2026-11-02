@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## The wild animals of ADR 0058: the data, the models, and the behaviours (flee, hop, swim, fly, pack
 ## hunts, boars that turn on whoever hurt them).
 
-const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow", "salmon", "jellyfish"]
+const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow", "salmon", "jellyfish", "cave_salamander"]
 
 
 func _manager() -> MobManager:
@@ -35,6 +35,14 @@ func test_data() -> void:
 			assert_bool(items.has(String(f))).override_failure_message("%s eats unknown %s" % [sp, f]).is_true()
 		for p in d.get("predator", {}).get("prey", []):
 			assert_bool(mm.defs.has(p)).override_failure_message("%s hunts unknown %s" % [sp, p]).is_true()
+	# spawn biomes are real ones; cave groups use the cave biome names of their pocket
+	var known := {}
+	for b in JSON.parse_string(FileAccess.get_file_as_string("res://data/biomes.json"))["biomes"]:
+		known[b["name"]] = b.get("band", "") == "cave"
+	for sp in mm.defs:
+		for b in mm.defs[sp].get("biomes", []):
+			assert_bool(known.has(b)).override_failure_message("%s spawns in unknown biome %s" % [sp, b]).is_true()
+			assert_bool(known.get(b, false) == (WildMoves.habitat(mm.defs[sp]) == "cave")).override_failure_message("%s: cave biomes for cave species only (%s)" % [sp, b]).is_true()
 	# who bites: wolves (some), boars (when hurt), cave spiders (always); nothing else new
 	assert_float(float(mm.defs["cave_spider"]["predator"]["aggressive_chance"])).is_equal(1.0)
 	assert_float(float(mm.defs["fox"]["predator"]["aggressive_chance"])).is_equal(0.0)

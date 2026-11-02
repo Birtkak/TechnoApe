@@ -52,6 +52,10 @@ const JELLY := BASE + 41         # jellyfish: a pale violet bell, warmer rim, a 
 const JELLY_LIGHT := BASE + 42
 const JELLY_DARK := BASE + 43
 const JELLY_HEART := BASE + 44
+const SALA := BASE + 45          # cave salamander: a violet-black ramp with warm yellow spots, lit from the top left
+const SALA_LIGHT := BASE + 46
+const SALA_DARK := BASE + 47
+const SALA_SPOT := BASE + 48
 const PALETTE: Array = [
 	[150, 102, 62], [218, 190, 152], [222, 208, 172], [96, 74, 58], [62, 46, 36], [238, 230, 208],
 	[164, 132, 100], [232, 222, 206], [210, 104, 40], [242, 234, 222], [52, 36, 30],
@@ -62,6 +66,7 @@ const PALETTE: Array = [
 	[40, 40, 54], [96, 92, 98], [18, 18, 38], [70, 62, 58],
 	[214, 132, 120], [236, 210, 196], [96, 104, 132],
 	[176, 150, 214], [228, 206, 236], [112, 86, 168], [244, 96, 168],
+	[46, 40, 54], [78, 70, 84], [26, 20, 40], [246, 198, 58],
 ]
 const EYE := 7          # MobModel.EYE
 const SKIN_DARK := 3    # MobModel.SKIN_DARK: hooves
@@ -94,6 +99,8 @@ const LAYOUT := {
 		["leg", "leg", Vector3(3, 11, -3)], ["leg", "leg", Vector3(-3, 11, -3)]],
 	"poison_frog": [["body", "body", Vector3(0, 3, -1)], ["head", "head", Vector3(0, 4, 5)],
 		["leg", "leg", Vector3(5, 4, 3)], ["leg", "leg", Vector3(-5, 4, 3)], ["hind", "leg", Vector3(6, 5, -4)], ["hind", "leg", Vector3(-6, 5, -4)]],
+	"cave_salamander": [["body", "body", Vector3(0, 3, 0)], ["head", "head", Vector3(0, 3, 9)], ["tail", "tail", Vector3(0, 4, -9)],
+		["leg", "leg", Vector3(5, 4, 5)], ["leg", "leg", Vector3(-5, 4, 5)], ["leg", "leg", Vector3(5, 4, -5)], ["leg", "leg", Vector3(-5, 4, -5)]],
 	"crab": [["body", "body", Vector3(0, 4, 0)], ["head", "head", Vector3(0, 6, 6)],
 		["leg_l", "leg", Vector3(8, 7, 3)], ["leg_r", "leg", Vector3(-8, 7, 3)], ["leg_l", "leg", Vector3(8, 7, -1)], ["leg_r", "leg", Vector3(-8, 7, -1)],
 		["leg_l", "leg", Vector3(8, 7, -5)], ["leg_r", "leg", Vector3(-8, 7, -5)]],
@@ -138,6 +145,7 @@ static func animate(m: MobModel, mps: float) -> void:
 		match m.species:
 			"fish": t.rotation.y = sin(m._time * (4.0 + mps * 10.0)) * 0.45
 			"fox", "wolf": t.rotation.y = sin(m._time * 2.2) * 0.15 + sin(m._phase) * 0.1
+			"cave_salamander": t.rotation.y = sin(m._phase * 2.0) * 0.35   # the tail snakes with each step
 	if m.species == "fish":
 		m.body.rotation.y = -sin(m._time * (4.0 + mps * 10.0)) * 0.08
 	elif m.species == "crab":
@@ -503,6 +511,40 @@ static func build(sp: String, part: String) -> Array:
 			_box(c, size, Vector3i.ZERO, size, JELLY_LIGHT)
 			_box(c, size, Vector3i(0, 0, 0), Vector3i(2, 6, 2), JELLY_DARK)            # the trailing ends fade darker
 			o = Vector3(-1, -14, -1)
+		"cave_salamander/body":
+			size = Vector3i(8, 4, 18)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, SALA)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(8, 1, 18), SALA_DARK)           # the shaded belly
+			_box(c, size, Vector3i(0, 3, 0), Vector3i(4, 4, 18), SALA_LIGHT)          # lit from the top left
+			for z in [2, 7, 12]:
+				_box(c, size, Vector3i(1 + (z % 4), 3, z), Vector3i(3 + (z % 4), 4, z + 2), SALA_SPOT)
+			_box(c, size, Vector3i(5, 3, 15), Vector3i(7, 4, 17), SALA_SPOT)
+			o = Vector3(-4, 0, -9)
+		"cave_salamander/head":
+			size = Vector3i(6, 4, 6)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i.ZERO, size, SALA)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(6, 1, 6), SALA_DARK)
+			_box(c, size, Vector3i(0, 3, 0), Vector3i(3, 4, 6), SALA_LIGHT)
+			_box(c, size, Vector3i(2, 3, 1), Vector3i(4, 4, 3), SALA_SPOT)
+			for x in [0, 5]:
+				_box(c, size, Vector3i(x, 2, 3), Vector3i(x + 1, 3, 5), EYE)
+			o = Vector3(-3, 0, 0)
+		"cave_salamander/tail":
+			size = Vector3i(4, 3, 14)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i(0, 0, 8), Vector3i(4, 3, 14), SALA)
+			_box(c, size, Vector3i(1, 0, 0), Vector3i(3, 2, 8), SALA)                 # it tapers
+			_box(c, size, Vector3i(1, 1, 0), Vector3i(2, 2, 8), SALA_LIGHT)
+			_box(c, size, Vector3i(1, 2, 9), Vector3i(3, 3, 11), SALA_SPOT)
+			o = Vector3(-2, -1, -14)
+		"cave_salamander/leg":
+			size = Vector3i(2, 4, 4)
+			c = MobModel._cells(size)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(2, 4, 2), SALA_DARK)
+			_box(c, size, Vector3i(0, 0, 0), Vector3i(2, 1, 4), SALA_DARK)             # splayed toes
+			o = Vector3(-1, -4, -1)
 		"crow/body":
 			size = Vector3i(8, 8, 14)
 			c = MobModel._cells(size)
