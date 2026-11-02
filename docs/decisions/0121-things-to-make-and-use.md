@@ -33,7 +33,10 @@ pre-electric or decorative: food and cooking, tool and armour tiers, furniture a
   strawberry or a cornflower) and a straw mat, flat with one voxel of collision. Signs keep a line of text
   (60 characters, saved): a right click opens chat with `/sign `, the look-at panel shows it. The barrel
   (material 216, a StationEntity model) is an 18-slot ChestEntity between the storage pot and the chest.
-  No stairs or slabs per wood: the shape builder cuts any block. `/furniture <kind>` places one for checks.
+  Windows too: four of the wood's planks round two glass panes (the oak window keeps sticks and glass). The
+  storage shelf (material 217, a 1 m station, open plank shelving with goods drawn on it) holds 27 slots like a
+  chest from planks and sticks, no metal. No stairs per wood: the shape builder's Stairs tool builds them from
+  whatever block is held, each wood's planks included. `/furniture <kind>` places one for checks.
   Written by `game/tools/content_furniture.py` and `content_rugs.py`.
 - **Crops.** Potatoes, onions and beans grow on farmland, each its own seed; wild ones drop from tall grass
   (1.5-2 %). A baked potato (firepit or furnace) and a vegetable soup (any of the four vegetables x3, warms

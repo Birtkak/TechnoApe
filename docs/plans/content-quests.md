@@ -21,3 +21,5 @@ session wires them; this list only names them, with the age they belong to and w
 | `red_rug`, `blue_rug`, `straw_mat` | Flint | floor coverings: dye wool with a strawberry or a cornflower |
 | `potato`, `onion`, `beans` | Flint | find wild ones in tall grass and plant a field |
 | `baked_potato`, `vegetable_soup` | Flint / Bronze | cook what you grew |
+| `storage_shelf` | Flint | storage before metal: a shelf as big as a chest |
+| any `<wood>_window` | Flint | glass in a frame of your wood |
