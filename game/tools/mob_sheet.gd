@@ -20,6 +20,7 @@ var _subjects: Array[Node3D] = []
 var _root: Node3D
 var _graze := 0.0
 var _walk := 0.0
+var _species := PackedStringArray()
 
 
 func _ready() -> void:
@@ -31,9 +32,13 @@ func _ready() -> void:
 			"out": out_path = kv[1]
 			"graze": _graze = float(kv[1])
 			"walk": _walk = float(kv[1])
+			"species": _species = kv[1].split(",")   # species=deer,crow,gloam_hound: those instead of the farm row
 	_root = Node3D.new()
 	add_child(_root)
-	for e in [["sheep", false, 1.0], ["sheep", true, 1.0], ["sheep", false, 0.5], ["pig", false, 1.0], ["pig", false, 0.5]]:
+	var row := [["sheep", false, 1.0], ["sheep", true, 1.0], ["sheep", false, 0.5], ["pig", false, 1.0], ["pig", false, 0.5]]
+	if not _species.is_empty():
+		row = Array(_species).map(func(s: String) -> Array: return [s, false, 1.0])
+	for e in row:
 		var m := MobModel.create(e[0], e[1])
 		_root.add_child(m)
 		m.scale = Vector3.ONE * e[2] * MobModel.UNIT

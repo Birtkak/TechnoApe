@@ -74,12 +74,12 @@ static func atlas() -> Vector2i:
 	return Vector2i(ATLAS_COLS, ceili(float(PALETTE.size() * SHADES) / ATLAS_COLS))
 
 
-## Shade k (0..SHADES-1) of a palette colour: dark ends lean cool, light ends warm.
+## Shade k (0..SHADES-1) of a palette colour: dark ends lean cool, light ends warm (ADR 0129).
 static func shade_color(base: Array, k: int) -> Color:
 	var t := float(k) / (SHADES - 1)       # 0 darkest .. 1 lightest
-	var f := lerpf(0.66, 1.14, t)
-	var warm := (t - 0.5) * 14.0
-	return Color8(clampi(int(base[0] * f + warm), 0, 255), clampi(int(base[1] * f), 0, 255), clampi(int(base[2] * f - warm), 0, 255))
+	var f := lerpf(0.6, 1.16, t)
+	var warm := (t - 0.5) * 24.0
+	return Color8(clampi(int(base[0] * f + warm), 0, 255), clampi(int(base[1] * f + warm * 0.25), 0, 255), clampi(int(base[2] * f - warm), 0, 255))
 
 
 static func material() -> StandardMaterial3D:
@@ -273,6 +273,8 @@ static func shaded(spec: Array, seed_key: String) -> Array:
 	var out := PackedInt32Array()
 	out.resize(c.size())
 	var h0 := hash(seed_key)
+	var open := func(px: int, py: int, pz: int) -> bool:
+		return px < 0 or py < 0 or pz < 0 or px >= size.x or py >= size.y or pz >= size.z or c[px + size.x * (py + size.y * pz)] <= 0
 	for z in size.z:
 		for y in size.y:
 			for x in size.x:
@@ -292,6 +294,13 @@ static func shaded(spec: Array, seed_key: String) -> Array:
 					# the top of a column catches the sun
 					if y + 1 >= size.y or c[x + size.x * (y + 1 + size.y * z)] <= 0:
 						k = mini(k + 1, SHADES - 1)
+					# ADR 0129: a dark rim under the body and down its corners, so the silhouette reads
+					var sx: bool = open.call(x - 1, y, z) or open.call(x + 1, y, z)
+					var sz: bool = open.call(x, y, z - 1) or open.call(x, y, z + 1)
+					if open.call(x, y - 1, z) and (sx or sz):
+						k = maxi(k - 3, 0)
+					elif sx and sz:
+						k = maxi(k - 2, 0)
 				out[i] = base * SHADES + k + 1
 	return [out, size, spec[2]]
 

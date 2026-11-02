@@ -47,7 +47,11 @@ const PALETTE: Array = [
 	[70, 45, 30], [214, 184, 82], [92, 92, 98], [20, 20, 24], [246, 246, 244],
 	[108, 124, 140], [44, 54, 66], [222, 82, 76], [112, 58, 40], [204, 112, 52], [40, 48, 66], [255, 214, 96],
 ]
-const ATLAS := Vector2i(8, 3)
+## Every colour is a ramp of SHADES tiles (tile = palette * SHADES + shade), dark and cool to light and warm,
+## picked per cell by shade_cells (ADR 0129: an outline rim under each part, dark corners, a lit top).
+const SHADES := 6
+const ATLAS := Vector2i(12, 16)   # room for 32 colours of SHADES tones
+const FLAT := [EYE, EYE_WHITE, LENS, LAMP]   # stay their own colour
 
 static var _material: StandardMaterial3D
 static var _tiles: PackedInt32Array
@@ -73,24 +77,55 @@ static func material() -> StandardMaterial3D:
 	var img := Image.create(ATLAS.x * 16, ATLAS.y * 16, false, Image.FORMAT_RGBA8)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
-	for t in PALETTE.size():
-		var base: Array = PALETTE[t]
-		var spread := 6 if t != LENS else 14
-		for y in 16:
-			for x in 16:
-				var k := rng.randi_range(-spread, spread)
-				var c := Color8(clampi(base[0] + k, 0, 255), clampi(base[1] + k, 0, 255), clampi(base[2] + k, 0, 255))
-				img.set_pixel((t % ATLAS.x) * 16 + x, (t / ATLAS.x) * 16 + y, c)
+	for p in PALETTE.size():
+		var spread := 6 if p != LENS else 14
+		for s in SHADES:
+			var base := MobModel.shade_color(PALETTE[p], s + 2) if not (p in FLAT) else Color8(PALETTE[p][0], PALETTE[p][1], PALETTE[p][2])
+			var t := p * SHADES + s
+			for y in 16:
+				for x in 16:
+					var k := rng.randi_range(-spread, spread) / 255.0
+					img.set_pixel((t % ATLAS.x) * 16 + x, (t / ATLAS.x) * 16 + y, Color(base.r + k, base.g + k, base.b + k))
 	_material = StandardMaterial3D.new()
 	_material.albedo_texture = ImageTexture.create_from_image(img)
 	_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
 	_material.roughness = 0.9
 	_tiles = PackedInt32Array()
-	_tiles.resize(PALETTE.size() + 1)
+	_tiles.resize(PALETTE.size() * SHADES + 1)
 	_tiles[0] = -1
-	for i in PALETTE.size():
+	for i in PALETTE.size() * SHADES:
 		_tiles[i + 1] = i
 	return _material
+
+
+## Cells of palette + 1 -> tile + 1 with a shade each: the bottom rim of a part dark, its vertical corners a
+## step darker, its top rim lit, the rest the base tone; FLAT colours keep the base tone.
+static func shade_cells(c: PackedInt32Array, size: Vector3i) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	out.resize(c.size())
+	var open := func(x: int, y: int, z: int) -> bool:
+		return x < 0 or y < 0 or z < 0 or x >= size.x or y >= size.y or z >= size.z or c[x + size.x * (y + size.y * z)] <= 0
+	for z in size.z:
+		for y in size.y:
+			for x in size.x:
+				var i := x + size.x * (y + size.y * z)
+				if c[i] <= 0:
+					continue
+				var p := c[i] - 1
+				var k := 3
+				if not (p in FLAT):
+					var sx: bool = open.call(x - 1, y, z) or open.call(x + 1, y, z)
+					var sz: bool = open.call(x, y, z - 1) or open.call(x, y, z + 1)
+					if open.call(x, y - 1, z) and (sx or sz):
+						k = 0
+					elif sx and sz:
+						k = 1
+					elif open.call(x, y + 1, z):
+						k = 5 if (sx or sz) else 4
+					elif y * 3 < size.y:
+						k = 2   # the lower third a step into shadow
+				out[i] = p * SHADES + k + 1
+	return out
 
 
 func _ready() -> void:
@@ -122,7 +157,7 @@ static func art(part: String, cells: PackedInt32Array, size: Vector3i) -> Packed
 func _part(cells: PackedInt32Array, size: Vector3i, origin: Vector3, grid: int = GRID) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	# MicroMesher winds counter-clockwise; Godot's front faces are clockwise (MobModel.outward)
-	mi.mesh = MobModel.outward(MicroMesher.build(cells, size, grid, _tiles, ATLAS, origin))
+	mi.mesh = MobModel.outward(MicroMesher.build(shade_cells(cells, size), size, grid, _tiles, ATLAS, origin))
 	mi.material_override = _material
 	add_child(mi)
 	return mi
@@ -199,7 +234,7 @@ func set_worn(worn: Dictionary) -> void:
 				if worn[slot].get("id", "") == "jetpack":
 					_flame = MeshInstance3D.new()
 					# pivot at the nozzles' bottom (cell y 1) so scaling stretches the plume downward
-					_flame.mesh = MobModel.outward(MicroMesher.build(_flame_cells(), Vector3i(20, 18, 7), GRID, _tiles, ATLAS, Vector3(-10, -1, 5) * s))
+					_flame.mesh = MobModel.outward(MicroMesher.build(shade_cells(_flame_cells(), Vector3i(20, 18, 7)), Vector3i(20, 18, 7), GRID, _tiles, ATLAS, Vector3(-10, -1, 5) * s))
 					_flame.position = Vector3(0, 5, 0) * s
 					var fm: StandardMaterial3D = _material.duplicate()
 					fm.emission_enabled = true
@@ -248,7 +283,7 @@ func _gear_part(parent: Node3D, cells: PackedInt32Array, size: Vector3i, origin:
 		if (pair[0] as PackedInt32Array).count(0) == cells.size():
 			continue
 		var mi := MeshInstance3D.new()
-		mi.mesh = MobModel.outward(MicroMesher.build(pair[0], size, GRID, _tiles, ATLAS, origin))
+		mi.mesh = MobModel.outward(MicroMesher.build(shade_cells(pair[0], size), size, GRID, _tiles, ATLAS, origin))
 		mi.material_override = pair[1]
 		parent.add_child(mi)
 		_gear.append(mi)
@@ -259,7 +294,7 @@ func _gear_part(parent: Node3D, cells: PackedInt32Array, size: Vector3i, origin:
 static func build_arm_mesh() -> MeshInstance3D:
 	material()
 	var mi := MeshInstance3D.new()
-	mi.mesh = MobModel.outward(MicroMesher.build(art("arm_l", _arm_cells(false), Vector3i(6, 22, 6)), Vector3i(6, 22, 6), GRID, _tiles, ATLAS, Vector3(-3, -2.5, -3) / GRID))
+	mi.mesh = MobModel.outward(MicroMesher.build(shade_cells(art("arm_l", _arm_cells(false), Vector3i(6, 22, 6)), Vector3i(6, 22, 6)), Vector3i(6, 22, 6), GRID, _tiles, ATLAS, Vector3(-3, -2.5, -3) / GRID))
 	# the arm sits in the camera's shadow most of the day: lift it with a little
 	# self-emission and ignore cast shadows, like Minecraft's flat-lit arm
 	var m: StandardMaterial3D = _material.duplicate()
