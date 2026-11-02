@@ -32,7 +32,7 @@ func test_new_blocks_are_minable_and_logs_make_planks() -> void:
 		assert_str(String(mining.entry(id).get("drops", ""))).is_equal(id)
 	for id in ["spruce_log", "acacia_log", "jungle_log"]:
 		assert_bool(id in items.items_with_tag("log")).is_true()
-	assert_bool("planks_from_log" in recipes.uses_of("jungle_log")).is_true()
+	assert_bool("jungle_planks_from_log" in recipes.uses_of("jungle_log")).is_true()
 
 
 func test_fern_is_a_small_plant() -> void:

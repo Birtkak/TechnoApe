@@ -216,8 +216,8 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   109 cobblestone, 110 bricks, 111..115 clutter (plant stem, kelp, seagrass, seashell, mushroom stem; ADR 0047),
   116..119 liquids (part A), 120 crystal (geodes, ADR 0052), 121 lava_static (ADR 0069 C), 122..126 reserved for world generation, 127..129 savanna grass,
   savanna tall grass, red earth (ADR 0064; `GameMaterials.is_grass` / `is_tall_grass` treat them as grass), 130..132 torch and
-  wheat parts (ADR 0053), 160..202 rock kinds, clutter, pyrite and ochres (ADR 0057), Stone Age ids after (ADR 0059), 203 tnt (ADR 0065).
-  Atlas 8x22 tiles (16..19 ores, patterned since ADR 0064; 104 crystal, 109..111 savanna grass, tall grass, red earth, 112..120 crops and torches, 136..170 rocks, 171..172 tnt side and top; 84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
+  wheat parts (ADR 0053), 160..202 rock kinds, clutter, pyrite and ochres (ADR 0057), Stone Age ids after (ADR 0059), 203 tnt (ADR 0065), 204..206 monolith (ADR 0098), 207..210 spruce/acacia/jungle/birch planks and 211..215 saplings (ADR 0112: `Saplings` grows them into trees, `data/saplings.json`).
+  Atlas 8x23 tiles (16..19 ores, patterned since ADR 0064; 104 crystal, 109..111 savanna grass, tall grass, red earth, 112..120 crops and torches, 136..170 rocks, 171..172 tnt side and top, 173..175 monolith, 176..179 per-wood planks (row 23, 180..183 free); 84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
   stones; 98 cobblestone, 99 bricks; 100 blueberry bush; 101 kelp, 102 seagrass, 103 seashell: full, add a row to grow;
   after editing `tools/make_atlas.py` run `--import`, or the game draws the old texture). `"pattern": true` materials lay their tile over the grid, one texel per voxel (ADR 0039). Ground pickups are voxel shapes (stone chunks on a 0.5 m patch, sticks as `FineGen::STICK` stamps);
   clutter (flowers, mushrooms, seashells, kelp, seagrass) and ore nuggets are voxel pieces that dig whole (ADR 0047,

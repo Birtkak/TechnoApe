@@ -146,7 +146,7 @@
   "gravel": "gravel", "gravel_static": "gravel", "pebbles": "gravel", "copper_bearing_stones": "gravel",
   "tin_bearing_stones": "gravel", "iron_bearing_stones": "gravel", "flint_stones": "gravel",
   "wood": "wood", "birch_log": "wood", "crafting_table": "wood", "chest": "wood", "cactus": "plant", "wattle": "twig",
-  "planks": "plank", "furniture": "plank", "torch": "wood",
+  "planks": "plank", "spruce_planks": "plank", "acacia_planks": "plank", "jungle_planks": "plank", "birch_planks": "plank", "oak_sapling": "plant", "spruce_sapling": "plant", "acacia_sapling": "plant", "jungle_sapling": "plant", "birch_sapling": "plant", "furniture": "plank", "torch": "wood",
   "leaves": "leaves", "birch_leaves": "leaves", "leaf_litter": "leaves", "thatch": "leaves", "blueberry_bush": "leaves",
   "tall_grass": "plant", "savanna_tall_grass": "plant", "flower": "plant", "flower_red": "plant", "mushroom_brown": "plant", "mushroom_red": "plant",
   "reed": "plant", "lily_pad": "plant", "plant_stem": "plant", "kelp": "plant", "seagrass": "plant", "mushroom_stem": "plant", "seashell": "gravel", "glow_mushroom": "plant", "wild_wheat": "plant", "wild_carrot": "plant",
