@@ -471,7 +471,8 @@ static func cells_for(p_kind: String) -> PackedInt32Array:
 			box.call(Vector3i(x, 6, 0), Vector3i(x + 1, 7, 8), PLANK_DARK)   # board seams
 	elif p_kind == "candle":
 		# a tallow candle on a little iron dish, the flame painted to glow
-		box.call(Vector3i(2, 0, 2), Vector3i(6, 1, 6), IRON)
+		box.call(Vector3i(1, 0, 1), Vector3i(7, 1, 7), IRON)
+		box.call(Vector3i(6, 1, 3), Vector3i(7, 2, 5), IRON)   # the finger ring
 		box.call(Vector3i(3, 1, 3), Vector3i(5, 5, 5), WAX)
 		box.call(Vector3i(4, 5, 4), Vector3i(5, 7, 5), FLAME)
 	elif p_kind in ["red_rug", "blue_rug"]:
