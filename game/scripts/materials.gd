@@ -162,8 +162,16 @@ const MONOLITH_SEAM := 206
 const WOOD_KINDS := ["oak", "spruce", "acacia", "jungle", "birch"]   # the sapling order; planks skip oak
 const SPRUCE_PLANKS := 207         # 207..210: spruce, acacia, jungle, birch planks
 const OAK_SAPLING := 211           # 211..215: a sapling per WOOD_KINDS, grows into its tree (Saplings)
+# Cave dressing (2026-11-02 overnight, world generation): stalactites, vines, cave fungi, magma crust
+const CAVE_IDS := 228              # 228..243 world generation (216..255 are split over four lanes)
+const DRIPSTONE := 228
+const CAVE_VINE := 229
+const GLOW_BERRY_VINE := 230
+const FUNGUS_STEM := 231
+const FUNGUS_CAP := 232
+const MAGMA_ROCK := 233
 
-const ATLAS_TILES := Vector2i(8, 23)   # rows grow at the bottom, so tile indices keep their meaning
+const ATLAS_TILES := Vector2i(8, 26)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -281,7 +289,7 @@ static func _build_defs() -> Array:
 		{"name": "monolith", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [173, 173, 173], "transparent": false},
 		{"name": "monolith_rune", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [174, 174, 174], "transparent": false},
 		{"name": "monolith_seam", "cell_type": "solid", "pattern": true, "density": 15, "hp": 1000000, "tiles": [175, 175, 175], "transparent": false},
-	] + _wood_defs()
+	] + _wood_defs() + _reserved_defs(216, CAVE_IDS - 1) + _cave_defs() + _reserved_defs(CAVE_IDS + 6, 243)
 
 
 ## Ids 207..215 (ADR 0112): planks of the other woods (the oak planks' rules, their own tile 176..179),
@@ -300,6 +308,27 @@ static func _wood_defs() -> Array:
 		d.merge(plant_burn)
 		out.append(d)
 	return out
+
+
+## Ids 228..233 (228..243 is this lane): what the generator dresses cave floors and ceilings with (FineGen::cave_dressing):
+## dripstone spikes, vines (tufts you walk through), glow berries, cave fungi and glowing magma crust.
+## Tiles 192..194 and 204..206 (204..207 glow, bright texels only).
+static func _cave_defs() -> Array:
+	var plant_burn := {"burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2}
+	var vine := {"name": "cave_vine", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [193, 193, 193], "transparent": false, "micro": "tuft", "replaceable": true}
+	vine.merge(plant_burn)
+	var berries := vine.duplicate()
+	berries["name"] = "glow_berry_vine"
+	berries["tiles"] = [204, 204, 204]
+	var stem := {"name": "fungus_stem", "cell_type": "solid", "density": 8, "hp": 40, "tiles": [194, 194, 194], "transparent": false}
+	stem.merge(plant_burn)
+	var cap := {"name": "fungus_cap", "cell_type": "solid", "density": 6, "hp": 20, "tiles": [206, 206, 206], "transparent": false}
+	cap.merge(plant_burn)
+	return [
+		{"name": "dripstone", "cell_type": "solid", "density": 10, "hp": 600, "tiles": [192, 192, 192], "transparent": false},
+		vine, berries, stem, cap,
+		{"name": "magma_rock", "cell_type": "solid", "density": 11, "hp": 900, "tiles": [205, 205, 205], "transparent": false},
+	]
 
 
 static func _planks_def() -> Dictionary:

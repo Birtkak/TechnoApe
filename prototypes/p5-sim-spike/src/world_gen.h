@@ -70,6 +70,8 @@ public:
         // 116..119 reserved (part A of the 2026-10-25 split); world generation 120..129
         CRYSTAL = 120,
         GIANT_STEM = 124, GIANT_PETAL = 125, GIANT_HEART = 126,   // giant flowers in the flower meadow
+        // cave dressing (FineGen::cave_dressing): game/scripts/materials.gd CAVE_IDS
+        DRIPSTONE = 228, CAVE_VINE = 229, GLOW_BERRY_VINE = 230, FUNGUS_STEM = 231, FUNGUS_CAP = 232, MAGMA_ROCK = 233,
         // the dry savanna floor (bug report 2026-10-25 20-37-22): straw grass, its tussocks, bare red earth
         SAVANNA_GRASS = 127, SAVANNA_TALL_GRASS = 128, RED_EARTH = 129
     };

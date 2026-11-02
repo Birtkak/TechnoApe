@@ -11,7 +11,7 @@ const HUM_BANDS := ["arid", "dry", "neutral", "humid", "wet"]
 ## Altitude bands from the sea floor up. Adjacent entries can border each other.
 const ALT_BANDS := ["deep_ocean", "ocean", "coast", "lowland", "highland", "mountain", "alpine", "snow"]
 ## Material names the surface entries may use (GameMaterials names; ids come from GameMaterials).
-const MATERIALS := ["air", "stone", "dirt", "grass", "savanna_grass", "red_earth", "sand", "water", "wood", "lava", "ash", "oil", "steam", "smoke", "fire", "bedrock", "snow", "gravel", "coal_ore", "iron_ore", "copper_ore", "tin_ore", "leaves", "sand_static", "gravel_static", "water_static", "toxic_sludge_static", "lava_static", "sulfur", "ice", "packed_ice", "basalt", "terracotta", "sandstone", "obsidian", "clay"]
+const MATERIALS := ["air", "stone", "dirt", "grass", "savanna_grass", "red_earth", "sand", "water", "wood", "lava", "ash", "oil", "steam", "smoke", "fire", "bedrock", "snow", "gravel", "coal_ore", "iron_ore", "copper_ore", "tin_ore", "leaves", "sand_static", "gravel_static", "water_static", "toxic_sludge_static", "lava_static", "sulfur", "ice", "packed_ice", "basalt", "terracotta", "sandstone", "obsidian", "clay", "moss", "dripstone"]
 ## Ground decorations (biomes.json "decor"): chance per 8 m cell of a bush, boulder or
 ## dead tree (one per cell), and per 12 m cell of a spire of spire_material.
 const DECOR_KINDS := ["bush", "boulder", "dead_tree", "fallen_log", "spire"]

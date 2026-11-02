@@ -47,6 +47,10 @@ constexpr int CAVE_STEP = 4;
 constexpr int VEG_REACH = 4 * FS;
 // Jungle vines hang up to this many voxels under a leaf clump.
 constexpr int VINE_MAX = 18;
+// Cave dressing (FineGen::cave_dressing): spikes, vines and fungi reach at most DRESS_MAX voxels from the floor or
+// ceiling they grow on (the cave field is read that far past the block), at most one cone per DRESS_CELL cell.
+constexpr int DRESS_MAX = 8;
+constexpr int DRESS_CELL = 8;
 // Cave water (ADR 0109): where n_pool_ (~40 m blobs) is above POOL_THR, the cave floor carries its biome's pool
 // as a sheet up to POOL_DEPTH voxels deep (deepest at the blob's middle, thinning to nothing at its edge): one
 // pond per blob in a hall, a stepped stream along a tilted gallery floor. Replaces the 25 cm puddle sunk into
@@ -1094,6 +1098,93 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
     }
 }
 
+// A cone standing in this column's DRESS_CELL cell (at most one per cell, centred so it stays inside): its height
+// at (wx, wz), 0 where the cell has none or the column misses it.
+static float dress_spike(int wx, int wz, uint32_t seed, float chance, float rmin, float rmax, float hmin, float hmax) {
+    constexpr int C = DRESS_CELL;
+    const int cx = floor_div(wx, C), cz = floor_div(wz, C);
+    const uint32_t hs = h3(cx, cz, (int)seed);
+    if ((float)(hs & 1023) / 1024.0f >= chance) return 0.0f;
+    const float px = (float)(cx * C + 3 + (int)((hs >> 10) % (C - 5))) + 0.5f, pz = (float)(cz * C + 3 + (int)((hs >> 13) % (C - 5))) + 0.5f;
+    const float r = rmin + (rmax - rmin) * (float)((hs >> 16) & 63) / 63.0f, H = hmin + (hmax - hmin) * (float)((hs >> 22) & 63) / 63.0f;
+    const float dx = (float)wx + 0.5f - px, dz = (float)wz + 0.5f - pz, d = std::sqrt(dx * dx + dz * dz);
+    return d > r + 0.5f ? 0.0f : H * (1.0f - d / (r + 1.0f));
+}
+
+uint16_t FineGen::cave_dressing(int biome, int wx, int wz, int df, int dc, uint16_t rock) const {
+    namespace B = technosim_biome;
+    const int sd = g_->seed_;
+    const bool fl = df >= 0, ce = dc >= 0;
+    // a passage is never closed: spikes from both sides keep to their half of the gap
+    const float half = (fl && ce) ? (float)(df + dc + 1) * 0.5f - 1.0f : (float)DRESS_MAX;
+    auto up = [&](uint32_t salt, float chance, float rmin, float rmax, float hmin, float hmax) {
+        return fl && (float)df < std::min(half, dress_spike(wx, wz, sd + salt, chance, rmin, rmax, hmin, hmax));
+    };
+    auto down = [&](uint32_t salt, float chance, float rmin, float rmax, float hmin, float hmax) {
+        return ce && (float)dc < std::min(half, dress_spike(wx, wz, sd + salt, chance, rmin, rmax, hmin, hmax));
+    };
+    const uint32_t ch = h3(wx, wz, sd + 4409);   // per-column rolls
+    switch (biome) {
+        case B::DRIPSTONE_CAVE:
+            if (down(4411, 0.75f, 0.8f, 2.2f, 3.0f, 8.0f) || up(4413, 0.55f, 1.0f, 2.5f, 3.0f, 8.0f)) return Mat::DRIPSTONE;
+            return Mat::AIR;
+        case B::CAVE: case B::DEEP_CAVE:
+            if (down(4417, 0.18f, 0.8f, 1.8f, 2.0f, 6.0f) || up(4419, 0.1f, 1.0f, 2.0f, 2.0f, 5.0f)) return rock;
+            return Mat::AIR;
+        case B::FROZEN_CAVE:
+            if (down(4421, 0.8f, 0.5f, 1.6f, 2.0f, 8.0f)) return Mat::ICE;   // icicles
+            if (up(4423, 0.25f, 1.0f, 2.2f, 2.0f, 7.0f)) return Mat::PACKED_ICE;
+            return Mat::AIR;
+        case B::CRYSTAL_CAVE:
+            if (down(4427, 0.4f, 0.6f, 1.6f, 2.0f, 7.0f)) return Mat::CRYSTAL;
+            return Mat::AIR;
+        case B::SULFUR_CAVE:
+            if (down(4429, 0.45f, 0.7f, 1.8f, 2.0f, 7.0f)) return Mat::SULFUR;
+            return Mat::AIR;
+        case B::MAGMA_CAVE:
+            if (up(4431, 0.35f, 1.4f, 2.6f, 3.0f, 8.0f) || down(4433, 0.3f, 0.8f, 2.0f, 2.0f, 6.0f)) return Mat::BASALT;
+            // glowing crust in patches on the floor
+            if (df == 0 && n_meadow_.GetNoise((float)wx * 1.7f, (float)wz * 1.7f + 3100.0f) > 0.15f) return Mat::MAGMA_ROCK;
+            return Mat::AIR;
+        case B::LUSH_CAVE: {
+            // vines from the ceiling, one column in ~7, 2-8 voxels, berries at the tip on some
+            if (ce && (ch % 7) == 0) {
+                const int len = 2 + (int)((ch >> 4) % (DRESS_MAX - 1));
+                if (dc < len && (float)dc < half + 1.0f) return (dc == len - 1 && ((ch >> 9) & 1)) ? Mat::GLOW_BERRY_VINE : Mat::CAVE_VINE;
+            }
+            if (dc == 0 && n_meadow_.GetNoise((float)wx * 1.3f - 700.0f, (float)wz * 1.3f) > 0.0f) return Mat::MOSS;
+            if (fl) {
+                const uint32_t r = (ch >> 12) & 1023;
+                if (r < 300 && df < 1 + (int)((ch >> 22) & 1)) return Mat::TALL_GRASS;
+                if (r >= 300 && r < 420 && df < 2 + (int)((ch >> 22) % 3)) return Mat::FERN;
+            }
+            return Mat::AIR;
+        }
+        case B::FUNGAL_CAVE: {
+            if (fl) {
+                // toadstools: a pale stem under a glowing purple cap, ~1 m, one in three 1 m cells
+                constexpr int C = DRESS_CELL;
+                const int cx = floor_div(wx, C), cz = floor_div(wz, C);
+                const uint32_t hs = h3(cx, cz, sd + 4437);
+                if ((hs & 3) == 0) {
+                    const float px = (float)(cx * C + 4) + 0.5f, pz = (float)(cz * C + 4) + 0.5f;
+                    const float dx = (float)wx + 0.5f - px, dz = (float)wz + 0.5f - pz, d = std::sqrt(dx * dx + dz * dz);
+                    const int H = std::min((int)half, 4 + (int)((hs >> 4) % 4));
+                    const float R = 2.0f + (float)((hs >> 8) & 3) * 0.5f;
+                    if (H >= 3) {
+                        if (d < 1.0f && df < H) return Mat::FUNGUS_STEM;
+                        const int under = d < R * 0.6f ? 2 : 1;   // a domed cap: thicker in the middle
+                        if (d <= R && df < H + 1 && df >= H + 1 - under) return Mat::FUNGUS_CAP;
+                    }
+                }
+                if (df == 0 && (ch % 13) == 0) return Mat::GLOW_MUSHROOM;
+            }
+            return Mat::AIR;
+        }
+        default: return Mat::AIR;
+    }
+}
+
 // Positive inside a cave (macro units): cheese rooms and spaghetti tunnels as one
 // smooth field, so the fine voxels can interpolate it instead of evaluating 3D noise each.
 // ---------- blocks ----------
@@ -1887,6 +1978,31 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             };
             auto cap_pool = [&]() { pool_cap = drop(CAVE_STEP + 1) ? 0 : (drop(1) ? std::min(pool_d, CAVE_STEP) : pool_d); };
             if (pool_d > 0 && floor_wy > -(1 << 20)) cap_pool();
+            // cave dressing: how far each voxel of the column is over a cave floor and under a cave ceiling, reading the
+            // field DRESS_MAX past the block so a spike from the next block's floor is drawn here too
+            int dress_df[64], dress_dc[64];
+            bool dress = false;
+            if (lod == 0 && !cav.empty() && sy <= 64) {
+                for (int y = 1; y <= sy && !dress; y++) dress = cave[y];
+                if (dress) {
+                    auto mask = [&](int y) {   // cave at block voxel y, which may lie outside the block
+                        if (y >= -1 && y <= sy) return cave[y + 1] != 0;
+                        const int wy = origin.y + y;
+                        return wy >= 12 * FS && wy < h - m.roof * FS && (no_cave_above < 0 || wy < no_cave_above) && !(wy < sea && h < sea + 2 * FS) && cave_at(wx, wy, wz);
+                    };
+                    int last = -1 << 20;   // the highest solid voxel at or under y
+                    for (int y = -DRESS_MAX - 1; y < sy; y++) {
+                        if (!mask(y)) last = y;
+                        else if (y >= 0) dress_df[y] = (y - last - 1 <= DRESS_MAX) ? y - last - 1 : -1;
+                    }
+                    last = 1 << 20;
+                    for (int y = sy + DRESS_MAX; y >= 0; y--) {
+                        if (!mask(y)) last = y;
+                        else if (y < sy) dress_dc[y] = (last - y - 1 <= DRESS_MAX) ? last - y - 1 : -1;
+                    }
+                }
+            }
+            int dress_anchor = INT32_MIN, dress_biome = -1;   // the cave biome of the last floor or ceiling looked up
             uint16_t *colp = w + sy * (x + sx * z);
             ValueNoiseCell sheet_cell;   // the stringer sheet's noise cell, shared up the column
             for (int y = 0; y < sy; y++) {
@@ -1958,6 +2074,21 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             const int cb = depth < technosim_biome::SOIL_DEPTH * FS ? col.biome : technosim_biome::cave_biome(ti, hi, di, ni);
                             const int pool = technosim_biome::SURFACE_POOL[cb];
                             if (pool >= 0) mat = (uint16_t)pool;
+                        }
+                        if (mat == Mat::AIR && dress) {
+                            const int df = pool_d > 0 ? -1 : dress_df[y], dc = dress_dc[y];   // nothing stands in a pool
+                            if (df >= 0 || dc >= 0) {
+                                const int anchor = df >= 0 ? wy - df - 1 : wy + dc + 1;
+                                if (anchor != dress_anchor) {
+                                    dress_anchor = anchor;
+                                    const int ad = h - anchor;
+                                    const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)anchor / FS, (float)mz);
+                                    const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)ad / FS, technosim_biome::DEPTH_BAND_COUNT);
+                                    const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
+                                    dress_biome = ad < technosim_biome::SOIL_DEPTH * FS ? -1 : technosim_biome::cave_biome(ti, hi, di, ni);
+                                }
+                                if (dress_biome >= 0) mat = cave_dressing(dress_biome, wx, wz, df, dc, Mat::STONE);   // stone becomes the local rock below
+                            }
                         }
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
                         if (d_top <= sandstone_depth) mat = strata ? g.strata_at(mx, floor_div(wy, FS), mz) : Mat::SANDSTONE;
