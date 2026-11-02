@@ -97,6 +97,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("wear", "/wear <item>", "Put on clothing or armour (as a right click with it would); what was in that slot is gone", _wear, [_clothing_ids])
 	reg.register("kit", "/kit <%s>" % "|".join(KITS.keys()), "Give a playtest kit", _kit, [KITS.keys()])
 	reg.register("spawn", "/spawn", "Teleport to the world spawn", _spawn)
+	reg.register("sethome", "/sethome", "Mark where you stand as home (a green waypoint; /home goes there)", _sethome)
+	reg.register("home", "/home", "Teleport to your home (/sethome marks it)", _home)
 	reg.register("locate", "/locate <feature>", "Find the nearest cave, ruin, lake, biome ... (within 4 km)", _locate, [FEATURES])
 	reg.register("goto", "/goto <feature>", "Teleport to the nearest cave, ruin, lake, biome ...", _goto, [FEATURES])
 	reg.register("daycycle", "/daycycle <on|off|seconds>", "Run the sun (on = 20 min days) or freeze it", _daycycle, [["on", "off"]])
@@ -588,6 +590,24 @@ func _spawn(_args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("No world")
 	player.teleport(main.spawn_position())
 	return CommandRegistry.ok("Teleported to spawn")
+
+
+func _sethome(_args: PackedStringArray) -> Dictionary:
+	if player == null or main == null:
+		return CommandRegistry.fail("No world")
+	var at := Vector3i(player.position.floor())
+	main.waypoints.set_unique("home", "Home", at)
+	return CommandRegistry.ok("Home set at %d %d %d" % [at.x, at.y, at.z])
+
+
+func _home(_args: PackedStringArray) -> Dictionary:
+	if player == null or main == null:
+		return CommandRegistry.fail("No world")
+	var w: Dictionary = main.waypoints.of_kind("home")
+	if w.is_empty():
+		return CommandRegistry.fail("No home yet: /sethome marks one")
+	player.teleport(Vector3(w["pos"]))
+	return CommandRegistry.ok("Teleported home")
 
 
 ## Nearest feature as a voxel position, or a fail() result.

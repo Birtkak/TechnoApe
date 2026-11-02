@@ -12,7 +12,7 @@ signal changed
 const COLOURS: Array[Color] = [Color("#e8443a"), Color("#3a9be8"), Color("#f2c230"), Color("#48c25a"),
 	Color("#b45ce0"), Color("#ff8a2a"), Color("#3ad6c8"), Color("#f0f0f0")]
 ## Kinds with a fixed colour.
-const KIND_COLOURS := {"grave": Color("#9a9aa6"), "death": Color("#9a9aa6")}
+const KIND_COLOURS := {"grave": Color("#9a9aa6"), "death": Color("#9a9aa6"), "home": Color("#48c25a")}
 
 var list: Array[Dictionary] = []   # {id, name, pos: Vector3i, colour: Color, kind: String}
 var _next_id := 1
@@ -27,6 +27,22 @@ func add(p_name: String, pos: Vector3i, kind: String = "", colour := Color(0, 0,
 	list.append(w)
 	changed.emit()
 	return int(w["id"])
+
+
+## The one waypoint of `kind` (home, last death; ADR 0130): an older one of that kind goes first.
+func set_unique(kind: String, p_name: String, pos: Vector3i) -> int:
+	var w := of_kind(kind)
+	if not w.is_empty():
+		list.erase(w)
+	return add(p_name, pos, kind)
+
+
+## The first waypoint of `kind`, or {}.
+func of_kind(kind: String) -> Dictionary:
+	for w in list:
+		if w["kind"] == kind:
+			return w
+	return {}
 
 
 func remove(id: int) -> bool:

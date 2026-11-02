@@ -30,3 +30,17 @@ func test_network_line_sums_the_component() -> void:
 	assert_str(Networks.look_line(t)).is_equal(line)   # every part of a network reads the same
 	assert_str(Networks.look_line(lone)).is_empty()     # a cable on its own is no network
 	assert_str(Networks.look_line(null)).is_empty()
+
+
+func test_home_and_death_waypoints_are_unique() -> void:
+	var w := Waypoints.new()
+	w.add("Mine", Vector3i(1, 2, 3))
+	w.set_unique("home", "Home", Vector3i(10, 0, 0))
+	w.set_unique("home", "Home", Vector3i(20, 0, 0))
+	w.set_unique("death", "Last death", Vector3i(5, 5, 5))
+	assert_int(w.list.size()).is_equal(3)
+	assert_object(w.of_kind("home")["pos"]).is_equal(Vector3i(20, 0, 0))
+	assert_object(w.of_kind("home")["colour"]).is_equal(Waypoints.KIND_COLOURS["home"])
+	var back := Waypoints.new()
+	back.load_array(w.to_array())   # saved with the player
+	assert_str(String(back.of_kind("death").get("name", ""))).is_equal("Last death")

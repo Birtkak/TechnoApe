@@ -1817,6 +1817,8 @@ func _on_died() -> void:
 	print("player died at %s (%s), respawning" % [player.position, player_inv.last_cause])
 	if GameMode.rule(player.game_mode, "consumes_items"):
 		_make_grave(Vector3i(player.position.floor()))   # survival: it all stays where you fell (plan item D12)
+	else:
+		waypoints.set_unique("death", "Last death", Vector3i(player.position.floor()))   # no grave marks it (ADR 0130)
 	deaths += 1
 	if DebugCapture.tp_test:
 		_respawn()   # tp_test times the bare respawn
