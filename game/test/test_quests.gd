@@ -6,7 +6,7 @@ extends GdUnitTestSuite
 ## main road of the four Stone Age chapters (ADR 0059) walked through a player inventory to a copper tool.
 
 const GROUND := ["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball", "dry_grass", "oak_log", "gravel", "sand",
-	"plant_fiber", "dirt", "raw_hide", "raw_meat", "carrot",
+	"plant_fiber", "dirt", "raw_hide", "raw_meat", "carrot", "wool",
 	# drops and finds the Stone Age chapters lean on (ADR 0059): animals, tall grass, part E's stones and fish
 	"bone", "feather", "bear_hide", "animal_fat", "antler", "pyrite", "red_ochre", "yellow_ochre", "floorstone_flint",
 	"einkorn_seeds", "emmer_seeds", "flax_seeds", "birch_log",
@@ -232,7 +232,7 @@ func test_copper_age_walkthrough() -> void:
 			p.inv.remove(what.substr(1), s[1])
 		else:
 			_give(what, s[1])
-	for q in book.chapter_quests("copper_age"):
+	for q in book.chapter_quests("copper_age").filter(func(x: Dictionary) -> bool: return not x.get("optional", false)):   # side quests ask for more
 		assert_bool(book.is_done(q["id"])).override_failure_message(q["id"]).is_true()
 
 

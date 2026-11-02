@@ -35,7 +35,9 @@
     "animal:sheep": "Wool and mutton. They follow wheat.",
     "animal:pig": "Meat and hide. They follow carrots.",
     "animal:chicken": "Eggs every few minutes and feathers for arrows.",
-    "animal:bear": "Strong, fast and short-tempered. Leave it be, or bring a spear."
+    "animal:bear": "Strong, fast and short-tempered. Leave it be, or bring a spear.",
+    "animal:gloam_hound": "Night hunters in packs of up to three. They run down sheep and deer, and you, if you are alone in the dark.",
+    "animal:crow": "Flocks wheel over fields and forests. They come down for scattered seed and scatter at a step."
   },
   "icons": {}
 }
