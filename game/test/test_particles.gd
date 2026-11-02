@@ -91,3 +91,13 @@ func test_burst_without_gpu_pools_is_harmless() -> void:
 	# headless tests never call setup(): bursts are no-ops, not errors
 	assert_int(fx.burst("block_break", Vector3.ZERO, {"material": GameMaterials.STONE})).is_equal(0)
 	assert_int(fx.burst("no_such_effect", Vector3.ZERO)).is_equal(0)
+
+
+## Burning stations smoke from the top of their model, not their anchor corner (bug 2026-11-02_18-51-53).
+func test_station_smoke_leaves_the_top() -> void:
+	var e := StationEntity.new(Vector3i(10, 20, 30))
+	e.kind = "furnace"
+	assert_vector(ParticleFx.station_top(e)).is_equal(Vector3(14, 28, 34))
+	e.kind = "bloomery"
+	var w := BlockEntities.width_of("bloomery")
+	assert_vector(ParticleFx.station_top(e)).is_equal(Vector3(10 + w * 0.5, 20 + BlockEntities.height_of("bloomery"), 30 + w * 0.5))

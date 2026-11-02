@@ -175,6 +175,7 @@
   "wolf": {"idle": ["mob/wolf", "mob/wolf_bark"], "hurt": "mob/wolf_hurt", "baby": "mob/fox", "angry": "mob/wolf", "every_s": [14, 40]},
   "duck": {"idle": "mob/duck", "hurt": "mob/duck_hurt", "baby": "mob/duck_hurt", "every_s": [8, 25]},
   "frog": {"idle": "mob/frog", "hurt": "mob/frog", "baby": "mob/frog", "every_s": [6, 20]},
+  "poison_frog": {"idle": "mob/frog", "hurt": "mob/frog", "baby": "mob/frog", "every_s": [8, 24]},
   "crab": {"idle": "mob/crab", "hurt": "mob/crab", "baby": "mob/crab", "every_s": [8, 20]},
   "fish": {"idle": "mob/fish", "hurt": "mob/fish", "baby": "mob/fish", "every_s": [10, 30]},
   "bat": {"idle": "mob/bat", "hurt": "mob/bat", "baby": "mob/bat", "every_s": [4, 12]},

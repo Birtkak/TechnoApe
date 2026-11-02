@@ -461,6 +461,9 @@ func separate(m: Mob) -> void:
 		var push := dp.normalized() if dp.length() > 0.01 else Vector2(0, 1)
 		m.velocity.x += push.x * 1.2 * Settings.BLOCK
 		m.velocity.z += push.y * 1.2 * Settings.BLOCK
+		var venom: float = defs[m.species].get("poison_s", 0.0)   # a dart frog's skin poisons on touch
+		if venom > 0.0 and main.get("survival") != null and player_attackable():
+			main.survival.poison(venom)
 
 
 # ---------------- social ----------------

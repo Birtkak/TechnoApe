@@ -166,6 +166,7 @@ var freeze_s := 6.0
 var hot_c := 38.5
 var heatstroke_c := 39.5                 # above: one health per heatstroke_s
 var heatstroke_s := 8.0
+var poison_every_s := 1.25               # poisoned (a dart frog's touch): one health per this, never the last one (Minecraft)
 var room_c := 18.0                       # a closed room pulls the temperature halfway to this
 var cave_c := 10.0                       # 4 m and more under the surface
 var water_c := -8.0                      # in water
