@@ -79,6 +79,11 @@ public:
         bool replaceable = false;      // a plant liquids and powders wash away
         uint16_t film_life = 0;        // ADR 0069 B3: mean ticks a lone one-eighth film on a foreign floor lasts (0 = forever)
         uint8_t film_to = 0;           // what the film becomes when it goes (0 = air: dries; lava: a basalt crust)
+        // ADR 0119 C: heat and state. heat_c: the material pulls its coarse heat cell toward this (0 = none). A moving
+        // liquid at or over boil_c + boil_rise_c * chunk pressure becomes boils_to, at or under freeze_c freezes_to; a
+        // gas at or under condense_c becomes condenses_to (one eighth); a solid at or over melt_c melts_to.
+        int16_t heat_c = 0, boil_c = 32767, boil_rise_c = 0, freeze_c = -32768, condense_c = -32768, melt_c = 32767;
+        uint8_t boils_to = 0, freezes_to = 0, condenses_to = 0, melts_to = 0;
     };
 
     struct Reaction {
@@ -129,6 +134,11 @@ public:
     // one-eighth film stays put, so floods settle. Off = P5 liquids (whole cells, lateral slides).
     void set_liquid_fullness(bool p_on);
     void set_column_flow(bool p_on);
+    // ADR 0119 C: the outside temperature the heat field relaxes toward, and what a cell reports to the HUD
+    void set_ambient_c(float p_c, bool p_fill = false);   // fill: the whole field takes it now (tests, a new world)
+    void set_states(bool p_on);
+    Dictionary cell_info(Vector3i p) const;   // {material, cell_type, moving, eighths, temp_c, pressure}
+    float chunk_pressure(Vector3i p) const;   // gas cells / open cells of the cell's chunk, 0..1
     // ADR 0029: a cell vacated by a move into air stays free this tick, so the cell above can follow at once and a
     // column falls together (one layer per tick otherwise: slow motion at 6.25 cm). Static ground still sees it as a
     // fresh opening (ADR 0013). It also lets a wall of pressed liquid next to air flow out every tick instead of one
@@ -300,6 +310,17 @@ private:
     bool dirty_boxes_ = true;
     bool fullness_ = false;
     bool column_flow_ = false;     // ADR 0119 A: moving liquids level as columns by head (set_column_flow)
+    // ADR 0119 C: a coarse heat field (one int16 degrees C per 4^3 cells, aligned to chunks so a chunk's update owns
+    // its own coarse cells), a pressure per chunk (gas / open cells, 0..255) and the outside temperature
+    static constexpr int HC = 4;
+    std::vector<int16_t> heat_;
+    std::vector<uint8_t> pressure_;
+    int16_t ambient_c_ = 18;
+    bool states_ = true;
+    inline int hidx(int x, int y, int z) const {
+        return (((x + ox_) & mx_) >> 2) + (W_ >> 2) * ((((y + oy_) & my_) >> 2) + (H_ >> 2) * (((z + oz_) & mz_) >> 2));
+    }
+    void relax_heat(int ci);   // diffuse a chunk's coarse cells and pull them toward the ambient
     int max_speed_ = 1;            // the largest liquid_speed among the materials: extra passes per tick
     int substep_ = 0;              // 0 = the main pass; 1.. = a liquid substep (only liquids with speed > substep_ move)
     bool cascade_ = false;

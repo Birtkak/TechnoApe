@@ -25,6 +25,7 @@ const SLACK := Vector3(2.0, 1.5, 2.0)
 var world: World
 var sim: SimWorld
 var origin := Vector3i.ZERO          # world chunk coords of local chunk (0,0,0)
+var ambient_c := 18.0                # the outside temperature (Survival.outside_c), set by Main each frame (ADR 0119 C)
 var size_chunks := Vector3i.ONE
 var _tick_accum := 0.0
 # Chunks waiting for terrain data, one bitmask per chunk column of the window:
@@ -240,6 +241,7 @@ func _process_timed(delta: float) -> void:
 		if pieces:
 			pieces.tick(period)   # the SimWorld is idle here: pieces crush, snap and settle into its cells
 		sim.set_focus(Vector3i(_player.floor()) - origin * Settings.CHUNK)
+		sim.set_ambient_c(ambient_c)   # ADR 0119 C: the heat field relaxes toward the outside temperature
 		_tick_running = sim.start_tick()
 		_frame_cost()["tick_ms"] += (Time.get_ticks_usec() - t0) / 1000.0   # main-thread cost of starting it
 	if _fire_test > 0:
@@ -707,6 +709,15 @@ func sample_cells(center_world: Vector3i, radius: int, count: int, rng_seed: int
 
 
 ## True when the local chunk `lc` lies inside the window.
+## ADR 0119 D: what the sim knows about a world voxel (material, cell_type, eighths, temp_c, pressure), {} outside
+## the window.
+func cell_info(p: Vector3i) -> Dictionary:
+	var lc := p - origin * Settings.CHUNK
+	if not is_chunk_in_window(lc / Settings.CHUNK):
+		return {}
+	return sim.cell_info(lc)
+
+
 func is_chunk_in_window(lc: Vector3i) -> bool:
 	return lc.x >= 0 and lc.y >= 0 and lc.z >= 0 and lc.x < size_chunks.x and lc.y < size_chunks.y and lc.z < size_chunks.z
 

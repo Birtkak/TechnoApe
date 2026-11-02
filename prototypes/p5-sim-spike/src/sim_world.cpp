@@ -125,6 +125,10 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_cell_budget", "cells"), &SimWorld::set_cell_budget);
     ClassDB::bind_method(D_METHOD("set_liquid_fullness", "on"), &SimWorld::set_liquid_fullness);
     ClassDB::bind_method(D_METHOD("set_column_flow", "on"), &SimWorld::set_column_flow);
+    ClassDB::bind_method(D_METHOD("set_ambient_c", "c", "fill"), &SimWorld::set_ambient_c, DEFVAL(false));
+    ClassDB::bind_method(D_METHOD("set_states", "on"), &SimWorld::set_states);
+    ClassDB::bind_method(D_METHOD("cell_info", "p"), &SimWorld::cell_info);
+    ClassDB::bind_method(D_METHOD("chunk_pressure", "p"), &SimWorld::chunk_pressure);
     ClassDB::bind_method(D_METHOD("count_liquid_eighths", "material"), &SimWorld::count_liquid_eighths);
     ClassDB::bind_method(D_METHOD("start_tick"), &SimWorld::start_tick);
     ClassDB::bind_method(D_METHOD("is_tick_done"), &SimWorld::is_tick_done);
@@ -163,6 +167,8 @@ void SimWorld::configure(Vector3i p_chunks, int p_threads, int p_seed) {
     dbox_.reset(new std::atomic<uint32_t>[nc]);
     for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); box_now_[i].store(0); box_next_[i].store(0); dbox_[i].store(0); }
     defer_age_.assign(nc, 0);
+    heat_.assign(n / (HC * HC * HC), ambient_c_);
+    pressure_.assign(nc, 0);
     loaded_.assign(nc, 1); // default: everything counts as loaded (fill_box/scatter worlds); streaming callers clear it
     wrapped_ = false;
     ox_ = oy_ = oz_ = 0; ocx_ = ocy_ = ocz_ = 0;
@@ -217,6 +223,12 @@ void SimWorld::set_materials(const Array &p_defs) {
         }
         m.film_life = (uint16_t)std::clamp(dget_int(d, "film_lifetime_ticks", 0), 0, 65535);
         m.film_to = clamp8(dget_int(d, "film_convert_to_material", 0));
+        m.heat_c = (int16_t)std::clamp(dget_int(d, "heat_c", 0), 0, 32767);
+        m.boil_c = (int16_t)std::clamp(dget_int(d, "boil_c", 32767), -32768, 32767);
+        m.boil_rise_c = (int16_t)std::clamp(dget_int(d, "boil_rise_c", 0), 0, 32767);
+        m.freeze_c = (int16_t)std::clamp(dget_int(d, "freeze_c", -32768), -32768, 32767);
+        m.condense_c = (int16_t)std::clamp(dget_int(d, "condense_c", -32768), -32768, 32767);
+        m.melt_c = (int16_t)std::clamp(dget_int(d, "melt_c", 32767), -32768, 32767);
         m.fire_hp = clamp8(dget_int(d, "fire_hp", 0));
         m.temperature_of_fire = clamp8(dget_int(d, "temperature_of_fire", 10));
         m.autoignition_temperature = clamp8(dget_int(d, "autoignition_temperature", 100));
@@ -247,6 +259,21 @@ void SimWorld::set_materials(const Array &p_defs) {
         if (m.fluid_slot >= 0 && !m.liquid_static && slot_material_[m.fluid_slot] == 0) slot_material_[m.fluid_slot] = (int16_t)mats_.size();
         if (m.cell_type == CELL_LIQUID && !m.liquid_static) max_speed_ = std::max(max_speed_, (int)m.speed);
         mats_.push_back(m);
+    }
+    // ADR 0119 C: the state targets are names in the data; resolve them once every material has its id
+    for (int i = 0; i < p_defs.size() && i + 1 < (int)mats_.size(); i++) {
+        Dictionary d = p_defs[i];
+        auto id_of = [&](const char *key) -> uint8_t {
+            if (!d.has(key)) return 0;
+            const String want = d[key];
+            for (int j = 0; j < p_defs.size() && j + 1 < (int)mats_.size(); j++)
+                if (((Dictionary)p_defs[j]).has("name") && (String)((Dictionary)p_defs[j])["name"] == want) return (uint8_t)(j + 1);
+            return 0;
+        };
+        mats_[i + 1].boils_to = id_of("boils_to");
+        mats_[i + 1].freezes_to = id_of("freezes_to");
+        mats_[i + 1].condenses_to = id_of("condenses_to");
+        mats_[i + 1].melts_to = id_of("melts_to");
     }
     rebuild_reaction_lut();
 }
@@ -297,7 +324,7 @@ void SimWorld::rebuild_reaction_lut() {
     for (size_t m = 1; m < mats_.size(); m++) {
         const MaterialDef &d = mats_[m];
         bool static_cell = d.cell_type == CELL_SOLID || ((d.cell_type == CELL_LIQUID || d.cell_type == CELL_POWDER) && d.liquid_static);
-        inert_[m] = static_cell && d.lifetime == 0 && !d.burnable && !reactive_[m] && d.loosen == 0 && d.erode == 0;
+        inert_[m] = static_cell && d.lifetime == 0 && !d.burnable && !reactive_[m] && d.loosen == 0 && d.erode == 0 && d.melts_to == 0 && d.heat_c == 0;
     }
 }
 
@@ -879,6 +906,57 @@ void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
 
 void SimWorld::set_liquid_fullness(bool p_on) { fullness_ = p_on; }
 void SimWorld::set_column_flow(bool p_on) { column_flow_ = p_on; }
+void SimWorld::set_ambient_c(float p_c, bool p_fill) {
+    ambient_c_ = (int16_t)std::clamp((int)std::lround(p_c), -32768, 32767);
+    if (p_fill) std::fill(heat_.begin(), heat_.end(), ambient_c_);
+}
+void SimWorld::set_states(bool p_on) { states_ = p_on; }
+
+// ADR 0119 C: a chunk's 4^3 coarse heat cells move a twelfth of the way toward the mean of their six neighbours
+// and a sixty-fourth toward the outside temperature (rock and air alike: a cooled cave warms back slowly). In
+// place, in a fixed order, from the tick's single thread: the same every run.
+void SimWorld::relax_heat(int ci) {
+    int cx, cy, cz;
+    chunk_of(ci, cx, cy, cz);
+    const int x0 = cx * CS, y0 = cy * CS, z0 = cz * CS;
+    for (int z = z0; z < z0 + CS; z += HC)
+        for (int y = y0; y < y0 + CS; y += HC)
+            for (int x = x0; x < x0 + CS; x += HC) {
+                const int h = hidx(x, y, z);
+                int sum = 0, n = 0;
+                for (int d = 0; d < 6; d++) {
+                    const int nx = x + NX6[d] * HC, ny = y + NY6[d] * HC, nz = z + NZ6[d] * HC;
+                    if (!in_world(nx, ny, nz)) continue;
+                    sum += heat_[hidx(nx, ny, nz)];
+                    n++;
+                }
+                int v = heat_[h];
+                if (n > 0) v += (sum - n * v) / (12 * n);
+                v += (ambient_c_ - v) / 64;
+                heat_[h] = (int16_t)v;
+            }
+}
+
+Dictionary SimWorld::cell_info(Vector3i p) const {
+    Dictionary d;
+    if (!in_world(p.x, p.y, p.z)) return d;
+    wait_readable();
+    const Cell &cell = cells_[idx(p.x, p.y, p.z)];
+    const MaterialDef &m = mats_[cell.mat];
+    d["material"] = (int)cell.mat;
+    d["cell_type"] = (int)m.cell_type;
+    d["still"] = m.liquid_static;
+    d["burning"] = (cell.flags & FLAG_BURNING) != 0;
+    d["eighths"] = m.cell_type == CELL_LIQUID ? ((cell.pad & 15) ? (int)(cell.pad & 15) : 8) : 0;
+    d["temp_c"] = (int)heat_[hidx(p.x, p.y, p.z)];
+    d["pressure"] = (float)pressure_[cidx(p.x >> 4, p.y >> 4, p.z >> 4)] / 255.0f;
+    return d;
+}
+
+float SimWorld::chunk_pressure(Vector3i p) const {
+    if (!in_world(p.x, p.y, p.z)) return 0.0f;
+    return (float)pressure_[cidx(p.x >> 4, p.y >> 4, p.z >> 4)] / 255.0f;
+}
 
 // ADR 0119 A: column flow. A run of the same moving liquid up a column is one column with a surface. Its surface
 // cell levels with each neighbour column by head: half the height difference, in whole eighths, so two columns are
@@ -1379,6 +1457,19 @@ void SimWorld::update_chunk(int ci) {
     const int bx0 = std::max(0, (int)(bx & 15u) - 1), by0 = std::max(0, (int)((bx >> 4) & 15u) - 1), bz0 = std::max(0, (int)((bx >> 8) & 15u) - 1);
     const int bx1 = std::min(CS - 1, (int)((bx >> 12) & 15u) + 1), by1 = std::min(CS - 1, (int)((bx >> 16) & 15u) + 1), bz1 = std::min(CS - 1, (int)((bx >> 20) & 15u) + 1);
     const int nzs = bz1 - bz0 + 1, nxs = bx1 - bx0 + 1;
+    // ADR 0119 C: the chunk's pressure, gas cells over open cells, every tick it is awake (4096 reads: boiling must
+    // see the pressure it builds the tick before, or a room boils dry in one tick)
+    if (states_ && substep_ == 0) {
+        int gas = 0, open = 0;
+        for (int y = y0; y < y0 + CS; y++)
+            for (int z = z0; z < z0 + CS; z++)
+                for (int x = x0; x < x0 + CS; x++) {
+                    const uint8_t mm = cells_[idx(x, y, z)].mat;
+                    if (mm == 0) open++;
+                    else if (mats_[mm].cell_type == CELL_GAS) { open++; gas++; }
+                }
+        pressure_[ci] = (uint8_t)(open > 0 ? gas * 255 / open : 0);
+    }
     for (int y = y0 + by0; y <= y0 + by1; y++)
         for (int zz = 0; zz < nzs; zz++) {
             int z = z0 + (alt ? bz1 - zz : bz0 + zz);
@@ -1389,6 +1480,30 @@ void SimWorld::update_chunk(int ci) {
                 if (m == 0 || inert_[m]) continue;
                 if (moved_[i] == mark_) continue;
                 const MaterialDef &md = mats_[m];
+                if (states_ && substep_ == 0) {
+                    // ADR 0119 C: a hot or burning cell pulls its coarse heat cell toward its heat; then the cell's
+                    // state follows that cell's temperature and the chunk's pressure
+                    const int hi = hidx(x, y, z);
+                    const int src = (cells_[i].flags & FLAG_BURNING) ? 400 : (int)md.heat_c;
+                    if (src > 0 && heat_[hi] < src) heat_[hi] = (int16_t)(heat_[hi] + (src - heat_[hi] + 7) / 8);
+                    const int T = heat_[hi];
+                    uint8_t to = 0;
+                    if (md.cell_type == CELL_LIQUID && !md.liquid_static) {
+                        // boiling is a rate (a sixteenth of the cells a tick), so the pressure it builds can stop it
+                        if (md.boils_to && T >= md.boil_c + (md.boil_rise_c * (int)pressure_[ci]) / 255 && (rnd(c) & 15u) == 0) to = md.boils_to;
+                        else if (md.freezes_to && T <= md.freeze_c) to = md.freezes_to;
+                    } else if (md.cell_type == CELL_GAS) {
+                        if (md.condenses_to && T <= md.condense_c) to = md.condenses_to;
+                    } else if (md.cell_type == CELL_SOLID && md.melts_to && T >= md.melt_c) to = md.melts_to;
+                    if (to) {
+                        place(i, to);
+                        if (mats_[to].cell_type == CELL_LIQUID) cells_[i].pad = md.cell_type == CELL_GAS ? 1 : 0;   // a condensed drop is one eighth
+                        moved_[i] = mark_;
+                        mark_cell(x, y, z, c, true);
+                        c.moved++;
+                        continue;
+                    }
+                }
                 // ADR 0069 B: a liquid substep moves only the liquids that still have substeps left this tick
                 if (substep_ > 0 && (md.cell_type != CELL_LIQUID || md.liquid_static || md.speed <= substep_)) continue;
                 // Lifetime (gases, short-lived liquids, fire): count down, vanish.
@@ -1510,6 +1625,11 @@ void SimWorld::tick_once(TickOut &o) {
     }
     substep_ = 0;
     mark_ = stamp_;
+    // ADR 0119 C: every 4th tick the heat of the chunks that ran diffuses and relaxes toward the ambient; a sleeping
+    // chunk gets its turn every 64 ticks, so a quiet pond still meets the winter
+    if (states_ && (tick_ & 3u) == 0)
+        for (size_t i = 0; i < nc; i++)
+            if (active_now_[i].load(std::memory_order_relaxed) || (((tick_ >> 2) + i) & 15u) == 0) relax_heat((int)i);
     o.ms = std::chrono::duration<double, std::milli>(clock::now() - t0).count();
     o.active = active;
     o.moved = moved_count_.load();
@@ -1658,6 +1778,9 @@ PackedByteArray SimWorld::get_chunk_bytes(Vector3i c, int p_depth_bytes) const {
 void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p_depth_bytes) {
     wait_idle();
     if (c.x < 0 || c.y < 0 || c.z < 0 || c.x >= CX_ || c.y >= CY_ || c.z >= CZ_) return;
+    for (int z = 0; z < CS; z += HC)   // freshly loaded: the outside temperature until something heats it
+        for (int y = 0; y < CS; y += HC)
+            for (int x = 0; x < CS; x += HC) heat_[hidx(c.x * CS + x, c.y * CS + y, c.z * CS + z)] = ambient_c_;
     const int n = CS * CS * CS;
     const int bpv = p_depth_bytes == 2 ? 2 : 1;
     if (p_bytes.size() < n * bpv) return;

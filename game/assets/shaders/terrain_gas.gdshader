@@ -10,6 +10,7 @@ render_mode cull_back, depth_draw_never, specular_disabled;
 
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 uniform float gas_alpha : hint_range(0.0, 1.0) = 0.5;
+uniform vec3 gas_tint = vec3(1.0);     // per gas (data/gas_looks.json): multiplies the tile's colour
 uniform float rise_speed = 0.8;        // voxels per second the noise climbs
 uniform float soft_voxels = 1.5;       // fade over this much depth to whatever is behind
 
@@ -38,7 +39,7 @@ void fragment() {
 		behind = max(length(vb.xyz / vb.w) - length(VERTEX), 0.0);
 	}
 	float facing = abs(dot(normalize(VIEW), NORMAL));
-	ALBEDO = base * mix(0.85, 1.1, puff);
+	ALBEDO = base * gas_tint * mix(0.85, 1.1, puff);
 	ROUGHNESS = 1.0;
 	ALPHA = gas_alpha * smoothstep(0.2, 0.75, puff) * (0.55 + 0.45 * facing) * clamp(behind / soft_voxels, 0.0, 1.0) * (1.0 - hz);
 }

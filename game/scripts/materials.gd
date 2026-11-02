@@ -166,6 +166,7 @@ const SPRUCE_PLANKS := 207         # 207..210: spruce, acacia, jungle, birch pla
 const OAK_SAPLING := 211           # 211..215: a sapling per WOOD_KINDS, grows into its tree (Saplings)
 # Cave dressing (2026-11-02 overnight, world generation): stalactites, vines, cave fungi, magma crust
 const CAVE_IDS := 228              # 228..243 world generation (216..255 are split over four lanes)
+const TOXIC_GAS := 254             # toxic sludge boiled (ADR 0119 C); 255 reserved for the fluid lane
 const DRIPSTONE := 228
 const CAVE_VINE := 229
 const GLOW_BERRY_VINE := 230
@@ -205,14 +206,14 @@ static func _build_defs() -> Array:
 		{"name": "dirt", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [1, 1, 1], "transparent": false},
 		{"name": "grass", "cell_type": "powder", "liquid_static": true, "density": 3, "tiles": [2, 2, 1], "transparent": false},
 		{"name": "sand", "cell_type": "powder", "density": 3, "tiles": [4, 4, 4], "transparent": false},
-		{"name": "water", "cell_type": "liquid", "fluid_slot": 0, "density": 1, "liquid_flow_speed": 1.0, "liquid_speed": 8, "film_lifetime_ticks": 300, "tiles": [5, 5, 5], "transparent": true},
+		{"name": "water", "boil_c": 100, "boils_to": "steam", "boil_rise_c": 60, "freeze_c": -2, "freezes_to": "ice", "cell_type": "liquid", "fluid_slot": 0, "density": 1, "liquid_flow_speed": 1.0, "liquid_speed": 8, "film_lifetime_ticks": 300, "tiles": [5, 5, 5], "transparent": true},
 		{"name": "wood", "cell_type": "solid", "rigid": "wood", "density": 10, "burnable": true, "fire_hp": 160, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [56, 6, 56], "transparent": false},
-		{"name": "lava", "cell_type": "liquid", "fluid_slot": 1, "density": 5, "liquid_flow_speed": 0.3, "liquid_gravity": 0.3, "temperature_of_fire": 150, "film_lifetime_ticks": 300, "film_convert_to_material": 85, "tiles": [7, 7, 7], "transparent": false},
+		{"name": "lava", "heat_c": 1200, "freeze_c": 700, "freezes_to": "basalt", "cell_type": "liquid", "fluid_slot": 1, "density": 5, "liquid_flow_speed": 0.3, "liquid_gravity": 0.3, "temperature_of_fire": 150, "film_lifetime_ticks": 300, "film_convert_to_material": 85, "tiles": [7, 7, 7], "transparent": false},
 		{"name": "ash", "cell_type": "powder", "density": 2, "tiles": [8, 8, 8], "transparent": false},
 		{"name": "oil", "cell_type": "liquid", "fluid_slot": 2, "density": 0.8, "liquid_flow_speed": 0.6, "liquid_speed": 2, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
-		{"name": "steam", "cell_type": "gas", "density": 0, "gas_upwards_speed": 220, "gas_horizontal_speed": 50, "lifetime": 240, "tiles": [10, 10, 10], "transparent": true},
+		{"name": "steam", "condense_c": 60, "condenses_to": "water", "cell_type": "gas", "density": 0, "gas_upwards_speed": 220, "gas_horizontal_speed": 50, "lifetime": 1800, "tiles": [10, 10, 10], "transparent": true},
 		{"name": "smoke", "cell_type": "gas", "density": 0, "gas_upwards_speed": 190, "gas_horizontal_speed": 60, "lifetime": 330, "tiles": [11, 11, 11], "transparent": true},
-		{"name": "fire", "cell_type": "fire", "density": 0, "lifetime": 24, "temperature_of_fire": 60, "gas_upwards_speed": 120, "gas_horizontal_speed": 80, "tiles": [12, 12, 12], "transparent": true},
+		{"name": "fire", "heat_c": 600, "cell_type": "fire", "density": 0, "lifetime": 24, "temperature_of_fire": 60, "gas_upwards_speed": 120, "gas_horizontal_speed": 80, "tiles": [12, 12, 12], "transparent": true},
 		{"name": "bedrock", "cell_type": "solid", "density": 15, "hp": 1000000, "tiles": [13, 13, 13], "transparent": false},
 		{"name": "snow", "cell_type": "powder", "liquid_static": true, "density": 2, "tiles": [14, 14, 14], "transparent": false},
 		{"name": "gravel", "cell_type": "powder", "density": 4, "tiles": [15, 15, 15], "transparent": false},
@@ -230,7 +231,7 @@ static func _build_defs() -> Array:
 		{"name": "flower", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [30, 30, 30], "transparent": false, "clutter": "flower", "floor_only": true},
 		{"name": "cactus", "cell_type": "solid", "density": 10, "hp": 40, "burnable": true, "fire_hp": 30, "autoignition_temperature": 40, "temperature_of_fire": 50, "on_fire_convert_to_material": 8, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 4, "tiles": [25, 25, 25], "transparent": false},
 		{"name": "dead_bush", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 24, "autoignition_temperature": 15, "temperature_of_fire": 55, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [26, 26, 26], "transparent": false, "micro": "bush", "replaceable": true},
-		{"name": "ice", "cell_type": "solid", "density": 9, "hp": 120, "tiles": [27, 27, 27], "transparent": false},
+		{"name": "ice", "melt_c": 4, "melts_to": "water", "cell_type": "solid", "density": 9, "hp": 120, "tiles": [27, 27, 27], "transparent": false},
 		{"name": "flower_red", "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 40, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [31, 31, 31], "transparent": false, "clutter": "flower", "floor_only": true},
 		{"name": "crafting_table", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [32, 33, 39], "transparent": false, "interact": "crafting_table", "entity": "station"},
 		{"name": "furnace", "cell_type": "solid", "density": 10, "hp": 800, "tiles": [34, 35, 34], "transparent": false, "interact": "furnace", "entity": "furnace"},
@@ -256,7 +257,7 @@ static func _build_defs() -> Array:
 		{"name": "flint_stones", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [87, 87, 87], "transparent": false, "micro": "pebbles"},
 		{"name": "twigs", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "burnable": true, "fire_hp": 20, "autoignition_temperature": 20, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [93, 97, 97], "transparent": false, "micro": "twigs"},
 		# sulfur caves (biomes.json sulfur_cave) and Noita chemistry (reactions below)
-		{"name": "toxic_sludge", "cell_type": "liquid", "fluid_slot": 4, "density": 1.3, "liquid_flow_speed": 0.4, "liquid_speed": 2, "tiles": [48, 48, 48], "transparent": true},
+		{"name": "toxic_sludge", "boil_c": 80, "boils_to": "toxic_gas", "boil_rise_c": 40, "cell_type": "liquid", "fluid_slot": 4, "density": 1.3, "liquid_flow_speed": 0.4, "liquid_speed": 2, "tiles": [48, 48, 48], "transparent": true},
 		{"name": "toxic_sludge_static", "cell_type": "liquid", "fluid_slot": 4, "liquid_static": true, "density": 1.3, "tiles": [48, 48, 48], "transparent": true, "loose": 53},
 		{"name": "sulfur", "cell_type": "solid", "density": 10, "hp": 400, "tiles": [49, 49, 49], "transparent": false},
 		{"name": "obsidian", "cell_type": "solid", "density": 12, "hp": 6000, "tiles": [50, 50, 50], "transparent": false},
@@ -284,7 +285,7 @@ static func _build_defs() -> Array:
 	] + [
 		# 121 (was reserved): still lava for cave pools and the deep lava sea, finite moving lava once something opens
 		# beside or under it, like water_static (ADR 0069 C)
-		{"name": "lava_static", "cell_type": "liquid", "fluid_slot": 1, "liquid_static": true, "density": 5, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false, "loose": 7},
+		{"name": "lava_static", "heat_c": 1200, "cell_type": "liquid", "fluid_slot": 1, "liquid_static": true, "density": 5, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false, "loose": 7},
 	] + [
 		# 122, 123 (ADR 0110): the cores of conduit chambers, hard enough to need a good pick
 		{"name": "spring_stone", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [105, 105, 105], "transparent": false},
@@ -299,7 +300,10 @@ static func _build_defs() -> Array:
 	] + _wood_defs() + [
 		# 216 (ADR 0121): storage drawn by StationEntity like the chest
 		{"name": "barrel", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "barrel"},
-	] + _reserved_defs(217, CAVE_IDS - 1) + _cave_defs() + _reserved_defs(CAVE_IDS + 6, 243)
+	] + _reserved_defs(217, CAVE_IDS - 1) + _cave_defs() + _reserved_defs(CAVE_IDS + 6, 253) + [
+		# 254 (ADR 0119 C): what toxic sludge boils into: heavy, sinks and pools in low caves, fades in a minute
+		{"name": "toxic_gas", "condense_c": 30, "condenses_to": "toxic_sludge", "cell_type": "gas", "density": 1, "gas_upwards_speed": 40, "gas_horizontal_speed": 90, "gas_downwards_speed": 120, "lifetime": 1800, "tiles": [11, 11, 11], "transparent": true},
+	] + _reserved_defs(255, 255)
 
 
 ## Ids 207..215 (ADR 0112): planks of the other woods (the oak planks' rules, their own tile 176..179),
@@ -770,7 +774,7 @@ static func name_of(id: int) -> String:
 ## with a fluid_slot is a VoxelBlockyModelFluid at full level, and the partial
 ## levels follow at FLUID_LEVEL_BASE (empty models fill the gap).
 ## `gas_material`: soft cloud material for gases (terrain_gas.gdshader); null = the liquid material.
-static func build_library(atlas_material: Material, liquid_material: Material = null, fluid_materials: Dictionary = {}, gas_material: Material = null) -> VoxelBlockyLibrary:
+static func build_library(atlas_material: Material, liquid_material: Material = null, fluid_materials: Dictionary = {}, gas_material: Material = null, gas_materials: Dictionary = {}) -> VoxelBlockyLibrary:
 	var lib := VoxelBlockyLibrary.new()
 	var models: Array = [VoxelBlockyModelEmpty.new()]
 	var fluids := {}   # slot -> VoxelBlockyFluid
@@ -829,9 +833,10 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 			cube.transparency_index = 1
 		cube.set_material_override(0, liquid_material if (liquid_material != null and passable and d.get("transparent", false)) else atlas_material)
 		if gas_material != null and ct == "gas":
-			# a cloud of its own index: water under steam keeps its surface, gas against gas is culled
+			# a cloud of its own index: water under steam keeps its surface, gas against gas is culled;
+			# its own copy of the gas material where data/gas_looks.json gives it a look (ADR 0119 C4)
 			cube.transparency_index = 2
-			cube.set_material_override(0, gas_material)
+			cube.set_material_override(0, gas_materials.get(d["name"], gas_material))
 		if passable:
 			cube.collision_mask = 0
 			cube.set_mesh_collision_enabled(0, false)

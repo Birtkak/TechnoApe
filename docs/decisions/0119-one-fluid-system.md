@@ -90,13 +90,17 @@ per-block surface pre-pass replaces the padding (noted as the next step, not don
    sealed chamber at 0.5 pressure boils at 130 °C). Per cell, in the main pass, from the coarse temperature of its cell:
    a liquid cell at or over its (pressure-shifted) boiling point becomes one cell of its gas; a gas cell under its
    condensing point becomes one cell of its liquid at one eighth (1 : 1 cells, mass in cells exact; the expansion is
-   the gas's own spread). Water <-> steam, sludge -> toxic gas (new material, id 254), lava <-> basalt crust at
-   `freeze_c` (replaces the film crust), water <-> ice at `freeze_c` / `melt_c` (ice exists). Steam near lava keeps
-   its reaction table entry; the two agree (both make steam).
-4. **Gas looks as data**: `data/gas_looks.json` { steam: colour, alpha; smoke; toxic_gas; fire }: `make_atlas.py`
-   generates tiles 10, 11, 12 and a new tile for toxic gas from it (one tile per gas, flat colour at its alpha),
-   `test_liquid_looks.gd` gets a sibling check that every gas has an entry. Density look: a gas's alpha scales with
-   `density` (toxic gas heavier and darker, `gas_down` > 0 so it pools in low caves).
+   the gas's own spread). Water <-> steam, sludge <-> toxic gas (new material, id 254: heavy, sinks, pools in low
+   caves), water <-> ice at `freeze_c` / `melt_c` (ice exists). Lava keeps the film crust rule instead of a `freeze_c`:
+   a stream's front enters cold coarse cells before it has heated them and would crust at every step. Steam near lava
+   keeps its reaction table entry; the two agree (both make steam). Still liquids never switch (ADR 0104).
+   Built (2026-11-03): `heat_` (int16 degrees per 4^3 cells, 4 MB for the window), `pressure_` per chunk recounted
+   every 8th awake tick, sources pull their coarse cell an eighth of the way per visit, `relax_heat` every 4th tick on
+   the chunks that ran, a loaded chunk starts at the ambient, `set_ambient_c` from `Survival.outside_c` each frame.
+4. **Gas looks as data** (built): `data/gas_looks.json` gives every gas `gas_tint` (multiplies its atlas tile's
+   colour in `terrain_gas.gdshader`), `gas_alpha` and `rise_speed`; `World` makes one copy of the gas material per
+   gas and `build_library` assigns it. No new atlas tiles: toxic gas is the smoke tile tinted green and heavier
+   (`gas_downwards_speed` 120). `test_liquid_looks.gd` checks every gas has a look and every key is a uniform.
 5. The boiler (ADR 0113) keeps its own `pressure` for now; the hook: its water tank's chunk pressure can feed it later
    (`SimWorld.chunk_pressure(p)`), noted in 0113, not rewritten.
 Bench: `fluid_bench.gd` boils a 4 m sealed box of water over lava: the steam count rises, pressure reaches the shifted
