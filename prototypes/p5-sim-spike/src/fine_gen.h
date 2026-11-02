@@ -91,6 +91,7 @@ public:
     int height_at(int x, int z) const;          // solid voxels in the column (the top one is height - 1)
     int biome_at(int x, int z) const;
     Dictionary column_info(int x, int z) const;
+    String cave_biome_at(int x, int y, int z) const;   // the cave biome name at a cave voxel, "" elsewhere
     PackedByteArray generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel = 2) const;
     // Blocks generated since the last call and the worker time they took, by result: air, uniform, full (usec).
     static Dictionary gen_stats();
@@ -169,7 +170,8 @@ private:
     };
     // Ground features: WorldGen's stamps plus FineGen's forest floor (logs at any angle, stumps, bushes, rocks).
     // GIANT_FLOWER: a tree-sized flower of the flower meadow (size: stalk height, r: head radius, dx/dz: its lean)
-    enum { GIANT_FLOWER = 9, STUMP = 10, STICK = 11, FLOWER_S = 12, MUSHROOM_S = 13, SHELL_S = 14, CLUTTER_H = 12 };   // STICK: a fallen stick (twigs pickup), laid on the ground per column;
+    // OUTCROP: a crag of rock and ore over a shallow vein (size: half width, wood: the ore)
+    enum { OUTCROP = 8, GIANT_FLOWER = 9, STUMP = 10, STICK = 11, FLOWER_S = 12, MUSHROOM_S = 13, SHELL_S = 14, CLUTTER_H = 12 };   // STICK: a fallen stick (twigs pickup), laid on the ground per column;
     // FLOWER_S, MUSHROOM_S, SHELL_S: clutter pieces of whole voxels on a CLUTTER_CELL grid (ADR 0047), laid per column
     struct FStamp {
         int kind;

@@ -42,6 +42,14 @@ encoding up in its ADR.
   (ADR 0129). Merge clashes resolved by keeping both sides (kit lists, a crafting test, to-test.md); the atlas
   image was regenerated from the merged `make_atlas.py`. Suite: 677 cases, 2 failures, both the metal spears
   crafted in the grid (sent back to the content session).
+- Round 3 (after the usage-limit pause, main at the GEN_VERSION 29 bump): cave biome dressing, ADR 0119 one fluid
+  system and its column-flow spike (off by default), progression book through the electrical age, smithed spear
+  heads, furniture, bench, candle, barrel, gloam hounds, crows, look-at panel with machine and network status,
+  Craft button, pick block, `/wear`, safe `/goto` for conduits, industrial machine models. Clashes: two setup
+  blocks in the same `fine_gen.cpp` column loop (kept both), barrel id 216 next to the cave ids (combined), the
+  developer's uncommitted `station_entity.gd` edit stashed for the merge and restored cleanly. Suite: 707 cases,
+  7 failures in three tests: small furniture under the cell floor (content), the look panel's network test after
+  the turbine grew (QoL), the fluid spike's basin test (Fable). Each went back to its lane.
 
 ## Ideas parked for the developer
 
