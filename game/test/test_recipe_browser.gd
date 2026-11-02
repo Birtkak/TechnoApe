@@ -25,7 +25,7 @@ func test_search_terms_and_tags() -> void:
 	assert_array(b.filtered()).contains_exactly(["iron_ingot"])
 	b.set_query("#metal")
 	assert_array(b.filtered()).contains_exactly_in_any_order(["iron_ingot", "copper_ingot", "bronze_ingot", "tin_ingot",
-		"iron_plate", "iron_rod", "bronze_pipe", "copper_pipe", "steel_ingot", "steel_plate", "copper_wire", "iron_gear", "copper_coil"])   # the steam age's metal parts (ADR 0097, 0099)
+		"iron_plate", "iron_rod", "bronze_pipe", "copper_pipe", "steel_ingot", "steel_plate", "copper_wire", "iron_gear", "copper_coil", "iron_screw"])   # the steam and electrical ages' metal parts (ADR 0097, 0099, 0113)
 	b.set_query("#fuel")
 	assert_array(b.filtered()).contains(["coal", "charcoal"])
 	b.set_query("zzz")
@@ -248,6 +248,7 @@ func test_main_saves_bookmarks_with_the_player() -> void:
 
 func test_process_recipes_tab_under_their_station() -> void:
 	assert_bool(b.show("crushed_iron_ore", "recipes")).is_true()
+	assert_bool(b.show_recipe("crush_iron_ore")).is_true()   # the macerator makes crushed ore too (ADR 0117): pick the crusher's
 	assert_str(b.current_category()["id"]).is_equal("station:ore_crusher")
 	assert_str(b.category_title("station:ore_crusher")).is_equal("Ore Crusher")
 	assert_array(b.catalysts("station:ore_crusher")).is_equal(["ore_crusher"])
