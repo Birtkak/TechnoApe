@@ -200,7 +200,7 @@ func _ready() -> void:
 	_station_root = Node3D.new()
 	_station_root.name = "Stations"
 	add_child(_station_root)
-	for kind in ["station", "chest", "furnace", "storage_pot", "barrel"]:
+	for kind in ["station", "chest", "furnace", "storage_pot", "barrel", "storage_shelf"]:
 		for e in blocks.all_of(kind):
 			_add_station_view(e)
 	mobs = MobManager.new()
@@ -1441,7 +1441,7 @@ func _add_station_view(e: RefCounted) -> void:
 		_station_views[e.pos].queue_free()
 	var m := get_world_voxel(e.pos)
 	if m <= 0 or not GameMaterials.is_station(m):
-		m = GameMaterials.id_of({"station": "crafting_table", "chest": "chest", "furnace": "furnace", "storage_pot": "storage_pot", "barrel": "barrel"}.get(e.kind, "chest"))
+		m = GameMaterials.id_of({"station": "crafting_table", "chest": "chest", "furnace": "furnace", "storage_pot": "storage_pot", "barrel": "barrel", "storage_shelf": "storage_shelf"}.get(e.kind, "chest"))
 	var mi := MeshInstance3D.new()
 	var d: Dictionary = GameMaterials.defs()[m - 1]
 	if StationEntity.SIZES.has(e.kind):
@@ -1517,7 +1517,7 @@ func _micro_view_mesh(d: Dictionary) -> Mesh:
 ## view goes, contents spill. Returns false when `p` is not part of one.
 func _break_station(p: Vector3i, drops: Array) -> bool:
 	var e: RefCounted = blocks.at(p)
-	if e == null or not (e.kind in ["station", "chest", "furnace", "storage_pot", "barrel"]):
+	if e == null or not (e.kind in ["station", "chest", "furnace", "storage_pot", "barrel", "storage_shelf"]):
 		return false
 	var anchor: Vector3i = e.pos
 	var centre := Vector3(anchor) + Vector3.ONE * (Settings.BLOCK * 0.5)
@@ -1775,7 +1775,7 @@ func _on_inventory_toggled(open: bool) -> void:
 func _nearby_chests() -> Array:
 	var out := []
 	var r := Settings.m2v(Settings.quick_stack_m)
-	for k in ["chest", "storage_pot", "barrel"]:
+	for k in ["chest", "storage_pot", "barrel", "storage_shelf"]:
 		for e in blocks.all_of(k):
 			if (Vector3(e.pos) + Vector3.ONE * Settings.BLOCK * 0.5).distance_to(player.position) <= r:
 				out.append(e)

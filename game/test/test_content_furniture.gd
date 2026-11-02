@@ -77,3 +77,16 @@ func test_signs_keep_their_words() -> void:
 	assert_str(back.text).is_equal("Mine ->")
 	assert_str(recipes.match_grid(["oak_planks", "oak_planks", "oak_planks", "oak_planks", "oak_planks", "oak_planks", "", "stick", ""],
 		"crafting_table").get("id", "")).is_equal("sign")
+
+
+func test_storage_shelf_is_storage() -> void:
+	assert_int(GameMaterials.STORAGE_SHELF).is_equal(217)
+	assert_bool(GameMaterials.is_station(GameMaterials.STORAGE_SHELF)).is_true()
+	var e := ChestEntity.new(items, Vector3i.ZERO, "storage_shelf")
+	assert_int(e.inv.size()).is_equal(27)
+	assert_str(e.title).is_equal("Storage Shelf")
+	assert_int(BlockEntities.footprint_of("storage_shelf", Vector3i.ZERO).size()).is_equal(8 * 8 * 8)
+	var cs: Array = StationEntity.cells("storage_shelf")
+	assert_int((cs[0] as PackedInt32Array).size() - (cs[0] as PackedInt32Array).count(0)).is_greater(200)
+	var g := ["oak_planks", "oak_planks", "oak_planks", "stick", "", "stick", "spruce_planks", "spruce_planks", "spruce_planks"]
+	assert_str(recipes.match_grid(g, "crafting_table").get("id", "")).is_equal("storage_shelf")

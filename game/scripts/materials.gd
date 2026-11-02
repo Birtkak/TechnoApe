@@ -175,6 +175,7 @@ const FUNGUS_CAP := 232
 const MAGMA_ROCK := 233
 const RUSTED_RAIL := 234           # an abandoned mine's rails (the "mine" ruin)
 const BARREL := 216                # ADR 0121: an 18-slot wooden barrel (a 0.75 x 1 m station like the chest); 217..227 this lane's
+const STORAGE_SHELF := 217         # ADR 0121: open plank shelving, 27 slots, the goods on it show (a 1 m cube station)
 
 const ATLAS_TILES := Vector2i(8, 26)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -301,7 +302,8 @@ static func _build_defs() -> Array:
 	] + _wood_defs() + [
 		# 216 (ADR 0121): storage drawn by StationEntity like the chest
 		{"name": "barrel", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "barrel"},
-	] + _reserved_defs(217, CAVE_IDS - 1) + _cave_defs() + _reserved_defs(CAVE_IDS + 7, 253) + [
+		{"name": "storage_shelf", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "storage_shelf"},
+	] + _reserved_defs(218, CAVE_IDS - 1) + _cave_defs() + _reserved_defs(CAVE_IDS + 7, 253) + [
 		# 254 (ADR 0119 C): what toxic sludge boils into: heavy, sinks and pools in low caves, fades in a minute
 		{"name": "toxic_gas", "condense_c": 30, "condenses_to": "toxic_sludge", "cell_type": "gas", "density": 1, "gas_upwards_speed": 40, "gas_horizontal_speed": 90, "gas_downwards_speed": 120, "lifetime": 1800, "tiles": [11, 11, 11], "transparent": true},
 	] + _reserved_defs(255, 255)

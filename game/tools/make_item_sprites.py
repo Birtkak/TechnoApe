@@ -1134,7 +1134,7 @@ sp("red_rug", ("rug", "red_rug"))
 sp("blue_rug", ("rug", "blue_rug"))
 sp("straw_mat", ("mat", "straw"))
 for w in ("spruce", "acacia", "jungle", "birch"):
-    for k in ("door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf", "sign"):
+    for k in ("door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf", "sign", "window"):
         sp(w + "_" + k, (k, w + "_wood"))
 sp("wheat_seeds", ("seeds", "seed"))
 sp("wheat", ("sheaf", "straw"))

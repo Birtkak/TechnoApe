@@ -34,7 +34,7 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 	remove(pos)
 	var e: RefCounted = null
 	match kind:
-		"chest", "storage_pot", "barrel":
+		"chest", "storage_pot", "barrel", "storage_shelf":
 			e = ChestEntity.new(items, pos, kind)
 		"torch":
 			e = TorchEntity.new(pos)
