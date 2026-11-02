@@ -898,7 +898,8 @@ func _player_dict() -> Dictionary:
 		"game_mode": player.game_mode, "flying": player.flying, "health": player_inv.health, "selected": player_inv.selected,
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
 		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s,
-		"stone_age": stone_age.player_dict() if stone_age else {}, "tnt": tnt.to_array() if tnt else _tnt_save}
+		"stone_age": stone_age.player_dict() if stone_age else {}, "tnt": tnt.to_array() if tnt else _tnt_save,
+		"bookmarks": inv_screen.browser.bookmarks}
 
 
 func _load_player() -> void:
@@ -928,6 +929,8 @@ func _load_player() -> void:
 		player_inv.bag.set_slot(i, _stack_of(bag[i]))
 	player_inv.off.set_slot(0, _stack_of(d.get("offhand")))   # ADR 0055
 	world_map.waypoints.load_array(d.get("waypoints", []))
+	if d.get("bookmarks") is Array and not OS.get_cmdline_user_args().has("autopilot=1"):
+		inv_screen.browser.set_bookmarks(d["bookmarks"])   # the recipe browser's bookmarks (ADR 0115)
 	player_inv.favourites.clear()
 	for i in d.get("favourites", []):
 		player_inv.favourites[int(i)] = true
