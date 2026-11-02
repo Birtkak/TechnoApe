@@ -48,7 +48,7 @@ func test_every_material_has_a_group_and_steps() -> void:
 func test_trees_do_not_wall_in() -> void:
 	var defs := GameMaterials.defs()
 	for i in defs.size():
-		if defs[i].get("rigid", "") in ["wood", "leaf"] and not defs[i]["name"] in ["daub_wall", "planks"]:   # built walls
+		if defs[i].get("rigid", "") in ["wood", "leaf"] and defs[i]["name"] != "daub_wall" and not String(defs[i]["name"]).ends_with("planks"):   # built walls
 			assert_bool(audio.group_of(i + 1) in GameAudio.ENCLOSING).override_failure_message(
 				"%s walls in as %s" % [defs[i]["name"], audio.group_of(i + 1)]).is_false()
 	assert_str(audio.group_of(GameMaterials.id_of("jungle_bark"))).is_equal("wood")
