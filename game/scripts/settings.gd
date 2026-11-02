@@ -36,6 +36,7 @@ var terrain_mesh_block := 64            # 16, 32 or 64 voxels (64: our godot_vox
 var cache_generated_blocks := true      # keep generated voxel data in memory (edits write into it; off = memory for re-generation)
 # Simulation
 var sim_tick_hz := 30.0
+var sim_column_flow := false            # ADR 0119 A: moving liquids level as columns by head (0 = the eighth kernel of ADR 0069)
 var sim_gravity_x := 3.0                # falling sand and water: real gravity rounds to 1/16 cell/tick^2, a stream took 2 s to reach speed
 var sim_load_budget_ms := 1.0           # main-thread time per frame for copying terrain columns into the bubble
 var sim_push_budget_ms := 1.5           # main-thread time per frame for pasting simulated chunks back into the terrain
@@ -360,6 +361,7 @@ func apply_cmdline() -> Dictionary:
 			"terrain_mesh_block": terrain_mesh_block = int(kv[1])
 			"mesh_upload_budget_mb": mesh_upload_budget_mb = float(kv[1])
 			"edit_remesh_rate": edit_remesh_rate = float(kv[1])
+			"column_flow": sim_column_flow = kv[1] == "1"
 			"edit_remesh_free_s": edit_remesh_free_s = float(kv[1])
 			"cache_generated": cache_generated_blocks = kv[1] == "1"
 			"particles": particles = kv[1] == "1"
