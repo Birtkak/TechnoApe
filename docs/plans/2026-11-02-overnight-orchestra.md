@@ -8,15 +8,19 @@ merges into local `main` and bumps `GEN_VERSION`. Nothing is pushed.
 
 | Lane | Session | Owns | ADR | Material ids | Atlas tiles |
 |---|---|---|---|---|---|
-| Electrical age | phase3 (strong model) | `scripts/work/*`, networks, machine items/recipes | 0117, 0122, 0123 | 240..259 | 208..215 |
-| Liquid overhaul, then perf hunt | caves / "Fable Agent" | liquid sim, its mesh/shader, `sim_world.cpp` | 0119, 0124 | 280..289 | ask |
-| All world generation | surface-gen | `fine_gen.cpp`, `world_gen.cpp`, ruins, biomes | 0118, 0125 | 260..279 | 192..207 |
+| Electrical age | phase3 (strong model) | `scripts/work/*`, networks, machine items/recipes | 0117, 0122, 0123 | 244..253 | 208..215 |
+| Liquid overhaul, then perf hunt | caves / "Fable Agent" | liquid sim, its mesh/shader, `sim_world.cpp` | 0119, 0124 | 254..255 | ask |
+| All world generation | surface-gen | `fine_gen.cpp`, `world_gen.cpp`, ruins, biomes | 0118, 0125 | 228..243 | 192..207 |
 | Life and ambience | smoke-sound-critters | mobs, audio, survival effects, particles | 0120, 0126 | none | none |
-| Things to make | content-pass | food, furniture, decor, tool/armour tiers, farming | 0121, 0127 | 216..239 | 180..191 |
+| Things to make | content-pass | food, furniture, decor, tool/armour tiers, farming | 0121, 0127 | 216..227 | 180..191 |
 | Progression | recipe-browser | progression book, quests, recipe browser, old failing tests | 0115 | none | none |
 | Open Oct 28 reports | playtest-tools | player, survival, equipment, stations | 0116, 0128 | ask | none |
+| Art pass | art-pass | restyle atlas, models, sprites, UI skin (no new ids) | 0129, 0131 | none | none |
+| Quality of life | qol | HUD, menus, controls, chat, tooltips, inventory interaction | 0130, 0132 | none | none |
 
-ADR 0114 is unused (job 6, wands, was dropped).
+ADR 0114 is unused (job 6, wands, was dropped). Material ids stop at 255: `MAX_MATERIALS` is 256 and
+liquid levels start at 256 (`FLUID_LEVEL_BASE`), so only 216..255 were free; the liquid lane may move that
+encoding up in its ADR.
 
 ## Main
 
@@ -28,7 +32,8 @@ ADR 0114 is unused (job 6, wands, was dropped).
 
 ## Merge log
 
-(appended as branches land)
+- `f6ef52c` recipe browser: machine recipes as data, saved bookmarks (ADR 0115); the four old failures fixed
+  (crystal counted as raw, fire clay tagged clay, quest count only grows, dig caps per the 2026-10-27 call).
 
 ## Ideas parked for the developer
 
