@@ -996,6 +996,9 @@ sp("steel_saw", ("saw_handle", "handle"), ("saw_blade", "steel"))
 sp("steel_saw_blade", ("saw_blade", "steel"))
 sp("steel_knife", SH, ("knife_blade", "steel"))
 sp("steel_knife_head", ("knife_blade", "steel"))
+sp("bronze_spear_head", ("spear_head", "bronze"))
+sp("iron_spear_head", ("spear_head", "iron"))
+sp("steel_spear_head", ("spear_head", "steel"))
 sp("copper_work_piece", ("work_piece", "copper"))
 sp("copper_chisel", SH, ("chisel_blade", "copper"))
 sp("copper_chisel_head", ("chisel_blade", "copper"))
@@ -1078,6 +1081,29 @@ sp("bed", ("bed", "blanket"))
 sp("chair", ("chair", "wood"))
 for k in ("door", "trapdoor", "fence", "fence_gate", "ladder", "window", "table", "shelf", "lantern", "flower_pot", "painting"):
     sp(k, (k, "wood"))
+# ADR 0121: a bench, a candle, and the plank furniture in every wood. Wood ramps per ADR 0129: shadows
+# cooler and more saturated, highlights warmer; each matches its planks' tile (176..179).
+shape("bench", outline(art([
+    "................", "................", "................", "................",
+    "................", "................", "hlllllllllllllll", "lmmmmdmmmmmdmmmm",
+    "dddddddddddddddd", ".dd..........dd.", ".dm..........dm.", ".dmddddddddddmd.",
+    ".dm..........dm.", ".dm..........dm.", ".dd..........dd.", "................"])))
+shape("candle", outline(art([
+    "................", "................", ".......f........", "......fYf.......",
+    "......fYf.......", ".......f........", ".......t........", "......hll.......",
+    "......lmm.......", "......lmm.......", "......lmd.......", "......lmd.......",
+    "......mmd.......", "...iiiiiiiii....", "....iiiiiii.....", "................"])),
+    {"f": "#ff8a24", "Y": "#ffe27a", "t": "#2a2018", "i": "#4a4c54"})
+PALETTES["wax"] = ramp("#7a6040", "#c8b48a", "#e4d4ac", "#f2e8cc", "#fff8e6")
+PALETTES["spruce_wood"] = ramp("#22161a", "#4a3226", "#6e4c32", "#8a6440", "#a88252")
+PALETTES["acacia_wood"] = ramp("#4a1a1e", "#8a3e26", "#b85e34", "#d27c44", "#ec9e5c")
+PALETTES["jungle_wood"] = ramp("#3a1a26", "#7a4040", "#9e6252", "#b87c62", "#d29c7a")
+PALETTES["birch_wood"] = ramp("#5a5040", "#b0a07c", "#d0c09a", "#e4d6b2", "#f6ecce")
+sp("bench", ("bench", "wood"))
+sp("candle", ("candle", "wax"))
+for w in ("spruce", "acacia", "jungle", "birch"):
+    for k in ("door", "trapdoor", "fence", "fence_gate", "table", "bench"):
+        sp(w + "_" + k, (k, w + "_wood"))
 sp("wheat_seeds", ("seeds", "seed"))
 sp("wheat", ("sheaf", "straw"))
 sp("carrot", ("carrot", "carrot"))

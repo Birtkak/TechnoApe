@@ -49,7 +49,7 @@ func summary() -> Dictionary:
 
 const SIZE := Vector3i(8, 6, 8)   # voxels: 1 m x 0.75 m x 1 m
 ## footprint per entity kind, in voxels (kinds not listed keep BlockEntities.cube)
-const SIZES := {"station": SIZE, "chest": Vector3i(8, 6, 8), "furnace": Vector3i(8, 8, 8)}
+const SIZES := {"station": SIZE, "chest": Vector3i(8, 6, 8), "furnace": Vector3i(8, 8, 8), "barrel": Vector3i(6, 8, 6)}
 const CELLS := 2                  # cells per voxel
 const CHEST_LID_Y := 4.5          # voxels: where the chest's lid sits on its body (its 12 cells less 3)
 const SHADES := MobModel.SHADES
@@ -107,7 +107,7 @@ static func material() -> StandardMaterial3D:
 
 ## Material names drawn by these models. The placed model, the held and dropped mesh (item_mesh) and the
 ## inventory icon (icon) all come from one cell grid (cells), so they cannot drift apart (ADR 0084).
-const MODELS := ["crafting_table", "chest", "furnace", "furnace_lit"]
+const MODELS := ["crafting_table", "chest", "furnace", "furnace_lit", "barrel"]
 static var _cells := {}
 static var _icons := {}
 
@@ -134,6 +134,8 @@ static func cells(name: String) -> Array:
 				box.call(Vector3i.ZERO, Vector3i(size.x, size.y - 3, size.z), 0)
 		"furnace", "furnace_lit":
 			_furnace(box, size, name == "furnace_lit")
+		"barrel":
+			_barrel(box, size)
 		_:
 			_table(box, c, size)
 	_cells[name] = [WorkPalette.shade_cells(c, size, FLAT), size]
@@ -278,6 +280,26 @@ static func _chest(box: Callable, size: Vector3i) -> void:
 	for z in [1, size.z - 2]:   # a lock plate on both long sides: chests have no facing
 		box.call(Vector3i(m - 2, lid - 3, z), Vector3i(m + 2, lid + 2, z + 1), BRASS)
 		box.call(Vector3i(m - 1, lid - 2, z), Vector3i(m + 1, lid, z + 1), SOOT)   # keyhole
+
+
+## A barrel (ADR 0121): staves round a bellied body (wider in the middle), iron hoops near the ends and the
+## belly, a lid of boards set into the top rim.
+static func _barrel(box: Callable, size: Vector3i) -> void:
+	var c := Vector2(size.x, size.z) * 0.5
+	for y in size.y:
+		var belly := 1.0 - absf(y - size.y * 0.5) / (size.y * 0.5)   # 0 at the ends, 1 in the middle
+		var r := size.x * 0.5 - 1.0 + belly * 1.0
+		var hoop := y in [1, 2, size.y / 2, size.y - 3, size.y - 2]
+		for z in size.z:
+			for x in size.x:
+				var d := Vector2(x + 0.5, z + 0.5).distance_to(c)
+				if d > r:
+					continue
+				var stave := int(atan2(z + 0.5 - c.y, x + 0.5 - c.x) * 8.0 / PI + 8.0) % 2
+				var paint := IRON_DARK if hoop and d > r - 1.0 else (CHEST_WOOD if stave == 0 else CHEST_LIGHT)
+				if y == size.y - 1 and d < r - 1.0:
+					paint = OAK_DARK if x % 3 == 0 else CHEST_LIGHT   # the lid boards
+				box.call(Vector3i(x, y, z), Vector3i(x + 1, y + 1, z + 1), paint)
 
 
 ## A furnace: courses of fieldstone in three tones with dark mortar, an arched mouth on every side

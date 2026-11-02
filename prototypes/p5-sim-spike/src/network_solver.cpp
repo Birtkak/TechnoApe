@@ -79,12 +79,16 @@ PackedFloat32Array NetworkSolver::solve(const PackedInt32Array &boxes, const Pac
         s_all += supply[i]; d_all += demand[i];
         f_all += flow_of(i) + low_of(i);
     }
+    // sinks are filled in node order until the component's flow is spent (a machine runs whole or waits: a
+    // proportional share would brown every machine out at once); sources and low sinks share proportionally
+    std::vector<double> left(n, 0);
+    for (int i = 0; i < n; i++) if (comp[i] == i) left[i] = flow_of(i);
     for (int i = 0; i < n; i++) {
         const int c = comp[i];
         const double flow = flow_of(c), fl = low_of(c);
         float f = 0;
         if (roles[i] == SOURCE && supply[c] > 0) f = (float)((flow + fl) * amounts[i] / supply[c]);
-        else if (roles[i] == SINK && demand[c] > 0) f = (float)(flow * amounts[i] / demand[c]);
+        else if (roles[i] == SINK) { f = (float)std::min((double)amounts[i], left[c]); left[c] -= f; }
         else if (roles[i] == SINK_LOW && low[c] > 0) f = (float)(fl * amounts[i] / low[c]);
         out[i * 2] = (float)c;
         out[i * 2 + 1] = f;

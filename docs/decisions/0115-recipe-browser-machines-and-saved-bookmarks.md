@@ -35,3 +35,21 @@ parallel, so the browser must not depend on machine code.
 - `info_test=1` adds the shot `info_machine` (crushed iron ore's crusher recipe) to `info.png`.
 - Not built: several outputs or byproducts per recipe, energy per recipe (ADR 0113 decides what a machine
   needs), Fill for machines.
+
+## Addendum (2026-11-02): the book through the electrical age, every station in the browser
+
+Bug report 2026-10-28_08-29-44 ("progression book is not updated"): the book stopped at the Iron Age.
+- The Steam Age chapter gains optional quests for what ADR 0097-0100 added without one: steam fitter's kit,
+  steam sieve, water tank, steel boiler, miner's helmet, traveler's backpack, surveyor's stake, steam drill,
+  boiler suit, jetpack (with the compressor), belts and chutes. The Ore Train stays the chapter's final.
+- The Electrical Age chapter is the machines lane's (ADR 0117: rubber to the first machine, its final), with
+  the second half of `docs/plans/electric-age-quests.md` as side quests after it: macerator, alloy smelter,
+  assembler, battery box, electric lamp.
+- Content lane (ADR 0112, 0121, `docs/plans/content-quests.md`): many woods and replanting (Old Stone Age),
+  porridge and hearty meals (New Stone Age), bronze spear and armour, iron arms, the steel tool set and steel
+  armour (Steam Age), all optional. Walkthrough tests check the main path only.
+- Browser: U on a station lists recipes worked at it or on it without being used up (`station`, `on`: the
+  loom's weaving, any machine's `process` recipes); the electric furnace is a Smelting station, the forge a
+  Smithing one, the drying rack the rack's. `test_every_station_and_machine_has_uses` holds every station
+  item to it, except the boilers, the turbine, the compressor and the transport pieces (they make steam or
+  power or move items in the world; no recipe runs in them).

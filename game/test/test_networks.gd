@@ -41,16 +41,17 @@ func test_solver_shares_by_component_and_weakest_cable() -> void:
 	assert_int(s.stats()["count"]).is_equal(2)
 
 
-func test_solver_splits_supply_and_demand_proportionally() -> void:
+func test_solver_shares_sources_and_fills_sinks_in_order() -> void:
 	var s := NetworkSolver.new()
-	# two sources (30, 10) feed two sinks (60, 20) over a wide cable: flow 40
+	# two sources (30, 10) feed two sinks (25, 20) over a wide cable: flow 40; the first sink is filled
+	# whole, the second gets what is left (a machine runs whole or waits: no brownouts, ADR 0117)
 	var boxes := _box(0) + _box(B) + _box(2 * B) + _box(3 * B) + _box(4 * B)
 	var roles := PackedInt32Array([NetworkSolver.SOURCE, NetworkSolver.SINK, NetworkSolver.CONDUCTOR, NetworkSolver.SINK, NetworkSolver.SOURCE])
-	var r := s.solve(boxes, roles, PackedFloat32Array([30, 60, 1000, 20, 10]))
+	var r := s.solve(boxes, roles, PackedFloat32Array([30, 25, 1000, 20, 10]))
 	assert_float(r[1]).is_equal_approx(30.0, 0.01)
 	assert_float(r[9]).is_equal_approx(10.0, 0.01)
-	assert_float(r[3]).is_equal_approx(30.0, 0.01)
-	assert_float(r[7]).is_equal_approx(10.0, 0.01)
+	assert_float(r[3]).is_equal_approx(25.0, 0.01)
+	assert_float(r[7]).is_equal_approx(15.0, 0.01)
 
 
 func test_big_boxes_touch_by_their_faces() -> void:
@@ -98,10 +99,10 @@ func _ticks(n: int) -> void:
 
 func test_turbine_powers_the_furnace_over_a_cable() -> void:
 	var t := _powered_turbine()
-	# the turbine is 2 blocks wide: cables at 8B and 9B, the furnace at 10B
-	store.create(Vector3i(8 * B, 0, 0), "cable")
+	# the turbine is 3 blocks wide: cables at 9B and 10B, the furnace at 11B
 	store.create(Vector3i(9 * B, 0, 0), "cable")
-	var f: ElectricFurnaceEntity = store.create(Vector3i(10 * B, 0, 0), "electric_furnace")
+	store.create(Vector3i(10 * B, 0, 0), "cable")
+	var f: ElectricFurnaceEntity = store.create(Vector3i(11 * B, 0, 0), "electric_furnace")
 	var r := f.use({"id": "raw_meat", "count": items.units("raw_meat")})
 	assert_int(r["consume"]).is_equal(items.units("raw_meat"))
 	_ticks(500)   # 25 s: the boiler reaches working pressure (boiler_build_s), the turbine turns, the furnace lights
@@ -120,7 +121,6 @@ func test_no_cable_or_cold_boiler_means_no_power() -> void:
 	f.use({"id": "raw_meat", "count": items.units("raw_meat")})
 	_ticks(500)
 	assert_bool(f.is_lit()).is_false()
-	store.create(Vector3i(8 * B, 0, 0), "cable")
 	store.create(Vector3i(9 * B, 0, 0), "cable")
 	store.create(Vector3i(10 * B, 0, 0), "cable")
 	store.create(Vector3i(11 * B, 0, 0), "cable")

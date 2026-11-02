@@ -51,6 +51,10 @@ const PALETTE: Array = [
 	[96, 52, 36],      # BRICK_DARK: brick mortar
 	[176, 132, 70],    # BRONZE: ingots in a pile (ADR 0095)
 	[178, 182, 186],   # TIN
+	[118, 128, 140],   # STEEL: machine plate, cool (ADR 0129)
+	[214, 206, 186],   # RIVET: bright heads that catch the light
+	[58, 104, 82],     # PAINT: engine green on machine casings
+	[226, 176, 48],    # HAZARD: warning yellow, valve wheels, guard rails
 ]
 const FLINT := 0
 const FLINT_MARK := 1
@@ -92,13 +96,17 @@ const BRICK_LIGHT := 36
 const BRICK_DARK := 37
 const BRONZE := 38
 const TIN := 39
+const STEEL := 40
+const RIVET := 41
+const PAINT := 42
+const HAZARD := 43
 const GUIDE_GRID := 32   # guide plates are meshed 4x finer: 3x3 coloured, a one-cell gap as grid lines
 ## Every paint comes in MobModel.SHADES tones (tile = paint * SHADES + tone), so a piece is not one flat
 ## colour: shade_cells hashes a tone per cell and darkens the cells on a convex edge, which draws the
 ## shape's outline the way the item sprites' dark edge pixels do.
 const SHADES := MobModel.SHADES
 const FLAT := [MOLTEN, EMBER, GLOW, PLACE, AVOID]   # signal colours: one tone, no grain, no edge
-const ATLAS := Vector2i(SHADES, 40)
+const ATLAS := Vector2i(SHADES, 44)
 
 static var _material: StandardMaterial3D
 static var _ghost: StandardMaterial3D
@@ -275,6 +283,35 @@ static func wall_box(cells: PackedInt32Array, size: Vector3i, a: Vector3i, b: Ve
 		for y in range(maxi(a.y, 0), mini(b.y, size.y)):
 			for x in range(maxi(a.x, 0), mini(b.x, size.x)):
 				cells[idx(size, x, y, z)] = wall_paint(x, y - a.y, z, tones, mortar) + 1
+
+
+## A drum lying along x (ADR 0129, the industrial machines): every cell from x0 to x1 (exclusive) within
+## radius r of the axis at (cy, cz), or only the shell `wall` cells thick when wall > 0.
+static func drum(cells: PackedInt32Array, size: Vector3i, x0: int, x1: int, cy: float, cz: float, r: float, paint: int, wall: float = 0.0) -> void:
+	for z in size.z:
+		for y in size.y:
+			var d := Vector2(y + 0.5 - cy, z + 0.5 - cz).length()
+			if d <= r and (wall <= 0.0 or d > r - wall):
+				for x in range(maxi(x0, 0), mini(x1, size.x)):
+					cells[idx(size, x, y, z)] = paint + 1
+
+
+## Rivet heads round a drum's flange ring at slice x: every `step`-th cell of the ring's rim.
+static func drum_rivets(cells: PackedInt32Array, size: Vector3i, x: int, cy: float, cz: float, r: float, step: int = 2) -> void:
+	for z in size.z:
+		for y in size.y:
+			var d := Vector2(y + 0.5 - cy, z + 0.5 - cz).length()
+			if d <= r and d > r - 1.0 and cells[idx(size, x, y, z)] > 0:
+				if (y + z) % step == 0:
+					cells[idx(size, x, y, z)] = RIVET + 1
+
+
+## Warning stripes (yellow and dark, diagonal) on every filled cell of a box.
+static func hazard_box(cells: PackedInt32Array, size: Vector3i, a: Vector3i, b: Vector3i) -> void:
+	for z in range(maxi(a.z, 0), mini(b.z, size.z)):
+		for y in range(maxi(a.y, 0), mini(b.y, size.y)):
+			for x in range(maxi(a.x, 0), mini(b.x, size.x)):
+				cells[idx(size, x, y, z)] = (HAZARD if (x + y + z) % 4 < 2 else SOOT) + 1
 
 
 static func box(cells: PackedInt32Array, size: Vector3i, a: Vector3i, b: Vector3i, paint: int) -> void:

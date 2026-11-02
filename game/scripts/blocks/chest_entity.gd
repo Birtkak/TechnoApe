@@ -26,6 +26,9 @@ func _init(p_items: ItemRegistry, p_pos: Vector3i, p_kind: String = "chest") -> 
 	if kind == "storage_pot":
 		size = 9
 		title = "Storage Pot"
+	elif kind == "barrel":
+		size = 18
+		title = "Barrel"
 	inv = Inventory.new(p_items, size)
 	inv.changed.connect(_on_slot_changed)   # method, not a lambda: no reference cycle
 

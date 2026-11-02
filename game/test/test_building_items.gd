@@ -91,7 +91,8 @@ func test_open_door_saves_and_loads() -> void:
 func test_only_hinged_kinds_open() -> void:
 	for k in FurnitureEntity.KINDS:
 		var e := FurnitureEntity.new(Vector3i.ZERO, k, 0)
-		assert_bool(e.can_open()).override_failure_message(k).is_equal(k in ["door", "trapdoor", "fence_gate"])
+		var base: String = FurnitureEntity.KINDS[k].get("base", k)   # wood variants (ADR 0121) open like their oak kind
+		assert_bool(e.can_open()).override_failure_message(k).is_equal(base in ["door", "trapdoor", "fence_gate"])
 	var store := BlockEntities.new(items, recipes)
 	var t := store.create_furniture(Vector3i.ZERO, "table", 0)
 	store.set_open(t, true)

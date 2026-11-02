@@ -430,3 +430,11 @@ Asked for in bug reports 2026-11-02 18-55-21, 18-57-25, 18-54-25 and 18-49-07.
   sprig, and three in four sticks have a second, shorter twig on the other side.
 - Check: `test_fine_gen_lod.gd` (no plant in mid air at the report's spot; the meadow grows all three
   giant flower parts).
+
+## Cave dressing (2026-11-02 overnight)
+- `FineGen::cave_dressing` dresses cave floors and ceilings up to DRESS_MAX (1 m) by cave biome: dripstone cones
+  (dripstone floors and ceilings), icicles and ice spikes, crystal and sulfur stalactites, basalt columns and
+  glowing magma crust, lush vines with glow berries over tufts and ferns (moss ceiling), toadstools of fungus
+  stem and glowing caps with glow mushrooms. Materials 228..233, tiles 192..194 and 204..206 (204..207 glow).
+- Check: `tools/cave_dress_sheet.gd` (a slice per cave biome, plus a camera line for a look check);
+  `test_fine_gen_lod.gd` (dressed, nothing hangs alone).

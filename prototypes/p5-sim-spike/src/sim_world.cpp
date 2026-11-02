@@ -124,6 +124,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_lod", "radius_chunks", "divisor"), &SimWorld::set_lod);
     ClassDB::bind_method(D_METHOD("set_cell_budget", "cells"), &SimWorld::set_cell_budget);
     ClassDB::bind_method(D_METHOD("set_liquid_fullness", "on"), &SimWorld::set_liquid_fullness);
+    ClassDB::bind_method(D_METHOD("set_column_flow", "on"), &SimWorld::set_column_flow);
     ClassDB::bind_method(D_METHOD("count_liquid_eighths", "material"), &SimWorld::count_liquid_eighths);
     ClassDB::bind_method(D_METHOD("start_tick"), &SimWorld::start_tick);
     ClassDB::bind_method(D_METHOD("is_tick_done"), &SimWorld::is_tick_done);
@@ -834,6 +835,7 @@ void SimWorld::update_powder(int x, int y, int z, int i, Ctx &c) {
 }
 
 void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
+    if (column_flow_) { update_liquid_column(x, y, z, i, c); return; }
     if (fullness_) { update_liquid_fullness(x, y, z, i, c); return; }
     const uint8_t self = cells_[i].mat;
     const MaterialDef &m = mats_[self];
@@ -876,6 +878,131 @@ void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
 }
 
 void SimWorld::set_liquid_fullness(bool p_on) { fullness_ = p_on; }
+void SimWorld::set_column_flow(bool p_on) { column_flow_ = p_on; }
+
+// ADR 0119 A: column flow. A run of the same moving liquid up a column is one column with a surface. Its surface
+// cell levels with each neighbour column by head: half the height difference, in whole eighths, so two columns are
+// level in a few ticks and a flat surface moves nothing. A full cell under the surface pours a whole cell into an
+// air opening beside it while the surface stands above the opening (communicating vessels: a breach is fed from the
+// body's depth, a U-tube levels). Neighbour order comes from the cell's parity and the tick, not the RNG, so the
+// outcome is the same on every run; the RNG only rolls the viscosity. A column with nothing to move marks nothing
+// and its chunk sleeps.
+void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
+    const uint8_t self = cells_[i].mat;
+    const MaterialDef &m = mats_[self];
+    auto full = [&](int k) -> int { int f = cells_[k].pad & 15; return f ? f : 8; };
+    auto set_full = [&](int k, int f) { cells_[k].pad = (uint8_t)((cells_[k].pad & 0xF0u) | (uint32_t)(f >= 8 ? 0 : f)); };
+    auto same = [&](int px, int py, int pz) -> bool { return is_open(px, py, pz) && cells_[idx(px, py, pz)].mat == self; };
+    const bool on_still = y > 0 && m.fluid_slot >= 0 && still_liquid(x, y - 1, z, m.fluid_slot);
+    auto over_still = [&](int px, int pz) -> bool { return !on_still && y > 0 && m.fluid_slot >= 0 && still_liquid(px, y - 1, pz, m.fluid_slot); };
+    // 1. fall (the main pass); a substep waits where the eighth kernel waits (ADR 0069 B)
+    if (substep_ > 0) {
+        if (y > 0 && is_open(x, y - 1, z)) {
+            const int bi = idx(x, y - 1, z);
+            if (can_displace(self, cells_[bi].mat)) return;
+            const uint16_t mb = moved_[bi];
+            if ((mb == stamp_ || ((mb & 0x8000u) && ((mb >> 2) & 0x1FFFu) == stamp_)) && (cells_[bi].mat != self || cells_[bi].aux > 0)) return;
+        }
+    } else if (fall(x, y, z, i, c)) { c.moved++; count_fall(m, x, y, z, c); return; }
+    const int f = full(i);
+    // ADR 0069 B3 kept: a lone one-eighth film on a foreign floor dries up (or crusts)
+    if (f == 1 && substep_ == 0 && m.film_life && y > 0 && is_open(x, y - 1, z) && cells_[idx(x, y - 1, z)].mat != self) {
+        bool alone = true;
+        for (int k = 0; k < 4 && alone; k++) {
+            const int nx = x + DX4[k], nz = z + DZ4[k];
+            if (same(nx, y, nz) && full(idx(nx, y, nz)) > 2) alone = false;
+        }
+        if (alone) {
+            if (rnd(c) % m.film_life == 0) { place(i, m.film_to); mark_cell(x, y, z, c, true); c.moved++; return; }
+            mark_cell(x, y, z, c, false);
+        }
+    }
+    if ((rnd(c) & 0xFF) > m.gravity_prob) return;   // viscosity: a thick liquid skips ticks
+    // 2. the column's surface: up from here while the liquid continues
+    int sy = y;
+    while (sy - y < COLUMN_REACH && same(x, sy + 1, z)) sy++;
+    const int si = idx(x, sy, z);
+    const int H = 8 * sy + full(si);   // the surface height in eighths
+    const bool surface = sy == y;
+    // t eighths off the column's top
+    auto take = [&](int t) {
+        int ti = si, ty = sy;
+        while (t > 0) {
+            const int ft = full(ti);
+            moved_[ti] = mark_;
+            if (t >= ft) {
+                place(ti, 0);
+                mark_cell(x, ty, z, c, true);
+                t -= ft;
+                ty--;
+                if (!same(x, ty, z)) break;
+                ti = idx(x, ty, z);
+            } else { set_full(ti, ft - t); mark_cell(x, ty, z, c, false); t = 0; }
+        }
+    };
+    // up to t eighths onto the column at (nx, nz) whose top is the cell at ny (its liquid, or air to start one);
+    // what does not fit under a ceiling stays; returns what went
+    auto give = [&](int nx, int ny, int nz, int t) -> int {
+        const int ti = idx(nx, ny, nz);
+        const int ft = cells_[ti].mat == self ? full(ti) : 0;
+        if (ft == 0) place(ti, self);
+        const int put = std::min(t, 8 - ft);
+        set_full(ti, ft + put);
+        moved_[ti] = mark_;
+        mark_cell(nx, ny, nz, c, ft == 0);
+        int went = put;
+        t -= put;
+        if (t > 0 && is_open(nx, ny + 1, nz) && open_air(cells_[idx(nx, ny + 1, nz)].mat) && !still_liquid(nx, ny + 1, nz, m.fluid_slot)) {
+            const int ai = idx(nx, ny + 1, nz);
+            place(ai, self);
+            set_full(ai, t);
+            moved_[ai] = mark_;
+            mark_cell(nx, ny + 1, nz, c, true);
+            went += t;
+        }
+        return went;
+    };
+    const int d0 = (x + z + (int)tick_) & 3;
+    for (int k = 0; k < 4; k++) {
+        const int dd = (d0 + k) & 3, nx = x + DX4[dd], nz = z + DZ4[dd];
+        if (!is_open(nx, y, nz)) continue;
+        const int ni = idx(nx, y, nz);
+        if (moved_[ni] == mark_) continue;
+        const uint8_t t = cells_[ni].mat;
+        if (open_air(t)) {
+            if (over_still(nx, nz)) continue;
+            // a ledge: the surface runs off it as a whole cell (main pass) and falls from there
+            if (y > 0 && is_open(nx, y - 1, nz) && can_displace(self, cells_[idx(nx, y - 1, nz)].mat)) {
+                if (substep_ == 0 && surface && try_move(x, y, z, nx, y - 1, nz, c)) { c.moved++; return; }
+                continue;
+            }
+            if (surface) {
+                // the surface splits half into the opening: a new column beside it
+                const int g = f / 2;
+                if (g < 1) continue;
+                take(give(nx, y, nz, g));
+                c.moved++;
+                return;
+            }
+            // an opening below the surface: the head above pours a whole cell into it
+            take(give(nx, y, nz, 8));
+            c.moved++;
+            return;
+        }
+        if (t != self) continue;
+        // the neighbour column's surface
+        int ny = y;
+        while (ny - y < COLUMN_REACH && same(nx, ny + 1, nz)) ny++;
+        const int Hn = 8 * ny + full(idx(nx, ny, nz));
+        if (Hn >= H - 1) continue;   // level, or higher: it levels toward us on its own visit
+        if (moved_[idx(nx, ny, nz)] == mark_) continue;
+        const int dt = std::min(8, (H - Hn) / 2);
+        if (dt < 1) continue;
+        take(give(nx, ny, nz, dt));
+        c.moved++;
+        return;
+    }
+}
 void SimWorld::set_cascade(bool p_on) { cascade_ = p_on; }
 
 int SimWorld::count_liquid_eighths(int p_material) const {

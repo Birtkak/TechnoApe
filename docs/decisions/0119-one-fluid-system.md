@@ -1,0 +1,123 @@
+# ADR 0119: One fluid system: column flow, native pushes, gases with heat and pressure
+
+Status: proposed (2026-11-02), for the overseer's go. Follows ADR 0069 (fluid baseline), 0104 (world water endless and
+never simulated), 0113 (machines: the boiler's `pressure`).
+
+## Context
+Bug reports 2026-10-28 14-38-16 "liquids need to be completely different again" and 14-39-27 "slow laggy ugly and
+unclear, find us the liquid fixes" (seed 1867691517). Both screenshots are a woken river: 371-580 sim chunks awake,
+tick 31-36 ms, a surface of per-cell cubes. ADR 0104 closed the wake (rivers never simulate; only what they pour does),
+so this ADR measures what is left on main today and redesigns the rest. The developer added (2026-11-02): liquids and
+gases are one fluid system; every gas has its own readable colour as data; fluids change state by temperature and
+pressure (water boils, steam condenses, a sealed hot space builds pressure, venting drops it), per cell, native,
+deterministic, in budget; and a readout under the minimap shows temperature, pressure, material and state of the
+cell the player looks at or stands in.
+
+### Measured on main (`6d243e4`, headless, muted, `view_distance_m=24`; the machine shared by eight agents, so the
+numbers are upper bounds, back-to-back medians come with the build)
+1. **Kernel.** `tools/water_bench.gd` (a 4 x 1 x 4 m pond drains into a 2 m pit): pit 52 % full after 1 s, 85 % after
+   4 s, settled after 5.9 s; **tick 20.5 ms avg, 229 ms max** for one small spill. Nineteen 1.5 m water bombs over 40 s
+   (`blast=1.5 blast_material=water blast_every=2`): **156 chunks awake, tick 19 ms**, 878 still cells woken.
+2. **Pushes.** The same stress pasted **34 842 chunks in 40 s** (870/s) back into the terrain, push queue up to 410, and
+   the worst frame spent **187 ms pasting 35 chunks** (5.3 ms a chunk): `World.write_chunk` builds a `VoxelBuffer` in
+   GDScript and pastes a whole 16^3 chunk for any changed cell, and every paste remeshes a 32 block with the fluid
+   mesher's 44^3 buffer (`PADDING` 6, ADR 0069 A3: 2.2x the plain blocky volume). p99 frame 37 ms, 129 frames over 16.7.
+3. **River edit** (`water_test=1 target=river`): tick 126 ms at the end of the run with only 9 chunks awake (the
+   machine), p99 67 ms.
+4. **Why it is ugly and unclear** (read from the kernel, `update_liquid_fullness`): every liquid cell holds 1..8
+   eighths and moves by random local rules (split half into air, hand half the difference to a lower neighbour, send one
+   eighth up to seven cells along the surface, slide a pressed cell sideways with momentum). A surface therefore
+   undulates for seconds, rests tilted "flat to an eighth", stops as a 45-degree heap in a pit, leaves specks and films
+   that dry away (mass vanishes), and communicating vessels never level: there is no head, only neighbours. Each wobble
+   re-dirties its chunk, so the push and remesh cost above is the kernel's cost in another coat. Gases are a random
+   walk with a lifetime and three fixed atlas tiles; nothing has a temperature or a pressure, so the boiler (ADR 0113)
+   keeps its own `pressure` number.
+
+## Decision
+One native fluid system in `sim_world.cpp`, in five parts, each behind a flag until its bench and tests pass, so
+`test_sim_v6`, `test_sim_0104`, `test_liquid_*` and `test_fluid_levels` keep running against the old kernel until the
+switch.
+
+### A. Column flow for moving liquids (replaces the eighth exchange)
+A vertical run of the same moving liquid in a column is **one column** with a level: its floor cell, its full cells and
+one surface cell with 1..8 eighths. Per tick the kernel visits **surface cells** (and nothing below them unless they
+have an opening), in a fixed parity order per chunk (deterministic, no RNG for levelling):
+1. **Fall** stays per cell as today (a stream is cells falling; gravity once a tick, `fall`).
+2. **Level to neighbours by head.** For each of the four side neighbours that is the same liquid or air over a floor at
+   most one cell lower: move `(h_a - h_b) / 2` eighths of height, where h is the surface height above the lower of the
+   two floors, at most what the giving column holds. Whole eighths, the remainder alternating by parity so mass is
+   exact. A column pair rests at a difference under one eighth; a flat surface needs no further tick.
+3. **Head through openings (communicating vessels).** A full cell below a surface whose side or bottom neighbour is
+   air, or the same liquid with a lower *surface*, has head `h_self - h_there`; it moves a cell (or the head's worth of
+   eighths) into the opening. This is what fills a U-tube to one level, feeds a breach from the body's depth (ADR
+   0104's reservoir rule becomes a special case: a still body is a column of infinite height), and replaces 4a's momentum
+   slide. Bounded by `liquid_speed` cells a tick per column, so lava stays slow.
+4. **Rest and sleep.** A column with no neighbour differing by an eighth or more and no opening marks nothing, so its
+   chunk sleeps the next tick. No film rule: a one-eighth sheet on a floor rests where it is (a puddle is a puddle),
+   unless it is alone with no liquid beside it, then it still dries after `film_lifetime_ticks` (taste call kept).
+5. Powders, reactions, burning, lifetimes, the substep loop and the still-liquid `reservoir` wake are untouched;
+   `reservoir` feeds the opening a column instead of a cell when the opening is deeper than one cell.
+Bench target (`tools/fluid_bench.gd`, a new one that prints JSON): the water_bench pond settles in **under 1.5 s with a
+tick under 4 ms** on a quiet machine; the 19-bomb stress keeps **under 40 chunks awake** after the last bomb and pastes
+under a fifth of today's chunks. Tests `test_sim_0119.gd`: a pit fills flat to one eighth and the sim is quiet within 40
+ticks; a U-tube levels; a breach floods to the body's level and no higher; mass exact in every case; a lava column
+moves at most `liquid_speed` cells a tick.
+
+### B. Pushes are native and box-sized
+`SimWorld::write_dirty(VoxelTool)`-style path: the sim already tracks the changed-cells box per dirty chunk (`dbox_`);
+the bridge copies **that box**, not the chunk, into a `VoxelBuffer` built in C++ and pastes it, from GDScript's
+`_drain_push` as today (budget, interval and the remesh token bucket stay). Expected: a wobble of a few cells pastes a
+few cells. The fluid mesher's reach stays 6 (ADR 0069 A3) in this ADR; if the bench still shows the mesher, a
+per-block surface pre-pass replaces the padding (noted as the next step, not done here).
+
+### C. Gases, heat and pressure (one system with the liquids)
+1. **Temperature** lives on a coarse grid, one `uint8_t` per 4^3 cells (0.5 m; 2 MB for the window) in units of 2 °C
+   from -40: diffuses to its six neighbours every 4th tick and relaxes toward the climate's outside temperature
+   (`Survival.outside_c`, set per tick from GDScript) in open air; sources are per material data `heat_c` (lava 1200,
+   fire 600, a burning cell 400, magma heart 900) and sinks `cool_c` (water, ice). Cost: 2 M coarse cells / 4 ticks,
+   only inside active chunks' coarse cells plus a one-cell halo: well under 1 ms.
+2. **Pressure** is per 16^3 chunk: gas cells / open (air or gas) cells, 0..1, written each tick by the chunk update from
+   its own counts (deterministic, no flood fill). A sealed hot box fills with steam cells, its ratio rises; venting lets
+   the gas random-walk out and it drops. (The player's room pressure for the readout reads the chunk's value; the
+   `ClimateProbe` flood fill is not needed for the sim.)
+3. **State switching** as material data: `boil_c`, `boils_to`, `condense_c`, `condenses_to`, `freeze_c`, `freezes_to`,
+   `melt_c`, `melts_to`, and `boil_rise_c` (how much one unit of pressure raises the boiling point; water 60, so a
+   sealed chamber at 0.5 pressure boils at 130 °C). Per cell, in the main pass, from the coarse temperature of its cell:
+   a liquid cell at or over its (pressure-shifted) boiling point becomes one cell of its gas; a gas cell under its
+   condensing point becomes one cell of its liquid at one eighth (1 : 1 cells, mass in cells exact; the expansion is
+   the gas's own spread). Water <-> steam, sludge -> toxic gas (new material, id 254), lava <-> basalt crust at
+   `freeze_c` (replaces the film crust), water <-> ice at `freeze_c` / `melt_c` (ice exists). Steam near lava keeps
+   its reaction table entry; the two agree (both make steam).
+4. **Gas looks as data**: `data/gas_looks.json` { steam: colour, alpha; smoke; toxic_gas; fire }: `make_atlas.py`
+   generates tiles 10, 11, 12 and a new tile for toxic gas from it (one tile per gas, flat colour at its alpha),
+   `test_liquid_looks.gd` gets a sibling check that every gas has an entry. Density look: a gas's alpha scales with
+   `density` (toxic gas heavier and darker, `gas_down` > 0 so it pools in low caves).
+5. The boiler (ADR 0113) keeps its own `pressure` for now; the hook: its water tank's chunk pressure can feed it later
+   (`SimWorld.chunk_pressure(p)`), noted in 0113, not rewritten.
+Bench: `fluid_bench.gd` boils a 4 m sealed box of water over lava: the steam count rises, pressure reaches the shifted
+point and boiling stops; opening one wall drains the pressure and boiling resumes; tick cost under 2 ms over the base.
+Tests in `test_sim_0119.gd`.
+
+### D. Readout under the minimap
+`SimWorld.cell_info(local)` returns {material, state (solid / powder / liquid / gas / fire, still / moving, eighths),
+temp_c, pressure}; `game/scripts/ui/minimap.gd` (the label that already shows coordinates, biome, season, date) adds one
+line: `water (moving, 5/8)  24 C  p 0.12`, for the aimed cell, else the cell the player stands in. One file, one line.
+
+### E. Ids and saves
+Materials: toxic gas 254; 255 reserved for a second new gas. `FLUID_LEVEL_BASE` 256 and `MAX_MATERIALS` 256 stay: this
+ADR needs one id, so the save format does not change. Raising both (the voxel channel is 16 bits, so `FLUID_LEVEL_BASE`
+could move to 1024 and `MAX_MATERIALS` to 1024) is the right move when the next ten ids are asked for; it changes every
+saved voxel over 255, so it needs a save version and a remap on load, recorded then.
+
+## Alternatives
+- Keep the eighth automaton and tune (every ADR since 0045 did): the cost is the rule's, not the constants'.
+- Full shallow-water height field per column across the window: flat surfaces for free, but caves, overhangs and
+  streams through air are 3D; column flow keeps cells and gains the same convergence where it matters.
+- Per-cell temperature (one byte per cell, +134 MB for the window): the heat field is smooth; the coarse grid is
+  physically fine and 64x cheaper to diffuse.
+- Pressure per sealed room by flood fill: exact but not local; a chunk ratio is deterministic, O(1) and good enough
+  for boiling and the readout.
+
+## Order and milestones
+A (spike behind `set_column_flow`, bench + tests) -> B -> C (heat, pressure, states, looks) -> D -> polish. A report at
+each; the switch to column flow as the default is the first working build.

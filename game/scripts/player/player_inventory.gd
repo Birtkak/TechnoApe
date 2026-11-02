@@ -405,7 +405,7 @@ func click_slot(i: int, button: int, shift: bool) -> void:
 			if not targets.is_empty():
 				_move_stack(inv, i, container.inv, targets)
 				return
-			if container.kind == "chest" or container.kind == "storage_pot":
+			if container is ChestEntity:
 				return
 		if i < HOTBAR:
 			_move_slot(inv, i, HOTBAR, SIZE)
@@ -499,6 +499,17 @@ func fill_craft_grid(r: Dictionary, all: bool, dry_run := false) -> Dictionary:
 	var res := craft.fill(r, craft_sources(), 1 << 20 if all else 1, dry_run)
 	if not dry_run:
 		changed.emit()
+	return res
+
+
+## The recipe browser's Craft (ADR 0130): Fill, take the output into the inventory as a shift-click on
+## it does, and put what the recipe keeps (tools) back. {crafts, error} like fill_craft_grid.
+func craft_recipe(r: Dictionary, all: bool) -> Dictionary:
+	var res := fill_craft_grid(r, all)
+	if res["error"] != "":
+		return res
+	click_craft_output(true)
+	clear_craft_grid()
 	return res
 
 
@@ -762,7 +773,7 @@ func _other_side(group: String, i: int, id: String) -> Array:
 			var targets: Array = container.shift_targets(id)
 			if not targets.is_empty():
 				return [container.inv, targets]
-			if container.kind == "chest" or container.kind == "storage_pot":
+			if container is ChestEntity:
 				return []
 		return [inv, range(HOTBAR, SIZE) if i < HOTBAR else range(0, HOTBAR)]
 	if group == "container":

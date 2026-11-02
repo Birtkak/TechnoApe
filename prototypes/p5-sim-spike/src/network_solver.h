@@ -1,8 +1,8 @@
 #pragma once
 // ADR 0113: power and fluid networks. Block entities (machines, cables, pipes) are boxes on the 0.5 m block
 // grid; boxes that touch face to face are connected. Each connected component moves min(supply, demand,
-// weakest conductor) per tick: sources give in proportion to what they offer, sinks get in proportion to
-// what they want. One solve per channel (energy, steam, water...) once a second, native because the cable
+// weakest conductor) per tick: sources give in proportion to what they offer, sinks are filled in node order
+// (a machine runs whole or waits), low sinks share what is left. One solve per channel (energy, steam, water...) once a second, native because the cable
 // count is what grows (a factory: thousands).
 
 #include <godot_cpp/classes/ref_counted.hpp>

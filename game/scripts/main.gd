@@ -185,7 +185,7 @@ func _ready() -> void:
 			return what == "use"   # a stray furniture voxel: _use_furniture clears it
 		var k: Dictionary = FurnitureEntity.KINDS[f.furniture]
 		if what == "use":   # a table or shelf takes no click: a pot or lantern goes on it
-			return f.furniture == "chair" or k.get("sleep", false) or f.can_open()
+			return FurnitureEntity.sits(f.furniture) or k.get("sleep", false) or f.can_open()
 		return k.get(what, false)
 
 	_items_root = Node3D.new()
@@ -199,7 +199,7 @@ func _ready() -> void:
 	_station_root = Node3D.new()
 	_station_root.name = "Stations"
 	add_child(_station_root)
-	for kind in ["station", "chest", "furnace", "storage_pot"]:
+	for kind in ["station", "chest", "furnace", "storage_pot", "barrel"]:
 		for e in blocks.all_of(kind):
 			_add_station_view(e)
 	mobs = MobManager.new()
@@ -732,7 +732,15 @@ func _save_blocks() -> void:
 ## by "\n"). Work pieces get their own name, not "Work Spot", and stations show what is in them (ADR 0078).
 func _describe_block(p: Vector3i) -> Dictionary:
 	var e: RefCounted = blocks.at(p)
-	if e is ChestEntity or e is FurnaceEntity:   # what is inside (ADR 0093)
+	var info := _describe_entity(e)
+	var net := Networks.look_line(e)   # the energy network it is on (ADR 0130)
+	if net != "":
+		info["line"] = String(info.get("line", "")) + ("\n" if info.get("line", "") != "" else "") + net
+	return info
+
+
+func _describe_entity(e: RefCounted) -> Dictionary:
+	if e is ChestEntity or (e is FurnaceEntity and not e.has_method("look_lines")):   # what is inside (ADR 0093)
 		var lines := PackedStringArray()
 		if e is ChestEntity and e.label != "":
 			lines.append(e.label)   # the chest's name (plan item D11)
@@ -760,7 +768,7 @@ func _describe_block(p: Vector3i) -> Dictionary:
 			info["line"] = "Flint: pick a shape"
 		else:
 			info["line"] = "%s: %d chips left" % [items.display_name(String(k.recipe.get("output", {}).get("id", ""))), k.remaining()]
-	elif e is FirepitEntity or e is AnvilEntity:
+	elif e.has_method("look_lines"):   # firepits, anvils and every machine (ADR 0130: they had lines nobody showed)
 		info["line"] = "\n".join(e.look_lines())
 	return info
 
@@ -1245,7 +1253,7 @@ func _remove_furniture(e: FurnitureEntity, drop: bool) -> void:
 	if drop:
 		for s in stacks:
 			spawn_item(s, Vector3(anchor) + Vector3.ONE * (Settings.BLOCK * 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))   # the anchor block's centre
-	if player.seat != Vector3.INF and e.furniture == "chair":
+	if player.seat != Vector3.INF and FurnitureEntity.sits(e.furniture):
 		player.stand_up()
 
 
@@ -1285,7 +1293,7 @@ func _use_furniture(p: Vector3i) -> void:
 	if e == null:
 		set_world_voxel(p, GameMaterials.AIR)   # a stray furniture voxel without its entity
 		return
-	if e.furniture == "chair":
+	if FurnitureEntity.sits(e.furniture):
 		player.sit(e.seat(), e.yaw())
 		return
 	if e.can_open():
@@ -1413,7 +1421,7 @@ func _add_station_view(e: RefCounted) -> void:
 		_station_views[e.pos].queue_free()
 	var m := get_world_voxel(e.pos)
 	if m <= 0 or not GameMaterials.is_station(m):
-		m = GameMaterials.id_of({"station": "crafting_table", "chest": "chest", "furnace": "furnace", "storage_pot": "storage_pot"}.get(e.kind, "chest"))
+		m = GameMaterials.id_of({"station": "crafting_table", "chest": "chest", "furnace": "furnace", "storage_pot": "storage_pot", "barrel": "barrel"}.get(e.kind, "chest"))
 	var mi := MeshInstance3D.new()
 	var d: Dictionary = GameMaterials.defs()[m - 1]
 	if StationEntity.SIZES.has(e.kind):
@@ -1489,7 +1497,7 @@ func _micro_view_mesh(d: Dictionary) -> Mesh:
 ## view goes, contents spill. Returns false when `p` is not part of one.
 func _break_station(p: Vector3i, drops: Array) -> bool:
 	var e: RefCounted = blocks.at(p)
-	if e == null or not (e.kind in ["station", "chest", "furnace", "storage_pot"]):
+	if e == null or not (e.kind in ["station", "chest", "furnace", "storage_pot", "barrel"]):
 		return false
 	var anchor: Vector3i = e.pos
 	var centre := Vector3(anchor) + Vector3.ONE * (Settings.BLOCK * 0.5)
@@ -1534,6 +1542,8 @@ func _on_block_used(p: Vector3i, material: int) -> void:
 ## A furnace started or stopped burning: swap furnace <-> furnace_lit, or
 ## drop the entity when its block is gone (burnt, replaced by the sim).
 func _on_lit_flipped(p: Vector3i) -> void:
+	if BlockEntities.is_work(blocks.at(p)):
+		return   # a work piece (the electric furnace, ADR 0113) draws its own lit look through WorkSystem; no voxel to swap
 	var m := get_world_voxel(p)
 	if m != GameMaterials.FURNACE and m != GameMaterials.FURNACE_LIT:
 		for s in blocks.remove(p):
@@ -1745,7 +1755,7 @@ func _on_inventory_toggled(open: bool) -> void:
 func _nearby_chests() -> Array:
 	var out := []
 	var r := Settings.m2v(Settings.quick_stack_m)
-	for k in ["chest", "storage_pot"]:
+	for k in ["chest", "storage_pot", "barrel"]:
 		for e in blocks.all_of(k):
 			if (Vector3(e.pos) + Vector3.ONE * Settings.BLOCK * 0.5).distance_to(player.position) <= r:
 				out.append(e)

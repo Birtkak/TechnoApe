@@ -30,3 +30,16 @@ Each feature whose taste differs has its own switch in Settings (`user://setting
   `menu_test=1` adds `qol_hud` (coordinates, edge alpha after a hit) and `interface_tab`, shots
   `hud_qol` and `settings_interface`.
 - The Interface tab is where later HUD switches go.
+
+## Amendment (2026-11-02, batch 2)
+5. **Look-at panel**: every block entity with `look_lines` shows them (machines, cables, turbines,
+   battery boxes, lamps had lines nobody showed; the electric furnace read "Not lit"). `Networks.solve`
+   keeps each energy component's supply, demand, flow and weakest cable (`Networks.networks`), and
+   `Networks.look_line` adds "Network: X EU/t made, Y wanted, Z moving (n parts)".
+6. **Pick block** (middle click) takes the look panel's item first, so machines, stations and work
+   pieces pick their own item.
+7. **Tooltips** add food, fuel time, attack, "Made by" (station or kind of work, R) and "Used in N
+   recipes" (U); holding Shift adds the id and tags (`InventoryScreen.item_facts`).
+8. **Craft button** below Fill in the recipe view (a hook in the recipe browser: `grid_craft`):
+   `PlayerInventory.craft_recipe` fills, takes the output into the inventory and returns kept tools.
+   Shift crafts as many as the inventory allows.

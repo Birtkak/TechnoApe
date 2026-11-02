@@ -328,29 +328,30 @@ func _create(p: Vector3i, kind: String, material: int) -> RefCounted:
 func debug_factory_line(base: Vector3i, right: Vector3i) -> String:
 	var B := Settings.BLOCK
 	debug_electric_line(base, right)
-	var mac: RefCounted = _create(base + right * 12 * B, "macerator", GameMaterials.WORK_BLOCK)   # touching the furnace (10B..12B): no cable needed
-	var hop: HopperEntity = _create(base + right * 12 * B + Vector3i(0, 2 * B, 0), "hopper", GameMaterials.WORK_SPOT)
+	var mac: RefCounted = _create(base + right * 13 * B, "macerator", GameMaterials.WORK_BLOCK)   # touching the furnace (11B..13B): no cable needed
+	mac.use({"id": "iron_ore", "count": 64})   # one block to start on while the hopper trickles more
+	var hop: HopperEntity = _create(base + right * 13 * B + Vector3i(0, 2 * B, 0), "hopper", GameMaterials.WORK_SPOT)
 	hop.facing = 0
-	var chest_at := base + right * 12 * B + Vector3i(0, 3 * B, 0)
+	var chest_at := base + right * 13 * B + Vector3i(0, 3 * B, 0)
 	main._on_placed(chest_at, GameMaterials.CHEST)
 	var chest: RefCounted = main.blocks.at(chest_at)
 	if chest != null:
 		chest.inv.set_slot(0, {"id": "iron_ore", "count": 64 * 4})
-	var furnace: RefCounted = main.blocks.at(base + right * 10 * B)
+	var furnace: RefCounted = main.blocks.at(base + right * 11 * B)
 	if furnace != null:
-		var h2: HopperEntity = _create(base + right * 10 * B + Vector3i(0, 2 * B, 0), "hopper", GameMaterials.WORK_SPOT)
+		var h2: HopperEntity = _create(base + right * 11 * B + Vector3i(0, 2 * B, 0), "hopper", GameMaterials.WORK_SPOT)
 		h2.facing = 0
-		var c2 := base + right * 10 * B + Vector3i(0, 3 * B, 0)
+		var c2 := base + right * 11 * B + Vector3i(0, 3 * B, 0)
 		main._on_placed(c2, GameMaterials.CHEST)
 		var chest2: RefCounted = main.blocks.at(c2)
 		if chest2 != null:
 			chest2.inv.set_slot(0, {"id": "raw_meat", "count": 16})
-	_create(base + right * 14 * B, "cable", GameMaterials.WORK_SPOT)
-	_create(base + right * 15 * B, "battery_box", GameMaterials.WORK_BLOCK)
-	_create(base + right * 17 * B, "cable", GameMaterials.WORK_SPOT)
-	_create(base + right * 18 * B, "electric_lamp", GameMaterials.WORK_SPOT)
-	_create(base + right * 19 * B, "cable", GameMaterials.WORK_SPOT)
-	var asm: RefCounted = _create(base + right * 20 * B, "assembler", GameMaterials.WORK_BLOCK)
+	_create(base + right * 15 * B, "cable", GameMaterials.WORK_SPOT)
+	_create(base + right * 16 * B, "battery_box", GameMaterials.WORK_BLOCK)
+	_create(base + right * 18 * B, "cable", GameMaterials.WORK_SPOT)
+	_create(base + right * 19 * B, "electric_lamp", GameMaterials.WORK_SPOT)
+	_create(base + right * 20 * B, "cable", GameMaterials.WORK_SPOT)
+	var asm: RefCounted = _create(base + right * 21 * B, "assembler", GameMaterials.WORK_BLOCK)
 	for id in ["vacuum_tube", "resistor", "insulated_wire", "coated_board"]:
 		asm.use({"id": id, "count": 4})
 	return "the electric line, a hopper-fed macerator and furnace, a battery, a lamp and an assembler from %s (%d pieces)" % [base, 16]
@@ -361,15 +362,16 @@ func debug_factory_line(base: Vector3i, right: Vector3i) -> String:
 func debug_electric_line(base: Vector3i, right: Vector3i) -> String:
 	var B := Settings.BLOCK
 	var e: RefCounted = _create(base, "boiler", GameMaterials.WORK_BLOCK)
+	e.item = "steel_boiler"   # its safety valve holds; a small boiler bursts unattended after a minute (ADR 0097)
 	e.use({"id": "coal", "count": 8}, main.items.get_def("coal"), false, true)
 	for i in 4:
 		e.use({"id": "water_bucket", "count": 1}, main.items.get_def("water_bucket"))
 	e.ignite()
 	_create(base + right * 5 * B, "pipe", GameMaterials.WORK_SPOT)
 	_create(base + right * 6 * B, "turbine", GameMaterials.WORK_BLOCK)
-	_create(base + right * 8 * B, "cable", GameMaterials.WORK_SPOT)
-	_create(base + right * 9 * B, "cable", GameMaterials.WORK_SPOT)
-	var f: RefCounted = _create(base + right * 10 * B, "electric_furnace", GameMaterials.WORK_BLOCK)
+	_create(base + right * 9 * B, "cable", GameMaterials.WORK_SPOT)   # the turbine is 3 blocks wide
+	_create(base + right * 10 * B, "cable", GameMaterials.WORK_SPOT)
+	var f: RefCounted = _create(base + right * 11 * B, "electric_furnace", GameMaterials.WORK_BLOCK)
 	f.use({"id": "raw_meat", "count": main.items.units("raw_meat")})
 	return "boiler, pipe, turbine, 2 cables, electric furnace from %s" % base
 

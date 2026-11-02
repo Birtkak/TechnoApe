@@ -73,7 +73,12 @@ func look_lines() -> Array[String]:
 func view_parts() -> Dictionary:
 	var size := Vector3i(8, 8, 8)
 	var c := WorkPalette.new_cells(size)
-	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(8, 7, 8), WorkPalette.TIN)
+	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(8, 7, 8), WorkPalette.STEEL)   # a steel case in an iron frame (ADR 0129)
+	for q in [Vector2i(0, 0), Vector2i(7, 0), Vector2i(0, 7), Vector2i(7, 7)]:
+		WorkPalette.box(c, size, Vector3i(q.x, 0, q.y), Vector3i(q.x + 1, 7, q.y + 1), WorkPalette.IRON_DARK)
+	WorkPalette.box(c, size, Vector3i(0, 6, 0), Vector3i(8, 7, 8), WorkPalette.IRON_DARK)
+	WorkPalette.box(c, size, Vector3i(1, 6, 1), Vector3i(7, 7, 7), WorkPalette.STEEL)
+	WorkPalette.hazard_box(c, size, Vector3i(1, 5, 7), Vector3i(7, 6, 8))
 	WorkPalette.box(c, size, Vector3i(1, 7, 1), Vector3i(3, 8, 3), WorkPalette.COPPER)
 	WorkPalette.box(c, size, Vector3i(5, 7, 5), Vector3i(7, 8, 7), WorkPalette.COPPER)
 	var h := clampi(int(round(frac() * 6.0)), 0, 6)

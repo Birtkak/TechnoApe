@@ -291,3 +291,20 @@ func test_crusher_recipes_match_the_crusher() -> void:
 		assert_str(hit[0]["output"]["id"]).is_equal(crushed)
 		assert_int(int(hit[0]["output"]["count"])).is_equal(2)
 		assert_float(float(hit[0]["seconds"])).is_equal(Settings.ore_crusher_crush_s)
+
+
+## Every station and machine shows in the browser: U on it lists what it works or goes into (ADR 0115).
+func test_every_station_and_machine_has_uses() -> void:
+	b.set_mining(MiningTable.load_default())
+	var none := []
+	# they make, store or light with steam or power, or move items in the world: no recipe runs in them
+	var no_recipes := ["small_boiler", "steel_boiler", "steam_turbine", "compressor", "battery_box", "electric_lamp",
+		"hopper", "chute", "belt", "rail"]
+	for id in items.all_ids():
+		var d := items.get_def(id)
+		if (d.has("work") or "station" in d.get("tags", [])) and not id in no_recipes and b.uses_for(id).is_empty():
+			none.append(id)
+	assert_array(none).is_empty()
+	assert_array(b.catalysts("smelting")).contains(["electric_furnace"])
+	assert_bool(b.show("loom", "uses")).is_true()
+	assert_bool(b.view["categories"].any(func(c: Dictionary) -> bool: return "weave_linen" in c["recipes"])).is_true()
