@@ -217,6 +217,7 @@ void FineGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("height_at", "x", "z"), &FineGen::height_at);
     ClassDB::bind_method(D_METHOD("biome_at", "x", "z"), &FineGen::biome_at);
     ClassDB::bind_method(D_METHOD("column_info", "x", "z"), &FineGen::column_info);
+    ClassDB::bind_method(D_METHOD("cave_biome_at", "x", "y", "z"), &FineGen::cave_biome_at);
     ClassDB::bind_method(D_METHOD("generate_block", "origin", "size", "lod", "bytes_per_voxel"), &FineGen::generate_block, DEFVAL(2));
     ClassDB::bind_method(D_METHOD("set_uniform_blocks", "on"), &FineGen::set_uniform_blocks);
     ClassDB::bind_static_method("FineGen", D_METHOD("gen_stats"), &FineGen::gen_stats);
@@ -363,6 +364,23 @@ int FineGen::height_at(int x, int z) const {
 }
 
 int FineGen::biome_at(int x, int z) const { return g_->biome_at(floor_div(x, FS), floor_div(z, FS)); }
+
+// The cave biome at (x, y, z) when that voxel is cave air under the ground (the bands the generator dresses and pools
+// with: column climate, depth under the ground, the 3D cave noise); "" for rock, open air or water.
+String FineGen::cave_biome_at(int x, int y, int z) const {
+    const int h = height_at(x, z);
+    if (y >= h) return String();
+    const PackedByteArray b = generate_block(Vector3i(x, y, z), Vector3i(1, 1, 1), 0, 2);
+    if (b.size() >= 2 && (b[0] | (b[1] << 8)) != Mat::AIR) return String();   // an empty block is all air
+    const int mx = floor_div(x, FS), mz = floor_div(z, FS);
+    const WorldGen::Column col = g_->column_base(mx, mz, false);
+    const int ti = technosim_biome::band_of(technosim_biome::TEMP_BAND_MAX, col.t);
+    const int hi = technosim_biome::band_of(technosim_biome::HUM_BAND_MAX, col.h);
+    const float cn = g_->n_cavebiome_.GetNoise((float)mx, (float)y / FS, (float)mz);
+    const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)(h - y) / FS, technosim_biome::DEPTH_BAND_COUNT);
+    const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
+    return String(technosim_biome::NAMES[technosim_biome::cave_biome(ti, hi, di, ni)]);
+}
 
 Dictionary FineGen::column_info(int x, int z) const {
     Dictionary d = g_->column_info(floor_div(x, FS), floor_div(z, FS));
@@ -787,6 +805,46 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
             if (std::max({std::fabs(e0 - s.ground), std::fabs(e1 - s.ground)}) > 2.0f) continue;
             out.push_back(s);
         }
+    // Ore outcrops: over a vein within 16 m of the ground 2-4 crags of the local rock 1-2 m tall stand within ~12 m of
+    // its centre, veined with the vein's ore (one crag over a vein down to 50 m): the find that says "dig here".
+    {
+        constexpr int VC = technosim_ore::CELL * FS, OM = 24;   // vein cells (fine voxels); a crag reaches ~20 voxels
+        for (int cz = floor_div(z_lo - VC / 2 - OM, VC); cz <= floor_div(z_hi + VC / 2 + OM, VC); cz++)
+            for (int cx = floor_div(x_lo - VC / 2 - OM, VC); cx <= floor_div(x_hi + VC / 2 + OM, VC); cx++) {
+                WorldGen::Vein v;
+                if (!g.vein_at_cell(cx, cz, v)) continue;
+                const float vx = (float)(v.x * FS + 2), vz = (float)(v.z * FS + 2);
+                if (vx + 14 * 8 + OM < x_lo || vx - 14 * 8 - OM > x_hi || vz + 14 * 8 + OM < z_lo || vz - 14 * 8 - OM > z_hi) continue;
+                const WorldGen::Column vc = g.column_base(v.x, v.z, false);
+                if (vc.height - v.y > 100) continue;
+                const uint32_t vs = h3(cx, cz, g.seed_ + 647);
+                const int n = vc.height - v.y <= 32 ? 2 + (int)(vs % 3) : 1;   // a deep vein (16-50 m) shows one crag
+                for (int i = 0; i < n; i++) {
+                    const uint32_t hs = h3(cx * 7 + i, cz, g.seed_ + 653);
+                    const float an = (float)(hs & 1023) / 1023.0f * 6.2832f, d = 24.0f + (float)((hs >> 10) & 63) * 1.1f;
+                    const float fx = vx + std::cos(an) * d, fz = vz + std::sin(an) * d;
+                    if (fx + OM < x_lo || fx - OM > x_hi || fz + OM < z_lo || fz - OM > z_hi) continue;
+                    const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
+                    const WorldGen::Column cc = g.column_base(mx, mz, false);   // each crag on dry land (the centre may be a river)
+                    if (cc.height <= g.sea_ + 1 || cc.alpine) continue;
+                    const WorldGen::Hydro hy = g.hydro_at(mx, mz, cc.height);
+                    if (hy.river > 0.05f || hy.lake || hy.puddle || g.ravine_near(mx, mz, 3)) continue;
+                    bool blocked = false;
+                    for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP);
+                    if (blocked) continue;
+                    FStamp s{};
+                    s.kind = OUTCROP;
+                    s.seed = hs;
+                    s.x = fx;
+                    s.z = fz;
+                    s.size = 4.0f + (float)((hs >> 16) & 7) * 0.6f;   // half width 4-8 voxels, twice as tall
+                    s.r = s.size;
+                    s.wood = (uint16_t)technosim_ore::PRIMARY[v.type];
+                    s.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
+                    out.push_back(s);
+                }
+            }
+    }
     // Giant flowers (bug report 2026-11-02 18-57-25, "tree sized flowers in the flower meadow"): about one per
     // 8 m cell of the meadow, a 3.5-5.5 m stalk under a 2.5-3.5 m red head (stamp_voxel draws it).
     constexpr int GC = 64, GM = 26;
@@ -1022,6 +1080,17 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
                 if ((float)((hh >> 12) & 1023) / 1024.0f < technosim_biome::DECOR_LOG_MUSHROOMS[s.biome]) return (hh >> 8) % 3 == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN;
             }
             return Mat::AIR;
+        }
+        case OUTCROP: {
+            // a jagged crag leaning a little, ore in streaks through it (a third of the voxels near its skin)
+            const float lean = 0.25f * (float)(((s.seed >> 20) & 7) - 3.5f) / 3.5f;
+            const float cy = (float)s.ground + s.size * 0.3f, ry = s.size * 1.6f + grow, rx = s.size + grow, rz = s.size * 0.8f + grow;
+            const float ex = (dx - lean * (fy - cy)) / rx, ey = (fy - cy) / ry, ez = dz / rz;
+            const float e = ex * ex + ey * ey + ez * ez;
+            const float wob = ((float)(h3((int)std::floor(x) >> 1, y >> 1, (int)std::floor(z) >> 1) & 15) / 15.0f - 0.5f) * 0.45f;
+            if (e > 1.0f + wob || fy < (float)s.ground - 3.0f) return Mat::AIR;
+            const uint32_t oh = h3((int)std::floor(x + z * 0.5f) >> 1, y, (int)s.seed);   // streaks: shared along a diagonal
+            return (e > 0.35f && (oh % 3) == 0) ? s.wood : Mat::STONE;
         }
         case GIANT_FLOWER: {
             // a stalk that leans into a curve, two long leaves, and a head tipped toward the lean: a domed
@@ -2106,6 +2175,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                     const int n_solid = cell_top - wy + 1;
                     const int n_soil = std::clamp(soil + 1 - d_top, 0, n_solid);
                     const int depth = h - wy;
+                    bool dressed = false;   // cave dressing stands in cave air: no conduit liquid replaces it
                     if (cave[y + 1]) {
                         mat = (wy < sea - 180 * FS) ? Mat::LAVA_STATIC : Mat::AIR;   // the deep lava sea: still until opened (ADR 0069 C)
                         if (mat == Mat::AIR && crystal_h > 0) {
@@ -2143,6 +2213,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                                     dress_biome = ad < technosim_biome::SOIL_DEPTH * FS ? -1 : technosim_biome::cave_biome(ti, hi, di, ni);
                                 }
                                 if (dress_biome >= 0) mat = cave_dressing(dress_biome, wx, wz, df, dc, Mat::STONE);   // stone becomes the local rock below
+                                dressed = mat != Mat::AIR;
                             }
                         }
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
@@ -2189,7 +2260,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                     // a conduit's tube or chamber through the rock (ADR 0110): still liquid, the chamber round a
                     // core of spring stone / magma heart; the ground's top 4 m stays rock, so a tail seeps out
                     // of a valley wall, never the lawn
-                    if ((ncand > 0 || nscand > 0) && mat != Mat::AIR && mat != Mat::BEDROCK && depth > 8 * FS) {
+                    if ((ncand > 0 || nscand > 0) && !dressed && mat != Mat::AIR && mat != Mat::BEDROCK && depth > 8 * FS) {
                         const float px = (float)wx + 0.5f, py = (float)wy + 0.5f, pz = (float)wz + 0.5f;
                         for (int q = 0; q < nscand; q++) {
                             const CSrc &sc = csrcs[scand[q]];
