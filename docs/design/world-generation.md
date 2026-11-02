@@ -411,3 +411,22 @@ The developer asked for a cave overhaul with the choices left open. Nothing new 
 - Near coasts the base height follows an estimated distance to the coastline: beach and berm, foreshore,
   sandbar, shelf; beaches only within 15-26 m of the sea; sea floor sand / mud / gravel by depth and patches
   (`WorldGen::seabed`). Supersedes the flat shelf of GEN_VERSION 11 near the shore.
+
+## Giant flowers, lush jungle, crooked sticks, plants over open tops (2026-11-02, next GEN_VERSION)
+Asked for in bug reports 2026-11-02 18-55-21, 18-57-25, 18-54-25 and 18-49-07.
+- **Plants over open cave tops**: a block over the ground had no cave field (it was skipped above the
+  footprint's macro height), so it never saw the open top the block below carved and kept its grass in mid
+  air. The field is now built for blocks up to `VEG_REACH` (2 m) over the highest ground and reaches down to
+  open_top's depth under the lowest column whose plants can reach the block; it stops at the block's highest
+  ground (nothing is carved above it), which pays for the extra blocks.
+- **Giant flowers** (`FineGen::GIANT_FLOWER` stamps): ~55 % of the 8 m cells of the flower meadow, a 3.5-5.5 m
+  stalk that leans into a curve, two arching leaves, a head tipped toward the lean: a domed yellow heart and
+  6-8 red petals that cup upward, 2.5-3.5 m across. Materials 124 giant_stem (rigid wood: fells like a trunk),
+  125 giant_petal and 126 giant_heart (rigid leaf), on the plant stem, poppy and dandelion tiles.
+- **Jungle**: waist-high ferns over half the floor and grass between, leaf litter only in patches (the floor
+  stays green); leafy bushes 0.45-1 m in nearly every featured 2 m cell; young trees at the full tree density
+  (a middle storey); vines of jungle leaves hanging 0.5-2.3 m from one column in ~28 under each clump.
+- **Sticks**: the shaft bends once off its middle and thins to a voxel at both ends; the forked twig carries a
+  sprig, and three in four sticks have a second, shorter twig on the other side.
+- Check: `test_fine_gen_lod.gd` (no plant in mid air at the report's spot; the meadow grows all three
+  giant flower parts).

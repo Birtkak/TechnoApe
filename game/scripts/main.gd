@@ -29,6 +29,7 @@ var _save_accum := 0.0
 var _loading: LoadingScreen
 var startup_ms := {}   # ms since _ready began, per startup step (printed, and in DebugCapture's JSON)
 var farming: Farming                 # tilled farmland and crops (ADR 0022)
+var saplings: Saplings               # planted saplings growing into trees (ADR 0112)
 var pieces: FallingPieces            # rigid voxel pieces (P12), null with rigid_pieces=0
 var builder: ShapeBuilder            # shape building, box mode, prefabs (ADR 0038)
 var survival: Survival               # hunger, body temperature, food spoilage (ADR 0040)
@@ -125,6 +126,14 @@ func _ready() -> void:
 	farming.is_editable = world.is_editable
 	if Settings.persist_world:
 		farming.load_dict(_load_json(_save_path("farms")))
+	saplings = Saplings.load_default()
+	for err in saplings.errors:
+		push_error("data: " + err)
+	saplings.get_voxel = func(p: Vector3i) -> int: return bubble.get_voxel(p) if bubble else -1
+	saplings.fill_box = func(lo: Vector3i, hi: Vector3i, m: int) -> int: return bubble.fill_box(lo, hi, m)
+	saplings.fill_ball = func(c: Vector3, r: float, m: int) -> void: bubble.blast(c, r, m, PackedInt32Array([GameMaterials.AIR]))
+	if Settings.persist_world:
+		saplings.load_dict(_load_json(_save_path("saplings")))
 	mark.call("data")
 
 	player = Player.new()
@@ -646,6 +655,7 @@ func _physics_process(delta: float) -> void:
 		t0 = Time.get_ticks_usec()
 		farming.season_growth = atmosphere.calendar.crop_growth()   # crops rest in winter (ADR 0025)
 		_spawn_drop_events(farming.tick(ticks))
+		saplings.tick(ticks * BlockEntities.TICK_S)
 		phys_cost["farm"] = maxf(float(phys_cost.get("farm", 0.0)), (Time.get_ticks_usec() - t0) / 1000.0)
 	_save_accum += delta
 	if _save_accum >= 30.0:
@@ -703,6 +713,9 @@ func _save_blocks() -> void:
 	if farming != null and farming.dirty:
 		_save_json(_save_path("farms"), farming.to_dict())
 		farming.dirty = false
+	if saplings != null and saplings.dirty:
+		_save_json(_save_path("saplings"), saplings.to_dict())
+		saplings.dirty = false
 	if mobs != null:
 		mobs.save_file(_save_path("mobs"))   # animals move all the time: always written
 	if atmosphere != null:
@@ -1298,6 +1311,7 @@ func _on_placed(p: Vector3i, material: int) -> void:
 		return
 	set_world_voxel(p, material)
 	_spawn_drop_events(farming.on_placed(p, material))
+	saplings.on_placed(p, material)
 	if material > 0:
 		stains.clear_cell(p)   # a filled cell's old stain must not come back when it is mined
 		var d: Dictionary = GameMaterials.defs()[material - 1]
@@ -1654,11 +1668,11 @@ func _place_debug_stations() -> void:
 	fwd.y = 0
 	fwd = fwd.normalized()
 	var right := fwd.cross(Vector3.UP)
-	var base := player.position + fwd * 4.0
+	var base := player.position + fwd * Settings.m2v(2.0)   # metres: the 1 m stations (8 voxels) need room
 	var kinds := [["crafting_table", GameMaterials.CRAFTING_TABLE], ["chest", GameMaterials.CHEST], ["furnace", GameMaterials.FURNACE]]
 	var spots: Array[Vector3i] = []
 	for i in kinds.size():
-		var q := base + right * (i - 1) * 2.0
+		var q := base + right * (i - 1) * Settings.m2v(1.5)
 		var x := int(floor(q.x))
 		var z := int(floor(q.z))
 		spots.append(Vector3i(x, world.surface_height(x, z) + 1, z))
@@ -1672,14 +1686,20 @@ func _place_debug_stations() -> void:
 			break
 		await get_tree().process_frame
 	for i in kinds.size():
+		# climb out of what surface_height does not see (the spawn monolith), to the first spot with room
+		var kind: String = GameMaterials.defs()[kinds[i][1] - 1]["entity"]
+		for _up in 40:
+			if BlockEntities.footprint_of(kind, spots[i]).all(func(c: Vector3i) -> bool: return PlantStamps.is_clearable_cell(get_world_voxel(c))):
+				break
+			spots[i].y += 1
 		var x := spots[i].x
 		var y := spots[i].y
 		var z := spots[i].z
 		_on_placed(Vector3i(x, y, z), kinds[i][1])
 		var e: RefCounted = blocks.at(Vector3i(x, y, z))
 		if e is FurnaceEntity:
-			e.inv.set_slot(FurnaceEntity.INPUT, {"id": "iron_ore", "count": 8})
-			e.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 1})
+			e.inv.set_slot(FurnaceEntity.INPUT, {"id": "cobblestone", "count": 64})   # iron ore wants a bloomery now
+			e.inv.set_slot(FurnaceEntity.FUEL, {"id": "coal", "count": 64})   # a burn takes items.units() of each
 		elif e is ChestEntity:
 			e.inv.set_slot(0, {"id": "oak_log", "count": 32})
 			e.inv.set_slot(4, {"id": "cobblestone", "count": 64})
@@ -2019,6 +2039,7 @@ func snapshot() -> Dictionary:
 		"projectiles": projectiles.stats if projectiles else {},
 		"gadgets": gadgets.stats if gadgets else {},
 		"tnt": tnt.snapshot() if tnt else {},
+		"networks": Networks.stats,
 		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size()}),
 		"weather": weather.summary() if weather else {},
 		"map": world_map.summary(),

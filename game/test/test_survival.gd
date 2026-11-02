@@ -118,3 +118,25 @@ func test_fire_cells_give_heat_by_distance() -> void:
 	var far := float(_probe(sim, Vector3i(32, 20, 32))["heat"])
 	assert_float(near).is_greater(far)
 	assert_float(far).is_greater(0.0)
+
+
+## A dart frog's touch (bug 2026-11-02_18-54-25): one health per poison_every_s, never the last one, wearing off;
+## a second touch refreshes it without stacking, and the HUD reads it from status().
+func test_poison_hurts_then_wears_off() -> void:
+	var s: Survival = auto_free(Survival.new())
+	var inv := PlayerInventory.new(items, RecipeRegistry.load_default(items))
+	s.poison(6.0)
+	s.poison(2.0)
+	assert_float(s.poison_s).is_equal(6.0)
+	assert_str(s.status()).is_equal("Poisoned")
+	for i in 70:
+		s._poison_step(0.1, inv)
+	assert_float(s.poison_s).is_equal(0.0)
+	assert_int(inv.health).is_equal(20 - int(6.0 / Settings.poison_every_s))
+	assert_str(s.status()).is_not_equal("Poisoned")
+	inv.health = 2
+	s.poison(30.0)
+	for i in 300:
+		s._poison_step(0.1, inv)
+	assert_int(inv.health).is_equal(1)
+	s._poison_step(0.1, null)   # creative: it wears off without hurting
