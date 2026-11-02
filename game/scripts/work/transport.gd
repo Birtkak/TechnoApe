@@ -36,6 +36,8 @@ static func give(e: RefCounted, stack: Dictionary, items: ItemRegistry) -> int:
 		return int(e.use(one, items.get_def(one["id"]))["consume"])
 	if e is SteamSieveEntity:   # the steam sieve and the ore crusher load by the block
 		return int(e.use(items.get_def(one["id"]), null)["consume"])
+	if e is MachineEntity or e is ElectricFurnaceEntity:   # LV machines (ADR 0113, 0117) load like a hand would
+		return int(e.use(one)["consume"])
 	if e is AnvilEntity and Inventory.heat_of(one) >= Settings.smith_min_heat and not e.has_piece():
 		return 0   # shortcut: a hot ingot on a hammer needs a shape picked; a player does that
 	return 0
@@ -60,6 +62,10 @@ static func pull(e: RefCounted) -> Dictionary:
 		return out
 	if e is FirepitEntity:
 		return e.inv.take(FirepitEntity.OUTPUT, 1)
+	if e is MachineEntity:
+		return e.take_one()
+	if e is ElectricFurnaceEntity:
+		return e.inv.take(FurnaceEntity.OUTPUT, 1)
 	if e is ChestEntity or e is HopperEntity:
 		for i in e.inv.size():
 			if not e.inv.is_empty_slot(i):

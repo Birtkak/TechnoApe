@@ -95,9 +95,16 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		# the energy network (ADR 0113)
 		"cable":
 			e = CableEntity.new(pos)
-		"electric_furnace", "lathe", "bending_press", "wiremill":   # tier-1 machines: the item's "machine" key
+		"electric_furnace":
+			e = ElectricFurnaceEntity.new(items, recipes, pos)
+			_ticking.append(e)
+		"lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler":   # LV machines: the item's "machine" key and process recipes (ADR 0117)
 			e = MachineEntity.new(items, recipes, pos, kind)
 			_ticking.append(e)
+		"battery_box":
+			e = BatteryBoxEntity.new(pos)
+		"electric_lamp":
+			e = ElectricLampEntity.new(pos)
 		# stage 3 transport (ADR 0100)
 		"hopper":
 			e = HopperEntity.new(self, pos)
@@ -139,12 +146,12 @@ const SINGLE := []   # entities that are one voxel (torches have their own cells
 ## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
 ## a knapping stone or a mold on the ground is one voxel high, a firepit two.
 const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 2, "assembly": 1, "laid_tool": 1, "anvil": 6, "bronze_anvil": 6,
-	"boiler": 4, "steam_hammer": 9, "pipe": 2, "ore_crusher": 5, "tank": 6, "belt": 2, "rail": 1, "cable": 1}
+	"boiler": 4, "steam_hammer": 9, "pipe": 2, "ore_crusher": 5, "tank": 6, "belt": 2, "rail": 1, "cable": 1, "electric_lamp": 12}
 ## Work pieces bigger than one 0.5 m block: their footprint width and height multiply by this many blocks
 ## (the stations' 1 m scale, ADR 0076; the steam age's 1.5 m hammer and 2.5 m boiler, ADR 0097). A view
 ## of 8 cells still spans the width, so a 1 m piece's cell is a voxel; a bigger piece names its own grid.
 const SCALE := {"firepit": 2, "forge": 2, "bloomery": 2, "anvil": 2, "bronze_anvil": 2, "steam_hammer": 3, "boiler": 5,
-	"blast_furnace": 3, "ore_crusher": 2, "tank": 2, "turbine": 2, "compressor": 2, "electric_furnace": 2, "lathe": 2, "bending_press": 2, "wiremill": 2}
+	"blast_furnace": 3, "ore_crusher": 2, "tank": 2, "turbine": 2, "compressor": 2, "electric_furnace": 2, "lathe": 2, "bending_press": 2, "wiremill": 2, "macerator": 2, "alloy_smelter": 2, "assembler": 2, "battery_box": 2}
 
 
 ## Footprint width in voxels of a work piece kind.
@@ -269,7 +276,7 @@ func all_furniture() -> Array:
 
 const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave",
 	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile", "boiler", "pipe", "steam_hammer", "steam_sieve",
-	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill"]
+	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp"]
 
 
 ## The machines a boiler's pipes feed (ADR 0097): everything with a `boiler` slot.

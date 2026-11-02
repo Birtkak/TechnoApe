@@ -45,7 +45,9 @@ const KITS := {
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64, "fire_essence": 16},
 	"electric": {"small_boiler": 1, "bronze_pipe": 4, "steam_turbine": 1, "copper_cable": 16, "electric_furnace": 1, "coal": 32, "water_bucket": 4,
 		"raw_meat": 8, "iron_ore": 8, "firestarter": 1, "lathe": 1, "bending_press": 1, "wiremill": 1, "iron_ingot": 8, "copper_ingot": 8,
-		"primitive_circuit": 4, "machine_hull": 2, "electric_motor": 2, "rubber": 16, "insulated_wire": 16},   # the energy network and the electrical age (ADR 0113)
+		"primitive_circuit": 4, "machine_hull": 2, "electric_motor": 2, "rubber": 16, "insulated_wire": 16,
+		"macerator": 1, "alloy_smelter": 1, "assembler": 1, "battery_box": 1, "electric_lamp": 4, "tin_nugget": 12, "copper_ore": 4, "vacuum_tube": 4,
+		"resistor": 2, "coated_board": 2},   # the energy network and the electrical age (ADR 0113, 0117)
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
 	"tnt": {"tnt": 64, "igniter": 1, "flint_and_steel": 1, "sulfur": 8, "charcoal": 4, "sand": 2},   # TNT (ADR 0065)

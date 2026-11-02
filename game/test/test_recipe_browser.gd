@@ -248,6 +248,7 @@ func test_main_saves_bookmarks_with_the_player() -> void:
 
 func test_process_recipes_tab_under_their_station() -> void:
 	assert_bool(b.show("crushed_iron_ore", "recipes")).is_true()
+	assert_bool(b.show_recipe("crush_iron_ore")).is_true()   # the macerator makes crushed ore too (ADR 0117): pick the crusher's
 	assert_str(b.current_category()["id"]).is_equal("station:ore_crusher")
 	assert_str(b.category_title("station:ore_crusher")).is_equal("Ore Crusher")
 	assert_array(b.catalysts("station:ore_crusher")).is_equal(["ore_crusher"])
