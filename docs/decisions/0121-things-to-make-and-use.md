@@ -11,7 +11,7 @@ pre-electric or decorative: food and cooking, tool and armour tiers, furniture a
 - **Metal tiers.** Steel knife, axe, shovel, hoe, hammer and saw: smithed steel heads (iron's shapes on a
   steel ingot) put together at the crafting table like the steel pickaxe (ADR 0099); tier 4, 1.6x iron's uses.
   Helmet, chestplate and boots in bronze, iron and steel with copper's patterns and rising armour
-  (bronze 2/6/2, iron 3/7/3, steel 4/8/3). Bronze, iron and steel spears hit 5/6/7 and throw 9/11/13 (flint 4/7).
+  (bronze 2/6/2, iron 3/7/3, steel 4/8/3). Bronze, iron and steel spears hit 5/6/7 and throw 9/11/13 (flint 4/7); like every metal-age tool their heads are smithed (a leaf blade on one ingot), then hafted: bronze and iron on the ground with two sticks, steel at the crafting table.
   Written by `game/tools/content_tiers.py`. Eight bronze ingots now make a chestplate (layout-free crafting,
   ADR 0046), so the bronze anvil test checks nine for "nothing".
 - **Meals with buffs.** The firepit cooking pot (stew's path) makes porridge (wheat, einkorn or emmer x3),
@@ -26,6 +26,20 @@ pre-electric or decorative: food and cooking, tool and armour tiers, furniture a
   birch and acacia grew, a spruce next to a monolith pillar waited. The trunk's lowest 0.5 m may grow into soil
   (slopes); `/sapling grow` says why the last sapling is blocked. Scripted `later=` runs print each command's
   reply on stdout.
+- **Furniture and storage (batch 2).** Door, trapdoor, fence, fence gate, table, bench, shelf and sign in each
+  of spruce, acacia, jungle and birch: `<wood>_<kind>` is the oak model with its planks repainted
+  (`FurnitureEntity.WOODED`, 8 new paints), made from that wood's planks; the oak pieces now take oak planks.
+  New: a two-seat bench, a tallow candle (lights like a lantern), red and blue wool rugs (dyed with a
+  strawberry or a cornflower) and a straw mat, flat with one voxel of collision. Signs keep a line of text
+  (60 characters, saved): a right click opens chat with `/sign `, the look-at panel shows it. The barrel
+  (material 216, a StationEntity model) is an 18-slot ChestEntity between the storage pot and the chest.
+  No stairs or slabs per wood: the shape builder cuts any block. `/furniture <kind>` places one for checks.
+  Written by `game/tools/content_furniture.py` and `content_rugs.py`.
+- **Crops.** Potatoes, onions and beans grow on farmland, each its own seed; wild ones drop from tall grass
+  (1.5-2 %). A baked potato (firepit or furnace) and a vegetable soup (any of the four vegetables x3, warms
+  like porridge). Written by `game/tools/content_crops.py`.
 
 ## Consequences
+- The new crops borrow the carrot's growth looks; their own looks need material ids from 217..227 and
+  atlas tiles 180..191 (both still free).
 - Buffs are one per kind; a status HUD row for them is left to the HUD owner (the toast and `/survival` show them).

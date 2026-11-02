@@ -189,7 +189,7 @@ func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
 	var raw := ["oak_log", "spruce_log", "acacia_log", "jungle_log", "birch_log", "cobblestone", "sand", "iron_ore", "copper_ore", "tin_ore", "coal", "mana_dust", "fire_essence", "wand_basic", "dirt", "gravel", "grass_block",
 		"wool", "raw_meat", "wheat", "carrot", "wheat_seeds",   # animal drops and wild crops (ADR 0022)
 		"flint", "loose_stone", "loose_copper_ore", "clay_ball", "dry_grass",   # ground pickups, clay, cut grass (ADR 0023)
-		"pumpkin", "blueberry",   # wild pumpkin patches, blueberry bushes (ADR 0024)
+		"pumpkin", "blueberry", "wild_strawberry", "potato", "onion", "beans",   # wild pumpkin patches, blueberry bushes (ADR 0024), meadow strawberries
 		"egg", "feather", "bone", "bear_hide",   # chickens, carcasses, bears (ADR 0027)
 		"plant_fiber", "raw_hide",   # grass by hand, sheep and pigs (ADR 0030)
 		"animal_fat", "pyrite", "red_ochre", "yellow_ochre", "antler", "einkorn_seeds", "emmer_seeds", "flax_seeds"]   # drops and part E's finds (ADR 0059)

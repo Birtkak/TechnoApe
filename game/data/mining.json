@@ -43,7 +43,7 @@
     "terracotta_red":   {"hardness": 1.25, "tool": "pickaxe", "requires": true, "drops": "terracotta_red", "drop_tier": 1, "built": true},
     "terracotta_cream": {"hardness": 1.25, "tool": "pickaxe", "requires": true, "drops": "terracotta_cream", "drop_tier": 1, "built": true},
     "basalt":       {"hardness": 1.25, "tool": "pickaxe", "requires": true, "drops": "basalt", "drop_tier": 1},
-    "tall_grass":   {"hardness": 0.0, "drops": [{"id": "dry_grass", "tool": "knife"}, {"id": "plant_fiber", "chance": 0.3}, {"id": "wheat_seeds", "chance": 0.04}, {"id": "einkorn_seeds", "chance": 0.03}, {"id": "emmer_seeds", "chance": 0.02}, {"id": "flax_seeds", "chance": 0.02}]},
+    "tall_grass":   {"hardness": 0.0, "drops": [{"id": "beans", "chance": 0.02}, {"id": "onion", "chance": 0.015}, {"id": "potato", "chance": 0.015}, {"id": "dry_grass", "tool": "knife"}, {"id": "plant_fiber", "chance": 0.3}, {"id": "wheat_seeds", "chance": 0.04}, {"id": "einkorn_seeds", "chance": 0.03}, {"id": "emmer_seeds", "chance": 0.02}, {"id": "flax_seeds", "chance": 0.02}]},
     "savanna_tall_grass": {"hardness": 0.0, "drops": [{"id": "dry_grass", "tool": "knife"}, {"id": "plant_fiber", "chance": 0.3}, {"id": "wheat_seeds", "chance": 0.04}, {"id": "einkorn_seeds", "chance": 0.03}, {"id": "emmer_seeds", "chance": 0.02}, {"id": "flax_seeds", "chance": 0.02}]},
     "flower":       {"hardness": 0.0, "drops": "dandelion"},
     "flower_red":   {"hardness": 0.0, "drops": "poppy"},
