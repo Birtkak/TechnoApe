@@ -597,6 +597,13 @@ func _input(event: InputEvent) -> void:
 			if sv != null:
 				player_inv.wheel_move(sv.group, sv.index, event.button_index == MOUSE_BUTTON_WHEEL_DOWN)
 				get_viewport().set_input_as_handled()
+		elif event.button_index == MOUSE_BUTTON_MIDDLE and event.pressed and _slot_at(event.position) != null:
+			# Inventory Tweaks (ADR 0130): middle click sorts the section under the mouse, as its Sort button does
+			if _slot_at(event.position).group == "container" and _container is ChestEntity:
+				player_inv.sort_container()
+			elif _slot_at(event.position).group == "inv":
+				player_inv.sort_inventory()
+			get_viewport().set_input_as_handled()
 		elif event.button_index == MOUSE_BUTTON_LEFT and event.pressed and event.double_click and _slot_at(event.position) != null:
 			# vanilla double click (ADR 0130): gather the cursor's item from every slot; with shift, move every stack
 			# of the clicked item across. The first click of the pair already ran as a normal click.
