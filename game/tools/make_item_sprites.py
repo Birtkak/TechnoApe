@@ -1101,6 +1101,12 @@ PALETTES["jungle_wood"] = ramp("#3a1a26", "#7a4040", "#9e6252", "#b87c62", "#d29
 PALETTES["birch_wood"] = ramp("#5a5040", "#b0a07c", "#d0c09a", "#e4d6b2", "#f6ecce")
 sp("bench", ("bench", "wood"))
 sp("candle", ("candle", "wax"))
+shape("sign", outline(art([
+    "................", "................", "................", "................",
+    ".dddddddddddddd.", ".dllllllllllllm.", ".dlmmdmmddmdmlm.", ".dllllllllllllm.",
+    ".dddddddddddddd.", ".dllllllllllllm.", ".dlmddmdmmddmlm.", ".dllllllllllllm.",
+    ".dmmmmmmmmmmmmm.", "................", "................", "................"])))
+sp("sign", ("sign", "wood"))
 # rugs (ADR 0121): a rug seen from above at a slant, fringe at both ends (ADR 0129 ramps: cool shadows, warm lights)
 shape("rug", outline(art([
     "................", "................", "................", "...h.h.h.h.h.h..",
@@ -1118,7 +1124,7 @@ sp("red_rug", ("rug", "red_rug"))
 sp("blue_rug", ("rug", "blue_rug"))
 sp("straw_mat", ("mat", "straw"))
 for w in ("spruce", "acacia", "jungle", "birch"):
-    for k in ("door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf"):
+    for k in ("door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf", "sign"):
         sp(w + "_" + k, (k, w + "_wood"))
 sp("wheat_seeds", ("seeds", "seed"))
 sp("wheat", ("sheaf", "straw"))

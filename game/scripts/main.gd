@@ -78,6 +78,7 @@ var _merge_accum := 0.0
 var _spawned := false
 var _spawn_xz := Vector2(0, 0)
 var _spawn_pos := Vector3.ZERO
+var sign_at := Vector3i(0, -1 << 20, 0)   # the sign last right clicked: /sign writes on it (ADR 0121)
 var deaths := 0   # apetions lost: the Gelvin monolith numbers each one it rebuilds (docs/design/lore.md)
 var death_screen: DeathScreen
 var _dying := false   # the death and rebuild sequence is running
@@ -185,7 +186,7 @@ func _ready() -> void:
 			return what == "use"   # a stray furniture voxel: _use_furniture clears it
 		var k: Dictionary = FurnitureEntity.KINDS[f.furniture]
 		if what == "use":   # a table or shelf takes no click: a pot or lantern goes on it
-			return FurnitureEntity.sits(f.furniture) or k.get("sleep", false) or f.can_open()
+			return FurnitureEntity.sits(f.furniture) or k.get("sleep", false) or f.can_open() or k.get("write", false)
 		return k.get(what, false)
 
 	_items_root = Node3D.new()
@@ -740,6 +741,8 @@ func _describe_block(p: Vector3i) -> Dictionary:
 
 
 func _describe_entity(e: RefCounted) -> Dictionary:
+	if e is FurnitureEntity and e.text != "":
+		return {"line": "\"%s\"" % e.text}   # a sign's words
 	if e is ChestEntity or (e is FurnaceEntity and not e.has_method("look_lines")):   # what is inside (ADR 0093)
 		var lines := PackedStringArray()
 		if e is ChestEntity and e.label != "":
@@ -1298,6 +1301,10 @@ func _use_furniture(p: Vector3i) -> void:
 		return
 	if e.can_open():
 		toggle_door(e)
+		return
+	if FurnitureEntity.KINDS[e.furniture].get("write", false):
+		sign_at = e.pos
+		chat.open("/sign ")   # the next /sign writes on it
 		return
 	if not FurnitureEntity.KINDS[e.furniture].get("sleep", false):
 		return   # a table, shelf, window...: nothing to use
