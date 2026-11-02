@@ -52,6 +52,14 @@ func _ready() -> void:
 	gas_material.shader = load("res://assets/shaders/terrain_gas.gdshader")
 	for k in ["atlas", "atlas_tiles", "far_fade_start", "far_fade_end", "pattern_tiles", "horizon_start", "horizon_end"]:
 		gas_material.set_shader_parameter(k, atlas_material.get_shader_parameter(k))
+	# every gas its own colour and density (ADR 0119 C4): a copy of the gas material per gas, from data/gas_looks.json
+	var gas_materials := {}
+	var glooks := gas_looks()
+	for d in GameMaterials.defs():
+		if d.get("cell_type", "") in ["gas", "fire"] and glooks.has(d["name"]):
+			var gm: ShaderMaterial = gas_material.duplicate()
+			apply_liquid_look(gm, glooks[d["name"]])
+			gas_materials[d["name"]] = gm
 	prop_material = atlas_material.duplicate()
 	prop_material.shader = load("res://assets/shaders/terrain_prop.gdshader")
 	generator = TerrainGenerator.new()
@@ -72,7 +80,7 @@ func _ready() -> void:
 			apply_liquid_look(fm, looks.get(d["name"], {}))
 			fluid_materials[int(d["fluid_slot"])] = fm
 	var mesher := VoxelMesherBlocky.new()
-	mesher.library = GameMaterials.build_library(atlas_material, liquid_material, fluid_materials, gas_material)
+	mesher.library = GameMaterials.build_library(atlas_material, liquid_material, fluid_materials, gas_material, gas_materials)
 	if mesher.has_method("set_merge_faces"):   # our godot_voxel build (ADR 0106)
 		mesher.set_merge_faces(Settings.merge_faces)
 
@@ -164,6 +172,17 @@ func _ready() -> void:
 
 
 ## data/liquid_looks.json: liquid material name -> fluid shader uniforms (keys starting "_" skipped).
+## data/gas_looks.json: per-gas tint and density for the gas shader (ADR 0119 C4).
+static func gas_looks() -> Dictionary:
+	var data = JSON.parse_string(FileAccess.get_file_as_string("res://data/gas_looks.json"))
+	var out := {}
+	if data is Dictionary:
+		for k in data:
+			if not String(k).begins_with("_") and data[k] is Dictionary:
+				out[k] = data[k]
+	return out
+
+
 static func liquid_looks() -> Dictionary:
 	var data = JSON.parse_string(FileAccess.get_file_as_string("res://data/liquid_looks.json"))
 	var out := {}
@@ -266,6 +285,16 @@ func is_box_loaded(wmin: Vector3i, size: Vector3i) -> bool:
 
 
 ## Writes a 16^3 chunk back (VoxelTool.paste: correct under load, see P5 §C).
+## ADR 0119 B: a box of cells (2 bytes each, VoxelBuffer order) pasted at a world voxel: a wobble of a few cells
+## pastes a few cells instead of its whole chunk.
+func write_box(pos: Vector3i, size: Vector3i, bytes16: PackedByteArray) -> void:
+	var vb := VoxelBuffer.new()
+	vb.create(size.x, size.y, size.z)
+	vb.set_channel_from_byte_array(VoxelBuffer.CHANNEL_TYPE, bytes16)
+	_tool.paste(pos, vb, 1 << VoxelBuffer.CHANNEL_TYPE)
+	edits += 1
+
+
 func write_chunk(wc: Vector3i, bytes16: PackedByteArray) -> void:
 	var vb := VoxelBuffer.new()
 	vb.create(Settings.CHUNK, Settings.CHUNK, Settings.CHUNK)

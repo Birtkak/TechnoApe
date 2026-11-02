@@ -127,3 +127,68 @@ static func surface_heights(w: SimWorld, x0: int, x1: int, z0: int, z1: int, y0:
 					h = 8 * y + (v - GameMaterials.FLUID_LEVEL_BASE) % 8 + 1
 			out[Vector2i(x, z)] = h
 	return out
+
+
+# ---------------- ADR 0119 C: heat, pressure and state ----------------
+
+func _box_world(ambient: float) -> SimWorld:
+	var w := _world()
+	w.set_ambient_c(ambient, true)
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 48, 48), GameMaterials.STONE)
+	return w
+
+
+func test_water_over_lava_boils_to_steam() -> void:
+	var w := _box_world(18.0)
+	w.fill_box(Vector3i(16, 8, 16), Vector3i(32, 24, 32), 0)   # a 16^3 room
+	w.fill_box(Vector3i(16, 8, 16), Vector3i(32, 10, 32), GameMaterials.LAVA_STATIC)   # a lava floor
+	w.fill_box(Vector3i(20, 12, 20), Vector3i(28, 14, 28), GameMaterials.WATER)   # a slab of water over it, not touching
+	w.fill_box(Vector3i(20, 11, 20), Vector3i(28, 12, 28), GameMaterials.STONE)   # on a stone shelf
+	_run(w, 90)
+	var steam := w.count_material(GameMaterials.STEAM)
+	assert_int(steam).override_failure_message("no steam after 3 s over lava (%d)" % steam).is_greater(0)
+	assert_int(int(w.cell_info(Vector3i(24, 13, 24)).get("temp_c", 0))).override_failure_message("the room stayed cold").is_greater(100)
+
+
+func test_steam_condenses_where_it_is_cold() -> void:
+	var w := _box_world(10.0)
+	w.fill_box(Vector3i(16, 8, 16), Vector3i(32, 24, 32), 0)
+	w.fill_box(Vector3i(20, 10, 20), Vector3i(28, 12, 28), GameMaterials.STEAM)
+	_run(w, 30)
+	assert_int(w.count_material(GameMaterials.STEAM)).override_failure_message("steam survives at 10 C").is_equal(0)
+	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).override_failure_message("no drops condensed").is_greater(0)
+
+
+func test_a_sealed_hot_box_stops_boiling_as_its_pressure_rises_and_venting_resumes_it() -> void:
+	var w := _box_world(110.0)   # over water's boiling point at no pressure; a sixth of pressure lifts it past 110
+	w.fill_box(Vector3i(16, 16, 16), Vector3i(32, 32, 32), 0)   # a sealed 16^3 chunk-aligned room
+	w.fill_box(Vector3i(16, 16, 16), Vector3i(32, 20, 32), GameMaterials.WATER)   # a quarter full of water
+	var peak := 0.0
+	var left_at_peak := 0
+	for k in 40:   # steam has a lifetime, so the pressure peaks and falls: read it as it goes
+		_run(w, 10)
+		var p := w.chunk_pressure(Vector3i(24, 24, 24))
+		if p > peak:
+			peak = p
+			left_at_peak = w.count_liquid_eighths(GameMaterials.WATER)
+	assert_float(peak).override_failure_message("no pressure built (%.2f)" % peak).is_greater(0.12)
+	assert_int(left_at_peak).override_failure_message("every cell boiled although the pressure rose").is_greater(0)
+	w.fill_box(Vector3i(32, 16, 20), Vector3i(48, 32, 28), 0)   # vent: the east wall opens into a corridor (as hot: it is one field)
+	_run(w, 120)
+	var escaped := w.count_in_box(Vector3i(32, 16, 20), Vector3i(48, 32, 28), GameMaterials.STEAM)
+	assert_int(escaped).override_failure_message("no steam left through the vent").is_greater(0)
+	assert_float(w.chunk_pressure(Vector3i(24, 24, 24))).override_failure_message("the vented room's pressure rose past its sealed peak").is_less_equal(peak + 0.02)
+
+
+func test_ice_melts_warm_and_water_freezes_cold() -> void:
+	var w := _box_world(12.0)
+	w.fill_box(Vector3i(16, 8, 16), Vector3i(32, 24, 32), 0)
+	w.fill_box(Vector3i(20, 8, 20), Vector3i(28, 10, 28), GameMaterials.ICE)
+	_run(w, 60)
+	assert_int(w.count_material(GameMaterials.ICE)).override_failure_message("ice at 12 C").is_equal(0)
+	var cold := _box_world(-15.0)
+	cold.fill_box(Vector3i(16, 8, 16), Vector3i(32, 24, 32), 0)
+	cold.fill_box(Vector3i(20, 8, 20), Vector3i(28, 10, 28), GameMaterials.WATER)
+	_run(cold, 60)
+	assert_int(cold.count_liquid_eighths(GameMaterials.WATER)).override_failure_message("water at -15 C").is_equal(0)
+	assert_int(cold.count_material(GameMaterials.ICE)).is_greater(0)

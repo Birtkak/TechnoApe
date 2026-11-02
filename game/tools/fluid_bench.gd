@@ -1,6 +1,6 @@
 extends SceneTree
 
-## Fluid benchmark (ADR 0119, headless): the moving-liquid kernel alone, no terrain, no meshing. Two scenes, each
+## Fluid benchmark (ADR 0119, headless): the moving-liquid kernel alone, no terrain, no meshing. Three scenes, each
 ## printed as one JSON line: "basin" (an 8^3 block of water dropped into a 30 x 30 basin: ticks until under 8 cells
 ## move for 10 ticks (films drying are not motion), the surface's spread in eighths, tick ms avg / max) and "bombs" (ten 1.5 m water balls over an uneven
 ## stone floor with pits, one every 15 ticks: ticks to quiet after the last, the most chunks awake in one tick, tick ms).
@@ -113,4 +113,55 @@ func _init() -> void:
 	out["tick_ms_avg_after"] = after["tick_ms_avg"]
 	out["chunks_awake_max_after"] = after["chunks_awake_max"]
 	print(JSON.stringify(out))
+	# lava and water in the open (ADR 0119 C): a 2 m lava ball, then a 1.5 m water ball beside it, on a plain at 18 C:
+	# how many chunks the steam and the lava keep awake, with and without the state pass
+	for states in [false, true]:
+		w = _world(column, 6)
+		w.set_states(states)
+		w.set_ambient_c(18.0, true)
+		w.fill_box(Vector3i(0, 0, 0), Vector3i(96, 10, 96), GameMaterials.STONE)
+		w.fill_sphere(Vector3(40, 20, 48), 8.0, GameMaterials.LAVA, PackedInt32Array())
+		for t in 60:
+			w.tick(1)
+		w.fill_sphere(Vector3(56, 20, 48), 6.0, GameMaterials.WATER, PackedInt32Array())
+		out = {"scene": "lava_water", "states": states}
+		var t_lw := 0
+		for target in [100, 300, 600]:
+			var awake_lw := 0
+			sum = 0.0
+			while t_lw < target:
+				var t0 := Time.get_ticks_usec()
+				var s: Dictionary = w.tick(1)
+				sum += (Time.get_ticks_usec() - t0) / 1000.0
+				awake_lw = maxi(awake_lw, int(s.get("active_chunks_per_tick", 0)))
+				t_lw += 1
+			out["awake_max_to_%d" % target] = awake_lw
+			out["tick_ms_avg_to_%d" % target] = snappedf(sum / 100.0, 0.01) if target == 100 else snappedf(sum / (target - (100 if target == 300 else 300)), 0.01)
+			out["steam_at_%d" % target] = w.count_material(GameMaterials.STEAM)
+		print(JSON.stringify(out))
+	# steam box (ADR 0119 C): a sealed 16^3 room at 110 C with a quarter of water: boiling raises the pressure until it
+	# stops; tick cost with and without the state pass
+	for states in [false, true]:
+		w = _world(column, 3)
+		w.set_states(states)
+		w.set_ambient_c(110.0, true)
+		w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 48, 48), GameMaterials.STONE)
+		w.fill_box(Vector3i(16, 16, 16), Vector3i(32, 32, 32), 0)
+		w.fill_box(Vector3i(16, 16, 16), Vector3i(32, 20, 32), GameMaterials.WATER)
+		out = {"scene": "steam_box", "states": states}
+		sum = 0.0
+		mx = 0.0
+		for t in 300:
+			var t0 := Time.get_ticks_usec()
+			w.tick(1)
+			var ms := (Time.get_ticks_usec() - t0) / 1000.0
+			sum += ms
+			mx = maxf(mx, ms)
+		out["tick_ms_avg"] = snappedf(sum / 300.0, 0.01)
+		out["tick_ms_max"] = snappedf(mx, 0.01)
+		out["steam_cells"] = w.count_material(GameMaterials.STEAM)
+		out["water_eighths_left"] = w.count_liquid_eighths(GameMaterials.WATER)
+		out["pressure"] = snappedf(w.chunk_pressure(Vector3i(24, 24, 24)), 0.01)
+		out["temp_c"] = int(w.cell_info(Vector3i(24, 24, 24)).get("temp_c", 0))
+		print(JSON.stringify(out))
 	quit()

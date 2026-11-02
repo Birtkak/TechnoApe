@@ -83,6 +83,32 @@ func _process(delta: float) -> void:
 		_biome = String(info.get("biome_name", "")).replace("_", " ")
 	var cal: Calendar = main.atmosphere.calendar
 	var hours := cal.time * 24.0
-	_text.text = "%d  %d  %d\n%s\n%s  %d C\n%d %s  %02d:%02d" % [int(floor(p.x)), int(floor(p.y)), int(floor(p.z)), _biome,
+	_text.text = "%d  %d  %d\n%s\n%s  %d C\n%d %s  %02d:%02d\n%s" % [int(floor(p.x)), int(floor(p.y)), int(floor(p.z)), _biome,
 		cal.season_name(), roundi(main.survival.outside_c) if main.survival else 0, cal.day_of_month() + 1, Calendar.MONTHS[cal.month()],
-		int(hours), int(fmod(hours, 1.0) * 60.0)]
+		int(hours), int(fmod(hours, 1.0) * 60.0), _cell_line(p)]
+
+
+## ADR 0119 D: the aimed cell, else the cell the player stands in: material, state, temperature and pressure, so
+## a player sees why water boils or steam rains. Empty outside the simulation window.
+func _cell_line(p: Vector3) -> String:
+	if main.bubble == null or main.player == null or main.world == null:
+		return ""
+	var cell := Vector3i(p.floor())
+	var hit = main.world.raycast(main.player.camera.global_position, -main.player.camera.global_transform.basis.z, Settings.m2v(Settings.reach_m))
+	if hit:
+		cell = hit.position
+	var info: Dictionary = main.bubble.cell_info(cell)
+	if info.is_empty():
+		return ""
+	var mat := int(info.get("material", 0))
+	var mname := "air" if mat == 0 else GameMaterials.name_of(mat).replace("_", " ")
+	var state: String = ["solid", "liquid", "gas", "fire", "powder"][clampi(int(info.get("cell_type", 0)), 0, 4)]
+	if bool(info.get("still", false)):
+		state = "still " + state
+	elif int(info.get("eighths", 0)) > 0:
+		state = "%s %d/8" % [state, int(info["eighths"])]
+	if bool(info.get("burning", false)):
+		state += " burning"
+	if mat == 0:
+		return "air  %d C  p %.2f" % [int(info.get("temp_c", 0)), float(info.get("pressure", 0.0))]
+	return "%s (%s)  %d C  p %.2f" % [mname, state, int(info.get("temp_c", 0)), float(info.get("pressure", 0.0))]

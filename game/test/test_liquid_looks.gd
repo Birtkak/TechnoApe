@@ -25,6 +25,22 @@ func test_look_keys_are_shader_uniforms() -> void:
 			assert_bool(names.has(k)).override_failure_message("%s: %s is no fluid shader uniform" % [liquid, k]).is_true()
 
 
+## ADR 0119 C4: every gas has a look in data/gas_looks.json and every key is a gas shader uniform.
+func test_every_gas_has_a_look_and_its_keys_are_uniforms() -> void:
+	var looks := World.gas_looks()
+	var names := {}
+	var sh: Shader = load("res://assets/shaders/terrain_gas.gdshader")
+	for u in sh.get_shader_uniform_list():
+		names[u["name"]] = true
+	assert_bool(names.has("gas_tint")).is_true()
+	for d in GameMaterials.defs():
+		if d.get("cell_type", "") == "gas":
+			assert_bool(looks.has(d["name"])).override_failure_message("no look for gas " + d["name"]).is_true()
+	for gas in looks:
+		for k in looks[gas]:
+			assert_bool(names.has(k)).override_failure_message("%s: %s is no gas shader uniform" % [gas, k]).is_true()
+
+
 func test_colours_become_colours() -> void:
 	var fm := ShaderMaterial.new()
 	fm.shader = load("res://assets/shaders/terrain_fluid.gdshader")

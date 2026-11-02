@@ -25,6 +25,7 @@ const SLACK := Vector3(2.0, 1.5, 2.0)
 var world: World
 var sim: SimWorld
 var origin := Vector3i.ZERO          # world chunk coords of local chunk (0,0,0)
+var ambient_c := 18.0                # the outside temperature (Survival.outside_c), set by Main each frame (ADR 0119 C)
 var size_chunks := Vector3i.ONE
 var _tick_accum := 0.0
 # Chunks waiting for terrain data, one bitmask per chunk column of the window:
@@ -70,6 +71,7 @@ var hold_pushes := true        # no pastes into the terrain until the first stre
 var push_queue_max := 0
 static var player_edit_until_ms := 0   # big player edits remesh unlimited until then (Settings.edit_remesh_free_s)
 var _last_push := {}           # world chunk -> msec of its last paste (Settings.sim_push_interval_ms)
+var _push_box := {}            # world chunk -> [lo, hi] (chunk-local, inclusive): the cells changed since its last paste (ADR 0119 B)
 var _fire_test := -1           # debug: fire_test=N ignites burnables within N voxels once loaded
 var _fire_test_at := -1.0
 var fire_ignited := 0
@@ -139,6 +141,7 @@ func setup(p_world: World, center_world: Vector3, pin_of: SimBubble = null) -> v
 	# liquids hold 1..8 eighths and spread into thin layers; the terrain draws the level (fluid models)
 	sim.set_liquid_fullness(true)
 	sim.set_column_flow(Settings.sim_column_flow)
+	sim.set_states(Settings.sim_states)
 	sim.set_cascade(true)   # a column of sand or water falls together, not one 12.5 cm layer per tick
 	sim.set_gravity(Settings.sim_gravity_x * 9.8 / Settings.VOXEL_M / (Settings.sim_tick_hz * Settings.sim_tick_hz))
 	sim.set_lod(int(Settings.m2v(Settings.sim_lod_m) / Settings.CHUNK), 2)
@@ -241,6 +244,7 @@ func _process_timed(delta: float) -> void:
 		if pieces:
 			pieces.tick(period)   # the SimWorld is idle here: pieces crush, snap and settle into its cells
 		sim.set_focus(Vector3i(_player.floor()) - origin * Settings.CHUNK)
+		sim.set_ambient_c(ambient_c)   # ADR 0119 C: the heat field relaxes toward the outside temperature
 		_tick_running = sim.start_tick()
 		_frame_cost()["tick_ms"] += (Time.get_ticks_usec() - t0) / 1000.0   # main-thread cost of starting it
 	if _fire_test > 0:
@@ -514,10 +518,19 @@ func _note_slow_frame(delta: float) -> void:
 ## survive window moves).
 func _collect_dirty() -> void:
 	var changed: Array = []
-	for lc in sim.get_dirty_chunks():
+	var boxes: PackedInt32Array = sim.get_dirty_boxes()   # chunk and its changed-cells box, 9 ints each (ADR 0119 B)
+	for k in range(0, boxes.size(), 9):
+		var lc := Vector3i(boxes[k], boxes[k + 1], boxes[k + 2])
 		var wc: Vector3i = lc + origin
 		if not _is_unloaded(wc):   # never paste a chunk before it was loaded
 			_push_queue[wc] = true
+			var lo := Vector3i(boxes[k + 3], boxes[k + 4], boxes[k + 5])
+			var hi := Vector3i(boxes[k + 6], boxes[k + 7], boxes[k + 8])
+			if _push_box.has(wc):   # still queued from an earlier tick: one box over both
+				var b: Array = _push_box[wc]
+				lo = Vector3i(mini(lo.x, b[0].x), mini(lo.y, b[0].y), mini(lo.z, b[0].z))
+				hi = Vector3i(maxi(hi.x, b[1].x), maxi(hi.y, b[1].y), maxi(hi.z, b[1].z))
+			_push_box[wc] = [lo, hi]
 			changed.append(wc)
 			if not pinned:
 				_recent[wc] = ticks_total
@@ -556,7 +569,9 @@ func _push_one(wc: Vector3i) -> bool:
 		return true   # left the window (flushed on the move already)
 	if not world.is_area_loaded(wc):
 		return false
-	world.write_chunk(wc, sim.get_chunk_bytes(wc - origin, 2))
+	var b: Array = _push_box.get(wc, [Vector3i.ZERO, Vector3i.ONE * (Settings.CHUNK - 1)])
+	_push_box.erase(wc)
+	world.write_box(wc * Settings.CHUNK + b[0], b[1] - b[0] + Vector3i.ONE, sim.get_box_bytes(wc - origin, b[0], b[1]))
 	chunks_pushed += 1
 	_frame_cost()["pushed"] += 1
 	return true
@@ -717,6 +732,15 @@ func sample_cells(center_world: Vector3i, radius: int, count: int, rng_seed: int
 
 
 ## True when the local chunk `lc` lies inside the window.
+## ADR 0119 D: what the sim knows about a world voxel (material, cell_type, eighths, temp_c, pressure), {} outside
+## the window.
+func cell_info(p: Vector3i) -> Dictionary:
+	var lc := p - origin * Settings.CHUNK
+	if not is_chunk_in_window(lc / Settings.CHUNK):
+		return {}
+	return sim.cell_info(lc)
+
+
 func is_chunk_in_window(lc: Vector3i) -> bool:
 	return lc.x >= 0 and lc.y >= 0 and lc.z >= 0 and lc.x < size_chunks.x and lc.y < size_chunks.y and lc.z < size_chunks.z
 
