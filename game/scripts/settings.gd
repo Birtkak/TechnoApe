@@ -192,6 +192,11 @@ var map_explore_m := 48.0               # the map fills in this far around the p
 var waypoint_beam_m := 64.0             # a waypoint's beam rises this high
 var minimap_corner := "top_right"       # top_right | top_left | bottom_right | bottom_left (Settings screen)
 var minimap_size_px := 160              # 0 hides the minimap
+# quality of life (ADR 0130): each one has its own switch in Settings, where taste differs
+var toggle_sprint := false              # Ctrl latches sprinting on and off instead of being held
+var toggle_sneak := false               # Shift latches sneaking on and off instead of being held
+var hud_coords := false                 # a line top left: position in metres and the facing (compass)
+var screen_effects := true              # a red edge when hurt, frost or heat at the edges when the body is cold or hot
 # weather and forest fires (ADR 0056; the developer chose "moderate" fire and random weather + fire rain)
 var weather := true                     # weather=0: always clear (benchmarks); weather=rain|clear starts with it
 var weather_roll_s := 600.0             # a random shower is rolled about this often ...
@@ -417,6 +422,10 @@ func load_user_settings() -> void:
 	mouse_sensitivity = float(cf.get_value("controls", "mouse_sensitivity", mouse_sensitivity))
 	invert_y = bool(cf.get_value("controls", "invert_y", invert_y))
 	brush_ghost = bool(cf.get_value("controls", "brush_ghost", brush_ghost))
+	toggle_sprint = bool(cf.get_value("controls", "toggle_sprint", toggle_sprint))
+	toggle_sneak = bool(cf.get_value("controls", "toggle_sneak", toggle_sneak))
+	hud_coords = bool(cf.get_value("hud", "coords", hud_coords))
+	screen_effects = bool(cf.get_value("hud", "screen_effects", screen_effects))
 	volume_master = clampf(float(cf.get_value("audio", "master", volume_master)), 0.0, 1.0)
 	volume_music = clampf(float(cf.get_value("audio", "music", volume_music)), 0.0, 1.0)
 	volume_effects = clampf(float(cf.get_value("audio", "effects", volume_effects)), 0.0, 1.0)
@@ -448,6 +457,10 @@ func save_user_settings() -> void:
 	cf.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
 	cf.set_value("controls", "invert_y", invert_y)
 	cf.set_value("controls", "brush_ghost", brush_ghost)
+	cf.set_value("controls", "toggle_sprint", toggle_sprint)
+	cf.set_value("controls", "toggle_sneak", toggle_sneak)
+	cf.set_value("hud", "coords", hud_coords)
+	cf.set_value("hud", "screen_effects", screen_effects)
 	cf.set_value("audio", "master", volume_master)
 	cf.set_value("audio", "music", volume_music)
 	cf.set_value("audio", "effects", volume_effects)

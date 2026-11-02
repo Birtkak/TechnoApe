@@ -47,6 +47,8 @@ var _yaw := 0.0
 var _pitch := -0.2
 var _jet_thrust := false            # the jetpack fired this step (the body shows its exhaust)
 var _eye_drop := 0.0                 # voxels the eyes sit lower while sneaking
+var _sprint_latched := false         # Settings.toggle_sprint: Ctrl flips this instead of being held (ADR 0130)
+var _sneak_latched := false          # Settings.toggle_sneak: Shift flips this
 var _mouse_captured := false
 var autopilot := false
 var free_cam := false        # a DebugCamera has the view: no moving, looking or mining from input
@@ -276,6 +278,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		pause_requested.emit()
 	elif event.is_action_pressed("map"):
 		map_requested.emit()
+	elif event.is_action_pressed("sprint") and Settings.toggle_sprint:
+		_sprint_latched = not _sprint_latched
+		if hud:
+			hud.show_toast("Sprint: %s" % ("on" if _sprint_latched else "off"))
+	elif event.is_action_pressed("sneak") and Settings.toggle_sneak and not flying:
+		_sneak_latched = not _sneak_latched
+		if hud:
+			hud.show_toast("Sneak: %s" % ("on" if _sneak_latched else "off"))
+	elif event is InputEventMouseButton and event.pressed and event.alt_pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		inventory.cycle_rows(1 if event.button_index == MOUSE_BUTTON_WHEEL_DOWN else -1)   # Alt + wheel: the next inventory row becomes the hotbar (ADR 0130)
 	elif event.is_action_pressed("swap_hands"):
 		inventory.swap_hands()   # F: main hand <-> offhand (Minecraft; flight toggles with a double jump)
 	elif event.is_action_pressed("jump") and GameMode.rule(game_mode, "can_fly") and not GameMode.rule(game_mode, "always_fly"):
@@ -542,7 +554,7 @@ func _physics_step(delta: float) -> void:
 	var speed_m := Settings.walk_speed_m
 	if sneak:
 		speed_m = Settings.sneak_speed_m
-	elif Input.is_action_pressed("sprint") and not ui_open:
+	elif sprint_held() and not ui_open:
 		speed_m = Settings.sprint_speed_m
 	if autopilot:
 		speed_m = minf(autopilot_speed_m, Settings.sprint_speed_m)   # speed=0 stands still
@@ -616,7 +628,12 @@ func knock(v: Vector3) -> void:
 func sneaking() -> bool:
 	if autopilot:
 		return autopilot_sneak
-	return not flying and not ui_open and not free_cam and Input.is_action_pressed("sneak")
+	return not flying and not ui_open and not free_cam and (_sneak_latched if Settings.toggle_sneak else Input.is_action_pressed("sneak"))
+
+
+## Ctrl held, or latched on with Settings.toggle_sprint (ADR 0130).
+func sprint_held() -> bool:
+	return _sprint_latched if Settings.toggle_sprint else Input.is_action_pressed("sprint")
 
 
 ## Sneaking on the ground: an axis whose move would leave no ground under any corner of the body
