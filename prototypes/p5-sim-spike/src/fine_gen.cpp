@@ -2106,6 +2106,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                     const int n_solid = cell_top - wy + 1;
                     const int n_soil = std::clamp(soil + 1 - d_top, 0, n_solid);
                     const int depth = h - wy;
+                    bool dressed = false;   // cave dressing stands in cave air: no conduit liquid replaces it
                     if (cave[y + 1]) {
                         mat = (wy < sea - 180 * FS) ? Mat::LAVA_STATIC : Mat::AIR;   // the deep lava sea: still until opened (ADR 0069 C)
                         if (mat == Mat::AIR && crystal_h > 0) {
@@ -2143,6 +2144,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                                     dress_biome = ad < technosim_biome::SOIL_DEPTH * FS ? -1 : technosim_biome::cave_biome(ti, hi, di, ni);
                                 }
                                 if (dress_biome >= 0) mat = cave_dressing(dress_biome, wx, wz, df, dc, Mat::STONE);   // stone becomes the local rock below
+                                dressed = mat != Mat::AIR;
                             }
                         }
                     } else if (d_top > 1 && n_soil * 2 < n_solid) {
@@ -2189,7 +2191,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                     // a conduit's tube or chamber through the rock (ADR 0110): still liquid, the chamber round a
                     // core of spring stone / magma heart; the ground's top 4 m stays rock, so a tail seeps out
                     // of a valley wall, never the lawn
-                    if ((ncand > 0 || nscand > 0) && mat != Mat::AIR && mat != Mat::BEDROCK && depth > 8 * FS) {
+                    if ((ncand > 0 || nscand > 0) && !dressed && mat != Mat::AIR && mat != Mat::BEDROCK && depth > 8 * FS) {
                         const float px = (float)wx + 0.5f, py = (float)wy + 0.5f, pz = (float)wz + 0.5f;
                         for (int q = 0; q < nscand; q++) {
                             const CSrc &sc = csrcs[scand[q]];
