@@ -49,6 +49,7 @@ var _jet_thrust := false            # the jetpack fired this step (the body show
 var _eye_drop := 0.0                 # voxels the eyes sit lower while sneaking
 var _sprint_latched := false         # Settings.toggle_sprint: Ctrl flips this instead of being held (ADR 0130)
 var _sneak_latched := false          # Settings.toggle_sneak: Shift flips this
+var zoom := 1.0                      # the view narrows by this while the zoom key is held (ADR 0130)
 var _mouse_captured := false
 var autopilot := false
 var free_cam := false        # a DebugCamera has the view: no moving, looking or mining from input
@@ -268,8 +269,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			set_ui_open(false)
 		return
 	if event is InputEventMouseMotion and _mouse_captured:
-		_yaw -= event.relative.x * Settings.mouse_sensitivity
-		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity * (-1.0 if Settings.invert_y else 1.0), -1.5, 1.5)
+		_yaw -= event.relative.x * Settings.mouse_sensitivity / zoom   # zoomed in, the mouse turns finer
+		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity / zoom * (-1.0 if Settings.invert_y else 1.0), -1.5, 1.5)
 		_apply_look()
 	elif event is InputEventMouseButton and event.pressed and not _mouse_captured:
 		capture_mouse(true)
@@ -390,6 +391,14 @@ func _aim() -> VoxelRaycastResult:
 ## How far the hand reaches: creative world editing reaches further (big brushes, ADR 0065).
 func reach() -> float:
 	return Settings.creative_reach_m if GameMode.rule(game_mode, "instant_break") else Settings.reach_m
+
+
+## Hold the zoom key (Z, OptiFine): the view narrows to 1 / Settings.zoom_factor within a tenth of a second.
+func _process(delta: float) -> void:
+	var want := Settings.zoom_factor if not ui_open and not autopilot and not free_cam and Input.is_action_pressed("zoom") else 1.0
+	if zoom != want:
+		zoom = move_toward(zoom, want, delta * Settings.zoom_factor * 10.0)
+		camera.fov = Settings.fov / zoom
 
 
 ## F5 view: 0 = first person, 1 = behind, 2 = in front (facing the player).

@@ -132,3 +132,16 @@ func test_auto_step_setting_picks_the_step_height() -> void:
 	Settings.auto_step = false
 	assert_float(Settings.step_voxels()).is_greater_equal(2.0).is_less(float(Settings.BLOCK))
 	Settings.auto_step = was
+
+
+func test_zoom_key_narrows_the_view_while_held() -> void:
+	assert_bool(InputMap.has_action("zoom")).is_true()
+	assert_str(Settings.key_text(Settings.default_key("zoom"))).is_equal("Z")
+	var pl: Player = auto_free(Player.new())
+	pl.camera = auto_free(Camera3D.new())
+	Input.action_press("zoom")
+	pl._process(1.0)
+	assert_float(pl.camera.fov).is_equal_approx(Settings.fov / Settings.zoom_factor, 0.01)
+	Input.action_release("zoom")
+	pl._process(1.0)
+	assert_float(pl.camera.fov).is_equal_approx(Settings.fov, 0.01)

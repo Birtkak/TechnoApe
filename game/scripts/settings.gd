@@ -203,6 +203,7 @@ var minimap_size_px := 160              # 0 hides the minimap
 var toggle_sprint := false              # Ctrl latches sprinting on and off instead of being held
 var toggle_sneak := false               # Shift latches sneaking on and off instead of being held
 var hud_coords := false                 # a line top left: position in metres and the facing (compass)
+var zoom_factor := 4.0                  # holding the zoom key (Z) narrows the view this much (OptiFine's zoom)
 var auto_step := true                   # walk up full 0.5 m blocks (Minecraft's auto-jump); off: jump onto them
 var screen_effects := true              # a red edge when hurt, frost or heat at the edges when the body is cold or hot
 # weather and forest fires (ADR 0056; the developer chose "moderate" fire and random weather + fire rain)
@@ -499,7 +500,7 @@ func save_user_settings() -> void:
 const REMAPPABLE := [["move_forward", "Forward"], ["move_back", "Back"], ["move_left", "Left"], ["move_right", "Right"],
 	["jump", "Jump / fly up"], ["sprint", "Sprint"], ["sneak", "Sneak"], ["descend", "Fly down"],
 	["action_break", "Break / attack"], ["action_place", "Use / place"], ["inventory", "Inventory"], ["drop", "Drop"],
-	["swap_hands", "Swap hands"], ["map", "Map"], ["chat", "Chat"]]
+	["swap_hands", "Swap hands"], ["map", "Map"], ["chat", "Chat"], ["zoom", "Zoom (hold)"]]
 
 
 ## The action's first event now (a key or a mouse button), or null.
