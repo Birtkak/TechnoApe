@@ -1492,6 +1492,9 @@ static std::atomic<uint64_t> s_gen_n[3], s_gen_us[3], s_ctx_hit, s_ctx_miss, s_c
 // lattice), the column loop (prologue and voxels), the passes after it
 static std::atomic<uint64_t> s_ph_us[9];   // 4 trees+stamps, 5 caves, 6 geodes+conduits, 7 column prologue, 8 voxel loop
 static std::atomic<uint64_t> s_band_get, s_band_build, s_band_build_us;
+// blocks by where they lie against their columns' ground: 0 wholly above every column, 1 straddling, 2 wholly below; count,
+// prologue us, voxel us
+static std::atomic<uint64_t> s_cat_n[3], s_cat_pro_us[3], s_cat_vox_us[3];
 static inline uint64_t us_since(const std::chrono::steady_clock::time_point &t) { return (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t).count(); }
 
 PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel) const {
@@ -1534,6 +1537,8 @@ Dictionary FineGen::gen_stats() {
     d["cave_band_get"] = (int64_t)s_band_get.exchange(0);
     d["cave_band_build"] = (int64_t)s_band_build.exchange(0);
     d["cave_band_build_us"] = (int64_t)s_band_build_us.exchange(0);
+    const char *cat[3] = {"above", "straddle", "below"};
+    for (int i = 0; i < 3; i++) { d[String("blocks_") + cat[i]] = (int64_t)s_cat_n[i].exchange(0); d[String("pro_us_") + cat[i]] = (int64_t)s_cat_pro_us[i].exchange(0); d[String("vox_us_") + cat[i]] = (int64_t)s_cat_vox_us[i].exchange(0); }
     d["ctx_bytes_lod0"] = (int64_t)(sizeof(ColumnCtx) + 25 * sizeof(MacroPt));   // a 16-voxel footprint's 5 x 5 lattice
     return d;
 }
@@ -2668,6 +2673,14 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     s_ph_us[2] += us_since(tph);
     s_ph_us[7] += t_pro / 1000;
     s_ph_us[8] += t_vox / 1000;
+    {
+        int hmin_f = INT32_MAX, hmax_f = INT32_MIN;
+        for (int hh : ctx->h) { hmin_f = std::min(hmin_f, hh); hmax_f = std::max(hmax_f, hh); }
+        const int cat = origin.y >= hmax_f ? 0 : (y_top <= hmin_f ? 2 : 1);
+        s_cat_n[cat] += 1;
+        s_cat_pro_us[cat] += t_pro / 1000;
+        s_cat_vox_us[cat] += t_vox / 1000;
+    }
     tph = std::chrono::steady_clock::now();
     if (!any) return out;
     // No lone liquid cells (ADR 0069 C): a still liquid cell with air above, no liquid of its kind on any side and
