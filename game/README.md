@@ -56,6 +56,8 @@ Godot_..._console.exe --path game --render-thread safe -- autopilot=1 duration=2
 # opens the chat with that typed; debug_menu=1 opens the F4 menu; f3=1 the debug screen. In Git Bash set
 # MSYS_NO_PATHCONV=1 or it rewrites /arguments into Windows paths.
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=3 f3=1 "commands=/gamemode creative;/kit tools" out=res://out/chat
+# fluids (ADR 0119): column_flow=0 runs the old eighth kernel, states=0 switches heat, pressure and state changes off;
+#       tools/fluid_bench.gd prints the kernel's cost per scene (basin, bombs, lava_water, steam_box) as JSON lines
 # liquid spill stress: blast=1.5 blast_material=water blast_every=2 (passes for ~20 s; minutes of flow do not yet)
 # animal crowd (ADR 0067): mob_bench=100 [animal=bear] [mob_bench_r=6] speed=0 load_cap_s=60 stands on the ground before N animals
 # 8 m ahead (scattered over mob_bench_r m), measures from 2 s later; JSON mobs.step_ms = think/move/collide/animate ms per physics step
