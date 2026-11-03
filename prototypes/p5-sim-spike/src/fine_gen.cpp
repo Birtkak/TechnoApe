@@ -263,7 +263,8 @@ PackedInt32Array FineGen::pickup_heights(int kind, int seed) const {
 }
 
 void FineGen::configure(int p_seed, int p_sea_level, int p_world_height) {
-    ctx_cache_.clear();   // a new seed is a new world
+    ctx_cache_.clear();
+    cave_cache_.clear();   // a new seed is a new world
     tree_cache_.clear();
     young_cache_.clear();
     g_->configure(p_seed, p_sea_level / FS, p_world_height / FS);
@@ -1637,17 +1638,47 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 const float gfx = (float)(cmx - gx0) / 4.0f, gfz = (float)(cmz - gz0) / 4.0f;
                 const int gi = std::min((int)gfx, gnx - 2), gj = std::min((int)gfz, gnz - 2);
                 const float gtx = gfx - gi, gtz = gfz - gj;
-                WorldGen::CaveColumn ccol;   // the column's mouths and gallery offset, read at every height below
-                g.cave_column(cmx, cmz, ccol);
+                const int height = m.col.height;
+                std::shared_ptr<const CaveBand> band;
+                int band_id = INT32_MIN;
                 for (int k = 0; k < cny; k++) {
                     const int cy = cy0 + k;
-                    const float depth = (float)(m.col.height - cy);
+                    const float depth = (float)(height - cy);
                     // nothing is carved at or over this column's ground (the mask), and a voxel under it reads at most
-                    // the row one step above: rows further up are rock without a noise (a fifth of all generation
-                    // time went to the cave lattice, mostly over the ground, budget hunt 2026-11-03)
-                    if (cy > m.col.height + 1) { cav[((size_t)j * nx + i) * cny + k] = -1.0f; continue; }
+                    // the row one step above: rows further up are rock without a noise
+                    if (cy > height + 1) { cav[((size_t)j * nx + i) * cny + k] = -1.0f; continue; }
                     // lod 0: everything; lod 1: tunnels and mouths near the ground; caverns and ravines up to lod 2
-                    float v = (lod == 0 || (lod == 1 && depth <= (float)(CAVE_MOUTH_DEPTH / FS + 2))) ? g.cave_value(ccol, cy, m.col.height, true) : -1.0f;
+                    float v = -1.0f;
+                    if (lod == 0 || (lod == 1 && depth <= (float)(CAVE_MOUTH_DEPTH / FS + 2))) {
+                        const int b = floor_div(cy, 16);
+                        if (b != band_id) {
+                            band_id = b;
+                            const uint64_t key = ((uint64_t)(uint32_t)cmx * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)(uint32_t)cmz * 0xC2B2AE3D27D4EB4Full) ^ ((uint64_t)(uint32_t)b << 7);
+                            band = cave_cache_.get(key, [&]() {
+                                auto cb = std::make_shared<CaveBand>();
+                                cb->mx = cmx, cb->mz = cmz, cb->band = b;
+                                WorldGen::CaveColumn ccol;   // the column's mouths and gallery offset, read at every height below
+                                g.cave_column(cmx, cmz, ccol);
+                                for (int r = 0; r < 16; r++) {
+                                    const int ry = b * 16 + r;
+                                    cb->v[r] = ry > height + 1 ? -1.0f : g.cave_value(ccol, ry, height, true);
+                                }
+                                return cb;
+                            });
+                            if (band->mx != cmx || band->mz != cmz || band->band != b) {   // two columns with one key: this one computes on its own
+                                auto cb = std::make_shared<CaveBand>();
+                                cb->mx = cmx, cb->mz = cmz, cb->band = b;
+                                WorldGen::CaveColumn ccol;
+                                g.cave_column(cmx, cmz, ccol);
+                                for (int r = 0; r < 16; r++) {
+                                    const int ry = b * 16 + r;
+                                    cb->v[r] = ry > height + 1 ? -1.0f : g.cave_value(ccol, ry, height, true);
+                                }
+                                band = cb;
+                            }
+                        }
+                        v = band->v[cy - band_id * 16];
+                    }
                     if (big) {
                         const float gfy = (float)(cy - gy0) / 2.0f;
                         const int gk = std::min((int)gfy, gny - 2);

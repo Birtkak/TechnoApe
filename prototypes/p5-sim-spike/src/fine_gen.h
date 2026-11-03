@@ -211,6 +211,11 @@ private:
         std::vector<FStamp> stamps;
         std::vector<WorldGen::Conduit> conduits;   // ADR 0110: the conduits in reach of the footprint
     };
+    // The small cave field (cheese, tunnels, galleries, mouths) of one macro column, 16 macro rows at a time, shared
+    // across the blocks that read it: a block's lattice has a margin column on every side and four rows above and below
+    // its own, so neighbours asked for the same rows four times over (budget hunt 2026-11-03: a fifth of all generation)
+    struct CaveBand { int mx, mz, band; float v[16]; };
+    mutable SharedCache<CaveBand> cave_cache_{262144};
     mutable SharedCache<ColumnCtx> ctx_cache_{16384};   // 16k footprints (5-15 KB with their stamps): a 100 m box holds ~10k
     // A young tree's cell (24 voxels): the tree standing in it, or none, before the ruins near a block decide.
     struct YoungCell {
