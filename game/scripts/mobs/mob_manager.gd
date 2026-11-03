@@ -17,6 +17,8 @@ extends Node3D
 
 const SAVE_VERSION := 1
 const SEARCHES_PER_FRAME := 2   # walk-target searches (~100 voxel reads each) allowed per physics frame
+const LIGHT_SAFE_M := 16.0       # night creatures never spawn this close to a torch or a burning station
+const LIGHT_FADE_M := 6.0        # ... and one that comes this close fades like at dawn
 
 var world: World
 var main: Node                 # get_world_voxel / set_world_voxel / spawn_item / player / player_inv
@@ -38,7 +40,7 @@ var mate_s := 3.0
 var feed_baby_speedup := 0.1
 var spawning := true
 var game_time := 0.0           # seconds this world has run (dormant mobs catch up from it)
-var stats := {"spawned": 0, "herds": 0, "bred": 0, "died": 0, "slept": 0, "woke": 0, "cells": 0, "kills": 0, "mauled": 0, "eggs": 0, "carcasses": 0, "night_spawned": 0, "faded": 0, "alarmed": 0}
+var stats := {"spawned": 0, "herds": 0, "bred": 0, "died": 0, "slept": 0, "woke": 0, "cells": 0, "kills": 0, "mauled": 0, "eggs": 0, "carcasses": 0, "night_spawned": 0, "faded": 0, "alarmed": 0, "lit_away": 0}
 var dirty := false
 var last_frame_ms := 0.0
 var worst_frame_ms := 0.0
@@ -336,14 +338,30 @@ func is_night() -> bool:
 
 ## Once a second: at night a pack may come out 24-40 m from the player (up to spawn.night_max night
 ## creatures at once); after sunrise the ones still about fade into the light.
+## Voxel positions of burning torches and stations (BlockEntities.lit): night creatures keep away.
+func _lights() -> Array:
+	var out := []
+	var blocks: Variant = main.get("blocks") if main != null else null
+	if blocks != null:
+		for e in blocks.lit():
+			out.append(Vector3(e.pos))
+	return out
+
+
+static func near_light(lights: Array, p: Vector3, r_m: float) -> bool:
+	var r := Settings.m2v(r_m)
+	return lights.any(func(l: Vector3) -> bool: return l.distance_to(p) < r)
+
+
 func _night_tick() -> void:
 	var night := is_night()
 	night_now = night
 	var n := 0
+	var lights := _lights()
 	for m in _active.duplicate():
 		if not m.def.get("night", false) or m.is_dead():
 			continue
-		if night:
+		if night and not near_light(lights, m.position, LIGHT_FADE_M):
 			n += 1
 			continue
 		_poof(m.eye())
@@ -359,6 +377,9 @@ func _night_tick() -> void:
 	var z := int(pp.z + sin(a) * d)
 	var h := world.surface_height(x, z)
 	if not world.is_area_loaded(Vector3i(floori(float(x) / Settings.CHUNK), floori(float(h) / Settings.CHUNK), floori(float(z) / Settings.CHUNK))):
+		return
+	if near_light(lights, Vector3(x, h, z), LIGHT_SAFE_M):
+		stats["lit_away"] += 1
 		return
 	var biome := WorldGen.biome_name(int(world.generator.gen.column_info(x, z)["biome"]))
 	var options := []
