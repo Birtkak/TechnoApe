@@ -1336,6 +1336,7 @@ static std::atomic<uint64_t> s_gen_n[3], s_gen_us[3], s_ctx_hit, s_ctx_miss, s_c
 // where a full block's time goes (budget hunt 2026-11-03): the ctx fetch, the prep (trees, geodes, conduits, the cave
 // lattice), the column loop (prologue and voxels), the passes after it
 static std::atomic<uint64_t> s_ph_us[9];   // 4 trees+stamps, 5 caves, 6 geodes+conduits, 7 column prologue, 8 voxel loop
+static std::atomic<uint64_t> s_band_get, s_band_build, s_band_build_us;
 static inline uint64_t us_since(const std::chrono::steady_clock::time_point &t) { return (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t).count(); }
 
 PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel) const {
@@ -1375,6 +1376,9 @@ Dictionary FineGen::gen_stats() {
     d["sky"] = (int64_t)s_sky.exchange(0);
     const char *ph[9] = {"phase_ctx_us", "phase_prep_us", "phase_columns_us", "phase_post_us", "prep_trees_us", "prep_caves_us", "prep_geo_conduit_us", "col_prologue_us", "col_voxels_us"};
     for (int i = 0; i < 9; i++) d[ph[i]] = (int64_t)s_ph_us[i].exchange(0);
+    d["cave_band_get"] = (int64_t)s_band_get.exchange(0);
+    d["cave_band_build"] = (int64_t)s_band_build.exchange(0);
+    d["cave_band_build_us"] = (int64_t)s_band_build_us.exchange(0);
     d["ctx_bytes_lod0"] = (int64_t)(sizeof(ColumnCtx) + 25 * sizeof(MacroPt));   // a 16-voxel footprint's 5 x 5 lattice
     return d;
 }
@@ -1654,7 +1658,10 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                         if (b != band_id) {
                             band_id = b;
                             const uint64_t key = ((uint64_t)(uint32_t)cmx * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)(uint32_t)cmz * 0xC2B2AE3D27D4EB4Full) ^ ((uint64_t)(uint32_t)b << 7);
+                            s_band_get += 1;
                             band = cave_cache_.get(key, [&]() {
+                                const auto tb = std::chrono::steady_clock::now();
+                                s_band_build += 1;
                                 auto cb = std::make_shared<CaveBand>();
                                 cb->mx = cmx, cb->mz = cmz, cb->band = b;
                                 WorldGen::CaveColumn ccol;   // the column's mouths and gallery offset, read at every height below
@@ -1663,6 +1670,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                                     const int ry = b * 16 + r;
                                     cb->v[r] = ry > height + 1 ? -1.0f : g.cave_value(ccol, ry, height, true);
                                 }
+                                s_band_build_us += us_since(tb);
                                 return cb;
                             });
                             if (band->mx != cmx || band->mz != cmz || band->band != b) {   // two columns with one key: this one computes on its own
