@@ -193,6 +193,23 @@ func test_sand_sinks_through_a_lake() -> void:
 	assert_int(top).is_equal(48 * 48)
 
 
+## A still sand cube set down on the sea (the brush paints sand_static) sinks like a sand bomb does; it hovered
+## on the water, since nothing displaces a still liquid (bug report 2026-11-03 16-37-26).
+func test_placed_still_sand_on_a_lake_sinks() -> void:
+	var w := _game_world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 1, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(0, 1, 0), Vector3i(48, 12, 48), GameMaterials.WATER_STATIC)
+	_run(w, 3)
+	for c in Brush.place_cells(Vector3i(20, 12, 20), Vector3i(20, 13, 20), 4, "cube"):
+		w.set_voxel(c, GameMaterials.SAND_STATIC)
+	_run(w, 200)
+	var on_top := w.count_in_box(Vector3i(0, 12, 0), Vector3i(48, 48, 48), GameMaterials.SAND) + w.count_in_box(Vector3i(0, 12, 0), Vector3i(48, 48, 48), GameMaterials.SAND_STATIC)
+	assert_int(on_top).override_failure_message("sand left on the water: %d" % on_top).is_equal(0)
+	# on the bed it comes to rest as still sand again
+	var on_bed := w.count_in_box(Vector3i(0, 1, 0), Vector3i(48, 4, 48), GameMaterials.SAND) + w.count_in_box(Vector3i(0, 1, 0), Vector3i(48, 4, 48), GameMaterials.SAND_STATIC)
+	assert_int(on_bed).override_failure_message("sand by layer: %s / still: %s" % [w.layer_histogram(GameMaterials.SAND), w.layer_histogram(GameMaterials.SAND_STATIC)]).is_greater(32)
+
+
 ## Lava pours as a stream: gravity never waits for its viscosity roll (bug report 02-23-24).
 func test_lava_falls_every_tick() -> void:
 	var w := _game_world()

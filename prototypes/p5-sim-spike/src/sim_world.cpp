@@ -684,7 +684,13 @@ void SimWorld::try_loosen(int x, int y, int z, int i, Ctx &c) {
     // falls like Minecraft's sand (ADR 0073), while one set down on ground keeps its shape
     const bool fresh_self = moved_[i] == stamp_ || moved_[i] == prev;
     auto open = [&](int nx, int ny, int nz) -> bool {
-        return is_open(nx, ny, nz) && can_displace(self, cells_[idx(nx, ny, nz)].mat);
+        if (!is_open(nx, ny, nz)) return false;
+        const uint8_t t = cells_[idx(nx, ny, nz)].mat;
+        if (can_displace(self, t)) return true;
+        // a lighter still liquid counts as open too: a still powder set down on the sea sinks as try_move lets
+        // moving sand sink (bug report 2026-11-03 16-37-26: sand painted on the sea hovered on it)
+        const MaterialDef &tm = mats_[t];
+        return md.cell_type == CELL_POWDER && tm.liquid_static && tm.cell_type == CELL_LIQUID && tm.density < md.density;
     };
     // an opening counts if it is fresh (changed this or last tick) or this cell was shaken before
     auto trigger = [&](int nx, int ny, int nz) -> bool {

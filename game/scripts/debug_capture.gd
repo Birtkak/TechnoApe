@@ -58,6 +58,7 @@ var showcase_on := "grass"
 var looks_test := false     # looks_test=1: part C's multi-voxel crops, flowers, torches, table and lights on a patch, shot (ADR 0053, "debug looks")
 var looks_shots := true     # looks_shots=0: looks_test without screenshots
 var looks_budget := false   # looks_budget=1: looks_test only sets ten torches and a held one at night (the budget case)
+var ponder_test := false    # ponder_test=1: every guide scene filmed, a row a step, to out/ponder/<id>.png ("debug ponder", ADR 0132)
 var tp_test := false        # tp_test=1: a burst of teleports (hops, far jumps, /spawn, /goto, /kill), timed and filmed (scripts/debug/tp_test.gd, "debug tp")
 var liquids_test := false   # liquids_test=1: a pool of every liquid side by side, shot by day and night, and items dropped into lava (bug reports 2026-10-25, "debug liquids")
 var water_shots := true     # water_shots=0: no screenshots in the water test
@@ -196,6 +197,7 @@ func _ready() -> void:
 	looks_budget = args.get("looks_budget", "0") == "1"
 	liquids_test = args.get("liquids_test", "0") == "1"
 	tp_test = args.get("tp_test", "0") == "1"
+	ponder_test = args.get("ponder_test", "0") == "1"
 	water_shots = args.get("water_shots", "1") != "0"
 	menu_test = args.get("menu_test", "0") == "1"
 	if args.has("voxel_threads"):   # godot_voxel worker threads for this run (project default: voxel/threads/count)
@@ -423,6 +425,7 @@ func _finish() -> void:
 	s["travelled_horizontal_m"] = snappedf(Settings.v2m(Vector2(_main.player.position.x - _start_pos.x, _main.player.position.z - _start_pos.z).length()), 0.1)
 	if _main.has_method("verify_bubble"):
 		s["bubble_verify"] = _main.verify_bubble()
+	s["near_unloaded"] = _near_unloaded()
 	s["frames"] = ft.size()
 	s["avg_frame_ms"] = snappedf(sum / n, 0.01)
 	s["p50_frame_ms"] = snappedf(ft[n / 2] if ft.size() else 0.0, 0.01)
@@ -623,6 +626,31 @@ func _longest_run(samples: Array) -> int:
 func _count_over(sorted_ms: PackedFloat64Array, limit: float) -> int:
 	var i := sorted_ms.bsearch(limit, false)   # first index past every value <= limit
 	return sorted_ms.size() - i
+
+
+## The data blocks the streaming shell's near sphere (ADR 0105: shell_near_m around the player, any direction)
+## owes the player but has not loaded, by distance band in m: after settling every band inside shell_near_m is 0.
+func _near_unloaded() -> Dictionary:
+	var terrain = _main.world.terrain if _main != null and _main.world != null else null
+	if terrain == null or not terrain.has_method("debug_get_data_block_info"):
+		return {}
+	var bs: int = terrain.get_data_block_size()
+	var pb := Vector3i((_main.player.position / bs).floor())
+	var r := int(Settings.m2v(Settings.shell_near_m)) / bs
+	var by_band := {}
+	var examples := []
+	for z in range(-r, r + 1):
+		for y in range(-r, r + 1):
+			for x in range(-r, r + 1):
+				var b := pb + Vector3i(x, y, z)
+				var st: int = terrain.debug_get_data_block_info(Vector3(b), 0).get("loading_state", 2)
+				if st == 2:
+					continue
+				var band := int(Settings.v2m(maxi(maxi(absi(x), absi(y)), absi(z)) * bs) / 8.0) * 8   # 0, 8, 16, 24 m
+				by_band[str(band)] = by_band.get(str(band), 0) + 1
+				if examples.size() < 6:
+					examples.append("%s state %d" % [b * bs, st])
+	return {"by_band_m": by_band, "examples": examples}
 
 
 func _probe_others() -> void:
