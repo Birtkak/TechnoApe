@@ -27,6 +27,8 @@ var sim: SimWorld
 var origin := Vector3i.ZERO          # world chunk coords of local chunk (0,0,0)
 var ambient_c := 18.0                # the outside temperature (Survival.outside_c), set by Main each frame (ADR 0119 C)
 var _has_states := false             # the DLL knows ADR 0119 C (set_ambient_c, cell_info)
+var _sim_log := OS.get_cmdline_user_args().has("sim_log=1")
+var _sim_log_quiet := true
 var size_chunks := Vector3i.ONE
 var _tick_accum := 0.0
 # Chunks waiting for terrain data, one bitmask per chunk column of the window:
@@ -216,6 +218,29 @@ func _process_timed(delta: float) -> void:
 		active_chunks = int(r["active_chunks_per_tick"])
 		scanned_max = maxi(scanned_max, int(r.get("scanned_cells_per_tick", 0)))
 		ticks_total += 1
+		if _sim_log and ticks_total % 60 == 0:   # sim_log=1: who wakes the sim, every 2 s (budget hunt 2026-11-03)
+			var st: Dictionary = sim.get_stats()
+			var mw := sim.count_material(GameMaterials.WATER)
+			print("sim_log tick %d still_woken %s active %s moving_water %d origin %s player %s" % [ticks_total, str(st.get("still_woken")), str(st.get("active_chunks")), mw, origin, Vector3i(_player.floor())])
+			if mw > 0 and _sim_log_quiet:   # the first moving water after a quiet spell: where is it and what is around it
+				var shown := 0
+				for lc in sim.get_active_chunks():
+					if shown >= 4:
+						break
+					var b: PackedByteArray = sim.get_chunk_bytes(lc, 2)
+					for o in range(0, b.size(), 2):
+						var v := b[o] + (b[o + 1] << 8)
+						var mat := v if v < GameMaterials.FLUID_LEVEL_BASE else GameMaterials.material_of_voxel(v)
+						if mat == GameMaterials.WATER and shown < 4:
+							var i := o / 2
+							var wp: Vector3i = (lc + origin) * Settings.CHUNK + Vector3i((i / 16) % 16, i % 16, i / 256)
+							var around := []
+							for d in [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 1, 0), Vector3i(0, -1, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]:
+								var m2 := world.get_voxel(wp + d)
+								around.append(GameMaterials.name_of(m2) if m2 > 0 else "air")
+							print("sim_log   moving water at %s around %s" % [wp, around])
+							shown += 1
+			_sim_log_quiet = mw == 0
 		_tick_running = false
 		_collect_dirty()
 		if pinned:

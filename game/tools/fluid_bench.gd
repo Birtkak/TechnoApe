@@ -139,6 +139,52 @@ func _init() -> void:
 			out["tick_ms_avg_to_%d" % target] = snappedf(sum / 100.0, 0.01) if target == 100 else snappedf(sum / (target - (100 if target == 300 else 300)), 0.01)
 			out["steam_at_%d" % target] = w.count_material(GameMaterials.STEAM)
 		print(JSON.stringify(out))
+	# lake_load (budget hunt 2026-11-03): the generated lake of seed 1015715378 loaded into a 10 x 4 x 10 chunk window
+	# as the game loads it, nobody touching it: what wakes and what it costs over 10 s. still_woken must stay at the
+	# generator's few specks and the sim must go quiet.
+	out = {"scene": "lake_load", "column": column}
+	var tg := TerrainGenerator.new()
+	tg.set_seed(1015715378)
+	var gen: FineGen = tg.gen
+	var lp := Vector3i(4546, 1056, 4034)
+	var NC := Vector3i(10, 4, 10)
+	w = _world(column, 10)
+	w.configure(NC, maxi(2, OS.get_processor_count() - 2), 7)
+	w.set_materials(GameMaterials.defs())
+	w.set_reactions(GameMaterials.reactions())
+	w.mark_all_loaded(true)
+	w.set_liquid_fullness(true)
+	w.set_column_flow(column)
+	w.set_cascade(true)
+	w.set_gravity(3.0 * 9.8 / 0.125 / (HZ * HZ))
+	var c0 := Vector3i(floori(lp.x / 16.0) - NC.x / 2, floori(lp.y / 16.0) - 2, floori(lp.z / 16.0) - NC.z / 2)
+	for cz in NC.z:
+		for cy in NC.y:
+			for cx in NC.x:
+				var b: PackedByteArray = gen.generate_block((c0 + Vector3i(cx, cy, cz)) * 16, Vector3i(16, 16, 16), 0, 2)
+				if b.is_empty():
+					continue
+				if b.size() == 2:
+					var v := b.decode_u16(0)
+					var full := PackedByteArray()
+					full.resize(16 * 16 * 16 * 2)
+					for i in range(0, full.size(), 2):
+						full.encode_u16(i, v)
+					b = full
+				w.set_chunk_bytes(Vector3i(cx, cy, cz), b, 2)
+	out["still_water"] = w.count_material(GameMaterials.WATER_STATIC)
+	sum = 0.0
+	awake = 0
+	for t in 300:
+		var t0 := Time.get_ticks_usec()
+		var s: Dictionary = w.tick(1)
+		sum += (Time.get_ticks_usec() - t0) / 1000.0
+		awake = int(s.get("active_chunks_per_tick", 0))
+	out["tick_ms_avg"] = snappedf(sum / 300.0, 0.01)
+	out["still_woken"] = int(w.get_stats().get("still_woken", 0))
+	out["moving_water_at_300"] = w.count_material(GameMaterials.WATER)
+	out["active_chunks_at_300"] = awake
+	print(JSON.stringify(out))
 	# steam box (ADR 0119 C): a sealed 16^3 room at 110 C with a quarter of water: boiling raises the pressure until it
 	# stops; tick cost with and without the state pass
 	for states in [false, true]:
