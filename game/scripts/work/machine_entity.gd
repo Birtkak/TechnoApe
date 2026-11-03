@@ -7,12 +7,15 @@ extends RefCounted
 ## `seconds` of work while the energy network gives it eu_t (a second of power per solve). Worked by hand
 ## like a work piece: a right click with something a recipe takes loads a block's worth, an empty hand takes
 ## the output; hoppers and belts load and unload it through Transport. One class for the lathe, bending
-## press, wiremill, macerator, alloy smelter and assembler: a new machine is an item plus recipes.
+## press, wiremill, macerator, alloy smelter, assembler and the ADR 0131 machines: a new machine is an item,
+## its recipes and a DOOR entry (BlockEntities builds every DOOR kind as a MachineEntity, 1 m like the lathe).
 
 signal changed
 
 const DOOR := {"lathe": WorkPalette.BRONZE, "bending_press": WorkPalette.ANVIL, "wiremill": WorkPalette.COPPER,
-	"macerator": WorkPalette.GRAVEL, "alloy_smelter": WorkPalette.MOLTEN, "assembler": WorkPalette.GLOW}
+	"macerator": WorkPalette.GRAVEL, "alloy_smelter": WorkPalette.MOLTEN, "assembler": WorkPalette.GLOW,
+	"extractor": WorkPalette.GLOW, "cutter": WorkPalette.STEEL, "extruder": WorkPalette.MOLTEN, "canning_machine": WorkPalette.COPPER,
+	"electric_compressor": WorkPalette.STEEL, "electrolyzer": WorkPalette.GLOW}
 
 var kind: String
 var title: String
@@ -261,6 +264,28 @@ static func box_model(door: int, lit: bool, top: String = "") -> Dictionary:
 		"assembler":   # a little arm with a yellow tip
 			WorkPalette.box(c, size, Vector3i(5, 7, 4), Vector3i(6, 8, 5), WorkPalette.IRON_DARK)
 			WorkPalette.box(c, size, Vector3i(2, 7, 4), Vector3i(5, 8, 5), WorkPalette.HAZARD)
+		"extractor":   # a screw press: a bronze screw over a copper drip tray
+			WorkPalette.box(c, size, Vector3i(2, 7, 2), Vector3i(6, 8, 6), WorkPalette.COPPER)
+			WorkPalette.box(c, size, Vector3i(3, 7, 3), Vector3i(5, 8, 5), WorkPalette.BRONZE)
+		"cutter":   # a saw blade standing up through the table, a hazard edge
+			WorkPalette.box(c, size, Vector3i(1, 7, 3), Vector3i(7, 8, 5), WorkPalette.IRON_DARK)
+			WorkPalette.box(c, size, Vector3i(3, 7, 4), Vector3i(5, 8, 5), WorkPalette.STEEL)
+			WorkPalette.hazard_box(c, size, Vector3i(1, 7, 3), Vector3i(3, 8, 4))
+		"extruder":   # the die block with a hot billet in it
+			WorkPalette.box(c, size, Vector3i(1, 7, 2), Vector3i(5, 8, 6), WorkPalette.STEEL)
+			WorkPalette.box(c, size, Vector3i(5, 7, 3), Vector3i(7, 8, 5), WorkPalette.MOLTEN)
+		"canning_machine":   # a row of tin cans under the sealing head
+			for x in [1, 3, 5]:
+				WorkPalette.box(c, size, Vector3i(x, 7, 3), Vector3i(x + 2, 8, 5), WorkPalette.STEEL)
+			WorkPalette.box(c, size, Vector3i(1, 7, 2), Vector3i(7, 8, 3), WorkPalette.COPPER)
+		"electric_compressor":   # the ram between two posts
+			for x in [1, 6]:
+				WorkPalette.box(c, size, Vector3i(x, 7, 2), Vector3i(x + 1, 8, 6), WorkPalette.IRON_DARK)
+			WorkPalette.box(c, size, Vector3i(2, 7, 2), Vector3i(6, 8, 6), WorkPalette.STEEL)
+		"electrolyzer":   # a glass cell with two dark electrodes in it
+			WorkPalette.box(c, size, Vector3i(1, 7, 1), Vector3i(7, 8, 7), WorkPalette.GLOW)
+			for x in [2, 5]:
+				WorkPalette.box(c, size, Vector3i(x, 7, 3), Vector3i(x + 1, 8, 5), WorkPalette.SOOT)
 	return {"solid": {"cells": c, "size": size}}
 
 
