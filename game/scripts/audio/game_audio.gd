@@ -76,6 +76,7 @@ var _chest_open := false
 var _mob_t := 0.0
 var _mob_next := {}            # mob uid -> seconds until its next call
 var _loop_t := 0.0
+var _machine_loops := {}         # block entity kind -> loop name (sounds.json loops "entities": machine hums)
 var _loop_seed := 1
 var _loop_mask := PackedByteArray()
 var _loop_mats := {}           # material id -> Array of loop names
@@ -232,6 +233,10 @@ func load_dict(data: Dictionary) -> bool:
 			if not _index.has(n):
 				errors.append("music %s: no asset %s" % [pool, n])
 	_loop_defs = data.get("loops", {})
+	_machine_loops = {}
+	for ln in _loop_defs:
+		for k in _loop_defs[ln].get("entities", []):
+			_machine_loops[k] = ln
 	_ambience = data.get("ambience", {})
 	_ambience.erase("_doc")
 	for an in _ambience:
@@ -1010,28 +1015,51 @@ func _sample_loops() -> void:
 	if blocks and _loop_defs.has("embers"):
 		var best := Settings.m2v(LOOP_RADIUS_M)
 		for e in blocks.all_work():
-			if e.has_method("is_lit") and e.is_lit() and not (e is SieveEntity):
+			if e.has_method("is_lit") and e.is_lit() and not (e is SieveEntity) and not _machine_loops.has(e.kind):
 				var at := Vector3(e.pos) + Vector3(0.5, 0.5, 0.5)
 				var d := at.distance_to(cam)
 				if d < best:
 					best = d
 					acc["embers"] = [int(_loop_defs["embers"].get("full_hits", 2)), at * int(_loop_defs["embers"].get("full_hits", 2))]
+	if blocks and not _machine_loops.is_empty():
+		var near := {}   # loop -> [distance, entity]: the nearest running machine of its kinds
+		for e in blocks.all_entities():
+			var ln: String = _machine_loops.get(e.get("kind"), "")
+			if ln == "" or not e.has_method("is_lit") or not e.is_lit():
+				continue
+			var d := (Vector3(e.pos) + Vector3(0.5, 0.5, 0.5)).distance_to(cam)
+			if d < Settings.m2v(LOOP_RADIUS_M) and d < float(near.get(ln, [INF])[0]):
+				near[ln] = [d, e]
+		for ln in near:
+			var e: Object = near[ln][1]
+			var full := int(_loop_defs[ln].get("full_hits", 20))
+			acc[ln] = [full, (Vector3(e.pos) + Vector3(0.5, 0.5, 0.5)) * full]
+			if _loop_defs[ln].has("pitch_by") and _loops.has(ln):
+				_loops[ln]["player"].pitch_scale = machine_pitch(_loop_defs[ln], float(e.get(_loop_defs[ln]["pitch_by"])))
 	if _loop_defs.has("wind") and _wind > 0.0:   # no cells: the exposure sets it (_ambience_tick)
 		var full := int(_loop_defs["wind"].get("full_hits", 100))
 		var n := int(_wind * full)
 		acc["wind"] = [n, (cam + Vector3(0, Settings.m2v(3.0), 0)) * n]
+	var made := false
 	for ln in _loop_defs:
 		var a: Array = acc.get(ln, [0, Vector3.ZERO])
 		var lv := clampf(float(a[0]) / float(_loop_defs[ln].get("full_hits", 20)), 0.0, 1.0)
 		var st: Dictionary = _loops.get(ln, {})
 		if st.is_empty():
-			if lv <= 0.0:
-				continue
+			if lv <= 0.0 or made:
+				continue   # one new voice a round: walking into a factory starts its hums over a few rounds, not in one frame
+			made = true
 			st = _make_loop(ln)
 		st["target"] = sqrt(lv)   # loudness grows slower than the cell count
 		if a[0] > 0:
 			st["pos"] = a[1] / float(a[0]) + Vector3(0.5, 0.5, 0.5)
 		stats_data["loops"][ln] = snappedf(st["target"], 0.01)
+
+
+## A machine loop's pitch from its entity's load (sounds.json pitch_by): the dynamo whines higher with more amps.
+static func machine_pitch(def: Dictionary, value: float) -> float:
+	var span: Array = def.get("pitch_span", [1.0, 1.0])
+	return lerpf(float(span[0]), float(span[1]), clampf(value / float(def.get("pitch_ref", 1.0)), 0.0, 1.0))
 
 
 ## A looping 3D voice for sound `n` (its first file, ref_m, range_m, db), not yet in the tree: the

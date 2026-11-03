@@ -395,7 +395,7 @@ func debug_power_line(base: Vector3i, right: Vector3i) -> String:
 		main.bubble.fill_box(lo, lo + Vector3i(2 * B, B, 2 * B), GameMaterials.id_of("water_static"))
 	var trunk := [2, 3, 5, 6, 8, 9, 11, 13, 15, 17]
 	for x in trunk:
-		_create(base + right * x * B, "cable", GameMaterials.WORK_SPOT).item = "thick_cable"
+		_create(base + right * x * B, "cable", GameMaterials.WORK_SPOT).item = "heavy_copper_cable"
 	_create(base + right * 4 * B, "wind_turbine", GameMaterials.WORK_BLOCK)
 	var crank: PowerSourceEntity = _create(base + right * 7 * B, "hand_crank", GameMaterials.WORK_BLOCK)
 	crank.cranked_until = Inventory.clock_s + 120.0
@@ -455,7 +455,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 			_mark(p)
 			if _consumes():
 				main.player_inv.consume_held(1)
-		"pipe":
+		"pipe", "cable":   # the item says the pipe's or cable's kind (a cable its gauge, ADR 0123, 0131)
 			e.item = id
 			e.axis = posmod(roundi(main.player.rotation_degrees.y / 90.0), 2)   # along the way the player faces (ADR 0097)
 			_mark(p)

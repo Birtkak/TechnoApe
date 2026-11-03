@@ -29,12 +29,12 @@ func _ticks(n: int) -> void:
 
 
 func test_items_recipes_and_gauges() -> void:
-	for id in ["thin_cable", "thick_cable", "lead_acid_cell", "water_wheel", "wind_turbine", "hand_crank", "daylight_switch", "meter_panel"]:
+	for id in ["thin_cable", "lead_acid_cell", "water_wheel", "wind_turbine", "hand_crank", "daylight_switch", "meter_panel"]:
 		assert_bool(items.has(id)).override_failure_message(id).is_true()
 		assert_bool(recipes.recipes.has(id)).override_failure_message("recipe " + id).is_true()
 	var thin: Dictionary = items.get_def("thin_cable")["cable"]
 	var mid: Dictionary = items.get_def("copper_cable")["cable"]
-	var thick: Dictionary = items.get_def("thick_cable")["cable"]
+	var thick: Dictionary = items.get_def("heavy_copper_cable")["cable"]   # the content pass's 16 mm^2 trunk cable (ADR 0131)
 	assert_bool(float(thin["ohms_per_block"]) > float(mid["ohms_per_block"]) and float(mid["ohms_per_block"]) > float(thick["ohms_per_block"])).is_true()
 	assert_bool(int(thin["amps"]) < int(mid["amps"]) and int(mid["amps"]) < int(thick["amps"])).is_true()
 	assert_bool("lead_acid_cell" in recipes.ingredient_specs(recipes.recipes["battery_box"])).is_true()
@@ -79,13 +79,13 @@ func test_thin_cable_burns_where_thick_holds() -> void:
 	var thin: CableEntity = store.create(Vector3i(0, 0, 0), "cable")
 	thin.item = "thin_cable"
 	var thick: CableEntity = store.create(Vector3i(4 * B, 0, 0), "cable")
-	thick.item = "thick_cable"
+	thick.item = "heavy_copper_cable"
 	for i in 12:
 		thin.net_in("energy", {"volts": 48.0, "amps": 20.0, "watts": 0.0})
 		thick.net_in("energy", {"volts": 48.0, "amps": 60.0, "watts": 0.0})
 	assert_bool(thin.burnt).is_true()
 	assert_bool(thick.burnt).is_false()
-	assert_float(thick.net("energy")["ohms"]).is_equal(0.00054)
+	assert_float(thick.net("energy")["ohms"]).is_equal(0.00053)
 
 
 func test_daylight_switch_and_meter_panel() -> void:

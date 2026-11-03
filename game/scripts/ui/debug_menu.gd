@@ -110,6 +110,9 @@ func _build_panel() -> void:
 	title.add_theme_font_size_override("font_size", 18)
 	box.add_child(title)
 
+	# ADR 0130: data/whats_new.json, one button a stop (hover says what to look for)
+	_section(box, "What's new (closes the menu; /tour walks them in order)",
+		PlaytestCommands.whats_new().map(func(e: Dictionary) -> Array: return [e["title"], "!/tour " + e["id"], e["what"]]))
 	_section(box, "Game mode", [
 		["Survival", "/gamemode survival"], ["Creative", "/gamemode creative"], ["Toggle fly", _toggle_fly],
 		["Heal", "/heal"], ["Kill", "/kill"], ["Clear inventory", "/clear"]])
@@ -162,7 +165,7 @@ func _build_panel() -> void:
 	box.add_child(hint)
 
 
-## buttons: [label, "/command" | "!/command" (closes the menu first) | Callable]
+## buttons: [label, "/command" | "!/command" (closes the menu first) | Callable, tooltip (optional)]
 func _section(box: VBoxContainer, title: String, buttons: Array) -> void:
 	var l := Label.new()
 	l.text = title
@@ -176,6 +179,8 @@ func _section(box: VBoxContainer, title: String, buttons: Array) -> void:
 		var btn := Button.new()
 		btn.text = b[0]
 		btn.focus_mode = Control.FOCUS_NONE
+		if b.size() > 2:
+			btn.tooltip_text = b[2]
 		if b[1] is Callable:
 			btn.pressed.connect(b[1])
 		else:

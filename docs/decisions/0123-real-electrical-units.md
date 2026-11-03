@@ -82,7 +82,8 @@ at 8 A, lamp lit, assembler made 4 circuits (`game/out/dc1/strip.png`).
 - **Lead-acid cell**: tin plates in sulfuric acid behind glass (the game's tin stands in for lead); four make the
   battery box.
 - **Cable gauges**: thin (1.5 mm^2, 5.7 milliohm a block, 15 A, cheap) for lamps and switches, copper (6 mm^2, 40 A)
-  for machines, thick (16 mm^2, 0.54 milliohm, 80 A) for the trunk. A cable keeps its gauge when laid.
+  for machines, and the content pass's heavy copper cable (ADR 0131: 16 mm^2, 0.53 milliohm, 75 A) for the trunk. A cable
+  keeps its gauge when laid.
 - **Daylight switch**: a selenium photocell (sulfur stands in) that WorkSystem opens by day (time_of_day
   0.25-0.75) and closes at night: street lamps. **Meter panel**: a conductor whose face draws a volt bar and an
   amp bar from the last solve.
