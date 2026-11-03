@@ -10,6 +10,24 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Real units, LV machines, animals, calmer water (2026-11-03, ADR 0119, 0123, 0131)
+
+- [ ] `/stations factory`: look at a cable, the battery box and the electric furnace with the multimeter or the
+      look panel: volts near 48, amps, watts (no EU anywhere). The knife switch, fuse box and breaker in the line
+      conduct; right click the knife switch: the lamp and the assembler beyond it go dark, again: back on.
+- [ ] Overload a fuse or breaker (more machines on one line): the fuse blows, refit it with fuse wire in hand;
+      the breaker trips, right click resets it.
+- [ ] `/stations lv`: the extractor (resin), cutter (planks), extruder (tin cans), canning machine, compressor
+      (carbon electrodes) and electrolyzer (copper ingots) each work through their load. One turbine cannot run them
+      all at once: the electrolyzer waits until the others finish. Does that read as fair or as broken?
+- [ ] `/goto desert`, `taiga`, `jungle`, `forest` (and other biomes): each has its own animals (scorpions and
+      vultures, ptarmigans, boars, songbirds ...). Do they sound and move right?
+- [ ] `/goto lake`: the game loads quickly and the lake stays still; F3 frame times stay low beside it.
+- [ ] `/scenario river`: you stand on running water (no dry bed). Dig into the bank (crater rod, laser): the
+      river runs into the hole and levels out.
+- [ ] Lava next to water (`/kit water`, a lava bomb into a river): it boils to a white steam cloud that rises
+      and drifts; toxic sludge boils to a green gas that sinks into low caves.
+
 ## Quality of life: toggles, inventory gestures, status (2026-11-02, ADR 0130)
 
 - [ ] Settings > Controls: turn on Toggle sprint and Toggle sneak. Ctrl starts and stops sprinting, Shift starts
@@ -46,6 +64,8 @@ frame times.
       `lit_station` sets night and puts down a table, chest and a burning furnace; `ledge` stands you in survival
       on a 6 m stone platform 3 m up to try Ctrl sprint and Shift stopping at the edge.
 - [ ] `/stations` places all three again (the chest and furnace said "No room"), on the real ground, furnace lit.
+- [ ] `/blocks` lists every machine and station with what it draws and has made (`/blocks lathe` filters);
+      `/count steam` (any material) says how many cells of it the simulation holds around you.
 
 ## Faster start, near ground first (2026-10-29, ADR 0108)
 

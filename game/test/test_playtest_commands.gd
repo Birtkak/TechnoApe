@@ -69,3 +69,9 @@ func test_count_needs_a_known_material_and_a_world() -> void:
 	assert_str(reg.execute("/count")["text"]).contains("Usage")
 	assert_str(reg.execute("/count nope")["text"]).contains("Unknown material")
 	assert_str(reg.execute("/count steam")["text"]).is_equal("No world")
+
+
+func test_block_line_keeps_the_readings() -> void:
+	var l := PlaytestCommands.block_line({"kind": "extractor", "watts": 178.87, "made": 1, "output": {"id": "sticky_resin", "count": 1}, "pos": "(0, 0, 0)"})
+	assert_str(l).is_equal("extractor watts 178.9 made 1 output sticky_resin x1")
+	assert_str(reg.execute("/blocks")["text"]).is_equal("No world")
