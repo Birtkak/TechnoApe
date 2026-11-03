@@ -279,23 +279,24 @@ def synth_owl() -> list:
 
 
 def synth_wind() -> list:
-    """An exposed wind bed: brown noise through a slowly moving band, swelling in gusts; loops at 1.5 s."""
+    """A soft breeze: noise through a broad, gently drifting band, swelling a little; loops at 1.5 s. A narrow band
+    swept 100-600 Hz with deep 7 s gusts read as a hurricane (developer 2026-11-03: "a nice breeze, not a hurricane")."""
     rng = np.random.default_rng(11)
     n = int(RATE * 14)
     t = np.arange(n) / RATE
     white = rng.standard_normal(n)
     out = np.zeros(n)
-    centre = 350 + 250 * np.sin(2 * np.pi * t / 7.0) + 120 * np.sin(2 * np.pi * t / 2.3)
+    centre = 900 + 120 * np.sin(2 * np.pi * t / 7.0) + 60 * np.sin(2 * np.pi * t / 3.1)
     for lo in range(0, n, 2048):   # a band-pass per block: centre frequency follows the gusts
         hi = min(n, lo + 2048 + 1024)
         seg = white[lo:hi]
         spec = np.fft.rfft(seg)
         fr = np.fft.rfftfreq(len(seg), 1 / RATE)
         c = centre[lo]
-        spec *= np.exp(-((np.log(np.maximum(fr, 1) / c)) ** 2) / 0.35)
+        spec *= np.exp(-((np.log(np.maximum(fr, 1) / c)) ** 2) / 1.6)   # broad: a hiss, no whistle
         blk = np.fft.irfft(spec, len(seg)) * np.hanning(len(seg))
         out[lo:hi] += blk
-    gust = 0.55 + 0.45 * np.sin(2 * np.pi * t / 7.0) ** 2
+    gust = 0.8 + 0.2 * np.sin(2 * np.pi * t / 7.0) ** 2
     return [(out * gust)[:, None]]
 
 
