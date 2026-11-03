@@ -2083,8 +2083,20 @@ int SimWorld::count_unsupported(int p_material) const {
 
 int SimWorld::count_burning() const {
     wait_idle();
+    // A burning cell changes every tick, so its chunk is active (or dirty, freshly lit): scanning only those
+    // skips the whole 134 M cell box, which took 40-65 ms of the frame each time the F3 screen asked.
     int n = 0;
-    for (const Cell &c : cells_) n += (c.flags & FLAG_BURNING) != 0;
+    for (int cz = 0; cz < CZ_; cz++)
+        for (int cy = 0; cy < CY_; cy++)
+            for (int cx = 0; cx < CX_; cx++) {
+                const int ci = cidx(cx, cy, cz);
+                if (!active_now_[ci].load(std::memory_order_relaxed) && !active_next_[ci].load(std::memory_order_relaxed)
+                        && !dirty_[ci].load(std::memory_order_relaxed)) continue;
+                for (int z = 0; z < CS; z++)
+                    for (int y = 0; y < CS; y++)
+                        for (int x = 0; x < CS; x++)
+                            n += (cells_[idx(cx * CS + x, cy * CS + y, cz * CS + z)].flags & FLAG_BURNING) != 0;
+            }
     return n;
 }
 
