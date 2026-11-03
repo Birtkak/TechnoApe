@@ -40,7 +40,7 @@ inline void from_uv(int rot, int u, int v, int &dx, int &dz) {
     }
 }
 
-bool square_shape(int shape) { return shape == S_WATCHTOWER || shape == S_STONE_CIRCLE || shape == S_SHRINE; }
+bool square_shape(int shape) { return shape == S_WATCHTOWER || shape == S_STONE_CIRCLE || shape == S_SHRINE || shape == S_LOOKOUT; }
 
 // crypt layout: the room's floor lies D macro cells under the ruin's floor
 inline int crypt_d(const Ruin &r) { return std::max(4, r.depth - 1); }
@@ -119,6 +119,12 @@ int pot_spots(const Ruin &r, PotSpot out[4]) {
             const int c[3][2] = {{-1, -(V - 1)}, {1, -(V - 1)}, {0, V - mine_d(r) - 2}};
             for (int i = 0; i < 3; i++) { cu[n] = c[i][0]; cv[n] = c[i][1]; n++; }
             y = r.base - mine_d(r) + 1;
+            break;
+        }
+        case S_LOOKOUT: {   // under the platform, between the posts
+            const int c[2][2] = {{-1, -1}, {1, 1}};
+            for (int i = 0; i < 2; i++) { cu[n] = c[i][0]; cv[n] = c[i][1]; n++; }
+            y = r.base;
             break;
         }
         case S_CAMP: {   // two under the lean-to, one by the far log
@@ -474,6 +480,34 @@ uint16_t mine(const Prepared &p, const Ctx &c) {
     return TERRAIN;
 }
 
+// A wooden lookout: four log posts, a plank platform 5.5 m up with whole rows of rotten boards gone, a rail on
+// three sides, a cross brace down each face. Everything left hangs on a post: rows run edge to edge, the rail of a
+// side goes whole or not at all.
+uint16_t lookout(const Prepared &p, const Ctx &c) {
+    const Ruin &r = p.r;
+    const int P = p.U - 1, au = std::abs(c.u), av = std::abs(c.v);
+    if (au > P || av > P || c.my < r.base) return TERRAIN;
+    const int plat = r.base + 11, rail = plat + 2;
+    const int low = c.wy - c.my * c.fs;   // voxels up inside this macro cell
+    if (au == P && av == P) return c.my <= rail ? p.mat[M_WALL] : TERRAIN;
+    if (c.my == plat && low < 2) {
+        const bool edge = au == P;
+        if (edge || (hash((int)r.seed, c.v, 111) % 4) != 0) return p.mat[M_FLOOR];
+    }
+    if (c.my == rail && low < 2 && (au == P || av == P)) {
+        const int side = av == P ? (c.v > 0 ? 0 : 1) : (c.u > 0 ? 2 : 3);
+        if (side != (int)(hash((int)r.seed, 113, 7) & 3)) return p.mat[M_TRIM];
+    }
+    // a brace from one post's foot to the next post's top, down each face (faces alternate)
+    if (au == P || av == P) {
+        const float along = av == P ? c.fu : c.fv, sgn = ((av == P ? c.v : c.u) > 0) ? 1.0f : -1.0f;
+        const float t = (along * sgn + (float)P) / (2.0f * (float)P);   // 0..1 across the face
+        const float out = std::fabs(av == P ? c.fv : c.fu);   // the outer half of the face's cells only
+        if (t >= 0.0f && t <= 1.0f && out >= (float)P && std::fabs(c.fy - t * 11.0f) < 0.55f) return p.mat[M_EXTRA];
+    }
+    return TERRAIN;
+}
+
 // An abandoned camp: a ring of stones round a bed of ash, a lean-to of poles and leaves behind it, logs to sit on.
 uint16_t camp(const Prepared &p, const Ctx &c) {
     const Ruin &r = p.r;
@@ -566,6 +600,7 @@ uint16_t voxel(const Prepared &p, int fs, int wx, int wy, int wz, int surf, uint
         case S_WRECK: m = wreck(p, c); break;
         case S_MINE: m = mine(p, c); break;
         case S_CAMP: m = camp(p, c); break;
+        case S_LOOKOUT: m = lookout(p, c); break;
         default: m = house(p, c); break;
     }
     (void)ground;
