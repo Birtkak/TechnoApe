@@ -77,6 +77,20 @@ func _process(delta: float) -> void:
 				var below: Vector3i = p.pos + Vector3i(Settings.BLOCK / 2, -1, Settings.BLOCK / 2)
 				if p.draw_from(machine_pins.get_voxel.bind(main), func(c: Vector3i, m: int) -> void: machine_pins.set_voxel(main, c, m), below):
 					_particles("splash", _at(p.pos, Vector3(0.5, 0.2, 0.5)), GameMaterials.WATER, 3)
+		var clock := Inventory.clock_s
+		var wind := clampf(0.55 + 0.3 * sin(clock / 47.0) + 0.2 * sin(clock / 131.0) + (0.3 if main.weather != null and main.weather.is_raining() else 0.0), 0.0, 1.0)
+		var day: bool = main.atmosphere != null and main.atmosphere.time_of_day > 0.25 and main.atmosphere.time_of_day < 0.75
+		for src: PowerSourceEntity in main.blocks.all_of("water_wheel"):   # wet when the two-block box under it is half water (a native count)
+			var lo := src.pos + Vector3i(0, -Settings.BLOCK, 0)
+			var n := Settings.BLOCK * 2
+			var water: int = main.bubble.count_in_box(lo, lo + Vector3i(n, Settings.BLOCK, n), GameMaterials.WATER) + main.bubble.count_in_box(lo, lo + Vector3i(n, Settings.BLOCK, n), GameMaterials.id_of("water_static")) if main.bubble else 0
+			src.drive = clampf(2.0 * float(water) / float(n * n * Settings.BLOCK), 0.0, 1.0)
+		for src: PowerSourceEntity in main.blocks.all_of("wind_turbine"):
+			src.drive = wind
+		for sw: CircuitEntity in main.blocks.all_of("daylight_switch"):
+			if sw.open != day:
+				sw.open = day
+				sw.changed.emit()
 		for oven: CokeOvenEntity in main.blocks.all_of("coke_oven"):   # the multiblock check: 27 reads a second per oven
 			if oven.set_formed(CokeOvenEntity.formed_at(main.get_world_voxel, oven.pos)):
 				main.blocks.refit(oven)
@@ -370,6 +384,32 @@ func debug_lv_line(base: Vector3i, right: Vector3i) -> String:
 	return "the electric line and the LV machines %s from %s" % [", ".join(loads.keys()), base]
 
 
+## Debug (/stations power, ADR 0123): every small source in parallel on one trunk of thick cable, a meter panel, a
+## battery, a fuse, a daylight switch feeding two lamps over thin cable, the hand crank already turning. The
+## water wheel gets a trough of still water under it (one native fill).
+func debug_power_line(base: Vector3i, right: Vector3i) -> String:
+	var B := Settings.BLOCK
+	var wheel: PowerSourceEntity = _create(base, "water_wheel", GameMaterials.WORK_BLOCK)
+	if main.bubble:
+		var lo := base + Vector3i(0, -B, 0)
+		main.bubble.fill_box(lo, lo + Vector3i(2 * B, B, 2 * B), GameMaterials.id_of("water_static"))
+	var trunk := [2, 3, 5, 6, 8, 9, 11, 13, 15, 17]
+	for x in trunk:
+		_create(base + right * x * B, "cable", GameMaterials.WORK_SPOT).item = "heavy_copper_cable"
+	_create(base + right * 4 * B, "wind_turbine", GameMaterials.WORK_BLOCK)
+	var crank: PowerSourceEntity = _create(base + right * 7 * B, "hand_crank", GameMaterials.WORK_BLOCK)
+	crank.cranked_until = Inventory.clock_s + 120.0
+	_create(base + right * 10 * B, "meter_panel", GameMaterials.WORK_BLOCK)
+	_create(base + right * 12 * B, "fuse_box", GameMaterials.WORK_SPOT)
+	_create(base + right * 14 * B, "battery_box", GameMaterials.WORK_BLOCK)
+	_create(base + right * 16 * B, "daylight_switch", GameMaterials.WORK_SPOT)
+	_create(base + right * 18 * B, "cable", GameMaterials.WORK_SPOT).item = "thin_cable"
+	_create(base + right * 19 * B, "electric_lamp", GameMaterials.WORK_SPOT)
+	_create(base + right * 20 * B, "cable", GameMaterials.WORK_SPOT).item = "thin_cable"
+	_create(base + right * 21 * B, "electric_lamp", GameMaterials.WORK_SPOT)
+	return "a water wheel over a trough, a wind turbine, a cranked hand crank, a meter panel, a fuse, a battery, a daylight switch and two lamps from %s" % base
+
+
 ## Debug (/stations electric, ADR 0113): the energy line laid on the ground `fwd` of `base` along `right`:
 ## a lit boiler, a pipe, the turbine, two cables and an electric furnace loaded with meat. Returns what it laid.
 func debug_electric_line(base: Vector3i, right: Vector3i) -> String:
@@ -397,7 +437,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile" or kind == "electric_lamp"   # a lamp hangs on walls too (ADR 0117)
-	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven"] or MachineEntity.DOOR.has(kind)
+	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven", "water_wheel", "wind_turbine", "hand_crank", "meter_panel"] or MachineEntity.DOOR.has(kind)
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -429,6 +469,12 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 			if _consumes():
 				main.player_inv.consume_held(1)
 		"rail":
+			e.axis = posmod(roundi(main.player.rotation_degrees.y / 90.0), 2)
+			_mark(p)
+			if _consumes():
+				main.player_inv.consume_held(1)
+		"cable":
+			e.item = id   # thin, copper or thick (ADR 0123)
 			e.axis = posmod(roundi(main.player.rotation_degrees.y / 90.0), 2)
 			_mark(p)
 			if _consumes():
@@ -812,7 +858,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
 		_say(res["msg"])
 		return true
-	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity:   # ADR 0099, 0113, 0117, 0123
+	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity or e is PowerSourceEntity or e is MeterPanelEntity:   # ADR 0099, 0113, 0117, 0123
 		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
 		if res["consume"] > 0 and _consumes():
 			main.player_inv.consume_held(res["consume"])

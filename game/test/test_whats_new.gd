@@ -43,7 +43,7 @@ func test_every_line_runs_a_known_command_with_real_arguments() -> void:
 				"kit":
 					assert_bool(GameCommands.KITS.has(t[1])).override_failure_message(msg).is_true()
 				"stations":
-					assert_bool(t.size() == 1 or t[1] in ["electric", "factory", "lv"]).override_failure_message(msg).is_true()
+					assert_bool(t.size() == 1 or t[1] in ["electric", "factory", "lv", "power"]).override_failure_message(msg).is_true()
 				"summon":
 					assert_bool(mobs.has(t[1])).override_failure_message(msg).is_true()
 				"blast", "count":

@@ -4,7 +4,8 @@ extends RefCounted
 ## Circuit protection and control on the LV network (ADR 0123), one block of conductor each, the kind from the
 ## item's `"circuit": {"amps": rating}`: a knife switch (right click opens and closes it), a fuse box (its fuse
 ## wire blows above the rating; a right click with fuse wire in hand refits it), a breaker (trips above the
-## rating; a right click resets it). Open, it is no conductor at all: the circuit beyond it is dead.
+## rating; a right click resets it), a daylight switch (WorkSystem opens it by day and closes it at night, so lamps
+## on it burn only after dark). Open, it is no conductor at all: the circuit beyond it is dead.
 
 signal changed
 
@@ -32,7 +33,7 @@ func net_in(channel: String, d) -> bool:
 	if channel != "energy":
 		return false
 	last_amps = float(d.get("amps", 0.0))
-	if kind != "knife_switch" and last_amps > amps and not open:
+	if kind in ["fuse_box", "breaker"] and last_amps > amps and not open:
 		open = true   # the fuse wire melts, the breaker trips
 		Sound.play("elec/fuse" if kind == "fuse_box" else "elec/breaker", Vector3(pos) + Vector3(0.5, 0.5, 0.5))
 		changed.emit()
@@ -62,6 +63,8 @@ func use(stack: Dictionary) -> Dictionary:
 				res["msg"] = "Reset. It trips above %d A." % roundi(amps)
 			else:
 				res["msg"] = "Armed: it trips above %d A (%.1f A now)." % [roundi(amps), last_amps]
+		"daylight_switch":
+			res["msg"] = "A daylight switch: %s." % ("open by day" if open else "closed for the night")
 		"fuse_box":
 			if not open:
 				res["msg"] = "The %d A fuse is good (%.1f A now)." % [roundi(amps), last_amps]
@@ -85,6 +88,8 @@ func look_lines() -> Array[String]:
 			return ["Open" if open else "Closed, %.1f A through it" % last_amps]
 		"breaker":
 			return ["Tripped: right click to reset" if open else "Armed at %d A, %.1f A through it" % [roundi(amps), last_amps]]
+		"daylight_switch":
+			return ["Open: daylight" if open else "Closed: night, %.1f A through it" % last_amps]
 	return ["Blown: refit with fuse wire" if open else "%d A fuse, %.1f A through it" % [roundi(amps), last_amps]]
 
 
@@ -119,6 +124,11 @@ func view_parts() -> Dictionary:
 			WorkPalette.box(c, size, Vector3i(6, 7, 7), Vector3i(10, 8, 9), WorkPalette.HAZARD if not open else WorkPalette.SOOT)   # the lever
 			WorkPalette.box(c, size, Vector3i(5, 3, 12), Vector3i(11, 6, 13), WorkPalette.IRON_DARK)   # the flag window
 			WorkPalette.box(c, size, Vector3i(6, 4, 12), Vector3i(10, 5, 13), WorkPalette.EMBER if open else WorkPalette.SOOT)
+		"daylight_switch":   # a photocell under a glass dome on the lid (ADR 0123 round 2)
+			WorkPalette.box(c, size, Vector3i(3, 2, 3), Vector3i(13, 7, 13), WorkPalette.IRON_DARK)
+			WorkPalette.box(c, size, Vector3i(3, 6, 3), Vector3i(13, 7, 13), WorkPalette.STEEL)
+			WorkPalette.box(c, size, Vector3i(6, 7, 6), Vector3i(10, 10, 10), WorkPalette.GLOW if open else WorkPalette.TIN)   # the cell: lit by day
+			WorkPalette.box(c, size, Vector3i(5, 7, 5), Vector3i(11, 8, 11), WorkPalette.COPPER)
 		_:
 			WorkPalette.box(c, size, Vector3i(3, 2, 3), Vector3i(13, 7, 13), WorkPalette.IRON_DARK)
 			WorkPalette.box(c, size, Vector3i(3, 6, 3), Vector3i(13, 7, 13), WorkPalette.STEEL)   # the lid
