@@ -944,10 +944,10 @@ static func rules_now(rules: Dictionary, tags: Array, phase: String, wet: bool) 
 
 
 ## Wind, 0..1: only where the ear is open to the sky, stronger high above the ground and the sea,
-## on mountains, frozen and open land, and in a storm. Silent on ordinary ground: a breeze that never
-## stops is a drone (developer 2026-11-03).
+## on mountains, frozen and open land. Only in rain or snow: a steady breeze was obnoxious even at -36 dB
+## on a hill (developer 2026-11-03, three times).
 static func wind_level(open: float, ear_y: float, above_ground_m: float, tags: Array, wet: bool) -> float:
-	if "underground" in tags:
+	if "underground" in tags or not wet:
 		return 0.0
 	var w := 0.15 + clampf(Settings.v2m(ear_y - Settings.SEA_LEVEL_VOXEL) / 120.0, 0.0, 0.5) + clampf(above_ground_m / 30.0, 0.0, 0.3)
 	for t in ["mountain", "frozen", "open", "coast"]:

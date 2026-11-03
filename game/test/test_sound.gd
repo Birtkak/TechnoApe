@@ -129,10 +129,11 @@ func test_ambience_follows_biome_time_and_weather() -> void:
 	assert_array(GameAudio.rules_now(rules, ["underground"], "night", false)).is_empty()
 	assert_float(GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL, 0.0, ["underground"], false)).is_equal(0.0)
 	assert_float(GameAudio.wind_level(0.2, Settings.SEA_LEVEL_VOXEL + 800, 0.0, ["mountain"], false)).is_equal(0.0)   # roofed
-	var peak := GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 800, 2.0, ["mountain", "frozen"], false)
-	var woods := GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 40, 2.0, forest, false)
+	var peak := GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 800, 2.0, ["mountain", "frozen"], true)
+	var woods := GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 40, 2.0, forest, true)
 	assert_float(peak).is_greater(woods + 0.4)
-	# standing on open plains in fair weather: no wind at all (it droned)
+	# fair weather: no wind anywhere, not even on a peak (it droned); a storm brings it
+	assert_float(GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 800, 2.0, ["mountain", "frozen"], false)).is_equal(0.0)
 	assert_float(GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 80, 1.7, ["temperate", "open"], false)).is_equal(0.0)
 	assert_float(GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 80, 1.7, ["temperate", "open"], true)).is_greater(0.2)
 
