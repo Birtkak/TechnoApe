@@ -64,6 +64,20 @@ func test_cavern_is_a_hall() -> void:
 	assert_float(float(_count(ids, 0)) / ids.size()).is_greater(0.6)
 
 
+func test_halls_have_a_talus_and_a_roof() -> void:
+	# ADR 0134: a giant chamber is at most 22 m tall over its floor, and rubble (gravel, cobble) slopes up its walls
+	var p: Vector3i = gen.find_nearest("cavern", 0, 0, FAR)
+	var top := 0
+	var b: PackedByteArray = gen.generate_block(p, Vector3i(1, int(S.m2v(40.0)), 1), 0, 2)
+	while top < b.size() / 2 and b.decode_u16(top * 2) == 0:
+		top += 1
+	assert_float(top * S.VOXEL_M).override_failure_message("chamber %.1f m tall" % (top * S.VOXEL_M)).is_less_equal(22.5)
+	var r := int(S.m2v(40.0))
+	var ids := _block(p + Vector3i(-r, -8, -r), Vector3i(2 * r, int(S.m2v(10.0)), 2 * r))
+	var rubble := _count(ids, GameMaterials.GRAVEL_STATIC) + _count(ids, GameMaterials.COBBLESTONE)
+	assert_int(rubble).override_failure_message("%d rubble voxels round the chamber floor" % rubble).is_greater(2000)
+
+
 func test_cave_mouths_open_on_the_surface() -> void:
 	# over a 1 km square: 10-40 entrances per km^2 (developer: "big" caves)
 	var n := 160

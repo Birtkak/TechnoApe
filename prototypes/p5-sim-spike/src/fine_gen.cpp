@@ -1407,7 +1407,7 @@ static float dress_spike(int wx, int wz, uint32_t seed, float chance, float rmin
     return d > r + 0.5f ? 0.0f : H * (1.0f - d / (r + 1.0f));
 }
 
-uint16_t FineGen::cave_dressing(int biome, int wx, int wz, int df, int dc, uint16_t rock) const {
+uint16_t FineGen::cave_dressing(int biome, int wx, int wz, int df, int dc, uint16_t rock, float rim) const {
     namespace B = technosim_biome;
     const int sd = g_->seed_;
     const bool fl = df >= 0, ce = dc >= 0;
@@ -1420,6 +1420,12 @@ uint16_t FineGen::cave_dressing(int biome, int wx, int wz, int df, int dc, uint1
         return ce && (float)dc < std::min(half, dress_spike(wx, wz, sd + salt, chance, rmin, rmax, hmin, hmax));
     };
     const uint32_t ch = h3(wx, wz, sd + 4409);   // per-column rolls
+    // a hall's rim (ADR 0134): glow mushrooms in patches on the talus and moss along the roof's edge (glow worms hang
+    // from it), so a hall shows its walls without a torch. Emissive tiles and ambient particles: no lights.
+    if (rim > 0.15f && biome != B::FROZEN_CAVE && biome != B::MAGMA_CAVE) {
+        if (df == 0 && (ch % 5) == 0 && n_meadow_.GetNoise((float)wx * 0.9f + 5200.0f, (float)wz * 0.9f) > 0.05f) return Mat::GLOW_MUSHROOM;
+        if (dc == 0 && n_meadow_.GetNoise((float)wx * 0.7f, (float)wz * 0.7f - 5200.0f) > 0.1f) return Mat::MOSS;
+    }
     switch (biome) {
         case B::DRIPSTONE_CAVE:
             if (down(4411, 0.75f, 0.8f, 2.2f, 3.0f, 8.0f) || up(4413, 0.55f, 1.0f, 2.5f, 3.0f, 8.0f)) return Mat::DRIPSTONE;
@@ -1776,29 +1782,16 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
         // nothing is carved above a column's ground, so the field stops at the block's highest ground
         cny = std::max(2, floor_div(std::min(origin.y + sy * step, h_hi), FS) - cy0 + 2);
         cav.resize((size_t)nx * nz * cny);
-        // Caverns from a coarse grid of their noise (every 2 m across, 1 m up; the halls are tens of metres),
-        // ravines from two 2D noises per column: the big caves cost little even at coarse LODs.
+        // Halls from 2D footprints per storey and ravines from two 2D noises per column (ADR 0134): the big caves
+        // cost little even at coarse LODs.
         const bool big = g.variant_[WorldGen::VAR_CAVES] != 0;
-        const int gx0 = floor_div(mx0, 4) * 4, gz0 = floor_div(mz0, 4) * 4, gy0 = floor_div(cy0, 2) * 2;
-        const int gnx = (mx0 + (nx - 1) * mstep - gx0) / 4 + 2, gnz = (mz0 + (nz - 1) * mstep - gz0) / 4 + 2;
-        const int gny = (cy0 + cny - 1 - gy0) / 2 + 2;
-        std::vector<float> cg;
-        if (big) {
-            cg.resize((size_t)gnx * gnz * gny);
-            for (int j = 0; j < gnz; j++)
-                for (int i = 0; i < gnx; i++)
-                    for (int k = 0; k < gny; k++)
-                        cg[((size_t)j * gnx + i) * gny + k] = g.n_cavern_.GetNoise((float)(gx0 + 4 * i), (float)(gy0 + 2 * k) * WorldGen::CAVERN_Y, (float)(gz0 + 4 * j));
-        }
         for (int j = 0; j < nz; j++)
             for (int i = 0; i < nx; i++) {
                 const MacroPt &m = lat[(size_t)j * nx + i];
                 const int cmx = mx0 + i * mstep, cmz = mz0 + j * mstep;
                 const WorldGen::RavineCol rcol = big ? g.ravine_col((float)cmx, (float)cmz) : WorldGen::RavineCol{};
-                const float pillar = big ? g.n_pillar_.GetNoise((float)cmx, (float)cmz) : -1.0f;
-                const float gfx = (float)(cmx - gx0) / 4.0f, gfz = (float)(cmz - gz0) / 4.0f;
-                const int gi = std::min((int)gfx, gnx - 2), gj = std::min((int)gfz, gnz - 2);
-                const float gtx = gfx - gi, gtz = gfz - gj;
+                WorldGen::HallCol hcol;
+                if (big) g.hall_column(cmx, cmz, g.n_galoff_.GetNoise((float)cmx, (float)cmz), hcol);
                 const int height = m.col.height;
                 std::shared_ptr<const CaveBand> band;
                 int band_id = INT32_MIN;
@@ -1844,17 +1837,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                         }
                         v = band->v[cy - band_id * 16];
                     }
-                    if (big) {
-                        const float gfy = (float)(cy - gy0) / 2.0f;
-                        const int gk = std::min((int)gfy, gny - 2);
-                        const float gty = gfy - gk;
-                        auto at = [&](int a, int b) {
-                            const float *p = &cg[((size_t)(gj + b) * gnx + gi + a) * gny + gk];
-                            return p[0] + (p[1] - p[0]) * gty;
-                        };
-                        const float raw = bilerp(at(0, 0), at(1, 0), at(0, 1), at(1, 1), gtx, gtz);
-                        v = std::max({v, WorldGen::cavern_value(raw, (float)cy, depth, pillar), WorldGen::ravine_value(rcol, depth)});
-                    }
+                    if (big) v = std::max({v, g.hall_value(hcol, (float)cy, depth), WorldGen::ravine_value(rcol, depth)});
                     cav[((size_t)j * nx + i) * cny + k] = v;
                 }
             }
@@ -2409,6 +2392,14 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             int crystal_roll = 0;
             const int crystal_h = (lod == 0 && !cav.empty()) ? rocks_.crystal_height(wx, wz, crystal_roll) : 0;
             // cave water depth here, and the rock under the block's bottom cave air (the sheet crosses blocks)
+            // the column's hall inputs, read once when a floor or a dressing asks (ADR 0134)
+            WorldGen::HallCol hall_c;
+            bool hall_ok = false;
+            auto hall_at = [&](int vy, float *rim, bool *tal) {
+                if (g.variant_[WorldGen::VAR_CAVES] == 0) return;
+                if (!hall_ok) g.hall_column(mx, mz, g.n_galoff_.GetNoise((float)mx, (float)mz), hall_c), hall_ok = true;
+                g.hall_value(hall_c, (float)vy / FS, (float)(h - vy) / FS, rim, tal);
+            };
             const int pool_d = (lod == 0 && !cav.empty()) ? std::clamp((int)((n_pool_.GetNoise((float)wx, (float)wz) - POOL_THR) * 2.0f * POOL_DEPTH), 0, POOL_DEPTH) : 0;
             int floor_wy = -(1 << 20), pool_cap = 0, lip_top = 0;
             for (int j = 1; j <= pool_d; j++)
@@ -2423,7 +2414,30 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 return false;
             };
             auto depth_at = [&](int x, int z) { return std::clamp((int)((n_pool_.GetNoise((float)x, (float)z) - POOL_THR) * 2.0f * POOL_DEPTH), 0, POOL_DEPTH); };
-            auto cap_at = [&](int x, int z, int f, int d) { return drop(x, z, f, CAVE_STEP + 1) ? 0 : (drop(x, z, f, 1) ? std::min(d, CAVE_STEP) : d); };
+            // no pond on a hall's talus slope (ADR 0134): the sheet stepped down it open to the side
+            auto on_talus = [&](int x, int z, int f) {
+                if (g.variant_[WorldGen::VAR_CAVES] == 0) return false;
+                const int px = floor_div(x, FS), pz = floor_div(z, FS);
+                WorldGen::HallCol hc;
+                g.hall_column(px, pz, g.n_galoff_.GetNoise((float)px, (float)pz), hc);
+                bool tal = false;
+                g.hall_value(hc, (float)f / FS, (float)(h - f) / FS, nullptr, &tal);   // this column's ground: the neighbours are a voxel away
+                return tal;
+            };
+            // whether the cave biome over a floor at f has a pond (a neighbour across a biome border may not: the lip
+            // below must not count on its water)
+            auto has_pool = [&](int x, int z, int f) {
+                const int pd = h - (f + 1);
+                if (pd < technosim_biome::SOIL_DEPTH * FS) return technosim_biome::SURFACE_POOL[col.biome] >= 0;
+                const float cn = g.n_cavebiome_.GetNoise((float)floor_div(x, FS), (float)(f + 1) / FS, (float)floor_div(z, FS));
+                const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)pd / FS, technosim_biome::DEPTH_BAND_COUNT);
+                const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
+                return technosim_biome::SURFACE_POOL[technosim_biome::cave_biome(ti, hi, di, ni)] >= 0;
+            };
+            auto cap_at = [&](int x, int z, int f, int d) {
+                if (d <= 0 || on_talus(x, z, f) || !has_pool(x, z, f)) return 0;
+                return drop(x, z, f, CAVE_STEP + 1) ? 0 : (drop(x, z, f, 1) ? std::min(d, CAVE_STEP) : d);
+            };
             // A sheet never opens sideways onto air (test_landforms_caves): where a neighbour column's floor lies
             // lower, its own sheet reaches only fn + its cap, so the water above that height in this column is
             // a stone lip instead (the rim that holds the pond on its downhill side).
@@ -2477,6 +2491,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 }
             }
             int dress_anchor = INT32_MIN, dress_biome = -1;   // the cave biome of the last floor or ceiling looked up
+            float dress_rim = 0.0f;                           // how near that anchor is to a hall's wall (ADR 0134)
             stack_top = std::max({stack_top, h + veg_h + 2, h + spike + 1, h + CLUTTER_H + 1, far_top + 1, water_level + 1, h + aqua_h + 1});
             const auto tvox = std::chrono::steady_clock::now();
             t_pro += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(tvox - tcol).count();
@@ -2545,11 +2560,14 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             }
                         }
                         if (mat == Mat::AIR && pool_cap > 0 && wy - floor_wy <= pool_cap) {
-                            // the biome's pool (biomes.json surface.pool: water, toxic sludge, lava) on the floor
-                            const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)wy / FS, (float)mz);
-                            const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth / FS, technosim_biome::DEPTH_BAND_COUNT);
+                            // the biome's pool (biomes.json surface.pool: water, toxic sludge, lava) on the floor, in the
+                            // cave biome over the floor: read per voxel, a biome border through the pond left its lower
+                            // voxels air under a floating sheet (ADR 0134)
+                            const int pd = h - (floor_wy + 1);
+                            const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)(floor_wy + 1) / FS, (float)mz);
+                            const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)pd / FS, technosim_biome::DEPTH_BAND_COUNT);
                             const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
-                            const int cb = depth < technosim_biome::SOIL_DEPTH * FS ? col.biome : technosim_biome::cave_biome(ti, hi, di, ni);
+                            const int cb = pd < technosim_biome::SOIL_DEPTH * FS ? col.biome : technosim_biome::cave_biome(ti, hi, di, ni);
                             const int pool = technosim_biome::SURFACE_POOL[cb];
                             if (pool >= 0) mat = wy <= lip_top ? (uint16_t)pool : (uint16_t)Mat::STONE;
                         }
@@ -2564,8 +2582,10 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                                     const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)ad / FS, technosim_biome::DEPTH_BAND_COUNT);
                                     const int ni = technosim_biome::band_of(technosim_biome::CAVE_NOISE_BAND_MAX, cn, technosim_biome::CAVE_NOISE_BAND_COUNT);
                                     dress_biome = ad < technosim_biome::SOIL_DEPTH * FS ? -1 : technosim_biome::cave_biome(ti, hi, di, ni);
+                                    dress_rim = 0.0f;
+                                    if (dress_biome >= 0) hall_at(anchor, &dress_rim, nullptr);
                                 }
-                                if (dress_biome >= 0) mat = cave_dressing(dress_biome, wx, wz, df, dc, Mat::STONE);   // stone becomes the local rock below
+                                if (dress_biome >= 0) mat = cave_dressing(dress_biome, wx, wz, df, dc, Mat::STONE, dress_rim);   // stone becomes the local rock below
                                 dressed = mat != Mat::AIR;
                             }
                         }
@@ -2578,7 +2598,13 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                                 ? vein_voxel(vein, vein_ht, wx, wy, wz, rocks_.ore_bias(rc, wy, vein.type), g.seed_) : (uint16_t)Mat::STONE;
                         } else mat = Mat::STONE;
                         if (spike > 0 && wy >= h - spike) mat = spire_m == Mat::TERRACOTTA ? g.strata_at(mx, floor_div(wy, FS), mz) : spire_m;
-                        if (cave[y + 2] && mat == Mat::STONE) {
+                        bool talus = false;   // a hall's rubble slope (ADR 0134): its top three voxels gravel and cobble
+                        if (mat == Mat::STONE && (cave[y + 2] || (y + 3 < sy + 2 && cave[y + 3]) || (y + 4 < sy + 2 && cave[y + 4])) && depth >= technosim_biome::SOIL_DEPTH * FS)
+                            hall_at(wy, nullptr, &talus);
+                        if (talus) {
+                            const uint32_t r = h3((wx >> 1) + g.seed_ * 31, wy >> 1, (wz >> 1) + 6131);   // 25 cm lumps
+                            mat = (r % 5) < 3 ? (uint16_t)Mat::GRAVEL_STATIC : (uint16_t)Mat::COBBLESTONE;
+                        } else if (cave[y + 2] && mat == Mat::STONE) {
                             // cave floor: the 3D cave biome decides what you stand on
                             const float cn = g.n_cavebiome_.GetNoise((float)mx, (float)wy / FS, (float)mz);
                             const int di = technosim_biome::band_of(technosim_biome::DEPTH_BAND_MAX, (float)depth / FS, technosim_biome::DEPTH_BAND_COUNT);

@@ -398,6 +398,22 @@ The developer asked for a cave overhaul with the choices left open. Nothing new 
   of before.
 - Check: `tools/cave_sheet.gd` shows the storeys as flat slots in the slice.
 
+## Walkable halls and talus (2026-11-03, GEN_VERSION 35, ADR 0134)
+Replaces `cavern_value` (one 40-60 m void every few hundred metres) after a playtest fall into a dark 40 m hall.
+All in `WorldGen::hall_column` / `hall_value` and the FineGen column pass.
+- **Halls** sit on the gallery storeys (`GAL_SP`, floor `lvl*SP - HH`), footprints from `n_hall_` over `HALL_THR`.
+  `foot_dist` turns the noise excess into columns-in-from-the-wall, so the roof rises over `HALL_DOME` columns to
+  `HALL_H` (12 m) and the floor is a talus `HALL_TALUS` (3 m) high at the wall falling to flat over `HALL_SPAN`.
+- **Giant chambers** (`n_giant_` mask, `n_cavern_` footprint): 22 m tall, a long talus, pillars kept solid, only on
+  even storeys, no regular hall above or below one. `find_nearest("cavern")` finds them.
+- **Joins at the floor**: inside a hall's wall band, tunnels above the talus line, under the floor and through the
+  roof slab are cut (`cut`), so passages meet the hall at the talus. Spaghetti tunnels pinch shut where they run
+  steeper than ~55 degrees; deep cheese rooms are rarer and flatter; shafts get a spiral ledge.
+- **Floor**: stone just under hall air on a talus is gravel / cobble rubble; cave pools never sit on a talus.
+- **Dressing**: near the wall foot (`rim`) floors get glow mushrooms and moss patches.
+- Check: `tools/hall_probe.gd seed= x= z= r_m=` (hall sizes, drops from walkable floors, rubble and glow shares),
+  `test_halls_have_a_talus_and_a_roof`.
+
 ## Next
 - Fjords where cold ranges meet the sea, oxbow lakes beside meanders.
 - Small ores between veins (single blocks dropping nuggets) and the copper

@@ -229,6 +229,7 @@ private:
     FastNoiseLite n_region_, n_hillmask_, n_hill_;   // landform regions (plains, hills, mountain ranges) and hill shapes
     FastNoiseLite n_cavern_, n_ravine_, n_ravmask_;   // caverns and ravines (VAR_CAVES 1)
     FastNoiseLite n_pillar_;                          // rock columns inside the halls (ADR 0077)
+    FastNoiseLite n_hall_, n_giant_;                  // hall footprints per storey, the mask of the giant chambers (ADR 0134)
     FastNoiseLite n_gallery_, n_galoff_;              // gallery routes per storey and the storeys' slow tilt (ADR 0080)
     FastNoiseLite n_cliff_;   // rocky coasts: where the land ends in a sea cliff (ADR 0051)
     FastNoiseLite n_meander_; // lowland river bends
@@ -269,9 +270,19 @@ private:
     // small_only: tunnels, rooms and mouths without the caverns and ravines (FineGen adds those from coarse
     // samples: cavern_value, ravine_value).
     float cave_value(int x, int y, int z, int height, bool small_only = false) const;
-    static constexpr float CAVERN_THR = 0.45f, CAVERN_Y = 2.4f;
-    // pillar: n_pillar_ at the column; where it is high the hall keeps a floor-to-ceiling column of rock (ADR 0077).
-    static float cavern_value(float raw, float fy, float depth, float pillar = -1.0f);
+    // Gallery storeys (ADR 0080): spacing and half height (macro). Halls stand on them (ADR 0134).
+    static constexpr float GAL_SP = 28.0f, GAL_HH = 3.2f;
+    // Halls (ADR 0134): footprint threshold, roof height and talus height at the wall (macro); the giant chambers where
+    // n_giant_ passes GIANT_MASK.
+    // DOME: columns in from the wall over which the roof rises; SPAN: over which the talus falls to the flat floor.
+    static constexpr float HALL_THR = 0.45f, HALL_H = 24.0f, HALL_TALUS = 6.0f, HALL_DOME = 10.0f, HALL_SPAN = 10.0f;
+    static constexpr float GIANT_MASK = 0.45f, GIANT_THR = 0.3f, GIANT_H = 44.0f, GIANT_TALUS = 36.0f, GIANT_DOME = 20.0f, GIANT_SPAN = 50.0f;
+    struct HallCol { float x = 0, z = 0, galoff = 0, giant = 0, pillar = -1; };
+    void hall_column(int x, int z, float galoff, HallCol &out) const;
+    // Positive inside a hall. rim (when given): 0 away from halls, else 1 at a hall's wall falling to 0 on its flat
+    // floor; talus: whether fy lies in the rubble slope at the foot of the wall. Giant chambers keep pillars (ADR 0077).
+    // cut: how much a tunnel or room at this point must close so it meets a hall at its floor (0..1).
+    float hall_value(const HallCol &c, float fy, float depth, float *rim = nullptr, bool *talus = nullptr, bool giant_only = false, float *cut = nullptr) const;
     // A ravine at one column (ADR 0133): the mask (faded out near streams and lakes), the signed line noise at
     // the warped spot (|line| near 0 is the centre, so the gorge winds) and the two wall wobbles. Every caller
     // reads a ravine through this, so the carve, the rims, the roof and the bridges agree.
