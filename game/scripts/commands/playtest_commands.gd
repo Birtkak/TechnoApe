@@ -4,6 +4,7 @@ extends RefCounted
 ## Shortcuts for the playtest list (docs/plans/to-test.md, ADR 0018), registered by GameCommands:
 ##   /totest [count]       the newest unticked items of the list
 ##   /scenario <name>      jump into a set-up test: a few existing commands run in a row
+##   /count <material>     cells of a material in the sim bubble (how much steam a vent leaves, gas in a cave ...)
 ## A scenario is only command lines, so each step also works typed and reports in chat.
 
 ## The list sits beside the game project in a checkout; an exported build has no copy.
@@ -22,13 +23,16 @@ const SCENARIOS := {
 
 var reg: CommandRegistry
 var player: Player
+var main_of := Callable()   # () -> Main or null
 
 
-func register(p_reg: CommandRegistry, p_player: Player) -> void:
+func register(p_reg: CommandRegistry, p_player: Player, p_main_of := Callable()) -> void:
 	reg = p_reg
 	player = p_player
+	main_of = p_main_of
 	reg.register("totest", "/totest [count]", "The newest unticked items of the playtest list (docs/plans/to-test.md)", _totest)
 	reg.register("scenario", "/scenario <%s>" % "|".join(SCENARIOS.keys()), "Jump into a playtest set-up from the to-test list", _scenario, [SCENARIOS.keys()])
+	reg.register("count", "/count <material>", "Cells of a material in the sim bubble (steam left by a vent, gas pooled in a cave)", _count)
 
 
 ## The unticked "- [ ]" items of a to-test list, newest (topmost) first, each as "Section: text" on one line.
@@ -90,3 +94,15 @@ func _scenario(args: PackedStringArray) -> Dictionary:
 			return CommandRegistry.fail("%s failed: %s" % [line, r["text"]])
 		said.append(r["text"])
 	return CommandRegistry.ok("\n".join(said))
+
+
+func _count(args: PackedStringArray) -> Dictionary:
+	if args.size() != 1:
+		return CommandRegistry.fail("Usage: /count <material>")
+	var mat := GameCommands.material_id(args[0])
+	if mat <= 0:
+		return CommandRegistry.fail("Unknown material: %s" % args[0])
+	var main: Node = main_of.call() if main_of.is_valid() else null
+	if main == null or main.bubble == null or main.bubble.sim == null:
+		return CommandRegistry.fail("No world")
+	return CommandRegistry.ok("%s: %d cells in the sim bubble" % [args[0], main.bubble.sim.count_material(mat)])

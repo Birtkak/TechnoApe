@@ -29,7 +29,9 @@ void fragment() {
 	float idx = terrain_sample(UV, v_world, v_normal_world, CAMERA_POSITION_WORLD, c);
 	// the tile's own colour, not its pixels: a cloud has no texture
 	vec2 tile = vec2(mod(idx, atlas_tiles.x), floor(idx / atlas_tiles.x));
-	vec3 base = textureLod(atlas, (tile + 0.5) / atlas_tiles, 8.0).rgb;
+	// the mip where one texel is one tile (16 px -> 4); a deeper one averages the whole atlas (steam drew brown)
+	float tile_mip = log2(float(textureSize(atlas, 0).x) / atlas_tiles.x);
+	vec3 base = textureLod(atlas, (tile + 0.5) / atlas_tiles, tile_mip).rgb;
 	vec3 q = v_world * 0.32 + vec3(0.0, -TIME * rise_speed * 0.32, TIME * 0.05);
 	float puff = lava_noise(q) * 0.65 + lava_noise(q * 2.3 + 7.0) * 0.35;
 	float zb = texture(depth_tex, SCREEN_UV).r;

@@ -1,0 +1,18 @@
+{
+  "_comment": "More of the electrical age (LV, ADR 0131), loaded after items.json with the same schema. Machines are MachineEntity (ADR 0117): `machine` {watts, inputs} (ADR 0123), their process recipes in lv_recipes.json.",
+  "items": [
+    {"id": "extractor", "name": "Extractor", "tags": ["station", "machine"], "stack": 64, "work": "extractor", "machine": {"watts": 200}, "_note": "squeezes resin from logs and rubber from resin: rubber without tar or sulfur"},
+    {"id": "cutter", "name": "Cutter", "tags": ["station", "machine"], "stack": 64, "work": "cutter", "machine": {"watts": 200}, "_note": "a steel saw blade on a motor: six planks a log, lenses from glass"},
+    {"id": "extruder", "name": "Extruder", "tags": ["station", "machine"], "stack": 64, "work": "extruder", "machine": {"watts": 400}, "_note": "pushes hot metal through a die: pipes, gears, rods and tin cans without the anvil"},
+    {"id": "canning_machine", "name": "Canning Machine", "tags": ["station", "machine"], "stack": 64, "work": "canning_machine", "machine": {"inputs": 2, "watts": 100}, "_note": "seals cooked food in tin cans: canned food never spoils"},
+    {"id": "electric_compressor", "name": "Electric Compressor", "tags": ["station", "machine"], "stack": 64, "work": "electric_compressor", "machine": {"watts": 400}, "_note": "presses coke or coal into carbon electrodes, plant fibre into cordage"},
+    {"id": "electrolyzer", "name": "Electrolyzer", "tags": ["station", "machine"], "stack": 64, "work": "electrolyzer", "machine": {"inputs": 2, "watts": 600}, "_note": "refines crushed ore on a carbon electrode: one ingot per crushed ore, no crucible or bloomery"},
+    {"id": "sticky_resin", "name": "Sticky Resin", "tags": ["resin"], "stack": 64, "_note": "pressed out of a log in the extractor"},
+    {"id": "tin_can", "name": "Tin Can", "tags": ["can"], "stack": 64, "_note": "four from a tin ingot in the extruder"},
+    {"id": "canned_meat", "name": "Canned Meat", "tags": ["food", "meat", "canned"], "stack": 16, "food": {"hunger": 10, "saturation": 10}, "nutrition": {"meat": 8}, "_note": "two cooked meat in a can: keeps forever"},
+    {"id": "canned_fish", "name": "Canned Fish", "tags": ["food", "fish", "canned"], "stack": 16, "food": {"hunger": 9, "saturation": 9}, "nutrition": {"meat": 7}, "_note": "two cooked fish in a can: keeps forever"},
+    {"id": "canned_vegetables", "name": "Canned Vegetables", "tags": ["food", "canned"], "stack": 16, "food": {"hunger": 6, "saturation": 6}, "nutrition": {"vegetable": 6}, "_note": "three vegetables in a can: keeps forever"},
+    {"id": "steel_rod", "name": "Steel Rod", "tags": ["rod", "metal.steel"], "stack": 64, "_note": "two from a steel ingot in the extruder; the assembler drives two electric pistons with one"},
+    {"id": "carbon_electrode", "name": "Carbon Electrode", "tags": ["electrode"], "stack": 64, "_note": "compressed coke: the electrolyzer burns one per two crushed ore"}
+  ]
+}

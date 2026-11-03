@@ -98,7 +98,7 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		"electric_furnace":
 			e = ElectricFurnaceEntity.new(items, recipes, pos)
 			_ticking.append(e)
-		"lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler":   # LV machines: the item's "machine" key and process recipes (ADR 0117)
+		_ when kind in MachineEntity.DOOR:   # LV machines: the item's "machine" key and process recipes (ADR 0117, 0131)
 			e = MachineEntity.new(items, recipes, pos, kind)
 			_ticking.append(e)
 		"battery_box":
@@ -164,7 +164,12 @@ const SCALE := {"firepit": 2, "forge": 2, "bloomery": 2, "anvil": 2, "bronze_anv
 
 ## Footprint width in voxels of a work piece kind.
 static func width_of(p_kind: String) -> int:
-	return Settings.BLOCK * int(SCALE.get(p_kind, 1))
+	return Settings.BLOCK * scale_of(p_kind)
+
+
+## Blocks per side of a work piece: SCALE, or 2 for every LV machine (1 m like the lathe, ADR 0117).
+static func scale_of(p_kind: String) -> int:
+	return int(SCALE.get(p_kind, 2 if MachineEntity.DOOR.has(p_kind) else 1))
 
 
 ## The voxels an entity covers (ADR 0034).
@@ -199,7 +204,7 @@ static func box(anchor: Vector3i, size: Vector3i) -> Array[Vector3i]:
 ## Footprint height in voxels of a block entity kind (a wide piece's doubles with its width).
 static func height_of(p_kind: String) -> int:
 	var h := int(HEIGHT.get(p_kind, StoneAge.HEIGHTS.get(p_kind, Settings.BLOCK)))
-	return h * int(SCALE.get(p_kind, 1))
+	return h * scale_of(p_kind)
 
 
 ## BLOCK x height x BLOCK voxels from `anchor` (min corner): a station's or work piece's footprint.
@@ -327,7 +332,7 @@ func lit() -> Array:
 
 
 static func is_work(e: RefCounted) -> bool:
-	return e != null and (e.kind in WORK_KINDS or e.kind in StoneAge.KINDS)
+	return e != null and (e.kind in WORK_KINDS or e.kind in StoneAge.KINDS or MachineEntity.DOOR.has(e.kind))
 
 
 func all_work() -> Array:

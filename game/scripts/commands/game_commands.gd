@@ -47,7 +47,9 @@ const KITS := {
 		"raw_meat": 8, "iron_ore": 8, "firestarter": 1, "lathe": 1, "bending_press": 1, "wiremill": 1, "iron_ingot": 8, "copper_ingot": 8,
 		"primitive_circuit": 4, "machine_hull": 2, "electric_motor": 2, "rubber": 16, "insulated_wire": 16,
 		"macerator": 1, "alloy_smelter": 1, "assembler": 1, "battery_box": 1, "electric_lamp": 4, "tin_nugget": 12, "copper_ore": 4, "vacuum_tube": 4,
-		"resistor": 2, "coated_board": 2, "pump": 1, "coke_oven": 1, "bricks": 26, "hopper": 2, "coal_coke": 8, "water_tank": 1, "bucket": 2, "belt": 8, "wrench": 1, "multimeter": 1, "knife_switch": 1, "fuse_box": 1, "breaker": 1, "fuse": 4},   # the energy network and the electrical age (ADR 0113, 0117)
+		"resistor": 2, "coated_board": 2, "pump": 1, "coke_oven": 1, "bricks": 26, "hopper": 2, "coal_coke": 8, "water_tank": 1, "bucket": 2, "belt": 8, "wrench": 1, "multimeter": 1, "knife_switch": 1, "fuse_box": 1, "breaker": 1, "fuse": 4,
+		"extractor": 1, "cutter": 1, "extruder": 1, "canning_machine": 1, "electric_compressor": 1, "electrolyzer": 1, "oak_log": 8,
+		"tin_ingot": 8, "steel_ingot": 4, "cooked_meat": 8, "crushed_copper_ore": 8, "glass": 4},   # the energy network and the electrical age (ADR 0113, 0117, 0123, 0131)
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1, "sounding_rod": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
 	"water": {"bucket": 2, "water_bucket": 1, "crater_rod": 1, "laser_cutter": 1, "lava_bomb": 8, "water_balloon": 8, "cobblestone": 16},   # river tests (ADR 0104)
@@ -114,7 +116,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_setblock, [["~"], ["~"], ["~"], _material_names])
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
-	reg.register("stations", "/stations [electric|factory]", "Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp (ADR 0113, 0117)", _stations, [["electric", "factory"]])
+	reg.register("stations", "/stations [electric|factory|lv]", "Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines (ADR 0113, 0117, 0131)", _stations, [["electric", "factory", "lv"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
@@ -139,7 +141,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 	reg.register("sound", "/sound <name> [x y z] | list | stats", "Play a sound (ADR 0044), list them, or show the sound stats", _sound, [Sound.sound_names() + ["list", "stats"]])
 	reg.register("music", "/music [next|stop|<track>]", "Show, skip to the next, stop or pick a music track", _music, [["next", "stop"]])
-	playtest.register(reg, player)
+	playtest.register(reg, player, get.bind("main"))   # main is set after construction; a method callable keeps no cycle
 	var atmo: Node = main.get("atmosphere") if main != null else null
 	if atmo != null:
 		sky = SkyCommands.new(atmo)
@@ -667,8 +669,34 @@ func _goto(args: PackedStringArray) -> Dictionary:
 	if kind in ["aquifer", "magma_conduit"]:   # buried in rock or lava: land on the ground above, find it by ear
 		t.y = main.world.surface_height(t.x, t.z)
 		up = 3.0
+	if kind == "river":   # the nearest river cell can be a dry bed (the spawn monolith's): go to running water
+		var wet := wet_river_near(main.world.generator, t)
+		if wet.y < 0:
+			return CommandRegistry.fail("No running river within %d m of %d, %d" % [int(RIVER_SEARCH_M), t.x, t.z])
+		t = wet
 	player.teleport(Vector3(t.x + 0.5, t.y + up, t.z + 0.5))
 	return CommandRegistry.ok("Teleported to the nearest %s at %d, %d, %d" % [kind, t.x, t.y, t.z])
+
+
+const RIVER_SEARCH_M := 400.0
+const RIVER_STEP_M := 4.0
+
+
+## The river column with water nearest `from` (rings of RIVER_STEP_M out to RIVER_SEARCH_M), standing on the
+## water surface; y < 0 when none. column_info's water_level is -1 on a dry river bed.
+static func wet_river_near(generator: TerrainGenerator, from: Vector3i) -> Vector3i:
+	var step := int(Settings.m2v(RIVER_STEP_M))
+	for ring in int(RIVER_SEARCH_M / RIVER_STEP_M) + 1:
+		for i in maxi(1, ring * 8):
+			var s := i % maxi(1, ring * 2) - ring   # walk the ring's four sides
+			var side := i / maxi(1, ring * 2)
+			var o: Vector2i = [Vector2i(s, -ring), Vector2i(ring, s), Vector2i(-s, ring), Vector2i(-ring, -s)][side]
+			var x := from.x + o.x * step
+			var z := from.z + o.y * step
+			var c := generator.column_info(x, z)
+			if float(c["river"]) > 0.5 and int(c["water_level"]) >= 0:
+				return Vector3i(x, int(c["water_level"]), z)
+	return Vector3i(0, -1, 0)
 
 
 func _daycycle(args: PackedStringArray) -> Dictionary:
@@ -808,7 +836,7 @@ func _music(args: PackedStringArray) -> Dictionary:
 func _stations(args: PackedStringArray) -> Dictionary:
 	if main == null:
 		return CommandRegistry.fail("No world")
-	if args.size() > 0 and args[0] in ["electric", "factory"]:   # ADR 0113, 0117: the energy line (or the whole factory), 4 m ahead, along the player's right
+	if args.size() > 0 and args[0] in ["electric", "factory", "lv"]:   # ADR 0113, 0117: the energy line (or the whole factory), 4 m ahead, along the player's right
 		var fwd: Vector3 = -player.camera.global_transform.basis.z
 		fwd.y = 0
 		var right := Vector3i(fwd.normalized().cross(Vector3.UP).round())
@@ -817,7 +845,7 @@ func _stations(args: PackedStringArray) -> Dictionary:
 		var q := player.position + fwd.normalized() * Settings.m2v(4.0) - Vector3(right) * Settings.m2v(2.5)
 		var anchor := BlockEntities.anchor_for(Vector3i(q.floor()))
 		anchor.y = main.world.surface_height(anchor.x, anchor.z) + 1
-		return CommandRegistry.ok("Laid " + (main.work.debug_factory_line(anchor, right) if args[0] == "factory" else main.work.debug_electric_line(anchor, right)))
+		return CommandRegistry.ok("Laid " + (main.work.debug_factory_line(anchor, right) if args[0] == "factory" else main.work.debug_lv_line(anchor, right) if args[0] == "lv" else main.work.debug_electric_line(anchor, right)))
 	main.place_stations()
 	return CommandRegistry.ok("Placing a crafting table, chest and furnace ahead")
 

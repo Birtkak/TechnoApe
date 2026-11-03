@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## The wild animals of ADR 0058: the data, the models, and the behaviours (flee, hop, swim, fly, pack
 ## hunts, boars that turn on whoever hurt them).
 
-const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow", "salmon", "jellyfish", "cave_salamander", "songbird", "goat"]
+const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow", "salmon", "jellyfish", "cave_salamander", "songbird", "goat", "lizard", "scorpion", "magma_salamander", "vulture", "gull", "snow_hare", "ptarmigan", "parrot", "mackerel", "antelope"]
 
 
 func _manager() -> MobManager:
@@ -188,3 +188,12 @@ func test_night_creatures_keep_away_from_light() -> void:
 	assert_bool(MobManager.near_light([torch], torch + Vector3(Settings.m2v(5.0), 0, 0), MobManager.LIGHT_FADE_M)).is_true()
 	assert_bool(MobManager.near_light([torch], torch + Vector3(Settings.m2v(10.0), 0, 0), MobManager.LIGHT_FADE_M)).is_false()
 	assert_bool(MobManager.near_light([], torch, MobManager.LIGHT_SAFE_M)).is_false()
+
+
+func test_every_biome_has_animal_life() -> void:
+	var mm := _manager()
+	for b in JSON.parse_string(FileAccess.get_file_as_string("res://data/biomes.json"))["biomes"]:
+		var who := mm.defs.keys().filter(func(sp: String) -> bool: return b["name"] in mm.defs[sp].get("biomes", []))
+		assert_array(who).override_failure_message("%s has no animals" % b["name"]).is_not_empty()
+	for sp in WildModels.RECOLOR:
+		assert_bool(mm.defs.has(sp)).override_failure_message("model %s has no mobs.json entry" % sp).is_true()

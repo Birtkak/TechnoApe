@@ -3,9 +3,9 @@ already in watts is left as it is, so whichever lane lands second after a merge 
 
   python game/tools/eu_to_watts.py
 
-- items.json: "machine": {"eu_t": n}  -> "watts": n * 25 (16 EU/t = 400 W); the battery's "eu" -> "battery": {"wh"};
+- every *items.json: "machine": {"eu_t": n}  -> "watts": n * 25 (16 EU/t = 400 W); the battery's "eu" -> "battery": {"wh"};
   a cable gets "cable": {"ohms_per_block", "amps"}; eu_meter becomes multimeter.
-- recipes.json: "info": "8 EU/t..." -> "200 W..."; the eu_meter recipe id/output -> multimeter.
+- every *recipes.json: "info": "8 EU/t..." -> "200 W..."; the eu_meter recipe id/output -> multimeter.
 - quests.json: "n EU/t" in prose -> "n*25 W", "EU Meter" -> "Multimeter", "EU" -> "watts".
 """
 import json
@@ -34,8 +34,8 @@ def save(p, text):
         f.write(text)
 
 
-def items():
-    p, text = load("items.json")
+def items(name="items.json"):
+    p, text = load(name)
     d = json.loads(text)
     changed = 0
     for it in d["items"]:
@@ -74,16 +74,16 @@ def items():
             if m:
                 out = out[:m.start()] + line + ("," if m.group(0).endswith(",") else "") + out[m.end():]
         save(p, out)
-    print("items.json:", changed, "changes")
+    print(name + ":", changed, "changes")
 
 
-def recipes():
-    p, text = load("recipes.json")
+def recipes(name="recipes.json"):
+    p, text = load(name)
     out = eu_text(text)
     out = out.replace('"id": "eu_meter"', '"id": "multimeter"')
     if out != text:
         save(p, out)
-    print("recipes.json:", "changed" if out != text else "already in watts")
+    print(name + ":", "changed" if out != text else "already in watts")
 
 
 def quests():
@@ -95,6 +95,9 @@ def quests():
 
 
 if __name__ == "__main__":
-    items()
-    recipes()
+    for f in sorted(os.listdir(DATA)):
+        if f.endswith("items.json"):
+            items(f)
+        elif f.endswith("recipes.json"):
+            recipes(f)
     quests()

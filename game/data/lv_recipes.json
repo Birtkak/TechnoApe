@@ -1,0 +1,47 @@
+{
+  "_comment": "More of the electrical age (LV, ADR 0131), loaded after recipes.json with the same schema: the machines' crafting recipes and their process recipes (ADR 0115, 0117; `info` is the power for the browser).",
+  "recipes": [
+    {"id": "extractor", "type": "shaped", "pattern": ["PMP", "CHC", "PBP"], "key": {"P": "iron_plate", "M": "electric_motor", "C": "primitive_circuit", "H": "machine_hull", "B": "bucket"}, "output": {"id": "extractor", "count": 1}},
+    {"id": "cutter", "type": "shaped", "pattern": ["PSP", "CHC", "PMP"], "key": {"P": "iron_plate", "S": "steel_saw_blade", "C": "primitive_circuit", "H": "machine_hull", "M": "electric_motor"}, "output": {"id": "cutter", "count": 1}},
+    {"id": "extruder", "type": "shaped", "pattern": ["SMS", "CHC", "SPS"], "key": {"S": "steel_plate", "M": "electric_motor", "C": "primitive_circuit", "H": "machine_hull", "P": "electric_piston"}, "output": {"id": "extruder", "count": 1}},
+    {"id": "canning_machine", "type": "shaped", "pattern": ["TMT", "CHC", "TGT"], "key": {"T": "tin_ingot", "M": "electric_motor", "C": "primitive_circuit", "H": "machine_hull", "G": "iron_gear"}, "output": {"id": "canning_machine", "count": 1}},
+    {"id": "electric_compressor", "type": "shaped", "pattern": ["PPP", "CHC", "PSP"], "key": {"P": "iron_plate", "C": "primitive_circuit", "H": "machine_hull", "S": "electric_piston"}, "output": {"id": "electric_compressor", "count": 1}},
+    {"id": "electrolyzer", "type": "shaped", "pattern": ["WGW", "CHC", "WGW"], "key": {"W": "insulated_wire", "G": "glass", "C": "primitive_circuit", "H": "machine_hull"}, "output": {"id": "electrolyzer", "count": 1}},
+
+    {"id": "extract_resin", "type": "process", "station": "extractor", "ingredients": ["#log"], "output": {"id": "sticky_resin", "count": 1}, "seconds": 10, "info": "200 W"},
+    {"id": "extract_rubber", "type": "process", "station": "extractor", "ingredients": ["sticky_resin"], "output": {"id": "rubber", "count": 3}, "seconds": 10, "info": "200 W; the furnace cures one raw rubber into one"},
+    {"id": "extract_raw_rubber", "type": "process", "station": "extractor", "ingredients": ["raw_rubber"], "output": {"id": "rubber", "count": 2}, "seconds": 8, "info": "200 W; twice what the furnace gives"},
+
+    {"id": "cut_oak_planks", "type": "process", "station": "cutter", "ingredients": ["oak_log"], "output": {"id": "oak_planks", "count": 6}, "seconds": 5, "info": "200 W; a saw by hand gives four"},
+    {"id": "cut_spruce_planks", "type": "process", "station": "cutter", "ingredients": ["spruce_log"], "output": {"id": "spruce_planks", "count": 6}, "seconds": 5, "info": "200 W"},
+    {"id": "cut_acacia_planks", "type": "process", "station": "cutter", "ingredients": ["acacia_log"], "output": {"id": "acacia_planks", "count": 6}, "seconds": 5, "info": "200 W"},
+    {"id": "cut_jungle_planks", "type": "process", "station": "cutter", "ingredients": ["jungle_log"], "output": {"id": "jungle_planks", "count": 6}, "seconds": 5, "info": "200 W"},
+    {"id": "cut_birch_planks", "type": "process", "station": "cutter", "ingredients": ["birch_log"], "output": {"id": "birch_planks", "count": 6}, "seconds": 5, "info": "200 W"},
+    {"id": "cut_glass_lens", "type": "process", "station": "cutter", "ingredients": ["glass"], "output": {"id": "glass_lens", "count": 3}, "seconds": 8, "info": "200 W; no sand needed"},
+    {"id": "cut_iron_gear", "type": "process", "station": "cutter", "ingredients": ["iron_plate"], "output": {"id": "iron_gear", "count": 1}, "seconds": 8, "info": "200 W"},
+
+    {"id": "extrude_bronze_pipe", "type": "process", "station": "extruder", "ingredients": ["bronze_ingot"], "output": {"id": "bronze_pipe", "count": 2}, "seconds": 8, "info": "400 W; the anvil gives one"},
+    {"id": "extrude_copper_pipe", "type": "process", "station": "extruder", "ingredients": ["copper_ingot"], "output": {"id": "copper_pipe", "count": 2}, "seconds": 6, "info": "400 W"},
+    {"id": "extrude_iron_gear", "type": "process", "station": "extruder", "ingredients": ["iron_ingot"], "output": {"id": "iron_gear", "count": 3}, "seconds": 10, "info": "400 W; the bronze anvil gives two"},
+    {"id": "extrude_iron_rod", "type": "process", "station": "extruder", "ingredients": ["iron_ingot"], "output": {"id": "iron_rod", "count": 3}, "seconds": 8, "info": "400 W; the lathe gives two"},
+    {"id": "extrude_steel_rod", "type": "process", "station": "extruder", "ingredients": ["steel_ingot"], "output": {"id": "steel_rod", "count": 2}, "seconds": 12, "info": "400 W"},
+    {"id": "extrude_tin_can", "type": "process", "station": "extruder", "ingredients": ["tin_ingot"], "output": {"id": "tin_can", "count": 4}, "seconds": 6, "info": "400 W"},
+
+    {"id": "can_meat", "type": "process", "station": "canning_machine", "ingredients": ["tin_can", "cooked_meat", "cooked_meat"], "output": {"id": "canned_meat", "count": 1}, "seconds": 4, "info": "100 W"},
+    {"id": "can_fish", "type": "process", "station": "canning_machine", "ingredients": ["tin_can", "cooked_fish", "cooked_fish"], "output": {"id": "canned_fish", "count": 1}, "seconds": 4, "info": "100 W"},
+    {"id": "can_carrots", "type": "process", "station": "canning_machine", "ingredients": ["tin_can", "carrot", "carrot", "carrot"], "output": {"id": "canned_vegetables", "count": 1}, "seconds": 4, "info": "100 W"},
+    {"id": "can_potatoes", "type": "process", "station": "canning_machine", "ingredients": ["tin_can", "potato", "potato", "potato"], "output": {"id": "canned_vegetables", "count": 1}, "seconds": 4, "info": "100 W"},
+    {"id": "can_beans", "type": "process", "station": "canning_machine", "ingredients": ["tin_can", "beans", "beans", "beans"], "output": {"id": "canned_vegetables", "count": 1}, "seconds": 4, "info": "100 W"},
+
+    {"id": "compress_coke_electrode", "type": "process", "station": "electric_compressor", "ingredients": ["coal_coke", "coal_coke"], "output": {"id": "carbon_electrode", "count": 2}, "seconds": 10, "info": "400 W"},
+    {"id": "compress_coal_electrode", "type": "process", "station": "electric_compressor", "ingredients": ["#coal", "#coal", "#coal", "#coal"], "output": {"id": "carbon_electrode", "count": 1}, "seconds": 15, "info": "400 W; coke makes four times as many"},
+    {"id": "compress_cordage", "type": "process", "station": "electric_compressor", "ingredients": ["plant_fiber", "plant_fiber", "plant_fiber"], "output": {"id": "cordage", "count": 2}, "seconds": 4, "info": "400 W"},
+
+    {"id": "electrolyze_copper", "type": "process", "station": "electrolyzer", "ingredients": ["crushed_copper_ore", "crushed_copper_ore", "carbon_electrode"], "output": {"id": "copper_ingot", "count": 2}, "seconds": 10, "info": "600 W"},
+    {"id": "electrolyze_tin", "type": "process", "station": "electrolyzer", "ingredients": ["crushed_tin_ore", "crushed_tin_ore", "carbon_electrode"], "output": {"id": "tin_ingot", "count": 2}, "seconds": 10, "info": "600 W"},
+    {"id": "electrolyze_iron", "type": "process", "station": "electrolyzer", "ingredients": ["crushed_iron_ore", "crushed_iron_ore", "carbon_electrode"], "output": {"id": "iron_ingot", "count": 2}, "seconds": 15, "info": "600 W; no bloomery"},
+
+    {"id": "assemble_electric_piston", "type": "process", "station": "assembler", "ingredients": ["steel_rod", "iron_plate", "iron_plate", "electric_motor"], "output": {"id": "electric_piston", "count": 2}, "seconds": 8, "info": "200 W; a steel rod drives two pistons"},
+    {"id": "assemble_insulated_wire", "type": "process", "station": "assembler", "ingredients": ["copper_wire", "copper_wire", "copper_wire", "rubber"], "output": {"id": "insulated_wire", "count": 3}, "seconds": 4, "info": "200 W; the table sleeves one wire per rubber"}
+  ]
+}
