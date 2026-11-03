@@ -2003,6 +2003,9 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             // the sides instead of hanging over a dry pocket).
             int water_level = m.water_level * FS;
             bool side_fill = false;
+            // a block 4 m or more under this column's ground meets no stamp or canopy (a half-buried boulder stamp
+            // reaches ~2 m down); the water surface and materials still run, they decide the strata (budget hunt 2026-11-03)
+            const bool deep_col = y_top <= h - 32;
             {
                 const MacroPt *cs[4] = {&c00, &c10, &c01, &c11};
                 const float ws[4] = {(1.0f - tx) * (1.0f - tz), tx * (1.0f - tz), (1.0f - tx) * tz, tx * tz};
@@ -2168,7 +2171,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             bool far_canopy = false;
             int far_top = 0;
             uint16_t far_leaves = Mat::LEAVES;
-            if (lod >= 4 && above_sea && !ruin && h > water_level && technosim_biome::TREE_DENSITY[col.biome] > 0.0f) {
+            if (lod >= 4 && !buried && above_sea && !ruin && h > water_level && technosim_biome::TREE_DENSITY[col.biome] > 0.0f) {
                 WorldGen::Tree t;
                 const int tcx = floor_div(mx, WorldGen::TREE_CELL), tcz = floor_div(mz, WorldGen::TREE_CELL);
                 if (g.tree_at_cell(tcx, tcz, t)) {
@@ -2201,7 +2204,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             }
             const FStamp *cst[16];
             int ncs = 0;
-            if (!ruin && spike == 0 && !lakebed && !riverbed && h >= water_level - FS) {
+            if (!deep_col && !ruin && spike == 0 && !lakebed && !riverbed && h >= water_level - FS) {
                 for (const FStamp &s : stamps) {
                     if (ncs >= 16) break;
                     const float rr = s.kind >= FLOWER_S ? 2.6f : s.kind == GIANT_FLOWER ? s.r + 18.0f : std::max(s.size * 1.3f, s.size + s.r) + 6.0f;
