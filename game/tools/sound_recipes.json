@@ -770,6 +770,141 @@
    "synth": "crickets",
    "level": -22
   },
+  "loop/machine_lathe": {
+   "synth": "machine_lathe",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_bending_press": {
+   "synth": "machine_bending_press",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_wiremill": {
+   "synth": "machine_wiremill",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_macerator": {
+   "synth": "machine_macerator",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_alloy_smelter": {
+   "synth": "machine_alloy_smelter",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_assembler": {
+   "synth": "machine_assembler",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_extractor": {
+   "synth": "machine_extractor",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_cutter": {
+   "synth": "machine_cutter",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_extruder": {
+   "synth": "machine_extruder",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_canning_machine": {
+   "synth": "machine_canning_machine",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_electric_compressor": {
+   "synth": "machine_electric_compressor",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_electrolyzer": {
+   "synth": "machine_electrolyzer",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_electric_furnace": {
+   "synth": "machine_electric_furnace",
+   "loop": 1.0,
+   "level": -24
+  },
+  "loop/machine_lamp": {
+   "synth": "machine_lamp",
+   "loop": 1.0,
+   "level": -34
+  },
+  "loop/machine_dynamo": {
+   "synth": "machine_dynamo",
+   "loop": 1.0,
+   "level": -24
+  },
+  "elec/switch": {
+   "synth": "switch",
+   "level": -12
+  },
+  "elec/fuse": {
+   "synth": "fuse",
+   "level": -12
+  },
+  "elec/breaker": {
+   "synth": "breaker",
+   "level": -12
+  },
+  "elec/cable_burn": {
+   "synth": "cable_burn",
+   "level": -12
+  },
+  "mob/caw": {
+   "synth": "call_caw",
+   "level": -14
+  },
+  "mob/gull": {
+   "synth": "call_gull",
+   "level": -14
+  },
+  "mob/vulture": {
+   "synth": "call_vulture",
+   "level": -14
+  },
+  "mob/parrot": {
+   "synth": "call_parrot",
+   "level": -14
+  },
+  "mob/ptarmigan": {
+   "synth": "call_ptarmigan",
+   "level": -14
+  },
+  "mob/goat": {
+   "synth": "call_goat",
+   "level": -14
+  },
+  "mob/goat_hurt": {
+   "synth": "call_goat_hurt",
+   "level": -14
+  },
+  "mob/antelope": {
+   "synth": "call_antelope",
+   "level": -14
+  },
+  "mob/lizard": {
+   "synth": "call_lizard",
+   "level": -14
+  },
+  "mob/hiss": {
+   "synth": "call_hiss",
+   "level": -14
+  },
+  "mob/scorpion": {
+   "synth": "call_scorpion",
+   "level": -14
+  },
   "amb/owl": {
    "synth": "owl",
    "level": -16

@@ -40,7 +40,7 @@ inline void from_uv(int rot, int u, int v, int &dx, int &dz) {
     }
 }
 
-bool square_shape(int shape) { return shape == S_WATCHTOWER || shape == S_STONE_CIRCLE || shape == S_SHRINE || shape == S_LOOKOUT; }
+bool square_shape(int shape) { return shape == S_WATCHTOWER || shape == S_STONE_CIRCLE || shape == S_SHRINE || shape == S_LOOKOUT || shape == S_IGLOO; }
 
 // crypt layout: the room's floor lies D macro cells under the ruin's floor
 inline int crypt_d(const Ruin &r) { return std::max(4, r.depth - 1); }
@@ -123,6 +123,12 @@ int pot_spots(const Ruin &r, PotSpot out[4]) {
         }
         case S_LOOKOUT: {   // under the platform, between the posts
             const int c[2][2] = {{-1, -1}, {1, 1}};
+            for (int i = 0; i < 2; i++) { cu[n] = c[i][0]; cv[n] = c[i][1]; n++; }
+            y = r.base;
+            break;
+        }
+        case S_IGLOO: {   // inside the dome, either side of the middle
+            const int c[2][2] = {{-1, -1}, {1, -1}};
             for (int i = 0; i < 2; i++) { cu[n] = c[i][0]; cv[n] = c[i][1]; n++; }
             y = r.base;
             break;
@@ -508,6 +514,26 @@ uint16_t lookout(const Prepared &p, const Ctx &c) {
     return TERRAIN;
 }
 
+// An igloo: a dome of ice blocks on the snow, a low tunnel out toward +v, a side of the roof fallen in. The shell
+// is whole round its foot, so what stands of it always reaches the ground.
+uint16_t igloo(const Prepared &p, const Ctx &c) {
+    const Ruin &r = p.r;
+    if (c.my < r.base) return TERRAIN;
+    const float R = (float)p.U - 0.5f, T = 0.7f;
+    const float d = std::sqrt(c.fu * c.fu + c.fv * c.fv + c.fy * c.fy * 1.2f);
+    const bool tunnel = std::fabs(c.fu) < 0.75f && c.fy < 1.6f && c.fv > 0.0f && c.fv < R + 1.5f;
+    const bool tshell = std::fabs(c.fu) < 1.35f && c.fy < 2.2f && c.fv > R - 1.0f && c.fv < R + 1.5f;
+    if (tunnel) return AIR;
+    if (tshell) return p.mat[M_WALL];
+    if (d <= R && d > R - T) {
+        // the fallen side: the top of the dome on one side, never its lower half
+        const bool fallen = c.fy > R * 0.55f && c.fu * (((r.seed >> 3) & 1) ? 1.0f : -1.0f) > 0.3f;
+        if (!fallen) return (hash(c.wx >> 1, c.wy >> 1, (int)r.seed + 121) % 7) == 0 ? p.mat[M_TRIM] : p.mat[M_WALL];
+    }
+    if (d <= R - T) return c.fy < 0.25f ? p.mat[M_FLOOR] : AIR;   // a floor of packed snow inside
+    return TERRAIN;
+}
+
 // An abandoned camp: a ring of stones round a bed of ash, a lean-to of poles and leaves behind it, logs to sit on.
 uint16_t camp(const Prepared &p, const Ctx &c) {
     const Ruin &r = p.r;
@@ -601,6 +627,7 @@ uint16_t voxel(const Prepared &p, int fs, int wx, int wy, int wz, int surf, uint
         case S_MINE: m = mine(p, c); break;
         case S_CAMP: m = camp(p, c); break;
         case S_LOOKOUT: m = lookout(p, c); break;
+        case S_IGLOO: m = igloo(p, c); break;
         default: m = house(p, c); break;
     }
     (void)ground;

@@ -709,6 +709,54 @@ void FineGen::build_stamp(const WorldGen::Stamp &s, FStamp &o) const {
 // The forest floor: one chance per 2 m cell for a fallen log (any direction, mossy, with
 // mushrooms), a stump, a bush (leafy or blueberry) or a mossy rock; forests get most of them,
 // open land a few bushes and stones.
+// Rock formations: natural arches and hoodoos (a pillar under a cap stone) where the land is dry and bare,
+// in the badlands' terracotta bands, the desert's sandstone, plain stone on the highlands and the scrub. The one of
+// formation cell (cx, cz) of FORM_CELL fine voxels, if any (floor_features lays it, find_nearest finds it).
+bool FineGen::formation_at(int cx, int cz, const WorldGen::Ruin *ruins, int nruins, FStamp &f) const {
+    const WorldGen &g = *g_.ptr();
+    constexpr int RC = FORM_CELL, RM = FORM_MARGIN;
+    const uint32_t hs = h3(cx, cz, g.seed_ + 661);
+    const float fx = (float)(cx * RC + RM + (int)((hs >> 10) % (RC - 2 * RM))) + 0.5f;
+    const float fz = (float)(cz * RC + RM + (int)((hs >> 17) % (RC - 2 * RM))) + 0.5f;
+    const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
+    const WorldGen::Column col = g.column_base(mx, mz, false);
+    const int b = col.biome;
+    const int chance = b == technosim_biome::BADLANDS ? 600 : b == technosim_biome::DESERT ? 260
+        : (b == technosim_biome::HIGHLANDS || b == technosim_biome::SHRUBLAND || b == technosim_biome::SAVANNA) ? 90 : 0;
+    if ((int)(hs & 1023) >= chance || col.height <= g.sea_ + 1 || col.alpine) return false;
+    const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
+    if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh || g.ravine_near(mx, mz, 5)) return false;
+    bool blocked = false;
+    for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP + 4);
+    if (blocked) return false;
+    f = FStamp{};
+    f.kind = FORMATION;
+    f.seed = h3(cx, cz, g.seed_ + 667);
+    f.biome = b;
+    f.x = fx;
+    f.z = fz;
+    const float an = (float)(f.seed & 1023) / 1023.0f * 3.1416f;
+    f.dx = std::cos(an);
+    f.dz = std::sin(an);
+    f.mossy = ((f.seed >> 10) & 3) != 0;   // arch 3 in 4, else a hoodoo
+    f.wood = b == technosim_biome::BADLANDS ? Mat::TERRACOTTA : b == technosim_biome::DESERT ? Mat::SANDSTONE : Mat::STONE;
+    f.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
+    if (f.mossy) {
+        f.size = 16.0f + (float)((f.seed >> 12) & 15) * 0.8f;   // span radius 2-3.6 m
+        f.r = 4.0f + (float)((f.seed >> 16) & 3);              // rib 4-7 voxels thick
+        // both feet on the ground: an arch over a slope would hang one of them
+        const float fa = f.size;
+        const int g1 = (int)std::floor(surface_f((int)(fx + f.dx * fa), (int)(fz + f.dz * fa)) + 0.5f);
+        const int g2 = (int)std::floor(surface_f((int)(fx - f.dx * fa), (int)(fz - f.dz * fa)) + 0.5f);
+        if (std::abs(g1 - f.ground) > 4 || std::abs(g2 - f.ground) > 4) return false;
+        f.ground = std::min({f.ground, g1, g2});
+    } else {
+        f.size = 22.0f + (float)((f.seed >> 12) & 15) * 1.2f;   // 2.7-5 m tall
+        f.r = 3.5f + (float)((f.seed >> 16) & 3) * 0.5f;        // pillar radius
+    }
+    return true;
+}
+
 void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, bool clutter, std::vector<FStamp> &out) const {
     const WorldGen &g = *g_.ptr();
     constexpr int FC = 16, M = 34;
@@ -845,53 +893,96 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
                 }
             }
     }
-    // Rock formations: natural arches and hoodoos (a pillar under a cap stone) where the land is dry and bare,
-    // in the badlands' terracotta bands, the desert's sandstone, plain stone on the highlands and the scrub.
+    // Rope bridges over ravines: once per 64 m cell, where a ravine is open, the point of its centre line nearest a
+    // seeded spot, spanned rim to rim across the line when both rims stand within 3 m of each other.
     {
-        constexpr int RC = 128, RM = 48;   // one chance per 16 m cell; a formation reaches ~40 voxels
+        constexpr int BC = 512, BM = 160;   // fine voxels; a bridge reaches up to ~130 from its middle
+        auto rv = [&](float px, float pz) { return g.n_ravine_.GetNoise(px, pz); };
+        for (int cz = floor_div(z_lo - BM, BC); cz <= floor_div(z_hi + BM, BC); cz++)
+            for (int cx = floor_div(x_lo - BM, BC); cx <= floor_div(x_hi + BM, BC); cx++) {
+                const uint32_t hs = h3(cx, cz, g.seed_ + 673);
+                if ((hs & 3) == 0) continue;
+                float px = (float)(cx * BC + (int)((hs >> 4) % BC)) / FS, pz = (float)(cz * BC + (int)((hs >> 14) % BC)) / FS;   // macro
+                if (g.n_ravmask_.GetNoise(px, pz) <= 0.4f) continue;
+                float gx = 0.0f, gz = 0.0f, n = 1.0f;
+                for (int it = 0; it < 4; it++) {   // Newton steps onto the zero line
+                    n = rv(px, pz);
+                    gx = (rv(px + 1.0f, pz) - rv(px - 1.0f, pz)) * 0.5f;
+                    gz = (rv(px, pz + 1.0f) - rv(px, pz - 1.0f)) * 0.5f;
+                    const float g2 = gx * gx + gz * gz;
+                    if (g2 < 1e-12f) break;
+                    px -= n * gx / g2;
+                    pz -= n * gz / g2;
+                }
+                const float gl = std::sqrt(gx * gx + gz * gz);
+                if (gl < 1e-6f || std::fabs(rv(px, pz)) > 0.003f || g.n_ravmask_.GetNoise(px, pz) <= 0.45f) continue;
+                const float ax = gx / gl, az = gz / gl;   // across the ravine: the bridge's axis
+                auto cut = [&](float qx, float qz) { return WorldGen::ravine_value(g.n_ravmask_.GetNoise(qx, qz), std::fabs(rv(qx, qz)), 1.0f) > -0.5f; };
+                int a1 = 0, a2 = 0;
+                while (a1 < 32 && cut(px + ax * a1, pz + az * a1)) a1++;
+                while (a2 < 32 && cut(px - ax * a2, pz - az * a2)) a2++;
+                if (a1 >= 32 || a2 >= 32 || a1 + a2 < 6) continue;
+                const float half = 0.5f * (float)(a1 + a2) + 2.0f;            // macro, past each rim by 2
+                const float mx = px + ax * 0.5f * (float)(a1 - a2), mz = pz + az * 0.5f * (float)(a1 - a2);
+                FStamp b{};
+                b.kind = BRIDGE;
+                b.seed = h3(cx, cz, g.seed_ + 677);
+                b.x = mx * FS;
+                b.z = mz * FS;
+                b.dx = ax;
+                b.dz = az;
+                b.size = half * FS;
+                b.r = 5.0f;
+                const float e1 = surface_f((int)(b.x + ax * b.size), (int)(b.z + az * b.size));
+                const float e2 = surface_f((int)(b.x - ax * b.size), (int)(b.z - az * b.size));
+                if (std::fabs(e1 - e2) > 24.0f || std::min(e1, e2) <= (float)(g.sea_ * FS)) continue;
+                const int bmx = floor_div((int)b.x, FS), bmz = floor_div((int)b.z, FS);
+                bool blocked = false;
+                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], bmx, bmz, (int)half + RUIN_RAMP);
+                if (blocked) continue;
+                b.ground = (int)std::floor(std::min(e1, e2) + 0.5f);
+                out.push_back(b);
+            }
+    }
+    // Cairns: stacks of stones marking the routes over the mountains and the volcanic land, where no ruin stands
+    // (too high, too steep, too rare): one chance in three per 32 m cell, on ground level within 1 m.
+    {
+        constexpr int KC = 256, KM = 16;
+        for (int cz = floor_div(z_lo - KM, KC); cz <= floor_div(z_hi + KM, KC); cz++)
+            for (int cx = floor_div(x_lo - KM, KC); cx <= floor_div(x_hi + KM, KC); cx++) {
+                const uint32_t hs = h3(cx, cz, g.seed_ + 683);
+                if ((hs % 3) != 0) continue;
+                const float fx = (float)(cx * KC + KM + (int)((hs >> 4) % (KC - 2 * KM))) + 0.5f;
+                const float fz = (float)(cz * KC + KM + (int)((hs >> 14) % (KC - 2 * KM))) + 0.5f;
+                if (fx + KM < x_lo || fx - KM > x_hi || fz + KM < z_lo || fz - KM > z_hi) continue;
+                const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
+                const WorldGen::Column col = g.column_base(mx, mz, true);   // mountains are told by their slope
+                if (col.biome != technosim_biome::MOUNTAINS && col.biome != technosim_biome::ALPINE && col.biome != technosim_biome::SNOWY_PEAKS && col.biome != technosim_biome::VOLCANIC) continue;
+                if (g.ravine_near(mx, mz, 3)) continue;
+                FStamp k{};
+                k.kind = CAIRN;
+                k.seed = h3(cx, cz, g.seed_ + 691);
+                k.x = fx;
+                k.z = fz;
+                k.size = 8.0f + (float)((k.seed >> 4) % 6);   // 1-1.6 m tall
+                k.r = 3.0f + (float)((k.seed >> 8) & 1);
+                k.wood = col.biome == technosim_biome::VOLCANIC ? Mat::BASALT : Mat::COBBLESTONE;   // volcanic ones in basalt, capped in obsidian
+                const float s0 = surface_f((int)fx, (int)fz);
+                bool flat = true;
+                for (int q = 0; q < 4 && flat; q++)
+                    flat = std::fabs(surface_f((int)fx + ((q & 1) ? 4 : -4), (int)fz + ((q & 2) ? 4 : -4)) - s0) <= 8.0f;
+                if (!flat) continue;
+                k.ground = (int)std::floor(s0 + 0.5f);
+                out.push_back(k);
+            }
+    }
+    // Rock formations (formation_at): one chance per 16 m cell; a formation reaches ~40 voxels
+    {
+        constexpr int RC = FORM_CELL, RM = FORM_MARGIN;
         for (int cz = floor_div(z_lo - RM, RC); cz <= floor_div(z_hi + RM, RC); cz++)
             for (int cx = floor_div(x_lo - RM, RC); cx <= floor_div(x_hi + RM, RC); cx++) {
-                const uint32_t hs = h3(cx, cz, g.seed_ + 661);
-                const float fx = (float)(cx * RC + RM + (int)((hs >> 10) % (RC - 2 * RM))) + 0.5f;
-                const float fz = (float)(cz * RC + RM + (int)((hs >> 17) % (RC - 2 * RM))) + 0.5f;
-                if (fx + RM < x_lo || fx - RM > x_hi || fz + RM < z_lo || fz - RM > z_hi) continue;
-                const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
-                const WorldGen::Column col = g.column_base(mx, mz, false);
-                const int b = col.biome;
-                const int chance = b == technosim_biome::BADLANDS ? 600 : b == technosim_biome::DESERT ? 260
-                    : (b == technosim_biome::HIGHLANDS || b == technosim_biome::SHRUBLAND || b == technosim_biome::SAVANNA) ? 90 : 0;
-                if ((int)(hs & 1023) >= chance || col.height <= g.sea_ + 1 || col.alpine) continue;
-                const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
-                if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh || g.ravine_near(mx, mz, 5)) continue;
-                bool blocked = false;
-                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP + 4);
-                if (blocked) continue;
-                FStamp f{};
-                f.kind = FORMATION;
-                f.seed = h3(cx, cz, g.seed_ + 667);
-                f.biome = b;
-                f.x = fx;
-                f.z = fz;
-                const float an = (float)(f.seed & 1023) / 1023.0f * 3.1416f;
-                f.dx = std::cos(an);
-                f.dz = std::sin(an);
-                f.mossy = ((f.seed >> 10) & 3) != 0;   // arch 3 in 4, else a hoodoo
-                f.wood = b == technosim_biome::BADLANDS ? Mat::TERRACOTTA : b == technosim_biome::DESERT ? Mat::SANDSTONE : Mat::STONE;
-                f.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
-                if (f.mossy) {
-                    f.size = 16.0f + (float)((f.seed >> 12) & 15) * 0.8f;   // span radius 2-3.6 m
-                    f.r = 4.0f + (float)((f.seed >> 16) & 3);              // rib 4-7 voxels thick
-                    // both feet on the ground: an arch over a slope would hang one of them
-                    const float fa = f.size;
-                    const int g1 = (int)std::floor(surface_f((int)(fx + f.dx * fa), (int)(fz + f.dz * fa)) + 0.5f);
-                    const int g2 = (int)std::floor(surface_f((int)(fx - f.dx * fa), (int)(fz - f.dz * fa)) + 0.5f);
-                    if (std::abs(g1 - f.ground) > 4 || std::abs(g2 - f.ground) > 4) continue;
-                    f.ground = std::min({f.ground, g1, g2});
-                } else {
-                    f.size = 22.0f + (float)((f.seed >> 12) & 15) * 1.2f;   // 2.7-5 m tall
-                    f.r = 3.5f + (float)((f.seed >> 16) & 3) * 0.5f;        // pillar radius
-                }
-                out.push_back(f);
+                FStamp f;
+                if (formation_at(cx, cz, ruins, nruins, f) && f.x + RM >= x_lo && f.x - RM <= x_hi && f.z + RM >= z_lo && f.z - RM <= z_hi) out.push_back(f);
             }
     }
     // Giant flowers (bug report 2026-11-02 18-57-25, "tree sized flowers in the flower meadow"): about one per
@@ -1127,6 +1218,43 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
                 const uint32_t hh = h3((int)std::floor(x), y, (int)std::floor(z) + (int)s.seed);
                 if (hh % 3 == 0) return Mat::MOSS;
                 if ((float)((hh >> 12) & 1023) / 1024.0f < technosim_biome::DECOR_LOG_MUSHROOMS[s.biome]) return (hh >> 8) % 3 == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN;
+            }
+            return Mat::AIR;
+        }
+        case CAIRN: {
+            // flat stones stacked smaller toward the top, a little off true, each resting on the one below
+            const int n = 1 + (int)(s.size / 3.0f);
+            for (int i = 0; i < n; i++) {
+                const float cy = (float)s.ground + 1.0f + (float)i * 3.0f;
+                const float rr = s.r * (1.0f - 0.6f * (float)i / (float)n) + grow;
+                const float ox = 0.4f * (float)((int)((s.seed >> (2 * i)) & 3) - 1.5f), oz = 0.4f * (float)((int)((s.seed >> (2 * i + 8)) & 3) - 1.5f);
+                const float ex = (dx - ox) / rr, ez = (dz - oz) / rr, ey = (fy + 0.5f - cy) / 1.7f;
+                if (ex * ex + ez * ez + ey * ey < 1.0f) {
+                    if (s.wood == Mat::BASALT) return i == n - 1 ? Mat::OBSIDIAN : Mat::BASALT;
+                    return (h3(i, (int)s.seed, 7) & 3) == 0 ? Mat::STONE : Mat::COBBLESTONE;
+                }
+            }
+            return Mat::AIR;
+        }
+        case BRIDGE: {
+            // a plank deck sagging between log posts, rope rails on stringers every metre
+            const float a = dx * s.dx + dz * s.dz, b = std::fabs(-dx * s.dz + dz * s.dx);
+            if (std::fabs(a) > s.size + 1.0f || b > s.r + 2.0f) return Mat::AIR;
+            const float t = a / s.size;
+            const int deck = s.ground - (int)std::floor(s.size * 0.06f * (1.0f - t * t) + 0.5f);   // top of the deck
+            if (std::fabs(a) >= s.size - 1.0f) {   // the posts: 2x2 logs, from under the ground to over the rail
+                if (b >= s.r && b < s.r + 2.0f && y > s.ground - 10 && y <= deck + 7) return Mat::WOOD;
+                if (b < s.r && (y == deck || y == deck - 1)) return Mat::PLANKS;
+                return Mat::AIR;
+            }
+            if (b < s.r) {
+                const uint32_t slat = h3((int)std::floor(a / 2.0f), 0, (int)s.seed);   // a slat in ten gone
+                return (y == deck || y == deck - 1) && (slat % 10) != 0 ? Mat::PLANKS : Mat::AIR;   // two thick: joins face to face down the sag
+            }
+            if (b < s.r + 1.0f) {
+                if (y == deck + 6 || y == deck + 5) return Mat::ROPE;
+                if (y == deck || y == deck - 1) return Mat::ROPE;   // the ropes the slats hang on
+                if (y > deck && y < deck + 6 && std::fabs(a - 8.0f * std::round(a / 8.0f)) < 0.5f) return Mat::ROPE;
             }
             return Mat::AIR;
         }
@@ -2030,17 +2158,45 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                     }
                 }
             }
-            // dune grass in clumps on the beach above the tide line; tufts of sedge poking through the tundra's snow
-            if (!buried && !ruin && spike == 0 && do_veg && !pickup && hy.fall_top < 0 && veg == Mat::AIR && veg_head == Mat::AIR && h > sea + FS) {
-                const bool dune = top_m == Mat::SAND_STATIC && col.biome == technosim_biome::BEACH;
-                const bool sedge = top_m == Mat::SNOW && (col.biome == technosim_biome::TUNDRA || col.biome == technosim_biome::SNOWY_TUNDRA);
-                if (dune || sedge) {
-                    const uint32_t fh = h3(wx, wz, g.seed_ + 37);
-                    const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
-                    const float cover = dune ? std::max(0.0f, 0.05f + 0.35f * mead) : std::max(0.015f, 0.03f + 0.08f * mead);
-                    if ((float)(fh & 1023) / 1024.0f < cover) {
-                        veg = dune ? Mat::DUNE_GRASS : Mat::TUNDRA_SEDGE;
-                        veg_h = 1 + (int)((fh >> 12) % 3) + (dune && mead > 0.3f ? 1 : 0);
+            // each biome's own flora where the grass left the ground bare (FLORA): dune grass on beaches, sedge through
+            // the tundra's snow, sagebrush, marigolds, campion, lilies, berries ..., in patches of n_meadow_
+            if (!buried && !ruin && spike == 0 && do_veg && !pickup && hy.fall_top < 0 && veg == Mat::AIR && veg_head == Mat::AIR && h > sea + FS && top_m != Mat::ICE) {
+                struct Flora { int biome; uint16_t mat; float base, k, lo; int h0, h1; };
+                static const Flora FLORA[] = {
+                    {technosim_biome::BEACH, Mat::DUNE_GRASS, 0.050f, 0.350f, 0.000f, 1, 4},
+                    {technosim_biome::TUNDRA, Mat::TUNDRA_SEDGE, 0.030f, 0.080f, 0.015f, 1, 3},
+                    {technosim_biome::SNOWY_TUNDRA, Mat::TUNDRA_SEDGE, 0.030f, 0.080f, 0.015f, 1, 3},
+                    {technosim_biome::SNOWY_BEACH, Mat::TUNDRA_SEDGE, 0.020f, 0.060f, 0.005f, 1, 2},
+                    {technosim_biome::BADLANDS, Mat::SAGEBRUSH, 0.030f, 0.060f, 0.010f, 1, 2},
+                    {technosim_biome::SHRUBLAND, Mat::SAGEBRUSH, 0.030f, 0.060f, 0.010f, 1, 2},
+                    {technosim_biome::DESERT, Mat::DESERT_MARIGOLD, 0.008f, 0.030f, 0.000f, 1, 1},
+                    {technosim_biome::MOUNTAINS, Mat::MOSS_CAMPION, 0.030f, 0.080f, 0.005f, 1, 1},
+                    {technosim_biome::ALPINE, Mat::MOSS_CAMPION, 0.030f, 0.080f, 0.005f, 1, 1},
+                    {technosim_biome::SNOWY_PEAKS, Mat::MOSS_CAMPION, 0.030f, 0.080f, 0.005f, 1, 1},
+                    {technosim_biome::FROZEN_HIGHLANDS, Mat::MOSS_CAMPION, 0.030f, 0.080f, 0.005f, 1, 1},
+                    {technosim_biome::VOLCANIC, Mat::FIRE_LILY, 0.010f, 0.040f, 0.003f, 1, 3},
+                    {technosim_biome::TAIGA, Mat::LINGONBERRY, 0.050f, 0.100f, 0.010f, 1, 1},
+                    {technosim_biome::SNOWY_TAIGA, Mat::LINGONBERRY, 0.050f, 0.100f, 0.010f, 1, 1},
+                    {technosim_biome::JUNGLE, Mat::BROMELIAD, 0.080f, 0.100f, 0.020f, 1, 2},
+                    {technosim_biome::SWAMP, Mat::CATTAIL, 0.060f, 0.200f, 0.010f, 3, 5},
+                    {technosim_biome::SAVANNA, Mat::ALOE, 0.006f, 0.020f, 0.002f, 1, 2},
+                    {technosim_biome::FOREST, Mat::BLUEBELL, 0.020f, 0.120f, 0.000f, 1, 1},
+                    {technosim_biome::OLD_GROWTH_FOREST, Mat::BLUEBELL, 0.020f, 0.120f, 0.000f, 1, 1},
+                    {technosim_biome::BIRCH_FOREST, Mat::BLUEBELL, 0.020f, 0.120f, 0.000f, 1, 1},
+                    {technosim_biome::ICE_FIELDS, Mat::FROST_LICHEN, 0.015f, 0.040f, 0.003f, 1, 1},
+                    {technosim_biome::SNOWY_TUNDRA, Mat::FROST_LICHEN, 0.015f, 0.040f, 0.003f, 1, 1},
+                    {technosim_biome::MANGROVE, Mat::SEA_ASTER, 0.030f, 0.080f, 0.005f, 1, 2},
+                    {technosim_biome::STONY_SHORE, Mat::SEA_ASTER, 0.030f, 0.080f, 0.005f, 1, 2},
+                };
+                const uint32_t fh = h3(wx, wz, g.seed_ + 37);
+                const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
+                for (const Flora &f : FLORA) {
+                    if (f.biome != col.biome) continue;
+                    // a biome with two kinds rolls each on its own bits of the hash
+                    if ((float)((fh >> (f.mat & 7)) & 1023) / 1024.0f < std::max(f.lo, f.base + f.k * mead)) {
+                        veg = f.mat;
+                        veg_h = f.h0 + (int)((fh >> 16) % (uint32_t)(f.h1 - f.h0 + 1));
+                        break;
                     }
                 }
             }
@@ -2520,6 +2676,31 @@ PackedInt32Array FineGen::water_floor_map(int x0, int z0, int n, int step) const
 }
 
 Vector3i FineGen::find_nearest(const String &kind, int x, int z, int max_radius) const {
+    if (kind == "rock_arch" || kind == "natural_arch" || kind == "hoodoo") {
+        // the formations of FineGen (formation_at), ring by ring of their cells out to max_radius; y = their ground
+        const bool arch = kind != "hoodoo";
+        const int cx0 = floor_div(x, FORM_CELL), cz0 = floor_div(z, FORM_CELL), rings = max_radius / FORM_CELL + 1;
+        long best_d2 = -1;
+        Vector3i best(0, -1, 0);
+        for (int ring = 0; ring <= rings; ring++) {
+            for (int dz = -ring; dz <= ring; dz++)
+                for (int dx = -ring; dx <= ring; dx++) {
+                    if (std::max(std::abs(dx), std::abs(dz)) != ring) continue;
+                    // the ruins that could block it: those near the cell's middle
+                    const int mx = floor_div((cx0 + dx) * FORM_CELL + FORM_CELL / 2, FS), mz = floor_div((cz0 + dz) * FORM_CELL + FORM_CELL / 2, FS);
+                    WorldGen::Ruin ruins[4];
+                    const int nr = g_->ruins_near(mx - FORM_CELL / FS, mz - FORM_CELL / FS, mx + FORM_CELL / FS, mz + FORM_CELL / FS, ruins, 4);
+                    FStamp f;
+                    if (!formation_at(cx0 + dx, cz0 + dz, ruins, nr, f) || f.mossy != arch) continue;
+                    const long ddx = (long)f.x - x, ddz = (long)f.z - z, d2 = ddx * ddx + ddz * ddz;
+                    if (d2 > (long)max_radius * max_radius || (best_d2 >= 0 && d2 >= best_d2)) continue;
+                    best_d2 = d2;
+                    best = Vector3i((int)f.x, f.ground, (int)f.z);
+                }
+            if (best_d2 >= 0 && (long)(ring - 1) * FORM_CELL * (ring - 1) * FORM_CELL > best_d2) break;   // no nearer cell left
+        }
+        return best;
+    }
     const Vector3i r = g_->find_nearest(kind, floor_div(x, FS), floor_div(z, FS), std::max(1, max_radius / FS));
     if (r.y < 0) return r;
     const int fx = r.x * FS + 2, fz = r.z * FS + 2;

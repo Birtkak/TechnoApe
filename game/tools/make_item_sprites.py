@@ -1637,13 +1637,51 @@ sp("steel_rod", ("stick", "steel"))
 sp("carbon_electrode", ("stick", "carbon"))
 sp("battery_box", ("hull_face", "steel", {"p": "#9ca6b2", "q": "#c4ccd6", "r": "#5a6370"}), cube=True)
 sp("electric_lamp", ("lantern", "iron"))
-sp("pump", ("bucket", "iron"), ("stick", "bronze"))
+sp("pump", ("machine", "iron", {"e": "#7ac8f0", "f": "#2a6a8a", "k": "#d07a40", "K": "#8a4424"}))   # a water window, the copper outlet
 sp("multimeter", ("tape_measure", "iron", {"c": "#1c3e22", "k": "#7ed43a", "t": "#f4e870", "T": "#b8a830"}))   # ADR 0122/0123: a dial in an iron case
-sp("capacitor", ("ingot", "tin"), ("stick", "copper"))   # ADR 0123
+# circuit control and protection (ADR 0123) as their models draw them (ADR 0129): an iron base (palette) with
+# bronze lugs (b) at both ends, and on it a copper blade (c, C lit) closed into its jaw on slate (s, S) with a
+# wooden grip (w, W); a riveted box with a fuse cartridge (t) behind a dark window (k); a green breaker (p, q)
+# with its hazard lever (y, Y) and a flag window
+g = new()
+rect(g, 1, 10, 14, 13, "m"); rect(g, 1, 10, 14, 10, "l"); rect(g, 1, 13, 14, 13, "d")
+rect(g, 0, 11, 1, 12, "b"); rect(g, 14, 11, 15, 12, "b")
+rect(g, 3, 8, 12, 9, "s"); rect(g, 3, 8, 12, 8, "S")
+rect(g, 3, 5, 4, 7, "c"); rect(g, 11, 5, 12, 7, "c")
+rect(g, 4, 5, 11, 6, "c"); rect(g, 4, 5, 11, 5, "C")
+rect(g, 11, 3, 14, 6, "w"); rect(g, 11, 3, 14, 3, "W")
+put(g, 2, 12, "h"); put(g, 13, 12, "h")
+shape("knife_switch", outline(g), {"s": "#2e3038", "S": "#4a4e5a", "c": "#c0663a", "C": "#f6b98a", "w": "#6e4424",
+                                   "W": "#b07a46", "b": "#a8793a"})
+g = new()
+rect(g, 2, 3, 13, 13, "m"); rect(g, 2, 3, 13, 4, "l"); rect(g, 13, 5, 13, 13, "d"); rect(g, 2, 13, 12, 13, "d")
+rect(g, 0, 8, 1, 9, "b"); rect(g, 14, 8, 15, 9, "b")
+rect(g, 4, 7, 11, 10, "k")
+rect(g, 5, 8, 10, 9, "t"); put(g, 5, 8, "c"); put(g, 5, 9, "c"); put(g, 10, 8, "c"); put(g, 10, 9, "c")
+for p in ((3, 5), (12, 5), (3, 12), (12, 12)):
+    put(g, p[0], p[1], "h")
+shape("fuse_box", outline(g), {"k": "#16181e", "t": "#ccd2da", "c": "#c0663a", "b": "#a8793a"})
+g = new()
+rect(g, 2, 5, 13, 13, "m"); rect(g, 3, 6, 12, 12, "p"); rect(g, 3, 6, 12, 6, "q")
+rect(g, 2, 5, 13, 5, "l"); rect(g, 13, 6, 13, 13, "d"); rect(g, 2, 13, 12, 13, "d")
+rect(g, 0, 9, 1, 10, "b"); rect(g, 14, 9, 15, 10, "b")
+rect(g, 7, 1, 8, 4, "y"); rect(g, 7, 1, 8, 1, "Y")
+rect(g, 5, 9, 10, 10, "k"); rect(g, 6, 9, 7, 10, "r")
+shape("breaker", outline(g), {"p": "#3a6852", "q": "#5a8e70", "y": "#e8b830", "Y": "#fff0b0", "k": "#16181e",
+                              "r": "#e03a20", "b": "#a8793a"})
+# a paper capacitor: a waxed paper roll (p, q lit, P shade) with dark wax ends (e) and copper leads (c)
+g = new()
+rect(g, 3, 5, 12, 10, "p"); rect(g, 3, 5, 12, 5, "q"); rect(g, 3, 10, 12, 10, "P")
+rect(g, 3, 5, 3, 10, "e"); rect(g, 12, 5, 12, 10, "e")
+for x in (6, 9):
+    rect(g, x, 6, x, 9, "P")                  # the wraps
+rect(g, 0, 7, 2, 8, "c"); rect(g, 13, 7, 15, 8, "c")
+shape("capacitor", outline(g), {"p": "#d8c8a0", "q": "#f2e6c4", "P": "#a89870", "e": "#5a3a20", "c": "#c0663a"})
+sp("capacitor", ("capacitor", "iron"))   # ADR 0123
 sp("fuse", ("twine", "tin"))
-sp("knife_switch", ("plate", "wood"), ("stick", "copper"))
-sp("fuse_box", ("plate", "iron"), ("nugget", "tin"))
-sp("breaker", ("plate", "iron"), ("nugget", "terracotta"))
+sp("knife_switch", ("knife_switch", "iron"))
+sp("fuse_box", ("fuse_box", "iron"))
+sp("breaker", ("breaker", "iron"))
 sp("coke_oven", ("bricks_face", None), cube=True)
 sp("coal_coke", ("charcoal_lump", "coal"))
 sp("steam_turbine", ("steam_hammer", "steel", {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}))
@@ -1777,7 +1815,7 @@ from PIL import Image, ImageDraw
 Z = 4
 CW, CH = 16 * Z + 8, 16 * Z + 14
 cols_n = 12
-keys = list(SP)
+keys = [k for k in SP if k in sys.argv[2].split(",")] if len(sys.argv) > 2 else list(SP)   # [sheet.png] [id,id,...]
 sheet = Image.new("RGBA", (cols_n * CW, ((len(keys) + cols_n - 1) // cols_n) * CH), (62, 62, 70, 255))
 dr = ImageDraw.Draw(sheet)
 for i, k in enumerate(keys):

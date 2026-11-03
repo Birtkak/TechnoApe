@@ -34,6 +34,7 @@ func net_in(channel: String, d) -> bool:
 	last_amps = float(d.get("amps", 0.0))
 	if kind != "knife_switch" and last_amps > amps and not open:
 		open = true   # the fuse wire melts, the breaker trips
+		Sound.play("elec/fuse" if kind == "fuse_box" else "elec/breaker", Vector3(pos) + Vector3(0.5, 0.5, 0.5))
 		changed.emit()
 	return false
 
@@ -52,10 +53,12 @@ func use(stack: Dictionary) -> Dictionary:
 	match kind:
 		"knife_switch":
 			open = not open
+			Sound.play("elec/switch", Vector3(pos) + Vector3(0.5, 0.5, 0.5), {"pitch": 0.85 if open else 1.0})
 			res["msg"] = "The switch is %s." % ("open: the circuit beyond it is dead" if open else "closed")
 		"breaker":
 			if open:
 				open = false
+				Sound.play("elec/switch", Vector3(pos) + Vector3(0.5, 0.5, 0.5), {"pitch": 1.4, "db": -6.0})   # the lever pushed back up
 				res["msg"] = "Reset. It trips above %d A." % roundi(amps)
 			else:
 				res["msg"] = "Armed: it trips above %d A (%.1f A now)." % [roundi(amps), last_amps]
@@ -86,19 +89,46 @@ func look_lines() -> Array[String]:
 
 
 ## A small iron box on the ground with a copper lever (switch), a glass window (fuse) or a red button (breaker).
+## ADR 0129: a riveted iron base with copper lugs at both ends (the cable runs along x), and on it the kind:
+## a slate-mounted copper blade with a wooden grip that stands up when open, a steel-lidded fuse box with its
+## cartridge in a window (sooted when blown), a green breaker with a hazard lever that drops and a red flag when tripped.
 func view_parts() -> Dictionary:
-	var size := Vector3i(8, 4, 8)
+	var n := 16
+	var size := Vector3i(n, 8, n)
 	var c := WorkPalette.new_cells(size)
-	WorkPalette.box(c, size, Vector3i(1, 0, 1), Vector3i(7, 3, 7), WorkPalette.IRON_DARK)
-	WorkPalette.box(c, size, Vector3i(0, 1, 3), Vector3i(8, 2, 5), WorkPalette.COPPER)   # the terminals through it
+	WorkPalette.box(c, size, Vector3i(2, 0, 2), Vector3i(14, 2, 14), WorkPalette.IRON_DARK)   # the base
+	for p in [Vector2i(3, 3), Vector2i(12, 3), Vector2i(3, 12), Vector2i(12, 12)]:
+		c[WorkPalette.idx(size, p.x, 1, p.y)] = WorkPalette.RIVET + 1
+	WorkPalette.box(c, size, Vector3i(0, 1, 6), Vector3i(n, 3, 10), WorkPalette.COPPER)   # the conductor through it
+	for x in [0, n - 2]:
+		WorkPalette.box(c, size, Vector3i(x, 1, 5), Vector3i(x + 2, 4, 11), WorkPalette.BRONZE)   # the lugs
 	match kind:
 		"knife_switch":
-			WorkPalette.box(c, size, Vector3i(3, 3, 2 if open else 3), Vector3i(5, 4, 4 if open else 6), WorkPalette.COPPER)
+			WorkPalette.box(c, size, Vector3i(3, 2, 3), Vector3i(13, 3, 13), WorkPalette.STONE_DARK)   # the slate
+			for x in [4, 11]:
+				WorkPalette.box(c, size, Vector3i(x, 3, 6), Vector3i(x + 1, 5, 10), WorkPalette.COPPER)   # hinge and jaw
+			if open:   # the blade stands up from its hinge, grip on top
+				WorkPalette.box(c, size, Vector3i(4, 5, 7), Vector3i(5, 8, 9), WorkPalette.COPPER)
+				WorkPalette.box(c, size, Vector3i(3, 7, 7), Vector3i(6, 8, 9), WorkPalette.WOOD_DARK)
+			else:
+				WorkPalette.box(c, size, Vector3i(4, 4, 7), Vector3i(12, 5, 9), WorkPalette.COPPER)
+				WorkPalette.box(c, size, Vector3i(11, 4, 6), Vector3i(13, 6, 10), WorkPalette.WOOD_DARK)
 		"breaker":
-			WorkPalette.box(c, size, Vector3i(3, 3, 3), Vector3i(5, 4, 5), WorkPalette.EMBER if open else WorkPalette.SOOT)
+			WorkPalette.box(c, size, Vector3i(3, 2, 3), Vector3i(13, 7, 13), WorkPalette.PAINT)
+			WorkPalette.box(c, size, Vector3i(3, 6, 3), Vector3i(13, 7, 13), WorkPalette.STEEL)
+			WorkPalette.box(c, size, Vector3i(6, 7, 7), Vector3i(10, 8, 9), WorkPalette.HAZARD if not open else WorkPalette.SOOT)   # the lever
+			WorkPalette.box(c, size, Vector3i(5, 3, 12), Vector3i(11, 6, 13), WorkPalette.IRON_DARK)   # the flag window
+			WorkPalette.box(c, size, Vector3i(6, 4, 12), Vector3i(10, 5, 13), WorkPalette.EMBER if open else WorkPalette.SOOT)
 		_:
-			WorkPalette.box(c, size, Vector3i(2, 3, 2), Vector3i(6, 4, 6), WorkPalette.SOOT if open else WorkPalette.TIN)
-	return {"solid": {"cells": c, "size": size}}
+			WorkPalette.box(c, size, Vector3i(3, 2, 3), Vector3i(13, 7, 13), WorkPalette.IRON_DARK)
+			WorkPalette.box(c, size, Vector3i(3, 6, 3), Vector3i(13, 7, 13), WorkPalette.STEEL)   # the lid
+			for p in [Vector2i(4, 4), Vector2i(11, 4), Vector2i(4, 11), Vector2i(11, 11)]:
+				c[WorkPalette.idx(size, p.x, 6, p.y)] = WorkPalette.RIVET + 1
+			WorkPalette.box(c, size, Vector3i(4, 3, 12), Vector3i(12, 6, 13), WorkPalette.SOOT)   # the window
+			WorkPalette.box(c, size, Vector3i(6, 4, 12), Vector3i(10, 5, 13), WorkPalette.SOOT if open else WorkPalette.TIN)   # the cartridge
+			for x in [5, 10]:
+				WorkPalette.box(c, size, Vector3i(x, 4, 12), Vector3i(x + 1, 5, 13), WorkPalette.COPPER)
+	return {"solid": {"cells": c, "size": size, "grid": n}}
 
 
 func to_dict() -> Dictionary:

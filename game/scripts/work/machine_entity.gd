@@ -218,75 +218,96 @@ func look_lines() -> Array[String]:
 	return out
 
 
-## An iron box with a dark door and a copper terminal on its back; the door's slit shows `door` while lit.
-## The machine hull (ADR 0129, industrial like the turbine): an iron plinth with a hazard-striped front
-## edge, dark iron corner posts and bands framing engine-green panels, vent slits in the sides, a steel-framed
-## window in the front (+z) that shows `door` while lit, the copper terminal at the back, and on top the
-## fitting that tells the kinds apart (`top` = the kind).
+## The machine hull (ADR 0129, industrial like the turbine), on a 16-cell grid: an iron plinth with a
+## hazard-striped front edge, dark iron corner posts and bands framing engine-green panels, vent slits in the
+## sides, a riveted steel-framed window in the front (+z) that shows `door` while lit, the copper terminal at
+## the back, and on top a fitting three cells tall that tells the kinds apart (`top` = the kind).
 static func box_model(door: int, lit: bool, top: String = "") -> Dictionary:
-	var size := Vector3i(8, 8, 8)
+	var n := 16
+	var size := Vector3i(n, n, n)
 	var c := WorkPalette.new_cells(size)
-	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(8, 1, 8), WorkPalette.IRON_DARK)   # the plinth
-	WorkPalette.hazard_box(c, size, Vector3i(0, 0, 7), Vector3i(8, 1, 8))
-	WorkPalette.box(c, size, Vector3i(0, 1, 0), Vector3i(8, 7, 8), WorkPalette.PAINT)       # the panels
-	for q in [Vector2i(0, 0), Vector2i(7, 0), Vector2i(0, 7), Vector2i(7, 7)]:
-		WorkPalette.box(c, size, Vector3i(q.x, 1, q.y), Vector3i(q.x + 1, 7, q.y + 1), WorkPalette.IRON_DARK)   # the posts
-	WorkPalette.box(c, size, Vector3i(0, 6, 0), Vector3i(8, 7, 8), WorkPalette.IRON_DARK)   # the top band
-	WorkPalette.box(c, size, Vector3i(1, 6, 1), Vector3i(7, 7, 7), WorkPalette.STEEL)       # the lid
-	for y in [3, 5]:   # the vents
-		WorkPalette.box(c, size, Vector3i(0, y, 2), Vector3i(8, y + 1, 6), WorkPalette.SOOT)
-	WorkPalette.box(c, size, Vector3i(1, 1, 1), Vector3i(7, 6, 7), WorkPalette.PAINT)
-	WorkPalette.box(c, size, Vector3i(2, 2, 7), Vector3i(6, 6, 8), WorkPalette.STEEL)       # the window frame
-	WorkPalette.box(c, size, Vector3i(3, 3, 7), Vector3i(5, 5, 8), WorkPalette.SOOT)
+	var b := func(a: Vector3i, z: Vector3i, paint: int) -> void:
+		WorkPalette.box(c, size, a, z, paint)
+	b.call(Vector3i(0, 0, 0), Vector3i(n, 2, n), WorkPalette.IRON_DARK)   # the plinth
+	WorkPalette.hazard_box(c, size, Vector3i(0, 0, n - 1), Vector3i(n, 2, n))
+	b.call(Vector3i(0, 2, 0), Vector3i(n, 12, n), WorkPalette.PAINT)   # the panels
+	for q in [Vector2i(0, 0), Vector2i(n - 2, 0), Vector2i(0, n - 2), Vector2i(n - 2, n - 2)]:
+		b.call(Vector3i(q.x, 2, q.y), Vector3i(q.x + 2, 12, q.y + 2), WorkPalette.IRON_DARK)   # the posts
+	b.call(Vector3i(0, 11, 0), Vector3i(n, 13, n), WorkPalette.IRON_DARK)   # the top band
+	b.call(Vector3i(2, 12, 2), Vector3i(n - 2, 13, n - 2), WorkPalette.STEEL)   # the lid
+	for y in [5, 8]:   # the vents
+		b.call(Vector3i(0, y, 4), Vector3i(n, y + 1, 12), WorkPalette.SOOT)
+	b.call(Vector3i(2, 2, 2), Vector3i(n - 2, 11, n - 2), WorkPalette.PAINT)
+	b.call(Vector3i(4, 4, n - 1), Vector3i(12, 11, n), WorkPalette.STEEL)   # the window frame
+	b.call(Vector3i(5, 5, n - 1), Vector3i(11, 10, n), WorkPalette.SOOT)
 	if lit:
-		WorkPalette.box(c, size, Vector3i(3, 3, 7), Vector3i(5, 4, 8), door)
-	for p in [Vector3i(2, 2, 7), Vector3i(5, 2, 7), Vector3i(2, 5, 7), Vector3i(5, 5, 7)]:
-		c[WorkPalette.idx(size, p.x, p.y, p.z)] = WorkPalette.RIVET + 1
-	WorkPalette.box(c, size, Vector3i(2, 2, 0), Vector3i(6, 6, 1), WorkPalette.IRON_DARK)   # the terminal plate
-	WorkPalette.box(c, size, Vector3i(3, 3, 0), Vector3i(5, 5, 1), WorkPalette.COPPER)
+		b.call(Vector3i(5, 5, n - 1), Vector3i(11, 7, n), door)
+	for p in [Vector2i(4, 4), Vector2i(11, 4), Vector2i(4, 10), Vector2i(11, 10)]:
+		c[WorkPalette.idx(size, p.x, p.y, n - 1)] = WorkPalette.RIVET + 1
+	b.call(Vector3i(4, 4, 0), Vector3i(12, 10, 1), WorkPalette.IRON_DARK)   # the terminal plate
+	b.call(Vector3i(6, 6, 0), Vector3i(10, 8, 1), WorkPalette.COPPER)
+	var t := 13   # the fittings stand on the lid, y 13..15
 	match top:
-		"lathe":   # the headstock's chuck along x
-			WorkPalette.box(c, size, Vector3i(1, 7, 3), Vector3i(7, 8, 5), WorkPalette.BRONZE)
-			WorkPalette.box(c, size, Vector3i(1, 7, 2), Vector3i(2, 8, 6), WorkPalette.IRON_DARK)
-		"bending_press":   # the ram
-			WorkPalette.box(c, size, Vector3i(2, 7, 2), Vector3i(6, 8, 6), WorkPalette.ANVIL)
-			WorkPalette.hazard_box(c, size, Vector3i(2, 7, 5), Vector3i(6, 8, 6))
+		"lathe":   # the headstock, a bronze chuck along x, the tailstock
+			b.call(Vector3i(1, t, 5), Vector3i(5, n, 11), WorkPalette.IRON_DARK)
+			WorkPalette.drum(c, size, 5, 12, 14.5, 8.0, 1.6, WorkPalette.BRONZE)
+			b.call(Vector3i(12, t, 6), Vector3i(15, 15, 10), WorkPalette.IRON_DARK)
+		"bending_press":   # the ram on two posts, a hazard edge on its face
+			for x in [3, 12]:
+				b.call(Vector3i(x, t, 7), Vector3i(x + 1, n, 9), WorkPalette.IRON_DARK)
+			b.call(Vector3i(4, 14, 4), Vector3i(12, n, 12), WorkPalette.ANVIL)
+			WorkPalette.hazard_box(c, size, Vector3i(4, 14, 11), Vector3i(12, n, 12))
 		"wiremill":   # a spool of copper wire between iron cheeks
-			WorkPalette.box(c, size, Vector3i(2, 7, 3), Vector3i(6, 8, 5), WorkPalette.COPPER)
-			for x in [2, 5]:
-				WorkPalette.box(c, size, Vector3i(x, 7, 2), Vector3i(x + 1, 8, 6), WorkPalette.IRON_DARK)
-		"macerator":   # the feed hopper, ore in it
-			WorkPalette.box(c, size, Vector3i(1, 7, 1), Vector3i(7, 8, 7), WorkPalette.STEEL)
-			WorkPalette.box(c, size, Vector3i(2, 7, 2), Vector3i(6, 8, 6), WorkPalette.GRAVEL)
-		"alloy_smelter", "electric_furnace":   # a short brick stack
-			WorkPalette.box(c, size, Vector3i(4, 7, 1), Vector3i(7, 8, 4), WorkPalette.BRICK)
-			c[WorkPalette.idx(size, 5, 7, 2)] = WorkPalette.SOOT + 1
-		"assembler":   # a little arm with a yellow tip
-			WorkPalette.box(c, size, Vector3i(5, 7, 4), Vector3i(6, 8, 5), WorkPalette.IRON_DARK)
-			WorkPalette.box(c, size, Vector3i(2, 7, 4), Vector3i(5, 8, 5), WorkPalette.HAZARD)
-		"extractor":   # a screw press: a bronze screw over a copper drip tray
-			WorkPalette.box(c, size, Vector3i(2, 7, 2), Vector3i(6, 8, 6), WorkPalette.COPPER)
-			WorkPalette.box(c, size, Vector3i(3, 7, 3), Vector3i(5, 8, 5), WorkPalette.BRONZE)
+			WorkPalette.drum(c, size, 5, 11, 14.5, 8.0, 1.6, WorkPalette.COPPER)
+			for x in [4, 11]:
+				WorkPalette.drum(c, size, x, x + 1, 14.5, 8.0, 2.4, WorkPalette.IRON_DARK)
+		"macerator":   # the steel feed hopper, ore in it
+			b.call(Vector3i(2, t, 2), Vector3i(14, n, 14), WorkPalette.STEEL)
+			b.call(Vector3i(3, t, 3), Vector3i(13, 15, 13), WorkPalette.STONE_DARK)   # ore in it, dark against the steel
+		"alloy_smelter", "electric_furnace":   # a brick stack with an iron band, sooty mouth
+			WorkPalette.wall_box(c, size, Vector3i(9, t, 2), Vector3i(14, n, 7), WorkPalette.WALL_BRICK, WorkPalette.BRICK_DARK)
+			b.call(Vector3i(9, 14, 2), Vector3i(14, 15, 7), WorkPalette.IRON_DARK)
+			b.call(Vector3i(10, 15, 3), Vector3i(13, n, 6), WorkPalette.SOOT)
+		"assembler":   # an arm on a post with a yellow boom and a dark gripper
+			b.call(Vector3i(3, t, 6), Vector3i(7, 14, 10), WorkPalette.IRON_DARK)
+			b.call(Vector3i(4, t, 7), Vector3i(6, n, 9), WorkPalette.IRON_DARK)
+			b.call(Vector3i(6, 15, 7), Vector3i(12, n, 9), WorkPalette.HAZARD)
+			b.call(Vector3i(12, 14, 7), Vector3i(13, n, 9), WorkPalette.IRON_DARK)
+		"extractor":   # a screw press: a bronze screw through an iron beam over a copper drip tray
+			b.call(Vector3i(3, t, 3), Vector3i(13, 14, 13), WorkPalette.COPPER)
+			for x in [3, 12]:
+				b.call(Vector3i(x, t, 7), Vector3i(x + 1, n, 9), WorkPalette.IRON_DARK)
+			b.call(Vector3i(3, 15, 7), Vector3i(13, n, 9), WorkPalette.IRON_DARK)
+			b.call(Vector3i(7, 14, 7), Vector3i(9, n, 9), WorkPalette.BRONZE)
 		"cutter":   # a saw blade standing up through the table, a hazard edge
-			WorkPalette.box(c, size, Vector3i(1, 7, 3), Vector3i(7, 8, 5), WorkPalette.IRON_DARK)
-			WorkPalette.box(c, size, Vector3i(3, 7, 4), Vector3i(5, 8, 5), WorkPalette.STEEL)
-			WorkPalette.hazard_box(c, size, Vector3i(1, 7, 3), Vector3i(3, 8, 4))
-		"extruder":   # the die block with a hot billet in it
-			WorkPalette.box(c, size, Vector3i(1, 7, 2), Vector3i(5, 8, 6), WorkPalette.STEEL)
-			WorkPalette.box(c, size, Vector3i(5, 7, 3), Vector3i(7, 8, 5), WorkPalette.MOLTEN)
-		"canning_machine":   # a row of tin cans under the sealing head
-			for x in [1, 3, 5]:
-				WorkPalette.box(c, size, Vector3i(x, 7, 3), Vector3i(x + 2, 8, 5), WorkPalette.STEEL)
-			WorkPalette.box(c, size, Vector3i(1, 7, 2), Vector3i(7, 8, 3), WorkPalette.COPPER)
-		"electric_compressor":   # the ram between two posts
-			for x in [1, 6]:
-				WorkPalette.box(c, size, Vector3i(x, 7, 2), Vector3i(x + 1, 8, 6), WorkPalette.IRON_DARK)
-			WorkPalette.box(c, size, Vector3i(2, 7, 2), Vector3i(6, 8, 6), WorkPalette.STEEL)
-		"electrolyzer":   # a glass cell with two dark electrodes in it
-			WorkPalette.box(c, size, Vector3i(1, 7, 1), Vector3i(7, 8, 7), WorkPalette.GLOW)
-			for x in [2, 5]:
-				WorkPalette.box(c, size, Vector3i(x, 7, 3), Vector3i(x + 1, 8, 5), WorkPalette.SOOT)
-	return {"solid": {"cells": c, "size": size}}
+			b.call(Vector3i(2, t, 4), Vector3i(14, 14, 12), WorkPalette.IRON_DARK)
+			WorkPalette.hazard_box(c, size, Vector3i(2, t, 11), Vector3i(14, 14, 12))
+			for x in range(4, 13):
+				for y in range(14, n):
+					if Vector2(x + 0.5 - 8.0, y + 0.5 - 13.0).length() <= 3.2:
+						c[WorkPalette.idx(size, x, y, 7)] = WorkPalette.STEEL + 1
+		"extruder":   # the die block with a hot billet pushing out of it
+			b.call(Vector3i(2, t, 4), Vector3i(9, n, 12), WorkPalette.STEEL)
+			b.call(Vector3i(8, t, 5), Vector3i(9, n, 11), WorkPalette.IRON_DARK)
+			b.call(Vector3i(9, t, 6), Vector3i(14, 15, 10), WorkPalette.MOLTEN)
+		"canning_machine":   # tin cans on a copper rail under the sealing head
+			b.call(Vector3i(2, t, 5), Vector3i(14, 14, 7), WorkPalette.COPPER)
+			for x in [3, 7, 11]:
+				b.call(Vector3i(x, t, 8), Vector3i(x + 2, 15, 11), WorkPalette.TIN)
+			b.call(Vector3i(6, 15, 7), Vector3i(10, n, 12), WorkPalette.IRON_DARK)
+		"electric_compressor":   # the steel ram between two posts under a crossbeam
+			for x in [2, 12]:
+				b.call(Vector3i(x, t, 6), Vector3i(x + 2, n, 10), WorkPalette.IRON_DARK)
+			b.call(Vector3i(2, 15, 6), Vector3i(14, n, 10), WorkPalette.IRON_DARK)
+			b.call(Vector3i(5, t, 5), Vector3i(11, 15, 11), WorkPalette.STEEL)
+			WorkPalette.hazard_box(c, size, Vector3i(5, 14, 10), Vector3i(11, 15, 11))
+		"electrolyzer":   # a glowing cell in an iron rim, two dark electrodes with copper caps
+			b.call(Vector3i(2, t, 2), Vector3i(14, 15, 14), WorkPalette.IRON_DARK)
+			b.call(Vector3i(3, t, 3), Vector3i(13, 15, 13), WorkPalette.GLOW)
+			for x in [5, 10]:
+				b.call(Vector3i(x, t, 7), Vector3i(x + 1, n, 9), WorkPalette.SOOT)
+				b.call(Vector3i(x, 15, 7), Vector3i(x + 1, n, 9), WorkPalette.COPPER)
+	return {"solid": {"cells": c, "size": size, "grid": n}}
 
 
 func view_parts() -> Dictionary:
