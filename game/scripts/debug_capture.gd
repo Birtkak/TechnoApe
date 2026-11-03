@@ -59,6 +59,8 @@ var looks_test := false     # looks_test=1: part C's multi-voxel crops, flowers,
 var looks_shots := true     # looks_shots=0: looks_test without screenshots
 var looks_budget := false   # looks_budget=1: looks_test only sets ten torches and a held one at night (the budget case)
 var ponder_test := false    # ponder_test=1: every guide scene filmed, a row a step, to out/ponder/<id>.png ("debug ponder", ADR 0132)
+var shell_test := false     # shell_test=1: cave + dug hole, counts unloaded / unmeshed blocks and air-where-rock within 16 m (ADR 0124, scripts/debug/shell_test.gd, "debug shell")
+var sand_test := false      # sand_test=1: a ball of sand dropped onto still ocean water must sink (scripts/debug/sand_test.gd, "debug sand")
 var tp_test := false        # tp_test=1: a burst of teleports (hops, far jumps, /spawn, /goto, /kill), timed and filmed (scripts/debug/tp_test.gd, "debug tp")
 var liquids_test := false   # liquids_test=1: a pool of every liquid side by side, shot by day and night, and items dropped into lava (bug reports 2026-10-25, "debug liquids")
 var water_shots := true     # water_shots=0: no screenshots in the water test
@@ -198,6 +200,8 @@ func _ready() -> void:
 	liquids_test = args.get("liquids_test", "0") == "1"
 	tp_test = args.get("tp_test", "0") == "1"
 	ponder_test = args.get("ponder_test", "0") == "1"
+	shell_test = args.get("shell_test", "0") == "1"
+	sand_test = args.get("sand_test", "0") == "1"
 	water_shots = args.get("water_shots", "1") != "0"
 	menu_test = args.get("menu_test", "0") == "1"
 	if args.has("voxel_threads"):   # godot_voxel worker threads for this run (project default: voxel/threads/count)

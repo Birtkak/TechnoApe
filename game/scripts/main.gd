@@ -55,6 +55,8 @@ var _looks_test: LooksTest
 var _liquids_test: LiquidsTest
 var _tp_test: TpTest
 var ponder: PonderScreen            # the guide screen (ADR 0132)
+var _shell_test: ShellTest
+var _sand_test: SandTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
@@ -461,6 +463,14 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_water_test = WaterTest.new()
 				_water_test.run(self))
+		if DebugCapture.shell_test:
+			_after_load(func() -> void:
+				_shell_test = ShellTest.new()
+				_shell_test.run(self))
+		if DebugCapture.sand_test:
+			_after_load(func() -> void:
+				_sand_test = SandTest.new()
+				_sand_test.run(self))
 		if not DebugCapture.chat_commands_after.is_empty():
 			_after_load(func() -> void:
 				for c in DebugCapture.chat_commands_after:
