@@ -1692,13 +1692,76 @@ sp("fuse", ("twine", "tin"))
 sp("knife_switch", ("knife_switch", "iron"))
 sp("fuse_box", ("fuse_box", "iron"))
 sp("breaker", ("breaker", "iron"))
+# the small sources and the meter (ADR 0123) as their models draw them (ADR 0129)
+import math as _m
+g = new()   # the water wheel: rims and spokes (palette = its wood), an iron hub (i), timber legs, a green dynamo
+for y in range(16):
+    for x in range(16):
+        r = _m.hypot(x + 0.5 - 7.5, y + 0.5 - 7.0)
+        a = _m.atan2(y + 0.5 - 7.0, x + 0.5 - 7.5)
+        if r < 1.8:
+            put(g, x, y, "i")
+        elif 5.0 < r < 6.6:
+            put(g, x, y, "d")
+        elif r <= 5.0 and (a % (_m.pi / 4)) < 0.32:
+            put(g, x, y, "m")
+rect(g, 2, 12, 3, 15, "d"); rect(g, 12, 12, 13, 15, "d")
+rect(g, 12, 3, 15, 6, "p"); rect(g, 12, 3, 15, 3, "q")
+shape("water_wheel", outline(g), {"i": "#2e3034", "p": "#3a6852", "q": "#5a8e70"})
+g = new()   # the wind turbine: three blades (palette = steel) round a hub, hazard tips, a green nacelle, the post
+for y in range(16):
+    for x in range(16):
+        r = _m.hypot(x + 0.5 - 7.5, y + 0.5 - 5.5)
+        if r > 5.6:
+            continue
+        a = _m.atan2(y + 0.5 - 5.5, x + 0.5 - 7.5) + _m.pi / 2
+        off = a % (2 * _m.pi / 3)
+        off = min(off, 2 * _m.pi / 3 - off)
+        if r < 1.3:
+            put(g, x, y, "i")
+        elif off * r < 1.1:
+            put(g, x, y, "y" if r > 4.4 else "l")
+rect(g, 7, 7, 8, 15, "m"); rect(g, 8, 7, 8, 15, "d")
+rect(g, 9, 4, 11, 6, "p"); rect(g, 5, 14, 10, 15, "i")
+shape("wind_turbine", outline(g), {"i": "#2e3034", "y": "#e8b830", "p": "#3a6852"})
+g = new()   # the hand crank: a green dynamo (p, q, r) between iron flanges (palette) on a base, the arm and grip
+rect(g, 2, 13, 13, 15, "m"); rect(g, 2, 13, 13, 13, "l")
+rect(g, 3, 5, 11, 12, "p"); rect(g, 3, 5, 11, 6, "q"); rect(g, 3, 11, 11, 12, "r")
+rect(g, 2, 5, 2, 12, "d"); rect(g, 12, 5, 12, 12, "d")
+for y in (6, 9, 11):
+    put(g, 2, y, "h"); put(g, 12, y, "h")
+rect(g, 6, 3, 8, 4, "c")
+rect(g, 13, 8, 13, 9, "d"); rect(g, 14, 3, 14, 9, "d"); rect(g, 13, 1, 15, 3, "w")
+shape("hand_crank", outline(g), {"p": "#3a6852", "q": "#5a8e70", "r": "#24453a", "c": "#c0663a", "w": "#7a4a26"})
+g = new()   # the meter panel: an iron case (palette), a cream face, the volt and amp bars by zone, coloured caps
+rect(g, 1, 1, 14, 14, "m"); rect(g, 1, 1, 14, 1, "l"); rect(g, 1, 1, 1, 14, "l"); rect(g, 14, 2, 14, 14, "d"); rect(g, 2, 14, 14, 14, "d")
+rect(g, 3, 3, 12, 12, "f")
+for x0, top in ((4, 5), (9, 9)):
+    rect(g, x0, 4, x0 + 2, 10, "k")
+    for y in range(top, 11):
+        put(g, x0, y, "g" if y > 7 else ("a" if y > 5 else "e")); put(g, x0 + 1, y, "g" if y > 7 else ("a" if y > 5 else "e"))
+        put(g, x0 + 2, y, "g" if y > 7 else ("a" if y > 5 else "e"))
+    for y in (4, 6, 8, 10):
+        put(g, x0 + 3, y, "k")
+rect(g, 4, 11, 6, 11, "v"); rect(g, 9, 11, 11, 11, "c")
+for p in ((2, 2), (13, 2), (2, 13), (13, 13)):
+    put(g, p[0], p[1], "h")
+shape("meter_panel", outline(g), {"f": "#ece6d2", "k": "#22232a", "g": "#4a9a5a", "a": "#e8b830", "e": "#e03a20",
+                                  "v": "#ffe27a", "c": "#c0663a"})
+g = new()   # a lead-acid cell: a black case (palette = carbon) in three cells, a grey lid, red + and dark - posts
+rect(g, 3, 5, 12, 14, "m"); rect(g, 3, 5, 12, 5, "l"); rect(g, 12, 6, 12, 14, "d"); rect(g, 3, 14, 11, 14, "d")
+for x in (6, 9):
+    rect(g, x, 6, x, 13, "d")
+rect(g, 2, 3, 13, 4, "s"); rect(g, 2, 3, 13, 3, "S")
+rect(g, 4, 1, 5, 2, "r"); rect(g, 10, 1, 11, 2, "k")
+shape("lead_cell", outline(g), {"s": "#7a8290", "S": "#aab2be", "r": "#e03a20", "k": "#22232a"})
 sp("thin_cable", ("twine", "copper"))   # ADR 0123 round 2
-sp("lead_acid_cell", ("flask", "glass"), ("nugget", "tin"))
-sp("water_wheel", ("flower_head", "wood"), ("stick", "iron"))
-sp("wind_turbine", ("flower_head", "tin"), ("stick", "steel"))
-sp("hand_crank", ("plate", "iron"), ("stick", "copper"))
-sp("daylight_switch", ("plate", "iron"), ("nugget", "sulfur"))
-sp("meter_panel", ("tape_measure", "iron", {"c": "#1c1410", "k": "#f4e870", "t": "#e07434", "T": "#b0501e"}))
+sp("lead_acid_cell", ("lead_cell", "carbon"))
+sp("water_wheel", ("water_wheel", "wood"))
+sp("wind_turbine", ("wind_turbine", "steel"))
+sp("hand_crank", ("hand_crank", "iron"))
+sp("daylight_switch", ("fuse_box", "iron", {"t": "#ffe27a"}))   # its photocell in the window
+sp("meter_panel", ("meter_panel", "iron"))
 sp("coke_oven", ("bricks_face", None), cube=True)
 sp("coal_coke", ("charcoal_lump", "coal"))
 sp("steam_turbine", ("steam_hammer", "steel", {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}))

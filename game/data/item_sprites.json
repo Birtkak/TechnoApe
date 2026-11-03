@@ -4196,6 +4196,111 @@
         "................"
       ]
     },
+    "water_wheel": {
+      "colors": {"i": "#2e3034", "p": "#3a6852", "q": "#5a8e70"},
+      "rows": [
+        "....oodddoo.....",
+        "...odddddddo....",
+        "..oddoommoddoooo",
+        ".oddmmommoodqqqq",
+        "oddoomomoommpppp",
+        "oddooomiomoopppp",
+        "oddmmmiiiooopppp",
+        "oddoooiiimmmddoo",
+        "oddoomoimoooddo.",
+        "oddmmoomomooddo.",
+        ".oddoommommddo..",
+        "..oddommooddoo..",
+        ".odddddddddoddo.",
+        ".oddoodddoooddo.",
+        ".oddo.ooo..oddo.",
+        ".oddo......oddo."
+      ]
+    },
+    "wind_turbine": {
+      "colors": {"i": "#2e3034", "y": "#e8b830", "p": "#3a6852"},
+      "rows": [
+        ".....oyyyo......",
+        ".....olllo......",
+        ".....olllo......",
+        ".....olllooo....",
+        ".....ooiopppo...",
+        "....oliiipppo...",
+        "..oolllilpppo...",
+        ".oyyllomdllyyo..",
+        "..oyooomdooyo...",
+        "...o..omdo.o....",
+        "......omdo......",
+        "......omdo......",
+        "......omdo......",
+        ".....oomdoo.....",
+        "....oiiiiiio....",
+        "....oiiiiiio...."
+      ]
+    },
+    "hand_crank": {
+      "colors": {"p": "#3a6852", "q": "#5a8e70", "r": "#24453a", "c": "#c0663a", "w": "#7a4a26"},
+      "rows": [
+        ".............ooo",
+        "............owww",
+        "......ooo...owww",
+        ".....occco..owww",
+        "..oooocccooooodo",
+        ".odqqqqqqqqqdodo",
+        ".ohqqqqqqqqqhodo",
+        ".odpppppppppdodo",
+        ".odpppppppppdddo",
+        ".ohppppppppphddo",
+        ".odpppppppppdoo.",
+        ".ohrrrrrrrrrho..",
+        ".odrrrrrrrrrdo..",
+        ".ollllllllllllo.",
+        ".ommmmmmmmmmmmo.",
+        ".ommmmmmmmmmmmo."
+      ]
+    },
+    "meter_panel": {
+      "colors": {"f": "#ece6d2", "k": "#22232a", "g": "#4a9a5a", "a": "#e8b830", "e": "#e03a20", "v": "#ffe27a", "c": "#c0663a"},
+      "rows": [
+        ".oooooooooooooo.",
+        "ollllllllllllllo",
+        "olhmmmmmmmmmmhdo",
+        "olmffffffffffmdo",
+        "olmfkkkkfkkkkmdo",
+        "olmfeeeffkkkfmdo",
+        "olmfaaakfkkkkmdo",
+        "olmfaaaffkkkfmdo",
+        "olmfgggkfkkkkmdo",
+        "olmfgggffgggfmdo",
+        "olmfgggkfgggkmdo",
+        "olmfvvvffcccfmdo",
+        "olmffffffffffmdo",
+        "olhmmmmmmmmmmhdo",
+        "oldddddddddddddo",
+        ".oooooooooooooo."
+      ]
+    },
+    "lead_cell": {
+      "colors": {"s": "#7a8290", "S": "#aab2be", "r": "#e03a20", "k": "#22232a"},
+      "rows": [
+        "....oo....oo....",
+        "...orro..okko...",
+        "..oorrooookkoo..",
+        ".oSSSSSSSSSSSSo.",
+        ".osssssssssssso.",
+        "..ollllllllllo..",
+        "..ommmdmmdmmdo..",
+        "..ommmdmmdmmdo..",
+        "..ommmdmmdmmdo..",
+        "..ommmdmmdmmdo..",
+        "..ommmdmmdmmdo..",
+        "..ommmdmmdmmdo..",
+        "..ommmdmmdmmdo..",
+        "..ommmdmmdmmdo..",
+        "..oddddddddddo..",
+        "...oooooooooo..."
+      ]
+    },
     "miner_helmet": {
       "colors": {"n": "#2c3448", "k": "#1a2030", "y": "#ffd660", "Y": "#f0a030", "w": "#fff6d0"},
       "rows": [
@@ -4803,12 +4908,12 @@
     "fuse_box": {"layers": [{"shape": "fuse_box", "palette": "iron"}]},
     "breaker": {"layers": [{"shape": "breaker", "palette": "iron"}]},
     "thin_cable": {"layers": [{"shape": "twine", "palette": "copper"}]},
-    "lead_acid_cell": {"layers": [{"shape": "flask", "palette": "glass"}, {"shape": "nugget", "palette": "tin"}]},
-    "water_wheel": {"layers": [{"shape": "flower_head", "palette": "wood"}, {"shape": "stick", "palette": "iron"}]},
-    "wind_turbine": {"layers": [{"shape": "flower_head", "palette": "tin"}, {"shape": "stick", "palette": "steel"}]},
-    "hand_crank": {"layers": [{"shape": "plate", "palette": "iron"}, {"shape": "stick", "palette": "copper"}]},
-    "daylight_switch": {"layers": [{"shape": "plate", "palette": "iron"}, {"shape": "nugget", "palette": "sulfur"}]},
-    "meter_panel": {"layers": [{"shape": "tape_measure", "palette": "iron", "colors": {"c": "#1c1410", "k": "#f4e870", "t": "#e07434", "T": "#b0501e"}}]},
+    "lead_acid_cell": {"layers": [{"shape": "lead_cell", "palette": "carbon"}]},
+    "water_wheel": {"layers": [{"shape": "water_wheel", "palette": "wood"}]},
+    "wind_turbine": {"layers": [{"shape": "wind_turbine", "palette": "steel"}]},
+    "hand_crank": {"layers": [{"shape": "hand_crank", "palette": "iron"}]},
+    "daylight_switch": {"layers": [{"shape": "fuse_box", "palette": "iron", "colors": {"t": "#ffe27a"}}]},
+    "meter_panel": {"layers": [{"shape": "meter_panel", "palette": "iron"}]},
     "coke_oven": {"layers": [{"shape": "bricks_face"}], "cube": true},
     "coal_coke": {"layers": [{"shape": "charcoal_lump", "palette": "coal"}]},
     "steam_turbine": {"layers": [{"shape": "steam_hammer", "palette": "steel", "colors": {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}}]},
