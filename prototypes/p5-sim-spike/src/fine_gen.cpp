@@ -845,6 +845,57 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
                 }
             }
     }
+    // Rope bridges over ravines: once per 64 m cell, where a ravine is open, the point of its centre line nearest a
+    // seeded spot, spanned rim to rim across the line when both rims stand within 3 m of each other.
+    {
+        constexpr int BC = 512, BM = 160;   // fine voxels; a bridge reaches up to ~130 from its middle
+        auto rv = [&](float px, float pz) { return g.n_ravine_.GetNoise(px, pz); };
+        for (int cz = floor_div(z_lo - BM, BC); cz <= floor_div(z_hi + BM, BC); cz++)
+            for (int cx = floor_div(x_lo - BM, BC); cx <= floor_div(x_hi + BM, BC); cx++) {
+                const uint32_t hs = h3(cx, cz, g.seed_ + 673);
+                if ((hs & 3) == 0) continue;
+                float px = (float)(cx * BC + (int)((hs >> 4) % BC)) / FS, pz = (float)(cz * BC + (int)((hs >> 14) % BC)) / FS;   // macro
+                if (g.n_ravmask_.GetNoise(px, pz) <= 0.4f) continue;
+                float gx = 0.0f, gz = 0.0f, n = 1.0f;
+                for (int it = 0; it < 4; it++) {   // Newton steps onto the zero line
+                    n = rv(px, pz);
+                    gx = (rv(px + 1.0f, pz) - rv(px - 1.0f, pz)) * 0.5f;
+                    gz = (rv(px, pz + 1.0f) - rv(px, pz - 1.0f)) * 0.5f;
+                    const float g2 = gx * gx + gz * gz;
+                    if (g2 < 1e-12f) break;
+                    px -= n * gx / g2;
+                    pz -= n * gz / g2;
+                }
+                const float gl = std::sqrt(gx * gx + gz * gz);
+                if (gl < 1e-6f || std::fabs(rv(px, pz)) > 0.003f || g.n_ravmask_.GetNoise(px, pz) <= 0.45f) continue;
+                const float ax = gx / gl, az = gz / gl;   // across the ravine: the bridge's axis
+                auto cut = [&](float qx, float qz) { return WorldGen::ravine_value(g.n_ravmask_.GetNoise(qx, qz), std::fabs(rv(qx, qz)), 1.0f) > -0.5f; };
+                int a1 = 0, a2 = 0;
+                while (a1 < 32 && cut(px + ax * a1, pz + az * a1)) a1++;
+                while (a2 < 32 && cut(px - ax * a2, pz - az * a2)) a2++;
+                if (a1 >= 32 || a2 >= 32 || a1 + a2 < 6) continue;
+                const float half = 0.5f * (float)(a1 + a2) + 2.0f;            // macro, past each rim by 2
+                const float mx = px + ax * 0.5f * (float)(a1 - a2), mz = pz + az * 0.5f * (float)(a1 - a2);
+                FStamp b{};
+                b.kind = BRIDGE;
+                b.seed = h3(cx, cz, g.seed_ + 677);
+                b.x = mx * FS;
+                b.z = mz * FS;
+                b.dx = ax;
+                b.dz = az;
+                b.size = half * FS;
+                b.r = 5.0f;
+                const float e1 = surface_f((int)(b.x + ax * b.size), (int)(b.z + az * b.size));
+                const float e2 = surface_f((int)(b.x - ax * b.size), (int)(b.z - az * b.size));
+                if (std::fabs(e1 - e2) > 24.0f || std::min(e1, e2) <= (float)(g.sea_ * FS)) continue;
+                const int bmx = floor_div((int)b.x, FS), bmz = floor_div((int)b.z, FS);
+                bool blocked = false;
+                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], bmx, bmz, (int)half + RUIN_RAMP);
+                if (blocked) continue;
+                b.ground = (int)std::floor(std::min(e1, e2) + 0.5f);
+                out.push_back(b);
+            }
+    }
     // Rock formations: natural arches and hoodoos (a pillar under a cap stone) where the land is dry and bare,
     // in the badlands' terracotta bands, the desert's sandstone, plain stone on the highlands and the scrub.
     {
@@ -1127,6 +1178,28 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
                 const uint32_t hh = h3((int)std::floor(x), y, (int)std::floor(z) + (int)s.seed);
                 if (hh % 3 == 0) return Mat::MOSS;
                 if ((float)((hh >> 12) & 1023) / 1024.0f < technosim_biome::DECOR_LOG_MUSHROOMS[s.biome]) return (hh >> 8) % 3 == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN;
+            }
+            return Mat::AIR;
+        }
+        case BRIDGE: {
+            // a plank deck sagging between log posts, rope rails on stringers every metre
+            const float a = dx * s.dx + dz * s.dz, b = std::fabs(-dx * s.dz + dz * s.dx);
+            if (std::fabs(a) > s.size + 1.0f || b > s.r + 2.0f) return Mat::AIR;
+            const float t = a / s.size;
+            const int deck = s.ground - (int)std::floor(s.size * 0.06f * (1.0f - t * t) + 0.5f);   // top of the deck
+            if (std::fabs(a) >= s.size - 1.0f) {   // the posts: 2x2 logs, from under the ground to over the rail
+                if (b >= s.r && b < s.r + 2.0f && y > s.ground - 10 && y <= deck + 7) return Mat::WOOD;
+                if (b < s.r && (y == deck || y == deck - 1)) return Mat::PLANKS;
+                return Mat::AIR;
+            }
+            if (b < s.r) {
+                const uint32_t slat = h3((int)std::floor(a / 2.0f), 0, (int)s.seed);   // a slat in ten gone
+                return (y == deck || y == deck - 1) && (slat % 10) != 0 ? Mat::PLANKS : Mat::AIR;   // two thick: joins face to face down the sag
+            }
+            if (b < s.r + 1.0f) {
+                if (y == deck + 6 || y == deck + 5) return Mat::ROPE;
+                if (y == deck || y == deck - 1) return Mat::ROPE;   // the ropes the slats hang on
+                if (y > deck && y < deck + 6 && std::fabs(a - 8.0f * std::round(a / 8.0f)) < 0.5f) return Mat::ROPE;
             }
             return Mat::AIR;
         }

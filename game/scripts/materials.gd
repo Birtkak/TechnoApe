@@ -303,7 +303,7 @@ static func _build_defs() -> Array:
 		# 216 (ADR 0121): storage drawn by StationEntity like the chest
 		{"name": "barrel", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "barrel"},
 		{"name": "storage_shelf", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "storage_shelf"},
-	] + _reserved_defs(218, CAVE_IDS - 1) + _cave_defs() + _plant_defs() + _reserved_defs(CAVE_IDS + 10, 253) + [
+	] + _reserved_defs(218, CAVE_IDS - 1) + _cave_defs() + _plant_defs() + _structure_defs() + _reserved_defs(CAVE_IDS + 11, 253) + [
 		# 254 (ADR 0119 C): what toxic sludge boils into: heavy, sinks and pools in low caves, fades in a minute
 		{"name": "toxic_gas", "condense_c": 30, "condenses_to": "toxic_sludge", "cell_type": "gas", "density": 1, "gas_upwards_speed": 40, "gas_horizontal_speed": 90, "gas_downwards_speed": 120, "lifetime": 1800, "tiles": [11, 11, 11], "transparent": true},
 	] + _reserved_defs(255, 255)
@@ -325,6 +325,13 @@ static func _wood_defs() -> Array:
 		d.merge(plant_burn)
 		out.append(d)
 	return out
+
+
+## Ids 238..: what the generator's structures are built of. 238 rope (rope bridges over ravines).
+static func _structure_defs() -> Array:
+	return [
+		{"name": "rope", "cell_type": "solid", "density": 6, "hp": 30, "burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [199, 199, 199], "transparent": false},
+	]
 
 
 ## Ids 235..237: plants the generator lays per column (FineGen, the vegetation pass): dune grass on beaches, heather

@@ -373,3 +373,24 @@ func test_open_biomes_grow_their_own_plants() -> void:
 				for k in range(0, b.size(), 2):
 					n += int(b.decode_u16(k) == want)
 		assert_int(n).override_failure_message("no %s near the %s at %s" % [e[1], e[0], p]).is_greater(0)
+
+
+## Rope bridges: a ravine near the origin is spanned by planks hung on rope, over the cut.
+func test_ravines_are_bridged() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var rope := GameMaterials.id_of("rope")
+	var found := 0
+	var p: Vector3i = g.find_nearest("ravine", 0, 0, int(Settings.m2v(4000.0)))
+	assert_int(p.y).override_failure_message("no ravine").is_greater_equal(0)
+	for bx in range(p.x - 512, p.x + 512, 64):
+		for bz in range(p.z - 512, p.z + 512, 64):
+			var h := g.height_at(bx + 32, bz + 32)
+			var b: PackedByteArray = g.generate_block(Vector3i(bx, h - 24, bz), Vector3i(64, 48, 64), 0, 2)
+			if b.size() < 64 * 48 * 64 * 2:
+				continue
+			for k in range(0, b.size(), 2):
+				found += int(b.decode_u16(k) == rope)
+		if found > 0:
+			break
+	assert_int(found).override_failure_message("no rope bridge within 64 m of the ravine at %s" % p).is_greater(0)

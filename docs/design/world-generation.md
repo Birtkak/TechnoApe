@@ -477,3 +477,10 @@ Asked for in bug reports 2026-11-02 18-55-21, 18-57-25, 18-54-25 and 18-49-07.
   rows of rotten boards gone, a rail on three sides, a log brace down each face, two pots under the platform (loot
   `tower_pot`). Taiga, forests, swamp, highlands: the wooden cousin of the stone watchtower. Everything left hangs on
   a post (rows run edge to edge, a side's rail goes whole or not at all).
+
+## Rope bridges over ravines (2026-11-03)
+- FineGen stamp BRIDGE: per 64 m cell (3 in 4), a seeded spot is walked by Newton steps onto the ravine noise's zero
+  line where the mask is open (> 0.45); the gradient gives the across axis, the rims are found by stepping out until
+  the surface is no longer cut, and the bridge spans rim to rim + 1 m when both rims stand within 3 m of each other.
+  A two-voxel plank deck 1.25 m wide sagging 6 % of its half length, a slat in ten gone, rope rails at 0.75 m on
+  stringers every metre, 2x2 log posts at both ends. Material 238 rope (tile 199, drops cordage).

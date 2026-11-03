@@ -1114,6 +1114,11 @@ def cave_tiles():
             for x in range(TILE):
                 _px(img, x, y, tip if ((x * 5 + y * 2) % 7 < 2 or rng.random() < mix * 0.4) else base, rng, 10)
         out[idx] = img
+    img = Image.new("RGBA", (TILE, TILE))   # 199 rope: twisted fibre, diagonal strands
+    for y in range(TILE):
+        for x in range(TILE):
+            _px(img, x, y, (184, 156, 108) if (x + y) % 4 < 2 else (138, 112, 74), rng, 8)
+    out[199] = img
     return out
 
 
