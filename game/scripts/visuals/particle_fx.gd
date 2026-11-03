@@ -36,6 +36,7 @@ var get_voxel: Callable   # world voxel reader (Main.get_world_voxel): floors, f
 var bubble: SimBubble     # ambient sampling
 var spray: WaterfallSpray # the waterfalls near the camera
 var player: Player
+var underground_m := 0.0   # Survival.underground_m, set by Main each frame: "dark" ambient rules (glow worms) need night or the underground
 var main_blocks: BlockEntities   # lit firepits and pit kilns smoke
 var calendar: Calendar           # timed ambient rules (ADR 0120); null reads Main's atmosphere
 var sound_bursts := {}           # burst name -> true: GameAudio hears these (the ambient ones stay silent and free)
@@ -123,7 +124,7 @@ func load_dict(data: Dictionary) -> bool:
 			elif not (r.get("where", "any") in WHERE):
 				errors.append("ambient %s: unknown where %s" % [k, r.get("where", "")])
 			else:
-				rules.append({"effect": r["effect"], "chance": float(r.get("chance", 1.0)), "where": r.get("where", "any"), "time": r.get("time", "")})
+				rules.append({"effect": r["effect"], "chance": float(r.get("chance", 1.0)), "where": r.get("where", "any"), "time": r.get("time", ""), "dark": bool(r.get("dark", false))})
 		ambient[id] = rules
 	_build_material_tables()
 	return errors.is_empty()
@@ -644,6 +645,8 @@ func _ambient_hit(p: Vector3i, m: int, above: int, below: int, flags: int) -> vo
 		if _rng.randf() >= float(r["chance"]):
 			continue
 		if r["time"] != "" and r["time"] != _phase():
+			continue
+		if r["dark"] and _phase() != "night" and underground_m < 4.0:   # glow in the dark: at night, or under the ground
 			continue
 		var at := Vector3(p) + Vector3(0.5, 0.5, 0.5)
 		var opts := {"material": m}

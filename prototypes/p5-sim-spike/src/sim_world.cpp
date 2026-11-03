@@ -951,7 +951,8 @@ void SimWorld::relax_heat(int ci) {
 Dictionary SimWorld::cell_info(Vector3i p) const {
     Dictionary d;
     if (!in_world(p.x, p.y, p.z)) return d;
-    wait_readable();
+    // no wait for the running tick: a HUD line may read a cell mid-tick; waiting stalled the main thread a whole
+    // sim tick every frame (budget hunt 2026-11-03: 8-10 ms process spikes with nothing else busy)
     const Cell &cell = cells_[idx(p.x, p.y, p.z)];
     const MaterialDef &m = mats_[cell.mat];
     d["material"] = (int)cell.mat;

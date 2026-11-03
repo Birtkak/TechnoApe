@@ -1989,6 +1989,7 @@
   "moss": [
    {
     "effect": "glow_worm",
+    "dark": true,
     "chance": 0.35,
     "where": "air_below"
    }
@@ -1996,6 +1997,7 @@
   "cave_vine": [
    {
     "effect": "glow_worm",
+    "dark": true,
     "chance": 0.2,
     "where": "air_below"
    }
@@ -2003,6 +2005,7 @@
   "glow_berry_vine": [
    {
     "effect": "glow_worm",
+    "dark": true,
     "chance": 0.2,
     "where": "air_below"
    }

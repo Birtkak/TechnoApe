@@ -16,6 +16,8 @@ var _text: Label
 var _t := 0.0
 var _biome_t := 0.0
 var _biome := ""
+var _cell_text := ""
+var _cell_t := 0
 
 
 func setup(p_main: Node) -> void:
@@ -85,7 +87,11 @@ func _process(delta: float) -> void:
 	var hours := cal.time * 24.0
 	_text.text = "%d  %d  %d\n%s\n%s  %d C\n%d %s  %02d:%02d\n%s" % [int(floor(p.x)), int(floor(p.y)), int(floor(p.z)), _biome,
 		cal.season_name(), roundi(main.survival.outside_c) if main.survival else 0, cal.day_of_month() + 1, Calendar.MONTHS[cal.month()],
-		int(hours), int(fmod(hours, 1.0) * 60.0), _cell_line(p)]
+		int(hours), int(fmod(hours, 1.0) * 60.0), _cell_text]
+	_cell_t -= 1
+	if _cell_t <= 0:   # a few times a second: the raycast and the sim read are not per-frame work
+		_cell_t = 6
+		_cell_text = _cell_line(p)
 
 
 ## ADR 0119 D: the aimed cell, else the cell the player stands in: material, state, temperature and pressure, so

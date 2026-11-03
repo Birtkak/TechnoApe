@@ -634,6 +634,8 @@ func _raise_monolith() -> void:
 func _process(delta: float) -> void:
 	if bubble != null and survival != null:
 		bubble.ambient_c = survival.outside_c   # ADR 0119 C: the sim's heat field relaxes toward the outside
+		if fx != null:
+			fx.underground_m = survival.underground_m
 	var _pt0 := Time.get_ticks_usec()
 	_process_timed(delta)
 	DebugCapture.note_proc("main", _pt0)
