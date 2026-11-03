@@ -79,7 +79,9 @@ void WorldGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     setup(n_spag2_, seed_ + 9, 0.012f, 1);
     setup(n_ore_, seed_ + 10, 0.09f, 1); // ore vein lens edge wobble
     setup(n_jitter_, seed_ + 13, 0.02f, 2);
-    setup(n_cavern_, seed_ + 17, 1.0f / 300.0f, 2);   // ~150 m between halls
+    setup(n_cavern_, seed_ + 17, 1.0f / 300.0f, 2);   // giant chamber footprints, ~150 m apart where the mask opens (ADR 0134)
+    setup(n_hall_, seed_ + 26, 1.0f / 110.0f, 1);     // hall footprints, ~15-30 m across (ADR 0134)
+    setup(n_giant_, seed_ + 27, 1.0f / 2400.0f, 1);   // where giant chambers may be: ~1.2 km patches
     setup(n_ravine_, seed_ + 19, 1.0f / 900.0f, 1);   // ravine lines (|noise| near 0)
     setup(n_ravmask_, seed_ + 20, 1.0f / 1400.0f, 1); // which stretches of those lines are open
     setup(n_pillar_, seed_ + 21, 1.0f / 22.0f, 1);    // hall pillars ~2-3 m thick, ~11 m apart
@@ -1065,22 +1067,41 @@ float WorldGen::cave_value(const CaveColumn &col, int y, int height, bool small_
     const float fx = (float)x, fy = (float)y, fz = (float)z;
     const float depth = (float)(height - y);
     const bool epic = variant_[VAR_CAVES] != 0;
-    const float thr = (epic ? 0.55f : 0.62f) - 0.12f * smoothstep(20.0f, 200.0f, depth);
+    // big-cave rooms are side chambers now that the halls are the big rooms (ADR 0134: they grew 25-55 m tall, more
+    // with depth): a higher threshold at every depth
+    const float thr = epic ? 0.65f : 0.62f - 0.12f * smoothstep(20.0f, 200.0f, depth);
     // Three storeys (ADR 0077): rooms squashed flat near the top, and past ~100 m down the cheese stands up into
     // tall rifts (the deep is chasms, not more rooms).
-    const float ysq = epic ? 1.6f - 1.1f * smoothstep(200.0f, 340.0f, depth) : 1.6f;
+    // (ADR 0134: squashed 2.6 instead of 1.6 above the rifts, so a room is a few metres tall)
+    const float ysq = epic ? 2.6f - 2.1f * smoothstep(200.0f, 340.0f, depth) : 1.6f;
     const float cheese = (n_cheese_.GetNoise(fx, fy * ysq, fz) - thr) / 0.08f;
     const float s1 = n_spag1_.GetNoise(fx, fy * 1.3f, fz), s2 = n_spag2_.GetNoise(fx, fy * 1.3f, fz);
     // big caves: tunnels 3-5 m wide, swelling and narrowing along their length (the gallery offset noise doubles
     // as the width: ~200 m between a tunnel's narrows and its widest stretch, ADR 0109)
     const float sw = epic ? 0.045f * (1.0f + 0.5f * col.galoff) : 0.0115f;
-    float v = std::max(cheese, (sw - (s1 * s1 + s2 * s2)) / sw);
+    float sp = (sw - (s1 * s1 + s2 * s2)) / sw;
+    if (epic && sp > -1.0f) {
+        // A tunnel runs along both noises' zero lines, so along cross(grad s1, grad s2): where that leans steeper than
+        // ~35 degrees the tunnel pinches shut (ADR 0134: a vertical stretch was a 55 m shaft beside the passages).
+        const float y1 = (fy + 1.0f) * 1.3f, y0 = fy * 1.3f;
+        const float ax = n_spag1_.GetNoise(fx + 1.0f, y0, fz) - s1, ay = n_spag1_.GetNoise(fx, y1, fz) - s1, az = n_spag1_.GetNoise(fx, y0, fz + 1.0f) - s1;
+        const float bx = n_spag2_.GetNoise(fx + 1.0f, y0, fz) - s2, by = n_spag2_.GetNoise(fx, y1, fz) - s2, bz = n_spag2_.GetNoise(fx, y0, fz + 1.0f) - s2;
+        const float dx = ay * bz - az * by, dy = az * bx - ax * bz, dz = ax * by - ay * bx;
+        const float len = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (len > 1e-9f) sp -= 4.0f * smoothstep(0.55f, 0.85f, std::fabs(dy) / len);
+    }
+    float v = std::max(cheese, sp);
     if (!epic) return v;
+    HallCol hc;
+    hall_column(x, z, col.galoff, hc);
+    float cut = 0.0f;
+    const float hall = hall_value(hc, fy, depth, nullptr, nullptr, false, &cut);
+    v -= 4.0f * std::min(cut, 1.0f);
     // Galleries (ADR 0080): a storey of walkable passages every 14 m down, each a winding network along the zero
     // lines of its own 2D noise, ~4 m wide and 3 m tall with a flat floor that tilts at most ~10 degrees, so a
     // passage can be followed for hundreds of metres; noodles, chimneys and halls join the storeys.
     if (depth > 12.0f && depth < 220.0f) {
-        constexpr float SP = 28.0f, HH = 3.2f, W = 0.22f;   // ~4 m wide, 3 m tall (ADR 0109)   // storey spacing, half height (macro), route half width
+        constexpr float SP = GAL_SP, HH = GAL_HH, W = 0.22f;   // ~4 m wide, 3 m tall (ADR 0109)   // storey spacing, half height (macro), route half width
         const float yo = fy - col.galoff * 10.0f;
         const float lvl = std::floor(yo / SP + 0.5f);
         const float dy = std::fabs(yo - lvl * SP);
@@ -1116,7 +1137,14 @@ float WorldGen::cave_value(const CaveColumn &col, int y, int height, bool small_
                 if (m[i].kind == MOUTH_SINKHOLE) R *= 1.0f + 1.0f * (1.0f - smoothstep(0.0f, 3.0f * m[i].r, depth));
                 const float dh2 = (dx * dx + dz * dz) / (R * R);
                 const float cap = std::min(1.0f - u, u + 1.0f) * m[i].len / m[i].r;   // rounded ends
-                v = std::max(v, std::min(1.0f - dh2, cap) * 4.0f);
+                float sv = std::min(1.0f - dh2, cap) * 4.0f;
+                // A ledge spirals down the outer half of the shaft, 4 m a turn and 1 m thick, so a shaft can be walked
+                // down instead of only fallen down (ADR 0134); the middle stays open, a passage through stays open.
+                if (sv > 0.0f && dh2 > 0.3f) {
+                    const float turn = std::atan2(dz, dx) * 0.15915494f + (depth - m[i].top) / 8.0f + (float)(i * 0.37f);
+                    if (turn - std::floor(turn) < 0.25f) sv = -1.0f;
+                }
+                v = std::max(v, sv);
             }
         }
     }
@@ -1134,19 +1162,96 @@ float WorldGen::cave_value(const CaveColumn &col, int y, int height, bool small_
                 v = std::max(v, (1.0f - (ay * ay + az * az)) * 4.0f);
             }
     }
+    if (cut >= 2.0f) v = std::min(v, -1.0f);   // a giant chamber's pillar
     if (small_only) return v;
-    v = std::max(v, cavern_value(n_cavern_.GetNoise(fx, fy * CAVERN_Y, fz), fy, depth, n_pillar_.GetNoise(fx, fz)));
+    v = std::max(v, hall);
     return std::max(v, ravine_value(ravine_col(fx, fz), depth));
 }
 
-// Caverns: a slow 3D noise squashed in y, so halls are wide and flat-floored (40-120 m across, 15-40 m
-// tall, developer 2026-10-25 "big"), from 15 m under the ground down to bedrock. raw = n_cavern_ at
-// (x, y * CAVERN_Y, z); FineGen samples it on a coarse grid.
-float WorldGen::cavern_value(float raw, float fy, float depth, float pillar) {
-    const float v = (raw - CAVERN_THR) / 0.05f * smoothstep(30.0f, 70.0f, depth) * smoothstep(14.0f, 40.0f, fy);
-    // pillars (ADR 0077): where the column noise peaks the hall keeps rock from floor to ceiling, 2-3 m thick
-    const float p = smoothstep(0.5f, 0.62f, pillar);
-    return v * (1.0f - p) - p;
+// Halls (ADR 0134; they replace the 40-120 m caverns of ADR 0052 as the norm, bug report 2026-11-03 16-37-55: "caves
+// are ugly and not usable", a 40 m fall from a passage into a dark hall). A hall stands on a gallery storey, so the
+// storey's passages meet it at its floor. Over a 2D footprint (n_hall_, shifted per storey) t rises from 0 at the
+// wall: the roof is a dome up to HALL_H (12 m) over the floor, and a talus slope of rubble climbs from the flat middle
+// (t > flat) to HALL_TALUS at the wall, so a wall has a slope at its foot instead of a drop. Where the slow mask
+// n_giant_ opens, n_cavern_ (2D now) gives a giant chamber on the same storey (~40-90 m across, 22 m tall): the
+// landmark of find_nearest("cavern"). Its talus reaches up to the next storey's floor, so that storey's passages come
+// out onto the top of the slope. Macro units; depth is the point's depth under the ground.
+void WorldGen::hall_column(int x, int z, float galoff, HallCol &out) const {
+    out.x = (float)x, out.z = (float)z, out.galoff = galoff;
+    out.giant = smoothstep(GIANT_MASK, GIANT_MASK + 0.1f, n_giant_.GetNoise(out.x, out.z));
+    out.pillar = n_pillar_.GetNoise(out.x, out.z);
+}
+
+// How far (macro columns) a point lies inside the footprint where the 2D noise n passes thr: the excess over the
+// gradient's length, a distance to the edge for the few columns near it; -1000 well outside.
+static float foot_dist(const FastNoiseLite &n, float x, float z, float thr) {
+    const float s = n.GetNoise(x, z);
+    if (s < thr - 0.3f) return -1000.0f;
+    const float gx = n.GetNoise(x + 1.0f, z) - n.GetNoise(x - 1.0f, z), gz = n.GetNoise(x, z + 1.0f) - n.GetNoise(x, z - 1.0f);
+    return (s - thr) / std::max(0.002f, 0.5f * std::sqrt(gx * gx + gz * gz));
+}
+
+float WorldGen::hall_value(const HallCol &c, float fy, float depth, float *rim, bool *talus, bool giant_only, float *cut) const {
+    if (rim) *rim = 0.0f;
+    if (talus) *talus = false;
+    if (cut) *cut = 0.0f;
+    const float yo = fy - c.galoff * 10.0f;   // the storeys tilt with the galleries
+    const float lvl0 = std::floor((yo + GAL_HH) / GAL_SP);
+    float best = -1.0f;
+    // Giant chambers stand on every other storey (two stacked made one 36 m shaft). One of the storey below reaches
+    // up through this storey: no hall of this storey stands in it or within 6 m of its wall.
+    auto giant_storey = [](float l) { return ((int)l & 1) == 0; };
+    const float below = c.giant > 0.0f && giant_storey(lvl0 - 1.0f) ? foot_dist(n_cavern_, c.x + (lvl0 - 1.0f) * 311.0f, c.z - (lvl0 - 1.0f) * 197.0f, GIANT_THR) * c.giant : -1000.0f;
+    for (int d = 0; d <= 1; d++) {   // this storey's hall, and a giant chamber of the storey below reaching up into it
+        const float lvl = lvl0 - (float)d;
+        const float u = yo - (lvl * GAL_SP - GAL_HH);   // height over the storey's floor
+        const float fd = depth + u;                     // the floor's depth under the ground
+        // t: columns in from the wall (the footprint's excess over its gradient), so the roof curve and the talus keep
+        // their widths whatever the noise does
+        float t = -1000.0f, H = 0.0f, K = 0.0f, dome = HALL_DOME, span = HALL_SPAN;
+        bool giant = false;
+        if (c.giant > 0.0f && giant_storey(lvl)) {
+            t = d == 1 ? below : foot_dist(n_cavern_, c.x + lvl * 311.0f, c.z - lvl * 197.0f, GIANT_THR) * c.giant;
+            if (t > -1000.0f) H = GIANT_H, K = GIANT_TALUS, dome = GIANT_DOME, span = GIANT_SPAN, giant = true;
+        }
+        // a giant chamber of this storey or the one below keeps the storey's halls 6 m off its wall (a column that
+        // switched from one to the other stepped 12 m)
+        if (d == 0 && !giant_only && below < -12.0f && t < -12.0f) {
+            t = foot_dist(n_hall_, c.x + lvl * 577.0f, c.z - lvl * 913.0f, HALL_THR);
+            H = HALL_H, K = HALL_TALUS, dome = HALL_DOME, span = HALL_SPAN, giant = false;
+        }
+        // 8 m of rock over the roof at least, 115 m down at most (the galleries' range), clear of the bedrock
+        if (t <= -8.0f || fd - H < 16.0f || fd > 230.0f || fy - u < 24.0f) continue;
+        const float slope = K * std::max(0.0f, 1.0f - t / span);
+        if (cut) {
+            // Passages meet a hall at its floor (ADR 0134): from 4 m outside the wall to where the roof levels off, a
+            // tunnel or room more than 3 m over the talus top is closed, so it cannot open high in the wall over a
+            // drop, and none breaks up through the floor from under it. The galleries are on the floor already and
+            // are never cut.
+            const float wall = smoothstep(-8.0f, -3.0f, t) * (1.0f - smoothstep(dome, dome + 3.0f, t));   // out to where the roof levels
+            const float high = wall * std::clamp((u - std::min(slope, K) - 6.0f) / 3.0f, 0.0f, 1.0f) * (u < H + 8.0f ? 1.0f : 0.0f);
+            const float under = smoothstep(-4.0f, 0.0f, t) * std::clamp((u + 12.0f) * 0.5f, 0.0f, 1.0f) * std::clamp(std::min(slope, K) + 0.5f - u, 0.0f, 1.0f);
+            // and none breaks down through the roof: 3 m of rock over it
+            const float rt = H * smoothstep(0.0f, dome, std::max(t, 0.0f));
+            const float over = smoothstep(-4.0f, 0.0f, t) * std::clamp(u - rt + 1.0f, 0.0f, 1.0f) * std::clamp(rt + 6.0f - u, 0.0f, 1.0f);
+            *cut = std::max({*cut, high, under, over});
+        }
+        if (t <= 0.0f) continue;
+        const float roof = H * smoothstep(0.0f, dome, t);
+        float v = std::min(u - slope, roof - u) * 0.5f;
+        if (giant) {   // pillars (ADR 0077) hold up a giant chamber's roof: rock from floor to roof, 2-3 m thick
+            const float p = smoothstep(0.5f, 0.62f, c.pillar);
+            v = v * (1.0f - p) - p;
+            // no passage runs through one either: it ended in mid air on both sides (cut 2 = solid)
+            if (cut && p > 0.5f && u > slope - 2.0f && u < roof + 2.0f) *cut = 2.0f;
+        }
+        best = std::max(best, v);
+        if (u < roof + 2.0f) {
+            if (rim) *rim = std::max(*rim, std::max(0.0f, 1.0f - t / span));
+            if (talus && slope > 0.3f && u >= -1.0f && u <= slope + 0.5f) *talus = true;
+        }
+    }
+    return best;
 }
 
 // Ravines: along the zero line of a slow 2D noise (line = |n_ravine_|) where a mask (n_ravmask_) opens it,
@@ -1252,9 +1357,14 @@ bool WorldGen::big_cave_possible(int x0, int y0, int z0, int x1, int y1, int z1,
     for (int z = z0;; z = std::min(z + 16, z1)) {
         for (int x = x0;; x = std::min(x + 16, x1)) {
             if (ravine_deep_enough && n_ravmask_.GetNoise((float)x, (float)z) > 0.15f) return true;
-            for (int y = y0;; y = std::min(y + 16, y1)) {
-                if (n_cavern_.GetNoise((float)x, (float)y * CAVERN_Y, (float)z) > CAVERN_THR - 0.15f) return true;
-                if (y == y1) break;
+            // halls (ADR 0134): any storey whose hall could reach into [y0, y1], with a margin for what the 2D
+            // footprints can rise between the 8 m samples
+            const float go = n_galoff_.GetNoise((float)x, (float)z) * 10.0f;
+            const bool gm = n_giant_.GetNoise((float)x, (float)z) > GIANT_MASK - 0.1f;
+            const int l0 = (int)std::floor(((float)y0 - go + GAL_HH - GIANT_H) / GAL_SP), l1 = (int)std::floor(((float)y1 - go + GAL_HH) / GAL_SP);
+            for (int l = l0; l <= l1; l++) {
+                if (n_hall_.GetNoise((float)x + l * 577.0f, (float)z - l * 913.0f) > HALL_THR - 0.35f) return true;
+                if (gm && n_cavern_.GetNoise((float)x + l * 311.0f, (float)z - l * 197.0f) > GIANT_THR - 0.15f) return true;
             }
             if (x == x1) break;
         }
@@ -1898,12 +2008,13 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                           && ravine_value(ravine_col((float)px, (float)pz), 30.0f) > 0.0f;
                 }
                 else if (kind == "cavern") {
-                    // a hall at least 10 m tall: the floor of the first such run of cavern 30..150 voxels down
-                    if (c.height > sea_ + 4 && !hy.lake && hy.river < 0.05f) {
+                    // a giant chamber (ADR 0134) at least 10 m tall: the floor of the first such run 30..240 voxels down
+                    HallCol hc;
+                    hall_column(px, pz, n_galoff_.GetNoise((float)px, (float)pz), hc);
+                    if (hc.giant > 0.0f && c.height > sea_ + 4 && !hy.lake && hy.river < 0.05f) {
                         int run = 0;
-                        const float pillar = n_pillar_.GetNoise((float)px, (float)pz);   // not inside a hall pillar (ADR 0077)
-                        for (int y = c.height - 30; y >= std::max(24, c.height - 150); y--) {
-                            if (cavern_value(n_cavern_.GetNoise((float)px, (float)y * CAVERN_Y, (float)pz), (float)y, (float)(c.height - y), pillar) > 0.0f) { run++; continue; }
+                        for (int y = c.height - 30; y >= std::max(24, c.height - 240); y--) {
+                            if (hall_value(hc, (float)y, (float)(c.height - y), nullptr, nullptr, true) > 0.0f) { run++; continue; }
                             if (run >= 20) { hit = y > sea_ - 180; py = y + 1; break; }
                             run = 0;
                         }
