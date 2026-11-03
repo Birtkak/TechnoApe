@@ -70,14 +70,15 @@ encoding up in its ADR.
   `~/Tools/godot-cpp` was broken by builds compiled into it in parallel; rebuilt cleanly, every lane now builds only
   with its private `GODOT_CPP_PATH`. Suite: 744 cases, 0 failures.
 
+- Round 8 (2026-11-03): sludge boils to toxic gas (test), fluid flag README lines, book pages for the EU meter,
+  milk, camps and small life, night creatures keep off torches and fires. Suite: 746 cases, 0 failures.
+
 ## Open for the morning
 
 - **Lava next to water breaks the scene (playtest lane, not yet fixed):** 12 s after a 2 m lava ball and a 2 m
-  water ball land side by side on plains, a white sheet covers half the view and terrain voxels scatter. Main runs
+  water ball land side by side on plains, a white sheet covers half the view and terrain voxels scatter. Sent to the Fable lane 2026-11-03 (bisect running). Main runs
   ADR 0119 with column flow and the state pass on. To play safely until the Fable lane fixes it, start with
   `column_flow=0 states=0`, or set `sim_column_flow` / `sim_states` to false in `game/scripts/settings.gd`.
-- Not yet merged: `880af6b` (Fable lane, fluid docs), `3b2c467` (book), `c90f780` (night creatures avoid light),
-  the surface lane's mine test commits. All stopped at the usage limit.
 - Budget regression hunt (backlog job 8) not run: the machines session is on standby for it.
 - Defaults to confirm: first-placed machines get power when short (ADR 0117); pipe capacities (ADR 0122).
 
