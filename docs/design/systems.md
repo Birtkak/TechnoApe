@@ -159,7 +159,11 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   `melt_c` (water <-> steam <-> one-eighth drops, sludge <-> toxic gas 254, ice <-> water; still liquids never switch).
   Gas looks: `data/gas_looks.json` (`gas_tint`, `gas_alpha`, `rise_speed`, one gas material copy per gas). The minimap's
   last line shows the aimed cell's material, state, temperature and pressure. Bench `tools/fluid_bench.gd`, tests
-  `test/test_sim_0119.gd`. **ADR 0081:** a lone still cell
+  `test/test_sim_0119.gd`. **Fluid lag (ADR 0137):** the outside temperature is floored and a loaded chunk's heat starts at
+  it (generated ice no longer melts on load; Survival measures again after a 32 m move), a cold window wakes only chunks
+  that may hold a liquid that freezes or a gas that condenses, a liquid
+  substep scans only chunks with moving fast liquid in or beside them, the pool wakes as many helpers as there are
+  chunks; `fluid_lag=lake|river|bomb|pour|fly` times a change to its remesh and rest (`debug fluid_lag` JSON). **ADR 0081:** a lone still cell
   (none of its kind on its six sides: the specks the generator leaves on cave walls) wakes at any air beside or below it;
   reactions of one pair chain (`Reaction::next`, rolled in data order): lava + water boils the water to steam at 0.6 and
   only then crusts to obsidian at 0.25, so the steam grows with the water the lava touches.

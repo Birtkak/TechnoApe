@@ -57,6 +57,7 @@ var _tp_test: TpTest
 var ponder: PonderScreen            # the guide screen (ADR 0132)
 var _shell_test: ShellTest
 var _sand_test: SandTest
+var _fluid_lag: FluidLagTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
@@ -471,6 +472,10 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_sand_test = SandTest.new()
 				_sand_test.run(self))
+		if DebugCapture.fluid_lag != "":
+			_after_load(func() -> void:
+				_fluid_lag = FluidLagTest.new()
+				_fluid_lag.run(self, DebugCapture.fluid_lag))
 		if not DebugCapture.chat_commands_after.is_empty():
 			_after_load(func() -> void:
 				for c in DebugCapture.chat_commands_after:

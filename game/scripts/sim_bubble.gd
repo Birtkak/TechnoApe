@@ -59,6 +59,7 @@ var _pin_age := 0.0
 
 # stats for the HUD / capture
 var last_tick_ms := 0.0
+var last_moved := 0               # cells the last tick moved (fluid_lag)
 var ticks_total := 0
 var chunks_pushed := 0
 var chunks_loaded := 0
@@ -88,6 +89,7 @@ var _worst: Array = []
 var _last_cost := {}
 const WORST_KEEP := 5
 var _slow: Array = []          # whole frames over SLOW_MS: where did the time go (debug JSON)
+var last_slow := {}            # the latest of them (fluid_lag spikes)
 const SLOW_MS := 6.0
 
 
@@ -215,6 +217,7 @@ func _process_timed(delta: float) -> void:
 	if _tick_running and sim.is_tick_done():
 		var r: Dictionary = sim.finish_tick()
 		last_tick_ms = r["ms_per_tick"]
+		last_moved = int(r["moved_cells_per_tick"])
 		active_chunks = int(r["active_chunks_per_tick"])
 		scanned_max = maxi(scanned_max, int(r.get("scanned_cells_per_tick", 0)))
 		ticks_total += 1
@@ -254,6 +257,8 @@ func _process_timed(delta: float) -> void:
 			return
 	else:
 		_move_window()
+	if _has_states:
+		sim.set_ambient_c(owner_bubble.ambient_c if owner_bubble else ambient_c)   # ADR 0119 C: the heat field relaxes toward the outside; ADR 0137: chunks load at it (a pin at its window's)
 	_load_pending()
 	# a fire rewrites chunks faster than godot_voxel can apply their remeshes: slow the remeshing while it does
 	var rate := Settings.edit_remesh_rate_busy if _push_queue.size() > Settings.remesh_busy_queue else Settings.edit_remesh_rate
@@ -273,8 +278,6 @@ func _process_timed(delta: float) -> void:
 		if pieces:
 			pieces.tick(period)   # the SimWorld is idle here: pieces crush, snap and settle into its cells
 		sim.set_focus(Vector3i(_player.floor()) - origin * Settings.CHUNK)
-		if _has_states:
-			sim.set_ambient_c(ambient_c)   # ADR 0119 C: the heat field relaxes toward the outside temperature
 		_tick_running = sim.start_tick()
 		_frame_cost()["tick_ms"] += (Time.get_ticks_usec() - t0) / 1000.0   # main-thread cost of starting it
 	if _fire_test > 0:
@@ -538,6 +541,7 @@ func _note_slow_frame(delta: float) -> void:
 	for k: String in t:   # our godot_voxel build: worst main-thread step times since the last read (usec)
 		if k.begins_with("ta_"):
 			_slow[-1][k] = t[k]
+	last_slow = _slow[-1]
 	_slow.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["frame_ms"] > b["frame_ms"])
 	if _slow.size() > 8:
 		_slow.resize(8)
