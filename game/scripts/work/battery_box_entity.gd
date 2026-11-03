@@ -1,51 +1,57 @@
 class_name BatteryBoxEntity
 extends RefCounted
 
-## A battery box (ADR 0117): stores Settings.battery_eu. On the energy network it is a low sink while it
-## charges (it takes only what the machines leave, NetworkSolver.SINK_LOW) and a source while it gives.
-## It flips on its own: charging and given nothing while it holds charge, it offers next solve; giving and
-## asked for nothing, it goes back to charging. One solve (a second) of lag either way: default, developer
-## to confirm.
+## A battery box (ADR 0117, 0123): lead-acid cells holding `battery.wh` watt-hours. On the LV network it is a
+## source like any other: an EMF between battery_volts_empty and battery_volts_full by its state of charge,
+## behind battery_ohms. Physics does the rest: with the dynamo above it the current runs in and it charges;
+## with the dynamo gone or sagging it supplies. Empty it leaves the circuit, full it stops taking.
 
 signal changed
 
 var kind := "battery_box"
 var pos: Vector3i
-var charge := 0.0
-var giving := false
-var last := 0.0   # what the last solve moved, EU/t
+var wh := 2000.0
+var charge := 0.0       # watt-hours
+var amps := 0.0         # last solve: positive giving, negative taking
+var volts := 0.0
 
 
-func _init(p_pos: Vector3i) -> void:
+func _init(p_items: ItemRegistry, p_pos: Vector3i) -> void:
 	pos = p_pos
+	wh = float(p_items.get_def(kind).get("battery", {}).get("wh", 2000.0))
+
+
+func frac() -> float:
+	return charge / maxf(wh, 1.0)
+
+
+func emf() -> float:
+	return lerpf(Settings.battery_volts_empty, Settings.battery_volts_full, frac())
 
 
 func net(channel: String) -> Dictionary:
 	if channel != "energy":
 		return {}
-	if giving and charge > 0.0:
-		return {"role": NetworkSolver.SOURCE, "amount": minf(Settings.battery_eu_t, charge / 20.0)}
-	return {"role": NetworkSolver.SINK_LOW, "amount": minf(Settings.battery_eu_t, (Settings.battery_eu - charge) / 20.0)}
+	if charge <= 0.0 and volts <= emf():
+		return {"kind": "load", "watts": 0.01, "volts": Settings.lv_volts}   # drained: it only reads the line until something pushes it above its EMF
+	return {"kind": "source", "volts": emf(), "ohms": Settings.battery_ohms}
 
 
-## `amount` is per tick; a solve covers the next 20 ticks.
-func net_in(channel: String, amount: float) -> void:
+## A second of the solved current: out of or into the cells.
+func net_in(channel: String, d) -> bool:
 	if channel != "energy":
-		return
-	last = amount
-	if giving:
-		charge = maxf(0.0, charge - amount * 20.0)
-		if amount <= 0.0 or charge <= 0.0:
-			giving = false
+		return false
+	amps = float(d.get("amps", 0.0))
+	volts = float(d.get("volts", 0.0))
+	var p := volts * amps   # positive: giving
+	if p > 0.0:
+		charge = maxf(0.0, charge - p / 3600.0)
+	elif charge < wh:
+		charge = minf(wh, charge - p / 3600.0)
 	else:
-		charge = minf(Settings.battery_eu, charge + amount * 20.0)
-		if amount <= 0.0 and charge > 0.0:
-			giving = true
+		amps = 0.0   # full: it takes nothing (the solver still drives its node, the loss is a rounding error)
 	changed.emit()
-
-
-func frac() -> float:
-	return charge / maxf(Settings.battery_eu, 1.0)
+	return false
 
 
 func tick() -> bool:
@@ -57,8 +63,8 @@ func is_lit() -> bool:
 
 
 func use(_stack: Dictionary) -> Dictionary:
-	return {"consume": 0, "give": [], "msg": "Charge %d%% (%d / %d EU), %s." % [roundi(frac() * 100.0), roundi(charge), roundi(Settings.battery_eu),
-		"giving %d EU/t" % roundi(last) if giving else "taking %d EU/t" % roundi(last)]}
+	return {"consume": 0, "give": [], "msg": "Charge %d%% (%d of %d Wh), %.1f V, %s." % [roundi(frac() * 100.0), roundi(charge), roundi(wh), volts,
+		("giving %.1f A" % amps) if amps > 0.0 else ("taking %.1f A" % -amps if amps < 0.0 else "resting")]}
 
 
 func contents() -> Array:
@@ -66,14 +72,14 @@ func contents() -> Array:
 
 
 func look_lines() -> Array[String]:
-	return ["Charge %d%%, %s" % [roundi(frac() * 100.0), ("giving %d EU/t" % roundi(last)) if giving else ("charging at %d EU/t" % roundi(last))]]
+	return ["Charge %d%% (%d Wh), %s" % [roundi(frac() * 100.0), roundi(charge), ("giving %.1f A" % amps) if amps > 0.0 else ("charging at %.1f A" % -amps if amps < 0.0 else "resting")]]
 
 
-## A tin box with copper terminals on top and a charge gauge up its front.
+## A steel case in an iron frame (ADR 0129) with copper terminals on top and a charge gauge up its front.
 func view_parts() -> Dictionary:
 	var size := Vector3i(8, 8, 8)
 	var c := WorkPalette.new_cells(size)
-	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(8, 7, 8), WorkPalette.STEEL)   # a steel case in an iron frame (ADR 0129)
+	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(8, 7, 8), WorkPalette.STEEL)
 	for q in [Vector2i(0, 0), Vector2i(7, 0), Vector2i(0, 7), Vector2i(7, 7)]:
 		WorkPalette.box(c, size, Vector3i(q.x, 0, q.y), Vector3i(q.x + 1, 7, q.y + 1), WorkPalette.IRON_DARK)
 	WorkPalette.box(c, size, Vector3i(0, 6, 0), Vector3i(8, 7, 8), WorkPalette.IRON_DARK)
@@ -89,13 +95,12 @@ func view_parts() -> Dictionary:
 
 
 func to_dict() -> Dictionary:
-	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "charge": charge, "giving": giving}
+	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "charge": charge}
 
 
 func load_from(d: Dictionary) -> void:
 	charge = float(d.get("charge", 0.0))
-	giving = bool(d.get("giving", false))
 
 
 func summary() -> Dictionary:
-	return {"kind": kind, "charge": roundi(charge), "giving": giving, "last": last}
+	return {"kind": kind, "charge": roundi(charge), "amps": amps, "volts": volts}

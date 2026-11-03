@@ -112,7 +112,7 @@ static func prewarm() -> void:
 		m.species = key[0]
 		for part in key[1]:
 			m._mesh(part)
-	for sp in WildModels.LAYOUT:
+	for sp in WildModels.species():
 		m.species = sp
 		for part in WildModels.parts(sp):
 			m._mesh(part)

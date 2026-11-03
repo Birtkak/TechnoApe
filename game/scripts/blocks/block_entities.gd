@@ -94,23 +94,25 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			_ticking.append(e)
 		# the energy network (ADR 0113)
 		"cable":
-			e = CableEntity.new(pos)
+			e = CableEntity.new(items, pos)
 		"electric_furnace":
 			e = ElectricFurnaceEntity.new(items, recipes, pos)
 			_ticking.append(e)
-		"lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler":   # LV machines: the item's "machine" key and process recipes (ADR 0117)
+		_ when kind in MachineEntity.DOOR:   # LV machines: the item's "machine" key and process recipes (ADR 0117, 0131)
 			e = MachineEntity.new(items, recipes, pos, kind)
 			_ticking.append(e)
 		"battery_box":
-			e = BatteryBoxEntity.new(pos)
+			e = BatteryBoxEntity.new(items, pos)
 		"pump":
-			e = PumpEntity.new(pos)
+			e = PumpEntity.new(items, pos)
 			_ticking.append(e)
 		"coke_oven":   # the first multiblock (ADR 0117)
 			e = CokeOvenEntity.new(items, recipes, pos)
 			_ticking.append(e)
 		"electric_lamp":
-			e = ElectricLampEntity.new(pos)
+			e = ElectricLampEntity.new(items, pos)
+		"knife_switch", "fuse_box", "breaker":   # circuit control and protection (ADR 0123)
+			e = CircuitEntity.new(items, pos, kind)
 		# stage 3 transport (ADR 0100)
 		"hopper":
 			e = HopperEntity.new(self, pos)
@@ -152,7 +154,7 @@ const SINGLE := []   # entities that are one voxel (torches have their own cells
 ## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
 ## a knapping stone or a mold on the ground is one voxel high, a firepit two.
 const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 8, "assembly": 1, "laid_tool": 1, "anvil": 6, "bronze_anvil": 6,
-	"boiler": 4, "steam_hammer": 9, "pipe": 2, "ore_crusher": 5, "tank": 6, "belt": 2, "rail": 1, "cable": 1, "electric_lamp": 12}
+	"boiler": 4, "steam_hammer": 9, "pipe": 2, "ore_crusher": 5, "tank": 6, "belt": 2, "rail": 1, "cable": 1, "electric_lamp": 12, "knife_switch": 1, "fuse_box": 1, "breaker": 1}
 ## Work pieces bigger than one 0.5 m block: their footprint width and height multiply by this many blocks
 ## (the stations' 1 m scale, ADR 0076; the steam age's 1.5 m hammer and 2.5 m boiler, ADR 0097). A view
 ## of 8 cells still spans the width, so a 1 m piece's cell is a voxel; a bigger piece names its own grid.
@@ -162,7 +164,12 @@ const SCALE := {"firepit": 2, "forge": 2, "bloomery": 2, "anvil": 2, "bronze_anv
 
 ## Footprint width in voxels of a work piece kind.
 static func width_of(p_kind: String) -> int:
-	return Settings.BLOCK * int(SCALE.get(p_kind, 1))
+	return Settings.BLOCK * scale_of(p_kind)
+
+
+## Blocks per side of a work piece: SCALE, or 2 for every LV machine (1 m like the lathe, ADR 0117).
+static func scale_of(p_kind: String) -> int:
+	return int(SCALE.get(p_kind, 2 if MachineEntity.DOOR.has(p_kind) else 1))
 
 
 ## The voxels an entity covers (ADR 0034).
@@ -197,7 +204,7 @@ static func box(anchor: Vector3i, size: Vector3i) -> Array[Vector3i]:
 ## Footprint height in voxels of a block entity kind (a wide piece's doubles with its width).
 static func height_of(p_kind: String) -> int:
 	var h := int(HEIGHT.get(p_kind, StoneAge.HEIGHTS.get(p_kind, Settings.BLOCK)))
-	return h * int(SCALE.get(p_kind, 1))
+	return h * scale_of(p_kind)
 
 
 ## BLOCK x height x BLOCK voxels from `anchor` (min corner): a station's or work piece's footprint.
@@ -291,7 +298,7 @@ func all_furniture() -> Array:
 
 const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave",
 	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile", "boiler", "pipe", "steam_hammer", "steam_sieve",
-	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "pump", "coke_oven"]
+	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "pump", "coke_oven", "knife_switch", "fuse_box", "breaker"]
 
 
 ## The machines a boiler's pipes feed (ADR 0097): everything with a `boiler` slot.
@@ -325,7 +332,7 @@ func lit() -> Array:
 
 
 static func is_work(e: RefCounted) -> bool:
-	return e != null and (e.kind in WORK_KINDS or e.kind in StoneAge.KINDS)
+	return e != null and (e.kind in WORK_KINDS or e.kind in StoneAge.KINDS or MachineEntity.DOOR.has(e.kind))
 
 
 func all_work() -> Array:

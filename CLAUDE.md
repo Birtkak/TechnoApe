@@ -92,7 +92,7 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
 - Playtest tools (ADR 0018): T chat + slash commands (`/help`), `/gamemode`, F3
   debug screen, F4 playtest menu, F9 bug reports, `/fullbright` (flat light, no fog: cave captures use
   `commands=/fullbright`; from Git Bash set `MSYS_NO_PATHCONV=1` or the slash command becomes a path), `/cam` free camera (`/fell cam` films a felling from a
-  spot with a clear view), `/totest` (newest unticked to-test items), `/scenario <river|cave_stream|lit_station|ledge>`. Playtest gadgets (`/kit gadgets`, `scripts/items/playtest_tools.gd`): laser cutter
+  spot with a clear view), `/totest` (newest unticked to-test items), `/scenario <river|cave_stream|lit_station|ledge>`, `/count <material>` (cells in the sim bubble). Playtest gadgets (`/kit gadgets`, `scripts/items/playtest_tools.gd`): laser cutter
   (hold LMB, cuts 3 m deep, Ctrl + wheel = width), crater rod, water/sand/lava bombs, instant tree, tape measure;
   scripted: `/gadget <item> [sneak]`, `/laser [s] [sweep_deg]`. When the developer mentions a
   bug report, read the newest folder in `game/out/bug_reports/` (report.md,
@@ -124,8 +124,9 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
 - Phase 3 (started 2026-11-02): machines on networks (ADR 0113: `NetworkSolver`, `Networks.solve`, cable + electric
   furnace), the electrical age to LV (ADR 0117: one `MachineEntity` from item data + process recipes, battery, lamp,
   pump with machine pins, the coke oven multiblock, `/kit electric`, `/stations factory`) and steam and water as
-  solver channels (ADR 0122: pipes conduct, no reach limit, the EU meter). More machines are data for a cheaper
-  model. Still open: wands/spells (dropped for now), progression past LV.
+  solver channels (ADR 0122: pipes conduct, no reach limit), and the network in real units (ADR 0123: 48 V DC, a
+  nodal solve of EMFs, cable ohms and watt loads; switches, fuses, breakers, the multimeter; `tools/eu_to_watts.py`
+  converts EU-era data). More machines are data for a cheaper model. Still open: wands/spells (dropped for now), progression past LV.
 - Phase 4: automation depth, dedicated server on Unraid, auto-update
 
 ## Conventions

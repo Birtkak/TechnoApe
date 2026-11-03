@@ -744,11 +744,14 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
         // its own moving water beside it, two eighths or more lower (the rest step), is an opening too: the thin edge
         // of what drained, resting against the body, would put it back to sleep with the hole half fed
         // (bug report 2026-10-27 17-59-05)
-        if (side && cells_[ni].mat == flow) { const int f = cells_[ni].pad & 15; return f != 0 && f <= 6; }
+        // ... while it still moves (this or the last two ticks): rain or a spill that came to rest beside a body is
+        // no opening, or every lake with a terraced shore fed its lower shore for ever (budget hunt 2026-11-03)
+        auto fresh = [&](int k) { const uint16_t m = moved_[k]; return m != 0 && (m == stamp_ || m == prev || m == prev2); };
+        if (side && cells_[ni].mat == flow) { const int f = cells_[ni].pad & 15; return f != 0 && f <= 6 && fresh(ni); }
         if (!open_air(cells_[ni].mat)) return false;
         // air over its own moving water beside it: that water is lower, drain into it however long the air has been
         // there (a pit's air went stale as it filled and the pond slept a third full above it)
-        if (side && ny > 0 && is_open(nx, ny - 1, nz) && cells_[idx(nx, ny - 1, nz)].mat == flow) return true;
+        if (side && ny > 0 && is_open(nx, ny - 1, nz) && cells_[idx(nx, ny - 1, nz)].mat == flow) return fresh(idx(nx, ny - 1, nz));
         if (side && ny > 0 && still_liquid(nx, ny - 1, nz, md.fluid_slot)) {
             // a river's own step never wakes, unless that step is a drained bank's edge (its own moving water beside
             // it): a dug hole left a 45-degree wall of still water sleeping over it (bug report 2026-10-27 17-59-05)
@@ -778,12 +781,11 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
             if (still_liquid(nx, ny, nz, md.fluid_slot)) lone = false;
             else if (NY6[d] <= 0 && is_open(nx, ny, nz) && open_air(cells_[idx(nx, ny, nz)].mat)) air = true;
         }
-        if (lone && air) {   // the speck itself drains away as moving liquid
-            cells_[i].mat = flow;
-            cells_[i].flags = 0;
-            cells_[i].aux = 0;
-            cells_[i].pad &= 15u;   // fullness kept, momentum cleared
-            moved_[i] = mark_;
+        if (lone && air) {
+            // the speck dries up on the spot. It used to drain as moving liquid (ADR 0081), but a speck the generator
+            // leaves on a stream's terrace runs down to the lake, and its own moving water beside the body is an
+            // opening the body feeds without end (budget hunt 2026-11-03: a lake nobody touched woke 250k cells)
+            place(i, 0);
             still_woken_.fetch_add(1, std::memory_order_relaxed);
             mark_cell(x, y, z, c, true);
             c.moved++;
@@ -2081,8 +2083,20 @@ int SimWorld::count_unsupported(int p_material) const {
 
 int SimWorld::count_burning() const {
     wait_idle();
+    // A burning cell changes every tick, so its chunk is active (or dirty, freshly lit): scanning only those
+    // skips the whole 134 M cell box, which took 40-65 ms of the frame each time the F3 screen asked.
     int n = 0;
-    for (const Cell &c : cells_) n += (c.flags & FLAG_BURNING) != 0;
+    for (int cz = 0; cz < CZ_; cz++)
+        for (int cy = 0; cy < CY_; cy++)
+            for (int cx = 0; cx < CX_; cx++) {
+                const int ci = cidx(cx, cy, cz);
+                if (!active_now_[ci].load(std::memory_order_relaxed) && !active_next_[ci].load(std::memory_order_relaxed)
+                        && !dirty_[ci].load(std::memory_order_relaxed)) continue;
+                for (int z = 0; z < CS; z++)
+                    for (int y = 0; y < CS; y++)
+                        for (int x = 0; x < CS; x++)
+                            n += (cells_[idx(cx * CS + x, cy * CS + y, cz * CS + z)].flags & FLAG_BURNING) != 0;
+            }
     return n;
 }
 

@@ -23,3 +23,7 @@ session wires them; this list only names them, with the age they belong to and w
 | `baked_potato`, `vegetable_soup` | Flint / Bronze | cook what you grew |
 | `storage_shelf` | Flint | storage before metal: a shelf as big as a chest |
 | any `<wood>_window` | Flint | glass in a frame of your wood |
+| `extractor`, `sticky_resin` | LV | rubber from a forest: logs to resin to rubber (ADR 0131) |
+| `extruder`, `tin_can`, `canning_machine`, `canned_meat` | LV | food that keeps: can a meal |
+| `electric_compressor`, `carbon_electrode`, `electrolyzer` | LV | refine crushed ore to ingots without a crucible |
+| `cutter`, `steel_rod` | LV | six planks a log; steel rods drive pistons |

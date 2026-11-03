@@ -25,7 +25,7 @@ func test_search_terms_and_tags() -> void:
 	assert_array(b.filtered()).contains_exactly(["iron_ingot"])
 	b.set_query("#metal")
 	assert_array(b.filtered()).contains_exactly_in_any_order(["iron_ingot", "copper_ingot", "bronze_ingot", "tin_ingot",
-		"iron_plate", "iron_rod", "bronze_pipe", "copper_pipe", "steel_ingot", "steel_plate", "copper_wire", "iron_gear", "copper_coil", "iron_screw"])   # the steam and electrical ages' metal parts (ADR 0097, 0099, 0113)
+		"iron_plate", "iron_rod", "bronze_pipe", "copper_pipe", "steel_ingot", "steel_plate", "copper_wire", "iron_gear", "copper_coil", "iron_screw", "steel_rod"])   # the steam and electrical ages' metal parts (ADR 0097, 0099, 0113, 0131)
 	b.set_query("#fuel")
 	assert_array(b.filtered()).contains(["coal", "charcoal"])
 	b.set_query("zzz")
@@ -299,7 +299,7 @@ func test_every_station_and_machine_has_uses() -> void:
 	var none := []
 	# they make, store or light with steam or power, or move items in the world: no recipe runs in them
 	var no_recipes := ["small_boiler", "steel_boiler", "steam_turbine", "compressor", "battery_box", "electric_lamp",
-		"hopper", "chute", "belt", "rail"]
+		"hopper", "chute", "belt", "rail", "knife_switch", "fuse_box", "breaker"]   # switches and fuses guard the circuit (ADR 0123)
 	for id in items.all_ids():
 		var d := items.get_def(id)
 		if (d.has("work") or "station" in d.get("tags", [])) and not id in no_recipes and b.uses_for(id).is_empty():

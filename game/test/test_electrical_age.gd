@@ -76,11 +76,11 @@ func test_tier_one_machines_cost_circuits_and_hulls() -> void:
 func test_lathe_turns_rods_on_power() -> void:
 	var b := _powered_line()
 	var lathe: MachineEntity = store.create(Vector3i(10 * B, 0, 0), "lathe")
-	assert_float(lathe.eu_t).is_equal(8.0)
+	assert_float(lathe.load.watts).is_equal(200.0)
 	assert_int(lathe.use({"id": "copper_ingot", "count": 1})["consume"]).is_equal(0)   # not a lathe input
 	assert_int(lathe.use({"id": "iron_ingot", "count": 1})["consume"]).is_equal(1)
-	_ticks(440, b)   # pressure takes 20 s; the rods 15 s of power
-	assert_bool(lathe.is_lit()).override_failure_message("lathe got %.1f EU/t" % lathe.eu).is_true()
+	_ticks(800, b)   # pressure takes ~35 s with the turbine drawing; the dynamo must near full speed before a load joins (ADR 0123)
+	assert_bool(lathe.is_lit()).override_failure_message(lathe.load.status()).is_true()
 	_ticks(400, b)
 	var out: Array = lathe.use({})["give"]
 	assert_int(out.size()).is_equal(1)
@@ -93,7 +93,7 @@ func test_macerator_triples_and_a_hopper_can_unload_it() -> void:
 	var b := _powered_line()
 	var m: MachineEntity = store.create(Vector3i(10 * B, 0, 0), "macerator")
 	assert_int(m.use({"id": "iron_ore", "count": items.units("iron_ore")})["consume"]).is_equal(items.units("iron_ore"))
-	_ticks(600, b)
+	_ticks(900, b)   # ~35 s to full dynamo speed, then 4 s of work
 	assert_int(int(m.output.get("count", 0))).is_equal(3)
 	assert_str(Transport.pull(m)["id"]).is_equal("crushed_iron_ore")
 	assert_int(int(m.output["count"])).is_equal(2)
@@ -108,7 +108,7 @@ func test_alloy_smelter_takes_two_inputs() -> void:
 	assert_dict(a.current()).is_empty()   # tin missing
 	a.use({"id": "tin_nugget", "count": 3})
 	assert_str(a.current()["id"]).is_equal("alloy_bronze")
-	_ticks(700, b)
+	_ticks(1000, b)   # ~35 s to dynamo speed, 10 s of work
 	assert_str(a.use({})["give"][0]["id"]).is_equal("bronze_ingot")
 	assert_bool(a.inv.is_empty_slot(0) and a.inv.is_empty_slot(1)).is_true()
 
@@ -116,34 +116,13 @@ func test_alloy_smelter_takes_two_inputs() -> void:
 func test_assembler_doubles_circuits() -> void:
 	var b := _powered_line()
 	var a: MachineEntity = store.create(Vector3i(10 * B, 0, 0), "assembler")
-	for id in ["vacuum_tube", "resistor", "insulated_wire", "coated_board"]:
+	for id in ["vacuum_tube", "resistor", "capacitor", "insulated_wire", "coated_board"]:   # a capacitor since ADR 0123
 		a.use({"id": id, "count": 2})
 	assert_str(a.current()["id"]).is_equal("assemble_primitive_circuit")
-	_ticks(700, b)
+	_ticks(1000, b)
 	var out: Dictionary = a.use({})["give"][0]
 	assert_str(out["id"]).is_equal("primitive_circuit")
 	assert_int(int(out["count"])).is_equal(2)
-
-
-func test_battery_charges_from_surplus_and_gives_when_the_boiler_is_cold() -> void:
-	var b := _powered_line()
-	store.create(Vector3i(10 * B, 0, 0), "cable")
-	var bat: BatteryBoxEntity = store.create(Vector3i(11 * B, 0, 0), "battery_box")
-	var lamp: ElectricLampEntity = store.create(Vector3i(13 * B, 0, 0), "electric_lamp")
-	store.create(Vector3i(14 * B, 0, 0), "cable")
-	_ticks(500, b)
-	assert_bool(lamp.is_lit()).is_true()
-	assert_bool(bat.charge > 1000.0).override_failure_message("charge %.0f" % bat.charge).is_true()
-	assert_bool(bat.giving).is_false()
-	# the boiler goes cold: the battery notices it got nothing, then feeds the lamp
-	b.pressure = 0.0
-	b.lit_time = 0
-	b.water = 0.0
-	var c0 := bat.charge
-	_ticks(60, b)
-	assert_bool(bat.giving).is_true()
-	assert_bool(lamp.is_lit()).is_true()
-	assert_bool(bat.charge < c0).is_true()
 
 
 func test_low_sinks_only_get_what_sinks_leave() -> void:

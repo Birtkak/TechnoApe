@@ -347,9 +347,27 @@ func debug_factory_line(base: Vector3i, right: Vector3i) -> String:
 	_create(base + right * 19 * B, "electric_lamp", GameMaterials.WORK_SPOT)
 	_create(base + right * 20 * B, "cable", GameMaterials.WORK_SPOT)
 	var asm: RefCounted = _create(base + right * 21 * B, "assembler", GameMaterials.WORK_BLOCK)
-	for id in ["vacuum_tube", "resistor", "insulated_wire", "coated_board"]:
+	for id in ["vacuum_tube", "resistor", "capacitor", "insulated_wire", "coated_board"]:
 		asm.use({"id": id, "count": 4})
 	return "the electric line, a hopper-fed macerator and furnace, a battery, a lamp and an assembler from %s (%d pieces)" % [base, 16]
+
+
+## Debug (/stations lv, ADR 0131): the energy line, then the ADR 0131 machines along it, a cable between each,
+## each loaded with something to work on. One turbine cannot feed them all: the first built run (ADR 0117).
+func debug_lv_line(base: Vector3i, right: Vector3i) -> String:
+	var B := Settings.BLOCK
+	debug_electric_line(base, right)
+	var loads := {"extractor": {"oak_log": 64}, "cutter": {"birch_log": 64}, "extruder": {"tin_ingot": 4},
+		"canning_machine": {"tin_can": 4, "cooked_meat": 8}, "electric_compressor": {"coal_coke": 8},
+		"electrolyzer": {"crushed_copper_ore": 8, "carbon_electrode": 4}}
+	var x := 13
+	for kind in loads:
+		_create(base + right * x * B, "cable", GameMaterials.WORK_SPOT)
+		var m: RefCounted = _create(base + right * (x + 1) * B, kind, GameMaterials.WORK_BLOCK)
+		for id in loads[kind]:
+			m.use({"id": id, "count": loads[kind][id]})
+		x += 3
+	return "the electric line and the LV machines %s from %s" % [", ".join(loads.keys()), base]
 
 
 ## Debug (/stations electric, ADR 0113): the energy line laid on the ground `fwd` of `base` along `right`:
@@ -379,7 +397,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile" or kind == "electric_lamp"   # a lamp hangs on walls too (ADR 0117)
-	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven"]
+	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven"] or MachineEntity.DOOR.has(kind)
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -657,7 +675,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		if first_press:
 			_turn(e)
 		return true
-	if "meter" in held.get("tags", []):   # the EU meter (ADR 0122): reads the networks the piece is on
+	if "meter" in held.get("tags", []):   # the multimeter (ADR 0122, 0123): reads the networks the piece is on
 		if first_press:
 			var line := Networks.look_line(e)
 			_say(line if line != "" else "The %s is on no network." % String(e.kind).replace("_", " "))
@@ -794,8 +812,8 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
 		_say(res["msg"])
 		return true
-	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity:   # ADR 0099, 0113, 0117
-		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is PumpEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
+	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity:   # ADR 0099, 0113, 0117, 0123
+		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
 		if res["consume"] > 0 and _consumes():
 			main.player_inv.consume_held(res["consume"])
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))

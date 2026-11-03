@@ -13,6 +13,7 @@ static func load_default() -> ItemRegistry:
 	var r := ItemRegistry.new()
 	r.load_file("res://data/items.json")
 	r.load_file("res://data/stone_age_items.json")   # the four Stone Age stages (ADR 0059)
+	r.load_file("res://data/lv_items.json")   # more of the electrical age (ADR 0131)
 	return r
 
 

@@ -105,33 +105,33 @@ func test_turbine_powers_the_furnace_over_a_cable() -> void:
 	var f: ElectricFurnaceEntity = store.create(Vector3i(11 * B, 0, 0), "electric_furnace")
 	var r := f.use({"id": "raw_meat", "count": items.units("raw_meat")})
 	assert_int(r["consume"]).is_equal(items.units("raw_meat"))
-	_ticks(500)   # 25 s: the boiler reaches working pressure (boiler_build_s), the turbine turns, the furnace lights
+	_ticks(800)   # 40 s: the boiler reaches working pressure with the turbine drawing (ADR 0123: the dynamo must near full speed before a load joins)
 	assert_bool(t.rpm > 0.0).is_true()
-	assert_bool(f.is_lit()).override_failure_message("furnace got %.1f EU/t" % f.eu).is_true()
-	assert_float(f.eu).is_equal_approx(f.eu_t, 0.01)
+	assert_bool(f.is_lit() or f.smelted > 0).override_failure_message(f.load.status()).is_true()   # lit, or already done with its one piece
+	assert_float(f.load.volts).is_between(40.0, 52.0)
 	_ticks(260)
 	assert_int(f.smelted).is_greater(0)
 	assert_str(f.use({})["give"][0]["id"]).is_equal("cooked_meat")
-	assert_int(Networks.networks["energy"][f.get_instance_id()]["nodes"]).is_equal(4)   # stats hold the last channel solved (water, ADR 0122)
+	assert_int(Networks.networks["energy"].size()).is_greater_equal(3)   # the turbine and cables stay nodes; a finished furnace draws nothing and leaves the circuit (ADR 0123)
 
 
 func test_no_cable_or_cold_boiler_means_no_power() -> void:
 	_powered_turbine()
 	var f: ElectricFurnaceEntity = store.create(Vector3i(12 * B, 0, 0), "electric_furnace")   # a gap: no cable
 	f.use({"id": "raw_meat", "count": items.units("raw_meat")})
-	_ticks(500)
+	_ticks(800)
 	assert_bool(f.is_lit()).is_false()
 	store.create(Vector3i(9 * B, 0, 0), "cable")
 	store.create(Vector3i(10 * B, 0, 0), "cable")
 	store.create(Vector3i(11 * B, 0, 0), "cable")
-	_ticks(40)
+	_ticks(60)   # one solve to read the voltage, one to join
 	assert_bool(f.is_lit()).is_true()
 	var b: BoilerEntity = store.at(Vector3i.ZERO)
 	b.pressure = 0.0
 	b.lit_time = 0
 	b.water = 0.0
 	_ticks(60)
-	assert_bool(f.is_lit()).override_failure_message("still lit with %.1f EU/t" % f.eu).is_false()
+	assert_bool(f.is_lit()).override_failure_message("still lit: " + f.load.status()).is_false()
 
 
 func test_save_keeps_the_furnace_and_the_cable() -> void:

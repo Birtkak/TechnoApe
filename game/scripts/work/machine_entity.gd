@@ -7,12 +7,15 @@ extends RefCounted
 ## `seconds` of work while the energy network gives it eu_t (a second of power per solve). Worked by hand
 ## like a work piece: a right click with something a recipe takes loads a block's worth, an empty hand takes
 ## the output; hoppers and belts load and unload it through Transport. One class for the lathe, bending
-## press, wiremill, macerator, alloy smelter and assembler: a new machine is an item plus recipes.
+## press, wiremill, macerator, alloy smelter, assembler and the ADR 0131 machines: a new machine is an item,
+## its recipes and a DOOR entry (BlockEntities builds every DOOR kind as a MachineEntity, 1 m like the lathe).
 
 signal changed
 
 const DOOR := {"lathe": WorkPalette.BRONZE, "bending_press": WorkPalette.ANVIL, "wiremill": WorkPalette.COPPER,
-	"macerator": WorkPalette.GRAVEL, "alloy_smelter": WorkPalette.MOLTEN, "assembler": WorkPalette.GLOW}
+	"macerator": WorkPalette.GRAVEL, "alloy_smelter": WorkPalette.MOLTEN, "assembler": WorkPalette.GLOW,
+	"extractor": WorkPalette.GLOW, "cutter": WorkPalette.STEEL, "extruder": WorkPalette.MOLTEN, "canning_machine": WorkPalette.COPPER,
+	"electric_compressor": WorkPalette.STEEL, "electrolyzer": WorkPalette.GLOW}
 
 var kind: String
 var title: String
@@ -21,8 +24,7 @@ var items: ItemRegistry
 var recipes: RecipeRegistry
 var inv: Inventory          # the input slots
 var output := {}            # the one output stack
-var eu_t := 8.0
-var eu := 0.0               # what the last solve delivered
+var load: PowerLoad         # its draw on the LV network (ADR 0123); null for an unpowered machine (the coke oven)
 var power_ticks := 0        # ticks of power left from the last solve
 var progress := 0           # ticks worked on the current recipe
 var total := 20
@@ -40,7 +42,8 @@ func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_pos: Vector3i, p_
 	var def := p_items.get_def(p_kind)
 	title = String(def.get("name", "Machine"))
 	var m: Dictionary = def.get("machine", {})
-	eu_t = float(m.get("eu_t", 8.0))
+	if float(m.get("watts", 0.0)) > 0.0:
+		load = PowerLoad.new(float(m["watts"]))
 	inv = Inventory.new(items, int(m.get("inputs", 1)))
 	for rid in recipes.by_station(kind):
 		if recipes.recipes[rid].get("type", "") == "process":
@@ -91,25 +94,24 @@ func is_lit() -> bool:
 
 
 func powered() -> bool:
-	return power_ticks > 0 or (eu_t <= 0.0 and enabled)
+	return power_ticks > 0 or (load == null and enabled)
 
 
 func net(channel: String) -> Dictionary:
-	if channel != "energy":
+	if channel != "energy" or load == null:
 		return {}
-	if eu_t <= 0.0:
-		return {}
-	return {"role": NetworkSolver.SINK, "amount": eu_t if not current().is_empty() else 0.0}
+	return load.net(not current().is_empty())
 
 
-func net_in(channel: String, amount: float) -> void:
-	if channel != "energy":
-		return
-	eu = amount
+func net_in(channel: String, d) -> bool:
+	if channel != "energy" or load == null:
+		return false
 	var was := is_lit()
-	power_ticks = 21 if amount >= eu_t - 1e-3 else 0   # one solve interval plus a tick
+	var started := load.net_in(d)
+	power_ticks = 21 if load.on else 0   # one solve interval plus a tick
 	if was != is_lit():
 		changed.emit()
+	return started
 
 
 ## One game tick: work while powered and fed. Returns true when the lit state flipped.
@@ -211,7 +213,8 @@ func look_lines() -> Array[String]:
 		out.append("%s: %d%% done" % [items.display_name(current()["output"]["id"]), roundi(progress_frac() * 100.0)])
 	if not output.is_empty():
 		out.append("Ready: %s x%d (empty hand takes it)" % [items.display_name(output["id"]), int(output["count"])])
-	out.append("Powered: %d EU/t" % roundi(eu) if powered() else "No power: cable it to a generator (%d EU/t)" % roundi(eu_t))
+	if load != null:
+		out.append(("Running, " if powered() else "No power: ") + load.status())
 	return out
 
 
@@ -261,6 +264,28 @@ static func box_model(door: int, lit: bool, top: String = "") -> Dictionary:
 		"assembler":   # a little arm with a yellow tip
 			WorkPalette.box(c, size, Vector3i(5, 7, 4), Vector3i(6, 8, 5), WorkPalette.IRON_DARK)
 			WorkPalette.box(c, size, Vector3i(2, 7, 4), Vector3i(5, 8, 5), WorkPalette.HAZARD)
+		"extractor":   # a screw press: a bronze screw over a copper drip tray
+			WorkPalette.box(c, size, Vector3i(2, 7, 2), Vector3i(6, 8, 6), WorkPalette.COPPER)
+			WorkPalette.box(c, size, Vector3i(3, 7, 3), Vector3i(5, 8, 5), WorkPalette.BRONZE)
+		"cutter":   # a saw blade standing up through the table, a hazard edge
+			WorkPalette.box(c, size, Vector3i(1, 7, 3), Vector3i(7, 8, 5), WorkPalette.IRON_DARK)
+			WorkPalette.box(c, size, Vector3i(3, 7, 4), Vector3i(5, 8, 5), WorkPalette.STEEL)
+			WorkPalette.hazard_box(c, size, Vector3i(1, 7, 3), Vector3i(3, 8, 4))
+		"extruder":   # the die block with a hot billet in it
+			WorkPalette.box(c, size, Vector3i(1, 7, 2), Vector3i(5, 8, 6), WorkPalette.STEEL)
+			WorkPalette.box(c, size, Vector3i(5, 7, 3), Vector3i(7, 8, 5), WorkPalette.MOLTEN)
+		"canning_machine":   # a row of tin cans under the sealing head
+			for x in [1, 3, 5]:
+				WorkPalette.box(c, size, Vector3i(x, 7, 3), Vector3i(x + 2, 8, 5), WorkPalette.STEEL)
+			WorkPalette.box(c, size, Vector3i(1, 7, 2), Vector3i(7, 8, 3), WorkPalette.COPPER)
+		"electric_compressor":   # the ram between two posts
+			for x in [1, 6]:
+				WorkPalette.box(c, size, Vector3i(x, 7, 2), Vector3i(x + 1, 8, 6), WorkPalette.IRON_DARK)
+			WorkPalette.box(c, size, Vector3i(2, 7, 2), Vector3i(6, 8, 6), WorkPalette.STEEL)
+		"electrolyzer":   # a glass cell with two dark electrodes in it
+			WorkPalette.box(c, size, Vector3i(1, 7, 1), Vector3i(7, 8, 7), WorkPalette.GLOW)
+			for x in [2, 5]:
+				WorkPalette.box(c, size, Vector3i(x, 7, 3), Vector3i(x + 1, 8, 5), WorkPalette.SOOT)
 	return {"solid": {"cells": c, "size": size}}
 
 
@@ -293,4 +318,4 @@ func load_from(d: Dictionary) -> void:
 
 
 func summary() -> Dictionary:
-	return {"kind": kind, "inputs": inv.to_array(), "output": output, "progress": progress, "eu": eu, "made": made}
+	return {"kind": kind, "inputs": inv.to_array(), "output": output, "progress": progress, "watts": load.drawn if load else 0.0, "made": made}

@@ -322,6 +322,7 @@ func _process(delta: float) -> void:
 			_skip_next = true
 		if ms > SPIKE_MS:
 			_note_spike(ms, prev_process_us)
+			_skip_next = true   # the note waits for the render thread: the next frame pays it, as after a capture
 		if blast_m > 0.0:
 			_blast_accum += delta
 			if _blast_accum >= blast_every:

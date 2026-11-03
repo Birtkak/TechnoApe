@@ -104,8 +104,13 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   `BlockEntities.create`); every entity with `net(channel) -> {role, amount}` joins `Networks.solve` once a second
   (20 block ticks): the native `NetworkSolver` unions the boxes that touch and moves min(supply, demand, weakest
   conductor) per component, then each hears `net_in(channel, amount)`. Energy in EU/t: the turbine offers
-  `turbine_eu_t`, `CableEntity` carries `cable_eu_t`, `MachineEntity` (a fuel-less `FurnaceEntity`, worked by right click; the
-  item's `machine: {station, eu_t}`, recipes of type `smelt` at that station) wants its `eu_t`. **Electrical age tier 1:**
+  `turbine_eu_t`, `CableEntity` carries `cable_eu_t`, `MachineEntity` (one class for every LV machine: the item's `machine: {watts, inputs}` and ADR 0115 process
+  recipes at its id; the electric furnace is a `FurnaceEntity` subclass). **Real units (ADR 0123):** the energy
+  channel is a 48 V DC circuit solved natively (`NetworkSolver.solve_dc`: EMF + internal ohms sources, cable ohms,
+  watt loads as conductances, runs of cables collapsed, conjugate gradient); `PowerLoad` decides when a machine joins
+  (95 % of 48 V, one start a second per circuit) and stops (85 %); cables burn past their amps; `CircuitEntity` is the
+  knife switch, fuse box and breaker; the battery charges or gives by physics; the multimeter and the look-at panel read
+  volts, amps and watts. `tools/eu_to_watts.py` converts EU-era data and is re-runnable. **Electrical age tier 1:**
   rubber (tar + sulfur, cured), insulated wire, coated board, vacuum tube, resistor, primitive circuit, machine hull,
   electric motor, electric piston; machines electric furnace, lathe, bending press, wiremill; book chapter
   `electrical_age`. `/kit electric`; `test_networks.gd`, `test_electrical_age.gd`, `tools/network_bench.gd`.

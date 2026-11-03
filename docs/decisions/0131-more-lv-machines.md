@@ -1,0 +1,37 @@
+# ADR 0131: More of the electrical age (LV): six machines and the chains they open
+
+Status: accepted (2026-11-03), content on top of ADR 0117 (MachineEntity, process recipes). Nothing past LV.
+
+## Context
+The developer asked for more LV recipes. ADR 0117's machines turn, press, draw, grind, alloy and assemble; the
+age still made rubber only from tar and sulfur, smelted crushed ore only in the crucible or bloomery, and had
+no use for tin past bronze nor for steel past plates.
+
+## Decision
+- **Six machines**, each an item with `machine` {eu_t, inputs}, its `process` recipes and a `MachineEntity.DOOR`
+  entry; all built from two primitive circuits and a machine hull. Numbers are defaults, developer to confirm.
+  - **Extractor** (8 EU/t): any log to sticky resin, resin to three rubber, raw rubber to two: rubber from a forest.
+  - **Cutter** (8 EU/t, built round a steel saw blade): a log to six planks of its wood (a saw by hand gives four),
+    glass to three lenses, an iron plate to a gear.
+  - **Extruder** (16 EU/t, built of steel plates): bronze or copper ingot to two pipes, iron ingot to three gears or
+    three rods, steel ingot to two steel rods, tin ingot to four tin cans.
+  - **Canning machine** (4 EU/t, two inputs): a tin can and two cooked meat or fish, or three carrots, potatoes or
+    beans, to a can of food that never spoils (no `spoil_days`).
+  - **Electric compressor** (16 EU/t): two coal coke to two carbon electrodes (four coal make one), three plant
+    fibre to two cordage.
+  - **Electrolyzer** (24 EU/t, two inputs): two crushed copper, tin or iron ore and a carbon electrode to two
+    ingots: crushed ore to metal with no crucible or bloomery. 24, not 32: a whole turbine's 32 EU/t is never
+    quite reached (rpm), and a machine takes all its EU/t or waits (ADR 0117), so 32 never ran.
+- **Assembler** gains insulated wire (three wires and a rubber to three, the table sleeves one per rubber) and
+  electric pistons (a steel rod, two iron plates and a motor to two).
+- The chains: logs -> resin -> rubber -> insulated wire -> circuits; macerator -> crushed ore -> electrolyzer (coke
+  -> electrode) -> ingots; tin -> cans -> canned food; steel -> rods -> pistons -> machines.
+- **Data in its own files** (`data/lv_items.json`, `data/lv_recipes.json`, loaded after the main files like the
+  Stone Age's) to keep merges clean. Power stays in `machine.eu_t` and recipe `info` (the unit change converts them).
+- **One list of machine kinds:** `BlockEntities.create`, its footprint scale (1 m, like the lathe), `is_work` and
+  the work placement read `MachineEntity.DOOR`, so a machine no longer needs a line in four lists.
+
+## Evidence
+`test_lv_machines.gd`: every machine is data (work, machine, DOOR, 1 m, circuits and hull, runs recipes), canned
+food keeps; one recipe per machine (and the assembler's insulated wire) loaded by hand and run on a boiler,
+turbine and cable line gives its output. `/kit electric` carries the six machines and their inputs.

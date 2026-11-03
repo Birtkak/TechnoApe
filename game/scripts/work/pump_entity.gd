@@ -1,7 +1,7 @@
 class_name PumpEntity
 extends RefCounted
 
-## An electric pump (ADR 0117): on 4 EU/t it draws a bucket (1 m^3, 512 voxels) a second from the water
+## An electric pump (ADR 0117, 0123): on its `load.watts` it draws a bucket (1 m^3, 512 voxels) a second from the water
 ## under it into its tank, the way a bucket scoops (Bucket.scoop_cells over the bubble: the only edit API
 ## it uses), and pushes buckets into a water tank beside it. A bucket in hand takes one. While it is
 ## powered with room in its tank it needs the material simulation (needs_sim), so MachinePins keeps a
@@ -12,13 +12,14 @@ signal changed
 var kind := "pump"
 var pos: Vector3i
 var buckets := 0
-var eu := 0.0
+var load: PowerLoad
 var power_ticks := 0
 var drawn := 0        # buckets ever drawn, for debug JSON
 
 
-func _init(p_pos: Vector3i) -> void:
+func _init(p_items: ItemRegistry, p_pos: Vector3i) -> void:
 	pos = p_pos
+	load = PowerLoad.new(float(p_items.get_def(kind).get("load", {}).get("watts", 200.0)))
 
 
 func powered() -> bool:
@@ -38,22 +39,24 @@ var _acc := 0.0   # fractional buckets the water channel took
 
 func net(channel: String) -> Dictionary:
 	if channel == "energy":
-		return {"role": NetworkSolver.SINK, "amount": Settings.pump_eu_t if buckets < Settings.pump_buckets else 0.0}
+		return load.net(buckets < Settings.pump_buckets)
 	if channel == "water":   # ADR 0122: tanks and boilers on the pipes that touch it drink from it
 		return {"role": NetworkSolver.SOURCE, "amount": minf(Settings.pipe_water_cap, float(buckets))}
 	return {}
 
 
-func net_in(channel: String, amount: float) -> void:
+func net_in(channel: String, amount) -> bool:
 	if channel == "energy":
-		eu = amount
-		power_ticks = 21 if amount >= Settings.pump_eu_t - 1e-3 else 0
-	elif channel == "water":
+		var started := load.net_in(amount)
+		power_ticks = 21 if load.on else 0
+		return started
+	if channel == "water":
 		_acc += amount
 		while _acc >= 1.0 - 1e-6 and buckets > 0:
 			_acc -= 1.0
 			buckets -= 1
 			changed.emit()
+	return false
 
 
 func tick() -> bool:
@@ -95,7 +98,7 @@ func use(stack: Dictionary) -> Dictionary:
 		changed.emit()
 		return res
 	res["msg"] = "%d of %d buckets; %s. A bucket in hand takes one; tanks and boilers on its pipes drink from it." % [buckets, Settings.pump_buckets,
-		"pumping" if wants_water() else ("full" if buckets >= Settings.pump_buckets else "no power (%d EU/t)" % roundi(Settings.pump_eu_t))]
+		"pumping" if wants_water() else ("full" if buckets >= Settings.pump_buckets else "no power: " + load.status())]
 	return res
 
 
@@ -151,4 +154,4 @@ func load_from(d: Dictionary) -> void:
 
 
 func summary() -> Dictionary:
-	return {"kind": kind, "buckets": buckets, "drawn": drawn, "eu": eu}
+	return {"kind": kind, "buckets": buckets, "drawn": drawn, "watts": load.drawn}
