@@ -65,6 +65,40 @@ const GOAT_SHADE := BASE + 54
 const GOAT_LIGHT := BASE + 55
 const HORN := BASE + 56
 const GOAT_DARK := BASE + 57
+# biome fauna (ADR 0120): recoloured shapes, ramps hue-shifted per ADR 0129 (cool shadows, warm lights)
+const LIZ := BASE + 58
+const LIZ_LIGHT := BASE + 59
+const LIZ_DARK := BASE + 60
+const LIZ_SPOT := BASE + 61
+const MAGMA := BASE + 62
+const MAGMA_LIGHT := BASE + 63
+const MAGMA_DARK := BASE + 64
+const MAGMA_GLOW := BASE + 65
+const SCORP := BASE + 66
+const SCORP_DARK := BASE + 67
+const VULT := BASE + 68
+const VULT_LIGHT := BASE + 69
+const VULT_DARK := BASE + 70
+const VULT_HEAD := BASE + 71
+const GULL := BASE + 72
+const GULL_LIGHT := BASE + 73
+const GULL_DARK := BASE + 74
+const GULL_BILL := BASE + 75
+const HARE := BASE + 76
+const HARE_LIGHT := BASE + 77
+const PTARM := BASE + 78
+const PTARM_DARK := BASE + 79
+const PTARM_LIGHT := BASE + 80
+const PARROT := BASE + 81
+const PARROT_DARK := BASE + 82
+const PARROT_RED := BASE + 83
+const PARROT_GOLD := BASE + 84
+const MACK := BASE + 85
+const MACK_BELLY := BASE + 86
+const MACK_FIN := BASE + 87
+const ANTE := BASE + 88
+const ANTE_LIGHT := BASE + 89
+const ANTE_HORN := BASE + 90
 const PALETTE: Array = [
 	[150, 102, 62], [218, 190, 152], [222, 208, 172], [96, 74, 58], [62, 46, 36], [238, 230, 208],
 	[164, 132, 100], [232, 222, 206], [210, 104, 40], [242, 234, 222], [52, 36, 30],
@@ -78,6 +112,12 @@ const PALETTE: Array = [
 	[46, 40, 54], [78, 70, 84], [26, 20, 40], [246, 198, 58],
 	[124, 98, 74], [70, 56, 62], [226, 112, 50], [240, 228, 206],
 	[222, 212, 192], [160, 148, 152], [248, 242, 222], [128, 106, 80], [84, 72, 78],
+	[200, 164, 104], [236, 210, 150], [128, 92, 80], [150, 96, 60], [66, 30, 36], [116, 50, 42],
+	[36, 18, 32], [255, 128, 44], [196, 132, 58], [118, 70, 48], [92, 70, 60], [134, 110, 92],
+	[52, 40, 44], [222, 196, 176], [236, 236, 232], [250, 248, 242], [146, 154, 172], [242, 190, 60],
+	[236, 238, 244], [252, 252, 250], [230, 230, 226], [164, 166, 182], [252, 252, 250], [60, 170, 72],
+	[28, 96, 76], [226, 50, 42], [250, 212, 60], [74, 122, 152], [222, 230, 234], [40, 66, 100],
+	[204, 150, 90], [242, 228, 202], [72, 58, 56],
 ]
 const EYE := 7          # MobModel.EYE
 const SKIN_DARK := 3    # MobModel.SKIN_DARK: hooves
@@ -128,14 +168,39 @@ const LAYOUT := {
 }
 
 
+## Species drawn as another's shape in their own colours: species -> [shape, {paint: new paint}].
+const RECOLOR := {
+	"lizard": ["cave_salamander", {SALA: LIZ, SALA_LIGHT: LIZ_LIGHT, SALA_DARK: LIZ_DARK, SALA_SPOT: LIZ_SPOT}],
+	"magma_salamander": ["cave_salamander", {SALA: MAGMA, SALA_LIGHT: MAGMA_LIGHT, SALA_DARK: MAGMA_DARK, SALA_SPOT: MAGMA_GLOW}],
+	"scorpion": ["crab", {CRAB: SCORP, CRAB_DARK: SCORP_DARK}],
+	"vulture": ["crow", {CROW: VULT, CROW_LIGHT: VULT_LIGHT, CROW_DARK: VULT_DARK, BEAK: VULT_HEAD}],
+	"gull": ["crow", {CROW: GULL, CROW_LIGHT: GULL_LIGHT, CROW_DARK: GULL_DARK, BEAK: GULL_BILL}],
+	"snow_hare": ["rabbit", {RABBIT: HARE, RABBIT_LIGHT: HARE_LIGHT}],
+	"ptarmigan": ["songbird", {ROBIN: PTARM, ROBIN_DARK: PTARM_DARK, ROBIN_BREAST: PTARM_LIGHT, ROBIN_BELLY: PTARM_LIGHT}],
+	"parrot": ["songbird", {ROBIN: PARROT, ROBIN_DARK: PARROT_DARK, ROBIN_BREAST: PARROT_RED, ROBIN_BELLY: PARROT_GOLD}],
+	"mackerel": ["fish", {FISH: MACK, FISH_BELLY: MACK_BELLY, FISH_FIN: MACK_FIN}],
+	"antelope": ["deer", {DEER: ANTE, DEER_LIGHT: ANTE_LIGHT, ANTLER: ANTE_HORN}],
+}
+
+
 static func has(sp: String) -> bool:
-	return LAYOUT.has(sp)
+	return LAYOUT.has(sp) or RECOLOR.has(sp)
+
+
+## The species whose shape (layout, parts, animation) this one uses.
+static func shape(sp: String) -> String:
+	return String(RECOLOR[sp][0]) if RECOLOR.has(sp) else sp
+
+
+## Every species drawn here (MobModel.prewarm).
+static func species() -> Array:
+	return LAYOUT.keys() + RECOLOR.keys()
 
 
 ## Every part name of a species (MobModel.prewarm).
 static func parts(sp: String) -> Array:
 	var out := []
-	for e in LAYOUT[sp]:
+	for e in LAYOUT[shape(sp)]:
 		if not e[0] in out:
 			out.append(e[0])
 	return out
@@ -144,7 +209,7 @@ static func parts(sp: String) -> Array:
 ## Builds the species' nodes on a MobModel (its _ready).
 static func layout(m: MobModel) -> void:
 	var s := 1.0 / MobModel.GRID
-	for e in LAYOUT[m.species]:
+	for e in LAYOUT[shape(m.species)]:
 		var mi: MeshInstance3D = m._part(e[0], e[2] * s)
 		match e[1]:
 			"body": m.body = mi
@@ -157,13 +222,13 @@ static func layout(m: MobModel) -> void:
 ## Tails and fins (MobModel.animate calls this last); mps = ground speed in m/s.
 static func animate(m: MobModel, mps: float) -> void:
 	for t in m.tails:
-		match m.species:
+		match shape(m.species):
 			"fish": t.rotation.y = sin(m._time * (4.0 + mps * 10.0)) * 0.45
 			"fox", "wolf": t.rotation.y = sin(m._time * 2.2) * 0.15 + sin(m._phase) * 0.1
 			"cave_salamander": t.rotation.y = sin(m._phase * 2.0) * 0.35   # the tail snakes with each step
-	if m.species == "fish":
+	if shape(m.species) == "fish":
 		m.body.rotation.y = -sin(m._time * (4.0 + mps * 10.0)) * 0.08
-	elif m.species == "crab":
+	elif shape(m.species) == "crab":
 		for i in m.legs.size():   # legs scuttle sideways
 			m.legs[i].rotation.z = sin(m._phase * 1.6 + i * 1.3) * 0.35 * clampf(mps * 2.0, 0.0, 1.0) * (1.0 if i % 2 == 0 else -1.0)
 
@@ -208,6 +273,8 @@ static func _speckle(c: PackedInt32Array, size: Vector3i, rng: RandomNumberGener
 
 ## [cells, size, origin (voxels)] as MobModel._build returns it.
 static func build(sp: String, part: String) -> Array:
+	if RECOLOR.has(sp):
+		return _recolor(build(RECOLOR[sp][0], part), RECOLOR[sp][1])
 	if sp == "poison_frog":
 		return _dart_frog(build("frog", part), part)
 	if sp == "salmon":
