@@ -303,7 +303,7 @@ static func _build_defs() -> Array:
 		# 216 (ADR 0121): storage drawn by StationEntity like the chest
 		{"name": "barrel", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "barrel"},
 		{"name": "storage_shelf", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "storage_shelf"},
-	] + _reserved_defs(218, CAVE_IDS - 1) + _cave_defs() + _reserved_defs(CAVE_IDS + 7, 253) + [
+	] + _reserved_defs(218, CAVE_IDS - 1) + _cave_defs() + _plant_defs() + _reserved_defs(CAVE_IDS + 10, 253) + [
 		# 254 (ADR 0119 C): what toxic sludge boils into: heavy, sinks and pools in low caves, fades in a minute
 		{"name": "toxic_gas", "condense_c": 30, "condenses_to": "toxic_sludge", "cell_type": "gas", "density": 1, "gas_upwards_speed": 40, "gas_horizontal_speed": 90, "gas_downwards_speed": 120, "lifetime": 1800, "tiles": [11, 11, 11], "transparent": true},
 	] + _reserved_defs(255, 255)
@@ -324,6 +324,15 @@ static func _wood_defs() -> Array:
 		var d := {"name": "%s_sapling" % k[0], "cell_type": "solid", "density": 10, "hp": 5, "tiles": [k[1], k[2], k[2]], "transparent": false, "micro": "sapling", "floor_only": true, "sapling": k[0]}
 		d.merge(plant_burn)
 		out.append(d)
+	return out
+
+
+## Ids 235..237: plants the generator lays per column (FineGen, the vegetation pass): dune grass on beaches, heather
+## on the highlands and scrub, sedge through the tundra's snow. Tufts like tall grass, tiles 196..198.
+static func _plant_defs() -> Array:
+	var out := []
+	for e in [["dune_grass", 196], ["heather", 197], ["tundra_sedge", 198]]:
+		out.append({"name": e[0], "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 50, "ignite_chance": 0.6, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [e[1], e[1], e[1]], "transparent": false, "micro": "tuft", "replaceable": true})
 	return out
 
 
