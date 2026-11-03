@@ -264,7 +264,8 @@ PackedInt32Array FineGen::pickup_heights(int kind, int seed) const {
 }
 
 void FineGen::configure(int p_seed, int p_sea_level, int p_world_height) {
-    ctx_cache_.clear();   // a new seed is a new world
+    ctx_cache_.clear();
+    cave_cache_.clear();   // a new seed is a new world
     tree_cache_.clear();
     young_cache_.clear();
     bridge_cache_.clear();
@@ -1487,6 +1488,11 @@ uint16_t FineGen::cave_dressing(int biome, int wx, int wz, int df, int dc, uint1
 // Block counts and worker time by result (gen_stats, ADR 0105): what the generation queue spends on.
 // 0 = all air, 1 = one uniform material, 2 = the full per-voxel buffer.
 static std::atomic<uint64_t> s_gen_n[3], s_gen_us[3], s_ctx_hit, s_ctx_miss, s_ctx_build_us, s_sky;
+// where a full block's time goes (budget hunt 2026-11-03): the ctx fetch, the prep (trees, geodes, conduits, the cave
+// lattice), the column loop (prologue and voxels), the passes after it
+static std::atomic<uint64_t> s_ph_us[9];   // 4 trees+stamps, 5 caves, 6 geodes+conduits, 7 column prologue, 8 voxel loop
+static std::atomic<uint64_t> s_band_get, s_band_build, s_band_build_us;
+static inline uint64_t us_since(const std::chrono::steady_clock::time_point &t) { return (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t).count(); }
 
 PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel) const {
     const auto t0 = std::chrono::steady_clock::now();
@@ -1523,6 +1529,11 @@ Dictionary FineGen::gen_stats() {
     d["ctx_miss"] = (int64_t)s_ctx_miss.exchange(0);
     d["ctx_build_us"] = (int64_t)s_ctx_build_us.exchange(0);
     d["sky"] = (int64_t)s_sky.exchange(0);
+    const char *ph[9] = {"phase_ctx_us", "phase_prep_us", "phase_columns_us", "phase_post_us", "prep_trees_us", "prep_caves_us", "prep_geo_conduit_us", "col_prologue_us", "col_voxels_us"};
+    for (int i = 0; i < 9; i++) d[ph[i]] = (int64_t)s_ph_us[i].exchange(0);
+    d["cave_band_get"] = (int64_t)s_band_get.exchange(0);
+    d["cave_band_build"] = (int64_t)s_band_build.exchange(0);
+    d["cave_band_build_us"] = (int64_t)s_band_build_us.exchange(0);
     d["ctx_bytes_lod0"] = (int64_t)(sizeof(ColumnCtx) + 25 * sizeof(MacroPt));   // a 16-voxel footprint's 5 x 5 lattice
     return d;
 }
@@ -1601,6 +1612,11 @@ std::shared_ptr<const FineGen::ColumnCtx> FineGen::build_column_ctx(Vector3i ori
     auto c = std::make_shared<ColumnCtx>();
     c->x = origin.x, c->z = origin.z, c->sx = size.x, c->sz = size.z, c->lod = lod;
     c->nruins = g.ruins_near(mx0 - 1, mz0 - 1, mx0 + nx * mstep + 1, mz0 + nz * mstep + 1, c->ruins, 4);
+    if (g.variant_[WorldGen::VAR_CAVES] != 0) {   // the conduits (ADR 0110) that may reach this footprint, for every block of the stack
+        WorldGen::Conduit cs[(2 * WorldGen::CONDUIT_RINGS + 1) * (2 * WorldGen::CONDUIT_RINGS + 1)];
+        const int nc = g.conduits_near(mx0 + (nx * mstep) / 2, mz0 + (nz * mstep) / 2, cs, (int)(sizeof(cs) / sizeof(cs[0])));
+        c->conduits.assign(cs, cs + nc);
+    }
     for (int i = 0; i < c->nruins; i++) technosim_ruin::prepare(c->ruins[i], c->rprep[i]);
     c->lat.resize((size_t)nx * nz);
     for (int j = 0; j < nz; j++)
@@ -1653,7 +1669,10 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     const int nx = floor_div(origin.x + (sx - 1) * step - lx0, L) + 2;
     const int nz = floor_div(origin.z + (sz - 1) * step - lz0, L) + 2;
     const int mx0 = lx0 / FS, mz0 = lz0 / FS, mstep = L / FS;
+    const auto tp0 = std::chrono::steady_clock::now();
     const std::shared_ptr<const ColumnCtx> ctx = column_ctx(origin, size, lod);
+    s_ph_us[0] += us_since(tp0);
+    auto tph = std::chrono::steady_clock::now();
     const WorldGen::Ruin *ruins = ctx->ruins;
     const int nruins = ctx->nruins;
     const technosim_ruin::Prepared *rprep = ctx->rprep;
@@ -1669,6 +1688,11 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
         s_sky += 1;
         return out;
     }
+    {
+        const int top = ctx->top_seen.load(std::memory_order_relaxed);
+        if (top >= 0 && nruins == 0 && origin.y > top) { s_sky += 1; return out; }   // an earlier block of this stack found its exact top
+    }
+    int stack_top = -1;   // this block's column pass finds it for the whole stack (the pass is the same at every height)
     // Deep rock (2026-10-25, fast flight vs generation): from LOD 1 on there are no ores and caves only
     // reach CAVE_MOUTH_DEPTH, so a block wholly below the sandstone, the cave mouths and the ground's
     // swells is all stone. One voxel of it tells the caller to fill the block (TerrainGenerator); the
@@ -1727,6 +1751,8 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     for (int j = 0; j < nz; j++)
         for (int i = 0; i < nx; i++) rlat[(size_t)j * nx + i] = rocks_.column(lx0 + i * L, lz0 + j * L, lat[(size_t)j * nx + i].hc * FS);
 
+    s_ph_us[4] += us_since(tph);
+    auto tpc = std::chrono::steady_clock::now();
     // Caves: a field on the macro lattice (lod 0, and cave mouths at lod 1), interpolated per voxel.
     const bool do_caves = lod <= BIG_CAVE_LOD;
     const bool do_ores = lod == 0;
@@ -1771,13 +1797,51 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 const float gfx = (float)(cmx - gx0) / 4.0f, gfz = (float)(cmz - gz0) / 4.0f;
                 const int gi = std::min((int)gfx, gnx - 2), gj = std::min((int)gfz, gnz - 2);
                 const float gtx = gfx - gi, gtz = gfz - gj;
-                WorldGen::CaveColumn ccol;   // the column's mouths and gallery offset, read at every height below
-                g.cave_column(cmx, cmz, ccol);
+                const int height = m.col.height;
+                std::shared_ptr<const CaveBand> band;
+                int band_id = INT32_MIN;
                 for (int k = 0; k < cny; k++) {
                     const int cy = cy0 + k;
-                    const float depth = (float)(m.col.height - cy);
+                    const float depth = (float)(height - cy);
+                    // nothing is carved at or over this column's ground (the mask), and a voxel under it reads at most
+                    // the row one step above: rows further up are rock without a noise
+                    if (cy > height + 1) { cav[((size_t)j * nx + i) * cny + k] = -1.0f; continue; }
                     // lod 0: everything; lod 1: tunnels and mouths near the ground; caverns and ravines up to lod 2
-                    float v = (lod == 0 || (lod == 1 && depth <= (float)(CAVE_MOUTH_DEPTH / FS + 2))) ? g.cave_value(ccol, cy, m.col.height, true) : -1.0f;
+                    float v = -1.0f;
+                    if (lod == 0 || (lod == 1 && depth <= (float)(CAVE_MOUTH_DEPTH / FS + 2))) {
+                        const int b = floor_div(cy, 16);
+                        if (b != band_id) {
+                            band_id = b;
+                            const uint64_t key = ((uint64_t)(uint32_t)cmx * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)(uint32_t)cmz * 0xC2B2AE3D27D4EB4Full) ^ ((uint64_t)(uint32_t)b << 7);
+                            s_band_get += 1;
+                            band = cave_cache_.get(key, [&]() {
+                                const auto tb = std::chrono::steady_clock::now();
+                                s_band_build += 1;
+                                auto cb = std::make_shared<CaveBand>();
+                                cb->mx = cmx, cb->mz = cmz, cb->band = b;
+                                WorldGen::CaveColumn ccol;   // the column's mouths and gallery offset, read at every height below
+                                g.cave_column(cmx, cmz, ccol);
+                                for (int r = 0; r < 16; r++) {
+                                    const int ry = b * 16 + r;
+                                    cb->v[r] = ry > height + 1 ? -1.0f : g.cave_value(ccol, ry, height, true);
+                                }
+                                s_band_build_us += us_since(tb);
+                                return cb;
+                            });
+                            if (band->mx != cmx || band->mz != cmz || band->band != b) {   // two columns with one key: this one computes on its own
+                                auto cb = std::make_shared<CaveBand>();
+                                cb->mx = cmx, cb->mz = cmz, cb->band = b;
+                                WorldGen::CaveColumn ccol;
+                                g.cave_column(cmx, cmz, ccol);
+                                for (int r = 0; r < 16; r++) {
+                                    const int ry = b * 16 + r;
+                                    cb->v[r] = ry > height + 1 ? -1.0f : g.cave_value(ccol, ry, height, true);
+                                }
+                                band = cb;
+                            }
+                        }
+                        v = band->v[cy - band_id * 16];
+                    }
                     if (big) {
                         const float gfy = (float)(cy - gy0) / 2.0f;
                         const int gk = std::min((int)gfy, gny - 2);
@@ -1793,6 +1857,8 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 }
             }
     }
+    s_ph_us[5] += us_since(tpc);
+    tpc = std::chrono::steady_clock::now();
     // Crystal geodes reaching into the block (lod 0-1; deep in the rock they are only ever seen opened)
     WorldGen::Geode geodes[4];
     int ngeo = 0;
@@ -1817,10 +1883,9 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     CSrc csrcs[4];
     int ncseg = 0, ncsrc = 0;
     if (lod <= 1 && g.variant_[WorldGen::VAR_CAVES] != 0) {
-        WorldGen::Conduit cs[(2 * WorldGen::CONDUIT_RINGS + 1) * (2 * WorldGen::CONDUIT_RINGS + 1)];
-        const int nc = g.conduits_near(floor_div((x_lo + x_hi) / 2, FS), floor_div((z_lo + z_hi) / 2, FS), cs, (int)(sizeof(cs) / sizeof(cs[0])));
+        const int nc = (int)ctx->conduits.size();   // found once per column stack (column_ctx): a terrain height per cell
         for (int i = 0; i < nc; i++) {
-            const WorldGen::Conduit &c = cs[i];
+            const WorldGen::Conduit &c = ctx->conduits[i];
             const uint16_t liquid = c.kind == WorldGen::CONDUIT_MAGMA ? Mat::LAVA_STATIC : Mat::WATER_STATIC;
             const float R = c.src_r * FS + 1.0f;
             if (ncsrc < 4 && c.x[0] * FS + R >= x_lo && c.x[0] * FS - R <= x_hi && c.z[0] * FS + R >= z_lo && c.z[0] * FS - R <= z_hi
@@ -1835,6 +1900,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             }
         }
     }
+    s_ph_us[6] += us_since(tpc);
     // Deep rock at full detail (ADR 0105): a buried block where the cave field is negative everywhere it is
     // read (so no cave, pool, crystal, stringer or lava sea), no geode, conduit or vein lens reaches, in one
     // rock kind, is that stone throughout; the per-voxel pass cost ~0.7 ms a block and half the box is rock.
@@ -1892,12 +1958,16 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     const int vmx0 = floor_div(origin.x, FS), vmz0 = floor_div(origin.z, FS);
     const int vnx = floor_div(origin.x + (sx - 1) * step, FS) - vmx0 + 1, vnz = floor_div(origin.z + (sz - 1) * step, FS) - vmz0 + 1;
     std::vector<VeinCol> vcols((size_t)vnx * vnz);
+    s_ph_us[1] += us_since(tph);
+    tph = std::chrono::steady_clock::now();
+    uint64_t t_pro = 0, t_vox = 0;   // the column prologue and the voxel loop, summed over the block (ns: a column is a few us)
     for (int z = 0; z < sz; z++) {
         const int wz = origin.z + z * step;
         const float uz = (float)(wz - lz0) / L;
         const int j = std::min((int)uz, nz - 2);
         const float tz = uz - j;
         for (int x = 0; x < sx; x++) {
+            const auto tcol = std::chrono::steady_clock::now();
             const int wx = origin.x + x * step;
             const float ux = (float)(wx - lx0) / L;
             const int i = std::min((int)ux, nx - 2);
@@ -2400,6 +2470,9 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 }
             }
             int dress_anchor = INT32_MIN, dress_biome = -1;   // the cave biome of the last floor or ceiling looked up
+            stack_top = std::max({stack_top, h + veg_h + 2, h + spike + 1, h + CLUTTER_H + 1, far_top + 1, water_level + 1, h + aqua_h + 1});
+            const auto tvox = std::chrono::steady_clock::now();
+            t_pro += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(tvox - tcol).count();
             uint16_t *colp = w + sy * (x + sx * z);
             ValueNoiseCell sheet_cell;   // the stringer sheet's noise cell, shared up the column
             for (int y = 0; y < sy; y++) {
@@ -2588,8 +2661,14 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 colp[y] = mat;
                 if (mat != Mat::AIR) any = true;
             }
+            t_vox += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - tvox).count();
         }
     }
+    if (stack_top >= 0) ctx->top_seen.store(std::max(stack_top, ctx->feat_top) + FS, std::memory_order_relaxed);
+    s_ph_us[2] += us_since(tph);
+    s_ph_us[7] += t_pro / 1000;
+    s_ph_us[8] += t_vox / 1000;
+    tph = std::chrono::steady_clock::now();
     if (!any) return out;
     // No lone liquid cells (ADR 0069 C): a still liquid cell with air above, no liquid of its kind on any side and
     // open air beside it (a one-cell puddle on a cave wall's step, a scrap at a bank) is dropped; it drew as a spike
@@ -2620,6 +2699,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
         std::memset(o, 0, n * 4);
         for (int i = 0; i < n; i++) { o[i * 4] = (uint8_t)(w[i] & 0xFF); o[i * 4 + 1] = (uint8_t)(w[i] >> 8); }
     }
+    s_ph_us[3] += us_since(tph);
     return out;
 }
 

@@ -79,6 +79,7 @@ class FineGen : public RefCounted {
     GDCLASS(FineGen, RefCounted)
 
 public:
+    struct CaveBand { int mx, mz, band; float v[16]; };   // the small cave field of one macro column, 16 rows (cave_cache_)
     static constexpr int FS = 4;   // fine voxels per macro unit (0.5 m / 12.5 cm)
     static constexpr int RUIN_RAMP = 4;   // macro cells round a ruin over which the ground ramps to its floor (ADR 0062)
 
@@ -201,12 +202,22 @@ private:
         int hmax_m = 0, wl_max = 0, fall_max = -1;
         float hmin_m = 1e9f;
         int feat_top = 0;   // highest tree or stamp voxel over the footprint at any height (0: none)
+        // the stack's exact top (voxels): the highest ground, plant, spike, clutter, canopy or water voxel any block of
+        // this footprint found in its column pass, plus feat_top; -1 until a block ran. Blocks above it are air and
+        // return at once (budget hunt 2026-11-03: a third of the blocks over a column were all air under the macro
+        // bound's 6 m margin and cost 155 us each)
+        mutable std::atomic<int> top_seen{-1};
         std::vector<int> h;   // each fine column's ground height (x + sx * z): five noises a column, once per stack
         // the trees (from the tree caches) and stamps reaching the footprint at any height, in drawing order
         std::vector<std::shared_ptr<const FTree>> trees;
         size_t n_mature = 0;
         std::vector<FStamp> stamps;
+        std::vector<WorldGen::Conduit> conduits;   // ADR 0110: the conduits in reach of the footprint
     };
+    // The small cave field (cheese, tunnels, galleries, mouths) of one macro column, 16 macro rows at a time, shared
+    // across the blocks that read it: a block's lattice has a margin column on every side and four rows above and below
+    // its own, so neighbours asked for the same rows four times over (budget hunt 2026-11-03: a fifth of all generation)
+    mutable SharedCache<CaveBand> cave_cache_{262144};
     mutable SharedCache<ColumnCtx> ctx_cache_{16384};   // 16k footprints (5-15 KB with their stamps): a 100 m box holds ~10k
     // A young tree's cell (24 voxels): the tree standing in it, or none, before the ruins near a block decide.
     struct YoungCell {
