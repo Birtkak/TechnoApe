@@ -53,6 +53,7 @@ var _stone_ages_test: StoneAgesTest   # the four Stone Age stages (ADR 0059)
 var _water_test: WaterTest
 var _looks_test: LooksTest
 var _liquids_test: LiquidsTest
+var _fluid_film: FluidFilm
 var _tp_test: TpTest
 var ponder: PonderScreen            # the guide screen (ADR 0132)
 var _shell_test: ShellTest
@@ -485,6 +486,10 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_looks_test = LooksTest.new()
 				_looks_test.run(self))
+		if DebugCapture.fluid_film:
+			_after_load(func() -> void:
+				_fluid_film = FluidFilm.new()
+				_fluid_film.run(self))
 		if DebugCapture.liquids_test:
 			_after_load(func() -> void:
 				_liquids_test = LiquidsTest.new()

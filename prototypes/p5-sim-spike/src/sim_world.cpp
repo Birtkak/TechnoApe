@@ -753,11 +753,34 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
         // ... while it still moves (this or the last two ticks): rain or a spill that came to rest beside a body is
         // no opening, or every lake with a terraced shore fed its lower shore for ever (budget hunt 2026-11-03)
         auto fresh = [&](int k) { const uint16_t m = moved_[k]; return m != 0 && (m == stamp_ || m == prev || m == prev2); };
-        if (side && cells_[ni].mat == flow) { const int f = cells_[ni].pad & 15; return f != 0 && f <= 6 && fresh(ni); }
+        // ... or, resting, while its column stands on ground: a dug pit or channel fills to the body's level instead of
+        // sleeping with a film in it (ADR 0138). Water resting on a still body (a river's lower step) stays no opening.
+        auto grounded = [&](int gx, int gy, int gz) {
+            for (int yy = gy - 1, k = 0; yy >= 0 && k < COLUMN_REACH; yy--, k++) {
+                if (!is_open(gx, yy, gz)) return true;
+                const uint8_t b = cells_[idx(gx, yy, gz)].mat;
+                if (b == flow) continue;
+                return !open_air(b) && mats_[b].cell_type != CELL_LIQUID;
+            }
+            return true;
+        };
+        if (side && cells_[ni].mat == flow) {
+            const int f = cells_[ni].pad & 15;
+            if (f == 0) return false;
+            if (fresh(ni)) return f <= 6;
+            // resting: topped up to full, then it stops; a lone eighth on bare ground is a film, not a hole to fill
+            const bool on_own = ny > 0 && is_open(nx, ny - 1, nz) && cells_[idx(nx, ny - 1, nz)].mat == flow;
+            return (f >= 2 || on_own) && grounded(nx, ny, nz);
+        }
         if (!open_air(cells_[ni].mat)) return false;
         // air over its own moving water beside it: that water is lower, drain into it however long the air has been
-        // there (a pit's air went stale as it filled and the pond slept a third full above it)
-        if (side && ny > 0 && is_open(nx, ny - 1, nz) && cells_[idx(nx, ny - 1, nz)].mat == flow) return fresh(idx(nx, ny - 1, nz));
+        // there (a pit's air went stale as it filled and the pond slept a third full above it). ADR 0138: down through
+        // air too, so a stream that paused over a half-filled trench starts again
+        if (side) {
+            int wy = ny - 1;
+            for (int k = 0; k < COLUMN_REACH && wy > 0 && is_open(nx, wy, nz) && open_air(cells_[idx(nx, wy, nz)].mat); k++) wy--;
+            if (wy >= 0 && is_open(nx, wy, nz) && cells_[idx(nx, wy, nz)].mat == flow) return fresh(idx(nx, wy, nz)) || grounded(nx, wy, nz);
+        }
         if (side && ny > 0 && still_liquid(nx, ny - 1, nz, md.fluid_slot)) {
             // a river's own step never wakes, unless that step is a drained bank's edge (its own moving water beside
             // it): a dug hole left a 45-degree wall of still water sleeping over it (bug report 2026-10-27 17-59-05)
@@ -775,6 +798,20 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
     const bool head = still_liquid(x, y + 1, z, md.fluid_slot);
     for (int d = 0; d < 4 && !open && head; d++) {
         tx = x + DX4[d]; ty = y; tz = z + DZ4[d];
+        open = fresh_air(tx, ty, tz, true);
+    }
+    // ADR 0138: the surface row (no head) feeds an opening that goes deeper than the surface: a fresh dig beside it
+    // with air under it (a trench cut into a shelving bank, where only the surface row touches the cut), air over
+    // its own moving water, and the moving top of a filled pit (over a full cell) so the pit ends level with the body.
+    // Air over ground at the surface's height (the shore) never opens: a lake does not flood its plain.
+    for (int d = 0; d < 4 && !open && !head && flow != 0 && y > 0; d++) {
+        tx = x + DX4[d]; ty = y; tz = z + DZ4[d];
+        if (!is_open(tx, ty, tz) || !is_open(tx, ty - 1, tz)) continue;
+        const int ai = idx(tx, ty, tz), bi = idx(tx, ty - 1, tz);
+        const uint8_t below = cells_[bi].mat;
+        if (below == flow) {
+            if (cells_[ai].mat == flow && (cells_[bi].pad & 15)) continue;   // a partial over a partial: not yet the top
+        } else if (!open_air(below) || !open_air(cells_[ai].mat) || still_liquid(tx, ty - 1, tz, md.fluid_slot)) continue;
         open = fresh_air(tx, ty, tz, true);
     }
     if (!open && flow != 0) {
@@ -1093,6 +1130,20 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
                 if (substep_ == 0 && surface && try_move(x, y, z, nx, y - 1, nz, c)) { c.moved++; return; }
                 continue;
             }
+            // a ledge onto a partial cell of its liquid: what fits pours down, so a film runs down a terraced slope
+            // instead of hanging on every step (ADR 0138)
+            if (surface && y > 0 && is_open(nx, y - 1, nz)) {
+                const int li = idx(nx, y - 1, nz);
+                if (cells_[li].mat == self && moved_[li] != mark_ && full(li) < 8) {
+                    const int fl = full(li), t = std::min(8 - fl, f);
+                    set_full(li, fl + t);
+                    moved_[li] = mark_;
+                    mark_cell(nx, y - 1, nz, c, false);
+                    take(t);
+                    c.moved++;
+                    return;
+                }
+            }
             if (surface) {
                 // the surface splits half into the opening: a new column beside it
                 const int g = f / 2;
@@ -1119,30 +1170,79 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
         c.moved++;
         return;
     }
-    // 3. no neighbour two eighths lower: a surface cell looks along the surface for one and sends it an eighth, so the
-    // surface ends flat to an eighth instead of tilted an eighth per cell (ADR 0069 B 4c)
+    // 3. no neighbour two eighths lower: a surface cell looks along the surface for one and passes an eighth toward
+    // it, so the surface ends flat to an eighth instead of tilted an eighth per cell (ADR 0069 B 4c). ADR 0138: the
+    // eighth goes to the neighbour one eighth lower on the way (a conveyor), not straight to the low cell, so the look
+    // reaches FLAT_REACH cells (the write is one cell: chunks two apart still never touch one cell) and a flood rests
+    // flat to an eighth per FLAT_REACH cells, not per SURFACE_REACH; the surface it follows may step down into the
+    // row below (a column whose top is there, air over it). Nearest low first, ties in a fixed order: an eighth only
+    // ever moves toward the low it was sent to, nothing goes back and forth.
     if (!surface) return;
-    for (int k = 0; k < 4; k++) {
-        const int dd = (d0 + k) & 3;
-        for (int s = 1; s <= SURFACE_REACH; s++) {
+    int lo_s = FLAT_REACH + 1, lo_d = -1;
+    for (int dd = 0; dd < 4; dd++) {
+        int first = -1;   // the neighbour's height
+        for (int s = 1; s < lo_s; s++) {
             const int px = x + DX4[dd] * s, pz = z + DZ4[dd] * s;
-            if (!same(px, y, pz)) break;
-            const int pi = idx(px, y, pz);
-            const int fp = full(pi);
-            if (fp > f || same(px, y + 1, pz)) break;   // uphill, or under more of its liquid: not this way
-            if (fp <= f - 2) {
-                if (moved_[pi] == mark_) break;
-                set_full(pi, fp + 1);
-                set_full(i, f - 1);
-                moved_[pi] = mark_;
-                moved_[i] = mark_;
-                mark_cell(px, y, pz, c, false);
-                mark_cell(x, y, z, c, false);
-                c.moved++;
-                return;
+            int py = y;
+            if (!same(px, y, pz)) {
+                if (!is_open(px, y, pz) || !open_air(cells_[idx(px, y, pz)].mat) || !same(px, y - 1, pz)) break;
+                py = y - 1;
+            } else if (same(px, y + 1, pz)) break;   // under more of its liquid: uphill
+            const int Hp = 8 * py + full(idx(px, py, pz));
+            if (Hp > H) break;   // uphill: not this way
+            if (s == 1) {
+                if (Hp != H - 1 || moved_[idx(px, py, pz)] == mark_) break;   // only down a step of one eighth
+                first = Hp;
             }
+            if (Hp <= H - 2 && first >= 0) { lo_s = s; lo_d = dd; break; }
         }
     }
+    if (lo_d >= 0) {
+        const int px = x + DX4[lo_d], pz = z + DZ4[lo_d];
+        const int py = same(px, y, pz) ? y : y - 1;
+        const int pi = idx(px, py, pz);
+        const int fp = full(pi);
+        if (fp < 8) {
+            set_full(pi, fp + 1);
+            moved_[pi] = mark_;
+            mark_cell(px, py, pz, c, false);
+        } else {   // a full top a row down: the eighth starts the row above it
+            const int ai = idx(px, py + 1, pz);
+            place(ai, self);
+            set_full(ai, 1);
+            moved_[ai] = mark_;
+            mark_cell(px, py + 1, pz, c, true);
+        }
+        moved_[i] = mark_;
+        if (f > 1) { set_full(i, f - 1); mark_cell(x, y, z, c, false); }
+        else { place(i, 0); mark_cell(x, y, z, c, true); }
+        c.moved++;
+        return;
+    }
+    // 4. a lone eighth on bare ground (it cannot split) walks a cell toward the nearest drop in reach (air over air, or
+    // over its own lower liquid), so a film runs off a terraced slope instead of lying on every step until it dries
+    // (ADR 0138). Nearest first, ties in a fixed order: each step shortens the way, nothing walks back and forth.
+    if (f != 1 || y == 0 || !is_open(x, y - 1, z) || cells_[idx(x, y - 1, z)].mat == self || can_displace(self, cells_[idx(x, y - 1, z)].mat)) return;
+    int best = SURFACE_REACH + 1, bd = -1;
+    for (int dd = 0; dd < 4; dd++) {
+        for (int s = 1; s < best; s++) {
+            const int px = x + DX4[dd] * s, pz = z + DZ4[dd] * s;
+            if (!is_open(px, y, pz) || !open_air(cells_[idx(px, y, pz)].mat) || !is_open(px, y - 1, pz)) break;
+            const uint8_t b = cells_[idx(px, y - 1, pz)].mat;
+            if (can_displace(self, b) || (b == self && full(idx(px, y - 1, pz)) < 8)) { best = s; bd = dd; break; }
+            if (b == self || still_liquid(px, y - 1, pz, m.fluid_slot)) break;   // water ahead: the column rules have it
+        }
+    }
+    if (bd < 0 || best < 2) return;   // a drop beside it is the ledge rule's
+    const int wx = x + DX4[bd], wz = z + DZ4[bd], wi = idx(wx, y, wz);
+    if (moved_[wi] == mark_) return;
+    place(wi, self);
+    set_full(wi, 1);
+    moved_[wi] = mark_;
+    place(i, 0);
+    mark_cell(wx, y, wz, c, true);
+    mark_cell(x, y, z, c, true);
+    c.moved++;
 }
 void SimWorld::set_cascade(bool p_on) { cascade_ = p_on; }
 

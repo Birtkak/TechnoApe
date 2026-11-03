@@ -159,7 +159,12 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   `melt_c` (water <-> steam <-> one-eighth drops, sludge <-> toxic gas 254, ice <-> water; still liquids never switch).
   Gas looks: `data/gas_looks.json` (`gas_tint`, `gas_alpha`, `rise_speed`, one gas material copy per gas). The minimap's
   last line shows the aimed cell's material, state, temperature and pressure. Bench `tools/fluid_bench.gd`, tests
-  `test/test_sim_0119.gd`. **ADR 0081:** a lone still cell
+  `test/test_sim_0119.gd`. **Water feel (ADR 0138):** resting moving water on ground beside a body (2..7 eighths) is still an opening, so a dug
+  pit or channel fills to the body's level (water resting on a lower still step is not); the surface row feeds a dig
+  deeper than the surface (a trench in a shelving bank) but never air over the shore; a ledge onto a partial cell pours
+  what fits and a lone eighth on bare ground walks to the nearest drop (films run off slopes); the 4c rule is a conveyor
+  (looks FLAT_REACH 14 cells, also a row down, writes one cell over). `fluid_film=1` films the scenes
+  (`scripts/visuals/fluid_scenes.gd`), `tools/fluid_feel.gd` runs them on the bare kernel, tests `test/test_sim_0138.gd`. **ADR 0081:** a lone still cell
   (none of its kind on its six sides: the specks the generator leaves on cave walls) wakes at any air beside or below it;
   reactions of one pair chain (`Reaction::next`, rolled in data order): lava + water boils the water to steam at 0.6 and
   only then crusts to obsidian at 0.25, so the steam grows with the water the lava touches.
