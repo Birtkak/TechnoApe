@@ -127,3 +127,24 @@ func test_ambience_follows_biome_time_and_weather() -> void:
 	var peak := GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 800, 2.0, ["mountain", "frozen"], false)
 	var woods := GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 40, 2.0, forest, false)
 	assert_float(peak).is_greater(woods + 0.4)
+
+
+## Every LV machine, the electric furnace, the lamp and the dynamo hum (a loop fed by the nearest running one);
+## the dynamo's whine rises with its current; the switch, fuse, breaker and a burning cable have sounds.
+func test_machines_and_electrics_sound() -> void:
+	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/sounds.json"))
+	var index: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(GameAudio.ROOT + "index.json"))
+	var kinds := {}
+	for ln in data["loops"]:
+		for k in data["loops"][ln].get("entities", []):
+			kinds[k] = ln
+			assert_bool(index.has(data["loops"][ln]["sound"])).override_failure_message("%s: no asset" % ln).is_true()
+	for k in MachineEntity.DOOR.keys() + ["electric_furnace", "electric_lamp", "turbine"]:
+		assert_bool(kinds.has(k)).override_failure_message("machine %s has no hum" % k).is_true()
+	var dyn: Dictionary = data["loops"][kinds["turbine"]]
+	assert_float(GameAudio.machine_pitch(dyn, 40.0)).is_greater(GameAudio.machine_pitch(dyn, 5.0))
+	for n in ["elec/switch", "elec/fuse", "elec/breaker", "elec/cable_burn"]:
+		assert_bool(data["sounds"].has(n) and index.has(n)).override_failure_message(n).is_true()
+	for sp in ["crow", "vulture", "gull", "parrot", "ptarmigan", "goat", "antelope", "lizard", "scorpion", "magma_salamander"]:
+		assert_str(String(data["mobs"][sp]["idle"])).override_failure_message("%s still borrows a call" % sp).starts_with("mob/")
+		assert_bool(not String(data["mobs"][sp]["idle"]).begins_with("mob/chicken")).override_failure_message(sp).is_true()

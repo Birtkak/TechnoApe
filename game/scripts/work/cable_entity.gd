@@ -43,6 +43,7 @@ func net_in(channel: String, d) -> bool:
 		hot += 1
 		if hot >= Settings.cable_burn_s:
 			burnt = true
+			Sound.play("elec/cable_burn", Vector3(pos) + Vector3(0.5, 0.5, 0.5))
 			changed.emit()
 	elif hot > 0:
 		hot -= 1
