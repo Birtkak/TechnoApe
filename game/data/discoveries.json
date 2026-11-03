@@ -5,9 +5,10 @@
     {"id": "cave", "title": "Caves", "from": "biomes", "only_tags": ["underground"], "icon": "stone", "text": "You first went down into a %s."},
     {"id": "landform", "title": "Landforms", "from": "landforms", "icon": "stone", "text": "You stood on a %s."},
     {"id": "landmark", "title": "Landmarks", "from": "list", "icon": "cobblestone", "text": "You found a %s.",
-     "entries": ["ruin", "cave", "waterfall", "river", "lake", "spring", "marsh", "aquifer", "magma_conduit", "spring_stone", "magma_heart", "abandoned_mine"]},
+     "entries": ["ruin", "cave", "waterfall", "river", "lake", "spring", "marsh", "aquifer", "magma_conduit", "spring_stone", "magma_heart", "abandoned_mine", "abandoned_camp"]},
     {"id": "phenomenon", "title": "Gases", "from": "list", "icon": "water_bucket", "text": "You stood in %s.", "entries": ["steam", "toxic_gas"]},
     {"id": "animal", "title": "Animals", "from": "mobs", "icon": "raw_meat", "text": "You came across a %s."},
+    {"id": "critter", "title": "Small Life", "from": "list", "icon": "poppy", "text": "You watched a %s.", "entries": ["butterfly", "bee", "firefly", "glow_worm"]},
     {"id": "ore", "title": "Ores and minerals", "from": "items", "tags": ["ore", "loose_ore", "mineral"], "icon": "copper_ore", "text": "You held your first %s."},
     {"id": "stone", "title": "Stones", "from": "items", "tags": ["stone_type"], "icon": "cobblestone", "text": "You picked up your first %s."},
     {"id": "vein", "title": "Ore veins", "from": "ore_veins", "icon": "copper_prospecting_pick", "text": "Your pick rang on a %s vein."}
@@ -44,7 +45,13 @@
     "animal:jellyfish": "They drift in warm seas and sting what brushes them: a few seconds of poison.",
     "landmark:abandoned_mine": "Rusted rails and rotten props lead into the rock: someone dug here before you.",
     "phenomenon:steam": "Water over lava or a fire boils to steam, which rises, fills a sealed room and raises its pressure, and condenses back to water where it cools.",
-    "phenomenon:toxic_gas": "Toxic sludge boils into a heavy green gas that sinks and pools in low caves. Do not breathe it."
+    "phenomenon:toxic_gas": "Toxic sludge boils into a heavy green gas that sinks and pools in low caves. Do not breathe it.",
+    "animal:cave_salamander": "Pale and slow, it lives on the wet floors of lush, fungal, dripstone and frozen caves.",
+    "animal:songbird": "Small birds that flit from branch to ground to branch, and sing at dawn.",
+    "animal:goat": "Sure-footed on rocky slopes. Lure one with wheat or carrots; a clay bowl milks it, and it refills as it grazes.",
+    "landmark:abandoned_camp": "A cold fire ring and a rotten bedroll: someone camped here and did not come back.",
+    "critter:glow_worm": "Threads of light hang from moss and vines on cave ceilings.",
+    "critter:firefly": "Sparks that drift over grass on warm nights."
   },
   "icons": {}
 }
