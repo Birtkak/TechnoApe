@@ -52,19 +52,37 @@ func look_lines() -> Array[String]:
 	return ["%.1f V, %.1f A (%.0f W through it)" % [volts, amps, volts * amps]]
 
 
-## An iron box; its front face holds two bars under glass: volts in glow, amps in copper.
+## ADR 0129: a riveted iron case with a steel bezel round a cream face and two gauges read from across a room:
+## the voltmeter on the left, the ammeter on the right, each a dark channel with ticks beside it that fills from
+## the bottom, every cell of the fill in its zone's colour (green, amber, red at the top), under a coloured cap
+## (glow = volts, copper = amps). Full scale is 60 V and 60 A.
 func view_parts() -> Dictionary:
-	var size := Vector3i(8, 8, 8)
+	var n := 16
+	var size := Vector3i(n, n, n)
 	var c := WorkPalette.new_cells(size)
-	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(8, 8, 8), WorkPalette.IRON_DARK)
-	WorkPalette.box(c, size, Vector3i(1, 1, 7), Vector3i(7, 7, 8), WorkPalette.SOOT)   # the dial face
-	var hv := clampi(int(round(volts / 60.0 * 6.0)), 0, 6)
-	var ha := clampi(int(round(absf(amps) / 60.0 * 6.0)), 0, 6)
-	if hv > 0:
-		WorkPalette.box(c, size, Vector3i(2, 1, 7), Vector3i(3, 1 + hv, 8), WorkPalette.GLOW)
-	if ha > 0:
-		WorkPalette.box(c, size, Vector3i(5, 1, 7), Vector3i(6, 1 + ha, 8), WorkPalette.COPPER)
-	return {"solid": {"cells": c, "size": size}}
+	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(n, n, n), WorkPalette.IRON_DARK)
+	WorkPalette.box(c, size, Vector3i(1, 1, n - 1), Vector3i(n - 1, n - 1, n), WorkPalette.STEEL)   # the bezel
+	WorkPalette.box(c, size, Vector3i(2, 2, n - 1), Vector3i(n - 2, n - 2, n), WorkPalette.LINEN)   # the face
+	for p in [Vector2i(1, 1), Vector2i(n - 2, 1), Vector2i(1, n - 2), Vector2i(n - 2, n - 2)]:
+		c[WorkPalette.idx(size, p.x, p.y, n - 1)] = WorkPalette.RIVET + 1
+	_gauge(c, size, 3, absf(volts) / 60.0, WorkPalette.GLOW)
+	_gauge(c, size, 9, absf(amps) / 60.0, WorkPalette.COPPER)
+	return {"solid": {"cells": c, "size": size, "grid": n}}
+
+
+## One gauge on the face, its channel at x0..x0+3: filled to `f` of its ten cells, ticks every second cell.
+static func _gauge(c: PackedInt32Array, size: Vector3i, x0: int, f: float, cap: int) -> void:
+	var z := size.z - 1
+	var h := clampi(int(round(f * 10.0)), 0, 10)
+	for y in range(3, 13):
+		var k := y - 3
+		var paint := WorkPalette.SOOT
+		if k < h:
+			paint = WorkPalette.PAINT if k < 6 else (WorkPalette.HAZARD if k < 8 else WorkPalette.EMBER)
+		WorkPalette.box(c, size, Vector3i(x0, y, z), Vector3i(x0 + 3, y + 1, z + 1), paint)
+		if k % 2 == 0:
+			c[WorkPalette.idx(size, x0 + 3, y, z)] = WorkPalette.SOOT + 1   # a tick
+	WorkPalette.box(c, size, Vector3i(x0, 13, z), Vector3i(x0 + 3, 14, z + 1), cap)
 
 
 func to_dict() -> Dictionary:
