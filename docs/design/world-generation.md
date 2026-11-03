@@ -490,3 +490,15 @@ Asked for in bug reports 2026-11-02 18-55-21, 18-57-25, 18-54-25 and 18-49-07.
   taiga; drops blueberries), bromeliad (jungle), cattail (swamp), aloe (savanna), bluebell (forests), frost lichen
   (ice fields, snowy tundra), sea aster (mangrove, stony shore), dandelion (plains, meadow); sedge also on snowy
   beaches. Water biomes keep kelp, seagrass, reeds and lily pads; caves keep their dressing.
+
+## A structure in every land biome (2026-11-03)
+- Igloo (ruin shape S_IGLOO): a packed-ice dome on the snow, a low tunnel out, one side of the roof fallen in, a snow
+  floor and two camp pots inside. Ice fields, snowy tundra, frozen highlands, snowy taiga.
+- Jungle temple and desert tomb: the crypt shape in other stone (granite bricks and moss in the jungle and mangrove;
+  sandstone and limestone bricks in the desert and badlands), crypt loot.
+- Cairns (FineGen stamp CAIRN): ruins never stand on alpine, snow-capped or high land, so the mountains, alpine,
+  snowy peaks and volcanic land get stacks of 3-5 stones 1-1.6 m tall, one chance in three per 32 m cell where the
+  ground is level within 1 m; cobble and stone, basalt capped in obsidian on volcanic land. Mountains are told by
+  slope (column_base with_slope), so the placement asks for it.
+- Water biomes (oceans, rivers, lakes) keep wrecks and bridges at their edges; cave biomes keep the abandoned mines
+  and their dressing. The ruin reach test now measures from the nearest land of a kind's own biomes.

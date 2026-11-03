@@ -896,6 +896,38 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
                 out.push_back(b);
             }
     }
+    // Cairns: stacks of stones marking the routes over the mountains and the volcanic land, where no ruin stands
+    // (too high, too steep, too rare): one chance in three per 32 m cell, on ground level within 1 m.
+    {
+        constexpr int KC = 256, KM = 16;
+        for (int cz = floor_div(z_lo - KM, KC); cz <= floor_div(z_hi + KM, KC); cz++)
+            for (int cx = floor_div(x_lo - KM, KC); cx <= floor_div(x_hi + KM, KC); cx++) {
+                const uint32_t hs = h3(cx, cz, g.seed_ + 683);
+                if ((hs % 3) != 0) continue;
+                const float fx = (float)(cx * KC + KM + (int)((hs >> 4) % (KC - 2 * KM))) + 0.5f;
+                const float fz = (float)(cz * KC + KM + (int)((hs >> 14) % (KC - 2 * KM))) + 0.5f;
+                if (fx + KM < x_lo || fx - KM > x_hi || fz + KM < z_lo || fz - KM > z_hi) continue;
+                const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
+                const WorldGen::Column col = g.column_base(mx, mz, true);   // mountains are told by their slope
+                if (col.biome != technosim_biome::MOUNTAINS && col.biome != technosim_biome::ALPINE && col.biome != technosim_biome::SNOWY_PEAKS && col.biome != technosim_biome::VOLCANIC) continue;
+                if (g.ravine_near(mx, mz, 3)) continue;
+                FStamp k{};
+                k.kind = CAIRN;
+                k.seed = h3(cx, cz, g.seed_ + 691);
+                k.x = fx;
+                k.z = fz;
+                k.size = 8.0f + (float)((k.seed >> 4) % 6);   // 1-1.6 m tall
+                k.r = 3.0f + (float)((k.seed >> 8) & 1);
+                k.wood = col.biome == technosim_biome::VOLCANIC ? Mat::BASALT : Mat::COBBLESTONE;   // volcanic ones in basalt, capped in obsidian
+                const float s0 = surface_f((int)fx, (int)fz);
+                bool flat = true;
+                for (int q = 0; q < 4 && flat; q++)
+                    flat = std::fabs(surface_f((int)fx + ((q & 1) ? 4 : -4), (int)fz + ((q & 2) ? 4 : -4)) - s0) <= 8.0f;
+                if (!flat) continue;
+                k.ground = (int)std::floor(s0 + 0.5f);
+                out.push_back(k);
+            }
+    }
     // Rock formations: natural arches and hoodoos (a pillar under a cap stone) where the land is dry and bare,
     // in the badlands' terracotta bands, the desert's sandstone, plain stone on the highlands and the scrub.
     {
@@ -1178,6 +1210,21 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
                 const uint32_t hh = h3((int)std::floor(x), y, (int)std::floor(z) + (int)s.seed);
                 if (hh % 3 == 0) return Mat::MOSS;
                 if ((float)((hh >> 12) & 1023) / 1024.0f < technosim_biome::DECOR_LOG_MUSHROOMS[s.biome]) return (hh >> 8) % 3 == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN;
+            }
+            return Mat::AIR;
+        }
+        case CAIRN: {
+            // flat stones stacked smaller toward the top, a little off true, each resting on the one below
+            const int n = 1 + (int)(s.size / 3.0f);
+            for (int i = 0; i < n; i++) {
+                const float cy = (float)s.ground + 1.0f + (float)i * 3.0f;
+                const float rr = s.r * (1.0f - 0.6f * (float)i / (float)n) + grow;
+                const float ox = 0.4f * (float)((int)((s.seed >> (2 * i)) & 3) - 1.5f), oz = 0.4f * (float)((int)((s.seed >> (2 * i + 8)) & 3) - 1.5f);
+                const float ex = (dx - ox) / rr, ez = (dz - oz) / rr, ey = (fy + 0.5f - cy) / 1.7f;
+                if (ex * ex + ez * ez + ey * ey < 1.0f) {
+                    if (s.wood == Mat::BASALT) return i == n - 1 ? Mat::OBSIDIAN : Mat::BASALT;
+                    return (h3(i, (int)s.seed, 7) & 3) == 0 ? Mat::STONE : Mat::COBBLESTONE;
+                }
             }
             return Mat::AIR;
         }

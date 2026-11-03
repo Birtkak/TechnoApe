@@ -173,7 +173,8 @@ private:
     // OUTCROP: a crag of rock and ore over a shallow vein (size: half width, wood: the ore)
     // FORMATION: a natural arch (mossy set; size: span radius, r: rib) or a hoodoo (size: height, r: pillar radius)
     // BRIDGE: a rope bridge over a ravine (x, z: middle, dx/dz: along it, size: half length, r: half width, ground: deck ends)
-    enum { FORMATION = 5, BRIDGE = 6, OUTCROP = 8, GIANT_FLOWER = 9, STUMP = 10, STICK = 11, FLOWER_S = 12, MUSHROOM_S = 13, SHELL_S = 14, CLUTTER_H = 12 };   // STICK: a fallen stick (twigs pickup), laid on the ground per column;
+    // CAIRN: a stack of stones marking a mountain route (size: height, r: base radius)
+    enum { FORMATION = 5, BRIDGE = 6, CAIRN = 7, OUTCROP = 8, GIANT_FLOWER = 9, STUMP = 10, STICK = 11, FLOWER_S = 12, MUSHROOM_S = 13, SHELL_S = 14, CLUTTER_H = 12 };   // STICK: a fallen stick (twigs pickup), laid on the ground per column;
     // FLOWER_S, MUSHROOM_S, SHELL_S: clutter pieces of whole voxels on a CLUTTER_CELL grid (ADR 0047), laid per column
     struct FStamp {
         int kind;

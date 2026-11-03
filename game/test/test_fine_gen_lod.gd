@@ -397,3 +397,24 @@ func test_ravines_are_bridged() -> void:
 		if found > 0:
 			break
 	assert_int(found).override_failure_message("no rope bridge within 64 m of the ravine at %s" % p).is_greater(0)
+
+
+## Cairns: the high land, where no ruin stands, carries stacks of stones over the ground (within 96 m of alpine land).
+func test_mountains_carry_cairns() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var p: Vector3i = g.find_nearest("alpine", 0, 0, int(Settings.m2v(9000.0)))
+	var cobble := GameMaterials.id_of("cobblestone")
+	var n := 0
+	for bx in range(p.x - 768, p.x + 768, 32):
+		for bz in range(p.z - 768, p.z + 768, 32):
+			var h := g.height_at(bx + 16, bz + 16)
+			var b: PackedByteArray = g.generate_block(Vector3i(bx, h - 16, bz), Vector3i(32, 40, 32), 0, 2)
+			if b.size() < 32 * 40 * 32 * 2:
+				continue
+			for k in range(0, b.size(), 2):
+				if b.decode_u16(k) == cobble:
+					var i := k / 2
+					if h - 16 + i % 40 >= g.height_at(bx + (i / 40) % 32, bz + i / 1280) + 3:
+						n += 1
+	assert_int(n).override_failure_message("no cairn near the mountains at %s" % p).is_greater(0)

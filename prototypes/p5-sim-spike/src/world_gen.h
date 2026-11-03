@@ -74,7 +74,7 @@ public:
         // cave dressing (FineGen::cave_dressing): game/scripts/materials.gd CAVE_IDS
         DRIPSTONE = 228, CAVE_VINE = 229, GLOW_BERRY_VINE = 230, FUNGUS_STEM = 231, FUNGUS_CAP = 232, MAGMA_ROCK = 233, RUSTED_RAIL = 234,
         DUNE_GRASS = 235, HEATHER = 236, TUNDRA_SEDGE = 237,
-        PLANKS = 36, ROPE = 238,
+        PLANKS = 36, ROPE = 238, COBBLESTONE = 109,
         SAGEBRUSH = 239, DESERT_MARIGOLD = 240, MOSS_CAMPION = 241, FIRE_LILY = 242, LINGONBERRY = 243, BROMELIAD = 244, CATTAIL = 245, ALOE = 246, BLUEBELL = 247, FROST_LICHEN = 248, SEA_ASTER = 249, DANDELION = 250,
         // the dry savanna floor (bug report 2026-10-25 20-37-22): straw grass, its tussocks, bare red earth
         SAVANNA_GRASS = 127, SAVANNA_TALL_GRASS = 128, RED_EARTH = 129
