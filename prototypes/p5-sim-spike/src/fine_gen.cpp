@@ -1334,7 +1334,7 @@ uint16_t FineGen::cave_dressing(int biome, int wx, int wz, int df, int dc, uint1
 static std::atomic<uint64_t> s_gen_n[3], s_gen_us[3], s_ctx_hit, s_ctx_miss, s_ctx_build_us, s_sky;
 // where a full block's time goes (budget hunt 2026-11-03): the ctx fetch, the prep (trees, geodes, conduits, the cave
 // lattice), the column loop (prologue and voxels), the passes after it
-static std::atomic<uint64_t> s_ph_us[7];   // 4 trees+stamps, 5 caves, 6 geodes+conduits
+static std::atomic<uint64_t> s_ph_us[9];   // 4 trees+stamps, 5 caves, 6 geodes+conduits, 7 column prologue, 8 voxel loop
 static inline uint64_t us_since(const std::chrono::steady_clock::time_point &t) { return (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t).count(); }
 
 PackedByteArray FineGen::generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel) const {
@@ -1372,8 +1372,8 @@ Dictionary FineGen::gen_stats() {
     d["ctx_miss"] = (int64_t)s_ctx_miss.exchange(0);
     d["ctx_build_us"] = (int64_t)s_ctx_build_us.exchange(0);
     d["sky"] = (int64_t)s_sky.exchange(0);
-    const char *ph[7] = {"phase_ctx_us", "phase_prep_us", "phase_columns_us", "phase_post_us", "prep_trees_us", "prep_caves_us", "prep_geo_conduit_us"};
-    for (int i = 0; i < 7; i++) d[ph[i]] = (int64_t)s_ph_us[i].exchange(0);
+    const char *ph[9] = {"phase_ctx_us", "phase_prep_us", "phase_columns_us", "phase_post_us", "prep_trees_us", "prep_caves_us", "prep_geo_conduit_us", "col_prologue_us", "col_voxels_us"};
+    for (int i = 0; i < 9; i++) d[ph[i]] = (int64_t)s_ph_us[i].exchange(0);
     d["ctx_bytes_lod0"] = (int64_t)(sizeof(ColumnCtx) + 25 * sizeof(MacroPt));   // a 16-voxel footprint's 5 x 5 lattice
     return d;
 }
@@ -1766,12 +1766,14 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     std::vector<VeinCol> vcols((size_t)vnx * vnz);
     s_ph_us[1] += us_since(tph);
     tph = std::chrono::steady_clock::now();
+    uint64_t t_pro = 0, t_vox = 0;   // the column prologue and the voxel loop, summed over the block (ns: a column is a few us)
     for (int z = 0; z < sz; z++) {
         const int wz = origin.z + z * step;
         const float uz = (float)(wz - lz0) / L;
         const int j = std::min((int)uz, nz - 2);
         const float tz = uz - j;
         for (int x = 0; x < sx; x++) {
+            const auto tcol = std::chrono::steady_clock::now();
             const int wx = origin.x + x * step;
             const float ux = (float)(wx - lx0) / L;
             const int i = std::min((int)ux, nx - 2);
@@ -2244,6 +2246,8 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             }
             int dress_anchor = INT32_MIN, dress_biome = -1;   // the cave biome of the last floor or ceiling looked up
             stack_top = std::max({stack_top, h + veg_h + 2, h + spike + 1, h + CLUTTER_H + 1, far_top + 1, water_level + 1, h + aqua_h + 1});
+            const auto tvox = std::chrono::steady_clock::now();
+            t_pro += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(tvox - tcol).count();
             uint16_t *colp = w + sy * (x + sx * z);
             ValueNoiseCell sheet_cell;   // the stringer sheet's noise cell, shared up the column
             for (int y = 0; y < sy; y++) {
@@ -2432,10 +2436,13 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 colp[y] = mat;
                 if (mat != Mat::AIR) any = true;
             }
+            t_vox += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - tvox).count();
         }
     }
     if (stack_top >= 0) ctx->top_seen.store(std::max(stack_top, ctx->feat_top) + FS, std::memory_order_relaxed);
     s_ph_us[2] += us_since(tph);
+    s_ph_us[7] += t_pro / 1000;
+    s_ph_us[8] += t_vox / 1000;
     tph = std::chrono::steady_clock::now();
     if (!any) return out;
     // No lone liquid cells (ADR 0069 C): a still liquid cell with air above, no liquid of its kind on any side and
