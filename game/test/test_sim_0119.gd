@@ -206,3 +206,39 @@ func test_sludge_over_lava_boils_to_toxic_gas_that_sinks() -> void:
 	# heavy: more of it in the room's lower half than its upper half
 	var low := w.count_in_box(Vector3i(16, 8, 16), Vector3i(32, 19, 32), GameMaterials.TOXIC_GAS)
 	assert_int(low * 2).override_failure_message("toxic gas rose: %d low of %d" % [low, gas]).is_greater_equal(gas)
+
+
+## Bug 2026-11-03 (playtest lane): a 2 m lava ball beside a 2 m water ball on a plain. Steam must not condense in
+## mid-air (a mist of drops drew as a white sheet across the view) and nothing solid may appear away from the balls.
+func test_lava_beside_water_leaves_no_mist_and_no_stray_solids() -> void:
+	var w := _world()
+	w.set_ambient_c(11.0, true)
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 10, 48), GameMaterials.STONE)
+	w.fill_sphere(Vector3(14, 18, 24), 8.0, GameMaterials.LAVA, PackedInt32Array())
+	_run(w, 30)
+	w.fill_sphere(Vector3(32, 18, 24), 8.0, GameMaterials.WATER, PackedInt32Array())
+	_run(w, 600)
+	var airborne := 0
+	var stray_solid := 0
+	for cz in 3:
+		for cy in 3:
+			for cx in 3:
+				var b: PackedByteArray = w.get_chunk_bytes(Vector3i(cx, cy, cz), 2)
+				for o in range(0, b.size(), 2):
+					var v := b[o] + (b[o + 1] << 8)
+					var i := o / 2
+					var y := i % 16 + cy * 16
+					var x := (i / 16) % 16 + cx * 16
+					var z := i / 256 + cz * 16
+					if v == 0 or y < 10:
+						continue
+					var mat := v if v < GameMaterials.FLUID_LEVEL_BASE else GameMaterials.material_of_voxel(v)
+					var d: Dictionary = GameMaterials.defs()[mat - 1] if mat >= 1 and mat <= GameMaterials.defs().size() else {}
+					var ct := String(d.get("cell_type", "solid"))
+					if mat == GameMaterials.WATER and y > 11 and w.get_voxel(Vector3i(x, y - 1, z)) == 0 and w.get_voxel(Vector3i(x, y - 2, z)) == 0:
+						airborne += 1
+					elif ct == "solid" and y >= 28:   # the balls reach y 26: nothing solid may stand above them
+						stray_solid += 1
+	assert_int(airborne).override_failure_message("%d water drops hang in the air" % airborne).is_less(40)
+	assert_int(stray_solid).override_failure_message("%d solid cells appeared above the scene" % stray_solid).is_equal(0)
+	assert_int(w.count_material(GameMaterials.STEAM)).override_failure_message("steam piled up").is_less(3000)

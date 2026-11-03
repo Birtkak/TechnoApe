@@ -1420,6 +1420,19 @@ void SimWorld::try_react(int x, int y, int z, int i, Ctx &c) {
     if (ri < 0) { ri = react_lut_[b * MAX_MATERIALS + a]; swapped = true; }
     if (ri < 0) return;
     if (moved_[ni] == mark_) return;
+    // a partly full liquid cell reacts in proportion to its eighths (ADR 0119): a one-eighth film of water next to
+    // lava made a whole cell of steam, eight times its mass, and a spill thinned to films fogged the sky
+    for (int k : {i, ni}) {
+        const Cell &cell = cells_[k];
+        const int e = cell.pad & 15;
+        if (e && mats_[cell.mat].cell_type == CELL_LIQUID && (int)(rnd(c) & 7u) >= e) {
+            // the partial cell is used up without its product (a reaction that keeps rolling would make it whole)
+            place(k, 0);
+            moved_[k] = mark_;
+            mark_cell(k == i ? x : nx, k == i ? y : ny, k == i ? z : nz, c, true);
+            return;
+        }
+    }
     // the pair's reactions roll in order; the first hit fires (ADR 0081: lava + water boils far more often than it crusts)
     uint32_t roll = r >> 8;
     while ((roll & 0xFFFF) >= reactions_[ri].probability) {
@@ -1488,17 +1501,30 @@ void SimWorld::update_chunk(int ci) {
                     const int src = (cells_[i].flags & FLAG_BURNING) ? 400 : (int)md.heat_c;
                     if (src > 0 && heat_[hi] < src) heat_[hi] = (int16_t)(heat_[hi] + (src - heat_[hi] + 7) / 8);
                     const int T = heat_[hi];
-                    uint8_t to = 0;
+                    int to = -1;   // 0 = the cell goes to air
                     if (md.cell_type == CELL_LIQUID && !md.liquid_static) {
-                        // boiling is a rate (a sixteenth of the cells a tick), so the pressure it builds can stop it
-                        if (md.boils_to && T >= md.boil_c + (md.boil_rise_c * (int)pressure_[ci]) / 255 && (rnd(c) & 15u) == 0) to = md.boils_to;
-                        else if (md.freezes_to && T <= md.freeze_c) to = md.freezes_to;
+                        // boiling is a rate (a sixteenth of the cells a tick), so the pressure it builds can stop it;
+                        // a partial cell makes a gas cell with the chance of its eighths and otherwise just goes, so a
+                        // spill thinned to films makes as much steam as its water held, not a cell per film
+                        if (md.boils_to && T >= md.boil_c + (md.boil_rise_c * (int)pressure_[ci]) / 255 && (rnd(c) & 15u) == 0) {
+                            const int eighths = (cells_[i].pad & 15) ? (int)(cells_[i].pad & 15) : 8;
+                            to = (int)(rnd(c) & 7u) < eighths ? (int)md.boils_to : 0;
+                        } else if (md.freezes_to && T <= md.freeze_c) to = md.freezes_to;
                     } else if (md.cell_type == CELL_GAS) {
-                        if (md.condenses_to && T <= md.condense_c) to = md.condenses_to;
+                        // a gas condenses against a surface (rock, powder or liquid on one of its six sides), never in
+                        // open air: a mist of one-eighth drops in the air drew as sheets and cubes (2026-11-03)
+                        if (md.condenses_to && T <= md.condense_c) {
+                            for (int d = 0; d < 6; d++) {
+                                const int nx = x + NX6[d], ny = y + NY6[d], nz = z + NZ6[d];
+                                if (!is_open(nx, ny, nz)) continue;
+                                const uint8_t nm = cells_[idx(nx, ny, nz)].mat;
+                                if (nm != 0 && mats_[nm].cell_type != CELL_GAS && mats_[nm].cell_type != CELL_FIRE) { to = md.condenses_to; break; }
+                            }
+                        }
                     } else if (md.cell_type == CELL_SOLID && md.melts_to && T >= md.melt_c) to = md.melts_to;
-                    if (to) {
-                        place(i, to);
-                        if (mats_[to].cell_type == CELL_LIQUID) cells_[i].pad = md.cell_type == CELL_GAS ? 1 : 0;   // a condensed drop is one eighth
+                    if (to >= 0) {
+                        place(i, (uint8_t)to);
+                        if (mats_[to].cell_type == CELL_LIQUID) cells_[i].pad = 0;   // one cell for one cell both ways, or steam that condensed to a drop and boiled again gained eightfold
                         moved_[i] = mark_;
                         mark_cell(x, y, z, c, true);
                         c.moved++;

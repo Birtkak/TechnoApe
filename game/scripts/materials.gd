@@ -213,7 +213,7 @@ static func _build_defs() -> Array:
 		{"name": "lava", "heat_c": 1200, "freeze_c": 700, "freezes_to": "basalt", "cell_type": "liquid", "fluid_slot": 1, "density": 5, "liquid_flow_speed": 0.3, "liquid_gravity": 0.3, "temperature_of_fire": 150, "film_lifetime_ticks": 300, "film_convert_to_material": 85, "tiles": [7, 7, 7], "transparent": false},
 		{"name": "ash", "cell_type": "powder", "density": 2, "tiles": [8, 8, 8], "transparent": false},
 		{"name": "oil", "cell_type": "liquid", "fluid_slot": 2, "density": 0.8, "liquid_flow_speed": 0.6, "liquid_speed": 2, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
-		{"name": "steam", "condense_c": 60, "condenses_to": "water", "cell_type": "gas", "density": 0, "gas_upwards_speed": 220, "gas_horizontal_speed": 50, "lifetime": 1800, "tiles": [10, 10, 10], "transparent": true},
+		{"name": "steam", "condense_c": 60, "condenses_to": "water", "cell_type": "gas", "density": 0, "gas_upwards_speed": 220, "gas_horizontal_speed": 50, "lifetime": 900, "tiles": [10, 10, 10], "transparent": true},
 		{"name": "smoke", "cell_type": "gas", "density": 0, "gas_upwards_speed": 190, "gas_horizontal_speed": 60, "lifetime": 330, "tiles": [11, 11, 11], "transparent": true},
 		{"name": "fire", "heat_c": 600, "cell_type": "fire", "density": 0, "lifetime": 24, "temperature_of_fire": 60, "gas_upwards_speed": 120, "gas_horizontal_speed": 80, "tiles": [12, 12, 12], "transparent": true},
 		{"name": "bedrock", "cell_type": "solid", "density": 15, "hp": 1000000, "tiles": [13, 13, 13], "transparent": false},
