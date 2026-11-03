@@ -1411,6 +1411,7 @@ stone_age_sprites.add(globals())
 import metal_age_sprites  # noqa: E402  the bronze and iron ages (ADR 0070)
 metal_age_sprites.add(globals())
 
+
 # loose heads and blades (crafting parts): the same shape as on the tool, moved to the middle of the icon
 _heads = {s["layers"][1]["shape"] for s in SP.values()
           if len(s["layers"]) == 2 and s["layers"][0]["shape"] in ("handle", "short_handle", "saw_handle")}
@@ -1431,6 +1432,8 @@ for _id, _s in SP.items():
     _l[0]["shape"] = _name
 
 # ---------- validate + write ----------
+
+
 
 
 def resolve(layer):
@@ -1552,6 +1555,13 @@ sp("small_boiler", "boiler")
 sp("steam_hammer", ("steam_hammer", "iron"))
 sp("steam_sieve", ("steam_sieve", "wood"))
 sp("goggles", ("goggles", "bronze"))
+# ADR 0131, second LV pass: things made from the machines' outputs (shapes from the files above)
+PALETTES["rubber"] = ramp("#0e0e16", "#22222c", "#34343e", "#4a4a52", "#6e6a62")
+sp("rubber_boots", ("boots", "rubber"))
+sp("diving_mask", ("goggles", "rubber"))
+sp("spyglass", ("pipe", "copper"), ("ball", "tin"))
+sp("hand_drill", H, ("pickaxe_head", "steel"), ("flower_head", "iron"))
+sp("heavy_copper_cable", ("pipe", "copper", {"e": "#0e0e16", "f": "#22222c"}))
 sp("leather_apron", ("apron", "leather"))
 
 # stage 2 and the turbine (ADR 0099)

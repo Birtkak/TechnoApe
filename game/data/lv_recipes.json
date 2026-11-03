@@ -42,6 +42,13 @@
     {"id": "electrolyze_iron", "type": "process", "station": "electrolyzer", "ingredients": ["crushed_iron_ore", "crushed_iron_ore", "carbon_electrode"], "output": {"id": "iron_ingot", "count": 2}, "seconds": 15, "info": "600 W; no bloomery"},
 
     {"id": "assemble_electric_piston", "type": "process", "station": "assembler", "ingredients": ["steel_rod", "iron_plate", "iron_plate", "electric_motor"], "output": {"id": "electric_piston", "count": 2}, "seconds": 8, "info": "200 W; a steel rod drives two pistons"},
-    {"id": "assemble_insulated_wire", "type": "process", "station": "assembler", "ingredients": ["copper_wire", "copper_wire", "copper_wire", "rubber"], "output": {"id": "insulated_wire", "count": 3}, "seconds": 4, "info": "200 W; the table sleeves one wire per rubber"}
+    {"id": "assemble_insulated_wire", "type": "process", "station": "assembler", "ingredients": ["copper_wire", "copper_wire", "copper_wire", "rubber"], "output": {"id": "insulated_wire", "count": 3}, "seconds": 4, "info": "200 W; the table sleeves one wire per rubber"},
+    {"id": "resin_torch", "type": "shapeless", "ingredients": ["sticky_resin", "#stick"], "output": {"id": "torch", "count": 4}},
+    {"id": "rubber_boots", "type": "shaped", "pattern": ["R R", "R R"], "key": {"R": "rubber"}, "output": {"id": "rubber_boots", "count": 1}},
+    {"id": "diving_mask", "type": "shaped", "pattern": ["RRR", "LRL"], "key": {"R": "rubber", "L": "glass_lens"}, "output": {"id": "diving_mask", "count": 1}},
+    {"id": "spyglass", "type": "shaped", "pattern": ["L", "P", "L"], "key": {"L": "glass_lens", "P": "copper_pipe"}, "output": {"id": "spyglass", "count": 1}, "station": "crafting_table"},
+    {"id": "hand_drill", "type": "shaped", "pattern": [" H ", "GRG", " R "], "key": {"H": "steel_pickaxe_head", "G": "iron_gear", "R": "steel_rod"}, "output": {"id": "hand_drill", "count": 1}, "station": "crafting_table", "_note": "ADR 0099: steel-age tools at the crafting table"},
+    {"id": "heavy_copper_cable", "type": "shaped", "pattern": ["CCC", "RRR"], "key": {"C": "copper_cable", "R": "rubber"}, "output": {"id": "heavy_copper_cable", "count": 1}},
+    {"id": "belt_rubber", "type": "shaped", "pattern": ["RRR", "GSG", "PPP"], "key": {"R": "rubber", "G": "iron_gear", "S": "iron_rod", "P": "iron_plate"}, "output": {"id": "belt", "count": 6}, "station": "crafting_table", "_note": "a rubber belt instead of leather: half as many again"}
   ]
 }

@@ -415,7 +415,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 			_mark(p)
 			if _consumes():
 				main.player_inv.consume_held(1)
-		"pipe":
+		"pipe", "cable":   # the item says the pipe's or cable's kind (a cable its gauge, ADR 0123, 0131)
 			e.item = id
 			e.axis = posmod(roundi(main.player.rotation_degrees.y / 90.0), 2)   # along the way the player faces (ADR 0097)
 			_mark(p)

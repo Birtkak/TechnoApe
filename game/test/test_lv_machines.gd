@@ -78,3 +78,47 @@ func test_each_machine_runs_on_power() -> void:
 		assert_str(String(out[0]["id"])).is_equal(String(r["output"]["id"]))
 		var id: String = r["output"]["id"]
 		assert_int(int(out[0]["count"])).is_equal(int(r["output"]["count"]) * items.units(id))   # a voxel item counts voxels
+
+
+## The second pass (ADR 0131): every machine output has a use, and the Workshop chapter leads there.
+func test_outputs_have_uses() -> void:
+	for id in ["sticky_resin", "rubber", "glass_lens", "iron_gear", "copper_pipe", "tin_can", "steel_rod", "carbon_electrode"]:
+		var used := false
+		for rid in recipes.recipes:
+			if id in recipes.ingredient_specs(recipes.recipes[rid]):
+				used = true
+				break
+		assert_bool(used).override_failure_message(id + " has no use").is_true()
+	for id in ["canned_meat", "canned_fish", "canned_vegetables"]:
+		assert_str(String(items.get_def(id).get("empties_to", ""))).is_equal("tin_can")   # the can comes back
+	assert_bool(items.matches("sticky_resin", "#binding") and items.matches("sticky_resin", "#tar")).is_true()
+	assert_float(float(items.get_def("diving_mask")["clothing"]["air_x"])).is_greater(1.0)
+	assert_float(float(items.get_def("spyglass")["zoom"])).is_greater(Settings.zoom_factor)
+	var grid := ["sticky_resin", "stick", "", "", "", "", "", "", ""]
+	assert_str(recipes.match_grid(grid, "").get("id", "")).is_equal("resin_torch")
+
+
+func test_heavy_cable_loses_less_and_carries_more() -> void:
+	var thin := CableEntity.new(items, Vector3i.ZERO)
+	var thick := CableEntity.new(items, Vector3i.ZERO)
+	thick.item = "heavy_copper_cable"
+	assert_float(float(thick.net("energy")["ohms"])).is_less(float(thin.net("energy")["ohms"]))
+	assert_float(float(thick.net("energy")["amps"])).is_greater(float(thin.net("energy")["amps"]))
+	var back := CableEntity.new(items, Vector3i.ZERO)
+	back.load_from(thick.to_dict())
+	assert_str(back.item).is_equal("heavy_copper_cable")   # the gauge is saved with the cable
+
+
+func test_workshop_chapter_leads_to_the_machines() -> void:
+	var book = JSON.parse_string(FileAccess.get_file_as_string("res://data/quests.json"))
+	var ch: Dictionary = {}
+	for c in book["chapters"]:
+		if c["id"] == "lv_workshop":
+			ch = c
+	assert_dict(ch).is_not_empty()
+	var tasked := []
+	for q in ch["quests"]:
+		for t in q["tasks"]:
+			tasked.append(t["item"])
+	for m in MACHINES + ["spyglass", "diving_mask", "hand_drill", "heavy_copper_cable", "rubber_boots"]:
+		assert_array(tasked).contains([m])
