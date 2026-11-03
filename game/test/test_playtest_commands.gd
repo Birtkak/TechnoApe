@@ -52,3 +52,20 @@ func test_scenario_fails_politely() -> void:
 	var r := reg.execute("/scenario river")   # no world: /goto cannot run
 	assert_bool(r["ok"]).is_false()
 	assert_str(r["text"]).contains("/goto river")
+
+
+func test_goto_river_skips_a_dry_bed() -> void:
+	var g := TerrainGenerator.new()   # seed 1337: the river nearest spawn runs dry at the monolith
+	var dry: Vector3i = g.gen.find_nearest("river", -80, -138, int(Settings.m2v(4000.0)))
+	assert_int(int(g.column_info(dry.x, dry.z)["water_level"])).is_less(0)
+	var wet := GameCommands.wet_river_near(g, dry)
+	assert_int(wet.y).is_greater_equal(0)
+	var c := g.column_info(wet.x, wet.z)
+	assert_float(float(c["river"])).is_greater(0.5)
+	assert_int(int(c["water_level"])).is_equal(wet.y)
+
+
+func test_count_needs_a_known_material_and_a_world() -> void:
+	assert_str(reg.execute("/count")["text"]).contains("Usage")
+	assert_str(reg.execute("/count nope")["text"]).contains("Unknown material")
+	assert_str(reg.execute("/count steam")["text"]).is_equal("No world")
