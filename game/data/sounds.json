@@ -132,7 +132,7 @@
   "loop/sand": {"db": -8, "range_m": 20, "ref_m": 2},
   "loop/lava": {"db": -6, "range_m": 24, "ref_m": 3},
   "loop/steam": {"db": -14, "range_m": 16, "ref_m": 2},
-  "loop/monolith_hum": {"db": -22, "range_m": 24, "ref_m": 3},
+  "loop/monolith_hum": {"db": -30, "range_m": 10, "ref_m": 2},
   "player/gelvin_blip": {"asset": "gelvin/blip", "db": -16, "flat": true, "pitch": [0.9, 1.1]},
   "player/gelvin_done": {"asset": "gelvin/done", "db": -10, "flat": true, "pitch": [1.0, 1.0]},
   "loop/underwater": {"db": -10, "flat": true}
