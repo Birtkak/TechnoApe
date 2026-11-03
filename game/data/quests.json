@@ -3300,7 +3300,7 @@
           "deps": [
             "first_machine"
           ],
-          "description": "On 4 EU/t it draws a bucket of water a second from under it: water without buckets, into a tank beside it.",
+          "description": "On 100 W it draws a bucket of water a second from under it: water without buckets, into a tank beside it.",
           "tasks": [
             {
               "type": "item",
@@ -3310,9 +3310,9 @@
           "optional": true
         },
         {
-          "id": "eu_meter",
-          "title": "EU Meter",
-          "icon": "eu_meter",
+          "id": "multimeter",
+          "title": "Multimeter",
+          "icon": "multimeter",
           "pos": [
             4,
             0
@@ -3324,7 +3324,7 @@
           "tasks": [
             {
               "type": "item",
-              "item": "eu_meter"
+              "item": "multimeter"
             }
           ],
           "optional": true

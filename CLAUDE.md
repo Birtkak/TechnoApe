@@ -124,8 +124,9 @@ Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
 - Phase 3 (started 2026-11-02): machines on networks (ADR 0113: `NetworkSolver`, `Networks.solve`, cable + electric
   furnace), the electrical age to LV (ADR 0117: one `MachineEntity` from item data + process recipes, battery, lamp,
   pump with machine pins, the coke oven multiblock, `/kit electric`, `/stations factory`) and steam and water as
-  solver channels (ADR 0122: pipes conduct, no reach limit, the EU meter). More machines are data for a cheaper
-  model. Still open: wands/spells (dropped for now), progression past LV.
+  solver channels (ADR 0122: pipes conduct, no reach limit), and the network in real units (ADR 0123: 48 V DC, a
+  nodal solve of EMFs, cable ohms and watt loads; switches, fuses, breakers, the multimeter; `tools/eu_to_watts.py`
+  converts EU-era data). More machines are data for a cheaper model. Still open: wands/spells (dropped for now), progression past LV.
 - Phase 4: automation depth, dedicated server on Unraid, auto-update
 
 ## Conventions

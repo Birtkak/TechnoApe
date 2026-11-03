@@ -6,8 +6,7 @@ extends FurnaceEntity
 ## piece: a right click with a smeltable loads the input, an empty hand takes the output; hoppers load and
 ## unload it through Transport.
 
-var eu := 0.0        # what the last solve delivered, for the look-at panel
-var eu_t := 16.0
+var load: PowerLoad   # its draw on the LV network (ADR 0123)
 var facing := 0      # a wrench turns it
 
 
@@ -15,26 +14,27 @@ func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_pos: Vector3i) ->
 	super(p_items, p_recipes, p_pos)
 	kind = "electric_furnace"
 	title = "Electric Furnace"
-	eu_t = float(p_items.get_def(kind).get("machine", {}).get("eu_t", 16.0))
+	load = PowerLoad.new(float(p_items.get_def(kind).get("machine", {}).get("watts", 400.0)))
 
 
 func net(channel: String) -> Dictionary:
 	if channel != "energy":
 		return {}
 	var r := recipes.smelting_for(inv.get_slot(INPUT).get("id", ""), station) if not inv.is_empty_slot(INPUT) else {}
-	return {"role": NetworkSolver.SINK, "amount": eu_t if _can_burn(r) else 0.0}
+	return load.net(_can_burn(r))
 
 
-## Enough power for the coming second lights it; anything less and it goes dark.
-func net_in(channel: String, amount: float) -> void:
+## While its voltage holds it burns a second of fire per solve; under it, it goes dark.
+func net_in(channel: String, d) -> bool:
 	if channel != "energy":
-		return
-	eu = amount
+		return false
 	var was := is_lit()
-	lit_time = 21 if amount >= eu_t - 1e-3 else 0   # one solve interval plus a tick
+	var started := load.net_in(d)
+	lit_time = 21 if load.on else 0   # one solve interval plus a tick
 	lit_duration = 21
 	if was != is_lit():
 		changed.emit()
+	return started
 
 
 func may_place(slot: int, _id: String) -> bool:
@@ -74,7 +74,7 @@ func look_lines() -> Array[String]:
 	var o: Dictionary = inv.get_slot(OUTPUT)
 	if not o.is_empty():
 		out.append("Ready: %s x%d (empty hand takes it)" % [items.display_name(o["id"]), int(o["count"])])
-	out.append("Powered: %d EU/t" % roundi(eu) if is_lit() else "No power: cable it to a generator (%d EU/t)" % roundi(eu_t))
+	out.append(("Running, " if is_lit() else "No power: ") + load.status())
 	return out
 
 
@@ -95,5 +95,5 @@ func load_from(d: Dictionary) -> void:
 
 func summary() -> Dictionary:
 	var d := super()
-	d["eu"] = eu
+	d["watts"] = load.drawn
 	return d

@@ -1,31 +1,34 @@
 class_name ElectricLampEntity
 extends RefCounted
 
-## An electric lamp (ADR 0117): an iron post with a glass bulb that wants Settings.lamp_eu_t from the
-## cables and counts as lit while it gets it, so TorchLights lights the room from it like a fire.
+## An electric lamp (ADR 0117, 0123): an iron post with a glass bulb, a `load.watts` load on the LV network
+## (PowerLoad); lit while its voltage holds, so TorchLights lights the room from it like a fire.
 
 signal changed
 
 var kind := "electric_lamp"
 var pos: Vector3i
 var lit := false
+var load: PowerLoad
 
 
-func _init(p_pos: Vector3i) -> void:
+func _init(p_items: ItemRegistry, p_pos: Vector3i) -> void:
 	pos = p_pos
+	load = PowerLoad.new(float(p_items.get_def(kind).get("load", {}).get("watts", 40.0)))
 
 
 func net(channel: String) -> Dictionary:
-	return {"role": NetworkSolver.SINK, "amount": Settings.lamp_eu_t} if channel == "energy" else {}
+	return load.net(true) if channel == "energy" else {}
 
 
-func net_in(channel: String, amount: float) -> void:
+func net_in(channel: String, d) -> bool:
 	if channel != "energy":
-		return
-	var on := amount >= Settings.lamp_eu_t - 1e-3
-	if on != lit:
-		lit = on
+		return false
+	var started := load.net_in(d)
+	if load.on != lit:
+		lit = load.on
 		changed.emit()
+	return started
 
 
 func tick() -> bool:
@@ -37,7 +40,7 @@ func is_lit() -> bool:
 
 
 func use(_stack: Dictionary) -> Dictionary:
-	return {"consume": 0, "give": [], "msg": "The lamp is %s." % ("on" if lit else "dark: cable it to a generator")}
+	return {"consume": 0, "give": [], "msg": "The lamp is %s (%s)." % ["on" if lit else "dark", load.status()]}
 
 
 func contents() -> Array:
@@ -45,7 +48,7 @@ func contents() -> Array:
 
 
 func look_lines() -> Array[String]:
-	return ["Lit" if lit else "Dark: no power (%d EU/t)" % roundi(Settings.lamp_eu_t)]
+	return [("Lit, " if lit else "Dark, ") + load.status()]
 
 
 ## A post up the middle with a bulb on top that glows while lit.

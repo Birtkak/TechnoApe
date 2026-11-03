@@ -28,13 +28,23 @@ func is_lit() -> bool:
 	return rpm > 0.0   # BlockEntities.tick redraws "lit" pieces: the wheel turns
 
 
-## On the energy network (ADR 0113) it is the generator: turbine_eu_t at working pressure.
+var amps := 0.0    # delivered, last solve
+var volts := 0.0
+
+
+## On the LV network (ADR 0123) it is the dynamo: an EMF of dynamo_volts at working speed (less as it slows)
+## behind dynamo_ohms, so a loaded dynamo sags and a slow one cannot hold the machines.
 func net(channel: String) -> Dictionary:
-	return {"role": NetworkSolver.SOURCE, "amount": Settings.turbine_eu_t * rpm / Settings.turbine_rpm} if channel == "energy" else {}
+	if channel != "energy" or rpm <= 0.0:
+		return {}
+	return {"kind": "source", "volts": Settings.dynamo_volts * clampf(rpm / Settings.turbine_rpm, 0.0, 1.0), "ohms": Settings.dynamo_ohms}
 
 
-func net_in(_channel: String, _amount: float) -> void:
-	pass
+func net_in(channel: String, d) -> bool:
+	if channel == "energy":
+		amps = float(d.get("amps", 0.0))
+		volts = float(d.get("volts", 0.0))
+	return false
 
 
 func tick() -> bool:
@@ -55,7 +65,7 @@ func tick() -> bool:
 
 
 func use(_held: Dictionary) -> Dictionary:
-	return {"consume": 0, "give": [], "msg": "The turbine turns at %d rpm and gives %d EU/t to the cables that touch it." % [roundi(rpm), roundi(Settings.turbine_eu_t * rpm / Settings.turbine_rpm)] if rpm > 0.0 else "A bladed wheel waiting for steam: the generator; cables carry its power."}
+	return {"consume": 0, "give": [], "msg": "The turbine turns at %d rpm: %.1f V, %.1f A (%.0f W) on the cables that touch it." % [roundi(rpm), volts, amps, volts * amps] if rpm > 0.0 else "A bladed wheel waiting for steam: the dynamo; cables carry its power."}
 
 
 func contents() -> Array:
@@ -67,7 +77,7 @@ func look_lines() -> Array[String]:
 		return ["No steam: lay pipes from a boiler"]
 	if boiler.pressure <= 0.0:
 		return ["No pressure: the boiler is cold"]
-	return ["Turning at %d rpm (%.2f bar): %d EU/t on the cables" % [roundi(rpm), boiler.pressure, roundi(Settings.turbine_eu_t * rpm / Settings.turbine_rpm)]]
+	return ["Turning at %d rpm (%.2f bar): %.1f V, %.1f A, %.0f W on the cables" % [roundi(rpm), boiler.pressure, volts, amps, volts * amps]]
 
 
 ## 1.5 m on a side (SCALE 3), one cell per voxel (grid 12), big and industrial (ADR 0129): a cast-iron bed

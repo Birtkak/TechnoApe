@@ -75,11 +75,12 @@ func test_pump_draws_a_bucket_of_connected_water_into_a_tank() -> void:
 func test_pump_needs_power_and_the_simulation_while_it_has_room() -> void:
 	var pump: PumpEntity = store.create(Vector3i(0, 20, 0), "pump")
 	assert_bool(pump.needs_sim()).is_false()
-	pump.net_in("energy", Settings.pump_eu_t)
+	pump.load.wants = true
+	pump.net_in("energy", {"volts": 48.0, "amps": 4.0, "watts": 200.0, "may_start": true})
 	assert_bool(pump.needs_sim()).is_true()
 	pump.buckets = Settings.pump_buckets
 	assert_bool(pump.needs_sim()).is_false()
-	assert_float(pump.net("energy")["amount"]).is_equal(0.0)
+	assert_str(pump.net("energy")["kind"]).is_equal("conductor")   # full: no load, its terminals still pass the line
 	assert_str(pump.use({"id": "bucket", "count": 1})["give"][0]["id"]).is_equal("water_bucket")
 
 

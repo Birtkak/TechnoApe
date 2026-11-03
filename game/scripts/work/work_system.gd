@@ -347,7 +347,7 @@ func debug_factory_line(base: Vector3i, right: Vector3i) -> String:
 	_create(base + right * 19 * B, "electric_lamp", GameMaterials.WORK_SPOT)
 	_create(base + right * 20 * B, "cable", GameMaterials.WORK_SPOT)
 	var asm: RefCounted = _create(base + right * 21 * B, "assembler", GameMaterials.WORK_BLOCK)
-	for id in ["vacuum_tube", "resistor", "insulated_wire", "coated_board"]:
+	for id in ["vacuum_tube", "resistor", "capacitor", "insulated_wire", "coated_board"]:
 		asm.use({"id": id, "count": 4})
 	return "the electric line, a hopper-fed macerator and furnace, a battery, a lamp and an assembler from %s (%d pieces)" % [base, 16]
 
@@ -657,7 +657,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		if first_press:
 			_turn(e)
 		return true
-	if "meter" in held.get("tags", []):   # the EU meter (ADR 0122): reads the networks the piece is on
+	if "meter" in held.get("tags", []):   # the multimeter (ADR 0122, 0123): reads the networks the piece is on
 		if first_press:
 			var line := Networks.look_line(e)
 			_say(line if line != "" else "The %s is on no network." % String(e.kind).replace("_", " "))
@@ -794,8 +794,8 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
 		_say(res["msg"])
 		return true
-	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity:   # ADR 0099, 0113, 0117
-		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is PumpEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
+	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity:   # ADR 0099, 0113, 0117, 0123
+		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
 		if res["consume"] > 0 and _consumes():
 			main.player_inv.consume_held(res["consume"])
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
