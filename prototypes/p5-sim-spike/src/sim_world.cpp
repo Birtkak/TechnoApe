@@ -920,6 +920,7 @@ void SimWorld::relax_heat(int ci) {
     int cx, cy, cz;
     chunk_of(ci, cx, cy, cz);
     const int x0 = cx * CS, y0 = cy * CS, z0 = cz * CS;
+    bool extreme = false;   // hot enough to boil or cold enough to freeze: the chunk's cells must be visited
     for (int z = z0; z < z0 + CS; z += HC)
         for (int y = y0; y < y0 + CS; y += HC)
             for (int x = x0; x < x0 + CS; x += HC) {
@@ -935,7 +936,14 @@ void SimWorld::relax_heat(int ci) {
                 if (n > 0) v += (sum - n * v) / (12 * n);
                 v += (ambient_c_ - v) / 64;
                 heat_[h] = (int16_t)v;
+                if (v >= 90 || v <= 0) extreme = true;
             }
+    // the chunk update scans only a chunk's dirty box, so a quiet pool in a hot or freezing chunk would never
+    // change state: such a chunk runs whole on this cadence (every 4 ticks while awake, every 64 asleep)
+    if (extreme) {
+        active_next_[ci].store(1, std::memory_order_relaxed);
+        merge_box(ci, BOX_FULL);
+    }
 }
 
 Dictionary SimWorld::cell_info(Vector3i p) const {
@@ -1510,10 +1518,14 @@ void SimWorld::update_chunk(int ci) {
                     const int T = heat_[hi];
                     int to = -1;   // 0 = the cell goes to air
                     if (md.cell_type == CELL_LIQUID && !md.liquid_static) {
-                        // boiling is a rate (a sixteenth of the cells a tick), so the pressure it builds can stop it;
-                        // a partial cell makes a gas cell with the chance of its eighths and otherwise just goes, so a
-                        // spill thinned to films makes as much steam as its water held, not a cell per film
-                        if (md.boils_to && T >= md.boil_c + (md.boil_rise_c * (int)pressure_[ci]) / 255 && (rnd(c) & 15u) == 0) {
+                        // boiling is a rate that grows with the heat over the boiling point (a sixteenth of the cells
+                        // a tick at lava's heat, a hundredth beside a burning beam: a puddle next to a fire still
+                        // quenches flames for seconds instead of going in half a second, test_fire), and the pressure
+                        // it builds raises the point; a partial cell
+                        // makes a gas cell with the chance of its eighths and otherwise just goes, so a spill thinned
+                        // to films makes as much steam as its water held, not a cell per film
+                        const int boil_at = md.boil_c + (md.boil_rise_c * (int)pressure_[ci]) / 255;
+                        if (md.boils_to && T >= boil_at && (int)(rnd(c) & 255u) < std::min(16, 1 + (T - boil_at) / 16)) {
                             const int eighths = (cells_[i].pad & 15) ? (int)(cells_[i].pad & 15) : 8;
                             to = (int)(rnd(c) & 7u) < eighths ? (int)md.boils_to : 0;
                         } else if (md.freezes_to && T <= md.freeze_c) to = md.freezes_to;

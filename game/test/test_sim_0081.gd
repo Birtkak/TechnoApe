@@ -37,6 +37,8 @@ func test_lava_in_water_boils_more_than_it_crusts() -> void:
 	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 8, 48), GameMaterials.STONE)
 	w.fill_box(Vector3i(19, 8, 19), Vector3i(28, 12, 28), GameMaterials.STONE)    # a basin
 	w.fill_box(Vector3i(20, 8, 20), Vector3i(27, 12, 27), GameMaterials.WATER)    # a 7 x 4 x 7 pool in it
+	if w.has_method("set_states"):
+		w.set_states(false)   # this counts the reaction table's boils as lost water; with ADR 0119's heat pass the steam condenses straight back onto the cold pool
 	var water := w.count_liquid_eighths(GameMaterials.WATER)
 	for p in [Vector3i(21, 10, 21), Vector3i(25, 10, 21), Vector3i(23, 10, 23), Vector3i(21, 10, 25), Vector3i(25, 10, 25)]:
 		w.set_voxel(p, GameMaterials.LAVA)   # five lava cells in it (each replaces one water cell)
