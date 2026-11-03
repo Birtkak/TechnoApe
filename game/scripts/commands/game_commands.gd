@@ -139,7 +139,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("bug", "/bug <what went wrong>", "Save a bug report (screenshot, state, log) for Claude to read", _bug)
 	reg.register("sound", "/sound <name> [x y z] | list | stats", "Play a sound (ADR 0044), list them, or show the sound stats", _sound, [Sound.sound_names() + ["list", "stats"]])
 	reg.register("music", "/music [next|stop|<track>]", "Show, skip to the next, stop or pick a music track", _music, [["next", "stop"]])
-	playtest.register(reg, player)
+	playtest.register(reg, player, get.bind("main"))   # main is set after construction; a method callable keeps no cycle
 	var atmo: Node = main.get("atmosphere") if main != null else null
 	if atmo != null:
 		sky = SkyCommands.new(atmo)
@@ -667,8 +667,34 @@ func _goto(args: PackedStringArray) -> Dictionary:
 	if kind in ["aquifer", "magma_conduit"]:   # buried in rock or lava: land on the ground above, find it by ear
 		t.y = main.world.surface_height(t.x, t.z)
 		up = 3.0
+	if kind == "river":   # the nearest river cell can be a dry bed (the spawn monolith's): go to running water
+		var wet := wet_river_near(main.world.generator, t)
+		if wet.y < 0:
+			return CommandRegistry.fail("No running river within %d m of %d, %d" % [int(RIVER_SEARCH_M), t.x, t.z])
+		t = wet
 	player.teleport(Vector3(t.x + 0.5, t.y + up, t.z + 0.5))
 	return CommandRegistry.ok("Teleported to the nearest %s at %d, %d, %d" % [kind, t.x, t.y, t.z])
+
+
+const RIVER_SEARCH_M := 400.0
+const RIVER_STEP_M := 4.0
+
+
+## The river column with water nearest `from` (rings of RIVER_STEP_M out to RIVER_SEARCH_M), standing on the
+## water surface; y < 0 when none. column_info's water_level is -1 on a dry river bed.
+static func wet_river_near(generator: TerrainGenerator, from: Vector3i) -> Vector3i:
+	var step := int(Settings.m2v(RIVER_STEP_M))
+	for ring in int(RIVER_SEARCH_M / RIVER_STEP_M) + 1:
+		for i in maxi(1, ring * 8):
+			var s := i % maxi(1, ring * 2) - ring   # walk the ring's four sides
+			var side := i / maxi(1, ring * 2)
+			var o: Vector2i = [Vector2i(s, -ring), Vector2i(ring, s), Vector2i(-s, ring), Vector2i(-ring, -s)][side]
+			var x := from.x + o.x * step
+			var z := from.z + o.y * step
+			var c := generator.column_info(x, z)
+			if float(c["river"]) > 0.5 and int(c["water_level"]) >= 0:
+				return Vector3i(x, int(c["water_level"]), z)
+	return Vector3i(0, -1, 0)
 
 
 func _daycycle(args: PackedStringArray) -> Dictionary:
