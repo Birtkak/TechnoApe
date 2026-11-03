@@ -3320,11 +3320,175 @@
           "deps": [
             "primitive_circuit"
           ],
-          "description": "Glass, wire and a circuit on a plate: point it at a cable, pipe or machine to read the power made, wanted and moving, and steam and water the same.",
+          "description": "Glass, wire and a circuit on a plate: point it at a cable or machine to read the volts there and across the circuit, the highest current and the watts drawn of watts made; at a pipe, the steam and water moving.",
           "tasks": [
             {
               "type": "item",
               "item": "multimeter"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "extractor",
+          "title": "Rubber from the Forest",
+          "icon": "extractor",
+          "pos": [
+            7,
+            0
+          ],
+          "deps": [
+            "macerator"
+          ],
+          "description": "200 W squeezes any log to sticky resin and the resin to three rubber: no more hunting rubber trees.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "extractor"
+            },
+            {
+              "type": "item",
+              "item": "sticky_resin"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "cutter",
+          "title": "Cutter",
+          "icon": "cutter",
+          "pos": [
+            7,
+            1
+          ],
+          "deps": [
+            "macerator"
+          ],
+          "description": "A steel saw blade on a 200 W motor: six planks a log where a hand saw gives four, glass to lenses, plates to gears.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "cutter"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "electric_compressor",
+          "title": "Electric Compressor",
+          "icon": "electric_compressor",
+          "pos": [
+            7,
+            2
+          ],
+          "deps": [
+            "alloy_smelter"
+          ],
+          "description": "400 W presses coal coke into carbon electrodes and plant fibre into cordage.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "electric_compressor"
+            },
+            {
+              "type": "item",
+              "item": "carbon_electrode"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "electrolyzer",
+          "title": "Electrolysis",
+          "icon": "electrolyzer",
+          "pos": [
+            8,
+            2
+          ],
+          "deps": [
+            "electric_compressor"
+          ],
+          "description": "600 W through a carbon electrode turns crushed ore straight into ingots: no crucible, no bloomery.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "electrolyzer"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "extruder",
+          "title": "Extruder",
+          "icon": "extruder",
+          "pos": [
+            7,
+            3
+          ],
+          "deps": [
+            "assembler"
+          ],
+          "description": "400 W pushes ingots through a die: pipes, gears, rods, steel rods and tin cans.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "extruder"
+            },
+            {
+              "type": "item",
+              "item": "steel_rod"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "canning",
+          "title": "Food That Keeps",
+          "icon": "canned_meat",
+          "pos": [
+            8,
+            3
+          ],
+          "deps": [
+            "extruder"
+          ],
+          "description": "100 W seals cooked meat, fish or vegetables in a tin can: a meal that never spoils.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "canning_machine"
+            },
+            {
+              "type": "item",
+              "item": "#canned"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "circuitry",
+          "title": "Circuitry",
+          "icon": "breaker",
+          "pos": [
+            7,
+            5
+          ],
+          "deps": [
+            "battery_box"
+          ],
+          "description": "Put a knife switch (60 A) in line to cut a circuit, and a fuse box or breaker (30 A) before machines: a short burns a fuse, not a 40 A cable.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "knife_switch"
+            },
+            {
+              "type": "item",
+              "item": "fuse_box"
+            },
+            {
+              "type": "item",
+              "item": "breaker"
             }
           ],
           "optional": true
