@@ -77,12 +77,20 @@ static func solve(store: BlockEntities, channel: String) -> void:
 	stats["ms_max"] = maxf(float(stats["ms_max"]), (Time.get_ticks_usec() - t0) / 1000.0)
 
 
-## "Network: 32 EU/t made, 24 wanted, 24 moving (5 parts)" for an entity on the energy channel, else "".
+const CHANNELS := {"energy": ["Power", "EU/t", "cables"], "steam": ["Steam", "bar/s", "pipes"], "water": ["Water", "buckets/s", "pipes"]}   # title, unit, carrier (ADR 0122)
+
+
+## The networks an entity is on, one line per channel: "Power: 32 EU/t made, 24 wanted, 24 moving (5 parts)",
+## a second line when the carriers cap it; "" when it is on none (the look-at panel, ADR 0130, and the EU meter).
 static func look_line(e: Object) -> String:
-	var c: Dictionary = networks.get("energy", {}).get(e.get_instance_id(), {}) if e != null else {}
-	if c.is_empty() or c["nodes"] < 2:
-		return ""
-	var line := "Network: %d EU/t made, %d wanted, %d moving (%d parts)" % [roundi(c["supply"]), roundi(c["demand"]), roundi(c["flow"]), c["nodes"]]
-	if c["cap"] < minf(c["supply"], c["demand"]):
-		line += "\nThe cables carry only %d EU/t" % roundi(c["cap"])
-	return line
+	var lines: PackedStringArray = []
+	for ch in CHANNELS:
+		var c: Dictionary = networks.get(ch, {}).get(e.get_instance_id(), {}) if e != null else {}
+		if c.is_empty() or c["nodes"] < 2:
+			continue
+		var unit: String = CHANNELS[ch][1]
+		var f := "%d" if ch == "energy" else "%.2f"
+		lines.append(("%s: " + f + " %s made, " + f + " wanted, " + f + " moving (%d parts)") % [CHANNELS[ch][0], c["supply"], unit, c["demand"], c["flow"], c["nodes"]])
+		if c["cap"] < minf(c["supply"], c["demand"]):
+			lines.append(("The %s carry only " + f + " %s") % [CHANNELS[ch][2], c["cap"], unit])
+	return "\n".join(lines)

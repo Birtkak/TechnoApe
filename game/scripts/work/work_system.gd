@@ -657,6 +657,11 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		if first_press:
 			_turn(e)
 		return true
+	if "meter" in held.get("tags", []):   # the EU meter (ADR 0122): reads the networks the piece is on
+		if first_press:
+			var line := Networks.look_line(e)
+			_say(line if line != "" else "The %s is on no network." % String(e.kind).replace("_", " "))
+		return true
 	if e is KnapEntity:
 		if first_press:
 			if not e.has_recipe():

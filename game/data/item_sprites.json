@@ -4691,6 +4691,7 @@
     "battery_box": {"layers": [{"shape": "hull_face", "palette": "steel", "colors": {"p": "#9ca6b2", "q": "#c4ccd6", "r": "#5a6370"}}], "cube": true},
     "electric_lamp": {"layers": [{"shape": "lantern", "palette": "iron"}]},
     "pump": {"layers": [{"shape": "bucket", "palette": "iron"}, {"shape": "stick", "palette": "bronze"}]},
+    "eu_meter": {"layers": [{"shape": "tape_measure", "palette": "iron", "colors": {"c": "#1c3e22", "k": "#7ed43a", "t": "#f4e870", "T": "#b8a830"}}]},
     "coke_oven": {"layers": [{"shape": "bricks_face"}], "cube": true},
     "coal_coke": {"layers": [{"shape": "charcoal_lump", "palette": "coal"}]},
     "steam_turbine": {"layers": [{"shape": "steam_hammer", "palette": "steel", "colors": {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}}]},

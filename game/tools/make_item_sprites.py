@@ -1621,6 +1621,7 @@ sp("assembler", ("machine", "iron", {"e": "#7ed43a", "f": "#2e7a10", "k": "#e8b8
 sp("battery_box", ("hull_face", "steel", {"p": "#9ca6b2", "q": "#c4ccd6", "r": "#5a6370"}), cube=True)
 sp("electric_lamp", ("lantern", "iron"))
 sp("pump", ("bucket", "iron"), ("stick", "bronze"))
+sp("eu_meter", ("tape_measure", "iron", {"c": "#1c3e22", "k": "#7ed43a", "t": "#f4e870", "T": "#b8a830"}))   # ADR 0122: a dial in an iron case
 sp("coke_oven", ("bricks_face", None), cube=True)
 sp("coal_coke", ("charcoal_lump", "coal"))
 sp("steam_turbine", ("steam_hammer", "steel", {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}))
