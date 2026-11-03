@@ -197,6 +197,15 @@ voxel extension segfaults once).
 # game/reports/report_N/); one suite: --add res://test/test_fire.gd. The generator suites (test_content_pass, test_ruins,
 # test_fine_gen_lod) are 30-50 s each and deterministic (fixed seeds): a failure there is a generator change, not flakiness.
 Godot_v4.7.2-stable_mono_win64_console.exe --headless --path game -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --add res://test --ignoreHeadlessMode
+# the fast half (~1.5 min): everything but those three
+Godot_v4.7.2-stable_mono_win64_console.exe --headless --path game -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --add res://test -i res://test/test_content_pass.gd -i res://test/test_ruins.gd -i res://test/test_fine_gen_lod.gd --ignoreHeadlessMode
+```
+
+Autopilot checks in one go (`tools/checks.json` lists them; each is one off-screen Godot run, strays killed first, one table
+at the end, exit code = failed checks, logs in `game/out/checks/<name>/`):
+
+```
+python tools/run_checks.py            # all; python tools/run_checks.py shell sand ; --list
 ```
 
 Crafting core (`scripts/crafting/`, data in `data/items.json` + `data/recipes.json`):
