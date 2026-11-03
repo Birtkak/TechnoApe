@@ -73,7 +73,6 @@ constexpr float STICK_THICK[3] = {0.72f, 1.05f, 1.45f};
 // Below this many voxels under the lowest carved surface of a block's columns nothing but stone is
 // generated from LOD 1 on: past the deepest sandstone and badlands strata (24 macro), the cave mouths
 // (CAVE_MOUTH_DEPTH) and the ground's swells, with room to spare.
-constexpr int OPEN_CAVE_DEPTH = 160 * FS;   // 80 m: ground_range's reach under a cave opening (ADR 0105)
 constexpr int DEEP_ROCK_MARGIN = (24 * FS > CAVE_MOUTH_DEPTH ? 24 * FS : CAVE_MOUTH_DEPTH) + 24 * FS;
 
 inline int floor_div(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
@@ -324,6 +323,7 @@ FineGen::MacroPt FineGen::macro_point(int mx, int mz, const WorldGen::Ruin *ruin
     }
     m.hc = h;
     m.roof = g.cave_roof(mx, mz);
+    m.open_depth = m.roof == 0 ? g.open_depth(mx, mz) : 0;
     float gw = (m.lakebed || m.riverbed || m.marshbed || m.spike > 0 || m.ruin >= 0) ? 0.0f : 1.0f;
     gw *= 1.0f - std::clamp(m.hy.river * 4.0f, 0.0f, 1.0f);
     gw *= smoothstep(0.5f, 6.0f, h - (float)m.water_level);
@@ -1510,12 +1510,10 @@ Vector2i FineGen::ground_range(int x, int z, int size) const {
     const std::shared_ptr<const ColumnCtx> c = column_ctx(Vector3i(x, 0, z), Vector3i(size, size, size), 0);
     int lo = *std::min_element(c->h.begin(), c->h.end());
     // where a cave opens to the sky (a ravine, a sinkhole or a ramp: roof 0) it is seen from afar, so the column
-    // reaches down past the deepest of them (ravines and ramps ~40 m, sinkholes up to ~70 m)
+    // reaches down to that opening's own floor (ADR 0124; it was a flat 80 m under any opening, and a ravine's line
+    // or a sinkhole's rim turned a whole stack into full-detail rock the player could not see)
     for (const MacroPt &m : c->lat)
-        if (m.roof == 0) {
-            lo -= OPEN_CAVE_DEPTH;
-            break;
-        }
+        if (m.roof == 0) lo = std::min(lo, (m.col.height - m.open_depth) * FS - 2 * FS);
     // the top bound generate_block's sky check uses: nothing generated reaches above it
     const int hi = std::max({(c->hmax_m + 12) * FS, c->wl_max * FS + 1, c->fall_max * FS + 1, c->feat_top + 1, (c->hmax_m + 1) * FS + 12});
     return Vector2i(lo, hi);

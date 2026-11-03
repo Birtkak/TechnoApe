@@ -140,6 +140,7 @@ private:
         int ruin = -1;          // index into the block's ruins
         int spike = 0;
         int roof = 5;           // caves stop this many macro voxels under the ground (0: a cave mouth may open)
+        int open_depth = 0;     // how far under the ground that opening reaches (macro), for the streaming shell (ADR 0124)
         float gw = 1.0f;        // weight of the fine ground relief: 0 at water, rivers and ruins, interpolated
     };
     struct Blob { float x, y, z, rx, ry, rz; };

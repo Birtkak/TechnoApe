@@ -281,6 +281,10 @@ private:
     // How far below the surface caves stop at this column (macro voxels): 5 normally, 0 where a cave mouth
     // or a ravine may open onto the surface.
     int cave_roof(int x, int z) const;
+    // How far under the ground the open cave at this column reaches (macro voxels): the ravine's floor, the
+    // sinkhole's bottom, the first stretch of a ramp; 0 where cave_roof is not 0. The streaming shell keeps a
+    // column's data down to this instead of a flat 80 m under every opening (ADR 0124).
+    int open_depth(int x, int z) const;
     // ---- landforms (ADR 0051) ----
     // Sea stacks off cliff coasts: one chance per 12 m cell; some are arches (a tunnel at the waterline).
     static constexpr int STACK_CELL = 24;

@@ -1375,6 +1375,32 @@ int WorldGen::cave_roof(int x, int z) const {
     return 5;
 }
 
+int WorldGen::open_depth(int x, int z) const {
+    if (variant_[VAR_CAVES] == 0) return 0;
+    const float fx = (float)x, fz = (float)z;
+    int depth = 0;
+    const float mask = n_ravmask_.GetNoise(fx, fz);
+    if (ravine_value(mask, std::fabs(n_ravine_.GetNoise(fx, fz)), 4.0f) > 0.0f) {
+        // ravine_value: deep = (20 + 60 * smoothstep(0.3, 0.6, mask)) * open, the gorge's floor
+        const float open = smoothstep(0.25f, 0.45f, mask);
+        depth = (int)std::ceil((20.0f + 60.0f * smoothstep(0.3f, 0.6f, mask)) * open) + 4;
+    }
+    CaveMouth m[9];
+    const int n = mouths_near(x, z, m);
+    for (int i = 0; i < n; i++) {
+        if (m[i].kind == MOUTH_CHIMNEY) continue;
+        if (m[i].kind == MOUTH_SINKHOLE) {
+            const float dx = fx - m[i].x, dz = fz - m[i].z, reach = 2.0f * m[i].r + 1.0f;
+            if (dx * dx + dz * dz <= reach * reach) depth = std::max(depth, (int)std::ceil(m[i].top + m[i].len + m[i].r) + 4);
+            continue;
+        }
+        float t;
+        if (seg_dist(fx, fz, m[i].x, m[i].z, m[i].x + m[i].dx * m[i].len, m[i].z + m[i].dz * m[i].len, t) <= m[i].r * 2.2f + 1.0f && t * m[i].len < 16.0f)
+            depth = std::max(depth, (int)std::ceil(16.0f * m[i].slope + m[i].r * 1.6f) + 4);   // the mouth's first 8 m of tunnel
+    }
+    return depth;
+}
+
 // ---------- ore veins (GregTech style, ore_veins.json) ----------
 
 
