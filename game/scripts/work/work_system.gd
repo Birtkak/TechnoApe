@@ -332,7 +332,7 @@ func _create(p: Vector3i, kind: String, material: int) -> RefCounted:
 
 
 ## Debug (/stations factory, ADR 0117): the electric line plus a macerator and an electric furnace each fed
-## from a chest of ore through a hopper on top, a battery, a lamp and an assembler, so a run shows ore
+## from a chest of ore through a hopper on top, a battery, a lamp and an assembler behind a switch, a fuse and a breaker, so a run shows ore
 ## becoming ingots by itself.
 func debug_factory_line(base: Vector3i, right: Vector3i) -> String:
 	var B := Settings.BLOCK
@@ -355,15 +355,17 @@ func debug_factory_line(base: Vector3i, right: Vector3i) -> String:
 		var chest2: RefCounted = main.blocks.at(c2)
 		if chest2 != null:
 			chest2.inv.set_slot(0, {"id": "raw_meat", "count": 16})
-	_create(base + right * 15 * B, "cable", GameMaterials.WORK_SPOT)
+	# the joints past the furnace are the ADR 0123 circuitry (closed, each conducts like a cable): a knife switch
+	# before the battery, a fuse box before the lamp, a breaker before the assembler
+	_create(base + right * 15 * B, "knife_switch", GameMaterials.WORK_SPOT)
 	_create(base + right * 16 * B, "battery_box", GameMaterials.WORK_BLOCK)
-	_create(base + right * 18 * B, "cable", GameMaterials.WORK_SPOT)
+	_create(base + right * 18 * B, "fuse_box", GameMaterials.WORK_SPOT)
 	_create(base + right * 19 * B, "electric_lamp", GameMaterials.WORK_SPOT)
-	_create(base + right * 20 * B, "cable", GameMaterials.WORK_SPOT)
+	_create(base + right * 20 * B, "breaker", GameMaterials.WORK_SPOT)
 	var asm: RefCounted = _create(base + right * 21 * B, "assembler", GameMaterials.WORK_BLOCK)
 	for id in ["vacuum_tube", "resistor", "capacitor", "insulated_wire", "coated_board"]:
 		asm.use({"id": id, "count": 4})
-	return "the electric line, a hopper-fed macerator and furnace, a battery, a lamp and an assembler from %s (%d pieces)" % [base, 16]
+	return "the electric line, a hopper-fed macerator and furnace, a knife switch, a battery, a fuse box, a lamp, a breaker and an assembler from %s (%d pieces)" % [base, 16]
 
 
 ## Debug (/stations lv, ADR 0131): the energy line, then the ADR 0131 machines along it, a cable between each,

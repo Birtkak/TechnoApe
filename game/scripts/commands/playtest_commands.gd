@@ -5,6 +5,7 @@ extends RefCounted
 ##   /totest [count]       the newest unticked items of the list
 ##   /scenario <name>      jump into a set-up test: a few existing commands run in a row
 ##   /count <material>     cells of a material in the sim bubble (how much steam a vent leaves, gas in a cave ...)
+##   /blocks [kind]        every block entity's state on one line each (what each machine draws and has made)
 ##   /whatsnew             today's additions (data/whats_new.json) in chat, with a button each on top of the F4 menu
 ##   /tour [next|back|<n>|<id>]   walks those additions in order: says what to look for, runs the entry's lines
 ## A scenario or a tour stop is only command lines, so each step also works typed and reports in chat.
@@ -38,6 +39,7 @@ func register(p_reg: CommandRegistry, p_player: Player, p_main_of := Callable())
 	main_of = p_main_of
 	reg.register("totest", "/totest [count]", "The newest unticked items of the playtest list (docs/plans/to-test.md)", _totest)
 	reg.register("scenario", "/scenario <%s>" % "|".join(SCENARIOS.keys()), "Jump into a playtest set-up from the to-test list", _scenario, [SCENARIOS.keys()])
+	reg.register("blocks", "/blocks [kind]", "Each block entity's state, one line each (watts, amps, made, output); kind filters by name", _blocks)
 	reg.register("count", "/count <material>", "Cells of a material in the sim bubble (steam left by a vent, gas pooled in a cave)", _count)
 	reg.register("whatsnew", "/whatsnew", "What landed lately, each one a click away (the F4 menu's top row); /tour walks them in order", _whatsnew)
 	reg.register("tour", "/tour [next|back|<n>|<id>]", "The next stop of the what's-new tour: what to look for, and it takes you there or hands you the kit", _tour,
@@ -160,3 +162,38 @@ func _count(args: PackedStringArray) -> Dictionary:
 	if main == null or main.bubble == null or main.bubble.sim == null:
 		return CommandRegistry.fail("No world")
 	return CommandRegistry.ok("%s: %d cells in the sim bubble" % [args[0], main.bubble.sim.count_material(mat)])
+
+
+## Keys of an entity summary worth a line in chat; the rest (inventories, positions) stays in the F3 / stats JSON.
+const BLOCK_KEYS := ["watts", "amps", "volts", "open", "blown", "tripped", "burnt", "made", "smelted", "progress", "rpm", "pressure", "output"]
+
+
+static func block_line(e: Dictionary) -> String:
+	var parts: Array[String] = [String(e.get("kind", "?"))]
+	for k in BLOCK_KEYS:
+		if not e.has(k):
+			continue
+		var v: Variant = e[k]
+		if v is float:
+			v = "%.1f" % v
+		elif v is Dictionary:
+			v = "%s x%d" % [v.get("id", "-"), int(v.get("count", 0))] if not v.is_empty() else "-"
+		parts.append("%s %s" % [k, v])
+	return " ".join(parts)
+
+
+func _blocks(args: PackedStringArray) -> Dictionary:
+	var main: Node = main_of.call() if main_of.is_valid() else null
+	if main == null or main.blocks == null:
+		return CommandRegistry.fail("No world")
+	var want := args[0].to_lower() if args.size() > 0 else ""
+	var out: Array[String] = []
+	for p in main.blocks._by_pos:
+		var e: Dictionary = main.blocks._by_pos[p].summary()
+		if want == "" or String(e.get("kind", "")).contains(want):
+			out.append(block_line(e))
+	if out.is_empty():
+		return CommandRegistry.ok("No block entities" + (" like %s" % want if want != "" else ""))
+	return CommandRegistry.ok("%d block entities:
+%s" % [out.size(), "
+".join(out)])
