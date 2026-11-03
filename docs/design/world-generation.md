@@ -477,3 +477,28 @@ Asked for in bug reports 2026-11-02 18-55-21, 18-57-25, 18-54-25 and 18-49-07.
   rows of rotten boards gone, a rail on three sides, a log brace down each face, two pots under the platform (loot
   `tower_pot`). Taiga, forests, swamp, highlands: the wooden cousin of the stone watchtower. Everything left hangs on
   a post (rows run edge to edge, a side's rail goes whole or not at all).
+
+## Rope bridges over ravines (2026-11-03)
+- FineGen stamp BRIDGE: per 64 m cell (3 in 4), a seeded spot is walked by Newton steps onto the ravine noise's zero
+  line where the mask is open (> 0.45); the gradient gives the across axis, the rims are found by stepping out until
+  the surface is no longer cut, and the bridge spans rim to rim + 1 m when both rims stand within 3 m of each other.
+  A two-voxel plank deck 1.25 m wide sagging 6 % of its half length, a slat in ten gone, rope rails at 0.75 m on
+  stringers every metre, 2x2 log posts at both ends. Material 238 rope (tile 199, drops cordage).
+- Every land biome's own flora (FLORA table in FineGen's vegetation pass, where the grass left the ground bare, in
+  n_meadow_ patches; ids 239..249, tiles 200..203 and 208..214): sagebrush (badlands, scrub), desert marigold,
+  moss campion (mountains, alpine, snowy peaks, frozen highlands), fire lily (volcanic), lingonberry (taiga, snowy
+  taiga; drops blueberries), bromeliad (jungle), cattail (swamp), aloe (savanna), bluebell (forests), frost lichen
+  (ice fields, snowy tundra), sea aster (mangrove, stony shore) (plains and meadows keep their flower clutter); sedge also on snowy
+  beaches. Water biomes keep kelp, seagrass, reeds and lily pads; caves keep their dressing.
+
+## A structure in every land biome (2026-11-03)
+- Igloo (ruin shape S_IGLOO): a packed-ice dome on the snow, a low tunnel out, one side of the roof fallen in, a snow
+  floor and two camp pots inside. Ice fields, snowy tundra, frozen highlands, snowy taiga.
+- Jungle temple and desert tomb: the crypt shape in other stone (granite bricks and moss in the jungle and mangrove;
+  sandstone and limestone bricks in the desert and badlands), crypt loot.
+- Cairns (FineGen stamp CAIRN): ruins never stand on alpine, snow-capped or high land, so the mountains, alpine,
+  snowy peaks and volcanic land get stacks of 3-5 stones 1-1.6 m tall, one chance in three per 32 m cell where the
+  ground is level within 1 m; cobble and stone, basalt capped in obsidian on volcanic land. Mountains are told by
+  slope (column_base with_slope), so the placement asks for it.
+- Water biomes (oceans, rivers, lakes) keep wrecks and bridges at their edges; cave biomes keep the abandoned mines
+  and their dressing. The ruin reach test now measures from the nearest land of a kind's own biomes.
