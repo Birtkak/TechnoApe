@@ -192,3 +192,17 @@ func test_ice_melts_warm_and_water_freezes_cold() -> void:
 	_run(cold, 60)
 	assert_int(cold.count_liquid_eighths(GameMaterials.WATER)).override_failure_message("water at -15 C").is_equal(0)
 	assert_int(cold.count_material(GameMaterials.ICE)).is_greater(0)
+
+
+func test_sludge_over_lava_boils_to_toxic_gas_that_sinks() -> void:
+	var w := _box_world(18.0)
+	w.fill_box(Vector3i(16, 8, 16), Vector3i(32, 30, 32), 0)   # a tall room
+	w.fill_box(Vector3i(16, 8, 16), Vector3i(32, 10, 32), GameMaterials.LAVA_STATIC)
+	w.fill_box(Vector3i(20, 12, 20), Vector3i(28, 13, 28), GameMaterials.STONE)   # a shelf
+	w.fill_box(Vector3i(20, 13, 20), Vector3i(28, 15, 28), GameMaterials.TOXIC_SLUDGE)
+	_run(w, 120)
+	var gas := w.count_material(GameMaterials.TOXIC_GAS)
+	assert_int(gas).override_failure_message("no toxic gas after 4 s over lava").is_greater(0)
+	# heavy: more of it in the room's lower half than its upper half
+	var low := w.count_in_box(Vector3i(16, 8, 16), Vector3i(32, 19, 32), GameMaterials.TOXIC_GAS)
+	assert_int(low * 2).override_failure_message("toxic gas rose: %d low of %d" % [low, gas]).is_greater_equal(gas)
