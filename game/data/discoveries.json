@@ -5,7 +5,7 @@
     {"id": "cave", "title": "Caves", "from": "biomes", "only_tags": ["underground"], "icon": "stone", "text": "You first went down into a %s."},
     {"id": "landform", "title": "Landforms", "from": "landforms", "icon": "stone", "text": "You stood on a %s."},
     {"id": "landmark", "title": "Landmarks", "from": "list", "icon": "cobblestone", "text": "You found a %s.",
-     "entries": ["ruin", "cave", "waterfall", "river", "lake", "spring", "marsh", "aquifer", "magma_conduit", "spring_stone", "magma_heart", "abandoned_mine", "abandoned_camp", "lookout", "shipwreck", "rock_arch", "hoodoo", "igloo", "jungle_temple", "tomb"]},
+     "entries": ["ruin", "cave", "waterfall", "river", "lake", "spring", "marsh", "aquifer", "magma_conduit", "spring_stone", "magma_heart", "abandoned_mine", "abandoned_camp", "lookout", "shipwreck", "rock_arch", "hoodoo", "igloo", "jungle_temple", "tomb", "rope_bridge", "cairn"]},
     {"id": "phenomenon", "title": "Gases", "from": "list", "icon": "water_bucket", "text": "You stood in %s.", "entries": ["steam", "toxic_gas"]},
     {"id": "animal", "title": "Animals", "from": "mobs", "icon": "raw_meat", "text": "You came across a %s."},
     {"id": "critter", "title": "Small Life", "from": "list", "icon": "poppy", "text": "You watched a %s.", "entries": ["butterfly", "bee", "firefly", "glow_worm"]},
@@ -79,6 +79,8 @@
     "landmark:igloo": "A dome of packed snow blocks, cold inside but out of the wind. Its owner never came back.",
     "landmark:jungle_temple": "Mossy steps climb to a stone shrine the jungle is taking back. Mind where you tread.",
     "landmark:tomb": "A sealed stone chamber for someone once important. What they took with them may still be there.",
+    "landmark:rope_bridge": "Planks on old rope across the ravine. It sways, but it has held so far.",
+    "landmark:cairn": "A stack of stones left to mark the way over the heights. Someone walked this route before you.",
     "critter:glow_worm": "Threads of light hang from moss and vines on cave ceilings.",
     "critter:firefly": "Sparks that drift over grass on warm nights."
   },
