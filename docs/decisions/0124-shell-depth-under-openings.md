@@ -21,8 +21,10 @@ Two rules of `FineGen::ground_range` (the shell's data column, ADR 0105) decide 
    Everything a player can look into from above still has its floor (a ravine seen from inside: walls and sandy floor
    in `game/out/shell_look`); caves, mines and anything dug still get real voxels through the 32 m near sphere and
    the simulation bubble's own viewer (ADR 0105), which this does not touch.
-2. **`shell_below_m` stays 8 m here; 4 m is the measured, safe next step** for the overseer and developer to take:
-   the ground-detail probe (`detail.missing_share`) reads 0 at 4 m and 0.68 at 2 m (holes), so 4 m is the floor.
+2. **`shell_below_m` is 4 m** (was 8): the ground-detail probe (`detail.missing_share`) reads 0 at 4 m and 0.68 at
+   2 m (holes), and filmstrips at 4 m over mountain cliff faces, sea stacks down to the waterline, a ravine and a gorge
+   looked into from 30 m above show nothing missing (`game/out/cliff_mountain`, `cliff_beach`, `holes`, seed
+   1015715378). A routine technical default (principle 3), taken 2026-11-03.
 
 ## Measured (spectator fly, vsync off, 20 s, quiet machine; blocks below ground / generation thread s / load s / backlog busy)
 
@@ -30,7 +32,7 @@ Two rules of `FineGen::ground_range` (the shell's data column, ADR 0105) decide 
 |---|---|---|---|
 | before | 100 k / 38.1 / 8.6 / 21 % | 150 k / 61.9 / >10 / 57 % | 193 k / 76.2 / >10 / 95 % |
 | open depth (1) | 96 k / 35.9 / 8.7 / 20 % | 138 k / 53.1 / >10 / 45 % | 169 k / 66.1 / >10 / 76 % |
-| (1) + `shell_below_m` 4 | 69 k / 27.3 / **7.2** / 16 % | | |
+| (1) + `shell_below_m` 4 (the default now) | 69 k / 27.3 / **7.2** / 16 % | 109 k / 43.9 / >10 / 33 % | |
 | (1) + `shell_below_m` 2 | 63 k / 25.2 / 6.5 / 15 % — detail missing 0.68: too thin | | |
 
 Frames hold the budget in every row (p99 2.9-4.4 ms, max under 12 ms). The RAM budget is 8 GB (CLAUDE.md), so 120 m's

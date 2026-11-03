@@ -15,7 +15,7 @@ var sim_window_chunks := Vector3i(32, 32, 32)   # the wrapped simulation window:
 var sim_cell_budget := 1500000          # cells scanned per tick at most; the furthest active chunks wait (ADR 0013)
 var sim_lod_m := 12.0                   # chunks further than this from the player tick every second tick
 var ground_shell := true                # ADR 0105: the full-detail box follows the ground (shell=0: the whole cube)
-var shell_below_m := 8.0                # ... from this far under the lowest ground of a 6 m patch (80 m where a cave opens to the sky)
+var shell_below_m := 4.0                # ... from this far under the lowest ground of a 6 m patch (an opening's own depth where a cave opens to the sky, ADR 0124; 8 until 2026-11-03)
 var shell_above_m := 64.0               # ... to this far over its highest ground, water or tree
 var shell_near_m := 32.0                # ... plus everything this close to the player, any direction
 var shadow_caster_m := 40.0             # ADR 0105: terrain farther than this casts no sun shadow (the shadow pass drew 2/3 of the triangles)
