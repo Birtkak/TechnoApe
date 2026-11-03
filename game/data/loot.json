@@ -17,7 +17,10 @@
         {"id": "copper_knife", "weight": 2, "wear": [0.4, 0.8]},
         {"id": "tin_nugget", "weight": 2, "count": [1, 2]},
         {"id": "copper_ingot", "weight": 1},
-        {"id": "bronze_ingot", "weight": 1}
+        {"id": "bronze_ingot", "weight": 1},
+        {"id": "candle", "weight": 6, "count": [1, 2]},
+        {"id": "bronze_knife", "weight": 1, "wear": [0.5, 0.9]},
+        {"id": "bone_needle", "weight": 3, "wear": [0.3, 0.8]}
       ],
       "deeper": {"depth_m": 12, "table": "deep_pot"}
     },
@@ -31,7 +34,10 @@
         {"id": "copper_pickaxe", "weight": 3, "wear": [0.4, 0.8]},
         {"id": "copper_ingot", "weight": 4},
         {"id": "bronze_ingot", "weight": 2},
-        {"id": "cave_crystal", "weight": 4, "count": [1, 2]}
+        {"id": "cave_crystal", "weight": 4, "count": [1, 2]},
+        {"id": "iron_nugget", "weight": 5, "count": [1, 3]},
+        {"id": "bronze_pickaxe", "weight": 1, "wear": [0.5, 0.9]},
+        {"id": "crystal", "weight": 1}
       ]
     },
     "tower_pot": {
@@ -48,7 +54,11 @@
         {"id": "copper_knife", "weight": 4, "wear": [0.4, 0.8]},
         {"id": "copper_axe", "weight": 2, "wear": [0.4, 0.8]},
         {"id": "copper_helmet", "weight": 2, "wear": [0.5, 0.9]},
-        {"id": "bronze_ingot", "weight": 1}
+        {"id": "bronze_ingot", "weight": 1},
+        {"id": "dried_meat", "weight": 6, "count": [1, 3]},
+        {"id": "glass_lens", "weight": 2},
+        {"id": "bronze_axe", "weight": 1, "wear": [0.5, 0.9]},
+        {"id": "iron_knife", "weight": 1, "wear": [0.6, 0.95]}
       ]
     },
     "circle_pot": {
@@ -64,7 +74,9 @@
         {"id": "pyrite", "weight": 6, "count": [1, 2]},
         {"id": "cave_crystal", "weight": 5, "count": [1, 2]},
         {"id": "mana_dust", "weight": 3, "count": [1, 2]},
-        {"id": "crystal", "weight": 1}
+        {"id": "crystal", "weight": 1},
+        {"id": "candle", "weight": 5, "count": [1, 2]},
+        {"id": "spell_speed_up", "weight": 1}
       ]
     },
     "crypt_pot": {
@@ -83,7 +95,10 @@
         {"id": "copper_helmet", "weight": 3, "wear": [0.3, 0.7]},
         {"id": "crystal", "weight": 2},
         {"id": "copper_chestplate", "weight": 1, "wear": [0.4, 0.8]},
-        {"id": "spell_spark_bolt", "weight": 1}
+        {"id": "spell_spark_bolt", "weight": 1},
+        {"id": "candle", "weight": 8, "count": [1, 3]},
+        {"id": "bronze_knife", "weight": 2, "wear": [0.3, 0.7]},
+        {"id": "bronze_helmet", "weight": 1, "wear": [0.4, 0.8]}
       ]
     },
     "mud_house_pot": {
@@ -101,7 +116,10 @@
         {"id": "tin_nugget", "weight": 3, "count": [1, 2]},
         {"id": "flint_knife", "weight": 3, "wear": [0.5, 0.9]},
         {"id": "glass", "weight": 2, "count": [1, 2]},
-        {"id": "bronze_ingot", "weight": 1}
+        {"id": "bronze_ingot", "weight": 1},
+        {"id": "salt", "weight": 6, "count": [1, 3]},
+        {"id": "bucket", "weight": 2},
+        {"id": "bronze_hoe", "weight": 1, "wear": [0.5, 0.9]}
       ]
     },
     "shrine_pot": {
@@ -117,7 +135,10 @@
         {"id": "poppy", "weight": 6, "count": [1, 3]},
         {"id": "cave_crystal", "weight": 5, "count": [1, 2]},
         {"id": "mana_dust", "weight": 4, "count": [1, 2]},
-        {"id": "fire_essence", "weight": 1}
+        {"id": "fire_essence", "weight": 1},
+        {"id": "candle", "weight": 6, "count": [1, 2]},
+        {"id": "crystal", "weight": 1},
+        {"id": "spell_fire_bolt", "weight": 1}
       ]
     },
     "mine_pot": {
@@ -135,7 +156,17 @@
         {"id": "iron_pickaxe", "weight": 1, "wear": [0.7, 0.95]},
         {"id": "iron_ingot", "weight": 1},
         {"id": "rail", "weight": 3, "count": [2, 8]},
-        {"id": "minecart", "weight": 1}
+        {"id": "minecart", "weight": 1},
+        {"id": "copper_wire", "weight": 5, "count": [2, 6]},
+        {"id": "iron_rod", "weight": 4, "count": [1, 3]},
+        {"id": "iron_gear", "weight": 3, "count": [1, 2]},
+        {"id": "sulfur", "weight": 4, "count": [1, 3]},
+        {"id": "copper_cable", "weight": 2, "count": [1, 4]},
+        {"id": "vacuum_tube", "weight": 1},
+        {"id": "resistor", "weight": 1, "count": [1, 2]},
+        {"id": "primitive_circuit", "weight": 1},
+        {"id": "steel_pickaxe", "weight": 1, "wear": [0.7, 0.95]},
+        {"id": "machine_hull", "weight": 1}
       ]
     },
     "camp_pot": {
@@ -154,7 +185,10 @@
         {"id": "flint_knife", "weight": 3, "wear": [0.5, 0.9]},
         {"id": "flint_and_steel", "weight": 2, "wear": [0.4, 0.9]},
         {"id": "copper_axe", "weight": 2, "wear": [0.6, 0.9]},
-        {"id": "leather_bag", "weight": 1}
+        {"id": "leather_bag", "weight": 1},
+        {"id": "fur", "weight": 4},
+        {"id": "fishing_rod", "weight": 2, "wear": [0.4, 0.9]},
+        {"id": "candle", "weight": 3, "count": [1, 2]}
       ]
     },
     "wreck_pot": {
@@ -172,7 +206,84 @@
         {"id": "copper_ingot", "weight": 4},
         {"id": "iron_nugget", "weight": 4, "count": [1, 3]},
         {"id": "bronze_ingot", "weight": 2},
-        {"id": "iron_ingot", "weight": 1}
+        {"id": "iron_ingot", "weight": 1},
+        {"id": "iron_plate", "weight": 3, "count": [1, 2]},
+        {"id": "copper_wire", "weight": 3, "count": [1, 4]},
+        {"id": "glass_lens", "weight": 2},
+        {"id": "salt", "weight": 6, "count": [1, 3]},
+        {"id": "insulated_wire", "weight": 1, "count": [1, 3]},
+        {"id": "steel_knife", "weight": 1, "wear": [0.5, 0.9]}
+      ]
+    },
+    "lookout_pot": {
+      "rolls": [1, 3],
+      "empty_chance": 0.25,
+      "entries": [
+        {"id": "torch", "weight": 12, "count": [1, 3]},
+        {"id": "firewood", "weight": 10, "count": [2, 4]},
+        {"id": "dried_meat", "weight": 10, "count": [1, 3]},
+        {"id": "cordage", "weight": 10, "count": [1, 3]},
+        {"id": "fur", "weight": 6},
+        {"id": "leather_strip", "weight": 6, "count": [1, 3]},
+        {"id": "flint_and_steel", "weight": 3, "wear": [0.4, 0.9]},
+        {"id": "lantern", "weight": 2},
+        {"id": "glass_lens", "weight": 2},
+        {"id": "copper_axe", "weight": 3, "wear": [0.5, 0.9]},
+        {"id": "fishing_rod", "weight": 2, "wear": [0.4, 0.9]},
+        {"id": "iron_axe", "weight": 1, "wear": [0.6, 0.95]}
+      ]
+    },
+    "igloo_pot": {
+      "rolls": [1, 2],
+      "empty_chance": 0.25,
+      "entries": [
+        {"id": "raw_fish", "weight": 14, "count": [1, 3]},
+        {"id": "smoked_fish", "weight": 10, "count": [1, 3]},
+        {"id": "fur", "weight": 10, "count": [1, 2]},
+        {"id": "bone", "weight": 10, "count": [1, 3]},
+        {"id": "leather", "weight": 6},
+        {"id": "candle", "weight": 6, "count": [1, 2]},
+        {"id": "bone_needle", "weight": 4, "wear": [0.3, 0.8]},
+        {"id": "fishing_rod", "weight": 3, "wear": [0.4, 0.9]},
+        {"id": "flint_knife", "weight": 3, "wear": [0.5, 0.9]},
+        {"id": "copper_knife", "weight": 1, "wear": [0.4, 0.8]}
+      ]
+    },
+    "temple_pot": {
+      "rolls": [2, 3],
+      "empty_chance": 0.1,
+      "entries": [
+        {"id": "raw_rubber", "weight": 12, "count": [1, 4]},
+        {"id": "bone", "weight": 10, "count": [1, 3]},
+        {"id": "red_ochre", "weight": 8, "count": [1, 3]},
+        {"id": "cave_crystal", "weight": 8, "count": [1, 3]},
+        {"id": "copper_ingot", "weight": 6},
+        {"id": "bronze_ingot", "weight": 5},
+        {"id": "mana_dust", "weight": 5, "count": [1, 3]},
+        {"id": "feather", "weight": 5, "count": [2, 5]},
+        {"id": "bronze_knife", "weight": 3, "wear": [0.3, 0.7]},
+        {"id": "crystal", "weight": 2},
+        {"id": "bronze_helmet", "weight": 1, "wear": [0.3, 0.7]},
+        {"id": "spell_fire_bolt", "weight": 1}
+      ]
+    },
+    "tomb_pot": {
+      "rolls": [2, 3],
+      "empty_chance": 0.1,
+      "entries": [
+        {"id": "bone", "weight": 14, "count": [1, 4]},
+        {"id": "salt", "weight": 8, "count": [1, 3]},
+        {"id": "yellow_ochre", "weight": 8, "count": [1, 3]},
+        {"id": "glass", "weight": 6, "count": [1, 3]},
+        {"id": "copper_ingot", "weight": 8},
+        {"id": "tin_ingot", "weight": 5},
+        {"id": "bronze_ingot", "weight": 5},
+        {"id": "cave_crystal", "weight": 5, "count": [1, 2]},
+        {"id": "copper_helmet", "weight": 3, "wear": [0.3, 0.7]},
+        {"id": "bronze_knife", "weight": 2, "wear": [0.3, 0.7]},
+        {"id": "crystal", "weight": 2},
+        {"id": "bronze_chestplate", "weight": 1, "wear": [0.4, 0.8]},
+        {"id": "spell_spark_bolt", "weight": 1}
       ]
     }
   }

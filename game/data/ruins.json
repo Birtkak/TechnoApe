@@ -62,28 +62,28 @@
       "biomes": ["taiga", "snowy_taiga", "forest", "birch_forest", "old_growth_forest", "swamp", "highlands"],
       "half_u_m": [1.5, 2.0], "top_m": 7.5, "depth_m": 0.0,
       "wall": "wood", "trim": "planks", "floor": "planks", "extra": "wood",
-      "pots": 2, "loot": "tower_pot"
+      "pots": 2, "loot": "lookout_pot"
     },
     "igloo": {
       "shape": "igloo", "weight": 8,
       "biomes": ["ice_fields", "snowy_tundra", "frozen_highlands", "snowy_taiga"],
       "half_u_m": [1.5, 2.0], "top_m": 2.5, "depth_m": 0.0,
       "wall": "packed_ice", "trim": "ice", "floor": "snow", "extra": "packed_ice",
-      "pots": 2, "loot": "camp_pot"
+      "pots": 2, "loot": "igloo_pot"
     },
     "jungle_temple": {
       "shape": "crypt", "weight": 8,
       "biomes": ["jungle", "mangrove"],
       "half_u_m": [2.0, 2.5], "half_v_m": [4.5, 5.0], "top_m": 1.5, "depth_m": 4.0,
       "wall": "granite_bricks", "trim": "moss", "floor": "stone_bricks", "extra": "gravel_static",
-      "pots": 4, "loot": "crypt_pot"
+      "pots": 4, "loot": "temple_pot"
     },
     "tomb": {
       "shape": "crypt", "weight": 6,
       "biomes": ["desert", "badlands"],
       "half_u_m": [2.0, 2.5], "half_v_m": [4.5, 5.0], "top_m": 1.5, "depth_m": 4.0,
       "wall": "sandstone", "trim": "limestone_bricks", "floor": "limestone_bricks", "extra": "sand_static",
-      "pots": 4, "loot": "crypt_pot"
+      "pots": 4, "loot": "tomb_pot"
     },
     "wreck": {
       "shape": "wreck", "weight": 1, "coast": true,

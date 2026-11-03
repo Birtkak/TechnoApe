@@ -216,6 +216,7 @@ private:
     };
     mutable SharedCache<FTree> tree_cache_{16384};       // built mature trees (~2.3 KB) by trunk position
     mutable SharedCache<YoungCell> young_cache_{16384};
+    mutable SharedCache<FStamp> bridge_cache_{4096};      // each 64 m cell's rope bridge (kind 0: none)
     std::shared_ptr<const ColumnCtx> column_ctx(Vector3i origin, Vector3i size, int lod) const;
     std::shared_ptr<const ColumnCtx> build_column_ctx(Vector3i origin, Vector3i size, int lod) const;
     // Trees and stamps reaching the footprint at any height, in the order the block pass draws them; n_mature
@@ -239,6 +240,9 @@ private:
     void build_stamp(const WorldGen::Stamp &s, FStamp &out) const;
     static constexpr int FORM_CELL = 128, FORM_MARGIN = 48;   // rock formation cells (fine voxels)
     bool formation_at(int cx, int cz, const WorldGen::Ruin *ruins, int nruins, FStamp &f) const;
+    static constexpr int BRIDGE_CELL = 512, CAIRN_CELL = 256;   // rope bridge and cairn cells (fine voxels)
+    bool bridge_at(int cx, int cz, const WorldGen::Ruin *ruins, int nruins, FStamp &f) const;
+    bool cairn_at(int cx, int cz, int x_lo, int z_lo, int x_hi, int z_hi, FStamp &k) const;
     void floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, bool clutter, std::vector<FStamp> &out) const;
     // Clutter piece voxel at (dx, dy, dz) from its stamp's centre column and ground (dy = 0: the first voxel above it).
     static uint16_t clutter_voxel(const FStamp &s, int dx, int dy, int dz);
