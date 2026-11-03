@@ -1,5 +1,5 @@
 {
-  "_comment": "Passive animals (ADR 0022). Distances and speeds in metres (Minecraft blocks are 1 m, so its values carry over), times in seconds, health in half-hearts. food = items that tempt (the mob follows a player holding one), breed adults and grow babies; drops = death drop list like mining.json (adults only, as in Minecraft); shear = what shears give (sheep), the wool grows back when it grazes. biomes = where herds spawn when the land first comes near a player; weight = Minecraft's spawn weight among the species of a biome; group = herd size. Wildlife (ADR 0027): lays = {item, every_s [min, max]} (chickens); slow_fall = flaps down without fall damage; legs = 2 or 4; rarity = chance a herd of this species really spawns once picked (bears are rare); predator = {prey: species it hunts, hunt_every_s: hunger interval, sight_m, chase_m: run speed, attack: half-hearts, attack_s: between bites, reach_m, eat_s: time at a kill, aggressive_chance: share that also hunt the player, player_sight_m}; predators do not panic when hurt, they turn on the attacker. A kill leaves a carcass, not drops. New in ADR 0058: habitat = where herds spawn and live: land (default, on grass or snow, or the 'ground' materials), shore (land next to water), water (in rivers and lakes: swims, flops and suffocates on land), cave (cave air below the surface; biomes are ignored); moves = walk (default), hop (rabbits, frogs: short hops), swim (fish), fly (bats: flutter, hang from ceilings), paddle (ducks: walk and float on water); skittish_m = flees a player who comes this close (wild animals); defends = a grazer that turns on whoever hurt it (boar: predator rules for the attacker only); predator.pack = it hunts with the others of its herd. legs = 0 (fish), 2, 4, 6 (crabs, drawn as three pairs) or 8 (spiders). poison_s = a touch poisons the player for this many seconds (Survival.poison; jungle dart frogs). night = a night creature (ADR 0120): never a herd of the land, it comes out after dark near the player (spawn.night_max at once, spawn.night_chance a second) in its biomes and fades at sunrise. habitat sky (ADR 0120): flocks spawn 6-12 m over their biomes and fly 5-14 m over the ground.",
+  "_comment": "Passive animals (ADR 0022). Distances and speeds in metres (Minecraft blocks are 1 m, so its values carry over), times in seconds, health in half-hearts. food = items that tempt (the mob follows a player holding one), breed adults and grow babies; drops = death drop list like mining.json (adults only, as in Minecraft); shear = what shears give (sheep), the wool grows back when it grazes. biomes = where herds spawn when the land first comes near a player; weight = Minecraft's spawn weight among the species of a biome; group = herd size. Wildlife (ADR 0027): lays = {item, every_s [min, max]} (chickens); slow_fall = flaps down without fall damage; legs = 2 or 4; rarity = chance a herd of this species really spawns once picked (bears are rare); predator = {prey: species it hunts, hunt_every_s: hunger interval, sight_m, chase_m: run speed, attack: half-hearts, attack_s: between bites, reach_m, eat_s: time at a kill, aggressive_chance: share that also hunt the player, player_sight_m}; predators do not panic when hurt, they turn on the attacker. A kill leaves a carcass, not drops. New in ADR 0058: habitat = where herds spawn and live: land (default, on grass or snow, or the 'ground' materials), shore (land next to water), water (in rivers and lakes: swims, flops and suffocates on land), cave (cave air below the surface; biomes are ignored); moves = walk (default), hop (rabbits, frogs: short hops), swim (fish), fly (bats: flutter, hang from ceilings), paddle (ducks: walk and float on water); skittish_m = flees a player who comes this close (wild animals); defends = a grazer that turns on whoever hurt it (boar: predator rules for the attacker only); predator.pack = it hunts with the others of its herd. legs = 0 (fish), 2, 4, 6 (crabs, drawn as three pairs) or 8 (spiders). poison_s = a touch poisons the player for this many seconds (Survival.poison; jungle dart frogs). night = a night creature (ADR 0120): never a herd of the land, it comes out after dark near the player (spawn.night_max at once, spawn.night_chance a second) in its biomes and fades at sunrise. habitat sky (ADR 0120): flocks spawn 6-12 m over their biomes and fly 5-14 m over the ground. Cave groups (ADR 0120) are picked by the cave biome of their pocket (FineGen.cave_biome_at), so biomes lists cave biome names. perches = a sky flier that comes down to sit on the ground or a treetop between flights (songbirds). milk = {with: held item, gives: item}: right click milks the animal (the held item is used up); it refills when it next grazes, like wool (goats).",
   "spawn": {
     "cell_m": 16,
     "chance": 0.1,
@@ -696,7 +696,14 @@
       "slow_fall": true,
       "drops": [],
       "biomes": [
-        "cave"
+        "cave",
+        "lush_cave",
+        "dripstone_cave",
+        "fungal_cave",
+        "frozen_cave",
+        "deep_cave",
+        "crystal_cave",
+        "sulfur_cave"
       ],
       "weight": 10,
       "group": [
@@ -744,7 +751,12 @@
         }
       ],
       "biomes": [
-        "cave"
+        "cave",
+        "dripstone_cave",
+        "deep_cave",
+        "deep_dark",
+        "crystal_cave",
+        "magma_cave"
       ],
       "weight": 6,
       "group": [
@@ -938,6 +950,124 @@
       "group": [
         2,
         5
+      ]
+    },
+    "cave_salamander": {
+      "name": "Cave Salamander",
+      "health": 4,
+      "size_m": [
+        0.5,
+        0.25
+      ],
+      "walk_m": 0.5,
+      "panic_m": 1.6,
+      "tempt_m": 1.0,
+      "food": [],
+      "habitat": "cave",
+      "skittish_m": 3,
+      "drops": [
+        {
+          "id": "raw_meat",
+          "chance": 0.5
+        }
+      ],
+      "biomes": [
+        "lush_cave",
+        "fungal_cave",
+        "dripstone_cave",
+        "frozen_cave"
+      ],
+      "weight": 8,
+      "group": [
+        1,
+        3
+      ]
+    },
+    "songbird": {
+      "name": "Songbird",
+      "health": 2,
+      "size_m": [
+        0.25,
+        0.25
+      ],
+      "walk_m": 2.2,
+      "panic_m": 4.0,
+      "tempt_m": 1.0,
+      "food": [
+        "wheat_seeds"
+      ],
+      "skittish_m": 4,
+      "habitat": "sky",
+      "moves": "fly",
+      "perches": true,
+      "legs": 2,
+      "slow_fall": true,
+      "drops": [
+        {
+          "id": "feather",
+          "chance": 0.5
+        }
+      ],
+      "biomes": [
+        "plains",
+        "forest",
+        "birch_forest",
+        "flower_meadow",
+        "shrubland",
+        "old_growth_forest",
+        "jungle",
+        "savanna",
+        "swamp"
+      ],
+      "weight": 14,
+      "group": [
+        2,
+        5
+      ]
+    },
+    "goat": {
+      "name": "Goat",
+      "health": 10,
+      "size_m": [
+        0.8,
+        1.2
+      ],
+      "walk_m": 1.2,
+      "panic_m": 3.2,
+      "tempt_m": 1.35,
+      "food": [
+        "wheat",
+        "carrot"
+      ],
+      "drops": [
+        {
+          "id": "raw_meat",
+          "winter_mult": 0.5,
+          "count": [
+            1,
+            2
+          ]
+        },
+        {
+          "id": "raw_hide",
+          "chance": 0.7
+        }
+      ],
+      "milk": {
+        "with": "clay_bowl",
+        "gives": "bowl_of_milk"
+      },
+      "grazes": true,
+      "biomes": [
+        "highlands",
+        "mountains",
+        "shrubland",
+        "savanna"
+      ],
+      "weight": 10,
+      "group": [
+        2,
+        4
       ]
     }
   }

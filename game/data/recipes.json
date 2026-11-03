@@ -195,6 +195,7 @@
     {"id": "porridge_einkorn", "type": "melt", "station": "firepit", "input": "einkorn", "count": 3, "vessel": "cooking_pot", "output": {"id": "pot_of_porridge", "count": 1}, "ticks": 300},
     {"id": "porridge_emmer", "type": "melt", "station": "firepit", "input": "emmer", "count": 3, "vessel": "cooking_pot", "output": {"id": "pot_of_porridge", "count": 1}, "ticks": 300},
     {"id": "serve_porridge", "type": "shapeless", "ingredients": ["pot_of_porridge", "clay_bowl", "clay_bowl", "clay_bowl"], "remainder": {"pot_of_porridge": "cooking_pot"}, "output": {"id": "porridge", "count": 3}},
+    {"id": "milk_porridge", "type": "shapeless", "ingredients": ["porridge", "bowl_of_milk"], "remainder": {"bowl_of_milk": "clay_bowl"}, "output": {"id": "milk_porridge", "count": 1}},
     {"id": "fish_soup_raw_fish", "type": "melt", "station": "firepit", "input": "raw_fish", "count": 2, "vessel": "cooking_pot", "output": {"id": "pot_of_fish_soup", "count": 1}, "ticks": 300},
     {"id": "serve_fish_soup", "type": "shapeless", "ingredients": ["pot_of_fish_soup", "clay_bowl", "clay_bowl", "clay_bowl"], "remainder": {"pot_of_fish_soup": "cooking_pot"}, "output": {"id": "fish_soup", "count": 3}},
     {"id": "mushroom_soup_brown_mushroom", "type": "melt", "station": "firepit", "input": "brown_mushroom", "count": 3, "vessel": "cooking_pot", "output": {"id": "pot_of_mushroom_soup", "count": 1}, "ticks": 300},

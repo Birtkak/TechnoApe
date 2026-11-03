@@ -198,6 +198,7 @@ func test_everything_craftable_is_reachable_from_raw_world_items() -> void:
 	raw.append("acorn")    # under oaks (mining.json "acorns", loot)
 	raw.append("crystal")  # mined from geodes (ADR 0052, mining.json)
 	raw.append("brown_mushroom")   # picked off the forest floor: mushroom soup (ADR 0121)
+	raw.append("bowl_of_milk")     # milked from goats with a clay bowl (mobs.json milk)
 	raw.append_array(items.items_with_tag("flower"))   # picked by hand: the flower pot's flower (ADR 0094)
 	for rock in ["basalt", "granite", "diorite", "limestone", "slate", "marble", "chalk"]:   # mined rock (ADR 0051, 0057)
 		raw.append(rock)

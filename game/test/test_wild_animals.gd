@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## The wild animals of ADR 0058: the data, the models, and the behaviours (flee, hop, swim, fly, pack
 ## hunts, boars that turn on whoever hurt them).
 
-const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow", "salmon", "jellyfish"]
+const NEW := ["deer", "boar", "rabbit", "fox", "wolf", "duck", "frog", "crab", "fish", "bat", "cave_spider", "poison_frog", "gloam_hound", "crow", "salmon", "jellyfish", "cave_salamander", "songbird", "goat"]
 
 
 func _manager() -> MobManager:
@@ -35,6 +35,14 @@ func test_data() -> void:
 			assert_bool(items.has(String(f))).override_failure_message("%s eats unknown %s" % [sp, f]).is_true()
 		for p in d.get("predator", {}).get("prey", []):
 			assert_bool(mm.defs.has(p)).override_failure_message("%s hunts unknown %s" % [sp, p]).is_true()
+	# spawn biomes are real ones; cave groups use the cave biome names of their pocket
+	var known := {}
+	for b in JSON.parse_string(FileAccess.get_file_as_string("res://data/biomes.json"))["biomes"]:
+		known[b["name"]] = b.get("band", "") == "cave"
+	for sp in mm.defs:
+		for b in mm.defs[sp].get("biomes", []):
+			assert_bool(known.has(b)).override_failure_message("%s spawns in unknown biome %s" % [sp, b]).is_true()
+			assert_bool(known.get(b, false) == (WildMoves.habitat(mm.defs[sp]) == "cave")).override_failure_message("%s: cave biomes for cave species only (%s)" % [sp, b]).is_true()
 	# who bites: wolves (some), boars (when hurt), cave spiders (always); nothing else new
 	assert_float(float(mm.defs["cave_spider"]["predator"]["aggressive_chance"])).is_equal(1.0)
 	assert_float(float(mm.defs["fox"]["predator"]["aggressive_chance"])).is_equal(0.0)
@@ -142,3 +150,34 @@ func test_grazers_sleep_at_night() -> void:
 		m._think_goal()
 		assert_str(m.goal).is_equal("sleep")
 		assert_vector(m._target).is_equal(Vector3.INF)
+
+
+func test_songbirds_land_sit_and_take_off() -> void:
+	var mm := _manager()
+	var bird := _mob(mm, "songbird", Vector3(0, 100, 0))
+	bird.set_meta("landing", true)   # a landing flight that just arrived
+	assert_bool(WildMoves._perch(bird)).is_true()
+	assert_str(bird.goal).is_equal("perch")
+	assert_bool(WildMoves._perch(bird)).is_true()   # it keeps sitting
+	bird._panic_t = 1.0                              # a scare sends it up
+	assert_bool(WildMoves._perch(bird)).is_false()
+	assert_str(bird.goal).is_equal("fly")
+	assert_float(bird.velocity.y).is_greater(0.0)
+
+
+func test_goats_give_milk_that_refills_when_they_graze() -> void:
+	var mm := _manager()
+	var gs := GDScript.new()
+	gs.source_code = "extends Node\nvar got := []\nfunc spawn_item(s, _p, _v = Vector3.ZERO, _d = 0.0):\n\tgot.append(s)\n"
+	gs.reload()
+	var stub: Node = auto_free(gs.new())
+	mm.main = stub
+	var goat := _mob(mm, "goat", Vector3(0, 100, 0))
+	var bowl := {"id": "clay_bowl", "tags": ["bowl"]}
+	assert_str(mm.interact(goat, bowl)).is_equal("milked")
+	assert_str(String(stub.got[0]["id"])).is_equal("bowl_of_milk")
+	assert_str(mm.interact(goat, bowl)).is_equal("")   # empty until it grazes
+	goat.set_sheared(false)
+	assert_str(mm.interact(goat, bowl)).is_equal("milked")
+	var items := ItemRegistry.load_default()
+	assert_bool(items.has("milk_porridge")).is_true()
