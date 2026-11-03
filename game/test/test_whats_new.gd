@@ -33,8 +33,15 @@ func test_every_entry_is_complete_and_unique() -> void:
 ## Every line names a registered command, and its kit, station set, animal, material, clothing or place exists.
 func test_every_line_runs_a_known_command_with_real_arguments() -> void:
 	var mobs: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/mobs.json"))["mobs"]
-	var gen := TerrainGenerator.new()   # seed 1337: every place within 4 km of 0, 0, as /goto searches
+	var gen := TerrainGenerator.new()   # seed 1337: each /goto within its km (4 by default) of the spawn (0, 0) or of the place before it
+	var chapters := []
+	for c in JSON.parse_string(FileAccess.get_file_as_string("res://data/quests.json"))["chapters"]:
+		chapters.append(c["id"])
+	var biomes := []
+	for b in JSON.parse_string(FileAccess.get_file_as_string("res://data/biomes.json"))["biomes"]:
+		biomes.append(b["name"])
 	for x in PlaytestCommands.whats_new():
+		var at := Vector2i.ZERO   # where the next /goto searches from: the spawn, then each place found
 		for line in x["run"]:
 			var t := CommandRegistry.tokenize(String(line).trim_prefix("/"))
 			var msg := "%s: %s" % [x["id"], line]
@@ -50,8 +57,22 @@ func test_every_line_runs_a_known_command_with_real_arguments() -> void:
 					assert_int(GameCommands.material_id(t[t.size() - 1])).override_failure_message(msg).is_greater(0)
 				"wear":
 					assert_str(Clothing.slot_of(items.get_def(t[1]))).override_failure_message(msg).is_not_empty()
+				"book":
+					assert_bool(chapters.has(t[1])).override_failure_message(msg).is_true()
+				"browse":
+					assert_bool(items.get_def(t[1]).is_empty()).override_failure_message(msg).is_false()
 				"goto", "locate":
-					assert_int(gen.gen.find_nearest(t[1], 0, 0, int(Settings.m2v(4000.0))).y).override_failure_message(msg).is_greater_equal(0)
+					assert_bool(t[1] in GameCommands.FEATURES or biomes.has(t[1])).override_failure_message(msg + ": not in Tab's list").is_true()
+					assert_int(x["run"].find("/spawn")).override_failure_message(msg + ": /spawn first").is_between(0, x["run"].find(line) - 1)
+					var p: Vector3i = gen.gen.find_nearest(t[1], at.x, at.y, int(Settings.m2v(1000.0 * (float(t[2]) if t.size() > 2 else 4.0))))
+					assert_int(p.y).override_failure_message(msg).is_greater_equal(0)
+					at = Vector2i(p.x, p.z)
+
+
+func test_book_and_browse_need_a_world_and_real_names() -> void:
+	assert_bool(reg.execute("/book lv_workshop")["ok"]).is_false()   # no world: fails, no crash
+	assert_bool(reg.execute("/browse fur_pelt")["ok"]).is_false()
+	assert_array(reg.complete("/browse fur_p")).contains(["/browse fur_pelt"])
 
 
 func test_tour_walks_forward_back_and_by_id() -> void:
