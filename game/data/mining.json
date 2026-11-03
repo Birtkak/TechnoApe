@@ -108,7 +108,6 @@
     "bluebell": {"hardness": 0.0, "drops": [{"id": "plant_fiber", "chance": 0.2}]},
     "frost_lichen": {"hardness": 0.0},
     "sea_aster": {"hardness": 0.0, "drops": [{"id": "plant_fiber", "chance": 0.2}]},
-    "dandelion": {"hardness": 0.0, "drops": [{"id": "plant_fiber", "chance": 0.2}]},
     "rope": {"hardness": 0.2, "drops": [{"id": "cordage", "chance": 0.5}]},
     "dune_grass": {"hardness": 0.0, "drops": [{"id": "dry_grass", "tool": "knife"}, {"id": "plant_fiber", "chance": 0.4}]},
     "heather": {"hardness": 0.0, "drops": [{"id": "plant_fiber", "chance": 0.3}]},

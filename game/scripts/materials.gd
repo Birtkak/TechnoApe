@@ -303,7 +303,7 @@ static func _build_defs() -> Array:
 		# 216 (ADR 0121): storage drawn by StationEntity like the chest
 		{"name": "barrel", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "barrel"},
 		{"name": "storage_shelf", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "storage_shelf"},
-	] + _reserved_defs(218, CAVE_IDS - 1) + _cave_defs() + _plant_defs() + _structure_defs() + _flora_defs() + _reserved_defs(CAVE_IDS + 23, 253) + [
+	] + _reserved_defs(218, CAVE_IDS - 1) + _cave_defs() + _plant_defs() + _structure_defs() + _flora_defs() + _reserved_defs(CAVE_IDS + 22, 253) + [
 		# 254 (ADR 0119 C): what toxic sludge boils into: heavy, sinks and pools in low caves, fades in a minute
 		{"name": "toxic_gas", "condense_c": 30, "condenses_to": "toxic_sludge", "cell_type": "gas", "density": 1, "gas_upwards_speed": 40, "gas_horizontal_speed": 90, "gas_downwards_speed": 120, "lifetime": 1800, "tiles": [11, 11, 11], "transparent": true},
 	] + _reserved_defs(255, 255)
@@ -334,7 +334,7 @@ static func _structure_defs() -> Array:
 	]
 
 
-## Ids 239..250: each biome's own flora (FineGen's FLORA table), tufts and bushes like the grasses, tiles 200..203, 208..215.
+## Ids 239..249: each biome's own flora (FineGen's FLORA table), tufts and bushes like the grasses, tiles 200..203, 208..214.
 static func _flora_defs() -> Array:
 	var out := []
 	for e in [
@@ -349,7 +349,6 @@ static func _flora_defs() -> Array:
 		["bluebell", 212, "tuft"],
 		["frost_lichen", 213, "tuft"],
 		["sea_aster", 214, "tuft"],
-		["dandelion", 215, "tuft"],
 	]:
 		out.append({"name": e[0], "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 50, "ignite_chance": 0.6, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [e[1], e[1], e[1]], "transparent": false, "micro": e[2], "replaceable": true})
 	return out

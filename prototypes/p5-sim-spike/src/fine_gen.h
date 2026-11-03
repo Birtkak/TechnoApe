@@ -237,6 +237,8 @@ private:
     uint16_t tree_voxel(const ColTree &c, float x, int y, float z, float grow, float &leaf_n) const;
     void young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<std::shared_ptr<const FTree>> &out) const;
     void build_stamp(const WorldGen::Stamp &s, FStamp &out) const;
+    static constexpr int FORM_CELL = 128, FORM_MARGIN = 48;   // rock formation cells (fine voxels)
+    bool formation_at(int cx, int cz, const WorldGen::Ruin *ruins, int nruins, FStamp &f) const;
     void floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, bool clutter, std::vector<FStamp> &out) const;
     // Clutter piece voxel at (dx, dy, dz) from its stamp's centre column and ground (dy = 0: the first voxel above it).
     static uint16_t clutter_voxel(const FStamp &s, int dx, int dy, int dz);

@@ -485,10 +485,10 @@ Asked for in bug reports 2026-11-02 18-55-21, 18-57-25, 18-54-25 and 18-49-07.
   A two-voxel plank deck 1.25 m wide sagging 6 % of its half length, a slat in ten gone, rope rails at 0.75 m on
   stringers every metre, 2x2 log posts at both ends. Material 238 rope (tile 199, drops cordage).
 - Every land biome's own flora (FLORA table in FineGen's vegetation pass, where the grass left the ground bare, in
-  n_meadow_ patches; ids 239..250, tiles 200..203 and 208..215): sagebrush (badlands, scrub), desert marigold,
+  n_meadow_ patches; ids 239..249, tiles 200..203 and 208..214): sagebrush (badlands, scrub), desert marigold,
   moss campion (mountains, alpine, snowy peaks, frozen highlands), fire lily (volcanic), lingonberry (taiga, snowy
   taiga; drops blueberries), bromeliad (jungle), cattail (swamp), aloe (savanna), bluebell (forests), frost lichen
-  (ice fields, snowy tundra), sea aster (mangrove, stony shore), dandelion (plains, meadow); sedge also on snowy
+  (ice fields, snowy tundra), sea aster (mangrove, stony shore) (plains and meadows keep their flower clutter); sedge also on snowy
   beaches. Water biomes keep kelp, seagrass, reeds and lily pads; caves keep their dressing.
 
 ## A structure in every land biome (2026-11-03)
