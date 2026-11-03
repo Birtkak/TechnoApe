@@ -14,6 +14,7 @@ const GROUND := ["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball
 	"loose_tin_ore", "loose_iron_ore", "tin_ore", "iron_ore",
 	"sulfur",   # mined from sulfur cave crust (mining.json): the electrical age's rubber (ADR 0113)
 	"crystal",  # geodes (ADR 0052): the miner's helmet's lamp
+	"bowl_of_milk",   # a goat milked into a clay bowl
 	"coal",     # mined from coal ore: the coke oven (ADR 0117)
 	"oak_sapling", "brown_mushroom", "blueberry"]   # leaves' drops, wild mushrooms and berry bushes: replanting and meals (ADR 0121)
 const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age", "steam_age", "electrical_age"]

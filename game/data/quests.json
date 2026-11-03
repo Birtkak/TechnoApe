@@ -1585,6 +1585,30 @@
             }
           ],
           "optional": true
+        },
+        {
+          "id": "milk",
+          "title": "Milk",
+          "icon": "bowl_of_milk",
+          "pos": [
+            3,
+            4
+          ],
+          "deps": [
+            "porridge"
+          ],
+          "description": "Lure a goat with wheat and milk it into a clay bowl; it refills as the goat grazes. Milk in porridge makes a richer meal.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bowl_of_milk"
+            },
+            {
+              "type": "item",
+              "item": "milk_porridge"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -3281,6 +3305,26 @@
             {
               "type": "item",
               "item": "pump"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "eu_meter",
+          "title": "EU Meter",
+          "icon": "eu_meter",
+          "pos": [
+            4,
+            0
+          ],
+          "deps": [
+            "primitive_circuit"
+          ],
+          "description": "Glass, wire and a circuit on a plate: point it at a cable, pipe or machine to read the power made, wanted and moving, and steam and water the same.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "eu_meter"
             }
           ],
           "optional": true

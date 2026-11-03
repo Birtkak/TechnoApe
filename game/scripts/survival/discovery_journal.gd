@@ -13,6 +13,7 @@ extends Node
 const ANIMAL_M := 16.0
 const LANDMARK_M := 20.0
 const CAVE_M := 6.0
+const NEAR_SITES := {"abandoned_mine": "ruin_mine", "abandoned_camp": "ruin_camp"}   # landmark -> find_nearest kind
 
 var main: Node
 var book: Discoveries
@@ -82,6 +83,10 @@ func check_here(slow := true) -> void:
 		var head: Dictionary = main.bubble.cell_info(Vector3i(main.player.camera.global_position.floor()))
 		if int(head.get("material", 0)) != 0:
 			book.note("phenomenon:" + GameMaterials.name_of(int(head["material"])))
+	if main.fx != null:   # butterflies, bees, glow worms: ambient particles spawn only round the player
+		for id in book.entries:
+			if id.begins_with("critter:") and main.fx.stats["bursts"].has(id.substr(8)):
+				book.note(id)
 	if main.mobs != null:
 		var r2 := Settings.m2v(ANIMAL_M) * Settings.m2v(ANIMAL_M)
 		for m in main.mobs.active():
@@ -93,10 +98,11 @@ func check_here(slow := true) -> void:
 			var r: Vector3i = gen.find_nearest("ruin", x, z, int(lm))
 			if r.y >= 0 and Vector2(r.x - x, r.z - z).length() <= lm:
 				book.note("landmark:ruin")
-		if not book.is_found("landmark:abandoned_mine"):
-			var mn: Vector3i = gen.find_nearest("ruin_mine", x, z, int(lm))
-			if mn.y >= 0 and Vector2(mn.x - x, mn.z - z).length() <= lm:
-				book.note("landmark:abandoned_mine")
+		for site in NEAR_SITES:
+			if not book.is_found("landmark:" + site):
+				var s: Vector3i = gen.find_nearest(NEAR_SITES[site], x, z, int(lm))
+				if s.y >= 0 and Vector2(s.x - x, s.z - z).length() <= lm:
+					book.note("landmark:" + site)
 		if not book.is_found("landmark:waterfall") and not gen.waterfalls_near(x, z, int(lm)).is_empty():
 			book.note("landmark:waterfall")
 
