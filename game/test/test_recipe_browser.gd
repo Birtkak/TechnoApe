@@ -299,7 +299,8 @@ func test_every_station_and_machine_has_uses() -> void:
 	var none := []
 	# they make, store or light with steam or power, or move items in the world: no recipe runs in them
 	var no_recipes := ["small_boiler", "steel_boiler", "steam_turbine", "compressor", "battery_box", "electric_lamp",
-		"hopper", "chute", "belt", "rail", "knife_switch", "fuse_box", "breaker"]   # switches and fuses guard the circuit (ADR 0123)
+		"hopper", "chute", "belt", "rail", "knife_switch", "fuse_box", "breaker", "daylight_switch", "meter_panel",
+		"water_wheel", "wind_turbine", "hand_crank", "thin_cable", "thick_cable"]   # switches, fuses and meters guard the circuit, the small sources only make power, gauges only carry it (ADR 0123)
 	for id in items.all_ids():
 		var d := items.get_def(id)
 		if (d.has("work") or "station" in d.get("tags", [])) and not id in no_recipes and b.uses_for(id).is_empty():
