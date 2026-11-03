@@ -2166,6 +2166,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                     {technosim_biome::BEACH, Mat::DUNE_GRASS, 0.050f, 0.350f, 0.000f, 1, 4},
                     {technosim_biome::TUNDRA, Mat::TUNDRA_SEDGE, 0.030f, 0.080f, 0.015f, 1, 3},
                     {technosim_biome::SNOWY_TUNDRA, Mat::TUNDRA_SEDGE, 0.030f, 0.080f, 0.015f, 1, 3},
+                    {technosim_biome::SNOWY_TUNDRA, Mat::FROST_LICHEN, 0.015f, 0.040f, 0.003f, 1, 1},
                     {technosim_biome::SNOWY_BEACH, Mat::TUNDRA_SEDGE, 0.020f, 0.060f, 0.005f, 1, 2},
                     {technosim_biome::BADLANDS, Mat::SAGEBRUSH, 0.030f, 0.060f, 0.010f, 1, 2},
                     {technosim_biome::SHRUBLAND, Mat::SAGEBRUSH, 0.030f, 0.060f, 0.010f, 1, 2},
@@ -2184,20 +2185,22 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                     {technosim_biome::OLD_GROWTH_FOREST, Mat::BLUEBELL, 0.020f, 0.120f, 0.000f, 1, 1},
                     {technosim_biome::BIRCH_FOREST, Mat::BLUEBELL, 0.020f, 0.120f, 0.000f, 1, 1},
                     {technosim_biome::ICE_FIELDS, Mat::FROST_LICHEN, 0.015f, 0.040f, 0.003f, 1, 1},
-                    {technosim_biome::SNOWY_TUNDRA, Mat::FROST_LICHEN, 0.015f, 0.040f, 0.003f, 1, 1},
                     {technosim_biome::MANGROVE, Mat::SEA_ASTER, 0.030f, 0.080f, 0.005f, 1, 2},
                     {technosim_biome::STONY_SHORE, Mat::SEA_ASTER, 0.030f, 0.080f, 0.005f, 1, 2},
                 };
-                const uint32_t fh = h3(wx, wz, g.seed_ + 37);
-                const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
-                for (const Flora &f : FLORA) {
-                    if (f.biome != col.biome) continue;
+                // a biome's rows stand together; the hash and noise are paid only where the biome has any
+                const Flora *f = FLORA, *end = FLORA + sizeof(FLORA) / sizeof(FLORA[0]);
+                while (f < end && f->biome != col.biome) f++;
+                if (f < end) {
+                    const uint32_t fh = h3(wx, wz, g.seed_ + 37);
+                    const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
                     // a biome with two kinds rolls each on its own bits of the hash
-                    if ((float)((fh >> (f.mat & 7)) & 1023) / 1024.0f < std::max(f.lo, f.base + f.k * mead)) {
-                        veg = f.mat;
-                        veg_h = f.h0 + (int)((fh >> 16) % (uint32_t)(f.h1 - f.h0 + 1));
-                        break;
-                    }
+                    for (; f < end && f->biome == col.biome; f++)
+                        if ((float)((fh >> (f->mat & 7)) & 1023) / 1024.0f < std::max(f->lo, f->base + f->k * mead)) {
+                            veg = f->mat;
+                            veg_h = f->h0 + (int)((fh >> 16) % (uint32_t)(f->h1 - f->h0 + 1));
+                            break;
+                        }
                 }
             }
             if (ncs > 0 || nct > 0) {
