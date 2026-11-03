@@ -301,6 +301,156 @@ def synth_wind() -> list:
 
 SYNTH.update({"birds": synth_birds, "jungle": synth_jungle, "crickets": synth_crickets, "owl": synth_owl, "wind": synth_wind})
 
+# ---------------- machines, electrics and the biome animals (ADR 0120): made here, no CC0 source fits ----------------
+_RNG = np.random.default_rng(0x7EC4)
+
+
+def _band(n: int, lo: float, hi: float) -> np.ndarray:
+    """White noise kept between lo and hi Hz (an FFT mask), unit peak."""
+    spec = np.fft.rfft(_RNG.standard_normal(n))
+    f = np.fft.rfftfreq(n, 1.0 / RATE)
+    spec[(f < lo) | (f > hi)] = 0
+    a = np.fft.irfft(spec, n)
+    return a / (np.abs(a).max() + 1e-9)
+
+
+def _machine(tone: float, harm: list, noise: tuple, chug_hz: float = 0.0, chug: float = 0.0, click_hz: float = 0.0, mains: float = 0.5, dur: float = 4.0) -> list:
+    """A running machine: a 50 Hz mains drone with its 100 Hz buzz, the motor's tone with harmonics, a band of
+    mechanical noise (grinding, air, fizz), an optional chug (amplitude beat) and clicks. Looped by make_loop."""
+    n = int(RATE * dur)
+    t = np.arange(n) / RATE
+    a = mains * (np.sin(2 * np.pi * 50 * t) + 0.5 * np.tanh(3 * np.sin(2 * np.pi * 100 * t)) * 0.4)
+    a = a + sum(g * np.sin(2 * np.pi * tone * k * t + k) for k, g in enumerate(harm, 1))
+    a = a * (1.0 + 0.04 * np.sin(2 * np.pi * 0.5 * t))   # a slow wobble keeps the loop alive
+    if noise:
+        a = a + noise[2] * _band(n, noise[0], noise[1])
+    if chug_hz > 0:
+        a = a * (1 - chug + chug * (0.5 + 0.5 * np.sin(2 * np.pi * chug_hz * t)) ** 3)
+    if click_hz > 0:
+        k = np.zeros(n)
+        k[(np.arange(0, dur, 1.0 / click_hz) * RATE).astype(int)] = 1.0
+        a = a + 0.5 * np.convolve(k, _band(int(RATE * 0.02), 1500, 6000) * np.exp(-np.arange(int(RATE * 0.02)) / 120), "same")
+    return [a[:, None]]
+
+
+MACHINES = {   # tone Hz, harmonic gains, noise (lo, hi, gain), chug Hz, chug depth, clicks per s, mains gain
+    "lathe": (180, [0.5, 0.3, 0.15], (2000, 6000, 0.12), 0, 0, 0, 0.3),          # a smooth spinning whir, cutting hiss
+    "bending_press": (70, [0.6, 0.4], (200, 900, 0.2), 0.6, 0.8, 0, 0.4),          # slow heavy strokes
+    "wiremill": (420, [0.4, 0.25, 0.2, 0.1], (3000, 8000, 0.08), 0, 0, 0, 0.25),  # a high drawing whine
+    "macerator": (90, [0.5, 0.3], (150, 2500, 0.55), 3.0, 0.35, 0, 0.3),           # a rough grinding rumble
+    "alloy_smelter": (60, [0.4, 0.2], (800, 4000, 0.18), 0, 0, 0, 0.7),             # deep transformer hum, a hiss of heat
+    "assembler": (240, [0.3, 0.2], (1000, 3000, 0.05), 0, 0, 4.0, 0.35),           # whir and ticking actuators
+    "extractor": (150, [0.4, 0.3], (300, 1500, 0.25), 1.5, 0.4, 0, 0.3),           # a pump-like squelch
+    "cutter": (300, [0.5, 0.4, 0.3, 0.2], (2500, 9000, 0.3), 0, 0, 0, 0.25),       # a saw's buzz
+    "extruder": (55, [0.6, 0.3], (100, 600, 0.3), 0.3, 0.3, 0, 0.5),               # low pressing drone
+    "canning_machine": (200, [0.3, 0.2], (600, 2000, 0.1), 1.2, 0.5, 1.2, 0.3),    # clanking rhythm
+    "electric_compressor": (110, [0.5, 0.3], (400, 3000, 0.3), 5.0, 0.6, 0, 0.3),  # a piston chug
+    "electrolyzer": (100, [0.3], (2000, 7000, 0.2), 0, 0, 9.0, 0.6),               # mains hum and fizzing bubbles
+    "electric_furnace": (50, [0.6, 0.5, 0.2], (300, 1200, 0.1), 0, 0, 0, 0.9),     # a big transformer drone
+    "lamp": (100, [0.3, 0.2], (5000, 9000, 0.03), 0, 0, 0, 0.0),                    # a faint filament buzz
+    "dynamo": (320, [0.6, 0.4, 0.25, 0.1], (1000, 4000, 0.08), 0, 0, 0, 0.0),     # the dynamo's whine (pitch follows its load)
+}
+for _k, _p in MACHINES.items():
+    SYNTH["machine_" + _k] = (lambda p=_p: _machine(*p))
+
+
+def _hit(dur: float, lo: float, hi: float, decay: float, tone: float = 0.0, tone_gain: float = 0.0) -> np.ndarray:
+    n = int(RATE * dur)
+    t = np.arange(n) / RATE
+    a = _band(n, lo, hi) * np.exp(-t / decay)
+    if tone:
+        a = a + tone_gain * np.sin(2 * np.pi * tone * t) * np.exp(-t / (decay * 2))
+    return a
+
+
+def synth_switch() -> list:
+    """A knife switch thrown: a metal scrape, then the heavy clunk of the blade into its jaws (two variants)."""
+    out = []
+    for f in [140, 120]:
+        scrape = _hit(0.08, 2000, 6000, 0.03) * 0.3
+        clunk = _hit(0.25, 80, 1500, 0.05, f, 0.8)
+        out.append(np.concatenate([scrape, clunk])[:, None])
+    return out
+
+
+def synth_fuse() -> list:
+    """A fuse blowing: a sharp pop and a short fizzle."""
+    out = []
+    for d in [0.006, 0.009]:
+        pop = _hit(0.05, 300, 9000, d) * 1.0
+        fizz = _hit(0.35, 3000, 9000, 0.12) * 0.25
+        out.append(np.concatenate([pop, fizz])[:, None])
+    return out
+
+
+def synth_breaker() -> list:
+    """A breaker tripping: a spring snap, then the clack of its lever dropping."""
+    out = []
+    for f in [900, 760]:
+        snap = _hit(0.04, 2500, 9000, 0.008, f, 0.5)
+        clack = _hit(0.15, 400, 3000, 0.03, f / 3, 0.4) * 0.8
+        out.append(np.concatenate([snap, np.zeros(int(RATE * 0.03)), clack])[:, None])
+    return out
+
+
+def synth_cable_burn() -> list:
+    """Cable insulation burning out: crackles over a hiss, louder then dying down."""
+    n = int(RATE * 1.6)
+    t = np.arange(n) / RATE
+    a = _band(n, 1500, 7000) * 0.25 * np.exp(-t / 0.9)
+    k = (_RNG.random(n) < 40.0 / RATE).astype(float) * _RNG.random(n)
+    a = a + np.convolve(k, _band(int(RATE * 0.01), 800, 9000), "same") * np.exp(-t / 0.7)
+    return [a[:, None]]
+
+
+SYNTH.update({"switch": synth_switch, "fuse": synth_fuse, "breaker": synth_breaker, "cable_burn": synth_cable_burn})
+
+
+def _rough(a: np.ndarray, amt: float, hz: float) -> np.ndarray:
+    """Rasp: amplitude modulation at hz (a croak or a caw), amt 0..1."""
+    t = np.arange(len(a)) / RATE
+    return a * (1 - amt + amt * np.abs(np.sin(np.pi * hz * t)))
+
+
+def _call(f0: float, f1: float, dur: float, rasp: float = 0.0, rasp_hz: float = 0.0, harm: float = 0.5, noise: float = 0.0) -> np.ndarray:
+    s = _sweep(f0, f1, dur)
+    ph = 2 * np.pi * np.cumsum(np.geomspace(f0, f1, len(s))) / RATE
+    a = s + harm * np.sin(2 * ph) + harm * 0.5 * np.sin(3 * ph)
+    if noise:
+        a = a + noise * _band(len(a), 1000, 6000)
+    a = _rough(a, rasp, rasp_hz) if rasp else a
+    return a * _env(len(a), 0.01, dur * 0.5)
+
+
+ANIMALS = {   # name -> list of variants, each a list of calls [f0, f1, dur, rasp, rasp_hz, harm, noise] with gaps
+    "caw": [[[700, 560, 0.28, 0.7, 60, 0.8, 0.3]], [[660, 520, 0.22, 0.7, 55, 0.8, 0.3], [650, 500, 0.25, 0.7, 55, 0.8, 0.3]]],
+    "gull": [[[1300, 900, 0.45, 0.3, 30, 0.4, 0.05]], [[1500, 1100, 0.2, 0.3, 30, 0.4, 0.05], [1400, 1000, 0.2, 0.3, 30, 0.4, 0.05], [1300, 900, 0.3, 0.3, 30, 0.4, 0.05]]],
+    "vulture": [[[260, 200, 0.5, 0.8, 40, 0.6, 0.5]], [[230, 180, 0.6, 0.8, 35, 0.6, 0.5]]],
+    "parrot": [[[1800, 1200, 0.25, 0.6, 80, 0.9, 0.2]], [[1200, 2000, 0.18, 0.6, 90, 0.9, 0.2], [2000, 1400, 0.2, 0.6, 90, 0.9, 0.2]]],
+    "ptarmigan": [[[500, 420, 0.12, 0.9, 25, 0.7, 0.3]] * 3, [[480, 400, 0.15, 0.9, 25, 0.7, 0.3]] * 2],
+    "goat": [[[420, 380, 0.7, 0.8, 18, 0.9, 0.1]], [[460, 400, 0.5, 0.8, 20, 0.9, 0.1]]],
+    "goat_hurt": [[[620, 480, 0.35, 0.8, 22, 0.9, 0.15]]],
+    "antelope": [[[160, 120, 0.25, 0.4, 30, 0.3, 0.7]], [[180, 130, 0.2, 0.4, 30, 0.3, 0.7]]],
+    "lizard": [[[3000, 2600, 0.06, 0, 0, 0.2, 0.2]] * 3, [[2800, 2500, 0.05, 0, 0, 0.2, 0.2]] * 4],
+    "hiss": [[[400, 400, 0.6, 0, 0, 0.0, 1.5]], [[400, 400, 0.4, 0, 0, 0.0, 1.5]]],
+    "scorpion": [[[4000, 4000, 0.015, 0, 0, 0.0, 1.0]] * 5, [[3500, 3500, 0.015, 0, 0, 0.0, 1.0]] * 3],
+}
+
+
+def _animal(variants: list) -> list:
+    out = []
+    for calls in variants:
+        parts = []
+        for c in calls:
+            parts += [_call(*c), np.zeros(int(RATE * (0.06 if c[2] < 0.1 else 0.12)))]
+        out.append((np.concatenate(parts) * 0.6)[:, None])
+    return out
+
+
+for _k, _v in ANIMALS.items():
+    SYNTH["call_" + _k] = (lambda v=_v: _animal(v))
+
+
 
 def build(name: str, r: dict) -> list:
     music = bool(r.get("music"))

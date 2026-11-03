@@ -34,6 +34,7 @@ func net_in(channel: String, d) -> bool:
 	last_amps = float(d.get("amps", 0.0))
 	if kind != "knife_switch" and last_amps > amps and not open:
 		open = true   # the fuse wire melts, the breaker trips
+		Sound.play("elec/fuse" if kind == "fuse_box" else "elec/breaker", Vector3(pos) + Vector3(0.5, 0.5, 0.5))
 		changed.emit()
 	return false
 
@@ -52,10 +53,12 @@ func use(stack: Dictionary) -> Dictionary:
 	match kind:
 		"knife_switch":
 			open = not open
+			Sound.play("elec/switch", Vector3(pos) + Vector3(0.5, 0.5, 0.5), {"pitch": 0.85 if open else 1.0})
 			res["msg"] = "The switch is %s." % ("open: the circuit beyond it is dead" if open else "closed")
 		"breaker":
 			if open:
 				open = false
+				Sound.play("elec/switch", Vector3(pos) + Vector3(0.5, 0.5, 0.5), {"pitch": 1.4, "db": -6.0})   # the lever pushed back up
 				res["msg"] = "Reset. It trips above %d A." % roundi(amps)
 			else:
 				res["msg"] = "Armed: it trips above %d A (%.1f A now)." % [roundi(amps), last_amps]
