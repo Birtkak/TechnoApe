@@ -26,7 +26,7 @@ func test_network_line_sums_the_component() -> void:
 	var lone: RefCounted = store.create(Vector3i(40 * B, 0, 0), "cable")
 	Networks.solve(store, "energy")
 	var line := Networks.look_line(cable)
-	assert_str(line).contains("%d EU/t made" % roundi(Settings.turbine_eu_t)).contains("(4 parts)")
+	assert_str(line).contains("Power: ").contains(" W made").contains("(4 parts)")   # real units (ADR 0123)
 	assert_str(Networks.look_line(t)).is_equal(line)   # every part of a network reads the same
 	assert_str(Networks.look_line(lone)).is_empty()     # a cable on its own is no network
 	assert_str(Networks.look_line(null)).is_empty()
