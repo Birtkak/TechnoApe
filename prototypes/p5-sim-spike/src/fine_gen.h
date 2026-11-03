@@ -209,6 +209,7 @@ private:
         std::vector<std::shared_ptr<const FTree>> trees;
         size_t n_mature = 0;
         std::vector<FStamp> stamps;
+        std::vector<WorldGen::Conduit> conduits;   // ADR 0110: the conduits in reach of the footprint
     };
     mutable SharedCache<ColumnCtx> ctx_cache_{16384};   // 16k footprints (5-15 KB with their stamps): a 100 m box holds ~10k
     // A young tree's cell (24 voxels): the tree standing in it, or none, before the ruins near a block decide.
