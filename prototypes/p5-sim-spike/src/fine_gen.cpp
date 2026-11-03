@@ -1,3 +1,4 @@
+#include <climits>
 #include "fine_gen.h"
 
 #include <godot_cpp/core/class_db.hpp>
@@ -758,6 +759,94 @@ bool FineGen::formation_at(int cx, int cz, const WorldGen::Ruin *ruins, int nrui
     return true;
 }
 
+// Rope bridges over ravines: once per 64 m cell, where a ravine is open, the point of its centre line nearest a
+// seeded spot, spanned rim to rim across the line when both rims stand within 3 m of each other.
+// The bridge of bridge cell (cx, cz) of BRIDGE_CELL fine voxels, if one stands clear of the given ruins.
+bool FineGen::bridge_at(int cx, int cz, const WorldGen::Ruin *ruins, int nruins, FStamp &f) const {
+    const WorldGen &g = *g_.ptr();
+    constexpr int BC = BRIDGE_CELL;
+    auto rv = [&](float px, float pz) { return g.n_ravine_.GetNoise(px, pz); };
+    // the cell's bridge (kind 0: none) is the same for every block it reaches, so it is solved once
+    const std::shared_ptr<const FStamp> bc = bridge_cache_.get(((uint64_t)(uint32_t)cx << 32) | (uint32_t)cz, [&]() {
+        const uint32_t hs = h3(cx, cz, g.seed_ + 673);
+        if ((hs & 3) == 0) return std::make_shared<const FStamp>();
+        float px = (float)(cx * BC + (int)((hs >> 4) % BC)) / FS, pz = (float)(cz * BC + (int)((hs >> 14) % BC)) / FS;   // macro
+        if (g.n_ravmask_.GetNoise(px, pz) <= 0.4f) return std::make_shared<const FStamp>();
+        float gx = 0.0f, gz = 0.0f, n = 1.0f;
+        for (int it = 0; it < 4; it++) {   // Newton steps onto the zero line
+            n = rv(px, pz);
+            gx = (rv(px + 1.0f, pz) - rv(px - 1.0f, pz)) * 0.5f;
+            gz = (rv(px, pz + 1.0f) - rv(px, pz - 1.0f)) * 0.5f;
+            const float g2 = gx * gx + gz * gz;
+            if (g2 < 1e-12f) break;
+            px -= n * gx / g2;
+            pz -= n * gz / g2;
+        }
+        const float gl = std::sqrt(gx * gx + gz * gz);
+        if (gl < 1e-6f || std::fabs(rv(px, pz)) > 0.003f || g.n_ravmask_.GetNoise(px, pz) <= 0.45f) return std::make_shared<const FStamp>();
+        const float ax = gx / gl, az = gz / gl;   // across the ravine: the bridge's axis
+        auto cut = [&](float qx, float qz) { return WorldGen::ravine_value(g.n_ravmask_.GetNoise(qx, qz), std::fabs(rv(qx, qz)), 1.0f) > -0.5f; };
+        int a1 = 0, a2 = 0;
+        while (a1 < 32 && cut(px + ax * a1, pz + az * a1)) a1++;
+        while (a2 < 32 && cut(px - ax * a2, pz - az * a2)) a2++;
+        if (a1 >= 32 || a2 >= 32 || a1 + a2 < 6) return std::make_shared<const FStamp>();
+        const float half = 0.5f * (float)(a1 + a2) + 2.0f;            // macro, past each rim by 2
+        const float mx = px + ax * 0.5f * (float)(a1 - a2), mz = pz + az * 0.5f * (float)(a1 - a2);
+        FStamp b{};
+        b.kind = BRIDGE;
+        b.seed = h3(cx, cz, g.seed_ + 677);
+        b.x = mx * FS;
+        b.z = mz * FS;
+        b.dx = ax;
+        b.dz = az;
+        b.size = half * FS;
+        b.r = 5.0f;
+        const float e1 = surface_f((int)(b.x + ax * b.size), (int)(b.z + az * b.size));
+        const float e2 = surface_f((int)(b.x - ax * b.size), (int)(b.z - az * b.size));
+        if (std::fabs(e1 - e2) > 24.0f || std::min(e1, e2) <= (float)(g.sea_ * FS)) return std::make_shared<const FStamp>();
+        b.ground = (int)std::floor(std::min(e1, e2) + 0.5f);
+        return std::make_shared<const FStamp>(b);
+    });
+    if (bc->kind != BRIDGE) return false;
+    const int bmx = floor_div((int)bc->x, FS), bmz = floor_div((int)bc->z, FS), half = (int)(bc->size / FS);
+    for (int r = 0; r < nruins; r++)
+        if (WorldGen::in_ruin(ruins[r], bmx, bmz, half + RUIN_RAMP)) return false;
+    f = *bc;
+    return true;
+}
+
+// Cairns: stacks of stones marking the routes over the mountains and the volcanic land, where no ruin stands
+// (too high, too steep, too rare): one chance in three per 32 m cell, on ground level within 1 m.
+// The cairn of cairn cell (cx, cz) of CAIRN_CELL fine voxels, if any and if it reaches the box x_lo..x_hi, z_lo..z_hi.
+bool FineGen::cairn_at(int cx, int cz, int x_lo, int z_lo, int x_hi, int z_hi, FStamp &k) const {
+    const WorldGen &g = *g_.ptr();
+    constexpr int KC = CAIRN_CELL, KM = 16;
+    const uint32_t hs = h3(cx, cz, g.seed_ + 683);
+    if ((hs % 3) != 0) return false;
+    const float fx = (float)(cx * KC + KM + (int)((hs >> 4) % (KC - 2 * KM))) + 0.5f;
+    const float fz = (float)(cz * KC + KM + (int)((hs >> 14) % (KC - 2 * KM))) + 0.5f;
+    if (fx + KM < x_lo || fx - KM > x_hi || fz + KM < z_lo || fz - KM > z_hi) return false;   // past the asked box: no samples
+    const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
+    const WorldGen::Column col = g.column_base(mx, mz, true);   // mountains are told by their slope
+    if (col.biome != technosim_biome::MOUNTAINS && col.biome != technosim_biome::ALPINE && col.biome != technosim_biome::SNOWY_PEAKS && col.biome != technosim_biome::VOLCANIC) return false;
+    if (g.ravine_near(mx, mz, 3)) return false;
+    k = FStamp{};
+    k.kind = CAIRN;
+    k.seed = h3(cx, cz, g.seed_ + 691);
+    k.x = fx;
+    k.z = fz;
+    k.size = 8.0f + (float)((k.seed >> 4) % 6);   // 1-1.6 m tall
+    k.r = 3.0f + (float)((k.seed >> 8) & 1);
+    k.wood = col.biome == technosim_biome::VOLCANIC ? Mat::BASALT : Mat::COBBLESTONE;   // volcanic ones in basalt, capped in obsidian
+    const float s0 = surface_f((int)fx, (int)fz);
+    bool flat = true;
+    for (int q = 0; q < 4 && flat; q++)
+        flat = std::fabs(surface_f((int)fx + ((q & 1) ? 4 : -4), (int)fz + ((q & 2) ? 4 : -4)) - s0) <= 8.0f;
+    if (!flat) return false;
+    k.ground = (int)std::floor(s0 + 0.5f);
+    return true;
+}
+
 void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, bool clutter, std::vector<FStamp> &out) const {
     const WorldGen &g = *g_.ptr();
     constexpr int FC = 16, M = 34;
@@ -897,90 +986,21 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
     // Rope bridges over ravines: once per 64 m cell, where a ravine is open, the point of its centre line nearest a
     // seeded spot, spanned rim to rim across the line when both rims stand within 3 m of each other.
     {
-        constexpr int BC = 512, BM = 160;   // fine voxels; a bridge reaches up to ~130 from its middle
-        auto rv = [&](float px, float pz) { return g.n_ravine_.GetNoise(px, pz); };
+        constexpr int BC = BRIDGE_CELL, BM = 160;   // fine voxels; a bridge reaches up to ~130 from its middle
         for (int cz = floor_div(z_lo - BM, BC); cz <= floor_div(z_hi + BM, BC); cz++)
             for (int cx = floor_div(x_lo - BM, BC); cx <= floor_div(x_hi + BM, BC); cx++) {
-                // the cell's bridge (kind 0: none) is the same for every block it reaches, so it is solved once
-                const std::shared_ptr<const FStamp> bc = bridge_cache_.get(((uint64_t)(uint32_t)cx << 32) | (uint32_t)cz, [&]() {
-                    const uint32_t hs = h3(cx, cz, g.seed_ + 673);
-                    if ((hs & 3) == 0) return std::make_shared<const FStamp>();
-                    float px = (float)(cx * BC + (int)((hs >> 4) % BC)) / FS, pz = (float)(cz * BC + (int)((hs >> 14) % BC)) / FS;   // macro
-                    if (g.n_ravmask_.GetNoise(px, pz) <= 0.4f) return std::make_shared<const FStamp>();
-                    float gx = 0.0f, gz = 0.0f, n = 1.0f;
-                    for (int it = 0; it < 4; it++) {   // Newton steps onto the zero line
-                        n = rv(px, pz);
-                        gx = (rv(px + 1.0f, pz) - rv(px - 1.0f, pz)) * 0.5f;
-                        gz = (rv(px, pz + 1.0f) - rv(px, pz - 1.0f)) * 0.5f;
-                        const float g2 = gx * gx + gz * gz;
-                        if (g2 < 1e-12f) break;
-                        px -= n * gx / g2;
-                        pz -= n * gz / g2;
-                    }
-                    const float gl = std::sqrt(gx * gx + gz * gz);
-                    if (gl < 1e-6f || std::fabs(rv(px, pz)) > 0.003f || g.n_ravmask_.GetNoise(px, pz) <= 0.45f) return std::make_shared<const FStamp>();
-                    const float ax = gx / gl, az = gz / gl;   // across the ravine: the bridge's axis
-                    auto cut = [&](float qx, float qz) { return WorldGen::ravine_value(g.n_ravmask_.GetNoise(qx, qz), std::fabs(rv(qx, qz)), 1.0f) > -0.5f; };
-                    int a1 = 0, a2 = 0;
-                    while (a1 < 32 && cut(px + ax * a1, pz + az * a1)) a1++;
-                    while (a2 < 32 && cut(px - ax * a2, pz - az * a2)) a2++;
-                    if (a1 >= 32 || a2 >= 32 || a1 + a2 < 6) return std::make_shared<const FStamp>();
-                    const float half = 0.5f * (float)(a1 + a2) + 2.0f;            // macro, past each rim by 2
-                    const float mx = px + ax * 0.5f * (float)(a1 - a2), mz = pz + az * 0.5f * (float)(a1 - a2);
-                    FStamp b{};
-                    b.kind = BRIDGE;
-                    b.seed = h3(cx, cz, g.seed_ + 677);
-                    b.x = mx * FS;
-                    b.z = mz * FS;
-                    b.dx = ax;
-                    b.dz = az;
-                    b.size = half * FS;
-                    b.r = 5.0f;
-                    const float e1 = surface_f((int)(b.x + ax * b.size), (int)(b.z + az * b.size));
-                    const float e2 = surface_f((int)(b.x - ax * b.size), (int)(b.z - az * b.size));
-                    if (std::fabs(e1 - e2) > 24.0f || std::min(e1, e2) <= (float)(g.sea_ * FS)) return std::make_shared<const FStamp>();
-                    b.ground = (int)std::floor(std::min(e1, e2) + 0.5f);
-                    return std::make_shared<const FStamp>(b);
-                });
-                if (bc->kind != BRIDGE) continue;
-                const FStamp &b = *bc;
-                const int bmx = floor_div((int)b.x, FS), bmz = floor_div((int)b.z, FS), half = (int)(b.size / FS);
-                bool blocked = false;
-                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], bmx, bmz, half + RUIN_RAMP);
-                if (blocked) continue;
-                out.push_back(b);
+                FStamp f;
+                if (bridge_at(cx, cz, ruins, nruins, f)) out.push_back(f);
             }
     }
     // Cairns: stacks of stones marking the routes over the mountains and the volcanic land, where no ruin stands
     // (too high, too steep, too rare): one chance in three per 32 m cell, on ground level within 1 m.
     {
-        constexpr int KC = 256, KM = 16;
+        constexpr int KC = CAIRN_CELL, KM = 16;
         for (int cz = floor_div(z_lo - KM, KC); cz <= floor_div(z_hi + KM, KC); cz++)
             for (int cx = floor_div(x_lo - KM, KC); cx <= floor_div(x_hi + KM, KC); cx++) {
-                const uint32_t hs = h3(cx, cz, g.seed_ + 683);
-                if ((hs % 3) != 0) continue;
-                const float fx = (float)(cx * KC + KM + (int)((hs >> 4) % (KC - 2 * KM))) + 0.5f;
-                const float fz = (float)(cz * KC + KM + (int)((hs >> 14) % (KC - 2 * KM))) + 0.5f;
-                if (fx + KM < x_lo || fx - KM > x_hi || fz + KM < z_lo || fz - KM > z_hi) continue;
-                const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
-                const WorldGen::Column col = g.column_base(mx, mz, true);   // mountains are told by their slope
-                if (col.biome != technosim_biome::MOUNTAINS && col.biome != technosim_biome::ALPINE && col.biome != technosim_biome::SNOWY_PEAKS && col.biome != technosim_biome::VOLCANIC) continue;
-                if (g.ravine_near(mx, mz, 3)) continue;
-                FStamp k{};
-                k.kind = CAIRN;
-                k.seed = h3(cx, cz, g.seed_ + 691);
-                k.x = fx;
-                k.z = fz;
-                k.size = 8.0f + (float)((k.seed >> 4) % 6);   // 1-1.6 m tall
-                k.r = 3.0f + (float)((k.seed >> 8) & 1);
-                k.wood = col.biome == technosim_biome::VOLCANIC ? Mat::BASALT : Mat::COBBLESTONE;   // volcanic ones in basalt, capped in obsidian
-                const float s0 = surface_f((int)fx, (int)fz);
-                bool flat = true;
-                for (int q = 0; q < 4 && flat; q++)
-                    flat = std::fabs(surface_f((int)fx + ((q & 1) ? 4 : -4), (int)fz + ((q & 2) ? 4 : -4)) - s0) <= 8.0f;
-                if (!flat) continue;
-                k.ground = (int)std::floor(s0 + 0.5f);
-                out.push_back(k);
+                FStamp k;
+                if (cairn_at(cx, cz, x_lo, z_lo, x_hi, z_hi, k)) out.push_back(k);
             }
     }
     // Rock formations (formation_at): one chance per 16 m cell; a formation reaches ~40 voxels
@@ -2686,28 +2706,35 @@ PackedInt32Array FineGen::water_floor_map(int x0, int z0, int n, int step) const
 }
 
 Vector3i FineGen::find_nearest(const String &kind, int x, int z, int max_radius) const {
-    if (kind == "rock_arch" || kind == "natural_arch" || kind == "hoodoo") {
-        // the formations of FineGen (formation_at), ring by ring of their cells out to max_radius; y = their ground
-        const bool arch = kind != "hoodoo";
-        const int cx0 = floor_div(x, FORM_CELL), cz0 = floor_div(z, FORM_CELL), rings = max_radius / FORM_CELL + 1;
+    // the stamps FineGen lays itself (formations, bridges, cairns): ring by ring of their cells out to max_radius,
+    // asking the cell's own placement; y = their ground (a bridge's lower rim)
+    const bool arch = kind == "rock_arch" || kind == "natural_arch", hoodoo = kind == "hoodoo", bridge = kind == "bridge", cairn = kind == "cairn";
+    if (arch || hoodoo || bridge || cairn) {
+        const int C = bridge ? BRIDGE_CELL : (cairn ? CAIRN_CELL : FORM_CELL);
+        const int cx0 = floor_div(x, C), cz0 = floor_div(z, C), rings = max_radius / C + 1;
         long best_d2 = -1;
         Vector3i best(0, -1, 0);
         for (int ring = 0; ring <= rings; ring++) {
             for (int dz = -ring; dz <= ring; dz++)
                 for (int dx = -ring; dx <= ring; dx++) {
                     if (std::max(std::abs(dx), std::abs(dz)) != ring) continue;
-                    // the ruins that could block it: those near the cell's middle
-                    const int mx = floor_div((cx0 + dx) * FORM_CELL + FORM_CELL / 2, FS), mz = floor_div((cz0 + dz) * FORM_CELL + FORM_CELL / 2, FS);
-                    WorldGen::Ruin ruins[4];
-                    const int nr = g_->ruins_near(mx - FORM_CELL / FS, mz - FORM_CELL / FS, mx + FORM_CELL / FS, mz + FORM_CELL / FS, ruins, 4);
+                    const int cx = cx0 + dx, cz = cz0 + dz;
                     FStamp f;
-                    if (!formation_at(cx0 + dx, cz0 + dz, ruins, nr, f) || f.mossy != arch) continue;
+                    if (cairn) {
+                        if (!cairn_at(cx, cz, INT_MIN / 2, INT_MIN / 2, INT_MAX / 2, INT_MAX / 2, f)) continue;
+                    } else {
+                        // the ruins that could block it: those near the cell
+                        const int mx = floor_div(cx * C + C / 2, FS), mz = floor_div(cz * C + C / 2, FS), rr = C / FS;
+                        WorldGen::Ruin ruins[8];
+                        const int nr = g_->ruins_near(mx - rr, mz - rr, mx + rr, mz + rr, ruins, 8);
+                        if (bridge ? !bridge_at(cx, cz, ruins, nr, f) : (!formation_at(cx, cz, ruins, nr, f) || f.mossy != arch)) continue;
+                    }
                     const long ddx = (long)f.x - x, ddz = (long)f.z - z, d2 = ddx * ddx + ddz * ddz;
                     if (d2 > (long)max_radius * max_radius || (best_d2 >= 0 && d2 >= best_d2)) continue;
                     best_d2 = d2;
                     best = Vector3i((int)f.x, f.ground, (int)f.z);
                 }
-            if (best_d2 >= 0 && (long)(ring - 1) * FORM_CELL * (ring - 1) * FORM_CELL > best_d2) break;   // no nearer cell left
+            if (best_d2 >= 0 && (long)(ring - 1) * C * (ring - 1) * C > best_d2) break;   // no nearer cell left
         }
         return best;
     }

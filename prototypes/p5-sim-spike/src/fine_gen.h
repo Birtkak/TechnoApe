@@ -240,6 +240,9 @@ private:
     void build_stamp(const WorldGen::Stamp &s, FStamp &out) const;
     static constexpr int FORM_CELL = 128, FORM_MARGIN = 48;   // rock formation cells (fine voxels)
     bool formation_at(int cx, int cz, const WorldGen::Ruin *ruins, int nruins, FStamp &f) const;
+    static constexpr int BRIDGE_CELL = 512, CAIRN_CELL = 256;   // rope bridge and cairn cells (fine voxels)
+    bool bridge_at(int cx, int cz, const WorldGen::Ruin *ruins, int nruins, FStamp &f) const;
+    bool cairn_at(int cx, int cz, int x_lo, int z_lo, int x_hi, int z_hi, FStamp &k) const;
     void floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, bool clutter, std::vector<FStamp> &out) const;
     // Clutter piece voxel at (dx, dy, dz) from its stamp's centre column and ground (dy = 0: the first voxel above it).
     static uint16_t clutter_voxel(const FStamp &s, int dx, int dy, int dz);

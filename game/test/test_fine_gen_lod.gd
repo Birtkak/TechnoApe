@@ -434,4 +434,25 @@ func test_find_nearest_finds_rock_formations() -> void:
 		for k in range(0, b.size() if b.size() > 2 else 0, 2):
 			n += int(rock.has(b.decode_u16(k)))
 		assert_int(n).override_failure_message("%s at %s: no rock over its ground" % [kind, p]).is_greater(0)
-	assert_int(g.find_nearest("hoodoo", bl.x, bl.z, 8).y).is_less_equal(bl.y + 9999)   # small radii answer quickly
+	assert_vector(g.find_nearest("natural_arch", bl.x, bl.z, 1600)).is_equal(g.find_nearest("rock_arch", bl.x, bl.z, 1600))
+
+
+## FineGen.find_nearest finds the rope bridges and cairns where the generator lays them: rope at the bridge, stone at the cairn.
+func test_find_nearest_finds_bridges_and_cairns() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var rv: Vector3i = g.find_nearest("ravine", 0, 0, int(Settings.m2v(4000.0)))
+	var al: Vector3i = g.find_nearest("alpine", 0, 0, int(Settings.m2v(9000.0)))
+	var want := {"bridge": [rv, {GameMaterials.id_of("rope"): true, GameMaterials.id_of("planks"): true}],
+		"cairn": [al, {GameMaterials.id_of("cobblestone"): true, GameMaterials.id_of("stone"): true, GameMaterials.id_of("basalt"): true}]}
+	for kind in want:
+		var from: Vector3i = want[kind][0]
+		var p: Vector3i = g.find_nearest(kind, from.x, from.z, 1600)
+		assert_int(p.y).override_failure_message("no %s within 200 m of %s" % [kind, from]).is_greater_equal(0)
+		var b: PackedByteArray = g.generate_block(Vector3i(p.x - 8, p.y - 4, p.z - 8), Vector3i(16, 24, 16), 0, 2)
+		var n := 0
+		for k in range(0, b.size() if b.size() > 2 else 0, 2):
+			var i := k / 2   # y fastest, then x, then z (as in the cairn test above): only what stands over the ground counts
+			if want[kind][1].has(b.decode_u16(k)) and p.y - 4 + i % 24 > g.height_at(p.x - 8 + (i / 24) % 16, p.z - 8 + i / 384):
+				n += 1
+		assert_int(n).override_failure_message("%s at %s: nothing of it there" % [kind, p]).is_greater(0)
