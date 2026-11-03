@@ -334,6 +334,13 @@ private:
     int cmx_ = -1, cmy_ = -1, cmz_ = -1;
     uint8_t washable_[MAX_MATERIALS] = {};      // replaceable plant (grass, flowers): liquids and powders move through it, destroying it
     inline bool open_air(uint8_t m) const { return m == 0 || washable_[m]; }
+    // A floor a film can dry or crust on: rock, powder or a still liquid. A lava film over steam crusted to basalt
+    // and hung in the air once the steam moved (playtest 2026-11-03).
+    inline bool film_floor(uint8_t m) const {
+        if (m == 0 || m >= mats_.size()) return false;
+        const MaterialDef &d = mats_[m];
+        return d.cell_type == CELL_SOLID || d.cell_type == CELL_POWDER || d.liquid_static;
+    }
     std::vector<int> pass_lists_[8];
     std::atomic<uint64_t> moved_count_{0};
     std::atomic<uint64_t> react_count_{0};
