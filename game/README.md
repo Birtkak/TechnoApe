@@ -144,6 +144,21 @@ Godot_..._console.exe --path game --resolution 1280x720 -- autopilot=1 walk=1 sp
 #       water from the river, nothing above its level, nothing past the trench, the sim went quiet; prints "debug water {...}"
 #       (ok true), water_before/after.png
 Godot_..._console.exe --path game -- autopilot=1 target=river walk=1 speed=0 duration=50 mob_spawn=0 load_cap_s=30 water_test=1 out=res://out/water
+# Underground voxels exist (ADR 0124, bug report 2026-11-03_16-37-55): shell_test=1 teleports into the nearest cave, then digs
+#       a 4 m cube at the surface above it, stands on its floor and sinks 16 m through the rock a metre at a time; at each spot
+#       it waits (60 s at most) for the world around the player to be whole and prints "debug shell {...}": per spot, within
+#       16 m: unloaded (data blocks godot_voxel never loaded), unmeshed (mesh blocks not drawn), air_where_solid (block centres
+#       that read air where the generator has rock); out to the render distance: far_undrawn_8m (8 m cubes not drawn, a
+#       cavern's far walls); settle_s; ok = every count 0. Keep the default render distance (the far walls are the point)
+#       and run it alone: another Godot run sharing the machine slows the streaming and shows as unloaded.
+#       commands=/tp x y z starts it at a bug report's position (the nearest cave to it)
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=240 mob_spawn=0 load_cap_s=40 seed=1337 shell_test=1 out=res://out/shell
+# Still ocean water reacts (ADR 0068, bug report 2026-11-03_16-37-26): sand_test=1 hovers over the nearest ocean, sets a 1 m
+#       ball of placed sand (sand_static, as a player places it) into the water at its surface and prints "debug sand {...}":
+#       placed{cells, sunk_1m (sand cells 1 m under where they were set), sunk_m, sim_woke, ok}, the same for a ball of live
+#       sand beside it ("live": tells a wake-up problem from a water rule); ok = half the placed sand sank within 15 s;
+#       sand_before/after.png
+Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=40 mob_spawn=0 load_cap_s=30 seed=1337 sand_test=1 out=res://out/sand
 # Teleports (ADR 0066): tp_test=1 jumps 15/60/95 m, 500 m, 3 km, /spawn, /goto, /kill on foot in survival; per jump the
 # cover time, frame times under it and in the 4 s after it, the landing, a filmstrip row (tp_strip.png); JSON line "debug tp"
 # (ok = no fall, no hang, no frame over 16.7 ms after the cover / the cut). tp_only=hop_60m,far_500m runs a subset
@@ -178,7 +193,9 @@ First run after adding scripts/addons: `--headless --path game --import` (twice 
 voxel extension segfaults once).
 
 ```
-# crafting / inventory / recipe-browser tests (gdUnit4, headless, exit code = result)
+# the whole gdUnit4 suite, headless (93 suites, ~4 min on the dev box; exit code 0 = green, 100 = a failure; report in
+# game/reports/report_N/); one suite: --add res://test/test_fire.gd. The generator suites (test_content_pass, test_ruins,
+# test_fine_gen_lod) are 30-50 s each and deterministic (fixed seeds): a failure there is a generator change, not flakiness.
 Godot_v4.7.2-stable_mono_win64_console.exe --headless --path game -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --add res://test --ignoreHeadlessMode
 ```
 
