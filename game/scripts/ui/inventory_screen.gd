@@ -61,6 +61,7 @@ func setup(p_inv: PlayerInventory) -> void:
 	player_inv.changed.connect(_refresh)
 	browser = RecipeBrowser.new(player_inv.items, player_inv.recipes)
 	browser.set_mining(MiningTable.load_default())
+	browser.set_hunting(MobManager.load_defs().get("mobs", {}))
 	browser.have = func(id: String) -> int:
 		return player_inv.inv.count_of(id) + (player_inv.bag.count_of(id) if player_inv.has_bag() else 0)
 	# bookmarks are saved with the player (main._load_player, ADR 0115); the old user:// list starts a world saved
@@ -535,6 +536,22 @@ Warmth +%.1f C" % float(cloth["warmth_c"])
 	_tooltip.position = p
 
 
+## The item's place on the 48 V DC circuit in real units (ADR 0123): what a load draws, what a conductor carries.
+static func power_facts(def: Dictionary) -> String:
+	var w := float(def.get("machine", def.get("load", {})).get("watts", 0.0))
+	if w > 0.0:
+		return "\nDraws %d W at 48 V (%.1f A)" % [int(w), w / 48.0]
+	if def.has("cable"):
+		return "\nRated %d A, %.1f mΩ a block" % [int(def["cable"]["amps"]), float(def["cable"]["ohms_per_block"]) * 1000.0]
+	if def.has("circuit"):
+		return "\nIn line on the circuit, rated %d A" % int(def["circuit"]["amps"])
+	if def.has("battery"):
+		return "\nStores %d Wh at 46-50 V" % int(def["battery"]["wh"])
+	if def.get("work", "") == "turbine":
+		return "\nDynamo: 52 V at working speed, about 2.2 kW"
+	return ""
+
+
 static var _facts_cache := {}   # item id -> the made / used lines (the recipes do not change while playing)
 
 
@@ -551,6 +568,7 @@ static func item_facts(items: ItemRegistry, recipes: RecipeRegistry, id: String,
 		text += "\nFuel: burns %s s, smelts %s" % [("%.1f" % (fuel / 20.0)).trim_suffix(".0"), ("%.1f" % (fuel / 200.0)).trim_suffix(".0")]
 	if def.has("attack_damage"):
 		text += "\nAttack %s" % str(def["attack_damage"])
+	text += power_facts(def)
 	if recipes != null:
 		if not _facts_cache.has(id):
 			var ways := PackedStringArray()

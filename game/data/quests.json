@@ -3320,11 +3320,318 @@
           "deps": [
             "primitive_circuit"
           ],
-          "description": "Glass, wire and a circuit on a plate: point it at a cable, pipe or machine to read the power made, wanted and moving, and steam and water the same.",
+          "description": "Glass, wire and a circuit on a plate: point it at a cable or machine to read the volts there and across the circuit, the highest current and the watts drawn of watts made; at a pipe, the steam and water moving.",
           "tasks": [
             {
               "type": "item",
               "item": "multimeter"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "canning",
+          "title": "Food That Keeps",
+          "icon": "canned_meat",
+          "pos": [
+            8,
+            3
+          ],
+          "deps": [
+            "extruder"
+          ],
+          "description": "100 W seals cooked meat, fish or vegetables in a tin can: a meal that never spoils.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "canning_machine"
+            },
+            {
+              "type": "item",
+              "item": "#canned"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "circuitry",
+          "title": "Circuitry",
+          "icon": "breaker",
+          "pos": [
+            7,
+            5
+          ],
+          "deps": [
+            "battery_box"
+          ],
+          "description": "Put a knife switch (60 A) in line to cut a circuit, and a fuse box or breaker (30 A) before machines: a short burns a fuse, not a 40 A cable.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "knife_switch"
+            },
+            {
+              "type": "item",
+              "item": "fuse_box"
+            },
+            {
+              "type": "item",
+              "item": "breaker"
+            }
+          ],
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "lv_workshop",
+      "title": "Workshop",
+      "icon": "extractor",
+      "description": "More machines on the cables, each opening a road: rubber from a forest, metal parts without the anvil, food that keeps, ore refined to ingots (ADR 0131).",
+      "quests": [
+        {
+          "id": "extruder",
+          "title": "Extruder",
+          "icon": "extruder",
+          "pos": [
+            0,
+            2
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "Steel plates round a die and a piston: ingots pushed into pipes, gears, rods and tin cans, no anvil.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "extruder"
+            }
+          ]
+        },
+        {
+          "id": "canning_machine",
+          "title": "Canning Machine",
+          "icon": "canning_machine",
+          "pos": [
+            1,
+            2
+          ],
+          "deps": [
+            "extruder"
+          ],
+          "description": "Four tin ingots round the sealing head. A can of cooked food never spoils, and the empty can comes back when you eat.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "canning_machine"
+            }
+          ]
+        },
+        {
+          "id": "canned_food",
+          "title": "Food That Keeps",
+          "icon": "canned_meat",
+          "pos": [
+            2,
+            2
+          ],
+          "deps": [
+            "canning_machine"
+          ],
+          "description": "Can a meal: two cooked meat or fish, or three vegetables, in a tin can. Carry it into the deep caves.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "#canned"
+            }
+          ],
+          "final": true
+        },
+        {
+          "id": "extractor",
+          "title": "Extractor",
+          "icon": "extractor",
+          "pos": [
+            0,
+            0
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "Logs to sticky resin, resin to three rubber: rubber from a forest instead of tar and sulfur. Resin binds hafts and lights torches too.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "extractor"
+            },
+            {
+              "type": "item",
+              "item": "sticky_resin"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "rubber_boots",
+          "title": "Rubber Boots",
+          "icon": "rubber_boots",
+          "pos": [
+            1,
+            0
+          ],
+          "deps": [
+            "extractor"
+          ],
+          "description": "Four rubber: warm, dry feet.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "rubber_boots"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "heavy_cable",
+          "title": "Heavy Cable",
+          "icon": "heavy_copper_cable",
+          "pos": [
+            1,
+            1
+          ],
+          "deps": [
+            "extractor"
+          ],
+          "description": "Three cables in a rubber sleeve: under half the loss over a long run and nearly twice the amps.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "heavy_copper_cable"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "cutter",
+          "title": "Cutter",
+          "icon": "cutter",
+          "pos": [
+            0,
+            4
+          ],
+          "deps": [
+            "first_machine"
+          ],
+          "description": "A steel saw blade on a motor: six planks a log, three lenses from a glass block, gears from plates.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "cutter"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "spyglass",
+          "title": "Spyglass",
+          "icon": "spyglass",
+          "pos": [
+            1,
+            4
+          ],
+          "deps": [
+            "cutter"
+          ],
+          "description": "Two lenses in a copper pipe. Hold it and press the zoom key to look eight times closer.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "spyglass"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "diving_mask",
+          "title": "Diving Mask",
+          "icon": "diving_mask",
+          "pos": [
+            1,
+            3
+          ],
+          "deps": [
+            "cutter"
+          ],
+          "description": "Two lenses in a rubber seal: your breath lasts three times as long under water.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "diving_mask"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "hand_drill",
+          "title": "Hand Drill",
+          "icon": "hand_drill",
+          "pos": [
+            2,
+            3
+          ],
+          "deps": [
+            "extruder"
+          ],
+          "description": "A steel pick head on a geared crank with steel rods: nearly twice a steel pick's speed, no steam.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "hand_drill"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "electric_compressor",
+          "title": "Electric Compressor",
+          "icon": "electric_compressor",
+          "pos": [
+            3,
+            0
+          ],
+          "deps": [
+            "coke_oven"
+          ],
+          "description": "Presses coke into carbon electrodes (coal works, four to one) and plant fibre into cordage.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "electric_compressor"
+            },
+            {
+              "type": "item",
+              "item": "carbon_electrode"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "electrolyzer",
+          "title": "Electrolyzer",
+          "icon": "electrolyzer",
+          "pos": [
+            3,
+            1
+          ],
+          "deps": [
+            "electric_compressor",
+            "macerator"
+          ],
+          "description": "Two crushed ore and an electrode make two ingots: macerated ore to metal with no crucible or bloomery.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "electrolyzer"
             }
           ],
           "optional": true

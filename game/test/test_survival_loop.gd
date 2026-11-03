@@ -224,6 +224,11 @@ func test_the_journal_lists_entries_from_the_data() -> void:
 	for id in d.entries:
 		var icon := String(d.entries[id]["icon"])
 		assert_bool(icon == "" or items.has(icon)).override_failure_message("%s: unknown icon %s" % [id, icon]).is_true()
+	var texts: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/discoveries.json"))["texts"]
+	for mob in MobManager.load_defs()["mobs"]:   # every animal gets its own line, not "You came across a ..."
+		assert_bool(texts.has("animal:" + mob)).override_failure_message("no journal text for " + mob).is_true()
+	for site in DiscoveryJournal.NEAR_SITES:   # the structures the journal looks for nearby
+		assert_bool(d.has("landmark:" + site) and texts.has("landmark:" + site)).override_failure_message("landmark " + site).is_true()
 
 
 func test_new_content_appears_without_code() -> void:

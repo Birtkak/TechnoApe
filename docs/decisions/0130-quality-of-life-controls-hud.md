@@ -63,3 +63,10 @@ Each feature whose taste differs has its own switch in Settings (`user://setting
     frame gave 11.9). Warmed under the loading screen.
 14. **Zoom** (hold Z, rebindable): the view narrows to 1 / `Settings.zoom_factor` (4) and the mouse turns finer.
 15. **Middle click sorts** the main grid or a chest, like the Sort button (Inventory Tweaks).
+
+## Amendment (2026-11-03, batch 5)
+16. **What's new and the tour**: `game/data/whats_new.json` lists recent additions in tour order (id, title, what,
+    run: command lines, date); any lane appends one. `/whatsnew` lists them and opens F4, whose top row has a
+    button per entry (tooltip = what to look for) that runs `/tour <id>`; `/tour [next|back|<n>|<id>]` says what
+    to look for and runs the entry's lines, a failing line (a biome out of range) reported and skipped.
+    `test_whats_new.gd` checks every line's command, kit, station set, animal, material, clothing and place.

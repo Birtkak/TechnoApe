@@ -10,6 +10,12 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Start here: what's new (2026-11-03, ADR 0130)
+
+- [ ] `/whatsnew` lists what landed lately and opens F4 with a button per addition on top (hover one: what to
+      look for); a click takes you there or hands you the kit. `/tour` walks them in order (`/tour back`,
+      `/tour 5`, `/tour desert`). Lanes add stops to `game/data/whats_new.json`.
+
 ## Quality of life: toggles, inventory gestures, status (2026-11-02, ADR 0130)
 
 - [ ] Settings > Controls: turn on Toggle sprint and Toggle sneak. Ctrl starts and stops sprinting, Shift starts

@@ -206,6 +206,21 @@
   "craft/sieve_2.ogg",
   "craft/sieve_3.ogg"
  ],
+ "elec/breaker": [
+  "elec/breaker_0.ogg",
+  "elec/breaker_1.ogg"
+ ],
+ "elec/cable_burn": [
+  "elec/cable_burn.ogg"
+ ],
+ "elec/fuse": [
+  "elec/fuse_0.ogg",
+  "elec/fuse_1.ogg"
+ ],
+ "elec/switch": [
+  "elec/switch_0.ogg",
+  "elec/switch_1.ogg"
+ ],
  "gelvin/blip": [
   "gelvin/blip_0.ogg",
   "gelvin/blip_1.ogg",
@@ -278,6 +293,51 @@
  "loop/lava": [
   "loop/lava.ogg"
  ],
+ "loop/machine_alloy_smelter": [
+  "loop/machine_alloy_smelter.ogg"
+ ],
+ "loop/machine_assembler": [
+  "loop/machine_assembler.ogg"
+ ],
+ "loop/machine_bending_press": [
+  "loop/machine_bending_press.ogg"
+ ],
+ "loop/machine_canning_machine": [
+  "loop/machine_canning_machine.ogg"
+ ],
+ "loop/machine_cutter": [
+  "loop/machine_cutter.ogg"
+ ],
+ "loop/machine_dynamo": [
+  "loop/machine_dynamo.ogg"
+ ],
+ "loop/machine_electric_compressor": [
+  "loop/machine_electric_compressor.ogg"
+ ],
+ "loop/machine_electric_furnace": [
+  "loop/machine_electric_furnace.ogg"
+ ],
+ "loop/machine_electrolyzer": [
+  "loop/machine_electrolyzer.ogg"
+ ],
+ "loop/machine_extractor": [
+  "loop/machine_extractor.ogg"
+ ],
+ "loop/machine_extruder": [
+  "loop/machine_extruder.ogg"
+ ],
+ "loop/machine_lamp": [
+  "loop/machine_lamp.ogg"
+ ],
+ "loop/machine_lathe": [
+  "loop/machine_lathe.ogg"
+ ],
+ "loop/machine_macerator": [
+  "loop/machine_macerator.ogg"
+ ],
+ "loop/machine_wiremill": [
+  "loop/machine_wiremill.ogg"
+ ],
  "loop/monolith_hum": [
   "loop/monolith_hum.ogg"
  ],
@@ -302,6 +362,10 @@
  "loop/wind": [
   "loop/wind.ogg"
  ],
+ "mob/antelope": [
+  "mob/antelope_0.ogg",
+  "mob/antelope_1.ogg"
+ ],
  "mob/bat": [
   "mob/bat_0.ogg",
   "mob/bat_1.ogg",
@@ -322,6 +386,10 @@
   "mob/bear_roar_1.ogg",
   "mob/bear_roar_2.ogg",
   "mob/bear_roar_3.ogg"
+ ],
+ "mob/caw": [
+  "mob/caw_0.ogg",
+  "mob/caw_1.ogg"
  ],
  "mob/chicken": [
   "mob/chicken_0.ogg",
@@ -367,10 +435,25 @@
   "mob/frog_2.ogg",
   "mob/frog_3.ogg"
  ],
+ "mob/goat": [
+  "mob/goat_0.ogg",
+  "mob/goat_1.ogg"
+ ],
+ "mob/goat_hurt": [
+  "mob/goat_hurt.ogg"
+ ],
  "mob/graze": [
   "mob/graze_0.ogg",
   "mob/graze_1.ogg",
   "mob/graze_2.ogg"
+ ],
+ "mob/gull": [
+  "mob/gull_0.ogg",
+  "mob/gull_1.ogg"
+ ],
+ "mob/hiss": [
+  "mob/hiss_0.ogg",
+  "mob/hiss_1.ogg"
  ],
  "mob/hit": [
   "mob/hit_0.ogg",
@@ -378,6 +461,14 @@
   "mob/hit_2.ogg",
   "mob/hit_3.ogg",
   "mob/hit_4.ogg"
+ ],
+ "mob/lizard": [
+  "mob/lizard_0.ogg",
+  "mob/lizard_1.ogg"
+ ],
+ "mob/parrot": [
+  "mob/parrot_0.ogg",
+  "mob/parrot_1.ogg"
  ],
  "mob/pig": [
   "mob/pig_0.ogg",
@@ -388,6 +479,14 @@
   "mob/pig_5.ogg",
   "mob/pig_6.ogg",
   "mob/pig_7.ogg"
+ ],
+ "mob/ptarmigan": [
+  "mob/ptarmigan_0.ogg",
+  "mob/ptarmigan_1.ogg"
+ ],
+ "mob/scorpion": [
+  "mob/scorpion_0.ogg",
+  "mob/scorpion_1.ogg"
  ],
  "mob/sheep": [
   "mob/sheep_0.ogg",
@@ -402,6 +501,10 @@
  ],
  "mob/spider": [
   "mob/spider.ogg"
+ ],
+ "mob/vulture": [
+  "mob/vulture_0.ogg",
+  "mob/vulture_1.ogg"
  ],
  "mob/wolf": [
   "mob/wolf_0.ogg",

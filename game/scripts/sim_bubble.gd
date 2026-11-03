@@ -902,3 +902,11 @@ func stats() -> Dictionary:
 		"blasts": blasts, "blast_voxels": blast_voxels, "blast_ms_max": snappedf(blast_ms_max, 0.01),
 		"pins": pins.size(), "pins_made": pins_made, "pin_ms_max": snappedf(pin_ms_max, 0.01), "pin_worst": _pin_worst, "still_woken": sim.get_stats().get("still_woken", 0),
 	}
+
+
+## Cells of `material` in the world box [wmin, wmax) (a native count; 0 while not ready). ADR 0123: the water wheel.
+func count_in_box(wmin: Vector3i, wmax: Vector3i, material: int) -> int:
+	if not _ready:
+		return 0
+	var o := origin * Settings.CHUNK
+	return sim.count_in_box(wmin - o, wmax - o, material)
