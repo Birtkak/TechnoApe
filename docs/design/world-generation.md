@@ -308,8 +308,9 @@ can get quite deep and dark".
 - **Rivers**: `river_half_width` / `river_depth` in `world_gen.cpp` (shared with
   `waterfalls_near`'s sheet width), from strength sqrt(acc / STREAM_ACC):
   half width 2 + 2.5 s (3.5 .. 28 voxels), depth 2 + s (3 .. 12 voxels). The channel
-  is **flat-bottomed**: full depth over the inner 45 % of the half width, then rising
-  to the bank (it was a V, too shallow for a hull off the centre line).
+  is **flat-bottomed**: full depth over the inner 20 % of the half width, then sloping
+  up to the bank, still 3/4 deep at 45 % (it was a V, too shallow for a hull off the centre line;
+  then 45 % flat with a ~1 m drop at the shelf edge that read as a glass wall, ADR 0133).
 - **Sea floor**: the continentalness spline now has a shelf, a slope and an abyss.
   Beach -1.5 voxels (c -0.05), shelf -7 (c -0.15), shelf edge -18 (c -0.3),
   continental slope to -55 (c -0.45) and -120 (c -0.6), abyssal plain -160 (c -0.75)
@@ -365,6 +366,8 @@ slot ravines, and "lego" single-voxel steps everywhere with tiny cave pools.
   0.5 m ledges; pools come in ~25 m blobs and fill whole treads.
 - **Ravines**: 10-40 m deep, both depth and width fading in with the mask, walls flaring toward the rim
   ((1 - depth)^2.2). `WorldGen::ravine_near` keeps trees, stamps, sticks and clutter off the rim.
+  Since ADR 0133 (GEN_VERSION 34) they wind (warped line), come down in 5 m tiers with ledges and wobbling
+  faces, show bedding bands of a partner rock (`rock_types.json` `bedding`), and close near streams and lakes.
 - Probe: `tools/relief_probe.gd` (rise histograms on land, mountain and cave floor, sea depths, ravine
   cross-sections and trunks over ravines; `bench=1` times surface blocks wherever the ground went).
 

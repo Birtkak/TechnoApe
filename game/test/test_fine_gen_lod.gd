@@ -403,21 +403,22 @@ func test_ravines_are_bridged() -> void:
 func test_mountains_carry_cairns() -> void:
 	var g := FineGen.new()
 	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
-	var p: Vector3i = g.find_nearest("alpine", 0, 0, int(Settings.m2v(9000.0)))
+	var a: Vector3i = g.find_nearest("alpine", 0, 0, int(Settings.m2v(9000.0)))
+	# the nearest cairn, not a fixed square round the peak: ravines moved when they began to wind (ADR 0133)
+	var p: Vector3i = g.find_nearest("cairn", a.x, a.z, int(Settings.m2v(250.0)))
+	assert_int(p.y).override_failure_message("no cairn within 250 m of the mountains at %s" % a).is_greater_equal(0)
 	var cobble := GameMaterials.id_of("cobblestone")
 	var n := 0
-	for bx in range(p.x - 768, p.x + 768, 32):
-		for bz in range(p.z - 768, p.z + 768, 32):
-			var h := g.height_at(bx + 16, bz + 16)
-			var b: PackedByteArray = g.generate_block(Vector3i(bx, h - 16, bz), Vector3i(32, 40, 32), 0, 2)
-			if b.size() < 32 * 40 * 32 * 2:
-				continue
-			for k in range(0, b.size(), 2):
-				if b.decode_u16(k) == cobble:
-					var i := k / 2
-					if h - 16 + i % 40 >= g.height_at(bx + (i / 40) % 32, bz + i / 1280) + 3:
-						n += 1
-	assert_int(n).override_failure_message("no cairn near the mountains at %s" % p).is_greater(0)
+	var bx := p.x - 16
+	var bz := p.z - 16
+	var h := g.height_at(p.x, p.z)
+	var b: PackedByteArray = g.generate_block(Vector3i(bx, h - 16, bz), Vector3i(32, 40, 32), 0, 2)
+	for k in range(0, b.size(), 2):
+		if b.decode_u16(k) == cobble:
+			var i := k / 2
+			if h - 16 + i % 40 >= g.height_at(bx + (i / 40) % 32, bz + i / 1280) + 3:
+				n += 1
+	assert_int(n).override_failure_message("the cairn at %s draws no stones over the ground" % p).is_greater(0)
 
 
 ## FineGen.find_nearest finds the rock formations: an arch and a hoodoo near the badlands, each standing where it says.
@@ -453,6 +454,13 @@ func test_find_nearest_finds_bridges_and_cairns() -> void:
 		var n := 0
 		for k in range(0, b.size() if b.size() > 2 else 0, 2):
 			var i := k / 2   # y fastest, then x, then z (as in the cairn test above): only what stands over the ground counts
-			if want[kind][1].has(b.decode_u16(k)) and p.y - 4 + i % 24 > g.height_at(p.x - 8 + (i / 24) % 16, p.z - 8 + i / 384):
+			if not want[kind][1].has(b.decode_u16(k)):
+				continue
+			# a cairn stands on the ground; a deck hangs over the gorge (height_at is the ground before the carve,
+			# which can stand over the deck where a winding ravine crosses a rise, ADR 0133): air right under it
+			if kind == "bridge":
+				if i % 24 > 0 and b.decode_u16(k - 2) == GameMaterials.AIR:
+					n += 1
+			elif p.y - 4 + i % 24 > g.height_at(p.x - 8 + (i / 24) % 16, p.z - 8 + i / 384):
 				n += 1
 		assert_int(n).override_failure_message("%s at %s: nothing of it there" % [kind, p]).is_greater(0)

@@ -38,7 +38,7 @@ func test_data_loads_and_the_header_is_current() -> void:
 func test_bad_data_is_rejected() -> void:
 	var t := RockTable.new()
 	t.load_json(JSON.stringify({"province_m": 400, "warp_m": 80, "provinces": {"p": {"weight": 1, "layers": [{"rock": "mithril", "thick_m": [9, 3]}, {"rock": "stone"}]}},
-		"ore_bias": {"coal": {"granite": 0.0}}, "pyrite": {"per_mille": 1, "rocks": []}, "ochre": {"rocks": [], "share": 0.1},
+		"ore_bias": {"coal": {"granite": 0.0}}, "pyrite": {"per_mille": 1, "rocks": []}, "ochre": {"rocks": [], "share": 0.1}, "bedding": {"band_m": 1.5, "share": 0.3, "partner": {}},
 		"clutter": {"acorns": {"shape": "blob", "where": "sky", "chance": 0.1, "biomes": ["moon"]}}, "crystals": {"per_mille": 1, "min_depth_m": 1, "crystal_cave_per_mille": 1}}))
 	assert_int(t.errors.size()).is_greater_equal(5)
 

@@ -51,17 +51,18 @@ func look_lines() -> Array[String]:
 func view_parts() -> Dictionary:
 	var size := Vector3i(8, 4, 8)
 	var c := WorkPalette.new_cells(size)
-	# the body: a square tube 4 cells across, a lit copper line along its top edge; a flange one cell
-	# bigger all round at each end, its mouth dark
+	# the body: a square tube 6 cells across, a lit copper line along its top edge; a full-width flange
+	# at each end, its mouth dark
 	var copper := item == "copper_pipe"
 	var body := WorkPalette.COPPER if copper else WorkPalette.BRONZE
 	var edge := WorkPalette.MOLTEN if copper else WorkPalette.COPPER
-	_box(c, size, Vector3i(1, 0, 2), Vector3i(7, 3, 6), body)
-	_box(c, size, Vector3i(1, 2, 2), Vector3i(7, 3, 3), edge)
+	# the tube fills its footprint's height (2 voxels) and three quarters of its width, so a run reads from afar
+	_box(c, size, Vector3i(1, 0, 1), Vector3i(7, 4, 7), body)
+	_box(c, size, Vector3i(1, 3, 1), Vector3i(7, 4, 3), edge)
 	for x in [0, 7]:
-		_box(c, size, Vector3i(x, 0, 1), Vector3i(x + 1, 4, 7), body)
-		_box(c, size, Vector3i(x, 3, 1), Vector3i(x + 1, 4, 2), edge)
-		_box(c, size, Vector3i(x, 1, 3), Vector3i(x + 1, 3, 5), WorkPalette.SOOT)   # the mouth
+		_box(c, size, Vector3i(x, 0, 0), Vector3i(x + 1, 4, 8), body)
+		_box(c, size, Vector3i(x, 3, 0), Vector3i(x + 1, 4, 2), edge)
+		_box(c, size, Vector3i(x, 1, 2), Vector3i(x + 1, 3, 6), WorkPalette.SOOT)   # the mouth
 	return {"solid": {"cells": c, "size": size}}
 
 

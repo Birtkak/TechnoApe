@@ -14,6 +14,7 @@ extends CanvasLayer
 
 signal closed(dropped: Array)
 signal drop_requested(stack: Dictionary)   # thrown out into the world in front of the player
+signal ponder_requested(scene_id: String)   # P over an item with a guide (ADR 0132)
 ## Plan item D11: Alt + click marks a favourite slot (sort, quick-stack, shift-click and refill leave it),
 ## Sort sorts the main grid or the open chest, Stack moves what nearby chests already hold into them,
 ## and a chest's name can be typed over its title.
@@ -569,6 +570,8 @@ static func item_facts(items: ItemRegistry, recipes: RecipeRegistry, id: String,
 	if def.has("attack_damage"):
 		text += "\nAttack %s" % str(def["attack_damage"])
 	text += power_facts(def)
+	if Ponder.for_item(id) != "":
+		text += "\nGuide: how it connects  (P)"
 	if recipes != null:
 		if not _facts_cache.has(id):
 			var ways := PackedStringArray()
@@ -688,6 +691,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			if id != "" and is_book_open():
 				close_book()   # the recipe view draws under the book
 			if browser_view.show_item(id, "recipes" if event.keycode == KEY_R else "uses"):
+				get_viewport().set_input_as_handled()
+		KEY_P:
+			var sc := Ponder.for_item(hovered_item())
+			if sc != "":
+				ponder_requested.emit(sc)
 				get_viewport().set_input_as_handled()
 		KEY_A:
 			var id := hovered_item()

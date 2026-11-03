@@ -760,8 +760,10 @@ WorldGen::Hydro WorldGen::hydro_at(int x, int z, int base_height) const {
             out.river = mask;
             out.delta = delta;
             const int water = (int)std::floor(surf) - 1;
-            // flat-bottomed channel: full depth over the inner half, rising to the banks
-            out.bed = (int)std::floor(surf) - 1 - (int)std::lround(depth * (1.0f - smoothstep(0.45f * half_w, half_w, best_d)));
+            // channel: full depth over the inner fifth, sloping up to the banks over the rest (ADR 0133: from 45 %
+            // the bed dropped ~1 m within 0.4 m of the shelf's edge, and the light shallow tint against the dark
+            // channel read as a glass wall from walking height, bug report 2026-11-03 15-42-37)
+            out.bed = (int)std::floor(surf) - 1 - (int)std::lround(depth * (1.0f - smoothstep(0.2f * half_w, half_w, best_d)));
             if (delta > 0.0f && best_d < half_w * 0.85f && n_meander_.GetNoise((float)x * 2.3f + 300.0f, (float)z * 2.3f) > 0.62f - 0.3f * delta) {
                 out.bed = water + 1;   // a sandbar just above the water
             } else if (best_d < half_w && water > out.bed) out.water_level = std::max(out.water_level, water);
@@ -848,7 +850,7 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     if ((float)((hsh >> 21) & 1023) / 1024.0f < technosim_biome::TREE_MIX[col.biome]) out.kind = technosim_biome::TREE_MIX_KIND[col.biome];
     const int vary = (int)((hsh >> 16) % 6), wide = (int)((hsh >> 20) & 1);
     switch (out.kind) {
-        case TREE_SPRUCE: out.trunk_h = 10 + vary; out.radius = 3; break;       // 5-8 m cones
+        case TREE_SPRUCE: out.trunk_h = 10 + vary; out.radius = 3; break;       // 6-10 m cones (with the 5/4 below)
         case TREE_ACACIA: out.trunk_h = 6 + vary / 2; out.radius = 3 + wide; break; // short trunk, flat wide crown
         case TREE_JUNGLE: out.trunk_h = 15 + vary + 2 * wide; out.radius = 3 + wide; break; // tall emergent trees
         case TREE_BIRCH: out.trunk_h = 9 + vary; out.radius = 2; break;                     // slender, a narrow crown
@@ -858,6 +860,7 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
             if (col.biome == technosim_biome::OLD_GROWTH_FOREST) { out.trunk_h += 4; out.radius = 3; }
             break;
     }
+    out.trunk_h = out.trunk_h * 5 / 4;   // a quarter taller (developer 2026-11-03, "trees should be a bit taller")
     if (above > tree_line - 60) { out.trunk_h = 5 + (int)((hsh >> 16) % 3); out.radius = 2; out.stunted = true; }
     return true;
 }
@@ -1133,7 +1136,7 @@ float WorldGen::cave_value(const CaveColumn &col, int y, int height, bool small_
     }
     if (small_only) return v;
     v = std::max(v, cavern_value(n_cavern_.GetNoise(fx, fy * CAVERN_Y, fz), fy, depth, n_pillar_.GetNoise(fx, fz)));
-    return std::max(v, ravine_value(n_ravmask_.GetNoise(fx, fz), std::fabs(n_ravine_.GetNoise(fx, fz)), depth));
+    return std::max(v, ravine_value(ravine_col(fx, fz), depth));
 }
 
 // Caverns: a slow 3D noise squashed in y, so halls are wide and flat-floored (40-120 m across, 15-40 m
@@ -1150,16 +1153,76 @@ float WorldGen::cavern_value(float raw, float fy, float depth, float pillar) {
 // a gorge ~10-30 m wide at the top narrowing to nothing 10-40 m down. The width falls off as (1 - depth)^2.2,
 // so the walls flare out toward the rim and steepen below; upper walls rise ~2 per run where they were 5-13
 // (bug report 2026-10-25 20-18-57, "ravines seem a tad bit steep").
-float WorldGen::ravine_value(float mask, float line, float depth) {
+// ADR 0133 (bug reports 2026-11-03 15-42, "ravines are very ugly"): the line is warped so a gorge winds instead
+// of running dead straight for half a kilometre; the walls come down in tiers ~5 m tall with a ledge at the
+// foot of each, every tier's face wobbling on its own (wa, wb), so a wall is stacked rock faces, not one smooth
+// 25 m sheet; and the mask closes near streams and lakes, so a gorge ends short of a river instead of running
+// along its bank with the river's ponds stepping down its floor.
+float WorldGen::ravine_value(const RavineCol &r, float depth) {
+    const float mask = r.mask;
     if (mask <= 0.25f) return -1.0f;
     // Both the depth and the width fade in where the mask opens, so a ravine's ends are shallow trenches
     // instead of deep slots a few voxels wide (the old width faded to nothing while the depth stayed 30 m).
     const float open = smoothstep(0.25f, 0.45f, mask);
     const float deep = (20.0f + 60.0f * smoothstep(0.3f, 0.6f, mask)) * open;
     if (deep <= 0.0f) return -1.0f;
-    const float u = 1.0f - std::clamp(depth / deep, 0.0f, 1.0f);
-    const float half = 0.14f * (0.35f + 0.65f * open) * std::pow(u, 2.2f);
-    return half > 0.0f ? (half - line) / 0.008f : -1.0f;
+    // tiers: the width holds for the upper 55 % of a tier (a steep face) and narrows over the rest (the ledge);
+    // the tier levels tilt with wa so ledges slope gently along the gorge
+    constexpr float TIER = 10.0f;   // macro, 5 m
+    const float dt = std::max(0.0f, depth + 4.0f * r.wa);
+    const float tier = std::floor(dt / TIER);
+    const float dq = std::max(0.0f, (tier + smoothstep(0.55f, 1.0f, dt / TIER - tier)) * TIER - 4.0f * r.wa);
+    const float u = 1.0f - std::clamp(dq / deep, 0.0f, 1.0f);
+    const float wob = 1.0f + 0.2f * (r.wa * std::cos(tier * 2.4f) + r.wb * std::sin(tier * 2.4f));
+    const float half = 0.14f * (0.35f + 0.65f * open) * std::pow(u, 2.2f) * wob;
+    return half > 0.0f ? (half - std::fabs(r.line)) / 0.008f : -1.0f;
+}
+
+float WorldGen::ravine_line(float x, float z) const {
+    // two bends: ~50 m sways over ~200 m and ~10 m wiggles over ~45 m (offset spots, so the warps are their own)
+    const float wx = 100.0f * n_galoff_.GetNoise(x + 7919.0f, z) + 20.0f * n_meander_.GetNoise(x, z + 7919.0f);
+    const float wz = 100.0f * n_galoff_.GetNoise(x, z - 7919.0f) + 20.0f * n_meander_.GetNoise(x - 7919.0f, z);
+    return n_ravine_.GetNoise(x + wx, z + wz);
+}
+
+float WorldGen::stream_near(float x, float z) const {
+    HydroCtx c;
+    if (!hydro_ctx((int)std::floor(x), (int)std::floor(z), c)) return 0.0f;
+    // a cell is wet where a stream runs (drainage past STREAM_ACC) or a lake lies; dilated 2 cells (32 m) and
+    // blended between cell centres, so the fade has no seams (acc blends across tile borders like rivers do)
+    const float fx = x / HCELL - 0.5f, fz = z / HCELL - 0.5f;
+    const int c0x = (int)std::floor(fx), c0z = (int)std::floor(fz);
+    const int ci = c.ci % HWIN, cj = c.ci / HWIN;
+    const int bx = ci - (floordiv((int)std::floor(x), HCELL) - c0x), bz = cj - (floordiv((int)std::floor(z), HCELL) - c0z);
+    if (bx < 2 || bz < 2 || bx + 3 >= HWIN || bz + 3 >= HWIN) return 0.0f;
+    float wet[6][6];
+    for (int j = 0; j < 6; j++)
+        for (int i = 0; i < 6; i++) {
+            const int k = (bz - 2 + j) * HWIN + (bx - 2 + i);
+            wet[j][i] = c.t->lake[k] ? 1.0f : std::clamp((c.acc(k) / STREAM_ACC - 0.5f) * 2.0f, 0.0f, 1.0f);
+        }
+    float d[2][2];
+    for (int b = 0; b < 2; b++)
+        for (int a = 0; a < 2; a++) {
+            float m = 0.0f;
+            for (int j = 0; j < 5; j++)
+                for (int i = 0; i < 5; i++) m = std::max(m, wet[b + j][a + i]);
+            d[b][a] = m;
+        }
+    const float tx = fx - c0x, tz = fz - c0z;
+    return (d[0][0] * (1.0f - tx) + d[0][1] * tx) * (1.0f - tz) + (d[1][0] * (1.0f - tx) + d[1][1] * tx) * tz;
+}
+
+WorldGen::RavineCol WorldGen::ravine_col(float x, float z) const {
+    RavineCol r;
+    r.mask = n_ravmask_.GetNoise(x, z);
+    if (r.mask <= 0.25f) return r;   // closed: the rest is not needed (the fade only lowers the mask)
+    r.mask -= 0.45f * stream_near(x, z);
+    if (r.mask <= 0.25f) return r;
+    r.line = ravine_line(x, z);
+    r.wa = n_pillar_.GetNoise(x * 0.5f + 3571.0f, z * 0.5f);   // ~22 m wobbles of the wall faces
+    r.wb = n_pillar_.GetNoise(x * 0.5f, z * 0.5f - 3571.0f);
+    return r;
 }
 
 bool WorldGen::ravine_near(int x, int z, int r) const {
@@ -1176,7 +1239,7 @@ bool WorldGen::ravine_near(int x, int z, int r) const {
     for (int k = 0; k < 9; k++) {
         const float px = (float)(x + OX[k] * r), pz = (float)(z + OZ[k] * r);
         // a voxel under the ground: the rim of the cut, not only its middle
-        if (ravine_value(n_ravmask_.GetNoise(px, pz), std::fabs(n_ravine_.GetNoise(px, pz)), 1.0f) > -1.5f) return true;
+        if (ravine_value(ravine_col(px, pz), 1.0f) > -1.5f) return true;
     }
     return false;
 }
@@ -1358,7 +1421,7 @@ int WorldGen::mouths_near(int x, int z, CaveMouth *out) const {
 int WorldGen::cave_roof(int x, int z) const {
     if (variant_[VAR_CAVES] == 0) return 5;
     const float fx = (float)x, fz = (float)z;
-    if (ravine_value(n_ravmask_.GetNoise(fx, fz), std::fabs(n_ravine_.GetNoise(fx, fz)), 4.0f) > 0.0f) return 0;
+    if (ravine_value(ravine_col(fx, fz), 4.0f) > 0.0f) return 0;
     CaveMouth m[9];
     const int n = mouths_near(x, z, m);
     for (int i = 0; i < n; i++) {
@@ -1379,8 +1442,9 @@ int WorldGen::open_depth(int x, int z) const {
     if (variant_[VAR_CAVES] == 0) return 0;
     const float fx = (float)x, fz = (float)z;
     int depth = 0;
-    const float mask = n_ravmask_.GetNoise(fx, fz);
-    if (ravine_value(mask, std::fabs(n_ravine_.GetNoise(fx, fz)), 4.0f) > 0.0f) {
+    const RavineCol rc = ravine_col(fx, fz);
+    const float mask = rc.mask;
+    if (ravine_value(rc, 4.0f) > 0.0f) {
         // ravine_value: deep = (20 + 60 * smoothstep(0.3, 0.6, mask)) * open, the gorge's floor
         const float open = smoothstep(0.25f, 0.45f, mask);
         depth = (int)std::ceil((20.0f + 60.0f * smoothstep(0.3f, 0.6f, mask)) * open) + 4;
@@ -1831,7 +1895,7 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                 }
                 else if (kind == "ravine") {
                     hit = c.height > sea_ + 4 && !hy.lake && hy.river < 0.05f
-                          && ravine_value(n_ravmask_.GetNoise((float)px, (float)pz), std::fabs(n_ravine_.GetNoise((float)px, (float)pz)), 30.0f) > 0.0f;
+                          && ravine_value(ravine_col((float)px, (float)pz), 30.0f) > 0.0f;
                 }
                 else if (kind == "cavern") {
                     // a hall at least 10 m tall: the floor of the first such run of cavern 30..150 voxels down

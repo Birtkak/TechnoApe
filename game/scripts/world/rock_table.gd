@@ -34,7 +34,7 @@ func load_json(text: String) -> bool:
 		errors.append("rock_types.json: not an object")
 		return false
 	data = d
-	for key in ["province_m", "warp_m", "provinces", "ore_bias", "pyrite", "ochre", "clutter", "crystals"]:
+	for key in ["province_m", "warp_m", "provinces", "ore_bias", "pyrite", "ochre", "bedding", "clutter", "crystals"]:
 		if not data.has(key):
 			errors.append("rock_types.json: missing %s" % key)
 	if not errors.is_empty():
@@ -78,6 +78,10 @@ func load_json(text: String) -> bool:
 	for r in data["pyrite"]["rocks"] + data["ochre"]["rocks"]:
 		if not r in ROCKS:
 			errors.append("pyrite/ochre: unknown rock %s" % r)
+	var partner: Dictionary = data.get("bedding", {}).get("partner", {})
+	for r in ROCKS:
+		if not partner.has(r) or not String(partner[r]) in ROCKS:
+			errors.append("bedding: every rock needs a known partner rock (%s)" % r)
 	return errors.is_empty()
 
 
@@ -155,6 +159,10 @@ func generate() -> String:
 	L.append("static const unsigned PYRITE_ROCKS = %du;  // bit per Rock" % _mask(data["pyrite"]["rocks"]))
 	L.append("static const unsigned OCHRE_ROCKS = %du;" % _mask(data["ochre"]["rocks"]))
 	L.append("static const float OCHRE_SHARE = %s;" % _f(float(data["ochre"]["share"])))
+	var bed: Dictionary = data["bedding"]
+	L.append("static const int BED_PARTNER[NROCK] = {%s};" % ", ".join(_map(ROCKS, func(r): return "R_" + String(bed["partner"][r]).to_upper())))
+	L.append("static const int BED_BAND = %d;   // voxels" % int(float(bed["band_m"]) * V))
+	L.append("static const float BED_SHARE = %s;" % _f(float(bed["share"])))
 	L.append("")
 	L.append("enum Where : int { %s };" % ", ".join(_map(WHERE, func(w): return "W_" + String(w).to_upper())))
 	L.append("enum Shape : int { %s };" % ", ".join(_map(SHAPES, func(s): return "S_" + String(s).to_upper())))

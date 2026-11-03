@@ -668,7 +668,7 @@ void FineGen::young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen
                 if ((float)((ts >> 8) & 1023) / 1024.0f < technosim_biome::TREE_MIX[col.biome]) kind = technosim_biome::TREE_MIX_KIND[col.biome];
                 // poles reaching for the light: a tall bare trunk, the crown above head height
                 const float age = 0.1f + 0.22f * (float)(ts & 255) / 255.0f;
-                const int trunk_h = (kind == WorldGen::TREE_SPRUCE || kind == WorldGen::TREE_BIRCH ? 12 : 10) + (int)((ts >> 20) % 5);
+                const int trunk_h = ((kind == WorldGen::TREE_SPRUCE || kind == WorldGen::TREE_BIRCH ? 12 : 10) + (int)((ts >> 20) % 5)) * 5 / 4;   // as tree_at_cell
                 build_tree(kind, fx, fz, trunk_h, 2, age, false, ts, c->t);
                 c->any = true;
                 return c;
@@ -766,7 +766,7 @@ bool FineGen::formation_at(int cx, int cz, const WorldGen::Ruin *ruins, int nrui
 bool FineGen::bridge_at(int cx, int cz, const WorldGen::Ruin *ruins, int nruins, FStamp &f) const {
     const WorldGen &g = *g_.ptr();
     constexpr int BC = BRIDGE_CELL;
-    auto rv = [&](float px, float pz) { return g.n_ravine_.GetNoise(px, pz); };
+    auto rv = [&](float px, float pz) { return g.ravine_line(px, pz); };
     // the cell's bridge (kind 0: none) is the same for every block it reaches, so it is solved once
     const std::shared_ptr<const FStamp> bc = bridge_cache_.get(((uint64_t)(uint32_t)cx << 32) | (uint32_t)cz, [&]() {
         const uint32_t hs = h3(cx, cz, g.seed_ + 673);
@@ -784,9 +784,9 @@ bool FineGen::bridge_at(int cx, int cz, const WorldGen::Ruin *ruins, int nruins,
             pz -= n * gz / g2;
         }
         const float gl = std::sqrt(gx * gx + gz * gz);
-        if (gl < 1e-6f || std::fabs(rv(px, pz)) > 0.003f || g.n_ravmask_.GetNoise(px, pz) <= 0.45f) return std::make_shared<const FStamp>();
+        if (gl < 1e-6f || std::fabs(rv(px, pz)) > 0.003f || g.ravine_col(px, pz).mask <= 0.45f) return std::make_shared<const FStamp>();
         const float ax = gx / gl, az = gz / gl;   // across the ravine: the bridge's axis
-        auto cut = [&](float qx, float qz) { return WorldGen::ravine_value(g.n_ravmask_.GetNoise(qx, qz), std::fabs(rv(qx, qz)), 1.0f) > -0.5f; };
+        auto cut = [&](float qx, float qz) { return WorldGen::ravine_value(g.ravine_col(qx, qz), 1.0f) > -0.5f; };
         int a1 = 0, a2 = 0;
         while (a1 < 32 && cut(px + ax * a1, pz + az * a1)) a1++;
         while (a2 < 32 && cut(px - ax * a2, pz - az * a2)) a2++;
@@ -1794,8 +1794,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             for (int i = 0; i < nx; i++) {
                 const MacroPt &m = lat[(size_t)j * nx + i];
                 const int cmx = mx0 + i * mstep, cmz = mz0 + j * mstep;
-                const float rm = big ? g.n_ravmask_.GetNoise((float)cmx, (float)cmz) : 0.0f;
-                const float line = rm > 0.25f ? std::fabs(g.n_ravine_.GetNoise((float)cmx, (float)cmz)) : 1.0f;
+                const WorldGen::RavineCol rcol = big ? g.ravine_col((float)cmx, (float)cmz) : WorldGen::RavineCol{};
                 const float pillar = big ? g.n_pillar_.GetNoise((float)cmx, (float)cmz) : -1.0f;
                 const float gfx = (float)(cmx - gx0) / 4.0f, gfz = (float)(cmz - gz0) / 4.0f;
                 const int gi = std::min((int)gfx, gnx - 2), gj = std::min((int)gfz, gnz - 2);
@@ -1854,7 +1853,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             return p[0] + (p[1] - p[0]) * gty;
                         };
                         const float raw = bilerp(at(0, 0), at(1, 0), at(0, 1), at(1, 1), gtx, gtz);
-                        v = std::max({v, WorldGen::cavern_value(raw, (float)cy, depth, pillar), WorldGen::ravine_value(rm, line, depth)});
+                        v = std::max({v, WorldGen::cavern_value(raw, (float)cy, depth, pillar), WorldGen::ravine_value(rcol, depth)});
                     }
                     cav[((size_t)j * nx + i) * cny + k] = v;
                 }
@@ -1984,6 +1983,8 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             const MacroPt &m = ez ? (ex ? c11 : c01) : (ex ? c10 : c00);
             const size_t ri = (size_t)j * nx + i;
             const technosim_rock::RockCol rc = technosim_rock::RockTypes::blend(rlat[ri], rlat[ri + 1], rlat[ri + nx], rlat[ri + nx + 1], tx, tz, rlat[ri + (ez ? nx : 0) + (ex ? 1 : 0)]);
+            // a ravine or sinkhole wall (any corner open to the sky) shows bedding bands (ADR 0133)
+            const int bed_off = (c00.open_depth > 0 || c10.open_depth > 0 || c01.open_depth > 0 || c11.open_depth > 0) ? rocks_.bed_offset(wx, wz) : INT32_MIN;
             const int mx = floor_div(wx, FS), mz = floor_div(wz, FS);
             const int h = ctx->h[(size_t)x + (size_t)sx * z];   // the column's ground (column_ctx)
             // the block lies wholly under this column's top voxel (h - 1): plants, tufts, sticks, leaf litter and
@@ -2661,7 +2662,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                         }
                     }
                 }
-                if (mat == Mat::STONE) mat = rocks_.at(rc, wx, wy, wz);   // the local rock kind (ADR 0057)
+                if (mat == Mat::STONE) mat = bed_off != INT32_MIN ? rocks_.bedded(rc, wy, bed_off) : rocks_.at(rc, wx, wy, wz);   // the local rock kind (ADR 0057), bedded on open walls (ADR 0133)
                 if (mat == Mat::AIR && clut_base != INT32_MIN && wy >= clut_base && wy < clut_base + CLUTTER_H) mat = clut[wy - clut_base];
                 else if (mat == Mat::WATER_STATIC && aqua_h > 0 && wy >= h && wy < h + aqua_h) mat = aqua;
                 colp[y] = mat;

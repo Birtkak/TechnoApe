@@ -30,5 +30,7 @@
     "antler": {"shape": "antler", "where": "forest", "chance": 0.0015, "biomes": ["forest", "taiga", "old_growth_forest", "snowy_taiga", "birch_forest"]},
     "ice_shard": {"shape": "shard", "where": "snow", "chance": 0.01, "biomes": ["snowy_tundra", "ice_fields", "snowy_beach", "snowy_peaks", "frozen_highlands", "snowy_taiga", "alpine"]}
   },
+  "bedding": {"_comment": "ADR 0133: where a ravine or a sinkhole opens a wall, the rock shows bedding: bands band_m tall (wobbling, dipping with the land), share of them the partner rock of the layer's own. Only in those columns: elsewhere the layers stay whole.", "band_m": 1.5, "share": 0.35,
+    "partner": {"stone": "diorite", "granite": "diorite", "diorite": "granite", "limestone": "chalk", "slate": "stone", "marble": "limestone", "chalk": "limestone", "basalt": "stone"}},
   "crystals": {"per_mille": 30, "min_depth_m": 12, "crystal_cave_per_mille": 250}
 }

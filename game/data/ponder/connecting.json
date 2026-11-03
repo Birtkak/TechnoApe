@@ -1,0 +1,326 @@
+{
+ "title": "Connecting pipes and cables",
+ "items": [
+  "bronze_pipe",
+  "copper_pipe",
+  "copper_cable",
+  "thin_cable",
+  "heavy_copper_cable"
+ ],
+ "steps": [
+  {
+   "text": "Pipes and cables lie on the 0.5 m block grid, one per block, on a solid top. Two pieces connect when a block of one touches a block of the other face to face.",
+   "place": [
+    {
+     "kind": "pipe",
+     "at": [
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "kind": "pipe",
+     "at": [
+      1,
+      0,
+      0
+     ]
+    }
+   ],
+   "flow": [
+    {
+     "from": [
+      0,
+      0,
+      0
+     ],
+     "to": [
+      1,
+      0,
+      0
+     ],
+     "kind": "steam"
+    }
+   ],
+   "mark": [
+    {
+     "at": [
+      0,
+      0,
+      0
+     ],
+     "size": [
+      2,
+      1,
+      1
+     ],
+     "ok": true
+    }
+   ]
+  },
+  {
+   "text": "Corners count. A pipe laid against the end of a run turns it; no elbow piece is needed.",
+   "place": [
+    {
+     "kind": "pipe",
+     "at": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "kind": "pipe",
+     "at": [
+      2,
+      0,
+      1
+     ],
+     "axis": 1
+    },
+    {
+     "kind": "pipe",
+     "at": [
+      2,
+      0,
+      2
+     ],
+     "axis": 1
+    }
+   ],
+   "flow": [
+    {
+     "from": [
+      0,
+      0,
+      0
+     ],
+     "to": [
+      2,
+      0,
+      0
+     ],
+     "kind": "steam"
+    },
+    {
+     "from": [
+      2,
+      0,
+      0
+     ],
+     "to": [
+      2,
+      0,
+      2
+     ],
+     "kind": "steam"
+    }
+   ],
+   "mark": [
+    {
+     "at": [
+      2,
+      0,
+      0
+     ],
+     "size": [
+      1,
+      1,
+      3
+     ],
+     "ok": true
+    }
+   ]
+  },
+  {
+   "text": "Diagonals do not count. A pipe that only touches at a corner is on its own: nothing reaches it.",
+   "place": [
+    {
+     "kind": "pipe",
+     "at": [
+      3,
+      0,
+      3
+     ]
+    }
+   ],
+   "mark": [
+    {
+     "at": [
+      3,
+      0,
+      3
+     ],
+     "size": [
+      1,
+      1,
+      1
+     ],
+     "ok": false
+    }
+   ]
+  },
+  {
+   "text": "Levels must match. A pipe on a step, a voxel or a block higher than the run beside it, does not meet it. A tall piece is the exception: a pipe on a step still touches a boiler's upper blocks, because the boiler fills every level it stands on.",
+   "blocks": [
+    {
+     "material": "dirt",
+     "at": [
+      3,
+      0,
+      1
+     ],
+     "size": [
+      1,
+      1,
+      1
+     ]
+    }
+   ],
+   "place": [
+    {
+     "kind": "pipe",
+     "at": [
+      3,
+      1,
+      1
+     ]
+    }
+   ],
+   "mark": [
+    {
+     "at": [
+      3,
+      1,
+      1
+     ],
+     "size": [
+      1,
+      1,
+      1
+     ],
+     "ok": false
+    }
+   ]
+  },
+  {
+   "text": "Cables follow the same rules, and a switch, fuse or breaker that is open is a gap: everything beyond it is dead. Here a knife switch stands open between the cable and a lamp.",
+   "place": [
+    {
+     "kind": "cable",
+     "at": [
+      0,
+      0,
+      5
+     ]
+    },
+    {
+     "kind": "cable",
+     "at": [
+      1,
+      0,
+      5
+     ]
+    },
+    {
+     "kind": "knife_switch",
+     "at": [
+      2,
+      0,
+      5
+     ],
+     "set": {
+      "open": true
+     }
+    },
+    {
+     "kind": "cable",
+     "at": [
+      3,
+      0,
+      5
+     ]
+    },
+    {
+     "kind": "electric_lamp",
+     "at": [
+      4,
+      0,
+      5
+     ]
+    }
+   ],
+   "mark": [
+    {
+     "at": [
+      2,
+      0,
+      5
+     ],
+     "size": [
+      1,
+      1,
+      1
+     ],
+     "ok": false
+    }
+   ]
+  },
+  {
+   "text": "Closed (a right click), it conducts again and the lamp lights. Pipes carry steam and water, cables carry current, and the two never mix: a machine that needs both stands on a pipe and a cable.",
+   "set": [
+    {
+     "at": [
+      2,
+      0,
+      5
+     ],
+     "set": {
+      "open": false
+     }
+    },
+    {
+     "at": [
+      4,
+      0,
+      5
+     ],
+     "set": {
+      "lit": true
+     }
+    }
+   ],
+   "flow": [
+    {
+     "from": [
+      0,
+      0,
+      5
+     ],
+     "to": [
+      4,
+      0,
+      5
+     ],
+     "kind": "power"
+    }
+   ],
+   "mark": [
+    {
+     "at": [
+      2,
+      0,
+      5
+     ],
+     "size": [
+      1,
+      1,
+      1
+     ],
+     "ok": true
+    }
+   ]
+  }
+ ]
+}

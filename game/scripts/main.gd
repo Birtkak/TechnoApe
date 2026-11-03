@@ -54,6 +54,7 @@ var _water_test: WaterTest
 var _looks_test: LooksTest
 var _liquids_test: LiquidsTest
 var _tp_test: TpTest
+var ponder: PonderScreen            # the guide screen (ADR 0132)
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
@@ -84,6 +85,7 @@ var deaths := 0   # apetions lost: the Gelvin monolith numbers each one it rebui
 var death_screen: DeathScreen
 var _dying := false   # the death and rebuild sequence is running
 var _monolith_spawn := Vector2i.ZERO   # the Gelvin monolith (ADR 0098): raised once around the spawn, then saved
+var _monolith_hum: AudioStreamPlayer3D   # its hum, on a bus of its own so the state dump can read its level
 var _monolith_boxes: Array = []        # Monolith.boxes still to fill (their chunks not loaded yet)
 var _monolith_next := 0
 var _monolith_up := false
@@ -155,6 +157,12 @@ func _ready() -> void:
 	add_child(light)
 	var hum := Sound.loop_voice("loop/monolith_hum")   # its deep hum, from the same spot
 	if hum:
+		if AudioServer.get_bus_index("Monolith") < 0:
+			AudioServer.add_bus()
+			AudioServer.set_bus_name(AudioServer.bus_count - 1, "Monolith")
+			AudioServer.set_bus_send(AudioServer.bus_count - 1, hum.bus)
+		hum.bus = "Monolith"
+		_monolith_hum = hum
 		hum.position = light.position
 		hum.autoplay = true
 		add_child(hum)
@@ -240,6 +248,12 @@ func _ready() -> void:
 	add_child(inv_screen)
 	inv_screen.setup(player_inv)
 	inv_screen.closed.connect(_on_screen_closed)
+	ponder = PonderScreen.new()
+	ponder.name = "Ponder"
+	add_child(ponder)
+	ponder.setup(items, recipes, player)
+	inv_screen.ponder_requested.connect(func(id: String) -> void: ponder.open(id))
+	inv_screen.closed.connect(func(_d: Array) -> void: ponder.close())
 	inv_screen.drop_requested.connect(player.throw_stack)   # a click outside the panel, Q over a slot (ADR 0055)
 	inv_screen.nearby_chests = _nearby_chests
 	_setup_quests()
@@ -441,6 +455,8 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_tp_test = TpTest.new()
 				_tp_test.run(self))
+		if DebugCapture.ponder_test:
+			_after_load(func() -> void: ponder.film_all(get_tree()))
 		if DebugCapture.water_test:
 			_after_load(func() -> void:
 				_water_test = WaterTest.new()
@@ -2067,6 +2083,7 @@ func snapshot() -> Dictionary:
 		"frame_ms": snappedf(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, 0.01),
 		"pos_m": Vector3(pos * Settings.VOXEL_M).snapped(Vector3.ONE * 0.1),
 		"pos_voxel": Vector3i(pos.floor()),
+		"view": {"yaw": snappedf(player._yaw, 0.01), "pitch": snappedf(player._pitch, 0.01)},   # autopilot yaw= / pitch= rebuild the shot
 		"chunk": Vector3i((pos / Settings.CHUNK).floor()),
 		"mode": "fly" if player.flying else "walk",
 		"game_mode": player.game_mode,
@@ -2107,6 +2124,9 @@ func snapshot() -> Dictionary:
 		"farm": farming.summary() if farming else {},
 		"particles": fx.stats if fx else {},
 		"sound": Sound.stats(),
+		"monolith_hum": {} if _monolith_hum == null else {"voxel": Vector3i(_monolith_hum.global_position), "dist_m": snappedf(Settings.v2m(_monolith_hum.global_position.distance_to(player.camera.global_position)), 0.1),
+			"range_m": snappedf(Settings.v2m(_monolith_hum.max_distance), 0.1), "playing": _monolith_hum.playing,
+			"peak_db": snappedf(AudioServer.get_bus_peak_volume_left_db(AudioServer.get_bus_index("Monolith"), 0), 0.1)},
 		"mem_mb": OS.get_static_memory_usage() / 1048576.0,
 		"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		"primitives": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),

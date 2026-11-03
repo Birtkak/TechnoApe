@@ -272,7 +272,14 @@ private:
     static constexpr float CAVERN_THR = 0.45f, CAVERN_Y = 2.4f;
     // pillar: n_pillar_ at the column; where it is high the hall keeps a floor-to-ceiling column of rock (ADR 0077).
     static float cavern_value(float raw, float fy, float depth, float pillar = -1.0f);
-    static float ravine_value(float mask, float line, float depth);
+    // A ravine at one column (ADR 0133): the mask (faded out near streams and lakes), the signed line noise at
+    // the warped spot (|line| near 0 is the centre, so the gorge winds) and the two wall wobbles. Every caller
+    // reads a ravine through this, so the carve, the rims, the roof and the bridges agree.
+    struct RavineCol { float mask = 0.0f, line = 1.0f, wa = 0.0f, wb = 0.0f; };
+    RavineCol ravine_col(float x, float z) const;
+    float ravine_line(float x, float z) const;   // the signed, warped line noise alone (bridges walk onto it)
+    float stream_near(float x, float z) const;   // 0..1: a stream or a lake within ~16 m, fading out by ~40 m
+    static float ravine_value(const RavineCol &r, float depth);
     // Whether a ravine or a sinkhole has cut the ground within r macro columns of (x, z): nothing stands there
     // (trees, stamps, sticks), or it would hang over the hole (bug report 2026-10-25 20-18-57).
     bool ravine_near(int x, int z, int r) const;

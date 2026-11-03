@@ -124,6 +124,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_setblock, [["~"], ["~"], ["~"], _material_names])
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
+	reg.register("ponder", "/ponder [scene]", "Open the guide screen (ADR 0132): how boilers, pipes, cables and machines connect; no scene lists them", _ponder, [Ponder.scenes().keys()])
 	reg.register("stations", "/stations [electric|factory|lv|power]", "Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131)", _stations, [["electric", "factory", "lv", "power"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
@@ -878,6 +879,17 @@ func _music(args: PackedStringArray) -> Dictionary:
 		args[0] = "music/" + args[0]
 	Sound.play_music(args[0])
 	return CommandRegistry.ok("Playing %s" % Sound.stats()["music"])
+
+
+func _ponder(args: PackedStringArray) -> Dictionary:
+	if args.is_empty():
+		return CommandRegistry.ok("Guides: " + ", ".join(Ponder.scenes().keys()))
+	var id := args[0]
+	if not Ponder.scenes().has(id):
+		id = Ponder.for_item(id)   # an item id opens its guide
+	if main == null or main.get("ponder") == null or not main.ponder.open(id):
+		return CommandRegistry.fail("No guide '%s'. Guides: %s" % [args[0], ", ".join(Ponder.scenes().keys())])
+	return CommandRegistry.ok("Guide: " + String(Ponder.get_scene(id).get("title", id)))
 
 
 func _stations(args: PackedStringArray) -> Dictionary:

@@ -33,6 +33,10 @@ public:
 
     int rock_at(const RockCol &c, int wy) const;                          // Rock index
     uint16_t at(const RockCol &c, int wx, int wy, int wz) const;          // material of stone at a voxel (pyrite nodules too)
+    // Bedding (ADR 0133), where a ravine or a sinkhole opens a wall: bands BED_BAND tall, shifted per column by
+    // bed_offset (a ~20 m wobble), BED_SHARE of them the partner rock of the layer's own.
+    int bed_offset(int wx, int wz) const;
+    uint16_t bedded(const RockCol &c, int wy, int off) const;
     uint16_t loose(const RockCol &c, int h) const;                        // loose stones lying on this column's surface rock
     uint16_t soil(const RockCol &c, uint16_t under, int h, int wx, int wz) const;   // ochre patches in place of dirt
     float ore_bias(const RockCol &c, int wy, int vein) const;

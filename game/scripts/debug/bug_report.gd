@@ -61,6 +61,7 @@ static func write(main: Node, description: String, shot: Image) -> String:
 		"",
 		"- Seed: %d%s" % [Settings.world_seed, (" (\"%s\")" % Settings.world_seed_text) if Settings.world_seed_text != "" else ""],
 		"- Position: voxel %s (%s m), %s, %s" % [str(state.get("pos_voxel", "?")), str(state.get("pos_m", "?")), state.get("game_mode", "?"), state.get("mode", "?")],
+		"- View: %s" % str(state.get("view", {})),
 		"- Looking at: %s" % str(state.get("look", {})),
 		"- Health: %s" % str(state.get("player", {}).get("health", "?")),
 		"- Build: commit %s, Godot %s, %s" % [state["commit"], state["godot"], state["gpu"]],

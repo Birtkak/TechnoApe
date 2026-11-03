@@ -1,0 +1,238 @@
+{
+ "title": "Water: pump, pipes, tank, boiler",
+ "items": [
+  "water_tank",
+  "pump"
+ ],
+ "steps": [
+  {
+   "text": "An electric pump (200 W, on a cable) drinks the water under it, a bucket a second, into its own small tank of four.",
+   "blocks": [
+    {
+     "material": "water_static",
+     "at": [
+      0,
+      -1,
+      0
+     ],
+     "size": [
+      2,
+      1,
+      2
+     ]
+    }
+   ],
+   "place": [
+    {
+     "kind": "pump",
+     "at": [
+      0,
+      0,
+      0
+     ],
+     "set": {
+      "buckets": 4
+     }
+    },
+    {
+     "kind": "cable",
+     "at": [
+      0,
+      0,
+      2
+     ]
+    },
+    {
+     "kind": "cable",
+     "at": [
+      0,
+      0,
+      3
+     ]
+    }
+   ],
+   "flow": [
+    {
+     "from": [
+      0,
+      0,
+      3
+     ],
+     "to": [
+      0,
+      0,
+      1
+     ],
+     "kind": "power"
+    }
+   ],
+   "mark": [
+    {
+     "at": [
+      0,
+      0,
+      0
+     ],
+     "size": [
+      2,
+      2,
+      2
+     ],
+     "ok": true
+    }
+   ]
+  },
+  {
+   "text": "The same bronze pipes carry water, two buckets a second (copper half). A water tank on the run stores sixteen: it fills from what the boilers leave and gives when they ask.",
+   "place": [
+    {
+     "kind": "pipe",
+     "at": [
+      2,
+      0,
+      1
+     ]
+    },
+    {
+     "kind": "pipe",
+     "at": [
+      3,
+      0,
+      1
+     ]
+    },
+    {
+     "kind": "tank",
+     "at": [
+      4,
+      0,
+      0
+     ],
+     "set": {
+      "buckets": 6
+     }
+    }
+   ],
+   "flow": [
+    {
+     "from": [
+      1,
+      0,
+      1
+     ],
+     "to": [
+      4,
+      0,
+      1
+     ],
+     "kind": "water"
+    }
+   ],
+   "mark": [
+    {
+     "at": [
+      4,
+      0,
+      0
+     ],
+     "size": [
+      2,
+      3,
+      2
+     ],
+     "ok": true
+    }
+   ]
+  },
+  {
+   "text": "A boiler on the run drinks a bucket whenever its tank runs low: no more carrying buckets. Its steam goes out over the same pipes to any steam machine on them.",
+   "place": [
+    {
+     "kind": "pipe",
+     "at": [
+      6,
+      0,
+      1
+     ]
+    },
+    {
+     "kind": "pipe",
+     "at": [
+      7,
+      0,
+      1
+     ]
+    },
+    {
+     "kind": "boiler",
+     "at": [
+      8,
+      0,
+      -1
+     ],
+     "item": "steel_boiler",
+     "set": {
+      "water": 0.3,
+      "pressure": 0.9,
+      "lit_time": 2000
+     }
+    }
+   ],
+   "flow": [
+    {
+     "from": [
+      4,
+      0,
+      1
+     ],
+     "to": [
+      8,
+      0,
+      1
+     ],
+     "kind": "water"
+    }
+   ],
+   "mark": [
+    {
+     "at": [
+      8,
+      0,
+      -1
+     ],
+     "size": [
+      5,
+      5,
+      5
+     ],
+     "ok": true
+    }
+   ]
+  },
+  {
+   "text": "Pull a pipe and the far side runs dry: the boiler keeps what it holds, then screams and bursts if nobody fills it. A tank never fills a pump, and a full pump waits.",
+   "remove": [
+    [
+     6,
+     0,
+     1
+    ]
+   ],
+   "mark": [
+    {
+     "at": [
+      6,
+      0,
+      1
+     ],
+     "size": [
+      1,
+      1,
+      1
+     ],
+     "ok": false
+    }
+   ]
+  }
+ ]
+}

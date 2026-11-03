@@ -35,6 +35,9 @@ static const int PYRITE_PER_MILLE = 6;
 static const unsigned PYRITE_ROCKS = 80u;  // bit per Rock
 static const unsigned OCHRE_ROCKS = 88u;
 static const float OCHRE_SHARE = 0.08f;
+static const int BED_PARTNER[NROCK] = {R_DIORITE, R_DIORITE, R_GRANITE, R_CHALK, R_STONE, R_LIMESTONE, R_LIMESTONE, R_STONE};
+static const int BED_BAND = 12;   // voxels
+static const float BED_SHARE = 0.35f;
 
 enum Where : int { W_ANY, W_OPEN, W_FOREST, W_BEACH, W_SNOW };
 enum Shape : int { S_STRAWBERRY, S_NUTS, S_PINE_CONE, S_BONES, S_FEATHER, S_DRIFTWOOD, S_ANTLER, S_SHARD };

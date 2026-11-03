@@ -94,7 +94,7 @@
   "loop/water": {"db": -8, "range_m": 24, "ref_m": 3},
   "loop/water_fall": {"db": -4, "range_m": 40, "ref_m": 4},
   "loop/rain": {"db": -10, "range_m": 1000, "ref_m": 1000},
-  "loop/wind": {"db": -9, "range_m": 1000, "ref_m": 1000},
+  "loop/wind": {"db": -17, "range_m": 1000, "ref_m": 1000},
   "amb/bird": {"db": -14, "pitch": [0.9, 1.12], "range_m": 40, "ref_m": 6, "cooldown_s": 0.5},
   "amb/jungle": {"db": -12, "pitch": [0.9, 1.1], "range_m": 50, "ref_m": 8, "cooldown_s": 0.8},
   "amb/cricket": {"db": -16, "pitch": [0.95, 1.05], "range_m": 24, "ref_m": 4, "cooldown_s": 0.3},
@@ -132,7 +132,7 @@
   "loop/sand": {"db": -8, "range_m": 20, "ref_m": 2},
   "loop/lava": {"db": -6, "range_m": 24, "ref_m": 3},
   "loop/steam": {"db": -14, "range_m": 16, "ref_m": 2},
-  "loop/monolith_hum": {"db": -4, "range_m": 48, "ref_m": 6},
+  "loop/monolith_hum": {"db": -22, "range_m": 24, "ref_m": 3},
   "player/gelvin_blip": {"asset": "gelvin/blip", "db": -16, "flat": true, "pitch": [0.9, 1.1]},
   "player/gelvin_done": {"asset": "gelvin/done", "db": -10, "flat": true, "pitch": [1.0, 1.0]},
   "loop/underwater": {"db": -10, "flat": true}

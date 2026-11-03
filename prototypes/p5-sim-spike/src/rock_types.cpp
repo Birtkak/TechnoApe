@@ -103,6 +103,17 @@ uint16_t RockTypes::at(const RockCol &c, int wx, int wy, int wz) const {
     return (uint16_t)ROCK_MAT[r];
 }
 
+int RockTypes::bed_offset(int wx, int wz) const {
+    return (int)std::lround(10.0f * n_ochre_.GetNoise((float)wx * 0.25f - 900.0f, (float)wz * 0.25f));
+}
+
+uint16_t RockTypes::bedded(const RockCol &c, int wy, int off) const {
+    const int r = rock_at(c, wy);
+    // hashed by band and rock only: a band runs on unbroken from column to column
+    const bool partner = (float)(hash3(floor_div(wy + off, BED_BAND), r, seed_ + 929) % 1000) < BED_SHARE * 1000.0f;
+    return (uint16_t)ROCK_MAT[partner ? BED_PARTNER[r] : r];
+}
+
 uint16_t RockTypes::loose(const RockCol &c, int h) const { return (uint16_t)LOOSE_MAT[rock_at(c, h - 1)]; }
 
 uint16_t RockTypes::soil(const RockCol &c, uint16_t under, int h, int wx, int wz) const {
