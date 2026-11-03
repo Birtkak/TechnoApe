@@ -1107,6 +1107,13 @@ def cave_tiles():
             c = (150, 152, 158) if y < 3 else ((128, 66, 34) if rng.random() > 0.35 else (96, 52, 30))
             _px(img, x, y, c, rng, 10)
     out[195] = img
+    # 196 dune grass (pale sea-green blades), 197 heather (purple bells on dark green), 198 tundra sedge (straw brown)
+    for idx, base, tip, mix in ((196, (128, 156, 104), (196, 200, 150), 0.35), (197, (58, 84, 52), (168, 84, 160), 0.45), (198, (138, 112, 70), (186, 162, 110), 0.3)):
+        img = Image.new("RGBA", (TILE, TILE))
+        for y in range(TILE):
+            for x in range(TILE):
+                _px(img, x, y, tip if ((x * 5 + y * 2) % 7 < 2 or rng.random() < mix * 0.4) else base, rng, 10)
+        out[idx] = img
     return out
 
 

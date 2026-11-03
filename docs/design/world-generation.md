@@ -465,3 +465,15 @@ Asked for in bug reports 2026-11-02 18-55-21, 18-57-25, 18-54-25 and 18-49-07.
   ground within half a metre), the rest hoodoos (a waisted pillar 2.7-5 m tall under a cap stone). Badlands ones
   are banded terracotta (red, cream, brown, 3 voxels a band) under a sandstone cap; desert ones sandstone; the
   rest stone. No new materials.
+
+## Plants per biome (2026-11-03 overnight)
+- Laid per column in FineGen's vegetation pass, tufts like tall grass (picked as column plants): dune grass (235,
+  tile 196) in clumps on beaches more than 0.5 m above the sea; heather (236, tile 197) in low carpets on patches of
+  the highlands and the scrub, in place of tall grass; sedge (237, tile 198) poking sparsely through the tundra's
+  snow. Ids 238..243 stay reserved for this lane.
+
+## Wooden lookouts (2026-11-03 overnight)
+- A ruin kind `lookout` (shape S_LOOKOUT, no new materials): four log posts, a plank platform 5.5 m up with whole
+  rows of rotten boards gone, a rail on three sides, a log brace down each face, two pots under the platform (loot
+  `tower_pot`). Taiga, forests, swamp, highlands: the wooden cousin of the stone watchtower. Everything left hangs on
+  a post (rows run edge to edge, a side's rail goes whole or not at all).

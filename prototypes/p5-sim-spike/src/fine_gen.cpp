@@ -2016,6 +2016,9 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             veg = Mat::SAVANNA_TALL_GRASS;
                             veg_h = (th < 7 ? 1 : (th < 14 ? 2 : (th < 18 ? 3 : 4))) + (mead > 0.35f ? 1 : 0);
                         }
+                    } else if (!forest && (col.biome == technosim_biome::HIGHLANDS || col.biome == technosim_biome::SHRUBLAND) && n_meadow_.GetNoise((float)wz, (float)wx) < -0.25f) {
+                        // heather: low purple carpets in patches on the uplands and the scrub
+                        if (r10 < 560) { veg = Mat::HEATHER; veg_h = 1 + (int)((fh >> 12) % 5 == 0); }
                     } else {
                         const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
                         const float cover = 0.12f + 0.3f * mead + (forest ? 0.1f : 0.0f);   // every tuft costs ~10 faces
@@ -2024,6 +2027,20 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             veg = Mat::TALL_GRASS;
                             veg_h = (th < 9 ? 1 : (th < 16 ? 2 : (th < 19 ? 3 : 4))) + (mead > 0.4f ? 1 : 0);
                         }
+                    }
+                }
+            }
+            // dune grass in clumps on the beach above the tide line; tufts of sedge poking through the tundra's snow
+            if (!buried && !ruin && spike == 0 && do_veg && !pickup && hy.fall_top < 0 && veg == Mat::AIR && veg_head == Mat::AIR && h > sea + FS) {
+                const bool dune = top_m == Mat::SAND_STATIC && col.biome == technosim_biome::BEACH;
+                const bool sedge = top_m == Mat::SNOW && (col.biome == technosim_biome::TUNDRA || col.biome == technosim_biome::SNOWY_TUNDRA);
+                if (dune || sedge) {
+                    const uint32_t fh = h3(wx, wz, g.seed_ + 37);
+                    const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
+                    const float cover = dune ? std::max(0.0f, 0.05f + 0.35f * mead) : std::max(0.015f, 0.03f + 0.08f * mead);
+                    if ((float)(fh & 1023) / 1024.0f < cover) {
+                        veg = dune ? Mat::DUNE_GRASS : Mat::TUNDRA_SEDGE;
+                        veg_h = 1 + (int)((fh >> 12) % 3) + (dune && mead > 0.3f ? 1 : 0);
                     }
                 }
             }

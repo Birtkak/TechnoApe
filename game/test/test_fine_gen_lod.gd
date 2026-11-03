@@ -354,3 +354,22 @@ func test_badlands_stand_rock_formations() -> void:
 					if h + 4 + i % 48 >= g.height_at(bx + (i / 48) % 32, bz + i / 1536) + 12:
 						tall += 1
 	assert_int(tall).override_failure_message("no formations near %s" % p).is_greater(0)
+
+
+## Plants per biome: dune grass on the beach, heather on the highlands, sedge through the tundra's snow.
+func test_open_biomes_grow_their_own_plants() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	for e in [["beach", "dune_grass"], ["highlands", "heather"], ["tundra", "tundra_sedge"]]:
+		var p: Vector3i = g.find_nearest(e[0], 0, 0, int(Settings.m2v(9000.0)))
+		var want := GameMaterials.id_of(String(e[1]))
+		var n := 0
+		for bx in range(p.x - 64, p.x + 64, 32):
+			for bz in range(p.z - 64, p.z + 64, 32):
+				var h := g.height_at(bx + 16, bz + 16)
+				var b: PackedByteArray = g.generate_block(Vector3i(bx, h - 8, bz), Vector3i(32, 24, 32), 0, 2)
+				if b.size() < 32 * 24 * 32 * 2:
+					continue
+				for k in range(0, b.size(), 2):
+					n += int(b.decode_u16(k) == want)
+		assert_int(n).override_failure_message("no %s near the %s at %s" % [e[1], e[0], p]).is_greater(0)

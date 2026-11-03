@@ -57,6 +57,13 @@
       "wall": "cobblestone", "trim": "wood", "floor": "ash", "extra": "leaves",
       "pots": 3, "loot": "camp_pot"
     },
+    "lookout": {
+      "shape": "lookout", "weight": 4,
+      "biomes": ["taiga", "snowy_taiga", "forest", "birch_forest", "old_growth_forest", "swamp", "highlands"],
+      "half_u_m": [1.5, 2.0], "top_m": 7.5, "depth_m": 0.0,
+      "wall": "wood", "trim": "planks", "floor": "planks", "extra": "wood",
+      "pots": 2, "loot": "tower_pot"
+    },
     "wreck": {
       "shape": "wreck", "weight": 1, "coast": true,
       "biomes": ["beach", "snowy_beach", "stony_shore", "ocean", "mangrove"],
