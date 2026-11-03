@@ -1565,6 +1565,26 @@
             }
           ],
           "optional": true
+        },
+        {
+          "id": "storage_shelf",
+          "title": "Storage Shelf",
+          "icon": "storage_shelf",
+          "pos": [
+            3,
+            8
+          ],
+          "deps": [
+            "furnished"
+          ],
+          "description": "Planks and sticks hold 27 stacks: storage without a nail of metal.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "storage_shelf"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -2050,6 +2070,32 @@
             {
               "type": "item",
               "item": "barrel"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "windows",
+          "title": "Windows",
+          "icon": "window",
+          "pos": [
+            5,
+            3
+          ],
+          "deps": [
+            "saw"
+          ],
+          "description": "Glass smelted from sand in a furnace, framed in sticks or in any wood's planks: light without a hole in the wall.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "window",
+                "spruce_window",
+                "birch_window",
+                "acacia_window",
+                "jungle_window"
+              ]
             }
           ],
           "optional": true
@@ -2887,6 +2933,27 @@
             {
               "type": "item",
               "item": "chest_cart"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "pipework",
+          "title": "Pipework",
+          "icon": "bronze_pipe",
+          "pos": [
+            0,
+            1
+          ],
+          "deps": [
+            "boiler"
+          ],
+          "description": "Pipes carry steam and water any distance: thirty pipes carry like one, but a run is only as good as its weakest pipe (copper carries half what bronze does). A pump fills a tank; the tank feeds the boilers.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "bronze_pipe",
+              "count": 16
             }
           ],
           "optional": true

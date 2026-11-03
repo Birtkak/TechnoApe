@@ -78,6 +78,10 @@ func check_here(slow := true) -> void:
 		book.note("landmark:" + String(cn.get("kind", "")))
 		if float(cn.get("source_dist_m", 1e9)) < 0.0:
 			book.note("landmark:" + ("magma_heart" if String(cn.get("kind", "")) == "magma_conduit" else "spring_stone"))
+	if main.bubble != null:   # the gas round the head (ADR 0119): steam, toxic gas
+		var head: Dictionary = main.bubble.cell_info(Vector3i(main.player.camera.global_position.floor()))
+		if int(head.get("material", 0)) != 0:
+			book.note("phenomenon:" + GameMaterials.name_of(int(head["material"])))
 	if main.mobs != null:
 		var r2 := Settings.m2v(ANIMAL_M) * Settings.m2v(ANIMAL_M)
 		for m in main.mobs.active():
