@@ -458,6 +458,10 @@ uint16_t mine(const Prepared &p, const Ctx &c) {
         }
         return AIR;
     }
+    // timber lining round the run below the floor (sides and far end), as the crypt's stair has: a cave the
+    // generator opens beside it would leave the roof and the head-frame hanging
+    const bool lining = (au == 2 && c.v >= v_end - 1 && c.v <= V) || (au <= 1 && c.v == v_end - 1);
+    if (lining && c.my < r.base && c.wy >= sf - c.fs && c.wy < sf + head + c.fs) return p.mat[M_WALL];
     if (c.my < r.base) return PASS;
     // the head-frame: two posts beside the mouth, a beam across them 3 m up
     const int mouth_v = V - 1;
