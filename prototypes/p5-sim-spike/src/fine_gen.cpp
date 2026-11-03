@@ -2103,17 +2103,47 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                     }
                 }
             }
-            // dune grass in clumps on the beach above the tide line; tufts of sedge poking through the tundra's snow
-            if (!buried && !ruin && spike == 0 && do_veg && !pickup && hy.fall_top < 0 && veg == Mat::AIR && veg_head == Mat::AIR && h > sea + FS) {
-                const bool dune = top_m == Mat::SAND_STATIC && col.biome == technosim_biome::BEACH;
-                const bool sedge = top_m == Mat::SNOW && (col.biome == technosim_biome::TUNDRA || col.biome == technosim_biome::SNOWY_TUNDRA);
-                if (dune || sedge) {
-                    const uint32_t fh = h3(wx, wz, g.seed_ + 37);
-                    const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
-                    const float cover = dune ? std::max(0.0f, 0.05f + 0.35f * mead) : std::max(0.015f, 0.03f + 0.08f * mead);
-                    if ((float)(fh & 1023) / 1024.0f < cover) {
-                        veg = dune ? Mat::DUNE_GRASS : Mat::TUNDRA_SEDGE;
-                        veg_h = 1 + (int)((fh >> 12) % 3) + (dune && mead > 0.3f ? 1 : 0);
+            // each biome's own flora where the grass left the ground bare (FLORA): dune grass on beaches, sedge through
+            // the tundra's snow, sagebrush, marigolds, campion, lilies, berries ..., in patches of n_meadow_
+            if (!buried && !ruin && spike == 0 && do_veg && !pickup && hy.fall_top < 0 && veg == Mat::AIR && veg_head == Mat::AIR && h > sea + FS && top_m != Mat::ICE) {
+                struct Flora { int biome; uint16_t mat; float base, k, lo; int h0, h1; };
+                static const Flora FLORA[] = {
+                    {technosim_biome::BEACH, Mat::DUNE_GRASS, 0.050f, 0.350f, 0.000f, 1, 4},
+                    {technosim_biome::TUNDRA, Mat::TUNDRA_SEDGE, 0.030f, 0.080f, 0.015f, 1, 3},
+                    {technosim_biome::SNOWY_TUNDRA, Mat::TUNDRA_SEDGE, 0.030f, 0.080f, 0.015f, 1, 3},
+                    {technosim_biome::SNOWY_BEACH, Mat::TUNDRA_SEDGE, 0.020f, 0.060f, 0.005f, 1, 2},
+                    {technosim_biome::BADLANDS, Mat::SAGEBRUSH, 0.030f, 0.060f, 0.010f, 1, 2},
+                    {technosim_biome::SHRUBLAND, Mat::SAGEBRUSH, 0.030f, 0.060f, 0.010f, 1, 2},
+                    {technosim_biome::DESERT, Mat::DESERT_MARIGOLD, 0.008f, 0.030f, 0.000f, 1, 1},
+                    {technosim_biome::MOUNTAINS, Mat::MOSS_CAMPION, 0.030f, 0.080f, 0.005f, 1, 1},
+                    {technosim_biome::ALPINE, Mat::MOSS_CAMPION, 0.030f, 0.080f, 0.005f, 1, 1},
+                    {technosim_biome::SNOWY_PEAKS, Mat::MOSS_CAMPION, 0.030f, 0.080f, 0.005f, 1, 1},
+                    {technosim_biome::FROZEN_HIGHLANDS, Mat::MOSS_CAMPION, 0.030f, 0.080f, 0.005f, 1, 1},
+                    {technosim_biome::VOLCANIC, Mat::FIRE_LILY, 0.010f, 0.040f, 0.003f, 1, 3},
+                    {technosim_biome::TAIGA, Mat::LINGONBERRY, 0.050f, 0.100f, 0.010f, 1, 1},
+                    {technosim_biome::SNOWY_TAIGA, Mat::LINGONBERRY, 0.050f, 0.100f, 0.010f, 1, 1},
+                    {technosim_biome::JUNGLE, Mat::BROMELIAD, 0.080f, 0.100f, 0.020f, 1, 2},
+                    {technosim_biome::SWAMP, Mat::CATTAIL, 0.060f, 0.200f, 0.010f, 3, 5},
+                    {technosim_biome::SAVANNA, Mat::ALOE, 0.006f, 0.020f, 0.002f, 1, 2},
+                    {technosim_biome::FOREST, Mat::BLUEBELL, 0.020f, 0.120f, 0.000f, 1, 1},
+                    {technosim_biome::OLD_GROWTH_FOREST, Mat::BLUEBELL, 0.020f, 0.120f, 0.000f, 1, 1},
+                    {technosim_biome::BIRCH_FOREST, Mat::BLUEBELL, 0.020f, 0.120f, 0.000f, 1, 1},
+                    {technosim_biome::ICE_FIELDS, Mat::FROST_LICHEN, 0.015f, 0.040f, 0.003f, 1, 1},
+                    {technosim_biome::SNOWY_TUNDRA, Mat::FROST_LICHEN, 0.015f, 0.040f, 0.003f, 1, 1},
+                    {technosim_biome::MANGROVE, Mat::SEA_ASTER, 0.030f, 0.080f, 0.005f, 1, 2},
+                    {technosim_biome::STONY_SHORE, Mat::SEA_ASTER, 0.030f, 0.080f, 0.005f, 1, 2},
+                    {technosim_biome::PLAINS, Mat::DANDELION, 0.010f, 0.050f, 0.000f, 1, 1},
+                    {technosim_biome::FLOWER_MEADOW, Mat::DANDELION, 0.010f, 0.050f, 0.000f, 1, 1},
+                };
+                const uint32_t fh = h3(wx, wz, g.seed_ + 37);
+                const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
+                for (const Flora &f : FLORA) {
+                    if (f.biome != col.biome) continue;
+                    // a biome with two kinds rolls each on its own bits of the hash
+                    if ((float)((fh >> (f.mat & 7)) & 1023) / 1024.0f < std::max(f.lo, f.base + f.k * mead)) {
+                        veg = f.mat;
+                        veg_h = f.h0 + (int)((fh >> 16) % (uint32_t)(f.h1 - f.h0 + 1));
+                        break;
                     }
                 }
             }

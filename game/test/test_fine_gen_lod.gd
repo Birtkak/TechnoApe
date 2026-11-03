@@ -356,12 +356,15 @@ func test_badlands_stand_rock_formations() -> void:
 	assert_int(tall).override_failure_message("no formations near %s" % p).is_greater(0)
 
 
-## Plants per biome: dune grass on the beach, heather on the highlands, sedge through the tundra's snow.
+## Plants per biome: each biome grows its own flora (FineGen FLORA, the heather patches) near its nearest spot.
 func test_open_biomes_grow_their_own_plants() -> void:
 	var g := FineGen.new()
 	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
-	for e in [["beach", "dune_grass"], ["highlands", "heather"], ["tundra", "tundra_sedge"]]:
+	for e in [["beach", "dune_grass"], ["highlands", "heather"], ["tundra", "tundra_sedge"], ["badlands", "sagebrush"], ["desert", "desert_marigold"],
+			["mountains", "moss_campion"], ["volcanic", "fire_lily"], ["taiga", "lingonberry"], ["jungle", "bromeliad"], ["swamp", "cattail"],
+			["savanna", "aloe"], ["forest", "bluebell"], ["ice_fields", "frost_lichen"], ["mangrove", "sea_aster"], ["plains", "dandelion"]]:
 		var p: Vector3i = g.find_nearest(e[0], 0, 0, int(Settings.m2v(9000.0)))
+		assert_int(p.y).override_failure_message("no %s" % e[0]).is_greater_equal(0)
 		var want := GameMaterials.id_of(String(e[1]))
 		var n := 0
 		for bx in range(p.x - 64, p.x + 64, 32):

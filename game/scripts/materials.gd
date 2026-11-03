@@ -177,7 +177,7 @@ const RUSTED_RAIL := 234           # an abandoned mine's rails (the "mine" ruin)
 const BARREL := 216                # ADR 0121: an 18-slot wooden barrel (a 0.75 x 1 m station like the chest); 217..227 this lane's
 const STORAGE_SHELF := 217         # ADR 0121: open plank shelving, 27 slots, the goods on it show (a 1 m cube station)
 
-const ATLAS_TILES := Vector2i(8, 26)   # rows grow at the bottom, so tile indices keep their meaning
+const ATLAS_TILES := Vector2i(8, 27)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -303,7 +303,7 @@ static func _build_defs() -> Array:
 		# 216 (ADR 0121): storage drawn by StationEntity like the chest
 		{"name": "barrel", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "barrel"},
 		{"name": "storage_shelf", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "storage_shelf"},
-	] + _reserved_defs(218, CAVE_IDS - 1) + _cave_defs() + _plant_defs() + _structure_defs() + _reserved_defs(CAVE_IDS + 11, 253) + [
+	] + _reserved_defs(218, CAVE_IDS - 1) + _cave_defs() + _plant_defs() + _structure_defs() + _flora_defs() + _reserved_defs(CAVE_IDS + 23, 253) + [
 		# 254 (ADR 0119 C): what toxic sludge boils into: heavy, sinks and pools in low caves, fades in a minute
 		{"name": "toxic_gas", "condense_c": 30, "condenses_to": "toxic_sludge", "cell_type": "gas", "density": 1, "gas_upwards_speed": 40, "gas_horizontal_speed": 90, "gas_downwards_speed": 120, "lifetime": 1800, "tiles": [11, 11, 11], "transparent": true},
 	] + _reserved_defs(255, 255)
@@ -332,6 +332,27 @@ static func _structure_defs() -> Array:
 	return [
 		{"name": "rope", "cell_type": "solid", "density": 6, "hp": 30, "burnable": true, "fire_hp": 30, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [199, 199, 199], "transparent": false},
 	]
+
+
+## Ids 239..250: each biome's own flora (FineGen's FLORA table), tufts and bushes like the grasses, tiles 200..203, 208..215.
+static func _flora_defs() -> Array:
+	var out := []
+	for e in [
+		["sagebrush", 200, "bush"],
+		["desert_marigold", 201, "tuft"],
+		["moss_campion", 202, "tuft"],
+		["fire_lily", 203, "tuft"],
+		["lingonberry", 208, "tuft"],
+		["bromeliad", 209, "tuft"],
+		["cattail", 210, "tuft"],
+		["aloe", 211, "tuft"],
+		["bluebell", 212, "tuft"],
+		["frost_lichen", 213, "tuft"],
+		["sea_aster", 214, "tuft"],
+		["dandelion", 215, "tuft"],
+	]:
+		out.append({"name": e[0], "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 50, "ignite_chance": 0.6, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [e[1], e[1], e[1]], "transparent": false, "micro": e[2], "replaceable": true})
+	return out
 
 
 ## Ids 235..237: plants the generator lays per column (FineGen, the vegetation pass): dune grass on beaches, heather
