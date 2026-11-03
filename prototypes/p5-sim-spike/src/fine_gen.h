@@ -199,6 +199,11 @@ private:
         int hmax_m = 0, wl_max = 0, fall_max = -1;
         float hmin_m = 1e9f;
         int feat_top = 0;   // highest tree or stamp voxel over the footprint at any height (0: none)
+        // the stack's exact top (voxels): the highest ground, plant, spike, clutter, canopy or water voxel any block of
+        // this footprint found in its column pass, plus feat_top; -1 until a block ran. Blocks above it are air and
+        // return at once (budget hunt 2026-11-03: a third of the blocks over a column were all air under the macro
+        // bound's 6 m margin and cost 155 us each)
+        mutable std::atomic<int> top_seen{-1};
         std::vector<int> h;   // each fine column's ground height (x + sx * z): five noises a column, once per stack
         // the trees (from the tree caches) and stamps reaching the footprint at any height, in drawing order
         std::vector<std::shared_ptr<const FTree>> trees;

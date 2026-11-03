@@ -1514,6 +1514,11 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
         s_sky += 1;
         return out;
     }
+    {
+        const int top = ctx->top_seen.load(std::memory_order_relaxed);
+        if (top >= 0 && nruins == 0 && origin.y > top) { s_sky += 1; return out; }   // an earlier block of this stack found its exact top
+    }
+    int stack_top = -1;   // this block's column pass finds it for the whole stack (the pass is the same at every height)
     // Deep rock (2026-10-25, fast flight vs generation): from LOD 1 on there are no ores and caves only
     // reach CAVE_MOUTH_DEPTH, so a block wholly below the sandstone, the cave mouths and the ground's
     // swells is all stone. One voxel of it tells the caller to fill the block (TerrainGenerator); the
@@ -2214,6 +2219,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 }
             }
             int dress_anchor = INT32_MIN, dress_biome = -1;   // the cave biome of the last floor or ceiling looked up
+            stack_top = std::max({stack_top, h + veg_h + 2, h + spike + 1, h + CLUTTER_H + 1, far_top + 1, water_level + 1, h + aqua_h + 1});
             uint16_t *colp = w + sy * (x + sx * z);
             ValueNoiseCell sheet_cell;   // the stringer sheet's noise cell, shared up the column
             for (int y = 0; y < sy; y++) {
@@ -2404,6 +2410,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             }
         }
     }
+    if (stack_top >= 0) ctx->top_seen.store(std::max(stack_top, ctx->feat_top) + FS, std::memory_order_relaxed);
     if (!any) return out;
     // No lone liquid cells (ADR 0069 C): a still liquid cell with air above, no liquid of its kind on any side and
     // open air beside it (a one-cell puddle on a cave wall's step, a scrap at a bank) is dropped; it drew as a spike
