@@ -393,11 +393,13 @@ func reach() -> float:
 	return Settings.creative_reach_m if GameMode.rule(game_mode, "instant_break") else Settings.reach_m
 
 
-## Hold the zoom key (Z, OptiFine): the view narrows to 1 / Settings.zoom_factor within a tenth of a second.
+## Hold the zoom key (Z, OptiFine): the view narrows to 1 / Settings.zoom_factor within a tenth of a second,
+## or to the held item's "zoom" (the spyglass, ADR 0131).
 func _process(delta: float) -> void:
-	var want := Settings.zoom_factor if not ui_open and not autopilot and not free_cam and Input.is_action_pressed("zoom") else 1.0
+	var factor := maxf(Settings.zoom_factor, float(_held_def().get("zoom", 0.0)))
+	var want := factor if not ui_open and not autopilot and not free_cam and Input.is_action_pressed("zoom") else 1.0
 	if zoom != want:
-		zoom = move_toward(zoom, want, delta * Settings.zoom_factor * 10.0)
+		zoom = move_toward(zoom, want, delta * factor * 10.0)
 		camera.fov = Settings.fov / zoom
 
 
@@ -733,6 +735,19 @@ func _ride(delta: float) -> void:
 
 
 ## The worn stack whose "clothing" has `key` (the jetpack, ADR 0099), or {}.
+func _held_def() -> Dictionary:
+	var m := get_parent()
+	if inventory == null or m == null or m.get("items") == null:
+		return {}
+	return m.items.get_def(String(inventory.held().get("id", "")))
+
+
+## Breath under a liquid lasts this many times longer: a worn piece's "air_x" (the diving mask, ADR 0131).
+func air_mult() -> float:
+	var pack := _worn_with("air_x")
+	return float(get_parent().items.get_def(pack["id"])["clothing"]["air_x"]) if not pack.is_empty() else 1.0
+
+
 func _worn_with(key: String) -> Dictionary:
 	var m := get_parent()
 	if m == null or m.get("stone_age") == null:
@@ -790,7 +805,7 @@ func _update_air(delta: float) -> void:
 		air = minf(1.0, air + delta / 2.0)
 		_drown_t = 0.0
 	else:
-		air = maxf(0.0, air - delta / breath_s)
+		air = maxf(0.0, air - delta / (breath_s * (air_mult() if GameMaterials.is_liquid(eye_m) else 1.0)))
 		if air <= 0.0:
 			_drown_t -= delta
 			if _drown_t <= 0.0:

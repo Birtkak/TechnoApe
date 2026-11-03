@@ -17,7 +17,7 @@ const GROUND := ["flint", "stick", "loose_stone", "loose_copper_ore", "clay_ball
 	"bowl_of_milk",   # a goat milked into a clay bowl
 	"coal",     # mined from coal ore: the coke oven (ADR 0117)
 	"oak_sapling", "brown_mushroom", "blueberry"]   # leaves' drops, wild mushrooms and berry bushes: replanting and meals (ADR 0121)
-const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age", "steam_age", "electrical_age"]
+const CHAPTERS := ["flint_age", "middle_stone_age", "new_stone_age", "copper_stone_age", "copper_age", "bronze_age", "iron_age", "steam_age", "electrical_age", "lv_workshop"]
 
 var items: ItemRegistry
 var recipes: RecipeRegistry
@@ -45,7 +45,7 @@ func test_data_loads_clean() -> void:
 		for q in book.chapter_quests(c):
 			if q.get("final", false):
 				finals.append(q["id"])
-	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw", "bronze_tool", "iron_tool", "ore_train", "first_machine"])
+	assert_array(finals).is_equal(["tar_haft", "bow", "polished_axe", "copper_tool", "saw", "bronze_tool", "iron_tool", "ore_train", "first_machine", "canned_food"])
 
 
 func test_bad_data_is_reported() -> void:
