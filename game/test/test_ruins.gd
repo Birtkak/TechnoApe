@@ -245,3 +245,12 @@ func test_pots_roll_their_kinds_loot() -> void:
 		for i in 200:
 			n += RuinLoot.roll(table.loot_of(k[0]), 7, Vector3i(i, 1000, 5), 0.0, items).size()
 		assert_int(n).override_failure_message("%s: loot almost always empty" % k[0]).is_greater(100)
+
+
+## Every kind can be reached in play: /locate and /goto list it, and on each seed one lies within their 4 km.
+func test_every_kind_is_within_goto_reach() -> void:
+	for k in table.kinds:
+		assert_bool(GameCommands.FEATURES.has("ruin_" + String(k[0]))).override_failure_message("/goto lacks ruin_%s" % k[0]).is_true()
+		for sd in SEEDS:
+			var p: Vector3i = (gens[sd] as FineGen).find_nearest("ruin_" + String(k[0]), 0, 0, int(S.m2v(4000.0)))
+			assert_int(p.y).override_failure_message("seed %d: no %s within 4 km" % [sd, k[0]]).is_greater_equal(0)

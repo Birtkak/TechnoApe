@@ -845,6 +845,55 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
                 }
             }
     }
+    // Rock formations: natural arches and hoodoos (a pillar under a cap stone) where the land is dry and bare,
+    // in the badlands' terracotta bands, the desert's sandstone, plain stone on the highlands and the scrub.
+    {
+        constexpr int RC = 128, RM = 48;   // one chance per 16 m cell; a formation reaches ~40 voxels
+        for (int cz = floor_div(z_lo - RM, RC); cz <= floor_div(z_hi + RM, RC); cz++)
+            for (int cx = floor_div(x_lo - RM, RC); cx <= floor_div(x_hi + RM, RC); cx++) {
+                const uint32_t hs = h3(cx, cz, g.seed_ + 661);
+                const float fx = (float)(cx * RC + RM + (int)((hs >> 10) % (RC - 2 * RM))) + 0.5f;
+                const float fz = (float)(cz * RC + RM + (int)((hs >> 17) % (RC - 2 * RM))) + 0.5f;
+                if (fx + RM < x_lo || fx - RM > x_hi || fz + RM < z_lo || fz - RM > z_hi) continue;
+                const int mx = floor_div((int)fx, FS), mz = floor_div((int)fz, FS);
+                const WorldGen::Column col = g.column_base(mx, mz, false);
+                const int b = col.biome;
+                const int chance = b == technosim_biome::BADLANDS ? 600 : b == technosim_biome::DESERT ? 260
+                    : (b == technosim_biome::HIGHLANDS || b == technosim_biome::SHRUBLAND || b == technosim_biome::SAVANNA) ? 90 : 0;
+                if ((int)(hs & 1023) >= chance || col.height <= g.sea_ + 1 || col.alpine) continue;
+                const WorldGen::Hydro hy = g.hydro_at(mx, mz, col.height);
+                if (hy.river > 0.05f || hy.lake || hy.puddle || hy.marsh || g.ravine_near(mx, mz, 5)) continue;
+                bool blocked = false;
+                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], mx, mz, RUIN_RAMP + 4);
+                if (blocked) continue;
+                FStamp f{};
+                f.kind = FORMATION;
+                f.seed = h3(cx, cz, g.seed_ + 667);
+                f.biome = b;
+                f.x = fx;
+                f.z = fz;
+                const float an = (float)(f.seed & 1023) / 1023.0f * 3.1416f;
+                f.dx = std::cos(an);
+                f.dz = std::sin(an);
+                f.mossy = ((f.seed >> 10) & 3) != 0;   // arch 3 in 4, else a hoodoo
+                f.wood = b == technosim_biome::BADLANDS ? Mat::TERRACOTTA : b == technosim_biome::DESERT ? Mat::SANDSTONE : Mat::STONE;
+                f.ground = (int)std::floor(surface_f((int)fx, (int)fz) + 0.5f);
+                if (f.mossy) {
+                    f.size = 16.0f + (float)((f.seed >> 12) & 15) * 0.8f;   // span radius 2-3.6 m
+                    f.r = 4.0f + (float)((f.seed >> 16) & 3);              // rib 4-7 voxels thick
+                    // both feet on the ground: an arch over a slope would hang one of them
+                    const float fa = f.size;
+                    const int g1 = (int)std::floor(surface_f((int)(fx + f.dx * fa), (int)(fz + f.dz * fa)) + 0.5f);
+                    const int g2 = (int)std::floor(surface_f((int)(fx - f.dx * fa), (int)(fz - f.dz * fa)) + 0.5f);
+                    if (std::abs(g1 - f.ground) > 4 || std::abs(g2 - f.ground) > 4) continue;
+                    f.ground = std::min({f.ground, g1, g2});
+                } else {
+                    f.size = 22.0f + (float)((f.seed >> 12) & 15) * 1.2f;   // 2.7-5 m tall
+                    f.r = 3.5f + (float)((f.seed >> 16) & 3) * 0.5f;        // pillar radius
+                }
+                out.push_back(f);
+            }
+    }
     // Giant flowers (bug report 2026-11-02 18-57-25, "tree sized flowers in the flower meadow"): about one per
     // 8 m cell of the meadow, a 3.5-5.5 m stalk under a 2.5-3.5 m red head (stamp_voxel draws it).
     constexpr int GC = 64, GM = 26;
@@ -1080,6 +1129,27 @@ uint16_t FineGen::stamp_voxel(const FStamp &s, float x, int y, float z, float gr
                 if ((float)((hh >> 12) & 1023) / 1024.0f < technosim_biome::DECOR_LOG_MUSHROOMS[s.biome]) return (hh >> 8) % 3 == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN;
             }
             return Mat::AIR;
+        }
+        case FORMATION: {
+            // badlands formations in terracotta bands, red, cream and brown
+            static const uint16_t BAND[3] = {Mat::TERRACOTTA, Mat::TERRACOTTA_RED, Mat::TERRACOTTA_CREAM};
+            const uint16_t m = s.wood == Mat::TERRACOTTA ? BAND[(uint32_t)((y + (int)(s.seed & 7)) / 3) % 3u] : s.wood;
+            const float wob = ((float)(h3((int)std::floor(x) >> 1, y >> 1, (int)std::floor(z) >> 1) & 15) / 15.0f - 0.5f) * 0.9f;
+            if (fy < (float)s.ground - 4.0f) return Mat::AIR;
+            if (s.mossy) {   // an arch: half a ring standing on its feet, thicker at the feet
+                const float a = dx * s.dx + dz * s.dz, b = -dx * s.dz + dz * s.dx;
+                const float cy = (float)s.ground - s.size * 0.12f;
+                const float q = std::sqrt(a * a + (fy - cy) * (fy - cy)) - s.size;
+                const float t = s.r * (1.0f + 0.6f * std::max(0.0f, 1.0f - (fy - cy) / s.size)) + grow;
+                return q * q + b * b * 1.6f < (t + wob) * (t + wob) ? m : Mat::AIR;
+            }
+            // a hoodoo: a pillar waisted under its cap stone, flared at its foot
+            const float h = fy - (float)s.ground, d = std::sqrt(dx * dx + dz * dz);
+            const float ch = s.size, cr = s.r * 1.7f + grow;
+            const float cy = h - ch;
+            if (cy > -cr * 0.5f) return (d * d) / (cr * cr) + (cy * cy) / (cr * cr * 0.3f) < 1.0f + wob * 0.3f ? (s.wood == Mat::TERRACOTTA ? Mat::SANDSTONE : m) : Mat::AIR;
+            const float pr = s.r * (0.8f + 0.25f * std::cos(h / ch * 6.2832f)) + std::max(0.0f, 4.0f - h) * 0.8f + grow;
+            return d < pr + wob ? m : Mat::AIR;
         }
         case OUTCROP: {
             // a jagged crag leaning a little, ore in streaks through it (a third of the voxels near its skin)

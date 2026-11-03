@@ -11,7 +11,7 @@ const MAX_HALF_M := 7.0          # WorldGen::RUIN_MAX_HALF macro cells
 const MAX_TOP_M := 8.0
 const MAX_DEPTH_M := 4.5
 const MAX_POTS := 4              # the developer's limit (2026-10-25 bug report)
-const SHAPES := ["house", "watchtower", "stone_circle", "crypt", "mud_house", "shrine", "wreck", "mine"]
+const SHAPES := ["house", "watchtower", "stone_circle", "crypt", "mud_house", "shrine", "wreck", "mine", "camp"]
 const MATS := ["wall", "trim", "floor", "extra"]
 
 var data := {}

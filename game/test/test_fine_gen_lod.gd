@@ -332,3 +332,25 @@ func test_abandoned_mine_has_rails_and_pots_underground() -> void:
 			pots += 1
 	assert_int(rails).is_greater(20)
 	assert_int(pots).is_greater(0)
+
+
+## Rock formations: the badlands hold arches and hoodoos of banded terracotta standing over 1.5 m above the ground.
+func test_badlands_stand_rock_formations() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var p: Vector3i = g.find_nearest("badlands", 0, 0, int(Settings.m2v(9000.0)))
+	assert_int(p.y).override_failure_message("no badlands").is_greater_equal(0)
+	var rock := {GameMaterials.id_of("terracotta"): true, GameMaterials.id_of("terracotta_red"): true, GameMaterials.id_of("terracotta_cream"): true}
+	var tall := 0
+	for bx in range(p.x - 256, p.x + 256, 32):
+		for bz in range(p.z - 256, p.z + 256, 32):
+			var h := g.height_at(bx + 16, bz + 16)
+			var b: PackedByteArray = g.generate_block(Vector3i(bx, h + 4, bz), Vector3i(32, 48, 32), 0, 2)
+			if b.size() < 32 * 48 * 32 * 2:
+				continue
+			for k in range(0, b.size(), 2):
+				if rock.has(b.decode_u16(k)):
+					var i := k / 2
+					if h + 4 + i % 48 >= g.height_at(bx + (i / 48) % 32, bz + i / 1536) + 12:
+						tall += 1
+	assert_int(tall).override_failure_message("no formations near %s" % p).is_greater(0)
