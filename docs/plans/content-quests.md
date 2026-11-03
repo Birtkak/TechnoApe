@@ -27,3 +27,4 @@ session wires them; this list only names them, with the age they belong to and w
 | `extruder`, `tin_can`, `canning_machine`, `canned_meat` | LV | food that keeps: can a meal |
 | `electric_compressor`, `carbon_electrode`, `electrolyzer` | LV | refine crushed ore to ingots without a crucible |
 | `cutter`, `steel_rod` | LV | six planks a log; steel rods drive pistons |
+| (done) Workshop chapter in quests.json | LV | the ADR 0131 machines and their uses are in the book |

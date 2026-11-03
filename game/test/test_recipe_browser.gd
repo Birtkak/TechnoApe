@@ -176,6 +176,27 @@ func test_real_mining_table_loads_into_the_browser() -> void:
 	assert_array(b.summary()["view"]["categories"]).contains(["mining"])
 
 
+func test_animal_drops_show_as_hunting() -> void:
+	b.set_mining(MiningTable.load_default())
+	b.set_hunting(MobManager.load_defs()["mobs"])
+	assert_bool(b.show("antler", "recipes")).is_true()
+	var hunt: Dictionary = b.view["categories"].filter(func(c: Dictionary) -> bool: return c["id"] == "hunting")[0]
+	var l := b.layout(b.recipe(hunt["recipes"][0]))
+	assert_str(String(l["needs"])).starts_with("Deer (forest")
+	assert_str(String(l["info"])).contains("% chance")
+	assert_bool(b.show("fur", "recipes")).is_true()   # rabbits, foxes, wolves, snow hares
+	assert_int(b.view["categories"].filter(func(c: Dictionary) -> bool: return c["id"] == "hunting")[0]["recipes"].size()).is_greater_equal(4)
+
+
+func test_power_facts_in_real_units() -> void:
+	assert_str(InventoryScreen.power_facts(items.get_def("lathe"))).contains("200 W at 48 V")
+	assert_str(InventoryScreen.power_facts(items.get_def("electric_lamp"))).contains("40 W")
+	assert_str(InventoryScreen.power_facts(items.get_def("copper_cable"))).contains("40 A")
+	assert_str(InventoryScreen.power_facts(items.get_def("breaker"))).contains("30 A")
+	assert_str(InventoryScreen.power_facts(items.get_def("battery_box"))).contains("2000 Wh")
+	assert_str(InventoryScreen.power_facts(items.get_def("oak_log"))).is_empty()
+
+
 # ---------- bookmarks ----------
 
 func test_bookmarks_toggle_filter_and_persist() -> void:
@@ -299,7 +320,8 @@ func test_every_station_and_machine_has_uses() -> void:
 	var none := []
 	# they make, store or light with steam or power, or move items in the world: no recipe runs in them
 	var no_recipes := ["small_boiler", "steel_boiler", "steam_turbine", "compressor", "battery_box", "electric_lamp",
-		"hopper", "chute", "belt", "rail", "knife_switch", "fuse_box", "breaker"]   # switches and fuses guard the circuit (ADR 0123)
+		"hopper", "chute", "belt", "rail", "knife_switch", "fuse_box", "breaker", "heavy_copper_cable",
+		"daylight_switch", "meter_panel", "water_wheel", "wind_turbine", "hand_crank", "thin_cable"]   # switches and fuses guard the circuit (ADR 0123); a cable carries power (ADR 0131)
 	for id in items.all_ids():
 		var d := items.get_def(id)
 		if (d.has("work") or "station" in d.get("tags", [])) and not id in no_recipes and b.uses_for(id).is_empty():

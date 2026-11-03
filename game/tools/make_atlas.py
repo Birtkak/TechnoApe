@@ -1114,12 +1114,37 @@ def cave_tiles():
             for x in range(TILE):
                 _px(img, x, y, tip if ((x * 5 + y * 2) % 7 < 2 or rng.random() < mix * 0.4) else base, rng, 10)
         out[idx] = img
+    img = Image.new("RGBA", (TILE, TILE))   # 199 rope: twisted fibre, diagonal strands
+    for y in range(TILE):
+        for x in range(TILE):
+            _px(img, x, y, (184, 156, 108) if (x + y) % 4 < 2 else (138, 112, 74), rng, 8)
+    out[199] = img
+    # each biome's flora (FineGen FLORA): leaves of the base colour, flecks of the bloom or berry colour
+    for idx, base, tip in (
+        (200, (112, 128, 104), (168, 176, 150)),
+        (201, (112, 140, 80), (240, 200, 40)),
+        (202, (70, 112, 60), (226, 120, 180)),
+        (203, (80, 104, 50), (250, 96, 30)),
+        (208, (40, 80, 44), (200, 30, 40)),
+        (209, (60, 130, 60), (230, 60, 110)),
+        (210, (96, 128, 64), (110, 70, 40)),
+        (211, (96, 140, 110), (150, 186, 150)),
+        (212, (50, 100, 50), (90, 100, 220)),
+        (213, (150, 160, 130), (210, 220, 190)),
+        (214, (70, 110, 70), (170, 120, 210)),
+    ):
+        img = Image.new("RGBA", (TILE, TILE))
+        for y in range(TILE):
+            for x in range(TILE):
+                bloom = (x * 3 + y * 5) % 11 < 2 or rng.random() < 0.12
+                _px(img, x, y, tip if bloom else base, rng, 10)
+        out[idx] = img
     return out
 
 
-ROWS = max(ROWS, 26)
+ROWS = max(ROWS, 27)
 blank = Image.new("RGBA", (TILE, TILE), (255, 0, 255, 255))
-while len(tiles) < 208:
+while len(tiles) < 216:
     tiles.append(blank)
 for i, t in cave_tiles().items():
     tiles[i] = t

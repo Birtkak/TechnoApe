@@ -6,7 +6,9 @@ extends RefCounted
 ##   /scenario <name>      jump into a set-up test: a few existing commands run in a row
 ##   /count <material>     cells of a material in the sim bubble (how much steam a vent leaves, gas in a cave ...)
 ##   /blocks [kind]        every block entity's state on one line each (what each machine draws and has made)
-## A scenario is only command lines, so each step also works typed and reports in chat.
+##   /whatsnew             today's additions (data/whats_new.json) in chat, with a button each on top of the F4 menu
+##   /tour [next|back|<n>|<id>]   walks those additions in order: says what to look for, runs the entry's lines
+## A scenario or a tour stop is only command lines, so each step also works typed and reports in chat.
 
 ## The list sits beside the game project in a checkout; an exported build has no copy.
 const TO_TEST := "res://../docs/plans/to-test.md"
@@ -22,9 +24,13 @@ const SCENARIOS := {
 	"ledge": ["/gamemode survival", "/fill {x0} {ledge} {z0} {x1} {ledge} {z1} stone", "/tp {x} {on} {z}"],   # Ctrl sprint, Shift stops at the edge
 }
 
+## What landed lately, in tour order; any lane appends to it (ADR 0130).
+const WHATS_NEW := "res://data/whats_new.json"
+
 var reg: CommandRegistry
 var player: Player
 var main_of := Callable()   # () -> Main or null
+var tour_at := -1   # the last /tour stop shown
 
 
 func register(p_reg: CommandRegistry, p_player: Player, p_main_of := Callable()) -> void:
@@ -35,6 +41,54 @@ func register(p_reg: CommandRegistry, p_player: Player, p_main_of := Callable())
 	reg.register("scenario", "/scenario <%s>" % "|".join(SCENARIOS.keys()), "Jump into a playtest set-up from the to-test list", _scenario, [SCENARIOS.keys()])
 	reg.register("blocks", "/blocks [kind]", "Each block entity's state, one line each (watts, amps, made, output); kind filters by name", _blocks)
 	reg.register("count", "/count <material>", "Cells of a material in the sim bubble (steam left by a vent, gas pooled in a cave)", _count)
+	reg.register("whatsnew", "/whatsnew", "What landed lately, each one a click away (the F4 menu's top row); /tour walks them in order", _whatsnew)
+	reg.register("tour", "/tour [next|back|<n>|<id>]", "The next stop of the what's-new tour: what to look for, and it takes you there or hands you the kit", _tour,
+		[func() -> Array: return ["next", "back"] + whats_new().map(func(e: Dictionary) -> String: return e["id"])])
+
+
+## The entries of data/whats_new.json: {id, title, what, run: [command lines], date}.
+static func whats_new() -> Array:
+	var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(WHATS_NEW))
+	return d.get("entries", []) if d is Dictionary else []
+
+
+func _whatsnew(_args: PackedStringArray) -> Dictionary:
+	var e := whats_new()
+	if e.is_empty():
+		return CommandRegistry.fail("Nothing in %s" % WHATS_NEW)
+	var main: Node = main_of.call() if main_of.is_valid() else null
+	if main != null and main.get("debug_menu") != null:
+		main.debug_menu.open.call_deferred(true)   # after the chat has closed, as /tools does
+	var lines: Array[String] = []
+	for i in e.size():
+		lines.append("%d. %s  (/tour %s)" % [i + 1, e[i]["title"], e[i]["id"]])
+	return CommandRegistry.ok("What's new (the buttons on top of F4; /tour walks them in order):\n" + "\n".join(lines))
+
+
+func _tour(args: PackedStringArray) -> Dictionary:
+	var e := whats_new()
+	if e.is_empty():
+		return CommandRegistry.fail("Nothing in %s" % WHATS_NEW)
+	var a := args[0].to_lower() if args.size() > 0 else "next"
+	var i := tour_at + 1
+	if a == "back":
+		i = tour_at - 1
+	elif a.is_valid_int():
+		i = int(a) - 1
+	elif a != "next":
+		i = e.find_custom(func(x: Dictionary) -> bool: return x["id"] == a)
+	if a == "next" and i >= e.size():
+		tour_at = -1
+		return CommandRegistry.ok("That was the whole tour: /tour starts it again, /whatsnew lists it")
+	if i < 0 or i >= e.size():
+		return CommandRegistry.fail("Usage: /tour [next|back|<1..%d>|<id>]" % e.size())
+	tour_at = i
+	var said: Array[String] = ["Tour %d/%d: %s. %s" % [i + 1, e.size(), e[i]["title"], e[i]["what"]]]
+	for line in e[i]["run"]:
+		var r := reg.execute(line)
+		said.append(r["text"] if r["ok"] else "%s failed: %s" % [line, r["text"]])   # a biome too far away skips one line, not the stop
+	said.append("/tour for the next: %s" % e[i + 1]["title"] if i + 1 < e.size() else "That was the last stop")
+	return CommandRegistry.ok("\n".join(said.filter(func(s: String) -> bool: return s != "")))
 
 
 ## The unticked "- [ ]" items of a to-test list, newest (topmost) first, each as "Section: text" on one line.

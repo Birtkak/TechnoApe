@@ -135,10 +135,16 @@ static func solve_dc(store: BlockEntities) -> void:
 			c["supply"] += r[i * 4 + 3]
 		elif kinds[i] == NetworkSolver.DC_LOAD:
 			c["demand"] += r[i * 4 + 3]
+	var newest := {}   # component -> the load that joined last: it sheds first (PowerLoad)
+	for i in nodes.size():
+		var l = nodes[i].get("load") if "load" in nodes[i] else null
+		if l != null and l.on and (not newest.has(int(r[i * 4])) or l.joined_at > newest[int(r[i * 4])].joined_at):
+			newest[int(r[i * 4])] = l
 	var by_node := {}
 	for i in nodes.size():
 		var c: Dictionary = comps[int(r[i * 4])]
-		var d := {"volts": r[i * 4 + 1], "amps": r[i * 4 + 2], "watts": r[i * 4 + 3], "may_start": not c["started"]}
+		var l = nodes[i].get("load") if "load" in nodes[i] else null
+		var d := {"volts": r[i * 4 + 1], "amps": r[i * 4 + 2], "watts": r[i * 4 + 3], "may_start": not c["started"], "newest": l != null and newest.get(int(r[i * 4])) == l}
 		if nodes[i].has_method("net_in") and nodes[i].net_in("energy", d):
 			c["started"] = true
 		by_node[nodes[i].get_instance_id()] = c

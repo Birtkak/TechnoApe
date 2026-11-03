@@ -257,7 +257,8 @@ static func outward(mesh: ArrayMesh) -> ArrayMesh:
 # ---------------- cell models ----------------
 
 ## Paints that are features (eyes, noses, beaks, combs): they win a merged cell and keep one shade.
-const FEATURES := [EYE, EYE_WHITE, NOSTRIL, RED, YELLOW, SKIN_DARK, PINK_DARK, MUZZLE, WildModels.TUSK, WildModels.BILL, WildModels.SPIDER_EYE, WildModels.ANTLER]
+const FEATURES := [EYE, EYE_WHITE, NOSTRIL, RED, YELLOW, SKIN_DARK, PINK_DARK, MUZZLE, WildModels.TUSK, WildModels.BILL, WildModels.SPIDER_EYE, WildModels.ANTLER,
+	WildModels.SALA_SPOT, WildModels.LIZ_SPOT, WildModels.MAGMA_GLOW]   # spots smaller than a merged cell (ADR 0129)
 const CRISP := [EYE, EYE_WHITE, NOSTRIL]
 
 

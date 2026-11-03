@@ -356,12 +356,15 @@ func test_badlands_stand_rock_formations() -> void:
 	assert_int(tall).override_failure_message("no formations near %s" % p).is_greater(0)
 
 
-## Plants per biome: dune grass on the beach, heather on the highlands, sedge through the tundra's snow.
+## Plants per biome: each biome grows its own flora (FineGen FLORA, the heather patches) near its nearest spot.
 func test_open_biomes_grow_their_own_plants() -> void:
 	var g := FineGen.new()
 	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
-	for e in [["beach", "dune_grass"], ["highlands", "heather"], ["tundra", "tundra_sedge"]]:
+	for e in [["beach", "dune_grass"], ["highlands", "heather"], ["tundra", "tundra_sedge"], ["badlands", "sagebrush"], ["desert", "desert_marigold"],
+			["mountains", "moss_campion"], ["volcanic", "fire_lily"], ["taiga", "lingonberry"], ["jungle", "bromeliad"], ["swamp", "cattail"],
+			["savanna", "aloe"], ["forest", "bluebell"], ["ice_fields", "frost_lichen"], ["mangrove", "sea_aster"]]:
 		var p: Vector3i = g.find_nearest(e[0], 0, 0, int(Settings.m2v(9000.0)))
+		assert_int(p.y).override_failure_message("no %s" % e[0]).is_greater_equal(0)
 		var want := GameMaterials.id_of(String(e[1]))
 		var n := 0
 		for bx in range(p.x - 64, p.x + 64, 32):
@@ -373,3 +376,62 @@ func test_open_biomes_grow_their_own_plants() -> void:
 				for k in range(0, b.size(), 2):
 					n += int(b.decode_u16(k) == want)
 		assert_int(n).override_failure_message("no %s near the %s at %s" % [e[1], e[0], p]).is_greater(0)
+
+
+## Rope bridges: a ravine near the origin is spanned by planks hung on rope, over the cut.
+func test_ravines_are_bridged() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var rope := GameMaterials.id_of("rope")
+	var found := 0
+	var p: Vector3i = g.find_nearest("ravine", 0, 0, int(Settings.m2v(4000.0)))
+	assert_int(p.y).override_failure_message("no ravine").is_greater_equal(0)
+	for bx in range(p.x - 512, p.x + 512, 64):
+		for bz in range(p.z - 512, p.z + 512, 64):
+			var h := g.height_at(bx + 32, bz + 32)
+			var b: PackedByteArray = g.generate_block(Vector3i(bx, h - 24, bz), Vector3i(64, 48, 64), 0, 2)
+			if b.size() < 64 * 48 * 64 * 2:
+				continue
+			for k in range(0, b.size(), 2):
+				found += int(b.decode_u16(k) == rope)
+		if found > 0:
+			break
+	assert_int(found).override_failure_message("no rope bridge within 64 m of the ravine at %s" % p).is_greater(0)
+
+
+## Cairns: the high land, where no ruin stands, carries stacks of stones over the ground (within 96 m of alpine land).
+func test_mountains_carry_cairns() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var p: Vector3i = g.find_nearest("alpine", 0, 0, int(Settings.m2v(9000.0)))
+	var cobble := GameMaterials.id_of("cobblestone")
+	var n := 0
+	for bx in range(p.x - 768, p.x + 768, 32):
+		for bz in range(p.z - 768, p.z + 768, 32):
+			var h := g.height_at(bx + 16, bz + 16)
+			var b: PackedByteArray = g.generate_block(Vector3i(bx, h - 16, bz), Vector3i(32, 40, 32), 0, 2)
+			if b.size() < 32 * 40 * 32 * 2:
+				continue
+			for k in range(0, b.size(), 2):
+				if b.decode_u16(k) == cobble:
+					var i := k / 2
+					if h - 16 + i % 40 >= g.height_at(bx + (i / 40) % 32, bz + i / 1280) + 3:
+						n += 1
+	assert_int(n).override_failure_message("no cairn near the mountains at %s" % p).is_greater(0)
+
+
+## FineGen.find_nearest finds the rock formations: an arch and a hoodoo near the badlands, each standing where it says.
+func test_find_nearest_finds_rock_formations() -> void:
+	var g := FineGen.new()
+	g.configure(1015715378, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var bl: Vector3i = g.find_nearest("badlands", 0, 0, int(Settings.m2v(9000.0)))
+	var rock := {GameMaterials.id_of("terracotta"): true, GameMaterials.id_of("terracotta_red"): true, GameMaterials.id_of("terracotta_cream"): true, GameMaterials.id_of("sandstone"): true, GameMaterials.id_of("stone"): true}
+	for kind in ["rock_arch", "hoodoo"]:
+		var p: Vector3i = g.find_nearest(kind, bl.x, bl.z, 1600)
+		assert_int(p.y).override_failure_message("no %s within 200 m of the badlands at %s" % [kind, bl]).is_greater_equal(0)
+		var b: PackedByteArray = g.generate_block(Vector3i(p.x - 24, p.y + 4, p.z - 24), Vector3i(48, 24, 48), 0, 2)
+		var n := 0
+		for k in range(0, b.size() if b.size() > 2 else 0, 2):
+			n += int(rock.has(b.decode_u16(k)))
+		assert_int(n).override_failure_message("%s at %s: no rock over its ground" % [kind, p]).is_greater(0)
+	assert_int(g.find_nearest("hoodoo", bl.x, bl.z, 8).y).is_less_equal(bl.y + 9999)   # small radii answer quickly

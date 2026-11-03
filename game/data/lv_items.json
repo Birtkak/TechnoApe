@@ -7,12 +7,17 @@
     {"id": "canning_machine", "name": "Canning Machine", "tags": ["station", "machine"], "stack": 64, "work": "canning_machine", "machine": {"inputs": 2, "watts": 100}, "_note": "seals cooked food in tin cans: canned food never spoils"},
     {"id": "electric_compressor", "name": "Electric Compressor", "tags": ["station", "machine"], "stack": 64, "work": "electric_compressor", "machine": {"watts": 400}, "_note": "presses coke or coal into carbon electrodes, plant fibre into cordage"},
     {"id": "electrolyzer", "name": "Electrolyzer", "tags": ["station", "machine"], "stack": 64, "work": "electrolyzer", "machine": {"inputs": 2, "watts": 600}, "_note": "refines crushed ore on a carbon electrode: one ingot per crushed ore, no crucible or bloomery"},
-    {"id": "sticky_resin", "name": "Sticky Resin", "tags": ["resin"], "stack": 64, "_note": "pressed out of a log in the extractor"},
+    {"id": "sticky_resin", "name": "Sticky Resin", "tags": ["resin", "binding", "tar"], "stack": 64, "_note": "pressed out of a log in the extractor: binds a tool's haft like birch tar, makes raw rubber like tar, lights torches"},
     {"id": "tin_can", "name": "Tin Can", "tags": ["can"], "stack": 64, "_note": "four from a tin ingot in the extruder"},
-    {"id": "canned_meat", "name": "Canned Meat", "tags": ["food", "meat", "canned"], "stack": 16, "food": {"hunger": 10, "saturation": 10}, "nutrition": {"meat": 8}, "_note": "two cooked meat in a can: keeps forever"},
-    {"id": "canned_fish", "name": "Canned Fish", "tags": ["food", "fish", "canned"], "stack": 16, "food": {"hunger": 9, "saturation": 9}, "nutrition": {"meat": 7}, "_note": "two cooked fish in a can: keeps forever"},
-    {"id": "canned_vegetables", "name": "Canned Vegetables", "tags": ["food", "canned"], "stack": 16, "food": {"hunger": 6, "saturation": 6}, "nutrition": {"vegetable": 6}, "_note": "three vegetables in a can: keeps forever"},
+    {"id": "canned_meat", "name": "Canned Meat", "tags": ["food", "meat", "canned"], "stack": 16, "food": {"hunger": 10, "saturation": 10}, "nutrition": {"meat": 8}, "_note": "two cooked meat in a can: keeps forever", "empties_to": "tin_can"},
+    {"id": "canned_fish", "name": "Canned Fish", "tags": ["food", "fish", "canned"], "stack": 16, "food": {"hunger": 9, "saturation": 9}, "nutrition": {"meat": 7}, "_note": "two cooked fish in a can: keeps forever", "empties_to": "tin_can"},
+    {"id": "canned_vegetables", "name": "Canned Vegetables", "tags": ["food", "canned"], "stack": 16, "food": {"hunger": 6, "saturation": 6}, "nutrition": {"vegetable": 6}, "_note": "three vegetables in a can: keeps forever", "empties_to": "tin_can"},
     {"id": "steel_rod", "name": "Steel Rod", "tags": ["rod", "metal.steel"], "stack": 64, "_note": "two from a steel ingot in the extruder; the assembler drives two electric pistons with one"},
-    {"id": "carbon_electrode", "name": "Carbon Electrode", "tags": ["electrode"], "stack": 64, "_note": "compressed coke: the electrolyzer burns one per two crushed ore"}
+    {"id": "carbon_electrode", "name": "Carbon Electrode", "tags": ["electrode"], "stack": 64, "_note": "compressed coke: the electrolyzer burns one per two crushed ore"},
+    {"id": "rubber_boots", "name": "Rubber Boots", "tags": ["clothing"], "stack": 1, "clothing": {"slot": "feet", "warmth_c": 2.0, "armor": 1}, "_note": "dry, warm feet: four rubber"},
+    {"id": "diving_mask", "name": "Diving Mask", "tags": ["clothing"], "stack": 1, "clothing": {"slot": "head", "warmth_c": 0.0, "armor": 0, "air_x": 3.0}, "_note": "two lenses in a rubber seal: breath lasts three times as long under water"},
+    {"id": "spyglass", "name": "Spyglass", "tags": ["optic"], "stack": 1, "zoom": 8.0, "_note": "two lenses in a copper pipe: held, the zoom key looks eight times closer"},
+    {"id": "hand_drill", "name": "Hand Drill", "tags": ["tool", "pickaxe"], "stack": 1, "tier": 4, "durability": 1800, "speed": 1.8, "_note": "a steel pick head on a geared crank: almost twice a steel pick's speed with no steam"},
+    {"id": "heavy_copper_cable", "name": "Heavy Copper Cable", "tags": ["cable", "station"], "stack": 64, "work": "cable", "cable": {"ohms_per_block": 0.00053, "amps": 75}, "_note": "16 mm^2 of copper in rubber: under half the loss of the hide-sleeved cable and nearly twice its amps (ADR 0123)"}
   ]
 }

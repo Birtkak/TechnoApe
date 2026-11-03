@@ -172,7 +172,9 @@ private:
     // GIANT_FLOWER: a tree-sized flower of the flower meadow (size: stalk height, r: head radius, dx/dz: its lean)
     // OUTCROP: a crag of rock and ore over a shallow vein (size: half width, wood: the ore)
     // FORMATION: a natural arch (mossy set; size: span radius, r: rib) or a hoodoo (size: height, r: pillar radius)
-    enum { FORMATION = 5, OUTCROP = 8, GIANT_FLOWER = 9, STUMP = 10, STICK = 11, FLOWER_S = 12, MUSHROOM_S = 13, SHELL_S = 14, CLUTTER_H = 12 };   // STICK: a fallen stick (twigs pickup), laid on the ground per column;
+    // BRIDGE: a rope bridge over a ravine (x, z: middle, dx/dz: along it, size: half length, r: half width, ground: deck ends)
+    // CAIRN: a stack of stones marking a mountain route (size: height, r: base radius)
+    enum { FORMATION = 5, BRIDGE = 6, CAIRN = 7, OUTCROP = 8, GIANT_FLOWER = 9, STUMP = 10, STICK = 11, FLOWER_S = 12, MUSHROOM_S = 13, SHELL_S = 14, CLUTTER_H = 12 };   // STICK: a fallen stick (twigs pickup), laid on the ground per column;
     // FLOWER_S, MUSHROOM_S, SHELL_S: clutter pieces of whole voxels on a CLUTTER_CELL grid (ADR 0047), laid per column
     struct FStamp {
         int kind;
@@ -235,6 +237,8 @@ private:
     uint16_t tree_voxel(const ColTree &c, float x, int y, float z, float grow, float &leaf_n) const;
     void young_trees(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, std::vector<std::shared_ptr<const FTree>> &out) const;
     void build_stamp(const WorldGen::Stamp &s, FStamp &out) const;
+    static constexpr int FORM_CELL = 128, FORM_MARGIN = 48;   // rock formation cells (fine voxels)
+    bool formation_at(int cx, int cz, const WorldGen::Ruin *ruins, int nruins, FStamp &f) const;
     void floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const WorldGen::Ruin *ruins, int nruins, bool clutter, std::vector<FStamp> &out) const;
     // Clutter piece voxel at (dx, dy, dz) from its stamp's centre column and ground (dy = 0: the first voxel above it).
     static uint16_t clutter_voxel(const FStamp &s, int dx, int dy, int dz);
