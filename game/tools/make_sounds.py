@@ -287,8 +287,8 @@ def synth_wind() -> list:
     white = rng.standard_normal(n)
     out = np.zeros(n)
     centre = 900 + 120 * np.sin(2 * np.pi * t / 7.0) + 60 * np.sin(2 * np.pi * t / 3.1)
-    for lo in range(0, n, 2048):   # a band-pass per block: centre frequency follows the gusts
-        hi = min(n, lo + 2048 + 1024)
+    for lo in range(0, n, 1024):   # a band-pass per block: centre frequency follows the gusts
+        hi = min(n, lo + 2048)   # hann windows at half overlap sum flat: 3072 at a 2048 hop buzzed at 21 Hz
         seg = white[lo:hi]
         spec = np.fft.rfft(seg)
         fr = np.fft.rfftfreq(len(seg), 1 / RATE)

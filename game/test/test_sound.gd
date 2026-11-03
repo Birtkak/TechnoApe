@@ -132,6 +132,9 @@ func test_ambience_follows_biome_time_and_weather() -> void:
 	var peak := GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 800, 2.0, ["mountain", "frozen"], false)
 	var woods := GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 40, 2.0, forest, false)
 	assert_float(peak).is_greater(woods + 0.4)
+	# standing on open plains in fair weather: no wind at all (it droned)
+	assert_float(GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 80, 1.7, ["temperate", "open"], false)).is_equal(0.0)
+	assert_float(GameAudio.wind_level(1.0, Settings.SEA_LEVEL_VOXEL + 80, 1.7, ["temperate", "open"], true)).is_greater(0.2)
 
 
 ## Every LV machine, the electric furnace, the lamp and the dynamo hum (a loop fed by the nearest running one);

@@ -474,7 +474,21 @@ func stats() -> Dictionary:
 	var s := stats_data.duplicate()
 	s["busy"] = voices_busy()
 	s["enabled"] = enabled
+	s["sounding"] = sounding()
 	return s
+
+
+## Every player in the tree that is playing now, anywhere (pools, loops, falls, rain, the monolith):
+## [node name, stream file, volume_db, metres from the ear]. What a drone is made of, without ears.
+func sounding() -> Array:
+	var out := []
+	var ear := _listener()
+	for p in get_tree().root.find_children("*", "AudioStreamPlayer3D", true, false) + get_tree().root.find_children("*", "AudioStreamPlayer", true, false):
+		if not p.playing or p.stream == null:
+			continue
+		var d := -1.0 if not (p is AudioStreamPlayer3D) or ear == Vector3.INF else snappedf(Settings.v2m(ear.distance_to(p.global_position)), 0.1)
+		out.append([String(p.name), p.stream.resource_path.get_file(), snappedf(p.volume_db, 0.1), d])
+	return out
 
 
 # ---------------- the UI ----------------
@@ -930,7 +944,8 @@ static func rules_now(rules: Dictionary, tags: Array, phase: String, wet: bool) 
 
 
 ## Wind, 0..1: only where the ear is open to the sky, stronger high above the ground and the sea,
-## on mountains, frozen and open land, and in a storm.
+## on mountains, frozen and open land, and in a storm. Silent on ordinary ground: a breeze that never
+## stops is a drone (developer 2026-11-03).
 static func wind_level(open: float, ear_y: float, above_ground_m: float, tags: Array, wet: bool) -> float:
 	if "underground" in tags:
 		return 0.0
@@ -942,7 +957,7 @@ static func wind_level(open: float, ear_y: float, above_ground_m: float, tags: A
 		w -= 0.15
 	if wet:
 		w += 0.2
-	return clampf(w, 0.0, 1.0) * clampf((open - 0.4) / 0.5, 0.0, 1.0)
+	return clampf((w - 0.45) / 0.55, 0.0, 1.0) * clampf((open - 0.4) / 0.5, 0.0, 1.0)
 
 
 # ---------------- animals ----------------
