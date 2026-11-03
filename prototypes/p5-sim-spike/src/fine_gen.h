@@ -216,6 +216,7 @@ private:
     };
     mutable SharedCache<FTree> tree_cache_{16384};       // built mature trees (~2.3 KB) by trunk position
     mutable SharedCache<YoungCell> young_cache_{16384};
+    mutable SharedCache<FStamp> bridge_cache_{4096};      // each 64 m cell's rope bridge (kind 0: none)
     std::shared_ptr<const ColumnCtx> column_ctx(Vector3i origin, Vector3i size, int lod) const;
     std::shared_ptr<const ColumnCtx> build_column_ctx(Vector3i origin, Vector3i size, int lod) const;
     // Trees and stamps reaching the footprint at any height, in the order the block pass draws them; n_mature

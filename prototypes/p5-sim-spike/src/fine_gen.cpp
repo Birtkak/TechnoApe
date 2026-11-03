@@ -266,6 +266,7 @@ void FineGen::configure(int p_seed, int p_sea_level, int p_world_height) {
     ctx_cache_.clear();   // a new seed is a new world
     tree_cache_.clear();
     young_cache_.clear();
+    bridge_cache_.clear();
     g_->configure(p_seed, p_sea_level / FS, p_world_height / FS);
     setup_noise(n_ground_, p_seed + 101, 1.0f / 64.0f, 2);   // 8 m swells (fine voxels)
     setup_noise(n_ground2_, p_seed + 102, 1.0f / 9.0f, 1);   // ~1 m roughness
@@ -900,47 +901,53 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
         auto rv = [&](float px, float pz) { return g.n_ravine_.GetNoise(px, pz); };
         for (int cz = floor_div(z_lo - BM, BC); cz <= floor_div(z_hi + BM, BC); cz++)
             for (int cx = floor_div(x_lo - BM, BC); cx <= floor_div(x_hi + BM, BC); cx++) {
-                const uint32_t hs = h3(cx, cz, g.seed_ + 673);
-                if ((hs & 3) == 0) continue;
-                float px = (float)(cx * BC + (int)((hs >> 4) % BC)) / FS, pz = (float)(cz * BC + (int)((hs >> 14) % BC)) / FS;   // macro
-                if (g.n_ravmask_.GetNoise(px, pz) <= 0.4f) continue;
-                float gx = 0.0f, gz = 0.0f, n = 1.0f;
-                for (int it = 0; it < 4; it++) {   // Newton steps onto the zero line
-                    n = rv(px, pz);
-                    gx = (rv(px + 1.0f, pz) - rv(px - 1.0f, pz)) * 0.5f;
-                    gz = (rv(px, pz + 1.0f) - rv(px, pz - 1.0f)) * 0.5f;
-                    const float g2 = gx * gx + gz * gz;
-                    if (g2 < 1e-12f) break;
-                    px -= n * gx / g2;
-                    pz -= n * gz / g2;
-                }
-                const float gl = std::sqrt(gx * gx + gz * gz);
-                if (gl < 1e-6f || std::fabs(rv(px, pz)) > 0.003f || g.n_ravmask_.GetNoise(px, pz) <= 0.45f) continue;
-                const float ax = gx / gl, az = gz / gl;   // across the ravine: the bridge's axis
-                auto cut = [&](float qx, float qz) { return WorldGen::ravine_value(g.n_ravmask_.GetNoise(qx, qz), std::fabs(rv(qx, qz)), 1.0f) > -0.5f; };
-                int a1 = 0, a2 = 0;
-                while (a1 < 32 && cut(px + ax * a1, pz + az * a1)) a1++;
-                while (a2 < 32 && cut(px - ax * a2, pz - az * a2)) a2++;
-                if (a1 >= 32 || a2 >= 32 || a1 + a2 < 6) continue;
-                const float half = 0.5f * (float)(a1 + a2) + 2.0f;            // macro, past each rim by 2
-                const float mx = px + ax * 0.5f * (float)(a1 - a2), mz = pz + az * 0.5f * (float)(a1 - a2);
-                FStamp b{};
-                b.kind = BRIDGE;
-                b.seed = h3(cx, cz, g.seed_ + 677);
-                b.x = mx * FS;
-                b.z = mz * FS;
-                b.dx = ax;
-                b.dz = az;
-                b.size = half * FS;
-                b.r = 5.0f;
-                const float e1 = surface_f((int)(b.x + ax * b.size), (int)(b.z + az * b.size));
-                const float e2 = surface_f((int)(b.x - ax * b.size), (int)(b.z - az * b.size));
-                if (std::fabs(e1 - e2) > 24.0f || std::min(e1, e2) <= (float)(g.sea_ * FS)) continue;
-                const int bmx = floor_div((int)b.x, FS), bmz = floor_div((int)b.z, FS);
+                // the cell's bridge (kind 0: none) is the same for every block it reaches, so it is solved once
+                const std::shared_ptr<const FStamp> bc = bridge_cache_.get(((uint64_t)(uint32_t)cx << 32) | (uint32_t)cz, [&]() {
+                    const uint32_t hs = h3(cx, cz, g.seed_ + 673);
+                    if ((hs & 3) == 0) return std::make_shared<const FStamp>();
+                    float px = (float)(cx * BC + (int)((hs >> 4) % BC)) / FS, pz = (float)(cz * BC + (int)((hs >> 14) % BC)) / FS;   // macro
+                    if (g.n_ravmask_.GetNoise(px, pz) <= 0.4f) return std::make_shared<const FStamp>();
+                    float gx = 0.0f, gz = 0.0f, n = 1.0f;
+                    for (int it = 0; it < 4; it++) {   // Newton steps onto the zero line
+                        n = rv(px, pz);
+                        gx = (rv(px + 1.0f, pz) - rv(px - 1.0f, pz)) * 0.5f;
+                        gz = (rv(px, pz + 1.0f) - rv(px, pz - 1.0f)) * 0.5f;
+                        const float g2 = gx * gx + gz * gz;
+                        if (g2 < 1e-12f) break;
+                        px -= n * gx / g2;
+                        pz -= n * gz / g2;
+                    }
+                    const float gl = std::sqrt(gx * gx + gz * gz);
+                    if (gl < 1e-6f || std::fabs(rv(px, pz)) > 0.003f || g.n_ravmask_.GetNoise(px, pz) <= 0.45f) return std::make_shared<const FStamp>();
+                    const float ax = gx / gl, az = gz / gl;   // across the ravine: the bridge's axis
+                    auto cut = [&](float qx, float qz) { return WorldGen::ravine_value(g.n_ravmask_.GetNoise(qx, qz), std::fabs(rv(qx, qz)), 1.0f) > -0.5f; };
+                    int a1 = 0, a2 = 0;
+                    while (a1 < 32 && cut(px + ax * a1, pz + az * a1)) a1++;
+                    while (a2 < 32 && cut(px - ax * a2, pz - az * a2)) a2++;
+                    if (a1 >= 32 || a2 >= 32 || a1 + a2 < 6) return std::make_shared<const FStamp>();
+                    const float half = 0.5f * (float)(a1 + a2) + 2.0f;            // macro, past each rim by 2
+                    const float mx = px + ax * 0.5f * (float)(a1 - a2), mz = pz + az * 0.5f * (float)(a1 - a2);
+                    FStamp b{};
+                    b.kind = BRIDGE;
+                    b.seed = h3(cx, cz, g.seed_ + 677);
+                    b.x = mx * FS;
+                    b.z = mz * FS;
+                    b.dx = ax;
+                    b.dz = az;
+                    b.size = half * FS;
+                    b.r = 5.0f;
+                    const float e1 = surface_f((int)(b.x + ax * b.size), (int)(b.z + az * b.size));
+                    const float e2 = surface_f((int)(b.x - ax * b.size), (int)(b.z - az * b.size));
+                    if (std::fabs(e1 - e2) > 24.0f || std::min(e1, e2) <= (float)(g.sea_ * FS)) return std::make_shared<const FStamp>();
+                    b.ground = (int)std::floor(std::min(e1, e2) + 0.5f);
+                    return std::make_shared<const FStamp>(b);
+                });
+                if (bc->kind != BRIDGE) continue;
+                const FStamp &b = *bc;
+                const int bmx = floor_div((int)b.x, FS), bmz = floor_div((int)b.z, FS), half = (int)(b.size / FS);
                 bool blocked = false;
-                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], bmx, bmz, (int)half + RUIN_RAMP);
+                for (int r = 0; r < nruins && !blocked; r++) blocked = WorldGen::in_ruin(ruins[r], bmx, bmz, half + RUIN_RAMP);
                 if (blocked) continue;
-                b.ground = (int)std::floor(std::min(e1, e2) + 0.5f);
                 out.push_back(b);
             }
     }
