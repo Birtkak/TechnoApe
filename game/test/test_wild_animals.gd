@@ -181,3 +181,10 @@ func test_goats_give_milk_that_refills_when_they_graze() -> void:
 	assert_str(mm.interact(goat, bowl)).is_equal("milked")
 	var items := ItemRegistry.load_default()
 	assert_bool(items.has("milk_porridge")).is_true()
+
+
+func test_night_creatures_keep_away_from_light() -> void:
+	var torch := Vector3(0, 100, 0)
+	assert_bool(MobManager.near_light([torch], torch + Vector3(Settings.m2v(5.0), 0, 0), MobManager.LIGHT_FADE_M)).is_true()
+	assert_bool(MobManager.near_light([torch], torch + Vector3(Settings.m2v(10.0), 0, 0), MobManager.LIGHT_FADE_M)).is_false()
+	assert_bool(MobManager.near_light([], torch, MobManager.LIGHT_SAFE_M)).is_false()
