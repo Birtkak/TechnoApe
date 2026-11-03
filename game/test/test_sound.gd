@@ -104,6 +104,11 @@ func test_play_cooldown_and_range() -> void:
 	assert_bool(s.play("no/such/sound")).is_false()
 	assert_int(s.stats_data["played"]).is_equal(before_n + 1)
 	assert_int(int(s.stats_data["missing"].get("no/such/sound", 0))).is_greater(0)
+	# no cooldown, but at most 3 copies at once (MAX_COPIES): a fourth overlapping copy is dropped
+	for i in 3:
+		assert_bool(s.play("mob/hit")).is_true()
+	assert_bool(s.play("mob/hit")).is_false()
+	assert_int(s.copies("mob/hit")).is_equal(3)
 
 
 ## Ambience (ADR 0120): birds by day in a forest, crickets and owls at night, birds quiet in rain,

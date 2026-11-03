@@ -11,10 +11,12 @@ extends Node
 ##
 ## Buses: Master > Music, World (effects and loops; a low-pass under water, reverb in enclosed
 ## spaces), UI. World units are voxels, so ranges convert from metres. Voices come from fixed pools;
-## when all are busy the oldest is stolen.
+## when all are busy the oldest is stolen. At most `max` copies of one sound sound at once (default
+## MAX_COPIES): a flock or a chain reaction is a few voices, not a wall of them.
 
 const VOICES_3D := 40
 const VOICES_2D := 16
+const MAX_COPIES := 3
 const LOOP_HZ := 10.0
 const LOOP_RADIUS_M := 16.0
 const LOOP_SAMPLES := 600
@@ -53,11 +55,12 @@ var _rng := RandomNumberGenerator.new()
 var _voices3: Array[AudioStreamPlayer3D] = []
 var _voices2: Array[AudioStreamPlayer] = []
 var _started := {}             # voice -> ticks msec it started (stealing: oldest first)
+var _playing := {}             # voice -> sound name it plays (the copies cap)
 var _last_play := {}           # sound -> ticks msec (cooldowns)
 var _last_variant := {}        # sound -> index (no immediate repeats)
 var _bus := {}                 # "Music" / "World" / "UI" -> index
 
-var stats_data := {"plays": {}, "played": 0, "culled": 0, "stolen": 0, "cooldown": 0, "missing": {}, "last": [],
+var stats_data := {"plays": {}, "played": 0, "culled": 0, "stolen": 0, "cooldown": 0, "capped": 0, "missing": {}, "last": [],
 	"loops": {}, "music": "", "underwater": false, "reverb": 0.0, "ms_max": 0.0, "ms_avg": 0.0}
 var _ms_sum := 0.0
 var _ms_frames := 0
@@ -292,7 +295,7 @@ func _compile(n: String, d: Dictionary) -> void:
 	_sounds[n] = {"files": _index[asset], "db": float(d.get("db", -10.0)), "pitch": [float(p[0]), float(p[1])],
 		"bus": {"world": "World", "ui": "UI", "music": "Music"}[bus], "flat": bool(d.get("flat", bus != "world")),
 		"range_v": Settings.m2v(float(d.get("range_m", 24.0))), "ref_v": Settings.m2v(float(d.get("ref_m", 2.0))),
-		"cooldown_ms": int(float(d.get("cooldown_s", 0.0)) * 1000.0)}
+		"cooldown_ms": int(float(d.get("cooldown_s", 0.0)) * 1000.0), "max": int(d.get("max", MAX_COPIES))}
 
 
 ## The sound a material makes for a group event (step, hit, break, place, land), compiled once.
@@ -348,6 +351,9 @@ func play(n: String, pos: Vector3 = Vector3.INF, opts: Dictionary = {}) -> bool:
 		if ear != Vector3.INF and ear.distance_squared_to(pos) > s["range_v"] * s["range_v"]:
 			stats_data["culled"] += 1
 			return false
+	if copies(n) >= s["max"]:
+		stats_data["capped"] += 1
+		return false
 	var stream := _variant(n, s)
 	if stream == null:
 		return false
@@ -362,6 +368,7 @@ func play(n: String, pos: Vector3 = Vector3.INF, opts: Dictionary = {}) -> bool:
 		v.pitch_scale = pitch
 		v.play()
 		_started[v] = now
+		_playing[v] = n
 	else:
 		var v := _voice3()
 		v.stream = stream
@@ -373,6 +380,7 @@ func play(n: String, pos: Vector3 = Vector3.INF, opts: Dictionary = {}) -> bool:
 		v.global_position = pos
 		v.play()
 		_started[v] = now
+		_playing[v] = n
 	stats_data["played"] += 1
 	stats_data["plays"][n] = int(stats_data["plays"].get(n, 0)) + 1
 	var last: Array = stats_data["last"]
@@ -385,6 +393,15 @@ func play(n: String, pos: Vector3 = Vector3.INF, opts: Dictionary = {}) -> bool:
 ## A material's group event at a voxel's centre.
 func play_material(event: String, material: int, voxel: Vector3i, opts: Dictionary = {}) -> bool:
 	return play(material_sound(event, material), Vector3(voxel) + Vector3(0.5, 0.5, 0.5), opts)
+
+
+## How many pool voices are playing sound `n` now.
+func copies(n: String) -> int:
+	var k := 0
+	for v in _playing:
+		if _playing[v] == n and v.playing:
+			k += 1
+	return k
 
 
 func _variant(n: String, s: Dictionary) -> AudioStream:

@@ -16,7 +16,7 @@ const FLOP_HURT_S := 2.0       # a fish on land loses a half-heart this often
 const CAVE_CHANCE := 0.12      # per spawn cell: a cave group below it
 const PERCH_CHANCE := 0.7      # perching birds: share of new flights that come down to land
 const PERCH_TICKS := 400.0     # ... and sit about this many ticks (20 s) before flying on
-const SKY_CHANCE := 0.2        # per spawn cell: a flock of birds over its land (ADR 0120)
+const SKY_CHANCE := 0.07       # per spawn cell: a flock of birds over its land (ADR 0120); rare, flocks keep their size
 const WATER_CHANCE := 0.25     # per spawn cell with water near its centre: fish or shore animals
 const CAVE_SCAN_M := 40.0      # how far below the surface a cave group may spawn
 
