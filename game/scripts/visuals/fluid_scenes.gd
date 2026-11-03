@@ -94,7 +94,7 @@ static func camera(name: String) -> Array:
 		"pour_pit":
 			return [Vector3(32, 11, 5), Vector3(32, -7, 24)]
 		"cave":   # inside the tunnel's far end, looking back at the shaft
-			return [Vector3(W - 3, -9, 24), Vector3(10, -11, 24)]
+			return [Vector3(34, -9, 24), Vector3(10, -11, 24)]
 		"dam":
 			return [Vector3(36, 16, -10), Vector3(36, 0, 24)]
 	return [Vector3(W * 0.5, 26, -14), Vector3(W * 0.5, 6, 24)]

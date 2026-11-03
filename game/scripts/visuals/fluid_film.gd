@@ -5,7 +5,8 @@ extends RefCounted
 ## another, each filmed from a fixed free camera: a filmstrip (a thumbnail every `fluid_every` s) and a burst
 ## (consecutive frames while it moves), plus a text log of a side slice of the simulation through the scene's
 ## middle every strip frame (digits = eighths of moving water, W = a full cell, S = still water, # = solid).
-##   fluid_scenes=pit_lake,pour_pit,cave,dam,slope,channel   fluid_s=10   fluid_every=0.33
+##   fluid_scenes=pit_lake,pour_pit,cave,dam,slope,channel   fluid_s=10   fluid_every=0.33   fluid_full=2.5,4 (full-size
+##   shots at those seconds, _full_<t>.png)
 ## Out: <out>/fluid_<scene>_strip.png, _burst.png, _slice.txt; one JSON line "debug fluid_film {...}".
 ## The scenes live in FluidScenes, so tools/fluid_feel.gd runs them on the bare kernel.
 
@@ -18,6 +19,7 @@ var main: Node
 var r := {}
 var _o: Vector3i   # the patch corner at ground level: y is the first air layer
 var _log := PackedStringArray()
+var _full := []   # seconds into a scene for a full-size shot
 
 
 # --- the in-game run ---------------------------------------------------------------------------------------------
@@ -32,6 +34,7 @@ func run(p_main: Node) -> void:
 	var scenes: PackedStringArray = String(args.get("fluid_scenes", ",".join(FluidScenes.ALL))).split(",", false)
 	var secs := float(args.get("fluid_s", "10"))
 	var every := float(args.get("fluid_every", "0.33"))
+	_full = Array(String(args.get("fluid_full", "")).split(",", false)).map(func(v: String) -> float: return float(v))
 	await tree.create_timer(1.0).timeout
 	main.player.autopilot_action = "look"
 	main.player.autopilot_speed_m = 0.0
@@ -47,6 +50,7 @@ func run(p_main: Node) -> void:
 	main.player.position = Vector3(_o) + Vector3(W * 0.5, H + 8, D + 8)
 	main.toggle_hud()
 	main.chat.visible = false
+	main.quest_toast.visible = false   # "Discovered!" toasts in the shots
 	await tree.create_timer(1.0).timeout
 	for s in scenes:
 		r[s] = await _scene(tree, s, secs, every)
@@ -77,6 +81,10 @@ func _scene(tree: SceneTree, name: String, secs: float, every: float) -> Diction
 		FluidScenes.act(name, t, done, _box)
 		if t >= burst_at and burst.count() < 36:
 			burst.add(vp)
+		for ft in _full:
+			if t >= ft and not done.has("full%s" % ft):
+				done["full%s" % ft] = true
+				vp.get_texture().get_image().save_png(DebugCapture.out_dir + "/fluid_%s_full_%s.png" % [name, ft])
 		if t >= next:
 			next += every
 			strip.add(vp)
