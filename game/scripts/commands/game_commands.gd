@@ -51,6 +51,8 @@ const KITS := {
 		"water_wheel": 1, "wind_turbine": 1, "hand_crank": 1, "lead_acid_cell": 4, "thin_cable": 8, "heavy_copper_cable": 8, "daylight_switch": 1, "meter_panel": 1,
 		"extractor": 1, "cutter": 1, "extruder": 1, "canning_machine": 1, "electric_compressor": 1, "electrolyzer": 1, "oak_log": 8,
 		"tin_ingot": 8, "steel_ingot": 4, "cooked_meat": 8, "crushed_copper_ore": 8, "glass": 4},   # the energy network and the electrical age (ADR 0113, 0117, 0123, 0131)
+	"workshop": {"spyglass": 1, "diving_mask": 1, "rubber_boots": 1, "hand_drill": 1, "canned_meat": 4, "canned_fish": 4, "canned_vegetables": 4,
+		"sticky_resin": 16, "tin_can": 4, "stick": 8},   # the Workshop chapter's LV round 2 goods (ADR 0131)
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1, "sounding_rod": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
 	"water": {"bucket": 2, "water_bucket": 1, "crater_rod": 1, "laser_cutter": 1, "lava_bomb": 8, "water_balloon": 8, "cobblestone": 16},   # river tests (ADR 0104)
@@ -62,9 +64,12 @@ const KITS := {
 }
 
 ## What WorldGen.find_nearest can look for (biome names work too).
-const FEATURES := ["cave", "deep_cave", "ruin", "ruin_house", "ruin_watchtower", "ruin_stone_circle", "ruin_crypt", "crypt_room", "ruin_mud_house", "ruin_shrine", "ruin_wreck", "ruin_mine", "ruin_camp", "ruin_lookout", "ruin_igloo", "ruin_jungle_temple", "ruin_tomb", "waterfall", "lake", "river", "spring", "marsh", "alpine", "snow", "mountain", "forest", "old_growth_forest", "taiga", "jungle", "plains", "desert",
+const FEATURES := ["cave", "deep_cave", "ruin", "ruin_house", "ruin_watchtower", "ruin_stone_circle", "ruin_crypt", "crypt_room", "ruin_mud_house", "ruin_shrine", "ruin_wreck", "ruin_mine", "ruin_camp", "ruin_lookout", "ruin_igloo", "ruin_jungle_temple", "ruin_tomb", "bridge", "cairn", "rock_arch", "hoodoo", "waterfall", "lake", "river", "spring", "marsh", "alpine", "snow", "mountain", "forest", "old_growth_forest", "taiga", "jungle", "plains", "desert",
 	"coal_vein", "copper_vein", "cassiterite_vein", "iron_vein", "copper_iron_vein",
 	"sulfur_cave", "lush_cave", "magma_cave", "crystal_cave", "fungal_cave", "aquifer", "magma_conduit"]
+
+## /goto and /locate search 4 km, or as far as this when asked (/goto ruin_igloo 16).
+const FIND_MAX_KM := 16.0
 
 ## /fill's limit: 64^3, about one bubble chunk column's worth of remeshing.
 const FILL_MAX := 262144
@@ -103,13 +108,15 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("sethome", "/sethome", "Mark where you stand as home (a green waypoint; /home goes there)", _sethome)
 	reg.register("home", "/home", "Teleport to your home (/sethome marks it)", _home)
 	reg.register("lightmap", "/lightmap [on|off]", "The light overlay (F7): red marks always dark, yellow dark at night", _lightmap, [["on", "off"]])
-	reg.register("locate", "/locate <feature>", "Find the nearest cave, ruin, lake, biome ... (within 4 km)", _locate, [FEATURES])
-	reg.register("goto", "/goto <feature>", "Teleport to the nearest cave, ruin, lake, biome ...", _goto, [FEATURES])
+	reg.register("locate", "/locate <feature> [km]", "Find the nearest cave, ruin, lake, biome ... (within 4 km, or km up to %d)" % int(FIND_MAX_KM), _locate, [FEATURES])
+	reg.register("goto", "/goto <feature> [km]", "Teleport to the nearest cave, ruin, lake, biome ... (within 4 km, or km up to %d)" % int(FIND_MAX_KM), _goto, [FEATURES])
 	reg.register("daycycle", "/daycycle <on|off|seconds>", "Run the sun (on = 20 min days) or freeze it", _daycycle, [["on", "off"]])
 	reg.register("blast", "/blast <radius_m> [material]", "Carve a crater where you look, or drop a ball of a material (water, sand, lava ...)",
 		_blast, [["1", "2", "4", "8"], _material_names])
 	reg.register("brush", "/brush <shape> [size] | hold <seconds>", "Set the dig/build brush (ADR 0065): cube, sphere, cylinder, flat, column; size in voxels (1-8, creative 16, 32); hold = keep the break button down (scripted checks)",
 		_brush, [Brush.SHAPES + ["hold"], ["1", "2", "4", "8", "16", "32"]])
+	reg.register("book", "/book [chapter]", "Open the progression book, at a chapter if given", _book_cmd, [_chapter_ids])
+	reg.register("browse", "/browse <item> [recipes|uses]", "Open the recipe browser on an item (as R or U over it)", _browse, [_item_ids, ["recipes", "uses"]])
 	reg.register("tools", "/tools", "Open the world tools panel (the G key): brush shape and size, build modes, prefabs and their keys, with tooltips", _tools)
 	reg.register("tnt", "/tnt <grid [n] [spacing_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); light lights the aimed charge",
 		_tnt, [["grid", "light", "stats"], ["1", "5", "20"], ["1", "1.5", "2"]])
@@ -645,10 +652,11 @@ func _find(args: PackedStringArray) -> Variant:
 		return CommandRegistry.fail("No world")
 	var kind := args[0].to_lower()
 	var p := player.position
-	# continents are ~8 km across (ADR 0035): a biome can be a few km away
-	var t: Vector3i = main.world.generator.gen.find_nearest(kind, int(p.x), int(p.z), int(Settings.m2v(4000.0)))
+	# continents are ~8 km across (ADR 0035): a biome can be a few km away, a rare one's structure further
+	var km := clampf(float(args[1]), 0.1, FIND_MAX_KM) if args.size() > 1 and args[1].is_valid_float() else 4.0
+	var t: Vector3i = main.world.generator.gen.find_nearest(kind, int(p.x), int(p.z), int(Settings.m2v(km * 1000.0)))
 	if t.y < 0:
-		return CommandRegistry.fail("No %s within 4 km" % kind)
+		return CommandRegistry.fail("No %s within %s km" % [kind, str(km)])
 	return t
 
 
@@ -763,6 +771,44 @@ func _tools(_args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("No world")
 	main.tools_menu.open.call_deferred(true)   # after the chat has closed: it would otherwise keep the mouse free
 	return CommandRegistry.ok("World tools panel open (G or Esc closes it)")
+
+
+func _chapter_ids() -> Array:
+	var b := _book()
+	return b.chapters.map(func(c: Dictionary) -> String: return c["id"]) if b else []
+
+
+## /book [chapter] (ADR 0130): the inventory opens on the progression book, at that chapter.
+func _book_cmd(args: PackedStringArray) -> Dictionary:
+	if _book() == null or main.get("inv_screen") == null:
+		return CommandRegistry.fail("No world")
+	var id := args[0].to_lower() if args.size() > 0 else ""
+	if id != "" and not _chapter_ids().has(id):
+		return CommandRegistry.fail("Chapters: %s" % ", ".join(_chapter_ids()))
+	_open_inventory.call_deferred(func() -> void:
+		main.inv_screen.open_book()
+		if id != "":
+			main.inv_screen.quest_view.open_chapter(id))
+	return CommandRegistry.ok("Progression book open" + (" at " + id if id != "" else ""))
+
+
+## /browse <item> [recipes|uses] (ADR 0130): the recipe browser on an item, as R or U over it.
+func _browse(args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("inv_screen") == null:
+		return CommandRegistry.fail("No world")
+	if args.is_empty() or not _item_ids().has(args[0].to_lower()):
+		return CommandRegistry.fail("Usage: /browse <item> [recipes|uses]")
+	var mode := "uses" if args.size() > 1 and args[1].to_lower() == "uses" else "recipes"
+	var id := args[0].to_lower()
+	_open_inventory.call_deferred(func() -> void: main.inv_screen.browser_view.show_item(id, mode))
+	return CommandRegistry.ok("Showing the %s of %s" % [mode, id])
+
+
+## After the chat has closed (it frees the mouse on its way out), as /tools does.
+func _open_inventory(then: Callable) -> void:
+	if not player.ui_open:
+		player.set_ui_open(true)
+	then.call()
 
 
 ## /tnt grid [n] [spacing_m]: n TNT blocks in a square grid on the ground where you look (block

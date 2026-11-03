@@ -70,3 +70,8 @@ Each feature whose taste differs has its own switch in Settings (`user://setting
     button per entry (tooltip = what to look for) that runs `/tour <id>`; `/tour [next|back|<n>|<id>]` says what
     to look for and runs the entry's lines, a failing line (a biome out of range) reported and skipped.
     `test_whats_new.gd` checks every line's command, kit, station set, animal, material, clothing and place.
+    Round 2 (main 3d26539): 25 stops, home first, then the world biome by biome. A travel stop starts with
+    `/spawn`, so its `/goto` searches from where the test does (0, 0 on seed 1337, then from each place found);
+    `/goto <kind> [km]` searches up to 16 km for the rare ones (an igloo: seed 1337 has no snowy land within
+    4 km). `/book [chapter]` and `/browse <item> [recipes|uses]` open the book and the browser; `/kit workshop`
+    holds the Workshop chapter's goods.

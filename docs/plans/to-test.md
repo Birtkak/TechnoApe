@@ -14,7 +14,11 @@ frame times.
 
 - [ ] `/whatsnew` lists what landed lately and opens F4 with a button per addition on top (hover one: what to
       look for); a click takes you there or hands you the kit. `/tour` walks them in order (`/tour back`,
-      `/tour 5`, `/tour desert`). Lanes add stops to `game/data/whats_new.json`.
+      `/tour 5`, `/tour bridge`). 25 stops: home first (machines, power, the Workshop book, the Hunting tab),
+      then the world biome by biome (bridges, igloos, tombs, temples, cairns, hoodoos, the new plants and animals).
+      Lanes add stops to `game/data/whats_new.json`.
+- [ ] `/book lv_workshop` opens the book at a chapter, `/browse antler` the recipe browser on an item,
+      `/goto ruin_igloo 16` searches 16 km instead of 4.
 
 ## Real units, LV machines, animals, calmer water (2026-11-03, ADR 0119, 0123, 0131)
 
