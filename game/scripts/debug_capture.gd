@@ -59,6 +59,7 @@ var looks_test := false     # looks_test=1: part C's multi-voxel crops, flowers,
 var looks_shots := true     # looks_shots=0: looks_test without screenshots
 var looks_budget := false   # looks_budget=1: looks_test only sets ten torches and a held one at night (the budget case)
 var ponder_test := false    # ponder_test=1: every guide scene filmed, a row a step, to out/ponder/<id>.png ("debug ponder", ADR 0132)
+var holes := false          # holes=1: the ADR 0136 census of ground in view that is not drawn, by pipeline stage (JSON "holes"; costs frame time)
 var shell_test := false     # shell_test=1: cave + dug hole, counts unloaded / unmeshed blocks and air-where-rock within 16 m (ADR 0124, scripts/debug/shell_test.gd, "debug shell")
 var sand_test := false      # sand_test=1: a ball of sand dropped onto still ocean water must sink (scripts/debug/sand_test.gd, "debug sand")
 var tp_test := false        # tp_test=1: a burst of teleports (hops, far jumps, /spawn, /goto, /kill), timed and filmed (scripts/debug/tp_test.gd, "debug tp")
@@ -113,6 +114,18 @@ var _backlog := PackedInt32Array()   # pending voxel tasks (generation + meshing
 var _backlog_accum := 0.0
 var _backlog_peak := {}              # per task type (generation, meshing, streaming, main_thread, gpu)
 var _detail_missing := PackedInt32Array()   # 1 = the ground 18 m around the player had no mesh yet, sampled with the backlog
+# ADR 0136: ground mesh blocks in the camera's view inside the solid part of the box that are not drawn, by the
+# pipeline stage they wait in (VoxelLodTerrain.debug_classify_mesh_blocks, voxel_patch_holes.py), sampled with the backlog
+const HOLE_KINDS := ["drawn", "hidden", "not_requested", "generating", "mesh_pending", "meshing", "upload_wait", "meshed_empty", "not_in_box"]
+var _holes := {}               # kind -> block-samples
+var _holes_by_band := {}       # "0" / "16" / "32" m from the camera -> block-samples not drawn
+var _holes_gap := 0            # block-samples drawn at the previous sample and not now (a dropped mesh)
+var _holes_series := PackedInt32Array()   # holes per sample
+var _holes_seen := 0           # ground blocks in view, summed over samples
+var _holes_prev := {}          # blocks drawn at the previous sample
+var _holes_ms_max := 0.0
+var _holes_empty_checked := 0
+var _holes_empty_examples := []   # meshed-empty ground blocks that hold more than one material (a mesher hole?)
 var _compile_delta := 0.0
 var _elapsed := 0.0
 var _capture_accum := 0.0
@@ -201,6 +214,7 @@ func _ready() -> void:
 	tp_test = args.get("tp_test", "0") == "1"
 	ponder_test = args.get("ponder_test", "0") == "1"
 	shell_test = args.get("shell_test", "0") == "1"
+	holes = args.get("holes", "0") == "1"
 	sand_test = args.get("sand_test", "0") == "1"
 	water_shots = args.get("water_shots", "1") != "0"
 	menu_test = args.get("menu_test", "0") == "1"
@@ -364,6 +378,8 @@ func _process(delta: float) -> void:
 				break
 		_detail_missing.push_back(0 if drawn else 1)
 		_probe_ms_max = maxf(_probe_ms_max, (Time.get_ticks_usec() - tp) / 1000.0)
+		if holes:
+			_holes_sample()
 	_others_accum += delta
 	if _others_accum >= OTHERS_EVERY_S and (_others_task < 0 or WorkerThreadPool.is_task_completed(_others_task)):
 		if _others_task >= 0:
@@ -479,6 +495,14 @@ func _finish() -> void:
 	s["detail"] = {"samples": dm.size(), "missing_share": snappedf(float(dm.count(1)) / maxi(dm.size(), 1), 0.01),
 		"max_missing_s": _longest_run(dm) * 0.25, "probe_ms_max": snappedf(_probe_ms_max, 0.01),
 		"series": "".join(dm.map(func(v: int) -> String: return str(v)))}   # one char per 0.25 s, 1 = missing
+	var hs := Array(_holes_series)
+	s["holes"] = {"samples": hs.size(), "seen": _holes_seen, "by_kind": _holes, "by_band_m": _holes_by_band, "gap": _holes_gap, "empty_examples": _holes_empty_examples,
+		"total": hs.reduce(func(a, b): return a + b, 0), "max": hs.max() if hs.size() else 0,
+		"samples_with_holes": hs.filter(func(v): return v > 0).size(), "ms_max": snappedf(_holes_ms_max, 0.01),
+		"series": ",".join(hs.map(func(v: int) -> String: return str(v)))}
+	if _main.world.terrain.has_method("debug_request_counts"):   # lod 0 data requests / those waiting as buried (ADR 0136)
+		var rc: Vector2i = _main.world.terrain.debug_request_counts()
+		s["holes"]["requests"] = {"lod0": rc.x, "buried": rc.y}
 	if mine:
 		s["mined_log"] = _main.player.mined_log
 	if blast_m > 0.0:
@@ -578,6 +602,95 @@ func _blast_volley() -> void:
 ## bubble alone loads in ~1 s, while the visible terrain is still meshing (frames with
 ## 0 primitives and 20-30 ms of main-thread mesh application).
 ## probe_voxels=x,y,z;x,y,z: what the world holds there once loaded (a save round trip: edit, leave, reload).
+
+## ADR 0136: every mesh block holding ground or water surface (FineGen.surface_map, a sample every 4 m) inside the
+## solid part of the box (before the horizon fade) and the camera frustum, sorted by why it is not drawn.
+func _holes_sample() -> void:
+	var terrain = _main.world.terrain
+	if not terrain.has_method("debug_classify_mesh_blocks"):
+		return
+	var t0 := Time.get_ticks_usec()
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	var cp := cam.global_position
+	var planes := cam.get_frustum()
+	var s: int = terrain.mesh_block_size
+	var solid := Settings.m2v(Settings.view_distance_m * Settings.horizon_fade_frac)
+	var b0 := Vector2i(floori((cp.x - solid) / s), floori((cp.z - solid) / s))
+	var cols := ceili(2.0 * solid / s) + 1
+	var half := s / 2
+	var n := cols * 2 + 1
+	var sm: PackedInt32Array = _main.world.generator.gen.surface_map(b0.x * s, b0.y * s, n, half)
+	var xyz := PackedInt32Array()
+	var bands := PackedInt32Array()
+	for j in cols:
+		for i in cols:
+			var lo := 1 << 30
+			var hi := -(1 << 30)
+			for dj in 3:
+				for di in 3:
+					var k := ((j * 2 + dj) * n + i * 2 + di) * 3
+					lo = mini(lo, sm[k])
+					hi = maxi(hi, maxi(sm[k], sm[k + 1]))
+			var x0 := (b0.x + i) * s
+			var z0 := (b0.y + j) * s
+			var dx := maxf(maxf(x0 - cp.x, cp.x - (x0 + s)), 0.0)
+			var dz := maxf(maxf(z0 - cp.z, cp.z - (z0 + s)), 0.0)
+			if dx * dx + dz * dz > solid * solid:
+				continue
+			for by in range(floori((lo - 1.0) / s), floori(float(hi) / s) + 1):
+				var box := AABB(Vector3(x0, by * s, z0), Vector3(s, s, s))
+				if not _aabb_in_frustum(box, planes):
+					continue
+				xyz.append_array([b0.x + i, by, b0.y + j])
+				bands.append(mini(int(Settings.v2m(box.get_center().distance_to(cp)) / 16.0), 2) * 16)
+	var codes: PackedByteArray = terrain.debug_classify_mesh_blocks(xyz)
+	var now := {}
+	var holes := 0
+	for q in codes.size():
+		var c := codes[q]
+		var key := Vector3i(xyz[q * 3], xyz[q * 3 + 1], xyz[q * 3 + 2])
+		_holes[HOLE_KINDS[c]] = _holes.get(HOLE_KINDS[c], 0) + 1
+		if c == 0:
+			now[key] = true
+			continue
+		if c == 7 and _holes_empty_checked < 4000:
+			# the mesher made nothing: fine if the block and the ring around are one material (lake water, rock)
+			_holes_empty_checked += 1
+			var vt: VoxelTool = terrain.get_voxel_tool()
+			var inner := VoxelBuffer.new()
+			inner.create(s, s, s)
+			vt.copy(key * s, inner, 1 << VoxelBuffer.CHANNEL_TYPE)
+			var fine := false
+			if inner.is_uniform(VoxelBuffer.CHANNEL_TYPE):
+				fine = inner.get_voxel(0, 0, 0, VoxelBuffer.CHANNEL_TYPE) == 0   # all air: nothing to draw
+				if not fine:   # all one solid: faces only where the ring around is something else
+					var ring := VoxelBuffer.new()
+					ring.create(s + 2, s + 2, s + 2)
+					vt.copy(key * s - Vector3i.ONE, ring, 1 << VoxelBuffer.CHANNEL_TYPE)
+					fine = ring.is_uniform(VoxelBuffer.CHANNEL_TYPE)
+			if fine:
+				_holes["meshed_empty_uniform"] = _holes.get("meshed_empty_uniform", 0) + 1
+				continue
+			if _holes_empty_examples.size() < 6:
+				_holes_empty_examples.append("%s inner %s" % [key * s, "uniform %d" % inner.get_voxel(0, 0, 0, VoxelBuffer.CHANNEL_TYPE) if inner.is_uniform(VoxelBuffer.CHANNEL_TYPE) else "mixed"])
+		holes += 1
+		_holes_by_band[str(bands[q])] = _holes_by_band.get(str(bands[q]), 0) + 1
+		if _holes_prev.has(key):
+			_holes_gap += 1
+	_holes_prev = now
+	_holes_seen += codes.size()
+	_holes_series.push_back(holes)
+	_holes_ms_max = maxf(_holes_ms_max, (Time.get_ticks_usec() - t0) / 1000.0)
+
+
+static func _aabb_in_frustum(box: AABB, planes: Array[Plane]) -> bool:
+	for p in planes:   # normals point out of the frustum: a box wholly over any plane is outside
+		var v := Vector3(box.position.x if p.normal.x > 0.0 else box.end.x, box.position.y if p.normal.y > 0.0 else box.end.y,
+			box.position.z if p.normal.z > 0.0 else box.end.z)
+		if p.distance_to(v) > 0.0:
+			return false
+	return true
+
 
 ## Every mesh block of the patch is drawn: meshed and up to date, or holding a visible mesh while a remesh waits
 ## (an edit's remesh is rate-limited, ADR 0020: the ground stays drawn meanwhile).

@@ -1074,6 +1074,10 @@ func cover_until_loaded(title: String, near := false) -> void:
 	var chain := near and "viewer_chain_first" in world.terrain
 	if chain:
 		world.terrain.viewer_chain_first = true
+	# the cover waits for ground all around the player: no view priority under it (ADR 0136)
+	var view := world.terrain.has_method("set_view_priority_weight")
+	if view:
+		world.terrain.set_view_priority_weight(0.0)
 	_loading.finished.connect(func() -> void:
 		player.edits_locked = false
 		if frozen:
@@ -1082,6 +1086,8 @@ func cover_until_loaded(title: String, near := false) -> void:
 		VoxelEngine.set_thread_count(threads)   # parks the extra workers, no join (ADR 0108)
 		if chain:
 			world.terrain.viewer_chain_first = false
+		if view:
+			world.terrain.set_view_priority_weight(Settings.view_priority_weight)
 		if has_budget:
 			world.terrain.mesh_upload_budget_mb = Settings.mesh_upload_budget_mb)
 	add_child(_loading)

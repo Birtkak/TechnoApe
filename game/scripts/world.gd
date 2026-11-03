@@ -101,6 +101,8 @@ func _ready() -> void:
 	terrain.mesh_block_size = Settings.terrain_mesh_block
 	if terrain.has_method("set_shadow_caster_distance"):   # our godot_voxel build (ADR 0105)
 		terrain.set_shadow_caster_distance(Settings.m2v(Settings.shadow_caster_m))
+	if terrain.has_method("set_view_priority_weight"):   # our godot_voxel build (ADR 0136): what the camera sees loads first
+		terrain.set_view_priority_weight(Settings.view_priority_weight)
 	if Settings.ao_pages and Settings.merge_faces and terrain.has_method("set_ao_pages"):   # our godot_voxel build (ADR 0107)
 		# merged faces get their corner occlusion from the shader, which reads a bit per voxel of the mesh block
 		# and one voxel around it (a layer of ao_pages per block, VoxelMesherBlocky: edge x edge * bytes, R8)

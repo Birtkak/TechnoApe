@@ -311,6 +311,8 @@ python <repo>/prototypes/p11-lod-horizon/voxel_patch_profile.py ~/Tools/godot_vo
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_task_heap.py ~/Tools/godot_voxel  # ADR 0108: priority by real distance, worker queue is a heap, lowering threads parks them
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_sky.py ~/Tools/godot_voxel        # ADR 0108: blocks over the column's top bound are air without a task
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_upload_order.py ~/Tools/godot_voxel   # ADR 0108: meshes waiting on the upload budget go nearest first
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_holes.py ~/Tools/godot_voxel        # ADR 0136: debug_classify_mesh_blocks, the stage each mesh block in view is stuck in (/holes census)
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_visible_first.py ~/Tools/godot_voxel   # ADR 0136: ground in view and ahead first, buried blocks last; meshing above generation
 GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=template_debug use_mingw=yes use_static_cpp=yes -j12
 cp project/addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll <repo>/game/addons/zylann.voxel/bin/
 ```

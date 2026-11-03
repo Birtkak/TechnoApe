@@ -21,6 +21,7 @@ var shell_near_m := 32.0                # ... plus everything this close to the 
 var shadow_caster_m := 40.0             # ADR 0105: terrain farther than this casts no sun shadow (the shadow pass drew 2/3 of the triangles)
 var merge_faces := true                 # ADR 0106: the mesher merges unshaded cube faces into rectangles (fewer triangles, same picture)
 var ao_pages := true                    # ADR 0107: merged faces keep their corner occlusion in texture pages (every cube face merges)
+var view_priority_weight := 3.0         # ADR 0136: terrain tasks behind the camera's view wait: priority distance x (1 + w (1 - cos angle off the view)), off under a loading cover; 0 = distance only
 var ao_page_layers := 0                 # ADR 0107: pages (256x256 R8 = 64 KB each), one per mesh block in view; 0 = sized from the render distance
 var view_distance_m := 72.0             # the horizon = the radius of the one box of full-detail voxels (ADR 0073: no LOD; 72 m holds the budget in flight since merged faces, ADR 0106). The terrain blends into the sky over the last quarter
 var horizon_fade_frac := 0.75           # the terrain blends into the sky from this fraction of view_distance_m to the edge (terrain_common.gdshaderinc)
@@ -385,6 +386,7 @@ func apply_cmdline() -> Dictionary:
 			"shell_below_m": shell_below_m = float(kv[1])
 			"shell_above_m": shell_above_m = float(kv[1])
 			"shell_near_m": shell_near_m = float(kv[1])
+			"view_priority": view_priority_weight = float(kv[1])
 			"terrain_threaded_update": terrain_threaded_update = kv[1] == "1"
 			"far_fade_start_m": far_fade_start_m = float(kv[1])
 			"far_fade_end_m": far_fade_end_m = float(kv[1])
