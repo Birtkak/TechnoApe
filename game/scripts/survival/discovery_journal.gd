@@ -13,7 +13,7 @@ extends Node
 const ANIMAL_M := 16.0
 const LANDMARK_M := 20.0
 const CAVE_M := 6.0
-const NEAR_SITES := {"abandoned_mine": "ruin_mine", "abandoned_camp": "ruin_camp"}   # landmark -> find_nearest kind
+const NEAR_SITES := {"abandoned_mine": "ruin_mine", "abandoned_camp": "ruin_camp", "lookout": "ruin_lookout", "shipwreck": "ruin_wreck"}   # landmark -> find_nearest kind
 
 var main: Node
 var book: Discoveries

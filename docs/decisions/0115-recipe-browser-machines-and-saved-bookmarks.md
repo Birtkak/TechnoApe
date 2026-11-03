@@ -53,3 +53,14 @@ Bug report 2026-10-28_08-29-44 ("progression book is not updated"): the book sto
   Smithing one, the drying rack the rack's. `test_every_station_and_machine_has_uses` holds every station
   item to it, except the boilers, the turbine, the compressor and the transport pieces (they make steam or
   power or move items in the world; no recipe runs in them).
+
+## Addendum (2026-11-03): real units, hunting, LV machines
+- Tooltips and the browser's item facts give an item's place on the 48 V DC circuit (ADR 0123) from its data:
+  a load's watts and amps, a cable's rating and milliohms a block, a switch's or fuse's amps, a battery's Wh,
+  the dynamo's volts (`InventoryScreen.power_facts`). Process recipe info already reads watts.
+- A **Hunting** tab: one browser-only pseudo-recipe per (animal, drop) from mobs.json, beside Mining
+  (`RecipeBrowser.set_hunting`, `PSEUDO`), so fur, feathers, antlers and hides say which animal and biomes.
+- Electrical Age: optional quests for the six ADR 0131 machines (extractor, cutter, compressor, electrolyzer,
+  extruder, canning) and circuitry (knife switch, fuse box, breaker); the multimeter reads in volts and watts.
+- Journal: every mob has its own text (tested), and lookouts and shipwrecks are landmarks found nearby
+  (`find_nearest("ruin_lookout" | "ruin_wreck")`).

@@ -304,7 +304,7 @@ func _build_recipe() -> void:
 	out.count = model.output_amount(l)
 	out.clicked.connect(_on_cell_clicked)
 	_add(out, Vector2(244, 120))
-	if trackers != null and r.get("type", "") != "mining":
+	if trackers != null and not r.get("type", "") in RecipeBrowser.PSEUDO:
 		var rid := String(r["id"])
 		var pin := _button("Unpin" if trackers.is_pinned("recipe", rid) else "Pin", func() -> void: pass)
 		pin.tooltip_text = "Show this recipe's ingredients on the HUD"
@@ -316,7 +316,7 @@ func _build_recipe() -> void:
 		_add_fill_button(r, grid_fill)
 	elif container_fill.is_valid() and r.get("type", "") == "smelt":
 		_add_fill_button(r, container_fill)
-	if r.get("type", "") != "mining":
+	if not r.get("type", "") in RecipeBrowser.PSEUDO:
 		var mark := RecipeBrowser.RECIPE_MARK + String(r["id"])
 		var bm := _button("Unmark" if model.is_bookmarked(mark) else "Mark", func() -> void: pass)
 		bm.tooltip_text = "Bookmark this recipe at the left of the screen"
@@ -327,7 +327,7 @@ func _build_recipe() -> void:
 		_add(bm, Vector2(PANEL.x - 70, 252))
 		bookmark_button = bm
 	# have / need per ingredient, in the inventory's own counts (ADR 0046)
-	if l["kind"] in ["grid", "row", "smelt"] and r["type"] != "mining":
+	if l["kind"] in ["grid", "row", "smelt"] and not r["type"] in RecipeBrowser.PSEUDO:
 		var y := 162.0
 		for n in model.needs_list(l):
 			if n["have"] < 0:

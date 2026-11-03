@@ -16,7 +16,8 @@ extends RefCounted
 ## - bookmarks (JEI's A key, or a recipe's Mark button), saved with the player (ADR 0115);
 ## - "process" recipes (ADR 0115): a machine plugs in with recipe data alone, its `station` names the tab.
 
-const CATEGORY_ORDER := ["crafting", "knapping", "clayforming", "pit_kiln", "station:firepit", "casting", "scraping", "drying", "charcoal_pit", "station:sieve", "station:pan", "smelting", "spellcraft", "mining"]
+const CATEGORY_ORDER := ["crafting", "knapping", "clayforming", "pit_kiln", "station:firepit", "casting", "scraping", "drying", "charcoal_pit", "station:sieve", "station:pan", "smelting", "spellcraft", "mining", "hunting"]
+const PSEUDO := ["mining", "hunting"]   # browser-only recipes: no pin, no bookmark, no have/need
 const BOOKMARKS_PATH := "user://bookmarks.json"   # before ADR 0115; now only the start of a world saved without them
 const RECIPE_MARK := "recipe:"   # a bookmark of one recipe, not an item (ADR 0093)
 const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace", "electric_furnace"], "knapping": ["flint"],
@@ -127,8 +128,8 @@ func category_of(r: Dictionary) -> String:
 			return "smelting" if fire == "furnace" else "station:" + fire
 		"spellcraft":
 			return "spellcraft"
-		"mining":
-			return "mining"
+		"mining", "hunting":
+			return r["type"]
 	if WORK_CATEGORIES.has(r["type"]):
 		return WORK_CATEGORIES[r["type"]][0]
 	var st: String = r.get("station", "")
@@ -145,6 +146,8 @@ func category_title(cat: String) -> String:
 			return "Spellcraft"
 		"mining":
 			return "Mining"
+		"hunting":
+			return "Hunting"
 	for t in WORK_CATEGORIES:
 		if WORK_CATEGORIES[t][0] == cat:
 			return WORK_CATEGORIES[t][1]
@@ -294,6 +297,37 @@ func turn_category(direction: int) -> void:
 	if is_open():
 		view["cat"] = posmod(view["cat"] + direction, view["categories"].size())
 		view["index"] = 0
+
+
+# ---------------- hunting ----------------
+
+## Adds one "hunting" pseudo-recipe per (mob, drop) from mobs.json's "mobs", so the fur, feathers and antlers the
+## animals drop say where they come from. Call it after set_mining (which clears the pseudo-recipes).
+func set_hunting(mobs: Dictionary) -> void:
+	var ids: Array = mobs.keys()
+	ids.sort()
+	for mob in ids:
+		var m: Dictionary = mobs[mob]
+		var where := ", ".join(PackedStringArray(Array(m.get("biomes", [])).slice(0, 4).map(func(b) -> String: return String(b).replace("_", " "))))
+		for d in m.get("drops", []):
+			var id: String = d.get("id", "")
+			if not items.has(id):
+				continue
+			var c = d.get("count", 1)
+			var lo := int(c[0]) if c is Array else int(c)
+			var hi := int(c[1]) if c is Array else int(c)
+			var chance := float(d.get("chance", 1.0))
+			var info := PackedStringArray()
+			if lo != hi:
+				info.append("%d-%d" % [lo, hi])
+			if chance < 1.0:
+				info.append("%s %% chance" % str(snappedf(chance * 100.0, 0.1)))
+			var rid := "hunting:%s:%s" % [mob, id]
+			_mining[rid] = {"id": rid, "type": "hunting", "output": {"id": id, "count": lo},
+				"info": ", ".join(info), "needs": String(m.get("name", mob)) + (" (" + where + ")" if where != "" else "")}
+			if not _mining_makes.has(id):
+				_mining_makes[id] = []
+			_mining_makes[id].append(rid)
 
 
 # ---------------- mining ----------------
@@ -466,7 +500,7 @@ func layout(r: Dictionary) -> Dictionary:
 			info = "%.1f s" % (float(r.get("ticks", 200)) / 20.0)
 			if int(r.get("count", 1)) > 1:
 				info = "%d x %s, %s" % [int(r["count"]), items.display_name(r["input"]) if items.has(r["input"]) else r["input"], info]
-		"mining":
+		"mining", "hunting":
 			info = r["info"]
 		"knap":
 			info = "Chip off the dark cells"
@@ -501,7 +535,7 @@ func layout(r: Dictionary) -> Dictionary:
 			info = String(r.get("info", ""))   # the Stone Age types say it themselves (ADR 0059)
 	var st: String = r.get("station", "")
 	var needs := ""
-	if r["type"] == "mining":
+	if r["type"] in PSEUDO:
 		needs = r["needs"]
 	elif st != "" and not (r["type"] == "smelt" and st == "furnace"):
 		needs = items.display_name(st) if items.has(st) else st.capitalize()
