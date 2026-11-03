@@ -237,8 +237,8 @@ func test_lava_beside_water_leaves_no_mist_and_no_stray_solids() -> void:
 					var ct := String(d.get("cell_type", "solid"))
 					if mat == GameMaterials.WATER and y > 11 and w.get_voxel(Vector3i(x, y - 1, z)) == 0 and w.get_voxel(Vector3i(x, y - 2, z)) == 0:
 						airborne += 1
-					elif ct == "solid" and y >= 28:   # the balls reach y 26: nothing solid may stand above them
+					elif ct == "solid" and y > 10 and w.get_voxel(Vector3i(x, y - 1, z)) == 0:   # a solid hanging in the air
 						stray_solid += 1
 	assert_int(airborne).override_failure_message("%d water drops hang in the air" % airborne).is_less(40)
-	assert_int(stray_solid).override_failure_message("%d solid cells appeared above the scene" % stray_solid).is_equal(0)
+	assert_int(stray_solid).override_failure_message("%d solid cells hang in the air" % stray_solid).is_equal(0)
 	assert_int(w.count_material(GameMaterials.STEAM)).override_failure_message("steam piled up").is_less(3000)

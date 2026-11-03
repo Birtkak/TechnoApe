@@ -985,7 +985,7 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
     } else if (fall(x, y, z, i, c)) { c.moved++; count_fall(m, x, y, z, c); return; }
     const int f = full(i);
     // ADR 0069 B3 kept: a lone one-eighth film on a foreign floor dries up (or crusts)
-    if (f == 1 && substep_ == 0 && m.film_life && y > 0 && is_open(x, y - 1, z) && cells_[idx(x, y - 1, z)].mat != self) {
+    if (f == 1 && substep_ == 0 && m.film_life && y > 0 && is_open(x, y - 1, z) && film_floor(cells_[idx(x, y - 1, z)].mat)) {
         bool alone = true;
         for (int k = 0; k < 4 && alone; k++) {
             const int nx = x + DX4[k], nz = z + DZ4[k];
@@ -1173,7 +1173,7 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
     // so a slow liquid's film keeps its clock; the film stays awake while it waits. A two-eighth neighbour does not
     // count as deeper (ADR 0081): walled in by one-eighth films it can neither split nor even out, and if its films
     // waited for it the clump would never dry
-    if (f == 1 && substep_ == 0 && m.film_life && y > 0 && is_open(x, y - 1, z) && cells_[idx(x, y - 1, z)].mat != self) {
+    if (f == 1 && substep_ == 0 && m.film_life && y > 0 && is_open(x, y - 1, z) && film_floor(cells_[idx(x, y - 1, z)].mat)) {
         bool alone = true;
         for (int k = 0; k < 4 && alone; k++) {
             const int nx = x + DX4[k], nz = z + DZ4[k];
@@ -1443,6 +1443,13 @@ void SimWorld::try_react(int x, int y, int z, int i, Ctx &c) {
     const Reaction &rx = reactions_[ri];
     uint8_t oa = swapped ? rx.out2 : rx.out1;
     uint8_t ob = swapped ? rx.out1 : rx.out2;
+    // a solid product (obsidian from lava and water) needs something under it: a flying lava cell that met water in
+    // the air left a cube hanging there (playtest 2026-11-03, "voxels scatter"); the pair waits for the next roll
+    for (int k = 0; k < 2; k++) {
+        const uint8_t out = k == 0 ? oa : ob;
+        const int cx = k == 0 ? x : nx, cy = k == 0 ? y : ny, cz = k == 0 ? z : nz;
+        if (out && mats_[out].cell_type == CELL_SOLID && cy > 0 && is_open(cx, cy - 1, cz) && !film_floor(cells_[idx(cx, cy - 1, cz)].mat)) return;
+    }
     place(i, oa);
     place(ni, ob);
     moved_[i] = mark_;
