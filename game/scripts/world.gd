@@ -254,7 +254,7 @@ func near_ready(p: Vector3) -> float:
 		return 0.0
 	var total := 0
 	var shown := 0
-	for ring in NEAR_RINGS:
+	for ring in near_rings(Settings.view_distance_m):
 		var rv := Settings.m2v(ring[0])
 		var n: int = 1 if ring[0] == 0.0 else 8
 		for k in n:
@@ -271,6 +271,12 @@ func near_ready(p: Vector3) -> float:
 
 
 const NEAR_RINGS := [[0.0], [4.0], [10.0], [16.0], [32.0]]   # metres; the developer chose a short cover that fills in after it
+
+
+## The rings a cover waits for at view distance `view_m`: only those inside the solid part of the box (before the
+## horizon fade). At 24 m the 32 m ring is never drawn, and waiting for it held every cover to its 20 s cap.
+static func near_rings(view_m: float) -> Array:
+	return NEAR_RINGS.filter(func(r: Array) -> bool: return r[0] <= view_m * Settings.horizon_fade_frac)
 
 
 ## The mesh block holding voxel `v` is applied and visible.
