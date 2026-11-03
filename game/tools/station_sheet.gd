@@ -13,6 +13,7 @@ var _cam: Camera3D
 var _sheet: Image
 var _nodes: Array[Node3D] = []   # the model drawn in tile k, for framing
 var _label: Label
+var _only := PackedStringArray()   # only=a,b,c: draw just these models
 const TILE := 360
 const COLS := 8
 const STEP := 4.0   # metres between models
@@ -24,10 +25,14 @@ func _ready() -> void:
 		var kv := a.split("=")
 		if kv.size() == 2 and kv[0] == "out":
 			out_path = kv[1]
+		if kv.size() == 2 and kv[0] == "only":
+			_only = kv[1].split(",")
 	var root3d := Node3D.new()
 	add_child(root3d)
 	var i := 0
-	for name in ["crafting_table", "chest", "furnace", "furnace_lit"]:
+	for name in ["crafting_table", "chest", "furnace", "furnace_lit", "storage_shelf"]:
+		if not _only.is_empty() and not name in _only:
+			continue
 		var mi := MeshInstance3D.new()
 		mi.mesh = StationEntity.model_mesh(name)
 		mi.scale = Vector3.ONE / Settings.BLOCK * 0.5   # voxel units -> metres
@@ -39,7 +44,9 @@ func _ready() -> void:
 	# the real work pieces, fresh from their entities, and the furniture
 	var items := ItemRegistry.load_default()
 	var store := BlockEntities.new(items, RecipeRegistry.load_default(items))
-	for kind in ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "bronze_anvil", "forge", "bloomery", "boiler", "pipe", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "hopper", "belt", "rail", "minecart", "chest_cart", "grave", "earth_oven", "rack", "water_work", "stroke"]:
+	for kind in ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "bronze_anvil", "forge", "bloomery", "boiler", "pipe", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "pump", "coke_oven", "hopper", "belt", "rail", "minecart", "chest_cart", "grave", "earth_oven", "rack", "water_work", "stroke"]:
+		if not _only.is_empty() and not kind in _only:
+			continue
 		var e: RefCounted = store.create(Vector3i(0, 0, 0), "rail" if kind.ends_with("cart") else kind)
 		if kind.ends_with("cart"):
 			e.cart = kind   # a cart standing on a rail
@@ -56,6 +63,8 @@ func _ready() -> void:
 		_names.append(kind)
 		i += 1
 	for kind in FurnitureEntity.KINDS:
+		if not _only.is_empty() and not kind in _only:
+			continue
 		var mi := MeshInstance3D.new()
 		mi.mesh = FurnitureEntity.mesh_for(kind)
 		mi.material_override = FurnitureEntity.material()

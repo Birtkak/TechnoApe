@@ -84,13 +84,33 @@ func look_lines() -> Array[String]:
 
 
 ## A brick-faced controller block with an iron door, lit while it cokes.
+## The controller (ADR 0129): coursed brick on a stone footing, iron straps on the corners and a riveted
+## band at the top, a riveted iron door with a bronze latch and a peep slot that glows when lit, soot above.
 func view_parts() -> Dictionary:
-	var size := Vector3i(8, 8, 8)
+	var n := 16
+	var size := Vector3i(n, n, n)
 	var c := WorkPalette.new_cells(size)
-	WorkPalette.box(c, size, Vector3i(0, 0, 0), Vector3i(8, 8, 8), WorkPalette.BRICK)
-	WorkPalette.box(c, size, Vector3i(2, 1, 7), Vector3i(6, 6, 8), WorkPalette.IRON_DARK)   # the door
-	WorkPalette.box(c, size, Vector3i(3, 2, 7), Vector3i(5, 3, 8), WorkPalette.EMBER if is_lit() else WorkPalette.SOOT)
-	return {"solid": {"cells": c, "size": size}}
+	WorkPalette.wall_box(c, size, Vector3i(0, 0, 0), Vector3i(n, n, n), WorkPalette.WALL_BRICK, WorkPalette.BRICK_DARK)
+	WorkPalette.wall_box(c, size, Vector3i(0, 0, 0), Vector3i(n, 2, n), WorkPalette.WALL_STONE, WorkPalette.STONE_DARK)
+	WorkPalette.box(c, size, Vector3i(1, n - 1, 1), Vector3i(n - 1, n, n - 1), WorkPalette.BRICK)   # a plain crown: the courses read on the sides
+	for x in [0, n - 1]:
+		for z in [0, n - 1]:
+			WorkPalette.box(c, size, Vector3i(x, 2, z), Vector3i(x + 1, n, z + 1), WorkPalette.IRON_DARK)
+	WorkPalette.box(c, size, Vector3i(0, 13, 0), Vector3i(n, 15, n), WorkPalette.IRON_DARK)
+	WorkPalette.wall_box(c, size, Vector3i(1, 13, 1), Vector3i(n - 1, 15, n - 1), WorkPalette.WALL_BRICK, WorkPalette.BRICK_DARK)
+	for i in range(1, n - 1, 3):
+		for p in [Vector3i(i, 14, 0), Vector3i(i, 14, n - 1), Vector3i(0, 14, i), Vector3i(n - 1, 14, i)]:
+			c[WorkPalette.idx(size, p.x, p.y, p.z)] = WorkPalette.RIVET + 1
+	WorkPalette.box(c, size, Vector3i(4, 2, n - 1), Vector3i(12, 12, n), WorkPalette.IRON_DARK)   # the door frame
+	WorkPalette.box(c, size, Vector3i(5, 3, n - 1), Vector3i(11, 11, n), WorkPalette.STEEL)   # the door
+	for p in [Vector2i(5, 3), Vector2i(10, 3), Vector2i(5, 10), Vector2i(10, 10)]:
+		c[WorkPalette.idx(size, p.x, p.y, n - 1)] = WorkPalette.RIVET + 1
+	WorkPalette.box(c, size, Vector3i(6, 7, n - 1), Vector3i(10, 9, n), WorkPalette.EMBER if is_lit() else WorkPalette.SOOT)   # the peep slot
+	WorkPalette.box(c, size, Vector3i(9, 4, n - 1), Vector3i(11, 6, n), WorkPalette.BRONZE)   # the latch
+	for x in range(5, 11):
+		for y in range(12, 13 + (x * 7) % 2):
+			c[WorkPalette.idx(size, x, y, n - 1)] = WorkPalette.SOOT + 1
+	return {"solid": {"cells": c, "size": size, "grid": n}}
 
 
 func to_dict() -> Dictionary:
