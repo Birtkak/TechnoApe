@@ -242,3 +242,20 @@ func test_lava_beside_water_leaves_no_mist_and_no_stray_solids() -> void:
 	assert_int(airborne).override_failure_message("%d water drops hang in the air" % airborne).is_less(40)
 	assert_int(stray_solid).override_failure_message("%d solid cells hang in the air" % stray_solid).is_equal(0)
 	assert_int(w.count_material(GameMaterials.STEAM)).override_failure_message("steam piled up").is_less(3000)
+
+
+## Budget hunt 2026-11-03: a lake nobody touched woke 250k cells. A lone still speck (the generator's stray cell on a
+## stream terrace) used to drain as moving water, run down to the body, and its own moving water beside the body was
+## an opening the body fed without end. The speck dries where it is; the body stays asleep.
+func test_a_lone_speck_above_a_body_dries_and_the_body_stays_asleep() -> void:
+	var w := _world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 8, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(8, 8, 8), Vector3i(40, 14, 40), GameMaterials.WATER_STATIC)   # a 32 x 6 x 32 body
+	w.fill_box(Vector3i(40, 8, 8), Vector3i(48, 20, 40), GameMaterials.STONE)   # a bank beside it, 6 above the surface
+	w.set_voxel(Vector3i(44, 20, 24), GameMaterials.WATER_STATIC)   # a lone speck on the bank's top
+	var body := w.count_material(GameMaterials.WATER_STATIC) - 1
+	_run(w, 300)
+	assert_int(w.count_material(GameMaterials.WATER_STATIC)).override_failure_message("the body lost cells").is_equal(body)
+	assert_int(w.count_material(GameMaterials.WATER)).override_failure_message("moving water appeared").is_equal(0)
+	assert_int(int(w.get_stats().get("still_woken", 0))).override_failure_message("more than the speck woke").is_less_equal(1)
+	assert_int(int(w.get_stats().get("active_chunks", 1))).override_failure_message("the sim is still awake").is_equal(0)

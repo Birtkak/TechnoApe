@@ -27,6 +27,7 @@ var sim: SimWorld
 var origin := Vector3i.ZERO          # world chunk coords of local chunk (0,0,0)
 var ambient_c := 18.0                # the outside temperature (Survival.outside_c), set by Main each frame (ADR 0119 C)
 var _has_states := false             # the DLL knows ADR 0119 C (set_ambient_c, cell_info)
+var _sim_log := OS.get_cmdline_user_args().has("sim_log=1")
 var size_chunks := Vector3i.ONE
 var _tick_accum := 0.0
 # Chunks waiting for terrain data, one bitmask per chunk column of the window:
@@ -216,6 +217,9 @@ func _process_timed(delta: float) -> void:
 		active_chunks = int(r["active_chunks_per_tick"])
 		scanned_max = maxi(scanned_max, int(r.get("scanned_cells_per_tick", 0)))
 		ticks_total += 1
+		if _sim_log and ticks_total % 60 == 0:   # sim_log=1: who wakes the sim, every 2 s (budget hunt 2026-11-03)
+			var st: Dictionary = sim.get_stats()
+			print("sim_log tick %d still_woken %s active %s moving_water %d origin %s player %s" % [ticks_total, str(st.get("still_woken")), str(st.get("active_chunks")), sim.count_material(GameMaterials.WATER), origin, Vector3i(_player.floor())])
 		_tick_running = false
 		_collect_dirty()
 		if pinned:
