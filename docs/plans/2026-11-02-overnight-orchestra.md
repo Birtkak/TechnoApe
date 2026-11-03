@@ -63,6 +63,23 @@ encoding up in its ADR.
   that turns machines, wall lamps, belts and chutes into machines (item pipes left out, belts are the item
   transport); furniture, barrel and candle quests. Default for the developer to confirm (ADR 0117): when power is
   short, the first-placed machines get it and the rest wait. Suite: 728 cases, 0 failures.
+- Round 6-7 (GEN_VERSION 31): ADR 0119 heat field, pressure, state switching, gas looks, minimap readout, toxic gas
+  (254), column flow ON by default with has_method guards; steam and water over pipes (ADR 0122), EU meter; windows,
+  storage shelf (217); light overlay, zoom, middle-click sort; shaded mobs and ape; camps, arches, hoodoos, mines
+  reachable by /goto; insects, songbirds, cave creatures, goats; book through all of it. The shared
+  `~/Tools/godot-cpp` was broken by builds compiled into it in parallel; rebuilt cleanly, every lane now builds only
+  with its private `GODOT_CPP_PATH`. Suite: 744 cases, 0 failures.
+
+## Open for the morning
+
+- **Lava next to water breaks the scene (playtest lane, not yet fixed):** 12 s after a 2 m lava ball and a 2 m
+  water ball land side by side on plains, a white sheet covers half the view and terrain voxels scatter. Main runs
+  ADR 0119 with column flow and the state pass on. To play safely until the Fable lane fixes it, start with
+  `column_flow=0 states=0`, or set `sim_column_flow` / `sim_states` to false in `game/scripts/settings.gd`.
+- Not yet merged: `880af6b` (Fable lane, fluid docs), `3b2c467` (book), `c90f780` (night creatures avoid light),
+  the surface lane's mine test commits. All stopped at the usage limit.
+- Budget regression hunt (backlog job 8) not run: the machines session is on standby for it.
+- Defaults to confirm: first-placed machines get power when short (ADR 0117); pipe capacities (ADR 0122).
 
 ## Ideas parked for the developer
 
