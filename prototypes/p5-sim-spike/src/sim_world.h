@@ -215,6 +215,7 @@ private:
         std::function<void(int)> job;
         std::atomic<int> next{0};
         int remaining = 0;
+        int slots = 0;   // helpers still to join this generation (ADR 0137)
         uint64_t generation = 0;
         bool stop = false;
         void start(int n);
@@ -278,6 +279,14 @@ private:
     std::vector<Reaction> reactions_;
     std::vector<int16_t> react_lut_; // [a*256+b] -> reaction index or -1
     std::vector<uint8_t> reactive_;  // per material: 1 if it appears as an input of any reaction
+    std::vector<uint8_t> switches_;  // per material: SW_COLD a cell of it changes state in the cold (ADR 0119 C: freeze,
+                                     // condense), SW_WARM it melts (ADR 0137)
+    std::vector<uint8_t> switch_;    // per chunk: may hold such a cell, a melter only where exposed (all bits until a
+                                     // whole-chunk scan finds none, ADR 0137)
+    static constexpr uint8_t SW_COLD = 1, SW_WARM = 2, SW_ALL = 3;
+    int melt_min_c_ = 32767;         // the lowest melt_c of any material
+    std::vector<uint8_t> thaw_;      // per chunk: its next scan may melt (its sleeping heat turn found it warm)
+    void on_loaded(int ci);          // ADR 0137: a chunk took terrain data: awake once, heat at the ambient
     std::vector<uint8_t> inert_;     // per material: 1 if nothing ever needs to run on it (static solid, no lifetime, not reactive, not burnable)
     bool any_reactions_ = false;
     bool any_fire_ = false;
@@ -288,6 +297,8 @@ private:
     std::vector<uint8_t> displace_lut_; // [mover*256+target] -> 1 if mover may swap into target
     std::vector<uint16_t> moved_;
     std::unique_ptr<std::atomic<uint8_t>[]> active_now_;
+    std::unique_ptr<std::atomic<uint8_t>[]> fast_;   // ADR 0137: moving liquid with substeps left at the chunk's last scan this tick
+    bool needs_substep(int ci) const;
     std::unique_ptr<std::atomic<uint8_t>[]> active_next_;
     std::unique_ptr<std::atomic<uint8_t>[]> dirty_;
     std::vector<uint8_t> loaded_; // per chunk: 1 once world data was loaded; unloaded chunks act as solid walls
@@ -322,7 +333,7 @@ private:
     inline int hidx(int x, int y, int z) const {
         return (((x + ox_) & mx_) >> 2) + (W_ >> 2) * ((((y + oy_) & my_) >> 2) + (H_ >> 2) * (((z + oz_) & mz_) >> 2));
     }
-    void relax_heat(int ci);   // diffuse a chunk's coarse cells and pull them toward the ambient
+    void relax_heat(int ci, bool slow_turn);   // diffuse a chunk's coarse cells and pull them toward the ambient
     int max_speed_ = 1;            // the largest liquid_speed among the materials: extra passes per tick
     int substep_ = 0;              // 0 = the main pass; 1.. = a liquid substep (only liquids with speed > substep_ move)
     bool cascade_ = false;
@@ -382,6 +393,7 @@ private:
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);
     void update_liquid_column(int x, int y, int z, int i, Ctx &c);   // ADR 0119 A
+    static constexpr int FLAT_REACH = 14;     // the surface conveyor looks this far and writes one cell over (1 + 14 < CS: ADR 0138)
     static constexpr int COLUMN_REACH = 7;    // cells a column scan follows up or down (< CS / 2 like SURFACE_REACH: chunks two apart never touch one cell)
     void update_gas(int x, int y, int z, int i, Ctx &c);
     void update_fire(int x, int y, int z, int i, Ctx &c);

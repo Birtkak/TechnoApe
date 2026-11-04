@@ -26,9 +26,10 @@ void SimWorld::Pool::start(int n) {
             for (;;) {
                 {
                     std::unique_lock<std::mutex> lk(m);
-                    cv_work.wait(lk, [&] { return stop || generation != seen; });
+                    cv_work.wait(lk, [&] { return stop || (generation != seen && slots > 0); });
                     if (stop) return;
                     seen = generation;
+                    slots--;
                 }
                 for (;;) {
                     int i = next.fetch_add(1);
@@ -46,7 +47,10 @@ void SimWorld::Pool::start(int n) {
 
 void SimWorld::Pool::run(const std::vector<int> &p_items, const std::function<void(int)> &p_job) {
     if (p_items.empty()) return;
-    if (threads.empty()) {
+    // ADR 0137: the caller works too and wakes only as many helpers as there are items beyond its own; waking
+    // every thread for each of a tick's 64 passes (8 substeps x 8 parities) cost more than a spill's work
+    const int helpers = std::min((int)threads.size(), (int)p_items.size() - 1);
+    if (helpers <= 0) {
         for (int i : p_items) p_job(i);
         return;
     }
@@ -55,10 +59,16 @@ void SimWorld::Pool::run(const std::vector<int> &p_items, const std::function<vo
         items = &p_items;
         job = p_job;
         next.store(0);
-        remaining = (int)threads.size();
+        remaining = helpers;
+        slots = helpers;
         generation++;
     }
-    cv_work.notify_all();
+    for (int k = 0; k < helpers; k++) cv_work.notify_one();
+    for (;;) {
+        int i = next.fetch_add(1);
+        if (i >= (int)p_items.size()) break;
+        p_job(p_items[i]);
+    }
     std::unique_lock<std::mutex> lk(m);
     cv_done.wait(lk, [&] { return remaining == 0; });
 }
@@ -161,15 +171,18 @@ void SimWorld::configure(Vector3i p_chunks, int p_threads, int p_seed) {
     cells_.assign(n, Cell{0, 0, 0, 0});
     moved_.assign(n, 0);
     active_now_.reset(new std::atomic<uint8_t>[nc]);
+    fast_.reset(new std::atomic<uint8_t>[nc]);
     active_next_.reset(new std::atomic<uint8_t>[nc]);
     dirty_.reset(new std::atomic<uint8_t>[nc]);
     box_now_.reset(new std::atomic<uint32_t>[nc]);
     box_next_.reset(new std::atomic<uint32_t>[nc]);
     dbox_.reset(new std::atomic<uint32_t>[nc]);
-    for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); box_now_[i].store(0); box_next_[i].store(0); dbox_[i].store(0); }
+    for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); fast_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); box_now_[i].store(0); box_next_[i].store(0); dbox_[i].store(0); }
     defer_age_.assign(nc, 0);
     heat_.assign(n / (HC * HC * HC), ambient_c_);
     pressure_.assign(nc, 0);
+    switch_.assign(nc, SW_ALL);
+    thaw_.assign(nc, 0);
     loaded_.assign(nc, 1); // default: everything counts as loaded (fill_box/scatter worlds); streaming callers clear it
     wrapped_ = false;
     ox_ = oy_ = oz_ = 0; ocx_ = ocy_ = ocz_ = 0;
@@ -298,6 +311,8 @@ void SimWorld::rebuild_reaction_lut() {
     react_lut_.assign(MAX_MATERIALS * MAX_MATERIALS, -1);
     reactive_.assign(MAX_MATERIALS, 0);
     inert_.assign(MAX_MATERIALS, 0);
+    switches_.assign(MAX_MATERIALS, 0);
+    melt_min_c_ = 32767;
     any_reactions_ = !reactions_.empty();
     for (size_t i = 0; i < reactions_.size(); i++) {
         reactions_[i].next = -1;
@@ -325,6 +340,8 @@ void SimWorld::rebuild_reaction_lut() {
     for (size_t m = 1; m < mats_.size(); m++) {
         const MaterialDef &d = mats_[m];
         bool static_cell = d.cell_type == CELL_SOLID || ((d.cell_type == CELL_LIQUID || d.cell_type == CELL_POWDER) && d.liquid_static);
+        switches_[m] = ((d.cell_type == CELL_LIQUID && !d.liquid_static && d.freezes_to) || (d.cell_type == CELL_GAS && d.condenses_to)) ? SW_COLD : 0;
+        if (d.cell_type == CELL_SOLID && d.melts_to) { switches_[m] |= SW_WARM; melt_min_c_ = std::min(melt_min_c_, (int)d.melt_c); }
         inert_[m] = static_cell && d.lifetime == 0 && !d.burnable && !reactive_[m] && d.loosen == 0 && d.erode == 0 && d.melts_to == 0 && d.heat_c == 0;
     }
 }
@@ -753,11 +770,34 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
         // ... while it still moves (this or the last two ticks): rain or a spill that came to rest beside a body is
         // no opening, or every lake with a terraced shore fed its lower shore for ever (budget hunt 2026-11-03)
         auto fresh = [&](int k) { const uint16_t m = moved_[k]; return m != 0 && (m == stamp_ || m == prev || m == prev2); };
-        if (side && cells_[ni].mat == flow) { const int f = cells_[ni].pad & 15; return f != 0 && f <= 6 && fresh(ni); }
+        // ... or, resting, while its column stands on ground: a dug pit or channel fills to the body's level instead of
+        // sleeping with a film in it (ADR 0138). Water resting on a still body (a river's lower step) stays no opening.
+        auto grounded = [&](int gx, int gy, int gz) {
+            for (int yy = gy - 1, k = 0; yy >= 0 && k < COLUMN_REACH; yy--, k++) {
+                if (!is_open(gx, yy, gz)) return true;
+                const uint8_t b = cells_[idx(gx, yy, gz)].mat;
+                if (b == flow) continue;
+                return !open_air(b) && mats_[b].cell_type != CELL_LIQUID;
+            }
+            return true;
+        };
+        if (side && cells_[ni].mat == flow) {
+            const int f = cells_[ni].pad & 15;
+            if (f == 0) return false;
+            if (fresh(ni)) return f <= 6;
+            // resting: topped up to full, then it stops; a lone eighth on bare ground is a film, not a hole to fill
+            const bool on_own = ny > 0 && is_open(nx, ny - 1, nz) && cells_[idx(nx, ny - 1, nz)].mat == flow;
+            return (f >= 2 || on_own) && grounded(nx, ny, nz);
+        }
         if (!open_air(cells_[ni].mat)) return false;
         // air over its own moving water beside it: that water is lower, drain into it however long the air has been
-        // there (a pit's air went stale as it filled and the pond slept a third full above it)
-        if (side && ny > 0 && is_open(nx, ny - 1, nz) && cells_[idx(nx, ny - 1, nz)].mat == flow) return fresh(idx(nx, ny - 1, nz));
+        // there (a pit's air went stale as it filled and the pond slept a third full above it). ADR 0138: down through
+        // air too, so a stream that paused over a half-filled trench starts again
+        if (side) {
+            int wy = ny - 1;
+            for (int k = 0; k < COLUMN_REACH && wy > 0 && is_open(nx, wy, nz) && open_air(cells_[idx(nx, wy, nz)].mat); k++) wy--;
+            if (wy >= 0 && is_open(nx, wy, nz) && cells_[idx(nx, wy, nz)].mat == flow) return fresh(idx(nx, wy, nz)) || grounded(nx, wy, nz);
+        }
         if (side && ny > 0 && still_liquid(nx, ny - 1, nz, md.fluid_slot)) {
             // a river's own step never wakes, unless that step is a drained bank's edge (its own moving water beside
             // it): a dug hole left a 45-degree wall of still water sleeping over it (bug report 2026-10-27 17-59-05)
@@ -775,6 +815,20 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
     const bool head = still_liquid(x, y + 1, z, md.fluid_slot);
     for (int d = 0; d < 4 && !open && head; d++) {
         tx = x + DX4[d]; ty = y; tz = z + DZ4[d];
+        open = fresh_air(tx, ty, tz, true);
+    }
+    // ADR 0138: the surface row (no head) feeds an opening that goes deeper than the surface: a fresh dig beside it
+    // with air under it (a trench cut into a shelving bank, where only the surface row touches the cut), air over
+    // its own moving water, and the moving top of a filled pit (over a full cell) so the pit ends level with the body.
+    // Air over ground at the surface's height (the shore) never opens: a lake does not flood its plain.
+    for (int d = 0; d < 4 && !open && !head && flow != 0 && y > 0; d++) {
+        tx = x + DX4[d]; ty = y; tz = z + DZ4[d];
+        if (!is_open(tx, ty, tz) || !is_open(tx, ty - 1, tz)) continue;
+        const int ai = idx(tx, ty, tz), bi = idx(tx, ty - 1, tz);
+        const uint8_t below = cells_[bi].mat;
+        if (below == flow) {
+            if (cells_[ai].mat == flow && (cells_[bi].pad & 15)) continue;   // a partial over a partial: not yet the top
+        } else if (!open_air(below) || !open_air(cells_[ai].mat) || still_liquid(tx, ty - 1, tz, md.fluid_slot)) continue;
         open = fresh_air(tx, ty, tz, true);
     }
     if (!open && flow != 0) {
@@ -916,7 +970,9 @@ void SimWorld::update_liquid(int x, int y, int z, int i, Ctx &c) {
 void SimWorld::set_liquid_fullness(bool p_on) { fullness_ = p_on; }
 void SimWorld::set_column_flow(bool p_on) { column_flow_ = p_on; }
 void SimWorld::set_ambient_c(float p_c, bool p_fill) {
-    ambient_c_ = (int16_t)std::clamp((int)std::lround(p_c), -32768, 32767);
+    // ADR 0137: floor, not round: 3.6 C outside read as 4 C, ice's melt_c, and the frozen lake of bug report
+    // 2026-11-03_23-05-16 melted into 141k cells of moving water under a sky colder than its melting point
+    ambient_c_ = (int16_t)std::clamp((int)std::floor(p_c), -32768, 32767);
     if (p_fill) std::fill(heat_.begin(), heat_.end(), ambient_c_);
 }
 void SimWorld::set_states(bool p_on) { states_ = p_on; }
@@ -924,11 +980,11 @@ void SimWorld::set_states(bool p_on) { states_ = p_on; }
 // ADR 0119 C: a chunk's 4^3 coarse heat cells move a twelfth of the way toward the mean of their six neighbours
 // and a sixty-fourth toward the outside temperature (rock and air alike: a cooled cave warms back slowly). In
 // place, in a fixed order, from the tick's single thread: the same every run.
-void SimWorld::relax_heat(int ci) {
+void SimWorld::relax_heat(int ci, bool slow_turn) {
     int cx, cy, cz;
     chunk_of(ci, cx, cy, cz);
     const int x0 = cx * CS, y0 = cy * CS, z0 = cz * CS;
-    bool extreme = false;   // hot enough to boil or cold enough to freeze: the chunk's cells must be visited
+    bool hot = false, cold = false, warm = false;   // hot enough to boil, cold enough to freeze, warm enough to melt
     for (int z = z0; z < z0 + CS; z += HC)
         for (int y = y0; y < y0 + CS; y += HC)
             for (int x = x0; x < x0 + CS; x += HC) {
@@ -944,11 +1000,16 @@ void SimWorld::relax_heat(int ci) {
                 if (n > 0) v += (sum - n * v) / (12 * n);
                 v += (ambient_c_ - v) / 64;
                 heat_[h] = (int16_t)v;
-                if (v >= 90 || v <= 0) extreme = true;
+                if (v >= 90) hot = true;
+                if (v <= 0) cold = true;
+                if (v >= melt_min_c_) warm = true;
             }
     // the chunk update scans only a chunk's dirty box, so a quiet pool in a hot or freezing chunk would never
     // change state: such a chunk runs whole on this cadence (every 4 ticks while awake, every 64 asleep)
-    if (extreme) {
+    // ADR 0137: at 0 C or under the whole window is cold: only chunks that may hold a cell that freezes or condenses
+    // ADR 0137: a warm chunk with exposed ice runs whole only on the sleeping cadence, so a lake thaws a few cells a turn
+    thaw_[ci] = warm && slow_turn && (switch_[ci] & SW_WARM);
+    if (hot || (cold && (switch_[ci] & SW_COLD)) || thaw_[ci]) {
         active_next_[ci].store(1, std::memory_order_relaxed);
         merge_box(ci, BOX_FULL);
     }
@@ -1093,6 +1154,20 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
                 if (substep_ == 0 && surface && try_move(x, y, z, nx, y - 1, nz, c)) { c.moved++; return; }
                 continue;
             }
+            // a ledge onto a partial cell of its liquid: what fits pours down, so a film runs down a terraced slope
+            // instead of hanging on every step (ADR 0138)
+            if (surface && y > 0 && is_open(nx, y - 1, nz)) {
+                const int li = idx(nx, y - 1, nz);
+                if (cells_[li].mat == self && moved_[li] != mark_ && full(li) < 8) {
+                    const int fl = full(li), t = std::min(8 - fl, f);
+                    set_full(li, fl + t);
+                    moved_[li] = mark_;
+                    mark_cell(nx, y - 1, nz, c, false);
+                    take(t);
+                    c.moved++;
+                    return;
+                }
+            }
             if (surface) {
                 // the surface splits half into the opening: a new column beside it
                 const int g = f / 2;
@@ -1113,36 +1188,88 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
         const int Hn = 8 * ny + full(idx(nx, ny, nz));
         if (Hn >= H - 1) continue;   // level, or higher: it levels toward us on its own visit
         if (moved_[idx(nx, ny, nz)] == mark_) continue;
+        // ADR 0137: nothing fits on a full top under liquid (its column runs on past the reach) or a ceiling; giving
+        // there moved nothing but marked both cells, and a pit of moving water deeper than the reach never slept
+        if (full(idx(nx, ny, nz)) == 8 && !(is_open(nx, ny + 1, nz) && open_air(cells_[idx(nx, ny + 1, nz)].mat) && !still_liquid(nx, ny + 1, nz, m.fluid_slot))) continue;
         const int dt = std::min({8, (H - Hn) / 2, avail});
         if (dt < 1) continue;
         take(give(nx, ny, nz, dt));
         c.moved++;
         return;
     }
-    // 3. no neighbour two eighths lower: a surface cell looks along the surface for one and sends it an eighth, so the
-    // surface ends flat to an eighth instead of tilted an eighth per cell (ADR 0069 B 4c)
+    // 3. no neighbour two eighths lower: a surface cell looks along the surface for one and passes an eighth toward
+    // it, so the surface ends flat to an eighth instead of tilted an eighth per cell (ADR 0069 B 4c). ADR 0138: the
+    // eighth goes to the neighbour one eighth lower on the way (a conveyor), not straight to the low cell, so the look
+    // reaches FLAT_REACH cells (the write is one cell: chunks two apart still never touch one cell) and a flood rests
+    // flat to an eighth per FLAT_REACH cells, not per SURFACE_REACH; the surface it follows may step down into the
+    // row below (a column whose top is there, air over it). Nearest low first, ties in a fixed order: an eighth only
+    // ever moves toward the low it was sent to, nothing goes back and forth.
     if (!surface) return;
-    for (int k = 0; k < 4; k++) {
-        const int dd = (d0 + k) & 3;
-        for (int s = 1; s <= SURFACE_REACH; s++) {
+    int lo_s = FLAT_REACH + 1, lo_d = -1;
+    for (int dd = 0; dd < 4; dd++) {
+        int first = -1;   // the neighbour's height
+        for (int s = 1; s < lo_s; s++) {
             const int px = x + DX4[dd] * s, pz = z + DZ4[dd] * s;
-            if (!same(px, y, pz)) break;
-            const int pi = idx(px, y, pz);
-            const int fp = full(pi);
-            if (fp > f || same(px, y + 1, pz)) break;   // uphill, or under more of its liquid: not this way
-            if (fp <= f - 2) {
-                if (moved_[pi] == mark_) break;
-                set_full(pi, fp + 1);
-                set_full(i, f - 1);
-                moved_[pi] = mark_;
-                moved_[i] = mark_;
-                mark_cell(px, y, pz, c, false);
-                mark_cell(x, y, z, c, false);
-                c.moved++;
-                return;
+            int py = y;
+            if (!same(px, y, pz)) {
+                if (!is_open(px, y, pz) || !open_air(cells_[idx(px, y, pz)].mat) || !same(px, y - 1, pz)) break;
+                py = y - 1;
+            } else if (same(px, y + 1, pz)) break;   // under more of its liquid: uphill
+            const int Hp = 8 * py + full(idx(px, py, pz));
+            if (Hp > H) break;   // uphill: not this way
+            if (s == 1) {
+                if (Hp != H - 1 || moved_[idx(px, py, pz)] == mark_) break;   // only down a step of one eighth
+                first = Hp;
             }
+            if (Hp <= H - 2 && first >= 0) { lo_s = s; lo_d = dd; break; }
         }
     }
+    if (lo_d >= 0) {
+        const int px = x + DX4[lo_d], pz = z + DZ4[lo_d];
+        const int py = same(px, y, pz) ? y : y - 1;
+        const int pi = idx(px, py, pz);
+        const int fp = full(pi);
+        if (fp < 8) {
+            set_full(pi, fp + 1);
+            moved_[pi] = mark_;
+            mark_cell(px, py, pz, c, false);
+        } else {   // a full top a row down: the eighth starts the row above it
+            const int ai = idx(px, py + 1, pz);
+            place(ai, self);
+            set_full(ai, 1);
+            moved_[ai] = mark_;
+            mark_cell(px, py + 1, pz, c, true);
+        }
+        moved_[i] = mark_;
+        if (f > 1) { set_full(i, f - 1); mark_cell(x, y, z, c, false); }
+        else { place(i, 0); mark_cell(x, y, z, c, true); }
+        c.moved++;
+        return;
+    }
+    // 4. a lone eighth on bare ground (it cannot split) walks a cell toward the nearest drop in reach (air over air, or
+    // over its own lower liquid), so a film runs off a terraced slope instead of lying on every step until it dries
+    // (ADR 0138). Nearest first, ties in a fixed order: each step shortens the way, nothing walks back and forth.
+    if (f != 1 || y == 0 || !is_open(x, y - 1, z) || cells_[idx(x, y - 1, z)].mat == self || can_displace(self, cells_[idx(x, y - 1, z)].mat)) return;
+    int best = SURFACE_REACH + 1, bd = -1;
+    for (int dd = 0; dd < 4; dd++) {
+        for (int s = 1; s < best; s++) {
+            const int px = x + DX4[dd] * s, pz = z + DZ4[dd] * s;
+            if (!is_open(px, y, pz) || !open_air(cells_[idx(px, y, pz)].mat) || !is_open(px, y - 1, pz)) break;
+            const uint8_t b = cells_[idx(px, y - 1, pz)].mat;
+            if (can_displace(self, b) || (b == self && full(idx(px, y - 1, pz)) < 8)) { best = s; bd = dd; break; }
+            if (b == self || still_liquid(px, y - 1, pz, m.fluid_slot)) break;   // water ahead: the column rules have it
+        }
+    }
+    if (bd < 0 || best < 2) return;   // a drop beside it is the ledge rule's
+    const int wx = x + DX4[bd], wz = z + DZ4[bd], wi = idx(wx, y, wz);
+    if (moved_[wi] == mark_) return;
+    place(wi, self);
+    set_full(wi, 1);
+    moved_[wi] = mark_;
+    place(i, 0);
+    mark_cell(wx, y, wz, c, true);
+    mark_cell(x, y, z, c, true);
+    c.moved++;
 }
 void SimWorld::set_cascade(bool p_on) { cascade_ = p_on; }
 
@@ -1495,6 +1622,8 @@ void SimWorld::update_chunk(int ci) {
     const int bx0 = std::max(0, (int)(bx & 15u) - 1), by0 = std::max(0, (int)((bx >> 4) & 15u) - 1), bz0 = std::max(0, (int)((bx >> 8) & 15u) - 1);
     const int bx1 = std::min(CS - 1, (int)((bx >> 12) & 15u) + 1), by1 = std::min(CS - 1, (int)((bx >> 16) & 15u) + 1), bz1 = std::min(CS - 1, (int)((bx >> 20) & 15u) + 1);
     const int nzs = bz1 - bz0 + 1, nxs = bx1 - bx0 + 1;
+    bool fast = false;
+    uint8_t sw = 0;
     // ADR 0119 C: the chunk's pressure, gas cells over open cells, every tick it is awake (4096 reads: boiling must
     // see the pressure it builds the tick before, or a room boils dry in one tick)
     if (states_ && substep_ == 0) {
@@ -1516,6 +1645,16 @@ void SimWorld::update_chunk(int ci) {
                 int i = idx(x, y, z);
                 uint8_t m = cells_[i].mat;
                 if (m == 0 || inert_[m]) continue;
+                bool exposed = false;   // ADR 0137: a melter melts from its open faces only (top, edges, the water it sits on)
+                if (substep_ == 0 && (switches_[m] & SW_WARM)) {
+                    for (int d = 0; d < 6 && !exposed; d++) {
+                        const int nx = x + NX6[d], ny = y + NY6[d], nz = z + NZ6[d];
+                        if (!is_open(nx, ny, nz)) continue;
+                        const uint8_t nm = cells_[idx(nx, ny, nz)].mat;
+                        exposed = nm == 0 || (mats_[nm].cell_type != CELL_SOLID && mats_[nm].cell_type != CELL_POWDER);
+                    }
+                    sw |= exposed ? switches_[m] : (uint8_t)(switches_[m] & ~SW_WARM);
+                } else sw |= switches_[m];
                 if (moved_[i] == mark_) continue;
                 const MaterialDef &md = mats_[m];
                 if (states_ && substep_ == 0) {
@@ -1549,7 +1688,13 @@ void SimWorld::update_chunk(int ci) {
                                 if (nm != 0 && mats_[nm].cell_type != CELL_GAS && mats_[nm].cell_type != CELL_FIRE) { to = md.condenses_to; break; }
                             }
                         }
-                    } else if (md.cell_type == CELL_SOLID && md.melts_to && T >= md.melt_c) to = md.melts_to;
+                    } else if (md.cell_type == CELL_SOLID && md.melts_to && T >= md.melt_c && exposed && thaw_[ci] &&
+                               (int)(rnd(c) & 255u) < std::min(64, 4 + 2 * (T - md.melt_c))) {
+                        // ADR 0137: a few exposed cells a heat turn (64 ticks; 1 in 64 at the melt point, 1 in 4 at 34 C
+                        // over it), however often moving melt water wakes them:
+                        // generated ice thins over minutes on a warm day instead of a whole lake turning to water at once
+                        to = md.melts_to;
+                    }
                     if (to >= 0) {
                         place(i, (uint8_t)to);
                         if (mats_[to].cell_type == CELL_LIQUID) cells_[i].pad = 0;   // one cell for one cell both ways, or steam that condensed to a drop and boiled again gained eightfold
@@ -1561,6 +1706,7 @@ void SimWorld::update_chunk(int ci) {
                 }
                 // ADR 0069 B: a liquid substep moves only the liquids that still have substeps left this tick
                 if (substep_ > 0 && (md.cell_type != CELL_LIQUID || md.liquid_static || md.speed <= substep_)) continue;
+                if (md.cell_type == CELL_LIQUID && !md.liquid_static && md.speed > substep_ + 1) fast = true;
                 // Lifetime (gases, short-lived liquids, fire): count down, vanish.
                 if (substep_ == 0 && md.lifetime && !(cells_[i].flags & FLAG_BURNING)) {
                     if (cells_[i].aux > 0) { if (tick_ % md.life_step == 0) cells_[i].aux--; mark_cell(x, y, z, c, false); }
@@ -1583,12 +1729,33 @@ void SimWorld::update_chunk(int ci) {
                 if (substep_ == 0 && any_reactions_ && reactive_[cells_[i].mat] && moved_[i] != mark_) try_react(x, y, z, i, c);
             }
         }
+    fast_[ci].store(fast ? 1 : 0, std::memory_order_relaxed);
+    if (substep_ == 0) {   // a whole-chunk scan knows; a partial one can only add
+        if (bx0 == 0 && by0 == 0 && bz0 == 0 && bx1 == CS - 1 && by1 == CS - 1 && bz1 == CS - 1) switch_[ci] = sw;
+        else switch_[ci] |= sw;
+        thaw_[ci] = 0;
+    }
     flush_marks(c);
     if (c.moved) moved_count_.fetch_add(c.moved, std::memory_order_relaxed);
     if (c.reacted) react_count_.fetch_add(c.reacted, std::memory_order_relaxed);
     for (int s = 0; s < FALL_SLOTS; s++)
         if (c.falls[s][0])
             for (int k = 0; k < 4; k++) falls_[s][k].fetch_add(c.falls[s][k], std::memory_order_relaxed);
+}
+
+// ADR 0137: a liquid substep scans a chunk only when it or a face neighbour held moving liquid with substeps left at
+// its last scan (a spill crosses into a neighbour at most one chunk per substep). A freshly loaded chunk is awake for
+// one tick and was rescanned on all 8 water substeps: 46 us a chunk, 18 ms a tick for 400 chunks of a lake flown over.
+bool SimWorld::needs_substep(int ci) const {
+    if (fast_[ci].load(std::memory_order_relaxed)) return true;
+    int cx, cy, cz;
+    chunk_of(ci, cx, cy, cz);
+    for (int d = 0; d < 6; d++) {
+        const int nx = cx + NX6[d], ny = cy + NY6[d], nz = cz + NZ6[d];
+        if (nx < 0 || ny < 0 || nz < 0 || nx >= CX_ || ny >= CY_ || nz >= CZ_) continue;
+        if (fast_[cidx(nx, ny, nz)].load(std::memory_order_relaxed)) return true;
+    }
+    return false;
 }
 
 void SimWorld::defer_chunk(int ci) {
@@ -1614,6 +1781,7 @@ void SimWorld::tick_once(TickOut &o) {
         active_next_[i].store(0, std::memory_order_relaxed);
         box_now_[i].store(box_next_[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
         box_next_[i].store(0, std::memory_order_relaxed);
+        fast_[i].store(0, std::memory_order_relaxed);
     }
     uint64_t scanned = 0, deferred = 0;
     const bool lod = lod_radius_ >= 0 && lod_divisor_ > 1;
@@ -1673,7 +1841,7 @@ void SimWorld::tick_once(TickOut &o) {
         for (int pass = 0; pass < 8; pass++) {
             work.clear();
             for (int ci : pass_lists_[pass])
-                if (active_now_[ci].load(std::memory_order_relaxed)) work.push_back(ci);
+                if (active_now_[ci].load(std::memory_order_relaxed) && (sub == 0 || needs_substep(ci))) work.push_back(ci);
             if (sub == 0) active += work.size();
             pool_.run(work, [this](int ci) { update_chunk(ci); });
         }
@@ -1684,7 +1852,7 @@ void SimWorld::tick_once(TickOut &o) {
     // chunk gets its turn every 64 ticks, so a quiet pond still meets the winter
     if (states_ && (tick_ & 3u) == 0)
         for (size_t i = 0; i < nc; i++)
-            if (active_now_[i].load(std::memory_order_relaxed) || (((tick_ >> 2) + i) & 15u) == 0) relax_heat((int)i);
+            if (const bool slow = (((tick_ >> 2) + i) & 15u) == 0; slow || active_now_[i].load(std::memory_order_relaxed)) relax_heat((int)i, slow);
     o.ms = std::chrono::duration<double, std::milli>(clock::now() - t0).count();
     o.active = active;
     o.moved = moved_count_.load();
@@ -1884,9 +2052,20 @@ void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p
                 moved_[ci] = 0;   // loaded, not changed: no stale stamp may read as a fresh opening
                 if (e) cells_[ci].pad = (uint8_t)e;
             }
-    int ci = cidx(c.x, c.y, c.z);
+    on_loaded(cidx(c.x, c.y, c.z));
+}
+
+// ADR 0137: the heat of a recycled chunk slot was whatever its last chunk had (the field starts at 18 C), so the
+// generated ice of a frozen lake melted on its first tick at 2 C outside: 141k cells of moving water, every flight
+void SimWorld::on_loaded(int ci) {
     wake_full(ci); // let it settle once
     loaded_[ci] = 1;
+    switch_[ci] = SW_ALL;
+    int cx, cy, cz;
+    chunk_of(ci, cx, cy, cz);
+    for (int z = cz * CS; z < cz * CS + CS; z += HC)
+        for (int y = cy * CS; y < cy * CS + CS; y += HC)
+            for (int x = cx * CS; x < cx * CS + CS; x += HC) heat_[hidx(x, y, z)] = ambient_c_;
 }
 
 void SimWorld::set_column_bytes(Vector3i c, int ncy, const PackedByteArray &p_bytes, int p_depth_bytes) {
@@ -1919,9 +2098,7 @@ void SimWorld::set_column_bytes(Vector3i c, int ncy, const PackedByteArray &p_by
                     moved_[ci] = 0;
                     if (e) cells_[ci].pad = (uint8_t)e;
                 }
-        const int ci = cidx(c.x, cy, c.z);
-        wake_full(ci);
-        loaded_[ci] = 1;
+        on_loaded(cidx(c.x, cy, c.z));
     }
 }
 
@@ -1938,6 +2115,7 @@ Array SimWorld::shift(Vector3i d) {
     wait_idle();
     Array vacated;
     if (d == Vector3i()) return vacated;
+    std::fill(switch_.begin(), switch_.end(), SW_ALL);   // ADR 0137: what a slot holds is known again after its next whole scan
     if (wrapped_) {
         // Toroidal: new local L = old local L + d, so the offset moves by d; nothing is copied. Chunks whose
         // source lies outside the old window keep stale cells: they become unloaded (walls, not ticked) with

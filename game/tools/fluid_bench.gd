@@ -5,6 +5,7 @@ extends SceneTree
 ## move for 10 ticks (films drying are not motion), the surface's spread in eighths, tick ms avg / max) and "bombs" (ten 1.5 m water balls over an uneven
 ## stone floor with pits, one every 15 ticks: ticks to quiet after the last, the most chunks awake in one tick, tick ms).
 ##   godot --headless --path game --script res://tools/fluid_bench.gd [-- column=0]   (column=0: the eighth kernel of ADR 0069)
+## "reload" and "cold" (ADR 0137): the tick over 400 freshly loaded lake chunks, and the same lake at -5 C.
 ## Run old and new back to back and compare medians: the machine is shared.
 
 const HZ := 30.0
@@ -185,6 +186,45 @@ func _init() -> void:
 	out["moving_water_at_300"] = w.count_material(GameMaterials.WATER)
 	out["active_chunks_at_300"] = awake
 	print(JSON.stringify(out))
+	# reload (ADR 0137): the same 400 chunks loaded again, as a flight over the lake loads them: every loaded chunk is
+	# awake for its first tick. The cost of that tick (median of 7) with and without the state pass
+	var chunks := {}
+	for cz in NC.z:
+		for cy in NC.y:
+			for cx in NC.x:
+				chunks[Vector3i(cx, cy, cz)] = w.get_chunk_bytes(Vector3i(cx, cy, cz), 2)
+	for states in [false, true]:
+		w.set_states(states)
+		var load_ms: Array[float] = []
+		var next_ms: Array[float] = []
+		for round in 7:
+			for lc: Vector3i in chunks:
+				w.set_chunk_bytes(lc, chunks[lc], 2)
+			var t0 := Time.get_ticks_usec()
+			w.tick(1)
+			load_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+			t0 = Time.get_ticks_usec()
+			w.tick(1)
+			next_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+		load_ms.sort()
+		next_ms.sort()
+		print(JSON.stringify({"scene": "reload", "states": states, "chunks": chunks.size(), "load_tick_ms": snappedf(load_ms[3], 0.01),
+			"next_tick_ms": snappedf(next_ms[3], 0.01), "still_woken": int(w.get_stats().get("still_woken", 0))}))
+	# cold (ADR 0137): the same lake at -5 C outside. Every heat cell is at freezing, so each chunk used to be woken whole
+	# every 64 ticks (512 a tick in the game's 32^3 window); now only chunks that may hold a cell that freezes
+	w.set_states(true)
+	w.set_ambient_c(-5.0, true)
+	for t in 64:
+		w.tick(1)
+	sum = 0.0
+	var scanned := 0.0
+	for t in 128:
+		var t0 := Time.get_ticks_usec()
+		var s: Dictionary = w.tick(1)
+		sum += (Time.get_ticks_usec() - t0) / 1000.0
+		scanned += float(s.get("scanned_cells_per_tick", 0))
+	print(JSON.stringify({"scene": "cold", "chunks": chunks.size(), "tick_ms_avg": snappedf(sum / 128.0, 0.01),
+		"scanned_per_tick": int(scanned / 128.0)}))
 	# steam box (ADR 0119 C): a sealed 16^3 room at 110 C with a quarter of water: boiling raises the pressure until it
 	# stops; tick cost with and without the state pass
 	for states in [false, true]:

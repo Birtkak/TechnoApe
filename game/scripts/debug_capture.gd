@@ -60,8 +60,12 @@ var looks_shots := true     # looks_shots=0: looks_test without screenshots
 var looks_budget := false   # looks_budget=1: looks_test only sets ten torches and a held one at night (the budget case)
 var ponder_test := false    # ponder_test=1: every guide scene filmed, a row a step, to out/ponder/<id>.png ("debug ponder", ADR 0132)
 var shell_test := false     # shell_test=1: cave + dug hole, counts unloaded / unmeshed blocks and air-where-rock within 16 m (ADR 0124, scripts/debug/shell_test.gd, "debug shell")
+var fluid_lag := ""         # fluid_lag=lake|river|bomb|pour: time a fluid change to its remesh and rest (ADR 0137, "debug fluid_lag")
+var fluid_lag_sheet := false
+var fluid_lag_from := ""
 var sand_test := false      # sand_test=1: a ball of sand dropped onto still ocean water must sink (scripts/debug/sand_test.gd, "debug sand")
 var tp_test := false        # tp_test=1: a burst of teleports (hops, far jumps, /spawn, /goto, /kill), timed and filmed (scripts/debug/tp_test.gd, "debug tp")
+var fluid_film := false     # fluid_film=1: water scenes filmed as strips + bursts + sim slices (scripts/visuals/fluid_film.gd, ADR 0138)
 var liquids_test := false   # liquids_test=1: a pool of every liquid side by side, shot by day and night, and items dropped into lava (bug reports 2026-10-25, "debug liquids")
 var water_shots := true     # water_shots=0: no screenshots in the water test
 var stone_ages_test := false # stone_ages_test=1: the four Stone Age stages alone (flint_age_test=1 runs them too; ADR 0059, JSON line "debug stone_ages")
@@ -207,10 +211,14 @@ func _ready() -> void:
 	looks_shots = args.get("looks_shots", "1") != "0"
 	looks_budget = args.get("looks_budget", "0") == "1"
 	liquids_test = args.get("liquids_test", "0") == "1"
+	fluid_film = args.get("fluid_film", "0") == "1"
 	tp_test = args.get("tp_test", "0") == "1"
 	ponder_test = args.get("ponder_test", "0") == "1"
 	shell_test = args.get("shell_test", "0") == "1"
 	sand_test = args.get("sand_test", "0") == "1"
+	fluid_lag = args.get("fluid_lag", "")
+	fluid_lag_sheet = args.get("fluid_lag_sheet", "0") == "1"
+	fluid_lag_from = args.get("fluid_lag_from", "")
 	water_shots = args.get("water_shots", "1") != "0"
 	menu_test = args.get("menu_test", "0") == "1"
 	stream_probe = args.get("stream_probe", "0") == "1"

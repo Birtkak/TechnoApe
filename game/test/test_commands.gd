@@ -135,6 +135,16 @@ func test_every_kit_item_exists_and_kits_give() -> void:
 	assert_bool(reg.execute("/kit nope")["ok"]).is_false()
 
 
+## A kit lands whole in an empty inventory: one stack per item, no more items than slots.
+func test_every_kit_fits_the_inventory() -> void:
+	for kit in GameCommands.KITS:
+		var k: Dictionary = GameCommands.KITS[kit]
+		assert_int(k.size()).override_failure_message("kit %s: %d items for %d slots" % [kit, k.size(), PlayerInventory.SIZE]).is_less_equal(PlayerInventory.SIZE)
+		for id in k:
+			var stack := int(items.get_def(id).get("stack", 64))
+			assert_int(int(k[id])).override_failure_message("kit %s: %d %s is more than one stack (%d)" % [kit, k[id], id, stack]).is_less_equal(stack)
+
+
 func test_commands_without_a_world_fail_instead_of_crashing() -> void:
 	for line in ["/tp 0 300 0", "/time set noon", "/spawn", "/goto cave", "/blast 4", "/stations", "/bug test", "/wear steel_helmet"]:
 		if line == "/tp 0 300 0":
