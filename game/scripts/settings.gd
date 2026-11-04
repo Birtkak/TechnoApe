@@ -50,6 +50,7 @@ var air_s := 15.0                       # breath under water (vanilla: 300 ticks
 var suffocate_s := 2.0                  # breath with the head buried in sand or gravel (vanilla: damage at once)
 var drown_damage := 2                   # half-hearts per second once the air is gone (vanilla)
 var sim_threads := maxi(2, OS.get_processor_count() - 2)
+var voxel_threads := maxi(2, OS.get_processor_count() - 4)   # godot_voxel workers while playing (ADR 0135: its default, half the cores, fell behind a 20 m/s flight; 8 of 12 on the dev box hold the frame budget)
 
 # Player (metres, converted at use)
 var walk_speed_m := 4.3
@@ -147,6 +148,11 @@ var lamp_light_range_m := 12.0          # ADR 0117: an electric lamp's light (To
 var lamp_light_energy := 1.2
 var pump_buckets := 4                   # ... and its tank, in buckets (1 m^3 each)
 var machine_pins_max := 2               # ADR 0117: pins kept alive for machines that need the simulation (pumps), nearest first
+var waste_port_cells := 256             # ADR 0141: waste cells a machine holds for its port; at this it stalls (port blocked)
+var waste_cells_per_s := 16             # ... cells of each waste a port lets out a second (into free cells only)
+var waste_intake_buckets := 4           # ... sludge a scrubber holds, in buckets
+var chimney_max_m := 16.0               # ... the tallest chimney stack the vent search follows
+var wind_cells_per_tick := 0.6          # ... a full wind's drift for smoke (SimWorld.set_wind); WorkSystem's wind 0..1 scales it
 var jetpack_rise_m := 2.0               # the steam jetpack climbs this fast with jump held
 var jetpack_sink_m := 0.6               # ...and sinks this fast with it released (a hover)
 var jetpack_air_s := 90.0               # seconds of climbing one fill of compressed air gives (hovering costs a quarter)
@@ -234,6 +240,16 @@ var fire_rain_delay_max_s := 180.0
 var rain_drops_per_s := 160.0           # water cells dropped on the fire cells the scans found while it rains (one each)
 var rain_db := -10.0                    # the rain loop at full rain
 var rigid_pieces := true                # cut-loose trees and limbs fall as rigid bodies (P12, ADR 0037); rigid_pieces=0 turns it off
+# ADR 0142, mines need shoring (MineSupport): a dug roof cell must be within its rock's span of a wall or under a prop
+var cave_ins := true                    # cave_ins=0 turns it off (needs rigid_pieces)
+var cave_ins_all_modes := false         # creative and spectator digs count too (/support modes all); survival only by default
+var support_span_base_m := 1.0          # a roof cell may lie base + per_hardness x its mining hardness from a wall:
+var support_span_per_hardness_m := 1.0  # sandstone 1.8 m, stone 2.5 m, ore 4 m (a 3 m tunnel always stands)
+var support_span_max_m := 4.0
+var support_warn_min_s := 15.0          # creak to fall: a roof far past its span goes this soon ...
+var support_warn_max_s := 120.0         # ... one just past it creaks this long (time to prop it)
+var screen_shake := true                # the last seconds before a roof falls shake the camera (screen_shake=0)
+var support_scan_s := 0.25             # digs and prop changes are checked together this often
 # playtest gadgets (/kit gadgets, PlaytestTools): debug items, not progression
 var laser_range_m := 64.0               # the laser cutter reaches this far
 var laser_depth_m := 3.0                # and cuts this deep past the first solid voxel (through a big trunk)
@@ -399,6 +415,12 @@ func apply_cmdline() -> Dictionary:
 			"cache_generated": cache_generated_blocks = kv[1] == "1"
 			"particles": particles = kv[1] == "1"
 			"rigid_pieces": rigid_pieces = kv[1] == "1"
+			"cave_ins": cave_ins = kv[1] == "1"
+			"screen_shake": screen_shake = kv[1] == "1"
+			"support_warn_s":   # support_warn_s=min,max (test runs)
+				var mm := kv[1].split(",")
+				support_warn_min_s = float(mm[0])
+				support_warn_max_s = float(mm[mm.size() - 1])
 			"weather": weather = kv[1] != "0"
 			"fire_rain_delay_s":
 				fire_rain_delay_min_s = float(kv[1])
@@ -413,6 +435,7 @@ func apply_cmdline() -> Dictionary:
 			"sim_push_interval_ms": sim_push_interval_ms = float(kv[1])
 			"terrain_mesh_collisions": terrain_mesh_collisions = kv[1] == "1"
 			"sim_threads": sim_threads = int(kv[1])
+			"voxel_threads": voxel_threads = int(kv[1])
 			"world_seed", "seed": set_seed_text(kv[1])
 			"persist": persist_world = kv[1] == "1"
 			"max_health": max_health = int(kv[1])

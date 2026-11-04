@@ -1086,7 +1086,7 @@ float WorldGen::cave_value(int x, int y, int z, int height, bool small_only) con
     return cave_value(col, y, height, small_only);
 }
 
-float WorldGen::cave_value(const CaveColumn &col, int y, int height, bool small_only) const {
+float WorldGen::cave_value(const CaveColumn &col, int y, int height, bool small_only, const HallCol *hc_in, float *hall_out) const {
     const int x = col.x, z = col.z;
     const float fx = (float)x, fy = (float)y, fz = (float)z;
     const float depth = (float)(height - y);
@@ -1116,10 +1116,12 @@ float WorldGen::cave_value(const CaveColumn &col, int y, int height, bool small_
     }
     float v = std::max(cheese, sp);
     if (!epic) return v;
-    HallCol hc;
-    hall_column(x, z, col.galoff, hc);
+    HallCol hc_own;
+    if (!hc_in) hall_column(x, z, col.galoff, hc_own);
+    const HallCol &hc = hc_in ? *hc_in : hc_own;
     float cut = 0.0f;
     const float hall = hall_value(hc, fy, depth, nullptr, nullptr, false, &cut);
+    if (hall_out) *hall_out = hall;
     v -= 4.0f * std::min(cut, 1.0f);
     // Galleries (ADR 0080): a storey of walkable passages every 14 m down, each a winding network along the zero
     // lines of its own 2D noise, ~4 m wide and 3 m tall with a flat floor that tilts at most ~10 degrees, so a
@@ -1201,6 +1203,7 @@ float WorldGen::cave_value(const CaveColumn &col, int y, int height, bool small_
 // landmark of find_nearest("cavern"). Its talus reaches up to the next storey's floor, so that storey's passages come
 // out onto the top of the slope. Macro units; depth is the point's depth under the ground.
 void WorldGen::hall_column(int x, int z, float galoff, HallCol &out) const {
+    out = HallCol();   // a new column: its memo is empty
     out.x = (float)x, out.z = (float)z, out.galoff = galoff;
     out.giant = smoothstep(GIANT_MASK, GIANT_MASK + 0.1f, n_giant_.GetNoise(out.x, out.z));
     out.pillar = n_pillar_.GetNoise(out.x, out.z);
@@ -1225,7 +1228,15 @@ float WorldGen::hall_value(const HallCol &c, float fy, float depth, float *rim, 
     // Giant chambers stand on every other storey (two stacked made one 36 m shaft). One of the storey below reaches
     // up through this storey: no hall of this storey stands in it or within 6 m of its wall.
     auto giant_storey = [](float l) { return ((int)l & 1) == 0; };
-    const float below = c.giant > 0.0f && giant_storey(lvl0 - 1.0f) ? foot_dist(n_cavern_, c.x + (lvl0 - 1.0f) * 311.0f, c.z - (lvl0 - 1.0f) * 197.0f, GIANT_THR) * c.giant : -1000.0f;
+    auto foot = [&](int kind, float lvl) {   // foot_dist of a storey's giant (0) or hall (1) footprint, memoised in c
+        const float key = lvl * 2.0f + (float)kind;
+        for (int i = 0; i < 4; i++)
+            if (c.memo_k[i] == key) return c.memo_v[i];
+        const float v = kind ? foot_dist(n_hall_, c.x + lvl * 577.0f, c.z - lvl * 913.0f, HALL_THR) : foot_dist(n_cavern_, c.x + lvl * 311.0f, c.z - lvl * 197.0f, GIANT_THR);
+        c.memo_k[c.memo_i] = key, c.memo_v[c.memo_i] = v, c.memo_i = (c.memo_i + 1) & 3;
+        return v;
+    };
+    const float below = c.giant > 0.0f && giant_storey(lvl0 - 1.0f) ? foot(0, lvl0 - 1.0f) * c.giant : -1000.0f;
     for (int d = 0; d <= 1; d++) {   // this storey's hall, and a giant chamber of the storey below reaching up into it
         const float lvl = lvl0 - (float)d;
         const float u = yo - (lvl * GAL_SP - GAL_HH);   // height over the storey's floor
@@ -1235,13 +1246,13 @@ float WorldGen::hall_value(const HallCol &c, float fy, float depth, float *rim, 
         float t = -1000.0f, H = 0.0f, K = 0.0f, dome = HALL_DOME, span = HALL_SPAN;
         bool giant = false;
         if (c.giant > 0.0f && giant_storey(lvl)) {
-            t = d == 1 ? below : foot_dist(n_cavern_, c.x + lvl * 311.0f, c.z - lvl * 197.0f, GIANT_THR) * c.giant;
+            t = d == 1 ? below : foot(0, lvl) * c.giant;
             if (t > -1000.0f) H = GIANT_H, K = GIANT_TALUS, dome = GIANT_DOME, span = GIANT_SPAN, giant = true;
         }
         // a giant chamber of this storey or the one below keeps the storey's halls 6 m off its wall (a column that
         // switched from one to the other stepped 12 m)
         if (d == 0 && !giant_only && below < -12.0f && t < -12.0f) {
-            t = foot_dist(n_hall_, c.x + lvl * 577.0f, c.z - lvl * 913.0f, HALL_THR);
+            t = foot(1, lvl);
             H = HALL_H, K = HALL_TALUS, dome = HALL_DOME, span = HALL_SPAN, giant = false;
         }
         // 8 m of rock over the roof at least, 115 m down at most (the galleries' range), clear of the bedrock

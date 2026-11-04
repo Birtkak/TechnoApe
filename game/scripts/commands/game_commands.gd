@@ -121,12 +121,14 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("tools", "/tools", "Open the world tools panel (the G key): brush shape and size, build modes, prefabs and their keys, with tooltips", _tools)
 	reg.register("tnt", "/tnt <grid [n] [spacing_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); light lights the aimed charge",
 		_tnt, [["grid", "light", "stats"], ["1", "5", "20"], ["1", "1.5", "2"]])
+	reg.register("support", "/support [stats|scan|probe|modes <all|survival>|on|off]", "Mine shoring (ADR 0142): what creaks and when it falls, scan the roof here, the aimed roof's load, which game modes cave in",
+		_support, [["stats", "scan", "probe", "modes", "on", "off"], ["all", "survival"]])
 	reg.register("setblock", "/setblock <x> <y> <z> <material>", "Set one voxel; ~ is relative to you (~ ~-1 ~ is under your feet)",
 		_setblock, [["~"], ["~"], ["~"], _material_names])
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
 	reg.register("ponder", "/ponder [scene]", "Open the guide screen (ADR 0132): how boilers, pipes, cables and machines connect; no scene lists them", _ponder, [Ponder.scenes().keys()])
-	reg.register("stations", "/stations [electric|factory|lv|power]", "Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131)", _stations, [["electric", "factory", "lv", "power"]])
+	reg.register("stations", "/stations [electric|factory|lv|power|pollution]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); pollution: a fouled stream beside a settling pond (ADR 0141)", _stations, [["electric", "factory", "lv", "power", "pollution"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
@@ -815,6 +817,32 @@ func _open_inventory(then: Callable) -> void:
 
 ## /tnt grid [n] [spacing_m]: n TNT blocks in a square grid on the ground where you look (block
 ## grid, `spacing_m` apart, default 1.5 m: each in the next one's blast), the nearest lit.
+func _support(args: PackedStringArray) -> Dictionary:
+	if main == null or main.support == null:
+		return CommandRegistry.fail("Cave-ins are off (cave_ins=0 or rigid_pieces=0)")
+	var sup: MineSupport = main.support
+	match args[0] if args.size() > 0 else "stats":
+		"stats":
+			return CommandRegistry.ok(JSON.stringify(sup.stats()))
+		"scan":
+			var p := Vector3i(player.position.floor())
+			sup.prop_changed(p - Vector3i(Settings.BLOCK, 0, Settings.BLOCK))
+			return CommandRegistry.ok("Roof around you queued for a check")
+		"probe":
+			var cam: Camera3D = player.camera
+			var hit: VoxelRaycastResult = main.world.raycast(cam.global_position, -cam.global_transform.basis.z, Settings.m2v(Settings.reach_m))
+			if hit == null:
+				return CommandRegistry.fail("Aim at a roof")
+			return CommandRegistry.ok(sup.hint(hit.position) + " " + JSON.stringify(sup.probe))
+		"modes":
+			Settings.cave_ins_all_modes = args.size() > 1 and args[1] == "all"
+			return CommandRegistry.ok("Cave-ins in %s" % ("every mode" if Settings.cave_ins_all_modes else "survival only"))
+		"on", "off":
+			Settings.cave_ins = args[0] == "on"
+			return CommandRegistry.ok("Cave-ins %s" % args[0])
+	return CommandRegistry.fail("/support [stats|scan|probe|modes <all|survival>|on|off]")
+
+
 func _tnt(args: PackedStringArray) -> Dictionary:
 	if main == null or player == null or main.tnt == null:
 		return CommandRegistry.fail("No world")
@@ -896,6 +924,13 @@ func _ponder(args: PackedStringArray) -> Dictionary:
 func _stations(args: PackedStringArray) -> Dictionary:
 	if main == null:
 		return CommandRegistry.fail("No world")
+	if args.size() > 0 and args[0] == "pollution":   # ADR 0141: a stream fouled beside a settling pond
+		if not main.bubble.is_loaded():
+			return _queue_until_loaded(_stations, args)   # its fills need the sim window loaded
+		# a 13 m stone slab 4 m up toward +z, centred on the player's x (is_loaded() vouches for 8 m around): no terrain
+		# in the way of the water or the view
+		var anchor := BlockEntities.anchor_for(Vector3i((player.position + Vector3(-12 * Settings.BLOCK, Settings.m2v(4.0), Settings.m2v(4.0))).floor()))
+		return CommandRegistry.ok("Laid " + main.work.debug_pollution(anchor))
 	if args.size() > 0 and args[0] in ["electric", "factory", "lv", "power"]:   # ADR 0113, 0117, 0123, 0131: the energy line, the factory, the LV machines or the small sources, 4 m ahead, along the player's right
 		var fwd: Vector3 = -player.camera.global_transform.basis.z
 		fwd.y = 0

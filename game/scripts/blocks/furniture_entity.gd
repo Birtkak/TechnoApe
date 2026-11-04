@@ -61,6 +61,14 @@ const BASE_KINDS := {
 	"red_rug": {"size": Vector3i(2, 1, 2), "cells": Vector3i(16, 1, 16), "item": "red_rug", "box": [Vector3i(0, 0, 0), Vector3i(8, 1, 8)]},
 	"blue_rug": {"size": Vector3i(2, 1, 2), "cells": Vector3i(16, 1, 16), "item": "blue_rug", "box": [Vector3i(0, 0, 0), Vector3i(8, 1, 8)]},
 	"straw_mat": {"size": Vector3i(2, 1, 2), "cells": Vector3i(16, 1, 16), "item": "straw_mat", "box": [Vector3i(0, 0, 0), Vector3i(8, 1, 8)]},
+	# ADR 0142: mine supports stand from the floor up to the roof (an entity's "height", at most size.y blocks) and
+	# hold the roof within radius_m of them, up to capacity_m2 of it that nothing else holds (MineSupport)
+	"timber_prop": {"size": Vector3i(1, 6, 1), "cells": Vector3i(8, 48, 8), "item": "timber_prop",
+		"box": [Vector3i(1, 0, 1), Vector3i(3, 24, 3)], "prop": {"radius_m": 1.5, "capacity_m2": 4.0}},
+	"stone_pillar": {"size": Vector3i(1, 6, 1), "cells": Vector3i(8, 48, 8), "item": "stone_pillar",
+		"box": [Vector3i(0, 0, 0), Vector3i(4, 24, 4)], "prop": {"radius_m": 2.5, "capacity_m2": 12.0}},
+	"iron_beam": {"size": Vector3i(1, 6, 1), "cells": Vector3i(8, 48, 8), "item": "iron_beam",
+		"box": [Vector3i(1, 0, 1), Vector3i(3, 24, 3)], "prop": {"radius_m": 3.5, "capacity_m2": 30.0}},
 }
 ## The plank furniture made in every wood (ADR 0121): "<wood>_<kind>" is the oak kind in that wood's paints.
 const WOODED := ["door", "trapdoor", "fence", "fence_gate", "table", "bench", "shelf", "sign", "window"]
@@ -90,24 +98,45 @@ var pos := Vector3i.ZERO     # anchor voxel (local cell 0, 0, 0)
 var facing := 0
 var open := false            # doors, trapdoors, gates: swung open, their voxels in the "open" box
 var text := ""               # a sign's words (ADR 0121)
+var height := 0              # a mine prop's height in voxels, floor to roof (ADR 0142); 0 = its kind's full height
 var cells: Array[Vector3i] = []
 
 
-func _init(p_pos: Vector3i, p_furniture: String = "", p_facing: int = 0) -> void:
+func _init(p_pos: Vector3i, p_furniture: String = "", p_facing: int = 0, p_height: int = 0) -> void:
 	pos = p_pos
 	furniture = p_furniture
 	facing = p_facing
+	height = p_height
 	if furniture != "":
-		cells = footprint(furniture, pos, facing)
+		cells = footprint(furniture, pos, facing, false, height)
+
+
+static func is_prop(p_kind: String) -> bool:
+	return KINDS.get(p_kind, {}).has("prop")
+
+
+## ADR 0142: how tall a prop anchored at `anchor` stands: the open voxels above its centre up to the roof,
+## 0 when no roof is within its kind's height (it needs one to wedge against) or the gap is under 0.5 m.
+static func prop_height(p_kind: String, anchor: Vector3i, get_voxel: Callable) -> int:
+	var k: Dictionary = KINDS[p_kind]
+	var c := anchor + Vector3i(Settings.BLOCK / 2, 0, Settings.BLOCK / 2)
+	for h in range(1, k["size"].y * Settings.BLOCK + 1):
+		var v: int = get_voxel.call(c + Vector3i(0, h, 0))
+		var m := GameMaterials.material_of_voxel(v)
+		if m != GameMaterials.AIR and not GameMaterials.is_liquid(m) and not PlantStamps.is_clearable_cell(v):
+			return h if h >= Settings.BLOCK else 0
+	return 0
 
 
 ## The voxels a piece of furniture covers when anchored at `anchor` (the min
 ## corner of its anchor block): whole blocks of BLOCK^3 voxels laid out from
 ## the anchor block across (right), up and along the facing (ADR 0034), or
 ## only its "box" ("open" box when swung open) of local voxels (ADR 0094).
-static func footprint(p_kind: String, anchor: Vector3i, p_facing: int, p_open: bool = false) -> Array[Vector3i]:
+static func footprint(p_kind: String, anchor: Vector3i, p_facing: int, p_open: bool = false, p_height: int = 0) -> Array[Vector3i]:
 	var out: Array[Vector3i] = []
 	var k: Dictionary = KINDS[p_kind]
+	if p_height > 0 and k.has("box"):   # a prop: its box from the floor to the roof
+		k = {"size": k["size"], "box": [k["box"][0], Vector3i(k["box"][1].x, p_height, k["box"][1].z)]}
 	var size: Vector3i = k["size"]
 	var fwd: Vector3i = DIRS[p_facing]
 	var right := Vector3i(fwd.z, 0, -fwd.x)
@@ -179,7 +208,7 @@ func can_open() -> bool:
 
 
 func to_dict() -> Dictionary:
-	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "furniture": furniture, "facing": facing, "open": open, "text": text}
+	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "furniture": furniture, "facing": facing, "open": open, "text": text, "height": height}
 
 
 func load_from(d: Dictionary) -> void:
@@ -187,7 +216,8 @@ func load_from(d: Dictionary) -> void:
 	facing = int(d.get("facing", 0))
 	open = bool(d.get("open", false)) and can_open()
 	text = String(d.get("text", ""))
-	cells = footprint(furniture, pos, facing, open)
+	height = int(d.get("height", 0))
+	cells = footprint(furniture, pos, facing, open, height)
 
 
 func summary() -> Dictionary:
@@ -196,7 +226,7 @@ func summary() -> Dictionary:
 
 # ---------------- the model ----------------
 
-const ATLAS := Vector2i(WorkPalette.SHADES, 25)   # tone columns per paint (WorkPalette.shade_cells)
+const ATLAS := Vector2i(WorkPalette.SHADES, 27)   # tone columns per paint (WorkPalette.shade_cells)
 const PLANK := 0
 const PLANK_DARK := 1
 const WOOL := 2
@@ -217,9 +247,11 @@ const PALETTE: Array = [[184, 142, 86], [128, 92, 52], [238, 238, 232], [214, 21
 	[208, 178, 88], [168, 136, 60], [64, 66, 72], [70, 132, 48], [226, 196, 64], [178, 92, 54], [128, 172, 222],
 	[255, 214, 120], [52, 72, 150], [72, 50, 34],
 	[118, 82, 50], [74, 50, 30], [196, 110, 58], [140, 72, 34], [166, 104, 82], [116, 66, 52], [222, 204, 160], [176, 156, 116],
-	[238, 228, 196]]
+	[238, 228, 196], [138, 136, 130], [98, 96, 92]]
 const WOOD_PAINTS := {"spruce": [16, 17], "acacia": [18, 19], "jungle": [20, 21], "birch": [22, 23]}   # [plank, dark]: the planks' tiles 176..179
 const WAX := 24
+const STONE := 25        # ADR 0142: the stone pillar
+const STONE_SHADE := 26
 
 static var _material: StandardMaterial3D
 static var _glass: StandardMaterial3D
@@ -254,6 +286,8 @@ func make_view() -> Node3D:
 	root.position = _block_centre()
 	root.rotation.y = yaw()
 	root.scale = Vector3.ONE * Settings.BLOCK
+	if height > 0:   # a prop: its model stretched from the floor to the roof
+		root.scale.y *= float(height) / (KINDS[furniture]["size"].y * Settings.BLOCK)
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh_for(furniture)
 	mi.material_override = material()
@@ -475,6 +509,25 @@ static func cells_for(p_kind: String) -> PackedInt32Array:
 		box.call(Vector3i(6, 1, 3), Vector3i(7, 2, 5), IRON)   # the finger ring
 		box.call(Vector3i(3, 1, 3), Vector3i(5, 5, 5), WAX)
 		box.call(Vector3i(4, 5, 4), Vector3i(5, 7, 5), FLAME)
+	elif p_kind == "timber_prop":
+		# ADR 0142: a log post on a foot block, a cap board wedged against the roof (the model stretches to fit)
+		box.call(Vector3i(2, 0, 2), Vector3i(6, 48, 6), PLANK_DARK)
+		for y in range(3, 45, 6):
+			box.call(Vector3i(2, y, 2), Vector3i(6, y + 2, 3), PLANK)   # bark seams on the front
+		box.call(Vector3i(1, 0, 1), Vector3i(7, 2, 7), PLANK)
+		box.call(Vector3i(0, 45, 1), Vector3i(8, 48, 7), PLANK)
+	elif p_kind == "stone_pillar":
+		box.call(Vector3i(1, 0, 1), Vector3i(7, 48, 7), STONE)
+		for y in range(6, 42, 8):
+			box.call(Vector3i(1, y, 1), Vector3i(7, y + 1, 7), STONE_SHADE)   # the courses
+		box.call(Vector3i(0, 0, 0), Vector3i(8, 3, 8), STONE_SHADE)
+		box.call(Vector3i(0, 45, 0), Vector3i(8, 48, 8), STONE_SHADE)
+	elif p_kind == "iron_beam":
+		box.call(Vector3i(3, 0, 2), Vector3i(5, 48, 6), IRON)   # the web of an I-beam post
+		box.call(Vector3i(2, 0, 2), Vector3i(6, 48, 3), IRON)
+		box.call(Vector3i(2, 0, 5), Vector3i(6, 48, 6), IRON)
+		box.call(Vector3i(1, 0, 1), Vector3i(7, 2, 7), IRON)
+		box.call(Vector3i(0, 44, 0), Vector3i(8, 48, 8), IRON)   # the head plate under the roof
 	elif p_kind in ["red_rug", "blue_rug"]:
 		# a woven rug: a dark border, the dyed field, a pale diamond in the middle and pale fringe at the ends
 		var field := RED if p_kind == "red_rug" else BLUE

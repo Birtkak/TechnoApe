@@ -254,6 +254,16 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   hardness (soft full radius, stone 3/4, hard rock 1/2, obsidian and bedrock never), rim seeds to the rigid piece check,
   damage and knockback to 2 x radius, 30 % of the estimated take as drops. One blast per frame; a 20-block chain holds
   max frame 12.4 ms. `/tnt grid [n] [spacing_m] | light | stats`, `/kit tnt`; JSON `tnt`.
+  **Mine shoring (ADR 0142):** a roof cell over a dug 0.5 m block must lie within its rock's span of a wall
+  (`1 m + 1 m x mining hardness`, max 4 m: stone 2.5 m, sandstone 1.8 m; a 3 m tunnel always stands) or within
+  a prop's radius (timber prop 1.5 m / 4 m2, stone pillar 2.5 m / 12 m2, iron beam 3.5 m / 30 m2: furniture kinds
+  with `"prop"`, stretched floor to roof, `height` in the save); any solid column floor to roof is a wall. Native
+  (`RigidPieces.support_*`, `src/rigid_support.cpp`: Dijkstra over the roof surface, on the driver thread), event
+  driven: digs mark blocks (`Main._on_dug`, crater rod, TNT, box dig; never the laser) and `MineSupport` scans the
+  dug box every 0.25 s. Unheld roofs crack and darken, shed dust and grit, creak louder and shake the camera at the
+  end, for 15-120 s (`warn_s`); overloaded props bend; then the roof falls as one rock piece (`support_drop`) and
+  hurts what is under it. Survival only unless `/support modes all`; marks (per chunk) and creaking roofs are saved
+  in `support_<seed>_g<gen>.bin`. `/support`, F3 "Support:", JSON `support`, `mine_test=`.
   **Next:** the rest of the ADR 0037 work order; still open from before: fire/smoke pacing per cell, fast flight vs
   generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
   list in `docs/plans/to-test.md`.
@@ -263,8 +273,14 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   109 cobblestone, 110 bricks, 111..115 clutter (plant stem, kelp, seagrass, seashell, mushroom stem; ADR 0047),
   116..119 liquids (part A), 120 crystal (geodes, ADR 0052), 121 lava_static (ADR 0069 C), 122..123 reserved for world generation, 124..126 giant flower stem, petal, heart (meadow, 2026-11-02), 127..129 savanna grass,
   savanna tall grass, red earth (ADR 0064; `GameMaterials.is_grass` / `is_tall_grass` treat them as grass), 130..132 torch and
-  wheat parts (ADR 0053), 160..202 rock kinds, clutter, pyrite and ochres (ADR 0057), Stone Age ids after (ADR 0059), 203 tnt (ADR 0065), 204..206 monolith (ADR 0098), 207..210 spruce/acacia/jungle/birch planks and 211..215 saplings (ADR 0112: `Saplings` grows them into trees, `data/saplings.json`).
-  Atlas 8x23 tiles (16..19 ores, patterned since ADR 0064; 104 crystal, 109..111 savanna grass, tall grass, red earth, 112..120 crops and torches, 136..170 rocks, 171..172 tnt side and top, 173..175 monolith, 176..179 per-wood planks (row 23, 180..183 free); 84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
+  wheat parts (ADR 0053), 160..202 rock kinds, clutter, pyrite and ochres (ADR 0057), Stone Age ids after (ADR 0059), 203 tnt (ADR 0065), 204..206 monolith (ADR 0098), 207..210 spruce/acacia/jungle/birch planks and 211..215 saplings (ADR 0112: `Saplings` grows them into trees, `data/saplings.json`), 218..221 fouled water, waste ground, slag, chimney (ADR 0141; 222.. reserved up to the cave ids).
+  **Pollution (ADR 0141):** machine waste is cells: recipe `"waste"` and item `"firebox"` fill a saved buffer that
+  `Waste.emit_all` (once a second) pours out of the port (back face; gases over the top or a chimney stack; liquids
+  into a touching pipe run's intake or far end); a full buffer stalls the machine. Sludge fouls water; fouled water
+  dilutes only against still water; sludge erodes soil and settles on gravel through `"passive"` reactions (the ground
+  stays inert, only `"react_awake"` sludge and fouled water keep their chunk awake while they touch a partner).
+  `SimWorld.set_wind` drifts `wind_drift` gases (smoke). `/stations pollution` shows it.
+  Atlas 8x23 tiles (16..19 ores, patterned since ADR 0064; 104 crystal, 109..111 savanna grass, tall grass, red earth, 112..120 crops and torches, 136..170 rocks, 171..172 tnt side and top, 173..175 monolith, 176..179 per-wood planks (row 23, 180..183 free); 190 waste ground, 191 slag, 215 chimney top (ADR 0141); 84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
   stones; 98 cobblestone, 99 bricks; 100 blueberry bush; 101 kelp, 102 seagrass, 103 seashell: full, add a row to grow;
   after editing `tools/make_atlas.py` run `--import`, or the game draws the old texture). `"pattern": true` materials lay their tile over the grid, one texel per voxel (ADR 0039). Ground pickups are voxel shapes (stone chunks on a 0.5 m patch, sticks as `FineGen::STICK` stamps);
   clutter (flowers, mushrooms, seashells, kelp, seagrass) and ore nuggets are voxel pieces that dig whole (ADR 0047,

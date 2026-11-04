@@ -15,7 +15,7 @@ signal changed
 const DOOR := {"lathe": WorkPalette.BRONZE, "bending_press": WorkPalette.ANVIL, "wiremill": WorkPalette.COPPER,
 	"macerator": WorkPalette.GRAVEL, "alloy_smelter": WorkPalette.MOLTEN, "assembler": WorkPalette.GLOW,
 	"extractor": WorkPalette.GLOW, "cutter": WorkPalette.STEEL, "extruder": WorkPalette.MOLTEN, "canning_machine": WorkPalette.COPPER,
-	"electric_compressor": WorkPalette.STEEL, "electrolyzer": WorkPalette.GLOW}
+	"electric_compressor": WorkPalette.STEEL, "electrolyzer": WorkPalette.GLOW, "scrubber": WorkPalette.GRAVEL}
 
 var kind: String
 var title: String
@@ -31,6 +31,10 @@ var total := 20
 var made := 0
 var enabled := true         # a machine with eu_t 0 (the coke oven) runs while this is set (formed)
 var facing := 0             # quarter turns; a wrench turns it (ADR 0097's rule, ADR 0117)
+var waste := {}             # ADR 0141: material id -> cells of recipe waste waiting at the port (Waste.emit_all)
+var intake_material := 0    # ADR 0141: the liquid the item's "machine": {"intake": {material, item}} takes (the scrubber)
+var intake_item := ""       # ... the bucket of it a recipe names and a hand gives
+var intake := 0             # ... cells of it held (pipes and buckets fill it)
 var _list: Array = []       # this station's process recipes
 
 
@@ -45,6 +49,10 @@ func _init(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_pos: Vector3i, p_
 	if float(m.get("watts", 0.0)) > 0.0:
 		load = PowerLoad.new(float(m["watts"]))
 	inv = Inventory.new(items, int(m.get("inputs", 1)))
+	var take: Dictionary = m.get("intake", {})
+	if not take.is_empty():
+		intake_material = GameMaterials.id_of(String(take.get("material", "")))
+		intake_item = String(take.get("item", ""))
 	for rid in recipes.by_station(kind):
 		if recipes.recipes[rid].get("type", "") == "process":
 			_list.append(recipes.recipes[rid])
@@ -68,12 +76,26 @@ func _slot_for(spec: String, n: int) -> int:
 	return -1
 
 
-## The first recipe the inputs satisfy with room in the output, or {}.
+## `n` of `spec` in the inputs; the intake bucket (ADR 0141) counts the intake's buckets instead.
+func _have(spec: String, n: int) -> bool:
+	if intake_item != "" and spec == intake_item:
+		return intake >= n * Bucket.capacity()
+	return _slot_for(spec, n) >= 0
+
+
+func intake_room() -> int:
+	return maxi(0, Settings.waste_intake_buckets * Bucket.capacity() - intake) if intake_material > 0 else 0
+
+
+## The first recipe the inputs satisfy with room in the output, or {}. Nothing while the waste port is
+## blocked (ADR 0141): a machine stalls on its waste like on a full output.
 func current() -> Dictionary:
+	if Waste.blocked(waste):
+		return {}
 	for r in _list:
 		var ok := true
 		for spec in needs_of(r, items):
-			if _slot_for(spec, needs_of(r, items)[spec]) < 0:
+			if not _have(spec, needs_of(r, items)[spec]):
 				ok = false
 				break
 		if ok and _room_for(r["output"]):
@@ -135,7 +157,11 @@ func tick() -> bool:
 func _finish(r: Dictionary) -> void:
 	var needs := needs_of(r, items)
 	for spec in needs:
-		inv.take(_slot_for(spec, needs[spec]), needs[spec])
+		if intake_item != "" and spec == intake_item:
+			intake -= needs[spec] * Bucket.capacity()
+		else:
+			inv.take(_slot_for(spec, needs[spec]), needs[spec])
+	Waste.add_recipe(waste, r)
 	var out: Dictionary = r["output"]
 	var n := int(out["count"]) * items.units(out["id"])
 	output = {"id": out["id"], "count": int(output.get("count", 0)) + n} if not output.is_empty() else {"id": out["id"], "count": n}
@@ -145,6 +171,8 @@ func _finish(r: Dictionary) -> void:
 
 ## Whether any recipe here takes `id`.
 func takes(id: String) -> bool:
+	if id == intake_item and intake_item != "":
+		return false   # buckets of the intake pour into it (use), they are no input stack
 	for r in _list:
 		for spec in r["ingredients"]:
 			if items.matches(id, String(spec)):
@@ -163,6 +191,15 @@ func use(stack: Dictionary) -> Dictionary:
 		else:
 			res["give"] = [output.duplicate()]
 			output = {}
+			changed.emit()
+		return res
+	if id == intake_item and intake_item != "":   # ADR 0141: a bucket of sludge pours into the scrubber, the bucket comes back
+		if intake_room() < Bucket.capacity():
+			res["msg"] = "Its tank is full."
+		else:
+			intake += Bucket.capacity()
+			res["consume"] = 1
+			res["give"] = [{"id": String(items.get_def(id).get("empties_to", "bucket")), "count": 1}]
 			changed.emit()
 		return res
 	if not takes(id):
@@ -213,6 +250,10 @@ func look_lines() -> Array[String]:
 		out.append("%s: %d%% done" % [items.display_name(current()["output"]["id"]), roundi(progress_frac() * 100.0)])
 	if not output.is_empty():
 		out.append("Ready: %s x%d (empty hand takes it)" % [items.display_name(output["id"]), int(output["count"])])
+	if intake_material > 0:
+		out.append("%s: %.1f of %d buckets" % [GameMaterials.name_of(intake_material).replace("_", " ").capitalize(), float(intake) / Bucket.capacity(), Settings.waste_intake_buckets])
+	if Waste.blocked(waste):
+		out.append(Waste.status(waste))
 	if load != null:
 		out.append(("Running, " if powered() else "No power: ") + load.status())
 	return out
@@ -301,6 +342,10 @@ static func box_model(door: int, lit: bool, top: String = "") -> Dictionary:
 			b.call(Vector3i(2, 15, 6), Vector3i(14, n, 10), WorkPalette.IRON_DARK)
 			b.call(Vector3i(5, t, 5), Vector3i(11, 15, 11), WorkPalette.STEEL)
 			WorkPalette.hazard_box(c, size, Vector3i(5, 14, 10), Vector3i(11, 15, 11))
+		"scrubber":   # ADR 0141: a steel settling drum with a gravel filter bed under a bronze inlet
+			WorkPalette.drum(c, size, 3, 13, 14.5, 8.0, 2.4, WorkPalette.STEEL)
+			b.call(Vector3i(4, 15, 6), Vector3i(12, n, 10), WorkPalette.GRAVEL)
+			b.call(Vector3i(7, t, 2), Vector3i(9, n, 4), WorkPalette.BRONZE)
 		"electrolyzer":   # a glowing cell in an iron rim, two dark electrodes with copper caps
 			b.call(Vector3i(2, t, 2), Vector3i(14, 15, 14), WorkPalette.IRON_DARK)
 			b.call(Vector3i(3, t, 3), Vector3i(13, 15, 13), WorkPalette.GLOW)
@@ -326,7 +371,10 @@ static func turned(view: Dictionary, quarters: int) -> Dictionary:
 
 
 func to_dict() -> Dictionary:
-	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "slots": inv.to_array(), "output": output, "progress": progress, "facing": facing}
+	var w := {}
+	for m in waste:
+		w[GameMaterials.name_of(int(m))] = int(waste[m])
+	return {"kind": kind, "pos": [pos.x, pos.y, pos.z], "slots": inv.to_array(), "output": output, "progress": progress, "facing": facing, "waste": w, "intake": intake}
 
 
 func load_from(d: Dictionary) -> void:
@@ -336,7 +384,12 @@ func load_from(d: Dictionary) -> void:
 	output = d.get("output", {})
 	progress = int(d.get("progress", 0))
 	facing = int(d.get("facing", 0))
+	waste = {}
+	var w: Dictionary = d.get("waste", {})
+	for k in w:
+		Waste.add(waste, GameMaterials.id_of(String(k)), int(w[k]))
+	intake = int(d.get("intake", 0))
 
 
 func summary() -> Dictionary:
-	return {"kind": kind, "inputs": inv.to_array(), "output": output, "progress": progress, "watts": load.drawn if load else 0.0, "made": made}
+	return {"kind": kind, "inputs": inv.to_array(), "output": output, "progress": progress, "watts": load.drawn if load else 0.0, "made": made, "waste": Waste.total(waste), "intake": intake}

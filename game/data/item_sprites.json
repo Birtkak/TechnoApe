@@ -2420,6 +2420,46 @@
         "................"
       ]
     },
+    "mine_post": {
+      "rows": [
+        ".oooooooooooooo.",
+        "ohhhhhhhhhhhhhho",
+        "ommmmmmmmmmmmmmo",
+        ".oooodlmmdooooo.",
+        "....odlmmdo.....",
+        "....odmmmdo.....",
+        "....odlmmdo.....",
+        "....odlmmdo.....",
+        "....odmmmdo.....",
+        "....odlmmdo.....",
+        "....odlmmdo.....",
+        "....odmmmdo.....",
+        "....odlmmdo.....",
+        "...odlllmmdo....",
+        "...oddddddddo...",
+        "....oooooooo...."
+      ]
+    },
+    "mine_pillar": {
+      "rows": [
+        "...oooooooooo...",
+        "..oddddddddddo..",
+        "..omhhhhhhhhmo..",
+        "...omllllllmo...",
+        "...omlmmmmlmo...",
+        "...oddddddddo...",
+        "...omllllllmo...",
+        "...omlmmmmlmo...",
+        "...oddddddddo...",
+        "...omllllllmo...",
+        "...omlmmmmlmo...",
+        "...oddddddddo...",
+        "...omllllllmo...",
+        "..omhhhhhhhhmo..",
+        "..oddddddddddo..",
+        "...oooooooooo..."
+      ]
+    },
     "bench": {
       "rows": [
         "................",
@@ -4573,6 +4613,9 @@
     "lantern": {"layers": [{"shape": "lantern", "palette": "wood"}]},
     "flower_pot": {"layers": [{"shape": "flower_pot", "palette": "wood"}]},
     "painting": {"layers": [{"shape": "painting", "palette": "wood"}]},
+    "timber_prop": {"layers": [{"shape": "mine_post", "palette": "wood"}]},
+    "stone_pillar": {"layers": [{"shape": "mine_pillar", "palette": "stone"}]},
+    "iron_beam": {"layers": [{"shape": "mine_post", "palette": "iron"}]},
     "bench": {"layers": [{"shape": "bench", "palette": "wood"}]},
     "candle": {"layers": [{"shape": "candle", "palette": "wax"}]},
     "sign": {"layers": [{"shape": "sign", "palette": "wood"}]},
@@ -4891,6 +4934,8 @@
     "canning_machine": {"layers": [{"shape": "machine", "palette": "iron", "colors": {"e": "#e4e8ee", "f": "#7a8290", "k": "#e08a55", "K": "#8a4424"}}]},
     "electric_compressor": {"layers": [{"shape": "machine", "palette": "iron", "colors": {"e": "#b8c8e0", "f": "#4a5a7a", "k": "#9ea2a8", "K": "#3a3c46"}}]},
     "electrolyzer": {"layers": [{"shape": "machine", "palette": "iron", "colors": {"e": "#9ae0f0", "f": "#2a6a8a", "k": "#3a3c46", "K": "#1a1c24"}}]},
+    "scrubber": {"layers": [{"shape": "machine", "palette": "iron", "colors": {"e": "#c8c0a0", "f": "#6a6450", "k": "#e8d040", "K": "#7a6a18"}}]},
+    "fouled_water_bucket": {"layers": [{"shape": "bucket", "palette": "iron"}, {"shape": "bucket_fill", "colors": {"q": "#5a5c32", "Q": "#9a9a5a"}}]},
     "sticky_resin": {"layers": [{"shape": "ball", "palette": "resin"}]},
     "tin_can": {"layers": [{"shape": "jar", "palette": "tin"}]},
     "canned_meat": {"layers": [{"shape": "jar", "palette": "tin"}, {"shape": "pot_fill", "colors": {"q": "#8a2a22", "k": "#d05a40"}}]},

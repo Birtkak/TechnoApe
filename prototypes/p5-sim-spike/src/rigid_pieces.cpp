@@ -17,7 +17,7 @@ using namespace godot;
 namespace {
 
 constexpr float GRAVITY = 9.8f / 0.125f;   // voxels / s^2
-constexpr float WOOD_MASS = 1.0f, LEAF_MASS = 0.12f;
+constexpr float WOOD_MASS = 1.0f, LEAF_MASS = 0.12f, ROCK_MASS = 2.5f;
 const int DX[6] = {1, -1, 0, 0, 0, 0}, DY[6] = {0, 0, 1, -1, 0, 0}, DZ[6] = {0, 0, 0, 0, 1, -1};
 
 double now_ms() {
@@ -117,6 +117,17 @@ void RigidPieces::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_contact_info", "id"), &RigidPieces::get_contact_info);
     ClassDB::bind_method(D_METHOD("queue_carve", "center", "radius"), &RigidPieces::queue_carve);
     ClassDB::bind_method(D_METHOD("raycast", "from", "dir", "max_distance"), &RigidPieces::raycast);
+    ClassDB::bind_method(D_METHOD("support_setup", "spans"), &RigidPieces::support_setup);
+    ClassDB::bind_method(D_METHOD("support_mark", "cells"), &RigidPieces::support_mark);
+    ClassDB::bind_method(D_METHOD("support_mark_box", "lo", "hi"), &RigidPieces::support_mark_box);
+    ClassDB::bind_method(D_METHOD("support_scan", "job"), &RigidPieces::support_scan);
+    ClassDB::bind_method(D_METHOD("support_drop", "roof", "thick", "from"), &RigidPieces::support_drop);
+    ClassDB::bind_method(D_METHOD("queue_support_scan", "job"), &RigidPieces::queue_support_scan);
+    ClassDB::bind_method(D_METHOD("queue_support_drop", "roof", "thick", "from"), &RigidPieces::queue_support_drop);
+    ClassDB::bind_method(D_METHOD("support_stats"), &RigidPieces::support_stats);
+    ClassDB::bind_method(D_METHOD("support_clear"), &RigidPieces::support_clear);
+    ClassDB::bind_method(D_METHOD("support_dug_chunks"), &RigidPieces::support_dug_chunks);
+    ClassDB::bind_method(D_METHOD("support_load_chunks", "chunks"), &RigidPieces::support_load_chunks);
 }
 
 void RigidPieces::setup(const Ref<SimWorld> &p_sim, const Array &p_defs, Vector2i p_atlas_tiles) {
@@ -681,13 +692,16 @@ bool RigidPieces::finish_body(Piece &p) {
     double mass = 0.0;
     Vector3 msum;
     p.wood = p.leaves = 0;
+    // a rock piece (ADR 0142, a roof that fell) is body like wood, only heavier
+    auto body = [&](uint8_t m) { return m != 0 && cls_[m] != LEAF; };
+    auto mass_of = [&](uint8_t m) { return cls_[m] == LEAF ? LEAF_MASS : cls_[m] == WOOD ? WOOD_MASS : ROCK_MASS; };
     for (int z = 0; z < p.size.z; z++)
         for (int y = 0; y < p.size.y; y++)
             for (int x = 0; x < p.size.x; x++) {
                 const uint8_t m = p.grid[x + p.size.x * (y + p.size.y * z)];
                 if (!m) continue;
-                const float w = cls_[m] == WOOD ? WOOD_MASS : LEAF_MASS;
-                (cls_[m] == WOOD ? p.wood : p.leaves)++;
+                const float w = mass_of(m);
+                (body(m) ? p.wood : p.leaves)++;
                 msum += Vector3(x + 0.5f, y + 0.5f, z + 0.5f) * w;
                 mass += w;
             }
@@ -706,13 +720,13 @@ bool RigidPieces::finish_body(Piece &p) {
             for (int x = 0; x < p.size.x; x++) {
                 const uint8_t m = p.grid[x + p.size.x * (y + p.size.y * z)];
                 if (!m) continue;
-                const float w = cls_[m] == WOOD ? WOOD_MASS : LEAF_MASS;
+                const float w = mass_of(m);
                 const Vector3 r = Vector3(x + 0.5f, y + 0.5f, z + 0.5f) - p.com;
                 const double rr = r.dot(r);
                 const double rv[3] = {r.x, r.y, r.z};
                 for (int a = 0; a < 3; a++)
                     for (int b = 0; b < 3; b++) I[a][b] += w * ((a == b ? rr + 1.0 / 6.0 : 0.0) - rv[a] * rv[b]);
-                if (cls_[m] != WOOD) {
+                if (!body(m)) {
                     bool open_face = false;
                     for (int e = 0; e < 6 && !open_face; e++) {
                         const int nx = x + DX[e], ny = y + DY[e], nz = z + DZ[e];
@@ -726,7 +740,7 @@ bool RigidPieces::finish_body(Piece &p) {
                 for (int e = 0; e < 6 && !surface; e++) {
                     const int nx = x + DX[e], ny = y + DY[e], nz = z + DZ[e];
                     surface = nx < 0 || ny < 0 || nz < 0 || nx >= p.size.x || ny >= p.size.y || nz >= p.size.z ||
-                            cls_[p.grid[nx + p.size.x * (ny + p.size.y * nz)]] != WOOD;
+                            !body(p.grid[nx + p.size.x * (ny + p.size.y * nz)]);
                 }
                 if (surface) pts.push_back(r);
             }
@@ -1618,6 +1632,7 @@ void RigidPieces::run_job() {
     }
     if (!pieces_.empty())
         for (const Vector4 &cv : carves) carve_now(Vector3(cv.x, cv.y, cv.z), cv.w);
+    support_run_jobs();   // ADR 0142: roof scans and drops (a drop's piece flies from this step on)
     if (todo.empty() && (dt <= 0.0f || (pieces_.empty() && snapped_.empty()))) return;
     const double t0 = now_ms();
     for (const PendingCheck &c : todo) check_cells(c.cells, c.from, true);
@@ -1654,6 +1669,8 @@ Dictionary RigidPieces::collect() {
     d["breaks"] = take_breaks();
     d["crumbs"] = crumbs_;
     crumbs_.clear();
+    d["support"] = support_out_;
+    support_out_ = Array();
     view_.clear();
     for (const Piece &p : pieces_)
         view_.push_back({p.id, p.prev_pos, p.pos, p.com, p.hash_origin, p.prev_rot, p.rot, p.load, p.wood_touch, p.ground_touch, p.inside, p.hinged, p.ang.length()});

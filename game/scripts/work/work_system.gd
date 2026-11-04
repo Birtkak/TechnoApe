@@ -25,6 +25,7 @@ var _pan_at := Vector3i(-1, -1, -1)   # the bed voxel being panned
 var _pan_shakes := 0
 var _seal_accum := 0.0
 var machine_pins := MachinePins.new()   # ADR 0117: pins for machines that need the simulation (the pump)
+var waste_stats := {"placed": 0}       # ADR 0141: waste cells let out of ports (Waste.emit_all)
 var _knap_hint_ms := -100000    # last "knap with a stone" hint (a held click repeats)
 var stats := {"placed": 0, "chips": 0, "clay_cells": 0, "finished": [], "kilns_lit": 0, "casts": 0, "sifts": 0,
 	"pans": 0, "scrapes": 0, "pits_lit": 0, "pits_charred": 0, "pits_burnt": 0, "seal_ms_max": 0.0,
@@ -79,6 +80,9 @@ func _process(delta: float) -> void:
 					_particles("splash", _at(p.pos, Vector3(0.5, 0.2, 0.5)), GameMaterials.WATER, 3)
 		var clock := Inventory.clock_s
 		var wind := clampf(0.55 + 0.3 * sin(clock / 47.0) + 0.2 * sin(clock / 131.0) + (0.3 if main.weather != null and main.weather.is_raining() else 0.0), 0.0, 1.0)
+		if main.bubble != null and main.bubble.sim != null:   # ADR 0141: smoke drifts with the same wind, its heading veering slowly
+			main.bubble.sim.set_wind(Vector2.from_angle(clock / 211.0) * wind * Settings.wind_cells_per_tick)
+		waste_stats["placed"] += Waste.emit_all(main)   # ADR 0141: machine waste out of its ports as cells
 		var day: bool = main.atmosphere != null and main.atmosphere.time_of_day > 0.25 and main.atmosphere.time_of_day < 0.75
 		for src: PowerSourceEntity in main.blocks.all_of("water_wheel"):   # wet when the two-block box under it is half water (a native count)
 			var lo := src.pos + Vector3i(0, -Settings.BLOCK, 0)
@@ -384,6 +388,28 @@ func debug_lv_line(base: Vector3i, right: Vector3i) -> String:
 			m.use({"id": id, "count": loads[kind][id]})
 		x += 3
 	return "the electric line and the LV machines %s from %s" % [", ".join(loads.keys()), base]
+
+
+## Debug (/stations pollution, ADR 0141): a stone slab with two dug 0.5 m streams and an electrolyzer with a full waste
+## port at the end of each, backs to -z. The first pours straight into its stream; the second into a walled gravel-bed
+## settling pond beside its stream. `base` is the slab's top at the first machine's corner. Returns what it laid.
+func debug_pollution(base: Vector3i) -> String:
+	var B := Settings.BLOCK
+	var g := base.y
+	var bubble: SimBubble = main.bubble
+	var boxes := [[Vector3i(-B, 0, -8 * B), Vector3i(26 * B, 6 * B, 3 * B), GameMaterials.AIR],
+		[Vector3i(-B, -6, -8 * B), Vector3i(26 * B, 0, 3 * B), GameMaterials.STONE],
+		[Vector3i(0, -4, -6 * B), Vector3i(10 * B, 0, 0), GameMaterials.WATER],   # stream A under its port
+		[Vector3i(14 * B, -4, -6 * B), Vector3i(24 * B, 0, -2 * B - 1), GameMaterials.WATER],   # stream B
+		[Vector3i(13 * B, -4, -2 * B), Vector3i(17 * B, -3, 0), GameMaterials.GRAVEL_STATIC],   # its settling pond
+		[Vector3i(13 * B, -3, -2 * B), Vector3i(17 * B, 0, 0), GameMaterials.AIR]]
+	for b in boxes:
+		if bubble.fill_box(base + b[0], base + b[1], b[2]) < 0:
+			return "nothing: the site must lie inside the loaded sim window"
+	for x in [0, 14 * B]:
+		var e: MachineEntity = _create(base + Vector3i(x, 0, 0), "electrolyzer", GameMaterials.WORK_BLOCK)
+		Waste.add(e.waste, GameMaterials.TOXIC_SLUDGE, Settings.waste_port_cells)
+	return "two electrolyzers with full waste ports: one into a stream, one into a settling pond (%s)" % base
 
 
 ## Debug (/stations power, ADR 0123): every small source in parallel on one trunk of thick cable, a meter panel, a
@@ -1452,5 +1478,6 @@ func _check_pits() -> void:
 func summary() -> Dictionary:
 	var s := stats.duplicate(true)
 	s["views"] = _views.size()
+	s["waste_placed"] = waste_stats["placed"]
 	s["pieces"] = main.blocks.all_work().map(func(e: RefCounted) -> Dictionary: return e.summary())
 	return s

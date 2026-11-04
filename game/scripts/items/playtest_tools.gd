@@ -167,7 +167,7 @@ func _cut(at: Vector3, dir: Vector3, r: float) -> void:
 	while t <= depth:
 		var c := at + dir * t
 		if main.bubble.blast(c, r) > 0:
-			_seed_ring(c, u, w, r)
+			_seed_ring(c, u, w, r)   # laser cuts never count as dug (ADR 0142): a playtest tool, not a mine
 		n += 1
 		t += step
 	SimBubble.note_player_edit()
@@ -308,6 +308,8 @@ func _crater(hit: VoxelRaycastResult, from: Vector3, radius_m: float) -> bool:
 		main.fx.block_break(hit.position, first)
 	if main.pieces:
 		main.pieces.check(rim_seeds(at, r), from)
+	if main.support:
+		main.support.dug_sphere(at, r)
 	return true
 
 

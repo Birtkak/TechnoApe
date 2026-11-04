@@ -1091,6 +1091,20 @@ sp("bed", ("bed", "blanket"))
 sp("chair", ("chair", "wood"))
 for k in ("door", "trapdoor", "fence", "fence_gate", "ladder", "window", "table", "shelf", "lantern", "flower_pot", "painting"):
     sp(k, (k, "wood"))
+# ADR 0142: mine supports, a post with a cap under the roof
+shape("mine_post", outline(art([
+    "................", ".hhhhhhhhhhhhhh.", ".mmmmmmmmmmmmmm.", ".....dlmmd......",
+    ".....dlmmd......", ".....dmmmd......", ".....dlmmd......", ".....dlmmd......",
+    ".....dmmmd......", ".....dlmmd......", ".....dlmmd......", ".....dmmmd......",
+    ".....dlmmd......", "....dlllmmd.....", "....dddddddd....", "................"])))
+shape("mine_pillar", outline(art([
+    "................", "...dddddddddd...", "...mhhhhhhhhm...", "....mllllllm....",
+    "....mlmmmmlm....", "....dddddddd....", "....mllllllm....", "....mlmmmmlm....",
+    "....dddddddd....", "....mllllllm....", "....mlmmmmlm....", "....dddddddd....",
+    "....mllllllm....", "...mhhhhhhhhm...", "...dddddddddd...", "................"])))
+sp("timber_prop", ("mine_post", "wood"))
+sp("stone_pillar", ("mine_pillar", "stone"))
+sp("iron_beam", ("mine_post", "iron"))
 # ADR 0121: a bench, a candle, and the plank furniture in every wood. Wood ramps per ADR 0129: shadows
 # cooler and more saturated, highlights warmer; each matches its planks' tile (176..179).
 shape("bench", outline(art([
@@ -1635,6 +1649,9 @@ sp("extruder", ("machine", "iron", {"e": "#ffb45a", "f": "#c0401a", "k": "#9ea2a
 sp("canning_machine", ("machine", "iron", {"e": "#e4e8ee", "f": "#7a8290", "k": "#e08a55", "K": "#8a4424"}))
 sp("electric_compressor", ("machine", "iron", {"e": "#b8c8e0", "f": "#4a5a7a", "k": "#9ea2a8", "K": "#3a3c46"}))
 sp("electrolyzer", ("machine", "iron", {"e": "#9ae0f0", "f": "#2a6a8a", "k": "#3a3c46", "K": "#1a1c24"}))
+# ADR 0141: the scrubber (gravel-grey face, sulfur-yellow accent) and a bucket of fouled water
+sp("scrubber", ("machine", "iron", {"e": "#c8c0a0", "f": "#6a6450", "k": "#e8d040", "K": "#7a6a18"}))
+sp("fouled_water_bucket", ("bucket", "iron"), ("bucket_fill", None, {"q": "#5a5c32", "Q": "#9a9a5a"}))
 PALETTES["resin"] = ramp("#3a1a0e", "#8a4a12", "#c8781e", "#e8a032", "#fcd870")
 PALETTES["tin"] = ramp("#2e3442", "#7a8494", "#aab2be", "#ccd2da", "#f2f2ea")
 PALETTES["carbon"] = ramp("#0e0e18", "#24242e", "#3a3a46", "#56565e", "#80786e")

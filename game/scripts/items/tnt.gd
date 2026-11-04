@@ -383,6 +383,9 @@ func _blast(q: Dictionary) -> int:
 	t = _part("spheres", t)
 	if main.pieces:
 		main.pieces.check(PlaytestTools.rim_seeds(pos, r), pos)
+	var support: Variant = main.get("support")   # test stubs of Main have no MineSupport
+	if support:
+		support.dug_sphere(pos, r)
 	t = _part("pieces", t)
 	_hit_entities(pos, r)
 	_spawn_drops(drops, n, pos, r)

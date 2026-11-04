@@ -249,9 +249,9 @@ func create_torch(pos: Vector3i, wall: Vector3i) -> TorchEntity:
 
 
 ## A bed or chair anchored at `anchor`; registers every voxel it covers.
-func create_furniture(anchor: Vector3i, furniture: String, facing: int) -> FurnitureEntity:
+func create_furniture(anchor: Vector3i, furniture: String, facing: int, height: int = 0) -> FurnitureEntity:
 	remove(anchor)
-	var e := FurnitureEntity.new(anchor, furniture, facing)
+	var e := FurnitureEntity.new(anchor, furniture, facing, height)
 	_by_pos[anchor] = e
 	_register_cells(e)
 	e.changed.connect(_mark_dirty)

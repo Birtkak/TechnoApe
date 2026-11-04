@@ -97,6 +97,8 @@ var _provoked_t := 0.0          # predators: hurt by the player, chases them for
 var _lay_t := 0.0               # chickens: seconds to the next egg
 var _burn_t := 0.0              # seconds still alight after touching lava or fire
 var _burn_hurt_t := 0.0
+var _foul_next_ms := 0          # ADR 0141: the next hurt from fouled water
+const FOUL_HURT_EVERY_MS := 2000
 var _every := 1                 # step every n-th physics frame (distance to the player, set by the brain)
 var _skipped := 0.0             # seconds since the last step
 var _anim_still := false        # the model already shows the standing pose
@@ -173,6 +175,10 @@ func _touch_heat() -> void:
 		return
 	for f in [0.05, 0.4, 0.8]:
 		var m := GameMaterials.material_of_voxel(manager.get_voxel(Vector3i((position + Vector3(0, _height_v * f, 0)).floor())))
+		if m == GameMaterials.FOULED_WATER and Time.get_ticks_msec() >= _foul_next_ms:   # ADR 0141: it sickens what swims or wades in it
+			_foul_next_ms = Time.get_ticks_msec() + FOUL_HURT_EVERY_MS
+			_invuln_t = 0.0
+			hurt(1, position + Vector3(_rng.randf_range(-1, 1), 0, _rng.randf_range(-1, 1)))
 		if m == GameMaterials.LAVA or m == GameMaterials.LAVA_STATIC or m == GameMaterials.FIRE:
 			if _burn_t <= 0.0:
 				_burn_hurt_t = 0.0   # catching fire hurts at once

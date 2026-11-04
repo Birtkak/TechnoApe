@@ -79,7 +79,7 @@ class FineGen : public RefCounted {
     GDCLASS(FineGen, RefCounted)
 
 public:
-    struct CaveBand { int mx, mz, band; float v[16]; };   // the small cave field of one macro column, 16 rows (cave_cache_)
+    struct CaveBand { int mx, mz, band; float v[16], full[16]; };   // the small cave field of one macro column, 16 rows (cave_cache_); full: with halls and ravines (lod 0, ADR 0135)
     static constexpr int FS = 4;   // fine voxels per macro unit (0.5 m / 12.5 cm)
     static constexpr int RUIN_RAMP = 4;   // macro cells round a ruin over which the ground ramps to its floor (ADR 0062)
 
@@ -96,6 +96,9 @@ public:
     PackedByteArray generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel = 2) const;
     // Blocks generated since the last call and the worker time they took, by result: air, uniform, full (usec).
     static Dictionary gen_stats();
+    static void prof_start();              // prof_sampler.cpp (ADR 0135, gen_bench.gd prof=1)
+    static PackedInt64Array prof_stop();
+    static int64_t thread_cpu_us();        // the calling thread's user CPU time (a busy machine skews wall time)
     // A data column's (lowest ground, highest voxel anything generated reaches) in fine voxels: the footprint
     // (x, z) .. + size at LOD 0. godot_voxel's ground shell asks it from its update thread (ADR 0105).
     Vector2i ground_range(int x, int z, int size) const;
@@ -209,6 +212,7 @@ private:
         // bound's 6 m margin and cost 155 us each)
         mutable std::atomic<int> top_seen{-1};
         std::vector<int> h;   // each fine column's ground height (x + sx * z): five noises a column, once per stack
+        std::vector<technosim_rock::RockCol> rlat;   // the strata per lattice point (ADR 0057), once per stack (ADR 0135)
         // the trees (from the tree caches) and stamps reaching the footprint at any height, in drawing order
         std::vector<std::shared_ptr<const FTree>> trees;
         size_t n_mature = 0;

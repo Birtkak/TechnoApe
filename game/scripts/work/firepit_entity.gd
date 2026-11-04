@@ -36,6 +36,7 @@ var lit_duration := 0
 var cook := 0
 var cook_total := 200
 var made := 0
+var waste := {}   # ADR 0141: material id -> cells waiting at the port (recipe slag, the firebox's ash and smoke)
 var _was_lit := false
 var _last_key := "|"
 
@@ -93,9 +94,12 @@ func _burn_next() -> bool:
 	var t := fuel_ticks(fuel.get("id", ""))
 	if t <= 0 or int(fuel.get("count", 0)) < items.units(fuel["id"]):
 		return false
+	if Waste.blocked(waste):
+		return false   # ADR 0141: a choked port (ash, slag, smoke with nowhere to go) lets the fire die
 	lit_time = t
 	lit_duration = t
 	inv.take(FUEL, items.units(fuel["id"]))   # logs burn a block's worth of voxels at a time (ADR 0034)
+	Waste.add(waste, GameMaterials.ASH, int(Waste.firebox(items, String(get("item")) if get("item") is String else kind).get("ash", 0)))
 	return true
 
 
@@ -205,6 +209,7 @@ func _heat_input() -> void:
 
 func _finish(r: Dictionary) -> void:
 	made += 1
+	Waste.add_recipe(waste, r)
 	if r["type"] == "melt":
 		inv.take(INPUT, int(r.get("count", 1)) * items.units(inv.get_slot(INPUT)["id"]))
 		inv.set_slot(VESSEL, {"id": r["output"]["id"], "count": 1})
@@ -338,6 +343,8 @@ func look_lines() -> Array[String]:
 		out.append("Not lit: light it with a firestarter")
 	if not fuel.is_empty():
 		out.append("Fuel: %s" % _count_name(fuel))
+	if Waste.blocked(waste):
+		out.append(Waste.status(waste))
 	var vessel := inv.get_slot(VESSEL)
 	if not vessel.is_empty():
 		out.append("Vessel: %s" % items.display_name(vessel["id"]))
