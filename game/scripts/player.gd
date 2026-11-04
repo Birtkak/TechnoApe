@@ -68,6 +68,7 @@ var entity_attack: Callable      # (mob, damage) -> void
 var throw_item: Callable         # (stack, from, dir) -> void: a thrown spear flies (ADR 0030)
 var entity_use: Callable         # (mob, held def) -> bool (true: one held item used up)
 var place_furniture: Callable    # (kind, anchor, facing) -> bool
+var support_hint: Callable       # (roof cell) -> String: the roof's load while a mine prop is held (ADR 0142)
 var furniture_is: Callable        # (voxel, "climb" | "use") -> bool: a ladder covers it, a click there does something (ADR 0094)
 var work_use: Callable           # (hit, first_press, from, dir, sneaking) -> bool: a work piece took the right click (ADR 0023)
 var item_use: Callable           # (hit, first_press, from, dir) -> bool: the Stone Age took it, before anything else (ADR 0059)
@@ -1183,6 +1184,13 @@ func _update_look(hit: VoxelRaycastResult, mob) -> void:
 		var mat := world.get_voxel(hit.position)
 		if mat > 0:
 			info = _block_info(hit.position, mat)
+		var held_f := String(inventory.held_def().get("furniture", "")) if inventory else ""
+		if support_hint.is_valid() and FurnitureEntity.is_prop(held_f) and hit.previous_position == hit.position + Vector3i.DOWN and not info.is_empty():
+			var roof: String = support_hint.call(hit.position)   # the hand tool: what holds this roof
+			if roof != "":
+				info["line"] = (String(info["line"]) + "
+" if info.has("line") else "") + roof
+				_look_refresh = 6
 	look_item = String(info.get("icon", ""))
 	hud.set_look(info)
 
@@ -1715,19 +1723,26 @@ func furniture_spot(hit: VoxelRaycastResult, kind: String) -> Dictionary:
 		var d: Vector3i = front - FurnitureEntity.footprint(kind, anchor, facing)[0]
 		anchor += fwd * (d.x * fwd.x + d.z * fwd.z)
 	var free := true
-	for c in FurnitureEntity.footprint(kind, anchor, facing):
-		if not _placeable(world.get_voxel(c)) or _overlaps_player(c):
+	var h := 0
+	if FurnitureEntity.is_prop(kind):   # a mine prop stands floor to roof (ADR 0142): no roof in reach, no prop
+		h = FurnitureEntity.prop_height(kind, anchor, world.get_voxel)
+		free = h > 0
+	for c in FurnitureEntity.footprint(kind, anchor, facing, false, h):
+		if not free or not _placeable(world.get_voxel(c)) or _overlaps_player(c):
 			free = false
 			break
-	return {"anchor": anchor, "facing": facing, "free": free}
+	return {"anchor": anchor, "facing": facing, "free": free, "height": h}
 
 
 ## The held furniture's see-through model where a click puts it (the station ghost's material and tint).
 func _show_furniture_ghost(hit: VoxelRaycastResult, kind: String) -> void:
 	var spot := furniture_spot(hit, kind)
-	var f := FurnitureEntity.new(spot["anchor"], kind, spot["facing"])
+	var f := FurnitureEntity.new(spot["anchor"], kind, spot["facing"], spot["height"])
 	_station_ghost.mesh = FurnitureEntity.ghost_mesh(kind, not spot["free"])
-	_station_ghost.global_transform = Transform3D(Basis(Vector3.UP, f.yaw()).scaled(Vector3.ONE * Settings.BLOCK), f._block_centre())
+	var sc := Vector3.ONE * Settings.BLOCK
+	if spot["height"] > 0:
+		sc.y *= float(spot["height"]) / (FurnitureEntity.KINDS[kind]["size"].y * Settings.BLOCK)
+	_station_ghost.global_transform = Transform3D(Basis(Vector3.UP, f.yaw()).scaled(sc), f._block_centre())
 	_station_ghost.visible = true
 
 

@@ -172,8 +172,15 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   pit or channel fills to the body's level (water resting on a lower still step is not); the surface row feeds a dig
   deeper than the surface (a trench in a shelving bank) but never air over the shore; a ledge onto a partial cell pours
   what fits and a lone eighth on bare ground walks to the nearest drop (films run off slopes); the 4c rule is a conveyor
-  (looks FLAT_REACH 14 cells, also a row down, writes one cell over). `fluid_film=1` films the scenes
-  (`scripts/visuals/fluid_scenes.gd`), `tools/fluid_feel.gd` runs them on the bare kernel, tests `test/test_sim_0138.gd`. **ADR 0081:** a lone still cell
+  (looks FLAT_REACH 14 cells, also a row down, writes one cell over); terrace edges whose look found nothing seed a
+  serial level pass after the tick (`SimWorld::level_surfaces`: the connected resting surface, tilted 2..8 eighths,
+  gives an eighth from its highest columns to its lowest), so a flood rests flat to an eighth. Falling liquid also draws
+  as streaks (`scripts/visuals/fall_streaks.gd`, one MultiMesh per liquid in its own material, warmed under the loading
+  screen): `SimWorld.get_fall_streaks` is the air the falling cells crossed in the last 3 ticks, merged per column, so
+  the mesher's falling cubes (ADR 0103) join into one stream; `streaks=0` turns them off. `fluid_film=1` films the
+  scenes (`scripts/visuals/fluid_scenes.gd`; `fluid_full=` full-size shots, frame-time p50/p99 per scene),
+  `tools/fluid_feel.gd` runs them on the bare kernel, `tools/fluid_stream_sheet.py` puts consecutive frames of two runs
+  side by side, tests `test/test_sim_0138.gd`. **ADR 0081:** a lone still cell
   (none of its kind on its six sides: the specks the generator leaves on cave walls) wakes at any air beside or below it;
   reactions of one pair chain (`Reaction::next`, rolled in data order): lava + water boils the water to steam at 0.6 and
   only then crusts to obsidian at 0.25, so the steam grows with the water the lava touches.
@@ -247,6 +254,16 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   hardness (soft full radius, stone 3/4, hard rock 1/2, obsidian and bedrock never), rim seeds to the rigid piece check,
   damage and knockback to 2 x radius, 30 % of the estimated take as drops. One blast per frame; a 20-block chain holds
   max frame 12.4 ms. `/tnt grid [n] [spacing_m] | light | stats`, `/kit tnt`; JSON `tnt`.
+  **Mine shoring (ADR 0142):** a roof cell over a dug 0.5 m block must lie within its rock's span of a wall
+  (`1 m + 1 m x mining hardness`, max 4 m: stone 2.5 m, sandstone 1.8 m; a 3 m tunnel always stands) or within
+  a prop's radius (timber prop 1.5 m / 4 m2, stone pillar 2.5 m / 12 m2, iron beam 3.5 m / 30 m2: furniture kinds
+  with `"prop"`, stretched floor to roof, `height` in the save); any solid column floor to roof is a wall. Native
+  (`RigidPieces.support_*`, `src/rigid_support.cpp`: Dijkstra over the roof surface, on the driver thread), event
+  driven: digs mark blocks (`Main._on_dug`, crater rod, TNT, box dig; never the laser) and `MineSupport` scans the
+  dug box every 0.25 s. Unheld roofs crack and darken, shed dust and grit, creak louder and shake the camera at the
+  end, for 15-120 s (`warn_s`); overloaded props bend; then the roof falls as one rock piece (`support_drop`) and
+  hurts what is under it. Survival only unless `/support modes all`; marks (per chunk) and creaking roofs are saved
+  in `support_<seed>_g<gen>.bin`. `/support`, F3 "Support:", JSON `support`, `mine_test=`.
   **Next:** the rest of the ADR 0037 work order; still open from before: fire/smoke pacing per cell, fast flight vs
   generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
   list in `docs/plans/to-test.md`.

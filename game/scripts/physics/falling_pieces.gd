@@ -22,6 +22,7 @@ signal piece_event(kind: String, pos: Vector3, size: int)
 var rp: RigidPieces
 var bubble: SimBubble
 var fx: ParticleFx
+var support: MineSupport   # ADR 0142: the roof checks ride on the same driver jobs; their results go there
 var material: ShaderMaterial
 var _pieces := {}        # piece id -> Node3D (its transform), one MeshInstance3D child per mesh block
 var _blocks := {}        # piece id -> {block index -> MeshInstance3D}
@@ -80,6 +81,8 @@ func tick(dt: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	rp.set_origin(bubble.origin * Settings.CHUNK)
 	var r: Dictionary = rp.collect()
+	if support and not (r.get("support", []) as Array).is_empty():
+		support.take(r["support"])
 	for id in r["settled"]:
 		var node: Node3D = _pieces.get(id)
 		_pieces.erase(id)

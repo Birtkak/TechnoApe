@@ -8,7 +8,7 @@ const W := 64    # patch voxels along x
 const D := 48    # along z
 const H := 28    # air above the ground
 const DEEP := 16  # dirt under it
-const ALL := ["pit_lake", "pour_pit", "cave", "dam", "slope", "channel", "trench"]
+const ALL := ["pit_lake", "pour_pit", "cave", "dam", "slope", "channel", "trench", "fall"]
 const SLICE_Z := 24
 const SLICE_Y := Vector2i(-16, 16)
 
@@ -45,6 +45,10 @@ static func build(name: String, box: Callable) -> void:
 					box.call(Vector3i(x, top, 2), Vector3i(x + 1, 0, D - 2), GameMaterials.AIR)
 			box.call(Vector3i(0, 16, 0), Vector3i(2, 26, D), GameMaterials.STONE)   # a back wall at the top
 			box.call(Vector3i(2, 17, 16), Vector3i(10, 25, 32), GameMaterials.WATER)
+		"fall":   # a lake on a cliff top; its lip is cut and it falls 3 m into a pool
+			box.call(Vector3i(4, 0, 14), Vector3i(26, 22, 34), GameMaterials.STONE)
+			box.call(Vector3i(6, 17, 16), Vector3i(22, 22, 32), GameMaterials.WATER_STATIC)   # surface row 21
+			box.call(Vector3i(26, -6, 14), Vector3i(50, 0, 34), GameMaterials.AIR)
 		"channel", "trench":
 			box.call(Vector3i(4, -10, 8), Vector3i(28, 0, 40), GameMaterials.WATER_STATIC)
 			if name == "trench":   # a shelving bank: only the surface row touches the cut (water_test's river)
@@ -61,6 +65,10 @@ static func act(name: String, t: float, done: Dictionary, box: Callable) -> void
 		"cave":
 			if t > 0.5 and t < 3.5:   # a stream poured down the shaft
 				box.call(Vector3i(9, -1, 23), Vector3i(11, 0, 25), GameMaterials.WATER)
+		"fall":
+			if not done.has("cut") and t > 0.5:
+				done["cut"] = true
+				box.call(Vector3i(22, 19, 22), Vector3i(26, 23, 26), GameMaterials.AIR)
 		"dam":
 			if not done.has("broke") and t > 0.5:
 				done["broke"] = true
@@ -95,6 +103,8 @@ static func camera(name: String) -> Array:
 			return [Vector3(32, 11, 5), Vector3(32, -7, 24)]
 		"cave":   # inside the tunnel's far end, looking back at the shaft
 			return [Vector3(34, -9, 24), Vector3(10, -11, 24)]
+		"fall":   # side on, the whole drop in shot
+			return [Vector3(40, 11, 4), Vector3(27, 10, 24)]
 		"dam":
 			return [Vector3(36, 16, -10), Vector3(36, 0, 24)]
 	return [Vector3(W * 0.5, 26, -14), Vector3(W * 0.5, 6, 24)]
@@ -118,5 +128,32 @@ static func slice(cell: Callable) -> PackedStringArray:
 				line += "?"
 			else:
 				line += "#"
+		out.append(line)
+	return out
+
+
+## A top view of the moving water's surface, one row per z: its height in eighths over the lowest column, as a digit
+## (a-z past 9), "." where no moving water stands.
+static func heights(cell: Callable) -> PackedStringArray:
+	var h := {}
+	var lo := 1 << 30
+	for z in D:
+		for x in W:
+			for y in range(SLICE_Y.y, SLICE_Y.x - 1, -1):
+				var c: Dictionary = cell.call(Vector3i(x, y, z))
+				if c.get("material", -1) == GameMaterials.WATER:
+					h[Vector2i(x, z)] = y * 8 + int(c["eighths"])
+					lo = mini(lo, h[Vector2i(x, z)])
+					break
+	var out := PackedStringArray()
+	for z in D:
+		var line := "%4d " % z
+		for x in W:
+			var k := Vector2i(x, z)
+			if not h.has(k):
+				line += "."
+			else:
+				var d: int = h[k] - lo
+				line += str(d) if d < 10 else (char(87 + d) if d < 36 else "+")
 		out.append(line)
 	return out

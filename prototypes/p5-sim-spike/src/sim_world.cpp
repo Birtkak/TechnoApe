@@ -4,6 +4,8 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
+#include <array>
+#include <unordered_set>
 #include <chrono>
 #include <cstring>
 
@@ -121,6 +123,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("count_unsupported", "material"), &SimWorld::count_unsupported);
     ClassDB::bind_method(D_METHOD("count_burning"), &SimWorld::count_burning);
     ClassDB::bind_method(D_METHOD("get_falls", "slot"), &SimWorld::get_falls);
+    ClassDB::bind_method(D_METHOD("get_fall_streaks", "slot", "offset", "width"), &SimWorld::get_fall_streaks);
     ClassDB::bind_method(D_METHOD("sample_cells", "center", "radius", "count", "seed", "mask"), &SimWorld::sample_cells);
     ClassDB::bind_method(D_METHOD("layer_histogram", "material"), &SimWorld::layer_histogram);
     ClassDB::bind_method(D_METHOD("surface_map", "min_xz", "count", "step", "y_base"), &SimWorld::surface_map);
@@ -944,6 +947,11 @@ bool SimWorld::fall(int x, int y, int z, int i, Ctx &c) {
         const MaterialDef &fm = mats_[cells_[ni].mat];
         if (fm.cell_type == CELL_LIQUID) cells_[ni].pad = (uint8_t)((cells_[ni].pad & 15u) | (15u << 4));
     }
+    const int slot = mats_[cells_[ni].mat].fluid_slot;   // the path it crossed, for the stream streaks (ADR 0138)
+    if (slot >= 0 && slot < FALL_SLOTS && c.nst < STREAK_CTX) {
+        int32_t *st = c.st + 5 * c.nst++;
+        st[0] = slot; st[1] = x; st[2] = z; st[3] = ny + 1; st[4] = y;
+    }
     return true;
 }
 
@@ -1241,6 +1249,7 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
     // ever moves toward the low it was sent to, nothing goes back and forth.
     if (!surface) return;
     int lo_s = FLAT_REACH + 1, lo_d = -1;
+    bool edge = false;   // a neighbour one eighth down: a terrace edge if no low is in reach
     for (int dd = 0; dd < 4; dd++) {
         int first = -1;   // the neighbour's height
         for (int s = 1; s < lo_s; s++) {
@@ -1255,9 +1264,14 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
             if (s == 1) {
                 if (Hp != H - 1 || moved_[idx(px, py, pz)] == mark_) break;   // only down a step of one eighth
                 first = Hp;
+                edge = true;
             }
             if (Hp <= H - 2 && first >= 0) { lo_s = s; lo_d = dd; break; }
         }
+    }
+    if (lo_d < 0 && edge) {
+        const int k = level_n_.fetch_add(1, std::memory_order_relaxed);
+        if (k < LEVEL_SEEDS) { level_seeds_[3 * k] = x; level_seeds_[3 * k + 1] = y; level_seeds_[3 * k + 2] = z; }
     }
     if (lo_d >= 0) {
         const int px = x + DX4[lo_d], pz = z + DZ4[lo_d];
@@ -1790,6 +1804,11 @@ void SimWorld::update_chunk(int ci) {
     for (int s = 0; s < FALL_SLOTS; s++)
         if (c.falls[s][0])
             for (int k = 0; k < 4; k++) falls_[s][k].fetch_add(c.falls[s][k], std::memory_order_relaxed);
+    if (c.nst) {
+        const int k = streak_n_.fetch_add(c.nst, std::memory_order_relaxed);
+        const int n = std::min(c.nst, STREAKS - k);
+        if (n > 0) std::memcpy(streak_buf_ + 5 * k, c.st, sizeof(int32_t) * 5 * (size_t)n);
+    }
 }
 
 // ADR 0137: a liquid substep scans a chunk only when it or a face neighbour held moving liquid with substeps left at
@@ -1876,6 +1895,7 @@ void SimWorld::tick_once(TickOut &o) {
     moved_count_.store(0);
     react_count_.store(0);
     for (auto &s : falls_) for (auto &v : s) v.store(0, std::memory_order_relaxed);
+    streak_n_.store(0, std::memory_order_relaxed);
     std::vector<int> work;
     work.reserve(nc / 8 + 1);
     uint64_t active = 0;
@@ -1897,6 +1917,7 @@ void SimWorld::tick_once(TickOut &o) {
     }
     substep_ = 0;
     mark_ = stamp_;
+    if (column_flow_ && fullness_) level_surfaces();
     // ADR 0119 C: every 4th tick the heat of the chunks that ran diffuses and relaxes toward the ambient; a sleeping
     // chunk gets its turn every 64 ticks, so a quiet pond still meets the winter
     if (states_ && (tick_ & 3u) == 0)
@@ -1907,6 +1928,7 @@ void SimWorld::tick_once(TickOut &o) {
     o.moved = moved_count_.load();
     o.react = react_count_.load();
     for (int s = 0; s < FALL_SLOTS; s++) for (int k = 0; k < 4; k++) falls_last_[s][k] = falls_[s][k].load(std::memory_order_relaxed);
+    build_streaks();
     o.scanned = scanned;
     o.deferred = deferred;
 }
@@ -2164,6 +2186,8 @@ Array SimWorld::shift(Vector3i d) {
     wait_idle();
     Array vacated;
     if (d == Vector3i()) return vacated;
+    for (auto &h : streak_hist_) h.clear();   // window cells move: the stream streaks start over (ADR 0138)
+    { std::lock_guard<std::mutex> lock(streak_m_); streaks_last_.clear(); }
     std::fill(switch_.begin(), switch_.end(), SW_ALL);   // ADR 0137: what a slot holds is known again after its next whole scan
     if (wrapped_) {
         // Toroidal: new local L = old local L + d, so the offset moves by d; nothing is copied. Chunks whose
@@ -2475,3 +2499,151 @@ int SimWorld::get_active_chunk_count() const {
 }
 
 Vector3i SimWorld::get_size_voxels() const { return Vector3i(W_, H_, D_); }
+
+// ADR 0138: a resting flood levels past the conveyor's reach. From each seed (a terrace edge whose look found no low)
+// the connected surface of its liquid is gathered: tops with air over them and something under, neighbours a row up or
+// down at most a cell apart. If it tilts 2..8 eighths (more is still flowing: the column rules have it), the highest
+// columns give one eighth each to the lowest, pairs at least two eighths apart, ties by position: the result does not
+// depend on which seed came first; it ends with the surface flat to an eighth. A tilt of five eighths is flat in a
+// few ticks; the mass is exact. Serial after the passes: it writes far from the seed. shortcut: past LEVEL_SEEDS seeds
+// in a tick which ones made it is a race between threads; raise the cap if two floods ever settle in one tick.
+void SimWorld::level_surfaces() {
+    const int n = std::min(level_n_.load(std::memory_order_relaxed), LEVEL_SEEDS);
+    level_n_.store(0, std::memory_order_relaxed);
+    if (n == 0) return;
+    std::vector<std::array<int, 3>> seeds((size_t)n);
+    for (int k = 0; k < n; k++) seeds[k] = {level_seeds_[3 * k], level_seeds_[3 * k + 1], level_seeds_[3 * k + 2]};
+    std::sort(seeds.begin(), seeds.end());
+    auto key = [](int x, int z) -> int64_t { return ((int64_t)x << 32) | (uint32_t)z; };
+    auto fullness = [&](int i) -> int { const int f = cells_[i].pad & 15; return f ? f : 8; };
+    auto set_full = [&](int i, int f) { cells_[i].pad = (uint8_t)((cells_[i].pad & 0xF0u) | (uint32_t)(f >= 8 ? 0 : f)); };
+    auto mark = [&](int x, int y, int z, bool changed) {
+        Ctx c;
+        c.cx = x / CS; c.cy = y / CS; c.cz = z / CS;
+        mark_cell(x, y, z, c, changed);
+        flush_marks(c);
+    };
+    struct Col { int x, y, z, h; };
+    std::unordered_set<int64_t> seen;
+    std::vector<Col> comp, give, take;
+    uint64_t moved = 0;
+    for (const auto &sd : seeds) {
+        if (seen.count(key(sd[0], sd[2])) || !is_open(sd[0], sd[1], sd[2])) continue;
+        const uint8_t self = cells_[idx(sd[0], sd[1], sd[2])].mat;
+        if (mats_[self].cell_type != CELL_LIQUID) continue;
+        auto top = [&](int x, int y, int z) -> bool {
+            if (y < 1 || !is_open(x, y, z) || !is_open(x, y + 1, z) || !is_open(x, y - 1, z)) return false;
+            const uint8_t up = cells_[idx(x, y + 1, z)].mat, dn = cells_[idx(x, y - 1, z)].mat;
+            return cells_[idx(x, y, z)].mat == self && up != self && open_air(up) && (dn == self || !open_air(dn));
+        };
+        if (!top(sd[0], sd[1], sd[2])) continue;
+        comp.clear();
+        comp.push_back({sd[0], sd[1], sd[2], 8 * sd[1] + fullness(idx(sd[0], sd[1], sd[2]))});
+        seen.insert(key(sd[0], sd[2]));
+        bool big = false;
+        for (size_t q = 0; q < comp.size() && !big; q++) {
+            const Col cc = comp[q];
+            for (int dd = 0; dd < 4; dd++) {
+                const int nx = cc.x + DX4[dd], nz = cc.z + DZ4[dd];
+                if (seen.count(key(nx, nz))) continue;
+                for (int dy : {0, 1, -1}) {
+                    const int ny = cc.y + dy;
+                    if (!top(nx, ny, nz)) continue;
+                    const int h = 8 * ny + fullness(idx(nx, ny, nz));
+                    if (std::abs(h - cc.h) <= 8) { seen.insert(key(nx, nz)); comp.push_back({nx, ny, nz, h}); }
+                    break;
+                }
+            }
+            big = comp.size() > (size_t)LEVEL_MAX_COLUMNS;
+        }
+        if (big || comp.size() < 2) continue;
+        int lo = comp[0].h, hi = comp[0].h;
+        int64_t sum = 0;
+        for (const Col &cc : comp) { lo = std::min(lo, cc.h); hi = std::max(hi, cc.h); sum += cc.h; }
+        if (hi - lo < 2 || hi - lo > 8) continue;
+        give.clear();
+        take.clear();
+        for (const Col &cc : comp) {
+            if (cc.h >= lo + 2) give.push_back(cc);
+            if (cc.h <= hi - 2 && (fullness(idx(cc.x, cc.y, cc.z)) < 8 || cells_[idx(cc.x, cc.y + 1, cc.z)].mat == 0)) take.push_back(cc);
+        }
+        auto order = [](bool high_first) {
+            return [high_first](const Col &a, const Col &b) {
+                if (a.h != b.h) return high_first ? a.h > b.h : a.h < b.h;
+                return a.x != b.x ? a.x < b.x : a.z < b.z;
+            };
+        };
+        std::sort(give.begin(), give.end(), order(true));
+        std::sort(take.begin(), take.end(), order(false));
+        const size_t k = std::min(give.size(), take.size());
+        for (size_t j = 0; j < k && give[j].h - take[j].h >= 2; j++) {   // each pair evens out: nothing comes back
+            const Col &g = give[j], &t = take[j];
+            const int gi = idx(g.x, g.y, g.z), ti = idx(t.x, t.y, t.z);
+            const int fg = fullness(gi), ft = fullness(ti);
+            moved_[gi] = mark_;
+            if (fg > 1) { set_full(gi, fg - 1); mark(g.x, g.y, g.z, false); }
+            else { place(gi, 0); mark(g.x, g.y, g.z, true); }
+            if (ft < 8) { set_full(ti, ft + 1); moved_[ti] = mark_; mark(t.x, t.y, t.z, false); }
+            else {
+                const int ai = idx(t.x, t.y + 1, t.z);
+                place(ai, self);
+                set_full(ai, 1);
+                moved_[ai] = mark_;
+                mark(t.x, t.y + 1, t.z, true);
+            }
+            moved++;
+        }
+    }
+    if (moved) moved_count_.fetch_add(moved, std::memory_order_relaxed);
+}
+
+// ADR 0138: a falling cell jumps up to MAX_DISP cells a tick and a stream thins as it speeds up, so its cubes draw with
+// gaps that step 30 times a second. The paths the cells crossed this tick, merged per column, fill those gaps: drawn
+// as streaks (SimBubble's FallStreaks) the stream reads as one run of water. A column gets a cell every two or three
+// ticks, so the runs are the paths of the last STREAK_TICKS ticks (100 ms). shortcut: past STREAKS paths a tick the
+// rest are not drawn (a waterfall is tens to hundreds); raise it if a wide fall shows holes.
+void SimWorld::build_streaks() {
+    const int n = std::min(streak_n_.load(std::memory_order_relaxed), STREAKS);
+    std::vector<std::array<int32_t, 5>> &now = streak_hist_[tick_ % STREAK_TICKS];
+    now.resize((size_t)n);
+    for (int k = 0; k < n; k++) std::memcpy(now[k].data(), streak_buf_ + 5 * k, sizeof(int32_t) * 5);
+    std::vector<std::array<int32_t, 5>> v;
+    for (const auto &h : streak_hist_) v.insert(v.end(), h.begin(), h.end());
+    std::sort(v.begin(), v.end(), [](const std::array<int32_t, 5> &a, const std::array<int32_t, 5> &b) {
+        if (a[0] != b[0]) return a[0] < b[0];
+        if (a[1] != b[1]) return a[1] < b[1];
+        if (a[2] != b[2]) return a[2] < b[2];
+        return a[3] < b[3];
+    });
+    std::vector<int32_t> out;
+    out.reserve(v.size() * 5);
+    for (size_t k = 0; k < v.size();) {
+        std::array<int32_t, 5> cur = v[k++];
+        while (k < v.size() && v[k][0] == cur[0] && v[k][1] == cur[1] && v[k][2] == cur[2] && v[k][3] <= cur[4] + 1)
+            cur[4] = std::max(cur[4], v[k++][4]);   // overlapping or touching paths in one column are one run
+        out.insert(out.end(), cur.begin(), cur.end());
+    }
+    std::lock_guard<std::mutex> lock(streak_m_);
+    streaks_last_.swap(out);
+}
+
+// The last tick's streaks of a fluid slot as a MultiMesh buffer (TRANSFORM_3D, 12 floats each) for a unit box with x
+// and z in -0.5..0.5 and y in 0..1: `width` across, as tall as the run; `offset` moves window cells to world voxels.
+PackedFloat32Array SimWorld::get_fall_streaks(int p_slot, Vector3 p_offset, float p_width) const {
+    PackedFloat32Array r;
+    std::lock_guard<std::mutex> lock(streak_m_);
+    int cnt = 0;
+    for (size_t k = 0; k < streaks_last_.size(); k += 5) cnt += streaks_last_[k] == p_slot;
+    r.resize(cnt * 12);
+    float *w = r.ptrw();
+    for (size_t k = 0; k < streaks_last_.size(); k += 5) {
+        if (streaks_last_[k] != p_slot) continue;
+        const float len = (float)(streaks_last_[k + 4] - streaks_last_[k + 3] + 1);
+        const float t[12] = {p_width, 0.0f, 0.0f, streaks_last_[k + 1] + 0.5f + p_offset.x,
+                0.0f, len, 0.0f, streaks_last_[k + 3] + p_offset.y,
+                0.0f, 0.0f, p_width, streaks_last_[k + 2] + 0.5f + p_offset.z};
+        std::memcpy(w, t, sizeof(t));
+        w += 12;
+    }
+    return r;
+}

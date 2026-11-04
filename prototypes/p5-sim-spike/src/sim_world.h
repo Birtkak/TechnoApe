@@ -13,10 +13,13 @@
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -191,6 +194,7 @@ public:
     // flags) for loaded cells whose material has a nonzero byte in p_mask (256 bytes) or that burn.
     // Never waits: returns nothing while a tick runs (the caller tries again next frame).
     PackedInt32Array get_falls(int p_slot) const;
+    PackedFloat32Array get_fall_streaks(int p_slot, Vector3 p_offset, float p_width) const;
     PackedInt32Array sample_cells(Vector3i p_center, int p_radius, int p_count, int p_seed, const PackedByteArray &p_mask) const;
     // Minimap feed (part D): count.x * count.y columns from window-local (min_xz.x, min_xz.y), every step voxels,
     // index cx + count.x * cz. Each: the first cell from the window top down that is not air, gas or fire, as
@@ -231,8 +235,10 @@ private:
     };
 
     struct Marks { uint32_t wake = 0; uint32_t dirty = 0; uint32_t box[27] = {}; uint32_t dbox[27] = {}; };
+    static constexpr int STREAK_CTX = 128;   // fall paths one chunk update keeps before it hands them over
     struct Ctx { int cx, cy, cz; Marks mk; uint32_t rng; uint64_t moved = 0; uint64_t reacted = 0;
-        int64_t falls[FALL_SLOTS][4] = {}; };   // liquid cells that fell this tick per fluid slot: count, sum x y z
+        int64_t falls[FALL_SLOTS][4] = {};
+        int nst = 0; int32_t st[STREAK_CTX * 5]; };   // fall paths this update: slot, x, z, lowest and highest cell passed   // liquid cells that fell this tick per fluid slot: count, sum x y z
     // Dirty box of a chunk packed in 25 bits: valid | min xyz | max xyz (4 bits each, local 0..15).
     static constexpr uint32_t BOX_VALID = 1u << 24;
     static constexpr uint32_t BOX_FULL = BOX_VALID | (15u << 12) | (15u << 16) | (15u << 20);
@@ -364,6 +370,15 @@ private:
     std::atomic<uint64_t> react_count_{0};
     std::atomic<int64_t> falls_[FALL_SLOTS][4] = {};   // this tick's Ctx::falls, summed (the waterfall sound, ADR 0103)
     int64_t falls_last_[FALL_SLOTS][4] = {};           // the last finished tick's, what get_falls returns
+    // ADR 0138: the cells each falling liquid cell passed this tick (the air it crossed), for the stream streaks
+    static constexpr int STREAKS = 8192;
+    std::atomic<int> streak_n_{0};
+    int32_t streak_buf_[STREAKS * 5] = {};
+    static constexpr int STREAK_TICKS = 3;   // a stream is the paths of the last few ticks: one column gets a cell every 2-3
+    std::vector<std::array<int32_t, 5>> streak_hist_[STREAK_TICKS];
+    std::vector<int32_t> streaks_last_;   // merged runs of the last STREAK_TICKS ticks: slot, x, z, y0, y1
+    mutable std::mutex streak_m_;
+    void build_streaks();
     Pool pool_;
 
     inline int idx(int x, int y, int z) const { return ((x + ox_) & mx_) + W_ * (((y + oy_) & my_) + H_ * ((z + oz_) & mz_)); }
@@ -400,6 +415,13 @@ private:
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);
     void update_liquid_column(int x, int y, int z, int i, Ctx &c);   // ADR 0119 A
+    // ADR 0138: past FLAT_REACH a resting flood keeps a tilt of an eighth per reach. Cells whose conveyor look failed at
+    // an edge one eighth down seed a serial pass after the tick that levels the connected surface they are on
+    static constexpr int LEVEL_SEEDS = 256;
+    static constexpr int LEVEL_MAX_COLUMNS = 8192;
+    std::atomic<int> level_n_{0};
+    int32_t level_seeds_[LEVEL_SEEDS * 3] = {};
+    void level_surfaces();
     static constexpr int FLAT_REACH = 14;     // the surface conveyor looks this far and writes one cell over (1 + 14 < CS: ADR 0138)
     static constexpr int COLUMN_REACH = 7;    // cells a column scan follows up or down (< CS / 2 like SURFACE_REACH: chunks two apart never touch one cell)
     void update_gas(int x, int y, int z, int i, Ctx &c);

@@ -1091,6 +1091,20 @@ sp("bed", ("bed", "blanket"))
 sp("chair", ("chair", "wood"))
 for k in ("door", "trapdoor", "fence", "fence_gate", "ladder", "window", "table", "shelf", "lantern", "flower_pot", "painting"):
     sp(k, (k, "wood"))
+# ADR 0142: mine supports, a post with a cap under the roof
+shape("mine_post", outline(art([
+    "................", ".hhhhhhhhhhhhhh.", ".mmmmmmmmmmmmmm.", ".....dlmmd......",
+    ".....dlmmd......", ".....dmmmd......", ".....dlmmd......", ".....dlmmd......",
+    ".....dmmmd......", ".....dlmmd......", ".....dlmmd......", ".....dmmmd......",
+    ".....dlmmd......", "....dlllmmd.....", "....dddddddd....", "................"])))
+shape("mine_pillar", outline(art([
+    "................", "...dddddddddd...", "...mhhhhhhhhm...", "....mllllllm....",
+    "....mlmmmmlm....", "....dddddddd....", "....mllllllm....", "....mlmmmmlm....",
+    "....dddddddd....", "....mllllllm....", "....mlmmmmlm....", "....dddddddd....",
+    "....mllllllm....", "...mhhhhhhhhm...", "...dddddddddd...", "................"])))
+sp("timber_prop", ("mine_post", "wood"))
+sp("stone_pillar", ("mine_pillar", "stone"))
+sp("iron_beam", ("mine_post", "iron"))
 # ADR 0121: a bench, a candle, and the plank furniture in every wood. Wood ramps per ADR 0129: shadows
 # cooler and more saturated, highlights warmer; each matches its planks' tile (176..179).
 shape("bench", outline(art([

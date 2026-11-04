@@ -2420,6 +2420,46 @@
         "................"
       ]
     },
+    "mine_post": {
+      "rows": [
+        ".oooooooooooooo.",
+        "ohhhhhhhhhhhhhho",
+        "ommmmmmmmmmmmmmo",
+        ".oooodlmmdooooo.",
+        "....odlmmdo.....",
+        "....odmmmdo.....",
+        "....odlmmdo.....",
+        "....odlmmdo.....",
+        "....odmmmdo.....",
+        "....odlmmdo.....",
+        "....odlmmdo.....",
+        "....odmmmdo.....",
+        "....odlmmdo.....",
+        "...odlllmmdo....",
+        "...oddddddddo...",
+        "....oooooooo...."
+      ]
+    },
+    "mine_pillar": {
+      "rows": [
+        "...oooooooooo...",
+        "..oddddddddddo..",
+        "..omhhhhhhhhmo..",
+        "...omllllllmo...",
+        "...omlmmmmlmo...",
+        "...oddddddddo...",
+        "...omllllllmo...",
+        "...omlmmmmlmo...",
+        "...oddddddddo...",
+        "...omllllllmo...",
+        "...omlmmmmlmo...",
+        "...oddddddddo...",
+        "...omllllllmo...",
+        "..omhhhhhhhhmo..",
+        "..oddddddddddo..",
+        "...oooooooooo..."
+      ]
+    },
     "bench": {
       "rows": [
         "................",
@@ -4573,6 +4613,9 @@
     "lantern": {"layers": [{"shape": "lantern", "palette": "wood"}]},
     "flower_pot": {"layers": [{"shape": "flower_pot", "palette": "wood"}]},
     "painting": {"layers": [{"shape": "painting", "palette": "wood"}]},
+    "timber_prop": {"layers": [{"shape": "mine_post", "palette": "wood"}]},
+    "stone_pillar": {"layers": [{"shape": "mine_pillar", "palette": "stone"}]},
+    "iron_beam": {"layers": [{"shape": "mine_post", "palette": "iron"}]},
     "bench": {"layers": [{"shape": "bench", "palette": "wood"}]},
     "candle": {"layers": [{"shape": "candle", "palette": "wax"}]},
     "sign": {"layers": [{"shape": "sign", "palette": "wood"}]},
