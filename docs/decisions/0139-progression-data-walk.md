@@ -56,6 +56,13 @@ Option 2.
   read ore_veins.json as 12.5 cm voxels: a vein holds about 6,000 blocks of its ore, not 94, so the road to LV
   uses about 1 % of one vein per metal. The asked-for 6-10 veins per metal would mean veins of a lump or two,
   so the vein sizes are left for the developer (options in `docs/plans/progression-walk.md`, item 3).
+- Metal pass (developer, 2026-11-04: keep the veins, make the road eat more metal, GregTech style, at most
+  14 h to LV): plates and pipes are two ingots, a hand gear one, three wires three cables, the blast furnace has
+  iron bands and smelts crushed iron ore to ingots four at a charge, and the steam hammer spreads two-ingot
+  pieces instead of cutting metal off. Ingots per age about double (steam 90, LV 250) and the road gets faster
+  (8.8 h) because the walk now builds the crushers and LV machines; but the road still uses about 1-2 % of a
+  vein an age, not the quarter asked for. Believable part costs cannot close that gap; factory-scale quests or
+  smaller veins can (options in the plan, "Metal pass").
 - Numbers are estimates under stated guesses: biomes and travel between them, ore wear on the pick, hunger and
   machine throughput are not modelled, and waits are not overlapped with work. Compare runs, not absolutes.
 - Quest counts of voxel items are voxels (64 to a block), as the game counts them; the walk follows that.

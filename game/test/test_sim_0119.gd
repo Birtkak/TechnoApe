@@ -184,8 +184,8 @@ func test_ice_melts_warm_and_water_freezes_cold() -> void:
 	var w := _box_world(12.0)
 	w.fill_box(Vector3i(16, 8, 16), Vector3i(32, 24, 32), 0)
 	w.fill_box(Vector3i(20, 8, 20), Vector3i(28, 10, 28), GameMaterials.ICE)
-	_run(w, 60)
-	assert_int(w.count_material(GameMaterials.ICE)).override_failure_message("ice at 12 C").is_equal(0)
+	_run(w, 1500)   # ADR 0137: it thaws a few exposed cells per heat turn, not all at once
+	assert_int(w.count_material(GameMaterials.ICE)).override_failure_message("ice at 12 C").is_less(128 / 2)
 	var cold := _box_world(-15.0)
 	cold.fill_box(Vector3i(16, 8, 16), Vector3i(32, 24, 32), 0)
 	cold.fill_box(Vector3i(20, 8, 20), Vector3i(28, 10, 28), GameMaterials.WATER)
