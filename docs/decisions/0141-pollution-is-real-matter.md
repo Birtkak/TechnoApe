@@ -23,7 +23,8 @@ crafted block) vents gas over its top (up to `chimney_max_m`): higher stacks put
 **Wind moves gases.** `SimWorld::set_wind` (WorkSystem sets it from the weather's wind once a second): a gas with
 `wind_drift` (smoke) steps one cell downwind with that share of its moves. One small function in `update_gas`.
 
-**Fouled water** (`fouled_water`, 218, fluid slot 5, a darker green-brown look). The old dilution (sludge + water ->
+**Fouled water** (`fouled_water`, 218, fluid slot 5, a darker green-brown look, density 0.95: it floats on clean
+water as a slick, or a plume under the surface would show nothing). The old dilution (sludge + water ->
 water) became: sludge touching water makes two fouled water (0.15); fouled water spreads into moving water (0.002);
 against **still** (generated) water it spreads at 0.001 and is diluted back at 0.0015, so a plume in a lake or river
 stays bounded and clears once the source stops, while a dug pond of moving water stays fouled until drained. Crops

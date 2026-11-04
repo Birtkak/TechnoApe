@@ -317,7 +317,7 @@ static func _build_defs() -> Array:
 ## react_awake keeps it rolling its reactions at rest (reactions()). Atlas tiles 190, 191, 215.
 static func _waste_defs() -> Array:
 	return [
-		{"name": "fouled_water", "boil_c": 100, "boils_to": "steam", "boil_rise_c": 60, "cell_type": "liquid", "fluid_slot": 5, "density": 1, "liquid_flow_speed": 1.0, "liquid_speed": 8, "film_lifetime_ticks": 300, "tiles": [5, 5, 5], "transparent": true, "react_awake": true},
+		{"name": "fouled_water", "boil_c": 100, "boils_to": "steam", "boil_rise_c": 60, "cell_type": "liquid", "fluid_slot": 5, "density": 0.95, "liquid_flow_speed": 1.0, "liquid_speed": 8, "film_lifetime_ticks": 300, "tiles": [5, 5, 5], "transparent": true, "react_awake": true},
 		{"name": "waste_ground", "cell_type": "solid", "density": 8, "hp": 60, "tiles": [190, 190, 190], "transparent": false},
 		{"name": "slag", "cell_type": "powder", "density": 6, "tiles": [191, 191, 191], "transparent": false},
 		{"name": "chimney", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [215, 99, 215], "transparent": false},
