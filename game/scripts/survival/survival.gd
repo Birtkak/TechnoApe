@@ -328,7 +328,10 @@ var last_meal := {}   # the groups the last food filled (chat, tests)
 
 ## Eating `def` at `spoil`: hunger and saturation (stale food half), and its food groups.
 func eat(def: Dictionary, spoil: float) -> void:
-	var f: Dictionary = def.get("food", {})
+	var f: Dictionary = def.get("food", def.get("drink", {}))
+	if float(f.get("poison_s", 0.0)) > 0.0:
+		poison(float(f["poison_s"]))   # ADR 0141: fouled water makes you sick
+		stats["sick"] = int(stats.get("sick", 0)) + 1
 	var k := 0.5 if spoil >= 0.5 else 1.0
 	hunger = minf(Settings.hunger_max, hunger + float(f.get("hunger", 1)) * k)
 	saturation = minf(hunger, saturation + float(f.get("saturation", 0)) * k)

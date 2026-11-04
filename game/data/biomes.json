@@ -218,7 +218,7 @@
     {"id": 36, "name": "sulfur_cave",       "display": "Sulfur Cave",       "band": "cave", "tags": ["underground", "toxic"],
      "surface": {"top": "sulfur", "under": "stone", "ceiling": "sulfur", "pool": "toxic_sludge_static"}, "tree_density": 0.0, "color": [205, 190, 60],
      "borders": ["cave", "lush_cave", "dripstone_cave", "fungal_cave", "frozen_cave", "crystal_cave", "magma_cave"],
-     "notes": "Rare mid-depth pockets (cave noise high): sulfur crust on floors and ceilings, pools of toxic sludge (Noita). Water turns the sludge into water."},
+     "notes": "Rare mid-depth pockets (cave noise high): sulfur crust on floors and ceilings, pools of toxic sludge (Noita). Water the sludge touches is fouled (ADR 0141)."},
     {"id": 37, "name": "birch_forest",      "display": "Birch Forest",      "band": "lowland", "tags": ["cold", "forest"],
      "surface": {"top": "grass", "under": "dirt"}, "tree_density": 0.5, "tree_kind": "birch", "decor": {"berries": 0.056, "mushrooms": 0.031, "log_mushrooms": 0.012, "bush": 0.25, "boulder": 0.06, "fallen_log": 0.1}, "tree_mix": {"kind": "spruce", "share": 0.1}, "color": [180, 205, 130],
      "borders": ["beach", "forest", "highlands", "lake", "river", "snowy_taiga", "stony_shore", "taiga"],

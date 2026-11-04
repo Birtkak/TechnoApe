@@ -135,6 +135,8 @@ func look_lines() -> Array[String]:
 	var fuel := inv.get_slot(FUEL)
 	if not fuel.is_empty():
 		out.append("Fuel: %s" % _count_name(fuel))
+	if Waste.blocked(waste):
+		out.append(Waste.status(waste))
 	out.append("Water: %d%%%s" % [roundi(water * 100.0), " (DRY: it will burst!)" if is_lit() and water <= 0.0 else ""])
 	out.append("Pressure: %.2f bar%s" % [pressure, " (over pressure: vent it!)" if pressure > 1.0 else ""])
 	if steel():

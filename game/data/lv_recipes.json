@@ -7,6 +7,8 @@
     {"id": "canning_machine", "type": "shaped", "pattern": ["TMT", "CHC", "TGT"], "key": {"T": "tin_ingot", "M": "electric_motor", "C": "primitive_circuit", "H": "machine_hull", "G": "iron_gear"}, "output": {"id": "canning_machine", "count": 1}},
     {"id": "electric_compressor", "type": "shaped", "pattern": ["PPP", "CHC", "PSP"], "key": {"P": "iron_plate", "C": "primitive_circuit", "H": "machine_hull", "S": "electric_piston"}, "output": {"id": "electric_compressor", "count": 1}},
     {"id": "electrolyzer", "type": "shaped", "pattern": ["WGW", "CHC", "WGW"], "key": {"W": "insulated_wire", "G": "glass", "C": "primitive_circuit", "H": "machine_hull"}, "output": {"id": "electrolyzer", "count": 1}},
+    {"id": "scrubber", "type": "shaped", "pattern": ["PBP", "CHC", "PGP"], "key": {"P": "iron_plate", "B": "bucket", "C": "primitive_circuit", "H": "machine_hull", "G": "gravel"}, "output": {"id": "scrubber", "count": 1}},
+    {"id": "chimney", "type": "shaped", "pattern": ["B B", "B B", "B B"], "key": {"B": "bricks"}, "output": {"id": "chimney", "count": 3}, "station": "crafting_table"},
 
     {"id": "extract_resin", "type": "process", "station": "extractor", "ingredients": ["#log"], "output": {"id": "sticky_resin", "count": 1}, "seconds": 10, "info": "200 W"},
     {"id": "extract_rubber", "type": "process", "station": "extractor", "ingredients": ["sticky_resin"], "output": {"id": "rubber", "count": 3}, "seconds": 10, "info": "200 W; the furnace cures one raw rubber into one"},
@@ -37,9 +39,11 @@
     {"id": "compress_coal_electrode", "type": "process", "station": "electric_compressor", "ingredients": ["#coal", "#coal", "#coal", "#coal"], "output": {"id": "carbon_electrode", "count": 1}, "seconds": 15, "info": "400 W; coke makes four times as many"},
     {"id": "compress_cordage", "type": "process", "station": "electric_compressor", "ingredients": ["plant_fiber", "plant_fiber", "plant_fiber"], "output": {"id": "cordage", "count": 2}, "seconds": 4, "info": "400 W"},
 
-    {"id": "electrolyze_copper", "type": "process", "station": "electrolyzer", "ingredients": ["crushed_copper_ore", "crushed_copper_ore", "carbon_electrode"], "output": {"id": "copper_ingot", "count": 2}, "seconds": 10, "info": "600 W"},
-    {"id": "electrolyze_tin", "type": "process", "station": "electrolyzer", "ingredients": ["crushed_tin_ore", "crushed_tin_ore", "carbon_electrode"], "output": {"id": "tin_ingot", "count": 2}, "seconds": 10, "info": "600 W"},
-    {"id": "electrolyze_iron", "type": "process", "station": "electrolyzer", "ingredients": ["crushed_iron_ore", "crushed_iron_ore", "carbon_electrode"], "output": {"id": "iron_ingot", "count": 2}, "seconds": 15, "info": "600 W; no bloomery"},
+    {"id": "electrolyze_copper", "type": "process", "station": "electrolyzer", "ingredients": ["crushed_copper_ore", "crushed_copper_ore", "carbon_electrode"], "output": {"id": "copper_ingot", "count": 2}, "seconds": 10, "info": "600 W", "waste": [{"material": "toxic_sludge", "cells": 64}]},
+    {"id": "electrolyze_tin", "type": "process", "station": "electrolyzer", "ingredients": ["crushed_tin_ore", "crushed_tin_ore", "carbon_electrode"], "output": {"id": "tin_ingot", "count": 2}, "seconds": 10, "info": "600 W", "waste": [{"material": "toxic_sludge", "cells": 64}]},
+    {"id": "electrolyze_iron", "type": "process", "station": "electrolyzer", "ingredients": ["crushed_iron_ore", "crushed_iron_ore", "carbon_electrode"], "output": {"id": "iron_ingot", "count": 2}, "seconds": 15, "info": "600 W; no bloomery", "waste": [{"material": "toxic_sludge", "cells": 64}]},
+    {"id": "scrub_sludge", "type": "process", "station": "scrubber", "ingredients": ["toxic_sludge_bucket"], "output": {"id": "sulfur", "count": 1}, "seconds": 8, "waste": [{"material": "water", "cells": 448}], "info": "300 W; a bucket of sludge from its tank: sulfur, and clean water out of its back port"},
+    {"id": "scrub_waste_ground", "type": "process", "station": "scrubber", "ingredients": ["waste_ground"], "output": {"id": "dirt", "count": 1}, "seconds": 10, "info": "300 W; settled waste back to clean dirt"},
 
     {"id": "assemble_electric_piston", "type": "process", "station": "assembler", "ingredients": ["steel_rod", "iron_plate", "iron_plate", "electric_motor"], "output": {"id": "electric_piston", "count": 2}, "seconds": 8, "info": "200 W; a steel rod drives two pistons"},
     {"id": "assemble_insulated_wire", "type": "process", "station": "assembler", "ingredients": ["copper_wire", "copper_wire", "copper_wire", "rubber"], "output": {"id": "insulated_wire", "count": 3}, "seconds": 4, "info": "200 W; the table sleeves one wire per rubber"},

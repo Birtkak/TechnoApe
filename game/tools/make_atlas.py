@@ -19,7 +19,7 @@ Tiles (index = row*4 + col):
 136-170 rock kinds, cobbles, bricks, clutter, pyrite and ochres (tools/atlas_rocks.py, ADR 0057)
 171 tnt side 172 tnt top (patterned: a 4-voxel period, one 0.5 m TNT block per period; ADR 0065)
 173 monolith ashlar 174 monolith runes 175 monolith seam (patterned, 16-voxel period; runes and seam glow, ADR 0098)
-176 spruce 177 acacia 178 jungle 179 birch planks (patterned like 39 oak planks); 180-191 other branches
+176 spruce 177 acacia 178 jungle 179 birch planks (patterned like 39 oak planks); 180-189 other branches; 190 waste ground 191 slag 215 chimney top (ADR 0141)
 192 dripstone 193 cave vine 194 fungus stem 195 rusted rail 204 glow berries 205 magma rock 206 fungus cap (cave dressing; 204..207 glow)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
@@ -1147,6 +1147,41 @@ blank = Image.new("RGBA", (TILE, TILE), (255, 0, 255, 255))
 while len(tiles) < 216:
     tiles.append(blank)
 for i, t in cave_tiles().items():
+    tiles[i] = t
+
+
+def waste_tiles():
+    """ADR 0141: 190 waste ground (sour grey-olive earth with yellow sulfur flecks), 191 slag (glassy black-grey
+    with rust and a glint), 215 chimney top (the soot-black flue mouth in a brick rim, patterned on the 4-voxel block)."""
+    rng = random.Random(141)
+    out = {}
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            c = (96, 94, 66) if rng.random() > 0.3 else (74, 72, 50)
+            if rng.random() < 0.06:
+                c = (182, 168, 70)
+            _px(img, x, y, c, rng, 8)
+    out[190] = img
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            r = rng.random()
+            c = (52, 50, 56) if r > 0.25 else ((110, 64, 40) if r > 0.1 else (30, 28, 32))
+            if rng.random() < 0.03:
+                c = (170, 170, 180)
+            _px(img, x, y, c, rng, 8)
+    out[191] = img
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            edge = x % 4 in (0, 3) or y % 4 in (0, 3)
+            _px(img, x, y, (150, 74, 54) if edge else (26, 22, 22), rng, 8)
+    out[215] = img
+    return out
+
+
+for i, t in waste_tiles().items():
     tiles[i] = t
 assert len(tiles) <= COLS * ROWS, len(tiles)
 

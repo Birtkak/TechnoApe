@@ -9,6 +9,9 @@ extends Control
 const MARGIN := 10.0
 const TEXT_H := 68.0
 const F3_DROP := 280.0
+## ADR 0141: what the aimed-cell line adds to factory waste
+const WASTE_NOTES := {GameMaterials.FOULED_WATER: "fouled: unsafe to drink", GameMaterials.TOXIC_SLUDGE: "toxic waste",
+	GameMaterials.WASTE_GROUND: "waste: the scrubber cleans it", GameMaterials.SLAG: "smelting waste"}
 var _f3 := false
 var main: Node
 var view: MapView
@@ -103,11 +106,18 @@ func _cell_line(p: Vector3) -> String:
 	var hit = main.world.raycast(main.player.camera.global_position, -main.player.camera.global_transform.basis.z, Settings.m2v(Settings.reach_m))
 	if hit:
 		cell = hit.position
+	var wet: Vector3i = main.player._aimed_liquid(hit, true)   # ADR 0141: the aim ray passes through liquids; name the first one
+	if wet.x != 1 << 30:
+		cell = wet
 	var info: Dictionary = main.bubble.cell_info(cell)
 	if info.is_empty():
 		return ""
 	var mat := int(info.get("material", 0))
 	var mname := "air" if mat == 0 else GameMaterials.name_of(mat).replace("_", " ")
+	if WASTE_NOTES.has(mat):
+		mname += " (%s)" % WASTE_NOTES[mat]
+	if mat == GameMaterials.FOULED_WATER and main.get("survival_loop") != null and main.survival_loop.discoveries != null:
+		main.survival_loop.discoveries.note("phenomenon:fouled_water")   # ADR 0141: the journal entry, the first time
 	var state: String = ["solid", "liquid", "gas", "fire", "powder"][clampi(int(info.get("cell_type", 0)), 0, 4)]
 	if bool(info.get("still", false)):
 		state = "still " + state
