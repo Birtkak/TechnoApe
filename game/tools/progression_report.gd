@@ -59,6 +59,30 @@ static func markdown(w, res: Dictionary) -> String:
 		L.append("| %s | %s | %d | %s | %s | %s | **%s** | %s | %s | %d |" % [ch["id"], ch["age"], ch["road"].size(), Walk.hms(ch["gather_s"]),
 			Walk.hms(ch["hands_s"]), Walk.hms(ch["trip_s"]), Walk.hms(ch["total_s"]), Walk.hms(cum), Walk.hms(ch["wait_s"]), ch["dead"].size()])
 	L.append("")
+	L.append("Metal per chapter: ingots the steps make (tool heads cast straight from a crucible are not ingots), ore")
+	L.append("blocks mined and their share of one vein of that ore.")
+	L.append("")
+	L.append("| Chapter | Ingots | Ore blocks (share of a vein) |")
+	L.append("|---|---|---|")
+	var vein_of := {}
+	for v in res["veins"]:
+		vein_of[v["material"]] = float(v["blocks"])
+	for ch in res["chapters"]:
+		var ingots := {}
+		for rid in ch["steps"]:
+			var o: Dictionary = w.recipes.recipes[rid]["output"]
+			if String(o["id"]).ends_with("_ingot"):
+				ingots[o["id"]] = float(ingots.get(o["id"], 0.0)) + float(ch["steps"][rid]) * float(o.get("count", 1))
+		var ing := []
+		for id in ingots:
+			ing.append("%s %s" % [String(id).trim_suffix("_ingot"), _n(ingots[id])])
+		var ore := []
+		for m in ["copper_ore", "tin_ore", "iron_ore", "coal"]:
+			var src: String = "coal_ore" if m == "coal" else m
+			if ch["raw"].has(m) and vein_of.has(src):
+				ore.append("%s %s (%.1f %%)" % [m.trim_suffix("_ore"), _n(ch["raw"][m]), 100.0 * float(ch["raw"][m]) / vein_of[src]])
+		L.append("| %s | %s | %s |" % [ch["id"], ", ".join(ing), ", ".join(ore)])
+	L.append("")
 	L.append("")
 	L.append("Whole road, raw totals (veins: how many of the best vein the road empties):")
 	L.append("")

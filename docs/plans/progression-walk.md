@@ -20,29 +20,45 @@ blocks of 64 voxels (one recipe unit), everything else in pieces.
 | copper_age | copper | 6 | 1 min | 5 min | 2 min | **8 min** | 1.3 h | 4 min | 0 |
 | bronze_age | bronze | 4 | 35 s | 1 min | 8 min | **10 min** | 1.4 h | 2 min | 0 |
 | iron_age | iron | 6 | 14 min | 29 min | 54 min | **1.6 h** | 3.0 h | 42 min | 0 |
-| steam_age | steam / steel | 8 | 6 min | 1.4 h | 4 min | **1.6 h** | 4.6 h | 1.7 h | 0 |
-| electrical_age | LV electrical | 8 | 6 min | 2.5 h | 4 min | **2.6 h** | 7.3 h | 2.6 h | 0 |
-| lv_workshop | LV electrical | 3 | 18 min | 2.6 h | 4 min | **3.0 h** | 10.3 h | 2.7 h | 0 |
+| steam_age | steam / steel | 8 | 5 min | 1.3 h | 4 min | **1.5 h** | 4.5 h | 1.9 h | 0 |
+| electrical_age | LV electrical | 8 | 9 min | 1.5 h | 4 min | **1.7 h** | 6.2 h | 1.8 h | 0 |
+| lv_workshop | LV electrical | 3 | 23 min | 2.1 h | 4 min | **2.5 h** | 8.8 h | 2.3 h | 0 |
+
+Metal per chapter: ingots the steps make (tool heads cast straight from a crucible are not ingots), ore
+blocks mined and their share of one vein of that ore.
+
+| Chapter | Ingots | Ore blocks (share of a vein) |
+|---|---|---|
+| flint_age |  |  |
+| middle_stone_age |  |  |
+| new_stone_age |  |  |
+| copper_stone_age |  | copper 1 (0.0 %), coal 0.25 (0.0 %) |
+| copper_age | copper 4 | copper 6 (0.1 %), coal 1.50 (0.0 %) |
+| bronze_age |  | copper 3 (0.0 %), tin 3.02 (0.1 %), coal 1.31 (0.0 %) |
+| iron_age | bronze 7, iron 2 | copper 7 (0.1 %), tin 7 (0.1 %), iron 3.02 (0.1 %), coal 8.56 (0.0 %) |
+| steam_age | iron 66, bronze 10, copper 2.25, steel 14 | copper 12 (0.2 %), tin 10 (0.2 %), iron 44 (0.7 %), coal 73 (0.3 %) |
+| electrical_age | iron 93, copper 13 | copper 13 (0.2 %), iron 47 (0.8 %), coal 69 (0.3 %) |
+| lv_workshop | iron 115, steel 8, copper 16, tin 4.25 | copper 12 (0.2 %), tin 2.13 (0.0 %), iron 57 (1.0 %), coal 188 (0.8 %) |
 
 
 Whole road, raw totals (veins: how many of the best vein the road empties):
 
 | Raw | Amount | Veins |
 |---|---|---|
-| clay_ball | 121 |  |
-| coal | 319 | 0.014 coal |
-| copper_ore | 47 blocks | 0.008 copper |
+| clay_ball | 117 |  |
+| coal | 341 | 0.015 coal |
+| copper_ore | 54 blocks | 0.009 copper |
 | loose_copper_ore | 12 | 0.395 copper |
 | gravel | 31 blocks |  |
 | iron_nugget | 8 |  |
-| iron_ore | 137 blocks | 0.023 iron |
+| iron_ore | 151 blocks | 0.025 iron |
 | loose_iron_ore | 4 | 0.132 copper_iron |
-| acacia_log | 135 blocks |  |
+| acacia_log | 131 blocks |  |
 | oak_log | 2.67 blocks |  |
-| sand | 145 blocks |  |
+| sand | 143 blocks |  |
 | loose_stone | 8 |  |
 | loose_tin_ore | 1 | 0.033 cassiterite |
-| tin_ore | 17 blocks | 0.003 copper |
+| tin_ore | 22 blocks | 0.004 copper |
 | tinder_fungus | 1 |  |
 | antler | 1 |  |
 | birch_bark | 9 |  |
@@ -50,11 +66,11 @@ Whole road, raw totals (veins: how many of the best vein the road empties):
 | chalk_cobble | 15 blocks |  |
 | dirt | 4 blocks |  |
 | driftwood | 5.33 |  |
-| dry_grass | 338 |  |
+| dry_grass | 322 |  |
 | feather | 2 |  |
 | fire_ember | 1 |  |
 | flint | 13 |  |
-| fur | 7 |  |
+| fur | 14 |  |
 | plant_fiber | 24 |  |
 | pyrite | 7 |  |
 | sulfur | 2.50 |  |
@@ -277,85 +293,85 @@ Steps: acacia_planks_with_saw x32, alloy_bronze_tin_ore x7, bloom_iron_ore x3, b
 
 Most hands-on time: form_clay_brick 11 min, kiln_clay_brick 8 min, sticks 3 min, smith_iron_ingot 2 min, acacia_planks_with_saw 2 min.
 
-## Steam Age (steam / steel age): 1.6 h
+## Steam Age (steam / steel age): 1.5 h
 
 Tools at the start: pickaxe: iron_pickaxe, axe: polished_stone_axe, shovel: flint_shovel, knife: flint_knife.
 
 **Outliers:**
-- one iron vein holds 6013 units of iron_ore, 189x the 31.9 the chapter needs
-- one coal vein holds 22648 units of coal_ore, 379x the 59.7 the chapter needs
-- one copper vein holds 5583 units of tin_ore, 1117x the 5.0 the chapter needs
-- one copper vein holds 6013 units of copper_ore, 962x the 6.3 the chapter needs
+- one iron vein holds 6013 units of iron_ore, 137x the 43.9 the chapter needs
+- one coal vein holds 22648 units of coal_ore, 312x the 72.6 the chapter needs
+- one copper vein holds 5583 units of tin_ore, 558x the 10.0 the chapter needs
+- one copper vein holds 6013 units of copper_ore, 491x the 12.3 the chapter needs
 
 Raw totals for the main road:
 
 | Raw | Amount | Time | From |
 |---|---|---|---|
-| clay_ball | 12 | 4 s | mine clay |
-| coal | 60 | 47 s | mine coal_ore |
-| copper_ore | 6.25 blocks | 6 s | mine copper_ore |
-| iron_ore | 32 blocks | 25 s | mine iron_ore |
-| acacia_log | 12 blocks | 18 s | mine acacia_log |
-| sand | 4.50 blocks | 3 s | mine sand |
-| tin_ore | 5 blocks | 4 s | mine tin_ore |
-| dry_grass | 48 | 4 min | mine tall_grass |
+| clay_ball | 8 | 2 s | mine clay |
+| coal | 73 | 1 min | mine coal_ore |
+| copper_ore | 12 blocks | 11 s | mine copper_ore |
+| iron_ore | 44 blocks | 39 s | mine iron_ore |
+| acacia_log | 8.30 blocks | 12 s | mine acacia_log |
+| sand | 2.50 blocks | 2 s | mine sand |
+| tin_ore | 10 blocks | 9 s | mine tin_ore |
+| dry_grass | 32 | 3 min | mine tall_grass |
 | water_bucket | 1 | 10 s | fill water |
 
-- iron_ore: 1 trip(s) to a iron vein, 2 min each (31.9 blocks needed of 6013 a vein)
-- coal_ore: 1 trip(s) to a coal vein, 58 s each (59.7 blocks needed of 22648 a vein)
-- tin_ore: 1 trip(s) to a copper vein, 1 min each (5.0 blocks needed of 5583 a vein)
-- copper_ore: 1 trip(s) to a copper vein, 1 min each (6.3 blocks needed of 6013 a vein)
+- iron_ore: 1 trip(s) to a iron vein, 2 min each (43.9 blocks needed of 6013 a vein)
+- coal_ore: 1 trip(s) to a coal vein, 58 s each (72.6 blocks needed of 22648 a vein)
+- tin_ore: 1 trip(s) to a copper vein, 1 min each (10.0 blocks needed of 5583 a vein)
+- copper_ore: 1 trip(s) to a copper vein, 1 min each (12.3 blocks needed of 6013 a vein)
 
-Quests: fire_brick 49 s, boiler 15 min, blast_furnace 8 min, steel 7 min, steel_tool 2 min, crusher 16 min, turbine 15 min, ore_train 26 min.
+Quests: fire_brick 49 s, boiler 21 min, blast_furnace 18 min, steel 7 min, steel_tool 2 min, crusher 10 min, turbine 10 min, ore_train 16 min.
 
 Made once and kept: small_boiler, blast_furnace, copper_pipe, water_bucket, steel_pickaxe, ore_crusher, steam_turbine, hopper, rail.
 
-Steps: acacia_planks_with_saw x12, alloy_bronze_tin_ore x5, blast_furnace x1, blast_steel x8, bloom_iron_ore x32, bucket x1, cast_bronze_ingot x5, cast_copper_ingot x1.25, fire_clay x4.50, form_clay_brick x1.50, hopper x1, iron_screw_by_hand x3, kiln_clay_brick x3, kiln_fire_brick x9, melt_copper_ore x6.25, minecart x1, ore_crusher x1, rail x0.13, small_boiler x1, smith_bronze_pipe x5, smith_copper_pipe x1, smith_copper_wire x0.25, smith_iron_gear x1.50, smith_iron_ingot x32, smith_iron_plate x19, smith_iron_rod x3.38, smith_steel_pickaxe_head x1, smith_steel_plate x6, steam_turbine x1, steel_pickaxe x1, sticks x25.
+Steps: acacia_planks_with_saw x8.30, alloy_bronze_tin_ore x10, blast_crushed_iron_ore x11, blast_furnace x1, blast_steel x14, bloom_iron_ore x22, bucket x1, cast_bronze_ingot x10, cast_copper_ingot x2.25, crush_iron_ore x22, fire_clay x2.50, form_clay_brick x1.50, hopper x1, iron_screw_by_hand x3, kiln_clay_brick x3, kiln_fire_brick x5, melt_copper_ore x12, minecart x1, ore_crusher x1, rail x0.13, small_boiler x1, smith_bronze_pipe x5, smith_copper_pipe x1, smith_copper_wire x0.25, smith_iron_gear x3, smith_iron_ingot x22, smith_iron_plate x23, smith_iron_rod x3.38, smith_steel_pickaxe_head x1, smith_steel_plate x6, steam_turbine x1, steel_pickaxe x1, sticks x17.
 
-Most hands-on time: smith_iron_ingot 34 min, smith_iron_plate 19 min, smith_steel_plate 6 min, smith_iron_rod 5 min, smith_bronze_pipe 5 min.
+Most hands-on time: smith_iron_plate 23 min, smith_iron_ingot 22 min, smith_steel_plate 6 min, smith_iron_rod 5 min, smith_bronze_pipe 5 min.
 
-## Electrical Age (LV electrical age): 2.6 h
+## Electrical Age (LV electrical age): 1.7 h
 
 Tools at the start: pickaxe: steel_pickaxe, axe: polished_stone_axe, shovel: flint_shovel, knife: flint_knife.
 
 **Outliers:**
-- one iron vein holds 6013 units of iron_ore, 111x the 54.3 the chapter needs
-- one coal vein holds 22648 units of coal_ore, 228x the 99.1 the chapter needs
-- one copper vein holds 6013 units of copper_ore, 501x the 12.0 the chapter needs
+- one iron vein holds 6013 units of iron_ore, 129x the 46.6 the chapter needs
+- one coal vein holds 22648 units of coal_ore, 328x the 69.1 the chapter needs
+- one copper vein holds 6013 units of copper_ore, 472x the 12.8 the chapter needs
 
 Raw totals for the main road:
 
 | Raw | Amount | Time | From |
 |---|---|---|---|
-| coal | 99 | 1 min | mine coal_ore |
-| copper_ore | 12 blocks | 8 s | mine copper_ore |
-| iron_ore | 54 blocks | 38 s | mine iron_ore |
+| coal | 69 | 48 s | mine coal_ore |
+| copper_ore | 13 blocks | 9 s | mine copper_ore |
+| iron_ore | 47 blocks | 32 s | mine iron_ore |
 | acacia_log | 18 blocks | 28 s | mine acacia_log |
 | sand | 44 blocks | 33 s | mine sand |
 | chalk_cobble | 8 blocks | 4 s | mine chalk |
-| fur | 3 | 3 min | mob fox |
+| fur | 6 | 6 min | mob fox |
 | sulfur | 2.50 | 1 s | mine sulfur |
 
-- iron_ore: 1 trip(s) to a iron vein, 2 min each (54.3 blocks needed of 6013 a vein)
-- coal_ore: 1 trip(s) to a coal vein, 58 s each (99.1 blocks needed of 22648 a vein)
-- copper_ore: 1 trip(s) to a copper vein, 1 min each (12.0 blocks needed of 6013 a vein)
+- iron_ore: 1 trip(s) to a iron vein, 2 min each (46.6 blocks needed of 6013 a vein)
+- coal_ore: 1 trip(s) to a coal vein, 58 s each (69.1 blocks needed of 22648 a vein)
+- copper_ore: 1 trip(s) to a copper vein, 1 min each (12.8 blocks needed of 6013 a vein)
 
-Quests: rubber 58 min, insulated_wire 1 min, vacuum_tube 3 min, coated_board 13 s, primitive_circuit 7 min, machine_hull 18 min, electric_motor 8 min, first_machine 58 min.
+Quests: rubber 38 min, insulated_wire 1 min, vacuum_tube 2 min, coated_board 13 s, primitive_circuit 6 min, machine_hull 11 min, electric_motor 5 min, first_machine 35 min.
 
 Made once and kept: furnace, extractor, water_wheel, copper_cable, lathe.
 
-Steps: acacia_planks_with_saw x2.50, bloom_iron_ore x54, bucket x1, capacitor x2.50, cast_copper_ingot x12, coated_board x6, copper_cable x1, copper_coil x1, cure_rubber x5, electric_motor x4, electric_piston x1, extract_resin x16, extract_rubber x11, extractor x1, furnace x1, insulated_wire x22, iron_screw_by_hand x7, lathe x1, lathe_iron_rod x5.25, lathe_iron_screw x1.50, machine_hull x3, melt_copper_ore x12, pan_sand_tin_nugget x33, primitive_circuit x5, raw_rubber x2.50, resistor x2.50, smelt_glass x11, smith_copper_wire x12, smith_iron_ingot x54, smith_iron_plate x39, smith_iron_rod x10, vacuum_tube x11, water_wheel x1.
+Steps: acacia_planks_with_saw x2.50, blast_crushed_iron_ore x23, bucket x1, capacitor x2.50, cast_copper_ingot x13, coated_board x6, copper_cable x2, copper_coil x1, crush_iron_ore x47, cure_rubber x5, electric_motor x4, electric_piston x1, extract_resin x16, extract_rubber x11, extractor x1, furnace x1, insulated_wire x22, iron_screw_by_hand x7, lathe x1, lathe_iron_rod x5.25, lathe_iron_screw x1.50, machine_hull x3, melt_copper_ore x13, pan_sand_tin_nugget x33, primitive_circuit x5, raw_rubber x2.50, resistor x2.50, smelt_glass x11, smith_copper_wire x13, smith_iron_plate x39, smith_iron_rod x10, vacuum_tube x11, water_wheel x1.
 
-Most hands-on time: smith_iron_ingot 59 min, smith_iron_plate 39 min, smith_copper_wire 22 min, smith_iron_rod 12 min, bloom_iron_ore 3 min.
+Most hands-on time: smith_iron_plate 39 min, smith_copper_wire 22 min, smith_iron_rod 12 min, crush_iron_ore 3 min, blast_crushed_iron_ore 2 min.
 
-## Workshop (LV electrical age): 3.0 h
+## Workshop (LV electrical age): 2.5 h
 
 Tools at the start: pickaxe: steel_pickaxe, axe: polished_stone_axe, shovel: flint_shovel, knife: flint_knife.
 
 **Outliers:**
-- one iron vein holds 6013 units of iron_ore, 126x the 47.8 the chapter needs
-- one coal vein holds 22648 units of coal_ore, 152x the 148.7 the chapter needs
-- one copper vein holds 6013 units of copper_ore, 534x the 11.3 the chapter needs
+- one iron vein holds 6013 units of iron_ore, 105x the 57.4 the chapter needs
+- one coal vein holds 22648 units of coal_ore, 121x the 187.5 the chapter needs
+- one copper vein holds 6013 units of copper_ore, 501x the 12.0 the chapter needs
 - one copper vein holds 5583 units of tin_ore, 2627x the 2.1 the chapter needs
 
 Raw totals for the main road:
@@ -363,28 +379,28 @@ Raw totals for the main road:
 | Raw | Amount | Time | From |
 |---|---|---|---|
 | clay_ball | 28 | 8 s | mine clay |
-| coal | 149 | 2 min | mine coal_ore |
-| copper_ore | 11 blocks | 8 s | mine copper_ore |
-| iron_ore | 48 blocks | 33 s | mine iron_ore |
+| coal | 188 | 2 min | mine coal_ore |
+| copper_ore | 12 blocks | 8 s | mine copper_ore |
+| iron_ore | 57 blocks | 40 s | mine iron_ore |
 | acacia_log | 47 blocks | 1 min | mine acacia_log |
 | sand | 80 blocks | 1 min | mine sand |
 | tin_ore | 2.13 blocks | 1 s | mine tin_ore |
 | carrot | 3 | 10 s | mine wild_carrot |
 | dry_grass | 112 | 9 min | mine tall_grass |
-| fur | 4 | 4 min | mob fox |
+| fur | 8 | 8 min | mob fox |
 
-- iron_ore: 1 trip(s) to a iron vein, 2 min each (47.8 blocks needed of 6013 a vein)
-- coal_ore: 1 trip(s) to a coal vein, 58 s each (148.7 blocks needed of 22648 a vein)
-- copper_ore: 1 trip(s) to a copper vein, 1 min each (11.3 blocks needed of 6013 a vein)
+- iron_ore: 1 trip(s) to a iron vein, 2 min each (57.4 blocks needed of 6013 a vein)
+- coal_ore: 1 trip(s) to a coal vein, 58 s each (187.5 blocks needed of 22648 a vein)
+- copper_ore: 1 trip(s) to a copper vein, 1 min each (12.0 blocks needed of 6013 a vein)
 - tin_ore: 1 trip(s) to a copper vein, 1 min each (2.1 blocks needed of 5583 a vein)
 
-Quests: extruder 58 min, canning_machine 2.0 h, canned_food 25 s.
+Quests: extruder 35 min, canning_machine 1.9 h, canned_food 25 s.
 
 Made once and kept: extruder, canning_machine, electrolyzer, electric_compressor, coke_oven.
 
-Steps: acacia_planks_with_saw x30, blast_steel x4, bloom_iron_ore x31, bricks_block x7, can_carrots x1, canning_machine x1, capacitor x4.50, cast_copper_ingot x7.50, coated_board x9, coke_coal x2, coke_oven x1, compress_coal_electrode x20, compress_coke_electrode x1, copper_cable x1.33, crush_copper_ore x3.75, crush_iron_ore x16, crush_tin_ore x2.13, electric_compressor x1, electric_motor x4, electric_piston x2, electrolyze_copper x3.75, electrolyze_iron x16, electrolyze_tin x2.13, electrolyzer x1, extract_resin x17, extract_rubber x17, extrude_iron_gear x0.33, extrude_iron_rod x12, extrude_tin_can x0.25, extruder x1, form_clay_brick x14, insulated_wire x29, iron_screw_by_hand x6, kiln_clay_brick x28, lathe_iron_screw x1.50, machine_hull x4, melt_copper_ore x7.50, pan_sand_tin_nugget x60, primitive_circuit x9, resistor x4.50, smelt_glass x20, smith_copper_wire x15, smith_iron_ingot x31, smith_iron_plate x48, smith_steel_plate x4, sticks x56, vacuum_tube x18.
+Steps: acacia_planks_with_saw x30, blast_crushed_iron_ore x14, blast_steel x8, bricks_block x7, can_carrots x1, canning_machine x1, capacitor x4.50, cast_copper_ingot x8, coated_board x9, coke_coal x2, coke_oven x1, compress_coal_electrode x34, compress_coke_electrode x1, copper_cable x2.67, crush_copper_ore x4, crush_iron_ore x57, crush_tin_ore x2.13, electric_compressor x1, electric_motor x4, electric_piston x2, electrolyze_copper x4, electrolyze_iron x30, electrolyze_tin x2.13, electrolyzer x1, extract_resin x17, extract_rubber x17, extrude_iron_gear x0.50, extrude_iron_rod x10, extrude_tin_can x0.25, extruder x1, form_clay_brick x14, insulated_wire x29, kiln_clay_brick x28, lathe_iron_screw x3, machine_hull x4, melt_copper_ore x8, pan_sand_tin_nugget x60, primitive_circuit x9, resistor x4.50, smelt_glass x20, smith_copper_wire x16, smith_iron_plate x48, smith_steel_plate x4, sticks x56, vacuum_tube x18.
 
-Most hands-on time: smith_iron_plate 48 min, smith_iron_ingot 35 min, smith_copper_wire 26 min, form_clay_brick 9 min, kiln_clay_brick 7 min.
+Most hands-on time: smith_iron_plate 48 min, smith_copper_wire 26 min, form_clay_brick 9 min, kiln_clay_brick 7 min, smith_steel_plate 4 min.
 
 ## Recipes for the same thing 10x or more apart
 
@@ -392,7 +408,7 @@ Seconds per unit with the best tools and everything set up, waits counted at a q
 
 | Item | Cheapest | s/unit | Dearest | s/unit | Ratio |
 |---|---|---|---|---|---|
-| copper_pipe | extrude_copper_pipe | 6.59 | smith_copper_pipe | 71 | 11x |
+| copper_pipe | extrude_copper_pipe | 6.59 | smith_copper_pipe | 79 | 12x |
 | iron_ingot | electrolyze_iron | 9.33 | smith_iron_ingot | 96 | 10x |
 
 ## Veins
@@ -421,7 +437,8 @@ good for comparing runs, not as absolutes.
 
 1. **Done (2026-11-04): `animal_fat`** drops from pigs and bears (1-2 each, mobs.json).
 2. **Done (2026-11-04): `floorstone_flint`** is a 0.1 chance drop per block of chalk dug with a pick (mining.json).
-3. **Open, needs a call: veins are thousands of times bigger than the road needs.** The first report put a
+3. **Veins are thousands of times bigger than the road needs.** Developer (2026-11-04): keep the veins and make
+   the road eat more metal; done in part, see the metal pass below. The first report put a
    copper vein at 94 blocks; that was the walk's bug (it read ore_veins.json as 12.5 cm voxels, but the file
    counts 0.5 m units, so one unit is one ore block). A scan of real veins (seed 1337, `vein_at` plus
    `generate_block` over the lens) finds 3,500-6,500 copper blocks in a copper vein, 5,400-6,200 iron in an
@@ -477,3 +494,33 @@ one trip per vein kind per chapter, stairs dug with the chapter's starting pick,
 
 (The fixed walk uses more iron ore on the old data than the first report because cheap vein ore makes the
 crusher not worth building on its own; the ingots needed are the same.)
+
+### Metal pass 2026-11-04: GregTech part costs
+
+Changes: an iron or steel plate is two ingots (the anvil shape is two cells thick; the bending press takes two
+ingots), a bronze or copper pipe two ingots, a hand-smithed gear one ingot (extruder: two gears an ingot), three
+wires make three cables (were six), the blast furnace has iron bands (four plates), and the blast furnace
+smelts crushed iron ore to iron ingots four at a charge (`blast_crushed_iron_ore`: the steam age's bulk iron,
+no bloom to hammer). A machine hull is now 16 ingots of plate, an LV machine about 30. The steam hammer drives
+metal past full columns instead of cutting it off, so it finishes two-ingot pieces.
+
+| Age | Ingots before | Ingots after | Ore share of a vein before | after | Time before | after |
+|---|---|---|---|---|---|---|
+| Steam | iron 32, steel 8, bronze 5, copper 1 | iron 66, steel 14, bronze 10, copper 2 | iron 0.5 %, copper 0.1 %, tin 0.1 %, coal 0.3 % | iron 0.7 %, copper 0.2 %, tin 0.2 %, coal 0.3 % | 1.6 h | 1.5 h |
+| LV (2 chapters) | iron 118, steel 4, copper 27, tin 4 | iron 208, steel 8, copper 29, tin 4 | iron 1.7 %, copper 0.4 %, coal 1.1 % | iron 1.8 %, copper 0.4 %, coal 1.1 % | 5.6 h | 4.3 h |
+| Whole road | | | | | 10.3 h | 8.8 h |
+
+The iron pickaxe still comes at 3.0 h. Ingots roughly double, but the ore share barely moves: with more metal
+the walk builds the ore crusher, the blast furnace route and the LV machines, which give two to three ingots a
+block, and the machines also cut the hand smithing (the LV chapters lose 1.3 h).
+
+**The target is out of reach with believable part costs.** A quarter of a vein is about 1,500 ore blocks per
+age, 3,000-4,500 ingots after the crushers; the main road builds one of each machine and uses 90 (steam) and
+250 (LV) ingots. Even GregTech's own ratios (plate 1-2 ingots, hull 8 plates, LV machine 20-30 ingots) give a
+few hundred ingots an age. The road has 5 h of the 14 h budget left, so the time is not the limit; the demand
+is. Ways to close the gap, for the developer:
+a. factory-scale quests: several machines of a kind (an ore line of 2-4 macerators and furnaces), a cable
+   network of a few hundred cables, rails between base and mine; each needs its quests and is the GregTech way;
+b. heavier parts than GregTech (plates of 4-8 ingots), which stops being believable;
+c. smaller veins after all (ore_veins.json `size_voxels` 64 -> 24, `thickness_voxels` 16 -> 8: about 1/14,
+   ~430 copper blocks a vein; with this pass an LV age would use about 10-25 % of one), with a GEN_VERSION bump.
