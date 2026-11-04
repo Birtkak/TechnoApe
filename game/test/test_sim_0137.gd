@@ -1,6 +1,7 @@
 extends GdUnitTestSuite
 ## ADR 0137 (fluid lag): loaded chunks take the outside temperature, read down to whole degrees (3.6 C is under ice's
-## melt_c of 4), and a cold window wakes no chunk that holds nothing to freeze. Speed and the unchanged kernel results:
+## melt_c of 4), a cold window wakes no chunk that holds nothing to freeze, and warm ice melts a few exposed cells
+## per heat turn. Speed and the unchanged kernel results:
 ## tools/fluid_bench.gd (reload, cold) and tools/sim_equiv_probe.gd.
 
 
@@ -45,3 +46,22 @@ func test_a_cold_window_leaves_chunks_with_nothing_to_freeze_asleep() -> void:
 			scanned += int(s.get("scanned_cells_per_tick", 0))
 	assert_int(w.count_material(GameMaterials.WATER)).is_equal(0)   # froze
 	assert_int(scanned).is_equal(0)   # then nothing wakes: stone and ice have nothing left to do at -5 C
+
+
+func test_warm_ice_thins_from_its_top_over_minutes() -> void:
+	var w := _world()
+	w.set_ambient_c(10.0, true)
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(64, 8, 64), GameMaterials.STONE)
+	w.fill_box(Vector3i(8, 8, 8), Vector3i(56, 11, 56), GameMaterials.ICE)   # 6 x 6 m, 3 cells thick, on rock
+	var ice := 48 * 48 * 3
+	var top := Vector3i(8, 10, 8)
+	var bottom := Vector3i(8, 8, 8)
+	for t in 30:
+		w.tick(1)
+	assert_int(w.count_material(GameMaterials.ICE)).override_failure_message("melted at once").is_greater(ice * 9 / 10)
+	for t in 870:
+		w.tick(1)
+	var left := w.count_material(GameMaterials.ICE)   # 30 s at 10 C (old: none after a tick)
+	assert_int(left).is_less(ice * 9 / 10)
+	assert_int(left).is_greater(ice / 3)
+	assert_int(w.count_in_box(top, top + Vector3i(48, 1, 48), GameMaterials.ICE)).is_less(w.count_in_box(bottom, bottom + Vector3i(48, 1, 48), GameMaterials.ICE))
