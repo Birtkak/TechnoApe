@@ -255,7 +255,7 @@
     "machine_extruder": {"sound": "loop/machine_extruder", "materials": [], "entities": ["extruder"]},
     "machine_canning_machine": {"sound": "loop/machine_canning_machine", "materials": [], "entities": ["canning_machine"]},
     "machine_electric_compressor": {"sound": "loop/machine_electric_compressor", "materials": [], "entities": ["electric_compressor"]},
-    "machine_electrolyzer": {"sound": "loop/machine_electrolyzer", "materials": [], "entities": ["electrolyzer"]},
+    "machine_electrolyzer": {"sound": "loop/machine_electrolyzer", "materials": [], "entities": ["electrolyzer", "scrubber"]},
     "machine_electric_furnace": {"sound": "loop/machine_electric_furnace", "materials": [], "entities": ["electric_furnace"]},
     "machine_lamp": {"sound": "loop/machine_lamp", "materials": [], "entities": ["electric_lamp"]},
     "machine_dynamo": {"sound": "loop/machine_dynamo", "materials": [], "entities": ["turbine"], "pitch_by": "amps", "pitch_ref": 40, "pitch_span": [0.75, 1.45]},
