@@ -46,13 +46,26 @@ chunks.
   (`switch_`: 1 after a load, a shift or a scan that saw such a cell; 0 after a whole-chunk scan that saw none). The
   hot wake (>= 90 C) stays: it also drives reactions such as water against flames (`test_fire`).
 - **The thread pool wakes as many helpers as a pass has chunks beyond the caller's own, and the caller works too.**
+- **Warm ice thaws from its exposed faces, a few cells per heat turn** (round 2, the overseer's default for a taste
+  call): a solid that melts goes only on its chunk's sleeping heat turn (every 64 ticks, `thaw_`), only where a face
+  touches air, liquid or gas, with a chance of 1 in 64 at its `melt_c` growing by 2/256 a degree to 1 in 4. Moving melt
+  water wakes the ice beside it every tick, so a chance per visit melted the slab in a second; per heat turn it does
+  not. A chunk keeps whether it holds exposed ice (`SW_WARM` in `switch_`), so buried ice is not rescanned. A 6 x 6 m
+  slab three cells thick at 10 C: 1% gone after 1 s, 40% after 30 s, 74% after 60 s, the top layer first.
+- **Column levelling gives only where something fits** (round 2): a column whose neighbour's top is full under a
+  roof, or runs on past `COLUMN_REACH`, moved nothing but counted a move and marked both cells, and the mark woke the
+  cell beside it again next tick. A hole dug into a bank under the surface fills to its roof and then kept 720-824
+  cells "moving" a tick for ever with no change (112-128 before ADR 0138's fill changes).
 - Tried and dropped: running the sim's threads at below-normal priority. Interleaved A/B runs showed no difference
   under the other sessions' load, so it stays out.
 
 The kernel's results are unchanged: `tools/sim_equiv_probe.gd` (a hash of every cell after 400 ticks of a spill,
 water bombs, lava into water with steam, water at -6 C and a fire past a puddle) is identical for the old and new DLL
 with 1 and 6 threads. `test/test_sim_0137.gd`: ice loaded at 3.6 C stays ice (fails on the old DLL); a cold window
-wakes nothing once its puddle froze.
+wakes nothing once its puddle froze; warm ice thins top first over tens of seconds; water filled to a tunnel's roof
+beside a deeper shaft rests (29,360 moves over 20 ticks on the round-1 DLL, 0 now). The probe stays the same for 1 and 6
+threads; the levelling fix changes its spill, bombs and lava scenes on purpose (a cell that found no room now tries its
+next neighbour instead of stopping), the thaw none of them (no scene holds ice).
 
 ## Results
 Kernel (`fluid_bench`, old -> new DLL, run twice back to back): basin 1.14 -> 0.75 ms a tick, bombs 4.8 -> 3.7 ms,
@@ -79,12 +92,23 @@ Standing cases after (clean runs): river p99 5.2 ms, bomb 4.6, pour 4.8-5.4, non
 remesh 5-18 ms, unchanged. Contact sheet: `fluid_lag_0137_before_after.png` in the overseer's notes folder (the frozen lake
 while it loads: open water before, ice after).
 
+Round 2 (after merging ADR 0138), `fluid_lag=lake` (a hole dug into the bank fills to its roof): before, 720-824 cells
+"moved" every tick with no change and the water never rested; after, it rests at 11.2 / 11.2 / 12.9 s (3 runs), sim
+tick 5.1 -> 3.2-3.6 ms, p99 6.0-7.4 ms, no frame over 16.7 ms. Bomb and pour: no frame over 16.7 ms, rest at 6.7 s and
+9.3 s. The harness's ground scan stops 5 m under the player (it found a cave 36 m down while the spawn streamed in,
+and the bomb fell outside the sim window). Flight over the developer's lake (one run, other sessions' Godot beside
+it): moving water at start 0, 9 still cells woken, 268 pastes, p99 13.9 ms, 34 frames over 16.7 ms (max 169 ms,
+streaming as above). `river` does not rest: the cut drains the river for ever (world water is endless, ADR 0104),
+about 290 pastes a second; its frames over 16.7 ms have the bubble at 0.1-0.2 ms and godot_voxel's MeshBlock /
+terrain update slowest (p99 22 ms; the round-1 DLL at the same spot 26 ms).
+
 ## Not done
 - Paste order stays oldest first (ADR 0010); a near-first order matters only with a backlog, which these fixes remove
   in the measured cases.
-- The 296-512 ms single-paste frames of the report did not reproduce. A paste takes godot_voxel's spatial write lock
-  on its blocks and waits for whatever task reads them (streaming's side).
-- Above 4 C outside, generated ice still melts as a whole lake at once: whether still ice should melt from the outside
-  alone (still water never switches) is a taste call.
-- The `lake` case never rests: after ~11 s, 112-128 cells move every tick with no net change (a pour that drains as
-  fast as it fills), which keeps a few chunks awake.
+- The 296-512 ms single-paste frames of the report did not reproduce. A paste waits in godot_voxel's
+  `SpatialLock3D::lock_write` (`util/thread/spatial_lock_3d.h`: retry, then `_semaphore.wait()` until any box is
+  unlocked) on `data_lod0.spatial_lock` over the pasted blocks, taken in `VoxelData::paste` (`storage/voxel_data.cpp`)
+  from `VoxelToolLodTerrain::paste`, on the main thread. Its readers are streaming's threads: `MeshBlockTask` holds
+  a read lock over the mesh block's data blocks and one ring around them while it copies them
+  (`meshers/mesh_block_task.cpp`), plus block reads, saves and `is_area_loaded`. The lock has no writer preference, so
+  a stream of mesh tasks over the same blocks keeps the paste waiting (the streaming sessions' side).
