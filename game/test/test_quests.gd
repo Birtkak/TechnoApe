@@ -281,8 +281,13 @@ func test_steam_age_walkthrough_and_ore_counts() -> void:
 	for c in CHAPTERS.slice(0, 7):
 		for q in book.chapter_quests(c):
 			book.complete(q["id"])
-	for id in ["small_boiler", "fire_brick", "blast_furnace", "steel_ingot", "steel_pickaxe", "ore_crusher", "steam_turbine", "minecart", "hopper", "rail"]:
+	for id in ["small_boiler", "fire_brick", "blast_furnace", "steel_ingot", "steel_pickaxe", "ore_crusher", "steam_turbine", "minecart", "hopper", "water_tank"]:
 		_give(id)
+	# the factory quests on the road (ADR 0139): plate stock, a hammer line on pipes, track to the ore site
+	for t in [["iron_plate", 128], ["steam_hammer", 3], ["bronze_pipe", 40]]:
+		_give(t[0], t[1])
+	assert_bool(book.is_done("ore_train")).is_false()   # one rail is not a line
+	_give("rail", 128)
 	assert_bool(book.is_done("ore_train")).is_true()
 	var mining := MiningTable.load_default()
 	assert_float(mining.break_time("copper_ore", items.get_def("steel_pickaxe"))).is_less(mining.break_time("copper_ore", items.get_def("iron_pickaxe")))

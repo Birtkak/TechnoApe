@@ -10,6 +10,7 @@
 
     {"id": "extract_resin", "type": "process", "station": "extractor", "ingredients": ["#log"], "output": {"id": "sticky_resin", "count": 1}, "seconds": 10, "info": "200 W"},
     {"id": "extract_rubber", "type": "process", "station": "extractor", "ingredients": ["sticky_resin"], "output": {"id": "rubber", "count": 3}, "seconds": 10, "info": "200 W; the furnace cures one raw rubber into one"},
+    {"id": "rubber_copper_cable", "type": "shaped", "pattern": ["WWW", "RRR"], "key": {"W": "copper_wire", "R": "rubber"}, "output": {"id": "copper_cable", "count": 3}, "_note": "ADR 0139: wire in a rubber sleeve, the cable of a long power line (hide does for the first few)"},
     {"id": "extract_raw_rubber", "type": "process", "station": "extractor", "ingredients": ["raw_rubber"], "output": {"id": "rubber", "count": 2}, "seconds": 8, "info": "200 W; twice what the furnace gives"},
 
     {"id": "cut_oak_planks", "type": "process", "station": "cutter", "ingredients": ["oak_log"], "output": {"id": "oak_planks", "count": 6}, "seconds": 5, "info": "200 W; a saw by hand gives four"},

@@ -63,6 +63,12 @@ Option 2.
   (8.8 h) because the walk now builds the crushers and LV machines; but the road still uses about 1-2 % of a
   vein an age, not the quarter asked for. Believable part costs cannot close that gap; factory-scale quests or
   smaller veins can (options in the plan, "Metal pass").
+- Both, moderately (developer, 2026-11-04): veins hold a quarter of the ore (lenses 44 x 8 units, coal 56 x 10;
+  GEN_VERSION 36), and the steam and LV roads gain factory quests: a stock of 128 iron plates, three steam hammers
+  on 40 bronze pipes, 128 rails to an ore site, an ore line of five macerators and a 512 m power line of 1,024
+  copper cable (a rubber-sleeved cable recipe joins the hide one). The walk prices a smith piece at 10 s once a
+  steam hammer is owned. Steam and LV each use about 10-16 % of an iron or copper vein, and the road takes
+  10.8 h (iron pickaxe at 3.1 h).
 - Numbers are estimates under stated guesses: biomes and travel between them, ore wear on the pick, hunger and
   machine throughput are not modelled, and waits are not overlapped with work. Compare runs, not absolutes.
 - Quest counts of voxel items are voxels (64 to a block), as the game counts them; the walk follows that.
