@@ -1734,6 +1734,9 @@ std::shared_ptr<const FineGen::ColumnCtx> FineGen::build_column_ctx(Vector3i ori
             c->h[(size_t)x + (size_t)size.x * z] = std::clamp((int)std::floor(hf + 0.5f), 8 * FS, world_h - 8 * FS);
         }
     }
+    c->rlat.resize((size_t)nx * nz);
+    for (int j = 0; j < nz; j++)
+        for (int i = 0; i < nx; i++) c->rlat[(size_t)j * nx + i] = rocks_.column(lx0 + i * L, lz0 + j * L, c->lat[(size_t)j * nx + i].hc * FS);
     s_ctx_build_us += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tb).count();
     return c;
 }
@@ -1760,6 +1763,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     const int nruins = ctx->nruins;
     const technosim_ruin::Prepared *rprep = ctx->rprep;
     const std::vector<MacroPt> &lat = ctx->lat;
+    const std::vector<technosim_rock::RockCol> &rlat = ctx->rlat;   // rock kinds (ADR 0057): strata per lattice point
     const int hmax_m = ctx->hmax_m, wl_max = ctx->wl_max, fall_max = ctx->fall_max;
     const float hmin_m = ctx->hmin_m;
     const int y_top = origin.y + sy * step;
@@ -1785,8 +1789,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
         && (lod > BIG_CAVE_LOD || !g.big_cave_possible(mx0, floor_div(origin.y, FS), mz0, mx0 + (nx - 1) * mstep, floor_div(y_top, FS), mz0 + (nz - 1) * mstep, (int)hmin_m));
     if (deep) {
         // the rock kind of the block (ADR 0057); where strata cross it, the full path
-        const technosim_rock::RockCol rc4[4] = {rocks_.column(lx0, lz0, lat[0].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0, lat[nx - 1].hc * FS),
-            rocks_.column(lx0, lz0 + (nz - 1) * L, lat[(size_t)(nz - 1) * nx].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0 + (nz - 1) * L, lat[(size_t)nz * nx - 1].hc * FS)};
+        const technosim_rock::RockCol rc4[4] = {rlat[0], rlat[nx - 1], rlat[(size_t)(nz - 1) * nx], rlat[(size_t)nz * nx - 1]};
         deep = rocks_.uniform(rc4, 4, origin.y, y_top, deep_rock);
     }
     if (deep) {
@@ -1829,10 +1832,6 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     const int reach_top = std::max({(hmax_m + 12) * FS, wl_max * FS + 1, fall_max * FS + 1, feature_top + 1, (hmax_m + 1) * FS + 12, far_canopy_top});
     if (origin.y >= reach_top) return out;
 
-    // Rock kinds (ADR 0057): strata per lattice point, interpolated per column like the surface.
-    std::vector<technosim_rock::RockCol> rlat((size_t)nx * nz);
-    for (int j = 0; j < nz; j++)
-        for (int i = 0; i < nx; i++) rlat[(size_t)j * nx + i] = rocks_.column(lx0 + i * L, lz0 + j * L, lat[(size_t)j * nx + i].hc * FS);
 
     s_ph_us[4] += us_since(tph);
     auto tpc = std::chrono::steady_clock::now();
@@ -1886,12 +1885,10 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                     cols();
                     for (int r = 0; r < 16; r++) {
                         const int ry = b * 16 + r;
-                        cb->v[r] = ry > height + 1 ? -1.0f : g.cave_value(ccol, ry, height, true);
+                        float hall = -1.0f;
+                        cb->v[r] = ry > height + 1 ? -1.0f : g.cave_value(ccol, ry, height, true, big ? &hcol : nullptr, &hall);
                         cb->full[r] = cb->v[r];
-                        if (big && ry <= height + 1) {
-                            const float depth = (float)(height - ry);
-                            cb->full[r] = std::max({cb->v[r], g.hall_value(hcol, (float)ry, depth), WorldGen::ravine_value(rcol, depth)});
-                        }
+                        if (big && ry <= height + 1) cb->full[r] = std::max({cb->v[r], hall, WorldGen::ravine_value(rcol, (float)(height - ry))});
                     }
                     return cb;
                 };
@@ -1998,8 +1995,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             }
         uint16_t rock = Mat::STONE;
         if (vein_free) {
-            const technosim_rock::RockCol rc4[4] = {rocks_.column(lx0, lz0, lat[0].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0, lat[nx - 1].hc * FS),
-                rocks_.column(lx0, lz0 + (nz - 1) * L, lat[(size_t)(nz - 1) * nx].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0 + (nz - 1) * L, lat[(size_t)nz * nx - 1].hc * FS)};
+            const technosim_rock::RockCol rc4[4] = {rlat[0], rlat[nx - 1], rlat[(size_t)(nz - 1) * nx], rlat[(size_t)nz * nx - 1]};
             if (rocks_.uniform(rc4, 4, origin.y, y_top, rock)) {
                 const int bpv = (bytes_per_voxel == 1 || bytes_per_voxel == 4) ? bytes_per_voxel : 2;
                 out.resize(bpv);
@@ -2519,8 +2515,10 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             auto on_talus = [&](int x, int z, int f) {
                 if (g.variant_[WorldGen::VAR_CAVES] == 0) return false;
                 const int px = floor_div(x, FS), pz = floor_div(z, FS);
-                WorldGen::HallCol hc;
-                g.hall_column(px, pz, g.n_galoff_.GetNoise((float)px, (float)pz), hc);
+                WorldGen::HallCol hc_n;
+                if (px == mx && pz == mz) { if (!hall_ok) g.hall_column(mx, mz, g.n_galoff_.GetNoise((float)mx, (float)mz), hall_c), hall_ok = true; }
+                else g.hall_column(px, pz, g.n_galoff_.GetNoise((float)px, (float)pz), hc_n);
+                const WorldGen::HallCol &hc = (px == mx && pz == mz) ? hall_c : hc_n;
                 bool tal = false;
                 g.hall_value(hc, (float)f / FS, (float)(h - f) / FS, nullptr, &tal);   // this column's ground: the neighbours are a voxel away
                 return tal;

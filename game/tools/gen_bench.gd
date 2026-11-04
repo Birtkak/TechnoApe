@@ -31,6 +31,7 @@ func _init() -> void:
 	# the shell's band per column as voxel_patch_shell.py takes it: the ground range of the 9 x 9 columns a 64-voxel
 	# mesh block can touch, 4 m under and 64 m over it, widened to whole mesh blocks plus one data block
 	var ground := {}
+	var cg := FineGen.thread_cpu_us()   # the column contexts are built here (ground_range): counted apart
 	for bz in range(bz0 + 4, bz0 - length - 4, -1):
 		for bx in range(bx0 - half - 4, bx0 + half + 4):
 			ground[Vector2i(bx, bz)] = g.ground_range(bx * B, bz * B, B)
@@ -47,6 +48,7 @@ func _init() -> void:
 			var y1 := (floori((floori((hi + 512) / float(B)) + 1 - 1) / 4.0) + 1) * 4 + 1
 			for by in range(y0, y1):
 				jobs.append(Vector3i(bx * B, by * B, bz * B))
+	cg = FineGen.thread_cpu_us() - cg
 	FineGen.gen_stats()   # drop what ground_range counted
 	var t0 := Time.get_ticks_usec()
 	var c0 := FineGen.thread_cpu_us()
@@ -81,5 +83,5 @@ func _init() -> void:
 			keep[k] = s[k]
 	print(JSON.stringify({"gen_bench": hash, "blocks": jobs.size(), "threads": threads, "ms": us / 1000,
 		"us_per_block": snappedf(float(us) * maxi(1, threads) / jobs.size(), 0.1), "blocks_per_s": roundi(jobs.size() * 1e6 / us),
-		"cpu_us_per_block": snappedf(float(cpu) / jobs.size(), 0.1), "stats": keep}))
+		"cpu_us_per_block": snappedf(float(cpu) / jobs.size(), 0.1), "ctx_cpu_us_per_block": snappedf(float(cg) / jobs.size(), 0.1), "stats": keep}))
 	quit()

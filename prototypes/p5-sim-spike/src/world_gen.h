@@ -277,7 +277,8 @@ private:
     // DOME: columns in from the wall over which the roof rises; SPAN: over which the talus falls to the flat floor.
     static constexpr float HALL_THR = 0.45f, HALL_H = 24.0f, HALL_TALUS = 6.0f, HALL_DOME = 10.0f, HALL_SPAN = 10.0f;
     static constexpr float GIANT_MASK = 0.45f, GIANT_THR = 0.3f, GIANT_H = 44.0f, GIANT_TALUS = 36.0f, GIANT_DOME = 20.0f, GIANT_SPAN = 50.0f;
-    struct HallCol { float x = 0, z = 0, galoff = 0, giant = 0, pillar = -1; };
+    // memo: the storey footprints hall_value read for this column (ADR 0135: a column's rows mostly share a storey)
+    struct HallCol { float x = 0, z = 0, galoff = 0, giant = 0, pillar = -1; mutable float memo_k[4] = {1e30f, 1e30f, 1e30f, 1e30f}, memo_v[4] = {}; mutable int memo_i = 0; };
     void hall_column(int x, int z, float galoff, HallCol &out) const;
     // Positive inside a hall. rim (when given): 0 away from halls, else 1 at a hall's wall falling to 0 on its flat
     // floor; talus: whether fy lies in the rubble slope at the foot of the wall. Giant chambers keep pillars (ADR 0077).
@@ -323,7 +324,8 @@ private:
     // What cave_value reads at (x, z) whatever the height: a column of cave samples fills it once (ADR 0105).
     struct CaveColumn { int x = 0, z = 0; float galoff = 0.0f; int nmouths = 0; CaveMouth mouths[9]; };
     void cave_column(int x, int z, CaveColumn &out) const;
-    float cave_value(const CaveColumn &col, int y, int height, bool small_only = false) const;
+    // hc: the column's hall_column when the caller has it; hall: hall_value at (y, depth) out (epic caves only)
+    float cave_value(const CaveColumn &col, int y, int height, bool small_only = false, const HallCol *hc = nullptr, float *hall = nullptr) const;
     // The ore of the small veins (stringers) in a 96 m ore cell: its lens's type, or a weighted pick where it has none.
     int stringer_type(int cx, int cz) const;
     // Crystal geodes (ADR 0052): at most one per 96 m cell, deep in the rock. Macro units.

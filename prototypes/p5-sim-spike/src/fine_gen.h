@@ -212,6 +212,7 @@ private:
         // bound's 6 m margin and cost 155 us each)
         mutable std::atomic<int> top_seen{-1};
         std::vector<int> h;   // each fine column's ground height (x + sx * z): five noises a column, once per stack
+        std::vector<technosim_rock::RockCol> rlat;   // the strata per lattice point (ADR 0057), once per stack (ADR 0135)
         // the trees (from the tree caches) and stamps reaching the footprint at any height, in drawing order
         std::vector<std::shared_ptr<const FTree>> trees;
         size_t n_mature = 0;

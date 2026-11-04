@@ -80,3 +80,24 @@ After, the queue drains to near 0 about 9 s into the flight and the workers then
 this queue size. Filmstrip: `game/out/stream_fill_mountain_before_after.png` (left before, right after).
 Open: the frame budget on a quiet machine with 8 workers on this path; cave band builds (12-17 %, real cave work)
 are the next generator cost.
+
+## Round 3 (2026-11-04): band builds, strata per stack; the frame budget and the census
+- **Frame budget, mountain path** (meshspeed1 + round 2, 8 workers, medians of 3): p99 10.4 ms, max 23.1 ms,
+  2 frames over 16.7 ms; holes 0.2 / 5.7 / 25.6, near_unloaded 0. Not `budget_ok`, but 2-3 other Godot runs were
+  active in every run (the machine was never quiet for 3 runs in a row), so this does not settle the budget either.
+- **Census** (stream-forensics' `holes=1` on their combined DLL with this branch's generator and 8 workers, medians
+  of 3): "generating" 1 171 block-samples (their combined run with main's generator at 6 workers: 3 567, -67 %),
+  visible holes 657 (1 477, -56 %), visible by band 0 / 16 / 32 m: 59 / 138 / 459. Holes now come in the
+  first ~12 s of a flight and fall to ~0 after; the census sampler's own cost (up to 28 ms a sample) makes p99
+  in these runs meaningless.
+- **Cave bands** (12-17 % of a block): `cave_value` built the column's hall inputs (two 2D noises) on every row,
+  and the band build then called `hall_value` a second time for the same row. The band passes its `HallCol` in
+  and takes the hall value back; `HallCol` keeps the last four storey footprints `hall_value` read
+  (`foot_dist`, 1 or 5 noises each), since the 16 rows of a band are mostly in one storey; a pond's talus test
+  on the column's own macro column reuses the column's `HallCol`. Lane CPU per block 66.9 -> 58.9 us.
+- **Strata per stack**: the 5 x 5 `rocks_.column` lattice was built on every block; it is part of `ColumnCtx` now
+  (the stack shares it) and the deep-rock tests read its corners. gen_bench counts the context builds apart
+  (`ctx_cpu_us_per_block`, an upper bound: the lane's margin too); generation + contexts 76.3 -> 71.5 us.
+- Same voxels: lane hash `4a0fa13c` and gen_hash on two seeds (LOD 0-3) unchanged. Together -18 % CPU a block.
+- Next by the profile: pond capping and the dressing mask at real cave air (~10 %, `cave_at` reads beyond the
+  block), the rock kind per voxel (5 %), FastNoiseLite 2D in the column prologue (~10 %).
