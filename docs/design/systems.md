@@ -254,6 +254,15 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   hardness (soft full radius, stone 3/4, hard rock 1/2, obsidian and bedrock never), rim seeds to the rigid piece check,
   damage and knockback to 2 x radius, 30 % of the estimated take as drops. One blast per frame; a 20-block chain holds
   max frame 12.4 ms. `/tnt grid [n] [spacing_m] | light | stats`, `/kit tnt`; JSON `tnt`.
+  **Mine shoring (ADR 0142):** a roof cell over a dug 0.5 m block must lie within its rock's span of a wall
+  (`1 m + 1 m x mining hardness`, max 4 m: stone 2.5 m, sandstone 1.8 m; a 3 m tunnel always stands) or within
+  a prop's radius (timber prop 1.5 m / 4 m2, stone pillar 2.5 m / 12 m2, iron beam 3.5 m / 30 m2: furniture kinds
+  with `"prop"`, stretched floor to roof, `height` in the save); any solid column floor to roof is a wall. Native
+  (`RigidPieces.support_*`, `src/rigid_support.cpp`: Dijkstra over the roof surface, on the driver thread), event
+  driven: digs mark blocks (`Main._on_dug`, laser, crater rod, TNT, box dig) and `MineSupport` scans the dug box
+  every 0.25 s. Unheld roofs creak, dust and drop gravel for 5-60 s (`warn_s`), overloaded props bend, then the
+  roof falls as one rock piece (`support_drop`) and hurts what is under it. Survival only unless `/support modes
+  all`; dug marks are not saved (a reload stands). `/support`, F3 "Support:", JSON `support`, `mine_test=`.
   **Next:** the rest of the ADR 0037 work order; still open from before: fire/smoke pacing per cell, fast flight vs
   generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
   list in `docs/plans/to-test.md`.

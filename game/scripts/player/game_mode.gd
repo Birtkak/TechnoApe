@@ -11,7 +11,7 @@ const SPECTATOR := "spectator"   # flies through everything, touches nothing, no
 
 const RULES := {
 	SURVIVAL: {"id": 0, "can_fly": false, "instant_break": false, "drops": true,
-		"consumes_items": true, "takes_damage": true, "item_picker": false, "interacts": true},
+		"consumes_items": true, "takes_damage": true, "item_picker": false, "interacts": true, "cave_ins": true},
 	CREATIVE: {"id": 1, "can_fly": true, "instant_break": true, "drops": true,
 		"consumes_items": false, "takes_damage": false, "item_picker": true, "interacts": true},
 	SPECTATOR: {"id": 3, "can_fly": true, "instant_break": false, "drops": false,

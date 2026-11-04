@@ -127,6 +127,7 @@ func _collect() -> void:
 			int(sim.get("push_queue", 0)), int(sim.get("pending_loads", 0))],
 		"C: view %d m (one full-detail box, no LOD), mesh block %d" % [Settings.view_distance_m, Settings.terrain_mesh_block],
 		"E: %d items, %d block entities" % [main._item_entities.size(), main.blocks.size()],
+		_support_line(),
 		"",
 		"XYZ: %.3f / %.3f / %.3f  (%.1f / %.1f / %.1f m)" % [pos.x, pos.y, pos.z, Settings.v2m(pos.x), Settings.v2m(pos.y), Settings.v2m(pos.z)],
 		"Block: %d %d %d" % [v.x, v.y, v.z],
@@ -167,6 +168,18 @@ func _collect() -> void:
 		]
 	_right.append_array(_gpu_lines)
 	_right.append_array(_target_lines(cam))
+
+
+## ADR 0142: the mine shoring in one line (what creaks, the last roof checks).
+func _support_line() -> String:
+	if main.support == null:
+		return "Support: off"
+	var d: Dictionary = main.support.stats()
+	var next := ""
+	for w in d["warnings_now"]:
+		next = ", next falls in %.0f s" % w["falls_in_s"] if next == "" else next
+	return "Support: %s, %d creaking%s, scan %.2f ms (max %.2f), %d caved in, %d held" % ["on" if d["active"] else "off (mode)",
+		d["open_warnings"], next, d["scan_ms_median"], d["scan_ms_max"], d["collapses"], d["held"]]
 
 
 func _target_lines(cam: Camera3D) -> Array[String]:
