@@ -35,7 +35,9 @@ a stress solver; event-driven and cheap; generated caves stand.
 - **Saved with the world.** `user://worlds/support_<seed>_g<gen>.bin` (binary `store_var`, atomic) holds the
   marks per 16-voxel chunk (`support_dug_chunks`: cx, cy, cz and a 64-bit mask, a bit per 0.5 m block) and the
   creaking roofs with the time they have left, so an unpropped room creaks on after a reload and falls on its
-  clock. Written with the other world files when something changed or a roof creaks.
+  clock. Written with the other world files when something changed or a roof creaks. While a creaking roof's
+  cells or the rock above it are not loaded, its clock holds at 6 s left (`MineSupport._roof_loaded`, `REWARN_S`),
+  so it creaks again briefly once loaded and then falls as rock instead of falling as nothing.
 - **Event-driven, off the main thread.** `MineSupport` collects dirty boxes and queues one scan every 0.25 s
   (`support_scan_s`) plus one per prop change; the native scan (`RigidPieces.support_*`, `src/rigid_support.cpp`)
   covers the dug box plus two reaches around it, runs on the sim's driver thread before a tick (as the rigid
