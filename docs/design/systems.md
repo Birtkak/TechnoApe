@@ -172,8 +172,15 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   pit or channel fills to the body's level (water resting on a lower still step is not); the surface row feeds a dig
   deeper than the surface (a trench in a shelving bank) but never air over the shore; a ledge onto a partial cell pours
   what fits and a lone eighth on bare ground walks to the nearest drop (films run off slopes); the 4c rule is a conveyor
-  (looks FLAT_REACH 14 cells, also a row down, writes one cell over). `fluid_film=1` films the scenes
-  (`scripts/visuals/fluid_scenes.gd`), `tools/fluid_feel.gd` runs them on the bare kernel, tests `test/test_sim_0138.gd`. **ADR 0081:** a lone still cell
+  (looks FLAT_REACH 14 cells, also a row down, writes one cell over); terrace edges whose look found nothing seed a
+  serial level pass after the tick (`SimWorld::level_surfaces`: the connected resting surface, tilted 2..8 eighths,
+  gives an eighth from its highest columns to its lowest), so a flood rests flat to an eighth. Falling liquid also draws
+  as streaks (`scripts/visuals/fall_streaks.gd`, one MultiMesh per liquid in its own material, warmed under the loading
+  screen): `SimWorld.get_fall_streaks` is the air the falling cells crossed in the last 3 ticks, merged per column, so
+  the mesher's falling cubes (ADR 0103) join into one stream; `streaks=0` turns them off. `fluid_film=1` films the
+  scenes (`scripts/visuals/fluid_scenes.gd`; `fluid_full=` full-size shots, frame-time p50/p99 per scene),
+  `tools/fluid_feel.gd` runs them on the bare kernel, `tools/fluid_stream_sheet.py` puts consecutive frames of two runs
+  side by side, tests `test/test_sim_0138.gd`. **ADR 0081:** a lone still cell
   (none of its kind on its six sides: the specks the generator leaves on cave walls) wakes at any air beside or below it;
   reactions of one pair chain (`Reaction::next`, rolled in data order): lava + water boils the water to steam at 0.6 and
   only then crusts to obsidian at 0.25, so the steam grows with the water the lava touches.

@@ -72,29 +72,49 @@ func _scene(tree: SceneTree, name: String, secs: float, every: float) -> Diction
 	var t0 := Time.get_ticks_msec()
 	var next := 0.0
 	var done := {}
+	var fulls := {}
 	var out := {"start_mass": _mass()}
-	var burst_at: float = {"pit_lake": 1.6, "pour_pit": 1.2, "cave": 1.5, "dam": 1.3, "slope": 1.5, "channel": 2.0}.get(name, 1.0)
+	var burst_at: float = {"pit_lake": 1.6, "pour_pit": 1.2, "cave": 1.5, "dam": 1.3, "slope": 1.5, "channel": 2.0, "fall": 2.0}.get(name, 1.0)
 	var t := 0.0
+	var frame_ms := PackedFloat32Array()   # what the scene costs to draw (the burst and full shots stall theirs: dropped)
+	var last_us := Time.get_ticks_usec()
+	var stalled := false
 	while t < secs:
 		await tree.process_frame
+		var now_us := Time.get_ticks_usec()
+		if not stalled:
+			frame_ms.append((now_us - last_us) / 1000.0)
+		last_us = now_us
+		stalled = false
 		t = (Time.get_ticks_msec() - t0) / 1000.0
 		FluidScenes.act(name, t, done, _box)
 		if t >= burst_at and burst.count() < 36:
 			burst.add(vp)
+			stalled = true
 		for ft in _full:
 			if t >= ft and not done.has("full%s" % ft):
 				done["full%s" % ft] = true
-				vp.get_texture().get_image().save_png(DebugCapture.out_dir + "/fluid_%s_full_%s.png" % [name, ft])
+				fulls["%s" % ft] = vp.get_texture().get_image()
+				stalled = true   # saved after the run: a PNG save stalls the frames after it
 		if t >= next:
 			next += every
 			strip.add(vp)
+			stalled = true
 			_log.append("t=%.2f" % t)
 			_log.append_array(FluidScenes.slice(_cell))
+	_log.append("heights at the end (eighths over the lowest column)")
+	_log.append_array(FluidScenes.heights(_cell))
 	var dir: String = DebugCapture.out_dir
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
+	for ft in fulls:
+		fulls[ft].save_png(dir + "/fluid_%s_full_%s.png" % [name, ft])
 	strip.save(dir + "/fluid_%s_strip.png" % name)
 	burst.save(dir + "/fluid_%s_burst.png" % name)
 	FileAccess.open(dir + "/fluid_%s_slice.txt" % name, FileAccess.WRITE).store_string("\n".join(_log))
+	frame_ms.sort()
+	if frame_ms.size() > 10:
+		out["frame_ms_p50"] = snappedf(frame_ms[frame_ms.size() / 2], 0.01)
+		out["frame_ms_p99"] = snappedf(frame_ms[int(frame_ms.size() * 0.99)], 0.01)
 	out["end_mass"] = _mass()
 	out["active_chunks"] = main.bubble.stats().get("active_chunks", -1)
 	main.chat.send("/cam off")

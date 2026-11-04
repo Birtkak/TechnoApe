@@ -13,6 +13,7 @@ const O := Vector3i(16, 24, 16)   # the patch corner inside the bare world
 const TARGET := {
 	"pit_lake": [Vector3i(32, -10, 16), Vector3i(46, 0, 32)],
 	"pour_pit": [Vector3i(24, -12, 16), Vector3i(40, 1, 32)],
+	"fall": [Vector3i(26, -6, 14), Vector3i(50, 0, 34)],
 	"cave": [Vector3i(12, -16, 20), Vector3i(63, -7, 28)],
 	"dam": [Vector3i(20, 0, 2), Vector3i(62, 12, 46)],
 	"slope": [Vector3i(48, -4, 2), Vector3i(64, 0, 46)],
