@@ -75,7 +75,7 @@ static func markdown(w, res: Dictionary) -> String:
 		for v in res["veins"]:
 			for s in w.sources.get(id, []):
 				if s["kind"] == "mine" and s["what"] == v["material"]:
-					veins = "%.1f %s" % [all[id] / float(s["per"]) / float(v["blocks"]), v["vein"]]
+					veins = "%.3f %s" % [all[id] / float(s["per"]) / float(v["blocks"]), v["vein"]]
 		L.append("| %s | %s%s | %s |" % [id, _n(all[id]), " blocks" if w.items.units(id) > 1 else "", veins])
 	L.append("")
 	L.append("## Dead ends")
@@ -109,7 +109,7 @@ static func markdown(w, res: Dictionary) -> String:
 			var src = w.how.get(id, {})
 			var from: String = ("%s %s" % [src["kind"], src["what"]]) if src is Dictionary else "?"
 			for s in w.sources.get(id, []):
-				if w._all(s["gates"], w.have) and w._src_s(s, w.have) <= w.cost.get(id, INF) * 1.0001:
+				if s["kind"] != "loot" and w._all(s["gates"], w.have) and w._src_s(s, w.have) <= w.cost.get(id, INF) * 1.01:   # pick wear is priced after the first pass
 					from = "%s %s" % [s["kind"], s["what"]]
 					break
 			L.append("| %s | %s%s | %s | %s |" % [id, _n(raw[id]), " blocks" if w.items.units(id) > 1 else "", Walk.hms(ch["raw_s"].get(id, 0.0)), from])

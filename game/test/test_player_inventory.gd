@@ -55,7 +55,7 @@ func test_break_times_need_the_right_tool() -> void:
 	var flint_pick := items.get_def("flint_pickaxe")
 	var copper_pick := items.get_def("copper_pickaxe")
 	assert_float(mining.break_time("stone", flint_pick)).is_equal_approx(2.25, 0.01)
-	assert_float(mining.break_time("stone", copper_pick)).is_equal_approx(1.125, 0.01)
+	assert_float(mining.break_time("stone", copper_pick)).is_equal_approx(1.5, 0.01)   # tier speed 3 (ADR 0139)
 	assert_dict(mining.drops("stone", flint_pick)).is_empty()
 	assert_dict(mining.drops("stone", copper_pick)).is_equal({"id": "cobblestone", "count": 1})
 	# dirt wants a shovel: by hand or with a pickaxe it is slow (still drops), a shovel is quick

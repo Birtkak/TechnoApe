@@ -32,7 +32,9 @@ Option 2.
   chapter) in order. Tools and stations are made once and kept; the way to make a thing is the cheapest counting
   the set-up it still lacks, so flint tools come before copper ones and copper ore waits for a copper pickaxe.
 - **Time** is play time: blocks mined with the best tool owned (mining.json speeds), whole trips to veins (the
-  search walk and a stair down to the vein top, sized from ore_veins.json), pickups, hunting and crafting at
+  search walk and a stair down to the vein top, sized from ore_veins.json in its 0.5 m units; the stair is cut
+  once per vein kind with the pick the chapter starts with, which wears a use a block; at least one trip per
+  vein kind a chapter digs from), pickups, hunting and crafting at
   fixed guesses (the constants at the top of the walk), waits (fires, machines, racks) listed apart.
 - **Outliers** at 10x: a quest that takes 10x its chapter's median, a chapter 10x its neighbour, a vein holding
   10x what the chapter needs, two recipes for one thing 10x apart; and machines no single dynamo can run.
@@ -47,7 +49,14 @@ Option 2.
   the same day: pigs and bears drop 1-2 animal fat, and chalk dug with a pick gives floorstone flint at 0.1 a
   block (the quest's "flint deep in chalk", no new material). The walk skips spellcraft recipes: the spell altar
   belongs to the wands, dropped for now.
-- Numbers are estimates under stated guesses: biomes and travel between them, tool durability, hunger and
+- Balance pass (developer's picks, 2026-11-04): a mined copper, tin or iron ore block now melts, alloys or
+  blooms to one ingot (was 3, 2 and 2 blocks; crushed ore one for one, so crushers still double and triple);
+  tool tier speeds 2/3/4/8/13 (were 2/4/6/8/13: iron doubles bronze); the bloomery takes eight brick blocks.
+  The iron pickaxe comes at about 3.0 h of play (1.5 h in the first report). The same pass found the walk had
+  read ore_veins.json as 12.5 cm voxels: a vein holds about 6,000 blocks of its ore, not 94, so the road to LV
+  uses about 1 % of one vein per metal. The asked-for 6-10 veins per metal would mean veins of a lump or two,
+  so the vein sizes are left for the developer (options in `docs/plans/progression-walk.md`, item 3).
+- Numbers are estimates under stated guesses: biomes and travel between them, ore wear on the pick, hunger and
   machine throughput are not modelled, and waits are not overlapped with work. Compare runs, not absolutes.
 - Quest counts of voxel items are voxels (64 to a block), as the game counts them; the walk follows that.
 - Run: `godot_console.exe --headless --path game res://tools/progression_report.tscn` (about 20 s), and the

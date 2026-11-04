@@ -41,7 +41,8 @@ const CLICK_S := 0.4         # one shake, stroke or hammer blow
 const HANDS := {"shaped": 3.0, "shapeless": 3.0, "spellcraft": 3.0, "assemble": 5.0, "knap": 30.0, "clayform": 40.0,
 	"smith": 60.0, "cast": 5.0, "kiln": 15.0, "charcoal_pit": 5.0, "dry": 5.0, "process": 3.0, "smelt": 3.0, "melt": 5.0,
 	"bury": 20.0, "rack": 5.0, "soak": 5.0, "trap": 10.0, "sift": 0.0, "scrape": 0.0, "stroke": 0.0}
-const GROUND_Y := 280        # voxels: mean ground height the walk digs down from (sea level 256)
+const GROUND_Y := 280        # mean ground height the walk digs down from, in ore_veins.json units (sea level 256)
+const UNIT_M := 0.5          # ore_veins.json counts 0.5 m macro units (FineGen.FS voxels each): one is one ore block
 const SEARCH := 3.0          # a vein is found after walking SEARCH x the mean vein spacing (and back)
 const INDICATOR_FADE := 0.5  # mean of the indicator chance's fade with vein depth
 const CHARCOAL_PER_PIT := 64 # charcoal one sealed pit gives in one burn
@@ -60,6 +61,7 @@ var cost := {}               # item id -> seconds per unit, cheapest way, best t
 var pick := {}               # item id -> cheapest recipe id ("" = a world source)
 var owned := {}              # capital made so far on the walk (tools, stations, molds)
 var _vein_yield := {}        # material -> {vein, blocks}
+var _dug := {}               # vein kinds whose stair the walk has cut
 var _memo := {}              # _eff while `owned` stays the same
 var _busy := {}
 var _cache := {}             # per recipe: consumed, capital; per item: ways (fixed once `have` is)
@@ -87,6 +89,7 @@ func walk() -> Dictionary:
 	var out := {"chapters": [], "dead": _quest_dead_ends(), "off_road": _off_road(), "alternatives": _alternatives(),
 		"veins": _vein_table()}
 	owned = {}
+	_dug = {}
 	var prev_s := 0.0
 	for c in book.chapters:
 		var ch := _walk_chapter(c)
@@ -617,15 +620,15 @@ func _vein_yields() -> void:
 		var size := float(v.get("size_voxels", g["size_voxels"]))
 		var thick := float(v.get("thickness_voxels", g["thickness_voxels"]))
 		var a := 0.4 * size
-		var ore := 4.0 / 3.0 * PI * a * a * thick * 0.5 * float(g["density"]) / 64.0
+		var ore := 4.0 / 3.0 * PI * a * a * thick * 0.5 * float(g["density"])
 		var share := {}
 		for k in [["primary", (1.0 - mid) * 0.5], ["secondary", (1.0 - mid) * 0.5], ["between", mid]]:
 			var m := String(v[k[0]])
 			share[m] = float(share.get(m, 0.0)) + ore * float(k[1]) * (1.0 - sp)
 		share[String(v["sporadic"])] = float(share.get(String(v["sporadic"]), 0.0)) + ore * sp
-		var spacing_m := float(g["cell_voxels"]) / 8.0 / sqrt(float(g["fill"]) * float(v["weight"]) / total_w)
+		var spacing_m := float(g["cell_voxels"]) * UNIT_M / sqrt(float(g["fill"]) * float(v["weight"]) / total_w)
 		var top := (float(v["y_min"]) + float(v["y_max"])) * 0.5 + thick * 0.5
-		var depth_m := maxf(0.0, GROUND_Y - top) / 8.0
+		var depth_m := maxf(0.0, GROUND_Y - top) * UNIT_M
 		var walk_s := SEARCH * spacing_m / Settings.walk_speed_m
 		for m in share:
 			var y: Dictionary = _vein_yield.get(m, {})
@@ -643,12 +646,17 @@ func _vein_yields() -> void:
 
 
 ## Seconds for one trip to a vein of `material`: the search walk, then a stair down to its top
-## (1 m x 2 m, 1.4 m of stair per metre down) cut with the best pickaxe in `pool`.
+## (1 m x 2 m, 1.4 m of stair per metre down) cut with the best pickaxe in `pool`, which wears a use
+## per block (ADR 0042): the picks the stair breaks are made again at their cost.
+## shortcut: ore dug out of the vein does not wear the pick; count it if ore needs grow past ~100 blocks.
 func _trip_s(material: String, pool: Dictionary) -> float:
 	var y: Dictionary = _vein_yield[material]
 	var pick_id := _best_tool("pickaxe", 0, pool)
-	var stone := mining.break_time("stone", items.get_def(pick_id) if pick_id != "" else {})
-	return float(y["walk_s"]) + float(y["depth_m"]) * 1.4 * 2.0 * 8.0 * stone
+	var d := items.get_def(pick_id) if pick_id != "" else {}
+	var blocks := float(y["depth_m"]) * 1.4 * 2.0 * 8.0
+	var pick_s := float(cost.get(pick_id, 0.0))   # not priced yet while _costs relaxes
+	var wear := blocks / float(d["durability"]) * pick_s if d.has("durability") and is_finite(pick_s) else 0.0
+	return float(y["walk_s"]) + blocks * mining.break_time("stone", d) + wear
 
 
 func _vein_table() -> Array:
@@ -698,6 +706,7 @@ func _walk_chapter(c: Dictionary) -> Dictionary:
 	var tools := {}
 	for cls in ["pickaxe", "axe", "shovel", "knife"]:
 		tools[cls] = _best_tool(cls, 0, owned)
+	var start := owned.duplicate()   # the ore trips dig with the picks the chapter starts with
 	var quest_s := {}
 	var road := main_road(c)
 	for qid in road:
@@ -718,15 +727,25 @@ func _walk_chapter(c: Dictionary) -> Dictionary:
 			else:
 				_expand(spec, n, acc, 0, [qid])
 		quest_s[qid] = acc["gather_s"] + acc["hands_s"] - before
-	# whole trips to veins for the ore this chapter dug, with the pickaxe it had by then
+	# whole trips to veins for the ore this chapter dug, with the pickaxe it had by then: at least one
+	# per vein kind (ores of one vein share the trip); the stair down to a kind is cut once on the
+	# walk, later trips walk back to the known vein and down the stair
 	var trips := {}
 	var trip_s := 0.0
+	var visits := {}   # vein key -> trips this chapter
 	for m in acc["ore"]:
 		var y: Dictionary = _vein_yield[m]
-		var n := ceili(float(acc["ore"][m]) / float(y["blocks"]) - 0.001)
-		var t := _trip_s(m, owned) if float(y["depth_m"]) > 0.0 else float(y["walk_s"])
+		var key := String(y["vein"]) + (":surface" if float(y["depth_m"]) <= 0.0 else "")
+		var n := maxi(1, ceili(float(acc["ore"][m]) / float(y["blocks"]) - 0.001))
+		var t := float(y["walk_s"])
+		if float(y["depth_m"]) > 0.0:
+			t = _trip_s(m, start) if not _dug.has(key) else t / SEARCH + float(y["depth_m"]) * 2.8 / Settings.walk_speed_m
 		trips[m] = {"trips": n, "blocks": acc["ore"][m], "vein_blocks": y["blocks"], "vein": y["vein"], "trip_s": t}
-		trip_s += n * t
+		if n > int(visits.get(key, 0)):
+			trip_s += (n - int(visits.get(key, 0))) * t
+			visits[key] = n
+	for key in visits:
+		_dug[key] = true
 	var total: float = acc["gather_s"] + acc["hands_s"] + trip_s
 	var outliers := []
 	for m in acc["made"]:   # power: the strongest dynamo owned against each machine made (max transfer V^2 / 4R)
