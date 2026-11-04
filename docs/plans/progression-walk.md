@@ -62,9 +62,7 @@ Whole road, raw totals (veins: how many of the best vein the road empties):
 
 ## Dead ends
 
-- quest `fat_lamp` needs `fat_lamp`, which lacks `animal_fat`
-- quest `cave_painting` needs `#paint`, which lacks `animal_fat`
-- quest `flint_mine` needs `floorstone_flint`
+None: every quest task and every step on the main road can be made or found.
 
 ## Old Stone Age (flint age): 10 min
 
@@ -395,20 +393,14 @@ Best vein per ore: blocks one vein holds, search walk, depth of its top under gr
 
 Recipes nothing reachable can run (reported, not failed), with the first thing each lacks:
 
-- `animal_fat`: black_paint, candle, fat_lamp, green_paint, red_paint, yellow_paint
-- `spell_altar`: spell_fire_bolt, spell_spark_bolt, spell_speed_up
 
 ## Suggested fixes
 
 Hand-written (2026-11-04, first run), kept when the report is regenerated. Nothing here is applied: the
 developer decides. Numbers are the walk's estimates (ADR 0139), good for comparing runs, not as absolutes.
 
-1. **Dead end: `animal_fat` has no source.** Its item note says "pigs and bears", but mobs.json gives pigs and
-   bears no fat. Blocks the fat lamp, candles and all four paints (the cave painting quest). Fix: an
-   `animal_fat` entry in the pig and bear drops.
-2. **Dead end: `floorstone_flint` has no source.** The flint mine quest says it lies deep in chalk; chalk drops
-   only chalk cobble. Fix: a chance drop on `chalk` for a pickaxe (the antler pick is one), or a deep flint
-   material in the generator.
+1. **Done (2026-11-04): `animal_fat`** drops from pigs and bears (1-2 each, mobs.json).
+2. **Done (2026-11-04): `floorstone_flint`** is a 0.1 chance drop per block of chalk dug with a pick (mining.json).
 3. **Veins are far bigger than the road needs.** One copper vein holds about 94 blocks (31 ingots at 3 blocks an
    ingot); the copper chapters need 3 to 9 blocks each, and the whole road to LV needs 132 blocks of copper ore
    (1.4 veins), 149 of iron ore (1.6 veins), 319 coal (0.9 of one coal vein) and 30 of tin (a third of one
@@ -430,4 +422,4 @@ developer decides. Numbers are the walk's estimates (ADR 0139), good for compari
    four loose copper stones from the ground give a whole one. Worth a look together with item 3.
 7. **Quest counts of voxel items are voxels.** "4 thatch" and "24 daub wall" (shelter, longhouse) and "1 iron
    ore" ask for that many 12.5 cm voxels, a fraction of a block. If blocks were meant, multiply by 64.
-8. **Dead data:** the three spellcraft recipes need a `spell_altar` item that does not exist (wands dropped).
+8. **Skipped:** the walk leaves out the three spellcraft recipes (their `spell_altar` belongs to the wands, dropped for now).

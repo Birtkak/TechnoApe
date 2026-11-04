@@ -43,8 +43,10 @@ Option 2.
 ## Consequences
 - The first run (2026-11-04) found three dead ends, all on optional Old/New Stone Age quests: nothing gives
   `animal_fat` (the item note says pigs and bears, mobs.json does not), so the fat lamp, candles and every paint
-  (the cave painting quest) are out of reach, and nothing gives `floorstone_flint` (the flint mine quest). The
-  test is red until the data gives them a source.
+  (the cave painting quest) are out of reach, and nothing gives `floorstone_flint` (the flint mine quest). Fixed
+  the same day: pigs and bears drop 1-2 animal fat, and chalk dug with a pick gives floorstone flint at 0.1 a
+  block (the quest's "flint deep in chalk", no new material). The walk skips spellcraft recipes: the spell altar
+  belongs to the wands, dropped for now.
 - Numbers are estimates under stated guesses: biomes and travel between them, tool durability, hunger and
   machine throughput are not modelled, and waits are not overlapped with work. Compare runs, not absolutes.
 - Quest counts of voxel items are voxels (64 to a block), as the game counts them; the walk follows that.

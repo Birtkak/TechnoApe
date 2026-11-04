@@ -20,6 +20,8 @@ const PLACED := ["rope", "furniture", "work_spot", "work_block", "tnt", "carpet"
 const WORLD_GATES := {"birch_bark": ["#knife"], "tinder_fungus": ["birch_bark"], "fire_ember": ["tinder_fungus", "@fire"],
 	"flatbread_dough": ["flour"], "brine_pot": ["cooking_pot"], "dugout_canoe": ["#axe"], "einkorn": ["einkorn_seeds"],
 	"emmer": ["emmer_seeds"], "flax": ["flax_seeds"]}
+## Recipe types the walk leaves out: spellcraft needs the spell altar of the wands, dropped for now (2026-11-02).
+const SKIPPED_TYPES := ["spellcraft"]
 ## Stations that run on a boiler's steam (ADR 0097, 0099).
 const STEAM_WORKS := ["ore_crusher", "steam_hammer", "steam_sieve", "blast_furnace"]
 ## Item tags that mark a thing made once and kept (tools, stations, molds, vessels).
@@ -1011,6 +1013,8 @@ func _off_road() -> Array:
 	ids.sort()
 	for rid in ids:
 		var r: Dictionary = recipes.recipes[rid]
+		if r["type"] in SKIPPED_TYPES:
+			continue
 		if not usable(r, have):
 			out.append({"recipe": rid, "lacks": missing(r, have)})
 	return out
