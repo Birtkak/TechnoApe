@@ -28,6 +28,8 @@ frame times.
 - [ ] `/stations lv`: the electrolyzer leaves sludge behind it; wall its back in: it stops and says "Waste port
       blocked". A pipe from its back to a scrubber (`/give scrubber`) fills the scrubber's tank: sulfur out.
 - [ ] A boiler or smelter puffs smoke that leans with the wind; a chimney stack on top lets it out higher.
+- [ ] `/stations smoke`: a fire in a room dug 4 m down; its smoke pools under the roof (no wind) and leaks up the
+      vent shaft in one corner. Is the slick on a fouled stream obvious from the bank?
 - [ ] A bucket of fouled water drunk (aim at the sky, right click) makes you sick; crops watered by it wilt; cows
       will not walk into it.
 

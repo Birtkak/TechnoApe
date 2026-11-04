@@ -431,6 +431,7 @@ private:
     bool spend_partial(int x, int y, int z, int nx, int ny, int nz, int i, int ni, Ctx &c);
     void react_keep_awake(int x, int y, int z, int i, Ctx &c);   // ADR 0141
     bool wind_drift(int x, int y, int z, const MaterialDef &m, Ctx &c);   // ADR 0141
+    static constexpr int ROOF_SCAN = 96;   // cells (12 m) up a drifting gas looks for a roof that shelters it from the wind
     int wind_x_ = 0, wind_z_ = 0;      // the wind's sign along x and z
     uint32_t wind_p_ = 0, wind_xshare_ = 0;   // chance per tick (0..65535) a drifting gas moves with it, and the x share of it
     void update_chunk(int ci);

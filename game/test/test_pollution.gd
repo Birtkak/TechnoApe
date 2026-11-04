@@ -115,6 +115,20 @@ func test_smoke_drifts_with_the_wind() -> void:
 	assert_int(windy.count_in_box(Vector3i(0, 0, 0), Vector3i(18, 48, 48), GameMaterials.SMOKE)).is_less_equal(still.count_in_box(Vector3i(0, 0, 0), Vector3i(18, 48, 48), GameMaterials.SMOKE))
 
 
+func test_no_wind_under_a_roof() -> void:
+	var still := _sim()
+	var roofed := _sim()
+	roofed.set_wind(Vector2(0.8, 0.0))
+	for w in [still, roofed]:
+		w.fill_box(Vector3i(0, 16, 0), Vector3i(48, 17, 48), GameMaterials.STONE)   # a cave roof 2 m up
+		w.fill_box(Vector3i(22, 10, 22), Vector3i(26, 12, 26), GameMaterials.SMOKE)
+		_run(w, 40)
+	var east_roofed := roofed.count_in_box(Vector3i(30, 0, 0), Vector3i(48, 48, 48), GameMaterials.SMOKE)
+	var east_still := still.count_in_box(Vector3i(30, 0, 0), Vector3i(48, 48, 48), GameMaterials.SMOKE)
+	assert_int(east_roofed).override_failure_message("roofed %d, still %d" % [east_roofed, east_still]).is_less_equal(east_still + 2)
+	assert_int(roofed.count_in_box(Vector3i(0, 13, 0), Vector3i(48, 16, 48), GameMaterials.SMOKE)).is_greater(0)   # it pools under the roof
+
+
 func test_ids_and_rules_are_data() -> void:
 	assert_str(GameMaterials.name_of(218)).is_equal("fouled_water")
 	assert_str(GameMaterials.name_of(219)).is_equal("waste_ground")

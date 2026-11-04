@@ -406,10 +406,37 @@ func debug_pollution(base: Vector3i) -> String:
 	for b in boxes:
 		if bubble.fill_box(base + b[0], base + b[1], b[2]) < 0:
 			return "nothing: the site must lie inside the loaded sim window"
-	for x in [0, 14 * B]:
+	for x in [0, 14 * B]:   # each loaded for a few runs (64 sludge a run)
 		var e: MachineEntity = _create(base + Vector3i(x, 0, 0), "electrolyzer", GameMaterials.WORK_BLOCK)
-		Waste.add(e.waste, GameMaterials.TOXIC_SLUDGE, Settings.waste_port_cells)
-	return "two electrolyzers with full waste ports: one into a stream, one into a settling pond (%s)" % base
+		e.use({"id": "crushed_copper_ore", "count": 64})
+		e.use({"id": "carbon_electrode", "count": 16})
+	var bat: RefCounted = _create(base + Vector3i(6 * B, 0, 0), "battery_box", GameMaterials.WORK_BLOCK)   # a charged battery between them
+	bat.charge = bat.wh
+	for x in [2, 3, 4, 5, 8, 9, 10, 11, 12, 13]:
+		_create(base + Vector3i(x * B, 0, 0), "cable", GameMaterials.WORK_SPOT)
+	return "two electrolyzers on a charged battery: one into a stream, one into a settling pond (%s)" % base
+
+
+## Debug (/stations smoke, ADR 0141): a 6 x 3 x 6 m room dug 4 m under `ground` with a pile of logs burning in it and a
+## 0.5 m vent shaft from one corner to the surface: smoke rises, pools under the roof, finds the shaft. No wind reaches
+## under a roof. Returns {laid, cam, look}.
+func debug_cave_smoke(ground: Vector3i) -> Dictionary:
+	var bubble: SimBubble = main.bubble
+	var m := func(v: float) -> int: return int(Settings.m2v(v))
+	var lo := ground + Vector3i(-m.call(3.0), -m.call(7.0), 0)
+	var hi := ground + Vector3i(m.call(3.0), -m.call(4.0), m.call(6.0))
+	var mid := (lo + hi) / 2
+	var pile := Vector3i(mid.x, lo.y, mid.z)
+	var boxes := [[lo, hi, GameMaterials.AIR],
+		[Vector3i(lo.x, hi.y, lo.z), Vector3i(lo.x + 4, ground.y + m.call(2.0), lo.z + 4), GameMaterials.AIR],   # the vent
+		[pile - Vector3i(4, 0, 4), pile + Vector3i(4, 8, 4), GameMaterials.WOOD]]
+	for b in boxes:
+		if bubble.fill_box(b[0], b[1], b[2]) < 0:
+			return {"laid": "nothing: the room must lie inside the loaded sim window", "cam": Vector3(ground), "look": Vector3(ground)}
+	var o := bubble.origin * Settings.CHUNK
+	bubble.sim.ignite_box(pile - Vector3i(4, 0, 4) - o, pile + Vector3i(4, 8, 4) - o)
+	return {"laid": "a burning log pile in a room 4 m down with a vent shaft (%s)" % lo,
+		"cam": Vector3(hi.x - 3, lo.y + 6, hi.z - 3), "look": Vector3(mid.x, hi.y - 2, lo.z + 4)}
 
 
 ## Debug (/stations power, ADR 0123): every small source in parallel on one trunk of thick cable, a meter panel, a
