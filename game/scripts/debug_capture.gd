@@ -63,6 +63,7 @@ var shell_test := false     # shell_test=1: cave + dug hole, counts unloaded / u
 var fluid_lag := ""         # fluid_lag=lake|river|bomb|pour: time a fluid change to its remesh and rest (ADR 0137, "debug fluid_lag")
 var fluid_lag_sheet := false
 var fluid_lag_from := ""
+var proc_probe := false   # proc_probe=1: each _process phase over 12 ms names its slowest subtrees (ProcProbe)
 var mine_test := ""         # mine_test=collapse|propped|pick|laser|save|reload: dug roofs creak and fall or hold (ADR 0142, scripts/debug/mine_test.gd, "debug mine")
 var mine_rate := 4.0        # mine_rate=N: 0.5 m blocks a second in mine_test=pick
 var sand_test := false      # sand_test=1: a ball of sand dropped onto still ocean water must sink (scripts/debug/sand_test.gd, "debug sand")
@@ -222,6 +223,7 @@ func _ready() -> void:
 	mine_rate = float(args.get("mine_rate", "4"))
 	fluid_lag = args.get("fluid_lag", "")
 	fluid_lag_sheet = args.get("fluid_lag_sheet", "0") == "1"
+	proc_probe = args.get("proc_probe", "0") == "1"
 	fluid_lag_from = args.get("fluid_lag_from", "")
 	water_shots = args.get("water_shots", "1") != "0"
 	menu_test = args.get("menu_test", "0") == "1"
@@ -556,7 +558,7 @@ func _note_spike(ms: float, process_us: int) -> void:
 	var rcpu := RenderingServer.viewport_get_measured_render_time_cpu(vp) + RenderingServer.get_frame_setup_time_cpu()
 	var pms := process_us / 1000.0
 	var phys := _physics_us / 1000.0
-	_spikes.append({"frame": Engine.get_process_frames() - 1, "frame_ms": snappedf(ms, 0.01),
+	_spikes.append({"frame": Engine.get_process_frames() - 1, "frame_ms": snappedf(ms, 0.01), "t": snappedf(_elapsed - _loaded_at, 0.01),
 		"process_ms": snappedf(pms, 0.01), "physics_ms": snappedf(phys, 0.01),
 		"render_cpu_ms": snappedf(rcpu, 0.01),
 		"render_gpu_ms": snappedf(RenderingServer.viewport_get_measured_render_time_gpu(vp), 0.01),

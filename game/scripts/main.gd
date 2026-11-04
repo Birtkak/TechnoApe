@@ -481,6 +481,8 @@ func _ready() -> void:
 				_mine_test = MineTest.new()
 				_mine_test.pick_rate = DebugCapture.mine_rate
 				_mine_test.run(self, DebugCapture.mine_test))
+		if DebugCapture.proc_probe:
+			ProcProbe.install(self)
 		if DebugCapture.fluid_lag != "":
 			_after_load(func() -> void:
 				_fluid_lag = FluidLagTest.new()
