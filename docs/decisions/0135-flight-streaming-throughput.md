@@ -61,6 +61,9 @@ stringer noise 5 %, libm `floor` calls 7 %, the per-column clock reads of the ge
 - **`-msse4.1`** (SConstruct): `std::floor` becomes one instruction; every CPU Godot 4.5+ runs on has it.
 - Same voxels: gen_bench lane hash `3326b1f6` and gen_hash over 6 000 blocks (two seeds, LOD 0-3) unchanged.
   Generator CPU per block on the lane 123 -> 88 us (median of 3, sky blocks included), -28 %.
+- Re-measured on main 7427926 (ADR 0139 smaller veins, ADR 0140 highland moor, GEN_VERSION 36): main's generator
+  vs this branch, same lane hash `4a0fa13c` and gen_hash on two seeds; CPU per block 101 -> 60 us (median of 3, both
+  rounds together, -40 %).
 - `build_quick.sh` (p5): SCons on Windows re-archives godot-cpp one object at a time when it thinks the library is
   stale (20-30 min); the script compiles the named sources and links in under a minute.
 
