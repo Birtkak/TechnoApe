@@ -63,7 +63,7 @@ var shell_test := false     # shell_test=1: cave + dug hole, counts unloaded / u
 var fluid_lag := ""         # fluid_lag=lake|river|bomb|pour: time a fluid change to its remesh and rest (ADR 0137, "debug fluid_lag")
 var fluid_lag_sheet := false
 var fluid_lag_from := ""
-var mine_test := ""         # mine_test=collapse|propped|pick|laser: dug roofs creak and fall or hold (ADR 0142, scripts/debug/mine_test.gd, "debug mine")
+var mine_test := ""         # mine_test=collapse|propped|pick|laser|save|reload: dug roofs creak and fall or hold (ADR 0142, scripts/debug/mine_test.gd, "debug mine")
 var mine_rate := 4.0        # mine_rate=N: 0.5 m blocks a second in mine_test=pick
 var sand_test := false      # sand_test=1: a ball of sand dropped onto still ocean water must sink (scripts/debug/sand_test.gd, "debug sand")
 var tp_test := false        # tp_test=1: a burst of teleports (hops, far jumps, /spawn, /goto, /kill), timed and filmed (scripts/debug/tp_test.gd, "debug tp")

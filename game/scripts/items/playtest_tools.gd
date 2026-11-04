@@ -167,9 +167,7 @@ func _cut(at: Vector3, dir: Vector3, r: float) -> void:
 	while t <= depth:
 		var c := at + dir * t
 		if main.bubble.blast(c, r) > 0:
-			_seed_ring(c, u, w, r)
-			if main.support:
-				main.support.dug_sphere(c, r)
+			_seed_ring(c, u, w, r)   # laser cuts never count as dug (ADR 0142): a playtest tool, not a mine
 		n += 1
 		t += step
 	SimBubble.note_player_edit()

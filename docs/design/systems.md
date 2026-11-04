@@ -259,10 +259,11 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   a prop's radius (timber prop 1.5 m / 4 m2, stone pillar 2.5 m / 12 m2, iron beam 3.5 m / 30 m2: furniture kinds
   with `"prop"`, stretched floor to roof, `height` in the save); any solid column floor to roof is a wall. Native
   (`RigidPieces.support_*`, `src/rigid_support.cpp`: Dijkstra over the roof surface, on the driver thread), event
-  driven: digs mark blocks (`Main._on_dug`, laser, crater rod, TNT, box dig) and `MineSupport` scans the dug box
-  every 0.25 s. Unheld roofs creak, dust and drop gravel for 5-60 s (`warn_s`), overloaded props bend, then the
-  roof falls as one rock piece (`support_drop`) and hurts what is under it. Survival only unless `/support modes
-  all`; dug marks are not saved (a reload stands). `/support`, F3 "Support:", JSON `support`, `mine_test=`.
+  driven: digs mark blocks (`Main._on_dug`, crater rod, TNT, box dig; never the laser) and `MineSupport` scans the
+  dug box every 0.25 s. Unheld roofs crack and darken, shed dust and grit, creak louder and shake the camera at the
+  end, for 15-120 s (`warn_s`); overloaded props bend; then the roof falls as one rock piece (`support_drop`) and
+  hurts what is under it. Survival only unless `/support modes all`; marks (per chunk) and creaking roofs are saved
+  in `support_<seed>_g<gen>.bin`. `/support`, F3 "Support:", JSON `support`, `mine_test=`.
   **Next:** the rest of the ADR 0037 work order; still open from before: fire/smoke pacing per cell, fast flight vs
   generation, the water spill / blast / `persist=1` runs; plan in `docs/plans/lotl-overhaul.md`, playtest
   list in `docs/plans/to-test.md`.

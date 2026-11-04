@@ -126,6 +126,8 @@ void RigidPieces::_bind_methods() {
     ClassDB::bind_method(D_METHOD("queue_support_drop", "roof", "thick", "from"), &RigidPieces::queue_support_drop);
     ClassDB::bind_method(D_METHOD("support_stats"), &RigidPieces::support_stats);
     ClassDB::bind_method(D_METHOD("support_clear"), &RigidPieces::support_clear);
+    ClassDB::bind_method(D_METHOD("support_dug_chunks"), &RigidPieces::support_dug_chunks);
+    ClassDB::bind_method(D_METHOD("support_load_chunks", "chunks"), &RigidPieces::support_load_chunks);
 }
 
 void RigidPieces::setup(const Ref<SimWorld> &p_sim, const Array &p_defs, Vector2i p_atlas_tiles) {

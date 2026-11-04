@@ -239,9 +239,10 @@ var cave_ins_all_modes := false         # creative and spectator digs count too 
 var support_span_base_m := 1.0          # a roof cell may lie base + per_hardness x its mining hardness from a wall:
 var support_span_per_hardness_m := 1.0  # sandstone 1.8 m, stone 2.5 m, ore 4 m (a 3 m tunnel always stands)
 var support_span_max_m := 4.0
-var support_warn_min_s := 5.0           # creak to fall: a roof far past its span goes this soon ...
-var support_warn_max_s := 60.0          # ... one just past it creaks this long (time to prop it)
-var support_scan_s := 0.25              # digs and prop changes are checked together this often
+var support_warn_min_s := 15.0          # creak to fall: a roof far past its span goes this soon ...
+var support_warn_max_s := 120.0         # ... one just past it creaks this long (time to prop it)
+var screen_shake := true                # the last seconds before a roof falls shake the camera (screen_shake=0)
+var support_scan_s := 0.25             # digs and prop changes are checked together this often
 # playtest gadgets (/kit gadgets, PlaytestTools): debug items, not progression
 var laser_range_m := 64.0               # the laser cutter reaches this far
 var laser_depth_m := 3.0                # and cuts this deep past the first solid voxel (through a big trunk)
@@ -407,6 +408,7 @@ func apply_cmdline() -> Dictionary:
 			"particles": particles = kv[1] == "1"
 			"rigid_pieces": rigid_pieces = kv[1] == "1"
 			"cave_ins": cave_ins = kv[1] == "1"
+			"screen_shake": screen_shake = kv[1] == "1"
 			"support_warn_s":   # support_warn_s=min,max (test runs)
 				var mm := kv[1].split(",")
 				support_warn_min_s = float(mm[0])

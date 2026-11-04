@@ -127,6 +127,9 @@ public:
     void queue_support_drop(const PackedInt32Array &p_roof, int p_thick, Vector3 p_from);
     Dictionary support_stats() const;
     void support_clear();
+    // the dug marks for the save, per 16-voxel chunk: (cx, cy, cz, mask lo, mask hi) x n, one bit per 0.5 m block
+    PackedInt32Array support_dug_chunks();
+    void support_load_chunks(const PackedInt32Array &p_chunks);
 
 protected:
     static void _bind_methods();
@@ -225,7 +228,8 @@ private:
     struct ScanJob { Vector3i lo, hi, probe; int reach = 32, tag = 0; bool has_probe = false; std::vector<int> props, check; };
     struct DropJob { std::vector<Vector3i> roof; int thick = 4; Vector3 from; };
     std::vector<float> span_;                 // per material id
-    std::unordered_set<int64_t> dug_;         // dug 0.5 m blocks (driver thread, or a sync call)
+    std::unordered_set<int64_t> dug_;         // dug 0.5 m blocks (driver thread, or a sync call), under dug_m_
+    mutable std::mutex dug_m_;                // so the save reads dug_ without waiting for the driver to idle
     std::vector<Vector3i> dug_pending_;       // under job_m_: blocks to add
     std::vector<ScanJob> scan_jobs_;          // under job_m_
     std::vector<DropJob> drop_jobs_;          // under job_m_

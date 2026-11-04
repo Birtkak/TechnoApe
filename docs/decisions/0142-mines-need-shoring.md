@@ -29,16 +29,22 @@ a stress solver; event-driven and cheap; generated caves stand.
   the Iron/Steam age) 3.5 m / 30 m2. They stand floor to roof (a per-entity `height`, saved; the model stretches)
   and need a roof within 3 m. A prop carries the dug roof cells only it holds; past its capacity it fails and holds
   nothing. Any solid column from floor to roof (a pillar of built blocks) is a wall.
-- **Only digs change the load.** Digs mark their 0.5 m blocks (Main._on_dug: pick and brush; the laser, crater
-  rod and TNT by sphere; the box dig by cells). Only roof cells over a dug block can fail, so caves and halls the
-  generator made stand as generated. The marks are not saved: a world reloads standing (shortcut, see below).
+- **Only digs change the load.** Digs mark their 0.5 m blocks (Main._on_dug: pick and brush; the crater rod and
+  TNT by sphere; the box dig by cells). The laser cutter is exempt (a playtest tool, not a mine). Only roof cells
+  over a dug block can fail, so caves and halls the generator made stand as generated.
+- **Saved with the world.** `user://worlds/support_<seed>_g<gen>.bin` (binary `store_var`, atomic) holds the
+  marks per 16-voxel chunk (`support_dug_chunks`: cx, cy, cz and a 64-bit mask, a bit per 0.5 m block) and the
+  creaking roofs with the time they have left, so an unpropped room creaks on after a reload and falls on its
+  clock. Written with the other world files when something changed or a roof creaks.
 - **Event-driven, off the main thread.** `MineSupport` collects dirty boxes and queues one scan every 0.25 s
   (`support_scan_s`) plus one per prop change; the native scan (`RigidPieces.support_*`, `src/rigid_support.cpp`)
   covers the dug box plus two reaches around it, runs on the sim's driver thread before a tick (as the rigid
   piece checks do) and hands its result over in `collect()`. Nothing scans the world.
-- **Warning, then the fall.** An unheld roof creaks (`tree/creak`, pitched down), drops dust and up to six real
-  gravel cells, and bends its overloaded props for `warn_s(ratio)`: 60 s just past its span, 5 s at twice it
-  (`support_warn_min_s/max_s`). Any later scan that finds it held cancels it. At the end the unheld cells and 0.5 m
+- **Warning, then the fall.** An unheld roof cracks open and darkens (`roof_cracks.gdshader`, a quad per 0.5 m
+  block, the mining crack map growing with the warning), sheds dust clouds (`roof_dust`) and grit (`roof_grit`)
+  more and more often, drops up to six real gravel cells, creaks louder and lower (a rumble for the last quarter),
+  bends its overloaded props, and shakes the camera within 14 m for the last 4 s (`screen_shake`), for
+  `warn_s(ratio)`: 120 s just past its span, 15 s at twice it (`support_warn_min_s/max_s`). Any later scan that finds it held cancels it. At the end the unheld cells and 0.5 m
   of rock above them (1 m past 1.5 x the span) drop as one rigid rock piece (`support_drop`; rock pieces are body
   like wood at 2.5 x the mass), overloaded props snap, and what stands within 4 m under it is hurt.
 - **Modes.** Survival digs only (`GameMode` rule `cave_ins`); `/support modes all` makes creative and spectator
@@ -51,8 +57,8 @@ a stress solver; event-driven and cheap; generated caves stand.
 ## Consequences
 - Native change is one new file plus small hooks in rigid_pieces.cpp (bindings, the job hook, `collect`, and
   `finish_body` treating non-leaf cells as body so a piece can be rock). The sim kernel is untouched.
-- Shortcut: dug marks live in memory only; a save and reload forgets which roofs were dug, so an unpropped room
-  survives a reload. Saving them per chunk is the upgrade if players use that.
+- Shortcut: the support file is loaded whole at start (a bit per 0.5 m block, 8 bytes per chunk dug in); per-chunk
+  loading with the terrain is the upgrade if mines grow to millions of blocks.
 - Shortcut: a scan box is capped (6 m of dug box, 80 k roof cells); a very long laser cut is scanned around its
   middle and later digs fill in the rest.
 - Measured 2026-11-04 (dev box, default render distance, `mine_test=pick|laser`, cave_ins on/off back to back,
@@ -61,4 +67,11 @@ a stress solver; event-driven and cheap; generated caves stand.
   median 0.03-0.04 ms (pick), 2.1-2.2 ms (laser, max 4.3 ms); the main thread's part per dig 0.015 ms median.
   Evidence: `game/out/mine_collapse/` (basalt roof, warning at 0.2 s, falls at 28 s) and `game/out/mine_propped/`
   (pillar at 3.3 s, held), each `support_strip.png` + `support_burst.png`.
-- The laser test's 40-degree sweeps cut wider than 3 m in places, so it raised warnings there (17-18 per run).
+- The laser test's 40-degree sweeps cut wider than 3 m in places and raised warnings (17-18 per run); since round 2
+  the laser is exempt, so `mine_test=laser` now only measures that it costs nothing.
+- Round 2 (developer, 2026-11-04): span kept, warning 15-120 s, survival only, laser exempt, marks saved, the
+  warning made readable. Measured: the room falls 62 s after it starts creaking (ratio 1.5), a pillar at 3.4 s holds
+  it; `mine_test=save` then `mine_test=reload` (persist=1, one unused seed) restores the warning with 54 s left and
+  the roof falls on that clock (`game/out/mine_reload/`). Pick tunnel p99 3.93 ms on vs 6.92 ms off (noise from
+  other runs; scan median 0.026 ms). The save reads the marks under their own mutex: an earlier version waited for
+  the sim driver to idle on the main thread and stalled a reload for tens of seconds.

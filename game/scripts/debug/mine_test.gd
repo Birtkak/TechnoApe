@@ -1,13 +1,14 @@
 class_name MineTest
 extends RefCounted
 
-## Debug (mine_test=collapse|propped|pick|laser, ADR 0142): mines need shoring, filmed and timed. 14 m under the
+## Debug (mine_test=collapse|propped|pick|laser|save|reload, ADR 0142): mines need shoring, filmed and timed. 14 m under the
 ## player a 14 x 6 x 14 m block of stone with a basalt roof is set (the same rock on any seed), then:
 ##   collapse: a 7 x 7 x 3 m room dug through the dig path (Main._on_dug, 0.5 m blocks), filmed from a corner: a
 ##             filmstrip through the creaking (support_strip.png) and a burst of the fall (support_burst.png);
 ##   propped:  the same room, a stone pillar set in its middle while it creaks: it must stop and hold;
 ##   pick:     a 3 x 3 m tunnel dug a block at a time at pick_rate blocks/s for the run (no warning expected);
-##   laser:    the same tunnel cut by /laser pulses, a metre forward each.
+##   laser:    the same tunnel cut by /laser pulses, a metre forward each (laser cuts never count as dug);
+##   save, reload: with persist=1 on one unused seed, the room dug and saved while it creaks, then reloaded: it falls.
 ## One JSON line "debug mine {...}": the support stats (scan ms per dig on the driver thread, the main thread's
 ## part), warnings, collapses; the frame budget is DebugCapture's own JSON.
 
@@ -41,6 +42,10 @@ func run(p_main: Node, p_mode: String) -> void:
 	_c = Vector3i(me.x / b * b, (g - int(Settings.m2v(DEPTH_M))) / b * b, me.z / b * b)
 	main.chat.send("/tp %d %d %d" % [_c.x, _c.y + int(Settings.m2v(1.0)), _c.z])
 	await tree.create_timer(6.0).timeout
+	if mode == "reload":
+		await _reload(tree)
+		_end()
+		return
 	var half := int(Settings.m2v(ROOM_M + 7.0) / 2.0)
 	main._debug_fill(_c - Vector3i(half, int(Settings.m2v(1.0)), half), _c + Vector3i(half, int(Settings.m2v(HEIGHT_M + 2.0)), half), GameMaterials.STONE)
 	# the roof rock in dark basalt (span 2.25 m), so a falling slab reads against the stone walls
@@ -54,9 +59,50 @@ func run(p_main: Node, p_mode: String) -> void:
 			await _tunnel_pick(tree)
 		"laser":
 			await _tunnel_laser(tree)
+		"save":
+			await _save(tree)
+	_end()
+
+
+func _end() -> void:
 	r["support"] = main.support.stats() if main.support else {}
 	print("debug mine ", JSON.stringify(r))
 	DebugCapture._finish()
+
+
+## save (persist=1): the room dug, saved as soon as it creaks; the reload run on the same seed must see it fall.
+func _save(tree: SceneTree) -> void:
+	var nb := int(Settings.m2v(ROOM_M)) / Settings.BLOCK
+	var hb := int(Settings.m2v(HEIGHT_M)) / Settings.BLOCK
+	await _dig_blocks(_c - Vector3i(nb / 2, 0, nb / 2) * Settings.BLOCK, Vector3i(nb, hb, nb), 24, tree)
+	var t0 := Time.get_ticks_msec()
+	while main.support.warnings.is_empty() and Time.get_ticks_msec() - t0 < 10000:
+		await tree.create_timer(0.25).timeout
+	await tree.create_timer(2.0).timeout
+	var w: Dictionary = main.support.warnings.values()[0] if not main.support.warnings.is_empty() else {}
+	r["saved_falls_in_s"] = snappedf(w["t_fail"] - main.support._now, 0.1) if w else -1.0
+	main._save_blocks()
+	r["ok"] = not w.is_empty() and FileAccess.file_exists(main._support_path())
+
+
+## reload (persist=1, after save): nothing dug this run; the saved roof creaks on and falls on its saved clock.
+func _reload(tree: SceneTree) -> void:
+	var sup: MineSupport = main.support
+	r["restored_warnings"] = sup.warnings.size()
+	r["restored_falls_in_s"] = snappedf(sup.warnings.values()[0]["t_fail"] - sup._now, 0.1) if not sup.warnings.is_empty() else -1.0
+	r["dug_blocks"] = int(sup.rp.support_stats()["dug_blocks"])
+	var mid := sup._sample(sup.warnings.values()[0]) if not sup.warnings.is_empty() else PackedInt32Array([_c.x, _c.y, _c.z])
+	_c = Vector3i(mid[0], mid[1] - int(Settings.m2v(HEIGHT_M)), mid[2])   # the saved roof, wherever the player spawned
+	r["at"] = _c
+	r["now_start"] = snappedf(sup._now, 0.1)
+	var t0 := Time.get_ticks_msec()
+	while sup.stats_d["collapses"] == 0 and (Time.get_ticks_msec() - t0) / 1000.0 < DebugCapture.duration - 15.0:
+		await tree.create_timer(0.25).timeout
+	await tree.create_timer(3.0).timeout
+	r["fell_after_s"] = snappedf((Time.get_ticks_msec() - t0) / 1000.0, 0.1)
+	r["now_end"] = snappedf(sup._now, 0.1)
+	r["roof_mid_after"] = GameMaterials.name_of(main.get_world_voxel(Vector3i(_c.x, _c.y + int(Settings.m2v(HEIGHT_M)), _c.z)))
+	r["ok"] = r["restored_warnings"] > 0 and sup.stats_d["collapses"] > 0 and r["roof_mid_after"] == "air"
 
 
 ## The blocks of a box (world voxels, min corner inclusive, size in blocks) dug the way a pick digs them.
@@ -100,7 +146,7 @@ func _room(tree: SceneTree) -> void:
 	var fell := -1.0
 	var propped := false
 	var burst_done := false
-	while Time.get_ticks_msec() - t_dug < 90000:
+	while Time.get_ticks_msec() - t_dug < 150000:
 		await tree.create_timer(0.25).timeout
 		var s := (Time.get_ticks_msec() - t_dug) / 1000.0
 		if first_warn < 0.0 and not sup.warnings.is_empty():
@@ -111,14 +157,20 @@ func _room(tree: SceneTree) -> void:
 			propped = main._place_furniture("stone_pillar", _c, 0)
 			r["pillar_placed_at_s"] = snappedf(s, 0.1)
 			r["pillar_placed"] = propped
-		if strip.count() < 24 and int(s * 4) % 8 == 0:
-			strip.add(main.get_viewport())   # every 2 s
+		if strip.count() < 24 and int(s * 4) % 16 == 0:
+			strip.add(main.get_viewport())   # every 4 s
+		var due: bool = not sup.warnings.is_empty() and sup.warnings.values()[0]["t_fail"] - sup._now < 1.0
+		if mode == "collapse" and not burst_done and due:
+			strip.add(main.get_viewport())
+			await _burst(tree, DebugCapture.out_dir + "/support_burst.png")   # the last second, shaking, and the fall
+			burst_done = true
 		var falling: bool = fell < 0.0 and sup.stats_d["collapses"] > 0
 		if falling:
 			fell = s
 			r["fell_at_s"] = snappedf(s, 0.1)
-			await _burst(tree, DebugCapture.out_dir + "/support_burst.png")
-			burst_done = true
+			if not burst_done:
+				await _burst(tree, DebugCapture.out_dir + "/support_burst.png")
+				burst_done = true
 			await tree.create_timer(3.0).timeout
 			strip.add(main.get_viewport())
 			break
@@ -136,10 +188,9 @@ func _room(tree: SceneTree) -> void:
 ## 48 frames, every second one: the fall of a roof takes under a second.
 func _burst(tree: SceneTree, path: String) -> void:
 	var sheet := FrameSheet.new(320, 180, 8)
-	for i in 96:
-		await tree.process_frame
-		if i % 2 == 0:
-			sheet.add(main.get_viewport())
+	for i in 48:   # 50 ms apart: 2.4 s at any frame rate
+		await tree.create_timer(0.05).timeout
+		sheet.add(main.get_viewport())
 	sheet.save(path)
 
 

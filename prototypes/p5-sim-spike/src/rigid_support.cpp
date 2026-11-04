@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <unordered_map>
 
 using namespace godot;
 
@@ -79,6 +80,7 @@ void RigidPieces::support_apply_marks() {
         todo.swap(dug_pending_);
     }
     // shortcut: past MAX_DUG blocks (a 500 m tunnel network) the marks start over; a ring buffer if that matters
+    std::lock_guard<std::mutex> dl(dug_m_);
     if (dug_.size() + todo.size() > MAX_DUG) dug_.clear();
     for (const Vector3i &b : todo) dug_.insert(key(b.x, b.y, b.z));
 }
@@ -150,7 +152,10 @@ void RigidPieces::support_run_jobs() {
 
 Dictionary RigidPieces::support_stats() const {
     Dictionary d;
-    d["dug_blocks"] = (int64_t)dug_.size();
+    {
+        std::lock_guard<std::mutex> dl(dug_m_);
+        d["dug_blocks"] = (int64_t)dug_.size();
+    }
     d["scans"] = support_scans_;
     d["drops"] = support_drops_;
     d["last_ms"] = support_last_ms_;
@@ -161,11 +166,48 @@ Dictionary RigidPieces::support_stats() const {
 
 void RigidPieces::support_clear() {
     std::lock_guard<std::mutex> lk(job_m_);
+    std::lock_guard<std::mutex> dl(dug_m_);
     dug_pending_.clear();
     dug_.clear();
 }
 
+PackedInt32Array RigidPieces::support_dug_chunks() {
+    PackedInt32Array out;
+    std::unordered_map<int64_t, uint64_t> ch;   // a chunk is 4 x 4 x 4 blocks: one bit each
+    auto add = [&](int x, int y, int z) { ch[key(x >> 2, y >> 2, z >> 2)] |= 1ull << (((y & 3) * 4 + (z & 3)) * 4 + (x & 3)); };
+    {
+        std::lock_guard<std::mutex> lk(job_m_);   // marks not applied yet count too
+        for (const Vector3i &b : dug_pending_) add(b.x, b.y, b.z);
+    }
+    {
+        std::lock_guard<std::mutex> dl(dug_m_);   // held by a scan for its ms at most: never waits for a sim tick
+        for (int64_t k : dug_) add((int)((k >> 42) & 0x1FFFFF) - KOFF, (int)((k >> 21) & 0x1FFFFF) - KOFF, (int)(k & 0x1FFFFF) - KOFF);
+    }
+    out.resize(ch.size() * 5);
+    int64_t i = 0;
+    for (const auto &e : ch) {
+        const int64_t k = e.first;
+        out[i++] = (int)((k >> 42) & 0x1FFFFF) - KOFF;
+        out[i++] = (int)((k >> 21) & 0x1FFFFF) - KOFF;
+        out[i++] = (int)(k & 0x1FFFFF) - KOFF;
+        out[i++] = (int32_t)(uint32_t)(e.second & 0xFFFFFFFFull);
+        out[i++] = (int32_t)(uint32_t)(e.second >> 32);
+    }
+    return out;
+}
+
+void RigidPieces::support_load_chunks(const PackedInt32Array &p_chunks) {
+    std::lock_guard<std::mutex> lk(job_m_);
+    for (int64_t i = 0; i + 4 < p_chunks.size(); i += 5) {
+        const uint64_t m = (uint64_t)(uint32_t)p_chunks[i + 3] | ((uint64_t)(uint32_t)p_chunks[i + 4] << 32);
+        for (int b = 0; b < 64; b++)
+            if ((m >> b) & 1)
+                dug_pending_.push_back(Vector3i(p_chunks[i] * 4 + (b & 3), p_chunks[i + 1] * 4 + (b >> 4), p_chunks[i + 2] * 4 + ((b >> 2) & 3)));
+    }
+}
+
 Dictionary RigidPieces::support_scan_impl(const ScanJob &j) {
+    std::lock_guard<std::mutex> dl(dug_m_);
     const double t0 = now_ms();
     Dictionary out;
     out["tag"] = j.tag;

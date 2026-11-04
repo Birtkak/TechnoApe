@@ -108,6 +108,57 @@ func test_generated_caves_never_fall() -> void:
 	assert_array(_scan(w[1], 8, 88, 8, 88)["clusters"]).is_empty()
 
 
+func test_dug_marks_survive_the_save() -> void:
+	var w := _world()
+	var rp: RigidPieces = w[1]
+	_room(w[0], rp, 20, 76, 20, 76)
+	rp.support_mark_box(Vector3i(-9, -30, 5), Vector3i(-1, -21, 13))   # negative coordinates pack too
+	var chunks := rp.support_dug_chunks()
+	assert_int(chunks.size() % 5).is_equal(0)
+	rp.support_clear()
+	assert_array(_scan(rp, 20, 76, 20, 76)["clusters"]).is_empty()
+	rp.support_load_chunks(chunks)
+	assert_int(_scan(rp, 20, 76, 20, 76)["clusters"].size()).is_equal(1)
+	assert_int(int(rp.support_stats()["dug_blocks"])).is_equal(14 * 6 * 14 + 3 * 3 * 3)
+	var w2 := _world()
+	w2[1].support_load_chunks(chunks)
+	var a := Array(w2[1].support_dug_chunks())
+	var b := Array(rp.support_dug_chunks())
+	assert_int(a.size()).is_equal(b.size())
+
+
+func test_a_creaking_roof_keeps_its_clock_over_a_reload() -> void:
+	var w := _world()
+	var sim: SimWorld = w[0]
+	var rp: RigidPieces = w[1]
+	_room(sim, rp, 20, 76, 20, 76)
+	var fake := FakeMain.new()
+	fake.sim = sim
+	var sup := MineSupport.new()
+	sup.main = fake
+	sup.rp = rp
+	sup.take([_scan(rp, 20, 76, 20, 76)])
+	sup._now = 10.0
+	var left: float = sup.warnings.values()[0]["t_fail"] - sup._now
+	var saved := sup.to_save()
+	sup.free()
+	rp.support_clear()   # a fresh game: nothing in memory
+	var sup2 := MineSupport.new()
+	sup2.main = fake
+	sup2.rp = rp
+	sup2._now = 500.0
+	assert_bool(sup2.load_save(saved)).is_true()
+	assert_int(sup2.warnings.size()).is_equal(1)
+	assert_float(sup2.warnings.values()[0]["t_fail"] - sup2._now).is_equal_approx(left, 0.01)
+	assert_int(_scan(rp, 20, 76, 20, 76)["clusters"].size()).is_equal(1)   # the marks came back too
+	sup2._now += left + 1.0
+	for id in sup2.warnings.keys():
+		sup2._warn_step(id, sup2.warnings[id])
+	assert_int(sup2.stats_d["collapses"]).is_equal(1)
+	sup2.free()
+	fake.free()
+
+
 func test_the_roof_drops_as_one_rock_piece() -> void:
 	var w := _world()
 	var sim: SimWorld = w[0]

@@ -13,6 +13,9 @@ extends Node
 const PEBBLES_MAX := 6        # real gravel cells a warning drops before the fall
 const PROBE_EVERY_S := 0.4    # the aimed-at roof is re-checked this often while a prop is held
 const NO_PROBE := Vector3i(0, -1048576, 0)
+const SAVE_VERSION := 1
+const SHAKE_S := 4.0          # the camera shakes for the last seconds before a fall, within SHAKE_M
+const SHAKE_M := 14.0
 
 var main: Node
 var rp: RigidPieces
@@ -33,6 +36,10 @@ var _probe_t := 0.0
 var probe := {}               # the last probe: {cell, found, wall, span, prop, dug, held}
 var _reach := 32
 var _pending_hurt: Array = [] # [time, cells AABB, damage]
+var dirty := false            # dug marks or warnings changed since the last save
+var crack_material: ShaderMaterial   # the template of each warning's cracks (MaterialWarmup draws it)
+var _shake_cam: Camera3D
+var _shake_end := 0.0         # a fall shakes the camera briefly too
 
 
 func setup(p_main: Node) -> void:
@@ -45,6 +52,13 @@ func setup(p_main: Node) -> void:
 		if FurnitureEntity.is_prop(k):
 			r = maxf(r, FurnitureEntity.KINDS[k]["prop"]["radius_m"])
 	_reach = int(ceil(Settings.m2v(r)))
+	make_crack_material()
+
+
+func make_crack_material() -> void:
+	crack_material = ShaderMaterial.new()
+	crack_material.shader = preload("res://assets/shaders/roof_cracks.gdshader")
+	crack_material.set_shader_parameter("crack_map", ImageTexture.create_from_image(Player.crack_image()))
 
 
 ## Per material id: -1 open (air, liquids, plants, furniture, stations), 0 solid that holds and never fails (wood,
@@ -102,6 +116,7 @@ func dug(cells: Array) -> void:
 		lo = lo.min(c)
 		hi = hi.max(c)
 	rp.support_mark(p)
+	dirty = true
 	_touch(lo, hi)
 	_note_dig(t0)
 
@@ -112,6 +127,7 @@ func dug_packed(cells: PackedInt32Array) -> void:
 		return
 	var t0 := Time.get_ticks_usec()
 	rp.support_mark(cells)
+	dirty = true
 	var a := Vector3i(cells[0], cells[1], cells[2])
 	var b := Vector3i(cells[cells.size() - 3], cells[cells.size() - 2], cells[cells.size() - 1])   # a box dig runs corner to corner
 	_touch(a.min(b), a.max(b))
@@ -126,6 +142,7 @@ func dug_sphere(center: Vector3, r: float) -> void:
 	var lo := Vector3i((center - Vector3.ONE * r).floor())
 	var hi := Vector3i((center + Vector3.ONE * r).floor())
 	rp.support_mark_box(lo, hi)
+	dirty = true
 	_touch(lo, hi)
 	_note_dig(t0)
 
@@ -167,6 +184,7 @@ func _process(delta: float) -> void:
 		_dirty = false
 	for id in warnings.keys():
 		_warn_step(id, warnings[id])
+	_shake()
 	for i in range(_pending_hurt.size() - 1, -1, -1):
 		if _now >= _pending_hurt[i][0]:
 			_hurt(_pending_hurt[i][1], _pending_hurt[i][2])
@@ -252,6 +270,7 @@ func _apply(r: Dictionary, anchors: Array) -> void:
 			w = {"t0": _now, "t_fail": _now + warn_s(ratio), "next_fx": _now, "pebbles": 0}
 			warnings[id] = w
 			stats_d["warnings"] += 1
+			dirty = true
 		else:
 			w = warnings[id]
 			w["t_fail"] = maxf(minf(w["t_fail"], w["t0"] + warn_s(ratio)), _now + 1.0)
@@ -261,6 +280,7 @@ func _apply(r: Dictionary, anchors: Array) -> void:
 		w["count"] = int(cl["count"])
 		w["mat"] = GameMaterials.material_of_voxel(main.get_world_voxel(Vector3i(cells[0], cells[1], cells[2])))
 		w["props"] = failed.filter(func(a: Vector3i) -> bool: return Vector3(a).distance_to(center) < Settings.m2v(6.0))
+		_crack_view(w)
 		seen[id] = true
 	var checked: PackedInt32Array = r.get("checked", PackedInt32Array())
 	for wid in warnings.keys():
@@ -269,7 +289,7 @@ func _apply(r: Dictionary, anchors: Array) -> void:
 		var at := _sample(warnings[wid])
 		for k in range(0, checked.size(), 4):
 			if checked[k + 3] == 0 and checked[k] == at[0] and checked[k + 1] == at[1] and checked[k + 2] == at[2]:
-				warnings.erase(wid)   # propped in time
+				_end_warning(wid)   # propped in time
 				stats_d["held"] += 1
 				break
 
@@ -286,22 +306,33 @@ func _warn_step(id: int, w: Dictionary) -> void:
 		var v: Node3D = main._furniture_views.get(a)
 		if v:
 			v.rotation.z = sin(_now * 23.0) * 0.03 * k
+	var v: MeshInstance3D = w.get("view")
+	if v:
+		(v.material_override as ShaderMaterial).set_shader_parameter("progress", lerpf(0.15, 1.0, k))
 	if _now < w["next_fx"]:
 		return
-	w["next_fx"] = _now + lerpf(4.0, 0.5, k) * randf_range(0.7, 1.3)
+	w["next_fx"] = _now + lerpf(3.0, 0.3, k) * randf_range(0.7, 1.3)
 	var cells: PackedInt32Array = w["cells"]
 	var i := randi() % (cells.size() / 3) * 3
 	var cell := Vector3i(cells[i], cells[i + 1], cells[i + 2])
-	Sound.play("tree/creak", Vector3(cell), {"pitch": 0.55 + 0.2 * k, "db": -6.0 + 8.0 * k})
+	# louder and lower as the fall nears, a rumble under it for the last quarter
+	Sound.play("tree/creak", Vector3(cell), {"pitch": 0.5 + 0.25 * k, "db": lerpf(0.0, 12.0, k)})
+	if k > 0.75:
+		Sound.play("tree/thud", Vector3(cell), {"pitch": 0.5, "db": lerpf(-4.0, 6.0, (k - 0.75) * 4.0)})
 	if main.fx:
-		main.fx.block_break(cell + Vector3i.DOWN, w["mat"])   # dust off the roof
+		for n in 1 + int(k * 3.0):   # more puffs toward the end, each off another roof cell
+			var j := i if n == 0 else randi() % (cells.size() / 3) * 3
+			var at := Vector3(cells[j], cells[j + 1], cells[j + 2]) + Vector3(0.5, -0.5, 0.5)
+			main.fx.burst("roof_dust", at, {"material": w["mat"], "count_bonus": int(k * 10.0)})
+			main.fx.burst("roof_grit", at, {"material": w["mat"], "count_bonus": int(k * 14.0)})
 	if k > 0.25 and w["pebbles"] < PEBBLES_MAX and main.get_world_voxel(cell + Vector3i.DOWN) == GameMaterials.AIR:
 		main.set_world_voxel(cell + Vector3i.DOWN, GameMaterials.GRAVEL)   # a real pebble of powder falls
 		w["pebbles"] += 1
 
 
 func _collapse(id: int, w: Dictionary) -> void:
-	warnings.erase(id)
+	_end_warning(id)
+	_shake_end = _now + 0.8
 	stats_d["collapses"] += 1
 	for a in w["props"]:
 		var e: FurnitureEntity = main.blocks.furniture_at(a)
@@ -320,6 +351,126 @@ func _collapse(id: int, w: Dictionary) -> void:
 	_pending_hurt.append([_now + 0.4, box, clampi(2 + w["count"] / 64, 4, 16) * (2 if thick > Settings.BLOCK else 1)])
 	if main.chat and main.player.position.distance_to(w["center"]) < Settings.m2v(24.0):
 		main.chat.add_message("The roof caved in!")
+
+
+func _end_warning(id: int) -> void:
+	var v: Node = warnings[id].get("view")
+	if v:
+		v.queue_free()
+	warnings.erase(id)
+	dirty = true
+
+
+## Cracks under a creaking roof: one quad per 0.5 m block of its cells, just below the lowest roof cell there.
+func _crack_view(w: Dictionary) -> void:
+	if crack_material == null:
+		return
+	var b := Settings.BLOCK
+	var low := {}   # block xz -> lowest roof y
+	var cells: PackedInt32Array = w["cells"]
+	for i in range(0, cells.size(), 3):
+		var k := Vector2i(floori(cells[i] / float(b)), floori(cells[i + 2] / float(b)))
+		low[k] = mini(int(low.get(k, cells[i + 1])), cells[i + 1])
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_normal(Vector3.DOWN)
+	for k in low:
+		var y := float(low[k]) - 0.03
+		var x0 := float(k.x * b)
+		var z0 := float(k.y * b)
+		for c in [[0, 0], [1, 0], [1, 1], [0, 0], [1, 1], [0, 1]]:
+			st.set_uv(Vector2(c[0], c[1]))
+			st.add_vertex(Vector3(x0 + c[0] * b, y, z0 + c[1] * b))
+	st.generate_tangents()
+	var v: MeshInstance3D = w.get("view")
+	if v == null:
+		v = MeshInstance3D.new()
+		v.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		v.material_override = crack_material.duplicate()
+		add_child(v)
+		w["view"] = v
+	v.mesh = st.commit()
+
+
+## The last SHAKE_S before a fall near the camera, and the fall itself, shake it (Settings.screen_shake).
+func _shake() -> void:
+	var cam := get_viewport().get_camera_3d()
+	var a := 0.0
+	if Settings.screen_shake and cam:
+		for wid in warnings:
+			var w: Dictionary = warnings[wid]
+			var left: float = w["t_fail"] - _now
+			if left < SHAKE_S and cam.global_position.distance_to(w["center"]) < Settings.m2v(SHAKE_M):
+				a = maxf(a, 1.0 - left / SHAKE_S)
+		if _now < _shake_end:
+			a = 1.5
+	if _shake_cam and is_instance_valid(_shake_cam) and (a == 0.0 or _shake_cam != cam):
+		_shake_cam.h_offset = 0.0
+		_shake_cam.v_offset = 0.0
+		_shake_cam = null
+	if a > 0.0:
+		_shake_cam = cam
+		var m := Settings.m2v(0.03) * a   # a few centimetres: felt, not sickening
+		cam.h_offset = randf_range(-m, m)
+		cam.v_offset = randf_range(-m, m)
+
+
+# ---------------- save ----------------
+
+## The dug marks (per 16-voxel chunk, a bit per 0.5 m block) and the creaking roofs with the time they have left,
+## so an unpropped room does not outlive a save and reload.
+func to_save() -> Dictionary:
+	var ws := []
+	for wid in warnings:
+		var w: Dictionary = warnings[wid].duplicate()
+		w.erase("view")
+		w["t0"] -= _now
+		w["t_fail"] -= _now
+		ws.append(w)
+	return {"version": SAVE_VERSION, "chunks": rp.support_dug_chunks(), "warnings": ws}
+
+
+func load_save(d: Dictionary) -> bool:
+	if int(d.get("version", 0)) != SAVE_VERSION:
+		push_error("mine support: unsupported save version %s" % d.get("version"))
+		return false
+	rp.support_clear()
+	rp.support_load_chunks(d.get("chunks", PackedInt32Array()))
+	for id in warnings.keys():
+		_end_warning(id)
+	for w in d.get("warnings", []):
+		w["t0"] += _now
+		w["t_fail"] += _now
+		w["next_fx"] = _now
+		warnings[_next_id] = w
+		_next_id += 1
+		_crack_view(w)
+	dirty = false
+	return true
+
+
+## Binary (store_var) and atomic: the chunk masks are 32-bit halves, which JSON would round.
+func save_file(path: String) -> bool:
+	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+	var f := FileAccess.open(path + ".tmp", FileAccess.WRITE)
+	if f == null:
+		push_error("mine support: cannot write %s" % path)
+		return false
+	f.store_var(to_save())
+	f.close()
+	if DirAccess.rename_absolute(path + ".tmp", path) != OK:
+		push_error("mine support: cannot rename %s.tmp" % path)
+		return false
+	dirty = false
+	return true
+
+
+func load_file(path: String) -> bool:
+	if not FileAccess.file_exists(path):
+		return false
+	var f := FileAccess.open(path, FileAccess.READ)
+	var d = f.get_var() if f else null
+	return d is Dictionary and load_save(d)
 
 
 ## What stands under a fallen roof (within 4 m below it) is hurt.

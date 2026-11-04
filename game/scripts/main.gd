@@ -580,8 +580,10 @@ func _ready() -> void:
 			add_child(support)
 			support.setup(self)
 			player.support_hint = support.hint
+			if Settings.persist_world:
+				support.load_file(_support_path())
 		if not warmup.is_queued_for_deletion():
-			warmup.add_materials([pieces.material], player.camera)
+			warmup.add_materials([pieces.material] + ([support.crack_material] if support else []), player.camera)
 	builder = ShapeBuilder.new()
 	builder.name = "ShapeBuilder"
 	add_child(builder)
@@ -762,6 +764,11 @@ func save_terrain(wait_s := 0.0) -> void:
 		push_warning("save_terrain: the terrain save did not finish in %.1f s" % wait_s)
 
 
+## The dug marks and creaking roofs (ADR 0142), binary next to the blocks file.
+func _support_path() -> String:
+	return "user://worlds/support_%d_g%d.bin" % [Settings.world_seed, TerrainGenerator.GEN_VERSION]
+
+
 func _blocks_path() -> String:
 	return "user://worlds/blocks_%d_g%d.json" % [Settings.world_seed, TerrainGenerator.GEN_VERSION]
 
@@ -784,6 +791,8 @@ func _save_blocks() -> void:
 	if saplings != null and saplings.dirty:
 		_save_json(_save_path("saplings"), saplings.to_dict())
 		saplings.dirty = false
+	if support != null and (support.dirty or not support.warnings.is_empty()):   # a creaking roof's clock runs
+		support.save_file(_support_path())
 	if mobs != null:
 		mobs.save_file(_save_path("mobs"))   # animals move all the time: always written
 	if atmosphere != null:

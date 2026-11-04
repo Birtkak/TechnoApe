@@ -1742,6 +1742,34 @@
     "#a8f4ff",
     "#5ad0f0"
    ]
+  },
+  "roof_dust": {
+   "_doc": "ADR 0142: a creaking roof sheds a cloud of its rock's dust that billows down and hangs",
+   "channel": "sprites",
+   "sprite": "smoke",
+   "motion": "mist",
+   "count": [10, 16],
+   "life": [1.6, 3.2],
+   "size": [0.3, 0.6],
+   "speed": [0.8, 2.0],
+   "dir": "down",
+   "spread": 60,
+   "box": [0.5, 0.05, 0.5],
+   "tint": "tile",
+   "shade": [0.85, 1.0]
+  },
+  "roof_grit": {
+   "_doc": "ADR 0142: grit of the roof's rock raining onto the floor",
+   "channel": "chips",
+   "motion": "chip",
+   "count": [10, 18],
+   "life": [1.2, 2.4],
+   "size": [0.05, 0.1],
+   "speed": [0.0, 0.5],
+   "dir": "down",
+   "spread": 20,
+   "box": [0.6, 0.02, 0.6],
+   "shade": [0.6, 0.9]
   }
  },
  "ambient": {
