@@ -65,3 +65,20 @@ func test_warm_ice_thins_from_its_top_over_minutes() -> void:
 	assert_int(left).is_less(ice * 9 / 10)
 	assert_int(left).is_greater(ice / 3)
 	assert_int(w.count_in_box(top, top + Vector3i(48, 1, 48), GameMaterials.ICE)).is_less(w.count_in_box(bottom, bottom + Vector3i(48, 1, 48), GameMaterials.ICE))
+
+
+func test_water_against_a_roof_beside_a_deeper_column_sleeps() -> void:
+	var w := _world()   # the lake case: a hole dug into a bank under the surface fills to its roof
+	w.set_column_flow(true)
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(64, 24, 64), GameMaterials.STONE)
+	w.fill_box(Vector3i(20, 4, 20), Vector3i(28, 24, 28), 0)   # a shaft open to the sky
+	w.fill_box(Vector3i(28, 4, 20), Vector3i(36, 10, 28), 0)   # a tunnel off it with a roof at 10
+	w.fill_box(Vector3i(20, 4, 20), Vector3i(28, 18, 28), GameMaterials.WATER)
+	w.fill_box(Vector3i(28, 4, 20), Vector3i(36, 10, 28), GameMaterials.WATER)
+	var moved := 0
+	for t in 300:
+		var s: Dictionary = w.tick(1)
+		if t >= 280:
+			moved += int(s.get("moved_cells_per_tick", 0))
+	assert_int(moved).override_failure_message("water at rest kept moving %d cells" % moved).is_equal(0)
+	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).is_equal((8 * 8 * 14 + 8 * 8 * 6) * 8)

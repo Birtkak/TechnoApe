@@ -163,7 +163,8 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   it (generated ice no longer melts on load; Survival measures again after a 32 m move), a cold window wakes only chunks
   that may hold a liquid that freezes or a gas that condenses, a liquid
   substep scans only chunks with moving fast liquid in or beside them, the pool wakes as many helpers as there are
-  chunks; `fluid_lag=lake|river|bomb|pour|fly` times a change to its remesh and rest (`debug fluid_lag` JSON).
+  chunks, warm ice thaws from its open faces a few cells per 64-tick heat turn (`thaw_`), and column levelling gives
+  nothing to a full top under a roof (it woke water filled to a hole's roof for ever); `fluid_lag=lake|river|bomb|pour|fly` times a change to its remesh and rest (`debug fluid_lag` JSON).
   **Water feel (ADR 0138):** resting moving water on ground beside a body (2..7 eighths) is still an opening, so a dug
   pit or channel fills to the body's level (water resting on a lower still step is not); the surface row feeds a dig
   deeper than the surface (a trench in a shelving bank) but never air over the shore; a ledge onto a partial cell pours

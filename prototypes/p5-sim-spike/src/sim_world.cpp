@@ -1188,6 +1188,9 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
         const int Hn = 8 * ny + full(idx(nx, ny, nz));
         if (Hn >= H - 1) continue;   // level, or higher: it levels toward us on its own visit
         if (moved_[idx(nx, ny, nz)] == mark_) continue;
+        // ADR 0137: nothing fits on a full top under liquid (its column runs on past the reach) or a ceiling; giving
+        // there moved nothing but marked both cells, and a pit of moving water deeper than the reach never slept
+        if (full(idx(nx, ny, nz)) == 8 && !(is_open(nx, ny + 1, nz) && open_air(cells_[idx(nx, ny + 1, nz)].mat) && !still_liquid(nx, ny + 1, nz, m.fluid_slot))) continue;
         const int dt = std::min({8, (H - Hn) / 2, avail});
         if (dt < 1) continue;
         take(give(nx, ny, nz, dt));
