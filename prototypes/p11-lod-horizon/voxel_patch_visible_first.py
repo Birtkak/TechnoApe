@@ -135,16 +135,20 @@ patch(PH, '''	static inline bool viewer_chain_first = false;
 	// TechnoApe ADR 0136: lod 0 data requests, and those biased as buried (VoxelLodTerrain.debug_request_counts)
 	static inline std::atomic<int64_t> requests_lod0{ 0 };
 	static inline std::atomic<int64_t> requests_buried{ 0 };
+	// ... and those that were generated (GenerateBlockTask::run)
+	static inline std::atomic<int64_t> generated_lod0{ 0 };
+	static inline std::atomic<int64_t> generated_buried{ 0 };
 ''')
 H = 'terrain/variable_lod/voxel_lod_terrain.h'
 LC = 'terrain/variable_lod/voxel_lod_terrain.cpp'
 patch(H, '''	Dictionary debug_get_data_block_info(Vector3 fbpos, int lod_index) const;
 ''', '''	Dictionary debug_get_data_block_info(Vector3 fbpos, int lod_index) const;
-	Vector2i debug_request_counts() const; // TechnoApe ADR 0136
+	Vector4i debug_request_counts() const; // TechnoApe ADR 0136
 ''')
 patch(LC, '''Dictionary VoxelLodTerrain::debug_get_data_block_info(Vector3 fbpos, int lod_index) const {
-''', '''Vector2i VoxelLodTerrain::debug_request_counts() const {
-	return Vector2i(int(PriorityDependency::requests_lod0.load()), int(PriorityDependency::requests_buried.load()));
+''', '''Vector4i VoxelLodTerrain::debug_request_counts() const {
+	return Vector4i(int(PriorityDependency::requests_lod0.load()), int(PriorityDependency::requests_buried.load()),
+			int(PriorityDependency::generated_lod0.load()), int(PriorityDependency::generated_buried.load()));
 }
 
 Dictionary VoxelLodTerrain::debug_get_data_block_info(Vector3 fbpos, int lod_index) const {
@@ -191,8 +195,8 @@ patch(LC, '''	push_deferred_mesh_updates(); // TechnoApe P11: new frame, new upl
 		PriorityDependency::has_view = cam.forward != Vector3();
 	}
 ''')
-patch(H, '''	Vector2i debug_request_counts() const; // TechnoApe ADR 0136
-''', '''	Vector2i debug_request_counts() const; // TechnoApe ADR 0136
+patch(H, '''	Vector4i debug_request_counts() const; // TechnoApe ADR 0136
+''', '''	Vector4i debug_request_counts() const; // TechnoApe ADR 0136
 	void set_view_priority_weight(float w);
 	float get_view_priority_weight() const;
 ''')
@@ -203,7 +207,7 @@ patch(H, '''	uint64_t _mesh_upload_bytes_this_frame = 0;
 	Vector3 _view_prev_position;
 	Vector3 _view_velocity;
 ''')
-patch(LC, '''Vector2i VoxelLodTerrain::debug_request_counts() const {''', '''void VoxelLodTerrain::set_view_priority_weight(float w) {
+patch(LC, '''Vector4i VoxelLodTerrain::debug_request_counts() const {''', '''void VoxelLodTerrain::set_view_priority_weight(float w) {
 	PriorityDependency::view_weight = math::max(w, 0.f);
 }
 
@@ -211,7 +215,7 @@ float VoxelLodTerrain::get_view_priority_weight() const {
 	return PriorityDependency::view_weight;
 }
 
-Vector2i VoxelLodTerrain::debug_request_counts() const {''')
+Vector4i VoxelLodTerrain::debug_request_counts() const {''')
 patch(LC, '''	ClassDB::bind_method(D_METHOD("debug_request_counts"), &Self::debug_request_counts);
 ''', '''	ClassDB::bind_method(D_METHOD("debug_request_counts"), &Self::debug_request_counts);
 	ClassDB::bind_method(D_METHOD("set_view_priority_weight", "weight"), &Self::set_view_priority_weight);
@@ -268,3 +272,86 @@ patch(LC, '''			block->visual_active = visual_active;
 # the same distance (stock: the same band 2)
 patch('constants/voxel_constants.h', '''static const uint8_t TASK_PRIORITY_MESH_BAND2 = 10;''',
       '''static const uint8_t TASK_PRIORITY_MESH_BAND2 = 11; // TechnoApe ADR 0136 (stock 10, as generation)''')
+
+# the generation tasks that ran, and those of them that were biased as buried (debug_request_counts z, w)
+patch('generators/generate_block_task.cpp', '''	Ref<VoxelGenerator> generator = _stream_dependency->generator;
+	ERR_FAIL_COND(generator.is_null());
+
+	if (_voxels == nullptr) {''', '''	Ref<VoxelGenerator> generator = _stream_dependency->generator;
+	ERR_FAIL_COND(generator.is_null());
+	if (_lod_index == 0) { // TechnoApe ADR 0136
+		++PriorityDependency::generated_lod0;
+		if (_priority_dependency.distance_bias >= 1024.f) {
+			++PriorityDependency::generated_buried;
+		}
+	}
+
+	if (_voxels == nullptr) {''')
+
+# the update task's data pass: the ground of the columns a box step adds, fetched on a few threads before the pass
+# (FineGen.ground_range builds the column's context, ~0.5 ms; a 2 m step adds ~80 columns: 40-140 ms on one thread)
+patch(C, '''#include <thread>
+''', '''#include <thread>
+#include <atomic> // TechnoApe ADR 0136
+''')
+patch(C, '''// The block ranges of column (x, z) a viewer at block vpos keeps inside box.
+''', '''// TechnoApe ADR 0136: the ground of every column within f of `box` the memo lacks, on up to 6 threads, so the pass
+// below does not fetch them one by one (shell_column_ranges takes the ground over x +- f, z +- f)
+void shell_prefetch_ground(
+		VoxelLodTerrainUpdateData::State &state,
+		const VoxelLodTerrainUpdateData::Settings &settings,
+		const Box3i &box,
+		int f,
+		int block_size
+) {
+	static thread_local StdVector<Vector3i> tls_need;
+	static thread_local StdVector<std::pair<int, int>> tls_got;
+	tls_need.clear();
+	for (int z = box.position.z - f; z < box.position.z + box.size.z + f; ++z) {
+		for (int x = box.position.x - f; x < box.position.x + box.size.x + f; ++x) {
+			if (state.shell_ground.find((uint64_t(uint32_t(x)) << 32) | uint32_t(z)) == state.shell_ground.end()) {
+				tls_need.push_back(Vector3i(x, 0, z));
+			}
+		}
+	}
+	if (tls_need.size() < 16) {
+		return; // a few: the pass fetches them itself
+	}
+	tls_got.resize(tls_need.size());
+	std::atomic<size_t> next{ 0 };
+	// by reference: in a helper thread tls_need would name that thread's own (empty) vector
+	StdVector<Vector3i> &need = tls_need;
+	StdVector<std::pair<int, int>> &got = tls_got;
+	auto work_shared = [&settings, &next, &need, &got, block_size]() {
+		for (size_t i = next.fetch_add(1); i < need.size(); i = next.fetch_add(1)) {
+			const ::godot::Vector2i r = settings.shell_provider.call(need[i].x * block_size, need[i].z * block_size, block_size);
+			got[i] = { r.x, r.y };
+		}
+	};
+	const int helpers = math::min(int(need.size() / 16), 5);
+	StdVector<std::thread> threads;
+	for (int i = 0; i < helpers; ++i) {
+		threads.emplace_back(work_shared);
+	}
+	work_shared();
+	for (std::thread &t : threads) {
+		t.join();
+	}
+	if (state.shell_ground.size() + need.size() > 400000) {
+		state.shell_ground.clear();
+	}
+	for (size_t i = 0; i < need.size(); ++i) {
+		state.shell_ground.insert({ (uint64_t(uint32_t(need[i].x)) << 32) | uint32_t(need[i].z), got[i] });
+	}
+}
+
+// The block ranges of column (x, z) a viewer at block vpos keeps inside box.
+''')
+patch(C, '''			if (shell) {
+				// TechnoApe ADR 0136 (voxel_patch_visible_first.py)
+''', '''			if (shell) {
+				// TechnoApe ADR 0136 (voxel_patch_visible_first.py)
+				shell_prefetch_ground(state, settings, new_data_box,
+						1 << math::max(int(settings.mesh_block_size_po2) - int(lod_data_block_size_po2), 0),
+						1 << lod_data_block_size_po2);
+''')

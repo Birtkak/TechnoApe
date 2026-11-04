@@ -119,6 +119,11 @@ var _detail_missing := PackedInt32Array()   # 1 = the ground 18 m around the pla
 const HOLE_KINDS := ["drawn", "hidden", "not_requested", "generating", "mesh_pending", "meshing", "upload_wait", "meshed_empty", "not_in_box"]
 var _holes := {}               # kind -> block-samples
 var _holes_by_band := {}       # "0" / "16" / "32" m from the camera -> block-samples not drawn
+var _holes_visible := {}       # holes the camera has a clear line to over the true ground (FineGen heights): kind -> count
+var _holes_visible_band := {}  # the same by distance band
+var _holes_pending := {}       # mesh_pending blocks in view: key -> usec first seen pending (how long data-complete blocks wait)
+var _holes_pending_state := {} # their mesh state (VoxelLodTerrainUpdateData::MeshState) -> count
+var _holes_pending_ms: Array[float] = []
 var _holes_gap := 0            # block-samples drawn at the previous sample and not now (a dropped mesh)
 var _holes_series := PackedInt32Array()   # holes per sample
 var _holes_seen := 0           # ground blocks in view, summed over samples
@@ -496,13 +501,13 @@ func _finish() -> void:
 		"max_missing_s": _longest_run(dm) * 0.25, "probe_ms_max": snappedf(_probe_ms_max, 0.01),
 		"series": "".join(dm.map(func(v: int) -> String: return str(v)))}   # one char per 0.25 s, 1 = missing
 	var hs := Array(_holes_series)
-	s["holes"] = {"samples": hs.size(), "seen": _holes_seen, "by_kind": _holes, "by_band_m": _holes_by_band, "gap": _holes_gap, "empty_examples": _holes_empty_examples,
+	s["holes"] = {"samples": hs.size(), "seen": _holes_seen, "by_kind": _holes, "by_band_m": _holes_by_band, "visible": _holes_visible, "visible_by_band_m": _holes_visible_band, "pending_state": _holes_pending_state, "pending_wait_ms": _pct(_holes_pending_ms), "gap": _holes_gap, "empty_examples": _holes_empty_examples,
 		"total": hs.reduce(func(a, b): return a + b, 0), "max": hs.max() if hs.size() else 0,
 		"samples_with_holes": hs.filter(func(v): return v > 0).size(), "ms_max": snappedf(_holes_ms_max, 0.01),
 		"series": ",".join(hs.map(func(v: int) -> String: return str(v)))}
-	if _main.world.terrain.has_method("debug_request_counts"):   # lod 0 data requests / those waiting as buried (ADR 0136)
-		var rc: Vector2i = _main.world.terrain.debug_request_counts()
-		s["holes"]["requests"] = {"lod0": rc.x, "buried": rc.y}
+	if _main.world.terrain.has_method("debug_request_counts"):   # lod 0 data requests / those waiting as buried, and generated of each (ADR 0136)
+		var rc: Vector4i = _main.world.terrain.debug_request_counts()
+		s["holes"]["requests"] = {"lod0": rc.x, "buried": rc.y, "generated": rc.z, "generated_buried": rc.w}
 	if mine:
 		s["mined_log"] = _main.player.mined_log
 	if blast_m > 0.0:
@@ -622,6 +627,7 @@ func _holes_sample() -> void:
 	var sm: PackedInt32Array = _main.world.generator.gen.surface_map(b0.x * s, b0.y * s, n, half)
 	var xyz := PackedInt32Array()
 	var bands := PackedInt32Array()
+	var seen := PackedByteArray()
 	for j in cols:
 		for i in cols:
 			var lo := 1 << 30
@@ -643,8 +649,10 @@ func _holes_sample() -> void:
 					continue
 				xyz.append_array([b0.x + i, by, b0.y + j])
 				bands.append(mini(int(Settings.v2m(box.get_center().distance_to(cp)) / 16.0), 2) * 16)
+				seen.append(_holes_line_clear(cp, Vector3(x0 + half, clampi(hi, by * s, by * s + s), z0 + half), sm, b0 * s, n, half))
 	var codes: PackedByteArray = terrain.debug_classify_mesh_blocks(xyz)
 	var now := {}
+	var pending := {}
 	var holes := 0
 	for q in codes.size():
 		var c := codes[q]
@@ -653,6 +661,10 @@ func _holes_sample() -> void:
 		if c == 0:
 			now[key] = true
 			continue
+		if c == 4:
+			pending[key] = _holes_pending.get(key, t0)
+			var st := str(terrain.debug_get_mesh_block_info(Vector3(key), 0).get("mesh_state", -1))
+			_holes_pending_state[st] = _holes_pending_state.get(st, 0) + 1
 		if c == 7 and _holes_empty_checked < 4000:
 			# the mesher made nothing: fine if the block and the ring around are one material (lake water, rock)
 			_holes_empty_checked += 1
@@ -675,12 +687,44 @@ func _holes_sample() -> void:
 				_holes_empty_examples.append("%s inner %s" % [key * s, "uniform %d" % inner.get_voxel(0, 0, 0, VoxelBuffer.CHANNEL_TYPE) if inner.is_uniform(VoxelBuffer.CHANNEL_TYPE) else "mixed"])
 		holes += 1
 		_holes_by_band[str(bands[q])] = _holes_by_band.get(str(bands[q]), 0) + 1
+		if seen[q]:
+			_holes_visible[HOLE_KINDS[c]] = _holes_visible.get(HOLE_KINDS[c], 0) + 1
+			_holes_visible_band[str(bands[q])] = _holes_visible_band.get(str(bands[q]), 0) + 1
 		if _holes_prev.has(key):
 			_holes_gap += 1
 	_holes_prev = now
+	for key in _holes_pending:   # left the pending state (or the view): how long it waited
+		if not pending.has(key) and _holes_pending_ms.size() < 20000:
+			_holes_pending_ms.append((t0 - _holes_pending[key]) / 1000.0)
+	_holes_pending = pending
 	_holes_seen += codes.size()
 	_holes_series.push_back(holes)
 	_holes_ms_max = maxf(_holes_ms_max, (Time.get_ticks_usec() - t0) / 1000.0)
+
+
+static func _pct(v: Array[float]) -> Dictionary:
+	if v.is_empty():
+		return {}
+	var a := v.duplicate()
+	a.sort()
+	return {"n": a.size(), "p50": snappedf(a[a.size() / 2], 0.1), "p90": snappedf(a[a.size() * 9 / 10], 0.1), "max": snappedf(a[-1], 0.1)}
+
+
+## 1 when no true ground (surface map tops, a sample every `half` voxels from `o`) rises over the line from the
+## camera to `t` before the last half block: the hole there would show (ground or a hole in front hides it).
+static func _holes_line_clear(cp: Vector3, t: Vector3, sm: PackedInt32Array, o: Vector2i, n: int, half: int) -> int:
+	var d := Vector2(t.x - cp.x, t.z - cp.z)
+	var steps := int(d.length() / half) - 1
+	for k in range(1, steps):
+		var f := float(k) / (steps + 1)
+		var i := floori((cp.x + d.x * f - o.x) / half)
+		var j := floori((cp.z + d.y * f - o.y) / half)
+		if i < 0 or j < 0 or i >= n or j >= n:
+			continue
+		var m := (j * n + i) * 3
+		if maxi(sm[m], sm[m + 1]) > cp.y + (t.y - cp.y) * f + 2.0:
+			return 0
+	return 1
 
 
 static func _aabb_in_frustum(box: AABB, planes: Array[Plane]) -> bool:
