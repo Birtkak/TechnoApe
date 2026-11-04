@@ -521,3 +521,12 @@ Asked for in bug reports 2026-11-02 18-55-21, 18-57-25, 18-54-25 and 18-49-07.
   slope (column_base with_slope), so the placement asks for it.
 - Water biomes (oceans, rivers, lakes) keep wrecks and bridges at their edges; cave biomes keep the abandoned mines
   and their dressing. The ruin reach test now measures from the nearest land of a kind's own biomes.
+
+## Highland moor (2026-11-04, ADR 0140)
+- Highlands and frozen highlands are open moor, not woodland. `highland_hills` (world_gen.cpp) gives the ~70 m hills
+  on high, not hot ground a glacial profile (flat floors, rounded knolls) and stands them on the massif apron too.
+- FineGen: `highland_ground` thins the soil to 25-75 cm (ledge risers show rock), scree over slope 0.65, bare crags
+  over 0.9, peat (dirt, moss, cotton grass) in flat hollows (dn < -0.42); `highland_tor` raises knoll crowns
+  (dn > 0.55) 1-4 m as jointed bare rock; `highland_plant` lays heather, bracken and coarse grass. Bare rock is the
+  local rock kind. Trees 0.06 birch/spruce (frozen 0.04), x2.5 in hollows, stunted on knolls, none on tors;
+  boulders 0.3. Check: `test_highlands_are_open_moor`.
