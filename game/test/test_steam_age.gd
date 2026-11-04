@@ -48,7 +48,7 @@ func test_items_and_recipes_exist() -> void:
 	for id in ["iron_plate", "iron_rod", "bronze_pipe", "small_boiler", "steam_hammer", "steam_sieve", "goggles", "leather_apron"]:
 		assert_bool(items.has(id)).override_failure_message(id).is_true()
 	assert_bool(recipes.recipes.has("smith_iron_plate")).is_true()
-	assert_int(AnvilEntity.ingots_for(recipes.recipes["smith_iron_plate"])).is_equal(1)
+	assert_int(AnvilEntity.ingots_for(recipes.recipes["smith_iron_plate"])).is_equal(2)
 	assert_int(AnvilEntity.ingots_for(recipes.recipes["smith_iron_rod"])).is_equal(1)
 	assert_int(int(recipes.recipes["smith_iron_rod"]["output"]["count"])).is_equal(2)
 	for id in ["small_boiler", "steam_hammer", "steam_sieve", "goggles", "leather_apron"]:
@@ -110,6 +110,7 @@ func test_steam_hammer_smiths_a_plate_over_pipes() -> void:
 	store.create(Vector3i(6 * B, 0, 0), "pipe")
 	var h: SteamHammerEntity = store.create(Vector3i(7 * B, 0, 0), "steam_hammer")
 	assert_str(h.add_ingot(_hot("iron_ingot"))).is_equal("")
+	assert_str(h.add_ingot(_hot("iron_ingot"))).is_equal("")   # a plate is two ingots (ADR 0139)
 	h.set_recipe(recipes.recipes["smith_iron_plate"])
 	_ticks(19)
 	assert_object(h.boiler).is_null()
@@ -117,6 +118,7 @@ func test_steam_hammer_smiths_a_plate_over_pipes() -> void:
 	assert_object(h.boiler).is_same(b)
 	_ticks(int(Settings.boiler_build_s * 20))
 	assert_bool(h.powered()).is_true()
+	h.hot_until = Inventory.clock_s + Settings.metal_cool_s   # fresh from the forge: two ingots take 64 strikes, 32 s
 	_ticks(int(60.0 * 20))
 	assert_int(h.strikes).is_greater(0)
 	assert_str(h.ready.get("id", "")).is_equal("iron_plate")
@@ -146,6 +148,7 @@ func test_steam_hammer_smiths_a_plate_over_pipes() -> void:
 
 func test_hammer_strike_moves_metal_toward_the_shape() -> void:
 	var h: SteamHammerEntity = store.create(Vector3i.ZERO, "steam_hammer")
+	h.add_ingot(_hot("iron_ingot"))
 	h.add_ingot(_hot("iron_ingot"))
 	h.set_recipe(recipes.recipes["smith_iron_plate"])
 	var extra := h.extra_cells()

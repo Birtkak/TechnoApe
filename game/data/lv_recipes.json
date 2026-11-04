@@ -22,7 +22,7 @@
 
     {"id": "extrude_bronze_pipe", "type": "process", "station": "extruder", "ingredients": ["bronze_ingot"], "output": {"id": "bronze_pipe", "count": 2}, "seconds": 8, "info": "400 W; the anvil gives one"},
     {"id": "extrude_copper_pipe", "type": "process", "station": "extruder", "ingredients": ["copper_ingot"], "output": {"id": "copper_pipe", "count": 2}, "seconds": 6, "info": "400 W"},
-    {"id": "extrude_iron_gear", "type": "process", "station": "extruder", "ingredients": ["iron_ingot"], "output": {"id": "iron_gear", "count": 3}, "seconds": 10, "info": "400 W; the bronze anvil gives two"},
+    {"id": "extrude_iron_gear", "type": "process", "station": "extruder", "ingredients": ["iron_ingot"], "output": {"id": "iron_gear", "count": 2}, "seconds": 10, "info": "400 W; the bronze anvil gives one"},
     {"id": "extrude_iron_rod", "type": "process", "station": "extruder", "ingredients": ["iron_ingot"], "output": {"id": "iron_rod", "count": 3}, "seconds": 8, "info": "400 W; the lathe gives two"},
     {"id": "extrude_steel_rod", "type": "process", "station": "extruder", "ingredients": ["steel_ingot"], "output": {"id": "steel_rod", "count": 2}, "seconds": 12, "info": "400 W"},
     {"id": "extrude_tin_can", "type": "process", "station": "extruder", "ingredients": ["tin_ingot"], "output": {"id": "tin_can", "count": 4}, "seconds": 6, "info": "400 W"},
