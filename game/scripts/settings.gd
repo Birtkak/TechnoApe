@@ -49,6 +49,7 @@ var air_s := 15.0                       # breath under water (vanilla: 300 ticks
 var suffocate_s := 2.0                  # breath with the head buried in sand or gravel (vanilla: damage at once)
 var drown_damage := 2                   # half-hearts per second once the air is gone (vanilla)
 var sim_threads := maxi(2, OS.get_processor_count() - 2)
+var voxel_threads := maxi(2, OS.get_processor_count() - 4)   # godot_voxel workers while playing (ADR 0135: its default, half the cores, fell behind a 20 m/s flight; 8 of 12 on the dev box hold the frame budget)
 
 # Player (metres, converted at use)
 var walk_speed_m := 4.3
@@ -411,6 +412,7 @@ func apply_cmdline() -> Dictionary:
 			"sim_push_interval_ms": sim_push_interval_ms = float(kv[1])
 			"terrain_mesh_collisions": terrain_mesh_collisions = kv[1] == "1"
 			"sim_threads": sim_threads = int(kv[1])
+			"voxel_threads": voxel_threads = int(kv[1])
 			"world_seed", "seed": set_seed_text(kv[1])
 			"persist": persist_world = kv[1] == "1"
 			"max_health": max_health = int(kv[1])

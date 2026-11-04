@@ -79,7 +79,7 @@ class FineGen : public RefCounted {
     GDCLASS(FineGen, RefCounted)
 
 public:
-    struct CaveBand { int mx, mz, band; float v[16]; };   // the small cave field of one macro column, 16 rows (cave_cache_)
+    struct CaveBand { int mx, mz, band; float v[16], full[16]; };   // the small cave field of one macro column, 16 rows (cave_cache_); full: with halls and ravines (lod 0, ADR 0135)
     static constexpr int FS = 4;   // fine voxels per macro unit (0.5 m / 12.5 cm)
     static constexpr int RUIN_RAMP = 4;   // macro cells round a ruin over which the ground ramps to its floor (ADR 0062)
 

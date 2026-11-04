@@ -101,3 +101,10 @@ full-detail ground stays hidden until most of the horizon is generated. `VoxelLo
 (global, off by default; the game turns it on under a teleport cover) puts the blocks within 128 << lod
 voxels of the viewer first. 3 km jump: ground under the player visible after ~7.5 s instead of ~11 s.
 Always on it cost flight streaming ~1.3 ms p99 (speed=20), off it is unchanged.
+
+### Flight throughput (2026-11-04, ADR 0135)
+`voxel_patch_mesh_speed.py`: the blocky merge pass visits only the faces it marked (sorted into the full scan's order)
+instead of 6 x 76^3 mask cells, and plain opaque cubes buried in plain cubes are skipped; same triangles
+(`game/tools/mesh_hash.gd`), a surface mesh block 16 -> 6.7 ms. `voxel_patch_throughput.py`: worker time per task kind,
+mesher phases and mesh requests by cause in `get_statistics()` (read by `stream_probe=1`). Not idempotent over the
+mesh_speed text: restore `voxel_lod_terrain.cpp`, `mesh_block_task.cpp` and `voxel_mesher_blocky.cpp` before re-running.
