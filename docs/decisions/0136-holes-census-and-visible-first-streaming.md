@@ -53,6 +53,17 @@ The census costs up to ~40 ms a sample, so it is opt-in.
   values and the shell are the same. The view phase went from p50 111 ms to 10 ms, and visible mesh_pending holes
   from 139 to 22.
 
+**Lock holds** (`voxel_patch_lock_holds.py`): in flight the main thread waited on two locks the update thread held.
+- `lod.loading_blocks_mutex`, 10-71 ms in `apply_data_block_response` (found with fluid-lag's `proc_probe=1`). The
+  `loading_blocks` map (50-340 k entries while flying) was never reserved, so an insert past a new size peak
+  rehashed it under the lock: 11 rehashes a run, holds of 12-19 ms. `reserve_data_map()` now reserves it for the
+  whole box beside the data map (ADR 0105): 0 rehashes, worst hold 2-4 ms.
+- The data map's own locks, 95-160 ms: `view_area` / `unview_area` took a whole box (~420 k blocks when the box
+  moves far) under its spatial and map locks while SimBubble's column reads and `try_set_block` waited. The
+  clipbox pass hands them x slabs of about 4096 blocks and yields between them: worst hold 11 ms.
+- `get_statistics()` keeps `ta_loading_hold_max`, `ta_loading_hold_slow_n` and `ta_loading_rehash_n` (run maxima,
+  in the summary JSON as `loading_lock`).
+
 **Tried and dropped:**
 - Skipping the buried requests while the viewer is above ground. Only 0.2 % of generated blocks were buried ones
   (the +1024 already keeps them last), and the sim bubble reads the near cube (`world.read_column`, the first
@@ -92,8 +103,20 @@ Without the census (same fly, medians of 3, 1-3 other Godot runs beside them):
 | first loading cover lifts after | 4.66 s | 2.75 s | 2.64 s |
 | mem / VRAM (more is drawn) | 0.71 / 0.61 GB | 0.91 / 0.75 GB | 1.01 / 0.84 GB |
 
-The ~145 ms single frames happen with and without the fix (physics, bubble column loads, the render thread on a
-shared machine); they are not this ADR's.
+The ~145 ms single frames happen with and without the fix. They were the data map holds above (the bubble's column
+reads and the applies waiting on `view_area` / `unview_area`); the lock-hold patch removes them.
+
+Lock holds (same flight, 30 s, `proc_probe=1`, runs with 0 other Godot processes):
+
+| | timer only | + loading_blocks reserve | + view/unview slabs |
+|---|---|---|---|
+| loading_blocks rehashes per run | 11 / 11 / 11 | 0 (7 runs) | 0 (3 runs) |
+| worst loading_blocks hold | 12-19 ms | 2-4 ms | 2-4 ms |
+| worst view/unview hold (frames over 12 ms) | 94-160 ms in 2 of 3 runs | 94-160 ms in 4 of 7 runs | 6 ms (11 ms in 3 runs beside another Godot) |
+| frames > 16.7 ms per run | 4 / 4 / 9 | 6 / 3 / 4 / 2 / 1 / 1 / 1 | 4 / 2 / 0 |
+| worst frame | 21-165 ms | 22-167 ms | 12-44 ms |
+
+The frames over 16.7 ms that are left are not lock waits: no process phase over 16.7 ms in them (render or physics).
 
 Evidence sheet: `game/out/holes_before_after.png` (local, not committed). `shell_test` at the default render distance
 (run alone) gives 0 unloaded, 0 unmeshed and 0 air-where-solid near the player with both DLLs. It still reports

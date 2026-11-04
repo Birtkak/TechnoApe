@@ -324,6 +324,7 @@ python <repo>/prototypes/p11-lod-horizon/voxel_patch_mesh_speed.py ~/Tools/godot
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_throughput.py ~/Tools/godot_voxel     # ADR 0135: worker time per task kind and mesher phase (ta_run_*, mesh_*) in get_statistics()
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_holes.py ~/Tools/godot_voxel        # ADR 0136: debug_classify_mesh_blocks, the stage each mesh block in view is stuck in (holes=1 census)
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_visible_first.py ~/Tools/godot_voxel   # ADR 0136: ground in view and ahead first, buried blocks last, meshing above generation; the shell's new ground fetched on threads
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_lock_holds.py ~/Tools/godot_voxel   # ADR 0136: the loading-blocks map reserved for the box, view/unview in slabs: no 10-160 ms main-thread lock waits in flight
 GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=template_debug use_mingw=yes use_static_cpp=yes -j12
 cp project/addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll <repo>/game/addons/zylann.voxel/bin/
 ```

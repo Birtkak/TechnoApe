@@ -522,6 +522,8 @@ func _finish() -> void:
 	# what generation spent its worker time on over the run (ADR 0105): FineGen by result, godot_voxel per task
 	var ts: Dictionary = _main.world.terrain.get_statistics() if _main != null and _main.world != null else {}
 	s["generation"] = {"finegen": FineGen.gen_stats(), "task_us": ts.get("ta_gen_run_sum", 0), "tasks": ts.get("ta_gen_run_n", 0)}
+	# the update thread's holds of the loading-blocks lock the main thread's data applies wait on (ADR 0136, run maxima)
+	s["loading_lock"] = {"hold_max_us": ts.get("ta_loading_hold_max", -1), "holds_over_1ms": ts.get("ta_loading_hold_slow_n", -1), "rehashes": ts.get("ta_loading_rehash_n", -1)}
 	var dm := Array(_detail_missing)
 	s["detail"] = {"samples": dm.size(), "missing_share": snappedf(float(dm.count(1)) / maxi(dm.size(), 1), 0.01),
 		"max_missing_s": _longest_run(dm) * 0.25, "probe_ms_max": snappedf(_probe_ms_max, 0.01),
