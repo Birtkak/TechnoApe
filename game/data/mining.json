@@ -1,6 +1,6 @@
 {
   "_comment": "Mining through the material model (ADR 0005). Keys are GameMaterials names. hardness drives the break time: with the 'tool' class at or above 'min_tier' it is hardness * right_tool.factor / tier speed within [min_s, max_s] (0.5..10 s); by hand or with the wrong tool it is hardness * wrong_tool.s_per_hardness within [min_s, max_s] (20..120 s); materials without a 'tool' break by hand in hardness * 1.5 s; 'tool' = the tool class the material wants; 'requires' = true when nothing drops without that tool class; 'min_tier' = tool tier below which it counts as the wrong tool (slow, and nothing drops); 'drop_tier' = tier below which it breaks at normal speed but drops nothing (rock before copper, ADR 0023); a drop entry with 'tool' only drops with that tool class (knife cuts dry grass); 'drops' = item id, or a list of {id, count (n or [min, max]), chance} rolled separately (omit for nothing; crops drop through data/crops.json). Materials not listed are unbreakable. Liquids and gases are never mined: they need a container (items.json 'fills').",
-  "tool_speed": {"hand": 1.0, "tier": [2.0, 4.0, 6.0, 8.0, 13.0]},
+  "tool_speed": {"hand": 1.0, "tier": [2.0, 3.0, 4.0, 8.0, 13.0]},
   "right_tool": {"factor": 3.0, "min_s": 0.5, "max_s": 10.0},
   "wrong_tool": {"s_per_hardness": 80.0, "min_s": 20.0, "max_s": 120.0},
   "materials": {
@@ -142,7 +142,7 @@
     "limestone": {"hardness": 1.2, "tool": "pickaxe", "requires": true, "drops": "limestone_cobble", "drop_tier": 1},
     "slate": {"hardness": 1.4, "tool": "pickaxe", "requires": true, "drops": "slate_cobble", "drop_tier": 1},
     "marble": {"hardness": 1.8, "tool": "pickaxe", "requires": true, "drops": "marble_cobble", "drop_tier": 1},
-    "chalk": {"hardness": 0.6, "tool": "pickaxe", "requires": true, "drops": "chalk_cobble", "drop_tier": 0},
+    "chalk": {"hardness": 0.6, "tool": "pickaxe", "requires": true, "drops": [{"id": "chalk_cobble"}, {"id": "floorstone_flint", "chance": 0.1}], "drop_tier": 0, "_note": "floorstone flint: nodules in the chalk, dug with any pick (the antler pick of the flint mine quest)"},
     "granite_cobble": {"hardness": 2.7, "tool": "pickaxe", "requires": true, "drops": "granite_cobble", "drop_tier": 1},
     "diorite_cobble": {"hardness": 2.5, "tool": "pickaxe", "requires": true, "drops": "diorite_cobble", "drop_tier": 1},
     "limestone_cobble": {"hardness": 1.7, "tool": "pickaxe", "requires": true, "drops": "limestone_cobble", "drop_tier": 1},

@@ -60,6 +60,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   ADR 0082: that ray is cast from the camera's column and eight 2 m around it; a third of them open is daylight
   (overhangs stay lit); the look fades in and out over 2.5 s (ADR 0092). The mist lies below the camera; Video settings Fog (air haze off) and Brightness (ambient x
   `Atmosphere.brightness_mult`). Steep liquid tops (cascades) do not gloss; lava tops sample the crust on one plane.
+  **Progression walk (ADR 0139):** `scripts/crafting/progression_walk.gd` walks the quest book's main roads from
+  empty hands over the data with stations, tool tiers, heat, fuel, steam and power as gates; `test_progression_walk.gd`
+  fails on dead ends, `tools/progression_report.tscn` writes the balance report `docs/plans/progression-walk.md`.
   **Crafting in the world (ADR 0042):** flint and copper tools are assembled on the ground part by part (`assemble` recipes,
   `AssemblyEntity`), the firepit is laid the same way (four stones, two sticks) and becomes a firepit where it lies
   (ADR 0083) and is worked by hand (no screen), tools wear (`durability` = uses), hot metal carries `hot_until`
