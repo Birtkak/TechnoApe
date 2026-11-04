@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## ADR 0138: how water feels. A channel dug from a still body fills to the body's level (resting water on ground is
 ## still an opening), so does a trench cut into a shelving bank that only the surface row touches, water resting over
 ## a lower still step is no opening (no endless feeding), a film runs down a terraced slope instead of lying on every
-## step, and a flood rests flat across a row boundary.
+## step, and a flood rests flat across a row boundary and past the conveyor's reach (the level pass).
 
 const N := 3
 
@@ -110,5 +110,21 @@ func test_flood_rests_flat_across_a_row_boundary() -> void:
 		lo = mini(lo, h)
 		hi = maxi(hi, h)
 	assert_int(hi - lo).is_less_equal(4)   # the old reach rested an eighth per seven cells: 10 eighths, more than a cell, across 6 m
+	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).is_equal(mass)
+	assert_int(w.get_active_chunk_count()).is_equal(0)
+
+
+func test_resting_flood_levels_past_the_conveyors_reach() -> void:
+	var w := _world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 8, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(0, 8, 0), Vector3i(10, 22, 48), GameMaterials.WATER)
+	var mass := w.count_liquid_eighths(GameMaterials.WATER)
+	_run(w, 600)
+	var lo := 1 << 30
+	var hi := -1
+	for h in load("res://test/test_sim_0119.gd").surface_heights(w, 0, 48, 0, 48, 8, 24, GameMaterials.WATER).values():
+		lo = mini(lo, h)
+		hi = maxi(hi, h)
+	assert_int(hi - lo).is_less_equal(1)   # the conveyor alone rests a terrace of an eighth per 14 cells: 3-4 eighths here
 	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).is_equal(mass)
 	assert_int(w.get_active_chunk_count()).is_equal(0)

@@ -4,6 +4,8 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
+#include <array>
+#include <unordered_set>
 #include <chrono>
 #include <cstring>
 
@@ -1197,6 +1199,7 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
     // ever moves toward the low it was sent to, nothing goes back and forth.
     if (!surface) return;
     int lo_s = FLAT_REACH + 1, lo_d = -1;
+    bool edge = false;   // a neighbour one eighth down: a terrace edge if no low is in reach
     for (int dd = 0; dd < 4; dd++) {
         int first = -1;   // the neighbour's height
         for (int s = 1; s < lo_s; s++) {
@@ -1211,9 +1214,14 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
             if (s == 1) {
                 if (Hp != H - 1 || moved_[idx(px, py, pz)] == mark_) break;   // only down a step of one eighth
                 first = Hp;
+                edge = true;
             }
             if (Hp <= H - 2 && first >= 0) { lo_s = s; lo_d = dd; break; }
         }
+    }
+    if (lo_d < 0 && edge) {
+        const int k = level_n_.fetch_add(1, std::memory_order_relaxed);
+        if (k < LEVEL_SEEDS) { level_seeds_[3 * k] = x; level_seeds_[3 * k + 1] = y; level_seeds_[3 * k + 2] = z; }
     }
     if (lo_d >= 0) {
         const int px = x + DX4[lo_d], pz = z + DZ4[lo_d];
@@ -1822,6 +1830,7 @@ void SimWorld::tick_once(TickOut &o) {
     }
     substep_ = 0;
     mark_ = stamp_;
+    if (column_flow_ && fullness_) level_surfaces();
     // ADR 0119 C: every 4th tick the heat of the chunks that ran diffuses and relaxes toward the ambient; a sleeping
     // chunk gets its turn every 64 ticks, so a quiet pond still meets the winter
     if (states_ && (tick_ & 3u) == 0)
@@ -2400,3 +2409,100 @@ int SimWorld::get_active_chunk_count() const {
 }
 
 Vector3i SimWorld::get_size_voxels() const { return Vector3i(W_, H_, D_); }
+
+// ADR 0138: a resting flood levels past the conveyor's reach. From each seed (a terrace edge whose look found no low)
+// the connected surface of its liquid is gathered: tops with air over them and something under, neighbours a row up or
+// down at most a cell apart. If it tilts 2..8 eighths (more is still flowing: the column rules have it), the highest
+// columns give one eighth each to the lowest, pairs at least two eighths apart, ties by position: the result does not
+// depend on which seed came first; it ends with the surface flat to an eighth. A tilt of five eighths is flat in a
+// few ticks; the mass is exact. Serial after the passes: it writes far from the seed. shortcut: past LEVEL_SEEDS seeds
+// in a tick which ones made it is a race between threads; raise the cap if two floods ever settle in one tick.
+void SimWorld::level_surfaces() {
+    const int n = std::min(level_n_.load(std::memory_order_relaxed), LEVEL_SEEDS);
+    level_n_.store(0, std::memory_order_relaxed);
+    if (n == 0) return;
+    std::vector<std::array<int, 3>> seeds((size_t)n);
+    for (int k = 0; k < n; k++) seeds[k] = {level_seeds_[3 * k], level_seeds_[3 * k + 1], level_seeds_[3 * k + 2]};
+    std::sort(seeds.begin(), seeds.end());
+    auto key = [](int x, int z) -> int64_t { return ((int64_t)x << 32) | (uint32_t)z; };
+    auto fullness = [&](int i) -> int { const int f = cells_[i].pad & 15; return f ? f : 8; };
+    auto set_full = [&](int i, int f) { cells_[i].pad = (uint8_t)((cells_[i].pad & 0xF0u) | (uint32_t)(f >= 8 ? 0 : f)); };
+    auto mark = [&](int x, int y, int z, bool changed) {
+        Ctx c;
+        c.cx = x / CS; c.cy = y / CS; c.cz = z / CS;
+        mark_cell(x, y, z, c, changed);
+        flush_marks(c);
+    };
+    struct Col { int x, y, z, h; };
+    std::unordered_set<int64_t> seen;
+    std::vector<Col> comp, give, take;
+    uint64_t moved = 0;
+    for (const auto &sd : seeds) {
+        if (seen.count(key(sd[0], sd[2])) || !is_open(sd[0], sd[1], sd[2])) continue;
+        const uint8_t self = cells_[idx(sd[0], sd[1], sd[2])].mat;
+        if (mats_[self].cell_type != CELL_LIQUID) continue;
+        auto top = [&](int x, int y, int z) -> bool {
+            if (y < 1 || !is_open(x, y, z) || !is_open(x, y + 1, z) || !is_open(x, y - 1, z)) return false;
+            const uint8_t up = cells_[idx(x, y + 1, z)].mat, dn = cells_[idx(x, y - 1, z)].mat;
+            return cells_[idx(x, y, z)].mat == self && up != self && open_air(up) && (dn == self || !open_air(dn));
+        };
+        if (!top(sd[0], sd[1], sd[2])) continue;
+        comp.clear();
+        comp.push_back({sd[0], sd[1], sd[2], 8 * sd[1] + fullness(idx(sd[0], sd[1], sd[2]))});
+        seen.insert(key(sd[0], sd[2]));
+        bool big = false;
+        for (size_t q = 0; q < comp.size() && !big; q++) {
+            const Col cc = comp[q];
+            for (int dd = 0; dd < 4; dd++) {
+                const int nx = cc.x + DX4[dd], nz = cc.z + DZ4[dd];
+                if (seen.count(key(nx, nz))) continue;
+                for (int dy : {0, 1, -1}) {
+                    const int ny = cc.y + dy;
+                    if (!top(nx, ny, nz)) continue;
+                    const int h = 8 * ny + fullness(idx(nx, ny, nz));
+                    if (std::abs(h - cc.h) <= 8) { seen.insert(key(nx, nz)); comp.push_back({nx, ny, nz, h}); }
+                    break;
+                }
+            }
+            big = comp.size() > (size_t)LEVEL_MAX_COLUMNS;
+        }
+        if (big || comp.size() < 2) continue;
+        int lo = comp[0].h, hi = comp[0].h;
+        int64_t sum = 0;
+        for (const Col &cc : comp) { lo = std::min(lo, cc.h); hi = std::max(hi, cc.h); sum += cc.h; }
+        if (hi - lo < 2 || hi - lo > 8) continue;
+        give.clear();
+        take.clear();
+        for (const Col &cc : comp) {
+            if (cc.h >= lo + 2) give.push_back(cc);
+            if (cc.h <= hi - 2 && (fullness(idx(cc.x, cc.y, cc.z)) < 8 || cells_[idx(cc.x, cc.y + 1, cc.z)].mat == 0)) take.push_back(cc);
+        }
+        auto order = [](bool high_first) {
+            return [high_first](const Col &a, const Col &b) {
+                if (a.h != b.h) return high_first ? a.h > b.h : a.h < b.h;
+                return a.x != b.x ? a.x < b.x : a.z < b.z;
+            };
+        };
+        std::sort(give.begin(), give.end(), order(true));
+        std::sort(take.begin(), take.end(), order(false));
+        const size_t k = std::min(give.size(), take.size());
+        for (size_t j = 0; j < k && give[j].h - take[j].h >= 2; j++) {   // each pair evens out: nothing comes back
+            const Col &g = give[j], &t = take[j];
+            const int gi = idx(g.x, g.y, g.z), ti = idx(t.x, t.y, t.z);
+            const int fg = fullness(gi), ft = fullness(ti);
+            moved_[gi] = mark_;
+            if (fg > 1) { set_full(gi, fg - 1); mark(g.x, g.y, g.z, false); }
+            else { place(gi, 0); mark(g.x, g.y, g.z, true); }
+            if (ft < 8) { set_full(ti, ft + 1); moved_[ti] = mark_; mark(t.x, t.y, t.z, false); }
+            else {
+                const int ai = idx(t.x, t.y + 1, t.z);
+                place(ai, self);
+                set_full(ai, 1);
+                moved_[ai] = mark_;
+                mark(t.x, t.y + 1, t.z, true);
+            }
+            moved++;
+        }
+    }
+    if (moved) moved_count_.fetch_add(moved, std::memory_order_relaxed);
+}

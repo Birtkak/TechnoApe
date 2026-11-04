@@ -388,6 +388,13 @@ private:
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);
     void update_liquid_column(int x, int y, int z, int i, Ctx &c);   // ADR 0119 A
+    // ADR 0138: past FLAT_REACH a resting flood keeps a tilt of an eighth per reach. Cells whose conveyor look failed at
+    // an edge one eighth down seed a serial pass after the tick that levels the connected surface they are on
+    static constexpr int LEVEL_SEEDS = 256;
+    static constexpr int LEVEL_MAX_COLUMNS = 8192;
+    std::atomic<int> level_n_{0};
+    int32_t level_seeds_[LEVEL_SEEDS * 3] = {};
+    void level_surfaces();
     static constexpr int FLAT_REACH = 14;     // the surface conveyor looks this far and writes one cell over (1 + 14 < CS: ADR 0138)
     static constexpr int COLUMN_REACH = 7;    // cells a column scan follows up or down (< CS / 2 like SURFACE_REACH: chunks two apart never touch one cell)
     void update_gas(int x, int y, int z, int i, Ctx &c);

@@ -73,7 +73,7 @@ func _scene(tree: SceneTree, name: String, secs: float, every: float) -> Diction
 	var next := 0.0
 	var done := {}
 	var out := {"start_mass": _mass()}
-	var burst_at: float = {"pit_lake": 1.6, "pour_pit": 1.2, "cave": 1.5, "dam": 1.3, "slope": 1.5, "channel": 2.0}.get(name, 1.0)
+	var burst_at: float = {"pit_lake": 1.6, "pour_pit": 1.2, "cave": 1.5, "dam": 1.3, "slope": 1.5, "channel": 2.0, "fall": 2.0}.get(name, 1.0)
 	var t := 0.0
 	while t < secs:
 		await tree.process_frame
@@ -90,6 +90,8 @@ func _scene(tree: SceneTree, name: String, secs: float, every: float) -> Diction
 			strip.add(vp)
 			_log.append("t=%.2f" % t)
 			_log.append_array(FluidScenes.slice(_cell))
+	_log.append("heights at the end (eighths over the lowest column)")
+	_log.append_array(FluidScenes.heights(_cell))
 	var dir: String = DebugCapture.out_dir
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
 	strip.save(dir + "/fluid_%s_strip.png" % name)
