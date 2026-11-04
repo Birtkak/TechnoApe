@@ -55,4 +55,10 @@ a stress solver; event-driven and cheap; generated caves stand.
   survives a reload. Saving them per chunk is the upgrade if players use that.
 - Shortcut: a scan box is capped (6 m of dug box, 80 k roof cells); a very long laser cut is scanned around its
   middle and later digs fill in the rest.
-- Measured: see the numbers below (filled from `mine_test=`).
+- Measured 2026-11-04 (dev box, default render distance, `mine_test=pick|laser`, cave_ins on/off back to back,
+  2 rounds, a 3 x 3 m tunnel 14 m under rock): pick (132 blocks) p99 6.27 / 3.77 ms on vs 6.26 / 3.79 ms off;
+  laser (19 shots) p99 4.35 / 4.23 ms on vs 4.30 / 4.18 ms off. Native scan per dig, on the driver thread:
+  median 0.03-0.04 ms (pick), 2.1-2.2 ms (laser, max 4.3 ms); the main thread's part per dig 0.015 ms median.
+  Evidence: `game/out/mine_collapse/` (basalt roof, warning at 0.2 s, falls at 28 s) and `game/out/mine_propped/`
+  (pillar at 3.3 s, held), each `support_strip.png` + `support_burst.png`.
+- The laser test's 40-degree sweeps cut wider than 3 m in places, so it raised warnings there (17-18 per run).
