@@ -131,6 +131,20 @@ static inline float smoothstep(float a, float b, float x) {
 
 // ---------- terrain ----------
 
+// The ~70 m hills (macro voxels). Low hill country keeps its rolling humps; on high ground (the highland band and
+// the foot of the massifs, ADR 0140) they are shaped like glacier-worn uplands instead of noise bumps: flat-floored
+// hollows and glens between broad, rounded knolls, and they also stand on the massif apron where the old hills were
+// faded out, so the moor rolls instead of rising as one smooth ramp. Not in hot lands (the badlands keep their
+// own forms), not below ~25 m over the sea (lowland biomes keep theirs). Same noise sample, no extra cost.
+static float highland_hills(float hn, float hilly, float mountainness, float above, float temp) {
+    const float high = smoothstep(50.0f, 75.0f, above) * (1.0f - smoothstep(0.45f, 0.8f, mountainness)) * (1.0f - smoothstep(0.3f, 0.55f, temp));
+    const float w = std::max(hilly * (1.0f - mountainness), 0.8f * high);
+    if (w <= 0.0f) return 0.0f;
+    const float u = smoothstep(0.32f, 0.82f, hn);   // floors below 0.32 lie flat, tops above 0.82 round off
+    const float prof = std::pow(hn, 1.3f) + (u * (2.0f - u) * 0.85f - std::pow(hn, 1.3f)) * high;
+    return w * prof * (12.0f + 10.0f * smoothstep(0.3f, 0.8f, std::max(hilly, high)));
+}
+
 WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     const float fx = (float)x, fz = (float)z;
     Column col;
@@ -222,9 +236,9 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
             }
         }
     }
-    // hills: rolling 3-11 m humps, taller where the hill country is wide
+    // hills: rolling 3-11 m humps, taller where the hill country is wide; ice-worn on high ground (ADR 0140)
     const float hn = n_hill_.GetNoise(fx, fz) * 0.5f + 0.5f;
-    relief += hilly * (1.0f - mountainness) * std::pow(hn, 1.3f) * (12.0f + 10.0f * smoothstep(0.3f, 0.8f, hilly)) * relief_scale;
+    relief += highland_hills(hn, hilly, mountainness, base + relief, technosim_biome::temperature(t_noise, fz, (int)(base + relief))) * relief_scale;
     if (base < 0.0f) relief *= 0.25f;
     float detail = dn * (1.2f + 3.5f * mountainness);
     detail *= 0.3f + 0.7f * smoothstep(8.0f, 60.0f, std::fabs(col.shore));   // a clean waterline: no puddles on the beach, no sand specks offshore
@@ -826,6 +840,13 @@ Dictionary WorldGen::hydrology_stats(int x, int z) const {
 
 // ---------- decorations ----------
 
+// Highland trees stand in the shelter of hollows and glens (low detail noise), a few small wind-bent ones on the
+// exposed knolls (ADR 0140), none on the tors (FineGen::highland_tor, dn > 0.5): the density multiplier for the
+// highland biomes.
+static float highland_shelter(float dn) {
+    return dn < -0.15f ? 2.5f : (dn < 0.05f ? 1.0f : (dn < 0.42f ? 0.25f : 0.0f));
+}
+
 bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     uint32_t hsh = hash3(cx, cz, seed_);
     int jx = (int)(hsh & 7), jz = (int)((hsh >> 3) & 7);
@@ -840,6 +861,9 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
     const int above = col.height - sea_;
     const int tree_line = technosim_biome::tree_line(col.t);
     if (above > tree_line - 60) density *= std::clamp((tree_line - above) / 60.0f, 0.1f, 1.0f);
+    const bool upland = col.biome == technosim_biome::HIGHLANDS || col.biome == technosim_biome::FROZEN_HIGHLANDS;
+    const bool exposed = upland && col.dn > 0.05f;
+    if (upland) density *= highland_shelter(col.dn);
     float roll = (float)((hsh >> 6) & 1023) / 1023.0f;
     if (roll >= density) return false;
     if (ravine_near(tx, tz, 5)) return false;   // trunk, roots and crown footing clear of a ravine's rim
@@ -863,7 +887,7 @@ bool WorldGen::tree_at_cell(int cx, int cz, Tree &out) const {
             break;
     }
     out.trunk_h = out.trunk_h * 5 / 4;   // a quarter taller (developer 2026-11-03, "trees should be a bit taller")
-    if (above > tree_line - 60) { out.trunk_h = 5 + (int)((hsh >> 16) % 3); out.radius = 2; out.stunted = true; }
+    if (above > tree_line - 60 || exposed) { out.trunk_h = 5 + (int)((hsh >> 16) % 3); out.radius = 2; out.stunted = true; }
     return true;
 }
 

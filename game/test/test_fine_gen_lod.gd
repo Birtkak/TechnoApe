@@ -464,3 +464,35 @@ func test_find_nearest_finds_bridges_and_cairns() -> void:
 			elif p.y - 4 + i % 24 > g.height_at(p.x - 8 + (i / 24) % 16, p.z - 8 + i / 384):
 				n += 1
 		assert_int(n).override_failure_message("%s at %s: nothing of it there" % [kind, p]).is_greater(0)
+
+
+## Highland moor (ADR 0140): open heather moor, not woodland. Over 48 m of seed 1337's highlands the heather
+## outnumbers the leaves, and bare local rock (crags, scree, tors) shows at the surface.
+func test_highlands_are_open_moor() -> void:
+	var g := FineGen.new()
+	g.configure(1337, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
+	var heather := GameMaterials.id_of("heather")
+	var leaves := [GameMaterials.LEAVES, GameMaterials.BIRCH_LEAVES, GameMaterials.SPRUCE_LEAVES]
+	var rock := [GameMaterials.STONE, GameMaterials.GRAVEL_STATIC]
+	for k in GameMaterials.ROCK_KINDS:
+		rock.append(GameMaterials.id_of(k))
+	var n_heather := 0
+	var n_leaves := 0
+	var n_rock_top := 0
+	for bx in range(-384 - 192, -384 + 192, 32):
+		for bz in range(12288 - 192, 12288 + 192, 32):
+			var h := g.height_at(bx + 16, bz + 16)
+			var b: PackedByteArray = g.generate_block(Vector3i(bx, h - 8, bz), Vector3i(32, 64, 32), 0, 2)
+			if b.size() < 32 * 64 * 32 * 2:
+				continue
+			for c in 32 * 32:   # y + 64 * (x + 32 * z): the column's topmost solid voxel
+				var top := 0
+				for y in 64:
+					var m := b.decode_u16((c * 64 + y) * 2)
+					n_heather += int(m == heather)
+					n_leaves += int(m in leaves)
+					if m != 0:
+						top = m
+				n_rock_top += int(top in rock)
+	assert_int(n_heather).override_failure_message("heather %d, leaves %d" % [n_heather, n_leaves]).is_greater(n_leaves)
+	assert_int(n_rock_top).override_failure_message("no bare rock at the surface").is_greater(200)

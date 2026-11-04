@@ -244,6 +244,11 @@ private:
     MacroPt macro_point(int mx, int mz, const WorldGen::Ruin *ruins, int nruins) const;
     float surface_f(int x, int z) const;        // standalone fine surface (4 lattice corners)
     float ground_f(float base, int x, int z, float w) const;   // swells, ledges and hummocks over a macro height (weight w)
+    // highland moor (ADR 0140): tors on the knolls, thin soil, crags, scree and peat, moorland plants
+    static bool upland(int biome);
+    float highland_tor(const WorldGen::Column &col, int mx, int mz) const;
+    int highland_ground(const WorldGen::Column &col, float slope, uint32_t ph, uint16_t &top_m, uint16_t &under_m) const;
+    void highland_plant(const WorldGen::Column &col, float slope, int wx, int wz, uint32_t fh, uint16_t &veg, int &veg_h) const;
     float tree_age(const WorldGen::Tree &t, uint32_t seed) const;
     void build_tree(int kind, float fx, float fz, int trunk_h, int radius, float age, bool old_growth, uint32_t seed, FTree &out) const;
     bool col_tree(const FTree &t, float x, float z, float grow, ColTree &out) const;
