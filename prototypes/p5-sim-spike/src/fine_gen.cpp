@@ -381,7 +381,7 @@ bool FineGen::upland(int biome) { return biome == technosim_biome::HIGHLANDS || 
 // A tor's extra height (macro voxels) on a highland knoll (the crown of a detail-noise swell, dn > 0.55): rock
 // blocks in 1 m joints standing 1-4 m out of the turf with a step at the edge, a stack of bare rock, not a dome.
 float FineGen::highland_tor(const WorldGen::Column &col, int mx, int mz) const {
-    if (!upland(col.biome) || col.dn <= 0.55f) return 0.0f;
+    if (!upland(col.biome) || col.dn <= 0.55f || col.rock) return 0.0f;   // a monolith keeps its own rock
     const float t = std::clamp((col.dn - 0.55f) / 0.15f, 0.0f, 1.0f);
     const float j = (float)(h3(mx >> 1, mz >> 1, g_->seed_ + 1401) & 255) / 256.0f;   // the 1 m joints
     return std::floor(2.0f + 4.0f * t + 2.0f * j);
