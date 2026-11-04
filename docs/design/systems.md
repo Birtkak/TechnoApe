@@ -163,7 +163,13 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   it (generated ice no longer melts on load; Survival measures again after a 32 m move), a cold window wakes only chunks
   that may hold a liquid that freezes or a gas that condenses, a liquid
   substep scans only chunks with moving fast liquid in or beside them, the pool wakes as many helpers as there are
-  chunks; `fluid_lag=lake|river|bomb|pour|fly` times a change to its remesh and rest (`debug fluid_lag` JSON). **ADR 0081:** a lone still cell
+  chunks; `fluid_lag=lake|river|bomb|pour|fly` times a change to its remesh and rest (`debug fluid_lag` JSON).
+  **Water feel (ADR 0138):** resting moving water on ground beside a body (2..7 eighths) is still an opening, so a dug
+  pit or channel fills to the body's level (water resting on a lower still step is not); the surface row feeds a dig
+  deeper than the surface (a trench in a shelving bank) but never air over the shore; a ledge onto a partial cell pours
+  what fits and a lone eighth on bare ground walks to the nearest drop (films run off slopes); the 4c rule is a conveyor
+  (looks FLAT_REACH 14 cells, also a row down, writes one cell over). `fluid_film=1` films the scenes
+  (`scripts/visuals/fluid_scenes.gd`), `tools/fluid_feel.gd` runs them on the bare kernel, tests `test/test_sim_0138.gd`. **ADR 0081:** a lone still cell
   (none of its kind on its six sides: the specks the generator leaves on cave walls) wakes at any air beside or below it;
   reactions of one pair chain (`Reaction::next`, rolled in data order): lava + water boils the water to steam at 0.6 and
   only then crusts to obsidian at 0.25, so the steam grows with the water the lava touches.
