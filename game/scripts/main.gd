@@ -103,6 +103,7 @@ func _ready() -> void:
 	var t0 := Time.get_ticks_usec()
 	var mark := func(step: String) -> void:   # where the frozen first frame goes (title -> game)
 		startup_ms[step] = snappedf((Time.get_ticks_usec() - t0) / 1000.0, 0.1)
+	VoxelEngine.set_thread_count(Settings.voxel_threads)   # ADR 0135; the loading cover raises it and comes back here
 	world = World.new()
 	world.name = "World"
 	add_child(world)

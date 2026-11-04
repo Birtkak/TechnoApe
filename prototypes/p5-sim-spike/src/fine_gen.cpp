@@ -221,6 +221,9 @@ void FineGen::_bind_methods() {
     ClassDB::bind_method(D_METHOD("generate_block", "origin", "size", "lod", "bytes_per_voxel"), &FineGen::generate_block, DEFVAL(2));
     ClassDB::bind_method(D_METHOD("set_uniform_blocks", "on"), &FineGen::set_uniform_blocks);
     ClassDB::bind_static_method("FineGen", D_METHOD("gen_stats"), &FineGen::gen_stats);
+    ClassDB::bind_static_method("FineGen", D_METHOD("prof_start"), &FineGen::prof_start);
+    ClassDB::bind_static_method("FineGen", D_METHOD("prof_stop"), &FineGen::prof_stop);
+    ClassDB::bind_static_method("FineGen", D_METHOD("thread_cpu_us"), &FineGen::thread_cpu_us);
     ClassDB::bind_method(D_METHOD("ground_range", "x", "z", "size"), &FineGen::ground_range);
     ClassDB::bind_method(D_METHOD("get_uniform_blocks"), &FineGen::get_uniform_blocks);
     ClassDB::bind_method(D_METHOD("map_image", "center_x", "center_z", "radius", "step"), &FineGen::map_image);
@@ -1567,7 +1570,7 @@ static std::atomic<uint64_t> s_gen_n[3], s_gen_us[3], s_ctx_hit, s_ctx_miss, s_c
 // where a full block's time goes (budget hunt 2026-11-03): the ctx fetch, the prep (trees, geodes, conduits, the cave
 // lattice), the column loop (prologue and voxels), the passes after it
 static std::atomic<uint64_t> s_ph_us[9];   // 4 trees+stamps, 5 caves, 6 geodes+conduits, 7 column prologue, 8 voxel loop
-static std::atomic<uint64_t> s_band_get, s_band_build, s_band_build_us;
+static std::atomic<uint64_t> s_band_get, s_band_build, s_band_build_us, s_cavecol_us;
 // blocks by where they lie against their columns' ground: 0 wholly above every column, 1 straddling, 2 wholly below; count,
 // prologue us, voxel us
 static std::atomic<uint64_t> s_cat_n[3], s_cat_pro_us[3], s_cat_vox_us[3];
@@ -1611,6 +1614,7 @@ Dictionary FineGen::gen_stats() {
     d["cave_band_get"] = (int64_t)s_band_get.exchange(0);
     d["cave_band_build"] = (int64_t)s_band_build.exchange(0);
     d["cave_band_build_us"] = (int64_t)s_band_build_us.exchange(0);
+    d["cave_col_us"] = (int64_t)s_cavecol_us.exchange(0) / 1000;   // ravine_col + hall_column per lattice point (ns summed)
     const char *cat[3] = {"above", "straddle", "below"};
     for (int i = 0; i < 3; i++) { d[String("blocks_") + cat[i]] = (int64_t)s_cat_n[i].exchange(0); d[String("pro_us_") + cat[i]] = (int64_t)s_cat_pro_us[i].exchange(0); d[String("vox_us_") + cat[i]] = (int64_t)s_cat_vox_us[i].exchange(0); }
     d["ctx_bytes_lod0"] = (int64_t)(sizeof(ColumnCtx) + 25 * sizeof(MacroPt));   // a 16-voxel footprint's 5 x 5 lattice
@@ -1730,6 +1734,9 @@ std::shared_ptr<const FineGen::ColumnCtx> FineGen::build_column_ctx(Vector3i ori
             c->h[(size_t)x + (size_t)size.x * z] = std::clamp((int)std::floor(hf + 0.5f), 8 * FS, world_h - 8 * FS);
         }
     }
+    c->rlat.resize((size_t)nx * nz);
+    for (int j = 0; j < nz; j++)
+        for (int i = 0; i < nx; i++) c->rlat[(size_t)j * nx + i] = rocks_.column(lx0 + i * L, lz0 + j * L, c->lat[(size_t)j * nx + i].hc * FS);
     s_ctx_build_us += (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tb).count();
     return c;
 }
@@ -1756,6 +1763,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     const int nruins = ctx->nruins;
     const technosim_ruin::Prepared *rprep = ctx->rprep;
     const std::vector<MacroPt> &lat = ctx->lat;
+    const std::vector<technosim_rock::RockCol> &rlat = ctx->rlat;   // rock kinds (ADR 0057): strata per lattice point
     const int hmax_m = ctx->hmax_m, wl_max = ctx->wl_max, fall_max = ctx->fall_max;
     const float hmin_m = ctx->hmin_m;
     const int y_top = origin.y + sy * step;
@@ -1781,8 +1789,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
         && (lod > BIG_CAVE_LOD || !g.big_cave_possible(mx0, floor_div(origin.y, FS), mz0, mx0 + (nx - 1) * mstep, floor_div(y_top, FS), mz0 + (nz - 1) * mstep, (int)hmin_m));
     if (deep) {
         // the rock kind of the block (ADR 0057); where strata cross it, the full path
-        const technosim_rock::RockCol rc4[4] = {rocks_.column(lx0, lz0, lat[0].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0, lat[nx - 1].hc * FS),
-            rocks_.column(lx0, lz0 + (nz - 1) * L, lat[(size_t)(nz - 1) * nx].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0 + (nz - 1) * L, lat[(size_t)nz * nx - 1].hc * FS)};
+        const technosim_rock::RockCol rc4[4] = {rlat[0], rlat[nx - 1], rlat[(size_t)(nz - 1) * nx], rlat[(size_t)nz * nx - 1]};
         deep = rocks_.uniform(rc4, 4, origin.y, y_top, deep_rock);
     }
     if (deep) {
@@ -1825,10 +1832,6 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     const int reach_top = std::max({(hmax_m + 12) * FS, wl_max * FS + 1, fall_max * FS + 1, feature_top + 1, (hmax_m + 1) * FS + 12, far_canopy_top});
     if (origin.y >= reach_top) return out;
 
-    // Rock kinds (ADR 0057): strata per lattice point, interpolated per column like the surface.
-    std::vector<technosim_rock::RockCol> rlat((size_t)nx * nz);
-    for (int j = 0; j < nz; j++)
-        for (int i = 0; i < nx; i++) rlat[(size_t)j * nx + i] = rocks_.column(lx0 + i * L, lz0 + j * L, lat[(size_t)j * nx + i].hc * FS);
 
     s_ph_us[4] += us_since(tph);
     auto tpc = std::chrono::steady_clock::now();
@@ -1859,10 +1862,36 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             for (int i = 0; i < nx; i++) {
                 const MacroPt &m = lat[(size_t)j * nx + i];
                 const int cmx = mx0 + i * mstep, cmz = mz0 + j * mstep;
-                const WorldGen::RavineCol rcol = big ? g.ravine_col((float)cmx, (float)cmz) : WorldGen::RavineCol{};
+                // ADR 0135: a band also keeps each row's whole value at lod 0 (cave, hall, ravine), so a lattice
+                // column computes its halls and ravine once per band, not once per block of its stack; the column's
+                // hall and ravine shapes are found only when a band is built (or at lod > 0)
+                WorldGen::RavineCol rcol{};
                 WorldGen::HallCol hcol;
-                if (big) g.hall_column(cmx, cmz, g.n_galoff_.GetNoise((float)cmx, (float)cmz), hcol);
+                bool have_cols = false;
+                auto cols = [&]() {
+                    if (have_cols || !big) return;
+                    have_cols = true;
+                    const auto tcc = std::chrono::steady_clock::now();
+                    rcol = g.ravine_col((float)cmx, (float)cmz);
+                    g.hall_column(cmx, cmz, g.n_galoff_.GetNoise((float)cmx, (float)cmz), hcol);
+                    s_cavecol_us += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - tcc).count();
+                };
                 const int height = m.col.height;
+                auto make_band = [&](int b) {
+                    auto cb = std::make_shared<CaveBand>();
+                    cb->mx = cmx, cb->mz = cmz, cb->band = b;
+                    WorldGen::CaveColumn ccol;   // the column's mouths and gallery offset, read at every height below
+                    g.cave_column(cmx, cmz, ccol);
+                    cols();
+                    for (int r = 0; r < 16; r++) {
+                        const int ry = b * 16 + r;
+                        float hall = -1.0f;
+                        cb->v[r] = ry > height + 1 ? -1.0f : g.cave_value(ccol, ry, height, true, big ? &hcol : nullptr, &hall);
+                        cb->full[r] = cb->v[r];
+                        if (big && ry <= height + 1) cb->full[r] = std::max({cb->v[r], hall, WorldGen::ravine_value(rcol, (float)(height - ry))});
+                    }
+                    return cb;
+                };
                 std::shared_ptr<const CaveBand> band;
                 int band_id = INT32_MIN;
                 for (int k = 0; k < cny; k++) {
@@ -1882,36 +1911,26 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             band = cave_cache_.get(key, [&]() {
                                 const auto tb = std::chrono::steady_clock::now();
                                 s_band_build += 1;
-                                auto cb = std::make_shared<CaveBand>();
-                                cb->mx = cmx, cb->mz = cmz, cb->band = b;
-                                WorldGen::CaveColumn ccol;   // the column's mouths and gallery offset, read at every height below
-                                g.cave_column(cmx, cmz, ccol);
-                                for (int r = 0; r < 16; r++) {
-                                    const int ry = b * 16 + r;
-                                    cb->v[r] = ry > height + 1 ? -1.0f : g.cave_value(ccol, ry, height, true);
-                                }
+                                auto cb = make_band(b);
                                 s_band_build_us += us_since(tb);
                                 return cb;
                             });
-                            if (band->mx != cmx || band->mz != cmz || band->band != b) {   // two columns with one key: this one computes on its own
-                                auto cb = std::make_shared<CaveBand>();
-                                cb->mx = cmx, cb->mz = cmz, cb->band = b;
-                                WorldGen::CaveColumn ccol;
-                                g.cave_column(cmx, cmz, ccol);
-                                for (int r = 0; r < 16; r++) {
-                                    const int ry = b * 16 + r;
-                                    cb->v[r] = ry > height + 1 ? -1.0f : g.cave_value(ccol, ry, height, true);
-                                }
-                                band = cb;
-                            }
+                            if (band->mx != cmx || band->mz != cmz || band->band != b) band = make_band(b);   // two columns with one key: this one computes on its own
                         }
+                        if (lod == 0) { cav[((size_t)j * nx + i) * cny + k] = band->full[cy - band_id * 16]; continue; }
                         v = band->v[cy - band_id * 16];
                     }
-                    if (big) v = std::max({v, g.hall_value(hcol, (float)cy, depth), WorldGen::ravine_value(rcol, depth)});
+                    if (big) {
+                        cols();
+                        v = std::max({v, g.hall_value(hcol, (float)cy, depth), WorldGen::ravine_value(rcol, depth)});
+                    }
                     cav[((size_t)j * nx + i) * cny + k] = v;
                 }
             }
     }
+    // ADR 0135: the field is read as convex mixes of its values (bilerp and lerp with weights in [0, 1]), so where no
+    // value is positive no voxel of the block is cave air: the mask, pools, crystals, dressing and stringers are skipped
+    const bool cav_pos = std::any_of(cav.begin(), cav.end(), [](float v) { return v > 0.0f; });
     s_ph_us[5] += us_since(tpc);
     tpc = std::chrono::steady_clock::now();
     // Crystal geodes reaching into the block (lod 0-1; deep in the rock they are only ever seen opened)
@@ -1976,8 +1995,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             }
         uint16_t rock = Mat::STONE;
         if (vein_free) {
-            const technosim_rock::RockCol rc4[4] = {rocks_.column(lx0, lz0, lat[0].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0, lat[nx - 1].hc * FS),
-                rocks_.column(lx0, lz0 + (nz - 1) * L, lat[(size_t)(nz - 1) * nx].hc * FS), rocks_.column(lx0 + (nx - 1) * L, lz0 + (nz - 1) * L, lat[(size_t)nz * nx - 1].hc * FS)};
+            const technosim_rock::RockCol rc4[4] = {rlat[0], rlat[nx - 1], rlat[(size_t)(nz - 1) * nx], rlat[(size_t)nz * nx - 1]};
             if (rocks_.uniform(rc4, 4, origin.y, y_top, rock)) {
                 const int bpv = (bytes_per_voxel == 1 || bytes_per_voxel == 4) ? bytes_per_voxel : 2;
                 out.resize(bpv);
@@ -1993,9 +2011,10 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     uint16_t *w = tmp.data();
     bool any = false;
     std::vector<uint8_t> cave(sy + 2);
+    std::vector<uint8_t> row_pos(std::max(cny, 1));   // per cave row of a column: any of its four corners positive
     // The cave field at any voxel of the block's lattice (neighbour columns of a cave pool).
     auto cave_at = [&](int wx, int wy, int wz) {
-        if (cav.empty()) return false;
+        if (!cav_pos) return false;
         const float fx = (float)(wx - lx0) / FS, fz = (float)(wz - lz0) / FS, fy = cave_band_y(wy) / FS - (float)cy0;
         const int ci = std::clamp((int)std::floor(fx), 0, nx - 2), cj = std::clamp((int)std::floor(fz), 0, nz - 2);
         const int k = std::clamp((int)std::floor(fy), 0, cny - 2);
@@ -2015,14 +2034,12 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     std::vector<VeinCol> vcols((size_t)vnx * vnz);
     s_ph_us[1] += us_since(tph);
     tph = std::chrono::steady_clock::now();
-    uint64_t t_pro = 0, t_vox = 0;   // the column prologue and the voxel loop, summed over the block (ns: a column is a few us)
     for (int z = 0; z < sz; z++) {
         const int wz = origin.z + z * step;
         const float uz = (float)(wz - lz0) / L;
         const int j = std::min((int)uz, nz - 2);
         const float tz = uz - j;
         for (int x = 0; x < sx; x++) {
-            const auto tcol = std::chrono::steady_clock::now();
             const int wx = origin.x + x * step;
             const float ux = (float)(wx - lx0) / L;
             const int i = std::min((int)ux, nx - 2);
@@ -2434,12 +2451,13 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             // cave mask for the column, one voxel beyond the block on both ends
             const int no_cave_above = (hy.lake || hy.river > 0.0f || hy.marsh) ? water_level - 40 * FS : -1;
             const int cave_band = 1 << 30;   // coarse LODs carry only the big caves below the mouths (cave_field)
-            if (!cav.empty()) {
+            if (cav_pos) {
                 const float fx = (float)(wx - lx0) / FS, fz = (float)(wz - lz0) / FS;
                 const int ci = std::min((int)fx, nx - 2), cj2 = std::min((int)fz, nz - 2);
                 const float ctx = fx - ci, ctz = fz - cj2;
                 const float *p00 = &cav[((size_t)cj2 * nx + ci) * cny], *p10 = &cav[((size_t)cj2 * nx + ci + 1) * cny];
                 const float *p01 = &cav[((size_t)(cj2 + 1) * nx + ci) * cny], *p11 = &cav[((size_t)(cj2 + 1) * nx + ci + 1) * cny];
+                for (int k = 0; k < cny; k++) row_pos[k] = p00[k] > 0.0f || p10[k] > 0.0f || p01[k] > 0.0f || p11[k] > 0.0f;
                 for (int y = -1; y <= sy; y++) {
                     const int wy = origin.y + y * step;
                     bool c = wy >= 12 * FS && wy < h - m.roof * FS && h - wy <= cave_band && (no_cave_above < 0 || wy < no_cave_above) && !(wy < sea && h < sea + 2 * FS);
@@ -2448,7 +2466,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                         const int k = std::clamp((int)std::floor(fy), 0, cny - 2);
                         const float ty = std::clamp(fy - (float)k, 0.0f, 1.0f);
                         auto lerp_y = [&](const float *p) { return p[k] + (p[k + 1] - p[k]) * ty; };
-                        c = bilerp(lerp_y(p00), lerp_y(p10), lerp_y(p01), lerp_y(p11), ctx, ctz) > 0.0f;
+                        c = (row_pos[k] || row_pos[k + 1]) && bilerp(lerp_y(p00), lerp_y(p10), lerp_y(p01), lerp_y(p11), ctx, ctz) > 0.0f;
                     }
                     cave[y + 1] = c;
                 }
@@ -2465,8 +2483,11 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 for (int y = -1; y <= sy; y++)
                     if (const int wy = origin.y + y * step; wy < h && wy >= h - 2 * CAVE_STEP) cave[y + 1] = 1;
             }
+            // ADR 0135: pools and crystals are read only at cave air of this column in the block
+            bool col_air = false;
+            for (int y = 1; y <= sy && !col_air; y++) col_air = cave[y] != 0;
             int crystal_roll = 0;
-            const int crystal_h = (lod == 0 && !cav.empty()) ? rocks_.crystal_height(wx, wz, crystal_roll) : 0;
+            const int crystal_h = (lod == 0 && col_air) ? rocks_.crystal_height(wx, wz, crystal_roll) : 0;
             // cave water depth here, and the rock under the block's bottom cave air (the sheet crosses blocks)
             // the column's hall inputs, read once when a floor or a dressing asks (ADR 0134)
             WorldGen::HallCol hall_c;
@@ -2476,7 +2497,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 if (!hall_ok) g.hall_column(mx, mz, g.n_galoff_.GetNoise((float)mx, (float)mz), hall_c), hall_ok = true;
                 g.hall_value(hall_c, (float)vy / FS, (float)(h - vy) / FS, rim, tal);
             };
-            const int pool_d = (lod == 0 && !cav.empty()) ? std::clamp((int)((n_pool_.GetNoise((float)wx, (float)wz) - POOL_THR) * 2.0f * POOL_DEPTH), 0, POOL_DEPTH) : 0;
+            const int pool_d = (lod == 0 && col_air) ? std::clamp((int)((n_pool_.GetNoise((float)wx, (float)wz) - POOL_THR) * 2.0f * POOL_DEPTH), 0, POOL_DEPTH) : 0;
             int floor_wy = -(1 << 20), pool_cap = 0, lip_top = 0;
             for (int j = 1; j <= pool_d; j++)
                 if (!cave_at(wx, origin.y - j, wz)) { floor_wy = origin.y - j; break; }
@@ -2494,8 +2515,10 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             auto on_talus = [&](int x, int z, int f) {
                 if (g.variant_[WorldGen::VAR_CAVES] == 0) return false;
                 const int px = floor_div(x, FS), pz = floor_div(z, FS);
-                WorldGen::HallCol hc;
-                g.hall_column(px, pz, g.n_galoff_.GetNoise((float)px, (float)pz), hc);
+                WorldGen::HallCol hc_n;
+                if (px == mx && pz == mz) { if (!hall_ok) g.hall_column(mx, mz, g.n_galoff_.GetNoise((float)mx, (float)mz), hall_c), hall_ok = true; }
+                else g.hall_column(px, pz, g.n_galoff_.GetNoise((float)px, (float)pz), hc_n);
+                const WorldGen::HallCol &hc = (px == mx && pz == mz) ? hall_c : hc_n;
                 bool tal = false;
                 g.hall_value(hc, (float)f / FS, (float)(h - f) / FS, nullptr, &tal);   // this column's ground: the neighbours are a voxel away
                 return tal;
@@ -2569,8 +2592,6 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             int dress_anchor = INT32_MIN, dress_biome = -1;   // the cave biome of the last floor or ceiling looked up
             float dress_rim = 0.0f;                           // how near that anchor is to a hall's wall (ADR 0134)
             stack_top = std::max({stack_top, h + veg_h + 2, h + spike + 1, h + CLUTTER_H + 1, far_top + 1, water_level + 1, h + aqua_h + 1});
-            const auto tvox = std::chrono::steady_clock::now();
-            t_pro += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(tvox - tcol).count();
             uint16_t *colp = w + sy * (x + sx * z);
             ValueNoiseCell sheet_cell;   // the stringer sheet's noise cell, shared up the column
             for (int y = 0; y < sy; y++) {
@@ -2743,7 +2764,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 } else if (veg_head != Mat::AIR && wy == h + veg_h) {
                     mat = veg_head;
                 }
-                if (mat == Mat::STONE && stringer >= 0 && h - wy >= STRINGER_MIN_DEPTH) {
+                if (mat == Mat::STONE && stringer >= 0 && cav_pos && h - wy >= STRINGER_MIN_DEPTH) {
                     // Ore stringers (ADR 0077): thin wavy sheets of ore through the rock, in the cell's ore, that show
                     // where they cross a cave wall; only within STRINGER_REACH of cave air so the lenses stay the prize.
                     const float s = value_noise3((float)wx / 16.0f, (float)wy / 11.0f, (float)wz / 16.0f, g.seed_ + 7801, sheet_cell);
@@ -2770,20 +2791,15 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 colp[y] = mat;
                 if (mat != Mat::AIR) any = true;
             }
-            t_vox += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - tvox).count();
         }
     }
     if (stack_top >= 0) ctx->top_seen.store(std::max(stack_top, ctx->feat_top) + FS, std::memory_order_relaxed);
     s_ph_us[2] += us_since(tph);
-    s_ph_us[7] += t_pro / 1000;
-    s_ph_us[8] += t_vox / 1000;
     {
         int hmin_f = INT32_MAX, hmax_f = INT32_MIN;
         for (int hh : ctx->h) { hmin_f = std::min(hmin_f, hh); hmax_f = std::max(hmax_f, hh); }
         const int cat = origin.y >= hmax_f ? 0 : (y_top <= hmin_f ? 2 : 1);
         s_cat_n[cat] += 1;
-        s_cat_pro_us[cat] += t_pro / 1000;
-        s_cat_vox_us[cat] += t_vox / 1000;
     }
     tph = std::chrono::steady_clock::now();
     if (!any) return out;

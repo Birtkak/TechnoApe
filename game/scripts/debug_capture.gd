@@ -79,6 +79,15 @@ var mob_spawning := true # mob_spawn=0: no herds spawn as land loads (benchmarks
 var mob_bench := 0       # mob_bench=N: N animals (animal=, default bear) within 6 m of the player standing on the ground once loaded; frames count from 2 s later (bug report 2026-10-25 21-11-51: 100 bears, 4 fps)
 var mob_bench_r := 6.0  # mob_bench_r=M: scatter radius in metres around the spot 8 m ahead
 var _bench_wait := -1.0
+var stream_probe := false   # stream_probe=1: every 1 s the voxel queues, worker time per stage and the holes in the box (ADR 0135, JSON "stream")
+var _sp_offsets: Array[Vector2] = []   # patch centres (voxels, from the player) on an 8 m grid out to the render distance
+var _sp_i := 0
+var _sp_holes := {}        # band (m) -> patches not drawn, this sweep
+var _sp_last := {}         # the last finished sweep
+var _sp_accum := 0.0
+var _sp_prev := {}
+var _sp_series: Array = []
+var _sp_ms_max := 0.0
 var _probe_ms_max := 0.0   # the detail probe's own cost (is_area_meshed), JSON detail.probe_ms_max
 var _blast_accum := 0.0
 var _blast_i := 0
@@ -216,8 +225,7 @@ func _ready() -> void:
 	fluid_lag_from = args.get("fluid_lag_from", "")
 	water_shots = args.get("water_shots", "1") != "0"
 	menu_test = args.get("menu_test", "0") == "1"
-	if args.has("voxel_threads"):   # godot_voxel worker threads for this run (project default: voxel/threads/count)
-		VoxelEngine.set_thread_count(int(args["voxel_threads"]))
+	stream_probe = args.get("stream_probe", "0") == "1"
 	var defs := GameMaterials.defs()
 	for i in defs.size():   # material ids are 1 + definition index (0 = air)
 		if defs[i]["name"] == args.get("blast_material", "air"):
@@ -376,6 +384,8 @@ func _process(delta: float) -> void:
 				break
 		_detail_missing.push_back(0 if drawn else 1)
 		_probe_ms_max = maxf(_probe_ms_max, (Time.get_ticks_usec() - tp) / 1000.0)
+	if stream_probe and _loaded_at >= 0.0:
+		_stream_probe_step(delta)
 	_others_accum += delta
 	if _others_accum >= OTHERS_EVERY_S and (_others_task < 0 or WorkerThreadPool.is_task_completed(_others_task)):
 		if _others_task >= 0:
@@ -442,6 +452,8 @@ func _finish() -> void:
 	if _main.has_method("verify_bubble"):
 		s["bubble_verify"] = _main.verify_bubble()
 	s["near_unloaded"] = _near_unloaded()
+	if stream_probe:
+		s["stream"] = {"series": _sp_series, "probe_ms_max": snappedf(_sp_ms_max, 0.01)}
 	s["frames"] = ft.size()
 	s["avg_frame_ms"] = snappedf(sum / n, 0.01)
 	s["p50_frame_ms"] = snappedf(ft[n / 2] if ft.size() else 0.0, 0.01)
@@ -642,6 +654,64 @@ func _longest_run(samples: Array) -> int:
 func _count_over(sorted_ms: PackedFloat64Array, limit: float) -> int:
 	var i := sorted_ms.bsearch(limit, false)   # first index past every value <= limit
 	return sorted_ms.size() - i
+
+
+## stream_probe=1 (ADR 0135): what limits how fast the box fills in flight. Each frame checks 24 ground patches
+## (4 m, from 3 m under their own ground to 1 m over it, as the detail probe) on an 8 m grid out to the render
+## distance, so a sweep of the whole box takes ~10 frames; every second a row: queued generation / meshing tasks,
+## meshes waiting on the upload budget, worker ms per stage in that second (ta_run_*, voxel_patch_throughput.py)
+## and the last sweep's undrawn patches by 24 m band.
+func _stream_probe_step(delta: float) -> void:
+	var tp := Time.get_ticks_usec()
+	if _sp_offsets.is_empty():
+		var n := int(Settings.view_distance_m / 8.0)
+		for ix in range(-n, n + 1):
+			for iz in range(-n, n + 1):
+				var o := Vector2(ix, iz) * 8.0
+				if o.length() <= Settings.view_distance_m:
+					_sp_offsets.append(Vector2(Settings.m2v(o.x), Settings.m2v(o.y)))
+	var pp: Vector3 = _main.player.position
+	var half := Settings.m2v(2.0)
+	for k in 24:
+		if _sp_i >= _sp_offsets.size():
+			_sp_last = _sp_holes
+			_sp_holes = {}
+			_sp_i = 0
+			break
+		var o := _sp_offsets[_sp_i]
+		_sp_i += 1
+		var x := pp.x + o.x
+		var z := pp.z + o.y
+		var h := float(_main.world.generator.gen.height_at(int(x), int(z)))
+		var patch := AABB(Vector3(x - half, h - Settings.m2v(3.0), z - half), Vector3(half * 2.0, Settings.m2v(4.0), half * 2.0))
+		if not _patch_drawn(patch):
+			var band := str(int(Settings.v2m(o.length()) / 24.0) * 24)
+			_sp_holes[band] = int(_sp_holes.get(band, 0)) + 1
+	_sp_accum += delta
+	if _sp_accum >= 1.0:
+		_sp_accum -= 1.0
+		var t: Dictionary = VoxelEngine.get_stats().get("tasks", {})
+		var ts: Dictionary = _main.world.terrain.get_statistics()
+		var row := {"t": snappedf(_elapsed - _loaded_at, 0.1), "gen_q": t.get("generation", 0), "mesh_q": t.get("meshing", 0),
+			"upload_q": ts.get("upload_waiting", -1), "holes": _sp_last, "patches": _sp_offsets.size()}
+		for kind in ["gen", "mesh", "update", "load", "pick", "idle"]:
+			var us: int = ts.get("ta_run_%s_us" % kind, 0)
+			var cnt: int = ts.get("ta_run_%s_n" % kind, 0)
+			row[kind + "_ms"] = snappedf((us - int(_sp_prev.get(kind + "_us", us))) / 1000.0, 0.1)
+			row[kind + "_n"] = cnt - int(_sp_prev.get(kind + "_n", cnt))
+			_sp_prev[kind + "_us"] = us
+			_sp_prev[kind + "_n"] = cnt
+		for k in ["mesh_first", "mesh_again", "mesh_edit", "mesh_gather_us", "mesh_build_us", "mesh_uniform_n", "mesh_uniform_us", "mesh_faces_us", "mesh_ao_us", "mesh_arrays_us", "mesh_occluders_us", "mesh_loop_us", "mesh_aovol_us", "mesh_merge_us", "mesh_faces_n"]:   # mesh requests by cause, mesh task phases
+			var c: int = ts.get(k, 0)
+			row[k] = c - int(_sp_prev.get(k, c))
+			_sp_prev[k] = c
+		var worst := ""   # the slowest main-thread step of this second (voxel_patch_profile.py maxima, usec; ta_u_* run in the update task)
+		for k in ts:
+			if String(k).begins_with("ta_") and not String(k).begins_with("ta_run") and not String(k).begins_with("ta_gen_run") and not String(k).begins_with("ta_u_") and ts[k] is int and (worst == "" or ts[k] > ts[worst]):
+				worst = k
+		row["ta_worst"] = "%s %d" % [worst, ts.get(worst, 0)]
+		_sp_series.append(row)
+	_sp_ms_max = maxf(_sp_ms_max, (Time.get_ticks_usec() - tp) / 1000.0)
 
 
 ## The data blocks the streaming shell's near sphere (ADR 0105: shell_near_m around the player, any direction)

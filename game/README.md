@@ -69,6 +69,14 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=3 f3=1 
 # voxel_backlog.peak_by_type tells a generator backlog from a meshing one; every spike lists phys_cost (ms per
 # physics callback: player and its sub-steps, items, item_bodies, blocks)
 Godot_..._console.exe --path game -- autopilot=1 speed=20 alt=30 duration=16 vsync=0 persist=1 seed=424242 out=res://out/stream
+# What limits the box filling in flight (ADR 0135): stream_probe=1 adds "stream".series, one row a second: queued
+#       generation / meshing tasks, meshes waiting on the upload budget, worker ms and task counts per stage (gen, mesh,
+#       update, load, pick, idle), mesh requests by cause, mesher phases, and "holes" (4 m ground patches on an 8 m grid out
+#       to the render distance not drawn, by 24 m band). Keep the default render distance, follow_ground=1 flies a fixed
+#       line over the land; voxel_threads=N sets the workers (Settings.voxel_threads). Other Godot runs skew it: median of 3,
+#       A/B interleaved. tools/stream_bench.sh <label> [args] runs this and waits for a quiet machine; tools/stream_summ.py
+#       prints the medians.
+Godot_..._console.exe --path game -- autopilot=1 duration=20 vsync=0 seed=1935341982 speed=20 alt=30 follow_ground=1 "commands=/gamemode spectator;/tp 1148 1877 5955" mob_spawn=0 stream_probe=1 load_cap_s=40 out=res://out/stream_fill
 # mass edits (ADR 0014): blast=R craters of R m on the ground around the player every blast_every s (default 2),
 # blast_count=N per volley; JSON sim.blasts, blast_voxels, blast_ms_max (native SimWorld.fill_sphere)
 Godot_..._console.exe --path game -- autopilot=1 speed=0 alt=20 pitch=-0.6 blast=4 blast_every=1 duration=20 capture_every=1 out=res://out/blast
@@ -312,6 +320,8 @@ python <repo>/prototypes/p11-lod-horizon/voxel_patch_profile.py ~/Tools/godot_vo
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_task_heap.py ~/Tools/godot_voxel  # ADR 0108: priority by real distance, worker queue is a heap, lowering threads parks them
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_sky.py ~/Tools/godot_voxel        # ADR 0108: blocks over the column's top bound are air without a task
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_upload_order.py ~/Tools/godot_voxel   # ADR 0108: meshes waiting on the upload budget go nearest first
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_mesh_speed.py ~/Tools/godot_voxel     # ADR 0135: the merge pass visits only marked faces, buried plain cubes are skipped
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_throughput.py ~/Tools/godot_voxel     # ADR 0135: worker time per task kind and mesher phase (ta_run_*, mesh_*) in get_statistics()
 GODOT_CPP_PATH=$HOME/Tools/godot-cpp python -m SCons platform=windows target=template_debug use_mingw=yes use_static_cpp=yes -j12
 cp project/addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll <repo>/game/addons/zylann.voxel/bin/
 ```
