@@ -215,6 +215,7 @@ private:
         std::function<void(int)> job;
         std::atomic<int> next{0};
         int remaining = 0;
+        int slots = 0;   // helpers still to join this generation (ADR 0137)
         uint64_t generation = 0;
         bool stop = false;
         void start(int n);
@@ -278,6 +279,9 @@ private:
     std::vector<Reaction> reactions_;
     std::vector<int16_t> react_lut_; // [a*256+b] -> reaction index or -1
     std::vector<uint8_t> reactive_;  // per material: 1 if it appears as an input of any reaction
+    std::vector<uint8_t> switches_;  // per material: a cell of it changes state in the cold (ADR 0119 C: freeze, condense)
+    std::vector<uint8_t> switch_;    // per chunk: may hold such a cell (1 until a whole-chunk scan finds none, ADR 0137)
+    void on_loaded(int ci);          // ADR 0137: a chunk took terrain data: awake once, heat at the ambient
     std::vector<uint8_t> inert_;     // per material: 1 if nothing ever needs to run on it (static solid, no lifetime, not reactive, not burnable)
     bool any_reactions_ = false;
     bool any_fire_ = false;
@@ -288,6 +292,8 @@ private:
     std::vector<uint8_t> displace_lut_; // [mover*256+target] -> 1 if mover may swap into target
     std::vector<uint16_t> moved_;
     std::unique_ptr<std::atomic<uint8_t>[]> active_now_;
+    std::unique_ptr<std::atomic<uint8_t>[]> fast_;   // ADR 0137: moving liquid with substeps left at the chunk's last scan this tick
+    bool needs_substep(int ci) const;
     std::unique_ptr<std::atomic<uint8_t>[]> active_next_;
     std::unique_ptr<std::atomic<uint8_t>[]> dirty_;
     std::vector<uint8_t> loaded_; // per chunk: 1 once world data was loaded; unloaded chunks act as solid walls
