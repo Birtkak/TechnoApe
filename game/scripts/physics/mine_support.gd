@@ -16,6 +16,7 @@ const NO_PROBE := Vector3i(0, -1048576, 0)
 const SAVE_VERSION := 1
 const SHAKE_S := 4.0          # the camera shakes for the last seconds before a fall, within SHAKE_M
 const SHAKE_M := 14.0
+const REWARN_S := 6.0         # a roof whose time ran out while unloaded still creaks this long once it is back
 
 var main: Node
 var rp: RigidPieces
@@ -297,6 +298,9 @@ func _apply(r: Dictionary, anchors: Array) -> void:
 # ---------------- warning and fall ----------------
 
 func _warn_step(id: int, w: Dictionary) -> void:
+	if not _roof_loaded(w):   # out of the simulation (a reload, far away): the clock stops with REWARN_S left
+		w["t_fail"] = maxf(w["t_fail"], _now + REWARN_S)
+		return
 	var span := maxf(w["t_fail"] - w["t0"], 0.1)
 	var k := clampf((_now - w["t0"]) / span, 0.0, 1.0)
 	if _now >= w["t_fail"]:
@@ -351,6 +355,21 @@ func _collapse(id: int, w: Dictionary) -> void:
 	_pending_hurt.append([_now + 0.4, box, clampi(2 + w["count"] / 64, 4, 16) * (2 if thick > Settings.BLOCK else 1)])
 	if main.chat and main.player.position.distance_to(w["center"]) < Settings.m2v(24.0):
 		main.chat.add_message("The roof caved in!")
+
+
+## A roof can only fall as rock while its chunks are in the sim bubble: its first, middle and last cell, and the
+## rock above the middle that falls with it. No bubble (tests on a bare SimWorld): always.
+func _roof_loaded(w: Dictionary) -> bool:
+	var b = main.get("bubble")
+	if b == null:
+		return true
+	var cells: PackedInt32Array = w["cells"]
+	var mid := (cells.size() / 3 / 2) * 3
+	for at in [Vector3i(cells[0], cells[1], cells[2]), Vector3i(cells[mid], cells[mid + 1], cells[mid + 2]),
+			Vector3i(cells[-3], cells[-2], cells[-1]), Vector3i(cells[mid], cells[mid + 1] + Settings.BLOCK * 2, cells[mid + 2])]:
+		if not b.is_chunk_loaded(Vector3i((Vector3(at) / Settings.CHUNK).floor()) - b.origin):
+			return false
+	return true
 
 
 func _end_warning(id: int) -> void:

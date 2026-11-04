@@ -23,6 +23,18 @@ class FakeMain extends Node:
 		sim.set_voxel(c, m)
 
 
+class FakeBubble extends RefCounted:
+	var origin := Vector3i.ZERO
+	var loaded := true
+
+	func is_chunk_loaded(_lc: Vector3i) -> bool:
+		return loaded
+
+
+class FakeMainBubble extends FakeMain:
+	var bubble := FakeBubble.new()
+
+
 func _world() -> Array:
 	var sim := SimWorld.new()
 	sim.configure(N, 2, 1)
@@ -156,6 +168,34 @@ func test_a_creaking_roof_keeps_its_clock_over_a_reload() -> void:
 		sup2._warn_step(id, sup2.warnings[id])
 	assert_int(sup2.stats_d["collapses"]).is_equal(1)
 	sup2.free()
+	fake.free()
+
+
+func test_an_unloaded_roof_waits_and_falls_once_loaded() -> void:
+	var w := _world()
+	var sim: SimWorld = w[0]
+	var rp: RigidPieces = w[1]
+	_room(sim, rp, 20, 76, 20, 76)
+	var fake := FakeMainBubble.new()
+	fake.sim = sim
+	var sup := MineSupport.new()
+	sup.main = fake
+	sup.rp = rp
+	sup.take([_scan(rp, 20, 76, 20, 76)])
+	var id: int = sup.warnings.keys()[0]
+	fake.bubble.loaded = false   # reloaded far away: its chunks are not in the simulation
+	sup._now += 500.0
+	sup._warn_step(id, sup.warnings[id])
+	assert_int(sup.stats_d["collapses"]).is_equal(0)
+	assert_float(sup.warnings[id]["t_fail"] - sup._now).is_equal_approx(MineSupport.REWARN_S, 0.01)
+	fake.bubble.loaded = true
+	sup._now += 1.0
+	sup._warn_step(id, sup.warnings[id])
+	assert_int(sup.stats_d["collapses"]).is_equal(0)   # it creaks again first
+	sup._now += MineSupport.REWARN_S
+	sup._warn_step(id, sup.warnings[id])
+	assert_int(sup.stats_d["collapses"]).is_equal(1)
+	sup.free()
 	fake.free()
 
 
