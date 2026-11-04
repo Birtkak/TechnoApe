@@ -96,6 +96,9 @@ public:
     PackedByteArray generate_block(Vector3i origin, Vector3i size, int lod, int bytes_per_voxel = 2) const;
     // Blocks generated since the last call and the worker time they took, by result: air, uniform, full (usec).
     static Dictionary gen_stats();
+    static void prof_start();              // prof_sampler.cpp (ADR 0135, gen_bench.gd prof=1)
+    static PackedInt64Array prof_stop();
+    static int64_t thread_cpu_us();        // the calling thread's user CPU time (a busy machine skews wall time)
     // A data column's (lowest ground, highest voxel anything generated reaches) in fine voxels: the footprint
     // (x, z) .. + size at LOD 0. godot_voxel's ground shell asks it from its update thread (ADR 0105).
     Vector2i ground_range(int x, int z, int size) const;

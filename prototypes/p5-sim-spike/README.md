@@ -17,6 +17,10 @@ flushed once (v2; v1 wrote shared atomics per cell and scaled badly).
 Machine: Ryzen 5 5600X (6c/12t), RAM at 2666 MHz.
 
 Build: `python -m SCons platform=windows use_mingw=yes target=template_debug -j12`
+(with `GODOT_CPP_PATH` set to the worktree's own godot-cpp copy). On Windows SCons re-archives godot-cpp one object
+at a time whenever it thinks the library is stale (20-30 min on a busy machine): `bash build_quick.sh src/fine_gen.cpp`
+compiles the named sources with the same flags and links in under a minute. `prof=1` / `PROF=1` add line info for the
+generator profiler (`game/tools/gen_bench.gd prof=1`, `game/tools/gen_prof.py`, ADR 0135).
 with `~\Tools\mingw-dl\mingw64\bin` on PATH and godot-cpp at
 `~\Tools\godot-cpp`.
 

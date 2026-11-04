@@ -45,3 +45,35 @@ holes 0/1/7.5. Filmstrips: `game/out/stream_fill_before_after.png` (not tracked;
 - Open: the worst frame is ~16-17 ms in some runs (render-thread frames once the box is full on the sea path, one
   81 ms physics frame at settle with persist, one 383 ms frame at a run start); the update task's data pass
   (`ta_u_data`) takes 55-125 ms, a latency for the next round; ~5 holes in the 0-24 m band at 40 m/s remain.
+
+## Round 2 (2026-11-04): cave-free skips, the mountain path
+stream-forensics (ADR 0136) put 95 % of the visible holes on blocks still generating: a 20 m/s mountain fly at 6 m
+asks for ~30 k blocks/s. `game/tools/gen_bench.gd` generates the blocks of that lane as the shell asks for them
+(ground_range over the 9 x 9 columns, -4 m / +64 m, whole mesh blocks) with a voxel hash and thread CPU time;
+`prof=1` samples call stacks (`prof_sampler.cpp`, `game/tools/gen_prof.py`). Inclusive shares of a block before:
+pool capping 11 % (run in every column, cave or not), the per-voxel cave mask 11 %, cave bands 12 %, `cave_at` 5 %,
+stringer noise 5 %, libm `floor` calls 7 %, the per-column clock reads of the gen_stats timers 2.5 %.
+
+- **Exact skips** (fine_gen.cpp): the cave field is only ever read as convex mixes of its lattice values, so a block
+  with no positive value has no cave voxel: the mask, `cave_at`, pools, crystals and stringers are skipped there; in a
+  column, a voxel between two rows whose four corners are all <= 0 skips the interpolation; pools and crystals run
+  only in a column with cave air in the block. The per-column timers are gone (block phases remain).
+- **`-msse4.1`** (SConstruct): `std::floor` becomes one instruction; every CPU Godot 4.5+ runs on has it.
+- Same voxels: gen_bench lane hash `3326b1f6` and gen_hash over 6 000 blocks (two seeds, LOD 0-3) unchanged.
+  Generator CPU per block on the lane 123 -> 88 us (median of 3, sky blocks included), -28 %.
+- `build_quick.sh` (p5): SCons on Windows re-archives godot-cpp one object at a time when it thinks the library is
+  stale (20-30 min); the script compiles the named sources and links in under a minute.
+
+Mountain path (`stream_bench.sh <label> alt=6`, before = main DLLs at 6 workers, after = both rounds at 8; medians of
+4, **2-4 other Godot runs active in every run**, so frame times are not valid here: p99 11-15 ms for both):
+
+| run | holes 0/24/48 m band | gen queue | near_unloaded |
+|---|---|---|---|
+| before | 3.3 / 52 / 120 | 128 k | 344 |
+| after | 0.9 / 10.6 / 42 | 13.6 k | 0 |
+
+After, the queue drains to near 0 about 9 s into the flight and the workers then have idle time; task pickup is
+1-2 % of worker time, so the priority refresh over a full queue that stream-forensics suspected does not show at
+this queue size. Filmstrip: `game/out/stream_fill_mountain_before_after.png` (left before, right after).
+Open: the frame budget on a quiet machine with 8 workers on this path; cave band builds (12-17 %, real cave work)
+are the next generator cost.

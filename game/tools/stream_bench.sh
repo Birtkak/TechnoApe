@@ -4,14 +4,14 @@
 #   bash tools/stream_bench.sh <label> [godot user args, e.g. speed=40 voxel_threads=6]  -> out/stream_bench/<label>.json
 #   python -I tools/stream_summ.py out/stream_bench/A_*.json   (medians; run A and B interleaved, 3 each)
 # DLL=<name> / TS=<name> first copy ~/Tools/godot_voxel-wt/dll/<name>.dll over the godot_voxel / technosim DLL (A/B).
-# Waits (10 min at most) until no other Godot runs: another session's run skews every number here.
+# Waits (10 min at most, WAIT_TRIES=N tries of 10 s) until no other Godot runs: another session's run skews every number here.
 label=$1; shift
 cd "$(dirname "$0")/.."
 G="$HOME/Tools/Godot/4.7.2-mono/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
 export MSYS_NO_PATHCONV=1
 if [ -n "$DLL" ]; then cp ~/Tools/godot_voxel-wt/dll/$DLL.dll addons/zylann.voxel/bin/libvoxel.windows.template_debug.x86_64.dll; fi
 if [ -n "$TS" ]; then cp ~/Tools/godot_voxel-wt/dll/$TS.dll addons/technosim/bin/libtechnosim.windows.template_debug.x86_64.dll; fi
-for i in $(seq 60); do
+for i in $(seq ${WAIT_TRIES:-60}); do
   n=$(powershell -NoProfile -Command "@(Get-Process -Name Godot* -ErrorAction SilentlyContinue | Where-Object { \$_.ProcessName -notlike '*_console' }).Count")
   [ "${n//[$'\r\n ']/}" = "0" ] && break
   sleep 10
