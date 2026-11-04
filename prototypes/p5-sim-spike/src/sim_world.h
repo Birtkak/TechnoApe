@@ -279,8 +279,13 @@ private:
     std::vector<Reaction> reactions_;
     std::vector<int16_t> react_lut_; // [a*256+b] -> reaction index or -1
     std::vector<uint8_t> reactive_;  // per material: 1 if it appears as an input of any reaction
-    std::vector<uint8_t> switches_;  // per material: a cell of it changes state in the cold (ADR 0119 C: freeze, condense)
-    std::vector<uint8_t> switch_;    // per chunk: may hold such a cell (1 until a whole-chunk scan finds none, ADR 0137)
+    std::vector<uint8_t> switches_;  // per material: SW_COLD a cell of it changes state in the cold (ADR 0119 C: freeze,
+                                     // condense), SW_WARM it melts (ADR 0137)
+    std::vector<uint8_t> switch_;    // per chunk: may hold such a cell, a melter only where exposed (all bits until a
+                                     // whole-chunk scan finds none, ADR 0137)
+    static constexpr uint8_t SW_COLD = 1, SW_WARM = 2, SW_ALL = 3;
+    int melt_min_c_ = 32767;         // the lowest melt_c of any material
+    std::vector<uint8_t> thaw_;      // per chunk: its next scan may melt (its sleeping heat turn found it warm)
     void on_loaded(int ci);          // ADR 0137: a chunk took terrain data: awake once, heat at the ambient
     std::vector<uint8_t> inert_;     // per material: 1 if nothing ever needs to run on it (static solid, no lifetime, not reactive, not burnable)
     bool any_reactions_ = false;
@@ -328,7 +333,7 @@ private:
     inline int hidx(int x, int y, int z) const {
         return (((x + ox_) & mx_) >> 2) + (W_ >> 2) * ((((y + oy_) & my_) >> 2) + (H_ >> 2) * (((z + oz_) & mz_) >> 2));
     }
-    void relax_heat(int ci);   // diffuse a chunk's coarse cells and pull them toward the ambient
+    void relax_heat(int ci, bool slow_turn);   // diffuse a chunk's coarse cells and pull them toward the ambient
     int max_speed_ = 1;            // the largest liquid_speed among the materials: extra passes per tick
     int substep_ = 0;              // 0 = the main pass; 1.. = a liquid substep (only liquids with speed > substep_ move)
     bool cascade_ = false;
