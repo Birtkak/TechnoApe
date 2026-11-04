@@ -37,13 +37,24 @@ patch(PC, '''	const int distance = static_cast<int>(Math::sqrt(closest_distance_
 ''', '''	float d = Math::sqrt(closest_distance_sq);
 	if (view_weight > 0.f && has_view) {
 		// TechnoApe ADR 0136: what the camera looks at and flies towards first (view_weight, below)
+		// the nearer of the viewer and the point ahead it flies to: the ground under the camera stays near
 		const Vector3f a = block_position - lead_position;
-		d = Math::sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+		d = math::min(d, Math::sqrt(a.x * a.x + a.y * a.y + a.z * a.z));
 		const Vector3f v = block_position - view_position;
 		const float l = Math::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 		if (l > 1.f) {
+			// 1 - cos of the angle between the view axis and the nearest edge of the block (a 64-voxel mesh block,
+			// radius ~56): a near block under the camera is in view though its centre is not (cosines only: the heap
+			// refresh evaluates every task)
+			constexpr float BLOCK_R = 56.f;
 			const float c = (v.x * view_direction.x + v.y * view_direction.y + v.z * view_direction.z) / l;
-			d *= 1.f + view_weight * (1.f - c);
+			const float h = Math::sqrt(l * l + BLOCK_R * BLOCK_R);
+			const float cos_a = l / h; // cos of the block's angular radius
+			if (c < cos_a) {
+				const float sin_a = Math::sqrt(math::max(1.f - cos_a * cos_a, 0.f));
+				const float cos_past = c * cos_a + Math::sqrt(math::max(1.f - c * c, 0.f)) * sin_a;
+				d *= 1.f + view_weight * (1.f - cos_past);
+			}
 		}
 	}
 	const int distance = static_cast<int>(d + distance_bias);
