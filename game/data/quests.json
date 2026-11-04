@@ -2511,7 +2511,6 @@
           "deps": [
             "boiler"
           ],
-          "optional": true,
           "description": "An anvil that strikes by itself while a boiler feeds it steam over bronze pipes.",
           "tasks": [
             {
@@ -2636,6 +2635,52 @@
           ]
         },
         {
+          "id": "plate_stock",
+          "title": "Plate Stock",
+          "icon": "iron_plate",
+          "deps": [
+            "steam_hammer"
+          ],
+          "description": "Boilers, tanks, hoppers and carts all start as plate, two ingots each. Stack 128 iron plates by the works: that is a real trip to an iron vein, and the reason to crush the ore first.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "iron_plate",
+              "count": 128
+            }
+          ],
+          "pos": [
+            3,
+            1
+          ]
+        },
+        {
+          "id": "hammer_line",
+          "title": "Three Hammers, One Boiler",
+          "icon": "steam_hammer",
+          "deps": [
+            "plate_stock",
+            "water_tank"
+          ],
+          "description": "One boiler can drive several steam hammers down a run of pipe. Build 3, each on its own bronze anvil, and 40 bronze pipes to reach them, so plates and rods come off the line while you mine.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "steam_hammer",
+              "count": 3
+            },
+            {
+              "type": "item",
+              "item": "bronze_pipe",
+              "count": 40
+            }
+          ],
+          "pos": [
+            4,
+            1
+          ]
+        },
+        {
           "id": "ore_train",
           "title": "The Ore Train",
           "icon": "minecart",
@@ -2645,10 +2690,11 @@
           ],
           "deps": [
             "crusher",
-            "turbine"
+            "turbine",
+            "hammer_line"
           ],
           "final": true,
-          "description": "Rails, hoppers and a minecart carry ore from the mine to the machines without a hand on it.",
+          "description": "Rails, hoppers and a minecart carry ore from the mine to the machines without a hand on it: lay 128 rails (64 m of track) out to an ore site.",
           "tasks": [
             {
               "type": "item",
@@ -2660,7 +2706,8 @@
             },
             {
               "type": "item",
-              "item": "rail"
+              "item": "rail",
+              "count": 128
             }
           ]
         },
@@ -2729,8 +2776,7 @@
               "type": "item",
               "item": "water_tank"
             }
-          ],
-          "optional": true
+          ]
         },
         {
           "id": "steel_boiler",
@@ -3428,6 +3474,46 @@
           ]
         },
         {
+          "id": "ore_line",
+          "title": "The Ore Line",
+          "icon": "macerator",
+          "deps": [
+            "macerator"
+          ],
+          "description": "Run 5 macerators off one cable, fed by hoppers: three crushed ores to a block keeps up with an ore vein. Each is a hull, plates and a motor, so the iron comes out of the vein you are crushing.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "macerator",
+              "count": 5
+            }
+          ],
+          "pos": [
+            3,
+            2
+          ]
+        },
+        {
+          "id": "power_line",
+          "title": "A Power Line",
+          "icon": "copper_cable",
+          "deps": [
+            "battery_box"
+          ],
+          "description": "Carry power from the generators out to the ore site, where the ore line can crush at the vein: 1024 copper cable is 512 m of line, copper wire in a rubber sleeve, so it takes its own copper trips.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "copper_cable",
+              "count": 1024
+            }
+          ],
+          "pos": [
+            3,
+            3
+          ]
+        },
+        {
           "id": "canned_food",
           "title": "Food That Keeps",
           "icon": "canned_meat",
@@ -3436,7 +3522,9 @@
             2
           ],
           "deps": [
-            "canning_machine"
+            "canning_machine",
+            "ore_line",
+            "power_line"
           ],
           "description": "Can a meal: two cooked meat or fish, or three vegetables, in a tin can. Carry it into the deep caves.",
           "tasks": [

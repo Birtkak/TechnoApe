@@ -542,6 +542,8 @@ func _ready() -> void:
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(player.warm_materials(), player.camera)
 		warmup.add_meshes([StationEntity.model_mesh(), StationEntity.model_mesh("chest"), StationEntity.model_mesh("furnace"), StationEntity.model_mesh("furnace_lit"), StationEntity.ghost_mesh("chest"), BlockMeshes.sprite("torch"), BlockMeshes.sprite("iron_ore")], player.camera)   # the stations; item sprites, extruded and cube (held and dropped)
+		if bubble.streaks:
+			warmup.add_nodes(bubble.streaks.warm_nodes(), player.camera)   # falling streams (ADR 0138)
 	ApeDust.warm(player.camera)   # the death and rebuild (ADR 0098)
 	light_overlay.warm(player.camera)
 	death_screen.warm()

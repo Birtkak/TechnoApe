@@ -294,6 +294,7 @@ python <repo>/prototypes/p11-lod-horizon/voxel_patch_budget.py ~/Tools/godot_vox
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_remesh.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_unloaded.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_fluid.py ~/Tools/godot_voxel   # ADR 0069 A, A3: fluid height field; sets VoxelMesherBlocky::PADDING to 6 and places vertices by it (it was a fixed 1: the terrain drew 5 voxels off its data, 2026-10-27)
+python <repo>/prototypes/p11-lod-horizon/voxel_patch_fluid_resync.py ~/Tools/godot_voxel   # ADR 0138: a tree patched before voxel_patch_fluid.py grew ADR 0103 (the 2026-10-29 build) gets that half; idempotent
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_vertical.py ~/Tools/godot_voxel
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_unload.py ~/Tools/godot_voxel     # ADR 0105: no quadratic scan when the box slides (the 200 ms stalls past 40 m)
 python <repo>/prototypes/p11-lod-horizon/voxel_patch_stream.py ~/Tools/godot_voxel

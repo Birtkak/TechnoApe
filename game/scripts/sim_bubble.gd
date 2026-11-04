@@ -23,6 +23,7 @@ const CENTER := Vector3(0.5, 0.4, 0.5)
 const SLACK := Vector3(2.0, 1.5, 2.0)
 
 var world: World
+var streaks: FallStreaks   # falling liquid drawn as streams (ADR 0138); the main bubble only
 var sim: SimWorld
 var origin := Vector3i.ZERO          # world chunk coords of local chunk (0,0,0)
 var ambient_c := 18.0                # the outside temperature (Survival.outside_c), set by Main each frame (ADR 0119 C)
@@ -137,6 +138,11 @@ func setup(p_world: World, center_world: Vector3, pin_of: SimBubble = null) -> v
 			var v := a.get_slice("=", 1).split(",")
 			if v.size() == 3:
 				size_chunks = Vector3i(int(v[0]), int(v[1]), int(v[2]))
+	if not pinned and sim_has_streaks() and not "streaks=0" in OS.get_cmdline_user_args():   # streaks=0: cubes only, for before/after films
+		streaks = FallStreaks.new()
+		streaks.name = "FallStreaks"
+		add_child(streaks)
+		streaks.setup(world.fluid_materials)
 	sim = SimWorld.new()
 	sim.configure(size_chunks, mini(2, Settings.sim_threads) if pinned else Settings.sim_threads, Settings.world_seed)
 	if not sim.set_wrapped(true):
@@ -246,6 +252,8 @@ func _process_timed(delta: float) -> void:
 			_sim_log_quiet = mw == 0
 		_tick_running = false
 		_collect_dirty()
+		if streaks:
+			streaks.update(sim, Vector3(origin * Settings.CHUNK))
 		if pinned:
 			_pin_quiet = _pin_quiet + 1 if active_chunks == 0 and columns_loaded > 0 else 0
 	if _tick_running:
@@ -735,6 +743,11 @@ func get_voxel(wp: Vector3i) -> int:
 	if not is_chunk_in_window(wc - origin) or _is_unloaded(wc):
 		return -1
 	return sim.get_voxel(wp - origin * Settings.CHUNK)
+
+
+## Our technosim build draws falling streams (SimWorld.get_fall_streaks, ADR 0138); a stale DLL draws cubes only.
+static func sim_has_streaks() -> bool:
+	return ClassDB.class_has_method("SimWorld", "get_fall_streaks")
 
 
 ## Cells of a fluid slot's liquid that fell in the last sim tick (SimWorld.get_falls, ADR 0103): [count, their mean

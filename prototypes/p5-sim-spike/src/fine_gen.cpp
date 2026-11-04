@@ -321,6 +321,13 @@ FineGen::MacroPt FineGen::macro_point(int mx, int mz, const WorldGen::Ruin *ruin
         m.spike = g.spire_at(m.col.biome, mx, mz);
         h += (float)m.spike;
     }
+    bool tor = false;
+    if (m.ruin < 0 && m.spike == 0 && !m.lakebed && !m.riverbed && !m.marshbed && !m.hy.marsh && m.hy.river <= 0.0f && h > (float)m.water_level + 2.0f) {
+        float th = highland_tor(m.col, mx, mz);
+        for (int i = 0; i < nruins && th > 0.0f; i++)   // keep a ruin's ramp
+            if (std::max(std::abs(mx - ruins[i].x) - ruins[i].hw, std::abs(mz - ruins[i].z) - ruins[i].hd) <= RUIN_RAMP + 2) th = 0.0f;
+        if (th > 0.0f) { h += th; m.col.rock = Mat::STONE; tor = true; }
+    }
     m.hc = h;
     m.roof = g.cave_roof(mx, mz);
     m.open_depth = m.roof == 0 ? g.open_depth(mx, mz) : 0;
@@ -328,6 +335,7 @@ FineGen::MacroPt FineGen::macro_point(int mx, int mz, const WorldGen::Ruin *ruin
     gw *= 1.0f - std::clamp(m.hy.river * 4.0f, 0.0f, 1.0f);
     gw *= smoothstep(0.5f, 6.0f, h - (float)m.water_level);
     if (m.hy.marsh) gw *= 0.3f;
+    if (tor) gw *= 0.25f;   // the tor keeps its jointed faces
     for (int i = 0; i < nruins && gw > 0.0f; i++)
         if (WorldGen::in_ruin(ruins[i], mx, mz, 6)) gw *= 0.4f;
     m.gw = gw;
@@ -360,6 +368,67 @@ float FineGen::ground_f(float base, int x, int z, float w) const {
     const float q = std::floor(hf / T + 0.5f) * T;
     const float small = n_hump_.GetNoise(fx, fz) * HUMP_AMP + n_ground2_.GetNoise(fx, fz) * GROUND_AMP2;
     return hf + (q - hf) * 0.85f * w + small * w * (1.0f - 0.6f * w);
+}
+
+// ---------- highland moor (ADR 0140) ----------
+// Real uplands (Highlands, Pennines, fjell) are open moor: heather and coarse grass on thin soil over rock, crags on
+// the steep sides with scree under them, tors on the knolls, wet peat in the hollows, trees only in the glens. All
+// of it reads data the column already has (the macro detail noise dn, the slope, the 25 cm patch hash, n_meadow_):
+// no extra noise per fine column.
+
+bool FineGen::upland(int biome) { return biome == technosim_biome::HIGHLANDS || biome == technosim_biome::FROZEN_HIGHLANDS; }
+
+// A tor's extra height (macro voxels) on a highland knoll (the crown of a detail-noise swell, dn > 0.55): rock
+// blocks in 1 m joints standing 1-4 m out of the turf with a step at the edge, a stack of bare rock, not a dome.
+float FineGen::highland_tor(const WorldGen::Column &col, int mx, int mz) const {
+    if (!upland(col.biome) || col.dn <= 0.55f) return 0.0f;
+    const float t = std::clamp((col.dn - 0.55f) / 0.15f, 0.0f, 1.0f);
+    const float j = (float)(h3(mx >> 1, mz >> 1, g_->seed_ + 1401) & 255) / 256.0f;   // the 1 m joints
+    return std::floor(2.0f + 4.0f * t + 2.0f * j);
+}
+
+// The ground of a highland column gentle enough for the biome's own top: returns the soil depth (fine voxels) and
+// may change the top and under materials. Thin soil (25-50 cm) on slopes so every ledge riser shows the rock under
+// the turf; bare crags and scree on the steep sides; peat (dark earth, deeper) in wet flat hollows.
+int FineGen::highland_ground(const WorldGen::Column &col, float slope, uint32_t ph, uint16_t &top_m, uint16_t &under_m) const {
+    const int jit = (int)(ph >> 8) % 3;
+    if (slope > 0.9f) { top_m = under_m = Mat::STONE; return 0; }                      // crag
+    if (slope > 0.65f) {                                                               // scree under the crags
+        top_m = (ph & 3) ? (uint16_t)Mat::GRAVEL_STATIC : (uint16_t)Mat::STONE;
+        under_m = Mat::STONE;
+        return 1;
+    }
+    if (col.biome == technosim_biome::HIGHLANDS && col.dn < -0.42f && slope < 0.3f) {  // peat bog in the hollows
+        top_m = (ph & 7) < 3 ? (uint16_t)Mat::DIRT : (uint16_t)Mat::GRASS;
+        under_m = Mat::DIRT;
+        return 12 + jit;
+    }
+    return slope > 0.25f ? 2 + jit : 4 + jit;
+}
+
+// Moorland plants on open highland grass: heather carpets over most of it, coarse grass tufts between, bracken in
+// patches on the lower slopes, sphagnum moss and cotton-grass tufts on the peat.
+void FineGen::highland_plant(const WorldGen::Column &col, float slope, int wx, int wz, uint32_t fh, uint16_t &veg, int &veg_h) const {
+    const uint32_t r10 = fh & 1023;
+    if (col.dn < -0.42f && slope < 0.3f) {
+        if (r10 < 380) { veg = Mat::MOSS; veg_h = 1; }
+        else if (r10 < 520) { veg = Mat::TALL_GRASS; veg_h = 1 + (int)((fh >> 12) & 1); }
+        return;
+    }
+    const float mead = n_meadow_.GetNoise((float)wz, (float)wx);
+    if (mead > 0.38f && slope > 0.12f && col.dn < 0.2f) {   // bracken, knee to waist high
+        if (r10 < 600) { veg = Mat::FERN; veg_h = 2 + (int)((fh >> 12) % 3); }
+        return;
+    }
+    if (mead < 0.15f) {   // heather, ankle to knee high
+        if (r10 < 620) { veg = Mat::HEATHER; veg_h = 1 + (int)((fh >> 12) % 4 == 0); }
+        else if (r10 < 700) { veg = Mat::TALL_GRASS; veg_h = 1; }
+        return;
+    }
+    if (r10 < 330) {   // coarse grass
+        veg = Mat::TALL_GRASS;
+        veg_h = 1 + (int)((fh >> 12) % 3 == 0);
+    }
 }
 
 int FineGen::height_at(int x, int z) const {
@@ -1072,9 +1141,10 @@ void FineGen::floor_features(int x_lo, int z_lo, int x_hi, int z_hi, const World
                 continue;
             } else if (dens >= 0.2f) {
                 if ((float)((hs >> 12) & 1023) / 1024.0f < technosim_biome::DECOR_MUSHROOMS[col.biome]) { kind = MUSHROOM_S; m = ((hs >> 5) & 3) == 0 ? Mat::MUSHROOM_RED : Mat::MUSHROOM_BROWN; }
-            } else if (technosim_biome::SURFACE_TOP[col.biome] == Mat::GRASS) {
+            } else if (technosim_biome::SURFACE_TOP[col.biome] == Mat::GRASS && !(upland(col.biome) && col.dn > 0.5f)) {   // no flowers on a tor
                 const bool meadow = col.biome == technosim_biome::FLOWER_MEADOW;
-                if (n_meadow_.GetNoise((float)px * 0.37f + 500.0f, (float)pz * 0.37f - 500.0f) > (meadow ? -0.2f : 0.42f) && (meadow || (hs & 1))) {
+                const uint32_t odds = col.biome == technosim_biome::HIGHLANDS ? 7u : 1u;   // a flower here and there on the moor (ADR 0140)
+                if (n_meadow_.GetNoise((float)px * 0.37f + 500.0f, (float)pz * 0.37f - 500.0f) > (meadow ? -0.2f : 0.42f) && (meadow || (hs & odds) == odds)) {
                     kind = FLOWER_S;
                     m = FL[h3(px >> 5, pz >> 5, g.seed_ + 37) % 5];
                 }
@@ -2024,6 +2094,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             const bool cold = col.t < -0.45f || col.snow;
             const uint32_t ph = h3(wx >> 1, wz >> 1, g.seed_ + 19);   // 25 cm patches
             uint16_t top_m, under_m;
+            int soil_hl = -1;   // a highland column's own soil depth (highland_ground)
             if (lakebed || riverbed || marshbed) {
                 const uint32_t bh = ph & 7;
                 top_m = bh < 3 ? Mat::CLAY : (bh < 5 ? Mat::SAND_STATIC : Mat::GRAVEL_STATIC);
@@ -2032,6 +2103,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 top_m = under_m = Mat::SAND_STATIC;
             } else if (col.rock) {
                 top_m = under_m = col.rock;   // a monolith: bare rock, top and sides (ADR 0051)
+                if (col.rock == Mat::STONE) soil_hl = 0;   // a highland tor: the local rock to the top (ADR 0140)
             } else if (col.snow && !steep) {
                 top_m = Mat::SNOW; under_m = Mat::STONE;
             } else if (steep) {
@@ -2052,6 +2124,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                 if (col.biome == WorldGen::BIOME_OCEAN || col.biome == WorldGen::BIOME_DEEP_OCEAN || col.biome == technosim_biome::FROZEN_OCEAN)
                     top_m = under_m = g.seabed(col, slope);
                 if (technosim_biome::SURFACE_STEEP[col.biome] >= 0 && slope > 0.6f) top_m = (uint16_t)technosim_biome::SURFACE_STEEP[col.biome];
+                if (upland(col.biome)) soil_hl = highland_ground(col, slope, ph, top_m, under_m);
                 if (top_m == Mat::SAVANNA_GRASS) {
                     // bare red earth between the tussocks, in patches a few metres across with ragged
                     // edges (bug report 2026-10-25 20-37-22: the savanna looked like a lush meadow)
@@ -2061,8 +2134,9 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             }
             if (spike > 0) top_m = under_m = spire_m;
             under_m = rocks_.soil(rc, under_m, h, wx, wz);   // ochre patches (ADR 0057)
+            if (top_m == Mat::STONE && upland(col.biome)) top_m = rocks_.at(rc, wx, h - 1, wz);   // highland crags and tors show the local rock
             const bool strata = under_m == Mat::TERRACOTTA;
-            const int soil = SOIL_FINE + (int)(ph >> 8) % 4;
+            const int soil = soil_hl >= 0 ? soil_hl : SOIL_FINE + (int)(ph >> 8) % 4;
             const int sandstone_depth = FS * (col.biome == technosim_biome::BADLANDS ? 24 : col.biome == WorldGen::BIOME_DESERT ? 16
                 : ((col.biome == WorldGen::BIOME_BEACH || col.biome == technosim_biome::SNOWY_BEACH) ? 8 : 0));
             const int ti = technosim_biome::band_of(technosim_biome::TEMP_BAND_MAX, col.t);
@@ -2231,7 +2305,9 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             veg = Mat::SAVANNA_TALL_GRASS;
                             veg_h = (th < 7 ? 1 : (th < 14 ? 2 : (th < 18 ? 3 : 4))) + (mead > 0.35f ? 1 : 0);
                         }
-                    } else if (!forest && (col.biome == technosim_biome::HIGHLANDS || col.biome == technosim_biome::SHRUBLAND) && n_meadow_.GetNoise((float)wz, (float)wx) < -0.25f) {
+                    } else if (!forest && col.biome == technosim_biome::HIGHLANDS) {
+                        highland_plant(col, slope, wx, wz, fh, veg, veg_h);
+                    } else if (!forest && col.biome == technosim_biome::SHRUBLAND && n_meadow_.GetNoise((float)wz, (float)wx) < -0.25f) {
                         // heather: low purple carpets in patches on the uplands and the scrub
                         if (r10 < 560) { veg = Mat::HEATHER; veg_h = 1 + (int)((fh >> 12) % 5 == 0); }
                     } else {

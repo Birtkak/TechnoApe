@@ -1,6 +1,6 @@
 # ADR 0138: Water feel: dug holes fill to the body, films run off, floods rest flat
 
-Status: accepted (2026-11-04). Follows ADR 0104 (world water endless), 0119 (column flow), and the "a lake nobody
+Status: accepted (2026-11-04; round 2 the same day). Follows ADR 0104 (world water endless), 0119 (column flow), and the "a lake nobody
 touches stays asleep" rule of 337f1f5 (budget hunt 2026-11-03).
 
 ## Context
@@ -60,9 +60,40 @@ interpolating the surface between ticks (not where the junk was; see open issues
   existing fluid test files green.
 - Before/after sheets (pit_lake, channel, slope, trench): `fluid_film=1` then `python tools/fluid_compare.py`.
 
+## Round 2 (2026-11-04): a flat flood, a continuous stream
+Filmed again after the merge with ADR 0137, with a waterfall scene (a cliff-top lake whose lip is cut, side on) and a
+top view of the surface heights at the end of each scene.
+
+5. **A resting flood levels past the conveyor's reach.** The dam case rested as a staircase of 0..5 eighths, a tread per
+   14-16 cells (8 cm across 7.5 m, a hump against the wall in game): the conveyor cannot see further and the parity rule
+   keeps it there. A cell whose conveyor look found nothing at an edge one eighth down records itself as a seed (256 a
+   tick); after the passes `SimWorld::level_surfaces` gathers each seed's connected resting surface (tops of the liquid
+   with air over them and something under, neighbours a row up or down at most a cell apart, up to 8192 columns) and,
+   if it tilts 2..8 eighths, moves one eighth from each highest column to a lowest one while they differ by two or more.
+   More than 8 is still flowing and left to the column rules. Moves are sorted by height and position, so the result
+   does not depend on which thread recorded a seed first. Every fluid_feel scene now rests flat to an eighth (dam 3 ->
+   1) and goes quiet as soon or sooner (dam tick 203 -> 188); in game the dam's heights are all 0 or 1 (were 0..5).
+6. **The shipped voxel build had lost ADR 0103's mesher half.** `~/Tools/godot_voxel` (the 2026-10-29 DLL) was patched
+   with voxel_patch_fluid.py before it grew ADR 0103, and the script cannot run twice: no connected column tops, no
+   falling boxes, so a waterfall drew as glass shards and slivers pulled toward any water in reach.
+   `voxel_patch_fluid_resync.py` puts the fluid mesher file back to stock and applies the script's current part
+   (idempotent); built in `~/Tools/godot_voxel-wt/fluid-feel`. A stream is now ADR 0103's cubes.
+7. **Falling liquid draws as streaks.** A column gets a falling cell every two or three ticks and each jumps up to 7
+   cells, so the cubes are a sparse curtain with gaps that steps at 30 Hz. `fall()` records the cells each falling
+   liquid cell crossed (per chunk update, then into one buffer of 8192 a tick); after the tick they are merged per
+   column over the last 3 ticks (100 ms) and `get_fall_streaks(slot, offset, width)` returns them as a MultiMesh
+   buffer. `FallStreaks` (under SimBubble, main bubble only) draws them as open boxes 0.94 cells wide in the liquid's own
+   fluid material, whose side faces run foam lanes down at frame rate, so the stream reads as one curtain of water.
+   The instanced pipeline is drawn under the loading screen (`MaterialWarmup.add_nodes`). Frame cost within noise
+   (fall/cave scenes, back to back: p50 1.45-1.83 ms either way, p99 +0.1-0.25 ms).
+
+Rejected: interpolating the cubes between ticks (they are the mesher's, remeshed per paste, and a stream's gaps are
+real cells missing, not late ones); a wider single-tick streak (one tick covers a third of a column).
+
 ## Open
-- Presentation, untouched: falling water draws as whole cubes that step at the 30 Hz tick, so a stream down a shaft
-  reads as separate chunks with gaps (a stream accelerates and thins); one frame of jagged vertical faces on a dam
-  break's front; meshes update per paste. Interpolating the falling cubes would be the next step.
-- A flood still tilts an eighth per 14 cells (4 eighths across 6 m, 2D); a body-wide level would need a per-basin pass.
+- A stream seen from straight above shows the cubes' tops only (the streaks have no caps: a cap would draw as a glossy
+  surface in mid-air). The streaks lead the cubes by the paste and remesh delay (a frame or two).
+- A window shift drops the streak history (100 ms without streaks; the cubes stay).
 - The fill rate through a 1 m breach is ~350 cells/s (a 1.75 m pit in ~6 s): one pour per still cell per tick.
+- `water_test=1 target=river` flaked once with water_above_level 26-84 under a heavily loaded machine, with and without
+  the level pass (ok on a quieter run): timing-dependent, not chased.

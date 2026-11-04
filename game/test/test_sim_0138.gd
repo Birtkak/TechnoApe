@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## ADR 0138: how water feels. A channel dug from a still body fills to the body's level (resting water on ground is
 ## still an opening), so does a trench cut into a shelving bank that only the surface row touches, water resting over
 ## a lower still step is no opening (no endless feeding), a film runs down a terraced slope instead of lying on every
-## step, and a flood rests flat across a row boundary.
+## step, and a flood rests flat across a row boundary and past the conveyor's reach (the level pass).
 
 const N := 3
 
@@ -112,3 +112,35 @@ func test_flood_rests_flat_across_a_row_boundary() -> void:
 	assert_int(hi - lo).is_less_equal(4)   # the old reach rested an eighth per seven cells: 10 eighths, more than a cell, across 6 m
 	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).is_equal(mass)
 	assert_int(w.get_active_chunk_count()).is_equal(0)
+
+
+func test_resting_flood_levels_past_the_conveyors_reach() -> void:
+	var w := _world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 8, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(0, 8, 0), Vector3i(10, 22, 48), GameMaterials.WATER)
+	var mass := w.count_liquid_eighths(GameMaterials.WATER)
+	_run(w, 600)
+	var lo := 1 << 30
+	var hi := -1
+	for h in load("res://test/test_sim_0119.gd").surface_heights(w, 0, 48, 0, 48, 8, 24, GameMaterials.WATER).values():
+		lo = mini(lo, h)
+		hi = maxi(hi, h)
+	assert_int(hi - lo).is_less_equal(1)   # the conveyor alone rests a terrace of an eighth per 14 cells: 3-4 eighths here
+	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).is_equal(mass)
+	assert_int(w.get_active_chunk_count()).is_equal(0)
+
+
+func test_a_falling_cell_leaves_a_streak_over_the_air_it_crossed() -> void:
+	var w := _world()
+	w.fill_box(Vector3i(0, 0, 0), Vector3i(48, 4, 48), GameMaterials.STONE)
+	w.fill_box(Vector3i(20, 40, 20), Vector3i(21, 41, 21), GameMaterials.WATER)   # one cell 4.5 m up
+	for i in 3:
+		w.tick(1)
+	var b: PackedFloat32Array = w.get_fall_streaks(0, Vector3(100, 0, 0), 1.0)   # water is fluid slot 0
+	assert_int(b.size()).is_equal(12)   # its three ticks of fall merge into one run in its column
+	assert_float(b[3]).is_equal(120.5)   # x centre, moved by the offset
+	assert_float(b[11]).is_equal(20.5)
+	assert_float(b[7] + b[5]).is_equal(41.0)   # the run ends at the top of the cell it fell from
+	assert_float(b[7]).is_less_equal(38.0)    # and reaches down to the cells it crossed two ticks ago
+	_run(w, 60)   # landed, and STREAK_TICKS later the streak is gone
+	assert_int(w.get_fall_streaks(0, Vector3.ZERO, 1.0).size()).is_equal(0)
