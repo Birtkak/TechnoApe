@@ -84,12 +84,17 @@ public:
         // gas at or under condense_c becomes condenses_to (one eighth); a solid at or over melt_c melts_to.
         int16_t heat_c = 0, boil_c = 32767, boil_rise_c = 0, freeze_c = -32768, condense_c = -32768, melt_c = 32767;
         uint8_t boils_to = 0, freezes_to = 0, condenses_to = 0, melts_to = 0;
+        // ADR 0141: react_awake: a resting cell stays awake while a reaction partner touches it (sludge, fouled water);
+        // wind_drift: share of the wind (set_wind) a gas follows, 0..255
+        bool react_awake = false;
+        uint8_t wind_drift = 0;
     };
 
     struct Reaction {
         uint8_t in1, in2, out1, out2;
         uint16_t probability; // 0..65535 per tick per neighbour test
         int16_t next = -1;    // the next reaction of the same input pair (ADR 0081): each rolls in turn, the first hit fires
+        bool passive = false; // ADR 0141: only in1 rolls it, in2 stays inert (the soil sludge erodes); a film is spent only once it fires
     };
     // sample_cells flag bits beyond Flags: the cell moved this or the last tick (SAMPLE_MOVED), or is a gas or fire
     // born within the last eight ticks (SAMPLE_FRESH); sound loops key off them (ADR 0081)
@@ -121,6 +126,8 @@ public:
     void set_gravity(float p_cells_per_tick2);
     // v5: scan only each active chunk's dirty box (default on); off = whole chunks (P5 behaviour) for comparison.
     void set_dirty_boxes(bool p_on);
+    // ADR 0141: the wind in cells a tick along x and z (|v| <= 1); gases with a wind_drift follow it. Zero = still air.
+    void set_wind(Vector2 p_wind);
     // v6 (P10): level of detail and budget. Chunks further than lod_radius chunks from the focus tick
     // only every lod_divisor-th tick; when cell_budget > 0 a tick scans at most that many cells
     // (nearest chunks first, waiting chunks gain priority each tick). Deferred chunks keep their
@@ -394,6 +401,11 @@ private:
     void update_fire(int x, int y, int z, int i, Ctx &c);
     void update_burning(int x, int y, int z, int i, Ctx &c);
     void try_react(int x, int y, int z, int i, Ctx &c);
+    bool spend_partial(int x, int y, int z, int nx, int ny, int nz, int i, int ni, Ctx &c);
+    void react_keep_awake(int x, int y, int z, int i, Ctx &c);   // ADR 0141
+    bool wind_drift(int x, int y, int z, const MaterialDef &m, Ctx &c);   // ADR 0141
+    int wind_x_ = 0, wind_z_ = 0;      // the wind's sign along x and z
+    uint32_t wind_p_ = 0, wind_xshare_ = 0;   // chance per tick (0..65535) a drifting gas moves with it, and the x share of it
     void update_chunk(int ci);
     void rebuild_pass_lists();
     void rebuild_reaction_lut();

@@ -95,6 +95,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("configure", "chunks", "threads", "seed"), &SimWorld::configure);
     ClassDB::bind_method(D_METHOD("set_materials", "defs"), &SimWorld::set_materials);
     ClassDB::bind_method(D_METHOD("set_reactions", "reactions"), &SimWorld::set_reactions);
+    ClassDB::bind_method(D_METHOD("set_wind", "wind"), &SimWorld::set_wind);
     ClassDB::bind_method(D_METHOD("get_material_count"), &SimWorld::get_material_count);
     ClassDB::bind_method(D_METHOD("fill_box", "min", "max", "material"), &SimWorld::fill_box);
     ClassDB::bind_method(D_METHOD("scatter", "min", "max", "material", "density", "seed"), &SimWorld::scatter);
@@ -242,6 +243,8 @@ void SimWorld::set_materials(const Array &p_defs) {
         m.freeze_c = (int16_t)std::clamp(dget_int(d, "freeze_c", -32768), -32768, 32767);
         m.condense_c = (int16_t)std::clamp(dget_int(d, "condense_c", -32768), -32768, 32767);
         m.melt_c = (int16_t)std::clamp(dget_int(d, "melt_c", 32767), -32768, 32767);
+        m.react_awake = d.has("react_awake") && (bool)d["react_awake"];   // ADR 0141
+        m.wind_drift = clamp8(dget_f(d, "wind_drift", 0.0) * 255.0);
         m.fire_hp = clamp8(dget_int(d, "fire_hp", 0));
         m.temperature_of_fire = clamp8(dget_int(d, "temperature_of_fire", 10));
         m.autoignition_temperature = clamp8(dget_int(d, "autoignition_temperature", 100));
@@ -301,6 +304,7 @@ void SimWorld::set_reactions(const Array &p_reactions) {
         r.out1 = clamp8(dget_int(d, "output_cell1", 0));
         r.out2 = clamp8(dget_int(d, "output_cell2", 0));
         r.probability = (uint16_t)std::clamp(dget_f(d, "probability", 0.0) * 65535.0, 0.0, 65535.0);
+        r.passive = d.has("passive") && (bool)d["passive"];
         reactions_.push_back(r);
     }
     rebuild_reaction_lut();
@@ -322,7 +326,7 @@ void SimWorld::rebuild_reaction_lut() {
             reactions_[k].next = (int16_t)i;
         }
         reactive_[reactions_[i].in1] = 1;
-        reactive_[reactions_[i].in2] = 1;
+        if (!reactions_[i].passive) reactive_[reactions_[i].in2] = 1;
     }
     displace_lut_.assign(MAX_MATERIALS * MAX_MATERIALS, 0);
     for (size_t a = 0; a < mats_.size(); a++)
@@ -648,6 +652,37 @@ void SimWorld::set_gravity(float p_cells_per_tick2) {
 }
 
 void SimWorld::set_dirty_boxes(bool p_on) { dirty_boxes_ = p_on; }
+
+void SimWorld::set_wind(Vector2 p_wind) {
+    const double ax = std::fabs(p_wind.x), az = std::fabs(p_wind.y), len = std::min(1.0, std::sqrt(ax * ax + az * az));
+    wind_x_ = p_wind.x > 0 ? 1 : (p_wind.x < 0 ? -1 : 0);
+    wind_z_ = p_wind.y > 0 ? 1 : (p_wind.y < 0 ? -1 : 0);
+    wind_p_ = (uint32_t)std::lround(len * 65535.0);
+    wind_xshare_ = ax + az > 0 ? (uint32_t)std::lround(ax / (ax + az) * 65535.0) : 0;
+}
+
+// ADR 0141: a drifting gas (smoke) moves one cell downwind with the wind's chance times its share; true when it moved
+bool SimWorld::wind_drift(int x, int y, int z, const MaterialDef &m, Ctx &c) {
+    const uint32_t r = rnd(c);
+    if ((r & 0xFFFF) >= (wind_p_ * m.wind_drift) >> 8) return false;
+    const bool along_x = ((r >> 16) & 0xFFFF) < wind_xshare_;
+    return try_move(x, y, z, x + (along_x ? wind_x_ : 0), y, z + (along_x ? 0 : wind_z_), c);
+}
+
+// ADR 0141: a react_awake cell (sludge, fouled water) that touches a cell it reacts with stays awake, so a slow
+// rule (erosion, settling, dilution) keeps rolling at rest and ends only when one side is used up; asleep otherwise
+void SimWorld::react_keep_awake(int x, int y, int z, int i, Ctx &c) {
+    const uint8_t self = cells_[i].mat;
+    for (int d = 0; d < 6; d++) {
+        const int nx = x + NX6[d], ny = y + NY6[d], nz = z + NZ6[d];
+        if (!is_open(nx, ny, nz)) continue;
+        const uint8_t b = cells_[idx(nx, ny, nz)].mat;
+        if (react_lut_[self * MAX_MATERIALS + b] >= 0 || react_lut_[b * MAX_MATERIALS + self] >= 0) {
+            mark_cell(x, y, z, c, false);
+            return;
+        }
+    }
+}
 
 // ---------- movement ----------
 
@@ -1458,6 +1493,7 @@ void SimWorld::update_liquid_fullness(int x, int y, int z, int i, Ctx &c) {
 void SimWorld::update_gas(int x, int y, int z, int i, Ctx &c) {
     const MaterialDef &m = mats_[cells_[i].mat];
     uint32_t r = rnd(c);
+    if (m.wind_drift && wind_p_ && wind_drift(x, y, z, m, c)) { c.moved++; return; }
     if ((r & 0xFF) < m.gas_up) {
         if (try_move(x, y, z, x, y + 1, z, c)) { c.moved++; return; }
     }
@@ -1542,6 +1578,22 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
     }
 }
 
+// A partly full liquid cell of a reacting pair is used up without its product with the chance of its missing
+// eighths (a reaction that keeps rolling would make it whole). True when one was.
+bool SimWorld::spend_partial(int x, int y, int z, int nx, int ny, int nz, int i, int ni, Ctx &c) {
+    for (int k : {i, ni}) {
+        const Cell &cell = cells_[k];
+        const int e = cell.pad & 15;
+        if (e && mats_[cell.mat].cell_type == CELL_LIQUID && (int)(rnd(c) & 7u) >= e) {
+            place(k, 0);
+            moved_[k] = mark_;
+            mark_cell(k == i ? x : nx, k == i ? y : ny, k == i ? z : nz, c, true);
+            return true;
+        }
+    }
+    return false;
+}
+
 void SimWorld::try_react(int x, int y, int z, int i, Ctx &c) {
     const uint8_t a = cells_[i].mat;
     uint32_t r = rnd(c);
@@ -1556,18 +1608,10 @@ void SimWorld::try_react(int x, int y, int z, int i, Ctx &c) {
     if (ri < 0) return;
     if (moved_[ni] == mark_) return;
     // a partly full liquid cell reacts in proportion to its eighths (ADR 0119): a one-eighth film of water next to
-    // lava made a whole cell of steam, eight times its mass, and a spill thinned to films fogged the sky
-    for (int k : {i, ni}) {
-        const Cell &cell = cells_[k];
-        const int e = cell.pad & 15;
-        if (e && mats_[cell.mat].cell_type == CELL_LIQUID && (int)(rnd(c) & 7u) >= e) {
-            // the partial cell is used up without its product (a reaction that keeps rolling would make it whole)
-            place(k, 0);
-            moved_[k] = mark_;
-            mark_cell(k == i ? x : nx, k == i ? y : ny, k == i ? z : nz, c, true);
-            return;
-        }
-    }
+    // lava made a whole cell of steam, eight times its mass, and a spill thinned to films fogged the sky. A slow
+    // (passive, ADR 0141) reaction spends the film only once it fires, or a sludge film on gravel vanished at once.
+    const bool slow = reactions_[ri].passive;
+    if (!slow && spend_partial(x, y, z, nx, ny, nz, i, ni, c)) return;
     // the pair's reactions roll in order; the first hit fires (ADR 0081: lava + water boils far more often than it crusts)
     uint32_t roll = r >> 8;
     while ((roll & 0xFFFF) >= reactions_[ri].probability) {
@@ -1575,6 +1619,7 @@ void SimWorld::try_react(int x, int y, int z, int i, Ctx &c) {
         if (ri < 0) return;
         roll = rnd(c);
     }
+    if (slow && spend_partial(x, y, z, nx, ny, nz, i, ni, c)) return;
     const Reaction &rx = reactions_[ri];
     uint8_t oa = swapped ? rx.out2 : rx.out1;
     uint8_t ob = swapped ? rx.out1 : rx.out2;
@@ -1701,7 +1746,11 @@ void SimWorld::update_chunk(int ci) {
                     case CELL_GAS: update_gas(x, y, z, i, c); break;
                     case CELL_FIRE: update_fire(x, y, z, i, c); break;
                 }
-                if (substep_ == 0 && any_reactions_ && reactive_[cells_[i].mat] && moved_[i] != mark_) try_react(x, y, z, i, c);
+                if (substep_ == 0 && any_reactions_ && reactive_[cells_[i].mat] && moved_[i] != mark_) {
+                    try_react(x, y, z, i, c);
+                    // a react_awake material is always some reaction's first input, so reactive
+                    if (mats_[cells_[i].mat].react_awake && moved_[i] != mark_) react_keep_awake(x, y, z, i, c);
+                }
             }
         }
     fast_[ci].store(fast ? 1 : 0, std::memory_order_relaxed);
