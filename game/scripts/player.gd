@@ -1749,13 +1749,14 @@ func _show_furniture_ghost(hit: VoxelRaycastResult, kind: String) -> void:
 # ---------------- eating ----------------
 
 ## Holding right click with food eats it after EAT_S, when hungry or hurt (Survival, ADR 0040);
-## kept held, the next bite starts on its own (bug report 2026-10-27_15-36-07).
+## kept held, the next bite starts on its own (bug report 2026-10-27_15-36-07). A bucket with a "drink" (ADR 0141)
+## is drunk the same way, aimed at nothing (aimed at a block it pours), whenever: fouled water makes you sick.
 func _start_eating() -> void:
 	var def := inventory.held_def()
-	if not def.has("food") or _eat_id != "":
+	if not (def.has("food") or def.has("drink")) or _eat_id != "":
 		return
 	if survival != null:
-		if not survival.wants_food():
+		if not survival.wants_food() and not def.has("drink"):
 			return
 	elif inventory.health >= inventory.max_health:
 		return
@@ -1779,7 +1780,7 @@ func _update_eating(delta: float) -> void:
 			if def.has("buff") and hud:
 				hud.show_toast(survival.buff_text())   # ADR 0121: what the meal does, and for how long
 		else:
-			inventory.heal(int(def["food"].get("hunger", 1)))
+			inventory.heal(int(def.get("food", def.get("drink", {})).get("hunger", 1)))
 		if GameMode.rule(game_mode, "consumes_items"):
 			if def.has("empties_to"):
 				inventory.replace_held_one(def["empties_to"])   # stew leaves its bowl

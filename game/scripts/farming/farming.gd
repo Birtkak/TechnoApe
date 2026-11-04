@@ -52,7 +52,7 @@ var is_editable: Callable     # (Vector3i) -> bool: the terrain there is loaded 
 var rng := RandomNumberGenerator.new()
 var season_growth := 1.0     # Calendar.crop_growth(): 1 spring/summer, 0.5 autumn, 0 winter (ADR 0025)
 var dirty := false
-var stats := {"random_ticks": 0, "grown": 0, "dried": 0, "trampled": 0, "popped": 0}
+var stats := {"random_ticks": 0, "grown": 0, "dried": 0, "trampled": 0, "popped": 0, "wilted": 0}
 var _material_ids := {}       # name -> id
 var _look_kind := {}          # crop material id -> kind
 var _ticks := 0               # game ticks so far (water cache)
@@ -322,6 +322,11 @@ func _crop_tick(p: Vector3i) -> Array:
 		return []
 	if not farmland.has(p + Vector3i.DOWN) and not is_farmland_material(get_voxel.call(p + Vector3i.DOWN)):
 		return _pop_crop(p)
+	if _water_known(p + Vector3i.DOWN) and fouled_water(p + Vector3i.DOWN):   # ADR 0141: watered foul, it wilts to nothing
+		stats["wilted"] += 1
+		_remove_crop(p)
+		set_voxel.call(p, GameMaterials.AIR)
+		return []
 	var max_age: int = int(crops_def[c["kind"]]["ages"]) - 1
 	if c["age"] < max_age:
 		var f := growth_speed(p)
@@ -378,6 +383,15 @@ func growth_speed(p: Vector3i) -> float:
 ## or up to one block above. The answer is kept per block for WATER_CACHE_TICKS,
 ## so the voxels of one block share a scan.
 func near_water(p: Vector3i) -> bool:
+	return _water_at(p) != 0
+
+
+## ADR 0141: the farmland's nearest water is fouled (it waters the crop all the same, and wilts it).
+func fouled_water(p: Vector3i) -> bool:
+	return _water_at(p) == 2
+
+
+func _water_at(p: Vector3i) -> int:
 	var key := _block_of(p)
 	var hit: Array = _water_cache.get(key, [])
 	if not hit.is_empty() and _ticks < int(hit[1]):
@@ -398,15 +412,19 @@ func _water_known(p: Vector3i) -> bool:
 	return not hit.is_empty() and _ticks < int(hit[1])
 
 
-func _scan_water(p: Vector3i) -> bool:
+## 0 no water, 1 water, 2 fouled water (ADR 0141). shortcut: the first water the scan meets decides, so farmland
+## between a clean and a fouled channel may read either; scan on for both if that shows up in play.
+func _scan_water(p: Vector3i) -> int:
 	var r := hydration_radius * block
 	for dy in range(0, block + 1):
 		for dx in range(-r, r + 1):
 			for dz in range(-r, r + 1):
 				var m: int = get_voxel.call(p + Vector3i(dx, dy, dz))
 				if m == GameMaterials.WATER or m == GameMaterials.WATER_STATIC:
-					return true
-	return false
+					return 1
+				if m == GameMaterials.FOULED_WATER:
+					return 2
+	return 0
 
 
 func _set_moisture(p: Vector3i, moisture: int) -> void:

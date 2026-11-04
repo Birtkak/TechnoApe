@@ -176,7 +176,7 @@
   "sandstone": "stone", "stalactite": "stone", "stalagmite": "stone", "chiseled": "stone", "obsidian": "stone",
   "cobblestone": "stone", "bricks": "stone", "basalt": "stone", "dripstone": "stone", "magma_rock": "stone", "rusted_rail": "stone", "terracotta": "stone", "terracotta_red": "stone",
   "terracotta_cream": "stone", "furnace": "stone", "furnace_lit": "stone", "sulfur": "gravel", "storage_pot": "stone",
-  "dirt": "dirt", "farmland": "dirt", "farmland_moist": "mud", "ash": "sand", "work_spot": "dirt", "work_block": "dirt",
+  "dirt": "dirt", "waste_ground": "mud", "slag": "gravel", "chimney": "stone", "farmland": "dirt", "farmland_moist": "mud", "ash": "sand", "work_spot": "dirt", "work_block": "dirt",
   "grass": "grass", "moss": "grass", "savanna_grass": "grass", "red_earth": "dirt",
   "sand": "sand", "sand_static": "sand",
   "gravel": "gravel", "gravel_static": "gravel", "pebbles": "gravel", "copper_bearing_stones": "gravel",
@@ -190,7 +190,7 @@
   "snow": "snow", "ice": "glass", "packed_ice": "glass",
   "wool": "cloth", "carpet": "cloth", "carcass": "cloth",
   "clay": "mud", "daub_wall": "mud", "toxic_sludge_static": "mud",
-  "water": "water", "water_static": "water", "oil": "water", "toxic_sludge": "water", "blood": "water", "lava": "water",
+  "water": "water", "water_static": "water", "oil": "water", "toxic_sludge": "water", "fouled_water": "water", "blood": "water", "lava": "water",
   "steam": "none", "smoke": "none", "fire": "none"
  },
  "particles": {
@@ -255,7 +255,7 @@
     "machine_extruder": {"sound": "loop/machine_extruder", "materials": [], "entities": ["extruder"]},
     "machine_canning_machine": {"sound": "loop/machine_canning_machine", "materials": [], "entities": ["canning_machine"]},
     "machine_electric_compressor": {"sound": "loop/machine_electric_compressor", "materials": [], "entities": ["electric_compressor"]},
-    "machine_electrolyzer": {"sound": "loop/machine_electrolyzer", "materials": [], "entities": ["electrolyzer"]},
+    "machine_electrolyzer": {"sound": "loop/machine_electrolyzer", "materials": [], "entities": ["electrolyzer", "scrubber"]},
     "machine_electric_furnace": {"sound": "loop/machine_electric_furnace", "materials": [], "entities": ["electric_furnace"]},
     "machine_lamp": {"sound": "loop/machine_lamp", "materials": [], "entities": ["electric_lamp"]},
     "machine_dynamo": {"sound": "loop/machine_dynamo", "materials": [], "entities": ["turbine"], "pitch_by": "amps", "pitch_ref": 40, "pitch_span": [0.75, 1.45]},

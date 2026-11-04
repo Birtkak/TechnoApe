@@ -468,6 +468,8 @@ func safe_ahead(m: Mob, dir: Vector3, panicking: bool) -> bool:
 		var v := get_voxel(p)
 		if GameMaterials.material_of_voxel(v) in [GameMaterials.LAVA, GameMaterials.LAVA_STATIC]:
 			return false
+		if GameMaterials.material_of_voxel(v) == GameMaterials.FOULED_WATER:
+			return m.in_liquid   # ADR 0141: animals and fish keep out of fouled water (one already in it may swim out)
 		if v > 0 and _def_of(v).get("cell_type", "") == "liquid":
 			return panicking or m.in_liquid or WildMoves.water_ok(m)
 		if is_solid(v):

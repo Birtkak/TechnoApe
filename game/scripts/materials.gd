@@ -176,6 +176,10 @@ const MAGMA_ROCK := 233
 const RUSTED_RAIL := 234           # an abandoned mine's rails (the "mine" ruin)
 const BARREL := 216                # ADR 0121: an 18-slot wooden barrel (a 0.75 x 1 m station like the chest); 217..227 this lane's
 const STORAGE_SHELF := 217         # ADR 0121: open plank shelving, 27 slots, the goods on it show (a 1 m cube station)
+const FOULED_WATER := 218          # ADR 0141 (222..227 stay this lane's): water sludge touched; wilts crops, sickens
+const WASTE_GROUND := 219          # soil and soft rock sludge ate, and sludge settled out on a gravel bed
+const SLAG := 220                  # smelting waste: a powder that piles at a machine's port
+const CHIMNEY := 221               # a brick flue: smoke of the machine under a stack of these leaves at its top
 
 const ATLAS_TILES := Vector2i(8, 27)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
@@ -214,7 +218,7 @@ static func _build_defs() -> Array:
 		{"name": "ash", "cell_type": "powder", "density": 2, "tiles": [8, 8, 8], "transparent": false},
 		{"name": "oil", "cell_type": "liquid", "fluid_slot": 2, "density": 0.8, "liquid_flow_speed": 0.6, "liquid_speed": 2, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
 		{"name": "steam", "condense_c": 60, "condenses_to": "water", "cell_type": "gas", "density": 0, "gas_upwards_speed": 220, "gas_horizontal_speed": 50, "lifetime": 900, "tiles": [10, 10, 10], "transparent": true},
-		{"name": "smoke", "cell_type": "gas", "density": 0, "gas_upwards_speed": 190, "gas_horizontal_speed": 60, "lifetime": 330, "tiles": [11, 11, 11], "transparent": true},
+		{"name": "smoke", "cell_type": "gas", "density": 0, "gas_upwards_speed": 190, "gas_horizontal_speed": 60, "lifetime": 330, "wind_drift": 1.0, "tiles": [11, 11, 11], "transparent": true},
 		{"name": "fire", "heat_c": 600, "cell_type": "fire", "density": 0, "lifetime": 24, "temperature_of_fire": 60, "gas_upwards_speed": 120, "gas_horizontal_speed": 80, "tiles": [12, 12, 12], "transparent": true},
 		{"name": "bedrock", "cell_type": "solid", "density": 15, "hp": 1000000, "tiles": [13, 13, 13], "transparent": false},
 		{"name": "snow", "cell_type": "powder", "liquid_static": true, "density": 2, "tiles": [14, 14, 14], "transparent": false},
@@ -259,7 +263,7 @@ static func _build_defs() -> Array:
 		{"name": "flint_stones", "cell_type": "solid", "pattern": true, "density": 10, "hp": 10, "tiles": [87, 87, 87], "transparent": false, "micro": "pebbles"},
 		{"name": "twigs", "cell_type": "solid", "pattern": true, "density": 10, "hp": 5, "burnable": true, "fire_hp": 20, "autoignition_temperature": 20, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 2, "tiles": [93, 97, 97], "transparent": false, "micro": "twigs"},
 		# sulfur caves (biomes.json sulfur_cave) and Noita chemistry (reactions below)
-		{"name": "toxic_sludge", "boil_c": 80, "boils_to": "toxic_gas", "boil_rise_c": 40, "cell_type": "liquid", "fluid_slot": 4, "density": 1.3, "liquid_flow_speed": 0.4, "liquid_speed": 2, "tiles": [48, 48, 48], "transparent": true},
+		{"name": "toxic_sludge", "boil_c": 80, "boils_to": "toxic_gas", "boil_rise_c": 40, "cell_type": "liquid", "fluid_slot": 4, "density": 1.3, "liquid_flow_speed": 0.4, "liquid_speed": 2, "tiles": [48, 48, 48], "transparent": true, "react_awake": true},
 		{"name": "toxic_sludge_static", "cell_type": "liquid", "fluid_slot": 4, "liquid_static": true, "density": 1.3, "tiles": [48, 48, 48], "transparent": true, "loose": 53},
 		{"name": "sulfur", "cell_type": "solid", "density": 10, "hp": 400, "tiles": [49, 49, 49], "transparent": false},
 		{"name": "obsidian", "cell_type": "solid", "density": 12, "hp": 6000, "tiles": [50, 50, 50], "transparent": false},
@@ -303,10 +307,21 @@ static func _build_defs() -> Array:
 		# 216 (ADR 0121): storage drawn by StationEntity like the chest
 		{"name": "barrel", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "barrel"},
 		{"name": "storage_shelf", "cell_type": "solid", "density": 8, "hp": 200, "tiles": [39, 39, 39], "transparent": false, "interact": "chest", "entity": "storage_shelf"},
-	] + _reserved_defs(218, CAVE_IDS - 1) + _cave_defs() + _plant_defs() + _structure_defs() + _flora_defs() + _reserved_defs(CAVE_IDS + 22, 253) + [
+	] + _waste_defs() + _reserved_defs(222, CAVE_IDS - 1) + _cave_defs() + _plant_defs() + _structure_defs() + _flora_defs() + _reserved_defs(CAVE_IDS + 22, 253) + [
 		# 254 (ADR 0119 C): what toxic sludge boils into: heavy, sinks and pools in low caves, fades in a minute
 		{"name": "toxic_gas", "condense_c": 30, "condenses_to": "toxic_sludge", "cell_type": "gas", "density": 1, "gas_upwards_speed": 40, "gas_horizontal_speed": 90, "gas_downwards_speed": 120, "lifetime": 1800, "tiles": [11, 11, 11], "transparent": true},
 	] + _reserved_defs(255, 255)
+
+
+## Ids 218..221 (ADR 0141): factory waste as matter. Fouled water has water's look and flow in its own fluid slot;
+## react_awake keeps it rolling its reactions at rest (reactions()). Atlas tiles 190, 191, 215.
+static func _waste_defs() -> Array:
+	return [
+		{"name": "fouled_water", "boil_c": 100, "boils_to": "steam", "boil_rise_c": 60, "cell_type": "liquid", "fluid_slot": 5, "density": 0.95, "liquid_flow_speed": 1.0, "liquid_speed": 8, "film_lifetime_ticks": 300, "tiles": [5, 5, 5], "transparent": true, "react_awake": true},
+		{"name": "waste_ground", "cell_type": "solid", "density": 8, "hp": 60, "tiles": [190, 190, 190], "transparent": false},
+		{"name": "slag", "cell_type": "powder", "density": 6, "tiles": [191, 191, 191], "transparent": false},
+		{"name": "chimney", "cell_type": "solid", "pattern": true, "density": 9, "hp": 1200, "tiles": [215, 99, 215], "transparent": false},
+	]
 
 
 ## Ids 207..215 (ADR 0112): planks of the other woods (the oak planks' rules, their own tile 176..179),
@@ -631,9 +646,12 @@ static func reactions() -> Array:
 		{"input_cell1": LAVA, "input_cell2": WATER_STATIC, "output_cell1": OBSIDIAN, "output_cell2": STEAM, "probability": 0.25},
 		{"input_cell1": LAVA_STATIC, "input_cell2": WATER, "output_cell1": LAVA_STATIC, "output_cell2": STEAM, "probability": 0.6},   # a still pool a stream of water reaches
 		{"input_cell1": LAVA_STATIC, "input_cell2": WATER, "output_cell1": OBSIDIAN, "output_cell2": STEAM, "probability": 0.25},
-		# Noita: water dilutes toxic sludge until only water is left
-		{"input_cell1": TOXIC_SLUDGE, "input_cell2": WATER, "output_cell1": WATER, "output_cell2": WATER, "probability": 0.15},
-		{"input_cell1": TOXIC_SLUDGE_STATIC, "input_cell2": WATER, "output_cell1": WATER, "output_cell2": WATER, "probability": 0.15},
+		# ADR 0141 (was Noita's dilution to clean water): sludge fouls the water it touches
+		{"input_cell1": TOXIC_SLUDGE, "input_cell2": WATER, "output_cell1": FOULED_WATER, "output_cell2": FOULED_WATER, "probability": 0.15, "passive": true},
+		{"input_cell1": TOXIC_SLUDGE_STATIC, "input_cell2": WATER, "output_cell1": FOULED_WATER, "output_cell2": FOULED_WATER, "probability": 0.15, "passive": true},
+		{"input_cell1": TOXIC_SLUDGE, "input_cell2": WATER_STATIC, "output_cell1": FOULED_WATER, "output_cell2": FOULED_WATER, "probability": 0.15, "passive": true},
+		{"input_cell1": TOXIC_SLUDGE, "input_cell2": FOULED_WATER, "output_cell1": FOULED_WATER, "output_cell2": FOULED_WATER, "probability": 0.05, "passive": true},
+	] + waste_reactions() + [
 		{"input_cell1": FIRE, "input_cell2": WATER, "output_cell1": AIR, "output_cell2": STEAM, "probability": 0.6},
 		{"input_cell1": LAVA, "input_cell2": OIL, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.3},
 		{"input_cell1": LAVA, "input_cell2": WOOD, "output_cell1": LAVA, "output_cell2": FIRE, "probability": 0.1},
@@ -646,6 +664,30 @@ static func reactions() -> Array:
 		{"input_cell1": FIRE, "input_cell2": PACKED_ICE, "output_cell1": AIR, "output_cell2": WATER, "probability": 0.1},
 		{"input_cell1": LAVA, "input_cell2": PACKED_ICE, "output_cell1": STONE, "output_cell2": STEAM, "probability": 0.3},
 	]
+
+
+## ADR 0141: fouled water creeps through the water it touches; a generated (still) body, river, lake or sea, dilutes
+## it back a little faster than it spreads, so a plume dies out once the sludge stops, while a dug pond of moving water
+## stays fouled. Sludge eats the soil and soft rock it rests on into waste ground (all "passive": the partner does not wake
+## or roll, only the sludge does; one layer deep, waste ground is not eaten) and settles out on gravel (a settling
+## tank's bed) and slowly on its own waste ground. Probabilities per tick a pair touches; sludge and fouled water keep
+## rolling at rest (react_awake), so each rule ends when its partner is used up.
+static func waste_reactions() -> Array:
+	var out := [
+		{"input_cell1": FOULED_WATER, "input_cell2": WATER_STATIC, "output_cell1": FOULED_WATER, "output_cell2": FOULED_WATER, "probability": 0.001, "passive": true},
+		{"input_cell1": FOULED_WATER, "input_cell2": WATER_STATIC, "output_cell1": WATER_STATIC, "output_cell2": WATER_STATIC, "probability": 0.0015, "passive": true},
+		{"input_cell1": FOULED_WATER, "input_cell2": WATER, "output_cell1": FOULED_WATER, "output_cell2": FOULED_WATER, "probability": 0.002, "passive": true},
+		{"input_cell1": TOXIC_SLUDGE, "input_cell2": GRAVEL, "output_cell1": WASTE_GROUND, "output_cell2": GRAVEL, "probability": 0.02, "passive": true},
+		{"input_cell1": TOXIC_SLUDGE, "input_cell2": GRAVEL_STATIC, "output_cell1": WASTE_GROUND, "output_cell2": GRAVEL_STATIC, "probability": 0.02, "passive": true},
+		{"input_cell1": TOXIC_SLUDGE, "input_cell2": WASTE_GROUND, "output_cell1": WASTE_GROUND, "output_cell2": WASTE_GROUND, "probability": 0.004, "passive": true},
+	]
+	for soft in ERODES:
+		out.append({"input_cell1": TOXIC_SLUDGE, "input_cell2": id_of(soft), "output_cell1": TOXIC_SLUDGE, "output_cell2": WASTE_GROUND, "probability": 0.003, "passive": true})
+	return out
+
+
+## What sludge eats into waste ground (ADR 0141): soil and the soft rocks.
+const ERODES := ["dirt", "grass", "clay", "sandstone", "farmland", "farmland_moist", "limestone", "chalk", "red_earth", "savanna_grass"]
 
 
 ## The material a terrain voxel value stands for (partly full liquids -> their liquid).

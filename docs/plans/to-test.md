@@ -20,6 +20,17 @@ frame times.
 - [ ] `/book lv_workshop` opens the book at a chapter, `/browse antler` the recipe browser on an item,
       `/goto ruin_igloo 16` searches 16 km instead of 4.
 
+## Pollution is real matter (2026-11-04, ADR 0141)
+
+- [ ] `/stations pollution` (a slab 4 m up, ahead): two electrolyzers pour sludge. One stream turns olive-brown
+      (aim at it: "fouled water (fouled: unsafe to drink)", and the journal gets an entry); the other machine's
+      gravel pond turns the sludge into waste ground and its stream stays clear. Dig the waste ground.
+- [ ] `/stations lv`: the electrolyzer leaves sludge behind it; wall its back in: it stops and says "Waste port
+      blocked". A pipe from its back to a scrubber (`/give scrubber`) fills the scrubber's tank: sulfur out.
+- [ ] A boiler or smelter puffs smoke that leans with the wind; a chimney stack on top lets it out higher.
+- [ ] A bucket of fouled water drunk (aim at the sky, right click) makes you sick; crops watered by it wilt; cows
+      will not walk into it.
+
 ## Real units, LV machines, animals, calmer water (2026-11-03, ADR 0119, 0123, 0131)
 
 - [ ] `/stations factory`: look at a cable, the battery box and the electric furnace with the multimeter or the

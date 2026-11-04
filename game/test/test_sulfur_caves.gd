@@ -1,7 +1,7 @@
 extends GdUnitTestSuite
 
 ## Sulfur caves (biomes.json sulfur_cave) and the Noita chemistry around them:
-## water dilutes toxic sludge into water, water quenches lava into obsidian.
+## water the sludge touches is fouled (ADR 0141), water quenches lava into obsidian.
 
 const S := preload("res://scripts/settings.gd")
 const N := 3
@@ -25,7 +25,7 @@ func _run(w: SimWorld, ticks: int) -> void:
 		w.tick(1)
 
 
-func test_water_turns_sludge_into_water() -> void:
+func test_water_on_sludge_is_fouled() -> void:   # ADR 0141 (was: dilutes into clean water)
 	var w := _sim()
 	var basin_min := Vector3i(15, 1, 15)
 	var basin_max := Vector3i(25, 8, 25)
@@ -34,9 +34,9 @@ func test_water_turns_sludge_into_water() -> void:
 	w.fill_box(Vector3i(15, 3, 15), Vector3i(25, 5, 25), GameMaterials.WATER)          # poured on top
 	_run(w, 600)
 	var sludge := w.count_in_box(basin_min, basin_max, GameMaterials.TOXIC_SLUDGE)
-	var water := w.count_in_box(basin_min, basin_max, GameMaterials.WATER)
+	var fouled := w.count_in_box(basin_min, basin_max, GameMaterials.FOULED_WATER)
 	assert_int(sludge).override_failure_message("%d sludge left" % sludge).is_less(20)
-	assert_int(water).is_greater(360)
+	assert_int(fouled).override_failure_message("%d fouled" % fouled).is_greater(300)   # of 400 cells: films are spent without product (ADR 0119)
 
 
 func test_static_sludge_pools_react_too() -> void:
