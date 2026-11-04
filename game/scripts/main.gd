@@ -31,6 +31,7 @@ var startup_ms := {}   # ms since _ready began, per startup step (printed, and i
 var farming: Farming                 # tilled farmland and crops (ADR 0022)
 var saplings: Saplings               # planted saplings growing into trees (ADR 0112)
 var pieces: FallingPieces            # rigid voxel pieces (P12), null with rigid_pieces=0
+var support: MineSupport             # dug roofs need shoring (ADR 0142), null with cave_ins=0 or rigid_pieces=0
 var builder: ShapeBuilder            # shape building, box mode, prefabs (ADR 0038)
 var survival: Survival               # hunger, body temperature, food spoilage (ADR 0040)
 var pickups_popped := 0              # sticks and stones picked up by hand (ADR 0043, debug JSON)
@@ -58,6 +59,7 @@ var _tp_test: TpTest
 var ponder: PonderScreen            # the guide screen (ADR 0132)
 var _shell_test: ShellTest
 var _sand_test: SandTest
+var _mine_test: MineTest
 var _fluid_lag: FluidLagTest
 var quests: QuestBook                # the progression book's quests and progress (ADR 0028)
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
@@ -473,6 +475,11 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_sand_test = SandTest.new()
 				_sand_test.run(self))
+		if DebugCapture.mine_test != "":
+			_after_load(func() -> void:
+				_mine_test = MineTest.new()
+				_mine_test.pick_rate = DebugCapture.mine_rate
+				_mine_test.run(self, DebugCapture.mine_test))
 		if DebugCapture.fluid_lag != "":
 			_after_load(func() -> void:
 				_fluid_lag = FluidLagTest.new()
@@ -565,6 +572,12 @@ func _ready() -> void:
 		add_child(pieces)
 		pieces.setup(bubble, world.atlas_material, fx)
 		bubble.pieces = pieces
+		if Settings.cave_ins:
+			support = MineSupport.new()
+			support.name = "MineSupport"
+			add_child(support)
+			support.setup(self)
+			player.support_hint = support.hint
 		if not warmup.is_queued_for_deletion():
 			warmup.add_materials([pieces.material], player.camera)
 	builder = ShapeBuilder.new()
@@ -1201,6 +1214,8 @@ func _on_dug(cells: Array, drops: Array, center: Vector3) -> void:
 		spawn_item(s, d.get("at", center), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
 	if pieces:
 		pieces.check(cells, player.position)   # a cut that frees a trunk or a limb: it falls (P12)
+	if support:
+		support.dug(cells)   # the roof over it may now need a prop (ADR 0142)
 
 
 ## A stick or stones picked up by hand (ADR 0043): the piece's voxels go and its item pops out where
@@ -1243,6 +1258,8 @@ func _on_big_dug(box: AABB, material: int) -> void:
 		fx.block_break(Vector3i(center.floor()), material)
 	if pieces:
 		pieces.check(PlaytestTools.rim_seeds(center, box.size.length() * 0.5 + 1.0), player.position)
+	if support:
+		support.dug_sphere(center, box.size.length() * 0.5)
 
 
 ## A big brush placement or a paint (filled natively): TNT in it becomes charges.
@@ -1289,11 +1306,18 @@ func trample(p: Vector3i, fall_m: float) -> void:
 # ---------------- furniture (ADR 0022) ----------------
 
 func _place_furniture(kind: String, anchor: Vector3i, facing: int) -> bool:
-	var e := blocks.create_furniture(anchor, kind, facing)
+	var h := 0
+	if FurnitureEntity.is_prop(kind):   # a mine prop reaches the roof (ADR 0142)
+		h = FurnitureEntity.prop_height(kind, anchor, get_world_voxel)
+		if h <= 0:
+			return false
+	var e := blocks.create_furniture(anchor, kind, facing, h)
 	for c in e.cells:
 		set_world_voxel(c, GameMaterials.FURNITURE)
 		_spawn_drop_events(farming.on_placed(c, GameMaterials.FURNITURE))
 	_add_furniture_view(e)
+	if h > 0 and support:
+		support.prop_changed(anchor)
 	return true
 
 
@@ -1313,6 +1337,8 @@ func _remove_furniture(e: FurnitureEntity, drop: bool) -> void:
 	if _furniture_views.has(anchor):
 		_furniture_views[anchor].queue_free()
 		_furniture_views.erase(anchor)
+	if support and FurnitureEntity.is_prop(e.furniture):
+		support.prop_changed(anchor)
 	if drop:
 		for s in stacks:
 			spawn_item(s, Vector3(anchor) + Vector3.ONE * (Settings.BLOCK * 0.5), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))   # the anchor block's centre
@@ -2113,6 +2139,7 @@ func snapshot() -> Dictionary:
 		"terrain": world.terrain.get_statistics(),
 		"sim": bubble.stats(),
 		"pieces": pieces.stats() if pieces else {},
+		"support": support.stats() if support else {},
 		"build": builder.snapshot() if builder else {},
 		"survival": survival.snapshot() if survival else {},
 		"loop": survival_loop.snapshot() if survival_loop else {},

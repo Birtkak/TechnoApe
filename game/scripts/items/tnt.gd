@@ -383,6 +383,8 @@ func _blast(q: Dictionary) -> int:
 	t = _part("spheres", t)
 	if main.pieces:
 		main.pieces.check(PlaytestTools.rim_seeds(pos, r), pos)
+	if main.support:
+		main.support.dug_sphere(pos, r)
 	t = _part("pieces", t)
 	_hit_entities(pos, r)
 	_spawn_drops(drops, n, pos, r)

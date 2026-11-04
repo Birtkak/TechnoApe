@@ -120,6 +120,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("tools", "/tools", "Open the world tools panel (the G key): brush shape and size, build modes, prefabs and their keys, with tooltips", _tools)
 	reg.register("tnt", "/tnt <grid [n] [spacing_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); light lights the aimed charge",
 		_tnt, [["grid", "light", "stats"], ["1", "5", "20"], ["1", "1.5", "2"]])
+	reg.register("support", "/support [stats|scan|probe|modes <all|survival>|on|off]", "Mine shoring (ADR 0142): what creaks and when it falls, scan the roof here, the aimed roof's load, which game modes cave in",
+		_support, [["stats", "scan", "probe", "modes", "on", "off"], ["all", "survival"]])
 	reg.register("setblock", "/setblock <x> <y> <z> <material>", "Set one voxel; ~ is relative to you (~ ~-1 ~ is under your feet)",
 		_setblock, [["~"], ["~"], ["~"], _material_names])
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
@@ -814,6 +816,32 @@ func _open_inventory(then: Callable) -> void:
 
 ## /tnt grid [n] [spacing_m]: n TNT blocks in a square grid on the ground where you look (block
 ## grid, `spacing_m` apart, default 1.5 m: each in the next one's blast), the nearest lit.
+func _support(args: PackedStringArray) -> Dictionary:
+	if main == null or main.support == null:
+		return CommandRegistry.fail("Cave-ins are off (cave_ins=0 or rigid_pieces=0)")
+	var sup: MineSupport = main.support
+	match args[0] if args.size() > 0 else "stats":
+		"stats":
+			return CommandRegistry.ok(JSON.stringify(sup.stats()))
+		"scan":
+			var p := Vector3i(player.position.floor())
+			sup.prop_changed(p - Vector3i(Settings.BLOCK, 0, Settings.BLOCK))
+			return CommandRegistry.ok("Roof around you queued for a check")
+		"probe":
+			var cam: Camera3D = player.camera
+			var hit: VoxelRaycastResult = main.world.raycast(cam.global_position, -cam.global_transform.basis.z, Settings.m2v(Settings.reach_m))
+			if hit == null:
+				return CommandRegistry.fail("Aim at a roof")
+			return CommandRegistry.ok(sup.hint(hit.position) + " " + JSON.stringify(sup.probe))
+		"modes":
+			Settings.cave_ins_all_modes = args.size() > 1 and args[1] == "all"
+			return CommandRegistry.ok("Cave-ins in %s" % ("every mode" if Settings.cave_ins_all_modes else "survival only"))
+		"on", "off":
+			Settings.cave_ins = args[0] == "on"
+			return CommandRegistry.ok("Cave-ins %s" % args[0])
+	return CommandRegistry.fail("/support [stats|scan|probe|modes <all|survival>|on|off]")
+
+
 func _tnt(args: PackedStringArray) -> Dictionary:
 	if main == null or player == null or main.tnt == null:
 		return CommandRegistry.fail("No world")

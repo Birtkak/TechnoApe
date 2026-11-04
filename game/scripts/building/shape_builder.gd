@@ -913,6 +913,8 @@ func _dig() -> void:
 		main.fx.block_break(Vector3i(centre.floor()), int(hist.keys()[0]))
 	if main.pieces:
 		main.pieces.rp.queue_check_packed(cells, player.position)
+	if main.support:
+		main.support.dug_packed(cells)
 	if player.hud:
 		player.hud.break_progress = 0.0
 	stats["dug"] += n

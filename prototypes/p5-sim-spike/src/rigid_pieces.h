@@ -35,7 +35,9 @@
 #include <array>
 #include <cstdint>
 #include <mutex>
+#include <unordered_set>
 #include <vector>
+#include <godot_cpp/variant/packed_float32_array.hpp>
 
 namespace godot {
 
@@ -108,6 +110,23 @@ public:
     // piece cell along a ray: {id, position, distance} or {}.
     void queue_carve(Vector3 p_center, float p_radius);
     Dictionary raycast(Vector3 p_from, Vector3 p_dir, float p_max) const;
+
+    // ADR 0142 (mines need shoring), rigid_support.cpp: the support rule for roofs the player dug.
+    // spans: per material id, < 0 open, 0 solid that holds but never fails, > 0 the farthest a roof cell of it
+    // may be from a support (voxels). mark / mark_box record dug 0.5 m blocks (applied before the next scan).
+    // scan: {lo, hi (the dug box, world voxels), reach (voxels), props (x, y_top, z, radius, capacity) x n,
+    // probe?, tag} -> {clusters [{cells, count, ratio, center}], props [{load, capacity, failed, touches}], probe, ...}.
+    // drop: the roof cells and the rock thick voxels above them fall as one piece (its id, 0 for crumbs).
+    // queue_* run on the driver thread; collect() hands their results over as "support".
+    void support_setup(const PackedFloat32Array &p_spans);
+    void support_mark(const PackedInt32Array &p_cells);
+    void support_mark_box(Vector3i p_lo, Vector3i p_hi);
+    Dictionary support_scan(const Dictionary &p_job);
+    int support_drop(const PackedInt32Array &p_roof, int p_thick, Vector3 p_from);
+    void queue_support_scan(const Dictionary &p_job);
+    void queue_support_drop(const PackedInt32Array &p_roof, int p_thick, Vector3 p_from);
+    Dictionary support_stats() const;
+    void support_clear();
 
 protected:
     static void _bind_methods();
@@ -201,6 +220,26 @@ private:
     int recheck_every_ = 3;      // snapped limbs are checked together every this many ticks
     int recheck_wait_ = 0;
     int mesh_every_ = 2;         // async: a piece that lost leaves gets its changed blocks at most every this many ticks
+
+    // ADR 0142 support rule (rigid_support.cpp)
+    struct ScanJob { Vector3i lo, hi, probe; int reach = 32, tag = 0; bool has_probe = false; std::vector<int> props, check; };
+    struct DropJob { std::vector<Vector3i> roof; int thick = 4; Vector3 from; };
+    std::vector<float> span_;                 // per material id
+    std::unordered_set<int64_t> dug_;         // dug 0.5 m blocks (driver thread, or a sync call)
+    std::vector<Vector3i> dug_pending_;       // under job_m_: blocks to add
+    std::vector<ScanJob> scan_jobs_;          // under job_m_
+    std::vector<DropJob> drop_jobs_;          // under job_m_
+    Array support_out_;
+    std::vector<int32_t> s_node_;             // scan box -> node index, valid where s_stamp_ == s_gen_
+    std::vector<uint32_t> s_stamp_;
+    uint32_t s_gen_ = 0;
+    double support_last_ms_ = 0.0, support_max_ms_ = 0.0;
+    int support_scans_ = 0, support_drops_ = 0, support_last_nodes_ = 0;
+    void support_apply_marks();
+    static ScanJob scan_job_of(const Dictionary &d);
+    Dictionary support_scan_impl(const ScanJob &j);
+    int support_drop_impl(const DropJob &j);
+    void support_run_jobs();   // driver thread, from run_job
 
     // async (set_async)
     struct PendingCheck { std::vector<Vector3i> cells; Vector3 from; };

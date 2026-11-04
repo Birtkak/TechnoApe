@@ -168,6 +168,8 @@ func _cut(at: Vector3, dir: Vector3, r: float) -> void:
 		var c := at + dir * t
 		if main.bubble.blast(c, r) > 0:
 			_seed_ring(c, u, w, r)
+			if main.support:
+				main.support.dug_sphere(c, r)
 		n += 1
 		t += step
 	SimBubble.note_player_edit()
@@ -308,6 +310,8 @@ func _crater(hit: VoxelRaycastResult, from: Vector3, radius_m: float) -> bool:
 		main.fx.block_break(hit.position, first)
 	if main.pieces:
 		main.pieces.check(rim_seeds(at, r), from)
+	if main.support:
+		main.support.dug_sphere(at, r)
 	return true
 
 
