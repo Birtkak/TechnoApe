@@ -60,6 +60,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   ADR 0082: that ray is cast from the camera's column and eight 2 m around it; a third of them open is daylight
   (overhangs stay lit); the look fades in and out over 2.5 s (ADR 0092). The mist lies below the camera; Video settings Fog (air haze off) and Brightness (ambient x
   `Atmosphere.brightness_mult`). Steep liquid tops (cascades) do not gloss; lava tops sample the crust on one plane.
+  **Progression walk (ADR 0139):** `scripts/crafting/progression_walk.gd` walks the quest book's main roads from
+  empty hands over the data with stations, tool tiers, heat, fuel, steam and power as gates; `test_progression_walk.gd`
+  fails on dead ends, `tools/progression_report.tscn` writes the balance report `docs/plans/progression-walk.md`.
   **Crafting in the world (ADR 0042):** flint and copper tools are assembled on the ground part by part (`assemble` recipes,
   `AssemblyEntity`), the firepit is laid the same way (four stones, two sticks) and becomes a firepit where it lies
   (ADR 0083) and is worked by hand (no screen), tools wear (`durability` = uses), hot metal carries `hot_until`
@@ -159,7 +162,17 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   `melt_c` (water <-> steam <-> one-eighth drops, sludge <-> toxic gas 254, ice <-> water; still liquids never switch).
   Gas looks: `data/gas_looks.json` (`gas_tint`, `gas_alpha`, `rise_speed`, one gas material copy per gas). The minimap's
   last line shows the aimed cell's material, state, temperature and pressure. Bench `tools/fluid_bench.gd`, tests
-  `test/test_sim_0119.gd`. **ADR 0081:** a lone still cell
+  `test/test_sim_0119.gd`. **Water feel (ADR 0138):** resting moving water on ground beside a body (2..7 eighths) is still an opening, so a dug
+  pit or channel fills to the body's level (water resting on a lower still step is not); the surface row feeds a dig
+  deeper than the surface (a trench in a shelving bank) but never air over the shore; a ledge onto a partial cell pours
+  what fits and a lone eighth on bare ground walks to the nearest drop (films run off slopes); the 4c rule is a conveyor
+  (looks FLAT_REACH 14 cells, also a row down, writes one cell over). `fluid_film=1` films the scenes
+  (`scripts/visuals/fluid_scenes.gd`), `tools/fluid_feel.gd` runs them on the bare kernel, tests `test/test_sim_0138.gd`.
+  **Fluid lag (ADR 0137):** the outside temperature is floored and a loaded chunk's heat starts at
+  it (generated ice no longer melts on load; Survival measures again after a 32 m move), a cold window wakes only chunks
+  that may hold a liquid that freezes or a gas that condenses, a liquid
+  substep scans only chunks with moving fast liquid in or beside them, the pool wakes as many helpers as there are
+  chunks; `fluid_lag=lake|river|bomb|pour|fly` times a change to its remesh and rest (`debug fluid_lag` JSON). **ADR 0081:** a lone still cell
   (none of its kind on its six sides: the specks the generator leaves on cave walls) wakes at any air beside or below it;
   reactions of one pair chain (`Reaction::next`, rolled in data order): lava + water boils the water to steam at 0.6 and
   only then crusts to obsidian at 0.25, so the steam grows with the water the lava touches.

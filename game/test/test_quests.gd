@@ -276,7 +276,7 @@ func test_pit_kiln_fired_signal_counts_for_the_book() -> void:
 	assert_bool(book.task_done("pit_kiln", 1)).is_true()
 
 
-## The steam age ends on the ore train; the steel pickaxe is faster than iron and a melt takes several ore blocks.
+## The steam age ends on the ore train; the steel pickaxe is faster than iron; a mined ore block melts to one ingot (ADR 0139).
 func test_steam_age_walkthrough_and_ore_counts() -> void:
 	for c in CHAPTERS.slice(0, 7):
 		for q in book.chapter_quests(c):
@@ -286,4 +286,4 @@ func test_steam_age_walkthrough_and_ore_counts() -> void:
 	assert_bool(book.is_done("ore_train")).is_true()
 	var mining := MiningTable.load_default()
 	assert_float(mining.break_time("copper_ore", items.get_def("steel_pickaxe"))).is_less(mining.break_time("copper_ore", items.get_def("iron_pickaxe")))
-	assert_int(int(recipes.first_of("melt", {"id": "melt_copper_ore"})["count"])).is_greater(1)
+	assert_int(int(recipes.first_of("melt", {"id": "melt_copper_ore"})["count"])).is_equal(1)

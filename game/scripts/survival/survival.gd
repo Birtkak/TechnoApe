@@ -28,6 +28,8 @@ var in_room := false
 var heat := 0.0
 var underground_m := 0.0
 var _probe_t := 0.0
+var _probe_at := Vector3.INF
+const PROBE_MOVE_M := 32.0
 var _starve_t := 0.0
 var _regen_t := 0.0
 var _hurt_t := 0.0
@@ -145,8 +147,11 @@ func _process(delta: float) -> void:
 	if player == null or main.world == null:
 		return
 	_probe_t -= delta
-	if _probe_t <= 0.0:
+	# ADR 0137: a teleport or a fast flight measures at once: the sim's chunks load at outside_c, and a stale warm value
+	# from the last place melted the generated ice of a frozen lake as it loaded (141k cells of moving water)
+	if _probe_t <= 0.0 or player.position.distance_to(_probe_at) > Settings.m2v(PROBE_MOVE_M):
 		_probe_t = Settings.climate_probe_s
+		_probe_at = player.position
 		_measure()
 	var survival := GameMode.rule(player.game_mode, "takes_damage")
 	var flat := Vector2(player.velocity.x, player.velocity.z).length()
