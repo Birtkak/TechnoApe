@@ -13,17 +13,16 @@ const TIMES := {"sunrise": 0.25, "day": 0.29, "noon": 0.5, "sunset": 0.75, "nigh
 ## 2026-10-25 they counted voxels, so "stone": 64 gave one block). test_commands.gd checks every id exists.
 const KITS := {
 	"tools": {"iron_pickaxe": 1, "copper_pickaxe": 1, "copper_axe": 1, "copper_shovel": 1, "copper_hoe": 1, "copper_knife": 1,
-		"copper_saw": 1, "copper_hammer": 1, "shears": 1, "flint_and_steel": 1, "pan": 1, "bucket": 2, "water_bucket": 1,
-		"lava_bucket": 1, "torch": 32, "coal": 32, "oak_log": 16},
+		"copper_saw": 1, "copper_hammer": 1, "shears": 1, "flint_and_steel": 1, "pan": 1, "torch": 32, "coal": 32, "oak_log": 16},
 	"builder": {"deconstruction_hammer": 1, "stone": 64, "cobblestone": 64, "bricks": 64, "dirt": 64, "grass_block": 64, "sand": 64, "gravel": 64,
 		"oak_planks": 64, "oak_log": 64, "birch_log": 64, "spruce_log": 64, "glass": 64, "sandstone": 64, "terracotta": 64,
 		"basalt": 64, "clay": 64, "thatch": 64, "wattle": 64, "daub": 64, "torch": 64},
 	"house": {"door": 4, "trapdoor": 4, "fence": 16, "fence_gate": 4, "ladder": 16, "window": 8, "table": 2, "shelf": 2,
 		"lantern": 8, "flower_pot": 4, "painting": 4, "chair": 4, "bed": 1, "carpet": 16},   # ADR 0094
 	"stations": {"crafting_table": 4, "furnace": 4, "chest": 4, "storage_pot": 2, "firepit": 2, "sieve": 2, "stone_anvil": 1,
-		"cooking_pot": 1, "crucible": 1, "ingot_mold": 2, "bed": 1, "iron_ore": 16, "copper_ore": 16, "tin_ore": 16, "coal": 32},
+		"cooking_pot": 1, "crucible": 1, "ingot_mold": 1, "bed": 1, "iron_ore": 16, "copper_ore": 16, "tin_ore": 16, "coal": 32},
 	"farm": {"iron_hoe": 1, "wheat_seeds": 32, "carrot": 16, "wheat": 32, "pumpkin": 4, "blueberry": 16, "egg": 8, "bread": 8,
-		"water_bucket": 2, "shears": 1, "bed": 1, "chair": 4, "wool": 16, "carpet": 16},
+		"water_bucket": 1, "shears": 1, "bed": 1, "chair": 4, "wool": 16, "carpet": 16},
 	"stone": {"flint": 8, "stick": 16, "clay_ball": 16, "dry_grass": 12, "plant_fiber": 8, "loose_stone": 4, "loose_copper_ore": 8,
 		"firestarter": 1, "oak_log": 8, "cordage": 6},   # Vintage Story early game (ADR 0023)
 	"flint": {"flint_knife": 1, "flint_shovel": 1, "flint_spear": 1, "atlatl": 1, "bow": 1, "arrow": 16, "firestarter": 1, "firepit": 1,
@@ -33,32 +32,34 @@ const KITS := {
 		"red_paint": 1, "fat_lamp": 1, "basket_trap": 1, "tinder_fungus": 4},   # the four Stone Age stages (ADR 0059)
 	"smith": {"stone_anvil": 1, "firepit": 1, "copper_hammer": 1, "copper_ingot": 6, "oak_log": 8, "firestarter": 1, "crucible": 1,
 		"ingot_mold": 1, "loose_copper_ore": 16, "flint_axe_head": 1, "copper_saw_blade": 1, "stick": 8, "cordage": 4},   # crafting in the world (ADR 0042)
-	"bronze": {"firepit": 1, "crucible_copper": 2, "tin_nugget": 8, "loose_tin_ore": 4, "axe_mold": 1, "pickaxe_mold": 1, "ingot_mold": 1,
+	"bronze": {"firepit": 1, "crucible_copper": 1, "tin_nugget": 8, "loose_tin_ore": 4, "axe_mold": 1, "pickaxe_mold": 1, "ingot_mold": 1,
 		"bronze_ingot": 8, "stone_anvil": 1, "copper_hammer": 1, "firestarter": 1, "firewood": 16, "stick": 8},   # the bronze age (ADR 0070)
 	"iron": {"bloomery": 1, "forge": 1, "bronze_anvil": 1, "bronze_hammer": 1, "charcoal": 32, "iron_nugget": 16, "loose_iron_ore": 8,
 		"iron_ingot": 6, "iron_bloom": 1, "firestarter": 1, "stick": 8},   # the iron age (ADR 0070)
-	"steam": {"small_boiler": 1, "bronze_pipe": 8, "copper_pipe": 8, "steam_hammer": 1, "steam_sieve": 1, "forge": 1, "coal": 32, "water_bucket": 4,
-		"bucket": 2, "iron_ingot": 8, "iron_plate": 4, "gravel": 16, "firestarter": 1, "goggles": 1, "leather_apron": 1, "wrench": 1,
-		"steel_boiler": 1, "blast_furnace": 1, "ore_crusher": 1, "water_tank": 1, "steam_turbine": 1, "iron_ore": 8, "fire_brick": 4,
-		"miners_helmet": 1, "travelers_backpack": 1, "steam_drill": 1, "boiler_suit": 1, "jetpack": 1, "surveyors_stake": 4, "compressor": 1,
-		"hopper": 4, "chute": 4, "belt": 16, "rail": 32, "minecart": 1, "chest_cart": 1, "chest": 2},   # the steam age (ADR 0097, 0099)
+	"steam": {"small_boiler": 1, "bronze_pipe": 8, "copper_pipe": 8, "steam_hammer": 1, "steam_sieve": 1, "forge": 1, "coal": 32, "water_bucket": 1,
+		"iron_ingot": 8, "iron_plate": 4, "gravel": 16, "firestarter": 1, "wrench": 1, "steel_boiler": 1, "blast_furnace": 1, "ore_crusher": 1,
+		"water_tank": 1, "steam_turbine": 1, "iron_ore": 8, "fire_brick": 4, "steam_drill": 1, "surveyors_stake": 4, "compressor": 1,
+		"hopper": 4, "chute": 4, "belt": 16, "chest": 2},   # the steam age (ADR 0097, 0099)
+	"gear": {"goggles": 1, "leather_apron": 1, "miners_helmet": 1, "travelers_backpack": 1, "boiler_suit": 1, "jetpack": 1,
+		"rail": 32, "minecart": 1, "chest_cart": 1},   # steam age gear and the ore train (ADR 0099)
 	"magic": {"wand_basic": 1, "spell_spark_bolt": 1, "spell_fire_bolt": 1, "spell_speed_up": 1, "mana_dust": 64, "fire_essence": 16},
-	"electric": {"small_boiler": 1, "bronze_pipe": 4, "steam_turbine": 1, "copper_cable": 16, "electric_furnace": 1, "coal": 32, "water_bucket": 4,
-		"raw_meat": 8, "iron_ore": 8, "firestarter": 1, "lathe": 1, "bending_press": 1, "wiremill": 1, "iron_ingot": 8, "copper_ingot": 8,
-		"primitive_circuit": 4, "machine_hull": 2, "electric_motor": 2, "rubber": 16, "insulated_wire": 16,
-		"macerator": 1, "alloy_smelter": 1, "assembler": 1, "battery_box": 1, "electric_lamp": 4, "tin_nugget": 12, "copper_ore": 4, "vacuum_tube": 4,
-		"resistor": 2, "coated_board": 2, "pump": 1, "coke_oven": 1, "bricks": 26, "hopper": 2, "coal_coke": 8, "water_tank": 1, "bucket": 2, "belt": 8, "wrench": 1, "multimeter": 1, "knife_switch": 1, "fuse_box": 1, "breaker": 1, "fuse": 4,
-		"water_wheel": 1, "wind_turbine": 1, "hand_crank": 1, "lead_acid_cell": 4, "thin_cable": 8, "heavy_copper_cable": 8, "daylight_switch": 1, "meter_panel": 1,
-		"extractor": 1, "cutter": 1, "extruder": 1, "canning_machine": 1, "electric_compressor": 1, "electrolyzer": 1, "oak_log": 8,
-		"tin_ingot": 8, "steel_ingot": 4, "cooked_meat": 8, "crushed_copper_ore": 8, "glass": 4},   # the energy network and the electrical age (ADR 0113, 0117, 0123, 0131)
+	"electric": {"small_boiler": 1, "bronze_pipe": 4, "steam_turbine": 1, "water_tank": 1, "water_bucket": 1, "coal": 32, "firestarter": 1,
+		"copper_cable": 16, "thin_cable": 8, "heavy_copper_cable": 8, "insulated_wire": 16, "battery_box": 1, "lead_acid_cell": 4,
+		"water_wheel": 1, "wind_turbine": 1, "hand_crank": 1, "electric_lamp": 4, "daylight_switch": 1, "meter_panel": 1, "multimeter": 1,
+		"knife_switch": 1, "fuse_box": 1, "breaker": 1, "fuse": 4, "wrench": 1, "electric_furnace": 1, "pump": 1, "raw_meat": 8, "iron_ore": 8},   # the energy network (ADR 0113, 0117, 0123)
+	"lv": {"lathe": 1, "bending_press": 1, "wiremill": 1, "macerator": 1, "alloy_smelter": 1, "assembler": 1, "extractor": 1, "cutter": 1,
+		"extruder": 1, "canning_machine": 1, "electric_compressor": 1, "electrolyzer": 1, "coke_oven": 1, "bricks": 26, "coal_coke": 8,
+		"hopper": 2, "belt": 8, "iron_ingot": 8, "copper_ingot": 8, "tin_ingot": 8, "steel_ingot": 4, "tin_nugget": 12, "copper_ore": 4,
+		"crushed_copper_ore": 8, "primitive_circuit": 4, "machine_hull": 2, "electric_motor": 2, "rubber": 16, "vacuum_tube": 4,
+		"resistor": 2, "coated_board": 2, "glass": 4, "oak_log": 8},   # the LV machines and what they work (ADR 0117, 0131); power from /kit electric
 	"workshop": {"spyglass": 1, "diving_mask": 1, "rubber_boots": 1, "hand_drill": 1, "canned_meat": 4, "canned_fish": 4, "canned_vegetables": 4,
 		"sticky_resin": 16, "tin_can": 4, "stick": 8},   # the Workshop chapter's LV round 2 goods (ADR 0131)
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1, "sounding_rod": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
-	"water": {"bucket": 2, "water_bucket": 1, "crater_rod": 1, "laser_cutter": 1, "lava_bomb": 8, "water_balloon": 8, "cobblestone": 16},   # river tests (ADR 0104)
+	"water": {"bucket": 1, "water_bucket": 1, "crater_rod": 1, "laser_cutter": 1, "lava_bomb": 8, "water_balloon": 8, "cobblestone": 16},   # river tests (ADR 0104)
 	"tnt": {"tnt": 64, "igniter": 1, "flint_and_steel": 1, "sulfur": 8, "charcoal": 4, "sand": 2},   # TNT (ADR 0065)
 	"fire": {"flint_and_steel": 1, "firestarter": 1, "firepit": 1, "firewood": 32, "coal": 16, "oak_log": 16, "dry_grass": 16,
-		"torch": 16, "water_bucket": 4, "water_balloon": 16},   # forest fires and rain (ADR 0056)
+		"torch": 16, "water_bucket": 1, "water_balloon": 16},   # forest fires and rain (ADR 0056)
 	"clutter": {"seashell": 16, "kelp": 16, "brown_mushroom": 16, "red_mushroom": 16, "dandelion": 16, "poppy": 16, "cornflower": 16,
 		"oxeye_daisy": 16, "allium": 16, "stick": 16, "flint": 16, "loose_stone": 16},   # ground pieces (ADR 0047)
 }

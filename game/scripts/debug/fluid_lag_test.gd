@@ -266,7 +266,9 @@ func _bank(from: Vector3i) -> Dictionary:
 
 
 func _ground(me: Vector3i) -> int:
-	for y in range(me.y + 80, me.y - 400, -1):
+	# no further down than 5 m under the player: while the spawn's column streams in, its surface reads as air and the
+	# scan found a cave 36 m down, outside the sim window, so the bomb fell on nothing
+	for y in range(me.y + 80, me.y - int(Settings.m2v(5.0)), -1):
 		if GameMaterials.blocks_bodies(main.world.get_voxel(Vector3i(me.x, y, me.z))):
 			return y
 	return -1

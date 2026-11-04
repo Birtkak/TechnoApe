@@ -182,7 +182,8 @@ void SimWorld::configure(Vector3i p_chunks, int p_threads, int p_seed) {
     defer_age_.assign(nc, 0);
     heat_.assign(n / (HC * HC * HC), ambient_c_);
     pressure_.assign(nc, 0);
-    switch_.assign(nc, 1);
+    switch_.assign(nc, SW_ALL);
+    thaw_.assign(nc, 0);
     loaded_.assign(nc, 1); // default: everything counts as loaded (fill_box/scatter worlds); streaming callers clear it
     wrapped_ = false;
     ox_ = oy_ = oz_ = 0; ocx_ = ocy_ = ocz_ = 0;
@@ -315,6 +316,7 @@ void SimWorld::rebuild_reaction_lut() {
     reactive_.assign(MAX_MATERIALS, 0);
     inert_.assign(MAX_MATERIALS, 0);
     switches_.assign(MAX_MATERIALS, 0);
+    melt_min_c_ = 32767;
     any_reactions_ = !reactions_.empty();
     for (size_t i = 0; i < reactions_.size(); i++) {
         reactions_[i].next = -1;
@@ -342,7 +344,8 @@ void SimWorld::rebuild_reaction_lut() {
     for (size_t m = 1; m < mats_.size(); m++) {
         const MaterialDef &d = mats_[m];
         bool static_cell = d.cell_type == CELL_SOLID || ((d.cell_type == CELL_LIQUID || d.cell_type == CELL_POWDER) && d.liquid_static);
-        switches_[m] = (d.cell_type == CELL_LIQUID && !d.liquid_static && d.freezes_to) || (d.cell_type == CELL_GAS && d.condenses_to);
+        switches_[m] = ((d.cell_type == CELL_LIQUID && !d.liquid_static && d.freezes_to) || (d.cell_type == CELL_GAS && d.condenses_to)) ? SW_COLD : 0;
+        if (d.cell_type == CELL_SOLID && d.melts_to) { switches_[m] |= SW_WARM; melt_min_c_ = std::min(melt_min_c_, (int)d.melt_c); }
         inert_[m] = static_cell && d.lifetime == 0 && !d.burnable && !reactive_[m] && d.loosen == 0 && d.erode == 0 && d.melts_to == 0 && d.heat_c == 0;
     }
 }
@@ -1012,11 +1015,11 @@ void SimWorld::set_states(bool p_on) { states_ = p_on; }
 // ADR 0119 C: a chunk's 4^3 coarse heat cells move a twelfth of the way toward the mean of their six neighbours
 // and a sixty-fourth toward the outside temperature (rock and air alike: a cooled cave warms back slowly). In
 // place, in a fixed order, from the tick's single thread: the same every run.
-void SimWorld::relax_heat(int ci) {
+void SimWorld::relax_heat(int ci, bool slow_turn) {
     int cx, cy, cz;
     chunk_of(ci, cx, cy, cz);
     const int x0 = cx * CS, y0 = cy * CS, z0 = cz * CS;
-    bool hot = false, cold = false;   // hot enough to boil or cold enough to freeze: the chunk's cells must be visited
+    bool hot = false, cold = false, warm = false;   // hot enough to boil, cold enough to freeze, warm enough to melt
     for (int z = z0; z < z0 + CS; z += HC)
         for (int y = y0; y < y0 + CS; y += HC)
             for (int x = x0; x < x0 + CS; x += HC) {
@@ -1034,11 +1037,14 @@ void SimWorld::relax_heat(int ci) {
                 heat_[h] = (int16_t)v;
                 if (v >= 90) hot = true;
                 if (v <= 0) cold = true;
+                if (v >= melt_min_c_) warm = true;
             }
     // the chunk update scans only a chunk's dirty box, so a quiet pool in a hot or freezing chunk would never
     // change state: such a chunk runs whole on this cadence (every 4 ticks while awake, every 64 asleep)
     // ADR 0137: at 0 C or under the whole window is cold: only chunks that may hold a cell that freezes or condenses
-    if (hot || (cold && switch_[ci])) {
+    // ADR 0137: a warm chunk with exposed ice runs whole only on the sleeping cadence, so a lake thaws a few cells a turn
+    thaw_[ci] = warm && slow_turn && (switch_[ci] & SW_WARM);
+    if (hot || (cold && (switch_[ci] & SW_COLD)) || thaw_[ci]) {
         active_next_[ci].store(1, std::memory_order_relaxed);
         merge_box(ci, BOX_FULL);
     }
@@ -1217,6 +1223,9 @@ void SimWorld::update_liquid_column(int x, int y, int z, int i, Ctx &c) {
         const int Hn = 8 * ny + full(idx(nx, ny, nz));
         if (Hn >= H - 1) continue;   // level, or higher: it levels toward us on its own visit
         if (moved_[idx(nx, ny, nz)] == mark_) continue;
+        // ADR 0137: nothing fits on a full top under liquid (its column runs on past the reach) or a ceiling; giving
+        // there moved nothing but marked both cells, and a pit of moving water deeper than the reach never slept
+        if (full(idx(nx, ny, nz)) == 8 && !(is_open(nx, ny + 1, nz) && open_air(cells_[idx(nx, ny + 1, nz)].mat) && !still_liquid(nx, ny + 1, nz, m.fluid_slot))) continue;
         const int dt = std::min({8, (H - Hn) / 2, avail});
         if (dt < 1) continue;
         take(give(nx, ny, nz, dt));
@@ -1658,7 +1667,8 @@ void SimWorld::update_chunk(int ci) {
     const int bx0 = std::max(0, (int)(bx & 15u) - 1), by0 = std::max(0, (int)((bx >> 4) & 15u) - 1), bz0 = std::max(0, (int)((bx >> 8) & 15u) - 1);
     const int bx1 = std::min(CS - 1, (int)((bx >> 12) & 15u) + 1), by1 = std::min(CS - 1, (int)((bx >> 16) & 15u) + 1), bz1 = std::min(CS - 1, (int)((bx >> 20) & 15u) + 1);
     const int nzs = bz1 - bz0 + 1, nxs = bx1 - bx0 + 1;
-    bool fast = false, sw = false;
+    bool fast = false;
+    uint8_t sw = 0;
     // ADR 0119 C: the chunk's pressure, gas cells over open cells, every tick it is awake (4096 reads: boiling must
     // see the pressure it builds the tick before, or a room boils dry in one tick)
     if (states_ && substep_ == 0) {
@@ -1680,7 +1690,16 @@ void SimWorld::update_chunk(int ci) {
                 int i = idx(x, y, z);
                 uint8_t m = cells_[i].mat;
                 if (m == 0 || inert_[m]) continue;
-                sw |= switches_[m];
+                bool exposed = false;   // ADR 0137: a melter melts from its open faces only (top, edges, the water it sits on)
+                if (substep_ == 0 && (switches_[m] & SW_WARM)) {
+                    for (int d = 0; d < 6 && !exposed; d++) {
+                        const int nx = x + NX6[d], ny = y + NY6[d], nz = z + NZ6[d];
+                        if (!is_open(nx, ny, nz)) continue;
+                        const uint8_t nm = cells_[idx(nx, ny, nz)].mat;
+                        exposed = nm == 0 || (mats_[nm].cell_type != CELL_SOLID && mats_[nm].cell_type != CELL_POWDER);
+                    }
+                    sw |= exposed ? switches_[m] : (uint8_t)(switches_[m] & ~SW_WARM);
+                } else sw |= switches_[m];
                 if (moved_[i] == mark_) continue;
                 const MaterialDef &md = mats_[m];
                 if (states_ && substep_ == 0) {
@@ -1714,7 +1733,13 @@ void SimWorld::update_chunk(int ci) {
                                 if (nm != 0 && mats_[nm].cell_type != CELL_GAS && mats_[nm].cell_type != CELL_FIRE) { to = md.condenses_to; break; }
                             }
                         }
-                    } else if (md.cell_type == CELL_SOLID && md.melts_to && T >= md.melt_c) to = md.melts_to;
+                    } else if (md.cell_type == CELL_SOLID && md.melts_to && T >= md.melt_c && exposed && thaw_[ci] &&
+                               (int)(rnd(c) & 255u) < std::min(64, 4 + 2 * (T - md.melt_c))) {
+                        // ADR 0137: a few exposed cells a heat turn (64 ticks; 1 in 64 at the melt point, 1 in 4 at 34 C
+                        // over it), however often moving melt water wakes them:
+                        // generated ice thins over minutes on a warm day instead of a whole lake turning to water at once
+                        to = md.melts_to;
+                    }
                     if (to >= 0) {
                         place(i, (uint8_t)to);
                         if (mats_[to].cell_type == CELL_LIQUID) cells_[i].pad = 0;   // one cell for one cell both ways, or steam that condensed to a drop and boiled again gained eightfold
@@ -1756,7 +1781,8 @@ void SimWorld::update_chunk(int ci) {
     fast_[ci].store(fast ? 1 : 0, std::memory_order_relaxed);
     if (substep_ == 0) {   // a whole-chunk scan knows; a partial one can only add
         if (bx0 == 0 && by0 == 0 && bz0 == 0 && bx1 == CS - 1 && by1 == CS - 1 && bz1 == CS - 1) switch_[ci] = sw;
-        else if (sw) switch_[ci] = 1;
+        else switch_[ci] |= sw;
+        thaw_[ci] = 0;
     }
     flush_marks(c);
     if (c.moved) moved_count_.fetch_add(c.moved, std::memory_order_relaxed);
@@ -1875,7 +1901,7 @@ void SimWorld::tick_once(TickOut &o) {
     // chunk gets its turn every 64 ticks, so a quiet pond still meets the winter
     if (states_ && (tick_ & 3u) == 0)
         for (size_t i = 0; i < nc; i++)
-            if (active_now_[i].load(std::memory_order_relaxed) || (((tick_ >> 2) + i) & 15u) == 0) relax_heat((int)i);
+            if (const bool slow = (((tick_ >> 2) + i) & 15u) == 0; slow || active_now_[i].load(std::memory_order_relaxed)) relax_heat((int)i, slow);
     o.ms = std::chrono::duration<double, std::milli>(clock::now() - t0).count();
     o.active = active;
     o.moved = moved_count_.load();
@@ -2083,7 +2109,7 @@ void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p
 void SimWorld::on_loaded(int ci) {
     wake_full(ci); // let it settle once
     loaded_[ci] = 1;
-    switch_[ci] = 1;
+    switch_[ci] = SW_ALL;
     int cx, cy, cz;
     chunk_of(ci, cx, cy, cz);
     for (int z = cz * CS; z < cz * CS + CS; z += HC)
@@ -2138,7 +2164,7 @@ Array SimWorld::shift(Vector3i d) {
     wait_idle();
     Array vacated;
     if (d == Vector3i()) return vacated;
-    std::fill(switch_.begin(), switch_.end(), 1);   // ADR 0137: what a slot holds is known again after its next whole scan
+    std::fill(switch_.begin(), switch_.end(), SW_ALL);   // ADR 0137: what a slot holds is known again after its next whole scan
     if (wrapped_) {
         // Toroidal: new local L = old local L + d, so the offset moves by d; nothing is copied. Chunks whose
         // source lies outside the old window keep stale cells: they become unloaded (walls, not ticked) with

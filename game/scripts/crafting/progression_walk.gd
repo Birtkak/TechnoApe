@@ -38,6 +38,7 @@ const LOOT_S := 600.0        # find and search one ruin container
 const WORLD_S := 30.0        # bark, tinder, brine ... (StoneAge.WORLD_SOURCES)
 const FILL_S := 10.0         # fill a container at water or lava
 const CLICK_S := 0.4         # one shake, stroke or hammer blow
+const HAMMER_S := 10.0       # a smith piece once a steam hammer is owned: lay the hot metal, pick the shape, take it
 const HANDS := {"shaped": 3.0, "shapeless": 3.0, "spellcraft": 3.0, "assemble": 5.0, "knap": 30.0, "clayform": 40.0,
 	"smith": 60.0, "cast": 5.0, "kiln": 15.0, "charcoal_pit": 5.0, "dry": 5.0, "process": 3.0, "smelt": 3.0, "melt": 5.0,
 	"bury": 20.0, "rack": 5.0, "soak": 5.0, "trap": 10.0, "sift": 0.0, "scrape": 0.0, "stroke": 0.0}
@@ -454,6 +455,9 @@ func _hands(r: Dictionary) -> float:
 			t = (Settings.pan_shakes if String(r.get("station", "")) == "pan" else SieveEntity.SHAKES) * CLICK_S
 		"stroke", "scrape":
 			t = float(r.get("strokes", 1)) * CLICK_S
+		"smith":
+			if owned.has("steam_hammer"):   # it strikes by itself (ADR 0097)
+				t = HAMMER_S
 	return t
 
 

@@ -51,32 +51,38 @@ func tick() -> bool:
 
 
 ## One automatic blow. Returns what AnvilEntity.hit / split return, "" with nothing to do.
+## It drives the first extra cell that can move toward a short column (so a tall lump of two
+## ingots spreads past its full columns, ADR 0139) and cuts metal off only when none can.
 func strike() -> String:
-	var from := Vector2i(-1, -1)
+	var first := Vector2i(-1, -1)
 	for z in N:
 		for x in N:
-			if height(x, z) > target(x, z):
-				from = Vector2i(x, z)
-				break
-		if from.x >= 0:
-			break
-	if from.x < 0:
+			if height(x, z) <= target(x, z):
+				continue
+			var from := Vector2i(x, z)
+			if first.x < 0:
+				first = from
+			var to := _nearest_short(from)
+			if to.x < 0:
+				continue
+			var d := to - from
+			var dirs := [Vector2i(signi(d.x), 0), Vector2i(0, signi(d.y))] if absi(d.x) >= absi(d.y) else [Vector2i(0, signi(d.y)), Vector2i(signi(d.x), 0)]
+			for dir in dirs:
+				var n: Vector2i = from + dir
+				if dir != Vector2i.ZERO and height(n.x, n.y) < MAX_H:
+					_blow(from)
+					return hit(from.x, from.y, dir)
+	if first.x < 0:
 		return ""
+	_blow(first)
+	return split(first.x, first.y)
+
+
+func _blow(at: Vector2i) -> void:
 	strikes += 1
 	wear = minf(1.0, wear + 1.0 / (Settings.boiler_wear_s / Settings.steam_hammer_strike_s))
 	_head_down = 4
-	struck.emit(pos, from)
-	var to := _nearest_short(from)
-	if to.x >= 0:
-		var d := to - from
-		var dirs := [Vector2i(signi(d.x), 0), Vector2i(0, signi(d.y))] if absi(d.x) >= absi(d.y) else [Vector2i(0, signi(d.y)), Vector2i(signi(d.x), 0)]
-		for dir in dirs:
-			if dir == Vector2i.ZERO:
-				continue
-			var r := hit(from.x, from.y, dir)
-			if r != "stuck":
-				return r
-	return split(from.x, from.y)
+	struck.emit(pos, at)
 
 
 func _nearest_short(from: Vector2i) -> Vector2i:
