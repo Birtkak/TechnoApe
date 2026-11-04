@@ -671,6 +671,13 @@ void SimWorld::set_wind(Vector2 p_wind) {
 bool SimWorld::wind_drift(int x, int y, int z, const MaterialDef &m, Ctx &c) {
     const uint32_t r = rnd(c);
     if ((r & 0xFFFF) >= (wind_p_ * m.wind_drift) >> 8) return false;
+    // no wind under a roof (a cave, a mine, a room): anything but gas or fire within ROOF_SCAN cells straight up
+    // shelters it, so smoke rises and pools there. shortcut: only after the roll passes and only for drifting gases;
+    // a cavern roof higher than ROOF_SCAN counts as sky (no per-column sky flag exists to read instead)
+    for (int k = 1; k <= ROOF_SCAN && is_open(x, y + k, z); k++) {
+        const uint8_t a = cells_[idx(x, y + k, z)].mat;
+        if (a && !washable_[a] && mats_[a].cell_type != CELL_GAS && mats_[a].cell_type != CELL_FIRE) return false;
+    }
     const bool along_x = ((r >> 16) & 0xFFFF) < wind_xshare_;
     return try_move(x, y, z, x + (along_x ? wind_x_ : 0), y, z + (along_x ? 0 : wind_z_), c);
 }
