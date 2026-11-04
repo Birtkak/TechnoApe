@@ -122,6 +122,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("count_unsupported", "material"), &SimWorld::count_unsupported);
     ClassDB::bind_method(D_METHOD("count_burning"), &SimWorld::count_burning);
     ClassDB::bind_method(D_METHOD("get_falls", "slot"), &SimWorld::get_falls);
+    ClassDB::bind_method(D_METHOD("get_fall_streaks", "slot", "offset", "width"), &SimWorld::get_fall_streaks);
     ClassDB::bind_method(D_METHOD("sample_cells", "center", "radius", "count", "seed", "mask"), &SimWorld::sample_cells);
     ClassDB::bind_method(D_METHOD("layer_histogram", "material"), &SimWorld::layer_histogram);
     ClassDB::bind_method(D_METHOD("surface_map", "min_xz", "count", "step", "y_base"), &SimWorld::surface_map);
@@ -907,6 +908,11 @@ bool SimWorld::fall(int x, int y, int z, int i, Ctx &c) {
     if (fullness_) {   // falling liquid carries momentum into its landing (high nibble of pad)
         const MaterialDef &fm = mats_[cells_[ni].mat];
         if (fm.cell_type == CELL_LIQUID) cells_[ni].pad = (uint8_t)((cells_[ni].pad & 15u) | (15u << 4));
+    }
+    const int slot = mats_[cells_[ni].mat].fluid_slot;   // the path it crossed, for the stream streaks (ADR 0138)
+    if (slot >= 0 && slot < FALL_SLOTS && c.nst < STREAK_CTX) {
+        int32_t *st = c.st + 5 * c.nst++;
+        st[0] = slot; st[1] = x; st[2] = z; st[3] = ny + 1; st[4] = y;
     }
     return true;
 }
@@ -1723,6 +1729,11 @@ void SimWorld::update_chunk(int ci) {
     for (int s = 0; s < FALL_SLOTS; s++)
         if (c.falls[s][0])
             for (int k = 0; k < 4; k++) falls_[s][k].fetch_add(c.falls[s][k], std::memory_order_relaxed);
+    if (c.nst) {
+        const int k = streak_n_.fetch_add(c.nst, std::memory_order_relaxed);
+        const int n = std::min(c.nst, STREAKS - k);
+        if (n > 0) std::memcpy(streak_buf_ + 5 * k, c.st, sizeof(int32_t) * 5 * (size_t)n);
+    }
 }
 
 // ADR 0137: a liquid substep scans a chunk only when it or a face neighbour held moving liquid with substeps left at
@@ -1809,6 +1820,7 @@ void SimWorld::tick_once(TickOut &o) {
     moved_count_.store(0);
     react_count_.store(0);
     for (auto &s : falls_) for (auto &v : s) v.store(0, std::memory_order_relaxed);
+    streak_n_.store(0, std::memory_order_relaxed);
     std::vector<int> work;
     work.reserve(nc / 8 + 1);
     uint64_t active = 0;
@@ -1841,6 +1853,7 @@ void SimWorld::tick_once(TickOut &o) {
     o.moved = moved_count_.load();
     o.react = react_count_.load();
     for (int s = 0; s < FALL_SLOTS; s++) for (int k = 0; k < 4; k++) falls_last_[s][k] = falls_[s][k].load(std::memory_order_relaxed);
+    build_streaks();
     o.scanned = scanned;
     o.deferred = deferred;
 }
@@ -2098,6 +2111,8 @@ Array SimWorld::shift(Vector3i d) {
     wait_idle();
     Array vacated;
     if (d == Vector3i()) return vacated;
+    for (auto &h : streak_hist_) h.clear();   // window cells move: the stream streaks start over (ADR 0138)
+    { std::lock_guard<std::mutex> lock(streak_m_); streaks_last_.clear(); }
     std::fill(switch_.begin(), switch_.end(), 1);   // ADR 0137: what a slot holds is known again after its next whole scan
     if (wrapped_) {
         // Toroidal: new local L = old local L + d, so the offset moves by d; nothing is copied. Chunks whose
@@ -2505,4 +2520,55 @@ void SimWorld::level_surfaces() {
         }
     }
     if (moved) moved_count_.fetch_add(moved, std::memory_order_relaxed);
+}
+
+// ADR 0138: a falling cell jumps up to MAX_DISP cells a tick and a stream thins as it speeds up, so its cubes draw with
+// gaps that step 30 times a second. The paths the cells crossed this tick, merged per column, fill those gaps: drawn
+// as streaks (SimBubble's FallStreaks) the stream reads as one run of water. A column gets a cell every two or three
+// ticks, so the runs are the paths of the last STREAK_TICKS ticks (100 ms). shortcut: past STREAKS paths a tick the
+// rest are not drawn (a waterfall is tens to hundreds); raise it if a wide fall shows holes.
+void SimWorld::build_streaks() {
+    const int n = std::min(streak_n_.load(std::memory_order_relaxed), STREAKS);
+    std::vector<std::array<int32_t, 5>> &now = streak_hist_[tick_ % STREAK_TICKS];
+    now.resize((size_t)n);
+    for (int k = 0; k < n; k++) std::memcpy(now[k].data(), streak_buf_ + 5 * k, sizeof(int32_t) * 5);
+    std::vector<std::array<int32_t, 5>> v;
+    for (const auto &h : streak_hist_) v.insert(v.end(), h.begin(), h.end());
+    std::sort(v.begin(), v.end(), [](const std::array<int32_t, 5> &a, const std::array<int32_t, 5> &b) {
+        if (a[0] != b[0]) return a[0] < b[0];
+        if (a[1] != b[1]) return a[1] < b[1];
+        if (a[2] != b[2]) return a[2] < b[2];
+        return a[3] < b[3];
+    });
+    std::vector<int32_t> out;
+    out.reserve(v.size() * 5);
+    for (size_t k = 0; k < v.size();) {
+        std::array<int32_t, 5> cur = v[k++];
+        while (k < v.size() && v[k][0] == cur[0] && v[k][1] == cur[1] && v[k][2] == cur[2] && v[k][3] <= cur[4] + 1)
+            cur[4] = std::max(cur[4], v[k++][4]);   // overlapping or touching paths in one column are one run
+        out.insert(out.end(), cur.begin(), cur.end());
+    }
+    std::lock_guard<std::mutex> lock(streak_m_);
+    streaks_last_.swap(out);
+}
+
+// The last tick's streaks of a fluid slot as a MultiMesh buffer (TRANSFORM_3D, 12 floats each) for a unit box with x
+// and z in -0.5..0.5 and y in 0..1: `width` across, as tall as the run; `offset` moves window cells to world voxels.
+PackedFloat32Array SimWorld::get_fall_streaks(int p_slot, Vector3 p_offset, float p_width) const {
+    PackedFloat32Array r;
+    std::lock_guard<std::mutex> lock(streak_m_);
+    int cnt = 0;
+    for (size_t k = 0; k < streaks_last_.size(); k += 5) cnt += streaks_last_[k] == p_slot;
+    r.resize(cnt * 12);
+    float *w = r.ptrw();
+    for (size_t k = 0; k < streaks_last_.size(); k += 5) {
+        if (streaks_last_[k] != p_slot) continue;
+        const float len = (float)(streaks_last_[k + 4] - streaks_last_[k + 3] + 1);
+        const float t[12] = {p_width, 0.0f, 0.0f, streaks_last_[k + 1] + 0.5f + p_offset.x,
+                0.0f, len, 0.0f, streaks_last_[k + 3] + p_offset.y,
+                0.0f, 0.0f, p_width, streaks_last_[k + 2] + 0.5f + p_offset.z};
+        std::memcpy(w, t, sizeof(t));
+        w += 12;
+    }
+    return r;
 }

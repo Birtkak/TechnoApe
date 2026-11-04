@@ -14,7 +14,7 @@ const FRAMES := 8
 const MESHER_PADDING := 6   # VoxelMesherBlocky::PADDING of our build (voxel_patch_fluid.py, ADR 0069 A3): a smaller buffer meshes nothing
 
 var _mesh: MeshInstance3D
-var _extra: Array[MeshInstance3D] = []
+var _extra: Array[GeometryInstance3D] = []
 var _frames := 0
 
 
@@ -69,6 +69,17 @@ func add_meshes(meshes: Array, camera: Camera3D) -> void:
 		camera.add_child(mi)
 		mi.transform = Transform3D(Basis.from_scale(Vector3.ONE * 0.0005), Vector3(0.5 - 0.004 * i, 0.004, -1.0))
 		_extra.append(mi)
+
+
+## Nodes drawn mid-game with a pipeline of their own (FallStreaks' instanced liquid materials): drawn tiny with the
+## terrain mesh, then freed. Call after setup.
+func add_nodes(nodes: Array, camera: Camera3D) -> void:
+	for i in nodes.size():
+		var n: GeometryInstance3D = nodes[i]
+		n.extra_cull_margin = 16384.0
+		camera.add_child(n)
+		n.position = Vector3(0.5 - 0.004 * i, -0.004, -1.0)
+		_extra.append(n)
 
 
 func _process(_delta: float) -> void:
