@@ -196,6 +196,19 @@ var hot_c := 38.5
 var heatstroke_c := 39.5                 # above: one health per heatstroke_s
 var heatstroke_s := 8.0
 var poison_every_s := 1.25               # poisoned (a dart frog's touch): one health per this, never the last one (Minecraft)
+# ADR 0155: pollution pushes back. Smoke: a native count of smoke + toxic gas cells in a box round the head.
+var smoke_box_m := 0.4                   # half size of that box (0.4 m = 3 voxels: a 7x7x7 box)
+var smoke_dense_cells := 60              # this many gas cells in the box (of 343) is dense smoke
+var smoke_cough_after_s := 2.0           # breathing dense smoke this long: the first cough, the screen greys
+var smoke_cough_every_s := 3.0
+var smoke_hurt_after_s := 8.0            # then one health per smoke_hurt_every_s (it can kill: get out or mask up)
+var smoke_hurt_every_s := 4.0
+var crop_sick_growth := 0.25             # a sickly crop grows at this share of its speed
+var crop_wilt_ticks := 3                 # polluted random ticks in a row (minus clean ones) before it wilts to a dead bush
+var crop_smoke_cells := 2                # smoke or toxic gas in this many of the 4 voxels over a crop is heavy smoke
+var fish_gasp_s := 6.0                   # in fouled water this long: a fish rises to gasp at the surface (the sign)
+var fish_foul_die_s := 24.0              # this long: it dies and floats belly-up for fish_float_s
+var fish_float_s := 30.0
 var room_c := 18.0                       # a closed room pulls the temperature halfway to this
 var cave_c := 10.0                       # 4 m and more under the surface
 var water_c := -8.0                      # in water

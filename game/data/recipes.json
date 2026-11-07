@@ -11,6 +11,7 @@
     {"id": "chest", "type": "shaped", "pattern": ["PPP", "P P", "PPP"], "key": {"P": "#planks"}, "output": {"id": "chest", "count": 1}, "station": "crafting_table"},
     {"id": "furnace", "type": "shaped", "pattern": ["CCC", "C C", "CCC"], "key": {"C": "#cobble"}, "output": {"id": "furnace", "count": 1}, "station": "crafting_table"},
     {"id": "bucket", "type": "shaped", "pattern": ["I I", " I "], "key": {"I": "#metal.iron"}, "output": {"id": "bucket", "count": 1}, "station": "crafting_table"},
+    {"id": "cloth_mask", "type": "shaped", "pattern": ["FWF", " C "], "key": {"F": "plant_fiber", "W": "wool", "C": "charcoal"}, "output": {"id": "cloth_mask", "count": 1}},
     {"id": "leather_cap", "type": "shaped", "pattern": ["MMM", "M M"], "key": {"M": "#leather"}, "output": {"id": "leather_cap", "count": 1}, "station": "crafting_table"},
     {"id": "leather_tunic", "type": "shaped", "pattern": ["M M", "MMM", "MMM"], "key": {"M": "#leather"}, "output": {"id": "leather_tunic", "count": 1}, "station": "crafting_table"},
     {"id": "leather_boots", "type": "shaped", "pattern": ["M M", "M M"], "key": {"M": "#leather"}, "output": {"id": "leather_boots", "count": 1}, "station": "crafting_table"},

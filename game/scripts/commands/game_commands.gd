@@ -131,6 +131,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
 	reg.register("ponder", "/ponder [scene]", "Open the guide screen (ADR 0132): how boilers, pipes, cables and machines connect; no scene lists them", _ponder, [Ponder.scenes().keys()])
 	reg.register("stations", "/stations [electric|factory|lv|power|pollution|smoke]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141)", _stations, [["electric", "factory", "lv", "power", "pollution", "smoke"]])
+	reg.register("pollute", "/pollute [smoke]", "ADR 0155: a fouled pond with fish and wheat beside waste ground ahead (farm_speed=40 to watch crops wilt); smoke: a smoke booth round you", _pollute, [["smoke"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
 	reg.register("tame", "/tame", "Tame the wolf you look at (or the nearest within 12 m) as your companion (ADR 0152); empty hand toggles sit/stay", _tame)
@@ -982,6 +983,14 @@ func _ponder(args: PackedStringArray) -> Dictionary:
 	if main == null or main.get("ponder") == null or not main.ponder.open(id):
 		return CommandRegistry.fail("No guide '%s'. Guides: %s" % [args[0], ", ".join(Ponder.scenes().keys())])
 	return CommandRegistry.ok("Guide: " + String(Ponder.get_scene(id).get("title", id)))
+
+
+func _pollute(args: PackedStringArray) -> Dictionary:
+	if main == null:
+		return CommandRegistry.fail("No world")
+	if not main.bubble.is_loaded():
+		return _queue_until_loaded(_pollute, args)
+	return CommandRegistry.ok("Laid " + preload("res://scripts/debug/pollute_scene.gd").lay(main, args[0] if args.size() > 0 else ""))
 
 
 func _stations(args: PackedStringArray) -> Dictionary:

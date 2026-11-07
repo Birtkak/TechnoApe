@@ -245,6 +245,8 @@ func edge_color() -> Color:
 		return Color(0.85, 0.05, 0.05, 0.6 * _hurt_t / HURT_S)
 	if survival == null or not _hearts.visible:
 		return Color(1, 1, 1, 0)
+	if survival.smoke_s >= Settings.smoke_cough_after_s:   # ADR 0155: coughing in smoke greys the edge, darker toward the hurt
+		return Color(0.42, 0.4, 0.36, 0.3 + 0.35 * clampf(survival.smoke_s / Settings.smoke_hurt_after_s, 0.0, 1.0))
 	var cold := clampf((Settings.cold_c - survival.body_c) / (Settings.cold_c - Settings.freeze_c), 0.0, 1.0)
 	if cold > 0.0:
 		return Color(0.6, 0.85, 1.0, 0.15 + 0.4 * cold)

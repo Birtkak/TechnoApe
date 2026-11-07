@@ -44,6 +44,13 @@ static func ground_ok(def: Dictionary, ground: int) -> bool:
 ## Mob._think_goal, after the predator goals: true when this took the turn.
 static func think(m: Mob) -> bool:
 	var mv := moves(m)
+	if mv == "swim" and m.foul_s >= Settings.fish_gasp_s and not m.is_dead():   # ADR 0155: sick from fouled water: gasps at the surface
+		m.goal = "gasp"
+		if m._target == Vector3.INF and m._chance_per_tick(1.0 / 20.0):
+			var t := _surface_above(m)
+			if t != Vector3.INF:
+				m._go(t, Settings.m2v(float(m.def.get("walk_m", 1.0)) * 0.4), Settings.m2v(0.2))
+		return true
 	var sk := float(m.def.get("skittish_m", 0.0))
 	if sk > 0.0 and not m.is_dead():
 		var pp: Vector3 = m.manager.player_feet()
@@ -133,10 +140,19 @@ static func _target_3d(m: Mob, water: bool) -> Vector3:
 			t.y = m.manager.world.surface_height(int(t.x), int(t.z)) + Settings.m2v(m._rng.randf_range(5.0, 14.0))
 		var p := Vector3i(t.floor())
 		if water:
-			if m.manager.is_liquid(p) and m.manager.is_liquid(p + Vector3i.UP):
+			if m.manager.is_liquid(p) and m.manager.is_liquid(p + Vector3i.UP) and GameMaterials.material_of_voxel(m.manager.get_voxel(p)) != GameMaterials.FOULED_WATER:
 				return t
 		elif m.manager.get_voxel(p) == GameMaterials.AIR and m.manager.get_voxel(Vector3i(((m.position + t) * 0.5).floor())) == GameMaterials.AIR:
 			return t
+	return Vector3.INF
+
+
+## Just under the water's top straight over a fish (up to 4 m), or INF.
+static func _surface_above(m: Mob) -> Vector3:
+	var p := Vector3i(m.position.floor())
+	for k in int(Settings.m2v(4.0)):
+		if not m.manager.is_liquid(p + Vector3i(0, k + 1, 0)):
+			return Vector3(p.x + 0.5, p.y + k + 0.3 - m._height_v * 0.5, p.z + 0.5)
 	return Vector3.INF
 
 

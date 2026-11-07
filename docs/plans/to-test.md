@@ -15,6 +15,12 @@ frame times.
 - [ ] `/scenario fuse` (look at open ground first): a 4 m cord burns toward the charge with sparks and smoke, about 8 s, then the blast. Speed right?
 - [ ] Craft fuse cord (cordage, sulfur, charcoal), lay it with the brush at size 1 from a TNT block through tall grass, light the far end with flint and steel: the grass beside it must not catch.
 - [ ] Blasts throw chunks that fly and land as gravel/dirt piles around the crater. Violent enough? Too many or too few?
+## Pollution pushes back (ADR 0155)
+
+- [ ] `/pollute` (best with a `farm_speed=40` launch): fish in the fouled third rise and hang at the surface ("Gasping"
+      in the look line), then float belly-up; the wheat beside the brown waste ground says "Sickly", then wilts to dead
+      bushes while the clean plot stays. `/pollute smoke` (survival): cough, grey edge, a toast, then hurt; wear a
+      Cloth Mask (plant fiber, wool, charcoal) and it stops. Fair timing (cough 2 s, hurt from 8 s)?
 
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 

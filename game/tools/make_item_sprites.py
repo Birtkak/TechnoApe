@@ -1577,6 +1577,12 @@ sp("spyglass", ("pipe", "copper"), ("ball", "tin"))
 sp("hand_drill", H, ("pickaxe_head", "steel"), ("flower_head", "iron"))
 sp("heavy_copper_cable", ("pipe", "copper", {"e": "#0e0e16", "f": "#22222c"}))
 sp("leather_apron", ("apron", "leather"))
+# ADR 0155: a cloth smoke mask: a wool pad over mouth and nose with ties at the sides and a charcoal pad sewn in
+g = shade(compose(rect(new(), 3, 6, 12, 11), rect(new(), 4, 12, 11, 12)))
+line(g, 3, 7, 0, 5, "s"); line(g, 12, 7, 15, 5, "s")
+rect(g, 6, 8, 9, 9, "c")
+shape("cloth_mask", outline(g), {"s": "#8a7a5a", "c": "#2a2626"})
+sp("cloth_mask", ("cloth_mask", "wool"))
 
 # stage 2 and the turbine (ADR 0099)
 PALETTES["fire_brick"] = ramp("#6a5a3a", "#b09a62", "#d4bc84", "#e8d4a4", "#f8ecc8")   # fire clay: pale buff

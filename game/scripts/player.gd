@@ -1182,7 +1182,7 @@ func _update_look(hit: VoxelRaycastResult, mob) -> void:
 	if liquid.x != 1 << 30:
 		key = "liquid %s %d" % [liquid, world.get_voxel(liquid)]
 	elif mob != null:
-		key = "mob %d %d" % [mob.uid, mob.health]
+		key = "mob %d %d %s" % [mob.uid, mob.health, mob.foul_s >= Settings.fish_gasp_s]
 	elif hit != null:
 		key = "%s %d %s %s" % [hit.position, world.get_voxel(hit.position), held_id, game_mode]
 	_look_refresh -= 1
@@ -1198,6 +1198,8 @@ func _update_look(hit: VoxelRaycastResult, mob) -> void:
 		info = {"title": inventory.items.display_name(lid) if lid != "" else lname.capitalize(), "icon": lid}
 	elif mob != null:
 		info = {"title": String(mob.species).capitalize(), "line": "Health %d / %d" % [mob.health, int(mob.def.get("health", 8))]}
+		if mob.foul_s >= Settings.fish_gasp_s:
+			info["line"] += "\nGasping: fouled water"   # ADR 0155: the sign before it dies
 	elif hit != null:
 		var mat := world.get_voxel(hit.position)
 		if mat > 0:

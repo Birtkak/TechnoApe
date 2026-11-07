@@ -98,6 +98,7 @@ var _lay_t := 0.0               # chickens: seconds to the next egg
 var _burn_t := 0.0              # seconds still alight after touching lava or fire
 var _burn_hurt_t := 0.0
 var _foul_next_ms := 0          # ADR 0141: the next hurt from fouled water
+var foul_s := 0.0               # ADR 0155: a swimmer's time in fouled water (gasps at Settings.fish_gasp_s, dies at fish_foul_die_s)
 const FOUL_HURT_EVERY_MS := 2000
 var _every := 1                 # step every n-th physics frame (distance to the player, set by the brain)
 var _skipped := 0.0             # seconds since the last step
@@ -225,10 +226,18 @@ func eye() -> Vector3:
 func _touch_heat() -> void:
 	if is_dead():
 		return
+	var fouled := false
 	for f in [0.05, 0.4, 0.8]:
 		var m := GameMaterials.material_of_voxel(manager.get_voxel(Vector3i((position + Vector3(0, _height_v * f, 0)).floor())))
+		fouled = fouled or m == GameMaterials.FOULED_WATER
 		if m == GameMaterials.FOULED_WATER and Time.get_ticks_msec() >= _foul_next_ms:   # ADR 0141: it sickens what swims or wades in it
 			_foul_next_ms = Time.get_ticks_msec() + FOUL_HURT_EVERY_MS
+			if WildMoves.moves(self) == "swim":   # ADR 0155: a fish sickens slowly, gasps at the surface (the sign), then dies
+				foul_s += FOUL_HURT_EVERY_MS / 1000.0
+				if foul_s >= Settings.fish_foul_die_s:
+					_die_fouled()
+					return
+				continue
 			_invuln_t = 0.0
 			hurt(1, position + Vector3(_rng.randf_range(-1, 1), 0, _rng.randf_range(-1, 1)))
 		if m == GameMaterials.LAVA or m == GameMaterials.LAVA_STATIC or m == GameMaterials.FIRE:
@@ -238,6 +247,19 @@ func _touch_heat() -> void:
 			return
 	if in_liquid:
 		_burn_t = 0.0
+		if not fouled and foul_s > 0.0:
+			foul_s = maxf(0.0, foul_s - THINK_S)   # clean water: it recovers
+
+
+## ADR 0155: killed by fouled water: it floats up belly-up and lies there Settings.fish_float_s before it goes.
+func _die_fouled() -> void:
+	set_meta("fouled", true)
+	health = 0
+	dying = 0.001
+	goal = "dying"
+	_stop()
+	velocity = Vector3.ZERO
+	manager.stats["fouled"] = int(manager.stats.get("fouled", 0)) + 1
 
 
 func _burn_step(delta: float) -> void:
@@ -355,6 +377,14 @@ func _physics_process(delta: float) -> void:
 
 
 func _step(delta: float) -> void:
+	if dying > 0.0 and has_meta("fouled"):   # ADR 0155: belly-up (2 = a half turn), drifting up to the surface
+		dying += delta / Settings.fish_float_s
+		model.animate(delta, 0.0, 0.0, 0.0, 0.0, minf(dying * 15.0, 2.0))
+		if manager.is_liquid(Vector3i((position + Vector3(0, _height_v, 0)).floor())):
+			position.y += Settings.m2v(0.4) * delta
+		if dying >= 1.0:
+			manager.on_died(self)
+		return
 	if dying > 0.0:
 		dying += delta / DEATH_S
 		model.animate(delta, 0.0, 0.0, 0.0, 0.0, minf(dying, 1.0))

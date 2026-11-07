@@ -4190,6 +4190,27 @@
         "................"
       ]
     },
+    "cloth_mask": {
+      "colors": {"s": "#8a7a5a", "c": "#2a2626"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "o..............o",
+        "soooooooooooooos",
+        "osshlllllllllsso",
+        ".oosmmmmmmmmsoo.",
+        "..olmmccccmmdo..",
+        "..olmmccccmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "...oldddddddo...",
+        "....oooooooo....",
+        "................",
+        "................"
+      ]
+    },
     "machine": {
       "colors": {"p": "#3a6852", "q": "#5a8e70", "r": "#24453a", "s": "#a6b0bc", "w": "#16181e", "v": "#16181e", "y": "#e8b830", "b": "#24232a", "k": "#9ea6b2", "K": "#5c6470", "e": "#fca030", "f": "#c0300c"},
       "rows": [
@@ -4983,6 +5004,7 @@
     "hand_drill": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "pickaxe_head", "palette": "steel"}, {"shape": "flower_head", "palette": "iron"}]},
     "heavy_copper_cable": {"layers": [{"shape": "pipe", "palette": "copper", "colors": {"e": "#0e0e16", "f": "#22222c"}}]},
     "leather_apron": {"layers": [{"shape": "apron", "palette": "leather"}]},
+    "cloth_mask": {"layers": [{"shape": "cloth_mask", "palette": "wool"}]},
     "steel_plate": {"layers": [{"shape": "plate", "palette": "steel"}]},
     "steel_work_piece": {"layers": [{"shape": "work_piece", "palette": "steel"}]},
     "steel_boiler": {"layers": [{"shape": "boiler", "colors": {"h": "#d0d8e2", "l": "#9ca6b2", "m": "#737d8a", "d": "#4a525e"}}]},
