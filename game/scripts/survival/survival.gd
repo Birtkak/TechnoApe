@@ -44,7 +44,7 @@ var buffs := {}              # meal buffs (ADR 0121): kind -> {left_s, amount}; 
 var _buff_regen_t := 0.0
 ## Meal buffs (food "buff": {kind, amount, s}): warm / cool shift the felt temperature by amount C,
 ## regen heals one health every amount seconds, haste multiplies walking speed by 1 + amount.
-const BUFFS := {"warm": "Warmed", "cool": "Cooled", "regen": "Mending", "haste": "Lively"}
+const BUFFS := {"warm": "Warmed", "cool": "Cooled", "regen": "Mending", "haste": "Lively", "rested": "Rested"}
 var _poison_t := 0.0
 var _rooms := {}             # container position -> [closed room, valid until clock s] (root cellars)
 const ROOM_CACHE_S := 30.0
@@ -175,7 +175,7 @@ func _process(delta: float) -> void:
 
 
 func _hunger_step(delta: float, fast: bool) -> void:
-	var cost := hunger_rate(fast, body_c < Settings.cold_c) * delta
+	var cost := hunger_rate(fast, body_c < Settings.cold_c) * delta * rested_k(1.0 - Settings.rested_hunger_cut)
 	if saturation > 0.0:
 		var s := minf(saturation, cost)
 		saturation -= s
@@ -193,7 +193,7 @@ func _hunger_step(delta: float, fast: bool) -> void:
 	else:
 		_starve_t = 0.0
 	if hunger >= Settings.regen_hunger and inv.health < inv.max_health:
-		_regen_t += delta
+		_regen_t += delta * rested_k(2.0)   # Rested heals faster
 		if _regen_t >= Settings.regen_s:
 			_regen_t = 0.0
 			inv.heal(1)
@@ -350,6 +350,8 @@ func _buff_step(delta: float, inv: PlayerInventory) -> void:
 		buffs[k]["left_s"] = float(buffs[k]["left_s"]) - delta
 		if buffs[k]["left_s"] <= 0.0:
 			buffs.erase(k)
+	if buffs.has("rested") and player != null:
+		player.speed_mult *= 1.0 + Settings.rested_speed * float(buffs["rested"]["amount"])
 	if buffs.has("haste") and player != null:
 		player.speed_mult *= 1.0 + float(buffs["haste"]["amount"])
 	if buffs.has("regen") and inv != null and inv.health < inv.max_health:
@@ -359,6 +361,21 @@ func _buff_step(delta: float, inv: PlayerInventory) -> void:
 			inv.heal(1)
 	else:
 		_buff_regen_t = 0.0
+
+
+## `full` blended in by the Rested buff's amount (1 without it): hunger 1 - cut, healing 2.
+func rested_k(full: float) -> float:
+	return lerpf(1.0, full, float(buffs["rested"]["amount"])) if buffs.has("rested") else 1.0
+
+
+## Rests in the room of `bed`: grants the Rested buff its rating earns. Returns the rating.
+func rest_at(bed: FurnitureEntity, nap: bool) -> Dictionary:
+	var r := Comfort.of_bed(main, bed)
+	var b := Comfort.buff(int(r["points"]), nap)
+	if not b.is_empty():
+		var old: Dictionary = buffs.get("rested", {"left_s": 0.0})
+		buffs["rested"] = {"left_s": maxf(float(old["left_s"]), float(b["s"])), "amount": float(b["amount"])}
+	return r
 
 
 ## The buffs as one line ("Warmed 2:40, Mending 0:12"), "" without any.

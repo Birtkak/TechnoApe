@@ -369,7 +369,7 @@ func _capital_raw(r: Dictionary) -> Array:
 		"kiln", "charcoal_pit", "bury":
 			out.append("@fire")
 		"rack":
-			out.append("drying_rack")
+			out.append({"smoke": "smokehouse", "evaporate": "salt_pan"}.get(String(r.get("mode", "")), "drying_rack"))
 			if r.get("mode", "") == "smoke":
 				out.append("@fire")
 		"trap":

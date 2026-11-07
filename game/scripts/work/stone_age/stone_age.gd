@@ -18,7 +18,7 @@ extends Node
 ## are created by BlockEntities through create_entity().
 
 const SURFACES := ["ground", "stone", "sandstone", "loom"]
-const KINDS := ["earth_oven", "rack", "stroke", "loom", "water_work", "megalith", "dugout"]
+const KINDS := ["earth_oven", "rack", "smokehouse", "salt_pan", "stroke", "loom", "water_work", "megalith", "dugout"]
 const HEIGHTS := {"earth_oven": 2, "water_work": 1, "stroke": 1}   # voxels; the rest are full blocks
 ## Items the world gives without a recipe (the tests' list of sources, beside ground pickups and drops).
 const WORLD_SOURCES := {"birch_bark": "a knife on a birch trunk's bark", "tinder_fungus": "peeling birch bark, now and then",
@@ -54,8 +54,8 @@ static func create_entity(blocks: BlockEntities, pos: Vector3i, kind: String) ->
 	match kind:
 		"earth_oven":
 			return EarthOvenEntity.new(blocks.recipes, pos)
-		"rack":
-			return RackEntity.new(blocks.recipes, pos)
+		"rack", "smokehouse", "salt_pan":
+			return RackEntity.new(blocks.recipes, pos, kind)
 		"stroke", "loom":
 			return StrokeEntity.new(blocks.recipes, pos, kind)
 		"water_work":
@@ -68,7 +68,7 @@ static func create_entity(blocks: BlockEntities, pos: Vector3i, kind: String) ->
 
 
 static func ticks(kind: String) -> bool:
-	return kind in ["earth_oven", "rack", "water_work", "dugout"]
+	return kind in ["earth_oven", "rack", "smokehouse", "salt_pan", "water_work", "dugout"]
 
 
 ## The durability multiplier a tool assembled from `parts` gets (ADR 0059): the best binding's haft_x
@@ -183,11 +183,11 @@ func _process(delta: float) -> void:
 
 ## Racks smoke over a lit firepit; carried embers go out.
 func _each_second() -> void:
-	for e in main.blocks.all_of("rack"):
+	for e in main.blocks.all_of("rack") + main.blocks.all_of("smokehouse") + main.blocks.all_of("salt_pan"):
 		_watch(e)
 		var was: bool = e.smoky
-		e.smoky = _fire_near(e.pos)
-		if e.smoky:
+		e.smoky = _sun_on(e.pos) if e.kind == "salt_pan" else _fire_near(e.pos)
+		if e.smoky and e.kind != "salt_pan":
 			main.work._particles("smoke", main.work._at(e.pos, Vector3(0.5, 1.1, 0.5)), 0)
 		if was != e.smoky:
 			e.changed.emit()
@@ -197,6 +197,13 @@ func _each_second() -> void:
 		if not s.is_empty() and s.has("out_at") and float(s["out_at"]) <= now_days:
 			inv.set_slot(i, {})
 			main.work._say("Your smouldering fungus has gone out.")
+
+
+## Open sky above p in daylight (the salt pan's evaporation, ADR 0162).
+func _sun_on(p: Vector3i) -> bool:
+	var cal = main.atmosphere.calendar
+	var t: float = main.atmosphere.time_of_day
+	return t > cal.sunrise() and t < cal.sunset() and main.world.surface_height(p.x, p.z) <= p.y + 1
 
 
 ## A lit firepit beside the block at p, under it, or one block lower beside it.

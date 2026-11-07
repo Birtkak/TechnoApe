@@ -147,8 +147,8 @@ func _validate(r) -> bool:
 			if r["type"] == "stroke" and (int(r.get("strokes", 0)) <= 0 or not r.get("on", "") in StoneAge.SURFACES):
 				errors.append("stroke recipe %s needs strokes and on (%s)" % [r["id"], ", ".join(StoneAge.SURFACES)])
 				return false
-			if r["type"] == "rack" and not r.get("mode", "") in ["dry", "smoke"]:
-				errors.append("rack recipe %s: mode is dry or smoke" % r["id"])
+			if r["type"] == "rack" and not r.get("mode", "") in ["dry", "smoke", "evaporate"]:
+				errors.append("rack recipe %s: mode is dry, smoke or evaporate" % r["id"])
 				return false
 			for k in ["cover", "fuel", "tool", "grit"]:
 				if r.has(k) and String(r[k]) != "" and not _spec_exists(String(r[k])):

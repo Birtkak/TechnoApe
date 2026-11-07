@@ -31,6 +31,9 @@
     {"id": "bow_stave", "type": "shapeless", "ingredients": ["#log", "#knife"], "keep": ["#knife"], "output": {"id": "bow_stave", "count": 2}},
     {"id": "lever", "type": "shapeless", "ingredients": ["#log", "#log", "#knife"], "keep": ["#knife"], "output": {"id": "lever", "count": 1}},
     {"id": "wooden_wedge", "type": "shapeless", "ingredients": ["#stick", "#stick", "#knife"], "keep": ["#knife"], "output": {"id": "wooden_wedge", "count": 4}},
+    {"id": "smokehouse", "type": "shapeless", "ingredients": ["#log", "#log", "#log", "#log", "#stick", "#stick", "cordage", "cordage"], "output": {"id": "smokehouse", "count": 1}},
+    {"id": "salt_pan", "type": "shapeless", "ingredients": ["clay_ball", "clay_ball", "clay_ball", "clay_ball"], "output": {"id": "salt_pan", "count": 1}},
+    {"id": "salted_fish", "type": "shapeless", "ingredients": ["raw_fish", "salt"], "output": {"id": "salted_fish", "count": 1}},
     {"id": "drying_rack", "type": "shapeless", "ingredients": ["#stick", "#stick", "#stick", "#stick", "cordage", "cordage"], "output": {"id": "drying_rack", "count": 1}},
     {"id": "basket_trap", "type": "shapeless", "ingredients": ["#stick", "#stick", "#stick", "#stick", "plant_fiber", "plant_fiber", "plant_fiber", "plant_fiber"], "output": {"id": "basket_trap", "count": 1}},
     {"id": "fish_weir", "type": "shapeless", "ingredients": ["wattle", "wattle", "#stick", "#stick"], "output": {"id": "fish_weir", "count": 1}},
@@ -56,6 +59,7 @@
 
     {"id": "rack_dry_meat", "type": "rack", "ingredients": ["raw_meat"], "input": "raw_meat", "mode": "dry", "hours": 24, "output": {"id": "dried_meat", "count": 1}, "info": "Hung on a rack, 1 game day"},
     {"id": "rack_smoke_meat", "type": "rack", "ingredients": ["raw_meat"], "input": "raw_meat", "mode": "smoke", "hours": 10, "output": {"id": "smoked_meat", "count": 1}, "info": "Over a lit firepit, 10 game hours"},
+    {"id": "pan_evaporate_brine", "type": "rack", "ingredients": ["brine_pot"], "input": "brine_pot", "mode": "evaporate", "hours": 8, "output": {"id": "salt_pot", "count": 1}, "info": "In a salt pan, 8 game hours of sunlight"},
     {"id": "rack_dry_fish", "type": "rack", "ingredients": ["raw_fish"], "input": "raw_fish", "mode": "dry", "hours": 20, "output": {"id": "dried_fish", "count": 1}, "info": "Hung on a rack, 20 game hours"},
     {"id": "rack_smoke_fish", "type": "rack", "ingredients": ["raw_fish"], "input": "raw_fish", "mode": "smoke", "hours": 8, "output": {"id": "smoked_fish", "count": 1}, "info": "Over a lit firepit, 8 game hours"},
 
