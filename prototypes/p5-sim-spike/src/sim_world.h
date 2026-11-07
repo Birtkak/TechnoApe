@@ -244,7 +244,7 @@ private:
 
     struct Marks { uint32_t wake = 0; uint32_t dirty = 0; uint32_t box[27] = {}; uint32_t dbox[27] = {}; };
     static constexpr int STREAK_CTX = 128;   // fall paths one chunk update keeps before it hands them over
-    struct Ctx { int cx, cy, cz; Marks mk; uint32_t rng; uint64_t moved = 0; uint64_t reacted = 0;
+    struct Ctx { int cx, cy, cz; Marks mk; uint32_t rng; uint64_t moved = 0; uint64_t reacted = 0; int steps = 1;   // steps: ticks this update covers (a deferred far chunk: 2+)
         int64_t falls[TALLY_SLOTS][4] = {};
         int nst = 0; int32_t st[STREAK_CTX * 5]; };   // fall paths this update: slot, x, z, lowest and highest cell passed   // liquid cells that fell this tick per fluid slot: count, sum x y z
     // Dirty box of a chunk packed in 25 bits: valid | min xyz | max xyz (4 bits each, local 0..15).
@@ -332,6 +332,7 @@ private:
     int lod_divisor_ = 1;
     int cell_budget_ = 0;      // 0 = unlimited
     std::vector<uint8_t> defer_age_;
+    std::vector<uint8_t> steps_;      // ticks the chunk's next update covers: its deferred ticks + 1 (ADR 0150: fuses count sim time)
     std::vector<std::pair<int64_t, int>> sched_;
     // v6 background tick
     std::thread driver_;

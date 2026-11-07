@@ -347,7 +347,7 @@ static func _fuse_defs() -> Array:
 	return [
 		{"name": "fuse_cord", "cell_type": "solid", "density": 6, "hp": 5, "burnable": true, "fire_hp": maxi(24, ceili(ft) + 4), "fuse_ticks": ft, "ignite_chance": 0.5,
 			"autoignition_temperature": 10, "temperature_of_fire": 12, "on_fire_convert_to_material": 8, "on_fire_flame_material": FUSE_SPARK,
-			"on_fire_smoke_material": 11, "generates_smoke": 40, "tiles": [199, 199, 199], "transparent": false},
+			"on_fire_smoke_material": 11, "generates_smoke": 40, "tiles": [217, 217, 217], "transparent": false},
 		{"name": "fuse_spark", "cell_type": "fire", "density": 0, "lifetime": 8, "temperature_of_fire": 0, "gas_upwards_speed": 0,
 			"gas_horizontal_speed": 0, "tiles": [12, 12, 12], "transparent": true},
 	]

@@ -22,7 +22,7 @@ const SCENARIOS := {
 	"cave_stream": ["/goto river", "/gamemode creative", "/kit water", "/locate cave"],   # tunnel from the bank to that cave
 	"lit_station": ["/time set night", "/daycycle off", "/stations"],   # /stations lights its furnace (cobblestone + coal)
 	"contraptions": ["/gamemode creative", "/kit contraptions", "/contraptions"],   # a lift, a drawbridge, a crane on cranks (ADR 0160)
-	"fuse": ["/gamemode creative", "/kit tnt", "/tnt fuse 4"],   # look at open ground first: a cord burns 4 m into a charge (ADR 0150)
+	"fuse": ["/gamemode creative", "/kit tnt", "/tnt fuse 5 course", "/summon sheep 4"],   # look at open ground first: a cord climbs steps and runs under water into a charge (ADR 0150)
 	"ledge": ["/gamemode survival", "/fill {x0} {ledge} {z0} {x1} {ledge} {z1} stone", "/tp {x} {on} {z}"],   # Ctrl sprint, Shift stops at the edge
 }
 

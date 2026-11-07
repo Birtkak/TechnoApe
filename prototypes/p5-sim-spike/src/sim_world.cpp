@@ -185,6 +185,7 @@ void SimWorld::configure(Vector3i p_chunks, int p_threads, int p_seed) {
     dbox_.reset(new std::atomic<uint32_t>[nc]);
     for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); fast_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); box_now_[i].store(0); box_next_[i].store(0); dbox_[i].store(0); }
     defer_age_.assign(nc, 0);
+    steps_.assign(nc, 1);
     heat_.assign(n / (HC * HC * HC), ambient_c_);
     pressure_.assign(nc, 0);
     switch_.assign(nc, SW_ALL);
@@ -1596,8 +1597,9 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
     // steps, turns diagonals and burns on under water (a safety fuse). A cell lit this tick waits for the next one.
     if (m.fuse_ticks) {
         if (moved_[i] == mark_) { mark_cell(x, y, z, c, false); return; }
+        if (c.steps > 1) cells_[i].aux = (uint8_t)std::max(1, (int)cells_[i].aux - (c.steps - 1));   // a far chunk's skipped ticks
         const int burnt = (int)m.fire_hp - (int)cells_[i].aux + 1;   // counting this tick
-        if (burnt == m.fuse_ticks || burnt == m.fuse_ticks + 1) {
+        if (burnt >= m.fuse_ticks) {
             for (int dy = -1; dy <= 1; dy++)
                 for (int dz = -1; dz <= 1; dz++)
                     for (int dx = -1; dx <= 1; dx++) {
@@ -1606,9 +1608,12 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
                         if (!is_open(nx, ny, nz)) continue;
                         const int ni = idx(nx, ny, nz);
                         if (cells_[ni].mat != self || (cells_[ni].flags & FLAG_BURNING)) continue;
-                        if (burnt == m.fuse_ticks && (rnd(c) & 0xFFFF) < m.fuse_frac) continue;   // waits one more tick
+                        // this neighbour's delay: fuse_ticks, one more for fuse_frac of the cells (a fixed hash, no re-roll)
+                        const uint32_t h = ((uint32_t)nx * 73856093u) ^ ((uint32_t)ny * 19349663u) ^ ((uint32_t)nz * 83492791u);
+                        const int delay = m.fuse_ticks + (((h >> 8) & 0xFFFF) < m.fuse_frac ? 1 : 0);
+                        if (burnt < delay) continue;
                         cells_[ni].flags |= FLAG_BURNING;
-                        cells_[ni].aux = m.fire_hp;
+                        cells_[ni].aux = (uint8_t)std::max(1, (int)m.fire_hp - (burnt - delay));   // caught when it should have: a far chunk's late update
                         moved_[ni] = mark_;
                         mark_cell(nx, ny, nz, c, true);
                         c.reacted++;
@@ -1733,6 +1738,8 @@ void SimWorld::chunk_of(int ci, int &cx, int &cy, int &cz) const {
 void SimWorld::update_chunk(int ci) {
     if (loaded_[ci] != 1) return;   // waiting for data
     Ctx c;
+    c.steps = steps_[ci];
+    steps_[ci] = 1;
     chunk_of(ci, c.cx, c.cy, c.cz);
     c.rng = (seed_ ^ ((uint32_t)ci * 2654435761u) ^ (tick_ * 40503u)) | 1u;
     int x0 = c.cx * CS, y0 = c.cy * CS, z0 = c.cz * CS;
@@ -1946,11 +1953,13 @@ void SimWorld::tick_once(TickOut &o) {
                 int v = dirty_boxes_ ? box_volume(box_now_[ci].load(std::memory_order_relaxed)) : CS * CS * CS;
                 if (k > 0 && used + (uint64_t)v > (uint64_t)cell_budget_) { defer_chunk(ci); deferred++; continue; }
                 used += v;
+                steps_[ci] = (uint8_t)std::min(255, defer_age_[ci] + 1);
                 defer_age_[ci] = 0;
             }
             scanned = used;
         } else {
             for (auto &p : sched_) {
+                steps_[p.second] = (uint8_t)std::min(255, defer_age_[p.second] + 1);
                 defer_age_[p.second] = 0;
                 scanned += dirty_boxes_ ? box_volume(box_now_[p.second].load(std::memory_order_relaxed)) : CS * CS * CS;
             }
