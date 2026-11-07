@@ -32,6 +32,7 @@ func test_ids_data_and_a_cold_fire() -> void:
 	assert_int(GameMaterials.FUSE_SPARK).is_equal(138)
 	assert_int(GameMaterials.id_of("fuse_cord")).is_equal(137)
 	assert_int(GameMaterials.id_of("fuse_spark")).is_equal(138)
+	assert_array(GameMaterials.defs()[GameMaterials.FUSE_CORD - 1]["tiles"]).is_equal([217, 217, 217])   # its own tile
 	var defs := GameMaterials.defs()
 	var cord: Dictionary = defs[GameMaterials.FUSE_CORD - 1]
 	# its fire is colder than anything else catches: the ground beside it never burns
@@ -45,10 +46,22 @@ func test_ids_data_and_a_cold_fire() -> void:
 	assert_bool(RecipeRegistry.load_default(items).recipes.has("fuse_cord")).is_true()
 
 
-## Four 7 m cords between rows of tall grass, lit at x = X0: each burns to its end at the set speed (the
-## mean of the four within 20 %), the grass stays, and the cord is ash.
+## Four 7 m cords between rows of tall grass, lit at x = X0: each burns to its end at the set speed (the mean of
+## the four within 5 %: the native fuse rule is a steady delay per cell), the grass stays, and the cord is ash.
 func test_cord_burns_end_to_end_at_the_set_speed() -> void:
+	_check_burn(_world(), "near")
+
+
+## The same cords in sim chunks that tick every second tick (beyond Settings.sim_lod_m): the fuse counts the
+## skipped ticks, so the speed is the same everywhere.
+func test_far_cord_burns_at_the_same_speed() -> void:
 	var w := _world()
+	w.set_lod(0, 2)
+	w.set_focus(Vector3i(63, 31, 63))   # every chunk the cords cross is far
+	_check_burn(w, "far")
+
+
+func _check_burn(w: SimWorld, label: String) -> void:
 	for z in LINES:
 		w.fill_box(Vector3i(X0, 4, z), Vector3i(X0 + LEN, 5, z + 1), GameMaterials.FUSE_CORD)
 		w.fill_box(Vector3i(X0, 4, z - 1), Vector3i(X0 + LEN, 5, z), GameMaterials.TALL_GRASS)
@@ -69,8 +82,8 @@ func test_cord_burns_end_to_end_at_the_set_speed() -> void:
 	for z in reached:
 		mean += reached[z] / float(HZ) / LINES.size()
 	var expected := (LEN - 1) * Settings.VOXEL_M / Settings.fuse_speed_mps
-	print("fuse_cord: %.2f m burnt in %.2f s (mean of %d), expected %.2f s" % [(LEN - 1) * Settings.VOXEL_M, mean, LINES.size(), expected])
-	assert_float(mean).override_failure_message("mean %.2f s, expected %.2f s" % [mean, expected]).is_between(expected * 0.95, expected * 1.05)
+	print("fuse_cord %s: %.2f m burnt in %.2f s (mean of %d), expected %.2f s" % [label, (LEN - 1) * Settings.VOXEL_M, mean, LINES.size(), expected])
+	assert_float(mean).override_failure_message("%s: mean %.2f s, expected %.2f s" % [label, mean, expected]).is_between(expected * 0.95, expected * 1.05)
 	for i in 4 * HZ:
 		w.tick(1)
 	assert_int(w.count_material(GameMaterials.FUSE_CORD)).is_equal(0)

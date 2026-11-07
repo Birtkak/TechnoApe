@@ -518,8 +518,10 @@ func _spawn_drops(counts: Dictionary, removed: int, pos: Vector3, r: float) -> v
 
 ## Lays a fuse cord of `cells` voxels on the ground from the block at `anchor` (its -dir face side, at its floor,
 ## through the middle of the face) out along `dir` (a unit x or z axis), and lights the far end (ADR 0150).
-## Returns the lit end (world voxels), or Vector3i.MAX when the cord could not be laid.
-func lay_fuse(anchor: Vector3i, dir: Vector3i, cells: int) -> Vector3i:
+## Returns the lit end (world voxels), or Vector3i.MAX when the cord could not be laid. `course`: the far half
+## climbs 4 steps (cells touching only by an edge) on stone, and a stretch near the charge runs under water in a
+## stone trough: the playtest of what a cord does besides lying flat.
+func lay_fuse(anchor: Vector3i, dir: Vector3i, cells: int, course := false) -> Vector3i:
 	var b := Settings.BLOCK
 	var side := Vector3i(absi(dir.z), 0, absi(dir.x))   # across the cord
 	var start := anchor + side * (b / 2) + (dir * b if dir.x + dir.z > 0 else dir)
@@ -529,6 +531,25 @@ func lay_fuse(anchor: Vector3i, dir: Vector3i, cells: int) -> Vector3i:
 	if main.bubble.fill_box(lo - Vector3i(0, 1, 0), hi - Vector3i(0, 1, 0), GameMaterials.STONE) < 0:   # a flat bed under it
 		return Vector3i.MAX
 	main.bubble.fill_box(lo, hi, GameMaterials.FUSE_CORD)
+	if course:
+		var up := Vector3i(0, 1, 0)
+		for k in range(cells / 2, cells):
+			var h := mini(k - cells / 2 + 1, 4)
+			var p := start + dir * k
+			main.bubble.set_voxel(p, GameMaterials.AIR)
+			for y in h:
+				main.bubble.set_voxel(p + up * y, GameMaterials.STONE)
+			main.bubble.set_voxel(p + up * h, GameMaterials.FUSE_CORD)
+		end += up * mini(cells - 1 - cells / 2 + 1, 4)
+		var w0 := cells / 6
+		var w1 := maxi(w0 + 1, cells / 3)
+		for k in range(w0 - 1, w1 + 1):
+			var p := start + dir * k
+			for y in 3:
+				main.bubble.set_voxel(p + side + up * y, GameMaterials.STONE)
+				main.bubble.set_voxel(p - side + up * y, GameMaterials.STONE)
+				if y > 0:
+					main.bubble.set_voxel(p + up * y, GameMaterials.STONE if k < w0 or k >= w1 else GameMaterials.WATER)
 	main.bubble.sim.ignite(end - main.bubble.origin * Settings.CHUNK)
 	return end
 

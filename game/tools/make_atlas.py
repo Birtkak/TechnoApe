@@ -1231,6 +1231,28 @@ ROWS = max(ROWS, 28)
 while len(tiles) < 217:
     tiles.append(blank)
 tiles[216] = hot_meteor_tile()
+
+
+def fuse_tile():
+    """ADR 0150: 217 fuse cord, a tarred black-powder cord: dark twisted strands (diagonal bands) with grey
+    powder grains and a few tan fibres showing through."""
+    rng = random.Random(150)
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            band = (x + y) % 6
+            c = (34, 30, 28) if band < 3 else ((58, 52, 46) if band < 5 else (20, 18, 18))
+            if rng.random() < 0.07:
+                c = (120, 118, 112)   # powder grain
+            elif rng.random() < 0.05:
+                c = (150, 118, 76)    # fibre
+            _px(img, x, y, c, rng, 6)
+    return img
+
+
+while len(tiles) < 218:
+    tiles.append(blank)
+tiles[217] = fuse_tile()
 assert len(tiles) <= COLS * ROWS, len(tiles)
 
 tiles = [grade(t) for t in tiles]   # one palette rule for every generated tile (ADR 0129)

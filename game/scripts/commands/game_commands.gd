@@ -125,7 +125,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("browse", "/browse <item> [recipes|uses]", "Open the recipe browser on an item (as R or U over it)", _browse, [_item_ids, ["recipes", "uses"]])
 	reg.register("digonly", "/digonly <material> | off", "Dig only this material, as Shift + middle click on it (ADR 0144); again to take it off the list", _digonly)
 	reg.register("tools", "/tools", "Open the build ring (the V key): build modes, prefabs and, under Brush, the brush's shapes and size", _tools)
-	reg.register("tnt", "/tnt <grid [n] [spacing_m]|fuse [length_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); fuse lays a charge there with a lit fuse cord toward you (ADR 0150); light lights the aimed charge",
+	reg.register("tnt", "/tnt <grid [n] [spacing_m]|fuse [length_m] [course]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); fuse lays a charge there with a lit fuse cord toward you, course: up steps and through water (ADR 0150); light lights the aimed charge",
 		_tnt, [["grid", "light", "stats"], ["1", "5", "20"], ["1", "1.5", "2"]])
 	reg.register("meteor", "/meteor [here|near|stats]", "A meteorite falls (ADR 0157): here 6 m ahead, near 120 m ahead, none a few hundred metres off as at night",
 		_meteor, [["here", "near", "stats"]])
@@ -988,11 +988,11 @@ func _tnt(args: PackedStringArray) -> Dictionary:
 			var to := player.position - Vector3(a)
 			var dir := Vector3i(signi(int(to.x)), 0, 0) if absf(to.x) >= absf(to.z) else Vector3i(0, 0, signi(int(to.z)))
 			var length := float(args[1]) if args.size() > 1 else 4.0
-			var end := tnt.lay_fuse(a, dir if dir != Vector3i.ZERO else Vector3i(1, 0, 0), maxi(2, roundi(Settings.m2v(length))))
+			var end := tnt.lay_fuse(a, dir if dir != Vector3i.ZERO else Vector3i(1, 0, 0), maxi(2, roundi(Settings.m2v(length))), args.size() > 2 and args[2] == "course")
 			if end == Vector3i.MAX:
 				return CommandRegistry.fail("Place it inside the simulated area around you")
 			return CommandRegistry.ok("TNT with a %.1f m fuse cord, lit at %s (%.0f m away): about %.1f s" % [length, end, Settings.v2m(Vector3(end).distance_to(player.position)), length / Settings.fuse_speed_mps])
-	return CommandRegistry.fail("Usage: /tnt <grid [n] [spacing_m]|fuse [length_m]|light|stats>")
+	return CommandRegistry.fail("Usage: /tnt <grid [n] [spacing_m]|fuse [length_m] [course]|light|stats>")
 
 
 ## /sound <name> [x y z] plays a sound (at the player, or a voxel position); list and stats report.

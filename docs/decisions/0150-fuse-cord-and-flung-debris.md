@@ -57,6 +57,17 @@ set a charge off from a distance on a timer, and a blast just removes a sphere: 
   70 to 24 (0.8 s): the glow is a short moving spark, and dying out is no longer possible.
 - **Debris hits:** a chunk flying faster than 3 m/s that comes within 0.5 m of the player's or a mob's middle deals
   `Settings.tnt_debris_damage` (3), shoves them along its flight and drops there (`BlastDebris._hits`, stat `hits`).
-- Still open: a cord further than `sim_lod_m` (12 m) from the player burns at half speed (those chunks tick every
-  second tick); the cord has no tile of its own (rope's).
+- (Round 2 left open the far-chunk half speed and the rope tile: done in round 3.)
 - Tests: `test_fuse_cord.gd` adds steps + water and a chunk hitting a player; speed checks tightened to 5-10 %.
+
+## Round 3 (2026-11-07): the same speed everywhere, its own look
+- **Sim time, not updates:** a chunk beyond `sim_lod_m` runs every second tick. `SimWorld` now records how many ticks
+  each chunk update covers (`steps_`, its deferred ticks + 1, handed to the update as `Ctx::steps`); a fuse cell
+  takes the skipped ticks off its count. Each neighbour's delay is fixed per cell (`fuse_ticks`, one more for a
+  `fuse_frac` share chosen by a position hash, so no re-roll each update), and a neighbour lit late starts with the
+  overshoot already burnt. Far cords: 13.77 s for 13.75 s (near 13.81 s); before the fix they took 14.6 s.
+- **Atlas tile 217** (row 28, appended by `tools/make_atlas.py`, `fuse_tile`): a tarred cord, dark twisted bands
+  with powder grains and a few fibres.
+- `/tnt fuse <m> course`: the far half climbs 4 edge-touching steps on stone and a stretch near the charge runs
+  under water in a stone trough; `/scenario fuse` uses it and summons sheep. Live run: the cord lit the charge,
+  24 chunks thrown, 4 hit sheep.

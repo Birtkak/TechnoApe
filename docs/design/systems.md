@@ -293,9 +293,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   damage and knockback to 2 x radius, 30 % of the estimated take as drops. One blast per frame; a 20-block chain holds
   max frame 12.4 ms. `/tnt grid [n] [spacing_m] | light | stats`, `/kit tnt`; JSON `tnt`.
   **Fuse cord and debris (ADR 0150):** `fuse_cord` (137) burns along itself at `Settings.fuse_speed_mps` by the native fuse
-  rule (`fuse_ticks`: a fixed delay per cell to face and edge neighbours, under water too), its fire too cold for anything else and its flame the cold `fuse_spark` (138);
+  rule (`fuse_ticks`: a fixed delay per cell to face and edge neighbours, under water too, counted in sim time so
+  far chunks burn as fast; tile 217), its fire too cold for anything else and its flame the cold `fuse_spark` (138);
   `Tnt._cord_burning_at` lights a charge a burning cord touches. `BlastDebris` throws up to `tnt_debris_max` 2^3 chunks
-  per blast that land as loose voxels (rock as gravel) and hurt what they hit. `/tnt fuse [m]`, `/scenario fuse`, `test/test_fuse_cord.gd`.
+  per blast that land as loose voxels (rock as gravel) and hurt what they hit. `/tnt fuse [m] [course]`, `/scenario fuse`, `test/test_fuse_cord.gd`.
   **Mine shoring (ADR 0142):** a roof cell over a dug 0.5 m block must lie within its rock's span of a wall
   (`1 m + 1 m x mining hardness`, max 4 m: stone 2.5 m, sandstone 1.8 m; a 3 m tunnel always stands) or within
   a prop's radius (timber prop 1.5 m / 4 m2, stone pillar 2.5 m / 12 m2, iron beam 3.5 m / 30 m2: furniture kinds
