@@ -172,7 +172,9 @@ Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=40 mob_
 #       climbing rope over the tower's edge, climbs it onto the top, takes it back; walks off the top, glides level, turns,
 #       dives, pulls up, lands. One sheet per toy (<out>/toys_hook|rope|glide.png: filmstrip + 6-frame burst), JSON line
 #       "debug toys" (glide_ratio, dive_speed_m_s, swing_z_m, flew_after_let_go_m, climb_s ...; ok; inside_voxel_frames 0
-#       = no tunnel). toys_only=glide,rope runs a subset. In play: /kit toys
+#       = no tunnel). toys_only=glide,rope runs a subset. toys_world=1 runs the three on the steepest real drop within 400 m
+#       of the spawn instead (toys_world_*.png, JSON "world": glide dist/snag_frames/damage, rope length/climb_s/on_top,
+#       hook caught/on/lifted_m; use the default render distance). In play: /kit toys
 Godot_..._console.exe --path game --resolution 1280x720 -- autopilot=1 walk=1 speed=0 duration=120 vsync=0 mob_spawn=0 toys_test=1 view_distance_m=48 volume_master=0 out=res://out/toys
 # Teleports (ADR 0066): tp_test=1 jumps 15/60/95 m, 500 m, 3 km, /spawn, /goto, /kill on foot in survival; per jump the
 # cover time, frame times under it and in the 4 s after it, the landing, a filmstrip row (tp_strip.png); JSON line "debug tp"

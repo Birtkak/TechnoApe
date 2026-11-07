@@ -36,6 +36,8 @@ frame times.
 - [ ] Grappling hook (iron age, crafting table): right click a rock face or tree up to 36 m away, keep holding to reel
       in, let go to swing under it (WASD pumps), jump to let go and fly on. Sand, gravel or leaves: it slips. Fun? Too
       strong a pull, too slow a reel?
+- [ ] On a real cliff with a lip or a ledge: the rope hangs past the ledge and you get over the lip at the top.
+      Dig away the block you hung it on: the rope drops as an item. The hook holds in a tree crown: swing from it.
 - [ ] With a second player (ADR 0145): they do not see your rope, line or wing (known, ADR 0151).
 ## Blueprints and the builder (2026-11-07, ADR 0161)
 

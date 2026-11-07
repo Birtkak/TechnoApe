@@ -23,7 +23,7 @@ const ROPE_RADIUS_M := 0.035
 const ROPE_GRAB_M := 0.3         # the rope is in reach this far past the body's side
 const SWING_PUMP_M := 5.0        # WASD pushes a swing this hard (m/s^2)
 const CARRY_DRAG_M := 1.5        # a let-go's speed dies away this fast in the air (m/s^2)
-const HOOK_HOLD := ["sand", "gravel", "snow", "leaves", "dirt_loose"]   # name parts a hook slips off
+const HOOK_HOLD := ["sand", "gravel", "snow", "dirt_loose"]   # name parts a hook slips off (leaves hold: swing from a crown)
 
 var main: Node
 var p: Player
@@ -47,7 +47,9 @@ var _hook_flown := 0.0
 var _anchor := Vector3.ZERO
 var _anchor_voxel := Vector3i.ZERO
 var _line := 0.0                 # the line's length (voxels)
-var _rope_nodes: Array[MeshInstance3D] = []
+var _rope_nodes: Array[Node3D] = []
+var _anchor_t := 0.0
+var _push := 0.0                 # a climber under a lip leans this far out from the face (voxels)
 var _rope_mat: StandardMaterial3D
 var _line_node: MeshInstance3D
 var _hook_node: MeshInstance3D
@@ -154,6 +156,10 @@ func step(delta: float, dir: Vector3, input: Vector2, jump: bool) -> void:
 	var jump_edge := jump and not _jump_was
 	_jump_was = jump
 	_let_go_t = maxf(0.0, _let_go_t - delta)
+	_anchor_t -= delta
+	if _anchor_t <= 0.0:
+		_anchor_t = 0.5
+		_drop_loose_ropes()
 	if hook == "flying":
 		_fly_hook(delta)
 	if hook == "caught":
@@ -223,8 +229,9 @@ func _close_glider() -> void:
 ## Glide physics in metres: the path follows the camera's pitch less the glide angle; gravity along
 ## the path speeds a dive and slows a climb; drag (k v^2) settles the speed at trim when looking level.
 func _glide(delta: float) -> void:
-	if p.body.blocked.x > 0.0 or p.body.blocked.z > 0.0:
-		_gs *= 0.4   # into a wall: most of the speed is gone
+	var scraped := p.body.blocked.x > 0.0 or p.body.blocked.z > 0.0
+	if scraped:
+		_gs *= 0.8   # a crown, a lip or a wall: a scrape costs a fifth a step, a head-on stop takes a few
 	var glide_angle := atan(1.0 / Settings.glider_glide_ratio)
 	var k := G_M * sin(glide_angle) / (Settings.glider_trim_speed_m * Settings.glider_trim_speed_m)
 	var climb_max := 0.5 * clampf((_gs - STALL_M) / 6.0, 0.0, 1.0)   # slow, it cannot climb
@@ -236,6 +243,8 @@ func _glide(delta: float) -> void:
 	_heading += turn * (1.0 - exp(-GLIDE_TURN * delta))
 	roll = lerpf(roll, clampf(turn * 0.8, -ROLL_MAX, ROLL_MAX), 1.0 - exp(-6.0 * delta))
 	var v := Vector3(-sin(_heading) * cos(gamma), sin(gamma), -cos(_heading) * cos(gamma)) * Settings.m2v(_gs)
+	if scraped:
+		v.y = maxf(v.y, Settings.m2v(2.0))   # ride up over a lip instead of snagging on it
 	p.velocity = v
 	_glide_v = v
 	# a landing hurts by its downward speed, not by the height glided down
@@ -270,51 +279,113 @@ func hang_rope(hit: VoxelRaycastResult, look: Vector3) -> bool:
 	var col: Vector3i = hit.previous_position
 	var n := col - hit.position
 	var wall := -Vector3(n)                     # the rope lies against this side of its column
+	var s := Vector3i.ZERO
+	var lip := 0
 	if n == Vector3i.UP:
-		var s := Vector3i(signi(int(signf(look.x))), 0, 0) if absf(look.x) > absf(look.z) else Vector3i(0, 0, signi(int(signf(look.z))))
+		s = Vector3i(signi(int(signf(look.x))), 0, 0) if absf(look.x) > absf(look.z) else Vector3i(0, 0, signi(int(signf(look.z))))
 		wall = -Vector3(s)
 		var found := false
+		var crest := col.y   # the highest ground on the way out: the climber has to get over it at the top
+		var bump := int(Settings.m2v(1.0))
 		for _i in int(Settings.m2v(1.5)):
+			for _u in bump:   # a real rim is bumpy: over a lip of up to a metre
+				if not _solid(col):
+					break
+				col.y += 1
+			crest = maxi(crest, col.y)
 			if _solid(col):
 				return _fail("Something is in the way")
-			if not _solid(col + Vector3i.DOWN):
+			var dip := 0   # and dips: a hollow under a metre is walked through, a drop is the edge
+			while dip < int(Settings.m2v(1.0)) and not _solid(col + Vector3i.DOWN * (dip + 1)):
+				dip += 1
+			if dip >= int(Settings.m2v(1.0)):
 				found = true
 				break
-			col += s
+			col += s + Vector3i.DOWN * dip
 		if not found:
 			return _fail("Hang a rope over an edge")
+		lip = crest - col.y
 	elif n == Vector3i.DOWN:
 		wall = Vector3.ZERO
 	if _solid(col):
 		return _fail("Something is in the way")
-	var bottom := col.y
-	var lowest := col.y - int(Settings.m2v(Settings.rope_max_m))
-	while bottom > lowest and not _solid(Vector3i(col.x, bottom - 1, col.z)):
-		bottom -= 1
+	var bottom := _rope_bottom(col)
+	var stake := Vector3(col) + Vector3(0.5, 0.0, 0.5) + wall * 0.35
+	var c := stake
+	# a real cliff is not a wall: the column at the rim meets a ledge or the slope soon. Out to 0.75 m
+	# past the rim the rope hangs where it falls furthest (a short piece back to its stake)
+	for k in range(1, int(Settings.m2v(0.75)) + 1):
+		var c2 := col + s * k
+		if s == Vector3i.ZERO or _solid(c2):
+			break
+		var b2 := _rope_bottom(c2)
+		if b2 < bottom - int(Settings.m2v(0.5)):
+			bottom = b2
+			c = Vector3(c2) + Vector3(0.5, 0.0, 0.5)
 	if col.y - bottom < int(Settings.m2v(1.0)):
 		return _fail("No drop to hang a rope down")
-	var c := Vector3(col) + Vector3(0.5, 0.0, 0.5) + wall * 0.35
-	var top := float(col.y) + (Settings.m2v(0.3) if n == Vector3i.UP else 0.9)
-	add_rope({"x": c.x, "z": c.z, "top": top, "bottom": float(bottom)})
+	var top := float(col.y + lip) + (Settings.m2v(0.3) if n == Vector3i.UP else 0.9)
+	var r := {"x": c.x, "z": c.z, "top": top, "bottom": float(bottom), "ax": hit.position.x, "ay": hit.position.y, "az": hit.position.z}
+	if c != stake:
+		r["sx"] = stake.x
+		r["sz"] = stake.z
+	add_rope(r)
 	Sound.play("craft/assemble", c + Vector3(0, top - c.y, 0))
 	stats["ropes_hung"] += 1
 	return true
 
 
-# shortcut: a rope is not tied to the voxel it hangs from (dig the ledge away and it stays); tie it when it shows in play
+## Where a rope hanging in column `col` (from its top cell down) meets the ground, rope_max_m at most.
+func _rope_bottom(col: Vector3i) -> int:
+	var bottom := col.y
+	var lowest := col.y - int(Settings.m2v(Settings.rope_max_m))
+	while bottom > lowest and not _solid(Vector3i(col.x, bottom - 1, col.z)):
+		bottom -= 1
+	return bottom
+
+
 func add_rope(r: Dictionary) -> void:
 	ropes.append(r)
-	var mi := _mesh(_cylinder(ROPE_RADIUS_M), "Rope")
+	var holder := Node3D.new()
+	holder.name = "Rope"
+	add_child(holder)
+	var mi := _mesh(_cylinder(ROPE_RADIUS_M), "Line")
+	mi.reparent(holder)
 	var h := float(r["top"]) - float(r["bottom"])
 	mi.transform = Transform3D(Basis.from_scale(Vector3(1.0, h, 1.0)), Vector3(r["x"], float(r["bottom"]) + h * 0.5, r["z"]))
 	mi.visible = true
-	_rope_nodes.append(mi)
+	if r.has("ax"):   # the voxel it was hung on: dug away, the rope falls (_drop_loose_ropes)
+		r["anchor"] = Vector3i(int(r["ax"]), int(r["ay"]), int(r["az"]))
+	if r.has("sx"):   # the piece from the stake on the rim out to where it hangs
+		var a := Vector3(r["sx"], r["top"], r["sz"])
+		var v := Vector3(r["x"], r["top"], r["z"]) - a
+		var arm := _mesh(_cylinder(ROPE_RADIUS_M), "Arm")
+		arm.reparent(holder)
+		var y := v.normalized()
+		var x := y.cross(Vector3.UP).normalized()
+		arm.transform = Transform3D(Basis(x, y * v.length(), x.cross(y)), a + v * 0.5)
+		arm.visible = true
+	_rope_nodes.append(holder)
 
 
-func take_rope(i: int) -> void:
+## A rope whose anchor voxel no longer holds a body (dug, blasted, burnt) falls: the item drops at its foot.
+func _drop_loose_ropes() -> void:
+	for i in range(ropes.size() - 1, -1, -1):
+		var r: Dictionary = ropes[i]
+		if r.has("anchor") and not _solid(r["anchor"]):
+			p.item_dropped.emit(Inventory.make_stack(p.inventory.items, "climbing_rope", 1), Vector3(r["x"], r["bottom"] + 1.0, r["z"]), Vector3.ZERO)
+			_remove_rope(i)
+
+
+func _remove_rope(i: int) -> void:
 	ropes.remove_at(i)
 	_rope_nodes[i].queue_free()
 	_rope_nodes.remove_at(i)
+	climbing = false
+
+
+func take_rope(i: int) -> void:
+	_remove_rope(i)
 	if GameMode.rule(p.game_mode, "consumes_items"):
 		p.inventory.pickup("climbing_rope", 1)
 	climbing = false
@@ -341,16 +412,16 @@ func rope_at(from: Vector3, dir: Vector3, max_dist: float) -> int:
 
 
 func _near_rope() -> int:
-	var reach := Settings.m2v(Settings.player_radius_m + ROPE_GRAB_M)
+	var reach := Settings.m2v(Settings.player_radius_m + ROPE_GRAB_M) + _push
 	for i in ropes.size():
 		var r: Dictionary = ropes[i]
 		if Vector2(r["x"] - p.position.x, r["z"] - p.position.z).length() <= reach \
-				and p.position.y >= float(r["bottom"]) - 1.0 and p.position.y <= float(r["top"]):
+				and p.position.y >= float(r["bottom"]) - 1.0 and p.position.y <= float(r["top"]) + Settings.m2v(0.6):
 			return i
 	return -1
 
 
-func _climb(_delta: float, dir: Vector3, input: Vector2, jump_edge: bool) -> void:
+func _climb(delta: float, dir: Vector3, input: Vector2, jump_edge: bool) -> void:
 	var i := -1 if _let_go_t > 0.0 or p.in_liquid else _near_rope()
 	var fwd := -input.y
 	if i >= 0:
@@ -360,6 +431,7 @@ func _climb(_delta: float, dir: Vector3, input: Vector2, jump_edge: bool) -> voi
 			i = -1   # standing at its foot or on the ledge beside its top
 	climbing = i >= 0
 	if not climbing:
+		_push = 0.0
 		return
 	var r: Dictionary = ropes[i]
 	var to := Vector3(r["x"] - p.position.x, 0.0, r["z"] - p.position.z)
@@ -375,7 +447,12 @@ func _climb(_delta: float, dir: Vector3, input: Vector2, jump_edge: bool) -> voi
 		p.velocity.y = climb   # over the top: keep walking (dir) onto the ledge
 	else:
 		# hold the body at the rope: a spring to its side, the walk turned into sideways shuffles only
-		var hold := Settings.m2v(Settings.player_radius_m)
+		# a lip overhead: lean out from the face until the head clears it, then back in
+		if fwd > 0.0 and p.body.hit_ceiling:
+			_push = minf(_push + Settings.m2v(1.5) * delta, Settings.m2v(0.8))
+		elif not p.body.hit_ceiling:
+			_push = maxf(0.0, _push - Settings.m2v(0.3) * delta)
+		var hold := Settings.m2v(Settings.player_radius_m) + _push
 		var pull := to - to.normalized() * hold if to.length() > hold else Vector3.ZERO
 		p.velocity.x = pull.x * 6.0 + dir.x * Settings.m2v(0.5)
 		p.velocity.z = pull.z * 6.0 + dir.z * Settings.m2v(0.5)
@@ -517,15 +594,24 @@ func _fail(text: String) -> bool:
 	return false
 
 
-## The hung ropes, for the player's save.
+## The hung ropes, for the player's save (the anchor as its three numbers).
 func to_array() -> Array:
-	return ropes.duplicate(true)
+	var a := []
+	for r in ropes:
+		var d: Dictionary = r.duplicate()
+		d.erase("anchor")
+		a.append(d)
+	return a
 
 
 func load_array(a: Array) -> void:
 	for r in a:
 		if r is Dictionary and r.has_all(["x", "z", "top", "bottom"]):
-			add_rope({"x": float(r["x"]), "z": float(r["z"]), "top": float(r["top"]), "bottom": float(r["bottom"])})
+			var d := {"x": float(r["x"]), "z": float(r["z"]), "top": float(r["top"]), "bottom": float(r["bottom"])}
+			for k in ["sx", "sz", "ax", "ay", "az"]:
+				if r.has(k):
+					d[k] = float(r[k])
+			add_rope(d)
 
 
 func snapshot() -> Dictionary:
