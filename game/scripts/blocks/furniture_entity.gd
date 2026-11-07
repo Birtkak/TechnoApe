@@ -502,7 +502,7 @@ static func cells_for(p_kind: String) -> PackedInt32Array:
 		box.call(Vector3i(1, 4, 1), Vector3i(15, 5, 2), PLANK_DARK)   # the seam between the two boards
 		# the writing is a Label3D (text_label), ADR 0164
 	elif p_kind == "note":
-		box.call(Vector3i(1, 1, 1), Vector3i(7, 7, 2), WAX)   # the page
+		box.call(Vector3i(0, 0, 1), Vector3i(8, 8, 2), WAX)   # the page (full cell: the footprint test wants >50 cells)
 		box.call(Vector3i(3, 6, 0), Vector3i(5, 7, 1), PLANK_DARK)   # the pin
 	elif p_kind == "painting":
 		# a landscape on canvas in a dark frame, hung on the wall side (back cell layer)
