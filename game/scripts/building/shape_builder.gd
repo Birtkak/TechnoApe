@@ -83,6 +83,7 @@ func setup(p_main: Node) -> void:
 	_hint.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_hint.position = Vector2(-360, 64)
 	_hint.size = Vector2(720, 60)
+	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART   # the long EDIT hint ran off a 1280 wide screen
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.add_theme_font_size_override("font_size", 16)
 	_hint.add_theme_color_override("font_outline_color", Color.BLACK)
