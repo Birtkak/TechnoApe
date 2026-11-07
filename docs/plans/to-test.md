@@ -609,3 +609,13 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] Open a chest: the lid swings up on the far side and shuts when you close the screen. Speed right?
 - [ ] Right click the ground with a loose stone, then three more, then two sticks: a firepit appears where the ring
       lay. The Hearth quest completes. Does the ring of stones read before the sticks go in?
+
+## The wolf companion (ADR 0152)
+
+- [ ] Feed a wolf raw meat until it trusts you (or `/summon wolf`, `/tame`). It follows you within a few metres, swims
+      after you across water and keeps up when you sprint. Teleport away (`/tp`): it is back beside you.
+- [ ] Right click it with an empty hand: it sits and stays (tips back, a bark); again and it follows. Sits when you walk off?
+- [ ] At night a gloam hound or an aggressive bear/wolf comes near: the dog growls first ("Your dog growls: ..."), then
+      attacks it. Hit a deer: the dog joins in. Does the hound fight back at the dog? Can the dog die?
+- [ ] Hurt dog heals slowly; hold raw or cooked meat and use it on the dog: hearts, 3 hearts back. Hit it yourself: no damage, no growl.
+- [ ] Save and quit, load: the dog is still tamed, sitting or following, beside you.

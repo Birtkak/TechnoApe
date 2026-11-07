@@ -133,6 +133,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("stations", "/stations [electric|factory|lv|power|pollution|smoke]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141)", _stations, [["electric", "factory", "lv", "power", "pollution", "smoke"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
+	reg.register("tame", "/tame", "Tame the wolf you look at (or the nearest within 12 m) as your companion (ADR 0152); empty hand toggles sit/stay", _tame)
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
 		_quests, [["list", "complete", "reset"], _quest_ids])
 	reg.register("grade", "/grade [%s]" % "|".join(Atmosphere.GRADES.keys()), "Switch the lighting grade (ADR 0041), or show the current one", _grade, [Atmosphere.GRADES.keys()])
@@ -407,6 +408,23 @@ func _time(args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("Unknown time: %s" % args[1])
 	atmo.set_time_of_day(t)
 	return CommandRegistry.ok("Set the time to %s" % key)
+
+
+func _tame(_args: PackedStringArray) -> Dictionary:
+	if main == null or player == null or main.mobs == null:
+		return CommandRegistry.fail("No animals here")
+	var w: Mob = player.aimed_mob()
+	if w == null or w.species != "wolf":
+		w = null
+		var best := Settings.m2v(12.0)
+		for m in main.mobs.active():
+			if m.species == "wolf" and not m.is_dead() and m.position.distance_to(player.position) < best:
+				best = m.position.distance_to(player.position)
+				w = m
+	if w == null:
+		return CommandRegistry.fail("No wolf within 12 m (/summon wolf)")
+	w.set_companion(player)
+	return CommandRegistry.ok("The wolf is your companion now")
 
 
 func _summon(args: PackedStringArray) -> Dictionary:

@@ -707,7 +707,12 @@ func _feed_wolf(hit: VoxelRaycastResult) -> bool:
 	if mob == null or String(mob.species) != "wolf" or mob.is_dead():
 		return false
 	if mob.has_meta("tamed_by"):
-		main.work._say("Your dog wags its tail.")
+		if mob.eat_meat():
+			if _consumes():
+				main.player_inv.consume_held(1)
+			main.work._say("Your dog wolfs the meat down.")
+		else:
+			main.work._say("Your dog wags its tail.")
 		return true
 	var fed := int(mob.get_meta("tame_fed", 0)) + 1
 	mob.set_meta("tame_fed", fed)
@@ -716,9 +721,7 @@ func _feed_wolf(hit: VoxelRaycastResult) -> bool:
 	if fed < Settings.tame_meat:
 		main.work._say("The wolf takes the meat, warily (%d/%d)." % [fed, Settings.tame_meat])
 		return true
-	mob.set_meta("tamed_by", "player")
-	if mob.has_method("set_companion"):
-		mob.set_companion(main.player)
+	mob.set_companion(main.player)
 	stats["tamed"] = int(stats.get("tamed", 0)) + 1
 	main.work._note("tamed", "raw_meat")
 	main.work._say("The wolf trusts you now: it is your dog.")
