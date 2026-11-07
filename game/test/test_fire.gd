@@ -9,9 +9,9 @@ extends GdUnitTestSuite
 const HZ := 30
 
 
-func _world(overrides: Dictionary = {}) -> SimWorld:
+func _world(overrides: Dictionary = {}, seed_n := 11) -> SimWorld:
 	var w := SimWorld.new()
-	w.configure(Vector3i(4, 2, 4), 2, 11)
+	w.configure(Vector3i(4, 2, 4), 2, seed_n)
 	var defs := GameMaterials.defs()
 	for d in defs:
 		if overrides.has(d["name"]):
@@ -55,14 +55,17 @@ func test_plank_wall_burns_down_and_leaves_ash() -> void:
 
 
 func test_water_slows_the_fire() -> void:
-	var w := _world()
-	w.fill_box(Vector3i(8, 4, 30), Vector3i(40, 5, 31), GameMaterials.WOOD)
-	w.fill_box(Vector3i(20, 4, 31), Vector3i(21, 5, 32), GameMaterials.WATER_STATIC)
-	w.ignite(Vector3i(8, 4, 30))
-	_run(w, 60.0)
 	# flames drift through air since 2026-10-27 and can hop a one-cell puddle: the water slows the fire, it no longer
-	# always stops it (it left 8 of 18 at the time); a beam fully burnt past it would mean water stopped mattering
-	assert_int(w.count_in_box(Vector3i(22, 4, 30), Vector3i(40, 5, 31), GameMaterials.WOOD)).is_greater(0)
+	# always stops it, so one seed proves nothing either way; beams burnt past it on every seed would mean water stopped mattering
+	var left := 0
+	for s in range(1, 7):
+		var w := _world({}, s)
+		w.fill_box(Vector3i(8, 4, 30), Vector3i(40, 5, 31), GameMaterials.WOOD)
+		w.fill_box(Vector3i(20, 4, 31), Vector3i(21, 5, 32), GameMaterials.WATER_STATIC)
+		w.ignite(Vector3i(8, 4, 30))
+		_run(w, 60.0)
+		left += w.count_in_box(Vector3i(22, 4, 30), Vector3i(40, 5, 31), GameMaterials.WOOD)
+	assert_int(left).is_greater(0)
 
 
 func test_fire_does_not_cross_stone() -> void:
@@ -80,3 +83,32 @@ func test_burning_flag_is_visible() -> void:
 	w.ignite(Vector3i(8, 4, 30))
 	assert_int(w.get_flags(Vector3i(8, 4, 30)) & 1).is_equal(1)
 	assert_int(w.get_flags(Vector3i(9, 4, 30)) & 1).is_equal(0)
+
+
+## ADR 0144: flowing lava lights what it touches and does not put it out; the sim counts burning and boiling cells for the sounds.
+func test_lava_lights_wood_and_keeps_it_burning() -> void:
+	var w := _world()
+	w.fill_box(Vector3i(20, 4, 20), Vector3i(24, 12, 21), GameMaterials.WOOD)
+	w.fill_box(Vector3i(20, 4, 21), Vector3i(24, 8, 22), GameMaterials.LAVA)
+	_run(w, 5.0)
+	assert_int(w.count_burning()).is_greater(0)
+	assert_int(w.get_falls(4)[0]).is_greater(0)
+
+
+func test_still_lava_lights_nothing() -> void:
+	var w := _world()
+	w.fill_box(Vector3i(20, 4, 20), Vector3i(24, 8, 21), GameMaterials.WOOD)
+	w.fill_box(Vector3i(20, 4, 21), Vector3i(24, 8, 22), GameMaterials.LAVA_STATIC)
+	_run(w, 5.0)
+	assert_int(w.count_burning()).is_equal(0)
+
+
+func test_lava_on_water_hisses() -> void:
+	var w := _world()
+	w.fill_box(Vector3i(20, 4, 20), Vector3i(30, 8, 30), GameMaterials.WATER)
+	var seen := 0
+	w.fill_box(Vector3i(24, 8, 24), Vector3i(26, 10, 26), GameMaterials.LAVA)
+	for i in 90:
+		w.tick(1)
+		seen += w.get_falls(5)[0]
+	assert_int(seen).is_greater(0)

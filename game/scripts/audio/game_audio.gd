@@ -24,7 +24,8 @@ const MOB_HZ := 4.0
 const PROBE_RANGE_M := 12.0
 const PROBE_DIRS := [Vector3(0, 1, 0), Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1),
 	Vector3(0.7, 0.7, 0), Vector3(-0.7, 0.7, 0), Vector3(0, 0.7, 0.7), Vector3(0, 0.7, -0.7), Vector3(0, -1, 0)]
-const WHERE := ["any", "air_above", "air_below", "moving", "fresh", "falls"]   # moving / fresh: SimWorld::SampleBits (ADR 0081)
+const WHERE := ["any", "air_above", "air_below", "moving", "fresh", "falls", "burning", "boiling"]   # moving / fresh: SimWorld::SampleBits (ADR 0081)
+const TALLY_SLOTS := {"burning": 4, "boiling": 5}   # SimWorld::TALLY_BURN / TALLY_HISS: counted by the sim, as a thin fire or a hiss is rarely sampled (ADR 0144)
 ## falls: not sampled; the cells of the loop's liquid that fell in the last sim tick (SimBubble.falls, ADR 0103): a
 ## waterfall is too thin for random samples to find
 ## Groups that wall a space in for the reverb: rock, earth and built walls. Not trunks, leaves or
@@ -262,6 +263,8 @@ func load_dict(data: Dictionary) -> bool:
 		_check_sound("loop " + ln, l.get("sound", ""))
 		if not (l.get("where", "any") in WHERE):
 			errors.append("loop %s: unknown where %s" % [ln, l.get("where", "")])
+		if TALLY_SLOTS.has(l.get("where", "")):
+			_fall_loops[ln] = TALLY_SLOTS[l["where"]]
 		for mn in l.get("materials", []):
 			if not ids.has(mn):
 				errors.append("loop %s: unknown material %s" % [ln, mn])
@@ -1017,8 +1020,6 @@ func _sample_loops() -> void:
 	for i in range(0, hits.size(), 7):
 		var m := hits[i + 3]
 		var names: Array = _loop_mats.get(m, [])
-		if hits[i + 6] & 1 and _loop_defs.has("fire"):   # SimWorld::FLAG_BURNING
-			names = names + ["fire"]
 		for ln in names:
 			var l: Dictionary = _loop_defs[ln]
 			match l.get("where", "any"):
@@ -1042,6 +1043,8 @@ func _sample_loops() -> void:
 		var f: Array = bubble.falls(_fall_loops[ln])
 		if f[0] > 0 and (f[1] as Vector3).distance_to(cam) < Settings.m2v(LOOP_RADIUS_M) * 2.0:
 			acc[ln] = [f[0], f[1] * f[0]]
+			if _loop_defs[ln].has("burst"):   # the onset you can place, over the loop (its cooldown paces it)
+				play(_loop_defs[ln]["burst"], f[1])
 	# lit firepits and pit kilns are block entities, not cells: the nearest feeds the embers loop
 	var blocks = main.get("blocks")
 	if blocks and _loop_defs.has("embers"):

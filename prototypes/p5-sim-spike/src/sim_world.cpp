@@ -1557,17 +1557,39 @@ void SimWorld::update_fire(int x, int y, int z, int i, Ctx &c) {
     update_gas(x, y, z, i, c);
 }
 
+// Flowing lava lights what it touches, at the rate fire spreads, and stays awake until nothing beside it is left to
+// light. Generated (still) lava does not: every lake would burn its shore down as it streamed in.
+void SimWorld::hot_liquid_ignite(int x, int y, int z, const MaterialDef &m, Ctx &c) {
+    bool waiting = false;
+    for (int d = 0; d < 6; d++) {
+        const int nx = x + NX6[d], ny = y + NY6[d], nz = z + NZ6[d];
+        if (!is_open(nx, ny, nz)) continue;
+        const int ni = idx(nx, ny, nz);
+        const MaterialDef &t = mats_[cells_[ni].mat];
+        if (!t.burnable || (cells_[ni].flags & FLAG_BURNING) || m.temperature_of_fire < t.autoignition_temperature) continue;
+        waiting = true;
+        if ((rnd(c) & 0xFFFF) < t.ignite_chance) {
+            cells_[ni].flags |= FLAG_BURNING;
+            cells_[ni].aux = t.fire_hp;
+            mark_cell(nx, ny, nz, c, true);
+            c.reacted++;
+        }
+    }
+    if (waiting) mark_cell(x, y, z, c, false);
+}
+
 // A burning cell of any type: loses fire_hp, spawns flames/smoke into air, dies into convert_to.
 void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
     const uint8_t self = cells_[i].mat;
     const MaterialDef &m = mats_[self];
     uint32_t r = rnd(c);
-    // Extinguish if touching a liquid that is not burnable (water).
+    tally(TALLY_BURN, x, y, z, c);
+    // Extinguish if touching a cool liquid that is not burnable (water); lava lights things, it does not douse them.
     for (int n = 0; n < 6; n++) {
         int nx = x + NX6[n], ny = y + NY6[n], nz = z + NZ6[n];
         if (!in_world(nx, ny, nz)) continue;
         const MaterialDef &t = mats_[cells_[idx(nx, ny, nz)].mat];
-        if (t.cell_type == CELL_LIQUID && !t.burnable) {
+        if (t.cell_type == CELL_LIQUID && !t.burnable && t.heat_c < HOT_LIQUID_C) {
             cells_[i].flags &= ~FLAG_BURNING;
             mark_cell(x, y, z, c, true);
             return;
@@ -1662,6 +1684,8 @@ void SimWorld::try_react(int x, int y, int z, int i, Ctx &c) {
     }
     place(i, oa);
     place(ni, ob);
+    if (mats_[oa].cell_type == CELL_GAS) tally(TALLY_HISS, x, y, z, c);
+    if (mats_[ob].cell_type == CELL_GAS) tally(TALLY_HISS, nx, ny, nz, c);
     moved_[i] = mark_;
     moved_[ni] = mark_;
     mark_cell(x, y, z, c, true);
@@ -1744,14 +1768,15 @@ void SimWorld::update_chunk(int ci) {
                             to = (int)(rnd(c) & 7u) < eighths ? (int)md.boils_to : 0;
                         } else if (md.freezes_to && T <= md.freeze_c) to = md.freezes_to;
                     } else if (md.cell_type == CELL_GAS) {
-                        // a gas condenses against a surface (rock, powder or liquid on one of its six sides), never in
-                        // open air: a mist of one-eighth drops in the air drew as sheets and cubes (2026-11-03)
+                        // a gas condenses against a surface (rock or powder on one of its six sides), never in open air
+                        // (a mist of one-eighth drops drew as sheets and cubes, 2026-11-03) and never on a liquid: one
+                        // drop turned the steam column above it to water, a jet of cells over every boiling pool (ADR 0144)
                         if (md.condenses_to && T <= md.condense_c) {
                             for (int d = 0; d < 6; d++) {
                                 const int nx = x + NX6[d], ny = y + NY6[d], nz = z + NZ6[d];
                                 if (!is_open(nx, ny, nz)) continue;
                                 const uint8_t nm = cells_[idx(nx, ny, nz)].mat;
-                                if (nm != 0 && mats_[nm].cell_type != CELL_GAS && mats_[nm].cell_type != CELL_FIRE) { to = md.condenses_to; break; }
+                                if (nm != 0 && mats_[nm].cell_type != CELL_GAS && mats_[nm].cell_type != CELL_FIRE && mats_[nm].cell_type != CELL_LIQUID) { to = (rnd(c) & 7u) == 0 ? (int)md.condenses_to : 0; break; }
                             }
                         }
                     } else if (md.cell_type == CELL_SOLID && md.melts_to && T >= md.melt_c && exposed && thaw_[ci] &&
@@ -1763,7 +1788,10 @@ void SimWorld::update_chunk(int ci) {
                     }
                     if (to >= 0) {
                         place(i, (uint8_t)to);
-                        if (mats_[to].cell_type == CELL_LIQUID) cells_[i].pad = 0;   // one cell for one cell both ways, or steam that condensed to a drop and boiled again gained eightfold
+                        if (mats_[to].cell_type == CELL_GAS) tally(TALLY_HISS, x, y, z, c);
+                        // one thin drop for every eight steam cells, the rest just go: a full cell per steam cell rained columns of tall
+                        // blocks from every canopy (ADR 0144). Water is lost, as to steam's lifetime; it never gains
+                        if (mats_[to].cell_type == CELL_LIQUID) cells_[i].pad = 1;
                         moved_[i] = mark_;
                         mark_cell(x, y, z, c, true);
                         c.moved++;
@@ -1792,6 +1820,8 @@ void SimWorld::update_chunk(int ci) {
                     case CELL_GAS: update_gas(x, y, z, i, c); break;
                     case CELL_FIRE: update_fire(x, y, z, i, c); break;
                 }
+                if (substep_ == 0 && md.cell_type == CELL_LIQUID && !md.liquid_static && md.heat_c >= HOT_LIQUID_C && cells_[i].mat == m && moved_[i] != mark_)
+                    hot_liquid_ignite(x, y, z, md, c);
                 if (substep_ == 0 && any_reactions_ && reactive_[cells_[i].mat] && moved_[i] != mark_) {
                     try_react(x, y, z, i, c);
                     // a react_awake material is always some reaction's first input, so reactive
@@ -1808,7 +1838,7 @@ void SimWorld::update_chunk(int ci) {
     flush_marks(c);
     if (c.moved) moved_count_.fetch_add(c.moved, std::memory_order_relaxed);
     if (c.reacted) react_count_.fetch_add(c.reacted, std::memory_order_relaxed);
-    for (int s = 0; s < FALL_SLOTS; s++)
+    for (int s = 0; s < TALLY_SLOTS; s++)
         if (c.falls[s][0])
             for (int k = 0; k < 4; k++) falls_[s][k].fetch_add(c.falls[s][k], std::memory_order_relaxed);
     if (c.nst) {
@@ -1934,7 +1964,7 @@ void SimWorld::tick_once(TickOut &o) {
     o.active = active;
     o.moved = moved_count_.load();
     o.react = react_count_.load();
-    for (int s = 0; s < FALL_SLOTS; s++) for (int k = 0; k < 4; k++) falls_last_[s][k] = falls_[s][k].load(std::memory_order_relaxed);
+    for (int s = 0; s < TALLY_SLOTS; s++) for (int k = 0; k < 4; k++) falls_last_[s][k] = falls_[s][k].load(std::memory_order_relaxed);
     build_streaks();
     o.scanned = scanned;
     o.deferred = deferred;
@@ -2369,7 +2399,7 @@ int SimWorld::count_burning() const {
 // [0] when none did. A waterfall is a few hundred cells, which random sampling (sample_cells) almost never hits.
 PackedInt32Array SimWorld::get_falls(int p_slot) const {
     PackedInt32Array r;
-    if (p_slot < 0 || p_slot >= FALL_SLOTS || falls_last_[p_slot][0] == 0) { r.push_back(0); return r; }
+    if (p_slot < 0 || p_slot >= TALLY_SLOTS || falls_last_[p_slot][0] == 0) { r.push_back(0); return r; }
     const int64_t n = falls_last_[p_slot][0];
     r.push_back((int32_t)n);
     for (int k = 1; k < 4; k++) r.push_back((int32_t)(falls_last_[p_slot][k] / n));

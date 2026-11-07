@@ -157,6 +157,17 @@ func test_steam_condenses_where_it_is_cold() -> void:
 	_run(w, 30)
 	assert_int(w.count_material(GameMaterials.STEAM)).override_failure_message("steam survives at 10 C").is_equal(0)
 	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).override_failure_message("no drops condensed").is_greater(0)
+	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).override_failure_message("drops are thin, not a full cell per steam cell").is_less_equal(8 * 8 * 2)
+
+
+## A column of steam over a boiling pool stayed water-free only until one drop touched it (ADR 0144).
+func test_steam_does_not_condense_on_a_drop() -> void:
+	var w := _world()
+	w.set_ambient_c(10.0, true)
+	w.fill_box(Vector3i(24, 10, 24), Vector3i(25, 30, 25), GameMaterials.STEAM)
+	w.fill_box(Vector3i(23, 20, 24), Vector3i(24, 21, 25), GameMaterials.WATER)
+	_run(w, 3)
+	assert_int(w.count_liquid_eighths(GameMaterials.WATER)).override_failure_message("the column turned to water").is_less_equal(8)
 
 
 func test_a_sealed_hot_box_stops_boiling_as_its_pressure_rises_and_venting_resumes_it() -> void:

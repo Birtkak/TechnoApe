@@ -48,6 +48,10 @@ public:
     static constexpr int CS = 16;
     static constexpr int MAX_MATERIALS = 256;
     static constexpr int FALL_SLOTS = 4;   // fluid slots whose falls are counted (water, lava, oil, sludge)
+    // two more tallies over the same path, for sounds random sampling cannot find (a fire is thin in 17 M cells): cells
+    // burning and cells that just became a gas (boiled or a reaction's product), read with get_falls
+    static constexpr int HOT_LIQUID_C = 500;   // a liquid this hot (heat_c: lava) lights what it touches instead of dousing it
+    static constexpr int TALLY_BURN = FALL_SLOTS, TALLY_HISS = FALL_SLOTS + 1, TALLY_SLOTS = FALL_SLOTS + 2;
     static constexpr int MAX_DISP = 7; // must stay < CS/2 for the parity scheme
     static constexpr int SURFACE_REACH = 7; // liquid surface levelling looks this far (< CS/2 like MAX_DISP)
     // Partly full liquid cells in the terrain (Minecraft-style fluid models, one per level):
@@ -237,7 +241,7 @@ private:
     struct Marks { uint32_t wake = 0; uint32_t dirty = 0; uint32_t box[27] = {}; uint32_t dbox[27] = {}; };
     static constexpr int STREAK_CTX = 128;   // fall paths one chunk update keeps before it hands them over
     struct Ctx { int cx, cy, cz; Marks mk; uint32_t rng; uint64_t moved = 0; uint64_t reacted = 0;
-        int64_t falls[FALL_SLOTS][4] = {};
+        int64_t falls[TALLY_SLOTS][4] = {};
         int nst = 0; int32_t st[STREAK_CTX * 5]; };   // fall paths this update: slot, x, z, lowest and highest cell passed   // liquid cells that fell this tick per fluid slot: count, sum x y z
     // Dirty box of a chunk packed in 25 bits: valid | min xyz | max xyz (4 bits each, local 0..15).
     static constexpr uint32_t BOX_VALID = 1u << 24;
@@ -368,8 +372,8 @@ private:
     std::vector<int> pass_lists_[8];
     std::atomic<uint64_t> moved_count_{0};
     std::atomic<uint64_t> react_count_{0};
-    std::atomic<int64_t> falls_[FALL_SLOTS][4] = {};   // this tick's Ctx::falls, summed (the waterfall sound, ADR 0103)
-    int64_t falls_last_[FALL_SLOTS][4] = {};           // the last finished tick's, what get_falls returns
+    std::atomic<int64_t> falls_[TALLY_SLOTS][4] = {};   // this tick's Ctx::falls, summed (the waterfall sound, ADR 0103)
+    int64_t falls_last_[TALLY_SLOTS][4] = {};           // the last finished tick's, what get_falls returns
     // ADR 0138: the cells each falling liquid cell passed this tick (the air it crossed), for the stream streaks
     static constexpr int STREAKS = 8192;
     std::atomic<int> streak_n_{0};
@@ -412,6 +416,11 @@ private:
         int64_t *f = c.falls[m.fluid_slot];
         f[0]++; f[1] += x; f[2] += y; f[3] += z;
     }
+    static inline void tally(int slot, int x, int y, int z, Ctx &c) {
+        int64_t *f = c.falls[slot];
+        f[0]++; f[1] += x; f[2] += y; f[3] += z;
+    }
+    void hot_liquid_ignite(int x, int y, int z, const MaterialDef &m, Ctx &c);
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);
     void update_liquid_column(int x, int y, int z, int i, Ctx &c);   // ADR 0119 A

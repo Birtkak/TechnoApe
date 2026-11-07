@@ -219,7 +219,7 @@ static func _build_defs() -> Array:
 		{"name": "oil", "cell_type": "liquid", "fluid_slot": 2, "density": 0.8, "liquid_flow_speed": 0.6, "liquid_speed": 2, "burnable": true, "fire_hp": 60, "autoignition_temperature": 20, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 6, "tiles": [9, 9, 9], "transparent": true},
 		{"name": "steam", "condense_c": 60, "condenses_to": "water", "cell_type": "gas", "density": 0, "gas_upwards_speed": 220, "gas_horizontal_speed": 50, "lifetime": 900, "tiles": [10, 10, 10], "transparent": true},
 		{"name": "smoke", "cell_type": "gas", "density": 0, "gas_upwards_speed": 190, "gas_horizontal_speed": 60, "lifetime": 330, "wind_drift": 1.0, "tiles": [11, 11, 11], "transparent": true},
-		{"name": "fire", "heat_c": 600, "cell_type": "fire", "density": 0, "lifetime": 24, "temperature_of_fire": 60, "gas_upwards_speed": 120, "gas_horizontal_speed": 80, "tiles": [12, 12, 12], "transparent": true},
+		{"name": "fire", "heat_c": 600, "cell_type": "fire", "density": 0, "lifetime": 14, "temperature_of_fire": 60, "gas_upwards_speed": 120, "gas_horizontal_speed": 80, "tiles": [12, 12, 12], "transparent": true},
 		{"name": "bedrock", "cell_type": "solid", "density": 15, "hp": 1000000, "tiles": [13, 13, 13], "transparent": false},
 		{"name": "snow", "cell_type": "powder", "liquid_static": true, "density": 2, "tiles": [14, 14, 14], "transparent": false},
 		{"name": "gravel", "cell_type": "powder", "density": 4, "tiles": [15, 15, 15], "transparent": false},
@@ -914,7 +914,7 @@ static func build_library(atlas_material: Material, liquid_material: Material = 
 		if d.get("transparent", false) and passable and not d.has("micro"):
 			cube.transparency_index = 1
 		cube.set_material_override(0, liquid_material if (liquid_material != null and passable and d.get("transparent", false)) else atlas_material)
-		if gas_material != null and ct == "gas":
+		if gas_material != null and ct in ["gas", "fire"]:
 			# a cloud of its own index: water under steam keeps its surface, gas against gas is culled;
 			# its own copy of the gas material where data/gas_looks.json gives it a look (ADR 0119 C4)
 			cube.transparency_index = 2
