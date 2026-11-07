@@ -41,9 +41,13 @@ func _tick_until(farm: Farming, done: Callable) -> void:
 func test_waste_ground_beside_a_crop_makes_it_sickly_then_wilts_it() -> void:
 	var farm := _farm()
 	vox[Vector3i(1, 0, 0)] = GameMaterials.WASTE_GROUND
+	farm.grow(CROP, 7)   # ripe
+	var ripe := int(farm.crops[CROP]["age"])
 	assert_str(farm.pollution(CROP)).is_equal("waste ground")
 	_tick_until(farm, func() -> bool: return int(farm.crops.get(CROP, {}).get("sick", 0)) > 0)
 	assert_str(farm.sick_line(CROP)).is_equal("Sickly: waste ground")
+	assert_int(int(farm.crops[CROP]["age"])).override_failure_message("the sign: it dies back an age").is_equal(ripe - 1)
+	assert_int(int(vox[CROP])).is_equal(farm.look_of("wheat", ripe - 1))
 	_tick_until(farm, func() -> bool: return farm.crops.is_empty())
 	assert_bool(farm.crops.is_empty()).is_true()
 	assert_int(int(farm.stats["wilted"])).is_equal(1)
@@ -78,8 +82,24 @@ func test_masks_filter_smoke() -> void:
 	var recipes := RecipeRegistry.load_default(items)
 	for id in ["cloth_mask", "diving_mask"]:
 		assert_bool(bool(items.get_def(id)["clothing"].get("smoke_mask", false))).override_failure_message(id).is_true()
-	assert_str(Clothing.slot_of(items.get_def("cloth_mask"))).is_equal("head")
+	assert_str(Clothing.slot_of(items.get_def("cloth_mask"))).is_equal("face")
 	var made := false
 	for r in recipes.recipes.values():
 		made = made or String(r.get("output", {}).get("id", "")) == "cloth_mask"
 	assert_bool(made).is_true()
+
+
+func test_a_fish_dead_of_fouled_water_is_saved_floating() -> void:
+	var mm: MobManager = auto_free(MobManager.new())
+	mm.configure(MobManager.load_defs())
+	var m: Mob = auto_free(Mob.create(mm, "fish", mm.defs["fish"], false))
+	mm._active.append(m)
+	m.foul_s = Settings.fish_foul_die_s
+	m._die_fouled()
+	m.dying = 0.4
+	var saved: Array = mm.to_dict()["mobs"]
+	assert_int(saved.size()).override_failure_message("the floating fish is kept").is_equal(1)
+	var back: Mob = auto_free(Mob.create(mm, "fish", mm.defs["fish"], false))
+	back.load_from(saved[0])
+	assert_bool(back.is_dead() and back.has_meta("fouled")).is_true()
+	assert_float(back.dying).is_equal_approx(0.4, 0.001)

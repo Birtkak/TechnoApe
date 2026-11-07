@@ -903,6 +903,8 @@ func _leave_carcass(at: Vector3) -> void:
 func on_died(m: Mob) -> void:
 	if m.killed_by != "":
 		_leave_carcass(m.position)   # eaten: what is left lies there, no drops
+	elif m.has_meta("fouled"):
+		pass   # ADR 0155: killed by fouled water: nothing worth eating
 	elif not m.is_baby():
 		var list: Array = m.def.get("drops", []).duplicate()
 		if not m.sheared:
@@ -922,7 +924,7 @@ func on_died(m: Mob) -> void:
 func to_dict() -> Dictionary:
 	var mobs := []
 	for m in _active:
-		if is_instance_valid(m) and not m.is_dead():
+		if is_instance_valid(m) and (not m.is_dead() or m.has_meta("fouled")):   # ADR 0155: a floating dead fish is kept
 			mobs.append(m.to_dict())
 	for d in _dormant:
 		mobs.append(d)

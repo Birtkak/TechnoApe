@@ -332,6 +332,8 @@ func _crop_tick(p: Vector3i) -> Array:
 		if sick >= Settings.crop_wilt_ticks:
 			_wilt(p)
 			return []
+		if int(c["age"]) > 0:
+			grow(p, -1)   # the sign: it dies back an age (a ripe ear drops first), and regrows once clean
 	elif sick > 0:
 		sick -= 1
 	if sick != int(c.get("sick", 0)):
@@ -394,8 +396,9 @@ func grow(p: Vector3i, ages: int = 1) -> void:
 	var c: Dictionary = crops[p]
 	var max_age: int = int(crops_def[c["kind"]]["ages"]) - 1
 	var before := look_of(c["kind"], c["age"])
-	c["age"] = mini(int(c["age"]) + ages, max_age)
-	stats["grown"] += 1
+	c["age"] = clampi(int(c["age"]) + ages, 0, max_age)
+	if ages > 0:
+		stats["grown"] += 1
 	dirty = true
 	var after := look_of(c["kind"], c["age"])
 	if after != before:
