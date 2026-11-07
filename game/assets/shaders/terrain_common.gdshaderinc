@@ -12,6 +12,7 @@ uniform sampler2D atlas : source_color, filter_nearest_mipmap, repeat_disable;
 uniform vec2 atlas_tiles = vec2(8.0, 6.0);
 uniform float water_tile = 5.0;
 uniform float lava_tile = 7.0;
+const float ice_tile = 27.0;   // ADR 0156: ice and lake ice stay bare under the season's snow (a frozen river reads as ice); the atlas tile is append only
 uniform float fire_tile = 12.0;
 uniform float water_speed = 0.45;   // tiles per second along the flow direction
 uniform float lava_speed = 0.06;
@@ -356,7 +357,7 @@ vec3 season_color(vec3 col, float idx, vec3 wpos, vec3 n) {
 			col = mix(col, vec3(0.62, 0.42, 0.20) * lum * 2.2, season_autumn * 0.6 * seasonal);
 		}
 	}
-	if (season_snow > 0.0 && n.y > 0.6 && abs(idx - lava_tile) > 0.5 && abs(idx - fire_tile) > 0.5) {
+	if (season_snow > 0.0 && n.y > 0.6 && abs(idx - lava_tile) > 0.5 && abs(idx - fire_tile) > 0.5 && abs(idx - ice_tile) > 0.5) {
 		float cold = 1.0 - smoothstep(snow_t_max - 0.06, snow_t_max + 0.04, t);
 		float s = season_snow * cold;
 		// ragged edge while it thins: pixels drop out by a per-pixel hash

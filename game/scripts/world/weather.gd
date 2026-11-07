@@ -259,8 +259,10 @@ func _roll() -> void:
 	if gen:
 		var p: Vector3 = main.player.position
 		hum = clampf(float(gen.column_info(int(p.x), int(p.z)).get("humidity", 0.5)), 0.0, 1.0)
-	if _rng.randf() < lerpf(Settings.weather_rain_chance_dry, Settings.weather_rain_chance_wet, hum):
-		_start(Settings.weather_rain_s * _rng.randf_range(0.6, 1.4), false, hum > 0.4 and _rng.randf() < Settings.storm_chance)
+	# ADR 0156: the season moves the odds: a dry summer of rare showers, most of them thunderstorms
+	var s: int = main.atmosphere.calendar.season() if main.atmosphere else 1
+	if _rng.randf() < lerpf(Settings.weather_rain_chance_dry, Settings.weather_rain_chance_wet, hum) * float(Settings.season_rain_mult[s]):
+		_start(Settings.weather_rain_s * _rng.randf_range(0.6, 1.4), false, hum > 0.4 and _rng.randf() < Settings.storm_chance * float(Settings.season_storm_mult[s]))
 
 
 # ---------------- lightning (ADR 0149) ----------------

@@ -50,6 +50,14 @@ var time := 0.4
 var node_offset_deg := 137.0      # where the nodes stand on day 0 (decides which months get eclipses)
 
 
+## A calendar of `days`-day months that still begins on 1 April (ADR 0156: the game's months are short).
+static func with_month_days(days: int) -> Calendar:
+	var c := Calendar.new()
+	c.month_days = maxi(1, days)
+	c.start_day_of_year = 3 * c.month_days
+	return c
+
+
 func year_days() -> int:
 	return 12 * month_days
 

@@ -12,6 +12,7 @@ extends Node
 
 var main: Node
 var seasons := Seasons.new()
+var season_world: SeasonWorld   # ADR 0156: snow, lake ice, drought, the frost warning
 var prospecting := Prospecting.load_default()
 var prospect_menu: ProspectMenu   # Shift + right click with a pick (ADR 0091)
 var discoveries: Discoveries
@@ -37,6 +38,10 @@ func setup(p_main: Node) -> void:
 		return Survival.environment_c(cl, cal.day_of_year(), cal.year_days(), cal.month_days, cal.time, 0.0, false, false, 0.0)
 	seasons.sheltered = func(p: Vector3i) -> bool: return main.survival.room_at(p)
 	Seasons.season = cal.season()
+	season_world = SeasonWorld.new()
+	season_world.name = "SeasonWorld"
+	add_child(season_world)
+	season_world.setup(main)
 	# the discovery journal
 	discoveries = Discoveries.load_default(main.items)
 	for e in discoveries.errors:
@@ -165,6 +170,6 @@ func _exit_tree() -> void:
 
 
 func snapshot() -> Dictionary:
-	return {"season": Seasons.season, "seasons": seasons.stats, "frost_ms_max": snappedf(stats["frost_ms_max"], 0.01),
+	return {"season": Seasons.season, "seasons": seasons.stats, "season_world": season_world.stats, "frost_ms_max": snappedf(stats["frost_ms_max"], 0.01),
 		"discoveries": discoveries.summary(), "journal": journal.stats, "trackers": tracker_hud.summary(),
 		"prospecting": {"taps": prospecting.taps, "last": prospecting.last, "marked": prospecting.marked.size()}}

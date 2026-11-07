@@ -18,7 +18,7 @@ extends Node3D
 ## saturation=1.0, grade=golden|natural|clear (the lighting grade, ADR 0041). Measured cost of the defaults: ~1.2 ms/frame (see README).
 
 # --- tunables ------------------------------------------------------------------
-var calendar := Calendar.new()   # date, time, sun / moon / star geometry (saved by main.gd)
+var calendar := Calendar.with_month_days(Settings.month_days)   # date, time, sun / moon / star geometry (saved by main.gd); ADR 0156: short months
 var time_of_day: float:          # 0 midnight, 0.5 noon (local solar time; sunrise moves with the seasons)
 	get:
 		return calendar.time

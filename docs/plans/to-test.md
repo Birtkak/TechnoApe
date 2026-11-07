@@ -10,6 +10,15 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Seasons that matter (ADR 0156)
+
+- [ ] `/season winter` then `/weather snow` at night by a river: snow builds up patchy on the ground over ~20 s, the river freezes and you can walk on it. `/season winter now` does it at once.
+- [ ] `/season spring now`: snow gone, the river is water again (no flood, no moving water).
+- [ ] A season is now 9 days (3 h). Does the year turn at a good pace? Is the cold winter (-2 C mean on temperate ground) too harsh?
+- [ ] Summer: rare showers, most of them thunderstorms; a lit grass fire spreads faster when it has not rained. Unwatered farmland: crops say "Parched".
+- [ ] Plant beans in autumn (`/season autumn`): the look line says they will not grow. In late autumn a chat line warns of the first frost a few days ahead.
+- [ ] Winter night: beans die back to dead bushes, carrots survive.
+
 ## Fuse cord and flung debris (ADR 0150)
 
 - [ ] `/scenario fuse` (look at open ground first): a 4 m cord burns toward the charge with sparks and smoke, about 8 s, then the blast. Speed right?

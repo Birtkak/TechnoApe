@@ -82,7 +82,7 @@ func setup(p_main: Node) -> void:
 static func environment_c(climate: float, day_of_year: int, year_days: int, month_days: int, time: float, below_m: float,
 		in_water: bool, room: bool, heat_c: float) -> float:
 	var t := 12.0 + 26.0 * climate
-	t += -7.0 * cos(TAU * (day_of_year - 0.5 * month_days) / maxf(year_days, 1))   # coldest mid-January
+	t += -Settings.season_swing_c * cos(TAU * (day_of_year - 0.5 * month_days) / maxf(year_days, 1))   # coldest mid-January (ADR 0156: 14 C, was 7)
 	t += 3.5 * -cos(TAU * (time - 0.08)) - 0.5                                      # 2 am -4 C, 2 pm +3 C
 	if below_m > 4.0:
 		t = lerpf(t, Settings.cave_c, clampf((below_m - 4.0) / 4.0, 0.0, 1.0))
