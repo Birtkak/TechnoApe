@@ -321,7 +321,7 @@ func test_every_station_and_machine_has_uses() -> void:
 	# they make, store or light with steam or power, or move items in the world: no recipe runs in them
 	var no_recipes := ["small_boiler", "steel_boiler", "steam_turbine", "compressor", "battery_box", "electric_lamp",
 		"hopper", "chute", "belt", "rail", "knife_switch", "fuse_box", "breaker", "heavy_copper_cable",
-		"daylight_switch", "meter_panel", "water_wheel", "wind_turbine", "hand_crank", "thin_cable", "trading_post", "builder",
+		"daylight_switch", "meter_panel", "water_wheel", "large_water_wheel", "wind_turbine", "hand_crank", "thin_cable", "trading_post", "builder",
 		"lift_winch", "drawbridge_hinge", "crane"]   # contraption drives move a part (ADR 0160); switches and fuses guard the circuit (ADR 0123); a cable carries power (ADR 0131)
 	for id in items.all_ids():
 		var d := items.get_def(id)

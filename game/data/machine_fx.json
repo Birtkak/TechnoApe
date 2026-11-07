@@ -57,6 +57,10 @@
   "battery_box": {"when": "false", "light": "none",
    "parts": [{"motion": "needle", "value": "charge / wh", "range": [0.0, 1.0], "sweep_deg": [-70, 70], "axis": "z", "at": [0.5, 0.75, -0.02], "size": [0.4, 2.5, 0.4], "color": "#d04020"}]},
   "electric_lamp": {"when": "is_lit()", "light": "lamp"},
+  "water_wheel": {"when": "drive > 0.0", "light": "none",
+   "emit": [{"effect": "splash", "at": [0.5, 0.15, 0.5], "per_s": 2, "if": "drive > 0.2"}]},
+  "large_water_wheel": {"when": "drive > 0.0", "light": "none",
+   "emit": [{"effect": "splash", "at": [0.5, 0.15, 0.5], "per_s": 4, "if": "drive > 0.2"}]},
   "belt": {"when": "false", "light": "none"},
   "rail": {"when": "false", "light": "none"}
  }

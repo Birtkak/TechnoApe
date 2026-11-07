@@ -7,7 +7,7 @@
  ],
  "steps": [
   {
-   "text": "A water wheel stands over a two-block trough of still water. The wetter the box under it, the harder it drives: 50 V, a few hundred watts, lamps and a pump rather than a furnace.",
+   "text": "A water wheel stands in running water: the more water moves through the race under it, the harder it drives (still water does not turn it): 50 V, a few hundred watts, lamps and a pump rather than a furnace.",
    "blocks": [
     {
      "material": "water_static",

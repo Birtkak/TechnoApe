@@ -396,6 +396,7 @@
     {"id": "thin_cable", "type": "shapeless", "ingredients": ["copper_wire", "rubber"], "output": {"id": "thin_cable", "count": 4}},
     {"id": "lead_acid_cell", "type": "shapeless", "ingredients": ["tin_nugget", "tin_nugget", "tin_nugget", "tin_nugget", "sulfur", "glass"], "output": {"id": "lead_acid_cell", "count": 2}, "_note": "ADR 0123: tin plates in sulfuric acid behind glass (tin stands in for lead)"},
     {"id": "water_wheel", "type": "shaped", "pattern": ["PWP", "WRW", "PCP"], "key": {"P": "#planks", "W": "copper_wire", "R": "iron_rod", "C": "copper_coil"}, "output": {"id": "water_wheel", "count": 1}},
+    {"id": "large_water_wheel", "type": "shaped", "pattern": ["PPP", "WRW", "PCP"], "key": {"P": "#planks", "W": "water_wheel", "R": "iron_rod", "C": "copper_coil"}, "output": {"id": "large_water_wheel", "count": 1}},
     {"id": "wind_turbine", "type": "shaped", "pattern": ["TCT", " R ", " R "], "key": {"T": "tin_nugget", "C": "copper_coil", "R": "iron_rod"}, "output": {"id": "wind_turbine", "count": 1}},
     {"id": "hand_crank", "type": "shaped", "pattern": ["R  ", "CPC", "PPP"], "key": {"R": "iron_rod", "C": "copper_coil", "P": "iron_plate"}, "output": {"id": "hand_crank", "count": 1}},
     {"id": "daylight_switch", "type": "shaped", "pattern": ["GSG", "CRC", "PPP"], "key": {"G": "glass", "S": "sulfur", "C": "copper_cable", "R": "resistor", "P": "iron_plate"}, "output": {"id": "daylight_switch", "count": 1}, "_note": "ADR 0123: a selenium cell (sulfur stands in) under glass"},

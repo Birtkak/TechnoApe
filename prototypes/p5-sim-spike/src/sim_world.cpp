@@ -121,6 +121,8 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("count_material", "material"), &SimWorld::count_material);
     ClassDB::bind_method(D_METHOD("blow", "min", "max", "dir"), &SimWorld::blow);
     ClassDB::bind_method(D_METHOD("count_in_box", "min", "max", "material"), &SimWorld::count_in_box);
+    ClassDB::bind_method(D_METHOD("count_moving_in_box", "min", "max", "material"), &SimWorld::count_moving_in_box);
+    ClassDB::bind_method(D_METHOD("dam_scan", "boxes", "hold", "min_load"), &SimWorld::dam_scan);
     ClassDB::bind_method(D_METHOD("count_unsupported", "material"), &SimWorld::count_unsupported);
     ClassDB::bind_method(D_METHOD("count_burning"), &SimWorld::count_burning);
     ClassDB::bind_method(D_METHOD("get_falls", "slot"), &SimWorld::get_falls);
@@ -2453,6 +2455,65 @@ int SimWorld::blow(Vector3i p_min, Vector3i p_max, Vector3i p_dir) {
     return n;
 }
 
+int SimWorld::count_moving_in_box(Vector3i p_min, Vector3i p_max, int p_material) const {
+    wait_idle();
+    const uint16_t s0 = stamp_, s1 = (uint16_t)(stamp_ - 1);
+    int n = 0;
+    for (int z = std::max(0, p_min.z); z < std::min(D_, p_max.z); z++)
+        for (int y = std::max(0, p_min.y); y < std::min(H_, p_max.y); y++)
+            for (int x = std::max(0, p_min.x); x < std::min(W_, p_max.x); x++) {
+                const int i = idx(x, y, z);
+                if (cells_[i].mat != (uint8_t)p_material) continue;
+                uint16_t m = moved_[i];
+                if (m & 0x8000u) m = (uint16_t)((m & 0x7fffu) >> 2);   // a substep's mark carries its tick's stamp
+                n += m != 0 && (m == s0 || m == s1);
+            }
+    return n;
+}
+
+PackedInt32Array SimWorld::dam_scan(const PackedInt32Array &p_boxes, const PackedFloat32Array &p_hold, float p_min_load) const {
+    PackedInt32Array out;
+    wait_idle();
+    const int nh = (int)p_hold.size();
+    auto ok = [&](int x, int y, int z) { return in_world(x, y, z) && loaded_[cidx(x >> 4, y >> 4, z >> 4)] != 0; };
+    auto liquid = [&](int x, int y, int z) { return ok(x, y, z) && mats_[cells_[idx(x, y, z)].mat].cell_type == CELL_LIQUID; };
+    auto wall = [&](int x, int y, int z) {
+        const uint8_t t = mats_[cells_[idx(x, y, z)].mat].cell_type;
+        return t == CELL_SOLID || t == CELL_POWDER;
+    };
+    auto head = [&](int x, int y, int z) { int h = 0; while (h < 64 && liquid(x, y + h, z)) h++; return h; };
+    static const int DX[4] = {1, -1, 0, 0}, DZ[4] = {0, 0, 1, -1};
+    for (int b = 0; b + 5 < p_boxes.size(); b += 6) {
+        for (int z = p_boxes[b + 2]; z < p_boxes[b + 5]; z++)
+            for (int y = p_boxes[b + 1]; y < p_boxes[b + 4]; y++)
+                for (int x = p_boxes[b]; x < p_boxes[b + 3]; x++) {
+                    if (!ok(x, y, z) || !wall(x, y, z)) continue;
+                    const int m0 = cells_[idx(x, y, z)].mat;
+                    if (m0 >= nh || p_hold[m0] <= 0.0f) continue;
+                    for (int d = 0; d < 4; d++) {
+                        const int wx = x - DX[d], wz = z - DZ[d];
+                        const int h = head(wx, y, wz);   // the water against this face, counted up from this row
+                        if (h < 2) continue;
+                        int t = 0; float hold = 0.0f; bool strong = false;
+                        int ex = x, ez = z;
+                        while (t < 16 && ok(ex, y, ez) && wall(ex, y, ez)) {
+                            const int m = cells_[idx(ex, y, ez)].mat;
+                            const float hm = m < nh ? p_hold[m] : 0.0f;
+                            if (hm <= 0.0f) { strong = true; break; }   // stone in the run backs it
+                            hold += hm; t++; ex += DX[d]; ez += DZ[d];
+                        }
+                        if (strong || t >= 16 || !ok(ex, y, ez)) continue;
+                        const int dry = liquid(ex, y, ez) ? head(ex, y, ez) : 0;
+                        if (dry >= h) continue;
+                        const float load = float(h - dry) / hold;   // hold sums each cell's share of the thickness
+                        if (load < p_min_load) continue;
+                        out.push_back(x); out.push_back(y); out.push_back(z); out.push_back((int)(load * 1000.0f));
+                        out.push_back(ex); out.push_back(y); out.push_back(ez);
+                    }
+                }
+    }
+    return out;
+}
 int SimWorld::count_unsupported(int p_material) const {
     int n = 0;
     for (int z = 0; z < D_; z++)

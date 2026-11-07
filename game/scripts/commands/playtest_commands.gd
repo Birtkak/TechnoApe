@@ -26,6 +26,7 @@ const SCENARIOS := {
 		"/fill {fx0i} {y4} {fz0i} {fx1i} {y6} {fz1i} firedamp", "/give safety_lamp", "/give torch 4", "/give vent_fan", "/kit electric"],
 	"contraptions": ["/gamemode creative", "/kit contraptions", "/contraptions"],   # a lift, a drawbridge, a crane on cranks (ADR 0160)
 	"fuse": ["/gamemode creative", "/kit tnt", "/tnt fuse 4"],   # look at open ground first: a cord burns 4 m into a charge (ADR 0150)
+	"dam": ["/gamemode creative", "/stations dam cam"],   # a wheel in a race and a thin dirt dam: it seeps, creaks, breaks (ADR 0154)
 	"ledge": ["/gamemode survival", "/fill {x0} {ledge} {z0} {x1} {ledge} {z1} stone", "/tp {x} {on} {z}"],   # Ctrl sprint, Shift stops at the edge
 }
 

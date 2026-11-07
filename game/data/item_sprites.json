@@ -5412,6 +5412,7 @@
     "thin_cable": {"layers": [{"shape": "twine", "palette": "copper"}]},
     "lead_acid_cell": {"layers": [{"shape": "lead_cell", "palette": "carbon"}]},
     "water_wheel": {"layers": [{"shape": "water_wheel", "palette": "wood"}]},
+    "large_water_wheel": {"layers": [{"shape": "water_wheel", "palette": "spruce_wood"}]},
     "wind_turbine": {"layers": [{"shape": "wind_turbine", "palette": "steel"}]},
     "hand_crank": {"layers": [{"shape": "hand_crank", "palette": "iron"}]},
     "daylight_switch": {"layers": [{"shape": "fuse_box", "palette": "iron", "colors": {"t": "#ffe27a"}}]},

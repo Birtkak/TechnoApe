@@ -150,6 +150,11 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   the entity, `emit`, `pulse`, `parts` spin/bob/needle, `shake_m`, `lamp`, `light`) and animates machines within
   `machine_fx_m`; ParticleFx, TorchLights and GameAudio's machine loops defer to it. A new machine is a JSON entry.
   Check: `test_machine_fx.gd`, `/stations fx`, `/machinefx force|film`.
+  **Water wheels and dams (ADR 0154):** a wheel's drive is the flow in the 0.5 m slab under it (`SimWorld.count_moving_in_box`
+  over `wheel_flow_full`, plus a river's still water by the generator's `river`); still water gives nothing. `large_water_wheel`
+  is the 2 m one (0.3 ohm). `Dams` scans the blocks the player built (`SimWorld.dam_scan`, holds in `data/dams.json`):
+  load = head / held thickness; 0.5 weeps, 1 creaks and seeps for 40..8 s and then the overloaded rows wash out.
+  `/stations dam`, `/scenario dam`, `test_dams.gd`.
   **Stage 3 transport (ADR 0100):** `Transport.give/pull` is the one place that knows how every piece loads and
   unloads; `HopperEntity` (hopper and chute, `item`) pulls from above (the chute from behind too) and pushes the
   way it faces or down; `BeltEntity` carries `carried` [{stack, t}] one block in `belt_s` and draws them riding;

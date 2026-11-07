@@ -1820,6 +1820,7 @@ shape("lead_cell", outline(g), {"s": "#7a8290", "S": "#aab2be", "r": "#e03a20", 
 sp("thin_cable", ("twine", "copper"))   # ADR 0123 round 2
 sp("lead_acid_cell", ("lead_cell", "carbon"))
 sp("water_wheel", ("water_wheel", "wood"))
+sp("large_water_wheel", ("water_wheel", "spruce_wood"))   # ADR 0154: the 2 m wheel, darker timber
 sp("wind_turbine", ("wind_turbine", "steel"))
 sp("hand_crank", ("hand_crank", "iron"))
 sp("daylight_switch", ("fuse_box", "iron", {"t": "#ffe27a"}))   # its photocell in the window

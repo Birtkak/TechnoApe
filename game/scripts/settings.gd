@@ -144,6 +144,8 @@ var lv_brownout_frac := 0.7             # ... a load that is not the newest on i
 var cable_burn_s := 10                  # ... seconds over its rating before a cable burns out
 var circuit_device_ohms := 0.001        # ... a switch, fuse or breaker in line
 var crank_s := 20.0                     # ... a right click turns the hand crank this long (about 60 W, what a person keeps up)
+var wheel_flow_full := 0.1            # ADR 0154: share of the slab under a water wheel moving each tick for full drive
+var dams := true                        # ADR 0154: weak dams leak and break (dams=0 turns it off)
 var lamp_light_range_m := 12.0          # ADR 0117: an electric lamp's light (TorchLights), paler and smaller than a fire
 var lamp_light_energy := 1.2
 var pump_buckets := 4                   # ... and its tank, in buckets (1 m^3 each)
@@ -519,6 +521,7 @@ func apply_cmdline() -> Dictionary:
 			"particles": particles = kv[1] == "1"
 			"rigid_pieces": rigid_pieces = kv[1] == "1"
 			"cave_ins": cave_ins = kv[1] == "1"
+			"dams": dams = kv[1] == "1"
 			"screen_shake": screen_shake = kv[1] == "1"
 			"support_warn_s":   # support_warn_s=min,max (test runs)
 				var mm := kv[1].split(",")

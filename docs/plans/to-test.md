@@ -44,6 +44,11 @@ drive to flip its lever (or `/contraptions toggle`), `/contraptions ride` stands
 - [ ] Summer: rare showers, most of them thunderstorms; a lit grass fire spreads faster when it has not rained. Unwatered farmland: crops say "Parched".
 - [ ] Plant beans in autumn (`/season autumn`): the look line says they will not grow. In late autumn a chat line warns of the first frost a few days ahead.
 - [ ] Winter night: beans die back to dead bushes, carrots survive.
+## Water wheels and dams (ADR 0154)
+
+- [ ] `/scenario dam`: the race fills from the pool, the thin dirt dam weeps, creaks louder for ~35 s, then gives way; the flood turns the wheel and lights the lamp on it, then stops when the pit is full. Warning long enough? Break dramatic enough?
+- [ ] Set a water wheel in a real river (`/goto river`): it turns; in a lake or a dug pond of still water it stays still. Craft a large water wheel (two wheels, planks, iron rod, copper coil): about 2 kW on a good flow.
+- [ ] Build your own dam: a dirt wall 0.5 m thick holding over 1.5 m of water over dry ground should weep then break; three blocks thick, stone, or a spillway that keeps the level down should hold.
 
 ## Fuse cord and flung debris (ADR 0150)
 
