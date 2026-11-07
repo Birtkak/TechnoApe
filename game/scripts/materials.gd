@@ -330,14 +330,14 @@ static func _build_defs() -> Array:
 
 ## Ids 218..221 (ADR 0141): factory waste as matter. Fouled water has water's look and flow in its own fluid slot;
 ## react_awake keeps it rolling its reactions at rest (reactions()). Atlas tiles 190, 191, 215.
-## Ids 137..138 (ADR 0150): fuse cord and its spark. The cord lights only itself: its fire is colder (12) than
-## anything else catches (15+), and its flame is the spark (temperature 0, still), so the ground beside it
-## never burns. A burning cell lights one of its 6 neighbours with ignite_chance per tick, so along a line the
-## burn moves tick_hz * ignite_chance / 6 voxels a second (at most 0.625 m/s at 30 Hz).
+## Ids 137..138 (ADR 0150): fuse cord and its spark. A burning cord lights every face or edge neighbour of cord
+## after fuse_ticks ticks (native fuse rule): a steady Settings.fuse_speed_mps, up steps, round diagonals and
+## under water. Its fire is colder (12) than anything else catches (15+) and its flame is the spark
+## (temperature 0, still), so the ground beside it never burns. fire_hp is short: the glow is a moving spark.
 static func _fuse_defs() -> Array:
-	var ic := clampf(Settings.fuse_speed_mps / Settings.VOXEL_M * 6.0 / Settings.sim_tick_hz, 0.05, 1.0)
+	var ft := clampf(Settings.sim_tick_hz * Settings.VOXEL_M / maxf(Settings.fuse_speed_mps, 0.01), 1.0, 250.0)
 	return [
-		{"name": "fuse_cord", "cell_type": "solid", "density": 6, "hp": 5, "burnable": true, "fire_hp": 70, "ignite_chance": ic,
+		{"name": "fuse_cord", "cell_type": "solid", "density": 6, "hp": 5, "burnable": true, "fire_hp": maxi(24, ceili(ft) + 4), "fuse_ticks": ft, "ignite_chance": 0.5,
 			"autoignition_temperature": 10, "temperature_of_fire": 12, "on_fire_convert_to_material": 8, "on_fire_flame_material": FUSE_SPARK,
 			"on_fire_smoke_material": 11, "generates_smoke": 40, "tiles": [199, 199, 199], "transparent": false},
 		{"name": "fuse_spark", "cell_type": "fire", "density": 0, "lifetime": 8, "temperature_of_fire": 0, "gas_upwards_speed": 0,

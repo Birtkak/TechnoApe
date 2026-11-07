@@ -70,7 +70,7 @@ func test_cord_burns_end_to_end_at_the_set_speed() -> void:
 		mean += reached[z] / float(HZ) / LINES.size()
 	var expected := (LEN - 1) * Settings.VOXEL_M / Settings.fuse_speed_mps
 	print("fuse_cord: %.2f m burnt in %.2f s (mean of %d), expected %.2f s" % [(LEN - 1) * Settings.VOXEL_M, mean, LINES.size(), expected])
-	assert_float(mean).override_failure_message("mean %.2f s, expected %.2f s" % [mean, expected]).is_between(expected * 0.8, expected * 1.2)
+	assert_float(mean).override_failure_message("mean %.2f s, expected %.2f s" % [mean, expected]).is_between(expected * 0.95, expected * 1.05)
 	for i in 4 * HZ:
 		w.tick(1)
 	assert_int(w.count_material(GameMaterials.FUSE_CORD)).is_equal(0)
@@ -104,7 +104,7 @@ func test_cord_lights_the_tnt_it_reaches() -> void:
 			break
 	var expected := (a.x - X0) * Settings.VOXEL_M / Settings.fuse_speed_mps
 	print("fuse_cord: tnt lit at %.2f s, expected ~%.2f s" % [lit_at, expected])
-	assert_float(lit_at).override_failure_message("lit at %.2f s, expected ~%.2f s" % [lit_at, expected]).is_between(expected * 0.7, expected * 1.4)
+	assert_float(lit_at).override_failure_message("lit at %.2f s, expected ~%.2f s" % [lit_at, expected]).is_between(expected * 0.9, expected * 1.1)
 	assert_int(t.primed.size()).is_equal(1)
 
 
@@ -133,3 +133,70 @@ func test_debris_is_capped_and_lands_as_loose_voxels() -> void:
 	assert_array(kinds.keys()).is_equal([GameMaterials.GRAVEL])
 	assert_int(BlastDebris.loose_of(GameMaterials.GRASS)).is_equal(GameMaterials.DIRT)
 	assert_int(BlastDebris.loose_of(GameMaterials.WOOD)).is_equal(GameMaterials.WOOD)
+
+
+## Up a staircase (each step one up and one over: the cells touch only by edges) and through a pool of water:
+## the cord still burns to its end, at about the set speed.
+func test_cord_climbs_steps_and_burns_under_water() -> void:
+	var w := _world()
+	var cells: Array[Vector3i] = []
+	for i in 24:   # 24 steps up along x at z = 10
+		cells.append(Vector3i(X0 + i, 4 + i, 10))
+	for i in 40:   # 40 cells along x at z = 40, under water from x = 12 to 32
+		cells.append(Vector3i(X0 + i, 4, 40))
+	for c in cells:
+		w.set_voxel(c, GameMaterials.FUSE_CORD)
+	w.fill_box(Vector3i(12, 5, 39), Vector3i(32, 8, 42), GameMaterials.WATER)
+	w.fill_box(Vector3i(12, 4, 39), Vector3i(32, 5, 40), GameMaterials.WATER)
+	w.fill_box(Vector3i(12, 4, 41), Vector3i(32, 5, 42), GameMaterials.WATER)
+	w.ignite(cells[0])
+	w.ignite(cells[24])
+	var ends := [cells[23], cells[63]]
+	var t := 0
+	while t < 30 * HZ and ends.any(func(e: Vector3i) -> bool: return w.get_voxel(e) == GameMaterials.FUSE_CORD and not w.get_flags(e) & 1):
+		w.tick(1)
+		t += 1
+	print("fuse_cord: steps and water burnt through in %.2f s" % (t / float(HZ)))
+	assert_int(t).is_less(30 * HZ)
+	var expected := 39 * Settings.VOXEL_M / Settings.fuse_speed_mps   # the longer, 40-cell cord
+	assert_float(t / float(HZ)).is_between(expected * 0.9, expected * 1.1)
+
+
+class FakePlayer:
+	extends Node3D
+	signal died
+	var game_mode := GameMode.SURVIVAL
+	var knocked := Vector3.ZERO
+	func knock(v: Vector3) -> void:
+		knocked += v
+
+
+class FakeInv:
+	extends RefCounted
+	var taken := 0
+	func damage(n: int, _cause: String) -> void:
+		taken += n
+	func is_dead() -> bool:
+		return false
+
+
+## A flung chunk that flies into the player hurts and shoves them, then drops there.
+func test_debris_hurts_the_player_it_hits() -> void:
+	var stub = auto_free(FloorStub.new())
+	add_child(stub)
+	var pl: FakePlayer = auto_free(FakePlayer.new())
+	stub.player = pl
+	stub.player_inv = FakeInv.new()
+	pl.position = Vector3(Settings.m2v(3.0), 0, 0)
+	var d: BlastDebris = auto_free(BlastDebris.new())
+	stub.add_child(d)
+	var box := BoxMesh.new()
+	box.size = Vector3.ONE * Settings.BLOCK
+	d.setup(stub, StandardMaterial3D.new(), box)
+	d.throw(Vector3(0, 6, 0), 0.0, {"dirt": 100.0}, BlastDebris.REMOVED_PER_CHUNK)
+	d._live[0]["v"] = Vector3(Settings.m2v(10.0), 0, 0)   # straight at the player's middle
+	for i in 60:
+		d._process(1.0 / 60.0)
+	assert_int(stub.player_inv.taken).is_equal(Settings.tnt_debris_damage)
+	assert_float(pl.knocked.x).is_greater(0.0)
+	assert_int(d.stats["hits"]).is_equal(1)

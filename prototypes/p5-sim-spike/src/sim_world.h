@@ -81,6 +81,8 @@ public:
         uint8_t generates_smoke = 0;   // 0..255 chance per burning tick
         uint8_t extinguish_mask = 0;   // unused for now
         uint16_t ignite_chance = 8192; // 0..65535 per attempt by a burning neighbour (see set_materials)
+        uint8_t fuse_ticks = 0;        // ADR 0150 fuse cord: burning this many ticks (or one more, fuse_frac of the time) lights
+        uint16_t fuse_frac = 0;        // every face or edge neighbour of its kind; a fuse burns under water
         uint16_t loosen = 0;   // static ground: chance per tick (0..65535) to turn loose when the cell below just opened
         uint16_t erode = 0;    // static powder: chance per tick to slide off an edge that just opened beside and below it
         bool replaceable = false;      // a plant liquids and powders wash away
