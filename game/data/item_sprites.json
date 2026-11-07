@@ -4525,6 +4525,126 @@
         "................",
         "................"
       ]
+    },
+    "glider_wing": {
+      "rows": [
+        "................",
+        ".......oo.......",
+        "......ohlo......",
+        ".....ohmmlo.....",
+        "....ohmmmmlo....",
+        "...ohmmmmmmlo...",
+        "..ohmmmmmmmmlo..",
+        "..olmmddddmmdo..",
+        ".ohdddoooolddlo.",
+        "ohoooo....ooooho",
+        ".o............o.",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "glider_frame": {
+      "rows": [
+        "................",
+        "................",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "...mmmmmmmmmmm..",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "......dd.dd.....",
+        ".....lllllll....",
+        "................"
+      ]
+    },
+    "rope_coil": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "...oooooooo.....",
+        "..ohlllllllo....",
+        ".ohdmmdmmdmlo...",
+        "ohdmmddddmmdlo..",
+        "olmmdooooldmdo..",
+        "olmdo....olmdo..",
+        "oldmloooohmddo..",
+        "olmmdllllmdmdo..",
+        ".oldmmdmmdmdo...",
+        "..oldddddddo....",
+        "...oooooooo.....",
+        "................"
+      ]
+    },
+    "rope_stake": {
+      "rows": [
+        ".............o..",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        ".............o.."
+      ]
+    },
+    "hook_prongs": {
+      "rows": [
+        ".......ooo......",
+        "......ohllo.....",
+        ".......olo......",
+        ".......olo......",
+        "....o..olo..o...",
+        "...oho.olo.oho..",
+        "...olo.olo.olo..",
+        "....ohoolooho...",
+        "....olooloolo...",
+        "....olooloolo...",
+        ".....ohldllo....",
+        "......ooooo.....",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "hook_rope": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "........m.......",
+        "........m.......",
+        ".......m........",
+        ".....mm.........",
+        "...mm..........."
+      ]
     }
   },
   "sprites": {
@@ -5058,6 +5178,9 @@
     "belt": {"layers": [{"shape": "strips", "palette": "leather"}, {"shape": "stick", "palette": "iron"}]},
     "rail": {"layers": [{"shape": "rail_track", "palette": "iron"}]},
     "minecart": {"layers": [{"shape": "minecart", "palette": "iron"}]},
-    "chest_cart": {"layers": [{"shape": "minecart", "palette": "iron"}, {"shape": "cart_lid", "palette": "wood"}]}
+    "chest_cart": {"layers": [{"shape": "minecart", "palette": "iron"}, {"shape": "cart_lid", "palette": "wood"}]},
+    "glider": {"layers": [{"shape": "glider_wing", "palette": "scraped_hide"}, {"shape": "glider_frame", "palette": "wood"}]},
+    "climbing_rope": {"layers": [{"shape": "rope_coil", "palette": "twine"}, {"shape": "rope_stake", "palette": "wood"}]},
+    "grappling_hook": {"layers": [{"shape": "hook_rope", "palette": "twine"}, {"shape": "hook_prongs", "palette": "iron"}]}
   }
 }

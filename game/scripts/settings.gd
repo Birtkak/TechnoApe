@@ -157,6 +157,14 @@ var jetpack_rise_m := 2.0               # the steam jetpack climbs this fast wit
 var jetpack_sink_m := 0.6               # ...and sinks this fast with it released (a hover)
 var jetpack_air_s := 90.0               # seconds of climbing one fill of compressed air gives (hovering costs a quarter)
 var compressor_fill_s := 60.0           # a compressor fills its air tank in this long at working pressure
+# movement toys (ADR 0151)
+var glider_trim_speed_m := 9.0          # the glider's airspeed looking level (it settles there)
+var glider_glide_ratio := 8.0           # metres forward per metre down at trim (a 1.1 m/s sink)
+var glider_max_speed_m := 28.0          # a dive's speed is capped here
+var rope_max_m := 32.0                  # a climbing rope hangs at most this far
+var grapple_range_m := 36.0             # the hook flies this far before it comes back
+var grapple_speed_m := 70.0             # ...this fast
+var grapple_reel_m := 14.0              # held right click shortens the line this fast
 # stage 3 transport (ADR 0100)
 var hopper_s := 1.0                     # a hopper or chute moves one item this often
 var belt_s := 1.0                       # a belt carries an item one block in this long

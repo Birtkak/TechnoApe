@@ -68,6 +68,7 @@ var proc_probe := false   # proc_probe=1: each _process phase over 12 ms names i
 var mine_test := ""         # mine_test=collapse|propped|pick|laser|save|reload: dug roofs creak and fall or hold (ADR 0142, scripts/debug/mine_test.gd, "debug mine")
 var mine_rate := 4.0        # mine_rate=N: 0.5 m blocks a second in mine_test=pick
 var sand_test := false      # sand_test=1: a ball of sand dropped onto still ocean water must sink (scripts/debug/sand_test.gd, "debug sand")
+var toys_test := false      # toys_test=1: the glider, climbing rope and grappling hook, scripted and filmed (scripts/debug/toys_test.gd, "debug toys")
 var tp_test := false        # tp_test=1: a burst of teleports (hops, far jumps, /spawn, /goto, /kill), timed and filmed (scripts/debug/tp_test.gd, "debug tp")
 var fluid_film := false     # fluid_film=1: water scenes filmed as strips + bursts + sim slices (scripts/visuals/fluid_film.gd, ADR 0138)
 var liquids_test := false   # liquids_test=1: a pool of every liquid side by side, shot by day and night, and items dropped into lava (bug reports 2026-10-25, "debug liquids")
@@ -234,6 +235,7 @@ func _ready() -> void:
 	liquids_test = args.get("liquids_test", "0") == "1"
 	fluid_film = args.get("fluid_film", "0") == "1"
 	tp_test = args.get("tp_test", "0") == "1"
+	toys_test = args.get("toys_test", "0") == "1"
 	ponder_test = args.get("ponder_test", "0") == "1"
 	shell_test = args.get("shell_test", "0") == "1"
 	holes = args.get("holes", "0") == "1"

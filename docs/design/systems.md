@@ -104,6 +104,12 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   worn head piece), the traveler's backpack (`bag_slots`: `PlayerInventory.bag` is rebuilt to the worn bag's size),
   the steam drill (`speed` 2.5), the boiler suit, the jetpack (clothing slot `back`, `Player._worn_with`, air in the
   stack), the surveyor's stake (`waypoint` field). Tier 4 tools are grid recipes. Check: `test_steam_age_2.gd`.
+  **Movement toys (ADR 0151):** items with `move_toy` (`glider`, `rope`, `grapple`) belong to `MovementToys`
+  (`scripts/player/movement_toys.gd`, a child of Main). `Player._physics_step` calls `toys.step` on foot after the walk,
+  gravity, jetpack and ladder and before `_move`; a toy only sets `Player.velocity` (and `_fall_peak_y`), so the body
+  still moves through `VoxelBoxMover`. Ropes are `{x, z, top, bottom}` lines saved in the player file (`ropes`), not
+  voxels. A toy's let-go speed is carried by `_carry` in the air and becomes `Player._knock` on landing. Player-local:
+  other players see none of it. Check: `toys_test=1` (game/README.md).
   **Machines and networks (ADR 0113):** machines are work pieces (`work` on the item, a kind in
   `BlockEntities.create`); every entity with `net(channel) -> {role, amount}` joins `Networks.solve` once a second
   (20 block ticks): the native `NetworkSolver` unions the boxes that touch and moves min(supply, demand, weakest

@@ -1870,6 +1870,44 @@ put(g, 8, 5, "y")
 shape("cart_lid", outline(g), {"k": "#3a3e44", "y": "#e0a040"})
 sp("chest_cart", ("minecart", "iron"), ("cart_lid", "wood"))
 
+# movement toys (ADR 0151): a delta-wing glider on its stick frame, a rope coil on its stake, a three-pronged hook
+g = poly(new(), [(8, 1), (15.5, 10), (8, 8), (0.5, 10)])
+shape("glider_wing", outline(shade(g)))
+g = new()
+line(g, 8, 2, 8, 12, "d")
+line(g, 3, 9, 13, 9, "m")
+line(g, 8, 12, 5, 14, "d")
+line(g, 8, 12, 11, 14, "d")
+rect(g, 5, 14, 11, 14, "l")
+shape("glider_frame", g)
+sp("glider", ("glider_wing", "scraped_hide"), ("glider_frame", "wood"))
+g = ellipse(new(), 7.0, 9.5, 6.2, 5.0)
+for y in range(N):
+    for x in range(N):
+        if ((x + 0.5 - 7.0) / 2.6) ** 2 + ((y + 0.5 - 9.5) / 1.8) ** 2 < 1.0:
+            g[y][x] = "."
+g = shade(g)
+for y in range(N):   # the turns of the coil
+    for x in range(N):
+        if g[y][x] == "m" and (x + y) % 3 == 0:
+            g[y][x] = "d"
+shape("rope_coil", outline(g))
+shape("rope_stake", outline(line(new(), 13, 1, 13, 14, "m")))
+sp("climbing_rope", ("rope_coil", "twine"), ("rope_stake", "wood"))
+g = new()
+line(g, 8, 2, 8, 10)
+line(g, 7, 10, 5, 9)
+line(g, 5, 8, 4, 5)
+line(g, 9, 10, 11, 9)
+line(g, 11, 8, 12, 5)
+rect(g, 7, 1, 9, 1)
+shape("hook_prongs", outline(shade(g)))
+g = new()
+line(g, 8, 11, 7, 13, "m")
+line(g, 6, 14, 3, 15, "m")
+shape("hook_rope", g)
+sp("grappling_hook", ("hook_rope", "twine"), ("hook_prongs", "iron"))
+
 # hand-painted overrides: game/art/items/<item_id>.png (16x16) replaces the generated sprite (game/art/README.md)
 ART = os.path.join(REPO, "game", "art", "items")
 if os.path.isdir(ART):
