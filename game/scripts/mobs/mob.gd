@@ -898,7 +898,8 @@ func _animate(delta: float) -> void:
 func to_dict() -> Dictionary:
 	return {"species": species, "uid": uid, "pos": [snappedf(position.x, 0.01), snappedf(position.y, 0.01), snappedf(position.z, 0.01)],
 		"yaw": snappedf(_yaw, 0.01), "health": health, "age_s": snappedf(age_s, 0.1), "love_s": snappedf(love_s, 0.1),
-		"breed_cooldown_s": snappedf(breed_cooldown_s, 0.1), "sheared": sheared, "aggressive": aggressive, "owner": owner_id, "sit": sitting, "pet_name": pet_name}
+		"breed_cooldown_s": snappedf(breed_cooldown_s, 0.1), "sheared": sheared, "aggressive": aggressive, "owner": owner_id, "sit": sitting, "pet_name": pet_name,
+		"foul_s": snappedf(foul_s, 0.1), "floating": snappedf(dying, 0.001) if has_meta("fouled") else 0.0}
 
 
 func load_from(d: Dictionary) -> void:
@@ -907,6 +908,12 @@ func load_from(d: Dictionary) -> void:
 	rotation.y = float(d.get("yaw", 0.0))
 	uid = int(d.get("uid", 0))
 	health = int(d.get("health", health))
+	foul_s = float(d.get("foul_s", 0.0))
+	if float(d.get("floating", 0.0)) > 0.0:   # ADR 0155: it was floating dead: it floats on
+		set_meta("fouled", true)
+		health = 0
+		dying = float(d["floating"])
+		goal = "dying"
 	age_s = float(d.get("age_s", 0.0))
 	love_s = float(d.get("love_s", 0.0))
 	breed_cooldown_s = float(d.get("breed_cooldown_s", 0.0))
