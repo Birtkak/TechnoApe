@@ -302,6 +302,17 @@ var tnt_debris_max := 24                # flung debris pieces per blast (ADR 015
 var tnt_debris_live_max := 96           # flung pieces in the air at once, all blasts together
 var tnt_blasts_per_frame := 1           # fuses that run out together wait their turn: one crater per frame
 var igniter_range_m := 16.0             # the igniter's sneak use lights every charge this close
+# Meteorites (ADR 0157): a streak at night, a boom, a glow column, a crater with meteoric iron
+var meteor_chance_per_night := 0.12     # share of nights with a fall (about one a week of play nights)
+var meteor_min_m := 250.0               # how far from the player it lands
+var meteor_max_m := 600.0
+var meteor_crater_m := 3.5              # the bowl's radius
+var meteor_core_m := 0.6                # the iron ball at the bottom
+var meteor_chunks := 5                  # small iron chunks in the bowl walls
+var meteor_hot_h := 24.0                # game hours the core stays molten (lava, burns); after that it cools to basalt
+var meteor_glow_h := 4.0                # game hours the glow column stands over the spot
+var meteor_fire_chance := 0.5           # share of falls that set the plants and trees around alight
+var meteor_heat_damage := 2             # health per half second standing on a hot core
 var particles := true                   # particles=0 turns every effect off (benchmarks against the old game)
 var particle_pool_chips := 2048         # block chips alive at once at most
 var particle_pool_sprites := 6144       # smoke, splashes, hearts, waterfall spray...

@@ -23,6 +23,8 @@
   "gadget/sounding": {"asset": "gelvin/blip", "db": -8, "pitch": [1.0, 1.0], "range_m": 12, "cooldown_s": 0.15},
   "sim/explosion": {"db": 0, "pitch": [0.85, 1.0], "range_m": 120, "ref_m": 6, "max": 6},
   "sim/blast": {"asset": "sim/explosion", "db": -4, "pitch": [0.6, 0.75], "range_m": 120, "ref_m": 6, "max": 6},
+  "meteor/streak": {"asset": "sim/sizzle", "db": -12, "pitch": [0.45, 0.55], "flat": true},
+  "meteor/boom": {"asset": "sim/explosion", "db": -3, "pitch": [0.35, 0.45], "flat": true},
   "tnt/light": {"asset": "sim/ignite", "db": -4, "pitch": [1.1, 1.25], "range_m": 24},
   "tnt/fuse": {"asset": "sim/sizzle", "db": -7, "pitch": [1.35, 1.6], "range_m": 24, "ref_m": 3, "cooldown_s": 0.22},
   "tnt/explode": {"asset": "sim/explosion", "db": 2, "pitch": [0.72, 0.9], "range_m": 160, "ref_m": 8, "cooldown_s": 0.06, "max": 6},

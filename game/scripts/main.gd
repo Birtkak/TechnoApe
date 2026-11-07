@@ -69,6 +69,7 @@ var tnt: Tnt                         # TNT charges, fuses and blasts (ADR 0065)
 var toys: MovementToys               # glider, climbing ropes, grappling hook (ADR 0151)
 var _ropes_save := []                # the hung ropes from the player's save, loaded before toys exists
 var _tnt_save := []                  # its charges from the player's save, loaded before it exists
+var meteors: Meteors                 # meteorite falls and their craters (ADR 0157)
 var weather: Weather                 # rain and snow, the rain that answers forest fires (ADR 0056); null with weather=0
 var world_map := WorldMap.new()      # the explored map and the waypoints (plan item D10, ADR 0055)
 var waypoints: Waypoints = world_map.waypoints   # add(name, pos, kind) for graves, finds ...
@@ -657,9 +658,15 @@ func _ready() -> void:
 	player.toys = toys
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(toys.warm_materials(), player.camera)
+	meteors = Meteors.new()
+	meteors.name = "Meteors"
+	add_child(meteors)
+	meteors.setup(self)
+	if Settings.persist_world:
+		meteors.load_dict(_load_json(_save_path("meteors")))
 	player.ignite_at = _ignite
 	if not warmup.is_queued_for_deletion():
-		warmup.add_meshes(tnt.warm_meshes() + [player.brush_tool.warm_mesh(), builder.warm_mesh()], player.camera)
+		warmup.add_meshes(tnt.warm_meshes() + meteors.warm_meshes() + [player.brush_tool.warm_mesh(), builder.warm_mesh()], player.camera)
 	player.brush_tool.warm_cache()   # the big round brushes, rasterised under the loading screen
 	_setup_maps()
 	if not warmup.is_queued_for_deletion():
@@ -832,6 +839,9 @@ func _save_blocks() -> void:
 	if saplings != null and saplings.dirty:
 		_save_json(_save_path("saplings"), saplings.to_dict())
 		saplings.dirty = false
+	if meteors != null and meteors.dirty:
+		_save_json(_save_path("meteors"), meteors.to_dict())
+		meteors.dirty = false
 	if support != null and (support.dirty or not support.warnings.is_empty()):   # a creaking roof's clock runs
 		support.save_file(_support_path())
 	if mobs != null:
@@ -2293,6 +2303,7 @@ func snapshot() -> Dictionary:
 		"gadgets": gadgets.stats if gadgets else {},
 		"tnt": tnt.snapshot() if tnt else {},
 		"toys": toys.snapshot() if toys else {},
+		"meteors": meteors.snapshot() if meteors else {},
 		"networks": Networks.stats,
 		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size(), "dig_only": player.dig_only_names()}),
 		"weather": weather.summary() if weather else {},

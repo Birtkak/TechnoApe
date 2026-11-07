@@ -684,7 +684,7 @@ func blast(center: Vector3, radius: float, material := GameMaterials.AIR, only :
 	var keep := _keep
 	if not only.is_empty():
 		keep = PackedInt32Array()
-		for i in range(1, mini(GameMaterials.defs().size() + 1, 256)):
+		for i in range(0, mini(GameMaterials.defs().size() + 1, 256)):   # 0 too: air stays unless `only` names it
 			if not only.has(i) or _keep.has(i):
 				keep.append(i)
 	var n := sim.fill_sphere(center - Vector3(origin * Settings.CHUNK), radius, material, keep)
