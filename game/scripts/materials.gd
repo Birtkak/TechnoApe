@@ -296,7 +296,10 @@ static func _build_defs() -> Array:
 		# 122, 123 (ADR 0110): the cores of conduit chambers, hard enough to need a good pick
 		{"name": "spring_stone", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [105, 105, 105], "transparent": false},
 		{"name": "magma_heart", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [106, 106, 106], "transparent": false},
-	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
+	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + _reserved_defs(133, 138) + [
+		# 139 (ADR 0149): the lightning rod, a 2 m pole stamped from the placed voxel (PlantStamps.rod); draws strikes
+		{"name": "lightning_rod", "cell_type": "solid", "pattern": true, "density": 11, "hp": 400, "tiles": [215, 215, 215], "transparent": false, "micro": "torch", "entity": "lightning_rod"},
+	] + _reserved_defs(140, 159) + _rock_defs() + [
 		# 203 (ADR 0065): TNT. Not burnable: the sim would burn it away; Tnt lights it when fire touches it.
 		{"name": "tnt", "cell_type": "solid", "pattern": true, "density": 6, "hp": 50, "tiles": [172, 171, 172], "transparent": false},
 		# 204..206 (ADR 0098): the Gelvin monolith and its plaza. Not in mining.json and hp past Tnt.NEVER_HP: indestructible.

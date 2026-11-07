@@ -211,6 +211,7 @@
     {"id": "daub", "type": "shapeless", "ingredients": ["clay_ball", "dry_grass", "dirt"], "output": {"id": "daub", "count": 2}},
     {"id": "daub_wall", "type": "shapeless", "ingredients": ["wattle", "daub", "daub"], "output": {"id": "daub_wall", "count": 1}},
     {"id": "straw_bed", "type": "shaped", "pattern": ["GGG", "GGG"], "key": {"G": "dry_grass"}, "output": {"id": "straw_bed", "count": 1}},
+    {"id": "lightning_rod", "type": "shaped", "pattern": ["R", "R", "C"], "key": {"R": "iron_rod", "C": "copper_ingot"}, "output": {"id": "lightning_rod", "count": 1}, "station": "crafting_table"},
     {"id": "torch_grass", "type": "shapeless", "ingredients": ["#stick", "dry_grass"], "output": {"id": "torch", "count": 1}},
     {"id": "torch_coal", "type": "shapeless", "ingredients": ["#coal", "#stick"], "output": {"id": "torch", "count": 4}},
     {"id": "firewood", "type": "shapeless", "ingredients": ["#log", "#axe"], "keep": ["#axe"], "output": {"id": "firewood", "count": 4}},

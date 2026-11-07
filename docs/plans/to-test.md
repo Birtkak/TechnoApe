@@ -10,6 +10,19 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Surface hazards: lightning and eruptions (2026-11-07, ADR 0149)
+
+- [ ] `/weather storm` out in the open: the sky flickers and far thunder rolls first (the warning); then strikes
+      nearby: a flash, thunder a moment later, fire where it hit. Does the delay between flash and thunder read as distance?
+- [ ] Build a plank tower taller than the trees around and wait in the storm (or `/lightning`): the strike goes for the
+      tower and it burns; the fire rain comes later. Too often, too rare?
+- [ ] Craft a lightning rod (2 iron rods over a copper ingot), place it on the tower's top: strikes within 24 m hit the
+      rod instead (flash and thunder, nothing burns). Does the 2 m pole read as a rod? Does the foot break cleanly?
+- [ ] Stand next to a strike (`/lightning here`): 8 health gone, "lightning" on the death screen if it kills you.
+- [ ] `/goto volcano`, stand on the rim, `/erupt`: 20 s of rumble and ash over the lake, then lava over the rim on your
+      side running down the cone, bombs landing on the flank. Does it feel like a threat? Does the frame rate hold?
+- [ ] Wait near a volcano (`/weather` shows nothing, it rolls every 90 s): an eruption starts on its own now and then.
+
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 
 - [ ] G or V opens the ring (tap, then click; or hold and release), names under the icons. Brush tile: shapes, wheel sizes

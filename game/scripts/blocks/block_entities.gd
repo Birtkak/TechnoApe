@@ -86,6 +86,8 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			_ticking.append(e)
 		"tank":
 			e = TankEntity.new(pos)
+		"lightning_rod":   # ADR 0149: Weather.rods() finds them by position
+			e = LightningRodEntity.new(pos)
 		"turbine":
 			e = TurbineEntity.new(pos)
 			_ticking.append(e)
@@ -155,7 +157,7 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 	return e
 
 
-const SINGLE := []   # entities that are one voxel (torches have their own cells since ADR 0053)
+const SINGLE := ["lightning_rod"]   # entities that are one voxel (torches have their own cells since ADR 0053)
 ## Flat pieces are lower than a block, so they never hide the ground behind them from the aim ray:
 ## a knapping stone or a mold on the ground is one voxel high, a firepit two.
 const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 8, "assembly": 1, "laid_tool": 1, "anvil": 6, "bronze_anvil": 6,
