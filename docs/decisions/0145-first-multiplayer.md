@@ -82,13 +82,15 @@ the calendar. Op ordering: a client applies its own op before the server orders 
 editing the same cells at once can end in different states until they rejoin.
 
 ## Consequences
-- The server is a Godot headless process of the same project; it loads the GDExtensions but never calls
-  them. The deployment the developer wants (2026-11-07): a Docker container on the Unraid box like the
-  other game's, reachable only over Tailscale (the box is not on the home network), and later the
-  container also serves the client updates (ADR 0002's manifest) so a player who joins is brought up to
-  date, while single-player keeps working offline with whatever build is installed. Linux build, Docker
-  image, Tailscale service and auto-update are the next job; until the native libs are built for Linux
-  the server runs on Windows.
+- The server is a Godot headless process of the same project and needs no GDExtension: `Net`, `NetOps`
+  and `server_main.gd` name no extension type, so the stock Linux Godot runs it. **Deployed 2026-11-07**
+  as the developer wanted: `deploy/Dockerfile` (debian + Godot 4.7.2 Linux + `game/`), host networking on
+  the Unraid box so its Tailscale address (the box is not on the home network) serves UDP 7777 and 7778,
+  the world in `/mnt/user/appdata/technoape/data`, `tools/deploy_server.sh` to push a new build over
+  Tailscale and rebuild on the box. Verified from the dev box: discovery lists "Tower", a join digs and
+  drops, a rejoin gets the journal and the saved player. Next: the same container serving client updates
+  (ADR 0002's manifest, a CI-built image like the other game's on ghcr.io) so a player who joins is brought
+  up to date, while single-player keeps working offline with whatever build is installed.
 - The journal grows for the life of a world (one brush op ≈ 1-4 KB). A compaction (fold ops into chunk
   snapshots) comes when a world's journal passes a few MB.
 - Server-side simulation (the vision's authoritative sim) is additive: the server gets a bubble per

@@ -239,6 +239,12 @@ Godot_..._console.exe --headless --path game --script res://tools/net_find.gd   
 The Multiplayer page lists every server that answers on `port + 1` (localhost, LAN broadcast, every online
 Tailscale peer via `tailscale status --json`); `server_name=<n>` names a server (default: the machine).
 
+**The Unraid server** (`deploy/`): a Docker image of the stock Linux Godot plus `game/` (no voxel extension:
+the server only journals and relays), host networking so the box's Tailscale address serves UDP 7777 (game)
+and 7778 (discovery), the world in `/mnt/user/appdata/technoape/data`. `bash tools/deploy_server.sh` copies
+the checkout to the box over Tailscale, builds the image there and restarts the container `technoape-server`
+(it shows in Unraid's Docker tab; the world survives a rebuild). Clients see it as "Tower" in the list.
+
 Saves: `user://worlds/net_<seed>_g<gen>.ops` (journal, `tools/net_journal_dump.gd` prints it) and
 `net_<seed>_g<gen>_players.json` on the server. Per client, not shared yet: items, inventories, block
 entities, machines, mobs, farming, the material simulation.
