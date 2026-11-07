@@ -114,6 +114,7 @@ public:
     Dictionary lift(Vector3i p_seed, Vector3i p_lo, Vector3i p_hi, int p_max_cells, bool p_wood_only);
     bool drive(int p_id, const Transform3D &p_local_to_world);
     bool release(int p_id, bool p_settle);
+    PackedInt32Array get_columns(int p_id) const;
 
     // ADR 0142 (mines need shoring), rigid_support.cpp: the support rule for roofs the player dug.
     // spans: per material id, < 0 open, 0 solid that holds but never fails, > 0 the farthest a roof cell of it

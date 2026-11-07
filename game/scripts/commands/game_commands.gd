@@ -138,7 +138,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("ponder", "/ponder [scene]", "Open the guide screen (ADR 0132): how boilers, pipes, cables and machines connect; no scene lists them", _ponder, [Ponder.scenes().keys()])
 	reg.register("stations", "/stations [electric|factory|lv|power|dam [cam]|pollution|smoke|fx [n]]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); dam: a pool, a water wheel and a weak dirt dam that breaks (ADR 0154); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141); fx: 30 running machines of every animated kind (ADR 0153)", _stations, [["electric", "factory", "lv", "power", "dam", "pollution", "smoke", "fx"]])
 	reg.register("fish", "/fish <pond|foul|traps|cast|state>", "ADR 0163: a fish pond (or a fouled one) 2 m ahead with a rod in hand; traps: a snare, a pit trap, a rabbit, a deer and a tamed wolf; cast: an automatic cast, bite and reel down ahead; state: the rod's state", _fish, [["pond", "foul", "traps", "cast", "state"]])
-	reg.register("contraptions", "/contraptions [toggle|ride] [cam]", "ADR 0160: a lift, a drawbridge and a crane ahead, each on a turning hand crank; toggle flips every drive's lever, ride stands you on the lift; cam films them", _contraptions, [["toggle", "ride", "cam"]])
+	reg.register("contraptions", "/contraptions [toggle [kind]|ride [bridge]|jump] [cam]", "ADR 0160: a lift, a drawbridge and a crane ahead, each on a turning hand crank; toggle flips the levers (of one kind), ride stands you on the lift or the bridge, jump checks a jump off the lift; cam films them", _contraptions, [["toggle", "ride", "jump", "cam"]])
 	reg.register("pollute", "/pollute [smoke]", "ADR 0155: a fouled pond with fish and wheat beside waste ground ahead (farm_speed=40 to watch crops wilt); smoke: a smoke booth round you", _pollute, [["smoke"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
@@ -1058,31 +1058,40 @@ func _fish(args: PackedStringArray) -> Dictionary:
 	return CommandRegistry.ok("Laid " + laid)
 
 
-var _lift_spot := Vector3.INF   # /contraptions: the lift platform's top centre
+var _ride_spots := {}   # /contraptions: "lift" (the platform's top centre), "bridge" (the span's)
 
 
 func _contraptions(args: PackedStringArray) -> Dictionary:
 	if main == null or main.contraptions == null:
 		return CommandRegistry.fail("No contraptions (rigid_pieces=0?)")
-	if "toggle" in args:
+	if "toggle" in args:   # toggle [lift_winch|drawbridge_hinge|crane]: every drive, or those of one kind
 		var n := 0
+		var only := args[args.find("toggle") + 1] if args.find("toggle") + 1 < args.size() else ""
 		for k in ContraptionEntity.KINDS:
+			if only != "" and k != only:
+				continue
 			for e: ContraptionEntity in main.blocks.all_of(k):
 				e.use({})
 				n += 1
+		for c: PowerSourceEntity in main.blocks.all_of("hand_crank"):   # a reloaded world's cranks stand still
+			c.cranked_until = Inventory.clock_s + 900.0
 		return CommandRegistry.ok("Flipped %d levers" % n)
-	if "ride" in args:
-		if _lift_spot == Vector3.INF:
+	if "ride" in args:   # ride [bridge]
+		var spot: Vector3 = _ride_spots.get("bridge" if "bridge" in args else "lift", Vector3.INF)
+		if spot == Vector3.INF:
 			return CommandRegistry.fail("Build them first: /contraptions")
-		player.position = _lift_spot
+		player.position = spot
 		player.velocity = Vector3.ZERO
-		return CommandRegistry.ok("On the lift")
+		return CommandRegistry.ok("On the " + ("bridge" if "bridge" in args else "lift"))
+	if "jump" in args:   # a check: press jump while riding the lift, print how high above it the feet got
+		main.contraptions.debug_jump()
+		return CommandRegistry.ok("Jumping")
 	if not main.bubble.is_loaded():
 		return _queue_until_loaded(_contraptions, args)
 	var facing := Transport.facing_from_yaw(player.rotation_degrees.y)
 	var base := Vector3i((player.position + Vector3(Transport.dir_of(facing)) / Settings.BLOCK * Settings.m2v(3.0)).floor())
 	var d: Dictionary = main.contraptions.debug_build(base, facing)
-	_lift_spot = d["lift"]
+	_ride_spots = {"lift": d["lift"], "bridge": d["bridge"]}
 	if "cam" in args:
 		_debug_cam().enable(d["cam"], d["look"])
 	return CommandRegistry.ok("Laid " + d["laid"])
