@@ -363,6 +363,8 @@ func open_container(c: RefCounted) -> void:
 	elif c.kind == "firepit":
 		# the furnace layout plus the vessel (crucible) slot left of the input (ADR 0023)
 		positions = [Vector2(112, 34), Vector2(112, 106), Vector2(232, 70), Vector2(52, 34)]
+	elif c.has_method("slot_positions"):
+		positions = c.slot_positions()   # a trading post's own layout (ADR 0164)
 	else:
 		for i in c.inv.size():
 			positions.append(Vector2(16 + (i % 9) * S, 36 + (i / 9) * S))

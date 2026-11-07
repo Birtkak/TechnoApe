@@ -2294,6 +2294,69 @@
         "................"
       ]
     },
+    "page": {
+      "colors": {"o": "#4a3a2a", "p": "#f2e8cc", "q": "#c8b48a", "k": "#3a2a1a"},
+      "rows": [
+        "...oooooooooo...",
+        "..oppppppppppo..",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkpppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkkkpo.",
+        ".oppppppppppppo.",
+        ".opkkkkkkkppppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkkppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkppppppo.",
+        ".oqqqqqqqqqqqqo.",
+        "..oooooooooooo..",
+        "................",
+        "................"
+      ]
+    },
+    "note_page": {
+      "colors": {"o": "#4a3a2a", "p": "#f2e8cc", "q": "#c8b48a", "k": "#3a2a1a", "r": "#b02a2a"},
+      "rows": [
+        "...oooooooooo...",
+        "..oppppppppppo..",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkpppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkkkpo.",
+        ".opppppprrppppo.",
+        ".opkkkkkrrkkppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkkppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkppppppo.",
+        ".oqqqqqqqqqqqqo.",
+        "..oooooooooooo..",
+        "................",
+        "................"
+      ]
+    },
+    "stall": {
+      "colors": {"o": "#3a2a1a", "r": "#b83a2a", "w": "#f0e4c8", "d": "#6a4a2a", "g": "#d8a030", "y": "#7ac8f0", "t": "#8a5a30", "l": "#b8864a"},
+      "rows": [
+        "..oooooooooooo..",
+        ".orwrwrwrwrwrwo.",
+        "orwrwrwrwrwrwro.",
+        "orrrrrrrrrrrrro.",
+        ".odoooooooooodo.",
+        ".odooggooyyoodo.",
+        ".odooggooyyoodo.",
+        ".odoooooooooodo.",
+        ".otttttttttttto.",
+        ".otllllllllllto.",
+        ".otllllllllllto.",
+        ".otttttttttttto.",
+        ".odoooooooooodo.",
+        "..o..........o..",
+        "................",
+        "................"
+      ]
+    },
     "axe_mold": {
       "colors": {"i": "#3a1a0e", "I": "#24100a"},
       "rows": [
@@ -4699,6 +4762,9 @@
     "bench": {"layers": [{"shape": "bench", "palette": "wood"}]},
     "candle": {"layers": [{"shape": "candle", "palette": "wax"}]},
     "sign": {"layers": [{"shape": "sign", "palette": "wood"}]},
+    "paper": {"layers": [{"shape": "page"}]},
+    "note": {"layers": [{"shape": "note_page"}]},
+    "trading_post": {"layers": [{"shape": "stall"}]},
     "red_rug": {"layers": [{"shape": "rug", "palette": "red_rug"}]},
     "blue_rug": {"layers": [{"shape": "rug", "palette": "blue_rug"}]},
     "straw_mat": {"layers": [{"shape": "mat", "palette": "straw"}]},

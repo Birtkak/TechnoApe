@@ -414,6 +414,9 @@
     {"id": "chest_cart", "type": "shapeless", "ingredients": ["minecart", "chest"], "output": {"id": "chest_cart", "count": 1}, "station": "crafting_table", "_note": "ADR 0100"},
     {"id": "crush_iron_ore", "type": "process", "station": "ore_crusher", "ingredients": ["iron_ore"], "output": {"id": "crushed_iron_ore", "count": 2}, "seconds": 1.0, "info": "steam from a boiler", "_note": "shown by the browser; OreCrusherEntity crushes by the ore's crushed field (ADR 0099, 0115)"},
     {"id": "crush_copper_ore", "type": "process", "station": "ore_crusher", "ingredients": ["copper_ore"], "output": {"id": "crushed_copper_ore", "count": 2}, "seconds": 1.0, "info": "steam from a boiler", "_note": "ADR 0099, 0115"},
-    {"id": "crush_tin_ore", "type": "process", "station": "ore_crusher", "ingredients": ["tin_ore"], "output": {"id": "crushed_tin_ore", "count": 2}, "seconds": 1.0, "info": "steam from a boiler", "_note": "ADR 0099, 0115"}
+    {"id": "crush_tin_ore", "type": "process", "station": "ore_crusher", "ingredients": ["tin_ore"], "output": {"id": "crushed_tin_ore", "count": 2}, "seconds": 1.0, "info": "steam from a boiler", "_note": "ADR 0099, 0115"},
+    {"id": "paper", "type": "shapeless", "ingredients": ["birch_bark", "birch_bark"], "output": {"id": "paper", "count": 2}, "_note": "ADR 0164"},
+    {"id": "note", "type": "shapeless", "ingredients": ["paper", "charcoal"], "output": {"id": "note", "count": 1}, "_note": "ADR 0164"},
+    {"id": "trading_post", "type": "shaped", "pattern": ["PSP", "PCP", "PPP"], "key": {"P": "#planks", "S": "sign", "C": "chest"}, "output": {"id": "trading_post", "count": 1}, "station": "crafting_table", "_note": "ADR 0164"}
   ]
 }

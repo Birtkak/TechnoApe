@@ -464,6 +464,9 @@
     {"id": "belt", "name": "Conveyor Belt", "tags": ["station"], "stack": 64, "work": "belt", "_note": "stage 3 transport: carries up to four items a block a second the way it faces, into the next belt, hopper or machine (ADR 0100)"},
     {"id": "rail", "name": "Rail", "tags": ["station"], "stack": 64, "work": "rail", "_note": "stage 3 transport: lay a line, corners join; a minecart rides it (ADR 0100)"},
     {"id": "minecart", "name": "Minecart", "tags": ["minecart"], "stack": 1, "_note": "stage 3 transport: right click a rail to set it down, right click it to ride (W and S roll it, sneak gets off), sneak and right click takes it back (ADR 0100)"},
-    {"id": "chest_cart", "name": "Chest Cart", "tags": ["minecart"], "stack": 1, "_note": "stage 3 transport: a minecart with a chest: set on a rail, items in hand go in, an empty hand pushes it down the line to its end, where hoppers empty it; sneak and right click takes it back (ADR 0100)"}
+    {"id": "chest_cart", "name": "Chest Cart", "tags": ["minecart"], "stack": 1, "_note": "stage 3 transport: a minecart with a chest: set on a rail, items in hand go in, an empty hand pushes it down the line to its end, where hoppers empty it; sneak and right click takes it back (ADR 0100)"},
+    {"id": "paper", "name": "Paper", "tags": ["paper"], "stack": 64, "fuel_ticks": 50, "_note": "ADR 0164: pressed birch bark; with charcoal it becomes a note"},
+    {"id": "note", "name": "Note", "tags": ["decoration", "paper"], "stack": 1, "furniture": "note", "fuel_ticks": 50, "_note": "ADR 0164: Shift + right click in the air writes or reads the page; a plain click on a wall pins it. One to a stack: each keeps its own words"},
+    {"id": "trading_post", "name": "Trading Post", "tags": ["station", "storage"], "stack": 16, "work": "trading_post", "fuel_ticks": 300, "_note": "ADR 0164: a stall with an owner; the owner sets four offers and stocks it, anyone can trade, only the owner opens the stock"}
   ]
 }

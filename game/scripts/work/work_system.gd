@@ -492,7 +492,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile" or kind == "electric_lamp"   # a lamp hangs on walls too (ADR 0117)
-	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven", "water_wheel", "wind_turbine", "hand_crank", "meter_panel"] or MachineEntity.DOOR.has(kind)
+	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven", "water_wheel", "wind_turbine", "hand_crank", "meter_panel", "trading_post"] or MachineEntity.DOOR.has(kind)
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -531,6 +531,12 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 		"cable":
 			e.item = id   # thin, copper or thick (ADR 0123)
 			e.axis = posmod(roundi(main.player.rotation_degrees.y / 90.0), 2)
+			_mark(p)
+			if _consumes():
+				main.player_inv.consume_held(1)
+		"trading_post":   # ADR 0164: faces the player, owned by them
+			e.facing = posmod(roundi(-main.player.rotation_degrees.y / 90.0) + 2, 4)
+			main.things.post_placed(e)
 			_mark(p)
 			if _consumes():
 				main.player_inv.consume_held(1)
@@ -780,6 +786,10 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		if first_press:
 			var line := Networks.look_line(e)
 			_say(line if line != "" else "The %s is on no network." % String(e.kind).replace("_", " "))
+		return true
+	if e is TradingPostEntity:
+		if first_press:
+			main.things.use_post(e, sneaking)
 		return true
 	if e is KnapEntity:
 		if first_press:

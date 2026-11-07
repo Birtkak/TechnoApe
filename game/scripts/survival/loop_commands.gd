@@ -148,7 +148,9 @@ func _sign(args: PackedStringArray) -> Dictionary:
 	var e: RefCounted = main.blocks.furniture_at(main.sign_at)
 	if e == null or not FurnitureEntity.KINDS[e.furniture].get("write", false):
 		return CommandRegistry.fail("Right click a sign first")
-	e.text = " ".join(args).strip_edges().left(60)
+	e.set_text(" ".join(args).replace("|", "\n"))   # | starts a new line; SignText caps it (ADR 0164)
+	main.things.refresh(e)
+	Net.ent_text(e.pos, e.text)
 	return CommandRegistry.ok("Wrote on the sign" if e.text != "" else "Wiped the sign")
 
 

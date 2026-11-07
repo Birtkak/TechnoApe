@@ -55,6 +55,10 @@ var _state_accum := 0.0
 var _save_accum := 0.0
 var _lifetime := 0.0
 var _t0 := 0
+var ledger: PostLedger         # server: signs, notes and trading posts (ADR 0164)
+var applied: Array = []        # client: sale ids already delivered to this player (saved with them: a rejoin never delivers twice)
+var _ent_queue: Array = []     # client: sign / post events that came before Main could place them
+var _rid_n := 0
 var _st: RefCounted            # a ShapeTool (clients only: the server has no voxel extension)
 var _port := PORT
 var connect_arg := ""
@@ -107,6 +111,12 @@ func _start_server() -> void:
 		if v is Array:
 			journal = v
 	_journal_saved = journal.size()
+	ledger = PostLedger.new(ItemRegistry.load_default())
+	var lf := FileAccess.open(_ents_path(), FileAccess.READ)
+	if lf:
+		var ld: Variant = JSON.parse_string(lf.get_as_text())
+		if ld is Dictionary:
+			ledger.load_dict(ld)
 	var pf := FileAccess.open(_players_path(), FileAccess.READ)
 	if pf:
 		var d: Variant = JSON.parse_string(pf.get_as_text())
@@ -135,8 +145,17 @@ static func gen_version() -> int:
 	return int(m.get_string(1)) if m else 0
 
 
+func _ents_path() -> String:
+	return "user://worlds/net_%d_g%d_ents.json" % [seed_value, gen_version()]
+
+
 func _save_files() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://worlds"))
+	if ledger != null and ledger.dirty:
+		var lf := FileAccess.open(_ents_path(), FileAccess.WRITE)
+		if lf:
+			lf.store_string(JSON.stringify(ledger.to_dict()))
+			ledger.dirty = false
 	if journal.size() != _journal_saved:
 		var f := FileAccess.open_compressed(_journal_path() + ".tmp", FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
 		if f:
@@ -169,6 +188,7 @@ func _s_hello(proto: int, pname: String) -> void:
 			break
 	if not _items.is_empty():
 		_c_batch.rpc_id(id, var_to_bytes(_items.values()))   # what lies around, dropped where it was spawned
+	_c_ent.rpc_id(id, var_to_bytes(ledger.snapshot_for(pname)))
 	for other in peers:
 		_c_peer_joined.rpc_id(other, id, pname)
 	peers[id] = pname
@@ -179,7 +199,11 @@ func _on_peer_left(id: int) -> void:
 	if not is_server:
 		return
 	print("net: %s left (peer %d)" % [peers.get(id, "?"), id])
+	var unlocked: Array = ledger.left(String(peers.get(id, "")))
 	peers.erase(id)
+	if not unlocked.is_empty():
+		for other in peers:
+			_c_ent.rpc_id(other, var_to_bytes(unlocked))
 	for other in peers:
 		_c_peer_left.rpc_id(other, id)
 
@@ -221,6 +245,38 @@ func _s_batch(bytes: PackedByteArray) -> void:
 	for other in peers:
 		if other != id:
 			_c_batch.rpc_id(other, out)
+
+
+## Signs, notes and trading posts (ADR 0164): one event per call, answered by PostLedger.
+@rpc("any_peer", "reliable")
+func _s_ent(bytes: PackedByteArray) -> void:
+	if not is_server:
+		return
+	var id := multiplayer.get_remote_sender_id()
+	var who: String = peers.get(id, "")
+	var ev: Variant = bytes_to_var(bytes)
+	if who == "" or not (ev is Dictionary) or not (ev.get("pos", Vector3i.ZERO) is Vector3i):
+		return
+	var pos: Vector3i = ev.get("pos", Vector3i.ZERO)
+	var r := {}
+	match String(ev.get("k", "")):
+		"put": r = ledger.put(who, ev)
+		"del": r = ledger.remove(who, pos)
+		"text": r = ledger.text(who, pos, String(ev.get("text", "")))
+		"open": r = ledger.post_open(who, pos)
+		"save": r = ledger.post_save(who, pos, ev.get("slots", []))
+		"trade": r = ledger.trade(who, pos, int(ev.get("n", -1)), int(ev.get("rid", 0)))
+		"ack": ledger.ack(who, int(ev.get("rid", 0)))
+	if r.is_empty():
+		return
+	if r.has("to"):
+		_c_ent.rpc_id(id, var_to_bytes(r["to"]))
+	var everyone: Array = r.get("all", [])
+	var others: Array = r.get("others", [])
+	for other in peers:
+		var evs: Array = everyone + (others if other != id else [])
+		if not evs.is_empty():
+			_c_ent.rpc_id(other, var_to_bytes(evs))
 
 
 @rpc("any_peer", "unreliable_ordered")
@@ -334,6 +390,70 @@ func _c_batch(bytes: PackedByteArray) -> void:
 			_queued.append(ev)
 
 
+@rpc("authority", "reliable")
+func _c_ent(bytes: PackedByteArray) -> void:
+	var evs: Variant = bytes_to_var(bytes)
+	if not (evs is Array):
+		return
+	for ev in evs:
+		if not (ev is Dictionary) or not ev.has("k"):
+			continue
+		if items_ready:
+			_ent_event(ev)
+		else:
+			_ent_queue.append(ev)
+
+
+func _ent_event(ev: Dictionary) -> void:
+	if ev["k"] == "res" and applied.has(int(ev["rid"])) and ev.get("late", false):
+		_send_ent({"k": "ack", "rid": int(ev["rid"]), "pos": Vector3i.ZERO})   # delivered before the link broke: only forget it
+		return
+	main.net_ent(ev)
+
+
+func _send_ent(ev: Dictionary) -> void:
+	if active and not is_server:
+		_s_ent.rpc_id(1, var_to_bytes(ev))
+
+
+## Placed / broken / written / opened here (Main, WorkSystem). No-ops offline.
+func ent_put(ev: Dictionary) -> void:
+	ev["k"] = "put"
+	_send_ent(ev)
+
+
+func ent_del(pos: Vector3i) -> void:
+	_send_ent({"k": "del", "pos": pos})
+
+
+func ent_text(pos: Vector3i, text: String) -> void:
+	_send_ent({"k": "text", "pos": pos, "text": text})
+
+
+func post_open(pos: Vector3i) -> void:
+	_send_ent({"k": "open", "pos": pos})
+
+
+func post_save(pos: Vector3i, slots: Array) -> void:
+	_send_ent({"k": "save", "pos": pos, "slots": slots})
+
+
+## Asks the server for offer n of the post: its id, unique across rejoins.
+func post_trade(pos: Vector3i, n: int) -> int:
+	_rid_n += 1
+	var rid := (int(Time.get_unix_time_from_system()) % 100000000) * 1000 + (_rid_n % 1000)
+	_send_ent({"k": "trade", "pos": pos, "n": n, "rid": rid})
+	return rid
+
+
+## A sale's goods are in the inventory: remember it and tell the server to stop keeping them.
+func delivered(rid: int) -> void:
+	applied.append(rid)
+	while applied.size() > 64:
+		applied.pop_front()
+	_send_ent({"k": "ack", "rid": rid, "pos": Vector3i.ZERO})
+
+
 func _item_event(ev: Dictionary) -> void:
 	if ev["k"] == "item":
 		stats["items_recv"] += 1
@@ -351,6 +471,9 @@ func items_now_ready() -> void:
 	for ev in _queued:
 		_item_event(ev)
 	_queued.clear()
+	for ev in _ent_queue:
+		_ent_event(ev)
+	_ent_queue.clear()
 
 
 @rpc("authority", "unreliable_ordered")

@@ -431,6 +431,9 @@ func open_container(c: RefCounted) -> void:
 func click_container_slot(i: int, button: int, shift: bool) -> void:
 	if container == null:
 		return
+	if container.has_method("click_override") and container.click_override(i, button, shift, cursor):
+		changed.emit()   # a trading post's offer slots hold templates, not items (ADR 0164)
+		return
 	var c_inv: Inventory = container.inv
 	if shift:
 		_move_stack(c_inv, i, inv, _player_order(container.shift_out_reverse(i)))
@@ -633,7 +636,7 @@ func sort_inventory() -> void:
 
 ## The open chest sorted.
 func sort_container() -> void:
-	if container != null:
+	if container != null and not container.has_method("is_template"):
 		sort_slots(container.inv, 0, container.inv.size(), false)
 
 
@@ -677,6 +680,11 @@ func _group(group: String) -> Inventory:
 	return null
 
 
+## A container slot that holds a template (a trading post's offer), never an item to move (ADR 0164).
+func _template(group: String, i: int) -> bool:
+	return group == "container" and container != null and container.has_method("is_template") and container.is_template(i)
+
+
 ## Right button dragged over a slot with a stack on the cursor: one item goes
 ## into it if it is empty or holds the same item with room (vanilla's RMB drag).
 func drag_place_one(group: String, i: int) -> void:
@@ -696,7 +704,7 @@ func drag_place_one(group: String, i: int) -> void:
 ## items of the same kind join the cursor, as many as fit.
 func drag_collect(group: String, i: int) -> void:
 	var src := _group(group)
-	if src == null or cursor.is_empty():
+	if src == null or cursor.is_empty() or _template(group, i):
 		return
 	var s := src.get_slot(i)
 	if s.is_empty() or s["id"] != cursor["id"]:
@@ -785,7 +793,7 @@ func _other_side(group: String, i: int, id: String) -> Array:
 ## would send it; up pulls one item of the same kind from there into it.
 func wheel_move(group: String, i: int, down: bool) -> void:
 	var here := _group(group)
-	if here == null:
+	if here == null or _template(group, i):
 		return
 	var s := here.get_slot(i)
 	if s.is_empty():

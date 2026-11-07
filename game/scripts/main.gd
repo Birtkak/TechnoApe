@@ -42,6 +42,7 @@ var _stone_age_save := {}             # its part of the player's save, loaded be
 var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
 var _furniture_root: Node3D
+var things: LeftThings              # signs, notes, trading posts (ADR 0164)
 var _furniture_views := {}           # anchor -> MeshInstance3D
 var work: WorkSystem                 # knapping, clay forming, pit kilns, firepits, sieves (ADR 0023)
 var _stone_age_test: StoneAgeTest
@@ -199,6 +200,8 @@ func _ready() -> void:
 	player.landed.connect(trample)
 	player.farm = farming
 	player.place_furniture = _place_furniture
+	things = LeftThings.new(self)
+	player.note_use = things.use_note
 	player.furniture_is = func(p: Vector3i, what: String) -> bool:
 		var f := blocks.furniture_at(p)
 		if f == null:
@@ -1011,11 +1014,12 @@ func _player_dict() -> Dictionary:
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
 		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s,
 		"stone_age": stone_age.player_dict() if stone_age else {}, "tnt": tnt.to_array() if tnt else _tnt_save,
-		"bookmarks": inv_screen.browser.bookmarks}
+		"bookmarks": inv_screen.browser.bookmarks, "applied_trades": Net.applied}
 
 
 func _load_player() -> void:
 	var d: Dictionary = Net.player_save if Net.active else _load_json(_save_path("player"))
+	Net.applied = d.get("applied_trades", []).map(func(r) -> int: return int(r))   # ADR 0164: sales already delivered
 	Inventory.clock_s = float(d.get("clock_s", 0.0))   # before the stacks: hot metal cools against it (ADR 0042)
 	if d.is_empty() or int(d.get("version", 0)) != 1:
 		return
@@ -1176,6 +1180,10 @@ func get_world_voxel(p: Vector3i) -> int:
 
 
 func _on_broken(p: Vector3i, drops: Array) -> void:
+	var guard: RefCounted = blocks.at(p)
+	if guard is TradingPostEntity and not guard.is_owner(Net.player_name if Net.active else ""):
+		chat.add_message("That trading post is %s's" % guard.owner_name)   # ADR 0164: only the owner takes it down
+		return
 	var was := get_world_voxel(p)
 	if fx:
 		fx.block_break(p, was)
@@ -1196,6 +1204,8 @@ func _on_broken(p: Vector3i, drops: Array) -> void:
 		# any voxel of a work piece takes all of it, view and footprint (bug report 2026-10-25: a broken
 		# firepit's other voxels stayed as ghosts when the break was not on its anchor)
 		var stacks: Array = piece.contents()
+		if piece is TradingPostEntity:
+			things.post_removed(piece)
 		work.remove_piece(piece)
 		for s in stacks:
 			spawn_item(s, Vector3(piece.pos) + Vector3(0.5, 0.5, 0.5) * BlockEntities.width_of(piece.kind), Vector3(randf_range(-1.5, 1.5), 2.5, randf_range(-1.5, 1.5)))
@@ -1351,6 +1361,8 @@ func _place_furniture(kind: String, anchor: Vector3i, facing: int) -> bool:
 		set_world_voxel(c, GameMaterials.FURNITURE)
 		_spawn_drop_events(farming.on_placed(c, GameMaterials.FURNITURE))
 	_add_furniture_view(e)
+	if things != null:
+		things.furniture_placed(e)
 	if h > 0 and support:
 		support.prop_changed(anchor)
 	return true
@@ -1363,6 +1375,8 @@ func _add_furniture_view(e: FurnitureEntity) -> void:
 
 
 func _remove_furniture(e: FurnitureEntity, drop: bool) -> void:
+	if things != null:
+		things.furniture_removed(e)
 	var cells := e.cells.duplicate()
 	var anchor := e.pos
 	var stacks := blocks.remove(anchor)
@@ -1425,7 +1439,7 @@ func _use_furniture(p: Vector3i) -> void:
 		return
 	if FurnitureEntity.KINDS[e.furniture].get("write", false):
 		sign_at = e.pos
-		chat.open("/sign ")   # the next /sign writes on it
+		things.edit_furniture(e)   # ADR 0164: the text screen (the /sign command still works)
 		return
 	if not FurnitureEntity.KINDS[e.furniture].get("sleep", false):
 		return   # a table, shelf, window...: nothing to use
@@ -1936,6 +1950,7 @@ func _setup_maps() -> void:
 
 
 func _on_screen_closed(dropped: Array) -> void:
+	things.screen_closed()
 	if _open_chest != Vector3i.MAX:
 		_swing_chest_lid(_open_chest, false)
 		_open_chest = Vector3i.MAX
