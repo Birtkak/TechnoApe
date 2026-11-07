@@ -31,6 +31,7 @@ var farming: Farming                 # tilled farmland and crops (ADR 0022)
 var saplings: Saplings               # planted saplings growing into trees (ADR 0112)
 var pieces: FallingPieces            # rigid voxel pieces (P12), null with rigid_pieces=0
 var support: MineSupport             # dug roofs need shoring (ADR 0142), null with cave_ins=0 or rigid_pieces=0
+var dams: Dams                       # weak dams leak and break (ADR 0154), null with dams=0
 var builder: ShapeBuilder            # shape building, box mode, prefabs (ADR 0038)
 var blueprints: Blueprints           # blueprint sites and builders (ADR 0161)
 var survival: Survival               # hunger, body temperature, food spoilage (ADR 0040)
@@ -599,6 +600,11 @@ func _ready() -> void:
 	machine_fx.setup(blocks, fx, work)
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(machine_fx.warm_materials(), player.camera)
+	if Settings.dams:
+		dams = Dams.new()
+		dams.name = "Dams"
+		add_child(dams)
+		dams.setup(self)
 	if Settings.rigid_pieces:
 		pieces = FallingPieces.new()
 		pieces.name = "FallingPieces"
@@ -1347,6 +1353,8 @@ func _on_placed_many(cells: Array, material: int) -> void:
 	for c in cells:
 		set_world_voxel(c, material)
 		stains.clear_cell(c)
+		if dams and material > 0:
+			dams.placed(c)
 	if material == GameMaterials.TNT and tnt:
 		tnt.register_cells(cells)
 
@@ -1528,6 +1536,8 @@ func _on_placed(p: Vector3i, material: int) -> void:
 		_place_torch(p)
 		return
 	set_world_voxel(p, material)
+	if dams and material > 0:
+		dams.placed(p)
 	_spawn_drop_events(farming.on_placed(p, material))
 	saplings.on_placed(p, material)
 	if material > 0:
@@ -2296,6 +2306,7 @@ func snapshot() -> Dictionary:
 		"sim": bubble.stats(),
 		"pieces": pieces.stats() if pieces else {},
 		"support": support.stats() if support else {},
+		"dams": dams.stats if dams else {},
 		"build": builder.snapshot() if builder else {},
 		"survival": survival.snapshot() if survival else {},
 		"loop": survival_loop.snapshot() if survival_loop else {},

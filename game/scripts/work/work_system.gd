@@ -84,11 +84,8 @@ func _process(delta: float) -> void:
 			main.bubble.sim.set_wind(Vector2.from_angle(clock / 211.0) * wind * Settings.wind_cells_per_tick)
 		waste_stats["placed"] += Waste.emit_all(main)   # ADR 0141: machine waste out of its ports as cells
 		var day: bool = main.atmosphere != null and main.atmosphere.time_of_day > 0.25 and main.atmosphere.time_of_day < 0.75
-		for src: PowerSourceEntity in main.blocks.all_of("water_wheel"):   # wet when the two-block box under it is half water (a native count)
-			var lo := src.pos + Vector3i(0, -Settings.BLOCK, 0)
-			var n := Settings.BLOCK * 2
-			var water: int = main.bubble.count_in_box(lo, lo + Vector3i(n, Settings.BLOCK, n), GameMaterials.WATER) + main.bubble.count_in_box(lo, lo + Vector3i(n, Settings.BLOCK, n), GameMaterials.id_of("water_static")) if main.bubble else 0
-			src.drive = clampf(2.0 * float(water) / float(n * n * Settings.BLOCK), 0.0, 1.0)
+		for src: PowerSourceEntity in main.blocks.all_of("water_wheel") + main.blocks.all_of("large_water_wheel"):
+			src.drive = wheel_drive(src.pos, BlockEntities.width_of(src.kind))
 		for src: PowerSourceEntity in main.blocks.all_of("wind_turbine"):
 			src.drive = wind
 		for sw: CircuitEntity in main.blocks.all_of("daylight_switch"):
@@ -481,6 +478,60 @@ func debug_cave_smoke(ground: Vector3i) -> Dictionary:
 		"cam": Vector3(hi.x - 3, lo.y + 6, hi.z - 3), "look": Vector3(mid.x, hi.y - 2, lo.z + 4)}
 
 
+## ADR 0154: how hard the water under a wheel (the 0.5 m slab under its footprint) turns it, 0..1, from the flow
+## measured there: moving water that moved this or the last tick (a native count), plus a river's still water by
+## the generator's current at that spot. A pond, a lake or a trough of still water gives nothing.
+func wheel_drive(pos: Vector3i, width: int) -> float:
+	if main.bubble == null:
+		return 0.0
+	var lo := pos + Vector3i(0, -Settings.BLOCK, 0)
+	var hi := lo + Vector3i(width, Settings.BLOCK, width)
+	var cells := float(width * width * Settings.BLOCK)
+	var flow: float = float(main.bubble.count_moving_in_box(lo, hi, GameMaterials.WATER)) / (cells * Settings.wheel_flow_full)
+	var still: int = main.bubble.count_in_box(lo, hi, GameMaterials.id_of("water_static"))
+	if still > 0:
+		var c := pos + Vector3i(width / 2, 0, width / 2)
+		var river := float(main.world.generator.column_info(c.x, c.z).get("river", 0.0))
+		flow += 2.0 * float(still) / cells * clampf((river - 0.3) / 0.4, 0.0, 1.0)
+	return clampf(flow, 0.0, 1.0)
+
+
+## Debug (/stations dam, ADR 0154): along `right` (snapped to an axis), walled in stone: a 3 m pool of (finite) moving
+## water, a short race to a 0.5 m dirt dam too thin for the 2 m of water it holds, a dry race with a water wheel
+## (a cable and a lamp on its top) and a 3 m dry pit. The race fills, the dam seeps and creaks, then breaks; the
+## flood turns the wheel and lights the lamp until the pit is full and the water rests.
+func debug_dam(base: Vector3i, right: Vector3i) -> String:
+	var B := Settings.BLOCK
+	right = Vector3i(signi(right.x), 0, 0) if absi(right.x) >= absi(right.z) else Vector3i(0, 0, signi(right.z))
+	var away := Vector3i(Vector3.UP.cross(Vector3(right)))
+	var y0 := base.y + B
+	var at := func(x: int, y: int, z: int) -> Vector3i: return Vector3i(base.x, y0, base.z) + right * x + away * z + Vector3i(0, y, 0)
+	var box := func(x0: int, y0_: int, z0: int, x1: int, y1: int, z1: int) -> Array:   # local [x0, x1) ... to a world box
+		var a: Vector3i = at.call(x0, y0_, z0)
+		var b: Vector3i = at.call(x1 - 1, y1 - 1, z1 - 1)
+		return [a.min(b), a.max(b) + Vector3i.ONE]
+	var failed := []
+	var fill := func(bx: Array, m: int) -> void:
+		if main.bubble.fill_box(bx[0], bx[1], m) < 0:
+			failed.append(bx)
+	fill.call(box.call(-2, -26, 0, 74, 20, 12), GameMaterials.id_of("stone"))
+	fill.call(box.call(0, 0, 2, 24, 16, 10), GameMaterials.WATER)   # finite: it drains into the pit once the dam goes
+	fill.call(box.call(0, 16, 2, 24, 20, 10), GameMaterials.AIR)
+	fill.call(box.call(24, 0, 2, 48, 20, 10), GameMaterials.AIR)
+	fill.call(box.call(48, -24, 2, 72, 20, 10), GameMaterials.AIR)
+	var dam: Array = box.call(28, 0, 2, 32, 20, 10)
+	fill.call(dam, GameMaterials.id_of("dirt"))
+	if main.dams:
+		for z in range(dam[0].z, dam[1].z):
+			for y in range(dam[0].y, dam[1].y, B):
+				for x in range(dam[0].x, dam[1].x):
+					main.dams.placed(Vector3i(x, y, z))
+	_create(box.call(36, 4, 2, 44, 12, 10)[0], "water_wheel", GameMaterials.WORK_BLOCK)
+	_create(box.call(36, 12, 2, 40, 16, 6)[0], "cable", GameMaterials.WORK_SPOT).item = "thin_cable"
+	_create(box.call(40, 12, 2, 44, 16, 6)[0], "electric_lamp", GameMaterials.WORK_SPOT)
+	return "a pool, a thin dirt dam, a water wheel with a lamp and a dry pit from %s%s" % [at.call(0, 0, 0), " (not loaded: %s)" % [failed] if failed else ""]
+
+
 ## Debug (/stations power, ADR 0123): every small source in parallel on one trunk of thick cable, a meter panel, a
 ## battery, a fuse, a daylight switch feeding two lamps over thin cable, the hand crank already turning. The
 ## water wheel gets a trough of still water under it (one native fill).
@@ -534,7 +585,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile" or kind == "electric_lamp"   # a lamp hangs on walls too (ADR 0117)
-	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven", "water_wheel", "wind_turbine", "hand_crank", "meter_panel", "trading_post"] or MachineEntity.DOOR.has(kind)
+	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven", "water_wheel", "large_water_wheel", "wind_turbine", "hand_crank", "meter_panel", "trading_post"] or MachineEntity.DOOR.has(kind)
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room

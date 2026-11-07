@@ -929,6 +929,29 @@ func stats() -> Dictionary:
 	}
 
 
+## ADR 0154: cells of a liquid in the world box [wmin, wmax) that moved this or the last tick (the wheel's flow).
+func count_moving_in_box(wmin: Vector3i, wmax: Vector3i, material: int) -> int:
+	if not _ready or not sim.has_method("count_moving_in_box"):
+		return 0
+	var o := origin * Settings.CHUNK
+	return sim.count_moving_in_box(wmin - o, wmax - o, material)
+
+
+## ADR 0154: the native dam scan over world boxes (min.xyz, max.xyz each); 7 ints per stressed cell (world voxels).
+func dam_scan(boxes: PackedInt32Array, hold: PackedFloat32Array, min_load: float) -> PackedInt32Array:
+	if not _ready or not sim.has_method("dam_scan"):
+		return PackedInt32Array()
+	var o := origin * Settings.CHUNK
+	var b := boxes.duplicate()
+	for i in b.size():
+		b[i] -= o[i % 3]
+	var r: PackedInt32Array = sim.dam_scan(b, hold, min_load)
+	for i in r.size():
+		if i % 7 != 3:
+			r[i] += o[(i % 7 if i % 7 < 3 else i % 7 - 4)]
+	return r
+
+
 ## Cells of `material` in the world box [wmin, wmax) (a native count; 0 while not ready). ADR 0123: the water wheel.
 func count_in_box(wmin: Vector3i, wmax: Vector3i, material: int) -> int:
 	if not _ready:

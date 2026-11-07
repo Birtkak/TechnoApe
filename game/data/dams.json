@@ -1,0 +1,6 @@
+{
+ "_doc": "ADR 0154, read by Dams. hold: how many cells of water head one cell of this material holds per cell of dam thickness (a 1-block = 4-cell dirt wall holds 12 cells = 1.5 m). Materials not listed (stone, cobble, bricks, logs, metal) never wash out and back any run they are in. seep_load: from this load on a dam weeps now and then and holds; at 1 it creaks and seeps for a warning time from warn_max_s (load 1) down to warn_min_s (load 3), then breaks.",
+ "seep_load": 0.5, "warn_max_s": 40, "warn_min_s": 8,
+ "hold": {"dirt": 3, "grass": 3, "sand": 1.5, "gravel": 2, "snow": 1, "clay": 5,
+          "planks": 6, "spruce_planks": 6, "acacia_planks": 6, "jungle_planks": 6, "birch_planks": 6}
+}

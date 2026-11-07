@@ -191,6 +191,12 @@ public:
     // ---- debug / introspection ----
     int count_material(int p_material) const;
     int count_in_box(Vector3i p_min, Vector3i p_max, int p_material) const;
+    // ADR 0154: cells of a liquid in the box that moved this or the last tick (the water wheel's flow)
+    int count_moving_in_box(Vector3i p_min, Vector3i p_max, int p_material) const;
+    // ADR 0154: weak dam cells. p_boxes: min.xyz, max.xyz per box; p_hold: head cells a cell of each material holds
+    // per cell of thickness (0 = never fails). Returns 7 ints per stressed wet-face cell: x, y, z, load x 1000, and
+    // the dry cell past it (x, y, z). Only loads >= p_min_load are returned.
+    PackedInt32Array dam_scan(const PackedInt32Array &p_boxes, const PackedFloat32Array &p_hold, float p_min_load) const;
     int count_unsupported(int p_material) const;
     int count_burning() const;
     // Minecraft's animateTick for ambient particles: p_count random cells within p_radius of p_center

@@ -135,7 +135,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
 	reg.register("ponder", "/ponder [scene]", "Open the guide screen (ADR 0132): how boilers, pipes, cables and machines connect; no scene lists them", _ponder, [Ponder.scenes().keys()])
-	reg.register("stations", "/stations [electric|factory|lv|power [cam]|pollution|smoke|fx [n]]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141); fx: 30 running machines of every animated kind (ADR 0153)", _stations, [["electric", "factory", "lv", "power", "pollution", "smoke", "fx"]])
+	reg.register("stations", "/stations [electric|factory|lv|power|dam [cam]|pollution|smoke|fx [n]]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); dam: a pool, a water wheel and a weak dirt dam that breaks (ADR 0154); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141); fx: 30 running machines of every animated kind (ADR 0153)", _stations, [["electric", "factory", "lv", "power", "dam", "pollution", "smoke", "fx"]])
 	reg.register("pollute", "/pollute [smoke]", "ADR 0155: a fouled pond with fish and wheat beside waste ground ahead (farm_speed=40 to watch crops wilt); smoke: a smoke booth round you", _pollute, [["smoke"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
@@ -1080,7 +1080,7 @@ func _stations(args: PackedStringArray) -> Dictionary:
 		var back := 1.0 + 0.9 * cols + 1.0 * rows   # metres: the whole factory in view, a short row close up
 		_debug_cam().enable(mid - Vector3(fw) * Settings.m2v(back) + Vector3(0, Settings.m2v(back * 0.6), 0), mid)
 		return CommandRegistry.ok("Laid %s (/cam off to leave the view)" % laid)
-	if args.size() > 0 and args[0] in ["electric", "factory", "lv", "power"]:   # ADR 0113, 0117, 0123, 0131: the energy line, the factory, the LV machines or the small sources, 4 m ahead, along the player's right
+	if args.size() > 0 and args[0] in ["electric", "factory", "lv", "power", "dam"]:   # ADR 0113, 0117, 0123, 0131: the energy line, the factory, the LV machines or the small sources, 4 m ahead, along the player's right
 		var fwd: Vector3 = -player.camera.global_transform.basis.z
 		fwd.y = 0
 		var right := Vector3i(fwd.normalized().cross(Vector3.UP).round())
@@ -1097,6 +1097,8 @@ func _stations(args: PackedStringArray) -> Dictionary:
 				laid = main.work.debug_lv_line(anchor, right)
 			"power":
 				laid = main.work.debug_power_line(anchor, right)
+			"dam":
+				laid = main.work.debug_dam(anchor, right)
 			_:
 				laid = main.work.debug_electric_line(anchor, right)
 		if args.size() > 1 and args[1] == "cam":   # a free camera over the line's first 10 m (filming its machines, ADR 0153)

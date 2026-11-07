@@ -10,6 +10,12 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Water wheels and dams (ADR 0154)
+
+- [ ] `/scenario dam`: the race fills from the pool, the thin dirt dam weeps, creaks louder for ~35 s, then gives way; the flood turns the wheel and lights the lamp on it, then stops when the pit is full. Warning long enough? Break dramatic enough?
+- [ ] Set a water wheel in a real river (`/goto river`): it turns; in a lake or a dug pond of still water it stays still. Craft a large water wheel (two wheels, planks, iron rod, copper coil): about 2 kW on a good flow.
+- [ ] Build your own dam: a dirt wall 0.5 m thick holding over 1.5 m of water over dry ground should weep then break; three blocks thick, stone, or a spillway that keeps the level down should hold.
+
 ## Fuse cord and flung debris (ADR 0150)
 
 - [ ] `/scenario fuse` (look at open ground first): a 4 m cord burns toward the charge with sparks and smoke, about 8 s, then the blast. Speed right?

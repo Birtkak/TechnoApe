@@ -66,8 +66,8 @@ func use(_stack: Dictionary) -> Dictionary:
 			cranked_until = Inventory.clock_s + Settings.crank_s
 			drive = 1.0
 			res["msg"] = "You crank it: %.0f V for %d s, about %.0f W if something draws." % [emf(), Settings.crank_s, emf() * emf() / (4.0 * float(_spec.get("ohms", 1.0)))]
-		"water_wheel":
-			res["msg"] = "A water wheel: %s." % ("turning at %d%%, %.1f V, %.1f A" % [roundi(drive * 100.0), volts, amps] if drive > 0.0 else "set it over running water")
+		"water_wheel", "large_water_wheel":
+			res["msg"] = "A water wheel: %s." % ("turning at %d%%, %.1f V, %.1f A" % [roundi(drive * 100.0), volts, amps] if drive > 0.0 else "set it in running water: a stream, a river or a mill race; still water does not turn it")
 		_:
 			res["msg"] = "A wind turbine: %s." % ("the wind at %d%%, %.1f V, %.1f A" % [roundi(drive * 100.0), volts, amps] if drive > 0.0 else "no wind")
 	changed.emit()
@@ -80,7 +80,7 @@ func contents() -> Array:
 
 func look_lines() -> Array[String]:
 	if drive <= 0.0:
-		return [{"hand_crank": "Still: right click to crank it", "water_wheel": "Still: no water under it", "wind_turbine": "Still: no wind"}.get(kind, "Still")]
+		return [{"hand_crank": "Still: right click to crank it", "water_wheel": "Still: no running water under it", "large_water_wheel": "Still: no running water under it", "wind_turbine": "Still: no wind"}.get(kind, "Still")]
 	return ["%d%% drive: %.1f V, %.1f A, %.0f W" % [roundi(drive * 100.0), volts, amps, maxf(volts * amps, 0.0)]]
 
 
@@ -91,7 +91,7 @@ func look_lines() -> Array[String]:
 func view_parts() -> Dictionary:
 	var step := spin / 5   # tick() redraws every fifth spin
 	match kind:
-		"water_wheel":
+		"water_wheel", "large_water_wheel":
 			return {"solid": {"cells": _wheel_cells(step), "size": Vector3i(16, 16, 16), "grid": 16}}
 		"wind_turbine":   # three widths across, centred on the post's footprint
 			return {"solid": {"cells": _turbine_cells(step), "size": TURBINE_SIZE, "offset": Vector3(-1, 0, 0)}}
