@@ -52,6 +52,7 @@ var set_voxel: Callable       # (Vector3i, material id) -> void
 var is_editable: Callable     # (Vector3i) -> bool: the terrain there is loaded (unset in tests: always)
 var rng := RandomNumberGenerator.new()
 var season_growth := 1.0     # Calendar.crop_growth(): 1 spring/summer, 0.5 autumn, 0 winter (ADR 0025)
+var drought := false         # ADR 0156: a dry summer (SeasonWorld): a crop on dry farmland does not grow
 var dirty := false
 var stats := {"random_ticks": 0, "grown": 0, "dried": 0, "trampled": 0, "popped": 0, "wilted": 0}
 var _material_ids := {}       # name -> id
@@ -343,8 +344,9 @@ func _crop_tick(p: Vector3i) -> Array:
 	var max_age: int = int(crops_def[c["kind"]]["ages"]) - 1
 	if c["age"] < max_age:
 		var f := growth_speed(p)
-		# seasons (ADR 0025): the Minecraft roll, then the season's share of it
-		if rng.randi_range(0, int(25.0 / f)) == 0 and rng.randf() < season_growth and (sick == 0 or rng.randf() < Settings.crop_sick_growth):
+		# seasons (ADR 0025): the Minecraft roll, then the season's share of it (ADR 0156: the crop's own window)
+		var share := Seasons.growth_share(crops_def[c["kind"]], Seasons.season, season_growth)
+		if f > 0.0 and rng.randi_range(0, int(25.0 / f)) == 0 and rng.randf() < share and (sick == 0 or rng.randf() < Settings.crop_sick_growth):
 			grow(p)
 	return []
 
@@ -373,9 +375,15 @@ func pollution(p: Vector3i) -> String:
 
 ## The look line of the crop that voxel p belongs to: "Sickly: fouled water" while pollution is wilting it, else "".
 func sick_line(p: Vector3i) -> String:
-	var c: Dictionary = crops.get(parts.get(p, p), {})
-	if int(c.get("sick", 0)) <= 0:
+	var a: Vector3i = parts.get(p, p)
+	var c: Dictionary = crops.get(a, {})
+	if c.is_empty():
 		return ""
+	if int(c.get("sick", 0)) <= 0:   # ADR 0156: out of its season, or parched in a drought
+		var note := Seasons.window_note(String(c["kind"]), crops_def.get(c["kind"], {}), Seasons.season)
+		if note == "" and drought and growth_speed(a) <= 0.0:
+			note = "Parched: summer drought, water the farmland"
+		return note
 	return "Sickly: %s" % String(c.get("why", "")) if String(c.get("why", "")) != "" else "Sickly, recovering"
 
 
@@ -413,6 +421,8 @@ func growth_speed(p: Vector3i) -> float:
 	var f := 1.0
 	var below := p + Vector3i.DOWN
 	var b := block
+	if drought and int(farmland.get(below, max_moisture if get_voxel.call(below) == GameMaterials.FARMLAND_MOIST else 0)) <= 0:
+		return 0.0   # ADR 0156: summer drought: unwatered farmland grows nothing
 	for i in range(-1, 2):
 		for j in range(-1, 2):
 			var q := below + Vector3i(i * b, 0, j * b)

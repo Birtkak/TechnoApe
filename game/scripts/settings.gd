@@ -251,6 +251,18 @@ var rested_hunger_cut := 0.35            # Rested at amount 1: hunger drains thi
 var rested_speed := 0.05                 # Rested at amount 1: walking this much faster
 var preserved_spoil_mult := 0.25         # foods tagged "preserved" (salted, dried, smoked) spoil this much as fast
 var frost_check_s := 10.0                # how often crops are checked for frost
+# seasons that matter (ADR 0156)
+var month_days := 3                      # days per month: a season is 9 days (3 h at 20 min days), the year 36 days
+var season_swing_c := 14.0               # the year's temperature swing about the climate's mean: mid-January this much under it
+var season_pass_s := 0.1                 # how often the sim bubble's next chunk columns get the season (snow, ice, thaw)
+var season_columns := 3                  # chunk columns (2 x 2 m) per pass: the bubble sweeps in ~20 s, a few remeshes a second
+var snow_stick_chance := 0.35            # per voxel column per pass while it snows below 0 C: the snow layer builds up patchy
+var ice_form_c := 0.0                    # still water freezes over when the day's mean outside is below this ...
+var thaw_c := 2.0                        # ... and the snow and lake ice go when it is above this
+var season_rain_mult := [0.8, 1.2, 0.35, 1.1]   # rolled shower chance per season (winter .. autumn): summer drought
+var season_storm_mult := [0.3, 1.0, 2.2, 0.8]   # storm share of showers per season: summer thunderstorms
+var drought_fire_mult := 2.5             # summer, not raining: fire spreads this much more readily (SimWorld.set_dryness)
+var frost_warn_days := 3                 # the first frost of autumn is announced this many days ahead
 var prospect_depth_m := 12.0             # density mode: how far down under the struck spot the pick counts rock (ADR 0147)
 var prospect_width_m := 3.0              # ... and how wide the square column is
 var discovery_check_s := 1.0             # how often the discovery journal looks around the player
@@ -480,6 +492,7 @@ func apply_cmdline() -> Dictionary:
 		match kv[0]:
 			"simulation_distance_m": simulation_distance_m = float(kv[1])
 			"view_distance_m": view_distance_m = float(kv[1])
+			"month_days": month_days = maxi(1, int(kv[1]))
 			"shell": ground_shell = kv[1] == "1"
 			"shadow_caster_m": shadow_caster_m = float(kv[1])
 			"merge_faces": merge_faces = kv[1] == "1"

@@ -63,6 +63,24 @@ static func is_root_cellar(below_m: float, room: bool) -> bool:
 	return room and below_m >= Settings.root_cellar_m
 
 
+## ADR 0156: a crop's share of growth this season: its crops.json "grows_in" (season names) is its window, at the
+## calendar's share (half in autumn); without it the calendar's share (crop_growth). Seasons off (-1): the calendar's.
+static func growth_share(crop_def: Dictionary, p_season: int, calendar_share: float) -> float:
+	if p_season < 0 or not crop_def.has("grows_in"):
+		return calendar_share
+	if not String(Calendar.SEASONS[p_season]).to_lower() in crop_def["grows_in"]:
+		return 0.0
+	return 0.5 if p_season == 3 else 1.0
+
+
+## The line a planting gets outside its window ("" inside it, or with seasons off).
+static func window_note(kind: String, crop_def: Dictionary, p_season: int) -> String:
+	if p_season < 0 or growth_share(crop_def, p_season, [0.0, 1.0, 1.0, 0.5][p_season]) > 0.0:
+		return ""
+	var when: Array = crop_def.get("grows_in", ["spring", "summer", "autumn"])
+	return "%s will not grow in %s: it grows in %s" % [kind.capitalize(), String(Calendar.SEASONS[p_season]).to_lower(), ", ".join(when)]
+
+
 # ---------------- frost over the farm ----------------
 
 ## Kills every tracked crop the cold reaches. Returns the positions killed.

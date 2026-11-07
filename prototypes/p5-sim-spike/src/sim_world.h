@@ -207,6 +207,8 @@ public:
     // material | liquid_depth << 8 | (y + y_base) << 16 (liquid_depth: liquid cells down from a liquid top, at most
     // 255, else 0); 0 = nothing there or not loaded (chunks still loading are passed over). Empty while a tick runs.
     PackedInt32Array surface_map(Vector2i p_min_xz, Vector2i p_count, int p_step, int p_y_base) const;
+    int season_pass(Vector2i p_chunk_xz, int p_flags, PackedInt32Array p_ids, PackedByteArray p_lies_on, int p_seed);   // ADR 0156
+    void set_dryness(float p_mult);
     PackedInt32Array layer_histogram(int p_material) const;
     PackedInt32Array material_histogram() const;
     Dictionary chunk_info(Vector3i p_chunk) const;
@@ -444,6 +446,7 @@ private:
     bool wind_drift(int x, int y, int z, const MaterialDef &m, Ctx &c);   // ADR 0141
     static constexpr int ROOF_SCAN = 96;   // cells (12 m) up a drifting gas looks for a roof that shelters it from the wind
     int wind_x_ = 0, wind_z_ = 0;      // the wind's sign along x and z
+    uint32_t dry_mul_ = 256;   // ADR 0156: fire spread x this / 256 (set_dryness)
     uint32_t wind_p_ = 0, wind_xshare_ = 0;   // chance per tick (0..65535) a drifting gas moves with it, and the x share of it
     void update_chunk(int ci);
     void rebuild_pass_lists();

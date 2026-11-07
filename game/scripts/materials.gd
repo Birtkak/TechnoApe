@@ -142,6 +142,8 @@ const RED_EARTH := 129
 const METEORIC_IRON_HOT := 141     # ADR 0157: the same iron while it glows (fresh crater)
 const METEORIC_IRON := 147         # ADR 0157: iron-nickel left in a meteorite crater, smelts straight to iron
 const SCORCHED_EARTH := 148        # ADR 0157: the burnt ground around a crater
+const SNOW_LAYER := 145             # ADR 0156: fallen snow on the ground in winter (SimWorld.season_pass)
+const LAKE_ICE := 146               # ADR 0156: winter ice on still water, walkable; back to water_static in the thaw
 # Rock kinds, their cobbles, bricks and loose stones, more clutter, ruin pots (ADR 0057)
 const GRANITE := 160
 const DIORITE := 161
@@ -307,7 +309,13 @@ static func _build_defs() -> Array:
 	] + _reserved_defs(140, 140) + [
 		# 141 (ADR 0157): a fresh meteorite's iron, glowing; Meteors cools it to meteoric_iron after Settings.meteor_hot_h
 		{"name": "meteoric_iron_hot", "cell_type": "solid", "pattern": true, "density": 13, "hp": 1300, "tiles": [216, 216, 216], "transparent": false},
-	] + _reserved_defs(142, 146) + [
+	] + _reserved_defs(142, 144) + [
+		# 145, 146 (ADR 0156): winter over the sim bubble (SimWorld.season_pass): a layer of fallen snow on the ground
+		# and the ice a winter lays on still water. Neither melts by heat: the pass clears the snow and turns the ice
+		# back to still water when the season warms, so a thaw never wakes a lake into moving water.
+		{"name": "snow_layer", "cell_type": "powder", "liquid_static": true, "density": 2, "tiles": [14, 14, 14], "transparent": false},
+		{"name": "lake_ice", "cell_type": "solid", "density": 9, "hp": 120, "tiles": [27, 27, 27], "transparent": false},
+	] + [
 		# 147, 148 (ADR 0157): what a meteorite leaves; Meteors writes them, the generator never does
 		{"name": "meteoric_iron", "cell_type": "solid", "pattern": true, "density": 13, "hp": 1300, "tiles": [186, 186, 186], "transparent": false},
 		{"name": "scorched_earth", "cell_type": "powder", "liquid_static": true, "density": 4, "tiles": [187, 187, 187], "transparent": false},

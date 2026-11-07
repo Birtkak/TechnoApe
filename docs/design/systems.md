@@ -334,3 +334,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   from `StationEntity.model_mesh(name)` with footprints in `StationEntity.SIZES`; every cell model goes
   through `WorkPalette.shade_cells` (tones per cell, darker convex edges, ADR 0076); check with
   `tools/station_sheet.tscn`.
+- **Seasons that matter (ADR 0156):** `Settings.month_days` 3 (a 36-day year), `season_swing_c` 14 C. `SeasonWorld`
+  (child of SurvivalLoop) drives `SimWorld.season_pass` over the bubble a few chunk columns a pass: `snow_layer` 145 on
+  open ground while it snows below 0 C, `lake_ice` 146 on still water when the day's mean is under 0 C, both back
+  (air, `water_static`) over 2 C; static cells, nothing woken. Summer: Weather's `season_rain_mult` /
+  `season_storm_mult`, `SimWorld.set_dryness`, `Farming.drought`. crops.json `grows_in`; the autumn frost warning;
+  `/season <name> [now]`. Tests `test/test_seasons_0156.gd`.
