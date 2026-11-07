@@ -56,6 +56,7 @@ const FLAT := [EYE, EYE_WHITE, LENS, LAMP]   # stay their own colour
 static var _material: StandardMaterial3D
 static var _tiles: PackedInt32Array
 
+var _arm_x := 10.0   # cells from the body's middle to an arm's pivot
 var head: MeshInstance3D
 var torso: MeshInstance3D
 var arm_r: MeshInstance3D
@@ -197,8 +198,8 @@ func animate(delta: float, speed: float, on_floor: bool, flying: bool, pitch: fl
 	torso.position = (Vector3(0, 18, 0) + hip) * s
 	var bend := Basis(Vector3.RIGHT, lean)
 	head.position = (Vector3(0, 18, 0) + hip + bend * Vector3(0, 23, 0)) * s
-	arm_r.position = (Vector3(0, 18, 0) + hip + bend * Vector3(10, 22, 0.5)) * s
-	arm_l.position = (Vector3(0, 18, 0) + hip + bend * Vector3(-10, 22, 0.5)) * s
+	arm_r.position = (Vector3(0, 18, 0) + hip + bend * Vector3(_arm_x, 22, 0.5)) * s
+	arm_l.position = (Vector3(0, 18, 0) + hip + bend * Vector3(-_arm_x, 22, 0.5)) * s
 	tail.position = (Vector3(0, 18, 0) + hip + bend * Vector3(0, 2, 4)) * s
 	leg_r.position = (Vector3(3.5, 24, 0) + hip) * s
 	leg_l.position = (Vector3(-3.5, 24, 0) + hip) * s
@@ -217,20 +218,25 @@ func set_worn(worn: Dictionary) -> void:
 	_gear.clear()
 	_flame = null
 	var s := 1.0 / GRID
+	_arm_x = 11.0 if worn.has("body") else 10.0   # body armour stands a cell off the coat: the arms make room for it
+	arm_r.position.x = _arm_x * s
+	arm_l.position.x = -_arm_x * s
 	for slot in worn:
 		var id := String(worn[slot].get("id", ""))
 		var tint := gear_color(id)
 		match slot:
 			"head":
 				if id != "goggles":   # the head already wears its goggles pushed up
-					_gear_part(head, _helmet_cells(id), Vector3i(22, 8, 20), Vector3(-11, 9, -10) * s, tint)
+					_gear_part(head, _helmet_cells(id), Vector3i(22, 8, 20), Vector3(-11, 11, -10) * s, tint)   # the brim above the ears and the brows
 			"body":
-				_gear_part(torso, _vest_cells(), Vector3i(16, 15, 11), Vector3(-8, 6, -5) * s, tint)
-				for arm in [arm_r, arm_l]:   # sleeves over the coat's, down to the cuff
-					_gear_part(arm, _sleeve_cells(), Vector3i(8, 15, 8), Vector3(-4, -15, -4) * s, tint)
+				_gear_part(torso, _vest_cells(id), Vector3i(16, 18, 11), Vector3(-8, 5, -5) * s, tint)
+				# sleeves flush with the arm on the vest's side, so they never cut into it; the pauldron on the outside
+				_gear_part(arm_r, _sleeve_cells(id, true), Vector3i(8, 15, 8), Vector3(-3, -15, -4) * s, tint)
+				_gear_part(arm_l, _sleeve_cells(id, false), Vector3i(8, 15, 8), Vector3(-5, -15, -4) * s, tint)
 			"feet":
-				for leg in [leg_r, leg_l]:
-					_gear_part(leg, _boot_cells(), Vector3i(8, 8, 9), Vector3(-4, -24, -4) * s, tint)
+				# one cell wider than the leg, on its outer side: the gap between the legs stays, the boots never overlap
+				_gear_part(leg_r, _boot_cells(id), Vector3i(7, 8, 9), Vector3(-3, -24, -4) * s, tint)
+				_gear_part(leg_l, _boot_cells(id), Vector3i(7, 8, 9), Vector3(-4, -24, -4) * s, tint)
 			"back":
 				_gear_part(torso, _jetpack_cells(), Vector3i(20, 18, 7), Vector3(-10, 4, 5) * s, tint)
 				if worn[slot].get("id", "") == "jetpack":
@@ -474,7 +480,7 @@ static func _helmet_cells(id: String) -> PackedInt32Array:
 	var c := _cells(size)
 	var miner := id == "miners_helmet"
 	var dome := HELMET if miner else GEAR
-	_rounded_box(c, size, Vector3i(2, 1, 2), Vector3i(20, 7, 18), dome)
+	_rounded_box(c, size, Vector3i(2, 1, 1), Vector3i(20, 7, 19), dome)   # z 1: the dome clears the goggles on the forehead
 	_rounded_box(c, size, Vector3i(5, 6, 5), Vector3i(17, 8, 15), dome)
 	if miner:   # copper dome, wide navy brim, two straps crossing over the top, the lamp in front
 		_rounded_box(c, size, Vector3i(0, 0, 0), Vector3i(22, 2, 20), NAVY)
@@ -492,29 +498,45 @@ static func _helmet_cells(id: String) -> PackedInt32Array:
 	return c
 
 
-static func _vest_cells() -> PackedInt32Array:
-	var size := Vector3i(16, 15, 11)
+static func _is_plate(id: String) -> bool:
+	return id.ends_with("_chestplate") or id.ends_with("_helmet") or (id.ends_with("_boots") and not (id.begins_with("leather") or id.begins_with("fur") or id.begins_with("rubber")))
+
+
+static func _vest_cells(id := "") -> PackedInt32Array:
+	var size := Vector3i(16, 18, 11)
 	var c := _cells(size)
-	_box(c, size, 0, 0, 0, 16, 15, 11, GEAR)
-	_box(c, size, 7, 0, 0, 9, 15, 1, STRAP)        # front seam
+	_box(c, size, 0, 0, 0, 16, 18, 11, GEAR)
 	_box(c, size, 0, 0, 0, 16, 1, 11, STRAP)       # hem
+	if _is_plate(id):   # a plate: a ridge down the chest, a waist band, a gorget at the neck
+		_box(c, size, 7, 1, 0, 9, 16, 1, STRAP)
+		_box(c, size, 0, 5, 0, 16, 6, 11, STRAP)
+		_box(c, size, 4, 16, 0, 12, 18, 11, STRAP)
+	else:
+		_box(c, size, 7, 0, 0, 9, 18, 1, STRAP)    # front seam
 	return c
 
 
-static func _sleeve_cells() -> PackedInt32Array:
+static func _sleeve_cells(id := "", right := true) -> PackedInt32Array:
 	var size := Vector3i(8, 15, 8)
 	var c := _cells(size)
-	_box(c, size, 0, 1, 0, 8, 15, 8, GEAR)
-	_box(c, size, 0, 0, 0, 8, 1, 8, STRAP)         # hem
+	var x0 := 0 if right else 1   # 7 wide over the 6 of the arm; the 8th column is the pauldron, on the outside
+	_box(c, size, x0, 1, 0, x0 + 7, 15, 8, GEAR)
+	_box(c, size, x0, 0, 0, x0 + 7, 1, 8, STRAP)   # hem
+	if _is_plate(id):
+		var ox := 7 if right else 0
+		_box(c, size, ox, 9, 0, ox + 1, 15, 8, GEAR)
+		_box(c, size, x0, 8, 0, x0 + 7, 9, 8, STRAP)
 	return c
 
 
-static func _boot_cells() -> PackedInt32Array:
-	var size := Vector3i(8, 8, 9)
+static func _boot_cells(id := "") -> PackedInt32Array:
+	var size := Vector3i(7, 8, 9)
 	var c := _cells(size)
-	_box(c, size, 0, 1, 0, 8, 8, 9, GEAR)
-	_box(c, size, 0, 0, 0, 8, 1, 9, BOOTS)         # sole
-	_box(c, size, 0, 7, 0, 8, 8, 9, FUR_DARK)      # cuff
+	_box(c, size, 0, 1, 0, 7, 8, 9, GEAR)
+	_box(c, size, 0, 0, 0, 7, 1, 9, BOOTS)         # sole
+	_box(c, size, 0, 7, 0, 7, 8, 9, STRAP if _is_plate(id) else FUR_DARK)   # cuff
+	if _is_plate(id):
+		_box(c, size, 0, 3, 0, 7, 4, 9, STRAP)     # band over the foot
 	return c
 
 

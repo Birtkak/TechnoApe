@@ -9,6 +9,7 @@ var _frames := 0
 var _shots: Array[Image] = []
 var _cams: Array[Camera3D] = []
 var _model: ApeModel
+var _wear := ""   # wear=copper: the whole set of that metal; wear=leather_cap,leather_tunic names pieces
 
 
 func _ready() -> void:
@@ -16,10 +17,18 @@ func _ready() -> void:
 		var kv := a.split("=")
 		if kv.size() == 2 and kv[0] == "out":
 			out_path = kv[1]
+		if kv.size() == 2 and kv[0] == "wear":
+			_wear = kv[1]
 	var root3d := Node3D.new()
 	add_child(root3d)
 	_model = ApeModel.new()
 	root3d.add_child(_model)
+	if _wear != "":
+		var w := {}
+		var ids: PackedStringArray = _wear.split(",") if "," in _wear else PackedStringArray([_wear + "_helmet", _wear + "_chestplate", _wear + "_boots"])
+		for id in ids:
+			w["head" if id.contains("helmet") or id.contains("cap") else ("feet" if id.contains("boots") else "body")] = {"id": id}
+		_model.set_worn(w)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-45, 35, 0)
 	sun.light_energy = 1.1

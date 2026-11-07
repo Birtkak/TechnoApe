@@ -80,6 +80,31 @@ def add(G):
         "......###.##....", ".......####.....", "........##......", ".........##.....",
         "..........##....", "...........##...", "............#...", "................"])))
     # clothing
+    # armour reads as armour: a metal helmet with a nasal, a plate with pauldrons, banded greaves (bug report 2026-11-07_07-49-04)
+    shape("helmet", [
+        "................", "................", ".....oooooo.....", "....ohhllmmo....",
+        "...ohllmmmmdo...", "...ohlmmmmmdo...", "...olmmmmmmdo...", "..oddddddddddo..",
+        "...oloolloodo...", "...oloolloodo...", "...olmollomdo...", "...olmoddomdo...",
+        "...oldo..oddo...", "....oo....oo....", "................", "................",
+    ])
+    shape("cap", [
+        "................", "................", ".....oooooo.....", "....ohhllmmo....",
+        "...ohllmmmmdo...", "...ohlmmmmmdo...", "...olmmmmmmdo...", "..oddddddddddo..",
+        "..olmo....omdo..", "..olmo....omdo..", "..oldo....oddo..", "...oo......oo...",
+        "................", "................", "................", "................",
+    ])
+    shape("chestplate", [
+        "................", "...ooo....ooo...", ".oohllo..ollmoo.", "ohhllmloolmmmmdo",
+        "olmmmdmllmdmmmdo", "oddoolmmmmmdoddo", "oooolmmllmmdoooo", "...olmmllmmdo...",
+        "...olmmllmmdo...", "...odddlldddo...", "...olmmllmmdo...", "...olmmllmmdo...",
+        "...oldddddddo...", "....oooooooo....", "................", "................",
+    ])
+    shape("greaves", [
+        "................", "...oooo...oooo..", "..ohhllo.ohhllo.", "..oddddo.oddddo.",
+        "..olmmdo.olmmdo.", "..olmmdo.olmmdo.", "..olmmdo.olmmdo.", "..oddddo.oddddo.",
+        "..olmmdo.olmmdo.", "..olmmmloolmmmlo", ".ohmmmmdohmmmmdo", ".olmmmmdolmmmmdo",
+        ".oddddddoddddddo", "..oooooo.oooooo.", "................", "................",
+    ])
     shape("hood", body(art([
         "................", ".....######.....", "....########....", "...##########...",
         "..############..", "..####....####..", "..###......###..", "..###......###..",
@@ -234,16 +259,16 @@ def add(G):
     sp("fur_hood", ("hood", "fur"))
     sp("fur_cloak", ("cloak", "fur"))
     sp("fur_boots", ("boots", "fur"))
-    sp("leather_cap", ("hood", "leather"))
-    sp("leather_tunic", ("cloak", "leather"))
+    sp("leather_cap", ("cap", "leather"))
+    sp("leather_tunic", ("tunic", "leather"))
     sp("leather_boots", ("boots", "leather"))
-    sp("copper_helmet", ("hood", "copper"))
-    sp("copper_chestplate", ("cloak", "copper"))
-    sp("copper_boots", ("boots", "copper"))
+    sp("copper_helmet", ("helmet", "copper"))
+    sp("copper_chestplate", ("chestplate", "copper"))
+    sp("copper_boots", ("greaves", "copper"))
     for m in ("bronze", "iron", "steel"):   # ADR 0121
-        sp(m + "_helmet", ("hood", m))
-        sp(m + "_chestplate", ("cloak", m))
-        sp(m + "_boots", ("boots", m))
+        sp(m + "_helmet", ("helmet", m))
+        sp(m + "_chestplate", ("chestplate", m))
+        sp(m + "_boots", ("greaves", m))
     sp("atlatl", ("atlatl", "wood"))
     sp("animal_fat", ("lump", "fat"))
     sp("fat_lamp", ("lamp", "stone"))
