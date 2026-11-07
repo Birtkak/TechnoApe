@@ -245,6 +245,17 @@ func fish_near(p: Vector3) -> int:
 	return n
 
 
+## The nearest live swimmer within fish_near_m of p (the one that bit), or null.
+func nearest_fish(p: Vector3) -> Mob:
+	var best: Mob = null
+	var bd := Settings.m2v(Settings.fish_near_m)
+	for m in main.mobs.active():
+		if m.def.get("moves", "") == "swim" and m.species != "jellyfish" and not m.is_dead() and m.position.distance_to(p) < bd:
+			bd = m.position.distance_to(p)
+			best = m
+	return best
+
+
 ## Seconds to the bite with n fish near: the long wait divided by 1 + n, never under the minimum.
 static func bite_wait_for(n: int, roll: float) -> float:
 	return maxf(Settings.fish_bite_min_s, Settings.fish_bite_max_s / (1.0 + n) * roll)
@@ -340,6 +351,10 @@ func _catch() -> void:
 		_end("Only weed on the hook: the water here is foul.")
 		return
 	main.work._give([{"id": catch_id, "count": 1}], main.player.position)
+	var landed := nearest_fish(_to)
+	if landed != null:
+		main.mobs.take(landed)   # the fish on the line came out of this water
+		stats["fish_taken"] = int(stats.get("fish_taken", 0)) + 1
 	stats["caught"].append(catch_id)
 	main.work._note("caught", catch_id)
 	var nm: String = fish.get("name", "")
@@ -494,51 +509,79 @@ func held_mob(e: TrapEntity) -> Mob:
 	return null
 
 
-## Where a 1 m pit cover would lie for a pit around the aimed spot: {anchor, depth} or {}.
-func pit_spot(hit: VoxelRaycastResult) -> Dictionary:
-	var c := hit.previous_position
-	var B := Settings.BLOCK
-	var a0 := BlockEntities.anchor_for(c)
-	for off in [Vector3i(-B, 0, -B), Vector3i(0, 0, -B), Vector3i(-B, 0, 0), Vector3i(0, 0, 0)]:
-		var a: Vector3i = a0 + off
-		var mid := Vector3i(a.x + B, c.y, a.z + B)
-		var y := mid.y
-		var lo := y - 48
-		while y > lo and not MobManager.is_solid(main.get_world_voxel(Vector3i(mid.x, y - 1, mid.z))):
-			y -= 1
-		var floor_y := y
-		var hi := floor_y + 48
-		while y < hi and _square_air(a, y) and _ring_solid(a, y):
-			y += 1
-		if y - floor_y >= int(Settings.m2v(Settings.pit_min_m)) and _square_air(a, y):
-			return {"anchor": Vector3i(a.x, y - 2, a.z), "depth": y - floor_y}
-	return {}
+## Where a 1 m pit cover would lie over a hole around the aimed spot: {anchor, depth} or {}. Any hole works that
+## is 1 to 1.5 m across at the top (square, round, ragged) and pit_min_m deep under the aimed column: the rim is
+## the first height up the hole that is open to a side, and the 8 x 8 cover goes where its edge has ground under
+## it all round (within two voxels: a gap of up to 25 cm a side stays, the trap's tell).
+func pit_spot(c: Vector3i) -> Dictionary:
+	var y := c.y
+	while y > c.y - 48 and not MobManager.is_solid(main.get_world_voxel(Vector3i(c.x, y - 1, c.z))):
+		y -= 1
+	var floor_y := y
+	while y < floor_y + 48 and _enclosed(Vector3i(c.x, y, c.z)):
+		y += 1
+	var rim := y
+	if rim - floor_y < int(Settings.m2v(Settings.pit_min_m)):
+		return {}
+	var w := 2 * Settings.BLOCK
+	var best := {}
+	var best_score := -1.0
+	for j in w:
+		for i in w:
+			var a := Vector3i(c.x - i, rim, c.z - j)
+			if _square_solid(a, rim - 1) + _square_solid(a, rim - 2) > 0.12 * 2 * w * w:
+				continue   # a round hole's corners may lie under the cover's corners (they become cover)
+			var ring := _ring_score(a, rim - 1)
+			var score := ring - 0.01 * (absf(i - 3.5) + absf(j - 3.5))   # ties go to the cover centred on the aim
+			if ring >= 0.7 and score > best_score:
+				best_score = score
+				best = {"anchor": Vector3i(a.x, rim - 2, a.z), "depth": rim - floor_y}
+	return best
 
 
-func _square_air(a: Vector3i, y: int) -> bool:
-	for z in 2 * Settings.BLOCK:
-		for x in 2 * Settings.BLOCK:
-			if MobManager.is_solid(main.get_world_voxel(Vector3i(a.x + x, y, a.z + z))):
-				return false
+## A hole's column at p is still walled: ground within 12 voxels (1.5 m) in each of the four directions.
+func _enclosed(p: Vector3i) -> bool:
+	if MobManager.is_solid(main.get_world_voxel(p)):
+		return false
+	for d in [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]:
+		var hit := false
+		for k in range(1, 13):
+			if MobManager.is_solid(main.get_world_voxel(p + d * k)):
+				hit = true
+				break
+		if not hit:
+			return false
 	return true
 
 
-func _ring_solid(a: Vector3i, y: int) -> bool:
+func _square_solid(a: Vector3i, y: int) -> int:
+	var n := 0
+	for z in 2 * Settings.BLOCK:
+		for x in 2 * Settings.BLOCK:
+			if MobManager.is_solid(main.get_world_voxel(Vector3i(a.x + x, y, a.z + z))):
+				n += 1
+	return n
+
+
+## The share of the cover's edge cells with ground one or two voxels outside them at height y.
+func _ring_score(a: Vector3i, y: int) -> float:
 	var w := 2 * Settings.BLOCK
 	var n := 0
 	var solid := 0
-	for i in range(-1, w + 1):
-		for q in [Vector3i(i, 0, -1), Vector3i(i, 0, w), Vector3i(-1, 0, i), Vector3i(w, 0, i)]:
+	for i in w:
+		for q in [[Vector3i(i, 0, -1), Vector3i(0, 0, -1)], [Vector3i(i, 0, w), Vector3i(0, 0, 1)],
+				[Vector3i(-1, 0, i), Vector3i(-1, 0, 0)], [Vector3i(w, 0, i), Vector3i(1, 0, 0)]]:
 			n += 1
-			if MobManager.is_solid(main.get_world_voxel(Vector3i(a.x, y, a.z) + q)):
+			var p: Vector3i = Vector3i(a.x, y, a.z) + q[0]
+			if MobManager.is_solid(main.get_world_voxel(p)) or MobManager.is_solid(main.get_world_voxel(p + q[1])):
 				solid += 1
-	return solid >= n * 0.75
+	return float(solid) / n
 
 
 func _lay_cover(hit: VoxelRaycastResult) -> void:
-	var s := pit_spot(hit)
+	var s := pit_spot(hit.previous_position)
 	if s.is_empty():
-		main.work._say("Dig a pit 1 m wide and at least %.0f m deep, then lay the cover into it." % Settings.pit_min_m)
+		main.work._say("Dig a hole 1 to 1.5 m across and at least %.0f m deep, then aim into it and lay the cover." % Settings.pit_min_m)
 		return
 	lay_pit(s["anchor"])
 	if main.work._consumes():
@@ -594,9 +637,11 @@ func _check(e: TrapEntity) -> void:
 	var c := e.centre()
 	var half := BlockEntities.width_of(e.kind) * 0.5
 	for m in main.mobs.active():
+		var d := Vector2(m.position.x - c.x, m.position.z - c.z)
+		if m.owner_id != "" and absf(d.x) < half and absf(d.y) < half and absf(m.position.y - c.y) < Settings.BLOCK:
+			stats["companion_over"] = int(stats.get("companion_over", 0)) + 1   # should stay 0: they walk round
 		if m.owner_id != "" or m.is_dead() or m.trap_at != Vector3.INF or m.def.get("moves", "") in ["swim", "fly"]:
 			continue
-		var d := Vector2(m.position.x - c.x, m.position.z - c.z)
 		if e.is_pit():
 			if absf(d.x) < half and absf(d.y) < half and m.position.y < c.y + 0.5 and m.position.y > c.y - Settings.m2v(3.0):
 				_spring(e, m, Vector3(c.x, m.position.y, c.z))
@@ -658,6 +703,22 @@ func debug_scene(what: String) -> String:
 				main.mobs.spawn("fish", Vector3(o) + Vector3(-6.0 + 4.0 * i, -5.0, -3.0 + 6.0 * (i % 2)))
 		main.player_inv.inv.set_slot(main.player_inv.selected, {"id": "fishing_rod", "count": 1})
 		return "a %s pond ahead (look down at it and right click with the rod)" % what
+	if what == "wolf":   # a tamed wolf 5 m beyond a pit flanked by snares: its straight way back crosses them
+		var f := Vector3i(fwd.normalized().round()) if absf(fwd.x) != absf(fwd.z) else Vector3i(0, 0, -1)
+		if f.x != 0 and f.z != 0:
+			f.z = 0
+		var r := Vector3i(f.z, 0, -f.x)
+		main._debug_fill(o + Vector3i(-28, -16, -28), o + Vector3i(28, -1, 28), GameMaterials.DIRT)
+		main._debug_fill(o + Vector3i(-28, -1, -28), o + Vector3i(28, 0, 28), GameMaterials.GRASS)
+		main._debug_fill(o + Vector3i(-28, 0, -28), o + Vector3i(28, 4 * B, 28), GameMaterials.AIR)
+		main._debug_fill(o + Vector3i(-4, -12, -4), o + Vector3i(4, 0, 4), GameMaterials.AIR)
+		lay_pit(o + Vector3i(-4, -2, -4))
+		for k in [-2, 2]:
+			main.work._create(o + r * (k * B * 2) - Vector3i(2, 0, 2), "snare", GameMaterials.WORK_SPOT)
+		var wolf: Mob = main.mobs.spawn("wolf", Vector3(o + f * int(Settings.m2v(5.0))) + Vector3(0.5, 0.3, 0.5))
+		if wolf != null:
+			wolf.set_companion(player)
+		return "a pit and two snares between you and your wolf 5 m ahead"
 	# traps: a dirt slab, a snare and a 1.5 m pit side by side, the wolf between them and the player
 	main._debug_fill(o + Vector3i(-20, -16, -12), o + Vector3i(20, -1, 12), GameMaterials.DIRT)
 	main._debug_fill(o + Vector3i(-20, -1, -12), o + Vector3i(20, 0, 12), GameMaterials.GRASS)

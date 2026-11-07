@@ -28,9 +28,11 @@ and the careless player. No new material ids, no generator change.
    block lands junk (`junk`: nothing, a stick, a bone, fibre).
 4. **Traps are work pieces** (`TrapEntity`, kinds `snare` and `pit_trap`, WORK_SPOT voxels: the aim ray sees
    them, bodies pass through). A snare (cordage + stick, placed like any work item) is a 0.5 m block one voxel
-   high; a pit cover (4 sticks + 2 fibre) is laid into a hole the player dug, 1 m square and `pit_min_m` deep
-   (`Fishing.pit_spot` finds the rim from the aimed spot), two voxels flush with the rim, so whatever walks on
-   it falls in. Every 0.2 s Fishing springs armed traps: snares take land animals no wider than `snare_max_m`
+   high; a pit cover (4 sticks + 2 fibre) is laid into a hole the player dug, 1 to 1.5 m across at the top
+   (square, round or ragged) and `pit_min_m` deep: `Fishing.pit_spot` walks up the aimed column to the first
+   height open to a side (the rim) and puts the 1 m cover where 70 % of its edge has ground within two voxels
+   (gaps of up to 25 cm stay, a tell; up to 12 % of its cells may overhang a round hole's rim and become cover),
+   two voxels flush with the rim, so whatever walks on it falls in. Every 0.2 s Fishing springs armed traps: snares take land animals no wider than `snare_max_m`
    standing on the noose; pits take any land animal that dropped below the cover. The caught animal gets
    `Mob.trap_at` (no brain, x and z pinned, struggling; saved with the mobs), the trap keeps the species.
    An empty hand (or any click) on a full trap takes the animal: it dies at the player's feet with its drops.
@@ -38,11 +40,12 @@ and the careless player. No new material ids, no generator change.
    `pit_hurt` (stakes) on top of any fall. The sign is in the looks: a peg and noose, a patch of straw and earth
    with gaps; aimed at, the look-at panel names the trap and its state.
 5. **Companions** are never caught, and `MobManager.safe_ahead` tells a tamed animal a trap ahead is unsafe,
-   so the wolf walks round (ADR 0152).
-6. `/fish pond|foul|traps [cam]|cast|state` lays scenes and drives a scripted cast; `fishing` in the debug JSON.
+   so the wolf steps aside (a 0.8 s sidestep) and walks round (ADR 0152); Fishing counts `companion_over`
+   frames (0 in the `/fish wolf` run).
+6. `/fish pond|foul|traps [cam]|wolf|cast|state` lays scenes and drives a scripted cast; `fishing` in the debug JSON.
 
 ## Consequences
-- Fish mobs are counted, not consumed: a catch does not remove a fish from the water.
-- The pit check is a straight 1 m square; wider or ragged pits are refused with a hint.
+- A catch takes the nearest live swimmer within `fish_near_m` out of the water (`MobManager.take`, no drops).
+- Holes wider than 1.5 m, narrower than 1 m or shallower than `pit_min_m` are refused with a hint saying so.
 - Wild animals do not avoid traps (that is the point); they also walk into empty pits like any 1.5 m drop.
 - Trap catches and the rod state are player-local, like the movement toys: no server sync yet.

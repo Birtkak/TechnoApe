@@ -816,6 +816,12 @@ func _move(delta: float) -> void:
 			var dir := to.normalized()
 			if _slide_t > 0.0:
 				dir = _slide_dir
+			elif not _ahead_ok and dir.dot(_ahead_dir) > 0.7 and owner_id != "":
+				# ADR 0163: a companion steps aside round a trap (or lava) and then heads on
+				_slide_dir = dir.rotated(Vector3.UP, (1.0 if _rng.randf() < 0.5 else -1.0) * PI * 0.5)
+				_slide_t = 0.8
+				_ahead_ok = true
+				dir = _slide_dir
 			elif not _ahead_ok and dir.dot(_ahead_dir) > 0.7:
 				# a cliff, water or lava ahead: give the target up (panic picks another)
 				_stop()

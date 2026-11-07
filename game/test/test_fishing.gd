@@ -87,3 +87,36 @@ func test_trapped_mob_saves_its_hold() -> void:
 	m.trap_at = Vector3.INF
 	m2.load_from(JSON.parse_string(JSON.stringify(m.to_dict())))
 	assert_bool(m2.trap_at == Vector3.INF).is_true()
+
+
+## Stone below y = 0 with holes cut by `hole` (Vector3i -> bool): Fishing.pit_spot reads it through main.
+class StubWorld:
+	extends Node
+	var hole: Callable
+
+	func get_world_voxel(p: Vector3i) -> int:
+		return GameMaterials.STONE if p.y < 0 and not hole.call(p) else GameMaterials.AIR
+
+
+func _pit(hole: Callable, aim: Vector3i) -> Dictionary:
+	var w: StubWorld = auto_free(StubWorld.new())
+	w.hole = hole
+	fishing.main = w
+	return fishing.pit_spot(aim)
+
+
+func test_pit_cover_fits_square_round_and_ragged_holes() -> void:
+	var square := func(p: Vector3i) -> bool: return p.y >= -12 and p.x >= 0 and p.x < 8 and p.z >= 0 and p.z < 8
+	var s := _pit(square, Vector3i(3, -11, 4))
+	assert_vector(Vector3(s["anchor"])).is_equal(Vector3(0, -2, 0))   # flush with the rim
+	assert_int(s["depth"]).is_equal(12)
+	var round := func(p: Vector3i) -> bool: return p.y >= -10 and Vector2(p.x + 0.5, p.z + 0.5).length() < 5.6
+	assert_dict(_pit(round, Vector3i(0, -9, 0))).is_not_empty()   # 1.4 m across
+	var ragged := func(p: Vector3i) -> bool: return p.y >= -9 and p.x >= -1 - (p.z & 1) and p.x < 9 and p.z >= 0 and p.z < 9 + (p.x & 1)
+	assert_dict(_pit(ragged, Vector3i(4, -8, 4))).is_not_empty()
+	var wide := func(p: Vector3i) -> bool: return p.y >= -12 and absi(p.x) < 10 and absi(p.z) < 10   # 2.5 m: the cover falls in
+	assert_dict(_pit(wide, Vector3i(0, -11, 0))).is_empty()
+	var shallow := func(p: Vector3i) -> bool: return p.y >= -5 and p.x >= 0 and p.x < 8 and p.z >= 0 and p.z < 8
+	assert_dict(_pit(shallow, Vector3i(3, -4, 3))).is_empty()
+	var narrow := func(p: Vector3i) -> bool: return p.y >= -12 and p.x >= 0 and p.x < 6 and p.z >= 0 and p.z < 6
+	assert_dict(_pit(narrow, Vector3i(3, -11, 3))).is_empty()   # the 1 m cover does not fit in
