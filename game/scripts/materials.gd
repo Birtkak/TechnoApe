@@ -139,6 +139,7 @@ const GIANT_HEART := 126
 const SAVANNA_GRASS := 127
 const SAVANNA_TALL_GRASS := 128
 const RED_EARTH := 129
+const FIREDAMP := 133              # ADR 0148: explosive mine gas in coal lumps; a flash of enough of it burning is a TNT blast (Firedamp)
 # Rock kinds, their cobbles, bricks and loose stones, more clutter, ruin pots (ADR 0057)
 const GRANITE := 160
 const DIORITE := 161
@@ -294,9 +295,14 @@ static func _build_defs() -> Array:
 		{"name": "lava_static", "heat_c": 1200, "cell_type": "liquid", "fluid_slot": 1, "liquid_static": true, "density": 5, "temperature_of_fire": 150, "tiles": [7, 7, 7], "transparent": false, "loose": 7},
 	] + [
 		# 122, 123 (ADR 0110): the cores of conduit chambers, hard enough to need a good pick
-		{"name": "spring_stone", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [105, 105, 105], "transparent": false},
+		# spring stone pours water into air beside it (ADR 0148): a breached aquifer floods the mine up to the spring
+		{"name": "spring_stone", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [105, 105, 105], "transparent": false, "emits": 5, "emit_chance": 0.25},
 		{"name": "magma_heart", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [106, 106, 106], "transparent": false},
-	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
+	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + [
+		# 133 (ADR 0148): firedamp. Lighter than air, creeps along ceilings, never fades; burnable so any fire cell flashes
+		# through it at once (fire_hp 4: each burning cell lights up to four neighbours, every attempt lights), explosive so the sim tallies the flash for Firedamp
+		{"name": "firedamp", "cell_type": "gas", "density": 0, "gas_upwards_speed": 200, "gas_horizontal_speed": 70, "lifetime": 0, "burnable": true, "explosive": true, "fire_hp": 4, "ignite_chance": 1.0, "autoignition_temperature": 20, "temperature_of_fire": 80, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "generates_smoke": 0, "tiles": [11, 11, 11], "transparent": true},
+	] + _reserved_defs(134, 159) + _rock_defs() + [
 		# 203 (ADR 0065): TNT. Not burnable: the sim would burn it away; Tnt lights it when fire touches it.
 		{"name": "tnt", "cell_type": "solid", "pattern": true, "density": 6, "hp": 50, "tiles": [172, 171, 172], "transparent": false},
 		# 204..206 (ADR 0098): the Gelvin monolith and its plaza. Not in mining.json and hp past Tnt.NEVER_HP: indestructible.

@@ -5025,6 +5025,8 @@
     "carbon_electrode": {"layers": [{"shape": "stick", "palette": "carbon"}]},
     "battery_box": {"layers": [{"shape": "hull_face", "palette": "steel", "colors": {"p": "#9ca6b2", "q": "#c4ccd6", "r": "#5a6370"}}], "cube": true},
     "electric_lamp": {"layers": [{"shape": "lantern", "palette": "iron"}]},
+    "vent_fan": {"layers": [{"shape": "machine", "palette": "iron", "colors": {"e": "#9ea6b2", "f": "#5c6470", "k": "#24232a", "K": "#16181e"}}]},
+    "safety_lamp": {"layers": [{"shape": "lantern", "palette": "bronze"}]},
     "pump": {"layers": [{"shape": "machine", "palette": "iron", "colors": {"e": "#7ac8f0", "f": "#2a6a8a", "k": "#d07a40", "K": "#8a4424"}}]},
     "multimeter": {"layers": [{"shape": "tape_measure", "palette": "iron", "colors": {"c": "#1c3e22", "k": "#7ed43a", "t": "#f4e870", "T": "#b8a830"}}]},
     "capacitor": {"layers": [{"shape": "capacitor", "palette": "iron"}]},

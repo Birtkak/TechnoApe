@@ -24,8 +24,8 @@ const MOB_HZ := 4.0
 const PROBE_RANGE_M := 12.0
 const PROBE_DIRS := [Vector3(0, 1, 0), Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1),
 	Vector3(0.7, 0.7, 0), Vector3(-0.7, 0.7, 0), Vector3(0, 0.7, 0.7), Vector3(0, 0.7, -0.7), Vector3(0, -1, 0)]
-const WHERE := ["any", "air_above", "air_below", "moving", "fresh", "falls", "burning", "boiling"]   # moving / fresh: SimWorld::SampleBits (ADR 0081)
-const TALLY_SLOTS := {"burning": 4, "boiling": 5}   # SimWorld::TALLY_BURN / TALLY_HISS: counted by the sim, as a thin fire or a hiss is rarely sampled (ADR 0144)
+const WHERE := ["any", "air_above", "air_below", "moving", "fresh", "falls", "burning", "boiling", "firedamp"]   # moving / fresh: SimWorld::SampleBits (ADR 0081)
+const TALLY_SLOTS := {"burning": 4, "boiling": 5, "firedamp": 6}   # SimWorld::TALLY_BURN / TALLY_HISS: counted by the sim, as a thin fire or a hiss is rarely sampled (ADR 0144)
 ## falls: not sampled; the cells of the loop's liquid that fell in the last sim tick (SimBubble.falls, ADR 0103): a
 ## waterfall is too thin for random samples to find
 ## Groups that wall a space in for the reverb: rock, earth and built walls. Not trunks, leaves or

@@ -10,6 +10,19 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Underground hazards: firedamp, the vent fan, flooding springs (ADR 0148)
+
+- [ ] `/scenario firedamp`, then dig into the stone room ahead with the safety lamp in hand: a low hiss as the gas
+      wakes, the lamp's light turns blue and brighter near the ceiling, a toast names it. Does the flare read as a warning?
+- [ ] Swap to a torch inside the room: a flash through the gas and a TNT-sized blast that cracks the room (creative
+      keeps you alive). Too soon, too big, too small? Does one pocket make one blast?
+- [ ] Place a vent fan at the room's door (wrench turns it, `/kit electric` has a battery box and cables), power it:
+      the gas in front of it streams out of the room in a few seconds. Is 4 m of reach enough for a gallery?
+- [ ] Mine a real coal vein (`/goto` a mine, or prospect one) with a torch: do pockets turn up often enough to
+      matter and rarely enough to be a shock?
+- [ ] Dig into an aquifer (ADR 0110: follow the trickle to spring stone): the chamber keeps pouring after it drains,
+      the mine floods up to the spring and stops there; a pump below the spring drains it. Does the rate feel right?
+
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 
 - [ ] G or V opens the ring (tap, then click; or hold and release), names under the icons. Brush tile: shapes, wheel sizes

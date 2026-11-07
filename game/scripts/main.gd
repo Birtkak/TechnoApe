@@ -64,6 +64,7 @@ var quests: QuestBook                # the progression book's quests and progres
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
 var tnt: Tnt                         # TNT charges, fuses and blasts (ADR 0065)
+var firedamp: Firedamp               # the mine gas: flashes to blasts, the safety lamp, torches lighting it (ADR 0148)
 var _tnt_save := []                  # its charges from the player's save, loaded before it exists
 var weather: Weather                 # rain and snow, the rain that answers forest fires (ADR 0056); null with weather=0
 var world_map := WorldMap.new()      # the explored map and the waypoints (plan item D10, ADR 0055)
@@ -632,6 +633,10 @@ func _ready() -> void:
 	add_child(tnt)
 	tnt.setup(self)
 	tnt.load_array(_tnt_save)
+	firedamp = Firedamp.new()
+	firedamp.name = "Firedamp"
+	add_child(firedamp)
+	firedamp.setup(self)
 	player.ignite_at = _ignite
 	if not warmup.is_queued_for_deletion():
 		warmup.add_meshes(tnt.warm_meshes() + [player.brush_tool.warm_mesh(), builder.warm_mesh()], player.camera)

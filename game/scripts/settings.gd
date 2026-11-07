@@ -266,6 +266,11 @@ var tnt_merge_s := 0.3                  # a charge going off takes along primed 
 var tnt_damage := 16                    # health at the centre, falling to 0 at twice the radius (armour later)
 var tnt_knockback_m := 12.0             # m/s at the centre, falling like the damage
 var tnt_drop_fraction := 0.3            # share of the blasted voxels that drops as items (Minecraft: 1 / power)
+var firedamp_blast_cells := 24          # ADR 0148: firedamp cells burning in one sim tick that count as a blast ...
+var firedamp_full_cells := 150          # ... and how many make a whole TNT block's blast (a lump is ~150)
+var firedamp_vacuum_m := 6.0            # ... the gas and fire this far round the flash go before the crater: one blast per pocket
+var safety_lamp_reach_m := 2.0          # ... the held safety lamp samples firedamp this far round the eye
+var vent_fan_reach_m := 4.0             # ... a vent fan pushes gas this far in front of it
 var tnt_blasts_per_frame := 1           # fuses that run out together wait their turn: one crater per frame
 var igniter_range_m := 16.0             # the igniter's sneak use lights every charge this close
 var particles := true                   # particles=0 turns every effect off (benchmarks against the old game)

@@ -126,6 +126,12 @@ func _validate_vein(v: Dictionary) -> bool:
 	if int(v["weight"]) < 1:
 		errors.append("vein %s: weight must be at least 1" % n)
 		ok = false
+	if v.has("pocket_gas") and material_id(String(v["pocket_gas"])) <= 0:   # ADR 0148: whole lumps of a gas instead of ore
+		errors.append("vein %s: unknown pocket_gas %s" % [n, v["pocket_gas"]])
+		ok = false
+	if float(v.get("pocket_gas_chance", 0.0)) < 0.0 or float(v.get("pocket_gas_chance", 0.0)) > 1.0:
+		errors.append("vein %s: pocket_gas_chance must be between 0 and 1" % n)
+		ok = false
 	var size := int(v["size_voxels"])
 	var thick := int(v["thickness_voxels"])
 	if size < 4 or size > int(grid.get("cell_voxels", 0)) - 16:

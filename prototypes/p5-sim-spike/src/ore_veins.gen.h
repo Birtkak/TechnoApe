@@ -34,6 +34,8 @@ static const int PRIMARY[COUNT] = {16, 18, 19, 17, 17};
 static const int BETWEEN[COUNT] = {16, 19, 18, 16, 18};
 static const int SECONDARY[COUNT] = {16, 18, 19, 17, 18};
 static const int SPORADIC[COUNT] = {17, 17, 16, 18, 19};
+static const int POCKET_GAS[COUNT] = {133, -1, -1, -1, -1};       // ADR 0148: a lump of this gas instead of ore ...
+static const float POCKET_GAS_CHANCE[COUNT] = {0.1f, 0.0f, 0.0f, 0.0f, 0.0f}; // ... with this chance per lump
 static const int INDICATOR[COUNT] = {-1, 48, 49, 50, 50};
 
 } // namespace technosim_ore

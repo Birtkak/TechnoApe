@@ -104,6 +104,12 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   worn head piece), the traveler's backpack (`bag_slots`: `PlayerInventory.bag` is rebuilt to the worn bag's size),
   the steam drill (`speed` 2.5), the boiler suit, the jetpack (clothing slot `back`, `Player._worn_with`, air in the
   stack), the surveyor's stake (`waypoint` field). Tier 4 tools are grid recipes. Check: `test_steam_age_2.gd`.
+  **Underground hazards (ADR 0148):** `firedamp` (133) is a burnable, `explosive` gas generated as whole lumps in coal
+  veins (`pocket_gas` in `ore_veins.json`); the kernel tallies its moving and burning cells (`TALLY_GAS_MOVE/BURN`,
+  `SimBubble.falls(6|7)`), `Firedamp` turns a tick with `Settings.firedamp_blast_cells` burning into `Tnt.explode` and
+  puts fire cells where sampled lights (not `safe_light` ones) touch gas; the held safety lamp tints its light by the
+  gas sampled round the eye. `VentFanEntity` pushes gas cells along its facing with `SimWorld.blow`; a solid with
+  `emits` / `emit_chance` (spring stone: water) pours into air beside it until covered. Check: `test_firedamp.gd`.
   **Machines and networks (ADR 0113):** machines are work pieces (`work` on the item, a kind in
   `BlockEntities.create`); every entity with `net(channel) -> {role, amount}` joins `Networks.solve` once a second
   (20 block ticks): the native `NetworkSolver` unions the boxes that touch and moves min(supply, demand, weakest

@@ -111,6 +111,8 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			_ticking.append(e)
 		"electric_lamp":
 			e = ElectricLampEntity.new(items, pos)
+		"vent_fan":   # ADR 0148: pushes gas along its facing
+			e = VentFanEntity.new(items, pos)
 		"knife_switch", "fuse_box", "breaker", "daylight_switch":   # circuit control and protection (ADR 0123)
 			e = CircuitEntity.new(items, pos, kind)
 		"water_wheel", "wind_turbine", "hand_crank":   # the small sources (ADR 0123)
@@ -303,7 +305,7 @@ func all_furniture() -> Array:
 
 const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave",
 	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile", "boiler", "pipe", "steam_hammer", "steam_sieve",
-	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "pump", "coke_oven", "knife_switch", "fuse_box", "breaker", "daylight_switch", "water_wheel", "wind_turbine", "hand_crank", "meter_panel"]
+	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "pump", "coke_oven", "knife_switch", "fuse_box", "breaker", "daylight_switch", "water_wheel", "wind_turbine", "hand_crank", "meter_panel", "vent_fan"]
 
 
 ## The machines a boiler's pipes feed (ADR 0097): everything with a `boiler` slot.

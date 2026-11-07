@@ -1664,6 +1664,8 @@ sp("steel_rod", ("stick", "steel"))
 sp("carbon_electrode", ("stick", "carbon"))
 sp("battery_box", ("hull_face", "steel", {"p": "#9ca6b2", "q": "#c4ccd6", "r": "#5a6370"}), cube=True)
 sp("electric_lamp", ("lantern", "iron"))
+sp("vent_fan", ("machine", "iron", {"e": "#9ea6b2", "f": "#5c6470", "k": "#24232a", "K": "#16181e"}))   # ADR 0148: a grey grille, dark hub
+sp("safety_lamp", ("lantern", "bronze"))   # ADR 0148: a brass flame lamp
 sp("pump", ("machine", "iron", {"e": "#7ac8f0", "f": "#2a6a8a", "k": "#d07a40", "K": "#8a4424"}))   # a water window, the copper outlet
 sp("multimeter", ("tape_measure", "iron", {"c": "#1c3e22", "k": "#7ed43a", "t": "#f4e870", "T": "#b8a830"}))   # ADR 0122/0123: a dial in an iron case
 # circuit control and protection (ADR 0123) as their models draw them (ADR 0129): an iron base (palette) with

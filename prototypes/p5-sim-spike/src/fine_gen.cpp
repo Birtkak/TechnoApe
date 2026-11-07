@@ -149,6 +149,8 @@ uint16_t FineGen::vein_voxel(const WorldGen::Vein &v, float ht, int wx, int wy, 
     const uint32_t hl = h3(bx + 7, bz - 3, by * 1031 + seed + 7789);
     if ((float)(hl & 1023) >= std::min(1.0f, p) * 1024.0f) return WorldGen::STONE;
     if ((float)((hl >> 10) & 1023) < SPORADIC_CHANCE * 1024.0f) return (uint16_t)SPORADIC[v.type];
+    // ADR 0148: a whole lump of the vein's pocket gas (firedamp in coal) instead of ore: it sleeps sealed in the rock
+    if (POCKET_GAS[v.type] > 0 && (float)((hl >> 20) & 1023) < POCKET_GAS_CHANCE[v.type] * 1024.0f) return (uint16_t)POCKET_GAS[v.type];
     const float t = (fy / (float)FS - (float)v.y + ht) / (2.0f * ht) + 0.35f * (pocket - 0.5f);
     return (uint16_t)(t > 0.6667f ? PRIMARY[v.type] : (t < 0.3333f ? SECONDARY[v.type] : BETWEEN[v.type]));
 }
