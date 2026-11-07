@@ -21,6 +21,21 @@ frame times.
       in the look line), then float belly-up; the wheat beside the brown waste ground says "Sickly", then wilts to dead
       bushes while the clean plot stays. `/pollute smoke` (survival): cough, grey edge, a toast, then hurt; wear a
       Cloth Mask (plant fiber, wool, charcoal) and it stops. Fair timing (cough 2 s, hurt from 8 s)?
+## Movement toys: glider, climbing rope, grappling hook (ADR 0151)
+
+`/kit toys` gives all three.
+- [ ] Glider: hold it, jump off a cliff, press jump (or right click) while falling: the wing opens over your head. Looking
+      level you sink slowly (about 8 m forward per metre down); look down to dive and gain speed, look up to trade it for
+      height. Turning banks the view a little, the wind gets louder with speed. Too floaty, too fast, too much roll?
+- [ ] Glider: jump again in the air folds it (you keep your speed for a bit); landing, water or switching item folds it too.
+      A glide into the ground at dive speed hurts, a level landing does not.
+- [ ] Rope: right click the top of a cliff near its edge: a rope hangs down to the ground. Walk into it from below: W
+      climbs, S goes down, let go of both and you hang. At the top you step onto the ledge. Jump lets go. Right click
+      the rope (its knot at the top, or the rope itself) gives it back. Does it come back after save and reload?
+- [ ] Grappling hook (iron age, crafting table): right click a rock face or tree up to 36 m away, keep holding to reel
+      in, let go to swing under it (WASD pumps), jump to let go and fly on. Sand, gravel or leaves: it slips. Fun? Too
+      strong a pull, too slow a reel?
+- [ ] With a second player (ADR 0145): they do not see your rope, line or wing (known, ADR 0151).
 
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 

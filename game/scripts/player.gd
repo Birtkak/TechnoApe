@@ -85,6 +85,7 @@ var describe_block: Callable     # (voxel) -> {title?, line?}: a block entity's 
 var fire_at: Callable            # (voxel) -> bool: a lit firepit, forge or bloomery covers it (it burns, ADR 0078)
 var playtest_laser: Callable     # (firing, from, dir, delta, brush_size) -> void: a held laser cutter (PlaytestTools)
 var playtest_use: Callable       # (def, hit, from, dir, sneaking) -> bool: a right click with a playtest gadget
+var toys: MovementToys           # the glider, climbing rope and grappling hook (ADR 0151), set by Main
 var ignite_at: Callable          # (hit) -> bool: flint and steel sets the aimed face on fire (Weather, ADR 0056)
 var _lasering := false
 var _look_key := ""              # what the look-at panel shows now (rebuilt only when it changes)
@@ -427,7 +428,7 @@ func _apply_look() -> void:
 	var eye := Vector3(0, Settings.m2v(Settings.eye_height_m) - _eye_drop, 0)
 	if perspective == 0:
 		camera.position = eye
-		camera.rotation = Vector3(_pitch, 0, 0)
+		camera.rotation = Vector3(_pitch, 0, toys.roll if toys else 0.0)   # the glider banks the view
 		return
 	# orbit the head at a fixed distance, pulled in when terrain is in the way
 	var back := 1.0 if perspective == 1 else -1.0
@@ -617,6 +618,8 @@ func _physics_step(delta: float) -> void:
 			else:
 				velocity.y = maxf(velocity.y, -climb)
 			_fall_peak_y = position.y
+	if toys:
+		toys.step(delta, dir, input, jump)   # ADR 0151: a glider, rope or hook takes the velocity over
 	if sneak and _on_floor and not in_liquid:
 		_hold_edge(delta)   # sneaking never walks off a ledge (Minecraft)
 	t0 = Time.get_ticks_usec()
@@ -1318,6 +1321,8 @@ func _use(first_press: bool) -> void:
 		inventory.swap_hands()
 		_offhand_turn = false
 		return
+	if first_press and toys and toys.use(hit, camera.global_position, -camera.global_transform.basis.z):
+		return   # ADR 0151: a rope taken back, the glider opened, a rope hung, the hook fired
 	if item_use.is_valid() and item_use.call(hit, first_press, camera.global_position, -camera.global_transform.basis.z):
 		_after_use()
 		return

@@ -64,6 +64,8 @@ var quests: QuestBook                # the progression book's quests and progres
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
 var tnt: Tnt                         # TNT charges, fuses and blasts (ADR 0065)
+var toys: MovementToys               # glider, climbing ropes, grappling hook (ADR 0151)
+var _ropes_save := []                # the hung ropes from the player's save, loaded before toys exists
 var _tnt_save := []                  # its charges from the player's save, loaded before it exists
 var weather: Weather                 # rain and snow, the rain that answers forest fires (ADR 0056); null with weather=0
 var world_map := WorldMap.new()      # the explored map and the waypoints (plan item D10, ADR 0055)
@@ -466,6 +468,8 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_info_test = InfoTest.new()
 				_info_test.run(self))
+		if DebugCapture.toys_test:
+			_after_load(func() -> void: ToysTest.new().run(self))
 		if DebugCapture.tp_test:
 			_after_load(func() -> void:
 				_tp_test = TpTest.new()
@@ -632,6 +636,14 @@ func _ready() -> void:
 	add_child(tnt)
 	tnt.setup(self)
 	tnt.load_array(_tnt_save)
+	toys = MovementToys.new()
+	toys.name = "MovementToys"
+	add_child(toys)
+	toys.setup(self)
+	toys.load_array(_ropes_save)
+	player.toys = toys
+	if not warmup.is_queued_for_deletion():
+		warmup.add_materials(toys.warm_materials(), player.camera)
 	player.ignite_at = _ignite
 	if not warmup.is_queued_for_deletion():
 		warmup.add_meshes(tnt.warm_meshes() + [player.brush_tool.warm_mesh(), builder.warm_mesh()], player.camera)
@@ -1015,6 +1027,7 @@ func _player_dict() -> Dictionary:
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
 		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s,
 		"stone_age": stone_age.player_dict() if stone_age else {}, "tnt": tnt.to_array() if tnt else _tnt_save,
+		"ropes": toys.to_array() if toys else _ropes_save,
 		"bookmarks": inv_screen.browser.bookmarks}
 
 
@@ -1056,6 +1069,7 @@ func _load_player() -> void:
 	_survival_save = d.get("survival", {})
 	_stone_age_save = d.get("stone_age", {})
 	_tnt_save = d.get("tnt", [])
+	_ropes_save = d.get("ropes", [])
 
 
 ## A saved stack (JSON numbers are floats), or {} for an empty or unknown one.
@@ -2250,6 +2264,7 @@ func snapshot() -> Dictionary:
 		"projectiles": projectiles.stats if projectiles else {},
 		"gadgets": gadgets.stats if gadgets else {},
 		"tnt": tnt.snapshot() if tnt else {},
+		"toys": toys.snapshot() if toys else {},
 		"networks": Networks.stats,
 		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size(), "dig_only": player.dig_only_names()}),
 		"weather": weather.summary() if weather else {},

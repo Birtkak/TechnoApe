@@ -23,6 +23,9 @@
 
     {"id": "pyrite_striker", "type": "shapeless", "ingredients": ["flint", "pyrite"], "output": {"id": "pyrite_striker", "count": 1}},
     {"id": "atlatl", "type": "shapeless", "ingredients": ["#stick", "#stick", "bone", "cordage"], "output": {"id": "atlatl", "count": 1}},
+    {"id": "glider", "type": "shapeless", "ingredients": ["linen_cloth", "linen_cloth", "linen_cloth", "#stick", "#stick", "#stick", "cordage", "cordage"], "output": {"id": "glider", "count": 1}, "_note": "ADR 0151"},
+    {"id": "glider_leather", "type": "shapeless", "ingredients": ["leather", "leather", "leather", "#stick", "#stick", "#stick", "leather_strip", "leather_strip"], "output": {"id": "glider", "count": 1}, "_note": "ADR 0151"},
+    {"id": "climbing_rope", "type": "shapeless", "ingredients": ["cordage", "cordage", "cordage", "cordage", "#stick"], "output": {"id": "climbing_rope", "count": 1}, "_note": "ADR 0151"},
     {"id": "fat_lamp", "type": "shapeless", "ingredients": ["loose_stone", "animal_fat", "dry_grass"], "output": {"id": "fat_lamp", "count": 1}},
     {"id": "red_paint", "type": "shapeless", "ingredients": ["red_pigment", "animal_fat"], "output": {"id": "red_paint", "count": 1}},
     {"id": "yellow_paint", "type": "shapeless", "ingredients": ["yellow_pigment", "animal_fat"], "output": {"id": "yellow_paint", "count": 1}},

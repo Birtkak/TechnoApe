@@ -14,6 +14,7 @@
   "bucket/fill": {"asset": "player/splash_small", "db": -10, "pitch": [0.9, 1.1], "range_m": 16},
   "player/bubbles": {"db": -16, "flat": true, "cooldown_s": 0.3},
   "player/pickup": {"db": -14, "pitch": [0.9, 1.2], "flat": true, "cooldown_s": 0.06},
+  "toy/hook_throw": {"asset": "player/swim", "db": -8, "pitch": [1.6, 1.9], "flat": true, "cooldown_s": 0.1},
   "player/tool_break": {"db": -6, "flat": true},
   "player/place_station": {"asset": "craft/done", "db": -8, "range_m": 16},
 
