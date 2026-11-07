@@ -26,6 +26,7 @@ var pos: Vector3i
 var recipes: RecipeRegistry
 var hung: Array = []          # {id, p: 0..1, done: output id or ""}
 var smoky := false            # set by StoneAge once a second: a lit firepit next to or under it
+var _told := false            # the hang hint was shown
 var _last := -1.0             # StoneAge.now_days at the last tick
 
 
@@ -79,7 +80,9 @@ func use(held: Dictionary) -> Dictionary:
 		return res
 	hung.append({"id": id, "p": 0.0, "done": ""})
 	res["consume"] = 1
-	res["msg"] = SPECS[kind]["hint"] if kind == "salt_pan" else ("Hung up to smoke." if smoky else "Hung up to dry. Over a lit firepit it would smoke, faster and keeping longer.")
+	if not _told:
+		_told = true   # once per piece: five hooks do not say it five times
+		res["msg"] = SPECS[kind]["hint"] if kind == "salt_pan" else ("Hung up to smoke." if smoky else "Hung up to dry. Over a lit firepit it would smoke, faster and keeping longer.")
 	changed.emit()
 	return res
 
