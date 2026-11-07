@@ -22,7 +22,10 @@ drive to flip its lever (or `/contraptions toggle`), `/contraptions ride` stands
       and hook look right?
 - [ ] Build your own: `/kit contraptions`, place a lift winch, lay a 1.5 m oak-plank platform in front of it at its
       foot, cable a hand crank to it (or put it beside), flip the lever, crank. A platform of the floor's own material is
-      refused with a message. Quit mid-move and reload: the part is in the voxels at its end.
+      refused with a message. Quit mid-move and reload: the part is in the voxels where it stopped and goes on once cranked.
+- [ ] Riding round 2: on an L-shaped platform you do not ride over its empty corner; jumping off the rising lift
+      works (`/contraptions jump`); the lift stops flush against the ring; on the rising bridge (`/contraptions ride
+      bridge`, then `/contraptions toggle drawbridge_hinge`) you slide off past 45 degrees, never through it.
 ## Seasons that matter (ADR 0156)
 
 - [ ] `/season winter` then `/weather snow` at night by a river: snow builds up patchy on the ground over ~20 s, the river freezes and you can walk on it. `/season winter now` does it at once.

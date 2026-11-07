@@ -8,21 +8,22 @@ extends Node
 ## the end it is pasted back into voxels (RigidPieces.release). No second physics path: the crane's cargo,
 ## let go, simply becomes an ordinary falling piece and settles itself.
 ##
-## Bodies: the player, mobs and dropped items standing on a moving part ride it (each physics frame they follow
-## the drawn part's transform onto its top). A part that would push the player into terrain, or run into the
-## player or a mob, stops for that tick (a mob in the way gets hurt); it goes on when the way is clear.
+## Bodies: the player, mobs and dropped items standing on a moving part's cells ride it (each physics frame they
+## follow the drawn part's transform onto the top of the columns under them; a jump leaves). On a part tilted past
+## 45 degrees the player slides down its top and off the low end. A part that would push the player into terrain, or
+## run into the player or a mob, stops for that tick (a mob in the way gets hurt); it goes on when the way is clear.
 ##
 ## Ticked by FallingPieces.tick between collect() and queue_step(), when the driver thread is idle.
-## shortcut: a part only moves inside the main sim window (rigid pieces live there), and riding uses the part's
-## bounding box, not each voxel; per-voxel tops and parts that leave the window need native support first.
+## shortcut: a part only moves inside the main sim window (rigid pieces live there); a drive farther away waits.
 
 const TOP_BAND := Vector2(-2.0, 1.5)   # voxels below / above a part's top that still stand on it
 const RIDE_TILT := 0.7                 # a part tilted further than this (its up . world up) throws riders off
 const CRUSH_EVERY_S := 0.5
+const SLIDE_MPS := 3.0                 # down a part tilted past RIDE_TILT
 
 var main: Node
 var fp: FallingPieces
-var stats := {"started": 0, "arrived": 0, "stalls": 0, "refused": 0, "cargo": 0, "rides": 0}
+var stats := {"started": 0, "arrived": 0, "stalls": 0, "refused": 0, "cargo": 0, "rides": 0, "slides": 0}
 var _drives: Array = []
 var _scan := 0
 var _probe := VoxelBody.new(AABB())
@@ -173,6 +174,7 @@ func _start(e: ContraptionEntity) -> bool:
 			"big": "The part is too big to move.", "outside": "Too far away to move."}.get(r.get("error", ""), "Nothing to move."))
 	e.piece = int(r["id"])
 	e.size = r["size"]
+	e.cols = fp.rp.get_columns(e.piece)
 	e.base = now.affine_inverse() * Transform3D(Basis(), r["origin"])
 	e.stage = ""
 	if e.kind == "crane":   # the jib's underside at its far end: the first piece cell up from under the box there
@@ -207,6 +209,7 @@ func _hook_cargo(e: ContraptionEntity) -> void:
 		if r.has("id"):
 			e.cargo = int(r["id"])
 			e.cargo_size = r["size"]
+			e.cargo_cols = fp.rp.get_columns(e.cargo)
 			e.cargo_base = Transform3D(Basis(), r["origin"])
 			e.cargo_up = 0.0
 			e.stage = "raise"
@@ -249,7 +252,7 @@ func _advance(e: ContraptionEntity, dt: float) -> void:
 		var nu := move_toward(e.cargo_up, target, step) if raise else e.cargo_up - step
 		var was := _cargo_t(e, e.pose, e.cargo_up)
 		var nt := _cargo_t(e, e.pose, nu)
-		if _blocked_bodies(nt, e.cargo_size, was):
+		if _blocked_bodies(nt, e.cargo_cols, e.cargo_size, was):
 			return
 		var hit := not raise and (_hits_terrain(world_box(was, e.cargo_size), Vector3.DOWN, step) or e.cargo_up < -Settings.m2v(Settings.crane_hook_m))
 		if not hit:
@@ -270,12 +273,15 @@ func _advance(e: ContraptionEntity, dt: float) -> void:
 	if e.kind == "lift_winch":
 		var dir := signf(next - e.pose)
 		if dir != 0.0 and _hits_terrain(world_box(cur, e.size), Vector3(0, dir, 0), absf(next - e.pose)):
-			next = floorf(e.pose) if dir > 0.0 else ceilf(e.pose)   # stop on a whole voxel against what it met
+			# stop flush on a whole voxel against what it met: the next one if it is clear, else the last
+			var near := ceilf(e.pose) if dir > 0.0 else floorf(e.pose)
+			var clear := near != e.pose and not _hits_terrain(world_box(cur, e.size), Vector3(0, dir, 0), absf(near - e.pose))
+			next = near if clear else (floorf(e.pose) if dir > 0.0 else ceilf(e.pose))
 			arrive = true
 	var nt := pose_of(e, next) * e.base
-	if _blocked_bodies(nt, e.size, cur):
+	if _blocked_bodies(nt, e.cols, e.size, cur):
 		return
-	if e.cargo != 0 and _blocked_bodies(_cargo_t(e, next, e.cargo_up), e.cargo_size, _cargo_t(e, e.pose, e.cargo_up)):
+	if e.cargo != 0 and _blocked_bodies(_cargo_t(e, next, e.cargo_up), e.cargo_cols, e.cargo_size, _cargo_t(e, e.pose, e.cargo_up)):
 		return
 	e.pose = next
 	fp.rp.drive(e.piece, nt)
@@ -301,6 +307,9 @@ func _finish(e: ContraptionEntity) -> void:
 ## Does the box moved `dist` voxels along `dir` (an axis) run into terrain? Only the swept slab ahead of it is
 ## tested: the part's own voxels may still show in the terrain for a frame or two after the cut.
 func _hits_terrain(b: AABB, dir: Vector3, dist: float) -> bool:
+	dist -= 0.01   # touching what it meets is fine
+	if dist <= 0.0:
+		return false
 	var shrink := 0.02
 	var slab := AABB(b.position + Vector3.ONE * shrink, b.size - Vector3.ONE * 2.0 * shrink)
 	if dir.y > 0.0:
@@ -312,18 +321,17 @@ func _hits_terrain(b: AABB, dir: Vector3, dist: float) -> bool:
 
 
 ## Would the part at `nt` (from `cur`) run into the player or a mob, or push a rider into terrain? Then it waits.
-func _blocked_bodies(nt: Transform3D, size: Vector3i, cur: Transform3D) -> bool:
+func _blocked_bodies(nt: Transform3D, cols: PackedInt32Array, size: Vector3i, cur: Transform3D) -> bool:
 	var p: Node3D = main.player
-	if not _rides(cur, size, p.position):
-		if _overlaps(nt, size, p.position, p.body.aabb):
+	var top := _on_top(cur, cols, size, p.position, _half(p.body.aabb))
+	if top < 0:
+		if _overlaps(nt, cols, size, p.position, p.body.aabb):
 			return _stall("player")
-	else:
-		var to := _carried(cur, nt, size, p.position)
-		if p.body.intersects(to, main.world.terrain):
-			return _stall("ceiling")
+	elif p.body.intersects(_carried(cur, nt, top, p.position), main.world.terrain):
+		return _stall("ceiling")
 	if main.mobs:
 		for m: Mob in main.mobs.active():
-			if not _rides(cur, size, m.position) and _overlaps(nt, size, m.position, m._body.aabb):
+			if _on_top(cur, cols, size, m.position, _half(m._body.aabb)) < 0 and _overlaps(nt, cols, size, m.position, m._body.aabb):
 				if _crush_t <= 0.0:
 					m.hurt(2, nt * (Vector3(size) * 0.5))
 				return _stall("mob")
@@ -335,43 +343,71 @@ func _stall(_why: String) -> bool:
 	return true
 
 
-## Feet at `feet` stand on the part (grid `size` under `t`)?
-static func _rides(t: Transform3D, size: Vector3i, feet: Vector3) -> bool:
-	if t.basis.y.normalized().y < RIDE_TILT:
-		return false
+static func _half(box: AABB) -> float:
+	return minf(box.size.x, box.size.z) * 0.45   # a little inside the body's side: a toe over the edge does not stand
+
+
+## The highest column top (local y) of the part under a footprint of half width `r` round local `l`; -1 over no cell.
+static func _top_under(cols: PackedInt32Array, size: Vector3i, l: Vector3, r: float) -> int:
+	var top := -1
+	for z in range(maxi(floori(l.z - r), 0), mini(floori(l.z + r), size.z - 1) + 1):
+		for x in range(maxi(floori(l.x - r), 0), mini(floori(l.x + r), size.x - 1) + 1):
+			var hi := cols[2 * (x + size.x * z) + 1]
+			if hi > 0:
+				top = maxi(top, hi)
+	return top
+
+
+## Feet at `feet` (a body of half width `r`) stand on the part's cells (columns `cols`, grid `size`, under `t`):
+## the local height of the top they stand on, else -1. Any tilt.
+static func _on_top(t: Transform3D, cols: PackedInt32Array, size: Vector3i, feet: Vector3, r: float) -> int:
 	var l := t.affine_inverse() * feet
-	return l.x >= 0.0 and l.z >= 0.0 and l.x <= size.x and l.z <= size.z and l.y >= size.y + TOP_BAND.x and l.y <= size.y + TOP_BAND.y
+	var top := _top_under(cols, size, l, r)
+	if top < 0 or l.y < top + TOP_BAND.x or l.y > top + TOP_BAND.y:
+		return -1
+	return top
 
 
-## Where feet riding the part go when it moves from `from` to `to`: the same spot on its top.
-static func _carried(from: Transform3D, to: Transform3D, size: Vector3i, feet: Vector3) -> Vector3:
+## On its top and the part level enough to stand on: that top, else -1.
+static func _rides(t: Transform3D, cols: PackedInt32Array, size: Vector3i, feet: Vector3, r: float) -> int:
+	return _on_top(t, cols, size, feet, r) if t.basis.y.normalized().y >= RIDE_TILT else -1
+
+
+## Where feet standing at local height `top` go when the part moves from `from` to `to`: the same spot on its top.
+static func _carried(from: Transform3D, to: Transform3D, top: int, feet: Vector3) -> Vector3:
 	var l := from.affine_inverse() * feet
-	return to * Vector3(l.x, size.y, l.z)
+	return to * Vector3(l.x, top, l.z)
 
 
-## A body's box (`box` local to `at`) overlaps the part's grid under `t` (the body's box grown by its half size
-## in the part's frame: generous for a turned part, which only stops a little early).
-static func _overlaps(t: Transform3D, size: Vector3i, at: Vector3, box: AABB) -> bool:
+## A body's box (`box` local to `at`) overlaps the part's cells under `t` (column spans; the box grown to its
+## half diagonal for a turned part, which only stops a little early).
+static func _overlaps(t: Transform3D, cols: PackedInt32Array, size: Vector3i, at: Vector3, box: AABB) -> bool:
 	var half := box.size * 0.5
 	var l := t.affine_inverse() * (at + box.get_center())
 	var r := half.length()
 	var ex := Vector3(r, r, r) if t.basis.y.normalized().y < 0.999 else half
-	return l.x > -ex.x and l.y > -ex.y and l.z > -ex.z and l.x < size.x + ex.x and l.y < size.y + ex.y and l.z < size.z + ex.z
+	for z in range(maxi(floori(l.z - ex.z), 0), mini(floori(l.z + ex.z), size.z - 1) + 1):
+		for x in range(maxi(floori(l.x - ex.x), 0), mini(floori(l.x + ex.x), size.x - 1) + 1):
+			var i := 2 * (x + size.x * z)
+			if cols[i + 1] > 0 and l.y - ex.y < cols[i + 1] and l.y + ex.y > cols[i]:
+				return true
+	return false
 
 
 # ---------------- riders, every physics frame ----------------
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	var parts := []
 	for e: ContraptionEntity in _drives:
 		if e.piece != 0:
-			parts.append([e.piece, e.size])
+			parts.append([e.piece, e.cols, e.size])
 		if e.cargo != 0:
-			parts.append([e.cargo, e.cargo_size])
+			parts.append([e.cargo, e.cargo_cols, e.cargo_size])
 	_draw_hook()
 	if parts.is_empty():
 		return
 	var p: Node3D = main.player
+	var pr := _half(p.body.aabb)
 	for pa in parts:
 		var node: Node3D = fp._pieces.get(pa[0])
 		if node == null:
@@ -379,21 +415,38 @@ func _physics_process(_delta: float) -> void:
 		var now := node.transform
 		var was: Transform3D = _last.get(pa[0], now)
 		_last[pa[0]] = now
-		if _rides(was, pa[1], p.position) and not p.noclip:
-			var to := _carried(was, now, pa[1], p.position)
-			if not p.body.intersects(to, main.world.terrain):
+		var cols: PackedInt32Array = pa[1]
+		var size: Vector3i = pa[2]
+		var top := _on_top(was, cols, size, p.position, pr)
+		if top >= 0 and not p.noclip:
+			var to := _carried(was, now, top, p.position)
+			var level := now.basis.y.normalized().y >= RIDE_TILT
+			# a jump leaves: rising faster than the top carries the feet
+			var jumping: bool = p.velocity.y > maxf((to.y - p.position.y) / maxf(delta, 0.001), 0.0) + Settings.m2v(1.0)
+			if not jumping and not p.body.intersects(to, main.world.terrain):
 				p.position = to
-				p.velocity.y = maxf(p.velocity.y, 0.0)
-				p._on_floor = true
-				stats["rides"] += 1
+				if level:
+					p.velocity.y = 0.0
+					p._on_floor = true
+					stats["rides"] += 1
+				else:   # too steep to stand: slide down its top toward the low end and off
+					var n := now.basis.y.normalized()
+					var down := (Vector3.DOWN - n * Vector3.DOWN.dot(n)).normalized()
+					p.velocity = down * Settings.m2v(SLIDE_MPS)
+					p._on_floor = false
+					stats["slides"] += 1
 		if main.mobs:
 			for m: Mob in main.mobs.active():
-				if _rides(was, pa[1], m.position):
-					m.position = _carried(was, now, pa[1], m.position)
+				var mt := _rides(was, cols, size, m.position, _half(m._body.aabb))
+				if mt >= 0:
+					m.position = _carried(was, now, mt, m.position)
 					m.velocity.y = maxf(m.velocity.y, 0.0)
 		for it: ItemEntity in main._item_entities:
-			if is_instance_valid(it) and _rides(was, pa[1], it.position):
-				it.position = _carried(was, now, pa[1], it.position)
+			if not is_instance_valid(it):
+				continue
+			var itop := _rides(was, cols, size, it.position, 0.0)
+			if itop >= 0:
+				it.position = _carried(was, now, itop, it.position)
 				it.velocity.y = maxf(it.velocity.y, 0.0)
 				it.sleeping = false
 
@@ -466,6 +519,7 @@ func debug_build(base: Vector3i, facing: int) -> Dictionary:
 				var a: Vector3 = c + fw * (B * 0.5) - rt * 4
 				box.call(a - Vector3.UP * B, a + fw * 28 + rt * 8, 0)
 				box.call(a, a + fw * 32 + rt * 8 + Vector3.UP, planks)
+				out["bridge"] = a + fw * 16 + rt * 4 + Vector3(0, 1.5, 0)
 			"crane":   # a 2 x 2 mast 2 m up, a 2 x 2 jib 3 m out, an oak log under its tip
 				var top := c + Vector3.UP * (B + 16)
 				box.call(c + Vector3(-1, B, -1), top + Vector3(1, 0, 1), planks)
@@ -479,6 +533,30 @@ func debug_build(base: Vector3i, facing: int) -> Dictionary:
 	out["cam"] = at.call(-36, 20, -30)
 	_scan = 0
 	return out
+
+
+## /contraptions jump: press jump for a moment while riding the lift; prints the highest the feet got above its top.
+func debug_jump() -> void:
+	var lift: ContraptionEntity = null
+	for e: ContraptionEntity in _drives:
+		if e.kind == "lift_winch":
+			lift = e
+	var p: Node3D = main.player
+	p.autopilot = false
+	Input.action_press("jump")
+	var best := -INF
+	var t := 0.0
+	while t < 1.0:
+		await get_tree().physics_frame
+		t += get_physics_process_delta_time()
+		if t > 0.1:
+			Input.action_release("jump")
+		if lift and lift.piece != 0:
+			var top := (pose_of(lift, lift.pose) * lift.base * Vector3(0, lift.size.y, 0)).y
+			best = maxf(best, p.position.y - top)
+	Input.action_release("jump")
+	stats["jump_above_m"] = snappedf(best * Settings.VOXEL_M, 0.01)
+	print("contraptions jump: feet rose %.2f m above the moving lift" % stats["jump_above_m"])
 
 
 # ---------------- saving ----------------
@@ -496,6 +574,7 @@ func settle_all() -> bool:
 		e.pose = roundf(e.pose) if e.kind == "lift_winch" else (90.0 if e.pose >= 45.0 else 0.0)
 		fp.rp.drive(e.piece, pose_of(e, e.pose) * e.base)
 		e.arrived = false   # it goes on (or back) when the world loads
+		print("contraptions: %s pasted at pose %.0f on save" % [e.kind, e.pose])
 		fp.rp.release(e.piece, true)
 		e.piece = 0
 		e.stage = ""

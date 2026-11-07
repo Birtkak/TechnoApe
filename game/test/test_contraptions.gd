@@ -103,18 +103,48 @@ func test_the_drawbridge_raises_its_far_end_in_front_of_the_hinge() -> void:
 	assert_float((up - Vector3(B * 0.5, 0, B * 0.5)).dot(f)).is_between(B * 0.5, B * 1.5)   # within a block in front of the hinge
 
 
-func test_a_rider_follows_the_top_and_a_steep_part_throws_them_off() -> void:
+## An L: a 12 x 12 slab one voxel thick with its x >= 6, z >= 6 quarter missing.
+func _l_cols(size: Vector3i) -> PackedInt32Array:
+	var cols := PackedInt32Array()
+	cols.resize(2 * size.x * size.z)
+	for z in size.z:
+		for x in size.x:
+			cols[2 * (x + size.x * z) + 1] = 0 if (x >= 6 and z >= 6) else 1
+	return cols
+
+
+func test_a_rider_stands_on_the_cells_and_a_steep_part_throws_them_off() -> void:
 	var size := Vector3i(12, 1, 12)
+	var cols := _l_cols(size)
 	var a := Transform3D(Basis(), Vector3(10, 8, 10))
 	var b := Transform3D(Basis(), Vector3(10, 9, 10))
-	var feet := Vector3(16, 9.2, 16)
-	assert_bool(Contraptions._rides(a, size, feet)).is_true()
-	assert_vector(Contraptions._carried(a, b, size, feet)).is_equal_approx(Vector3(16, 10, 16), Vector3.ONE * 0.001)
-	assert_bool(Contraptions._rides(a, size, Vector3(30, 9, 16))).is_false()   # beside it
-	assert_bool(Contraptions._rides(a, size, Vector3(16, 14, 16))).is_false()  # well above it
+	var feet := Vector3(13, 9.2, 13)   # local (3, 3): on the L
+	assert_int(Contraptions._rides(a, cols, size, feet, 2.0)).is_equal(1)
+	assert_vector(Contraptions._carried(a, b, 1, feet)).is_equal_approx(Vector3(13, 10, 13), Vector3.ONE * 0.001)
+	assert_int(Contraptions._rides(a, cols, size, Vector3(19, 9, 19), 2.0)).is_equal(-1)   # over the L's empty corner
+	assert_int(Contraptions._rides(a, cols, size, Vector3(30, 9, 16), 2.0)).is_equal(-1)   # beside it
+	assert_int(Contraptions._rides(a, cols, size, Vector3(13, 14, 13), 2.0)).is_equal(-1)  # well above it
 	var steep := Transform3D(Basis(Vector3.RIGHT, deg_to_rad(60.0)), Vector3(10, 8, 10))
-	assert_bool(Contraptions._rides(steep, size, steep * Vector3(6, 1.2, 6))).is_false()
-	assert_bool(Contraptions._overlaps(b, size, Vector3(16, 6, 16), AABB(Vector3(-2, 0, -2), Vector3(4, 14, 4)))).is_true()   # stood under it
+	assert_int(Contraptions._rides(steep, cols, size, steep * Vector3(3, 1.2, 3), 2.0)).is_equal(-1)
+	assert_int(Contraptions._on_top(steep, cols, size, steep * Vector3(3, 1.2, 3), 2.0)).is_equal(1)   # on it: it slides
+	var body := AABB(Vector3(-2, 0, -2), Vector3(4, 14, 4))
+	assert_bool(Contraptions._overlaps(b, cols, size, Vector3(13, 6, 13), body)).is_true()    # stood under it
+	assert_bool(Contraptions._overlaps(b, cols, size, Vector3(19, 6, 19), body)).is_false()   # under the empty corner
+
+
+func test_columns_of_a_driven_piece() -> void:
+	var w := _world()
+	var sim: SimWorld = w[0]
+	var rp: RigidPieces = w[1]
+	sim.fill_box(Vector3i(10, 8, 10), Vector3i(22, 9, 22), GameMaterials.PLANKS)
+	sim.fill_box(Vector3i(16, 8, 16), Vector3i(22, 9, 22), GameMaterials.AIR)   # the L
+	sim.fill_box(Vector3i(10, 9, 10), Vector3i(12, 11, 12), GameMaterials.PLANKS)   # a 2 x 2 post on its corner
+	var r: Dictionary = rp.lift(Vector3i(13, 8, 13), Vector3i(8, 8, 8), Vector3i(30, 12, 30), 4096, false)
+	var cols := rp.get_columns(int(r["id"]))
+	var size: Vector3i = r["size"]
+	assert_int(cols[2 * (0 + size.x * 0) + 1]).is_equal(3)   # the post
+	assert_int(cols[2 * (3 + size.x * 3) + 1]).is_equal(1)
+	assert_int(cols[2 * (8 + size.x * 8) + 1]).is_equal(0)   # the empty corner
 
 
 func test_a_crank_moves_the_lever_and_the_drive_saves() -> void:

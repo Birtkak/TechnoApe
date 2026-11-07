@@ -120,6 +120,7 @@ void RigidPieces::_bind_methods() {
     ClassDB::bind_method(D_METHOD("lift", "seed", "lo", "hi", "max_cells", "wood_only"), &RigidPieces::lift);
     ClassDB::bind_method(D_METHOD("drive", "id", "local_to_world"), &RigidPieces::drive);
     ClassDB::bind_method(D_METHOD("release", "id", "settle"), &RigidPieces::release);
+    ClassDB::bind_method(D_METHOD("get_columns", "id"), &RigidPieces::get_columns);
     ClassDB::bind_method(D_METHOD("support_setup", "spans"), &RigidPieces::support_setup);
     ClassDB::bind_method(D_METHOD("support_mark", "cells"), &RigidPieces::support_mark);
     ClassDB::bind_method(D_METHOD("support_mark_box", "lo", "hi"), &RigidPieces::support_mark_box);
@@ -1253,6 +1254,27 @@ bool RigidPieces::release(int id, bool do_settle) {
         return true;
     }
     return false;
+}
+
+// Per grid column (x + size.x * z): its lowest filled cell and one past its highest, both 0 when it is empty.
+// What stands on a contraption part stands on its columns' tops (ADR 0160).
+PackedInt32Array RigidPieces::get_columns(int id) const {
+    PackedInt32Array out;
+    const Piece *p = find(id);
+    if (!p) return out;
+    out.resize(2 * p->size.x * p->size.z);
+    for (int z = 0; z < p->size.z; z++)
+        for (int x = 0; x < p->size.x; x++) {
+            int lo = 0, hi = 0;
+            for (int y = 0; y < p->size.y; y++)
+                if (p->grid[x + p->size.x * (y + p->size.y * z)]) {
+                    if (!hi) lo = y;
+                    hi = y + 1;
+                }
+            out.set(2 * (x + p->size.x * z), lo);
+            out.set(2 * (x + p->size.x * z) + 1, hi);
+        }
+    return out;
 }
 
 // ---- queries ----
