@@ -18,7 +18,7 @@ const PLACED := ["rope", "furniture", "work_spot", "work_block", "tnt", "carpet"
 	"storage_pot", "furnace_lit"]
 ## Materials only an event leaves (ADR 0157: a meteorite crater): priced like ruin loot, only where nothing else
 ## gives the item, at the seconds of waiting for one and walking there (EVENT_S) per drop it holds.
-const EVENT_ONLY := {"meteoric_iron": {"what": "meteorite crater", "per": 6.0}}
+const EVENT_ONLY := {"meteoric_iron": {"what": "meteorite crater", "per": 6.0}, "meteoric_iron_hot": {"what": "meteorite crater", "per": 6.0}}
 const EVENT_S := 4.0 * 1200.0   # a fall about every 8 nights (Settings.meteor_chance_per_night): half that wait, plus the walk
 ## What StoneAge.WORLD_SOURCES need before the world gives them.
 const WORLD_GATES := {"birch_bark": ["#knife"], "tinder_fungus": ["birch_bark"], "fire_ember": ["tinder_fungus", "@fire"],

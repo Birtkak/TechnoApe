@@ -19,7 +19,7 @@ Tiles (index = row*4 + col):
 136-170 rock kinds, cobbles, bricks, clutter, pyrite and ochres (tools/atlas_rocks.py, ADR 0057)
 171 tnt side 172 tnt top (patterned: a 4-voxel period, one 0.5 m TNT block per period; ADR 0065)
 173 monolith ashlar 174 monolith runes 175 monolith seam (patterned, 16-voxel period; runes and seam glow, ADR 0098)
-176 spruce 177 acacia 178 jungle 179 birch planks (patterned like 39 oak planks); 180-189 other branches (186 meteoric iron, 187 scorched earth: ADR 0157); 190 waste ground 191 slag 215 chimney top (ADR 0141)
+176 spruce 177 acacia 178 jungle 179 birch planks (patterned like 39 oak planks); 180-189 other branches (186 meteoric iron, 187 scorched earth, 216 hot meteoric iron: ADR 0157); 190 waste ground 191 slag 215 chimney top (ADR 0141)
 192 dripstone 193 cave vine 194 fungus stem 195 rusted rail 204 glow berries 205 magma rock 206 fungus cap (cave dressing; 204..207 glow)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
@@ -1212,6 +1212,25 @@ def meteor_tiles():
 
 for i, t in meteor_tiles().items():
     tiles[i] = t
+
+
+def hot_meteor_tile():
+    """ADR 0157: 216 hot meteoric iron, the first tile of row 28: a dark crust split by white-orange molten veins
+    (the terrain shader makes its bright texels glow)."""
+    rng = random.Random(1571)
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            vein = abs(math.sin(x * 0.9 + math.sin(y * 0.7) * 2.0)) < 0.28 or rng.random() < 0.08
+            c = ((255, 196, 90) if rng.random() < 0.5 else (250, 120, 30)) if vein else (58, 40, 36)
+            _px(img, x, y, c, rng, 6)
+    return img
+
+
+ROWS = max(ROWS, 28)
+while len(tiles) < 217:
+    tiles.append(blank)
+tiles[216] = hot_meteor_tile()
 assert len(tiles) <= COLS * ROWS, len(tiles)
 
 tiles = [grade(t) for t in tiles]   # one palette rule for every generated tile (ADR 0129)

@@ -16,6 +16,7 @@
     "copper_ore":   {"hardness": 3.0, "tool": "pickaxe", "requires": true,  "drops": "copper_ore", "min_tier": 1},
     "tin_ore":      {"hardness": 3.0, "tool": "pickaxe", "requires": true,  "drops": "tin_ore", "min_tier": 1},
     "dirt":         {"hardness": 0.5, "tool": "shovel", "drops": "dirt"},
+    "meteoric_iron_hot": {"hardness": 2.5, "tool": "pickaxe", "requires": true, "drops": "meteoric_iron", "min_tier": 1},
     "meteoric_iron": {"hardness": 2.5, "tool": "pickaxe", "requires": true, "drops": "meteoric_iron", "min_tier": 1},
     "scorched_earth": {"hardness": 0.5, "tool": "shovel", "drops": "dirt"},
     "grass":        {"hardness": 0.6, "tool": "shovel", "drops": "dirt"},
