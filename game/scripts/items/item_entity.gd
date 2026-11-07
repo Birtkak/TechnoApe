@@ -18,6 +18,8 @@ const BOUNCE := 0.15
 const SLEEP_SPEED := 0.05 * Settings.BLOCK   # voxels/s
 
 var stack := {}
+var net_uid := 0          # a shared item (ADR 0145): the server grants its pickup; 0 = this client's own
+var pick_asked := false   # the pick request is out (shared items)
 var age := 0.0
 var pickup_delay := Settings.item_pickup_delay_s
 var items: ItemRegistry

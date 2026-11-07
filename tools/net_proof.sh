@@ -2,6 +2,8 @@
 # Multiplayer proof without eyes (ADR 0145): a headless server and two clients on localhost, same seed.
 # Client a fills a stone box next to the spawn; client b must see it (net.verify_ok >= 1, net.ops_recv >= 1)
 # and see a's avatar (net.avatars); b's run also makes a contact sheet (out/net_b/strip.png) looking at a.
+# Items: alice drops sticks at her feet and picks them back through the server (picks_got), drops a flint 3 m on
+# and leaves it: bob sees both spawn and one go, carol (late join) gets the flint from the server's registry.
 # A third client joins late and must get the edit from the journal (ops_replayed >= 1); alice rejoins after her
 # run and must stand where she quit (the server's player save).
 # Prints one JSON line per role plus bandwidth, exit 1 when an assertion fails.
@@ -22,7 +24,7 @@ SERVER=$!
 sleep 4
 # a: stands 2 m in +x from the spawn and fills a stone box 1.5 m further on, in b's view
 timeout 150 "$G" --headless --path . -- connect=127.0.0.1:$PORT name=alice autopilot=1 duration=45 seed=$SEED $COMMON \
-  "later=/gamemode creative;/tp ~16 ~ ~;wait 3;/fill ~12 ~1 ~-1 ~14 ~3 ~1 stone;wait 25;/fill ~12 ~1 ~-1 ~14 ~3 ~1 air" out=res://out/net_a > out/net_a.log 2>&1 &
+  "later=/gamemode creative;/tp ~16 ~ ~;wait 3;/fill ~12 ~1 ~-1 ~14 ~3 ~1 stone;wait 2;/drop stick 2;wait 3;/tp ~24 ~ ~;/drop flint 1;/tp ~-24 ~ ~;wait 18;/fill ~12 ~1 ~-1 ~14 ~3 ~1 air" out=res://out/net_a > out/net_a.log 2>&1 &
 A=$!
 sleep 2
 # b: looks along +x at a and the fill, films a thumbnail per second; shorter than a so a is still there at its snapshot
@@ -48,10 +50,13 @@ import json,sys
 w=sys.argv[1]; d=json.loads(sys.stdin.read()); n=d["net"]
 want={"a":("ops_sent",1),"b":("verify_ok",1),"c":("ops_replayed",1),"d":("journal",2)}[w]
 ok=n.get(want[0],0)>=want[1]
+if w=="a": ok=ok and n.get("items_sent",0)>=2 and n.get("picks_got",0)>=1
+if w=="b": ok=ok and n.get("items_recv",0)>=2 and n.get("picked_recv",0)>=1
+if w=="c": ok=ok and n.get("items_recv",0)>=1
 if w=="c": ok=n.get("ops_replayed",0)+n.get("verify_ok",0)>=1
 if w=="b": ok=ok and len(n.get("avatars",{}))>=1
 if w=="d": ok=ok and abs(n["pos"][0]-16.5)<1.0
-print(json.dumps({"who":w,"ok":ok,"net":{k:n[k] for k in ["ops_sent","ops_recv","ops_replayed","verify_ok","verify_bad","states_sent","states_recv","sent_bytes","recv_bytes","sent_bytes_per_s","recv_bytes_per_s","seconds","journal","peers"] if k in n},"avatars":n.get("avatars",{}),"pos":n.get("pos"),"budget_ok":d.get("budget_ok")}))
+print(json.dumps({"who":w,"ok":ok,"net":{k:n[k] for k in ["ops_sent","ops_recv","ops_replayed","verify_ok","verify_bad","states_sent","states_recv","items_sent","items_recv","picks_sent","picks_got","picked_recv","batches_sent","sent_bytes","recv_bytes","sent_bytes_per_s","recv_bytes_per_s","seconds","journal","peers"] if k in n},"avatars":n.get("avatars",{}),"pos":n.get("pos"),"budget_ok":d.get("budget_ok")}))
 sys.exit(0 if ok else 1)' $who || fail=1
 done
 for i in $(seq 1 40); do grep -q '"net_server":"done"' out/net_server.log && break; sleep 1; done   # the server quits at its duration

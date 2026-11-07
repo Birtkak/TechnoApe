@@ -45,6 +45,19 @@ frame into one `voxels` op):
 Each op carries `box:[lo, hi]` (world voxels, inclusive) for the chunk index. `NetOps` (`scripts/net/net_ops.gd`)
 encodes, decodes and indexes them; `test_net_ops.gd` covers the round trip.
 
+Everything a client sends in a frame (ops, item events) goes as **one reliable batch**: the first proof run
+sent the monolith's ~330 box fills as separate RPCs in one frame and the server dropped that client.
+
+**Dropped items (shared items):** an item spawned by a player action (`Net.recording`: a dig's drops, a
+throw, `/drop`) gets a uid (peer id, counter) and goes to everyone as `{k:"item", uid, stack, pos, vel}`;
+every client runs the same `ItemEntity` from the same start, so it lands about where the dropper's did,
+and the server keeps a registry for late joiners (dropped where it was spawned) that expires at
+`item_despawn_s`. A pickup is **arbitrated**: the client in range sends `pick(uid)` once, the server grants
+it to the first asker and sends `picked(uid, by)` to all; the winner takes it into the inventory (what does
+not fit stays as that player's own item), the others see it go. Shared items never merge. Items that
+world systems spawn without a player action (farming, mobs, fires) stay local to each client and are
+picked up as in single-player. Inventories ride in the player save (every 30 s and at quit).
+
 **Players:** 20 Hz unreliable position + yaw + pitch + speed to the server, relayed to the others;
 a `RemotePlayer` (an `ApeModel`) eases toward the last state (exponential, ~80 ms) and animates by the
 sent speed.
@@ -58,7 +71,7 @@ the save). Disconnect saves nothing new; the last 30 s save stands.
 processes.
 
 **Explicitly single-player for now** (each client runs its own copy, nothing crosses the wire):
-simulated materials (water, sand, fire, gas, heat), dropped items and inventories, block entities
+simulated materials (water, sand, fire, gas, heat), block entities
 (stations, chests, furniture, machines, networks), mobs, farming, weather, rigid pieces (a felled tree's
 cut and settled voxels do replicate as voxel ops, the flight does not), survival state (saved per player),
 the calendar. Op ordering: a client applies its own op before the server orders it, so two clients

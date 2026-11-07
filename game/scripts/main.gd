@@ -189,7 +189,7 @@ func _ready() -> void:
 	player.voxels_placed.connect(func(c: Array, m: int) -> void: Net.record(_on_placed_many.bind(c, m)))
 	player.big_dug.connect(_on_big_dug)
 	player.brush_filled.connect(_on_brush_filled)
-	player.item_dropped.connect(_on_item_dropped)
+	player.item_dropped.connect(func(st: Dictionary, from: Vector3, v: Vector3) -> void: Net.record(_on_item_dropped.bind(st, from, v)))
 	player.inventory_toggled.connect(_on_inventory_toggled)
 	player.map_requested.connect(_open_map)
 	player.lookup_requested.connect(_lookup)
@@ -359,6 +359,8 @@ func _ready() -> void:
 	print("startup_ms " + JSON.stringify(startup_ms))
 
 	DebugCapture.attach(self)
+	if Net.active:
+		Net.items_now_ready()   # shared items that arrived during _ready spawn now (ADR 0145)
 	for stack in DebugCapture.give:
 		if not items.has(stack["id"]):
 			push_warning("give=: no item %s" % stack["id"])   # a typo must not put a broken stack in the hotbar
@@ -1260,9 +1262,12 @@ func pop_pickup(cells: Array[Vector3i]) -> void:
 	var pc: Dictionary = split["pieces"][0]
 	if not RuinLoot.shatter(self, pc["cells"]).is_empty():
 		return   # a pot: shards and loot, never the pot (ADR 0057)
-	Net.record(func() -> void:
-		for c in pc["cells"]:
-			set_world_voxel(c, GameMaterials.AIR))
+	Net.record(_pop_pickup_now.bind(pc))
+
+
+func _pop_pickup_now(pc: Dictionary) -> void:
+	for c in pc["cells"]:
+		set_world_voxel(c, GameMaterials.AIR)
 	if fx:
 		fx.block_break(pc["cells"][0], pc["material"])
 	pickups_popped += 1
@@ -1937,7 +1942,7 @@ func _on_screen_closed(dropped: Array) -> void:
 		_swing_chest_lid(_open_chest, false)
 		_open_chest = Vector3i.MAX
 	for s in dropped:
-		_on_item_dropped(s, player.camera.global_position, -player.camera.global_transform.basis.z * 2.0)
+		Net.record(_on_item_dropped.bind(s, player.camera.global_position, -player.camera.global_transform.basis.z * 2.0))
 
 
 func _on_died() -> void:
@@ -2049,7 +2054,54 @@ func spawn_item(stack: Dictionary, pos: Vector3, velocity: Vector3 = Vector3.ZER
 	_items_root.add_child(e)
 	_item_entities.append(e)
 	item_stats["spawned"] += 1
+	if Net.recording:   # a player action's drop: the same item on every client, picked up through the server (ADR 0145)
+		e.net_uid = Net.next_uid()
+		Net.send_item(e.net_uid, stack, pos, velocity)
 	return e
+
+
+## A shared item another player spawned (ADR 0145): the same stack, start and velocity, so it lands about
+## where theirs did; a late joiner gets it dropped where it was spawned.
+func net_item_spawn(ev: Dictionary) -> void:
+	for e in _item_entities:
+		if is_instance_valid(e) and e.net_uid == int(ev["uid"]):
+			return
+	var e := spawn_item(ev["stack"], ev["pos"], ev["vel"])
+	e.net_uid = int(ev["uid"])
+
+
+## The server granted a shared item to `by`: it leaves every client; the one it went to takes it into the
+## inventory (what does not fit stays with them as their own item, the others saw it go).
+func net_item_picked(uid: int, mine: bool) -> void:
+	for e in _item_entities:
+		if not is_instance_valid(e) or e.net_uid != uid:
+			continue
+		if mine:
+			e.net_uid = 0   # shortcut: a partial pickup leaves the rest as a local item; upgrade when the server tracks counts
+			e.pickup_delay = 0.0
+			_take_item(e)
+		else:
+			e.queue_free()
+		return
+
+
+## Puts a lying item into the inventory: true when all of it went (the entity is freed).
+func _take_item(e: ItemEntity) -> bool:
+	var left := player_inv.pickup(e.stack["id"], e.stack["count"], e.stack)
+	var got: int = e.stack["count"] - left
+	if got > 0:
+		picked_up_total[e.stack["id"]] = int(picked_up_total.get(e.stack["id"], 0)) + got
+		if game_hud:
+			var u := items.units(e.stack["id"])   # voxel items count in blocks here
+			game_hud.note_pickup(items.display_name(e.stack["id"]), maxi(1, got / u) if u > 1 else got)
+	if left > 0 and game_hud:
+		game_hud.note_full()
+	if left <= 0:
+		item_stats["picked"] += 1
+		e.queue_free()
+		return true
+	e.set_count(left)
+	return false
 
 
 func _update_items(delta: float) -> void:
@@ -2077,20 +2129,12 @@ func _update_items(delta: float) -> void:
 			_burn_item(e)
 			continue
 		if e.can_pickup() and e.position.distance_to(centre) <= radius and GameMode.rule(player.game_mode, "interacts") 				and (Inventory.heat_of(e.stack) <= 0.0 or player_inv.has_tongs()):   # hot metal only with tongs (ADR 0087)
-			var left := player_inv.pickup(e.stack["id"], e.stack["count"], e.stack)
-			var got: int = e.stack["count"] - left
-			if got > 0:
-				picked_up_total[e.stack["id"]] = int(picked_up_total.get(e.stack["id"], 0)) + got
-				if game_hud:
-					var u := items.units(e.stack["id"])   # voxel items count in blocks here
-					game_hud.note_pickup(items.display_name(e.stack["id"]), maxi(1, got / u) if u > 1 else got)
-			if left > 0 and game_hud:
-				game_hud.note_full()
-			if left <= 0:
-				item_stats["picked"] += 1
-				e.queue_free()
+			if e.net_uid != 0:   # shared: ask the server, it comes back as net_item_picked (ADR 0145)
+				if not e.pick_asked:
+					e.pick_asked = true
+					Net.send_pick(e.net_uid)
+			elif _take_item(e):
 				continue
-			e.set_count(left)
 		alive.append(e)
 	if do_merge:
 		for i in alive.size():
@@ -2101,6 +2145,8 @@ func _update_items(delta: float) -> void:
 				var b := alive[j]
 				if b.is_queued_for_deletion() or not Inventory.same_kind(a.stack, b.stack["id"], b.stack):
 					continue
+				if a.net_uid != 0 or b.net_uid != 0:
+					continue   # shared items keep their uid: the server knows them one by one (ADR 0145)
 				if a.position.distance_to(b.position) > merge_r:
 					continue
 				var max_stack := items.max_stack(a.stack["id"])

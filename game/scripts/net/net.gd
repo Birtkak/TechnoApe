@@ -1,18 +1,21 @@
 extends Node
 
 ## Multiplayer (ADR 0145): one ENet autoload on every side. The server (`server=1`, headless, no world)
-## owns the edit journal, the player saves and the position relay; clients generate the world from the
-## seed, apply their own edits at once, send them as ops and replay the ops they get. Single-player
-## never touches this: `active` stays false and the node does not process.
+## owns the edit journal, the shared items, the player saves and the position relay; clients generate
+## the world from the seed, apply their own edits at once, send them as ops and replay the ops they get.
+## Everything a client sends in a frame goes as one batch (hundreds of reliable packets in one frame
+## broke a link in the first proof run). Single-player never touches this: `active` stays false and the
+## node does not process.
 ##
 ##   server:  godot --headless --path game -- server=1 seed=1337 [port=7777] [duration=<s>]
 ##   client:  godot --path game -- connect=<host[:port]> name=<player>
 
-const PROTO := 1
+const PROTO := 2
 const PORT := 7777
 const STATE_HZ := 20.0
 const SAVE_S := 30.0
 const SLICE := 200           # journal ops per welcome message
+const EDIT_KINDS := ["fill", "voxels", "box", "sphere"]
 
 signal welcomed
 signal failed(reason: String)
@@ -23,8 +26,10 @@ signal peer_state(id: int, pos: Vector3, yaw: float, pitch: float, speed: float,
 var active := false
 var is_server := false
 var applying := false          # an op from the wire is being applied: the edit hooks stay quiet
-var recording := false         # a player action is writing voxels (Main's dig / place handlers, /fill, gadgets, TNT): SimBubble's
-                               # set_voxel / fill_box / blast send ops only then; world systems (monolith, saplings, weather, mobs) run on every client
+var recording := false         # a player action is writing voxels or spawning items (Main's dig / place / drop handlers, /fill,
+                               # gadgets, TNT): SimBubble's set_voxel / fill_box / blast and Main.spawn_item share only then;
+                               # world systems (monolith, saplings, weather, mobs, farming drops) run on every client
+var items_ready := false       # Main can spawn items (set at the end of its _ready); item events wait until then
 var player_name := "player"
 var seed_value := 0
 var game_mode := "survival"
@@ -33,14 +38,19 @@ var journal: Array = []        # ops in order: the world's edits (server), what 
 var peers := {}                # id -> name of the other players
 var main: Node                 # the game scene (set by Main._ready)
 var stats := {"ops_sent": 0, "ops_recv": 0, "ops_replayed": 0, "states_sent": 0, "states_recv": 0, "verify_ok": 0, "verify_bad": 0,
+	"items_sent": 0, "items_recv": 0, "picks_sent": 0, "picks_got": 0, "picked_recv": 0, "batches_sent": 0,
 	"sent_bytes": 0, "recv_bytes": 0, "journal": 0, "peers": 0}
 
 var _by_chunk := {}            # Vector3i world chunk -> PackedInt32Array journal indices (client)
 var _players := {}             # server: name -> player dict
 var _players_dirty := false
 var _journal_saved := 0
+var _items := {}               # server: uid -> spawn event of every shared item still lying around
 var _pending := PackedInt32Array()      # single voxels this frame, one op at the end of it
 var _pending_mats := PackedByteArray()
+var _out: Array = []           # client: this frame's ops and item events, one batch
+var _queued: Array = []        # client: item events that came before Main could spawn items
+var _uid_n := 0
 var _state_accum := 0.0
 var _save_accum := 0.0
 var _lifetime := 0.0
@@ -139,6 +149,8 @@ func _s_hello(proto: int, pname: String) -> void:
 		_c_journal.rpc_id(id, var_to_bytes(part), at >= journal.size())
 		if at >= journal.size():
 			break
+	if not _items.is_empty():
+		_c_batch.rpc_id(id, var_to_bytes(_items.values()))   # what lies around, dropped where it was spawned
 	for other in peers:
 		_c_peer_joined.rpc_id(other, id, pname)
 	peers[id] = pname
@@ -154,19 +166,43 @@ func _on_peer_left(id: int) -> void:
 		_c_peer_left.rpc_id(other, id)
 
 
+## A client's frame: edit ops go to the journal and the others; item spawns to the registry and the
+## others; a pick is granted to the first asker (`picked` goes to everyone, the asker included).
 @rpc("any_peer", "reliable")
-func _s_op(bytes: PackedByteArray) -> void:
+func _s_batch(bytes: PackedByteArray) -> void:
 	if not is_server:
 		return
 	var id := multiplayer.get_remote_sender_id()
-	var op := NetOps.decode(bytes)
-	if op.is_empty():
+	var batch: Variant = bytes_to_var(bytes)
+	if not (batch is Array):
 		return
-	journal.append(op)
-	stats["ops_recv"] += 1
+	var fwd := []
+	var all := []
+	for ev in batch:
+		if not (ev is Dictionary) or not ev.has("k"):
+			continue
+		var k: String = ev["k"]
+		if k in EDIT_KINDS:
+			if not NetOps.decode(var_to_bytes(ev)).is_empty():
+				journal.append(ev)
+				stats["ops_recv"] += 1
+				fwd.append(ev)
+		elif k == "item":
+			ev["t"] = Time.get_ticks_msec()
+			_items[int(ev["uid"])] = ev
+			stats["items_recv"] += 1
+			fwd.append(ev)
+		elif k == "pick":
+			if _items.erase(int(ev["uid"])):
+				all.append({"k": "picked", "uid": int(ev["uid"]), "by": id})
+	if not all.is_empty():
+		_c_batch.rpc_id(id, var_to_bytes(all))
+	if fwd.is_empty() and all.is_empty():
+		return
+	var out := var_to_bytes(fwd + all)
 	for other in peers:
 		if other != id:
-			_c_op.rpc_id(other, bytes)
+			_c_batch.rpc_id(other, out)
 
 
 @rpc("any_peer", "unreliable_ordered")
@@ -221,10 +257,12 @@ func leave() -> void:
 		return
 	flush()
 	active = false
+	items_ready = false
 	set_process(false)
 	multiplayer.multiplayer_peer = null
 	journal.clear()
 	_by_chunk.clear()
+	_queued.clear()
 	peers.clear()
 	main = null
 
@@ -258,13 +296,43 @@ func _c_journal(bytes: PackedByteArray, last: bool) -> void:
 
 
 @rpc("authority", "reliable")
-func _c_op(bytes: PackedByteArray) -> void:
-	var op := NetOps.decode(bytes)
-	if op.is_empty():
+func _c_batch(bytes: PackedByteArray) -> void:
+	var batch: Variant = bytes_to_var(bytes)
+	if not (batch is Array):
 		return
-	stats["ops_recv"] += 1
-	_add(op)
-	_apply(op, main.bubble if main else null)
+	for ev in batch:
+		if not (ev is Dictionary) or not ev.has("k"):
+			continue
+		if ev["k"] in EDIT_KINDS:
+			var op := NetOps.decode(var_to_bytes(ev))
+			if op.is_empty():
+				continue
+			stats["ops_recv"] += 1
+			_add(op)
+			_apply(op, main.bubble if main else null)
+		elif items_ready:
+			_item_event(ev)
+		else:
+			_queued.append(ev)
+
+
+func _item_event(ev: Dictionary) -> void:
+	if ev["k"] == "item":
+		stats["items_recv"] += 1
+		main.net_item_spawn(ev)
+	elif ev["k"] == "picked":
+		stats["picked_recv"] += 1
+		if int(ev["by"]) == multiplayer.get_unique_id():
+			stats["picks_got"] += 1
+		main.net_item_picked(int(ev["uid"]), int(ev["by"]) == multiplayer.get_unique_id())
+
+
+## Main can spawn items now: the events that came during its _ready are delivered.
+func items_now_ready() -> void:
+	items_ready = true
+	for ev in _queued:
+		_item_event(ev)
+	_queued.clear()
 
 
 @rpc("authority", "unreliable_ordered")
@@ -307,20 +375,20 @@ func _apply(op: Dictionary, bubble: SimBubble) -> bool:
 	return ok
 
 
-## Runs a player action with `recording` on: its voxel writes become ops.
+## Runs a player action with `recording` on: its voxel writes and item spawns are shared.
 func record(cb: Callable) -> void:
 	recording = true
 	cb.call()
 	recording = false
 
 
-## An edit made here: journaled and sent. The edit hooks call this unless `applying`.
+## An edit made here: journaled and sent with this frame's batch. The edit hooks call this unless `applying`.
 func send_op(op: Dictionary) -> void:
 	if not active or is_server or applying:
 		return
 	_add(op)
 	stats["ops_sent"] += 1
-	_s_op.rpc_id(1, NetOps.encode(op))
+	_out.append(op)
 
 
 ## A single voxel written here: batched into one `voxels` op per frame.
@@ -333,12 +401,38 @@ func note_voxel(p: Vector3i, m: int) -> void:
 	_pending_mats.append(m)
 
 
-func flush() -> void:
-	if _pending.is_empty():
+## A uid for an item spawned here (this peer's id, then a counter).
+func next_uid() -> int:
+	_uid_n += 1
+	return (multiplayer.get_unique_id() << 20) + _uid_n
+
+
+## A shared item spawned by this player's action.
+func send_item(uid: int, stack: Dictionary, pos: Vector3, velocity: Vector3) -> void:
+	if not active or is_server:
 		return
-	send_op(NetOps.voxels(_pending, _pending_mats))
-	_pending = PackedInt32Array()
-	_pending_mats = PackedByteArray()
+	stats["items_sent"] += 1
+	_out.append({"k": "item", "uid": uid, "stack": stack, "pos": pos, "vel": velocity})
+
+
+## This player wants a shared item: the server answers `picked` for whoever asked first.
+func send_pick(uid: int) -> void:
+	if not active or is_server:
+		return
+	stats["picks_sent"] += 1
+	_out.append({"k": "pick", "uid": uid})
+
+
+func flush() -> void:
+	if not _pending.is_empty():
+		send_op(NetOps.voxels(_pending, _pending_mats))
+		_pending = PackedInt32Array()
+		_pending_mats = PackedByteArray()
+	if _out.is_empty() or not active or is_server:
+		return
+	_s_batch.rpc_id(1, var_to_bytes(_out))
+	stats["batches_sent"] += 1
+	_out = []
 
 
 ## A bubble loaded `count` chunks of the column at world chunk `w0` from the terrain: the ops that touch
@@ -362,6 +456,7 @@ func replay_column(bubble: SimBubble, w0: Vector3i, count: int) -> void:
 
 func save_player(d: Dictionary) -> void:
 	if active and not is_server:
+		flush()
 		_s_save.rpc_id(1, d)
 		var host: ENetConnection = multiplayer.multiplayer_peer.get("host")
 		if host:
@@ -378,6 +473,10 @@ func _process(delta: float) -> void:
 		if _save_accum >= SAVE_S:
 			_save_accum = 0.0
 			_save_files()
+			var now := Time.get_ticks_msec()
+			for uid in _items.keys():
+				if now - int(_items[uid]["t"]) > Settings.item_despawn_s * 1000.0:
+					_items.erase(uid)   # the clients despawned it at the same age
 		if _lifetime > 0.0 and (Time.get_ticks_msec() - _t0) / 1000.0 >= _lifetime:
 			_save_files()
 			print(JSON.stringify({"net_server": "done", "stats": snapshot()}))
@@ -409,6 +508,7 @@ func snapshot() -> Dictionary:
 	var s := stats.duplicate()
 	s["journal"] = journal.size()
 	s["peers"] = peers.size()
+	s["items"] = _items.size()
 	var secs := maxf((Time.get_ticks_msec() - _t0) / 1000.0, 0.001)
 	s["sent_bytes_per_s"] = snappedf(s["sent_bytes"] / secs, 0.1)
 	s["recv_bytes_per_s"] = snappedf(s["recv_bytes"] / secs, 0.1)
