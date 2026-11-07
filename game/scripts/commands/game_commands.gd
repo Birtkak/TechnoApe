@@ -139,6 +139,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("pollute", "/pollute [smoke]", "ADR 0155: a fouled pond with fish and wheat beside waste ground ahead (farm_speed=40 to watch crops wilt); smoke: a smoke booth round you", _pollute, [["smoke"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
+	reg.register("name", "/name <text>", "Name the companion you look at (ADR 0152); the tag over it shows the name", _name)
 	reg.register("tame", "/tame", "Tame the wolf you look at (or the nearest within 12 m) as your companion (ADR 0152); empty hand toggles sit/stay", _tame)
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
 		_quests, [["list", "complete", "reset"], _quest_ids])
@@ -414,6 +415,18 @@ func _time(args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.fail("Unknown time: %s" % args[1])
 	atmo.set_time_of_day(t)
 	return CommandRegistry.ok("Set the time to %s" % key)
+
+
+func _name(args: PackedStringArray) -> Dictionary:
+	if main == null or player == null or main.mobs == null:
+		return CommandRegistry.fail("No animals here")
+	var w: Mob = player.aimed_mob()
+	if w == null or w.owner_id != "player":
+		return CommandRegistry.fail("Look at your companion first")
+	if args.is_empty():
+		return CommandRegistry.fail("Usage: /name <text>")
+	w.set_pet_name(" ".join(args))
+	return CommandRegistry.ok("Named %s" % w.display_name())
 
 
 func _tame(_args: PackedStringArray) -> Dictionary:

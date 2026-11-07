@@ -10,7 +10,7 @@ extends Node
 ##   server:  godot --headless --path game -- server=1 seed=1337 [port=7777] [duration=<s>]
 ##   client:  godot --path game -- connect=<host[:port]> name=<player>
 
-const PROTO := 2
+const PROTO := 3
 const PORT := 7777
 const STATE_HZ := 20.0
 const SAVE_S := 30.0
@@ -21,7 +21,7 @@ signal welcomed
 signal failed(reason: String)
 signal peer_joined(id: int, pname: String)
 signal peer_left(id: int)
-signal peer_state(id: int, pos: Vector3, yaw: float, pitch: float, speed: float, flying: bool)
+signal peer_state(id: int, pos: Vector3, yaw: float, pitch: float, speed: float, flying: bool, pet: Array)
 
 var active := false
 var is_server := false
@@ -280,14 +280,14 @@ func _s_ent(bytes: PackedByteArray) -> void:
 
 
 @rpc("any_peer", "unreliable_ordered")
-func _s_state(pos: Vector3, yaw: float, pitch: float, speed: float, flying: bool) -> void:
+func _s_state(pos: Vector3, yaw: float, pitch: float, speed: float, flying: bool, pet: Array) -> void:
 	if not is_server:
 		return
 	var id := multiplayer.get_remote_sender_id()
 	stats["states_recv"] += 1
 	for other in peers:
 		if other != id:
-			_c_state.rpc_id(other, id, pos, yaw, pitch, speed, flying)
+			_c_state.rpc_id(other, id, pos, yaw, pitch, speed, flying, pet)
 
 
 @rpc("any_peer", "reliable")
@@ -477,9 +477,9 @@ func items_now_ready() -> void:
 
 
 @rpc("authority", "unreliable_ordered")
-func _c_state(id: int, pos: Vector3, yaw: float, pitch: float, speed: float, flying: bool) -> void:
+func _c_state(id: int, pos: Vector3, yaw: float, pitch: float, speed: float, flying: bool, pet: Array) -> void:
 	stats["states_recv"] += 1
-	peer_state.emit(id, pos, yaw, pitch, speed, flying)
+	peer_state.emit(id, pos, yaw, pitch, speed, flying, pet)
 
 
 @rpc("authority", "reliable")
@@ -631,7 +631,7 @@ func _process(delta: float) -> void:
 	if _state_accum >= 1.0 / STATE_HZ:
 		_state_accum = 0.0
 		var p: Node = main.player
-		_s_state.rpc_id(1, p.position, p._yaw, p._pitch, Vector2(p.velocity.x, p.velocity.z).length(), p.flying)
+		_s_state.rpc_id(1, p.position, p._yaw, p._pitch, Vector2(p.velocity.x, p.velocity.z).length(), p.flying, main.mobs.pet_state("player") if main.get("mobs") != null else [])   # the companion rides along (ADR 0152)
 		stats["states_sent"] += 1
 
 

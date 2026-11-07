@@ -777,7 +777,32 @@ func companion_foe(m: Mob, owner_p: Vector3, r: float) -> Mob:
 	return best
 
 
-## Growl (sound + a line) at the nearest threat in sight, once per threat per 25 s.
+## Nothing solid between the two points (sampled every 2 voxels): the dog does not growl at what is behind a hill.
+func line_clear(a: Vector3, b: Vector3) -> bool:
+	var n := int(a.distance_to(b) / 2.0)
+	for i in range(1, n):
+		if is_solid(get_voxel(Vector3i(a.lerp(b, float(i) / n).floor()))):
+			return false
+	return true
+
+
+## The local owner's companion (the first one found), or null.
+func companion_of(id: String) -> Mob:
+	for m in _active:
+		if m.owner_id == id and not m.is_dead():
+			return m
+	return null
+
+
+## What other players see of this player's companion (ADR 0145): [pos, yaw, speed, sitting, name] or [].
+func pet_state(id: String) -> Array:
+	var m := companion_of(id)
+	if m == null:
+		return []
+	return [m.position, m._yaw, Vector2(m.velocity.x, m.velocity.z).length(), m.sitting, m.display_name()]
+
+
+## Growl (sound + a line) at the nearest threat in sight (no rock between), once per threat per 25 s.
 func companion_warn(m: Mob, r: float) -> void:
 	var best: Mob = null
 	var best_d := r
@@ -785,7 +810,7 @@ func companion_warn(m: Mob, r: float) -> void:
 		if not is_threat(o) or game_time - float(m._warned.get(o.uid, -1e9)) < 25.0:
 			continue
 		var d := o.position.distance_to(m.position)
-		if d < best_d:
+		if d < best_d and line_clear(m.eye(), o.eye()):
 			best_d = d
 			best = o
 	if best == null:
@@ -797,7 +822,7 @@ func companion_warn(m: Mob, r: float) -> void:
 	Sound.play("mob/wolf", m.eye())
 	var work = main.get("work") if main != null else null
 	if work != null:
-		work._say("Your dog growls: %s." % String(best.def.get("name", best.species)).to_lower())
+		work._say("%s growls: %s." % [m.display_name(), String(best.def.get("name", best.species)).to_lower()])
 
 
 ## Back to the owner: a standable spot 2-3 m from them (their own spot when none).

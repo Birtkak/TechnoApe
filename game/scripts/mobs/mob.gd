@@ -112,6 +112,8 @@ const GRUDGE_S := 8.0           # a hostile bitten by a companion turns on it th
 ## remote player's name later), sit/stay, and the fight it is in. Per-companion timers live here too.
 var owner_id := ""
 var sitting := false
+var pet_name := ""              # the name tag over a companion ("" = the species name)
+var _tag: Label3D
 var _foe: Mob = null
 var _grudge: Mob = null         # hostiles: a companion that bit it, fought back against
 var _grudge_t := 0.0
@@ -140,6 +142,7 @@ func _ready() -> void:
 	model = MobModel.create(species, sheared)
 	add_child(model)
 	_apply_size()
+	_update_tag()
 	_last_pos = position
 	_fall_peak = position.y
 	if def.has("predator"):
@@ -164,6 +167,33 @@ func set_companion(owner: Node3D) -> void:
 	_eat_t = 0.0
 	sitting = false
 	manager.dirty = true
+	_update_tag()
+
+
+## The name over a companion's head (a Label3D child; renamed by /name).
+func set_pet_name(n: String) -> void:
+	pet_name = n.strip_edges().left(24)
+	manager.dirty = true
+	_update_tag()
+
+
+func display_name() -> String:
+	return pet_name if pet_name != "" else String(def.get("name", species))
+
+
+func _update_tag() -> void:
+	if owner_id == "":
+		return
+	if _tag == null:
+		_tag = Label3D.new()
+		_tag.font_size = 48
+		_tag.pixel_size = 0.03
+		_tag.outline_size = 12
+		_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_tag.no_depth_test = true
+		_tag.position = Vector3(0, _height_v + Settings.m2v(0.45), 0)
+		add_child(_tag)
+	_tag.text = display_name()
 
 
 func is_companion() -> bool:
@@ -868,7 +898,7 @@ func _animate(delta: float) -> void:
 func to_dict() -> Dictionary:
 	return {"species": species, "uid": uid, "pos": [snappedf(position.x, 0.01), snappedf(position.y, 0.01), snappedf(position.z, 0.01)],
 		"yaw": snappedf(_yaw, 0.01), "health": health, "age_s": snappedf(age_s, 0.1), "love_s": snappedf(love_s, 0.1),
-		"breed_cooldown_s": snappedf(breed_cooldown_s, 0.1), "sheared": sheared, "aggressive": aggressive, "owner": owner_id, "sit": sitting}
+		"breed_cooldown_s": snappedf(breed_cooldown_s, 0.1), "sheared": sheared, "aggressive": aggressive, "owner": owner_id, "sit": sitting, "pet_name": pet_name}
 
 
 func load_from(d: Dictionary) -> void:
@@ -886,6 +916,7 @@ func load_from(d: Dictionary) -> void:
 		set_meta("rolled", true)
 	owner_id = String(d.get("owner", ""))
 	sitting = bool(d.get("sit", false))
+	pet_name = String(d.get("pet_name", ""))
 	if owner_id != "":
 		aggressive = false
 		set_meta("rolled", true)

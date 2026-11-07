@@ -692,3 +692,6 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] Two players on a server: A's sign and post show for B (also for a late joiner); B trades, A sees the stock go down
       live; B cannot open A's stock or break A's post; while A has the stock screen open B is told the owner is busy.
       Quit B mid-trade and rejoin: no duplicate goods (and no lost payment unless the link broke before the answer).
+- [ ] Look at your dog, `/name Fenrir`: the tag changes. Does the tag read well at 10 m? It survives save and load.
+- [ ] A hound behind a hill or inside a cave wall does not make the dog growl; coming into the open does.
+- [ ] Two players (server + client): each sees the other's dog follow, sit and carry its name.
