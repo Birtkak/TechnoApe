@@ -72,7 +72,7 @@ func test_sulfur_cave_generates_near_spawn() -> void:
 		var m := bytes.decode_u16(i)
 		if m == GameMaterials.SULFUR:
 			sulfur += 1
-		elif m == GameMaterials.TOXIC_SLUDGE_STATIC:
+		elif m == GameMaterials.TOXIC_SLUDGE:   # cave pools are finite, moving sludge since GEN_VERSION 37
 			sludge += 1
 	assert_int(sulfur).is_greater(200)
 	assert_int(sludge).is_greater(20)
