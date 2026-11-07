@@ -24,7 +24,7 @@ func register(reg: CommandRegistry) -> void:
 	reg.register("sapling", "/sapling <kind> [dx] [dz] | grow", "Plant a sapling dx blocks east (dz south) of you (ADR 0112), or grow every planted one now", _sapling, [["grow"] + loop.main.saplings.trees.keys()])
 	reg.register("furniture", "/furniture <kind> [dx] [dz]", "Set a piece of furniture (or a barrel) on the ground dx blocks east, dz south of you, facing you", _furniture, [FurnitureEntity.KINDS.keys() + ["barrel", "storage_shelf"]])
 	reg.register("sign", "/sign <text>", "Write on the sign you last right clicked; an empty text wipes it", _sign)
-	reg.register("prospect", "/prospect [flint|copper|menu [nearest|all|map]]", "Tap the rock you look at (or stand on) with the held, or the named, prospecting pick; menu opens the pick's settings", _prospect, [["flint", "copper", "menu"]])
+	reg.register("prospect", "/prospect [flint|copper|menu [nearest|all|map|density]]", "Tap the rock you look at (or stand on) with the held, or the named, prospecting pick; menu opens the pick's settings", _prospect, [["flint", "copper", "menu"]])
 	reg.register("discover", "/discover [list | reset | <kind:name>]", "The discovery journal: progress, every entry, forget all, or mark one found", _discover, [["list", "reset"]])
 	reg.register("pin", "/pin <recipe id> | clear", "Pin a recipe's ingredients to the HUD (also: Pin in the recipe view)", _pin, [["clear"]])
 	reg.register("track", "/track <quest id> | clear", "Track a quest on the HUD (also: Track in the book)", _track, [["clear"]])

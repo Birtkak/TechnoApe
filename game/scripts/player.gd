@@ -381,7 +381,7 @@ func _update_brush_info() -> void:
 		return
 	var text := ""
 	if GameMode.rule(game_mode, "interacts") and not building:
-		text = "Brush %s  [G or V: build ring, C: brush ring]" % Brush.describe(dig_size(), brush_shape)
+		text = "Brush %s  [V: build ring, C: brush ring]" % Brush.describe(dig_size(), brush_shape)
 		if dig_size() < brush_size:
 			text += "\n(tool caps it; set %s)" % Brush.describe(brush_size, brush_shape)
 		elif not dig_only.is_empty():

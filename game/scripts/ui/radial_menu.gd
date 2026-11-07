@@ -1,7 +1,7 @@
 class_name RadialMenu
 extends Control
 
-## A ring of choices around the screen centre (ADR 0038, the build menu on G or V, the brush on C), after Lay of the Land
+## A ring of choices around the screen centre (ADR 0038, the build menu on V, the brush on C), after Lay of the Land
 ## (ADR 0144): small tiles spread wide over the running game, a pointer at the centre, a key list at the
 ## bottom right. The mouse stays captured, its motion moves the pointer, and the slice it points at is
 ## the choice; past DEAD_ZONE px, closing takes it, inside it nothing is chosen.

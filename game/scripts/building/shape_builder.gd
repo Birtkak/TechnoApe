@@ -344,7 +344,7 @@ func _set_state(s: State) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if player == null or player.autopilot or player.ui_open or player.free_cam or not GameMode.rule(player.game_mode, "interacts"):
 		return
-	if event is InputEventKey and event.keycode in [KEY_G, KEY_V, KEY_C] and not event.echo:
+	if event is InputEventKey and event.keycode in [KEY_V, KEY_C] and not event.echo:
 		if event.pressed and not menu.visible:
 			_menu_opened_ms = Time.get_ticks_msec()
 			if event.keycode == KEY_C:
@@ -686,7 +686,7 @@ func _full_preview_job(p: Dictionary, at: Vector3i, key: String) -> void:
 func _style_ghost(outline: bool) -> void:
 	var col := Color(0.55, 0.75, 1.0, GHOST_OPACITY)
 	if outline:
-		col = Color(1.0, 0.45, 0.3, 0.4) if mode == "dig" else Color(1.0, 0.95, 0.4, 0.35)
+		col = Color(1.0, 0.45, 0.3, 0.4) if mode == "dig" else Color(0.95, 0.6, 0.0, 0.5)
 	elif _short:
 		col = Color(1.0, 0.25, 0.2, GHOST_OPACITY)
 	# a shape of one material looks like that material (ADR 0144, red when short); frames and prefabs show the colour alone

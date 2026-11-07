@@ -16,7 +16,7 @@ extends RefCounted
 
 const WAYPOINT_COLOUR := Color(0.95, 0.7, 0.25)
 const RANGES_M := [12.0, 24.0, 48.0, 96.0]
-const MODES := {"nearest": "Nearest vein", "all": "Every vein in range", "map": "Density map"}
+const MODES := {"nearest": "Nearest vein", "all": "Every vein in range", "map": "Density map", "density": "Ore in the rock below"}
 const MAP_N := 9   # density map cells per side
 
 var veins := {}              # vein name -> ore_veins.json entry
@@ -33,6 +33,7 @@ var ore := ""                # only veins holding this ore material; "" = any
 var mode := "all"            # a key of MODES
 var map := PackedFloat32Array()   # the last density map, MAP_N x MAP_N shares of the ore, row 0 north
 var map_range_m := 0.0
+var _st := ShapeTool.new()
 
 
 static func load_default() -> Prospecting:
@@ -151,9 +152,12 @@ func density_map(vein_at: Callable, pos: Vector3i, range_v: float) -> PackedFloa
 
 
 ## A reading at pos with a pick's "prospects" def and the chosen settings: {found, veins, lines}.
-func read(vein_at: Callable, pos: Vector3i, prospects: Dictionary) -> Dictionary:
+## `census` (density mode): pos -> {material id: voxels} of the rock column below pos.
+func read(vein_at: Callable, pos: Vector3i, prospects: Dictionary, census: Callable = Callable()) -> Dictionary:
 	var range_m := reach_m(prospects)
 	var exact := bool(prospects.get("exact", false))
+	if exact and mode == "density" and census.is_valid():
+		return _read_density(pos, range_m, census)
 	var found := veins_near(vein_at, pos, Settings.m2v(range_m))
 	if exact and ore != "":
 		found = found.filter(func(f: Dictionary) -> bool: return float(f["ores"].get(ore, 0.0)) > 0.0)
@@ -175,6 +179,58 @@ func read(vein_at: Callable, pos: Vector3i, prospects: Dictionary) -> Dictionary
 	last = {"pos": [pos.x, pos.y, pos.z], "exact": exact, "range_m": range_m, "found": found.size(), "mode": mode, "ore": ore,
 		"veins": found.map(func(f: Dictionary) -> String: return f["name"]) if exact else [], "lines": lines}
 	return {"found": not found.is_empty(), "veins": found if exact else [], "lines": lines}
+
+
+func _read_density(pos: Vector3i, range_m: float, census: Callable) -> Dictionary:
+	map = PackedFloat32Array()
+	var shares := ore_shares(census.call(pos))
+	var what := "ore" if ore == "" else String(ore).capitalize()
+	var where := "in the rock below (%d m wide, %d m down)" % [roundi(Settings.prospect_width_m), roundi(Settings.prospect_depth_m)]
+	var line: String
+	if shares.has("rock") and shares["rock"] <= 0.0:
+		line = "No rock below."
+	elif shares.size() <= 1:
+		line = "No %s %s." % [what, where]
+	else:
+		var names := shares.keys()
+		names.erase("rock")
+		names.sort_custom(func(a: String, b: String) -> bool: return shares[a] > shares[b])
+		line = "%s %s: %s" % [what.capitalize(), where, ", ".join(names.map(func(m: String) -> String: return "%s %.1f%%" % [m.capitalize().replace("_", " "), shares[m] * 100.0]))]
+	last = {"pos": [pos.x, pos.y, pos.z], "exact": true, "range_m": range_m, "found": maxi(0, shares.size() - 1), "mode": mode, "ore": ore,
+		"veins": [], "shares": shares, "lines": [line]}
+	return {"found": shares.size() > 1, "veins": [], "lines": [line]}
+
+
+## Ore -> share (0..1) of the rock among `counts` (material id -> rock voxels), plus "rock": the rock voxel
+## total. Only ores some vein holds count, and only the chosen one when `ore` is set.
+func ore_shares(counts: Dictionary) -> Dictionary:
+	var total := 0
+	for id in counts:
+		total += int(counts[id])
+	var out := {"rock": total}
+	var ores := ore_names()
+	for id in counts:
+		var n := GameMaterials.name_of(int(id))
+		if total > 0 and n in ores and (ore == "" or ore == n):
+			out[n] = float(out.get(n, 0.0)) + float(counts[id]) / total
+	return out
+
+
+## The rock column under `target`, counted natively: {material id: voxels} of the voxels `is_rock` accepts.
+func column_census(gen: FineGen, st: ShapeTool, target: Vector3i, is_rock: Callable) -> Dictionary:
+	var w := maxi(1, Settings.m2v(Settings.prospect_width_m))
+	var y0 := maxi(0, target.y + 1 - Settings.m2v(Settings.prospect_depth_m))
+	var h := target.y + 1 - y0
+	var bytes: PackedByteArray = gen.generate_block(Vector3i(target.x - w / 2, y0, target.z - w / 2), Vector3i(w, h, w), 0, 2)
+	var counts := {}
+	if bytes.size() == 2:   # one material all through (deep rock)
+		counts[bytes.decode_u16(0)] = w * w * h
+	elif not bytes.is_empty():
+		counts = st.tally(bytes)
+	for id in counts.keys():
+		if not is_rock.call(int(id)):
+			counts.erase(id)
+	return counts
 
 
 ## One exact find as a line: "Copper vein 9 m away, centre 120 980 -55 (14 m down): Copper Ore 27%, ..."
@@ -211,7 +267,9 @@ func use_at(main: Node, target: Vector3i, def: Dictionary, journal: Discoveries 
 		return false   # only rock answers the pick
 	taps += 1
 	var gen: FineGen = main.world.generator.gen
-	var r := read(func(x: int, z: int) -> Dictionary: return gen.vein_at(x, z), target, def["prospects"])
+	var is_rock := func(id: int) -> bool: return String(main.mining.entry(GameMaterials.name_of(id)).get("tool", "")) == "pickaxe"
+	var census := func(p: Vector3i) -> Dictionary: return column_census(gen, _st, p, is_rock)
+	var r := read(func(x: int, z: int) -> Dictionary: return gen.vein_at(x, z), target, def["prospects"], census)
 	for l in r["lines"]:
 		main.chat.add_message(l)
 	for f in r["veins"]:

@@ -25,6 +25,7 @@ void ShapeTool::_bind_methods() {
     ClassDB::bind_method(D_METHOD("count_free_by_material", "sim", "cells", "mats", "window", "mask"), &ShapeTool::count_free_by_material);
     ClassDB::bind_method(D_METHOD("select", "sim", "lo", "size", "window", "mask"), &ShapeTool::select);
     ClassDB::bind_method(D_METHOD("histogram", "sim", "cells", "window"), &ShapeTool::histogram);
+    ClassDB::bind_method(D_METHOD("tally", "bytes"), &ShapeTool::tally);
     ClassDB::bind_method(D_METHOD("runs", "grid"), &ShapeTool::runs);
     ClassDB::bind_method(D_METHOD("grid_of", "cells", "material", "mats", "lo", "size"), &ShapeTool::grid_of);
     ClassDB::bind_method(D_METHOD("unruns", "runs"), &ShapeTool::unruns);
@@ -303,6 +304,16 @@ Dictionary ShapeTool::histogram(const Ref<SimWorld> &sim, const PackedInt32Array
         if (sim->is_open(x, y, z)) counts[sim->cells_[sim->idx(x, y, z)].mat]++;
     }
     for (int m = 0; m < 256; m++)
+        if (counts[m]) out[m] = counts[m];
+    return out;
+}
+
+Dictionary ShapeTool::tally(const PackedByteArray &p_bytes) const {
+    Dictionary out;
+    std::vector<int64_t> counts(65536, 0);
+    const uint8_t *b = p_bytes.ptr();
+    for (int64_t i = 0; i + 1 < p_bytes.size(); i += 2) counts[(uint16_t)(b[i] | (b[i + 1] << 8))]++;
+    for (int m = 0; m < 65536; m++)
         if (counts[m]) out[m] = counts[m];
     return out;
 }

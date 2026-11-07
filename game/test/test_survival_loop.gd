@@ -351,6 +351,44 @@ func test_the_copper_pick_reads_veins_in_range_exactly_the_flint_pick_only_sense
 	assert_str(String(nothing["lines"][0])).starts_with("Nothing")
 
 
+## Density mode (ADR 0147): exact ore shares of the rock column below a tap.
+func test_density_mode_reports_exact_ore_percentages_of_the_rock() -> void:
+	var p := Prospecting.load_default()
+	p.mode = "density"
+	var pick := {"range_m": 24.0, "exact": true}
+	var rock := GameMaterials.id_of("granite")
+	var census := func(_pos: Vector3i) -> Dictionary:
+		return {rock: 900, GameMaterials.COAL_ORE: 75, GameMaterials.COPPER_ORE: 25}   # 1000 rock voxels: 7.5 % coal, 2.5 % copper
+	var r := p.read(Callable(), Vector3i(0, 500, 0), pick, census)
+	assert_bool(r["found"]).is_true()
+	assert_str(String(r["lines"][0])).contains("Coal Ore 7.5%").contains("Copper Ore 2.5%")
+	p.ore = "copper_ore"
+	assert_str(String(p.read(Callable(), Vector3i(0, 500, 0), pick, census)["lines"][0])).contains("Copper Ore 2.5%").not_contains("Coal")
+	p.ore = "tin_ore"
+	var none := p.read(Callable(), Vector3i(0, 500, 0), pick, census)
+	assert_bool(none["found"]).is_false()
+	assert_str(String(none["lines"][0])).starts_with("No Tin Ore in")
+	# the native tally counts a 2 bytes per voxel buffer (little endian) exactly
+	var bytes := PackedByteArray([16, 0, 16, 0, 5, 1, 0, 0])
+	var t := ShapeTool.new().tally(bytes)
+	assert_int(int(t[16])).is_equal(2)
+	assert_int(int(t[261])).is_equal(1)
+	assert_int(int(t[0])).is_equal(1)
+
+
+## The native census over the real generator: seed 1337, a tap above an iron vein lens.
+func test_density_census_counts_the_generators_column() -> void:
+	var gen := FineGen.new()
+	gen.configure(1337, 256 * FineGen.FS, 1280 * FineGen.FS)
+	var p := Prospecting.load_default()
+	var is_rock := func(id: int) -> bool: return id > 0 and not GameMaterials.name_of(id).begins_with("water")
+	var counts := p.column_census(gen, ShapeTool.new(), Vector3i(-3946, 308, -2738), is_rock)
+	var shares := p.ore_shares(counts)
+	var w := Settings.m2v(Settings.prospect_width_m)
+	assert_int(int(shares["rock"])).is_equal(int(w * w * Settings.m2v(Settings.prospect_depth_m)))   # solid all the way down
+	assert_float(float(shares["iron_ore"])).is_between(0.01, 0.5)
+
+
 ## The pick's panel settings (ADR 0091, bug report 2026-10-27_17-51-34): distance, ore, mode.
 func test_prospecting_settings_pick_distance_ore_and_mode() -> void:
 	var p := Prospecting.load_default()

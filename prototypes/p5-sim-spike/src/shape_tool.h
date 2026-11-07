@@ -53,6 +53,8 @@ public:
     PackedInt32Array select(const Ref<SimWorld> &p_sim, Vector3i p_lo, Vector3i p_size, Vector3i p_window, const PackedByteArray &p_mask) const;
     // {material id: count} of the cells' current materials.
     Dictionary histogram(const Ref<SimWorld> &p_sim, const PackedInt32Array &p_cells, Vector3i p_window) const;
+    // {material id: count} of a FineGen.generate_block buffer of 2 bytes per voxel (ADR 0147, prospecting's rock census).
+    Dictionary tally(const PackedByteArray &p_bytes) const;
     // A grid (x fastest, then z, then y) of the box [lo, lo + size) holding `material` (or mats[i]) at the
     // cells: a committed shape as a prefab ("last build").
     PackedByteArray grid_of(const PackedInt32Array &p_cells, int p_material, const PackedByteArray &p_mats, Vector3i p_lo, Vector3i p_size) const;

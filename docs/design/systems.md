@@ -33,7 +33,7 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   strength, hardness breaking), flies it and settles it back into voxels. It runs on the sim's driver thread before each
   tick (`set_async`; `get_voxel` does not wait for that phase); a forest felling holds p99 7.2 ms, the main thread pays
   ~2 ms (`prototypes/p12-rigid-pieces/README.md`). Trees never weld (FineGen gap).
-  **Shape building (ADR 0038, 0144):** G or V opens the build ring (tap: it stays up until a click; hold: release picks; brush, box, wall, cylinder, cone, sphere, stairs, slope,
+  **Shape building (ADR 0038, 0144):** V opens the build ring (tap: it stays up until a click; hold: release picks; brush, box, wall, cylinder, cone, sphere, stairs, slope,
   box mode, box dig, select, prefabs; release on a slice picks it); a placed shape's corner keeps to the snap grid
   (N: off / 0.5 m / 1 m, `ShapeBuilder.snap`, x and z only); a placed shape frees the cursor (ADR 0143): it drags the
   handles (top arrow: height, the pixel ring at the foot grows the side grabbed, the one on top hollows, the cross at the
