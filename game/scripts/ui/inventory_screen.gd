@@ -417,6 +417,7 @@ func _refresh() -> void:
 		_slots[i].favourite = player_inv.favourites.has(i)
 	var chest: bool = _container != null and _container is ChestEntity
 	_sort_button.position = Vector2(PANEL.x - 56, 140) if not chest else Vector2(PANEL.x - 56, 4)
+	_sort_button.visible = not (_container != null and _container.has_method("is_template"))   # sorting would shuffle a post's offers
 	_stack_button.position = Vector2(PANEL.x - 112, 140)
 	_stack_button.visible = nearby_chests.is_valid()
 	_label_edit.visible = chest

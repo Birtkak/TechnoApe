@@ -160,6 +160,16 @@ func trade(sender: String, pos: Vector3i, k: int, rid: int) -> Dictionary:
 	return out
 
 
+## The answer to sale rid as the server knows it: the cached one, a delivery still owed, or "never arrived".
+func query(sender: String, rid: int) -> Dictionary:
+	var dkey := "%s:%d" % [sender, rid]
+	if _done.has(dkey):
+		return {"to": [_done[dkey]]}
+	if deliveries.get(sender, {}).has(str(rid)):
+		return {"to": [{"k": "res", "rid": rid, "ok": true, "why": "", "give": deliveries[sender][str(rid)], "late": true}]}
+	return {"to": [{"k": "res", "rid": rid, "ok": false, "why": "That trade never reached the server", "give": []}]}
+
+
 func ack(sender: String, rid: int) -> void:
 	if deliveries.has(sender) and deliveries[sender].erase(str(rid)):
 		dirty = true
