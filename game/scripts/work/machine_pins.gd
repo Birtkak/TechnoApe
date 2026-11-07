@@ -61,5 +61,18 @@ func set_voxel(main: Node, p: Vector3i, m: int) -> void:
 	main.world.set_voxel(p, m)
 
 
+## The vent fan's push (ADR 0148) through the main window or a pin; -1 when no sim covers the box.
+func blow(main: Node, lo: Vector3i, hi: Vector3i, dir: Vector3i) -> int:
+	var n: int = main.bubble.blow(lo, hi, dir) if main.bubble else -1
+	if n >= 0:
+		return n
+	for k in pins:
+		if is_instance_valid(pins[k]):
+			n = pins[k].blow(lo, hi, dir)
+			if n >= 0:
+				return n
+	return -1
+
+
 func summary() -> Dictionary:
 	return {"pins": pins.size()}

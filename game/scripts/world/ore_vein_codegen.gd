@@ -40,6 +40,8 @@ static func generate(reg: OreVeinRegistry) -> String:
 	L.append("// Material ids (WorldGen::Mat); -1 = none.")
 	for k in OreVeinRegistry.ORE_KEYS:
 		L.append("static const int %s[COUNT] = {%s};" % [k.to_upper(), ", ".join(_map(reg.veins, func(v): return str(OreVeinRegistry.material_id(String(v[k])))))])
+	L.append("static const int POCKET_GAS[COUNT] = {%s};       // ADR 0148: a lump of this gas instead of ore ..." % ", ".join(_map(reg.veins, func(v): return str(OreVeinRegistry.material_id(String(v["pocket_gas"]))) if v.has("pocket_gas") else "-1")))
+	L.append("static const float POCKET_GAS_CHANCE[COUNT] = {%s}; // ... with this chance per lump" % ", ".join(_map(reg.veins, func(v): return _f(float(v.get("pocket_gas_chance", 0.0))))))
 	L.append("static const int INDICATOR[COUNT] = {%s};" % ", ".join(_map(reg.veins, func(v): return str(OreVeinRegistry.material_id(String(v.get("indicator", "")))) if String(v.get("indicator", "")) != "" else "-1")))
 	L.append("")
 	L.append("} // namespace technosim_ore")

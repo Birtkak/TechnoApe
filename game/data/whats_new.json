@@ -73,6 +73,9 @@
 		{"id": "magma", "title": "Magma salamanders", "date": "2026-11-03",
 			"what": "Glow-spotted salamanders hiss in magma and sulfur caves.",
 			"run": ["/spawn", "/goto magma_cave", "/summon magma_salamander 2"]},
+		{"id": "firedamp", "title": "Firedamp in the coal", "date": "2026-11-07",
+			"what": "A stone room ahead holds mine gas. Dig in with the safety lamp: it hisses, the lamp flares blue. A torch in there is a blast. Power the vent fan at the door to blow it out.",
+			"run": ["/scenario firedamp"]},
 		{"id": "lake", "title": "A still lake stays still", "date": "2026-11-03",
 			"what": "Arriving at a lake no longer wakes the water: F3 should show the sim quiet and frames smooth. Dig a pit at the shore: it still fills. /home when you are done.",
 			"run": ["/spawn", "/goto lake"]}

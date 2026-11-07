@@ -729,6 +729,23 @@ func fill_box(wmin: Vector3i, wmax: Vector3i, material: int) -> int:
 	return d.x * d.y * d.z
 
 
+## The vent fan (ADR 0148): every gas cell in the world box [wmin, wmax) steps one cell along `dir` into air
+## (SimWorld.blow). -1 when the box is not wholly inside the window; else the cells moved.
+func blow(wmin: Vector3i, wmax: Vector3i, dir: Vector3i) -> int:
+	if not _ready:
+		return -1
+	var lo := Vector3i((Vector3(wmin) / Settings.CHUNK).floor())
+	var hi := Vector3i((Vector3(wmax - Vector3i.ONE) / Settings.CHUNK).floor())
+	if not is_chunk_in_window(lo - origin) or not is_chunk_in_window(hi - origin):
+		return -1
+	if _tick_running:
+		sim.finish_tick()
+		_tick_running = false
+		_collect_dirty()
+	var o := origin * Settings.CHUNK
+	return sim.blow(wmin - o, wmax - o, dir)
+
+
 ## Player edits go through the sim when inside the bubble (so the material
 ## simulation reacts immediately), otherwise straight to the terrain.
 func set_voxel(wp: Vector3i, material: int) -> bool:

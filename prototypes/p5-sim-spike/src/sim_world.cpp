@@ -119,6 +119,7 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_dirty_boxes"), &SimWorld::get_dirty_boxes);
     ClassDB::bind_method(D_METHOD("clear_dirty"), &SimWorld::clear_dirty);
     ClassDB::bind_method(D_METHOD("count_material", "material"), &SimWorld::count_material);
+    ClassDB::bind_method(D_METHOD("blow", "min", "max", "dir"), &SimWorld::blow);
     ClassDB::bind_method(D_METHOD("count_in_box", "min", "max", "material"), &SimWorld::count_in_box);
     ClassDB::bind_method(D_METHOD("count_unsupported", "material"), &SimWorld::count_unsupported);
     ClassDB::bind_method(D_METHOD("count_burning"), &SimWorld::count_burning);
@@ -227,6 +228,9 @@ void SimWorld::set_materials(const Array &p_defs) {
         m.liquid_static = dget_b(d, "liquid_static", false);
         m.fluid_slot = (int8_t)std::clamp(dget_int(d, "fluid_slot", -1), -1, 31);
         m.burnable = dget_b(d, "burnable", false);
+        m.explosive = dget_b(d, "explosive", false);   // ADR 0148
+        m.emits = clamp8(dget_int(d, "emits", 0));
+        m.emit_chance = clamp8(dget_f(d, "emit_chance", 0.0) * 255.0);
         m.replaceable = dget_b(d, "replaceable", false);
         washable_[mats_.size()] = m.replaceable ? 1 : 0;
         m.density = clamp8(dget_f(d, "density", 1.0) * 16.0);
@@ -356,7 +360,7 @@ void SimWorld::rebuild_reaction_lut() {
         bool static_cell = d.cell_type == CELL_SOLID || ((d.cell_type == CELL_LIQUID || d.cell_type == CELL_POWDER) && d.liquid_static);
         switches_[m] = ((d.cell_type == CELL_LIQUID && !d.liquid_static && d.freezes_to) || (d.cell_type == CELL_GAS && d.condenses_to)) ? SW_COLD : 0;
         if (d.cell_type == CELL_SOLID && d.melts_to) { switches_[m] |= SW_WARM; melt_min_c_ = std::min(melt_min_c_, (int)d.melt_c); }
-        inert_[m] = static_cell && d.lifetime == 0 && !d.burnable && !reactive_[m] && d.loosen == 0 && d.erode == 0 && d.melts_to == 0 && d.heat_c == 0;
+        inert_[m] = static_cell && d.lifetime == 0 && !d.burnable && !reactive_[m] && d.loosen == 0 && d.erode == 0 && d.melts_to == 0 && d.heat_c == 0 && d.emits == 0;
     }
 }
 
@@ -1531,6 +1535,7 @@ void SimWorld::update_gas(int x, int y, int z, int i, Ctx &c) {
     const MaterialDef &m = mats_[cells_[i].mat];
     uint32_t r = rnd(c);
     if (m.wind_drift && wind_p_ && wind_drift(x, y, z, m, c)) { c.moved++; return; }
+    if (m.explosive) tally(TALLY_GAS_MOVE, x, y, z, c);   // awake = out of its pocket (an enclosed one sleeps)
     if ((r & 0xFF) < m.gas_up) {
         if (try_move(x, y, z, x, y + 1, z, c)) { c.moved++; return; }
     }
@@ -1585,6 +1590,23 @@ void SimWorld::hot_liquid_ignite(int x, int y, int z, const MaterialDef &m, Ctx 
     if (waiting) mark_cell(x, y, z, c, false);
 }
 
+// ADR 0148: a solid that pours (spring stone): one random air neighbour becomes its `emits` with emit_chance per
+// tick. Bounded by itself: it stops once what it poured surrounds it (the flood rises to the spring, no higher).
+void SimWorld::update_emitter(int x, int y, int z, int i, const MaterialDef &m, Ctx &c) {
+    const uint32_t r = rnd(c);
+    const int n = (r >> 4) % 6;
+    const int nx = x + NX6[n], ny = y + NY6[n], nz = z + NZ6[n];
+    if (!is_open(nx, ny, nz)) return;   // nothing to pour into: sleep until a neighbour changes
+    const int ni = idx(nx, ny, nz);
+    if (cells_[ni].mat != 0) return;
+    mark_cell(x, y, z, c, false);
+    if ((r & 0xFF) >= m.emit_chance || moved_[ni] == mark_) return;
+    place(ni, m.emits);
+    moved_[ni] = mark_;
+    mark_cell(nx, ny, nz, c, true);
+    c.reacted++;
+}
+
 // A burning cell of any type: loses fire_hp, spawns flames/smoke into air, dies into convert_to.
 void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
     const uint8_t self = cells_[i].mat;
@@ -1615,6 +1637,7 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
                     }
         }
     }
+    if (m.explosive) tally(TALLY_GAS_BURN, x, y, z, c);
     // Extinguish if touching a cool liquid that is not burnable (water); lava lights things, it does not douse them.
     for (int n = 0; n < 6 && !m.fuse_ticks; n++) {
         int nx = x + NX6[n], ny = y + NY6[n], nz = z + NZ6[n];
@@ -1840,7 +1863,7 @@ void SimWorld::update_chunk(int ci) {
                 if (substep_ == 0 && (cells_[i].flags & FLAG_BURNING)) update_burning(x, y, z, i, c);
                 if (cells_[i].mat != m) continue; // burnt away
                 switch (md.cell_type) {
-                    case CELL_SOLID: break;
+                    case CELL_SOLID: if (md.emits) update_emitter(x, y, z, i, md, c); break;
                     case CELL_LIQUID:
                     case CELL_POWDER:
                         if (md.liquid_static && md.cell_type == CELL_LIQUID) { reservoir(x, y, z, i, c); break; }
@@ -2395,6 +2418,38 @@ int SimWorld::count_in_box(Vector3i p_min, Vector3i p_max, int p_material) const
         for (int y = std::max(0, p_min.y); y < std::min(H_, p_max.y); y++)
             for (int x = std::max(0, p_min.x); x < std::min(W_, p_max.x); x++)
                 n += cells_[idx(x, y, z)].mat == (uint8_t)p_material;
+    return n;
+}
+
+int SimWorld::blow(Vector3i p_min, Vector3i p_max, Vector3i p_dir) {
+    wait_idle();
+    const int dx = std::clamp(p_dir.x, -1, 1), dy = std::clamp(p_dir.y, -1, 1), dz = std::clamp(p_dir.z, -1, 1);
+    if (std::abs(dx) + std::abs(dy) + std::abs(dz) != 1) return 0;
+    const int x0 = std::max(0, p_min.x), x1 = std::min(W_, p_max.x), y0 = std::max(0, p_min.y), y1 = std::min(H_, p_max.y);
+    const int z0 = std::max(0, p_min.z), z1 = std::min(D_, p_max.z);
+    int n = 0;
+    // walk against the push so a cell moves into the space the one ahead of it just left
+    for (int zz = 0; zz < z1 - z0; zz++)
+        for (int yy = 0; yy < y1 - y0; yy++)
+            for (int xx = 0; xx < x1 - x0; xx++) {
+                const int x = dx > 0 ? x1 - 1 - xx : x0 + xx, y = dy > 0 ? y1 - 1 - yy : y0 + yy, z = dz > 0 ? z1 - 1 - zz : z0 + zz;
+                const int i = idx(x, y, z);
+                const uint8_t m = cells_[i].mat;
+                if (m == 0 || mats_[m].cell_type != CELL_GAS) continue;
+                const int tx = x + dx, ty = y + dy, tz = z + dz;
+                if (!in_world(tx, ty, tz)) continue;
+                const int ti = idx(tx, ty, tz);
+                const int tc = cidx(tx / CS, ty / CS, tz / CS), sc = cidx(x / CS, y / CS, z / CS);
+                if (cells_[ti].mat != 0 || loaded_[tc] != 1 || loaded_[sc] != 1) continue;
+                std::swap(cells_[i], cells_[ti]);
+                n++;
+                dirty_[sc].store(1, std::memory_order_relaxed);
+                merge_dbox(sc, box_point(x & (CS - 1), y & (CS - 1), z & (CS - 1)));
+                dirty_[tc].store(1, std::memory_order_relaxed);
+                merge_dbox(tc, box_point(tx & (CS - 1), ty & (CS - 1), tz & (CS - 1)));
+                wake_full(sc);
+                wake_full(tc);
+            }
     return n;
 }
 

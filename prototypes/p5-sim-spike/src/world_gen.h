@@ -70,6 +70,7 @@ public:
         // 116..119 reserved (part A of the 2026-10-25 split); world generation 120..129
         CRYSTAL = 120,
         SPRING_STONE = 122, MAGMA_HEART = 123,   // the source of an aquifer / a magma conduit (ADR 0110)
+        FIREDAMP = 133,   // ADR 0148: explosive mine gas, pockets in coal lumps
         GIANT_STEM = 124, GIANT_PETAL = 125, GIANT_HEART = 126,   // giant flowers in the flower meadow
         // cave dressing (FineGen::cave_dressing): game/scripts/materials.gd CAVE_IDS
         DRIPSTONE = 228, CAVE_VINE = 229, GLOW_BERRY_VINE = 230, FUNGUS_STEM = 231, FUNGUS_CAP = 232, MAGMA_ROCK = 233, RUSTED_RAIL = 234,

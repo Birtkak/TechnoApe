@@ -66,6 +66,7 @@ var quests: QuestBook                # the progression book's quests and progres
 var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
 var tnt: Tnt                         # TNT charges, fuses and blasts (ADR 0065)
+var firedamp: Firedamp               # the mine gas: flashes to blasts, the safety lamp, torches lighting it (ADR 0148)
 var toys: MovementToys               # glider, climbing ropes, grappling hook (ADR 0151)
 var fishing: Fishing                 # the rod's bobber, bite and reel; snares and pit traps (ADR 0163)
 var contraptions: Contraptions       # lifts, drawbridges, cranes (ADR 0160); null without rigid pieces
@@ -669,6 +670,10 @@ func _ready() -> void:
 	add_child(tnt)
 	tnt.setup(self)
 	tnt.load_array(_tnt_save)
+	firedamp = Firedamp.new()
+	firedamp.name = "Firedamp"
+	add_child(firedamp)
+	firedamp.setup(self)
 	toys = MovementToys.new()
 	toys.name = "MovementToys"
 	add_child(toys)

@@ -27,6 +27,8 @@ var main: Node            # Main: blocks, player, player_inv, items, _item_entit
 var _pool: Array[OmniLight3D] = []
 var _held: OmniLight3D
 var _held_id := ""
+var _held_base := COLOR   # the held light's own colour; tint_held (the safety lamp in firedamp, ADR 0148) scales it
+var _held_boost := 1.0
 var _accum := 0.0
 var stats := {"torches": 0, "lit": 0, "dropped": 0, "held": false, "lava": 0}
 var _lava := {}           # grid cell -> [expires_s, light position]: lava found by random sampling
@@ -92,9 +94,15 @@ func _process_timed(delta: float) -> void:
 		if _pool[i].visible:
 			_pool[i].light_energy = float(_pool[i].get_meta("energy", Settings.torch_light_energy)) * _flicker(t, i)
 	if _held.visible:
-		_held.light_energy = float(_held.get_meta("energy", HELD_ENERGY)) * _flicker(t, 31)
+		_held.light_energy = float(_held.get_meta("energy", HELD_ENERGY)) * _flicker(t, 31) * _held_boost * (1.0 + 0.3 * (_held_boost - 1.0) * sin(t * 16.0))   # a flaring lamp pulses (ADR 0148)
 	if TorchEntity.flame_material != null:   # the held and dropped torch models' flames flicker with their light
 		TorchEntity.flame_material.emission_energy_multiplier = 2.0 * _flicker(t, 31)
+
+
+## The held light's flare (ADR 0148): its colour times `tint`, its energy times `boost`, until the item changes.
+func tint_held(tint: Color, boost: float) -> void:
+	_held.light_color = _held_base * tint
+	_held_boost = boost
 
 
 static func _flicker(t: float, i: int) -> float:
@@ -121,6 +129,8 @@ func _follow_hand() -> void:
 		_held_id = id
 		_apply(_held, def)
 		_held.set_meta("energy", float(def["energy"]) * HELD_ENERGY)
+		_held_base = _held.light_color
+		_held_boost = 1.0
 	var cam: Transform3D = main.player.camera.global_transform
 	_held.global_position = cam * (hand / Settings.VOXEL_M)
 
@@ -149,7 +159,7 @@ func sources(eye: Vector3, r2: float) -> Array:
 		if d2 <= r2:
 			near.append([d2, at, {}])
 	var fire := {"range_m": Settings.fire_light_range_m, "energy": Settings.fire_light_energy, "color": FIRE_COLOR.to_html(false)}
-	var lamp := {"range_m": Settings.lamp_light_range_m, "energy": Settings.lamp_light_energy, "color": "fff1c8"}   # ADR 0117: an electric lamp, paler than fire
+	var lamp := {"range_m": Settings.lamp_light_range_m, "energy": Settings.lamp_light_energy, "color": "fff1c8", "safe_light": true}   # ADR 0117: an electric lamp, paler than fire; no flame (ADR 0148)
 	for e in main.blocks.lit():
 		var kind_light := MachineFx.light_of(e.kind)   # ADR 0153: a running lathe or a loaded belt gives no firelight
 		if kind_light == "none":

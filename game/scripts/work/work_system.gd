@@ -55,6 +55,10 @@ func _process(delta: float) -> void:
 	for p in _dirty:
 		_rebuild(p)
 	_dirty.clear()
+	for f: VentFanEntity in main.blocks.all_of("vent_fan"):   # ADR 0148: a running fan pushes the gas in its duct a cell a frame
+		if f.on:
+			var bx: Array = f.blow_box()
+			f.moved += maxi(0, machine_pins.blow(main, bx[0], bx[1], bx[2]))
 	_seal_accum += delta
 	if _seal_accum >= 1.0:
 		_seal_accum = 0.0

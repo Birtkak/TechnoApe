@@ -51,7 +51,10 @@ public:
     // two more tallies over the same path, for sounds random sampling cannot find (a fire is thin in 17 M cells): cells
     // burning and cells that just became a gas (boiled or a reaction's product), read with get_falls
     static constexpr int HOT_LIQUID_C = 500;   // a liquid this hot (heat_c: lava) lights what it touches instead of dousing it
-    static constexpr int TALLY_BURN = FALL_SLOTS, TALLY_HISS = FALL_SLOTS + 1, TALLY_SLOTS = FALL_SLOTS + 2;
+    // ADR 0148: two more for an explosive gas (firedamp): cells of it moving (the hiss of a pocket opening) and burning
+    // (GDScript turns a flash of enough of them into a TNT blast)
+    static constexpr int TALLY_BURN = FALL_SLOTS, TALLY_HISS = FALL_SLOTS + 1, TALLY_GAS_MOVE = FALL_SLOTS + 2,
+                         TALLY_GAS_BURN = FALL_SLOTS + 3, TALLY_SLOTS = FALL_SLOTS + 4;
     static constexpr int MAX_DISP = 7; // must stay < CS/2 for the parity scheme
     static constexpr int SURFACE_REACH = 7; // liquid surface levelling looks this far (< CS/2 like MAX_DISP)
     // Partly full liquid cells in the terrain (Minecraft-style fluid models, one per level):
@@ -65,6 +68,9 @@ public:
         bool liquid_static = false;    // ground: never moves
         int8_t fluid_slot = -1;        // terrain fluid models (FLUID_LEVEL_BASE), -1 = drawn as a cube
         bool burnable = false;
+        bool explosive = false;        // ADR 0148: a burnable gas counted in TALLY_GAS_MOVE / TALLY_GAS_BURN
+        uint8_t emits = 0;             // ADR 0148: a solid that places this material into an air neighbour (spring stone: water) ...
+        uint8_t emit_chance = 0;       // ... with this chance per tick (0..255)
         uint8_t density = 0;           // 0..255 (Noita 0..15 scaled by 16)
         uint8_t disp = 0;              // lateral dispersion cells for liquids (from liquid_flow_speed)
         uint8_t gravity_prob = 255;    // chance per tick to fall (from liquid_gravity)
@@ -193,6 +199,9 @@ public:
     // ---- debug / introspection ----
     int count_material(int p_material) const;
     int count_in_box(Vector3i p_min, Vector3i p_max, int p_material) const;
+    // ADR 0148: the vent fan. Every gas cell in [p_min, p_max) steps one cell along p_dir (a unit axis) when that
+    // cell is air, the far end first so a column moves as one. Returns the cells moved.
+    int blow(Vector3i p_min, Vector3i p_max, Vector3i p_dir);
     int count_unsupported(int p_material) const;
     int count_burning() const;
     // Minecraft's animateTick for ambient particles: p_count random cells within p_radius of p_center
@@ -425,6 +434,7 @@ private:
         f[0]++; f[1] += x; f[2] += y; f[3] += z;
     }
     void hot_liquid_ignite(int x, int y, int z, const MaterialDef &m, Ctx &c);
+    void update_emitter(int x, int y, int z, int i, const MaterialDef &m, Ctx &c);
     void update_liquid(int x, int y, int z, int i, Ctx &c);
     void update_liquid_fullness(int x, int y, int z, int i, Ctx &c);
     void update_liquid_column(int x, int y, int z, int i, Ctx &c);   // ADR 0119 A

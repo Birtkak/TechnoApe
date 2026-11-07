@@ -21,6 +21,9 @@ const SCENARIOS := {
 	"river": ["/goto river", "/gamemode creative", "/kit water"],   # scoop, crater rod, laser a trench (ADR 0104)
 	"cave_stream": ["/goto river", "/gamemode creative", "/kit water", "/locate cave"],   # tunnel from the bank to that cave
 	"lit_station": ["/time set night", "/daycycle off", "/stations"],   # /stations lights its furnace (cobblestone + coal)
+	# ADR 0148: a sealed stone room 3 m ahead, its top half firedamp; the lamp, torches, a fan and power to see it solved
+	"firedamp": ["/gamemode creative", "/fill {fx0} {y0} {fz0} {fx1} {y7} {fz1} stone", "/fill {fx0i} {y1} {fz0i} {fx1i} {y6} {fz1i} air",
+		"/fill {fx0i} {y4} {fz0i} {fx1i} {y6} {fz1i} firedamp", "/give safety_lamp", "/give torch 4", "/give vent_fan", "/kit electric"],
 	"contraptions": ["/gamemode creative", "/kit contraptions", "/contraptions"],   # a lift, a drawbridge, a crane on cranks (ADR 0160)
 	"fuse": ["/gamemode creative", "/kit tnt", "/tnt fuse 4"],   # look at open ground first: a cord burns 4 m into a charge (ADR 0150)
 	"ledge": ["/gamemode survival", "/fill {x0} {ledge} {z0} {x1} {ledge} {z1} stone", "/tp {x} {on} {z}"],   # Ctrl sprint, Shift stops at the edge
@@ -139,6 +142,9 @@ static func lines(name: String, at: Vector3i) -> Array:
 	var half := int(Settings.m2v(3.0))
 	var ledge := at.y + int(Settings.m2v(3.0))
 	var spots := {"x": at.x, "z": at.z, "x0": at.x - half, "x1": at.x + half, "z0": at.z - half, "z1": at.z + half, "ledge": ledge, "on": ledge + 2}
+	var fz := at.z + int(Settings.m2v(3.0))   # the firedamp room: 3 m ahead along +z, 6 m wide, 3 m high, one-voxel walls
+	spots.merge({"fx0": at.x - half, "fx1": at.x + half, "fz0": fz, "fz1": fz + 2 * half, "fx0i": at.x - half + 1, "fx1i": at.x + half - 1,
+		"fz0i": fz + 1, "fz1i": fz + 2 * half - 1, "y0": at.y, "y1": at.y + 1, "y4": at.y + half / 2, "y6": at.y + half, "y7": at.y + half + 1})
 	return SCENARIOS[name].map(func(s: String) -> String: return s.format(spots))
 
 

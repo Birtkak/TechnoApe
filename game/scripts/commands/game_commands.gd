@@ -47,7 +47,7 @@ const KITS := {
 	"electric": {"small_boiler": 1, "bronze_pipe": 4, "steam_turbine": 1, "water_tank": 1, "water_bucket": 1, "coal": 32, "firestarter": 1,
 		"copper_cable": 16, "thin_cable": 8, "heavy_copper_cable": 8, "insulated_wire": 16, "battery_box": 1, "lead_acid_cell": 4,
 		"water_wheel": 1, "wind_turbine": 1, "hand_crank": 1, "electric_lamp": 4, "daylight_switch": 1, "meter_panel": 1, "multimeter": 1,
-		"knife_switch": 1, "fuse_box": 1, "breaker": 1, "fuse": 4, "wrench": 1, "electric_furnace": 1, "pump": 1, "raw_meat": 8, "iron_ore": 8},   # the energy network (ADR 0113, 0117, 0123)
+		"knife_switch": 1, "fuse_box": 1, "breaker": 1, "fuse": 4, "wrench": 1, "electric_furnace": 1, "pump": 1, "raw_meat": 8, "iron_ore": 8, "vent_fan": 2, "safety_lamp": 1},   # the energy network (ADR 0113, 0117, 0123)
 	"contraptions": {"lift_winch": 1, "drawbridge_hinge": 1, "crane": 1, "hand_crank": 3, "knife_switch": 2, "copper_cable": 16, "oak_planks": 64},   # ADR 0160
 	"lv": {"lathe": 1, "bending_press": 1, "wiremill": 1, "macerator": 1, "alloy_smelter": 1, "assembler": 1, "extractor": 1, "cutter": 1,
 		"extruder": 1, "canning_machine": 1, "electric_compressor": 1, "electrolyzer": 1, "coke_oven": 1, "bricks": 26, "coal_coke": 8,
