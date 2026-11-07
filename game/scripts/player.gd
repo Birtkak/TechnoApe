@@ -68,6 +68,7 @@ var entity_pick: Callable        # (from, dir, max_dist) -> {mob, dist} or {}
 var entity_attack: Callable      # (mob, damage) -> void
 var throw_item: Callable         # (stack, from, dir) -> void: a thrown spear flies (ADR 0030)
 var entity_use: Callable         # (mob, held def) -> bool (true: one held item used up)
+var note_use: Callable           # (held def) -> bool: a note in the hand opens its page (ADR 0164)
 var place_furniture: Callable    # (kind, anchor, facing) -> bool
 var support_hint: Callable       # (roof cell) -> String: the roof's load while a mine prop is held (ADR 0142)
 var furniture_is: Callable        # (voxel, "climb" | "use") -> bool: a ladder covers it, a click there does something (ADR 0094)
@@ -1354,6 +1355,8 @@ func _use(first_press: bool) -> void:
 				_after_use()
 			return
 	if hit == null:
+		if first_press and note_use.is_valid() and inventory.held().get("id", "") == "note" and note_use.call(inventory.held_def()):
+			return
 		_start_eating()
 		return
 	if not first_press and _place_cooldown > 0.0:
@@ -1409,6 +1412,9 @@ func _use(first_press: bool) -> void:
 						inventory.consume_held(1)
 			if sown > 0:
 				_after_use()
+		return
+	if def.get("id", "") == "note" and sneaking() and first_press and note_use.is_valid():
+		note_use.call(def)   # Shift + right click reads or writes the page; a plain click pins it to a wall
 		return
 	if def.has("furniture"):
 		_place_furniture(hit, def)

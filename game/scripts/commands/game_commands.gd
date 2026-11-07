@@ -55,6 +55,7 @@ const KITS := {
 		"resistor": 2, "coated_board": 2, "glass": 4, "oak_log": 8},   # the LV machines and what they work (ADR 0117, 0131); power from /kit electric
 	"workshop": {"spyglass": 1, "diving_mask": 1, "rubber_boots": 1, "hand_drill": 1, "canned_meat": 4, "canned_fish": 4, "canned_vegetables": 4,
 		"sticky_resin": 16, "tin_can": 4, "stick": 8},   # the Workshop chapter's LV round 2 goods (ADR 0131)
+	"social": {"sign": 4, "paper": 8, "charcoal": 4, "note": 1, "trading_post": 1, "iron_ingot": 16, "oak_planks": 32, "cobblestone": 32, "chest": 1},   # signs, notes, a trading post (ADR 0164)
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1, "sounding_rod": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
 	"toys": {"glider": 1, "climbing_rope": 8, "grappling_hook": 1},   # movement toys (ADR 0151)

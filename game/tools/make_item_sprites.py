@@ -950,6 +950,26 @@ shape("painting", outline(art([
     ".dddddddddddddd.", "................", "................", "................"])),
     {"s": "#80ace0", "y": "#e2c440", "g": "#46843a", "w": "#34489a"})
 
+# ADR 0164: a page of paper with lines of writing, and a market stall
+shape("page", outline(art([
+    "................", "...pppppppppp...", "..pppppppppppp..", "..pkkkkkkkkppp..",
+    "..pppppppppppp..", "..pkkkkkkkkkkp..", "..pppppppppppp..", "..pkkkkkkkpppp..",
+    "..pppppppppppp..", "..pkkkkkkkkkpp..", "..pppppppppppp..", "..pkkkkkpppppp..",
+    "..qqqqqqqqqqqq..", "................", "................", "................"])),
+    {"o": "#4a3a2a", "p": "#f2e8cc", "q": "#c8b48a", "k": "#3a2a1a"})
+shape("note_page", outline(art([
+    "................", "...pppppppppp...", "..pppppppppppp..", "..pkkkkkkkkppp..",
+    "..pppppppppppp..", "..pkkkkkkkkkkp..", "..pppppprrpppp..", "..pkkkkkrrkkpp..",
+    "..pppppppppppp..", "..pkkkkkkkkkpp..", "..pppppppppppp..", "..pkkkkkpppppp..",
+    "..qqqqqqqqqqqq..", "................", "................", "................"])),
+    {"o": "#4a3a2a", "p": "#f2e8cc", "q": "#c8b48a", "k": "#3a2a1a", "r": "#b02a2a"})
+shape("stall", outline(art([
+    "................", "..rwrwrwrwrwrw..", ".rwrwrwrwrwrwr..", ".rrrrrrrrrrrrr..",
+    "..d..........d..", "..d..gg..yy..d..", "..d..gg..yy..d..", "..d..........d..",
+    "..tttttttttttt..", "..tllllllllllt..", "..tllllllllllt..", "..tttttttttttt..",
+    "..d..........d..", "................", "................", "................"])),
+    {"o": "#3a2a1a", "r": "#b83a2a", "w": "#f0e4c8", "d": "#6a4a2a", "g": "#d8a030", "y": "#7ac8f0", "t": "#8a5a30", "l": "#b8864a"})
+
 # ---------- sprites ----------
 SP = {}
 
@@ -1131,6 +1151,9 @@ shape("sign", outline(art([
     ".dddddddddddddd.", ".dllllllllllllm.", ".dlmddmdmmddmlm.", ".dllllllllllllm.",
     ".dmmmmmmmmmmmmm.", "................", "................", "................"])))
 sp("sign", ("sign", "wood"))
+sp("paper", ("page", None))
+sp("note", ("note_page", None))
+sp("trading_post", ("stall", None))
 # rugs (ADR 0121): a rug seen from above at a slant, fringe at both ends (ADR 0129 ramps: cool shadows, warm lights)
 shape("rug", outline(art([
     "................", "................", "................", "...h.h.h.h.h.h..",

@@ -665,3 +665,22 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] Build a closed room round a bed with a lantern or fire, a table and chairs. Look at the bed: "Room: Luxurious (86/100)".
       An open field bed reads Bare. Sleep through the night: "You feel rested", the buff line shows Rested. Does hunger fall slower, health come back faster? Is the buff long enough, the thresholds right?
 
+## Signs, notes and trading posts (ADR 0164)
+
+- [ ] `/kit social`, then place a sign on a wall and right click it: a parchment page opens with four lines of 15
+      characters; type, press Done. The words are on the board in the world, readable from a few metres, centred, in a
+      hard-edged font. Does it read from across a room? Is the lettering too heavy or too small for the board?
+- [ ] A sign's text survives save and quit, and `/sign Hello|second line` still writes (| is a new line).
+- [ ] Craft a note (paper + charcoal; paper from two birch bark). Shift + right click with it in the air: write a page of up
+      to 12 lines of 28. Drop it, put it in a chest, pick it up: the words are still there. Click a wall with it: it is
+      pinned (first lines on the paper); right click the pin to read all of it; break it and the note drops with its words.
+- [ ] Place a trading post (it faces you). Right click: the owner screen. Top row = four offers as pairs (left = what the
+      customer gets, right = what the customer pays): click a pair slot with a stack on the cursor to set it (left click
+      = that count, right click = one more, empty hand = clear). Middle row = stock, bottom row = payments to take.
+      Is that clear without being told? (The chat tells you once on opening.)
+- [ ] Shift + right click your own post: the customer screen (pay left, get right). Click an offer: the right stacks
+      move both ways; with too little payment, no room, no stock or a full takings row it says why and moves nothing.
+- [ ] Tools (anything with wear) cannot be offered or stocked. Breaking a post spills stock and takings.
+- [ ] Two players on a server: A's sign and post show for B (also for a late joiner); B trades, A sees the stock go down
+      live; B cannot open A's stock or break A's post; while A has the stock screen open B is told the owner is busy.
+      Quit B mid-trade and rejoin: no duplicate goods (and no lost payment unless the link broke before the answer).

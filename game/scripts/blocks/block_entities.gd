@@ -104,6 +104,8 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		_ when kind in MachineEntity.DOOR:   # LV machines: the item's "machine" key and process recipes (ADR 0117, 0131)
 			e = MachineEntity.new(items, recipes, pos, kind)
 			_ticking.append(e)
+		"trading_post":   # ADR 0164
+			e = TradingPostEntity.new(items, pos)
 		"battery_box":
 			e = BatteryBoxEntity.new(items, pos)
 		"pump":
@@ -306,7 +308,7 @@ func all_furniture() -> Array:
 
 const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave",
 	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile", "boiler", "pipe", "steam_hammer", "steam_sieve",
-	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "pump", "coke_oven", "knife_switch", "fuse_box", "breaker", "daylight_switch", "water_wheel", "wind_turbine", "hand_crank", "meter_panel"]
+	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "pump", "coke_oven", "knife_switch", "fuse_box", "breaker", "daylight_switch", "water_wheel", "wind_turbine", "hand_crank", "meter_panel", "trading_post"]
 
 
 ## The machines a boiler's pipes feed (ADR 0097): everything with a `boiler` slot.
