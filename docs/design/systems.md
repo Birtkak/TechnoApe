@@ -127,6 +127,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   rubber (tar + sulfur, cured), insulated wire, coated board, vacuum tube, resistor, primitive circuit, machine hull,
   electric motor, electric piston; machines electric furnace, lathe, bending press, wiremill; book chapter
   `electrical_age`. `/kit electric`; `test_networks.gd`, `test_electrical_age.gd`, `tools/network_bench.gd`.
+  **Running machines (ADR 0153):** `MachineFx` reads `data/machine_fx.json` per kind (`when`/`starved` Expressions on
+  the entity, `emit`, `pulse`, `parts` spin/bob/needle, `shake_m`, `lamp`, `light`) and animates machines within
+  `machine_fx_m`; ParticleFx, TorchLights and GameAudio's machine loops defer to it. A new machine is a JSON entry.
+  Check: `test_machine_fx.gd`, `/stations fx`, `/machinefx force|film`.
   **Stage 3 transport (ADR 0100):** `Transport.give/pull` is the one place that knows how every piece loads and
   unloads; `HopperEntity` (hopper and chute, `item`) pulls from above (the chute from behind too) and pushes the
   way it faces or down; `BeltEntity` carries `carried` [{stack, t}] one block in `belt_s` and draws them riding;
@@ -288,6 +292,12 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   116..119 liquids (part A), 120 crystal (geodes, ADR 0052), 121 lava_static (ADR 0069 C), 122..123 reserved for world generation, 124..126 giant flower stem, petal, heart (meadow, 2026-11-02), 127..129 savanna grass,
   savanna tall grass, red earth (ADR 0064; `GameMaterials.is_grass` / `is_tall_grass` treat them as grass), 130..132 torch and
   wheat parts (ADR 0053), 137..138 fuse cord and spark (ADR 0150), 160..202 rock kinds, clutter, pyrite and ochres (ADR 0057), Stone Age ids after (ADR 0059), 203 tnt (ADR 0065), 204..206 monolith (ADR 0098), 207..210 spruce/acacia/jungle/birch planks and 211..215 saplings (ADR 0112: `Saplings` grows them into trees, `data/saplings.json`), 218..221 fouled water, waste ground, slag, chimney (ADR 0141; 222.. reserved up to the cave ids). 147 meteoric iron, 148 scorched earth (ADR 0157: `Meteors`, runtime craters; tiles 186, 187).
+  **Surface hazards (ADR 0149):** `Weather` kind `storm` strikes the highest surface voxel within 24 m
+  (`SimWorld.surface_map` at 0.75 m) or the nearest lightning rod (material 139, `LightningRodEntity`, a 2 m pole
+  stamped by `PlantStamps.for_placed`): flash (`Atmosphere.flash`), thunder by distance, `FIRE` cells, 8 damage.
+  `Volcano` erupts a crater within 40 m: 20 s rumble and smoke, then 0.5 m balls of `LAVA` at a spout 3 m outside
+  the rim on the player's side and bombs beyond the rim, never in the still lake; capped at 16000 cells.
+  `/weather storm`, `/lightning [here]`, `/erupt`; tests `test/test_surface_hazards.gd`.
   **Pollution (ADR 0141):** machine waste is cells: recipe `"waste"` and item `"firebox"` fill a saved buffer that
   `Waste.emit_all` (once a second) pours out of the port (back face; gases over the top or a chimney stack; liquids
   into a touching pipe run's intake or far end); a full buffer stalls the machine. Sludge fouls water; fouled water

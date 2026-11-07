@@ -184,32 +184,54 @@ func sell(k: int) -> Dictionary:
 
 
 ## "" when `buyer` can pay offer `o`'s price and hold the goods (a copy is tried), else why not.
-static func buyer_check(p_items: ItemRegistry, o: Dictionary, buyer: Inventory) -> String:
+## `buyer` is an Inventory or an Array of them (the bag counts, ADR 0164): payment comes from the first, then the next.
+static func buyer_check(p_items: ItemRegistry, o: Dictionary, buyer) -> String:
 	if o.is_empty():
 		return "That offer is not set"
-	if buyer.count_of(o["want"]["id"]) < int(o["want"]["count"]):
+	var pools: Array = buyer if buyer is Array else [buyer]
+	var have := 0
+	for b in pools:
+		have += b.count_of(o["want"]["id"])
+	if have < int(o["want"]["count"]):
 		return "You need %d %s" % [o["want"]["count"], String(p_items.get_def(o["want"]["id"]).get("name", o["want"]["id"]))]
-	var t := Inventory.new(p_items, buyer.size())
-	for i in buyer.size():
-		t.set_slot(i, buyer.get_slot(i))
-	t.remove(o["want"]["id"], int(o["want"]["count"]))
-	if t.add(o["give"]["id"], int(o["give"]["count"])) > 0:
-		return "No room in your inventory"
-	return ""
+	var copies: Array = []
+	for b in pools:
+		var t := Inventory.new(p_items, b.size())
+		for i in b.size():
+			t.set_slot(i, b.get_slot(i))
+		copies.append(t)
+	_pay(copies, o["want"])
+	var left: int = o["give"]["count"]
+	for t in copies:
+		left = t.add(o["give"]["id"], left)
+	return "No room in your inventory" if left > 0 else ""
+
+
+static func _pay(pools: Array, want: Dictionary) -> void:
+	var left: int = want["count"]
+	for b in pools:
+		left -= b.remove(want["id"], left)
+
+
+## Pays `want` from the pools and puts `stacks` in the first pool with room.
+static func settle(pools: Array, want: Dictionary, stacks: Array) -> void:
+	_pay(pools, want)
+	for s in stacks:
+		var left: int = s["count"]
+		for b in pools:
+			left = b.add(s["id"], left, Inventory.data_of(s))
 
 
 ## Single-player (and tests): one whole trade of offer k with `buyer`. {ok, why}; nothing moves on a refusal.
-func buy_local(k: int, buyer: Inventory) -> Dictionary:
+func buy_local(k: int, buyer) -> Dictionary:
 	var why := check_sale(k)
 	if why == "":
 		why = buyer_check(items, offer(k), buyer)
 	if why != "":
 		return {"ok": false, "why": why}
 	var o := offer(k)
-	buyer.remove(o["want"]["id"], int(o["want"]["count"]))
 	var sale := sell(k)
-	for s in sale["give"]:
-		buyer.add(s["id"], int(s["count"]), Inventory.data_of(s))
+	settle(buyer if buyer is Array else [buyer], o["want"], sale["give"])
 	return {"ok": true, "why": "", "give": o["give"], "want": o["want"]}
 
 

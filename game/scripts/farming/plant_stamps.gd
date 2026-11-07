@@ -10,6 +10,7 @@ extends RefCounted
 
 const FLOWER_HEADS := ["flower", "flower_red", "cornflower", "oxeye_daisy", "allium"]
 const MUSHROOMS := ["mushroom_brown", "mushroom_red"]
+const ROD_H := 16   # lightning rod voxels (2 m, ADR 0149)
 
 
 static func seed_of(p: Vector3i) -> int:
@@ -45,6 +46,11 @@ static func for_placed(material: int, p: Vector3i) -> Dictionary:
 		return _mushroom(material, s)
 	if name == "seashell":
 		return _shell(material, s)
+	if name == "lightning_rod":   # ADR 0149: a 2 m pole over the placed foot
+		var out := {}
+		for y in range(1, ROD_H):
+			out[Vector3i(0, y, 0)] = material
+		return out
 	return {}
 
 

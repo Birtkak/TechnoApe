@@ -53,6 +53,28 @@ frame times.
       with a copper pick; a furnace smelts a block of it to an iron ingot. Too rare, too generous?
 - [ ] `/meteor here` lands 6 m ahead (instant crater). Come back a game day later: the lava has turned to basalt.
 - [ ] Nights without commands: about one in eight has a fall (`Settings.meteor_chance_per_night`). Right rate?
+## Running machines look and sound running (ADR 0153)
+
+- [ ] `/stations factory`, wait ~40 s: the boiler puffs white steam and chimney smoke and its red needle climbs with the
+      pressure; the turbine breathes steam; the macerator's rollers turn and it trembles; LV machines show a green lamp while
+      they work. Readable at a glance which machines run?
+- [ ] Break the cable to a loaded machine: its lamp blinks red. Too subtle, too loud?
+- [ ] `/kit steam`, a steam hammer on a boiler with hot metal: sparks and a puff of steam on every blow, a hiss while it runs.
+- [ ] Walk away from a running factory: the hums and hisses fade; past ~32 m the puffs and parts stop.
+- [ ] A loaded belt or a running lathe no longer glows like a fire at night.
+- [ ] `/stations fx`: 30 machines all running at once. Frame time OK with it all in view?
+## Surface hazards: lightning and eruptions (2026-11-07, ADR 0149)
+
+- [ ] `/weather storm` out in the open: the sky flickers and far thunder rolls first (the warning); then strikes
+      nearby: a flash, thunder a moment later, fire where it hit. Does the delay between flash and thunder read as distance?
+- [ ] Build a plank tower taller than the trees around and wait in the storm (or `/lightning`): the strike goes for the
+      tower and it burns; the fire rain comes later. Too often, too rare?
+- [ ] Craft a lightning rod (2 iron rods over a copper ingot), place it on the tower's top: strikes within 24 m hit the
+      rod instead (flash and thunder, nothing burns). Does the 2 m pole read as a rod? Does the foot break cleanly?
+- [ ] Stand next to a strike (`/lightning here`): 8 health gone, "lightning" on the death screen if it kills you.
+- [ ] `/goto volcano`, stand on the rim, `/erupt`: 20 s of rumble and ash over the lake, then lava over the rim on your
+      side running down the cone, bombs landing on the flank. Does it feel like a threat? Does the frame rate hold?
+- [ ] Wait near a volcano (`/weather` shows nothing, it rolls every 90 s): an eruption starts on its own now and then.
 
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 
@@ -692,3 +714,6 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] Two players on a server: A's sign and post show for B (also for a late joiner); B trades, A sees the stock go down
       live; B cannot open A's stock or break A's post; while A has the stock screen open B is told the owner is busy.
       Quit B mid-trade and rejoin: no duplicate goods (and no lost payment unless the link broke before the answer).
+- [ ] Look at your dog, `/name Fenrir`: the tag changes. Does the tag read well at 10 m? It survives save and load.
+- [ ] A hound behind a hill or inside a cave wall does not make the dog growl; coming into the open does.
+- [ ] Two players (server + client): each sees the other's dog follow, sit and carry its name.

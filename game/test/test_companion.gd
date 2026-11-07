@@ -134,3 +134,29 @@ func test_meat_heals_slowly_and_saves() -> void:
 	assert_bool(back.sitting).is_true()
 	assert_int(back.health).is_equal(6)
 	assert_bool(back.aggressive).is_false()
+
+
+func test_no_growl_through_rock_and_name_and_pet_state() -> void:
+	var s := _setup()
+	var mm: MobManager = s[0]
+	var owner: Node3D = s[1].player
+	owner.position = Vector3(0, 1, 0)
+	var w := _tame(mm, owner, Vector3(0, 1, 0))
+	var hound := _mob(mm, "gloam_hound", Vector3(Settings.m2v(16.0), 1, 0))
+	hound.aggressive = true
+	s[1].wall_x = int(Settings.m2v(8.0))   # a rock wall between them
+	mm.companion_warn(w, Settings.m2v(24.0))
+	assert_int(mm.stats["warned"]).is_equal(0)
+	s[1].wall_x = -1
+	mm.companion_warn(w, Settings.m2v(24.0))
+	assert_int(mm.stats["warned"]).is_equal(1)
+	assert_str(w.display_name()).is_equal("Wolf")
+	w.set_pet_name("  Fenrir ")
+	assert_str(w.display_name()).is_equal("Fenrir")
+	var st := mm.pet_state("player")
+	assert_str(String(st[4])).is_equal("Fenrir")
+	assert_bool(bool(st[3])).is_false()
+	assert_array(mm.pet_state("nobody")).is_empty()
+	var back: Mob = auto_free(Mob.create(mm, "wolf", mm.defs["wolf"], false))
+	back.load_from(w.to_dict())
+	assert_str(back.pet_name).is_equal("Fenrir")

@@ -306,3 +306,34 @@ func test_ledger_survives_a_save() -> void:
 	assert_str(l2.ents["2,2,2"]["text"]).is_equal("hello")
 	assert_int(l2._post_of("8,20,8").stock_count("oak_planks")).is_equal(16)
 	assert_int(l2.snapshot_for("bob").filter(func(e: Dictionary) -> bool: return e["k"] == "res").size()).is_equal(1)
+
+
+func test_bag_slots_pay_and_receive() -> void:
+	var p := _stocked()
+	var main := Inventory.new(items, 36)
+	for i in 36:
+		main.set_slot(i, {"id": "cobblestone", "count": 64})   # no room in the main slots
+	var bag := Inventory.new(items, 9)
+	bag.add("iron_ingot", 5)
+	var r := p.buy_local(0, [main, bag])
+	assert_bool(r["ok"]).is_true()
+	assert_int(bag.count_of("iron_ingot")).is_equal(3)
+	assert_int(bag.count_of("oak_planks")).is_equal(4)   # the goods went where there was room
+	assert_int(main.count_of("oak_planks")).is_equal(0)
+	# payment split over both pools
+	var a := _buyer(0, 1)
+	var b := _buyer(0, 1)
+	assert_bool(p.buy_local(0, [a, b])["ok"]).is_true()
+	assert_int(a.count_of("iron_ingot") + b.count_of("iron_ingot")).is_equal(0)
+
+
+func test_ledger_answers_a_query_for_a_sale_the_link_dropped_on() -> void:
+	var l := _ledger()
+	var pos := Vector3i(8, 20, 8)
+	assert_bool(l.query("bob", 77)["to"][0]["ok"]).is_false()   # never arrived: the payment is refunded
+	l.trade("bob", pos, 0, 78)
+	assert_bool(l.query("bob", 78)["to"][0]["ok"]).is_true()
+	assert_int(l._post_of("8,20,8").stock_count("oak_planks")).is_equal(16)   # asking sold nothing
+	l.ack("bob", 78)
+	l._done.clear()   # a restart forgot the cache and the goods were acked: only "never arrived" is left, which the client ignores once it has applied the id
+	assert_bool(l.query("bob", 78)["to"][0]["ok"]).is_false()

@@ -1060,7 +1060,7 @@ func _sample_loops() -> void:
 		var near := {}   # loop -> [distance, entity]: the nearest running machine of its kinds
 		for e in blocks.all_entities():
 			var ln: String = _machine_loops.get(e.get("kind"), "")
-			if ln == "" or not e.has_method("is_lit") or not e.is_lit():
+			if ln == "" or not MachineFx.working(e):   # its kind's `when` (ADR 0153): a hammering steam hammer is not "lit"
 				continue
 			var d := (Vector3(e.pos) + Vector3(0.5, 0.5, 0.5)).distance_to(cam)
 			if d < Settings.m2v(LOOP_RADIUS_M) and d < float(near.get(ln, [INF])[0]):

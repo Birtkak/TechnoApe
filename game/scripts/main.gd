@@ -71,12 +71,14 @@ var _ropes_save := []                # the hung ropes from the player's save, lo
 var _tnt_save := []                  # its charges from the player's save, loaded before it exists
 var meteors: Meteors                 # meteorite falls and their craters (ADR 0157)
 var weather: Weather                 # rain and snow, the rain that answers forest fires (ADR 0056); null with weather=0
+var volcano: Volcano                 # eruptions of the generated cones (ADR 0149); null with weather=0
 var world_map := WorldMap.new()      # the explored map and the waypoints (plan item D10, ADR 0055)
 var waypoints: Waypoints = world_map.waypoints   # add(name, pos, kind) for graves, finds ...
 var map_screen: MapScreen            # M
 var minimap: Minimap
 var waypoint_markers: WaypointMarkers
 var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
+var machine_fx: MachineFx            # running machines puff, spin and blink (ADR 0153)
 var light_overlay: LightOverlay      # F7: the dark block tops around the player (ADR 0130)
 var quest_toast: QuestToast
 var survival_loop: SurvivalLoop       # diet, seasons, prospecting, discoveries, HUD trackers (ADR 0061)
@@ -365,6 +367,7 @@ func _ready() -> void:
 
 	DebugCapture.attach(self)
 	if Net.active:
+		things.resume_pending()
 		Net.items_now_ready()   # shared items that arrived during _ready spawn now (ADR 0145)
 	for stack in DebugCapture.give:
 		if not items.has(stack["id"]):
@@ -592,6 +595,12 @@ func _ready() -> void:
 		fx.player = player
 		fx.main_blocks = blocks
 		player.landed.connect(func(p: Vector3i, fall_m: float) -> void: fx.landing(p, fall_m, player.position))
+	machine_fx = MachineFx.new()
+	machine_fx.name = "MachineFx"
+	add_child(machine_fx)
+	machine_fx.setup(blocks, fx, work)
+	if not warmup.is_queued_for_deletion():
+		warmup.add_materials(machine_fx.warm_materials(), player.camera)
 	if Settings.rigid_pieces:
 		pieces = FallingPieces.new()
 		pieces.name = "FallingPieces"
@@ -680,6 +689,10 @@ func _ready() -> void:
 		weather.setup(self)
 		if not warmup.is_queued_for_deletion():
 			warmup.add_materials(weather.warm_materials(), player.camera)
+		volcano = Volcano.new()
+		volcano.name = "Volcano"
+		add_child(volcano)
+		volcano.setup(self)
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
 	player_inv.tool_broke.connect(_on_tool_broke)
@@ -1056,11 +1069,12 @@ func _player_dict() -> Dictionary:
 		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s,
 		"stone_age": stone_age.player_dict() if stone_age else {}, "tnt": tnt.to_array() if tnt else _tnt_save,
 		"ropes": toys.to_array() if toys else _ropes_save,
-		"bookmarks": inv_screen.browser.bookmarks, "applied_trades": Net.applied}
+		"bookmarks": inv_screen.browser.bookmarks, "applied_trades": Net.applied, "pending_trades": things.pending_array() if things else []}
 
 
 func _load_player() -> void:
 	var d: Dictionary = Net.player_save if Net.active else _load_json(_save_path("player"))
+	things.load_pending(d.get("pending_trades", []))
 	Net.applied = d.get("applied_trades", []).map(func(r) -> int: return int(r))   # ADR 0164: sales already delivered
 	Inventory.clock_s = float(d.get("clock_s", 0.0))   # before the stacks: hot metal cools against it (ADR 0042)
 	if d.is_empty() or int(d.get("version", 0)) != 1:
@@ -1284,6 +1298,8 @@ func _on_dug(cells: Array, drops: Array, center: Vector3) -> void:
 			continue
 		if first == 0:
 			first = was
+		if blocks.at(c) is TradingPostEntity:
+			continue   # a brush never digs a trading post: it is broken by hand, by its owner (ADR 0164)
 		set_world_voxel(c, GameMaterials.AIR)
 		if not GameMaterials.is_plain_voxel(was):
 			events.append_array(farming.on_broken(c))
@@ -2309,8 +2325,10 @@ func snapshot() -> Dictionary:
 		"networks": Networks.stats,
 		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size(), "dig_only": player.dig_only_names()}),
 		"weather": weather.summary() if weather else {},
+		"volcano": volcano.summary() if volcano else {},
 		"map": world_map.summary(),
 		"torches": torch_lights.stats if torch_lights else {},
+		"machine_fx": machine_fx.stats if machine_fx else {},
 		"mobs": mobs.summary() if mobs else {},
 		"farm": farming.summary() if farming else {},
 		"particles": fx.stats if fx else {},

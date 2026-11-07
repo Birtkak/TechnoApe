@@ -542,6 +542,10 @@
   "furnace_lit": "top"
  },
  "effects": {
+  "machine_steam": {"channel": "sprites", "sprite": "smoke", "motion": "mist", "count": [1, 1], "life": [0.9, 1.7], "size": [0.14, 0.24], "speed": [0.25, 0.6], "dir": "up", "spread": 20, "box": [0.06, 0.02, 0.06], "colors": ["#ffffff", "#eeeeee", "#d8dde0"]},
+  "steam_jet": {"channel": "sprites", "sprite": "smoke", "motion": "mist", "count": [3, 5], "life": [0.4, 0.8], "size": [0.1, 0.18], "speed": [0.6, 1.4], "dir": "out_flat", "spread": 30, "box": [0.2, 0.02, 0.2], "colors": ["#ffffff", "#e8ecee"]},
+  "chimney_smoke": {"channel": "sprites", "sprite": "smoke", "motion": "large_smoke", "count": [1, 1], "life": [2.0, 3.4], "size": [0.3, 0.5], "speed": [0.3, 0.6], "dir": "up", "spread": 15, "box": [0.08, 0.02, 0.08], "colors": ["#2e2e2e", "#444444", "#3a3632"]},
+  "machine_sparks": {"channel": "sprites", "sprite": "spark", "motion": "spark", "count": [5, 9], "life": [0.2, 0.5], "size": [0.03, 0.05], "speed": [1.2, 3.0], "dir": "up", "spread": 80, "box": [0.06, 0.02, 0.06], "colors": ["#ffffff", "#ffd860", "#ffb030"]},
   "block_break": {
    "channel": "chips",
    "motion": "chip",
