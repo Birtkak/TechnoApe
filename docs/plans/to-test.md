@@ -10,6 +10,20 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Moving contraptions: lift, drawbridge, crane (ADR 0160)
+
+`/scenario contraptions` (look at open flat ground first) builds one of each, each on a turning hand crank; right click a
+drive to flip its lever (or `/contraptions toggle`), `/contraptions ride` stands you on the lift.
+- [ ] Lift: stand on the plank platform and flip the lever: it rises (1 m/s) through the stone ring and stops under it;
+      you ride up without jitter; flip again and it takes you down. Stand under it while it comes down: it waits.
+- [ ] Drawbridge: the 4 m span swings up to stand beside the hinge and back down over the moat. Stand on it while it
+      rises: you ride it a bit, then slide off. Drop an item on the lift or bridge: it rides along.
+- [ ] Crane: it hooks the oak log under its jib, lifts it, swings a quarter turn, sets it down; the log settles. Rope
+      and hook look right?
+- [ ] Build your own: `/kit contraptions`, place a lift winch, lay a 1.5 m oak-plank platform in front of it at its
+      foot, cable a hand crank to it (or put it beside), flip the lever, crank. A platform of the floor's own material is
+      refused with a message. Quit mid-move and reload: the part is in the voxels at its end.
+
 ## Fuse cord and flung debris (ADR 0150)
 
 - [ ] `/scenario fuse` (look at open ground first): a 4 m cord burns toward the charge with sparks and smoke, about 8 s, then the blast. Speed right?

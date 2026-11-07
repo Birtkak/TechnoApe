@@ -4595,6 +4595,69 @@
         "...oooooooooo..."
       ]
     },
+    "lift_winch": {
+      "colors": {"b": "#6e4424", "B": "#9a6a3a", "k": "#3e2614", "r": "#d8c08a", "w": "#a87a44", "W": "#c89a5c"},
+      "rows": [
+        ".oooooooooooooo.",
+        "ollllllllllllllo",
+        "ollllllllllllllo",
+        "ommoBBBBBBBBommo",
+        "ommobrbrbrbbommo",
+        "ommobrbrbrbbommo",
+        "ommokkkkkkkkommo",
+        "ommoooooooooommo",
+        "omddddddddddddmo",
+        ".oooooorroooooo.",
+        "......orro......",
+        "..ooooorrooooo..",
+        ".oWWWWWrrWWWWWo.",
+        ".owwwwwwwwwwwwo.",
+        ".owwwwwwwwwwwwo.",
+        "..oooooooooooo.."
+      ]
+    },
+    "drawbridge_hinge": {
+      "colors": {"w": "#a87a44", "W": "#7a5430", "c": "#8a8e98"},
+      "rows": [
+        ".............oo.",
+        "...oooooooooocwo",
+        "..occcccccccccWo",
+        "..ocooooooowwWo.",
+        "..oco....owwWo..",
+        "..oco...owwWo...",
+        "..oco..owwWo....",
+        "..oco.owwWo.....",
+        "..ocoowwWo......",
+        ".oocowwWo.......",
+        "ollllwWo........",
+        "ommmmdo.........",
+        "ommhmdo.........",
+        "ommmmdo.........",
+        "ommmmdo.........",
+        ".ooooo.........."
+      ]
+    },
+    "crane": {
+      "colors": {"r": "#d8c08a", "y": "#e8b830"},
+      "rows": [
+        "................",
+        ".oooooooooooooo.",
+        "ollllllllddllllo",
+        "ommmmmmmdmmmmmmo",
+        ".ooolmddooooroo.",
+        "...olmoo...oro..",
+        "...olmo....oro..",
+        "...olmo....oro..",
+        "...olmo....oro..",
+        "...olmo....oro..",
+        "...olmo...oyyyo.",
+        "...olmo...oyoyo.",
+        "..oolmooo..oyyo.",
+        ".ommmmmmmo..oo..",
+        ".odddddddo......",
+        ".odddddddo......"
+      ]
+    },
     "miner_helmet": {
       "colors": {"n": "#2c3448", "k": "#1a2030", "y": "#ffd660", "Y": "#f0a030", "w": "#fff6d0"},
       "rows": [
@@ -5351,6 +5414,9 @@
     "hand_crank": {"layers": [{"shape": "hand_crank", "palette": "iron"}]},
     "daylight_switch": {"layers": [{"shape": "fuse_box", "palette": "iron", "colors": {"t": "#ffe27a"}}]},
     "meter_panel": {"layers": [{"shape": "meter_panel", "palette": "iron"}]},
+    "lift_winch": {"layers": [{"shape": "lift_winch", "palette": "iron"}]},
+    "drawbridge_hinge": {"layers": [{"shape": "drawbridge_hinge", "palette": "iron"}]},
+    "crane": {"layers": [{"shape": "crane", "palette": "steel"}]},
     "coke_oven": {"layers": [{"shape": "bricks_face"}], "cube": true},
     "coal_coke": {"layers": [{"shape": "charcoal_lump", "palette": "coal"}]},
     "steam_turbine": {"layers": [{"shape": "steam_hammer", "palette": "steel", "colors": {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}}]},

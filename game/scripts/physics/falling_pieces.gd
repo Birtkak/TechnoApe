@@ -23,6 +23,7 @@ var rp: RigidPieces
 var bubble: SimBubble
 var fx: ParticleFx
 var support: MineSupport   # ADR 0142: the roof checks ride on the same driver jobs; their results go there
+var contraptions: Contraptions   # ADR 0160: drives its pieces between collect() and the next step
 var material: ShaderMaterial
 var _pieces := {}        # piece id -> Node3D (its transform), one MeshInstance3D child per mesh block
 var _blocks := {}        # piece id -> {block index -> MeshInstance3D}
@@ -110,10 +111,12 @@ func tick(dt: float) -> void:
 	_effects(r["crumbs"])
 	_parts_max["collect"] = maxf(_parts_max["collect"], (t1 - t0) / 1000.0)
 	_parts_max["effects"] = maxf(_parts_max["effects"], (Time.get_ticks_usec() - t1) / 1000.0)
-	if not _pieces.is_empty():
+	if contraptions:
+		contraptions.tick(dt)
+	if not _pieces.is_empty() or (contraptions and contraptions.busy()):
 		rp.queue_step(dt)
 		_track_ticks += 1
-		if _track_ticks % 15 == 1 and track.size() < 60:
+		if _track_ticks % 15 == 1 and track.size() < 60 and not _pieces.is_empty():
 			var id: int = _pieces.keys()[0]
 			var t := rp.get_transform(id, 1.0)
 			track.append([snappedf(_track_ticks * dt, 0.1), id, (t.origin / Settings.m2v(1.0)).snapped(Vector3.ONE * 0.1), snappedf(rad_to_deg(t.basis.y.angle_to(Vector3.UP)), 1.0), rp.get_contact_info(id)])

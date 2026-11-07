@@ -534,7 +534,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile" or kind == "electric_lamp"   # a lamp hangs on walls too (ADR 0117)
-	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven", "water_wheel", "wind_turbine", "hand_crank", "meter_panel", "trading_post"] or MachineEntity.DOOR.has(kind)
+	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven", "water_wheel", "wind_turbine", "hand_crank", "meter_panel", "trading_post"] or kind in ContraptionEntity.KINDS or MachineEntity.DOOR.has(kind)
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -573,6 +573,11 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 		"cable":
 			e.item = id   # thin, copper or thick (ADR 0123)
 			e.axis = posmod(roundi(main.player.rotation_degrees.y / 90.0), 2)
+			_mark(p)
+			if _consumes():
+				main.player_inv.consume_held(1)
+		"lift_winch", "drawbridge_hinge", "crane":   # ADR 0160: the part goes on the side the player looks toward
+			e.facing = Transport.facing_from_yaw(main.player.rotation_degrees.y)
 			_mark(p)
 			if _consumes():
 				main.player_inv.consume_held(1)
@@ -965,7 +970,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
 		_say(res["msg"])
 		return true
-	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity or e is PowerSourceEntity or e is MeterPanelEntity:   # ADR 0099, 0113, 0117, 0123
+	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity or e is PowerSourceEntity or e is MeterPanelEntity or e is ContraptionEntity:   # ADR 0099, 0113, 0117, 0123, 0160
 		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
 		if res["consume"] > 0 and _consumes():
 			main.player_inv.consume_held(res["consume"])
