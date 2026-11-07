@@ -27,9 +27,12 @@ uniform float glow = 1.0;
 varying float v_along;
 void vertex() {
 	v_along = VERTEX.y + 0.5;   // 0 at the tail, 1 at the head
+	VERTEX.xz *= mix(0.2, 1.8, v_along * v_along);   // a fat burning head, a thin fading tail
 }
 void fragment() {
-	ALBEDO = mix(vec3(1.0, 0.45, 0.15), vec3(1.0, 0.95, 0.8), v_along) * 6.0 * glow * pow(v_along, 1.3);
+	float flicker = 0.8 + 0.2 * sin(TIME * 47.0 + v_along * 30.0) * sin(TIME * 23.0);
+	vec3 trail = mix(vec3(1.0, 0.35, 0.08), vec3(0.75, 0.9, 1.0), v_along);   // ember tail, blue-white head
+	ALBEDO = (trail * pow(v_along, 1.3) * 6.0 + vec3(5.0) * smoothstep(0.88, 1.0, v_along)) * glow * flicker;
 }
 """
 
@@ -41,6 +44,7 @@ var _last_now := -1.0
 var _check_t := 0.0
 var _streaks: Array[Dictionary] = []   # {node, mat, from, to, age, boom_at, boomed, event}
 var _columns := {}                     # event seed -> MonolithBeacon
+var _lights := {}                      # event seed -> OmniLight3D over a hot core in the drawn box
 var _streak_mesh: BoxMesh
 
 
@@ -178,6 +182,9 @@ func _process(delta: float) -> void:
 	_roll(now)
 	_tick_streaks(delta)
 	_tick_columns(now)
+	for k in _lights:   # the core's glow breathes and flickers like embers
+		var t := Time.get_ticks_msec() / 1000.0 + float(k % 100)
+		(_lights[k] as OmniLight3D).light_energy = 7.0 + 1.5 * sin(t * 2.1) + 0.8 * sin(t * 13.0)
 	_check_t -= delta
 	if _check_t <= 0.0:
 		_check_t = CHECK_S
@@ -211,7 +218,9 @@ func _tick_streaks(delta: float) -> void:
 		else:
 			mi.visible = false
 			var e: Dictionary = s["event"]
-			e.erase("landing")
+			if e.has("landing"):
+				e.erase("landing")
+				e["landed_ms"] = Time.get_ticks_msec()   # the column flashes as it lands
 		if not s["boomed"] and float(s["age"]) >= float(s["boom_at"]):
 			s["boomed"] = true
 			Sound.play("meteor/boom")
@@ -241,7 +250,8 @@ func _tick_columns(now: float) -> void:
 			_columns.erase(key)
 		if col:
 			var f := 1.0 - age_h / Settings.meteor_glow_h
-			col.material.set_shader_parameter("colour", COLUMN_COLOUR * (0.35 + 0.65 * f) * f)
+			var flash := 1.0 + 6.0 * exp(-(Time.get_ticks_msec() - int(e.get("landed_ms", -100000))) / 700.0)
+			col.material.set_shader_parameter("colour", COLUMN_COLOUR * (0.35 + 0.65 * f) * f * flash)
 
 
 # ---------------- the crater ----------------
@@ -365,6 +375,14 @@ func _cool(e: Dictionary) -> void:
 	e["cooled"] = true
 	dirty = true
 	stats["cooled"] += 1
+	_drop_light(e)
+
+
+func _drop_light(e: Dictionary) -> void:
+	var l: OmniLight3D = _lights.get(int(e["seed"]))
+	if l:
+		l.queue_free()
+		_lights.erase(int(e["seed"]))
 
 
 ## A hot core smokes; standing on (or in) it burns.
@@ -372,8 +390,21 @@ func _heat(e: Dictionary) -> void:
 	var p = main.get("player")
 	var inv = main.get("player_inv")
 	var fx = main.get("fx")
-	if fx and p and p.position.distance_to(_core(e)) < Settings.m2v(Settings.view_distance_m):
+	var near: bool = p != null and p.position.distance_to(_core(e)) < Settings.m2v(Settings.view_distance_m)
+	if fx and near:
 		fx.burst("tnt_smoke", _core(e) + Vector3(0, Settings.m2v(1.0), 0))
+		fx.burst("tnt_sparks", _core(e) + Vector3(0, Settings.m2v(0.4), 0))
+	if near and not _lights.has(int(e["seed"])):
+		var l := OmniLight3D.new()   # the lava alone lights little at night: the core glows on its own
+		l.light_color = Color(1.0, 0.45, 0.15)
+		l.omni_range = Settings.m2v(20.0)
+		l.omni_attenuation = Settings.torch_light_attenuation
+		l.shadow_enabled = false
+		add_child(l)
+		l.global_position = _core(e) + Vector3(0, Settings.m2v(1.5), 0)
+		_lights[int(e["seed"])] = l
+	elif not near:
+		_drop_light(e)
 	if p == null or inv == null or not GameMode.rule(p.game_mode, "takes_damage"):
 		return
 	var reach := Settings.m2v(Settings.meteor_core_m + 0.6)
@@ -416,6 +447,7 @@ func command(args: PackedStringArray) -> Dictionary:
 func snapshot() -> Dictionary:
 	var out := stats.duplicate()
 	out["events"] = events.size()
+	out["core_lights"] = _lights.size()
 	out["pending"] = events.filter(func(e: Dictionary) -> bool: return not e["applied"]).size()
 	out["next_tonight"] = fall_time(Settings.world_seed, floori(_now() - 0.5), Settings.meteor_chance_per_night)
 	return out

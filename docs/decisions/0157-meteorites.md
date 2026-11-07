@@ -17,13 +17,14 @@ hundred metres off must be told by the sky and sound, and its crater made when t
 - **The sky:** a streak (an additive box drawn 40 m from the camera, inside the far plane) runs 3 s from high
   in the sky down to the horizon at the spot's bearing; a flat boom follows after distance / 343 m/s; an orange
   glow column (`MonolithBeacon` with height, radius and colour) stands over the spot for `meteor_glow_h` game
-  hours, fading, until the crater is in the drawn box. A chat line gives the distance and compass direction; a
+  hours, fading (a white flash as it lands), until the crater is in the drawn box. The streak tapers from a
+  flickering blue-white head to an ember tail. A chat line gives the distance and compass direction; a
   unique `meteorite` waypoint goes on the map.
 - **The crater** is a runtime edit made once, when the spot's ground column, the bowl depth and the fire reach
   on four sides are loaded in the sim window: a 3.5 m bowl (`SimBubble.blast`), a 1 m shell of scorched earth
   over soil and snow, the plants around cleared, a 0.6 m ball of meteoric iron at the bottom and five chunks in
   the walls. While `meteor_hot_h` (24 game hours) lasts: lava over the core, smoke, `meteor_heat_damage` per half
-  second near the core, and half the falls set burnable solids within 5 m past the bowl alight. Later the lava
+  second near the core, smoke and sparks, a flickering orange light (20 m) over the core while in the box, and half the falls set burnable solids within 5 m past the bowl alight. Later the lava
   turns to basalt (once its spot is loaded); an arrival after the hot hours finds it cold. The edit goes through
   the bubble, so the terrain save keeps it and other players get it (ADR 0145).
 - **Meteoric iron** digs with a copper pick (tier 1) and smelts in the plain furnace straight to an iron ingot
