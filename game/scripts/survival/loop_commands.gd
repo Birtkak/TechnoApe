@@ -89,9 +89,12 @@ func _season(args: PackedStringArray) -> Dictionary:
 		loop.main.bubble.ambient_c = loop.main.survival.outside_c
 		Seasons.season = cal.season()
 		if args.size() > 1 and args[1] == "now":
-			var flags := 4 if i != 0 else (3 | (255 << 8))   # winter: freeze and a full snow cover; else the thaw
-			var n := sw.sweep(flags, -1)
-			return CommandRegistry.ok("It is now %s; %d cells of snow and ice %s" % [cal.date_text(), n, "laid" if i == 0 else "cleared"])
+			sw.rush(4 if i != 0 else (3 | (255 << 8)))   # winter: freeze and a full snow cover; else the thaw
+			var chat = loop.main.get("chat")
+			sw.rush_done = func(n: int) -> void:
+				if chat != null:
+					chat.add_message("%d cells of snow and ice %s" % [n, "laid" if i == 0 else "cleared"])
+			return CommandRegistry.ok("It is now %s; %s the sim area over the next frames" % [cal.date_text(), "snowing in" if i == 0 else "thawing"])
 	var d := sw.frost_in_days()
 	return CommandRegistry.ok("%s: day's mean %.1f C, outside %.1f C; %s%s%s" % [cal.season_name(), sw.mean_c(), loop.main.survival.outside_c,
 		String(sw.stats["mode"]) if String(sw.stats["mode"]) != "" else "no snow or ice work",

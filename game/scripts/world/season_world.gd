@@ -25,6 +25,11 @@ var _ids := PackedInt32Array()
 var _lies_on := PackedByteArray()
 var _dry := -1.0
 var _warn_day := -1
+var _rush_flags := 0         # /season now: the whole bubble over the next frames, Settings.season_rush_ms a frame
+var _rush_left := 0
+var _rush_cells := 0
+var _done := 0               # chunk columns the last sweep got through
+var rush_done: Callable      # (cells) called when a rush ends
 
 
 func setup(p_main: Node) -> void:
@@ -89,6 +94,15 @@ func _process(delta: float) -> void:
 	if bubble.sim and dry != _dry and bubble.sim.has_method("set_dryness"):
 		bubble.sim.set_dryness(dry)
 		_dry = dry
+	if _rush_left != 0:
+		_rush_cells += sweep(_rush_flags, _rush_left if _rush_left > 0 else 1 << 20, Settings.season_rush_ms)
+		if _rush_left < 0 and not _order.is_empty():
+			_rush_left = _order.size()
+		if _rush_left > 0:
+			_rush_left = maxi(0, _rush_left - _done)
+		if _rush_left == 0 and rush_done.is_valid():
+			rush_done.call(_rush_cells)
+		return
 	_t -= delta
 	if _t > 0.0:
 		return
@@ -100,14 +114,21 @@ func _process(delta: float) -> void:
 		sweep(flags, Settings.season_columns)
 
 
-## Runs the season over the next `columns` chunk columns of the bubble (all of them with columns < 0). Returns the
-## cells changed.
-func sweep(flags: int, columns: int) -> int:
+## Lays or clears the season over the whole bubble within a few frames (/season now), never more than
+## Settings.season_rush_ms a frame (all at once was a 45 ms frame).
+func rush(flags: int) -> void:
+	_rush_flags = flags
+	_rush_cells = 0
+	_rush_left = -1   # the whole order, once the first sweep has built it
+
+
+## Runs the season over the next `columns` chunk columns of the bubble, stopping early once budget_ms (> 0) has
+## gone; _done says how many it got through. Returns the cells changed.
+func sweep(flags: int, columns: int, budget_ms := 0.0) -> int:
+	_done = 0
 	var bubble: SimBubble = main.bubble
-	if bubble == null or bubble.sim == null or not bubble.sim.has_method("season_pass") or (columns >= 0 and not bubble.can_sample()):
+	if bubble == null or bubble.sim == null or not bubble.sim.has_method("season_pass") or not bubble.can_sample():
 		return 0
-	if columns < 0:
-		flags |= 0x10000   # all at once (/season now): wait for a running tick
 	if bubble.origin != _origin or _order.is_empty():
 		_origin = bubble.origin
 		var size: Vector3i = bubble.sim.get_size_voxels()
@@ -123,17 +144,22 @@ func sweep(flags: int, columns: int) -> int:
 			_order[i] = _order[j]
 			_order[j] = tmp
 		_cursor = 0
-	var n := _order.size() if columns < 0 else mini(columns, _order.size())
+	var n := mini(columns, _order.size())
 	var t0 := Time.get_ticks_usec()
 	var changed := 0
 	for i in n:
+		if budget_ms > 0.0 and i > 0 and Time.get_ticks_usec() - t0 > budget_ms * 1000.0:
+			break
 		_seed += 1
 		var r: int = bubble.sim.season_pass(_order[_cursor], flags, _ids, _lies_on, _seed)
 		if r < 0:
 			stats["busy"] += 1
 			break
 		changed += r
+		_done += 1
 		_cursor = (_cursor + 1) % _order.size()
+	if n == 0:
+		return 0
 	stats["passes"] += 1
 	stats["cells"] += changed
 	stats["pass_ms_max"] = maxf(stats["pass_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
