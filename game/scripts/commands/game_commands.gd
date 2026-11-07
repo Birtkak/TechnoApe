@@ -136,7 +136,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
 	reg.register("ponder", "/ponder [scene]", "Open the guide screen (ADR 0132): how boilers, pipes, cables and machines connect; no scene lists them", _ponder, [Ponder.scenes().keys()])
-	reg.register("stations", "/stations [electric|factory|lv|power|dam [cam]|pollution|smoke|fx [n]]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); dam: a pool, a water wheel and a weak dirt dam that breaks (ADR 0154); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141); fx: 30 running machines of every animated kind (ADR 0153)", _stations, [["electric", "factory", "lv", "power", "dam", "pollution", "smoke", "fx"]])
+	reg.register("stations", "/stations [electric|factory|lv|power|dam [cam]|pollution|smoke|fx [n|kind,kind [cam_m]]]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); dam: a pool, a water wheel and a weak dirt dam that breaks (ADR 0154); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141); fx: 30 running machines of every animated kind (ADR 0153)", _stations, [["electric", "factory", "lv", "power", "dam", "pollution", "smoke", "fx"]])
 	reg.register("fish", "/fish <pond|foul|traps|cast|state>", "ADR 0163: a fish pond (or a fouled one) 2 m ahead with a rod in hand; traps: a snare, a pit trap, a rabbit, a deer and a tamed wolf; cast: an automatic cast, bite and reel down ahead; state: the rod's state", _fish, [["pond", "foul", "traps", "cast", "state"]])
 	reg.register("contraptions", "/contraptions [toggle [kind]|ride [bridge]|jump] [cam]", "ADR 0160: a lift, a drawbridge and a crane ahead, each on a turning hand crank; toggle flips the levers (of one kind), ride stands you on the lift or the bridge, jump checks a jump off the lift; cam films them", _contraptions, [["toggle", "ride", "jump", "cam"]])
 	reg.register("pollute", "/pollute [smoke]", "ADR 0155: a fouled pond with fish and wheat beside waste ground ahead (farm_speed=40 to watch crops wilt); smoke: a smoke booth round you", _pollute, [["smoke"]])
@@ -1144,8 +1144,10 @@ func _stations(args: PackedStringArray) -> Dictionary:
 		var cols := mini(n, 6)
 		var rows := ceili(n / 6.0)
 		var mid := Vector3(a0) + Vector3(rt) * Settings.m2v(1.5 * (cols - 1) + 0.6) + Vector3(fw) * Settings.m2v(1.5 * (rows - 1) + 0.6)
-		mid.y = a0.y + Settings.m2v(1.0)
+		mid.y = a0.y + Settings.m2v(0.6)
 		var back := 1.0 + 0.9 * cols + 1.0 * rows   # metres: the whole factory in view, a short row close up
+		if args.size() > 2 and args[2].is_valid_float():   # /stations fx lathe 1.2: that close, to judge the moving parts
+			back = float(args[2])
 		_debug_cam().enable(mid - Vector3(fw) * Settings.m2v(back) + Vector3(0, Settings.m2v(back * 0.6), 0), mid)
 		return CommandRegistry.ok("Laid %s (/cam off to leave the view)" % laid)
 	if args.size() > 0 and args[0] in ["electric", "factory", "lv", "power", "dam"]:   # ADR 0113, 0117, 0123, 0131: the energy line, the factory, the LV machines or the small sources, 4 m ahead, along the player's right

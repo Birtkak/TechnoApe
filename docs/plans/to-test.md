@@ -111,6 +111,9 @@ drive to flip its lever (or `/contraptions toggle`), `/contraptions ride` stands
 - [ ] Walk away from a running factory: the hums and hisses fade; past ~32 m the puffs and parts stop.
 - [ ] A loaded belt or a running lathe no longer glows like a fire at night.
 - [ ] `/stations fx`: 30 machines all running at once. Frame time OK with it all in view?
+- [ ] `/stations fx lathe,wiremill,cutter 1.5` (and crane, lift_winch, assembler): the moving parts are the machine's own
+      pieces (lathe chuck, copper spool, saw disc, crane ring), not boxes stuck on. Do they fit the look?
+- [ ] A lift or drawbridge on a hand crank: its drum turns while it moves; flip the lever with no power: a red blinking lamp.
 ## Surface hazards: lightning and eruptions (2026-11-07, ADR 0149)
 
 - [ ] `/weather storm` out in the open: the sky flickers and far thunder rolls first (the warning); then strikes

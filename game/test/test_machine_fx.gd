@@ -60,7 +60,7 @@ func test_boiler_puffs_while_lit_and_stops_when_out() -> void:
 	var made: int = mfx.stats["bursts"]
 	assert_int(made).is_greater(5)   # steam, smoke and embers over 2 s
 	var needle: Node3D = mfx._recs[b.pos]["parts"][0]["pivot"]
-	assert_float(absf(needle.basis.get_euler().z)).is_greater(0.3)   # pressure 1.0 of 1.5: 23 degrees past upright
+	assert_float(absf(needle.basis.get_euler().x)).is_greater(0.3)   # pressure 1.0 of 1.5: 23 degrees past upright
 	b.lit_time = 0
 	_frames(30, eye)   # one evaluation turns it off
 	var after: int = mfx.stats["bursts"]
@@ -77,10 +77,10 @@ func test_lv_machine_spins_when_powered_and_blinks_when_starved() -> void:
 	var r: Dictionary = mfx._recs[m.pos]
 	assert_bool(r["starved"]).is_true()   # ore in, no power
 	assert_bool(r["working"]).is_false()
-	var roller: Node3D = r["parts"][0]["pivot"]
-	var still := roller.basis
+	var roller: Node3D = r["parts"][0]["pivot"]   # the grinder lid bobs
+	var still := roller.position
 	_frames(30, eye)
-	assert_bool(roller.basis.is_equal_approx(still)).is_true()
+	assert_bool(roller.position.is_equal_approx(still)).is_true()
 	var blinks := 0
 	for i in 60:
 		mfx.step(1.0 / 60.0, eye)
@@ -90,7 +90,30 @@ func test_lv_machine_spins_when_powered_and_blinks_when_starved() -> void:
 	_frames(30, eye)
 	assert_bool(r["working"]).is_true()
 	assert_int((r["lamp"] as Node).get_meta("st", 0)).is_equal(1)   # steady run lamp
-	assert_bool(roller.basis.is_equal_approx(still)).is_false()
+	assert_bool(roller.position.is_equal_approx(still)).is_false()
+
+
+func test_parts_are_cut_from_the_model_and_drawn_in_its_palette() -> void:
+	var x := 0
+	for kind in MachineFx.data()["kinds"]:
+		if not MachineFx.spec(kind).has("parts"):
+			continue
+		var e: Object = store.create(Vector3i(x, 0, 0), kind)
+		x += 8 * B
+		var model := MachineFx.model_of(e)
+		assert_bool(model.is_empty()).override_failure_message(kind).is_false()
+		for pd in MachineFx.spec(kind)["parts"]:
+			var pc := MachineFx.part_cells(pd, model)
+			assert_bool(pc.is_empty()).override_failure_message(kind + ": empty part").is_false()
+			if pd.has("cut"):
+				var solid: Dictionary = MachineFx.carve(e, WorkPalette.art_parts(e, e.view_parts()))["solid"]
+				var before := 0
+				var after := 0
+				for v in model["cells"]:
+					before += int(v > 0)
+				for v in solid["cells"]:
+					after += int(v > 0)
+				assert_int(after).override_failure_message(kind + ": cut took nothing").is_less(before)
 
 
 func test_far_machines_are_not_evaluated() -> void:

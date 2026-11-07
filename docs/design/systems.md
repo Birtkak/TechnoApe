@@ -147,7 +147,7 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   electric motor, electric piston; machines electric furnace, lathe, bending press, wiremill; book chapter
   `electrical_age`. `/kit electric`; `test_networks.gd`, `test_electrical_age.gd`, `tools/network_bench.gd`.
   **Running machines (ADR 0153):** `MachineFx` reads `data/machine_fx.json` per kind (`when`/`starved` Expressions on
-  the entity, `emit`, `pulse`, `parts` spin/bob/needle, `shake_m`, `lamp`, `light`) and animates machines within
+  the entity, `emit`, `pulse`, `parts` cut from the model and spun/bobbed/swung or a needle, `shake_m`, `lamp`, `light`) and animates machines within
   `machine_fx_m`; ParticleFx, TorchLights and GameAudio's machine loops defer to it. A new machine is a JSON entry.
   Check: `test_machine_fx.gd`, `/stations fx`, `/machinefx force|film`.
   **Water wheels and dams (ADR 0154):** a wheel's drive is the flow in the 0.5 m slab under it (`SimWorld.count_moving_in_box`

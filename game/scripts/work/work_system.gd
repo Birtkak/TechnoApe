@@ -264,7 +264,7 @@ func _rebuild_view(p: Vector3i) -> void:
 	var e: RefCounted = main.blocks.at(p)
 	if not BlockEntities.is_work(e):
 		return
-	var parts: Dictionary = WorkPalette.art_parts(e, e.view_parts())
+	var parts: Dictionary = MachineFx.carve(e, WorkPalette.art_parts(e, e.view_parts()))   # moving parts are MachineFx's (ADR 0153)
 	var v := WorkPalette.make_view(p, parts.get("solid", {}), parts.get("ghost", {}), parts.get("guide", {}), parts.get("items", []),
 		float(BlockEntities.width_of(e.kind)) / Settings.BLOCK)
 	_root.add_child(v)
@@ -427,7 +427,15 @@ func debug_fx_grid(base: Vector3i, right: Vector3i, fwd: Vector3i, n: int, only:
 				for j in 4:
 					e.use({"id": "water_bucket", "count": 1}, main.items.get_def("water_bucket"))
 				e.ignite()
-				e.pressure = 1.0)
+				e.pressure = 1.0
+			elif e is SteamHammerEntity:   # a blow every 0.8 s, so its sparks and steam jet show (no ingot, no boiler)
+				var t := Timer.new()
+				t.wait_time = 0.8
+				t.timeout.connect(func() -> void:
+					e._head_down = 4
+					e.changed.emit())
+				add_child(t)
+				t.start())
 	if main.get("machine_fx") != null:
 		main.machine_fx.force = true
 	return "%d machines of %d kinds from %s (%d on a pad), all forced on (/machinefx off)" % [n, kinds.size(), base, flat]
