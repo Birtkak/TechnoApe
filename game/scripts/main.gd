@@ -426,8 +426,10 @@ func _ready() -> void:
 			_after_load(_debug_animals)
 		if DebugCapture.farm_test:
 			_after_load(_debug_farm)
-		if DebugCapture.blueprint_test:
+		if DebugCapture.blueprint_test == "1":
 			_after_load(func() -> void: blueprints.debug_test())
+		elif DebugCapture.blueprint_test != "":
+			_after_load(func() -> void: blueprints.debug_save_test(DebugCapture.blueprint_test))
 		if DebugCapture.building_test:
 			_after_load(_debug_building)
 		if DebugCapture.hands_test:

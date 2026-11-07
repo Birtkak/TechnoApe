@@ -253,7 +253,7 @@
     "machine_wiremill": {"sound": "loop/machine_wiremill", "materials": [], "entities": ["wiremill"]},
     "machine_macerator": {"sound": "loop/machine_macerator", "materials": [], "entities": ["macerator"]},
     "machine_alloy_smelter": {"sound": "loop/machine_alloy_smelter", "materials": [], "entities": ["alloy_smelter"]},
-    "machine_assembler": {"sound": "loop/machine_assembler", "materials": [], "entities": ["assembler"]},
+    "machine_assembler": {"sound": "loop/machine_assembler", "materials": [], "entities": ["assembler", "builder"]},
     "machine_extractor": {"sound": "loop/machine_extractor", "materials": [], "entities": ["extractor"]},
     "machine_cutter": {"sound": "loop/machine_cutter", "materials": [], "entities": ["cutter"]},
     "machine_extruder": {"sound": "loop/machine_extruder", "materials": [], "entities": ["extruder"]},
