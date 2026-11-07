@@ -46,9 +46,15 @@ var _buff_regen_t := 0.0
 ## regen heals one health every amount seconds, haste multiplies walking speed by 1 + amount.
 const BUFFS := {"warm": "Warmed", "cool": "Cooled", "regen": "Mending", "haste": "Lively"}
 var _poison_t := 0.0
+var smoke_s := 0.0           # ADR 0155: seconds breathing dense smoke; clean air takes it back twice as fast
+var smoke_cells := 0         # smoke + toxic gas cells round the head at the last probe
+var _smoke_probe_t := 0.0
+var _cough_t := 0.0
+var _smoke_hurt_t := 0.0
+const SMOKE_PROBE_S := 0.5
 var _rooms := {}             # container position -> [closed room, valid until clock s] (root cellars)
 const ROOM_CACHE_S := 30.0
-var stats := {"probe_ms_max": 0.0, "spoil_ms_max": 0.0, "rotted": 0, "eaten": 0, "starved": 0, "froze": 0, "overheated": 0}
+var stats := {"probe_ms_max": 0.0, "spoil_ms_max": 0.0, "rotted": 0, "eaten": 0, "starved": 0, "froze": 0, "overheated": 0, "coughs": 0, "smoke_hurt": 0}
 
 
 func setup(p_main: Node) -> void:
@@ -164,6 +170,7 @@ func _process(delta: float) -> void:
 		_harm_step(delta)
 		nutrition.drain(delta, hunger_rate(fast, body_c < Settings.cold_c) * Settings.hunger_drain_s)
 	_poison_step(delta, player.inventory if survival else null)
+	_smoke_step(delta, survival)
 	_health_t -= delta
 	if _health_t <= 0.0:
 		_health_t = 1.0
@@ -237,6 +244,49 @@ func _poison_step(delta: float, inv: PlayerInventory) -> void:
 		_poison_t -= Settings.poison_every_s
 		if inv != null and inv.health > 1:
 			inv.damage(1, "poison")
+
+
+## ADR 0155: dense smoke or toxic gas round the head makes the player cough (sound, toast, grey screen edge), then
+## hurts; a worn "smoke_mask" piece (cloth mask, diving mask) filters it. The count is native, twice a second.
+func _smoke_step(delta: float, survival: bool) -> void:
+	_smoke_probe_t -= delta
+	if _smoke_probe_t <= 0.0:
+		_smoke_probe_t = SMOKE_PROBE_S
+		smoke_cells = _smoke_near()
+	if smoke_cells < Settings.smoke_dense_cells or not player._worn_with("smoke_mask").is_empty():
+		smoke_s = maxf(0.0, smoke_s - delta * 2.0)
+		_cough_t = 0.0
+		_smoke_hurt_t = 0.0
+		return
+	smoke_s += delta
+	if smoke_s < Settings.smoke_cough_after_s:
+		return
+	_cough_t -= delta
+	if _cough_t <= 0.0:
+		if smoke_s - delta < Settings.smoke_cough_after_s and player.hud:   # the first cough of a spell says why
+			player.hud.show_toast("You cough: thick smoke. Get to fresh air, vent it, or wear a mask")
+		_cough_t = Settings.smoke_cough_every_s
+		stats["coughs"] += 1
+		Sound.play("player/cough")
+	if survival and smoke_s >= Settings.smoke_hurt_after_s:
+		_smoke_hurt_t += delta
+		if _smoke_hurt_t >= Settings.smoke_hurt_every_s:
+			_smoke_hurt_t = 0.0
+			stats["smoke_hurt"] += 1
+			player.inventory.damage(1, "smoke")
+			if player.inventory.is_dead():
+				player.died.emit()
+
+
+func _smoke_near() -> int:
+	var b: SimBubble = main.get("bubble")
+	if b == null:
+		return 0
+	var c := Vector3i(player.camera.global_position.floor())
+	var h := int(Settings.m2v(Settings.smoke_box_m))
+	var lo := c - Vector3i(h, h, h)
+	var hi := c + Vector3i(h + 1, h + 1, h + 1)
+	return b.count_in_box(lo, hi, GameMaterials.SMOKE) + b.count_in_box(lo, hi, GameMaterials.TOXIC_GAS)
 
 
 ## Shelter, heat and the temperature where the player stands.
@@ -375,6 +425,7 @@ func reset() -> void:
 	saturation = 5.0
 	body_c = 37.0
 	poison_s = 0.0
+	smoke_s = 0.0
 	nutrition.reset()
 	apply_max_health()
 
@@ -382,6 +433,8 @@ func reset() -> void:
 func status() -> String:
 	if poison_s > 0.0:
 		return "Poisoned"
+	if smoke_s >= Settings.smoke_cough_after_s:
+		return "Coughing"
 	if body_c < Settings.freeze_c:
 		return "Freezing"
 	if body_c < Settings.shiver_c:
@@ -424,7 +477,7 @@ func load_dict(d: Dictionary) -> void:
 func snapshot() -> Dictionary:
 	return {"hunger": snappedf(hunger, 0.01), "saturation": snappedf(saturation, 0.01), "body_c": snappedf(body_c, 0.01),
 		"env_c": snappedf(env_c, 0.1), "felt_c": snappedf(felt_c(), 0.1), "in_room": in_room, "heat": snappedf(heat, 0.01), "underground_m": snappedf(underground_m, 0.1),
-		"status": status(), "poison_s": snappedf(poison_s, 0.1), "buffs": buff_text(), "nutrition": nutrition.snapshot(),
+		"status": status(), "poison_s": snappedf(poison_s, 0.1), "smoke_s": snappedf(smoke_s, 0.1), "smoke_cells": smoke_cells, "buffs": buff_text(), "nutrition": nutrition.snapshot(),
 		"max_health": player.inventory.max_health if player != null else 0, "stats": stats}
 
 

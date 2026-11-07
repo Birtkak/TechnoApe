@@ -5,6 +5,7 @@
   "player/hurt": {"db": -6, "flat": true, "cooldown_s": 0.15},
   "player/hurt_big": {"db": -4, "flat": true, "cooldown_s": 0.3},
   "player/death": {"asset": "player/hurt_big", "db": -2, "pitch": [0.6, 0.7], "flat": true},
+  "player/cough": {"asset": "player/hurt", "db": -9, "pitch": [1.35, 1.6], "flat": true, "cooldown_s": 1.0},
   "player/eat": {"db": -10, "pitch": [0.9, 1.15], "flat": true, "cooldown_s": 0.18},
   "player/swim": {"db": -14, "pitch": [0.9, 1.1], "flat": true, "cooldown_s": 0.3},
   "player/splash": {"db": -8, "range_m": 24},

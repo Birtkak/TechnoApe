@@ -821,6 +821,8 @@ func _describe_block(p: Vector3i) -> Dictionary:
 	var e: RefCounted = blocks.at(p)
 	var info := _describe_entity(e)
 	var net := Networks.look_line(e)   # the energy network it is on (ADR 0130)
+	if net == "" and farming != null:
+		net = farming.sick_line(p)   # ADR 0155: a crop pollution is wilting
 	if net != "":
 		info["line"] = String(info.get("line", "")) + ("\n" if info.get("line", "") != "" else "") + net
 	return info

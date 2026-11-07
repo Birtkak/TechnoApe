@@ -282,6 +282,11 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   stays inert, only `"react_awake"` sludge and fouled water keep their chunk awake while they touch a partner).
   `SimWorld.set_wind` drifts `wind_drift` gases (smoke), not under a roof (12 m scan up). `/stations pollution`
   and `/stations smoke` show it.
+  **Consequences (ADR 0155):** fish in fouled water build `Mob.foul_s` (gasp at the surface, then die belly-up and
+  float); crops beside sludge/waste ground, watered foul or under heavy smoke turn sickly (`Farming.pollution`, saved
+  `sick`, slow growth) and wilt to dead bushes, clean ticks heal; dense smoke round the head (native count) makes the
+  player cough, then hurts, unless a `smoke_mask` piece is worn (cloth mask, diving mask). Numbers in `settings.gd`;
+  `/pollute [smoke]` shows it.
   Atlas 8x23 tiles (16..19 ores, patterned since ADR 0064; 104 crystal, 109..111 savanna grass, tall grass, red earth, 112..120 crops and torches, 136..170 rocks, 171..172 tnt side and top, 173..175 monolith, 176..179 per-wood planks (row 23, 180..183 free); 190 waste ground, 191 slag, 215 chimney top (ADR 0141); 84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
   stones; 98 cobblestone, 99 bricks; 100 blueberry bush; 101 kelp, 102 seagrass, 103 seashell: full, add a row to grow;
   after editing `tools/make_atlas.py` run `--import`, or the game draws the old texture). `"pattern": true` materials lay their tile over the grid, one texel per voxel (ADR 0039). Ground pickups are voxel shapes (stone chunks on a 0.5 m patch, sticks as `FineGen::STICK` stamps);

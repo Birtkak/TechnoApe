@@ -10,6 +10,13 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Pollution pushes back (ADR 0155)
+
+- [ ] `/pollute` (best with a `farm_speed=40` launch): fish in the fouled third rise and hang at the surface ("Gasping"
+      in the look line), then float belly-up; the wheat beside the brown waste ground says "Sickly", then wilts to dead
+      bushes while the clean plot stays. `/pollute smoke` (survival): cough, grey edge, a toast, then hurt; wear a
+      Cloth Mask (plant fiber, wool, charcoal) and it stops. Fair timing (cough 2 s, hurt from 8 s)?
+
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 
 - [ ] G or V opens the ring (tap, then click; or hold and release), names under the icons. Brush tile: shapes, wheel sizes
