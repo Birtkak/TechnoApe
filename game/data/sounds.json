@@ -258,6 +258,8 @@
     "machine_electrolyzer": {"sound": "loop/machine_electrolyzer", "materials": [], "entities": ["electrolyzer", "scrubber"]},
     "machine_electric_furnace": {"sound": "loop/machine_electric_furnace", "materials": [], "entities": ["electric_furnace"]},
     "machine_lamp": {"sound": "loop/machine_lamp", "materials": [], "entities": ["electric_lamp"]},
+    "machine_boiler": {"sound": "loop/steam", "materials": [], "entities": ["boiler"], "pitch": 0.6, "db": -12},
+    "machine_steam": {"sound": "loop/steam", "materials": [], "entities": ["steam_hammer", "steam_sieve", "ore_crusher", "compressor"], "pitch": 0.85, "db": -14},
     "machine_dynamo": {"sound": "loop/machine_dynamo", "materials": [], "entities": ["turbine"], "pitch_by": "amps", "pitch_ref": 40, "pitch_span": [0.75, 1.45]},
   "wind": {"sound": "loop/wind", "materials": [], "full_hits": 100},
   "fire": {"sound": "loop/fire_big", "where": "burning", "materials": [], "full_hits": 300},

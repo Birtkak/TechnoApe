@@ -72,6 +72,7 @@ var map_screen: MapScreen            # M
 var minimap: Minimap
 var waypoint_markers: WaypointMarkers
 var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
+var machine_fx: MachineFx            # running machines puff, spin and blink (ADR 0153)
 var light_overlay: LightOverlay      # F7: the dark block tops around the player (ADR 0130)
 var quest_toast: QuestToast
 var survival_loop: SurvivalLoop       # diet, seasons, prospecting, discoveries, HUD trackers (ADR 0061)
@@ -579,6 +580,12 @@ func _ready() -> void:
 		fx.player = player
 		fx.main_blocks = blocks
 		player.landed.connect(func(p: Vector3i, fall_m: float) -> void: fx.landing(p, fall_m, player.position))
+	machine_fx = MachineFx.new()
+	machine_fx.name = "MachineFx"
+	add_child(machine_fx)
+	machine_fx.setup(blocks, fx, work)
+	if not warmup.is_queued_for_deletion():
+		warmup.add_materials(machine_fx.warm_materials(), player.camera)
 	if Settings.rigid_pieces:
 		pieces = FallingPieces.new()
 		pieces.name = "FallingPieces"
@@ -2243,6 +2250,7 @@ func snapshot() -> Dictionary:
 		"weather": weather.summary() if weather else {},
 		"map": world_map.summary(),
 		"torches": torch_lights.stats if torch_lights else {},
+		"machine_fx": machine_fx.stats if machine_fx else {},
 		"mobs": mobs.summary() if mobs else {},
 		"farm": farming.summary() if farming else {},
 		"particles": fx.stats if fx else {},

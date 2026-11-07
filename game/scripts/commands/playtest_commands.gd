@@ -40,6 +40,7 @@ func register(p_reg: CommandRegistry, p_player: Player, p_main_of := Callable())
 	reg.register("totest", "/totest [count]", "The newest unticked items of the playtest list (docs/plans/to-test.md)", _totest)
 	reg.register("scenario", "/scenario <%s>" % "|".join(SCENARIOS.keys()), "Jump into a playtest set-up from the to-test list", _scenario, [SCENARIOS.keys()])
 	reg.register("blocks", "/blocks [kind]", "Each block entity's state, one line each (watts, amps, made, output); kind filters by name", _blocks)
+	reg.register("machinefx", "/machinefx [force|off|film [frames] [name]]", "Running-machine effects (ADR 0153): force runs every machine near for the look and the cost, off back to real work, film saves a burst to out/machine_fx; no argument shows the counts", _machinefx, [["force", "off", "film"]])
 	reg.register("count", "/count <material>", "Cells of a material in the sim bubble (steam left by a vent, gas pooled in a cave)", _count)
 	reg.register("whatsnew", "/whatsnew", "What landed lately, each one a click away (the F4 menu's top row); /tour walks them in order", _whatsnew)
 	reg.register("tour", "/tour [next|back|<n>|<id>]", "The next stop of the what's-new tour: what to look for, and it takes you there or hands you the kit", _tour,
@@ -150,6 +151,19 @@ func _scenario(args: PackedStringArray) -> Dictionary:
 			return CommandRegistry.fail("%s failed: %s" % [line, r["text"]])
 		said.append(r["text"])
 	return CommandRegistry.ok("\n".join(said))
+
+
+func _machinefx(args: PackedStringArray) -> Dictionary:
+	var main: Node = main_of.call() if main_of.is_valid() else null
+	if main == null or main.get("machine_fx") == null:
+		return CommandRegistry.fail("No machine effects")
+	if args.size() > 0 and args[0] == "film":   # a burst of consecutive frames (run with --fixed-fps 60) to watch the motion
+		var path := "res://out/machine_fx/%s.png" % (args[2] if args.size() > 2 else "burst")
+		FrameSheet.burst(main.get_viewport(), path, int(args[1]) if args.size() > 1 else 16, 3, 640, 360, 4)   # every 3rd frame, large
+		return CommandRegistry.ok("filming " + path)
+	if args.size() > 0:
+		main.machine_fx.force = args[0] == "force"
+	return CommandRegistry.ok("machine fx%s: %s" % [" (forced)" if main.machine_fx.force else "", JSON.stringify(main.machine_fx.stats)])
 
 
 func _count(args: PackedStringArray) -> Dictionary:

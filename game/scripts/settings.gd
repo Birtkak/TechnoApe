@@ -273,6 +273,7 @@ var particle_pool_chips := 2048         # block chips alive at once at most
 var particle_pool_sprites := 6144       # smoke, splashes, hearts, waterfall spray...
 var particle_budget := 700              # particles emitted per frame at most; the rest of a burst is dropped
 var particle_distance_m := 64.0         # bursts farther from the camera are skipped
+var machine_fx_m := 32.0                # running machines farther than this stay still: no puffs, parts or lamps (ADR 0153)
 var particle_ambient := true            # Minecraft's animateTick: lava pops, drips, spores, leaves, furnace flames
 var particle_ambient_near_m := 8.0      # Minecraft: 667 random blocks within 16 blocks per tick ...
 var particle_ambient_near_samples := 667

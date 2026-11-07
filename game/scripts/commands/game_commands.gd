@@ -130,7 +130,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
 	reg.register("ponder", "/ponder [scene]", "Open the guide screen (ADR 0132): how boilers, pipes, cables and machines connect; no scene lists them", _ponder, [Ponder.scenes().keys()])
-	reg.register("stations", "/stations [electric|factory|lv|power|pollution|smoke]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141)", _stations, [["electric", "factory", "lv", "power", "pollution", "smoke"]])
+	reg.register("stations", "/stations [electric|factory|lv|power [cam]|pollution|smoke|fx [n]]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141); fx: 30 running machines of every animated kind (ADR 0153)", _stations, [["electric", "factory", "lv", "power", "pollution", "smoke", "fx"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
@@ -970,6 +970,31 @@ func _stations(args: PackedStringArray) -> Dictionary:
 		var d: Dictionary = main.work.debug_cave_smoke(at)
 		_debug_cam().enable(d["cam"], d["look"])
 		return CommandRegistry.ok("Laid %s (/cam off to leave the view)" % d["laid"])
+	if args.size() > 0 and args[0] == "fx":   # ADR 0153: 30 running machines of every animated kind, 4 m ahead
+		var f3: Vector3 = -player.camera.global_transform.basis.z
+		f3.y = 0
+		var fw := Vector3i(f3.normalized().round())
+		if fw == Vector3i.ZERO or (fw.x != 0 and fw.z != 0):
+			fw = Vector3i(0, 0, -1)
+		var rt := Vector3i(Vector3(fw).cross(Vector3.UP).round())
+		var a0 := BlockEntities.anchor_for(Vector3i((player.position + Vector3(fw) * Settings.m2v(4.0) - Vector3(rt) * Settings.m2v(7.5)).floor()))
+		a0.y = int(floor(player.position.y))
+		var only: Array = []   # /stations fx boiler,cutter,...: those kinds in one row, filmed close
+		var n := 30
+		if args.size() > 1:
+			if args[1].is_valid_int():
+				n = int(args[1])
+			else:
+				only = Array(args[1].split(","))
+				n = only.size()
+		var laid: String = main.work.debug_fx_grid(a0, rt, fw, n, only)
+		var cols := mini(n, 6)
+		var rows := ceili(n / 6.0)
+		var mid := Vector3(a0) + Vector3(rt) * Settings.m2v(1.5 * (cols - 1) + 0.6) + Vector3(fw) * Settings.m2v(1.5 * (rows - 1) + 0.6)
+		mid.y = a0.y + Settings.m2v(1.0)
+		var back := 1.0 + 0.9 * cols + 1.0 * rows   # metres: the whole factory in view, a short row close up
+		_debug_cam().enable(mid - Vector3(fw) * Settings.m2v(back) + Vector3(0, Settings.m2v(back * 0.6), 0), mid)
+		return CommandRegistry.ok("Laid %s (/cam off to leave the view)" % laid)
 	if args.size() > 0 and args[0] in ["electric", "factory", "lv", "power"]:   # ADR 0113, 0117, 0123, 0131: the energy line, the factory, the LV machines or the small sources, 4 m ahead, along the player's right
 		var fwd: Vector3 = -player.camera.global_transform.basis.z
 		fwd.y = 0
@@ -989,6 +1014,10 @@ func _stations(args: PackedStringArray) -> Dictionary:
 				laid = main.work.debug_power_line(anchor, right)
 			_:
 				laid = main.work.debug_electric_line(anchor, right)
+		if args.size() > 1 and args[1] == "cam":   # a free camera over the line's first 10 m (filming its machines, ADR 0153)
+			var look := Vector3(anchor) + Vector3(right) * Settings.m2v(5.0) + Vector3(0, Settings.m2v(0.8), 0)
+			_debug_cam().enable(look - fwd.normalized() * Settings.m2v(5.5) + Vector3(0, Settings.m2v(3.5), 0), look)
+			laid += " (/cam off to leave the view)"
 		return CommandRegistry.ok("Laid " + laid)
 	main.place_stations()
 	return CommandRegistry.ok("Placing a crafting table, chest and furnace ahead")
