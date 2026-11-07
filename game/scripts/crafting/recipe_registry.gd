@@ -22,6 +22,7 @@ static func load_default(p_items: ItemRegistry) -> RecipeRegistry:
 	r.load_file("res://data/recipes.json")
 	r.load_file("res://data/stone_age_recipes.json")   # the four Stone Age stages (ADR 0059)
 	r.load_file("res://data/lv_recipes.json")   # more of the electrical age (ADR 0131)
+	r.load_file("res://data/fishing.json")   # filleting, snares and pit traps (ADR 0163)
 	return r
 
 

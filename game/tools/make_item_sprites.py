@@ -1448,6 +1448,9 @@ stone_age_sprites.add(globals())
 import metal_age_sprites  # noqa: E402  the bronze and iron ages (ADR 0070)
 metal_age_sprites.add(globals())
 
+import fishing_sprites  # noqa: E402  fish species, snares, pit traps (ADR 0163)
+fishing_sprites.add(globals())
+
 
 # loose heads and blades (crafting parts): the same shape as on the tool, moved to the middle of the icon
 _heads = {s["layers"][1]["shape"] for s in SP.values()

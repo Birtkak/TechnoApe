@@ -474,6 +474,8 @@ func safe_ahead(m: Mob, dir: Vector3, panicking: bool) -> bool:
 	var x := int(floor(probe.x))
 	var z := int(floor(probe.z))
 	var y := int(floor(m.position.y + 0.05))
+	if m.owner_id != "" and main != null and main.get("fishing") != null and main.fishing.trap_near(probe):
+		return false   # ADR 0163: a companion steps round snares and pit traps
 	for k in range(0, Mob.MAX_DROP_V + 2):
 		var p := Vector3i(x, y - k, z)
 		var v := get_voxel(p)

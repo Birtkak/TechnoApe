@@ -67,6 +67,7 @@ var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
 var tnt: Tnt                         # TNT charges, fuses and blasts (ADR 0065)
 var toys: MovementToys               # glider, climbing ropes, grappling hook (ADR 0151)
+var fishing: Fishing                 # the rod's bobber, bite and reel; snares and pit traps (ADR 0163)
 var _ropes_save := []                # the hung ropes from the player's save, loaded before toys exists
 var _tnt_save := []                  # its charges from the player's save, loaded before it exists
 var meteors: Meteors                 # meteorite falls and their craters (ADR 0157)
@@ -635,13 +636,19 @@ func _ready() -> void:
 		game_hud.survival = survival
 	if not _survival_save.is_empty():
 		survival.load_dict(_survival_save)
+	fishing = Fishing.new()
+	fishing.name = "Fishing"
+	add_child(fishing)
+	fishing.setup(self)
+	if not warmup.is_queued_for_deletion():
+		warmup.add_materials(fishing.warm_materials(), player.camera)
 	stone_age = StoneAge.new()
 	stone_age.name = "StoneAge"
 	add_child(stone_age)
 	stone_age.setup(self)
 	stone_age.load_player(_stone_age_save)
 	player.item_use = func(hit: VoxelRaycastResult, first: bool, from: Vector3, dir: Vector3) -> bool:
-		return blueprints.use(hit, first) or stone_age.use(hit, first, from, dir)   # ADR 0161, then the Stone Age
+		return blueprints.use(hit, first) or fishing.use_world(hit, first) or stone_age.use(hit, first, from, dir)   # ADR 0161, 0163, then the Stone Age
 	survival_loop = SurvivalLoop.new()
 	survival_loop.name = "SurvivalLoop"
 	add_child(survival_loop)
@@ -2321,6 +2328,7 @@ func snapshot() -> Dictionary:
 		"gadgets": gadgets.stats if gadgets else {},
 		"tnt": tnt.snapshot() if tnt else {},
 		"toys": toys.snapshot() if toys else {},
+		"fishing": fishing.snapshot() if fishing else {},
 		"meteors": meteors.snapshot() if meteors else {},
 		"networks": Networks.stats,
 		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size(), "dig_only": player.dig_only_names()}),

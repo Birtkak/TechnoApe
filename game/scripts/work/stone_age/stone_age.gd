@@ -44,8 +44,6 @@ var draw_id := ""                 # the bow being drawn (right click held), "" w
 var draw_t := 0.0                 # seconds it has been drawn
 var _sec := 0.0
 var _rng := RandomNumberGenerator.new()
-var _fish_until := -1.0         # a line in the water: the bite comes at this game day
-var _fish_at := Vector3.ZERO
 var stats := {"shots": 0, "launched": 0, "peeled": 0, "ovens_dug": 0, "ovens_lit": 0, "baked": [], "cured": [],
 	"strokes": 0, "worked": [], "set_in_water": 0, "caught": [], "worn": [], "embers": 0, "brine": 0, "dough": 0, "fish": 0}
 
@@ -176,9 +174,6 @@ func _process(delta: float) -> void:
 	if _sec >= 1.0:
 		_sec = 0.0
 		_each_second()
-	if _fish_until > 0.0 and now_days >= _fish_until:
-		_fish_until = -1.0
-		_land_fish()
 
 
 ## Racks smoke over a lit firepit; carried embers go out.
@@ -737,34 +732,21 @@ func _feed_wolf(hit: VoxelRaycastResult) -> bool:
 
 # ---------------- fishing (line and net) ----------------
 
-## A fishing line or net cast at water: the line bites after a few game minutes, the net now and then
-## brings a fish up at once. Rivers and lakes alike; part E's fish swim there.
-func _fish(hit: VoxelRaycastResult, held: Dictionary, _from: Vector3, _dir: Vector3) -> bool:
+## A fishing net cast at water now and then brings a fish up at once; the line is Fishing's (ADR 0163:
+## the bobber, the bite and the reel).
+func _fish(hit: VoxelRaycastResult, held: Dictionary, from: Vector3, dir: Vector3) -> bool:
+	if not "net" in held.get("tags", []):
+		return main.fishing.use_rod(from, dir)
 	if hit == null or _water_bed(hit).y < 0:
 		return false
 	var at := Vector3(_water_bed(hit)) + Vector3(0.5, 1.0, 0.5)
 	main.work._particles("splash", at, GameMaterials.WATER)
 	main.work._wear_held()
-	if "net" in held.get("tags", []):
-		if _rng.randf() < Settings.net_catch_chance:
-			_give_fish(at)
-		else:
-			main.work._say("The net comes up empty.")
-		return true
-	if _fish_until > 0.0:
-		main.work._say("Your line is already in the water.")
-		return true
-	_fish_at = at
-	_fish_until = now_days + _rng.randf_range(Settings.fish_bite_min_h, Settings.fish_bite_max_h) / 24.0
-	main.work._say("You cast your line. Wait for a bite.")
+	if _rng.randf() < Settings.net_catch_chance:
+		_give_fish(at)
+	else:
+		main.work._say("The net comes up empty.")
 	return true
-
-
-func _land_fish() -> void:
-	if main.player.position.distance_to(_fish_at) > Settings.m2v(12.0):
-		main.work._say("The fish got away: you walked off from your line.")
-		return
-	_give_fish(main.player.position)
 
 
 func _give_fish(at: Vector3) -> void:

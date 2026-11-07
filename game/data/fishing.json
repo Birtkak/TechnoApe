@@ -1,0 +1,42 @@
+{
+  "_note": "ADR 0163: fishing with a rod (what bites where, how hard it pulls) and the land traps. Loaded by ItemRegistry (items), RecipeRegistry (recipes) and Fishing (species, junk).",
+  "items": [
+    {"id": "brown_trout", "name": "Brown Trout", "tags": ["fish", "whole_fish"], "stack": 16, "spoil_days": 1, "_note": "rivers, best in cold country: fillet it in the grid"},
+    {"id": "salmon", "name": "Salmon", "tags": ["fish", "whole_fish"], "stack": 16, "spoil_days": 1, "_note": "rivers and the coast; fights hard"},
+    {"id": "pike", "name": "Pike", "tags": ["fish", "whole_fish"], "stack": 16, "spoil_days": 1, "_note": "lakes and swamps; rare, the hardest fight"},
+    {"id": "carp", "name": "Carp", "tags": ["fish", "whole_fish"], "stack": 16, "spoil_days": 1, "_note": "warm still water: swamps, lakes"},
+    {"id": "cod", "name": "Cod", "tags": ["fish", "whole_fish"], "stack": 16, "spoil_days": 1, "_note": "the sea"},
+    {"id": "mackerel", "name": "Mackerel", "tags": ["fish", "whole_fish"], "stack": 16, "spoil_days": 1, "_note": "the sea, in warm country"},
+    {"id": "snare", "name": "Snare", "tags": ["trap"], "stack": 16, "work": "snare", "_note": "a cordage noose on a stick: set on the ground it catches small animals that walk into it (and an ankle)"},
+    {"id": "pit_cover", "name": "Pit Trap Cover", "tags": ["trap"], "stack": 8, "_note": "sticks and dry grass: right click into a dug pit 1 m wide and 1 m deep; bigger animals fall through"}
+  ],
+  "recipes": [
+    {"id": "snare", "type": "shapeless", "ingredients": ["cordage", "#stick"], "output": {"id": "snare", "count": 1}},
+    {"id": "pit_cover", "type": "shapeless", "ingredients": ["#stick", "#stick", "#stick", "#stick", "#fiber", "#fiber"], "output": {"id": "pit_cover", "count": 1}},
+    {"id": "fillet_brown_trout", "type": "shapeless", "ingredients": ["brown_trout"], "output": {"id": "raw_fish", "count": 2}},
+    {"id": "fillet_salmon", "type": "shapeless", "ingredients": ["salmon"], "output": {"id": "raw_fish", "count": 3}},
+    {"id": "fillet_pike", "type": "shapeless", "ingredients": ["pike"], "output": {"id": "raw_fish", "count": 3}},
+    {"id": "fillet_carp", "type": "shapeless", "ingredients": ["carp"], "output": {"id": "raw_fish", "count": 2}},
+    {"id": "fillet_cod", "type": "shapeless", "ingredients": ["cod"], "output": {"id": "raw_fish", "count": 2}},
+    {"id": "fillet_mackerel", "type": "shapeless", "ingredients": ["mackerel"], "output": {"id": "raw_fish", "count": 1}}
+  ],
+  "_species_note": "water: river | lake | sea (Fishing.water_kind); biomes: [] = anywhere; pull scales the reel's surges and length (1 = a perch).",
+  "species": [
+    {"name": "Perch", "item": "raw_fish", "water": ["river", "lake"], "biomes": [], "weight": 10, "pull": 0.8},
+    {"name": "Brown Trout", "item": "brown_trout", "water": ["river"], "biomes": [], "weight": 6, "pull": 1.1},
+    {"name": "Brown Trout", "item": "brown_trout", "water": ["river", "lake"], "biomes": ["taiga", "highlands", "snowy_taiga", "tundra"], "weight": 6, "pull": 1.1},
+    {"name": "Salmon", "item": "salmon", "water": ["river", "sea"], "biomes": [], "weight": 3, "pull": 1.5},
+    {"name": "Pike", "item": "pike", "water": ["lake"], "biomes": [], "weight": 2, "pull": 1.7},
+    {"name": "Carp", "item": "carp", "water": ["lake"], "biomes": ["swamp", "mangrove", "jungle", "savanna", "plains"], "weight": 6, "pull": 1.2},
+    {"name": "Cod", "item": "cod", "water": ["sea"], "biomes": [], "weight": 8, "pull": 1.2},
+    {"name": "Mackerel", "item": "mackerel", "water": ["sea"], "biomes": [], "weight": 6, "pull": 0.9},
+    {"name": "Mackerel", "item": "mackerel", "water": ["sea"], "biomes": ["beach", "jungle", "savanna", "mangrove"], "weight": 6, "pull": 0.9}
+  ],
+  "_junk_note": "what fouled water (ADR 0155) gives instead of fish; an empty id comes up with nothing",
+  "junk": [
+    {"id": "", "weight": 5},
+    {"id": "stick", "weight": 3},
+    {"id": "bone", "weight": 2},
+    {"id": "plant_fiber", "weight": 2}
+  ]
+}

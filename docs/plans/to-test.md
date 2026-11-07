@@ -720,3 +720,16 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] Look at your dog, `/name Fenrir`: the tag changes. Does the tag read well at 10 m? It survives save and load.
 - [ ] A hound behind a hill or inside a cave wall does not make the dog growl; coming into the open does.
 - [ ] Two players (server + client): each sees the other's dog follow, sit and carry its name.
+
+## Fishing and traps (ADR 0163, 2026-11-07)
+- [ ] `/fish pond`, look down at the water, right click: the red bobber arcs out and floats; a bite dips it and says so,
+      a right click hooks; holding right click fills the blue bar, the tension bar goes green to red; letting it hit the
+      end snaps the line, letting it go slack loses the fish. Does a catch take 5-15 s and feel fair?
+- [ ] Fish in a river, a lake and the sea: different species (trout/perch, carp/pike, cod/mackerel); fillet one in the grid.
+      More fish near the bobber bite sooner. `/fish foul`: only junk or nothing.
+- [ ] Walk 18 m away or switch items: the line ends. Right click while waiting reels in.
+- [ ] Craft a snare (cordage + stick), set it on the ground; a rabbit or hare that steps on it is held struggling; right
+      click it to take the rabbit (meat drops at your feet), the snare is set again. Step on it yourself: hurt, held 2.5 s.
+- [ ] Dig a 1 m x 1 m pit 1.5 m deep, right click the pit cover into it: a straw-and-earth patch flush with the ground.
+      A deer or boar walking over it falls in and stays; walk over it yourself: stakes hurt. Aim at either trap: the panel names it.
+- [ ] A tamed wolf following you never walks onto a snare or a pit cover. Quit and reload: caught animals still held.

@@ -113,6 +113,14 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   still moves through `VoxelBoxMover`. Ropes are `{x, z, top, bottom}` lines saved in the player file (`ropes`), not
   voxels. A toy's let-go speed is carried by `_carry` in the air and becomes `Player._knock` on landing. Player-local:
   other players see none of it. Check: `toys_test=1` (game/README.md).
+  **Fishing and land traps (ADR 0163):** `Fishing` (`scripts/work/fishing/`, a child of Main) runs the rod: StoneAge
+  hands a line's first right click to `use_rod`; cast along the aim (14 m) onto water, the bobber floats on the real
+  surface, the bite waits `fish_bite_max_s / (1 + fish within 8 m)`, a right click in the bite's window hooks, then
+  the reel's tension bar (hold to reel, ease off before 1, slack throws the hook). Species, junk (fouled water) and
+  whole fish that fillet to `raw_fish` are `data/fishing.json`. `TrapEntity` (`snare`, `pit_trap`: WORK_SPOT
+  pieces, bodies pass through) spring every 0.2 s on small animals / anything that fell into the pit, and on the
+  player (damage, a held foot); the catch is `Mob.trap_at` (saved with the mobs); companions are never caught and
+  `safe_ahead` steers them round traps. `/fish pond|foul|traps [cam]|cast|state`, `test/test_fishing.gd`.
   **Machines and networks (ADR 0113):** machines are work pieces (`work` on the item, a kind in
   `BlockEntities.create`); every entity with `net(channel) -> {role, amount}` joins `Networks.solve` once a second
   (20 block ticks): the native `NetworkSolver` unions the boxes that touch and moves min(supply, demand, weakest
