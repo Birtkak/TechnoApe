@@ -15,6 +15,7 @@ frame times.
 - [ ] `/scenario fuse` (look at open ground first): a 4 m cord burns toward the charge with sparks and smoke, about 8 s, then the blast. Speed right?
 - [ ] Craft fuse cord (cordage, sulfur, charcoal), lay it with the brush at size 1 from a TNT block through tall grass, light the far end with flint and steel: the grass beside it must not catch.
 - [ ] Blasts throw chunks that fly and land as gravel/dirt piles around the crater. Violent enough? Too many or too few?
+- [ ] Lay a cord up a staircase of blocks and through a puddle: it keeps burning to the charge. Stand near a blast in survival: flying chunks hurt and shove you.
 ## Pollution pushes back (ADR 0155)
 
 - [ ] `/pollute` (best with a `farm_speed=40` launch): fish in the fouled third rise and hang at the surface ("Gasping"

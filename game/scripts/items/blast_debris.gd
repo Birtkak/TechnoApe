@@ -14,6 +14,8 @@ const REMOVED_PER_CHUNK := 64   # a blast that removed fewer voxels than this pe
 const SPEED_MPS := Vector2(5.0, 13.0)
 const MAX_FLIGHT_S := 5.0       # lands wherever it is after this (flew out of the loaded world)
 const SPIN := 9.0               # rad/s at most
+const HURT_SPEED := 24.0        # voxels/s (3 m/s): slower chunks only bump
+const HIT_M := 0.5              # a chunk this close to a body's middle hits it
 
 var main: Node
 var stats := {"thrown": 0, "landed": 0, "voxels": 0, "live_max": 0}
@@ -102,7 +104,7 @@ func _process(delta: float) -> void:
 		d["v"] = v
 		d["t"] = float(d["t"]) + delta
 		var next := node.global_position + v * delta
-		if _solid(next) or float(d["t"]) > MAX_FLIGHT_S:
+		if _solid(next) or float(d["t"]) > MAX_FLIGHT_S or (v.length() > HURT_SPEED and _hits(next, v)):
 			landed.append(d)
 			continue
 		node.global_position = next
@@ -132,6 +134,33 @@ func _land(d: Dictionary) -> void:
 	if main.get("fx"):
 		main.fx.block_break(at, m)
 	node.queue_free()
+
+
+## A chunk at `p` flying at `v` hits the player or a mob there: it takes Settings.tnt_debris_damage and a shove,
+## and the chunk drops where it is.
+func _hits(p: Vector3, v: Vector3) -> bool:
+	var reach := Settings.m2v(HIT_M)
+	var pl = main.get("player")
+	if pl != null and GameMode.rule(pl.game_mode, "interacts"):
+		var centre: Vector3 = pl.position + Vector3(0, Settings.m2v(Settings.player_height_m) * 0.5, 0)
+		if absf(p.y - centre.y) < Settings.m2v(Settings.player_height_m) * 0.5 and Vector2(p.x - centre.x, p.z - centre.z).length() < reach:
+			pl.knock(v * 0.15)
+			if GameMode.rule(pl.game_mode, "takes_damage") and main.player_inv:
+				main.player_inv.damage(Settings.tnt_debris_damage, "explosion")
+				if main.player_inv.is_dead():
+					pl.died.emit()
+			stats["hits"] = int(stats.get("hits", 0)) + 1
+			return true
+	var mobs = main.get("mobs")
+	if mobs == null:
+		return false
+	for m in mobs.active():
+		if (m.position + Vector3(0, reach, 0)).distance_to(p) < reach * 1.5:
+			m.hurt(Settings.tnt_debris_damage, p - v.normalized())
+			m.velocity += v * 0.1
+			stats["hits"] = int(stats.get("hits", 0)) + 1
+			return true
+	return false
 
 
 func _solid(p: Vector3) -> bool:

@@ -40,9 +40,23 @@ set a charge off from a distance on a timer, and a blast just removes a sphere: 
   the sim version burns, smokes and dies in water for free.
 
 ## Consequences
-- The speed is statistical: a 7 m cord takes 13.6 s against 13.75 s expected (mean of four, test);
-  one cord varies about 12 %. Sim chunks beyond `sim_lod_m` (12 m) tick at half rate, so a far cord
+- (Round 1) The speed was statistical, one cord varied about 12 %: fixed in round 2. Sim chunks beyond `sim_lod_m` (12 m) tick at half rate, so a far cord
   burns at half speed.
 - Debris landing voxels go to the other players as voxel ops (Net.recording), the flight does not.
 - Tests: `test/test_fuse_cord.gd` (ids and cold fire, end-to-end speed with grass beside, TNT lit on
   arrival, debris cap and loose landing). Evidence: a filmstrip and a 0.1 s burst, `/tnt fuse` in snow.
+
+## Round 2 (2026-11-07): a native fuse rule, debris that hits
+- **`fuse_ticks` (native, `SimWorld::update_burning`):** a burning cell of a material with `fuse_ticks` lights every
+  face *or edge* neighbour of its own kind after burning that many ticks (one more `fuse_frac` of the time), and is
+  not put out by water. The random 6-neighbour roll of decision 1 is gone for the cord: the burn is now steady
+  (15 cords of 6.9 m: 13.5-13.9 s for 13.75 s; before 9.8-16.9 s), climbs steps and turns diagonals (cells touching
+  only by an edge, decision 4's limit), and a cord laid through a pond keeps burning (a safety fuse). A cell lit this
+  tick waits for the next, so a burn never runs down the scan order within one tick. `fuse_ticks` =
+  `tick_hz * 0.125 / Settings.fuse_speed_mps` (7.5 at 0.5 m/s, at most tick_hz voxels a second); `fire_hp` drops from
+  70 to 24 (0.8 s): the glow is a short moving spark, and dying out is no longer possible.
+- **Debris hits:** a chunk flying faster than 3 m/s that comes within 0.5 m of the player's or a mob's middle deals
+  `Settings.tnt_debris_damage` (3), shoves them along its flight and drops there (`BlastDebris._hits`, stat `hits`).
+- Still open: a cord further than `sim_lod_m` (12 m) from the player burns at half speed (those chunks tick every
+  second tick); the cord has no tile of its own (rope's).
+- Tests: `test_fuse_cord.gd` adds steps + water and a chunk hitting a player; speed checks tightened to 5-10 %.

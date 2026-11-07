@@ -265,6 +265,11 @@ void SimWorld::set_materials(const Array &p_defs) {
                                                : std::clamp(10.0 / std::max(1, (int)m.fire_hp), 0.125, 1.0);
             m.ignite_chance = (uint16_t)std::clamp((int)std::lround(ic * 65535.0), 0, 65535);
         }
+        {
+            const double ft = std::clamp(dget_f(d, "fuse_ticks", 0.0), 0.0, 250.0);
+            m.fuse_ticks = ft > 0.0 ? (uint8_t)std::max(1.0, std::floor(ft)) : 0;
+            m.fuse_frac = (uint16_t)std::clamp((int)std::lround((ft - std::floor(ft)) * 65535.0), 0, 65535);
+        }
         // Static ground shaken loose by nearby changes (Noita): unsupported cells fall, static water
         // flows once it has an opening, natural sand/gravel (they have a "loose" kind) erode into
         // slopes. Only next to cells that changed this or the previous tick, so a freshly loaded world
@@ -1584,8 +1589,32 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
     const MaterialDef &m = mats_[self];
     uint32_t r = rnd(c);
     tally(TALLY_BURN, x, y, z, c);
+    // A fuse (ADR 0150) lights every face or edge neighbour of its own kind after burning fuse_ticks ticks (one more
+    // fuse_frac of the time), so a cord burns at a steady tick_hz / (fuse_ticks + fuse_frac) voxels a second, climbs
+    // steps, turns diagonals and burns on under water (a safety fuse). A cell lit this tick waits for the next one.
+    if (m.fuse_ticks) {
+        if (moved_[i] == mark_) { mark_cell(x, y, z, c, false); return; }
+        const int burnt = (int)m.fire_hp - (int)cells_[i].aux + 1;   // counting this tick
+        if (burnt == m.fuse_ticks || burnt == m.fuse_ticks + 1) {
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (std::abs(dx) + std::abs(dy) + std::abs(dz) > 2 || (dx | dy | dz) == 0) continue;   // faces and edges
+                        const int nx = x + dx, ny = y + dy, nz = z + dz;
+                        if (!is_open(nx, ny, nz)) continue;
+                        const int ni = idx(nx, ny, nz);
+                        if (cells_[ni].mat != self || (cells_[ni].flags & FLAG_BURNING)) continue;
+                        if (burnt == m.fuse_ticks && (rnd(c) & 0xFFFF) < m.fuse_frac) continue;   // waits one more tick
+                        cells_[ni].flags |= FLAG_BURNING;
+                        cells_[ni].aux = m.fire_hp;
+                        moved_[ni] = mark_;
+                        mark_cell(nx, ny, nz, c, true);
+                        c.reacted++;
+                    }
+        }
+    }
     // Extinguish if touching a cool liquid that is not burnable (water); lava lights things, it does not douse them.
-    for (int n = 0; n < 6; n++) {
+    for (int n = 0; n < 6 && !m.fuse_ticks; n++) {
         int nx = x + NX6[n], ny = y + NY6[n], nz = z + NZ6[n];
         if (!in_world(nx, ny, nz)) continue;
         const MaterialDef &t = mats_[cells_[idx(nx, ny, nz)].mat];
@@ -1601,7 +1630,7 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
     if (is_open(nx, ny, nz)) {
         int ni = idx(nx, ny, nz);
         const MaterialDef &t = mats_[cells_[ni].mat];
-        if (t.burnable && !(cells_[ni].flags & FLAG_BURNING) && m.temperature_of_fire >= t.autoignition_temperature
+        if (!m.fuse_ticks && t.burnable && !(cells_[ni].flags & FLAG_BURNING) && m.temperature_of_fire >= t.autoignition_temperature
                 && (rnd(c) & 0xFFFF) < t.ignite_chance) {
             cells_[ni].flags |= FLAG_BURNING;
             cells_[ni].aux = t.fire_hp;
