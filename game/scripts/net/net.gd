@@ -267,6 +267,7 @@ func _s_ent(bytes: PackedByteArray) -> void:
 		"save": r = ledger.post_save(who, pos, ev.get("slots", []))
 		"trade": r = ledger.trade(who, pos, int(ev.get("n", -1)), int(ev.get("rid", 0)))
 		"ack": ledger.ack(who, int(ev.get("rid", 0)))
+		"query": r = ledger.query(who, int(ev.get("rid", 0)))
 	if r.is_empty():
 		return
 	if r.has("to"):
@@ -444,6 +445,11 @@ func post_trade(pos: Vector3i, n: int) -> int:
 	var rid := (int(Time.get_unix_time_from_system()) % 100000000) * 1000 + (_rid_n % 1000)
 	_send_ent({"k": "trade", "pos": pos, "n": n, "rid": rid})
 	return rid
+
+
+## What became of sale rid (a request the link dropped on): the server answers with its record.
+func post_query(rid: int) -> void:
+	_send_ent({"k": "query", "rid": rid, "pos": Vector3i.ZERO})
 
 
 ## A sale's goods are in the inventory: remember it and tell the server to stop keeping them.

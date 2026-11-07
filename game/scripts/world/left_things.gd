@@ -146,8 +146,9 @@ func screen_closed() -> void:
 
 func _buy(k: int, e: TradingPostEntity) -> void:
 	var inv: Inventory = main.player_inv.inv
+	var pools: Array = [inv, main.player_inv.bag] if main.player_inv.has_bag() else [inv]
 	if not Net.active:
-		var r := e.buy_local(k, inv)
+		var r := e.buy_local(k, pools)
 		if r["ok"]:
 			main.player_inv.changed.emit()
 			_say("Traded %d %s for %d %s" % [r["want"]["count"], r["want"]["id"], r["give"]["count"], r["give"]["id"]])
@@ -155,15 +156,38 @@ func _buy(k: int, e: TradingPostEntity) -> void:
 			_say(r["why"])
 		return
 	var o := e.offer(k)
-	var why := TradingPostEntity.buyer_check(e.items, o, inv)
+	var why := TradingPostEntity.buyer_check(e.items, o, pools)
 	if why == "":
 		why = "The owner is busy at the stock" if e.busy else ""
 	if why != "":
 		_say(why)
 		return
-	inv.remove(o["want"]["id"], int(o["want"]["count"]))   # taken now; given back if the server refuses
+	TradingPostEntity._pay(pools, o["want"])   # taken now; given back if the server refuses
 	main.player_inv.changed.emit()
-	_pending[Net.post_trade(e.pos, k)] = o["want"]
+	_pending[Net.post_trade(e.pos, k)] = o["want"]   # saved with the player: a drop of the link cannot lose it (resume_pending)
+
+
+## The payments of sales whose answer never came (saved with the player).
+func pending_array() -> Array:
+	var out := []
+	for rid in _pending:
+		out.append({"rid": rid, "want": _pending[rid]})
+	return out
+
+
+func load_pending(a) -> void:
+	_pending.clear()
+	if a is Array:
+		for d in a:
+			if d is Dictionary and d.has("rid") and d.get("want") is Dictionary and d["want"].has("id"):
+				_pending[int(d["rid"])] = {"id": String(d["want"]["id"]), "count": int(d["want"].get("count", 1))}
+
+
+## After joining: ask the server what became of each unanswered sale (it answers from its record, or says
+## the request never arrived, which gives the payment back).
+func resume_pending() -> void:
+	for rid in _pending.keys():
+		Net.post_query(int(rid))
 
 
 func _give(stacks: Array) -> void:
@@ -251,7 +275,7 @@ func _sale_result(ev: Dictionary) -> void:
 		main.player_inv.changed.emit()
 	else:
 		var pay: Dictionary = _pending.get(rid, {})
-		if not pay.is_empty():
+		if not pay.is_empty() and not Net.applied.has(rid):   # already delivered once: nothing to give back
 			_give([pay])   # the payment taken at the click comes back
 		_pending.erase(rid)
 		_say(String(ev.get("why", "The trade failed")))

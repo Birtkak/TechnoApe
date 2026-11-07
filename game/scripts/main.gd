@@ -367,6 +367,7 @@ func _ready() -> void:
 
 	DebugCapture.attach(self)
 	if Net.active:
+		things.resume_pending()
 		Net.items_now_ready()   # shared items that arrived during _ready spawn now (ADR 0145)
 	for stack in DebugCapture.give:
 		if not items.has(stack["id"]):
@@ -1066,11 +1067,12 @@ func _player_dict() -> Dictionary:
 		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s,
 		"stone_age": stone_age.player_dict() if stone_age else {}, "tnt": tnt.to_array() if tnt else _tnt_save,
 		"ropes": toys.to_array() if toys else _ropes_save,
-		"bookmarks": inv_screen.browser.bookmarks, "applied_trades": Net.applied}
+		"bookmarks": inv_screen.browser.bookmarks, "applied_trades": Net.applied, "pending_trades": things.pending_array() if things else []}
 
 
 func _load_player() -> void:
 	var d: Dictionary = Net.player_save if Net.active else _load_json(_save_path("player"))
+	things.load_pending(d.get("pending_trades", []))
 	Net.applied = d.get("applied_trades", []).map(func(r) -> int: return int(r))   # ADR 0164: sales already delivered
 	Inventory.clock_s = float(d.get("clock_s", 0.0))   # before the stacks: hot metal cools against it (ADR 0042)
 	if d.is_empty() or int(d.get("version", 0)) != 1:
@@ -1294,6 +1296,8 @@ func _on_dug(cells: Array, drops: Array, center: Vector3) -> void:
 			continue
 		if first == 0:
 			first = was
+		if blocks.at(c) is TradingPostEntity:
+			continue   # a brush never digs a trading post: it is broken by hand, by its owner (ADR 0164)
 		set_world_voxel(c, GameMaterials.AIR)
 		if not GameMaterials.is_plain_voxel(was):
 			events.append_array(farming.on_broken(c))
