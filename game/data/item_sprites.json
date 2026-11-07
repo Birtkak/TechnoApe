@@ -115,6 +115,12 @@
     "chalk": {"o": "#363e4a", "d": "#99a4b0", "m": "#dcdcd2", "l": "#f4eedc", "h": "#ffffef"},
     "floorstone": {"o": "#000113", "d": "#0a1531", "m": "#30303c", "l": "#524c52", "h": "#948990"},
     "greenstone": {"o": "#00101c", "d": "#183a40", "m": "#46664e", "l": "#6c8a62", "h": "#acc590"},
+    "trout": {"o": "#0e1218", "d": "#46483c", "m": "#8e8250", "l": "#c0ac6c", "h": "#f8e1a0"},
+    "salmon_fish": {"o": "#0e0c20", "d": "#523f5b", "m": "#a87a80", "l": "#d8aa9c", "h": "#ffddbc"},
+    "pike": {"o": "#001015", "d": "#1a3f2c", "m": "#4e7032", "l": "#829c46", "h": "#d8dd88"},
+    "carp": {"o": "#181011", "d": "#603f22", "m": "#b07a28", "l": "#dca23c", "h": "#ffd570"},
+    "cod": {"o": "#0e1620", "d": "#434e4f", "m": "#8a8a6a", "l": "#bcb68c", "h": "#f4e9bc"},
+    "mackerel": {"o": "#000f26", "d": "#0c3f66", "m": "#3a7a8a", "l": "#82b2ac", "h": "#f0f5dc"},
     "rubber": {"o": "#00051a", "d": "#0f1a38", "m": "#34343e", "l": "#524c4a", "h": "#7e6f52"},
     "resin": {"o": "#180c15", "d": "#6f3f21", "m": "#c8781e", "l": "#f0a22a", "h": "#ffdd60"},
     "carbon": {"o": "#00051b", "d": "#111c3a", "m": "#3a3a46", "l": "#5e5856", "h": "#907d5e"},
@@ -3847,6 +3853,48 @@
         "oooooooooooooooo"
       ]
     },
+    "snare": {
+      "colors": {"w": "#8a6440"},
+      "rows": [
+        "..........oo....",
+        ".........owwo...",
+        ".........owowo..",
+        ".........owoowo.",
+        ".........owo.o..",
+        "....oooo.owo....",
+        "...ommmmoowo....",
+        "..omoooomowo....",
+        ".omo....omwo....",
+        ".omo....omo.....",
+        ".omo....omo.....",
+        "..omoooomo......",
+        "...ommmmo.......",
+        "....oooo........",
+        "................",
+        "................"
+      ]
+    },
+    "pit_cover": {
+      "colors": {"d": "#c8aa5a"},
+      "rows": [
+        "................",
+        "................",
+        "...o...o...o....",
+        "..omooomooomoo..",
+        ".ommmmmmmmmmmmo.",
+        "..omodomodomoo..",
+        ".ommmmmmmmmmmmo.",
+        "..omdoomoodmoo..",
+        ".ommmmmmmmmmmmo.",
+        "..omooomooomoo..",
+        "...o...o...o....",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
     "pickaxe_head_loose": {
       "rows": [
         "................",
@@ -5217,6 +5265,14 @@
     "iron_work_piece": {"layers": [{"shape": "work_piece", "palette": "iron"}]},
     "crucible_bronze": {"layers": [{"shape": "crucible", "palette": "terracotta", "colors": {"i": "#f0c060"}}]},
     "bronze_anvil": {"layers": [{"shape": "anvil", "palette": "bronze"}]},
+    "brown_trout": {"layers": [{"shape": "fish", "palette": "trout"}]},
+    "salmon": {"layers": [{"shape": "fish", "palette": "salmon_fish"}]},
+    "pike": {"layers": [{"shape": "fish", "palette": "pike"}]},
+    "carp": {"layers": [{"shape": "fish", "palette": "carp"}]},
+    "cod": {"layers": [{"shape": "fish", "palette": "cod"}]},
+    "mackerel": {"layers": [{"shape": "fish", "palette": "mackerel"}]},
+    "snare": {"layers": [{"shape": "snare", "palette": "twine"}]},
+    "pit_cover": {"layers": [{"shape": "pit_cover", "palette": "wood"}]},
     "wrench": {"layers": [{"shape": "wrench", "palette": "iron"}]},
     "iron_plate": {"layers": [{"shape": "plate", "palette": "iron"}]},
     "iron_rod": {"layers": [{"shape": "stick", "palette": "iron"}]},

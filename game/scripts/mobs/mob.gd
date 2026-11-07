@@ -98,6 +98,7 @@ var _lay_t := 0.0               # chickens: seconds to the next egg
 var _burn_t := 0.0              # seconds still alight after touching lava or fire
 var _burn_hurt_t := 0.0
 var _foul_next_ms := 0          # ADR 0141: the next hurt from fouled water
+var trap_at := Vector3.INF      # ADR 0163: held by a snare or down a pit trap here (x, z pinned), INF when free
 var foul_s := 0.0               # ADR 0155: a swimmer's time in fouled water (gasps at Settings.fish_gasp_s, dies at fish_foul_die_s)
 const FOUL_HURT_EVERY_MS := 2000
 var _every := 1                 # step every n-th physics frame (distance to the player, set by the brain)
@@ -394,6 +395,9 @@ func _step(delta: float) -> void:
 		return
 	if not world.is_area_loaded(Vector3i((position / Settings.CHUNK).floor())):
 		return   # never fall into terrain that has not streamed in
+	if trap_at != Vector3.INF:
+		_trapped_step(delta)
+		return
 	_timers(delta)
 	_think_t -= delta
 	var t0 := Time.get_ticks_usec()
@@ -408,6 +412,22 @@ func _step(delta: float) -> void:
 	manager.part_us[0] += t1 - t0
 	manager.part_us[1] += t2 - t1
 	manager.part_us[2] += t3 - t2
+
+
+## Held by a trap (ADR 0163): no brain, it scrabbles where it is held (gravity still lands it in a pit).
+func _trapped_step(delta: float) -> void:
+	_invuln_t = maxf(0.0, _invuln_t - delta)
+	_hurt_t = maxf(0.0, _hurt_t - delta)
+	_stop()
+	goal = "trapped"
+	position.x = trap_at.x
+	position.z = trap_at.z
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_move(delta)
+	_yaw += sin(Time.get_ticks_msec() * 0.009 + uid) * 3.0 * delta
+	rotation.y = _yaw
+	model.animate(delta, Settings.m2v(1.6), 0.0, sin(Time.get_ticks_msec() * 0.013 + uid) * 0.7, 0.3, 0.0)
 
 
 func _timers(delta: float) -> void:
@@ -868,7 +888,8 @@ func _animate(delta: float) -> void:
 func to_dict() -> Dictionary:
 	return {"species": species, "uid": uid, "pos": [snappedf(position.x, 0.01), snappedf(position.y, 0.01), snappedf(position.z, 0.01)],
 		"yaw": snappedf(_yaw, 0.01), "health": health, "age_s": snappedf(age_s, 0.1), "love_s": snappedf(love_s, 0.1),
-		"breed_cooldown_s": snappedf(breed_cooldown_s, 0.1), "sheared": sheared, "aggressive": aggressive, "owner": owner_id, "sit": sitting}
+		"breed_cooldown_s": snappedf(breed_cooldown_s, 0.1), "sheared": sheared, "aggressive": aggressive, "owner": owner_id, "sit": sitting,
+		"trap": [] if trap_at == Vector3.INF else [snappedf(trap_at.x, 0.01), snappedf(trap_at.y, 0.01), snappedf(trap_at.z, 0.01)]}
 
 
 func load_from(d: Dictionary) -> void:
@@ -886,6 +907,8 @@ func load_from(d: Dictionary) -> void:
 		set_meta("rolled", true)
 	owner_id = String(d.get("owner", ""))
 	sitting = bool(d.get("sit", false))
+	var tr: Array = d.get("trap", [])
+	trap_at = Vector3(float(tr[0]), float(tr[1]), float(tr[2])) if tr.size() == 3 else Vector3.INF
 	if owner_id != "":
 		aggressive = false
 		set_meta("rolled", true)

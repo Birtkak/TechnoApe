@@ -14,6 +14,7 @@ static func load_default() -> ItemRegistry:
 	r.load_file("res://data/items.json")
 	r.load_file("res://data/stone_age_items.json")   # the four Stone Age stages (ADR 0059)
 	r.load_file("res://data/lv_items.json")   # more of the electrical age (ADR 0131)
+	r.load_file("res://data/fishing.json")   # fish species, snares and pit traps (ADR 0163)
 	return r
 
 

@@ -667,13 +667,17 @@ func _ember_and_fishing() -> void:
 	r["ember"] = inv.inv.count_of("fire_ember")
 	_stand(ground(4, -6), 0.5, 3.0)
 	_hold("fishing_rod")
-	var fish0 := inv.inv.count_of("raw_fish")
-	_use(Vector3(ground(5, -7)) + Vector3(2, B + 0.5, 2))
-	r["fish_cast_until"] = main.stone_age._fish_until
-	await _hours(1.3)
-	await tree.create_timer(0.3).timeout
-	await _collect()
-	r["fish_caught"] = inv.inv.count_of("raw_fish") - fish0
+	var caught0: int = main.fishing.stats["caught"].size()
+	main.fishing.auto = true   # ADR 0163: the bite and the reel play themselves
+	var eye: Vector3 = main.player.camera.global_position
+	main.stone_age.use(null, true, eye, (Vector3(ground(5, -7)) + Vector3(2, 2, 2) - eye).normalized())   # at the pond in front
+	r["fish_cast"] = main.fishing.snapshot()["state"]
+	var t := 0.0
+	while main.fishing.state != Fishing.State.IDLE and t < 90.0:
+		await tree.create_timer(0.5).timeout
+		t += 0.5
+	main.fishing.auto = false
+	r["fish_caught"] = main.fishing.stats["caught"].size() - caught0
 
 
 func _dugout() -> void:

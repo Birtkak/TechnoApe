@@ -187,8 +187,23 @@ var comfort_max_c := 30.0
 # the four Stone Age stages (ADR 0059)
 var tinder_fungus_chance := 0.08        # a peel of birch bark brings tinder fungus with it
 var net_catch_chance := 0.35            # a cast of a fishing net brings up a fish
-var fish_bite_min_h := 0.3              # a fishing line bites after this many game hours (0.3 h = 15 s)
-var fish_bite_max_h := 1.2
+# fishing and traps (ADR 0163)
+var fish_bite_min_s := 4.0              # the soonest a cast bobber gets a bite
+var fish_bite_max_s := 40.0             # the wait with no fish near; n fish within fish_near_m divide it by 1 + n
+var fish_near_m := 8.0
+var fish_cast_m := 14.0                 # how far a rod casts along the aim
+var fish_line_m := 18.0                 # walking further from the bobber than this snaps the line
+var fish_hook_s := 1.1                  # the bite's window: right click inside it to set the hook
+var fish_reel_s := 4.0                  # seconds of reeling that land a fish of pull 1
+var fish_tension_up := 0.45             # tension per second while reeling (1 snaps the line)
+var fish_tension_down := 0.6            # per second while easing off
+var fish_surge := 0.16                  # a fish's surge adds this times its pull
+var fish_slack_s := 1.8                 # this long with no tension and it throws the hook
+var snare_max_m := 0.6                  # animals this wide or smaller walk into snares; bigger ones into pits
+var snare_hurt := 2                     # a snare closing on the player's ankle
+var snare_hold_s := 2.5                 # and holding it
+var pit_hurt := 4                       # the stakes at the bottom of a pit trap
+var pit_min_m := 1.0                    # a pit trap needs a hole this deep
 var canoe_thrust_m := 2.2               # paddling: m/s per second along the bow
 var canoe_turn_rad := 1.2               # turning: rad/s at full A or D
 var canoe_drag := 0.6                   # speed lost per second (exp), so it glides on and slows
