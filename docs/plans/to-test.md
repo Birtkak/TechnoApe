@@ -619,3 +619,13 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
       attacks it. Hit a deer: the dog joins in. Does the hound fight back at the dog? Can the dog die?
 - [ ] Hurt dog heals slowly; hold raw or cooked meat and use it on the dog: hearts, 3 hearts back. Hit it yourself: no damage, no growl.
 - [ ] Save and quit, load: the dog is still tamed, sitting or following, beside you.
+## Food preservation and home comfort (ADR 0162)
+
+- [ ] Craft a smokehouse (4 logs, 2 sticks, 2 cordage) and stand it beside a lit firepit: hang raw meat and fish (12 hooks).
+      Smoke rises; after ~7 game hours the pieces are smoked. An empty hand takes a finished one. Does it read as a smokehouse?
+- [ ] Craft a salt pan (4 clay balls), pour a pot of brine in (dip the cooking pot in the sea). In daylight under open sky it
+      turns to a pot of salt in 8 game hours; at night or under a roof nothing happens. Pot of salt crafts to salt; salt + raw fish = salted fish.
+- [ ] Salted fish / meat keep far longer in the inventory than raw (hover for the freshness line); a chest in a closed room 1.5 m underground slows it again.
+- [ ] Build a closed room round a bed with a lantern or fire, a table and chairs. Look at the bed: "Room: Luxurious (86/100)".
+      An open field bed reads Bare. Sleep through the night: "You feel rested", the buff line shows Rested. Does hunger fall slower, health come back faster? Is the buff long enough, the thresholds right?
+

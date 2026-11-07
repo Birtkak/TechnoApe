@@ -203,6 +203,14 @@ var cellar_c := 8.0                      # containers 3 m and more under the sur
 # The survival loop (ADR 0061): root cellars, preserved food, frost, prospecting
 var root_cellar_m := 1.5                 # a closed room this far under the surface is a root cellar
 var root_cellar_mult := 0.3              # containers there spoil at the cellar's 8 C times this
+var comfort_wall_m := 4.0                # home comfort (ADR 0162): a wall this near counts, rays from the bed
+var comfort_roof_m := 3.5                # a roof this high counts
+var comfort_light_m := 6.0               # lamps, fires and furniture count inside this
+var comfort_heat := 5.0                  # entity heat at the bed for the full warmth share (a lit firepit at 2 m)
+var comfort_rest_min := 45               # points a room needs to rest you
+var comfort_rested_s := 900.0            # the Rested buff after a night in a perfect room
+var rested_hunger_cut := 0.35            # Rested at amount 1: hunger drains this much slower
+var rested_speed := 0.05                 # Rested at amount 1: walking this much faster
 var preserved_spoil_mult := 0.25         # foods tagged "preserved" (salted, dried, smoked) spoil this much as fast
 var frost_check_s := 10.0                # how often crops are checked for frost
 var prospect_depth_m := 12.0             # density mode: how far down under the struck spot the pick counts rock (ADR 0147)

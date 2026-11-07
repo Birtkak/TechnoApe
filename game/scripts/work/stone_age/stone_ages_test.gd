@@ -40,6 +40,10 @@ func run(p_main: Node) -> void:
 	await tree.create_timer(1.5).timeout   # the strip reaches the terrain the aim ray reads
 	var sections := [_tar_and_tempering, _hafting, _bone_and_fur, _throwing, _rack, _polishing, _grain, _water,
 		_loom_and_copper, _ember_and_fishing, _dugout, _megaliths, _painting]
+	if "home_only=1" in OS.get_cmdline_user_args():
+		sections = [_home]   # the smokehouse, salt pan and a rated bedroom (ADR 0162) alone
+	else:
+		sections.append(_home)
 	for s in sections:
 		await s.call()
 	r["stone_age"] = main.stone_age.summary()
@@ -440,6 +444,68 @@ func _rack() -> void:
 	_use(aim)
 	await _collect()
 	r["smoked_meat"] = inv.inv.count_of("smoked_meat")
+
+
+# ---------------- preserving and home comfort (ADR 0162) ----------------
+
+func _home() -> void:
+	# a smokehouse over a lit firepit with meat and fish hung inside
+	var sh := at(2, -9)
+	_stand(sh)
+	_hold("smokehouse")
+	_click_top(sh - Vector3i.UP)
+	await _settle()
+	var house = main.blocks.at(sh)
+	r["smokehouse_placed"] = house is RackEntity and house.kind == "smokehouse"
+	var f := at(3, -9)
+	_stand(f)
+	_hold("firepit")
+	_click_top(f - Vector3i.UP)
+	await _settle()
+	var fp = main.blocks.at(f)
+	if fp is FirepitEntity:
+		fp.inv.set_slot(FirepitEntity.FUEL, {"id": "firewood", "count": 16})
+		fp.ignite()
+	if house is RackEntity:
+		var aim := Vector3(sh) + Vector3(0.5, 0.6, 0.5) * B
+		_hold("raw_meat", 3)
+		for i in 3:
+			_use(aim)
+		_hold("raw_fish", 2)
+		for i in 2:
+			_use(aim)
+		await tree.create_timer(1.2).timeout
+		r["smokehouse_smoky"] = house.smoky
+		await _hours(7.0)
+		r["smokehouse_hung"] = house.summary()["hung"].map(func(h: Dictionary) -> String: return "%s>%s" % [h["id"], h["done"]])
+		await _shot("smokehouse", aim, 1.8)
+	# a salt pan with brine in the sun
+	var sp := at(0, -9)
+	_stand(sp)
+	_hold("salt_pan")
+	_click_top(sp - Vector3i.UP)
+	await _settle()
+	r["salt_pan_placed"] = main.blocks.at(sp) is RackEntity
+	# a bedroom: planks all round and over, a table, chairs and a lantern
+	var lo := at(5, -3)
+	_fill(lo, lo + Vector3i(7 * B, 4 * B, 6 * B), GameMaterials.PLANKS)
+	_fill(lo + Vector3i(B, 0, B), lo + Vector3i(6 * B, 3 * B, 5 * B), GameMaterials.AIR)
+	var bed_a := at(6, -2)
+	main._place_furniture("bed", bed_a, 0)
+	var bed: FurnitureEntity = main.blocks.furniture_at(bed_a)
+	r["bed_bare"] = Comfort.of_bed(main, bed)
+	main._place_furniture("table", at(9, -2), 0)
+	main._place_furniture("chair", at(9, 1), 0)
+	main._place_furniture("lantern", at(8, 1), 0)
+	main._place_furniture("chair", at(8, -2), 0)
+	await tree.create_timer(0.5).timeout
+	r["bed_hint"] = main._describe_block(bed_a)
+	r["bed_furnished"] = Comfort.of_bed(main, bed)
+	r["rested_before"] = main.survival.buffs.has("rested")
+	main.survival.rest_at(bed, false)
+	r["rested_after"] = main.survival.buffs.get("rested", {})
+	main.player.position = Vector3(bed_a) + Vector3(1.0, 1.2, 1.4) * B
+	await _shot("bedroom", Vector3(bed_a) + Vector3(1.0, 0.9, 2.0) * B, 1.0)
 
 
 # ---------------- 3. New Stone Age ----------------

@@ -827,6 +827,8 @@ func _describe_block(p: Vector3i) -> Dictionary:
 
 
 func _describe_entity(e: RefCounted) -> Dictionary:
+	if e is FurnitureEntity and FurnitureEntity.KINDS[e.furniture].get("sleep", false):
+		return {"line": Comfort.text(Comfort.of_bed(self, e))}   # the room's rating (ADR 0162)
 	if e is FurnitureEntity and e.text != "":
 		return {"line": "\"%s\"" % e.text}   # a sign's words
 	if e is ChestEntity or (e is FurnaceEntity and not e.has_method("look_lines")):   # what is inside (ADR 0093)
@@ -1437,8 +1439,16 @@ func _use_furniture(p: Vector3i) -> void:
 		var wake := cal.sunrise() + 0.01
 		atmosphere.set_time_of_day(wake)
 		chat.add_message("You slept through the night. Respawn point set. %s" % cal.date_text())
+		_rest_note(e, false)
 	else:
 		chat.add_message("You can only sleep at night. Respawn point set.")
+		_rest_note(e, true)
+
+
+## A night's sleep (or a daytime nap) in a good room rests you (ADR 0162); the chat says how the room rated.
+func _rest_note(bed: FurnitureEntity, nap: bool) -> void:
+	var r := survival.rest_at(bed, nap)
+	chat.add_message(Comfort.text(r) + (" You feel rested." if survival.buffs.has("rested") else ""))
 
 
 func _on_placed(p: Vector3i, material: int) -> void:
