@@ -1493,10 +1493,25 @@ uint16_t FineGen::cave_dressing(int biome, int wx, int wz, int df, int dc, uint1
         return ce && (float)dc < std::min(half, dress_spike(wx, wz, sd + salt, chance, rmin, rmax, hmin, hmax));
     };
     const uint32_t ch = h3(wx, wz, sd + 4409);   // per-column rolls
+    // glow mushrooms: pieces like flowers (a stem under a glowing cap, dug whole; bug report 2026-11-07 10-27-47), a
+    // clump of one to three in `every` 4x4 voxel cells. Each stands in one column on that column's own floor, so a
+    // cap never parts from its stem on a rubble floor (a cap spread over columns did)
+    auto glow = [&](uint32_t every, bool patch) -> uint16_t {
+        const int cx = floor_div(wx, 4), cz = floor_div(wz, 4), lx = wx - cx * 4, lz = wz - cz * 4;
+        if (!fl) return Mat::AIR;
+        const uint32_t hs = h3(cx, cz, sd + 4421);
+        const bool stalk = (lx == 1 && lz == 1) || (lx == 2 && lz == 1 && ((hs >> 9) & 1)) || (lx == 1 && lz == 2 && ((hs >> 10) & 1));
+        if (!stalk || hs % every) return Mat::AIR;
+        if (patch && n_meadow_.GetNoise((float)(cx * 4 + 1) * 0.9f + 5200.0f, (float)(cz * 4 + 1) * 0.9f) <= 0.05f) return Mat::AIR;
+        const uint32_t hc = h3(wx, wz, sd + 4423);
+        const int S = 1 + (int)(hc & 1), C = 1 + (int)((hc >> 1) & 1);   // stem and cap heights
+        if ((float)(S + C) >= half) return Mat::AIR;
+        return df < S ? Mat::MUSHROOM_STEM : (df < S + C ? Mat::GLOW_MUSHROOM : Mat::AIR);
+    };
     // a hall's rim (ADR 0134): glow mushrooms in patches on the talus and moss along the roof's edge (glow worms hang
     // from it), so a hall shows its walls without a torch. Emissive tiles and ambient particles: no lights.
     if (rim > 0.15f && biome != B::FROZEN_CAVE && biome != B::MAGMA_CAVE) {
-        if (df == 0 && (ch % 5) == 0 && n_meadow_.GetNoise((float)wx * 0.9f + 5200.0f, (float)wz * 0.9f) > 0.05f) return Mat::GLOW_MUSHROOM;
+        if (const uint16_t gm = glow(1, true)) return gm;
         if (dc == 0 && n_meadow_.GetNoise((float)wx * 0.7f, (float)wz * 0.7f - 5200.0f) > 0.1f) return Mat::MOSS;
     }
     switch (biome) {
@@ -1552,7 +1567,7 @@ uint16_t FineGen::cave_dressing(int biome, int wx, int wz, int df, int dc, uint1
                         if (d <= R && df < H + 1 && df >= H + 1 - under) return Mat::FUNGUS_CAP;
                     }
                 }
-                if (df == 0 && (ch % 13) == 0) return Mat::GLOW_MUSHROOM;
+                if (const uint16_t gm = glow(3, false)) return gm;
             }
             return Mat::AIR;
         }
@@ -2477,7 +2492,9 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             // sinkholes, developer 2026-10-27)
             // and a skin of ground thinner than two cave bands over the hole is opened too (the floating grass
             // slabs over sinkholes and ravines, bug report 2026-10-27 15-20-15)
-            const bool open_top = m.roof == 0 && (cave_at(wx, h - 1, wz) || cave_at(wx, h - 1 - CAVE_STEP, wz) || cave_at(wx, h - 1 - 2 * CAVE_STEP, wz));
+            // ... never under water: caves keep 20 m under rivers and lakes (no_cave_above), so the field read here
+            // is no hole there, and opening the bed hung the river over a 1 m gap (bug report 2026-11-07 10-26-45)
+            const bool open_top = m.roof == 0 && no_cave_above < 0 && water_level <= h && (cave_at(wx, h - 1, wz) || cave_at(wx, h - 1 - CAVE_STEP, wz) || cave_at(wx, h - 1 - 2 * CAVE_STEP, wz));
             if (open_top) {
                 veg = veg_head = Mat::AIR;
                 for (int y = -1; y <= sy; y++)
@@ -2807,7 +2824,8 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
     // open air beside it (a one-cell puddle on a cave wall's step, a scrap at a bank) is dropped; it drew as a spike
     // or a film and woke the simulation for nothing. Cells on the block's edge keep (their neighbours are unknown).
     {
-        auto still = [](uint16_t m) { return m == Mat::WATER_STATIC || m == Mat::TOXIC_SLUDGE_STATIC || m == Mat::LAVA_STATIC; };
+        auto still = [](uint16_t m) { return m == Mat::WATER_STATIC || m == Mat::TOXIC_SLUDGE_STATIC || m == Mat::LAVA_STATIC
+                                             || m == Mat::WATER || m == Mat::TOXIC_SLUDGE; };   // + finite cave pools
         for (int z = 1; z < sz - 1; z++)
             for (int x = 1; x < sx - 1; x++) {
                 uint16_t *cp = w + sy * (x + sx * z);

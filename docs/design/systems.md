@@ -146,12 +146,12 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   as full cubes with their side faces. FineGen rivers interpolated per voxel and their trenches and low banks filled;
   `tools/water_surface_probe.gd` counts holes, glass edges, corner seams (`rule=field|ramps`; 0 for field), out-of-reach
   wall corners and the histogram of surface steps. **World water is endless and never simulated (ADR 0104, replacing the finite water of ADR 0068):**
-  generated water (`water_static`: rivers, lakes, the sea, pools) sleeps until a fresh opening (air that changed in the last
+  generated water (`water_static`: rivers, lakes, the sea) sleeps until a fresh opening (air that changed in the last
   two ticks) touches it beside or below; then it *pours*: the opening takes a full cell of moving `water` and the still cell
   stays (`SimWorld::reservoir`). A hole under a river takes a stream until it is full, a breach in the bank fills to one cell
   under the surface and goes on flooding lower ground past it (only the moving front costs: rested water sleeps). A side
   opening is fed only by a cell with still water above it (head), so the surface and stray still cells on it never become
-  springs. Air over a river's own lower step never wakes it; water that rests on a still body spreads flat over it. Lava or
+  springs. Cave pools are the exception (bug report 2026-11-07 10-32-53): water and sludge pools on cave floors are generated as the moving kind (`biomes.json` `surface.pool`), so a dug pool drains and is gone; lava pools stay still. Air over a river's own lower step never wakes it; water that rests on a still body spreads flat over it. Lava or
   sand sinking through still water trades places with it and the lifted cell becomes moving water (finite, never a still cell
   on top of a body). **One fluid system (ADR 0119, 2026-11-03):** moving liquids level as *columns* by head
   (`update_liquid_column`: half the height difference between neighbouring columns in whole eighths, a full cell under
@@ -285,7 +285,7 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   Atlas 8x23 tiles (16..19 ores, patterned since ADR 0064; 104 crystal, 109..111 savanna grass, tall grass, red earth, 112..120 crops and torches, 136..170 rocks, 171..172 tnt side and top, 173..175 monolith, 176..179 per-wood planks (row 23, 180..183 free); 190 waste ground, 191 slag, 215 chimney top (ADR 0141); 84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
   stones; 98 cobblestone, 99 bricks; 100 blueberry bush; 101 kelp, 102 seagrass, 103 seashell: full, add a row to grow;
   after editing `tools/make_atlas.py` run `--import`, or the game draws the old texture). `"pattern": true` materials lay their tile over the grid, one texel per voxel (ADR 0039). Ground pickups are voxel shapes (stone chunks on a 0.5 m patch, sticks as `FineGen::STICK` stamps);
-  clutter (flowers, mushrooms, seashells, kelp, seagrass) and ore nuggets are voxel pieces that dig whole (ADR 0047,
+  clutter (flowers, mushrooms, glow mushrooms (a `mushroom_stem` under a cap of emissive `glow_mushroom` 45, grown by `FineGen::cave_dressing` on a 4x4 voxel lattice), seashells, kelp, seagrass) and ore nuggets are voxel pieces that dig whole (ADR 0047,
   `GroundPickups`, probe `tools/clutter_probe.gd`). Crafting: any layout, amounts in inventory counts (ADR 0046). `MicroMesher` builds the
   models of stations, furniture, work pieces, mobs and the ape at 6.25 cm cells; it winds triangles
   counter-clockwise, so pass its meshes through `MobModel.outward` (which reads an ArrayMesh back and

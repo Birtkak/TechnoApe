@@ -106,12 +106,14 @@ func test_cave_pools_never_hang_over_a_drop() -> void:
 		for x in range(1, size.x - 1):
 			for y in range(0, size.y):
 				var m := ids[y + size.y * (x + size.x * z)]
-				if m != GameMaterials.TOXIC_SLUDGE_STATIC and m != GameMaterials.WATER_STATIC:
+				if m != GameMaterials.TOXIC_SLUDGE and m != GameMaterials.WATER:   # finite cave pools (bug report 2026-11-07 10-32-53)
 					continue
 				pools += 1
 				for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 					if ids[y + size.y * (x + d.x + size.x * (z + d.y))] == 0:
 						bad += 1
+	assert_int(pools).override_failure_message("no moving-liquid cave pool near the sulfur cave").is_greater(0)
+	assert_int(_count(ids, GameMaterials.TOXIC_SLUDGE_STATIC) + _count(ids, GameMaterials.WATER_STATIC)).is_equal(0)
 	assert_int(bad).override_failure_message("%d of %d pool voxels open sideways onto air" % [bad, pools]).is_equal(0)
 
 
@@ -149,3 +151,48 @@ func test_ruin_pot_spots_stand_inside_ruins() -> void:
 	for d in pots:
 		var under := _block(Vector3i(int(d["x"]), int(d["y"]) - 1, int(d["z"])), Vector3i(1, 2, 1))
 		assert_int(under[0]).is_not_equal(0)   # the floor
+
+
+func test_glow_mushrooms_are_pieces_with_a_stem() -> void:
+	# bug report 2026-11-07 10-27-47: a hall's glow mushrooms stand as stem + glowing cap pieces (dug whole, like
+	# flowers), never as lone glowing voxels on the floor
+	var g := FineGen.new()
+	g.configure(1337, S.SEA_LEVEL_VOXEL, S.WORLD_HEIGHT_VOXELS)
+	var size := Vector3i(64, 48, 64)
+	var b: PackedByteArray = g.generate_block(Vector3i(868, 600, -380), size, 0, 2)
+	var at := func(p: Vector3i) -> int:
+		if p.x < 0 or p.y < 0 or p.z < 0 or p.x >= size.x or p.y >= size.y or p.z >= size.z:
+			return 0
+		return b.decode_u16(2 * (p.y + size.y * (p.x + size.x * p.z)))
+	var seen := {}
+	var pieces := 0
+	var lone := 0
+	for z in size.z:
+		for x in size.x:
+			for y in size.y:
+				var p := Vector3i(x, y, z)
+				if at.call(p) != GameMaterials.GLOW_MUSHROOM or seen.has(p):
+					continue
+				var stack: Array[Vector3i] = [p]
+				var cells := 0
+				var stem := false
+				var edge := false   # a piece cut by the block's side may have its stem outside
+				seen[p] = true
+				while not stack.is_empty():
+					var q: Vector3i = stack.pop_back()
+					cells += 1
+					stem = stem or at.call(q) == GameMaterials.MUSHROOM_STEM
+					edge = edge or q.x <= 0 or q.z <= 0 or q.y <= 0 or q.x >= size.x - 1 or q.z >= size.z - 1 or q.y >= size.y - 1
+					for dz in [-1, 0, 1]:
+						for dy in [-1, 0, 1]:
+							for dx in [-1, 0, 1]:
+								var r: Vector3i = q + Vector3i(dx, dy, dz)
+								var m: int = at.call(r)
+								if not seen.has(r) and (m == GameMaterials.GLOW_MUSHROOM or m == GameMaterials.MUSHROOM_STEM):
+									seen[r] = true
+									stack.append(r)
+				pieces += 1
+				if not edge and (not stem or cells < 2):
+					lone += 1
+	assert_int(pieces).override_failure_message("no glow mushroom in the hall of the bug report").is_greater(0)
+	assert_int(lone).override_failure_message("%d of %d glow mushrooms are not stem-and-cap pieces" % [lone, pieces]).is_equal(0)

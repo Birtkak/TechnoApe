@@ -83,6 +83,20 @@ func test_a_flower_is_one_piece_and_drops_as_its_petals() -> void:
 	assert_bool(GroundPickups.is_pickup(GameMaterials.ALLIUM)).is_true()   # popped by a held right click
 
 
+func test_a_glow_mushroom_is_one_piece_and_drops_as_its_cap() -> void:
+	# bug report 2026-11-07 10-27-47: a stem under a glowing cap, dug whole like a flower
+	voxels[Vector3i(0, 0, 0)] = GameMaterials.MUSHROOM_STEM
+	voxels[Vector3i(0, 1, 0)] = GameMaterials.GLOW_MUSHROOM
+	voxels[Vector3i(0, 2, 0)] = GameMaterials.GLOW_MUSHROOM
+	var dug: Array[Vector3i] = [Vector3i(0, 2, 0)]
+	var r := GroundPickups.complete(_voxel, dug)
+	assert_int(r["cells"].size()).is_equal(3)
+	assert_int(r["pieces"].size()).is_equal(1)
+	assert_int(r["pieces"][0]["material"]).is_equal(GameMaterials.GLOW_MUSHROOM)
+	assert_bool(GroundPickups.is_pickup(GameMaterials.GLOW_MUSHROOM)).is_true()
+	assert_bool(GameMaterials.blocks_bodies(GameMaterials.GLOW_MUSHROOM)).is_false()
+
+
 func test_stalks_go_one_at_a_time_and_drop_per_voxel() -> void:
 	for y in 10:
 		voxels[Vector3i(0, y, 0)] = GameMaterials.KELP
