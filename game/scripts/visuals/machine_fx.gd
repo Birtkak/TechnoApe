@@ -12,8 +12,10 @@ extends Node3D
 
 const PATH := "res://data/machine_fx.json"
 const SCAN_S := 0.5
+const VIEW_M := 96.0          # WorkPalette draws a piece's view this far: a machine's carved parts must be there too
 const CANDIDATES_S := 5.0
 const EVAL_HZ := 10.0
+const BUILD_US := 2000         # part meshes built a frame, at least one
 const BLINK_HZ := 1.5
 const RUN_COLOR := Color("40e060")
 const STARVED_COLOR := Color("ff3020")
@@ -41,6 +43,8 @@ var _ms_n := 0
 var _cand: Array = []
 var _cand_size := -1
 var _cand_t := 0.0
+var _build_until := 0         # usec: parts are built until then each frame (30 machines at once cost 23 ms in one scan)
+var _built := 0
 
 
 # ---------------- data ----------------
@@ -176,12 +180,18 @@ func step(delta: float, eye: Vector3) -> void:
 		_eval_t = 0.0
 	var n_work := 0
 	var n_starved := 0
+	_build_until = Time.get_ticks_usec() + BUILD_US
+	_built = 0
 	for p in _recs.keys():
 		var r: Dictionary = _recs[p]
 		var e: Object = r["e"]
 		if blocks.at(p) != e:
 			_drop(p)
 			continue
+		if r["parts"].size() > 0:
+			_refresh_parts(r)
+		if not r["near"]:
+			continue   # beyond machine_fx_m: drawn (its carved parts), still, not evaluated
 		if eval_now:
 			r["working"] = force or working(e)
 			r["starved"] = not r["working"] and starved(e)
@@ -215,20 +225,32 @@ func _candidates() -> Array:
 
 func _scan(eye: Vector3) -> void:
 	var r2 := pow(Settings.m2v(Settings.machine_fx_m), 2)
+	var v2 := pow(Settings.m2v(maxf(VIEW_M, Settings.machine_fx_m)), 2)
 	var seen := {}
 	for e in _candidates():
 		var s := spec(e.kind)
-		if blocks.at(e.pos) != e or _centre(e).distance_squared_to(eye) > r2:
+		var d2 := _centre(e).distance_squared_to(eye)
+		if blocks.at(e.pos) != e or d2 > (v2 if s.has("parts") else r2):
 			continue
 		seen[e.pos] = true
 		if not _recs.has(e.pos) or _recs[e.pos]["e"] != e:
 			if _recs.has(e.pos):
 				_drop(e.pos)
 			_recs[e.pos] = _record(e, s)
+		var r: Dictionary = _recs[e.pos]
+		if r["near"] and d2 > r2:
+			r["working"] = false   # left the radius: stop where it is
+			r["starved"] = false
+			_still(r)
+			_animate(r, 0.0)   # the lamp goes dark
+		r["near"] = d2 <= r2
 	for p in _recs.keys():
 		if not seen.has(p):
 			_drop(p)
-	stats["near"] = _recs.size()
+	var near := 0
+	for p in _recs:
+		near += int(_recs[p]["near"])
+	stats["near"] = near
 	var n := 0
 	for p in _recs:
 		n += _recs[p]["parts"].size()
@@ -254,24 +276,17 @@ func _record(e: Object, s: Dictionary) -> Dictionary:
 	rig.basis = Basis(Vector3.UP, -PI / 2.0 * posmod(int(e.get("facing") if e.get("facing") != null else 0), 4))
 	add_child(rig)
 	var r := {"e": e, "s": s, "rig": rig, "box": b, "parts": [], "lamp": null, "working": false, "starved": false,
-		"acc": [], "prev": [], "view_base": null}
+		"acc": [], "prev": [], "near": false, "view": null}
 	for em in s.get("emit", []):
 		r["acc"].append(_rng.randf())   # staggered: thirty machines do not puff in step
 	for pu in s.get("pulse", []):
 		r["prev"].append(0.0)
 	for pd in s.get("parts", []):
 		var pivot := Node3D.new()
-		pivot.position = _local(r, pd.get("at", [0.5, 1.0, 0.5]))
 		rig.add_child(pivot)
-		var sz: Array = pd.get("size", [1, 1, 1])
-		var mi := MeshInstance3D.new()
-		mi.mesh = _mesh(Vector3(float(sz[0]), float(sz[1]), float(sz[2])))
-		mi.set_instance_shader_parameter("tint", Color(String(pd.get("color", "#808080"))))
-		if pd.get("motion", "") == "needle":
-			mi.position.y = float(sz[1]) * 0.5   # a needle turns about its foot
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		pivot.add_child(mi)
-		r["parts"].append({"def": pd, "pivot": pivot, "base": pivot.position, "angle": 0.0, "value": 0.0, "target": 0.0})
+		r["parts"].append({"def": pd, "pivot": pivot, "base": Vector3.ZERO, "angle": 0.0, "value": 0.0, "target": 0.0})
+	if not r["parts"].is_empty() and work == null:
+		_build_parts(r)   # in game _refresh_parts builds them, a few a frame
 	if s.has("lamp"):
 		var d: Dictionary = data().get("defaults", {})
 		var ls := float(s["lamp"].get("size", d.get("lamp_size", 1.5)))
@@ -283,6 +298,159 @@ func _record(e: Object, s: Dictionary) -> Dictionary:
 		rig.add_child(lamp)
 		r["lamp"] = lamp
 	return r
+
+
+# ---------------- parts: the model's own cells ----------------
+
+static func _paint(name: String) -> int:
+	return int((WorkPalette as Script).get_script_constant_map().get(name, WorkPalette.IRON_DARK))
+
+
+static func _v3(a: Array) -> Vector3:
+	return Vector3(float(a[0]), float(a[1]), float(a[2]))
+
+
+static func _facing(e: Object) -> int:
+	return posmod(int(e.get("facing") if e.get("facing") != null else 0), 4)
+
+
+## The view's solid part as drawn (art models applied), turned back to facing 0: {cells, size, grid, offset}.
+static func model_of(e: Object) -> Dictionary:
+	var s: Dictionary = WorkPalette.art_parts(e, e.view_parts()).get("solid", {})
+	if s.is_empty():
+		return {}
+	s = s.duplicate()
+	s["cells"] = WorkPalette.rotate_y(s["cells"], s["size"], -_facing(e))
+	s["grid"] = int(s.get("grid", GameMaterials.MICRO_GRID))
+	s["offset"] = s.get("offset", Vector3.ZERO)
+	return s
+
+
+## A kind's parts take their `cut` boxes (model cells, facing 0) out of its view: WorkSystem draws what is left,
+## MachineFx moves the rest. Returns `parts` with the solid cells cleared there.
+static func carve(e: Object, parts: Dictionary) -> Dictionary:
+	var cuts := []
+	for pd in spec(String(e.get("kind"))).get("parts", []):
+		if pd.has("cut"):
+			cuts.append(pd["cut"])
+	if cuts.is_empty() or not parts.has("solid"):
+		return parts
+	var s: Dictionary = parts["solid"].duplicate()
+	var size: Vector3i = s["size"]
+	var q := _facing(e)
+	var c: PackedInt32Array = WorkPalette.rotate_y(s["cells"], size, -q).duplicate()
+	for ab in cuts:
+		WorkPalette.box(c, size, Vector3i(_v3(ab[0])), Vector3i(_v3(ab[1])), -1)
+	s["cells"] = WorkPalette.rotate_y(c, size, q)
+	parts = parts.duplicate()
+	parts["solid"] = s
+	return parts
+
+
+## A part's cells in the model's grid: drawn `boxes` [a, b, paint], `drums` along x {x: [x0, x1], cy, cz, r, paint,
+## rivets: [x...]} and a `disc` across z {z, cx, cy, r, paint, teeth}; with none of those, the model's own cells in its
+## `cut` box. Returns {cells, size, origin} (origin in model cells) or {} when empty.
+static func part_cells(pd: Dictionary, model: Dictionary) -> Dictionary:
+	var lo := Vector3(INF, INF, INF)
+	var hi := -lo
+	var bounds: Array = []
+	for bx in pd.get("boxes", []):
+		bounds.append([_v3(bx[0]), _v3(bx[1])])
+	for d in pd.get("drums", []):
+		bounds.append([Vector3(d["x"][0], d["cy"] - d["r"], d["cz"] - d["r"]), Vector3(d["x"][1], d["cy"] + d["r"], d["cz"] + d["r"])])
+	if pd.has("disc"):
+		var k: Dictionary = pd["disc"]
+		bounds.append([Vector3(k["cx"] - k["r"], k["cy"] - k["r"], k["z"]), Vector3(k["cx"] + k["r"], k["cy"] + k["r"], k["z"] + 1)])
+	var from_model := bounds.is_empty()
+	if from_model:
+		if not pd.has("cut") or model.is_empty():
+			return {}
+		bounds.append([_v3(pd["cut"][0]), _v3(pd["cut"][1])])
+	for b in bounds:
+		lo = lo.min(b[0])
+		hi = hi.max(b[1])
+	var o := Vector3i(lo.floor())
+	var size := Vector3i(hi.ceil()) - o
+	var c := WorkPalette.new_cells(size)
+	if from_model:
+		var ms: Vector3i = model["size"]
+		var any := false
+		for z in size.z:
+			for y in size.y:
+				for x in size.x:
+					var m := o + Vector3i(x, y, z)
+					if m.x >= 0 and m.y >= 0 and m.z >= 0 and m.x < ms.x and m.y < ms.y and m.z < ms.z:
+						var v: int = model["cells"][WorkPalette.idx(ms, m.x, m.y, m.z)]
+						c[WorkPalette.idx(size, x, y, z)] = v
+						any = any or v > 0
+		if not any:
+			return {}
+	for bx in pd.get("boxes", []):
+		WorkPalette.box(c, size, Vector3i(_v3(bx[0])) - o, Vector3i(_v3(bx[1])) - o, _paint(String(bx[2])))
+	for d in pd.get("drums", []):
+		var cy: float = d["cy"] - o.y
+		var cz: float = d["cz"] - o.z
+		WorkPalette.drum(c, size, int(d["x"][0]) - o.x, int(d["x"][1]) - o.x, cy, cz, d["r"], _paint(String(d["paint"])))
+		for rx in d.get("rivets", []):
+			WorkPalette.drum_rivets(c, size, int(rx) - o.x, cy, cz, d["r"])
+	if pd.has("disc"):
+		var k: Dictionary = pd["disc"]
+		var tooth := _paint(String(k.get("teeth", "RIVET")))
+		for y in size.y:
+			for x in size.x:
+				var dv := Vector2(x + o.x + 0.5 - float(k["cx"]), y + o.y + 0.5 - float(k["cy"]))
+				var l := dv.length()
+				if l <= float(k["r"]):
+					var rim := l > float(k["r"]) - 1.0 and posmod(int(round(dv.angle() / TAU * 12.0)), 2) == 0
+					c[WorkPalette.idx(size, x, y, int(k["z"]) - o.z)] = (tooth if rim else _paint(String(k["paint"]))) + 1
+	return {"cells": c, "size": size, "origin": Vector3(o)}
+
+
+## Model cells (facing 0) to rig-local voxels: a view's cell c sits at (c / grid + offset) widths from its anchor and
+## turns about the footprint centre, where the rig stands.
+func _cell_to_rig(r: Dictionary, c: Vector3) -> Vector3:
+	var m: Dictionary = r["model"]
+	var w: float = r["box"].x
+	return (c / float(m["grid"]) + Vector3(m["offset"]) - Vector3(0.5, 0.0, 0.5)) * w
+
+
+## (Re)builds every part's mesh from the model as drawn now: on creation and whenever WorkSystem rebuilt the view.
+func _build_parts(r: Dictionary) -> void:
+	r["model"] = model_of(r["e"])
+	if r["model"].is_empty():
+		return
+	var w: float = r["box"].x
+	var grid := float(r["model"]["grid"])
+	for part in r["parts"]:
+		var pd: Dictionary = part["def"]
+		var pivot: Node3D = part["pivot"]
+		for ch in pivot.get_children():
+			pivot.remove_child(ch)
+			ch.queue_free()
+		var pc := part_cells(pd, r["model"])
+		if pc.is_empty():
+			continue
+		var at: Vector3 = _v3(pd["pivot"]) if pd.has("pivot") else pc["origin"] + Vector3(pc["size"]) * 0.5
+		part["base"] = _cell_to_rig(r, at)
+		if pd.get("motion", "") != "bob" or part["angle"] == 0.0:
+			pivot.position = part["base"]
+		var mi := MeshInstance3D.new()
+		mi.mesh = WorkPalette.mesh(pc["cells"], pc["size"], int(grid))
+		mi.material_override = WorkPalette.material()
+		mi.visibility_range_end = VIEW_M
+		mi.scale = Vector3.ONE * w
+		mi.position = (pc["origin"] - at) / grid * w
+		pivot.add_child(mi)
+
+
+func _refresh_parts(r: Dictionary) -> void:
+	if work == null:
+		return
+	var v := work.view_at(r["e"].pos)
+	if v != r["view"] and (_built == 0 or Time.get_ticks_usec() < _build_until):
+		r["view"] = v
+		_build_parts(r)
+		_built += 1
 
 
 func _local(r: Dictionary, at: Array) -> Vector3:
@@ -327,10 +495,15 @@ func _animate(r: Dictionary, delta: float) -> void:
 				if on:
 					part["angle"] = fmod(part["angle"] + float(d.get("rpm", 60.0)) / 60.0 * TAU * delta, TAU)
 					pivot.basis = Basis(axis, part["angle"])
-			"bob":
+			"bob":   # `amp` model cells along `axis` and back (negative: the other way), hz times a second
 				if on:
 					part["angle"] += float(d.get("hz", 1.0)) * TAU * delta
-					pivot.position = part["base"] + Vector3.UP * Settings.m2v(float(d.get("amp_m", 0.05))) * (0.5 - 0.5 * cos(part["angle"]))
+				var cell: float = r["box"].x / float(r["model"].get("grid", 8)) if r.has("model") else 1.0
+				pivot.position = part["base"] + axis * float(d.get("amp", 1.0)) * cell * (0.5 - 0.5 * cos(part["angle"]))
+			"swing":   # deg either side about `axis`, hz times a second
+				if on:
+					part["angle"] += float(d.get("hz", 0.5)) * TAU * delta
+				pivot.basis = Basis(axis, deg_to_rad(float(d.get("deg", 30.0))) * sin(part["angle"]))
 			"needle":
 				var rg: Array = d.get("range", [0.0, 1.0])
 				var sw: Array = d.get("sweep_deg", [-60, 60])

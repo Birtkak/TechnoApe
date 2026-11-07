@@ -14,8 +14,8 @@ factory of ~30 in view, and easy to extend (a water wheel comes next).
 1. **One data file per kind, `data/machine_fx.json`, read by `MachineFx`** (`scripts/visuals/machine_fx.gd`, a
    child of Main). Per block entity kind: `when` (a GDScript `Expression` on the entity, default `is_lit()`),
    `starved` (an Expression: wants to work, has no power or steam), `emit` (particle effects at `per_s` with an
-   optional `if`), `pulse` (a burst when a value rises from 0: the hammer's blow), `parts` (boxes over the model
-   that `spin`, `bob`, or a `needle` that follows a value such as `pressure` or `charge / wh`), `shake_m` (the
+   optional `if`), `pulse` (a burst when a value rises from 0: the hammer's blow), `parts` (pieces of the model
+   that `spin`, `bob`, `swing`, or a `needle` that follows a value such as `pressure`), `shake_m` (the
    model trembles), `lamp` (steady green while working, blinking red while starved) and `light` (fire, lamp or
    none for TorchLights). Positions are fractions of the footprint box, turned with the entity's `facing` the way
    `WorkPalette.rotate_y` turns the model. A new machine is a JSON entry, no code.
@@ -41,7 +41,14 @@ factory of ~30 in view, and easy to extend (a water wheel comes next).
   Main's JSON carries `machine_fx` stats (near, working, starved, parts, bursts, ms_avg, ms_max, scan_ms_max).
 - Measured (dev box shared with 7 other Godot runs, so frame times are noise): 30 machines forced on cost
   MachineFx 0.21-0.25 ms a frame on average, the scan that builds the parts 1.4-1.6 ms once.
-- Parts are plain boxes over the voxel model, not cut out of it: a roller or needle sits on the casing. A model
-  with its own moving voxels (the turbine's blades, the hammer's head) keeps them.
+- Parts are the model's own cells (amended 2026-11-07, after plain boxes over the casing read as stickers): `cut`
+  [a, b] in the model's grid (facing 0) takes those cells out of the view (`MachineFx.carve`, called by WorkSystem
+  when it draws the view) and MachineFx draws them as one moving mesh in `WorkPalette`'s material, rebuilt when the
+  view is. A round fitting that must turn is redrawn whole in the same grid and paints (`drums` along x, a `disc`,
+  `boxes`), its lower half inside the lid. Parts are drawn out to 96 m (the views' range) and move within 32 m.
+  A model with its own moving voxels (the turbine's blades, the hammer's head) keeps them.
+- Covered kinds: the steam line, the LV machines, and from main the builder (sparks while it places, red lamp when a
+  site waits for power) and the contraption drives (lift winch and drawbridge drum, the crane's slewing ring turn
+  while `moving()`; red lamp while the lever waits for power).
 - Open: the hammer head still moves by a view rebuild (ADR 0097); per-kind sounds beyond the steam loop wait
   for new assets.
