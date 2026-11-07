@@ -360,7 +360,11 @@ vec3 season_color(vec3 col, float idx, vec3 wpos, vec3 n) {
 			col = mix(col, vec3(0.62, 0.42, 0.20) * lum * 2.2, season_autumn * 0.6 * seasonal);
 		}
 	}
-	if (season_snow > 0.0 && n.y > 0.6 && abs(idx - lava_tile) > 0.5 && abs(idx - fire_tile) > 0.5 && abs(idx - ice_tile) > 0.5) {
+	// ADR 0156: low plants (tall grass, ferns, straw grass, flowers) are snowed in on every face but the bottom: the
+	// snow layer never lies on them (a thaw would delete them), so the tufts read as mounds of snow instead of green
+	bool low_plant = abs(idx - tall_grass_tile) < 0.5 || abs(idx - fern_tile) < 0.5 || abs(idx - 29.0) < 0.5
+		|| abs(idx - 110.0) < 0.5 || abs(idx - 30.0) < 0.5 || abs(idx - 31.0) < 0.5;
+	if (season_snow > 0.0 && (n.y > 0.6 || (low_plant && n.y > -0.5)) && abs(idx - lava_tile) > 0.5 && abs(idx - fire_tile) > 0.5 && abs(idx - ice_tile) > 0.5) {
 		float cold = 1.0 - smoothstep(snow_t_max - 0.06, snow_t_max + 0.04, t);
 		float s = season_snow * cold;
 		// ragged edge while it thins: pixels drop out by a per-pixel hash

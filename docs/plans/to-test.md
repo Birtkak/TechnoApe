@@ -42,6 +42,8 @@ drive to flip its lever (or `/contraptions toggle`), `/contraptions ride` stands
 ## Seasons that matter (ADR 0156)
 
 - [ ] `/season winter` then `/weather snow` at night by a river: snow builds up patchy on the ground over ~20 s, the river freezes and you can walk on it. `/season winter now` does it at once.
+- [ ] Meadows in winter: tall grass and flowers look snowed in, and they are all still there in spring.
+- [ ] An old world (from before seasons) keeps its date on load.
 - [ ] `/season spring now`: snow gone, the river is water again (no flood, no moving water).
 - [ ] A season is now 9 days (3 h). Does the year turn at a good pace? Is the cold winter (-2 C mean on temperate ground) too harsh?
 - [ ] Summer: rare showers, most of them thunderstorms; a lit grass fire spreads faster when it has not rained. Unwatered farmland: crops say "Parched".

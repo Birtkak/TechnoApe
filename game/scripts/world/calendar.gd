@@ -378,11 +378,20 @@ func crop_growth() -> float:
 # ---------------- save ----------------
 
 func to_dict() -> Dictionary:
-	return {"version": 1, "day": day, "time": time}
+	return {"version": 1, "day": day, "time": time, "month_days": month_days}
 
 
+## A save written with other month lengths (ADR 0156: before it, 9 days and no "month_days" key) keeps its date:
+## the same year, month and share of the month.
 func load_dict(d: Dictionary) -> void:
 	if int(d.get("version", 0)) != 1:
 		return
 	day = maxi(0, int(d.get("day", 0)))
 	time = fposmod(float(d.get("time", time)), 1.0)
+	var old_md := maxi(1, int(d.get("month_days", 9)))
+	if old_md != month_days:
+		var abs_day := day + 3 * old_md                 # the world began on 1 April in every calendar
+		var yr := abs_day / (12 * old_md)
+		var doy := abs_day % (12 * old_md)
+		var new_doy := (doy / old_md) * month_days + (doy % old_md) * month_days / old_md
+		day = maxi(0, yr * 12 * month_days + new_doy - start_day_of_year)

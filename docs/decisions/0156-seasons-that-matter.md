@@ -36,13 +36,20 @@ never seen turning, a temperate winter (12 +- 7 C) never froze, and snow was onl
   once a year. Winter already rests crops, empties berry bushes and leans animals (ADR 0061), so stored and preserved
   food (ADR 0162) carries the winter.
 - **Testing:** `/season [spring|summer|autumn|winter] [now]` shows the state or jumps to the season's first day
-  (January, April, July, October); `now` lays or clears snow and ice over the whole bubble at once (45 ms, a test
-  hitch).
+  (January, April, July, October); `now` lays or clears snow and ice over the whole bubble within a few frames
+  (`season_rush_ms` 1.5 ms of passes a frame; all at once was a 45 ms frame).
 
 ## Consequences
 - Measured at the default 72 m render distance while snowing at midnight: p99 3.4 ms, max 7.6 ms, budget_ok, pass
   at most 0.9 ms (`loop.season_world` in the JSON line).
-- Existing saves keep their day count: with shorter months their date jumps.
-- Snow does not lie on tall grass or flowers (they would be lost to the thaw), so a meadow keeps green tufts in the
-  snow; the shader's snow tint covers the ground between.
-- Pollution (ADR 0155) is not touched: fouled water stays liquid in winter, a later choice.
+- Old saves keep their date: the calendar file now stores `month_days`, and a save without it (9-day months) is
+  converted on load to the same year, month and share of the month.
+- Snow does not lie on low plants (a thaw clears the layer, it would delete them); instead the terrain shader snows
+  in tall grass, ferns, straw grass and flowers on every face but the bottom while the season's snow tint is on.
+- Fouled water (ADR 0155) does not freeze, on purpose: ice melts back to clean water (`ice` melts_to water, the
+  pass's lake ice to `water_static`), so a winter would launder pollution; open grey water in a frozen landscape is
+  also the tell that it is fouled. A fouled ice material would need an id of its own.
+- Flowing water (moving cells, rapids, terrace edges) is not frozen by the pass; only the heat sim freezes it, below
+  water's own freeze_c.
+- In game (2026-11-07): `/date set november 2` brought "first frost in about 1 day"; a 1 m fire ball on plains
+  grass at noon grew from 120 to 170 flame cells in 20 s in a dry summer and died to 6 in spring.

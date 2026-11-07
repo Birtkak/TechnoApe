@@ -258,6 +258,7 @@ var month_days := 3                      # days per month: a season is 9 days (3
 var season_swing_c := 14.0               # the year's temperature swing about the climate's mean: mid-January this much under it
 var season_pass_s := 0.1                 # how often the sim bubble's next chunk columns get the season (snow, ice, thaw)
 var season_columns := 3                  # chunk columns (2 x 2 m) per pass: the bubble sweeps in ~20 s, a few remeshes a second
+var season_rush_ms := 1.5                # /season now: main-thread time a frame for laying or clearing the whole bubble
 var snow_stick_chance := 0.35            # per voxel column per pass while it snows below 0 C: the snow layer builds up patchy
 var ice_form_c := 0.0                    # still water freezes over when the day's mean outside is below this ...
 var thaw_c := 2.0                        # ... and the snow and lake ice go when it is above this

@@ -77,3 +77,20 @@ func test_short_year_and_bigger_swing() -> void:
 	assert_int(c.year_days()).is_equal(12 * Settings.month_days)
 	var jan := Survival.environment_c(0.0, int(0.5 * c.month_days), c.year_days(), c.month_days, 0.33, 0.0, false, false, 0.0)
 	assert_float(jan).is_less(Settings.ice_form_c)   # a temperate winter freezes the ponds
+
+
+func test_old_saves_keep_their_date() -> void:
+	var old := Calendar.new()   # the 9-day months saves were written with
+	old.set_date(7, 4, 0.3)     # 5 August, year 1
+	old.day += old.year_days()  # year 2
+	var d := old.to_dict()
+	d.erase("month_days")       # saves from before ADR 0156 have no key
+	var c := Calendar.with_month_days(3)
+	c.load_dict(d)
+	assert_int(c.month()).is_equal(7)
+	assert_int(c.year()).is_equal(2)
+	assert_int(c.day_of_month()).is_equal(1)   # day 5 of 9 -> day 2 of 3
+	assert_float(c.time).is_equal_approx(0.3, 0.001)
+	var again := Calendar.with_month_days(3)
+	again.load_dict(c.to_dict())   # a new save loads unchanged
+	assert_int(again.day).is_equal(c.day)
