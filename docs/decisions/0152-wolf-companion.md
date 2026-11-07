@@ -26,11 +26,16 @@ and bit its owner. The "fun pass" wants one companion: the tamed wolf only (no d
 6. **Heal:** +1 half-heart per 25 s; raw or cooked meat held out heals 6 (`Mob.eat_meat`, used up only when hurt).
 7. All numbers are data: `companion` block of the wolf in `mobs.json`. `/tame` (playtest) tames the wolf in aim.
 
-## Multiplayer (ADR 0145)
-Mobs are still local to each client, so a companion is too. `owner_id` is a player id and owners resolve through
-`MobManager.owner_node` (the local player, or a node registered with `register_owner`). Remaining for remote
-players: tell the server about companions (they save with the mob file the server does not read), look up a
-remote owner's node from `RemotePlayers` by name, and sync sit/fight state so others see it.
+## Name tag, line of sight (follow-up 2026-11-07)
+- A `Label3D` over the companion shows its name ("Wolf" by default, saved as `pet_name`); `/name <text>` renames the
+  companion in aim. A name tag *item* is not made (it needs a sprite and recipe).
+- The growl samples the line to the threat every 2 voxels (`MobManager.line_clear`): nothing is reported through rock.
 
-## Not done
-Name tag over the companion (optional); the growl does not check line of sight, only range; no dogs or other species.
+## Multiplayer (ADR 0145)
+Mobs are still local to each client, so each client simulates its own player's companion. PROTO is 3: the 20 Hz
+`_s_state` / `_c_state` relay carries `pet = [pos, yaw, speed, sitting, name]` (empty when none) and
+`RemotePlayers.Avatar` draws it as a puppet wolf (eased, sit pose, name tag). `owner_id` is a player id; owners resolve
+through `MobManager.owner_node`.
+Remaining: the companion's fights and damage are not visible to others (only position, pose, name); a companion
+is not in the server's save of that player (it lives in the client's mob file); a remote owner's hits do not
+make the *local* simulation of their pet fight; no puppet pose for "defending".

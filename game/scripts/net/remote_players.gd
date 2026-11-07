@@ -16,6 +16,41 @@ class Avatar extends Node3D:
 	var speed := 0.0
 	var flying := false
 	var fresh := true
+	var pet: Node3D          # the owner's companion as a puppet (ADR 0152): their client simulates it
+	var pet_model: MobModel
+	var pet_tag: Label3D
+	var pet_target := Vector3.ZERO
+	var pet_yaw := 0.0
+	var pet_speed := 0.0
+	var pet_sit := false
+
+	func set_pet(st: Array) -> void:
+		if st.is_empty():
+			if pet != null:
+				pet.visible = false
+			return
+		if pet == null:
+			pet = Node3D.new()
+			pet.top_level = true
+			pet_model = MobModel.create("wolf", false)
+			pet.add_child(pet_model)
+			pet_model.scale = Vector3.ONE * MobModel.UNIT
+			pet_tag = Label3D.new()
+			pet_tag.font_size = 48
+			pet_tag.pixel_size = 0.03
+			pet_tag.outline_size = 12
+			pet_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			pet_tag.no_depth_test = true
+			pet_tag.position = Vector3(0, Settings.m2v(1.3), 0)
+			pet.add_child(pet_tag)
+			add_child(pet)
+			pet.global_position = st[0]
+		pet_target = st[0]
+		pet_yaw = float(st[1])
+		pet_speed = float(st[2])
+		pet_sit = bool(st[3])
+		pet_tag.text = String(st[4])
+		pet.visible = true
 
 	func _ready() -> void:
 		model = ApeModel.new()
@@ -36,6 +71,11 @@ class Avatar extends Node3D:
 		position = position.lerp(target, k)
 		rotation.y = lerp_angle(rotation.y, yaw, k)
 		model.animate(delta, speed, not flying, flying, pitch, 0.0)
+		if pet != null and pet.visible:
+			pet.global_position = pet.global_position.lerp(pet_target, k)
+			pet.rotation.y = lerp_angle(pet.rotation.y, pet_yaw, k)
+			pet_model.rotation.x = move_toward(pet_model.rotation.x, Mob.SIT_PITCH if pet_sit else 0.0, 3.0 * delta)
+			pet_model.animate(delta, 0.0 if pet_sit else pet_speed, 0.0, 0.0, 0.0, 0.0)
 
 
 var _by_id := {}
@@ -66,7 +106,7 @@ func _remove(id: int) -> void:
 		_by_id.erase(id)
 
 
-func _state(id: int, pos: Vector3, yaw: float, pitch: float, speed: float, flying: bool) -> void:
+func _state(id: int, pos: Vector3, yaw: float, pitch: float, speed: float, flying: bool, pet: Array = []) -> void:
 	if not _by_id.has(id):
 		_add(id, Net.peers.get(id, "?"))
 	var a: Avatar = _by_id[id]
@@ -79,6 +119,7 @@ func _state(id: int, pos: Vector3, yaw: float, pitch: float, speed: float, flyin
 	a.pitch = pitch
 	a.speed = speed
 	a.flying = flying
+	a.set_pet(pet)
 	a.visible = true
 
 
