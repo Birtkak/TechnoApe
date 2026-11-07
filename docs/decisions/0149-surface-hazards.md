@@ -49,3 +49,14 @@ with real damage, and every hazard needs a warning sign and a counter. Storms ex
   on fresh lava) and the volcano spot's own frame cost; both need a native look.
 - First run lessons: lava or smoke touching the still crater lake wakes all of it (65 ms, then 56 ms sim ticks), so the
   pour goes outside the rim and the ash starts 6 m over the lake.
+
+## Follow-up (2026-11-07, second round)
+- The rod is not a station (nothing is crafted in it; the recipe browser's station test). Breaking any voxel of the
+  pole takes the whole rod (`footprint_cells`, Main._break_torch) and drops one rod item (mining.json).
+- Metal draws strikes: a metal surface voxel (ores but coal, anything iron or copper, rails, the rod) counts
+  `lightning_metal_m` (3 m) higher in `pick_target` (`Weather.metal_mask`, by name: materials have no metal flag;
+  machines and cables are station voxels and do not count yet).
+- `/goto volcano` lands on the rim on the side you come from (`Volcano.rim_toward`), not in the crater lava.
+- The 37-135 ms drops were `SimBubble.blast` waiting for the worker pool, which the burning flank keeps busy. The pour
+  (a 0.75 m cube) and the ash (a 1 m cube at 60 %) now use `SimWorld.scatter`, single-threaded and in place:
+  0.1-0.2 ms each. Bombs stay sphere edits (2.7 ms worst). shortcut: scatter sends no net op (ADR 0145).

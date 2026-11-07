@@ -97,7 +97,9 @@ drive to flip its lever (or `/contraptions toggle`), `/contraptions ride` stands
 - [ ] Craft a lightning rod (2 iron rods over a copper ingot), place it on the tower's top: strikes within 24 m hit the
       rod instead (flash and thunder, nothing burns). Does the 2 m pole read as a rod? Does the foot break cleanly?
 - [ ] Stand next to a strike (`/lightning here`): 8 health gone, "lightning" on the death screen if it kills you.
-- [ ] `/goto volcano`, stand on the rim, `/erupt`: 20 s of rumble and ash over the lake, then lava over the rim on your
+- [ ] Dig any part of a placed lightning rod: the whole pole goes and one rod drops. Iron ore or rails on a hilltop
+      draw strikes a little more than stone.
+- [ ] `/goto volcano` (lands on the rim now), `/erupt`: 20 s of rumble and ash over the lake, then lava over the rim on your
       side running down the cone, bombs landing on the flank. Does it feel like a threat? Does the frame rate hold?
 - [ ] Wait near a volcano (`/weather` shows nothing, it rolls every 90 s): an eruption starts on its own now and then.
 

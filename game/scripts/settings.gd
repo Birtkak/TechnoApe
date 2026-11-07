@@ -299,6 +299,7 @@ var weather_fire_clear_s := 20.0        # the fire rain stops once no fire was s
 var storm_chance := 0.3                 # a rolled shower in a wet enough column is a storm this often
 var lightning_every_s := 12.0           # mean seconds between strikes in a storm (half of them distant: thunder only)
 var lightning_target_m := 24.0          # strikes choose the highest surface voxel within this radius of the player (surface_map)
+var lightning_metal_m := 3.0           # a metal surface voxel (ore, meteoric iron, rail, the rod) counts this much higher
 var lightning_rod_m := 24.0             # a lightning rod draws every strike aimed within this radius of it
 var lightning_fire_m := 0.6             # flames fill the air within this radius of the hit point
 var lightning_damage := 8               # health lost standing within lightning_hurt_m of the hit

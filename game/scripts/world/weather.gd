@@ -39,6 +39,7 @@ var _drop_t := 0.0
 var _rng := RandomNumberGenerator.new()
 var _mask := PackedByteArray()
 var _strike_t := 0.0
+var _metal := PackedByteArray()   # materials that draw lightning (metal_mask)
 var _air_like := PackedInt32Array()   # what a rain drop may replace besides air
 var _fires: Array[Vector3i] = []   # recent fire sample positions (newest last): burning cells and flames, smoke moved down
 var _fire_seen := -1e9             # _clock when fire was last seen
@@ -62,6 +63,7 @@ func setup(p_main: Node) -> void:
 	_mask.resize(256)
 	_mask[FIRE] = 1
 	_mask[SMOKE] = 1
+	_metal = metal_mask()
 	_air_like = PackedInt32Array([SMOKE, FIRE, GameMaterials.id_of("steam")])
 	_roll_t = _rng.randf_range(0.3, 1.0) * Settings.weather_roll_s
 	_rain = _make_particles(false)
@@ -276,13 +278,20 @@ func _far_strike() -> void:
 
 
 ## The strike's target from a surface map (SimWorld.surface_map: per column material | depth << 8 | y << 16, 0 where
-## nothing was found; columns from min_xz in world voxels, `step` apart): the highest surface voxel; a rod tip within
-## rod_r voxels (flat distance) of that spot takes it instead. {pos, rod}; pos.y < 0 when the map was empty.
-static func pick_target(map: PackedInt32Array, min_xz: Vector2i, cols: int, step: int, rod_tips: Array, rod_r: float) -> Dictionary:
+## nothing was found; columns from min_xz in world voxels, `step` apart): the highest surface voxel, a metal one
+## (`metal` indexed by material id) counted `metal_up` voxels higher; a rod tip within rod_r voxels (flat distance)
+## of that spot takes it instead. {pos, rod}; pos.y < 0 when the map was empty.
+static func pick_target(map: PackedInt32Array, min_xz: Vector2i, cols: int, step: int, rod_tips: Array, rod_r: float,
+		metal := PackedByteArray(), metal_up := 0) -> Dictionary:
 	var best := Vector3i(0, -1, 0)
+	var best_score := -1
 	for i in map.size():
 		var e := map[i]
-		if e != 0 and (e >> 16) > best.y:
+		if e == 0:
+			continue
+		var score := (e >> 16) + (metal_up if metal.size() > (e & 255) and metal[e & 255] else 0)
+		if score > best_score:
+			best_score = score
 			best = Vector3i(min_xz.x + (i % cols) * step, e >> 16, min_xz.y + (i / cols) * step)
 	if best.y < 0:
 		return {"pos": best, "rod": false}
@@ -295,6 +304,19 @@ static func pick_target(map: PackedInt32Array, min_xz: Vector2i, cols: int, step
 			best = t
 			rod = true
 	return {"pos": best, "rod": rod}
+
+
+## Metal materials by id: ores, meteoric iron, rails, the rod. shortcut: by name, as materials have no metal flag;
+## machines and cables are station voxels of many looks and do not count yet. Add a flag when metal roofs exist.
+static func metal_mask() -> PackedByteArray:
+	var m := PackedByteArray()
+	m.resize(256)
+	var defs := GameMaterials.defs()
+	for i in mini(defs.size(), 255):
+		var n: String = defs[i]["name"]
+		if n.ends_with("_ore") and not n.begins_with("coal") or "iron" in n or "copper" in n or n.ends_with("rail") or n == "lightning_rod":
+			m[i + 1] = 1
+	return m
 
 
 func rod_tips() -> Array:
@@ -323,7 +345,7 @@ func strike(at := Vector3i(0, -1, 0)) -> Vector3i:
 		var hi := Vector2i(clampi(c.x + r, 0, size.x - 1), clampi(c.z + r, 0, size.z - 1))
 		var cols := Vector2i((hi.x - lo.x) / step + 1, (hi.y - lo.y) / step + 1)
 		var map: PackedInt32Array = bubble.sim.surface_map(lo, cols, step, o.y)
-		t = pick_target(map, Vector2i(lo.x + o.x, lo.y + o.z), cols.x, step, rod_tips(), Settings.m2v(Settings.lightning_rod_m))
+		t = pick_target(map, Vector2i(lo.x + o.x, lo.y + o.z), cols.x, step, rod_tips(), Settings.m2v(Settings.lightning_rod_m), _metal, int(Settings.m2v(Settings.lightning_metal_m)))
 		stats["scan_ms_max"] = maxf(stats["scan_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
 		if t["pos"].y < 0:
 			return t["pos"]

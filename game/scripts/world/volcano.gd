@@ -29,6 +29,7 @@ var _pour_t := 0.0
 var _bomb_t := 0.0
 var _rng := RandomNumberGenerator.new()
 var _rumble: AudioStreamPlayer3D
+var ms_max := {"ash": 0.0, "pour": 0.0, "bomb": 0.0}   # the slowest sphere edit of each kind
 
 
 func setup(p_main: Node) -> void:
@@ -93,10 +94,12 @@ func _ground_y(x: int, z: int, fallback: int) -> int:
 
 
 ## The rim on the player's side: the highest column walking out from the centre toward the player (1 m steps,
-## up to 60 m). The centre itself when the generator is not there (tests).
+## up to 60 m). The centre itself when the generator is not there (tests). /goto volcano lands there too.
 func _find_rim(centre: Vector3i) -> Vector3i:
-	var gen = main.world.generator.gen if main.world and main.world.generator else null
-	var p: Vector3 = main.player.position
+	return rim_toward(main.world.generator.gen if main.world and main.world.generator else null, centre, main.player.position)
+
+
+static func rim_toward(gen, centre: Vector3i, p: Vector3) -> Vector3i:
 	var dir := Vector2(p.x - centre.x, p.z - centre.z)
 	dir = dir.normalized() if dir.length() > 1.0 else Vector2(1, 0)
 	var best := centre
@@ -138,7 +141,7 @@ func _process_timed(delta: float) -> void:
 		if _pour_t <= 0.0 and bubble.can_sample():
 			_pour_t = 0.5
 			# 6 m over the lake: smoke touching the still lava wakes the whole lake (56 ms ticks, 2026-11-07)
-			bubble.blast(Vector3(crater) + Vector3(0.5, Settings.m2v(6.0), 0.5), Settings.m2v(1.0), SMOKE, PackedInt32Array([GameMaterials.AIR]))
+			_box("ash", crater + Vector3i(0, int(Settings.m2v(6.0)), 0), int(Settings.m2v(1.0)), SMOKE, 0.6)
 		if _bomb_t <= 0.0:
 			_bomb_t = _rng.randf_range(3.0, 6.0)
 			Sound.play("volcano/burst", Vector3(crater))
@@ -149,15 +152,13 @@ func _process_timed(delta: float) -> void:
 	# flow: a ball of lava at the spout every half second, a bomb onto the flank now and then
 	if _pour_t <= 0.0 and bubble.can_sample():
 		_pour_t = 0.5
-		var r := Settings.m2v(0.5)
-		var at := Vector3(_spout) + Vector3(0.5, r + 1.0, 0.5)
-		poured += bubble.blast(at, r, LAVA, PackedInt32Array([GameMaterials.AIR]))
+		poured += _box("pour", _spout + Vector3i(0, 1, 0), int(Settings.m2v(0.75)), LAVA, 1.0)
 	if _bomb_t <= 0.0 and bubble.can_sample():
 		_bomb_t = _rng.randf_range(3.0, 7.0)
 		var a := _rng.randf() * TAU
 		var d := _rim_d + Settings.m2v(_rng.randf_range(4.0, 16.0))
 		var at := Vector3(crater) + Vector3(cos(a) * d, Settings.m2v(14.0), sin(a) * d)
-		poured += bubble.blast(at, Settings.m2v(0.5), LAVA, PackedInt32Array([GameMaterials.AIR]))
+		poured += _blast("bomb", at, Settings.m2v(0.5), LAVA)
 		bombs += 1
 		Sound.play("volcano/burst", Vector3(crater))
 	if _t <= 0.0 or poured - _poured0 >= Settings.volcano_lava_cells:
@@ -166,5 +167,24 @@ func _process_timed(delta: float) -> void:
 			_rumble.stream_paused = true
 
 
+func _blast(what: String, at: Vector3, r: float, mat: int) -> int:
+	var t0 := Time.get_ticks_usec()
+	var n: int = main.bubble.blast(at, r, mat, PackedInt32Array([GameMaterials.AIR]))
+	ms_max[what] = maxf(ms_max[what], (Time.get_ticks_usec() - t0) / 1000.0)
+	return n
+
+
+## A `side`-voxel cube of `mat` resting on `foot` (SimWorld.scatter: single-threaded, in place). Not a sphere edit:
+## blast runs on the worker pool, which the burning flank keeps busy: 68-135 ms waits (2026-11-07). Over air only:
+## the ash 6 m over the lake, the spout's cube on the ground beside the rim. shortcut: no net op (ADR 0145), so a
+## client sees the lava only as the host's sim deltas; send one when eruptions matter in multiplayer.
+func _box(what: String, foot: Vector3i, side: int, mat: int, density: float) -> int:
+	var t0 := Time.get_ticks_usec()
+	var lo: Vector3i = foot - Vector3i(side / 2, 0, side / 2) - main.bubble.origin * Settings.CHUNK
+	main.bubble.sim.scatter(lo, lo + Vector3i(side, side, side), mat, density, _rng.randi())
+	ms_max[what] = maxf(ms_max[what], (Time.get_ticks_usec() - t0) / 1000.0)
+	return int(side * side * side * density)
+
+
 func summary() -> Dictionary:
-	return {"phase": phase, "eruptions": eruptions, "poured": poured, "bombs": bombs, "crater": [crater.x, crater.y, crater.z], "rim": [rim.x, rim.y, rim.z], "spout": [_spout.x, _spout.y, _spout.z]}
+	return {"phase": phase, "eruptions": eruptions, "poured": poured, "bombs": bombs, "crater": [crater.x, crater.y, crater.z], "rim": [rim.x, rim.y, rim.z], "spout": [_spout.x, _spout.y, _spout.z], "ms_max": ms_max}
