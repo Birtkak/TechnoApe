@@ -40,6 +40,7 @@
     {"id": "coal", "name": "Coal", "tags": ["fuel", "coal"], "stack": 64, "fuel_ticks": 1600},
     {"id": "charcoal", "name": "Charcoal", "tags": ["fuel", "coal"], "stack": 64, "fuel_ticks": 1600},
     {"id": "iron_ore", "name": "Iron Ore", "tags": ["block", "ore"], "stack": 64, "material": "iron_ore", "crushed": "crushed_iron_ore"},
+    {"id": "meteoric_iron", "name": "Meteoric Iron", "tags": ["block", "ore"], "stack": 64, "material": "meteoric_iron", "_note": "ADR 0157: dug out of a fresh meteorite crater with a copper pick; a plain furnace smelts it to iron, no bloomery"},
     {"id": "iron_ingot", "name": "Iron Ingot", "tags": ["ingot", "metal.iron", "heatable", "forge_heat"], "stack": 64, "work_piece": "iron_work_piece", "anvil_tier": 1, "_note": "hammered out of a bloom; only a forge gets it hot enough, only a bronze anvil takes it (ADR 0070)"},
     {"id": "copper_ore", "name": "Copper Ore", "tags": ["block", "ore"], "stack": 64, "material": "copper_ore", "crushed": "crushed_copper_ore"},
     {"id": "copper_ingot", "name": "Copper Ingot", "tags": ["ingot", "metal.copper", "heatable"], "stack": 64, "work_piece": "copper_work_piece", "_note": "heat it on a firepit, then smith it on an anvil (ADR 0042)"},

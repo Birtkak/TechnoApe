@@ -123,6 +123,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("tools", "/tools", "Open the build ring (the V key): build modes, prefabs and, under Brush, the brush's shapes and size", _tools)
 	reg.register("tnt", "/tnt <grid [n] [spacing_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); light lights the aimed charge",
 		_tnt, [["grid", "light", "stats"], ["1", "5", "20"], ["1", "1.5", "2"]])
+	reg.register("meteor", "/meteor [here|near|stats]", "A meteorite falls (ADR 0157): here 6 m ahead, near 120 m ahead, none a few hundred metres off as at night",
+		_meteor, [["here", "near", "stats"]])
 	reg.register("support", "/support [stats|scan|probe|modes <all|survival>|on|off]", "Mine shoring (ADR 0142): what creaks and when it falls, scan the roof here, the aimed roof's load, which game modes cave in",
 		_support, [["stats", "scan", "probe", "modes", "on", "off"], ["all", "survival"]])
 	reg.register("setblock", "/setblock <x> <y> <z> <material>", "Set one voxel; ~ is relative to you (~ ~-1 ~ is under your feet)",
@@ -872,6 +874,12 @@ func _support(args: PackedStringArray) -> Dictionary:
 			Settings.cave_ins = args[0] == "on"
 			return CommandRegistry.ok("Cave-ins %s" % args[0])
 	return CommandRegistry.fail("/support [stats|scan|probe|modes <all|survival>|on|off]")
+
+
+func _meteor(args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("meteors") == null:
+		return CommandRegistry.fail("No world")
+	return main.meteors.command(args)
 
 
 func _tnt(args: PackedStringArray) -> Dictionary:

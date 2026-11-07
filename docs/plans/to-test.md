@@ -10,6 +10,15 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Meteorites (ADR 0157)
+
+- [ ] At night `/meteor near`: a streak crosses the sky toward a spot ahead, a boom follows, an orange glow column
+      stands there and a chat line + "Meteorite" waypoint point to it. Does it feel like an event worth chasing?
+- [ ] Walk there: a scorched bowl with a molten core that smokes and burns if you stand on it. Dig the meteoric iron
+      with a copper pick; a furnace smelts a block of it to an iron ingot. Too rare, too generous?
+- [ ] `/meteor here` lands 6 m ahead (instant crater). Come back a game day later: the lava has turned to basalt.
+- [ ] Nights without commands: about one in eight has a fall (`Settings.meteor_chance_per_night`). Right rate?
+
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 
 - [ ] G or V opens the ring (tap, then click; or hold and release), names under the icons. Brush tile: shapes, wheel sizes

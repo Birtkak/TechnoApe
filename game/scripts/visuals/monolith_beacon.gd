@@ -31,15 +31,20 @@ void fragment() {
 
 var base := Vector3.ZERO   # world position of the beam's foot
 var camera: Camera3D
+var height_m := HEIGHT_M   # the meteorite's glow column (ADR 0157) is a shorter, wider, orange beam
+var radius_m := RADIUS_M
+var material: ShaderMaterial
 
 
-func _init(p_base: Vector3, p_camera: Camera3D) -> void:
+func _init(p_base: Vector3, p_camera: Camera3D, p_height_m := HEIGHT_M, p_radius_m := RADIUS_M) -> void:
 	base = p_base
 	camera = p_camera
-	var h := Settings.m2v(HEIGHT_M)
+	height_m = p_height_m
+	radius_m = p_radius_m
+	var h := Settings.m2v(height_m)
 	var m := CylinderMesh.new()
-	m.top_radius = Settings.m2v(RADIUS_M)
-	m.bottom_radius = Settings.m2v(RADIUS_M)
+	m.top_radius = Settings.m2v(radius_m)
+	m.bottom_radius = Settings.m2v(radius_m)
 	m.height = h
 	m.radial_segments = 12
 	m.rings = 1
@@ -48,6 +53,7 @@ func _init(p_base: Vector3, p_camera: Camera3D) -> void:
 	sm.shader.code = SHADER
 	sm.set_shader_parameter("height", h)
 	m.material = sm
+	material = sm
 	mesh = m
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	extra_cull_margin = h
@@ -57,14 +63,14 @@ func _process(_delta: float) -> void:
 	if camera == null:
 		return
 	var cam := camera.global_position
-	var foot := base + Vector3(0, Settings.m2v(HEIGHT_M) * 0.5, 0)   # the cylinder's centre
+	var foot := base + Vector3(0, Settings.m2v(height_m) * 0.5, 0)   # the cylinder's centre
 	var d := Vector2(base.x - cam.x, base.z - cam.z).length()
 	var near := Settings.m2v(NEAR_M)
 	var th := 1.0 if d <= near else near / d   # the width as if only the horizontal distance were pulled in
-	var sxz := maxf(th, MIN_WIDTH_M / (RADIUS_M * 2.0))
+	var sxz := maxf(th, MIN_WIDTH_M / (radius_m * 2.0))
 	# pull the whole beam (top included) inside NEAR: the far plane clips by view depth, so a beam only
 	# pulled in sideways lost its upper part when looked at straight on and shrank to a dot
-	var top := base + Vector3(0, Settings.m2v(HEIGHT_M), 0)
+	var top := base + Vector3(0, Settings.m2v(height_m), 0)
 	var t := minf(1.0, near / maxf(cam.distance_to(base), cam.distance_to(top)))
 	position = cam + (foot - cam) * t
 	scale = Vector3(sxz * t / th, t, sxz * t / th)

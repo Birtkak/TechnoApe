@@ -19,7 +19,7 @@ Tiles (index = row*4 + col):
 136-170 rock kinds, cobbles, bricks, clutter, pyrite and ochres (tools/atlas_rocks.py, ADR 0057)
 171 tnt side 172 tnt top (patterned: a 4-voxel period, one 0.5 m TNT block per period; ADR 0065)
 173 monolith ashlar 174 monolith runes 175 monolith seam (patterned, 16-voxel period; runes and seam glow, ADR 0098)
-176 spruce 177 acacia 178 jungle 179 birch planks (patterned like 39 oak planks); 180-189 other branches; 190 waste ground 191 slag 215 chimney top (ADR 0141)
+176 spruce 177 acacia 178 jungle 179 birch planks (patterned like 39 oak planks); 180-189 other branches (186 meteoric iron, 187 scorched earth: ADR 0157); 190 waste ground 191 slag 215 chimney top (ADR 0141)
 192 dripstone 193 cave vine 194 fungus stem 195 rusted rail 204 glow berries 205 magma rock 206 fungus cap (cave dressing; 204..207 glow)
 Run: python game/tools/make_atlas.py  -> game/assets/textures/atlas.png
 """
@@ -1182,6 +1182,35 @@ def waste_tiles():
 
 
 for i, t in waste_tiles().items():
+    tiles[i] = t
+
+
+def meteor_tiles():
+    """ADR 0157: 186 meteoric iron (dark iron-nickel with a bright metal glint and rust-brown fusion crust),
+    187 scorched earth (charred black-brown soil with ember-red flecks)."""
+    rng = random.Random(157)
+    out = {}
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            r = rng.random()
+            c = (70, 70, 76) if r > 0.35 else ((96, 58, 36) if r > 0.15 else (42, 40, 46))
+            if (x * 5 + y * 3) % 13 == 0 or rng.random() < 0.05:
+                c = (196, 200, 210)   # the metal shows where the crust broke
+            _px(img, x, y, c, rng, 7)
+    out[186] = img
+    img = Image.new("RGBA", (TILE, TILE))
+    for y in range(TILE):
+        for x in range(TILE):
+            c = (44, 34, 28) if rng.random() > 0.3 else (28, 22, 20)
+            if rng.random() < 0.02:
+                c = (92, 40, 24)
+            _px(img, x, y, c, rng, 6)
+    out[187] = img
+    return out
+
+
+for i, t in meteor_tiles().items():
     tiles[i] = t
 assert len(tiles) <= COLS * ROWS, len(tiles)
 

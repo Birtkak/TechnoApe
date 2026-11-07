@@ -16,6 +16,10 @@ const CHAPTER_AGE := {"flint_age": "flint", "middle_stone_age": "flint", "new_st
 ## Materials that only exist where a player placed them (their drop gives the item back).
 const PLACED := ["rope", "furniture", "work_spot", "work_block", "tnt", "carpet", "torch", "torch_stick", "torch_wrap",
 	"storage_pot", "furnace_lit"]
+## Materials only an event leaves (ADR 0157: a meteorite crater): priced like ruin loot, only where nothing else
+## gives the item, at the seconds of waiting for one and walking there (EVENT_S) per drop it holds.
+const EVENT_ONLY := {"meteoric_iron": {"what": "meteorite crater", "per": 6.0}}
+const EVENT_S := 4.0 * 1200.0   # a fall about every 8 nights (Settings.meteor_chance_per_night): half that wait, plus the walk
 ## What StoneAge.WORLD_SOURCES need before the world gives them.
 const WORLD_GATES := {"birch_bark": ["#knife"], "tinder_fungus": ["birch_bark"], "fire_ember": ["tinder_fungus", "@fire"],
 	"flatbread_dough": ["flour"], "brine_pot": ["cooking_pot"], "dugout_canoe": ["#axe"], "einkorn": ["einkorn_seeds"],
@@ -140,6 +144,9 @@ func _collect_sources() -> void:
 				gates.append("~%s:%d" % [want, tier])
 			var per := _avg(d)
 			if per <= 0.0:
+				continue
+			if EVENT_ONLY.has(name):
+				_add_src(id, {"kind": "loot", "what": EVENT_ONLY[name]["what"], "gates": gates, "per": float(EVENT_ONLY[name]["per"]), "s": EVENT_S})
 				continue
 			var plant: bool = e["drops"] is Array and float(d.get("chance", 1.0)) < 1.0
 			_add_src(id, {"kind": "mine", "what": name, "want": want, "gates": gates, "per": per, "plant": plant})
@@ -570,7 +577,7 @@ func _src_s(s: Dictionary, pool: Dictionary, trips := true) -> float:
 		"crop":
 			return CROP_S / maxf(float(s["per"]), 0.01)
 		"loot":
-			return LOOT_S / maxf(float(s["per"]), 0.001)
+			return float(s.get("s", LOOT_S)) / maxf(float(s["per"]), 0.001)
 		"fill":
 			return FILL_S
 	return WORLD_S
