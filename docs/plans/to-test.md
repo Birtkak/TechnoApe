@@ -53,6 +53,16 @@ frame times.
       with a copper pick; a furnace smelts a block of it to an iron ingot. Too rare, too generous?
 - [ ] `/meteor here` lands 6 m ahead (instant crater). Come back a game day later: the lava has turned to basalt.
 - [ ] Nights without commands: about one in eight has a fall (`Settings.meteor_chance_per_night`). Right rate?
+## Running machines look and sound running (ADR 0153)
+
+- [ ] `/stations factory`, wait ~40 s: the boiler puffs white steam and chimney smoke and its red needle climbs with the
+      pressure; the turbine breathes steam; the macerator's rollers turn and it trembles; LV machines show a green lamp while
+      they work. Readable at a glance which machines run?
+- [ ] Break the cable to a loaded machine: its lamp blinks red. Too subtle, too loud?
+- [ ] `/kit steam`, a steam hammer on a boiler with hot metal: sparks and a puff of steam on every blow, a hiss while it runs.
+- [ ] Walk away from a running factory: the hums and hisses fade; past ~32 m the puffs and parts stop.
+- [ ] A loaded belt or a running lathe no longer glows like a fire at night.
+- [ ] `/stations fx`: 30 machines all running at once. Frame time OK with it all in view?
 
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 

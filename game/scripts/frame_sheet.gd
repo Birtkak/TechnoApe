@@ -45,10 +45,11 @@ func save(path: String) -> int:
 
 ## A burst to watch motion in a scripted check (craft_film=1): `frames` consecutive frames saved as
 ## one sheet at `path`. Run with `--fixed-fps 60` so every frame is 1/60 s of game time however long
-## reading it back stalls.
-static func burst(viewport: Viewport, path: String, frames := 36) -> void:
-	var sheet := FrameSheet.new(320, 180, 6)
+## reading it back stalls. `every` > 1 keeps one frame in that many (a slower motion over a longer span).
+static func burst(viewport: Viewport, path: String, frames := 36, every := 1, w := 320, h := 180, cols := 6) -> void:
+	var sheet := FrameSheet.new(w, h, cols)
 	for i in frames:
-		await viewport.get_tree().process_frame
+		for j in every:
+			await viewport.get_tree().process_frame
 		sheet.add(viewport)
 	sheet.save(path)

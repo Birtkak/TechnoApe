@@ -275,6 +275,11 @@ func forget(p: Vector3i) -> void:
 	_dirty[p] = true
 
 
+## The view node drawn for the piece at p (null if none): MachineFx trembles running machines.
+func view_at(p: Vector3i) -> Node3D:
+	return _views.get(p)
+
+
 func view_count() -> int:
 	return _views.size()
 
@@ -388,6 +393,43 @@ func debug_lv_line(base: Vector3i, right: Vector3i) -> String:
 			m.use({"id": id, "count": loads[kind][id]})
 		x += 3
 	return "the electric line and the LV machines %s from %s" % [", ".join(loads.keys()), base]
+
+
+## Debug (/stations fx, ADR 0153): `n` machines of every kind MachineFx animates, in rows of six 3 m apart along
+## `right` and away along `fwd`, each on the ground under it. MachineFx.force makes them all run: the look check
+## and the effects' cost with a factory in view; `only` lays those kinds instead. Returns what it laid.
+func debug_fx_grid(base: Vector3i, right: Vector3i, fwd: Vector3i, n: int, only: Array = []) -> String:
+	var kinds := only.duplicate()
+	for k in ([] if not only.is_empty() else MachineFx.data()["kinds"]):
+		var s := MachineFx.spec(k)
+		if s.has("emit") or s.has("parts") or s.has("pulse") or s.has("lamp") or s.has("shake_m"):
+			kinds.append(k)
+	var step := Settings.BLOCK * 6
+	var bubble: SimBubble = main.bubble
+	var flat := 0
+	var at: Array[Vector3i] = []
+	for i in n:   # the pads first: a later pad's air must not cut an earlier machine
+		var a := base + right * step * (i % 6) + fwd * step * (i / 6)
+		var lo := a - Vector3i(Settings.BLOCK, 0, Settings.BLOCK)   # the footprint runs +x +z from the anchor
+		var hi := a + Vector3i(step, 0, step)
+		if bubble.fill_box(lo - Vector3i(0, 4, 0), hi, GameMaterials.STONE) >= 0 and bubble.fill_box(lo, hi + Vector3i(0, int(Settings.m2v(4.0)), 0), GameMaterials.AIR) >= 0:
+			flat += 1   # a stone pad with 4 m of air over it where the sim holds the spot
+		else:
+			a.y = main.world.surface_height(a.x, a.z) + 1
+		at.append(a)
+	get_tree().create_timer(0.5).timeout.connect(func() -> void:   # after the sim has written the pads, or their air cuts the machines
+		for i in n:
+			var e: RefCounted = _create(at[i], kinds[i % kinds.size()], GameMaterials.WORK_BLOCK)
+			if e is BoilerEntity:   # fired and at pressure, so its steam and needle show (the rest is forced)
+				e.item = "steel_boiler"
+				e.use({"id": "coal", "count": 8}, main.items.get_def("coal"), false, true)
+				for j in 4:
+					e.use({"id": "water_bucket", "count": 1}, main.items.get_def("water_bucket"))
+				e.ignite()
+				e.pressure = 1.0)
+	if main.get("machine_fx") != null:
+		main.machine_fx.force = true
+	return "%d machines of %d kinds from %s (%d on a pad), all forced on (/machinefx off)" % [n, kinds.size(), base, flat]
 
 
 ## Debug (/stations pollution, ADR 0141): a stone slab with two dug 0.5 m streams and an electrolyzer with a full waste
