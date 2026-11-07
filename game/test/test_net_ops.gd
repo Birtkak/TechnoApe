@@ -59,3 +59,7 @@ func test_garbage_decodes_to_nothing() -> void:
 	assert_that(NetOps.decode(PackedByteArray([1, 2, 3]))).is_equal({})
 	assert_that(NetOps.decode(var_to_bytes({"k": "fill"}))).is_equal({})
 	assert_that(NetOps.decode(var_to_bytes("hello"))).is_equal({})
+
+
+func test_gen_version_read_as_text_matches_the_constant() -> void:
+	assert_int(Net.gen_version()).is_equal(TerrainGenerator.GEN_VERSION)

@@ -60,7 +60,7 @@ static func chunks_of(op: Dictionary) -> Array[Vector3i]:
 
 ## Applies an op to a client's bubble through the same calls that made it. False when the area was not
 ## loaded (the replay on chunk load tries again).
-static func apply(op: Dictionary, bubble: SimBubble, st: ShapeTool) -> bool:
+static func apply(op: Dictionary, bubble: Node, st: RefCounted) -> bool:   # a SimBubble and a ShapeTool: untyped so the server, without the extension, loads this
 	if bubble == null or not bubble._ready:
 		return false
 	match op["k"]:

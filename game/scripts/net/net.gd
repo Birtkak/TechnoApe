@@ -55,7 +55,7 @@ var _state_accum := 0.0
 var _save_accum := 0.0
 var _lifetime := 0.0
 var _t0 := 0
-var _st: ShapeTool
+var _st: RefCounted            # a ShapeTool (clients only: the server has no voxel extension)
 var _port := PORT
 var connect_arg := ""
 var server_name := ""          # server_name= on the command line, else the machine's name
@@ -85,6 +85,7 @@ func _start_server() -> void:
 	if get_tree().current_scene:
 		get_tree().current_scene.queue_free()   # the title screen: a server has no screen
 	Engine.max_fps = 60
+	Settings.apply_cmdline()   # seed=, gamemode= (DebugCapture does this too, but not where the voxel extension is missing)
 	seed_value = Settings.world_seed
 	game_mode = Settings.game_mode
 	var peer := ENetMultiplayerPeer.new()
@@ -119,11 +120,19 @@ func _start_server() -> void:
 
 
 func _journal_path() -> String:
-	return "user://worlds/net_%d_g%d.ops" % [seed_value, TerrainGenerator.GEN_VERSION]
+	return "user://worlds/net_%d_g%d.ops" % [seed_value, gen_version()]
 
 
 func _players_path() -> String:
-	return "user://worlds/net_%d_g%d_players.json" % [seed_value, TerrainGenerator.GEN_VERSION]
+	return "user://worlds/net_%d_g%d_players.json" % [seed_value, gen_version()]
+
+
+## TerrainGenerator.GEN_VERSION, read from the script's text: the class extends VoxelGeneratorScript, which the
+## server (no voxel extension) cannot load. test_net_ops checks it matches the constant.
+static func gen_version() -> int:
+	var re := RegEx.create_from_string("GEN_VERSION\\s*:=\\s*(\\d+)")
+	var m := re.search(FileAccess.get_file_as_string("res://scripts/generator.gd"))
+	return int(m.get_string(1)) if m else 0
 
 
 func _save_files() -> void:
@@ -373,7 +382,7 @@ func _add(op: Dictionary) -> void:
 
 func _apply(op: Dictionary, bubble: SimBubble) -> bool:
 	if _st == null:
-		_st = ShapeTool.new()
+		_st = ClassDB.instantiate("ShapeTool")
 	applying = true
 	var ok := NetOps.apply(op, bubble, _st)
 	applying = false
