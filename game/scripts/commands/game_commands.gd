@@ -48,6 +48,7 @@ const KITS := {
 		"copper_cable": 16, "thin_cable": 8, "heavy_copper_cable": 8, "insulated_wire": 16, "battery_box": 1, "lead_acid_cell": 4,
 		"water_wheel": 1, "wind_turbine": 1, "hand_crank": 1, "electric_lamp": 4, "daylight_switch": 1, "meter_panel": 1, "multimeter": 1,
 		"knife_switch": 1, "fuse_box": 1, "breaker": 1, "fuse": 4, "wrench": 1, "electric_furnace": 1, "pump": 1, "raw_meat": 8, "iron_ore": 8},   # the energy network (ADR 0113, 0117, 0123)
+	"contraptions": {"lift_winch": 1, "drawbridge_hinge": 1, "crane": 1, "hand_crank": 3, "knife_switch": 2, "copper_cable": 16, "oak_planks": 64},   # ADR 0160
 	"lv": {"lathe": 1, "bending_press": 1, "wiremill": 1, "macerator": 1, "alloy_smelter": 1, "assembler": 1, "extractor": 1, "cutter": 1,
 		"extruder": 1, "canning_machine": 1, "electric_compressor": 1, "electrolyzer": 1, "coke_oven": 1, "bricks": 26, "coal_coke": 8,
 		"hopper": 2, "belt": 8, "iron_ingot": 8, "copper_ingot": 8, "tin_ingot": 8, "steel_ingot": 4, "tin_nugget": 12, "copper_ore": 4,
@@ -136,6 +137,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
 	reg.register("ponder", "/ponder [scene]", "Open the guide screen (ADR 0132): how boilers, pipes, cables and machines connect; no scene lists them", _ponder, [Ponder.scenes().keys()])
 	reg.register("stations", "/stations [electric|factory|lv|power [cam]|pollution|smoke|fx [n]]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141); fx: 30 running machines of every animated kind (ADR 0153)", _stations, [["electric", "factory", "lv", "power", "pollution", "smoke", "fx"]])
+	reg.register("contraptions", "/contraptions [toggle|ride] [cam]", "ADR 0160: a lift, a drawbridge and a crane ahead, each on a turning hand crank; toggle flips every drive's lever, ride stands you on the lift; cam films them", _contraptions, [["toggle", "ride", "cam"]])
 	reg.register("pollute", "/pollute [smoke]", "ADR 0155: a fouled pond with fish and wheat beside waste ground ahead (farm_speed=40 to watch crops wilt); smoke: a smoke booth round you", _pollute, [["smoke"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
@@ -1014,6 +1016,36 @@ func _ponder(args: PackedStringArray) -> Dictionary:
 	if main == null or main.get("ponder") == null or not main.ponder.open(id):
 		return CommandRegistry.fail("No guide '%s'. Guides: %s" % [args[0], ", ".join(Ponder.scenes().keys())])
 	return CommandRegistry.ok("Guide: " + String(Ponder.get_scene(id).get("title", id)))
+
+
+var _lift_spot := Vector3.INF   # /contraptions: the lift platform's top centre
+
+
+func _contraptions(args: PackedStringArray) -> Dictionary:
+	if main == null or main.contraptions == null:
+		return CommandRegistry.fail("No contraptions (rigid_pieces=0?)")
+	if "toggle" in args:
+		var n := 0
+		for k in ContraptionEntity.KINDS:
+			for e: ContraptionEntity in main.blocks.all_of(k):
+				e.use({})
+				n += 1
+		return CommandRegistry.ok("Flipped %d levers" % n)
+	if "ride" in args:
+		if _lift_spot == Vector3.INF:
+			return CommandRegistry.fail("Build them first: /contraptions")
+		player.position = _lift_spot
+		player.velocity = Vector3.ZERO
+		return CommandRegistry.ok("On the lift")
+	if not main.bubble.is_loaded():
+		return _queue_until_loaded(_contraptions, args)
+	var facing := Transport.facing_from_yaw(player.rotation_degrees.y)
+	var base := Vector3i((player.position + Vector3(Transport.dir_of(facing)) / Settings.BLOCK * Settings.m2v(3.0)).floor())
+	var d: Dictionary = main.contraptions.debug_build(base, facing)
+	_lift_spot = d["lift"]
+	if "cam" in args:
+		_debug_cam().enable(d["cam"], d["look"])
+	return CommandRegistry.ok("Laid " + d["laid"])
 
 
 func _pollute(args: PackedStringArray) -> Dictionary:

@@ -125,6 +125,8 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 			_ticking.append(e)
 		"meter_panel":
 			e = MeterPanelEntity.new(pos)
+		"lift_winch", "drawbridge_hinge", "crane":   # moving contraptions (ADR 0160)
+			e = ContraptionEntity.new(items, pos, kind)
 		# stage 3 transport (ADR 0100)
 		"hopper":
 			e = HopperEntity.new(self, pos)
@@ -310,7 +312,7 @@ func all_furniture() -> Array:
 
 const WORK_KINDS := ["knap", "clayform", "ground", "firepit", "sieve", "firewood_pile", "assembly", "anvil", "grave",
 	"forge", "bloomery", "bronze_anvil", "laid_tool", "leaning_tool", "ingot_pile", "boiler", "pipe", "steam_hammer", "steam_sieve",
-	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "pump", "coke_oven", "knife_switch", "fuse_box", "breaker", "daylight_switch", "water_wheel", "wind_turbine", "hand_crank", "meter_panel", "trading_post"]
+	"blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "belt", "rail", "cable", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "electric_lamp", "pump", "coke_oven", "knife_switch", "fuse_box", "breaker", "daylight_switch", "water_wheel", "wind_turbine", "hand_crank", "meter_panel", "trading_post", "lift_winch", "drawbridge_hinge", "crane"]
 
 
 ## The machines a boiler's pipes feed (ADR 0097): everything with a `boiler` slot.

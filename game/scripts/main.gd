@@ -67,6 +67,7 @@ var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
 var tnt: Tnt                         # TNT charges, fuses and blasts (ADR 0065)
 var toys: MovementToys               # glider, climbing ropes, grappling hook (ADR 0151)
+var contraptions: Contraptions       # lifts, drawbridges, cranes (ADR 0160); null without rigid pieces
 var _ropes_save := []                # the hung ropes from the player's save, loaded before toys exists
 var _tnt_save := []                  # its charges from the player's save, loaded before it exists
 var meteors: Meteors                 # meteorite falls and their craters (ADR 0157)
@@ -666,6 +667,12 @@ func _ready() -> void:
 	player.toys = toys
 	if not warmup.is_queued_for_deletion():
 		warmup.add_materials(toys.warm_materials(), player.camera)
+	if pieces:
+		contraptions = Contraptions.new()
+		contraptions.name = "Contraptions"
+		add_child(contraptions)
+		contraptions.setup(self)
+		pieces.contraptions = contraptions
 	meteors = Meteors.new()
 	meteors.name = "Meteors"
 	add_child(meteors)
@@ -806,6 +813,8 @@ var _saved_edits := 0
 func save_terrain(wait_s := 0.0) -> void:
 	if not Settings.persist_world or world == null or world.terrain == null or not world.terrain.is_inside_tree():
 		return
+	if wait_s > 0.0 and contraptions and contraptions.settle_all():   # quitting: moving parts back into voxels (ADR 0160)
+		_save_blocks()
 	if bubble:
 		bubble.flush_all()
 	_saved_edits = world.edits
@@ -2291,6 +2300,7 @@ func snapshot() -> Dictionary:
 		"terrain": world.terrain.get_statistics(),
 		"sim": bubble.stats(),
 		"pieces": pieces.stats() if pieces else {},
+		"contraptions": contraptions.summary() if contraptions else {},
 		"support": support.stats() if support else {},
 		"build": builder.snapshot() if builder else {},
 		"survival": survival.snapshot() if survival else {},

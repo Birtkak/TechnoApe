@@ -314,6 +314,11 @@ var tnt_drop_fraction := 0.3            # share of the blasted voxels that drops
 var fuse_speed_mps := 0.5               # fuse cord burn speed (ADR 0150): sets the cord's ignite_chance, at most tick_hz / 6 voxels a second
 var tnt_debris_max := 24                # flung debris pieces per blast (ADR 0150), out of the voxels the blast removed
 var tnt_debris_live_max := 96           # flung pieces in the air at once, all blasts together
+var contraption_lift_mps := 1.0         # ADR 0160: a lift's speed
+var contraption_swing_dps := 30.0       # a drawbridge's or crane's swing, degrees a second
+var lift_max_m := 8.0                   # a lift rises until it meets something, this far at most
+var crane_hook_m := 8.0                 # the crane's hook reaches this far below the jib
+var contraption_max_cells := 4096       # voxels in one moving part (a 3 m x 3 m platform a block thick is 2304)
 var tnt_blasts_per_frame := 1           # fuses that run out together wait their turn: one crater per frame
 var igniter_range_m := 16.0             # the igniter's sneak use lights every charge this close
 # Meteorites (ADR 0157): a streak at night, a boom, a glow column, a crater with meteoric iron
