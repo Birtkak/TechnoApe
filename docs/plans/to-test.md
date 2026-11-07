@@ -10,6 +10,20 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
+
+- [ ] G or V opens the ring (tap, then click; or hold and release), names under the icons. Brush tile: shapes, wheel sizes
+      it. Does it replace the old G panel, or do you miss something from it?
+- [ ] Hold planks, pick Cylinder: the ghost looks like planks and you can still see through it a little. Right amount?
+- [ ] Handles: white arrow, pixel ring, cross at the foot, cyan under the cursor; the list at the bottom right says what a drag does.
+- [ ] In a build mode no brush ghost or outline shows beside the shape, also while holding the right button to look.
+- [ ] A big shape stays smooth while you drag it (coarse for a moment, then full).
+- [ ] Pour lava next to logs: they catch fire. Fire crackles; water on lava hisses.
+- [ ] Fire looks like flames (orange wisps, not pale yellow cubes); lava in a pool under a tree: soft steam, no columns of
+      teal blocks raining down. Still ugly, unclear or sluggish anywhere? Press F9 there.
+- [ ] Shift + middle click a material, dig: only that goes. Shift + middle click at the sky clears it.
+- [ ] Wear copper armour: no clipping, hotbar icons read as a helmet, chestplate and greaves.
+
 ## Building with the mouse (2026-11-04, ADR 0143)
 
 - [ ] Hold planks, V, Box, click the ground: the cursor appears. Drag the green top arrow (height), the red ring at

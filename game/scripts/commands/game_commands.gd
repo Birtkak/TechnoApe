@@ -118,7 +118,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_brush, [Brush.SHAPES + ["hold"], ["1", "2", "4", "8", "16", "32"]])
 	reg.register("book", "/book [chapter]", "Open the progression book, at a chapter if given", _book_cmd, [_chapter_ids])
 	reg.register("browse", "/browse <item> [recipes|uses]", "Open the recipe browser on an item (as R or U over it)", _browse, [_item_ids, ["recipes", "uses"]])
-	reg.register("tools", "/tools", "Open the world tools panel (the G key): brush shape and size, build modes, prefabs and their keys, with tooltips", _tools)
+	reg.register("digonly", "/digonly <material> | off", "Dig only this material, as Shift + middle click on it (ADR 0144); again to take it off the list", _digonly)
+	reg.register("tools", "/tools", "Open the build ring (the G or V key): build modes, prefabs and, under Brush, the brush's shapes and size", _tools)
 	reg.register("tnt", "/tnt <grid [n] [spacing_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); light lights the aimed charge",
 		_tnt, [["grid", "light", "stats"], ["1", "5", "20"], ["1", "1.5", "2"]])
 	reg.register("support", "/support [stats|scan|probe|modes <all|survival>|on|off]", "Mine shoring (ADR 0142): what creaks and when it falls, scan the roof here, the aimed roof's load, which game modes cave in",
@@ -770,11 +771,24 @@ func _brush(args: PackedStringArray) -> Dictionary:
 	return CommandRegistry.ok("Brush: %s (digs %s)" % [Brush.describe(size, args[0]), Brush.describe(player.dig_size(), args[0])])
 
 
-func _tools(_args: PackedStringArray) -> Dictionary:
-	if main == null or main.get("tools_menu") == null:
+func _digonly(args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("player") == null:
 		return CommandRegistry.fail("No world")
-	main.tools_menu.open.call_deferred(true)   # after the chat has closed: it would otherwise keep the mouse free
-	return CommandRegistry.ok("World tools panel open (G or Esc closes it)")
+	if args.is_empty() or args[0] == "off":
+		main.player.toggle_dig_only(0)
+		return CommandRegistry.ok("Digging everything")
+	var m := GameMaterials.id_of(args[0])
+	if m <= 0:
+		return CommandRegistry.fail("Unknown material: %s" % args[0])
+	main.player.toggle_dig_only(m)
+	return CommandRegistry.ok("Digging only: %s" % main.player.dig_only_names())
+
+
+func _tools(_args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("builder") == null:
+		return CommandRegistry.fail("No world")
+	main.builder._open_menu.call_deferred()   # after the chat has closed: it would otherwise keep the mouse free
+	return CommandRegistry.ok("Build ring open (Esc closes it)")
 
 
 func _chapter_ids() -> Array:

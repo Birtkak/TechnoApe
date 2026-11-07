@@ -3,7 +3,7 @@ extends RefCounted
 
 ## The brush's preview and its native path (ADR 0065). The player keeps the box outline; this adds a
 ## see-through shell of the exact cells a round dig (orange) or a placement would touch; a placement's
-## shell is the held material's own voxel pattern washed blue (brush_ghost.gdshader). Big
+## shell is the held material's own voxel pattern, barely tinted (brush_ghost.gdshader). Big
 ## creative brushes (above Brush.NATIVE_ABOVE) dig, place and paint through ShapeTool: the cells are
 ## rasterised, filtered by a material mask and written in C++, never one GDScript call per voxel
 ## (principle 8), CELLS_PER_FRAME at a time so a 4 m cube never costs one long frame.
@@ -16,7 +16,8 @@ extends RefCounted
 
 var preview: MeshInstance3D
 var preview_mat: StandardMaterial3D
-var ghost_mat: ShaderMaterial      # placements: the material's texture, blue and see-through
+var ghost_mat: ShaderMaterial      # placements: the material's texture, see-through
+var ghost_depth: ShaderMaterial    # its first pass: only the nearest surface gets coloured
 var bubble: SimBubble              # set by Main; null in tests: native ops then do nothing
 var stats := {"preview_builds": 0, "preview_ms_max": 0.0, "native_digs": 0, "native_places": 0, "native_paints": 0,
 	"native_voxels": 0, "native_ms_max": 0.0, "native_slice_ms_max": 0.0, "cells_builds": 0, "cells_ms_max": 0.0,
@@ -38,6 +39,13 @@ func _init() -> void:
 	preview_mat.albedo_color = Color(1.0, 0.55, 0.25, 0.14)
 	ghost_mat = ShaderMaterial.new()
 	ghost_mat.shader = preload("res://assets/shaders/brush_ghost.gdshader")
+	ghost_mat.render_priority = 1
+	ghost_mat.set_shader_parameter("opacity", ShapeBuilder.GHOST_OPACITY)
+	ghost_mat.set_shader_parameter("tint_mix", ShapeBuilder.GHOST_TINT)
+	ghost_mat.set_shader_parameter("rim", 0.0)
+	ghost_depth = ShaderMaterial.new()
+	ghost_depth.shader = preload("res://assets/shaders/brush_ghost_depth.gdshader")
+	ghost_depth.next_pass = ghost_mat
 	preview = MeshInstance3D.new()
 	preview.name = "BrushPreview"
 	preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -161,7 +169,7 @@ func show_at(hit: VoxelRaycastResult, size: int, shape: String, place: bool, mat
 	else:
 		preview.scale = Vector3.ONE * (2.0 if coarse else 1.0)
 	preview_mat.albedo_color = Color(0.35, 0.8, 1.0, 0.16) if place else Color(1.0, 0.55, 0.25, 0.2)
-	preview.material_override = ghost_mat if place and mat > 0 else null
+	preview.material_override = ghost_depth if place and mat > 0 else null
 	if place and mat > 0:
 		var t: Array = GameMaterials.defs()[mat - 1]["tiles"]
 		ghost_mat.set_shader_parameter("tiles", Vector3(float(t[0]), float(t[1]), float(t[2])))
@@ -190,7 +198,7 @@ func warm_mesh() -> Mesh:
 	var m := ArrayMesh.new()
 	for i in 2:
 		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-		m.surface_set_material(i, ghost_mat if i == 1 else preview_mat)
+		m.surface_set_material(i, ghost_depth if i == 1 else preview_mat)
 	return m
 
 

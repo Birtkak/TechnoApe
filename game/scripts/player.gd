@@ -55,6 +55,7 @@ var autopilot := false
 var free_cam := false        # a DebugCamera has the view: no moving, looking or mining from input
 var building := false        # the ShapeBuilder (ADR 0038) owns the mouse buttons: no breaking or placing
 var input_grab := false      # the build menu (V) has the mouse: no looking either
+var click_swallowed := false # a click closed a menu: until it is let go that press digs and places nothing
 var survival: Survival = null   # hunger and body temperature (ADR 0040), set by Main
 var speed_mult := 1.0        # Survival slows a shivering body
 var autopilot_dir := Vector3(0, 0, -1)
@@ -97,6 +98,8 @@ var _attack_cooldown := 0.0
 const EAT_S := 1.6               # Minecraft: 32 ticks
 
 # mining state
+var dig_only := {}                    # still material id -> true: the brush digs only these (ADR 0144); empty: everything
+var _dig_only_mask := PackedByteArray()   # the same for 256 ids; empty when off
 # Brush (ADR 0034, 0065): size in voxels (1, 2, 4, 8, creative also 16, 32; Ctrl + wheel) and shape
 # (B / Shift + B: cube, sphere, cylinder, flat, column); the survival dig size is capped by the held
 # tool (MiningTable.dig_cap). BrushTool draws the shape's shell and runs the big brushes natively.
@@ -301,15 +304,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			_last_jump_ms = now
 	elif event is InputEventMouseButton and event.pressed and game_mode == GameMode.SPECTATOR and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 		step_spectator_speed(1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1)
-	elif event is InputEventMouseButton and event.pressed and event.ctrl_pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+	elif event is InputEventMouseButton and event.pressed and event.ctrl_pressed and not building and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 		step_brush_size(1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1)
 	elif event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_R, KEY_U] and not building:
 		lookup_requested.emit([look_item, String(inventory.held().get("id", ""))], "recipes" if event.keycode == KEY_R else "uses")
-	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_B:
+	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_B and not building:
 		var n := Brush.SHAPES.size()
 		set_brush(brush_size, Brush.SHAPES[(Brush.SHAPES.find(brush_shape) + (n - 1 if event.shift_pressed else 1)) % n])
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_MIDDLE:
-		_pick_block()
+		if event.shift_pressed:
+			_pick_dig_only()
+		else:
+			_pick_block()
 	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F5:
 		set_perspective((perspective + 1) % 3)
 	elif event.is_action_pressed("hotbar_next"):
@@ -374,10 +380,12 @@ func _update_brush_info() -> void:
 	if hud == null:
 		return
 	var text := ""
-	if GameMode.rule(game_mode, "interacts"):
-		text = "Brush %s  [C: mine ring, V: build ring, G: tools]" % Brush.describe(dig_size(), brush_shape)
+	if GameMode.rule(game_mode, "interacts") and not building:
+		text = "Brush %s  [G or V: build ring, C: brush ring]" % Brush.describe(dig_size(), brush_shape)
 		if dig_size() < brush_size:
 			text += "\n(tool caps it; set %s)" % Brush.describe(brush_size, brush_shape)
+		elif not dig_only.is_empty():
+			text += "\nDigging only: %s" % dig_only_names()
 		elif GameMode.rule(game_mode, "instant_break"):
 			text += "\nShift+right click paints it"
 	if text != _brush_info:
@@ -907,17 +915,19 @@ func _update_mining(delta: float) -> void:
 	if is_on_floor() or flying:
 		Brush.tunnel_floor_y = floori(position.y + 0.05)   # the tunnel brush's floor: where the feet stand
 	script_break_s = maxf(0.0, script_break_s - delta)
+	if click_swallowed and not Input.is_action_pressed("action_break") and not Input.is_action_pressed("action_place"):
+		click_swallowed = false
 	if autopilot:
 		holding = autopilot_action == "mine" or script_break_s > 0.0
 	if edits_locked or not GameMode.rule(game_mode, "interacts"):
 		holding = false
 	elif not autopilot:
-		holding = script_break_s > 0.0 or (_mouse_captured and not ui_open and not free_cam and not building and Input.is_action_pressed("action_break"))
+		holding = script_break_s > 0.0 or (_mouse_captured and not ui_open and not free_cam and not building and not click_swallowed and Input.is_action_pressed("action_break"))
 	var hit: VoxelRaycastResult = _aim() if (holding or (_mouse_captured and not ui_open and not autopilot) or (script_aim and not ui_open)) else null
 	var mob = aimed_mob(hit) if (_mouse_captured and not ui_open and not autopilot) else null
 	_update_look(hit, mob)
-	if hit and mob != null:
-		hit = null   # an animal is in front of the block: LMB hits it instead (_attack)
+	if hit and (mob != null or (building and not holding)):
+		hit = null   # an animal is in front of the block: LMB hits it instead (_attack); a build mode has its own ghost, no brush beside it
 	_update_brush_info()
 	var station_mat := _held_station()
 	var held_def := inventory.held_def() if inventory != null and GameMode.rule(game_mode, "interacts") else {}
@@ -949,7 +959,7 @@ func _update_mining(delta: float) -> void:
 		_highlight.visible = false
 		brush_tool.hide()
 	# keep placing while the button is held (vanilla repeats every 4 ticks)
-	if not autopilot and not ui_open and not building and _mouse_captured and Input.is_action_pressed("action_place") and _place_cooldown <= 0.0:
+	if not autopilot and not ui_open and not building and not click_swallowed and _mouse_captured and Input.is_action_pressed("action_place") and _place_cooldown <= 0.0:
 		_use(false)
 	# the laser cutter (PlaytestTools): its beam replaces breaking
 	var laser_held := playtest_laser.is_valid() and inventory != null and PlaytestTools.is_beam(inventory.held_def())
@@ -1059,7 +1069,7 @@ func _dig_big(hit: VoxelRaycastResult, size: int) -> void:
 		return   # the last big brush is still being written
 	var mask := BrushTool.dig_mask(true, {}, mining, _is_plant)
 	for m in 256:
-		if mask[m] != 0 and farm != null and farm.is_crop_material(m):
+		if mask[m] != 0 and ((farm != null and farm.is_crop_material(m)) or (not _dig_only_mask.is_empty() and _dig_only_mask[m] == 0)):
 			mask[m] = 0   # crops go through Farming: the small brush takes them
 	var n := brush_tool.dig(hit.position, hit.previous_position, size, brush_shape, mask, world.get_voxel(hit.position))
 	brush_tool.note("dig", hit.position, hit.previous_position - hit.position, Brush.dig_bounds(hit.position, size, brush_shape, hit.previous_position - hit.position), n)
@@ -1102,8 +1112,10 @@ static func _is_plant(m: int) -> bool:
 func _dig_selection(p: Vector3i, size: int) -> Array[Vector3i]:
 	var out: Array[Vector3i] = []
 	var hit_mat := world.get_voxel(p)
+	var only := _dig_only_mask
 	if hit_mat > 0 and not GameMaterials.is_plain_voxel(hit_mat) and not _is_plant(hit_mat):
-		out.append(p)
+		if only.is_empty():
+			out.append(p)
 		return out
 	var creative := GameMode.rule(game_mode, "instant_break")
 	var held := inventory.held_def() if inventory else {}
@@ -1113,7 +1125,11 @@ func _dig_selection(p: Vector3i, size: int) -> Array[Vector3i]:
 		var m := world.get_voxel(c)
 		if m <= 0 or GameMaterials.is_monolith(m) or not (GameMaterials.is_plain_voxel(m) or _is_plant(m)):
 			continue
-		if creative:
+		if not only.is_empty() and only[m] == 0:
+			continue
+		if creative or not only.is_empty():   # a chosen material is dug at its own pace, whatever the aimed voxel's
+			if not creative and mining and mining.break_time(GameMaterials.name_of(m), held) < 0.0:
+				continue
 			out.append(c)
 			continue
 		if not times.has(m):
@@ -1131,6 +1147,8 @@ func _dig_time(p: Vector3i, cells: Array[Vector3i]) -> float:
 	var hit_mat := world.get_voxel(p)
 	if hit_mat <= 0 or GameMaterials.is_monolith(hit_mat):
 		return -1.0
+	if not _dig_only_mask.is_empty() and cells.is_empty():
+		return -1.0   # nothing of the chosen materials here: the click does nothing
 	if GameMode.rule(game_mode, "instant_break"):
 		return 0.0
 	var held := inventory.held_def() if inventory else {}
@@ -1832,6 +1850,41 @@ func _sit_step() -> void:
 
 ## Middle click (vanilla pick block): the item that places the aimed voxel.
 ## Creative conjures it; survival only switches to it if it is carried.
+## Shift + middle click (ADR 0144): the aimed material joins or leaves what the brush digs; aimed at nothing, it digs everything again.
+func _pick_dig_only() -> void:
+	if not _mouse_captured:
+		return
+	var hit := _aim()
+	toggle_dig_only(world.get_voxel(hit.position) if hit != null else 0)
+	Sound.play("ui/click")
+
+
+## m <= 0 clears the choice. Loose and still forms of a material count as one.
+func toggle_dig_only(m: int) -> void:
+	m = GameMaterials.still_of(m)
+	if m <= 0:
+		dig_only.clear()
+	elif dig_only.has(m):
+		dig_only.erase(m)
+	else:
+		dig_only[m] = true
+	_dig_only_mask = PackedByteArray()
+	if not dig_only.is_empty():
+		_dig_only_mask.resize(256)
+		for i in mini(GameMaterials.defs().size(), 255):
+			if dig_only.has(GameMaterials.still_of(i + 1)):
+				_dig_only_mask[i + 1] = 1
+	_reset_mining()   # the dig under way picks its cells again
+	_update_brush_info()
+
+
+func dig_only_names() -> String:
+	var names := PackedStringArray()
+	for m in dig_only:
+		names.append(GameMaterials.name_of(m).trim_suffix("_static").replace("_", " ").capitalize())
+	return ", ".join(names)
+
+
 func _pick_block() -> void:
 	if inventory == null or not _mouse_captured:
 		return
@@ -1850,7 +1903,7 @@ func _pick_block() -> void:
 func _update_hold(delta: float) -> void:
 	if _hold_at == "":
 		return
-	var pressed := autopilot_hold if autopilot else (_mouse_captured and not ui_open and not building and Input.is_action_pressed("action_place"))
+	var pressed := autopilot_hold if autopilot else (_mouse_captured and not ui_open and not building and not click_swallowed and Input.is_action_pressed("action_place"))
 	var hit: VoxelRaycastResult = _aim() if pressed and not edits_locked else null
 	if hit == null or hold_key.call(hit) != _hold_at:
 		if not pressed and hud and _hold_t < Settings.hold_use_s * 0.8:

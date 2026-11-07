@@ -33,18 +33,17 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   strength, hardness breaking), flies it and settles it back into voxels. It runs on the sim's driver thread before each
   tick (`set_async`; `get_voxel` does not wait for that phase); a forest felling holds p99 7.2 ms, the main thread pays
   ~2 ms (`prototypes/p12-rigid-pieces/README.md`). Trees never weld (FineGen gap).
-  **Shape building (ADR 0038):** V holds the build ring (brush, box, wall, cylinder, cone, sphere, stairs, slope,
+  **Shape building (ADR 0038, 0144):** G or V opens the build ring (tap: it stays up until a click; hold: release picks; brush, box, wall, cylinder, cone, sphere, stairs, slope,
   box mode, box dig, select, prefabs; release on a slice picks it); a placed shape's corner keeps to the snap grid
   (N: off / 0.5 m / 1 m, `ShapeBuilder.snap`, x and z only); a placed shape frees the cursor (ADR 0143): it drags the
-  handles (top arrow: height, the red ring at the foot grows the side grabbed, the yellow ring on top hollows, the white
-  knob moves) in snap steps, the wheel over one steps it one snap (the move handle up and down), the right button held
+  handles (top arrow: height, the pixel ring at the foot grows the side grabbed, the one on top hollows, the cross at the
+  foot moves; white, cyan under the cursor) in snap steps, the wheel over one steps it one snap (the move handle up and down), the right button held
   looks around; a selection gets the same handles (no hollow) before `/prefab save`; `ShapeBuilder` (`scripts/building/`) orchestrates, native `ShapeTool` rasterizes,
   meshes and fills; prefabs in `user://prefabs/<category>/<name>.json`. Scripted checks: `later=/a;wait 1;/b` runs chat
   commands after loading (`/shape ... at x y z`, `/shape drag`, `/shape menu`, `/box`, `/prefab`).
-  **World tools panel (ADR 0071, 0073):** G (`/tools`) opens the panel: two "Now" lines say what the left and right
-  click do in words (`Brush.explain`), then brush shape and size with the selected one described, builder modes with
-  their descriptions beside the buttons, prefabs, the ghost toggle (`Settings.brush_ghost`) and the keys
-  (`scripts/ui/tools_menu.gd`). Placed powders go in as their still kind (`GameMaterials.still_of`): sand built from
+  **The rings replaced the world tools panel (ADR 0144):** the build ring's Brush tile, or C, opens the brush ring (shapes,
+  the wheel sizes it); a brush choice leaves any build mode, and a build mode hides the brush's ghost and keys, so
+  the two are never on together. The ghost toggle is in Settings; dig only is Shift + middle click and the HUD line. Placed powders go in as their still kind (`GameMaterials.still_of`): sand built from
   dug sand no longer slides apart; set down over nothing it falls (`SimWorld::try_loosen`, the edit stamp).
   **Survival (ADR 0040):** `Survival` (`scripts/survival/`) runs hunger (Minecraft bar + saturation), body temperature
   (climate, season, hour, caves, water, rooms from the native `ClimateProbe` flood fill, heat of fire cells and lit

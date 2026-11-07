@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode unshaded, cull_back, depth_draw_never, blend_mix;
+render_mode unshaded, cull_back, depth_draw_never, blend_mix, fog_disabled;   // fog would wash the blue out at a few metres
 
 // The build ghost (scripts/player/brush_tool.gd): the brush's shell in the held material's own voxel
 // colours (voxel_sample, the same pattern the placed blocks get), washed blue and see-through.

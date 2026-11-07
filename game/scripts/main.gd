@@ -23,7 +23,6 @@ var game_commands: GameCommands
 var chat: ChatBox
 var debug_menu: DebugMenu
 var tune_panel: TunePanel
-var tools_menu: ToolsMenu            # the world tools panel on G (ADR 0071)
 var _tick_accum := 0.0
 var _save_accum := 0.0
 var _loading: LoadingScreen
@@ -315,13 +314,6 @@ func _ready() -> void:
 	add_child(tune_panel)
 	tune_panel.opened.connect(_on_overlay_opened)
 	tune_panel.closed.connect(_on_overlay_closed)
-	tools_menu = ToolsMenu.new()
-	tools_menu.name = "ToolsMenu"
-	tools_menu.main = self
-	tools_menu.can_open = _can_open_overlay
-	add_child(tools_menu)
-	tools_menu.opened.connect(_on_overlay_opened)
-	tools_menu.closed.connect(_on_overlay_closed)
 	player.game_mode_changed.connect(_on_game_mode_changed)
 	var mode := GameMode.parse(Settings.game_mode)
 	player.set_game_mode(mode if mode != "" else GameMode.SURVIVAL)
@@ -626,7 +618,7 @@ func _ready() -> void:
 	tnt.load_array(_tnt_save)
 	player.ignite_at = _ignite
 	if not warmup.is_queued_for_deletion():
-		warmup.add_meshes(tnt.warm_meshes() + [player.brush_tool.warm_mesh()], player.camera)
+		warmup.add_meshes(tnt.warm_meshes() + [player.brush_tool.warm_mesh(), builder.warm_mesh()], player.camera)
 	player.brush_tool.warm_cache()   # the big round brushes, rasterised under the loading screen
 	_setup_maps()
 	if not warmup.is_queued_for_deletion():
@@ -1063,7 +1055,7 @@ func _on_overlay_opened() -> void:
 
 
 func _on_overlay_closed() -> void:
-	if not chat.is_open and not debug_menu.is_open and not tools_menu.is_open and not _overlay_over_ui:
+	if not chat.is_open and not debug_menu.is_open and not _overlay_over_ui:
 		player.set_ui_open(false)
 
 
@@ -2183,7 +2175,7 @@ func snapshot() -> Dictionary:
 		"gadgets": gadgets.stats if gadgets else {},
 		"tnt": tnt.snapshot() if tnt else {},
 		"networks": Networks.stats,
-		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size()}),
+		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size(), "dig_only": player.dig_only_names()}),
 		"weather": weather.summary() if weather else {},
 		"map": world_map.summary(),
 		"torches": torch_lights.stats if torch_lights else {},

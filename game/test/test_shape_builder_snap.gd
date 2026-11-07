@@ -10,6 +10,23 @@ func _builder() -> ShapeBuilder:
 	return b
 
 
+func test_a_brush_choice_leaves_build_mode() -> void:
+	var b := _builder()
+	var p: Player = auto_free(Player.new())
+	p._crack = auto_free(Node3D.new())
+	b.player = p
+	b.menu = auto_free(RadialMenu.new())
+	b._preview = auto_free(MeshInstance3D.new())
+	b._hint = auto_free(Label.new())
+	b.state = ShapeBuilder.State.AIM
+	p.building = true
+	b.menu.open([{"id": "mine:flat", "label": "Flat"}], "", 0)
+	b._close_menu()
+	assert_str(p.brush_shape).is_equal("flat")
+	assert_bool(b.is_active()).is_false()
+	assert_bool(p.building).is_false()
+
+
 func test_the_corner_snaps_across_the_ground_but_keeps_its_floor() -> void:
 	var b := _builder()
 	assert_that(b._snapped(Vector3i(5, 3, -1))).is_equal(Vector3i(4, 3, -4))

@@ -1,16 +1,17 @@
 class_name RadialMenu
 extends Control
 
-## A ring of choices around the screen centre (ADR 0038, the build menu on V): the mouse stays
-## captured, its motion moves a pointer from the centre, and the slice the pointer points at is the
-## choice; past DEAD_ZONE px, closing takes it, inside it nothing is chosen.
+## A ring of choices around the screen centre (ADR 0038, the build menu on G or V, the brush on C), after Lay of the Land
+## (ADR 0144): small tiles spread wide over the running game, a pointer at the centre, a key list at the
+## bottom right. The mouse stays captured, its motion moves the pointer, and the slice it points at is
+## the choice; past DEAD_ZONE px, closing takes it, inside it nothing is chosen.
 
-const RADIUS := 150.0
-const INNER := 52.0
 const DEAD_ZONE := 28.0
+const LABEL_PX := 14
 
 var items: Array = []    # [{id, label}]
 var title := ""
+var extra := ""          # one more line for the key list
 var selected := -1
 var _pointer := Vector2.ZERO
 var _font: Font
@@ -23,9 +24,10 @@ func _ready() -> void:
 	_font = ThemeDB.fallback_font
 
 
-func open(p_items: Array, p_title := "", keep := -1) -> void:
+func open(p_items: Array, p_title := "", keep := -1, p_extra := "") -> void:
 	items = p_items
 	title = p_title
+	extra = p_extra
 	selected = keep
 	_pointer = Vector2.ZERO
 	if keep >= 0 and keep < items.size():
@@ -36,7 +38,7 @@ func open(p_items: Array, p_title := "", keep := -1) -> void:
 
 ## Mouse motion while open (the pointer is clamped to the ring).
 func feed(relative: Vector2) -> void:
-	_pointer = (_pointer + relative).limit_length(RADIUS)
+	_pointer = (_pointer + relative).limit_length(_radius())
 	selected = -1 if _pointer.length() < DEAD_ZONE or items.is_empty() else _slice_at(_pointer.angle())
 	queue_redraw()
 
@@ -45,6 +47,10 @@ func feed(relative: Vector2) -> void:
 func close() -> String:
 	visible = false
 	return String(items[selected]["id"]) if selected >= 0 and selected < items.size() else ""
+
+
+func _radius() -> float:
+	return maxf(size.y, 480.0) * 0.25
 
 
 func _angle_of(i: int) -> float:
@@ -61,22 +67,35 @@ func _draw() -> void:
 		return
 	var c := size / 2.0
 	var n := items.size()
-	draw_circle(c, RADIUS + 18.0, Color(0.03, 0.03, 0.05, 0.55))
+	var radius := _radius()
+	var tile0 := minf(radius * 0.32, TAU * radius / n * 0.62)
 	for i in n:
-		var a0 := _angle_of(i) - PI / n
-		var pts := PackedVector2Array()
-		for k in 13:
-			pts.append(c + Vector2.from_angle(a0 + TAU / n * k / 12.0) * RADIUS)
-		for k in range(12, -1, -1):
-			pts.append(c + Vector2.from_angle(a0 + TAU / n * k / 12.0) * INNER)
+		var at := c + Vector2.from_angle(_angle_of(i)) * radius
 		var on := i == selected
-		draw_colored_polygon(pts, Color(0.95, 0.75, 0.3, 0.55) if on else Color(1, 1, 1, 0.10))
-		draw_polyline(pts, Color(1, 1, 1, 0.25), 1.0)
-		var label: String = items[i]["label"]
-		var at := c + Vector2.from_angle(_angle_of(i)) * (RADIUS + INNER) * 0.5
-		var w := _font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		draw_string(_font, at + Vector2(-w / 2.0, 6.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE if on else Color(1, 1, 1, 0.8))
-	if title != "":
-		var tw := _font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
-		draw_string(_font, c + Vector2(-tw / 2.0, 5.0), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 1, 1, 0.7))
-	draw_circle(c + _pointer, 4.0, Color.WHITE)
+		var tile := tile0 * (1.22 if on else 1.0)
+		var r := Rect2(at - Vector2(tile, tile) * 0.5, Vector2(tile, tile))
+		draw_rect(r, Color(0.09, 0.09, 0.09, 0.72 if on else 0.6))
+		draw_rect(r, Color(0.92, 0.92, 0.9, 1.0 if on else 0.6), false, 2.0 if on else 1.0)
+		BuildIcon.draw_icon(self, String(items[i]["id"]), r.grow(-tile * 0.2), Color.WHITE, 1.5)
+		_label(String(items[i]["label"]).left(16), Vector2(at.x, r.end.y + LABEL_PX + 1.0), HORIZONTAL_ALIGNMENT_CENTER)
+	if selected >= 0 and selected < n:
+		_label(items[selected]["label"], c + Vector2(0.0, 5.0), HORIZONTAL_ALIGNMENT_CENTER)
+		var d := Vector2.from_angle(_angle_of(selected))
+		var tip := c + d * DEAD_ZONE * 1.5
+		var side := d.orthogonal() * 7.0
+		draw_colored_polygon(PackedVector2Array([tip, tip - d * 11.0 + side, tip - d * 11.0 - side]), Color(0.92, 0.92, 0.9, 0.9))
+	else:
+		_label(title.get_slice("  ", 0), c + Vector2(0.0, 5.0), HORIZONTAL_ALIGNMENT_CENTER)
+	var y := size.y - 16.0
+	for line in ["(Esc) Back", "(LMB) Select", extra, title]:
+		if line != "":
+			_label(line, Vector2(size.x - 16.0, y), HORIZONTAL_ALIGNMENT_RIGHT)
+			y -= LABEL_PX + 4.0
+
+
+## One line of outlined text; `at` is its baseline's centre or right end.
+func _label(text: String, at: Vector2, align: HorizontalAlignment) -> void:
+	var w := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_PX).x
+	var o := Vector2(at.x - (w if align == HORIZONTAL_ALIGNMENT_RIGHT else w * 0.5), at.y)
+	draw_string_outline(_font, o, text, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_PX, 4, Color.BLACK)
+	draw_string(_font, o, text, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_PX, Color.WHITE)
