@@ -300,7 +300,10 @@ static func _build_defs() -> Array:
 		# 122, 123 (ADR 0110): the cores of conduit chambers, hard enough to need a good pick
 		{"name": "spring_stone", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [105, 105, 105], "transparent": false},
 		{"name": "magma_heart", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [106, 106, 106], "transparent": false},
-	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + _reserved_defs(133, 136) + _fuse_defs() + _reserved_defs(139, 146) + [
+	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + _reserved_defs(133, 136) + _fuse_defs() + [
+		# 139 (ADR 0149): the lightning rod, a 2 m pole stamped from the placed voxel (PlantStamps.rod); draws strikes
+		{"name": "lightning_rod", "cell_type": "solid", "pattern": true, "density": 11, "hp": 400, "tiles": [215, 215, 215], "transparent": false, "micro": "torch", "entity": "lightning_rod"},
+	] + _reserved_defs(140, 146) + [
 		# 147, 148 (ADR 0157): what a meteorite leaves; Meteors writes them, the generator never does
 		{"name": "meteoric_iron", "cell_type": "solid", "pattern": true, "density": 13, "hp": 1300, "tiles": [186, 186, 186], "transparent": false},
 		{"name": "scorched_earth", "cell_type": "powder", "liquid_static": true, "density": 4, "tiles": [187, 187, 187], "transparent": false},

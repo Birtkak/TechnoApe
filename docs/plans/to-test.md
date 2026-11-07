@@ -63,6 +63,18 @@ frame times.
 - [ ] Walk away from a running factory: the hums and hisses fade; past ~32 m the puffs and parts stop.
 - [ ] A loaded belt or a running lathe no longer glows like a fire at night.
 - [ ] `/stations fx`: 30 machines all running at once. Frame time OK with it all in view?
+## Surface hazards: lightning and eruptions (2026-11-07, ADR 0149)
+
+- [ ] `/weather storm` out in the open: the sky flickers and far thunder rolls first (the warning); then strikes
+      nearby: a flash, thunder a moment later, fire where it hit. Does the delay between flash and thunder read as distance?
+- [ ] Build a plank tower taller than the trees around and wait in the storm (or `/lightning`): the strike goes for the
+      tower and it burns; the fire rain comes later. Too often, too rare?
+- [ ] Craft a lightning rod (2 iron rods over a copper ingot), place it on the tower's top: strikes within 24 m hit the
+      rod instead (flash and thunder, nothing burns). Does the 2 m pole read as a rod? Does the foot break cleanly?
+- [ ] Stand next to a strike (`/lightning here`): 8 health gone, "lightning" on the death screen if it kills you.
+- [ ] `/goto volcano`, stand on the rim, `/erupt`: 20 s of rumble and ash over the lake, then lava over the rim on your
+      side running down the cone, bombs landing on the flank. Does it feel like a threat? Does the frame rate hold?
+- [ ] Wait near a volcano (`/weather` shows nothing, it rolls every 90 s): an eruption starts on its own now and then.
 
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 

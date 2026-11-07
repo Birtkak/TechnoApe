@@ -610,6 +610,7 @@ func sky_open(p: Vector3, surface: int) -> bool:
 
 
 var _overcast_shown := 0.0
+var flash := 0.0   # lightning (ADR 0149): Weather sets 1, the sky and sun blaze and fade over ~0.3 s
 var fullbright := false   # /fullbright: testing light, see _apply_states
 
 func _apply_states(instant: bool, delta: float = 0.0) -> void:
@@ -637,6 +638,10 @@ func _apply_states(instant: bool, delta: float = 0.0) -> void:
 		_overcast_shown = overcast
 		sky_material.set_shader_parameter("cloud_coverage", lerpf(cloud_coverage, 1.0, overcast))
 	env.ambient_light_energy *= lerpf(1.0, 0.75, overcast) * brightness_mult()
+	if flash > 0.0:
+		flash = move_toward(flash, 0.0, delta * 3.5)
+		sun.light_energy += 2.5 * flash
+		env.ambient_light_energy *= 1.0 + 6.0 * flash
 	# no glow towards a sun the cave hides (the orange haze of bug 2026-10-25_21-21-36)
 	env.fog_sun_scatter = sun_scatter * (1.0 - _underground)
 	if _submerged_name != "":

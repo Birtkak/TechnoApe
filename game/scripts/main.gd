@@ -71,6 +71,7 @@ var _ropes_save := []                # the hung ropes from the player's save, lo
 var _tnt_save := []                  # its charges from the player's save, loaded before it exists
 var meteors: Meteors                 # meteorite falls and their craters (ADR 0157)
 var weather: Weather                 # rain and snow, the rain that answers forest fires (ADR 0056); null with weather=0
+var volcano: Volcano                 # eruptions of the generated cones (ADR 0149); null with weather=0
 var world_map := WorldMap.new()      # the explored map and the waypoints (plan item D10, ADR 0055)
 var waypoints: Waypoints = world_map.waypoints   # add(name, pos, kind) for graves, finds ...
 var map_screen: MapScreen            # M
@@ -685,6 +686,10 @@ func _ready() -> void:
 		weather.setup(self)
 		if not warmup.is_queued_for_deletion():
 			warmup.add_materials(weather.warm_materials(), player.camera)
+		volcano = Volcano.new()
+		volcano.name = "Volcano"
+		add_child(volcano)
+		volcano.setup(self)
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
 	player_inv.tool_broke.connect(_on_tool_broke)
@@ -2314,6 +2319,7 @@ func snapshot() -> Dictionary:
 		"networks": Networks.stats,
 		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size(), "dig_only": player.dig_only_names()}),
 		"weather": weather.summary() if weather else {},
+		"volcano": volcano.summary() if volcano else {},
 		"map": world_map.summary(),
 		"torches": torch_lights.stats if torch_lights else {},
 		"machine_fx": machine_fx.stats if machine_fx else {},

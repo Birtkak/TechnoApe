@@ -151,7 +151,9 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("box", "/box <build|dig|select> <x1> <y1> <z1> <x2> <y2> <z2> | go", "Box mode by coordinates (V in game); go digs a marked box at once", _box)
 	reg.register("prefab", "/prefab save <category> <name> | place <category> <name> [at x y z] | list", "Save the selected box as a prefab, place one, or list them", _prefab)
 	reg.register("chop", "/chop [cam]", "Chop through the nearest big trunk 8-20 m away like a player would: 1 m brush digs at 1.5 m up, one every 0.3 s", _chop)
-	reg.register("weather", "/weather [clear|rain] [seconds]", "Show or set the weather (rain turns to snow below 0 C); a forest fire brings rain on its own", _weather, [["clear", "rain"]])
+	reg.register("weather", "/weather [clear|rain|storm] [seconds]", "Show or set the weather (rain turns to snow below 0 C; a storm has lightning); a forest fire brings rain on its own", _weather, [["clear", "rain", "storm"]])
+	reg.register("lightning", "/lightning [here]", "A lightning strike on the highest exposed point around you (or a rod), or at your feet with 'here'", _lightning, [["here"]])
+	reg.register("erupt", "/erupt", "The nearest volcano erupts: rumble and ash, then lava over the rim (stand within 40 m: /goto volcano)", _erupt)
 	reg.register("waypoint", "/waypoint [add <name>|remove <name>|list]", "Waypoints (also on the map, M): add one where you stand", _waypoint, [["add", "remove", "list"]], ["wp"])
 	reg.register("map", "/map", "Open the full map", _map)
 	reg.register("ignite", "/ignite", "Set what you look at on fire, as flint and steel would (up to the laser's range)", _ignite)
@@ -601,8 +603,26 @@ func _weather(args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.ok("Weather: %s" % JSON.stringify(w.summary()))
 	var secs := float(args[1]) if args.size() > 1 and args[1].is_valid_float() else 0.0
 	if not w.set_weather(args[0].to_lower(), secs):
-		return CommandRegistry.fail("Usage: /weather [clear|rain] [seconds]")
+		return CommandRegistry.fail("Usage: /weather [clear|rain|storm] [seconds]")
 	return CommandRegistry.ok("Weather: %s" % args[0].to_lower())
+
+
+func _lightning(args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("weather") == null:
+		return CommandRegistry.fail("No weather (weather=0 or no world)")
+	var at := Vector3i(0, -1, 0)
+	if not args.is_empty() and args[0].to_lower() == "here":
+		at = Vector3i(player.position.floor()) + Vector3i.DOWN
+	var p: Vector3i = main.weather.strike(at)
+	if p.y < 0:
+		return CommandRegistry.fail("Nothing to strike (the sim is busy or nothing exposed was sampled)")
+	return CommandRegistry.ok("Lightning at %s%s" % [p, " (grounded by a rod)" if main.weather.stats["last_strike"][3] else ""])
+
+
+func _erupt(_args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("volcano") == null:
+		return CommandRegistry.fail("No volcanoes (weather=0 or no world)")
+	return CommandRegistry.ok(main.volcano.erupt())
 
 
 func _waypoint(args: PackedStringArray) -> Dictionary:
