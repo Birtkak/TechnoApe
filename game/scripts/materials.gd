@@ -140,6 +140,11 @@ const SAVANNA_GRASS := 127
 const SAVANNA_TALL_GRASS := 128
 const RED_EARTH := 129
 const FIREDAMP := 133              # ADR 0148: explosive mine gas in coal lumps; a flash of enough of it burning is a TNT blast (Firedamp)
+const METEORIC_IRON_HOT := 141     # ADR 0157: the same iron while it glows (fresh crater)
+const METEORIC_IRON := 147         # ADR 0157: iron-nickel left in a meteorite crater, smelts straight to iron
+const SCORCHED_EARTH := 148        # ADR 0157: the burnt ground around a crater
+const SNOW_LAYER := 145             # ADR 0156: fallen snow on the ground in winter (SimWorld.season_pass)
+const LAKE_ICE := 146               # ADR 0156: winter ice on still water, walkable; back to water_static in the thaw
 # Rock kinds, their cobbles, bricks and loose stones, more clutter, ruin pots (ADR 0057)
 const GRANITE := 160
 const DIORITE := 161
@@ -158,6 +163,8 @@ const PYRITE := 200                # placed by E's generator for part F (striker
 const RED_OCHRE := 201
 const YELLOW_OCHRE := 202
 const TNT := 203                   # placeable explosive (ADR 0065): a charge per 0.5 m block, lit by Tnt, never burnt by the sim
+const FUSE_CORD := 137             # ADR 0150: burns slowly along itself (Settings.fuse_speed_mps), lights TNT it reaches
+const FUSE_SPARK := 138            # ADR 0150: the cord's cold flame: a still, short-lived fire cell that lights nothing
 const MONOLITH := 204              # the Gelvin monolith (ADR 0098): ashlar, rune bands, the glowing seam; never mined or blasted
 const MONOLITH_RUNE := 205
 const MONOLITH_SEAM := 206
@@ -182,7 +189,7 @@ const WASTE_GROUND := 219          # soil and soft rock sludge ate, and sludge s
 const SLAG := 220                  # smelting waste: a powder that piles at a machine's port
 const CHIMNEY := 221               # a brick flue: smoke of the machine under a stack of these leaves at its top
 
-const ATLAS_TILES := Vector2i(8, 27)   # rows grow at the bottom, so tile indices keep their meaning
+const ATLAS_TILES := Vector2i(8, 28)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -300,9 +307,26 @@ static func _build_defs() -> Array:
 		{"name": "magma_heart", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [106, 106, 106], "transparent": false},
 	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + [
 		# 133 (ADR 0148): firedamp. Lighter than air, creeps along ceilings, never fades; burnable so any fire cell flashes
-		# through it at once (fire_hp 4: each burning cell lights up to four neighbours, every attempt lights), explosive so the sim tallies the flash for Firedamp
+		# through it at once (fire_hp 4: each burning cell lights its neighbours, every attempt lights), explosive so the
+		# sim tallies the flash for Firedamp
 		{"name": "firedamp", "cell_type": "gas", "density": 0, "gas_upwards_speed": 200, "gas_horizontal_speed": 70, "lifetime": 0, "burnable": true, "explosive": true, "fire_hp": 4, "ignite_chance": 1.0, "autoignition_temperature": 20, "temperature_of_fire": 80, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "generates_smoke": 0, "tiles": [11, 11, 11], "transparent": true},
-	] + _reserved_defs(134, 159) + _rock_defs() + [
+	] + _reserved_defs(134, 136) + _fuse_defs() + [
+		# 139 (ADR 0149): the lightning rod, a 2 m pole stamped from the placed voxel (PlantStamps.rod); draws strikes
+		{"name": "lightning_rod", "cell_type": "solid", "pattern": true, "density": 11, "hp": 400, "tiles": [215, 215, 215], "transparent": false, "micro": "torch", "entity": "lightning_rod"},
+	] + _reserved_defs(140, 140) + [
+		# 141 (ADR 0157): a fresh meteorite's iron, glowing; Meteors cools it to meteoric_iron after Settings.meteor_hot_h
+		{"name": "meteoric_iron_hot", "cell_type": "solid", "pattern": true, "density": 13, "hp": 1300, "tiles": [216, 216, 216], "transparent": false},
+	] + _reserved_defs(142, 144) + [
+		# 145, 146 (ADR 0156): winter over the sim bubble (SimWorld.season_pass): a layer of fallen snow on the ground
+		# and the ice a winter lays on still water. Neither melts by heat: the pass clears the snow and turns the ice
+		# back to still water when the season warms, so a thaw never wakes a lake into moving water.
+		{"name": "snow_layer", "cell_type": "powder", "liquid_static": true, "density": 2, "tiles": [14, 14, 14], "transparent": false},
+		{"name": "lake_ice", "cell_type": "solid", "density": 9, "hp": 120, "tiles": [27, 27, 27], "transparent": false},
+	] + [
+		# 147, 148 (ADR 0157): what a meteorite leaves; Meteors writes them, the generator never does
+		{"name": "meteoric_iron", "cell_type": "solid", "pattern": true, "density": 13, "hp": 1300, "tiles": [186, 186, 186], "transparent": false},
+		{"name": "scorched_earth", "cell_type": "powder", "liquid_static": true, "density": 4, "tiles": [187, 187, 187], "transparent": false},
+	] + _reserved_defs(149, 159) + _rock_defs() + [
 		# 203 (ADR 0065): TNT. Not burnable: the sim would burn it away; Tnt lights it when fire touches it.
 		{"name": "tnt", "cell_type": "solid", "pattern": true, "density": 6, "hp": 50, "tiles": [172, 171, 172], "transparent": false},
 		# 204..206 (ADR 0098): the Gelvin monolith and its plaza. Not in mining.json and hp past Tnt.NEVER_HP: indestructible.
@@ -321,6 +345,21 @@ static func _build_defs() -> Array:
 
 ## Ids 218..221 (ADR 0141): factory waste as matter. Fouled water has water's look and flow in its own fluid slot;
 ## react_awake keeps it rolling its reactions at rest (reactions()). Atlas tiles 190, 191, 215.
+## Ids 137..138 (ADR 0150): fuse cord and its spark. A burning cord lights every face or edge neighbour of cord
+## after fuse_ticks ticks (native fuse rule): a steady Settings.fuse_speed_mps, up steps, round diagonals and
+## under water. Its fire is colder (12) than anything else catches (15+) and its flame is the spark
+## (temperature 0, still), so the ground beside it never burns. fire_hp is short: the glow is a moving spark.
+static func _fuse_defs() -> Array:
+	var ft := clampf(Settings.sim_tick_hz * Settings.VOXEL_M / maxf(Settings.fuse_speed_mps, 0.01), 1.0, 250.0)
+	return [
+		{"name": "fuse_cord", "cell_type": "solid", "density": 6, "hp": 5, "burnable": true, "fire_hp": maxi(24, ceili(ft) + 4), "fuse_ticks": ft, "ignite_chance": 0.5,
+			"autoignition_temperature": 10, "temperature_of_fire": 12, "on_fire_convert_to_material": 8, "on_fire_flame_material": FUSE_SPARK,
+			"on_fire_smoke_material": 11, "generates_smoke": 40, "tiles": [199, 199, 199], "transparent": false},
+		{"name": "fuse_spark", "cell_type": "fire", "density": 0, "lifetime": 8, "temperature_of_fire": 0, "gas_upwards_speed": 0,
+			"gas_horizontal_speed": 0, "tiles": [12, 12, 12], "transparent": true},
+	]
+
+
 static func _waste_defs() -> Array:
 	return [
 		{"name": "fouled_water", "boil_c": 100, "boils_to": "steam", "boil_rise_c": 60, "cell_type": "liquid", "fluid_slot": 5, "density": 0.95, "liquid_flow_speed": 1.0, "liquid_speed": 8, "film_lifetime_ticks": 300, "tiles": [5, 5, 5], "transparent": true, "react_awake": true},

@@ -161,8 +161,11 @@ func sources(eye: Vector3, r2: float) -> Array:
 	var fire := {"range_m": Settings.fire_light_range_m, "energy": Settings.fire_light_energy, "color": FIRE_COLOR.to_html(false)}
 	var lamp := {"range_m": Settings.lamp_light_range_m, "energy": Settings.lamp_light_energy, "color": "fff1c8", "safe_light": true}   # ADR 0117: an electric lamp, paler than fire; no flame (ADR 0148)
 	for e in main.blocks.lit():
+		var kind_light := MachineFx.light_of(e.kind)   # ADR 0153: a running lathe or a loaded belt gives no firelight
+		if kind_light == "none":
+			continue
 		var w := BlockEntities.width_of(e.kind) * 0.5
-		var is_lamp := e is ElectricLampEntity
+		var is_lamp := kind_light == "lamp"
 		var at := Vector3(e.pos) + Vector3(w, Settings.m2v(1.2 if is_lamp else 0.4), w)
 		var d2 := at.distance_squared_to(eye)
 		if d2 <= r2:

@@ -45,12 +45,14 @@ var crops := {}               # Vector3i -> {kind, age}
 var parts := {}               # Vector3i -> anchor: every voxel of a multi-voxel crop (not saved: rebuilt)
 var _owned := {}              # anchor -> [Vector3i]: its parts besides itself
 var _ear := GameMaterials.id_of("wheat_ear")
+var _dead_bush := GameMaterials.id_of("dead_bush")
 var errors: Array[String] = []
 var get_voxel: Callable       # (Vector3i) -> material id
 var set_voxel: Callable       # (Vector3i, material id) -> void
 var is_editable: Callable     # (Vector3i) -> bool: the terrain there is loaded (unset in tests: always)
 var rng := RandomNumberGenerator.new()
 var season_growth := 1.0     # Calendar.crop_growth(): 1 spring/summer, 0.5 autumn, 0 winter (ADR 0025)
+var drought := false         # ADR 0156: a dry summer (SeasonWorld): a crop on dry farmland does not grow
 var dirty := false
 var stats := {"random_ticks": 0, "grown": 0, "dried": 0, "trampled": 0, "popped": 0, "wilted": 0}
 var _material_ids := {}       # name -> id
@@ -322,18 +324,79 @@ func _crop_tick(p: Vector3i) -> Array:
 		return []
 	if not farmland.has(p + Vector3i.DOWN) and not is_farmland_material(get_voxel.call(p + Vector3i.DOWN)):
 		return _pop_crop(p)
-	if _water_known(p + Vector3i.DOWN) and fouled_water(p + Vector3i.DOWN):   # ADR 0141: watered foul, it wilts to nothing
-		stats["wilted"] += 1
-		_remove_crop(p)
-		set_voxel.call(p, GameMaterials.AIR)
-		return []
+	# ADR 0155 (0141 wilted at once): pollution makes the crop sickly (slow growth, the look line says why), then it
+	# wilts to a dead bush; each clean tick takes one sick tick back
+	var why := pollution(p)
+	var sick := int(c.get("sick", 0))
+	if why != "":
+		sick += 1
+		if sick >= Settings.crop_wilt_ticks:
+			_wilt(p)
+			return []
+		if int(c["age"]) > 0:
+			grow(p, -1)   # the sign: it dies back an age (a ripe ear drops first), and regrows once clean
+	elif sick > 0:
+		sick -= 1
+	if sick != int(c.get("sick", 0)):
+		c["sick"] = sick
+		dirty = true
+	c["why"] = why
 	var max_age: int = int(crops_def[c["kind"]]["ages"]) - 1
 	if c["age"] < max_age:
 		var f := growth_speed(p)
-		# seasons (ADR 0025): the Minecraft roll, then the season's share of it
-		if rng.randi_range(0, int(25.0 / f)) == 0 and rng.randf() < season_growth:
+		# seasons (ADR 0025): the Minecraft roll, then the season's share of it (ADR 0156: the crop's own window)
+		var share := Seasons.growth_share(crops_def[c["kind"]], Seasons.season, season_growth)
+		if f > 0.0 and rng.randi_range(0, int(25.0 / f)) == 0 and rng.randf() < share and (sick == 0 or rng.randf() < Settings.crop_sick_growth):
 			grow(p)
 	return []
+
+
+## ADR 0155: what fouls the crop at anchor p, "" when nothing: fouled water watering it, sludge or waste ground in
+## the ring of blocks round it (at the soil's level or the crop's), smoke or toxic gas over it. About 22 voxel reads a
+## random tick (the water answer is the farmland's cached scan).
+func pollution(p: Vector3i) -> String:
+	if _water_known(p + Vector3i.DOWN) and fouled_water(p + Vector3i.DOWN):
+		return "fouled water"
+	for dy in [-1, 0]:
+		for i in range(-1, 2):
+			for j in range(-1, 2):
+				var m: int = get_voxel.call(p + Vector3i(i * block, dy, j * block))
+				if m == GameMaterials.WASTE_GROUND:
+					return "waste ground"
+				if m == GameMaterials.TOXIC_SLUDGE or m == GameMaterials.TOXIC_SLUDGE_STATIC:
+					return "toxic sludge"
+	var gas := 0
+	for k in 4:
+		var m: int = get_voxel.call(p + Vector3i(0, block + k, 0))
+		if m == GameMaterials.SMOKE or m == GameMaterials.TOXIC_GAS:
+			gas += 1
+	return "heavy smoke" if gas >= Settings.crop_smoke_cells else ""
+
+
+## The look line of the crop that voxel p belongs to: "Sickly: fouled water" while pollution is wilting it, else "".
+func sick_line(p: Vector3i) -> String:
+	var a: Vector3i = parts.get(p, p)
+	var c: Dictionary = crops.get(a, {})
+	if c.is_empty():
+		return ""
+	if int(c.get("sick", 0)) <= 0:   # ADR 0156: out of its season, or parched in a drought
+		var note := Seasons.window_note(String(c["kind"]), crops_def.get(c["kind"], {}), Seasons.season)
+		if note == "" and drought and growth_speed(a) <= 0.0:
+			note = "Parched: summer drought, water the farmland"
+		return note
+	return "Sickly: %s" % String(c.get("why", "")) if String(c.get("why", "")) != "" else "Sickly, recovering"
+
+
+## The crop wilts: its base-level voxels become dead bushes (a dead patch reads from afar), the rest air.
+func _wilt(p: Vector3i) -> void:
+	var base := [p]
+	for q in _owned.get(p, []):
+		if q.y == p.y:
+			base.append(q)
+	stats["wilted"] += 1
+	_remove_crop(p)
+	for q in base:
+		set_voxel.call(q, _dead_bush)
 
 
 ## One age up (bone meal, tests): swaps the crop's look when it changes.
@@ -341,8 +404,9 @@ func grow(p: Vector3i, ages: int = 1) -> void:
 	var c: Dictionary = crops[p]
 	var max_age: int = int(crops_def[c["kind"]]["ages"]) - 1
 	var before := look_of(c["kind"], c["age"])
-	c["age"] = mini(int(c["age"]) + ages, max_age)
-	stats["grown"] += 1
+	c["age"] = clampi(int(c["age"]) + ages, 0, max_age)
+	if ages > 0:
+		stats["grown"] += 1
 	dirty = true
 	var after := look_of(c["kind"], c["age"])
 	if after != before:
@@ -357,6 +421,8 @@ func growth_speed(p: Vector3i) -> float:
 	var f := 1.0
 	var below := p + Vector3i.DOWN
 	var b := block
+	if drought and int(farmland.get(below, max_moisture if get_voxel.call(below) == GameMaterials.FARMLAND_MOIST else 0)) <= 0:
+		return 0.0   # ADR 0156: summer drought: unwatered farmland grows nothing
 	for i in range(-1, 2):
 		for j in range(-1, 2):
 			var q := below + Vector3i(i * b, 0, j * b)
@@ -474,7 +540,7 @@ func to_dict() -> Dictionary:
 		fl.append([p.x, p.y, p.z, farmland[p]])
 	var cl := []
 	for p in crops:
-		cl.append([p.x, p.y, p.z, crops[p]["kind"], crops[p]["age"]])
+		cl.append([p.x, p.y, p.z, crops[p]["kind"], crops[p]["age"], int(crops[p].get("sick", 0))])
 	return {"version": SAVE_VERSION, "farmland": fl, "crops": cl}
 
 
@@ -488,6 +554,8 @@ func load_dict(d: Dictionary) -> bool:
 	for e in d.get("crops", []):
 		if crops_def.has(String(e[3])):
 			crops[Vector3i(int(e[0]), int(e[1]), int(e[2]))] = {"kind": String(e[3]), "age": int(e[4])}
+			if e.size() > 5 and int(e[5]) > 0:
+				crops[Vector3i(int(e[0]), int(e[1]), int(e[2]))]["sick"] = int(e[5])   # ADR 0155
 	# the parts are where the stamps put them (the world is not loaded yet: trust the save)
 	parts.clear()
 	_owned.clear()

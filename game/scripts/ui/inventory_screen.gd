@@ -363,6 +363,8 @@ func open_container(c: RefCounted) -> void:
 	elif c.kind == "firepit":
 		# the furnace layout plus the vessel (crucible) slot left of the input (ADR 0023)
 		positions = [Vector2(112, 34), Vector2(112, 106), Vector2(232, 70), Vector2(52, 34)]
+	elif c.has_method("slot_positions"):
+		positions = c.slot_positions()   # a trading post's own layout (ADR 0164)
 	else:
 		for i in c.inv.size():
 			positions.append(Vector2(16 + (i % 9) * S, 36 + (i / 9) * S))
@@ -415,6 +417,7 @@ func _refresh() -> void:
 		_slots[i].favourite = player_inv.favourites.has(i)
 	var chest: bool = _container != null and _container is ChestEntity
 	_sort_button.position = Vector2(PANEL.x - 56, 140) if not chest else Vector2(PANEL.x - 56, 4)
+	_sort_button.visible = not (_container != null and _container.has_method("is_template"))   # sorting would shuffle a post's offers
 	_stack_button.position = Vector2(PANEL.x - 112, 140)
 	_stack_button.visible = nearby_chests.is_valid()
 	_label_edit.visible = chest
@@ -527,6 +530,9 @@ Warmth +%.1f C" % float(cloth["warmth_c"])
 		text += "\nHot: %d °C (%d s to cool)" % [Inventory.temp_c(stack), int(ceil(float(stack["hot_until"]) - Inventory.clock_s))]   # ADR 0087
 	if player_inv.items.get_def(id).has("empties_to"):
 		text += "\nHolds %d / %d voxels" % [Bucket.fill_of(stack), Bucket.capacity()]   # ADR 0091
+	if stack.get("blueprint") is Dictionary:
+		text += "
+" + Blueprint.describe(stack["blueprint"], player_inv.items)   # ADR 0161
 	if stack.has("work"):
 		text += "\nWork piece: %s" % player_inv.items.display_name(String(stack["work"].get("output", "")))
 	text += item_facts(player_inv.items, player_inv.recipes, id, Input.is_key_pressed(KEY_SHIFT))

@@ -18,7 +18,7 @@ extends Node
 ## are created by BlockEntities through create_entity().
 
 const SURFACES := ["ground", "stone", "sandstone", "loom"]
-const KINDS := ["earth_oven", "rack", "stroke", "loom", "water_work", "megalith", "dugout"]
+const KINDS := ["earth_oven", "rack", "smokehouse", "salt_pan", "stroke", "loom", "water_work", "megalith", "dugout"]
 const HEIGHTS := {"earth_oven": 2, "water_work": 1, "stroke": 1}   # voxels; the rest are full blocks
 ## Items the world gives without a recipe (the tests' list of sources, beside ground pickups and drops).
 const WORLD_SOURCES := {"birch_bark": "a knife on a birch trunk's bark", "tinder_fungus": "peeling birch bark, now and then",
@@ -44,8 +44,6 @@ var draw_id := ""                 # the bow being drawn (right click held), "" w
 var draw_t := 0.0                 # seconds it has been drawn
 var _sec := 0.0
 var _rng := RandomNumberGenerator.new()
-var _fish_until := -1.0         # a line in the water: the bite comes at this game day
-var _fish_at := Vector3.ZERO
 var stats := {"shots": 0, "launched": 0, "peeled": 0, "ovens_dug": 0, "ovens_lit": 0, "baked": [], "cured": [],
 	"strokes": 0, "worked": [], "set_in_water": 0, "caught": [], "worn": [], "embers": 0, "brine": 0, "dough": 0, "fish": 0}
 
@@ -54,8 +52,8 @@ static func create_entity(blocks: BlockEntities, pos: Vector3i, kind: String) ->
 	match kind:
 		"earth_oven":
 			return EarthOvenEntity.new(blocks.recipes, pos)
-		"rack":
-			return RackEntity.new(blocks.recipes, pos)
+		"rack", "smokehouse", "salt_pan":
+			return RackEntity.new(blocks.recipes, pos, kind)
 		"stroke", "loom":
 			return StrokeEntity.new(blocks.recipes, pos, kind)
 		"water_work":
@@ -68,7 +66,7 @@ static func create_entity(blocks: BlockEntities, pos: Vector3i, kind: String) ->
 
 
 static func ticks(kind: String) -> bool:
-	return kind in ["earth_oven", "rack", "water_work", "dugout"]
+	return kind in ["earth_oven", "rack", "smokehouse", "salt_pan", "water_work", "dugout"]
 
 
 ## The durability multiplier a tool assembled from `parts` gets (ADR 0059): the best binding's haft_x
@@ -176,18 +174,15 @@ func _process(delta: float) -> void:
 	if _sec >= 1.0:
 		_sec = 0.0
 		_each_second()
-	if _fish_until > 0.0 and now_days >= _fish_until:
-		_fish_until = -1.0
-		_land_fish()
 
 
 ## Racks smoke over a lit firepit; carried embers go out.
 func _each_second() -> void:
-	for e in main.blocks.all_of("rack"):
+	for e in main.blocks.all_of("rack") + main.blocks.all_of("smokehouse") + main.blocks.all_of("salt_pan"):
 		_watch(e)
 		var was: bool = e.smoky
-		e.smoky = _fire_near(e.pos)
-		if e.smoky:
+		e.smoky = _sun_on(e.pos) if e.kind == "salt_pan" else _fire_near(e.pos)
+		if e.smoky and e.kind != "salt_pan":
 			main.work._particles("smoke", main.work._at(e.pos, Vector3(0.5, 1.1, 0.5)), 0)
 		if was != e.smoky:
 			e.changed.emit()
@@ -197,6 +192,13 @@ func _each_second() -> void:
 		if not s.is_empty() and s.has("out_at") and float(s["out_at"]) <= now_days:
 			inv.set_slot(i, {})
 			main.work._say("Your smouldering fungus has gone out.")
+
+
+## Open sky above p in daylight (the salt pan's evaporation, ADR 0162).
+func _sun_on(p: Vector3i) -> bool:
+	var cal = main.atmosphere.calendar
+	var t: float = main.atmosphere.time_of_day
+	return t > cal.sunrise() and t < cal.sunset() and main.world.surface_height(p.x, p.z) <= p.y + 1
 
 
 ## A lit firepit beside the block at p, under it, or one block lower beside it.
@@ -707,7 +709,12 @@ func _feed_wolf(hit: VoxelRaycastResult) -> bool:
 	if mob == null or String(mob.species) != "wolf" or mob.is_dead():
 		return false
 	if mob.has_meta("tamed_by"):
-		main.work._say("Your dog wags its tail.")
+		if mob.eat_meat():
+			if _consumes():
+				main.player_inv.consume_held(1)
+			main.work._say("Your dog wolfs the meat down.")
+		else:
+			main.work._say("Your dog wags its tail.")
 		return true
 	var fed := int(mob.get_meta("tame_fed", 0)) + 1
 	mob.set_meta("tame_fed", fed)
@@ -716,9 +723,7 @@ func _feed_wolf(hit: VoxelRaycastResult) -> bool:
 	if fed < Settings.tame_meat:
 		main.work._say("The wolf takes the meat, warily (%d/%d)." % [fed, Settings.tame_meat])
 		return true
-	mob.set_meta("tamed_by", "player")
-	if mob.has_method("set_companion"):
-		mob.set_companion(main.player)
+	mob.set_companion(main.player)
 	stats["tamed"] = int(stats.get("tamed", 0)) + 1
 	main.work._note("tamed", "raw_meat")
 	main.work._say("The wolf trusts you now: it is your dog.")
@@ -727,34 +732,21 @@ func _feed_wolf(hit: VoxelRaycastResult) -> bool:
 
 # ---------------- fishing (line and net) ----------------
 
-## A fishing line or net cast at water: the line bites after a few game minutes, the net now and then
-## brings a fish up at once. Rivers and lakes alike; part E's fish swim there.
-func _fish(hit: VoxelRaycastResult, held: Dictionary, _from: Vector3, _dir: Vector3) -> bool:
+## A fishing net cast at water now and then brings a fish up at once; the line is Fishing's (ADR 0163:
+## the bobber, the bite and the reel).
+func _fish(hit: VoxelRaycastResult, held: Dictionary, from: Vector3, dir: Vector3) -> bool:
+	if not "net" in held.get("tags", []):
+		return main.fishing.use_rod(from, dir)
 	if hit == null or _water_bed(hit).y < 0:
 		return false
 	var at := Vector3(_water_bed(hit)) + Vector3(0.5, 1.0, 0.5)
 	main.work._particles("splash", at, GameMaterials.WATER)
 	main.work._wear_held()
-	if "net" in held.get("tags", []):
-		if _rng.randf() < Settings.net_catch_chance:
-			_give_fish(at)
-		else:
-			main.work._say("The net comes up empty.")
-		return true
-	if _fish_until > 0.0:
-		main.work._say("Your line is already in the water.")
-		return true
-	_fish_at = at
-	_fish_until = now_days + _rng.randf_range(Settings.fish_bite_min_h, Settings.fish_bite_max_h) / 24.0
-	main.work._say("You cast your line. Wait for a bite.")
+	if _rng.randf() < Settings.net_catch_chance:
+		_give_fish(at)
+	else:
+		main.work._say("The net comes up empty.")
 	return true
-
-
-func _land_fish() -> void:
-	if main.player.position.distance_to(_fish_at) > Settings.m2v(12.0):
-		main.work._say("The fish got away: you walked off from your line.")
-		return
-	_give_fish(main.player.position)
 
 
 func _give_fish(at: Vector3) -> void:

@@ -16,7 +16,8 @@ const KITS := {
 		"copper_saw": 1, "copper_hammer": 1, "shears": 1, "flint_and_steel": 1, "pan": 1, "torch": 32, "coal": 32, "oak_log": 16},
 	"builder": {"deconstruction_hammer": 1, "stone": 64, "cobblestone": 64, "bricks": 64, "dirt": 64, "grass_block": 64, "sand": 64, "gravel": 64,
 		"oak_planks": 64, "oak_log": 64, "birch_log": 64, "spruce_log": 64, "glass": 64, "sandstone": 64, "terracotta": 64,
-		"basalt": 64, "clay": 64, "thatch": 64, "wattle": 64, "daub": 64, "torch": 64},
+		"basalt": 64, "clay": 64, "thatch": 64, "wattle": 64, "daub": 64, "torch": 64,
+		"blueprint": 4, "builder": 1, "hand_crank": 1, "chest": 1},   # ADR 0161
 	"house": {"door": 4, "trapdoor": 4, "fence": 16, "fence_gate": 4, "ladder": 16, "window": 8, "table": 2, "shelf": 2,
 		"lantern": 8, "flower_pot": 4, "painting": 4, "chair": 4, "bed": 1, "carpet": 16},   # ADR 0094
 	"stations": {"crafting_table": 4, "furnace": 4, "chest": 4, "storage_pot": 2, "firepit": 2, "sieve": 2, "stone_anvil": 1,
@@ -47,6 +48,7 @@ const KITS := {
 		"copper_cable": 16, "thin_cable": 8, "heavy_copper_cable": 8, "insulated_wire": 16, "battery_box": 1, "lead_acid_cell": 4,
 		"water_wheel": 1, "wind_turbine": 1, "hand_crank": 1, "electric_lamp": 4, "daylight_switch": 1, "meter_panel": 1, "multimeter": 1,
 		"knife_switch": 1, "fuse_box": 1, "breaker": 1, "fuse": 4, "wrench": 1, "electric_furnace": 1, "pump": 1, "raw_meat": 8, "iron_ore": 8, "vent_fan": 2, "safety_lamp": 1},   # the energy network (ADR 0113, 0117, 0123)
+	"contraptions": {"lift_winch": 1, "drawbridge_hinge": 1, "crane": 1, "hand_crank": 3, "knife_switch": 2, "copper_cable": 16, "oak_planks": 64},   # ADR 0160
 	"lv": {"lathe": 1, "bending_press": 1, "wiremill": 1, "macerator": 1, "alloy_smelter": 1, "assembler": 1, "extractor": 1, "cutter": 1,
 		"extruder": 1, "canning_machine": 1, "electric_compressor": 1, "electrolyzer": 1, "coke_oven": 1, "bricks": 26, "coal_coke": 8,
 		"hopper": 2, "belt": 8, "iron_ingot": 8, "copper_ingot": 8, "tin_ingot": 8, "steel_ingot": 4, "tin_nugget": 12, "copper_ore": 4,
@@ -54,10 +56,12 @@ const KITS := {
 		"resistor": 2, "coated_board": 2, "glass": 4, "oak_log": 8},   # the LV machines and what they work (ADR 0117, 0131); power from /kit electric
 	"workshop": {"spyglass": 1, "diving_mask": 1, "rubber_boots": 1, "hand_drill": 1, "canned_meat": 4, "canned_fish": 4, "canned_vegetables": 4,
 		"sticky_resin": 16, "tin_can": 4, "stick": 8},   # the Workshop chapter's LV round 2 goods (ADR 0131)
+	"social": {"sign": 4, "paper": 8, "charcoal": 4, "note": 1, "trading_post": 1, "iron_ingot": 16, "oak_planks": 32, "cobblestone": 32, "chest": 1},   # signs, notes, a trading post (ADR 0164)
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1, "sounding_rod": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
+	"toys": {"glider": 1, "climbing_rope": 8, "grappling_hook": 1},   # movement toys (ADR 0151)
 	"water": {"bucket": 1, "water_bucket": 1, "crater_rod": 1, "laser_cutter": 1, "lava_bomb": 8, "water_balloon": 8, "cobblestone": 16},   # river tests (ADR 0104)
-	"tnt": {"tnt": 64, "igniter": 1, "flint_and_steel": 1, "sulfur": 8, "charcoal": 4, "sand": 2},   # TNT (ADR 0065)
+	"tnt": {"tnt": 64, "fuse_cord": 16, "igniter": 1, "flint_and_steel": 1, "sulfur": 8, "charcoal": 4, "sand": 2},   # TNT (ADR 0065)
 	"fire": {"flint_and_steel": 1, "firestarter": 1, "firepit": 1, "firewood": 32, "coal": 16, "oak_log": 16, "dry_grass": 16,
 		"torch": 16, "water_bucket": 1, "water_balloon": 16},   # forest fires and rain (ADR 0056)
 	"clutter": {"seashell": 16, "kelp": 16, "brown_mushroom": 16, "red_mushroom": 16, "dandelion": 16, "poppy": 16, "cornflower": 16,
@@ -121,8 +125,10 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("browse", "/browse <item> [recipes|uses]", "Open the recipe browser on an item (as R or U over it)", _browse, [_item_ids, ["recipes", "uses"]])
 	reg.register("digonly", "/digonly <material> | off", "Dig only this material, as Shift + middle click on it (ADR 0144); again to take it off the list", _digonly)
 	reg.register("tools", "/tools", "Open the build ring (the V key): build modes, prefabs and, under Brush, the brush's shapes and size", _tools)
-	reg.register("tnt", "/tnt <grid [n] [spacing_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); light lights the aimed charge",
+	reg.register("tnt", "/tnt <grid [n] [spacing_m]|fuse [length_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); fuse lays a charge there with a lit fuse cord toward you (ADR 0150); light lights the aimed charge",
 		_tnt, [["grid", "light", "stats"], ["1", "5", "20"], ["1", "1.5", "2"]])
+	reg.register("meteor", "/meteor [here|near|stats]", "A meteorite falls (ADR 0157): here 6 m ahead, near 120 m ahead, none a few hundred metres off as at night",
+		_meteor, [["here", "near", "stats"]])
 	reg.register("support", "/support [stats|scan|probe|modes <all|survival>|on|off]", "Mine shoring (ADR 0142): what creaks and when it falls, scan the roof here, the aimed roof's load, which game modes cave in",
 		_support, [["stats", "scan", "probe", "modes", "on", "off"], ["all", "survival"]])
 	reg.register("setblock", "/setblock <x> <y> <z> <material>", "Set one voxel; ~ is relative to you (~ ~-1 ~ is under your feet)",
@@ -130,9 +136,14 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
 	reg.register("ponder", "/ponder [scene]", "Open the guide screen (ADR 0132): how boilers, pipes, cables and machines connect; no scene lists them", _ponder, [Ponder.scenes().keys()])
-	reg.register("stations", "/stations [electric|factory|lv|power|pollution|smoke]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141)", _stations, [["electric", "factory", "lv", "power", "pollution", "smoke"]])
+	reg.register("stations", "/stations [electric|factory|lv|power [cam]|pollution|smoke|fx [n]]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141); fx: 30 running machines of every animated kind (ADR 0153)", _stations, [["electric", "factory", "lv", "power", "pollution", "smoke", "fx"]])
+	reg.register("fish", "/fish <pond|foul|traps|cast|state>", "ADR 0163: a fish pond (or a fouled one) 2 m ahead with a rod in hand; traps: a snare, a pit trap, a rabbit, a deer and a tamed wolf; cast: an automatic cast, bite and reel down ahead; state: the rod's state", _fish, [["pond", "foul", "traps", "cast", "state"]])
+	reg.register("contraptions", "/contraptions [toggle|ride] [cam]", "ADR 0160: a lift, a drawbridge and a crane ahead, each on a turning hand crank; toggle flips every drive's lever, ride stands you on the lift; cam films them", _contraptions, [["toggle", "ride", "cam"]])
+	reg.register("pollute", "/pollute [smoke]", "ADR 0155: a fouled pond with fish and wheat beside waste ground ahead (farm_speed=40 to watch crops wilt); smoke: a smoke booth round you", _pollute, [["smoke"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
 		_summon, [["sheep", "pig", "chicken", "bear"], ["1", "2", "4", "8"], ["baby", "hungry"]])
+	reg.register("name", "/name <text>", "Name the companion you look at (ADR 0152); the tag over it shows the name", _name)
+	reg.register("tame", "/tame", "Tame the wolf you look at (or the nearest within 12 m) as your companion (ADR 0152); empty hand toggles sit/stay", _tame)
 	reg.register("quests", "/quests [list|complete <id|all>|reset]", "Show or change progression book progress (ADR 0028)",
 		_quests, [["list", "complete", "reset"], _quest_ids])
 	reg.register("grade", "/grade [%s]" % "|".join(Atmosphere.GRADES.keys()), "Switch the lighting grade (ADR 0041), or show the current one", _grade, [Atmosphere.GRADES.keys()])
@@ -142,9 +153,13 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("survival", "/survival [hunger <0..20> | body <C> | spoil <0..1>]", "Hunger, body temperature and the air around you (ADR 0040); spoil sets the held food's freshness", _survival)
 	reg.register("shape", "/shape <box|wall|cylinder|cone|sphere|stairs|slope> [w h d] [hollow n] [at x y z] | commit | cancel | turn [tip] | mirror", "Shape building (V in game): set a shape down at the crosshair, then commit", _shape)
 	reg.register("box", "/box <build|dig|select> <x1> <y1> <z1> <x2> <y2> <z2> | go", "Box mode by coordinates (V in game); go digs a marked box at once", _box)
+	reg.register("blueprint", "/blueprint copy x1 y1 z1 x2 y2 z2 | place [at x y z] [turn 0-3] [mirror] | list | clear",
+		"Copy a box onto a written blueprint, place the held one (a ghost, or at once with at), list or clear the sites (ADR 0161)", _blueprint)
 	reg.register("prefab", "/prefab save <category> <name> | place <category> <name> [at x y z] | list", "Save the selected box as a prefab, place one, or list them", _prefab)
 	reg.register("chop", "/chop [cam]", "Chop through the nearest big trunk 8-20 m away like a player would: 1 m brush digs at 1.5 m up, one every 0.3 s", _chop)
-	reg.register("weather", "/weather [clear|rain] [seconds]", "Show or set the weather (rain turns to snow below 0 C); a forest fire brings rain on its own", _weather, [["clear", "rain"]])
+	reg.register("weather", "/weather [clear|rain|storm] [seconds]", "Show or set the weather (rain turns to snow below 0 C; a storm has lightning); a forest fire brings rain on its own", _weather, [["clear", "rain", "storm"]])
+	reg.register("lightning", "/lightning [here]", "A lightning strike on the highest exposed point around you (or a rod), or at your feet with 'here'", _lightning, [["here"]])
+	reg.register("erupt", "/erupt", "The nearest volcano erupts: rumble and ash, then lava over the rim (stand within 40 m: /goto volcano)", _erupt)
 	reg.register("waypoint", "/waypoint [add <name>|remove <name>|list]", "Waypoints (also on the map, M): add one where you stand", _waypoint, [["add", "remove", "list"]], ["wp"])
 	reg.register("map", "/map", "Open the full map", _map)
 	reg.register("ignite", "/ignite", "Set what you look at on fire, as flint and steel would (up to the laser's range)", _ignite)
@@ -409,6 +424,35 @@ func _time(args: PackedStringArray) -> Dictionary:
 	return CommandRegistry.ok("Set the time to %s" % key)
 
 
+func _name(args: PackedStringArray) -> Dictionary:
+	if main == null or player == null or main.mobs == null:
+		return CommandRegistry.fail("No animals here")
+	var w: Mob = player.aimed_mob()
+	if w == null or w.owner_id != "player":
+		return CommandRegistry.fail("Look at your companion first")
+	if args.is_empty():
+		return CommandRegistry.fail("Usage: /name <text>")
+	w.set_pet_name(" ".join(args))
+	return CommandRegistry.ok("Named %s" % w.display_name())
+
+
+func _tame(_args: PackedStringArray) -> Dictionary:
+	if main == null or player == null or main.mobs == null:
+		return CommandRegistry.fail("No animals here")
+	var w: Mob = player.aimed_mob()
+	if w == null or w.species != "wolf":
+		w = null
+		var best := Settings.m2v(12.0)
+		for m in main.mobs.active():
+			if m.species == "wolf" and not m.is_dead() and m.position.distance_to(player.position) < best:
+				best = m.position.distance_to(player.position)
+				w = m
+	if w == null:
+		return CommandRegistry.fail("No wolf within 12 m (/summon wolf)")
+	w.set_companion(player)
+	return CommandRegistry.ok("The wolf is your companion now")
+
+
 func _summon(args: PackedStringArray) -> Dictionary:
 	if main == null or player == null or not ("mobs" in main) or main.mobs == null:
 		return CommandRegistry.fail("No animals here")
@@ -577,8 +621,26 @@ func _weather(args: PackedStringArray) -> Dictionary:
 		return CommandRegistry.ok("Weather: %s" % JSON.stringify(w.summary()))
 	var secs := float(args[1]) if args.size() > 1 and args[1].is_valid_float() else 0.0
 	if not w.set_weather(args[0].to_lower(), secs):
-		return CommandRegistry.fail("Usage: /weather [clear|rain] [seconds]")
+		return CommandRegistry.fail("Usage: /weather [clear|rain|storm] [seconds]")
 	return CommandRegistry.ok("Weather: %s" % args[0].to_lower())
+
+
+func _lightning(args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("weather") == null:
+		return CommandRegistry.fail("No weather (weather=0 or no world)")
+	var at := Vector3i(0, -1, 0)
+	if not args.is_empty() and args[0].to_lower() == "here":
+		at = Vector3i(player.position.floor()) + Vector3i.DOWN
+	var p: Vector3i = main.weather.strike(at)
+	if p.y < 0:
+		return CommandRegistry.fail("Nothing to strike (the sim is busy or nothing exposed was sampled)")
+	return CommandRegistry.ok("Lightning at %s%s" % [p, " (grounded by a rod)" if main.weather.stats["last_strike"][3] else ""])
+
+
+func _erupt(_args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("volcano") == null:
+		return CommandRegistry.fail("No volcanoes (weather=0 or no world)")
+	return CommandRegistry.ok(main.volcano.erupt())
 
 
 func _waypoint(args: PackedStringArray) -> Dictionary:
@@ -874,6 +936,12 @@ func _support(args: PackedStringArray) -> Dictionary:
 	return CommandRegistry.fail("/support [stats|scan|probe|modes <all|survival>|on|off]")
 
 
+func _meteor(args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("meteors") == null:
+		return CommandRegistry.fail("No world")
+	return main.meteors.command(args)
+
+
 func _tnt(args: PackedStringArray) -> Dictionary:
 	if main == null or player == null or main.tnt == null:
 		return CommandRegistry.fail("No world")
@@ -908,7 +976,21 @@ func _tnt(args: PackedStringArray) -> Dictionary:
 					near = a
 			tnt.light(near)
 			return CommandRegistry.ok("TNT: %d blocks, %.2f m apart, the nearest lit" % [placed.size(), Settings.v2m(step)])
-	return CommandRegistry.fail("Usage: /tnt <grid [n] [spacing_m]|light|stats>")
+		"fuse":
+			if hit == null:
+				return CommandRegistry.fail("Aim at the ground")
+			var a := Tnt.anchor_of(hit.position) + Vector3i(0, Settings.BLOCK, 0)
+			if main.bubble.fill_box(a, a + Vector3i.ONE * Settings.BLOCK, GameMaterials.TNT) < 0:
+				return CommandRegistry.fail("Place it inside the simulated area around you")
+			tnt.register_cells([a])
+			var to := player.position - Vector3(a)
+			var dir := Vector3i(signi(int(to.x)), 0, 0) if absf(to.x) >= absf(to.z) else Vector3i(0, 0, signi(int(to.z)))
+			var length := float(args[1]) if args.size() > 1 else 4.0
+			var end := tnt.lay_fuse(a, dir if dir != Vector3i.ZERO else Vector3i(1, 0, 0), maxi(2, roundi(Settings.m2v(length))))
+			if end == Vector3i.MAX:
+				return CommandRegistry.fail("Place it inside the simulated area around you")
+			return CommandRegistry.ok("TNT with a %.1f m fuse cord, lit at %s (%.0f m away): about %.1f s" % [length, end, Settings.v2m(Vector3(end).distance_to(player.position)), length / Settings.fuse_speed_mps])
+	return CommandRegistry.fail("Usage: /tnt <grid [n] [spacing_m]|fuse [length_m]|light|stats>")
 
 
 ## /sound <name> [x y z] plays a sound (at the player, or a voxel position); list and stats report.
@@ -952,6 +1034,66 @@ func _ponder(args: PackedStringArray) -> Dictionary:
 	return CommandRegistry.ok("Guide: " + String(Ponder.get_scene(id).get("title", id)))
 
 
+func _fish(args: PackedStringArray) -> Dictionary:
+	if main == null or main.fishing == null:
+		return CommandRegistry.fail("No world")
+	var what := args[0] if args.size() > 0 else "pond"
+	if what == "state":
+		return CommandRegistry.ok(JSON.stringify(main.fishing.snapshot()))
+	if what == "cast":   # scripted: the bite and the reel play themselves, the cast goes down ahead
+		main.fishing.auto = true
+		var b: Basis = player.camera.global_transform.basis
+		var d: Vector3 = (-b.z * Vector3(1, 0, 1)).normalized() * 3.0 + Vector3(0, -1.6, 0)
+		main.fishing.use_rod(player.camera.global_position, d.normalized())
+		return CommandRegistry.ok("Cast: " + main.fishing.snapshot()["state"])
+	if not main.bubble.is_loaded():
+		return _queue_until_loaded(_fish, args)
+	var laid: String = main.fishing.debug_scene(what)
+	if what == "traps" and args.size() > 1 and args[1] == "cam":   # film it from above (/cam off to leave)
+		var c: Vector3 = main.fishing.scene_at
+		var back: Vector3 = (player.position - c) * Vector3(1, 0, 1)
+		_debug_cam().enable(c + back.normalized() * Settings.m2v(2.5) + Vector3(0, Settings.m2v(2.2), 0), c + Vector3(-2, -2, 0))
+	return CommandRegistry.ok("Laid " + laid)
+
+
+var _lift_spot := Vector3.INF   # /contraptions: the lift platform's top centre
+
+
+func _contraptions(args: PackedStringArray) -> Dictionary:
+	if main == null or main.contraptions == null:
+		return CommandRegistry.fail("No contraptions (rigid_pieces=0?)")
+	if "toggle" in args:
+		var n := 0
+		for k in ContraptionEntity.KINDS:
+			for e: ContraptionEntity in main.blocks.all_of(k):
+				e.use({})
+				n += 1
+		return CommandRegistry.ok("Flipped %d levers" % n)
+	if "ride" in args:
+		if _lift_spot == Vector3.INF:
+			return CommandRegistry.fail("Build them first: /contraptions")
+		player.position = _lift_spot
+		player.velocity = Vector3.ZERO
+		return CommandRegistry.ok("On the lift")
+	if not main.bubble.is_loaded():
+		return _queue_until_loaded(_contraptions, args)
+	var facing := Transport.facing_from_yaw(player.rotation_degrees.y)
+	var base := Vector3i((player.position + Vector3(Transport.dir_of(facing)) / Settings.BLOCK * Settings.m2v(3.0)).floor())
+	var d: Dictionary = main.contraptions.debug_build(base, facing)
+	_lift_spot = d["lift"]
+	if "cam" in args:
+		_debug_cam().enable(d["cam"], d["look"])
+	return CommandRegistry.ok("Laid " + d["laid"])
+
+
+func _pollute(args: PackedStringArray) -> Dictionary:
+	if main == null:
+		return CommandRegistry.fail("No world")
+	if not main.bubble.is_loaded():
+		return _queue_until_loaded(_pollute, args)
+	return CommandRegistry.ok("Laid " + preload("res://scripts/debug/pollute_scene.gd").lay(main, args[0] if args.size() > 0 else ""))
+
+
 func _stations(args: PackedStringArray) -> Dictionary:
 	if main == null:
 		return CommandRegistry.fail("No world")
@@ -970,6 +1112,31 @@ func _stations(args: PackedStringArray) -> Dictionary:
 		var d: Dictionary = main.work.debug_cave_smoke(at)
 		_debug_cam().enable(d["cam"], d["look"])
 		return CommandRegistry.ok("Laid %s (/cam off to leave the view)" % d["laid"])
+	if args.size() > 0 and args[0] == "fx":   # ADR 0153: 30 running machines of every animated kind, 4 m ahead
+		var f3: Vector3 = -player.camera.global_transform.basis.z
+		f3.y = 0
+		var fw := Vector3i(f3.normalized().round())
+		if fw == Vector3i.ZERO or (fw.x != 0 and fw.z != 0):
+			fw = Vector3i(0, 0, -1)
+		var rt := Vector3i(Vector3(fw).cross(Vector3.UP).round())
+		var a0 := BlockEntities.anchor_for(Vector3i((player.position + Vector3(fw) * Settings.m2v(4.0) - Vector3(rt) * Settings.m2v(7.5)).floor()))
+		a0.y = int(floor(player.position.y))
+		var only: Array = []   # /stations fx boiler,cutter,...: those kinds in one row, filmed close
+		var n := 30
+		if args.size() > 1:
+			if args[1].is_valid_int():
+				n = int(args[1])
+			else:
+				only = Array(args[1].split(","))
+				n = only.size()
+		var laid: String = main.work.debug_fx_grid(a0, rt, fw, n, only)
+		var cols := mini(n, 6)
+		var rows := ceili(n / 6.0)
+		var mid := Vector3(a0) + Vector3(rt) * Settings.m2v(1.5 * (cols - 1) + 0.6) + Vector3(fw) * Settings.m2v(1.5 * (rows - 1) + 0.6)
+		mid.y = a0.y + Settings.m2v(1.0)
+		var back := 1.0 + 0.9 * cols + 1.0 * rows   # metres: the whole factory in view, a short row close up
+		_debug_cam().enable(mid - Vector3(fw) * Settings.m2v(back) + Vector3(0, Settings.m2v(back * 0.6), 0), mid)
+		return CommandRegistry.ok("Laid %s (/cam off to leave the view)" % laid)
 	if args.size() > 0 and args[0] in ["electric", "factory", "lv", "power"]:   # ADR 0113, 0117, 0123, 0131: the energy line, the factory, the LV machines or the small sources, 4 m ahead, along the player's right
 		var fwd: Vector3 = -player.camera.global_transform.basis.z
 		fwd.y = 0
@@ -989,6 +1156,10 @@ func _stations(args: PackedStringArray) -> Dictionary:
 				laid = main.work.debug_power_line(anchor, right)
 			_:
 				laid = main.work.debug_electric_line(anchor, right)
+		if args.size() > 1 and args[1] == "cam":   # a free camera over the line's first 10 m (filming its machines, ADR 0153)
+			var look := Vector3(anchor) + Vector3(right) * Settings.m2v(5.0) + Vector3(0, Settings.m2v(0.8), 0)
+			_debug_cam().enable(look - fwd.normalized() * Settings.m2v(5.5) + Vector3(0, Settings.m2v(3.5), 0), look)
+			laid += " (/cam off to leave the view)"
 		return CommandRegistry.ok("Laid " + laid)
 	main.place_stations()
 	return CommandRegistry.ok("Placing a crafting table, chest and furnace ahead")
@@ -1179,6 +1350,47 @@ func _shape(args: PackedStringArray) -> Dictionary:
 
 
 ## "at <x> <y> <z>" in a command's args (~ relative to the player) as a Vector3i, else null.
+func _blueprint(args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("blueprints") == null:
+		return CommandRegistry.fail("No blueprints here")
+	var bp: Blueprints = main.blueprints
+	var usage := "Usage: /blueprint copy x1 y1 z1 x2 y2 z2 | place [at x y z] [turn 0-3] [mirror] | list | clear"
+	match args[0] if args.size() > 0 else "":
+		"list":
+			return CommandRegistry.ok(JSON.stringify(bp.summary()))
+		"clear":
+			bp.clear_sites()
+			return CommandRegistry.ok("Sites cleared")
+		"copy":
+			if args.size() < 7:
+				return CommandRegistry.fail(usage)
+			var a: Variant = _coords(args, 1, player.position)
+			var b: Variant = _coords(args, 4, player.position)
+			if not (a is Vector3 and b is Vector3):
+				return CommandRegistry.fail(usage)
+			var lo := Vector3i((a as Vector3).min(b))
+			var d := Blueprint.capture(main, lo, Vector3i((a as Vector3).max(b)) - lo + Vector3i.ONE)
+			if d.is_empty() or d.has("error"):
+				return CommandRegistry.fail(d.get("error", "Nothing there to copy"))
+			main.player_inv.pickup("written_blueprint", 1, {"blueprint": d})
+			return CommandRegistry.ok("Copied: " + Blueprint.describe(d, main.items))
+		"place":
+			var held: Dictionary = main.player_inv.held()
+			if String(held.get("id", "")) != "written_blueprint":
+				return CommandRegistry.fail("Hold a written blueprint")
+			var at: Variant = _at_arg(args)
+			if at == null:
+				bp.start_placing(held["blueprint"])
+				return CommandRegistry.ok("Placing: click to mark the site")
+			var rot := 0
+			var t := args.find("turn")
+			for _q in (int(args[t + 1]) if t >= 0 and t + 1 < args.size() else 0):
+				rot = ShapeTool.new().turn(rot, 1)
+			var i := bp.mark(held["blueprint"], at, rot, args.has("mirror"))
+			return CommandRegistry.ok("Site %d marked at %s" % [i, at]) if i >= 0 else CommandRegistry.fail("This blueprint is blank")
+	return CommandRegistry.fail(usage)
+
+
 func _at_arg(args: PackedStringArray) -> Variant:
 	var i := args.find("at")
 	if i < 0 or i + 3 >= args.size():

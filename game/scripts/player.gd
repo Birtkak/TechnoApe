@@ -68,6 +68,7 @@ var entity_pick: Callable        # (from, dir, max_dist) -> {mob, dist} or {}
 var entity_attack: Callable      # (mob, damage) -> void
 var throw_item: Callable         # (stack, from, dir) -> void: a thrown spear flies (ADR 0030)
 var entity_use: Callable         # (mob, held def) -> bool (true: one held item used up)
+var note_use: Callable           # (held def) -> bool: a note in the hand opens its page (ADR 0164)
 var place_furniture: Callable    # (kind, anchor, facing) -> bool
 var support_hint: Callable       # (roof cell) -> String: the roof's load while a mine prop is held (ADR 0142)
 var furniture_is: Callable        # (voxel, "climb" | "use") -> bool: a ladder covers it, a click there does something (ADR 0094)
@@ -85,6 +86,7 @@ var describe_block: Callable     # (voxel) -> {title?, line?}: a block entity's 
 var fire_at: Callable            # (voxel) -> bool: a lit firepit, forge or bloomery covers it (it burns, ADR 0078)
 var playtest_laser: Callable     # (firing, from, dir, delta, brush_size) -> void: a held laser cutter (PlaytestTools)
 var playtest_use: Callable       # (def, hit, from, dir, sneaking) -> bool: a right click with a playtest gadget
+var toys: MovementToys           # the glider, climbing rope and grappling hook (ADR 0151), set by Main
 var ignite_at: Callable          # (hit) -> bool: flint and steel sets the aimed face on fire (Weather, ADR 0056)
 var _lasering := false
 var _look_key := ""              # what the look-at panel shows now (rebuilt only when it changes)
@@ -427,7 +429,7 @@ func _apply_look() -> void:
 	var eye := Vector3(0, Settings.m2v(Settings.eye_height_m) - _eye_drop, 0)
 	if perspective == 0:
 		camera.position = eye
-		camera.rotation = Vector3(_pitch, 0, 0)
+		camera.rotation = Vector3(_pitch, 0, toys.roll if toys else 0.0)   # the glider banks the view
 		return
 	# orbit the head at a fixed distance, pulled in when terrain is in the way
 	var back := 1.0 if perspective == 1 else -1.0
@@ -617,6 +619,8 @@ func _physics_step(delta: float) -> void:
 			else:
 				velocity.y = maxf(velocity.y, -climb)
 			_fall_peak_y = position.y
+	if toys:
+		toys.step(delta, dir, input, jump)   # ADR 0151: a glider, rope or hook takes the velocity over
 	if sneak and _on_floor and not in_liquid:
 		_hold_edge(delta)   # sneaking never walks off a ledge (Minecraft)
 	t0 = Time.get_ticks_usec()
@@ -1182,7 +1186,7 @@ func _update_look(hit: VoxelRaycastResult, mob) -> void:
 	if liquid.x != 1 << 30:
 		key = "liquid %s %d" % [liquid, world.get_voxel(liquid)]
 	elif mob != null:
-		key = "mob %d %d" % [mob.uid, mob.health]
+		key = "mob %d %d %s" % [mob.uid, mob.health, mob.foul_s >= Settings.fish_gasp_s]
 	elif hit != null:
 		key = "%s %d %s %s" % [hit.position, world.get_voxel(hit.position), held_id, game_mode]
 	_look_refresh -= 1
@@ -1198,6 +1202,8 @@ func _update_look(hit: VoxelRaycastResult, mob) -> void:
 		info = {"title": inventory.items.display_name(lid) if lid != "" else lname.capitalize(), "icon": lid}
 	elif mob != null:
 		info = {"title": String(mob.species).capitalize(), "line": "Health %d / %d" % [mob.health, int(mob.def.get("health", 8))]}
+		if mob.foul_s >= Settings.fish_gasp_s:
+			info["line"] += "\nGasping: fouled water"   # ADR 0155: the sign before it dies
 	elif hit != null:
 		var mat := world.get_voxel(hit.position)
 		if mat > 0:
@@ -1316,6 +1322,8 @@ func _use(first_press: bool) -> void:
 		inventory.swap_hands()
 		_offhand_turn = false
 		return
+	if first_press and toys and toys.use(hit, camera.global_position, -camera.global_transform.basis.z):
+		return   # ADR 0151: a rope taken back, the glider opened, a rope hung, the hook fired
 	if item_use.is_valid() and item_use.call(hit, first_press, camera.global_position, -camera.global_transform.basis.z):
 		_after_use()
 		return
@@ -1347,6 +1355,8 @@ func _use(first_press: bool) -> void:
 				_after_use()
 			return
 	if hit == null:
+		if first_press and note_use.is_valid() and inventory.held().get("id", "") == "note" and note_use.call(inventory.held_def()):
+			return
 		_start_eating()
 		return
 	if not first_press and _place_cooldown > 0.0:
@@ -1402,6 +1412,9 @@ func _use(first_press: bool) -> void:
 						inventory.consume_held(1)
 			if sown > 0:
 				_after_use()
+		return
+	if def.get("id", "") == "note" and sneaking() and first_press and note_use.is_valid():
+		note_use.call(def)   # Shift + right click reads or writes the page; a plain click pins it to a wall
 		return
 	if def.has("furniture"):
 		_place_furniture(hit, def)

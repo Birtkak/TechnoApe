@@ -5,6 +5,7 @@ extends RefCounted
 ##   /diet [set <group> <points> | reset]     the food group bars and what they do to max health
 ##   /eat <item>                              eat one from the hotbar as a held right click does
 ##   /frost [plant <crop> [dx]]               check the farm for frost now, or till and plant a 0.5 m patch at your feet
+##   /season [spring|summer|autumn|winter] [now]   the season's state, or jump to the middle of one (now: snow / ice / thaw the bubble at once)
 ##   /prospect [flint|copper|menu [mode]]     tap the rock at the crosshair (or under you) with a pick; menu opens its panel
 ##   /discover [list | reset | <kind:name>]   the discovery journal
 ##   /pin <recipe id> | clear                 pin a recipe to the HUD
@@ -21,6 +22,7 @@ func register(reg: CommandRegistry) -> void:
 	reg.register("diet", "/diet [set <group> <points> | reset]", "Food groups (ADR 0061): the bars, the balanced-diet bonus, set one", _diet, [["set", "reset"], loop.main.survival.nutrition.group_ids()])
 	reg.register("eat", "/eat <item>", "Eat one of an item from the hotbar, as a held right click does", _eat)
 	reg.register("frost", "/frost [plant <crop> [dx]]", "Check the farm for frost now (crops below their frost_c die), or till and plant a patch dx blocks east of you", _frost, [["plant"], loop.main.farming.crops_def.keys()])
+	reg.register("season", "/season [spring|summer|autumn|winter] [now]", "Seasons (ADR 0156): mean temperature, snow / ice mode, drought, the frost forecast; or jump to a season (now: lay or clear its snow and ice over the sim area at once)", _season, [["spring", "summer", "autumn", "winter"], ["now"]])
 	reg.register("sapling", "/sapling <kind> [dx] [dz] | grow", "Plant a sapling dx blocks east (dz south) of you (ADR 0112), or grow every planted one now", _sapling, [["grow"] + loop.main.saplings.trees.keys()])
 	reg.register("furniture", "/furniture <kind> [dx] [dz]", "Set a piece of furniture (or a barrel) on the ground dx blocks east, dz south of you, facing you", _furniture, [FurnitureEntity.KINDS.keys() + ["barrel", "storage_shelf"]])
 	reg.register("sign", "/sign <text>", "Write on the sign you last right clicked; an empty text wipes it", _sign)
@@ -72,6 +74,28 @@ func _eat(args: PackedStringArray) -> Dictionary:
 	for g in sv.last_meal:
 		given.append("%s +%.1f" % [g, float(sv.last_meal[g])])
 	return CommandRegistry.ok("Ate %s: hunger %.1f, %s" % [inv.items.display_name(id), sv.hunger, ", ".join(given) if not given.is_empty() else "no food group"])
+
+
+func _season(args: PackedStringArray) -> Dictionary:
+	var sw: SeasonWorld = loop.season_world
+	var cal: Calendar = loop.main.atmosphere.calendar
+	if not args.is_empty():
+		var i := ["winter", "spring", "summer", "autumn"].find(args[0].to_lower())
+		if i < 0:
+			return CommandRegistry.fail("Usage: /season [spring|summer|autumn|winter] [now]")
+		cal.set_date([0, 3, 6, 9][i], 0)   # January, April, July, October: the heart of each season
+		loop.main.atmosphere.set_time_of_day(cal.time)
+		loop.main.survival._measure()
+		loop.main.bubble.ambient_c = loop.main.survival.outside_c
+		Seasons.season = cal.season()
+		if args.size() > 1 and args[1] == "now":
+			var flags := 4 if i != 0 else (3 | (255 << 8))   # winter: freeze and a full snow cover; else the thaw
+			var n := sw.sweep(flags, -1)
+			return CommandRegistry.ok("It is now %s; %d cells of snow and ice %s" % [cal.date_text(), n, "laid" if i == 0 else "cleared"])
+	var d := sw.frost_in_days()
+	return CommandRegistry.ok("%s: day's mean %.1f C, outside %.1f C; %s%s%s" % [cal.season_name(), sw.mean_c(), loop.main.survival.outside_c,
+		String(sw.stats["mode"]) if String(sw.stats["mode"]) != "" else "no snow or ice work",
+		"; drought" if loop.main.farming.drought else "", "; frost in %d days" % d if d > 0 else ""])
 
 
 func _frost(args: PackedStringArray) -> Dictionary:
@@ -148,7 +172,9 @@ func _sign(args: PackedStringArray) -> Dictionary:
 	var e: RefCounted = main.blocks.furniture_at(main.sign_at)
 	if e == null or not FurnitureEntity.KINDS[e.furniture].get("write", false):
 		return CommandRegistry.fail("Right click a sign first")
-	e.text = " ".join(args).strip_edges().left(60)
+	e.set_text(" ".join(args).replace("|", "\n"))   # | starts a new line; SignText caps it (ADR 0164)
+	main.things.refresh(e)
+	Net.ent_text(e.pos, e.text)
 	return CommandRegistry.ok("Wrote on the sign" if e.text != "" else "Wiped the sign")
 
 

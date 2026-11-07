@@ -50,6 +50,9 @@ const BASE_KINDS := {
 	# ADR 0121: a plank board on the wall with a line of the player's text, shown when aimed at
 	"sign": {"size": Vector3i(2, 1, 1), "cells": Vector3i(16, 8, 2), "item": "sign", "wall": true, "write": true,
 		"box": [Vector3i(0, 0, 0), Vector3i(8, 4, 1)]},
+	# ADR 0164: a page pinned to the wall; the stack's text goes onto the entity and back into the stack when it comes down
+	"note": {"size": Vector3i(1, 1, 1), "cells": Vector3i(8, 8, 2), "item": "note", "wall": true, "write": true, "note": true,
+		"box": [Vector3i(0, 0, 0), Vector3i(4, 4, 1)]},
 	"table": {"size": Vector3i(2, 2, 2), "cells": Vector3i(16, 12, 16), "item": "table",
 		"box": [Vector3i(0, 0, 0), Vector3i(8, 6, 8)]},
 	"shelf": {"size": Vector3i(2, 2, 1), "cells": Vector3i(16, 16, 8), "item": "shelf"},
@@ -174,7 +177,52 @@ func item_id() -> String:
 
 
 func contents() -> Array:
+	if furniture == "note":
+		return [{"id": "note", "count": 1, "text": text}]   # the page keeps its words
 	return [{"id": item_id(), "count": 1}]
+
+
+## The words a sign or note carries, through the trust boundary (SignText).
+func set_text(t: String) -> void:
+	text = SignText.note(t) if furniture == "note" else SignText.sign(t)
+	changed.emit()
+
+
+static var _font: SystemFont
+
+
+static func label_font() -> Font:
+	if _font == null:
+		_font = SystemFont.new()
+		_font.font_names = PackedStringArray(["Consolas", "Courier New", "monospace"])
+		_font.antialiasing = TextServer.FONT_ANTIALIASING_NONE   # hard-edged glyphs: the pixel look of the art
+		_font.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+	return _font
+
+
+## The writing on a sign or pinned note, as a Label3D on its front face in block units (View root
+## coordinates); null when there is none. A note shows only its first lines: it is read in its screen.
+func text_label() -> Label3D:
+	if text == "" or not KINDS.get(furniture, {}).get("write", false):
+		return null
+	var note := furniture == "note"
+	var l := Label3D.new()
+	l.font = label_font()
+	l.font_size = 32
+	l.pixel_size = 0.0028 if note else 0.0056
+	l.line_spacing = -4.0
+	l.text = "
+".join(text.split("
+").slice(0, 3)) if note else text
+	l.modulate = Color(0.13, 0.08, 0.05)
+	l.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	l.double_sided = false
+	l.shaded = false
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.position = Vector3(0.0 if note else 0.5, 0.5 if not note else 0.5, -0.385)
+	l.rotation.y = PI   # the model's front looks down -z
+	l.visibility_range_end = 48.0
+	return l
 
 
 ## Where a sitter's seat surface is (chairs) or the sleeper lies (beds), world voxels.
@@ -215,7 +263,7 @@ func load_from(d: Dictionary) -> void:
 	furniture = String(d.get("furniture", "chair"))
 	facing = int(d.get("facing", 0))
 	open = bool(d.get("open", false)) and can_open()
-	text = String(d.get("text", ""))
+	text = SignText.note(String(d.get("text", ""))) if furniture == "note" else SignText.sign(String(d.get("text", "")))
 	height = int(d.get("height", 0))
 	cells = footprint(furniture, pos, facing, open, height)
 
@@ -306,6 +354,9 @@ func make_view() -> Node3D:
 		root.add_child(mi)
 	if k.get("glass", false):
 		root.add_child(glass_pane())
+	var lab := text_label()
+	if lab != null:
+		root.add_child(lab)
 	return root
 
 
@@ -449,10 +500,10 @@ static func cells_for(p_kind: String) -> PackedInt32Array:
 		box.call(Vector3i(0, 0, 1), Vector3i(16, 8, 2), PLANK_DARK)
 		box.call(Vector3i(1, 1, 1), Vector3i(15, 7, 2), PLANK)
 		box.call(Vector3i(1, 4, 1), Vector3i(15, 5, 2), PLANK_DARK)   # the seam between the two boards
-		for x in [3, 4, 6, 8, 9, 11, 12]:
-			box.call(Vector3i(x, 5, 0), Vector3i(x + 1, 6, 1), PLANK_DARK)
-		for x in [3, 5, 6, 7, 10, 11]:
-			box.call(Vector3i(x, 2, 0), Vector3i(x + 1, 3, 1), PLANK_DARK)
+		# the writing is a Label3D (text_label), ADR 0164
+	elif p_kind == "note":
+		box.call(Vector3i(1, 1, 1), Vector3i(7, 7, 2), WAX)   # the page
+		box.call(Vector3i(3, 6, 0), Vector3i(5, 7, 1), PLANK_DARK)   # the pin
 	elif p_kind == "painting":
 		# a landscape on canvas in a dark frame, hung on the wall side (back cell layer)
 		box.call(Vector3i(0, 0, 1), Vector3i(16, 16, 2), PLANK_DARK)

@@ -44,11 +44,17 @@ var buffs := {}              # meal buffs (ADR 0121): kind -> {left_s, amount}; 
 var _buff_regen_t := 0.0
 ## Meal buffs (food "buff": {kind, amount, s}): warm / cool shift the felt temperature by amount C,
 ## regen heals one health every amount seconds, haste multiplies walking speed by 1 + amount.
-const BUFFS := {"warm": "Warmed", "cool": "Cooled", "regen": "Mending", "haste": "Lively"}
+const BUFFS := {"warm": "Warmed", "cool": "Cooled", "regen": "Mending", "haste": "Lively", "rested": "Rested"}
 var _poison_t := 0.0
+var smoke_s := 0.0           # ADR 0155: seconds breathing dense smoke; clean air takes it back twice as fast
+var smoke_cells := 0         # smoke + toxic gas cells round the head at the last probe
+var _smoke_probe_t := 0.0
+var _cough_t := 0.0
+var _smoke_hurt_t := 0.0
+const SMOKE_PROBE_S := 0.5
 var _rooms := {}             # container position -> [closed room, valid until clock s] (root cellars)
 const ROOM_CACHE_S := 30.0
-var stats := {"probe_ms_max": 0.0, "spoil_ms_max": 0.0, "rotted": 0, "eaten": 0, "starved": 0, "froze": 0, "overheated": 0}
+var stats := {"probe_ms_max": 0.0, "spoil_ms_max": 0.0, "rotted": 0, "eaten": 0, "starved": 0, "froze": 0, "overheated": 0, "coughs": 0, "smoke_hurt": 0}
 
 
 func setup(p_main: Node) -> void:
@@ -76,7 +82,7 @@ func setup(p_main: Node) -> void:
 static func environment_c(climate: float, day_of_year: int, year_days: int, month_days: int, time: float, below_m: float,
 		in_water: bool, room: bool, heat_c: float) -> float:
 	var t := 12.0 + 26.0 * climate
-	t += -7.0 * cos(TAU * (day_of_year - 0.5 * month_days) / maxf(year_days, 1))   # coldest mid-January
+	t += -Settings.season_swing_c * cos(TAU * (day_of_year - 0.5 * month_days) / maxf(year_days, 1))   # coldest mid-January (ADR 0156: 14 C, was 7)
 	t += 3.5 * -cos(TAU * (time - 0.08)) - 0.5                                      # 2 am -4 C, 2 pm +3 C
 	if below_m > 4.0:
 		t = lerpf(t, Settings.cave_c, clampf((below_m - 4.0) / 4.0, 0.0, 1.0))
@@ -164,6 +170,7 @@ func _process(delta: float) -> void:
 		_harm_step(delta)
 		nutrition.drain(delta, hunger_rate(fast, body_c < Settings.cold_c) * Settings.hunger_drain_s)
 	_poison_step(delta, player.inventory if survival else null)
+	_smoke_step(delta, survival)
 	_health_t -= delta
 	if _health_t <= 0.0:
 		_health_t = 1.0
@@ -175,7 +182,7 @@ func _process(delta: float) -> void:
 
 
 func _hunger_step(delta: float, fast: bool) -> void:
-	var cost := hunger_rate(fast, body_c < Settings.cold_c) * delta
+	var cost := hunger_rate(fast, body_c < Settings.cold_c) * delta * rested_k(1.0 - Settings.rested_hunger_cut)
 	if saturation > 0.0:
 		var s := minf(saturation, cost)
 		saturation -= s
@@ -193,7 +200,7 @@ func _hunger_step(delta: float, fast: bool) -> void:
 	else:
 		_starve_t = 0.0
 	if hunger >= Settings.regen_hunger and inv.health < inv.max_health:
-		_regen_t += delta
+		_regen_t += delta * rested_k(2.0)   # Rested heals faster
 		if _regen_t >= Settings.regen_s:
 			_regen_t = 0.0
 			inv.heal(1)
@@ -237,6 +244,49 @@ func _poison_step(delta: float, inv: PlayerInventory) -> void:
 		_poison_t -= Settings.poison_every_s
 		if inv != null and inv.health > 1:
 			inv.damage(1, "poison")
+
+
+## ADR 0155: dense smoke or toxic gas round the head makes the player cough (sound, toast, grey screen edge), then
+## hurts; a worn "smoke_mask" piece (cloth mask, diving mask) filters it. The count is native, twice a second.
+func _smoke_step(delta: float, survival: bool) -> void:
+	_smoke_probe_t -= delta
+	if _smoke_probe_t <= 0.0:
+		_smoke_probe_t = SMOKE_PROBE_S
+		smoke_cells = _smoke_near()
+	if smoke_cells < Settings.smoke_dense_cells or not player._worn_with("smoke_mask").is_empty():
+		smoke_s = maxf(0.0, smoke_s - delta * 2.0)
+		_cough_t = 0.0
+		_smoke_hurt_t = 0.0
+		return
+	smoke_s += delta
+	if smoke_s < Settings.smoke_cough_after_s:
+		return
+	_cough_t -= delta
+	if _cough_t <= 0.0:
+		if smoke_s - delta < Settings.smoke_cough_after_s and player.hud:   # the first cough of a spell says why
+			player.hud.show_toast("You cough: thick smoke. Get to fresh air, vent it, or wear a mask")
+		_cough_t = Settings.smoke_cough_every_s
+		stats["coughs"] += 1
+		Sound.play("player/cough")
+	if survival and smoke_s >= Settings.smoke_hurt_after_s:
+		_smoke_hurt_t += delta
+		if _smoke_hurt_t >= Settings.smoke_hurt_every_s:
+			_smoke_hurt_t = 0.0
+			stats["smoke_hurt"] += 1
+			player.inventory.damage(1, "smoke")
+			if player.inventory.is_dead():
+				player.died.emit()
+
+
+func _smoke_near() -> int:
+	var b: SimBubble = main.get("bubble")
+	if b == null:
+		return 0
+	var c := Vector3i(player.camera.global_position.floor())
+	var h := int(Settings.m2v(Settings.smoke_box_m))
+	var lo := c - Vector3i(h, h, h)
+	var hi := c + Vector3i(h + 1, h + 1, h + 1)
+	return b.count_in_box(lo, hi, GameMaterials.SMOKE) + b.count_in_box(lo, hi, GameMaterials.TOXIC_GAS)
 
 
 ## Shelter, heat and the temperature where the player stands.
@@ -350,6 +400,8 @@ func _buff_step(delta: float, inv: PlayerInventory) -> void:
 		buffs[k]["left_s"] = float(buffs[k]["left_s"]) - delta
 		if buffs[k]["left_s"] <= 0.0:
 			buffs.erase(k)
+	if buffs.has("rested") and player != null:
+		player.speed_mult *= 1.0 + Settings.rested_speed * float(buffs["rested"]["amount"])
 	if buffs.has("haste") and player != null:
 		player.speed_mult *= 1.0 + float(buffs["haste"]["amount"])
 	if buffs.has("regen") and inv != null and inv.health < inv.max_health:
@@ -359,6 +411,21 @@ func _buff_step(delta: float, inv: PlayerInventory) -> void:
 			inv.heal(1)
 	else:
 		_buff_regen_t = 0.0
+
+
+## `full` blended in by the Rested buff's amount (1 without it): hunger 1 - cut, healing 2.
+func rested_k(full: float) -> float:
+	return lerpf(1.0, full, float(buffs["rested"]["amount"])) if buffs.has("rested") else 1.0
+
+
+## Rests in the room of `bed`: grants the Rested buff its rating earns. Returns the rating.
+func rest_at(bed: FurnitureEntity, nap: bool) -> Dictionary:
+	var r := Comfort.of_bed(main, bed)
+	var b := Comfort.buff(int(r["points"]), nap)
+	if not b.is_empty():
+		var old: Dictionary = buffs.get("rested", {"left_s": 0.0})
+		buffs["rested"] = {"left_s": maxf(float(old["left_s"]), float(b["s"])), "amount": float(b["amount"])}
+	return r
 
 
 ## The buffs as one line ("Warmed 2:40, Mending 0:12"), "" without any.
@@ -375,6 +442,7 @@ func reset() -> void:
 	saturation = 5.0
 	body_c = 37.0
 	poison_s = 0.0
+	smoke_s = 0.0
 	nutrition.reset()
 	apply_max_health()
 
@@ -382,6 +450,8 @@ func reset() -> void:
 func status() -> String:
 	if poison_s > 0.0:
 		return "Poisoned"
+	if smoke_s >= Settings.smoke_cough_after_s:
+		return "Coughing"
 	if body_c < Settings.freeze_c:
 		return "Freezing"
 	if body_c < Settings.shiver_c:
@@ -424,7 +494,7 @@ func load_dict(d: Dictionary) -> void:
 func snapshot() -> Dictionary:
 	return {"hunger": snappedf(hunger, 0.01), "saturation": snappedf(saturation, 0.01), "body_c": snappedf(body_c, 0.01),
 		"env_c": snappedf(env_c, 0.1), "felt_c": snappedf(felt_c(), 0.1), "in_room": in_room, "heat": snappedf(heat, 0.01), "underground_m": snappedf(underground_m, 0.1),
-		"status": status(), "poison_s": snappedf(poison_s, 0.1), "buffs": buff_text(), "nutrition": nutrition.snapshot(),
+		"status": status(), "poison_s": snappedf(poison_s, 0.1), "smoke_s": snappedf(smoke_s, 0.1), "smoke_cells": smoke_cells, "buffs": buff_text(), "nutrition": nutrition.snapshot(),
 		"max_health": player.inventory.max_health if player != null else 0, "stats": stats}
 
 

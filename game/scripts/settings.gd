@@ -147,6 +147,8 @@ var crank_s := 20.0                     # ... a right click turns the hand crank
 var lamp_light_range_m := 12.0          # ADR 0117: an electric lamp's light (TorchLights), paler and smaller than a fire
 var lamp_light_energy := 1.2
 var pump_buckets := 4                   # ... and its tank, in buckets (1 m^3 each)
+var builder_voxels_per_s := 48.0        # ADR 0161: voxels (and pieces) a powered builder places a second
+var builder_reach_m := 24.0             # ... how far from a site it may stand
 var machine_pins_max := 2               # ADR 0117: pins kept alive for machines that need the simulation (pumps), nearest first
 var waste_port_cells := 256             # ADR 0141: waste cells a machine holds for its port; at this it stalls (port blocked)
 var waste_cells_per_s := 16             # ... cells of each waste a port lets out a second (into free cells only)
@@ -157,6 +159,14 @@ var jetpack_rise_m := 2.0               # the steam jetpack climbs this fast wit
 var jetpack_sink_m := 0.6               # ...and sinks this fast with it released (a hover)
 var jetpack_air_s := 90.0               # seconds of climbing one fill of compressed air gives (hovering costs a quarter)
 var compressor_fill_s := 60.0           # a compressor fills its air tank in this long at working pressure
+# movement toys (ADR 0151)
+var glider_trim_speed_m := 9.0          # the glider's airspeed looking level (it settles there)
+var glider_glide_ratio := 8.0           # metres forward per metre down at trim (a 1.1 m/s sink)
+var glider_max_speed_m := 28.0          # a dive's speed is capped here
+var rope_max_m := 32.0                  # a climbing rope hangs at most this far
+var grapple_range_m := 36.0             # the hook flies this far before it comes back
+var grapple_speed_m := 70.0             # ...this fast
+var grapple_reel_m := 14.0              # held right click shortens the line this fast
 # stage 3 transport (ADR 0100)
 var hopper_s := 1.0                     # a hopper or chute moves one item this often
 var belt_s := 1.0                       # a belt carries an item one block in this long
@@ -177,8 +187,23 @@ var comfort_max_c := 30.0
 # the four Stone Age stages (ADR 0059)
 var tinder_fungus_chance := 0.08        # a peel of birch bark brings tinder fungus with it
 var net_catch_chance := 0.35            # a cast of a fishing net brings up a fish
-var fish_bite_min_h := 0.3              # a fishing line bites after this many game hours (0.3 h = 15 s)
-var fish_bite_max_h := 1.2
+# fishing and traps (ADR 0163)
+var fish_bite_min_s := 4.0              # the soonest a cast bobber gets a bite
+var fish_bite_max_s := 40.0             # the wait with no fish near; n fish within fish_near_m divide it by 1 + n
+var fish_near_m := 8.0
+var fish_cast_m := 14.0                 # how far a rod casts along the aim
+var fish_line_m := 18.0                 # walking further from the bobber than this snaps the line
+var fish_hook_s := 1.1                  # the bite's window: right click inside it to set the hook
+var fish_reel_s := 4.0                  # seconds of reeling that land a fish of pull 1
+var fish_tension_up := 0.45             # tension per second while reeling (1 snaps the line)
+var fish_tension_down := 0.6            # per second while easing off
+var fish_surge := 0.16                  # a fish's surge adds this times its pull
+var fish_slack_s := 1.8                 # this long with no tension and it throws the hook
+var snare_max_m := 0.6                  # animals this wide or smaller walk into snares; bigger ones into pits
+var snare_hurt := 2                     # a snare closing on the player's ankle
+var snare_hold_s := 2.5                 # and holding it
+var pit_hurt := 4                       # the stakes at the bottom of a pit trap
+var pit_min_m := 1.0                    # a pit trap needs a hole this deep
 var canoe_thrust_m := 2.2               # paddling: m/s per second along the bow
 var canoe_turn_rad := 1.2               # turning: rad/s at full A or D
 var canoe_drag := 0.6                   # speed lost per second (exp), so it glides on and slows
@@ -196,6 +221,19 @@ var hot_c := 38.5
 var heatstroke_c := 39.5                 # above: one health per heatstroke_s
 var heatstroke_s := 8.0
 var poison_every_s := 1.25               # poisoned (a dart frog's touch): one health per this, never the last one (Minecraft)
+# ADR 0155: pollution pushes back. Smoke: a native count of smoke + toxic gas cells in a box round the head.
+var smoke_box_m := 0.4                   # half size of that box (0.4 m = 3 voxels: a 7x7x7 box)
+var smoke_dense_cells := 60              # this many gas cells in the box (of 343) is dense smoke
+var smoke_cough_after_s := 2.0           # breathing dense smoke this long: the first cough, the screen greys
+var smoke_cough_every_s := 3.0
+var smoke_hurt_after_s := 8.0            # then one health per smoke_hurt_every_s (it can kill: get out or mask up)
+var smoke_hurt_every_s := 4.0
+var crop_sick_growth := 0.25             # a sickly crop grows at this share of its speed
+var crop_wilt_ticks := 3                 # polluted random ticks in a row (minus clean ones) before it wilts to a dead bush
+var crop_smoke_cells := 2                # smoke or toxic gas in this many of the 4 voxels over a crop is heavy smoke
+var fish_gasp_s := 6.0                   # in fouled water this long: a fish rises to gasp at the surface (the sign)
+var fish_foul_die_s := 24.0              # this long: it dies and floats belly-up for fish_float_s
+var fish_float_s := 30.0
 var room_c := 18.0                       # a closed room pulls the temperature halfway to this
 var cave_c := 10.0                       # 4 m and more under the surface
 var water_c := -8.0                      # in water
@@ -203,8 +241,28 @@ var cellar_c := 8.0                      # containers 3 m and more under the sur
 # The survival loop (ADR 0061): root cellars, preserved food, frost, prospecting
 var root_cellar_m := 1.5                 # a closed room this far under the surface is a root cellar
 var root_cellar_mult := 0.3              # containers there spoil at the cellar's 8 C times this
+var comfort_wall_m := 4.0                # home comfort (ADR 0162): a wall this near counts, rays from the bed
+var comfort_roof_m := 3.5                # a roof this high counts
+var comfort_light_m := 6.0               # lamps, fires and furniture count inside this
+var comfort_heat := 5.0                  # entity heat at the bed for the full warmth share (a lit firepit at 2 m)
+var comfort_rest_min := 45               # points a room needs to rest you
+var comfort_rested_s := 900.0            # the Rested buff after a night in a perfect room
+var rested_hunger_cut := 0.35            # Rested at amount 1: hunger drains this much slower
+var rested_speed := 0.05                 # Rested at amount 1: walking this much faster
 var preserved_spoil_mult := 0.25         # foods tagged "preserved" (salted, dried, smoked) spoil this much as fast
 var frost_check_s := 10.0                # how often crops are checked for frost
+# seasons that matter (ADR 0156)
+var month_days := 3                      # days per month: a season is 9 days (3 h at 20 min days), the year 36 days
+var season_swing_c := 14.0               # the year's temperature swing about the climate's mean: mid-January this much under it
+var season_pass_s := 0.1                 # how often the sim bubble's next chunk columns get the season (snow, ice, thaw)
+var season_columns := 3                  # chunk columns (2 x 2 m) per pass: the bubble sweeps in ~20 s, a few remeshes a second
+var snow_stick_chance := 0.35            # per voxel column per pass while it snows below 0 C: the snow layer builds up patchy
+var ice_form_c := 0.0                    # still water freezes over when the day's mean outside is below this ...
+var thaw_c := 2.0                        # ... and the snow and lake ice go when it is above this
+var season_rain_mult := [0.8, 1.2, 0.35, 1.1]   # rolled shower chance per season (winter .. autumn): summer drought
+var season_storm_mult := [0.3, 1.0, 2.2, 0.8]   # storm share of showers per season: summer thunderstorms
+var drought_fire_mult := 2.5             # summer, not raining: fire spreads this much more readily (SimWorld.set_dryness)
+var frost_warn_days := 3                 # the first frost of autumn is announced this many days ahead
 var prospect_depth_m := 12.0             # density mode: how far down under the struck spot the pick counts rock (ADR 0147)
 var prospect_width_m := 3.0              # ... and how wide the square column is
 var discovery_check_s := 1.0             # how often the discovery journal looks around the player
@@ -237,6 +295,20 @@ var weather_scan_s := 0.5               # the sim is sampled for fire this often
 var weather_fire_scan_m := 24.0         # ... within this radius ...
 var weather_fire_samples := 4000        # ... with this many random cells (flames, smoke, burning cells; about 0.5 ms)
 var weather_fire_clear_s := 20.0        # the fire rain stops once no fire was seen for this long
+# surface hazards (ADR 0149): lightning in storms, volcano eruptions
+var storm_chance := 0.3                 # a rolled shower in a wet enough column is a storm this often
+var lightning_every_s := 12.0           # mean seconds between strikes in a storm (half of them distant: thunder only)
+var lightning_target_m := 24.0          # strikes choose the highest surface voxel within this radius of the player (surface_map)
+var lightning_rod_m := 24.0             # a lightning rod draws every strike aimed within this radius of it
+var lightning_fire_m := 0.6             # flames fill the air within this radius of the hit point
+var lightning_damage := 8               # health lost standing within lightning_hurt_m of the hit
+var lightning_hurt_m := 2.0
+var volcano_roll_s := 90.0              # a crater within volcano_near_m of the player erupts with volcano_chance this often
+var volcano_near_m := 40.0
+var volcano_chance := 0.35
+var volcano_warn_s := 20.0              # rumble and ash before the lava comes over the rim
+var volcano_flow_s := 40.0              # the overflow lasts this long ...
+var volcano_lava_cells := 16000         # ... or until this many lava cells were poured (sim budget, ADR 0009)
 var fire_rain_delay_min_s := 60.0       # a forest fire brings rain after 60-180 s (a region burns, not the map)
 var fire_rain_delay_max_s := 180.0
 var rain_drops_per_s := 160.0           # water cells dropped on the fire cells the scans found while it rains (one each)
@@ -271,13 +343,34 @@ var firedamp_full_cells := 150          # ... and how many make a whole TNT bloc
 var firedamp_vacuum_m := 6.0            # ... the gas and fire this far round the flash go before the crater: one blast per pocket
 var safety_lamp_reach_m := 2.0          # ... the held safety lamp samples firedamp this far round the eye
 var vent_fan_reach_m := 4.0             # ... a vent fan pushes gas this far in front of it
+var fuse_speed_mps := 0.5               # fuse cord burn speed (ADR 0150): sets the cord's fuse_ticks (tick_hz * 0.125 / speed), at most tick_hz voxels a second
+var tnt_debris_damage := 3              # health a flung chunk takes from the player or a mob it hits (ADR 0150)
+var tnt_debris_max := 24                # flung debris pieces per blast (ADR 0150), out of the voxels the blast removed
+var tnt_debris_live_max := 96           # flung pieces in the air at once, all blasts together
+var contraption_lift_mps := 1.0         # ADR 0160: a lift's speed
+var contraption_swing_dps := 30.0       # a drawbridge's or crane's swing, degrees a second
+var lift_max_m := 8.0                   # a lift rises until it meets something, this far at most
+var crane_hook_m := 8.0                 # the crane's hook reaches this far below the jib
+var contraption_max_cells := 4096       # voxels in one moving part (a 3 m x 3 m platform a block thick is 2304)
 var tnt_blasts_per_frame := 1           # fuses that run out together wait their turn: one crater per frame
 var igniter_range_m := 16.0             # the igniter's sneak use lights every charge this close
+# Meteorites (ADR 0157): a streak at night, a boom, a glow column, a crater with meteoric iron
+var meteor_chance_per_night := 0.12     # share of nights with a fall (about one a week of play nights)
+var meteor_min_m := 250.0               # how far from the player it lands
+var meteor_max_m := 600.0
+var meteor_crater_m := 3.5              # the bowl's radius
+var meteor_core_m := 0.6                # the iron ball at the bottom
+var meteor_chunks := 8                  # small iron chunks in the bowl walls
+var meteor_hot_h := 24.0                # game hours the core stays molten (lava, burns); after that it cools to basalt
+var meteor_glow_h := 4.0                # game hours the glow column stands over the spot
+var meteor_fire_chance := 0.5           # share of falls that set the plants and trees around alight
+var meteor_heat_damage := 2             # health per half second standing on a hot core
 var particles := true                   # particles=0 turns every effect off (benchmarks against the old game)
 var particle_pool_chips := 2048         # block chips alive at once at most
 var particle_pool_sprites := 6144       # smoke, splashes, hearts, waterfall spray...
 var particle_budget := 700              # particles emitted per frame at most; the rest of a burst is dropped
 var particle_distance_m := 64.0         # bursts farther from the camera are skipped
+var machine_fx_m := 32.0                # running machines farther than this stay still: no puffs, parts or lamps (ADR 0153)
 var particle_ambient := true            # Minecraft's animateTick: lava pops, drips, spores, leaves, furnace flames
 var particle_ambient_near_m := 8.0      # Minecraft: 667 random blocks within 16 blocks per tick ...
 var particle_ambient_near_samples := 667
@@ -404,6 +497,7 @@ func apply_cmdline() -> Dictionary:
 		match kv[0]:
 			"simulation_distance_m": simulation_distance_m = float(kv[1])
 			"view_distance_m": view_distance_m = float(kv[1])
+			"month_days": month_days = maxi(1, int(kv[1]))
 			"shell": ground_shell = kv[1] == "1"
 			"shadow_caster_m": shadow_caster_m = float(kv[1])
 			"merge_faces": merge_faces = kv[1] == "1"

@@ -279,6 +279,11 @@ func forget(p: Vector3i) -> void:
 	_dirty[p] = true
 
 
+## The view node drawn for the piece at p (null if none): MachineFx trembles running machines.
+func view_at(p: Vector3i) -> Node3D:
+	return _views.get(p)
+
+
 func view_count() -> int:
 	return _views.size()
 
@@ -394,6 +399,43 @@ func debug_lv_line(base: Vector3i, right: Vector3i) -> String:
 	return "the electric line and the LV machines %s from %s" % [", ".join(loads.keys()), base]
 
 
+## Debug (/stations fx, ADR 0153): `n` machines of every kind MachineFx animates, in rows of six 3 m apart along
+## `right` and away along `fwd`, each on the ground under it. MachineFx.force makes them all run: the look check
+## and the effects' cost with a factory in view; `only` lays those kinds instead. Returns what it laid.
+func debug_fx_grid(base: Vector3i, right: Vector3i, fwd: Vector3i, n: int, only: Array = []) -> String:
+	var kinds := only.duplicate()
+	for k in ([] if not only.is_empty() else MachineFx.data()["kinds"]):
+		var s := MachineFx.spec(k)
+		if s.has("emit") or s.has("parts") or s.has("pulse") or s.has("lamp") or s.has("shake_m"):
+			kinds.append(k)
+	var step := Settings.BLOCK * 6
+	var bubble: SimBubble = main.bubble
+	var flat := 0
+	var at: Array[Vector3i] = []
+	for i in n:   # the pads first: a later pad's air must not cut an earlier machine
+		var a := base + right * step * (i % 6) + fwd * step * (i / 6)
+		var lo := a - Vector3i(Settings.BLOCK, 0, Settings.BLOCK)   # the footprint runs +x +z from the anchor
+		var hi := a + Vector3i(step, 0, step)
+		if bubble.fill_box(lo - Vector3i(0, 4, 0), hi, GameMaterials.STONE) >= 0 and bubble.fill_box(lo, hi + Vector3i(0, int(Settings.m2v(4.0)), 0), GameMaterials.AIR) >= 0:
+			flat += 1   # a stone pad with 4 m of air over it where the sim holds the spot
+		else:
+			a.y = main.world.surface_height(a.x, a.z) + 1
+		at.append(a)
+	get_tree().create_timer(0.5).timeout.connect(func() -> void:   # after the sim has written the pads, or their air cuts the machines
+		for i in n:
+			var e: RefCounted = _create(at[i], kinds[i % kinds.size()], GameMaterials.WORK_BLOCK)
+			if e is BoilerEntity:   # fired and at pressure, so its steam and needle show (the rest is forced)
+				e.item = "steel_boiler"
+				e.use({"id": "coal", "count": 8}, main.items.get_def("coal"), false, true)
+				for j in 4:
+					e.use({"id": "water_bucket", "count": 1}, main.items.get_def("water_bucket"))
+				e.ignite()
+				e.pressure = 1.0)
+	if main.get("machine_fx") != null:
+		main.machine_fx.force = true
+	return "%d machines of %d kinds from %s (%d on a pad), all forced on (/machinefx off)" % [n, kinds.size(), base, flat]
+
+
 ## Debug (/stations pollution, ADR 0141): a stone slab with two dug 0.5 m streams and an electrolyzer with a full waste
 ## port at the end of each, backs to -z. The first pours straight into its stream; the second into a walled gravel-bed
 ## settling pond beside its stream. `base` is the slab's top at the first machine's corner. Returns what it laid.
@@ -496,7 +538,7 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 	if kind == "":
 		return false
 	var any_face := kind == "sieve" or kind == "firewood_pile" or kind == "electric_lamp"   # a lamp hangs on walls too (ADR 0117)
-	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven", "water_wheel", "wind_turbine", "hand_crank", "meter_panel"] or MachineEntity.DOOR.has(kind)
+	var solid := kind in ["sieve", "firewood_pile"] or kind in ["anvil", "bronze_anvil", "bloomery", "boiler", "steam_hammer", "steam_sieve", "blast_furnace", "ore_crusher", "tank", "turbine", "compressor", "hopper", "electric_furnace", "lathe", "bending_press", "wiremill", "macerator", "alloy_smelter", "assembler", "battery_box", "pump", "coke_oven", "water_wheel", "wind_turbine", "hand_crank", "meter_panel", "trading_post"] or kind in ContraptionEntity.KINDS or MachineEntity.DOOR.has(kind)
 	var p := _spot_for(hit, any_face, kind)
 	if p.x == -1 and p.y == -1:
 		return true   # took the click (no block placement for these items) but there is no room
@@ -535,6 +577,17 @@ func _try_place(hit: VoxelRaycastResult, held: Dictionary, sneaking := false) ->
 		"cable":
 			e.item = id   # thin, copper or thick (ADR 0123)
 			e.axis = posmod(roundi(main.player.rotation_degrees.y / 90.0), 2)
+			_mark(p)
+			if _consumes():
+				main.player_inv.consume_held(1)
+		"lift_winch", "drawbridge_hinge", "crane":   # ADR 0160: the part goes on the side the player looks toward
+			e.facing = Transport.facing_from_yaw(main.player.rotation_degrees.y)
+			_mark(p)
+			if _consumes():
+				main.player_inv.consume_held(1)
+		"trading_post":   # ADR 0164: faces the player, owned by them
+			e.facing = posmod(roundi(-main.player.rotation_degrees.y / 90.0) + 2, 4)
+			main.things.post_placed(e)
 			_mark(p)
 			if _consumes():
 				main.player_inv.consume_held(1)
@@ -785,6 +838,10 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 			var line := Networks.look_line(e)
 			_say(line if line != "" else "The %s is on no network." % String(e.kind).replace("_", " "))
 		return true
+	if e is TradingPostEntity:
+		if first_press:
+			main.things.use_post(e, sneaking)
+		return true
 	if e is KnapEntity:
 		if first_press:
 			if not e.has_recipe():
@@ -917,7 +974,7 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
 		_say(res["msg"])
 		return true
-	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity or e is PowerSourceEntity or e is MeterPanelEntity:   # ADR 0099, 0113, 0117, 0123
+	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity or e is PowerSourceEntity or e is MeterPanelEntity or e is ContraptionEntity:   # ADR 0099, 0113, 0117, 0123, 0160
 		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
 		if res["consume"] > 0 and _consumes():
 			main.player_inv.consume_held(res["consume"])

@@ -23,6 +23,97 @@ frame times.
 - [ ] Dig into an aquifer (ADR 0110: follow the trickle to spring stone): the chamber keeps pouring after it drains,
       the mine floods up to the spring and stops there; a pump below the spring drains it. Does the rate feel right?
 
+## Moving contraptions: lift, drawbridge, crane (ADR 0160)
+
+`/scenario contraptions` (look at open flat ground first) builds one of each, each on a turning hand crank; right click a
+drive to flip its lever (or `/contraptions toggle`), `/contraptions ride` stands you on the lift.
+- [ ] Lift: stand on the plank platform and flip the lever: it rises (1 m/s) through the stone ring and stops under it;
+      you ride up without jitter; flip again and it takes you down. Stand under it while it comes down: it waits.
+- [ ] Drawbridge: the 4 m span swings up to stand beside the hinge and back down over the moat. Stand on it while it
+      rises: you ride it a bit, then slide off. Drop an item on the lift or bridge: it rides along.
+- [ ] Crane: it hooks the oak log under its jib, lifts it, swings a quarter turn, sets it down; the log settles. Rope
+      and hook look right?
+- [ ] Build your own: `/kit contraptions`, place a lift winch, lay a 1.5 m oak-plank platform in front of it at its
+      foot, cable a hand crank to it (or put it beside), flip the lever, crank. A platform of the floor's own material is
+      refused with a message. Quit mid-move and reload: the part is in the voxels at its end.
+## Seasons that matter (ADR 0156)
+
+- [ ] `/season winter` then `/weather snow` at night by a river: snow builds up patchy on the ground over ~20 s, the river freezes and you can walk on it. `/season winter now` does it at once.
+- [ ] `/season spring now`: snow gone, the river is water again (no flood, no moving water).
+- [ ] A season is now 9 days (3 h). Does the year turn at a good pace? Is the cold winter (-2 C mean on temperate ground) too harsh?
+- [ ] Summer: rare showers, most of them thunderstorms; a lit grass fire spreads faster when it has not rained. Unwatered farmland: crops say "Parched".
+- [ ] Plant beans in autumn (`/season autumn`): the look line says they will not grow. In late autumn a chat line warns of the first frost a few days ahead.
+- [ ] Winter night: beans die back to dead bushes, carrots survive.
+
+## Fuse cord and flung debris (ADR 0150)
+
+- [ ] `/scenario fuse` (look at open ground first): a 4 m cord burns toward the charge with sparks and smoke, about 8 s, then the blast. Speed right?
+- [ ] Craft fuse cord (cordage, sulfur, charcoal), lay it with the brush at size 1 from a TNT block through tall grass, light the far end with flint and steel: the grass beside it must not catch.
+- [ ] Blasts throw chunks that fly and land as gravel/dirt piles around the crater. Violent enough? Too many or too few?
+- [ ] Lay a cord up a staircase of blocks and through a puddle: it keeps burning to the charge. Stand near a blast in survival: flying chunks hurt and shove you.
+## Pollution pushes back (ADR 0155)
+
+- [ ] `/pollute` (best with a `farm_speed=40` launch): fish in the fouled third rise and hang at the surface ("Gasping"
+      in the look line), then float belly-up; the wheat beside the brown waste ground says "Sickly", then wilts to dead
+      bushes while the clean plot stays. `/pollute smoke` (survival): cough, grey edge, a toast, then hurt; wear a
+      Cloth Mask (plant fiber, wool, charcoal) and it stops. Fair timing (cough 2 s, hurt from 8 s)?
+## Movement toys: glider, climbing rope, grappling hook (ADR 0151)
+
+`/kit toys` gives all three.
+- [ ] Glider: hold it, jump off a cliff, press jump (or right click) while falling: the wing opens over your head. Looking
+      level you sink slowly (about 8 m forward per metre down); look down to dive and gain speed, look up to trade it for
+      height. Turning banks the view a little, the wind gets louder with speed. Too floaty, too fast, too much roll?
+- [ ] Glider: jump again in the air folds it (you keep your speed for a bit); landing, water or switching item folds it too.
+      A glide into the ground at dive speed hurts, a level landing does not.
+- [ ] Rope: right click the top of a cliff near its edge: a rope hangs down to the ground. Walk into it from below: W
+      climbs, S goes down, let go of both and you hang. At the top you step onto the ledge. Jump lets go. Right click
+      the rope (its knot at the top, or the rope itself) gives it back. Does it come back after save and reload?
+- [ ] Grappling hook (iron age, crafting table): right click a rock face or tree up to 36 m away, keep holding to reel
+      in, let go to swing under it (WASD pumps), jump to let go and fly on. Sand, gravel or leaves: it slips. Fun? Too
+      strong a pull, too slow a reel?
+- [ ] On a real cliff with a lip or a ledge: the rope hangs past the ledge and you get over the lip at the top.
+      Dig away the block you hung it on: the rope drops as an item. The hook holds in a tree crown: swing from it.
+- [ ] With a second player (ADR 0145): they do not see your rope, line or wing (known, ADR 0151).
+## Blueprints and the builder (2026-11-07, ADR 0161)
+
+- [ ] `/kit builder` gives blueprints, a builder, a hand crank and a chest. Build a little hut with a furnace in it, hold a
+      blueprint, right click, mark the box around the hut, click: a Written Blueprint; its tooltip lists size and bill.
+- [ ] Hold the written one, right click: the ghost (R turns, X mirrors), click: the site stays marked in blue.
+- [ ] Set the builder and the chest beside each other near the site, crank the crank, fill the chest: it builds it bottom up.
+      Leave something out: its look-at lines list what is missing. Put a stone block in the ghost: it builds around it.
+- [ ] No builder: stand by a site, the hint at the top says what goes next and a yellow marker shows where. Fill it by hand.
+- [ ] Save, quit, load: the written blueprint and the marked site are still there.
+## Meteorites (ADR 0157)
+
+- [ ] At night `/meteor near`: a streak crosses the sky toward a spot ahead, a boom follows, an orange glow column
+      stands there and a chat line + "Meteorite" waypoint point to it. Does it feel like an event worth chasing?
+- [ ] Walk there: a scorched bowl with a molten core that smokes and burns if you stand on it. Dig the meteoric iron
+      with a copper pick; a furnace smelts a block of it to an iron ingot. Too rare, too generous?
+- [ ] `/meteor here` lands 6 m ahead (instant crater). Come back a game day later: the lava has turned to basalt.
+- [ ] Nights without commands: about one in eight has a fall (`Settings.meteor_chance_per_night`). Right rate?
+## Running machines look and sound running (ADR 0153)
+
+- [ ] `/stations factory`, wait ~40 s: the boiler puffs white steam and chimney smoke and its red needle climbs with the
+      pressure; the turbine breathes steam; the macerator's rollers turn and it trembles; LV machines show a green lamp while
+      they work. Readable at a glance which machines run?
+- [ ] Break the cable to a loaded machine: its lamp blinks red. Too subtle, too loud?
+- [ ] `/kit steam`, a steam hammer on a boiler with hot metal: sparks and a puff of steam on every blow, a hiss while it runs.
+- [ ] Walk away from a running factory: the hums and hisses fade; past ~32 m the puffs and parts stop.
+- [ ] A loaded belt or a running lathe no longer glows like a fire at night.
+- [ ] `/stations fx`: 30 machines all running at once. Frame time OK with it all in view?
+## Surface hazards: lightning and eruptions (2026-11-07, ADR 0149)
+
+- [ ] `/weather storm` out in the open: the sky flickers and far thunder rolls first (the warning); then strikes
+      nearby: a flash, thunder a moment later, fire where it hit. Does the delay between flash and thunder read as distance?
+- [ ] Build a plank tower taller than the trees around and wait in the storm (or `/lightning`): the strike goes for the
+      tower and it burns; the fire rain comes later. Too often, too rare?
+- [ ] Craft a lightning rod (2 iron rods over a copper ingot), place it on the tower's top: strikes within 24 m hit the
+      rod instead (flash and thunder, nothing burns). Does the 2 m pole read as a rod? Does the foot break cleanly?
+- [ ] Stand next to a strike (`/lightning here`): 8 health gone, "lightning" on the death screen if it kills you.
+- [ ] `/goto volcano`, stand on the rim, `/erupt`: 20 s of rumble and ash over the lake, then lava over the rim on your
+      side running down the cone, bombs landing on the flank. Does it feel like a threat? Does the frame rate hold?
+- [ ] Wait near a volcano (`/weather` shows nothing, it rolls every 90 s): an eruption starts on its own now and then.
+
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 
 - [ ] G or V opens the ring (tap, then click; or hold and release), names under the icons. Brush tile: shapes, wheel sizes
@@ -622,3 +713,58 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
 - [ ] Open a chest: the lid swings up on the far side and shuts when you close the screen. Speed right?
 - [ ] Right click the ground with a loose stone, then three more, then two sticks: a firepit appears where the ring
       lay. The Hearth quest completes. Does the ring of stones read before the sticks go in?
+
+## The wolf companion (ADR 0152)
+
+- [ ] Feed a wolf raw meat until it trusts you (or `/summon wolf`, `/tame`). It follows you within a few metres, swims
+      after you across water and keeps up when you sprint. Teleport away (`/tp`): it is back beside you.
+- [ ] Right click it with an empty hand: it sits and stays (tips back, a bark); again and it follows. Sits when you walk off?
+- [ ] At night a gloam hound or an aggressive bear/wolf comes near: the dog growls first ("Your dog growls: ..."), then
+      attacks it. Hit a deer: the dog joins in. Does the hound fight back at the dog? Can the dog die?
+- [ ] Hurt dog heals slowly; hold raw or cooked meat and use it on the dog: hearts, 3 hearts back. Hit it yourself: no damage, no growl.
+- [ ] Save and quit, load: the dog is still tamed, sitting or following, beside you.
+## Food preservation and home comfort (ADR 0162)
+
+- [ ] Craft a smokehouse (4 logs, 2 sticks, 2 cordage) and stand it beside a lit firepit: hang raw meat and fish (12 hooks).
+      Smoke rises; after ~7 game hours the pieces are smoked. An empty hand takes a finished one. Does it read as a smokehouse?
+- [ ] Craft a salt pan (4 clay balls), pour a pot of brine in (dip the cooking pot in the sea). In daylight under open sky it
+      turns to a pot of salt in 8 game hours; at night or under a roof nothing happens. Pot of salt crafts to salt; salt + raw fish = salted fish.
+- [ ] Salted fish / meat keep far longer in the inventory than raw (hover for the freshness line); a chest in a closed room 1.5 m underground slows it again.
+- [ ] Build a closed room round a bed with a lantern or fire, a table and chairs. Look at the bed: "Room: Luxurious (86/100)".
+      An open field bed reads Bare. Sleep through the night: "You feel rested", the buff line shows Rested. Does hunger fall slower, health come back faster? Is the buff long enough, the thresholds right?
+
+## Signs, notes and trading posts (ADR 0164)
+
+- [ ] `/kit social`, then place a sign on a wall and right click it: a parchment page opens with four lines of 15
+      characters; type, press Done. The words are on the board in the world, readable from a few metres, centred, in a
+      hard-edged font. Does it read from across a room? Is the lettering too heavy or too small for the board?
+- [ ] A sign's text survives save and quit, and `/sign Hello|second line` still writes (| is a new line).
+- [ ] Craft a note (paper + charcoal; paper from two birch bark). Shift + right click with it in the air: write a page of up
+      to 12 lines of 28. Drop it, put it in a chest, pick it up: the words are still there. Click a wall with it: it is
+      pinned (first lines on the paper); right click the pin to read all of it; break it and the note drops with its words.
+- [ ] Place a trading post (it faces you). Right click: the owner screen. Top row = four offers as pairs (left = what the
+      customer gets, right = what the customer pays): click a pair slot with a stack on the cursor to set it (left click
+      = that count, right click = one more, empty hand = clear). Middle row = stock, bottom row = payments to take.
+      Is that clear without being told? (The chat tells you once on opening.)
+- [ ] Shift + right click your own post: the customer screen (pay left, get right). Click an offer: the right stacks
+      move both ways; with too little payment, no room, no stock or a full takings row it says why and moves nothing.
+- [ ] Tools (anything with wear) cannot be offered or stocked. Breaking a post spills stock and takings.
+- [ ] Two players on a server: A's sign and post show for B (also for a late joiner); B trades, A sees the stock go down
+      live; B cannot open A's stock or break A's post; while A has the stock screen open B is told the owner is busy.
+      Quit B mid-trade and rejoin: no duplicate goods (and no lost payment unless the link broke before the answer).
+- [ ] Look at your dog, `/name Fenrir`: the tag changes. Does the tag read well at 10 m? It survives save and load.
+- [ ] A hound behind a hill or inside a cave wall does not make the dog growl; coming into the open does.
+- [ ] Two players (server + client): each sees the other's dog follow, sit and carry its name.
+
+## Fishing and traps (ADR 0163, 2026-11-07)
+- [ ] `/fish pond`, look down at the water, right click: the red bobber arcs out and floats; a bite dips it and says so,
+      a right click hooks; holding right click fills the blue bar, the tension bar goes green to red; letting it hit the
+      end snaps the line, letting it go slack loses the fish. Does a catch take 5-15 s and feel fair?
+- [ ] Fish in a river, a lake and the sea: different species (trout/perch, carp/pike, cod/mackerel); fillet one in the grid.
+      More fish near the bobber bite sooner. `/fish foul`: only junk or nothing.
+- [ ] Walk 18 m away or switch items: the line ends. Right click while waiting reels in.
+- [ ] Craft a snare (cordage + stick), set it on the ground; a rabbit or hare that steps on it is held struggling; right
+      click it to take the rabbit (meat drops at your feet), the snare is set again. Step on it yourself: hurt, held 2.5 s.
+- [ ] Dig a 1 m x 1 m pit 1.5 m deep, right click the pit cover into it: a straw-and-earth patch flush with the ground.
+      A deer or boar walking over it falls in and stays; walk over it yourself: stakes hurt. Aim at either trap: the panel names it.
+- [ ] A tamed wolf following you never walks onto a snare or a pit cover. Quit and reload: caught animals still held.

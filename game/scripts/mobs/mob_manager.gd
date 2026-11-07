@@ -40,7 +40,7 @@ var mate_s := 3.0
 var feed_baby_speedup := 0.1
 var spawning := true
 var game_time := 0.0           # seconds this world has run (dormant mobs catch up from it)
-var stats := {"spawned": 0, "herds": 0, "bred": 0, "died": 0, "slept": 0, "woke": 0, "cells": 0, "kills": 0, "mauled": 0, "eggs": 0, "carcasses": 0, "night_spawned": 0, "faded": 0, "alarmed": 0, "lit_away": 0}
+var stats := {"spawned": 0, "herds": 0, "bred": 0, "died": 0, "slept": 0, "woke": 0, "cells": 0, "kills": 0, "mauled": 0, "eggs": 0, "carcasses": 0, "night_spawned": 0, "faded": 0, "alarmed": 0, "lit_away": 0, "warned": 0, "teleported": 0}
 var dirty := false
 var last_frame_ms := 0.0
 var worst_frame_ms := 0.0
@@ -58,6 +58,8 @@ var _next_uid := 1
 var _scan_t := 0.0
 var _hearts_t := {}            # uid -> seconds to the next heart
 var _rng := RandomNumberGenerator.new()
+var _owners := {}              # companion owner id -> Node3D (ADR 0152; "player" is Main's player)
+var owner_foe := {}            # owner id -> [Mob, game_time]: what hurt the owner or what the owner hit last
 var _seed := 0
 var _searches := SEARCHES_PER_FRAME
 const GRID_V := 2 * 2 * Settings.BLOCK   # neighbour grid cell: 2 m
@@ -208,7 +210,7 @@ func _update_dormancy() -> void:
 	for m in _active:
 		if not is_instance_valid(m):
 			continue
-		if not m.is_dead() and Vector2(m.position.x - pp.x, m.position.z - pp.z).length() > active_radius_v:
+		if not m.is_dead() and m.owner_id == "" and Vector2(m.position.x - pp.x, m.position.z - pp.z).length() > active_radius_v:
 			if m.def.get("night", false):   # night creatures are not kept: the next night brings others
 				m.queue_free()
 				continue
@@ -220,11 +222,20 @@ func _update_dormancy() -> void:
 			continue
 		keep.append(m)
 	_active = keep
+	for m in _active:
+		if m.owner_id != "" and not m.sitting and not m.is_dead():   # left far behind between brain ticks (a teleport, a fast ride)
+			var o := owner_node(m.owner_id)
+			if o != null and o.position.distance_to(m.position) > Settings.m2v(float(m.def.get("companion", {}).get("teleport_m", 22.0))):
+				teleport_companion(m, o)
 	if _dormant.is_empty():
 		return
 	var still := []
 	for d in _dormant:
 		var p: Array = d["pos"]
+		var own := owner_node(String(d.get("owner", ""))) if d.has("owner") else null
+		if own != null and Vector2(float(p[0]) - own.position.x, float(p[2]) - own.position.z).length() > Settings.m2v(20.0):
+			d["pos"] = [own.position.x, own.position.y, own.position.z]   # a companion saved far from its owner comes to them
+			p = d["pos"]
 		var near := Vector2(float(p[0]) - pp.x, float(p[2]) - pp.z).length() < active_radius_v - Settings.m2v(8.0)
 		if near and _active.size() < max_active * 2 and world.is_area_loaded(Vector3i((Vector3(float(p[0]), float(p[1]), float(p[2])) / Settings.CHUNK).floor())):
 			_wake(d)
@@ -463,6 +474,8 @@ func safe_ahead(m: Mob, dir: Vector3, panicking: bool) -> bool:
 	var x := int(floor(probe.x))
 	var z := int(floor(probe.z))
 	var y := int(floor(m.position.y + 0.05))
+	if m.owner_id != "" and main != null and main.get("fishing") != null and main.fishing.trap_near(probe):
+		return false   # ADR 0163: a companion steps round snares and pit traps
 	for k in range(0, Mob.MAX_DROP_V + 2):
 		var p := Vector3i(x, y - k, z)
 		var v := get_voxel(p)
@@ -674,7 +687,12 @@ func pick(from: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 
 
 func attack(m: Mob, damage: int, from: Vector3) -> bool:
+	var by_player: bool = main != null and main.player != null and from == main.player.position
+	if m.owner_id != "" and by_player:
+		return false   # the owner's blows do not hurt their companion
 	var hurt := m.hurt(damage, from)
+	if hurt and by_player:
+		owner_foe["player"] = [m, game_time]   # the companion joins in on whatever its owner hits
 	if hurt and _fx():
 		_fx().burst("damage", m.eye(), {"count_bonus": damage})   # Minecraft's damage indicator hearts
 	return hurt
@@ -683,7 +701,15 @@ func attack(m: Mob, damage: int, from: Vector3) -> bool:
 ## Right click on an animal with `held` (item def). Returns what happened:
 ## "love" / "grew" (fed: take one food), "sheared" (shears), "milked" (takes the bowl), or "".
 func interact(m: Mob, held: Dictionary) -> String:
-	if held.is_empty() or m.is_dead():
+	if m.is_dead():
+		return ""
+	if m.owner_id != "":
+		if held.is_empty():
+			return "sit" if m.toggle_sit() else "follow"   # ADR 0152: an empty hand tells a companion to stay or come
+		if "meat" in held.get("tags", []) and m.eat_meat():
+			return "grew"   # uses up the meat
+		return ""
+	if held.is_empty():
 		return ""
 	var id: String = held.get("id", "")
 	if id in m.def.get("food", []):
@@ -707,6 +733,123 @@ func interact(m: Mob, held: Dictionary) -> String:
 		dirty = true
 		return "milked"
 	return ""
+
+
+# ---------------- companions (ADR 0152) ----------------
+
+## The id a companion stores for its owner: "player" for the local player, else the node's name
+## (a remote player's name; the companion is local to this client until mobs are shared, ADR 0145).
+func owner_id_of(o: Node) -> String:
+	if main != null and o == main.player:
+		return "player"
+	return String(o.get_meta("player_id", o.name))
+
+
+func register_owner(id: String, o: Node3D) -> void:
+	_owners[id] = o
+
+
+## The owner's node, or null when they are not in this game (a remote player who left).
+func owner_node(id: String) -> Node3D:
+	if id == "player" and main != null and main.player != null:
+		return main.player
+	var o = _owners.get(id)
+	return o if is_instance_valid(o) else null
+
+
+func is_threat(o: Mob) -> bool:
+	return not o.is_dead() and o.owner_id == "" and (o.def.get("night", false) or (o.def.has("predator") and (o.aggressive or o._provoked_t > 0.0)))
+
+
+## What the companion fights: the owner's last foe (hit or hurt by, 10 s) or the nearest threat within r.
+func companion_foe(m: Mob, owner_p: Vector3, r: float) -> Mob:
+	var f = owner_foe.get(m.owner_id)
+	if f != null and is_instance_valid(f[0]) and f[0] != m and not f[0].is_dead() and game_time - float(f[1]) < 10.0 \
+			and f[0].position.distance_to(owner_p) < r * 2.0:
+		return f[0]
+	var best: Mob = null
+	var best_d := r
+	for o in _active:
+		if o == m or not is_threat(o):
+			continue
+		var d := minf(o.position.distance_to(m.position), o.position.distance_to(owner_p))
+		if d < best_d:
+			best_d = d
+			best = o
+	return best
+
+
+## Nothing solid between the two points (sampled every 2 voxels): the dog does not growl at what is behind a hill.
+func line_clear(a: Vector3, b: Vector3) -> bool:
+	var n := int(a.distance_to(b) / 2.0)
+	for i in range(1, n):
+		if is_solid(get_voxel(Vector3i(a.lerp(b, float(i) / n).floor()))):
+			return false
+	return true
+
+
+## The local owner's companion (the first one found), or null.
+func companion_of(id: String) -> Mob:
+	for m in _active:
+		if m.owner_id == id and not m.is_dead():
+			return m
+	return null
+
+
+## What other players see of this player's companion (ADR 0145): [pos, yaw, speed, sitting, name] or [].
+func pet_state(id: String) -> Array:
+	var m := companion_of(id)
+	if m == null:
+		return []
+	return [m.position, m._yaw, Vector2(m.velocity.x, m.velocity.z).length(), m.sitting, m.display_name()]
+
+
+## Growl (sound + a line) at the nearest threat in sight (no rock between), once per threat per 25 s.
+func companion_warn(m: Mob, r: float) -> void:
+	var best: Mob = null
+	var best_d := r
+	for o in _active:
+		if not is_threat(o) or game_time - float(m._warned.get(o.uid, -1e9)) < 25.0:
+			continue
+		var d := o.position.distance_to(m.position)
+		if d < best_d and line_clear(m.eye(), o.eye()):
+			best_d = d
+			best = o
+	if best == null:
+		return
+	m._warned[best.uid] = game_time
+	m._look = best.eye()
+	m._look_t = 2.0
+	stats["warned"] += 1
+	Sound.play("mob/wolf", m.eye())
+	var work = main.get("work") if main != null else null
+	if work != null:
+		work._say("%s growls: %s." % [m.display_name(), String(best.def.get("name", best.species)).to_lower()])
+
+
+## Back to the owner: a standable spot 2-3 m from them (their own spot when none).
+func teleport_companion(m: Mob, o: Node3D) -> void:
+	var h := int(m._height_v) + 1
+	var at := o.position
+	for _i in 12:
+		var a := _rng.randf() * TAU
+		var r := Settings.m2v(_rng.randf_range(2.0, 3.0))
+		var x := int(floor(o.position.x + cos(a) * r))
+		var z := int(floor(o.position.z + sin(a) * r))
+		var y := stand_height(x, z, int(floor(o.position.y)), 4 * Settings.BLOCK, h)
+		if y != -1:
+			at = Vector3(x + 0.5, y + 0.05, z + 0.5)
+			break
+	m.position = at
+	m.velocity = Vector3.ZERO
+	m._stop()
+	m._fall_peak = at.y
+	_poof(m.position + Vector3(0, 0.5, 0))
+	stats["teleported"] += 1
+
+
+func heart_at(at: Vector3) -> void:
+	_heart(at)
 
 
 # ---------------- wildlife (ADR 0027) ----------------
@@ -756,6 +899,7 @@ func maul_player(m: Mob, damage: int) -> void:
 	if main.stone_age and main.stone_age.clothing:
 		damage = main.stone_age.clothing.armor_cut(damage)
 	main.player_inv.damage(damage, "%s attack" % m.species)
+	owner_foe["player"] = [m, game_time]   # the companion joins in on whatever hurts its owner
 	var away: Vector3 = main.player.position - m.position
 	away.y = 0.0
 	if away.length() > 0.01:
@@ -786,6 +930,8 @@ func _leave_carcass(at: Vector3) -> void:
 func on_died(m: Mob) -> void:
 	if m.killed_by != "":
 		_leave_carcass(m.position)   # eaten: what is left lies there, no drops
+	elif m.has_meta("fouled"):
+		pass   # ADR 0155: killed by fouled water: nothing worth eating
 	elif not m.is_baby():
 		var list: Array = m.def.get("drops", []).duplicate()
 		if not m.sheared:
@@ -805,7 +951,7 @@ func on_died(m: Mob) -> void:
 func to_dict() -> Dictionary:
 	var mobs := []
 	for m in _active:
-		if is_instance_valid(m) and not m.is_dead():
+		if is_instance_valid(m) and (not m.is_dead() or m.has_meta("fouled")):   # ADR 0155: a floating dead fish is kept
 			mobs.append(m.to_dict())
 	for d in _dormant:
 		mobs.append(d)

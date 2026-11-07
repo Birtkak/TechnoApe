@@ -605,7 +605,7 @@ func _ambient_tick(delta: float) -> void:
 	# directly; the smoke leaves the top of the model, not its anchor corner (bug 2026-11-02_18-51-53)
 	if main_blocks != null and Engine.get_process_frames() % 6 == 0:
 		for e in main_blocks.lit():
-			if not (e is SieveEntity or e is TorchEntity):
+			if not (e is SieveEntity or e is TorchEntity or MachineFx.handles(e.kind)):   # machines puff by their data (ADR 0153)
 				var top := station_top(e)
 				if e.kind == "firepit":   # forges and bloomeries are firepits too, but smoke from their top
 					top.y = e.pos.y + 1.0   # the flames sit on the bed, not on the stone ring's rim

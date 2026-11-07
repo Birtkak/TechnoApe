@@ -115,6 +115,12 @@
     "chalk": {"o": "#363e4a", "d": "#99a4b0", "m": "#dcdcd2", "l": "#f4eedc", "h": "#ffffef"},
     "floorstone": {"o": "#000113", "d": "#0a1531", "m": "#30303c", "l": "#524c52", "h": "#948990"},
     "greenstone": {"o": "#00101c", "d": "#183a40", "m": "#46664e", "l": "#6c8a62", "h": "#acc590"},
+    "trout": {"o": "#0e1218", "d": "#46483c", "m": "#8e8250", "l": "#c0ac6c", "h": "#f8e1a0"},
+    "salmon_fish": {"o": "#0e0c20", "d": "#523f5b", "m": "#a87a80", "l": "#d8aa9c", "h": "#ffddbc"},
+    "pike": {"o": "#001015", "d": "#1a3f2c", "m": "#4e7032", "l": "#829c46", "h": "#d8dd88"},
+    "carp": {"o": "#181011", "d": "#603f22", "m": "#b07a28", "l": "#dca23c", "h": "#ffd570"},
+    "cod": {"o": "#0e1620", "d": "#434e4f", "m": "#8a8a6a", "l": "#bcb68c", "h": "#f4e9bc"},
+    "mackerel": {"o": "#000f26", "d": "#0c3f66", "m": "#3a7a8a", "l": "#82b2ac", "h": "#f0f5dc"},
     "rubber": {"o": "#00051a", "d": "#0f1a38", "m": "#34343e", "l": "#524c4a", "h": "#7e6f52"},
     "resin": {"o": "#180c15", "d": "#6f3f21", "m": "#c8781e", "l": "#f0a22a", "h": "#ffdd60"},
     "carbon": {"o": "#00051b", "d": "#111c3a", "m": "#3a3a46", "l": "#5e5856", "h": "#907d5e"},
@@ -2294,6 +2300,69 @@
         "................"
       ]
     },
+    "page": {
+      "colors": {"o": "#4a3a2a", "p": "#f2e8cc", "q": "#c8b48a", "k": "#3a2a1a"},
+      "rows": [
+        "...oooooooooo...",
+        "..oppppppppppo..",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkpppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkkkpo.",
+        ".oppppppppppppo.",
+        ".opkkkkkkkppppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkkppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkppppppo.",
+        ".oqqqqqqqqqqqqo.",
+        "..oooooooooooo..",
+        "................",
+        "................"
+      ]
+    },
+    "note_page": {
+      "colors": {"o": "#4a3a2a", "p": "#f2e8cc", "q": "#c8b48a", "k": "#3a2a1a", "r": "#b02a2a"},
+      "rows": [
+        "...oooooooooo...",
+        "..oppppppppppo..",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkpppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkkkpo.",
+        ".opppppprrppppo.",
+        ".opkkkkkrrkkppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkkkkkppo.",
+        ".oppppppppppppo.",
+        ".opkkkkkppppppo.",
+        ".oqqqqqqqqqqqqo.",
+        "..oooooooooooo..",
+        "................",
+        "................"
+      ]
+    },
+    "stall": {
+      "colors": {"o": "#3a2a1a", "r": "#b83a2a", "w": "#f0e4c8", "d": "#6a4a2a", "g": "#d8a030", "y": "#7ac8f0", "t": "#8a5a30", "l": "#b8864a"},
+      "rows": [
+        "..oooooooooooo..",
+        ".orwrwrwrwrwrwo.",
+        "orwrwrwrwrwrwro.",
+        "orrrrrrrrrrrrro.",
+        ".odoooooooooodo.",
+        ".odooggooyyoodo.",
+        ".odooggooyyoodo.",
+        ".odoooooooooodo.",
+        ".otttttttttttto.",
+        ".otllllllllllto.",
+        ".otllllllllllto.",
+        ".otttttttttttto.",
+        ".odoooooooooodo.",
+        "..o..........o..",
+        "................",
+        "................"
+      ]
+    },
     "axe_mold": {
       "colors": {"i": "#3a1a0e", "I": "#24100a"},
       "rows": [
@@ -3784,6 +3853,48 @@
         "oooooooooooooooo"
       ]
     },
+    "snare": {
+      "colors": {"w": "#8a6440"},
+      "rows": [
+        "..........oo....",
+        ".........owwo...",
+        ".........owowo..",
+        ".........owoowo.",
+        ".........owo.o..",
+        "....oooo.owo....",
+        "...ommmmoowo....",
+        "..omoooomowo....",
+        ".omo....omwo....",
+        ".omo....omo.....",
+        ".omo....omo.....",
+        "..omoooomo......",
+        "...ommmmo.......",
+        "....oooo........",
+        "................",
+        "................"
+      ]
+    },
+    "pit_cover": {
+      "colors": {"d": "#c8aa5a"},
+      "rows": [
+        "................",
+        "................",
+        "...o...o...o....",
+        "..omooomooomoo..",
+        ".ommmmmmmmmmmmo.",
+        "..omodomodomoo..",
+        ".ommmmmmmmmmmmo.",
+        "..omdoomoodmoo..",
+        ".ommmmmmmmmmmmo.",
+        "..omooomooomoo..",
+        "...o...o...o....",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
     "pickaxe_head_loose": {
       "rows": [
         "................",
@@ -4190,6 +4301,27 @@
         "................"
       ]
     },
+    "cloth_mask": {
+      "colors": {"s": "#8a7a5a", "c": "#2a2626"},
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "o..............o",
+        "soooooooooooooos",
+        "osshlllllllllsso",
+        ".oosmmmmmmmmsoo.",
+        "..olmmccccmmdo..",
+        "..olmmccccmmdo..",
+        "..olmmmmmmmmdo..",
+        "..olmmmmmmmmdo..",
+        "...oldddddddo...",
+        "....oooooooo....",
+        "................",
+        "................"
+      ]
+    },
     "machine": {
       "colors": {"p": "#3a6852", "q": "#5a8e70", "r": "#24453a", "s": "#a6b0bc", "w": "#16181e", "v": "#16181e", "y": "#e8b830", "b": "#24232a", "k": "#9ea6b2", "K": "#5c6470", "e": "#fca030", "f": "#c0300c"},
       "rows": [
@@ -4316,6 +4448,48 @@
         "................"
       ]
     },
+    "blueprint": {
+      "colors": {"p": "#3a6ab8", "q": "#5a8ad8", "P": "#2a4a88", "r": "#c8b08a"},
+      "rows": [
+        "................",
+        ".oo..........oo.",
+        "orroooooooooorro",
+        "orrqqqqqqqqqqrro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrPPPPPPPPPPrro",
+        "orroooooooooorro",
+        ".oo..........oo.",
+        "................"
+      ]
+    },
+    "written_blueprint": {
+      "colors": {"p": "#3a6ab8", "q": "#5a8ad8", "P": "#2a4a88", "r": "#c8b08a", "w": "#e8f0ff"},
+      "rows": [
+        "................",
+        ".oo..........oo.",
+        "orroooooooooorro",
+        "orrqqqqqqqqqqrro",
+        "orrpppppppppprro",
+        "orrpwwwwwwwwprro",
+        "orrpwppppppwprro",
+        "orrpwwwwpppwprro",
+        "orrpwppppwwwprro",
+        "orrpwppppwwwprro",
+        "orrpwwwwwwwwprro",
+        "orrpppppppppprro",
+        "orrPPPPPPPPPPrro",
+        "orroooooooooorro",
+        ".oo..........oo.",
+        "................"
+      ]
+    },
     "water_wheel": {
       "colors": {"i": "#2e3034", "p": "#3a6852", "q": "#5a8e70"},
       "rows": [
@@ -4421,6 +4595,69 @@
         "...oooooooooo..."
       ]
     },
+    "lift_winch": {
+      "colors": {"b": "#6e4424", "B": "#9a6a3a", "k": "#3e2614", "r": "#d8c08a", "w": "#a87a44", "W": "#c89a5c"},
+      "rows": [
+        ".oooooooooooooo.",
+        "ollllllllllllllo",
+        "ollllllllllllllo",
+        "ommoBBBBBBBBommo",
+        "ommobrbrbrbbommo",
+        "ommobrbrbrbbommo",
+        "ommokkkkkkkkommo",
+        "ommoooooooooommo",
+        "omddddddddddddmo",
+        ".oooooorroooooo.",
+        "......orro......",
+        "..ooooorrooooo..",
+        ".oWWWWWrrWWWWWo.",
+        ".owwwwwwwwwwwwo.",
+        ".owwwwwwwwwwwwo.",
+        "..oooooooooooo.."
+      ]
+    },
+    "drawbridge_hinge": {
+      "colors": {"w": "#a87a44", "W": "#7a5430", "c": "#8a8e98"},
+      "rows": [
+        ".............oo.",
+        "...oooooooooocwo",
+        "..occcccccccccWo",
+        "..ocooooooowwWo.",
+        "..oco....owwWo..",
+        "..oco...owwWo...",
+        "..oco..owwWo....",
+        "..oco.owwWo.....",
+        "..ocoowwWo......",
+        ".oocowwWo.......",
+        "ollllwWo........",
+        "ommmmdo.........",
+        "ommhmdo.........",
+        "ommmmdo.........",
+        "ommmmdo.........",
+        ".ooooo.........."
+      ]
+    },
+    "crane": {
+      "colors": {"r": "#d8c08a", "y": "#e8b830"},
+      "rows": [
+        "................",
+        ".oooooooooooooo.",
+        "ollllllllddllllo",
+        "ommmmmmmdmmmmmmo",
+        ".ooolmddooooroo.",
+        "...olmoo...oro..",
+        "...olmo....oro..",
+        "...olmo....oro..",
+        "...olmo....oro..",
+        "...olmo....oro..",
+        "...olmo...oyyyo.",
+        "...olmo...oyoyo.",
+        "..oolmooo..oyyo.",
+        ".ommmmmmmo..oo..",
+        ".odddddddo......",
+        ".odddddddo......"
+      ]
+    },
     "miner_helmet": {
       "colors": {"n": "#2c3448", "k": "#1a2030", "y": "#ffd660", "Y": "#f0a030", "w": "#fff6d0"},
       "rows": [
@@ -4524,6 +4761,126 @@
         "................",
         "................",
         "................"
+      ]
+    },
+    "glider_wing": {
+      "rows": [
+        "................",
+        ".......oo.......",
+        "......ohlo......",
+        ".....ohmmlo.....",
+        "....ohmmmmlo....",
+        "...ohmmmmmmlo...",
+        "..ohmmmmmmmmlo..",
+        "..olmmddddmmdo..",
+        ".ohdddoooolddlo.",
+        "ohoooo....ooooho",
+        ".o............o.",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "glider_frame": {
+      "rows": [
+        "................",
+        "................",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "...mmmmmmmmmmm..",
+        "........d.......",
+        "........d.......",
+        "........d.......",
+        "......dd.dd.....",
+        ".....lllllll....",
+        "................"
+      ]
+    },
+    "rope_coil": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "...oooooooo.....",
+        "..ohlllllllo....",
+        ".ohdmmdmmdmlo...",
+        "ohdmmddddmmdlo..",
+        "olmmdooooldmdo..",
+        "olmdo....olmdo..",
+        "oldmloooohmddo..",
+        "olmmdllllmdmdo..",
+        ".oldmmdmmdmdo...",
+        "..oldddddddo....",
+        "...oooooooo.....",
+        "................"
+      ]
+    },
+    "rope_stake": {
+      "rows": [
+        ".............o..",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        "............omo.",
+        ".............o.."
+      ]
+    },
+    "hook_prongs": {
+      "rows": [
+        ".......ooo......",
+        "......ohllo.....",
+        ".......olo......",
+        ".......olo......",
+        "....o..olo..o...",
+        "...oho.olo.oho..",
+        "...olo.olo.olo..",
+        "....ohoolooho...",
+        "....olooloolo...",
+        "....olooloolo...",
+        ".....ohldllo....",
+        "......ooooo.....",
+        "................",
+        "................",
+        "................",
+        "................"
+      ]
+    },
+    "hook_rope": {
+      "rows": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "........m.......",
+        "........m.......",
+        ".......m........",
+        ".....mm.........",
+        "...mm..........."
       ]
     }
   },
@@ -4699,6 +5056,9 @@
     "bench": {"layers": [{"shape": "bench", "palette": "wood"}]},
     "candle": {"layers": [{"shape": "candle", "palette": "wax"}]},
     "sign": {"layers": [{"shape": "sign", "palette": "wood"}]},
+    "paper": {"layers": [{"shape": "page"}]},
+    "note": {"layers": [{"shape": "note_page"}]},
+    "trading_post": {"layers": [{"shape": "stall"}]},
     "red_rug": {"layers": [{"shape": "rug", "palette": "red_rug"}]},
     "blue_rug": {"layers": [{"shape": "rug", "palette": "blue_rug"}]},
     "straw_mat": {"layers": [{"shape": "mat", "palette": "straw"}]},
@@ -4910,6 +5270,9 @@
     "dried_meat": {"layers": [{"shape": "steak", "palette": "dried"}]},
     "smoked_meat": {"layers": [{"shape": "steak", "palette": "smoked"}]},
     "salted_meat": {"layers": [{"shape": "steak", "palette": "salted"}]},
+    "salted_fish": {"layers": [{"shape": "fish", "palette": "salted"}]},
+    "smokehouse": {"layers": [{"shape": "rack", "palette": "smoked"}]},
+    "salt_pan": {"layers": [{"shape": "dust_pile", "palette": "salt"}, {"shape": "pot_fill", "colors": {"q": "#3a78d8", "k": "#c0e0ff"}}]},
     "dried_fish": {"layers": [{"shape": "fish", "palette": "dried"}]},
     "smoked_fish": {"layers": [{"shape": "fish", "palette": "smoked"}]},
     "basket_trap": {"layers": [{"shape": "basket", "palette": "straw"}]},
@@ -4965,6 +5328,14 @@
     "iron_work_piece": {"layers": [{"shape": "work_piece", "palette": "iron"}]},
     "crucible_bronze": {"layers": [{"shape": "crucible", "palette": "terracotta", "colors": {"i": "#f0c060"}}]},
     "bronze_anvil": {"layers": [{"shape": "anvil", "palette": "bronze"}]},
+    "brown_trout": {"layers": [{"shape": "fish", "palette": "trout"}]},
+    "salmon": {"layers": [{"shape": "fish", "palette": "salmon_fish"}]},
+    "pike": {"layers": [{"shape": "fish", "palette": "pike"}]},
+    "carp": {"layers": [{"shape": "fish", "palette": "carp"}]},
+    "cod": {"layers": [{"shape": "fish", "palette": "cod"}]},
+    "mackerel": {"layers": [{"shape": "fish", "palette": "mackerel"}]},
+    "snare": {"layers": [{"shape": "snare", "palette": "twine"}]},
+    "pit_cover": {"layers": [{"shape": "pit_cover", "palette": "wood"}]},
     "wrench": {"layers": [{"shape": "wrench", "palette": "iron"}]},
     "iron_plate": {"layers": [{"shape": "plate", "palette": "iron"}]},
     "iron_rod": {"layers": [{"shape": "stick", "palette": "iron"}]},
@@ -4980,6 +5351,7 @@
     "hand_drill": {"layers": [{"shape": "handle", "palette": "handle"}, {"shape": "pickaxe_head", "palette": "steel"}, {"shape": "flower_head", "palette": "iron"}]},
     "heavy_copper_cable": {"layers": [{"shape": "pipe", "palette": "copper", "colors": {"e": "#0e0e16", "f": "#22222c"}}]},
     "leather_apron": {"layers": [{"shape": "apron", "palette": "leather"}]},
+    "cloth_mask": {"layers": [{"shape": "cloth_mask", "palette": "wool"}]},
     "steel_plate": {"layers": [{"shape": "plate", "palette": "steel"}]},
     "steel_work_piece": {"layers": [{"shape": "work_piece", "palette": "steel"}]},
     "steel_boiler": {"layers": [{"shape": "boiler", "colors": {"h": "#d0d8e2", "l": "#9ca6b2", "m": "#737d8a", "d": "#4a525e"}}]},
@@ -5030,6 +5402,9 @@
     "pump": {"layers": [{"shape": "machine", "palette": "iron", "colors": {"e": "#7ac8f0", "f": "#2a6a8a", "k": "#d07a40", "K": "#8a4424"}}]},
     "multimeter": {"layers": [{"shape": "tape_measure", "palette": "iron", "colors": {"c": "#1c3e22", "k": "#7ed43a", "t": "#f4e870", "T": "#b8a830"}}]},
     "capacitor": {"layers": [{"shape": "capacitor", "palette": "iron"}]},
+    "blueprint": {"layers": [{"shape": "blueprint", "palette": "iron"}]},
+    "written_blueprint": {"layers": [{"shape": "written_blueprint", "palette": "iron"}]},
+    "builder": {"layers": [{"shape": "machine", "palette": "iron", "colors": {"e": "#f2e088", "f": "#b89a3a", "k": "#e8b830", "K": "#24232a"}}]},
     "fuse": {"layers": [{"shape": "twine", "palette": "tin"}]},
     "knife_switch": {"layers": [{"shape": "knife_switch", "palette": "iron"}]},
     "fuse_box": {"layers": [{"shape": "fuse_box", "palette": "iron"}]},
@@ -5041,6 +5416,9 @@
     "hand_crank": {"layers": [{"shape": "hand_crank", "palette": "iron"}]},
     "daylight_switch": {"layers": [{"shape": "fuse_box", "palette": "iron", "colors": {"t": "#ffe27a"}}]},
     "meter_panel": {"layers": [{"shape": "meter_panel", "palette": "iron"}]},
+    "lift_winch": {"layers": [{"shape": "lift_winch", "palette": "iron"}]},
+    "drawbridge_hinge": {"layers": [{"shape": "drawbridge_hinge", "palette": "iron"}]},
+    "crane": {"layers": [{"shape": "crane", "palette": "steel"}]},
     "coke_oven": {"layers": [{"shape": "bricks_face"}], "cube": true},
     "coal_coke": {"layers": [{"shape": "charcoal_lump", "palette": "coal"}]},
     "steam_turbine": {"layers": [{"shape": "steam_hammer", "palette": "steel", "colors": {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}}]},
@@ -5060,6 +5438,9 @@
     "belt": {"layers": [{"shape": "strips", "palette": "leather"}, {"shape": "stick", "palette": "iron"}]},
     "rail": {"layers": [{"shape": "rail_track", "palette": "iron"}]},
     "minecart": {"layers": [{"shape": "minecart", "palette": "iron"}]},
-    "chest_cart": {"layers": [{"shape": "minecart", "palette": "iron"}, {"shape": "cart_lid", "palette": "wood"}]}
+    "chest_cart": {"layers": [{"shape": "minecart", "palette": "iron"}, {"shape": "cart_lid", "palette": "wood"}]},
+    "glider": {"layers": [{"shape": "glider_wing", "palette": "scraped_hide"}, {"shape": "glider_frame", "palette": "wood"}]},
+    "climbing_rope": {"layers": [{"shape": "rope_coil", "palette": "twine"}, {"shape": "rope_stake", "palette": "wood"}]},
+    "grappling_hook": {"layers": [{"shape": "hook_rope", "palette": "twine"}, {"shape": "hook_prongs", "palette": "iron"}]}
   }
 }

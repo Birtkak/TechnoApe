@@ -40,6 +40,10 @@ func run(p_main: Node) -> void:
 	await tree.create_timer(1.5).timeout   # the strip reaches the terrain the aim ray reads
 	var sections := [_tar_and_tempering, _hafting, _bone_and_fur, _throwing, _rack, _polishing, _grain, _water,
 		_loom_and_copper, _ember_and_fishing, _dugout, _megaliths, _painting]
+	if "home_only=1" in OS.get_cmdline_user_args():
+		sections = [_home]   # the smokehouse, salt pan and a rated bedroom (ADR 0162) alone
+	else:
+		sections.append(_home)
 	for s in sections:
 		await s.call()
 	r["stone_age"] = main.stone_age.summary()
@@ -224,7 +228,7 @@ func _collect() -> void:
 				e.queue_free()
 
 
-func _shot(name: String, at_p: Vector3, dist_m: float = 1.6) -> void:
+func _shot(name: String, at_p: Vector3, dist_m: float = 1.6, look: Dictionary = {}) -> void:
 	if "flint_age_shots=0" in OS.get_cmdline_user_args() or DisplayServer.get_name() == "headless":
 		return
 	var keep: Vector3 = main.player.position
@@ -236,6 +240,10 @@ func _shot(name: String, at_p: Vector3, dist_m: float = 1.6) -> void:
 		var dir := (at_p - cam.global_position).normalized()
 		main.player.set_look(atan2(-dir.x, -dir.z), asin(dir.y))
 	await tree.create_timer(0.3).timeout
+	if not look.is_empty():
+		main.player.hud.set_look(look)   # the look panel (a scripted run has no captured mouse to fill it)
+		await tree.process_frame
+		await tree.process_frame
 	var path: String = DebugCapture.out_dir + "/stone_ages_%s.png" % name
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(DebugCapture.out_dir))
 	main.get_viewport().get_texture().get_image().save_png(path)
@@ -442,6 +450,83 @@ func _rack() -> void:
 	r["smoked_meat"] = inv.inv.count_of("smoked_meat")
 
 
+# ---------------- preserving and home comfort (ADR 0162) ----------------
+
+func _home() -> void:
+	# a smokehouse over a lit firepit with meat and fish hung inside
+	var sh := at(2, -9)
+	_stand(sh)
+	_hold("smokehouse")
+	_click_top(sh - Vector3i.UP)
+	await _settle()
+	var house = main.blocks.at(sh)
+	r["smokehouse_placed"] = house is RackEntity and house.kind == "smokehouse"
+	var f := at(3, -9)
+	_stand(f)
+	_hold("firepit")
+	_click_top(f - Vector3i.UP)
+	await _settle()
+	var fp = main.blocks.at(f)
+	if fp is FirepitEntity:
+		fp.inv.set_slot(FirepitEntity.FUEL, {"id": "firewood", "count": 16})
+		fp.ignite()
+	if house is RackEntity:
+		var aim := Vector3(sh) + Vector3(0.5, 0.6, 0.5) * B
+		_hold("raw_meat", 3)
+		for i in 3:
+			_use(aim)
+		_hold("raw_fish", 2)
+		for i in 2:
+			_use(aim)
+		await tree.create_timer(1.2).timeout
+		r["smokehouse_smoky"] = house.smoky
+		await _hours(7.0)
+		r["smokehouse_hung"] = house.summary()["hung"].map(func(h: Dictionary) -> String: return "%s>%s" % [h["id"], h["done"]])
+		await _shot("smokehouse", aim, 1.8)
+	# a salt pan with brine in the sun
+	var sp := at(0, -9)
+	_stand(sp)
+	_hold("salt_pan")
+	_click_top(sp - Vector3i.UP)
+	await _settle()
+	r["salt_pan_placed"] = main.blocks.at(sp) is RackEntity
+	# a bedroom: planks all round and over, a table, chairs and a lantern
+	var lo := at(5, -3)
+	# the hearth first (the room is built round it): a lit firepit inside
+	var hearth := at(10, 0)
+	main.work._create(hearth, "firepit", GameMaterials.WORK_SPOT)   # the click-placed firepit does not land inside the strip's walls
+	await _settle()
+	var hp = main.blocks.at(hearth)
+	r["hearth_placed"] = hp is FirepitEntity
+	if hp is FirepitEntity:
+		hp.inv.set_slot(FirepitEntity.FUEL, {"id": "firewood", "count": 16})
+		r["hearth_lit"] = hp.ignite()
+	var hi := lo + Vector3i(7 * B, 4 * B, 6 * B)
+	_fill(lo, Vector3i(hi.x, lo.y + 4 * B, lo.z + B), GameMaterials.PLANKS)                 # walls, roof
+	_fill(Vector3i(lo.x, lo.y, hi.z - B), hi, GameMaterials.PLANKS)
+	_fill(lo, Vector3i(lo.x + B, hi.y, hi.z), GameMaterials.PLANKS)
+	_fill(Vector3i(hi.x - B, lo.y, lo.z), hi, GameMaterials.PLANKS)
+	_fill(Vector3i(lo.x, lo.y + 3 * B, lo.z), hi, GameMaterials.PLANKS)
+	var bed_a := at(6, -2)
+	main._place_furniture("bed", bed_a, 0)
+	var bed: FurnitureEntity = main.blocks.furniture_at(bed_a)
+	r["bed_bare"] = Comfort.of_bed(main, bed)
+	main._place_furniture("table", at(9, -2), 0)
+	main._place_furniture("chair", at(9, 1), 0)
+	main._place_furniture("lantern", at(8, 1), 0)
+	main._place_furniture("chair", at(8, -2), 0)
+	await tree.create_timer(0.5).timeout
+	var hint: Dictionary = main._describe_block(bed_a)
+	r["bed_hint"] = hint
+	r["warmth_heat"] = Comfort.of_bed(main, bed)["heat"]
+	r["bed_furnished"] = Comfort.of_bed(main, bed)
+	r["rested_before"] = main.survival.buffs.has("rested")
+	main.survival.rest_at(bed, false)
+	r["rested_after"] = main.survival.buffs.get("rested", {})
+	main.player.position = Vector3(bed_a) + Vector3(1.0, 1.2, 1.4) * B
+	await _shot("bedroom", Vector3(bed_a) + Vector3(1.0, 0.9, 2.0) * B, 1.0, {"title": "Bed", "icon": "bed", "line": hint["line"]})
+
+
 # ---------------- 3. New Stone Age ----------------
 
 func _polishing() -> void:
@@ -601,13 +686,17 @@ func _ember_and_fishing() -> void:
 	r["ember"] = inv.inv.count_of("fire_ember")
 	_stand(ground(4, -6), 0.5, 3.0)
 	_hold("fishing_rod")
-	var fish0 := inv.inv.count_of("raw_fish")
-	_use(Vector3(ground(5, -7)) + Vector3(2, B + 0.5, 2))
-	r["fish_cast_until"] = main.stone_age._fish_until
-	await _hours(1.3)
-	await tree.create_timer(0.3).timeout
-	await _collect()
-	r["fish_caught"] = inv.inv.count_of("raw_fish") - fish0
+	var caught0: int = main.fishing.stats["caught"].size()
+	main.fishing.auto = true   # ADR 0163: the bite and the reel play themselves
+	var eye: Vector3 = main.player.camera.global_position
+	main.stone_age.use(null, true, eye, (Vector3(ground(5, -7)) + Vector3(2, 2, 2) - eye).normalized())   # at the pond in front
+	r["fish_cast"] = main.fishing.snapshot()["state"]
+	var t := 0.0
+	while main.fishing.state != Fishing.State.IDLE and t < 90.0:
+		await tree.create_timer(0.5).timeout
+		t += 0.5
+	main.fishing.auto = false
+	r["fish_caught"] = main.fishing.stats["caught"].size() - caught0
 
 
 func _dugout() -> void:

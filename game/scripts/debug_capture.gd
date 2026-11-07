@@ -45,6 +45,8 @@ var farm_test := false   # farm_test=1: a sown 9x9 field of 0.5 m blocks around 
 var farm_speed := 1.0    # farm_speed=N: farmland and crop random ticks N times faster
 var swim_test := false  # swim_test=1: sink to a pool floor, lose air, drown, hop out onto the bank (JSON line "debug swim")
 var hands_test := false # hands_test=1: till, sow, chair, bed, feed, shear, kill, eat through the player's input code (JSON line "debug hands")
+var blueprint_test := ""   # blueprint_test=1: copy a hut with a furnace, rebuild it by a builder (ADR 0161); JSON "debug blueprint", sheet blueprint.png;
+                           # =save then =load (persist=1 seed=<unused>): a held written blueprint and a marked site survive a reload
 var building_test := false # building_test=1: place every ADR 0094 piece in a room, open the door, climb; JSON "debug building", sheet building.png
 var menu_test := false   # menu_test=1: title, worlds, Esc menu, settings, save and reload a world (ADR 0032, JSON line "debug menu_test")
 var _menu_test: MenuTest
@@ -68,6 +70,7 @@ var proc_probe := false   # proc_probe=1: each _process phase over 12 ms names i
 var mine_test := ""         # mine_test=collapse|propped|pick|laser|save|reload: dug roofs creak and fall or hold (ADR 0142, scripts/debug/mine_test.gd, "debug mine")
 var mine_rate := 4.0        # mine_rate=N: 0.5 m blocks a second in mine_test=pick
 var sand_test := false      # sand_test=1: a ball of sand dropped onto still ocean water must sink (scripts/debug/sand_test.gd, "debug sand")
+var toys_test := false      # toys_test=1: the glider, climbing rope and grappling hook, scripted and filmed (scripts/debug/toys_test.gd, "debug toys")
 var tp_test := false        # tp_test=1: a burst of teleports (hops, far jumps, /spawn, /goto, /kill), timed and filmed (scripts/debug/tp_test.gd, "debug tp")
 var fluid_film := false     # fluid_film=1: water scenes filmed as strips + bursts + sim slices (scripts/visuals/fluid_film.gd, ADR 0138)
 var liquids_test := false   # liquids_test=1: a pool of every liquid side by side, shot by day and night, and items dropped into lava (bug reports 2026-10-25, "debug liquids")
@@ -215,6 +218,7 @@ func _ready() -> void:
 	mob_spawning = args.get("mob_spawn", "1") == "1"
 	hands_test = args.get("hands_test", "0") == "1"
 	building_test = args.get("building_test", "0") == "1"
+	blueprint_test = String(args.get("blueprint_test", "0")).replace("0", "")
 	swim_test = args.get("swim_test", "0") == "1"
 	fell_test = args.get("fell_test", "")
 	chop_test = args.get("chop_test", "")
@@ -234,6 +238,7 @@ func _ready() -> void:
 	liquids_test = args.get("liquids_test", "0") == "1"
 	fluid_film = args.get("fluid_film", "0") == "1"
 	tp_test = args.get("tp_test", "0") == "1"
+	toys_test = args.get("toys_test", "0") == "1"
 	ponder_test = args.get("ponder_test", "0") == "1"
 	shell_test = args.get("shell_test", "0") == "1"
 	holes = args.get("holes", "0") == "1"

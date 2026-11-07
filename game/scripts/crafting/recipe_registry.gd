@@ -22,6 +22,7 @@ static func load_default(p_items: ItemRegistry) -> RecipeRegistry:
 	r.load_file("res://data/recipes.json")
 	r.load_file("res://data/stone_age_recipes.json")   # the four Stone Age stages (ADR 0059)
 	r.load_file("res://data/lv_recipes.json")   # more of the electrical age (ADR 0131)
+	r.load_file("res://data/fishing.json")   # filleting, snares and pit traps (ADR 0163)
 	return r
 
 
@@ -147,8 +148,8 @@ func _validate(r) -> bool:
 			if r["type"] == "stroke" and (int(r.get("strokes", 0)) <= 0 or not r.get("on", "") in StoneAge.SURFACES):
 				errors.append("stroke recipe %s needs strokes and on (%s)" % [r["id"], ", ".join(StoneAge.SURFACES)])
 				return false
-			if r["type"] == "rack" and not r.get("mode", "") in ["dry", "smoke"]:
-				errors.append("rack recipe %s: mode is dry or smoke" % r["id"])
+			if r["type"] == "rack" and not r.get("mode", "") in ["dry", "smoke", "evaporate"]:
+				errors.append("rack recipe %s: mode is dry, smoke or evaporate" % r["id"])
 				return false
 			for k in ["cover", "fuel", "tool", "grit"]:
 				if r.has(k) and String(r[k]) != "" and not _spec_exists(String(r[k])):

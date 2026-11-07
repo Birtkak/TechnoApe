@@ -23,14 +23,14 @@ const RECIPE_MARK := "recipe:"   # a bookmark of one recipe, not an item (ADR 00
 const CATALYSTS := {"crafting": ["crafting_table"], "smelting": ["furnace", "electric_furnace"], "knapping": ["flint"],
 	"clayforming": ["clay_ball"], "pit_kiln": ["dry_grass", "firestarter"], "scraping": ["flint_knife", "copper_knife"],
 	"charcoal_pit": ["firewood", "firestarter"], "smithing": ["stone_anvil", "bronze_anvil", "copper_hammer", "steam_hammer", "forge"],
-	"rack": ["drying_rack"],
+	"rack": ["drying_rack", "smokehouse", "salt_pan"],
 	"station:sieve": ["sieve", "steam_sieve"]}
 ## Vintage Story work types (ADR 0023) -> browser category and title.
 const WORK_CATEGORIES := {"knap": ["knapping", "Knapping"], "clayform": ["clayforming", "Clay forming"],
 	"kiln": ["pit_kiln", "Pit kiln"], "cast": ["casting", "Casting"], "scrape": ["scraping", "Scraping hides"],
 	"dry": ["drying", "Drying"], "charcoal_pit": ["charcoal_pit", "Charcoal pit"],
 	"assemble": ["assembly", "Assembly on the ground"], "smith": ["smithing", "Smithing"],
-	"bury": ["earth_oven", "Earth oven"], "rack": ["rack", "Drying rack"], "stroke": ["stroke", "Grinding, sewing, weaving"],
+	"bury": ["earth_oven", "Earth oven"], "rack": ["rack", "Drying rack, smokehouse, salt pan"], "stroke": ["stroke", "Grinding, sewing, weaving"],
 	"soak": ["soak", "Laid in water"], "trap": ["trap", "Traps"]}
 
 var items: ItemRegistry

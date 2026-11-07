@@ -16,6 +16,11 @@ extends Node3D
 ##   particles that a heightfield collision stops on roofs and canopies, a rain loop, a wet coat.
 ## GDScript only orchestrates: a few hundred sampled cells and drops a second (principle 8).
 ## Flint and steel lights fires through ignite().
+## Storms (ADR 0149): a shower in a wet column may be a storm; then every lightning_every_s or so a strike,
+## half of them distant (a dim flash and far thunder: the warning), the rest on the highest surface voxel
+## around the player (SimWorld.surface_map every 0.75 m: a tree top, a tower, a roof): a flash, thunder delayed by distance, flames in
+## the air there and the hit voxel alight if it burns, damage to a player standing at the spot. A lightning
+## rod (LightningRodEntity) within lightning_rod_m of the aim draws the strike to its tip and grounds it.
 
 signal changed(kind: String)
 
@@ -23,7 +28,7 @@ const FIRE := 12    # GameMaterials "fire" (flames)
 const SMOKE := 11
 
 var main: Node
-var kind := "clear"          # "clear", "rain" (snow when the air is below 0 C)
+var kind := "clear"          # "clear", "rain" (snow when the air is below 0 C), "storm" (rain with lightning)
 var intensity := 0.0         # shown: eases toward target
 var target := 0.0
 var _until := 0.0            # play seconds when the current shower ends (0: open-ended, the fire rain)
@@ -33,6 +38,7 @@ var _scan_t := 0.0
 var _drop_t := 0.0
 var _rng := RandomNumberGenerator.new()
 var _mask := PackedByteArray()
+var _strike_t := 0.0
 var _air_like := PackedInt32Array()   # what a rain drop may replace besides air
 var _fires: Array[Vector3i] = []   # recent fire sample positions (newest last): burning cells and flames, smoke moved down
 var _fire_seen := -1e9             # _clock when fire was last seen
@@ -47,7 +53,7 @@ var _wet_t := 0.0
 var _hits := 0               # fire cells the last scan found
 var _history: Array = []     # [s, fire cells found, intensity] every 5 s (scripted checks read it in the JSON)
 var _warm_t := 1.5           # both particle systems emit a trace under the loading screen: their pipelines compile there
-var stats := {"fires_seen": 0, "fire_rains": 0, "showers": 0, "drops": 0, "scan_ms_max": 0.0, "drop_ms_max": 0.0, "ignited": 0}
+var stats := {"fires_seen": 0, "fire_rains": 0, "showers": 0, "drops": 0, "scan_ms_max": 0.0, "drop_ms_max": 0.0, "ignited": 0, "strikes": 0, "far_strikes": 0, "grounded": 0, "last_strike": []}
 
 
 func setup(p_main: Node) -> void:
@@ -133,13 +139,14 @@ func set_weather(k: String, seconds: float) -> bool:
 			_stop()
 			return true
 		"rain", "snow", "storm":
-			_start(seconds if seconds > 0.0 else Settings.weather_rain_s, false)
+			_start(seconds if seconds > 0.0 else Settings.weather_rain_s, false, k == "storm")
 			return true
 	return false
 
 
-func _start(seconds: float, for_fire: bool) -> void:
-	kind = "rain"
+func _start(seconds: float, for_fire: bool, storm := false) -> void:
+	kind = "storm" if storm else "rain"
+	_strike_t = 3.0
 	target = 1.0
 	_fire_rain = for_fire
 	_until = 0.0 if for_fire else _clock + seconds
@@ -157,7 +164,7 @@ func _stop() -> void:
 
 
 func is_raining() -> bool:
-	return kind == "rain"
+	return kind != "clear"
 
 
 ## The fire rain timer in seconds, or -1.
@@ -228,6 +235,14 @@ func _process_timed(delta: float) -> void:
 		_drop_t -= delta
 		if _drop_t <= 0.0 and intensity > 0.5 and _douse():
 			_drop_t = 0.25
+		if kind == "storm" and intensity > 0.5:
+			_strike_t -= delta
+			if _strike_t <= 0.0:
+				_strike_t = Settings.lightning_every_s * _rng.randf_range(0.4, 1.6)
+				if _rng.randf() < 0.5:
+					_far_strike()
+				else:
+					strike()
 	else:
 		_roll_t -= delta
 		if _roll_t <= 0.0:
@@ -244,8 +259,95 @@ func _roll() -> void:
 	if gen:
 		var p: Vector3 = main.player.position
 		hum = clampf(float(gen.column_info(int(p.x), int(p.z)).get("humidity", 0.5)), 0.0, 1.0)
-	if _rng.randf() < lerpf(Settings.weather_rain_chance_dry, Settings.weather_rain_chance_wet, hum):
-		_start(Settings.weather_rain_s * _rng.randf_range(0.6, 1.4), false)
+	# ADR 0156: the season moves the odds: a dry summer of rare showers, most of them thunderstorms
+	var s: int = main.atmosphere.calendar.season() if main.atmosphere else 1
+	if _rng.randf() < lerpf(Settings.weather_rain_chance_dry, Settings.weather_rain_chance_wet, hum) * float(Settings.season_rain_mult[s]):
+		_start(Settings.weather_rain_s * _rng.randf_range(0.6, 1.4), false, hum > 0.4 and _rng.randf() < Settings.storm_chance * float(Settings.season_storm_mult[s]))
+
+
+# ---------------- lightning (ADR 0149) ----------------
+
+## A strike somewhere far off: the sky flickers and thunder rolls in a few seconds later. The warning.
+func _far_strike() -> void:
+	stats["far_strikes"] += 1
+	if main.atmosphere:
+		main.atmosphere.flash = 0.35
+	get_tree().create_timer(_rng.randf_range(2.0, 6.0)).timeout.connect(Sound.play.bind("weather/thunder_far"))
+
+
+## The strike's target from a surface map (SimWorld.surface_map: per column material | depth << 8 | y << 16, 0 where
+## nothing was found; columns from min_xz in world voxels, `step` apart): the highest surface voxel; a rod tip within
+## rod_r voxels (flat distance) of that spot takes it instead. {pos, rod}; pos.y < 0 when the map was empty.
+static func pick_target(map: PackedInt32Array, min_xz: Vector2i, cols: int, step: int, rod_tips: Array, rod_r: float) -> Dictionary:
+	var best := Vector3i(0, -1, 0)
+	for i in map.size():
+		var e := map[i]
+		if e != 0 and (e >> 16) > best.y:
+			best = Vector3i(min_xz.x + (i % cols) * step, e >> 16, min_xz.y + (i / cols) * step)
+	if best.y < 0:
+		return {"pos": best, "rod": false}
+	var rod := false
+	var rod_d := rod_r * rod_r
+	for t in rod_tips:
+		var d := Vector2(t.x - best.x, t.z - best.z).length_squared()
+		if d <= rod_d:
+			rod_d = d
+			best = t
+			rod = true
+	return {"pos": best, "rod": rod}
+
+
+func rod_tips() -> Array:
+	var out := []
+	if main.get("blocks") != null:
+		for e in main.blocks.all_of("lightning_rod"):
+			out.append(e.tip())
+	return out
+
+
+## Lightning at `at` (/lightning here), or on the highest exposed voxel sampled around the player. Returns where
+## it hit (y < 0: nothing to hit, the sim was busy).
+func strike(at := Vector3i(0, -1, 0)) -> Vector3i:
+	var bubble: SimBubble = main.bubble
+	if bubble == null or not bubble.can_sample():
+		return Vector3i(0, -1, 0)
+	var t := {"pos": at, "rod": false}
+	if at.y < 0:
+		var t0 := Time.get_ticks_usec()
+		var step := int(Settings.m2v(0.75))   # 64 x 64 columns at 24 m: ~4 ms native (0.5 m cost 12.8 ms, 2026-11-07)
+		var r := int(Settings.m2v(Settings.lightning_target_m))
+		var o: Vector3i = bubble.origin * Settings.CHUNK
+		var size: Vector3i = bubble.sim.get_size_voxels()
+		var c := Vector3i(main.player.position.floor()) - o
+		var lo := Vector2i(clampi(c.x - r, 0, size.x - 1), clampi(c.z - r, 0, size.z - 1))
+		var hi := Vector2i(clampi(c.x + r, 0, size.x - 1), clampi(c.z + r, 0, size.z - 1))
+		var cols := Vector2i((hi.x - lo.x) / step + 1, (hi.y - lo.y) / step + 1)
+		var map: PackedInt32Array = bubble.sim.surface_map(lo, cols, step, o.y)
+		t = pick_target(map, Vector2i(lo.x + o.x, lo.y + o.z), cols.x, step, rod_tips(), Settings.m2v(Settings.lightning_rod_m))
+		stats["scan_ms_max"] = maxf(stats["scan_ms_max"], (Time.get_ticks_usec() - t0) / 1000.0)
+		if t["pos"].y < 0:
+			return t["pos"]
+	var p: Vector3i = t["pos"]
+	var pf := Vector3(p) + Vector3(0.5, 1.0, 0.5)
+	stats["strikes"] += 1
+	stats["last_strike"] = [p.x, p.y, p.z, t["rod"]]
+	if main.atmosphere:
+		main.atmosphere.flash = 1.0
+	Sound.play("weather/strike", pf)
+	var dist_m := Settings.v2m(main.player.position.distance_to(pf))
+	get_tree().create_timer(0.3 + dist_m / 340.0).timeout.connect(Sound.play.bind("weather/thunder", pf))
+	if t["rod"]:
+		stats["grounded"] += 1
+		return p
+	# fire: flames in the air over the spot (they catch on what burns beside them); the hit voxel itself alight
+	bubble.blast(pf, Settings.m2v(Settings.lightning_fire_m), FIRE, PackedInt32Array([GameMaterials.AIR]))
+	var here := bubble.get_voxel(p)
+	if here > 0 and GameMaterials.defs()[here - 1].get("burnable", false):
+		bubble.set_voxel(p, FIRE)
+	fire_started(Vector3(p))
+	if main.player.position.distance_to(pf) <= Settings.m2v(Settings.lightning_hurt_m):
+		main.player_inv.damage(Settings.lightning_damage, "lightning")
+	return p
 
 
 ## Samples flames, smoke and burning cells around the player.

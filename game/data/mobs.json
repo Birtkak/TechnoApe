@@ -471,6 +471,18 @@
         "player_sight_m": 16,
         "pack": true
       },
+      "companion": {
+        "near_m": 3.0,
+        "far_m": 6.0,
+        "walk_m": 3.2,
+        "run_m": 5.4,
+        "sprint_m": 7.6,
+        "teleport_m": 22.0,
+        "defend_m": 10.0,
+        "warn_m": 24.0,
+        "heal_s": 25.0,
+        "meat_heal": 6
+      },
       "drops": [
         {
           "id": "fur",

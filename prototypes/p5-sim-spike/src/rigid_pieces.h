@@ -110,6 +110,10 @@ public:
     // piece cell along a ray: {id, position, distance} or {}.
     void queue_carve(Vector3 p_center, float p_radius);
     Dictionary raycast(Vector3 p_from, Vector3 p_dir, float p_max) const;
+    // ADR 0160: contraptions. Call between ticks (the driver thread idle), like collect().
+    Dictionary lift(Vector3i p_seed, Vector3i p_lo, Vector3i p_hi, int p_max_cells, bool p_wood_only);
+    bool drive(int p_id, const Transform3D &p_local_to_world);
+    bool release(int p_id, bool p_settle);
 
     // ADR 0142 (mines need shoring), rigid_support.cpp: the support rule for roofs the player dug.
     // spans: per material id, < 0 open, 0 solid that holds but never fails, > 0 the farthest a roof cell of it
@@ -162,6 +166,9 @@ private:
         int still = 0;
         float age = 0.0f;
         int wood = 0, leaves = 0;
+        bool driven = false;              // ADR 0160: a contraption part; script sets its pose, no physics
+        Vector3 drive_pos;                // the pose for the next step: com in the world
+        Quaternion drive_rot;
     };
 
     struct Contact {

@@ -245,6 +245,8 @@ func edge_color() -> Color:
 		return Color(0.85, 0.05, 0.05, 0.6 * _hurt_t / HURT_S)
 	if survival == null or not _hearts.visible:
 		return Color(1, 1, 1, 0)
+	if survival.smoke_s >= Settings.smoke_cough_after_s:   # ADR 0155: coughing in smoke greys the edge, darker toward the hurt
+		return Color(0.86, 0.82, 0.74, 0.45 + 0.4 * clampf(survival.smoke_s / Settings.smoke_hurt_after_s, 0.0, 1.0))   # pale: it shows in a dark room
 	var cold := clampf((Settings.cold_c - survival.body_c) / (Settings.cold_c - Settings.freeze_c), 0.0, 1.0)
 	if cold > 0.0:
 		return Color(0.6, 0.85, 1.0, 0.15 + 0.4 * cold)
@@ -446,6 +448,8 @@ func _process(delta: float) -> void:
 		if _shown_poison:
 			tox = maxf(tox, 0.8)
 		var tint := Color(1.0, 0.45, 0.1, 0.16 * burn) if burn > 0.0 else Color(0.4, 0.9, 0.15, 0.10 * tox)
+		if burn <= 0.0 and tox <= 0.0 and survival != null and survival.smoke_s >= Settings.smoke_cough_after_s:
+			tint = Color(0.8, 0.77, 0.7, 0.18)   # ADR 0155: a smoky haze over everything
 		_screen_tint.color = tint
 
 

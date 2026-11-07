@@ -128,6 +128,8 @@ void SimWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("sample_cells", "center", "radius", "count", "seed", "mask"), &SimWorld::sample_cells);
     ClassDB::bind_method(D_METHOD("layer_histogram", "material"), &SimWorld::layer_histogram);
     ClassDB::bind_method(D_METHOD("surface_map", "min_xz", "count", "step", "y_base"), &SimWorld::surface_map);
+    ClassDB::bind_method(D_METHOD("season_pass", "chunk_xz", "flags", "ids", "lies_on", "seed"), &SimWorld::season_pass);
+    ClassDB::bind_method(D_METHOD("set_dryness", "mult"), &SimWorld::set_dryness);
     ClassDB::bind_method(D_METHOD("material_histogram"), &SimWorld::material_histogram);
     ClassDB::bind_method(D_METHOD("chunk_info", "chunk"), &SimWorld::chunk_info);
     ClassDB::bind_method(D_METHOD("get_stats"), &SimWorld::get_stats);
@@ -268,6 +270,11 @@ void SimWorld::set_materials(const Array &p_defs) {
             double ic = d.has("ignite_chance") ? dget_f(d, "ignite_chance", 0.125)
                                                : std::clamp(10.0 / std::max(1, (int)m.fire_hp), 0.125, 1.0);
             m.ignite_chance = (uint16_t)std::clamp((int)std::lround(ic * 65535.0), 0, 65535);
+        }
+        {
+            const double ft = std::clamp(dget_f(d, "fuse_ticks", 0.0), 0.0, 250.0);
+            m.fuse_ticks = ft > 0.0 ? (uint8_t)std::max(1.0, std::floor(ft)) : 0;
+            m.fuse_frac = (uint16_t)std::clamp((int)std::lround((ft - std::floor(ft)) * 65535.0), 0, 65535);
         }
         // Static ground shaken loose by nearby changes (Noita): unsupported cells fall, static water
         // flows once it has an opening, natural sand/gravel (they have a "loose" kind) erode into
@@ -1606,9 +1613,33 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
     const MaterialDef &m = mats_[self];
     uint32_t r = rnd(c);
     tally(TALLY_BURN, x, y, z, c);
+    // A fuse (ADR 0150) lights every face or edge neighbour of its own kind after burning fuse_ticks ticks (one more
+    // fuse_frac of the time), so a cord burns at a steady tick_hz / (fuse_ticks + fuse_frac) voxels a second, climbs
+    // steps, turns diagonals and burns on under water (a safety fuse). A cell lit this tick waits for the next one.
+    if (m.fuse_ticks) {
+        if (moved_[i] == mark_) { mark_cell(x, y, z, c, false); return; }
+        const int burnt = (int)m.fire_hp - (int)cells_[i].aux + 1;   // counting this tick
+        if (burnt == m.fuse_ticks || burnt == m.fuse_ticks + 1) {
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (std::abs(dx) + std::abs(dy) + std::abs(dz) > 2 || (dx | dy | dz) == 0) continue;   // faces and edges
+                        const int nx = x + dx, ny = y + dy, nz = z + dz;
+                        if (!is_open(nx, ny, nz)) continue;
+                        const int ni = idx(nx, ny, nz);
+                        if (cells_[ni].mat != self || (cells_[ni].flags & FLAG_BURNING)) continue;
+                        if (burnt == m.fuse_ticks && (rnd(c) & 0xFFFF) < m.fuse_frac) continue;   // waits one more tick
+                        cells_[ni].flags |= FLAG_BURNING;
+                        cells_[ni].aux = m.fire_hp;
+                        moved_[ni] = mark_;
+                        mark_cell(nx, ny, nz, c, true);
+                        c.reacted++;
+                    }
+        }
+    }
     if (m.explosive) tally(TALLY_GAS_BURN, x, y, z, c);
     // Extinguish if touching a cool liquid that is not burnable (water); lava lights things, it does not douse them.
-    for (int n = 0; n < 6; n++) {
+    for (int n = 0; n < 6 && !m.fuse_ticks; n++) {
         int nx = x + NX6[n], ny = y + NY6[n], nz = z + NZ6[n];
         if (!in_world(nx, ny, nz)) continue;
         const MaterialDef &t = mats_[cells_[idx(nx, ny, nz)].mat];
@@ -1624,8 +1655,8 @@ void SimWorld::update_burning(int x, int y, int z, int i, Ctx &c) {
     if (is_open(nx, ny, nz)) {
         int ni = idx(nx, ny, nz);
         const MaterialDef &t = mats_[cells_[ni].mat];
-        if (t.burnable && !(cells_[ni].flags & FLAG_BURNING) && m.temperature_of_fire >= t.autoignition_temperature
-                && (rnd(c) & 0xFFFF) < t.ignite_chance) {
+        if (!m.fuse_ticks && t.burnable && !(cells_[ni].flags & FLAG_BURNING) && m.temperature_of_fire >= t.autoignition_temperature
+                && (rnd(c) & 0xFFFF) * 256u < (uint32_t)t.ignite_chance * dry_mul_) {
             cells_[ni].flags |= FLAG_BURNING;
             cells_[ni].aux = t.fire_hp;
             mark_cell(nx, ny, nz, c, true);
@@ -2518,6 +2549,56 @@ PackedInt32Array SimWorld::surface_map(Vector2i p_min_xz, Vector2i p_count, int 
             w[cx + p_count.x * cz] = e;
         }
     return out;
+}
+
+// ADR 0156: the season over one chunk column (16 x 16 voxel columns) of the bubble: the top cell of each column, top
+// down past unloaded chunks as surface_map does. Flags: 1 snow (a snow layer on a top in lies_on, with the chance in
+// bits 8..15 per column; bit 16 waits for a running tick), 2 freeze (still water under open air -> lake ice), 4 thaw (snow layer -> air, lake ice -> still
+// water). ids = [snow_layer, lake_ice, water_static]. Static cells only: marked dirty for the paste, nothing woken, so a
+// winter never wakes the bubble. -1 while a tick runs (never waits), else the cells changed.
+int SimWorld::season_pass(Vector2i p_chunk_xz, int p_flags, PackedInt32Array p_ids, PackedByteArray p_lies_on, int p_seed) {
+    if (p_ids.size() < 3 || p_lies_on.size() < 256) return -1;
+    if (p_flags & 0x10000) wait_idle();   // bit 16: wait for a running tick (/season now)
+    else if (busy_.load()) return -1;
+    const int x0 = p_chunk_xz.x * CS, z0 = p_chunk_xz.y * CS;
+    if (x0 < 0 || z0 < 0 || x0 >= W_ || z0 >= D_) return 0;
+    const uint8_t snow = (uint8_t)p_ids[0], ice = (uint8_t)p_ids[1], still = (uint8_t)p_ids[2];
+    const uint32_t chance = (uint32_t)(p_flags >> 8) & 255u;
+    const uint8_t *lies = p_lies_on.ptr();
+    int changed = 0;
+    auto set = [&](int x, int y, int z, uint8_t m) {
+        place(idx(x, y, z), m);
+        const int ci = cidx(x / CS, y / CS, z / CS);
+        dirty_[ci].store(1, std::memory_order_relaxed);
+        merge_dbox(ci, box_point(x & (CS - 1), y & (CS - 1), z & (CS - 1)));
+        changed++;
+    };
+    for (int z = z0; z < std::min(D_, z0 + CS); z++)
+        for (int x = x0; x < std::min(W_, x0 + CS); x++) {
+            for (int y = H_ - 1; y >= 0; y--) {
+                if ((y & (CS - 1)) == CS - 1 && loaded_[cidx(x >> 4, y >> 4, z >> 4)] != 1) { y -= CS - 1; continue; }
+                const uint8_t m = cells_[idx(x, y, z)].mat;
+                const uint8_t ct = mats_[m].cell_type;
+                if (m == 0 || ct == CELL_GAS || ct == CELL_FIRE) continue;
+                if ((p_flags & 4) && m == snow) set(x, y, z, 0);
+                else if ((p_flags & 4) && m == ice) set(x, y, z, still);
+                else if (y + 1 < H_ && cells_[idx(x, y + 1, z)].mat == 0 && loaded_[cidx(x >> 4, (y + 1) >> 4, z >> 4)] == 1) {
+                    if ((p_flags & 2) && m == still) set(x, y, z, ice);
+                    else if ((p_flags & 1) && lies[m] && !(cells_[idx(x, y, z)].flags & FLAG_BURNING)) {
+                        uint32_t h = (uint32_t)x * 73856093u ^ (uint32_t)z * 19349663u ^ (uint32_t)p_seed * 83492791u;
+                        h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+                        if (chance >= 255u || (h & 255u) < chance) set(x, y + 1, z, snow);
+                    }
+                }
+                break;
+            }
+        }
+    return changed;
+}
+
+// ADR 0156: drought: a burning cell lights a neighbour with ignite_chance x mult (1 = the data's chance).
+void SimWorld::set_dryness(float p_mult) {
+    dry_mul_ = (uint32_t)std::clamp((int)std::lround(p_mult * 256.0), 0, 1024);
 }
 
 PackedInt32Array SimWorld::layer_histogram(int p_material) const {

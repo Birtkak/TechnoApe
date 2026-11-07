@@ -98,12 +98,30 @@ var _lay_t := 0.0               # chickens: seconds to the next egg
 var _burn_t := 0.0              # seconds still alight after touching lava or fire
 var _burn_hurt_t := 0.0
 var _foul_next_ms := 0          # ADR 0141: the next hurt from fouled water
+var trap_at := Vector3.INF      # ADR 0163: held by a snare or down a pit trap here (x, z pinned), INF when free
+var foul_s := 0.0               # ADR 0155: a swimmer's time in fouled water (gasps at Settings.fish_gasp_s, dies at fish_foul_die_s)
 const FOUL_HURT_EVERY_MS := 2000
 var _every := 1                 # step every n-th physics frame (distance to the player, set by the brain)
 var _skipped := 0.0             # seconds since the last step
 var _anim_still := false        # the model already shows the standing pose
 const NEAR_M := 16.0
 const FAR_M := 40.0
+const SIT_PITCH := -0.6         # a sitting companion tips back on its haunches (rad)
+const GRUDGE_S := 8.0           # a hostile bitten by a companion turns on it this long (ADR 0152)
+
+## Companion (ADR 0152, a tamed wolf): who it belongs to ("" = wild; "player" = the local player, a
+## remote player's name later), sit/stay, and the fight it is in. Per-companion timers live here too.
+var owner_id := ""
+var sitting := false
+var pet_name := ""              # the name tag over a companion ("" = the species name)
+var _tag: Label3D
+var _foe: Mob = null
+var _grudge: Mob = null         # hostiles: a companion that bit it, fought back against
+var _grudge_t := 0.0
+var _heal_t := 0.0
+var _warn_t := 0.0
+var _far_t := 0.0               # seconds left behind (stuck) beyond far range
+var _warned := {}               # threat uid -> game_time of the last growl
 
 
 static func create(p_manager: MobManager, p_species: String, p_def: Dictionary, baby: bool) -> Mob:
@@ -125,6 +143,7 @@ func _ready() -> void:
 	model = MobModel.create(species, sheared)
 	add_child(model)
 	_apply_size()
+	_update_tag()
 	_last_pos = position
 	_fall_peak = position.y
 	if def.has("predator"):
@@ -135,6 +154,71 @@ func _ready() -> void:
 			aggressive = float(hash([uid, species]) % 1000) / 1000.0 < float(pr.get("aggressive_chance", 0.0))
 	if def.has("lays"):
 		_lay_t = _lay_interval()
+
+
+## Tamed (ADR 0152): never flees from or attacks `owner`, follows, defends, warns. Persists as `owner_id`.
+func set_companion(owner: Node3D) -> void:
+	owner_id = manager.owner_id_of(owner)
+	manager.register_owner(owner_id, owner)
+	aggressive = false
+	set_meta("rolled", true)
+	set_meta("tamed_by", owner_id)
+	_provoked_t = 0.0
+	_prey = null
+	_eat_t = 0.0
+	sitting = false
+	manager.dirty = true
+	_update_tag()
+
+
+## The name over a companion's head (a Label3D child; renamed by /name).
+func set_pet_name(n: String) -> void:
+	pet_name = n.strip_edges().left(24)
+	manager.dirty = true
+	_update_tag()
+
+
+func display_name() -> String:
+	return pet_name if pet_name != "" else String(def.get("name", species))
+
+
+func _update_tag() -> void:
+	if owner_id == "":
+		return
+	if _tag == null:
+		_tag = Label3D.new()
+		_tag.font_size = 48
+		_tag.pixel_size = 0.03
+		_tag.outline_size = 12
+		_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_tag.no_depth_test = true
+		_tag.position = Vector3(0, _height_v + Settings.m2v(0.45), 0)
+		add_child(_tag)
+	_tag.text = display_name()
+
+
+func is_companion() -> bool:
+	return owner_id != ""
+
+
+## Empty hand on a companion: sit/stay or follow again. Returns the new sitting state.
+func toggle_sit() -> bool:
+	sitting = not sitting
+	_stop()
+	manager.dirty = true
+	Sound.play("mob/wolf_bark" if sitting else "mob/wolf", eye(), {"db": -6.0})
+	return sitting
+
+
+## Raw or cooked meat from the owner: heals it (hearts burst). True when it ate (hurt only).
+func eat_meat() -> bool:
+	var max_h := int(def.get("health", health))
+	if health >= max_h:
+		return false
+	health = mini(max_h, health + int(def.get("companion", {}).get("meat_heal", 6)))
+	manager.dirty = true
+	manager.heart_at(eye())
+	return true
 
 
 func is_baby() -> bool:
@@ -173,10 +257,18 @@ func eye() -> Vector3:
 func _touch_heat() -> void:
 	if is_dead():
 		return
+	var fouled := false
 	for f in [0.05, 0.4, 0.8]:
 		var m := GameMaterials.material_of_voxel(manager.get_voxel(Vector3i((position + Vector3(0, _height_v * f, 0)).floor())))
+		fouled = fouled or m == GameMaterials.FOULED_WATER
 		if m == GameMaterials.FOULED_WATER and Time.get_ticks_msec() >= _foul_next_ms:   # ADR 0141: it sickens what swims or wades in it
 			_foul_next_ms = Time.get_ticks_msec() + FOUL_HURT_EVERY_MS
+			if WildMoves.moves(self) == "swim":   # ADR 0155: a fish sickens slowly, gasps at the surface (the sign), then dies
+				foul_s += FOUL_HURT_EVERY_MS / 1000.0
+				if foul_s >= Settings.fish_foul_die_s:
+					_die_fouled()
+					return
+				continue
 			_invuln_t = 0.0
 			hurt(1, position + Vector3(_rng.randf_range(-1, 1), 0, _rng.randf_range(-1, 1)))
 		if m == GameMaterials.LAVA or m == GameMaterials.LAVA_STATIC or m == GameMaterials.FIRE:
@@ -186,6 +278,19 @@ func _touch_heat() -> void:
 			return
 	if in_liquid:
 		_burn_t = 0.0
+		if not fouled and foul_s > 0.0:
+			foul_s = maxf(0.0, foul_s - THINK_S)   # clean water: it recovers
+
+
+## ADR 0155: killed by fouled water: it floats up belly-up and lies there Settings.fish_float_s before it goes.
+func _die_fouled() -> void:
+	set_meta("fouled", true)
+	health = 0
+	dying = 0.001
+	goal = "dying"
+	_stop()
+	velocity = Vector3.ZERO
+	manager.stats["fouled"] = int(manager.stats.get("fouled", 0)) + 1
 
 
 func _burn_step(delta: float) -> void:
@@ -221,7 +326,7 @@ func hurt(amount: int, from: Vector3) -> bool:
 	if heavy:
 		# predators turn on whoever hurt them instead of running (the player: chase for 30 s)
 		var eye_p: Vector3 = manager.player_eye()
-		if eye_p != Vector3.INF and from.distance_to(eye_p) < Settings.m2v(6.0):
+		if owner_id == "" and eye_p != Vector3.INF and from.distance_to(eye_p) < Settings.m2v(6.0):   # a companion never turns on its owner
 			_provoked_t = 30.0
 	else:
 		_panic_t = PANIC_S
@@ -303,6 +408,14 @@ func _physics_process(delta: float) -> void:
 
 
 func _step(delta: float) -> void:
+	if dying > 0.0 and has_meta("fouled"):   # ADR 0155: belly-up (2 = a half turn), drifting up to the surface
+		dying += delta / Settings.fish_float_s
+		model.animate(delta, 0.0, 0.0, 0.0, 0.0, minf(dying * 15.0, 2.0))
+		if manager.is_liquid(Vector3i((position + Vector3(0, _height_v, 0)).floor())):
+			position.y += Settings.m2v(0.4) * delta
+		if dying >= 1.0:
+			manager.on_died(self)
+		return
 	if dying > 0.0:
 		dying += delta / DEATH_S
 		model.animate(delta, 0.0, 0.0, 0.0, 0.0, minf(dying, 1.0))
@@ -312,6 +425,9 @@ func _step(delta: float) -> void:
 		return
 	if not world.is_area_loaded(Vector3i((position / Settings.CHUNK).floor())):
 		return   # never fall into terrain that has not streamed in
+	if trap_at != Vector3.INF:
+		_trapped_step(delta)
+		return
 	_timers(delta)
 	_think_t -= delta
 	var t0 := Time.get_ticks_usec()
@@ -326,6 +442,22 @@ func _step(delta: float) -> void:
 	manager.part_us[0] += t1 - t0
 	manager.part_us[1] += t2 - t1
 	manager.part_us[2] += t3 - t2
+
+
+## Held by a trap (ADR 0163): no brain, it scrabbles where it is held (gravity still lands it in a pit).
+func _trapped_step(delta: float) -> void:
+	_invuln_t = maxf(0.0, _invuln_t - delta)
+	_hurt_t = maxf(0.0, _hurt_t - delta)
+	_stop()
+	goal = "trapped"
+	position.x = trap_at.x
+	position.z = trap_at.z
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_move(delta)
+	_yaw += sin(Time.get_ticks_msec() * 0.009 + uid) * 3.0 * delta
+	rotation.y = _yaw
+	model.animate(delta, Settings.m2v(1.6), 0.0, sin(Time.get_ticks_msec() * 0.013 + uid) * 0.7, 0.3, 0.0)
 
 
 func _timers(delta: float) -> void:
@@ -351,6 +483,12 @@ func _timers(delta: float) -> void:
 		if _graze_t <= 0.0:
 			_finish_graze()
 	_attack_cd = maxf(0.0, _attack_cd - delta)
+	_grudge_t = maxf(0.0, _grudge_t - delta)
+	if owner_id != "" and health < int(def.get("health", health)):
+		_heal_t -= delta   # slow healing; meat heals fast (eat_meat)
+		if _heal_t <= 0.0:
+			_heal_t = float(def.get("companion", {}).get("heal_s", 25.0))
+			health += 1
 	_provoked_t = maxf(0.0, _provoked_t - delta)
 	_burn_step(delta)
 	if _eat_t > 0.0:
@@ -386,12 +524,15 @@ func _think() -> void:
 		var to := _target - position
 		to.y = 0
 		_ahead_dir = _slide_dir if _slide_t > 0.0 else to.normalized()
-		_ahead_ok = manager.safe_ahead(self, _ahead_dir, _panic_t > 0.0)
+		_ahead_ok = manager.safe_ahead(self, _ahead_dir, _panic_t > 0.0 or owner_id != "")
 	else:
 		_ahead_ok = true
 
 
 func _think_goal() -> void:
+	if owner_id != "":
+		_companion_goal()
+		return
 	if def.has("predator") and _predator_goal():
 		return
 	if WildMoves.think(self):   # flee, swim, fly, paddle (ADR 0058)
@@ -492,6 +633,16 @@ func _predator_goal() -> bool:
 		goal = "eat"
 		_stop()
 		return true
+	if _grudge_t > 0.0 and is_instance_valid(_grudge) and not _grudge.is_dead() and _grudge.position.distance_to(position) < Settings.m2v(12.0):
+		goal = "attack"   # a companion bit it: fight back
+		if position.distance_to(_grudge.position) < reach + _grudge._half_v:
+			_stop()
+			if _attack_cd <= 0.0:
+				_attack_cd = float(pr.get("attack_s", 1.2))
+				manager.attack(_grudge, int(pr.get("attack", 6)), position)
+		else:
+			_go(_grudge.position, run, 0.5 * Settings.BLOCK)
+		return true
 	if (aggressive or _provoked_t > 0.0) and manager.player_attackable():
 		var pp: Vector3 = manager.player_feet()
 		var d := pp.distance_to(position)
@@ -533,6 +684,65 @@ func _predator_goal() -> bool:
 			_go(_prey.position, run, 0.5 * Settings.BLOCK)
 		return true
 	return false
+
+
+## ADR 0152. Owner gone (remote player not here): wait. Sitting: stay and watch the owner. Else, in order:
+## teleport when left far behind or stuck, growl at a threat in sight, fight the owner's foe or a close
+## threat, follow, and watch the owner when close.
+func _companion_goal() -> void:
+	var cd: Dictionary = def.get("companion", {})
+	var o: Node3D = manager.owner_node(owner_id)
+	if o == null or sitting:
+		goal = "sit" if sitting else "wait"
+		_stop()
+		_foe = null
+		if o != null:
+			_look = o.position + Vector3(0, Settings.m2v(1.5), 0)
+			_look_t = 0.5
+		return
+	var op := o.position
+	var d := position.distance_to(op)
+	_far_t = _far_t + THINK_S if d > Settings.m2v(float(cd.get("far_m", 6.0)) * 1.5) else 0.0
+	if d > Settings.m2v(float(cd.get("teleport_m", 22.0))) or _far_t > 6.0:
+		_far_t = 0.0
+		manager.teleport_companion(self, o)
+		return
+	_warn_t -= THINK_S
+	if _warn_t <= 0.0:
+		_warn_t = 0.5
+		manager.companion_warn(self, Settings.m2v(float(cd.get("warn_m", 24.0))))
+	if _foe == null or not is_instance_valid(_foe) or _foe.is_dead() or _foe.position.distance_to(op) > Settings.m2v(float(cd.get("defend_m", 10.0)) * 2.0):
+		_foe = manager.companion_foe(self, op, Settings.m2v(float(cd.get("defend_m", 10.0))))
+	if _foe != null:
+		goal = "defend"
+		var pr: Dictionary = def.get("predator", {})
+		var reach := Settings.m2v(float(pr.get("reach_m", 1.0))) + _half_v + _foe._half_v
+		_look = _foe.eye()
+		_look_t = 0.5
+		if position.distance_to(_foe.position) < reach:
+			_stop()
+			if _attack_cd <= 0.0:
+				_attack_cd = float(pr.get("attack_s", 0.9))
+				_foe._grudge = self
+				_foe._grudge_t = GRUDGE_S
+				manager.attack(_foe, int(pr.get("attack", 4)), position)
+		else:
+			_go(_foe.position, Settings.m2v(float(cd.get("run_m", 5.4))), 0.5 * Settings.BLOCK)
+		return
+	var flat := Vector2(op.x - position.x, op.z - position.z).length()
+	var far := Settings.m2v(float(cd.get("far_m", 6.0)))
+	if flat > far or abs(op.y - position.y) > Settings.m2v(3.0) and flat > Settings.m2v(2.0):
+		goal = "follow"
+		var sp := "sprint_m" if d > Settings.m2v(14.0) else ("run_m" if d > Settings.m2v(9.0) else "walk_m")
+		_go(op, Settings.m2v(float(cd.get(sp, 3.2))), Settings.m2v(float(cd.get("near_m", 3.0))))
+		return
+	if _target != Vector3.INF and not _reached():
+		goal = "follow"
+		return
+	goal = "idle"
+	_stop()
+	_look = o.position + Vector3(0, Settings.m2v(1.5), 0)
+	_look_t = 0.5
 
 
 func _go(t: Vector3, speed: float, arrive: float = 0.8 * Settings.BLOCK) -> void:
@@ -611,7 +821,7 @@ func _move(delta: float) -> void:
 				_stop()
 				_ahead_ok = true
 				dir = Vector3.ZERO
-			want = dir * _speed * (0.5 if in_liquid else 1.0)
+			want = dir * _speed * (0.5 if in_liquid and owner_id == "" else 1.0)
 	# at rest on the ground: skip the collision move, re-check the floor 4 times a second
 	# (like ItemEntity's sleep; most animals stand still most of the time)
 	if want == Vector3.ZERO and on_floor and not in_liquid and Vector3(velocity.x, 0, velocity.z).length() < 0.05 * Settings.BLOCK:
@@ -692,6 +902,7 @@ func _animate(delta: float) -> void:
 	var graze := clampf(minf(_graze_t, GRAZE_S - _graze_t) * 4.0, 0.0, 1.0) if _graze_t > 0.0 else 0.0
 	if _eat_t > 0.0:
 		graze = clampf(_eat_t * 2.0, 0.0, 1.0)   # tearing at the kill
+	model.rotation.x = move_toward(model.rotation.x, SIT_PITCH if sitting else 0.0, 3.0 * delta)
 	model.flapping = not on_floor and not in_liquid
 	var speed := Vector2(velocity.x, velocity.z).length()
 	# standing still with the head straight: the pose of the last call holds (most animals, most of the time)
@@ -707,7 +918,9 @@ func _animate(delta: float) -> void:
 func to_dict() -> Dictionary:
 	return {"species": species, "uid": uid, "pos": [snappedf(position.x, 0.01), snappedf(position.y, 0.01), snappedf(position.z, 0.01)],
 		"yaw": snappedf(_yaw, 0.01), "health": health, "age_s": snappedf(age_s, 0.1), "love_s": snappedf(love_s, 0.1),
-		"breed_cooldown_s": snappedf(breed_cooldown_s, 0.1), "sheared": sheared, "aggressive": aggressive}
+		"breed_cooldown_s": snappedf(breed_cooldown_s, 0.1), "sheared": sheared, "aggressive": aggressive, "owner": owner_id, "sit": sitting, "pet_name": pet_name,
+		"foul_s": snappedf(foul_s, 0.1), "floating": snappedf(dying, 0.001) if has_meta("fouled") else 0.0,
+		"trap": [] if trap_at == Vector3.INF else [snappedf(trap_at.x, 0.01), snappedf(trap_at.y, 0.01), snappedf(trap_at.z, 0.01)]}
 
 
 func load_from(d: Dictionary) -> void:
@@ -716,6 +929,12 @@ func load_from(d: Dictionary) -> void:
 	rotation.y = float(d.get("yaw", 0.0))
 	uid = int(d.get("uid", 0))
 	health = int(d.get("health", health))
+	foul_s = float(d.get("foul_s", 0.0))
+	if float(d.get("floating", 0.0)) > 0.0:   # ADR 0155: it was floating dead: it floats on
+		set_meta("fouled", true)
+		health = 0
+		dying = float(d["floating"])
+		goal = "dying"
 	age_s = float(d.get("age_s", 0.0))
 	love_s = float(d.get("love_s", 0.0))
 	breed_cooldown_s = float(d.get("breed_cooldown_s", 0.0))
@@ -723,8 +942,17 @@ func load_from(d: Dictionary) -> void:
 	if d.has("aggressive"):
 		aggressive = bool(d["aggressive"])
 		set_meta("rolled", true)
+	owner_id = String(d.get("owner", ""))
+	sitting = bool(d.get("sit", false))
+	pet_name = String(d.get("pet_name", ""))
+	var tr: Array = d.get("trap", [])
+	trap_at = Vector3(float(tr[0]), float(tr[1]), float(tr[2])) if tr.size() == 3 else Vector3.INF
+	if owner_id != "":
+		aggressive = false
+		set_meta("rolled", true)
+		set_meta("tamed_by", owner_id)
 
 
 func summary() -> Dictionary:
 	return {"species": species, "uid": uid, "goal": goal, "pos": position.snapped(Vector3.ONE * 0.1), "health": health,
-		"baby": is_baby(), "love": love_s > 0.0, "sheared": sheared, "aggressive": aggressive, "burning": is_burning()}
+		"baby": is_baby(), "love": love_s > 0.0, "sheared": sheared, "aggressive": aggressive, "burning": is_burning(), "owner": owner_id, "sit": sitting}

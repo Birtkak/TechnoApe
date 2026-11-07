@@ -117,6 +117,9 @@ void RigidPieces::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_contact_info", "id"), &RigidPieces::get_contact_info);
     ClassDB::bind_method(D_METHOD("queue_carve", "center", "radius"), &RigidPieces::queue_carve);
     ClassDB::bind_method(D_METHOD("raycast", "from", "dir", "max_distance"), &RigidPieces::raycast);
+    ClassDB::bind_method(D_METHOD("lift", "seed", "lo", "hi", "max_cells", "wood_only"), &RigidPieces::lift);
+    ClassDB::bind_method(D_METHOD("drive", "id", "local_to_world"), &RigidPieces::drive);
+    ClassDB::bind_method(D_METHOD("release", "id", "settle"), &RigidPieces::release);
     ClassDB::bind_method(D_METHOD("support_setup", "spans"), &RigidPieces::support_setup);
     ClassDB::bind_method(D_METHOD("support_mark", "cells"), &RigidPieces::support_mark);
     ClassDB::bind_method(D_METHOD("support_mark_box", "lo", "hi"), &RigidPieces::support_mark_box);
@@ -1028,6 +1031,12 @@ void RigidPieces::step_impl(float p_dt, PackedInt32Array &done) {
         Piece &p = pieces_[i];
         p.prev_pos = p.pos;
         p.prev_rot = p.rot;
+        if (p.driven) {
+            p.pos = p.drive_pos;
+            p.rot = p.drive_rot;
+            i++;
+            continue;
+        }
         int touching = 0;
         p.load = 0.0f;
         for (int s = 0; s < substeps_; s++) {
@@ -1161,6 +1170,89 @@ bool RigidPieces::settle(Piece &p) {
     last_settle_ms_ = now_ms() - t0;
     max_settle_ms_ = std::max(max_settle_ms_, last_settle_ms_);
     return written > 0;
+}
+
+// ---- driven pieces (ADR 0160) ----
+
+// A contraption part: the cells of the seed's material 6-connected to it inside [lo, hi] (world voxels), cut out
+// as one driven piece (no physics until release(id, false)). Nothing is taken when the part reaches the box's
+// edge (it goes on outside: the player's floor, a tree), leaves the sim window or has more than max_cells:
+// {"error": "edge" | "outside" | "big" | "nothing"}. Else {id, origin (world voxel of the grid's (0,0,0)), size, cells}.
+Dictionary RigidPieces::lift(Vector3i seed, Vector3i lo, Vector3i hi, int max_cells, bool wood_only) {
+    Dictionary out;
+    if (sim_.is_null()) return out;
+    sim_->wait_idle();
+    bool open;
+    const uint8_t m = mat_at(seed.x, seed.y, seed.z, open);
+    if (!open) { out["error"] = "outside"; return out; }
+    if (!m || cls_[m] == EMPTY || (wood_only && cls_[m] != WOOD)) { out["error"] = "nothing"; return out; }
+    std::vector<int64_t> cells{key(seed.x, seed.y, seed.z)};
+    std::unordered_set<int64_t> seen{cells[0]};
+    for (size_t q = 0; q < cells.size(); q++) {
+        int x, y, z;
+        unkey(cells[q], x, y, z);
+        for (int d = 0; d < 6; d++) {
+            const int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
+            const int64_t k = key(nx, ny, nz);
+            if (seen.count(k)) continue;
+            bool o;
+            if (mat_at(nx, ny, nz, o) != m) continue;
+            if (!o) { out["error"] = "outside"; return out; }
+            if (nx < lo.x || ny < lo.y || nz < lo.z || nx > hi.x || ny > hi.y || nz > hi.z) { out["error"] = "edge"; return out; }
+            seen.insert(k);
+            cells.push_back(k);
+            if ((int)cells.size() > max_cells) { out["error"] = "big"; return out; }
+        }
+    }
+    make_piece(cells, std::vector<int64_t>(), Vector3(), false);
+    Piece &p = pieces_.back();
+    p.driven = true;
+    p.vel = p.ang = Vector3();
+    p.drive_pos = p.pos;
+    p.drive_rot = p.rot;
+    out["id"] = p.id;
+    out["origin"] = p.hash_origin;
+    out["size"] = p.size;
+    out["cells"] = (int)cells.size();
+    return out;
+}
+
+// The pose of a driven piece for the next step: its grid's local coordinates to world voxels.
+bool RigidPieces::drive(int id, const Transform3D &t) {
+    for (Piece &p : pieces_)
+        if (p.id == id && p.driven) {
+            p.drive_rot = t.basis.orthonormalized().get_quaternion();
+            p.drive_pos = t.xform(p.com);
+            return true;
+        }
+    return false;
+}
+
+// settle: paste it into the cells at its driven pose now (it shows in collect()'s "settled"); else it flies on as
+// an ordinary piece from rest (a crane letting go) and settles when still.
+bool RigidPieces::release(int id, bool do_settle) {
+    if (sim_.is_null()) return false;
+    sim_->wait_idle();
+    for (size_t i = 0; i < pieces_.size(); i++) {
+        Piece &p = pieces_[i];
+        if (p.id != id || !p.driven) continue;
+        p.pos = p.prev_pos = p.drive_pos;
+        p.rot = p.drive_rot;
+        p.prev_rot = p.drive_rot;
+        if (!do_settle) {
+            p.driven = false;
+            p.vel = p.ang = Vector3();
+            p.still = 0;
+            p.age = 0.0f;
+            return true;
+        }
+        settle(p);
+        settled_out_.push_back(p.id);
+        pieces_.erase(pieces_.begin() + i);
+        settled_++;
+        return true;
+    }
+    return false;
 }
 
 // ---- queries ----

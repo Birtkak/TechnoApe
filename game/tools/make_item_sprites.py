@@ -950,6 +950,26 @@ shape("painting", outline(art([
     ".dddddddddddddd.", "................", "................", "................"])),
     {"s": "#80ace0", "y": "#e2c440", "g": "#46843a", "w": "#34489a"})
 
+# ADR 0164: a page of paper with lines of writing, and a market stall
+shape("page", outline(art([
+    "................", "...pppppppppp...", "..pppppppppppp..", "..pkkkkkkkkppp..",
+    "..pppppppppppp..", "..pkkkkkkkkkkp..", "..pppppppppppp..", "..pkkkkkkkpppp..",
+    "..pppppppppppp..", "..pkkkkkkkkkpp..", "..pppppppppppp..", "..pkkkkkpppppp..",
+    "..qqqqqqqqqqqq..", "................", "................", "................"])),
+    {"o": "#4a3a2a", "p": "#f2e8cc", "q": "#c8b48a", "k": "#3a2a1a"})
+shape("note_page", outline(art([
+    "................", "...pppppppppp...", "..pppppppppppp..", "..pkkkkkkkkppp..",
+    "..pppppppppppp..", "..pkkkkkkkkkkp..", "..pppppprrpppp..", "..pkkkkkrrkkpp..",
+    "..pppppppppppp..", "..pkkkkkkkkkpp..", "..pppppppppppp..", "..pkkkkkpppppp..",
+    "..qqqqqqqqqqqq..", "................", "................", "................"])),
+    {"o": "#4a3a2a", "p": "#f2e8cc", "q": "#c8b48a", "k": "#3a2a1a", "r": "#b02a2a"})
+shape("stall", outline(art([
+    "................", "..rwrwrwrwrwrw..", ".rwrwrwrwrwrwr..", ".rrrrrrrrrrrrr..",
+    "..d..........d..", "..d..gg..yy..d..", "..d..gg..yy..d..", "..d..........d..",
+    "..tttttttttttt..", "..tllllllllllt..", "..tllllllllllt..", "..tttttttttttt..",
+    "..d..........d..", "................", "................", "................"])),
+    {"o": "#3a2a1a", "r": "#b83a2a", "w": "#f0e4c8", "d": "#6a4a2a", "g": "#d8a030", "y": "#7ac8f0", "t": "#8a5a30", "l": "#b8864a"})
+
 # ---------- sprites ----------
 SP = {}
 
@@ -1131,6 +1151,9 @@ shape("sign", outline(art([
     ".dddddddddddddd.", ".dllllllllllllm.", ".dlmddmdmmddmlm.", ".dllllllllllllm.",
     ".dmmmmmmmmmmmmm.", "................", "................", "................"])))
 sp("sign", ("sign", "wood"))
+sp("paper", ("page", None))
+sp("note", ("note_page", None))
+sp("trading_post", ("stall", None))
 # rugs (ADR 0121): a rug seen from above at a slant, fringe at both ends (ADR 0129 ramps: cool shadows, warm lights)
 shape("rug", outline(art([
     "................", "................", "................", "...h.h.h.h.h.h..",
@@ -1425,6 +1448,9 @@ stone_age_sprites.add(globals())
 import metal_age_sprites  # noqa: E402  the bronze and iron ages (ADR 0070)
 metal_age_sprites.add(globals())
 
+import fishing_sprites  # noqa: E402  fish species, snares, pit traps (ADR 0163)
+fishing_sprites.add(globals())
+
 
 # loose heads and blades (crafting parts): the same shape as on the tool, moved to the middle of the icon
 _heads = {s["layers"][1]["shape"] for s in SP.values()
@@ -1577,6 +1603,12 @@ sp("spyglass", ("pipe", "copper"), ("ball", "tin"))
 sp("hand_drill", H, ("pickaxe_head", "steel"), ("flower_head", "iron"))
 sp("heavy_copper_cable", ("pipe", "copper", {"e": "#0e0e16", "f": "#22222c"}))
 sp("leather_apron", ("apron", "leather"))
+# ADR 0155: a cloth smoke mask: a wool pad over mouth and nose with ties at the sides and a charcoal pad sewn in
+g = shade(compose(rect(new(), 3, 6, 12, 11), rect(new(), 4, 12, 11, 12)))
+line(g, 3, 7, 0, 5, "s"); line(g, 12, 7, 15, 5, "s")
+rect(g, 6, 8, 9, 9, "c")
+shape("cloth_mask", outline(g), {"s": "#8a7a5a", "c": "#2a2626"})
+sp("cloth_mask", ("cloth_mask", "wool"))
 
 # stage 2 and the turbine (ADR 0099)
 PALETTES["fire_brick"] = ramp("#6a5a3a", "#b09a62", "#d4bc84", "#e8d4a4", "#f8ecc8")   # fire clay: pale buff
@@ -1707,6 +1739,17 @@ for x in (6, 9):
 rect(g, 0, 7, 2, 8, "c"); rect(g, 13, 7, 15, 8, "c")
 shape("capacitor", outline(g), {"p": "#d8c8a0", "q": "#f2e6c4", "P": "#a89870", "e": "#5a3a20", "c": "#c0663a"})
 sp("capacitor", ("capacitor", "iron"))   # ADR 0123
+# ADR 0161: a blueprint, a rolled hide sheet (p, q lit, P shade, rolls r at the ends); written, it carries pale lines (w)
+g = new()
+rect(g, 2, 3, 13, 12, "p"); rect(g, 2, 3, 13, 3, "q"); rect(g, 2, 12, 13, 12, "P")
+rect(g, 1, 2, 2, 13, "r"); rect(g, 13, 2, 14, 13, "r")
+shape("blueprint", outline(g), {"p": "#3a6ab8", "q": "#5a8ad8", "P": "#2a4a88", "r": "#c8b08a"})
+rect(g, 4, 5, 11, 5, "w"); rect(g, 4, 5, 4, 10, "w"); rect(g, 11, 5, 11, 10, "w"); rect(g, 4, 10, 11, 10, "w")
+rect(g, 4, 7, 7, 7, "w"); rect(g, 9, 8, 10, 9, "w")
+shape("written_blueprint", outline(g), {"p": "#3a6ab8", "q": "#5a8ad8", "P": "#2a4a88", "r": "#c8b08a", "w": "#e8f0ff"})
+sp("blueprint", ("blueprint", "iron"))
+sp("written_blueprint", ("written_blueprint", "iron"))
+sp("builder", ("machine", "iron", {"e": "#f2e088", "f": "#b89a3a", "k": "#e8b830", "K": "#24232a"}))
 sp("fuse", ("twine", "tin"))
 sp("knife_switch", ("knife_switch", "iron"))
 sp("fuse_box", ("fuse_box", "iron"))
@@ -1781,6 +1824,34 @@ sp("wind_turbine", ("wind_turbine", "steel"))
 sp("hand_crank", ("hand_crank", "iron"))
 sp("daylight_switch", ("fuse_box", "iron", {"t": "#ffe27a"}))   # its photocell in the window
 sp("meter_panel", ("meter_panel", "iron"))
+# ADR 0160: the contraption drives
+g = new()   # the lift winch: an iron frame (palette) round a rope drum (b, rope r) hanging a plank platform (w)
+rect(g, 1, 1, 2, 8, "m"); rect(g, 13, 1, 14, 8, "m"); rect(g, 1, 1, 14, 2, "l"); rect(g, 2, 8, 13, 8, "d")
+rect(g, 4, 3, 11, 6, "b"); rect(g, 4, 3, 11, 3, "B"); rect(g, 4, 6, 11, 6, "k")
+for x in (5, 7, 9):
+    rect(g, x, 4, x, 5, "r")
+rect(g, 7, 9, 8, 11, "r")
+rect(g, 2, 12, 13, 14, "w"); rect(g, 2, 12, 13, 12, "W"); put(g, 7, 12, "r"); put(g, 8, 12, "r")
+shape("lift_winch", outline(g), {"b": "#6e4424", "B": "#9a6a3a", "k": "#3e2614", "r": "#d8c08a", "w": "#a87a44", "W": "#c89a5c"})
+g = new()   # the drawbridge hinge: a plank span (w) swung half up off an iron hinge block (palette), a chain (c)
+rect(g, 1, 10, 5, 14, "m"); rect(g, 1, 10, 5, 10, "l"); rect(g, 5, 11, 5, 14, "d")
+for i in range(9):
+    rect(g, 5 + i, 9 - i, 6 + i, 10 - i, "w")
+    put(g, 6 + i, 10 - i, "W")
+line(g, 3, 9, 3, 2, "c"); line(g, 3, 2, 13, 2, "c"); line(g, 13, 2, 13, 1, "c")
+put(g, 3, 12, "h")
+shape("drawbridge_hinge", outline(g), {"w": "#a87a44", "W": "#7a5430", "c": "#8a8e98"})
+g = new()   # the crane: a steel mast and jib (palette) on a base, a rope (r) and a yellow hook (y)
+rect(g, 4, 3, 5, 13, "m"); rect(g, 4, 3, 4, 13, "l")
+rect(g, 1, 2, 14, 3, "m"); rect(g, 1, 2, 14, 2, "l")
+line(g, 6, 4, 10, 2, "d")
+rect(g, 2, 13, 8, 15, "d"); rect(g, 2, 13, 8, 13, "m")
+rect(g, 12, 4, 12, 9, "r")
+rect(g, 11, 10, 13, 10, "y"); put(g, 13, 11, "y"); put(g, 13, 12, "y"); put(g, 12, 12, "y"); put(g, 11, 11, "y")
+shape("crane", outline(g), {"r": "#d8c08a", "y": "#e8b830"})
+sp("lift_winch", ("lift_winch", "iron"))
+sp("drawbridge_hinge", ("drawbridge_hinge", "iron"))
+sp("crane", ("crane", "steel"))
 sp("coke_oven", ("bricks_face", None), cube=True)
 sp("coal_coke", ("charcoal_lump", "coal"))
 sp("steam_turbine", ("steam_hammer", "steel", {"e": "#e07434", "f": "#b0501e", "k": "#6a2a10"}))
@@ -1871,6 +1942,44 @@ put(g, 7, 5, "y")
 put(g, 8, 5, "y")
 shape("cart_lid", outline(g), {"k": "#3a3e44", "y": "#e0a040"})
 sp("chest_cart", ("minecart", "iron"), ("cart_lid", "wood"))
+
+# movement toys (ADR 0151): a delta-wing glider on its stick frame, a rope coil on its stake, a three-pronged hook
+g = poly(new(), [(8, 1), (15.5, 10), (8, 8), (0.5, 10)])
+shape("glider_wing", outline(shade(g)))
+g = new()
+line(g, 8, 2, 8, 12, "d")
+line(g, 3, 9, 13, 9, "m")
+line(g, 8, 12, 5, 14, "d")
+line(g, 8, 12, 11, 14, "d")
+rect(g, 5, 14, 11, 14, "l")
+shape("glider_frame", g)
+sp("glider", ("glider_wing", "scraped_hide"), ("glider_frame", "wood"))
+g = ellipse(new(), 7.0, 9.5, 6.2, 5.0)
+for y in range(N):
+    for x in range(N):
+        if ((x + 0.5 - 7.0) / 2.6) ** 2 + ((y + 0.5 - 9.5) / 1.8) ** 2 < 1.0:
+            g[y][x] = "."
+g = shade(g)
+for y in range(N):   # the turns of the coil
+    for x in range(N):
+        if g[y][x] == "m" and (x + y) % 3 == 0:
+            g[y][x] = "d"
+shape("rope_coil", outline(g))
+shape("rope_stake", outline(line(new(), 13, 1, 13, 14, "m")))
+sp("climbing_rope", ("rope_coil", "twine"), ("rope_stake", "wood"))
+g = new()
+line(g, 8, 2, 8, 10)
+line(g, 7, 10, 5, 9)
+line(g, 5, 8, 4, 5)
+line(g, 9, 10, 11, 9)
+line(g, 11, 8, 12, 5)
+rect(g, 7, 1, 9, 1)
+shape("hook_prongs", outline(shade(g)))
+g = new()
+line(g, 8, 11, 7, 13, "m")
+line(g, 6, 14, 3, 15, "m")
+shape("hook_rope", g)
+sp("grappling_hook", ("hook_rope", "twine"), ("hook_prongs", "iron"))
 
 # hand-painted overrides: game/art/items/<item_id>.png (16x16) replaces the generated sprite (game/art/README.md)
 ART = os.path.join(REPO, "game", "art", "items")

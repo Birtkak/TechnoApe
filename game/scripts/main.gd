@@ -32,6 +32,7 @@ var saplings: Saplings               # planted saplings growing into trees (ADR 
 var pieces: FallingPieces            # rigid voxel pieces (P12), null with rigid_pieces=0
 var support: MineSupport             # dug roofs need shoring (ADR 0142), null with cave_ins=0 or rigid_pieces=0
 var builder: ShapeBuilder            # shape building, box mode, prefabs (ADR 0038)
+var blueprints: Blueprints           # blueprint sites and builders (ADR 0161)
 var survival: Survival               # hunger, body temperature, food spoilage (ADR 0040)
 var pickups_popped := 0              # sticks and stones picked up by hand (ADR 0043, debug JSON)
 var _pickup_rng := RandomNumberGenerator.new()
@@ -42,6 +43,7 @@ var _stone_age_save := {}             # its part of the player's save, loaded be
 var fx: ParticleFx                   # Minecraft-style particles (ADR 0026), null with particles=0
 var mobs: MobManager                 # sheep and pigs (ADR 0022)
 var _furniture_root: Node3D
+var things: LeftThings              # signs, notes, trading posts (ADR 0164)
 var _furniture_views := {}           # anchor -> MeshInstance3D
 var work: WorkSystem                 # knapping, clay forming, pit kilns, firepits, sieves (ADR 0023)
 var _stone_age_test: StoneAgeTest
@@ -65,14 +67,21 @@ var projectiles: Projectiles         # thrown spears in flight (ADR 0030)
 var gadgets: PlaytestTools           # playtest gadgets: laser cutter, crater rod, bombs, instant tree, tape measure
 var tnt: Tnt                         # TNT charges, fuses and blasts (ADR 0065)
 var firedamp: Firedamp               # the mine gas: flashes to blasts, the safety lamp, torches lighting it (ADR 0148)
+var toys: MovementToys               # glider, climbing ropes, grappling hook (ADR 0151)
+var fishing: Fishing                 # the rod's bobber, bite and reel; snares and pit traps (ADR 0163)
+var contraptions: Contraptions       # lifts, drawbridges, cranes (ADR 0160); null without rigid pieces
+var _ropes_save := []                # the hung ropes from the player's save, loaded before toys exists
 var _tnt_save := []                  # its charges from the player's save, loaded before it exists
+var meteors: Meteors                 # meteorite falls and their craters (ADR 0157)
 var weather: Weather                 # rain and snow, the rain that answers forest fires (ADR 0056); null with weather=0
+var volcano: Volcano                 # eruptions of the generated cones (ADR 0149); null with weather=0
 var world_map := WorldMap.new()      # the explored map and the waypoints (plan item D10, ADR 0055)
 var waypoints: Waypoints = world_map.waypoints   # add(name, pos, kind) for graves, finds ...
 var map_screen: MapScreen            # M
 var minimap: Minimap
 var waypoint_markers: WaypointMarkers
 var torch_lights: TorchLights        # real lights for the torches near the player (ADR 0030)
+var machine_fx: MachineFx            # running machines puff, spin and blink (ADR 0153)
 var light_overlay: LightOverlay      # F7: the dark block tops around the player (ADR 0130)
 var quest_toast: QuestToast
 var survival_loop: SurvivalLoop       # diet, seasons, prospecting, discoveries, HUD trackers (ADR 0061)
@@ -200,6 +209,8 @@ func _ready() -> void:
 	player.landed.connect(trample)
 	player.farm = farming
 	player.place_furniture = _place_furniture
+	things = LeftThings.new(self)
+	player.note_use = things.use_note
 	player.furniture_is = func(p: Vector3i, what: String) -> bool:
 		var f := blocks.furniture_at(p)
 		if f == null:
@@ -359,6 +370,7 @@ func _ready() -> void:
 
 	DebugCapture.attach(self)
 	if Net.active:
+		things.resume_pending()
 		Net.items_now_ready()   # shared items that arrived during _ready spawn now (ADR 0145)
 	for stack in DebugCapture.give:
 		if not items.has(stack["id"]):
@@ -420,6 +432,10 @@ func _ready() -> void:
 			_after_load(_debug_animals)
 		if DebugCapture.farm_test:
 			_after_load(_debug_farm)
+		if DebugCapture.blueprint_test == "1":
+			_after_load(func() -> void: blueprints.debug_test())
+		elif DebugCapture.blueprint_test != "":
+			_after_load(func() -> void: blueprints.debug_save_test(DebugCapture.blueprint_test))
 		if DebugCapture.building_test:
 			_after_load(_debug_building)
 		if DebugCapture.hands_test:
@@ -467,6 +483,8 @@ func _ready() -> void:
 			_after_load(func() -> void:
 				_info_test = InfoTest.new()
 				_info_test.run(self))
+		if DebugCapture.toys_test:
+			_after_load(func() -> void: ToysTest.new().run(self))
 		if DebugCapture.tp_test:
 			_after_load(func() -> void:
 				_tp_test = TpTest.new()
@@ -580,6 +598,12 @@ func _ready() -> void:
 		fx.player = player
 		fx.main_blocks = blocks
 		player.landed.connect(func(p: Vector3i, fall_m: float) -> void: fx.landing(p, fall_m, player.position))
+	machine_fx = MachineFx.new()
+	machine_fx.name = "MachineFx"
+	add_child(machine_fx)
+	machine_fx.setup(blocks, fx, work)
+	if not warmup.is_queued_for_deletion():
+		warmup.add_materials(machine_fx.warm_materials(), player.camera)
 	if Settings.rigid_pieces:
 		pieces = FallingPieces.new()
 		pieces.name = "FallingPieces"
@@ -600,6 +624,12 @@ func _ready() -> void:
 	builder.name = "ShapeBuilder"
 	add_child(builder)
 	builder.setup(self)
+	blueprints = Blueprints.new()
+	blueprints.name = "Blueprints"
+	add_child(blueprints)
+	blueprints.setup(self)
+	if Settings.persist_world:
+		blueprints.load_dict(_load_json(_save_path("blueprints")))
 	survival = Survival.new()
 	survival.name = "Survival"
 	add_child(survival)
@@ -608,12 +638,19 @@ func _ready() -> void:
 		game_hud.survival = survival
 	if not _survival_save.is_empty():
 		survival.load_dict(_survival_save)
+	fishing = Fishing.new()
+	fishing.name = "Fishing"
+	add_child(fishing)
+	fishing.setup(self)
+	if not warmup.is_queued_for_deletion():
+		warmup.add_materials(fishing.warm_materials(), player.camera)
 	stone_age = StoneAge.new()
 	stone_age.name = "StoneAge"
 	add_child(stone_age)
 	stone_age.setup(self)
 	stone_age.load_player(_stone_age_save)
-	player.item_use = stone_age.use
+	player.item_use = func(hit: VoxelRaycastResult, first: bool, from: Vector3, dir: Vector3) -> bool:
+		return blueprints.use(hit, first) or fishing.use_world(hit, first) or stone_age.use(hit, first, from, dir)   # ADR 0161, 0163, then the Stone Age
 	survival_loop = SurvivalLoop.new()
 	survival_loop.name = "SurvivalLoop"
 	add_child(survival_loop)
@@ -637,9 +674,29 @@ func _ready() -> void:
 	firedamp.name = "Firedamp"
 	add_child(firedamp)
 	firedamp.setup(self)
+	toys = MovementToys.new()
+	toys.name = "MovementToys"
+	add_child(toys)
+	toys.setup(self)
+	toys.load_array(_ropes_save)
+	player.toys = toys
+	if not warmup.is_queued_for_deletion():
+		warmup.add_materials(toys.warm_materials(), player.camera)
+	if pieces:
+		contraptions = Contraptions.new()
+		contraptions.name = "Contraptions"
+		add_child(contraptions)
+		contraptions.setup(self)
+		pieces.contraptions = contraptions
+	meteors = Meteors.new()
+	meteors.name = "Meteors"
+	add_child(meteors)
+	meteors.setup(self)
+	if Settings.persist_world:
+		meteors.load_dict(_load_json(_save_path("meteors")))
 	player.ignite_at = _ignite
 	if not warmup.is_queued_for_deletion():
-		warmup.add_meshes(tnt.warm_meshes() + [player.brush_tool.warm_mesh(), builder.warm_mesh()], player.camera)
+		warmup.add_meshes(tnt.warm_meshes() + meteors.warm_meshes() + [player.brush_tool.warm_mesh(), builder.warm_mesh()], player.camera)
 	player.brush_tool.warm_cache()   # the big round brushes, rasterised under the loading screen
 	_setup_maps()
 	if not warmup.is_queued_for_deletion():
@@ -651,6 +708,10 @@ func _ready() -> void:
 		weather.setup(self)
 		if not warmup.is_queued_for_deletion():
 			warmup.add_materials(weather.warm_materials(), player.camera)
+		volcano = Volcano.new()
+		volcano.name = "Volcano"
+		add_child(volcano)
+		volcano.setup(self)
 	_last_health = player_inv.health
 	player_inv.health_changed.connect(_on_health_changed)
 	player_inv.tool_broke.connect(_on_tool_broke)
@@ -767,6 +828,8 @@ var _saved_edits := 0
 func save_terrain(wait_s := 0.0) -> void:
 	if not Settings.persist_world or world == null or world.terrain == null or not world.terrain.is_inside_tree():
 		return
+	if wait_s > 0.0 and contraptions and contraptions.settle_all():   # quitting: moving parts back into voxels (ADR 0160)
+		_save_blocks()
 	if bubble:
 		bubble.flush_all()
 	_saved_edits = world.edits
@@ -806,9 +869,15 @@ func _save_blocks() -> void:
 	if farming != null and farming.dirty:
 		_save_json(_save_path("farms"), farming.to_dict())
 		farming.dirty = false
+	if blueprints != null and blueprints.dirty:
+		_save_json(_save_path("blueprints"), blueprints.to_dict())
+		blueprints.dirty = false
 	if saplings != null and saplings.dirty:
 		_save_json(_save_path("saplings"), saplings.to_dict())
 		saplings.dirty = false
+	if meteors != null and meteors.dirty:
+		_save_json(_save_path("meteors"), meteors.to_dict())
+		meteors.dirty = false
 	if support != null and (support.dirty or not support.warnings.is_empty()):   # a creaking roof's clock runs
 		support.save_file(_support_path())
 	if mobs != null:
@@ -826,12 +895,16 @@ func _describe_block(p: Vector3i) -> Dictionary:
 	var e: RefCounted = blocks.at(p)
 	var info := _describe_entity(e)
 	var net := Networks.look_line(e)   # the energy network it is on (ADR 0130)
+	if net == "" and farming != null:
+		net = farming.sick_line(p)   # ADR 0155: a crop pollution is wilting
 	if net != "":
 		info["line"] = String(info.get("line", "")) + ("\n" if info.get("line", "") != "" else "") + net
 	return info
 
 
 func _describe_entity(e: RefCounted) -> Dictionary:
+	if e is FurnitureEntity and FurnitureEntity.KINDS[e.furniture].get("sleep", false):
+		return {"line": Comfort.text(Comfort.of_bed(self, e))}   # the room's rating (ADR 0162)
 	if e is FurnitureEntity and e.text != "":
 		return {"line": "\"%s\"" % e.text}   # a sign's words
 	if e is ChestEntity or (e is FurnaceEntity and not e.has_method("look_lines")):   # what is inside (ADR 0093)
@@ -1016,11 +1089,14 @@ func _player_dict() -> Dictionary:
 		"slots": player_inv.inv.to_array(), "bag_item": player_inv.bag_item, "bag": player_inv.bag.to_array(),
 		"offhand": player_inv.offhand(), "favourites": player_inv.favourites.keys(), "waypoints": world_map.waypoints.to_array(), "survival": survival.to_dict() if survival else {}, "clock_s": Inventory.clock_s,
 		"stone_age": stone_age.player_dict() if stone_age else {}, "tnt": tnt.to_array() if tnt else _tnt_save,
-		"bookmarks": inv_screen.browser.bookmarks}
+		"ropes": toys.to_array() if toys else _ropes_save,
+		"bookmarks": inv_screen.browser.bookmarks, "applied_trades": Net.applied, "pending_trades": things.pending_array() if things else []}
 
 
 func _load_player() -> void:
 	var d: Dictionary = Net.player_save if Net.active else _load_json(_save_path("player"))
+	things.load_pending(d.get("pending_trades", []))
+	Net.applied = d.get("applied_trades", []).map(func(r) -> int: return int(r))   # ADR 0164: sales already delivered
 	Inventory.clock_s = float(d.get("clock_s", 0.0))   # before the stacks: hot metal cools against it (ADR 0042)
 	if d.is_empty() or int(d.get("version", 0)) != 1:
 		return
@@ -1057,6 +1133,7 @@ func _load_player() -> void:
 	_survival_save = d.get("survival", {})
 	_stone_age_save = d.get("stone_age", {})
 	_tnt_save = d.get("tnt", [])
+	_ropes_save = d.get("ropes", [])
 
 
 ## A saved stack (JSON numbers are floats), or {} for an empty or unknown one.
@@ -1181,6 +1258,10 @@ func get_world_voxel(p: Vector3i) -> int:
 
 
 func _on_broken(p: Vector3i, drops: Array) -> void:
+	var guard: RefCounted = blocks.at(p)
+	if guard is TradingPostEntity and not guard.is_owner(Net.player_name if Net.active else ""):
+		chat.add_message("That trading post is %s's" % guard.owner_name)   # ADR 0164: only the owner takes it down
+		return
 	var was := get_world_voxel(p)
 	if fx:
 		fx.block_break(p, was)
@@ -1201,6 +1282,8 @@ func _on_broken(p: Vector3i, drops: Array) -> void:
 		# any voxel of a work piece takes all of it, view and footprint (bug report 2026-10-25: a broken
 		# firepit's other voxels stayed as ghosts when the break was not on its anchor)
 		var stacks: Array = piece.contents()
+		if piece is TradingPostEntity:
+			things.post_removed(piece)
 		work.remove_piece(piece)
 		for s in stacks:
 			spawn_item(s, Vector3(piece.pos) + Vector3(0.5, 0.5, 0.5) * BlockEntities.width_of(piece.kind), Vector3(randf_range(-1.5, 1.5), 2.5, randf_range(-1.5, 1.5)))
@@ -1236,6 +1319,8 @@ func _on_dug(cells: Array, drops: Array, center: Vector3) -> void:
 			continue
 		if first == 0:
 			first = was
+		if blocks.at(c) is TradingPostEntity:
+			continue   # a brush never digs a trading post: it is broken by hand, by its owner (ADR 0164)
 		set_world_voxel(c, GameMaterials.AIR)
 		if not GameMaterials.is_plain_voxel(was):
 			events.append_array(farming.on_broken(c))
@@ -1356,6 +1441,8 @@ func _place_furniture(kind: String, anchor: Vector3i, facing: int) -> bool:
 		set_world_voxel(c, GameMaterials.FURNITURE)
 		_spawn_drop_events(farming.on_placed(c, GameMaterials.FURNITURE))
 	_add_furniture_view(e)
+	if things != null:
+		things.furniture_placed(e)
 	if h > 0 and support:
 		support.prop_changed(anchor)
 	return true
@@ -1368,6 +1455,8 @@ func _add_furniture_view(e: FurnitureEntity) -> void:
 
 
 func _remove_furniture(e: FurnitureEntity, drop: bool) -> void:
+	if things != null:
+		things.furniture_removed(e)
 	var cells := e.cells.duplicate()
 	var anchor := e.pos
 	var stacks := blocks.remove(anchor)
@@ -1430,7 +1519,7 @@ func _use_furniture(p: Vector3i) -> void:
 		return
 	if FurnitureEntity.KINDS[e.furniture].get("write", false):
 		sign_at = e.pos
-		chat.open("/sign ")   # the next /sign writes on it
+		things.edit_furniture(e)   # ADR 0164: the text screen (the /sign command still works)
 		return
 	if not FurnitureEntity.KINDS[e.furniture].get("sleep", false):
 		return   # a table, shelf, window...: nothing to use
@@ -1442,8 +1531,16 @@ func _use_furniture(p: Vector3i) -> void:
 		var wake := cal.sunrise() + 0.01
 		atmosphere.set_time_of_day(wake)
 		chat.add_message("You slept through the night. Respawn point set. %s" % cal.date_text())
+		_rest_note(e, false)
 	else:
 		chat.add_message("You can only sleep at night. Respawn point set.")
+		_rest_note(e, true)
+
+
+## A night's sleep (or a daytime nap) in a good room rests you (ADR 0162); the chat says how the room rated.
+func _rest_note(bed: FurnitureEntity, nap: bool) -> void:
+	var r := survival.rest_at(bed, nap)
+	chat.add_message(Comfort.text(r) + (" You feel rested." if survival.buffs.has("rested") else ""))
 
 
 func _on_placed(p: Vector3i, material: int) -> void:
@@ -1941,6 +2038,7 @@ func _setup_maps() -> void:
 
 
 func _on_screen_closed(dropped: Array) -> void:
+	things.screen_closed()
 	if _open_chest != Vector3i.MAX:
 		_swing_chest_lid(_open_chest, false)
 		_open_chest = Vector3i.MAX
@@ -2220,6 +2318,7 @@ func snapshot() -> Dictionary:
 		"terrain": world.terrain.get_statistics(),
 		"sim": bubble.stats(),
 		"pieces": pieces.stats() if pieces else {},
+		"contraptions": contraptions.summary() if contraptions else {},
 		"support": support.stats() if support else {},
 		"build": builder.snapshot() if builder else {},
 		"survival": survival.snapshot() if survival else {},
@@ -2243,11 +2342,16 @@ func snapshot() -> Dictionary:
 		"projectiles": projectiles.stats if projectiles else {},
 		"gadgets": gadgets.stats if gadgets else {},
 		"tnt": tnt.snapshot() if tnt else {},
+		"toys": toys.snapshot() if toys else {},
+		"fishing": fishing.snapshot() if fishing else {},
+		"meteors": meteors.snapshot() if meteors else {},
 		"networks": Networks.stats,
 		"brush": player.brush_tool.stats.merged({"shape": player.brush_shape, "size": player.brush_size, "dig_size": player.dig_size(), "dig_only": player.dig_only_names()}),
 		"weather": weather.summary() if weather else {},
+		"volcano": volcano.summary() if volcano else {},
 		"map": world_map.summary(),
 		"torches": torch_lights.stats if torch_lights else {},
+		"machine_fx": machine_fx.stats if machine_fx else {},
 		"mobs": mobs.summary() if mobs else {},
 		"farm": farming.summary() if farming else {},
 		"particles": fx.stats if fx else {},

@@ -18,7 +18,7 @@
   ],
   "items": {
     "_comment": "Groups for foods other parts add, by item id, so their items.json lines stay theirs (an item's own \"nutrition\" wins). Part F: cured meat and fish, flatbread, einkorn, emmer; part E: wild foods and fish.",
-    "dried_meat": {"meat": 3}, "smoked_meat": {"meat": 4}, "dried_fish": {"meat": 3}, "smoked_fish": {"meat": 3}, "salted_meat": {"meat": 3},
+    "dried_meat": {"meat": 3}, "smoked_meat": {"meat": 4}, "dried_fish": {"meat": 3}, "smoked_fish": {"meat": 3}, "salted_meat": {"meat": 3}, "salted_fish": {"meat": 2},
     "flatbread": {"grain": 4}, "einkorn": {"grain": 1}, "emmer": {"grain": 1},
     "raw_fish": {"meat": 2}, "cooked_fish": {"meat": 4}, "hazelnut": {"grain": 1}, "acorn": {"grain": 1}, "wild_strawberry": {"fruit": 2}
   },

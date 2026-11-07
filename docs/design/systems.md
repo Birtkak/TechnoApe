@@ -33,13 +33,21 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   strength, hardness breaking), flies it and settles it back into voxels. It runs on the sim's driver thread before each
   tick (`set_async`; `get_voxel` does not wait for that phase); a forest felling holds p99 7.2 ms, the main thread pays
   ~2 ms (`prototypes/p12-rigid-pieces/README.md`). Trees never weld (FineGen gap).
+  **Moving contraptions (ADR 0160):** a lift winch, drawbridge hinge or crane (`ContraptionEntity`, an LV load: a right
+  click flips the lever, power moves it) cuts the one-material part built against it out as a *driven* rigid piece
+  (`RigidPieces.lift/drive/release`), moves it to its end (`Contraptions`, `scripts/physics/contraptions.gd`, ticked by
+  FallingPieces between collect and step) and pastes it back; at rest it is plain voxels. Riders follow the drawn top;
+  a part waits rather than push anyone into terrain. `/contraptions [toggle|ride] [cam]`.
   **Shape building (ADR 0038, 0144):** V opens the build ring (tap: it stays up until a click; hold: release picks; brush, box, wall, cylinder, cone, sphere, stairs, slope,
   box mode, box dig, select, prefabs; release on a slice picks it); a placed shape's corner keeps to the snap grid
   (N: off / 0.5 m / 1 m, `ShapeBuilder.snap`, x and z only); a placed shape frees the cursor (ADR 0143): it drags the
   handles (top arrow: height, the pixel ring at the foot grows the side grabbed, the one on top hollows, the cross at the
   foot moves; white, cyan under the cursor) in snap steps, the wheel over one steps it one snap (the move handle up and down), the right button held
   looks around; a selection gets the same handles (no hollow) before `/prefab save`; `ShapeBuilder` (`scripts/building/`) orchestrates, native `ShapeTool` rasterizes,
-  meshes and fills; prefabs in `user://prefabs/<category>/<name>.json`. Scripted checks: `later=/a;wait 1;/b` runs chat
+  meshes and fills; prefabs in `user://prefabs/<category>/<name>.json`. **Blueprints (ADR 0161):** a blank `blueprint` copies a
+  selected box (voxels + stations and work pieces with facing) onto a `written_blueprint` stack (`Blueprint`), placed with
+  the prefab ghost it marks a site (`Blueprints`, saved per world) that a powered `builder` beside a chest builds
+  (`blueprint_test=1`). Scripted checks: `later=/a;wait 1;/b` runs chat
   commands after loading (`/shape ... at x y z`, `/shape drag`, `/shape menu`, `/box`, `/prefab`).
   **The rings replaced the world tools panel (ADR 0144):** the build ring's Brush tile, or C, opens the brush ring (shapes,
   the wheel sizes it); a brush choice leaves any build mode, and a build mode hides the brush's ghost and keys, so
@@ -110,6 +118,20 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   puts fire cells where sampled lights (not `safe_light` ones) touch gas; the held safety lamp tints its light by the
   gas sampled round the eye. `VentFanEntity` pushes gas cells along its facing with `SimWorld.blow`; a solid with
   `emits` / `emit_chance` (spring stone: water) pours into air beside it until covered. Check: `test_firedamp.gd`.
+  **Movement toys (ADR 0151):** items with `move_toy` (`glider`, `rope`, `grapple`) belong to `MovementToys`
+  (`scripts/player/movement_toys.gd`, a child of Main). `Player._physics_step` calls `toys.step` on foot after the walk,
+  gravity, jetpack and ladder and before `_move`; a toy only sets `Player.velocity` (and `_fall_peak_y`), so the body
+  still moves through `VoxelBoxMover`. Ropes are `{x, z, top, bottom}` lines saved in the player file (`ropes`), not
+  voxels. A toy's let-go speed is carried by `_carry` in the air and becomes `Player._knock` on landing. Player-local:
+  other players see none of it. Check: `toys_test=1` (game/README.md).
+  **Fishing and land traps (ADR 0163):** `Fishing` (`scripts/work/fishing/`, a child of Main) runs the rod: StoneAge
+  hands a line's first right click to `use_rod`; cast along the aim (14 m) onto water, the bobber floats on the real
+  surface, the bite waits `fish_bite_max_s / (1 + fish within 8 m)`, a right click in the bite's window hooks, then
+  the reel's tension bar (hold to reel, ease off before 1, slack throws the hook). Species, junk (fouled water) and
+  whole fish that fillet to `raw_fish` are `data/fishing.json`. `TrapEntity` (`snare`, `pit_trap`: WORK_SPOT
+  pieces, bodies pass through) spring every 0.2 s on small animals / anything that fell into the pit, and on the
+  player (damage, a held foot); the catch is `Mob.trap_at` (saved with the mobs); companions are never caught and
+  `safe_ahead` steers them round traps. `/fish pond|foul|traps [cam]|cast|state`, `test/test_fishing.gd`.
   **Machines and networks (ADR 0113):** machines are work pieces (`work` on the item, a kind in
   `BlockEntities.create`); every entity with `net(channel) -> {role, amount}` joins `Networks.solve` once a second
   (20 block ticks): the native `NetworkSolver` unions the boxes that touch and moves min(supply, demand, weakest
@@ -124,6 +146,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   rubber (tar + sulfur, cured), insulated wire, coated board, vacuum tube, resistor, primitive circuit, machine hull,
   electric motor, electric piston; machines electric furnace, lathe, bending press, wiremill; book chapter
   `electrical_age`. `/kit electric`; `test_networks.gd`, `test_electrical_age.gd`, `tools/network_bench.gd`.
+  **Running machines (ADR 0153):** `MachineFx` reads `data/machine_fx.json` per kind (`when`/`starved` Expressions on
+  the entity, `emit`, `pulse`, `parts` spin/bob/needle, `shake_m`, `lamp`, `light`) and animates machines within
+  `machine_fx_m`; ParticleFx, TorchLights and GameAudio's machine loops defer to it. A new machine is a JSON entry.
+  Check: `test_machine_fx.gd`, `/stations fx`, `/machinefx force|film`.
   **Stage 3 transport (ADR 0100):** `Transport.give/pull` is the one place that knows how every piece loads and
   unloads; `HopperEntity` (hopper and chute, `item`) pulls from above (the chute from behind too) and pushes the
   way it faces or down; `BeltEntity` carries `carried` [{stack, t}] one block in `belt_s` and draws them riding;
@@ -261,6 +287,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   hardness (soft full radius, stone 3/4, hard rock 1/2, obsidian and bedrock never), rim seeds to the rigid piece check,
   damage and knockback to 2 x radius, 30 % of the estimated take as drops. One blast per frame; a 20-block chain holds
   max frame 12.4 ms. `/tnt grid [n] [spacing_m] | light | stats`, `/kit tnt`; JSON `tnt`.
+  **Fuse cord and debris (ADR 0150):** `fuse_cord` (137) burns along itself at `Settings.fuse_speed_mps` by the native fuse
+  rule (`fuse_ticks`: a fixed delay per cell to face and edge neighbours, under water too), its fire too cold for anything else and its flame the cold `fuse_spark` (138);
+  `Tnt._cord_burning_at` lights a charge a burning cord touches. `BlastDebris` throws up to `tnt_debris_max` 2^3 chunks
+  per blast that land as loose voxels (rock as gravel) and hurt what they hit. `/tnt fuse [m]`, `/scenario fuse`, `test/test_fuse_cord.gd`.
   **Mine shoring (ADR 0142):** a roof cell over a dug 0.5 m block must lie within its rock's span of a wall
   (`1 m + 1 m x mining hardness`, max 4 m: stone 2.5 m, sandstone 1.8 m; a 3 m tunnel always stands) or within
   a prop's radius (timber prop 1.5 m / 4 m2, stone pillar 2.5 m / 12 m2, iron beam 3.5 m / 30 m2: furniture kinds
@@ -280,7 +310,13 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   109 cobblestone, 110 bricks, 111..115 clutter (plant stem, kelp, seagrass, seashell, mushroom stem; ADR 0047),
   116..119 liquids (part A), 120 crystal (geodes, ADR 0052), 121 lava_static (ADR 0069 C), 122..123 reserved for world generation, 124..126 giant flower stem, petal, heart (meadow, 2026-11-02), 127..129 savanna grass,
   savanna tall grass, red earth (ADR 0064; `GameMaterials.is_grass` / `is_tall_grass` treat them as grass), 130..132 torch and
-  wheat parts (ADR 0053), 160..202 rock kinds, clutter, pyrite and ochres (ADR 0057), Stone Age ids after (ADR 0059), 203 tnt (ADR 0065), 204..206 monolith (ADR 0098), 207..210 spruce/acacia/jungle/birch planks and 211..215 saplings (ADR 0112: `Saplings` grows them into trees, `data/saplings.json`), 218..221 fouled water, waste ground, slag, chimney (ADR 0141; 222.. reserved up to the cave ids).
+  wheat parts (ADR 0053), 137..138 fuse cord and spark (ADR 0150), 160..202 rock kinds, clutter, pyrite and ochres (ADR 0057), Stone Age ids after (ADR 0059), 203 tnt (ADR 0065), 204..206 monolith (ADR 0098), 207..210 spruce/acacia/jungle/birch planks and 211..215 saplings (ADR 0112: `Saplings` grows them into trees, `data/saplings.json`), 218..221 fouled water, waste ground, slag, chimney (ADR 0141; 222.. reserved up to the cave ids). 141 hot meteoric iron, 147 meteoric iron, 148 scorched earth (ADR 0157: `Meteors`, runtime craters; tiles 186, 187, 216).
+  **Surface hazards (ADR 0149):** `Weather` kind `storm` strikes the highest surface voxel within 24 m
+  (`SimWorld.surface_map` at 0.75 m) or the nearest lightning rod (material 139, `LightningRodEntity`, a 2 m pole
+  stamped by `PlantStamps.for_placed`): flash (`Atmosphere.flash`), thunder by distance, `FIRE` cells, 8 damage.
+  `Volcano` erupts a crater within 40 m: 20 s rumble and smoke, then 0.5 m balls of `LAVA` at a spout 3 m outside
+  the rim on the player's side and bombs beyond the rim, never in the still lake; capped at 16000 cells.
+  `/weather storm`, `/lightning [here]`, `/erupt`; tests `test/test_surface_hazards.gd`.
   **Pollution (ADR 0141):** machine waste is cells: recipe `"waste"` and item `"firebox"` fill a saved buffer that
   `Waste.emit_all` (once a second) pours out of the port (back face; gases over the top or a chimney stack; liquids
   into a touching pipe run's intake or far end); a full buffer stalls the machine. Sludge fouls water; fouled water
@@ -288,6 +324,11 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   stays inert, only `"react_awake"` sludge and fouled water keep their chunk awake while they touch a partner).
   `SimWorld.set_wind` drifts `wind_drift` gases (smoke), not under a roof (12 m scan up). `/stations pollution`
   and `/stations smoke` show it.
+  **Consequences (ADR 0155):** fish in fouled water build `Mob.foul_s` (gasp at the surface, then die belly-up and
+  float); crops beside sludge/waste ground, watered foul or under heavy smoke turn sickly (`Farming.pollution`, saved
+  `sick`, slow growth) and wilt to dead bushes, clean ticks heal; dense smoke round the head (native count) makes the
+  player cough, then hurts, unless a `smoke_mask` piece is worn (cloth mask, diving mask). Numbers in `settings.gd`;
+  `/pollute [smoke]` shows it.
   Atlas 8x23 tiles (16..19 ores, patterned since ADR 0064; 104 crystal, 109..111 savanna grass, tall grass, red earth, 112..120 crops and torches, 136..170 rocks, 171..172 tnt side and top, 173..175 monolith, 176..179 per-wood planks (row 23, 180..183 free); 190 waste ground, 191 slag, 215 chimney top (ADR 0141); 84 leaf litter, 85 oak bark, 86 pebbles, 87 flint, 93/97 twigs top/bark, 94..96 ore-bearing
   stones; 98 cobblestone, 99 bricks; 100 blueberry bush; 101 kelp, 102 seagrass, 103 seashell: full, add a row to grow;
   after editing `tools/make_atlas.py` run `--import`, or the game draws the old texture). `"pattern": true` materials lay their tile over the grid, one texel per voxel (ADR 0039). Ground pickups are voxel shapes (stone chunks on a 0.5 m patch, sticks as `FineGen::STICK` stamps);
@@ -299,3 +340,9 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   from `StationEntity.model_mesh(name)` with footprints in `StationEntity.SIZES`; every cell model goes
   through `WorkPalette.shade_cells` (tones per cell, darker convex edges, ADR 0076); check with
   `tools/station_sheet.tscn`.
+- **Seasons that matter (ADR 0156):** `Settings.month_days` 3 (a 36-day year), `season_swing_c` 14 C. `SeasonWorld`
+  (child of SurvivalLoop) drives `SimWorld.season_pass` over the bubble a few chunk columns a pass: `snow_layer` 145 on
+  open ground while it snows below 0 C, `lake_ice` 146 on still water when the day's mean is under 0 C, both back
+  (air, `water_static`) over 2 C; static cells, nothing woken. Summer: Weather's `season_rain_mult` /
+  `season_storm_mult`, `SimWorld.set_dryness`, `Farming.drought`. crops.json `grows_in`; the autumn frost warning;
+  `/season <name> [now]`. Tests `test/test_seasons_0156.gd`.
