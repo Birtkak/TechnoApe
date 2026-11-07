@@ -324,6 +324,7 @@
     {"id": "fur", "name": "Fur", "tags": ["hide", "fur"], "stack": 16, "_note": "foxes, wolves and rabbits: warm clothing later (part F)"},
     {"id": "tnt", "name": "TNT", "tags": ["block", "explosive"], "stack": 64, "material": "tnt", "_note": "ADR 0065: placed like any block (the brush); lit by fire, flint and steel, the igniter or another blast, it hisses and blinks, then blows a crater that drops some of what it took"},
     {"id": "igniter", "name": "Blasting Igniter", "tags": ["tool", "firestarter"], "stack": 1, "durability": 64, "ignites": "tnt", "_note": "ADR 0065: right click TNT to light it (no flames on anything else); sneak + right click lights every TNT within 16 m"},
+    {"id": "fuse_cord", "name": "Fuse Cord", "tags": ["block", "explosive"], "stack": 64, "material": "fuse_cord", "_note": "ADR 0150: lay it as a line (brush size 1, faces touching), light one end with flint and steel or fire: it burns at Settings.fuse_speed_mps and lights the TNT it reaches"},
     {"id": "bronze_knife_head", "name": "Bronze Knife Blade", "tags": ["tool_head", "bronze_head"], "stack": 64, "_note": "cast in a fired clay mold or smithed (ADR 0070)"},
     {"id": "bronze_knife", "name": "Bronze Knife", "tags": ["tool", "knife"], "stack": 1, "tier": 2, "durability": 256},
     {"id": "bronze_axe_head", "name": "Bronze Axe Head", "tags": ["tool_head", "bronze_head"], "stack": 64, "_note": "cast in a fired clay mold or smithed (ADR 0070)"},

@@ -77,6 +77,7 @@
     "iron_bearing_stones":   {"hardness": 0.0, "drops": "loose_iron_ore"},
     "wool":         {"hardness": 0.8, "tool": "shears", "drops": "wool", "built": true},
     "tnt":          {"hardness": 0.0, "drops": "tnt"},
+    "fuse_cord":    {"hardness": 0.0, "drops": "fuse_cord"},
     "carpet":       {"hardness": 0.1, "drops": "carpet", "built": true},
     "farmland":     {"hardness": 0.6, "tool": "shovel", "drops": "dirt"},
     "farmland_moist": {"hardness": 0.6, "tool": "shovel", "drops": "dirt"},

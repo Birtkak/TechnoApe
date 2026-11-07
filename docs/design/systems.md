@@ -255,6 +255,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   hardness (soft full radius, stone 3/4, hard rock 1/2, obsidian and bedrock never), rim seeds to the rigid piece check,
   damage and knockback to 2 x radius, 30 % of the estimated take as drops. One blast per frame; a 20-block chain holds
   max frame 12.4 ms. `/tnt grid [n] [spacing_m] | light | stats`, `/kit tnt`; JSON `tnt`.
+  **Fuse cord and debris (ADR 0150):** `fuse_cord` (137) burns along itself at `Settings.fuse_speed_mps` by the kernel's
+  fire rule (ignite_chance from the speed), its fire too cold for anything else and its flame the cold `fuse_spark` (138);
+  `Tnt._cord_burning_at` lights a charge a burning cord touches. `BlastDebris` throws up to `tnt_debris_max` 2^3 chunks
+  per blast that land as loose voxels (rock as gravel). `/tnt fuse [m]`, `/scenario fuse`, `test/test_fuse_cord.gd`.
   **Mine shoring (ADR 0142):** a roof cell over a dug 0.5 m block must lie within its rock's span of a wall
   (`1 m + 1 m x mining hardness`, max 4 m: stone 2.5 m, sandstone 1.8 m; a 3 m tunnel always stands) or within
   a prop's radius (timber prop 1.5 m / 4 m2, stone pillar 2.5 m / 12 m2, iron beam 3.5 m / 30 m2: furniture kinds
@@ -274,7 +278,7 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   109 cobblestone, 110 bricks, 111..115 clutter (plant stem, kelp, seagrass, seashell, mushroom stem; ADR 0047),
   116..119 liquids (part A), 120 crystal (geodes, ADR 0052), 121 lava_static (ADR 0069 C), 122..123 reserved for world generation, 124..126 giant flower stem, petal, heart (meadow, 2026-11-02), 127..129 savanna grass,
   savanna tall grass, red earth (ADR 0064; `GameMaterials.is_grass` / `is_tall_grass` treat them as grass), 130..132 torch and
-  wheat parts (ADR 0053), 160..202 rock kinds, clutter, pyrite and ochres (ADR 0057), Stone Age ids after (ADR 0059), 203 tnt (ADR 0065), 204..206 monolith (ADR 0098), 207..210 spruce/acacia/jungle/birch planks and 211..215 saplings (ADR 0112: `Saplings` grows them into trees, `data/saplings.json`), 218..221 fouled water, waste ground, slag, chimney (ADR 0141; 222.. reserved up to the cave ids).
+  wheat parts (ADR 0053), 137..138 fuse cord and spark (ADR 0150), 160..202 rock kinds, clutter, pyrite and ochres (ADR 0057), Stone Age ids after (ADR 0059), 203 tnt (ADR 0065), 204..206 monolith (ADR 0098), 207..210 spruce/acacia/jungle/birch planks and 211..215 saplings (ADR 0112: `Saplings` grows them into trees, `data/saplings.json`), 218..221 fouled water, waste ground, slag, chimney (ADR 0141; 222.. reserved up to the cave ids).
   **Pollution (ADR 0141):** machine waste is cells: recipe `"waste"` and item `"firebox"` fill a saved buffer that
   `Waste.emit_all` (once a second) pours out of the port (back face; gases over the top or a chimney stack; liquids
   into a touching pipe run's intake or far end); a full buffer stalls the machine. Sludge fouls water; fouled water

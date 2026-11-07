@@ -157,6 +157,8 @@ const PYRITE := 200                # placed by E's generator for part F (striker
 const RED_OCHRE := 201
 const YELLOW_OCHRE := 202
 const TNT := 203                   # placeable explosive (ADR 0065): a charge per 0.5 m block, lit by Tnt, never burnt by the sim
+const FUSE_CORD := 137             # ADR 0150: burns slowly along itself (Settings.fuse_speed_mps), lights TNT it reaches
+const FUSE_SPARK := 138            # ADR 0150: the cord's cold flame: a still, short-lived fire cell that lights nothing
 const MONOLITH := 204              # the Gelvin monolith (ADR 0098): ashlar, rune bands, the glowing seam; never mined or blasted
 const MONOLITH_RUNE := 205
 const MONOLITH_SEAM := 206
@@ -296,7 +298,7 @@ static func _build_defs() -> Array:
 		# 122, 123 (ADR 0110): the cores of conduit chambers, hard enough to need a good pick
 		{"name": "spring_stone", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [105, 105, 105], "transparent": false},
 		{"name": "magma_heart", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [106, 106, 106], "transparent": false},
-	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + _reserved_defs(133, 159) + _rock_defs() + [
+	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + _reserved_defs(133, 136) + _fuse_defs() + _reserved_defs(139, 159) + _rock_defs() + [
 		# 203 (ADR 0065): TNT. Not burnable: the sim would burn it away; Tnt lights it when fire touches it.
 		{"name": "tnt", "cell_type": "solid", "pattern": true, "density": 6, "hp": 50, "tiles": [172, 171, 172], "transparent": false},
 		# 204..206 (ADR 0098): the Gelvin monolith and its plaza. Not in mining.json and hp past Tnt.NEVER_HP: indestructible.
@@ -315,6 +317,21 @@ static func _build_defs() -> Array:
 
 ## Ids 218..221 (ADR 0141): factory waste as matter. Fouled water has water's look and flow in its own fluid slot;
 ## react_awake keeps it rolling its reactions at rest (reactions()). Atlas tiles 190, 191, 215.
+## Ids 137..138 (ADR 0150): fuse cord and its spark. The cord lights only itself: its fire is colder (12) than
+## anything else catches (15+), and its flame is the spark (temperature 0, still), so the ground beside it
+## never burns. A burning cell lights one of its 6 neighbours with ignite_chance per tick, so along a line the
+## burn moves tick_hz * ignite_chance / 6 voxels a second (at most 0.625 m/s at 30 Hz).
+static func _fuse_defs() -> Array:
+	var ic := clampf(Settings.fuse_speed_mps / Settings.VOXEL_M * 6.0 / Settings.sim_tick_hz, 0.05, 1.0)
+	return [
+		{"name": "fuse_cord", "cell_type": "solid", "density": 6, "hp": 5, "burnable": true, "fire_hp": 70, "ignite_chance": ic,
+			"autoignition_temperature": 10, "temperature_of_fire": 12, "on_fire_convert_to_material": 8, "on_fire_flame_material": FUSE_SPARK,
+			"on_fire_smoke_material": 11, "generates_smoke": 40, "tiles": [199, 199, 199], "transparent": false},
+		{"name": "fuse_spark", "cell_type": "fire", "density": 0, "lifetime": 8, "temperature_of_fire": 0, "gas_upwards_speed": 0,
+			"gas_horizontal_speed": 0, "tiles": [12, 12, 12], "transparent": true},
+	]
+
+
 static func _waste_defs() -> Array:
 	return [
 		{"name": "fouled_water", "boil_c": 100, "boils_to": "steam", "boil_rise_c": 60, "cell_type": "liquid", "fluid_slot": 5, "density": 0.95, "liquid_flow_speed": 1.0, "liquid_speed": 8, "film_lifetime_ticks": 300, "tiles": [5, 5, 5], "transparent": true, "react_awake": true},

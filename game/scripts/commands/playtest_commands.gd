@@ -21,6 +21,7 @@ const SCENARIOS := {
 	"river": ["/goto river", "/gamemode creative", "/kit water"],   # scoop, crater rod, laser a trench (ADR 0104)
 	"cave_stream": ["/goto river", "/gamemode creative", "/kit water", "/locate cave"],   # tunnel from the bank to that cave
 	"lit_station": ["/time set night", "/daycycle off", "/stations"],   # /stations lights its furnace (cobblestone + coal)
+	"fuse": ["/gamemode creative", "/kit tnt", "/tnt fuse 4"],   # look at open ground first: a cord burns 4 m into a charge (ADR 0150)
 	"ledge": ["/gamemode survival", "/fill {x0} {ledge} {z0} {x1} {ledge} {z1} stone", "/tp {x} {on} {z}"],   # Ctrl sprint, Shift stops at the edge
 }
 

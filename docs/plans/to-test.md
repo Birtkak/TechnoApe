@@ -10,6 +10,12 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Fuse cord and flung debris (ADR 0150)
+
+- [ ] `/scenario fuse` (look at open ground first): a 4 m cord burns toward the charge with sparks and smoke, about 8 s, then the blast. Speed right?
+- [ ] Craft fuse cord (cordage, sulfur, charcoal), lay it with the brush at size 1 from a TNT block through tall grass, light the far end with flint and steel: the grass beside it must not catch.
+- [ ] Blasts throw chunks that fly and land as gravel/dirt piles around the crater. Violent enough? Too many or too few?
+
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 
 - [ ] G or V opens the ring (tap, then click; or hold and release), names under the icons. Brush tile: shapes, wheel sizes
