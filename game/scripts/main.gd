@@ -2052,7 +2052,7 @@ func spawn_item(stack: Dictionary, pos: Vector3, velocity: Vector3 = Vector3.ZER
 	_items_root.add_child(e)
 	_item_entities.append(e)
 	item_stats["spawned"] += 1
-	if Net.recording:   # a player action's drop: the same item on every client, picked up through the server (ADR 0145)
+	if Net.recording and Net.active and not Net.is_server:   # online only (offline the pick is never granted); a player action's drop: the same item on every client, picked up through the server (ADR 0145)
 		e.net_uid = Net.next_uid()
 		Net.send_item(e.net_uid, stack, pos, velocity)
 	return e
