@@ -338,12 +338,14 @@ func _end_pass(s: Dictionary, b: BuilderEntity) -> void:
 
 func _entity_done(e: Dictionary) -> bool:
 	var at: RefCounted = main.blocks.at(e["anchor"])
-	return at != null and at.kind == e["kind"] and at.pos == e["anchor"]
+	return at != null and at.kind == e["kind"] and at.pos == e["anchor"] and (not at is FurnitureEntity or at.furniture == e["furniture"])
 
 
 func _entity_free(e: Dictionary) -> bool:
 	var mask: PackedByteArray = main.builder._mask_free
-	for c in BlockEntities.footprint_of(e["kind"], e["anchor"]):
+	var cells: Array = [e["anchor"]] if e["kind"] == "torch" else (FurnitureEntity.footprint(e["furniture"], e["anchor"], int(e.get("facing", 0)))
+		if e["kind"] == "furniture" else BlockEntities.footprint_of(e["kind"], e["anchor"]))
+	for c in cells:
 		var m: int = main.bubble.get_voxel(c)
 		if m < 0 or mask[m] == 0:
 			return false
@@ -351,7 +353,18 @@ func _entity_free(e: Dictionary) -> bool:
 
 
 func _place_entity(e: Dictionary) -> void:
+	Net.record(_place_entity_now.bind(e))   # ADR 0145: its voxels are shared like a hand placing it (entities are not, yet)
+
+
+func _place_entity_now(e: Dictionary) -> void:
 	var anchor: Vector3i = e["anchor"]
+	if e["kind"] == "torch":
+		main._place_torch(anchor)
+		return
+	if e["kind"] == "furniture":
+		if main._place_furniture(e["furniture"], anchor, int(e.get("facing", 0))) and e["text"] != "":
+			main.blocks.at(anchor).set_text(e["text"])
+		return
 	if StationEntity.SIZES.has(e["kind"]):
 		main._on_placed(anchor, int(e["mat"]))   # the chest, furnace, crafting table: as a hand places one
 		return
@@ -419,6 +432,47 @@ func summary() -> Dictionary:
 
 # ---------------- scripted check (blueprint_test=1) ----------------
 
+## blueprint_test=save: a small furnished hut (planks, a furnace, a chair, a torch) copied onto a written blueprint
+## held in slot 0 and a site marked beside it, then the world saved. blueprint_test=load (the same seed): the stack
+## and the site came back with the same data. Prints "debug blueprint_save {...}".
+func debug_save_test(stage: String) -> void:
+	var r := {"stage": stage}
+	await get_tree().create_timer(0.6).timeout
+	var p: Player = main.player
+	if stage == "save":
+		p.autopilot_action = "look"
+		var B := Settings.BLOCK
+		var base := BlockEntities.anchor_for(Vector3i(p.position.floor()))
+		var g0 := floori(float(main.world.surface_height(base.x, base.z)) / B) * B
+		var lo := Vector3i(base.x - 3 * B, g0, base.z - 10 * B)
+		var size := Vector3i(6 * B, 4 * B, 6 * B)
+		await _fill(lo - Vector3i(B, 1, B), lo + size + Vector3i(B, B, B), GameMaterials.AIR)
+		await _fill(lo, lo + Vector3i(size.x, 1, size.z), GameMaterials.PLANKS)
+		await get_tree().create_timer(0.3).timeout
+		main._on_placed(lo + Vector3i(B, 1, B), GameMaterials.FURNACE)
+		main._place_furniture("chair", lo + Vector3i(4 * B, 1, 3 * B), 1)
+		main._place_torch(lo + Vector3i(B, 1, 4 * B))
+		await get_tree().create_timer(0.3).timeout
+		var d := Blueprint.capture(main, lo, size)
+		main.player_inv.inv.set_slot(0, {"id": "written_blueprint", "count": 1, "blueprint": d})
+		mark(d, lo + Vector3i(0, 0, -8 * B), 1, false)
+		main._save_blocks()
+		r["kinds"] = d.get("entities", []).map(func(e: Dictionary) -> String: return String(e.get("furniture", e["kind"])))
+		r["runs"] = (d["runs"] as Array).size()
+		r["site_lo"] = str(sites[0]["lo"])
+	else:
+		var s: Dictionary = main.player_inv.inv.get_slot(0)
+		var d: Dictionary = s.get("blueprint", {})
+		r["held"] = s.get("id", "")
+		r["kinds"] = d.get("entities", []).map(func(e: Dictionary) -> String: return String(e.get("furniture", e["kind"])))
+		r["runs"] = (d.get("runs", []) as Array).size()
+		r["sites"] = sites.size()
+		r["site_lo"] = str(sites[0]["lo"]) if not sites.is_empty() else ""
+		r["site_rot"] = int(sites[0]["rot"]) if not sites.is_empty() else -1
+		r["site_entities"] = (sites[0]["lay"]["entities"] as Array).size() if not sites.is_empty() else 0
+	print("debug blueprint_save " + JSON.stringify(r))
+
+
 ## A box fill once the bubble has loaded every chunk it touches (it loads nearest first after the world).
 func _fill(lo: Vector3i, hi: Vector3i, m: int) -> void:
 	for _i in 80:
@@ -456,6 +510,8 @@ func debug_test() -> void:
 	main._on_placed(a_lo + Vector3i(3 * B, 1, B), GameMaterials.CHEST)
 	var hop: RefCounted = main.work._create(a_lo + Vector3i(3 * B, 7, B), "hopper", GameMaterials.WORK_SPOT)
 	hop.facing = 2
+	main._place_furniture("chair", a_lo + Vector3i(B, 1, 4 * B), 1)
+	main._place_torch(a_lo + Vector3i(4 * B, 1, 4 * B))
 	await tree.create_timer(0.5).timeout
 	var d := Blueprint.capture(main, a_lo, hut)
 	r["bill"] = Blueprint.bill(d, main.items)
@@ -513,7 +569,7 @@ func debug_test() -> void:
 	r["diff_sample"] = sample
 	r["voxels_match"] = ga.size() == gb.size() and diffs == 0
 	var ek := func(x: Dictionary) -> Array:
-		var l: Array = x.get("entities", []).map(func(e: Dictionary) -> String: return "%s@%d,%d,%d f%d" % [e["kind"], int(e["off"][0]), int(e["off"][1]), int(e["off"][2]), int(e.get("facing", -1))])   # JSON made the ints floats
+		var l: Array = x.get("entities", []).map(func(e: Dictionary) -> String: return "%s@%d,%d,%d f%d" % [e.get("furniture", e["kind"]), int(e["off"][0]), int(e["off"][1]), int(e["off"][2]), int(e.get("facing", -1))])   # JSON made the ints floats
 		l.sort()
 		return l
 	r["entities_match"] = ek.call(copy) == ek.call(d)

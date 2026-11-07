@@ -150,6 +150,8 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("survival", "/survival [hunger <0..20> | body <C> | spoil <0..1>]", "Hunger, body temperature and the air around you (ADR 0040); spoil sets the held food's freshness", _survival)
 	reg.register("shape", "/shape <box|wall|cylinder|cone|sphere|stairs|slope> [w h d] [hollow n] [at x y z] | commit | cancel | turn [tip] | mirror", "Shape building (V in game): set a shape down at the crosshair, then commit", _shape)
 	reg.register("box", "/box <build|dig|select> <x1> <y1> <z1> <x2> <y2> <z2> | go", "Box mode by coordinates (V in game); go digs a marked box at once", _box)
+	reg.register("blueprint", "/blueprint copy x1 y1 z1 x2 y2 z2 | place [at x y z] [turn 0-3] [mirror] | list | clear",
+		"Copy a box onto a written blueprint, place the held one (a ghost, or at once with at), list or clear the sites (ADR 0161)", _blueprint)
 	reg.register("prefab", "/prefab save <category> <name> | place <category> <name> [at x y z] | list", "Save the selected box as a prefab, place one, or list them", _prefab)
 	reg.register("chop", "/chop [cam]", "Chop through the nearest big trunk 8-20 m away like a player would: 1 m brush digs at 1.5 m up, one every 0.3 s", _chop)
 	reg.register("weather", "/weather [clear|rain|storm] [seconds]", "Show or set the weather (rain turns to snow below 0 C; a storm has lightning); a forest fire brings rain on its own", _weather, [["clear", "rain", "storm"]])
@@ -1293,6 +1295,47 @@ func _shape(args: PackedStringArray) -> Dictionary:
 
 
 ## "at <x> <y> <z>" in a command's args (~ relative to the player) as a Vector3i, else null.
+func _blueprint(args: PackedStringArray) -> Dictionary:
+	if main == null or main.get("blueprints") == null:
+		return CommandRegistry.fail("No blueprints here")
+	var bp: Blueprints = main.blueprints
+	var usage := "Usage: /blueprint copy x1 y1 z1 x2 y2 z2 | place [at x y z] [turn 0-3] [mirror] | list | clear"
+	match args[0] if args.size() > 0 else "":
+		"list":
+			return CommandRegistry.ok(JSON.stringify(bp.summary()))
+		"clear":
+			bp.clear_sites()
+			return CommandRegistry.ok("Sites cleared")
+		"copy":
+			if args.size() < 7:
+				return CommandRegistry.fail(usage)
+			var a: Variant = _coords(args, 1, player.position)
+			var b: Variant = _coords(args, 4, player.position)
+			if not (a is Vector3 and b is Vector3):
+				return CommandRegistry.fail(usage)
+			var lo := Vector3i((a as Vector3).min(b))
+			var d := Blueprint.capture(main, lo, Vector3i((a as Vector3).max(b)) - lo + Vector3i.ONE)
+			if d.is_empty() or d.has("error"):
+				return CommandRegistry.fail(d.get("error", "Nothing there to copy"))
+			main.player_inv.pickup("written_blueprint", 1, {"blueprint": d})
+			return CommandRegistry.ok("Copied: " + Blueprint.describe(d, main.items))
+		"place":
+			var held: Dictionary = main.player_inv.held()
+			if String(held.get("id", "")) != "written_blueprint":
+				return CommandRegistry.fail("Hold a written blueprint")
+			var at: Variant = _at_arg(args)
+			if at == null:
+				bp.start_placing(held["blueprint"])
+				return CommandRegistry.ok("Placing: click to mark the site")
+			var rot := 0
+			var t := args.find("turn")
+			for _q in (int(args[t + 1]) if t >= 0 and t + 1 < args.size() else 0):
+				rot = ShapeTool.new().turn(rot, 1)
+			var i := bp.mark(held["blueprint"], at, rot, args.has("mirror"))
+			return CommandRegistry.ok("Site %d marked at %s" % [i, at]) if i >= 0 else CommandRegistry.fail("This blueprint is blank")
+	return CommandRegistry.fail(usage)
+
+
 func _at_arg(args: PackedStringArray) -> Variant:
 	var i := args.find("at")
 	if i < 0 or i + 3 >= args.size():

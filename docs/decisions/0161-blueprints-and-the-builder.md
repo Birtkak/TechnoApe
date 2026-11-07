@@ -18,8 +18,10 @@ a selection with handles (ADR 0143) and a prefab ghost that turns and mirrors.
    changes) with the entity cells left out, plus a list of entities: kind, the item that places it,
    its voxel material, its footprint box in the blueprint, and `facing`, `axis` and the sub item (pipe or
    cable kind) where it has them. Stations (chest, furnace, crafting table) and every work piece an item
-   places (`"work"` key) are copied; their contents are not. Furniture and torches are not copied yet
-   (their placement knows walls and facings of its own). At most 64 Ki voxels.
+   places (`"work"` key) are copied, and furniture (facing, a sign's words) and torches, which keep their
+   anchor (`at`) and are placed through `Main._place_furniture` / `_place_torch` (a torch picks floor or wall
+   itself). **Contents are not copied** (chests, machines): a builder that filled them would make items from
+   nothing. At most 64 Ki voxels.
 3. **Placing** a written blueprint is the prefab ghost (`ShapeBuilder.start_grid`, entity boxes drawn in
    their material) with two hooks: R turns about up and X mirrors, Shift + R does not tip, and the click
    calls `on_commit` instead of building. `Blueprint.layout` turns the voxels with ShapeTool and turns the
@@ -42,7 +44,11 @@ a selection with handles (ADR 0143) and a prefab ghost that turns and mirrors.
    the player has, and a yellow marker shows where. Ordinary placing fills the ghost; the next pass sees it.
 7. **Multiplayer (ADR 0145):** the builder's voxels go in with `ShapeTool.fill` and, connected,
    `NetOps.fill` through the edit journal, like a committed shape. Pieces are placed the way a hand
-   places them (`Main._on_placed`, `WorkSystem._create`).
+   places them (`Main._on_placed`, `WorkSystem._create`) inside `Net.record`, so their voxels are journaled
+   like a hand's; the entities themselves are not shared, as ADR 0145 leaves block entities local for now.
+8. **`/blueprint`** `copy x1 y1 z1 x2 y2 z2` (a written blueprint into the inventory), `place [at x y z]
+   [turn 0-3] [mirror]` (the held one: the ghost, or marked at once), `list`, `clear`. The builder hums like
+   the assembler.
 
 ## Consequences
 - A builder walks cells in GDScript, bounded per frame; a site is capped at 64 Ki voxels. A bigger one
@@ -50,5 +56,7 @@ a selection with handles (ADR 0143) and a prefab ghost that turns and mirrors.
 - Out of the sim bubble a site waits (its cells read as unloaded).
 - Every station footprint is square in x and z today; a non-square one would land beside its turned box.
 - Checks: `test/test_blueprints.gd` (layout turns, bill, ghost, data), scripted run `blueprint_test=1`
-  (copies a hut with a furnace, a chest and a hopper, rebuilds it 5 m away by a cranked builder with the
-  furnace missing at first, compares the two boxes; JSON "debug blueprint", sheet `blueprint.png`).
+  (copies a hut with a furnace, a chest, a hopper, a chair and a torch, rebuilds it 5 m away by a cranked
+  builder with the furnace missing at first, compares the two boxes; JSON "debug blueprint", sheet
+  `blueprint.png`), and `blueprint_test=save` then `=load` with `persist=1` on one seed (the held written
+  blueprint and the marked site come back).

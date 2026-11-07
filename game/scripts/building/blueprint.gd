@@ -5,7 +5,9 @@ extends RefCounted
 ## are a prefab (PrefabStore.encode: material names and run-length runs, so the stack stays small and JSON-safe);
 ## the block entities (stations, machines, pipes) are a list beside it, each with the item that places it, its
 ## footprint box (offset and size in the blueprint) and its facing / axis / item. Entity cells are left out of
-## the voxel grid: the entity puts its own voxels down. Furniture, torches and work in progress are not copied.
+## the voxel grid: the entity puts its own voxels down. Furniture (with its facing and a sign's words) and torches
+## carry their anchor ("at"): their placement works out their cells. Chest and machine contents are not copied:
+## a builder refilling them from nothing would make items. Work in progress (knapping, molds) is not copied.
 
 const MAX_CELLS := 64 * 1024   # voxels a blueprint may hold: a builder walks them in GDScript (a few hundred a frame)
 
@@ -33,6 +35,8 @@ static func capture(main: Node, lo: Vector3i, size: Vector3i) -> Dictionary:
 			g[q.x + size.x * (q.z + size.z * q.y)] = 0
 		rec["off"] = [a.x - lo.x, a.y - lo.y, a.z - lo.z]
 		rec["box"] = [b.x - a.x + 1, b.y - a.y + 1, b.z - a.z + 1]
+		if e is FurnitureEntity or e is TorchEntity:
+			rec["at"] = [e.pos.x - lo.x, e.pos.y - lo.y, e.pos.z - lo.z]
 		ents.append(rec)
 	if g.count(0) == g.size() and ents.is_empty():
 		return {}
@@ -45,9 +49,21 @@ static func capture(main: Node, lo: Vector3i, size: Vector3i) -> Dictionary:
 
 ## {kind, item, mat, facing?, axis?, sub?} for an entity a blueprint can copy, else {}.
 static func _entity_record(main: Node, e: RefCounted) -> Dictionary:
-	if e is FurnitureEntity or e is TorchEntity:
-		return {}   # shortcut: furniture and torches have their own placement (facing, walls); copy them when asked
 	var items: ItemRegistry = main.items
+	if e is TorchEntity:
+		return {"kind": "torch", "item": "torch", "mat": GameMaterials.name_of(main.get_world_voxel(e.pos))}   # floor or wall: placing decides
+	if e is FurnitureEntity:
+		var fid := ""
+		for id in items.all_ids():
+			if String(items.get_def(id).get("furniture", "")) == e.furniture:
+				fid = id
+				break
+		if fid == "":
+			return {}
+		var fr := {"kind": "furniture", "furniture": e.furniture, "item": fid, "mat": "furniture", "facing": int(e.facing)}
+		if e.text != "":
+			fr["text"] = e.text
+		return fr
 	var m: int = main.get_world_voxel(e.pos)
 	if m == GameMaterials.FURNACE_LIT:
 		m = GameMaterials.FURNACE   # a burning furnace is copied as a furnace
@@ -146,8 +162,13 @@ static func layout(d: Dictionary, lo: Vector3i, rot: int, mirror: bool) -> Dicti
 	for i in mini(ents.size(), 255):
 		var o := Vector3i(int(ents[i]["off"][0]), int(ents[i]["off"][1]), int(ents[i]["off"][2]))
 		var b := Vector3i(int(ents[i]["box"][0]), int(ents[i]["box"][1]), int(ents[i]["box"][2]))
+		if ents[i].has("at"):   # furniture turns about its anchor block, a torch is its anchor cell
+			# shortcut: an anchor block that reaches into another piece's box can take that piece's mark; fine for rooms of furniture
+			o = Vector3i(int(ents[i]["at"][0]), int(ents[i]["at"][1]), int(ents[i]["at"][2]))
+			b = Vector3i(Settings.BLOCK, 1, Settings.BLOCK) if ents[i]["kind"] == "furniture" else Vector3i.ONE
 		for c in BlockEntities.box(o, b):
-			marks[c.x + size.x * (c.z + size.z * c.y)] = i + 1
+			if c.x < size.x and c.y < size.y and c.z < size.z:
+				marks[c.x + size.x * (c.z + size.z * c.y)] = i + 1
 	p["grid"] = marks
 	var mr := st.cells(p, lo)
 	var mins := {}
@@ -162,9 +183,10 @@ static func layout(d: Dictionary, lo: Vector3i, rot: int, mirror: bool) -> Dicti
 			continue
 		var e: Dictionary = ents[i]
 		var w := {"kind": e["kind"], "item": e["item"], "mat": GameMaterials.id_of(String(e["mat"])), "anchor": mins[i + 1],
-			"sub": String(e.get("sub", ""))}
+			"sub": String(e.get("sub", "")), "furniture": String(e.get("furniture", "")), "text": String(e.get("text", ""))}
 		if e.has("facing"):
-			w["facing"] = Transport.DIRS.find(_apply(turn, Transport.DIRS[posmod(int(e["facing"]), 4)]))
+			var dirs: Array = FurnitureEntity.DIRS if e["kind"] == "furniture" else Transport.DIRS   # furniture's 0 is +z, pieces' -z
+			w["facing"] = dirs.find(_apply(turn, dirs[posmod(int(e["facing"]), 4)]))
 		if e.has("axis"):
 			var ax := Vector3i(1, 0, 0) if int(e["axis"]) == 0 else Vector3i(0, 0, 1)
 			w["axis"] = 0 if _apply(turn, ax).x != 0 else 1
