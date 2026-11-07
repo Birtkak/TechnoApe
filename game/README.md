@@ -232,8 +232,12 @@ generate the world from the seed and replay each other's edits. Over Tailscale u
 ```
 Godot_..._console.exe --headless --path game -- server=1 seed=1337 port=7777        # the server (saves every 30 s; duration=<s> stops it)
 Godot_..._console.exe --path game -- connect=127.0.0.1:7777 name=brent                # a client; or Multiplayer on the title screen
-bash tools/net_proof.sh                                                               # the scripted proof: 4 JSON lines + game/out/net_b/strip.png
+bash tools/net_proof.sh                                                               # the scripted proof: 5 JSON lines + game/out/net_b/strip.png
+Godot_..._console.exe --headless --path game --script res://tools/net_find.gd         # the servers in reach (localhost, LAN, tailnet), one JSON line
 ```
+
+The Multiplayer page lists every server that answers on `port + 1` (localhost, LAN broadcast, every online
+Tailscale peer via `tailscale status --json`); `server_name=<n>` names a server (default: the machine).
 
 Saves: `user://worlds/net_<seed>_g<gen>.ops` (journal, `tools/net_journal_dump.gd` prints it) and
 `net_<seed>_g<gen>_players.json` on the server. Per client, not shared yet: items, inventories, block

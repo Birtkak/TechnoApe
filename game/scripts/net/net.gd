@@ -58,6 +58,9 @@ var _t0 := 0
 var _st: ShapeTool
 var _port := PORT
 var connect_arg := ""
+var server_name := ""          # server_name= on the command line, else the machine's name
+var _discovery: PacketPeerUDP   # server: answers ServerFinder probes on port + 1
+var _server_id := "%08x" % (randi() & 0x7fffffff)   # tells one server's answers apart on every route it is reachable by
 
 
 func _ready() -> void:
@@ -71,6 +74,7 @@ func _ready() -> void:
 			"name": player_name = kv[1]
 			"port": _port = int(kv[1])
 			"duration": _lifetime = float(kv[1])
+			"server_name": server_name = kv[1]
 	if OS.get_cmdline_user_args().has("server=1"):
 		_start_server.call_deferred()
 
@@ -91,6 +95,11 @@ func _start_server() -> void:
 		return
 	multiplayer.multiplayer_peer = peer
 	multiplayer.peer_disconnected.connect(_on_peer_left)
+	if server_name == "":
+		server_name = OS.get_environment("COMPUTERNAME") if OS.has_environment("COMPUTERNAME") else OS.get_environment("HOSTNAME")
+	_discovery = PacketPeerUDP.new()
+	if _discovery.bind(_port + 1) != OK:
+		push_warning("net: port %d is taken, the server will not show in the Multiplayer list" % (_port + 1))
 	var f := FileAccess.open_compressed(_journal_path(), FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
 	if f:
 		var v: Variant = f.get_var()
@@ -470,6 +479,7 @@ func _process(delta: float) -> void:
 		stats["recv_bytes"] += host.pop_statistic(ENetConnection.HOST_TOTAL_RECEIVED_DATA)
 	_save_accum += delta
 	if is_server:
+		_answer_probes()
 		if _save_accum >= SAVE_S:
 			_save_accum = 0.0
 			_save_files()
@@ -501,6 +511,15 @@ func _notification(what: int) -> void:
 func _exit_tree() -> void:
 	if is_server:
 		_save_files()
+
+
+## The Multiplayer menu's probes (ServerFinder): who we are, so the server shows in its list.
+func _answer_probes() -> void:
+	while _discovery and _discovery.get_available_packet_count() > 0:
+		if _discovery.get_packet().get_string_from_utf8() != ServerFinder.PROBE:
+			continue
+		_discovery.set_dest_address(_discovery.get_packet_ip(), _discovery.get_packet_port())
+		_discovery.put_packet(ServerFinder.answer({"name": server_name, "seed": seed_value, "game_mode": game_mode, "players": peers.size(), "port": _port, "proto": PROTO, "id": _server_id}))
 
 
 ## For DebugCapture's JSON: counts plus bytes per second since the connection.

@@ -35,6 +35,7 @@ sleep 30
 # c: late join, after the stone was placed: the journal must put it in
 timeout 110 "$G" --headless --path . -- connect=127.0.0.1:$PORT name=carol autopilot=1 duration=12 seed=$SEED $COMMON out=res://out/net_c > out/net_c.log 2>&1 &
 C=$!
+timeout 30 "$G" --headless --path . --script res://tools/net_find.gd -- port=$PORT tailnet=0 2>/dev/null | grep '^{"servers' > out/net_find.json
 wait $A
 # a again: the server must put alice back where she stood (x 16.5: spawn + 16 voxels, saved at her quit)
 timeout 100 "$G" --headless --path . -- connect=127.0.0.1:$PORT name=alice autopilot=1 duration=8 seed=$SEED $COMMON out=res://out/net_d > out/net_d.log 2>&1 &
@@ -59,6 +60,10 @@ if w=="d": ok=ok and abs(n["pos"][0]-16.5)<1.0
 print(json.dumps({"who":w,"ok":ok,"net":{k:n[k] for k in ["ops_sent","ops_recv","ops_replayed","verify_ok","verify_bad","states_sent","states_recv","items_sent","items_recv","picks_sent","picks_got","picked_recv","batches_sent","sent_bytes","recv_bytes","sent_bytes_per_s","recv_bytes_per_s","seconds","journal","peers"] if k in n},"avatars":n.get("avatars",{}),"pos":n.get("pos"),"budget_ok":d.get("budget_ok")}))
 sys.exit(0 if ok else 1)' $who || fail=1
 done
+python -I -c '
+import json,sys; d=json.load(open("out/net_find.json")); s=d["servers"]
+k="127.0.0.1:%s" % sys.argv[1]; ok=k in s and s[k]["seed"]==int(sys.argv[2])
+print(json.dumps({"who":"find","ok":ok,"servers":s})); sys.exit(0 if ok else 1)' $PORT $SEED || fail=1
 for i in $(seq 1 40); do grep -q '"net_server":"done"' out/net_server.log && break; sleep 1; done   # the server quits at its duration
 grep -m1 '"net_server":"done"' out/net_server.log || { echo "server: no final JSON (see out/net_server.log)"; fail=1; }
 ls out/net_b/strip.png 2>/dev/null && echo "contact sheet: game/out/net_b/strip.png"

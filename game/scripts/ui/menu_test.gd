@@ -30,6 +30,10 @@ func run(dc: Node, title: Control) -> void:
 	await _shot("create")
 	title.show_page("settings")
 	await _shot("settings")
+	title.show_page("multiplayer")   # the server list fills from the probes (ADR 0145): a server on 7777 shows up
+	await _frames(150)
+	r["servers_listed"] = title._listed.size()
+	await _shot("multiplayer")
 	title.show_page("main")
 	title._create_and_play()
 	var main = await _wait_main()

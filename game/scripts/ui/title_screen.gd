@@ -29,6 +29,11 @@ var _settings: SettingsPanel
 var _addr_edit: LineEdit        # the Multiplayer page (ADR 0145)
 var _net_name_edit: LineEdit
 var _join_status: Label
+var _servers_label: Label
+var _server_rows: VBoxContainer   # one button per server found (ServerFinder)
+var _finder: ServerFinder
+var _probe_t := 0.0
+var _listed: Array = []
 var _t := 0.0
 
 
@@ -182,18 +187,23 @@ func _build_create() -> void:
 
 ## Join a server (ADR 0145): address (a Tailscale name or IP, host:port), player name.
 func _build_multiplayer() -> void:
-	var box := _page("multiplayer", 520.0)
+	var box := _page("multiplayer", 560.0)
 	box.add_child(UiStyle.label("Join a server", 28))
-	box.add_child(UiStyle.label("Server address (host or host:port)", 15, UiStyle.DIM))
+	box.add_child(UiStyle.label("Your name (the server keeps your player under it)", 15, UiStyle.DIM))
+	_net_name_edit = LineEdit.new()
+	_net_name_edit.text = Settings.net_name if Settings.net_name != "player" else OS.get_environment("USERNAME").to_lower()
+	_net_name_edit.text_submitted.connect(func(_t: String) -> void: _join_from_page())
+	box.add_child(_net_name_edit)
+	_servers_label = UiStyle.label("Servers on this machine, the LAN and your tailnet", 15, UiStyle.DIM)
+	box.add_child(_servers_label)
+	_server_rows = VBoxContainer.new()
+	_server_rows.add_theme_constant_override("separation", 6)
+	box.add_child(_server_rows)
+	box.add_child(UiStyle.label("Or an address (host or host:port)", 15, UiStyle.DIM))
 	_addr_edit = LineEdit.new()
 	_addr_edit.text = Settings.net_address
 	_addr_edit.text_submitted.connect(func(_t: String) -> void: _join_from_page())
 	box.add_child(_addr_edit)
-	box.add_child(UiStyle.label("Your name (the server keeps your player under it)", 15, UiStyle.DIM))
-	_net_name_edit = LineEdit.new()
-	_net_name_edit.text = Settings.net_name
-	_net_name_edit.text_submitted.connect(func(_t: String) -> void: _join_from_page())
-	box.add_child(_net_name_edit)
 	_join_status = UiStyle.label("", 15, UiStyle.ACCENT)
 	box.add_child(_join_status)
 	var row := HBoxContainer.new()
@@ -204,11 +214,47 @@ func _build_multiplayer() -> void:
 
 
 func _join_from_page() -> void:
-	Settings.net_address = _addr_edit.text.strip_edges()
+	_join_address(_addr_edit.text.strip_edges())
+
+
+func _join_address(address: String) -> void:
+	Settings.net_address = address
 	Settings.net_name = _net_name_edit.text.strip_edges()
 	Settings.save_user_settings()
-	_join_status.text = "Connecting to %s..." % Settings.net_address
-	_join(Settings.net_address, Settings.net_name)
+	_join_status.text = "Connecting to %s..." % address
+	_join(address, Settings.net_name)
+
+
+## The server list: probes every 2 s while the page is open (the tailnet is read once per visit), one
+## button per server that answered.
+func _poll_servers(delta: float) -> void:
+	if _finder == null:
+		_finder = ServerFinder.new()
+	if not _finder.tailnet_checked:
+		_finder.read_tailnet()
+	_probe_t -= delta
+	if _probe_t <= 0.0:
+		_probe_t = 2.0
+		_finder.probe()
+	_finder.poll()
+	var keys := _finder.servers.keys()
+	keys.sort()
+	if keys == _listed:
+		return
+	_listed = keys
+	for c in _server_rows.get_children():
+		c.queue_free()
+	if keys.is_empty():
+		_server_rows.add_child(UiStyle.label("None answering yet" + (" (Tailscale: %d peers online)" % _finder.tailnet.size() if _finder.tailnet_checked else ""), 15, UiStyle.DIM))
+		return
+	for k in keys:
+		var d: Dictionary = _finder.servers[k]
+		var text := "%s  ·  seed %d  ·  %s  ·  %d playing  ·  %s" % [d.get("name", "?"), int(d.get("seed", 0)), String(d.get("game_mode", "")).capitalize(), int(d.get("players", 0)), k]
+		var b := UiStyle.button(text, _join_address.bind(k), 520)
+		if int(d.get("proto", 0)) != Net.PROTO:
+			b.disabled = true
+			b.tooltip_text = "Another game version"
+		_server_rows.add_child(b)
 
 
 func _join(address: String, pname: String) -> void:
@@ -318,6 +364,11 @@ func _delete_selected() -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	queue_redraw()
+	if _server_rows and _pages.has("multiplayer") and _pages["multiplayer"].visible:
+		_poll_servers(delta)
+	elif _finder:
+		_finder = null   # the page closed: probe again fresh next time
+		_listed = []
 
 
 func _draw() -> void:

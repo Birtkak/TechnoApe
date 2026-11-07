@@ -62,8 +62,12 @@ picked up as in single-player. Inventories ride in the player save (every 30 s a
 a `RemotePlayer` (an `ApeModel`) eases toward the last state (exponential, ~80 ms) and animates by the
 sent speed.
 
-**Join:** the title screen's Multiplayer page (address, name) or `connect=host[:port] name=<n>` on the
-command line. The handshake happens before the game scene loads, so `main.gd` starts with the server's
+**Join:** the title screen's Multiplayer page lists every server that answers a UDP probe on `port + 1`
+(`ServerFinder`: localhost, the LAN broadcast and every online Tailscale peer from `tailscale status
+--json`; a server answers with name, seed, mode, players and an id so one server reachable by several
+routes is one row); one click joins. An address field and `connect=host[:port] name=<n>` on the command
+line remain for anything the probe cannot reach. Tailscale carries no broadcasts, which is why the peer
+list is asked for. The handshake happens before the game scene loads, so `main.gd` starts with the server's
 seed, the saved player and the journal; `Settings.persist_world` is off on a client (the server holds
 the save). Disconnect saves nothing new; the last 30 s save stands.
 
