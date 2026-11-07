@@ -137,7 +137,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_fill, [["~"], ["~"], ["~"], ["~"], ["~"], ["~"], _material_names])
 	reg.register("ponder", "/ponder [scene]", "Open the guide screen (ADR 0132): how boilers, pipes, cables and machines connect; no scene lists them", _ponder, [Ponder.scenes().keys()])
 	reg.register("stations", "/stations [electric|factory|lv|power [cam]|pollution|smoke|fx [n]]","Place a crafting table, chest and furnace ahead; electric: a boiler, turbine, cables and an electric furnace; factory: that plus hopper-fed machines, a battery, a lamp; lv: the electric line and the ADR 0131 machines; power: the small sources, meters and switches (ADR 0113, 0117, 0123, 0131); pollution: a fouled stream beside a settling pond, smoke: a fire in a dug room (ADR 0141); fx: 30 running machines of every animated kind (ADR 0153)", _stations, [["electric", "factory", "lv", "power", "pollution", "smoke", "fx"]])
-	reg.register("fish", "/fish <pond|foul|traps|cast|state>", "ADR 0163: a fish pond (or a fouled one) 2 m ahead with a rod in hand; traps: a snare, a pit trap, a rabbit, a deer and a tamed wolf; cast: an automatic cast, bite and reel down ahead; state: the rod's state", _fish, [["pond", "foul", "traps", "cast", "state"]])
+	reg.register("fish", "/fish <pond|foul|traps|wolf|cast|state>", "ADR 0163: a fish pond (or a fouled one) 2 m ahead with a rod in hand; traps: a snare, a pit trap, a rabbit, a deer and a tamed wolf; cast: an automatic cast, bite and reel down ahead; state: the rod's state", _fish, [["pond", "foul", "traps", "wolf", "cast", "state"]])
 	reg.register("contraptions", "/contraptions [toggle|ride] [cam]", "ADR 0160: a lift, a drawbridge and a crane ahead, each on a turning hand crank; toggle flips every drive's lever, ride stands you on the lift; cam films them", _contraptions, [["toggle", "ride", "cam"]])
 	reg.register("pollute", "/pollute [smoke]", "ADR 0155: a fouled pond with fish and wheat beside waste ground ahead (farm_speed=40 to watch crops wilt); smoke: a smoke booth round you", _pollute, [["smoke"]])
 	reg.register("summon", "/summon <sheep|pig|chicken|bear> [count] [baby|hungry]", "Spawn animals where you look (ADR 0022); hungry predators hunt at once (ADR 0027)",
@@ -1052,7 +1052,7 @@ func _fish(args: PackedStringArray) -> Dictionary:
 	if what == "traps" and args.size() > 1 and args[1] == "cam":   # film it from above (/cam off to leave)
 		var c: Vector3 = main.fishing.scene_at
 		var back: Vector3 = (player.position - c) * Vector3(1, 0, 1)
-		_debug_cam().enable(c + back.normalized() * Settings.m2v(2.5) + Vector3(0, Settings.m2v(2.2), 0), c + Vector3(-2, -2, 0))
+		_debug_cam().enable(c + back.normalized() * Settings.m2v(1.2) + Vector3(0, Settings.m2v(4.5), 0), c + Vector3(-1, -4, 1))   # high over the pits and the snare
 	return CommandRegistry.ok("Laid " + laid)
 
 

@@ -754,4 +754,6 @@ Fixes your bug report (grey world that never loaded): the Settings screen still 
       click it to take the rabbit (meat drops at your feet), the snare is set again. Step on it yourself: hurt, held 2.5 s.
 - [ ] Dig a 1 m x 1 m pit 1.5 m deep, right click the pit cover into it: a straw-and-earth patch flush with the ground.
       A deer or boar walking over it falls in and stays; walk over it yourself: stakes hurt. Aim at either trap: the panel names it.
+- [ ] `/fish wolf`: the tamed wolf comes to you round the pit and snares, never over them. Also try a round or
+      ragged 1.2 m pit: the cover goes in; a 2 m hole is refused with the size hint. A catch leaves one fish fewer in the water.
 - [ ] A tamed wolf following you never walks onto a snare or a pit cover. Quit and reload: caught animals still held.

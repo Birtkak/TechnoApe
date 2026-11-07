@@ -946,6 +946,14 @@ func on_died(m: Mob) -> void:
 	dirty = true
 
 
+## Gone without drops or a carcass (ADR 0163: the fish a rod landed leaves the water).
+func take(m: Mob) -> void:
+	_active.erase(m)
+	_hearts_t.erase(m.uid)
+	m.queue_free()
+	dirty = true
+
+
 # ---------------- persistence ----------------
 
 func to_dict() -> Dictionary:
