@@ -1,0 +1,19 @@
+# the server image (deploy/Dockerfile) takes game/ without caches, captures and the Windows-only binaries
+game/.godot
+game/out
+game/reports
+game/addons/zylann.voxel/bin
+game/addons/technosim/bin
+game/addons/gdUnit4
+game/test
+game/*.csproj
+game/*.sln
+game/.mono
+game/bin
+game/obj
+build
+prototypes
+docs
+tools
+.claude
+.git

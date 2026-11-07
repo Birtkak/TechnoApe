@@ -26,12 +26,26 @@ var _create_error: Label
 var _confirm: ConfirmationDialog
 var _old_gen: ConfirmationDialog   # the world's saves are from another generator version
 var _settings: SettingsPanel
+var _addr_edit: LineEdit        # the Multiplayer page (ADR 0145)
+var _net_name_edit: LineEdit
+var _join_status: Label
+var _servers_label: Label
+var _server_rows: VBoxContainer   # one button per server found (ServerFinder)
+var _finder: ServerFinder
+var _probe_t := 0.0
+var _listed: Array = []
+var _join_label := ""   # the server's name for the chat's greeting
 var _t := 0.0
 
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	theme = UiStyle.theme()
+	if OS.get_cmdline_user_args().has("server=1"):
+		return   # a headless server (ADR 0145): Net frees this scene, no pages to build
+	if Net.connect_arg != "":   # connect=host[:port] name=<n>: join before anything else (ADR 0145)
+		_join(Net.connect_arg, Net.player_name)
+		return
 	if skip_menu():
 		_enter_game.call_deferred()
 		return
@@ -45,6 +59,7 @@ func _ready() -> void:
 	_build_main()
 	_build_worlds()
 	_build_create()
+	_build_multiplayer()
 	_settings = SettingsPanel.new()
 	_settings.done.connect(show_page.bind("main"))
 	add_child(_settings)
@@ -115,10 +130,7 @@ func _build_main() -> void:
 	gap.custom_minimum_size.y = 28
 	box.add_child(gap)
 	box.add_child(UiStyle.button("Singleplayer", show_page.bind("worlds"), 360))
-	var mp := UiStyle.button("Multiplayer", func() -> void: pass, 360)
-	mp.disabled = true
-	mp.tooltip_text = "Comes with the dedicated server"
-	box.add_child(mp)
+	box.add_child(UiStyle.button("Multiplayer", show_page.bind("multiplayer"), 360))
 	box.add_child(UiStyle.button("Settings", show_page.bind("settings"), 360))
 	box.add_child(UiStyle.button("Quit", func() -> void: get_tree().quit(), 360))
 
@@ -172,6 +184,96 @@ func _build_create() -> void:
 	box.add_child(row)
 	row.add_child(UiStyle.button("Create world", _create_and_play, 200))
 	row.add_child(UiStyle.button("Cancel", show_page.bind("worlds"), 120))
+
+
+## Join a server (ADR 0145): address (a Tailscale name or IP, host:port), player name.
+func _build_multiplayer() -> void:
+	var box := _page("multiplayer", 560.0)
+	box.add_child(UiStyle.label("Join a server", 28))
+	box.add_child(UiStyle.label("Your name (the server keeps your player under it)", 15, UiStyle.DIM))
+	_net_name_edit = LineEdit.new()
+	_net_name_edit.text = Settings.net_name if Settings.net_name != "player" else OS.get_environment("USERNAME").to_lower()
+	_net_name_edit.text_submitted.connect(func(_t: String) -> void: _join_from_page())
+	box.add_child(_net_name_edit)
+	_servers_label = UiStyle.label("Servers on this machine, the LAN and your tailnet", 15, UiStyle.DIM)
+	box.add_child(_servers_label)
+	_server_rows = VBoxContainer.new()
+	_server_rows.add_theme_constant_override("separation", 6)
+	box.add_child(_server_rows)
+	box.add_child(UiStyle.label("Or an address (host or host:port)", 15, UiStyle.DIM))
+	_addr_edit = LineEdit.new()
+	_addr_edit.text = Settings.net_address
+	_addr_edit.text_submitted.connect(func(_t: String) -> void: _join_from_page())
+	box.add_child(_addr_edit)
+	_join_status = UiStyle.label("", 15, UiStyle.ACCENT)
+	box.add_child(_join_status)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	box.add_child(row)
+	row.add_child(UiStyle.button("Join", _join_from_page, 200))
+	row.add_child(UiStyle.button("Back", show_page.bind("main"), 120))
+
+
+func _join_from_page() -> void:
+	_join_address(_addr_edit.text.strip_edges())
+
+
+func _join_address(address: String, label := "") -> void:
+	Settings.net_address = address
+	_join_label = label
+	Settings.net_name = _net_name_edit.text.strip_edges()
+	Settings.save_user_settings()
+	_join_status.text = "Connecting to %s..." % address
+	_join(address, Settings.net_name)
+
+
+## The server list: probes every 2 s while the page is open (the tailnet is read once per visit), one
+## button per server that answered.
+func _poll_servers(delta: float) -> void:
+	if _finder == null:
+		_finder = ServerFinder.new()
+	if not _finder.tailnet_checked:
+		_finder.read_tailnet()
+	_probe_t -= delta
+	if _probe_t <= 0.0:
+		_probe_t = 2.0
+		_finder.probe()
+	_finder.poll()
+	var keys := _finder.servers.keys()
+	keys.sort()
+	if keys == _listed:
+		return
+	_listed = keys
+	for c in _server_rows.get_children():
+		c.queue_free()
+	if keys.is_empty():
+		_server_rows.add_child(UiStyle.label("None answering yet" + (" (Tailscale: %d peers online)" % _finder.tailnet.size() if _finder.tailnet_checked else ""), 15, UiStyle.DIM))
+		return
+	for k in keys:
+		var d: Dictionary = _finder.servers[k]
+		var text := "%s  ·  seed %d  ·  %s  ·  %d playing  ·  %s" % [d.get("name", "?"), int(d.get("seed", 0)), String(d.get("game_mode", "")).capitalize(), int(d.get("players", 0)), k]
+		var b := UiStyle.button(text, _join_address.bind(k, String(d.get("name", ""))), 520)
+		if int(d.get("proto", 0)) != Net.PROTO:
+			b.disabled = true
+			b.tooltip_text = "Another game version"
+		_server_rows.add_child(b)
+
+
+func _join(address: String, pname: String) -> void:
+	Net.welcomed.connect(func() -> void:
+		Settings.world_seed = Net.seed_value
+		Settings.set_seed_text(str(Net.seed_value))
+		Settings.world_name = _join_label if _join_label != "" else address
+		Settings.game_mode = Net.game_mode
+		Settings.persist_world = false   # the server holds the save
+		_enter_game.call_deferred(), CONNECT_ONE_SHOT)
+	Net.failed.connect(func(reason: String) -> void:
+		print("net: join failed: " + reason)
+		if _join_status:
+			_join_status.text = "Could not join: " + reason
+		elif Net.connect_arg != "":
+			get_tree().quit(2), CONNECT_ONE_SHOT)
+	Net.join(address, pname)
 
 
 # ---------------- worlds ----------------
@@ -264,6 +366,11 @@ func _delete_selected() -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	queue_redraw()
+	if _server_rows and _pages.has("multiplayer") and _pages["multiplayer"].visible:
+		_poll_servers(delta)
+	elif _finder:
+		_finder = null   # the page closed: probe again fresh next time
+		_listed = []
 
 
 func _draw() -> void:

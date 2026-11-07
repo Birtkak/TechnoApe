@@ -1,0 +1,6 @@
+#!/bin/sh
+# The container's command: the server with its settings from the environment (ADR 0145).
+#   SEED (1337) · PORT (7777; the Multiplayer list probes PORT+1) · GAMEMODE (survival) · SERVER_NAME (the host's name)
+# Saves land in /data (user://): net_<seed>_g<gen>.ops and net_<seed>_g<gen>_players.json.
+exec /opt/godot/godot --headless --path /game -s res://scripts/net/server_main.gd -- server=1 \
+  "seed=${SEED:-1337}" "port=${PORT:-7777}" "gamemode=${GAMEMODE:-survival}" "server_name=${SERVER_NAME:-$(hostname)}" "$@"

@@ -94,6 +94,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("noclip", "/noclip [on|off]", "Fly through everything (creative or spectator); toggles without an argument", _noclip, [["on", "off"]])
 	reg.register("give", "/give <item> [count]", "Give yourself items", _give, [_item_ids])
 	reg.register("clear", "/clear [item]", "Empty your inventory, or remove one item", _clear, [_item_ids])
+	reg.register("drop", "/drop <item> [count]", "Drop a stack at your feet, from nothing (playtests: a shared item in multiplayer)", _drop, [_item_ids])
 	reg.register("tp", "/tp <x> <y> <z>", "Teleport to a voxel position; ~ is relative (~ ~10 ~)",
 		_tp, [["~"], ["~"], ["~"]], ["teleport"])
 	reg.register("time", "/time set <day|noon|sunset|night|midnight|sunrise|0..1>", "Set or show (/time query) the time of day",
@@ -195,6 +196,17 @@ func _noclip(args: PackedStringArray) -> Dictionary:
 		player.noclip = true
 		return CommandRegistry.fail("Spectators always pass through")
 	return CommandRegistry.ok("Noclip %s" % ("on" if on else "off"))
+
+
+func _drop(args: PackedStringArray) -> Dictionary:
+	if main == null or player == null:
+		return CommandRegistry.fail("No world")
+	if args.is_empty() or not player_inv.items.has(args[0].to_lower()):
+		return CommandRegistry.fail("Usage: /drop <item> [count]")
+	var count := int(args[1]) if args.size() > 1 and args[1].is_valid_int() else 1
+	Net.record(func() -> void:
+		main.spawn_item({"id": args[0].to_lower(), "count": maxi(1, count)}, player.position + Vector3(0, Settings.m2v(0.5), 0)))
+	return CommandRegistry.ok("Dropped %d %s" % [maxi(1, count), args[0].to_lower()])
 
 
 func _give(args: PackedStringArray) -> Dictionary:
@@ -321,7 +333,10 @@ func _setblock(args: PackedStringArray) -> Dictionary:
 	if m is Dictionary:
 		return m
 	var wp := Vector3i(p)
-	if not main.bubble.set_voxel(wp, m):
+	Net.recording = true
+	var set_ok: bool = main.bubble.set_voxel(wp, m)
+	Net.recording = false
+	if not set_ok:
 		if not main.world.is_editable(wp):
 			return CommandRegistry.fail("%d, %d, %d is not loaded" % [wp.x, wp.y, wp.z])
 		main.world.set_voxel(wp, m)   # outside the bubble: straight to the frozen terrain
@@ -349,7 +364,9 @@ func _fill(args: PackedStringArray) -> Dictionary:
 	var d := hi - lo
 	if d.x * d.y * d.z > FILL_MAX:
 		return CommandRegistry.fail("Too many voxels: %d (limit %d)" % [d.x * d.y * d.z, FILL_MAX])
+	Net.recording = true   # ADR 0145: a /fill reaches the other players
 	var n: int = main.bubble.fill_box(lo, hi, m)
+	Net.recording = false
 	if n < 0:
 		return CommandRegistry.fail("The box must lie inside the loaded sim bubble around you")
 	return CommandRegistry.ok("Filled %d voxels with %s" % [n, args[6].to_lower()])

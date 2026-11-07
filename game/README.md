@@ -224,6 +224,31 @@ mirroring, shapeless, smelt, spellcraft; `makes`, `uses_of`, `search`,
 `CraftingGrid` (preview, craft once/all, return contents). Wands have no
 recipe by design (found only); spells do.
 
+## Multiplayer (ADR 0145)
+
+A headless server of the same build keeps the world's edit journal and the player saves; clients
+generate the world from the seed and replay each other's edits. Over Tailscale use the tailnet name or IP.
+
+```
+Godot_..._console.exe --headless --path game -- server=1 seed=1337 port=7777        # the server (saves every 30 s; duration=<s> stops it)
+Godot_..._console.exe --path game -- connect=127.0.0.1:7777 name=brent                # a client; or Multiplayer on the title screen
+bash tools/net_proof.sh                                                               # the scripted proof: 5 JSON lines + game/out/net_b/strip.png
+Godot_..._console.exe --headless --path game --script res://tools/net_find.gd         # the servers in reach (localhost, LAN, tailnet), one JSON line
+```
+
+The Multiplayer page lists every server that answers on `port + 1` (localhost, LAN broadcast, every online
+Tailscale peer via `tailscale status --json`); `server_name=<n>` names a server (default: the machine).
+
+**The Unraid server** (`deploy/`): a Docker image of the stock Linux Godot plus `game/` (no voxel extension:
+the server only journals and relays), host networking so the box's Tailscale address serves UDP 7777 (game)
+and 7778 (discovery), the world in `/mnt/user/appdata/technoape/data`. `bash tools/deploy_server.sh` copies
+the checkout to the box over Tailscale, builds the image there and restarts the container `technoape-server`
+(it shows in Unraid's Docker tab; the world survives a rebuild). Clients see it as "Tower" in the list.
+
+Saves: `user://worlds/net_<seed>_g<gen>.ops` (journal, `tools/net_journal_dump.gd` prints it) and
+`net_<seed>_g<gen>_players.json` on the server. Per client, not shared yet: items, inventories, block
+entities, machines, mobs, farming, the material simulation.
+
 ## Generator checks (ADR 0105)
 
 A generator speed-up must change no voxel: `godot --headless --path . --script res://tools/gen_hash.gd -- n=400`

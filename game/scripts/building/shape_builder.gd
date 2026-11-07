@@ -1023,6 +1023,8 @@ func commit() -> int:
 		pay[item] = int(need[m])
 	var mat := _held_material() if mode != "prefab" else 0
 	var n := st.fill(bubble.sim, r["cells"], mat, r["mats"], _window(), _mask_free)
+	if Net.active:
+		Net.send_op(NetOps.fill(Vector3i.ZERO, r["cells"], mat, _mask_free, r["mats"]))   # ADR 0145
 	if not creative:
 		for item in pay:
 			_pay(item, pay[item])
@@ -1119,6 +1121,8 @@ func _dig() -> void:
 		counts[GameMaterials.name_of(m)] = int(hist[m])
 	var mask: PackedByteArray = _drag["mask"]
 	var n := st.fill(bubble.sim, cells, GameMaterials.AIR, PackedByteArray(), _window(), mask)
+	if Net.active:
+		Net.send_op(NetOps.fill(Vector3i.ZERO, cells, GameMaterials.AIR, mask))   # ADR 0145
 	var centre := Vector3(lo) + Vector3(wsize) * 0.5
 	if player.mining and GameMode.rule(player.game_mode, "drops"):
 		var drops: Array = player.mining.voxel_drops(counts, player.inventory.held_def(), player.inventory.items.units,

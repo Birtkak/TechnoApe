@@ -421,6 +421,8 @@ func _load_pending() -> void:
 			_pending.erase(best)
 		else:
 			_pending[best] = m
+		if Net.active:
+			Net.replay_column(self, w0, hi - lo)   # ADR 0145: the other players' edits over the generated terrain (after the rows count as loaded)
 		chunks_loaded += hi - lo
 		columns_loaded += 1
 		n += 1
@@ -686,6 +688,8 @@ func blast(center: Vector3, radius: float, material := GameMaterials.AIR, only :
 			if not only.has(i) or _keep.has(i):
 				keep.append(i)
 	var n := sim.fill_sphere(center - Vector3(origin * Settings.CHUNK), radius, material, keep)
+	if Net.recording:
+		Net.send_op(NetOps.sphere(center, radius, material, only))
 	if pieces and material == GameMaterials.AIR:
 		pieces.carve(center, radius)   # pieces in flight take the cut too
 	var ms := (Time.get_ticks_usec() - t0) / 1000.0
@@ -718,6 +722,8 @@ func fill_box(wmin: Vector3i, wmax: Vector3i, material: int) -> int:
 	var t0 := Time.get_ticks_usec()
 	var o := origin * Settings.CHUNK
 	sim.fill_box(wmin - o, wmax - o, material)
+	if Net.recording:
+		Net.send_op(NetOps.box(wmin, wmax, material))
 	_frame_cost()["edit_ms"] = _frame_cost().get("edit_ms", 0.0) + (Time.get_ticks_usec() - t0) / 1000.0
 	var d := wmax - wmin
 	return d.x * d.y * d.z
@@ -730,6 +736,8 @@ func set_voxel(wp: Vector3i, material: int) -> bool:
 	if not _ready or not is_chunk_in_window(wc - origin) or _is_unloaded(wc):
 		return false
 	sim.set_voxel(wp - origin * Settings.CHUNK, material)
+	if Net.recording:
+		Net.note_voxel(wp, material)   # ADR 0145: one `voxels` op per frame
 	return true
 
 

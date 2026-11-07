@@ -546,6 +546,12 @@ func _finish() -> void:
 			at.append(GameMaterials.name_of(_main.world.get_voxel(c)))
 		s["blast_terrain_at_centres"] = at
 	s["startup_ms"] = _main.startup_ms
+	if Net.active:   # ADR 0145: ops, bandwidth, where the other players are drawn, where this one stands (rejoin check)
+		s["net"] = Net.snapshot()
+		var pp: Vector3 = _main.player.position
+		s["net"]["pos"] = [snappedf(pp.x, 0.1), snappedf(pp.y, 0.1), snappedf(pp.z, 0.1)]
+		if _main.remote_players:
+			s["net"]["avatars"] = _main.remote_players.positions()
 	s["settings"] = {"seed": Settings.world_seed, "seed_text": Settings.world_seed_text, "view_distance_m": Settings.view_distance_m,
 		"simulation_distance_m": Settings.simulation_distance_m, "sim_tick_hz": Settings.sim_tick_hz}
 	print(JSON.stringify(s))

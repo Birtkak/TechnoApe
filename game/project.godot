@@ -17,6 +17,7 @@ boot_splash/bg_color=Color(0.04, 0.04, 0.05, 1)
 Settings="*res://scripts/settings.gd"
 DebugCapture="*res://scripts/debug_capture.gd"
 Sound="*res://scripts/audio/game_audio.gd"
+Net="*res://scripts/net/net.gd"
 
 [display]
 

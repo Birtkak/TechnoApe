@@ -273,6 +273,8 @@ func tick() -> Array:
 			stats["native_" + str(j["kind"]) + "s"] += 1
 			stats["native_voxels"] += j["n"]
 			stats["native_ms_max"] = maxf(stats["native_ms_max"], j["ms"])
+			if Net.active:
+				Net.send_op(NetOps.fill(j["lo"], c, j["material"], j["mask"]))   # ADR 0145: the same fill on the others
 			done.append(j)
 	return done
 
