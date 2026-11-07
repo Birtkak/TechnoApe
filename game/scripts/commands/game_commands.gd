@@ -762,6 +762,8 @@ func _goto(args: PackedStringArray) -> Dictionary:
 	if kind in ["aquifer", "magma_conduit"]:   # buried in rock or lava: land on the ground above, find it by ear
 		t.y = main.world.surface_height(t.x, t.z)
 		up = 3.0
+	if kind == "volcano":   # the crater is a lava lake: stand on the rim on the side you come from (ADR 0149)
+		t = Volcano.rim_toward(main.world.generator.gen, t, player.position)
 	if kind == "river":   # the nearest river cell can be a dry bed (the spawn monolith's): go to running water
 		var wet := wet_river_near(main.world.generator, t)
 		if wet.y < 0:

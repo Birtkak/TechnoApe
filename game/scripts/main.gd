@@ -1598,15 +1598,16 @@ func _place_torch(p: Vector3i) -> void:
 ## Breaks a whole torch from any of its voxels; false when `p` is not part of one.
 func _break_torch(p: Vector3i, drops: Array) -> bool:
 	var e = blocks.at(p)
-	if not (e is TorchEntity):
+	if not (e is TorchEntity or e is LightningRodEntity):   # a lightning rod's pole goes the same way (ADR 0149)
 		return false
-	for c in e.cells:
+	for c in BlockEntities.footprint(e):
 		var m := get_world_voxel(c)
-		if m > 0 and GameMaterials.defs()[m - 1].get("entity", "") == "torch":
+		if m > 0 and GameMaterials.defs()[m - 1].get("entity", "") == e.kind:
 			set_world_voxel(c, GameMaterials.AIR)
 	blocks.remove(e.pos)
+	var at: Vector3 = e.flame() if e is TorchEntity else Vector3(p) + Vector3(0.5, 0.5, 0.5)
 	for d in drops:
-		spawn_item(d, e.flame(), Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
+		spawn_item(d, at, Vector3(randf_range(-1, 1), 2.0, randf_range(-1, 1)))
 	return true
 
 

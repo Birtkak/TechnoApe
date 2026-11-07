@@ -42,6 +42,21 @@ func test_rod_within_reach_grounds_the_strike_and_a_far_one_does_not() -> void:
 	assert_that(two["pos"]).is_equal(Vector3i(6, 60, 3))   # the nearest rod
 
 
+func test_metal_draws_the_strike_over_a_slightly_higher_stone() -> void:
+	var m := _map(8, {Vector2i(3, 3): 70, Vector2i(6, 6): 68})
+	var iron := GameMaterials.id_of("iron_ore")
+	m[6 + 6 * 8] = iron | (68 << 16)
+	var metal := Weather.metal_mask()
+	assert_int(metal[iron]).is_equal(1)
+	assert_int(metal[GameMaterials.STONE]).is_equal(0)
+	assert_that(Weather.pick_target(m, Vector2i.ZERO, 8, 1, [], 10.0, metal, 4)["pos"]).is_equal(Vector3i(6, 68, 6))
+	assert_that(Weather.pick_target(m, Vector2i.ZERO, 8, 1, [], 10.0, metal, 1)["pos"]).is_equal(Vector3i(3, 70, 3))   # too low to win
+
+
+func test_volcano_rim_without_a_generator_is_the_centre() -> void:
+	assert_that(Volcano.rim_toward(null, Vector3i(1, 2, 3), Vector3(50, 0, 3))).is_equal(Vector3i(1, 2, 3))
+
+
 func test_rod_material_id_item_and_pole() -> void:
 	assert_int(GameMaterials.id_of("lightning_rod")).is_equal(139)   # reserved for ADR 0149; append only
 	var rod := GameMaterials.id_of("lightning_rod")
@@ -50,6 +65,10 @@ func test_rod_material_id_item_and_pole() -> void:
 	assert_int(st[Vector3i(0, PlantStamps.ROD_H - 1, 0)]).is_equal(rod)
 	var e := LightningRodEntity.new(Vector3i(5, 60, 5))
 	assert_that(e.tip()).is_equal(Vector3i(5, 60 + PlantStamps.ROD_H - 1, 5))
+	var b := BlockEntities.new(ItemRegistry.load_default(), RecipeRegistry.load_default(ItemRegistry.load_default()))
+	b.create(Vector3i(5, 60, 5), "lightning_rod")
+	assert_object(b.at(e.tip())).is_not_null()   # any voxel of the pole finds the rod: breaking it takes the pole
+	assert_int(BlockEntities.footprint(b.at(e.tip())).size()).is_equal(PlantStamps.ROD_H)
 	var items := ItemRegistry.load_default()
 	assert_that(items.get_def("lightning_rod").get("material", "")).is_equal("lightning_rod")
 	var recipes := RecipeRegistry.load_default(items)
