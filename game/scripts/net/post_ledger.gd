@@ -120,8 +120,8 @@ func post_save(sender: String, pos: Vector3i, slots) -> Dictionary:
 	var key := key_of(pos)
 	if not ents.has(key) or ents[key]["type"] != "post" or ents[key]["owner"] != sender:
 		return {}
-	if _locked.has(key) and _locked[key] != sender:
-		return {}
+	if _locked.get(key, "") != sender:
+		return {}   # a snapshot is only taken from an owner who opened the post (and so saw the current stock)
 	ents[key]["slots"] = clean_slots(slots)
 	_locked.erase(key)
 	dirty = true

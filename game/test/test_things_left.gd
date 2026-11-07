@@ -270,6 +270,7 @@ func test_ledger_only_the_owner_edits_or_removes_a_post() -> void:
 	var pos := Vector3i(8, 20, 8)
 	assert_bool(l.post_open("bob", pos)["to"][0]["k"] == "deny").is_true()
 	assert_bool(l.post_save("bob", pos, []).is_empty()).is_true()
+	assert_bool(l.post_save("ann", pos, []).is_empty()).is_true()   # the owner too, without opening first
 	assert_bool(l.remove("bob", pos)["to"][0]["k"] == "deny").is_true()
 	assert_bool(l.ents.has("8,20,8")).is_true()
 	assert_bool(l.put("bob", {"type": "post", "pos": pos}).is_empty()).is_true()   # nobody takes over the cell
