@@ -77,6 +77,7 @@ var light_overlay: LightOverlay      # F7: the dark block tops around the player
 var quest_toast: QuestToast
 var survival_loop: SurvivalLoop       # diet, seasons, prospecting, discoveries, HUD trackers (ADR 0061)
 var pause_menu: PauseMenu            # Esc: pause, settings, save and quit (ADR 0032)
+var remote_players: RemotePlayers    # the other players' avatars, null in single-player (ADR 0145)
 var quest_check_ms_max := 0.0        # slowest progression-book inventory check (debug JSON)
 var _farm_accum := 0.0
 var phys_cost := {}   # ms per physics callback this frame (player, items, item_bodies, blocks); DebugCapture reads it on a spike
@@ -104,6 +105,8 @@ func _ready() -> void:
 	var mark := func(step: String) -> void:   # where the frozen first frame goes (title -> game)
 		startup_ms[step] = snappedf((Time.get_ticks_usec() - t0) / 1000.0, 0.1)
 	VoxelEngine.set_thread_count(Settings.voxel_threads)   # ADR 0135; the loading cover raises it and comes back here
+	if Net.active:
+		Net.main = self   # ADR 0145: ops land in the bubble, the player's state goes out from here
 	world = World.new()
 	world.name = "World"
 	add_child(world)
@@ -179,10 +182,11 @@ func _ready() -> void:
 	mark.call("spawn")
 	atmosphere.setup(world, player.camera)
 	mark.call("atmosphere")
-	player.voxel_broken.connect(_on_broken)
-	player.voxel_placed.connect(_on_placed)
-	player.voxels_dug.connect(_on_dug)
-	player.voxels_placed.connect(_on_placed_many)
+	# the player's own digs and placements: recorded as ops for the other players (ADR 0145)
+	player.voxel_broken.connect(func(p: Vector3i, d: Array) -> void: Net.record(_on_broken.bind(p, d)))
+	player.voxel_placed.connect(func(p: Vector3i, m: int) -> void: Net.record(_on_placed.bind(p, m)))
+	player.voxels_dug.connect(func(c: Array, d: Array, at: Vector3) -> void: Net.record(_on_dug.bind(c, d, at)))
+	player.voxels_placed.connect(func(c: Array, m: int) -> void: Net.record(_on_placed_many.bind(c, m)))
 	player.big_dug.connect(_on_big_dug)
 	player.brush_filled.connect(_on_brush_filled)
 	player.item_dropped.connect(_on_item_dropped)
@@ -238,6 +242,10 @@ func _ready() -> void:
 	bubble = SimBubble.new()
 	bubble.name = "SimBubble"
 	add_child(bubble)
+	if Net.active:
+		remote_players = RemotePlayers.new()
+		remote_players.name = "RemotePlayers"
+		add_child(remote_players)
 
 	game_hud = GameHud.new()
 	game_hud.name = "Hud"
@@ -325,8 +333,8 @@ func _ready() -> void:
 	player.game_mode_changed.connect(_on_game_mode_changed)
 	var mode := GameMode.parse(Settings.game_mode)
 	player.set_game_mode(mode if mode != "" else GameMode.SURVIVAL)
-	if Settings.persist_world:
-		_load_player()   # inventory, position, health, game mode of this world (ADR 0032)
+	if Settings.persist_world or Net.active:
+		_load_player()   # inventory, position, health, game mode of this world (ADR 0032); from the server when joined
 
 	pause_menu = PauseMenu.new()
 	pause_menu.name = "PauseMenu"
@@ -777,6 +785,8 @@ func _blocks_path() -> String:
 
 
 func _save_blocks() -> void:
+	if Net.active and player != null:
+		Net.save_player(_player_dict())   # the server keeps the player (ADR 0145); every save point comes through here
 	if not Settings.persist_world:
 		return
 	if blocks != null and blocks.dirty:
@@ -981,6 +991,7 @@ func _quit_to_title() -> void:
 	get_tree().paused = false
 	_save_blocks()
 	save_terrain(5.0)
+	Net.leave()
 	get_tree().change_scene_to_file.call_deferred("res://scenes/title.tscn")
 
 
@@ -1004,7 +1015,7 @@ func _player_dict() -> Dictionary:
 
 
 func _load_player() -> void:
-	var d := _load_json(_save_path("player"))
+	var d: Dictionary = Net.player_save if Net.active else _load_json(_save_path("player"))
 	Inventory.clock_s = float(d.get("clock_s", 0.0))   # before the stacks: hot metal cools against it (ADR 0042)
 	if d.is_empty() or int(d.get("version", 0)) != 1:
 		return
@@ -1249,8 +1260,9 @@ func pop_pickup(cells: Array[Vector3i]) -> void:
 	var pc: Dictionary = split["pieces"][0]
 	if not RuinLoot.shatter(self, pc["cells"]).is_empty():
 		return   # a pot: shards and loot, never the pot (ADR 0057)
-	for c in pc["cells"]:
-		set_world_voxel(c, GameMaterials.AIR)
+	Net.record(func() -> void:
+		for c in pc["cells"]:
+			set_world_voxel(c, GameMaterials.AIR))
 	if fx:
 		fx.block_break(pc["cells"][0], pc["material"])
 	pickups_popped += 1

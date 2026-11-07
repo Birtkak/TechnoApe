@@ -378,8 +378,10 @@ func _blast(q: Dictionary) -> int:
 	var drops: Dictionary = q["drops"]
 	var first: int = q["first"]
 	var n := 0
+	Net.recording = true   # ADR 0145: the blast reaches the other players (their Tnt never saw the charge)
 	for sh in _shells:
 		n += main.bubble.blast(pos, r * float(sh[0]), GameMaterials.AIR, sh[1])
+	Net.recording = false
 	t = _part("spheres", t)
 	if main.pieces:
 		main.pieces.check(PlaytestTools.rim_seeds(pos, r), pos)

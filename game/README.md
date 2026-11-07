@@ -224,6 +224,21 @@ mirroring, shapeless, smelt, spellcraft; `makes`, `uses_of`, `search`,
 `CraftingGrid` (preview, craft once/all, return contents). Wands have no
 recipe by design (found only); spells do.
 
+## Multiplayer (ADR 0145)
+
+A headless server of the same build keeps the world's edit journal and the player saves; clients
+generate the world from the seed and replay each other's edits. Over Tailscale use the tailnet name or IP.
+
+```
+Godot_..._console.exe --headless --path game -- server=1 seed=1337 port=7777        # the server (saves every 30 s; duration=<s> stops it)
+Godot_..._console.exe --path game -- connect=127.0.0.1:7777 name=brent                # a client; or Multiplayer on the title screen
+bash tools/net_proof.sh                                                               # the scripted proof: 4 JSON lines + game/out/net_b/strip.png
+```
+
+Saves: `user://worlds/net_<seed>_g<gen>.ops` (journal, `tools/net_journal_dump.gd` prints it) and
+`net_<seed>_g<gen>_players.json` on the server. Per client, not shared yet: items, inventories, block
+entities, machines, mobs, farming, the material simulation.
+
 ## Generator checks (ADR 0105)
 
 A generator speed-up must change no voxel: `godot --headless --path . --script res://tools/gen_hash.gd -- n=400`

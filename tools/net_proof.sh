@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Multiplayer proof without eyes (ADR 0145): a headless server and two clients on localhost, same seed.
+# Client a fills a stone box next to the spawn; client b must see it (net.verify_ok >= 1, net.ops_recv >= 1)
+# and see a's avatar (net.avatars); b's run also makes a contact sheet (out/net_b/strip.png) looking at a.
+# A third client joins late and must get the edit from the journal (ops_replayed >= 1); alice rejoins after her
+# run and must stand where she quit (the server's player save).
+# Prints one JSON line per role plus bandwidth, exit 1 when an assertion fails.
+#   bash tools/net_proof.sh [seed] [port]
+set -u
+cd "$(dirname "$0")/../game" || exit 1
+G="$HOME/Tools/Godot/4.7.2-mono/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
+SEED=${1:-4242}
+PORT=${2:-7781}
+export MSYS_NO_PATHCONV=1
+COMMON="view_distance_m=24 volume_master=0 walk=1 speed=0 load_cap_s=40"
+mkdir -p out
+rm -rf out/net_a out/net_b out/net_c out/net_d
+rm -f "$APPDATA/Godot/app_userdata/TechnoApe/worlds/net_${SEED}_g"*   # a fresh world for the server
+
+timeout 130 "$G" --headless --path . -- server=1 seed=$SEED port=$PORT duration=105 > out/net_server.log 2>&1 &
+SERVER=$!
+sleep 4
+# a: stands 2 m in +x from the spawn and fills a stone box 1.5 m further on, in b's view
+timeout 150 "$G" --headless --path . -- connect=127.0.0.1:$PORT name=alice autopilot=1 duration=45 seed=$SEED $COMMON \
+  "later=/gamemode creative;/tp ~16 ~ ~;wait 3;/fill ~12 ~1 ~-1 ~14 ~3 ~1 stone;wait 25;/fill ~12 ~1 ~-1 ~14 ~3 ~1 air" out=res://out/net_a > out/net_a.log 2>&1 &
+A=$!
+sleep 2
+# b: looks along +x at a and the fill, films a thumbnail per second; shorter than a so a is still there at its snapshot
+timeout 150 "$G" --path . --resolution 960x540 --position -30000,-30000 -- connect=127.0.0.1:$PORT name=bob autopilot=1 duration=38 \
+  seed=$SEED $COMMON yaw=-1.5708 pitch=-0.1 capture_every=1 out=res://out/net_b > out/net_b.log 2>&1 &
+B=$!
+sleep 30
+# c: late join, after the stone was placed: the journal must put it in
+timeout 110 "$G" --headless --path . -- connect=127.0.0.1:$PORT name=carol autopilot=1 duration=12 seed=$SEED $COMMON out=res://out/net_c > out/net_c.log 2>&1 &
+C=$!
+wait $A
+# a again: the server must put alice back where she stood (x 16.5: spawn + 16 voxels, saved at her quit)
+timeout 100 "$G" --headless --path . -- connect=127.0.0.1:$PORT name=alice autopilot=1 duration=8 seed=$SEED $COMMON out=res://out/net_d > out/net_d.log 2>&1 &
+D=$!
+wait $B $C $D $SERVER
+
+fail=0
+for who in a b c d; do
+  line=$(grep -m1 '^{.*"net"' out/net_$who.log)
+  if [ -z "$line" ]; then echo "net_$who: no JSON (see out/net_$who.log)"; fail=1; continue; fi
+  echo "$line" | python -I -c '
+import json,sys
+w=sys.argv[1]; d=json.loads(sys.stdin.read()); n=d["net"]
+want={"a":("ops_sent",1),"b":("verify_ok",1),"c":("ops_replayed",1),"d":("journal",2)}[w]
+ok=n.get(want[0],0)>=want[1]
+if w=="c": ok=n.get("ops_replayed",0)+n.get("verify_ok",0)>=1
+if w=="b": ok=ok and len(n.get("avatars",{}))>=1
+if w=="d": ok=ok and abs(n["pos"][0]-16.5)<1.0
+print(json.dumps({"who":w,"ok":ok,"net":{k:n[k] for k in ["ops_sent","ops_recv","ops_replayed","verify_ok","verify_bad","states_sent","states_recv","sent_bytes","recv_bytes","sent_bytes_per_s","recv_bytes_per_s","seconds","journal","peers"] if k in n},"avatars":n.get("avatars",{}),"pos":n.get("pos"),"budget_ok":d.get("budget_ok")}))
+sys.exit(0 if ok else 1)' $who || fail=1
+done
+for i in $(seq 1 40); do grep -q '"net_server":"done"' out/net_server.log && break; sleep 1; done   # the server quits at its duration
+grep -m1 '"net_server":"done"' out/net_server.log || { echo "server: no final JSON (see out/net_server.log)"; fail=1; }
+ls out/net_b/strip.png 2>/dev/null && echo "contact sheet: game/out/net_b/strip.png"
+exit $fail

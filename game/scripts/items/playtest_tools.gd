@@ -156,6 +156,10 @@ func _show_beam(eye: Vector3, end: Vector3) -> void:
 
 ## One pulse: spheres of `r` voxels every 0.75 r along the beam, laser_depth_m deep from `at`.
 func _cut(at: Vector3, dir: Vector3, r: float) -> void:
+	Net.record(_cut_now.bind(at, dir, r))
+
+
+func _cut_now(at: Vector3, dir: Vector3, r: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	var first: int = main.get_world_voxel(Vector3i(at.floor()))
 	var depth := Settings.m2v(Settings.laser_depth_m)
@@ -277,6 +281,13 @@ func _vacuum(from: Vector3, dir: Vector3, delta: float, brush_size: int) -> void
 
 ## A right click with a gadget. True when it did something (the player swings, a bomb is used up).
 func use(def: Dictionary, hit: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool) -> bool:
+	Net.recording = true   # ADR 0145: a gadget's edits reach the other players
+	var used := _use(def, hit, from, dir, sneaking)
+	Net.recording = false
+	return used
+
+
+func _use(def: Dictionary, hit: VoxelRaycastResult, from: Vector3, dir: Vector3, sneaking: bool) -> bool:
 	var pt: Dictionary = def.get("playtest", {})
 	match str(pt.get("kind", "")):
 		"crater":

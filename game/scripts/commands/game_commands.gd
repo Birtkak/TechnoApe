@@ -320,7 +320,10 @@ func _setblock(args: PackedStringArray) -> Dictionary:
 	if m is Dictionary:
 		return m
 	var wp := Vector3i(p)
-	if not main.bubble.set_voxel(wp, m):
+	Net.recording = true
+	var set_ok: bool = main.bubble.set_voxel(wp, m)
+	Net.recording = false
+	if not set_ok:
 		if not main.world.is_editable(wp):
 			return CommandRegistry.fail("%d, %d, %d is not loaded" % [wp.x, wp.y, wp.z])
 		main.world.set_voxel(wp, m)   # outside the bubble: straight to the frozen terrain
@@ -348,7 +351,9 @@ func _fill(args: PackedStringArray) -> Dictionary:
 	var d := hi - lo
 	if d.x * d.y * d.z > FILL_MAX:
 		return CommandRegistry.fail("Too many voxels: %d (limit %d)" % [d.x * d.y * d.z, FILL_MAX])
+	Net.recording = true   # ADR 0145: a /fill reaches the other players
 	var n: int = main.bubble.fill_box(lo, hi, m)
+	Net.recording = false
 	if n < 0:
 		return CommandRegistry.fail("The box must lie inside the loaded sim bubble around you")
 	return CommandRegistry.ok("Filled %d voxels with %s" % [n, args[6].to_lower()])

@@ -26,12 +26,20 @@ var _create_error: Label
 var _confirm: ConfirmationDialog
 var _old_gen: ConfirmationDialog   # the world's saves are from another generator version
 var _settings: SettingsPanel
+var _addr_edit: LineEdit        # the Multiplayer page (ADR 0145)
+var _net_name_edit: LineEdit
+var _join_status: Label
 var _t := 0.0
 
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	theme = UiStyle.theme()
+	if OS.get_cmdline_user_args().has("server=1"):
+		return   # a headless server (ADR 0145): Net frees this scene, no pages to build
+	if Net.connect_arg != "":   # connect=host[:port] name=<n>: join before anything else (ADR 0145)
+		_join(Net.connect_arg, Net.player_name)
+		return
 	if skip_menu():
 		_enter_game.call_deferred()
 		return
@@ -45,6 +53,7 @@ func _ready() -> void:
 	_build_main()
 	_build_worlds()
 	_build_create()
+	_build_multiplayer()
 	_settings = SettingsPanel.new()
 	_settings.done.connect(show_page.bind("main"))
 	add_child(_settings)
@@ -115,10 +124,7 @@ func _build_main() -> void:
 	gap.custom_minimum_size.y = 28
 	box.add_child(gap)
 	box.add_child(UiStyle.button("Singleplayer", show_page.bind("worlds"), 360))
-	var mp := UiStyle.button("Multiplayer", func() -> void: pass, 360)
-	mp.disabled = true
-	mp.tooltip_text = "Comes with the dedicated server"
-	box.add_child(mp)
+	box.add_child(UiStyle.button("Multiplayer", show_page.bind("multiplayer"), 360))
 	box.add_child(UiStyle.button("Settings", show_page.bind("settings"), 360))
 	box.add_child(UiStyle.button("Quit", func() -> void: get_tree().quit(), 360))
 
@@ -172,6 +178,54 @@ func _build_create() -> void:
 	box.add_child(row)
 	row.add_child(UiStyle.button("Create world", _create_and_play, 200))
 	row.add_child(UiStyle.button("Cancel", show_page.bind("worlds"), 120))
+
+
+## Join a server (ADR 0145): address (a Tailscale name or IP, host:port), player name.
+func _build_multiplayer() -> void:
+	var box := _page("multiplayer", 520.0)
+	box.add_child(UiStyle.label("Join a server", 28))
+	box.add_child(UiStyle.label("Server address (host or host:port)", 15, UiStyle.DIM))
+	_addr_edit = LineEdit.new()
+	_addr_edit.text = Settings.net_address
+	_addr_edit.text_submitted.connect(func(_t: String) -> void: _join_from_page())
+	box.add_child(_addr_edit)
+	box.add_child(UiStyle.label("Your name (the server keeps your player under it)", 15, UiStyle.DIM))
+	_net_name_edit = LineEdit.new()
+	_net_name_edit.text = Settings.net_name
+	_net_name_edit.text_submitted.connect(func(_t: String) -> void: _join_from_page())
+	box.add_child(_net_name_edit)
+	_join_status = UiStyle.label("", 15, UiStyle.ACCENT)
+	box.add_child(_join_status)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	box.add_child(row)
+	row.add_child(UiStyle.button("Join", _join_from_page, 200))
+	row.add_child(UiStyle.button("Back", show_page.bind("main"), 120))
+
+
+func _join_from_page() -> void:
+	Settings.net_address = _addr_edit.text.strip_edges()
+	Settings.net_name = _net_name_edit.text.strip_edges()
+	Settings.save_user_settings()
+	_join_status.text = "Connecting to %s..." % Settings.net_address
+	_join(Settings.net_address, Settings.net_name)
+
+
+func _join(address: String, pname: String) -> void:
+	Net.welcomed.connect(func() -> void:
+		Settings.world_seed = Net.seed_value
+		Settings.set_seed_text(str(Net.seed_value))
+		Settings.world_name = address
+		Settings.game_mode = Net.game_mode
+		Settings.persist_world = false   # the server holds the save
+		_enter_game.call_deferred(), CONNECT_ONE_SHOT)
+	Net.failed.connect(func(reason: String) -> void:
+		print("net: join failed: " + reason)
+		if _join_status:
+			_join_status.text = "Could not join: " + reason
+		elif Net.connect_arg != "":
+			get_tree().quit(2), CONNECT_ONE_SHOT)
+	Net.join(address, pname)
 
 
 # ---------------- worlds ----------------

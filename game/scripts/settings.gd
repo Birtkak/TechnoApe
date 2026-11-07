@@ -334,6 +334,8 @@ var volume_music := 0.6
 var volume_effects := 1.0               # the World bus: effects and sim loops
 var volume_ui := 0.7
 var world_name := ""                    # the title screen's world being played (WorldList)
+var net_address := "127.0.0.1"          # the title screen's last server address and player name (ADR 0145)
+var net_name := "player"
 
 # World
 var world_seed := 1337
@@ -468,6 +470,8 @@ func load_user_settings() -> void:
 	max_fps = int(cf.get_value("video", "max_fps", max_fps))
 	fullscreen = bool(cf.get_value("video", "fullscreen", fullscreen))
 	gui_scale = clampf(float(cf.get_value("hud", "gui_scale", gui_scale)), GUI_SCALES[0], GUI_SCALES[-1])
+	net_address = String(cf.get_value("net", "address", net_address))
+	net_name = String(cf.get_value("net", "name", net_name))
 	jei_shown = bool(cf.get_value("hud", "jei_shown", jei_shown))
 	jei_cols = clampi(int(cf.get_value("hud", "jei_cols", jei_cols)), 0, 16)
 	mouse_sensitivity = float(cf.get_value("controls", "mouse_sensitivity", mouse_sensitivity))
@@ -510,6 +514,8 @@ func save_user_settings() -> void:
 	cf.set_value("controls", "invert_y", invert_y)
 	cf.set_value("controls", "brush_ghost", brush_ghost)
 	cf.set_value("controls", "toggle_sprint", toggle_sprint)
+	cf.set_value("net", "address", net_address)
+	cf.set_value("net", "name", net_name)
 	cf.set_value("controls", "toggle_sneak", toggle_sneak)
 	cf.set_value("controls", "auto_step", auto_step)
 	cf.set_value("hud", "coords", hud_coords)
