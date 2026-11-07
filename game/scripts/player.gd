@@ -273,8 +273,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_yaw -= event.relative.x * Settings.mouse_sensitivity / zoom   # zoomed in, the mouse turns finer
 		_pitch = clampf(_pitch - event.relative.y * Settings.mouse_sensitivity / zoom * (-1.0 if Settings.invert_y else 1.0), -1.5, 1.5)
 		_apply_look()
-	elif event is InputEventMouseButton and event.pressed and not _mouse_captured:
-		capture_mouse(true)
+	elif event is InputEventMouseButton and event.pressed and not _mouse_captured and not building:
+		capture_mouse(true)   # a placed shape frees the cursor on purpose (ShapeBuilder)
 	elif event.is_action_pressed("release_mouse"):
 		capture_mouse(false)
 		pause_requested.emit()

@@ -26,6 +26,7 @@ var _key := ""
 var _jobs: Array[Dictionary] = []
 var _cells := {}                   # cache key -> PackedInt32Array, cells relative to the brush box's lo
 const CELLS_PER_FRAME := 6000       # cells a queued big brush writes per frame (~0.4 ms measured)
+const ATLAS_PARAMS := ["atlas", "atlas_tiles", "pattern_tiles", "water_tile", "lava_tile", "fire_tile", "far_fade_start", "far_fade_end"]
 
 
 func _init() -> void:
@@ -122,7 +123,7 @@ func warm_cache() -> void:
 
 ## The terrain's atlas for the build ghost (Player.setup_inventory).
 func set_atlas(atlas_material: ShaderMaterial) -> void:
-	for p in ["atlas", "atlas_tiles", "pattern_tiles", "water_tile", "lava_tile", "fire_tile", "far_fade_start", "far_fade_end"]:
+	for p in ATLAS_PARAMS:
 		ghost_mat.set_shader_parameter(p, atlas_material.get_shader_parameter(p))
 
 

@@ -10,6 +10,17 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Building with the mouse (2026-11-04, ADR 0143)
+
+- [ ] Hold planks, V, Box, click the ground: the cursor appears. Drag the green top arrow (height), the red ring at
+      the foot (grab a side, pull it out), the yellow ring on top (pull inward: hollow), the white knob (move).
+      The wheel over a handle steps it one snap. Hold the right button to look around; a plain right click
+      puts the shape back on your aim. Click away to build. Does dragging with the cursor beat turning the view?
+- [ ] V, Select, two clicks: the selection frame gets the top arrow, the ring and the move knob too; adjust it,
+      then click away to name and save the prefab.
+- [ ] Looks: the ghost shows the planks pattern washed blue with a bright rim; handles are a green arrow, a white
+      ball and two thin rings that show faintly through the ground where hidden. Too pale, too thick, too loud?
+
 ## Start here: what's new (2026-11-03, ADR 0130)
 
 - [ ] `/whatsnew` lists what landed lately and opens F4 with a button per addition on top (hover one: what to

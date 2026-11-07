@@ -35,8 +35,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   ~2 ms (`prototypes/p12-rigid-pieces/README.md`). Trees never weld (FineGen gap).
   **Shape building (ADR 0038):** V holds the build ring (brush, box, wall, cylinder, cone, sphere, stairs, slope,
   box mode, box dig, select, prefabs; release on a slice picks it); a placed shape's corner keeps to the snap grid
-  (N: off / 0.5 m / 1 m, `ShapeBuilder.snap`, x and z only), handle drags move in snap steps and the wheel over a
-  handle steps it one snap (the move handle up and down); `ShapeBuilder` (`scripts/building/`) orchestrates, native `ShapeTool` rasterizes,
+  (N: off / 0.5 m / 1 m, `ShapeBuilder.snap`, x and z only); a placed shape frees the cursor (ADR 0143): it drags the
+  handles (top arrow: height, the red ring at the foot grows the side grabbed, the yellow ring on top hollows, the white
+  knob moves) in snap steps, the wheel over one steps it one snap (the move handle up and down), the right button held
+  looks around; a selection gets the same handles (no hollow) before `/prefab save`; `ShapeBuilder` (`scripts/building/`) orchestrates, native `ShapeTool` rasterizes,
   meshes and fills; prefabs in `user://prefabs/<category>/<name>.json`. Scripted checks: `later=/a;wait 1;/b` runs chat
   commands after loading (`/shape ... at x y z`, `/shape drag`, `/shape menu`, `/box`, `/prefab`).
   **World tools panel (ADR 0071, 0073):** G (`/tools`) opens the panel: two "Now" lines say what the left and right

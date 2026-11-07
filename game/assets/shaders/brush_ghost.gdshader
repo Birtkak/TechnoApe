@@ -10,6 +10,7 @@ uniform vec3 tiles = vec3(0.0);   // the material's atlas tiles: top, side, bott
 uniform vec4 tint : source_color = vec4(0.25, 0.55, 1.0, 1.0);
 uniform float tint_mix = 0.55;
 uniform float opacity = 0.6;
+uniform float rim = 0.0;   // a brighter, denser edge where the surface turns away (the shape ghost)
 
 void vertex() {
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -21,6 +22,7 @@ void fragment() {
 	vec2 uv = (vec2(mod(t, atlas_tiles.x), floor(t / atlas_tiles.x)) + 0.5) / atlas_tiles;
 	vec4 c;
 	voxel_sample(uv, v_world, v_normal_world, CAMERA_POSITION_WORLD, c);
-	ALBEDO = mix(c.rgb, tint.rgb, tint_mix) * face_tint(v_normal_world);
-	ALPHA = opacity;
+	float edge = pow(1.0 - clamp(dot(v_normal_world, normalize(CAMERA_POSITION_WORLD - v_world)), 0.0, 1.0), 3.0);
+	ALBEDO = mix(mix(c.rgb, tint.rgb, tint_mix) * face_tint(v_normal_world), tint.rgb * 1.4, rim * edge);
+	ALPHA = clamp(opacity + rim * edge, 0.0, 1.0);
 }

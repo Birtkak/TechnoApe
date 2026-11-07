@@ -4,11 +4,14 @@ extends Node3D
 ## Shape building, box mode and prefabs (ADR 0038, Lay of the Land's building). Hold V for the build
 ## ring, C for the mine ring (brush shape, the wheel sizes it while held); release on a slice picks it.
 ## With a material in hand a shape's preview follows the aim, snapped to the snap grid (N: off, 0.5 m,
-## 1 m; `snap`); a left click sets it down; its handles (aimed with the crosshair, dragged by holding
-## the left button and turning, or stepped one snap by the wheel over them; the move handle steps up
-## and down) set height, sides, hollow and position; R turns it, Shift+R tips it, X mirrors it; a left
-## click away builds it and takes the voxels from the inventory; a right click cancels. Box mode marks a box with two clicks
-## (to build, or with a tool to dig); Select marks one to save as a prefab (/prefab save). GDScript
+## 1 m; `snap`); a left click sets it down and frees the mouse (ADR 0143): the cursor drags its handles
+## (the wheel over one steps it one snap): the green top arrow sets the height, the red ring at the
+## foot grows the side you grab, the yellow ring on top hollows it (drag inward), the white knob moves
+## it (up and down with the wheel); the right button held looks around; R turns it, Shift+R tips it,
+## X mirrors it; a left click away builds it and takes the voxels from the inventory; a right click
+## cancels. Box mode marks a box with two clicks
+## (to build, or with a tool to dig); Select marks one, the same handles adjust it, then a click saves
+## it as a prefab (/prefab save). GDScript
 ## orchestrates: cells, meshes and writes are native (ShapeTool).
 
 const SHAPES := ["box", "wall", "cylinder", "cone", "sphere", "stairs", "slope"]
@@ -49,9 +52,11 @@ var _box_a := Vector3i.ZERO
 var _layer: CanvasLayer
 var _hint: Label
 var _preview: MeshInstance3D
-var _preview_mat: StandardMaterial3D
-var _handles: Array = []    # [{id, node, pos, axis}]
+var _ghost_mat: ShaderMaterial    # the brush ghost's shader: the held material's pattern washed in the state colour
+var _handles: Array = []    # [{id, node, pos, axis, color, radius (rings)}]
 var _hover := ""
+var _hover_pt := Vector3.ZERO   # where the aim ray meets the hovered handle (a ring: which side)
+var _rmb := {}              # the right button held in EDIT: {pos, moved}; looking around
 var _drag := {}
 var _dirty := true
 var _since_preview := 1.0
@@ -62,7 +67,7 @@ var _dig_time := 0.0
 var _mask_free := PackedByteArray()
 var _menu_items: Array = []
 var _menu_kind := ""
-var _handle_mat: StandardMaterial3D   # the handles' look (each handle gets a copy for its colour)
+var _handle_mat: StandardMaterial3D   # the handles' look (each handle gets a copy for its colour); next_pass is the x-ray through terrain
 
 
 func setup(p_main: Node) -> void:
@@ -85,16 +90,20 @@ func setup(p_main: Node) -> void:
 	_layer.add_child(_hint)
 	_preview = MeshInstance3D.new()
 	_preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_preview_mat = StandardMaterial3D.new()
-	_preview_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_preview_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_preview_mat.no_depth_test = false
+	_ghost_mat = ShaderMaterial.new()
+	_ghost_mat.shader = preload("res://assets/shaders/brush_ghost.gdshader")
+	_ghost_mat.set_shader_parameter("rim", 0.35)
 	_preview.visible = false
 	add_child(_preview)
 	_handle_mat = StandardMaterial3D.new()
-	_handle_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_handle_mat.no_depth_test = true
-	_handle_mat.render_priority = 1
+	_handle_mat.roughness = 0.45
+	_handle_mat.emission_enabled = true   # never black in shadow
+	var xray := StandardMaterial3D.new()  # the hidden part shows faintly through the ground
+	xray.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	xray.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	xray.no_depth_test = true
+	xray.render_priority = 1
+	_handle_mat.next_pass = xray
 	_mask_free.resize(256)
 	for i in GameMaterials.defs().size():
 		var d: Dictionary = GameMaterials.defs()[i]
@@ -105,7 +114,7 @@ func setup(p_main: Node) -> void:
 
 ## Materials MaterialWarmup draws under the loading screen (a first draw compiles a pipeline).
 func warm_materials() -> Array:
-	return [_preview_mat, _handle_mat]
+	return [_ghost_mat, _handle_mat]
 
 
 func is_active() -> bool:
@@ -232,11 +241,13 @@ func drag_by(id: String, amount: float) -> String:
 	var h := _handle(id)
 	if h.is_empty():
 		return ""
+	player.capture_mouse(true)   # aim with the view, as the cursor would
 	_look_at(h["pos"])
 	var seen := _pick_handle()
-	_start_drag(id)
-	var axis: Vector3 = h["axis"] if h["id"] != "move" else Vector3.RIGHT
-	_look_at((h["pos"] as Vector3) + axis * amount)
+	_hover_pt = h["pos"]
+	_start_drag(h["id"])
+	var axis: Vector3 = _drag["axis"] if h["id"] != "move" else Vector3.RIGHT
+	_look_at((_drag["pos"] as Vector3) + axis * amount)
 	_update_drag()
 	_drag = {}
 	_make_handles()
@@ -280,13 +291,16 @@ func _set_state(s: State) -> void:
 	state = s
 	player.building = s != State.OFF
 	_drag = {}
+	_rmb = {}
+	if not s in [State.EDIT, State.SELECTED] and not player._mouse_captured and not player.ui_open and not menu.visible:
+		player.capture_mouse(true)   # a placed shape or a selection frees the cursor (see _process); every other state looks
 	_dig_progress = 0.0
 	_dirty = true
 	_preview.visible = s != State.OFF and s != State.BOX_START
 	if s == State.OFF:
 		_clear_handles()
 		_hint.text = ""
-	elif s == State.EDIT:
+	elif s in [State.EDIT, State.SELECTED]:
 		_make_handles()
 	else:
 		_clear_handles()
@@ -321,9 +335,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if state == State.OFF:
 		return
-	if event is InputEventMouseButton and event.pressed and not event.ctrl_pressed and state == State.EDIT and _hover != "" \
+	if event is InputEventMouseMotion and not _rmb.is_empty():
+		_rmb["moved"] += event.relative.length()   # not handled: the player turns the view
+		return
+	if event is InputEventMouseButton and event.pressed and not event.ctrl_pressed and state in [State.EDIT, State.SELECTED] and _hover != "" \
 			and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
-		if _apply(_hover, lo, wsize, hollow, snap if event.button_index == MOUSE_BUTTON_WHEEL_UP else -snap, false):
+		if _apply(_grab(_hover)["side"], lo, wsize, hollow, snap if event.button_index == MOUSE_BUTTON_WHEEL_UP else -snap, false):
 			_move_handles()
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton:
@@ -332,6 +349,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				_left_press()
 			else:
 				_drag = {}
+			get_viewport().set_input_as_handled()
+		elif event.button_index == MOUSE_BUTTON_RIGHT and state in [State.EDIT, State.SELECTED]:
+			_rmb_look(event.pressed)
 			get_viewport().set_input_as_handled()
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 			_cancel()
@@ -367,7 +387,7 @@ func turn(axis: int) -> void:
 
 func _changed() -> void:
 	_dirty = true
-	if state == State.EDIT:
+	if state in [State.EDIT, State.SELECTED]:
 		_make_handles()
 
 
@@ -388,7 +408,9 @@ func _left_press() -> void:
 		State.BOX_END:
 			_left_press_box_end()
 		State.SELECTED:
-			if main.chat:
+			if _hover != "":
+				_start_drag(_hover)
+			elif main.chat:
 				main.chat.open("/prefab save builds ")   # type a name, Enter saves (category first)
 
 
@@ -403,6 +425,21 @@ func _left_press_box_end() -> void:
 		_set_state(State.SELECTED)
 
 
+## The right button on a placed shape: held, it looks around (the mouse is captured meanwhile and the
+## cursor comes back where it was); a plain click cancels.
+func _rmb_look(pressed: bool) -> void:
+	if pressed:
+		_rmb = {"pos": player.camera.get_viewport().get_mouse_position(), "moved": 0.0}
+		player.capture_mouse(true)
+	elif not _rmb.is_empty():
+		var r := _rmb
+		_rmb = {}
+		player.capture_mouse(false)
+		player.camera.get_viewport().warp_mouse(r["pos"])
+		if r["moved"] < 6.0:
+			_cancel()
+
+
 func _cancel() -> void:
 	match state:
 		State.EDIT:
@@ -415,9 +452,13 @@ func _cancel() -> void:
 
 # ---------------- aiming ----------------
 
+## The aim ray: through the cursor while it is free (a placed shape), else the view centre.
 func _ray() -> Array:
 	var cam: Camera3D = player.camera
-	return [cam.global_position, -cam.global_transform.basis.z]
+	if player._mouse_captured:
+		return [cam.global_position, -cam.global_transform.basis.z]
+	var mp := cam.get_viewport().get_mouse_position()
+	return [cam.project_ray_origin(mp), cam.project_ray_normal(mp)]
 
 
 func _aim_hit() -> VoxelRaycastResult:
@@ -465,7 +506,9 @@ func _process(delta: float) -> void:
 			if nlo != lo:
 				lo = nlo
 				_dirty = true
-		State.EDIT:
+		State.EDIT, State.SELECTED:
+			if player._mouse_captured and _rmb.is_empty() and not player.ui_open and not menu.visible:
+				player.capture_mouse(false)   # the cursor drags the handles (LotL); the right button held looks
 			if _drag.is_empty():
 				_hover = _pick_handle()
 			else:
@@ -525,7 +568,7 @@ func _rebuild_preview() -> void:
 	var m := ArrayMesh.new()
 	if not (arr[Mesh.ARRAY_INDEX] as PackedInt32Array).is_empty():
 		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-		m.surface_set_material(0, _preview_mat)
+		m.surface_set_material(0, _ghost_mat)
 	_preview.mesh = m
 	_preview.position = Vector3(lo)
 	_preview.visible = true
@@ -538,7 +581,17 @@ func _rebuild_preview() -> void:
 		col = Color(1.0, 0.45, 0.3, 0.4) if mode == "dig" else Color(1.0, 0.95, 0.4, 0.35)
 	elif _short:
 		col = Color(1.0, 0.25, 0.2, 0.42)
-	_preview_mat.albedo_color = col
+	# a shape of one material shows that material's pattern washed in the colour; frames and prefabs the colour alone
+	var held := _held_material() if mode == "shape" and not outline else 0
+	var src: ShaderMaterial = player.brush_tool.ghost_mat
+	for pn in BrushTool.ATLAS_PARAMS:
+		_ghost_mat.set_shader_parameter(pn, src.get_shader_parameter(pn))
+	if held > 0:
+		var t: Array = GameMaterials.defs()[held - 1]["tiles"]
+		_ghost_mat.set_shader_parameter("tiles", Vector3(float(t[0]), float(t[1]), float(t[2])))
+	_ghost_mat.set_shader_parameter("tint", Color(col, 1.0))
+	_ghost_mat.set_shader_parameter("tint_mix", 0.3 if held > 0 else 1.0)
+	_ghost_mat.set_shader_parameter("opacity", 0.6 if held > 0 else col.a + 0.1)
 
 
 ## What the placement needs and whether the inventory has it.
@@ -595,7 +648,7 @@ func _update_hint() -> void:
 			_hint.text = "%s %s   click to set down, R turn, Shift+R tip, X mirror, N snap %s, right click / V: leave\n%s" % [
 				prefab_label if mode == "prefab" else shape.capitalize(), size_text, _snap_text(), _need_text]
 		State.EDIT:
-			_hint.text = "%s %s%s   drag or wheel over the handles (snap %s), click away to build, right click to move it again\n%s" % [
+			_hint.text = "%s %s%s   drag the handles (wheel steps a snap of %s), hold the right button to look, click away to build, right click to move it again\n%s" % [
 				prefab_label if mode == "prefab" else shape.capitalize(), size_text, "  hollow %d" % hollow if hollow > 0 else "", _snap_text(), _need_text]
 		State.BOX_START:
 			_hint.text = {"box": "Box: click the first corner", "dig": "Box dig: click the first corner", "select": "Select: click the first corner"}.get(mode, "")
@@ -604,7 +657,7 @@ func _update_hint() -> void:
 		State.DIG_BOX:
 			_hint.text = "Dig %s: hold the left button   right click: another box" % size_text
 		State.SELECTED:
-			_hint.text = "Selected %s   click to name and save it   right click: another box" % size_text
+			_hint.text = "Selected %s   drag the handles to adjust it, click away to name and save it   right click: another box" % size_text
 	if _short and state in [State.AIM, State.EDIT]:
 		_hint.text += "   (not enough)"
 
@@ -625,26 +678,51 @@ func _make_handles() -> void:
 	var mid := float(lo.y) + wsize.y * 0.5
 	var list := [["move", Vector3(c.x, top + 3.0, c.z), Vector3.ZERO, Color(1, 1, 1)]]
 	if mode != "prefab":
+		# LotL's rings (a 5th entry is the ring radius): the outer one at the foot grows the side you
+		# grab, the inner one on top hollows (its radius is what stays open; shapes only, not a selection)
 		list.append_array([
 			["top", Vector3(c.x, top + 1.0, c.z), Vector3.UP, Color(0.3, 1.0, 0.4)],
-			["+x", Vector3(lo.x + wsize.x + 1.0, mid, c.z), Vector3.RIGHT, Color(1.0, 0.35, 0.3)],
-			["-x", Vector3(lo.x - 1.0, mid, c.z), Vector3.LEFT, Color(1.0, 0.35, 0.3)],
-			["+z", Vector3(c.x, mid, lo.z + wsize.z + 1.0), Vector3.BACK, Color(0.35, 0.55, 1.0)],
-			["-z", Vector3(c.x, mid, lo.z - 1.0), Vector3.FORWARD, Color(0.35, 0.55, 1.0)],
-			["hollow", Vector3(lo.x + maxf(hollow, 0.5), top + 1.0, c.z), Vector3.RIGHT, Color(1.0, 0.9, 0.3)],
+			["ring", Vector3(c.x, float(lo.y) + 0.5, c.z), Vector3.ZERO, Color(1.0, 0.35, 0.3), maxf(wsize.x, wsize.z) * 0.5 + 1.5],
 		])
+		if state == State.EDIT:
+			list.append(["hollow", Vector3(c.x, top + 0.5, c.z), Vector3.ZERO, Color(1.0, 0.9, 0.3), maxf(minf(wsize.x, wsize.z) * 0.5 - hollow, 1.0)])
 	for e in list:
 		var mi := MeshInstance3D.new()
-		var bm := BoxMesh.new()
-		bm.size = Vector3.ONE
-		mi.mesh = bm
-		var mat: StandardMaterial3D = _handle_mat.duplicate()
+		var mat: StandardMaterial3D = _handle_mat.duplicate(true)
 		mat.albedo_color = e[3]
+		mat.emission = (e[3] as Color) * 0.35
+		(mat.next_pass as StandardMaterial3D).albedo_color = Color(e[3], 0.28)
+		if e.size() > 4:
+			mi.mesh = TorusMesh.new()
+		elif e[0] == "top":   # an arrow: a cone on a shaft
+			var cone := CylinderMesh.new()
+			cone.top_radius = 0.0
+			cone.bottom_radius = 0.5
+			cone.height = 1.0
+			mi.mesh = cone
+			var shaft := MeshInstance3D.new()
+			var cm := CylinderMesh.new()
+			cm.top_radius = 0.12
+			cm.bottom_radius = 0.12
+			cm.height = 1.2
+			shaft.mesh = cm
+			shaft.position = Vector3(0, -1.0, 0)
+			shaft.material_override = mat
+			shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.add_child(shaft)
+		else:   # the move knob
+			var sm := SphereMesh.new()
+			sm.radius = 0.5
+			sm.height = 1.0
+			mi.mesh = sm
 		mi.material_override = mat
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
 		mi.position = e[1]
-		_handles.append({"id": e[0], "node": mi, "pos": e[1], "axis": e[2], "color": e[3]})
+		var h := {"id": e[0], "node": mi, "pos": e[1], "axis": e[2], "color": e[3]}
+		if e.size() > 4:
+			h["radius"] = e[4]
+		_handles.append(h)
 	_style_handles()
 
 
@@ -653,9 +731,20 @@ func _style_handles() -> void:
 	for h in _handles:
 		var mi: MeshInstance3D = h["node"]
 		var s := HANDLE * maxf(1.0, eye.distance_to(h["pos"]) / Settings.m2v(4.0))
-		mi.scale = Vector3.ONE * s * (1.35 if h["id"] == _hover or h["id"] == _drag.get("id", "") else 1.0)
+		s *= 1.35 if h["id"] == _hover or h["id"] == _drag.get("id", "") else 1.0
+		if h.has("radius"):
+			var tm: TorusMesh = mi.mesh
+			var rad: float = h["radius"]
+			var tube := minf(s * 0.22, rad * 0.5)
+			if absf(tm.outer_radius - (rad + tube)) > 1e-3:
+				tm.outer_radius = rad + tube
+				tm.inner_radius = rad - tube
+		else:
+			mi.scale = Vector3.ONE * s
 		var c: Color = h["color"]
-		(mi.material_override as StandardMaterial3D).albedo_color = c.lightened(0.4) if h["id"] == _hover else c
+		var mat: StandardMaterial3D = mi.material_override
+		mat.albedo_color = c.lightened(0.4) if h["id"] == _hover else c
+		mat.emission = c * (0.9 if h["id"] == _hover else 0.35)
 
 
 func _pick_handle() -> String:
@@ -666,28 +755,60 @@ func _pick_handle() -> String:
 	var best_d := INF
 	for h in _handles:
 		var p: Vector3 = h["pos"]
-		var t := (p - o).dot(d)
+		var t: float
+		var hit: Vector3
+		var dist: float
+		if h.has("radius"):   # a ring: where the ray crosses its plane, how far from the ring line
+			if absf(d.y) < 1e-4:
+				continue
+			t = (p.y - o.y) / d.y
+			hit = o + d * t
+			dist = absf(Vector2(hit.x - p.x, hit.z - p.z).length() - float(h["radius"]))
+		else:
+			t = (p - o).dot(d)
+			hit = p
+			dist = (o + d * t - p).length()
 		if t <= 0.0:
 			continue
-		var dist := (o + d * t - p).length()
 		var reach := HANDLE * maxf(1.0, t / Settings.m2v(4.0)) * 0.9
 		if dist < reach and t < best_d:
 			best_d = t
 			best = h["id"]
+			_hover_pt = hit
 	return best
 
 
+## The handle `id`; a side (+x, -x, +z, -z) or hollow names the point on its ring at that side
+## (/shape drag), with the axis a drag there works along.
 func _handle(id: String) -> Dictionary:
+	const SIDES := {"+x": Vector3.RIGHT, "-x": Vector3.LEFT, "+z": Vector3.BACK, "-z": Vector3.FORWARD, "hollow": Vector3.RIGHT}
+	var want := "ring" if SIDES.has(id) and id != "hollow" else id
 	for h in _handles:
-		if h["id"] == id:
-			return h
+		if h["id"] != want:
+			continue
+		if SIDES.has(id):
+			var dir: Vector3 = SIDES[id]
+			return {"id": want, "pos": (h["pos"] as Vector3) + dir * float(h["radius"]), "axis": -dir if id == "hollow" else dir}
+		return h
 	return {}
 
 
-func _start_drag(id: String) -> void:
+## What a grab of handle `id` at `_hover_pt` works: {side, pos, axis}. A ring grows the side nearest
+## the grab (the hollow ring: inward).
+func _grab(id: String) -> Dictionary:
 	var h := _handle(id)
-	_drag = {"id": id, "pos": h["pos"], "axis": h["axis"], "lo": lo, "wsize": wsize, "hollow": hollow,
-		"s0": _axis_param(h["pos"], h["axis"]), "plane0": _plane_point(float(h["pos"].y)), "shift": Input.is_key_pressed(KEY_SHIFT)}
+	if not h.has("radius"):
+		return {"side": id, "pos": h["pos"], "axis": h["axis"]}
+	var v: Vector3 = _hover_pt - (h["pos"] as Vector3)
+	var dir := Vector3.RIGHT * (1.0 if v.x >= 0.0 else -1.0) if absf(v.x) >= absf(v.z) else Vector3.BACK * (1.0 if v.z >= 0.0 else -1.0)
+	var side: String = "hollow" if id == "hollow" else {Vector3.RIGHT: "+x", Vector3.LEFT: "-x", Vector3.BACK: "+z", Vector3.FORWARD: "-z"}[dir]
+	return {"side": side, "pos": (h["pos"] as Vector3) + dir * float(h["radius"]), "axis": -dir if id == "hollow" else dir}
+
+
+func _start_drag(id: String) -> void:
+	var g := _grab(id)
+	_drag = {"id": id, "side": g["side"], "pos": g["pos"], "axis": g["axis"], "lo": lo, "wsize": wsize, "hollow": hollow,
+		"s0": _axis_param(g["pos"], g["axis"]), "plane0": _plane_point(float(g["pos"].y)), "shift": Input.is_key_pressed(KEY_SHIFT)}
 
 
 ## Where the aim ray passes closest to the line through p along axis: the parameter along it.
@@ -726,7 +847,7 @@ func _update_drag() -> void:
 		lo = nlo
 	else:
 		var dv := _snap_step(_axis_param(_drag["pos"], _drag["axis"]) - float(_drag["s0"]))
-		changed = _apply(id, l0, _drag["wsize"], int(_drag["hollow"]), dv, _drag["shift"])
+		changed = _apply(_drag["side"], l0, _drag["wsize"], int(_drag["hollow"]), dv, _drag["shift"])
 	if changed:
 		_dirty = true
 		_move_handles()

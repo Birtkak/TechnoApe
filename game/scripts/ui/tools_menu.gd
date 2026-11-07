@@ -19,7 +19,7 @@ const SHAPE_TIPS := {
 }
 const MODES := [
 	["brush", "Brush", "Left click digs the brush, right click places the held block as the brush (shape and size above)."],
-	["shape:box", "Box", "A box of the held material: a click sets it down where you aim, handles resize it, a click away builds it."],
+	["shape:box", "Box", "A box of the held material: a click sets it down where you aim and frees the cursor, drag the top arrow, the foot ring (size) and the top ring (hollow), a click away builds it."],
 	["shape:wall", "Wall", "A wall of the held material, the same handles as the box."],
 	["shape:cylinder", "Cylinder", "A cylinder of the held material."],
 	["shape:cone", "Cone", "A cone of the held material."],
@@ -42,7 +42,7 @@ const KEYS := [
 	["Wheel over a handle", "step it one snap (move handle: up / down)"],
 	["R / Shift + R", "turn / tip a placed shape"],
 	["X", "mirror a placed shape"],
-	["Right click", "cancel a shape or box"],
+	["Right click", "cancel a shape or box (held on a placed shape: look around)"],
 ]
 
 var main: Node
