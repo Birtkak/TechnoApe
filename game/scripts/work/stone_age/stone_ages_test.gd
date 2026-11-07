@@ -228,7 +228,7 @@ func _collect() -> void:
 				e.queue_free()
 
 
-func _shot(name: String, at_p: Vector3, dist_m: float = 1.6) -> void:
+func _shot(name: String, at_p: Vector3, dist_m: float = 1.6, look: Dictionary = {}) -> void:
 	if "flint_age_shots=0" in OS.get_cmdline_user_args() or DisplayServer.get_name() == "headless":
 		return
 	var keep: Vector3 = main.player.position
@@ -240,6 +240,10 @@ func _shot(name: String, at_p: Vector3, dist_m: float = 1.6) -> void:
 		var dir := (at_p - cam.global_position).normalized()
 		main.player.set_look(atan2(-dir.x, -dir.z), asin(dir.y))
 	await tree.create_timer(0.3).timeout
+	if not look.is_empty():
+		main.player.hud.set_look(look)   # the look panel (a scripted run has no captured mouse to fill it)
+		await tree.process_frame
+		await tree.process_frame
 	var path: String = DebugCapture.out_dir + "/stone_ages_%s.png" % name
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(DebugCapture.out_dir))
 	main.get_viewport().get_texture().get_image().save_png(path)
@@ -488,8 +492,21 @@ func _home() -> void:
 	r["salt_pan_placed"] = main.blocks.at(sp) is RackEntity
 	# a bedroom: planks all round and over, a table, chairs and a lantern
 	var lo := at(5, -3)
-	_fill(lo, lo + Vector3i(7 * B, 4 * B, 6 * B), GameMaterials.PLANKS)
-	_fill(lo + Vector3i(B, 0, B), lo + Vector3i(6 * B, 3 * B, 5 * B), GameMaterials.AIR)
+	# the hearth first (the room is built round it): a lit firepit inside
+	var hearth := at(10, 0)
+	main.work._create(hearth, "firepit", GameMaterials.WORK_SPOT)   # the click-placed firepit does not land inside the strip's walls
+	await _settle()
+	var hp = main.blocks.at(hearth)
+	r["hearth_placed"] = hp is FirepitEntity
+	if hp is FirepitEntity:
+		hp.inv.set_slot(FirepitEntity.FUEL, {"id": "firewood", "count": 16})
+		r["hearth_lit"] = hp.ignite()
+	var hi := lo + Vector3i(7 * B, 4 * B, 6 * B)
+	_fill(lo, Vector3i(hi.x, lo.y + 4 * B, lo.z + B), GameMaterials.PLANKS)                 # walls, roof
+	_fill(Vector3i(lo.x, lo.y, hi.z - B), hi, GameMaterials.PLANKS)
+	_fill(lo, Vector3i(lo.x + B, hi.y, hi.z), GameMaterials.PLANKS)
+	_fill(Vector3i(hi.x - B, lo.y, lo.z), hi, GameMaterials.PLANKS)
+	_fill(Vector3i(lo.x, lo.y + 3 * B, lo.z), hi, GameMaterials.PLANKS)
 	var bed_a := at(6, -2)
 	main._place_furniture("bed", bed_a, 0)
 	var bed: FurnitureEntity = main.blocks.furniture_at(bed_a)
@@ -499,13 +516,15 @@ func _home() -> void:
 	main._place_furniture("lantern", at(8, 1), 0)
 	main._place_furniture("chair", at(8, -2), 0)
 	await tree.create_timer(0.5).timeout
-	r["bed_hint"] = main._describe_block(bed_a)
+	var hint: Dictionary = main._describe_block(bed_a)
+	r["bed_hint"] = hint
+	r["warmth_heat"] = Comfort.of_bed(main, bed)["heat"]
 	r["bed_furnished"] = Comfort.of_bed(main, bed)
 	r["rested_before"] = main.survival.buffs.has("rested")
 	main.survival.rest_at(bed, false)
 	r["rested_after"] = main.survival.buffs.get("rested", {})
 	main.player.position = Vector3(bed_a) + Vector3(1.0, 1.2, 1.4) * B
-	await _shot("bedroom", Vector3(bed_a) + Vector3(1.0, 0.9, 2.0) * B, 1.0)
+	await _shot("bedroom", Vector3(bed_a) + Vector3(1.0, 0.9, 2.0) * B, 1.0, {"title": "Bed", "icon": "bed", "line": hint["line"]})
 
 
 # ---------------- 3. New Stone Age ----------------
