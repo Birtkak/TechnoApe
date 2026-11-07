@@ -10,7 +10,9 @@ extends Node
 ## Each toy gets one sheet <out>/toys_<name>.png: a filmstrip (hook every 0.25 s from the side, rope 0.5 s
 ## and glide 0.7 s from behind) and a burst of 6 consecutive frames.
 ## One JSON line "debug toys {...}"; ok = every toy did its job and the body never stood inside a voxel.
-## toys_only=glide,rope: just these.
+## toys_only=glide,rope: just these. toys_world=1 instead finds the steepest real drop within 400 m of the
+## spawn (generator heights, checked against the voxels) and glides off it, hangs a rope over it and climbs it,
+## and hooks its face from the foot (sheets toys_world_glide|rope|hook.png, JSON "world").
 
 const STRIP_EVERY_S := 0.25
 const STRIP_MAX := 24
@@ -25,6 +27,7 @@ var _sheet: FrameSheet
 var _strip_t := 0.0
 var _filming := false
 var _every := STRIP_EVERY_S
+var _settle := 0
 
 
 func run(p_main: Node) -> void:
@@ -40,6 +43,10 @@ func run(p_main: Node) -> void:
 	p.autopilot_action = "look"
 	p.autopilot_speed_m = 0.0
 	await tree.create_timer(2.0).timeout
+	if "toys_world=1" in OS.get_cmdline_user_args():
+		await _world()
+		_finish()
+		return
 	_o = (p.position + Vector3(0, 0, Settings.m2v(60.0))).floor()   # away from the spawn's monolith and its plaza
 	_g = int(main.world.generator.gen.height_at(int(_o.x), int(_o.z))) + 1
 	_o.y = _g
@@ -57,6 +64,10 @@ func run(p_main: Node) -> void:
 		await _rope()
 	if only == "" or "glide" in only:
 		await _glide()
+	_finish()
+
+
+func _finish() -> void:
 	var ok := _inside == 0
 	for k in r:
 		ok = ok and bool(r[k].get("ok", false))
@@ -70,6 +81,9 @@ func run(p_main: Node) -> void:
 func _physics_process(_delta: float) -> void:
 	if p == null or p.body == null or not (main.toys.gliding or main.toys.climbing or main.toys.hook == "caught"):
 		return   # only while a toy moves the body
+	if _settle > 0:
+		_settle -= 1
+		return
 	var b: AABB = p.body.aabb.grow(-0.3)   # shrunk: touching a floor, wall or ceiling is not a tunnel
 	b.position += p.position
 	if p.body._mover.intersects(b, main.world.terrain):
@@ -114,6 +128,7 @@ func _build() -> void:
 	_box(Vector3i(ox - _m(10), _g - _m(6), oz - _m(2)), Vector3i(ox - _m(6), _g + _m(26), oz + _m(2)), "stone")
 	_box(Vector3i(ox - _m(2), _g + _m(12), oz + _m(9)), Vector3i(ox + _m(2), _g + _m(13), oz + _m(11)), "stone")
 	_box(Vector3i(ox + _m(3), _g + _m(10), oz + _m(9)), Vector3i(ox + _m(4), _g + _m(11), oz + _m(11)), "sand_static")
+	_box(Vector3i(ox - _m(4), _g + _m(10), oz + _m(9)), Vector3i(ox - _m(3), _g + _m(11), oz + _m(11)), "leaves")
 
 
 func _hold(id: String) -> void:
@@ -163,9 +178,17 @@ func _film(on: bool, label: String, every_s := STRIP_EVERY_S) -> void:
 
 
 func _feet(at: Vector3) -> void:
+	_settle = 20   # a teleport onto a slope may start inside it: Player unsticks it, not a toy
 	p.teleport(at)
 	p.velocity = Vector3.ZERO
 	await get_tree().create_timer(0.6).timeout
+	var t := 0.0
+	while p.edits_locked and t < 15.0:   # a far teleport is covered until the ground is in: no clicks before
+		await get_tree().create_timer(0.25).timeout
+		t += 0.25
+	if t > 0.0:
+		p.teleport(at)   # the cover may have dropped the body a little
+		await get_tree().create_timer(0.4).timeout
 
 
 # ---------------- the toys ----------------
@@ -181,6 +204,12 @@ func _hook() -> void:
 	p._use(true)
 	await tree.create_timer(0.6).timeout
 	res["slipped_on_sand"] = int(main.toys.stats["hooks_slipped"]) > 0
+	main.toys.unhook()
+	# leaves: it holds (a crown to swing from)
+	_aim_at(Vector3(_o.x - _m(3.5), _g + _m(10.5), _o.z + _m(10)))
+	p._use(true)
+	await tree.create_timer(0.6).timeout
+	res["caught_leaves"] = main.toys.hook == "caught" and "leaves" in GameMaterials.name_of(main.get_world_voxel(main.toys._anchor_voxel))
 	main.toys.unhook()
 	# the beam's underside
 	var anchor_aim := Vector3(_o.x + 0.5, _g + _m(12) - 0.2, _o.z + _m(10))
@@ -226,7 +255,7 @@ func _hook() -> void:
 	await tree.create_timer(1.0).timeout
 	res["flew_after_let_go_m"] = snappedf(Settings.v2m(Vector2(p.position.x - at.x, p.position.z - at.z).length()), 0.1)
 	await _film(false, "hook")
-	res["ok"] = res["slipped_on_sand"] and res["caught"] and res["line_after_reel_m"] < res["line_m"] - 3.0 \
+	res["ok"] = res["slipped_on_sand"] and res["caught_leaves"] and res["caught"] and res["line_after_reel_m"] < res["line_m"] - 3.0 \
 		and res["swing_z_m"] > 2.0 and res["line_stretch_max_m"] < 0.5 and res["flew_after_let_go_m"] > 3.0
 	r["hook"] = res
 	print("toys hook " + JSON.stringify(res))
@@ -275,7 +304,15 @@ func _rope() -> void:
 	_aim_at(Vector3(rope["x"], rope["top"] - _m(0.1), rope["z"]))   # its knot, above the ledge
 	p._use(true)
 	res["taken_back"] = main.toys.ropes.is_empty()
-	res["ok"] = res["climbed"] and res["on_top"] and res["taken_back"] and res["length_m"] > 15.0
+	# hung again, its anchor dug away: it falls as an item
+	_aim_at(Vector3(edge_x - _m(0.3), top, _o.z + 0.5))
+	p._use(true)
+	var anchor = main.toys.ropes[0].get("anchor") if main.toys.ropes.size() == 1 else null
+	if anchor != null:
+		main.bubble.set_voxel(anchor, 0)
+		await tree.create_timer(1.0).timeout
+	res["falls_when_dug"] = anchor != null and main.toys.ropes.is_empty()
+	res["ok"] = res["climbed"] and res["on_top"] and res["taken_back"] and res["falls_when_dug"] and res["length_m"] > 15.0
 	r["rope"] = res
 	print("toys rope " + JSON.stringify(res))
 
@@ -342,3 +379,183 @@ func _glide() -> void:
 		and res["dive_speed_m_s"] > Settings.glider_trim_speed_m * 1.4 and res["pull_up_gain_m"] > 1.0 and res["landed"] and res["roll_max_rad"] > 0.1
 	r["glide"] = res
 	print("toys glide " + JSON.stringify(res))
+
+
+# ---------------- on real terrain (toys_world=1) ----------------
+
+## The highest real ground voxel's top in the column (x, z), searched down from `from_y`.
+func _ground_y(x: int, z: int, from_y: int) -> int:
+	for y in range(from_y, from_y - _m(80), -1):
+		if GameMaterials.blocks_bodies(main.get_world_voxel(Vector3i(x, y, z))):
+			return y + 1
+	return from_y - _m(80)
+
+
+## The same, past trees: leaves and wood are not the ground a rim is made of.
+func _terrain_y(x: int, z: int, from_y: int) -> int:
+	for y in range(from_y, from_y - _m(80), -1):
+		var m: int = main.get_world_voxel(Vector3i(x, y, z))
+		var n := GameMaterials.name_of(m)
+		if GameMaterials.blocks_bodies(m) and not ("leaves" in n or "log" in n or "wood" in n or "bark" in n):
+			return y + 1
+	return from_y - _m(80)
+
+
+func _heal() -> void:
+	p.inventory.health = p.inventory.max_health
+
+
+func _world() -> void:
+	var tree := get_tree()
+	var gen = main.world.generator.gen
+	var sx := int(p.position.x)
+	var sz := int(p.position.z)
+	var best := {"drop": 0}
+	var step := _m(4.0)
+	for ix in range(-100, 101):
+		for iz in range(-100, 101):
+			if ix * ix + iz * iz < 100:
+				continue   # 40 m: off the monolith and its plaza
+			var x := sx + ix * step
+			var z := sz + iz * step
+			var h: int = gen.height_at(x, z)
+			for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				var near: int = h - int(gen.height_at(x + d.x * _m(3.0), z + d.y * _m(3.0)))
+				var far: int = h - int(gen.height_at(x + d.x * _m(15.0), z + d.y * _m(15.0)))
+				if near > best["drop"] and far >= near:
+					best = {"x": x, "z": z, "h": h, "dx": d.x, "dz": d.y, "drop": near}
+	var w := {"site": [best.get("x"), best.get("h"), best.get("z")], "gen_drop_3m": snappedf(Settings.v2m(best["drop"]), 0.1)}
+	r["world"] = w
+	if int(best["drop"]) < _m(6.0):
+		w["ok"] = false
+		return
+	var dir := Vector3(best["dx"], 0, best["dz"])
+	var top := Vector3(best["x"] + 0.5, best["h"] + _m(2.0), best["z"] + 0.5)
+	await _feet(top)
+	await tree.create_timer(5.0).timeout   # the cliff and the land below stream in
+	# the rim: walk out along dir while the terrain (generator heights: no tree crowns) holds within 1 m
+	var gy := _terrain_y(int(top.x), int(top.z), int(top.y) + _m(8))
+	var edge := Vector3(top.x, gy, top.z)
+	for _i in _m(12.0):
+		var nx := edge + dir
+		var ny := _terrain_y(int(nx.x), int(nx.z), gy + _m(3))
+		if ny < gy - _m(1.0):
+			break
+		edge = Vector3(nx.x, ny, nx.z)
+		gy = ny
+	var below := edge + dir * _m(4.0)
+	w["real_drop_4m"] = snappedf(Settings.v2m(edge.y - _ground_y(int(below.x), int(below.z), int(edge.y))), 0.1)
+	var yaw := atan2(-dir.x, -dir.z)
+	var start := edge - dir * _m(0.5)
+	start.y = _terrain_y(int(start.x), int(start.z), int(edge.y) + _m(3)) + 0.05
+	# ---- glide off the rim, looking a little down, straight on to the landing ----
+	_hold("glider")
+	_heal()
+	await _feet(start)
+	p.set_look(yaw, -0.12)
+	_film(true, "world_glide", 0.7)
+	await tree.create_timer(0.5).timeout
+	p.teleport(edge + dir * _m(1.0) + Vector3(0, _m(1.2), 0))   # a run and a jump off the rim (a lip stands on this one)
+	p.velocity = dir * Settings.m2v(Settings.walk_speed_m)
+	var t := 0.0
+	while p.velocity.y > -Settings.m2v(2.0) and t < 2.0:
+		await tree.physics_frame
+		t += get_physics_process_delta_time()
+	p._use(true)
+	p.set_look(yaw, -0.12)
+	var g := {"opened": main.toys.gliding}
+	var from := p.position
+	var snags := 0
+	t = 0.0
+	while main.toys.gliding and t < 25.0:
+		await tree.physics_frame
+		t += get_physics_process_delta_time()
+		if p.body.blocked.x > 0.0 or p.body.blocked.z > 0.0:
+			snags += 1
+	await tree.create_timer(0.6).timeout
+	g["flight_s"] = snappedf(t, 0.1)
+	g["dist_m"] = snappedf(Settings.v2m(Vector2(p.position.x - from.x, p.position.z - from.z).length()), 0.1)
+	g["height_lost_m"] = snappedf(Settings.v2m(from.y - p.position.y), 0.1)
+	g["snag_frames"] = snags
+	g["damage"] = p.inventory.max_health - p.inventory.health
+	g["landed"] = not main.toys.gliding and (p.is_on_floor() or p.in_liquid)
+	await _film(false, "world_glide")
+	g["ok"] = g["opened"] and g["landed"] and g["damage"] == 0 and g["dist_m"] > 10.0
+	w["glide"] = g
+	print("toys world glide " + JSON.stringify(g))
+	# ---- a rope over the rim, climbed from its foot ----
+	_hold("climbing_rope")
+	_heal()
+	await _feet(start)
+	_aim_at(edge - dir * _m(0.3) + Vector3(0.0, 0.0, 0.0))
+	var ro := {"hung": false}
+	var aim := p._aim()
+	ro["aimed"] = [GameMaterials.name_of(main.get_world_voxel(aim.position)), aim.previous_position - aim.position] if aim else "nothing in reach"
+	p._use(true)
+	if main.toys.ropes.size() > 0:
+		var rope: Dictionary = main.toys.ropes[-1]
+		ro["hung"] = true
+		ro["length_m"] = snappedf(Settings.v2m(rope["top"] - rope["bottom"]), 0.1)
+		await _feet(Vector3(rope["x"], rope["bottom"] + 0.05, rope["z"]) + dir * _m(0.45))
+		p.set_look(yaw + PI, 0.15)
+		_film(true, "world_rope", 0.5)
+		p.autopilot_action = ""
+		p.autopilot_speed_m = Settings.walk_speed_m
+		var climbed := false
+		var stuck := 0.0
+		var last_y := p.position.y
+		t = 0.0
+		while t < 25.0:
+			await tree.physics_frame
+			var dt := get_physics_process_delta_time()
+			t += dt
+			climbed = climbed or main.toys.climbing
+			stuck = stuck + dt if absf(p.position.y - last_y) < 0.01 and main.toys.climbing else 0.0
+			last_y = p.position.y
+			if stuck > 1.0 or (p.is_on_floor() and p.position.y >= rope["top"] - _m(0.6)):
+				break
+		p.autopilot_action = "look"
+		p.autopilot_speed_m = 0.0
+		ro["climbed"] = climbed
+		ro["climb_s"] = snappedf(t, 0.1)
+		ro["stuck_on_the_way"] = stuck > 1.0
+		ro["on_top"] = p.is_on_floor() and p.position.y >= rope["top"] - _m(0.6)
+		ro["damage"] = p.inventory.max_health - p.inventory.health
+		await tree.create_timer(0.5).timeout
+		await _film(false, "world_rope")
+		_aim_at(Vector3(rope["x"], rope["top"] - _m(0.1), rope["z"]))
+		p._use(true)
+		ro["taken_back"] = main.toys.ropes.is_empty()
+	ro["ok"] = ro["hung"] and ro.get("on_top", false) and ro.get("taken_back", false)
+	w["rope"] = ro
+	print("toys world rope " + JSON.stringify(ro))
+	# ---- the hook: from the foot of the drop, at the face just under the rim ----
+	_hold("grappling_hook")
+	_heal()
+	var foot := edge + dir * _m(6.0)
+	foot.y = _terrain_y(int(foot.x), int(foot.z), int(edge.y))
+	await _feet(foot + Vector3(0, 0.05, 0))
+	_aim_at(edge + dir * _m(0.2) - Vector3(0, _m(1.5), 0))
+	p._use(true)
+	_film(true, "world_hook")
+	var hk := {}
+	t = 0.0
+	while main.toys.hook == "flying" and t < 1.0:
+		await tree.physics_frame
+		t += get_physics_process_delta_time()
+	hk["caught"] = main.toys.hook == "caught"
+	hk["on"] = GameMaterials.name_of(main.get_world_voxel(main.toys._anchor_voxel)) if hk["caught"] else ""
+	hk["line_m"] = snappedf(Settings.v2m(main.toys._line), 0.1)
+	p.autopilot_hold = true
+	await tree.create_timer(1.0).timeout
+	p.autopilot_hold = false
+	hk["lifted_m"] = snappedf(Settings.v2m(p.position.y - foot.y), 0.1)
+	await tree.create_timer(3.0).timeout
+	main.toys._let_go_with_swing()
+	await tree.create_timer(2.5).timeout
+	hk["damage"] = p.inventory.max_health - p.inventory.health
+	await _film(false, "world_hook")
+	hk["ok"] = hk["caught"] and hk["lifted_m"] > 1.0
+	w["hook"] = hk
+	print("toys world hook " + JSON.stringify(hk))
+	w["ok"] = g["ok"] and ro["ok"] and hk["ok"]

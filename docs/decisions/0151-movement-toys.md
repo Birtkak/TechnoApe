@@ -26,12 +26,12 @@ walking, ladders and the late steam jetpack. The developer picked movement toys 
   change. On a top face it goes out along the look (1.5 m at most) to the first column with no ground under it and
   hangs from there, against the edge; on a wall or a ceiling it hangs where you click; it runs down to the first
   solid voxel, `rope_max_m` (32 m) at most, at least 1 m. Against it (body radius + 0.3 m): W climbs at the ladder
-  speed, S goes down, nothing held hangs, the body is held at the rope's side; near the top W keeps walking so the
+  speed, S goes down, nothing held hangs, the body is held at the rope's side (round 2: real rims below); near the top W keeps walking so the
   body steps onto the ledge; jump lets go (0.5 s before it grabs again) with a push off it. A right click within
   0.25 m of the rope (or just past the face the aim hits, where the rope lies) takes it back.
 - **Grappling hook** (iron: 3 iron ingots and a climbing rope at the crafting table). Right click fires the hook at
-  70 m/s along the look, 36 m at most; it catches on a voxel that blocks bodies and is not a powder, sand, gravel,
-  snow or leaves, else it slips (a toast). Held right click shortens the line at 14 m/s (the pull no faster than
+  70 m/s along the look, 36 m at most; it catches on a voxel that blocks bodies and is not a powder, sand, gravel
+  or snow, else it slips (a toast; leaves hold since round 2). Held right click shortens the line at 14 m/s (the pull no faster than
   that); released, the line holds a pendulum: gravity and WASD (5 m/s^2) act on the body's own velocity, then the
   step's end is pulled back onto the line's sphere and the velocity is what reaches it (position-based, so a swing
   keeps its energy and the line never stretches; the first version removed the outward speed and corrected the
@@ -50,6 +50,21 @@ walking, ladders and the late steam jetpack. The developer picked movement toys 
   from 26 m, landed unhurt; a 27 m rope climbed in 11.5 s onto the top and taken back; the hook slips on sand,
   catches the beam at 14.7 m, reels to 7.5 m, swings an 11.4 m arc, a let-go at 9.2 m/s flies 7.9 m; 0 frames inside
   a voxel. One sheet per toy (filmstrip + burst).
-- Ropes are not checked against their anchor after they are hung: dig the ledge away and the rope stays in the air
-  (shortcut; tie them to the anchor voxel when it shows in play). The ape model has no climbing or hanging pose.
+- The ape model has no climbing or hanging pose.
+
+## Round 2: real terrain (2026-11-07)
+`toys_test=1 toys_world=1` finds the steepest drop within 400 m of the spawn (generator heights, then the real
+voxels; seed default: a 16 m limestone cliff with a 0.6 m stone lip on its rim) and runs the toys there. What it
+showed and what changed:
+- **Glider:** a blocked step cost 60 % of the speed, so brushing a crown or a lip stalled the glide. Now a scrape
+  costs 20 % a step and lifts the glider (at least 2 m/s up) over the lip. Off the cliff: 108 m in 10.4 s, landed
+  in a forest unhurt.
+- **Rope:** the rim walk refused any bump ("Something is in the way") and stopped at a ledge 2.7 m down. Now it
+  climbs lips up to 1 m and walks through hollows under 1 m; out to 0.75 m past the rim it hangs where it falls
+  furthest (a short piece back to its stake); its top is set over the highest ground on the way (the climber must
+  get over the lip); a climber under an overhang leans out (up to 0.8 m) until the head clears; the grab reaches
+  0.6 m over the top. A rope remembers the voxel it was hung on and drops as an item when it is dug away. On the
+  cliff: 17.1 m, climbed in 7.2 s onto the top.
+- **Hook:** leaves now hold (swinging from a crown is the fun; the plants without collision were always passed
+  through); sand, gravel, snow still slip. On the cliff it caught the stone 15 m up and reeled the body to the rim.
 - The test runs 60 m south of the spawn: the monolith plaza north of it is in any straight path off a tower.
