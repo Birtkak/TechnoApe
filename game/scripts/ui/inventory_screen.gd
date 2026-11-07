@@ -527,6 +527,9 @@ Warmth +%.1f C" % float(cloth["warmth_c"])
 		text += "\nHot: %d °C (%d s to cool)" % [Inventory.temp_c(stack), int(ceil(float(stack["hot_until"]) - Inventory.clock_s))]   # ADR 0087
 	if player_inv.items.get_def(id).has("empties_to"):
 		text += "\nHolds %d / %d voxels" % [Bucket.fill_of(stack), Bucket.capacity()]   # ADR 0091
+	if stack.get("blueprint") is Dictionary:
+		text += "
+" + Blueprint.describe(stack["blueprint"], player_inv.items)   # ADR 0161
 	if stack.has("work"):
 		text += "\nWork piece: %s" % player_inv.items.display_name(String(stack["work"].get("output", "")))
 	text += item_facts(player_inv.items, player_inv.recipes, id, Input.is_key_pressed(KEY_SHIFT))

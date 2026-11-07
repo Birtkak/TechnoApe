@@ -32,6 +32,7 @@ var saplings: Saplings               # planted saplings growing into trees (ADR 
 var pieces: FallingPieces            # rigid voxel pieces (P12), null with rigid_pieces=0
 var support: MineSupport             # dug roofs need shoring (ADR 0142), null with cave_ins=0 or rigid_pieces=0
 var builder: ShapeBuilder            # shape building, box mode, prefabs (ADR 0038)
+var blueprints: Blueprints           # blueprint sites and builders (ADR 0161)
 var survival: Survival               # hunger, body temperature, food spoilage (ADR 0040)
 var pickups_popped := 0              # sticks and stones picked up by hand (ADR 0043, debug JSON)
 var _pickup_rng := RandomNumberGenerator.new()
@@ -421,6 +422,8 @@ func _ready() -> void:
 			_after_load(_debug_animals)
 		if DebugCapture.farm_test:
 			_after_load(_debug_farm)
+		if DebugCapture.blueprint_test:
+			_after_load(func() -> void: blueprints.debug_test())
 		if DebugCapture.building_test:
 			_after_load(_debug_building)
 		if DebugCapture.hands_test:
@@ -603,6 +606,12 @@ func _ready() -> void:
 	builder.name = "ShapeBuilder"
 	add_child(builder)
 	builder.setup(self)
+	blueprints = Blueprints.new()
+	blueprints.name = "Blueprints"
+	add_child(blueprints)
+	blueprints.setup(self)
+	if Settings.persist_world:
+		blueprints.load_dict(_load_json(_save_path("blueprints")))
 	survival = Survival.new()
 	survival.name = "Survival"
 	add_child(survival)
@@ -616,7 +625,8 @@ func _ready() -> void:
 	add_child(stone_age)
 	stone_age.setup(self)
 	stone_age.load_player(_stone_age_save)
-	player.item_use = stone_age.use
+	player.item_use = func(hit: VoxelRaycastResult, first: bool, from: Vector3, dir: Vector3) -> bool:
+		return blueprints.use(hit, first) or stone_age.use(hit, first, from, dir)   # ADR 0161, then the Stone Age
 	survival_loop = SurvivalLoop.new()
 	survival_loop.name = "SurvivalLoop"
 	add_child(survival_loop)
@@ -813,6 +823,9 @@ func _save_blocks() -> void:
 	if farming != null and farming.dirty:
 		_save_json(_save_path("farms"), farming.to_dict())
 		farming.dirty = false
+	if blueprints != null and blueprints.dirty:
+		_save_json(_save_path("blueprints"), blueprints.to_dict())
+		blueprints.dirty = false
 	if saplings != null and saplings.dirty:
 		_save_json(_save_path("saplings"), saplings.to_dict())
 		saplings.dirty = false

@@ -54,6 +54,7 @@
     {"id": "spyglass", "type": "shaped", "pattern": ["L", "P", "L"], "key": {"L": "glass_lens", "P": "copper_pipe"}, "output": {"id": "spyglass", "count": 1}, "station": "crafting_table"},
     {"id": "hand_drill", "type": "shaped", "pattern": [" H ", "GRG", " R "], "key": {"H": "steel_pickaxe_head", "G": "iron_gear", "R": "steel_rod"}, "output": {"id": "hand_drill", "count": 1}, "station": "crafting_table", "_note": "ADR 0099: steel-age tools at the crafting table"},
     {"id": "heavy_copper_cable", "type": "shaped", "pattern": ["CCC", "RRR"], "key": {"C": "copper_cable", "R": "rubber"}, "output": {"id": "heavy_copper_cable", "count": 1}},
-    {"id": "belt_rubber", "type": "shaped", "pattern": ["RRR", "GSG", "PPP"], "key": {"R": "rubber", "G": "iron_gear", "S": "iron_rod", "P": "iron_plate"}, "output": {"id": "belt", "count": 6}, "station": "crafting_table", "_note": "a rubber belt instead of leather: half as many again"}
+    {"id": "belt_rubber", "type": "shaped", "pattern": ["RRR", "GSG", "PPP"], "key": {"R": "rubber", "G": "iron_gear", "S": "iron_rod", "P": "iron_plate"}, "output": {"id": "belt", "count": 6}, "station": "crafting_table", "_note": "a rubber belt instead of leather: half as many again"},
+    {"id": "builder", "type": "shaped", "pattern": ["PMP", "CHC", "PGP"], "key": {"P": "iron_plate", "M": "electric_motor", "C": "primitive_circuit", "H": "machine_hull", "G": "iron_gear"}, "output": {"id": "builder", "count": 1}, "_note": "ADR 0161"}
   ]
 }

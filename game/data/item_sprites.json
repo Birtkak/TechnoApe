@@ -4337,6 +4337,48 @@
         "................"
       ]
     },
+    "blueprint": {
+      "colors": {"p": "#3a6ab8", "q": "#5a8ad8", "P": "#2a4a88", "r": "#c8b08a"},
+      "rows": [
+        "................",
+        ".oo..........oo.",
+        "orroooooooooorro",
+        "orrqqqqqqqqqqrro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrpppppppppprro",
+        "orrPPPPPPPPPPrro",
+        "orroooooooooorro",
+        ".oo..........oo.",
+        "................"
+      ]
+    },
+    "written_blueprint": {
+      "colors": {"p": "#3a6ab8", "q": "#5a8ad8", "P": "#2a4a88", "r": "#c8b08a", "w": "#e8f0ff"},
+      "rows": [
+        "................",
+        ".oo..........oo.",
+        "orroooooooooorro",
+        "orrqqqqqqqqqqrro",
+        "orrpppppppppprro",
+        "orrpwwwwwwwwprro",
+        "orrpwppppppwprro",
+        "orrpwwwwpppwprro",
+        "orrpwppppwwwprro",
+        "orrpwppppwwwprro",
+        "orrpwwwwwwwwprro",
+        "orrpppppppppprro",
+        "orrPPPPPPPPPPrro",
+        "orroooooooooorro",
+        ".oo..........oo.",
+        "................"
+      ]
+    },
     "water_wheel": {
       "colors": {"i": "#2e3034", "p": "#3a6852", "q": "#5a8e70"},
       "rows": [
@@ -5173,6 +5215,9 @@
     "pump": {"layers": [{"shape": "machine", "palette": "iron", "colors": {"e": "#7ac8f0", "f": "#2a6a8a", "k": "#d07a40", "K": "#8a4424"}}]},
     "multimeter": {"layers": [{"shape": "tape_measure", "palette": "iron", "colors": {"c": "#1c3e22", "k": "#7ed43a", "t": "#f4e870", "T": "#b8a830"}}]},
     "capacitor": {"layers": [{"shape": "capacitor", "palette": "iron"}]},
+    "blueprint": {"layers": [{"shape": "blueprint", "palette": "iron"}]},
+    "written_blueprint": {"layers": [{"shape": "written_blueprint", "palette": "iron"}]},
+    "builder": {"layers": [{"shape": "machine", "palette": "iron", "colors": {"e": "#f2e088", "f": "#b89a3a", "k": "#e8b830", "K": "#24232a"}}]},
     "fuse": {"layers": [{"shape": "twine", "palette": "tin"}]},
     "knife_switch": {"layers": [{"shape": "knife_switch", "palette": "iron"}]},
     "fuse_box": {"layers": [{"shape": "fuse_box", "palette": "iron"}]},

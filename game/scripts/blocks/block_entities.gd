@@ -98,6 +98,9 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 		"electric_furnace":
 			e = ElectricFurnaceEntity.new(items, recipes, pos)
 			_ticking.append(e)
+		"builder":   # builds a marked blueprint from the chest beside it (ADR 0161)
+			e = BuilderEntity.new(items, recipes, pos, kind)
+			_ticking.append(e)
 		_ when kind in MachineEntity.DOOR:   # LV machines: the item's "machine" key and process recipes (ADR 0117, 0131)
 			e = MachineEntity.new(items, recipes, pos, kind)
 			_ticking.append(e)

@@ -19,6 +19,7 @@
     {"id": "diving_mask", "name": "Diving Mask", "tags": ["clothing"], "stack": 1, "clothing": {"slot": "head", "warmth_c": 0.0, "armor": 0, "air_x": 3.0, "smoke_mask": true}, "_note": "two lenses in a rubber seal: breath lasts three times as long under water, and no smoke gets in (ADR 0155)"},
     {"id": "spyglass", "name": "Spyglass", "tags": ["optic"], "stack": 1, "zoom": 8.0, "_note": "two lenses in a copper pipe: held, the zoom key looks eight times closer"},
     {"id": "hand_drill", "name": "Hand Drill", "tags": ["tool", "pickaxe"], "stack": 1, "tier": 4, "durability": 1800, "speed": 1.8, "_note": "a steel pick head on a geared crank: almost twice a steel pick's speed with no steam"},
-    {"id": "heavy_copper_cable", "name": "Heavy Copper Cable", "tags": ["cable", "station"], "stack": 64, "work": "cable", "cable": {"ohms_per_block": 0.00053, "amps": 75}, "_note": "16 mm^2 of copper in rubber: under half the loss of the hide-sleeved cable and nearly twice its amps (ADR 0123)"}
+    {"id": "heavy_copper_cable", "name": "Heavy Copper Cable", "tags": ["cable", "station"], "stack": 64, "work": "cable", "cable": {"ohms_per_block": 0.00053, "amps": 75}, "_note": "16 mm^2 of copper in rubber: under half the loss of the hide-sleeved cable and nearly twice its amps (ADR 0123)"},
+    {"id": "builder", "name": "Builder", "tags": ["station", "machine"], "stack": 64, "work": "builder", "machine": {"watts": 40}, "_note": "ADR 0161: builds the marked blueprint site in reach from the chest beside it, 48 voxels a second; a hand crank runs it"}
   ]
 }

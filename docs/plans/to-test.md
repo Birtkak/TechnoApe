@@ -36,6 +36,15 @@ frame times.
       in, let go to swing under it (WASD pumps), jump to let go and fly on. Sand, gravel or leaves: it slips. Fun? Too
       strong a pull, too slow a reel?
 - [ ] With a second player (ADR 0145): they do not see your rope, line or wing (known, ADR 0151).
+## Blueprints and the builder (2026-11-07, ADR 0161)
+
+- [ ] `/kit builder` gives blueprints, a builder, a hand crank and a chest. Build a little hut with a furnace in it, hold a
+      blueprint, right click, mark the box around the hut, click: a Written Blueprint; its tooltip lists size and bill.
+- [ ] Hold the written one, right click: the ghost (R turns, X mirrors), click: the site stays marked in blue.
+- [ ] Set the builder and the chest beside each other near the site, crank the crank, fill the chest: it builds it bottom up.
+      Leave something out: its look-at lines list what is missing. Put a stone block in the ghost: it builds around it.
+- [ ] No builder: stand by a site, the hint at the top says what goes next and a yellow marker shows where. Fill it by hand.
+- [ ] Save, quit, load: the written blueprint and the marked site are still there.
 
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 

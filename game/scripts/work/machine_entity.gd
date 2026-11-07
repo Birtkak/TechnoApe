@@ -14,7 +14,7 @@ signal changed
 
 const DOOR := {"lathe": WorkPalette.BRONZE, "bending_press": WorkPalette.ANVIL, "wiremill": WorkPalette.COPPER,
 	"macerator": WorkPalette.GRAVEL, "alloy_smelter": WorkPalette.MOLTEN, "assembler": WorkPalette.GLOW,
-	"extractor": WorkPalette.GLOW, "cutter": WorkPalette.STEEL, "extruder": WorkPalette.MOLTEN, "canning_machine": WorkPalette.COPPER,
+	"extractor": WorkPalette.GLOW, "builder": WorkPalette.HAZARD, "cutter": WorkPalette.STEEL, "extruder": WorkPalette.MOLTEN, "canning_machine": WorkPalette.COPPER,
 	"electric_compressor": WorkPalette.STEEL, "electrolyzer": WorkPalette.GLOW, "scrubber": WorkPalette.GRAVEL}
 
 var kind: String

@@ -45,6 +45,7 @@ var farm_test := false   # farm_test=1: a sown 9x9 field of 0.5 m blocks around 
 var farm_speed := 1.0    # farm_speed=N: farmland and crop random ticks N times faster
 var swim_test := false  # swim_test=1: sink to a pool floor, lose air, drown, hop out onto the bank (JSON line "debug swim")
 var hands_test := false # hands_test=1: till, sow, chair, bed, feed, shear, kill, eat through the player's input code (JSON line "debug hands")
+var blueprint_test := false # blueprint_test=1: copy a hut with a furnace, rebuild it by a builder (ADR 0161); JSON "debug blueprint", sheet blueprint.png
 var building_test := false # building_test=1: place every ADR 0094 piece in a room, open the door, climb; JSON "debug building", sheet building.png
 var menu_test := false   # menu_test=1: title, worlds, Esc menu, settings, save and reload a world (ADR 0032, JSON line "debug menu_test")
 var _menu_test: MenuTest
@@ -216,6 +217,7 @@ func _ready() -> void:
 	mob_spawning = args.get("mob_spawn", "1") == "1"
 	hands_test = args.get("hands_test", "0") == "1"
 	building_test = args.get("building_test", "0") == "1"
+	blueprint_test = args.get("blueprint_test", "0") == "1"
 	swim_test = args.get("swim_test", "0") == "1"
 	fell_test = args.get("fell_test", "")
 	chop_test = args.get("chop_test", "")
