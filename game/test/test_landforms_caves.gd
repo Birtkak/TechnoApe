@@ -116,7 +116,7 @@ func test_cave_pools_never_hang_over_a_drop() -> void:
 
 
 func test_landforms_are_found() -> void:
-	for k in ["monolith", "sea_stack", "arch", "delta", "ravine"]:
+	for k in ["monolith", "volcano", "sea_stack", "arch", "delta", "ravine"]:
 		var p: Vector3i = gen.find_nearest(k, 0, 0, FAR)
 		assert_int(p.y).override_failure_message("no %s within 8 km" % k).is_greater(0)
 
@@ -127,6 +127,18 @@ func test_monolith_stands_out_in_rock() -> void:
 	assert_int(p.y - around).override_failure_message("monolith %d over %d" % [p.y, around]).is_greater(int(S.m2v(25.0)))
 	var ids := _block(Vector3i(p.x - 8, p.y - 24, p.z - 8), Vector3i(16, 32, 16))
 	assert_int(_count(ids, GameMaterials.TERRACOTTA)).is_greater(100)
+
+
+func test_volcano_holds_a_lava_crater() -> void:
+	var p: Vector3i = gen.find_nearest("volcano", 0, 0, FAR)   # the crater's centre
+	var lava := int(gen.column_info(p.x, p.z)["lava"])
+	assert_int(lava).override_failure_message("no lava in the crater at %s" % p).is_greater(p.y)
+	var rim := 0   # the crater's rim: the highest ground within 40 m east of the centre
+	for r in range(0, int(S.m2v(40.0)), 8):
+		rim = maxi(rim, gen.height_at(p.x + r, p.z))
+	assert_int(rim - lava).override_failure_message("rim %d over lava %d" % [rim, lava]).is_greater(int(S.m2v(3.0)))
+	var ids := _block(Vector3i(p.x - 8, lava - 12, p.z - 8), Vector3i(16, 16, 16))
+	assert_int(_count(ids, GameMaterials.LAVA_STATIC)).is_greater(100)
 
 
 func test_wild_food_comes_from_biomes_json() -> void:

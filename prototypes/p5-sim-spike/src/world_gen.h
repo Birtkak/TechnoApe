@@ -150,6 +150,7 @@ private:
         uint16_t rock = 0;   // a landmark's own rock for its faces and top (monoliths), 0 = none
         float shore = 1e9f;  // estimated signed distance to the coastline (voxels): > 0 inland, < 0 out at sea
         float dn = 0.0f;     // the detail noise (~37 m patches): sea floor sand / mud / gravel
+        float lava = -1.0f;  // a volcano's crater: still lava up to this height (macro, absolute), -1 none
     };
     // What the sea floor is made of here (fine and far meshes agree): sand in the shallows and on
     // the foreshore, sand with mud and gravel patches on the shelf, mud in the deep, rock on steep slopes.
@@ -313,6 +314,10 @@ private:
     // Monoliths (Uluru-like) on open lowland: one chance per 1.5 km cell.
     static constexpr int MONO_CELL = 3000;
     float monolith_height(int x, int z) const;   // extra height at (x, z), 0 outside
+    // Volcanoes: a basalt cone with a lava-filled crater, one chance per 2 km cell on open land.
+    static constexpr int VOLCANO_CELL = 4000;
+    bool volcano_at_cell(int cx, int cz, float &mx, float &mz, float &R, float &H) const;   // the cell's volcano (centre, radius, rim height), if any
+    float volcano_height(int x, int z, float *lava_top) const;   // cone height over the sea at (x, z), 0 outside; lava_top: crater lava surface over the sea
     static constexpr int MOUTH_CELL = 128;   // macro voxels (64 m)
     // Cave entrances and connectors (ADR 0077), one chance per cell. kind 0: a winding ramp that leaves the ground
     // (len, slope along dx/dz). kind 1: a sinkhole, a funnel in the ground over a shaft len deep. kind 2: a chimney,

@@ -305,6 +305,7 @@ FineGen::MacroPt FineGen::macro_point(int mx, int mz, const WorldGen::Ruin *ruin
     if (m.hy.water_level > m.water_level) m.water_level = m.hy.water_level;
     if (m.hy.lake && h < (float)m.hy.water_level) m.lakebed = true;
     if (m.hy.river > 0.0f && h < (float)m.hy.water_level) m.riverbed = true;
+    if (m.col.lava > 0.0f && h < m.col.lava) { m.water_level = (int)m.col.lava; m.lakebed = true; }   // the crater's lava lake
     if (m.hy.marsh && m.hy.river < 0.3f) {
         h = (float)WorldGen::marsh_floor((int)std::lround(h), m.hy);
         m.marshbed = m.hy.puddle;
@@ -333,6 +334,7 @@ FineGen::MacroPt FineGen::macro_point(int mx, int mz, const WorldGen::Ruin *ruin
     }
     m.hc = h;
     m.roof = g.cave_roof(mx, mz);
+    if (m.col.lava > 0.0f) m.roof = std::max(m.roof, 40);   // no cave opens under the crater lake
     m.open_depth = m.roof == 0 ? g.open_depth(mx, mz) : 0;
     float gw = (m.lakebed || m.riverbed || m.marshbed || m.spike > 0 || m.ruin >= 0) ? 0.0f : 1.0f;
     gw *= 1.0f - std::clamp(m.hy.river * 4.0f, 0.0f, 1.0f);
@@ -460,7 +462,7 @@ String FineGen::cave_biome_at(int x, int y, int z) const {
 Dictionary FineGen::column_info(int x, int z) const {
     Dictionary d = g_->column_info(floor_div(x, FS), floor_div(z, FS));
     d["height"] = height_at(x, z);
-    for (const char *k : {"water_level", "river_bed", "fall_top", "vein_y"}) {
+    for (const char *k : {"water_level", "river_bed", "fall_top", "vein_y", "lava"}) {
         const int v = (int)d[k];
         if (v >= 0) d[k] = v * FS;
     }
@@ -2112,7 +2114,7 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             const uint32_t ph = h3(wx >> 1, wz >> 1, g.seed_ + 19);   // 25 cm patches
             uint16_t top_m, under_m;
             int soil_hl = -1;   // a highland column's own soil depth (highland_ground)
-            if (lakebed || riverbed || marshbed) {
+            if ((lakebed || riverbed || marshbed) && !col.rock) {   // a crater keeps its basalt under the lava
                 const uint32_t bh = ph & 7;
                 top_m = bh < 3 ? Mat::CLAY : (bh < 5 ? Mat::SAND_STATIC : Mat::GRAVEL_STATIC);
                 under_m = (bh & 1) ? Mat::CLAY : Mat::GRAVEL_STATIC;
@@ -2754,7 +2756,8 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                     }
                 } else if ((water_level - wy) * 2 >= step) {
                     const bool inland = hy.lake || hy.river > 0.0f || hy.marsh || side_fill;
-                    if (wy + step >= water_level && cold && (hy.lake || hy.marsh)) mat = Mat::ICE;
+                    if (col.lava > 0.0f) mat = Mat::LAVA_STATIC;   // the crater lake: still until opened (ADR 0069 C)
+                    else if (wy + step >= water_level && cold && (hy.lake || hy.marsh)) mat = Mat::ICE;
                     else if (wy + step >= water_level && !inland && technosim_biome::SURFACE_ICE[col.biome] >= 0) mat = (uint16_t)technosim_biome::SURFACE_ICE[col.biome];
                     else mat = Mat::WATER_STATIC;   // rivers, lakes and the sea: still until disturbed, then finite (ADR 0068)
                 } else if (far_canopy && wy < far_top) {

@@ -271,6 +271,14 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
         above_f += mono;
         col.rock = TERRACOTTA;
     }
+    // Volcanoes: the cone rises out of whatever land it stands on; inside the crater its own floor wins.
+    float lava_top = 0.0f;
+    const float volc = col.c > 0.06f ? volcano_height(x, z, &lava_top) : 0.0f;
+    if (volc > 0.0f && (volc > above_f || lava_top > 0.0f)) {
+        above_f = volc;
+        col.rock = BASALT;
+        if (lava_top > volc) col.lava = (float)sea_ + lava_top;
+    }
     if (variant_[VAR_MOUNTAINS] != 0) {
         // soft ceiling: heights past 400 bend toward the world's top instead of being cut flat
         const float a0 = 400.0f, room = (float)(world_height_ - 12 - sea_) - a0;
@@ -306,6 +314,7 @@ WorldGen::Column WorldGen::column_base(int x, int z, bool with_slope) const {
     // a beach is a strip along the sea (15-26 m wide), not every low flat
     const bool shore = col.shore < 52.0f * (0.8f + 0.2f * jit);
     col.biome = technosim_biome::classify(col.t, col.h, above_j, col.c, col.e, col.slope, 0.0f, false, shore);
+    if (col.rock == BASALT) col.biome = technosim_biome::VOLCANIC;   // the cone: basalt, dead scrub, fire lilies, cairns
     return col;
 }
 
@@ -407,6 +416,7 @@ Dictionary WorldGen::column_info(int x, int z) const {
     d["shore"] = hy.shore;
     d["fall_top"] = hy.fall_top;
     d["lake_near"] = hy.lake_near;
+    d["lava"] = c.lava;
     d["base_height"] = c.height;
     const Dictionary vein = vein_at(x, z);
     d["vein"] = vein.has("name") ? vein["name"] : Variant(String());
@@ -1526,6 +1536,37 @@ float WorldGen::monolith_height(int x, int z) const {
     return H * std::sqrt(std::max(0.0f, 1.0f - std::pow(d, 8.0f))) * groove;
 }
 
+// Volcanoes: 1 in 4 cells of 2 km, a cone 120-180 m in radius whose rim stands 75-115 m over the sea, sides
+// steepening toward the top (a 1.6 power), a crater a sixth of the radius wide and a quarter of the height
+// deep, half full of still lava. The centre must be open land (no mountain range, not the sea).
+bool WorldGen::volcano_at_cell(int cx, int cz, float &mx, float &mz, float &R, float &H) const {
+    const uint32_t h = hash3(cx, cz, seed_ + 7301);
+    if (h % 4 != 0) return false;
+    R = 240.0f + (float)((h >> 3) & 255) / 255.0f * 120.0f;
+    H = 150.0f + (float)((h >> 7) & 15) / 15.0f * 80.0f;
+    mx = (float)(cx * VOLCANO_CELL) + R + (float)((h >> 11) & 1023) / 1023.0f * ((float)VOLCANO_CELL - 2.0f * R);
+    mz = (float)(cz * VOLCANO_CELL) + R + (float)((h >> 21) & 1023) / 1023.0f * ((float)VOLCANO_CELL - 2.0f * R);
+    return n_region_.GetNoise(mx, mz) <= 0.0f && n_cont_.GetNoise(mx, mz) >= 0.08f;
+}
+
+float WorldGen::volcano_height(int x, int z, float *lava_top) const {
+    float mx, mz, R, H;
+    if (!volcano_at_cell(floor_div(x, VOLCANO_CELL), floor_div(z, VOLCANO_CELL), mx, mz, R, H)) return 0.0f;
+    const float ddx = (float)x - mx, ddz = (float)z - mz;
+    if (std::fabs(ddx) >= R || std::fabs(ddz) >= R) return 0.0f;
+    const float rr = R * (0.92f + 0.08f * n_detail_.GetNoise((float)x * 0.5f, (float)z * 0.5f));   // a wobbly foot
+    const float d = std::sqrt(ddx * ddx + ddz * ddz) / rr;
+    if (d >= 1.0f) return 0.0f;
+    const float rc = 0.16f, cd = 0.25f * H;
+    if (d < rc) {
+        const float u = d / rc;
+        if (lava_top) *lava_top = H - cd * 0.45f;
+        return H - cd * (1.0f - u * u * u * u);   // a bowl: flat floor, steep walls
+    }
+    const float groove = 1.0f - 0.05f * std::fabs(n_detail_.GetNoise((float)x * 3.0f, (float)z * 3.0f));
+    return H * std::pow((1.0f - d) / (1.0f - rc), 1.6f) * groove;
+}
+
 // Cave mouths on a 64 m grid (developer 2026-10-25: "big" caves, ~15-30 entrances per km^2).
 int WorldGen::mouths_near(int x, int z, CaveMouth *out) const {
     const int cx = floor_div(x, MOUTH_CELL), cz = floor_div(z, MOUTH_CELL);
@@ -1880,9 +1921,9 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
         }
         return best;
     }
-    if (kind == "monolith" || kind == "sea_stack" || kind == "arch") {
-        const bool mono = kind == "monolith";
-        const int cell = mono ? MONO_CELL : STACK_CELL;
+    if (kind == "monolith" || kind == "volcano" || kind == "sea_stack" || kind == "arch") {
+        const bool volcano = kind == "volcano", mono = kind == "monolith";
+        const int cell = volcano ? VOLCANO_CELL : (mono ? MONO_CELL : STACK_CELL);
         const int cx0 = floor_div(x, cell), cz0 = floor_div(z, cell);
         const int rings = max_radius / cell + 1;
         for (int ring = 0; ring <= rings; ring++) {
@@ -1900,6 +1941,11 @@ Vector3i WorldGen::find_nearest(const String &kind, int x, int z, int max_radius
                             if (hm > hb) { hb = hm; px = sx; pz = sz; }
                         }
                         if (hb <= 0.0f) continue;
+                    } else if (volcano) {
+                        float mx, mz, R, H;   // the crater's centre: the lava lake
+                        if (!volcano_at_cell(cx0 + dx, cz0 + dz, mx, mz, R, H)) continue;
+                        px = (int)mx;
+                        pz = (int)mz;
                     } else {
                         SeaStack st;
                         if (!stack_at_cell(cx0 + dx, cz0 + dz, st) || (kind == "arch" && !st.arch)) continue;

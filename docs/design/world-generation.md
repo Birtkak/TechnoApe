@@ -347,7 +347,7 @@ the 384 m ceiling.
   a cell border).
 - Wild food densities are per biome in `biomes.json` decor (`berries`, `mushrooms`, `log_mushrooms`).
 - Ruin pot spots: `ruin_pots_near(x, z, radius)` (the generated pots' spots, with the ruin kind, ADR 0062).
-- `find_nearest`: `cavern`, `ravine`, `geode`, `monolith`, `sea_stack`, `arch`, `delta`.
+- `find_nearest`: `cavern`, `ravine`, `geode`, `monolith`, `volcano` (ADR 0146: a basalt cone with a still-lava crater, 1 in 4 cells of 2 km on open land), `sea_stack`, `arch`, `delta`.
 - Sheets without a window: `tools/landscape_sheet.gd` (map, height-field view, profile; rows of
   variant:world height:relief) and `tools/cave_sheet.gd` (cave share, mouths, vertical slice).
 - Far trees: wood widens by 0.2 x step at coarse LODs (was 0.45, the "chunky" trunks), leaf lumps fade.
