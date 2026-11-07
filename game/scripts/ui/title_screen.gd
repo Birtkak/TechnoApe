@@ -34,6 +34,7 @@ var _server_rows: VBoxContainer   # one button per server found (ServerFinder)
 var _finder: ServerFinder
 var _probe_t := 0.0
 var _listed: Array = []
+var _join_label := ""   # the server's name for the chat's greeting
 var _t := 0.0
 
 
@@ -217,8 +218,9 @@ func _join_from_page() -> void:
 	_join_address(_addr_edit.text.strip_edges())
 
 
-func _join_address(address: String) -> void:
+func _join_address(address: String, label := "") -> void:
 	Settings.net_address = address
+	_join_label = label
 	Settings.net_name = _net_name_edit.text.strip_edges()
 	Settings.save_user_settings()
 	_join_status.text = "Connecting to %s..." % address
@@ -250,7 +252,7 @@ func _poll_servers(delta: float) -> void:
 	for k in keys:
 		var d: Dictionary = _finder.servers[k]
 		var text := "%s  ·  seed %d  ·  %s  ·  %d playing  ·  %s" % [d.get("name", "?"), int(d.get("seed", 0)), String(d.get("game_mode", "")).capitalize(), int(d.get("players", 0)), k]
-		var b := UiStyle.button(text, _join_address.bind(k), 520)
+		var b := UiStyle.button(text, _join_address.bind(k, String(d.get("name", ""))), 520)
 		if int(d.get("proto", 0)) != Net.PROTO:
 			b.disabled = true
 			b.tooltip_text = "Another game version"
@@ -261,7 +263,7 @@ func _join(address: String, pname: String) -> void:
 	Net.welcomed.connect(func() -> void:
 		Settings.world_seed = Net.seed_value
 		Settings.set_seed_text(str(Net.seed_value))
-		Settings.world_name = address
+		Settings.world_name = _join_label if _join_label != "" else address
 		Settings.game_mode = Net.game_mode
 		Settings.persist_world = false   # the server holds the save
 		_enter_game.call_deferred(), CONNECT_ONE_SHOT)

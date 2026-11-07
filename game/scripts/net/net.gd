@@ -367,8 +367,8 @@ func _c_peer_joined(id: int, pname: String) -> void:
 
 @rpc("authority", "reliable")
 func _c_peer_left(id: int) -> void:
+	peer_left.emit(id)   # before the name goes: the chat says who left
 	peers.erase(id)
-	peer_left.emit(id)
 
 
 func _add(op: Dictionary) -> void:

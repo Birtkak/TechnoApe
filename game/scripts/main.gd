@@ -310,6 +310,12 @@ func _ready() -> void:
 	add_child(chat)
 	chat.opened.connect(_on_overlay_opened)
 	chat.closed.connect(_on_overlay_closed)
+	if Net.active:   # who is here, who comes and goes (ADR 0145)
+		var names := Net.peers.values()
+		chat.add_message("Playing on %s with %s" % [Settings.world_name, ", ".join(names) if not names.is_empty() else "no one else yet"])
+		Net.peer_joined.connect(func(_id: int, n: String) -> void: chat.add_message("%s joined" % n))
+		Net.peer_left.connect(func(id: int) -> void: chat.add_message("%s left" % Net.peers.get(id, "someone")))
+		Net.failed.connect(func(r: String) -> void: chat.add_message("Connection lost (%s): you play on alone, nothing more is shared" % r))
 	debug_menu = DebugMenu.new()
 	debug_menu.name = "DebugMenu"
 	debug_menu.main = self

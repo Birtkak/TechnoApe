@@ -9,6 +9,7 @@ const EASE := 12.0   # per second: ~80 ms to close most of the gap, one state in
 
 class Avatar extends Node3D:
 	var model: ApeModel
+	var pname := ""
 	var target := Vector3.ZERO
 	var yaw := 0.0
 	var pitch := 0.0
@@ -20,6 +21,15 @@ class Avatar extends Node3D:
 		model = ApeModel.new()
 		model.scale = Vector3.ONE * (Settings.m2v(Settings.player_height_m) / (57.0 / ApeModel.GRID))
 		add_child(model)
+		var tag := Label3D.new()   # the name over the head
+		tag.text = pname
+		tag.font_size = 64
+		tag.pixel_size = 0.03
+		tag.outline_size = 16
+		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		tag.no_depth_test = true
+		tag.position = Vector3(0, Settings.m2v(Settings.player_height_m + 0.35), 0)
+		add_child(tag)
 
 	func _process(delta: float) -> void:
 		var k := 1.0 - exp(-EASE * delta)
@@ -43,6 +53,7 @@ func _add(id: int, pname: String) -> void:
 	if _by_id.has(id):
 		return
 	var a := Avatar.new()
+	a.pname = pname
 	a.name = "Peer%d_%s" % [id, pname.validate_node_name()]
 	a.visible = false   # until its first state arrives
 	add_child(a)
