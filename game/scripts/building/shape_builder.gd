@@ -51,6 +51,8 @@ var grid := PackedByteArray()    # a prefab's materials (local)
 var grid_size := Vector3i.ZERO
 var prefab_label := ""
 var refusal := ""           # why the last commit was refused ("" when it built)
+var on_select: Callable     # ADR 0161: a blueprint copies the selected box instead of naming a prefab
+var on_commit: Callable     # ADR 0161: (lo, rot, mirror) marks a blueprint site instead of building
 var stats := {"built": 0, "voxels": 0, "dug": 0, "saved": 0, "last_ms": 0.0, "max_ms": 0.0}
 
 var _box_a := Vector3i.ZERO
@@ -227,6 +229,8 @@ func _close_menu() -> void:
 
 ## Starts placing a shape with the held material (also /shape).
 func start_shape(p_shape: String, size := Vector3i.ZERO) -> void:
+	on_select = Callable()
+	on_commit = Callable()
 	mode = "shape"
 	shape = p_shape
 	rot = 0
@@ -238,6 +242,8 @@ func start_shape(p_shape: String, size := Vector3i.ZERO) -> void:
 
 ## Box mode ("box" builds, "dig" digs with the held tool, "select" marks a prefab): two clicks.
 func start_box(p_mode: String) -> void:
+	on_select = Callable()
+	on_commit = Callable()
 	mode = p_mode
 	rot = 0
 	mirror = false
@@ -306,16 +312,23 @@ func start_prefab(category: String, name: String) -> bool:
 	if p.is_empty():
 		_toast("Prefab %s / %s not found" % [category, name])
 		return false
+	start_grid(p["grid"], p["size"], name)
+	return true
+
+
+## Places a material grid like a prefab (the prefab menu, a blueprint's ghost).
+func start_grid(p_grid: PackedByteArray, size: Vector3i, label: String) -> void:
+	on_select = Callable()
+	on_commit = Callable()
 	mode = "prefab"
 	shape = "grid"
-	grid = p["grid"]
-	grid_size = p["size"]
-	prefab_label = name
+	grid = p_grid
+	grid_size = size
+	prefab_label = label
 	rot = 0
 	mirror = false
 	wsize = grid_size
 	_set_state(State.AIM)
-	return true
 
 
 func _set_state(s: State) -> void:
@@ -400,7 +413,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 	elif event is InputEventKey and event.pressed and not event.echo and state in [State.AIM, State.EDIT]:
 		if event.keycode == KEY_R:
-			turn(2 if event.shift_pressed else 1)
+			turn(2 if event.shift_pressed and not on_commit.is_valid() else 1)   # a blueprint only turns about up
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_X:
 			mirror = not mirror
@@ -452,6 +465,8 @@ func _left_press() -> void:
 		State.SELECTED:
 			if _hover != "":
 				_start_drag(_hover)
+			elif on_select.is_valid():
+				on_select.call()
 			elif main.chat:
 				main.chat.open("/prefab save builds ")   # type a name, Enter saves (category first)
 
@@ -705,6 +720,8 @@ func _style_ghost(outline: bool) -> void:
 
 ## What the placement needs and whether the inventory has it.
 func _update_need(r: Dictionary) -> void:
+	if on_commit.is_valid():
+		return   # a blueprint marks a site: nothing is paid now
 	var need := _need_of(r)
 	if not GameMode.rule(player.game_mode, "consumes_items"):
 		_need_text = "%d voxels" % _total(need)
@@ -766,7 +783,7 @@ func _update_hint() -> void:
 				"Diameter: %s m" % snappedf(wsize.x * m, 0.01) if round_shape and wsize.x == wsize.z else "Width: %s x %s m" % [snappedf(wsize.x * m, 0.01), snappedf(wsize.z * m, 0.01)],
 				"Hollow: %s m" % snappedf(hollow * m, 0.01) if hollow > 0 else "", _need_text,
 				"(V) Change Build Mode", "(R) Turn   (X) Mirror",
-				"(LMB) %s   (Wheel) Step: %s" % [drag_name[on_handle], _snap_text()] if on_handle != "" else "(LMB) Build It",
+				"(LMB) %s   (Wheel) Step: %s" % [drag_name[on_handle], _snap_text()] if on_handle != "" else ("(LMB) Mark the Site" if on_commit.is_valid() else "(LMB) Build It"),
 				"(RMB) Cancel, Hold: Look Around"]
 		State.BOX_START:
 			lines = [{"box": "Build mode: Box fill", "dig": "Dig mode: Box", "select": "Select"}.get(mode, ""), "(LMB) Set the first corner", "(RMB) Leave"]
@@ -775,7 +792,7 @@ func _update_hint() -> void:
 		State.DIG_BOX:
 			lines = ["Dig mode: Box", "Size: %s" % size_text, "(LMB) Hold to dig", "(RMB) Another box"]
 		State.SELECTED:
-			lines = ["Selected: %s" % size_text, "(LMB) %s" % drag_name[on_handle] if on_handle != "" else "(LMB) Name and Save It", "(RMB) Another Box"]
+			lines = ["Selected: %s" % size_text, "(LMB) %s" % drag_name[on_handle] if on_handle != "" else ("(LMB) Copy It" if on_select.is_valid() else "(LMB) Name and Save It"), "(RMB) Another Box"]
 	if _short and state in [State.AIM, State.EDIT]:
 		lines.append("Not enough material")
 	var shown := PackedStringArray()
@@ -1006,6 +1023,10 @@ func commit() -> int:
 	var r := st.cells(_params(), lo)
 	if r.is_empty():
 		return _refuse("Nothing to build")
+	if on_commit.is_valid():
+		on_commit.call(lo, rot, mirror)
+		_set_state(State.OFF)
+		return 0
 	if not _inside_window():
 		return _refuse("Too far: build within the area around you")
 	var body := _player_box()

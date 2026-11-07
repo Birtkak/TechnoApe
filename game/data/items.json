@@ -221,6 +221,8 @@
     {"id": "flint_spear_head", "name": "Flint Spear Head", "tags": ["tool_head", "flint_head"], "stack": 64, "_note": "knapped from flint (ADR 0030)"},
     {"id": "flint_spear", "name": "Flint Spear", "tags": ["tool", "spear", "weapon"], "stack": 1, "tier": 0, "durability": 48, "attack_damage": 4, "throw": {"damage": 7, "speed_m": 16.0}, "_note": "left click stabs; right click throws it, walk over it to pick it up again"},
     {"id": "raw_hide", "name": "Raw Hide", "tags": ["hide", "ground_place"], "stack": 16, "_note": "sheep and pigs; lay it on the ground and scrape it with a knife"},
+    {"id": "blueprint", "name": "Blueprint", "tags": [], "stack": 16, "_note": "ADR 0161: right click marks a box to copy; the copy is a Written Blueprint"},
+    {"id": "written_blueprint", "name": "Written Blueprint", "tags": [], "stack": 1, "_note": "ADR 0161: a copied build; right click shows its ghost, a click marks the site for a builder or for building by hand"},
     {"id": "scraped_hide", "name": "Scraped Hide", "tags": ["ground_place"], "stack": 16, "_note": "dries into leather where it lies"},
     {"id": "leather", "name": "Leather", "tags": ["leather"], "stack": 64},
     {"id": "leather_cap", "name": "Leather Cap", "tags": ["clothing", "armor"], "stack": 1, "clothing": {"slot": "head", "warmth_c": 1.5, "armor": 1}, "_note": "armor = points; each cuts 4% of a mob hit (Clothing.armor_cut)"},

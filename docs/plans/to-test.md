@@ -10,6 +10,16 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Blueprints and the builder (2026-11-07, ADR 0161)
+
+- [ ] `/kit builder` gives blueprints, a builder, a hand crank and a chest. Build a little hut with a furnace in it, hold a
+      blueprint, right click, mark the box around the hut, click: a Written Blueprint; its tooltip lists size and bill.
+- [ ] Hold the written one, right click: the ghost (R turns, X mirrors), click: the site stays marked in blue.
+- [ ] Set the builder and the chest beside each other near the site, crank the crank, fill the chest: it builds it bottom up.
+      Leave something out: its look-at lines list what is missing. Put a stone block in the ghost: it builds around it.
+- [ ] No builder: stand by a site, the hint at the top says what goes next and a yellow marker shows where. Fill it by hand.
+- [ ] Save, quit, load: the written blueprint and the marked site are still there.
+
 ## Building after Lay of the Land, lava, sounds, armour (ADR 0144)
 
 - [ ] G or V opens the ring (tap, then click; or hold and release), names under the icons. Brush tile: shapes, wheel sizes

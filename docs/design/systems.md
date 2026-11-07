@@ -39,7 +39,10 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   handles (top arrow: height, the pixel ring at the foot grows the side grabbed, the one on top hollows, the cross at the
   foot moves; white, cyan under the cursor) in snap steps, the wheel over one steps it one snap (the move handle up and down), the right button held
   looks around; a selection gets the same handles (no hollow) before `/prefab save`; `ShapeBuilder` (`scripts/building/`) orchestrates, native `ShapeTool` rasterizes,
-  meshes and fills; prefabs in `user://prefabs/<category>/<name>.json`. Scripted checks: `later=/a;wait 1;/b` runs chat
+  meshes and fills; prefabs in `user://prefabs/<category>/<name>.json`. **Blueprints (ADR 0161):** a blank `blueprint` copies a
+  selected box (voxels + stations and work pieces with facing) onto a `written_blueprint` stack (`Blueprint`), placed with
+  the prefab ghost it marks a site (`Blueprints`, saved per world) that a powered `builder` beside a chest builds
+  (`blueprint_test=1`). Scripted checks: `later=/a;wait 1;/b` runs chat
   commands after loading (`/shape ... at x y z`, `/shape drag`, `/shape menu`, `/box`, `/prefab`).
   **The rings replaced the world tools panel (ADR 0144):** the build ring's Brush tile, or C, opens the brush ring (shapes,
   the wheel sizes it); a brush choice leaves any build mode, and a build mode hides the brush's ghost and keys, so
