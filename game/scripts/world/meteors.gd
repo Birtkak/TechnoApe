@@ -44,6 +44,7 @@ var _last_now := -1.0
 var _check_t := 0.0
 var _streaks: Array[Dictionary] = []   # {node, mat, from, to, age, boom_at, boomed, event}
 var _columns := {}                     # event seed -> MonolithBeacon
+var _puff := 0
 var _lights := {}                      # event seed -> OmniLight3D over a hot core in the drawn box
 var _streak_mesh: BoxMesh
 
@@ -184,7 +185,9 @@ func _process(delta: float) -> void:
 	_tick_columns(now)
 	for k in _lights:   # the core's glow breathes and flickers like embers
 		var t := Time.get_ticks_msec() / 1000.0 + float(k % 100)
-		(_lights[k] as OmniLight3D).light_energy = 7.0 + 1.5 * sin(t * 2.1) + 0.8 * sin(t * 13.0)
+		var l: OmniLight3D = _lights[k]
+		var heat := clampf(1.0 - (now - float(l.get_meta("t", now))) * 24.0 / Settings.meteor_hot_h, 0.25, 1.0)   # dims as it cools
+		l.light_energy = (7.0 + 1.5 * sin(t * 2.1) + 0.8 * sin(t * 13.0)) * heat
 	_check_t -= delta
 	if _check_t <= 0.0:
 		_check_t = CHECK_S
@@ -292,21 +295,22 @@ func apply(e: Dictionary, now: float) -> bool:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(e["seed"]) + 2
 	var core_r := Settings.m2v(Settings.meteor_core_m)
-	var cc := Vector3(c.x, c.y - r + core_r * 0.3, c.z)
+	var cc := Vector3(c.x, c.y - r + core_r * 0.7, c.z)   # the ball stands out of the lava pool
 	var n := 0
 	Net.recording = true   # ADR 0145: the crater reaches the other players
 	n += bubble.blast(c, r)
 	n += bubble.blast(c, r + Settings.m2v(1.0), GameMaterials.SCORCHED_EARTH, _ids(func(d: Dictionary, id: int) -> bool:
 		return GameMaterials.is_soil(id) or id == GameMaterials.SNOW))
 	n += bubble.blast(c, r + Settings.m2v(2.0), GameMaterials.AIR, _ids(func(d: Dictionary, _id: int) -> bool: return d.get("replaceable", false)))
-	n += bubble.blast(cc, core_r, GameMaterials.METEORIC_IRON)
+	var iron := GameMaterials.METEORIC_IRON_HOT if hot else GameMaterials.METEORIC_IRON   # it glows until it cools
+	n += bubble.blast(cc, core_r, iron)
 	for i in Settings.meteor_chunks:
 		var a := rng.randf() * TAU
 		var down := rng.randf_range(0.35, 0.9)   # on the lower bowl wall
 		var dir := Vector3(sin(a) * sqrt(1.0 - down * down), -down, cos(a) * sqrt(1.0 - down * down))
-		n += bubble.blast(c + dir * r, Settings.m2v(rng.randf_range(0.15, 0.3)), GameMaterials.METEORIC_IRON)
+		n += bubble.blast(c + dir * r, Settings.m2v(rng.randf_range(0.2, 0.35)), iron)
 	if hot:
-		n += bubble.blast(cc + Vector3(0, core_r * 0.6, 0), core_r * 1.4, GameMaterials.LAVA, PackedInt32Array([GameMaterials.AIR]))
+		n += bubble.blast(cc - Vector3(0, core_r * 0.5, 0), core_r * 1.3, GameMaterials.LAVA, PackedInt32Array([GameMaterials.AIR]))
 		if e["fire"]:
 			n += bubble.blast(c, r + Settings.m2v(FIRE_REACH_M), GameMaterials.FIRE, _ids(func(d: Dictionary, _id: int) -> bool:
 				return d.get("burnable", false) and d.get("cell_type", "solid") == "solid" and not String(d["name"]).ends_with("_ore")))
@@ -371,6 +375,8 @@ func _cool(e: Dictionary) -> void:
 		return
 	Net.recording = true
 	bubble.blast(cc, Settings.m2v(Settings.meteor_crater_m), GameMaterials.BASALT, PackedInt32Array([GameMaterials.LAVA, GameMaterials.LAVA_STATIC]))
+	# the core and the wall chunks (within two bowl radii of the core) stop glowing
+	bubble.blast(cc, Settings.m2v(Settings.meteor_crater_m) * 2.0, GameMaterials.METEORIC_IRON, PackedInt32Array([GameMaterials.METEORIC_IRON_HOT]))
 	Net.recording = false
 	e["cooled"] = true
 	dirty = true
@@ -392,7 +398,9 @@ func _heat(e: Dictionary) -> void:
 	var fx = main.get("fx")
 	var near: bool = p != null and p.position.distance_to(_core(e)) < Settings.m2v(Settings.view_distance_m)
 	if fx and near:
-		fx.burst("tnt_smoke", _core(e) + Vector3(0, Settings.m2v(1.0), 0))
+		_puff += 1
+		if _puff % 6 == 0:   # a thin plume: a burst every half second buried the glowing core in a cloud
+			fx.burst("tnt_smoke", _core(e) + Vector3(0, Settings.m2v(1.5), 0))
 		fx.burst("tnt_sparks", _core(e) + Vector3(0, Settings.m2v(0.4), 0))
 	if near and not _lights.has(int(e["seed"])):
 		var l := OmniLight3D.new()   # the lava alone lights little at night: the core glows on its own
@@ -402,6 +410,7 @@ func _heat(e: Dictionary) -> void:
 		l.shadow_enabled = false
 		add_child(l)
 		l.global_position = _core(e) + Vector3(0, Settings.m2v(1.5), 0)
+		l.set_meta("t", float(e["t"]))
 		_lights[int(e["seed"])] = l
 	elif not near:
 		_drop_light(e)

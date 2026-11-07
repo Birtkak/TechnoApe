@@ -1,7 +1,7 @@
 # ADR 0157: Meteorites
 
 Status: accepted (2026-11-07). Runtime only (`scripts/world/meteors.gd`); no generator change, GEN_VERSION stays.
-Materials 147 `meteoric_iron`, 148 `scorched_earth`; atlas tiles 186, 187.
+Materials 141 `meteoric_iron_hot`, 147 `meteoric_iron`, 148 `scorched_earth`; atlas tiles 186, 187, 216.
 
 ## Context
 Fun pass (docs/plans/fun-pass.md): rare night events that send the player somewhere, and an early, rare road to
@@ -38,5 +38,9 @@ hundred metres off must be told by the sky and sound, and its crater made when t
 - The crater shows only once its spot is inside the 64 m sim window, close to the edge of the drawn box.
 - A far diagonal chunk can stay unloaded at short view distances; the blast skips chunks still loading, so the
   crater's farthest fire corner may miss there.
-- Lava pooled in the bowl lights little at night; the core reads by its smoke more than by its glow.
+- **The glow (follow-up, the bowl was too dark at night):** a fresh crater's iron is `meteoric_iron_hot` (141,
+  tile 216, the terrain shader lights its bright veins and lets them breathe); the core ball stands out of a
+  lower lava pool, eight chunks glow in the walls, the core light dims as the hours pass, and cooling turns the
+  hot iron into `meteoric_iron` (147). It digs and drops like 147. The smoke is a thin plume (one burst in six
+  checks): a burst every half second had buried the bowl in a cloud, which was most of the darkness.
 - No falling pieces of the meteor itself, no damage at the impact (it lands far away or where you aimed it).

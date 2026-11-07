@@ -33,6 +33,10 @@ class StubMain:
 
 func test_materials_and_the_iron_route() -> void:
 	assert_int(GameMaterials.METEORIC_IRON).is_equal(147)
+	assert_int(GameMaterials.METEORIC_IRON_HOT).is_equal(141)
+	assert_int(GameMaterials.id_of("meteoric_iron_hot")).is_equal(141)
+	assert_array(GameMaterials.defs()[140]["tiles"]).is_equal([216, 216, 216])
+	assert_int(GameMaterials.ATLAS_TILES.x * GameMaterials.ATLAS_TILES.y).is_greater(216)
 	assert_int(GameMaterials.SCORCHED_EARTH).is_equal(148)
 	assert_int(GameMaterials.id_of("meteoric_iron")).is_equal(147)
 	assert_int(GameMaterials.id_of("scorched_earth")).is_equal(148)
@@ -81,7 +85,7 @@ func test_crater_applied_once_when_loaded_and_kept_across_a_save() -> void:
 	assert_int(made).is_greater(4)
 	assert_bool(m.events[0]["applied"]).is_true()
 	var mats := main.bubble.blasts.map(func(b: Array) -> int: return b[2])
-	assert_bool(mats.has(GameMaterials.METEORIC_IRON)).is_true()
+	assert_bool(mats.has(GameMaterials.METEORIC_IRON_HOT)).is_true()   # fresh: it glows
 	assert_bool(mats.has(GameMaterials.SCORCHED_EARTH)).is_true()
 	assert_bool(mats.has(GameMaterials.LAVA)).is_true()   # hot: a molten core
 	assert_bool(mats.has(GameMaterials.FIRE)).is_true()
@@ -97,10 +101,12 @@ func test_crater_applied_once_when_loaded_and_kept_across_a_save() -> void:
 	assert_int(main.bubble.blasts.size()).is_equal(made)
 	# after its hot hours the lava turns to basalt, once
 	m2.check(10.0 + Settings.meteor_hot_h / 24.0 + 0.01)
-	assert_int(main.bubble.blasts.size()).is_equal(made + 1)
-	assert_int(main.bubble.blasts[-1][2]).is_equal(GameMaterials.BASALT)
+	assert_int(main.bubble.blasts.size()).is_equal(made + 2)
+	assert_int(main.bubble.blasts[-2][2]).is_equal(GameMaterials.BASALT)
+	assert_int(main.bubble.blasts[-1][2]).is_equal(GameMaterials.METEORIC_IRON)   # the glowing iron cools
+	assert_array(Array(main.bubble.blasts[-1][3])).is_equal([GameMaterials.METEORIC_IRON_HOT])
 	m2.check(12.0)
-	assert_int(main.bubble.blasts.size()).is_equal(made + 1)
+	assert_int(main.bubble.blasts.size()).is_equal(made + 2)
 
 
 func test_a_cold_arrival_finds_no_lava() -> void:

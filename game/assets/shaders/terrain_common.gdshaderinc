@@ -183,6 +183,9 @@ vec3 tile_emission(float idx, vec3 c) {
 	} else if (idx > 203.5 && idx < 207.5) {
 		// cave dressing (glow berries, magma crust, fungus caps): only their bright texels glow
 		return c * glow_strength * step(0.7, max(c.r, max(c.g, c.b)));
+	} else if (abs(idx - 216.0) < 0.5) {
+		// hot meteoric iron (ADR 0157): its molten veins glow white-orange and breathe
+		return c * 2.6 * step(0.55, c.r) * (0.85 + 0.15 * sin(TIME * 2.3 + c.g * 17.0));
 	} else if (abs(idx - rune_tile) < 0.5 || abs(idx - seam_tile) < 0.5) {
 		// only the magenta texels (runes, seam) glow, not the stone around them
 		return c * rune_glow * step(0.25, min(c.r, c.b) - c.g) * (0.8 + 0.2 * sin(TIME * 1.3));

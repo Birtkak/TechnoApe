@@ -139,6 +139,7 @@ const GIANT_HEART := 126
 const SAVANNA_GRASS := 127
 const SAVANNA_TALL_GRASS := 128
 const RED_EARTH := 129
+const METEORIC_IRON_HOT := 141     # ADR 0157: the same iron while it glows (fresh crater)
 const METEORIC_IRON := 147         # ADR 0157: iron-nickel left in a meteorite crater, smelts straight to iron
 const SCORCHED_EARTH := 148        # ADR 0157: the burnt ground around a crater
 # Rock kinds, their cobbles, bricks and loose stones, more clutter, ruin pots (ADR 0057)
@@ -185,7 +186,7 @@ const WASTE_GROUND := 219          # soil and soft rock sludge ate, and sludge s
 const SLAG := 220                  # smelting waste: a powder that piles at a machine's port
 const CHIMNEY := 221               # a brick flue: smoke of the machine under a stack of these leaves at its top
 
-const ATLAS_TILES := Vector2i(8, 27)   # rows grow at the bottom, so tile indices keep their meaning
+const ATLAS_TILES := Vector2i(8, 28)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
 # eighths (SimWorld fullness) is FLUID_LEVEL_BASE + slot * 8 + eighths - 1. Fixed
@@ -300,7 +301,10 @@ static func _build_defs() -> Array:
 		# 122, 123 (ADR 0110): the cores of conduit chambers, hard enough to need a good pick
 		{"name": "spring_stone", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [105, 105, 105], "transparent": false},
 		{"name": "magma_heart", "cell_type": "solid", "pattern": true, "density": 12, "hp": 2400, "tiles": [106, 106, 106], "transparent": false},
-	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + _reserved_defs(133, 136) + _fuse_defs() + _reserved_defs(139, 146) + [
+	] + _giant_flower_defs() + _savanna_defs() + _looks_defs() + _reserved_defs(133, 136) + _fuse_defs() + _reserved_defs(139, 140) + [
+		# 141 (ADR 0157): a fresh meteorite's iron, glowing; Meteors cools it to meteoric_iron after Settings.meteor_hot_h
+		{"name": "meteoric_iron_hot", "cell_type": "solid", "pattern": true, "density": 13, "hp": 1300, "tiles": [216, 216, 216], "transparent": false},
+	] + _reserved_defs(142, 146) + [
 		# 147, 148 (ADR 0157): what a meteorite leaves; Meteors writes them, the generator never does
 		{"name": "meteoric_iron", "cell_type": "solid", "pattern": true, "density": 13, "hp": 1300, "tiles": [186, 186, 186], "transparent": false},
 		{"name": "scorched_earth", "cell_type": "powder", "liquid_static": true, "density": 4, "tiles": [187, 187, 187], "transparent": false},
