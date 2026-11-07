@@ -57,7 +57,7 @@ const KITS := {
 	"gadgets": {"laser_cutter": 1, "crater_rod": 1, "instant_tree": 1, "tape_measure": 1, "world_vacuum": 1, "sounding_rod": 1,
 		"water_balloon": 16, "sand_bomb": 16, "lava_bomb": 16},   # PlaytestTools
 	"water": {"bucket": 1, "water_bucket": 1, "crater_rod": 1, "laser_cutter": 1, "lava_bomb": 8, "water_balloon": 8, "cobblestone": 16},   # river tests (ADR 0104)
-	"tnt": {"tnt": 64, "igniter": 1, "flint_and_steel": 1, "sulfur": 8, "charcoal": 4, "sand": 2},   # TNT (ADR 0065)
+	"tnt": {"tnt": 64, "fuse_cord": 16, "igniter": 1, "flint_and_steel": 1, "sulfur": 8, "charcoal": 4, "sand": 2},   # TNT (ADR 0065)
 	"fire": {"flint_and_steel": 1, "firestarter": 1, "firepit": 1, "firewood": 32, "coal": 16, "oak_log": 16, "dry_grass": 16,
 		"torch": 16, "water_bucket": 1, "water_balloon": 16},   # forest fires and rain (ADR 0056)
 	"clutter": {"seashell": 16, "kelp": 16, "brown_mushroom": 16, "red_mushroom": 16, "dandelion": 16, "poppy": 16, "cornflower": 16,
@@ -121,7 +121,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("browse", "/browse <item> [recipes|uses]", "Open the recipe browser on an item (as R or U over it)", _browse, [_item_ids, ["recipes", "uses"]])
 	reg.register("digonly", "/digonly <material> | off", "Dig only this material, as Shift + middle click on it (ADR 0144); again to take it off the list", _digonly)
 	reg.register("tools", "/tools", "Open the build ring (the V key): build modes, prefabs and, under Brush, the brush's shapes and size", _tools)
-	reg.register("tnt", "/tnt <grid [n] [spacing_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); light lights the aimed charge",
+	reg.register("tnt", "/tnt <grid [n] [spacing_m]|fuse [length_m]|light|stats>", "TNT (ADR 0065): grid lays n blocks on the ground where you look and lights the nearest (a chain); fuse lays a charge there with a lit fuse cord toward you (ADR 0150); light lights the aimed charge",
 		_tnt, [["grid", "light", "stats"], ["1", "5", "20"], ["1", "1.5", "2"]])
 	reg.register("support", "/support [stats|scan|probe|modes <all|survival>|on|off]", "Mine shoring (ADR 0142): what creaks and when it falls, scan the roof here, the aimed roof's load, which game modes cave in",
 		_support, [["stats", "scan", "probe", "modes", "on", "off"], ["all", "survival"]])
@@ -926,7 +926,21 @@ func _tnt(args: PackedStringArray) -> Dictionary:
 					near = a
 			tnt.light(near)
 			return CommandRegistry.ok("TNT: %d blocks, %.2f m apart, the nearest lit" % [placed.size(), Settings.v2m(step)])
-	return CommandRegistry.fail("Usage: /tnt <grid [n] [spacing_m]|light|stats>")
+		"fuse":
+			if hit == null:
+				return CommandRegistry.fail("Aim at the ground")
+			var a := Tnt.anchor_of(hit.position) + Vector3i(0, Settings.BLOCK, 0)
+			if main.bubble.fill_box(a, a + Vector3i.ONE * Settings.BLOCK, GameMaterials.TNT) < 0:
+				return CommandRegistry.fail("Place it inside the simulated area around you")
+			tnt.register_cells([a])
+			var to := player.position - Vector3(a)
+			var dir := Vector3i(signi(int(to.x)), 0, 0) if absf(to.x) >= absf(to.z) else Vector3i(0, 0, signi(int(to.z)))
+			var length := float(args[1]) if args.size() > 1 else 4.0
+			var end := tnt.lay_fuse(a, dir if dir != Vector3i.ZERO else Vector3i(1, 0, 0), maxi(2, roundi(Settings.m2v(length))))
+			if end == Vector3i.MAX:
+				return CommandRegistry.fail("Place it inside the simulated area around you")
+			return CommandRegistry.ok("TNT with a %.1f m fuse cord, lit at %s (%.0f m away): about %.1f s" % [length, end, Settings.v2m(Vector3(end).distance_to(player.position)), length / Settings.fuse_speed_mps])
+	return CommandRegistry.fail("Usage: /tnt <grid [n] [spacing_m]|fuse [length_m]|light|stats>")
 
 
 ## /sound <name> [x y z] plays a sound (at the player, or a voxel position); list and stats report.

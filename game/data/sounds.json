@@ -165,7 +165,7 @@
  },
  "cell_types": {"solid": "stone", "powder": "dirt", "liquid": "water", "gas": "none", "fire": "none"},
  "materials": {
-  "tnt": "cloth",
+  "tnt": "cloth", "fuse_cord": "cloth",
   "granite": "stone", "diorite": "stone", "limestone": "stone", "slate": "stone", "marble": "stone", "chalk": "stone", "pyrite": "stone",
   "granite_cobble": "stone", "diorite_cobble": "stone", "limestone_cobble": "stone", "slate_cobble": "stone", "marble_cobble": "stone", "chalk_cobble": "stone", "basalt_cobble": "stone",
   "stone_bricks": "stone", "granite_bricks": "stone", "diorite_bricks": "stone", "limestone_bricks": "stone", "slate_bricks": "stone", "marble_bricks": "stone", "chalk_bricks": "stone", "basalt_bricks": "stone",

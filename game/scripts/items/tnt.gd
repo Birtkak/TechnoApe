@@ -37,6 +37,8 @@ var _base_mat: StandardMaterial3D
 var _box: BoxMesh
 var _shells := []                  # [[radius factor, PackedInt32Array of the ids it takes]]
 var _drop_carry := {}
+var _cord_mask := PackedByteArray()
+var debris: BlastDebris
 
 
 func setup(p_main: Node) -> void:
@@ -54,6 +56,11 @@ func setup(p_main: Node) -> void:
 	_box.size = Vector3.ONE * Settings.BLOCK
 	_box.material = _base_mat
 	_build_shells()
+	_cord_mask.resize(256)
+	_cord_mask[GameMaterials.FUSE_CORD] = 1
+	debris = BlastDebris.new()
+	add_child(debris)
+	debris.setup(main, _base_mat, _box)
 
 
 ## MaterialWarmup draws the primed box under the loading screen (a first draw mid-game compiled
@@ -332,6 +339,8 @@ func _fire_check(delta: float) -> void:
 
 
 func _touches_fire(a: Vector3i, b: int) -> bool:
+	if _cord_burning_at(a, b):
+		return true
 	var m := b / 2
 	for u in [m - 1, m]:
 		for v in [m - 1, m]:
@@ -340,6 +349,20 @@ func _touches_fire(a: Vector3i, b: int) -> bool:
 				var mat: int = main.get_world_voxel(c)
 				if mat == GameMaterials.FIRE or mat == GameMaterials.LAVA:
 					return true
+	return false
+
+
+## A burning fuse cord cell anywhere on or around the block (ADR 0150): one native select of the cord cells in
+## the block grown by a voxel, then their burning flags. A cord meets the block at any height, not only mid-face.
+func _cord_burning_at(a: Vector3i, b: int) -> bool:
+	var sim = main.bubble.sim
+	if sim == null:   # test stubs have no SimWorld
+		return false
+	var o: Vector3i = main.bubble.origin * Settings.CHUNK
+	var cells: PackedInt32Array = _st.select(sim, a - Vector3i.ONE, Vector3i.ONE * (b + 2), o, _cord_mask)
+	for i in range(0, cells.size(), 3):
+		if sim.get_flags(Vector3i(cells[i], cells[i + 1], cells[i + 2]) - o) & 1:   # FLAG_BURNING
+			return true
 	return false
 
 
@@ -391,6 +414,7 @@ func _blast(q: Dictionary) -> int:
 	t = _part("pieces", t)
 	_hit_entities(pos, r)
 	_spawn_drops(drops, n, pos, r)
+	debris.throw(pos, r, drops, n)
 	t = _part("entities_drops", t)
 	if main.fx:
 		main.fx.burst("tnt_flash", pos)
@@ -492,6 +516,23 @@ func _spawn_drops(counts: Dictionary, removed: int, pos: Vector3, r: float) -> v
 		stats["drops"] += int(s["count"])
 
 
+## Lays a fuse cord of `cells` voxels on the ground from the block at `anchor` (its -dir face side, at its floor,
+## through the middle of the face) out along `dir` (a unit x or z axis), and lights the far end (ADR 0150).
+## Returns the lit end (world voxels), or Vector3i.MAX when the cord could not be laid.
+func lay_fuse(anchor: Vector3i, dir: Vector3i, cells: int) -> Vector3i:
+	var b := Settings.BLOCK
+	var side := Vector3i(absi(dir.z), 0, absi(dir.x))   # across the cord
+	var start := anchor + side * (b / 2) + (dir * b if dir.x + dir.z > 0 else dir)
+	var end := start + dir * (cells - 1)
+	var lo := Vector3i(mini(start.x, end.x), start.y, mini(start.z, end.z))
+	var hi := Vector3i(maxi(start.x, end.x), start.y, maxi(start.z, end.z)) + Vector3i.ONE
+	if main.bubble.fill_box(lo - Vector3i(0, 1, 0), hi - Vector3i(0, 1, 0), GameMaterials.STONE) < 0:   # a flat bed under it
+		return Vector3i.MAX
+	main.bubble.fill_box(lo, hi, GameMaterials.FUSE_CORD)
+	main.bubble.sim.ignite(end - main.bubble.origin * Settings.CHUNK)
+	return end
+
+
 ## Damage and knockback, full at the centre and none at twice the radius; walls do not shield yet.
 ## Damage grows with the radius: a merged pile hits harder.
 func _hit_entities(pos: Vector3, r: float) -> void:
@@ -530,4 +571,7 @@ func snapshot() -> Dictionary:
 	s["charges"] = charges.size()
 	s["primed"] = primed.size()
 	s["queued"] = _queue.size()
+	if debris:
+		s["debris"] = debris.stats.duplicate()
+		s["debris"]["live"] = debris.live_count()
 	return s

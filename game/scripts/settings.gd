@@ -274,6 +274,9 @@ var tnt_merge_s := 0.3                  # a charge going off takes along primed 
 var tnt_damage := 16                    # health at the centre, falling to 0 at twice the radius (armour later)
 var tnt_knockback_m := 12.0             # m/s at the centre, falling like the damage
 var tnt_drop_fraction := 0.3            # share of the blasted voxels that drops as items (Minecraft: 1 / power)
+var fuse_speed_mps := 0.5               # fuse cord burn speed (ADR 0150): sets the cord's ignite_chance, at most tick_hz / 6 voxels a second
+var tnt_debris_max := 24                # flung debris pieces per blast (ADR 0150), out of the voxels the blast removed
+var tnt_debris_live_max := 96           # flung pieces in the air at once, all blasts together
 var tnt_blasts_per_frame := 1           # fuses that run out together wait their turn: one crater per frame
 var igniter_range_m := 16.0             # the igniter's sneak use lights every charge this close
 var particles := true                   # particles=0 turns every effect off (benchmarks against the old game)
