@@ -252,7 +252,7 @@ static func _build_defs() -> Array:
 		{"name": "stalactite", "cell_type": "solid", "density": 10, "hp": 300, "tiles": [0, 0, 0], "transparent": false, "micro": "stalactite"},
 		{"name": "stalagmite", "cell_type": "solid", "density": 10, "hp": 300, "tiles": [0, 0, 0], "transparent": false, "micro": "stalagmite"},
 		{"name": "chiseled", "cell_type": "solid", "density": 10, "hp": 1000, "tiles": [0, 0, 0], "transparent": true, "model": "empty"},
-		{"name": "glow_mushroom", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [45, 42, 42], "transparent": false, "micro": "mushroom"},
+		{"name": "glow_mushroom", "cell_type": "solid", "density": 10, "hp": 5, "tiles": [45, 45, 45], "transparent": false, "clutter": "mushroom"},
 		{"name": "moss", "cell_type": "solid", "density": 10, "hp": 8, "burnable": true, "fire_hp": 40, "autoignition_temperature": 35, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [46, 46, 46], "transparent": false, "micro": "carpet"},
 		# lifetime in sim ticks (30 Hz): the puddle soaks into the ground after ~7 s; the stain stays
 		{"name": "blood", "cell_type": "liquid", "fluid_slot": 3, "density": 1.1, "liquid_flow_speed": 0.7, "liquid_speed": 2, "lifetime": 200, "tiles": [47, 47, 47], "transparent": true},

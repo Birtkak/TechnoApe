@@ -161,7 +161,10 @@ func _count(args: PackedStringArray) -> Dictionary:
 	var main: Node = main_of.call() if main_of.is_valid() else null
 	if main == null or main.bubble == null or main.bubble.sim == null:
 		return CommandRegistry.fail("No world")
-	return CommandRegistry.ok("%s: %d cells in the sim bubble" % [args[0], main.bubble.sim.count_material(mat)])
+	var text := "%s: %d cells in the sim bubble" % [args[0], main.bubble.sim.count_material(mat)]
+	if GameMaterials.is_liquid(mat):   # the volume too: a spreading liquid splits into more, thinner cells
+		text += " (%d eighths)" % main.bubble.sim.count_liquid_eighths(mat)
+	return CommandRegistry.ok(text)
 
 
 ## Keys of an entity summary worth a line in chat; the rest (inventories, positions) stays in the F3 / stats JSON.
