@@ -157,3 +157,19 @@ func test_machines_and_electrics_sound() -> void:
 	for sp in ["crow", "vulture", "gull", "parrot", "ptarmigan", "goat", "antelope", "lizard", "scorpion", "magma_salamander"]:
 		assert_str(String(data["mobs"][sp]["idle"])).override_failure_message("%s still borrows a call" % sp).starts_with("mob/")
 		assert_bool(not String(data["mobs"][sp]["idle"]).begins_with("mob/chicken")).override_failure_message(sp).is_true()
+
+
+## Every literal Sound.play("name") in the scripts names a defined sound: an unknown one plays silence
+## (the sounding rod tapped "hit/stone", an asset, not a sound).
+func test_every_played_name_is_a_sound() -> void:
+	var re := RegEx.create_from_string(r'Sound\.play\("([^"]+)"')
+	var dirs := ["res://scripts"]
+	while not dirs.is_empty():
+		var dir: String = dirs.pop_back()
+		for sub in DirAccess.get_directories_at(dir):
+			dirs.append(dir + "/" + sub)
+		for f in DirAccess.get_files_at(dir):
+			if not f.ends_with(".gd"):
+				continue
+			for m in re.search_all(FileAccess.get_file_as_string(dir + "/" + f)):
+				assert_bool(audio.has_sound(m.get_string(1))).override_failure_message("%s/%s plays unknown sound %s" % [dir, f, m.get_string(1)]).is_true()
