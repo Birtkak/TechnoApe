@@ -701,7 +701,7 @@ func _full_preview_job(p: Dictionary, at: Vector3i, key: String) -> void:
 func _style_ghost(outline: bool) -> void:
 	var col := Color(0.55, 0.75, 1.0, GHOST_OPACITY)
 	if outline:
-		col = Color(1.0, 0.45, 0.3, 0.4) if mode == "dig" else Color(0.95, 0.6, 0.0, 0.5)
+		col = Color(1.0, 0.45, 0.3, 0.4) if mode == "dig" else Color(1.0, 0.45, 0.0, 0.75)   # deep orange: pale yellow at 0.5 vanished on bright grass
 	elif _short:
 		col = Color(1.0, 0.25, 0.2, GHOST_OPACITY)
 	# a shape of one material looks like that material (ADR 0144, red when short); frames and prefabs show the colour alone
