@@ -593,14 +593,18 @@ func _add(op: Dictionary) -> void:
 		_by_chunk[wc].append(i)
 
 
-func _apply(op: Dictionary, bubble: SimBubble) -> bool:
+func _apply(op: Dictionary, bubble: SimBubble, clip := []) -> bool:
 	if _st == null:
 		_st = ClassDB.instantiate("ShapeTool")
 	applying = true
-	var ok := NetOps.apply(op, bubble, _st)
+	var ok := NetOps.apply(op, bubble, _st, clip)
 	applying = false
 	if ok and op["k"] in ["box", "voxels"]:   # the scripted proof reads these: the first cell holds the op's material
 		var p: Vector3i = op["lo"] if op["k"] == "box" else Vector3i(op["cells"][0], op["cells"][1], op["cells"][2])
+		if op["k"] == "box" and not clip.is_empty():
+			p = p.max(clip[0])
+			if p.x >= clip[1].x or p.y >= clip[1].y or p.z >= clip[1].z or p.x >= op["hi"].x or p.y >= op["hi"].y or p.z >= op["hi"].z:
+				return ok   # nothing of it in this column
 		var want: int = op["m"] if op["k"] == "box" else op["mats"][0]
 		var hit := bubble.get_voxel(p) == want
 		stats["verify_ok" if hit else "verify_bad"] += 1
@@ -689,8 +693,11 @@ func replay_column(bubble: SimBubble, w0: Vector3i, count: int) -> void:
 		return
 	var order := idx.keys()
 	order.sort()
+	# a box is applied to this column only: one spanning a column loaded later would otherwise land there
+	# after the newer ops and undo them where they overlap (the monolith's boxes, bug report 2026-11-08_15-59-33)
+	var clip := [Vector3i(w0.x, w0.y, w0.z) * Settings.CHUNK, Vector3i(w0.x + 1, w0.y + count, w0.z + 1) * Settings.CHUNK]
 	for i in order:
-		if _apply(journal[i], bubble):
+		if _apply(journal[i], bubble, clip):
 			stats["ops_replayed"] += 1
 			if i < _base_n:
 				stats["base_replayed"] += 1

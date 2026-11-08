@@ -60,7 +60,7 @@ static func chunks_of(op: Dictionary) -> Array[Vector3i]:
 
 ## Applies an op to a client's bubble through the same calls that made it. False when the area was not
 ## loaded (the replay on chunk load tries again).
-static func apply(op: Dictionary, bubble: Node, st: RefCounted) -> bool:   # a SimBubble and a ShapeTool: untyped so the server, without the extension, loads this
+static func apply(op: Dictionary, bubble: Node, st: RefCounted, clip := []) -> bool:   # a SimBubble and a ShapeTool: untyped so the server, without the extension, loads this
 	if bubble == null or not bubble._ready:
 		return false
 	match op["k"]:
@@ -70,8 +70,12 @@ static func apply(op: Dictionary, bubble: Node, st: RefCounted) -> bool:   # a S
 			if op["cells"].size() == 3:   # one cell (a click, a fire lit): the sim's own write, which wakes and lights it
 				return bubble.set_voxel(Vector3i(op["cells"][0], op["cells"][1], op["cells"][2]), op["mats"][0])
 			return st.fill(bubble.sim, op["cells"], 0, op["mats"], bubble.origin * Settings.CHUNK, all_mask()) >= 0
-		"box":
-			return bubble.fill_box(op["lo"], op["hi"], op["m"]) >= 0
+		"box":   # clip = [lo, hi) world voxels: only the part inside (a column replay, Net.replay_column)
+			var lo: Vector3i = op["lo"] if clip.is_empty() else op["lo"].max(clip[0])
+			var hi: Vector3i = op["hi"] if clip.is_empty() else op["hi"].min(clip[1])
+			if lo.x >= hi.x or lo.y >= hi.y or lo.z >= hi.z:
+				return true   # none of it here
+			return bubble.fill_box(lo, hi, op["m"]) >= 0
 		"sphere":
 			return bubble.blast(op["c"], op["r"], op["m"], op["only"]) > 0
 	return false

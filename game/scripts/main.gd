@@ -734,6 +734,10 @@ func _ready() -> void:
 ## The Gelvin monolith (ADR 0098, Monolith): up to 48 of its boxes per frame, round robin; a box whose
 ## chunks are not loaded yet stays for a later frame. Saved as done, so a world raises it once.
 func _raise_monolith() -> void:
+	if Net.active:   # the column replay builds it from the world ops, in one order on every client (ADR 0165)
+		_monolith_boxes = []
+		_monolith_done()
+		return
 	if _monolith_boxes.is_empty():
 		_monolith_boxes = Monolith.boxes(world, _monolith_spawn)
 	var t0 := Time.get_ticks_usec()
@@ -745,16 +749,20 @@ func _raise_monolith() -> void:
 		if bubble.fill_box(b[0], b[1], b[2]) >= 0:
 			_monolith_boxes.remove_at(_monolith_next)
 			if _monolith_boxes.is_empty():
-				_monolith_up = true
-				print("monolith raised at %s" % Monolith.centre(_monolith_spawn))
-				if waypoints:
-					for w in waypoints.list.duplicate():   # a raised-again monolith (Monolith.VERSION) moves its tip
-						if w["name"] == "Monolith":
-							waypoints.remove(int(w["id"]))
-					waypoints.add("Monolith", Vector3i(Monolith.beam_foot(world, _monolith_spawn)), "", Color("#ff3ad8"))
+				_monolith_done()
 				return
 		else:
 			_monolith_next += 1
+
+func _monolith_done() -> void:
+	_monolith_up = true
+	print("monolith raised at %s" % Monolith.centre(_monolith_spawn))
+	if waypoints:
+		for w in waypoints.list.duplicate():   # a raised-again monolith (Monolith.VERSION) moves its tip
+			if w["name"] == "Monolith":
+				waypoints.remove(int(w["id"]))
+		waypoints.add("Monolith", Vector3i(Monolith.beam_foot(world, _monolith_spawn)), "", Color("#ff3ad8"))
+
 
 func _process(delta: float) -> void:
 	if bubble != null and survival != null:
