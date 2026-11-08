@@ -49,6 +49,8 @@ static func get_scene(id: String) -> Dictionary:
 
 ## The scene that teaches `item_id` (its `items` list), or "".
 static func for_item(item_id: String) -> String:
+	if scenes().has(item_id):
+		return item_id   # a scene named after the item wins (the coke oven's multiblock build)
 	if not machine_scene(item_id).is_empty():
 		return MACHINE + item_id
 	for id in scenes():

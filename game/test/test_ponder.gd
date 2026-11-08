@@ -34,6 +34,9 @@ func test_every_machine_has_its_own_guide() -> void:
 		if not d.has("machine") or Ponder.process_recipes(String(d.get("work", ""))).is_empty():
 			continue
 		n += 1
+		if Ponder.scenes().has(id):
+			assert_str(Ponder.for_item(id)).is_equal(id)   # its own hand-written scene (the coke oven's shell)
+			continue
 		assert_str(Ponder.for_item(id)).is_equal(Ponder.MACHINE + id)
 		var sc := Ponder.get_scene(Ponder.for_item(id))
 		var bad := Ponder.check(sc, items, recipes)
@@ -45,6 +48,7 @@ func test_every_machine_has_its_own_guide() -> void:
 				labels.append(String(f.get("label", "")).get_slice(" ", 0))
 		assert_array(labels).override_failure_message(id + " " + str(labels)).contains(["IN", "OUT"])
 	assert_int(n).is_greater_equal(12)
+	assert_str(Ponder.for_item("coke_oven")).is_equal("coke_oven")
 	assert_str(Ponder.recipe_line(recipes.recipes["lathe_iron_rod"])).is_equal("Iron Ingot  ->  2 Iron Rod (15 s)")
 
 
