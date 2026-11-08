@@ -146,7 +146,7 @@ static func machine_scene(item_id: String) -> Dictionary:
 			"place": [{"kind": "hand_crank", "at": [2, 0, -3], "set": {"drive": 1.0}}, {"kind": "cable", "at": [2, 0, -2]}, {"kind": "cable", "at": [2, 0, -1]}],
 			"flow": [{"from": [2, 0, -3], "to": [2, 0, 0], "kind": "power", "label": "POWER %d W" % watts}], "seconds": 6})
 	var slots := (" (%d input slots: one per ingredient)" % inputs) if inputs > 1 else ""
-	steps.append({"text": "IN: right click it holding the input%s, or face a hopper into it. OUT: right click it with an empty hand, or set a hopper under it. The strip below lists what it makes." % slots,
+	steps.append({"text": "Right click opens its screen: inputs left, output right, power on the side. IN: put the input in%s, or face a hopper into it. OUT: take it from the screen, or set a hopper under it. The strip below lists what it makes." % slots,
 		"place": [{"kind": "hopper", "at": [1, 0, 0], "facing": 1}],   # on the side the stage camera faces
 		"flow": [{"from": [0, 0, 0], "to": [2, 0, 0], "kind": "items", "label": "IN"}, {"from": [2, 0, w - 1], "to": [2, 0, w + 2], "kind": "items", "label": "OUT"}], "seconds": 9})
 	return {"title": name + ": in, out, power", "items": [item_id], "recipes": rs, "steps": steps}
