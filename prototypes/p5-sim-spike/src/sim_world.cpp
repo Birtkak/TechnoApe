@@ -189,6 +189,7 @@ void SimWorld::configure(Vector3i p_chunks, int p_threads, int p_seed) {
     for (size_t i = 0; i < nc; i++) { active_now_[i].store(0); fast_[i].store(0); active_next_[i].store(0); dirty_[i].store(0); box_now_[i].store(0); box_next_[i].store(0); dbox_[i].store(0); }
     defer_age_.assign(nc, 0);
     steps_.assign(nc, 1);
+    unseen_.assign(nc, 0);
     heat_.assign(n / (HC * HC * HC), ambient_c_);
     pressure_.assign(nc, 0);
     switch_.assign(nc, SW_ALL);
@@ -819,7 +820,13 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
     const MaterialDef &md = mats_[self];
     if (md.fluid_slot < 0) return;
     const uint8_t flow = (uint8_t)slot_material_[md.fluid_slot];
-    const uint16_t prev = (uint16_t)(stamp_ - 1), prev2 = (uint16_t)(stamp_ - 2);
+    // fresh = changed in the ticks since this chunk last looked: the last two, plus the ticks a deferred chunk (cell
+    // budget, far-chunk LOD) catches up at once; on a chunk's first update after it loaded, anything changed this
+    // session, since its body never saw it. A multiplayer client replays the journal's digs as each column loads, and
+    // the river's column often loads a few frames after the dug one: the dig had gone stale and the river stood as a
+    // wall over it for good (bug report 2026-11-07 10-26-45). Substep marks (top bit) never count, as before.
+    const int window = c.unseen ? 0x7fff : 1 + c.steps;
+    auto fresh = [&](int k) { const uint16_t m = moved_[k]; return m != 0 && m < 0x8000u && (int)stamp_ - (int)m <= window; };
     auto fresh_air = [&](int nx, int ny, int nz, bool side) -> bool {
         if (!is_open(nx, ny, nz)) return false;
         const int ni = idx(nx, ny, nz);
@@ -828,7 +835,6 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
         // (bug report 2026-10-27 17-59-05)
         // ... while it still moves (this or the last two ticks): rain or a spill that came to rest beside a body is
         // no opening, or every lake with a terraced shore fed its lower shore for ever (budget hunt 2026-11-03)
-        auto fresh = [&](int k) { const uint16_t m = moved_[k]; return m != 0 && (m == stamp_ || m == prev || m == prev2); };
         // ... or, resting, while its column stands on ground: a dug pit or channel fills to the body's level instead of
         // sleeping with a film in it (ADR 0138). Water resting on a still body (a river's lower step) stays no opening.
         auto grounded = [&](int gx, int gy, int gz) {
@@ -866,8 +872,7 @@ void SimWorld::reservoir(int x, int y, int z, int i, Ctx &c) {
             }
             return false;
         }
-        const uint16_t m = moved_[ni];
-        return m != 0 && (m == stamp_ || m == prev || m == prev2);
+        return fresh(ni);
     };
     int tx = x, ty = y - 1, tz = z;
     bool open = y > 0 && fresh_air(x, y - 1, z, false);
@@ -1765,6 +1770,7 @@ void SimWorld::update_chunk(int ci) {
     Ctx c;
     c.steps = steps_[ci];
     steps_[ci] = 1;
+    if (substep_ == 0) { c.unseen = unseen_[ci] != 0; unseen_[ci] = 0; }
     chunk_of(ci, c.cx, c.cy, c.cz);
     c.rng = (seed_ ^ ((uint32_t)ci * 2654435761u) ^ (tick_ * 40503u)) | 1u;
     int x0 = c.cx * CS, y0 = c.cy * CS, z0 = c.cz * CS;
@@ -2233,6 +2239,7 @@ void SimWorld::set_chunk_bytes(Vector3i c, const PackedByteArray &p_bytes, int p
 void SimWorld::on_loaded(int ci) {
     wake_full(ci); // let it settle once
     loaded_[ci] = 1;
+    unseen_[ci] = 1;   // its first update reads every change made this session beside it as fresh
     switch_[ci] = SW_ALL;
     int cx, cy, cz;
     chunk_of(ci, cx, cy, cz);

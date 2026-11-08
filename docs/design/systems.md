@@ -184,7 +184,7 @@ every session. Keep this current when a system changes; CLAUDE.md only points he
   `tools/water_surface_probe.gd` counts holes, glass edges, corner seams (`rule=field|ramps`; 0 for field), out-of-reach
   wall corners and the histogram of surface steps. **World water is endless and never simulated (ADR 0104, replacing the finite water of ADR 0068):**
   generated water (`water_static`: rivers, lakes, the sea) sleeps until a fresh opening (air that changed in the last
-  two ticks) touches it beside or below; then it *pours*: the opening takes a full cell of moving `water` and the still cell
+  two ticks, plus the ticks a deferred chunk catches up; on a chunk's first update after it loads, anything changed this session, so a body whose column a multiplayer client loads after a replayed dig still sees it: bug report 2026-11-07 10-26-45) touches it beside or below; then it *pours*: the opening takes a full cell of moving `water` and the still cell
   stays (`SimWorld::reservoir`). A hole under a river takes a stream until it is full, a breach in the bank fills to one cell
   under the surface and goes on flooding lower ground past it (only the moving front costs: rested water sleeps). A side
   opening is fed only by a cell with still water above it (head), so the surface and stray still cells on it never become
