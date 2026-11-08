@@ -413,9 +413,27 @@ int FineGen::highland_ground(const WorldGen::Column &col, float slope, uint32_t 
     return slope > 0.25f ? 2 + jit : 4 + jit;
 }
 
+// Heather grows in clumps (bug report 2026-11-08_16-02-53: multi-voxel like flowers, ADR 0053): one bush per 4 x 4
+// columns on its inner 3 x 3, a dome of green stems with the purple bells on top, ragged at the corners; the fourth
+// row stays open so neighbouring clumps never fuse into a slab (and dig as separate pieces). `chance` of 1024 per cell.
+static bool heather_clump(int wx, int wz, int seed, int chance, uint16_t &veg, int &veg_h, uint16_t &veg_head) {
+    const int cx = floor_div(wx, 4), cz = floor_div(wz, 4);
+    const int lx = wx - cx * 4, lz = wz - cz * 4;
+    if (lx == 3 || lz == 3) return false;
+    const uint32_t ch = h3(cx, cz, seed + 6151);
+    if ((int)(ch & 1023) >= chance) return false;
+    const int ax = std::abs(lx - 1), az = std::abs(lz - 1);
+    int hgt = 3 + (int)((ch >> 10) & 1) - ax - az;   // centre 3-4 voxels, edges one less, corners two
+    if (ax + az == 2 && ((ch >> (12 + lx + lz * 3)) & 1)) hgt = 0;
+    if (hgt <= 0) return false;
+    if (hgt == 1) { veg = WorldGen::Mat::HEATHER; veg_h = 1; veg_head = WorldGen::Mat::AIR; return true; }
+    veg = WorldGen::Mat::PLANT_STEM; veg_h = hgt - 1; veg_head = WorldGen::Mat::HEATHER;
+    return true;
+}
+
 // Moorland plants on open highland grass: heather carpets over most of it, coarse grass tufts between, bracken in
 // patches on the lower slopes, sphagnum moss and cotton-grass tufts on the peat.
-void FineGen::highland_plant(const WorldGen::Column &col, float slope, int wx, int wz, uint32_t fh, uint16_t &veg, int &veg_h) const {
+void FineGen::highland_plant(const WorldGen::Column &col, float slope, int wx, int wz, uint32_t fh, uint16_t &veg, int &veg_h, uint16_t &veg_head) const {
     const uint32_t r10 = fh & 1023;
     if (col.dn < -0.42f && slope < 0.3f) {
         if (r10 < 380) { veg = Mat::MOSS; veg_h = 1; }
@@ -428,8 +446,8 @@ void FineGen::highland_plant(const WorldGen::Column &col, float slope, int wx, i
         return;
     }
     if (mead < 0.15f) {   // heather, ankle to knee high
-        if (r10 < 620) { veg = Mat::HEATHER; veg_h = 1 + (int)((fh >> 12) % 4 == 0); }
-        else if (r10 < 700) { veg = Mat::TALL_GRASS; veg_h = 1; }
+        if (heather_clump(wx, wz, g_->seed_, 860, veg, veg_h, veg_head)) return;
+        if (r10 < 260) { veg = Mat::TALL_GRASS; veg_h = 1; }
         return;
     }
     if (r10 < 330) {   // coarse grass
@@ -2342,10 +2360,10 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                             veg_h = (th < 7 ? 1 : (th < 14 ? 2 : (th < 18 ? 3 : 4))) + (mead > 0.35f ? 1 : 0);
                         }
                     } else if (!forest && col.biome == technosim_biome::HIGHLANDS) {
-                        highland_plant(col, slope, wx, wz, fh, veg, veg_h);
+                        highland_plant(col, slope, wx, wz, fh, veg, veg_h, veg_head);
                     } else if (!forest && col.biome == technosim_biome::SHRUBLAND && n_meadow_.GetNoise((float)wz, (float)wx) < -0.25f) {
                         // heather: low purple carpets in patches on the uplands and the scrub
-                        if (r10 < 560) { veg = Mat::HEATHER; veg_h = 1 + (int)((fh >> 12) % 5 == 0); }
+                        heather_clump(wx, wz, g.seed_, 700, veg, veg_h, veg_head);
                     } else {
                         const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
                         const float cover = 0.12f + 0.3f * mead + (forest ? 0.1f : 0.0f);   // every tuft costs ~10 faces

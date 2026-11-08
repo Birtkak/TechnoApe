@@ -268,3 +268,10 @@ func test_summary_is_serialisable() -> void:
 	var s := p.summary()
 	assert_str(JSON.stringify(s)).contains("dirt")
 	assert_int(s["health"]).is_equal(20)
+
+
+func test_only_physical_damage_bleeds() -> void:
+	for c in ["starvation", "hypothermia", "heatstroke", "poison", "smoke", "drowning"]:
+		assert_bool(PlayerInventory.bleeds(c)).override_failure_message(c).is_false()
+	for c in ["wolf attack", "explosion", "impact (fall 6 m)", "cave_in", "lightning"]:
+		assert_bool(PlayerInventory.bleeds(c)).override_failure_message(c).is_true()

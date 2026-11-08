@@ -46,6 +46,8 @@ static func for_placed(material: int, p: Vector3i) -> Dictionary:
 		return _mushroom(material, s)
 	if name == "seashell":
 		return _shell(material, s)
+	if name == "heather":
+		return heather(material, s)
 	if name == "lightning_rod":   # ADR 0149: a 2 m pole over the placed foot
 		var out := {}
 		for y in range(1, ROD_H):
@@ -80,6 +82,23 @@ static func _flower(head: int, s: int) -> Dictionary:
 				out[Vector3i(dx, h, dz)] = head
 			if ax <= 1 and az <= 1:
 				out[Vector3i(dx, h + 1, dz)] = head
+	return out
+
+
+## A heather clump, as FineGen::heather_clump lays them: a 3 x 3 dome of stems (centre 3-4 high, edges one
+## less, corners two less or gone) under the purple bells. Offsets from the clump's middle column.
+static func heather(bells: int, s: int) -> Dictionary:
+	var out := {}
+	var stem := GameMaterials.id_of("plant_stem")
+	for lz in 3:
+		for lx in 3:
+			var ax := absi(lx - 1)
+			var az := absi(lz - 1)
+			var h := 3 + ((s >> 10) & 1) - ax - az
+			if ax + az == 2 and (s >> (12 + lx + lz * 3)) & 1:
+				h = 0
+			for y in h:
+				out[Vector3i(lx - 1, y, lz - 1)] = bells if y == h - 1 else stem
 	return out
 
 
@@ -173,13 +192,12 @@ static func crop(kind: String, age: int, look: int, p: Vector3i) -> Dictionary:
 	var cols := [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 1), Vector3i(1, 0, 1)]
 	var drop := [0, 1 + ((s >> 1) & 1), 1 + ((s >> 2) & 1), (s >> 3) & 1]
 	var out := {}
-	if kind == "wheat":
+	if GameMaterials.name_of(look).begins_with("wheat"):   # wheat, einkorn, emmer, flax share the wheat looks
 		var m := look
 		var ear := GameMaterials.id_of("wheat_ear")
-		var h: int = [1, 1, 2, 3, 4, 5, 6, 6][age]
+		# a just-planted seed already shows a tuft of blades on all four columns (bug report 2026-11-08_16-12-57)
+		var h: int = [2, 2, 3, 3, 4, 5, 6, 6][age]
 		for i in 4:
-			if age < 2 and i > 1:
-				continue   # sprouts: two blades
 			var ch: int = maxi(h - int(drop[i]), 1)
 			var ears := 0 if age < 6 else (2 if age == 7 else 1)
 			for y in ch:
@@ -193,8 +211,6 @@ static func crop(kind: String, age: int, look: int, p: Vector3i) -> Dictionary:
 	out[Vector3i.ZERO] = look
 	for i in 4:
 		var ch: int = maxi(h - int(drop[i]), 1)
-		if stage == 0 and i > 1:
-			continue
 		for y in range(0 if i > 0 else 1, ch):
 			out[cols[i] + Vector3i(0, y, 0)] = leaf
 	if stage == 3:
