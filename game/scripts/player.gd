@@ -117,6 +117,7 @@ var script_break_s := 0.0              # /brush hold: the break button is held t
 var _dig_cells: Array[Vector3i] = []   # the voxels the current dig removes
 var _dig_carry := {}                   # fractional drops carried between digs (MiningTable.voxel_drops)
 var _mine_target := Vector3i(1 << 30, 0, 0)
+var _mine_cell := Vector3i.ZERO   # the aimed cell: a box dig's key corner can be air beside a round log
 var _mine_progress := 0.0
 var _mine_time := -1.0
 var _break_cooldown := 0.0
@@ -993,6 +994,7 @@ func _update_mining(delta: float) -> void:
 		_dig_big(hit, size)
 		return
 	var key: Vector3i = Vector3i(Brush.dig_bounds(p, size, brush_shape, normal).position.floor()) if brush_shape in Brush.BOX_SHAPES else p
+	_mine_cell = p
 	if key != _mine_target or normal != _dig_normal:
 		_mine_target = key
 		_dig_normal = normal
@@ -1292,7 +1294,7 @@ func _mine_text(e: Dictionary) -> String:
 
 ## The voxel being mined (the crack is showing), else x = 1 << 30 (particles, ADR 0026).
 func mining_target() -> Vector3i:
-	return _mine_target if _mine_progress > 0.0 and _mine_time > 0.0 else Vector3i(1 << 30, 0, 0)
+	return _mine_cell if _mine_progress > 0.0 and _mine_time > 0.0 else Vector3i(1 << 30, 0, 0)
 
 
 ## The item being eaten, "" when not eating.
