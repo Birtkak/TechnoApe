@@ -580,7 +580,10 @@ static func item_facts(items: ItemRegistry, recipes: RecipeRegistry, id: String,
 	if def.has("attack_damage"):
 		text += "\nAttack %s" % str(def["attack_damage"])
 	text += power_facts(def)
-	if Ponder.for_item(id) != "":
+	var guide := Ponder.for_item(id)
+	if guide.begins_with(Ponder.MACHINE):   # ADR 0168: say what the machine guide and the placed machine offer
+		text += "\nGuide: power, what goes in and out  (P)\nPlaced: right click opens its screen"
+	elif guide != "":
 		text += "\nGuide: how it connects  (P)"
 	if recipes != null:
 		if not _facts_cache.has(id):
