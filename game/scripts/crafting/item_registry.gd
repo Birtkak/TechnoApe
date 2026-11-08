@@ -7,6 +7,8 @@ var items := {}          # id -> Dictionary (the raw definition, validated)
 var _by_tag := {}        # tag -> Array[String] of ids
 var errors: Array[String] = []
 var _units := {}         # id -> voxels per recipe unit, for items that place a plain terrain voxel
+## Work kinds of the items tagged "machine": BlockEntities.scale_of makes them at least 1 m, furnace sized.
+static var machine_works := {}
 
 
 static func load_default() -> ItemRegistry:
@@ -40,6 +42,8 @@ func load_json(text: String) -> bool:
 		items[d["id"]] = d
 		if mats and d.has("material") and not d.has("empties_to") and mats.is_plain_voxel(mats.id_of(String(d["material"]))):
 			_units[d["id"]] = Settings.BLOCK * Settings.BLOCK * Settings.BLOCK
+		if "machine" in d.get("tags", []) and d.has("work"):
+			machine_works[String(d["work"])] = true
 		for t in d.get("tags", []):
 			if not _by_tag.has(t):
 				_by_tag[t] = []

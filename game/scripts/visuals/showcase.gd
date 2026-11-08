@@ -65,6 +65,9 @@ func run(p_main: Node, names: PackedStringArray, ground: String = "grass", quit_
 			main._on_placed(c + Vector3i(1, 0, ROW + 1), id)
 		elif main.items.has(name) and LaidEntity.kind_for(main.items.get_def(name), Vector3i.UP) != "":
 			how = _lay(name, c)
+		elif main.items.has(name) and String(main.items.get_def(name).get("work", "")) != "":
+			how = "station"   # a machine or work piece as its item places it, to compare sizes with the furnace
+			main.work._create(BlockEntities.anchor_for(c + Vector3i(0, 0, ROW)), String(main.items.get_def(name)["work"]), GameMaterials.WORK_BLOCK)
 		elif main.items.has(name):
 			how = "item"
 		placed.append({"name": name, "as": how})
