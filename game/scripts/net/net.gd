@@ -10,7 +10,7 @@ extends Node
 ##   server:  godot --headless --path game -- server=1 seed=1337 [port=7777] [duration=<s>]
 ##   client:  godot --path game -- connect=<host[:port]> name=<player>
 
-const PROTO := 6   # 4: hello carries the build version (ADR 0166); 5: block, live and stamped batch events (ADR 0165); 6: looks and ape colours (ADR 0167)
+const PROTO := 7   # 4: hello carries the build version (ADR 0166); 5: block, live and stamped batch events (ADR 0165); 6: looks and ape colours (ADR 0167); 7: the server's chunks (ADR 0169)
 const PORT := 7777
 const STATE_HZ := 20.0
 const SAVE_S := 30.0
@@ -41,7 +41,8 @@ var main: Node                 # the game scene (set by Main._ready)
 var stats := {"ops_sent": 0, "ops_recv": 0, "ops_replayed": 0, "states_sent": 0, "states_recv": 0, "verify_ok": 0, "verify_bad": 0,
 	"items_sent": 0, "items_recv": 0, "picks_sent": 0, "picks_got": 0, "picked_recv": 0, "batches_sent": 0,
 	"sent_bytes": 0, "recv_bytes": 0, "journal": 0, "peers": 0,
-	"live_sent": 0, "live_recv": 0, "blocks_sent": 0, "blocks_recv": 0, "base_ops": 0, "base_replayed": 0, "live_ok": 0, "lat_ms_max": 0, "lat_ms_sum": 0, "lat_n": 0, "looks_sent": 0, "looks_recv": 0}
+	"live_sent": 0, "live_recv": 0, "blocks_sent": 0, "blocks_recv": 0, "base_ops": 0, "base_replayed": 0, "live_ok": 0, "lat_ms_max": 0, "lat_ms_sum": 0, "lat_n": 0, "looks_sent": 0, "looks_recv": 0,
+	"chunks_sent": 0, "chunks_recv": 0, "chunks_pasted": 0, "chunks_kept": 0, "ops_skipped": 0}
 
 var _by_chunk := {}            # Vector3i world chunk -> PackedInt32Array journal indices (client)
 var _players := {}             # server: name -> player dict
@@ -66,6 +67,11 @@ var applied: Array = []        # client: sale ids already delivered to this play
 var _ent_queue: Array = []     # client: sign / post events that came before Main could place them
 var _rid_n := 0
 var _st: RefCounted            # a ShapeTool (clients only: the server has no voxel extension)
+var stream: Resource           # client: the NetStream mirror of the server's edited chunks (ADR 0169); untyped: the server has no voxel extension
+var _chunks := {}              # server: Vector3i chunk -> [bytes, n], the newest save of every edited chunk
+var _chunks_dirty := false
+const CHUNK_MAX_BYTES := 65536
+const CHUNK_SLICE := 256       # chunks per message to a joining player
 var _port := PORT
 var connect_arg := ""
 var server_name := ""          # server_name= on the command line, else the machine's name
@@ -123,6 +129,11 @@ func _start_server() -> void:
 		if v is Array:
 			journal = v
 	_journal_saved = journal.size()
+	var cf := FileAccess.open_compressed(_chunks_path(), FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	if cf:
+		var cv: Variant = cf.get_var()
+		if cv is Dictionary:
+			_chunks = cv
 	var bf := FileAccess.open(_blocks_path(), FileAccess.READ)
 	if bf:
 		var bd: Variant = JSON.parse_string(bf.get_as_text())
@@ -143,7 +154,7 @@ func _start_server() -> void:
 	is_server = true
 	_t0 = Time.get_ticks_msec()
 	set_process(true)
-	print(JSON.stringify({"net_server": "listening", "port": _port, "seed": seed_value, "game_mode": game_mode, "journal": journal.size(), "players": _players.size()}))
+	print(JSON.stringify({"net_server": "listening", "port": _port, "seed": seed_value, "game_mode": game_mode, "journal": journal.size(), "chunks": _chunks.size(), "players": _players.size()}))
 
 
 func _journal_path() -> String:
@@ -166,6 +177,10 @@ func _blocks_path() -> String:
 	return "user://worlds/net_%d_g%d_blocks.json" % [seed_value, gen_version()]
 
 
+func _chunks_path() -> String:
+	return "user://worlds/net_%d_g%d.chunks" % [seed_value, gen_version()]
+
+
 func _ents_path() -> String:
 	return "user://worlds/net_%d_g%d_ents.json" % [seed_value, gen_version()]
 
@@ -182,6 +197,13 @@ func _save_files() -> void:
 		if bf:
 			bf.store_string(JSON.stringify(_blocks))
 			_blocks_dirty = false
+	if _chunks_dirty:
+		var cf := FileAccess.open_compressed(_chunks_path() + ".tmp", FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+		if cf:
+			cf.store_var(_chunks)
+			cf.close()
+			DirAccess.rename_absolute(_chunks_path() + ".tmp", _chunks_path())
+			_chunks_dirty = false
 	if journal.size() != _journal_saved:
 		var f := FileAccess.open_compressed(_journal_path() + ".tmp", FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
 		if f:
@@ -212,6 +234,9 @@ func _s_hello(proto: int, pname: String, ver := "") -> void:
 	_colours[id] = free.pick_random() if not free.is_empty() else randi() % ApeModel.VARIANTS.size()
 	_c_colour.rpc_id(id, _colours[id])   # before the welcome: the body is built while the world loads
 	_c_welcome.rpc_id(id, seed_value, game_mode, _players.get(pname, {}), peers.duplicate())
+	var keys := _chunks.keys()   # the edited chunks before the journal: the terrain loads from them (ADR 0169)
+	for i in range(0, keys.size(), CHUNK_SLICE):
+		_c_chunks.rpc_id(id, var_to_bytes(keys.slice(i, i + CHUNK_SLICE).map(func(p: Vector3i) -> Array: return [p, _chunks[p][0], _chunks[p][1]])))
 	var at := 0
 	while true:
 		var part: Array = journal.slice(at, mini(at + SLICE, journal.size()))
@@ -271,6 +296,9 @@ func _s_batch(bytes: PackedByteArray) -> void:
 				fwd.append(ev)
 		elif k == "block":
 			if _keep_block(ev):
+				fwd.append(ev)
+		elif k == "chunk":
+			if _keep_chunk(ev):
 				fwd.append(ev)
 		elif k == "item":
 			ev["t"] = Time.get_ticks_msec()
@@ -429,6 +457,16 @@ func _c_welcome(s: int, mode: String, save: Dictionary, others: Dictionary) -> v
 	journal.clear()
 	_base_n = 0
 	_by_chunk.clear()
+	stream = load("res://scripts/net/net_stream.gd").new()
+
+
+@rpc("authority", "reliable")
+func _c_chunks(bytes: PackedByteArray) -> void:
+	var part: Variant = bytes_to_var(bytes)
+	if part is Array:
+		for c in part:
+			stream.put(c[0], c[1], c[2])
+			stats["chunks_recv"] += 1
 
 
 @rpc("authority", "reliable")
@@ -464,6 +502,8 @@ func _c_batch(bytes: PackedByteArray) -> void:
 				_add(op)
 			if _apply(op, main.bubble if main else null) and op.get("live", false) and main.get("weather") != null:
 				main.weather.fire_heard(Vector3(op["box"][0]))   # its sound and its rain timer, as a fire lit here
+		elif ev["k"] == "chunk":
+			_chunk_in(ev)
 		elif items_ready:
 			_latency(ev)
 			_item_event(ev)
@@ -591,6 +631,8 @@ func _add(op: Dictionary) -> void:
 		if not _by_chunk.has(wc):
 			_by_chunk[wc] = PackedInt32Array()
 		_by_chunk[wc].append(i)
+	if stream:
+		stream.known_n = journal.size() - _base_n
 
 
 func _apply(op: Dictionary, bubble: SimBubble, clip := []) -> bool:
@@ -696,7 +738,18 @@ func replay_column(bubble: SimBubble, w0: Vector3i, count: int) -> void:
 	# a box is applied to this column only: one spanning a column loaded later would otherwise land there
 	# after the newer ops and undo them where they overlap (the monolith's boxes, bug report 2026-11-08_15-59-33)
 	var clip := [Vector3i(w0.x, w0.y, w0.z) * Settings.CHUNK, Vector3i(w0.x + 1, w0.y + count, w0.z + 1) * Settings.CHUNK]
+	var baked := {}   # chunk -> server ops already in the snapshot the terrain was loaded from (ADR 0169); -1: none
+	for k in count:
+		var wc := Vector3i(w0.x, w0.y + k, w0.z)
+		baked[wc] = stream.baked(wc)
 	for i in order:
+		var skip := true   # an op is skipped only when every chunk of it in this column holds it already
+		for wc in NetOps.chunks_of(journal[i]):
+			if baked.has(wc) and (int(baked[wc]) < 0 or i - _base_n >= int(baked[wc])):
+				skip = false
+		if skip:
+			stats["ops_skipped"] += 1
+			continue
 		if _apply(journal[i], bubble, clip):
 			stats["ops_replayed"] += 1
 			if i < _base_n:
@@ -740,6 +793,7 @@ func _tick(delta: float) -> void:
 			print(JSON.stringify({"net_server": "done", "stats": snapshot()}))
 			get_tree().quit()
 		return
+	flush_chunks()
 	flush()
 	if main == null or main.player == null:
 		return
@@ -780,6 +834,7 @@ func snapshot() -> Dictionary:
 	var s := stats.duplicate()
 	s["journal"] = journal.size()
 	s["peers"] = peers.size()
+	s["chunks"] = _chunks.size() if is_server else (stream.size() if stream else 0)
 	s["items"] = _items.size()
 	var secs := maxf((Time.get_ticks_msec() - _t0) / 1000.0, 0.001)
 	s["sent_bytes_per_s"] = snappedf(s["sent_bytes"] / secs, 0.1)
@@ -858,6 +913,66 @@ func add_world_ops(ops: Array) -> void:
 		_add(op)
 	stats["base_ops"] += ops.size()
 	_base_n += ops.size()
+	if stream:
+		stream.known_n = journal.size() - _base_n
+
+
+# ---------------- the server's chunks (ADR 0169) ----------------
+
+## Server: keeps a client's saved chunk when it is at least as new (its `n`: the journal ops baked in) as the one held.
+func _keep_chunk(ev: Dictionary) -> bool:
+	var p: Variant = ev.get("p")
+	var b: Variant = ev.get("b")
+	var n: Variant = ev.get("n")
+	if not (p is Vector3i) or not (b is PackedByteArray) or b.is_empty() or b.size() > CHUNK_MAX_BYTES or not (n is int):
+		return false
+	if _chunks.has(p) and int(_chunks[p][1]) > n:
+		return false
+	_chunks[p] = [b, n]
+	_chunks_dirty = true
+	stats["chunks_kept"] += 1
+	return true
+
+
+## Client: a chunk another player saved. Stored for the next load; pasted into the terrain when it is drawn here
+## outside the bubble (where no op is applied: the gap bug report 2026-11-08_16-03-27 fell into).
+func _chunk_in(ev: Dictionary) -> void:
+	stats["chunks_recv"] += 1
+	var p: Vector3i = ev["p"]
+	if not stream.put(p, ev["b"], int(ev["n"])) or main == null or main.world == null or main.bubble == null:
+		return
+	if main.world.is_area_loaded(p) and not main.bubble.is_chunk_loaded(p - main.bubble.origin):
+		var vb: VoxelBuffer = stream.to_buffer(ev["b"])
+		if vb:
+			main.world.paste_chunk(p, vb)
+			stats["chunks_pasted"] += 1
+
+
+## Client: a chunk as the sim holds it (16-bit cells in VoxelBuffer order), from SimBubble when the chunk leaves
+## its window and at save points. The sim is the only source of snapshots: the terrain's copy can lag behind
+## the sim's budgeted pushes, and the terrain unloads before the bubble does.
+func snapshot_chunk(wc: Vector3i, bytes16: PackedByteArray) -> void:
+	if stream == null or not active or is_server:
+		return
+	var vb := VoxelBuffer.new()
+	vb.create(Settings.CHUNK, Settings.CHUNK, Settings.CHUNK)
+	vb.set_channel_from_byte_array(VoxelBuffer.CHANNEL_TYPE, bytes16)
+	stream.put_own(wc, VoxelBlockSerializer.serialize_to_byte_array(vb, VoxelBlockSerializer.COMPRESSION_LZ4))
+
+
+## Client: the chunks snapshotted since the last frame go out in this frame's batch (`now`: on the wire
+## before the caller quits).
+func flush_chunks(now := false) -> void:
+	if stream == null or not active or is_server:
+		return
+	for c in stream.take_outbox():
+		_out.append({"k": "chunk", "p": c[0], "b": c[1], "n": c[2]})
+		stats["chunks_sent"] += 1
+	if now:
+		flush()
+		var host: ENetConnection = multiplayer.multiplayer_peer.get("host")
+		if host:
+			host.flush()
 
 
 func _latency(ev: Dictionary) -> void:

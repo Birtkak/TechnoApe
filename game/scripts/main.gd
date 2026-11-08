@@ -829,7 +829,7 @@ var _saved_edits := 0
 
 
 func save_terrain(wait_s := 0.0) -> void:
-	if not Settings.persist_world or world == null or world.terrain == null or not world.terrain.is_inside_tree():
+	if not (Settings.persist_world or (Net.active and not Net.is_server)) or world == null or world.terrain == null or not world.terrain.is_inside_tree():
 		return
 	if wait_s > 0.0 and contraptions and contraptions.settle_all():   # quitting: moving parts back into voxels (ADR 0160)
 		_save_blocks()
@@ -844,6 +844,7 @@ func save_terrain(wait_s := 0.0) -> void:
 		OS.delay_msec(5)
 	if not tracker.is_complete():
 		push_warning("save_terrain: the terrain save did not finish in %.1f s" % wait_s)
+	Net.flush_chunks(true)   # the saved chunks reach the server before this client leaves (ADR 0169)
 
 
 ## The dug marks and creaking roofs (ADR 0142), binary next to the blocks file.

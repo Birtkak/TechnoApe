@@ -163,6 +163,8 @@ func _ready() -> void:
 		# the world never settles and detail trickles in for a minute (ADR 0017).
 		stream.set_key_cache_enabled(true)
 		terrain.stream = stream
+	elif Net.active and not Net.is_server:
+		terrain.stream = Net.stream   # the server's edited chunks (ADR 0169): loaded before generating, saved back on unload
 	terrain.voxel_bounds = AABB(Vector3(-1e7, 0, -1e7), Vector3(2e7, Settings.WORLD_HEIGHT_VOXELS, 2e7))
 	add_child(terrain)
 	spray = WaterfallSpray.new()
@@ -307,6 +309,11 @@ func write_chunk(wc: Vector3i, bytes16: PackedByteArray) -> void:
 	var vb := VoxelBuffer.new()
 	vb.create(Settings.CHUNK, Settings.CHUNK, Settings.CHUNK)
 	vb.set_channel_from_byte_array(VoxelBuffer.CHANNEL_TYPE, bytes16)
+	_tool.paste(wc * Settings.CHUNK, vb, 1 << VoxelBuffer.CHANNEL_TYPE)
+	edits += 1
+
+
+func paste_chunk(wc: Vector3i, vb: VoxelBuffer) -> void:
 	_tool.paste(wc * Settings.CHUNK, vb, 1 << VoxelBuffer.CHANNEL_TYPE)
 	edits += 1
 

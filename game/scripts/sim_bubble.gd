@@ -574,6 +574,7 @@ func _collect_dirty() -> void:
 				lo = Vector3i(mini(lo.x, b[0].x), mini(lo.y, b[0].y), mini(lo.z, b[0].z))
 				hi = Vector3i(maxi(hi.x, b[1].x), maxi(hi.y, b[1].y), maxi(hi.z, b[1].z))
 			_push_box[wc] = [lo, hi]
+			_snap_dirty[wc] = true
 			changed.append(wc)
 			if not pinned:
 				_recent[wc] = ticks_total
@@ -630,6 +631,9 @@ func _flush_leaving(d: Vector3i) -> void:
 			leaving.append(wc)
 	for wc in leaving:
 		_push_one(wc)
+	for wc in _snap_dirty.keys():
+		if not is_chunk_in_window(wc - origin - d):
+			_snapshot(wc)
 		_push_queue.erase(wc)
 
 
@@ -642,6 +646,19 @@ func flush_all() -> void:
 		_tick_running = false
 	_collect_dirty()
 	_drain_push(1e9)
+	for wc in _snap_dirty.keys():
+		_snapshot(wc)
+
+
+var _snap_dirty := {}   # world chunks the sim changed since their last snapshot went to the server (ADR 0169)
+
+
+## The chunk as the sim holds it goes to the server (Net.snapshot_chunk): the sim is the authority on the
+## chunks it holds; a terrain block may unload before the sim's last push reached it.
+func _snapshot(wc: Vector3i) -> void:
+	_snap_dirty.erase(wc)
+	if Net.active and not Net.is_server and is_chunk_in_window(wc - origin) and not _is_unloaded(wc):
+		Net.snapshot_chunk(wc, sim.get_box_bytes(wc - origin, Vector3i.ZERO, Vector3i.ONE * (Settings.CHUNK - 1)))
 
 
 ## Debug (fire_test=N on the command line): once the chunks around the player
