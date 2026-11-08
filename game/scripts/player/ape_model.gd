@@ -53,7 +53,20 @@ const SHADES := 6
 const ATLAS := Vector2i(12, 16)   # room for 32 colours of SHADES tones
 const FLAT := [EYE, EYE_WHITE, LENS, LAMP]   # stay their own colour
 
+## Ape variants for multiplayer (ADR 0167): palette overrides of fur and coat; 0 is the default ape in its white coat.
+const VARIANTS: Array = [
+	{},
+	{FUR_DARK: [120, 60, 30], FUR: [176, 98, 48], COAT: [222, 82, 76], COAT_SHADE: [180, 60, 56]},          # ginger, red coat
+	{FUR_DARK: [70, 70, 74], FUR: [124, 124, 130], COAT: [72, 112, 204], COAT_SHADE: [52, 84, 160]},        # grey, blue coat
+	{FUR_DARK: [30, 28, 30], FUR: [60, 56, 58], COAT: [92, 172, 92], COAT_SHADE: [66, 130, 66]},            # black, green coat
+	{FUR_DARK: [140, 104, 50], FUR: [200, 156, 84], COAT: [152, 92, 192], COAT_SHADE: [116, 66, 150]},      # golden, purple coat
+	{FUR_DARK: [150, 146, 140], FUR: [216, 212, 204], COAT: [240, 190, 60], COAT_SHADE: [200, 150, 40]},    # white fur, yellow coat
+	{FUR_DARK: [60, 36, 24], FUR: [96, 58, 36], COAT: [60, 180, 190], COAT_SHADE: [44, 140, 150]},          # dark brown, teal coat
+	{FUR_DARK: [110, 50, 40], FUR: [152, 74, 60], COAT: [236, 130, 50], COAT_SHADE: [190, 100, 36]},        # red fur, orange coat
+]
+
 static var _material: StandardMaterial3D
+static var _variant_mats := {}   # variant -> its material (variant_material)
 static var _tiles: PackedInt32Array
 
 var _arm_x := 10.0   # cells from the body's middle to an arm's pivot
@@ -75,28 +88,54 @@ static var _gear_mats := {}   # Color -> tinted copy of the material
 static func material() -> StandardMaterial3D:
 	if _material:
 		return _material
-	var img := Image.create(ATLAS.x * 16, ATLAS.y * 16, false, Image.FORMAT_RGBA8)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 4242
-	for p in PALETTE.size():
-		var spread := 6 if p != LENS else 14
-		for s in SHADES:
-			var base := MobModel.shade_color(PALETTE[p], s + 2) if not (p in FLAT) else Color8(PALETTE[p][0], PALETTE[p][1], PALETTE[p][2])
-			var t := p * SHADES + s
-			for y in 16:
-				for x in 16:
-					var k := rng.randi_range(-spread, spread) / 255.0
-					img.set_pixel((t % ATLAS.x) * 16 + x, (t / ATLAS.x) * 16 + y, Color(base.r + k, base.g + k, base.b + k))
-	_material = StandardMaterial3D.new()
-	_material.albedo_texture = ImageTexture.create_from_image(img)
-	_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
-	_material.roughness = 0.9
+	_material = _build_material(PALETTE)
 	_tiles = PackedInt32Array()
 	_tiles.resize(PALETTE.size() * SHADES + 1)
 	_tiles[0] = -1
 	for i in PALETTE.size() * SHADES:
 		_tiles[i + 1] = i
 	return _material
+
+
+## The body's material for ape variant `v` (VARIANTS): the same atlas layout, so the meshes stay.
+static func variant_material(v: int) -> StandardMaterial3D:
+	v = posmod(v, VARIANTS.size())
+	if v == 0:
+		return material()
+	if not _variant_mats.has(v):
+		var pal := PALETTE.duplicate()
+		var over: Dictionary = VARIANTS[v]
+		for k in over:
+			pal[k] = over[k]
+		_variant_mats[v] = _build_material(pal)
+	return _variant_mats[v]
+
+
+static func _build_material(palette: Array) -> StandardMaterial3D:
+	var img := Image.create(ATLAS.x * 16, ATLAS.y * 16, false, Image.FORMAT_RGBA8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	for p in palette.size():
+		var spread := 6 if p != LENS else 14
+		for s in SHADES:
+			var base := MobModel.shade_color(palette[p], s + 2) if not (p in FLAT) else Color8(palette[p][0], palette[p][1], palette[p][2])
+			var t := p * SHADES + s
+			for y in 16:
+				for x in 16:
+					var k := rng.randi_range(-spread, spread) / 255.0
+					img.set_pixel((t % ATLAS.x) * 16 + x, (t / ATLAS.x) * 16 + y, Color(base.r + k, base.g + k, base.b + k))
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = ImageTexture.create_from_image(img)
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	m.roughness = 0.9
+	return m
+
+
+## Recolours this ape's fur and coat (VARIANTS), so the players in one world tell each other apart (ADR 0167).
+func set_variant(v: int) -> void:
+	var m := variant_material(v)
+	for part in [head, torso, arm_r, arm_l, leg_r, leg_l, tail]:
+		part.material_override = m
 
 
 ## Cells of palette + 1 -> tile + 1 with a shade each: the bottom rim of a part dark, its vertical corners a

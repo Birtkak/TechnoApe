@@ -7,6 +7,7 @@ extends Control
 
 var world_map: WorldMap
 var player: Node3D
+var others: RemotePlayers        # the other players (multiplayer): a dot in their coat colour and the name
 var center := Vector2.ZERO        # world voxel x, z at the view's middle
 var zoom := 1.0                   # screen pixels per map pixel (0.5 m)
 var show_names := false
@@ -93,6 +94,23 @@ func _draw_over() -> void:
 				var txt: String = w["name"]
 				_over.draw_string_outline(font, s + Vector2(8, 5), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color(0, 0, 0, 0.9))
 				_over.draw_string(font, s + Vector2(8, 5), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, c.lightened(0.3))
+	if others:
+		var o := others.others()
+		for n in o:
+			var at: Vector3 = o[n][0]
+			var s := to_screen(Vector2(at.x, at.z))
+			var inside := Rect2(Vector2.ZERO, size).grow(-6.0).has_point(s)
+			if not inside:
+				if not edge_pins:
+					continue
+				s = _to_rim(s)
+			var rgb: Array = ApeModel.VARIANTS[posmod(int(o[n][2]), ApeModel.VARIANTS.size())].get(ApeModel.COAT, ApeModel.PALETTE[ApeModel.COAT])
+			var c := Color8(rgb[0], rgb[1], rgb[2])
+			_over.draw_rect(Rect2(s - Vector2(5, 5), Vector2(10, 10)), Color(0, 0, 0, 0.9))
+			_over.draw_rect(Rect2(s - Vector2(3.5, 3.5), Vector2(7, 7)), c)
+			if inside:
+				_over.draw_string_outline(font, s + Vector2(8, 5), n, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, 4, Color(0, 0, 0, 0.9))
+				_over.draw_string(font, s + Vector2(8, 5), n, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, c.lightened(0.4))
 	if player:
 		var pp := to_screen(Vector2(player.position.x, player.position.z))
 		var yaw: float = player.rotation.y
