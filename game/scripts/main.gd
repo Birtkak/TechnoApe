@@ -168,6 +168,8 @@ func _ready() -> void:
 	player.position = Vector3(spawn.x + 0.5, h + 3, spawn.y + 0.5)
 	_spawn_pos = player.position
 	_monolith_spawn = spawn
+	if Net.active:   # ADR 0165: the monolith comes from the seed: replayed whenever its terrain regenerates
+		Net.add_world_ops(Monolith.boxes(world, spawn).map(func(b: Array) -> Dictionary: return NetOps.box(b[0], b[1], b[2])))
 	var light := OmniLight3D.new()   # the monolith seam's magenta light on the plaza (ADR 0098)
 	light.light_color = Color(1.0, 0.25, 0.85)
 	light.light_energy = 4.0
@@ -2160,6 +2162,45 @@ func spawn_item(stack: Dictionary, pos: Vector3, velocity: Vector3 = Vector3.ZER
 
 ## A shared item another player spawned (ADR 0145): the same stack, start and velocity, so it lands about
 ## where theirs did; a late joiner gets it dropped where it was spawned.
+## What goes on the wire for the block entity a player action touched at `p` (ADR 0165): its saved
+## dict, {} when it is gone, null to send nothing (a cell of a bigger piece; signs, notes and trading
+## posts, which the PostLedger carries).
+func net_block_out(p: Vector3i) -> Variant:
+	var e: RefCounted = blocks.at(p)
+	if e == null:
+		return {}
+	if e.pos != p or e is TradingPostEntity or (e is FurnitureEntity and FurnitureEntity.KINDS.get(e.furniture, {}).get("write", false)):
+		return null
+	return e.to_dict()
+
+
+## Another player's block entity (ADR 0165): replaced by the state they sent, or removed; its voxels
+## came as ops. Views are redrawn the way a loaded save draws them.
+func net_block(ev: Dictionary) -> void:
+	var p: Vector3i = ev["pos"]
+	var d: Dictionary = ev.get("d", {})
+	var old: RefCounted = blocks.at(p)
+	if old != null and (old is TradingPostEntity or old.pos != p):
+		return   # the PostLedger's, or a cell of a piece here that the sender did not have
+	if _furniture_views.has(p):
+		_furniture_views[p].queue_free()
+		_furniture_views.erase(p)
+	if _station_views.has(p):
+		_station_views[p].queue_free()
+		_station_views.erase(p)
+	blocks.remove(p)
+	if not d.is_empty():
+		var e: RefCounted = blocks.load_one(d)
+		if e is FurnitureEntity:
+			_add_furniture_view(e)
+		elif e != null and e.kind in ["station", "chest", "furnace", "storage_pot", "barrel", "storage_shelf"]:
+			_add_station_view(e)
+		elif e != null and BlockEntities.is_work(e):
+			work._watch(e)
+	if work:
+		work.forget(p)   # the piece's view drawn again, or cleared
+
+
 func net_item_spawn(ev: Dictionary) -> void:
 	for e in _item_entities:
 		if is_instance_valid(e) and e.net_uid == int(ev["uid"]):

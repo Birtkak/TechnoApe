@@ -163,7 +163,7 @@ func create(pos: Vector3i, kind: String) -> RefCounted:
 				_ticking.append(e)
 	_by_pos[pos] = e
 	_register_cells(e)
-	e.changed.connect(_mark_dirty)
+	e.changed.connect(_mark_dirty.bind(e))
 	dirty = true
 	return e
 
@@ -244,8 +244,10 @@ static func anchor_for(front: Vector3i) -> Vector3i:
 	return Vector3i(floori(float(front.x) / n) * n, front.y, floori(float(front.z) / n) * n)
 
 
-func _mark_dirty() -> void:
+func _mark_dirty(e: RefCounted = null) -> void:
 	dirty = true
+	if Net.recording and e != null:
+		Net.touch_block(e.pos)   # ADR 0165: a player action changed it, the others get its new state
 
 
 ## A multi-voxel torch whose flame-side piece starts at `pos` (PlantStamps.torch); `wall` is the
@@ -256,7 +258,7 @@ func create_torch(pos: Vector3i, wall: Vector3i) -> TorchEntity:
 	e.set_mount(wall)
 	_by_pos[pos] = e
 	_register_cells(e)
-	e.changed.connect(_mark_dirty)
+	e.changed.connect(_mark_dirty.bind(e))
 	dirty = true
 	return e
 
@@ -267,7 +269,7 @@ func create_furniture(anchor: Vector3i, furniture: String, facing: int, height: 
 	var e := FurnitureEntity.new(anchor, furniture, facing, height)
 	_by_pos[anchor] = e
 	_register_cells(e)
-	e.changed.connect(_mark_dirty)
+	e.changed.connect(_mark_dirty.bind(e))
 	dirty = true
 	return e
 
@@ -287,6 +289,8 @@ func set_open(e: FurnitureEntity, p_open: bool) -> Array[Vector3i]:
 
 
 func _register_cells(e: RefCounted) -> void:
+	if Net.recording:
+		Net.touch_block(e.pos)   # ADR 0165: placed by a player action
 	for c in footprint(e):
 		_cells[c] = e.pos
 
@@ -384,6 +388,8 @@ func remove(pos: Vector3i) -> Array:
 	var e: RefCounted = _by_pos.get(pos)
 	if e == null:
 		return []
+	if Net.recording:
+		Net.touch_block(pos)   # ADR 0165: gone for the others too
 	for c in footprint(e):
 		if _cells.get(c) == pos:
 			_cells.erase(c)
@@ -432,18 +438,24 @@ func load_dict(d: Dictionary) -> bool:
 	_ticking.clear()
 	_cells.clear()
 	for ed in d.get("entities", []):
-		var pa: Array = ed.get("pos", [])
-		if pa.size() != 3:
-			continue
-		var e := create(Vector3i(int(pa[0]), int(pa[1]), int(pa[2])), String(ed.get("kind", "")))
-		if e != null:
-			if e is KnapEntity or e is ClayFormEntity:
-				e.load_from(ed, recipes)   # they keep their recipe by id
-			else:
-				e.load_from(ed)
-			_register_cells(e)   # furniture knows its cells only after load_from
+		load_one(ed)
 	dirty = false
 	return true
+
+
+## One saved entity (a save file's, or the server's, ADR 0165) created again; null on bad data.
+func load_one(ed: Dictionary) -> RefCounted:
+	var pa = ed.get("pos", [])
+	if not (pa is Array) or pa.size() != 3:
+		return null
+	var e := create(Vector3i(int(pa[0]), int(pa[1]), int(pa[2])), String(ed.get("kind", "")))
+	if e != null:
+		if e is KnapEntity or e is ClayFormEntity:
+			e.load_from(ed, recipes)   # they keep their recipe by id
+		else:
+			e.load_from(ed)
+		_register_cells(e)   # furniture knows its cells only after load_from
+	return e
 
 
 ## Writes atomically (temp file + rename) so a crash never leaves half a save.

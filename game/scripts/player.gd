@@ -1310,7 +1310,12 @@ func _reset_mining() -> void:
 
 # ---------------- using the held item (right click) ----------------
 
+## A right click is a player action (ADR 0165): what it places, lights or changes reaches the other players.
 func _use(first_press: bool) -> void:
+	Net.record(_use_now.bind(first_press))
+
+
+func _use_now(first_press: bool) -> void:
 	if inventory == null or edits_locked or not GameMode.rule(game_mode, "interacts"):
 		return
 	var hit := _aim()
@@ -1318,7 +1323,7 @@ func _use(first_press: bool) -> void:
 		# Minecraft: an empty main hand places the offhand's block (torches in the left hand, ADR 0055)
 		_offhand_turn = true
 		inventory.swap_hands()
-		_use(first_press)
+		_use_now(first_press)
 		inventory.swap_hands()
 		_offhand_turn = false
 		return
@@ -1931,7 +1936,7 @@ func _update_hold(delta: float) -> void:
 		hud.break_progress = _hold_t / Settings.hold_use_s
 	if _hold_t >= Settings.hold_use_s:
 		_hold_t = 0.0
-		hold_done.call(hit)
+		Net.record(hold_done.bind(hit))   # ADR 0165: a hold (sticks, a firepit's fuel) is a player action
 		_after_use()
 
 

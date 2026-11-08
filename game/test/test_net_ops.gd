@@ -63,3 +63,29 @@ func test_garbage_decodes_to_nothing() -> void:
 
 func test_gen_version_read_as_text_matches_the_constant() -> void:
 	assert_int(Net.gen_version()).is_equal(TerrainGenerator.GEN_VERSION)
+
+
+## ADR 0165: the server keeps the newest state per block, drops it on {}, and refuses what is not one.
+func test_server_block_registry() -> void:
+	var net: Node = auto_free(load("res://scripts/net/net.gd").new())
+	assert_bool(net._keep_block({"k": "block", "pos": Vector3i(4, 5, 6), "d": {"kind": "chest", "pos": [0, 0, 0], "slots": []}})).is_true()
+	assert_that(net._blocks["4,5,6"]["pos"]).is_equal([4, 5, 6])   # the key wins over what the sender wrote
+	assert_bool(net._keep_block({"k": "block", "pos": "4,5,6", "d": {}})).is_false()
+	assert_bool(net._keep_block({"k": "block", "pos": Vector3i(4, 5, 6), "d": "x"})).is_false()
+	assert_bool(net._keep_block({"k": "block", "pos": Vector3i(4, 5, 6), "d": {}})).is_true()
+	assert_bool(net._blocks.has("4,5,6")).is_false()
+
+
+## A block entity's saved dict made again on another client is the same entity.
+func test_block_load_one_roundtrip() -> void:
+	var items := ItemRegistry.load_default()
+	var recipes := RecipeRegistry.load_default(items)
+	var b := BlockEntities.new(items, recipes)
+	var c: RefCounted = b.create(Vector3i(8, 0, 8), "chest")
+	c.inv.set_slot(0, {"id": "stick", "count": 3})
+	var other := BlockEntities.new(items, recipes)
+	var e: RefCounted = other.load_one(JSON.parse_string(JSON.stringify(c.to_dict())))
+	assert_object(e).is_not_null()
+	assert_that(e.pos).is_equal(Vector3i(8, 0, 8))
+	assert_int(int(e.inv.get_slot(0)["count"])).is_equal(3)
+	assert_object(other.load_one({"kind": "chest", "pos": "bad"})).is_null()
