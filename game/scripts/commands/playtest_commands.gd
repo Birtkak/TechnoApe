@@ -198,6 +198,9 @@ func _monolith(_args: PackedStringArray) -> Dictionary:
 			whole += 1
 		elif m == GameMaterials.AIR:
 			air += 1   # carved by a later box, or gone
+			if _args.size() > 0 and _args[0] == "air" and air <= 12:   # where: the box, its chunk and what the mirror says of it
+				var wc := Vector3i((Vector3(c) / Settings.CHUNK).floor())
+				print("monolith air: box %s..%s centre %s chunk %s baked %d" % [b[0], b[1], c, wc, Net.stream.baked(wc) if Net.stream else -2])
 		else:
 			var n := GameMaterials.name_of(m)
 			other[n] = int(other.get(n, 0)) + 1   # another box over it, or what weather and plants put there

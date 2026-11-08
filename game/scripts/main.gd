@@ -819,6 +819,7 @@ func _physics_process(delta: float) -> void:
 
 func _exit_tree() -> void:
 	_save_blocks()
+	Net.drain()   # the process may end right after this (an autopilot run): the save must be acknowledged
 
 
 ## Writes the terrain edits still loaded to the world save: the bubble's simulated chunks go back into

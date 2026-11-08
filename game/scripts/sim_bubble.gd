@@ -414,6 +414,8 @@ func _load_pending() -> void:
 		while lo > 0 and (m >> (lo - 1)) & 1 == 1 and _terrain_in(best, lo - 1):
 			lo -= 1
 		var w0 := Vector3i(best.x, origin.y + lo, best.y)
+		if Net.active:
+			Net.paste_mirror(w0, hi - lo)   # ADR 0169: the server's chunks the terrain does not show yet (sky blocks are never generated)
 		var bytes: PackedByteArray = world.read_column(w0, hi - lo)
 		sim.set_column_bytes(Vector3i(best.x - origin.x, lo, best.y - origin.z), hi - lo, bytes, 2)
 		m = int(_pending[best]) & ~(((1 << (hi - lo)) - 1) << lo)

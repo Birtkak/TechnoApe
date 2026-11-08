@@ -56,6 +56,12 @@ func _get_used_channels_mask() -> int:
 
 
 func _generate_block(out_buffer: VoxelBuffer, origin: Vector3i, lod: int) -> void:
+	_generate_into(out_buffer, origin, lod)
+	if Net.stream != null:   # ADR 0169: the server's edited chunks over the generated ground (the terrain has no stream)
+		Net.stream.overlay(out_buffer, origin, out_buffer.get_size())
+
+
+func _generate_into(out_buffer: VoxelBuffer, origin: Vector3i, lod: int) -> void:
 	var size := out_buffer.get_size()
 	var depth := out_buffer.get_channel_depth(VoxelBuffer.CHANNEL_TYPE)
 	var bpv := 1 if depth == VoxelBuffer.DEPTH_8_BIT else (2 if depth == VoxelBuffer.DEPTH_16_BIT else 4)

@@ -134,7 +134,11 @@ func _ready() -> void:
 		atlas_material.set_shader_parameter("ao_darkness", mesher.occlusion_darkness / 3.0)   # per occluding neighbour, as the mesher bakes it
 		atlas_material.set_shader_parameter("ao_pages_on", true)
 	if Settings.ground_shell and terrain.has_method("set_ground_shell"):   # our godot_voxel build (ADR 0105)
-		terrain.set_ground_shell(Callable(generator.gen, "ground_range"), int(Settings.m2v(Settings.shell_below_m)),
+		var ground := Callable(generator.gen, "ground_range")
+		if Net.active and not Net.is_server:   # ADR 0169: the shell reaches up to what other players built in the sky
+			Net.stream.native = ground
+			ground = Callable(Net.stream, "ground_range")
+		terrain.set_ground_shell(ground, int(Settings.m2v(Settings.shell_below_m)),
 			int(Settings.m2v(Settings.shell_above_m)), int(Settings.m2v(Settings.shell_near_m)))
 	if "mesh_upload_budget_mb" in terrain:   # our godot_voxel build only (ADR 0020)
 		terrain.mesh_upload_budget_mb = Settings.mesh_upload_budget_mb
@@ -163,8 +167,7 @@ func _ready() -> void:
 		# the world never settles and detail trickles in for a minute (ADR 0017).
 		stream.set_key_cache_enabled(true)
 		terrain.stream = stream
-	elif Net.active and not Net.is_server:
-		terrain.stream = Net.stream   # the server's edited chunks (ADR 0169): loaded before generating, saved back on unload
+	# Joined a server: no stream. The generator lays the server's edited chunks over its output (ADR 0169).
 	terrain.voxel_bounds = AABB(Vector3(-1e7, 0, -1e7), Vector3(2e7, Settings.WORLD_HEIGHT_VOXELS, 2e7))
 	add_child(terrain)
 	spray = WaterfallSpray.new()

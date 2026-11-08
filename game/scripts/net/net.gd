@@ -67,7 +67,7 @@ var applied: Array = []        # client: sale ids already delivered to this play
 var _ent_queue: Array = []     # client: sign / post events that came before Main could place them
 var _rid_n := 0
 var _st: RefCounted            # a ShapeTool (clients only: the server has no voxel extension)
-var stream: Resource           # client: the NetStream mirror of the server's edited chunks (ADR 0169); untyped: the server has no voxel extension
+var stream: RefCounted         # client: the NetStream mirror of the server's edited chunks (ADR 0169); untyped: the server has no voxel extension
 var _chunks := {}              # server: Vector3i chunk -> [bytes, n], the newest save of every edited chunk
 var _chunks_dirty := false
 const CHUNK_MAX_BYTES := 65536
@@ -430,6 +430,7 @@ func leave() -> void:
 	if not active:
 		return
 	flush()
+	drain()
 	active = false
 	items_ready = false
 	set_process(false)
@@ -765,6 +766,37 @@ func save_player(d: Dictionary) -> void:
 			host.flush()   # save-and-quit leaves right after this: the packet must be on the wire
 
 
+## Client, before quitting: waits (max_ms at most) until the server has acknowledged everything sent. A quit's
+## chunk snapshots (ADR 0169) fill ENet's reliable window, and the player save queued behind them was lost.
+func drain(max_ms := 3000) -> void:
+	if not active or is_server or multiplayer.multiplayer_peer == null:
+		return
+	_acks_asked += 1
+	_s_ack.rpc_id(1)   # ordered with everything sent before it: its answer means all of that arrived
+	var host: ENetConnection = multiplayer.multiplayer_peer.get("host")
+	if host:
+		host.flush()
+	var until := Time.get_ticks_msec() + max_ms
+	while _acks < _acks_asked and Time.get_ticks_msec() < until:
+		multiplayer.poll()
+		OS.delay_msec(5)
+
+
+var _acks := 0
+var _acks_asked := 0
+
+
+@rpc("any_peer", "reliable")
+func _s_ack() -> void:
+	if is_server:
+		_c_ack.rpc_id(multiplayer.get_remote_sender_id())
+
+
+@rpc("authority", "reliable")
+func _c_ack() -> void:
+	_acks += 1
+
+
 func _process(delta: float) -> void:
 	_tick(delta)
 	var host: ENetConnection = multiplayer.multiplayer_peer.get("host") if multiplayer.multiplayer_peer else null
@@ -939,12 +971,25 @@ func _keep_chunk(ev: Dictionary) -> bool:
 func _chunk_in(ev: Dictionary) -> void:
 	stats["chunks_recv"] += 1
 	var p: Vector3i = ev["p"]
-	if not stream.put(p, ev["b"], int(ev["n"])) or main == null or main.world == null or main.bubble == null:
+	var vb: VoxelBuffer = stream.put(p, ev["b"], int(ev["n"]))
+	if vb == null or main == null or main.world == null or main.bubble == null:
 		return
 	if main.world.is_area_loaded(p) and not main.bubble.is_chunk_loaded(p - main.bubble.origin):
-		var vb: VoxelBuffer = stream.to_buffer(ev["b"])
-		if vb:
-			main.world.paste_chunk(p, vb)
+		main.world.paste_chunk(p, vb)
+		stats["chunks_pasted"] += 1
+
+
+## Client: before the bubble reads a column from the terrain, the mirror's chunks the terrain does not hold yet are
+## pasted in (sky blocks are set as air without generating, so the overlay never saw them; a compare of 8 KB is
+## far cheaper than a paste and its remesh).
+func paste_mirror(w0: Vector3i, count: int) -> void:
+	if stream == null or main == null or main.world == null:
+		return
+	for k in count:
+		var wc := Vector3i(w0.x, w0.y + k, w0.z)
+		var vb: VoxelBuffer = stream.block(wc)
+		if vb != null and main.world.read_chunk(wc) != vb.get_channel_as_byte_array(VoxelBuffer.CHANNEL_TYPE):
+			main.world.paste_chunk(wc, vb)
 			stats["chunks_pasted"] += 1
 
 
@@ -957,7 +1002,7 @@ func snapshot_chunk(wc: Vector3i, bytes16: PackedByteArray) -> void:
 	var vb := VoxelBuffer.new()
 	vb.create(Settings.CHUNK, Settings.CHUNK, Settings.CHUNK)
 	vb.set_channel_from_byte_array(VoxelBuffer.CHANNEL_TYPE, bytes16)
-	stream.put_own(wc, VoxelBlockSerializer.serialize_to_byte_array(vb, VoxelBlockSerializer.COMPRESSION_LZ4))
+	stream.put_own(wc, vb)
 
 
 ## Client: the chunks snapshotted since the last frame go out in this frame's batch (`now`: on the wire
