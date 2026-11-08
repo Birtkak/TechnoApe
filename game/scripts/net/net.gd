@@ -72,6 +72,7 @@ var _server_id := "%08x" % (randi() & 0x7fffffff)   # tells one server's answers
 
 func _ready() -> void:
 	set_process(false)
+	process_priority = 1000   # after Main and the player: this frame's edits leave this frame, not the next
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=")
 		if kv.size() != 2:
@@ -92,7 +93,7 @@ func _ready() -> void:
 func _start_server() -> void:
 	if get_tree().current_scene:
 		get_tree().current_scene.queue_free()   # the title screen: a server has no screen
-	Engine.max_fps = 60
+	Engine.max_fps = 240   # a frame is a poll: at 60 fps a forwarded op waited up to 17 ms for the next one (ADR 0165)
 	Settings.apply_cmdline()   # seed=, gamemode= (DebugCapture does this too, but not where the voxel extension is missing)
 	seed_value = Settings.world_seed
 	game_mode = Settings.game_mode
@@ -104,6 +105,7 @@ func _start_server() -> void:
 		return
 	multiplayer.multiplayer_peer = peer
 	multiplayer.peer_disconnected.connect(_on_peer_left)
+	multiplayer.peer_connected.connect(_patient)
 	if server_name == "":
 		server_name = OS.get_environment("COMPUTERNAME") if OS.has_environment("COMPUTERNAME") else OS.get_environment("HOSTNAME")
 	_discovery = PacketPeerUDP.new()
@@ -348,7 +350,9 @@ func join(address: String, pname: String) -> void:
 		failed.emit("cannot connect to %s (%d)" % [address, err])
 		return
 	multiplayer.multiplayer_peer = peer
-	multiplayer.connected_to_server.connect(func() -> void: _s_hello.rpc_id(1, PROTO, player_name, ClientUpdate.version()))
+	multiplayer.connected_to_server.connect(func() -> void:
+		_patient(1)
+		_s_hello.rpc_id(1, PROTO, player_name, ClientUpdate.version()))
 	multiplayer.connection_failed.connect(func() -> void: failed.emit("no server at " + address))
 	multiplayer.server_disconnected.connect(func() -> void:
 		print("net: the server went away")
@@ -423,8 +427,10 @@ func _c_batch(bytes: PackedByteArray) -> void:
 			if _apply(op, main.bubble if main else null) and op.get("live", false) and main.get("weather") != null:
 				main.weather.fire_heard(Vector3(op["box"][0]))   # its sound and its rain timer, as a fire lit here
 		elif items_ready:
+			_latency(ev)
 			_item_event(ev)
 		else:
+			_latency(ev)   # on arrival: the time it then waits for Main to load is not the link's
 			_queued.append(ev)
 
 
@@ -503,7 +509,6 @@ func _item_event(ev: Dictionary) -> void:
 		main.net_item_spawn(ev)
 	elif ev["k"] == "block":
 		stats["blocks_recv"] += 1
-		_latency(ev)
 		main.net_block(ev)
 	elif ev["k"] == "picked":
 		stats["picked_recv"] += 1
@@ -663,6 +668,13 @@ func save_player(d: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	_tick(delta)
+	var host: ENetConnection = multiplayer.multiplayer_peer.get("host") if multiplayer.multiplayer_peer else null
+	if host:
+		host.flush()   # on the wire now, not at the next frame's poll (ADR 0165)
+
+
+func _tick(delta: float) -> void:
 	var host: ENetConnection = multiplayer.multiplayer_peer.get("host") if multiplayer.multiplayer_peer else null
 	if host:
 		stats["sent_bytes"] += host.pop_statistic(ENetConnection.HOST_TOTAL_SENT_DATA)
@@ -805,3 +817,11 @@ func _latency(ev: Dictionary) -> void:
 	stats["lat_ms_max"] = maxi(stats["lat_ms_max"], ms)
 	stats["lat_ms_sum"] += ms
 	stats["lat_n"] += 1
+
+
+## ENet drops a link that is silent for 5 s at least; a client loading the world (shaders, the first
+## columns) can stall that long on a busy machine. 20 s before a drop, 60 s at most (ADR 0165).
+func _patient(id: int) -> void:
+	var p: ENetPacketPeer = (multiplayer.multiplayer_peer as ENetMultiplayerPeer).get_peer(id)
+	if p:
+		p.set_timeout(32, 20000, 60000)

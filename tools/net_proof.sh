@@ -18,7 +18,7 @@ set -u
 cd "$(dirname "$0")/../game" || exit 1
 G="$HOME/Tools/Godot/4.7.2-mono/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
 SEED=${1:-4242}
-PORT=${2:-7781}   # pass another port when a second session may run this proof at the same time
+PORT=${2:-$((20000 + RANDOM % 20000 * 2))}   # random (even: discovery takes port + 1): parallel sessions run this proof too
 export MSYS_NO_PATHCONV=1
 COMMON="view_distance_m=24 volume_master=0 walk=1 speed=0 load_cap_s=40"
 mkdir -p out
