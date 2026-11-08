@@ -37,6 +37,7 @@ func setup(p_main: Node) -> void:
 	view.show_names = true
 	view.world_map = main.world_map
 	view.player = main.player
+	view.others = main.remote_players
 	_root.add_child(view)
 	_info = UiStyle.label("", 15, Color(0.92, 0.92, 0.92))
 	_info.position = Vector2(16, 12)

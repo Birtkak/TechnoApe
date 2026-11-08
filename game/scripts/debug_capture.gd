@@ -559,6 +559,9 @@ func _finish() -> void:
 		s["net"]["pos"] = [snappedf(pp.x, 0.1), snappedf(pp.y, 0.1), snappedf(pp.z, 0.1)]
 		if _main.remote_players:
 			s["net"]["avatars"] = _main.remote_players.positions()
+			s["net"]["looks"] = _main.remote_players.looks()
+			s["net"]["map"] = _main.remote_players.others().keys()   # the names the map and minimap mark
+			s["net"]["my_colour"] = Net.my_colour
 	s["settings"] = {"seed": Settings.world_seed, "seed_text": Settings.world_seed_text, "view_distance_m": Settings.view_distance_m,
 		"simulation_distance_m": Settings.simulation_distance_m, "sim_tick_hz": Settings.sim_tick_hz}
 	print(JSON.stringify(s))

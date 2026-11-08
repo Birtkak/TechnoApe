@@ -99,7 +99,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 	reg.register("give", "/give <item> [count]", "Give yourself items", _give, [_item_ids])
 	reg.register("clear", "/clear [item]", "Empty your inventory, or remove one item", _clear, [_item_ids])
 	reg.register("drop", "/drop <item> [count]", "Drop a stack at your feet, from nothing (playtests: a shared item in multiplayer)", _drop, [_item_ids])
-	reg.register("tp", "/tp <x> <y> <z>", "Teleport to a voxel position; ~ is relative (~ ~10 ~)",
+	reg.register("tp", "/tp <x> <y> <z> | <player>", "Teleport to a voxel position (~ is relative: ~ ~10 ~), or next to another player",
 		_tp, [["~"], ["~"], ["~"]], ["teleport"])
 	reg.register("time", "/time set <day|noon|sunset|night|midnight|sunrise|0..1>", "Set or show (/time query) the time of day",
 		_time, [["set", "query"], TIMES.keys()])
@@ -265,8 +265,17 @@ func _clear(args: PackedStringArray) -> Dictionary:
 func _tp(args: PackedStringArray) -> Dictionary:
 	if player == null:
 		return CommandRegistry.fail("No player")
+	if args.size() == 1 and main and main.get("remote_players"):   # multiplayer: next to that player (ADR 0167)
+		var o: Dictionary = main.remote_players.others()
+		for n in o:
+			if String(n).to_lower() == args[0].to_lower():
+				var at: Vector3 = o[n][0]
+				var yaw: float = o[n][1]
+				player.teleport(at + Vector3(-sin(yaw), 0, -cos(yaw)) * Settings.m2v(1.0))   # a metre in front of them
+				return CommandRegistry.ok("Teleported to %s" % n)
+		return CommandRegistry.fail("No player %s here (%s)" % [args[0], ", ".join(o.keys())])
 	if args.size() != 3:
-		return CommandRegistry.fail("Usage: /tp <x> <y> <z>")
+		return CommandRegistry.fail("Usage: /tp <x> <y> <z> | <player>")
 	var p: Variant = _coords(args, 0, player.position, true)
 	if p is Dictionary:
 		return p

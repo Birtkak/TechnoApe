@@ -260,6 +260,7 @@ func _ready() -> void:
 		remote_players = RemotePlayers.new()
 		remote_players.name = "RemotePlayers"
 		add_child(remote_players)
+		player.model.set_variant(Net.my_colour)   # the colour the server gave this player (ADR 0167)
 
 	game_hud = GameHud.new()
 	game_hud.name = "Hud"

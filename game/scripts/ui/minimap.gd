@@ -31,6 +31,7 @@ func setup(p_main: Node) -> void:
 	add_child(view)
 	view.world_map = main.world_map
 	view.player = main.player
+	view.others = main.remote_players
 	_text = Label.new()
 	_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_text.add_theme_font_size_override("font_size", 12)

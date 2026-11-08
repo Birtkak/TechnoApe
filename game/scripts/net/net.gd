@@ -10,7 +10,7 @@ extends Node
 ##   server:  godot --headless --path game -- server=1 seed=1337 [port=7777] [duration=<s>]
 ##   client:  godot --path game -- connect=<host[:port]> name=<player>
 
-const PROTO := 5   # 4: hello carries the build version (ADR 0166); 5: block, live and stamped batch events (ADR 0165)
+const PROTO := 6   # 4: hello carries the build version (ADR 0166); 5: block, live and stamped batch events (ADR 0165); 6: looks and ape colours (ADR 0167)
 const PORT := 7777
 const STATE_HZ := 20.0
 const SAVE_S := 30.0
@@ -22,6 +22,7 @@ signal failed(reason: String)
 signal peer_joined(id: int, pname: String)
 signal peer_left(id: int)
 signal peer_state(id: int, pos: Vector3, yaw: float, pitch: float, speed: float, flying: bool, pet: Array)
+signal peer_look(id: int, look: Dictionary)   # held item, worn clothing, stains, ape colour (ADR 0167)
 
 var active := false
 var is_server := false
@@ -40,10 +41,14 @@ var main: Node                 # the game scene (set by Main._ready)
 var stats := {"ops_sent": 0, "ops_recv": 0, "ops_replayed": 0, "states_sent": 0, "states_recv": 0, "verify_ok": 0, "verify_bad": 0,
 	"items_sent": 0, "items_recv": 0, "picks_sent": 0, "picks_got": 0, "picked_recv": 0, "batches_sent": 0,
 	"sent_bytes": 0, "recv_bytes": 0, "journal": 0, "peers": 0,
-	"live_sent": 0, "live_recv": 0, "blocks_sent": 0, "blocks_recv": 0, "base_ops": 0, "base_replayed": 0, "live_ok": 0, "lat_ms_max": 0, "lat_ms_sum": 0, "lat_n": 0}
+	"live_sent": 0, "live_recv": 0, "blocks_sent": 0, "blocks_recv": 0, "base_ops": 0, "base_replayed": 0, "live_ok": 0, "lat_ms_max": 0, "lat_ms_sum": 0, "lat_n": 0, "looks_sent": 0, "looks_recv": 0}
 
 var _by_chunk := {}            # Vector3i world chunk -> PackedInt32Array journal indices (client)
 var _players := {}             # server: name -> player dict
+var _looks := {}               # server: peer id -> its last look (ADR 0167), for the players who join later
+var _colours := {}             # server: peer id -> its ApeModel variant
+var _look_sent := {}           # client: the look last sent
+var my_colour := 0             # client: this player's ApeModel variant, from the server
 var _players_dirty := false
 var _journal_saved := 0
 var _items := {}               # server: uid -> spawn event of every shared item still lying around
@@ -201,6 +206,9 @@ func _s_hello(proto: int, pname: String, ver := "") -> void:
 		_c_refused.rpc_id(id, ClientUpdate.UPDATE_PREFIX + updates.version)
 		print("net: %s refused, build %s, this server wants %s" % [pname, ver, updates.version])
 		return
+	var free := range(ApeModel.VARIANTS.size()).filter(func(v: int) -> bool: return not (v in _colours.values()))
+	_colours[id] = free.pick_random() if not free.is_empty() else randi() % ApeModel.VARIANTS.size()
+	_c_colour.rpc_id(id, _colours[id])   # before the welcome: the body is built while the world loads
 	_c_welcome.rpc_id(id, seed_value, game_mode, _players.get(pname, {}), peers.duplicate())
 	var at := 0
 	while true:
@@ -216,6 +224,8 @@ func _s_hello(proto: int, pname: String, ver := "") -> void:
 	_c_ent.rpc_id(id, var_to_bytes(ledger.snapshot_for(pname)))
 	for other in peers:
 		_c_peer_joined.rpc_id(other, id, pname)
+	for other in _looks:
+		_c_look.rpc_id(id, other, _looks[other])
 	peers[id] = pname
 	print("net: %s joined as peer %d (%d players)" % [pname, id, peers.size()])
 
@@ -226,6 +236,8 @@ func _on_peer_left(id: int) -> void:
 	print("net: %s left (peer %d)" % [peers.get(id, "?"), id])
 	var unlocked: Array = ledger.left(String(peers.get(id, "")))
 	peers.erase(id)
+	_looks.erase(id)
+	_colours.erase(id)
 	if not unlocked.is_empty():
 		for other in peers:
 			_c_ent.rpc_id(other, var_to_bytes(unlocked))
@@ -321,6 +333,31 @@ func _s_state(pos: Vector3, yaw: float, pitch: float, speed: float, flying: bool
 			_c_state.rpc_id(other, id, pos, yaw, pitch, speed, flying, pet)
 
 
+## A client's look changed (ADR 0167): kept for later joiners, stamped with its colour, sent to the others.
+@rpc("any_peer", "reliable")
+func _s_look(d: Dictionary) -> void:
+	var id := multiplayer.get_remote_sender_id()
+	if not is_server or not peers.has(id) or var_to_bytes(d).size() > 2048:
+		return
+	d["c"] = int(_colours.get(id, 0))
+	_looks[id] = d
+	stats["looks_recv"] += 1
+	for other in peers:
+		if other != id:
+			_c_look.rpc_id(other, id, d)
+
+
+@rpc("authority", "reliable")
+func _c_look(id: int, d: Dictionary) -> void:
+	stats["looks_recv"] += 1
+	peer_look.emit(id, d)
+
+
+@rpc("authority", "reliable")
+func _c_colour(v: int) -> void:
+	my_colour = v
+
+
 @rpc("any_peer", "reliable")
 func _s_save(d: Dictionary) -> void:
 	if not is_server:
@@ -366,6 +403,7 @@ func leave() -> void:
 	set_process(false)
 	multiplayer.multiplayer_peer = null
 	journal.clear()
+	_look_sent = {}   # a rejoin sends its look again
 	_base_n = 0
 	_by_chunk.clear()
 	_queued.clear()
@@ -691,6 +729,11 @@ func _process(delta: float) -> void:
 		var p: Node = main.player
 		_s_state.rpc_id(1, p.position, p._yaw, p._pitch, Vector2(p.velocity.x, p.velocity.z).length(), p.flying, main.mobs.pet_state("player") if main.get("mobs") != null else [])   # the companion rides along (ADR 0152)
 		stats["states_sent"] += 1
+		var look := RemotePlayers.look_of(main)
+		if look != _look_sent:
+			_look_sent = look
+			_s_look.rpc_id(1, look)
+			stats["looks_sent"] += 1
 
 
 func _notification(what: int) -> void:
