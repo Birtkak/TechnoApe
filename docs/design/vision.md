@@ -8,6 +8,14 @@ A 3D first-person open-world game in a fully diggable, buildable blocky-voxel
 world, generated procedurally from a seed, where survival and progression run
 through a deep, layered crafting system.
 
+## Planets first (2026-11-08, ADR 0170, proposed)
+The grand idea is a solar system of **small spherical planets (0.3-1 km radius)** you walk around, dig into
+and fly between seamlessly, one planet + moon first. The world is **0.5 m blocks**; fine 12.5 cm detail lives
+only where something happens (sim bubble, chiseled blocks, felled trees); liquids are fill levels, gases a
+field. Where this disagrees with the 12.5 cm-everywhere and no-LOD text below (ADR 0033, 0073, 0105), this
+wins once ADR 0170 is accepted. Engine, sphere grid and block look are being decided by measurement:
+`docs/plans/planet-rebuild.md`.
+
 ## The big idea (2026-10-21)
 A voxel game that mixes **Minecraft with GregTech vibes** and **Noita**:
 - **Voxels are simulated like Noita.** Materials have physical behaviour:
