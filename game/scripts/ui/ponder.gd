@@ -103,6 +103,11 @@ static func check(scene: Dictionary, items: ItemRegistry, recipes: RecipeRegistr
 		for b in s.get("blocks", []):
 			if GameMaterials.id_of(String(b.get("material", ""))) <= 0:
 				bad.append("step %d uses unknown material %s" % [i, String(b.get("material", ""))])
+			var bb := AABB(Vector3(PonderScreen._v(b.get("at", [0, 0, 0])) * Settings.BLOCK), Vector3(PonderScreen._v(b.get("size", [1, 1, 1])) * Settings.BLOCK))
+			for e in store.all_entities():   # a piece that grew (ADR 0168) must not sink into the scene's blocks
+				var w := BlockEntities.width_of(e.kind)
+				if bb.intersects(AABB(Vector3(e.pos), Vector3(w, BlockEntities.height_of(e.kind), w))):
+					bad.append("step %d puts %s blocks inside the %s" % [i, String(b.get("material", "")), e.kind])
 		for f in s.get("flow", []):
 			if not String(f.get("kind", "")) in FLOWS:
 				bad.append("step %d flows unknown kind %s" % [i, String(f.get("kind", ""))])
