@@ -157,3 +157,18 @@ func test_animals_merge_to_half_voxels_and_keep_their_eyes() -> void:
 			if c > 0 and (c - 1) / MobModel.SHADES == MobModel.EYE:
 				eyes += 1
 		assert_int(eyes).override_failure_message(sp).is_greater_equal(2)
+
+
+## Bug reports 2026-11-08_16-02-53 and 16-12-57: heather and just-planted seeds are multi-voxel.
+func test_heather_and_seedlings_are_multi_voxel() -> void:
+	var heather := GameMaterials.id_of("heather")
+	var clump := PlantStamps.for_placed(heather, Vector3i(5, 0, 9))
+	assert_int(clump.size()).is_greater(8)
+	assert_bool(clump.values().has(heather)).is_true()
+	assert_bool(clump.values().has(GameMaterials.id_of("plant_stem"))).is_true()
+	for kind in ["wheat", "emmer", "carrots"]:
+		var look := GameMaterials.id_of("wheat_0" if kind != "carrots" else "carrots_0")
+		assert_int(PlantStamps.crop(kind, 0, look, Vector3i(2, 0, 4)).size()).override_failure_message(kind).is_greater_equal(4)
+	# emmer shares the wheat looks: it grows the wheat shape, not carrot leaves
+	var emmer := PlantStamps.crop("emmer", 7, GameMaterials.id_of("wheat_7"), Vector3i(2, 0, 4))
+	assert_bool(emmer.values().has(GameMaterials.id_of("carrots_0"))).is_false()

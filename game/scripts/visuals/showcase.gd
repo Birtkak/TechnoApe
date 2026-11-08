@@ -9,6 +9,7 @@ extends RefCounted
 ## A name is a material: stone pickups get the generator's own stamp (three patches each, front to
 ## back), anything else is placed as a click would. A tool or ingot is set down (ADR 0095). Other item looks have their own sheet (tools/item_sheet.gd):
 ## an item id is listed as "item" and not drawn (a dropped item on the pad never showed in the shots).
+## crop:<kind>:<age> plants three of a crop at that age on tilled pad cells.
 ## Left to right in every shot and in the JSON line "debug showcase {...}": the order given.
 ## Sheet: front, top, then a close-up of each entry (up to six).
 
@@ -53,7 +54,17 @@ func run(p_main: Node, names: PackedStringArray, ground: String = "grass", quit_
 		var c := o + Vector3i(2 + SLOT * i + SLOT / 2 - 2, 0, 2)   # the entry's first patch corner
 		var id := GameMaterials.id_of(name)
 		var how := "missing"
-		if id > 0 and (id in GameMaterials.GROUND_PICKUPS or name.ends_with("_stones")) and id != GameMaterials.TWIGS:
+		if name.begins_with("crop:"):   # crop:<kind>:<age>, planted on tilled pad cells (three plants)
+			var parts := name.split(":")
+			how = "missing"
+			for v in VARIANTS:
+				var a := PlantStamps.crop_anchor(c + Vector3i(3 * v, -1, ROW + 1))
+				if main.farming.till(a + Vector3i.DOWN) and main.farming.plant(a + Vector3i.DOWN, parts[1]) and main.farming.crops.has(a):
+					main.farming.crops[a]["age"] = int(parts[2]) if parts.size() > 2 else 0
+					main.set_world_voxel(a, main.farming.look_of(parts[1], main.farming.crops[a]["age"]))
+					main.farming._restamp(a)
+					how = "planted"
+		elif id > 0 and (id in GameMaterials.GROUND_PICKUPS or name.ends_with("_stones")) and id != GameMaterials.TWIGS:
 			how = "pickup"
 			for v in VARIANTS:
 				var hs: PackedInt32Array = gen.pickup_heights(id, i * 31 + v * 7 + 1)

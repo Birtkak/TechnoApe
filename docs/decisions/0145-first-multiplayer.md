@@ -74,7 +74,7 @@ the save). Disconnect saves nothing new; the last 30 s save stands.
 **Single-player:** unchanged. `Net.active` is false, the hooks are one boolean each, `Net` never
 processes.
 
-**Explicitly single-player for now** (each client runs its own copy, nothing crosses the wire):
+(ADR 0165 since shares block entities, fire ignitions and the monolith.) **Explicitly single-player for now** (each client runs its own copy, nothing crosses the wire):
 simulated materials (water, sand, fire, gas, heat), block entities
 (stations, chests, furniture, machines, networks), mobs, farming, weather, rigid pieces (a felled tree's
 cut and settled voxels do replicate as voxel ops, the flight does not), survival state (saved per player),

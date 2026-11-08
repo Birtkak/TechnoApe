@@ -14,5 +14,5 @@ COPY deploy/entry.sh /entry.sh
 RUN /opt/godot/godot --headless --path /game --import > /tmp/import.log 2>&1 || /opt/godot/godot --headless --path /game --import > /tmp/import.log 2>&1 || true
 ENV XDG_DATA_HOME=/data
 VOLUME /data
-EXPOSE 7777/udp 7778/udp
+EXPOSE 7777/udp 7778/udp 7779/tcp
 ENTRYPOINT ["/entry.sh"]

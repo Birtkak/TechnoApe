@@ -145,3 +145,21 @@ func test_zoom_key_narrows_the_view_while_held() -> void:
 	Input.action_release("zoom")
 	pl._process(1.0)
 	assert_float(pl.camera.fov).is_equal_approx(Settings.fov, 0.01)
+
+
+## Bug report 2026-11-08_16-15-01: wearing a bag grew the panel and threw it to the top-left corner.
+func test_bag_keeps_the_panel_centred() -> void:
+	var scr: InventoryScreen = auto_free(InventoryScreen.new())
+	add_child(scr)
+	scr.setup(p)
+	scr.open()
+	await get_tree().process_frame
+	p.cursor = {"id": "travelers_backpack", "count": 1}
+	p.click_bag_item()
+	scr._refresh()
+	await get_tree().process_frame
+	assert_bool(p.has_bag()).is_true()
+	var shown := scr._bag_slots.filter(func(sv: Control) -> bool: return sv.visible).size()
+	assert_int(shown).is_equal(p.bag.size())
+	var mid: Vector2 = scr._panel.get_global_rect().get_center()
+	assert_vector(mid).is_equal_approx(scr._root.get_global_rect().get_center(), Vector2(1, 1))
