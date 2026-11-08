@@ -14,7 +14,7 @@ extends RefCounted
 
 const MAX_CELLS := 96        # a piece is never bigger (a stick is 8-12 voxels, a flower ~30, kelp up to 80 tall)
 const MAX_REACH_SQ := 196    # blobs: nor further than 14 voxels from where it was touched
-const COLUMN_PLANTS := ["tall_grass", "savanna_tall_grass", "fern", "reed", "dead_bush", "kelp", "seagrass", "dune_grass", "tundra_sedge", "sagebrush", "desert_marigold", "moss_campion", "fire_lily", "lingonberry", "bromeliad", "cattail", "aloe", "bluebell", "frost_lichen", "sea_aster"]
+const COLUMN_PLANTS := ["tall_grass", "savanna_tall_grass", "fern", "reed", "dead_bush", "kelp", "seagrass", "dune_grass", "tundra_sedge", "sagebrush"]   # the low biome flora are pieces (PlantStamps.FLORA_PIECES)
 
 static var _groups := PackedStringArray()   # material id -> group ("" = not a piece)
 static var _column := PackedByteArray()

@@ -189,6 +189,8 @@ const WASTE_GROUND := 219          # soil and soft rock sludge ate, and sludge s
 const SLAG := 220                  # smelting waste: a powder that piles at a machine's port
 const CHIMNEY := 221               # a brick flue: smoke of the machine under a stack of these leaves at its top
 
+## The low biome flora drawn as multi-voxel pieces (FineGen flora_piece, PlantStamps.flora); grasses stay tufts.
+const FLORA_PIECES := ["desert_marigold", "fire_lily", "bluebell", "sea_aster", "moss_campion", "lingonberry", "frost_lichen", "bromeliad", "aloe", "cattail"]
 const ATLAS_TILES := Vector2i(8, 28)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7
@@ -410,7 +412,13 @@ static func _flora_defs() -> Array:
 		["frost_lichen", 213, "tuft"],
 		["sea_aster", 214, "tuft"],
 	]:
-		out.append({"name": e[0], "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 50, "ignite_chance": 0.6, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [e[1], e[1], e[1]], "transparent": false, "micro": e[2], "replaceable": true})
+		var d := {"name": e[0], "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 50, "ignite_chance": 0.6, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [e[1], e[1], e[1]], "transparent": false, "micro": e[2], "replaceable": true}
+		if e[0] in FLORA_PIECES:   # cubes in a piece like a flower (FineGen flora_piece, PlantStamps.flora)
+			d.erase("micro")
+			d.erase("replaceable")
+			d["clutter"] = "flower"
+			d["floor_only"] = true
+		out.append(d)
 	return out
 
 

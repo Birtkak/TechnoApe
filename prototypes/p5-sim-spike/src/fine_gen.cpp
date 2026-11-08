@@ -431,6 +431,51 @@ static bool heather_clump(int wx, int wz, int seed, int chance, uint16_t &veg, i
     return true;
 }
 
+// The low biome flora as multi-voxel pieces (2026-11-08: "most decorative things need to be multi-voxel"), on the
+// heather lattice: one piece per 4 x 4 columns on its inner 3 x 3 (lx, lz 0..2), `ch` the cell's hash. Flowers stand a
+// head of bloom on a stem with petals round it (bluebells droop), cushions and berries are low domes, bromeliads and
+// aloes rosettes, cattails a stalk with one leaf. False: this column of the piece stays empty. PlantStamps.flora mirrors it.
+static bool is_flora_piece(uint16_t m) {
+    using M = WorldGen::Mat;
+    return m == M::DESERT_MARIGOLD || m == M::FIRE_LILY || m == M::BLUEBELL || m == M::SEA_ASTER || m == M::MOSS_CAMPION ||
+           m == M::LINGONBERRY || m == M::FROST_LICHEN || m == M::BROMELIAD || m == M::ALOE || m == M::CATTAIL;
+}
+
+static bool flora_piece(uint16_t m, int lx, int lz, uint32_t ch, int h0, int h1, uint16_t &veg, int &veg_h, uint16_t &veg_head) {
+    using M = WorldGen::Mat;
+    const int ax = std::abs(lx - 1), az = std::abs(lz - 1), d = ax + az;
+    const bool corner_off = d == 2 && ((ch >> (12 + lx + lz * 3)) & 1);
+    veg_head = M::AIR;
+    switch (m) {
+        case M::DESERT_MARIGOLD: case M::FIRE_LILY: case M::BLUEBELL: case M::SEA_ASTER: {
+            const int stem = 2 + (int)((ch >> 10) & 1) + (m == M::FIRE_LILY ? 1 : 0);
+            if (d == 2) return false;
+            if (d == 0) { veg = M::PLANT_STEM; veg_h = stem; veg_head = m; return true; }
+            veg = M::AIR; veg_h = m == M::BLUEBELL ? stem - 1 : stem; veg_head = m;   // a petal beside the head
+            return true;
+        }
+        case M::MOSS_CAMPION: case M::LINGONBERRY: case M::FROST_LICHEN:
+            if (corner_off) return false;
+            veg = m;
+            veg_h = m == M::FROST_LICHEN ? 1 : (d == 0 ? 2 : 1 + (int)(m == M::LINGONBERRY && d == 1 && ((ch >> (21 + lx + lz)) & 1)));
+            return true;
+        case M::BROMELIAD: case M::ALOE:
+            if (corner_off) return false;
+            veg = m; veg_h = std::max(1, (m == M::ALOE ? 3 : 2) - d);
+            return true;
+        case M::CATTAIL: {
+            const int hgt = h0 + (int)((ch >> 10) % (uint32_t)(h1 - h0 + 1));
+            if (d == 0) { veg = m; veg_h = hgt; return true; }
+            static const int LEAF[4][2] = {{0, 1}, {2, 1}, {1, 0}, {1, 2}};
+            const int k = (int)((ch >> 13) & 3);
+            if (lx != LEAF[k][0] || lz != LEAF[k][1]) return false;
+            veg = M::PLANT_STEM; veg_h = std::max(1, hgt - 2);
+            return true;
+        }
+        default: return false;
+    }
+}
+
 // Moorland plants on open highland grass: heather carpets over most of it, coarse grass tufts between, bracken in
 // patches on the lower slopes, sphagnum moss and cotton-grass tufts on the peat.
 void FineGen::highland_plant(const WorldGen::Column &col, float slope, int wx, int wz, uint32_t fh, uint16_t &veg, int &veg_h, uint16_t &veg_head) const {
@@ -2377,7 +2422,8 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
             }
             // each biome's own flora where the grass left the ground bare (FLORA): dune grass on beaches, sedge through
             // the tundra's snow, sagebrush, marigolds, campion, lilies, berries ..., in patches of n_meadow_
-            if (!buried && !ruin && spike == 0 && do_veg && !pickup && hy.fall_top < 0 && veg == Mat::AIR && veg_head == Mat::AIR && h > sea + FS && top_m != Mat::ICE) {
+            const bool grass_veg = veg == Mat::TALL_GRASS || veg == Mat::SAVANNA_TALL_GRASS || veg == Mat::DUNE_GRASS || veg == Mat::TUNDRA_SEDGE;
+            if (!buried && !ruin && spike == 0 && do_veg && !pickup && hy.fall_top < 0 && (veg == Mat::AIR || grass_veg) && veg_head == Mat::AIR && h > sea + FS && top_m != Mat::ICE) {
                 struct Flora { int biome; uint16_t mat; float base, k, lo; int h0, h1; };
                 static const Flora FLORA[] = {
                     {technosim_biome::BEACH, Mat::DUNE_GRASS, 0.050f, 0.350f, 0.000f, 1, 4},
@@ -2412,19 +2458,32 @@ PackedByteArray FineGen::generate_block_impl(Vector3i origin, Vector3i size, int
                     const uint32_t fh = h3(wx, wz, g.seed_ + 37);
                     const float mead = n_meadow_.GetNoise((float)wx, (float)wz);
                     // a biome with two kinds rolls each on its own bits of the hash
-                    for (; f < end && f->biome == col.biome; f++)
-                        if ((float)((fh >> (f->mat & 7)) & 1023) / 1024.0f < std::max(f->lo, f->base + f->k * mead)) {
+                    for (; f < end && f->biome == col.biome; f++) {
+                        if (is_flora_piece(f->mat)) {
+                            // the piece's cell decides at its middle column, so all of its columns agree
+                            const int cx = floor_div(wx, 4), cz = floor_div(wz, 4), lx = wx - cx * 4, lz = wz - cz * 4;
+                            if (lx == 3 || lz == 3) continue;
+                            const uint32_t ph = h3(cx * 4 + 1, cz * 4 + 1, g.seed_ + 37);
+                            const float pm = n_meadow_.GetNoise((float)(cx * 4 + 1), (float)(cz * 4 + 1));
+                            if ((float)((ph >> (f->mat & 7)) & 1023) / 1024.0f < std::min(0.9f, 3.0f * std::max(f->lo, f->base + f->k * pm))) {
+                                flora_piece(f->mat, lx, lz, h3(cx, cz, g.seed_ + 6173), f->h0, f->h1, veg, veg_h, veg_head);
+                                break;
+                            }
+                            continue;
+                        }
+                        if (veg == Mat::AIR && (float)((fh >> (f->mat & 7)) & 1023) / 1024.0f < std::max(f->lo, f->base + f->k * mead)) {
                             veg = f->mat;
                             veg_h = f->h0 + (int)((fh >> 16) % (uint32_t)(f->h1 - f->h0 + 1));
                             break;
                         }
+                    }
                 }
             }
             if (ncs > 0 || nct > 0) {
                 // a plant under a trunk, root, boulder or log is gone
                 float ln = 2.0f;
-                for (int k = 0; k < nct && veg != Mat::AIR; k++) if (tree_voxel(ctrees[k], (float)wx, h, (float)wz, 0.0f, ln) != Mat::AIR) veg = veg_head = Mat::AIR;
-                for (int k = 0; k < ncs && veg != Mat::AIR; k++) if (stamp_voxel(*cst[k], (float)wx, h, (float)wz, 0.0f) != Mat::AIR) veg = veg_head = Mat::AIR;
+                for (int k = 0; k < nct && (veg != Mat::AIR || veg_head != Mat::AIR); k++) if (tree_voxel(ctrees[k], (float)wx, h, (float)wz, 0.0f, ln) != Mat::AIR) veg = veg_head = Mat::AIR;
+                for (int k = 0; k < ncs && (veg != Mat::AIR || veg_head != Mat::AIR); k++) if (stamp_voxel(*cst[k], (float)wx, h, (float)wz, 0.0f) != Mat::AIR) veg = veg_head = Mat::AIR;
             }
             // fallen sticks lie on this column's ground, on a strip the grass and ferns keep clear of
             if (!buried && do_veg && ncs > 0 && !pickup && h > water_level && hy.fall_top < 0) {
