@@ -47,6 +47,7 @@ func register(p_reg: CommandRegistry, p_player: Player, p_main_of := Callable())
 	reg.register("scenario", "/scenario <%s>" % "|".join(SCENARIOS.keys()), "Jump into a playtest set-up from the to-test list", _scenario, [SCENARIOS.keys()])
 	reg.register("blocks", "/blocks [kind]", "Each block entity's state, one line each (watts, amps, made, output); kind filters by name", _blocks)
 	reg.register("machinefx", "/machinefx [force|off|film [frames] [name]]", "Running-machine effects (ADR 0153): force runs every machine near for the look and the cost, off back to real work, film saves a burst to out/machine_fx; no argument shows the counts", _machinefx, [["force", "off", "film"]])
+	reg.register("monolith", "/monolith", "How many of the monolith's boxes have their centre cell in the terrain, of those loaded (tools/reload_proof.sh)", _monolith)
 	reg.register("count", "/count <material>", "Cells of a material in the sim bubble (steam left by a vent, gas pooled in a cave)", _count)
 	reg.register("whatsnew", "/whatsnew", "What landed lately, each one a click away (the F4 menu's top row); /tour walks them in order", _whatsnew)
 	reg.register("tour", "/tour [next|back|<n>|<id>]", "The next stop of the what's-new tour: what to look for, and it takes you there or hands you the kit", _tour,
@@ -173,6 +174,27 @@ func _machinefx(args: PackedStringArray) -> Dictionary:
 	if args.size() > 0:
 		main.machine_fx.force = args[0] == "force"
 	return CommandRegistry.ok("machine fx%s: %s" % [" (forced)" if main.machine_fx.force else "", JSON.stringify(main.machine_fx.stats)])
+
+
+func _monolith(_args: PackedStringArray) -> Dictionary:
+	var main: Node = main_of.call() if main_of.is_valid() else null
+	if main == null or main.world == null:
+		return CommandRegistry.fail("No world")
+	var whole := 0
+	var loaded := 0
+	var air := 0
+	var boxes: Array = Monolith.boxes(main.world, main._monolith_spawn)
+	for b in boxes:
+		var c: Vector3i = (b[0] + b[1] - Vector3i.ONE) / 2   # hi is exclusive (fill_box)
+		if not main.world.is_editable(c):
+			continue
+		loaded += 1
+		var m: int = main.world.get_voxel(c)
+		if m == b[2]:
+			whole += 1
+		elif m == GameMaterials.AIR:
+			air += 1   # missing; a centre another box overlaps holds that box's material instead
+	return CommandRegistry.ok("monolith: %d of %d loaded boxes in place, %d air (%d boxes)" % [whole, loaded, air, boxes.size()])
 
 
 func _count(args: PackedStringArray) -> Dictionary:

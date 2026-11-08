@@ -131,6 +131,7 @@ func _init(p_reg: CommandRegistry, p_player: Player, p_inv: PlayerInventory, p_m
 		_meteor, [["here", "near", "stats"]])
 	reg.register("support", "/support [stats|scan|probe|modes <all|survival>|on|off]", "Mine shoring (ADR 0142): what creaks and when it falls, scan the roof here, the aimed roof's load, which game modes cave in",
 		_support, [["stats", "scan", "probe", "modes", "on", "off"], ["all", "survival"]])
+	reg.register("voxel", "/voxel <x> <y> <z>", "What one voxel is in the terrain (drawn) and in the sim bubble; -1 = not loaded", _voxel)
 	reg.register("setblock", "/setblock <x> <y> <z> <material>", "Set one voxel; ~ is relative to you (~ ~-1 ~ is under your feet)",
 		_setblock, [["~"], ["~"], ["~"], _material_names])
 	reg.register("fill", "/fill <x1> <y1> <z1> <x2> <y2> <z2> <material>", "Fill a box (corners included, up to %d voxels) inside the sim bubble" % FILL_MAX,
@@ -332,6 +333,20 @@ func _run_when_loaded(cb: Callable, args: PackedStringArray) -> void:
 	var chat: Node = main.get("chat")
 	if chat != null:
 		chat.add_message(r["text"], ChatBox.FEEDBACK if r["ok"] else ChatBox.ERROR)
+
+
+## The reload proofs (tools/reload_proof.sh) read cells with this: built things must come back.
+func _voxel(args: PackedStringArray) -> Dictionary:
+	if main == null or player == null or args.size() != 3:
+		return CommandRegistry.fail("Usage: /voxel <x> <y> <z>")
+	var p: Variant = _coords(args, 0, player.position)
+	if p is Dictionary:
+		return p
+	var wp := Vector3i(p)
+	var t: int = main.world.get_voxel(wp)
+	var b: int = main.bubble.get_voxel(wp)
+	return CommandRegistry.ok("voxel %d,%d,%d terrain=%s bubble=%s" % [wp.x, wp.y, wp.z,
+		GameMaterials.name_of(t) if t > 0 else str(t), GameMaterials.name_of(b) if b > 0 else str(b)])
 
 
 func _setblock(args: PackedStringArray) -> Dictionary:
