@@ -51,6 +51,20 @@ static func can_update() -> bool:
 	return OS.has_feature("template") and not OS.get_cmdline_user_args().has("updated_from=" + version())
 
 
+## The updated build joined: the rollback copies (*.old) and the staging folder have done their job.
+static func clean_up() -> void:
+	if not OS.has_feature("template") or not Array(OS.get_cmdline_user_args()).any(func(x: String) -> bool: return x.begins_with("updated_from=")):
+		return
+	var dir := OS.get_executable_path().get_base_dir()
+	for n in DirAccess.get_files_at(dir):
+		if n.ends_with(".old"):
+			DirAccess.remove_absolute(dir.path_join(n))
+	var up := dir.path_join("update")
+	for n in DirAccess.get_files_at(up):
+		DirAccess.remove_absolute(up.path_join(n))
+	DirAccess.remove_absolute(up)
+
+
 ## Shows the update screen over `parent` and starts. `address` is the server (host[:port]). `quiet`: a
 ## startup check that shows nothing and frees itself when the build is current or the server is away.
 static func run(parent: Control, address: String, pname: String, quiet := false) -> ClientUpdate:
@@ -137,14 +151,20 @@ func _on_manifest(result: int, code: int, _h: PackedStringArray, body: PackedByt
 			_fail("the server's manifest names a bad file")
 			return
 		var local := _dir.path_join(e["name"])
-		if not FileAccess.file_exists(local) or FileAccess.get_sha256(local) != String(e["sha256"]):
+		var staged := _dir.path_join("update").path_join(e["name"])
+		if FileAccess.file_exists(local) and FileAccess.get_sha256(local) == String(e["sha256"]):
+			continue
+		if FileAccess.file_exists(staged) and FileAccess.get_sha256(staged) == String(e["sha256"]):
+			_ready_files.append(e["name"])   # an earlier, interrupted try already fetched it
+		else:
 			_todo.append(e)
 			_total += int(e["size"])
-	if _todo.is_empty():
+	if _todo.is_empty() and _ready_files.is_empty():
 		_fail("the server runs build %s but its files match this one" % m.get("version", "?"))
 		return
 	visible = true
-	_sub.text = "Build %s  →  %s  ·  %d file%s" % [_from, m.get("version", "?"), _todo.size(), "" if _todo.size() == 1 else "s"]
+	_sub.text = "Build %s  →  %s  ·  %d file%s" % [_from, m.get("version", "?"), _todo.size() + _ready_files.size(),
+		"" if _todo.size() + _ready_files.size() == 1 else "s"]
 	_t0 = Time.get_ticks_msec()
 	DirAccess.make_dir_recursive_absolute(_dir.path_join("update"))
 	_next()
@@ -203,7 +223,7 @@ func _swap() -> void:
 	var args := PackedStringArray(["--headless"] if DisplayServer.get_name() == "headless" else [])   # get_cmdline_args() is empty in an export
 	args.append("--")
 	args.append_array(keep)
-	print(JSON.stringify({"update": "installed", "files": moved, "restart": args}))
+	print(JSON.stringify({"update": "installed", "files": moved, "downloaded_bytes": _done, "restart": args}))
 	OS.create_process(OS.get_executable_path(), args)
 	finished.emit(true, "")
 	get_tree().quit()   # at once: res:// now reads the new .pck at the old one's offsets
