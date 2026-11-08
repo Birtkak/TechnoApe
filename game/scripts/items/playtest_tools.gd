@@ -380,7 +380,7 @@ func _sounding(from: Vector3, sneaking: bool) -> bool:
 	var p := Vector3i(from.floor())
 	var near: Dictionary = gen.conduit_near(p.x, p.y, p.z)
 	var d := float(near.get("dist_m", 1e9))
-	Sound.play("hit/stone", from, {"db": -12.0})
+	Sound.play_material("hit", GameMaterials.STONE, p, {"db": -12.0})   # the tap ("hit/stone" is an asset, not a sound: it was silent)
 	if d > SOUNDING_RANGE_M:
 		if sneaking:
 			main.chat.add_message("Sounding rod: nothing within %d m" % int(SOUNDING_RANGE_M))
