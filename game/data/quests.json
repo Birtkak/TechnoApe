@@ -731,6 +731,89 @@
             }
           ],
           "optional": true
+        },
+        {
+          "id": "climbing_rope",
+          "title": "Climbing Rope",
+          "icon": "climbing_rope",
+          "pos": [
+            2,
+            5
+          ],
+          "deps": [
+            "lashing"
+          ],
+          "description": "Four cordage on a stick: right click a cliff edge, wall or ceiling and it hangs to the ground; walk into it to climb.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "climbing_rope"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "traps",
+          "title": "Snares and Pits",
+          "icon": "snare",
+          "pos": [
+            1.5,
+            3
+          ],
+          "deps": [
+            "lashing"
+          ],
+          "description": "A cordage noose on a stick catches small animals that walk into it. Sticks and fibre cover a 1 m pit: bigger animals fall through. Mind your own ankles.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "snare",
+                "pit_cover"
+              ]
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "notes",
+          "title": "Notes",
+          "icon": "note",
+          "pos": [
+            7,
+            2
+          ],
+          "deps": [
+            "sign"
+          ],
+          "description": "Two birch bark make paper; paper and charcoal make a note you can write and hand to someone.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "note"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "trading_post",
+          "title": "Trading Post",
+          "icon": "trading_post",
+          "pos": [
+            7,
+            1
+          ],
+          "deps": [
+            "sign"
+          ],
+          "description": "Planks, a sign and a chest: a stall you own. Set four offers and stock it; anyone can trade, only you open the stock.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "trading_post"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -988,6 +1071,26 @@
               "item": "fishing_net"
             }
           ]
+        },
+        {
+          "id": "smokehouse",
+          "title": "The Smokehouse",
+          "icon": "smokehouse",
+          "pos": [
+            2,
+            4
+          ],
+          "deps": [
+            "smoking"
+          ],
+          "description": "Four logs, sticks and cordage make a log box with twelve hooks. With a lit firepit beside it, meat and fish smoke in two thirds of a rack's time.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "smokehouse"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -1609,6 +1712,46 @@
             }
           ],
           "optional": true
+        },
+        {
+          "id": "salt_pan",
+          "title": "Salt Pan",
+          "icon": "salt_pan",
+          "pos": [
+            1,
+            4
+          ],
+          "deps": [
+            "clay"
+          ],
+          "description": "Four clay balls make a tray: pour in a pot of brine and the sun leaves salt, no fire needed.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "salt_pan"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "glider",
+          "title": "Glider",
+          "icon": "glider",
+          "pos": [
+            4,
+            5
+          ],
+          "deps": [
+            "weaving"
+          ],
+          "description": "Three linen cloth (or leather) on a frame of sticks: jump off a height and jump again while falling to open it; it glides where you look.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "glider"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -1947,6 +2090,69 @@
               "item": "bearskin_cap"
             }
           ]
+        },
+        {
+          "id": "fuse_cord",
+          "title": "Fuse Cord",
+          "icon": "fuse_cord",
+          "pos": [
+            1,
+            0
+          ],
+          "deps": [
+            "charcoal_pit"
+          ],
+          "description": "Cordage, sulfur and charcoal: lay it as a line on the ground and light one end; the flame runs along it and lights the TNT it reaches.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "fuse_cord"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "cloth_mask",
+          "title": "Cloth Mask",
+          "icon": "cloth_mask",
+          "pos": [
+            1,
+            1
+          ],
+          "deps": [
+            "charcoal_pit"
+          ],
+          "description": "Fibre and wool round a charcoal filter: no coughing in smoke or toxic gas. Worn in the face slot, under a helmet.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "cloth_mask"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "blueprint",
+          "title": "Blueprints",
+          "icon": "blueprint",
+          "pos": [
+            0,
+            1
+          ],
+          "deps": [
+            "charcoal_pit"
+          ],
+          "description": "A scraped hide and charcoal: right click marks a box to copy, and the copy is a written blueprint. Later a builder raises the copy from a chest.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "blueprint",
+                "written_blueprint"
+              ]
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -2469,6 +2675,46 @@
             {
               "type": "item",
               "item": "iron_spear"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "grappling_hook",
+          "title": "Grappling Hook",
+          "icon": "grappling_hook",
+          "pos": [
+            4,
+            1
+          ],
+          "deps": [
+            "wrought_iron"
+          ],
+          "description": "An iron hook on a climbing rope: right click fires it, it catches on rock and wood; hold right click to reel in, let go to swing.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "grappling_hook"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "lightning_rod",
+          "title": "Lightning Rod",
+          "icon": "lightning_rod",
+          "pos": [
+            4,
+            3
+          ],
+          "deps": [
+            "wrought_iron"
+          ],
+          "description": "A 2 m iron pole with a copper tip. Set it on your highest roof: it draws every strike within 24 m and grounds it.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "lightning_rod"
             }
           ],
           "optional": true
@@ -3027,6 +3273,26 @@
             }
           ],
           "optional": true
+        },
+        {
+          "id": "safety_lamp",
+          "title": "Safety Lamp",
+          "icon": "safety_lamp",
+          "pos": [
+            5,
+            0
+          ],
+          "deps": [
+            "plate_stock"
+          ],
+          "description": "A torch behind glass in an iron cage. Held, its flame flares and turns blue in firedamp and never lights it: the warning before a coal seam flashes.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "safety_lamp"
+            }
+          ],
+          "optional": true
         }
       ]
     },
@@ -3423,6 +3689,91 @@
             {
               "type": "item",
               "item": "breaker"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "vent_fan",
+          "title": "Vent Fan",
+          "icon": "vent_fan",
+          "pos": [
+            4,
+            2
+          ],
+          "deps": [
+            "electric_motor"
+          ],
+          "description": "On 100 W it pushes the gas in a 4 m duct ahead of it: drive firedamp out of a gallery before it finds a flame.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "vent_fan"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "large_water_wheel",
+          "title": "Large Water Wheel",
+          "icon": "large_water_wheel",
+          "pos": [
+            4,
+            4
+          ],
+          "deps": [
+            "electric_motor"
+          ],
+          "description": "A 2 m wheel on a bigger dynamo: set it over a 2 x 2 m slab of running water, up to about 2 kW on a good river.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "large_water_wheel"
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "contraptions",
+          "title": "Moving Contraptions",
+          "icon": "lift_winch",
+          "pos": [
+            5,
+            5
+          ],
+          "deps": [
+            "electric_motor"
+          ],
+          "description": "A lift winch raises the platform beside it, a drawbridge hinge swings a span up, a crane swings its jib: build the moving part, the machine moves it.",
+          "tasks": [
+            {
+              "type": "item",
+              "items": [
+                "lift_winch",
+                "drawbridge_hinge",
+                "crane"
+              ]
+            }
+          ],
+          "optional": true
+        },
+        {
+          "id": "builder",
+          "title": "The Builder",
+          "icon": "builder",
+          "pos": [
+            3,
+            1
+          ],
+          "deps": [
+            "primitive_circuit",
+            "electric_motor"
+          ],
+          "description": "Set it by a chest inside a marked blueprint site and turn a hand crank: it builds the copy from the chest, 48 voxels a second.",
+          "tasks": [
+            {
+              "type": "item",
+              "item": "builder"
             }
           ],
           "optional": true

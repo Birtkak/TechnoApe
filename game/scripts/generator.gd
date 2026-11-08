@@ -38,6 +38,19 @@ func column_info(wx: int, wz: int) -> Dictionary:
 	return gen.column_info(wx, wz)
 
 
+## Spiral out from the origin for dry, flat-ish land (plains or forest).
+func find_spawn() -> Vector2i:
+	for r in range(0, 2048, 32):
+		for a in range(0, 360, 30):
+			var x := int(r * cos(deg_to_rad(a)))
+			var z := int(r * sin(deg_to_rad(a)))
+			var info: Dictionary = column_info(x, z)
+			var b: int = info["biome"]
+			if (b == WorldGen.BIOME_PLAINS or b == WorldGen.BIOME_FOREST) and int(info["height"]) > Settings.SEA_LEVEL_VOXEL + 4 and float(info["river"]) < 0.05:
+				return Vector2i(x, z)
+	return Vector2i.ZERO
+
+
 func _get_used_channels_mask() -> int:
 	return 1 << VoxelBuffer.CHANNEL_TYPE
 

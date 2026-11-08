@@ -163,7 +163,7 @@ func _ready() -> void:
 	player = Player.new()
 	player.name = "Player"
 	player.world = world
-	var spawn := _find_spawn()
+	var spawn := world.generator.find_spawn()
 	var h := world.surface_height(spawn.x, spawn.y)
 	player.position = Vector3(spawn.x + 0.5, h + 3, spawn.y + 0.5)
 	_spawn_pos = player.position
@@ -726,20 +726,6 @@ func _ready() -> void:
 		if game_hud:
 			game_hud.show_toast("%s: %d use%s left" % [items.display_name(id), left, "" if left == 1 else "s"]))
 	Sound.attach(self)   # it listens to the player, particles, pieces and mobs (ADR 0044)
-
-
-## Spiral out from the origin for dry, flat-ish land (plains or forest).
-func _find_spawn() -> Vector2i:
-	var gen := world.generator
-	for r in range(0, 2048, 32):
-		for a in range(0, 360, 30):
-			var x := int(r * cos(deg_to_rad(a)))
-			var z := int(r * sin(deg_to_rad(a)))
-			var info: Dictionary = gen.column_info(x, z)
-			var b: int = info["biome"]
-			if (b == WorldGen.BIOME_PLAINS or b == WorldGen.BIOME_FOREST) and int(info["height"]) > Settings.SEA_LEVEL_VOXEL + 4 and float(info["river"]) < 0.05:
-				return Vector2i(x, z)
-	return Vector2i.ZERO
 
 
 ## The Gelvin monolith (ADR 0098, Monolith): up to 48 of its boxes per frame, round robin; a box whose

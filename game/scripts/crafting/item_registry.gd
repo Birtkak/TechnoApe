@@ -35,7 +35,8 @@ func load_json(text: String) -> bool:
 		if not _validate(d):
 			continue
 		items[d["id"]] = d
-		if d.has("material") and not d.has("empties_to") and GameMaterials.is_plain_voxel(GameMaterials.id_of(String(d["material"]))):
+		# the dedicated server runs without the voxel extension, so GameMaterials does not compile there (its ledger needs no units)
+		if d.has("material") and not d.has("empties_to") and ClassDB.class_exists("VoxelBlockyLibrary") and GameMaterials.is_plain_voxel(GameMaterials.id_of(String(d["material"]))):
 			_units[d["id"]] = Settings.BLOCK * Settings.BLOCK * Settings.BLOCK
 		for t in d.get("tags", []):
 			if not _by_tag.has(t):

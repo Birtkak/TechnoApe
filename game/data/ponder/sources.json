@@ -2,6 +2,7 @@
  "title": "Small sources: wheel, wind, crank",
  "items": [
   "water_wheel",
+  "large_water_wheel",
   "wind_turbine",
   "hand_crank"
  ],
@@ -55,6 +56,57 @@
       2,
       1,
       2
+     ],
+     "ok": true
+    }
+   ]
+  },
+  {
+   "text": "The large water wheel is the same idea at 2 m: it wants a 2 x 2 m slab of running water under it and drives a bigger dynamo, up to about 2 kW on a good river, enough for a furnace.",
+   "blocks": [
+    {
+     "material": "water_static",
+     "at": [
+      0,
+      -1,
+      0
+     ],
+     "size": [
+      4,
+      1,
+      4
+     ]
+    }
+   ],
+   "place": [
+    {
+     "kind": "large_water_wheel",
+     "at": [
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "kind": "cable",
+     "at": [
+      4,
+      0,
+      1
+     ]
+    }
+   ],
+   "mark": [
+    {
+     "at": [
+      0,
+      -1,
+      0
+     ],
+     "size": [
+      4,
+      1,
+      4
      ],
      "ok": true
     }

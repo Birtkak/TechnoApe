@@ -17,7 +17,8 @@
   "electrolyzer",
   "scrubber",
   "meter_panel",
-  "multimeter"
+  "multimeter",
+  "vent_fan"
  ],
  "steps": [
   {

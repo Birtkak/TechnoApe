@@ -1,0 +1,135 @@
+{
+ "title": "Moving contraptions: lift, drawbridge, crane, builder",
+ "items": [
+  "lift_winch",
+  "drawbridge_hinge",
+  "crane",
+  "builder"
+ ],
+ "steps": [
+  {
+   "text": "A lift winch lifts the platform built beside it (one material, up to 3 m out) until it meets something. Right click flips its lever; it moves on 40 W from a cable.",
+   "blocks": [
+    {
+     "material": "planks",
+     "at": [
+      1,
+      0,
+      0
+     ],
+     "size": [
+      2,
+      1,
+      2
+     ]
+    }
+   ],
+   "place": [
+    {
+     "kind": "lift_winch",
+     "at": [
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "kind": "cable",
+     "at": [
+      -1,
+      0,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "text": "A drawbridge hinge swings the span built in front of it (one material, up to 6 m out) up 90 degrees and back down.",
+   "remove": [
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     -1,
+     0,
+     0
+    ]
+   ],
+   "blocks": [
+    {
+     "material": "planks",
+     "at": [
+      1,
+      0,
+      0
+     ],
+     "size": [
+      6,
+      1,
+      2
+     ]
+    }
+   ],
+   "place": [
+    {
+     "kind": "drawbridge_hinge",
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "text": "A crane swings the jib built on top of it a quarter turn; its hook lifts the wood under the jib's tip and sets it down at the other end.",
+   "remove": [
+    [
+     0,
+     0,
+     0
+    ]
+   ],
+   "place": [
+    {
+     "kind": "crane",
+     "at": [
+      0,
+      0,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "text": "A builder builds the marked blueprint site in reach from the chest beside it, 48 voxels a second, while a hand crank turns it.",
+   "remove": [
+    [
+     0,
+     0,
+     0
+    ]
+   ],
+   "place": [
+    {
+     "kind": "builder",
+     "at": [
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "kind": "hand_crank",
+     "at": [
+      -1,
+      0,
+      0
+     ]
+    }
+   ]
+  }
+ ]
+}
