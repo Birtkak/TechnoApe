@@ -1810,6 +1810,18 @@ func _debug_browser() -> void:
 				inv_screen.player_inv.craft.grid.set_slot(i, {"id": p[0], "count": int(p[1])})
 		inv_screen.player_inv.changed.emit()
 		print("debug craft_grid hint=%s out=%s" % [inv_screen.player_inv.craft.hint(), inv_screen.player_inv.craft.preview_output()])
+	if args.has("machine_screen"):   # machine_screen=<kind>: its screen (ADR 0168) half loaded, for a capture
+		var m := MachineEntity.new(items, recipes, Vector3i.ZERO, args["machine_screen"])
+		for r in Ponder.process_recipes(m.kind).slice(0, 1):
+			for spec in MachineEntity.needs_of(recipes.recipes[r], items):
+				var id := String(spec)
+				if id.begins_with("#"):
+					id = String(items.items_with_tag(id.trim_prefix("#"))[0])
+				m.inv.add(id, MachineEntity.needs_of(recipes.recipes[r], items)[spec] * 4)
+		m.progress = m.total / 2
+		inv_screen.close()
+		inv_screen.open_container(MachineScreen.new(m))
+		print("debug machine_screen %s %s" % [m.kind, MachineScreen.new(m).status()])
 	if args.has("search"):
 		inv_screen.browser_view._search.text = args["search"]
 		inv_screen.browser_view._search.text_changed.emit(args["search"])

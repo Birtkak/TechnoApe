@@ -129,14 +129,14 @@ func test_window_slot_is_cleared_when_reused() -> void:
 	assert_float(s._layers[3].get_pixel(3, 3).a).is_greater(0.9)
 
 
-func test_bleeding_spills_about_twenty_blood_cells() -> void:
+func test_bleeding_spills_about_eight_blood_cells() -> void:
 	var w := _sim()
 	var s := _stains(_bubble(w))
 	var mats: Array[ShaderMaterial] = []
 	s.setup(null, s.bubble, mats)
 	var feet := Vector3(32, 4, 32)
 	var placed := s.bleed(feet, 1)
-	assert_int(placed).is_equal(20)
+	assert_int(placed).is_equal(8)   # 6 + 2 per hp lost (bug report 2026-11-08_15-57-27: less blood)
 	var blood := 0
 	for x in range(26, 39):
 		for z in range(26, 39):

@@ -1033,6 +1033,11 @@ func _use(hit: VoxelRaycastResult, first_press: bool, from: Vector3, dir: Vector
 		_give(res["give"], _at(p, Vector3(0.5, 1.0, 0.5)))
 		_say(res["msg"])
 		return true
+	if e is MachineEntity and not e is BuilderEntity and not sneaking and (e.intake_item == "" or String(main.player_inv.held().get("id", "")) != e.intake_item):
+		if first_press:   # ADR 0168: the machine's screen; sneak + right click still loads the held stack or takes the output
+			main.player.set_ui_open(true, false)
+			main.inv_screen.open_container(MachineScreen.new(e))
+		return true
 	if e is TankEntity or e is TurbineEntity or e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is BatteryBoxEntity or e is ElectricLampEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity or e is PowerSourceEntity or e is MeterPanelEntity or e is ContraptionEntity:   # ADR 0099, 0113, 0117, 0123, 0160
 		var res: Dictionary = e.use(main.player_inv.held() if (e is CompressorEntity or e is MachineEntity or e is ElectricFurnaceEntity or e is PumpEntity or e is CircuitEntity or e is CableEntity) else held)   # the compressor charges the held jetpack in place; the furnace loads a block's worth
 		if res["consume"] > 0 and _consumes():

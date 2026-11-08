@@ -1,6 +1,9 @@
 {
 	"_doc": "/whatsnew and /tour (ADR 0130): recent additions in tour order, first at home (interface, machines, power, the book), then out into the world biome by biome. Any lane adds an entry where it fits: id (one word, /tour <id>), title, what (one or two sentences: what to look for), run (command lines a click or /tour runs, in order; may be empty), date. test_whats_new.gd checks every line is a known command with real arguments and that every place is found. A travel stop starts with /spawn, so /goto searches (4 km, or the km after the place, up to 16) from where the test does (0, 0 on seed 1337), not from the last stop.",
 	"entries": [
+		{"id": "machinescreen", "title": "Machine screens, sizes and guides", "date": "2026-11-08",
+			"what": "LV machines are furnace sized and open a screen on right click: inputs left, a progress arrow, the output right, a power bar and what it is making (sneak + right click still loads the held stack). Hover a machine in the inventory and press P for its guide: power, IN, OUT and every recipe.",
+			"run": ["/kit lv"]},
 		{"id": "qol", "title": "Quality of life", "date": "2026-11-03",
 			"what": "F7 marks dark ground red (yellow: dark at night), hold Z to zoom, F1 hides the HUD, Alt + wheel swaps hotbar rows, middle click sorts, Craft in the recipe view. Home is set here: /home brings you back between stops.",
 			"run": ["/sethome", "/lightmap on"]},

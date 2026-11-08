@@ -48,6 +48,8 @@ static func for_placed(material: int, p: Vector3i) -> Dictionary:
 		return _shell(material, s)
 	if name == "heather":
 		return heather(material, s)
+	if name in GameMaterials.FLORA_PIECES:
+		return flora(name, material, s)
 	if name == "lightning_rod":   # ADR 0149: a 2 m pole over the placed foot
 		var out := {}
 		for y in range(1, ROD_H):
@@ -99,6 +101,50 @@ static func heather(bells: int, s: int) -> Dictionary:
 				h = 0
 			for y in h:
 				out[Vector3i(lx - 1, y, lz - 1)] = bells if y == h - 1 else stem
+	return out
+
+
+## A biome flora piece, as FineGen::flora_piece lays them over a 3 x 3 (offsets from the middle column):
+## flowers a head on a stem with petals round it, cushions and berries low domes, rosettes, a cattail stalk.
+static func flora(name: String, m: int, s: int) -> Dictionary:
+	var out := {}
+	var stem := GameMaterials.id_of("plant_stem")
+	for lz in 3:
+		for lx in 3:
+			var ax := absi(lx - 1)
+			var az := absi(lz - 1)
+			var d := ax + az
+			var o := Vector3i(lx - 1, 0, lz - 1)
+			var corner_off := d == 2 and (s >> (12 + lx + lz * 3)) & 1 == 1
+			match name:
+				"desert_marigold", "fire_lily", "bluebell", "sea_aster":
+					var h := 2 + ((s >> 10) & 1) + (1 if name == "fire_lily" else 0)
+					if d == 0:
+						for y in h:
+							out[o + Vector3i(0, y, 0)] = stem
+						out[o + Vector3i(0, h, 0)] = m
+					elif d == 1:
+						out[o + Vector3i(0, h - 1 if name == "bluebell" else h, 0)] = m
+				"moss_campion", "lingonberry", "frost_lichen":
+					if corner_off:
+						continue
+					var h := 1 if name == "frost_lichen" else (2 if d == 0 else 1 + int(name == "lingonberry" and d == 1 and (s >> (21 + lx + lz)) & 1 == 1))
+					for y in h:
+						out[o + Vector3i(0, y, 0)] = m
+				"bromeliad", "aloe", "sagebrush":
+					if corner_off:
+						continue
+					for y in maxi(1, (2 if name == "bromeliad" else 3) - d):
+						out[o + Vector3i(0, y, 0)] = m
+				"cattail":
+					var h := 3 + ((s >> 10) % 3)
+					var leaf: Vector2i = [Vector2i(0, 1), Vector2i(2, 1), Vector2i(1, 0), Vector2i(1, 2)][(s >> 13) & 3]
+					if d == 0:
+						for y in h:
+							out[o + Vector3i(0, y, 0)] = m
+					elif Vector2i(lx, lz) == leaf:
+						for y in maxi(1, h - 2):
+							out[o + Vector3i(0, y, 0)] = stem
 	return out
 
 

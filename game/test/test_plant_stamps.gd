@@ -172,3 +172,14 @@ func test_heather_and_seedlings_are_multi_voxel() -> void:
 	# emmer shares the wheat looks: it grows the wheat shape, not carrot leaves
 	var emmer := PlantStamps.crop("emmer", 7, GameMaterials.id_of("wheat_7"), Vector3i(2, 0, 4))
 	assert_bool(emmer.values().has(GameMaterials.id_of("carrots_0"))).is_false()
+
+
+## The low biome flora are pieces too, of more than one voxel, walked through and dug whole.
+func test_biome_flora_are_multi_voxel_pieces() -> void:
+	for name in GameMaterials.FLORA_PIECES:
+		var m := GameMaterials.id_of(name)
+		var piece := PlantStamps.for_placed(m, Vector3i(7, 0, 3))
+		assert_int(piece.size()).override_failure_message(name).is_greater(2)
+		assert_bool(piece.values().has(m)).override_failure_message(name).is_true()
+		assert_bool(GameMaterials.blocks_bodies(m)).override_failure_message(name).is_false()
+		assert_str(GroundPickups.group_of(m)).override_failure_message(name).is_equal("flower")

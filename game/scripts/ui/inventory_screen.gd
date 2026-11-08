@@ -296,6 +296,8 @@ func _clear_mode_slots() -> void:
 		browser_view.container_fill = Callable()
 	if _container:
 		_container.changed.disconnect(_refresh)
+		if _container.has_method("detach"):
+			_container.detach()   # a machine screen stops following its machine (ADR 0168)
 		_container = null
 
 
@@ -463,7 +465,7 @@ func _refresh() -> void:
 func _process(_delta: float) -> void:
 	if is_open:
 		_cursor_icon.position = _root.get_local_mouse_position() - Vector2(16, 16)
-		if _container and _container.kind in ["furnace", "firepit"]:
+		if _container and _container.kind in ["furnace", "firepit", "machine_screen"]:
 			_panel.queue_redraw()   # flame and arrow gauges move every tick
 		_update_tooltip()
 
@@ -578,7 +580,10 @@ static func item_facts(items: ItemRegistry, recipes: RecipeRegistry, id: String,
 	if def.has("attack_damage"):
 		text += "\nAttack %s" % str(def["attack_damage"])
 	text += power_facts(def)
-	if Ponder.for_item(id) != "":
+	var guide := Ponder.for_item(id)
+	if guide.begins_with(Ponder.MACHINE):   # ADR 0168: say what the machine guide and the placed machine offer
+		text += "\nGuide: power, what goes in and out  (P)\nPlaced: right click opens its screen"
+	elif guide != "":
 		text += "\nGuide: how it connects  (P)"
 	if recipes != null:
 		if not _facts_cache.has(id):
@@ -761,6 +766,8 @@ func _draw_panel() -> void:
 	if _container:
 		if _container.kind in ["furnace", "firepit"]:
 			_draw_furnace_gauges()
+		elif _container is MachineScreen:
+			_draw_machine_gauges()
 		return
 	# player "portrait" area like vanilla's model box
 	if player_inv and player_inv.craft.width == 2:
@@ -785,6 +792,25 @@ func _draw_furnace_gauges() -> void:
 	var prog: float = _container.progress()
 	if prog > 0.0:
 		_draw_arrow(Vector2(160, 70), 48.0 * prog, Color(1, 1, 1))
+
+
+## GregTech-style machine gauges (ADR 0168): the progress arrow between inputs and output, a power bar on
+## the right (the share of its watts it got), and a status line under the slots.
+func _draw_machine_gauges() -> void:
+	var m: MachineScreen = _container
+	_draw_arrow(Vector2(176, 70), 48.0, Color(0.5, 0.5, 0.5))
+	var prog := m.progress()
+	if prog > 0.0:
+		_draw_arrow(Vector2(176, 70), 48.0 * prog, Color(1, 1, 1))
+	var bar := Rect2(300, 34, 20, 90)
+	_panel.draw_rect(bar.grow(2), Color(0.2, 0.2, 0.2))
+	_panel.draw_rect(bar, Color(0.12, 0.12, 0.12))
+	var fill := bar.size.y * m.power()
+	if fill > 0.0:
+		_panel.draw_rect(Rect2(bar.position.x, bar.end.y - fill, bar.size.x, fill), Color(1.0, 0.82, 0.15))
+	var font := ThemeDB.fallback_font
+	_panel.draw_string(font, Vector2(292, 28), "POWER", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.25, 0.25, 0.25))
+	_panel.draw_string(font, Vector2(16, 134), m.status(), HORIZONTAL_ALIGNMENT_LEFT, 320, 13, Color(0.2, 0.2, 0.2))
 
 
 ## Arrow 48x34 at `o` (shaft 30 wide, head 18), drawn up to `w` px wide.

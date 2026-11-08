@@ -49,6 +49,8 @@ static func get_scene(id: String) -> Dictionary:
 
 ## The scene that teaches `item_id` (its `items` list), or "".
 static func for_item(item_id: String) -> String:
+	if scenes().has(item_id):
+		return item_id   # a scene named after the item wins (the coke oven's multiblock build)
 	if not machine_scene(item_id).is_empty():
 		return MACHINE + item_id
 	for id in scenes():
@@ -103,6 +105,11 @@ static func check(scene: Dictionary, items: ItemRegistry, recipes: RecipeRegistr
 		for b in s.get("blocks", []):
 			if GameMaterials.id_of(String(b.get("material", ""))) <= 0:
 				bad.append("step %d uses unknown material %s" % [i, String(b.get("material", ""))])
+			var bb := AABB(Vector3(PonderScreen._v(b.get("at", [0, 0, 0])) * Settings.BLOCK), Vector3(PonderScreen._v(b.get("size", [1, 1, 1])) * Settings.BLOCK))
+			for e in store.all_entities():   # a piece that grew (ADR 0168) must not sink into the scene's blocks
+				var w := BlockEntities.width_of(e.kind)
+				if bb.intersects(AABB(Vector3(e.pos), Vector3(w, BlockEntities.height_of(e.kind), w))):
+					bad.append("step %d puts %s blocks inside the %s" % [i, String(b.get("material", "")), e.kind])
 		for f in s.get("flow", []):
 			if not String(f.get("kind", "")) in FLOWS:
 				bad.append("step %d flows unknown kind %s" % [i, String(f.get("kind", ""))])
@@ -146,7 +153,7 @@ static func machine_scene(item_id: String) -> Dictionary:
 			"place": [{"kind": "hand_crank", "at": [2, 0, -3], "set": {"drive": 1.0}}, {"kind": "cable", "at": [2, 0, -2]}, {"kind": "cable", "at": [2, 0, -1]}],
 			"flow": [{"from": [2, 0, -3], "to": [2, 0, 0], "kind": "power", "label": "POWER %d W" % watts}], "seconds": 6})
 	var slots := (" (%d input slots: one per ingredient)" % inputs) if inputs > 1 else ""
-	steps.append({"text": "IN: right click it holding the input%s, or face a hopper into it. OUT: right click it with an empty hand, or set a hopper under it. The strip below lists what it makes." % slots,
+	steps.append({"text": "Right click opens its screen: inputs left, output right, power on the side. IN: put the input in%s, or face a hopper into it. OUT: take it from the screen, or set a hopper under it. The strip below lists what it makes." % slots,
 		"place": [{"kind": "hopper", "at": [1, 0, 0], "facing": 1}],   # on the side the stage camera faces
 		"flow": [{"from": [0, 0, 0], "to": [2, 0, 0], "kind": "items", "label": "IN"}, {"from": [2, 0, w - 1], "to": [2, 0, w + 2], "kind": "items", "label": "OUT"}], "seconds": 9})
 	return {"title": name + ": in, out, power", "items": [item_id], "recipes": rs, "steps": steps}

@@ -62,10 +62,16 @@ sends is shared, so a feature that works offline can still miss its hook. Gettin
    single-player and LAN. Only this step removes divergence between clients.
 Steps 2 and 3 are their own jobs and change the save format and the server image.
 
+**Faster delivery** (same day): Net processes after every other node (`process_priority` 1000), so a frame's
+edits leave in that frame; the ENet host is flushed at the end of each Net frame instead of at the next poll;
+the server runs at 240 fps (a frame is a poll; it was 60); each link waits 20 s (ENet's minimum was 5 s)
+before it drops a client that stalls while loading. Delay is measured when an event arrives, not after it
+has waited for Main to load. Bob's delay went from a 13.3 ms mean (25 ms max) to 8.0 ms (20 ms max).
+
 ## Consequences
 - The wire changed (block events, live ops, `ts`): `Net.PROTO` is 5.
 - What diverges now is only ticking state between two actions and the sim's spread: a fire spreads
   separately on each client, and what it burns is not journaled.
 - A world system that writes voxels from the seed (like the monolith) belongs in `add_world_ops`.
-- Two proofs on one machine need different ports (`bash tools/net_proof.sh <seed> <port>`). On the
+- Two proofs on one machine need different ports (the proof picks a random one; `bash tools/net_proof.sh <seed> <port>`). On the
   default port, another session's client joined this proof's server and its edits were lost.
