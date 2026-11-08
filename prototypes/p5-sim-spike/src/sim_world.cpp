@@ -755,11 +755,13 @@ void SimWorld::try_loosen(int x, int y, int z, int i, Ctx &c) {
     const MaterialDef &md = mats_[cells_[i].mat];
     if (md.loosen == 0 && md.erode == 0) return;
     const uint8_t self = cells_[i].mat;
-    const uint16_t prev = (uint16_t)(stamp_ - 1);
+    // changed this or the last tick, plus the ticks a deferred chunk catches up at once: a bank dug in a chunk the
+    // cell budget held back read stale and never slumped (as the reservoir's openings, bug report 2026-11-07 10-26-45)
+    auto recent = [&](uint16_t m) { return m != 0 && m < 0x8000u && (int)stamp_ - (int)m <= c.steps; };
     const bool shaken = (cells_[i].flags & FLAG_SHAKEN) != 0;
     // this cell was just placed or changed (an edit stamps it): a still powder set down over nothing
     // falls like Minecraft's sand (ADR 0073), while one set down on ground keeps its shape
-    const bool fresh_self = moved_[i] == stamp_ || moved_[i] == prev;
+    const bool fresh_self = recent(moved_[i]);
     auto open = [&](int nx, int ny, int nz) -> bool {
         if (!is_open(nx, ny, nz)) return false;
         const uint8_t t = cells_[idx(nx, ny, nz)].mat;
@@ -773,8 +775,7 @@ void SimWorld::try_loosen(int x, int y, int z, int i, Ctx &c) {
     auto trigger = [&](int nx, int ny, int nz) -> bool {
         if (!open(nx, ny, nz)) return false;
         if (shaken) return true;
-        uint16_t s = moved_[idx(nx, ny, nz)];
-        return s == stamp_ || s == prev;
+        return recent(moved_[idx(nx, ny, nz)]);
     };
     uint32_t r = rnd(c);
     bool hit = false, go = false;
