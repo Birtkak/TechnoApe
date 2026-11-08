@@ -121,7 +121,8 @@ func _process(delta: float) -> void:
 
 func _on_manifest(result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
-		_fail("the server has no client build to give (HTTP %d, result %d)" % [code, result])
+		_fail("The server did not answer. Is Tailscale connected and the server up?" if result != HTTPRequest.RESULT_SUCCESS
+			else "The server has no game build to hand out (HTTP %d)." % code)
 		return
 	var m: Variant = JSON.parse_string(body.get_string_from_utf8())
 	if not (m is Dictionary and m.get("files") is Array):
@@ -216,9 +217,18 @@ func _fail(message: String) -> void:
 	_title.text = "Update failed"
 	_label.text = message
 	_label.add_theme_color_override("font_color", UiStyle.ACCENT)
+	_sub.text = "Nothing was changed: this build still plays single-player."
+	_bar.visible = false
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	_label.get_parent().add_child(row)
+	row.add_child(UiStyle.button("Try again", func() -> void:
+		ClientUpdate.run(get_parent(), _address, _pname)
+		queue_free(), 200))
 	if Net.connect_arg == "":
-		var box: Node = _label.get_parent()
-		box.add_child(UiStyle.button("Back", queue_free, 160))
+		row.add_child(UiStyle.button("Back", queue_free, 120))
+	else:
+		row.add_child(UiStyle.button("Quit", get_tree().quit, 120))
 	set_process(false)
 	finished.emit(false, message)
 
