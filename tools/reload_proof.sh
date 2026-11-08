@@ -25,17 +25,18 @@ AWAY_S=$(( VIEW > 24 ? 30 : 12 ))   # a 72 m box of blocks takes longer than 12 
 AWAY="/tp ~2000 ~ ~;wait $AWAY_S;/voxel ~-1996 ~4 ~4;/count bricks;/monolith;/spawn;wait 16"
 BUILD="/gamemode creative;wait 4;/spawn;/fill ~3 ~3 ~3 ~5 ~5 ~5 bricks;/tp ~ ~ ~-960;wait 8;/stations factory;wait 3;/gamemode spectator;/spawn;wait 6"
 
-timeout $((140 + AWAY_S)) "$G" --headless --path . -- server=1 seed=$SEED port=$PORT duration=$((110 + AWAY_S)) > out/reload_server.log 2>&1 &
+# the server outlives the clients by a wide margin: their clock pauses in every loading cover (four far teleports at 72 m)
+timeout $((180 + AWAY_S * 2)) "$G" --headless --path . -- server=1 seed=$SEED port=$PORT duration=$((150 + AWAY_S * 2)) > out/reload_server.log 2>&1 &
 S=$!
 sleep 4
-timeout $((150 + AWAY_S)) "$G" --headless --path . -- connect=127.0.0.1:$PORT name=alice autopilot=1 duration=$((75 + AWAY_S)) seed=$SEED $COMMON \
+timeout $((170 + AWAY_S * 2)) "$G" --headless --path . -- connect=127.0.0.1:$PORT name=alice autopilot=1 duration=$((75 + AWAY_S)) seed=$SEED $COMMON \
   "later=$BUILD;$CHECK;$AWAY;$CHECK" out=res://out/reload_a > out/reload_a.log 2>&1 &
 A=$!
 sleep 2
-timeout $((150 + AWAY_S)) "$G" --headless --path . -- connect=127.0.0.1:$PORT name=bob autopilot=1 duration=$((75 + AWAY_S)) seed=$SEED $COMMON \
+timeout $((170 + AWAY_S * 2)) "$G" --headless --path . -- connect=127.0.0.1:$PORT name=bob autopilot=1 duration=$((75 + AWAY_S)) seed=$SEED $COMMON \
   "later=/gamemode spectator;wait 18;$CHECK;$AWAY;$CHECK" out=res://out/reload_b > out/reload_b.log 2>&1 &
 B=$!
-timeout $((150 + AWAY_S)) "$G" --headless --path . -- autopilot=1 duration=$((75 + AWAY_S)) seed=$SP_SEED persist=1 $COMMON \
+timeout $((170 + AWAY_S * 2)) "$G" --headless --path . -- autopilot=1 duration=$((75 + AWAY_S)) seed=$SP_SEED persist=1 $COMMON \
   "later=$BUILD;$CHECK;$AWAY;$CHECK" out=res://out/reload_sp > out/reload_sp.log 2>&1 &
 P=$!
 wait $A $B $P $S

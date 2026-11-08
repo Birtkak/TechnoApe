@@ -23,9 +23,21 @@ same set the single-player SQLite stream saves.
   ops the saving client had, which the snapshot bakes in. The newest `n` wins (`_keep_chunk`, 64 KB at most).
   Saved as `net_<seed>_g<gen>.chunks` (zstd `store_var`) next to the journal. The server needs no voxel
   code: it keeps bytes.
-- **The client's terrain stream is the server's copy.** `NetStream` (`scripts/net/net_stream.gd`, a
-  `VoxelStreamScript`) mirrors the store: a joining player gets every chunk before the journal, later
-  snapshots arrive live, and `VoxelLodTerrain` asks it before generating a block.
+- **The client mirrors the store and lays it over the generator.** `NetStream` (`scripts/net/net_stream.gd`)
+  holds the chunks a joining player gets before the journal and the snapshots that arrive live;
+  `TerrainGenerator._generate_block` copies them over its output (`overlay`, on godot_voxel's worker threads,
+  any block size or alignment). The terrain has no stream: with any `VoxelStream` set, our godot_voxel build
+  queues one serial I/O task per block before generating unless the stream answers `may_have_block`
+  (`voxel_patch_stream.py`, only the SQLite stream does), and a windowed client loaded nothing for 20 s with
+  a `VoxelStreamScript` or a `VoxelStreamMemory` there (headless runs were fine, which hid it until the
+  net proof's windowed client).
+- **Sky blocks and the bubble.** Blocks over a column's ground bound are set as air without a generation task
+  (ADR 0108, `voxel_patch_sky.py`), so the overlay never sees them: the monolith's upper blocks came back as
+  air after a trip (337 -> 272 boxes in a solo run). The shell's bound now comes from `NetStream.ground_range`,
+  the generator's range raised to the top of what the mirror holds in that column, and `SimBubble` pastes the
+  mirror's chunks the terrain does not show yet before it reads a column (`Net.paste_mirror`, an 8 KB compare
+  per chunk, a paste only where they differ). The terrain memoises the bound per column, so a chunk that
+  arrives live above it is pasted on arrival and lost again if that block unloads and reloads in the session.
 - **The sim is the only source of snapshots.** The terrain's own save (`_save_voxel_block`) is ignored: a
   terrain block can unload before the bubble's budgeted pushes reached it, and a snapshot of it would claim
   ops it does not hold. Instead `SimBubble` serializes a chunk from its own cells (`_snapshot`,
@@ -39,7 +51,10 @@ same set the single-player SQLite stream saves.
   that column has no snapshot or one older than the op. World ops (the monolith) are baked into any snapshot
   of their chunk. (The first cut compared against -1 for "no snapshot" and skipped every world op: the
   monolith went from 321 boxes to 5 before the proof caught it.)
-- The wire changed (`_c_chunks`, the chunk event): `Net.PROTO` is 7.
+- **A quit drains the link.** The chunk snapshots a quit sends fill ENet's reliable window and the player save
+  queued behind them was lost when the process ended. `Net.drain` sends an ack request after the save and polls
+  until the server's answer arrives (3 s at most): ordered delivery means everything before it landed.
+- The wire changed (`_c_chunks`, the chunk event, the ack): `Net.PROTO` is 7.
 
 `bash tools/reload_proof.sh` (24 m view) and `VIEW=72 bash tools/reload_proof.sh` (the default view) prove it:
 both clients fly 250 m away and back and must find the bricks box, the monolith boxes (none lost) and the

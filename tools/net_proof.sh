@@ -63,13 +63,16 @@ if w=="a": ok=ok and n.get("items_sent",0)>=2 and n.get("picks_got",0)>=1 and n.
 if w=="b": ok=ok and n.get("live_ok",0)>=1 and n.get("blocks_recv",0)>=3 and d.get("weather",{}).get("heard",0)>=1 and n.get("lat_n",0)>=1 and n["lat_ms_sum"]/n["lat_n"]<100
 if w=="b": ok=ok and n.get("items_recv",0)>=2 and n.get("picked_recv",0)>=1
 if w=="c": ok=ok and n.get("items_recv",0)>=1
-if w=="c": ok=n.get("ops_replayed",0)+n.get("verify_ok",0)>=1 and n.get("blocks_recv",0)>=1
+if w=="c": ok=n.get("ops_replayed",0)+n.get("verify_ok",0)+n.get("ops_skipped",0)>=1 and n.get("blocks_recv",0)>=1   # the late join replays the edits, or loads them in the chunks (ADR 0169)
 if w=="b": ok=ok and len(n.get("avatars",{}))>=1
 if w=="b":
   lk=n.get("looks",{}).get("alice",{}); av=list(n.get("avatars",{}).values())
-  near=bool(av) and ((av[0][0]-n["pos"][0])**2+(av[0][2]-n["pos"][2])**2)**0.5<12
+  near=any(((a[0]-n["pos"][0])**2+(a[2]-n["pos"][2])**2)**0.5<12 for a in av)   # bob teleported to alice: one avatar is next to him
   ok=ok and lk.get("held")=="iron_pickaxe" and "body" in lk.get("worn",[]) and lk.get("stained") and lk.get("colour")!=n.get("my_colour") and "alice" in n.get("map",[]) and near
-if w=="d": ok=ok and abs(n["pos"][0]-16.5)<1.0 and n.get("base_replayed",0)>=1
+if w=="d":
+  a=[json.loads(l) for l in open("out/net_a.log",encoding="utf-8",errors="replace") if l.startswith("{") and "\"net\":" in l][-1]["net"]["pos"]
+  ok=ok and abs(n["pos"][0]-a[0])<1.0 and abs(n["pos"][2]-a[2])<1.0   # the rejoin stands where alice quit (her save reached the server)
+if w=="d": ok=ok and n.get("base_replayed",0)+n.get("ops_skipped",0)>=1   # the rejoin builds the monolith from the world ops, or loads it from the chunks (ADR 0169)
 print(json.dumps({"who":w,"ok":ok,"net":{k:n[k] for k in ["ops_sent","ops_recv","ops_replayed","verify_ok","verify_bad","states_sent","states_recv","items_sent","items_recv","picks_sent","picks_got","picked_recv","batches_sent","sent_bytes","recv_bytes","sent_bytes_per_s","recv_bytes_per_s","seconds","journal","peers","live_sent","live_recv","live_ok","blocks_sent","blocks_recv","base_ops","base_replayed","lat_ms_max","lat_ms_sum","lat_n"] if k in n},"avatars":n.get("avatars",{}),"looks":n.get("looks"),"map":n.get("map"),"my_colour":n.get("my_colour"),"pos":n.get("pos"),"budget_ok":d.get("budget_ok")}))
 sys.exit(0 if ok else 1)' $who || fail=1
 done
