@@ -249,13 +249,15 @@ func look_lines() -> Array[String]:
 	if not current().is_empty():
 		out.append("%s: %d%% done" % [items.display_name(current()["output"]["id"]), roundi(progress_frac() * 100.0)])
 	if not output.is_empty():
-		out.append("Ready: %s x%d (empty hand takes it)" % [items.display_name(output["id"]), int(output["count"])])
+		out.append("Ready: %s x%d (right click opens it)" % [items.display_name(output["id"]), int(output["count"])])
 	if intake_material > 0:
 		out.append("%s: %.1f of %d buckets" % [GameMaterials.name_of(intake_material).replace("_", " ").capitalize(), float(intake) / Bucket.capacity(), Settings.waste_intake_buckets])
 	if Waste.blocked(waste):
 		out.append(Waste.status(waste))
 	if load != null:
 		out.append(("Running, " if powered() else "No power: ") + load.status())
+	if kind != "builder":
+		out.append("Right click: screen   Sneak + right click: load / take   P on its item: guide")   # ADR 0168
 	return out
 
 

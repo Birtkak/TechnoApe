@@ -271,7 +271,7 @@ func test_summary_is_serialisable() -> void:
 
 
 func test_only_physical_damage_bleeds() -> void:
-	for c in ["starvation", "hypothermia", "heatstroke", "poison", "smoke", "drowning"]:
+	for c in ["starvation", "hypothermia", "heatstroke", "poison", "smoke", "drowning", "lightning", "hot metal in bare hands"]:
 		assert_bool(PlayerInventory.bleeds(c)).override_failure_message(c).is_false()
-	for c in ["wolf attack", "explosion", "impact (fall 6 m)", "cave_in", "lightning"]:
+	for c in ["wolf attack", "explosion", "impact (fall 6 m)", "cave_in", "a bursting boiler"]:
 		assert_bool(PlayerInventory.bleeds(c)).override_failure_message(c).is_true()

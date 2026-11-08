@@ -1114,7 +1114,13 @@ func _pollute(args: PackedStringArray) -> Dictionary:
 	return CommandRegistry.ok("Laid " + preload("res://scripts/debug/pollute_scene.gd").lay(main, args[0] if args.size() > 0 else ""))
 
 
+## A player's command (ADR 0165): what it builds, its stations and chests too, reaches the other players.
+## Queued runs (_queue_until_loaded) come back through here, so they are recorded as well.
 func _stations(args: PackedStringArray) -> Dictionary:
+	return Net.record(_stations_now.bind(args))
+
+
+func _stations_now(args: PackedStringArray) -> Dictionary:
 	if main == null:
 		return CommandRegistry.fail("No world")
 	if args.size() > 0 and args[0] == "pollution":   # ADR 0141: a stream fouled beside a settling pond

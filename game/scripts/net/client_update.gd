@@ -51,6 +51,20 @@ static func can_update() -> bool:
 	return OS.has_feature("template") and not OS.get_cmdline_user_args().has("updated_from=" + version())
 
 
+## The updated build joined: the rollback copies (*.old) and the staging folder have done their job.
+static func clean_up() -> void:
+	if not OS.has_feature("template") or not Array(OS.get_cmdline_user_args()).any(func(x: String) -> bool: return x.begins_with("updated_from=")):
+		return
+	var dir := OS.get_executable_path().get_base_dir()
+	for n in DirAccess.get_files_at(dir):
+		if n.ends_with(".old"):
+			DirAccess.remove_absolute(dir.path_join(n))
+	var up := dir.path_join("update")
+	for n in DirAccess.get_files_at(up):
+		DirAccess.remove_absolute(up.path_join(n))
+	DirAccess.remove_absolute(up)
+
+
 ## Shows the update screen over `parent` and starts. `address` is the server (host[:port]). `quiet`: a
 ## startup check that shows nothing and frees itself when the build is current or the server is away.
 static func run(parent: Control, address: String, pname: String, quiet := false) -> ClientUpdate:
@@ -121,7 +135,8 @@ func _process(delta: float) -> void:
 
 func _on_manifest(result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
-		_fail("the server has no client build to give (HTTP %d, result %d)" % [code, result])
+		_fail("The server did not answer. Is Tailscale connected and the server up?" if result != HTTPRequest.RESULT_SUCCESS
+			else "The server has no game build to hand out (HTTP %d)." % code)
 		return
 	var m: Variant = JSON.parse_string(body.get_string_from_utf8())
 	if not (m is Dictionary and m.get("files") is Array):
@@ -136,14 +151,20 @@ func _on_manifest(result: int, code: int, _h: PackedStringArray, body: PackedByt
 			_fail("the server's manifest names a bad file")
 			return
 		var local := _dir.path_join(e["name"])
-		if not FileAccess.file_exists(local) or FileAccess.get_sha256(local) != String(e["sha256"]):
+		var staged := _dir.path_join("update").path_join(e["name"])
+		if FileAccess.file_exists(local) and FileAccess.get_sha256(local) == String(e["sha256"]):
+			continue
+		if FileAccess.file_exists(staged) and FileAccess.get_sha256(staged) == String(e["sha256"]):
+			_ready_files.append(e["name"])   # an earlier, interrupted try already fetched it
+		else:
 			_todo.append(e)
 			_total += int(e["size"])
-	if _todo.is_empty():
+	if _todo.is_empty() and _ready_files.is_empty():
 		_fail("the server runs build %s but its files match this one" % m.get("version", "?"))
 		return
 	visible = true
-	_sub.text = "Build %s  →  %s  ·  %d file%s" % [_from, m.get("version", "?"), _todo.size(), "" if _todo.size() == 1 else "s"]
+	_sub.text = "Build %s  →  %s  ·  %d file%s" % [_from, m.get("version", "?"), _todo.size() + _ready_files.size(),
+		"" if _todo.size() + _ready_files.size() == 1 else "s"]
 	_t0 = Time.get_ticks_msec()
 	DirAccess.make_dir_recursive_absolute(_dir.path_join("update"))
 	_next()
@@ -202,7 +223,7 @@ func _swap() -> void:
 	var args := PackedStringArray(["--headless"] if DisplayServer.get_name() == "headless" else [])   # get_cmdline_args() is empty in an export
 	args.append("--")
 	args.append_array(keep)
-	print(JSON.stringify({"update": "installed", "files": moved, "restart": args}))
+	print(JSON.stringify({"update": "installed", "files": moved, "downloaded_bytes": _done, "restart": args}))
 	OS.create_process(OS.get_executable_path(), args)
 	finished.emit(true, "")
 	get_tree().quit()   # at once: res:// now reads the new .pck at the old one's offsets
@@ -216,9 +237,18 @@ func _fail(message: String) -> void:
 	_title.text = "Update failed"
 	_label.text = message
 	_label.add_theme_color_override("font_color", UiStyle.ACCENT)
+	_sub.text = "Nothing was changed: this build still plays single-player."
+	_bar.visible = false
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	_label.get_parent().add_child(row)
+	row.add_child(UiStyle.button("Try again", func() -> void:
+		ClientUpdate.run(get_parent(), _address, _pname)
+		queue_free(), 200))
 	if Net.connect_arg == "":
-		var box: Node = _label.get_parent()
-		box.add_child(UiStyle.button("Back", queue_free, 160))
+		row.add_child(UiStyle.button("Back", queue_free, 120))
+	else:
+		row.add_child(UiStyle.button("Quit", get_tree().quit, 120))
 	set_process(false)
 	finished.emit(false, message)
 

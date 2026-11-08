@@ -16,6 +16,9 @@ frame times.
   hinge 1.5 m, the hand crank stays a small 0.5 m piece; `/contraptions` still lifts, raises and swings.
 - [ ] Hover an LV machine in the inventory and press **P** (or `/ponder alloy_smelter`): three steps (what it is, the
   power cable, IN and OUT with a hopper) and a strip of every recipe with item icons.
+- [ ] Right click an LV machine: its screen opens (inputs left, arrow, output right, power bar, status line); put
+  ingredients in, cable it to power and watch the arrow fill; shift-click moves ingredients in. Sneak + right click
+  still loads the held stack straight in.
 
 ## Underground hazards: firedamp, the vent fan, flooding springs (ADR 0148)
 

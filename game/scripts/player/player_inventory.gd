@@ -846,8 +846,9 @@ func close_screen() -> Array:
 var last_cause := ""   # what hurt last: the death screen names it (docs/design/lore.md)
 
 
-## Causes that hurt without wounding the body: no blood for these.
-const BODILESS_CAUSES := ["starvation", "hypothermia", "heatstroke", "poison", "smoke", "drowning"]
+## Causes that hurt without wounding the body: no blood for these. Burns sear rather than cut.
+const BODILESS_CAUSES := ["starvation", "hypothermia", "heatstroke", "poison", "smoke", "drowning",
+		"exposure (burning or toxic coat)", "hot metal in bare hands", "a white-hot meteorite", "lightning"]
 
 
 static func bleeds(cause: String) -> bool:

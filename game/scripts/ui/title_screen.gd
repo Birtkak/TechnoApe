@@ -270,6 +270,7 @@ func _join(address: String, pname: String) -> void:
 		Settings.world_name = _join_label if _join_label != "" else address
 		Settings.game_mode = Net.game_mode
 		Settings.persist_world = false   # the server holds the save
+		ClientUpdate.clean_up()
 		_enter_game.call_deferred(), CONNECT_ONE_SHOT)
 	Net.failed.connect(func(reason: String) -> void:
 		print("net: join failed: " + reason)
