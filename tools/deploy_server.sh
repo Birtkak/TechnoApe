@@ -35,4 +35,6 @@ ssh -o BatchMode=yes "root@$BOX" "cd $APP/src && docker build -q -f deploy/Docke
   && docker rm -f technoape-server >/dev/null 2>&1; docker run -d --name technoape-server --network host --restart unless-stopped \
   -e SEED=$SEED -e PORT=$PORT -e GAMEMODE=$GAMEMODE -e SERVER_NAME=$NAME -v $APP/data:/data technoape-server:latest >/dev/null \
   && sleep 5 && docker logs technoape-server 2>&1 | grep net_server"
+if [ "$CLIENT" = 1 ]; then echo "shipped client build $VER ($(ls build/client | grep -vc version.txt) files, $(du -sh build/client | cut -f1)): players update on their next start or join"
+else echo "client build unchanged: $(ssh -o BatchMode=yes "root@$BOX" "cat $APP/data/client/version.txt 2>/dev/null || echo none")"; fi
 echo "the Multiplayer page lists it as $NAME on every machine of the tailnet; address $BOX:$PORT; client updates on $((PORT + 2))/tcp"

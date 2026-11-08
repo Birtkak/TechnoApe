@@ -3,7 +3,7 @@
 # serves "new" from a local headless server, starts the "old" exported client with connect=, and checks that
 # it is refused, downloads the changed files, keeps *.old, restarts itself and joins on the new build.
 # Prints one JSON line, exit 1 when an assertion fails. Evidence in game/out/upd/.
-#   bash tools/update_proof.sh [port=7791]
+#   [STAGE=1] bash tools/update_proof.sh [port=7791]
 set -u
 cd "$(dirname "$0")/../game" || exit 1
 G="$HOME/Tools/Godot/4.7.2-mono/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
@@ -20,6 +20,8 @@ done
 if [ -n "$had" ]; then echo "$had" > build_version.txt; else rm -f build_version.txt; fi
 echo "proof-new" > out/upd/new/version.txt
 cp -r out/upd/old out/upd/client
+# STAGE=1: an earlier interrupted try left the new .pck in update/: it must be used, not fetched again
+[ "${STAGE:-0}" = 1 ] && mkdir -p out/upd/client/update && cp out/upd/new/TechnoApe.pck out/upd/client/update/
 
 timeout 200 "$G" --headless --path . -- server=1 seed=4243 port=$PORT client_dir="$U/new" duration=180 > out/upd/server.log 2>&1 &
 SERVER=$!
@@ -31,7 +33,7 @@ timeout 120 out/upd/client/TechnoApe.console.exe --headless -- connect=127.0.0.1
 for i in $(seq 1 150); do grep -q "upd left" out/upd/server.log && break; sleep 1; done
 kill $SERVER 2>/dev/null; wait $SERVER 2>/dev/null
 
-python -I - "$U" <<'EOF'
+STAGE=${STAGE:-0} python -I - "$U" <<'EOF'
 import json, sys, hashlib, os
 u = sys.argv[1]
 sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest() if os.path.exists(p) else None
@@ -41,7 +43,8 @@ r = {
   "refused_old": "refused, build proof-old" in server,
   "installed": '"update":"installed"' in first.replace(" ", ""),
   "pck_now_new": sha(os.path.join(u, "client/TechnoApe.pck")) == sha(os.path.join(u, "new/TechnoApe.pck")) != sha(os.path.join(u, "old/TechnoApe.pck")),
-  "old_kept": sha(os.path.join(u, "client/TechnoApe.pck.old")) == sha(os.path.join(u, "old/TechnoApe.pck")),
+  "old_cleaned": not os.path.exists(os.path.join(u, "client/TechnoApe.pck.old")) and not os.path.exists(os.path.join(u, "client/update")),
+  "staged_reused": '"downloaded_bytes":0,' in first.replace(" ", "") if os.environ.get("STAGE") == "1" else True,
   "joined_after": server.find("joined as peer") > server.find("refused, build proof-old") >= 0,
   "played": server.rfind("upd left") > server.find("joined as peer") >= 0,
   "restart_flag": "updated_from=proof-old" in first,
