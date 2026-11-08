@@ -75,6 +75,8 @@ func _ready() -> void:
 	_old_gen.confirmed.connect(func() -> void: play(_selected()))
 	add_child(_old_gen)
 	show_page("main")
+	if ClientUpdate.can_update() and Settings.net_address != "":   # the last server has a newer build: fetch it now (ADR 0166)
+		ClientUpdate.run(self, Settings.net_address, Settings.net_name, true)
 	if DebugCapture.has_method("menu_test_ready"):
 		DebugCapture.menu_test_ready(self)
 
@@ -252,6 +254,8 @@ func _poll_servers(delta: float) -> void:
 	for k in keys:
 		var d: Dictionary = _finder.servers[k]
 		var text := "%s  ·  seed %d  ·  %s  ·  %d playing  ·  %s" % [d.get("name", "?"), int(d.get("seed", 0)), String(d.get("game_mode", "")).capitalize(), int(d.get("players", 0)), k]
+		if d.has("ver") and String(d["ver"]) != ClientUpdate.version():
+			text += "  ·  updates on join"
 		var b := UiStyle.button(text, _join_address.bind(k, String(d.get("name", ""))), 520)
 		if int(d.get("proto", 0)) != Net.PROTO:
 			b.disabled = true
@@ -269,6 +273,13 @@ func _join(address: String, pname: String) -> void:
 		_enter_game.call_deferred(), CONNECT_ONE_SHOT)
 	Net.failed.connect(func(reason: String) -> void:
 		print("net: join failed: " + reason)
+		if reason.begins_with(ClientUpdate.UPDATE_PREFIX):   # another build: fetch it, restart, join (ADR 0166)
+			multiplayer.multiplayer_peer = null
+			if ClientUpdate.can_update():
+				ClientUpdate.run(self, address, pname)
+				return
+			reason = "the server runs build %s, this is %s (only an exported game updates itself)" % [
+				reason.trim_prefix(ClientUpdate.UPDATE_PREFIX), ClientUpdate.version()]
 		if _join_status:
 			_join_status.text = "Could not join: " + reason
 		elif Net.connect_arg != "":

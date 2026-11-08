@@ -205,7 +205,7 @@ func clear_cell(wp: Vector3i) -> void:
 func bleed(at: Vector3, hp_lost: int) -> int:
 	if hp_lost <= 0 or bubble == null:
 		return 0
-	var n := mini(16 + 4 * hp_lost, 40)
+	var n := mini(6 + 2 * hp_lost, 20)   # was 16 + 4 per hp, cap 40: too much blood
 	var r := Settings.m2v(0.3)
 	var used := {}
 	for i in n * 3:   # full or already picked cells are skipped, so try more

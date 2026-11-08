@@ -60,6 +60,7 @@ var showcase_on := "grass"
 var looks_test := false     # looks_test=1: part C's multi-voxel crops, flowers, torches, table and lights on a patch, shot (ADR 0053, "debug looks")
 var looks_shots := true     # looks_shots=0: looks_test without screenshots
 var looks_budget := false   # looks_budget=1: looks_test only sets ten torches and a held one at night (the budget case)
+var ponder_only := ""        # ponder_only=<scene id>: ponder_test films just that one
 var ponder_test := false    # ponder_test=1: every guide scene filmed, a row a step, to out/ponder/<id>.png ("debug ponder", ADR 0132)
 var holes := false          # holes=1: the ADR 0136 census of ground in view that is not drawn, by pipeline stage (JSON "holes"; costs frame time)
 var shell_test := false     # shell_test=1: cave + dug hole, counts unloaded / unmeshed blocks and air-where-rock within 16 m (ADR 0124, scripts/debug/shell_test.gd, "debug shell")
@@ -240,6 +241,7 @@ func _ready() -> void:
 	tp_test = args.get("tp_test", "0") == "1"
 	toys_test = args.get("toys_test", "0") == "1"
 	ponder_test = args.get("ponder_test", "0") == "1"
+	ponder_only = String(args.get("ponder_only", ""))
 	shell_test = args.get("shell_test", "0") == "1"
 	holes = args.get("holes", "0") == "1"
 	sand_test = args.get("sand_test", "0") == "1"

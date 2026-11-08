@@ -198,6 +198,8 @@ Godot_..._console.exe --headless --path game -- autopilot=1 target=forest walk=1
 #       shaders once (one ~60 ms frame); later launches hold the budget. The exe keeps worlds, settings and
 #       F9 bug reports in %APPDATA%/Godot/app_userdata/TechnoApe/ (bug_reports/), the editor in game/out/
 Godot_..._console.exe --headless --path game --export-debug "Windows Desktop" ../build/windows/TechnoApe.exe
+# Players' builds update themselves from the server (ADR 0166): bash tools/deploy_server.sh stamps game/build_version.txt,
+#       exports to build/client/ and puts it on the box (served on game port + 2); proof: bash tools/update_proof.sh
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=15 animals=40 mob_spawn=0 give=wheat:8 vsync=0 out=res://out/animals
 Godot_..._console.exe --path game -- autopilot=1 walk=1 speed=0 duration=18 capture_every=1 hands_test=1 mob_spawn=0 out=res://out/hands
 Godot_..._console.exe --path game res://tools/mob_sheet.tscn -- out=res://out/mobs/sheet.png   # sheep, shorn sheep, lamb, pig, piglet, bed, chair

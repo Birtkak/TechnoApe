@@ -846,6 +846,14 @@ func close_screen() -> Array:
 var last_cause := ""   # what hurt last: the death screen names it (docs/design/lore.md)
 
 
+## Causes that hurt without wounding the body: no blood for these.
+const BODILESS_CAUSES := ["starvation", "hypothermia", "heatstroke", "poison", "smoke", "drowning"]
+
+
+static func bleeds(cause: String) -> bool:
+	return not BODILESS_CAUSES.has(cause)
+
+
 func damage(amount: int, cause: String = "unknown") -> void:
 	if amount <= 0:
 		return

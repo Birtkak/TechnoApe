@@ -1615,8 +1615,10 @@ func _on_tool_broke(id: String) -> void:
 
 func _on_health_changed(h: int) -> void:
 	if _last_health > h:
-		stains.bleed(player.position, _last_health - h)
-		if fx:
+		var wound := PlayerInventory.bleeds(player_inv.last_cause)   # hunger, cold, poison, smoke, drowning do not bleed
+		if wound:
+			stains.bleed(player.position, _last_health - h)
+		if fx and wound:
 			fx.burst("bleed", player.position + Vector3(0, Settings.m2v(1.0), 0), {"count_bonus": _last_health - h})
 		if h <= 0:
 			player.died.emit()   # any damage that kills dies here (a mob's bite did not); _on_died ignores repeats

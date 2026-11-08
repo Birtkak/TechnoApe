@@ -10,6 +10,13 @@ the nearest one within 4 km (`forest`, `old_growth_forest`, `taiga`, `jungle`, `
 `mountain`, `lake`, `river`, `cave`, `ruin` ...), `/time set noon`, F3 shows position, biome and
 frame times.
 
+## Machine size and machine guides (2026-11-08)
+
+- [ ] `/kit contraptions` and `/kit lv`: the lift winch and vent fan are furnace sized (1 m), the crane and drawbridge
+  hinge 1.5 m, the hand crank stays a small 0.5 m piece; `/contraptions` still lifts, raises and swings.
+- [ ] Hover an LV machine in the inventory and press **P** (or `/ponder alloy_smelter`): three steps (what it is, the
+  power cable, IN and OUT with a hopper) and a strip of every recipe with item icons.
+
 ## Underground hazards: firedamp, the vent fan, flooding springs (ADR 0148)
 
 - [ ] `/scenario firedamp`, then dig into the stone room ahead with the safety lamp in hand: a low hiss as the gas

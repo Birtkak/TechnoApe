@@ -177,7 +177,9 @@ const HEIGHT := {"knap": 1, "ground": 1, "firepit": 2, "forge": 8, "assembly": 1
 ## (the stations' 1 m scale, ADR 0076; the steam age's 1.5 m hammer and 2.5 m boiler, ADR 0097). A view
 ## of 8 cells still spans the width, so a 1 m piece's cell is a voxel; a bigger piece names its own grid.
 const SCALE := {"firepit": 2, "forge": 2, "bloomery": 2, "anvil": 2, "bronze_anvil": 2, "steam_hammer": 3, "boiler": 5,
-	"blast_furnace": 3, "ore_crusher": 2, "tank": 2, "turbine": 3, "compressor": 2, "electric_furnace": 2, "lathe": 2, "bending_press": 2, "wiremill": 2, "macerator": 2, "alloy_smelter": 2, "assembler": 2, "battery_box": 2, "pump": 2, "water_wheel": 2, "pit_trap": 2, "large_water_wheel": 4}
+	"blast_furnace": 3, "ore_crusher": 2, "tank": 2, "turbine": 3, "compressor": 2, "electric_furnace": 2, "lathe": 2, "bending_press": 2, "wiremill": 2, "macerator": 2, "alloy_smelter": 2, "assembler": 2, "battery_box": 2, "pump": 2, "water_wheel": 2, "pit_trap": 2, "large_water_wheel": 4,
+	"lift_winch": 2, "vent_fan": 2, "drawbridge_hinge": 3, "crane": 3,   # the furnace's 1 m; the big movers 1.5 m (ADR 0160)
+	"coke_oven": 1}   # the coke oven's brick shell is the multiblock round this 0.5 m controller (ADR 0117)
 
 
 ## Footprint width in voxels of a work piece kind.
@@ -185,9 +187,10 @@ static func width_of(p_kind: String) -> int:
 	return Settings.BLOCK * scale_of(p_kind)
 
 
-## Blocks per side of a work piece: SCALE, or 2 for every LV machine (1 m like the lathe, ADR 0117).
+## Blocks per side of a work piece: SCALE, or 2 for every item tagged "machine" (1 m like the furnace, ADR 0117):
+## a new machine is never smaller unless SCALE says so (test_machine_size.gd).
 static func scale_of(p_kind: String) -> int:
-	return int(SCALE.get(p_kind, 2 if MachineEntity.DOOR.has(p_kind) else 1))
+	return int(SCALE.get(p_kind, 2 if MachineEntity.DOOR.has(p_kind) or ItemRegistry.machine_works.has(p_kind) else 1))
 
 
 ## The voxels an entity covers (ADR 0034).

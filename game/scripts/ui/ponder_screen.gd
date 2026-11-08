@@ -31,6 +31,7 @@ var _store: BlockEntities
 var _root: Control
 var _title: Label
 var _caption: Label
+var _strip: VBoxContainer         # the scene's recipes: input icons -> output icon
 var _counter: Label
 var _vp: SubViewport
 var _vpc: SubViewportContainer
@@ -53,6 +54,8 @@ func setup(p_items: ItemRegistry, p_recipes: RecipeRegistry, p_player: Node) -> 
 	items = p_items
 	recipes = p_recipes
 	player = p_player
+	Ponder.items = p_items
+	Ponder.recipes = p_recipes
 
 
 func _ready() -> void:
@@ -97,6 +100,8 @@ func _ready() -> void:
 	_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_caption.custom_minimum_size = Vector2(0, 84)
 	box.add_child(_caption)
+	_strip = VBoxContainer.new()
+	box.add_child(_strip)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	box.add_child(row)
@@ -125,6 +130,7 @@ func open(id: String) -> bool:
 	var w := clampf(win.x - 160.0, 480.0, 880.0)
 	_vpc.custom_minimum_size = Vector2(w, minf(w * 0.5, win.y - 300.0))
 	_title.text = String(sc.get("title", id))
+	_fill_strip(sc.get("recipes", []))
 	_fit_camera()
 	_ground = MeshInstance3D.new()
 	var gm := BoxMesh.new()
@@ -251,6 +257,18 @@ func _apply(s: Dictionary, last: bool) -> void:
 			mi.material_override = _flat(FLOW_COLORS.get(kind, Color.WHITE), true)
 			fl["dots"].append(mi)
 			_world.add_child(mi)
+		if f.has("label"):   # IN / OUT / POWER over the middle of the flow
+			var lb := Label3D.new()
+			lb.text = String(f["label"])
+			lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			lb.no_depth_test = true
+			lb.font_size = 64
+			lb.pixel_size = 0.028
+			lb.outline_size = 12
+			lb.modulate = FLOW_COLORS.get(kind, Color.WHITE)
+			lb.position = (fl["from"] + fl["to"]) * 0.5 + Vector3.UP * B * 1.2
+			fl["dots"].append(lb)   # freed with the dots
+			_world.add_child(lb)
 		_flows.append(fl)
 
 
@@ -303,7 +321,7 @@ func _process(delta: float) -> void:
 	for m in _marks:
 		(m.material_override as StandardMaterial3D).albedo_color.a = 0.1 + 0.14 * pulse
 	for f in _flows:
-		for i in f["dots"].size():
+		for i in DOTS:
 			var u := fmod(_t / FLOW_PERIOD + float(i) / DOTS, 1.0)
 			f["dots"][i].position = f["from"].lerp(f["to"], u)
 	if _frame % 6 == 0:   # the turbine's blades and the small sources turn while they run
@@ -351,6 +369,7 @@ func _clear_stage() -> void:
 
 func _clear() -> void:
 	_clear_stage()
+	_fill_strip([])
 	if _ground != null:
 		_ground.queue_free()
 		_ground = null
@@ -390,6 +409,47 @@ func _fit_camera() -> void:
 	_yaw = -0.6
 
 
+## One row per recipe (at most 6): the input icons with their counts, an arrow, the output, the line in words.
+func _fill_strip(ids: Array) -> void:
+	for c in _strip.get_children():
+		c.queue_free()
+	_strip.visible = not ids.is_empty()
+	if ids.is_empty():
+		return
+	_strip.add_child(UiStyle.label("What goes in  ->  what comes out", 17, UiStyle.DIM))
+	for rid in ids.slice(0, 6):
+		var r: Dictionary = recipes.recipes.get(rid, {})
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var counts := {}
+		for spec in r.get("ingredients", []):
+			counts[spec] = int(counts.get(spec, 0)) + 1
+		var first := true
+		for spec in counts:
+			if not first:
+				row.add_child(UiStyle.label("+", 20))
+			first = false
+			var id := String(spec)
+			if id.begins_with("#"):
+				var any: Array = items.items_with_tag(id.trim_prefix("#"))
+				id = String(any[0]) if not any.is_empty() else ""
+			row.add_child(_icon(id, counts[spec]))
+		row.add_child(UiStyle.label("  ->  ", 20, UiStyle.ACCENT))
+		var o: Dictionary = r.get("output", {})
+		row.add_child(_icon(String(o.get("id", "")), int(o.get("count", 1))))
+		row.add_child(UiStyle.label("  " + Ponder.recipe_line(r), 16, UiStyle.DIM))
+		_strip.add_child(row)
+
+
+func _icon(id: String, count: int) -> Control:
+	var ic := ItemIcon.new()
+	ic.items = items
+	ic.custom_minimum_size = Vector2(36, 36)
+	ic.stack = {"id": id, "count": count} if id != "" else {}
+	ic.tooltip_text = items.display_name(id) if id != "" else ""
+	return ic
+
+
 static func _v(a) -> Vector3i:
 	if a is Array and a.size() >= 3:
 		return Vector3i(int(a[0]), int(a[1]), int(a[2]))
@@ -412,8 +472,11 @@ static func _flat(c: Color, unshaded := false) -> StandardMaterial3D:
 func film_all(tree: SceneTree) -> void:
 	var r := {"scenes": {}, "bad": {}}
 	var dir: String = DebugCapture.out_dir + "/ponder"
-	for id in Ponder.scenes():
-		var bad := Ponder.check(Ponder.scenes()[id], items, recipes)
+	var ids: Array = Ponder.scenes().keys()
+	if DebugCapture.ponder_only != "":
+		ids = [DebugCapture.ponder_only]   # ponder_only=<id>: just that scene (a machine:<item> one too)
+	for id in ids:
+		var bad := Ponder.check(Ponder.get_scene(id), items, recipes)
 		if not bad.is_empty():
 			r["bad"][id] = Array(bad)
 		open(id)
@@ -425,8 +488,8 @@ func film_all(tree: SceneTree) -> void:
 					await tree.process_frame
 				sheet.add(tree.root.get_viewport())
 			if i == steps() - 1:   # one frame at full size, to read the pieces
-				tree.root.get_viewport().get_texture().get_image().save_png(dir + "/%s_step%d.png" % [id, i + 1])
-		var err := sheet.save(dir + "/%s.png" % id)
+				tree.root.get_viewport().get_texture().get_image().save_png(dir + "/%s_step%d.png" % [id.replace(":", "_"), i + 1])
+		var err := sheet.save(dir + "/%s.png" % id.replace(":", "_"))   # "machine:x" is no file name on Windows
 		r["scenes"][id] = {"steps": steps(), "pieces": _store.size(), "saved": err == OK}
 		close()
 	print("debug ponder " + JSON.stringify(r))

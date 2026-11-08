@@ -68,18 +68,19 @@ static func _f(e: ContraptionEntity) -> Vector3:
 
 
 static func _centre(e: ContraptionEntity) -> Vector3:
-	return Vector3(e.pos) + Vector3(Settings.BLOCK * 0.5, 0.0, Settings.BLOCK * 0.5)
+	var w := BlockEntities.width_of(e.kind)
+	return Vector3(e.pos) + Vector3(w * 0.5, 0.0, w * 0.5)
 
 
 ## The pose: home frame -> world.
 static func pose_of(e: ContraptionEntity, v: float) -> Transform3D:
-	var B := Settings.BLOCK
+	var W := BlockEntities.width_of(e.kind)
 	match e.kind:
 		"lift_winch":
 			return Transform3D(Basis(), Vector3(0.0, v, 0.0))
 		"drawbridge_hinge":   # about the top edge of the drive's front face: the span's far end rises
 			var f := _f(e)
-			var pivot := _centre(e) + f * (B * 0.5) + Vector3(0.0, B, 0.0)
+			var pivot := _centre(e) + f * (W * 0.5) + Vector3(0.0, Settings.BLOCK, 0.0)   # at deck height, not the hinge's top
 			var r := Basis(f.cross(Vector3.UP), deg_to_rad(v))
 			return Transform3D(Basis(), pivot) * Transform3D(r, Vector3.ZERO) * Transform3D(Basis(), -pivot)
 		_:   # crane: about the drive's middle column
@@ -96,20 +97,21 @@ static func end_of(e: ContraptionEntity) -> float:
 
 ## {seed, lo, hi} at home: where the part starts and the box it must keep inside.
 static func part_box(e: ContraptionEntity) -> Dictionary:
-	var B := Settings.BLOCK
+	var W := BlockEntities.width_of(e.kind)
+	var H := BlockEntities.height_of(e.kind)
 	var c := _centre(e)
 	if e.kind == "crane":   # the jib, built up from the top of the drive
 		var reach := Settings.m2v(6.0)
-		return {"seed": Vector3i(c.floor()) + Vector3i(0, B, 0), "scan_up": true,
-			"lo": Vector3i(int(c.x - reach), e.pos.y + B, int(c.z - reach)), "hi": Vector3i(int(c.x + reach) - 1, e.pos.y + B + Settings.m2v(4.0), int(c.z + reach) - 1)}
+		return {"seed": Vector3i(c.floor()) + Vector3i(0, H, 0), "scan_up": true,
+			"lo": Vector3i(int(c.x - reach), e.pos.y + H, int(c.z - reach)), "hi": Vector3i(int(c.x + reach) - 1, e.pos.y + H + Settings.m2v(4.0), int(c.z + reach) - 1)}
 	var f := _f(e)
 	var side := f.cross(Vector3.UP) * Settings.m2v(1.5)
 	var out := Settings.m2v(3.0 if e.kind == "lift_winch" else 6.0)
-	var a := c + f * (B * 0.5) - side
-	var b := c + f * (B * 0.5 + out) + side
+	var a := c + f * (W * 0.5) - side
+	var b := c + f * (W * 0.5 + out) + side
 	var lo := Vector3i(a.min(b).round())
 	var hi := Vector3i(a.max(b).round()) - Vector3i.ONE
-	return {"seed": Vector3i((c + f * B).floor()), "scan_up": true, "lo": Vector3i(lo.x, e.pos.y, lo.z), "hi": Vector3i(hi.x, e.pos.y + B - 1, hi.z)}
+	return {"seed": Vector3i((c + f * (W * 0.5 + Settings.BLOCK * 0.5)).floor()), "scan_up": true, "lo": Vector3i(lo.x, e.pos.y, lo.z), "hi": Vector3i(hi.x, e.pos.y + H - 1, hi.z)}
 
 
 ## The world box of a grid of `size` under transform `t`.
@@ -159,7 +161,7 @@ func _start(e: ContraptionEntity) -> bool:
 	var now := pose_of(e, e.pose)
 	var seed: Vector3i = box["seed"]
 	var found := false
-	for k in Settings.BLOCK:   # the part may sit anywhere in the block's height
+	for k in BlockEntities.height_of(e.kind):   # the part may sit anywhere in the drive's height
 		var s := Vector3i((now * (Vector3(seed + Vector3i(0, k, 0)) + Vector3.ONE * 0.5)).floor())
 		if main.get_world_voxel(s) > 0:
 			seed = s
@@ -503,28 +505,31 @@ func debug_build(base: Vector3i, facing: int) -> Dictionary:
 		anchor = BlockEntities.anchor_for(anchor)
 		var e: ContraptionEntity = main.work._create(anchor, kind, GameMaterials.WORK_BLOCK)
 		e.facing = facing
-		var crank: PowerSourceEntity = main.work._create(anchor - Transport.dir_of(facing), "hand_crank", GameMaterials.WORK_BLOCK)
-		crank.cranked_until = Inventory.clock_s + 900.0
 		var c := _centre(e)
+		var W := BlockEntities.width_of(kind)
+		var H := BlockEntities.height_of(kind)
+		var behind := c - fw * (W * 0.5 + B * 0.5) - Vector3(B * 0.5, 0.0, B * 0.5)   # the crank's corner, against the drive's back
+		var crank: PowerSourceEntity = main.work._create(Vector3i(behind.round()), "hand_crank", GameMaterials.WORK_BLOCK)
+		crank.cranked_until = Inventory.clock_s + 900.0
 		match kind:
 			"lift_winch":   # 12 x 12 x 1 planks, a stone ring over its rim
-				var a: Vector3 = c + fw * (B * 0.5) - rt * 6
-				var b: Vector3 = c + fw * (B * 0.5 + 12) + rt * 6 + Vector3.UP
+				var a: Vector3 = c + fw * (W * 0.5) - rt * 6
+				var b: Vector3 = c + fw * (W * 0.5 + 12) + rt * 6 + Vector3.UP
 				box.call(a, b, planks)
 				var ring_y := Vector3.UP * Settings.m2v(3.5)
 				box.call(a - rt + ring_y - fw, b + rt + ring_y + fw, stone)
 				box.call(a + rt + ring_y + fw, b - rt + ring_y - fw, 0)
 				out["lift"] = (a + b) * 0.5 + Vector3(0, 0.5, 0)
 			"drawbridge_hinge":   # 8 wide, 32 out, over a moat dug 28 out
-				var a: Vector3 = c + fw * (B * 0.5) - rt * 4
+				var a: Vector3 = c + fw * (W * 0.5) - rt * 4
 				box.call(a - Vector3.UP * B, a + fw * 28 + rt * 8, 0)
 				box.call(a, a + fw * 32 + rt * 8 + Vector3.UP, planks)
 				out["bridge"] = a + fw * 16 + rt * 4 + Vector3(0, 1.5, 0)
 			"crane":   # a 2 x 2 mast 2 m up, a 2 x 2 jib 3 m out, an oak log under its tip
-				var top := c + Vector3.UP * (B + 16)
-				box.call(c + Vector3(-1, B, -1), top + Vector3(1, 0, 1), planks)
+				var top := c + Vector3.UP * (H + 16)
+				box.call(c + Vector3(-1, H, -1), top + Vector3(1, 0, 1), planks)
 				box.call(top - Vector3.UP * 2 - fw - rt, top + fw * 24 + rt, planks)
-				var under := c + fw * 22
+				var under := c + fw * (W * 0.5 + 18)
 				box.call(under - rt * 8, under + rt * 8 + fw * 4 + Vector3.UP * 4, GameMaterials.id_of("wood"))
 	out["laid"] = "a lift, a drawbridge and a crane, each with a hand crank turning (right click a drive, or /contraptions toggle)"
 	if failed[0] > 0:

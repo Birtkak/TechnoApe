@@ -452,7 +452,7 @@ func _refresh() -> void:
 	var h := PANEL.y + (48.0 + S * (player_inv.bag.size() / PlayerInventory.BAG - 1) if worn else 0.0)
 	if _panel.size.y != h:
 		_panel.size = Vector2(PANEL.x, h)
-		_panel.position = -_panel.size / 2.0
+		_panel.set_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_KEEP_SIZE)   # position is in parent space: -size/2 threw it to the corner
 		_panel.queue_redraw()
 	_place_side_panels()
 	_cursor_icon.items = player_inv.items
