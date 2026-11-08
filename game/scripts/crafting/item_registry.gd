@@ -31,12 +31,14 @@ func load_json(text: String) -> bool:
 	if typeof(data) != TYPE_DICTIONARY or not data.has("items"):
 		errors.append("items.json: expected {items: [...]}")
 		return false
+	# the dedicated server runs without the voxel extension, where materials.gd does not compile: loaded by
+	# path, not named, so this script (and Inventory, the trading post ledger) still compile there; no units then
+	var mats: GDScript = load("res://scripts/materials.gd") if ClassDB.class_exists("VoxelBlockyLibrary") else null
 	for d in data["items"]:
 		if not _validate(d):
 			continue
 		items[d["id"]] = d
-		# the dedicated server runs without the voxel extension, so GameMaterials does not compile there (its ledger needs no units)
-		if d.has("material") and not d.has("empties_to") and ClassDB.class_exists("VoxelBlockyLibrary") and GameMaterials.is_plain_voxel(GameMaterials.id_of(String(d["material"]))):
+		if mats and d.has("material") and not d.has("empties_to") and mats.is_plain_voxel(mats.id_of(String(d["material"]))):
 			_units[d["id"]] = Settings.BLOCK * Settings.BLOCK * Settings.BLOCK
 		for t in d.get("tags", []):
 			if not _by_tag.has(t):
