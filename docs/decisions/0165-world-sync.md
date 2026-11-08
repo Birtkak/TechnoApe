@@ -45,7 +45,7 @@ a rejoin. ADR 0145 shares only voxel edits made inside `Net.record`, and three g
 into his sim (`live_ok`) and the firepit (`blocks_recv`) with a mean op delay under 100 ms. Carol (a late
 join) gets the firepit from the registry, and alice's rejoin gets the monolith from the world ops
 (`base_replayed`). Measured 2026-11-08 on the dev box: bob's delay was 15 ms on average (73 ms over 5
-events), 18 ms at most; the monolith is 625 world ops, of which 323 to 348 replay per client.
+events), 18 ms at most (27 ms mean, 63 ms max after the ADR 0166 merge); the monolith is 625 world ops, of which 323 to 348 replay per client.
 
 ## Direction: single-player on the same logic
 The developer wants single-player to run the logic LAN runs, as Minecraft's integrated server does, so that
@@ -63,6 +63,7 @@ sends is shared, so a feature that works offline can still miss its hook. Gettin
 Steps 2 and 3 are their own jobs and change the save format and the server image.
 
 ## Consequences
+- The wire changed (block events, live ops, `ts`): `Net.PROTO` is 5.
 - What diverges now is only ticking state between two actions and the sim's spread: a fire spreads
   separately on each client, and what it burns is not journaled.
 - A world system that writes voxels from the seed (like the monolith) belongs in `add_world_ops`.

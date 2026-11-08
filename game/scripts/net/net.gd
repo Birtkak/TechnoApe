@@ -10,7 +10,7 @@ extends Node
 ##   server:  godot --headless --path game -- server=1 seed=1337 [port=7777] [duration=<s>]
 ##   client:  godot --path game -- connect=<host[:port]> name=<player>
 
-const PROTO := 4   # 4: hello carries the build version (ADR 0166)
+const PROTO := 5   # 4: hello carries the build version (ADR 0166); 5: block, live and stamped batch events (ADR 0165)
 const PORT := 7777
 const STATE_HZ := 20.0
 const SAVE_S := 30.0
