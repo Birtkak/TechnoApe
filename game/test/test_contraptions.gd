@@ -97,10 +97,11 @@ func test_the_drawbridge_raises_its_far_end_in_front_of_the_hinge() -> void:
 	var e := ContraptionEntity.new(items, Vector3i(0, 0, 0), "drawbridge_hinge")
 	e.facing = 0
 	var f := Vector3(Transport.dir_of(0)) / B
-	var far := Vector3(B * 0.5, 0.5, B * 0.5) + f * (B * 0.5 + 30.0)   # a span cell 30 voxels out
+	var w := BlockEntities.width_of("drawbridge_hinge")
+	var far := Vector3(w * 0.5, 0.5, w * 0.5) + f * (w * 0.5 + 30.0)   # a span cell 30 voxels out
 	var up: Vector3 = Contraptions.pose_of(e, 90.0) * far
 	assert_float(up.y).is_greater(30.0)
-	assert_float((up - Vector3(B * 0.5, 0, B * 0.5)).dot(f)).is_between(B * 0.5, B * 1.5)   # within a block in front of the hinge
+	assert_float((up - Vector3(w * 0.5, 0, w * 0.5)).dot(f)).is_between(w * 0.5, w * 0.5 + B)   # within a block in front of the hinge
 
 
 ## An L: a 12 x 12 slab one voxel thick with its x >= 6, z >= 6 quarter missing.
@@ -149,7 +150,7 @@ func test_columns_of_a_driven_piece() -> void:
 
 func test_a_crank_moves_the_lever_and_the_drive_saves() -> void:
 	var drive: ContraptionEntity = store.create(Vector3i(0, 0, 0), "lift_winch")
-	var crank: PowerSourceEntity = store.create(Vector3i(B, 0, 0), "hand_crank")
+	var crank: PowerSourceEntity = store.create(Vector3i(BlockEntities.width_of("lift_winch"), 0, 0), "hand_crank")
 	crank.cranked_until = Inventory.clock_s + 1000.0
 	for i in 60:
 		store.tick()

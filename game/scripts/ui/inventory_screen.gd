@@ -402,6 +402,8 @@ func close() -> void:
 	close_book()
 	if browser_view:
 		browser_view.close_recipes()
+	if _container != null and _container.get("pos") is Vector3i:
+		Net.touch_block(_container.pos)   # ADR 0165: what was moved in and out reaches the other players
 	_clear_mode_slots()
 	var dropped: Array = player_inv.close_screen()
 	if player_inv.craft.width != 2:

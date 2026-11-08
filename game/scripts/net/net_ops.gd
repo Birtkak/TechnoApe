@@ -67,6 +67,8 @@ static func apply(op: Dictionary, bubble: Node, st: RefCounted) -> bool:   # a S
 		"fill":
 			return st.fill(bubble.sim, op["cells"], op["m"], op.get("mats", PackedByteArray()), bubble.origin * Settings.CHUNK - op["lo"], op["mask"]) >= 0
 		"voxels":
+			if op["cells"].size() == 3:   # one cell (a click, a fire lit): the sim's own write, which wakes and lights it
+				return bubble.set_voxel(Vector3i(op["cells"][0], op["cells"][1], op["cells"][2]), op["mats"][0])
 			return st.fill(bubble.sim, op["cells"], 0, op["mats"], bubble.origin * Settings.CHUNK, all_mask()) >= 0
 		"box":
 			return bubble.fill_box(op["lo"], op["hi"], op["m"]) >= 0

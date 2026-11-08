@@ -12,6 +12,8 @@ var recipes: RecipeRegistry
 func before_test() -> void:
 	items = ItemRegistry.load_default()
 	recipes = RecipeRegistry.load_default(items)
+	Ponder.items = items
+	Ponder.recipes = recipes
 
 
 func test_every_scene_is_sound() -> void:
@@ -22,6 +24,28 @@ func test_every_scene_is_sound() -> void:
 	for id in scenes:
 		var bad := Ponder.check(scenes[id], items, recipes)
 		assert_array(Array(bad)).override_failure_message("%s: %s" % [id, ", ".join(bad)]).is_empty()
+
+
+## Every machine with process recipes has its own sound guide: what it is, power, and IN / OUT with each recipe.
+func test_every_machine_has_its_own_guide() -> void:
+	var n := 0
+	for id in items.all_ids():
+		var d := items.get_def(id)
+		if not d.has("machine") or Ponder.process_recipes(String(d.get("work", ""))).is_empty():
+			continue
+		n += 1
+		assert_str(Ponder.for_item(id)).is_equal(Ponder.MACHINE + id)
+		var sc := Ponder.get_scene(Ponder.for_item(id))
+		var bad := Ponder.check(sc, items, recipes)
+		assert_array(Array(bad)).override_failure_message("%s: %s" % [id, ", ".join(bad)]).is_empty()
+		assert_array(sc["recipes"]).is_not_empty()
+		var labels := []
+		for st in sc["steps"]:
+			for f in st.get("flow", []):
+				labels.append(String(f.get("label", "")).get_slice(" ", 0))
+		assert_array(labels).override_failure_message(id + " " + str(labels)).contains(["IN", "OUT"])
+	assert_int(n).is_greater_equal(12)
+	assert_str(Ponder.recipe_line(recipes.recipes["lathe_iron_rod"])).is_equal("Iron Ingot  ->  2 Iron Rod (15 s)")
 
 
 func test_items_lead_to_their_guide() -> void:

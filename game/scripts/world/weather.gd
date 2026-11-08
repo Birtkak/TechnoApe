@@ -187,8 +187,13 @@ func ignite(hit: VoxelRaycastResult) -> bool:
 		var d: Dictionary = GameMaterials.defs()[here - 1] if here <= GameMaterials.defs().size() else {}
 		if not d.get("burnable", false):
 			return false
-	if not main.bubble.set_voxel(spot, FIRE):
+	var was := Net.recording
+	Net.recording = false   # a flame is not an edit: the journal would light it again at every replay
+	var lit: bool = main.bubble.set_voxel(spot, FIRE)
+	Net.recording = was
+	if not lit:
 		return false
+	Net.send_live(NetOps.voxels(PackedInt32Array([spot.x, spot.y, spot.z]), PackedByteArray([FIRE])))   # ADR 0165: lit for everyone, never replayed
 	stats["ignited"] += 1
 	fire_started(Vector3(spot))
 	Sound.play("sim/ignite", Vector3(spot) + Vector3(0.5, 0.5, 0.5))

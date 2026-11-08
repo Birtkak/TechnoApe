@@ -6,13 +6,18 @@
 # and leaves it: bob sees both spawn and one go, carol (late join) gets the flint from the server's registry.
 # A third client joins late and must get the edit from the journal (ops_replayed >= 1); alice rejoins after her
 # run and must stand where she quit (the server's player save).
+# ADR 0165: alice lights a fire (/ignite: a live op, never journaled) and places a firepit with a real right click
+# (/use: a block entity sent as its saved dict); bob must get the flame into his sim (live_ok) and the firepit
+# (blocks_recv), carol the firepit from the server's registry, and alice's rejoin must get the monolith back from
+# the seed's world ops (base_replayed: her save says it is up, so it is not raised again). Bob's mean op delay
+# (lat_ms_sum / lat_n) must stay under 100 ms.
 # Prints one JSON line per role plus bandwidth, exit 1 when an assertion fails.
 #   bash tools/net_proof.sh [seed] [port]
 set -u
 cd "$(dirname "$0")/../game" || exit 1
 G="$HOME/Tools/Godot/4.7.2-mono/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
 SEED=${1:-4242}
-PORT=${2:-7781}
+PORT=${2:-7781}   # pass another port when a second session may run this proof at the same time
 export MSYS_NO_PATHCONV=1
 COMMON="view_distance_m=24 volume_master=0 walk=1 speed=0 load_cap_s=40"
 mkdir -p out
@@ -23,8 +28,8 @@ timeout 130 "$G" --headless --path . -- server=1 seed=$SEED port=$PORT duration=
 SERVER=$!
 sleep 4
 # a: stands 2 m in +x from the spawn and fills a stone box 1.5 m further on, in b's view
-timeout 150 "$G" --headless --path . -- connect=127.0.0.1:$PORT name=alice autopilot=1 duration=45 seed=$SEED $COMMON \
-  "later=/gamemode creative;/tp ~16 ~ ~;wait 3;/fill ~12 ~1 ~-1 ~14 ~3 ~1 stone;wait 2;/drop stick 2;wait 3;/tp ~24 ~ ~;/drop flint 1;/tp ~-24 ~ ~;wait 18;/fill ~12 ~1 ~-1 ~14 ~3 ~1 air" out=res://out/net_a > out/net_a.log 2>&1 &
+timeout 150 "$G" --headless --path . -- connect=127.0.0.1:$PORT name=alice autopilot=1 duration=45 seed=$SEED $COMMON pitch=-0.8 give=firepit:1 \
+  "later=/gamemode creative;/tp ~16 ~ ~;wait 3;/fill ~12 ~1 ~-1 ~14 ~3 ~1 stone;wait 2;/drop stick 2;wait 3;/tp ~24 ~ ~;/drop flint 1;/tp ~-24 ~ ~;wait 1;/ignite;/tp ~ ~ ~-12;wait 2;/use;wait 1;/tp ~ ~ ~12;wait 14;/fill ~12 ~1 ~-1 ~14 ~3 ~1 air" out=res://out/net_a > out/net_a.log 2>&1 &
 A=$!
 sleep 2
 # b: looks along +x at a and the fill, films a thumbnail per second; shorter than a so a is still there at its snapshot
@@ -51,13 +56,14 @@ import json,sys
 w=sys.argv[1]; d=json.loads(sys.stdin.read()); n=d["net"]
 want={"a":("ops_sent",1),"b":("verify_ok",1),"c":("ops_replayed",1),"d":("journal",2)}[w]
 ok=n.get(want[0],0)>=want[1]
-if w=="a": ok=ok and n.get("items_sent",0)>=2 and n.get("picks_got",0)>=1
+if w=="a": ok=ok and n.get("items_sent",0)>=2 and n.get("picks_got",0)>=1 and n.get("live_sent",0)>=1 and n.get("blocks_sent",0)>=1
+if w=="b": ok=ok and n.get("live_ok",0)>=1 and n.get("blocks_recv",0)>=1 and n.get("lat_n",0)>=1 and n["lat_ms_sum"]/n["lat_n"]<100
 if w=="b": ok=ok and n.get("items_recv",0)>=2 and n.get("picked_recv",0)>=1
 if w=="c": ok=ok and n.get("items_recv",0)>=1
-if w=="c": ok=n.get("ops_replayed",0)+n.get("verify_ok",0)>=1
+if w=="c": ok=n.get("ops_replayed",0)+n.get("verify_ok",0)>=1 and n.get("blocks_recv",0)>=1
 if w=="b": ok=ok and len(n.get("avatars",{}))>=1
-if w=="d": ok=ok and abs(n["pos"][0]-16.5)<1.0
-print(json.dumps({"who":w,"ok":ok,"net":{k:n[k] for k in ["ops_sent","ops_recv","ops_replayed","verify_ok","verify_bad","states_sent","states_recv","items_sent","items_recv","picks_sent","picks_got","picked_recv","batches_sent","sent_bytes","recv_bytes","sent_bytes_per_s","recv_bytes_per_s","seconds","journal","peers"] if k in n},"avatars":n.get("avatars",{}),"pos":n.get("pos"),"budget_ok":d.get("budget_ok")}))
+if w=="d": ok=ok and abs(n["pos"][0]-16.5)<1.0 and n.get("base_replayed",0)>=1
+print(json.dumps({"who":w,"ok":ok,"net":{k:n[k] for k in ["ops_sent","ops_recv","ops_replayed","verify_ok","verify_bad","states_sent","states_recv","items_sent","items_recv","picks_sent","picks_got","picked_recv","batches_sent","sent_bytes","recv_bytes","sent_bytes_per_s","recv_bytes_per_s","seconds","journal","peers","live_sent","live_recv","live_ok","blocks_sent","blocks_recv","base_ops","base_replayed","lat_ms_max","lat_ms_sum","lat_n"] if k in n},"avatars":n.get("avatars",{}),"pos":n.get("pos"),"budget_ok":d.get("budget_ok")}))
 sys.exit(0 if ok else 1)' $who || fail=1
 done
 python -I -c '

@@ -10,7 +10,7 @@ extends Node
 ##   server:  godot --headless --path game -- server=1 seed=1337 [port=7777] [duration=<s>]
 ##   client:  godot --path game -- connect=<host[:port]> name=<player>
 
-const PROTO := 3
+const PROTO := 5   # 4: hello carries the build version (ADR 0166); 5: block, live and stamped batch events (ADR 0165)
 const PORT := 7777
 const STATE_HZ := 20.0
 const SAVE_S := 30.0
@@ -39,7 +39,8 @@ var peers := {}                # id -> name of the other players
 var main: Node                 # the game scene (set by Main._ready)
 var stats := {"ops_sent": 0, "ops_recv": 0, "ops_replayed": 0, "states_sent": 0, "states_recv": 0, "verify_ok": 0, "verify_bad": 0,
 	"items_sent": 0, "items_recv": 0, "picks_sent": 0, "picks_got": 0, "picked_recv": 0, "batches_sent": 0,
-	"sent_bytes": 0, "recv_bytes": 0, "journal": 0, "peers": 0}
+	"sent_bytes": 0, "recv_bytes": 0, "journal": 0, "peers": 0,
+	"live_sent": 0, "live_recv": 0, "blocks_sent": 0, "blocks_recv": 0, "base_ops": 0, "base_replayed": 0, "live_ok": 0, "lat_ms_max": 0, "lat_ms_sum": 0, "lat_n": 0}
 
 var _by_chunk := {}            # Vector3i world chunk -> PackedInt32Array journal indices (client)
 var _players := {}             # server: name -> player dict
@@ -64,6 +65,8 @@ var _port := PORT
 var connect_arg := ""
 var server_name := ""          # server_name= on the command line, else the machine's name
 var _discovery: PacketPeerUDP   # server: answers ServerFinder probes on port + 1
+var updates: ClientUpdate.Host   # server: the client build it hands out (ADR 0166)
+var _client_dir := "user://client"
 var _server_id := "%08x" % (randi() & 0x7fffffff)   # tells one server's answers apart on every route it is reachable by
 
 
@@ -79,6 +82,7 @@ func _ready() -> void:
 			"port": _port = int(kv[1])
 			"duration": _lifetime = float(kv[1])
 			"server_name": server_name = kv[1]
+			"client_dir": _client_dir = kv[1]
 	if OS.get_cmdline_user_args().has("server=1"):
 		_start_server.call_deferred()
 
@@ -103,6 +107,7 @@ func _start_server() -> void:
 	if server_name == "":
 		server_name = OS.get_environment("COMPUTERNAME") if OS.has_environment("COMPUTERNAME") else OS.get_environment("HOSTNAME")
 	_discovery = PacketPeerUDP.new()
+	updates = ClientUpdate.Host.new(_client_dir, _port + ClientUpdate.PORT_OFFSET, ClientUpdate.version())
 	if _discovery.bind(_port + 1) != OK:
 		push_warning("net: port %d is taken, the server will not show in the Multiplayer list" % (_port + 1))
 	var f := FileAccess.open_compressed(_journal_path(), FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
@@ -111,6 +116,11 @@ func _start_server() -> void:
 		if v is Array:
 			journal = v
 	_journal_saved = journal.size()
+	var bf := FileAccess.open(_blocks_path(), FileAccess.READ)
+	if bf:
+		var bd: Variant = JSON.parse_string(bf.get_as_text())
+		if bd is Dictionary:
+			_blocks = bd
 	ledger = PostLedger.new(ItemRegistry.load_default())
 	var lf := FileAccess.open(_ents_path(), FileAccess.READ)
 	if lf:
@@ -145,6 +155,10 @@ static func gen_version() -> int:
 	return int(m.get_string(1)) if m else 0
 
 
+func _blocks_path() -> String:
+	return "user://worlds/net_%d_g%d_blocks.json" % [seed_value, gen_version()]
+
+
 func _ents_path() -> String:
 	return "user://worlds/net_%d_g%d_ents.json" % [seed_value, gen_version()]
 
@@ -156,6 +170,11 @@ func _save_files() -> void:
 		if lf:
 			lf.store_string(JSON.stringify(ledger.to_dict()))
 			ledger.dirty = false
+	if _blocks_dirty:
+		var bf := FileAccess.open(_blocks_path(), FileAccess.WRITE)
+		if bf:
+			bf.store_string(JSON.stringify(_blocks))
+			_blocks_dirty = false
 	if journal.size() != _journal_saved:
 		var f := FileAccess.open_compressed(_journal_path() + ".tmp", FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
 		if f:
@@ -171,12 +190,16 @@ func _save_files() -> void:
 
 
 @rpc("any_peer", "reliable")
-func _s_hello(proto: int, pname: String) -> void:
+func _s_hello(proto: int, pname: String, ver := "") -> void:
 	if not is_server:
 		return
 	var id := multiplayer.get_remote_sender_id()
 	if proto != PROTO:
-		_c_refused.rpc_id(id, "protocol %d, this server speaks %d" % [proto, PROTO])
+		_c_refused.rpc_id(id, "protocol %d, this server speaks %d: get the new build from the host" % [proto, PROTO])
+		return
+	if ver != updates.version:   # an old client never joins (ADR 0166): it updates and comes back
+		_c_refused.rpc_id(id, ClientUpdate.UPDATE_PREFIX + updates.version)
+		print("net: %s refused, build %s, this server wants %s" % [pname, ver, updates.version])
 		return
 	_c_welcome.rpc_id(id, seed_value, game_mode, _players.get(pname, {}), peers.duplicate())
 	var at := 0
@@ -188,6 +211,8 @@ func _s_hello(proto: int, pname: String) -> void:
 			break
 	if not _items.is_empty():
 		_c_batch.rpc_id(id, var_to_bytes(_items.values()))   # what lies around, dropped where it was spawned
+	if not _blocks.is_empty():   # every station, chest and laid thing, as the players last left it (ADR 0165)
+		_c_batch.rpc_id(id, var_to_bytes(_blocks.values().map(func(d: Dictionary) -> Dictionary: return {"k": "block", "pos": _pos_of(d), "d": d})))
 	_c_ent.rpc_id(id, var_to_bytes(ledger.snapshot_for(pname)))
 	for other in peers:
 		_c_peer_joined.rpc_id(other, id, pname)
@@ -226,12 +251,17 @@ func _s_batch(bytes: PackedByteArray) -> void:
 		var k: String = ev["k"]
 		if k in EDIT_KINDS:
 			if not NetOps.decode(var_to_bytes(ev)).is_empty():
-				journal.append(ev)
+				if not ev.get("live", false):
+					journal.append(ev)   # a live op (a flame) goes to who is here, never to the journal (ADR 0165)
 				stats["ops_recv"] += 1
+				fwd.append(ev)
+		elif k == "block":
+			if _keep_block(ev):
 				fwd.append(ev)
 		elif k == "item":
 			ev["t"] = Time.get_ticks_msec()
-			_items[int(ev["uid"])] = ev
+			_items[int(ev["uid"])] = ev.duplicate()
+			_items[int(ev["uid"])].erase("ts")   # a late joiner's copy is old, not slow (lat_ms_*)
 			stats["items_recv"] += 1
 			fwd.append(ev)
 		elif k == "pick":
@@ -318,7 +348,7 @@ func join(address: String, pname: String) -> void:
 		failed.emit("cannot connect to %s (%d)" % [address, err])
 		return
 	multiplayer.multiplayer_peer = peer
-	multiplayer.connected_to_server.connect(func() -> void: _s_hello.rpc_id(1, PROTO, player_name))
+	multiplayer.connected_to_server.connect(func() -> void: _s_hello.rpc_id(1, PROTO, player_name, ClientUpdate.version()))
 	multiplayer.connection_failed.connect(func() -> void: failed.emit("no server at " + address))
 	multiplayer.server_disconnected.connect(func() -> void:
 		print("net: the server went away")
@@ -336,6 +366,7 @@ func leave() -> void:
 	set_process(false)
 	multiplayer.multiplayer_peer = null
 	journal.clear()
+	_base_n = 0
 	_by_chunk.clear()
 	_queued.clear()
 	peers.clear()
@@ -354,6 +385,7 @@ func _c_welcome(s: int, mode: String, save: Dictionary, others: Dictionary) -> v
 	player_save = save
 	peers = others
 	journal.clear()
+	_base_n = 0
 	_by_chunk.clear()
 
 
@@ -383,7 +415,11 @@ func _c_batch(bytes: PackedByteArray) -> void:
 			if op.is_empty():
 				continue
 			stats["ops_recv"] += 1
-			_add(op)
+			_latency(ev)
+			if op.get("live", false):
+				stats["live_recv"] += 1
+			else:
+				_add(op)
 			_apply(op, main.bubble if main else null)
 		elif items_ready:
 			_item_event(ev)
@@ -464,6 +500,10 @@ func _item_event(ev: Dictionary) -> void:
 	if ev["k"] == "item":
 		stats["items_recv"] += 1
 		main.net_item_spawn(ev)
+	elif ev["k"] == "block":
+		stats["blocks_recv"] += 1
+		_latency(ev)
+		main.net_block(ev)
 	elif ev["k"] == "picked":
 		stats["picked_recv"] += 1
 		if int(ev["by"]) == multiplayer.get_unique_id():
@@ -518,15 +558,20 @@ func _apply(op: Dictionary, bubble: SimBubble) -> bool:
 	if ok and op["k"] in ["box", "voxels"]:   # the scripted proof reads these: the first cell holds the op's material
 		var p: Vector3i = op["lo"] if op["k"] == "box" else Vector3i(op["cells"][0], op["cells"][1], op["cells"][2])
 		var want: int = op["m"] if op["k"] == "box" else op["mats"][0]
-		stats["verify_ok" if bubble.get_voxel(p) == want else "verify_bad"] += 1
+		var hit := bubble.get_voxel(p) == want
+		stats["verify_ok" if hit else "verify_bad"] += 1
+		if hit and op.get("live", false):
+			stats["live_ok"] += 1   # a flame landed in this client's sim
 	return ok
 
 
 ## Runs a player action with `recording` on: its voxel writes and item spawns are shared.
-func record(cb: Callable) -> void:
+func record(cb: Callable) -> Variant:
+	var was := recording
 	recording = true
-	cb.call()
-	recording = false
+	var r: Variant = cb.call()
+	recording = was   # nested actions (the offhand's turn) keep the outer one recorded
+	return r
 
 
 ## An edit made here: journaled and sent with this frame's batch. The edit hooks call this unless `applying`.
@@ -575,8 +620,12 @@ func flush() -> void:
 		send_op(NetOps.voxels(_pending, _pending_mats))
 		_pending = PackedInt32Array()
 		_pending_mats = PackedByteArray()
+	_flush_blocks()
 	if _out.is_empty() or not active or is_server:
 		return
+	var now := int(Time.get_unix_time_from_system() * 1000.0)
+	for ev in _out:
+		ev["ts"] = now   # the receiver's delay (lat_ms_*): clocks agree on one machine, NTP over Tailscale
 	_s_batch.rpc_id(1, var_to_bytes(_out))
 	stats["batches_sent"] += 1
 	_out = []
@@ -599,6 +648,8 @@ func replay_column(bubble: SimBubble, w0: Vector3i, count: int) -> void:
 	for i in order:
 		if _apply(journal[i], bubble):
 			stats["ops_replayed"] += 1
+			if i < _base_n:
+				stats["base_replayed"] += 1
 
 
 func save_player(d: Dictionary) -> void:
@@ -618,6 +669,7 @@ func _process(delta: float) -> void:
 	_save_accum += delta
 	if is_server:
 		_answer_probes()
+		updates.poll()
 		if _save_accum >= SAVE_S:
 			_save_accum = 0.0
 			_save_files()
@@ -657,7 +709,7 @@ func _answer_probes() -> void:
 		if _discovery.get_packet().get_string_from_utf8() != ServerFinder.PROBE:
 			continue
 		_discovery.set_dest_address(_discovery.get_packet_ip(), _discovery.get_packet_port())
-		_discovery.put_packet(ServerFinder.answer({"name": server_name, "seed": seed_value, "game_mode": game_mode, "players": peers.size(), "port": _port, "proto": PROTO, "id": _server_id}))
+		_discovery.put_packet(ServerFinder.answer({"name": server_name, "seed": seed_value, "game_mode": game_mode, "players": peers.size(), "port": _port, "proto": PROTO, "ver": updates.version, "id": _server_id}))
 
 
 ## For DebugCapture's JSON: counts plus bytes per second since the connection.
@@ -671,3 +723,84 @@ func snapshot() -> Dictionary:
 	s["recv_bytes_per_s"] = snappedf(s["recv_bytes"] / secs, 0.1)
 	s["seconds"] = snappedf(secs, 0.1)
 	return s
+
+
+# ---------------- block entities, live ops, world ops (ADR 0165) ----------------
+
+var _touched := {}		   # client: anchors a player action placed, changed or removed this frame
+var _blocks := {}			# server: "x,y,z" -> the entity's saved dict, the newest any player sent
+var _blocks_dirty := false
+var _base_n := 0             # client: the first _base_n journal entries are world ops (add_world_ops)
+const BLOCK_MAX_BYTES := 65536
+
+
+## A block entity at `pos` changed by this player's action (BlockEntities, the inventory screen): its
+## saved dict goes with this frame's batch (Main.net_block_out says what, if anything).
+func touch_block(pos: Vector3i) -> void:
+	if active and not is_server and not applying:
+		_touched[pos] = true
+
+
+func _flush_blocks() -> void:
+	if main != null:
+		for p: Vector3i in _touched:
+			var d: Variant = main.net_block_out(p)
+			if d is Dictionary:
+				_out.append({"k": "block", "pos": p, "d": d})
+				stats["blocks_sent"] += 1
+	_touched.clear()
+
+
+## Server: keeps the newest state of the block at ev.pos ({} = removed). False for a malformed event.
+func _keep_block(ev: Dictionary) -> bool:
+	var p: Variant = ev.get("pos")
+	var d: Variant = ev.get("d")
+	if not (p is Vector3i) or not (d is Dictionary) or var_to_bytes(d).size() > BLOCK_MAX_BYTES:
+		return false
+	var key := "%d,%d,%d" % [p.x, p.y, p.z]
+	if d.is_empty():
+		_blocks.erase(key)
+	else:
+		d["pos"] = [p.x, p.y, p.z]   # the key and the entity agree, whatever the sender wrote
+		_blocks[key] = d
+	_blocks_dirty = true
+	stats["blocks_recv"] += 1
+	return true
+
+
+static func _pos_of(d: Dictionary) -> Vector3i:
+	var a: Array = d.get("pos", [0, 0, 0])
+	return Vector3i(int(a[0]), int(a[1]), int(a[2]))
+
+
+## Sent to who is here, applied, never journaled: a flame would light again at every replay.
+func send_live(op: Dictionary) -> void:
+	if not active or is_server:
+		return
+	op["live"] = true
+	stats["live_sent"] += 1
+	_out.append(op)
+
+
+## Edits every client makes itself from the seed (the monolith): indexed before the journal, so the
+## column replay puts them back when terrain regenerates (a rejoin, a walk away and back), under the
+## players' own edits.
+func add_world_ops(ops: Array) -> void:
+	if not active or is_server or ops.is_empty():
+		return
+	var all: Array = ops + journal
+	journal = []
+	_by_chunk.clear()
+	for op in all:
+		_add(op)
+	stats["base_ops"] += ops.size()
+	_base_n += ops.size()
+
+
+func _latency(ev: Dictionary) -> void:
+	if not ev.has("ts"):
+		return
+	var ms := maxi(0, int(Time.get_unix_time_from_system() * 1000.0) - int(ev["ts"]))
+	stats["lat_ms_max"] = maxi(stats["lat_ms_max"], ms)
+	stats["lat_ms_sum"] += ms
+	stats["lat_n"] += 1
