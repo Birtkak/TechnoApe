@@ -131,10 +131,10 @@ static func flora(name: String, m: int, s: int) -> Dictionary:
 					var h := 1 if name == "frost_lichen" else (2 if d == 0 else 1 + int(name == "lingonberry" and d == 1 and (s >> (21 + lx + lz)) & 1 == 1))
 					for y in h:
 						out[o + Vector3i(0, y, 0)] = m
-				"bromeliad", "aloe":
+				"bromeliad", "aloe", "sagebrush":
 					if corner_off:
 						continue
-					for y in maxi(1, (3 if name == "aloe" else 2) - d):
+					for y in maxi(1, (2 if name == "bromeliad" else 3) - d):
 						out[o + Vector3i(0, y, 0)] = m
 				"cattail":
 					var h := 3 + ((s >> 10) % 3)

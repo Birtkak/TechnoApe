@@ -190,7 +190,7 @@ const SLAG := 220                  # smelting waste: a powder that piles at a ma
 const CHIMNEY := 221               # a brick flue: smoke of the machine under a stack of these leaves at its top
 
 ## The low biome flora drawn as multi-voxel pieces (FineGen flora_piece, PlantStamps.flora); grasses stay tufts.
-const FLORA_PIECES := ["desert_marigold", "fire_lily", "bluebell", "sea_aster", "moss_campion", "lingonberry", "frost_lichen", "bromeliad", "aloe", "cattail"]
+const FLORA_PIECES := ["desert_marigold", "fire_lily", "bluebell", "sea_aster", "moss_campion", "lingonberry", "frost_lichen", "bromeliad", "aloe", "cattail", "sagebrush"]
 const ATLAS_TILES := Vector2i(8, 28)   # rows grow at the bottom, so tile indices keep their meaning
 # Liquids with a "fluid_slot" are Minecraft-style fluids in the terrain (godot_voxel
 # VoxelBlockyFluid): a full cell is the material's own voxel id, a cell with 1..7

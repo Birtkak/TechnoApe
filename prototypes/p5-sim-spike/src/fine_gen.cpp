@@ -434,11 +434,11 @@ static bool heather_clump(int wx, int wz, int seed, int chance, uint16_t &veg, i
 // The low biome flora as multi-voxel pieces (2026-11-08: "most decorative things need to be multi-voxel"), on the
 // heather lattice: one piece per 4 x 4 columns on its inner 3 x 3 (lx, lz 0..2), `ch` the cell's hash. Flowers stand a
 // head of bloom on a stem with petals round it (bluebells droop), cushions and berries are low domes, bromeliads and
-// aloes rosettes, cattails a stalk with one leaf. False: this column of the piece stays empty. PlantStamps.flora mirrors it.
+// aloes and sagebrush rosettes, cattails a stalk with one leaf. False: this column of the piece stays empty. PlantStamps.flora mirrors it.
 static bool is_flora_piece(uint16_t m) {
     using M = WorldGen::Mat;
     return m == M::DESERT_MARIGOLD || m == M::FIRE_LILY || m == M::BLUEBELL || m == M::SEA_ASTER || m == M::MOSS_CAMPION ||
-           m == M::LINGONBERRY || m == M::FROST_LICHEN || m == M::BROMELIAD || m == M::ALOE || m == M::CATTAIL;
+           m == M::LINGONBERRY || m == M::FROST_LICHEN || m == M::BROMELIAD || m == M::ALOE || m == M::CATTAIL || m == M::SAGEBRUSH;
 }
 
 static bool flora_piece(uint16_t m, int lx, int lz, uint32_t ch, int h0, int h1, uint16_t &veg, int &veg_h, uint16_t &veg_head) {
@@ -459,9 +459,9 @@ static bool flora_piece(uint16_t m, int lx, int lz, uint32_t ch, int h0, int h1,
             veg = m;
             veg_h = m == M::FROST_LICHEN ? 1 : (d == 0 ? 2 : 1 + (int)(m == M::LINGONBERRY && d == 1 && ((ch >> (21 + lx + lz)) & 1)));
             return true;
-        case M::BROMELIAD: case M::ALOE:
+        case M::BROMELIAD: case M::ALOE: case M::SAGEBRUSH:
             if (corner_off) return false;
-            veg = m; veg_h = std::max(1, (m == M::ALOE ? 3 : 2) - d);
+            veg = m; veg_h = std::max(1, (m == M::BROMELIAD ? 2 : 3) - d);
             return true;
         case M::CATTAIL: {
             const int hgt = h0 + (int)((ch >> 10) % (uint32_t)(h1 - h0 + 1));
