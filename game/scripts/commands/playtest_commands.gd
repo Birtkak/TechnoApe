@@ -183,6 +183,8 @@ func _monolith(_args: PackedStringArray) -> Dictionary:
 	var whole := 0
 	var loaded := 0
 	var air := 0
+	var in_bubble := 0
+	var other := {}
 	var boxes: Array = Monolith.boxes(main.world, main._monolith_spawn)
 	for b in boxes:
 		var c: Vector3i = (b[0] + b[1] - Vector3i.ONE) / 2   # hi is exclusive (fill_box)
@@ -190,11 +192,16 @@ func _monolith(_args: PackedStringArray) -> Dictionary:
 			continue
 		loaded += 1
 		var m: int = main.world.get_voxel(c)
+		if main.bubble.get_voxel(c) == b[2]:
+			in_bubble += 1   # the sim is ahead of the terrain: an edit reaches it only on the next push
 		if m == b[2]:
 			whole += 1
 		elif m == GameMaterials.AIR:
-			air += 1   # missing; a centre another box overlaps holds that box's material instead
-	return CommandRegistry.ok("monolith: %d of %d loaded boxes in place, %d air (%d boxes)" % [whole, loaded, air, boxes.size()])
+			air += 1   # carved by a later box, or gone
+		else:
+			var n := GameMaterials.name_of(m)
+			other[n] = int(other.get(n, 0)) + 1   # another box over it, or what weather and plants put there
+	return CommandRegistry.ok("monolith: %d of %d loaded boxes in place, %d air (%d boxes); %d in the bubble; others %s" % [whole, loaded, air, boxes.size(), in_bubble, JSON.stringify(other)])
 
 
 func _count(args: PackedStringArray) -> Dictionary:
