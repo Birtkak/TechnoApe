@@ -971,7 +971,7 @@ func _keep_chunk(ev: Dictionary) -> bool:
 func _chunk_in(ev: Dictionary) -> void:
 	stats["chunks_recv"] += 1
 	var p: Vector3i = ev["p"]
-	var vb: VoxelBuffer = stream.put(p, ev["b"], int(ev["n"]))
+	var vb: Variant = stream.put(p, ev["b"], int(ev["n"]))   # a VoxelBuffer: untyped, the server parses this file without the extension
 	if vb == null or main == null or main.world == null or main.bubble == null:
 		return
 	if main.world.is_area_loaded(p) and not main.bubble.is_chunk_loaded(p - main.bubble.origin):
@@ -987,8 +987,8 @@ func paste_mirror(w0: Vector3i, count: int) -> void:
 		return
 	for k in count:
 		var wc := Vector3i(w0.x, w0.y + k, w0.z)
-		var vb: VoxelBuffer = stream.block(wc)
-		if vb != null and main.world.read_chunk(wc) != vb.get_channel_as_byte_array(VoxelBuffer.CHANNEL_TYPE):
+		var vb: Variant = stream.block(wc)
+		if vb != null and main.world.read_chunk(wc) != stream.bytes16_of(vb):
 			main.world.paste_chunk(wc, vb)
 			stats["chunks_pasted"] += 1
 
@@ -999,10 +999,7 @@ func paste_mirror(w0: Vector3i, count: int) -> void:
 func snapshot_chunk(wc: Vector3i, bytes16: PackedByteArray) -> void:
 	if stream == null or not active or is_server:
 		return
-	var vb := VoxelBuffer.new()
-	vb.create(Settings.CHUNK, Settings.CHUNK, Settings.CHUNK)
-	vb.set_channel_from_byte_array(VoxelBuffer.CHANNEL_TYPE, bytes16)
-	stream.put_own(wc, vb)
+	stream.put_own_bytes16(wc, bytes16)
 
 
 ## Client: the chunks snapshotted since the last frame go out in this frame's batch (`now`: on the wire

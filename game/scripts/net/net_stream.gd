@@ -46,6 +46,18 @@ func put_own(pos: Vector3i, vb: VoxelBuffer) -> void:
 	_mutex.unlock()
 
 
+## The sim's 16-bit cells (VoxelBuffer order) as this client's snapshot.
+func put_own_bytes16(pos: Vector3i, bytes16: PackedByteArray) -> void:
+	var vb := VoxelBuffer.new()
+	vb.create(Settings.CHUNK, Settings.CHUNK, Settings.CHUNK)
+	vb.set_channel_from_byte_array(VoxelBuffer.CHANNEL_TYPE, bytes16)
+	put_own(pos, vb)
+
+
+static func bytes16_of(vb: VoxelBuffer) -> PackedByteArray:
+	return vb.get_channel_as_byte_array(VoxelBuffer.CHANNEL_TYPE)
+
+
 func _note_top(pos: Vector3i) -> void:
 	var k := Vector2i(pos.x, pos.z)
 	_col_top[k] = maxi(int(_col_top.get(k, NONE)), pos.y)

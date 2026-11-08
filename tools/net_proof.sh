@@ -84,4 +84,5 @@ for i in $(seq 1 40); do grep -q '"net_server":"done"' out/net_server.log && bre
 grep -m1 '"net_server":"done"' out/net_server.log || { echo "server: no final JSON (see out/net_server.log)"; fail=1; }
 ls out/net_b/strip.png 2>/dev/null && echo "contact sheet: game/out/net_b/strip.png"
 ls out/net_b/shots/net_look.png 2>/dev/null && echo "alice's look from bob: game/out/net_b/shots/net_look.png"
+bash ../tools/server_bare_check.sh $((PORT + 100)) || fail=1   # the deployed server has no voxel extension: every script it loads must parse without it
 exit $fail
