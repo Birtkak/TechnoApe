@@ -192,13 +192,12 @@ static func crop(kind: String, age: int, look: int, p: Vector3i) -> Dictionary:
 	var cols := [Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 1), Vector3i(1, 0, 1)]
 	var drop := [0, 1 + ((s >> 1) & 1), 1 + ((s >> 2) & 1), (s >> 3) & 1]
 	var out := {}
-	if kind == "wheat":
+	if GameMaterials.name_of(look).begins_with("wheat"):   # wheat, einkorn, emmer, flax share the wheat looks
 		var m := look
 		var ear := GameMaterials.id_of("wheat_ear")
-		var h: int = [1, 1, 2, 3, 4, 5, 6, 6][age]
+		# a just-planted seed already shows a tuft of blades on all four columns (bug report 2026-11-08_16-12-57)
+		var h: int = [2, 2, 3, 3, 4, 5, 6, 6][age]
 		for i in 4:
-			if age < 2 and i > 1:
-				continue   # sprouts: two blades
 			var ch: int = maxi(h - int(drop[i]), 1)
 			var ears := 0 if age < 6 else (2 if age == 7 else 1)
 			for y in ch:
@@ -212,8 +211,6 @@ static func crop(kind: String, age: int, look: int, p: Vector3i) -> Dictionary:
 	out[Vector3i.ZERO] = look
 	for i in 4:
 		var ch: int = maxi(h - int(drop[i]), 1)
-		if stage == 0 and i > 1:
-			continue
 		for y in range(0 if i > 0 else 1, ch):
 			out[cols[i] + Vector3i(0, y, 0)] = leaf
 	if stage == 3:
