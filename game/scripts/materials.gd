@@ -415,11 +415,18 @@ static func _flora_defs() -> Array:
 
 
 ## Ids 235..237: plants the generator lays per column (FineGen, the vegetation pass): dune grass on beaches, heather
-## on the highlands and scrub, sedge through the tundra's snow. Tufts like tall grass, tiles 196..198.
+## on the highlands and scrub, sedge through the tundra's snow. Tufts like tall grass (heather: clumps), tiles 196..198.
 static func _plant_defs() -> Array:
 	var out := []
 	for e in [["dune_grass", 196], ["heather", 197], ["tundra_sedge", 198]]:
 		out.append({"name": e[0], "cell_type": "solid", "density": 10, "hp": 5, "burnable": true, "fire_hp": 50, "ignite_chance": 0.6, "autoignition_temperature": 25, "temperature_of_fire": 50, "on_fire_convert_to_material": 0, "on_fire_flame_material": 12, "on_fire_smoke_material": 11, "generates_smoke": 3, "tiles": [e[1], e[1], e[1]], "transparent": false, "micro": "tuft", "replaceable": true})
+	# heather is a clump of cubes like a flower (bug report 2026-11-08_16-02-53): purple bells on plant_stem
+	# (FineGen heather_clump, PlantStamps for a placed one), walked through and dug as one piece
+	var heather: Dictionary = out[1]
+	heather.erase("micro")
+	heather.erase("replaceable")
+	heather["clutter"] = "flower"
+	heather["floor_only"] = true
 	return out
 
 

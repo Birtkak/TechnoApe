@@ -46,6 +46,8 @@ static func for_placed(material: int, p: Vector3i) -> Dictionary:
 		return _mushroom(material, s)
 	if name == "seashell":
 		return _shell(material, s)
+	if name == "heather":
+		return heather(material, s)
 	if name == "lightning_rod":   # ADR 0149: a 2 m pole over the placed foot
 		var out := {}
 		for y in range(1, ROD_H):
@@ -80,6 +82,23 @@ static func _flower(head: int, s: int) -> Dictionary:
 				out[Vector3i(dx, h, dz)] = head
 			if ax <= 1 and az <= 1:
 				out[Vector3i(dx, h + 1, dz)] = head
+	return out
+
+
+## A heather clump, as FineGen::heather_clump lays them: a 3 x 3 dome of stems (centre 3-4 high, edges one
+## less, corners two less or gone) under the purple bells. Offsets from the clump's middle column.
+static func heather(bells: int, s: int) -> Dictionary:
+	var out := {}
+	var stem := GameMaterials.id_of("plant_stem")
+	for lz in 3:
+		for lx in 3:
+			var ax := absi(lx - 1)
+			var az := absi(lz - 1)
+			var h := 3 + ((s >> 10) & 1) - ax - az
+			if ax + az == 2 and (s >> (12 + lx + lz * 3)) & 1:
+				h = 0
+			for y in h:
+				out[Vector3i(lx - 1, y, lz - 1)] = bells if y == h - 1 else stem
 	return out
 
 

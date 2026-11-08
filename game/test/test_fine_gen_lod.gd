@@ -472,6 +472,7 @@ func test_highlands_are_open_moor() -> void:
 	var g := FineGen.new()
 	g.configure(1337, Settings.SEA_LEVEL_VOXEL, Settings.WORLD_HEIGHT_VOXELS)
 	var heather := GameMaterials.id_of("heather")
+	var stem := GameMaterials.id_of("plant_stem")
 	var leaves := [GameMaterials.LEAVES, GameMaterials.BIRCH_LEAVES, GameMaterials.SPRUCE_LEAVES]
 	var rock := [GameMaterials.STONE, GameMaterials.GRAVEL_STATIC]
 	for k in GameMaterials.ROCK_KINDS:
@@ -489,7 +490,7 @@ func test_highlands_are_open_moor() -> void:
 				var top := 0
 				for y in 64:
 					var m := b.decode_u16((c * 64 + y) * 2)
-					n_heather += int(m == heather)
+					n_heather += int(m == heather or m == stem)   # a clump: stems under the bells
 					n_leaves += int(m in leaves)
 					if m != 0:
 						top = m
