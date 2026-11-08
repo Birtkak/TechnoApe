@@ -10,7 +10,7 @@ extends Node
 ##   server:  godot --headless --path game -- server=1 seed=1337 [port=7777] [duration=<s>]
 ##   client:  godot --path game -- connect=<host[:port]> name=<player>
 
-const PROTO := 3
+const PROTO := 4   # 4: hello carries the build version (ADR 0166)
 const PORT := 7777
 const STATE_HZ := 20.0
 const SAVE_S := 30.0
@@ -64,6 +64,8 @@ var _port := PORT
 var connect_arg := ""
 var server_name := ""          # server_name= on the command line, else the machine's name
 var _discovery: PacketPeerUDP   # server: answers ServerFinder probes on port + 1
+var updates: ClientUpdate.Host   # server: the client build it hands out (ADR 0166)
+var _client_dir := "user://client"
 var _server_id := "%08x" % (randi() & 0x7fffffff)   # tells one server's answers apart on every route it is reachable by
 
 
@@ -79,6 +81,7 @@ func _ready() -> void:
 			"port": _port = int(kv[1])
 			"duration": _lifetime = float(kv[1])
 			"server_name": server_name = kv[1]
+			"client_dir": _client_dir = kv[1]
 	if OS.get_cmdline_user_args().has("server=1"):
 		_start_server.call_deferred()
 
@@ -103,6 +106,7 @@ func _start_server() -> void:
 	if server_name == "":
 		server_name = OS.get_environment("COMPUTERNAME") if OS.has_environment("COMPUTERNAME") else OS.get_environment("HOSTNAME")
 	_discovery = PacketPeerUDP.new()
+	updates = ClientUpdate.Host.new(_client_dir, _port + ClientUpdate.PORT_OFFSET, ClientUpdate.version())
 	if _discovery.bind(_port + 1) != OK:
 		push_warning("net: port %d is taken, the server will not show in the Multiplayer list" % (_port + 1))
 	var f := FileAccess.open_compressed(_journal_path(), FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
@@ -171,12 +175,16 @@ func _save_files() -> void:
 
 
 @rpc("any_peer", "reliable")
-func _s_hello(proto: int, pname: String) -> void:
+func _s_hello(proto: int, pname: String, ver := "") -> void:
 	if not is_server:
 		return
 	var id := multiplayer.get_remote_sender_id()
 	if proto != PROTO:
-		_c_refused.rpc_id(id, "protocol %d, this server speaks %d" % [proto, PROTO])
+		_c_refused.rpc_id(id, "protocol %d, this server speaks %d: get the new build from the host" % [proto, PROTO])
+		return
+	if ver != updates.version:   # an old client never joins (ADR 0166): it updates and comes back
+		_c_refused.rpc_id(id, ClientUpdate.UPDATE_PREFIX + updates.version)
+		print("net: %s refused, build %s, this server wants %s" % [pname, ver, updates.version])
 		return
 	_c_welcome.rpc_id(id, seed_value, game_mode, _players.get(pname, {}), peers.duplicate())
 	var at := 0
@@ -318,7 +326,7 @@ func join(address: String, pname: String) -> void:
 		failed.emit("cannot connect to %s (%d)" % [address, err])
 		return
 	multiplayer.multiplayer_peer = peer
-	multiplayer.connected_to_server.connect(func() -> void: _s_hello.rpc_id(1, PROTO, player_name))
+	multiplayer.connected_to_server.connect(func() -> void: _s_hello.rpc_id(1, PROTO, player_name, ClientUpdate.version()))
 	multiplayer.connection_failed.connect(func() -> void: failed.emit("no server at " + address))
 	multiplayer.server_disconnected.connect(func() -> void:
 		print("net: the server went away")
@@ -618,6 +626,7 @@ func _process(delta: float) -> void:
 	_save_accum += delta
 	if is_server:
 		_answer_probes()
+		updates.poll()
 		if _save_accum >= SAVE_S:
 			_save_accum = 0.0
 			_save_files()
@@ -657,7 +666,7 @@ func _answer_probes() -> void:
 		if _discovery.get_packet().get_string_from_utf8() != ServerFinder.PROBE:
 			continue
 		_discovery.set_dest_address(_discovery.get_packet_ip(), _discovery.get_packet_port())
-		_discovery.put_packet(ServerFinder.answer({"name": server_name, "seed": seed_value, "game_mode": game_mode, "players": peers.size(), "port": _port, "proto": PROTO, "id": _server_id}))
+		_discovery.put_packet(ServerFinder.answer({"name": server_name, "seed": seed_value, "game_mode": game_mode, "players": peers.size(), "port": _port, "proto": PROTO, "ver": updates.version, "id": _server_id}))
 
 
 ## For DebugCapture's JSON: counts plus bytes per second since the connection.

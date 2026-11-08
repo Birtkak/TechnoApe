@@ -50,3 +50,6 @@ game/out/
 game/.godot/
 game/addons/*/bin/*.dll
 prototypes/p7-raycast-near/addons/technosim/bin/
+
+# client build version, stamped by tools/deploy_server.sh (ADR 0166)
+game/build_version.txt
