@@ -420,7 +420,8 @@ func _c_batch(bytes: PackedByteArray) -> void:
 				stats["live_recv"] += 1
 			else:
 				_add(op)
-			_apply(op, main.bubble if main else null)
+			if _apply(op, main.bubble if main else null) and op.get("live", false) and main.get("weather") != null:
+				main.weather.fire_heard(Vector3(op["box"][0]))   # its sound and its rain timer, as a fire lit here
 		elif items_ready:
 			_item_event(ev)
 		else:

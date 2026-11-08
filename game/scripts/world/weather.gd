@@ -200,6 +200,13 @@ func ignite(hit: VoxelRaycastResult) -> bool:
 	return true
 
 
+## A fire another player lit (ADR 0165): heard and tracked like one lit here.
+func fire_heard(spot: Vector3) -> void:
+	stats["heard"] = int(stats.get("heard", 0)) + 1
+	fire_started(spot)
+	Sound.play("sim/ignite", spot + Vector3(0.5, 0.5, 0.5))
+
+
 ## A fire somewhere (flint and steel, a burst charcoal pit): starts the rain timer at once.
 func fire_started(at: Vector3) -> void:
 	_note_fire(Vector3i(at.floor()))
