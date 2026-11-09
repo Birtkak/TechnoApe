@@ -44,10 +44,30 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
 - Platforms: Windows client, Linux server in Docker on the home server over Tailscale, automatic updates
   (ADR 0005).
 - Day about 20 minutes; saves hold only what changed (ADR 0002).
+- Feel and rules (ADR 0008, detail in `fundamentals.md`):
+  - **Tools are brushes:** a dig or place covers 1 m (2 x 2 x 2 blocks), single blocks on a held key; building
+    drags out lines, walls and floors.
+  - **Survival is harsh:** food, water, temperature and air. Every need starts as a chore and ends as a
+    factory.
+  - **The planet's facts are rules:** the sun and time zones (dark, cold night side; solar power follows the
+    sun), a finite planet (deposits run out, scars show from orbit), real orbits (things can orbit; cargo can
+    be shot to the moon).
+  - **Megaprojects pull the ages:** each tech age ends in a planet-scale build that changes the world.
+  - **Planet size is open:** 1 km first; 1-5 km or more if playtests find it limiting.
+- Progression (ADR 0009, proposal of the tiers in `progression.md`): **you are an ape** that starts with bare
+  hands; a **starter** of stone, fire, steam and cogs (an hour to copper, 7-10 hours to electricity); then
+  **electricity in GregTech-style tiers**, quite realistic; **released steam returns as rain**; megaprojects
+  are **free-form, judged by a rule**; orbit and the moon are **visited about halfway, lived on late**; after
+  the moon base an **exotic resource** feeds the space technology that leaves the planet; late in the game a
+  **whole planet can be mined out and drained**.
+- The planet's air (ADR 0010, detail in `progression.md`): a **water cycle, weather, pollution and
+  radiation** run for the whole planet, not only around players.
 
 ## Open design questions (decide when they become relevant)
-- Survival: which needs (hunger, temperature, air in space) and how hard.
-- Progression: the tech ages and how far they go before space travel.
+- The tiers themselves: `progression.md` proposes Starter, LV, MV, HV, EV, IV and an exotic tier, with a
+  megaproject each; the exotic resource's name and rule.
+- How an ape learns (by doing it once in the world, or a research tree); AI players as the ape's troop.
+- How fast needs drain, and what death costs.
 - What the 8 cube corners hold as landmarks (ADR 0003).
 - Combat and creatures.
 - Magic or wands: dropped for now, may return later.

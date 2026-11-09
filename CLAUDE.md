@@ -9,7 +9,9 @@ most implementation, the developer steers, plays and decides.
 code, data and decisions do not apply; do not look for them or rebuild them from git history unless the
 developer asks.
 
-Ground truth: `docs/design/vision.md`. Decisions: `docs/decisions/` (ADR 0001-0006, read them first).
+Ground truth: `docs/design/vision.md`; what the code must be able to do (feel, expandability, performance,
+testing): `docs/design/fundamentals.md`; the ages: `docs/design/progression.md`. Decisions: `docs/decisions/`
+(ADR 0001-0010, read them first).
 Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 
 ## Working principles

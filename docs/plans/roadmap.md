@@ -34,14 +34,42 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      (`crates/bot`, `technoape-bot`);
    - ~~world data on the cube-sphere, generation from the seed, streaming, visible-but-tidy LOD, the moon~~
      done 2026-11-10: the engine base had all but the LOD seams; skirts in `generate` close them;
-   - radial gravity, walking and jumping in the local frame, collision;
-   - dig and place blocks; saves of only what changed;
-   - water as fill levels, with fine 12.5 cm splashes near the player;
+   - radial gravity, walking and jumping in the local frame, collision. **In progress, uncommitted in the
+     working tree (2026-11-09):** `crates/engine/src/phys.rs` plus the server, client (`run=play`) and bot
+     (`walk`) wiring; the workspace compiles and all 20 tests pass. Left to do: write ADR 0007 (the code
+     refers to it), run the benchmark, commit. Check first: `blocked` samples the box at heights 0, 0.9 and
+     1.8 m, so a lone block at 1.0-1.5 m above the feet looks walkable-through (found by reading, not run);
+     sample every block layer and add the test;
+   - **test harness I** (`docs/design/fundamentals.md` section 4, steps 1-3): invariants with a fast-forward
+     soak of random bots biased to seams, a state hash per tick, the flight recorder with replay; one gate,
+     `tools/check.sh`. Before digging and saves, which it is there to catch;
+   - **cheap speed levers**, one spike on the benchmark (fundamentals section 3): mimalloc, a fast hasher,
+     worker priority below the frame thread; a `huge` row for the 4 km planet (N = 12288);
+   - dig and place blocks **as brushes and dragged shapes, predicted on the client** (ADR 0008); a block
+     registry from data instead of `MATERIALS`; saves of only what changed;
+   - **test harness II** with the first visuals that can break: fixed viewpoints compared by number, the
+     crack detector, the feel report;
+   - water as fill levels, with fine 12.5 cm splashes near the player; the total volume is counted from the
+     start (the water cycle needs it, ADR 0010);
    - lighting: block light, the sun around the planet, the 20 minute day, shadow maps;
    - 3D audio with cave reverb and material sounds.
 2. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; the
    Earth-like biomes and the moon's ores; crafting and the first machines (designed fresh); AI players;
    jetpack and the climb to orbit; the dedicated server on the home server and auto-update (ADR 0005).
+   From ADR 0008: the survival needs and rooms (air, heat); counted deposits; gravity that falls off with
+   distance and orbits; the first megaproject. The planet's size is decided after the first playtest.
+   From ADR 0010, **the planet's air:** one coarse grid for the whole planet. Spike it first and measure the
+   tick cost on the 1 km and 4 km planets. Then, in this order:
+   - temperature and the **water cycle** (steam and evaporation return as rain), with the survival needs;
+   - **weather** (clouds, rain, wind, storms, lightning), with LV;
+   - **pollution** (smoke and waste in air, water and soil; filters and scrubbers), with MV;
+   - **radiation** (ore, reactors, waste, fallout; unshielded space and the moon), with EV.
+
+   Keep open from now on (ADR 0009): a whole planet can be mined out and drained late in the game, so no
+   world data or save format may assume the core is never dug or that water is a fixed amount.
+
+   Content target after that (ADR 0009, `docs/design/progression.md`): the starter to HV, which is one
+   planet, the planet's air up to pollution, and three networks (pipes, shafts, wires) on one network engine.
 
 ## The shared benchmark
 The engine keeps the spikes' benchmark as its performance check, so numbers stay comparable over time.
