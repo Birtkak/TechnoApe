@@ -30,7 +30,7 @@ The grand idea is now a solar system of spherical planets you walk around, dig i
 - **Engine: lean rewrite.** A custom engine is assumed unless Godot (with our own GPU voxel renderer in the
   native extension) hits the targets on the shared small-planet benchmark. Decided by measurement.
 - **Sphere grid and block look: research decides** (hex prisms vs cube-sphere vs rounded cube; patterned
-  flat-colour cells vs pixel textures).
+  flat-colour cells vs pixel textures). Grid: ADR 0172 (equi-angular cube-sphere).
 
 ## Consequences
 - The game systems (machines, networks, crafting, survival, server-owned chunks) keep their design but are
