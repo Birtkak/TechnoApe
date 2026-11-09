@@ -39,5 +39,8 @@ the first playable (N = 3072, R = 1061 m); the moon is 177 m.
   (`stand` 2,327 against 2,033 fps); `edit` is slower (1,219 against 1,587 fps) and still 5x inside budget.
 - **Looked at:** filmstrips of `fly` and `orbit`, and full-size stills at a seam and at a cube corner
   (`run=stand at=0,1,1` and `at=1,1,1`): the sphere is round, the grid turns at the seams, no cracks.
-- **Not built yet:** LOD seams (coarse chunks next to fine ones do not line up), textures, lighting beyond one
-  sun, shadows, transparency.
+- **LOD seams (2026-11-10):** skirts close them: every chunk draws its own border walls two cells under
+  the surface, so a coarser neighbour's different surface shows as a step, never a hole (`docs/images/
+  lod-skirts.png`). Quick runs after: `fly` 2,253 fps / p99 0.95 ms, `edit` 1,963 fps / p99 1.16 ms,
+  `orbit` 3,497 fps; about 15% more quads at the worst view. The full series above predates skirts.
+- **Not built yet:** textures from images, lighting beyond one sun, shadows, transparency.

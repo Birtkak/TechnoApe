@@ -13,6 +13,8 @@ pub const AMP: f64 = 30.0;
 pub const CRUST: f64 = 64.0;
 /// Builds may rise this far above the highest terrain and still be streamed.
 pub const BUILD_HEADROOM: f64 = 16.0;
+/// Border walls reach this many cells under the surface (see `generate`).
+pub const SKIRT: usize = 2;
 
 const fn v(x: i32, y: i32, z: i32) -> IVec3 {
     IVec3::new(x, y, z)
@@ -389,16 +391,45 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
         any_solid |= *m != 0;
     }
     if !any_solid {
-        Gen::Empty
-    } else if !any_air {
-        Gen::Solid
-    } else {
-        Gen::Cells(cells)
+        return Gen::Empty;
     }
+    if !any_air {
+        return Gen::Solid;
+    }
+    // skirts: a neighbour at another detail level draws a different surface, so faces culled against the
+    // padding would leave holes and slivers at the chunk border. Padding cells within SKIRT cells under
+    // air become air, and the chunk draws its own border walls that deep (hidden inside a same-level
+    // neighbour, a tidy step against a coarser or finer one). Bottom-up, so the lookahead sees originals.
+    for z in 0..P - 1 {
+        for y in 0..P {
+            for x in 0..P {
+                let pad = x == 0 || y == 0 || z == 0 || x == P - 1 || y == P - 1;
+                if pad && cells[pidx(x, y, z)] != 0 && (z + 1..=(z + SKIRT).min(P - 1)).any(|a| cells[pidx(x, y, a)] == 0) {
+                    cells[pidx(x, y, z)] = 0;
+                }
+            }
+        }
+    }
+    Gen::Cells(cells)
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn border_walls_follow_the_surface() {
+        let b = Body::new(DVec3::ZERO, 1536, 1337);
+        let mid = (b.n / 2 / CS) as i32;
+        // the chunk whose layers hold the surface in the middle of face 2
+        let hz = b.layer_of(b.height(b.dir(2, (mid * CS + CS / 2) as f64, (mid * CS + CS / 2) as f64))) as i32;
+        let k = Key { body: 0, face: 2, level: 0, pos: IVec3::new(mid, mid, hz.div_euclid(CS)) };
+        let Gen::Cells(c) = generate(&b, k, &[]) else { panic!("surface chunk has cells") };
+        let m = crate::mesh::mesh(&c, false);
+        // every -x face sits at cell x = 0 of a column whose surface is inside the chunk; with +-30 m
+        // terrain most of the 32 border columns qualify, and without skirts there would be none
+        let west = m.quads.iter().filter(|q| (q[0] >> 28) & 7 == 1 && q[0] & 63 == 0).count();
+        assert!(west >= 24, "{west} border faces on the -x side");
+    }
+
     use super::*;
 
     #[test]
@@ -489,14 +520,23 @@ mod tests {
                 let theirs = cells(nk);
                 for z in 0..P {
                     let (lx, ly) = (fi.rem_euclid(CS) as usize + 1, fj.rem_euclid(CS) as usize + 1);
-                    assert_eq!(mine[pidx(0, y as usize, z)], theirs[pidx(lx, ly, z)], "y {y} z {z}");
+                    // the padding is the neighbour's border with the skirt rule applied: air within SKIRT
+                    // cells under air (the neighbour's own border cells are never padding, so they keep it)
+                    let mut want = theirs[pidx(lx, ly, z)];
+                    if z < P - 1 && (z + 1..=(z + SKIRT).min(P - 1)).any(|a| theirs[pidx(lx, ly, a)] == 0) {
+                        want = 0;
+                    }
+                    assert_eq!(mine[pidx(0, y as usize, z)], want, "y {y} z {z}");
                     checked += 1;
                 }
             }
         }
         assert_eq!(checked, 3 * 32 * 34);
         let k = Key { body: 0, face: 0, level: 0, pos: IVec3::new(0, 1, top) };
-        assert_eq!(cells(k)[pidx(0, 40 - CS as usize + 1, 6)], m, "the edit past the seam shows in the padding");
+        // the edit past the seam shows in the padding (a placed block under air is skirted away, so dig)
+        if m == 0 {
+            assert_eq!(cells(k)[pidx(0, 40 - CS as usize + 1, 6)], 0, "the edit past the seam shows in the padding");
+        }
     }
 
     #[test]
