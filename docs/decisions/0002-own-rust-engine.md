@@ -39,9 +39,9 @@ off the frame from the start.
   farther out.
 - **Liquids are fill levels plus fine splashes.** Each 0.5 m block holds a fill level (smooth surface, flows,
   cheap everywhere); near the player it breaks into 12.5 cm cells for splashes and pouring, and settles back.
-- **One pixel grid for every block, item and model:** one texel size everywhere (16 px per 0.5 m block, so
-  3.125 cm per texel, unless the block look spike changes the number). Every model is built on that grid, so
-  sizes never mismatch.
+- **One pixel grid for every block, item and model:** one texel size everywhere, **16 px per 0.5 m block**
+  (3.125 cm per texel), 16x16 pixel textures rather than flat colours. Settled 2026-11-10 by the block look
+  spike (`prototypes/block-look/`). Every model is built on that grid, so sizes never mismatch.
 - **Lighting:** block light from torches and lamps, the sun from its real direction around the planet, corner
   occlusion, dark caves, and real-time shadow maps for the sun and moving lights.
 - **A day is about 20 minutes**; the sun really circles the planet, so the night side is dark.

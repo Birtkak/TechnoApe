@@ -512,7 +512,7 @@ impl App {
             nquads += d.len as u64;
         }
         let sun = Vec3::new(0.4, 0.8, 0.45).normalize();
-        let mut g = Globals { view_proj: vp.to_cols_array_2d(), sun: [sun.x, sun.y, sun.z, self.args.get("look", 0.0_f32)], bodies: bytemuck::Zeroable::zeroed() };
+        let mut g = Globals { view_proj: vp.to_cols_array_2d(), sun: [sun.x, sun.y, sun.z, 0.0], bodies: bytemuck::Zeroable::zeroed() };
         for (b, o) in self.world.bodies.iter().zip(g.bodies.iter_mut()) {
             // the camera relative to the body in two floats per axis: one float is 0.1 mm coarse at 1 km
             let c = p.pos - b.centre;

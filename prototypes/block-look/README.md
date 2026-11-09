@@ -20,4 +20,6 @@ what the grid size looks like, and that reads the same either way. Real 16x16 im
 
 **Cost:** none measurable; every look is a few ALU ops per pixel on top of the same geometry.
 
-**Answer:** the developer's pick from the sheet, recorded in ADR 0002 (the pixel grid) and the roadmap.
+**Answer (2026-11-10):** look 2, **16 texels per block**. 16 px reads as deliberate pixel art up close and
+still shows texture on far hills; 32 px turns to noise near and mush far; the flat looks make the far hills
+bands of plain colour. Recorded in ADR 0002 and the roadmap; the shader keeps only this look.

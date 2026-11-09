@@ -13,11 +13,11 @@ grid), 0004 (frame budget), 0005 (platforms). Read those first.
   and `crates/client` (window, renderer, benchmark runs), from p15's code. The world is on the cube-sphere
   grid: chunks are (face, column, column, layer) boxes, seams fold in generation, edits and meshing, the
   vertex shader maps the grid to the sphere. Numbers: `docs/benchmarks.md`.
+- **Block look (2026-11-10):** 16x16 pixel textures per block, over flat colours and 32 px textures, picked
+  from a sheet (`prototypes/block-look/`, ADR 0002).
 
 ## Next
-1. **Block look spike:** patterned flat-colour cells against 16x16 pixel textures on the new engine; the
-   developer picks from a sheet. It fixes the pixel grid of ADR 0002.
-2. **First playable** (ADR 0002). Settled 2026-11-09:
+1. **First playable** (ADR 0002). Settled 2026-11-09:
    - the planet has a **1 km radius** (N = 3072 per cube face, R = 1061 m, ADR 0003; about 22 min to walk
      around, 60 m horizon at eye height). The benchmark runs on a 531 m planet (`base`) and on this one
      (`big`); both must hold ADR 0004;
@@ -36,7 +36,7 @@ grid), 0004 (frame budget), 0005 (platforms). Read those first.
    - water as fill levels, with fine 12.5 cm splashes near the player;
    - lighting: block light, the sun around the planet, the 20 minute day, shadow maps;
    - 3D audio with cave reverb and material sounds.
-3. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; the
+2. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; the
    Earth-like biomes and the moon's ores; crafting and the first machines (designed fresh); AI players;
    jetpack and the climb to orbit; the dedicated server on the home server and auto-update (ADR 0005).
 

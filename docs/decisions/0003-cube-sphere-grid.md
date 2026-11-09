@@ -70,4 +70,4 @@ The cube-sphere's cost is its 12 seams and 8 corners:
 - **Seam fold** at chunk borders: the sim, meshing and server chunks pay it only on seam chunks (0.5% of
   cells at R = 300 m).
 - **Long straight builds** turn at seams; build tools show the seam before the player commits.
-- **Open:** what the corner landmarks are (content, later), and the block look (its own spike, ADR 0001).
+- **Open:** what the corner landmarks are (content, later). The block look is settled (ADR 0002).

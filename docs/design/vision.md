@@ -28,8 +28,8 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
    machines and processes that matter. Depth over recipe count.
 3. **Exploration pays.** Biomes, depth and other bodies hold different materials, so going farther and deeper
    opens new routes.
-4. **One clean look.** Every block, item and model sits on one pixel grid (16 px per 0.5 m block unless the
-   block look spike changes it), so nothing is ever the wrong size. Far terrain is honestly coarser.
+4. **One clean look.** Every block, item and model sits on one pixel grid of 16 px per 0.5 m block, with
+   16x16 pixel textures, so nothing is ever the wrong size. Far terrain is honestly coarser.
    Real-time shadows, a sun that circles the planet, dark nights and caves, rich 3D sound.
 5. **Runs perfectly on the dev PC.** The frame budget of ADR 0004 holds in every run, and no system may stall
    the frame thread; weaker PCs use lower presets.
@@ -46,7 +46,6 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
 - Day about 20 minutes; saves hold only what changed (ADR 0002).
 
 ## Open design questions (decide when they become relevant)
-- Block look: patterned flat-colour cells or 16x16 pixel textures (a spike on the new engine).
 - Survival: which needs (hunger, temperature, air in space) and how hard.
 - Progression: the tech ages and how far they go before space travel.
 - What the 8 cube corners hold as landmarks (ADR 0003).

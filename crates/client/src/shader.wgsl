@@ -85,9 +85,9 @@ fn hash(p: vec3i) -> f32 {
     return f32(h & 1023u) / 1023.0;
 }
 
-// Block look spike: g.sun.w picks a variant (prototypes/block-look/README.md).
-//   0 flat + edge line (the spike's look)   1 patterned flat colour
-//   2 16 px pixel texture (procedural)      3 32 px pixel texture
+// Block look: 16 texels per 0.5 m block (ADR 0002, prototypes/block-look/).
+// shortcut: texels are hashed here instead of read from 16x16 images, until content brings a texture atlas.
+const TEXELS: f32 = 16.0;
 fn palette(mat: u32) -> vec3f {
     if (mat == 1u) { return vec3f(0.30, 0.58, 0.20); }
     if (mat == 2u) { return vec3f(0.47, 0.33, 0.20); }
@@ -96,7 +96,8 @@ fn palette(mat: u32) -> vec3f {
 
 // a pixel-art texel on an N x N grid per block face: 3 tones of noise, grass tops, a grass fringe on the
 // upper rows of a grass block's sides, dark crack texels in stone
-fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, n: f32) -> vec3f {
+fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32) -> vec3f {
+    let n = TEXELS;
     let ti = vec2i(floor(t * n));
     let h = hash(cell * i32(n) + vec3i(ti.x, ti.y, i32(dir)));
     let tone = 0.82 + 0.12 * floor(h * 3.0);
@@ -116,25 +117,11 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, n: f32) -> vec3f {
 fn fs(i: VOut) -> @location(0) vec4f {
     let a = i.dir / 2u;
     let sgn = select(1.0, -1.0, (i.dir & 1u) == 1u);
-    let look = u32(g.sun.w);
     let c = chunks[i.ci];
     let cell = vec3i(floor(i.local - axis(a) * sgn * 0.5)) + (c.base >> vec3u((c.info >> 3u) & 31u)) + vec3i(i32(c.info & 7u) * 977);
     let f = fract(i.local);
     let t = vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]);
-    let edge = min(min(t.x, 1.0 - t.x), min(t.y, 1.0 - t.y));
-    // every look: the sides of a grass block are dirt, only its top is grass
-    var col = palette(select(i.mat, 2u, i.mat == 1u && i.dir != 4u));
-    if (look == 0u) {
-        col *= (0.9 + 0.2 * hash(cell)) * select(1.0, 0.8, edge < 0.05);
-    } else if (look == 1u) {
-        // flat colour, a one-texel darker rim and a faint 4x4 checker so a wall is not one slab
-        let q = vec2i(floor(t * 4.0));
-        let checker = select(0.97, 1.03, ((q.x + q.y) & 1) == 0);
-        col *= (0.94 + 0.12 * hash(cell)) * checker * select(1.0, 0.85, edge < 1.0 / 16.0);
-    } else {
-        let n = select(32.0, 16.0, look == 2u);
-        col = texel(i.mat, i.dir, cell, t, f.z, n);
-    }
+    let col = texel(i.mat, i.dir, cell, t, f.z);
     let light = 0.35 + 0.65 * max(dot(normalize(i.normal), g.sun.xyz), 0.0);
     return vec4f(col * light, 1.0);
 }
