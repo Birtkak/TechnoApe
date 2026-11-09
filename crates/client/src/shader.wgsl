@@ -85,19 +85,56 @@ fn hash(p: vec3i) -> f32 {
     return f32(h & 1023u) / 1023.0;
 }
 
+// Block look spike: g.sun.w picks a variant (prototypes/block-look/README.md).
+//   0 flat + edge line (the spike's look)   1 patterned flat colour
+//   2 16 px pixel texture (procedural)      3 32 px pixel texture
+fn palette(mat: u32) -> vec3f {
+    if (mat == 1u) { return vec3f(0.30, 0.58, 0.20); }
+    if (mat == 2u) { return vec3f(0.47, 0.33, 0.20); }
+    return vec3f(0.5, 0.5, 0.52);
+}
+
+// a pixel-art texel on an N x N grid per block face: 3 tones of noise, grass tops, a grass fringe on the
+// upper rows of a grass block's sides, dark crack texels in stone
+fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, n: f32) -> vec3f {
+    let ti = vec2i(floor(t * n));
+    let h = hash(cell * i32(n) + vec3i(ti.x, ti.y, i32(dir)));
+    let tone = 0.82 + 0.12 * floor(h * 3.0);
+    var m = mat;
+    if (mat == 1u && dir != 4u) {
+        // a side of a grass block is dirt, with 2-4 rows of grass hanging over the top edge
+        let fringe = 2.0 + floor(hash(cell * i32(n) + vec3i(ti.x, 7, i32(dir))) * 3.0);
+        if (floor(hgt * n) < n - fringe) { m = 2u; }
+    }
+    var c = palette(m) * tone;
+    if (m == 0u && h > 0.94) { c *= 0.6; }
+    if (m == 1u && h > 0.9) { c *= 1.15; }
+    return c;
+}
+
 @fragment
 fn fs(i: VOut) -> @location(0) vec4f {
     let a = i.dir / 2u;
     let sgn = select(1.0, -1.0, (i.dir & 1u) == 1u);
-    var base = vec3f(0.5, 0.5, 0.52);
-    if (i.mat == 1u) { base = vec3f(0.30, 0.58, 0.20); }
-    if (i.mat == 2u) { base = vec3f(0.47, 0.33, 0.20); }
+    let look = u32(g.sun.w);
     let c = chunks[i.ci];
     let cell = vec3i(floor(i.local - axis(a) * sgn * 0.5)) + (c.base >> vec3u((c.info >> 3u) & 31u)) + vec3i(i32(c.info & 7u) * 977);
     let f = fract(i.local);
     let t = vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]);
     let edge = min(min(t.x, 1.0 - t.x), min(t.y, 1.0 - t.y));
-    let shade = (0.9 + 0.2 * hash(cell)) * select(1.0, 0.8, edge < 0.05);
+    // every look: the sides of a grass block are dirt, only its top is grass
+    var col = palette(select(i.mat, 2u, i.mat == 1u && i.dir != 4u));
+    if (look == 0u) {
+        col *= (0.9 + 0.2 * hash(cell)) * select(1.0, 0.8, edge < 0.05);
+    } else if (look == 1u) {
+        // flat colour, a one-texel darker rim and a faint 4x4 checker so a wall is not one slab
+        let q = vec2i(floor(t * 4.0));
+        let checker = select(0.97, 1.03, ((q.x + q.y) & 1) == 0);
+        col *= (0.94 + 0.12 * hash(cell)) * checker * select(1.0, 0.85, edge < 1.0 / 16.0);
+    } else {
+        let n = select(32.0, 16.0, look == 2u);
+        col = texel(i.mat, i.dir, cell, t, f.z, n);
+    }
     let light = 0.35 + 0.65 * max(dot(normalize(i.normal), g.sun.xyz), 0.0);
-    return vec4f(base * shade * light, 1.0);
+    return vec4f(col * light, 1.0);
 }
