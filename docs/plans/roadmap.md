@@ -16,7 +16,17 @@ grid), 0004 (frame budget), 0005 (platforms). Read those first.
    Map the chunks onto the cube-sphere grid.
 2. **Block look spike:** patterned flat-colour cells against 16x16 pixel textures on the new engine; the
    developer picks from a sheet. It fixes the pixel grid of ADR 0002.
-3. **First playable** (ADR 0002), in this order, each with its benchmark and checks:
+3. **First playable** (ADR 0002). Settled 2026-11-09:
+   - the planet has a **1 km radius** (N = 2880 per cube face, ADR 0003; about 21 min to walk around, 58 m
+     horizon at eye height). The benchmark below stays at 500 m for comparison with the spikes, and gains
+     `stand` and `fly` runs on the 1 km planet, which must also hold ADR 0004;
+   - the moon is in the sky and **reachable with a creative fly mode**, seamlessly; the jetpack comes later;
+   - **survival-style inventory:** dug blocks go to a hotbar and inventory and are placed from it; a creative
+     toggle for testing;
+   - **no playtest builds before the whole first playable is done.** Until then each step is checked with
+     tests, bots and headless runs; the developer gets one build with a to-test list at the end.
+
+   In this order, each with its benchmark and checks:
    - client and local server split from the start, deltas over the wire;
    - test bots on the player protocol, driven by script or live control channel;
    - world data on the cube-sphere, generation from the seed, streaming, visible-but-tidy LOD, the moon;
