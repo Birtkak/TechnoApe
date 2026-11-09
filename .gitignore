@@ -5,51 +5,20 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Node / Python / .NET (prototypes)
-node_modules/
-__pycache__/
-*.pyc
-bin/
-obj/
-
-# Godot
-.godot/
-*.import
-export_presets.cfg
-!game/export_presets.cfg
-
-# Unity
-[Ll]ibrary/
-[Tt]emp/
-[Ll]ogs/
-[Uu]ser[Ss]ettings/
-
 # Rust
 target/
 
-# Godot test/benchmark output
-reports/
-prototypes/*/.godot/
-prototypes/*/addons/zylann.voxel/bin/*.dll
-prototypes/*/out/
+# Python
+__pycache__/
+*.pyc
 
-# GDExtension build output
-prototypes/*/bin/
+# Prototype build and run output
+prototypes/*/out/
+prototypes/*/build/
 *.o
-*.os
 *.obj
-.sconsign.dblite
+*.exe
 
 # Other sessions working in this folder (PC tune-up); never part of the game repo
 PC-tuneup/
 PC-optimization-report.md
-
-# Game captures and Godot caches
-build/
-game/out/
-game/.godot/
-game/addons/*/bin/*.dll
-prototypes/p7-raycast-near/addons/technosim/bin/
-
-# client build version, stamped by tools/deploy_server.sh (ADR 0166)
-game/build_version.txt

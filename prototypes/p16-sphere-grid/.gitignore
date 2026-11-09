@@ -1,6 +1,0 @@
-out/
-*.exe
-images/*
-!images/sheet_*.png
-godot/.godot/
-*.uid

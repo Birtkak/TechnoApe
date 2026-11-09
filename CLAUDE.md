@@ -1,138 +1,59 @@
 # CLAUDE.md – TechnoApe
 
-3D first-person voxel game: Minecraft/GregTech building and automation,
-Noita-style simulated materials and wand/spell play, procedurally generated
-world drawn as one 72 m box of full-detail voxels that ends in the sky, no LOD and no far horizon (ADR 0073, 0105): the render distance is the one setting, and pushing it out is a performance job. Windows client (Android dropped, ADR 0009), dedicated Linux
-server on the home server (Unraid) over Tailscale. Solo developer; Claude
-Code does most implementation, the developer steers, plays, decides.
+First-person survival and automation game on small spherical planets of 0.5 m blocks, with a seamless climb
+to orbit and over to the moon. Our own engine in Rust + wgpu; multiplayer from day one (a dedicated Linux
+server on the home server over Tailscale, singleplayer is a local server). Solo developer; Claude Code does
+most implementation, the developer steers, plays and decides.
 
-Ground truth: `docs/design/vision.md`. Decisions: `docs/decisions/`.
-Research: `docs/research/`. Prototype results: `prototypes/*/README.md` (p5 holds the native
-source of the technosim extension, p11 the godot_voxel patches).
-Open jobs for the strongest model: `docs/plans/fable-backlog.md`.
+**Fresh start (2026-11-09).** An earlier flat-world game in Godot was dropped and deleted from the repo. Its
+code, data and decisions do not apply; do not look for them or rebuild them from git history unless the
+developer asks.
 
-## Working principles (agreed 2026-10-21)
+Ground truth: `docs/design/vision.md`. Decisions: `docs/decisions/` (ADR 0001-0005, read them first).
+Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 
-1. **Foundation over speed.** Spike alternatives in `prototypes/` and measure
-   before committing. Current focus: engine + voxel simulation core.
-2. **Every significant choice gets an ADR** (`docs/decisions/NNNN-title.md`).
-3. **Prompt the developer only for taste/scope/direction calls.** Routine technical
-   calls: sensible default, recorded.
-4. **Give yourself a check to run** before asking the developer to look: gdUnit4 for
-   logic, headless run for scenes, screenshot for visuals. Show the evidence.
-   Commands: see `.claude/skills/godot-cli/SKILL.md`.
-5. **Design doc wins over code** when they disagree; fix explicitly.
-6. **Data-driven systems:** items, recipes, materials, biomes as data + schema + tests.
-7. **Simulation separate from presentation**, deterministic from seed,
-   authoritative on the server, deltas over the wire.
-8. **GDScript orchestrates, never iterates voxels.** Per-voxel work is C++
-   (GDExtension). C# is not used in the shipped game; it may be used for
-   tooling (ADR 0003, 0009).
-9. **Performance rules:** multithread everything heavy, budget RAM
-   and disk explicitly, always pick the discrete GPU and log it, ship every
-   system with a benchmark. See vision.md "Engineering requirements".
-   Reference machine = the dev box (ADR 0009): default settings must hold
-   p99 frame <= 8.3 ms, no frame > 16.7 ms after load, RAM <= 8 GB (4 GB until 2026-10-27), VRAM <= 6 GB.
-10. **Debug tools are for Claude too.** Anything about the running game must
-    be reachable without eyes: JSON stats on stdout, log files, state dumps,
-    and frame capture. To *watch* motion, capture a filmstrip (thumbnail
-    every N ms) and a burst (consecutive frames) and read the sheet; see
-    `prototypes/p5-sim-spike/frame_sheet.gd`. Never judge animation from one
-    screenshot.
+## Working principles
 
-11. **Token budget.** Offload with the `free-offload` skill before reading big files, searching
-    widely or writing boilerplate (Ask-Free -> Run-FreeAgent -> Run-Codex); keep design, native
-    work and final verification. Claude subagents bill the same allowance: not a saving.
+1. **Foundation over speed.** Spike alternatives in `prototypes/` and measure before committing.
+2. **Every significant choice gets an ADR** (`docs/decisions/NNNN-title.md`, next free number, template
+   `0000-adr-template.md`).
+3. **Ask the developer only for taste, scope and direction calls.** Routine technical calls: a sensible
+   default, recorded.
+4. **Give yourself a check to run** before asking the developer to look: `cargo test` for logic, the headless
+   run for behaviour and numbers, a filmstrip for visuals. Show the evidence.
+5. **The design doc wins over code** when they disagree; fix one of them explicitly.
+6. **Data-driven content:** items, recipes, machines, materials and biomes are data files with a schema and
+   tests.
+7. **Server-authoritative from the first version:** simulation separate from presentation, deterministic
+   from the seed, deltas over the wire.
+8. **Never stall the frame thread.** Streaming, meshing, simulation and saving run on worker threads; the
+   frame thread swaps finished work in under a per-frame budget. Every system ships with a benchmark.
+9. **Budget (ADR 0004):** on the dev PC at default settings, p99 frame <= 8.3 ms, no frame > 16.7 ms after
+   load, RAM <= 8 GB, VRAM <= 6 GB. Always pick the discrete GPU and log it.
+10. **Debug tools are for Claude too.** Everything about the running game is reachable without eyes: JSON
+    stats on stdout, logs, state dumps, filmstrips. Bots are ordinary clients that tests drive by script or
+    live. Never judge motion from one screenshot.
+11. **Token budget.** Offload with the `free-offload` skill before reading big files, searching widely or
+    writing boilerplate; keep design, engine work and final verification.
 
-## Stack (ADR 0001 accepted, 0002 accepted, 0003 proposed)
+## Stack
 
-- Godot 4.7.2 .NET at `~\Tools\Godot\4.7.2-mono\Godot_v4.7.2-stable_mono_win64\`
-  (`_console.exe` for CLI). .NET SDK 8.0.426 (tooling only).
-- godot_voxel GDExtension, **our own build** of commit 045ff932 (the 2026-10-01
-  master CI build at `~\Tools\downloads\libvoxel-36898667256\`) with the
-  patches in `prototypes/p11-lod-horizon/voxel_patch*.py` (merged cube faces, occlusion in the shader, near-first task queue and sky blocks without tasks, fluid height field, remesh and upload
-  budgets, stream key cache, box mover; the LOD parts are unused since ADR 0073). Source at
-  `~\Tools\godot_voxel`; build with `target=template_debug` (the editor target
-  does not compile with GCC 16) and copy the DLL to `game/addons/zylann.voxel/bin/`,
-  see `game/README.md`. Terrain: `VoxelLodTerrain` with `lod_count = 1` (one box of full-detail voxels, `view_distance_m`,
-  ADR 0073) + `VoxelMesherBlocky` + `streaming_system = CLIPBOX`; never set `terrain.material` (it
-  overrides the library's per-surface materials, ADR 0020).
-- Tests: gdUnit4 v6.2.2 (source at `~\Tools\downloads\gdUnit4\`).
-- C++ toolchain: portable MinGW-w64 GCC 16.2 at
-  `~\Tools\mingw-dl\mingw64\bin` (add to PATH), SCons via
-  `python -m SCons`, godot-cpp branch 4.5 at `~\Tools\godot-cpp`.
-  Build an extension: `python -m SCons platform=windows use_mingw=yes target=template_debug -j12`.
-  MSVC 2022 Build Tools (cl 14.44) are installed too; MinGW stays the default.
-- World generator is native (`src/fine_gen.cpp` over `src/world_gen.cpp`); design in
-  `docs/design/world-generation.md`. godot_voxel asks for padded non-cubic
-  blocks, so generators take a Vector3i size.
-
-## Game project (`game/`)
-
-- Run / verify: see `game/README.md`. Unattended check:
-  `Godot_..._console.exe --path game -- autopilot=1 duration=20 capture_every=1 vsync=0 out=res://out/runN`
-  then read `game/out/runN/strip.png` and the JSON line on stdout: `budget_ok`
-  (ADR 0009, measured as ADR 0014 says) and `other_godot_processes == 0`.
-  The project renders on a separate thread (ADR 0016); `--render-thread safe`
-  runs the old mode. Never drive the shared RenderingDevice from the main thread.
-  A material's first draw compiles its pipeline (20-30 ms, 1 s uncached): new terrain models
-  are drawn under the loading screen by `scripts/visuals/material_warmup.gd`, particle pools by
-  `ParticleFx._prewarm`; anything else drawn mid-game for the first time needs the same.
-  Play loads through the SQLite save; benchmarks do not: measure the save path
-  with `persist=1 seed=<unused>` when loading or streaming changes (ADR 0017).
-- One world unit = one voxel = 12.5 cm (ADR 0033); `Settings.BLOCK` = 4 voxels = the 0.5 m block that
-  stations, furniture, work pieces and recipe units keep (ADR 0034). Tunables live in `scripts/settings.gd`
-  in metres: never write a distance in voxels as a bare number (convert with `Settings.m2v` or a BLOCK multiple).
-- The title screen is the main scene (ADR 0032: worlds list, Settings with graphics presets in
-  `user://settings.cfg`, Esc pauses with Settings and save-and-quit, the player is saved with the
-  world). `autopilot=1` or `play=1` skip it; `menu_test=1` checks the menus.
-- To judge how materials or ground pickups look, use the look check, not a hunt through the world:
-  `-- autopilot=1 walk=1 speed=0 duration=40 showcase=flint_stones,pebbles showcase_on=gravel out=res://out/showcase`
-  (one ~30 s run, one sheet `showcase.png`; `/showcase` in chat; `scripts/visuals/showcase.gd`, `game/README.md`).
-- Playtest tools (ADR 0018): T chat + slash commands (`/help`), `/gamemode`, F3
-  debug screen, F4 playtest menu, F9 bug reports, `/fullbright` (flat light, no fog: cave captures use
-  `commands=/fullbright`; from Git Bash set `MSYS_NO_PATHCONV=1` or the slash command becomes a path), `/cam` free camera (`/fell cam` films a felling from a
-  spot with a clear view), `/totest` (newest unticked to-test items), `/scenario <river|cave_stream|lit_station|ledge>`, `/count <material>` (cells in the sim bubble). Playtest gadgets (`/kit gadgets`, `scripts/items/playtest_tools.gd`): laser cutter
-  (hold LMB, cuts 3 m deep, Ctrl + wheel = width), crater rod, water/sand/lava bombs, instant tree, tape measure;
-  scripted: `/gadget <item> [sneak]`, `/laser [s] [sweep_deg]`. When the developer mentions a
-  bug report, read the newest folder in `game/out/bug_reports/` (report.md,
-  state.json, screenshot.png, log.txt); from the exported build (`build/windows/TechnoApe.exe`,
-  export command in `game/README.md`) they are in `%APPDATA%/Godot/app_userdata/TechnoApe/bug_reports/`.
-- Rebuild the sim extension from `prototypes/p5-sim-spike` and copy the DLL to
-  `game/addons/technosim/bin/`.
-- Item looks: `game/data/item_sprites.json` (16x16 pixel art, shared shapes +
-  palettes + per-item layers), generated by `game/tools/make_item_sprites.py`
-  (edit shapes there, not the JSON); every item needs a sprite or a block
-  material (`test_item_sprites.gd`); `tools/item_sheet.gd` renders them all.
-- GitHub: https://github.com/Birtkak/TechnoApe (private).
-
-## Phase plan
-
-- Phase 0 (research + direction) and Phase 1 (prototypes) done 2026-10-21; the spikes that shaped
-  the retired 0.5 m / brick-world architecture were deleted with it (ADR 0036, git history keeps them).
-- Phase 2 (current): **the voxel world (ADR 0033-0036)**: one 12.5 cm grid for terrain, simulation, collision and
-  rendering, plus the gameplay built on it (direction ADR 0037). Per-system notes (FineGen, SimBubble, rigid pieces,
-  shape building, survival, lighting, crafting, water, pickups, sound) and the material id / atlas rules live in
-  **`docs/design/systems.md`**: read the part for the system you touch before changing it. Plan:
-  `docs/plans/lotl-overhaul.md`, playtest list `docs/plans/to-test.md`.
-- Material ids and atlas tiles are append only (saves and the generator use them); Biome enum ids 0..12 in
-  world_gen.h stay stable; biome_table.gen.h is generated. Details in `docs/design/systems.md`.
-- A new `class_name` needs an `--import` before the game sees it.
-- When another session shares this checkout, stage files explicitly, never `git add -A`.
-- A batch of bug reports split over parallel agents: follow the `overseer` skill; every agent worktree
-  starts with `bash tools/agent_worktree_setup.sh [--native]`.
-- Phase 3 (started 2026-11-02): machines on networks (ADR 0113: `NetworkSolver`, `Networks.solve`, cable + electric
-  furnace), the electrical age to LV (ADR 0117: one `MachineEntity` from item data + process recipes, battery, lamp,
-  pump with machine pins, the coke oven multiblock, `/kit electric`, `/stations factory`) and steam and water as
-  solver channels (ADR 0122: pipes conduct, no reach limit), and the network in real units (ADR 0123: 48 V DC, a
-  nodal solve of EMFs, cable ohms and watt loads; switches, fuses, breakers, the multimeter; `tools/eu_to_watts.py`
-  converts EU-era data). More machines are data for a cheaper model. Still open: wands/spells (dropped for now), progression past LV.
-- Phase 4: automation depth, dedicated server on Unraid, auto-update
+- Rust 1.99.1 (rustup) with `CARGO_HOME=~/Tools/rust/cargo` and `RUSTUP_HOME=~/Tools/rust/rustup`; add
+  `~/Tools/rust/cargo/bin` to PATH. wgpu 30, winit 0.30 (versions from the engine spike).
+- Release builds for any performance number: fat LTO, one codegen unit, `target-cpu=native`.
+- Libraries per system are chosen when the system is built, each in its own ADR.
+- The engine starts from the p15 spike's renderer and streamer, branch `claude/p15-engine-spike-251147`
+  (roadmap step 1); until then there is no game code in the repo.
 
 ## Conventions
 
-- Dev box: Windows 11, RTX 3070 8 GB, 32 GB RAM. Shell: PowerShell / Git Bash.
-- Commits: imperative subject, body explains *why*.
-- Prototypes are throwaway: one folder each, README states question + measured answer.
-- Tools live under `~\Tools\` (the user's home), each in its own folder; the repo
-  never names a person or a machine, only this home-relative layout.
+- Dev box: Windows 11, Ryzen 5 5600X, RTX 3070 8 GB, 32 GB RAM. Shell: PowerShell or Git Bash. From Git Bash,
+  set `MSYS_NO_PATHCONV=1` before passing arguments that start with `/`.
+- Runs of the game or benchmarks go off-screen or headless; kill runs that hang. One benchmark series at a
+  time: two GPU-heavy processes spoil each other's numbers.
+- Commits: imperative subject, the body explains why. When another session shares this checkout, stage files
+  explicitly, never `git add -A`.
+- Prototypes are throwaway: one folder each, its README states the question and the measured answer.
+- Tools live under `~\Tools\` (the user's home), each in its own folder; the repo never names a person or a
+  machine, only this home-relative layout.
+- GitHub: https://github.com/Birtkak/TechnoApe (private).

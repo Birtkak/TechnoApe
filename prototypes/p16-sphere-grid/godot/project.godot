@@ -1,9 +1,0 @@
-; p16 look check: minimal Godot 4 project, no addons.
-config_version=5
-
-[application]
-config/name="p16-look"
-
-[rendering]
-renderer/rendering_method="forward_plus"
-anti_aliasing/quality/msaa_3d=2
