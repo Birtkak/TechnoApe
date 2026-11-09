@@ -1,5 +1,5 @@
 # Renders a block dump from blocks.exe in two looks and saves PNGs.
-# "$G" --path godot --resolution 960x540 --position -30000,-30000 --script res://look.gd -- in=../out/patch.quads out=../images/look_patch [alt=25 pitch=55 shadow=0]
+# "$G" --path godot --resolution 960x540 --position -30000,-30000 --script res://look.gd -- in=../out/patch.quads out=../images/look_patch [alt=25 pitch=55 yaw=0 shadow=0 mark=0]
 extends SceneTree
 
 const DEADLINE_MS := 60000
@@ -58,7 +58,7 @@ func _init() -> void:
 	_cam = Camera3D.new()
 	_cam.fov = 75
 	_cam.near = 0.05
-	var fwd: Vector3 = side.cross(up).normalized()
+	var fwd: Vector3 = side.cross(up).normalized().rotated(up, deg_to_rad(float(_args.get("yaw", "0"))))
 	var alt: float = float(_args.get("alt", "0"))
 	var pitch: float = deg_to_rad(float(_args.get("pitch", "10")))
 	var look: Vector3 = (fwd * cos(pitch) - up * sin(pitch)).normalized()
@@ -75,7 +75,8 @@ func _build(quads: Array, textured: bool) -> MeshInstance3D:
 	rng.seed = 7
 	var n := 0
 	for p in quads:
-		var mat: int = int(p[0])
+		var mark: int = int(p[0]) >> 2  # 1 = seam, 2 = cube corner (blocks.cpp)
+		var mat: int = int(p[0]) & 3
 		var nrm := Vector3(p[1].to_float(), p[2].to_float(), p[3].to_float())
 		var v: Array[Vector3] = []
 		for k in 4:
@@ -83,10 +84,14 @@ func _build(quads: Array, textured: bool) -> MeshInstance3D:
 		# Winding: make the triangle face along nrm (Godot front faces are clockwise).
 		if (v[1] - v[0]).cross(v[2] - v[0]).dot(nrm) > 0:
 			v = [v[0], v[3], v[2], v[1]]
-		var c: Color = COL[mat]
+		# Textured: the atlas carries the colour and no marker, so the seam shows as it would in game.
+		var c := Color.WHITE
 		if not textured:
 			var j: float = rng.randf_range(-JITTER, JITTER)
+			c = COL[mat]
 			c = Color(c.r + j, c.g + j, c.b + j)
+			if mark > 0 and _args.get("mark", "1") == "1":
+				c = c.lerp(Color(0.9, 0.1, 0.7) if mark > 1 else Color(0.95, 0.45, 0.1), 0.6)
 		var uv := [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
 		# Textured: atlas tile per material, 4 tiles across.
 		for k in 4:
@@ -104,6 +109,7 @@ func _build(quads: Array, textured: bool) -> MeshInstance3D:
 	mi.mesh = st.commit()
 	var m := StandardMaterial3D.new()
 	m.vertex_color_use_as_albedo = true
+	m.vertex_color_is_srgb = true  # without it the colours are read as linear and wash out
 	m.roughness = 1.0
 	if _args.get("cull", "1") == "0":
 		m.cull_mode = BaseMaterial3D.CULL_DISABLED

@@ -1,7 +1,7 @@
 // Dumps the exposed faces of 0.5 m quad-prism blocks on the equi-angular cube-sphere around a point, with
 // noise terrain, for the Godot look check (godot/look.gd). Geometric radial layers: layer l sits at R(1+B/R)^l.
 // Output: one quad per line "mat nx ny nz x y z x y z x y z x y z" in metres relative to the view point.
-//   mat: 0 grass top, 1 dirt side, 2 stone side/top, 3 sand top
+//   mat: 0 grass top, 1 dirt side, 2 stone side/top, 3 sand top; +4 = top on a face seam, +8 = cube corner cell
 #include "grid.h"
 #include <cstdio>
 #include <cstdlib>
@@ -55,7 +55,9 @@ int main(int argc, char** argv) {
         auto q = g.corners(c);
         double rt = radius_of(top + 1);
         int topmat = height_m(ctr) < -1.0 ? 3 : (height_m(ctr) > 3.5 ? 2 : 0);
-        put(topmat, ctr, q[0] * rt, q[1] * rt, q[2] * rt, q[3] * rt);
+        // marker for the look check: +4 on a top along a face seam, +8 on the 3 cells of a cube corner
+        int mark = (i == 0 || i == N - 1) + (j == 0 || j == N - 1);
+        put(topmat + 4 * mark, ctr, q[0] * rt, q[1] * rt, q[2] * rt, q[3] * rt);
         QCell nb[4];
         g.neighbours(c, nb);
         for (int k = 0; k < 4; ++k) {  // side faces down to the neighbour's top

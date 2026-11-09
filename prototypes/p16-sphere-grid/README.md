@@ -126,7 +126,18 @@ Deeper digging would need Blocky-Planet-style shells: halve N each time the widt
 - **(c) rounded cube:** 32–63% of the surface is perfectly flat, axis-aligned Minecraft. But from orbit it is a rounded die (1.37–1.55× radius variation), and its edge bands carry (d)'s tilt problem. It is a valid taste choice ("6 flat continents") and is cheap, because it is a Cartesian engine with a different gravity function.
 - **(d) Cartesian + radial:** 90% of the planet has blocks tilted more than 15° from gravity, so every floor is a staircase (`images/sheet_sections.png`). It stays as the benchmark stand-in for p14/p15, since its meshing and streaming cost is the same order as (b).
 
+## In-engine look check (`images/sheet_look.png`)
+0.5 m blocks on the equi-angular cube-sphere at R = 300 m (N = 864), with noise terrain, rendered in Godot 4.7.2 (`blocks.cpp` dumps the exposed faces, `godot/look.gd` draws them, `look_all.sh` does the whole run). Rows: a typical patch, the middle of a seam, a cube corner. Columns: eye level (1.7 m) and from 7 m up, each in flat jittered colours and with 16×16 pixel textures. Only the flat columns carry a marker: seam cells orange, the 3 corner cells pink. The textured columns are the same views unmarked.
+
+- **Patch:** it reads as an ordinary block world. The horizon drops away within ~30 m; the blocks themselves show no skew or size change.
+- **Seam (middle):** not visible. Without the orange strip, the textured view gives no cue where it is: rows run straight across it, as the 0.07° turn measured above says. This view is the best case; the turn grows towards the corners.
+- **Corner:** at eye level it is not visible either. From above it can be found: the block rows of the three faces meet at 120°, the cells near the corner are visibly rhombic, and terrain ledges zigzag in three directions. No gaps, cracks or lighting breaks show at the seam or the corner.
+- **Flat vs textured:** flat colours show the grid itself (every block is a readable tile, so the skew at the corner is easy to see); pixel textures hide the block borders on level ground, so steps read only from their dirt sides and shadows, and the corner skew is harder to spot. Which look to take is the developer's call.
+
+Not covered: a seam crossing close to a corner at eye level (the 44–59° turns in the table above), structures built across a seam, and anything moving. The small dark triangles on the ground are side walls of 1-block ledges partly hidden by the ground in front, not holes.
+
 ## Images (`images/`, only the sheets are committed)
+- `sheet_look.png`: the in-engine look check above.
 - `sheet_surface.png`: (a) and (b) at R = 300 m, 18 m across: a typical patch, a seam and a pentagon/corner. Cells are coloured by area against the mean (blue small, white mean, red big).
 - `sheet_orbit.png`: all four grids from orbit. (c) and (d) are coloured by block tilt.
 - `sheet_projections.png`: the gnomonic, equi-angular and Nowicki cube-spheres at N = 12.
@@ -167,5 +178,5 @@ The whole run takes ~20 s.
 **Limits of this spike.**
 - The neighbour timings are one run on the dev box.
 - Equal-area hex layouts (ISEA, Heikes–Randall) were not built; only Lloyd and spring relaxation were measured.
-- The in-engine look check (`blocks.cpp` + `godot/look.gd`, Godot 4.7.2) is work in progress: it renders, but the sheet and its findings are not written up yet.
+- The in-engine look check is static terrain from three spots; it has no player, no builds and no seam crossing near a corner at eye level.
 - The choice between equi-angular and Nowicki is one function (`to_sphere`) and doesn't change the topology. Decide it by look: equi-angular gives straight rows inside a face, Nowicki more even areas.
