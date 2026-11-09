@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <vector>
 #include <algorithm>
+#include <functional>
 
 struct V3 { double x = 0, y = 0, z = 0; };
 inline V3 operator+(V3 a, V3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
@@ -91,7 +92,9 @@ struct CubeSphere {
         for (int k = 0; k < 4; ++k) out[k] = step(c, d[k]);
     }
 
+    std::function<V3(int, double, double)> custom;  // overrides the warp when set (warp.h)
     V3 to_sphere(int f, double a, double b) const {  // a, b in [-1, 1] across the face
+        if (custom) return custom(f, a, b);
         if (proj == Proj::EquiAngular) { a = std::tan(a * M_PI / 4); b = std::tan(b * M_PI / 4); }
         V3 n{double(AX[f][0][0]), double(AX[f][0][1]), double(AX[f][0][2])};
         V3 s{double(AX[f][1][0]), double(AX[f][1][1]), double(AX[f][1][2])};

@@ -132,13 +132,33 @@ Deeper digging would need Blocky-Planet-style shells: halve N each time the widt
 - **Patch:** it reads as an ordinary block world. The horizon drops away within ~30 m; the blocks themselves show no skew or size change.
 - **Seam (middle):** not visible. Without the orange strip, the textured view gives no cue where it is: rows run straight across it, as the 0.07° turn measured above says. This view is the best case; the turn grows towards the corners.
 - **Corner:** at eye level it is not visible either. From above it can be found: the block rows of the three faces meet at 120°, the cells near the corner are visibly rhombic, and terrain ledges zigzag in three directions. No gaps, cracks or lighting breaks show at the seam or the corner.
-- **Straight rows near a corner:** this is where the seam shows. A row that crosses 16 blocks (8 m) from a corner turns about 58° at the seam. At 128 blocks (64 m) it still turns about 44°. At eye level, both read as a sharp kink a few metres ahead, not as a gentle curve. In both cases the blocks right at the kink are visibly sheared. The terrain alone hides the seam; anything built in a line across it shows it. At R = 300 m a seam is 864 blocks long. About 30% of it lies within 128 blocks of a corner, and the turn only fades out towards the seam middle. A player who builds long lines will meet it.
+- **Straight rows near a corner:** this is where the seam shows. A row that crosses 16 blocks (8 m) from a corner turns about 58° at the seam. At 128 blocks (64 m) it still turns about 44°. At eye level, both read as a sharp kink a few metres ahead, not as a gentle curve. In both cases the blocks right at the kink are visibly sheared. The terrain alone hides the seam; anything built in a line across it shows it. Along a seam the turn falls about linearly from 60° at a corner to 0° at the seam middle (`results_relaxed.json`, w = 0: 26° at 256 blocks, 16° at 320 of 432). So most of every seam kinks a straight build noticeably, on any planet size and at any depth: the angles depend only on where along the seam the crossing is. A player who builds long lines will meet it.
 - **Flat vs textured:** flat colours show the grid itself (every block is a readable tile, so the skew at the corner is easy to see); pixel textures hide the block borders on level ground, so steps read only from their dirt sides and shadows, and the corner skew is harder to spot. Which look to take is the developer's call.
 
 Not covered: real structures across a seam (the blue row is a tint on the ground, not a wall), how a player walking along such a row feels, and anything moving. The small dark triangles on the ground are side walls of 1-block ledges partly hidden by the ground in front, not holes.
 
+## Can the seam kink be removed? (`smooth.cpp`, `images/sheet_relaxed.png`)
+A bigger planet does not help: the turn depends only on where a row crosses the seam, not on the radius. The equi-angular grid is already laid out from each face centre, but every row is a great circle inside its face, so all the bending a row has to do happens in one step at the seam. A grid whose lines meet the seams at right angles would carry a row smoothly across and spread the bend over the face. That grid is the conformal cubed sphere (Rancic, Purser & Mesinger 1996). `smooth.cpp` gets it by Laplacian smoothing of the vertex lattice on the sphere, then measures blends `equi-angular + w·(conformal − equi-angular)` on the game grid (N = 864, R = 300 m). `warp.h` makes any blend a drop-in warp for `CubeSphere`.
+
+| grid | kink at 128 blocks from a corner (max per block) | kink at 16 blocks | blocks < 0.45 m | smallest block | area max/min |
+|---|---|---|---|---|---|
+| equi-angular (now) | 21.8° | 29.0° | none | 0.39 m | 1.41 |
+| blend w = 0.5 | 12.7° | 21.8° | within 70 m of each corner | 0.31 m | 3.7 |
+| conformal (w = 1) | 0.7° | 5.1° | within 98 m of each corner (21% of the surface) | 0.10 m and shrinking with resolution | 32 |
+| conformal, corners kept equi-angular (fade over L = 128 blocks) | 5.2° | 28.4° | none | 0.29 m (in the fade zone) | 2.5 |
+
+The total turn is the same in every grid (Gauss–Bonnet); only how it is spread changes. On the conformal grid a row 128 blocks from a corner turns 36° over 200 m with no visible kink, but the blocks get smaller towards every corner (scale ~ r^(1/3)). At the game resolution the corner blocks would be centimetres. Fading the relaxation out near the corners keeps their blocks whole but puts a kink back within L of them and skews the blocks in the fade zone. No blend removes both. The kink and the small blocks are two forms of the same 90° of curvature at each corner, and the grid can only choose where it shows.
+
+The sheet shows it at eye level and from above. On the conformal grid the row crosses the seam straight or in a gentle curve, and the seams pinch together at the corner, where the blocks shrink. The corner-faded grid still kinks near the corner.
+
+**What would make it look best within the grid** (not built, needs a call):
+- Keep the equi-angular grid (whole blocks everywhere, one kink per crossing). Hide the kink zones with world gen: put the 8 corners under deep water or unbuildable peaks, and favour rivers, ridges or biome borders along the seams near the corners, where long straight builds would stop anyway.
+- Spawn and early bases at face centres, far from any seam.
+- Show seams to the builder, like F3 chunk borders: a faint line in build mode, so a kinked conveyor reads as a known rule of the world, not a bug.
+
 ## Images (`images/`, only the sheets are committed)
 - `sheet_look.png`: the in-engine look check above.
+- `sheet_relaxed.png`: equi-angular, corner-faded and conformal grids; rows crossing seams and the cube corner (flat look, seams orange).
 - `sheet_surface.png`: (a) and (b) at R = 300 m, 18 m across: a typical patch, a seam and a pentagon/corner. Cells are coloured by area against the mean (blue small, white mean, red big).
 - `sheet_orbit.png`: all four grids from orbit. (c) and (d) are coloured by block tilt.
 - `sheet_projections.png`: the gnomonic, equi-angular and Nowicki cube-spheres at N = 12.
@@ -160,6 +180,8 @@ export PATH="$HOME/Tools/mingw-dl/mingw64/bin:$PATH"   # GCC 16.2
 g++ -std=c++17 -O2 -o test.exe test.cpp && ./test.exe
 g++ -std=c++17 -O2 -march=native -o measure.exe measure.cpp && mkdir -p out && ./measure.exe
 python -I render.py   # numpy + Pillow
+g++ -std=c++17 -O2 -march=native -fopenmp -o smooth.exe smooth.cpp && ./smooth.exe 192   # ~1 min, needs libgomp on PATH
+bash look_all.sh && bash relaxed_all.sh   # Godot renders and the two look sheets
 ```
 
 The tests cover, for cubes N ∈ {1, 2, 3, 8, 17, 64}:
