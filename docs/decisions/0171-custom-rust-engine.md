@@ -1,7 +1,7 @@
 # 0171: A custom engine in Rust + wgpu for the planets game
 
 Status: accepted (2026-11-09, developer). Replaces Godot (ADR 0001) and godot_voxel (ADR 0003) for the planets
-game of ADR 0170. The current Godot game in `game/` stays as it is: no new work, kept as the reference for porting.
+game of ADR 0170. The current Godot game in `game/` stays as it is: no new work, kept only as inspiration (content is a fresh start, below).
 
 ## Context
 ADR 0170 left the engine to two spikes on one shared benchmark (`docs/plans/planet-rebuild.md`): p14 draws the
@@ -31,8 +31,8 @@ the new design keeps such work off the frame from the start.
 - **Native C++ is kept**, not ported: the simulation (`prototypes/p5-sim-spike/src`) and the generator
   (`src/`) are built as a C library and called from Rust over FFI; only the Godot binding layer goes. A port
   to Rust can come later, one system at a time, if it pays.
-- **Gameplay (70,300 lines GDScript) is ported by hand**, in the order of wave 3 in the plan, on top of the new
-  world rather than translated line for line.
+- **Gameplay is written new in Rust**, in the order of wave 3 in the plan; the 70,300 lines of GDScript are not
+  ported (content is a fresh start, below).
 - **No per-frame stalls by design:** streaming, meshing, sim window moves and saves run on worker threads; the
   frame thread only swaps finished results in, under a per-frame budget. Every system ships with its benchmark
   (rule 9).
@@ -58,6 +58,21 @@ models of mismatched sizes.
   never mismatch.
 - **First playable:** one planet and its moon, radial gravity, walk, dig and place blocks, water as fill
   levels, saving. No machines yet.
+- **Lighting with real-time shadows:** block light from torches and lamps, the sun from its real direction
+  around the planet, AO, dark caves, plus shadow maps for the sun and moving lights (a GPU cost to budget).
+- **A day is about 20 minutes**; the sun really circles the planet, so the night side is dark.
+- **Movement:** snappy first-person walking and jumping in radial gravity; a jetpack or ship unlocks the climb
+  to orbit.
+- **Saves hold only what changed:** untouched terrain is rebuilt from the seed; saves keep edits, entities and
+  sim state. Generator changes therefore alter untouched ground in old worlds.
+- **UI:** pixel-art panels and slot grids on the same pixel grid as the world, keyboard and mouse, drag and
+  drop, shift-click, search.
+- **Content is a fresh start.** Machines, networks, crafting and survival are designed anew for planets; the
+  Godot game's systems and data are inspiration, not a port list.
+- **The first planet is Earth-like with varied biomes** (oceans, forests, deserts, mountains, caves, ores);
+  the moon is barren with other ores.
+- **Rich audio early:** 3D sound with cave reverb, material-based footsteps and digging, wind and water from
+  the first playable.
 - **Bots are clients.** A bot is a windowless client on the same protocol as a player (move, look, dig, place,
   use, craft in; world state out). Testing drives bots from a script or live over a control channel ("walk to
   X, dig, pour water, wait, report") and gets JSON state and filmstrips back; many bots load-test the server.
@@ -69,11 +84,12 @@ models of mismatched sizes.
 
 ## Consequences
 - The renderer is the small part. UI, audio, lights and shadows, particles, transparency, tooling and all
-  gameplay are written or ported by us; p15's README lists each part. No time estimate: nothing measures the
+  gameplay are written by us; p15's README lists each part. No time estimate: nothing measures the
   porting speed yet.
 - No editor and no hot reload; tests move from gdUnit4 to `cargo test`, scenes to code and data files.
 - CLAUDE.md's stack, run and test instructions change when the first Rust game code lands; until then they
   describe `game/`.
-- Data stays data (rule 6): items, recipes, materials and biomes in `game/data` carry over as files.
+- Data stays data (rule 6): new items, recipes, materials and biomes are data files from the start; `game/data`
+  is not carried over.
 - Supersedes ADR 0001 and 0003 for new work, and the Godot-specific ADRs built on them (for example 0016,
   Godot's render thread).
