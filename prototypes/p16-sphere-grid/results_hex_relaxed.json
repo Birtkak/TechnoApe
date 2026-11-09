@@ -1,0 +1,7 @@
+[
+{"F":100,"iterations":50,"mode":"lloyd","before":{"area_min_rel":0.6177,"area_max_rel":1.2064,"area_ratio":1.9530,"edge_min_m":1.4633,"edge_max_m":2.2917,"max_angle_dev_deg":10.39,"frac_angle_dev_gt10":0.00180,"frac_area_dev_gt10pct":0.48845},"after":{"area_min_rel":0.4200,"area_max_rel":1.1971,"area_ratio":2.8504,"edge_min_m":1.2550,"edge_max_m":2.2829,"max_angle_dev_deg":6.30,"frac_angle_dev_gt10":0.00000,"frac_area_dev_gt10pct":0.45425}}
+,
+{"F":100,"iterations":50,"mode":"spring","before":{"area_min_rel":0.6177,"area_max_rel":1.2064,"area_ratio":1.9530,"edge_min_m":1.4633,"edge_max_m":2.2917,"max_angle_dev_deg":10.39,"frac_angle_dev_gt10":0.00180,"frac_area_dev_gt10pct":0.48845},"after":{"area_min_rel":0.3727,"area_max_rel":1.2011,"area_ratio":3.2224,"edge_min_m":1.1801,"edge_max_m":2.2867,"max_angle_dev_deg":6.41,"frac_angle_dev_gt10":0.00000,"frac_area_dev_gt10pct":0.47105}}
+,
+{"F":100,"iterations":300,"mode":"spring","before":{"area_min_rel":0.6177,"area_max_rel":1.2064,"area_ratio":1.9530,"edge_min_m":1.4633,"edge_max_m":2.2917,"max_angle_dev_deg":10.39,"frac_angle_dev_gt10":0.00180,"frac_area_dev_gt10pct":0.48845},"after":{"area_min_rel":0.2955,"area_max_rel":1.1763,"area_ratio":3.9810,"edge_min_m":1.0480,"edge_max_m":2.2630,"max_angle_dev_deg":6.00,"frac_angle_dev_gt10":0.00000,"frac_area_dev_gt10pct":0.40924}}
+]

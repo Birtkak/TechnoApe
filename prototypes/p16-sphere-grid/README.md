@@ -42,7 +42,16 @@ Taken from the full face; R = 300 m and R = 1000 m give the same numbers to 3 di
 
 The gnomonic and equi-angular area ratios match the published cubed-sphere values (5.14 / 1.41, Andrews & Jablonowski 2025), which validates the code.
 
-The hex numbers are for the plain normalised subdivision. Optimised grids (spring- or Heikes–Randall-tweaked, or equal-area like ISEA/H3) cut the area spread, but the pentagons stay and the cells still don't nest.
+The hex numbers are for the plain normalised subdivision. **Relaxed hex layouts were measured too** (`relax.cpp`, `results_hex_relaxed.json`, F = 100; the ratios don't depend on F):
+
+| hex layout | area max/min | worst corner angle off 120° | hexes >10% off mean area |
+|---|---|---|---|
+| plain subdivision | 1.95 | 10.4° | 49% |
+| Lloyd relaxation, 50 iterations | 2.85 | 6.3° | 45% |
+| spring relaxation, 50 iterations | 3.22 | 6.4° | 47% |
+| spring relaxation, 300 iterations | 3.98 | 6.0° | 41% |
+
+Simple relaxation makes the hexes more regular but the sizes less even: the cells around each pentagon shrink. Evening out the areas needs an explicit equal-area construction (ISEA, Heikes–Randall); those were not built here. In every layout the 12 pentagons stay and the cells still don't nest, so this doesn't change the recommendation.
 
 ### Block tilt against gravity
 Applies to grids whose blocks don't follow the sphere (sampled by area).
@@ -157,6 +166,6 @@ The whole run takes ~20 s.
 
 **Limits of this spike.**
 - The neighbour timings are one run on the dev box.
-- The hex results use the unoptimised subdivision.
-- Nothing is rendered in an engine: the look of blocks on (b) belongs to the block-look spike in wave 2.
+- Equal-area hex layouts (ISEA, Heikes–Randall) were not built; only Lloyd and spring relaxation were measured.
+- The in-engine look check (`blocks.cpp` + `godot/look.gd`, Godot 4.7.2) is work in progress: it renders, but the sheet and its findings are not written up yet.
 - The choice between equi-angular and Nowicki is one function (`to_sphere`) and doesn't change the topology. Decide it by look: equi-angular gives straight rows inside a face, Nowicki more even areas.
