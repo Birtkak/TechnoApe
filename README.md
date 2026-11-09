@@ -3,7 +3,7 @@
 A first-person survival and automation game on small spherical planets of 0.5 m blocks, built on its own
 engine in Rust + wgpu with an AI-assisted workflow.
 
-Status: **fresh start (2026-11-09).** Direction and engine decided; the engine base is the next step.
+Status: **fresh start (2026-11-09).** Engine base and client/server split done; the first playable is in progress.
 
 ## Layout
 
@@ -13,6 +13,6 @@ Status: **fresh start (2026-11-09).** Direction and engine decided; the engine b
 | `docs/design/vision.md` | What the game is: the ground truth |
 | `docs/decisions/` | Architecture Decision Records, one file per decision |
 | `docs/plans/roadmap.md` | What is done and what comes next |
-| `crates/engine`, `crates/client` | The game: world, meshing and streaming; window, renderer and benchmark runs |
+| `crates/engine`, `crates/server`, `crates/client` | The game: world, meshing, streaming and protocol; the authoritative server; window, renderer and benchmark runs |
 | `tools/` | Benchmark scripts |
 | `prototypes/` | Throwaway spikes, each with a README of its question and measured answer |

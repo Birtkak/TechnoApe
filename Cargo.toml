@@ -1,10 +1,12 @@
 [workspace]
-members = ["crates/engine", "crates/client"]
+members = ["crates/engine", "crates/client", "crates/server"]
 resolver = "2"
 
 [workspace.dependencies]
-glam = "0.34"
+glam = { version = "0.34", features = ["serde"] }
 rayon = "1"
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["use-std"] }
 
 [profile.release]
 lto = "fat"

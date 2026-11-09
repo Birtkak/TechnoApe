@@ -137,7 +137,7 @@ pub fn material(depth: f64) -> u8 {
 }
 
 /// One block of a body: pos = (column i, column j, layer).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Block {
     pub body: u8,
     pub face: u8,
@@ -159,9 +159,9 @@ pub struct World {
 
 impl World {
     /// A planet and its moon 3 km away, with `planet_n` and `moon_n` columns per face edge.
-    pub fn new(planet_n: i32, moon_n: i32) -> Self {
+    pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
         World {
-            bodies: Arc::new(vec![Body::new(DVec3::ZERO, planet_n, 1337), Body::new(DVec3::new(3000.0, 0.0, 0.0), moon_n, 1338)]),
+            bodies: Arc::new(vec![Body::new(DVec3::ZERO, planet_n, seed), Body::new(DVec3::new(3000.0, 0.0, 0.0), moon_n, seed + 1)]),
             edits: HashMap::new(),
             edit_count: 0,
         }
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn block_at_finds_the_block_of_its_centre() {
-        let w = World::new(96, 32);
+        let w = World::new(96, 32, 1337);
         for body in 0..2u8 {
             let n = w.bodies[body as usize].n;
             for face in 0..6u8 {
@@ -465,7 +465,7 @@ mod tests {
     /// or faces would be missing or doubled along the seam.
     #[test]
     fn padding_across_a_seam_matches_the_neighbouring_chunk() {
-        let mut w = World::new(256, 32);
+        let mut w = World::new(256, 32, 1337);
         let body = &w.bodies[0];
         let top = body.layer_of(body.radius) as i32 / CS;
         // an edit right at the seam, on the neighbour's side

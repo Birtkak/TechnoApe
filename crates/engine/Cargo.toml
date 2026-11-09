@@ -7,3 +7,5 @@ edition = "2021"
 glam.workspace = true
 rayon.workspace = true
 fastnoise-lite = "1"
+serde.workspace = true
+postcard.workspace = true

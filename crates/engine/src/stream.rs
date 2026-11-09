@@ -453,7 +453,7 @@ mod tests {
     use super::*;
     #[test]
     fn horizon_hides_only_what_is_behind_the_core() {
-        let w = World::new(1536, 512);
+        let w = World::new(1536, 512, 1337);
         let r0 = w.bodies[0].r0;
         let v = View::new(DVec3::new(0.0, r0 + 100.0, 0.0), [Vec4::ZERO; 6], &w);
         let h = &v.hz[0];

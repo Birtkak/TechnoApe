@@ -9,7 +9,7 @@ most implementation, the developer steers, plays and decides.
 code, data and decisions do not apply; do not look for them or rebuild them from git history unless the
 developer asks.
 
-Ground truth: `docs/design/vision.md`. Decisions: `docs/decisions/` (ADR 0001-0005, read them first).
+Ground truth: `docs/design/vision.md`. Decisions: `docs/decisions/` (ADR 0001-0006, read them first).
 Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 
 ## Working principles
@@ -42,8 +42,10 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `~/Tools/rust/cargo/bin` to PATH. wgpu 30, winit 0.30 (versions from the engine spike).
 - Release builds for any performance number: fat LTO, one codegen unit, `target-cpu=native`.
 - Libraries per system are chosen when the system is built, each in its own ADR.
-- Workspace: `crates/engine` (world on the cube-sphere grid, meshing, streaming; no window or GPU) and
-  `crates/client` (binary `technoape`: window, renderer, benchmark runs). Techniques and why:
+- Workspace: `crates/engine` (world on the cube-sphere grid, meshing, streaming, the player protocol; no
+  window or GPU), `crates/server` (the authoritative world; binary `technoape-server`) and `crates/client`
+  (binary `technoape`: window, renderer, benchmark runs; runs the server on a thread unless `connect=` names
+  a remote one). ADR 0006. Techniques and why:
   `docs/research/voxel-rendering.md`.
 
 ## Build, test, run
@@ -52,7 +54,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - A run is `technoape.exe key=value ...`, off-screen unless `onscreen=1`. It prints one JSON line (ADR 0004:
   frame times, RAM, VRAM, `budget_ok`, a `spikes` list) and exits:
   `run=stand|fly|orbit|edit`, `quick=1` (quarter length, a smoke check in seconds), `planet=3072|1536`
-  (columns per face edge), `out=file.jsonl`.
+  (columns per face edge), `seed=`, `out=file.jsonl`, `connect=host[:7777]` to join a running server
+  (`technoape-server listen=0.0.0.0:7777 planet= seed=` prints a JSON line every 5 s).
 - To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet;
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
 - Full benchmark: `bash tools/bench.sh` (25 min, repeats reps a compiler disturbed), then

@@ -1,13 +1,15 @@
 //! The TechnoApe client: window, renderer and the benchmark runs (docs/plans/roadmap.md, "The shared benchmark").
 mod sys;
 
+use engine::net::{self, Link, Recv, ToClient, ToServer, TICK_HZ};
 use engine::stream::{DrawChunk, FrameStats, Opts, Streamer, View};
 use engine::world::World;
+use server::Server;
 use glam::{DVec3, Mat4, Vec3, Vec4};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -391,6 +393,10 @@ struct App {
     args: Args,
     gpu: Option<Gpu>,
     world: World,
+    link: Link<ToServer, ToClient>,
+    last_move: f64,
+    edits_applied: u64,
+    players: usize,
     streamer: Streamer,
     run: String,
     start: Instant,
@@ -430,7 +436,36 @@ impl App {
         let vel = if dt > 0.0 && self.loaded_at.is_some() { (p.pos - self.last_pos) / dt } else { DVec3::ZERO };
         self.last_pos = p.pos;
 
-        // edits: 2000 toggles/s within 10 m of the feet
+        // the server's deltas: edits land in the world and remesh their chunks here, never directly
+        loop {
+            match self.link.try_recv() {
+                Recv::Msg(ToClient::Edits(v)) => {
+                    for (b, m) in v {
+                        self.world.set_block(b, m);
+                        self.streamer.touch_block(&self.world, b);
+                        self.edits_applied += 1;
+                        if measuring {
+                            self.samples.edits += 1;
+                        }
+                    }
+                }
+                Recv::Msg(ToClient::Players(ps)) => self.players = ps.len(),
+                Recv::Msg(ToClient::Welcome { .. }) => {}
+                Recv::Empty => break,
+                Recv::Closed => {
+                    eprintln!("[technoape] the server closed the connection");
+                    self.finish();
+                    return;
+                }
+            }
+        }
+        if t - self.last_move >= 1.0 / TICK_HZ {
+            // shortcut: yaw and pitch are 0 until movement gives the camera a local frame
+            self.link.send(ToServer::Move { pos: p.pos.to_array(), yaw: 0.0, pitch: 0.0 });
+            self.last_move = t;
+        }
+
+        // edits: 2000 toggles/s within 10 m of the feet, sent to the server; they count when its delta is back
         if self.run == "edit" && self.loaded_at.is_some() {
             let rate: f64 = a.get("edit_rate", 2000.0);
             let target = (t * rate) as u64;
@@ -453,12 +488,8 @@ impl App {
                     continue; // below layer 0 nothing is stored
                 }
                 let m = if self.world.block(b) == 0 { 3 } else { 0 };
-                self.world.set_block(b, m);
-                self.streamer.touch_block(&self.world, b);
+                self.link.send(ToServer::Edit { block: b, material: m });
                 self.edits_done += 1;
-                if measuring {
-                    self.samples.edits += 1;
-                }
             }
         }
 
@@ -740,7 +771,7 @@ impl App {
                 "\"ram_mb\":{:.0},\"vram_mb\":{:.0},\"chunks_meshed_per_s\":{:.1},\"chunks_nonempty_per_s\":{:.1},",
                 "\"missing_chunks_max\":{},\"holes_max\":{},\"draws_avg\":{:.0},\"quads_avg\":{:.0},\"quad_buffer_mb\":{:.1},",
                 "\"select_ms_p50\":{:.3},\"submit_ms_p50\":{:.3},\"pre_acquire_ms_p50\":{:.3},\"edits_per_s\":{:.0},\"job_us_avg\":{:.0},",
-                "\"frames\":{},\"capture_stalls\":{},\"speed\":{},\"k\":{},\"greedy\":{},\"horizon\":{},\"mdi\":{},\"prefetch_s\":{},",
+                "\"edits_sent\":{},\"edits_applied\":{},\"players\":{},\"frames\":{},\"capture_stalls\":{},\"speed\":{},\"k\":{},\"greedy\":{},\"horizon\":{},\"mdi\":{},\"prefetch_s\":{},",
                 "\"threads\":{},\"alloc_fail\":{},\"backend\":\"{}\",\"adapter\":\"{}\",\"spikes\":[{}]}}"
             ),
             self.run,
@@ -771,6 +802,9 @@ impl App {
             pct(&mut s.acq_ms, 0.5),
             s.edits as f64 / secs.max(1e-9),
             job_us,
+            self.edits_done,
+            self.edits_applied,
+            self.players,
             s.frames,
             s.capture_stalls,
             a.get("speed", 60.0),
@@ -855,8 +889,27 @@ fn main() {
         sys::meshbench(&args.0);
         return;
     }
-    // columns per face edge: 3072 is the 1 km planet of the first playable, 1536 the benchmark's 500 m class
-    let world = World::new(args.get("planet", 3072), args.get("moon", 512));
+    // the world comes from the server: a remote one (connect=host[:port]) or a local one on its own thread
+    // (planet= and moon= are columns per face edge: 3072 is the 1 km planet, 1536 the benchmark's 500 m class)
+    let link: Link<ToServer, ToClient> = match args.0.get("connect") {
+        Some(addr) => {
+            let addr = if addr.contains(':') { addr.clone() } else { format!("{addr}:{}", net::DEFAULT_PORT) };
+            net::tcp(std::net::TcpStream::connect(&addr).expect("connect to the server")).expect("link")
+        }
+        None => {
+            let (accept_tx, accept_rx) = std::sync::mpsc::channel();
+            let (planet, moon, seed) = (args.get("planet", 3072), args.get("moon", 512), args.get("seed", 1337));
+            std::thread::spawn(move || Server::new(planet, moon, seed, accept_rx).run(TICK_HZ));
+            let (c, s) = net::local();
+            accept_tx.send(s).unwrap();
+            c
+        }
+    };
+    link.send(ToServer::Hello { name: args.s("name", "player") });
+    let world = match link.rx.recv_timeout(Duration::from_secs(10)) {
+        Ok(ToClient::Welcome { seed, planet_n, moon_n, .. }) => World::new(planet_n, moon_n, seed),
+        other => panic!("no welcome from the server: {other:?}"),
+    };
     assert!(world.bodies.len() <= MAX_BODIES);
     let opts = Opts {
         k: args.get("k", 4.0),
@@ -875,6 +928,10 @@ fn main() {
         args,
         gpu: None,
         world,
+        link,
+        last_move: 0.0,
+        edits_applied: 0,
+        players: 0,
         streamer,
         run,
         start: Instant::now(),

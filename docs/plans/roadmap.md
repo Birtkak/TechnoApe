@@ -1,7 +1,7 @@
 # Roadmap
 
 Direction: ADR 0001 (planets first), 0002 (our own Rust + wgpu engine and what it does), 0003 (cube-sphere
-grid), 0004 (frame budget), 0005 (platforms). Read those first.
+grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read those first.
 
 ## Done
 - **Engine choice (2026-11-09):** a Godot spike (p14) and a Rust + wgpu spike (p15) drew the same benchmark;
@@ -28,7 +28,8 @@ grid), 0004 (frame budget), 0005 (platforms). Read those first.
      tests, bots and headless runs; the developer gets one build with a to-test list at the end.
 
    In this order, each with its benchmark and checks:
-   - client and local server split from the start (a `server` crate), deltas over the wire;
+   - ~~client and local server split from the start (a `server` crate), deltas over the wire~~ done
+     2026-11-10 (ADR 0006);
    - test bots on the player protocol, driven by script or live control channel;
    - world data on the cube-sphere, generation from the seed, streaming, visible-but-tidy LOD, the moon;
    - radial gravity, walking and jumping in the local frame, collision;
