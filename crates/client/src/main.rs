@@ -2,18 +2,20 @@
 mod sys;
 
 use engine::net::{self, Link, Recv, ToClient, ToServer, TICK_HZ};
+use engine::phys::{self, Input};
 use engine::stream::{DrawChunk, FrameStats, Opts, Streamer, View};
 use engine::world::World;
 use server::Server;
-use glam::{DVec3, Mat4, Vec3, Vec4};
+use glam::{DQuat, DVec3, Mat4, Vec3, Vec4};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, WindowEvent};
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::window::{Window, WindowId};
+use winit::window::{CursorGrabMode, Window, WindowId};
 
 const W: u32 = 1920;
 const H: u32 = 1080;
@@ -394,6 +396,19 @@ struct App {
     gpu: Option<Gpu>,
     world: World,
     link: Link<ToServer, ToClient>,
+    my_id: u32,
+    /// run=play: the player this client predicts, the keys held, mouse motion since the last frame, the look
+    me: phys::Player,
+    /// Where `me` was one physics step ago, and the time not yet stepped: the camera is drawn between them.
+    prev: DVec3,
+    debt: f64,
+    drift_max: f64,
+    keys: std::collections::HashSet<KeyCode>,
+    mouse: (f64, f64),
+    pitch: f64,
+    input: Input,
+    /// Times the server's position replaced the predicted one.
+    snaps: u64,
     last_move: f64,
     edits_applied: u64,
     players: usize,
@@ -427,12 +442,44 @@ impl App {
         self.last_frame = now;
         let t = self.loaded_at.map(|l| (now - l).as_secs_f64()).unwrap_or(0.0);
         let measuring = self.loaded_at.is_some() && t >= warm;
-        if t >= run_len(&self.run, warm, q) && self.loaded_at.is_some() {
+        let len = if self.run == "play" { a.get("seconds", f64::INFINITY) } else { run_len(&self.run, warm, q) };
+        if t >= len && self.loaded_at.is_some() {
             self.finish();
             return;
         }
         let cpu0 = Instant::now();
-        let p = pose(&self.run, t, &self.world, speed, alt, warm, q, a);
+        let p = if self.run == "play" {
+            // the player: mouse turns the look, keys make the input, the shared physics moves the box here in
+            // the same fixed steps as on the server, whose position wins when the two drift apart
+            let up = phys::up(&self.world, self.me.pos);
+            let (mx, my) = std::mem::take(&mut self.mouse);
+            let sens = 0.0025;
+            self.me.fwd = DQuat::from_axis_angle(up, -mx * sens) * self.me.fwd;
+            self.pitch = (self.pitch - my * sens).clamp(-1.55, 1.55);
+            let k = |c: KeyCode| self.keys.contains(&c) as i32 as f32;
+            let auto = a.get("autowalk", 0) == 1;
+            let inp = Input {
+                mv: [if auto { 1.0 } else { k(KeyCode::KeyW) - k(KeyCode::KeyS) }, k(KeyCode::KeyD) - k(KeyCode::KeyA)],
+                jump: auto || self.keys.contains(&KeyCode::Space),
+                fwd: self.me.fwd.as_vec3().to_array(),
+                pitch: self.pitch as f32,
+            };
+            self.debt += dt.min(0.1);
+            while self.debt >= phys::DT {
+                self.prev = self.me.pos;
+                phys::step(&self.world, &mut self.me, &inp, phys::DT);
+                self.debt -= phys::DT;
+            }
+            self.input = inp;
+            // the look turns every frame; the position is drawn between the last two physics steps
+            let pos = self.prev.lerp(self.me.pos, self.debt / phys::DT);
+            let up = phys::up(&self.world, pos);
+            let fwd = phys::tangent(self.me.fwd, up, self.me.fwd);
+            let look = DQuat::from_axis_angle(fwd.cross(up), self.pitch) * fwd;
+            Pose { pos: pos + up * phys::EYE, fwd: look, up }
+        } else {
+            pose(&self.run, t, &self.world, speed, alt, warm, q, a)
+        };
         let vel = if dt > 0.0 && self.loaded_at.is_some() { (p.pos - self.last_pos) / dt } else { DVec3::ZERO };
         self.last_pos = p.pos;
 
@@ -449,7 +496,21 @@ impl App {
                         }
                     }
                 }
-                Recv::Msg(ToClient::Players(ps)) => self.players = ps.len(),
+                Recv::Msg(ToClient::Players(ps)) => {
+                    self.players = ps.len();
+                    if self.run == "play" {
+                        if let Some(sp) = ps.iter().find(|p| p.id == self.my_id).map(|p| DVec3::from_array(p.pos)) {
+                            // shortcut: snap when the server disagrees by over a metre; replaying inputs
+                            // from the acknowledged tick comes when real latency makes this visible
+                            self.drift_max = self.drift_max.max(sp.distance(self.me.pos));
+                            if sp.distance(self.me.pos) > 1.0 {
+                                (self.me.pos, self.prev) = (sp, sp);
+                                self.snaps += 1;
+                                self.me.vel = DVec3::ZERO;
+                            }
+                        }
+                    }
+                }
                 Recv::Msg(ToClient::Welcome { .. }) => {}
                 Recv::Empty => break,
                 Recv::Closed => {
@@ -460,8 +521,12 @@ impl App {
             }
         }
         if t - self.last_move >= 1.0 / TICK_HZ {
-            // shortcut: yaw and pitch are 0 until movement gives the camera a local frame
-            self.link.send(ToServer::Move { pos: p.pos.to_array(), yaw: 0.0, pitch: 0.0 });
+            if self.run == "play" {
+                self.link.send(ToServer::Input(self.input));
+            } else {
+                // the benchmark runs fly: the camera position is sent as the player's position
+                self.link.send(ToServer::Move { pos: p.pos.to_array(), fwd: p.fwd.as_vec3().to_array(), pitch: 0.0 });
+            }
             self.last_move = t;
         }
 
@@ -771,7 +836,7 @@ impl App {
                 "\"ram_mb\":{:.0},\"vram_mb\":{:.0},\"chunks_meshed_per_s\":{:.1},\"chunks_nonempty_per_s\":{:.1},",
                 "\"missing_chunks_max\":{},\"holes_max\":{},\"draws_avg\":{:.0},\"quads_avg\":{:.0},\"quad_buffer_mb\":{:.1},",
                 "\"select_ms_p50\":{:.3},\"submit_ms_p50\":{:.3},\"pre_acquire_ms_p50\":{:.3},\"edits_per_s\":{:.0},\"job_us_avg\":{:.0},",
-                "\"edits_sent\":{},\"edits_applied\":{},\"players\":{},\"frames\":{},\"capture_stalls\":{},\"speed\":{},\"k\":{},\"greedy\":{},\"horizon\":{},\"mdi\":{},\"prefetch_s\":{},",
+                "\"edits_sent\":{},\"edits_applied\":{},\"players\":{},\"feet\":[{:.2},{:.2},{:.2}],\"snaps\":{},\"drift_max_m\":{:.2},\"frames\":{},\"capture_stalls\":{},\"speed\":{},\"k\":{},\"greedy\":{},\"horizon\":{},\"mdi\":{},\"prefetch_s\":{},",
                 "\"threads\":{},\"alloc_fail\":{},\"backend\":\"{}\",\"adapter\":\"{}\",\"spikes\":[{}]}}"
             ),
             self.run,
@@ -805,6 +870,11 @@ impl App {
             self.edits_done,
             self.edits_applied,
             self.players,
+            self.me.pos.x,
+            self.me.pos.y,
+            self.me.pos.z,
+            self.snaps,
+            self.drift_max,
             s.frames,
             s.capture_stalls,
             a.get("speed", 60.0),
@@ -853,14 +923,38 @@ impl ApplicationHandler for App {
             .with_decorations(false)
             .with_position(winit::dpi::PhysicalPosition::new(if onscreen { 0 } else { -30000 }, -30000));
         let window = Arc::new(el.create_window(attrs).unwrap());
+        if self.run == "play" && onscreen {
+            let _ = window.set_cursor_grab(CursorGrabMode::Confined).or_else(|_| window.set_cursor_grab(CursorGrabMode::Locked));
+            window.set_cursor_visible(false);
+        }
         let cap: u32 = self.args.get("quad_cap_m", 16u32) * 1_000_000;
         self.gpu = Some(Gpu::new(window, &self.args, cap));
         self.start = Instant::now();
         self.last_frame = Instant::now();
     }
     fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, ev: WindowEvent) {
-        if let WindowEvent::CloseRequested = ev {
-            el.exit();
+        match ev {
+            WindowEvent::CloseRequested => {
+                self.finish();
+                el.exit();
+            }
+            WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(code), state, .. }, .. } => {
+                if code == KeyCode::Escape {
+                    self.finish();
+                    el.exit();
+                } else if state == ElementState::Pressed {
+                    self.keys.insert(code);
+                } else {
+                    self.keys.remove(&code);
+                }
+            }
+            _ => {}
+        }
+    }
+    fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, ev: DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta } = ev {
+            self.mouse.0 += delta.0;
+            self.mouse.1 += delta.1;
         }
     }
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
@@ -906,10 +1000,12 @@ fn main() {
         }
     };
     link.send(ToServer::Hello { name: args.s("name", "player") });
-    let world = match link.rx.recv_timeout(Duration::from_secs(10)) {
-        Ok(ToClient::Welcome { seed, planet_n, moon_n, .. }) => World::new(planet_n, moon_n, seed),
+    let (my_id, world) = match link.rx.recv_timeout(Duration::from_secs(10)) {
+        Ok(ToClient::Welcome { id, seed, planet_n, moon_n }) => (id, World::new(planet_n, moon_n, seed)),
         other => panic!("no welcome from the server: {other:?}"),
     };
+    // the server spawns players on the +y pole; the client starts its prediction there too
+    let spawn = DVec3::Y * (world.bodies[0].height(DVec3::Y) + 0.6);
     assert!(world.bodies.len() <= MAX_BODIES);
     let opts = Opts {
         k: args.get("k", 4.0),
@@ -929,6 +1025,16 @@ fn main() {
         gpu: None,
         world,
         link,
+        my_id,
+        me: phys::Player::at(spawn, DVec3::X),
+        prev: spawn,
+        debt: 0.0,
+        drift_max: 0.0,
+        keys: Default::default(),
+        mouse: (0.0, 0.0),
+        pitch: 0.0,
+        input: Input::default(),
+        snaps: 0,
         last_move: 0.0,
         edits_applied: 0,
         players: 0,

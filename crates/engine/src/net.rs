@@ -1,5 +1,6 @@
 //! The player protocol (ADR 0006). A client, a bot and the server all speak it; the transport is a pair of
 //! channels, fed either directly (the local server in the same process) or by a TCP connection.
+use crate::phys::Input;
 use crate::world::Block;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::{Read, Write};
@@ -15,7 +16,10 @@ pub const MATERIALS: u8 = 4;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum ToServer {
     Hello { name: String },
-    Move { pos: [f64; 3], yaw: f32, pitch: f32 },
+    /// Fly or teleport: the position is taken as sent (creative mode; no check yet).
+    Move { pos: [f64; 3], fwd: [f32; 3], pitch: f32 },
+    /// Walk: the server moves the player with `phys::step` from this input every tick until a `Move`.
+    Input(Input),
     Edit { block: Block, material: u8 },
 }
 
@@ -31,8 +35,9 @@ pub enum ToClient {
 pub struct Player {
     pub id: u32,
     pub name: String,
+    /// The feet (bottom centre of the player's box).
     pub pos: [f64; 3],
-    pub yaw: f32,
+    pub fwd: [f32; 3],
     pub pitch: f32,
 }
 

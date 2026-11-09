@@ -1,7 +1,8 @@
 //! The authoritative world (ADR 0006): one `Server` owns the `World`, ticks at `TICK_HZ`, applies the edits
 //! players send and tells everyone what changed. Connections arrive on a channel, so the same server runs
 //! inside the singleplayer client (an in-memory link) and as the dedicated binary (TCP links).
-use engine::net::{Link, Player, Recv, ToClient, ToServer, MATERIALS, REACH};
+use engine::net::{Link, Player, Recv, ToClient, ToServer, MATERIALS, REACH, TICK_HZ};
+use engine::phys::{self, Input};
 use engine::world::{Block, World};
 use glam::DVec3;
 use std::sync::mpsc::Receiver;
@@ -12,6 +13,9 @@ pub type ServerLink = Link<ToClient, ToServer>;
 struct Client {
     link: ServerLink,
     player: Player,
+    phys: phys::Player,
+    /// Walking input; `None` while the player flies with `Move`.
+    input: Option<Input>,
 }
 
 pub struct Server {
@@ -21,11 +25,15 @@ pub struct Server {
     clients: Vec<Client>,
     next_id: u32,
     pub tick: u64,
+    /// Seconds per tick, for the physics; `run` sets it from its rate.
+    pub dt: f64,
+    /// Time the physics has not stepped through yet (less than one `phys::DT`).
+    debt: f64,
 }
 
 impl Server {
     pub fn new(planet_n: i32, moon_n: i32, seed: i32, accept: Receiver<ServerLink>) -> Server {
-        Server { world: World::new(planet_n, moon_n, seed), seed, accept, clients: Vec::new(), next_id: 1, tick: 0 }
+        Server { world: World::new(planet_n, moon_n, seed), seed, accept, clients: Vec::new(), next_id: 1, tick: 0, dt: 1.0 / TICK_HZ, debt: 0.0 }
     }
 
     pub fn players(&self) -> usize {
@@ -34,6 +42,7 @@ impl Server {
 
     /// Ticks forever at `hz`, sleeping between ticks; the thread or process ends it.
     pub fn run(mut self, hz: f64) {
+        self.dt = 1.0 / hz;
         let step = Duration::from_secs_f64(1.0 / hz);
         let mut next = Instant::now();
         loop {
@@ -61,7 +70,13 @@ impl Server {
             if !all.is_empty() {
                 link.send(ToClient::Edits(all));
             }
-            self.clients.push(Client { link, player: Player { id, name: String::new(), pos: [0.0; 3], yaw: 0.0, pitch: 0.0 } });
+            let spawn = self.spawn();
+            self.clients.push(Client {
+                link,
+                player: Player { id, name: String::new(), pos: spawn.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 },
+                phys: phys::Player::at(spawn, DVec3::X),
+                input: None,
+            });
         }
         let mut changed: Vec<(Block, u8)> = Vec::new();
         let mut i = 0;
@@ -70,10 +85,18 @@ impl Server {
             loop {
                 match self.clients[i].link.try_recv() {
                     Recv::Msg(ToServer::Hello { name }) => self.clients[i].player.name = name.chars().take(32).collect(),
-                    Recv::Msg(ToServer::Move { pos, yaw, pitch }) => {
-                        if pos.iter().all(|c| c.is_finite()) {
-                            let p = &mut self.clients[i].player;
-                            (p.pos, p.yaw, p.pitch) = (pos, yaw, pitch);
+                    Recv::Msg(ToServer::Move { pos, fwd, pitch }) => {
+                        if pos.iter().all(|c| c.is_finite()) && fwd.iter().all(|c| c.is_finite()) {
+                            let c = &mut self.clients[i];
+                            let p = DVec3::from_array(pos);
+                            c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
+                            c.input = None;
+                            (c.player.pos, c.player.fwd, c.player.pitch) = (pos, fwd, pitch);
+                        }
+                    }
+                    Recv::Msg(ToServer::Input(inp)) => {
+                        if inp.fwd.iter().all(|c| c.is_finite()) && inp.mv.iter().all(|c| c.is_finite()) {
+                            self.clients[i].input = Some(inp);
                         }
                     }
                     Recv::Msg(ToServer::Edit { block, material }) => {
@@ -96,6 +119,19 @@ impl Server {
                 self.clients.swap_remove(i);
             }
         }
+        self.debt += self.dt;
+        let steps = ((self.debt + 1e-9) / phys::DT) as u32;
+        self.debt -= steps as f64 * phys::DT;
+        for c in &mut self.clients {
+            if let Some(inp) = c.input {
+                for _ in 0..steps {
+                    phys::step(&self.world, &mut c.phys, &inp, phys::DT);
+                }
+                c.player.pos = c.phys.pos.to_array();
+                c.player.fwd = c.phys.fwd.as_vec3().to_array();
+                c.player.pitch = inp.pitch;
+            }
+        }
         if !changed.is_empty() {
             for c in &self.clients {
                 c.link.send(ToClient::Edits(changed.clone()));
@@ -106,6 +142,12 @@ impl Server {
             c.link.send(ToClient::Players(players.clone()));
         }
         self.tick += 1;
+    }
+
+    /// Where a new player's feet go: on the surface at the planet's +y pole, like the client's benchmark.
+    fn spawn(&self) -> DVec3 {
+        let b = &self.world.bodies[0];
+        b.centre + DVec3::Y * (b.height(DVec3::Y) + 0.6)
     }
 
     /// The trust boundary: a block that exists, a known material, within the player's reach.
@@ -158,7 +200,7 @@ mod tests {
         let pole = s.world.bodies[0].centre + DVec3::Z * (s.world.bodies[0].radius + 2.0);
         let under = s.world.block_at(pole - DVec3::Z * 2.5);
         let m = if s.world.block(under) == 3 { 0 } else { 3 };
-        links[0].send(ToServer::Move { pos: pole.to_array(), yaw: 0.0, pitch: 0.0 });
+        links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
         links[0].send(ToServer::Edit { block: under, material: m });
         s.tick();
         assert_eq!(s.world.block(under), m);
@@ -180,13 +222,30 @@ mod tests {
         let under = s.world.block_at(pole - DVec3::Z * 2.5);
         let before = s.world.block(under);
         links[0].send(ToServer::Edit { block: under, material: 0 }); // player still at the origin: out of reach
-        links[0].send(ToServer::Move { pos: pole.to_array(), yaw: 0.0, pitch: 0.0 });
+        links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
         links[0].send(ToServer::Edit { block: under, material: 200 }); // unknown material
         links[0].send(ToServer::Edit { block: Block { body: 9, ..under }, material: 0 }); // no such body
         s.tick();
         assert_eq!(s.world.block(under), before);
         assert_eq!(s.world.edit_count, 0);
         assert!(!drain(&links[0]).iter().any(|m| matches!(m, ToClient::Edits(_))));
+    }
+
+    #[test]
+    fn walking_input_moves_the_player_on_the_ground() {
+        let (mut s, links) = server_with(1);
+        drain(&links[0]);
+        let start = DVec3::from_array(s.clients[0].player.pos);
+        links[0].send(ToServer::Input(Input { mv: [1.0, 0.0], jump: true, fwd: [1.0, 0.0, 0.0], pitch: 0.0 }));
+        for _ in 0..60 {
+            s.tick(); // 3 s at the default 20 Hz
+        }
+        let p = &s.clients[0].phys;
+        let up = phys::up(&s.world, p.pos);
+        assert!((p.pos - start).reject_from(up).length() > 5.0, "moved {:?}", p.pos - start);
+        assert!(!phys::blocked(&s.world, p.pos, p.fwd.cross(up), p.fwd, up));
+        let seen = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Players(v) = m { Some(v) } else { None }).last().unwrap();
+        assert_eq!(seen[0].pos, p.pos.to_array(), "clients get the server's position");
     }
 
     #[test]

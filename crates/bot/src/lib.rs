@@ -1,19 +1,24 @@
 //! A bot: a player on the protocol with no window (ADR 0002, 0006). A script of commands drives it, from
 //! `script=` or live from stdin; it answers with one JSON line per `report` or `block`.
 //!
+//! A bot is a walking player: the server moves it with the shared physics (ADR 0007) and the bot steers.
+//! `spawn` makes it a flying one that stays where it put itself, until the next `walk`.
+//!
 //! Commands (numbers are metres in world axes; `dx dy dz` is relative to the feet):
-//!   spawn x y z         teleport               walk dx dy dz       move there at `speed`
+//!   spawn x y z         teleport the feet      walk dx dy dz       walk there over the ground
 //!   wait s              idle s seconds         dig dx dy dz        set that block to air
 //!   place dx dy dz m    set that block to m    block dx dy dz      report that block's material
 //!   report              report position, players and edits seen    quit
 use engine::net::{Link, Recv, ToClient, ToServer, TICK_HZ};
+use engine::phys::{self, Input};
 use engine::world::World;
 use glam::DVec3;
 use std::collections::VecDeque;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-pub const EYE: f64 = 1.7;
+/// A walk ends this close to its target, measured along the ground.
+const ARRIVE: f64 = 0.5;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Cmd {
@@ -57,11 +62,16 @@ pub struct Bot {
     pub name: String,
     pub link: Link<ToServer, ToClient>,
     pub world: Option<World>,
+    /// The feet: where the server has this bot, or where it put itself with `spawn`.
     pub pos: DVec3,
     pub players: usize,
     pub edits_applied: u64,
-    pub speed: f64,
-    target: Option<DVec3>,
+    id: u32,
+    flying: bool,
+    /// The walk: where to, and when to give up.
+    target: Option<(DVec3, Instant)>,
+    last_dist: f64,
+    notes: Vec<String>,
     idle_until: Option<Instant>,
     start: Instant,
 }
@@ -69,27 +79,25 @@ pub struct Bot {
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, speed: 4.0, target: None, idle_until: None, start: Instant::now() }
-    }
-
-    fn up(&self) -> DVec3 {
-        let w = self.world.as_ref().expect("welcomed");
-        (self.pos - w.bodies[w.nearest(self.pos)].centre).normalize_or(DVec3::Y)
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), idle_until: None, start: Instant::now() }
     }
 
     fn feet(&self) -> DVec3 {
-        self.pos - self.up() * EYE
+        self.pos
     }
 
     /// Takes everything the server sent; false once the server is gone.
     pub fn receive(&mut self) -> bool {
         loop {
             match self.link.try_recv() {
-                Recv::Msg(ToClient::Welcome { seed, planet_n, moon_n, .. }) => {
+                Recv::Msg(ToClient::Welcome { id, seed, planet_n, moon_n }) => {
                     let w = World::new(planet_n, moon_n, seed);
-                    // default spawn: eye height over the +y pole of the planet, like the client's benchmark
-                    self.pos = DVec3::new(0.0, w.bodies[0].height(DVec3::Y) + EYE, 0.0);
+                    self.id = id;
+                    // the server spawns players just over the +y pole; an empty input makes this one a
+                    // walker, so it lands there
+                    self.pos = DVec3::Y * (w.bodies[0].height(DVec3::Y) + 0.6);
                     self.world = Some(w);
+                    self.link.send(ToServer::Input(Input::default()));
                 }
                 Recv::Msg(ToClient::Edits(v)) => {
                     if let Some(w) = self.world.as_mut() {
@@ -99,32 +107,41 @@ impl Bot {
                         }
                     }
                 }
-                Recv::Msg(ToClient::Players(p)) => self.players = p.len(),
+                Recv::Msg(ToClient::Players(p)) => {
+                    self.players = p.len();
+                    if let Some(me) = p.iter().find(|p| p.id == self.id && !self.flying) {
+                        self.pos = DVec3::from_array(me.pos);
+                    }
+                }
                 Recv::Empty => return true,
                 Recv::Closed => return false,
             }
         }
     }
 
-    /// One tick: receive, move towards the target, report the position. Returns false when the link closed.
-    pub fn tick(&mut self, dt: f64) -> bool {
+    /// One tick: receive, steer the walk towards its target. Returns false when the link closed.
+    pub fn tick(&mut self) -> bool {
         if !self.receive() {
             return false;
         }
-        if self.world.is_none() {
-            return true;
-        }
-        if let Some(t) = self.target {
-            let d = t - self.pos;
-            let step = self.speed * dt;
-            if d.length() <= step {
-                self.pos = t;
+        let Some(w) = self.world.as_ref() else { return true };
+        if let Some((t, deadline)) = self.target {
+            let d = (t - self.pos).reject_from(phys::up(w, self.pos));
+            let dist = d.length();
+            let late = Instant::now() > deadline;
+            if dist < ARRIVE || late {
+                if late {
+                    self.notes.push(format!("{{\"bot\":\"{}\",\"walk\":\"gave up\",\"left\":{:.2}}}", self.name, dist));
+                }
                 self.target = None;
+                self.link.send(ToServer::Input(Input::default()));
             } else {
-                self.pos += d.normalize() * step;
+                // jump when the last tick brought it no closer: something higher than the step-up is in the way
+                let jump = dist > self.last_dist - 0.02;
+                self.link.send(ToServer::Input(Input { mv: [1.0, 0.0], jump, fwd: (d / dist).as_vec3().to_array(), pitch: 0.0 }));
             }
+            self.last_dist = dist;
         }
-        self.link.send(ToServer::Move { pos: self.pos.to_array(), yaw: 0.0, pitch: 0.0 });
         true
     }
 
@@ -137,8 +154,15 @@ impl Bot {
     pub fn exec(&mut self, c: &Cmd) -> Option<String> {
         let w = self.world.as_ref().expect("welcomed");
         match c {
-            Cmd::Spawn(p) => self.pos = *p,
-            Cmd::Walk(d) => self.target = Some(self.pos + *d),
+            Cmd::Spawn(p) => {
+                (self.pos, self.flying, self.target) = (*p, true, None);
+                self.link.send(ToServer::Move { pos: p.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+            }
+            Cmd::Walk(d) => {
+                // three times the time the distance takes, and 2 s: enough for hills, not for a cliff
+                let give_up = Instant::now() + Duration::from_secs_f64(d.length() / phys::WALK * 3.0 + 2.0);
+                (self.flying, self.last_dist, self.target) = (false, f64::MAX, Some((self.pos + *d, give_up)));
+            }
             Cmd::Wait(s) => self.idle_until = Some(Instant::now() + Duration::from_secs_f64(*s)),
             Cmd::Dig(d) => self.link.send(ToServer::Edit { block: w.block_at(self.feet() + *d), material: 0 }),
             Cmd::Place(d, m) => self.link.send(ToServer::Edit { block: w.block_at(self.feet() + *d), material: *m }),
@@ -165,13 +189,11 @@ impl Bot {
     pub fn run(&mut self, script: Vec<Cmd>, live: Option<Receiver<Cmd>>, mut out: impl FnMut(String)) {
         let mut queue: VecDeque<Cmd> = script.into();
         let step = Duration::from_secs_f64(1.0 / TICK_HZ);
-        let mut last = Instant::now();
         loop {
-            let now = Instant::now();
-            if !self.tick((now - last).as_secs_f64()) {
+            if !self.tick() {
                 return;
             }
-            last = now;
+            self.notes.drain(..).for_each(&mut out);
             if let Some(rx) = &live {
                 while let Ok(c) = rx.try_recv() {
                     queue.push_back(c);
@@ -226,20 +248,42 @@ mod tests {
             .collect();
         let watcher = bots.pop().unwrap();
         let mut digger = bots.pop().unwrap();
-        // both spawn over the +y pole; the watcher walks 2 m aside, the digger makes a 2-deep hole next to
+        // the digger stands at the +y pole and the watcher 2 m aside; the digger makes a 2-deep hole next to
         // its feet, and the watcher reads those blocks from the deltas it received (offsets aim at the
-        // middle of a column: the pole itself is a column corner, and the watcher's up tilts 1.4 degrees)
+        // middle of a column: the pole itself is a column corner)
+        let h = World::new(256, 32, 1).bodies[0].height(DVec3::Y);
         let w = std::thread::spawn(move || {
             let mut watcher = watcher;
             let mut out = Vec::new();
-            watcher.run(parse_script("walk 2 0 0; wait 0.5; block -1.75 -0.5 0.25; block -1.75 -1.0 0.25; report").unwrap(), None, |l| out.push(l));
+            watcher.run(parse_script(&format!("spawn 2 {h} 0; wait 0.5; block -1.75 -0.5 0.25; block -1.75 -1.0 0.25; report")).unwrap(), None, |l| out.push(l));
             out
         });
         let mut dout = Vec::new();
-        digger.run(parse_script("wait 0.2; dig 0.25 -0.5 0.25; dig 0.25 -1.0 0.25; wait 0.2; block 0.25 -0.5 0.25; report; wait 1").unwrap(), None, |l| dout.push(l));
+        digger.run(parse_script(&format!("spawn 0 {h} 0; wait 0.2; dig 0.25 -0.5 0.25; dig 0.25 -1.0 0.25; wait 0.2; block 0.25 -0.5 0.25; report; wait 1")).unwrap(), None, |l| dout.push(l));
         let wout = w.join().unwrap();
         assert!(dout[0].contains("\"material\":0"), "{dout:?}");
         assert!(wout[0].contains("\"material\":0") && wout[1].contains("\"material\":0"), "{wout:?}");
         assert!(wout[2].contains("\"players\":2") && wout[2].contains("\"edits_applied\":2"), "{wout:?}");
+    }
+
+    #[test]
+    fn a_bot_lands_and_walks_ten_metres_over_the_ground() {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0));
+        let (c, s) = local();
+        tx.send(s).unwrap();
+        let mut b = Bot::new("walker", c);
+        let mut out = Vec::new();
+        b.run(parse_script("wait 1").unwrap(), None, |l| out.push(l));
+        let start = b.pos;
+        b.run(parse_script("walk 10 0 0; wait 0.5").unwrap(), None, |l| out.push(l));
+        let moved = b.pos - start;
+        assert!(out.is_empty(), "{out:?}");
+        assert!((moved.x - 10.0).abs() < 1.0 && moved.z.abs() < 1.0, "moved {moved:?}");
+        let w = b.world.as_ref().unwrap();
+        let up = phys::up(w, b.pos);
+        let fwd = phys::tangent(DVec3::X, up, DVec3::Z);
+        let right = fwd.cross(up);
+        assert!(!phys::blocked(w, b.pos, right, fwd, up) && phys::blocked(w, b.pos - up * 0.05, right, fwd, up), "feet on the ground at {:?}", b.pos);
     }
 }

@@ -34,12 +34,8 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      (`crates/bot`, `technoape-bot`);
    - ~~world data on the cube-sphere, generation from the seed, streaming, visible-but-tidy LOD, the moon~~
      done 2026-11-10: the engine base had all but the LOD seams; skirts in `generate` close them;
-   - radial gravity, walking and jumping in the local frame, collision. **In progress, uncommitted in the
-     working tree (2026-11-09):** `crates/engine/src/phys.rs` plus the server, client (`run=play`) and bot
-     (`walk`) wiring; the workspace compiles and all 20 tests pass. Left to do: write ADR 0007 (the code
-     refers to it), run the benchmark, commit. Check first: `blocked` samples the box at heights 0, 0.9 and
-     1.8 m, so a lone block at 1.0-1.5 m above the feet looks walkable-through (found by reading, not run);
-     sample every block layer and add the test;
+   - ~~radial gravity, walking and jumping in the local frame, collision~~ done 2026-11-09 (ADR 0007):
+     `crates/engine/src/phys.rs`, shared by the server, the client's `run=play` and the bots' `walk`;
    - **test harness I** (`docs/design/fundamentals.md` section 4, steps 1-3): invariants with a fast-forward
      soak of random bots biased to seams, a state hash per tick, the flight recorder with replay; one gate,
      `tools/check.sh`. Before digging and saves, which it is there to catch;

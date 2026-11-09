@@ -1,4 +1,4 @@
-//! `technoape-bot connect=host[:7777] n=1 name=bot speed=4 script="wait 1; dig 0 -0.5 0; report"`
+//! `technoape-bot connect=host[:7777] n=1 name=bot script="wait 1; dig 0 -0.5 0; report"`
 //! `script=-` reads commands live from stdin, one per line, until `quit` or EOF. With n>1 every bot runs the
 //! same script on its own thread, named `name-i`. Output: one JSON line per report or block, on stdout.
 use bot::{parse, parse_script, Bot, Cmd};
@@ -13,7 +13,6 @@ fn main() {
     let addr = args.get("connect").cloned().unwrap_or_else(|| format!("127.0.0.1:{DEFAULT_PORT}"));
     let addr = if addr.contains(':') { addr } else { format!("{addr}:{DEFAULT_PORT}") };
     let n: usize = args.get("n").and_then(|v| v.parse().ok()).unwrap_or(1);
-    let speed: f64 = args.get("speed").and_then(|v| v.parse().ok()).unwrap_or(4.0);
     let name = args.get("name").cloned().unwrap_or_else(|| "bot".into());
     let script_arg = args.get("script").cloned().unwrap_or_else(|| "report".into());
     let live = script_arg == "-";
@@ -47,7 +46,6 @@ fn main() {
             let lock = out_lock.clone();
             std::thread::spawn(move || {
                 let mut b = Bot::new(&bot_name, link);
-                b.speed = speed;
                 b.run(script, rx, |l| {
                     let _g = lock.lock().unwrap();
                     println!("{l}");

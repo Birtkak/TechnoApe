@@ -43,4 +43,9 @@ the first playable (N = 3072, R = 1061 m); the moon is 177 m.
   the surface, so a coarser neighbour's different surface shows as a step, never a hole (`docs/images/
   lod-skirts.png`). Quick runs after: `fly` 2,253 fps / p99 0.95 ms, `edit` 1,963 fps / p99 1.16 ms,
   `orbit` 3,497 fps; about 15% more quads at the worst view. The full series above predates skirts.
+- **With player movement (2026-11-09, ADR 0007, full series, after skirts):** every run holds p99 (worst 1.2 ms,
+  `edit` on the big planet) and streaming (no missing chunks, no holes); `stand` 2,786 / 2,485 fps, `edit`
+  2,257 / 2,196 fps (base / big). Three of six `orbit` reps had one frame over 16.7 ms (16.5, 29.5 and
+  31.3 ms) with under 1 ms of engine work and 0.15 ms presenting: the same outside-the-frame stall as above,
+  now more often. `orbit` flies with `Move`, so the movement code does not step in it; the cause is open.
 - **Not built yet:** textures from images, lighting beyond one sun, shadows, transparency.
