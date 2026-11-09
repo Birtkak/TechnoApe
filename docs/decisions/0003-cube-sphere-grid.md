@@ -24,17 +24,24 @@ The cube-sphere's cost is its 12 seams and 8 corners:
   seams.
 
 ## Decision
-- **Grid:** the equi-angular cube-sphere with quad-prism blocks: 6 faces of N x N columns, N a multiple of
-  the chunk size (32).
-  - R = 300 m gives N = 864 (0.502 m blocks); R = 1000 m gives N = 2880.
+- **Grid:** the equi-angular cube-sphere with quad-prism blocks: 6 faces of N x N columns.
+  - **N = 32 * m * 2^L with a small m** (amended 2026-11-10 while building the engine): the chunks are 32
+    columns wide and the LOD tree halves the resolution per level, so only such an N lets the tree tile a
+    face. N sets the radius, R = N * 0.5 m / sqrt(2 pi / 3), so the mean block is 0.5 m wide:
+    N = 3072 (m = 3) is the 1 km planet (R = 1061 m), N = 1536 the benchmark planet (531 m), N = 512 the
+    moon (177 m). The spike's N = 2880 for exactly 1000 m would allow only one LOD level.
   - Radial layers are geometric (each 0.5/R thicker than the one below), so blocks stay cubic at every depth.
-    One shell covers the playable band; deeper digging, if wanted, halves N per shell.
+    Layer 0 starts at the core (64 m under the nominal surface); nothing below it is stored or dug.
   - Blocks are always level: gravity is radial and every column runs along the radius.
 - **Fine 12.5 cm cells:** the same grid at 4N with 4 sub-layers per block, so they nest exactly.
 - **World data:** chunk id = (face, ci, cj, layer); each chunk is a regular (i, j, layer) array.
   - Neighbours fold over a seam only at chunk borders on a seam; the 3-block corners are one special case.
-  - Greedy meshing, palettes and the cellular automaton work per face unchanged.
-  - The vertex shader maps (face, i, j, layer) to the sphere.
+  - Meshing, palettes and the cellular automaton work per face unchanged, with one exception: greedy
+    merging is off, because a merged quad is a straight chord across the curved grid and leaves cracks next to
+    smaller quads (3 cm for a 32 block quad at 1 km). Every face is one quad per block; merging can return
+    inside a lattice with interpolated corners if quad counts ever matter.
+  - The vertex shader maps each vertex's global (face, i, j, layer) to the sphere, relative to the camera, so
+    quads and chunks share their corners exactly.
 - **Seams are a feature of the world, "the planet's grain":**
   - **Shown:** in build mode (a faint line, like chunk borders) and on the map, so a turning conveyor reads as
     a rule of the planet, not a bug.

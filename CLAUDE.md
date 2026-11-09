@@ -42,8 +42,21 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `~/Tools/rust/cargo/bin` to PATH. wgpu 30, winit 0.30 (versions from the engine spike).
 - Release builds for any performance number: fat LTO, one codegen unit, `target-cpu=native`.
 - Libraries per system are chosen when the system is built, each in its own ADR.
-- The engine starts from the p15 spike's renderer and streamer, branch `claude/p15-engine-spike-251147`
-  (roadmap step 1); until then there is no game code in the repo.
+- Workspace: `crates/engine` (world on the cube-sphere grid, meshing, streaming; no window or GPU) and
+  `crates/client` (binary `technoape`: window, renderer, benchmark runs). Techniques and why:
+  `docs/research/voxel-rendering.md`.
+
+## Build, test, run
+
+- `cargo test` (engine logic), `cargo build --release` (the binary lands in `target/release/technoape.exe`).
+- A run is `technoape.exe key=value ...`, off-screen unless `onscreen=1`. It prints one JSON line (ADR 0004:
+  frame times, RAM, VRAM, `budget_ok`, a `spikes` list) and exits:
+  `run=stand|fly|orbit|edit`, `quick=1` (quarter length, a smoke check in seconds), `planet=3072|1536`
+  (columns per face edge), `out=file.jsonl`.
+- To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet;
+  `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
+- Full benchmark: `bash tools/bench.sh` (25 min, repeats reps a compiler disturbed), then
+  `python -I tools/summarize.py`. Results: `docs/benchmarks.md`. Do not compile while it runs.
 
 ## Conventions
 

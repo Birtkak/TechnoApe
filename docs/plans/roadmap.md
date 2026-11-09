@@ -9,17 +9,18 @@ grid), 0004 (frame budget), 0005 (platforms). Read those first.
   streamer, `RESEARCH.md` with the techniques adopted and rejected), p14 on `claude/suspicious-taussig-3df52e`.
 - **Sphere grid (2026-11-09):** equi-angular cube-sphere, seams shown as the planet's grain
   (`prototypes/sphere-grid/`, ADR 0003).
+- **Engine base (2026-11-10):** a cargo workspace with `crates/engine` (world, meshing, streaming; no GPU)
+  and `crates/client` (window, renderer, benchmark runs), from p15's code. The world is on the cube-sphere
+  grid: chunks are (face, column, column, layer) boxes, seams fold in generation, edits and meshing, the
+  vertex shader maps the grid to the sphere. Numbers: `docs/benchmarks.md`.
 
 ## Next
-1. **Engine base:** bring p15's renderer and streamer into a cargo workspace at the repo root (engine,
-   client, server as crates), with the headless run that prints the JSON stats of ADR 0004 and a filmstrip.
-   Map the chunks onto the cube-sphere grid.
-2. **Block look spike:** patterned flat-colour cells against 16x16 pixel textures on the new engine; the
+1. **Block look spike:** patterned flat-colour cells against 16x16 pixel textures on the new engine; the
    developer picks from a sheet. It fixes the pixel grid of ADR 0002.
-3. **First playable** (ADR 0002). Settled 2026-11-09:
-   - the planet has a **1 km radius** (N = 2880 per cube face, ADR 0003; about 21 min to walk around, 58 m
-     horizon at eye height). The benchmark below stays at 500 m for comparison with the spikes, and gains
-     `stand` and `fly` runs on the 1 km planet, which must also hold ADR 0004;
+2. **First playable** (ADR 0002). Settled 2026-11-09:
+   - the planet has a **1 km radius** (N = 3072 per cube face, R = 1061 m, ADR 0003; about 22 min to walk
+     around, 60 m horizon at eye height). The benchmark runs on a 531 m planet (`base`) and on this one
+     (`big`); both must hold ADR 0004;
    - the moon is in the sky and **reachable with a creative fly mode**, seamlessly; the jetpack comes later;
    - **survival-style inventory:** dug blocks go to a hotbar and inventory and are placed from it; a creative
      toggle for testing;
@@ -27,7 +28,7 @@ grid), 0004 (frame budget), 0005 (platforms). Read those first.
      tests, bots and headless runs; the developer gets one build with a to-test list at the end.
 
    In this order, each with its benchmark and checks:
-   - client and local server split from the start, deltas over the wire;
+   - client and local server split from the start (a `server` crate), deltas over the wire;
    - test bots on the player protocol, driven by script or live control channel;
    - world data on the cube-sphere, generation from the seed, streaming, visible-but-tidy LOD, the moon;
    - radial gravity, walking and jumping in the local frame, collision;
@@ -35,7 +36,7 @@ grid), 0004 (frame budget), 0005 (platforms). Read those first.
    - water as fill levels, with fine 12.5 cm splashes near the player;
    - lighting: block light, the sun around the planet, the 20 minute day, shadow maps;
    - 3D audio with cave reverb and material sounds.
-4. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; the
+3. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; the
    Earth-like biomes and the moon's ores; crafting and the first machines (designed fresh); AI players;
    jetpack and the climb to orbit; the dedicated server on the home server and auto-update (ADR 0005).
 

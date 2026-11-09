@@ -1,0 +1,19 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "technoape"
+path = "src/main.rs"
+
+[dependencies]
+engine = { path = "../engine" }
+glam.workspace = true
+rayon.workspace = true
+wgpu = "30"
+winit = "0.30"
+pollster = "1"
+bytemuck = { version = "1", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+windows = { version = "0.61", features = ["Win32_Graphics_Dxgi", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Foundation"] }

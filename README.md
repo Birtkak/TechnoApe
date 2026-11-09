@@ -13,4 +13,6 @@ Status: **fresh start (2026-11-09).** Direction and engine decided; the engine b
 | `docs/design/vision.md` | What the game is: the ground truth |
 | `docs/decisions/` | Architecture Decision Records, one file per decision |
 | `docs/plans/roadmap.md` | What is done and what comes next |
+| `crates/engine`, `crates/client` | The game: world, meshing and streaming; window, renderer and benchmark runs |
+| `tools/` | Benchmark scripts |
 | `prototypes/` | Throwaway spikes, each with a README of its question and measured answer |

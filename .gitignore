@@ -22,3 +22,6 @@ prototypes/*/build/
 # Other sessions working in this folder (PC tune-up); never part of the game repo
 PC-tuneup/
 PC-optimization-report.md
+
+# Benchmark and test output
+/out/
