@@ -86,7 +86,7 @@ running the shared benchmark above, so the custom-engine numbers are its honest 
 Done = RESEARCH.md + README + `results.json` + filmstrips on its branch. Stay in the folder; stop after.
 
 ### Wave 2 (after wave 1, in the overseer session)
-- **Engine ADR** (0171): compare p14 vs p15 numbers, cost of porting (native C++ we keep: technosim,
+- **Engine ADR** (0171): done, a custom engine in Rust + wgpu. Was: compare p14 vs p15 numbers, cost of porting (native C++ we keep: technosim,
   fine_gen; GDScript game systems that would be rewritten), decide.
 - **Grid ADR** (0172) from p16: done, equi-angular cube-sphere, seams shown as part of the world.
 - **Block look spike** (patterned flat-colour cells vs 16x16 pixel textures) on the chosen engine; the
