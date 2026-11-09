@@ -40,6 +40,27 @@ the new design keeps such work off the frame from the start.
 - Libraries are picked per system when that system is built, each recorded in its own ADR (UI, audio,
   physics for rigid pieces, networking).
 
+## What changes from the Godot game (developer, 2026-11-09)
+Asked before any engine code, to fix what did not work: liquids, the sim bubble, LOD, and textures and
+models of mismatched sizes.
+- **Gameplay in Rust, content as data files.** No script language; items, recipes, machines, materials and
+  biomes stay data + schema + tests (rule 6).
+- **Multiplayer from day one.** Singleplayer runs a local server; every system is server-authoritative from
+  its first version (rule 7), no retrofit.
+- **No sim bubble.** The whole loaded area keeps simulating on worker threads, full rate near the player and
+  lower rates farther out; no window edge, no shift on the frame thread.
+- **Liquids as fill levels plus fine splashes.** Each 0.5 m block holds a fill level (smooth surface, flows,
+  cheap everywhere); near the player it breaks into 12.5 cm cells for splashes and pouring, and settles back.
+- **LOD visible but tidy.** Far terrain is honestly drawn in bigger blocks with clean seams, no cross-fade;
+  the look is part of the style. Revises ADR 0170's "hidden" wish.
+- **One pixel grid for every block, item and model:** one texel size everywhere (16 px per 0.5 m block, so
+  3.125 cm per texel unless the look spike changes the number); every model is built on that grid, so sizes
+  never mismatch.
+- **First playable:** one planet and its moon, radial gravity, walk, dig and place blocks, water as fill
+  levels, saving. No machines yet.
+- **Checks:** `cargo test` plus a headless run that prints JSON stats and a filmstrip in under a minute; long
+  benchmark series only for performance decisions.
+
 ## Consequences
 - The renderer is the small part. UI, audio, lights and shadows, particles, transparency, tooling and all
   gameplay are written or ported by us; p15's README lists each part. No time estimate: nothing measures the
