@@ -58,6 +58,12 @@ models of mismatched sizes.
   never mismatch.
 - **First playable:** one planet and its moon, radial gravity, walk, dig and place blocks, water as fill
   levels, saving. No machines yet.
+- **Bots are clients.** A bot is a windowless client on the same protocol as a player (move, look, dig, place,
+  use, craft in; world state out). Testing drives bots from a script or live over a control channel ("walk to
+  X, dig, pour water, wait, report") and gets JSON state and filmstrips back; many bots load-test the server.
+  This replaces the autopilot. In the game, **AI players play on their own** (gather, build, settle) so a
+  server feels alive even alone: a brain (goals, pathfinding, utility AI) on top of the same bot client. Bots
+  for testing come with the first playable; AI players after the core loop exists.
 - **Checks:** `cargo test` plus a headless run that prints JSON stats and a filmstrip in under a minute; long
   benchmark series only for performance decisions.
 
