@@ -1,0 +1,286 @@
+{
+ "R300": {
+  "cube_N": 868,
+  "cube_cells": 4520544,
+  "hex_F": 673,
+  "hex_cells": 4529292,
+  "cube_gnomonic": {
+   "area_min_rel": 0.3684,
+   "area_max_rel": 1.9098,
+   "area_ratio": 5.1842,
+   "edge_min_m": 0.3261,
+   "edge_max_m": 0.6912,
+   "max_angle_dev_deg": 30.0,
+   "max_edge_ratio_in_cell": 1.4142,
+   "frac_angle_dev_gt10": 0.44181,
+   "frac_area_dev_gt10pct": 0.83758
+  },
+  "cube_equiangular": {
+   "area_min_rel": 0.8338,
+   "area_max_rel": 1.1781,
+   "area_ratio": 1.4129,
+   "edge_min_m": 0.3839,
+   "edge_max_m": 0.5429,
+   "max_angle_dev_deg": 30.0,
+   "max_edge_ratio_in_cell": 1.4142,
+   "frac_angle_dev_gt10": 0.33472,
+   "frac_area_dev_gt10pct": 0.30942
+  },
+  "cube_nowicki": {
+   "area_min_rel": 0.8289,
+   "area_max_rel": 1.102,
+   "area_ratio": 1.3295,
+   "edge_min_m": 0.3991,
+   "edge_max_m": 0.6905,
+   "max_angle_dev_deg": 30.0,
+   "max_edge_ratio_in_cell": 1.7301,
+   "frac_angle_dev_gt10": 0.1132,
+   "frac_area_dev_gt10pct": 0.00638
+  },
+  "hex_geodesic": {
+   "area_min_rel": 0.6073,
+   "area_max_rel": 1.2066,
+   "area_ratio": 1.9869,
+   "edge_min_m": 0.2154,
+   "edge_max_m": 0.3405,
+   "max_angle_dev_deg": 10.66,
+   "max_edge_ratio_in_cell": 1.1989,
+   "frac_angle_dev_gt10": 0.00251,
+   "frac_area_dev_gt10pct": 0.48709
+  },
+  "hex_pentagon": {
+   "area_min_rel": 0.441,
+   "area_max_rel": 0.441,
+   "area_ratio": 1.0,
+   "edge_min_m": 0.253,
+   "edge_max_m": 0.253,
+   "max_angle_dev_deg": 0.0,
+   "max_edge_ratio_in_cell": 1.0,
+   "frac_angle_dev_gt10": 0.0,
+   "frac_area_dev_gt10pct": 1.0
+  }
+ },
+ "R1000": {
+  "cube_N": 2894,
+  "cube_cells": 50251416,
+  "hex_F": 2242,
+  "hex_cells": 50265642,
+  "cube_gnomonic": {
+   "area_min_rel": 0.3678,
+   "area_max_rel": 1.9099,
+   "area_ratio": 5.1926,
+   "edge_min_m": 0.3259,
+   "edge_max_m": 0.6911,
+   "max_angle_dev_deg": 30.0,
+   "max_edge_ratio_in_cell": 1.4142,
+   "frac_angle_dev_gt10": 0.44058,
+   "frac_area_dev_gt10pct": 0.8376
+  },
+  "cube_equiangular": {
+   "area_min_rel": 0.8333,
+   "area_max_rel": 1.1781,
+   "area_ratio": 1.4138,
+   "edge_min_m": 0.3838,
+   "edge_max_m": 0.5428,
+   "max_angle_dev_deg": 30.0,
+   "max_edge_ratio_in_cell": 1.4142,
+   "frac_angle_dev_gt10": 0.33364,
+   "frac_area_dev_gt10pct": 0.30953
+  },
+  "cube_nowicki": {
+   "area_min_rel": 0.8276,
+   "area_max_rel": 1.1025,
+   "area_ratio": 1.3322,
+   "edge_min_m": 0.399,
+   "edge_max_m": 0.6908,
+   "max_angle_dev_deg": 30.0,
+   "max_edge_ratio_in_cell": 1.7315,
+   "frac_angle_dev_gt10": 0.11197,
+   "frac_area_dev_gt10pct": 0.0064
+  },
+  "hex_geodesic": {
+   "area_min_rel": 0.606,
+   "area_max_rel": 1.2066,
+   "area_ratio": 1.991,
+   "edge_min_m": 0.2153,
+   "edge_max_m": 0.3407,
+   "max_angle_dev_deg": 10.69,
+   "max_edge_ratio_in_cell": 1.199,
+   "frac_angle_dev_gt10": 0.00256,
+   "frac_area_dev_gt10pct": 0.48671
+  },
+  "hex_pentagon": {
+   "area_min_rel": 0.4405,
+   "area_max_rel": 0.4405,
+   "area_ratio": 1.0,
+   "edge_min_m": 0.253,
+   "edge_max_m": 0.253,
+   "max_angle_dev_deg": 0.0,
+   "max_edge_ratio_in_cell": 1.0,
+   "frac_angle_dev_gt10": 0.0,
+   "frac_area_dev_gt10pct": 1.0
+  }
+ },
+ "neighbour_ns": {
+  "note": "all lateral neighbours of one cell, random cells, R=1000 m, -O2, one core; checksum 102",
+  "cartesian_6": 2.79,
+  "cube_4": 6.15,
+  "cube_4_edge_cells": 46.97,
+  "hex_6": 6.97,
+  "hex_6_edge_cells": 48.8
+ },
+ "row_kink_deg": {
+  "note": "total turn of a straight row of blocks across a seam (sum over the 12 blocks around it), by distance (blocks) of the crossing from the nearest corner/pentagon; interior = max turn per block inside a face",
+  "cube_gnomonic": {
+   "0": 59.961868,
+   "1": 59.885413,
+   "2": 59.808722,
+   "4": 59.654634,
+   "8": 59.343604,
+   "16": 58.709986,
+   "32": 57.395293,
+   "64": 54.566354,
+   "128": 48.035275,
+   "434": 0.093351,
+   "interior": 0.0
+  },
+  "cube_equiangular": {
+   "0": 59.940136,
+   "1": 59.820265,
+   "2": 59.70025,
+   "4": 59.459792,
+   "8": 58.977174,
+   "16": 58.005247,
+   "32": 56.035538,
+   "64": 51.999644,
+   "128": 43.593537,
+   "434": 0.073318,
+   "interior": 0.0
+  },
+  "cube_nowicki": {
+   "0": 59.830781,
+   "1": 59.494149,
+   "2": 59.159947,
+   "4": 58.498744,
+   "8": 57.2045,
+   "16": 54.723716,
+   "32": 50.156121,
+   "64": 42.341954,
+   "128": 30.480833,
+   "434": 0.03876,
+   "interior": 0.024758
+  },
+  "hex_geodesic": {
+   "1": 35.910415,
+   "2": 35.820691,
+   "4": 35.64083,
+   "8": 17.639728,
+   "16": 17.275066,
+   "32": 16.532747,
+   "64": 14.997621,
+   "128": 11.741143,
+   "336": 0.029086,
+   "interior": 0
+  }
+ },
+ "footprint": {
+  "note": "origins where a W x W (cube) or radius-k (hex) footprint does not stamp as a regular patch, and the max distance (blocks) of such an origin from the nearest corner/pentagon",
+  "cube_W2": {
+   "bad_origins": 6,
+   "max_dist_from_corner": 0
+  },
+  "cube_W4": {
+   "bad_origins": 54,
+   "max_dist_from_corner": 2
+  },
+  "cube_W8": {
+   "bad_origins": 294,
+   "max_dist_from_corner": 6
+  },
+  "cube_W16": {
+   "bad_origins": 1350,
+   "max_dist_from_corner": 14
+  },
+  "hex_k1": {
+   "bad_origins": 12,
+   "max_dist_from_pentagon": 0
+  },
+  "hex_k2": {
+   "bad_origins": 72,
+   "max_dist_from_pentagon": 1
+  },
+  "hex_k4": {
+   "bad_origins": 372,
+   "max_dist_from_pentagon": 3
+  },
+  "hex_k8": {
+   "bad_origins": 1692,
+   "max_dist_from_pentagon": 7
+  }
+ },
+ "cartesian_radial_gravity": {
+  "tilt_sphere": {
+   "mean_deg": 31.89,
+   "max_deg": 54.73,
+   "frac_gt2": 0.9981,
+   "frac_gt5": 0.9885,
+   "frac_gt15": 0.8976,
+   "frac_gt30": 0.5978
+  }
+ },
+ "rounded_cube": {
+  "note": "k = rounding radius / half-size; 0 = cube, 1 = sphere",
+  "k0.25": {
+   "flat_area_frac": 0.6322,
+   "radius_variation": 1.549,
+   "tilt": {
+    "mean_deg": 8.62,
+    "max_deg": 54.73,
+    "frac_gt2": 0.3531,
+    "frac_gt5": 0.3306,
+    "frac_gt15": 0.2537,
+    "frac_gt30": 0.1324
+   }
+  },
+  "k0.5": {
+   "flat_area_frac": 0.3232,
+   "radius_variation": 1.366,
+   "tilt": {
+    "mean_deg": 16.81,
+    "max_deg": 54.73,
+    "frac_gt2": 0.6539,
+    "frac_gt5": 0.6185,
+    "frac_gt15": 0.49,
+    "frac_gt30": 0.2701
+   }
+  },
+  "k0.75": {
+   "flat_area_frac": 0.0959,
+   "radius_variation": 1.183,
+   "tilt": {
+    "mean_deg": 24.59,
+    "max_deg": 54.73,
+    "frac_gt2": 0.883,
+    "frac_gt5": 0.8487,
+    "frac_gt15": 0.7069,
+    "frac_gt30": 0.4212
+   }
+  }
+ },
+ "radial_layering": {
+  "R300": {
+   "width_at_crust_bottom_m": 0.393,
+   "width_at_terrain_top_m": 0.55,
+   "ratio_over_band": 1.398,
+   "layers_over_band_geometric": 202,
+   "layers_over_band_uniform": 188
+  },
+  "R1000": {
+   "width_at_crust_bottom_m": 0.468,
+   "width_at_terrain_top_m": 0.515,
+   "ratio_over_band": 1.1,
+   "layers_over_band_geometric": 192,
+   "layers_over_band_uniform": 188
+  }
+ }
+}
