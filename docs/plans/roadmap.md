@@ -30,7 +30,8 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
    In this order, each with its benchmark and checks:
    - ~~client and local server split from the start (a `server` crate), deltas over the wire~~ done
      2026-11-10 (ADR 0006);
-   - test bots on the player protocol, driven by script or live control channel;
+   - ~~test bots on the player protocol, driven by script or live control channel~~ done 2026-11-10
+     (`crates/bot`, `technoape-bot`);
    - world data on the cube-sphere, generation from the seed, streaming, visible-but-tidy LOD, the moon;
    - radial gravity, walking and jumping in the local frame, collision;
    - dig and place blocks; saves of only what changed;

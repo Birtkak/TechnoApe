@@ -1,0 +1,15 @@
+[package]
+name = "bot"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "technoape-bot"
+path = "src/main.rs"
+
+[dependencies]
+engine = { path = "../engine" }
+glam.workspace = true
+
+[dev-dependencies]
+server = { path = "../server" }

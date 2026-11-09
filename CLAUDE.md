@@ -43,7 +43,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - Release builds for any performance number: fat LTO, one codegen unit, `target-cpu=native`.
 - Libraries per system are chosen when the system is built, each in its own ADR.
 - Workspace: `crates/engine` (world on the cube-sphere grid, meshing, streaming, the player protocol; no
-  window or GPU), `crates/server` (the authoritative world; binary `technoape-server`) and `crates/client`
+  window or GPU), `crates/server` (the authoritative world; binary `technoape-server`), `crates/bot` (windowless scripted
+  players; binary `technoape-bot`) and `crates/client`
   (binary `technoape`: window, renderer, benchmark runs; runs the server on a thread unless `connect=` names
   a remote one). ADR 0006. Techniques and why:
   `docs/research/voxel-rendering.md`.
@@ -56,6 +57,10 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `run=stand|fly|orbit|edit`, `quick=1` (quarter length, a smoke check in seconds), `planet=3072|1536`
   (columns per face edge), `seed=`, `out=file.jsonl`, `connect=host[:7777]` to join a running server
   (`technoape-server listen=0.0.0.0:7777 planet= seed=` prints a JSON line every 5 s).
+- Bots: `technoape-bot connect=host n=50 script="wait 1; dig 0.25 -0.5 0.25; block 0.25 -0.5 0.25; report"`
+  runs windowless players on the protocol (commands: spawn, walk, wait, dig, place, block, report, quit;
+  `script=-` takes them live from stdin). Output is one JSON line per report or block. Use bots, not a second
+  windowed client, for multiplayer checks: two windows on one PC throttle each other (ADR 0006).
 - To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet;
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
 - Full benchmark: `bash tools/bench.sh` (25 min, repeats reps a compiler disturbed), then
