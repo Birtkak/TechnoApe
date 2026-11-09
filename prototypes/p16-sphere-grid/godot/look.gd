@@ -21,6 +21,7 @@ func _init() -> void:
 		_args[kv[0]] = kv[1] if kv.size() > 1 else "1"
 	var quads: Array = []
 	var eye := Vector3.ZERO
+	var fwd_hint := Vector3.ZERO
 	var f := FileAccess.open(_args.get("in", ""), FileAccess.READ)
 	if f == null:
 		push_error("no input"); quit(2); return
@@ -28,6 +29,8 @@ func _init() -> void:
 		var p: PackedStringArray = f.get_line().split(" ", false)
 		if p.size() == 4 and p[0] == "eye":
 			eye = Vector3(p[1].to_float(), p[2].to_float(), p[3].to_float())
+		elif p.size() == 4 and p[0] == "fwd":
+			fwd_hint = Vector3(p[1].to_float(), p[2].to_float(), p[3].to_float())
 		elif p.size() == 16:
 			quads.append(p)
 	var root3 := Node3D.new()
@@ -58,7 +61,10 @@ func _init() -> void:
 	_cam = Camera3D.new()
 	_cam.fov = 75
 	_cam.near = 0.05
-	var fwd: Vector3 = side.cross(up).normalized().rotated(up, deg_to_rad(float(_args.get("yaw", "0"))))
+	var fwd: Vector3 = side.cross(up).normalized()
+	if fwd_hint != Vector3.ZERO:  # the dump asks to look along its marked row
+		fwd = (fwd_hint - up * fwd_hint.dot(up)).normalized()
+	fwd = fwd.rotated(up, deg_to_rad(float(_args.get("yaw", "0"))))
 	var alt: float = float(_args.get("alt", "0"))
 	var pitch: float = deg_to_rad(float(_args.get("pitch", "10")))
 	var look: Vector3 = (fwd * cos(pitch) - up * sin(pitch)).normalized()
@@ -75,7 +81,8 @@ func _build(quads: Array, textured: bool) -> MeshInstance3D:
 	rng.seed = 7
 	var n := 0
 	for p in quads:
-		var mark: int = int(p[0]) >> 2  # 1 = seam, 2 = cube corner (blocks.cpp)
+		var mark: int = (int(p[0]) >> 2) & 3  # 1 = seam, 2 = cube corner (blocks.cpp)
+		var on_row: bool = int(p[0]) >= 16  # a straight row of blocks, stands in for a wall or conveyor: tinted in both looks
 		var mat: int = int(p[0]) & 3
 		var nrm := Vector3(p[1].to_float(), p[2].to_float(), p[3].to_float())
 		var v: Array[Vector3] = []
@@ -92,6 +99,8 @@ func _build(quads: Array, textured: bool) -> MeshInstance3D:
 			c = Color(c.r + j, c.g + j, c.b + j)
 			if mark > 0 and _args.get("mark", "1") == "1":
 				c = c.lerp(Color(0.9, 0.1, 0.7) if mark > 1 else Color(0.95, 0.45, 0.1), 0.6)
+		if on_row:
+			c = Color(0.4, 0.6, 1.0) if textured else c.lerp(Color(0.15, 0.35, 0.95), 0.7)
 		var uv := [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
 		# Textured: atlas tile per material, 4 tiles across.
 		for k in 4:

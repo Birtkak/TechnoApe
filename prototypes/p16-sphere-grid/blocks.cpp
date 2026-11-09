@@ -1,10 +1,11 @@
 // Dumps the exposed faces of 0.5 m quad-prism blocks on the equi-angular cube-sphere around a point, with
 // noise terrain, for the Godot look check (godot/look.gd). Geometric radial layers: layer l sits at R(1+B/R)^l.
 // Output: one quad per line "mat nx ny nz x y z x y z x y z x y z" in metres relative to the view point.
-//   mat: 0 grass top, 1 dirt side, 2 stone side/top, 3 sand top; +4 = top on a face seam, +8 = cube corner cell
+//   mat: 0 grass top, 1 dirt side, 2 stone side/top, 3 sand top; +4 = top on a face seam, +8 = cube corner cell, +16 = on the marked row
 #include "grid.h"
 #include <cstdio>
 #include <cstdlib>
+#include <set>
 
 static const double R = 300, B = 0.5;
 
@@ -32,14 +33,27 @@ static int layer_of(double h) { return int(std::floor(std::log(1 + h / R) / std:
 static double radius_of(int l) { return R * std::pow(1 + B / R, l); }
 
 int main(int argc, char** argv) {
-    if (argc < 5) { std::fprintf(stderr, "blocks.exe out dx dy dz [radius_m]\n"); return 1; }
+    if (argc < 5) { std::fprintf(stderr, "blocks.exe out dx dy dz [radius_m] [row_j]\n"); return 1; }
     V3 dir = norm({std::atof(argv[2]), std::atof(argv[3]), std::atof(argv[4])});
     double rad = argc > 5 ? std::atof(argv[5]) : 40;
     int N = 864;  // 0.502 m blocks at R = 300 m, 27 chunks of 32
     CubeSphere g(N, Proj::EquiAngular);
+    // row_j: mark a straight row of 80 blocks on face 0 at j = row_j blocks from the corner edge, running along +s
+    // across the seam to face 2 (as measure.cpp's seam turn), and put the eye on it 6 m before the seam, looking along it.
+    std::set<int64_t> row;
+    V3 fwd{0, 0, 0};
+    if (argc > 6) {
+        int rj = std::atoi(argv[6]);
+        QCell c{0, N - 41, rj};
+        I3 d = CubeSphere::axis(0, 1);
+        for (int s = 0; s < 80; ++s) { row.insert(g.index(c)); c = g.step(c, d); }
+        dir = g.center({0, N - 13, rj});
+        fwd = g.center({0, N - 1, rj}) - dir;
+    }
     FILE* o = std::fopen(argv[1], "w");
     V3 eye = dir * (R + height_m(dir) + 1.7);
     std::fprintf(o, "eye %.6f %.6f %.6f\n", eye.x, eye.y, eye.z);
+    if (argc > 6) std::fprintf(o, "fwd %.6f %.6f %.6f\n", fwd.x, fwd.y, fwd.z);
     double cosr = std::cos(rad / R);
     auto put = [&](int mat, V3 n, V3 a, V3 b, V3 c, V3 d) {
         std::fprintf(o, "%d %.4f %.4f %.4f", mat, n.x, n.y, n.z);
@@ -57,7 +71,7 @@ int main(int argc, char** argv) {
         int topmat = height_m(ctr) < -1.0 ? 3 : (height_m(ctr) > 3.5 ? 2 : 0);
         // marker for the look check: +4 on a top along a face seam, +8 on the 3 cells of a cube corner
         int mark = (i == 0 || i == N - 1) + (j == 0 || j == N - 1);
-        put(topmat + 4 * mark, ctr, q[0] * rt, q[1] * rt, q[2] * rt, q[3] * rt);
+        put(topmat + 4 * mark + 16 * row.count(g.index(c)), ctr, q[0] * rt, q[1] * rt, q[2] * rt, q[3] * rt);
         QCell nb[4];
         g.neighbours(c, nb);
         for (int k = 0; k < 4; ++k) {  // side faces down to the neighbour's top
