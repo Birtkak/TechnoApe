@@ -10,6 +10,7 @@
 //! Only awake nodes are visited. A node sleeps when it and its links have been still for a while; settled
 //! water costs nothing, and untouched sea is not stored at all: it is generated from the seed like terrain.
 use crate::world::FxMap;
+use rayon::prelude::*;
 
 /// Units of water in one full block.
 pub const U: i64 = 1 << 12;
@@ -62,6 +63,8 @@ fn moves(dh: i64) -> bool {
 fn spreads(a: &Node, b: &Node) -> bool {
     b.floor < a.floor || a.water >= if b.water == 0 { 2 * MIN } else { MIN }
 }
+/// Awake nodes from which `step` works in parallel; fewer cost less than the threads' start.
+const PAR: usize = 2048;
 /// Steps a node stays awake after it last moved.
 const QUIET: u16 = 30;
 /// A full gap under a ceiling holds more water under pressure: one block of head per 1/K block of excess.
@@ -177,6 +180,10 @@ pub struct Liquids {
     /// What generation put into each stored column, and its sum.
     gen: FxMap<Col, i64>,
     gen_total: i64,
+    /// `Ground::generated` of the columns next to awake ones, kept: it samples the terrain noise, and a shore
+    /// that trades with the sea asks for the same columns every step. shortcut: never pruned (24 bytes a shore
+    /// column); prune it with `forget` if a long-lived server's shores ever make it large.
+    gen_at: FxMap<Col, (i64, i64)>,
     /// Units the open sea took in from stored water (negative: gave out). Calm water at sea level next to
     /// sea that is not stored settles to exactly sea level, the difference goes here, and columns equal to
     /// generation are forgotten again. shortcut: the sea's level does not rise with it; a whole sea holds
@@ -556,7 +563,7 @@ impl Liquids {
             let open = self.cols[&c].iter().copied().find(|&a| self.nodes[a as usize].ceil == OPEN);
             let (mut grow, mut sea) = (false, None);
             for d in g.neighbours(c).into_iter().flatten().filter(|d| !self.cols.contains_key(d)) {
-                let (lo, hi) = g.generated(d);
+                let (lo, hi) = *self.gen_at.entry(d).or_insert_with(|| g.generated(d));
                 match open.map(|a| &self.nodes[a as usize]) {
                     Some(n) if lo < hi && n.floor as i64 * U < hi && (n.surface() - hi).abs() < SEA_DH => sea = Some(hi),
                     _ => grow = true,
@@ -585,10 +592,11 @@ impl Liquids {
         let awake = std::mem::take(&mut self.awake);
         self.stepped += awake.len() as u64;
         self.epoch = self.epoch.wrapping_add(1);
-        let mut outs: Vec<(i32, i32, i32)> = Vec::new();
-        // 1: speeds and outflows from the old state
-        for &a in &awake {
-            let n = &self.nodes[a as usize];
+        // 1: speeds and outflows from the old state: each node reads only its own links and its neighbours'
+        // water, so the nodes are worked out in parallel and written back in order
+        let nodes = &self.nodes;
+        let flows = |&a: &u32| {
+            let n = &nodes[a as usize];
             let (ha, sa, wa) = (n.head(), n.surface(), n.water);
             // what came in last step from each side, and how fast
             let mut came = [(0i64, 0i64); 4];
@@ -596,10 +604,10 @@ impl Liquids {
                 let c = &mut came[m.dir as usize & 3];
                 (c.0, c.1) = (c.0 + m.fin as i64, c.1.max(m.vin as i64));
             }
-            outs.clear();
+            let mut outs: Vec<(i32, i32, i32)> = Vec::with_capacity(n.links.len());
             let mut total = 0i64;
             for l in &n.links {
-                let b = &self.nodes[l.to as usize];
+                let b = &nodes[l.to as usize];
                 let (lo, hi) = window(n, b);
                 let area = (sa.min(hi) - lo).clamp(0, ACAP);
                 let mut v = l.v as i64;
@@ -629,11 +637,18 @@ impl Liquids {
                 total += flow >> VF;
             }
             // never more out than there is
-            let scale = total > wa;
-            let n = &mut self.nodes[a as usize];
-            for (l, &(v, out, frac)) in n.links.iter_mut().zip(&outs) {
-                (l.v, l.frac) = (v, if v == 0 { 0 } else { frac });
-                l.out = if scale { (out as i64 * wa.max(0) / total) as i32 } else { out };
+            if total > wa {
+                for o in &mut outs {
+                    o.1 = (o.1 as i64 * wa.max(0) / total) as i32;
+                }
+            }
+            outs
+        };
+        let outs: Vec<(i32, i32, i32)> = if awake.len() >= PAR { awake.par_iter().flat_map_iter(flows).collect() } else { awake.iter().flat_map(flows).collect() };
+        let mut outs = outs.into_iter();
+        for &a in &awake {
+            for (l, (v, out, frac)) in self.nodes[a as usize].links.iter_mut().zip(&mut outs) {
+                (l.v, l.frac, l.out) = (v, if v == 0 { 0 } else { frac }, out);
             }
         }
         // 1b: water falling into a gap (its surface under the opening) goes down that column one block wide,
