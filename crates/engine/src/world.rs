@@ -429,13 +429,16 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
     let s = (1i32 << key.level) as f64;
     let c0 = key.pos * CS - 1; // padded cell (0, 0, 0) in cells of this level
     let r_lo = body.layer_r(c0.z as f64 * s);
-    let r_hi = body.layer_r((c0.z + P as i32) as f64 * s);
+    // the top padding's skirt looks SKIRT cells higher, past the chunk: generated terrain is air there when
+    // the column is lower than this
+    let z_air = c0.z + (P - 1 + SKIRT) as i32;
+    let r_air = body.layer_r((z_air as f64 + 0.5) * s) as f32;
     if edits.is_empty() {
         // whole chunk outside the terrain's height range: no noise needed
         if r_lo > body.radius + AMP {
             return Gen::Empty;
         }
-        if r_hi < body.radius - AMP {
+        if (r_air as f64) < body.radius - AMP {
             return Gen::Solid;
         }
     }
@@ -456,7 +459,7 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
         if r_lo as f32 > hmax {
             return Gen::Empty;
         }
-        if (r_hi as f32) < hmin {
+        if r_air < hmin {
             return Gen::Solid;
         }
     }
@@ -473,7 +476,13 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
         let core = l < 0.0;
         for (i, hv) in h.iter().enumerate() {
             let d = hv - r;
-            let m = if core || d >= dirt { 3 } else if d >= grass { 2 } else if d >= 0.0 { 1 } else { 0 };
+            let mut m = if core || d >= dirt { 3 } else if d >= grass { 2 } else if d >= 0.0 { 1 } else { 0 };
+            if z == P - 1 && z_air >= 0 && *hv < r_air {
+                // the skirt rule for the top padding, which has no cells above it here (ADR 0018). shortcut:
+                // from the generated height alone, edits over the chunk do not count; a dug hole there could
+                // still open a pinhole against a coarser chunk above
+                m = 0;
+            }
             any_air |= m == 0;
             any_solid |= m != 0;
             cells[z * P * P + i] = m;

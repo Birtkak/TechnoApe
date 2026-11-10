@@ -39,12 +39,17 @@ a number moves.
 
 ## What it found
 - **A pinhole crack** at the LOD view: 4 pixels near the bottom edge (pixel 1146,1074 of 1920 x 1080). It is
-  allowed in `views.txt` as a known bug, so the gate fails on any other crack. Greedy meshing makes it far
-  worse (406 pixels with `greedy=1`), so it is not a T-junction of the default mesher.
+  not a T-junction of the default mesher: greedy meshing makes it far worse (406 pixels with `greedy=1`).
+  Fixed 2026-11-10. The cause was a vertical detail-level border: full detail above layer 128, half detail
+  below it. The skirt rule turned side and bottom padding near air into air, never the top padding. So the
+  coarse chunk took its top padding for solid (sampled at its coarser column centres) and drew no top face,
+  while the fine column above was air there. The top padding now follows the same rule, from the column's
+  generated height, since the cells above it are outside the chunk. The view allows 0 cracks again, and eight
+  more viewpoints at 40-250 m show none.
 - **A start-up correction:** the client walks before the server has its first input, and it compares its
   present position with the server's older one. In auto-walk with jumping this crosses the 1 m snap
-  threshold about 0.3 s after loading, in some runs. The real fix is reconciliation from the acknowledged
-  tick, with eased corrections (fundamentals section 1, ladder step 6).
+  threshold about 0.3 s after loading, in some runs. Fixed 2026-11-10 by ADR 0019 (numbered steps,
+  replay from the server's state, eased corrections); the gate now asks for 0 corrections.
 - **Landing jerk** (up to 2.4e5 m/s^3 at the first landing) is reported, not gated. It is what section 1's
   landing dip and step-up easing will smooth.
 - Clicks show within 2 frames, 1.3 ms, off-screen at about 3000 fps.

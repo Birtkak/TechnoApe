@@ -1,6 +1,6 @@
 //! Player movement (ADR 0007): radial gravity, snappy walking, a jump, one-block step-up, and box collision
 //! against the blocks. The server runs it per tick from each player's `Input`; the client runs the same code
-//! per frame for its own player and corrects to the server's position when they drift apart.
+//! per frame for its own player, takes the same numbered steps, and replays from the server's state (ADR 0019).
 //!
 //! Collision is in grid space: the player's box is `WIDTH` x `WIDTH` x `HEIGHT` in nominal blocks, aligned with
 //! the columns and layers of the face under the feet, and it overlaps a cell or it does not. The answer depends
@@ -31,7 +31,7 @@ pub struct Input {
     pub pitch: f32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Player {
     /// The feet: bottom centre of the box.
     pub pos: DVec3,
@@ -139,6 +139,11 @@ fn slide(world: &World, pos: &mut DVec3, d: DVec3) -> bool {
 fn one_layer(world: &World, pos: DVec3) -> f64 {
     let b = &world.bodies[world.nearest(pos)];
     (pos - b.centre).length() * (b.lnq.exp() - 1.0) * 1.01
+}
+
+/// An input any side may step with: finite numbers only.
+pub fn sane(inp: &Input) -> bool {
+    inp.fwd.iter().chain(inp.mv.iter()).chain([&inp.pitch]).all(|c| c.is_finite())
 }
 
 /// One step of `dt` seconds for one player.

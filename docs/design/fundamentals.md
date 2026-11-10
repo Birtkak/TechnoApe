@@ -30,7 +30,7 @@ in a `feel` report (section 4) next to the frame times.
 **Hands (latency)**
 - Look: the mouse turns the camera the same frame, never through the physics step or the server.
 - Move: predicted on the client with the shared physics (done in `phys.rs`). Target: 0 server corrections in
-  a clean local run; a correction is eased over about 100 ms, not snapped (today: a snap over 1 m).
+  a clean local run; a correction is eased over about 100 ms, not snapped (done, ADR 0019: 0 in the gate).
 - Dig and place: **predicted on the client the frame of the click**, the server confirms or reverts. Today an
   edit waits for the next 20 Hz tick, up to 50 ms: too slow for a building game.
 - Sound starts within 20 ms of the action that caused it; the remesh after an edit shows the next frame;

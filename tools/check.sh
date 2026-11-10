@@ -34,12 +34,12 @@ done
 views=$(bash tools/views.sh | tail -1)
 echo "$views" | grep -q '"ok": true' || fails+=("views: $(echo "$views" | python -I -c "import json,sys; print('; '.join(json.loads(sys.stdin.read())['failures']))" 2>/dev/null || echo "$views")")
 
-# a played run: walk over hills, dig, place, build with the hammer. Clicks must show within a 60 Hz frame;
-# one correction at the start is known (the client walks before the server has its first input)
+# a played run: walk over hills, dig, place, build with the hammer. Clicks must show within a 60 Hz frame,
+# and the server must never correct the prediction (ADR 0019)
 ACTS="0.5:m:0:250,1:c,2:L,2.1:l,3:R,3.1:r,4:L,4.1:l,5:h,5.2:R,5.3:m:-100:0,5.6:r,7:L,7.1:l,8:R,8.1:r"
 feel=$(timeout 120 target/release/technoape.exe run=play save=0 seconds=10 autowalk=1 acts="$ACTS" 2>/dev/null | tail -1 \
   | python -I -c "import json,sys; print(json.dumps(json.loads(sys.stdin.read())['feel']))" 2>/dev/null)
-echo "$feel" | python -I -c "import json,sys; f=json.loads(sys.stdin.read()); sys.exit(0 if f['corrections'] <= 1 and f['clicks'] >= 4 and f['clicks_not_shown'] == 0 and f['click_to_change_ms_max'] <= 16.7 else 1)" 2>/dev/null \
+echo "$feel" | python -I -c "import json,sys; f=json.loads(sys.stdin.read()); sys.exit(0 if f['corrections'] == 0 and f['clicks'] >= 4 and f['clicks_not_shown'] == 0 and f['click_to_change_ms_max'] <= 16.7 else 1)" 2>/dev/null \
   || fails+=("feel: $feel (repro: technoape.exe run=play save=0 seconds=10 autowalk=1 acts=\"$ACTS\")")
 
 printf '%s\n' "$tests" "$soak" "$replay" "$views" "$feel" "${bench[@]}" "--" "${fails[@]}" | python -I -c "

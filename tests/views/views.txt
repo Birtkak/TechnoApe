@@ -3,7 +3,6 @@
 # tests/views/<name>.png. Allowed cracks above 0 are known bugs, each with its note; the gate fails on more.
 seam   | 0 | at=1,1,0.3 eye=3 pitch=-20
 corner | 0 | at=1,1,1 eye=4 pitch=-30
-# lod: a one-pixel pinhole near the bottom edge (crack_px 1146,1074), open since 2026-11-10
-lod    | 4 | at=0.3,1,0.2 eye=120 pitch=-35
+lod    | 0 | at=0.3,1,0.2 eye=120 pitch=-35
 high   | 0 | at=0.2,1,0.1 eye=400 pitch=-50
 orbit  | 0 | at=0,1,0 eye=2500 pitch=-89

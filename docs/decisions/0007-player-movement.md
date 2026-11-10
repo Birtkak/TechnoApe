@@ -30,12 +30,13 @@ Option 3, in `crates/engine/src/phys.rs`:
   same path at any frame or tick rate (deterministic, as `fundamentals.md` asks).
 - **Wire:** the client sends `Input` (move, jump, look); the server steps it every tick until a `Move`
   (fly/teleport, creative, taken as sent). The client snaps to the server's position when they disagree by
-  more than a metre (`snaps`, `drift_max_m` in the run's JSON); bots walk through the same path.
+  more than a metre (`snaps`, `drift_max_m` in the run's JSON); bots walk through the same path. Superseded
+  for the client by ADR 0019 (numbered steps, replay from the server's state, eased corrections).
 
 ## Consequences
 - Bots, the client and the server share one movement code path; tests drive it without a window.
 - The snap is a shortcut: with latency it will rubber-band. Replaying unacknowledged inputs on correction
-  (input sequence numbers) is the upgrade, due with the dedicated server over Tailscale.
+  (input sequence numbers) is the upgrade. Done 2026-11-10 in ADR 0019.
 - The player's size is in cells, so its size in metres follows the grid: about 6% smaller 64 m down on the
   1 km planet, and up to the cube-sphere's cell variation near face corners. In exchange a two-cell-high,
   one-cell-wide passage always fits, everywhere on every body.

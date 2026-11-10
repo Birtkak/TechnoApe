@@ -121,7 +121,7 @@ impl Bot {
                     }
                 }
                 Recv::Msg(ToClient::Done { ok, .. }) => self.refused += !ok as u64,
-                Recv::Msg(ToClient::Inventory { .. }) => {}
+                Recv::Msg(ToClient::Inventory { .. } | ToClient::You { .. }) => {}
                 Recv::Empty => return true,
                 Recv::Closed => return false,
             }

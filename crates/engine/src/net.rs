@@ -20,6 +20,9 @@ pub enum ToServer {
     Move { pos: [f64; 3], fwd: [f32; 3], pitch: f32 },
     /// Walk: the server moves the player with `phys::step` from this input every tick until a `Move`.
     Input(Input),
+    /// Walk, predicted (ADR 0019): one input per physics step, numbered from `first`. The server takes each
+    /// exactly once, in order, at most as fast as real time, and answers `You` with the last one it took.
+    Steps { first: u32, inputs: Vec<Input> },
     /// Dig (`material` 0) or place a shape. The server applies all of it or none and answers `Done` with the
     /// same `seq`, after the `Edits` that carry what it changed.
     Edit { seq: u32, shape: Shape, material: u8 },
@@ -36,6 +39,9 @@ pub enum ToClient {
     Players(Vec<Player>),
     /// The answer to the `Edit` with this `seq`: applied, or refused whole (reach, size, inventory).
     Done { seq: u32, ok: bool },
+    /// This player's whole physics state after the step numbered `step` of its `Steps` (0: none yet), every
+    /// tick. The client replays its later inputs from here (ADR 0019).
+    You { step: u32, me: crate::phys::Player },
     /// This player's mode and every block kind it holds a nonzero count of; sent on join and on change.
     Inventory { creative: bool, counts: Vec<(u8, u32)> },
 }

@@ -467,6 +467,8 @@ fn pct(v: &mut Vec<f32>, p: f64) -> f32 {
 }
 
 /// How far run=play aims a dig or place: half the server's reach, the distance a hand-held tool feels right at.
+/// Seconds a correction takes to ease out (to 1/e).
+const CORRECT_S: f64 = 0.1;
 const AIM_REACH: f64 = 8.0;
 const DIGITS: [KeyCode; 9] = [
     KeyCode::Digit1,
@@ -493,7 +495,6 @@ struct App {
     gpu: Option<Gpu>,
     world: World,
     link: Link<ToServer, ToClient>,
-    my_id: u32,
     /// run=play: the player this client predicts, the keys held, mouse motion since the last frame, the look
     me: phys::Player,
     /// Where `me` was one physics step ago, and the time not yet stepped: the camera is drawn between them.
@@ -504,8 +505,16 @@ struct App {
     mouse: (f64, f64),
     pitch: f64,
     input: Input,
-    /// Times the server's position replaced the predicted one.
+    /// Times the server's state, replayed to now, differed from the prediction by over a millimetre.
     snaps: u64,
+    /// run=play (ADR 0019): the steps the server has not answered yet, by number, the next number, and the
+    /// first one not sent; `None` until the server's first `You` says where this player is.
+    steps: std::collections::VecDeque<(u32, Input)>,
+    next_step: u32,
+    unsent: u32,
+    spawned: bool,
+    /// What a correction moved the drawn position by; it eases out over CORRECT_S.
+    smooth: DVec3,
     /// Seconds the last frame spent after present (stats, loading checks), and when it ended: both land in the
     /// next frame's time, outside its timed phases, so a spike reports them.
     tail_prev: f64,
@@ -756,10 +765,13 @@ impl App {
                 fwd: self.me.fwd.as_vec3().to_array(),
                 pitch: self.pitch as f32,
             };
-            self.debt += dt.min(0.1);
+            // nothing moves before the server says where this player starts
+            self.debt = if self.spawned { self.debt + dt.min(0.1) } else { 0.0 };
             while self.debt >= phys::DT {
                 self.prev = self.me.pos;
                 phys::step(&self.world, &mut self.me, &inp, phys::DT);
+                self.steps.push_back((self.next_step, inp));
+                self.next_step += 1;
                 if self.loaded_at.is_some() {
                     // the third difference of the fixed-step path: jerk in m/s^3
                     self.path.push(self.me.pos);
@@ -773,8 +785,10 @@ impl App {
                 self.debt -= phys::DT;
             }
             self.input = inp;
-            // the look turns every frame; the position is drawn between the last two physics steps
-            let pos = self.prev.lerp(self.me.pos, self.debt / phys::DT);
+            // the look turns every frame; the position is drawn between the last two physics steps, plus what
+            // is left of the last correction
+            self.smooth *= (-dt / CORRECT_S).exp();
+            let pos = self.prev.lerp(self.me.pos, self.debt / phys::DT) + self.smooth;
             let up = phys::up(&self.world, pos);
             let fwd = phys::tangent(self.me.fwd, up, self.me.fwd);
             let look = DQuat::from_axis_angle(fwd.cross(up), self.pitch) * fwd;
@@ -807,23 +821,9 @@ impl App {
                         self.streamer.touch_block(&self.world, b);
                     }
                 }
-                Recv::Msg(ToClient::Players(ps)) => {
-                    self.players = ps.len();
-                    if self.run == "play" {
-                        if let Some(sp) = ps.iter().find(|p| p.id == self.my_id).map(|p| DVec3::from_array(p.pos)) {
-                            // shortcut: snap when the server disagrees by over a metre; replaying inputs
-                            // from the acknowledged tick comes when real latency makes this visible
-                            self.drift_max = self.drift_max.max(sp.distance(self.me.pos));
-                            if sp.distance(self.me.pos) > 1.0 {
-                                self.snap_t.push((t, sp.distance(self.me.pos)));
-                                (self.me.pos, self.prev) = (sp, sp);
-                                self.snaps += 1;
-                                self.path.clear(); // a correction is counted as one, not as jerk
-                                self.me.vel = DVec3::ZERO;
-                            }
-                        }
-                    }
-                }
+                Recv::Msg(ToClient::Players(ps)) => self.players = ps.len(),
+                Recv::Msg(ToClient::You { step, me }) if self.run == "play" => self.reconcile(step, me, t),
+                Recv::Msg(ToClient::You { .. }) => {}
                 Recv::Msg(ToClient::Inventory { creative, counts }) => (self.creative, self.inv) = (creative, counts),
                 Recv::Msg(ToClient::Welcome { .. }) => {}
                 Recv::Empty => break,
@@ -836,7 +836,11 @@ impl App {
         }
         if t - self.last_move >= 1.0 / TICK_HZ {
             if self.run == "play" {
-                self.link.send(ToServer::Input(self.input));
+                let inputs: Vec<Input> = self.steps.iter().filter(|s| s.0 >= self.unsent).map(|s| s.1).collect();
+                if !inputs.is_empty() {
+                    self.link.send(ToServer::Steps { first: self.unsent, inputs });
+                    self.unsent = self.next_step;
+                }
             } else {
                 // the benchmark runs fly: the camera position is sent as the player's position
                 self.link.send(ToServer::Move { pos: p.pos.to_array(), fwd: p.fwd.as_vec3().to_array(), pitch: 0.0 });
@@ -1199,6 +1203,18 @@ impl App {
                 cracks += 1;
                 if at.len() < 8 {
                     at.push(format!("[{x},{y}]"));
+                    // where the ray meets the terrain the generator makes, to find the hole in the world
+                    let mut t = 0.0;
+                    while t < 5000.0 {
+                        let q = pos + d * t;
+                        let b = &self.world.bodies[self.world.nearest(q)];
+                        let r = (q - b.centre).length();
+                        if r < b.height((q - b.centre) / r) {
+                            eprintln!("[technoape] crack [{x},{y}] meets the ground {t:.2} m away at {:?}: {:?}", q.to_array(), self.world.block_at(q));
+                            break;
+                        }
+                        t += 0.02;
+                    }
                 }
             }
         }
@@ -1216,6 +1232,32 @@ impl App {
             eprintln!("[technoape] shot {path}: {e}");
         }
         self.shot_json = format!("\"shot\":{{\"file\":{path:?},\"cracks\":{cracks},\"crack_px\":[{}],\"diff_pct\":{}}},", at.join(","), diff.map_or("null".into(), |d| format!("{d:.3}")));
+    }
+
+    /// The server's state after step `step` (ADR 0019): the steps it has not taken yet are replayed from it, and
+    /// where that lands is where this player is. A difference is a correction, drawn eased out unless it is a
+    /// jump of metres (a teleport, a respawn). The first answer places the player.
+    fn reconcile(&mut self, step: u32, server: phys::Player, t: f64) {
+        if !self.spawned {
+            (self.me, self.prev, self.spawned) = (server, server.pos, true);
+            self.steps.retain(|s| s.0 > step);
+            return;
+        }
+        self.steps.retain(|s| s.0 > step);
+        let mut me = server;
+        for (_, inp) in &self.steps {
+            phys::step(&self.world, &mut me, inp, phys::DT);
+        }
+        let off = self.me.pos - me.pos;
+        self.drift_max = self.drift_max.max(off.length());
+        if off.length() > 0.001 {
+            self.snap_t.push((t, off.length()));
+            self.snaps += 1;
+            self.path.clear(); // a correction is counted as one, not as jerk
+            self.smooth = if off.length() < 2.0 { self.smooth + off } else { DVec3::ZERO };
+            self.prev -= off;
+        }
+        self.me = me;
     }
 
     /// run=play's feel report (fundamentals section 1, ADR 0018) as a JSON field, or nothing in other runs.
@@ -1494,7 +1536,7 @@ fn main() {
     if run != "play" {
         link.send(ToServer::Creative(true)); // the edit benchmark places stone it never dug
     }
-    let (my_id, world) = match link.rx.recv_timeout(Duration::from_secs(10)) {
+    let (_id, world) = match link.rx.recv_timeout(Duration::from_secs(10)) {
         Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             (id, World::new(planet_n, moon_n, seed))
@@ -1523,9 +1565,13 @@ fn main() {
         gpu: None,
         world,
         link,
-        my_id,
         me: phys::Player::at(spawn, DVec3::X),
         prev: spawn,
+        steps: Default::default(),
+        next_step: 1,
+        unsent: 1,
+        spawned: false,
+        smooth: DVec3::ZERO,
         debt: 0.0,
         drift_max: 0.0,
         keys: Default::default(),

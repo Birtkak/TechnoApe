@@ -47,7 +47,8 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      cylinder, cone, with a ghost and a hotbar). Done 2026-11-10; mining tools come later;
    - ~~**test harness II** with the first visuals that can break: fixed viewpoints compared by number, the
      crack detector, the feel report~~ done 2026-11-10 (ADR 0018): `tools/views.sh`, `shot=`, the `feel`
-     field, all in the gate. Found: a pinhole crack at the LOD view and a start-up correction (open);
+     field, all in the gate. Found a pinhole crack at the LOD view and a start-up correction, both fixed
+     (the top padding's skirt; numbered input steps with reconciliation, ADR 0019);
    - water as fill levels, with fine 12.5 cm splashes near the player; the total volume is counted from the
      start (the water cycle needs it, ADR 0010);
    - lighting: block light, the sun around the planet, the 20 minute day, shadow maps;

@@ -16,7 +16,7 @@ use engine::world::{fnv, Block, World};
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
 use save::{Save, Saved};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver};
@@ -40,6 +40,10 @@ pub enum Ev {
 
 pub type ServerLink = Link<ToClient, ToServer>;
 
+/// `Steps` a player may have waiting (one second), and steps it may take in one tick after a late batch.
+const QUEUE_MAX: usize = 60;
+const CREDIT_MAX: u32 = 12;
+
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
     let inv = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
@@ -50,8 +54,12 @@ struct Client {
     link: ServerLink,
     player: Player,
     phys: phys::Player,
-    /// Walking input; `None` while the player flies with `Move`.
+    /// Walking input; `None` while the player flies with `Move` or walks by `Steps`.
     input: Option<Input>,
+    /// `Steps` not taken yet, by number; the number of the last one taken; how many steps it may take now.
+    queue: VecDeque<(u32, Input)>,
+    acked: u32,
+    credit: u32,
     /// Creative counts nothing; survival digs into `inv` and places from it (ADR 0014).
     creative: bool,
     /// How many of each block kind the player holds, by id.
@@ -234,6 +242,9 @@ impl Server {
                 player: Player { id, name: String::new(), pos: spawn.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 },
                 phys: phys::Player::at(spawn, DVec3::X),
                 input: None,
+                queue: VecDeque::new(),
+                acked: 0,
+                credit: 0,
                 creative: false,
                 inv: Box::new([0; 256]),
                 done: Vec::new(),
@@ -272,13 +283,25 @@ impl Server {
                             let c = &mut self.clients[i];
                             let p = DVec3::from_array(pos);
                             c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
-                            c.input = None;
+                            (c.input, c.credit) = (None, 0);
+                            c.queue.clear();
                             (c.player.pos, c.player.fwd, c.player.pitch) = (pos, fwd, pitch);
                         }
                     }
                     Recv::Msg(ToServer::Input(inp)) => {
-                        if inp.fwd.iter().all(|c| c.is_finite()) && inp.mv.iter().all(|c| c.is_finite()) {
+                        if phys::sane(&inp) {
                             self.clients[i].input = Some(inp);
+                        }
+                    }
+                    Recv::Msg(ToServer::Steps { first, inputs }) => {
+                        let c = &mut self.clients[i];
+                        c.input = None;
+                        for (k, inp) in inputs.into_iter().enumerate() {
+                            // in order and new only; a client more than a second ahead loses the rest
+                            let seq = first.wrapping_add(k as u32);
+                            if seq > c.queue.back().map_or(c.acked, |q| q.0) && c.queue.len() < QUEUE_MAX && phys::sane(&inp) {
+                                c.queue.push_back((seq, inp));
+                            }
                         }
                     }
                     Recv::Msg(ToServer::Edit { seq, shape, material }) => {
@@ -316,7 +339,18 @@ impl Server {
                 c.player.pos = c.phys.pos.to_array();
                 c.player.fwd = c.phys.fwd.as_vec3().to_array();
                 c.player.pitch = inp.pitch;
+            } else {
+                // each step once, at most as fast as real time; a late batch catches up within CREDIT_MAX
+                c.credit = (c.credit + steps).min(CREDIT_MAX);
+                while c.credit > 0 {
+                    let Some((seq, inp)) = c.queue.pop_front() else { break };
+                    phys::step(&self.world, &mut c.phys, &inp, phys::DT);
+                    (c.acked, c.credit, c.player.pitch) = (seq, c.credit - 1, inp.pitch);
+                }
+                c.player.pos = c.phys.pos.to_array();
+                c.player.fwd = c.phys.fwd.as_vec3().to_array();
             }
+            c.link.send(ToClient::You { step: c.acked, me: c.phys });
         }
         if !changed.is_empty() {
             for c in &self.clients {
@@ -654,6 +688,35 @@ mod tests {
         assert!(!phys::inside(&s.world, p));
         let seen = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Players(v) = m { Some(v) } else { None }).last().unwrap();
         assert_eq!(seen[0].pos, p.pos.to_array(), "clients get the server's position");
+    }
+
+    #[test]
+    fn steps_are_taken_once_in_order_and_replay_to_the_same_place() {
+        let (mut s, links) = server_with(1);
+        drain(&links[0]);
+        let l = &links[0];
+        let start = s.clients[0].phys;
+        let inp = |k: u32| Input { mv: [1.0, (k % 7) as f32 / 7.0 - 0.5], jump: k % 40 == 0, fwd: [1.0, 0.0, 0.2], pitch: 0.0 };
+        // 3 s of steps in batches of three, one batch a tick, with a duplicate and an old one thrown in
+        let mut me = start;
+        for t in 0..60u32 {
+            l.send(ToServer::Steps { first: t * 3 + 1, inputs: (t * 3 + 1..t * 3 + 4).map(inp).collect() });
+            if t == 30 {
+                l.send(ToServer::Steps { first: 2, inputs: vec![inp(2)] });
+            }
+            for k in t * 3 + 1..t * 3 + 4 {
+                phys::step(&s.world, &mut me, &inp(k), phys::DT);
+            }
+            s.tick();
+        }
+        let you = drain(l).into_iter().filter_map(|m| if let ToClient::You { step, me } = m { Some((step, me)) } else { None }).last().unwrap();
+        assert_eq!(you, (180, me), "the server took every step once and lands where the client predicted");
+        // a client a second ahead is held to real time: sixty steps waiting at most, and in one tick the three
+        // of this tick plus the three it had left over
+        l.send(ToServer::Steps { first: 181, inputs: (181..400).map(inp).collect() });
+        s.tick();
+        assert_eq!((s.clients[0].acked, s.clients[0].queue.len()), (186, 54));
+        assert!((start.pos - me.pos).length() > 3.0);
     }
 
     #[test]
