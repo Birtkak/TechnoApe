@@ -91,6 +91,8 @@ pub struct DrawChunk {
     pub water: u32,
     /// Outside the view or behind a horizon: not drawn, only traced.
     pub hidden: bool,
+    /// From the camera to its bounding sphere, metres: the draws go near to far (ADR 0025, D).
+    pub dist: f32,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -373,7 +375,8 @@ impl Streamer {
         };
         // hidden chunks are listed too: they are not drawn, but they cast shadows (ADR 0022)
         let hidden = hidden.unwrap_or_else(|| self.hidden(view, k.body, &bd));
-        out.push(DrawChunk { key: k, off, len, water, hidden });
+        let dist = ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0) as f32;
+        out.push(DrawChunk { key: k, off, len, water, hidden, dist });
         true
     }
 

@@ -2142,7 +2142,7 @@ impl App {
 
         // the indirect args per frame; the chunk table's entries only for meshes new to it (ADR 0025, B)
         let mut table: Vec<(u32, ChunkGpu)> = Vec::new();
-        let mut args: Vec<DrawArgs> = Vec::with_capacity(draws.len());
+        let mut args: Vec<(f32, DrawArgs)> = Vec::with_capacity(draws.len());
         let mut sea_args: Vec<DrawArgs> = Vec::new();
         let mut nquads = 0u64;
         let mut insts: Vec<rt::Inst> = Vec::with_capacity(draws.len());
@@ -2162,7 +2162,7 @@ impl App {
             if d.hidden {
                 continue;
             }
-            args.push(DrawArgs { vertex_count: land * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci });
+            args.push((d.dist, DrawArgs { vertex_count: land * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci }));
             if d.water > 0 {
                 // vs_sea draws each sea quad in SEA_SUB^2 pieces, one instance each: instance = chunk * pieces + piece
                 let pieces = SEA_SUB * SEA_SUB;
@@ -2170,6 +2170,9 @@ impl App {
             }
             nquads += d.len as u64;
         }
+        // near to far, so the depth test drops what is hidden before its fragments trace their rays (ADR 0025, D)
+        args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+        let args: Vec<DrawArgs> = args.into_iter().map(|a| a.1).collect();
         // the water mesh when it changed, the droplets after it every frame
         let n = self.water.all.len().min(MAX_WQUADS);
         if std::mem::take(&mut self.water.changed) {
