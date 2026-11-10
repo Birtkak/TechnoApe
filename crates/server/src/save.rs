@@ -7,8 +7,11 @@ use engine::world::Block;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// 2 added water (ADR 0020); a version 1 save still loads, with no water changed and empty buckets.
-pub const VERSION: u32 = 2;
+/// 2 added water (ADR 0020), 3 the world's time (ADR 0022); a version 1 save still loads, with no water
+/// changed and empty buckets, and versions 1 and 2 start the sky's clock at 0. shortcut: a player saved on the
+/// moon before version 3 is placed where the moon's grid used to be, in the planet's frame; worlds older than
+/// the continents (ADR 0021) are not worth carrying over.
+pub const VERSION: u32 = 3;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Save {
@@ -28,6 +31,24 @@ pub struct Save {
     pub removed: i64,
     /// What the open sea took in (`Liquids::sea_extra`).
     pub sea_extra: i64,
+    /// The world's age in ticks: the sky's clock (ADR 0022).
+    pub tick: u64,
+}
+
+/// Version 2, read to carry an old save over.
+#[derive(Deserialize)]
+struct SaveV2 {
+    version: u32,
+    seed: i32,
+    planet_n: i32,
+    moon_n: i32,
+    blocks: Vec<(u8, String)>,
+    edits: Vec<(Block, u8)>,
+    players: Vec<Saved>,
+    water: Vec<ColWater>,
+    made: i64,
+    removed: i64,
+    sea_extra: i64,
 }
 
 /// Version 1, read to carry an old save over.
@@ -77,7 +98,22 @@ impl Save {
     pub fn from_bytes(b: &[u8]) -> Result<Save, String> {
         let s: Save = match postcard::from_bytes::<Save>(b) {
             Ok(s) if s.version == VERSION => s,
-            _ => match postcard::from_bytes::<SaveV1>(b) {
+            _ => match postcard::from_bytes::<SaveV2>(b) {
+                Ok(v) if v.version == 2 => Save {
+                    version: VERSION,
+                    seed: v.seed,
+                    planet_n: v.planet_n,
+                    moon_n: v.moon_n,
+                    blocks: v.blocks,
+                    edits: v.edits,
+                    players: v.players,
+                    water: v.water,
+                    made: v.made,
+                    removed: v.removed,
+                    sea_extra: v.sea_extra,
+                    tick: 0,
+                },
+                _ => match postcard::from_bytes::<SaveV1>(b) {
                 Ok(v) if v.version == 1 => Save {
                     version: VERSION,
                     seed: v.seed,
@@ -90,8 +126,10 @@ impl Save {
                     made: 0,
                     removed: 0,
                     sea_extra: 0,
+                    tick: 0,
                 },
-                _ => return Err(format!("not a save of version 1 or {VERSION}")),
+                _ => return Err(format!("not a save of version 1 to {VERSION}")),
+                },
             },
         };
         for (id, name) in &s.blocks {

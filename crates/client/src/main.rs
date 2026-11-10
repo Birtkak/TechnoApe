@@ -49,6 +49,8 @@ struct BodyGpu {
     theta: f32,
     half_n: f32,
     _p: [f32; 2],
+    /// The body's frame turned into the camera's (ADR 0022): columns.
+    rot: [[f32; 4]; 3],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -98,12 +100,19 @@ fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64, q: f64, a
             Pose { pos, fwd: DVec3::new(th.cos(), 0.0, -th.sin()), up: dir }
         }
         "orbit" => {
-            let a = pole;
+            // the waypoints where the bodies are now, in the inertial frame: the flight between them is there,
+            // and each point is drawn in the frame it lies in (ADR 0022)
+            let (pp, pm) = (w.pose(0, w.time), w.pose(1, w.time));
+            let a = pp.to_inertial(planet.centre, pole);
             // high over both bodies: 3.3 planet radii, as 3.5 km was over the 1 km planet
             let high = planet.radius * 3.3;
-            let b = DVec3::new(0.0, high, 0.0);
-            let c = moon.centre + DVec3::Y * high;
-            let d = moon.centre + DVec3::Y * (moon.height(DVec3::Y) + 1.7);
+            let b = pp.to_inertial(planet.centre, DVec3::new(0.0, high, 0.0));
+            // c as high over the moon on the same side, and d landing below it: the run starts when the moon
+            // stands 90 degrees from the spawn's zenith (`orbit_start`), so no leg passes through a body
+            let up = pp.rot * DVec3::Y;
+            let c = pm.centre + up * high;
+            let mu = pm.rot.inverse() * up;
+            let d = pm.centre + up * (moon.height(mu) + 1.7);
             let legs = [(a, b, 0), (b, c, 0), (c, d, 1), (d, d, 2), (d, c, 3), (c, b, 3), (b, a, 3)];
             let durs = [10.0, 10.0, 10.0, 5.0, 10.0, 10.0, 10.0].map(|d| d * q);
             let mut tt = (t - warm).max(0.0);
@@ -113,19 +122,22 @@ fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64, q: f64, a
                 i += 1;
             }
             if t < warm {
-                return Pose { pos: a, fwd: DVec3::Z, up: DVec3::Y };
+                return Pose { pos: pole, fwd: DVec3::Z, up: DVec3::Y };
             }
             let (p0, p1, look) = legs[i];
-            let pos = p0.lerp(p1, smooth(tt / durs[i]));
-            let near = w.nearest(pos);
-            let up = (pos - w.bodies[near].centre).normalize();
+            let x = p0.lerp(p1, smooth(tt / durs[i]));
+            // up from the nearest body, and the look, in the inertial frame
+            let near = if (x - pm.centre).length() - moon.radius < x.length() - planet.radius { pm } else { pp };
+            let up = (x - near.centre).normalize();
             let fwd = match look {
-                0 | 1 => (moon.centre - pos).normalize(),
-                2 => DVec3::Z,
-                _ => (planet.centre - pos).normalize(),
+                0 | 1 => (pm.centre - x).normalize(),
+                2 => pm.rot * DVec3::Z,
+                _ => (pp.centre - x).normalize(),
             };
-            let fwd = if i == legs.len() - 1 && tt >= durs[i] { DVec3::Z } else { fwd };
-            Pose { pos, fwd, up }
+            let fwd = if i == legs.len() - 1 && tt >= durs[i] { pp.rot * DVec3::Z } else { fwd };
+            let (pos, f) = w.locate(x);
+            let back = w.pose(f, w.time).rot.inverse();
+            Pose { pos, fwd: back * fwd, up: back * up }
         }
         "edit" => Pose { pos: pole, fwd: DVec3::new(0.0, -1.0, 1.0).normalize(), up: DVec3::Y },
         // stand: at=x,y,z picks the spot (a direction from the planet's centre), yaw and pitch turn the head
@@ -139,6 +151,17 @@ fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64, q: f64, a
             Pose { pos: up * (planet.top(up) + a.get("eye", 1.7)), fwd, up }
         }
     }
+}
+
+/// The world time at which the orbit run starts: the first moment the moon stands 90 degrees from the spawn's
+/// zenith, as the route was laid out before the bodies moved (ADR 0022).
+fn orbit_start(w: &World) -> f64 {
+    let side = |t: f64| (w.pose(0, t).rot * DVec3::Y).dot(w.pose(1, t).centre);
+    let mut t = 0.0;
+    while t < engine::sky::DAY && side(t).signum() == side(t + 0.5).signum() {
+        t += 0.5;
+    }
+    t
 }
 
 static LOW_WORKERS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -568,6 +591,9 @@ struct App {
     players: usize,
     streamer: Streamer,
     run: String,
+    /// The world time at the run's start: time= seconds, by default 0 (9 am at the spawn), for the orbit run
+    /// `orbit_start` (ADR 0022).
+    time0: f64,
     start: Instant,
     loaded_at: Option<Instant>,
     last_frame: Instant,
@@ -812,6 +838,10 @@ impl App {
             return;
         }
         let cpu0 = Instant::now();
+        // the sky's clock: the server's in play, else time= seconds into the world plus the run's own
+        if self.run != "play" {
+            self.world.time = self.time0 + t;
+        }
         let p = if self.run == "play" {
             // the player: mouse turns the look, keys make the input, the shared physics moves the box here in
             // the same fixed steps as on the server, whose position wins when the two drift apart
@@ -885,7 +915,10 @@ impl App {
                     }
                 }
                 Recv::Msg(ToClient::Players(ps)) => self.players = ps.len(),
-                Recv::Msg(ToClient::You { step, me }) if self.run == "play" => self.reconcile(step, me, t),
+                Recv::Msg(ToClient::You { step, me, time }) if self.run == "play" => {
+                    self.world.time = time;
+                    self.reconcile(step, me, t)
+                }
                 Recv::Msg(ToClient::You { .. }) => {}
                 Recv::Msg(ToClient::Inventory { creative, counts, water }) => (self.creative, self.inv, self.bucket_water) = (creative, counts, water),
                 Recv::Msg(ToClient::Water(v)) => {
@@ -1035,12 +1068,18 @@ impl App {
             gpu.queue.write_buffer(&gpu.wquads, (n * std::mem::size_of::<water::WQuad>()) as u64, bytemuck::cast_slice(&drops[..d]));
         }
         self.wquad_n = (n + d) as u32;
-        let sun = Vec3::new(0.4, 0.8, 0.45).normalize();
+        // the sun where the sky has it, seen from the camera's frame (ADR 0022)
+        let cf = self.world.frame_at(p.pos);
+        let sun = (self.world.from_inertial(cf, self.world.sky.sun(self.world.time)) - p.pos).normalize().as_vec3();
         let clock = self.start.elapsed().as_secs_f32();
         let mut g = Globals { view_proj: vp.to_cols_array_2d(), sun: [sun.x, sun.y, sun.z, clock], bodies: bytemuck::Zeroable::zeroed() };
-        for (b, o) in self.world.bodies.iter().zip(g.bodies.iter_mut()) {
-            // the camera relative to the body in two floats per axis: one float is 0.1 mm coarse at 1 km
-            let c = p.pos - b.centre;
+        for (bi, (b, o)) in self.world.bodies.iter().zip(g.bodies.iter_mut()).enumerate() {
+            // the camera in the body's frame, relative to its centre, in two floats per axis: one float is
+            // 0.1 mm coarse at 1 km; and the body's frame turned into the camera's
+            let (r, off) = self.world.place(cf, bi);
+            let c = r * (p.pos - self.world.nominal(cf)) + off - b.centre;
+            let m = glam::DMat3::from_quat(self.world.place(bi, cf).0).as_mat3();
+            let col = |v: Vec3| [v.x, v.y, v.z, 0.0];
             let hi = c.as_vec3();
             let lo = (c - hi.as_dvec3()).as_vec3();
             *o = BodyGpu {
@@ -1051,6 +1090,7 @@ impl App {
                 theta: (std::f64::consts::FRAC_PI_2 / b.n as f64) as f32,
                 half_n: b.n as f32 * 0.5,
                 _p: [b.sea.map_or(-1.0, |s| s as f32), 0.0],
+                rot: [col(m.x_axis), col(m.y_axis), col(m.z_axis)],
             };
         }
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
@@ -1063,9 +1103,7 @@ impl App {
         }
 
         // sky darkens with altitude
-        let near = self.world.nearest(p.pos);
-        let b = &self.world.bodies[near];
-        let altm = ((p.pos - b.centre).length() - b.radius).max(0.0);
+        let altm = self.world.altitude(p.pos).max(0.0);
         let k = (1.0 - altm / 1500.0).clamp(0.0, 1.0);
         let mut sky = wgpu::Color { r: 0.45 * k + 0.01, g: 0.65 * k + 0.01, b: 0.95 * k + 0.03, a: 1.0 };
         if self.shot.is_some() {
@@ -1672,7 +1710,9 @@ fn main() {
     let el = EventLoop::new().unwrap();
     el.set_control_flow(ControlFlow::Poll);
     let (acts, creative, shot) = (parse_acts(&args.s("acts", "")), run != "play", args.0.get("shot").cloned());
+    let time0 = args.get("time", if run == "orbit" { orbit_start(&world) } else { 0.0 });
     let mut app = App {
+        time0,
         args,
         gpu: None,
         world,

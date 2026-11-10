@@ -52,7 +52,7 @@ impl Player {
 
 /// Local up at a point: away from the nearest body's centre.
 pub fn up(world: &World, p: DVec3) -> DVec3 {
-    (p - world.bodies[world.nearest(p)].centre).normalize_or(DVec3::Y)
+    world.up_at(p)
 }
 
 /// `v` without its component along `up`, unit length; `fallback` when nothing is left.
@@ -205,6 +205,10 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
         }
     }
     p.on_ground = on_ground || (p.vel.dot(up) <= 0.0 && blocked(world, p.pos - up * (2.0 * CONTACT)));
+    // out of a body's sphere of influence, or into one (ADR 0022): the look turns with the frame
+    if let Some(r) = world.reframe(&mut p.pos, &mut p.vel) {
+        p.fwd = r * p.fwd;
+    }
 }
 
 #[cfg(test)]

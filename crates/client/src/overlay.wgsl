@@ -9,6 +9,10 @@ struct Body {
     half_n: f32,
     _p0: f32,
     _p1: f32,
+    // the body's frame turned into the camera's (ADR 0022): columns of the rotation
+    rot0: vec4f,
+    rot1: vec4f,
+    rot2: vec4f,
 };
 struct Globals { view_proj: mat4x4f, sun: vec4f, bodies: array<Body, 4> };
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -24,7 +28,7 @@ struct GhostOut {
 fn ghost_vs(@location(0) pos: vec3f, @location(1) body: u32, @location(2) colour: vec4f) -> GhostOut {
     let b = g.bodies[body];
     var o: GhostOut;
-    o.clip = g.view_proj * vec4f((pos - b.cam_hi) - b.cam_lo, 1.0);
+    o.clip = g.view_proj * vec4f(mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz) * ((pos - b.cam_hi) - b.cam_lo), 1.0);
     o.colour = colour;
     return o;
 }

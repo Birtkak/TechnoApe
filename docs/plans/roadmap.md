@@ -67,7 +67,15 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
    capture, name, paste, materials paid from storage); the
    Earth-like biomes and the moon's ores; crafting and the first machines (designed fresh); AI players;
    jetpack and the climb to orbit; the dedicated server on the home server and auto-update (ADR 0005).
-   From ADR 0008: the survival needs and rooms (air, heat); counted deposits; gravity that falls off with
+   From ADR 0008: the survival needs and rooms (air, heat); counted deposits; **a material ledger per
+   body** (the developer, 2026-11-10): every planet, moon and star knows how much of each material it holds,
+   counted from the seed's generation and kept exact through every dig, build and machine, as the water's
+   ledger already is (ADR 0020). It is the base for:
+   - **world miners:** they cut with a real laser where players can see them; with no one near, they remove
+     whole chunks at intervals, and what was in them leaves the ledger;
+   - **a finite sea:** water taken from a planet lowers its sea level, and later its clouds, until it is gone;
+   - **a planet scanner:** it tells how much copper (or anything) a body still holds.
+   The coarse generated totals come from integrating the generator over each body; gravity that falls off with
    distance and orbits; the first megaproject. **Big builds seen from afar:** a far chunk point-samples
    edits, so a structure thinner than a coarse cell vanishes from orbit; keep a per-level summary of edits
    (a coarse cell is built when its blocks are). **Builds in free space** (a ring around the moon, a

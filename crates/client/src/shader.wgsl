@@ -10,6 +10,10 @@ struct Body {
     half_n: f32,
     sea: f32,      // the sea level as a layer (ADR 0020), negative for none
     _p1: f32,
+    // the body's frame turned into the camera's (ADR 0022): columns of the rotation
+    rot0: vec4f,
+    rot1: vec4f,
+    rot2: vec4f,
 };
 struct Globals { view_proj: mat4x4f, sun: vec4f, bodies: array<Body, 4> }; // sun.w: the water's clock, s
 struct Chunk { base: vec3i, info: u32 }; // base in columns and layers; info = face | level << 3 | body << 8
@@ -73,12 +77,12 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     if ((dir & 1u) == 1u) { normal = -normal; }
 
     var o: VOut;
-    o.clip = g.view_proj * vec4f((up * r - b.cam_hi) - b.cam_lo, 1.0);
+    o.clip = g.view_proj * vec4f(brot(b, (up * r - b.cam_hi) - b.cam_lo), 1.0);
     o.local = local;
     o.dir = dir;
     o.mat = q.y;
     o.ci = ii;
-    o.normal = normal;
+    o.normal = brot(b, normal);
     return o;
 }
 
@@ -147,6 +151,11 @@ struct WOut {
 
 // the outward direction at grid point (gi, gj) of a face, and the face's normal and in-face axes
 struct Frame { up: vec3f, n: vec3f, s: vec3f, t: vec3f, ta: f32, tb: f32 };
+// a vector in the body's frame, in the camera's
+fn brot(b: Body, v: vec3f) -> vec3f {
+    return mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz) * v;
+}
+
 fn frame_at(face: u32, b: Body, gi: f32, gj: f32) -> Frame {
     var fnv = array<vec3f, 6>(vec3f(1., 0., 0.), vec3f(-1., 0., 0.), vec3f(0., 1., 0.), vec3f(0., -1., 0.), vec3f(0., 0., 1.), vec3f(0., 0., -1.));
     var fsv = array<vec3f, 6>(vec3f(0., 1., 0.), vec3f(0., 0., 1.), vec3f(0., 0., 1.), vec3f(1., 0., 0.), vec3f(1., 0., 0.), vec3f(0., 1., 0.));
@@ -162,11 +171,11 @@ fn frame_at(face: u32, b: Body, gi: f32, gj: f32) -> Frame {
 }
 
 fn wout(b: Body, up: vec3f, layer: f32, normal: vec3f, side: u32) -> WOut {
-    let rel = (up * (b.r0 * exp(layer * b.lnq)) - b.cam_hi) - b.cam_lo;
+    let rel = brot(b, (up * (b.r0 * exp(layer * b.lnq)) - b.cam_hi) - b.cam_lo);
     var o: WOut;
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
-    o.normal = normal;
+    o.normal = brot(b, normal);
     o.side = side;
     return o;
 }

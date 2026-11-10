@@ -2,8 +2,9 @@
 //! edit map. A block is (face, column i, column j, layer); layers are geometric shells, so blocks stay cubic.
 use crate::blocks::{AIR, BLOCKS};
 use crate::liquid::{Col, Ground, Liquids, OPEN, U};
+use crate::sky::{Pose, Sky};
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
-use glam::{DVec3, IVec3};
+use glam::{DQuat, DVec3, IVec3};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
@@ -404,8 +405,19 @@ impl Block {
     }
 }
 
+/// The moon's grid lies here in the shared coordinates, far from the planet's, so a position names its frame by
+/// where it is (ADR 0022). The moon really orbits much nearer: `sky::Sky::moon_orbit`.
+pub const MOON_AT: DVec3 = DVec3::new(1.0e6, 0.0, 0.0);
+/// The inertial frame's origin (the planet's real centre) in the shared coordinates.
+pub const INERTIAL_AT: DVec3 = DVec3::new(0.0, 0.0, -1.0e6);
+/// The inertial frame's index; the bodies' frames are their indices.
+pub const INERTIAL: usize = usize::MAX;
+
 pub struct World {
     pub bodies: Arc<Vec<Body>>,
+    /// The sky's mechanics, and the world's time in seconds that poses them (ADR 0022).
+    pub sky: Sky,
+    pub time: f64,
     /// Edits bucketed by level 0 chunk; value = material that replaces the generated one.
     pub edits: FxMap<Key, FxMap<IVec3, u8>>,
     pub edit_count: usize,
@@ -417,14 +429,102 @@ impl World {
     /// A planet and its moon 3 km away, with `planet_n` and `moon_n` columns per face edge.
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
         let planet = Body::new(DVec3::ZERO, planet_n, seed).with_continents(seed);
-        // the moon 2.83 planet radii out, as from the 1 km planet; never nearer than 3 km (small test planets)
-        let moon = Body::new(DVec3::new((planet.radius * 2.83).max(3000.0), 0.0, 0.0), moon_n, seed + 1);
+        let moon = Body::new(MOON_AT, moon_n, seed + 1);
+        // the moon orbits 2.83 planet radii out, as from the 1 km planet; never nearer than 3 km (small test planets)
+        let sky = Sky { planet_radius: planet.radius, moon_radius: moon.radius, moon_orbit: (planet.radius * 2.83).max(3000.0) };
         World {
             bodies: Arc::new(vec![planet, moon]),
+            sky,
+            time: 0.0,
             edits: FxMap::default(),
             edit_count: 0,
             water: Liquids::default(),
         }
+    }
+    /// The frame a position (shared coordinates) is in: a body's, near its grid, or the inertial one.
+    pub fn frame_at(&self, p: DVec3) -> usize {
+        // past the sphere of influence, so a position keeps its frame until `reframe` moves it
+        (0..self.bodies.len()).find(|&i| (p - self.bodies[i].centre).length() < 1.5 * self.soi(i)).unwrap_or(INERTIAL)
+    }
+    /// A body's sphere of influence: within it, a position belongs to the body's frame.
+    pub fn soi(&self, i: usize) -> f64 {
+        self.sky.moon_orbit * if i == 0 { 0.6 } else { 0.25 }
+    }
+    /// Frame `f`'s pose at time t: its coordinates to the inertial frame.
+    pub fn pose(&self, f: usize, t: f64) -> Pose {
+        match f {
+            0 => self.sky.planet(t),
+            1 => self.sky.moon(t),
+            _ => Pose { centre: DVec3::ZERO, rot: DQuat::IDENTITY },
+        }
+    }
+    /// Where frame `f`'s pose is anchored in the shared coordinates: its body's grid centre.
+    pub fn nominal(&self, f: usize) -> DVec3 {
+        if f == INERTIAL {
+            INERTIAL_AT
+        } else {
+            self.bodies[f].centre
+        }
+    }
+    /// A position (shared coordinates) in the inertial frame, now.
+    pub fn to_inertial(&self, p: DVec3) -> DVec3 {
+        let f = self.frame_at(p);
+        self.pose(f, self.time).to_inertial(self.nominal(f), p)
+    }
+    /// An inertial position in frame `f`'s shared coordinates, now.
+    pub fn from_inertial(&self, f: usize, x: DVec3) -> DVec3 {
+        self.pose(f, self.time).from_inertial(self.nominal(f), x)
+    }
+    /// How frame `from`'s coordinates lie in frame `to`'s, now: x_to = rot * (x - nominal(from)) + off.
+    pub fn place(&self, from: usize, to: usize) -> (DQuat, DVec3) {
+        if from == to {
+            return (DQuat::IDENTITY, self.nominal(from));
+        }
+        let (a, b) = (self.pose(from, self.time), self.pose(to, self.time));
+        (b.rot.inverse() * a.rot, b.from_inertial(self.nominal(to), a.centre))
+    }
+    /// The inertial velocity of a point at rest at p in frame f.
+    fn frame_vel(&self, f: usize, p: DVec3) -> DVec3 {
+        let (n, h) = (self.nominal(f), 0.05);
+        (self.pose(f, self.time + h).to_inertial(n, p) - self.pose(f, self.time - h).to_inertial(n, p)) / (2.0 * h)
+    }
+    /// Moves a position and velocity into the frame their real place belongs to (ADR 0022): out of a body's
+    /// sphere of influence into the inertial frame, or into one. The velocity keeps the old frame's motion,
+    /// so a jump off the moon carries its orbit. Returns the rotation from the old frame to the new one.
+    pub fn reframe(&self, pos: &mut DVec3, vel: &mut DVec3) -> Option<DQuat> {
+        let f = self.frame_at(*pos);
+        let x = self.to_inertial(*pos);
+        let t = self.time;
+        let inside = |i: usize, k: f64| (x - self.pose(i, t).centre).length() < self.soi(i) * k;
+        let g = if f != INERTIAL && inside(f, 1.0) { f } else { (0..self.bodies.len()).find(|&i| inside(i, 0.97)).unwrap_or(INERTIAL) };
+        if g == f {
+            return None;
+        }
+        let (pf, pg) = (self.pose(f, t), self.pose(g, t));
+        let v = pf.rot * *vel + self.frame_vel(f, *pos);
+        let np = self.from_inertial(g, x);
+        *vel = pg.rot.inverse() * (v - self.frame_vel(g, np));
+        *pos = np;
+        Some(pg.rot.inverse() * pf.rot)
+    }
+    /// An inertial position in the shared coordinates of the frame it lies in (a body's sphere of influence,
+    /// or the inertial frame), and that frame.
+    pub fn locate(&self, x: DVec3) -> (DVec3, usize) {
+        let t = self.time;
+        let f = (0..self.bodies.len()).find(|&i| (x - self.pose(i, t).centre).length() < self.soi(i)).unwrap_or(INERTIAL);
+        (self.from_inertial(f, x), f)
+    }
+    /// The height over the nearest body's sea-level sphere, where the bodies really are now.
+    pub fn altitude(&self, p: DVec3) -> f64 {
+        let x = self.to_inertial(p);
+        (0..self.bodies.len())
+            .map(|i| (x - self.pose(i, self.time).centre).length() - self.bodies[i].radius)
+            .fold(f64::MAX, f64::min)
+    }
+    /// Up at a position: away from the body whose frame it is in; in deep space, away from the planet.
+    pub fn up_at(&self, p: DVec3) -> DVec3 {
+        let f = self.frame_at(p);
+        (p - self.nominal(f)).normalize_or(DVec3::Y)
     }
     pub fn nearest(&self, p: DVec3) -> usize {
         let mut best = 0;
@@ -1053,5 +1153,51 @@ mod water_tests {
         }
         assert!(peak < 400, "{peak} columns stored");
         assert_eq!((w.water.stored(), w.water.counted()), (0, 4 * U));
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+
+    /// Positions go to the inertial frame and back exactly; `place` agrees; leaving a body keeps its motion.
+    #[test]
+    fn frames_round_trip_and_carry_their_motion() {
+        let mut w = World::new(12288, 512, 1337);
+        w.time = 777.0;
+        let (p0, m0) = (w.bodies[0].centre, w.bodies[1].centre);
+        let near_moon = m0 + DVec3::new(0.0, 250.0, 40.0);
+        for p in [DVec3::new(10.0, 4300.0, -20.0), near_moon] {
+            let f = w.frame_at(p);
+            assert!((w.from_inertial(f, w.to_inertial(p)) - p).length() < 1e-6);
+        }
+        assert_eq!((w.frame_at(p0 + DVec3::Y * 4300.0), w.frame_at(near_moon)), (0, 1));
+        // the moon's grid placed in the planet's frame is where the inertial frame says
+        let (rot, off) = w.place(1, 0);
+        assert!(((rot * (near_moon - m0) + off) - w.from_inertial(0, w.to_inertial(near_moon))).length() < 1e-6);
+
+        // at rest on the planet past its sphere of influence: into the inertial frame, moving with the spin
+        let up = DVec3::Y * (w.soi(0) * 1.01);
+        let (mut pos, mut vel) = (up, DVec3::ZERO);
+        let x = w.to_inertial(pos);
+        assert!(w.reframe(&mut pos, &mut vel).is_some());
+        assert_eq!(w.frame_at(pos), INERTIAL);
+        assert!((w.to_inertial(pos) - x).length() < 1e-6, "the place does not move");
+        let spin = std::f64::consts::TAU * (1.0 / crate::sky::DAY + 1.0 / crate::sky::YEAR) * up.length();
+        assert!((vel.length() - spin).abs() < 0.01 * spin, "{} against {spin}", vel.length());
+        // and back into the planet's frame at rest
+        let back = DVec3::Y * (w.soi(0) * 0.9);
+        let (mut q, mut v2) = (w.from_inertial(INERTIAL, w.to_inertial(back)), vel);
+        assert!(w.reframe(&mut q, &mut v2).is_some());
+        assert_eq!(w.frame_at(q), 0);
+        // lower down the spin is slower: what is left is that difference
+        let left = spin * (1.0 - 0.9 / 1.01);
+        assert!((v2.length() - left).abs() < 0.02 * spin, "{} against {left}", v2.length());
+
+        // at rest on the moon past its sphere of influence: the moon's orbital speed carries on
+        let (mut pos, mut vel) = (m0 + DVec3::Z * (w.soi(1) * 1.01), DVec3::ZERO);
+        assert!(w.reframe(&mut pos, &mut vel).is_some());
+        let orbit = std::f64::consts::TAU * w.sky.moon_orbit * (1.0 / crate::sky::MONTH + 1.0 / crate::sky::YEAR);
+        assert!(vel.length() > 0.8 * orbit, "{} against the orbit's {orbit}", vel.length());
     }
 }

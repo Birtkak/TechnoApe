@@ -43,8 +43,9 @@ pub enum ToClient {
     /// The answer to the `Edit` with this `seq`: applied, or refused whole (reach, size, inventory).
     Done { seq: u32, ok: bool },
     /// This player's whole physics state after the step numbered `step` of its `Steps` (0: none yet), every
-    /// tick. The client replays its later inputs from here (ADR 0019).
-    You { step: u32, me: crate::phys::Player },
+    /// tick, and the world's time that poses the sky (ADR 0022). The client replays its later inputs from here
+    /// (ADR 0019).
+    You { step: u32, me: crate::phys::Player, time: f64 },
     /// This player's mode, every block kind it holds a nonzero count of, and the water in its bucket (units,
     /// `liquid::U` a block); sent on join and on change.
     Inventory { creative: bool, counts: Vec<(u8, u32)>, water: u32 },

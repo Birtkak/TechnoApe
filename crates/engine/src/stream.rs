@@ -2,7 +2,7 @@
 use crate::mesh::{mesh, Mesh};
 use crate::liquid::{Col, TILE};
 use crate::world::{fold, generate, sea_cell, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
-use glam::{DVec3, IVec3, Vec4};
+use glam::{DQuat, DVec3, IVec3, Vec4};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Instant;
 
@@ -147,6 +147,9 @@ pub struct View {
     pub cam: DVec3,
     pub planes: [Vec4; 6], // camera-relative frustum planes, inside when dot >= 0
     hz: Vec<Horizon>,
+    /// Per body (ADR 0022): the camera in the body's frame, and the body's frame turned into the camera's.
+    /// Distances are measured in the body's frame; the frustum and the horizons in the camera's.
+    at: Vec<(DVec3, DQuat)>,
 }
 
 /// The cone from the camera that touches a body's core, so the per-chunk test has no divide.
@@ -159,8 +162,15 @@ struct Horizon {
 
 impl View {
     pub fn new(cam: DVec3, planes: [Vec4; 6], world: &World) -> Self {
-        let hz = world.bodies.iter().filter_map(|b| {
-            let cv = b.centre - cam;
+        let cf = world.frame_at(cam);
+        let at: Vec<(DVec3, DQuat)> = (0..world.bodies.len())
+            .map(|b| {
+                let (r, off) = world.place(cf, b);
+                (r * (cam - world.nominal(cf)) + off, world.place(b, cf).0)
+            })
+            .collect();
+        let hz = world.bodies.iter().enumerate().filter_map(|(i, b)| {
+            let cv = at[i].1 * (b.centre - at[i].0);
             let dc = cv.length();
             if dc <= b.r0 {
                 return None;
@@ -168,10 +178,19 @@ impl View {
             let t2 = dc * dc - b.r0 * b.r0;
             Some(Horizon { u: cv / dc, plane: t2 / dc, sin: b.r0 / dc, cos: t2.sqrt() / dc })
         }).collect();
-        View { cam, planes, hz }
+        View { cam, planes, hz, at }
     }
-    fn in_frustum(&self, b: &Bounds) -> bool {
-        let c = (b.c - self.cam).as_vec3();
+    /// A point of body `body` from the camera, in the camera's frame.
+    fn rel(&self, body: u8, p: DVec3) -> DVec3 {
+        let (c, r) = self.at[body as usize];
+        r * (p - c)
+    }
+    /// The camera in body `body`'s frame.
+    pub fn cam_in(&self, body: u8) -> DVec3 {
+        self.at[body as usize].0
+    }
+    fn in_frustum(&self, body: u8, b: &Bounds) -> bool {
+        let c = self.rel(body, b.c).as_vec3();
         let r = -b.rad as f32;
         self.planes.iter().all(|p| p.truncate().dot(c) + p.w >= r)
     }
@@ -179,8 +198,7 @@ impl View {
 
 /// Is the whole sphere hidden behind a body's core (never dug, so a safe occluder)?
 /// Hidden = past the touching circle and inside the cone, by its own radius.
-fn horizon_hidden(cam: DVec3, h: &Horizon, b: &Bounds) -> bool {
-    let v = b.c - cam;
+fn horizon_hidden(v: DVec3, h: &Horizon, b: &Bounds) -> bool {
     let along = v.dot(h.u);
     if along - b.rad < h.plane {
         return false;
@@ -231,8 +249,9 @@ impl Streamer {
         matches!(self.slots.get(k), Some(s) if s.state != State::Pending)
     }
 
-    fn hidden(&self, view: &View, b: &Bounds) -> bool {
-        !view.in_frustum(b) || (self.opts.horizon && view.hz.iter().any(|h| horizon_hidden(view.cam, h, b)))
+    fn hidden(&self, view: &View, body: u8, b: &Bounds) -> bool {
+        let v = view.rel(body, b.c);
+        !view.in_frustum(body, b) || (self.opts.horizon && view.hz.iter().any(|h| horizon_hidden(v, h, b)))
     }
 
     /// Walk the octree for one camera; draw = false only requests (prefetch).
@@ -262,7 +281,7 @@ impl Streamer {
             });
             slot.last_seen = frame;
             let (bd, needs_job, pending) = (slot.bounds, slot.needs_job(), slot.state == State::Pending);
-            let d = ((bd.c - view.cam).length() - bd.rad).max(0.0);
+            let d = ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0);
             if k.level > 0 && d < kk * k.edge() {
                 if !draw && d >= self.opts.k * k.edge() && needs_job {
                     // split only because of the look-ahead margin: the real camera may still want this chunk itself
@@ -289,7 +308,7 @@ impl Streamer {
                 continue;
             }
             // wanted leaf
-            let hidden = self.hidden(view, &bd);
+            let hidden = self.hidden(view, k.body, &bd);
             if needs_job {
                 let mut p = d / k.edge() * prio_mul;
                 if hidden {
@@ -331,7 +350,7 @@ impl Streamer {
             State::Empty => return true,
             State::Ready { off, len, water } => (off, len, water),
         };
-        if !hidden.unwrap_or_else(|| self.hidden(view, &bd)) {
+        if !hidden.unwrap_or_else(|| self.hidden(view, k.body, &bd)) {
             out.push(DrawChunk { key: k, off, len, water });
         }
         true
@@ -477,10 +496,11 @@ mod tests {
         let v = View::new(DVec3::new(0.0, r0 + 100.0, 0.0), [Vec4::ZERO; 6], &w);
         let h = &v.hz[0];
         let ball = |x: f64, y: f64| Bounds { c: DVec3::new(x, y, 0.0), rad: 14.0 };
-        assert!(horizon_hidden(v.cam, h, &ball(0.0, -r0 - 20.0))); // far side of the planet
-        assert!(!horizon_hidden(v.cam, h, &ball(0.0, r0 + 20.0))); // between camera and planet
-        assert!(!horizon_hidden(v.cam, h, &ball((r0 + 20.0) * h.cos, (r0 + 20.0) * h.sin))); // above the horizon line
-        assert!(horizon_hidden(v.cam, h, &ball(r0 + 20.0, 0.0))); // on the equator, seen from above the pole
-        assert!(horizon_hidden(v.cam, h, &ball(r0 * 0.9, -r0 * 0.6))); // past the horizon, well inside the cone
+        let hid = |b: Bounds| horizon_hidden(b.c - v.cam, h, &b);
+        assert!(hid(ball(0.0, -r0 - 20.0))); // far side of the planet
+        assert!(!hid(ball(0.0, r0 + 20.0))); // between camera and planet
+        assert!(!hid(ball((r0 + 20.0) * h.cos, (r0 + 20.0) * h.sin))); // above the horizon line
+        assert!(hid(ball(r0 + 20.0, 0.0))); // on the equator, seen from above the pole
+        assert!(hid(ball(r0 * 0.9, -r0 * 0.6))); // past the horizon, well inside the cone
     }
 }

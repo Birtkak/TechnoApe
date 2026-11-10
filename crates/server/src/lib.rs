@@ -91,6 +91,8 @@ pub struct Server {
     clients: Vec<Client>,
     next_id: u32,
     pub tick: u64,
+    /// The world's age when this server started (from its save): the sky's clock runs on from it.
+    tick0: u64,
     /// Seconds per tick, for the physics; `run` sets it from its rate.
     pub dt: f64,
     /// Time the physics has not stepped through yet (less than one `phys::DT`).
@@ -121,6 +123,7 @@ impl Server {
             clients: Vec::new(),
             next_id: 1,
             tick: 0,
+            tick0: 0,
             dt: 1.0 / TICK_HZ,
             debt: 0.0,
             rec: None,
@@ -144,6 +147,7 @@ impl Server {
         let World { bodies, edits, water, .. } = &mut s.world;
         water.restore(&engine::world::Solid { bodies, edits }, &save.water);
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
+        s.tick0 = save.tick;
         let cols: Vec<Col> = save.water.iter().map(|w| w.0).collect();
         s.water_changed(&cols);
         s.absent = save.players.iter().map(|p| (p.name.clone(), p.clone())).collect();
@@ -173,6 +177,7 @@ impl Server {
             made: self.made,
             removed: self.removed,
             sea_extra: self.world.water.sea_extra,
+            tick: self.tick0 + self.tick,
         }
     }
 
@@ -280,6 +285,8 @@ impl Server {
     }
 
     pub fn tick(&mut self) {
+        // the sky's clock: the world's age, which a save carries on (ADR 0022)
+        self.world.time = (self.tick0 + self.tick) as f64 / TICK_HZ;
         if self.tick == 0 {
             let [b0, b1] = [&self.world.bodies[0], &self.world.bodies[1]];
             let start = Ev::Start { planet_n: b0.n, moon_n: b1.n, seed: self.seed, dt: self.dt };
@@ -423,7 +430,7 @@ impl Server {
                 c.player.pos = c.phys.pos.to_array();
                 c.player.fwd = c.phys.fwd.as_vec3().to_array();
             }
-            c.link.send(ToClient::You { step: c.acked, me: c.phys });
+            c.link.send(ToClient::You { step: c.acked, me: c.phys, time: self.world.time });
         }
         // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics
         // took, fewer when that would spend more than WATER_BUDGET
@@ -956,7 +963,7 @@ mod tests {
             }
             s.tick();
         }
-        let you = drain(l).into_iter().filter_map(|m| if let ToClient::You { step, me } = m { Some((step, me)) } else { None }).last().unwrap();
+        let you = drain(l).into_iter().filter_map(|m| if let ToClient::You { step, me, .. } = m { Some((step, me)) } else { None }).last().unwrap();
         assert_eq!(you, (180, me), "the server took every step once and lands where the client predicted");
         // a client a second ahead is held to real time: sixty steps waiting at most, and in one tick the three
         // of this tick plus the three it had left over
