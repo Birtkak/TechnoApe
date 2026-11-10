@@ -408,7 +408,7 @@ impl Block {
 /// The moon's grid lies here in the shared coordinates, far from the planet's, so a position names its frame by
 /// where it is (ADR 0022). The moon really orbits much nearer: `sky::Sky::moon_orbit`.
 pub const MOON_AT: DVec3 = DVec3::new(1.0e6, 0.0, 0.0);
-/// The inertial frame's origin (the planet's real centre) in the shared coordinates.
+/// The inertial frame's origin (the sun's centre) in the shared coordinates.
 pub const INERTIAL_AT: DVec3 = DVec3::new(0.0, 0.0, -1.0e6);
 /// The inertial frame's index; the bodies' frames are their indices.
 pub const INERTIAL: usize = usize::MAX;
@@ -521,9 +521,18 @@ impl World {
             .map(|i| (x - self.pose(i, self.time).centre).length() - self.bodies[i].radius)
             .fold(f64::MAX, f64::min)
     }
-    /// Up at a position: away from the body whose frame it is in; in deep space, away from the planet.
+    /// Up at a position: away from the body whose frame it is in; in deep space, away from the nearest body.
     pub fn up_at(&self, p: DVec3) -> DVec3 {
         let f = self.frame_at(p);
+        if f == INERTIAL {
+            // away from the nearest body where it really is; the inertial frame is not turned
+            let x = p - INERTIAL_AT;
+            let c = (0..self.bodies.len())
+                .map(|i| self.pose(i, self.time).centre)
+                .min_by(|a, b| a.distance(x).total_cmp(&b.distance(x)))
+                .unwrap_or(DVec3::ZERO);
+            return (x - c).normalize_or(DVec3::Y);
+        }
         (p - self.nominal(f)).normalize_or(DVec3::Y)
     }
     pub fn nearest(&self, p: DVec3) -> usize {
@@ -1184,7 +1193,10 @@ mod frame_tests {
         assert_eq!(w.frame_at(pos), INERTIAL);
         assert!((w.to_inertial(pos) - x).length() < 1e-6, "the place does not move");
         let spin = std::f64::consts::TAU * (1.0 / crate::sky::DAY + 1.0 / crate::sky::YEAR) * up.length();
-        assert!((vel.length() - spin).abs() < 0.01 * spin, "{} against {spin}", vel.length());
+        // the planet's own motion around the sun, taken out to see the spin
+        let pv = w.sky.planet(w.time + 0.5).centre - w.sky.planet(w.time - 0.5).centre;
+        assert!((pv.length() - std::f64::consts::TAU * crate::sky::SUN_DIST / crate::sky::YEAR).abs() < 0.01);
+        assert!(((vel - pv).length() - spin).abs() < 0.01 * spin, "{} against {spin}", (vel - pv).length());
         // and back into the planet's frame at rest
         let back = DVec3::Y * (w.soi(0) * 0.9);
         let (mut q, mut v2) = (w.from_inertial(INERTIAL, w.to_inertial(back)), vel);
@@ -1198,6 +1210,6 @@ mod frame_tests {
         let (mut pos, mut vel) = (m0 + DVec3::Z * (w.soi(1) * 1.01), DVec3::ZERO);
         assert!(w.reframe(&mut pos, &mut vel).is_some());
         let orbit = std::f64::consts::TAU * w.sky.moon_orbit * (1.0 / crate::sky::MONTH + 1.0 / crate::sky::YEAR);
-        assert!(vel.length() > 0.8 * orbit, "{} against the orbit's {orbit}", vel.length());
+        assert!((vel - pv).length() > 0.8 * orbit, "{} against the orbit's {orbit}", (vel - pv).length());
     }
 }

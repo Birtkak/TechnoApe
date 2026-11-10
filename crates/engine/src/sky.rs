@@ -1,8 +1,8 @@
 //! The sky's mechanics (ADR 0022): the planet's spin, the moon's orbit and the sun, as pure functions of the
 //! world's time in seconds, the same on every machine. Orbits are circles on rails.
 //!
-//! The inertial frame is centred on the planet. The ecliptic is its xy plane and the planet spins about its
-//! +z, which is the planet's body z. A body's pose maps its own frame (its grid at its nominal centre, as
+//! The inertial frame is centred on the sun. The ecliptic is its xy plane: the planet circles the sun in it
+//! once a year, and spins about its +z, which is the planet's body z; the moon circles the planet. A body's pose maps its own frame (its grid at its nominal centre, as
 //! `world::Body` has it) to the inertial frame.
 use glam::{DQuat, DVec3};
 use std::f64::consts::TAU;
@@ -11,12 +11,12 @@ use std::f64::consts::TAU;
 pub const DAY: f64 = 1200.0;
 /// From new moon to new moon.
 pub const MONTH: f64 = 8.0 * DAY;
-/// Once around the sun: the sun's yearly path along the ecliptic. Not a whole number of months, so the new
+/// Once around the sun: the planet's orbit, which carries the sun along the ecliptic. Not a whole number of months, so the new
 /// moons meet the eclipse seasons at different places each year.
 pub const YEAR: f64 = 27.0 * DAY;
 /// The moon's orbit against the ecliptic: steep, so only about a third of new moons eclipse the sun.
 pub const INCLINATION: f64 = 40.0 * TAU / 360.0;
-/// The sun: a sphere this far away and this large, 0.53 degrees across, as Earth's.
+/// The planet's orbit around the sun, and the sun's size: 0.53 degrees across, as Earth's.
 pub const SUN_DIST: f64 = 1.0e6;
 pub const SUN_RADIUS: f64 = 4625.0;
 /// Where the planet's spin starts: the spawn (near body +y) has the sun 45 degrees up in the morning.
@@ -51,15 +51,15 @@ impl Pose {
 }
 
 impl Sky {
-    /// The sun's centre.
-    pub fn sun(&self, t: f64) -> DVec3 {
-        let a = TAU * t / YEAR;
-        DVec3::new(a.cos(), a.sin(), 0.0) * SUN_DIST
+    /// The sun's centre: the inertial origin.
+    pub fn sun(&self, _t: f64) -> DVec3 {
+        DVec3::ZERO
     }
-    /// The planet: at the origin, spinning once a sidereal day.
+    /// The planet: on its circle around the sun once a year, spinning once a sidereal day.
     pub fn planet(&self, t: f64) -> Pose {
+        let a = TAU * t / YEAR;
         let spin = SPIN0 + TAU * t * (1.0 / DAY + 1.0 / YEAR);
-        Pose { centre: DVec3::ZERO, rot: DQuat::from_rotation_z(spin) }
+        Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * SUN_DIST, rot: DQuat::from_rotation_z(spin) }
     }
     /// The moon: on its inclined circle once a sidereal month, the same face (its body -x) to the planet.
     pub fn moon(&self, t: f64) -> Pose {
@@ -68,7 +68,7 @@ impl Sky {
         let e1 = DVec3::new(c, s * ci, s * si);
         let e2 = DVec3::new(-s, c * ci, c * si);
         let rot = DQuat::from_mat3(&glam::DMat3::from_cols(e1, e2, e1.cross(e2)));
-        Pose { centre: e1 * self.moon_orbit, rot }
+        Pose { centre: self.planet(t).centre + e1 * self.moon_orbit, rot }
     }
     /// The share of the sun's disc the moon hides, seen from inertial point p: 0 none, 1 total.
     pub fn eclipse(&self, t: f64, p: DVec3) -> f64 {
@@ -100,10 +100,18 @@ mod tests {
         Sky { planet_radius: 4244.0, moon_radius: 177.0, moon_orbit: 4244.0 * 2.83 }
     }
 
+    /// The sun and the moon from the planet's centre.
+    fn sun(s: &Sky, t: f64) -> DVec3 {
+        s.sun(t) - s.planet(t).centre
+    }
+    fn moon(s: &Sky, t: f64) -> DVec3 {
+        s.moon(t).centre - s.planet(t).centre
+    }
+
     /// The sun's height over a point fixed on the planet (body frame direction `up`).
     fn elevation(s: &Sky, t: f64, up: DVec3) -> f64 {
         let u = s.planet(t).rot * up;
-        (u.dot(s.sun(t).normalize())).asin().to_degrees()
+        (u.dot(sun(&s, t).normalize())).asin().to_degrees()
     }
 
     #[test]
@@ -120,10 +128,10 @@ mod tests {
     fn the_moon_keeps_its_face_and_its_orbit() {
         let s = sky();
         for t in [0.0, 1234.0, 5000.0] {
-            let m = s.moon(t);
+            let (m, c) = (s.moon(t), moon(&s, t));
             // its body -x looks at the planet
-            assert!((m.rot * -DVec3::X).dot(-m.centre.normalize()) > 0.999_999);
-            assert!((m.centre.length() - s.moon_orbit).abs() < 1e-6);
+            assert!((m.rot * -DVec3::X).dot(-c.normalize()) > 0.999_999);
+            assert!((c.length() - s.moon_orbit).abs() < 1e-6);
         }
     }
 
@@ -139,7 +147,7 @@ mod tests {
                 let mut b = (f64::MAX, from);
                 let mut x = from;
                 while x < from + MONTH {
-                    let a = (s.sun(x).normalize() * sign).angle_between(s.moon(x).centre.normalize());
+                    let a = (sun(&s, x).normalize() * sign).angle_between(moon(&s, x).normalize());
                     if a < b.0 {
                         b = (a, x);
                     }
@@ -148,7 +156,7 @@ mod tests {
                 b
             };
             let (_, tn) = best(t, 1.0);
-            let (sn, mn) = (s.sun(tn), s.moon(tn).centre);
+            let (sn, mn) = (sun(&s, tn), moon(&s, tn));
             // the moon's distance from the sun-planet line, against the penumbra's reach
             let off = (mn - sn.normalize() * mn.dot(sn.normalize())).length();
             let reach = s.planet_radius + s.moon_radius + mn.length() * (SUN_RADIUS / SUN_DIST);
@@ -160,13 +168,13 @@ mod tests {
                 let disc = b * b - (mn.length_squared() - s.planet_radius.powi(2));
                 if disc > 0.0 {
                     let p = mn + d * (-b - disc.sqrt());
-                    if s.eclipse(tn, p) > 0.999 {
+                    if s.eclipse(tn, p + s.planet(tn).centre) > 0.999 {
                         total += 1;
                     }
                 }
             }
             let (_, tf) = best(t, -1.0);
-            let (sf, mf) = (s.sun(tf), s.moon(tf).centre);
+            let (sf, mf) = (sun(&s, tf), moon(&s, tf));
             if (mf - sf.normalize() * mf.dot(sf.normalize())).length() < s.planet_radius + s.moon_radius {
                 lunar += 1;
             }
@@ -184,15 +192,25 @@ mod tests {
         let s = sky();
         let t = 0.0;
         // straight behind the moon, as seen from the sun: total; far to the side: none
-        let (sn, mn) = (s.sun(t), s.moon(t).centre);
+        let (sn, mn) = (sun(&s, t), moon(&s, t));
         // 4 km behind, as far as the ground: totality to 158 m off the centre line, partial to 196 m
         let behind = mn + (mn - sn).normalize() * 4000.0;
-        assert_eq!(s.eclipse(t, behind), 1.0);
-        assert_eq!(s.eclipse(t, mn + DVec3::Z * 5000.0 - sn.normalize() * 1000.0), 0.0);
+        assert_eq!(s.eclipse(t, behind + s.planet(t).centre), 1.0);
+        assert_eq!(s.eclipse(t, mn + DVec3::Z * 5000.0 - sn.normalize() * 1000.0 + s.planet(t).centre), 0.0);
         // a little off the centre line: partial, and less the farther off
         let side = (mn - sn).normalize().any_orthonormal_vector();
-        let a = s.eclipse(t, behind + side * 170.0);
-        let b = s.eclipse(t, behind + side * 185.0);
+        let a = s.eclipse(t, behind + side * 170.0 + s.planet(t).centre);
+        let b = s.eclipse(t, behind + side * 185.0 + s.planet(t).centre);
         assert!(a > b && b > 0.0 && a < 1.0, "{a} {b}");
+    }
+
+    #[test]
+    fn the_planet_circles_the_sun_once_a_year() {
+        let s = Sky { planet_radius: 4244.0, moon_radius: 177.0, moon_orbit: 4244.0 * 2.83 };
+        for t in [0.0, 777.0, YEAR / 3.0] {
+            assert!((s.planet(t).centre.length() - SUN_DIST).abs() < 1e-6);
+        }
+        assert!(s.planet(YEAR).centre.distance(s.planet(0.0).centre) < 1e-6);
+        assert!(s.planet(YEAR / 2.0).centre.distance(-s.planet(0.0).centre) < 1e-6);
     }
 }

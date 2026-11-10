@@ -40,14 +40,14 @@ pure functions of the world's time, the same on every machine.
 - **Time.** World time is `tick / 20 Hz` seconds since the world was made. The save keeps the tick, and
   clients get it from the server.
 - **The inertial frame:**
-  - centred on the planet;
+  - centred on the sun (the developer's call, 2026-11-10, so later planets and the sun itself have a place);
   - the ecliptic is its xy plane;
   - the planet's spin axis is its +z, with no axial tilt for now (shortcut: no seasons until the biomes want
     them).
 - **The sun.**
-  - A sphere 1000 km away, 4.6 km in radius: 0.53° across, as Earth's.
-  - It moves once around the ecliptic per year, the planet's orbit seen from the planet.
-- **The planet** spins about its body z axis.
+  - A sphere at the origin, 4.6 km in radius: 0.53° across from the planet, as Earth's.
+- **The planet** circles the sun 1000 km out in the ecliptic, once a year (about 194 m/s), and spins about
+  its body z axis.
   - The solar day is 20 min (ADR 0008); the sidereal day follows from it and the year.
   - The spawn, near body +y, lies on the equator, so it gets full days and nights. A world starts at 9 am
     there.
@@ -73,7 +73,8 @@ pure functions of the world's time, the same on every machine.
   - Players stand on the planet as on a merry-go-round. Shortcut: no Coriolis or centrifugal force.
 - **Leaving a body.** The server converts the position and the velocity through the inertial frame,
   including the body's motion, so a jump from the moon carries its orbital speed. In deep space you fly
-  inertially, where the moon moves at about 16 m/s.
+  inertially, relative to the sun: the planet moves at about 194 m/s there, and the moon at that, plus or
+  minus about 16 m/s.
 - **Rendering.** Every body and the camera get a pose for the frame's time. The shader's per-body uniform
   gains a rotation next to its camera offset, and other players are shown converted into the viewer's frame.
 
