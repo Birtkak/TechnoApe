@@ -2,6 +2,7 @@
 name = "engine"
 version = "0.1.0"
 edition = "2021"
+description = "Pillars of Simulation Engine: the world, meshing, streaming and protocol of TechnoApe"
 
 [dependencies]
 glam.workspace = true

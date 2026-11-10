@@ -38,7 +38,7 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
 
 ## Fixed decisions
 - Perspective: first person. Blocks 0.5 m, fine cells 12.5 cm only where needed (ADR 0001).
-- Engine: our own, Rust + wgpu; gameplay in Rust, content as data files (ADR 0002).
+- Engine: our own, the Pillars of Simulation Engine (`crates/engine`), Rust + wgpu; gameplay in Rust, content as data files (ADR 0002).
 - Grid: equi-angular cube-sphere (ADR 0003).
 - Budget: p99 <= 8.3 ms, no frame > 16.7 ms, RAM <= 8 GB, VRAM <= 6 GB on the dev PC (ADR 0004).
 - Platforms: Windows client, Linux server in Docker on the home server over Tailscale, automatic updates

@@ -1,8 +1,8 @@
 # CLAUDE.md – TechnoApe
 
 First-person survival and automation game on small spherical planets of 0.5 m blocks, with a seamless climb
-to orbit and over to the moon. Our own engine in Rust + wgpu; multiplayer from day one (a dedicated Linux
-server on the home server over Tailscale, singleplayer is a local server). Solo developer; Claude Code does
+to orbit and over to the moon. Our own engine, the Pillars of Simulation Engine, in Rust + wgpu; multiplayer
+from day one (a dedicated Linux server on the home server over Tailscale, singleplayer is a local server). Solo developer; Claude Code does
 most implementation, the developer steers, plays and decides.
 
 **Fresh start (2026-11-09).** An earlier flat-world game in Godot was dropped and deleted from the repo. Its
@@ -44,7 +44,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `~/Tools/rust/cargo/bin` to PATH. wgpu 30, winit 0.30 (versions from the engine spike).
 - Release builds for any performance number: fat LTO, one codegen unit, `target-cpu=native`.
 - Libraries per system are chosen when the system is built, each in its own ADR.
-- Workspace: `crates/engine` (world on the cube-sphere grid, meshing, streaming, the player protocol; no
+- Workspace: `crates/engine` (the Pillars of Simulation Engine: world on the cube-sphere grid, meshing, streaming, the player protocol; no
   window or GPU), `crates/server` (the authoritative world; binary `technoape-server`), `crates/bot` (windowless scripted
   players; binary `technoape-bot`) and `crates/client`
   (binary `technoape`: window, renderer, benchmark runs; runs the server on a thread unless `connect=` names
