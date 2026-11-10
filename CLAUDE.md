@@ -56,8 +56,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - `cargo test` (engine logic), `cargo build --release` (the binary lands in `target/release/technoape.exe`).
 - A run is `technoape.exe key=value ...`, off-screen unless `onscreen=1`. It prints one JSON line (ADR 0004:
   frame times, RAM, VRAM, `budget_ok`, a `spikes` list) and exits:
-  `run=stand|fly|orbit|edit`, `quick=1` (quarter length, a smoke check in seconds), `planet=3072|1536`
-  (columns per face edge), `seed=`, `out=file.jsonl`, `connect=host[:7777]` to join a running server
+  `run=stand|fly|orbit|edit`, `quick=1` (quarter length, a smoke check in seconds), `planet=12288|24576|1536`
+  (columns per face edge: the standard 4 km planet, the huge 8 km one, a small one; ADR 0021), `seed=`, `out=file.jsonl`, `connect=host[:7777]` to join a running server
   (`technoape-server listen=0.0.0.0:7777 planet= seed=` prints a JSON line every 5 s).
 - Saves (ADR 0016): `run=play` keeps `saves/seed-<seed>-planet-<n>.sav`, the server `saves/server.sav`; both
   carry on from it. `save=file` names another, `save=0` keeps none.
@@ -78,7 +78,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `technoape-server replay=file until=tick` replays one headless and dumps the players.
 - Viewpoints: `bash tools/views.sh` renders `tests/views/views.txt` and compares by number (cracks, pixels);
   after a deliberate visual change, look at `out/views/*.png`, then `bash tools/views.sh accept`.
-- Full benchmark: `bash tools/bench.sh` (about 8 min for the 1 km planet and filmstrips; add `base` or `huge` for
+- Full benchmark: `bash tools/bench.sh` (about 8 min for the 4 km planet and filmstrips; add `base` or `huge` for
   the other planets, about 6 min each; repeats reps a compiler disturbed), then
   `python -I tools/summarize.py`. Results: `docs/benchmarks.md`. Do not compile while it runs.
 

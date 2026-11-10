@@ -18,9 +18,9 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
 
 ## Next
 1. **First playable** (ADR 0002). Settled 2026-11-09:
-   - the planet has a **1 km radius** (N = 3072 per cube face, R = 1061 m, ADR 0003; about 22 min to walk
-     around, 60 m horizon at eye height). The benchmark runs on a 531 m planet (`base`) and on this one
-     (`big`); both must hold ADR 0004;
+   - ~~the planet has a 1 km radius (ADR 0003)~~ since 2026-11-10 a **continental planet of 4 km**, 8 km
+     for the huge one (ADR 0021: 55 % ocean, 3-5 continents and islands, hills and ranges to 50 m). The
+     benchmark's `small` series runs it, `base` (531 m) and `huge` (8 km) on demand; all must hold ADR 0004;
    - the moon is in the sky and **reachable with a creative fly mode**, seamlessly; the jetpack comes later;
    - **survival-style inventory:** dug blocks go to a hotbar and inventory and are placed from it; a creative
      toggle for testing;
@@ -62,7 +62,11 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
    Earth-like biomes and the moon's ores; crafting and the first machines (designed fresh); AI players;
    jetpack and the climb to orbit; the dedicated server on the home server and auto-update (ADR 0005).
    From ADR 0008: the survival needs and rooms (air, heat); counted deposits; gravity that falls off with
-   distance and orbits; the first megaproject. The planet's size is decided after the first playtest.
+   distance and orbits; the first megaproject. **Big builds seen from afar:** a far chunk point-samples
+   edits, so a structure thinner than a coarse cell vanishes from orbit; keep a per-level summary of edits
+   (a coarse cell is built when its blocks are). **Builds in free space** (a ring around the moon, a
+   structure around the sun) need their own grid, as ships do: a body's grid ends at its build headroom
+   (ADR 0021).
    From ADR 0010, **the planet's air:** one coarse grid for the whole planet. Spike it first and measure the
    tick cost on the 1 km and 4 km planets. Then, in this order:
    - temperature and the **water cycle** (steam and evaporation return as rain), with the survival needs;
@@ -87,8 +91,8 @@ The engine keeps the spikes' benchmark as its performance check, so numbers stay
   2. `fly`: 30 s at 20 m altitude, 60 m/s around the equator.
   3. `orbit`: from the ground straight up to 3 km, across to the moon, land, back, with no load screen, in 32 s.
   4. `edit`: 15 s of 2000 block changes/s within 10 m.
-- **Series:** `big` (the 1 km planet) and the filmstrips by default, about 8 min; `base` (531 m, comparable
-  with the spikes) and `huge` (4 km) on demand, about 6 min each.
+- **Series:** `small` (the standard 4 km planet) and the filmstrips by default, about 8 min; `base` (531 m,
+  comparable with the spikes) and `huge` (8 km) on demand, about 6 min each.
 - **Output:** one JSON line per run: `fps_avg`, `frame_p50_ms`, `frame_p99_ms`, `frame_max_ms`, `ram_mb`,
   `vram_mb`, `chunks_meshed_per_s`, `missing_chunks_max`, plus filmstrips of `fly` and `orbit`.
 - **Targets:** ADR 0004 in all four runs, `missing_chunks_max == 0` in `fly`; stretch: `stand` >= 300 fps.

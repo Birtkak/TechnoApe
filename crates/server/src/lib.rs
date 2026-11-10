@@ -488,7 +488,7 @@ impl Server {
     /// Where a new player's feet go: on the surface at the planet's +y pole, like the client's benchmark.
     fn spawn(&self) -> DVec3 {
         let b = &self.world.bodies[0];
-        b.centre + DVec3::Y * (b.height(DVec3::Y) + 0.6)
+        b.spawn_point()
     }
 
     /// Client `i` digs or places `shape`: all of it or none. False when the shape fails `valid_shape` or a
@@ -558,7 +558,7 @@ impl Server {
             let (mut msg, mut bytes) = (Vec::new(), 0);
             for (_, t) in want {
                 let (cols, n) = built.entry(t).or_insert_with(|| {
-                    let cols = self.world.water.tile(t);
+                    let cols = self.world.water.tile_sent(t);
                     let n = postcard::to_allocvec(&(t, &cols)).map_or(0, |b| b.len());
                     (cols, n)
                 });
@@ -739,8 +739,7 @@ mod tests {
             assert!(matches!(drain(l)[0], ToClient::Welcome { seed: 1, planet_n: 256, .. }));
         }
         // stand on the +z pole and toggle the block under the feet
-        let pole = s.world.bodies[0].centre + DVec3::Z * (s.world.bodies[0].radius + 2.0);
-        let under = s.world.block_at(pole - DVec3::Z * 2.5);
+        let (pole, under) = on_land(&s);
         let stone = BLOCKS.id("stone");
         let m = if s.world.block(under) == stone { AIR } else { stone };
         links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
@@ -759,12 +758,23 @@ mod tests {
         assert!(drain(&c).contains(&ToClient::Edits(vec![(under, m)])));
     }
 
+    /// A spot on dry land away from the spawn (out of a new player's reach), 2 m over the middle of a column,
+    /// and the air cell on the ground under it (placing fills air only).
+    fn on_land(s: &Server) -> (DVec3, Block) {
+        let b = &s.world.bodies[0];
+        let sea = b.layer_r(b.sea.unwrap());
+        let d = (10..400).map(|t| (b.spawn + DVec3::X * 0.02 * t as f64).normalize()).find(|d| b.height(*d) > sea + 1.0).unwrap();
+        let k = s.world.block_at(b.centre + d * b.radius);
+        let d = b.dir(k.face as usize, k.pos.x as f64 + 0.5, k.pos.y as f64 + 0.5);
+        let h = b.height(d);
+        (b.centre + d * (h + 2.0), s.world.block_at(b.centre + d * (h + 0.6)))
+    }
+
     #[test]
     fn bad_edits_are_dropped() {
         let (mut s, links) = server_with(1);
         drain(&links[0]);
-        let pole = s.world.bodies[0].centre + DVec3::Z * (s.world.bodies[0].radius + 2.0);
-        let under = s.world.block_at(pole - DVec3::Z * 2.5);
+        let (pole, under) = on_land(&s);
         let before = s.world.block(under);
         let one = Shape::one(under);
         links[0].send(ToServer::Edit { seq: 1, shape: one, material: 0 }); // player still at the origin: out of reach
@@ -782,7 +792,7 @@ mod tests {
         let got = drain(&links[0]);
         assert!(!got.iter().any(|m| matches!(m, ToClient::Edits(_))));
         for seq in 1..=6 {
-            assert!(got.contains(&ToClient::Done { seq, ok: false }), "edit {seq} refused");
+            assert!(got.contains(&ToClient::Done { seq, ok: false }), "edit {seq} refused: {:?}", got.iter().filter(|m| matches!(m, ToClient::Done { .. })).collect::<Vec<_>>());
         }
     }
 

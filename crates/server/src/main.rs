@@ -1,4 +1,4 @@
-//! The dedicated server: `technoape-server listen=0.0.0.0:7777 planet=3072 moon=512 seed=1337`.
+//! The dedicated server: `technoape-server listen=0.0.0.0:7777 planet=12288 moon=512 seed=1337`.
 //! Prints one JSON line every 5 s: tick, players, edits. It records the session to `out/rec/server-<unix s>.rec`
 //! (`record=file` elsewhere, `record=0` not at all). It saves every 30 s to `saves/server.sav` (`save=file`,
 //! `save=0` not at all) and carries on from that save when it exists.
@@ -40,7 +40,7 @@ fn main() {
             eprintln!("[technoape-server] carrying on from {save} ({} edited cells)", s.edits.len());
             Server::from_save(s, rx)
         }
-        None => Server::new(num("planet", 3072), num("moon", 512), num("seed", 1337), rx),
+        None => Server::new(num("planet", 12288), num("moon", 512), num("seed", 1337), rx),
     };
     server.autosave = (save != "0").then(|| (save.clone().into(), 30 * TICK_HZ as u64));
     let unix = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
@@ -112,6 +112,8 @@ fn run_soak(args: &HashMap<String, String>) {
             w.bytes
         ),
         Err(f) => {
+            // the shrink can take long: the first failure shows at once
+            eprintln!("soak failed at tick {} after {:.0} s: {}; shrinking", f.tick, t0.elapsed().as_secs_f64(), f.what);
             let (keep, f) = soak::shrink(seed, bots, f, planet);
             let rec = "out/soak-fail.rec";
             let _ = soak::run(seed, &keep, f.tick + 1, planet, Some(Path::new(rec)));

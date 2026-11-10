@@ -7,18 +7,18 @@
 
 ## 0. The numbers the planet gives us
 
-| | 1 km planet (N = 3072) | 4 km planet (N = 12288) | moon (N = 512) |
+| | standard 4 km planet (N = 12288) | huge 8 km planet (N = 24576) | moon (N = 512) |
 |---|---|---|---|
-| radius | 1061 m | 4244 m | 177 m |
-| walk around at 4.3 m/s | 26 min | 103 min | 4 min |
-| horizon at eye height | 58 m | 117 m | 24 m |
-| sunset moves over the ground (20 min day) | 5.6 m/s | 22 m/s | – |
-| speed of a surface orbit / one lap | 102 m/s / 65 s | 204 m/s / 131 s | 17 m/s at lunar gravity |
-| surface | 14 km² | 226 km² | 0.4 km² |
+| radius | 4244 m | 8488 m | 177 m |
+| walk around at 4.3 m/s | 103 min | 207 min | 4 min |
+| horizon at eye height | 117 m | 165 m | 24 m |
+| sunset moves over the ground (20 min day) | 22 m/s | 44 m/s | – |
+| speed of a surface orbit / one lap | 204 m/s / 131 s | 289 m/s / 185 s | 17 m/s at lunar gravity |
+| surface | 226 km² | 905 km² | 0.4 km² |
 
-- On the 1 km planet a sprinting player almost keeps up with the sunset; on a 4 km planet nobody does.
-- **The planet's size stays a parameter** (ADR 0008): nothing may assume R = 1061 m. The 4 km column is the
-  headroom case the engine must survive.
+- Nobody on foot keeps up with the sunset.
+- **The planet's size stays a parameter** (ADR 0008): nothing may assume R = 4244 m. The standard planet is
+  4 km and the huge one 8 km (ADR 0021); the engine must hold its budget on both.
 - A player is 1.2 blocks wide and 3.6 blocks tall. A walkable tunnel is 2 x 4 blocks: 16 blocks per metre,
   against Minecraft's 2. Any feel that copies Minecraft's one-block actions is 8x the clicks.
 
@@ -114,7 +114,7 @@ ADR 0004 budgets the frame. The rest of the game needs budgets too (*proposals*,
 | Start to first playable frame | <= 3 s | client JSON line |
 | Teleport: time until no chunk is missing | <= 500 ms | `run=stand at=` |
 | Frame-thread allocations in steady state | 0 | counter, asserted |
-| Headroom planet (N = 12288) | ADR 0004 holds | a `huge` benchmark row |
+| Huge planet (N = 24576) | ADR 0004 holds | a `huge` benchmark row |
 
 **Where Rust's speed comes from, and what we still leave on the table**
 

@@ -218,7 +218,8 @@ mod tests {
     /// Feet position of the surface in the middle of face 2 (+y).
     fn ground(w: &World) -> DVec3 {
         let b = &w.bodies[0];
-        let d = b.dir(2, b.n as f64 / 2.0 + 0.25, b.n as f64 / 2.0 + 0.25);
+        // on land: the spawn (the middle of face 2 may be sea)
+        let d = b.spawn;
         d * (b.height(d) + 0.6)
     }
 
@@ -245,7 +246,7 @@ mod tests {
     /// Dropped into the sea, a player floats with the head out, and swims up with jump held.
     #[test]
     fn floats_in_the_sea_and_swims_up() {
-        let w = World::new(256, 32, 1);
+        let w = World::new(1536, 32, 1);
         let b = &w.bodies[0];
         let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 8.0).unwrap();
         let d = b.dir(2, i as f64 + 0.5, j as f64 + 0.5);

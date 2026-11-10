@@ -100,7 +100,7 @@ impl Bot {
                     self.id = id;
                     // the server spawns players just over the +y pole; an empty input makes this one a
                     // walker, so it lands there
-                    self.pos = DVec3::Y * (w.bodies[0].height(DVec3::Y) + 0.6);
+                    self.pos = w.bodies[0].spawn_point();
                     self.world = Some(w);
                     self.link.send(ToServer::Input(Input::default()));
                     // bots build in creative: a script places without digging first

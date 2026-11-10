@@ -66,6 +66,9 @@ Measured in `prototypes/liquids/`:
   - Water goes out in tiles of 16×16 columns, each sent whole. A tile is sent when it changed by more than
     a dead band (1/64 block), or settled, since this client last had it.
   - Tiles go to a client within 128 m, nearest first, about 16 KB per tick.
+  - A tile goes out as last listed: each column's water as of its last listed change (`tile_sent`), not its
+    current water. Otherwise a neighbour's change within the dead band leaks out, and if it undoes itself
+    while asleep, the client never hears the undo. The continental planet's coasts found this in the soak.
   - Settled tiles reach a client exactly; the soak compares them with every bot.
   - shortcut: far floods are not sent, so they are not seen from orbit. A coarse far copy comes when views
     from orbit need it.

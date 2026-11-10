@@ -263,6 +263,14 @@ impl Liquids {
         self.tiles.entry(c.tile()).or_default().push(*c);
     }
 
+    /// Tile `t` as the clients are told it: each column's water as `take_changes` last listed it. The current
+    /// water would leak a neighbour's change within the dead band, and when that change undid itself while
+    /// the column slept, nothing would ever send the client the undo.
+    pub fn tile_sent(&self, t: Col) -> Vec<ColWater> {
+        let mut v: Vec<ColWater> = self.tiles.get(&t).into_iter().flatten().map(|&c| (c, self.cols[&c].iter().map(|&i| &self.nodes[i as usize]).map(|n| (n.floor, n.ceil, n.sent)).collect())).collect();
+        v.sort_unstable_by_key(|w| w.0);
+        v
+    }
     /// A tile's stored columns, sorted (empty: all of it is as generation gives it).
     pub fn tile(&self, t: Col) -> Vec<ColWater> {
         let mut v: Vec<ColWater> = self.tiles.get(&t).into_iter().flatten().map(|&c| self.col_water(c)).collect();
@@ -566,6 +574,10 @@ impl Liquids {
                 let want = hi - n.floor as i64 * U;
                 self.sea_extra += n.water - want;
                 n.water = want;
+                // the open node may sleep while another node of its column moves: no step will send this
+                if n.quiet == u16::MAX && n.water != n.sent {
+                    self.dirty.insert(c, ());
+                }
             }
         }
         self.awake.sort_unstable();

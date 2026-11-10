@@ -87,19 +87,22 @@ fn smooth(x: f64) -> f64 {
 fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64, q: f64, a: &Args) -> Pose {
     let planet = &w.bodies[0];
     let moon = &w.bodies[1];
-    let pole = DVec3::new(0.0, planet.height(DVec3::Y) + 1.7, 0.0);
+    // the spawn: land nearest the +y pole (ADR 0021)
+    let pole = planet.spawn * (planet.height(planet.spawn) + 1.7);
     match run {
         "fly" => {
             let r0 = planet.radius + alt;
             let th = speed * t / r0;
             let dir = DVec3::new(th.sin(), 0.0, th.cos());
-            let pos = dir * (planet.height(dir) + alt);
+            let pos = dir * (planet.top(dir) + alt);
             Pose { pos, fwd: DVec3::new(th.cos(), 0.0, -th.sin()), up: dir }
         }
         "orbit" => {
             let a = pole;
-            let b = DVec3::new(0.0, 3500.0, 0.0);
-            let c = moon.centre + DVec3::Y * 3500.0;
+            // high over both bodies: 3.3 planet radii, as 3.5 km was over the 1 km planet
+            let high = planet.radius * 3.3;
+            let b = DVec3::new(0.0, high, 0.0);
+            let c = moon.centre + DVec3::Y * high;
             let d = moon.centre + DVec3::Y * (moon.height(DVec3::Y) + 1.7);
             let legs = [(a, b, 0), (b, c, 0), (c, d, 1), (d, d, 2), (d, c, 3), (c, b, 3), (b, a, 3)];
             let durs = [10.0, 10.0, 10.0, 5.0, 10.0, 10.0, 10.0].map(|d| d * q);
@@ -133,7 +136,7 @@ fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64, q: f64, a
             let ahead = (r - up * r.dot(up)).normalize();
             let (yaw, pitch) = (a.get("yaw", 0f64).to_radians(), a.get("pitch", 0f64).to_radians());
             let fwd = (ahead * yaw.cos() + up.cross(ahead) * yaw.sin()) * pitch.cos() + up * pitch.sin();
-            Pose { pos: up * (planet.height(up) + a.get("eye", 1.7)), fwd, up }
+            Pose { pos: up * (planet.top(up) + a.get("eye", 1.7)), fwd, up }
         }
     }
 }
@@ -1601,7 +1604,8 @@ fn main() {
         return;
     }
     // the world comes from the server: a remote one (connect=host[:port]) or a local one on its own thread
-    // (planet= and moon= are columns per face edge: 3072 is the 1 km planet, 1536 the benchmark's 500 m class)
+    // (planet= and moon= are columns per face edge: 12288 is the 4 km planet, the standard; 24576 the 8 km huge
+    // one; 1536 the benchmark's 500 m class)
     let mut local_server = None;
     let link: Link<ToServer, ToClient> = match args.0.get("connect") {
         Some(addr) => {
@@ -1610,7 +1614,7 @@ fn main() {
         }
         None => {
             let (accept_tx, accept_rx) = std::sync::mpsc::channel();
-            let (planet, moon, seed) = (args.get("planet", 3072), args.get("moon", 512), args.get("seed", 1337));
+            let (planet, moon, seed) = (args.get("planet", 12288), args.get("moon", 512), args.get("seed", 1337));
             // the flight recorder (ADR 0011): on for play on screen, or wherever record= says
             let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
             let rec = args.0.get("record").cloned().or((args.get("onscreen", 0) == 1).then(|| format!("out/rec/play-{unix}.rec")));
@@ -1652,7 +1656,7 @@ fn main() {
         other => panic!("no welcome from the server: {other:?}"),
     };
     // the server spawns players on the +y pole; the client starts its prediction there too
-    let spawn = DVec3::Y * (world.bodies[0].height(DVec3::Y) + 0.6);
+    let spawn = world.bodies[0].spawn_point();
     assert!(world.bodies.len() <= MAX_BODIES);
     let opts = Opts {
         k: args.get("k", 4.0),

@@ -186,7 +186,13 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> W
     let b = g.bodies[c.info >> 8u];
     let gp = vec2f(c.base.xy) + (p + vec2f(cu[k] * w, cv[k] * h)) * f32(1u << level);
     let f = frame_at(c.info & 7u, b, gp.x, gp.y);
-    return wout(b, f.up, b.sea, f.up, 0u);
+    // a far coarse cell that holds the sea level but is solid: the water lies a layer over its top, or the
+    // top face hides it
+    var layer = b.sea;
+    if (q.y == 1u) {
+        layer = max(layer, f32(c.base.z + (i32((lo >> 12u) & 63u) << level)) + 1.0);
+    }
+    return wout(b, f.up, layer, f.up, 0u);
 }
 
 @vertex

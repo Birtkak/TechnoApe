@@ -363,11 +363,12 @@ impl Streamer {
             rayon::spawn(move || {
                 let t = Instant::now();
                 let body = &bodies[k.body as usize];
-                let mut mesh = match generate(body, k, &edits) {
-                    Gen::Cells(c) => Some(mesh(&c, greedy)).filter(|m| !m.quads.is_empty()),
+                let gen = generate(body, k, &edits);
+                let mut mesh = match &gen {
+                    Gen::Cells(c) => Some(mesh(c, greedy)).filter(|m| !m.quads.is_empty()),
                     _ => None,
                 };
-                let sea = sea_quads(body, k, &wet);
+                let sea = sea_quads(body, k, &wet, &gen);
                 if !sea.is_empty() {
                     let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], water: 0 });
                     m.water = sea.len() as u32;

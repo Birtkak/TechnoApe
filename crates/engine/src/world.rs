@@ -10,11 +10,17 @@ use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 use std::sync::Arc;
 
 pub const BLOCK: f64 = 0.5;
-/// The planet's sea lies this far under its nominal radius: about a third of it is sea (ADR 0020).
+/// The planet's sea lies this far under its nominal radius (ADR 0020); the continents decide how much of it
+/// is sea (ADR 0021).
 pub const SEA_DEPTH: f64 = 4.0;
+/// The share of the planet's surface the continents leave to the sea (ADR 0021).
+pub const OCEAN: f64 = 0.55;
 pub const CS: i32 = 32; // cells per chunk edge
 pub const P: usize = 34; // padded edge
-pub const AMP: f64 = 30.0;
+/// No generated surface lies farther than this from a body's radius (m).
+pub const AMP: f64 = 80.0;
+/// The relief of a body without continents (the moon): +-30 m of hills.
+const HILLS: f64 = 30.0;
 pub const CRUST: f64 = 64.0;
 
 /// FxHash-style hasher for the maps keyed by chunks and cells: SipHash cost a third of the streamer's selection
@@ -103,6 +109,103 @@ pub struct Body {
     noise: FastNoiseLite,
     /// The sea level as a layer coordinate; generation fills every column lower than it with water.
     pub sea: Option<f64>,
+    /// Continents and oceans (ADR 0021): the planet has them, the moon is all hills.
+    land: Option<Box<Land>>,
+    /// Where players start: the land nearest the +y pole (a direction from the centre).
+    pub spawn: DVec3,
+}
+
+/// Continents, oceans and islands (ADR 0021). Heights are metres over the sea level. The continents' sizes
+/// scale with the planet (3 to 5 of them on any size); hills, mountains, islands and depths are in metres.
+struct Land {
+    warp: FastNoiseLite,
+    cont: FastNoiseLite,
+    hills: FastNoiseLite,
+    ridge: FastNoiseLite,
+    isle: FastNoiseLite,
+    /// The continent value at the coast: OCEAN of the surface lies under it.
+    cut: f32,
+    /// The sea level's radius.
+    sea_r: f64,
+    /// Heights are in metres from 1 km radius up; a smaller (test) planet is flatter in proportion.
+    relief: f64,
+}
+
+fn noise(seed: i32, freq: f64, octaves: i32) -> FastNoiseLite {
+    let mut n = FastNoiseLite::with_seed(seed);
+    n.set_noise_type(Some(NoiseType::OpenSimplex2));
+    n.set_fractal_type(Some(FractalType::FBm));
+    n.set_fractal_octaves(Some(octaves));
+    n.set_frequency(Some(freq as f32));
+    n
+}
+
+fn smooth01(x: f64) -> f64 {
+    let x = x.clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
+/// Directions spread evenly over the sphere (a Fibonacci lattice).
+fn lattice(n: usize) -> impl Iterator<Item = DVec3> {
+    let ga = PI * (3.0 - 5f64.sqrt());
+    (0..n).map(move |k| {
+        let y = 1.0 - 2.0 * (k as f64 + 0.5) / n as f64;
+        let r = (1.0 - y * y).sqrt();
+        DVec3::new(r * (ga * k as f64).cos(), y, r * (ga * k as f64).sin())
+    })
+}
+
+impl Land {
+    fn new(seed: i32, radius: f64) -> Land {
+        let mut l = Land {
+            warp: noise(seed ^ 0x51, 1.6 / radius, 2),
+            cont: noise(seed ^ 0x52, 0.75 / radius, 3),
+            hills: noise(seed ^ 0x53, 1.0 / 140.0, 4),
+            ridge: noise(seed ^ 0x54, 1.0 / 650.0, 4),
+            isle: noise(seed ^ 0x55, 1.0 / 260.0, 3),
+            cut: 0.0,
+            sea_r: radius - SEA_DEPTH,
+            relief: (radius / 1000.0).min(1.0),
+        };
+        let mut v: Vec<f32> = lattice(4096).map(|d| l.continent(d * radius)).collect();
+        v.sort_by(f32::total_cmp);
+        l.cut = v[(OCEAN * v.len() as f64) as usize];
+        l
+    }
+    /// The continent value at p (m from the centre), its coasts warped so they wander.
+    fn continent(&self, p: DVec3) -> f32 {
+        let (x, y, z) = (p.x as f32, p.y as f32, p.z as f32);
+        let k = 0.22 * p.length() as f32;
+        let w = |o: f32| self.warp.get_noise_3d(x + o, y - o, z + 2.0 * o) * k;
+        self.cont.get_noise_3d(x + w(0.0), y + w(311.0), z + w(-517.0))
+    }
+    /// Metres over the sea level at p.
+    fn over_sea(&self, p: DVec3) -> f64 {
+        let (x, y, z) = (p.x as f32, p.y as f32, p.z as f32);
+        let e = (self.continent(p) - self.cut) as f64;
+        let hills = self.hills.get_noise_3d(x, y, z) as f64;
+        let h = if e >= 0.0 {
+            // plains rising inland, hills, and mountain ranges well inside the continents
+            let inland = smooth01(e / 0.15);
+            let mut h = 14.0 * inland + hills * (1.0 + 9.0 * smooth01(e / 0.06));
+            if e > 0.06 {
+                let r = 1.0 - (self.ridge.get_noise_3d(x, y, z) as f64).abs();
+                h += 45.0 * r * r * r * smooth01((e - 0.06) / 0.15);
+            }
+            h
+        } else {
+            // a shelf off the coast, then the deep; islands rise from it
+            let mut h = -23.0 * smooth01(-e / 0.1) + 1.5 * hills;
+            if e > -0.25 {
+                let i = self.isle.get_noise_3d(x, y, z) as f64 - 0.3;
+                if i > 0.0 {
+                    h += i * 110.0 * (1.0 - 0.5 * smooth01(-e / 0.25));
+                }
+            }
+            h
+        };
+        (h * self.relief).clamp(SEA_DEPTH - AMP + 2.0, AMP - SEA_DEPTH - 2.0)
+    }
 }
 
 impl Body {
@@ -120,7 +223,36 @@ impl Body {
         let r0 = radius - CRUST.min(radius * 0.5); // small bodies keep half their radius
         let lnq = (1.0 + BLOCK / radius).ln();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None }
+        Body { centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y }
+    }
+    /// The body with continents, oceans and a sea (ADR 0020, 0021), and its spawn on land.
+    pub fn with_continents(mut self, seed: i32) -> Self {
+        let land = Land::new(seed, self.radius);
+        // an eighth of a block under a layer's top: a block at the waterline stands clearly out of the water
+        // instead of flickering through it
+        self.sea = Some(self.layer_of(land.sea_r).floor() + 0.875);
+        self.land = Some(Box::new(land));
+        // the land nearest the +y pole, a little above the sea
+        let sea_r = self.radius - SEA_DEPTH;
+        self.spawn = lattice(4096).filter(|d| d.y > 0.0 && self.height(*d) > sea_r + 2.0).max_by(|a, b| a.y.total_cmp(&b.y)).unwrap_or(DVec3::Y);
+        self
+    }
+    /// Where a player starts: over the spawn, clear of the highest ground within a metre, so a steep slope
+    /// never holds it inside a block; it drops onto the ground from there.
+    pub fn spawn_point(&self) -> DVec3 {
+        let d = self.spawn;
+        let a = d.any_orthonormal_vector();
+        let b = d.cross(a);
+        let mut top: f64 = 0.0;
+        for (x, y) in [(0.0, 0.0), (1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7), (-0.7, -0.7)] {
+            top = top.max(self.height((d * self.radius + (a * x + b * y)).normalize()));
+        }
+        self.centre + d * (top + 0.6)
+    }
+    /// The radius of the surface over direction d: the ground, or the sea over it.
+    pub fn top(&self, d: DVec3) -> f64 {
+        let h = self.height(d);
+        self.sea.map_or(h, |s| h.max(self.layer_r(s)))
     }
     /// Root chunks per face edge.
     pub fn roots(&self) -> i32 {
@@ -143,7 +275,10 @@ impl Body {
     /// Surface radius along unit direction d.
     pub fn height(&self, d: DVec3) -> f64 {
         let p = d * self.radius;
-        self.radius + AMP * self.noise.get_noise_3d(p.x as f32, p.y as f32, p.z as f32) as f64
+        if let Some(l) = &self.land {
+            return l.sea_r + l.over_sea(p);
+        }
+        self.radius + HILLS * self.noise.get_noise_3d(p.x as f32, p.y as f32, p.z as f32) as f64
     }
     /// Bounding sphere of a chunk, clamped to the streamed layers.
     pub fn bounds(&self, k: Key) -> Bounds {
@@ -281,10 +416,11 @@ pub struct World {
 impl World {
     /// A planet and its moon 3 km away, with `planet_n` and `moon_n` columns per face edge.
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
-        let mut planet = Body::new(DVec3::ZERO, planet_n, seed);
-        planet.sea = Some(planet.layer_of(planet.radius - SEA_DEPTH));
+        let planet = Body::new(DVec3::ZERO, planet_n, seed).with_continents(seed);
+        // the moon 2.83 planet radii out, as from the 1 km planet; never nearer than 3 km (small test planets)
+        let moon = Body::new(DVec3::new((planet.radius * 2.83).max(3000.0), 0.0, 0.0), moon_n, seed + 1);
         World {
-            bodies: Arc::new(vec![planet, Body::new(DVec3::new(3000.0, 0.0, 0.0), moon_n, seed + 1)]),
+            bodies: Arc::new(vec![planet, moon]),
             edits: FxMap::default(),
             edit_count: 0,
             water: Liquids::default(),
@@ -539,46 +675,64 @@ pub fn sea_cell(body: &Body, key: Key) -> Option<i32> {
 
 /// The generated sea's surface in chunk `key` (ADR 0020): quads in the mesher's format, top faces of the cell
 /// that holds the sea level, merged into rectangles; the water shader lays them at the exact level. Columns in
-/// a `wet` tile (sorted) are left out: the client's water mesh draws all of those.
-pub fn sea_quads(body: &Body, key: Key, wet: &[Col]) -> Vec<[u32; 2]> {
+/// a `wet` tile (sorted) are left out: the client's water mesh draws all of those. A quad's material is 1
+/// where the (coarse) cell at the sea level is solid: far away a cell is up to 128 m tall, and the shader lays
+/// that water on the cell's top instead of inside it.
+pub fn sea_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]> {
     let Some(cz) = sea_cell(body, key) else { return Vec::new() };
     let s = 1i32 << key.level;
     let r = body.layer_r(body.sea.unwrap());
     let base = key.base();
     let n = CS as usize;
-    let mut sea = vec![false; n * n];
+    let zl = (cz - key.pos.z * CS) as usize;
+    // 0 no sea, 1 sea over air, 2 sea in a solid cell
+    let mut sea = vec![0u8; n * n];
     for y in 0..n {
         for x in 0..n {
             let (ci, cj) = (base.x + x as i32 * s, base.y + y as i32 * s);
-            if wet.binary_search(&Col::new(key.body, key.face, ci, cj).tile()).is_err() {
-                // the same sample as `generate`: the middle of the (coarse) column
-                sea[y * n + x] = body.height(body.dir(key.face as usize, ci as f64 + 0.5 * s as f64, cj as f64 + 0.5 * s as f64)) < r;
+            // the same sample as `generate`: the middle of the (coarse) column
+            if wet.binary_search(&Col::new(key.body, key.face, ci, cj).tile()).is_err()
+                && body.height(body.dir(key.face as usize, ci as f64 + 0.5 * s as f64, cj as f64 + 0.5 * s as f64)) < r
+            {
+                let solid = match gen {
+                    Gen::Cells(c) => c[pidx(x + 1, y + 1, zl + 1)] != 0,
+                    Gen::Solid => true,
+                    Gen::Empty => false,
+                };
+                // a block that holds the sea level stands out of it; only a coarse cell stands for shallows
+                if !(solid && key.level == 0) {
+                    sea[y * n + x] = 1 + solid as u8;
+                }
             }
         }
     }
-    let z = (cz - key.pos.z * CS + 1) as u32;
+    let z = (zl + 1) as u32;
+    // a quad is a flat chord under the sphere: one wider than the terrain's quads under it would sag below
+    // them (120 m for a whole far chunk). Merged quads stay within about 90 m, a sag of 0.25 m.
+    let cap = (((2.0 * body.radius).sqrt() / BLOCK) as usize >> key.level).clamp(1, n);
     let mut out = Vec::new();
     for y in 0..n {
         let mut x = 0;
         while x < n {
-            if !sea[y * n + x] {
+            let m = sea[y * n + x];
+            if m == 0 {
                 x += 1;
                 continue;
             }
             let mut w = 1;
-            while x + w < n && sea[y * n + x + w] {
+            while x + w < n && w < cap && sea[y * n + x + w] == m {
                 w += 1;
             }
             let mut h = 1;
-            while y + h < n && (x..x + w).all(|i| sea[(y + h) * n + i]) {
+            while y + h < n && h < cap && (x..x + w).all(|i| sea[(y + h) * n + i] == m) {
                 h += 1;
             }
             for v in y..y + h {
                 for u in x..x + w {
-                    sea[v * n + u] = false;
+                    sea[v * n + u] = 0;
                 }
             }
-            out.push([x as u32 | (y as u32) << 6 | z << 12 | ((w - 1) as u32) << 18 | ((h - 1) as u32) << 23 | 4 << 28, 0]);
+            out.push([x as u32 | (y as u32) << 6 | z << 12 | ((w - 1) as u32) << 18 | ((h - 1) as u32) << 23 | 4 << 28, (m - 1) as u32]);
             x += w;
         }
     }
@@ -857,17 +1011,35 @@ mod water_tests {
         assert!(lo < hi && hi == (sea * U as f64) as i64, "{lo} {hi} {}", sea * U as f64);
         let p = b.dir(2, i as f64 + 0.5, j as f64 + 0.5) * (b.layer_r(lo as f64 / U as f64) + 1.0);
         let r = w.water_surface(p).expect("under the sea");
-        assert!((r - (b.radius - SEA_DEPTH)).abs() < 1e-3, "the surface at {r}"); // a unit is 0.1 mm
+        assert!((r - b.layer_r(sea)).abs() < 1e-3, "the surface at {r}"); // a unit is 0.1 mm
+        assert!((r - (b.radius - SEA_DEPTH)).abs() < BLOCK, "the sea {r} within a block of its depth");
         assert_eq!(w.water_surface(p.normalize() * (b.radius + 5.0)), None);
         // the moon has no sea
         assert!(w.bodies[1].sea.is_none());
+    }
+
+    /// The standard planet is about OCEAN sea, the spawn is on land, and its ground stays within AMP.
+    #[test]
+    fn continents_leave_the_chosen_share_to_the_sea() {
+        for seed in [1, 1337] {
+            let w = World::new(12288, 512, seed);
+            let b = &w.bodies[0];
+            let sea = b.layer_r(b.sea.unwrap());
+            let hs: Vec<f64> = lattice(20000).map(|d| b.height(d)).collect();
+            let wet = hs.iter().filter(|h| **h < sea).count() as f64 / hs.len() as f64;
+            assert!((wet - OCEAN).abs() < 0.06, "seed {seed}: {wet:.3} of the surface is sea");
+            assert!(hs.iter().all(|h| (h - b.radius).abs() < AMP));
+            let top = hs.iter().cloned().fold(f64::MIN, f64::max) - sea;
+            assert!(top > 25.0, "seed {seed}: the highest ground is {top:.1} m over the sea");
+            assert!(b.height(b.spawn) > sea + 2.0);
+        }
     }
 
     /// Buckets poured into the planet's sea: the wave stays local (the edge of what is stored is open
     /// sea), dies down, and nothing stays stored; every unit is counted.
     #[test]
     fn a_bucket_in_the_sea_stays_local() {
-        let mut w = World::new(256, 512, 1);
+        let mut w = World::new(1536, 512, 1);
         let b = &w.bodies[0];
         let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 7.0).unwrap();
         let c = Col::new(0, 2, i, j);
