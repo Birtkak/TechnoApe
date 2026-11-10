@@ -3,7 +3,7 @@
 # that soak (determinism and the flight recorder), the quick benchmark (budget in every run, no missing chunks
 # in fly), the fixed viewpoints (tools/views.sh: cracks and pixels against the baselines) and a played run's
 # feel report (ADR 0018). Prints one JSON verdict line, exit 1 on any failure; each failure carries its repro.
-# Usage: bash tools/check.sh [soak_minutes]   (default 3; about 2 min in all)
+# Usage: bash tools/check.sh [soak_minutes]   (default 3; about 6 min in all, most of it the soak and its replay)
 cd "$(dirname "$0")/.."
 export PATH="$HOME/Tools/rust/cargo/bin:$PATH" CARGO_HOME="${CARGO_HOME:-$HOME/Tools/rust/cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/Tools/rust/rustup}"
 mkdir -p out/check

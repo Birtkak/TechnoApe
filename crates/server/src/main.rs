@@ -69,7 +69,17 @@ fn main() {
         server.tick();
         if report.elapsed() >= Duration::from_secs(5) {
             report = Instant::now();
-            println!("{{\"tick\":{},\"players\":{},\"edits\":{}}}", server.tick, server.players(), server.world.edit_count);
+            let w = &server.world.water;
+            println!(
+                "{{\"tick\":{},\"players\":{},\"edits\":{},\"water\":{{\"stored\":{},\"awake\":{},\"skipped\":{},\"bytes\":{}}}}}",
+                server.tick,
+                server.players(),
+                server.world.edit_count,
+                w.stored(),
+                w.awake(),
+                server.water_skipped,
+                server.water_bytes
+            );
         }
         next += step;
         match next.checked_duration_since(Instant::now()) {
@@ -91,11 +101,15 @@ fn run_soak(args: &HashMap<String, String>) {
     let record = args.get("record").filter(|r| *r != "0").map(Path::new);
     let t0 = Instant::now();
     match soak::run(seed, &bots, ticks, planet, record) {
-        Ok(hash) => println!(
-            "{{\"soak\":\"ok\",\"seed\":{seed},\"bots\":{},\"ticks\":{ticks},\"sim_minutes\":{:.1},\"secs\":{:.2},\"hash\":\"{hash:016x}\"}}",
+        Ok((hash, w)) => println!(
+            "{{\"soak\":\"ok\",\"seed\":{seed},\"bots\":{},\"ticks\":{ticks},\"sim_minutes\":{:.1},\"secs\":{:.2},\"hash\":\"{hash:016x}\",\"water\":{{\"stored_peak\":{},\"awake_peak\":{},\"skipped\":{},\"bytes\":{}}}}}",
             bots.len(),
             ticks as f64 / TICK_HZ / 60.0,
-            t0.elapsed().as_secs_f64()
+            t0.elapsed().as_secs_f64(),
+            w.stored,
+            w.awake,
+            w.skipped,
+            w.bytes
         ),
         Err(f) => {
             let (keep, f) = soak::shrink(seed, bots, f, planet);

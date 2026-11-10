@@ -12,7 +12,8 @@ use engine::net::{local, Link, Player, Recv, ToClient, ToServer, REACH, TICK_HZ}
 use engine::blocks::{AIR, BLOCKS};
 use engine::edit::{self, Shape};
 use engine::phys::{self, Input};
-use engine::world::{fnv, Block, World};
+use engine::liquid::{Col, TILE, U};
+use engine::world::{fnv, Block, FxMap, World};
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
 use save::{Save, Saved};
@@ -44,10 +45,19 @@ pub type ServerLink = Link<ToClient, ToServer>;
 const QUEUE_MAX: usize = 60;
 const CREDIT_MAX: u32 = 12;
 
+/// Water steps (1/60 s each, at one node) a tick may spend: about 7 ms. Past it the water slows down instead of
+/// the server falling behind (ADR 0020).
+const WATER_BUDGET: usize = 60_000;
+/// Water tiles go to a client within this distance (m), nearest first, about this many bytes a tick.
+/// shortcut: far water is not sent, so a flood out of reach is not seen from orbit; a coarse far copy when
+/// views from orbit show water.
+const WATER_RANGE: f64 = 128.0;
+const WATER_BYTES: usize = 16 * 1024;
+
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
     let inv = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
-    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, inv }
+    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, inv, water: c.water }
 }
 
 struct Client {
@@ -64,6 +74,10 @@ struct Client {
     creative: bool,
     /// How many of each block kind the player holds, by id.
     inv: Box<[u32; 256]>,
+    /// The water in its bucket, in units (`liquid::U` is a full bucket).
+    water: u32,
+    /// The version of each water tile this client has (`Server::tiles`).
+    tiles: FxMap<Col, u64>,
     /// The answers to this tick's edits, sent after its `Edits`.
     done: Vec<(u32, bool)>,
     /// The inventory changed this tick (or the player just joined).
@@ -88,11 +102,37 @@ pub struct Server {
     loaded: Option<Save>,
     /// Where and how often (in ticks) to save; the write runs on its own thread.
     pub autosave: Option<(std::path::PathBuf, u64)>,
+    /// Water creative put in and took out, in units: what flowing never changes (`water_ledger`).
+    made: i64,
+    removed: i64,
+    /// Water steps skipped to keep to WATER_BUDGET, and bytes of water sent, since the start.
+    pub water_skipped: u64,
+    pub water_bytes: u64,
+    /// Every water tile that ever changed: the tick it last changed (its version) and its centre.
+    tiles: FxMap<Col, (u64, DVec3)>,
 }
 
 impl Server {
     pub fn new(planet_n: i32, moon_n: i32, seed: i32, accept: Receiver<ServerLink>) -> Server {
-        Server { world: World::new(planet_n, moon_n, seed), seed, accept, clients: Vec::new(), next_id: 1, tick: 0, dt: 1.0 / TICK_HZ, debt: 0.0, rec: None, absent: BTreeMap::new(), loaded: None, autosave: None }
+        Server {
+            world: World::new(planet_n, moon_n, seed),
+            seed,
+            accept,
+            clients: Vec::new(),
+            next_id: 1,
+            tick: 0,
+            dt: 1.0 / TICK_HZ,
+            debt: 0.0,
+            rec: None,
+            absent: BTreeMap::new(),
+            loaded: None,
+            autosave: None,
+            made: 0,
+            removed: 0,
+            water_skipped: 0,
+            water_bytes: 0,
+            tiles: FxMap::default(),
+        }
     }
 
     /// A server that carries on from `save` (its seed and planet win over any given elsewhere).
@@ -101,6 +141,11 @@ impl Server {
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);
         }
+        let World { bodies, edits, water, .. } = &mut s.world;
+        water.restore(&engine::world::Solid { bodies, edits }, &save.water);
+        (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
+        let cols: Vec<Col> = save.water.iter().map(|w| w.0).collect();
+        s.water_changed(&cols);
         s.absent = save.players.iter().map(|p| (p.name.clone(), p.clone())).collect();
         s.loaded = Some(save);
         s
@@ -116,7 +161,19 @@ impl Server {
             players.insert(c.player.name.clone(), saved(c));
         }
         let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
-        Save { version: save::VERSION, seed: self.seed, planet_n: p, moon_n: m, blocks: save::registry(), edits, players: players.into_values().collect() }
+        Save {
+            version: save::VERSION,
+            seed: self.seed,
+            planet_n: p,
+            moon_n: m,
+            blocks: save::registry(),
+            edits,
+            players: players.into_values().collect(),
+            water: self.world.water.all(),
+            made: self.made,
+            removed: self.removed,
+            sea_extra: self.world.water.sea_extra,
+        }
     }
 
     pub fn players(&self) -> usize {
@@ -154,9 +211,18 @@ impl Server {
         }
     }
 
-    /// The state as one number: the world's edits, every player's physics and input, the time carried over.
+    /// Conservation (ADR 0020): water that differs from generation plus water in buckets, which only creative
+    /// changes. Zero when no unit appeared or vanished.
+    pub fn water_ledger(&self) -> i64 {
+        let held: i64 = self.clients.iter().map(|c| c.water as i64).chain(self.absent.values().map(|p| p.water as i64)).sum();
+        self.world.water.counted() + held - (self.made - self.removed)
+    }
+
+    /// The state as one number: the world's edits and water, every player's physics and input, the time
+    /// carried over.
     pub fn hash(&self) -> u64 {
         let mut h = fnv(fnv(self.world.hash(), &self.tick.to_le_bytes()), &self.debt.to_bits().to_le_bytes());
+        h = fnv(h, &postcard::to_allocvec(&(self.world.water.all(), self.made, self.removed, self.world.water.sea_extra)).unwrap());
         for p in self.absent.values() {
             h = fnv(h, &postcard::to_allocvec(p).unwrap());
         }
@@ -169,6 +235,7 @@ impl Server {
                 }
             }
             h = fnv(h, &[p.on_ground as u8, c.input.is_some() as u8, c.creative as u8]);
+            h = fnv(h, &c.water.to_le_bytes());
             for n in c.inv.iter() {
                 h = fnv(h, &n.to_le_bytes());
             }
@@ -247,6 +314,8 @@ impl Server {
                 credit: 0,
                 creative: false,
                 inv: Box::new([0; 256]),
+                water: 0,
+                tiles: FxMap::default(),
                 done: Vec::new(),
                 inv_dirty: true,
             });
@@ -271,7 +340,7 @@ impl Server {
                         if let Some(sv) = self.absent.remove(&c.player.name) {
                             let p = DVec3::from_array(sv.pos);
                             c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(sv.fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
-                            (c.player.pos, c.player.fwd, c.creative, c.inv_dirty) = (sv.pos, sv.fwd, sv.creative, true);
+                            (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water) = (sv.pos, sv.fwd, sv.creative, true, sv.water);
                             c.inv.fill(0);
                             for (m, n) in sv.inv {
                                 c.inv[m as usize] = n;
@@ -306,6 +375,10 @@ impl Server {
                     }
                     Recv::Msg(ToServer::Edit { seq, shape, material }) => {
                         let ok = self.edit(i, &shape, material, &mut changed);
+                        self.clients[i].done.push((seq, ok));
+                    }
+                    Recv::Msg(ToServer::Bucket { seq, at, fill }) => {
+                        let ok = self.bucket(i, at, fill);
                         self.clients[i].done.push((seq, ok));
                     }
                     Recv::Msg(ToServer::Creative(on)) => {
@@ -352,18 +425,35 @@ impl Server {
             }
             c.link.send(ToClient::You { step: c.acked, me: c.phys });
         }
+        // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics
+        // took, fewer when that would spend more than WATER_BUDGET
+        let mut cols: Vec<Block> = changed.iter().map(|(b, _)| Block { pos: glam::IVec3::new(b.pos.x, b.pos.y, 0), ..*b }).collect();
+        cols.sort_unstable_by_key(|b| (b.body, b.face, b.pos.x, b.pos.y));
+        cols.dedup();
+        for b in cols {
+            self.world.regap(b);
+        }
+        let can = (WATER_BUDGET / self.world.water.awake().max(1)) as u32;
+        let wsteps = if can == 0 && self.tick % 4 == 0 { 1 } else { steps.min(can) };
+        self.water_skipped += (steps - wsteps) as u64;
+        for _ in 0..wsteps {
+            self.world.step_water();
+        }
         if !changed.is_empty() {
             for c in &self.clients {
                 c.link.send(ToClient::Edits(changed.clone()));
             }
         }
+        let cols: Vec<Col> = self.world.water.take_changes().into_iter().map(|w| w.0).collect();
+        self.water_changed(&cols);
+        self.send_water();
         for c in &mut self.clients {
             for (seq, ok) in c.done.drain(..) {
                 c.link.send(ToClient::Done { seq, ok });
             }
             if std::mem::take(&mut c.inv_dirty) {
                 let counts = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
-                c.link.send(ToClient::Inventory { creative: c.creative, counts });
+                c.link.send(ToClient::Inventory { creative: c.creative, counts, water: c.water });
             }
         }
         let players: Vec<Player> = self.clients.iter().map(|c| c.player.clone()).collect();
@@ -427,6 +517,96 @@ impl Server {
             changed.push((b, m));
         }
         true
+    }
+
+    /// The water tiles client `i` has the latest version of.
+    pub fn water_seen(&self, i: usize) -> Vec<Col> {
+        let mut v: Vec<Col> = self.clients[i].tiles.iter().filter(|(t, v)| self.tiles[*t].0 == **v).map(|(t, _)| *t).collect();
+        v.sort_unstable();
+        v
+    }
+
+    /// Columns whose water changed: their tiles get this tick as version.
+    fn water_changed(&mut self, cols: &[Col]) {
+        for c in cols {
+            let t = c.tile();
+            let b = &self.world.bodies[t.body() as usize];
+            let mid = (TILE as f64) * 0.5;
+            let at = b.centre + b.dir(t.face() as usize, (t.i() * TILE) as f64 + mid, (t.j() * TILE) as f64 + mid) * b.radius;
+            self.tiles.entry(t).or_insert((0, at)).0 = self.tick + 1;
+        }
+    }
+
+    /// Sends every client the water tiles it lacks: within WATER_RANGE, nearest first, until WATER_BYTES.
+    /// The rest waits for the next tick, so a big flood reaches a client over a few ticks, near water first.
+    fn send_water(&mut self) {
+        // each tile built and measured once a tick, however many clients get it
+        let mut built: FxMap<Col, (Vec<engine::liquid::ColWater>, usize)> = FxMap::default();
+        for c in &mut self.clients {
+            let me = DVec3::from_array(c.player.pos);
+            let mut want: Vec<(u64, Col)> = self
+                .tiles
+                .iter()
+                .filter(|(t, (v, _))| c.tiles.get(t).is_none_or(|s| s < v))
+                .map(|(t, (_, at))| ((at.distance(me) * 16.0) as u64, *t))
+                .filter(|(d, _)| (*d as f64) < WATER_RANGE * 16.0)
+                .collect();
+            if want.is_empty() {
+                continue;
+            }
+            want.sort_unstable();
+            let (mut msg, mut bytes) = (Vec::new(), 0);
+            for (_, t) in want {
+                let (cols, n) = built.entry(t).or_insert_with(|| {
+                    let cols = self.world.water.tile(t);
+                    let n = postcard::to_allocvec(&(t, &cols)).map_or(0, |b| b.len());
+                    (cols, n)
+                });
+                bytes += *n;
+                c.tiles.insert(t, self.tiles[&t].0);
+                msg.push((t, cols.clone()));
+                if bytes >= WATER_BYTES {
+                    break;
+                }
+            }
+            self.water_bytes += bytes as u64;
+            c.link.send(ToClient::Water(msg));
+        }
+    }
+
+    /// Client `i`'s bucket at block `at`: `fill` scoops up to a full bucket from the water there, else the
+    /// bucket is poured out there (into the gap that holds `at`, which must be air). Creative scoops and pours
+    /// a full bucket every time, holds nothing, and the ledger counts it.
+    fn bucket(&mut self, i: usize, at: Block, fill: bool) -> bool {
+        let body = self.world.bodies.get(at.body as usize);
+        let inside = body.is_some_and(|b| at.face < 6 && (0..b.n).contains(&at.pos.x) && (0..b.n).contains(&at.pos.y) && (0..b.layers).contains(&at.pos.z));
+        let feet = DVec3::from_array(self.clients[i].player.pos);
+        if !inside || self.world.block_centre(at).distance(feet) > REACH || BLOCKS.solid(self.world.block(at)) {
+            return false;
+        }
+        let col = World::col(at);
+        let c = &mut self.clients[i];
+        let World { bodies, edits, water, .. } = &mut self.world;
+        let g = engine::world::Solid { bodies, edits };
+        let ok = match (fill, c.creative) {
+            (true, false) => {
+                let took = water.scoop(&g, col, at.pos.z, U - c.water as i64);
+                c.water += took as u32;
+                took > 0
+            }
+            (true, true) => {
+                self.removed += water.scoop(&g, col, at.pos.z, U);
+                true
+            }
+            (false, false) => c.water > 0 && water.pour(&g, col, at.pos.z, std::mem::take(&mut c.water) as i64),
+            (false, true) => {
+                let ok = water.pour(&g, col, at.pos.z, U);
+                self.made += if ok { U } else { 0 };
+                ok
+            }
+        };
+        c.inv_dirty |= ok && !c.creative;
+        ok
     }
 
     /// The trust boundary: a box within the size limits on a face that exists, a known block, every cell
@@ -621,15 +801,15 @@ mod tests {
         s.tick();
         assert!(brush.cells().all(|b| s.world.block(b) == AIR));
         let got = drain(l);
-        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![] }), "sent on join");
-        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(stone, 8)] }));
+        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![], water: 0 }), "sent on join");
+        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(stone, 8)], water: 0 }));
         // eight dirt are not held, so none of them goes in; the eight stone are
         l.send(ToServer::Edit { seq: 2, shape: brush, material: BLOCKS.id("dirt") });
         l.send(ToServer::Edit { seq: 3, shape: brush, material: stone });
         s.tick();
         let got = drain(l);
         assert!(got.contains(&ToClient::Done { seq: 2, ok: false }) && got.contains(&ToClient::Done { seq: 3, ok: true }));
-        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![] }));
+        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![], water: 0 }));
         assert!(brush.cells().all(|b| s.world.block(b) == stone));
         assert_eq!(s.world.edit_count, 8, "the world is as generated again, but the cells stay recorded");
     }
@@ -667,9 +847,66 @@ mod tests {
         let r = replay(&rec, None).unwrap();
         std::fs::remove_file(&rec).unwrap();
         assert_eq!((r.diverged, r.checks, r.server.world.hash()), (None, 2, back.world.hash()));
-        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(BLOCKS.id("stone"), 1)] }), "{got:?}");
+        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(BLOCKS.id("stone"), 1)], water: 0 }), "{got:?}");
         assert!(DVec3::from_array(back.clients[0].player.pos).distance(ground + DVec3::Z) < 0.01);
         assert!(Save::from_bytes(b"not a save").is_err());
+    }
+
+    /// A bucket scoops a block of sea and pours it back; creative water is counted as made. Through all of it,
+    /// a save and a load, not a unit appears or vanishes (the ledger stays 0).
+    #[test]
+    fn the_bucket_carries_water_and_none_is_lost() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let b = s.world.bodies.clone();
+        let b = &b[0];
+        let sea = b.radius - engine::world::SEA_DEPTH;
+        // a spot over 2 m of sea
+        let d = (0..2000)
+            .map(|k| {
+                let z = 1.0 - 2.0 * (k as f64 + 0.5) / 2000.0;
+                let t = k as f64 * 2.4;
+                DVec3::new((1.0 - z * z).sqrt() * t.cos(), z, (1.0 - z * z).sqrt() * t.sin())
+            })
+            .find(|&d| b.height(d) < sea - 2.0)
+            .expect("the planet has sea");
+        let at = s.world.block_at(b.centre + d * (sea - 0.25));
+        l.send(ToServer::Hello { name: "ape".into() });
+        l.send(ToServer::Move { pos: (b.centre + d * (sea + 1.0)).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        l.send(ToServer::Bucket { seq: 1, at, fill: true });
+        s.tick();
+        let got = drain(l);
+        assert!(got.contains(&ToClient::Done { seq: 1, ok: true }), "{got:?}");
+        assert!(got.iter().any(|m| matches!(m, ToClient::Inventory { water, .. } if *water == U as u32)));
+        assert!(got.iter().any(|m| matches!(m, ToClient::Water(v) if !v.is_empty())), "the scoop is sent");
+        assert_eq!(s.water_ledger(), 0);
+        // a second scoop fills nothing: the bucket is full
+        l.send(ToServer::Bucket { seq: 2, at, fill: true });
+        s.tick();
+        assert!(drain(l).contains(&ToClient::Done { seq: 2, ok: false }));
+        for _ in 0..100 {
+            s.tick();
+            assert_eq!(s.water_ledger(), 0);
+        }
+        l.send(ToServer::Bucket { seq: 3, at, fill: false });
+        l.send(ToServer::Creative(true));
+        l.send(ToServer::Bucket { seq: 4, at, fill: false });
+        s.tick();
+        let got = drain(l);
+        assert!(got.contains(&ToClient::Done { seq: 3, ok: true }) && got.contains(&ToClient::Done { seq: 4, ok: true }));
+        assert_eq!((s.clients[0].water, s.made), (0, U));
+        for _ in 0..200 {
+            s.tick();
+            assert_eq!(s.water_ledger(), 0);
+        }
+        // far out of reach: refused
+        l.send(ToServer::Bucket { seq: 5, at: s.world.block_at(b.centre - d * sea), fill: true });
+        s.tick();
+        assert!(drain(l).contains(&ToClient::Done { seq: 5, ok: false }));
+        let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+        assert_eq!((back.hash() == s.hash(), back.water_ledger()), (false, 0), "players differ, water does not");
+        assert_eq!(back.world.water.all(), s.world.water.all());
+        assert!(s.world.water.stored() > 0);
     }
 
     #[test]

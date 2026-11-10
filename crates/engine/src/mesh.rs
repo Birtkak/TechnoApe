@@ -3,10 +3,12 @@
 //! Quad = 8 bytes: lo = x6 y6 z6 (w-1)5 (h-1)5 dir3, hi = material.
 use crate::world::{pidx, CS, P};
 
-/// Quads of one chunk, grouped by face direction (0..6 = +x,-x,+y,-y,+z,-z).
+/// Quads of one chunk, grouped by face direction (0..6 = +x,-x,+y,-y,+z,-z), then `water` quads of the
+/// generated sea's surface (`world::sea_quads`), drawn by the water pipeline.
 pub struct Mesh {
     pub quads: Vec<[u32; 2]>,
     pub counts: [u32; 6],
+    pub water: u32,
 }
 
 pub fn mesh(cells: &[u8; P * P * P], greedy: bool) -> Mesh {
@@ -95,7 +97,7 @@ pub fn mesh(cells: &[u8; P * P * P], greedy: bool) -> Mesh {
         counts[i] = g.len() as u32;
         quads.extend_from_slice(g);
     }
-    Mesh { quads, counts }
+    Mesh { quads, counts, water: 0 }
 }
 
 #[cfg(test)]

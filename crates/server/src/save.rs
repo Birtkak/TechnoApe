@@ -2,11 +2,13 @@
 //! position, mode and inventory; the rest is generated again from the seed. Written whole to a temporary file
 //! and renamed over the old save, so a crash mid-write keeps the old save.
 use engine::blocks::BLOCKS;
+use engine::liquid::ColWater;
 use engine::world::Block;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub const VERSION: u32 = 1;
+/// 2 added water (ADR 0020); a version 1 save still loads, with no water changed and empty buckets.
+pub const VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Save {
@@ -20,6 +22,33 @@ pub struct Save {
     pub edits: Vec<(Block, u8)>,
     /// Sorted by name.
     pub players: Vec<Saved>,
+    /// Every stored column's water, sorted, and what creative put in and took out (ADR 0020).
+    pub water: Vec<ColWater>,
+    pub made: i64,
+    pub removed: i64,
+    /// What the open sea took in (`Liquids::sea_extra`).
+    pub sea_extra: i64,
+}
+
+/// Version 1, read to carry an old save over.
+#[derive(Deserialize)]
+struct SaveV1 {
+    version: u32,
+    seed: i32,
+    planet_n: i32,
+    moon_n: i32,
+    blocks: Vec<(u8, String)>,
+    edits: Vec<(Block, u8)>,
+    players: Vec<SavedV1>,
+}
+
+#[derive(Deserialize)]
+struct SavedV1 {
+    name: String,
+    pos: [f64; 3],
+    fwd: [f32; 3],
+    creative: bool,
+    inv: Vec<(u8, u32)>,
 }
 
 /// A player the save remembers, found again by name on `Hello`.
@@ -31,6 +60,8 @@ pub struct Saved {
     pub creative: bool,
     /// Nonzero counts by block id.
     pub inv: Vec<(u8, u32)>,
+    /// Units in the bucket.
+    pub water: u32,
 }
 
 pub fn registry() -> Vec<(u8, String)> {
@@ -44,10 +75,25 @@ impl Save {
 
     /// Reads a save and checks it is this version and its blocks are this build's blocks.
     pub fn from_bytes(b: &[u8]) -> Result<Save, String> {
-        let s: Save = postcard::from_bytes(b).map_err(|e| format!("not a save of version {VERSION}: {e}"))?;
-        if s.version != VERSION {
-            return Err(format!("save version {}, this build reads {VERSION}", s.version));
-        }
+        let s: Save = match postcard::from_bytes::<Save>(b) {
+            Ok(s) if s.version == VERSION => s,
+            _ => match postcard::from_bytes::<SaveV1>(b) {
+                Ok(v) if v.version == 1 => Save {
+                    version: VERSION,
+                    seed: v.seed,
+                    planet_n: v.planet_n,
+                    moon_n: v.moon_n,
+                    blocks: v.blocks,
+                    edits: v.edits,
+                    players: v.players.into_iter().map(|p| Saved { name: p.name, pos: p.pos, fwd: p.fwd, creative: p.creative, inv: p.inv, water: 0 }).collect(),
+                    water: Vec::new(),
+                    made: 0,
+                    removed: 0,
+                    sea_extra: 0,
+                },
+                _ => return Err(format!("not a save of version 1 or {VERSION}")),
+            },
+        };
         for (id, name) in &s.blocks {
             if BLOCKS.get(*id).map(|d| &d.name) != Some(name) {
                 return Err(format!("block {id} was '{name}' in the save; data/blocks.toml no longer has it so"));
@@ -67,5 +113,21 @@ impl Save {
 
     pub fn read(path: &Path) -> Result<Save, String> {
         Save::from_bytes(&std::fs::read(path).map_err(|e| e.to_string())?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::IVec3;
+
+    /// A save from before water loads: its edits and players as they were, no water changed, empty buckets.
+    #[test]
+    fn a_version_1_save_still_loads() {
+        let b = Block { body: 0, face: 1, pos: IVec3::new(3, 4, 5) };
+        let v1 = (1u32, 9i32, 256i32, 32i32, registry(), vec![(b, 0u8)], vec![("ape".to_string(), [1.0f64, 2.0, 3.0], [1.0f32, 0.0, 0.0], true, vec![(2u8, 7u32)])]);
+        let s = Save::from_bytes(&postcard::to_allocvec(&v1).unwrap()).unwrap();
+        assert_eq!((s.version, s.seed, s.edits, s.water.len(), s.made), (VERSION, 9, vec![(b, 0)], 0, 0));
+        assert_eq!((s.players[0].inv.clone(), s.players[0].water, s.players[0].creative), (vec![(2, 7)], 0, true));
     }
 }

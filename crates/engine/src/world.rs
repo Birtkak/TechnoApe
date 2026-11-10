@@ -1,6 +1,7 @@
 //! Terrain: bodies on the equi-angular cube-sphere grid (ADR 0003), generated from the seed, plus a sparse
 //! edit map. A block is (face, column i, column j, layer); layers are geometric shells, so blocks stay cubic.
 use crate::blocks::{AIR, BLOCKS};
+use crate::liquid::{Col, Ground, Liquids, OPEN, U};
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::{DVec3, IVec3};
 use std::collections::HashMap;
@@ -9,6 +10,8 @@ use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 use std::sync::Arc;
 
 pub const BLOCK: f64 = 0.5;
+/// The planet's sea lies this far under its nominal radius: about a third of it is sea (ADR 0020).
+pub const SEA_DEPTH: f64 = 4.0;
 pub const CS: i32 = 32; // cells per chunk edge
 pub const P: usize = 34; // padded edge
 pub const AMP: f64 = 30.0;
@@ -98,6 +101,8 @@ pub struct Body {
     /// Layers 0..layers are streamed (terrain plus build headroom).
     pub layers: i32,
     noise: FastNoiseLite,
+    /// The sea level as a layer coordinate; generation fills every column lower than it with water.
+    pub sea: Option<f64>,
 }
 
 impl Body {
@@ -115,7 +120,7 @@ impl Body {
         let r0 = radius - CRUST.min(radius * 0.5); // small bodies keep half their radius
         let lnq = (1.0 + BLOCK / radius).ln();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise }
+        Body { centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None }
     }
     /// Root chunks per face edge.
     pub fn roots(&self) -> i32 {
@@ -154,6 +159,77 @@ impl Body {
             rad2 = rad2.max((d * r_in - c).length_squared()).max((d * r_out - c).length_squared());
         }
         Bounds { c: self.centre + c, rad: rad2.sqrt() }
+    }
+}
+
+/// The solid world as the water sees it (`liquid::Ground`): terrain from the seed plus the edits.
+pub struct Solid<'a> {
+    pub bodies: &'a [Body],
+    pub edits: &'a FxMap<Key, FxMap<IVec3, u8>>,
+}
+
+impl Solid<'_> {
+    /// The first generated air layer of column c.
+    fn gen_floor(&self, c: Col) -> i32 {
+        let b = &self.bodies[c.body() as usize];
+        let h = b.height(b.dir(c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5));
+        let mut z = ((b.layer_of(h) - 0.5).floor() as i32 + 1).max(0);
+        // the same test as `generated_under`, so the two never disagree by a layer
+        while z > 0 && material(h - b.layer_r(z as f64 - 0.5)) == AIR {
+            z -= 1;
+        }
+        while material(h - b.layer_r(z as f64 + 0.5)) != AIR {
+            z += 1;
+        }
+        z
+    }
+}
+
+impl Ground for Solid<'_> {
+    fn gaps(&self, c: Col) -> Vec<(i32, i32)> {
+        let zs = self.gen_floor(c);
+        let b = &self.bodies[c.body() as usize];
+        let (i, j) = (c.i(), c.j());
+        let mut edits: Vec<(i32, bool)> = Vec::new();
+        for zc in 0..=(b.layers + CS) / CS {
+            let k = Key { body: c.body(), face: c.face(), level: 0, pos: IVec3::new(i.div_euclid(CS), j.div_euclid(CS), zc) };
+            if let Some(cells) = self.edits.get(&k) {
+                for z in zc * CS..(zc + 1) * CS {
+                    if let Some(m) = cells.get(&IVec3::new(i, j, z)) {
+                        edits.push((z, BLOCKS.solid(*m)));
+                    }
+                }
+            }
+        }
+        let lo = edits.first().map_or(zs, |e| e.0.min(zs)).max(0);
+        let hi = edits.last().map_or(zs, |e| (e.0 + 1).max(zs));
+        let solid = |z: i32| edits.iter().find(|e| e.0 == z).map_or(z < zs, |e| e.1);
+        let mut out = Vec::new();
+        let mut start = None;
+        for z in lo..hi {
+            match (solid(z), start) {
+                (false, None) => start = Some(z),
+                (true, Some(s)) => {
+                    out.push((s, z));
+                    start = None;
+                }
+                _ => {}
+            }
+        }
+        out.push((start.unwrap_or(hi), OPEN));
+        out
+    }
+    fn generated(&self, c: Col) -> (i64, i64) {
+        let Some(sea) = self.bodies[c.body() as usize].sea else { return (0, 0) };
+        (self.gen_floor(c) as i64 * U, (sea * U as f64) as i64)
+    }
+    fn neighbours(&self, c: Col) -> [Option<Col>; 4] {
+        let n = self.bodies[c.body() as usize].n;
+        let (i, j) = (c.i(), c.j());
+        [(i - 1, j), (i + 1, j), (i, j - 1), (i, j + 1)].map(|(a, b)| {
+            let (f, a, b) = fold(c.face() as usize, a, b, n);
+            Some(Col::new(c.body(), f as u8, a, b))
+        })
     }
 }
 
@@ -198,15 +274,20 @@ pub struct World {
     /// Edits bucketed by level 0 chunk; value = material that replaces the generated one.
     pub edits: FxMap<Key, FxMap<IVec3, u8>>,
     pub edit_count: usize,
+    /// Water (ADR 0020): on the server it flows; a client keeps the server's copy.
+    pub water: Liquids,
 }
 
 impl World {
     /// A planet and its moon 3 km away, with `planet_n` and `moon_n` columns per face edge.
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
+        let mut planet = Body::new(DVec3::ZERO, planet_n, seed);
+        planet.sea = Some(planet.layer_of(planet.radius - SEA_DEPTH));
         World {
-            bodies: Arc::new(vec![Body::new(DVec3::ZERO, planet_n, seed), Body::new(DVec3::new(3000.0, 0.0, 0.0), moon_n, seed + 1)]),
+            bodies: Arc::new(vec![planet, Body::new(DVec3::new(3000.0, 0.0, 0.0), moon_n, seed + 1)]),
             edits: FxMap::default(),
             edit_count: 0,
+            water: Liquids::default(),
         }
     }
     pub fn nearest(&self, p: DVec3) -> usize {
@@ -269,6 +350,31 @@ impl World {
             return GEN[2];
         }
         material(height - self.bodies[b.body as usize].layer_r(b.pos.z as f64 + 0.5))
+    }
+    /// The column that holds block b.
+    pub fn col(b: Block) -> Col {
+        Col::new(b.body, b.face, b.pos.x, b.pos.y)
+    }
+    /// The solid world as the water sees it.
+    pub fn ground(&self) -> Solid<'_> {
+        Solid { bodies: &self.bodies, edits: &self.edits }
+    }
+    /// Steps the water once (1/60 s).
+    pub fn step_water(&mut self) {
+        let World { bodies, edits, water, .. } = self;
+        water.step(&Solid { bodies, edits });
+    }
+    /// Block b changed: its column's water finds its new gaps.
+    pub fn regap(&mut self, b: Block) {
+        let World { bodies, edits, water, .. } = self;
+        water.regap(&Solid { bodies, edits }, World::col(b));
+    }
+    /// The radius of the water surface over world point p, if p is under water.
+    pub fn water_surface(&self, p: DVec3) -> Option<f64> {
+        let (bi, _, g) = self.grid_at(p);
+        let b = self.block_at(p);
+        let l = self.water.surface_at(&self.ground(), World::col(b), g.z)?;
+        Some(self.bodies[bi].layer_r(l))
     }
     pub fn edit(&self, b: Block) -> Option<u8> {
         self.edits.get(&b.chunk()).and_then(|m| m.get(&b.pos)).copied()
@@ -425,6 +531,60 @@ pub fn pidx(x: usize, y: usize, z: usize) -> usize {
 }
 
 /// Generate the padded cell grid of a chunk: x, y, z = column i, column j, layer.
+/// The cell (at chunk `key`'s level) that holds the sea's surface, if it is in this chunk.
+pub fn sea_cell(body: &Body, key: Key) -> Option<i32> {
+    let cz = (body.sea? / (1i32 << key.level) as f64).floor() as i32;
+    (cz.div_euclid(CS) == key.pos.z).then_some(cz)
+}
+
+/// The generated sea's surface in chunk `key` (ADR 0020): quads in the mesher's format, top faces of the cell
+/// that holds the sea level, merged into rectangles; the water shader lays them at the exact level. Columns in
+/// a `wet` tile (sorted) are left out: the client's water mesh draws all of those.
+pub fn sea_quads(body: &Body, key: Key, wet: &[Col]) -> Vec<[u32; 2]> {
+    let Some(cz) = sea_cell(body, key) else { return Vec::new() };
+    let s = 1i32 << key.level;
+    let r = body.layer_r(body.sea.unwrap());
+    let base = key.base();
+    let n = CS as usize;
+    let mut sea = vec![false; n * n];
+    for y in 0..n {
+        for x in 0..n {
+            let (ci, cj) = (base.x + x as i32 * s, base.y + y as i32 * s);
+            if wet.binary_search(&Col::new(key.body, key.face, ci, cj).tile()).is_err() {
+                // the same sample as `generate`: the middle of the (coarse) column
+                sea[y * n + x] = body.height(body.dir(key.face as usize, ci as f64 + 0.5 * s as f64, cj as f64 + 0.5 * s as f64)) < r;
+            }
+        }
+    }
+    let z = (cz - key.pos.z * CS + 1) as u32;
+    let mut out = Vec::new();
+    for y in 0..n {
+        let mut x = 0;
+        while x < n {
+            if !sea[y * n + x] {
+                x += 1;
+                continue;
+            }
+            let mut w = 1;
+            while x + w < n && sea[y * n + x + w] {
+                w += 1;
+            }
+            let mut h = 1;
+            while y + h < n && (x..x + w).all(|i| sea[(y + h) * n + i]) {
+                h += 1;
+            }
+            for v in y..y + h {
+                for u in x..x + w {
+                    sea[v * n + u] = false;
+                }
+            }
+            out.push([x as u32 | (y as u32) << 6 | z << 12 | ((w - 1) as u32) << 18 | ((h - 1) as u32) << 23 | 4 << 28, 0]);
+            x += w;
+        }
+    }
+    out
+}
+
 pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
     let s = (1i32 << key.level) as f64;
     let c0 = key.pos * CS - 1; // padded cell (0, 0, 0) in cells of this level
@@ -658,5 +818,68 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod water_tests {
+    use super::*;
+    use crate::liquid::Ground;
+
+    /// A column's gaps follow the terrain and its edits: generated ground is solid up to the surface, a dug
+    /// hollow under it is a closed gap, a placed block splits the open air.
+    #[test]
+    fn gaps_follow_terrain_and_edits() {
+        let mut w = World::new(1536, 512, 1337);
+        let b0 = Block { body: 0, face: 2, pos: IVec3::new(700, 700, 0) };
+        let c = World::col(b0);
+        let zs = w.ground().gen_floor(c);
+        assert_eq!(w.generated_block(Block { pos: IVec3::new(700, 700, zs - 1), ..b0 }) != AIR, true);
+        assert_eq!(w.generated_block(Block { pos: IVec3::new(700, 700, zs), ..b0 }), AIR);
+        assert_eq!(w.ground().gaps(c), vec![(zs, OPEN)]);
+        for z in [zs - 6, zs - 5] {
+            w.set_block(Block { pos: IVec3::new(700, 700, z), ..b0 }, AIR);
+        }
+        w.set_block(Block { pos: IVec3::new(700, 700, zs + 3), ..b0 }, BLOCKS.id("stone"));
+        assert_eq!(w.ground().gaps(c), vec![(zs - 6, zs - 4), (zs, zs + 3), (zs + 4, OPEN)]);
+    }
+
+    /// The sea: a low column is water up to sea level from generation, and a point in it is under water.
+    #[test]
+    fn the_sea_is_generated_where_the_ground_is_low() {
+        let w = World::new(1536, 512, 1337);
+        let b = &w.bodies[0];
+        let sea = b.sea.unwrap();
+        // find a low column on face 2
+        let (i, j) = (0..b.n).step_by(7).flat_map(|i| (0..b.n).step_by(7).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 10.0).unwrap();
+        let c = Col::new(0, 2, i, j);
+        let (lo, hi) = w.ground().generated(c);
+        assert!(lo < hi && hi == (sea * U as f64) as i64, "{lo} {hi} {}", sea * U as f64);
+        let p = b.dir(2, i as f64 + 0.5, j as f64 + 0.5) * (b.layer_r(lo as f64 / U as f64) + 1.0);
+        let r = w.water_surface(p).expect("under the sea");
+        assert!((r - (b.radius - SEA_DEPTH)).abs() < 1e-3, "the surface at {r}"); // a unit is 0.1 mm
+        assert_eq!(w.water_surface(p.normalize() * (b.radius + 5.0)), None);
+        // the moon has no sea
+        assert!(w.bodies[1].sea.is_none());
+    }
+
+    /// Buckets poured into the planet's sea: the wave stays local (the edge of what is stored is open
+    /// sea), dies down, and nothing stays stored; every unit is counted.
+    #[test]
+    fn a_bucket_in_the_sea_stays_local() {
+        let mut w = World::new(256, 512, 1);
+        let b = &w.bodies[0];
+        let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 7.0).unwrap();
+        let c = Col::new(0, 2, i, j);
+        let (_, hi) = w.ground().generated(c);
+        let World { bodies, edits, water, .. } = &mut w;
+        assert!(water.pour(&Solid { bodies, edits }, c, (hi / U) as i32, 4 * U));
+        let mut peak = 0;
+        for _ in 0..60 * 30 {
+            w.step_water();
+            peak = peak.max(w.water.stored());
+        }
+        assert!(peak < 400, "{peak} columns stored");
+        assert_eq!((w.water.stored(), w.water.counted()), (0, 4 * U));
     }
 }

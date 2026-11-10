@@ -28,6 +28,9 @@ pub enum ToServer {
     Edit { seq: u32, shape: Shape, material: u8 },
     /// Survival or creative (counts nothing). shortcut: anyone may switch; an operator role when servers go public.
     Creative(bool),
+    /// The bucket (ADR 0020): `fill` scoops up to a block of water from the gap that holds block `at`, else
+    /// the bucket is poured out into it. Answered by `Done` with the same `seq`, like an edit.
+    Bucket { seq: u32, at: Block, fill: bool },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -42,8 +45,14 @@ pub enum ToClient {
     /// This player's whole physics state after the step numbered `step` of its `Steps` (0: none yet), every
     /// tick. The client replays its later inputs from here (ADR 0019).
     You { step: u32, me: crate::phys::Player },
-    /// This player's mode and every block kind it holds a nonzero count of; sent on join and on change.
-    Inventory { creative: bool, counts: Vec<(u8, u32)> },
+    /// This player's mode, every block kind it holds a nonzero count of, and the water in its bucket (units,
+    /// `liquid::U` a block); sent on join and on change.
+    Inventory { creative: bool, counts: Vec<(u8, u32)>, water: u32 },
+    /// Tiles of water (ADR 0020), each whole: the tile (`Col::tile`) and its stored columns, (floor, ceil,
+    /// units) per gap; a column not listed is as generation gives it. A tile is sent when it changed by more
+    /// than the dead band, or settled, since this client last had it: nearest first, within reach and a byte
+    /// budget per tick.
+    Water(Vec<(crate::liquid::Col, Vec<crate::liquid::ColWater>)>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

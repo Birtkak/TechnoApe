@@ -66,11 +66,12 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `script=-` takes them live from stdin). Output is one JSON line per report or block. Use bots, not a second
   windowed client, for multiplayer checks: two windows on one PC throttle each other (ADR 0006).
 - Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block, right click places one;
-  H the build hammer, Q its shape, wheel its height; C creative; 1-9 the hotbar). `acts="t:action,..."`
+  H the build hammer, Q its shape, wheel its height; B the bucket, left scoops, right pours; C creative;
+  1-9 the hotbar; space swims up in water, ADR 0020). `acts="t:action,..."`
   scripts those inputs off-screen (ADR 0017), and a filmstrip shows the result.
 - To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet;
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
-- **The gate:** `bash tools/check.sh` (about 2 min: tests, a soak, its replay, the quick benchmark, the fixed
+- **The gate:** `bash tools/check.sh` (about 6 min, most of it the soak's floods: tests, a soak, its replay, the quick benchmark, the fixed
   viewpoints and a played run's feel report, ADR 0018) prints
   one JSON verdict; it is what "done" means (ADR 0011). Soak alone: `technoape-server soak=1 bots=50 minutes=10
   seed=1` (a failure prints its repro line and writes `out/soak-fail.rec`). Sessions record to `out/rec/`;

@@ -1,0 +1,14 @@
+[package]
+name = "liquids"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+engine = { path = "../../crates/engine" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1

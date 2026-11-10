@@ -39,6 +39,8 @@ off the frame from the start.
   farther out.
 - **Liquids are fill levels plus fine splashes.** Each 0.5 m block holds a fill level (smooth surface, flows,
   cheap everywhere); near the player it breaks into 12.5 cm cells for splashes and pouring, and settles back.
+  (2026-11-10, ADR 0020: the levels are shallow water per column gap; splashes are client particles until
+  the fine-cell step brings the 12.5 cm cells.)
 - **One pixel grid for every block, item and model:** one texel size everywhere, **16 px per 0.5 m block**
   (3.125 cm per texel), 16x16 pixel textures rather than flat colours. Settled 2026-11-10 by the block look
   spike (`prototypes/block-look/`). Every model is built on that grid, so sizes never mismatch.

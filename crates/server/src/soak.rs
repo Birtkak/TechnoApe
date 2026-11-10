@@ -106,10 +106,19 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         b.link.send(ToServer::Edit { seq, shape, material: m });
     } else if r < 0.087 {
         b.link.send(ToServer::Creative(b.rng.f() < 0.5));
+    } else if r < 0.1 {
+        // the bucket, mostly where it reaches water or air, some of it out of reach or into rock
+        let feet = s.clients[me].phys.pos;
+        let at = s.world.block_at(feet + b.rng.dir() * b.rng.range(0.0, 5.0));
+        b.link.send(ToServer::Bucket { seq: b.pred.seq(), at, fill: b.rng.f() < 0.5 });
     }
 }
 
 fn check(s: &Server) -> Result<(), String> {
+    // no water appears or vanishes: what differs from the seed is what buckets hold plus what creative made
+    if s.water_ledger() != 0 {
+        return Err(format!("{} units of water appeared", s.water_ledger()));
+    }
     for c in &s.clients {
         let p = &c.phys;
         let id = c.player.id;
@@ -129,9 +138,20 @@ fn check(s: &Server) -> Result<(), String> {
     Ok(())
 }
 
+/// What the water did in a soak: the most columns stored and awake at once, steps skipped for the budget,
+/// bytes of water sent.
+#[derive(Debug, PartialEq, Default)]
+pub struct WaterStats {
+    pub stored: usize,
+    pub awake: usize,
+    pub skipped: u64,
+    pub bytes: u64,
+}
+
 /// Runs `ticks` ticks with the bots `which` (numbers into the seed's endless list of bots) on a planet of
-/// `planet_n` columns per face edge. `Ok` holds the final state hash.
-pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&Path>) -> Result<u64, Fail> {
+/// `planet_n` columns per face edge. `Ok` holds the final state hash and what the water did.
+pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&Path>) -> Result<(u64, WaterStats), Fail> {
+    let mut ws = WaterStats::default();
     let (tx, rx) = channel();
     let mut s = Server::new(planet_n, MOON_N, seed as i32, rx);
     if let Some(p) = record {
@@ -165,11 +185,17 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
                     ToClient::Done { seq, .. } => {
                         b.pred.done(&mut b.world, seq);
                     }
+                    ToClient::Water(v) => {
+                        for (t, cols) in &v {
+                            b.world.water.set_tile(*t, cols);
+                        }
+                    }
                     _ => {}
                 }
             }
         }
         check(&s).map_err(|what| Fail { tick: t, what })?;
+        (ws.stored, ws.awake) = (ws.stored.max(s.world.water.stored()), ws.awake.max(s.world.water.awake()));
         if t % 100 == 0 || t + 1 == ticks {
             let truth = s.world.chunk_hashes();
             for (k, b) in bots.iter().enumerate() {
@@ -178,6 +204,12 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
                     let at = truth.iter().zip(&mine).find(|(a, b)| a != b).map(|(a, _)| a.0).or(truth.get(mine.len()).map(|a| a.0)).or(mine.get(truth.len()).map(|a| a.0));
                     return Err(Fail { tick: t, what: format!("bot {} world differs from the server's at chunk {at:?}", which[k]) });
                 }
+                // a settled tile the bot has the latest of is the server's, exactly
+                let w = &s.world.water;
+                let bad = s.water_seen(k).into_iter().find(|&tl| w.tile_settled(tl) && w.tile(tl) != b.world.water.tile(tl));
+                if let Some(tl) = bad {
+                    return Err(Fail { tick: t, what: format!("bot {} water differs from the server's in tile {tl:?}: {:?} against {:?}", which[k], b.world.water.tile(tl), w.tile(tl)) });
+                }
             }
         }
     }
@@ -185,8 +217,16 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
     let snap = s.snapshot();
     let back = Save::from_bytes(&snap.to_bytes()).map(|v| Server::from_save(v, channel().1));
     match back {
-        Ok(b) if b.snapshot() == snap && b.world.hash() == s.world.hash() => Ok(s.hash()),
-        Ok(_) => Err(Fail { tick: ticks, what: "a save and a load changed the state".into() }),
+        Ok(b) if b.snapshot() == snap && b.world.hash() == s.world.hash() => {
+            (ws.skipped, ws.bytes) = (s.water_skipped, s.water_bytes);
+            Ok((s.hash(), ws))
+        }
+        Ok(b) => {
+            let (x, y) = (b.snapshot(), &snap);
+            let wd = x.water.iter().zip(&y.water).find(|(a, b)| a != b).map(|(a, b)| format!("{a:?} became {b:?}"));
+            let what = format!("a save and a load changed the state: edits {} players {} water {:?} ({} and {} columns) hash {}", x.edits == y.edits, x.players == y.players, wd, x.water.len(), y.water.len(), b.world.hash() == s.world.hash());
+            Err(Fail { tick: ticks, what })
+        }
         Err(e) => Err(Fail { tick: ticks, what: format!("the save does not load: {e}") }),
     }
 }
@@ -236,7 +276,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(r.diverged, None);
         assert_eq!(r.checks, 15, "a checkpoint per second of 300 ticks");
-        assert_eq!(r.server.hash(), end, "the replay ends in the soak's state");
+        assert_eq!(r.server.hash(), end.0, "the replay ends in the soak's state");
     }
 
     #[test]

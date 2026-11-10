@@ -122,6 +122,13 @@ impl Bot {
                 }
                 Recv::Msg(ToClient::Done { ok, .. }) => self.refused += !ok as u64,
                 Recv::Msg(ToClient::Inventory { .. } | ToClient::You { .. }) => {}
+                Recv::Msg(ToClient::Water(v)) => {
+                    if let Some(w) = self.world.as_mut() {
+                        for (t, cols) in &v {
+                            w.water.set_tile(*t, cols);
+                        }
+                    }
+                }
                 Recv::Empty => return true,
                 Recv::Closed => return false,
             }

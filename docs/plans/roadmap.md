@@ -49,8 +49,11 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      crack detector, the feel report~~ done 2026-11-10 (ADR 0018): `tools/views.sh`, `shot=`, the `feel`
      field, all in the gate. Found a pinhole crack at the LOD view and a start-up correction, both fixed
      (the top padding's skirt; numbered input steps with reconciliation, ADR 0019);
-   - water as fill levels, with fine 12.5 cm splashes near the player; the total volume is counted from the
-     start (the water cycle needs it, ADR 0010);
+   - ~~water, counted from the start (the water cycle needs it, ADR 0010)~~ done 2026-11-10 (ADR 0020):
+     shallow water with momentum on the columns' air runs, a generated sea that is stored only where it
+     moves, a ledger the soak checks every tick, tiles to the clients, a smooth water mesh with splash
+     particles, the bucket and swimming. The 12.5 cm splash cells come with the fine cells, basin lakes
+     with the biomes;
    - lighting: block light, the sun around the planet, the 20 minute day, shadow maps;
    - 3D audio with cave reverb and material sounds.
 2. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; **world

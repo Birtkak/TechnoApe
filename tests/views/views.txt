@@ -6,3 +6,4 @@ corner | 0 | at=1,1,1 eye=4 pitch=-30
 lod    | 0 | at=0.3,1,0.2 eye=120 pitch=-35
 high   | 0 | at=0.2,1,0.1 eye=400 pitch=-50
 orbit  | 0 | at=0,1,0 eye=2500 pitch=-89
+coast  | 0 | at=0.0415,0.7139,-0.6991 eye=8 pitch=-20 yaw=180

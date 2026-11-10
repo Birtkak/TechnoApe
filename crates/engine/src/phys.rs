@@ -16,6 +16,9 @@ pub const EYE: f64 = 1.6;
 pub const WALK: f64 = 4.3;
 pub const JUMP: f64 = 4.8; // about 1.2 m high
 pub const G: f64 = 9.81;
+/// Swimming (ADR 0020): rising speed with jump held, m/s; a body floats with this share of it under water.
+pub const SWIM: f64 = 2.0;
+const FLOAT: f64 = 0.8;
 /// The fixed step. The server and every client take the same steps, so the same input gives the same path
 /// at any frame rate or tick rate; each side carries the time that did not fill a step over to the next.
 pub const DT: f64 = 1.0 / 60.0;
@@ -154,11 +157,24 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
     p.fwd = fwd;
     let right = fwd.cross(up).normalize();
 
+    // how much of the body is under water, 0 to 1
+    let sub = match world.water_surface(p.pos + up * 0.05) {
+        Some(r) => ((r - (p.pos - world.bodies[world.nearest(p.pos)].centre).length()) / HEIGHT).clamp(0.0, 1.0),
+        None => 0.0,
+    };
     let mv = DVec3::new(inp.mv[1].clamp(-1.0, 1.0) as f64, 0.0, inp.mv[0].clamp(-1.0, 1.0) as f64);
-    let wish = (right * mv.x + fwd * mv.z).clamp_length_max(1.0) * WALK;
+    let wish = (right * mv.x + fwd * mv.z).clamp_length_max(1.0) * WALK * (1.0 - 0.5 * sub);
     let mut v_up = p.vel.dot(up) - G * dt;
-    if p.on_ground && inp.jump {
+    if p.on_ground && inp.jump && sub < 0.3 {
         v_up = JUMP;
+    }
+    if sub > 0.0 {
+        // buoyancy that holds the body FLOAT under, drag, and jump held swims up
+        v_up += G / FLOAT * sub * dt;
+        v_up *= 1.0 - (3.0 * sub * dt).min(1.0);
+        if inp.jump && sub > 0.3 {
+            v_up = v_up.max(SWIM);
+        }
     }
     // snappy: the horizontal velocity is the wish, on the ground and in the air
     p.vel = wish + up * v_up;
@@ -224,6 +240,24 @@ mod tests {
         let below = w.block(w.block_at(p.pos - up * 0.01));
         let at = w.block(w.block_at(p.pos + up * 0.05));
         assert!(below != 0 && at == 0, "feet rest on a block: below {below}, at {at}");
+    }
+
+    /// Dropped into the sea, a player floats with the head out, and swims up with jump held.
+    #[test]
+    fn floats_in_the_sea_and_swims_up() {
+        let w = World::new(256, 32, 1);
+        let b = &w.bodies[0];
+        let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 8.0).unwrap();
+        let d = b.dir(2, i as f64 + 0.5, j as f64 + 0.5);
+        let sea = b.radius - crate::world::SEA_DEPTH;
+        let mut p = Player::at(d * (sea - 1.0), DVec3::X);
+        run(&w, &mut p, &Input::default(), 10.0);
+        let under = sea - p.pos.length();
+        assert!(!p.on_ground && under > 1.0 && under < 1.6, "feet {under} m under the surface");
+        let mut q = Player::at(d * (sea - 3.5), DVec3::X);
+        step(&w, &mut q, &Input { jump: true, ..Default::default() }, 0.5);
+        run(&w, &mut q, &Input { jump: true, ..Default::default() }, 1.0);
+        assert!(sea - q.pos.length() < 2.0, "swam up to {} m under", sea - q.pos.length());
     }
 
     #[test]

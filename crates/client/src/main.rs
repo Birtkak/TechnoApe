@@ -1,6 +1,7 @@
 //! The TechnoApe client: window, renderer and the benchmark runs (docs/plans/roadmap.md, "The shared benchmark").
 mod hud;
 mod sys;
+mod water;
 
 use engine::blocks::{AIR, BLOCKS};
 use engine::edit::{self, Kind, Predictor, Shape, Tool};
@@ -23,6 +24,8 @@ use winit::window::{CursorGrabMode, Window, WindowId};
 const W: u32 = 1920;
 const H: u32 = 1080;
 const MAX_CHUNKS: usize = 1 << 16;
+/// Quads of the water mesh the GPU holds (48 bytes each).
+const MAX_WQUADS: usize = 1 << 18;
 const TS_RING: usize = 8;
 const MAX_BODIES: usize = 4; // the size of `bodies` in shader.wgsl
 
@@ -170,6 +173,10 @@ struct Gpu {
     ghost_buf: wgpu::Buffer,
     ui_pipeline: wgpu::RenderPipeline,
     ui_buf: wgpu::Buffer,
+    /// The water (ADR 0020): the sea's quads in the chunks, the water mesh from its own buffer.
+    sea_pipeline: wgpu::RenderPipeline,
+    water_pipeline: wgpu::RenderPipeline,
+    wquads: wgpu::Buffer,
     bind: wgpu::BindGroup,
     globals: wgpu::Buffer,
     quads: wgpu::Buffer,
@@ -249,7 +256,9 @@ impl Gpu {
         let globals = buf("globals", std::mem::size_of::<Globals>() as u64, U::UNIFORM | U::COPY_DST);
         let quads = buf("quads", cap as u64 * 8, U::STORAGE | U::COPY_DST);
         let chunks = buf("chunks", (MAX_CHUNKS * 16) as u64, U::STORAGE | U::COPY_DST);
-        let indirect = buf("indirect", (MAX_CHUNKS * 16) as u64, U::INDIRECT | U::COPY_DST);
+        // the terrain's draws, then the sea's at MAX_CHUNKS * 16
+        let indirect = buf("indirect", (MAX_CHUNKS * 32) as u64, U::INDIRECT | U::COPY_DST);
+        let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
         // every block's look from the registry (ADR 0013): colour rgb, then pattern | side << 8, 16 bytes each
         let looks = buf("looks", 256 * 16, U::STORAGE | U::COPY_DST);
         let look: Vec<[u32; 4]> = (0..=255u8)
@@ -292,6 +301,7 @@ impl Gpu {
                 storage(1),
                 storage(2),
                 storage(3),
+                storage(4),
             ],
         });
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -302,6 +312,7 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 1, resource: quads.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 2, resource: chunks.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 3, resource: looks.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: wquads.as_entire_binding() },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -336,6 +347,33 @@ impl Gpu {
             multiview_mask: None,
             cache: None,
         });
+        // water: blended over the terrain, tested against its depth but not writing it, seen from both sides
+        let liquid = |vs| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(vs),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), buffers: &[], compilation_options: Default::default() },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_water"),
+                    targets: &[Some(wgpu::ColorTargetState { format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Greater),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let sea_pipeline = liquid("vs_sea");
+        let water_pipeline = liquid("vs_water");
         let overlay = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("overlay"),
             source: wgpu::ShaderSource::Wgsl(include_str!("overlay.wgsl").into()),
@@ -414,6 +452,9 @@ impl Gpu {
             surface,
             config,
             pipeline,
+            sea_pipeline,
+            water_pipeline,
+            wquads,
             ghost_pipeline,
             ghost_buf,
             ui_pipeline,
@@ -539,11 +580,19 @@ struct App {
     /// The build hammer is in hand. shortcut: a key takes it up until items exist; the server does not yet
     /// check that a shape comes from a hammer.
     hammer: bool,
+    /// The bucket is in hand (ADR 0020): the dig button scoops, the place button pours, at the cell before
+    /// the aimed block (the ray passes through water to what is under it).
+    bucket: bool,
     aim: Option<(Block, Block)>,
     held: Option<(bool, Block, Block)>,
     slot: usize,
     creative: bool,
     inv: Vec<(u8, u32)>,
+    /// Units of water in the bucket (ADR 0020).
+    bucket_water: u32,
+    /// The mesh of the tiles that hold stored water, and how many of its quads the GPU has.
+    water: water::WaterMesh,
+    wquad_n: u32,
     /// What the overlay buffers hold: the ghost's shape and colour, its vertex count, the rectangle count.
     ghost_of: Option<(Shape, [u8; 4])>,
     ghost_n: u32,
@@ -573,11 +622,16 @@ struct App {
 
 impl App {
     /// One input of run=play's building, from the keyboard and mouse or from acts=: L/R press and l/r release
-    /// the dig and place buttons, h takes up or puts away the build hammer, q cycles its box, cylinder and
+    /// the dig and place buttons, h takes up or puts away the build hammer, b the bucket, q cycles its box, cylinder and
     /// cone, up/down change a cylinder's or cone's height, c switches creative, 1-9 pick a hotbar slot,
     /// m:dx:dy turns the look.
     fn act(&mut self, a: &str) {
         match a {
+            "L" | "R" if self.bucket => {
+                if let Some((_, before)) = self.aim {
+                    self.link.send(ToServer::Bucket { seq: self.pred.seq(), at: before, fill: a == "L" });
+                }
+            }
             "L" | "R" => {
                 let dig = a == "L";
                 if let Some(at) = self.aim.map(|(hit, before)| self.anchor(hit, before, dig)) {
@@ -602,7 +656,8 @@ impl App {
             "up" | "down" => {
                 self.tool.height = (self.tool.height + if a == "up" { 1 } else { -1 }).clamp(1, edit::MAX_SIDE);
             }
-            "h" => self.hammer = !self.hammer,
+            "h" => (self.hammer, self.bucket) = (!self.hammer, false),
+            "b" => (self.bucket, self.hammer) = (!self.bucket, false),
             _ => {
                 if let Ok(d) = a.parse::<usize>() {
                     self.slot = d.clamp(1, 9) - 1;
@@ -711,13 +766,18 @@ impl App {
             .map(|m| hud::Slot { colour: BLOCKS.get(m).unwrap().colour, count: (!self.creative).then(|| self.held_count(m)) })
             .collect();
         let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
-        let rects = hud::layer(W as f32, H as f32, &slots, self.slot, self.creative, height);
+        let mut rects = hud::layer(W as f32, H as f32, &slots, self.slot, self.creative, height);
+        if self.world.water_surface(p.pos).is_some() {
+            // under water: a blue veil first, under the HUD. shortcut: a veil, not fog, until the sky has fog
+            rects.insert(0, hud::Rect { xy: [-1.0, -1.0, 1.0, 1.0], colour: [0.05, 0.25, 0.4, 0.55], glyph: 0 });
+        }
         let n = rects.len().min(hud::RECTS_MAX);
         gpu.queue.write_buffer(&gpu.ui_buf, 0, bytemuck::cast_slice(&rects[..n]));
         self.ui_n = n as u32;
         // shortcut: the tool and mode as words in the window title, until the HUD has text
         let block = self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)).map_or("-".to_string(), |d| d.name.clone());
         let tool = match (self.hammer, self.tool.kind) {
+            _ if self.bucket => format!("bucket {}%", self.bucket_water as i64 * 100 / engine::liquid::U),
             (false, _) => "hands".to_string(),
             (true, Kind::Box) => "build hammer: box".to_string(),
             (true, k) => format!("build hammer: {} {} high", format!("{k:?}").to_lowercase(), self.tool.height),
@@ -824,7 +884,20 @@ impl App {
                 Recv::Msg(ToClient::Players(ps)) => self.players = ps.len(),
                 Recv::Msg(ToClient::You { step, me }) if self.run == "play" => self.reconcile(step, me, t),
                 Recv::Msg(ToClient::You { .. }) => {}
-                Recv::Msg(ToClient::Inventory { creative, counts }) => (self.creative, self.inv) = (creative, counts),
+                Recv::Msg(ToClient::Inventory { creative, counts, water }) => (self.creative, self.inv, self.bucket_water) = (creative, counts, water),
+                Recv::Msg(ToClient::Water(v)) => {
+                    let mut ts = Vec::with_capacity(v.len());
+                    for (t, cols) in &v {
+                        let was = self.world.water.wet(*t);
+                        self.world.water.set_tile(*t, cols);
+                        if was != self.world.water.wet(*t) {
+                            // the chunks' sea leaves this tile out, or covers it again
+                            self.streamer.touch_tile(&self.world, *t);
+                        }
+                        ts.push(*t);
+                    }
+                    self.water.update(&self.world, &ts, self.start.elapsed().as_secs_f32());
+                }
                 Recv::Msg(ToClient::Welcome { .. }) => {}
                 Recv::Empty => break,
                 Recv::Closed => {
@@ -936,15 +1009,32 @@ impl App {
         // build per-frame chunk table and indirect args
         let mut table: Vec<ChunkGpu> = Vec::with_capacity(draws.len());
         let mut args: Vec<DrawArgs> = Vec::with_capacity(draws.len());
+        let mut sea_args: Vec<DrawArgs> = Vec::new();
         let mut nquads = 0u64;
         for (ci, d) in draws.iter().enumerate().take(MAX_CHUNKS) {
             let k = d.key;
             table.push(ChunkGpu { base: k.base().into(), info: k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8 });
-            args.push(DrawArgs { vertex_count: d.len * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci as u32 });
+            let land = d.len - d.water;
+            args.push(DrawArgs { vertex_count: land * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci as u32 });
+            if d.water > 0 {
+                sea_args.push(DrawArgs { vertex_count: d.water * 6, instance_count: 1, first_vertex: (d.off + land) * 6, first_instance: ci as u32 });
+            }
             nquads += d.len as u64;
         }
+        // the water mesh when it changed, the droplets after it every frame
+        let n = self.water.all.len().min(MAX_WQUADS);
+        if std::mem::take(&mut self.water.changed) {
+            gpu.queue.write_buffer(&gpu.wquads, 0, bytemuck::cast_slice(&self.water.all[..n]));
+        }
+        let drops = self.water.particles(&self.world, dt as f32);
+        let d = drops.len().min(MAX_WQUADS - n);
+        if d > 0 {
+            gpu.queue.write_buffer(&gpu.wquads, (n * std::mem::size_of::<water::WQuad>()) as u64, bytemuck::cast_slice(&drops[..d]));
+        }
+        self.wquad_n = (n + d) as u32;
         let sun = Vec3::new(0.4, 0.8, 0.45).normalize();
-        let mut g = Globals { view_proj: vp.to_cols_array_2d(), sun: [sun.x, sun.y, sun.z, 0.0], bodies: bytemuck::Zeroable::zeroed() };
+        let clock = self.start.elapsed().as_secs_f32();
+        let mut g = Globals { view_proj: vp.to_cols_array_2d(), sun: [sun.x, sun.y, sun.z, clock], bodies: bytemuck::Zeroable::zeroed() };
         for (b, o) in self.world.bodies.iter().zip(g.bodies.iter_mut()) {
             // the camera relative to the body in two floats per axis: one float is 0.1 mm coarse at 1 km
             let c = p.pos - b.centre;
@@ -957,13 +1047,16 @@ impl App {
                 lnq: b.lnq as f32,
                 theta: (std::f64::consts::FRAC_PI_2 / b.n as f64) as f32,
                 half_n: b.n as f32 * 0.5,
-                _p: [0.0; 2],
+                _p: [b.sea.map_or(-1.0, |s| s as f32), 0.0],
             };
         }
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
         if !table.is_empty() {
             gpu.queue.write_buffer(&gpu.chunks, 0, bytemuck::cast_slice(&table));
             gpu.queue.write_buffer(&gpu.indirect, 0, bytemuck::cast_slice(&args));
+        }
+        if !sea_args.is_empty() {
+            gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 16) as u64, bytemuck::cast_slice(&sea_args));
         }
 
         // sky darkens with altitude
@@ -1042,6 +1135,20 @@ impl App {
                 for d in &args {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
+            }
+            if !sea_args.is_empty() {
+                rp.set_pipeline(&gpu.sea_pipeline);
+                if self.args.get("mdi", 1) == 1 {
+                    rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 16) as u64, sea_args.len() as u32);
+                } else {
+                    for d in &sea_args {
+                        rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                    }
+                }
+            }
+            if self.wquad_n > 0 {
+                rp.set_pipeline(&gpu.water_pipeline);
+                rp.draw(0..self.wquad_n * 6, 0..1);
             }
             if self.ghost_n > 0 {
                 rp.set_pipeline(&gpu.ghost_pipeline);
@@ -1422,6 +1529,7 @@ impl ApplicationHandler for App {
                     let key = match code {
                         KeyCode::KeyQ => Some("q".to_string()),
                         KeyCode::KeyH => Some("h".to_string()),
+                        KeyCode::KeyB => Some("b".to_string()),
                         KeyCode::KeyC => Some("c".to_string()),
                         _ => (1..=9).find(|d| code == DIGITS[d - 1]).map(|d| d.to_string()),
                     };
@@ -1596,11 +1704,15 @@ fn main() {
         pred: Predictor::default(),
         tool: Tool { kind: Kind::Box, single: true, height: 8 },
         hammer: false,
+        bucket: false,
         aim: None,
         held: None,
         slot: 0,
         creative,
         inv: Vec::new(),
+        bucket_water: 0,
+        water: water::WaterMesh::default(),
+        wquad_n: 0,
         ghost_of: None,
         ghost_n: 0,
         ui_n: 0,

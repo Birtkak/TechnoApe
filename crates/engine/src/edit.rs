@@ -173,6 +173,11 @@ pub struct Predictor {
 }
 
 impl Predictor {
+    /// The last `seq` handed out: a message that is not an edit (a bucket) sends it, so its `Done` confirms
+    /// only what was sent before it.
+    pub fn seq(&self) -> u32 {
+        self.next
+    }
     /// Applies the edit to `world` and returns the `seq` to send with it and the cells it changed. A shape that
     /// does not fit the world changes nothing here; the server will refuse it.
     pub fn edit(&mut self, world: &mut World, shape: &Shape, m: u8, keep_clear: impl Fn(&World, Block) -> bool) -> (u32, Vec<Block>) {

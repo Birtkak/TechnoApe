@@ -1,6 +1,7 @@
 //! LOD octree selection, job scheduling on worker threads, GPU sub-allocation of chunk meshes.
 use crate::mesh::{mesh, Mesh};
-use crate::world::{fold, generate, Block, Bounds, FxMap, Gen, Key, World, CS};
+use crate::liquid::{Col, TILE};
+use crate::world::{fold, generate, sea_cell, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
 use glam::{DVec3, IVec3, Vec4};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Instant;
@@ -56,7 +57,7 @@ impl Alloc {
 enum State {
     Pending,
     Empty,
-    Ready { off: u32, len: u32 },
+    Ready { off: u32, len: u32, water: u32 },
 }
 
 /// Every chunk the selection visits has a slot (it caches the bounds); only wanted leaves get a mesh.
@@ -82,11 +83,12 @@ pub struct JobResult {
     pub us: f64,
 }
 
-/// One drawable range of the quad buffer.
+/// One drawable range of the quad buffer: `len` quads, the last `water` of them the sea's surface.
 pub struct DrawChunk {
     pub key: Key,
     pub off: u32,
     pub len: u32,
+    pub water: u32,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -324,13 +326,13 @@ impl Streamer {
         let Some(s) = self.slots.get_mut(&k) else { return false };
         s.last_seen = self.frame;
         let bd = s.bounds;
-        let (off, len) = match s.state {
+        let (off, len, water) = match s.state {
             State::Pending => return false,
             State::Empty => return true,
-            State::Ready { off, len } => (off, len),
+            State::Ready { off, len, water } => (off, len, water),
         };
         if !hidden.unwrap_or_else(|| self.hidden(view, &bd)) {
-            out.push(DrawChunk { key: k, off, len });
+            out.push(DrawChunk { key: k, off, len, water });
         }
         true
     }
@@ -352,12 +354,25 @@ impl Streamer {
             let tx = self.tx.clone();
             let bodies = world.bodies.clone();
             let greedy = self.opts.greedy;
+            // tiles of stored water are the water mesh's; a coarse column lies within one tile up to level 4, and past
+            // that a far chunk's sea covers them (shortcut: a flood far away shows as sea level)
+            let wet = match sea_cell(&bodies[k.body as usize], k) {
+                Some(_) if 1 << k.level <= TILE => world.water.wet_tiles(k.body, k.face, k.base().x, k.base().y, k.span()),
+                _ => Vec::new(),
+            };
             rayon::spawn(move || {
                 let t = Instant::now();
-                let mesh = match generate(&bodies[k.body as usize], k, &edits) {
+                let body = &bodies[k.body as usize];
+                let mut mesh = match generate(body, k, &edits) {
                     Gen::Cells(c) => Some(mesh(&c, greedy)).filter(|m| !m.quads.is_empty()),
                     _ => None,
                 };
+                let sea = sea_quads(body, k, &wet);
+                if !sea.is_empty() {
+                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], water: 0 });
+                    m.water = sea.len() as u32;
+                    m.quads.extend(sea);
+                }
                 let _ = tx.send(JobResult { key: k, version, mesh, us: t.elapsed().as_secs_f64() * 1e6 });
             });
         }
@@ -388,11 +403,11 @@ impl Streamer {
                     upload(off, &m.quads);
                     bytes += m.quads.len() * 8;
                     st.applied_nonempty += 1;
-                    State::Ready { off, len: n }
+                    State::Ready { off, len: n, water: m.water }
                 }
             };
             let s = self.slots.get_mut(&r.key).unwrap();
-            if let State::Ready { off, len } = s.state {
+            if let State::Ready { off, len, .. } = s.state {
                 self.alloc.release(off, len);
             }
             s.state = new;
@@ -412,6 +427,19 @@ impl Streamer {
 
     /// True when every full-detail chunk that samples block `b` draws its latest version: an edit there is
     /// on screen (the feel report's click-to-change, fundamentals section 1).
+    /// Tile `t` became wet or dry: the chunks that draw its sea (levels up to 4) are meshed again.
+    pub fn touch_tile(&mut self, world: &World, t: Col) {
+        let body = &world.bodies[t.body() as usize];
+        let Some(sea) = body.sea else { return };
+        for l in 0..=body.root_level.min(4) {
+            let (span, cz) = (CS << l, (sea / (1i32 << l) as f64).floor() as i32);
+            let k = Key { body: t.body(), face: t.face(), level: l, pos: IVec3::new(t.i() * TILE / span, t.j() * TILE / span, cz.div_euclid(CS)) };
+            if let Some(sl) = self.slots.get_mut(&k) {
+                sl.want_v += 1;
+            }
+        }
+    }
+
     pub fn shows(&self, world: &World, b: Block) -> bool {
         sampling(world, b, Some(0)).iter().all(|k| self.slots.get(k).is_none_or(|s| s.shown_v >= s.want_v))
     }
@@ -422,7 +450,7 @@ impl Streamer {
         self.slots.retain(|_, s| {
             let keep = s.inflight || f.saturating_sub(s.last_seen) < age;
             if !keep {
-                if let State::Ready { off, len } = s.state {
+                if let State::Ready { off, len, .. } = s.state {
                     alloc.release(off, len);
                 }
             }
