@@ -76,7 +76,7 @@ fn run_soak(args: &HashMap<String, String>) {
         Some(l) => l.split(',').filter_map(|v| v.trim().parse().ok()).collect(),
         None => (0..get("bots", 50) as u32).collect(),
     };
-    let record = args.get("record").map(Path::new);
+    let record = args.get("record").filter(|r| *r != "0").map(Path::new);
     let t0 = Instant::now();
     match soak::run(seed, &bots, ticks, planet, record) {
         Ok(hash) => println!(
