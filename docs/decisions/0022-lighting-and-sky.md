@@ -107,7 +107,8 @@ pure functions of the world's time, the same on every machine.
   - Cost on the dev PC: about +0.7 ms p99 standing and +1.7 ms flying (BLAS builds as chunks stream),
     and +300 MB VRAM.
 - **As built (2026-11-10), block light, ambient occlusion, metal.** The plan above changed in two places:
-  - **Block light is traced, not flooded.** Each block with `light` in `data/blocks.toml` is a coloured point
+  - **Block light is traced, not flooded** (the developer's call, 2026-11-10, knowing light does not creep
+    around corners). Each block with `light` in `data/blocks.toml` is a coloured point
     light (inverse square, out to 8 m), and its shadows are real. The client gathers the 64 nearest lamps
     from the edits within 48 m. Each pixel traces shadow rays to the 3 lamps strongest there; the rest take
     those rays' mean visibility, so a room full of lamps costs 3 rays and not one per lamp. Every lamp also
