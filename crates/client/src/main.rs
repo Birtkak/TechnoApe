@@ -1,6 +1,8 @@
 //! The TechnoApe client: window, renderer and the benchmark runs (docs/plans/roadmap.md, "The shared benchmark").
 mod sys;
 
+use engine::blocks::{AIR, BLOCKS};
+use engine::edit::Shape;
 use engine::net::{self, Link, Recv, ToClient, ToServer, TICK_HZ};
 use engine::phys::{self, Input};
 use engine::stream::{DrawChunk, FrameStats, Opts, Streamer, View};
@@ -532,7 +534,8 @@ impl App {
                         }
                     }
                 }
-                Recv::Msg(ToClient::Welcome { .. }) => {}
+                // shortcut: answers and the inventory are not shown yet; prediction and the hotbar use them
+                Recv::Msg(ToClient::Welcome { .. } | ToClient::Done { .. } | ToClient::Inventory { .. }) => {}
                 Recv::Empty => break,
                 Recv::Closed => {
                     eprintln!("[technoape] the server closed the connection");
@@ -573,8 +576,8 @@ impl App {
                 if b.pos.z < 0 {
                     continue; // below layer 0 nothing is stored
                 }
-                let m = if self.world.block(b) == 0 { 3 } else { 0 };
-                self.link.send(ToServer::Edit { block: b, material: m });
+                let m = if self.world.block(b) == AIR { BLOCKS.id("stone") } else { AIR };
+                self.link.send(ToServer::Edit { seq: self.edits_done as u32, shape: Shape::one(b), material: m });
                 self.edits_done += 1;
             }
         }
@@ -1043,6 +1046,9 @@ fn main() {
         }
     };
     link.send(ToServer::Hello { name: args.s("name", "player") });
+    if run != "play" {
+        link.send(ToServer::Creative(true)); // the edit benchmark places stone it never dug
+    }
     let (my_id, world) = match link.rx.recv_timeout(Duration::from_secs(10)) {
         Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");

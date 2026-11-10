@@ -8,7 +8,8 @@
 pub mod soak;
 
 use engine::net::{local, Link, Player, Recv, ToClient, ToServer, REACH, TICK_HZ};
-use engine::blocks::BLOCKS;
+use engine::blocks::{AIR, BLOCKS};
+use engine::edit::{self, Shape};
 use engine::phys::{self, Input};
 use engine::world::{fnv, Block, World};
 use glam::DVec3;
@@ -41,6 +42,14 @@ struct Client {
     phys: phys::Player,
     /// Walking input; `None` while the player flies with `Move`.
     input: Option<Input>,
+    /// Creative counts nothing; survival digs into `inv` and places from it (ADR 0014).
+    creative: bool,
+    /// How many of each block kind the player holds, by id.
+    inv: Box<[u32; 256]>,
+    /// The answers to this tick's edits, sent after its `Edits`.
+    done: Vec<(u32, bool)>,
+    /// The inventory changed this tick (or the player just joined).
+    inv_dirty: bool,
 }
 
 pub struct Server {
@@ -108,7 +117,10 @@ impl Server {
                     h = fnv(h, &x.to_bits().to_le_bytes());
                 }
             }
-            h = fnv(h, &[p.on_ground as u8, c.input.is_some() as u8]);
+            h = fnv(h, &[p.on_ground as u8, c.input.is_some() as u8, c.creative as u8]);
+            for n in c.inv.iter() {
+                h = fnv(h, &n.to_le_bytes());
+            }
             for x in c.player.pos {
                 h = fnv(h, &x.to_bits().to_le_bytes());
             }
@@ -164,6 +176,10 @@ impl Server {
                 player: Player { id, name: String::new(), pos: spawn.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 },
                 phys: phys::Player::at(spawn, DVec3::X),
                 input: None,
+                creative: false,
+                inv: Box::new([0; 256]),
+                done: Vec::new(),
+                inv_dirty: true,
             });
         }
         let mut changed: Vec<(Block, u8)> = Vec::new();
@@ -194,14 +210,13 @@ impl Server {
                             self.clients[i].input = Some(inp);
                         }
                     }
-                    Recv::Msg(ToServer::Edit { block, material }) => {
-                        let at = DVec3::from_array(self.clients[i].player.pos);
-                        // a solid block never goes where it would trap a player
-                        let traps = BLOCKS.solid(material) && self.clients.iter().any(|c| phys::holds(&self.world, &c.phys, block));
-                        if self.valid_edit(block, material, at) && !traps && self.world.block(block) != material {
-                            self.world.set_block(block, material);
-                            changed.push((block, material));
-                        }
+                    Recv::Msg(ToServer::Edit { seq, shape, material }) => {
+                        let ok = self.edit(i, &shape, material, &mut changed);
+                        self.clients[i].done.push((seq, ok));
+                    }
+                    Recv::Msg(ToServer::Creative(on)) => {
+                        let c = &mut self.clients[i];
+                        (c.creative, c.inv_dirty) = (on, true);
                     }
                     Recv::Empty => break,
                     Recv::Closed => {
@@ -234,6 +249,15 @@ impl Server {
                 c.link.send(ToClient::Edits(changed.clone()));
             }
         }
+        for c in &mut self.clients {
+            for (seq, ok) in c.done.drain(..) {
+                c.link.send(ToClient::Done { seq, ok });
+            }
+            if std::mem::take(&mut c.inv_dirty) {
+                let counts = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
+                c.link.send(ToClient::Inventory { creative: c.creative, counts });
+            }
+        }
         let players: Vec<Player> = self.clients.iter().map(|c| c.player.clone()).collect();
         for c in &self.clients {
             c.link.send(ToClient::Players(players.clone()));
@@ -258,15 +282,45 @@ impl Server {
         b.centre + DVec3::Y * (b.height(DVec3::Y) + 0.6)
     }
 
-    /// The trust boundary: a block that exists, a known material, within the player's reach.
-    fn valid_edit(&self, b: Block, m: u8, at: DVec3) -> bool {
-        let Some(body) = self.world.bodies.get(b.body as usize) else { return false };
-        b.face < 6
+    /// Client `i` digs or places `shape`: all of it or none. False when the shape fails `valid_shape` or a
+    /// survival player cannot pay for every block it places.
+    fn edit(&mut self, i: usize, shape: &Shape, m: u8, changed: &mut Vec<(Block, u8)>) -> bool {
+        if !self.valid_shape(shape, m, DVec3::from_array(self.clients[i].player.pos)) {
+            return false;
+        }
+        // a solid block never goes where it would trap a player
+        let (world, clients) = (&self.world, &self.clients);
+        let cells = edit::changes(world, shape, m, |b| clients.iter().any(|c| phys::holds(world, &c.phys, b)));
+        let c = &mut self.clients[i];
+        if !c.creative && !cells.is_empty() {
+            if m == AIR {
+                for (_, old) in &cells {
+                    c.inv[*old as usize] = c.inv[*old as usize].saturating_add(1);
+                }
+            } else {
+                let Some(left) = c.inv[m as usize].checked_sub(cells.len() as u32) else { return false };
+                c.inv[m as usize] = left;
+            }
+            c.inv_dirty = true;
+        }
+        for (b, _) in cells {
+            self.world.set_block(b, m);
+            changed.push((b, m));
+        }
+        true
+    }
+
+    /// The trust boundary: a box within the size limits on a face that exists, a known block, every cell
+    /// within the player's reach.
+    fn valid_shape(&self, s: &Shape, m: u8, at: DVec3) -> bool {
+        let Some(body) = self.world.bodies.get(s.body as usize) else { return false };
+        let inside = |v: glam::IVec3| (0..body.n).contains(&v.x) && (0..body.n).contains(&v.y) && (0..body.layers).contains(&v.z);
+        s.face < 6
+            && s.sane()
             && BLOCKS.get(m).is_some()
-            && (0..body.n).contains(&b.pos.x)
-            && (0..body.n).contains(&b.pos.y)
-            && (0..body.layers).contains(&b.pos.z)
-            && self.world.block_centre(b).distance(at) <= REACH
+            && inside(s.min)
+            && inside(s.max)
+            && s.cells().all(|b| self.world.block_centre(b).distance(at) <= REACH)
     }
 }
 
@@ -390,10 +444,13 @@ mod tests {
         // stand on the +z pole and toggle the block under the feet
         let pole = s.world.bodies[0].centre + DVec3::Z * (s.world.bodies[0].radius + 2.0);
         let under = s.world.block_at(pole - DVec3::Z * 2.5);
-        let m = if s.world.block(under) == 3 { 0 } else { 3 };
+        let stone = BLOCKS.id("stone");
+        let m = if s.world.block(under) == stone { AIR } else { stone };
         links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
-        links[0].send(ToServer::Edit { block: under, material: m });
+        links[0].send(ToServer::Creative(true));
+        links[0].send(ToServer::Edit { seq: 1, shape: Shape::one(under), material: m });
         s.tick();
+        assert!(drain(&links[0]).contains(&ToClient::Done { seq: 1, ok: true }));
         assert_eq!(s.world.block(under), m);
         assert!(drain(&links[1]).contains(&ToClient::Edits(vec![(under, m)])));
         // a third player joining later gets the edit in the initial sync
@@ -412,14 +469,52 @@ mod tests {
         let pole = s.world.bodies[0].centre + DVec3::Z * (s.world.bodies[0].radius + 2.0);
         let under = s.world.block_at(pole - DVec3::Z * 2.5);
         let before = s.world.block(under);
-        links[0].send(ToServer::Edit { block: under, material: 0 }); // player still at the origin: out of reach
+        let one = Shape::one(under);
+        links[0].send(ToServer::Edit { seq: 1, shape: one, material: 0 }); // player still at the origin: out of reach
         links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
-        links[0].send(ToServer::Edit { block: under, material: 200 }); // unknown material
-        links[0].send(ToServer::Edit { block: Block { body: 9, ..under }, material: 0 }); // no such body
+        links[0].send(ToServer::Edit { seq: 2, shape: one, material: 200 }); // unknown material
+        links[0].send(ToServer::Edit { seq: 3, shape: Shape { body: 9, ..one }, material: 0 }); // no such body
+        let far = Shape { max: one.min + glam::IVec3::new(0, 0, 40), ..one };
+        links[0].send(ToServer::Edit { seq: 4, shape: far, material: 0 }); // too long, and reaching the sky
+        let wide = Shape { min: one.min - glam::IVec3::new(31, 31, 0), ..one };
+        links[0].send(ToServer::Edit { seq: 5, shape: wide, material: 0 }); // in size, but 22 m away at one corner
+        links[0].send(ToServer::Edit { seq: 6, shape: one, material: BLOCKS.id("stone") }); // survival, nothing held
         s.tick();
         assert_eq!(s.world.block(under), before);
         assert_eq!(s.world.edit_count, 0);
-        assert!(!drain(&links[0]).iter().any(|m| matches!(m, ToClient::Edits(_))));
+        let got = drain(&links[0]);
+        assert!(!got.iter().any(|m| matches!(m, ToClient::Edits(_))));
+        for seq in 1..=6 {
+            assert!(got.contains(&ToClient::Done { seq, ok: false }), "edit {seq} refused");
+        }
+    }
+
+    #[test]
+    fn survival_digs_into_the_inventory_and_pays_for_what_it_places() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let ground = s.world.bodies[0].centre + DVec3::Z * s.world.bodies[0].height(DVec3::Z);
+        let pole = ground + DVec3::Z;
+        let deep = s.world.block_at(ground - DVec3::Z * 6.0); // below the dirt: stone
+        let stone = BLOCKS.id("stone");
+        assert_eq!(s.world.block(deep), stone);
+        let brush = Shape { max: deep.pos + 1, ..Shape::one(deep) };
+        l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        l.send(ToServer::Edit { seq: 1, shape: brush, material: AIR });
+        s.tick();
+        assert!(brush.cells().all(|b| s.world.block(b) == AIR));
+        let got = drain(l);
+        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![] }), "sent on join");
+        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(stone, 8)] }));
+        // eight dirt are not held, so none of them goes in; the eight stone are
+        l.send(ToServer::Edit { seq: 2, shape: brush, material: BLOCKS.id("dirt") });
+        l.send(ToServer::Edit { seq: 3, shape: brush, material: stone });
+        s.tick();
+        let got = drain(l);
+        assert!(got.contains(&ToClient::Done { seq: 2, ok: false }) && got.contains(&ToClient::Done { seq: 3, ok: true }));
+        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![] }));
+        assert!(brush.cells().all(|b| s.world.block(b) == stone));
+        assert_eq!(s.world.edit_count, 8, "the world is as generated again, but the cells stay recorded");
     }
 
     #[test]

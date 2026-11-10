@@ -9,6 +9,7 @@
 //!   wait s              idle s seconds         dig dx dy dz        set that block to air
 //!   place dx dy dz m    set that block to m    block dx dy dz      report that block's material
 //!   report              report position, players and edits seen    quit
+use engine::edit::Shape;
 use engine::net::{Link, Recv, ToClient, ToServer, TICK_HZ};
 use engine::phys::{self, Input};
 use engine::world::World;
@@ -66,6 +67,9 @@ pub struct Bot {
     pub pos: DVec3,
     pub players: usize,
     pub edits_applied: u64,
+    /// Edits the server refused (`Done` with ok false).
+    pub refused: u64,
+    seq: u32,
     id: u32,
     flying: bool,
     /// The walk: where to, and when to give up.
@@ -79,7 +83,7 @@ pub struct Bot {
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), idle_until: None, start: Instant::now() }
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), idle_until: None, start: Instant::now() }
     }
 
     fn feet(&self) -> DVec3 {
@@ -99,6 +103,8 @@ impl Bot {
                     self.pos = DVec3::Y * (w.bodies[0].height(DVec3::Y) + 0.6);
                     self.world = Some(w);
                     self.link.send(ToServer::Input(Input::default()));
+                    // bots build in creative: a script places without digging first
+                    self.link.send(ToServer::Creative(true));
                 }
                 Recv::Msg(ToClient::Edits(v)) => {
                     if let Some(w) = self.world.as_mut() {
@@ -114,6 +120,8 @@ impl Bot {
                         self.pos = DVec3::from_array(me.pos);
                     }
                 }
+                Recv::Msg(ToClient::Done { ok, .. }) => self.refused += !ok as u64,
+                Recv::Msg(ToClient::Inventory { .. }) => {}
                 Recv::Empty => return true,
                 Recv::Closed => return false,
             }
@@ -165,8 +173,11 @@ impl Bot {
                 (self.flying, self.last_dist, self.target) = (false, f64::MAX, Some((self.pos + *d, give_up)));
             }
             Cmd::Wait(s) => self.idle_until = Some(Instant::now() + Duration::from_secs_f64(*s)),
-            Cmd::Dig(d) => self.link.send(ToServer::Edit { block: w.block_at(self.feet() + *d), material: 0 }),
-            Cmd::Place(d, m) => self.link.send(ToServer::Edit { block: w.block_at(self.feet() + *d), material: *m }),
+            Cmd::Dig(d) | Cmd::Place(d, _) => {
+                let m = if let Cmd::Place(_, m) = c { *m } else { 0 };
+                self.seq += 1;
+                self.link.send(ToServer::Edit { seq: self.seq, shape: Shape::one(w.block_at(self.feet() + *d)), material: m });
+            }
             Cmd::Block(d) => {
                 let b = w.block_at(self.feet() + *d);
                 return Some(format!(
@@ -176,8 +187,8 @@ impl Bot {
             }
             Cmd::Report => {
                 return Some(format!(
-                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{}}}",
-                    self.name, self.start.elapsed().as_secs_f64(), self.pos.x, self.pos.y, self.pos.z, self.players, self.edits_applied
+                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{}}}",
+                    self.name, self.start.elapsed().as_secs_f64(), self.pos.x, self.pos.y, self.pos.z, self.players, self.edits_applied, self.refused
                 ));
             }
             Cmd::Quit => {}

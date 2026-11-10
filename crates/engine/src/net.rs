@@ -1,5 +1,6 @@
 //! The player protocol (ADR 0006). A client, a bot and the server all speak it; the transport is a pair of
 //! channels, fed either directly (the local server in the same process) or by a TCP connection.
+use crate::edit::Shape;
 use crate::phys::Input;
 use crate::world::Block;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -19,7 +20,11 @@ pub enum ToServer {
     Move { pos: [f64; 3], fwd: [f32; 3], pitch: f32 },
     /// Walk: the server moves the player with `phys::step` from this input every tick until a `Move`.
     Input(Input),
-    Edit { block: Block, material: u8 },
+    /// Dig (`material` 0) or place a shape. The server applies all of it or none and answers `Done` with the
+    /// same `seq`, after the `Edits` that carry what it changed.
+    Edit { seq: u32, shape: Shape, material: u8 },
+    /// Survival or creative (counts nothing). shortcut: anyone may switch; an operator role when servers go public.
+    Creative(bool),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -29,6 +34,10 @@ pub enum ToClient {
     Welcome { id: u32, seed: i32, planet_n: i32, moon_n: i32, blocks: u64 },
     Edits(Vec<(Block, u8)>),
     Players(Vec<Player>),
+    /// The answer to the `Edit` with this `seq`: applied, or refused whole (reach, size, inventory).
+    Done { seq: u32, ok: bool },
+    /// This player's mode and every block kind it holds a nonzero count of; sent on join and on change.
+    Inventory { creative: bool, counts: Vec<(u8, u32)> },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -135,7 +144,7 @@ mod tests {
         let addr = l.local_addr().unwrap();
         let client: Link<ToServer, ToClient> = tcp(TcpStream::connect(addr).unwrap()).unwrap();
         let server: Link<ToClient, ToServer> = tcp(l.accept().unwrap().0).unwrap();
-        let e = ToServer::Edit { block: Block { body: 0, face: 3, pos: IVec3::new(5, -7, 9) }, material: 2 };
+        let e = ToServer::Edit { seq: 4, shape: Shape::one(Block { body: 0, face: 3, pos: IVec3::new(5, -7, 9) }), material: 2 };
         client.send(ToServer::Hello { name: "bot".into() });
         client.send(e.clone());
         assert_eq!(server.rx.recv().unwrap(), ToServer::Hello { name: "bot".into() });

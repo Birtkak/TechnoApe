@@ -8,7 +8,8 @@ use engine::net::{local, Link, Recv, ToClient, ToServer};
 use engine::blocks::BLOCKS;
 use engine::phys::{self, Input};
 use engine::world::World;
-use glam::DVec3;
+use engine::edit::Shape;
+use glam::{DVec3, IVec3};
 use std::path::Path;
 use std::sync::mpsc::channel;
 
@@ -40,6 +41,7 @@ struct Bot {
     rng: Rng,
     link: Link<ToServer, ToClient>,
     world: World,
+    seq: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -86,7 +88,19 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         let at = feet + b.rng.dir() * b.rng.range(0.0, 3.0);
         let ids: Vec<u8> = BLOCKS.placeable().map(|d| d.id).collect();
         let m = if b.rng.f() < 0.5 { 0 } else { ids[(b.rng.next() % ids.len() as u64) as usize] };
-        b.link.send(ToServer::Edit { block: s.world.block_at(at), material: m });
+        // a single block, the 1 m brush, a wall or a floor, some of them over the size limit or out of reach
+        let mut k = |n: u64| (b.rng.next() % n) as i32;
+        let ext = match k(4) {
+            0 => IVec3::ZERO,
+            1 => IVec3::ONE,
+            2 => IVec3::new(k(8), 0, k(3)),
+            _ => IVec3::new(k(40), k(40), 0),
+        };
+        let at = s.world.block_at(at);
+        b.seq += 1;
+        b.link.send(ToServer::Edit { seq: b.seq, shape: Shape { max: at.pos + ext, ..Shape::one(at) }, material: m });
+    } else if r < 0.087 {
+        b.link.send(ToServer::Creative(b.rng.f() < 0.5));
     }
 }
 
@@ -125,7 +139,7 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
             tx.send(sv).unwrap();
             // an empty input makes it a walker, as in the bot crate
             c.send(ToServer::Input(Input::default()));
-            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::new(planet_n, MOON_N, seed as i32) }
+            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::new(planet_n, MOON_N, seed as i32), seq: 0 }
         })
         .collect();
     s.tick(); // everyone joins
