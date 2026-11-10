@@ -118,7 +118,29 @@ pub struct Body {
     pub spawn: DVec3,
     /// What generation lays down: the top, the band under it, the rock below (block ids).
     pub ground: [u8; 3],
+    /// The column heights of chunk footprints, shared by every consumer (ADR 0025, E).
+    tiles: HeightCache,
 }
+
+/// The surface radius of every column of a chunk's footprint with its padding (`generate`'s P x P), a pure
+/// function of (face, level, x, y): the chunks stacked over it, its remeshes and its sea share one.
+pub struct HeightTile {
+    pub h: [f64; P * P],
+    /// Of the heights as `f32`, as `generate` compares them.
+    pub min: f32,
+    pub max: f32,
+}
+
+/// Tiles by (face, level, x, y) with the tick each was last used; past `HEIGHT_TILES` the older half goes.
+/// The seam for world generation: per-column layers computed once, then sampled by every consumer.
+#[derive(Default)]
+struct HeightCache {
+    map: std::sync::Mutex<FxMap<(u8, u8, i32, i32), (Arc<HeightTile>, u64)>>,
+    tick: std::sync::atomic::AtomicU64,
+}
+
+/// About 9 KB each: 37 MB at most, more than the streamer's footprints at default detail.
+const HEIGHT_TILES: usize = 4096;
 
 /// Continents, oceans and islands (ADR 0021). Heights are metres over the sea level. The continents' sizes
 /// scale with the planet (3 to 5 of them on any size); hills, mountains, islands and depths are in metres.
@@ -228,7 +250,7 @@ impl Body {
         let r0 = radius - CRUST.min(radius * 0.5); // small bodies keep half their radius
         let lnq = (1.0 + BLOCK / radius).ln();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN }
+        Body { centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN, tiles: HeightCache::default() }
     }
     /// The body with continents, oceans and a sea (ADR 0020, 0021), and its spawn on land.
     pub fn with_continents(mut self, seed: i32) -> Self {
@@ -276,10 +298,69 @@ impl Body {
     }
     /// Unit direction of grid point (i, j) on a face, in columns (i = 3.5 is the middle of column 3).
     pub fn dir(&self, face: usize, i: f64, j: f64) -> DVec3 {
+        self.dir_tan(face, self.col_tan(i), self.col_tan(j))
+    }
+    /// `dir` from its two tangents: a tile computes them once per row and column, to the same bits.
+    fn dir_tan(&self, face: usize, ta: f64, tb: f64) -> DVec3 {
+        let [n, s, t] = AX[face];
+        (n.as_dvec3() + s.as_dvec3() * ta + t.as_dvec3() * tb).normalize()
+    }
+    fn col_tan(&self, i: f64) -> f64 {
         let th = FRAC_PI_2 / self.n as f64;
         let h = self.n as f64 * 0.5;
-        let [n, s, t] = AX[face];
-        (n.as_dvec3() + s.as_dvec3() * ((i - h) * th).tan() + t.as_dvec3() * ((j - h) * th).tan()).normalize()
+        ((i - h) * th).tan()
+    }
+    /// The height tile under chunk footprint (face, level, x, y), built here on a miss. Only workers and the
+    /// server call it: on the frame thread use `col_height`, which never builds one.
+    pub fn tile(&self, face: u8, level: u8, x: i32, y: i32) -> Arc<HeightTile> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let k = (face, level, x, y);
+        let now = self.tiles.tick.fetch_add(1, Relaxed);
+        if let Some(e) = self.tiles.map.lock().unwrap().get_mut(&k) {
+            e.1 = now;
+            return e.0.clone();
+        }
+        // built outside the lock; two workers may build the same tile, the result is the same
+        let tile = Arc::new(self.build_tile(face as usize, level, x, y));
+        let mut m = self.tiles.map.lock().unwrap();
+        if m.len() >= HEIGHT_TILES {
+            let mut ages: Vec<u64> = m.values().map(|e| e.1).collect();
+            let mid = ages.len() / 2;
+            let cut = *ages.select_nth_unstable(mid).1;
+            m.retain(|_, e| e.1 > cut);
+        }
+        m.insert(k, (tile.clone(), now));
+        tile
+    }
+    fn build_tile(&self, face: usize, level: u8, x: i32, y: i32) -> HeightTile {
+        let s = (1i32 << level) as f64;
+        let nl = self.n >> level;
+        let (c0x, c0y) = (x * CS - 1, y * CS - 1);
+        let ta: [f64; P] = std::array::from_fn(|k| self.col_tan(((c0x + k as i32) as f64 + 0.5) * s));
+        let tb: [f64; P] = std::array::from_fn(|k| self.col_tan(((c0y + k as i32) as f64 + 0.5) * s));
+        let mut t = HeightTile { h: [0.0; P * P], min: f32::MAX, max: f32::MIN };
+        for v in 0..P {
+            for u in 0..P {
+                let (ci, cj) = (c0x + u as i32, c0y + v as i32);
+                // columns past a seam belong to the neighbouring face
+                let (f, fi, fj) = fold(face, ci, cj, nl);
+                let d = if (f, fi, fj) == (face, ci, cj) { self.dir_tan(face, ta[u], tb[v]) } else { self.dir(f, (fi as f64 + 0.5) * s, (fj as f64 + 0.5) * s) };
+                let hv = self.height(d);
+                t.min = t.min.min(hv as f32);
+                t.max = t.max.max(hv as f32);
+                t.h[u + v * P] = hv;
+            }
+        }
+        t
+    }
+    /// The surface radius over level-0 column (i, j) of a face: from its tile when one is cached, else computed,
+    /// never building a tile (the frame thread's physics calls it).
+    pub fn col_height(&self, face: u8, i: i32, j: i32) -> f64 {
+        let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
+        if let Some(e) = self.tiles.map.lock().unwrap().get(&(face, 0, x, y)) {
+            return e.0.h[(i - x * CS + 1) as usize + (j - y * CS + 1) as usize * P];
+        }
+        self.height(self.dir(face as usize, i as f64 + 0.5, j as f64 + 0.5))
     }
     /// Surface radius along unit direction d.
     pub fn height(&self, d: DVec3) -> f64 {
@@ -316,7 +397,7 @@ impl Solid<'_> {
     /// The first generated air layer of column c.
     fn gen_floor(&self, c: Col) -> i32 {
         let b = &self.bodies[c.body() as usize];
-        let h = b.height(b.dir(c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5));
+        let h = b.col_height(c.face(), c.i(), c.j());
         let mut z = ((b.layer_of(h) - 0.5).floor() as i32 + 1).max(0);
         // the same test as `generated_under`, so the two never disagree by a layer
         while z > 0 && material(h - b.layer_r(z as f64 - 0.5), &b.ground) == AIR {
@@ -609,9 +690,7 @@ impl World {
     /// The terrain's surface radius over block b's column: the costly part of `generated_block`, the same for
     /// every layer of a column.
     pub fn column_height(&self, b: Block) -> f64 {
-        let body = &self.bodies[b.body as usize];
-        let p = b.pos.as_dvec3() + 0.5;
-        body.height(body.dir(b.face as usize, p.x, p.y))
+        self.bodies[b.body as usize].col_height(b.face, b.pos.x, b.pos.y)
     }
     /// The generated material of block b under a surface at radius `height` (its `column_height`).
     pub fn generated_under(&self, b: Block, height: f64) -> u8 {
@@ -821,13 +900,12 @@ pub fn sea_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]>
     let zl = (cz - key.pos.z * CS) as usize;
     // 0 no sea, 1 sea over air, 2 sea in a solid cell
     let mut sea = vec![0u8; n * n];
+    let heights = body.tile(key.face, key.level, key.pos.x, key.pos.y);
     for y in 0..n {
         for x in 0..n {
             let (ci, cj) = (base.x + x as i32 * s, base.y + y as i32 * s);
             // the same sample as `generate`: the middle of the (coarse) column
-            if wet.binary_search(&Col::new(key.body, key.face, ci, cj).tile()).is_err()
-                && body.height(body.dir(key.face as usize, ci as f64 + 0.5 * s as f64, cj as f64 + 0.5 * s as f64)) < r
-            {
+            if wet.binary_search(&Col::new(key.body, key.face, ci, cj).tile()).is_err() && heights.h[x + 1 + (y + 1) * P] < r {
                 let solid = match gen {
                     Gen::Cells(c) => c[pidx(x + 1, y + 1, zl + 1)] != 0,
                     Gen::Solid => true,
@@ -890,19 +968,10 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
             return Gen::Solid;
         }
     }
-    // one height per column; columns past a seam belong to the neighbouring face
-    let nl = body.n >> key.level;
-    let mut h = [0f32; P * P];
-    let (mut hmin, mut hmax) = (f32::MAX, f32::MIN);
-    for y in 0..P {
-        for x in 0..P {
-            let (f, ci, cj) = fold(key.face as usize, c0.x + x as i32, c0.y + y as i32, nl);
-            let v = body.height(body.dir(f, (ci as f64 + 0.5) * s, (cj as f64 + 0.5) * s)) as f32;
-            hmin = hmin.min(v);
-            hmax = hmax.max(v);
-            h[x + y * P] = v;
-        }
-    }
+    // one height per column, from the footprint's tile (columns past a seam are the neighbouring face's)
+    let tile = body.tile(key.face, key.level, key.pos.x, key.pos.y);
+    let h: [f32; P * P] = std::array::from_fn(|i| tile.h[i] as f32);
+    let (hmin, hmax) = (tile.min, tile.max);
     if edits.is_empty() {
         if r_lo as f32 > hmax {
             return Gen::Empty;
@@ -966,6 +1035,28 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn height_tiles_match_the_direct_heights_to_the_bit() {
+        // ADR 0025, E: the cache must not move a height by one bit, padding past a seam included
+        let b = Body::new(DVec3::ZERO, 1536, 7).with_continents(7);
+        let last = b.n / CS - 1;
+        for (face, level, x, y) in [(2u8, 0u8, 5, 9), (0, 0, 0, 3), (4, 2, last >> 2, 0), (1, 1, 2, last >> 1)] {
+            let s = (1i32 << level) as f64;
+            let t = b.tile(face, level, x, y);
+            for v in 0..P {
+                for u in 0..P {
+                    let (f, ci, cj) = fold(face as usize, x * CS - 1 + u as i32, y * CS - 1 + v as i32, b.n >> level);
+                    let want = b.height(b.dir(f, (ci as f64 + 0.5) * s, (cj as f64 + 0.5) * s));
+                    assert_eq!(t.h[u + v * P].to_bits(), want.to_bits(), "face {face} level {level} at {u},{v}");
+                }
+            }
+        }
+        // a level-0 column from a cached tile or computed: the same bits
+        let (i, j) = (5 * CS + 7, 9 * CS + 30);
+        assert_eq!(b.col_height(2, i, j).to_bits(), b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)).to_bits());
+        assert_eq!(b.col_height(3, i, j).to_bits(), b.height(b.dir(3, i as f64 + 0.5, j as f64 + 0.5)).to_bits());
+    }
+
     #[test]
     fn border_walls_follow_the_surface() {
         let b = Body::new(DVec3::ZERO, 1536, 1337);

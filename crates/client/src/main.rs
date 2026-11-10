@@ -887,6 +887,9 @@ struct App {
     ts_frames: [u64; TS_RING],
     gpu_end: Option<(u64, u64)>,
     seg_prev: [f64; CPU_STAGES.len()],
+    /// The streamer's job time and count when loading finished: the jobs after it are remeshes and new chunks
+    /// as the camera moves (ADR 0025, E).
+    jobs_at_load: (f64, u64),
     mem: (f64, f64),
     drawn: Drawn,
     /// F9: the frame is grabbed first, then the form holds what is written, and Enter writes it all to bugs/
@@ -2591,6 +2594,7 @@ impl App {
             if (self.streamer.idle() && st.missing == 0 && rt_pending == 0 && self.streamer.frame > 10) || el > 60.0 {
                 eprintln!("[technoape] loaded in {:.2} s, {} chunks, {} quads", el, self.streamer.slot_count(), self.streamer.alloc.used);
                 self.loaded_at = Some(Instant::now());
+                self.jobs_at_load = (self.streamer.job_us_total, self.streamer.jobs_done as u64);
                 if self.run == "play" {
                     self.chat_line(format!("TechnoApe {BUILD}: T chats, / runs a command (/help), F3 shows the numbers, F9 reports a bug"));
                 }
@@ -2767,6 +2771,8 @@ impl App {
         let o = &self.streamer.opts;
         let a = &self.args;
         let job_us = self.streamer.job_us_total / self.streamer.jobs_done.max(1) as f64;
+        let later = (self.streamer.jobs_done as u64).saturating_sub(self.jobs_at_load.1);
+        let job_us_after = (self.streamer.job_us_total - self.jobs_at_load.0) / later.max(1) as f64;
         let (p99, max) = (pct(&mut s.frame_ms, 0.99), pct(&mut s.frame_ms, 1.0));
         // ADR 0004; an unknown RAM or VRAM reading fails
         let budget_ok = p99 <= 8.3 && max <= 16.7 && s.ram_max > 0.0 && s.ram_max <= 8192.0 && s.vram_max > 0.0 && s.vram_max <= 6144.0;
@@ -2842,6 +2848,7 @@ impl App {
             }
         }
         // the shot's and the feel report's fields go in before the spikes
+        stages += &format!("\"job_us_after_load\":{job_us_after:.0},\"jobs_after_load\":{later},");
         let line = line.replacen("\"spikes\":", &format!("{}{}{}\"spikes\":", self.shot_json, self.feel(), stages), 1);
         println!("{}", line);
         if let Some(path) = a.0.get("out") {
@@ -3225,6 +3232,7 @@ fn main() {
         ts_frames: [0; TS_RING],
         gpu_end: None,
         seg_prev: [0.0; CPU_STAGES.len()],
+        jobs_at_load: (0.0, 0),
         mem: (sys::ram_mb(), sys::vram_mb()),
         drawn: Drawn::default(),
         bug_grab: false,
