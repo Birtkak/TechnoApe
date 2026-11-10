@@ -853,11 +853,35 @@ struct App {
     server_at: String,
     save_path: Option<String>,
     rec_path: Option<String>,
+    /// The title menu's saves as last listed, and the arguments the game starts again with when it closes
+    /// (a world picked, or back to the title).
+    worlds: Vec<String>,
+    next: Option<Vec<String>>,
 }
 
-/// The pause menu's pages (ADR 0023).
+/// What a start without arguments runs: the title menu over a throwaway world, seen from orbit.
+const TITLE_ARGS: [&str; 5] = ["run=play", "onscreen=1", "title=1", "save=0", "record=0"];
+/// shortcut: the title lists the newest six saves; a scrolling list when there are more.
+const WORLDS_SHOWN: usize = 6;
+
+/// The saves under saves/, newest first.
+fn list_worlds() -> Vec<String> {
+    let mut v: Vec<(std::time::SystemTime, String)> = std::fs::read_dir("saves")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "sav"))
+        .map(|e| (e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH), e.path().display().to_string().replace('\\', "/")))
+        .collect();
+    v.sort_by(|a, b| b.0.cmp(&a.0));
+    v.into_iter().take(WORLDS_SHOWN).map(|(_, p)| p).collect()
+}
+
+/// The menu's pages (ADR 0023): the title's, and the pause menu's.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Menu {
+    Title,
+    Worlds,
     Pause,
     Settings,
 }
@@ -1039,8 +1063,15 @@ impl App {
             "esc" => self.set_menu(match self.menu {
                 None => Some(Menu::Pause),
                 Some(Menu::Pause) => None,
-                Some(Menu::Settings) => Some(Menu::Pause),
+                Some(Menu::Settings) => Some(self.home()),
+                Some(Menu::Title | Menu::Worlds) => Some(Menu::Title),
             }),
+            // point:x:y puts the pointer there (pixels), to see a button lit
+            a if a.starts_with("point:") => {
+                if let Some((x, y)) = a[6..].split_once(':').and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?))) {
+                    self.pointer = (x, y);
+                }
+            }
             a if a.starts_with("click:") || a.starts_with("rclick:") => {
                 if let Some(k) = a.split(':').nth(1).and_then(|k| k.parse().ok()) {
                     self.menu_press(k, a.starts_with('r'));
@@ -1110,7 +1141,12 @@ impl App {
         let s = &self.settings;
         match self.menu {
             None => Vec::new(),
-            Some(Menu::Pause) => vec!["Back to game".into(), "Settings".into(), "Quit game".into()],
+            Some(Menu::Title) => vec!["Singleplayer".into(), "Settings".into(), "Quit game".into()],
+            Some(Menu::Worlds) => {
+                let names = self.worlds.iter().map(|p| p.trim_start_matches("saves/").trim_end_matches(".sav").to_string());
+                names.chain(["New world".into(), "Back".into()]).collect()
+            }
+            Some(Menu::Pause) => vec!["Back to game".into(), "Settings".into(), "Main menu".into(), "Quit game".into()],
             Some(Menu::Settings) => vec![
                 if s.display == "windowed fullscreen" { format!("Resolution: {}x{} (the screen's)", w(), h()) } else { format!("Resolution: {}x{}", s.width, s.height) },
                 format!("Display: {}", s.display),
@@ -1125,9 +1161,19 @@ impl App {
     /// Button `k` of the open page pressed (`back`: with the right button, a value goes the other way).
     fn menu_press(&mut self, k: usize, back: bool) {
         match (self.menu, k) {
+            (Some(Menu::Title), 0) => self.set_menu(Some(Menu::Worlds)),
+            (Some(Menu::Title) | Some(Menu::Pause), 1) => self.set_menu(Some(Menu::Settings)),
+            (Some(Menu::Title), 2) | (Some(Menu::Pause), 3) => self.finish(),
+            (Some(Menu::Worlds), k) if k < self.worlds.len() => self.start_again(vec![format!("save={}", self.worlds[k])]),
+            (Some(Menu::Worlds), k) if k == self.worlds.len() => {
+                // a new world: the first free saves/world-N.sav, a seed from the clock; the server makes the file
+                let n = (1..).find(|n| !std::path::Path::new(&format!("saves/world-{n}.sav")).exists()).unwrap();
+                let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() as i32 & 0x7fff_ffff);
+                self.start_again(vec![format!("save=saves/world-{n}.sav"), format!("seed={seed}")]);
+            }
+            (Some(Menu::Worlds), _) => self.set_menu(Some(Menu::Title)),
             (Some(Menu::Pause), 0) => self.set_menu(None),
-            (Some(Menu::Pause), 1) => self.set_menu(Some(Menu::Settings)),
-            (Some(Menu::Pause), 2) => self.finish(),
+            (Some(Menu::Pause), 2) => self.start_again(TITLE_ARGS[2..].iter().map(|s| s.to_string()).collect()),
             (Some(Menu::Settings), 0..=4) => {
                 let s = &mut self.settings;
                 match k {
@@ -1160,13 +1206,54 @@ impl App {
                     self.note(format!("the settings could not be saved to {}: {e}", self.settings_file));
                 }
             }
-            (Some(Menu::Settings), 5) => self.set_menu(Some(Menu::Pause)),
+            (Some(Menu::Settings), 5) => self.set_menu(Some(self.home())),
             _ => {}
         }
     }
 
+    /// The title menu's view: in orbit over the planet's sunlit limb, the planet filling the left half and the
+    /// sun to the right, drifting slowly around the line to the sun while the planet turns under it.
+    fn title_view(&self, t: f64) -> Pose {
+        let w = &self.world;
+        let (c, r) = (w.bodies[0].centre, w.bodies[0].radius);
+        let s = (w.from_inertial(0, w.sky.sun(w.time)) - c).normalize();
+        // just out of the air (it fades by 1.5 km up), the sun 100 degrees from the planet's centre as seen from
+        // here, so more than half the disc in view is lit
+        let q = DQuat::from_axis_angle(s, t * 0.01) * s.any_orthonormal_vector();
+        let (d, b) = (r + 1700.0, 100f64.to_radians());
+        let o = -(s * b.cos() + q * b.sin());
+        // the limb lies asin(r / d) off the centre's direction; the look a third of the way from it to the sun
+        let l = (r / d).asin();
+        let a = l + (b - l) * 0.35;
+        let e = (s + o * s.dot(o)).normalize(); // the sun's way, square to the centre's
+        let fwd = -o * a.cos() + e * a.sin();
+        // rolled 35 degrees: the planet low on the left, the sun high on the right
+        let up = DQuat::from_axis_angle(fwd, 35f64.to_radians()) * s.cross(fwd).normalize();
+        Pose { pos: c + o * d, fwd, up }
+    }
+
+    /// The page the settings go back to: the title's in the title menu, else the pause menu.
+    fn home(&self) -> Menu {
+        if self.args.get("title", 0) == 1 { Menu::Title } else { Menu::Pause }
+    }
+
+    /// Closes this world (the local server saves as it stops) and starts the game again with `more` after
+    /// play on screen: a fresh process per world, so nothing of the old one carries over.
+    fn start_again(&mut self, more: Vec<String>) {
+        let mut a: Vec<String> = TITLE_ARGS[..2].iter().map(|s| s.to_string()).collect();
+        a[1] = format!("onscreen={}", self.args.get("onscreen", 0));
+        // scripted checks keep their length and settings file in the next world too
+        a.extend(["seconds", "settings"].iter().filter_map(|k| self.args.0.get(*k).map(|v| format!("{k}={v}"))));
+        a.extend(more);
+        self.next = Some(a);
+        self.finish();
+    }
+
     /// Opens a menu page or closes the menu: the pointer is free while it is open.
     fn set_menu(&mut self, m: Option<Menu>) {
+        if m == Some(Menu::Worlds) {
+            self.worlds = list_worlds();
+        }
         self.menu = m;
         (self.held, self.mouse) = (None, (0.0, 0.0));
         self.keys.clear();
@@ -1527,7 +1614,9 @@ impl App {
             .map(|m| hud::Slot { colour: BLOCKS.get(m).unwrap().colour, count: (!self.creative).then(|| self.held_count(m)) })
             .collect();
         let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
-        let mut rects = hud::layer(w() as f32, h() as f32, &slots, self.slot, self.creative, height);
+        // the title menu shows the orbit view and itself only
+        let title = self.home() == Menu::Title;
+        let mut rects = if title { Vec::new() } else { hud::layer(w() as f32, h() as f32, &slots, self.slot, self.creative, height) };
         if self.world.water_surface(p.pos).is_some() {
             // under water: a blue veil first, under the HUD. shortcut: a veil, not fog, until the sky has fog
             rects.insert(0, hud::Rect { xy: [-1.0, -1.0, 1.0, 1.0], colour: [0.05, 0.25, 0.4, 0.55], glyph: 0 });
@@ -1541,7 +1630,9 @@ impl App {
         let lines: Vec<(f32, &str)> = self.chat.iter().map(|(at, l)| (at.elapsed().as_secs_f32(), l.as_str())).collect();
         let caret = self.start.elapsed().as_millis() / 400 % 2 == 0;
         let (at, hints) = engine::net::complete(self.typing.as_deref().unwrap_or(""));
-        hud::chat(&mut paint, &lines, self.typing.as_deref(), caret, at, &hints, self.pick);
+        if !title {
+            hud::chat(&mut paint, &lines, self.typing.as_deref(), caret, at, &hints, self.pick);
+        }
         if self.flying {
             let s = format!("Flying {:.0} m/s", self.fly_speed);
             // right of the hotbar (hud::layer: nine 44 px slots 6 px apart), clear of the chat
@@ -1552,6 +1643,8 @@ impl App {
         }
         if let Some(m) = self.menu {
             let (title, hint) = match m {
+                Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
+                Menu::Worlds => ("Singleplayer", "A world carries on from its save; a new one gets its own."),
                 Menu::Pause => ("Paused", "The world runs on. Esc goes back to the game."),
                 Menu::Settings => ("Settings", "Left click: the next value. Right click: the one before."),
             };
@@ -1667,6 +1760,7 @@ impl App {
         if self.run == "play" && self.loaded_at.is_some() {
             self.build(&p, t);
         }
+        let p = if self.home() == Menu::Title { self.title_view(t) } else { p };
         let vel = if dt > 0.0 && self.loaded_at.is_some() { (p.pos - self.last_pos) / dt } else { DVec3::ZERO };
         self.last_pos = p.pos;
 
@@ -2533,6 +2627,9 @@ impl ApplicationHandler for App {
         self.gi = Some(gi);
         self.start = Instant::now();
         self.last_frame = Instant::now();
+        if self.home() == Menu::Title {
+            self.set_menu(Some(Menu::Title));
+        }
     }
     fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, ev: WindowEvent) {
         match ev {
@@ -2654,9 +2751,9 @@ fn main() {
             .collect(),
     );
     if args.0.is_empty() {
-        // started without arguments (a double click, playtest/): play on screen, in the repository the exe sits
-        // in, so saves/ and bugs/ are the usual ones
-        args.0.extend([("run", "play"), ("onscreen", "1")].map(|(k, v)| (k.to_string(), v.to_string())));
+        // started without arguments (a double click, playtest/): the title menu on screen, in the repository the
+        // exe sits in, so saves/ and bugs/ are the usual ones
+        args.0.extend(TITLE_ARGS.iter().filter_map(|a| a.split_once('=')).map(|(k, v)| (k.to_string(), v.to_string())));
         let exe = std::env::current_exe().unwrap_or_default();
         if let Some(r) = exe.ancestors().skip(1).find(|d| d.join("Cargo.toml").exists() && d.join("crates").is_dir()) {
             let _ = std::env::set_current_dir(r);
@@ -2860,11 +2957,21 @@ fn main() {
         server_at,
         save_path,
         rec_path,
+        worlds: Vec::new(),
+        next: None,
     };
     el.run_app(&mut app).unwrap();
     // the local server saves as it stops
     if let Some((stop, thread)) = local_server {
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         let _ = thread.join();
+    }
+    // a world picked in the menu, or back to the title: the game again, once the old save is written
+    if let Some(next) = app.next.take() {
+        drop(app);
+        let exe = std::env::current_exe().expect("the game's own path");
+        if let Err(e) = std::process::Command::new(exe).args(&next).spawn() {
+            eprintln!("[technoape] could not start again with {next:?}: {e}");
+        }
     }
 }

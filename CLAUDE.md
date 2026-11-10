@@ -73,11 +73,11 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   1 km/s; F3 the overlay of
   numbers; F9 a bug report; Esc the menu: settings for resolution, display mode, field of view, mouse and
   detail, kept in `settings.txt`, ADR 0023). `acts="t:action,..."`
-  scripts those inputs off-screen (ADR 0017; `say:/time set noon`, `f3`, `f9`, `type:text`, `tab`, `enter`, `esc`, `click:1`, `C`/`c` the zoom;
+  scripts those inputs off-screen (ADR 0017; `say:/time set noon`, `f3`, `f9`, `type:text`, `tab`, `enter`, `esc`, `click:1`, `point:x:y`, `C`/`c` the zoom;
   `seconds=` ends a play run, `settings=out/x.txt` keeps the real settings out of it), and a
   filmstrip shows the result.
-- **Builds for the developer** (double-click; without arguments the game plays on screen in the repository's
-  folder, saves/ and bugs/): `bash tools/playtest.sh build` refreshes `build/TechnoApe.exe` after every change
+- **Builds for the developer** (double-click; without arguments the title menu opens on screen in the repository's
+  folder, saves/ and bugs/: Singleplayer lists the saves and makes new worlds): `bash tools/playtest.sh build` refreshes `build/TechnoApe.exe` after every change
   that can be run; `bash tools/playtest.sh` refreshes `playtest/TechnoApe.exe` only when handing a version over
   to play-test. `target/` is Claude's own.
 - **Bug reports:** F9 writes `bugs/<UTC time>/`: `report.md` (the developer's words, a run=stand line for the

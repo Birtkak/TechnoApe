@@ -19,8 +19,18 @@ having been there. The HUD so far drew rectangles and a 3 x 5 digit font only.
    of the save.
 
 ## Decision
-- **Font:** font8x8's basic set, put into `overlay.wgsl` as `FONT` at start (`hud::font_wgsl`). Glyphs 32 to
-  126 of a `Rect` are ASCII characters; text is drawn two pixels a font pixel with a shadow.
+- **Font:** the game's own, `data/font.txt` (2026-11-10; it was font8x8's basic set before): squared
+  capitals 5 x 7, the round ones with their top-left corner cut, lowercase as small capitals (the capital
+  without rows 1 and 4, on the baseline) unless the file draws one. `hud::font_cells` reads it into 8 x 8
+  cells and `hud::font_wgsl` puts them into `overlay.wgsl` as `FONT` at start; a test checks every
+  printable character is drawn. Glyphs 32 to 126 of a `Rect` are ASCII characters; text is drawn two pixels
+  a font pixel with a shadow (`Paint::text_flat` without, for dark text on a light box).
+- **The menus' look (HUD brackets, the developer's pick of three):** a shade down the left that fades out,
+  the page's title large in capitals by a cyan bar with a readout under it, and a numbered list ("01
+  Singleplayer"); the button under the pointer is a solid cyan box in corner brackets with dark text. The
+  bug form is a dark panel with cyan corner brackets. The title page shows the logo instead of a title:
+  TECHNOAPE from the font at 12 px a dot, white over cyan in the lower three rows with a navy shadow, the O
+  a planet lit from the upper right with a tilted orbit and a moon (`hud::logo`).
 - **Chat:** `ToServer::Chat(String)` and `ToClient::Chat(String)`. The server passes a line to everyone as
   `<name> text`, says when a player joins or leaves, and runs a line that starts with `/` as a command,
   answering its sender alone. Lines are cut to 256 characters, control characters dropped.
@@ -39,7 +49,7 @@ having been there. The HUD so far drew rectangles and a 3 x 5 digit font only.
   physics: no gravity, the box still collides, no step-up. The server zeroes `fly` for survival players.
 - **Teleports** move the player at rest (`Server::put`); the client takes a correction of 2 m or more as one
   and looks the server's way, level.
-- **Esc menu (play):** the game darkens under "Paused": Back to game, Settings, Quit game; the pointer is
+- **Esc menu (play):** the game darkens under "Paused": Back to game, Settings, Main menu, Quit game; the pointer is
   free while it is open and the world runs on. Settings: resolution (those that fit the screen; for
   exclusive fullscreen those it can switch to), display (windowed with a title bar, windowed fullscreen:
   borderless at the screen's size, fullscreen: exclusive at the chosen size, borderless when the screen has
@@ -48,6 +58,16 @@ having been there. The HUD so far drew rectangles and a 3 x 5 digit font only.
   `settings.txt` (key=value lines; `settings=` names another). Only play reads it, so benchmarks and views
   keep the defaults. A new size remakes the surface, depth, capture buffer and the bounce light's targets
   (`App::resize`). Scripted: `esc`, `click:k`, `rclick:k`.
+- **Title menu:** a start without arguments (a double click) opens "TechnoApe": Singleplayer, Settings,
+  Quit game, over a throwaway world (`title=1 save=0 record=0`) seen from orbit (`App::title_view`): 1.7 km up, just
+  out of the air, the sun 100 degrees from the planet's centre so most of the disc in view is lit, the view
+  rolled so the planet's limb runs low on the left and the sun stands high in the middle, drifting around
+  the line to the sun. The HUD and chat are hidden under it. Singleplayer lists the
+  newest six saves under saves/ by name, New world (the first free `saves/world-N.sav`, a seed from the
+  clock) and Back. Picking one closes this world (the local server saves as it stops) and starts the game
+  again as `run=play onscreen=1 save=<file>`; the pause menu's Main menu goes back to the title the same
+  way. A fresh process per world, so no state of the old world (chunks, traced builds, the prediction)
+  has to be torn down by hand; the cost is the window closing and opening again.
 - **F3:** two columns of the client's state: build, frame and GPU times, position on the body, the block at
   the feet and the aimed one, the clock, the sun and moon, mode and tool, chunks, quads, lamps, players;
   the GPU, backend, RAM and VRAM, workers, seed and sizes, server, save and recording.
@@ -56,12 +76,13 @@ having been there. The HUD so far drew rectangles and a 3 x 5 digit font only.
   lines, the inventory, the last 50 chat lines, the arguments), `screen.png` at full size, and `world.sav`, a
   copy of the save when there is one. The commit comes from build.rs (`+changes` when tracked files differ).
 - Scripted inputs (`acts=`) reach all of it: `t`, `/`, `type:text`, `back`, `enter`, `cancel`, `say:text`,
-  `f3`, `f9`, `space`, `fly`, `up`, `down`, `earlier`, `later`, `tab`, `C`/`c`, `warp+`/`warp-`, `esc`, `click:k`. Bots have `say <text>` and print what they receive as `{"bot":..,"chat":..}`.
+  `f3`, `f9`, `space`, `fly`, `up`, `down`, `earlier`, `later`, `tab`, `C`/`c`, `warp+`/`warp-`, `esc`, `click:k`, `point:x:y` (the pointer, to see a button lit). Bots have `say <text>` and print what they receive as `{"bot":..,"chat":..}`.
 
 ## Consequences
 - Reports are where to look first for a bug the developer saw; `bugs/` is not in git.
 - shortcut: every player may run every command; an operator role when servers go public.
 - shortcut: no cursor movement inside a line, ASCII only.
+- shortcut: the title lists six saves, no scrolling, renaming or deleting; those when there are many worlds.
 - shortcut: the menu's text and buttons keep their pixel size at every resolution; a UI scale setting when
   4K screens look small.
 - The streamer counts a child chunk that itself splits as resolved when it decides whether a coarse chunk
