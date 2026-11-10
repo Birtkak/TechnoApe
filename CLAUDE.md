@@ -65,6 +65,9 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   runs windowless players on the protocol (commands: spawn, walk, wait, dig, place, block, report, quit;
   `script=-` takes them live from stdin). Output is one JSON line per report or block. Use bots, not a second
   windowed client, for multiplayer checks: two windows on one PC throttle each other (ADR 0006).
+- Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block, right click places one;
+  H the build hammer, Q its shape, wheel its height; C creative; 1-9 the hotbar). `acts="t:action,..."`
+  scripts those inputs off-screen (ADR 0017), and a filmstrip shows the result.
 - To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet;
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
 - **The gate:** `bash tools/check.sh` (about 1.5 min: tests, a soak, its replay, the quick benchmark) prints

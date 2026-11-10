@@ -1,12 +1,13 @@
 //! The TechnoApe client: window, renderer and the benchmark runs (docs/plans/roadmap.md, "The shared benchmark").
+mod hud;
 mod sys;
 
 use engine::blocks::{AIR, BLOCKS};
-use engine::edit::{Predictor, Shape};
+use engine::edit::{self, Kind, Predictor, Shape, Tool};
 use engine::net::{self, Link, Recv, ToClient, ToServer, TICK_HZ};
 use engine::phys::{self, Input};
 use engine::stream::{DrawChunk, FrameStats, Opts, Streamer, View};
-use engine::world::World;
+use engine::world::{Block, World};
 use server::Server;
 use glam::{DQuat, DVec3, Mat4, Vec3, Vec4};
 use std::collections::HashMap;
@@ -14,7 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, WindowEvent};
+use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{CursorGrabMode, Window, WindowId};
@@ -164,6 +165,11 @@ struct Gpu {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    /// The overlays (ADR 0017): ghost lines and the 2D layer, with their vertex and rectangle buffers.
+    ghost_pipeline: wgpu::RenderPipeline,
+    ghost_buf: wgpu::Buffer,
+    ui_pipeline: wgpu::RenderPipeline,
+    ui_buf: wgpu::Buffer,
     bind: wgpu::BindGroup,
     globals: wgpu::Buffer,
     quads: wgpu::Buffer,
@@ -330,6 +336,53 @@ impl Gpu {
             multiview_mask: None,
             cache: None,
         });
+        let overlay = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("overlay"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("overlay.wgsl").into()),
+        });
+        // drawn over everything: no depth test, no depth write, blended
+        let over = |label, vs, fs, buffer: wgpu::VertexBufferLayout, topology| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState { module: &overlay, entry_point: Some(vs), buffers: &[Some(buffer)], compilation_options: Default::default() },
+                fragment: Some(wgpu::FragmentState {
+                    module: &overlay,
+                    entry_point: Some(fs),
+                    targets: &[Some(wgpu::ColorTargetState { format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState { topology, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let ghost_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Uint32, 2 => Unorm8x4];
+        let ghost_pipeline = over(
+            "ghost",
+            "ghost_vs",
+            "ghost_fs",
+            wgpu::VertexBufferLayout { array_stride: 20, step_mode: wgpu::VertexStepMode::Vertex, attributes: &ghost_attrs },
+            wgpu::PrimitiveTopology::LineList,
+        );
+        let ui_attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Uint32];
+        let ui_pipeline = over(
+            "ui",
+            "ui_vs",
+            "ui_fs",
+            wgpu::VertexBufferLayout { array_stride: 36, step_mode: wgpu::VertexStepMode::Instance, attributes: &ui_attrs },
+            wgpu::PrimitiveTopology::TriangleList,
+        );
+        let ghost_buf = buf("ghost", (hud::GHOST_MAX * 20) as u64, U::VERTEX | U::COPY_DST);
+        let ui_buf = buf("ui", (hud::RECTS_MAX * 36) as u64, U::VERTEX | U::COPY_DST);
         let depth = device
             .create_texture(&wgpu::TextureDescriptor {
                 label: None,
@@ -361,6 +414,10 @@ impl Gpu {
             surface,
             config,
             pipeline,
+            ghost_pipeline,
+            ghost_buf,
+            ui_pipeline,
+            ui_buf,
             bind,
             globals,
             quads,
@@ -409,6 +466,28 @@ fn pct(v: &mut Vec<f32>, p: f64) -> f32 {
     v[((v.len() - 1) as f64 * p).round() as usize]
 }
 
+/// How far run=play aims a dig or place: half the server's reach, the distance a hand-held tool feels right at.
+const AIM_REACH: f64 = 8.0;
+const DIGITS: [KeyCode; 9] = [
+    KeyCode::Digit1,
+    KeyCode::Digit2,
+    KeyCode::Digit3,
+    KeyCode::Digit4,
+    KeyCode::Digit5,
+    KeyCode::Digit6,
+    KeyCode::Digit7,
+    KeyCode::Digit8,
+    KeyCode::Digit9,
+];
+
+/// acts="2:c,3:R,3.5:r": (seconds after load, action), sorted so the soonest is last.
+fn parse_acts(s: &str) -> Vec<(f64, String)> {
+    let mut v: Vec<(f64, String)> =
+        s.split(',').filter_map(|e| e.trim().split_once(':')).filter_map(|(t, a)| Some((t.parse().ok()?, a.to_string()))).collect();
+    v.sort_by(|a, b| b.0.total_cmp(&a.0));
+    v
+}
+
 struct App {
     args: Args,
     gpu: Option<Gpu>,
@@ -445,6 +524,24 @@ struct App {
     edits_done: u64,
     /// This client's edits in flight (ADR 0015).
     pred: Predictor,
+    /// run=play building (ADR 0017): the hammer's tool, the aimed block and the cell before it, the button
+    /// held (dig or not) with where it was pressed and where the drag is now, the hotbar slot.
+    tool: Tool,
+    /// The build hammer is in hand. shortcut: a key takes it up until items exist; the server does not yet
+    /// check that a shape comes from a hammer.
+    hammer: bool,
+    aim: Option<(Block, Block)>,
+    held: Option<(bool, Block, Block)>,
+    slot: usize,
+    creative: bool,
+    inv: Vec<(u8, u32)>,
+    /// What the overlay buffers hold: the ghost's shape and colour, its vertex count, the rectangle count.
+    ghost_of: Option<(Shape, [u8; 4])>,
+    ghost_n: u32,
+    ui_n: u32,
+    /// acts=: scripted input for checks without hands, as (seconds after load, action), soonest last.
+    acts: Vec<(f64, String)>,
+    title: String,
     last_pos: DVec3,
     sheet: Vec<image::RgbaImage>,
     next_cap: f64,
@@ -453,6 +550,160 @@ struct App {
 }
 
 impl App {
+    /// One input of run=play's building, from the keyboard and mouse or from acts=: L/R press and l/r release
+    /// the dig and place buttons, h takes up or puts away the build hammer, q cycles its box, cylinder and
+    /// cone, up/down change a cylinder's or cone's height, c switches creative, 1-9 pick a hotbar slot,
+    /// m:dx:dy turns the look.
+    fn act(&mut self, a: &str) {
+        match a {
+            "L" | "R" => {
+                let dig = a == "L";
+                if let Some(at) = self.aim.map(|(hit, before)| self.anchor(hit, before, dig)) {
+                    self.held = Some((dig, at, at));
+                }
+            }
+            "l" | "r" => {
+                if let Some((dig, at, end)) = self.held.take().filter(|h| h.0 == (a == "l")) {
+                    if let Some(s) = self.shape(dig, at, end) {
+                        self.apply(&s, dig);
+                    }
+                }
+            }
+            "q" => {
+                self.tool.kind = match self.tool.kind {
+                    Kind::Box => Kind::Cylinder,
+                    Kind::Cylinder => Kind::Cone,
+                    Kind::Cone => Kind::Box,
+                }
+            }
+            "c" => self.link.send(ToServer::Creative(!self.creative)),
+            "up" | "down" => {
+                self.tool.height = (self.tool.height + if a == "up" { 1 } else { -1 }).clamp(1, edit::MAX_SIDE);
+            }
+            "h" => self.hammer = !self.hammer,
+            _ => {
+                if let Ok(d) = a.parse::<usize>() {
+                    self.slot = d.clamp(1, 9) - 1;
+                } else if let Some((x, y)) = a.strip_prefix("m:").and_then(|r| r.split_once(':')) {
+                    self.mouse.0 += x.parse().unwrap_or(0.0);
+                    self.mouse.1 += y.parse().unwrap_or(0.0);
+                } else {
+                    eprintln!("[technoape] unknown act {a:?}");
+                }
+            }
+        }
+    }
+
+    /// Where a press starts: digging takes the aimed block, placing the cell in front of it.
+    fn anchor(&self, hit: Block, before: Block, dig: bool) -> Block {
+        if dig { hit } else { before }
+    }
+
+    /// What a press at `at` released at `end` does (ADR 0017): bare hands dig and place one block where the
+    /// release is; the build hammer places the tool's shape over the drag. shortcut: digging stays one block
+    /// until mining tools come.
+    fn shape(&self, dig: bool, at: Block, end: Block) -> Option<Shape> {
+        if dig || !self.hammer {
+            return Some(Shape::one(end));
+        }
+        self.tool.shape(&self.world, at, end, false)
+    }
+
+    /// The hotbar: every placeable block in id order.
+    fn slot_block(&self, k: usize) -> Option<u8> {
+        BLOCKS.placeable().nth(k).map(|d| d.id)
+    }
+
+    fn held_count(&self, m: u8) -> u32 {
+        self.inv.iter().find(|(id, _)| *id == m).map_or(0, |(_, n)| *n)
+    }
+
+    /// Digs or places a shape: predicted here at once (ADR 0015), sent to the server. A survival place this
+    /// player cannot pay for is not sent, so it never flickers in and out.
+    fn apply(&mut self, s: &Shape, dig: bool) {
+        let m = if dig {
+            AIR
+        } else {
+            match self.slot_block(self.slot) {
+                Some(m) => m,
+                None => return,
+            }
+        };
+        if !s.fits(&self.world) {
+            return;
+        }
+        if !dig && !self.creative {
+            let me = &self.me;
+            let need = edit::changes(&self.world, s, m, |c| phys::holds(&self.world, me, c)).len() as u32;
+            if need > self.held_count(m) {
+                return;
+            }
+        }
+        let me = &self.me;
+        let (seq, cells) = self.pred.edit(&mut self.world, s, m, |w, c| phys::holds(w, me, c));
+        for c in cells {
+            self.streamer.touch_block(&self.world, c);
+        }
+        self.link.send(ToServer::Edit { seq, shape: *s, material: m });
+    }
+
+    /// Each frame of run=play: scripted acts that are due, the aim, the ghost and the 2D layer.
+    fn build(&mut self, p: &Pose, t: f64) {
+        while self.acts.last().is_some_and(|(at, _)| *at <= t) {
+            let (_, a) = self.acts.pop().unwrap();
+            self.act(&a);
+        }
+        self.aim = edit::aim(&self.world, p.pos, p.fwd, AIM_REACH);
+        // the ghost: red what a held dig takes, green what a held place fills; when nothing is held, white
+        // around the aimed block, or with the hammer where its shape would go
+        let ghost = match (self.held, self.aim) {
+            (Some((dig, at, _)), Some((hit, before))) => {
+                let end = self.anchor(hit, before, dig);
+                self.held = Some((dig, at, end));
+                self.shape(dig, at, end).map(|s| (s, dig, true))
+            }
+            (Some((dig, at, end)), None) => self.shape(dig, at, end).map(|s| (s, dig, true)),
+            (None, Some((_, before))) if self.hammer => self.shape(false, before, before).map(|s| (s, false, false)),
+            (None, Some((hit, _))) => Some((Shape::one(hit), true, false)),
+            (None, None) => None,
+        };
+        let ghost = ghost.filter(|(s, ..)| s.fits(&self.world)).map(|(s, dig, held)| {
+            let colour = match (held, dig) {
+                (false, _) => [255, 255, 255, 150],
+                (true, true) => [255, 90, 60, 230],
+                (true, false) => [110, 255, 120, 230],
+            };
+            (s, colour)
+        });
+        let gpu = self.gpu.as_ref().unwrap();
+        if ghost != self.ghost_of {
+            let verts = ghost.map(|(s, c)| hud::ghost(&self.world, &s, c)).unwrap_or_default();
+            gpu.queue.write_buffer(&gpu.ghost_buf, 0, bytemuck::cast_slice(&verts));
+            (self.ghost_n, self.ghost_of) = (verts.len() as u32, ghost);
+        }
+        let slots: Vec<hud::Slot> = (0..9)
+            .filter_map(|k| self.slot_block(k))
+            .map(|m| hud::Slot { colour: BLOCKS.get(m).unwrap().colour, count: (!self.creative).then(|| self.held_count(m)) })
+            .collect();
+        let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
+        let rects = hud::layer(W as f32, H as f32, &slots, self.slot, self.creative, height);
+        let n = rects.len().min(hud::RECTS_MAX);
+        gpu.queue.write_buffer(&gpu.ui_buf, 0, bytemuck::cast_slice(&rects[..n]));
+        self.ui_n = n as u32;
+        // shortcut: the tool and mode as words in the window title, until the HUD has text
+        let block = self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)).map_or("-".to_string(), |d| d.name.clone());
+        let tool = match (self.hammer, self.tool.kind) {
+            (false, _) => "hands".to_string(),
+            (true, Kind::Box) => "build hammer: box".to_string(),
+            (true, k) => format!("build hammer: {} {} high", format!("{k:?}").to_lowercase(), self.tool.height),
+        };
+        let title = format!("TechnoApe | {} | {tool} | {block}", if self.creative { "creative" } else { "survival" });
+        if title != self.title {
+            gpu.window.set_title(&title);
+            self.title = title;
+        }
+    }
+
     fn frame(&mut self) {
         let a = &self.args;
         // length= scales a run (the benchmark uses 0.5); quick=1 is 0.25, for iterating, never a final number
@@ -505,6 +756,9 @@ impl App {
         } else {
             pose(&self.run, t, &self.world, speed, alt, warm, q, a)
         };
+        if self.run == "play" && self.loaded_at.is_some() {
+            self.build(&p, t);
+        }
         let vel = if dt > 0.0 && self.loaded_at.is_some() { (p.pos - self.last_pos) / dt } else { DVec3::ZERO };
         self.last_pos = p.pos;
 
@@ -542,8 +796,8 @@ impl App {
                         }
                     }
                 }
-                // shortcut: the inventory is not shown yet; the hotbar will
-                Recv::Msg(ToClient::Welcome { .. } | ToClient::Inventory { .. }) => {}
+                Recv::Msg(ToClient::Inventory { creative, counts }) => (self.creative, self.inv) = (creative, counts),
+                Recv::Msg(ToClient::Welcome { .. }) => {}
                 Recv::Empty => break,
                 Recv::Closed => {
                     eprintln!("[technoape] the server closed the connection");
@@ -564,7 +818,7 @@ impl App {
 
         // edits: 2000 toggles/s within 10 m of the feet, sent to the server; they count when its delta is back
         if self.run == "edit" && self.loaded_at.is_some() {
-            let rate: f64 = a.get("edit_rate", 2000.0);
+            let rate: f64 = self.args.get("edit_rate", 2000.0);
             let target = (t * rate) as u64;
             let feet = p.pos - p.up * 1.7;
             while self.edits_done < target {
@@ -739,6 +993,16 @@ impl App {
                 for d in &args {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
+            }
+            if self.ghost_n > 0 {
+                rp.set_pipeline(&gpu.ghost_pipeline);
+                rp.set_vertex_buffer(0, gpu.ghost_buf.slice(..));
+                rp.draw(0..self.ghost_n, 0..1);
+            }
+            if self.ui_n > 0 {
+                rp.set_pipeline(&gpu.ui_pipeline);
+                rp.set_vertex_buffer(0, gpu.ui_buf.slice(..));
+                rp.draw(0..6, 0..self.ui_n);
             }
         }
         if let (Some(i), Some((qs, resolve, ring))) = (ts_use, &gpu.ts) {
@@ -985,9 +1249,35 @@ impl ApplicationHandler for App {
                     self.finish();
                     el.exit();
                 } else if state == ElementState::Pressed {
+                    let key = match code {
+                        KeyCode::KeyQ => Some("q".to_string()),
+                        KeyCode::KeyH => Some("h".to_string()),
+                        KeyCode::KeyC => Some("c".to_string()),
+                        _ => (1..=9).find(|d| code == DIGITS[d - 1]).map(|d| d.to_string()),
+                    };
+                    if let (Some(k), false) = (key, self.keys.contains(&code)) {
+                        self.act(&k);
+                    }
                     self.keys.insert(code);
                 } else {
                     self.keys.remove(&code);
+                }
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                let k = match button {
+                    MouseButton::Left => "L",
+                    MouseButton::Right => "R",
+                    _ => return,
+                };
+                self.act(&if state == ElementState::Pressed { k.to_string() } else { k.to_lowercase() });
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let y = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y as f64,
+                    MouseScrollDelta::PixelDelta(p) => p.y / 40.0,
+                };
+                if y != 0.0 {
+                    self.act(if y > 0.0 { "up" } else { "down" });
                 }
             }
             _ => {}
@@ -1099,6 +1389,7 @@ fn main() {
     let streamer = Streamer::new(&world, cap, opts);
     let el = EventLoop::new().unwrap();
     el.set_control_flow(ControlFlow::Poll);
+    let (acts, creative) = (parse_acts(&args.s("acts", "")), run != "play");
     let mut app = App {
         args,
         gpu: None,
@@ -1129,6 +1420,18 @@ fn main() {
         rng: 0x9E3779B97F4A7C15,
         edits_done: 0,
         pred: Predictor::default(),
+        tool: Tool { kind: Kind::Box, single: true, height: 8 },
+        hammer: false,
+        aim: None,
+        held: None,
+        slot: 0,
+        creative,
+        inv: Vec::new(),
+        ghost_of: None,
+        ghost_n: 0,
+        ui_n: 0,
+        acts,
+        title: String::new(),
         last_pos: DVec3::ZERO,
         sheet: Vec::new(),
         next_cap: 0.0,

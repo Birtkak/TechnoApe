@@ -25,10 +25,28 @@ Each of the four, and for the plain dig, a round brush with a radius or ADR 0008
 - **Blueprints: yes.** Capture a volume, name it and paste it elsewhere, with materials paid from storage.
   This comes after the first playable, once there is storage to pay from.
 - **Terrain sculpting: no.** Digging stays block-based.
-- **The plain dig keeps ADR 0008's 1 m cube** (2 x 2 x 2 blocks on the 1 m grid), with Shift for single
-  blocks.
+- ~~The plain dig keeps ADR 0008's 1 m cube~~ **Revised the same day:** bare hands dig and place single
+  0.5 m blocks. The good building options belong to a **build hammer**, and better mining comes with later
+  mining tools. The 1 m brush stays in the engine (`edit::brush`) for those tools.
+
+## How it plays (first version, on the playtest to-test list)
+- **Bare hands:** left click digs the aimed block, right click places the hotbar's block in front of it.
+  A white outline marks the aimed block.
+- **Build hammer** (H, until items exist): right-drag places the tool's shape, and Q cycles box, cylinder
+  and cone.
+  - A box spans the drag (a line, wall or floor).
+  - A cylinder or cone is centred where the press was, with the drag as its radius. The mouse wheel sets
+    its height in blocks (8 by default), and it grows up from the ground.
+  - A white ghost shows where the shape would go, and a green ghost shows the shape while dragging.
+  - Digging stays one block, even with the hammer.
+- **Aim:** 8 m. **HUD:**
+  - nine slots, held counts in survival, a gold strip in creative (C switches modes)
+  - the height beside the hotbar for cylinders and cones
+  - the mode and tool in the window title until the HUD has text
+- `acts=` scripts the same inputs for checks without hands, e.g. `acts="1:c,2:h,2.2:q,3:R,3.1:m:-200:0,4:r"`.
 
 ## Consequences
+- The server accepts any shape from anyone, like the creative switch. It checks for a hammer once items exist.
 - `Shape` gains a kind next to its bounding box. The server's whole-shape checks and the client's prediction
   stay as they are, because both ask the shared rule which cells a shape covers.
 - The block registry gets loose and support properties when the physics system comes. Until then, ids and

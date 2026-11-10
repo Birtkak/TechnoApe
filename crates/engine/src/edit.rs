@@ -3,7 +3,7 @@
 //! applies it and the client predicts with it.
 use crate::blocks::{AIR, BLOCKS};
 use crate::world::{Block, World};
-use glam::IVec3;
+use glam::{DVec3, IVec3};
 use serde::{Deserialize, Serialize};
 
 /// The longest side of a shape, in blocks: 16 m, the reach.
@@ -95,6 +95,68 @@ pub fn changes(world: &World, shape: &Shape, m: u8, keep_clear: impl Fn(Block) -
             does.then_some((b, old))
         })
         .collect()
+}
+
+/// The plain dig and place (ADR 0008): the 2 x 2 x 2 blocks of the 1 m grid around `b`, kept on its face.
+pub fn brush(world: &World, b: Block) -> Shape {
+    let body = &world.bodies[b.body as usize];
+    let min = b.pos.div_euclid(IVec3::splat(2)) * 2;
+    let max = (min + 1).min(IVec3::new(body.n - 1, body.n - 1, body.layers - 1));
+    Shape { min: min.max(IVec3::ZERO), max, ..Shape::one(b) }
+}
+
+/// What the player builds with (ADR 0017): a kind, the brush or (`single`) one block at each end of a drag,
+/// and for cylinders and cones a height in layers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tool {
+    pub kind: Kind,
+    pub single: bool,
+    pub height: i32,
+}
+
+impl Tool {
+    /// The shape of a press at `a` dragged to `b` (the same block for a click). A box spans both ends; a
+    /// cylinder or cone is centred on `a` with the drag as its radius and the tool's height, growing up from
+    /// the ground when placing and down into it when digging. `None` across a face edge.
+    pub fn shape(&self, world: &World, a: Block, b: Block, dig: bool) -> Option<Shape> {
+        let end = |c: Block| if self.single { Shape::one(c) } else { brush(world, c) };
+        let (ea, eb) = (end(a), end(b));
+        if (ea.body, ea.face) != (eb.body, eb.face) {
+            return None;
+        }
+        let mut s = Shape { min: ea.min.min(eb.min), max: ea.max.max(eb.max), kind: self.kind, ..ea };
+        if self.kind != Kind::Box {
+            let d = (b.pos - a.pos).abs();
+            let r = IVec3::new(d.x.max(d.y), d.x.max(d.y), 0);
+            (s.min, s.max) = (ea.min - r, ea.max + r);
+            if dig {
+                s.min.z = s.max.z - (self.height - 1);
+            } else {
+                s.max.z = s.min.z + (self.height - 1);
+            }
+        }
+        Some(s)
+    }
+}
+
+/// The first solid block along the ray from `eye` in direction `dir` within `reach` metres, and the block the
+/// ray was in just before it (where a place goes).
+pub fn aim(world: &World, eye: DVec3, dir: DVec3, reach: f64) -> Option<(Block, Block)> {
+    // shortcut: fixed 5 cm steps instead of an exact grid walk; a corner clipped by under 5 cm can be missed
+    let mut prev = world.block_at(eye);
+    let mut t = 0.0;
+    while t < reach {
+        t += 0.05;
+        let b = world.block_at(eye + dir * t);
+        if b == prev {
+            continue;
+        }
+        if b.pos.z >= 0 && BLOCKS.solid(world.block(b)) {
+            return Some((b, prev));
+        }
+        prev = b;
+    }
+    None
 }
 
 /// The client's side of an edit (ADR 0015): it shows the edit at once and puts back, when the server answers,
@@ -270,6 +332,38 @@ mod tests {
         }
         p.done(&mut cli, s5);
         assert_eq!((cli.chunk_hashes(), cli.edit_count, p.pending()), (srv.chunk_hashes(), srv.edit_count, 0));
+    }
+
+    #[test]
+    fn the_brush_is_the_1m_cell_and_tools_shape_drags() {
+        let w = World::new(256, 32, 1);
+        let at = |i, j, l| Block { body: 0, face: 4, pos: IVec3::new(i, j, l) };
+        let b = brush(&w, at(5, 6, 9));
+        assert_eq!((b.min, b.max), (IVec3::new(4, 6, 8), IVec3::new(5, 7, 9)));
+        assert_eq!(brush(&w, at(4, 7, 8)), b, "every block of a 1 m cell gives that cell");
+        let wall = Tool { kind: Kind::Box, single: false, height: 8 }.shape(&w, at(5, 6, 9), at(14, 6, 13), false).unwrap();
+        assert_eq!((wall.min, wall.max), (IVec3::new(4, 6, 8), IVec3::new(15, 7, 13)));
+        let one = Tool { kind: Kind::Box, single: true, height: 8 };
+        assert_eq!(one.shape(&w, at(5, 6, 9), at(5, 6, 9), true).unwrap(), Shape::one(at(5, 6, 9)));
+        let tower = Tool { kind: Kind::Cylinder, single: false, height: 8 };
+        // centred on the press, the drag is the radius whichever way it goes
+        let up = tower.shape(&w, at(20, 20, 10), at(24, 21, 10), false).unwrap();
+        assert_eq!((up.min, up.max, up.kind), (IVec3::new(16, 16, 10), IVec3::new(25, 25, 17), Kind::Cylinder));
+        let down = tower.shape(&w, at(20, 20, 10), at(20, 16, 10), true).unwrap();
+        assert_eq!((down.min, down.max), (IVec3::new(16, 16, 4), IVec3::new(25, 25, 11)), "a dug shaft goes down");
+        let thin = Tool { single: true, ..tower }.shape(&w, at(20, 20, 10), at(17, 20, 10), false).unwrap();
+        assert_eq!((thin.min, thin.max), (IVec3::new(17, 17, 10), IVec3::new(23, 23, 17)), "radius 3 around one block");
+        assert!(tower.shape(&w, at(20, 20, 10), Block { face: 3, ..at(20, 20, 10) }, false).is_none());
+    }
+
+    #[test]
+    fn aim_finds_the_ground_and_the_cell_before_it() {
+        let w = World::new(256, 32, 1);
+        let ground = w.bodies[0].centre + glam::DVec3::Z * w.bodies[0].height(glam::DVec3::Z);
+        let (hit, before) = aim(&w, ground + glam::DVec3::Z * 1.6, -glam::DVec3::Z, 8.0).unwrap();
+        assert!(BLOCKS.solid(w.block(hit)) && !BLOCKS.solid(w.block(before)));
+        assert_eq!((hit.pos.x, hit.pos.y, hit.pos.z + 1), (before.pos.x, before.pos.y, before.pos.z));
+        assert!(aim(&w, ground + glam::DVec3::Z * 1.6, glam::DVec3::Z, 8.0).is_none(), "nothing in the sky");
     }
 
     /// The block just under the surface at the planet's +z pole.

@@ -40,11 +40,11 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      `tools/check.sh`. Its first runs moved collision into grid space (ADR 0007, revised);
    - ~~cheap speed levers and a `huge` row~~ done 2026-11-10 (ADR 0012): a column cache in the physics, Fx
      for edits, mimalloc, low-priority workers; the soak 2.8x faster, the 4 km planet holds ADR 0004;
-   - dig and place blocks **as brushes and dragged shapes, predicted on the client** (ADR 0008); a block
+   - ~~dig and place blocks **as brushes and dragged shapes, predicted on the client** (ADR 0008)~~; a block
      registry from data instead of `MATERIALS`; saves of only what changed. Done so far (2026-11-10): the
      registry (ADR 0013), box edits with a survival inventory (ADR 0014), prediction (ADR 0015), saves
-     (ADR 0016). Left: **shape tools like Lay of the Land** (ADR 0017: box, cylinder, cone, with a ghost and a
-     hotbar) on top of the 1 m brush;
+     (ADR 0016), single-block hands and a **build hammer** with Lay of the Land's shapes (ADR 0017: box,
+     cylinder, cone, with a ghost and a hotbar). Done 2026-11-10; mining tools come later;
    - **test harness II** with the first visuals that can break: fixed viewpoints compared by number, the
      crack detector, the feel report;
    - water as fill levels, with fine 12.5 cm splashes near the player; the total volume is counted from the
