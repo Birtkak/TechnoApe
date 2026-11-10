@@ -80,28 +80,100 @@ const CPU_STAGES: [&str; 15] =
 const MAX_BODIES: usize = 4; // the size of `bodies` in shader.wgsl
 /// The full moon's light, a quarter of the sun's direct light and bluish: night stays readable (ADR 0022).
 const MOON_LIGHT: Vec3 = Vec3::new(0.12, 0.14, 0.18);
-/// The lamps the GPU holds: the nearest to the camera within LAMP_REACH metres (ADR 0022).
-const MAX_LAMPS: usize = 64;
+/// The lamps the GPU holds: the nearest to the camera within LAMP_REACH metres (ADR 0022; 1024 since ADR 0025, H).
+const MAX_LAMPS: usize = 1024;
 const LAMP_REACH: f64 = 48.0;
+/// The lamp grid (ADR 0025, H): LAMP_G^3 cells of LAMP_CELL metres in the camera's frame, the camera in the
+/// middle, each a range into a list of the lamps that reach it: LAMP_R (as in shader.wgsl) or nearer, so a lamp
+/// is listed in at most 5^3 cells.
+const LAMP_G: usize = 32;
+const LAMP_CELL: f32 = 4.0;
+const LAMP_R: f32 = 8.0;
+const LAMP_GRID_LEN: usize = LAMP_G * LAMP_G * LAMP_G + 1 + MAX_LAMPS * 125;
 
 /// The blocks that give light within LAMP_REACH of the camera, nearest first: (body, middle, light).
 /// `cams` is the camera in each body's coordinates.
 fn gather_lamps(w: &World, cams: &[DVec3]) -> Vec<(u8, DVec3, [f32; 3])> {
-    let mut out: Vec<(f64, u8, DVec3, [f32; 3])> = Vec::new();
-    for (k, cells) in &w.edits {
-        let cam = cams[k.body as usize];
-        let bd = w.bodies[k.body as usize].bounds(*k);
-        if (bd.c - cam).length() - bd.rad > LAMP_REACH {
-            continue;
-        }
-        for (pos, m) in cells {
-            let Some(d) = BLOCKS.get(*m).filter(|d| d.light != [0.0; 3]) else { continue };
-            let x = w.block_centre(Block { body: k.body, face: k.face, pos: *pos });
-            out.push(((x - cam).length(), k.body, x, d.light));
+    let mut out: Vec<(f64, u8, DVec3, [f32; 3])> = w
+        .lights
+        .iter()
+        .filter_map(|(b, l)| {
+            let x = w.block_centre(*b);
+            let d = (x - cams[b.body as usize]).length();
+            (d < LAMP_REACH).then_some((d, b.body, x, *l))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.total_cmp(&b.0));
+    out.into_iter().take(MAX_LAMPS).map(|l| (l.1, l.2, l.3)).collect()
+}
+
+/// The lamp grid for the lamps at `lamps` (from the camera, in its frame): LAMP_G^3 + 1 offsets into the same
+/// list, then each cell's lamps; cell c's are `[out[c], out[c + 1])`.
+fn lamp_grid(lamps: &[LampGpu]) -> Vec<u32> {
+    let (g, n) = (LAMP_G as i32, LAMP_G * LAMP_G * LAMP_G);
+    let o = -(LAMP_G as f32) * LAMP_CELL * 0.5;
+    let cells = |p: [f32; 4]| {
+        let c = |x: f32| ((x - o) / LAMP_CELL).floor() as i32;
+        let r = |a: usize| (c(p[a] - LAMP_R).max(0), c(p[a] + LAMP_R).min(g - 1));
+        let (x, y, z) = (r(0), r(1), r(2));
+        // how far the lamp is from cell i's span along one axis
+        let d = move |a: f32, i: i32| {
+            let lo = o + i as f32 * LAMP_CELL;
+            (lo - a).max(a - lo - LAMP_CELL).max(0.0)
+        };
+        (z.0..=z.1)
+            .flat_map(move |k| (y.0..=y.1).flat_map(move |j| (x.0..=x.1).map(move |i| (i, j, k))))
+            .filter(move |&(i, j, k)| {
+                let (dx, dy, dz) = (d(p[0], i), d(p[1], j), d(p[2], k));
+                dx * dx + dy * dy + dz * dz < LAMP_R * LAMP_R
+            })
+            .map(move |(i, j, k)| ((k * g + j) * g + i) as usize)
+    };
+    let mut out = vec![0u32; n + 1];
+    for l in lamps {
+        for c in cells(l.pos) {
+            out[c + 1] += 1;
         }
     }
-    out.sort_by(|a, b| a.0.total_cmp(&b.0));
-    out.into_iter().filter(|l| l.0 < LAMP_REACH).take(MAX_LAMPS).map(|l| (l.1, l.2, l.3)).collect()
+    out[0] = n as u32 + 1;
+    for c in 0..n {
+        out[c + 1] += out[c];
+    }
+    let mut at = out[..n].to_vec();
+    out.resize(out[n] as usize, 0);
+    for (li, l) in lamps.iter().enumerate() {
+        for c in cells(l.pos) {
+            out[at[c] as usize] = li as u32;
+            at[c] += 1;
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod lamp_grid_tests {
+    use super::*;
+    // every lamp is listed in exactly the cells within its reach, checked against the cells' corners directly
+    #[test]
+    fn a_cell_lists_the_lamps_that_reach_it() {
+        let lamps: Vec<LampGpu> = [[0.3f32, -2.0, 5.0], [-63.0, 40.0, 7.9], [8.0, 8.0, 8.0], [200.0, 0.0, 0.0]]
+            .iter()
+            .map(|p| LampGpu { pos: [p[0], p[1], p[2], 0.0], col: [1.0; 4] })
+            .collect();
+        let grid = lamp_grid(&lamps);
+        let g = LAMP_G;
+        let o = -(g as f32) * LAMP_CELL * 0.5;
+        for c in 0..g * g * g {
+            let (i, j, k) = (c % g, c / g % g, c / (g * g));
+            let lo = [o + i as f32 * LAMP_CELL, o + j as f32 * LAMP_CELL, o + k as f32 * LAMP_CELL];
+            let listed = &grid[grid[c] as usize..grid[c + 1] as usize];
+            for (li, l) in lamps.iter().enumerate() {
+                let d2: f32 = (0..3).map(|a| (lo[a] - l.pos[a]).max(l.pos[a] - lo[a] - LAMP_CELL).max(0.0).powi(2)).sum();
+                assert_eq!(listed.contains(&(li as u32)), d2 < LAMP_R * LAMP_R, "cell {c} lamp {li}");
+            }
+        }
+        assert!(grid.len() <= LAMP_GRID_LEN);
+    }
 }
 
 struct Args(HashMap<String, String>);
@@ -348,6 +420,7 @@ struct Gpu {
     quads: wgpu::Buffer,
     chunks: wgpu::Buffer,
     lamps: wgpu::Buffer,
+    lamp_cells: wgpu::Buffer,
     indirect: wgpu::Buffer,
     depth: wgpu::TextureView,
     /// The terrain's shader and the block looks: the bounce light is built again from them on a resize.
@@ -432,6 +505,7 @@ impl Gpu {
         let quads = buf("quads", cap as u64 * 8, U::STORAGE | U::COPY_DST);
         let chunks = buf("chunks", (MAX_CHUNKS * std::mem::size_of::<ChunkGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamps = buf("lamps", (MAX_LAMPS * std::mem::size_of::<LampGpu>()) as u64, U::STORAGE | U::COPY_DST);
+        let lamp_cells = buf("lamp cells", (LAMP_GRID_LEN * 4) as u64, U::STORAGE | U::COPY_DST);
         // the terrain's draws, then the sea's at MAX_CHUNKS * 16
         let indirect = buf("indirect", (MAX_CHUNKS * 32) as u64, U::INDIRECT | U::COPY_DST);
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
@@ -481,6 +555,7 @@ impl Gpu {
                 storage(3),
                 storage(4),
                 storage(8),
+                storage(9),
                 wgpu::BindGroupLayoutEntry {
                     binding: 5,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -501,6 +576,7 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 4, resource: wquads.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 5, resource: rt.tlas.as_binding() },
                 wgpu::BindGroupEntry { binding: 8, resource: lamps.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 9, resource: lamp_cells.as_entire_binding() },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -656,6 +732,7 @@ impl Gpu {
                 looks.as_entire_binding(),
                 rt.tlas.as_binding(),
                 lamps.as_entire_binding(),
+                lamp_cells.as_entire_binding(),
             ],
             format,
             w(),
@@ -682,6 +759,7 @@ impl Gpu {
             quads,
             chunks,
             lamps,
+            lamp_cells,
             indirect,
             depth,
             shader: shader.clone(),
@@ -838,7 +916,7 @@ struct App {
     wquad_n: u32,
     /// The lamps near the camera (`gather_lamps`), and the frame and edit count they were gathered at.
     lamps: Vec<(u8, DVec3, [f32; 3])>,
-    lamps_at: (u64, usize),
+    lamps_at: (u64, u64),
     /// What the overlay buffers hold: the ghost's shape and colour, its vertex count, the rectangle count.
     ghost_of: Option<(Shape, [u8; 4])>,
     ghost_n: u32,
@@ -1466,6 +1544,7 @@ impl App {
             gpu.looks.as_entire_binding(),
             rt.tlas.as_binding(),
             gpu.lamps.as_entire_binding(),
+            gpu.lamp_cells.as_entire_binding(),
         ];
         self.gi = Some(gi::Gi::new(&gpu.device, &gpu.shader, shared, gpu.config.format, nw, nh));
         eprintln!("[technoape] the render size is {nw}x{nh}");
@@ -2278,8 +2357,8 @@ impl App {
             };
             cams[bi] = (c + b.centre, m.as_dmat3());
         }
-        // the lamps: gathered again when the edits change or every 10 frames, placed every frame
-        let ec = self.world.edit_count;
+        // the lamps: gathered again when they change or every 10 frames, placed and gridded every frame
+        let ec = self.world.lights_rev;
         if self.lamps_at.1 != ec || self.streamer.frame >= self.lamps_at.0 + 10 {
             let c: Vec<DVec3> = cams.iter().map(|c| c.0).collect();
             self.lamps = gather_lamps(&self.world, &c[..self.world.bodies.len()]);
@@ -2298,6 +2377,7 @@ impl App {
         g.n_lamps[1] = self.gi.as_ref().unwrap().frame() as u32;
         if !lamps.is_empty() {
             gpu.queue.write_buffer(&gpu.lamps, 0, bytemuck::cast_slice(&lamps));
+            gpu.queue.write_buffer(&gpu.lamp_cells, 0, bytemuck::cast_slice(&lamp_grid(&lamps)));
         }
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
         self.slots.sweep(frame_no);
@@ -3167,7 +3247,7 @@ fn main() {
         slots: ChunkSlots::default(),
         gi: None,
         lamps: Vec::new(),
-        lamps_at: (0, usize::MAX),
+        lamps_at: (0, u64::MAX),
         world,
         link,
         me: phys::Player::at(spawn, DVec3::X),

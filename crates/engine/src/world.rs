@@ -511,6 +511,10 @@ pub struct World {
     /// Edits bucketed by level 0 chunk; value = material that replaces the generated one.
     pub edits: FxMap<Key, FxMap<IVec3, u8>>,
     pub edit_count: usize,
+    /// The edits that give light, and a number that changes with them: the client's lamps come from here, so
+    /// nothing scans the edits (ADR 0025, H).
+    pub lights: FxMap<Block, [f32; 3]>,
+    pub lights_rev: u64,
     /// Water (ADR 0020): on the server it flows; a client keeps the server's copy.
     pub water: Liquids,
 }
@@ -529,6 +533,8 @@ impl World {
             time: 0.0,
             edits: FxMap::default(),
             edit_count: 0,
+            lights: FxMap::default(),
+            lights_rev: 0,
             water: Liquids::default(),
         }
     }
@@ -735,6 +741,9 @@ impl World {
         if self.edits.entry(b.chunk()).or_default().insert(b.pos, m).is_none() {
             self.edit_count += 1;
         }
+        let light = BLOCKS.get(m).map_or([0.0; 3], |d| d.light);
+        let changed = if light != [0.0; 3] { self.lights.insert(b, light) != Some(light) } else { self.lights.remove(&b).is_some() };
+        self.lights_rev += changed as u64;
     }
     /// Puts back what `edit` returned: an edit, or (None) the generated block with no edit recorded.
     pub fn put_edit(&mut self, b: Block, e: Option<u8>) {
@@ -745,6 +754,7 @@ impl World {
                 if let Some(cells) = self.edits.get_mut(&k) {
                     if cells.remove(&b.pos).is_some() {
                         self.edit_count -= 1;
+                        self.lights_rev += self.lights.remove(&b).is_some() as u64;
                     }
                     if cells.is_empty() {
                         self.edits.remove(&k);

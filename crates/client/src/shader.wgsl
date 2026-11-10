@@ -51,6 +51,12 @@ struct Look { colour: vec3f, info: u32 };
 // the lamps near the camera (ADR 0022): pos from the camera, w its body; col its light
 struct Lamp { pos: vec4f, col: vec4f };
 @group(0) @binding(8) var<storage, read> lamps: array<Lamp>;
+// the lamp grid (ADR 0025, H): LAMP_G^3 cells of LAMP_CELL metres in the camera's frame, the camera in the
+// middle; cell c's lamps, those LAMP_R or nearer, are lamp_cells[lamp_cells[c] .. lamp_cells[c + 1]]
+// (`lamp_grid` in main.rs, which holds the same numbers)
+const LAMP_G: i32 = 32;
+const LAMP_CELL: f32 = 4.0;
+@group(0) @binding(9) var<storage, read> lamp_cells: array<u32>;
 
 struct VOut {
     @builtin(position) clip: vec4f,
@@ -256,13 +262,6 @@ fn lamp_light(lp: Lamp, d2: f32) -> vec3f {
     return lp.col.rgb * x * x * 1.5 / (1.0 + d2);
 }
 
-// lamp i's direct light on a surface at p facing n, before its shadow
-fn lamp_on(i: u32, p: vec3f, n: vec3f) -> vec3f {
-    let v = lamps[i].pos.xyz - p;
-    let d2 = dot(v, v);
-    return lamp_light(lamps[i], d2) * max(dot(n, v) * inverseSqrt(d2), 0.0);
-}
-
 fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     let up = normalize(p - g.bodies[body].ctr.xyz);
     let sd = normalize(g.sun_pos.xyz - p);
@@ -299,28 +298,49 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     // the lamps: shadow rays to the LAMP_RAYS strongest here; the others get their mean visibility
     var top = array<u32, LAMP_RAYS>(NONE, NONE, NONE);
     var topw = array<f32, LAMP_RAYS>(0.0, 0.0, 0.0);
+    var topl = array<vec3f, LAMP_RAYS>(vec3f(0.0), vec3f(0.0), vec3f(0.0));
     var rest = vec3f(0.0);
-    for (var i = 0u; i < g.n_lamps.x; i++) {
+    var e0 = 0u;
+    var e1 = 0u;
+    let gc = vec3i(floor(p / LAMP_CELL)) + LAMP_G / 2;
+    if (g.n_lamps.x > 0u && all(gc >= vec3i(0)) && all(gc < vec3i(LAMP_G))) {
+        let ci = u32((gc.z * LAMP_G + gc.y) * LAMP_G + gc.x);
+        e0 = lamp_cells[ci];
+        e1 = lamp_cells[ci + 1u];
+    }
+    for (var e = e0; e < e1; e++) {
+        let i = lamp_cells[e];
         let lp = lamps[i];
         let v = lp.pos.xyz - p;
         let d2 = dot(v, v);
         if (u32(lp.pos.w) != body || d2 > LAMP_R * LAMP_R) { continue; }
-        let w = dot(lamp_on(i, p, n), vec3f(0.3, 0.5, 0.2));
-        if (w <= 0.0) { continue; }
+        let ndv = dot(n, v);
+        if (ndv <= 0.0) { continue; }
+        // its direct light here before its shadow, worked out once (ADR 0025, H)
+        var lj = lamp_light(lp, d2) * (ndv * inverseSqrt(d2));
+        var wj = dot(lj, vec3f(0.3, 0.5, 0.2));
+        if (wj <= 0.0) { continue; }
+        // weaker than the short list's weakest (it is sorted, strongest first): straight to `rest`
+        if (wj <= topw[LAMP_RAYS - 1u]) {
+            rest += lj;
+            continue;
+        }
         // keep the strongest: insert into the short list, the weakest falls to `rest`
         var j = i;
-        var wj = w;
         for (var k = 0u; k < LAMP_RAYS; k++) {
             if (wj > topw[k]) {
                 let tj = top[k];
                 let tw = topw[k];
+                let tl = topl[k];
                 top[k] = j;
                 topw[k] = wj;
+                topl[k] = lj;
                 j = tj;
                 wj = tw;
+                lj = tl;
             }
         }
-        if (j != NONE) { rest += lamp_on(j, p, n); }
+        if (j != NONE) { rest += lj; }
     }
     var seen_n = 0.0;
     var seen_v = 0.0;
@@ -332,7 +352,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         let v = lp.pos.xyz - ray_origin(p, n);
         let d = length(v);
         let vis = select(ray(p, n, v / d, body, d - LAMP_STOP), 1.0, d < LAMP_STOP);
-        o.l += lamp_on(top[k], p, n) * vis;
+        o.l += topl[k] * vis;
         seen_n += 1.0;
         seen_v += vis;
     }

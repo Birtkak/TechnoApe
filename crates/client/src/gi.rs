@@ -40,12 +40,12 @@ pub struct Gi {
 }
 
 impl Gi {
-    /// `shared` is the terrain's resources for the trace's group 0: globals, quads, chunks, looks, TLAS, lamps.
+    /// `shared` is the terrain's resources for the trace's group 0: globals, quads, chunks, looks, TLAS, lamps, lamp cells.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &wgpu::Device,
         shader: &wgpu::ShaderModule,
-        shared: [wgpu::BindingResource; 6],
+        shared: [wgpu::BindingResource; 7],
         screen: wgpu::TextureFormat,
         w: u32,
         h: u32,
@@ -87,7 +87,7 @@ impl Gi {
             compilation_options: Default::default(),
             cache: None,
         });
-        let [r0, r1, r2, r3, r5, r8] = shared;
+        let [r0, r1, r2, r3, r5, r8, r9] = shared;
         let trace0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &trace.get_bind_group_layout(0),
@@ -98,6 +98,7 @@ impl Gi {
                 wgpu::BindGroupEntry { binding: 3, resource: r3 },
                 wgpu::BindGroupEntry { binding: 5, resource: r5 },
                 wgpu::BindGroupEntry { binding: 8, resource: r8 },
+                wgpu::BindGroupEntry { binding: 9, resource: r9 },
             ],
         });
         fn view(v: &wgpu::TextureView) -> wgpu::BindingResource<'_> {
