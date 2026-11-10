@@ -1,6 +1,7 @@
 //! The dedicated server: `technoape-server listen=0.0.0.0:7777 planet=3072 moon=512 seed=1337`.
 //! Prints one JSON line every 5 s: tick, players, edits. It records the session to `out/rec/server-<unix s>.rec`
-//! (`record=file` elsewhere, `record=0` not at all).
+//! (`record=file` elsewhere, `record=0` not at all). It saves every 30 s to `saves/server.sav` (`save=file`,
+//! `save=0` not at all) and carries on from that save when it exists.
 //!
 //! Test harness (ADR 0011), each printing one JSON line and exiting 1 on a failure:
 //! - `soak=1 bots=50 minutes=10 seed=1 planet=256` fast-forwards seeded random bots and checks invariants every
@@ -30,7 +31,18 @@ fn main() {
     }
     let listen = args.get("listen").cloned().unwrap_or_else(|| format!("0.0.0.0:{DEFAULT_PORT}"));
     let (tx, rx) = channel();
-    let mut server = Server::new(num("planet", 3072), num("moon", 512), num("seed", 1337), rx);
+    // saves (ADR 0016): save= names the file, carried on from when it exists; save=0 keeps none.
+    // shortcut: Ctrl-C loses up to the 30 s since the last save; a shutdown command comes with server admin
+    let save = args.get("save").cloned().unwrap_or_else(|| "saves/server.sav".into());
+    let mut server = match Some(Path::new(&save)).filter(|p| save != "0" && p.exists()) {
+        Some(p) => {
+            let s = server::save::Save::read(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+            eprintln!("[technoape-server] carrying on from {save} ({} edited cells)", s.edits.len());
+            Server::from_save(s, rx)
+        }
+        None => Server::new(num("planet", 3072), num("moon", 512), num("seed", 1337), rx),
+    };
+    server.autosave = (save != "0").then(|| (save.clone().into(), 30 * TICK_HZ as u64));
     let unix = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let rec = args.get("record").cloned().unwrap_or_else(|| format!("out/rec/server-{unix}.rec"));
     if rec != "0" {

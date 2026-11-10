@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn one_bot_digs_and_the_other_sees_the_hole() {
         let (tx, rx) = channel();
-        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0));
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
         let mut bots: Vec<Bot> = ["digger", "watcher"]
             .iter()
             .map(|n| {
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn a_bot_lands_and_walks_ten_metres_over_the_ground() {
         let (tx, rx) = channel();
-        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0));
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
         let (c, s) = local();
         tx.send(s).unwrap();
         let mut b = Bot::new("walker", c);

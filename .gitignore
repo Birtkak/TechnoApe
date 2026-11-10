@@ -25,3 +25,6 @@ PC-optimization-report.md
 
 # Benchmark and test output
 /out/
+
+# Game saves (ADR 0016)
+/saves/

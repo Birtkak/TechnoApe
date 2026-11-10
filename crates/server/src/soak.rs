@@ -3,6 +3,7 @@
 //! without sleeping and checks after every tick: no walking player inside a block, nothing NaN, nothing under
 //! the core, and every bot's copy of the world equals the server's. A failure is shrunk to the fewest bots
 //! that still fail it.
+use crate::save::Save;
 use crate::Server;
 use engine::net::{local, Link, Recv, ToClient, ToServer};
 use engine::blocks::BLOCKS;
@@ -140,6 +141,7 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
         .map(|&k| {
             let (c, sv) = local();
             tx.send(sv).unwrap();
+            c.send(ToServer::Hello { name: format!("bot{k}") }); // named, so the save keeps it
             // an empty input makes it a walker, as in the bot crate
             c.send(ToServer::Input(Input::default()));
             Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::new(planet_n, MOON_N, seed as i32), pred: Predictor::default() }
@@ -178,7 +180,14 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
             }
         }
     }
-    Ok(s.hash())
+    // a save and a load give back the same state, down to every player's inventory
+    let snap = s.snapshot();
+    let back = Save::from_bytes(&snap.to_bytes()).map(|v| Server::from_save(v, channel().1));
+    match back {
+        Ok(b) if b.snapshot() == snap && b.world.hash() == s.world.hash() => Ok(s.hash()),
+        Ok(_) => Err(Fail { tick: ticks, what: "a save and a load changed the state".into() }),
+        Err(e) => Err(Fail { tick: ticks, what: format!("the save does not load: {e}") }),
+    }
 }
 
 /// Drops bots one at a time while the run still fails, by tick `fail.tick` at the latest.

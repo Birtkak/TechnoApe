@@ -5,6 +5,7 @@
 //! The flight recorder (ADR 0011): with `record`, every join, message and leave goes to a file with its tick,
 //! and every second a hash of the state; `replay` runs the file again headless and finds the first checkpoint
 //! where the state parts from the recording.
+pub mod save;
 pub mod soak;
 
 use engine::net::{local, Link, Player, Recv, ToClient, ToServer, REACH, TICK_HZ};
@@ -14,7 +15,8 @@ use engine::phys::{self, Input};
 use engine::world::{fnv, Block, World};
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use save::{Save, Saved};
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver};
@@ -28,6 +30,8 @@ const CHECK_EVERY: u64 = 20;
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Ev {
     Start { planet_n: i32, moon_n: i32, seed: i32, dt: f64 },
+    /// Right after `Start` when the server began from a save: the save itself, so a replay starts there too.
+    Loaded(Save),
     Join { tick: u64, id: u32 },
     Msg { tick: u64, id: u32, m: ToServer },
     Leave { tick: u64, id: u32 },
@@ -35,6 +39,12 @@ pub enum Ev {
 }
 
 pub type ServerLink = Link<ToClient, ToServer>;
+
+/// What a save keeps of a connected player.
+fn saved(c: &Client) -> Saved {
+    let inv = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
+    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, inv }
+}
 
 struct Client {
     link: ServerLink,
@@ -64,11 +74,41 @@ pub struct Server {
     /// Time the physics has not stepped through yet (less than one `phys::DT`).
     debt: f64,
     rec: Option<BufWriter<std::fs::File>>,
+    /// Players who left (or a save remembers), by name, waiting for a `Hello` with that name.
+    absent: BTreeMap<String, Saved>,
+    /// The save this server began from, until the recorder has logged it.
+    loaded: Option<Save>,
+    /// Where and how often (in ticks) to save; the write runs on its own thread.
+    pub autosave: Option<(std::path::PathBuf, u64)>,
 }
 
 impl Server {
     pub fn new(planet_n: i32, moon_n: i32, seed: i32, accept: Receiver<ServerLink>) -> Server {
-        Server { world: World::new(planet_n, moon_n, seed), seed, accept, clients: Vec::new(), next_id: 1, tick: 0, dt: 1.0 / TICK_HZ, debt: 0.0, rec: None }
+        Server { world: World::new(planet_n, moon_n, seed), seed, accept, clients: Vec::new(), next_id: 1, tick: 0, dt: 1.0 / TICK_HZ, debt: 0.0, rec: None, absent: BTreeMap::new(), loaded: None, autosave: None }
+    }
+
+    /// A server that carries on from `save` (its seed and planet win over any given elsewhere).
+    pub fn from_save(save: Save, accept: Receiver<ServerLink>) -> Server {
+        let mut s = Server::new(save.planet_n, save.moon_n, save.seed, accept);
+        for (b, m) in &save.edits {
+            s.world.set_block(*b, *m);
+        }
+        s.absent = save.players.iter().map(|p| (p.name.clone(), p.clone())).collect();
+        s.loaded = Some(save);
+        s
+    }
+
+    /// Everything a save holds, from the current state.
+    pub fn snapshot(&self) -> Save {
+        let mut edits: Vec<(Block, u8)> =
+            self.world.edits.iter().flat_map(|(k, cells)| cells.iter().map(move |(pos, m)| (Block { body: k.body, face: k.face, pos: *pos }, *m))).collect();
+        edits.sort_unstable_by_key(|(b, _)| (b.body, b.face, b.pos.x, b.pos.y, b.pos.z));
+        let mut players = self.absent.clone();
+        for c in self.clients.iter().filter(|c| !c.player.name.is_empty()) {
+            players.insert(c.player.name.clone(), saved(c));
+        }
+        let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
+        Save { version: save::VERSION, seed: self.seed, planet_n: p, moon_n: m, blocks: save::registry(), edits, players: players.into_values().collect() }
     }
 
     pub fn players(&self) -> usize {
@@ -109,6 +149,9 @@ impl Server {
     /// The state as one number: the world's edits, every player's physics and input, the time carried over.
     pub fn hash(&self) -> u64 {
         let mut h = fnv(fnv(self.world.hash(), &self.tick.to_le_bytes()), &self.debt.to_bits().to_le_bytes());
+        for p in self.absent.values() {
+            h = fnv(h, &postcard::to_allocvec(p).unwrap());
+        }
         for c in &self.clients {
             let p = &c.phys;
             h = fnv(h, &c.player.id.to_le_bytes());
@@ -135,16 +178,28 @@ impl Server {
     }
 
     /// Ticks forever at `hz`, sleeping between ticks; the thread or process ends it.
-    pub fn run(mut self, hz: f64) {
+    /// Ticks at `hz` until `stop` is set, then saves (if `autosave` says where) and returns.
+    pub fn run(mut self, hz: f64, stop: &std::sync::atomic::AtomicBool) {
         self.dt = 1.0 / hz;
         let step = Duration::from_secs_f64(1.0 / hz);
         let mut next = Instant::now();
-        loop {
+        while !stop.load(std::sync::atomic::Ordering::Relaxed) {
             self.tick();
             next += step;
             match next.checked_duration_since(Instant::now()) {
                 Some(d) => std::thread::sleep(d),
                 None => next = Instant::now(), // a late tick does not try to catch up
+            }
+        }
+        self.save_now();
+    }
+
+    /// Saves where `autosave` says, on this thread: for shutting down.
+    pub fn save_now(&self) {
+        if let Some((path, _)) = &self.autosave {
+            match self.snapshot().write(path) {
+                Ok(()) => eprintln!("[technoape-server] saved to {}", path.display()),
+                Err(e) => eprintln!("[technoape-server] save failed: {e}"),
             }
         }
     }
@@ -154,6 +209,9 @@ impl Server {
             let [b0, b1] = [&self.world.bodies[0], &self.world.bodies[1]];
             let start = Ev::Start { planet_n: b0.n, moon_n: b1.n, seed: self.seed, dt: self.dt };
             self.log(start);
+            if let Some(save) = self.loaded.take() {
+                self.log(Ev::Loaded(save));
+            }
         }
         while let Ok(link) = self.accept.try_recv() {
             let id = self.next_id;
@@ -195,7 +253,20 @@ impl Server {
                     Recv::Empty => {}
                 }
                 match r {
-                    Recv::Msg(ToServer::Hello { name }) => self.clients[i].player.name = name.chars().take(32).collect(),
+                    Recv::Msg(ToServer::Hello { name }) => {
+                        let c = &mut self.clients[i];
+                        c.player.name = name.chars().take(32).collect();
+                        // a player the save remembers carries on where it left, with what it held
+                        if let Some(sv) = self.absent.remove(&c.player.name) {
+                            let p = DVec3::from_array(sv.pos);
+                            c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(sv.fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
+                            (c.player.pos, c.player.fwd, c.creative, c.inv_dirty) = (sv.pos, sv.fwd, sv.creative, true);
+                            c.inv.fill(0);
+                            for (m, n) in sv.inv {
+                                c.inv[m as usize] = n;
+                            }
+                        }
+                    }
                     Recv::Msg(ToServer::Move { pos, fwd, pitch }) => {
                         if pos.iter().all(|c| c.is_finite()) && fwd.iter().all(|c| c.is_finite()) {
                             let c = &mut self.clients[i];
@@ -228,7 +299,10 @@ impl Server {
             if open {
                 i += 1;
             } else {
-                self.clients.swap_remove(i);
+                let c = self.clients.swap_remove(i);
+                if !c.player.name.is_empty() {
+                    self.absent.insert(c.player.name.clone(), saved(&c));
+                }
             }
         }
         self.debt += self.dt;
@@ -263,6 +337,17 @@ impl Server {
             c.link.send(ToClient::Players(players.clone()));
         }
         self.tick += 1;
+        if let Some((path, every)) = &self.autosave {
+            if self.tick % every == 0 {
+                // the snapshot is taken here, between ticks; serialising and writing are a thread's
+                let (s, path) = (self.snapshot(), path.clone());
+                std::thread::spawn(move || {
+                    if let Err(e) = s.write(&path) {
+                        eprintln!("[technoape-server] save failed: {e}");
+                    }
+                });
+            }
+        }
         if self.rec.is_some() {
             if self.tick % CHECK_EVERY == 0 {
                 let ev = Ev::Check { tick: self.tick, hash: self.hash() };
@@ -349,7 +434,10 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
         return Err(std::io::Error::other("not a recording: no Start"));
     };
     let (tx, rx) = channel();
-    let mut s = Server::new(*planet_n, *moon_n, *seed, rx);
+    let (mut s, rest) = match evs.get(1) {
+        Some(Ev::Loaded(save)) => (Server::from_save(save.clone(), rx), &evs[2..]),
+        _ => (Server::new(*planet_n, *moon_n, *seed, rx), &evs[1..]),
+    };
     s.dt = *dt;
     let mut links: HashMap<u32, Link<ToServer, ToClient>> = HashMap::new();
     let until = until.unwrap_or(u64::MAX);
@@ -362,10 +450,10 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
             }
         }
     };
-    for ev in &evs[1..] {
+    for ev in rest {
         let t = match ev {
             Ev::Join { tick, .. } | Ev::Msg { tick, .. } | Ev::Leave { tick, .. } | Ev::Check { tick, .. } => *tick,
-            Ev::Start { .. } => return Err(std::io::Error::other("a second Start")),
+            Ev::Start { .. } | Ev::Loaded(_) => return Err(std::io::Error::other("a Start or Loaded past the start")),
         };
         run_to(&mut r.server, &links, t);
         if r.server.tick >= until {
@@ -393,7 +481,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
                     break;
                 }
             }
-            Ev::Start { .. } => unreachable!(),
+            Ev::Start { .. } | Ev::Loaded(_) => unreachable!(),
         }
     }
     if until != u64::MAX && r.diverged.is_none() {
@@ -510,6 +598,44 @@ mod tests {
         assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![] }));
         assert!(brush.cells().all(|b| s.world.block(b) == stone));
         assert_eq!(s.world.edit_count, 8, "the world is as generated again, but the cells stay recorded");
+    }
+
+    #[test]
+    fn a_saved_player_comes_back_with_what_it_held() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let ground = s.world.bodies[0].centre + DVec3::Z * s.world.bodies[0].height(DVec3::Z);
+        let deep = s.world.block_at(ground - DVec3::Z * 6.0);
+        l.send(ToServer::Hello { name: "ape".into() });
+        l.send(ToServer::Move { pos: (ground + DVec3::Z).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        l.send(ToServer::Edit { seq: 1, shape: Shape::one(deep), material: AIR });
+        s.tick();
+        drop(links); // the player leaves; the server keeps it by name
+        s.tick();
+        assert_eq!(s.players(), 0);
+        let path = std::env::temp_dir().join(format!("technoape-test-{}.sav", std::process::id()));
+        s.snapshot().write(&path).unwrap();
+        let (tx, rx) = channel();
+        let mut back = Server::from_save(Save::read(&path).unwrap(), rx);
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!((back.world.hash(), back.snapshot()), (s.world.hash(), s.snapshot()));
+        let rec = path.with_extension("rec");
+        back.record(&rec).unwrap();
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        c.send(ToServer::Hello { name: "ape".into() });
+        back.tick();
+        let got = drain(&c);
+        // a recording of a server that began from a save replays from that save
+        for _ in 0..40 {
+            back.tick();
+        }
+        let r = replay(&rec, None).unwrap();
+        std::fs::remove_file(&rec).unwrap();
+        assert_eq!((r.diverged, r.checks, r.server.world.hash()), (None, 2, back.world.hash()));
+        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(BLOCKS.id("stone"), 1)] }), "{got:?}");
+        assert!(DVec3::from_array(back.clients[0].player.pos).distance(ground + DVec3::Z) < 0.01);
+        assert!(Save::from_bytes(b"not a save").is_err());
     }
 
     #[test]

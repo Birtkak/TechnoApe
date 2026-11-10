@@ -1034,6 +1034,7 @@ fn main() {
     }
     // the world comes from the server: a remote one (connect=host[:port]) or a local one on its own thread
     // (planet= and moon= are columns per face edge: 3072 is the 1 km planet, 1536 the benchmark's 500 m class)
+    let mut local_server = None;
     let link: Link<ToServer, ToClient> = match args.0.get("connect") {
         Some(addr) => {
             let addr = if addr.contains(':') { addr.clone() } else { format!("{addr}:{}", net::DEFAULT_PORT) };
@@ -1045,14 +1046,27 @@ fn main() {
             // the flight recorder (ADR 0011): on for play on screen, or wherever record= says
             let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
             let rec = args.0.get("record").cloned().or((args.get("onscreen", 0) == 1).then(|| format!("out/rec/play-{unix}.rec")));
-            let mut server = Server::new(planet, moon, seed, accept_rx);
+            // saves (ADR 0016): play keeps one per seed and planet under saves/, save= names another, save=0 none
+            let save = args.0.get("save").cloned().or((run == "play").then(|| format!("saves/seed-{seed}-planet-{planet}.sav"))).filter(|s| s != "0");
+            let mut server = match save.as_deref().map(std::path::Path::new).filter(|p| p.exists()) {
+                Some(p) => {
+                    // a save this build cannot read stops the game rather than being overwritten
+                    let s = server::save::Save::read(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+                    eprintln!("[technoape] carrying on from {} ({} edited cells)", p.display(), s.edits.len());
+                    Server::from_save(s, accept_rx)
+                }
+                None => Server::new(planet, moon, seed, accept_rx),
+            };
+            server.autosave = save.map(|p| (p.into(), 30 * TICK_HZ as u64));
             if let Some(r) = rec.filter(|r| r != "0") {
                 match server.record(std::path::Path::new(&r)) {
                     Ok(()) => eprintln!("[technoape] recording to {r}"),
                     Err(e) => eprintln!("[technoape] not recording: {e}"),
                 }
             }
-            std::thread::spawn(move || server.run(TICK_HZ));
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let st = stop.clone();
+            local_server = Some((stop, std::thread::spawn(move || server.run(TICK_HZ, &st))));
             let (c, s) = net::local();
             accept_tx.send(s).unwrap();
             c
@@ -1122,4 +1136,9 @@ fn main() {
         cap_prev: false,
     };
     el.run_app(&mut app).unwrap();
+    // the local server saves as it stops
+    if let Some((stop, thread)) = local_server {
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = thread.join();
+    }
 }

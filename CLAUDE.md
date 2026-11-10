@@ -59,6 +59,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `run=stand|fly|orbit|edit`, `quick=1` (quarter length, a smoke check in seconds), `planet=3072|1536`
   (columns per face edge), `seed=`, `out=file.jsonl`, `connect=host[:7777]` to join a running server
   (`technoape-server listen=0.0.0.0:7777 planet= seed=` prints a JSON line every 5 s).
+- Saves (ADR 0016): `run=play` keeps `saves/seed-<seed>-planet-<n>.sav`, the server `saves/server.sav`; both
+  carry on from it. `save=file` names another, `save=0` keeps none.
 - Bots: `technoape-bot connect=host n=50 script="wait 1; dig 0.25 -0.5 0.25; block 0.25 -0.5 0.25; report"`
   runs windowless players on the protocol (commands: spawn, walk, wait, dig, place, block, report, quit;
   `script=-` takes them live from stdin). Output is one JSON line per report or block. Use bots, not a second
