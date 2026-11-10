@@ -14,7 +14,8 @@ const HISTORY_STILL: u32 = 4096;
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Post {
     prev_vp: [[f32; 4]; 4],
-    inv_vp: [[f32; 4]; 4],
+    /// The view ray through the screen's top-left corner, and its change across x and y (columns 0 to 2).
+    rays: [[f32; 4]; 4],
     delta: [f32; 4],
     cfg: [u32; 4],
 }
@@ -28,10 +29,10 @@ pub struct Gi {
     atrous: wgpu::ComputePipeline,
     composite: wgpu::RenderPipeline,
     trace0: wgpu::BindGroup,
-    /// Per frame parity: the trace's group 1, the temporal pass, the four smoothing passes.
+    /// Per frame parity: the trace's group 1, the temporal pass, the three smoothing passes, the composite.
     trace1: [wgpu::BindGroup; 2],
-    passes: [[wgpu::BindGroup; 5]; 2],
-    comp: wgpu::BindGroup,
+    passes: [[wgpu::BindGroup; 4]; 2],
+    comp: [wgpu::BindGroup; 2],
     ubufs: Vec<wgpu::Buffer>,
     prev: Option<(Mat4, DVec3, usize)>,
     frame: u64,
@@ -73,8 +74,10 @@ impl Gi {
         let gbuf = [tex("gbuf0", TARGETS[2], rt), tex("gbuf1", TARGETS[2], rt)];
         // a bounce ray per 2x2 pixels
         let noisy = tex_at("noisy", f16, st, (w.div_ceil(2), h.div_ceil(2)));
-        let hist = [tex("hist0", f16, st), tex("hist1", f16, st)];
-        let (a, b) = (tex("smooth-a", f16, st), tex("smooth-b", f16, st));
+        // the history and its smoothing at the same half resolution (ADR 0025, C)
+        let half = |label| tex_at(label, f16, st, (w.div_ceil(2), h.div_ceil(2)));
+        let hist = [half("hist0"), half("hist1")];
+        let (a, b) = (half("smooth-a"), half("smooth-b"));
 
         let trace = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("gi_trace"),
@@ -164,7 +167,7 @@ impl Gi {
             })
         };
         let (temporal, atrous) = (compute("temporal"), compute("atrous"));
-        let ubufs: Vec<wgpu::Buffer> = (0..5)
+        let ubufs: Vec<wgpu::Buffer> = (0..4)
             .map(|_| {
                 device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("post"),
@@ -189,7 +192,7 @@ impl Gi {
             })
         };
         // parity p writes gbuf[p] and hist[p] and reads last frame's gbuf[1 - p] and hist[1 - p]; the smoothing
-        // passes go hist[p] -> a -> b -> a -> b, binding last frame's as the unused inputs
+        // passes go hist[p] -> a -> b -> a, binding last frame's as the unused inputs
         let passes = [0usize, 1].map(|p| {
             let q = 1 - p;
             [
@@ -197,23 +200,38 @@ impl Gi {
                 group(&ubufs[1], &hist[p], &gbuf[p], &gbuf[q], &hist[q], &a),
                 group(&ubufs[2], &a, &gbuf[p], &gbuf[q], &hist[q], &b),
                 group(&ubufs[3], &b, &gbuf[p], &gbuf[q], &hist[q], &a),
-                group(&ubufs[4], &a, &gbuf[p], &gbuf[q], &hist[q], &b),
             ]
         });
 
         let fs = wgpu::ShaderStages::FRAGMENT;
         let cbgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("composite"),
-            entries: &[texture(6, fs), texture(7, fs), texture(8, fs)],
-        });
-        let comp = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &cbgl,
             entries: &[
-                wgpu::BindGroupEntry { binding: 6, resource: view(&direct) },
-                wgpu::BindGroupEntry { binding: 7, resource: view(&albedo) },
-                wgpu::BindGroupEntry { binding: 8, resource: view(&b) },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: fs,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    count: None,
+                },
+                texture(2, fs),
+                texture(6, fs),
+                texture(7, fs),
+                texture(8, fs),
             ],
+        });
+        // the full-resolution G-buffer of the frame's parity guides the upsampling
+        let comp = [0usize, 1].map(|p| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &cbgl,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: ubufs[0].as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 2, resource: view(&gbuf[p]) },
+                    wgpu::BindGroupEntry { binding: 6, resource: view(&direct) },
+                    wgpu::BindGroupEntry { binding: 7, resource: view(&albedo) },
+                    wgpu::BindGroupEntry { binding: 8, resource: view(&a) },
+                ],
+            })
         });
         let clayout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&cbgl)], immediate_size: 0 });
         let composite = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -261,17 +279,26 @@ impl Gi {
             _ => (vp, glam::Vec3::ZERO, 1.0),
         };
         let cap = if still { HISTORY_STILL } else { HISTORY };
+        // the view ray is affine across the screen: three vectors give every pixel's (post.wgsl point_at)
+        let inv = vp.inverse();
+        let ray = |x: f32, y: f32| {
+            let w = inv * glam::Vec4::new(x * 2.0 - 1.0, 1.0 - y * 2.0, 1.0, 1.0);
+            w.truncate() / w.w
+        };
+        let r0 = ray(0.0, 0.0);
+        let col = |v: glam::Vec3| [v.x, v.y, v.z, 0.0];
+        let rays = [col(r0), col(ray(1.0, 0.0) - r0), col(ray(0.0, 1.0) - r0), [0.0; 4]];
         for (i, u) in self.ubufs.iter().enumerate() {
             let step = if i == 0 { 0 } else { 1 << (i - 1) };
             let post = Post {
                 prev_vp: prev_vp.to_cols_array_2d(),
-                inv_vp: vp.inverse().to_cols_array_2d(),
+                rays,
                 delta: [delta.x, delta.y, delta.z, reset],
                 cfg: [cap, step, self.frame as u32, 0],
             };
             queue.write_buffer(u, 0, bytemuck::bytes_of(&post));
         }
-        let groups = (self.size.0.div_ceil(8), self.size.1.div_ceil(8));
+        let groups = (self.size.0.div_ceil(16), self.size.1.div_ceil(16));
         let mut cp = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("gi"), timestamp_writes: None });
         cp.set_pipeline(&self.trace);
         cp.set_bind_group(0, &self.trace0, &[]);
@@ -299,7 +326,8 @@ impl Gi {
     /// The bounce light onto the screen, under the water and the overlays.
     pub fn composite<'a>(&'a self, rp: &mut wgpu::RenderPass<'a>) {
         rp.set_pipeline(&self.composite);
-        rp.set_bind_group(0, &self.comp, &[]);
+        // record() has counted this frame already
+        rp.set_bind_group(0, &self.comp[((self.frame + 1) % 2) as usize], &[]);
         rp.draw(0..3, 0..1);
     }
 }
