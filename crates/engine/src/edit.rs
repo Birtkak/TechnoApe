@@ -11,23 +11,37 @@ pub const MAX_SIDE: i32 = 32;
 /// The most cells one shape may cover: a full 32 x 32 wall or floor, two blocks thick.
 pub const MAX_CELLS: i32 = 2048;
 
-/// Every cell from `min` to `max` (inclusive) in (column i, column j, layer).
+/// What part of its box a shape covers (ADR 0017). Cylinders and cones stand on the layers, so they stay
+/// upright on the planet.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Kind {
+    /// Every cell: a block, the brush, a line, a wall or a floor.
+    #[default]
+    Box,
+    /// The upright cylinder inscribed in the box: towers, pipes, round rooms.
+    Cylinder,
+    /// The upright cone inscribed in the box, its point at the top layer: roofs and spires.
+    Cone,
+}
+
+/// A `kind` inside the box from `min` to `max` (inclusive) in (column i, column j, layer).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Shape {
     pub body: u8,
     pub face: u8,
     pub min: IVec3,
     pub max: IVec3,
+    pub kind: Kind,
 }
 
 impl Shape {
     pub fn one(b: Block) -> Shape {
-        Shape { body: b.body, face: b.face, min: b.pos, max: b.pos }
+        Shape { body: b.body, face: b.face, min: b.pos, max: b.pos, kind: Kind::Box }
     }
 
     /// The box spanned by two blocks of one face (a drag from `a` to `b`); `None` across faces or bodies.
     pub fn between(a: Block, b: Block) -> Option<Shape> {
-        (a.body == b.body && a.face == b.face).then(|| Shape { body: a.body, face: a.face, min: a.pos.min(b.pos), max: a.pos.max(b.pos) })
+        (a.body == b.body && a.face == b.face).then(|| Shape { body: a.body, face: a.face, min: a.pos.min(b.pos), max: a.pos.max(b.pos), kind: Kind::Box })
     }
 
     pub fn size(&self) -> IVec3 {
@@ -49,9 +63,24 @@ impl Shape {
 
     pub fn cells(&self) -> impl Iterator<Item = Block> + '_ {
         let (lo, hi) = (self.min, self.max);
-        (lo.x..=hi.x).flat_map(move |i| {
-            (lo.y..=hi.y).flat_map(move |j| (lo.z..=hi.z).map(move |l| Block { body: self.body, face: self.face, pos: IVec3::new(i, j, l) }))
-        })
+        (lo.x..=hi.x)
+            .flat_map(move |i| (lo.y..=hi.y).flat_map(move |j| (lo.z..=hi.z).map(move |l| IVec3::new(i, j, l))))
+            .filter(|p| self.covers(*p))
+            .map(|pos| Block { body: self.body, face: self.face, pos })
+    }
+
+    /// True when the cell at `p` (inside the box) belongs to the shape: its centre lies within the ellipse
+    /// the box's columns inscribe, which for a cone narrows layer by layer towards the top.
+    fn covers(&self, p: IVec3) -> bool {
+        let s = self.size().as_vec3();
+        let c = p.as_vec3() + 0.5 - self.min.as_vec3();
+        let (dx, dy) = (c.x / s.x * 2.0 - 1.0, c.y / s.y * 2.0 - 1.0);
+        let r = match self.kind {
+            Kind::Box => return true,
+            Kind::Cylinder => 1.0,
+            Kind::Cone => 1.0 - (c.z - 0.5) / s.z,
+        };
+        dx * dx + dy * dy <= r * r + 1e-4
     }
 }
 
@@ -154,6 +183,23 @@ mod tests {
         assert!(!Shape::between(b(0, 0, 0), b(32, 0, 0)).unwrap().sane(), "33 long");
         assert!(!Shape::between(b(0, 0, 0), b(31, 31, 2)).unwrap().sane(), "too many cells");
         assert!(!Shape { min: IVec3::ONE, max: IVec3::ZERO, ..s }.sane(), "inside out");
+    }
+
+    #[test]
+    fn cylinders_are_round_and_cones_narrow_to_the_top() {
+        let o = Block { body: 0, face: 2, pos: IVec3::ZERO };
+        let cyl = Shape { max: IVec3::new(9, 9, 3), kind: Kind::Cylinder, ..Shape::one(o) };
+        let layer = |s: &Shape, l: i32| s.cells().filter(|c| c.pos.z == l).count();
+        // a 10 x 10 disc: about pi * 25 = 79 cells, the corners left out, the edge middles kept
+        assert!((70..=90).contains(&layer(&cyl, 0)), "{}", layer(&cyl, 0));
+        assert!((0..4).all(|l| layer(&cyl, l) == layer(&cyl, 0)));
+        let has = |s: &Shape, p: IVec3| s.cells().any(|c| c.pos == p);
+        assert!(!has(&cyl, IVec3::ZERO) && has(&cyl, IVec3::new(0, 4, 0)) && has(&cyl, IVec3::new(9, 5, 2)));
+        let cone = Shape { max: IVec3::new(8, 8, 4), kind: Kind::Cone, ..cyl };
+        let sizes: Vec<usize> = (0..5).map(|l| layer(&cone, l)).collect();
+        assert!(sizes.windows(2).all(|w| w[0] > w[1]) && sizes[4] >= 1, "{sizes:?}");
+        assert_eq!(Shape::one(o).cells().count(), 1);
+        assert_eq!(Shape { kind: Kind::Cylinder, ..Shape::one(o) }.cells().count(), 1, "a 1-wide cylinder is its column");
     }
 
     #[test]

@@ -9,7 +9,7 @@ use engine::net::{local, Link, Recv, ToClient, ToServer};
 use engine::blocks::BLOCKS;
 use engine::phys::{self, Input};
 use engine::world::World;
-use engine::edit::{Predictor, Shape};
+use engine::edit::{Kind, Predictor, Shape};
 use glam::{DVec3, IVec3};
 use std::path::Path;
 use std::sync::mpsc::channel;
@@ -98,7 +98,8 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
             _ => IVec3::new(k(40), k(40), 0),
         };
         let at = s.world.block_at(at);
-        let shape = Shape { max: at.pos + ext, ..Shape::one(at) };
+        let kind = [Kind::Box, Kind::Cylinder, Kind::Cone][k(3) as usize];
+        let shape = Shape { max: at.pos + ext, kind, ..Shape::one(at) };
         // the bot predicts like a client; its own box is the only one it keeps clear
         let me = &s.clients[me].phys;
         let (seq, _) = b.pred.edit(&mut b.world, &shape, m, |w, c| phys::holds(w, me, c));
