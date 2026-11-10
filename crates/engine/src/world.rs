@@ -180,7 +180,7 @@ pub fn material(depth: f64) -> u8 {
 }
 
 /// One block of a body: pos = (column i, column j, layer).
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Block {
     pub body: u8,
     pub face: u8,
@@ -279,6 +279,23 @@ impl World {
     pub fn set_block(&mut self, b: Block, m: u8) {
         if self.edits.entry(b.chunk()).or_default().insert(b.pos, m).is_none() {
             self.edit_count += 1;
+        }
+    }
+    /// Puts back what `edit` returned: an edit, or (None) the generated block with no edit recorded.
+    pub fn put_edit(&mut self, b: Block, e: Option<u8>) {
+        match e {
+            Some(m) => self.set_block(b, m),
+            None => {
+                let k = b.chunk();
+                if let Some(cells) = self.edits.get_mut(&k) {
+                    if cells.remove(&b.pos).is_some() {
+                        self.edit_count -= 1;
+                    }
+                    if cells.is_empty() {
+                        self.edits.remove(&k);
+                    }
+                }
+            }
         }
     }
     /// One hash per level 0 chunk that holds edits, in chunk order: two worlds from the same seed agree where

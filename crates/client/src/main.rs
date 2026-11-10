@@ -2,7 +2,7 @@
 mod sys;
 
 use engine::blocks::{AIR, BLOCKS};
-use engine::edit::Shape;
+use engine::edit::{Predictor, Shape};
 use engine::net::{self, Link, Recv, ToClient, ToServer, TICK_HZ};
 use engine::phys::{self, Input};
 use engine::stream::{DrawChunk, FrameStats, Opts, Streamer, View};
@@ -443,6 +443,8 @@ struct App {
     samples: Samples,
     rng: u64,
     edits_done: u64,
+    /// This client's edits in flight (ADR 0015).
+    pred: Predictor,
     last_pos: DVec3,
     sheet: Vec<image::RgbaImage>,
     next_cap: f64,
@@ -511,12 +513,18 @@ impl App {
             match self.link.try_recv() {
                 Recv::Msg(ToClient::Edits(v)) => {
                     for (b, m) in v {
-                        self.world.set_block(b, m);
-                        self.streamer.touch_block(&self.world, b);
+                        if self.pred.server(&mut self.world, b, m) {
+                            self.streamer.touch_block(&self.world, b);
+                        }
                         self.edits_applied += 1;
                         if measuring {
                             self.samples.edits += 1;
                         }
+                    }
+                }
+                Recv::Msg(ToClient::Done { seq, .. }) => {
+                    for b in self.pred.done(&mut self.world, seq) {
+                        self.streamer.touch_block(&self.world, b);
                     }
                 }
                 Recv::Msg(ToClient::Players(ps)) => {
@@ -534,8 +542,8 @@ impl App {
                         }
                     }
                 }
-                // shortcut: answers and the inventory are not shown yet; prediction and the hotbar use them
-                Recv::Msg(ToClient::Welcome { .. } | ToClient::Done { .. } | ToClient::Inventory { .. }) => {}
+                // shortcut: the inventory is not shown yet; the hotbar will
+                Recv::Msg(ToClient::Welcome { .. } | ToClient::Inventory { .. }) => {}
                 Recv::Empty => break,
                 Recv::Closed => {
                     eprintln!("[technoape] the server closed the connection");
@@ -577,7 +585,12 @@ impl App {
                     continue; // below layer 0 nothing is stored
                 }
                 let m = if self.world.block(b) == AIR { BLOCKS.id("stone") } else { AIR };
-                self.link.send(ToServer::Edit { seq: self.edits_done as u32, shape: Shape::one(b), material: m });
+                let me = &self.me;
+                let (seq, cells) = self.pred.edit(&mut self.world, &Shape::one(b), m, |w, c| phys::holds(w, me, c));
+                for c in cells {
+                    self.streamer.touch_block(&self.world, c);
+                }
+                self.link.send(ToServer::Edit { seq, shape: Shape::one(b), material: m });
                 self.edits_done += 1;
             }
         }
@@ -1101,6 +1114,7 @@ fn main() {
         samples: Samples::default(),
         rng: 0x9E3779B97F4A7C15,
         edits_done: 0,
+        pred: Predictor::default(),
         last_pos: DVec3::ZERO,
         sheet: Vec::new(),
         next_cap: 0.0,

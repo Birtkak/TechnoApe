@@ -313,13 +313,8 @@ impl Server {
     /// The trust boundary: a box within the size limits on a face that exists, a known block, every cell
     /// within the player's reach.
     fn valid_shape(&self, s: &Shape, m: u8, at: DVec3) -> bool {
-        let Some(body) = self.world.bodies.get(s.body as usize) else { return false };
-        let inside = |v: glam::IVec3| (0..body.n).contains(&v.x) && (0..body.n).contains(&v.y) && (0..body.layers).contains(&v.z);
-        s.face < 6
-            && s.sane()
+        s.fits(&self.world)
             && BLOCKS.get(m).is_some()
-            && inside(s.min)
-            && inside(s.max)
             && s.cells().all(|b| self.world.block_centre(b).distance(at) <= REACH)
     }
 }
