@@ -194,10 +194,15 @@ fn left_by(i: u32, p: vec3f, lp: vec3f, lr: f32) -> f32 {
     return 1.0 - cover(rs, rb, atan2(length(cross(ld, v)), dot(ld, v)));
 }
 
-// one ray through the terrain of body `body`: 1 if it gets out, or as far as tmax
+// where a ray from surface point p facing n starts: off the surface, more so far from the camera
+fn ray_origin(p: vec3f, n: vec3f) -> vec3f {
+    return p + n * (0.02 + length(p) * 2e-5);
+}
+
+// one ray through the terrain of body `body`: 1 if it gets out, or as far as tmax from `ray_origin`
 fn ray(p: vec3f, n: vec3f, d: vec3f, body: u32, tmax: f32) -> f32 {
     var rq: ray_query;
-    let o = p + n * (0.02 + length(p) * 2e-5);
+    let o = ray_origin(p, n);
     rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_TERMINATE_ON_FIRST_HIT, 1u << body, 0.0, tmax, o, d));
     rayQueryProceed(&rq);
     return select(1.0, 0.0, rayQueryGetCommittedIntersection(&rq).kind != RAY_QUERY_INTERSECTION_NONE);
@@ -231,6 +236,9 @@ fn ambient(day: f32) -> vec3f {
 // the light on a surface of body `body` at p (from the camera) with normal n
 const LAMP_R: f32 = 8.0;
 const LAMP_RAYS: u32 = 3u;
+// a shadow ray stops this far from a lamp's middle: past its corners (0.433 m on a 0.5 m block, a little more
+// where the grid's columns are wider), so the lamp never shadows itself
+const LAMP_STOP: f32 = 0.5;
 const NONE: u32 = 0xffffffffu;
 
 // a lamp's light d2 square metres away: falling off with the square of the distance, to nothing at LAMP_R
@@ -310,10 +318,11 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     for (var k = 0u; k < LAMP_RAYS; k++) {
         if (top[k] == NONE) { continue; }
         let lp = lamps[top[k]];
-        let v = lp.pos.xyz - p;
+        // aimed from where the ray starts: from p, the 2 cm offset carried its end into the lamp by its corners
+        // (bug 2026-11-10_19-45-23)
+        let v = lp.pos.xyz - ray_origin(p, n);
         let d = length(v);
-        // stop short of the lamp's own block: a 0.5 m block's corners are 0.433 m from its middle
-        let vis = select(ray(p, n, v / d, body, d - 0.44), 1.0, d < 0.45);
+        let vis = select(ray(p, n, v / d, body, d - LAMP_STOP), 1.0, d < LAMP_STOP);
         o.l += lamp_on(top[k], p, n) * vis;
         seen_n += 1.0;
         seen_v += vis;

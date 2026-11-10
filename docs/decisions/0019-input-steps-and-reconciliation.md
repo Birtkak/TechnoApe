@@ -38,6 +38,13 @@ Option 2.
   state. If that lands over 1 mm from the prediction, it counts a correction (`feel.corrections`). The drawn
   position keeps the old place as an offset that eases out with a 100 ms time constant. A jump of 2 m or
   more (a teleport) is not eased.
+- **The look is the player's own (2026-11-10).** A step's input carries `turn`, the mouse's turn about the
+  player's up since the last step, and the pitch; no direction. `phys::step` carries `Player::fwd` to the
+  step's up (gravity keeps it level), turns it, and `reframe` rotates it with a frame change. A direction
+  in the input meant another one once a step changed frames: a client's frame took several steps with one
+  input, so after the planet's sphere of influence the later steps looked the old frame's way and a flight
+  at 1000 m/s fell back in and out of it every few ticks (bug 2026-11-10_19-46-22). A non-zero `fwd` still
+  sets the look outright, for bots and the soak.
 
 ## Consequences
 - A clean local run has 0 corrections and `drift_max_m` exactly 0.0, and the gate now asks for 0.

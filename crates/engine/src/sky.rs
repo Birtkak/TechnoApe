@@ -16,6 +16,9 @@ pub const MONTH: f64 = 16.0 * DAY;
 pub const YEAR: f64 = 54.0 * DAY;
 /// The moon's orbit against the ecliptic: steep, so only about a third of new moons eclipse the sun.
 pub const INCLINATION: f64 = 40.0 * TAU / 360.0;
+/// The sky repeats after this: 432 days are 27 months and 8 years, and the spin's sidereal turns are whole too.
+/// The poses take the time modulo it, so a world billions of seconds old keeps its angles to the nanoradian.
+pub const PERIOD: f64 = 432.0 * DAY;
 /// The planet's orbit around the sun, and the sun's size: 0.53 degrees across, as Earth's.
 pub const SUN_DIST: f64 = 1.0e6;
 pub const SUN_RADIUS: f64 = 4625.0;
@@ -69,12 +72,14 @@ impl Sky {
     }
     /// The planet: on its circle around the sun once a year, spinning once a sidereal day.
     pub fn planet(&self, t: f64) -> Pose {
+        let t = t.rem_euclid(PERIOD);
         let a = TAU * t / YEAR;
         let spin = SPIN0 + TAU * t * (1.0 / DAY + 1.0 / YEAR);
         Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * SUN_DIST, rot: DQuat::from_rotation_z(spin) }
     }
     /// The moon: on its inclined circle once a sidereal month, the same face (its body -x) to the planet.
     pub fn moon(&self, t: f64) -> Pose {
+        let t = t.rem_euclid(PERIOD);
         let u = MOON0 + TAU * t * (1.0 / MONTH + 1.0 / YEAR);
         let (s, c, si, ci) = (u.sin(), u.cos(), INCLINATION.sin(), INCLINATION.cos());
         let e1 = DVec3::new(c, s * ci, s * si);
@@ -237,6 +242,21 @@ mod tests {
         let a = s.eclipse(t, behind + side * 170.0 + s.planet(t).centre);
         let b = s.eclipse(t, behind + side * 185.0 + s.planet(t).centre);
         assert!(a > b && b > 0.0 && a < 1.0, "{a} {b}");
+    }
+
+    #[test]
+    fn the_sky_repeats_and_an_old_world_keeps_its_precision() {
+        // the developer's world was 2.4e11 s old (bug 2026-11-10_19-46-22): the same sky as at 1234.5 s, exactly
+        let s = sky();
+        let (t, old) = (1234.5, 1234.5 + 462_000.0 * PERIOD);
+        for (a, b) in [(s.planet(t), s.planet(old)), (s.moon(t), s.moon(old))] {
+            assert!(a.centre.distance(b.centre) < 1e-6 && (a.rot - b.rot).length() < 1e-12, "{a:?} {b:?}");
+        }
+        // and the period is the sky's own: without the wrap it agrees to the float's grain
+        let p = |t: f64| (TAU * t / YEAR, TAU * t * (1.0 / DAY + 1.0 / YEAR), TAU * t * (1.0 / MONTH + 1.0 / YEAR));
+        for x in [p(PERIOD).0, p(PERIOD).1, p(PERIOD).2] {
+            assert!((x / TAU - (x / TAU).round()).abs() < 1e-9, "{}", x / TAU);
+        }
     }
 
     #[test]

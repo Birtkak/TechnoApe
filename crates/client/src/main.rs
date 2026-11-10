@@ -729,6 +729,8 @@ struct App {
     keys: std::collections::HashSet<KeyCode>,
     mouse: (f64, f64),
     pitch: f64,
+    /// The mouse's turn (radians to the left) not stepped yet: the next step takes it, the camera shows it now.
+    turn: f64,
     input: Input,
     /// Times the server's state, replayed to now, differed from the prediction by over a millimetre.
     snaps: u64,
@@ -1609,31 +1611,32 @@ impl App {
         let p = if self.run == "play" {
             // the player: mouse turns the look, keys make the input, the shared physics moves the box here in
             // the same fixed steps as on the server, whose position wins when the two drift apart
-            let up = phys::up(&self.world, self.me.pos);
             let (mx, my) = std::mem::take(&mut self.mouse);
             // C held zooms 3x, eased over about 0.1 s; the mouse turns as much slower
             let want = if self.keys.contains(&KeyCode::KeyC) { ZOOM } else { 1.0 };
             self.zoom += (want - self.zoom) * (1.0 - (-dt / 0.04).exp());
             let sens = 0.0025 * self.settings.sensitivity / self.zoom;
-            self.me.fwd = DQuat::from_axis_angle(up, -mx * sens) * self.me.fwd;
+            // the look is the player's own and turns in the steps, so no frame change makes it mean another way
+            self.turn -= mx * sens;
             self.pitch = (self.pitch - my * sens).clamp(-1.55, 1.55);
             // flight is creative's; the server holds to that too
             self.flying &= self.creative;
             let k = |c: KeyCode| self.keys.contains(&c) as i32 as f32;
             let auto = a.get("autowalk", 0) == 1;
-            let inp = Input {
+            let mut inp = Input {
                 mv: [if auto { 1.0 } else { k(KeyCode::KeyW) - k(KeyCode::KeyS) }, k(KeyCode::KeyD) - k(KeyCode::KeyA)],
                 jump: auto || self.keys.contains(&KeyCode::Space),
-                fwd: self.me.fwd.as_vec3().to_array(),
                 pitch: self.pitch as f32,
                 fly: if self.flying { self.fly_speed as f32 } else { 0.0 },
                 down: self.flying && (self.keys.contains(&KeyCode::ShiftLeft) || self.keys.contains(&KeyCode::ShiftRight)),
                 t: self.world.time,
+                ..Default::default()
             };
             // nothing moves before the server says where this player starts
             self.debt = if self.spawned { self.debt + dt.min(0.1) } else { 0.0 };
             while self.debt >= phys::DT {
                 self.prev = self.me.pos;
+                inp.turn = std::mem::take(&mut self.turn) as f32;
                 phys::step(&self.world, &mut self.me, &inp, phys::DT);
                 self.steps.push_back((self.next_step, inp));
                 self.next_step += 1;
@@ -1655,7 +1658,7 @@ impl App {
             self.smooth *= (-dt / CORRECT_S).exp();
             let pos = self.prev.lerp(self.me.pos, self.debt / phys::DT) + self.smooth;
             let up = phys::up(&self.world, pos);
-            let fwd = phys::tangent(self.me.fwd, up, self.me.fwd);
+            let fwd = DQuat::from_axis_angle(up, self.turn) * phys::tangent(self.me.fwd, up, self.me.fwd);
             let look = DQuat::from_axis_angle(fwd.cross(up), self.pitch) * fwd;
             Pose { pos: pos + up * phys::EYE, fwd: look, up }
         } else {
@@ -2352,16 +2355,12 @@ impl App {
             }
             me
         };
-        let mut me = replay(&mut self.world, &self.steps);
+        let me = replay(&mut self.world, &self.steps);
         let off = self.me.pos - me.pos;
         if off.length() >= 2.0 {
             // a teleport (/goto, a respawn): the look is the server's, in the frame it lands in, level; the
-            // steps not answered yet looked the old way
-            for s in &mut self.steps {
-                s.1.fwd = server.fwd.as_vec3().to_array();
-            }
+            // steps not answered yet only turn it
             self.pitch = 0.0;
-            me = replay(&mut self.world, &self.steps);
         }
         self.drift_max = self.drift_max.max(off.length());
         if off.length() > 0.001 {
@@ -2785,6 +2784,7 @@ fn main() {
         keys: Default::default(),
         mouse: (0.0, 0.0),
         pitch: 0.0,
+        turn: 0.0,
         input: Input::default(),
         snaps: 0,
         tail_prev: 0.0,

@@ -263,7 +263,7 @@ impl Server {
                 h = fnv(h, &x.to_bits().to_le_bytes());
             }
             if let Some(i) = c.input {
-                for x in [i.mv[0], i.mv[1], i.fwd[0], i.fwd[1], i.fwd[2], i.pitch] {
+                for x in [i.mv[0], i.mv[1], i.fwd[0], i.fwd[1], i.fwd[2], i.pitch, i.turn] {
                     h = fnv(h, &x.to_bits().to_le_bytes());
                 }
                 h = fnv(h, &[i.jump as u8]);
@@ -626,7 +626,7 @@ impl Server {
                 let t = match to {
                     Some(t) => {
                         // the next tick shows it; a time before this session's start wraps the tick counter
-                        let ticks = (t.min(1e15) * TICK_HZ).round() as u64;
+                        let ticks = (t.min(1e12) * TICK_HZ).round() as u64; // past 1e12 s the clock steps coarser than 0.1 ms
                         self.tick0 = ticks.wrapping_sub(self.tick);
                         self.world.time = ticks as f64 / TICK_HZ;
                         self.world.time

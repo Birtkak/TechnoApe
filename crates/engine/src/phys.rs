@@ -7,7 +7,7 @@
 //! on the position alone (not the look, not the way there), so a position the physics accepts stays free.
 use crate::blocks::BLOCKS;
 use crate::world::{Block, World, BLOCK};
-use glam::DVec3;
+use glam::{DQuat, DVec3};
 use serde::{Deserialize, Serialize};
 
 pub const WIDTH: f64 = 0.6;
@@ -27,13 +27,18 @@ const SUBSTEP: f64 = 0.25;
 pub const FLY_MAX: f64 = 1000.0;
 const CONTACT: f64 = 0.001;
 
-/// What a player wants this tick: `mv` is forward and right in -1..1, `fwd` the look direction.
+/// What a player wants this tick: `mv` is forward and right in -1..1, `pitch` the look over the horizon.
+/// The look is the player's own (`Player::fwd`): `turn` turns it about the player's up, radians to the left.
+/// A non-zero `fwd` instead sets it outright, in the coordinates of the frame the player is in: for scripts
+/// (bots, the soak). A client uses `turn` only, as a direction would mean another one once a step changes frames.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 pub struct Input {
     pub mv: [f32; 2],
     pub jump: bool,
     pub fwd: [f32; 3],
     pub pitch: f32,
+    #[serde(default)]
+    pub turn: f32,
     /// Creative flight (ADR 0023): the speed in m/s, 0 walking. No gravity; jump rises, `down` sinks, and
     /// the box still collides. The server takes it from creative players only.
     #[serde(default)]
@@ -159,7 +164,7 @@ fn one_layer(world: &World, pos: DVec3) -> f64 {
 
 /// An input any side may step with: finite numbers only.
 pub fn sane(inp: &Input) -> bool {
-    inp.fwd.iter().chain(inp.mv.iter()).chain([&inp.pitch, &inp.fly]).all(|c| c.is_finite()) && inp.t.is_finite()
+    inp.fwd.iter().chain(inp.mv.iter()).chain([&inp.pitch, &inp.fly, &inp.turn]).all(|c| c.is_finite()) && inp.t.is_finite()
 }
 
 /// One step at the input's own world time (`Input::t`; the world's when 0), the world's clock put back after.
@@ -176,7 +181,9 @@ pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) {
 pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
     let up = up(world, p.pos);
     let look = DVec3::new(inp.fwd[0] as f64, inp.fwd[1] as f64, inp.fwd[2] as f64);
-    let fwd = tangent(if look.is_finite() { look } else { p.fwd }, up, p.fwd);
+    // the look carried to this step's up (gravity keeps it level), then turned about it
+    let fwd = tangent(if look.is_finite() && look != DVec3::ZERO { look } else { p.fwd }, up, p.fwd);
+    let fwd = if inp.turn != 0.0 { DQuat::from_axis_angle(up, inp.turn as f64) * fwd } else { fwd };
     p.fwd = fwd;
     let right = fwd.cross(up).normalize();
 
@@ -284,6 +291,40 @@ mod tests {
         assert!(!inside(&w, &p) && p.on_ground, "landed");
         let fast = Input { fly: 1e9, ..hover };
         assert!(sane(&fast) && !sane(&Input { fly: f32::NAN, ..hover }));
+    }
+
+    #[test]
+    fn the_look_stays_level_and_the_flight_straight_out_of_the_planets_frame() {
+        // bug 2026-11-10_19-46-22: flying out at 1000 m/s, a frame's later steps looked the old frame's way and
+        // the player fell back in and out of the planet's sphere of influence. A client frame takes a few steps
+        // with one input; its turn goes with the first. The clock as the developer's save had it.
+        let mut w = world();
+        w.time = 239084231911.3;
+        // 1 km up the 88 m test planet: a step bends up by under a degree, as at 7 km over the real one
+        let start = ground(&w) + up(&w, ground(&w)) * 1000.0;
+        let mut p = Player::at(start, tangent(DVec3::X, up(&w, start), DVec3::Z));
+        let inp = Input { mv: [1.0, 0.0], jump: true, fly: 1000.0, ..Default::default() };
+        let from_planet = |w: &World, p: &Player| (w.to_inertial(p.pos) - w.pose(0, w.time).centre).length();
+        let (mut last, mut frames, mut left) = (from_planet(&w, &p), 0, false);
+        while frames < 400 {
+            for k in 0..3 {
+                let inp = Input { turn: if k == 0 { 0.01 } else { 0.0 }, ..inp };
+                let was = p.fwd;
+                let f = w.frame_at(p.pos);
+                step(&w, &mut p, &inp, DT);
+                w.time += DT;
+                let r = from_planet(&w, &p);
+                assert!(r > last, "frame {frames} step {k}: back towards the planet, {last:.1} -> {r:.1} m");
+                assert!(p.fwd.dot(up(&w, p.pos)).abs() < 0.02, "the look leaves the horizon: {}", p.fwd.dot(up(&w, p.pos)));
+                if w.frame_at(p.pos) == f {
+                    assert!(was.angle_between(p.fwd) < 0.03, "the look jumps {:.1} degrees", was.angle_between(p.fwd).to_degrees());
+                }
+                left |= w.frame_at(p.pos) == crate::world::INERTIAL;
+                last = r;
+            }
+            frames += 1;
+        }
+        assert!(left, "out of the planet's frame at {last:.0} m");
     }
 
     #[test]
