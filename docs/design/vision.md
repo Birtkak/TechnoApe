@@ -9,7 +9,8 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
 
 ## The idea
 - **Planets you can hold in your head.** Each planet is 0.3-1 km in radius: you can walk around it in under
-  an hour, see its curve, and reach space by climbing. One planet and its moon first; a solar system later
+  an hour, see its curve, and reach space by climbing. One planet and its moon first, **Terra** and **Luna** (ADR 0026: each simulated once when the world is
+  made, `worldgen.md`); a solar system later
   (ADR 0001).
 - **Building and automation with depth.** Minecraft-style building; machines, conveyors, pipes and power with
   GregTech-like depth: multi-stage processing, real choices, factories that grow. Content is designed fresh for

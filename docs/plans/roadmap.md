@@ -62,7 +62,15 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      reflections on metal (later telescopes). Hardware ray queries on Vulkan: about 1.8 ms per 1080p frame
      on the RTX 3070 with a reflection on every pixel;
    - 3D audio with cave reverb and material sounds.
-2. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; **world
+2. **Before the rest (the developer, 2026-11-10), in this order:**
+   - **the optimisation pass** (`docs/plans/optimization-handoff.md`, ADR 0025): the lighting took the
+     frame from 0.4 ms to about 4 ms; target `stand` at 800 fps or more;
+   - **Terra and Luna** (the planet's and the moon's names; ADR 0026, `docs/design/worldgen.md`,
+     staged in `docs/plans/worldgen-plan.md`): each body simulated once when the world is made (plates,
+     erosion, rivers, climate, real rocks and minerals, counted ore bodies), then tides, seasons and
+     living plants. This replaces "the Earth-like biomes and the moon's ores" below and brings the air
+     grid's spike and the material ledger forward.
+3. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; **world
    physics** (ADR 0017: loose blocks fall and slide, unsupported builds collapse); **blueprints** (ADR 0017:
    capture, name, paste, materials paid from storage); the
    Earth-like biomes and the moon's ores; crafting and the first machines (designed fresh); AI players;
