@@ -268,11 +268,16 @@ pub fn brackets(p: &mut Paint, b: [f32; 4], arm: f32, all: bool, colour: [f32; 4
     }
 }
 
-/// The menu's buttons on a `w` x `h` screen: x, y, width and height in pixels, a column on the left.
-pub fn menu_boxes(_w: f32, h: f32, n: usize) -> Vec<[f32; 4]> {
-    let (bw, bh, gap) = (860.0, 50.0, 10.0);
+/// Screen pixels a font pixel of the menu's buttons.
+const MENU_PX: f32 = PX * 1.5;
+
+/// The menu's buttons on a `h` pixels high screen: x, y, width and height in pixels, a column on the left,
+/// each as wide as its number and label: what is drawn lit is what takes the click.
+pub fn menu_boxes(h: f32, items: &[String]) -> Vec<[f32; 4]> {
+    let (bh, gap, glyph) = (50.0, 10.0, 8.0 * MENU_PX);
     let top = (h * 0.36).max(230.0);
-    (0..n).map(|k| [96.0, top + k as f32 * (bh + gap), bw, bh]).collect()
+    let width = |l: &String| 20.0 + 4.0 * glyph + l.chars().count() as f32 * glyph + 12.0;
+    items.iter().enumerate().map(|(k, l)| [96.0, top + k as f32 * (bh + gap), width(l), bh]).collect()
 }
 
 /// The game's name: the title page draws it as the logo instead of plain text.
@@ -347,7 +352,7 @@ fn planet(p: &mut Paint, x: f32, y: f32, r: f32) {
 /// readout under it (the title page's is the logo), and a numbered list; the button under the pointer a
 /// solid cyan box in corner brackets.
 pub fn menu(p: &mut Paint, title: &str, items: &[String], hint: &str, hover: Option<usize>) {
-    let boxes = menu_boxes(p.w, p.h, items.len());
+    let boxes = menu_boxes(p.h, items);
     let (x, top) = (96.0, boxes.first().map_or(p.h * 0.36, |b| b[1]));
     let shade = x + 900.0;
     p.rect(0.0, 0.0, shade, p.h, [0.0, 0.02, 0.05, 0.45], 0);
@@ -362,11 +367,11 @@ pub fn menu(p: &mut Paint, title: &str, items: &[String], hint: &str, hover: Opt
         p.text_px(x + 22.0, top - 150.0, &title.to_uppercase(), [1.0, 1.0, 1.0, 1.0], PX * 3.0);
         p.text_px(x + 22.0, top - 92.0, hint, [0.7, 0.8, 0.9, 1.0], PX * 1.25);
     }
-    let lp = PX * 1.5;
+    let lp = MENU_PX;
     for (k, (b, label)) in boxes.iter().zip(items).enumerate() {
         let lit = hover == Some(k);
         let ty = b[1] + (b[3] - 7.0 * lp) / 2.0;
-        let tw = 20.0 + 4.0 * 8.0 * lp + label.chars().count() as f32 * 8.0 * lp + 12.0;
+        let tw = b[2];
         if lit {
             p.rect(b[0], b[1], tw, b[3], CYAN, 0);
             brackets(p, [b[0] - 6.0, b[1] - 6.0, tw + 12.0, b[3] + 12.0], 12.0, false, CYAN);

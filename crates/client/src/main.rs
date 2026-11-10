@@ -1638,9 +1638,6 @@ impl App {
             // right of the hotbar (hud::layer: nine 44 px slots 6 px apart), clear of the chat
             paint.text(w() as f32 / 2.0 + 222.0 + 16.0, h() as f32 - 46.0, &s, [1.0, 1.0, 1.0, 0.9]);
         }
-        if let Some(b) = &self.bug {
-            hud::bug_form(&mut paint, b, caret);
-        }
         if let Some(m) = self.menu {
             let (title, hint) = match m {
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
@@ -1648,11 +1645,15 @@ impl App {
                 Menu::Pause => ("Paused", "The world runs on. Esc goes back to the game."),
                 Menu::Settings => ("Settings", "Left click: the next value. Right click: the one before."),
             };
-            let (items, boxes) = (self.menu_items(), hud::menu_boxes(w() as f32, h() as f32, self.menu_items().len()));
+            let (items, boxes) = (self.menu_items(), hud::menu_boxes(h() as f32, &self.menu_items()));
             let (x, y) = self.pointer;
             let hover = boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]);
             hud::menu(&mut paint, title, &items, hint, hover);
             self.menu_boxes = boxes;
+        }
+        // the bug report's form over everything, the menus too
+        if let Some(b) = &self.bug {
+            hud::bug_form(&mut paint, b, caret);
         }
         rects.extend(paint.out);
         let n = rects.len().min(hud::RECTS_MAX);
@@ -2658,8 +2659,14 @@ impl ApplicationHandler for App {
                     return;
                 }
                 if self.menu.is_some() {
-                    if code == KeyCode::Escape && state == ElementState::Pressed {
-                        self.act("esc");
+                    // the menus take Esc; F3 and F9 (a bug report) work in them too
+                    if state == ElementState::Pressed {
+                        match code {
+                            KeyCode::Escape => self.act("esc"),
+                            KeyCode::F3 => self.act("f3"),
+                            KeyCode::F9 => self.act("f9"),
+                            _ => {}
+                        }
                     }
                     return;
                 }
@@ -2694,7 +2701,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CursorMoved { position, .. } => self.pointer = (position.x as f32, position.y as f32),
             WindowEvent::Resized(size) if self.run == "play" && self.onscreen => self.resize(size.width, size.height),
-            WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } if self.menu.is_some() => {
+            WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } if self.menu.is_some() && !self.texting() => {
                 let (x, y) = self.pointer;
                 if let Some(k) = self.menu_boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]) {
                     self.menu_press(k, button == MouseButton::Right);
