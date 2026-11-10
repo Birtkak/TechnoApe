@@ -18,6 +18,7 @@ One row per package, in the order done.
 | Package | Number it had to move | Before | After | Verdict |
 |---|---|---|---|---|
 | A. Account for every millisecond | GPU and CPU stages sum to within 10 % of the frame in all four runs | `gpu_ms` covered 2.9 of 3.9 ms (`stand`); `edit`'s 12 ms frames 9 ms unnamed | GPU stages + idle gap = frame p50 within 1 % in all four (stand 3.10 + 0.51 vs 3.64; fly 4.03 + 0.55 vs 4.56; edit 4.80 + 0.56 vs 5.36; orbit 2.76 + 0.55 vs 3.30); CPU stretches back to back | keep |
+| A2. Submit everything before the screen pass ahead of `get_current_texture` (two submits a frame) | the GPU's idle gap between frames | gap p50 0.51 / 0.55 / 0.56 / 0.55 ms (stand / fly / edit / orbit) | gap 0.45 / 0.46 / 0.47 / 0.46, but the screen stage grew 0.15 -> 0.36 ms in `stand`: the idle moved between the two command buffers; frames within run-to-run noise | revert: the gap is not the CPU recording late; most likely the present's own copy of the swapchain image on Windows, outside our passes |
 
 ### A: where the time goes (quick runs, p50 ms)
 
@@ -31,8 +32,8 @@ One row per package, in the order done.
 - Every run is GPU-bound: the frame thread spends half the frame waiting in `get_current_texture`.
 - The G-buffer pass (the forward fragment shader that traces the sun, lamp and reflection rays) is the
   largest stage, 1.4-2.1 ms; the smoothing (`temporal` + `atrous`) is next, 1.1-1.5 ms.
-- The GPU is idle about 0.5 ms of every frame: nothing is submitted until the swapchain image is acquired,
-  and the CPU then needs about 1.3 ms (`rt.record`, `submit`) before the GPU has work again.
+- The GPU is idle about 0.5 ms of every frame, between one frame's screen pass and the next frame's first
+  command (A2: submitting earlier does not close it).
 - The TLAS rebuild costs the CPU 0.5-0.7 ms in `rt.record` and as much again in `submit` (wgpu's validation
   of thousands of instances), on the GPU 0.1-0.2 ms on a still camera, 0.8 ms in `edit` with its BLAS builds.
 - **`edit`'s 12 ms frames:** about six frames in a row at t = 9.5 s after loading, in `edit` and `stand`
