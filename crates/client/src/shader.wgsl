@@ -29,7 +29,7 @@ struct Globals {
     sun_col: vec4f,
     moon_col: vec4f,
     sky: vec4f,
-    n_lamps: vec4u, // x: lamps in `lamps`
+    n_lamps: vec4u, // x: lamps in `lamps`, y: the frame number (the bounce rays' seed)
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 struct Chunk { base: vec3i, info: u32, off: u32 };
@@ -148,7 +148,8 @@ fn expand(@builtin(global_invocation_id) id: vec3u) {
 // ---- light (ADR 0022) ----
 // The sun is the one source. Direct light is what the bodies' spheres leave of its disc (eclipses, and the
 // horizon of the body far away) times one ray through the terrain to a point of the disc (soft shadows).
-// The moon reflects it by its phase. The sky's light fades with the sun's height over the horizon here.
+// The moon reflects it by its phase; lamps add theirs. `light` is the direct light only: the light of the
+// sky and of everything around, bounced, comes from the bounce pass (`gi_trace`, post.wgsl).
 const PI: f32 = 3.14159265;
 const DAY_AMB: vec3f = vec3f(0.33, 0.35, 0.40);
 const NIGHT_AMB: vec3f = vec3f(0.018, 0.022, 0.035);
@@ -210,6 +211,20 @@ fn in_disc(s: vec3f, ar: f32, px: vec2u) -> vec3f {
 
 struct Light { l: vec3f, sun: f32, day: f32 };
 
+// the sky's light over point p of body `body`, for bounce rays that leave: blue by day where the body has
+// air (a sea), fading through twilight; no sun's disc
+const DAY_SKY: vec3f = vec3f(0.32, 0.46, 0.66);
+fn sky_light(p: vec3f, body: u32) -> vec3f {
+    let b = g.bodies[body];
+    let day = smoothstep(-0.2, 0.15, dot(normalize(p - b.ctr.xyz), normalize(g.sun_pos.xyz - p)));
+    return DAY_SKY * day * select(0.0, 1.0, b.sea >= 0.0) + NIGHT_AMB;
+}
+
+// a flat stand-in for the light from around, where no bounce ray is traced: water, and what rays hit
+fn ambient(day: f32) -> vec3f {
+    return mix(NIGHT_AMB, DAY_AMB, day);
+}
+
 // the light on a surface of body `body` at p (from the camera) with normal n
 const LAMP_R: f32 = 8.0;
 const LAMP_RAYS: u32 = 3u;
@@ -228,7 +243,7 @@ fn lamp_on(i: u32, p: vec3f, n: vec3f) -> vec3f {
     return lamp_light(lamps[i], d2) * max(dot(n, v) * inverseSqrt(d2), 0.0);
 }
 
-fn light(p: vec3f, n: vec3f, body: u32, px: vec2u, ao: f32) -> Light {
+fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     let up = normalize(p - g.bodies[body].ctr.xyz);
     let sd = normalize(g.sun_pos.xyz - p);
     // eclipses: every other body's sphere over the sun's disc
@@ -240,13 +255,13 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u, ao: f32) -> Light {
     o.day = smoothstep(-0.2, 0.15, dot(up, sd)) * ecl;
     let mi = u32(g.moon_col.w);
     let moon = g.moon_col.rgb * select(1.0, 0.0, body == mi);
-    o.l = (mix(NIGHT_AMB, DAY_AMB, o.day) + moon * 0.25) * ao;
+    o.l = vec3f(0.0);
     let ndl = dot(n, sd);
     let vis = ecl * left_by(body, p, g.sun_pos.xyz, g.sun_pos.w);
     if (ndl > 0.0 && vis > 0.0) {
         let ar = g.sun_pos.w / length(g.sun_pos.xyz - p);
         o.sun = vis * ray(p, n, in_disc(sd, ar, px), body, 1e5);
-        o.l += g.sun_col.rgb * ndl * o.sun * (0.6 + 0.4 * ao);
+        o.l += g.sun_col.rgb * ndl * o.sun;
     }
     // the moon's light where the sun's is weak, through the same terrain
     if (o.day < 0.5 && max(moon.r, moon.b) > 0.001) {
@@ -261,8 +276,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u, ao: f32) -> Light {
             if (mv > 0.0) { o.l += moon * ndm * mv * ray(p, n, md, body, 1e5); }
         }
     }
-    // the lamps: shadow rays to the LAMP_RAYS strongest here; the others get their mean visibility, and every
-    // lamp a share without a ray for the light its room bounces back
+    // the lamps: shadow rays to the LAMP_RAYS strongest here; the others get their mean visibility
     var top = array<u32, LAMP_RAYS>(NONE, NONE, NONE);
     var topw = array<f32, LAMP_RAYS>(0.0, 0.0, 0.0);
     var rest = vec3f(0.0);
@@ -271,7 +285,6 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u, ao: f32) -> Light {
         let v = lp.pos.xyz - p;
         let d2 = dot(v, v);
         if (u32(lp.pos.w) != body || d2 > LAMP_R * LAMP_R) { continue; }
-        o.l += lamp_light(lp, d2) * 0.12 * ao;
         let w = dot(lamp_on(i, p, n), vec3f(0.3, 0.5, 0.2));
         if (w <= 0.0) { continue; }
         // keep the strongest: insert into the short list, the weakest falls to `rest`
@@ -306,13 +319,15 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u, ao: f32) -> Light {
     return o;
 }
 
-// what a ray from p sees: the terrain it hits, lit, or the sky (a metal's reflection)
-fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u) -> vec3f {
+// what a ray from p sees: the terrain it hits, lit, or the sky. A metal's reflection (bounce false) sees the
+// sun's disc and lamps' faces; a bounce ray sees the sky's light only, and lamps' faces as nothing, since a
+// lamp's light is already direct light
+fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> vec3f {
     var rq: ray_query;
-    rayQueryInitialize(&rq, acc, RayDesc(0u, 1u << body, 0.0, 4000.0, p, d));
+    rayQueryInitialize(&rq, acc, RayDesc(0u, 1u << body, 0.0, tmax, p, d));
     rayQueryProceed(&rq);
     let h = rayQueryGetCommittedIntersection(&rq);
-    if (h.kind == RAY_QUERY_INTERSECTION_NONE) { return sky_colour(d); }
+    if (h.kind == RAY_QUERY_INTERSECTION_NONE) { return select(sky_colour(d), sky_light(p, body), bounce); }
     let c = chunks[h.instance_custom_data];
     let q = quads[c.off + h.primitive_index / 2u];
     let dir = (q.x >> 28u) & 7u;
@@ -325,8 +340,48 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u) -> vec3f {
     if (a == 1u) { hn = normalize(f.t - f.n * f.tb); }
     if ((dir & 1u) == 1u) { hn = -hn; }
     let m = q.y & 255u;
-    if ((looks[m].info >> 24u) == 1u) { return looks[m].colour; }
-    return looks[m].colour * light(p + d * h.t, brot(b, hn), body, px, 1.0).l;
+    if ((looks[m].info >> 24u) == 1u) { return select(looks[m].colour, vec3f(0.0), bounce); }
+    let l = light(p + d * h.t, brot(b, hn), body, px);
+    // the light from around at the hit: a flat share, the second bounce
+    return looks[m].colour * (l.l + ambient(l.day) * select(1.0, 0.35, bounce));
+}
+
+// ---- the bounce (ADR 0022) ----
+// One cosine-weighted ray per 2x2 pixels, from one of them in turn over four frames (BOUNCE_AT); what it
+// sees is that pixel's light from around, noisy.
+// post.wgsl gathers it over frames and smooths it, and the composite multiplies it by the albedo.
+@group(1) @binding(0) var gb_t: texture_2d<f32>;
+@group(1) @binding(1) var albedo_t: texture_2d<f32>;
+@group(1) @binding(2) var noisy: texture_storage_2d<rgba16float, write>;
+
+@compute @workgroup_size(8, 8)
+fn gi_trace(@builtin(global_invocation_id) id: vec3u) {
+    let half = textureDimensions(noisy);
+    if (id.x >= half.x || id.y >= half.y) { return; }
+    let size = textureDimensions(gb_t);
+    var at = array<vec2u, 4>(vec2u(0u, 0u), vec2u(1u, 1u), vec2u(1u, 0u), vec2u(0u, 1u));
+    let q = min(id.xy * 2u + at[g.n_lamps.y % 4u], size - 1u);
+    let gb = textureLoad(gb_t, q, 0);
+    if (gb.w <= 0.0) {
+        textureStore(noisy, id.xy, vec4f(0.0));
+        return;
+    }
+    let body = u32(round(textureLoad(albedo_t, q, 0).a * 3.0));
+    let n = gb.xyz;
+    let uv = (vec2f(q) + 0.5) / vec2f(size);
+    let w = g.inv_vp * vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0);
+    let p = normalize(w.xyz / w.w) * gb.w;
+    let f = g.n_lamps.y;
+    let px = q + vec2u(f * 7919u, f * 6271u);
+    // a cosine-weighted direction around n
+    let t = normalize(cross(n, select(vec3f(0., 1., 0.), vec3f(1., 0., 0.), abs(n.y) > 0.9)));
+    let bt = cross(n, t);
+    let u1 = hash2(px);
+    let ph = 2.0 * PI * hash2(px + vec2u(4513u, 9157u));
+    let r = sqrt(u1);
+    let d = normalize(t * (r * cos(ph)) + bt * (r * sin(ph)) + n * sqrt(1.0 - u1));
+    let o = p + n * (0.02 + length(p) * 2e-5);
+    textureStore(noisy, id.xy, vec4f(seen(o, d, body, px, true, 400.0), 1.0));
 }
 
 
@@ -365,7 +420,7 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32) -> vec3f {
 }
 
 @fragment
-fn fs(i: VOut) -> @location(0) vec4f {
+fn fs(i: VOut) -> GOut {
     let a = i.dir / 2u;
     let sgn = select(1.0, -1.0, (i.dir & 1u) == 1u);
     let c = chunks[i.ci];
@@ -374,24 +429,44 @@ fn fs(i: VOut) -> @location(0) vec4f {
     let t = vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]);
     let col = texel(i.mat, i.dir, cell, t, f.z);
     let look = looks[i.mat & 255u];
-    if ((look.info >> 24u) == 1u) { return vec4f(col * 1.15, 1.0); } // it gives light: it shows its own
     let n = normalize(i.normal);
     let body = c.info >> 8u;
+    var o: GOut;
+    o.gbuf = vec4f(n, length(i.rel));
+    if ((look.info >> 24u) == 1u) {
+        // it gives light: it shows its own, and takes none from around
+        o.direct = vec4f(col * 1.15, 1.0);
+        o.albedo = vec4f(0.0, 0.0, 0.0, f32(body) / 3.0);
+        return o;
+    }
     let px = vec2u(i.clip.xy);
-    let l = light(i.rel, n, body, px, i.ao);
+    let l = light(i.rel, n, body, px);
     var out = col * l.l;
+    var diffuse = 1.0;
     let metal = f32((look.info >> 16u) & 255u) / 255.0;
     if (metal > 0.0) {
         // a metal mirrors what is around it, tinted by its colour, more so at a grazing angle
         let v = -normalize(i.rel);
         let fres = metal + (1.0 - metal) * pow(1.0 - max(dot(n, v), 0.0), 5.0);
-        let r = seen(i.rel + n * (0.02 + length(i.rel) * 2e-5), reflect(-v, n), body, px);
+        let r = seen(i.rel + n * (0.02 + length(i.rel) * 2e-5), reflect(-v, n), body, px, false, 4000.0);
         out = mix(out, r * mix(vec3f(1.0), col, metal), fres);
+        diffuse = 1.0 - fres;
         // and the sun's glint, where the sun reaches
         out += col * g.sun_col.rgb * 3.0 * l.sun * metal * pow(max(dot(reflect(-v, n), normalize(g.sun_pos.xyz - i.rel)), 0.0), 48.0);
     }
-    return vec4f(shoulder(out), 1.0);
+    o.direct = vec4f(out, 1.0);
+    // the corner occlusion darkens the light from around a little more, in detail the bounce smooths away
+    o.albedo = vec4f(col * diffuse * mix(1.0, i.ao, 0.5), f32(body) / 3.0);
+    return o;
 }
+
+// the G-buffer: direct light; albedo, a the body / 3; normal (camera frame) and distance from the camera,
+// 0 for the sky
+struct GOut {
+    @location(0) direct: vec4f,
+    @location(1) albedo: vec4f,
+    @location(2) gbuf: vec4f,
+};
 
 // bright light rolls off above 0.8 instead of clipping; everything under it is left as it is
 fn shoulder(c: vec3f) -> vec3f {
@@ -539,8 +614,8 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     if (dot(n, v) < 0.0) { n = -n; } // seen from under the surface
     let facing = max(dot(n, v), 0.0);
     let fres = 0.08 + 0.92 * pow(1.0 - facing, 5.0);
-    let l = light(i.rel, n, i.body, vec2u(i.clip.xy), 1.0);
-    var col = vec3f(0.06, 0.24, 0.36) * (l.l + 0.1 * l.day);
+    let l = light(i.rel, n, i.body, vec2u(i.clip.xy));
+    var col = vec3f(0.06, 0.24, 0.36) * (l.l + ambient(l.day) + 0.1 * l.day);
     // the sky in it, and the sun's glint where the sun reaches
     col = mix(col, g.sky.rgb + vec3f(0.17, 0.13, 0.01) * l.day, fres * 0.7);
     col += g.sun_col.rgb * 1.5 * l.sun * pow(max(dot(reflect(-g.sun.xyz, n), v), 0.0), 120.0);
@@ -572,9 +647,13 @@ fn vs_sky(@builtin(vertex_index) vi: u32) -> SkyOut {
 }
 
 @fragment
-fn fs_sky(i: SkyOut) -> @location(0) vec4f {
+fn fs_sky(i: SkyOut) -> GOut {
     let w = g.inv_vp * vec4f(i.ndc, 1.0, 1.0);
-    return vec4f(sky_colour(normalize(w.xyz / w.w)), 1.0);
+    var o: GOut;
+    o.direct = vec4f(sky_colour(normalize(w.xyz / w.w)), 1.0);
+    o.albedo = vec4f(0.0);
+    o.gbuf = vec4f(0.0);
+    return o;
 }
 
 // the sky in direction d

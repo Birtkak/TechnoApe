@@ -1,4 +1,5 @@
 //! The TechnoApe client: window, renderer and the benchmark runs (docs/plans/roadmap.md, "The shared benchmark").
+mod gi;
 mod hud;
 mod rt;
 mod sys;
@@ -262,7 +263,7 @@ struct Gpu {
 
 impl Gpu {
     /// The GPU, and the traced terrain bound to it. Vulkan only: wgpu's ray queries are there (ADR 0022).
-    fn new(window: Arc<Window>, a: &Args, cap: u32) -> (Gpu, rt::Rt) {
+    fn new(window: Arc<Window>, a: &Args, cap: u32) -> (Gpu, rt::Rt, gi::Gi) {
         let mut idesc = wgpu::InstanceDescriptor::new_without_display_handle();
         idesc.backends = wgpu::Backends::VULKAN;
         idesc.flags = wgpu::InstanceFlags::empty();
@@ -420,7 +421,7 @@ impl Gpu {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs"),
-                targets: &[Some(format.into())],
+                targets: &gi::TARGETS.map(|f| Some(f.into())),
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState { cull_mode: Some(wgpu::Face::Back), ..Default::default() },
@@ -468,7 +469,7 @@ impl Gpu {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_sky"),
-                targets: &[Some(format.into())],
+                targets: &gi::TARGETS.map(|f| Some(f.into())),
                 compilation_options: Default::default(),
             }),
             primitive: Default::default(),
@@ -555,6 +556,21 @@ impl Gpu {
             (qs, resolve, ring)
         });
         let capture = (a.get("capture_ms", 0) > 0 || a.0.contains_key("shot")).then(|| buf("capture", (W * H * 4) as u64, U::MAP_READ | U::COPY_DST));
+        let gi = gi::Gi::new(
+            &device,
+            &shader,
+            [
+                globals.as_entire_binding(),
+                quads.as_entire_binding(),
+                chunks.as_entire_binding(),
+                looks.as_entire_binding(),
+                rt.tlas.as_binding(),
+                lamps.as_entire_binding(),
+            ],
+            format,
+            W,
+            H,
+        );
         let gpu = Gpu {
             window,
             sky_pipeline,
@@ -583,7 +599,7 @@ impl Gpu {
             adapter_name: info.name.clone(),
             backend: format!("{:?}", info.backend),
         };
-        (gpu, rt)
+        (gpu, rt, gi)
     }
 
     fn upload(&self, off: u32, q: &[[u32; 2]]) {
@@ -650,6 +666,8 @@ struct App {
     gpu: Option<Gpu>,
     /// The traced terrain (ADR 0022), beside the GPU it lives on.
     rt: Option<rt::Rt>,
+    /// The bounce light (ADR 0022).
+    gi: Option<gi::Gi>,
     world: World,
     link: Link<ToServer, ToClient>,
     /// run=play: the player this client predicts, the keys held, mouse motion since the last frame, the look
@@ -1261,6 +1279,7 @@ impl App {
             })
             .collect();
         g.n_lamps[0] = lamps.len() as u32;
+        g.n_lamps[1] = self.gi.as_ref().unwrap().frame() as u32;
         if !lamps.is_empty() {
             gpu.queue.write_buffer(&gpu.lamps, 0, bytemuck::cast_slice(&lamps));
         }
@@ -1322,20 +1341,30 @@ impl App {
                 beginning_of_pass_write_index: Some((i * 2) as u32),
                 end_of_pass_write_index: Some((i * 2 + 1) as u32),
             });
-            let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &fview,
+            // the G-buffer: the sky and the terrain; the bounce light and the composite come after
+            let gi = self.gi.as_mut().unwrap();
+            let [tdirect, talbedo, tgbuf] = gi.targets();
+            let target = |view, clear| {
+                Some(wgpu::RenderPassColorAttachment {
+                    view,
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(sky), store: wgpu::StoreOp::Store },
-                })],
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(clear), store: wgpu::StoreOp::Store },
+                })
+            };
+            let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gbuffer"),
+                color_attachments: &[target(tdirect, sky), target(talbedo, wgpu::Color::TRANSPARENT), target(tgbuf, wgpu::Color::TRANSPARENT)],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &gpu.depth,
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.0), store: wgpu::StoreOp::Discard }),
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.0), store: wgpu::StoreOp::Store }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: tsw,
+                timestamp_writes: tsw.as_ref().map(|t| wgpu::RenderPassTimestampWrites {
+                    query_set: t.query_set,
+                    beginning_of_pass_write_index: t.beginning_of_pass_write_index,
+                    end_of_pass_write_index: None,
+                }),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -1353,6 +1382,32 @@ impl App {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
             }
+            drop(rp);
+            gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some());
+            // the screen: direct and bounced light, then the water and the overlays over it
+            let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("screen"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &fview,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &gpu.depth,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Discard }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: tsw.map(|t| wgpu::RenderPassTimestampWrites {
+                    query_set: t.query_set,
+                    beginning_of_pass_write_index: None,
+                    end_of_pass_write_index: t.end_of_pass_write_index,
+                }),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            gi.composite(&mut rp);
+            rp.set_bind_group(0, &gpu.bind, &[]);
             if !sea_args.is_empty() {
                 rp.set_pipeline(&gpu.sea_pipeline);
                 if self.args.get("mdi", 1) == 1 {
@@ -1728,9 +1783,10 @@ impl ApplicationHandler for App {
             window.set_cursor_visible(false);
         }
         let cap: u32 = self.args.get("quad_cap_m", 16u32) * 1_000_000;
-        let (gpu, rt) = Gpu::new(window, &self.args, cap);
+        let (gpu, rt, gi) = Gpu::new(window, &self.args, cap);
         self.gpu = Some(gpu);
         self.rt = Some(rt);
+        self.gi = Some(gi);
         self.start = Instant::now();
         self.last_frame = Instant::now();
     }
@@ -1906,6 +1962,7 @@ fn main() {
         args,
         gpu: None,
         rt: None,
+        gi: None,
         lamps: Vec::new(),
         lamps_at: (0, usize::MAX),
         world,

@@ -111,11 +111,9 @@ pure functions of the world's time, the same on every machine.
     around corners). Each block with `light` in `data/blocks.toml` is a coloured point
     light (inverse square, out to 8 m), and its shadows are real. The client gathers the 64 nearest lamps
     from the edits within 48 m. Each pixel traces shadow rays to the 3 lamps strongest there; the rest take
-    those rays' mean visibility, so a room full of lamps costs 3 rays and not one per lamp. Every lamp also
-    adds a share with no ray (12 %) for the light its room bounces back. Why: placing a lamp shows the same
+    those rays' mean visibility, so a room full of lamps costs 3 rays and not one per lamp. Why: placing a lamp shows the same
     frame, with nothing re-meshed and no chunks marked for 15 blocks around; the shadows are right; and it is
-    less code than a flood across chunk borders. The cost: light does not creep around corners as a flood's
-    does, the 12 % aside. Blocks that give light show their own colour, unlit.
+    less code than a flood across chunk borders. Light gets around corners by the bounce below. Blocks that give light show their own colour, unlit.
   - **Ambient occlusion is per corner in the mesher, not short rays.** The classic voxel kind: two sides and
     the diagonal in front of each corner, 2 bits a corner in the quad's spare high bits. It is smooth and
     costs nothing per frame; one AO ray per pixel would be grainy with no smoothing over frames. Greedy
@@ -124,6 +122,26 @@ pure functions of the world's time, the same on every machine.
     it hit through the TLAS instance's custom index, which is the chunk table entry, now with its quad offset.
     It shades that quad with the same light (flat colour, no texels), or the sky on a miss. Fresnel mixes it
     in, tinted by the block's colour, with a glint of the sun. There is no roughness yet.
+  - **Bounce light, traced per pixel** (the developer's call, 2026-11-10: light reflects and goes around
+    corners). This replaces the flat ambient and the lamps' 12 % share.
+    - The terrain pass writes a G-buffer instead of the screen: direct light, albedo (with the body), and
+      normal plus distance (f32).
+    - `gi_trace` sends one cosine-weighted ray per 2x2 pixels, from one pixel of the four in turn. What it
+      hits is lit by the same `light` (sun, moon, lamps) plus a flat 35 % second bounce. A miss sees the sky's
+      light over that point: blue by day on a body with air, black on the moon. A lamp's face adds nothing,
+      since its light is already direct.
+    - `post.wgsl`: `temporal` adds each sample to the pixel's history, found where the point was last frame,
+      checked by normal and distance; a 2x2 sample counts for its neighbours on the same plane. A history holds
+      24 frames while moving; a still shot averages without a limit, so views settle on the same picture
+      (0.0 % difference run to run). A change of frame or a jump of 20 m drops it. Then four edge-aware 3x3
+      a-trous passes, 1, 2, 4 and 8 px apart, weighted by normal, plane distance and brightness. The composite
+      adds albedo times that to the direct light, then water and the overlays go on top.
+    - The corner occlusion stays, at half strength on the bounce, for detail the smoothing removes.
+    - Cost on the dev PC, standing: GPU 0.8 -> 2.8 ms p50. Of that, the smoothing is about 1.1 ms, the
+      G-buffer and composite 0.65 ms, the history 0.2 ms, and the bounce rays 0.12 ms. A 5x5 kernel cost
+      another 1.1 ms; full-resolution rays were hardly dearer. With 31 lamps, 6.4 ms p99 frame.
+    - Known limits: no bounce on water, one traced bounce (the rest flat), and ghosting where something
+      moves fast against a still background, which nothing does yet.
   - New blocks: copper (metal 0.6), a warm lamp and a blue lamp.
   - Light over 0.8 rolls off (`shoulder`) instead of clipping; colours below are unchanged.
   - Cost on the dev PC: 31 lamps around the camera at night, 2.5 ms p99 frame (1.9 ms GPU); 3 rays per pixel
