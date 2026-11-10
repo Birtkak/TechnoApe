@@ -54,7 +54,13 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      moves, a ledger the soak checks every tick, tiles to the clients, a smooth water mesh with splash
      particles, the bucket and swimming. The 12.5 cm splash cells come with the fine cells, basin lakes
      with the biomes;
-   - lighting: block light, the sun around the planet, the 20 minute day, shadow maps;
+   - **lighting and the sky's mechanics** (the developer's calls, 2026-11-10; spike in `prototypes/lighting/`):
+     ray-traced light with the sun as the only source, a real sphere. The planet rotates (the 20 minute day
+     comes from its spin) and the moon orbits on a tilted orbit, so its phases and moonlight follow from
+     where it is. Eclipses are a real blockage of the light, each place on the planet getting its own share
+     of totality. Soft but fairly sharp shadows, ambient occlusion, smooth coloured block light, and
+     reflections on metal (later telescopes). Hardware ray queries on Vulkan: about 1.8 ms per 1080p frame
+     on the RTX 3070 with a reflection on every pixel;
    - 3D audio with cave reverb and material sounds.
 2. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; **world
    physics** (ADR 0017: loose blocks fall and slide, unsupported builds collapse); **blueprints** (ADR 0017:

@@ -1,0 +1,19 @@
+[package]
+name = "lighting"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+engine = { path = "../../crates/engine" }
+glam = "0.34"
+wgpu = "30"
+pollster = "1"
+bytemuck = { version = "1", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
