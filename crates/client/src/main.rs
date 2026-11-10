@@ -409,6 +409,10 @@ struct App {
     input: Input,
     /// Times the server's position replaced the predicted one.
     snaps: u64,
+    /// Seconds the last frame spent after present (stats, loading checks), and when it ended: both land in the
+    /// next frame's time, outside its timed phases, so a spike reports them.
+    tail_prev: f64,
+    frame_end: Option<Instant>,
     last_move: f64,
     edits_applied: u64,
     players: usize,
@@ -439,6 +443,7 @@ impl App {
         let upload_mb: f64 = a.get("upload_mb", 16.0);
         let now = Instant::now();
         let dt = (now - self.last_frame).as_secs_f64();
+        let between = self.frame_end.map_or(0.0, |e| (now - e).as_secs_f64());
         self.last_frame = now;
         let t = self.loaded_at.map(|l| (now - l).as_secs_f64()).unwrap_or(0.0);
         let measuring = self.loaded_at.is_some() && t >= warm;
@@ -742,6 +747,7 @@ impl App {
         let tpres = Instant::now();
         gpu.queue.present(frame);
         let pres = tpres.elapsed().as_secs_f64();
+        let tail0 = Instant::now();
         if cap_now {
             self.capture_frame(t);
         }
@@ -757,8 +763,8 @@ impl App {
             // every frame over the 120 fps budget names where its time went (ADR 0004)
             if dt * 1000.0 > 8.3 && s.spikes.len() < 50 {
                 s.spikes.push(format!(
-                    "{{\"t\":{:.2},\"frame_ms\":{:.2},\"cpu_ms\":{:.2},\"select_ms\":{:.2},\"submit_ms\":{:.2},\"present_ms\":{:.2},\"chunks_applied\":{}}}",
-                    t, dt * 1000.0, (cpu_a + cpu_b) * 1000.0, sel * 1000.0, sub * 1000.0, pres * 1000.0, st.applied
+                    "{{\"t\":{:.2},\"frame_ms\":{:.2},\"cpu_ms\":{:.2},\"select_ms\":{:.2},\"submit_ms\":{:.2},\"present_ms\":{:.2},\"prev_tail_ms\":{:.2},\"between_ms\":{:.2},\"chunks_applied\":{}}}",
+                    t, dt * 1000.0, (cpu_a + cpu_b) * 1000.0, sel * 1000.0, sub * 1000.0, pres * 1000.0, self.tail_prev * 1000.0, between * 1000.0, st.applied
                 ));
             }
             s.frame_ms.push((dt * 1000.0) as f32);
@@ -786,6 +792,9 @@ impl App {
                 self.last_pos = p.pos;
             }
         }
+        let end = Instant::now();
+        self.tail_prev = (end - tail0).as_secs_f64();
+        self.frame_end = Some(end);
     }
 
     fn capture_frame(&mut self, t: f64) {
@@ -1035,6 +1044,8 @@ fn main() {
         pitch: 0.0,
         input: Input::default(),
         snaps: 0,
+        tail_prev: 0.0,
+        frame_end: None,
         last_move: 0.0,
         edits_applied: 0,
         players: 0,

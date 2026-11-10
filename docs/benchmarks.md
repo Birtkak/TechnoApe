@@ -47,5 +47,13 @@ the first playable (N = 3072, R = 1061 m); the moon is 177 m.
   `edit` on the big planet) and streaming (no missing chunks, no holes); `stand` 2,786 / 2,485 fps, `edit`
   2,257 / 2,196 fps (base / big). Three of six `orbit` reps had one frame over 16.7 ms (16.5, 29.5 and
   31.3 ms) with under 1 ms of engine work and 0.15 ms presenting: the same outside-the-frame stall as above,
-  now more often. `orbit` flies with `Move`, so the movement code does not step in it; the cause is open.
+  now more often. `orbit` flies with `Move`, so the movement code does not step in it.
+- **Chasing that stall (2026-11-10):** it did not come back in 8 full `orbit` reps on the same build (worst
+  frame 2.3 ms, 4,600 fps against the series' 3,900, so the PC was busier that night), nor with the bench's
+  `tasklist` sampler running alongside. Ruled out: the RAM/VRAM probe on the frame thread (worst 0.74 ms);
+  plain CPU load (16 busy processes: worst frame 9.7 ms, never 30). The stalls are one and two Windows time
+  slices long (about 15.6 ms each), outside the engine's work. Spikes now also report `prev_tail_ms` (the
+  previous frame's work after present) and `between_ms` (time in winit's loop between frames), so every
+  millisecond of a spike is accounted for; under forced load the lost time lands in `between_ms`. The next
+  spike in a series names its place.
 - **Not built yet:** textures from images, lighting beyond one sun, shadows, transparency.
