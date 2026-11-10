@@ -10,3 +10,5 @@ path = "src/main.rs"
 [dependencies]
 engine = { path = "../engine" }
 glam.workspace = true
+serde.workspace = true
+postcard.workspace = true

@@ -1794,6 +1794,8 @@ version = "0.1.0"
 dependencies = [
  "engine",
  "glam",
+ "postcard",
+ "serde",
 ]
 
 [[package]]

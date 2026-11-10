@@ -1002,7 +1002,17 @@ fn main() {
         None => {
             let (accept_tx, accept_rx) = std::sync::mpsc::channel();
             let (planet, moon, seed) = (args.get("planet", 3072), args.get("moon", 512), args.get("seed", 1337));
-            std::thread::spawn(move || Server::new(planet, moon, seed, accept_rx).run(TICK_HZ));
+            // the flight recorder (ADR 0011): on for play on screen, or wherever record= says
+            let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+            let rec = args.0.get("record").cloned().or((args.get("onscreen", 0) == 1).then(|| format!("out/rec/play-{unix}.rec")));
+            let mut server = Server::new(planet, moon, seed, accept_rx);
+            if let Some(r) = rec.filter(|r| r != "0") {
+                match server.record(std::path::Path::new(&r)) {
+                    Ok(()) => eprintln!("[technoape] recording to {r}"),
+                    Err(e) => eprintln!("[technoape] not recording: {e}"),
+                }
+            }
+            std::thread::spawn(move || server.run(TICK_HZ));
             let (c, s) = net::local();
             accept_tx.send(s).unwrap();
             c

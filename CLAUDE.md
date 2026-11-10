@@ -65,6 +65,10 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   windowed client, for multiplayer checks: two windows on one PC throttle each other (ADR 0006).
 - To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet;
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
+- **The gate:** `bash tools/check.sh` (about 1.5 min: tests, a soak, its replay, the quick benchmark) prints
+  one JSON verdict; it is what "done" means (ADR 0011). Soak alone: `technoape-server soak=1 bots=50 minutes=10
+  seed=1` (a failure prints its repro line and writes `out/soak-fail.rec`). Sessions record to `out/rec/`;
+  `technoape-server replay=file until=tick` replays one headless and dumps the players.
 - Full benchmark: `bash tools/bench.sh` (25 min, repeats reps a compiler disturbed), then
   `python -I tools/summarize.py`. Results: `docs/benchmarks.md`. Do not compile while it runs.
 

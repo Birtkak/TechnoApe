@@ -1,7 +1,11 @@
 //! Player movement (ADR 0007): radial gravity, snappy walking, a jump, one-block step-up, and box collision
 //! against the blocks. The server runs it per tick from each player's `Input`; the client runs the same code
 //! per frame for its own player and corrects to the server's position when they drift apart.
-use crate::world::World;
+//!
+//! Collision is in grid space: the player's box is `WIDTH` x `WIDTH` x `HEIGHT` in nominal blocks, aligned with
+//! the columns and layers of the face under the feet, and it overlaps a cell or it does not. The answer depends
+//! on the position alone (not the look, not the way there), so a position the physics accepts stays free.
+use crate::world::{Block, World, BLOCK};
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +15,6 @@ pub const EYE: f64 = 1.6;
 pub const WALK: f64 = 4.3;
 pub const JUMP: f64 = 4.8; // about 1.2 m high
 pub const G: f64 = 9.81;
-pub const STEP: f64 = 0.5; // one block
 /// The fixed step. The server and every client take the same steps, so the same input gives the same path
 /// at any frame rate or tick rate; each side carries the time that did not fill a step over to the next.
 pub const DT: f64 = 1.0 / 60.0;
@@ -58,38 +61,57 @@ pub fn tangent(v: DVec3, up: DVec3, fallback: DVec3) -> DVec3 {
     t.normalize()
 }
 
-/// True when the player's box at `pos` overlaps a solid block. Samples are at most `STEP` apart in height
-/// and `WIDTH / 2` across, so no 0.5 m block can sit between them.
-pub fn blocked(world: &World, pos: DVec3, right: DVec3, fwd: DVec3, up: DVec3) -> bool {
-    let h = WIDTH * 0.5 - CONTACT;
-    let layers = (HEIGHT / STEP).ceil() as usize;
-    for k in 0..=layers {
-        let z = (k as f64 * STEP).clamp(CONTACT, HEIGHT - CONTACT);
-        for a in [-h, 0.0, h] {
-            for b in [-h, 0.0, h] {
-                let p = pos + up * z + right * a + fwd * b;
-                if world.block(world.block_at(p)) != 0 {
-                    return true;
+/// The cells the player's box overlaps with its feet at `pos`. Cells past the face's edge are found through
+/// space (the cell centre on the extended face, then the block there), which also holds across a cube corner.
+pub fn cells(world: &World, pos: DVec3) -> impl Iterator<Item = Block> + '_ {
+    let (bi, face, g) = world.grid_at(pos);
+    let b = &world.bodies[bi];
+    let (hw, ht) = (WIDTH * 0.5 / BLOCK, HEIGHT / BLOCK);
+    // a cell [k, k + 1) overlaps the open interval (lo, hi) when k < hi and k + 1 > lo
+    let span = |lo: f64, hi: f64| (lo.floor() as i32)..(hi.ceil() as i32);
+    let (is, js, ls) = (span(g.x - hw, g.x + hw), span(g.y - hw, g.y + hw), span(g.z, g.z + ht));
+    is.flat_map(move |i| {
+        let ls = ls.clone();
+        js.clone().flat_map(move |j| {
+            ls.clone().map(move |l| {
+                if (0..b.n).contains(&i) && (0..b.n).contains(&j) {
+                    Block { body: bi as u8, face: face as u8, pos: glam::IVec3::new(i, j, l) }
+                } else {
+                    world.block_at(b.centre + b.dir(face, i as f64 + 0.5, j as f64 + 0.5) * b.layer_r(l as f64 + 0.5))
                 }
-            }
-        }
-    }
-    false
+            })
+        })
+    })
 }
 
-/// Moves `pos` by `d` along one axis, stopping at the first solid block; true when it hit something.
-fn slide(world: &World, pos: &mut DVec3, d: DVec3, right: DVec3, fwd: DVec3, up: DVec3) -> bool {
+/// True when the player's box with its feet at `pos` overlaps a solid block.
+pub fn blocked(world: &World, pos: DVec3) -> bool {
+    cells(world, pos).any(|b| world.block(b) != 0)
+}
+
+/// True when the player is inside a block: what the physics never lets happen by itself.
+pub fn inside(world: &World, p: &Player) -> bool {
+    blocked(world, p.pos)
+}
+
+/// True when block `b` holds part of the player's box: a solid block there would trap the player.
+pub fn holds(world: &World, p: &Player, b: Block) -> bool {
+    cells(world, p.pos).any(|c| c == b)
+}
+
+/// Moves `pos` by `d`, stopping at the first solid block; true when it hit something.
+fn slide(world: &World, pos: &mut DVec3, d: DVec3) -> bool {
     if d.length_squared() == 0.0 {
         return false;
     }
-    if !blocked(world, *pos + d, right, fwd, up) {
+    if !blocked(world, *pos + d) {
         *pos += d;
         return false;
     }
     let (mut lo, mut hi) = (0.0, 1.0);
     for _ in 0..8 {
         let mid = 0.5 * (lo + hi);
-        if blocked(world, *pos + d * mid, right, fwd, up) {
+        if blocked(world, *pos + d * mid) {
             hi = mid;
         } else {
             lo = mid;
@@ -97,6 +119,12 @@ fn slide(world: &World, pos: &mut DVec3, d: DVec3, right: DVec3, fwd: DVec3, up:
     }
     *pos += d * lo;
     true
+}
+
+/// One layer's thickness at `pos`, a little over: the step-up climbs exactly one block, wherever it is.
+fn one_layer(world: &World, pos: DVec3) -> f64 {
+    let b = &world.bodies[world.nearest(pos)];
+    (pos - b.centre).length() * (b.lnq.exp() - 1.0) * 1.01
 }
 
 /// One step of `dt` seconds for one player.
@@ -120,27 +148,28 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
     let n = (total.length() / SUBSTEP).ceil().max(1.0);
     let d = total / n;
     let (dr, df, du) = (right * d.dot(right), fwd * d.dot(fwd), up * d.dot(up));
+    let rise = one_layer(world, p.pos);
     let mut on_ground = false;
     for _ in 0..n as usize {
         for h in [dr, df] {
             let was = p.pos;
-            if slide(world, &mut p.pos, h, right, fwd, up) && p.on_ground {
+            if slide(world, &mut p.pos, h) && p.on_ground {
                 // step-up: one block up, the same move, then back down onto the step
-                let mut q = was + up * STEP;
-                if !blocked(world, q, right, fwd, up) && !slide(world, &mut q, h, right, fwd, up) {
-                    slide(world, &mut q, up * -STEP, right, fwd, up);
+                let mut q = was + up * rise;
+                if !blocked(world, q) && !slide(world, &mut q, h) {
+                    slide(world, &mut q, up * -rise);
                     p.pos = q;
                 }
             }
         }
-        if slide(world, &mut p.pos, du, right, fwd, up) {
+        if slide(world, &mut p.pos, du) {
             if d.dot(up) < 0.0 {
                 on_ground = true;
             }
             p.vel -= up * p.vel.dot(up);
         }
     }
-    p.on_ground = on_ground || (p.vel.dot(up) <= 0.0 && blocked(world, p.pos - up * (2.0 * CONTACT), right, fwd, up));
+    p.on_ground = on_ground || (p.vel.dot(up) <= 0.0 && blocked(world, p.pos - up * (2.0 * CONTACT)));
 }
 
 #[cfg(test)]
@@ -204,8 +233,7 @@ mod tests {
         let inp = Input { mv: [1.0, 0.0], jump: true, fwd: [1.0, 0.0, 0.0], ..Default::default() };
         for _ in 0..200 {
             step(&w, &mut p, &inp, 0.05);
-            let up = up(&w, p.pos);
-            assert!(!blocked(&w, p.pos, p.fwd.cross(up), p.fwd, up), "inside a block at {:?}", p.pos);
+            assert!(!inside(&w, &p), "inside a block at {:?}", p.pos);
         }
         let up = up(&w, p.pos);
         let moved = (p.pos - start).reject_from(up).length();
@@ -221,11 +249,10 @@ mod tests {
         run(&w, &mut p, &Input::default(), 3.0);
         let up = up(&w, p.pos);
         let fwd = tangent(DVec3::X, up, DVec3::X);
-        let right = fwd.cross(up).normalize();
-        assert!(!blocked(&w, p.pos, right, fwd, up));
+        assert!(!blocked(&w, p.pos));
         // a block whose centre is 1.25 m up, between the old 0.9 and 1.8 m samples, at an edge midpoint
         let b = w.block_at(p.pos + up * 1.25 + fwd * 0.25);
         w.set_block(b, 1);
-        assert!(blocked(&w, p.pos, right, fwd, up));
+        assert!(blocked(&w, p.pos));
     }
 }

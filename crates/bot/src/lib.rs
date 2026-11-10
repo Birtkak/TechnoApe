@@ -276,14 +276,12 @@ mod tests {
         let mut out = Vec::new();
         b.run(parse_script("wait 1").unwrap(), None, |l| out.push(l));
         let start = b.pos;
-        b.run(parse_script("walk 10 0 0; wait 0.5").unwrap(), None, |l| out.push(l));
+        b.run(parse_script("walk 10 0 0; wait 1.5").unwrap(), None, |l| out.push(l));
         let moved = b.pos - start;
         assert!(out.is_empty(), "{out:?}");
         assert!((moved.x - 10.0).abs() < 1.0 && moved.z.abs() < 1.0, "moved {moved:?}");
         let w = b.world.as_ref().unwrap();
         let up = phys::up(w, b.pos);
-        let fwd = phys::tangent(DVec3::X, up, DVec3::Z);
-        let right = fwd.cross(up);
-        assert!(!phys::blocked(w, b.pos, right, fwd, up) && phys::blocked(w, b.pos - up * 0.05, right, fwd, up), "feet on the ground at {:?}", b.pos);
+        assert!(!phys::blocked(w, b.pos) && phys::blocked(w, b.pos - up * 0.05), "feet on the ground at {:?}", b.pos);
     }
 }

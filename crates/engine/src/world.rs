@@ -11,6 +11,16 @@ pub const CS: i32 = 32; // cells per chunk edge
 pub const P: usize = 34; // padded edge
 pub const AMP: f64 = 30.0;
 pub const CRUST: f64 = 64.0;
+
+/// FNV-1a: stable across runs, builds and compiler versions, so a hash can be stored next to a replay (ADR 0011).
+pub fn fnv(h: u64, bytes: &[u8]) -> u64 {
+    bytes.iter().fold(h, |h, &b| (h ^ b as u64).wrapping_mul(0x100000001b3))
+}
+pub const FNV0: u64 = 0xcbf29ce484222325;
+
+fn fnv_ivec(h: u64, p: IVec3) -> u64 {
+    [p.x, p.y, p.z].iter().fold(h, |h, c| fnv(h, &c.to_le_bytes()))
+}
 /// Builds may rise this far above the highest terrain and still be streamed.
 pub const BUILD_HEADROOM: f64 = 16.0;
 /// Border walls reach this many cells under the surface (see `generate`).
@@ -182,6 +192,14 @@ impl World {
     }
     /// The block of the nearest body that holds world point p.
     pub fn block_at(&self, p: DVec3) -> Block {
+        let (bi, face, g) = self.grid_at(p);
+        let n = self.bodies[bi].n;
+        let col = |c: f64| (c.floor() as i32).clamp(0, n - 1);
+        Block { body: bi as u8, face: face as u8, pos: IVec3::new(col(g.x), col(g.y), g.z.floor() as i32) }
+    }
+    /// Where world point p lies in the grid of the nearest body: (body, face, (column i, column j, layer)) with
+    /// fractions, so column 3.5 is the middle of column 3. The columns are not clamped to the face.
+    pub fn grid_at(&self, p: DVec3) -> (usize, usize, DVec3) {
         let bi = self.nearest(p);
         let b = &self.bodies[bi];
         let v = p - b.centre;
@@ -195,8 +213,8 @@ impl World {
         };
         let [n, s, t] = AX[face].map(|x| x.as_dvec3());
         let d = v.dot(n);
-        let col = |w: f64| ((((w / d).atan() / FRAC_PI_4 + 1.0) * 0.5 * b.n as f64).floor() as i32).clamp(0, b.n - 1);
-        Block { body: bi as u8, face: face as u8, pos: IVec3::new(col(v.dot(s)), col(v.dot(t)), b.layer_of(v.length()).floor() as i32) }
+        let col = |w: f64| ((w / d).atan() / FRAC_PI_4 + 1.0) * 0.5 * b.n as f64;
+        (bi, face, DVec3::new(col(v.dot(s)), col(v.dot(t)), b.layer_of(v.length())))
     }
     /// World position of the middle of a block.
     pub fn block_centre(&self, b: Block) -> DVec3 {
@@ -222,6 +240,25 @@ impl World {
         if self.edits.entry(b.chunk()).or_default().insert(b.pos, m).is_none() {
             self.edit_count += 1;
         }
+    }
+    /// One hash per level 0 chunk that holds edits, in chunk order: two worlds from the same seed agree where
+    /// these agree, and the first difference names the chunk where they part.
+    pub fn chunk_hashes(&self) -> Vec<(Key, u64)> {
+        let mut v: Vec<(Key, u64)> = self
+            .edits
+            .iter()
+            .map(|(k, cells)| {
+                let mut c: Vec<(&IVec3, &u8)> = cells.iter().collect();
+                c.sort_unstable_by_key(|(p, _)| (p.x, p.y, p.z));
+                (*k, c.iter().fold(FNV0, |h, (p, m)| fnv(fnv_ivec(h, **p), &[**m])))
+            })
+            .collect();
+        v.sort_unstable_by_key(|(k, _)| (k.body, k.face, k.level, k.pos.x, k.pos.y, k.pos.z));
+        v
+    }
+    /// The whole world's state as one number.
+    pub fn hash(&self) -> u64 {
+        self.chunk_hashes().iter().fold(FNV0, |h, (k, c)| fnv(fnv_ivec(fnv(h, &[k.body, k.face, k.level]), k.pos), &c.to_le_bytes()))
     }
     /// The edits a chunk's padded cells sample, as (padded cell index, material): a job's snapshot.
     pub fn edits_for(&self, k: Key) -> Vec<(u32, u8)> {

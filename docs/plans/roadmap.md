@@ -36,10 +36,10 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      done 2026-11-10: the engine base had all but the LOD seams; skirts in `generate` close them;
    - ~~radial gravity, walking and jumping in the local frame, collision~~ done 2026-11-09 (ADR 0007):
      `crates/engine/src/phys.rs`, shared by the server, the client's `run=play` and the bots' `walk`;
-   - **test harness I** (`docs/design/fundamentals.md` section 4, steps 1-3): invariants with a fast-forward
-     soak of random bots biased to seams, a state hash per tick, the flight recorder with replay; one gate,
-     `tools/check.sh`. Before digging and saves, which it is there to catch;
+   - ~~test harness I: soak, state hash, flight recorder with replay, one gate~~ done 2026-11-10 (ADR 0011):
+     `tools/check.sh`. Its first runs moved collision into grid space (ADR 0007, revised);
    - **cheap speed levers**, one spike on the benchmark (fundamentals section 3): mimalloc, a fast hasher,
+     the soak's physics (50 bots x 10 minutes take 45 s),
      worker priority below the frame thread; a `huge` row for the 4 km planet (N = 12288);
    - dig and place blocks **as brushes and dragged shapes, predicted on the client** (ADR 0008); a block
      registry from data instead of `MATERIALS`; saves of only what changed;
