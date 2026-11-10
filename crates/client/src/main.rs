@@ -11,7 +11,7 @@ use engine::phys::{self, Input};
 use engine::stream::{DrawChunk, FrameStats, Opts, Streamer, View};
 use engine::world::{Block, World};
 use server::Server;
-use glam::{DQuat, DVec3, Mat4, Vec3, Vec4};
+use glam::{DQuat, DVec3, IVec3, Mat4, Vec3, Vec4};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -31,6 +31,29 @@ const TS_RING: usize = 8;
 const MAX_BODIES: usize = 4; // the size of `bodies` in shader.wgsl
 /// The full moon's light, a quarter of the sun's direct light and bluish: night stays readable (ADR 0022).
 const MOON_LIGHT: Vec3 = Vec3::new(0.12, 0.14, 0.18);
+/// The lamps the GPU holds: the nearest to the camera within LAMP_REACH metres (ADR 0022).
+const MAX_LAMPS: usize = 64;
+const LAMP_REACH: f64 = 48.0;
+
+/// The blocks that give light within LAMP_REACH of the camera, nearest first: (body, middle, light).
+/// `cams` is the camera in each body's coordinates.
+fn gather_lamps(w: &World, cams: &[DVec3]) -> Vec<(u8, DVec3, [f32; 3])> {
+    let mut out: Vec<(f64, u8, DVec3, [f32; 3])> = Vec::new();
+    for (k, cells) in &w.edits {
+        let cam = cams[k.body as usize];
+        let bd = w.bodies[k.body as usize].bounds(*k);
+        if (bd.c - cam).length() - bd.rad > LAMP_REACH {
+            continue;
+        }
+        for (pos, m) in cells {
+            let Some(d) = BLOCKS.get(*m).filter(|d| d.light != [0.0; 3]) else { continue };
+            let x = w.block_centre(Block { body: k.body, face: k.face, pos: *pos });
+            out.push(((x - cam).length(), k.body, x, d.light));
+        }
+    }
+    out.sort_by(|a, b| a.0.total_cmp(&b.0));
+    out.into_iter().filter(|l| l.0 < LAMP_REACH).take(MAX_LAMPS).map(|l| (l.1, l.2, l.3)).collect()
+}
 
 struct Args(HashMap<String, String>);
 impl Args {
@@ -68,12 +91,21 @@ struct Globals {
     sun_col: [f32; 4],
     moon_col: [f32; 4],
     sky: [f32; 4],
+    n_lamps: [u32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct ChunkGpu {
     base: [i32; 3],
     info: u32,
+    off: u32,
+    _p: [u32; 3],
+}
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct LampGpu {
+    pos: [f32; 4],
+    col: [f32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -218,6 +250,7 @@ struct Gpu {
     globals: wgpu::Buffer,
     quads: wgpu::Buffer,
     chunks: wgpu::Buffer,
+    lamps: wgpu::Buffer,
     indirect: wgpu::Buffer,
     depth: wgpu::TextureView,
     ts: Option<(wgpu::QuerySet, wgpu::Buffer, Vec<(wgpu::Buffer, Arc<AtomicBool>, bool)>)>,
@@ -297,7 +330,8 @@ impl Gpu {
         use wgpu::BufferUsages as U;
         let globals = buf("globals", std::mem::size_of::<Globals>() as u64, U::UNIFORM | U::COPY_DST);
         let quads = buf("quads", cap as u64 * 8, U::STORAGE | U::COPY_DST);
-        let chunks = buf("chunks", (MAX_CHUNKS * 16) as u64, U::STORAGE | U::COPY_DST);
+        let chunks = buf("chunks", (MAX_CHUNKS * std::mem::size_of::<ChunkGpu>()) as u64, U::STORAGE | U::COPY_DST);
+        let lamps = buf("lamps", (MAX_LAMPS * std::mem::size_of::<LampGpu>()) as u64, U::STORAGE | U::COPY_DST);
         // the terrain's draws, then the sea's at MAX_CHUNKS * 16
         let indirect = buf("indirect", (MAX_CHUNKS * 32) as u64, U::INDIRECT | U::COPY_DST);
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
@@ -307,7 +341,9 @@ impl Gpu {
             .map(|id| match engine::blocks::BLOCKS.get(id) {
                 Some(d) => {
                     let [r, g, b] = d.colour.map(f32::to_bits);
-                    [r, g, b, d.pattern as u32 | (d.side as u32) << 8]
+                    let shine = (d.metal * 255.0).round() as u32;
+                    let gives = (d.light != [0.0; 3]) as u32;
+                    [r, g, b, d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24]
                 }
                 None => [0.5f32.to_bits(), 0.5f32.to_bits(), 0.5f32.to_bits(), (id as u32) << 8],
             })
@@ -344,6 +380,7 @@ impl Gpu {
                 storage(2),
                 storage(3),
                 storage(4),
+                storage(8),
                 wgpu::BindGroupLayoutEntry {
                     binding: 5,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -363,6 +400,7 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 3, resource: looks.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 4, resource: wquads.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 5, resource: rt.tlas.as_binding() },
+                wgpu::BindGroupEntry { binding: 8, resource: lamps.as_entire_binding() },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -537,6 +575,7 @@ impl Gpu {
             globals,
             quads,
             chunks,
+            lamps,
             indirect,
             depth,
             ts,
@@ -673,6 +712,9 @@ struct App {
     /// The mesh of the tiles that hold stored water, and how many of its quads the GPU has.
     water: water::WaterMesh,
     wquad_n: u32,
+    /// The lamps near the camera (`gather_lamps`), and the frame and edit count they were gathered at.
+    lamps: Vec<(u8, DVec3, [f32; 3])>,
+    lamps_at: (u64, usize),
     /// What the overlay buffers hold: the ghost's shape and colour, its vertex count, the rectangle count.
     ghost_of: Option<(Shape, [u8; 4])>,
     ghost_n: u32,
@@ -1110,10 +1152,10 @@ impl App {
         for (ci, d) in draws.iter().enumerate().take(MAX_CHUNKS) {
             let k = d.key;
             let info = k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8;
-            table.push(ChunkGpu { base: k.base().into(), info });
+            table.push(ChunkGpu { base: k.base().into(), info, off: d.off, _p: [0; 3] });
             let land = d.len - d.water;
             if land > 0 {
-                insts.push(rt::Inst { off: d.off, land, base: k.base().into(), info, body: k.body });
+                insts.push(rt::Inst { off: d.off, land, base: k.base().into(), info, body: k.body, ci: ci as u32 });
             }
             if d.hidden {
                 continue;
@@ -1168,8 +1210,11 @@ impl App {
             sun_col: [1.0 * 0.65, 0.97 * 0.65, 0.9 * 0.65, 0.0],
             moon_col: [moon.x, moon.y, moon.z, 1.0],
             sky: [sky_c.x, sky_c.y, sky_c.z, day * air],
+            n_lamps: [0; 4],
         };
         let mut at = [[0f32; 12]; MAX_BODIES];
+        // per body: the camera in its coordinates, and its frame in the camera's
+        let mut cams = [(DVec3::ZERO, glam::DMat3::IDENTITY); MAX_BODIES];
         for (bi, (b, o)) in self.world.bodies.iter().zip(g.bodies.iter_mut()).enumerate() {
             // the camera in the body's frame, relative to its centre, in two floats per axis: one float is
             // 0.1 mm coarse at 1 km; and the body's frame turned into the camera's
@@ -1192,11 +1237,32 @@ impl App {
             };
             // the body's traced terrain into the camera's frame: x -> m (x - c), rows of 3x4
             let (md, t) = (m.as_dmat3(), m.as_dmat3() * -c);
+            cams[bi] = (c + b.centre, md);
             at[bi] = [
                 md.x_axis.x as f32, md.y_axis.x as f32, md.z_axis.x as f32, t.x as f32,
                 md.x_axis.y as f32, md.y_axis.y as f32, md.z_axis.y as f32, t.y as f32,
                 md.x_axis.z as f32, md.y_axis.z as f32, md.z_axis.z as f32, t.z as f32,
             ];
+        }
+        // the lamps: gathered again when the edits change or every 10 frames, placed every frame
+        let ec = self.world.edit_count;
+        if self.lamps_at.1 != ec || self.streamer.frame >= self.lamps_at.0 + 10 {
+            let c: Vec<DVec3> = cams.iter().map(|c| c.0).collect();
+            self.lamps = gather_lamps(&self.world, &c[..self.world.bodies.len()]);
+            self.lamps_at = (self.streamer.frame, ec);
+        }
+        let lamps: Vec<LampGpu> = self
+            .lamps
+            .iter()
+            .map(|&(bi, x, l)| {
+                let (cam, m) = cams[bi as usize];
+                let v = (m * (x - cam)).as_vec3();
+                LampGpu { pos: [v.x, v.y, v.z, bi as f32], col: [l[0], l[1], l[2], 0.0] }
+            })
+            .collect();
+        g.n_lamps[0] = lamps.len() as u32;
+        if !lamps.is_empty() {
+            gpu.queue.write_buffer(&gpu.lamps, 0, bytemuck::cast_slice(&lamps));
         }
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
         if !table.is_empty() {
@@ -1798,7 +1864,7 @@ fn main() {
     if run != "play" {
         link.send(ToServer::Creative(true)); // the edit benchmark places stone it never dug
     }
-    let (_id, world) = match link.rx.recv_timeout(Duration::from_secs(10)) {
+    let (_id, mut world) = match link.rx.recv_timeout(Duration::from_secs(10)) {
         Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             (id, World::new(planet_n, moon_n, seed))
@@ -1808,6 +1874,18 @@ fn main() {
     // the server spawns players on the +y pole; the client starts its prediction there too
     let spawn = world.bodies[0].spawn_point();
     assert!(world.bodies.len() <= MAX_BODIES);
+    // place=di:dj:dl:block,... (a name, _ for a space) sets blocks around the stand point, the air block at its
+    // feet the origin: lamps or metal in a shot without a session. Only the client's world has them.
+    if run != "play" {
+        let at: Vec<f64> = args.s("at", "0,1,0").split(',').filter_map(|v| v.parse().ok()).collect();
+        let up = DVec3::new(at[0], at[1], at[2]).normalize();
+        let feet = world.block_at(up * (world.bodies[0].top(up) + 0.1));
+        for spec in args.s("place", "").split(',').filter(|s| !s.is_empty()) {
+            let f: Vec<&str> = spec.split(':').collect();
+            let d = IVec3::new(f[0].parse().unwrap(), f[1].parse().unwrap(), f[2].parse().unwrap());
+            world.set_block(Block { pos: feet.pos + d, ..feet }, BLOCKS.id(&f[3].replace('_', " ")));
+        }
+    }
     let opts = Opts {
         k: args.get("k", 4.0),
         // shortcut: no greedy merging, a merged quad is a chord across the curved grid and leaves cracks;
@@ -1828,6 +1906,8 @@ fn main() {
         args,
         gpu: None,
         rt: None,
+        lamps: Vec::new(),
+        lamps_at: (0, usize::MAX),
         world,
         link,
         me: phys::Player::at(spawn, DVec3::X),

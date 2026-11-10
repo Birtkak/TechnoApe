@@ -106,13 +106,28 @@ pure functions of the world's time, the same on every machine.
     of it is terrain, so an eclipse on screen needs nothing special.
   - Cost on the dev PC: about +0.7 ms p99 standing and +1.7 ms flying (BLAS builds as chunks stream),
     and +300 MB VRAM.
-- **Block light.**
-  - Coloured (RGB) and smooth, flooded per block on the meshing workers.
-  - It is sampled per vertex and blended across faces, and it feeds the same shading.
-- **Ambient light.**
-  - Short occlusion rays give ambient occlusion.
-  - The sky's light: blue by day, black by night.
-- **Metal.** Materials gain roughness and metalness; metal pixels cast a reflection ray.
+- **As built (2026-11-10), block light, ambient occlusion, metal.** The plan above changed in two places:
+  - **Block light is traced, not flooded.** Each block with `light` in `data/blocks.toml` is a coloured point
+    light (inverse square, out to 8 m), and its shadows are real. The client gathers the 64 nearest lamps
+    from the edits within 48 m. Each pixel traces shadow rays to the 3 lamps strongest there; the rest take
+    those rays' mean visibility, so a room full of lamps costs 3 rays and not one per lamp. Every lamp also
+    adds a share with no ray (12 %) for the light its room bounces back. Why: placing a lamp shows the same
+    frame, with nothing re-meshed and no chunks marked for 15 blocks around; the shadows are right; and it is
+    less code than a flood across chunk borders. The cost: light does not creep around corners as a flood's
+    does, the 12 % aside. Blocks that give light show their own colour, unlit.
+  - **Ambient occlusion is per corner in the mesher, not short rays.** The classic voxel kind: two sides and
+    the diagonal in front of each corner, 2 bits a corner in the quad's spare high bits. It is smooth and
+    costs nothing per frame; one AO ray per pixel would be grainy with no smoothing over frames. Greedy
+    merging joins only open faces.
+  - **Metal:** `metal` 0..1 in the block data. A metal pixel traces one reflection ray. The ray finds the quad
+    it hit through the TLAS instance's custom index, which is the chunk table entry, now with its quad offset.
+    It shades that quad with the same light (flat colour, no texels), or the sky on a miss. Fresnel mixes it
+    in, tinted by the block's colour, with a glint of the sun. There is no roughness yet.
+  - New blocks: copper (metal 0.6), a warm lamp and a blue lamp.
+  - Light over 0.8 rolls off (`shoulder`) instead of clipping; colours below are unchanged.
+  - Cost on the dev PC: 31 lamps around the camera at night, 2.5 ms p99 frame (1.9 ms GPU); 3 rays per pixel
+    at most there.
+  - Debug: `place=di:dj:dl:block,...` sets blocks around a stand point for shots.
 - **Budget:** the whole lighting pass is at most 3 ms at 1080p on the dev PC. Its benchmark row is in the
   `small` series.
 

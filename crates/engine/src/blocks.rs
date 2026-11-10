@@ -28,6 +28,10 @@ struct Raw {
     #[serde(default)]
     pattern: Pattern,
     side: Option<String>,
+    #[serde(default)]
+    light: [f32; 3],
+    #[serde(default)]
+    metal: f32,
 }
 fn yes() -> bool {
     true
@@ -51,6 +55,10 @@ pub struct Def {
     pub pattern: Pattern,
     /// The block whose look a grass block's sides take.
     pub side: u8,
+    /// The light it gives (ADR 0022), as a colour times its strength; zero for most blocks.
+    pub light: [f32; 3],
+    /// How much it reflects like a metal, 0..1.
+    pub metal: f32,
 }
 
 pub struct Registry {
@@ -74,11 +82,17 @@ impl Registry {
             if r.colour.iter().any(|c| !(0.0..=1.0).contains(c)) {
                 return Err(format!("block '{}': colour outside 0..1", r.name));
             }
+            if r.light.iter().any(|c| !(0.0..=4.0).contains(c)) {
+                return Err(format!("block '{}': light outside 0..4", r.name));
+            }
+            if !(0.0..=1.0).contains(&r.metal) {
+                return Err(format!("block '{}': metal outside 0..1", r.name));
+            }
             let side = match &r.side {
                 None => r.id,
                 Some(s) => f.block.iter().find(|o| &o.name == s).ok_or(format!("block '{}': no block '{s}' for its side", r.name))?.id,
             };
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, side });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, side, light: r.light, metal: r.metal });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}
@@ -133,6 +147,8 @@ mod tests {
             (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nside = \"y\"\n"), "unknown side"),
             (&format!("{air}[[block]]\nid = 1\nname = \"x\"\ncolour = [2.0, 0, 0]\n"), "colour"),
             (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 3\n"), "unknown field"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nlight = [5.0, 0, 0]\n"), "light"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nmetal = 1.5\n"), "metal"),
         ] {
             assert!(Registry::parse(bad).is_err(), "{why}");
         }

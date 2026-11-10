@@ -70,7 +70,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   1-9 the hotbar; space swims up in water, ADR 0020). `acts="t:action,..."`
   scripts those inputs off-screen (ADR 0017), and a filmstrip shows the result.
 - To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet, `time=s`
-  sets the sky's clock (0 is 9 am at the spawn, a day is 1200 s; ADR 0022);
+  sets the sky's clock (0 is 9 am at the spawn, a day is 1200 s; ADR 0022), `place=di:dj:dl:block,...` puts
+  blocks (lamps, copper; `_` for a space) around the stand point;
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
 - **The gate:** `bash tools/check.sh` (about 6 min, most of it the soak's floods: tests, a soak, its replay, the quick benchmark, the fixed
   viewpoints and a played run's feel report, ADR 0018) prints

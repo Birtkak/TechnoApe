@@ -28,6 +28,8 @@ pub struct Inst {
     pub base: [i32; 3],
     pub info: u32,
     pub body: u8,
+    /// Its index in the chunk table: a reflection ray finds the quad it hit from there.
+    pub ci: u32,
 }
 
 pub struct Rt {
@@ -128,7 +130,7 @@ impl Rt {
         for c in insts {
             let Some(e) = self.blas.get_mut(&c.off).filter(|b| b.0 == c.land) else { continue };
             e.2 = frame;
-            self.tlas[n] = Some(wgpu::TlasInstance::new(&e.1, at[c.body as usize], 0, 1 << c.body));
+            self.tlas[n] = Some(wgpu::TlasInstance::new(&e.1, at[c.body as usize], c.ci, 1 << c.body));
             n += 1;
         }
         for i in n..self.n {

@@ -1,7 +1,8 @@
 # The blocks (CLAUDE.md: content is data; schema and checks in crates/engine/src/blocks.rs).
 # `id` goes on the wire and into saves: never change or reuse one. 0 is air.
 # `pattern`: plain (three tones of noise), grass (a bright top; its sides are `side` with a grass fringe),
-# stone (dark crack texels).
+# stone (dark crack texels). `light`: the light it gives, a colour times its strength (0..4, ADR 0022).
+# `metal`: how much it reflects like a metal (0..1).
 
 [[block]]
 id = 0
@@ -25,3 +26,21 @@ id = 3
 name = "stone"
 colour = [0.50, 0.50, 0.52]
 pattern = "stone"
+
+[[block]]
+id = 4
+name = "copper"
+colour = [0.85, 0.52, 0.32]
+metal = 0.6
+
+[[block]]
+id = 5
+name = "lamp"
+colour = [1.0, 0.86, 0.62]
+light = [1.0, 0.72, 0.42]
+
+[[block]]
+id = 6
+name = "blue lamp"
+colour = [0.62, 0.82, 1.0]
+light = [0.35, 0.6, 1.0]

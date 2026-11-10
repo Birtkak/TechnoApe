@@ -1,6 +1,7 @@
 //! Binary greedy mesher: occupancy bitmasks per column, faces culled 34 cells at a time with shifts,
 //! then a greedy merge per slice over 32-bit rows (same material only).
-//! Quad = 8 bytes: lo = x6 y6 z6 (w-1)5 (h-1)5 dir3, hi = material.
+//! Quad = 8 bytes: lo = x6 y6 z6 (w-1)5 (h-1)5 dir3, hi = material8 | ao8 << 8: ambient occlusion at each
+//! corner, 2 bits (0 open .. 3 a corner shut in), corner (u, v) at bits 2 * (u + 2v) (ADR 0022).
 use crate::world::{pidx, CS, P};
 
 /// Quads of one chunk, grouped by face direction (0..6 = +x,-x,+y,-y,+z,-z), then `water` quads of the
@@ -53,6 +54,29 @@ pub fn mesh(cells: &[u8; P * P * P], greedy: bool) -> Mesh {
                     _ => cells[pidx(u, v, d)],
                 }
             };
+            // the cells in front of the face touching each corner: two sides and the diagonal, as voxel games
+            // have always done it; the padding holds every one
+            let occ = |u: usize, v: usize, d: usize| -> bool {
+                let i = match a {
+                    0 => pidx(d, u, v),
+                    1 => pidx(v, d, u),
+                    _ => pidx(u, v, d),
+                };
+                cells[i] != 0
+            };
+            let ao = |u: usize, v: usize, d: usize| -> u32 {
+                let fd = if s == 0 { d + 2 } else { d };
+                let mut bits = 0;
+                for cv in 0..2 {
+                    for cu in 0..2 {
+                        let (pu, pv) = (u + 2 * cu, v + 2 * cv);
+                        let (s1, s2, c) = (occ(pu, v + 1, fd), occ(u + 1, pv, fd), occ(pu, pv, fd));
+                        let o = if s1 && s2 { 3 } else { s1 as u32 + s2 as u32 + c as u32 };
+                        bits |= o << (2 * (cu + 2 * cv));
+                    }
+                }
+                bits
+            };
             let out = &mut groups[dir];
             for d in 0..CS as usize {
                 let rows = &mut planes[d];
@@ -60,16 +84,19 @@ pub fn mesh(cells: &[u8; P * P * P], greedy: bool) -> Mesh {
                     while rows[v] != 0 {
                         let u = rows[v].trailing_zeros() as usize;
                         let m = mat(u, v, d);
+                        let o = ao(u, v, d);
+                        // a merged quad has one occlusion per corner: only open faces merge
+                        let open = |u: usize, v: usize| ao(u, v, d) == 0;
                         let mut w = 1;
-                        if greedy {
-                            while u + w < 32 && rows[v] >> (u + w) & 1 == 1 && mat(u + w, v, d) == m {
+                        if greedy && o == 0 {
+                            while u + w < 32 && rows[v] >> (u + w) & 1 == 1 && mat(u + w, v, d) == m && open(u + w, v) {
                                 w += 1;
                             }
                         }
                         let mask = (((1u64 << w) - 1) << u) as u32;
                         let mut h = 1;
-                        if greedy {
-                            while v + h < 32 && rows[v + h] & mask == mask && (u..u + w).all(|i| mat(i, v + h, d) == m) {
+                        if greedy && o == 0 {
+                            while v + h < 32 && rows[v + h] & mask == mask && (u..u + w).all(|i| mat(i, v + h, d) == m && open(i, v + h)) {
                                 h += 1;
                             }
                         }
@@ -85,7 +112,7 @@ pub fn mesh(cells: &[u8; P * P * P], greedy: bool) -> Mesh {
                         };
                         let lo = x as u32 | (y as u32) << 6 | (z as u32) << 12 | ((w - 1) as u32) << 18
                             | ((h - 1) as u32) << 23 | (dir as u32) << 28;
-                        out.push([lo, m as u32]);
+                        out.push([lo, m as u32 | o << 8]);
                     }
                 }
             }
@@ -119,5 +146,24 @@ mod tests {
         assert_eq!(m.counts[2], 1); // whole top merged into one 32x32 quad
         let m = mesh(&c, false);
         assert_eq!(m.counts[2], 1024);
+    }
+
+    #[test]
+    fn a_floor_by_a_wall_is_occluded_at_the_wall() {
+        // a floor at y = 1, a wall along x = 6 on top of it: the floor cell at x = 5 has its +x corners shut
+        let mut c = Box::new([0u8; P * P * P]);
+        for z in 1..33 {
+            for x in 1..33 {
+                c[pidx(x, 1, z)] = 1;
+            }
+            c[pidx(6, 2, z)] = 1;
+        }
+        let m = mesh(&c, false);
+        let top = |x: u32, z: u32| m.quads.iter().find(|q| (q[0] >> 28) & 7 == 2 && q[0] & 63 == x && (q[0] >> 12) & 63 == z).unwrap()[1];
+        // a=y: u = z, v = x; corners with v = 1 (x + 1) touch the wall
+        let ao = top(4, 10) >> 8;
+        assert_eq!(ao & 0b11, 0);
+        assert_eq!((ao >> 4) & 0b11, 2); // the wall beside and diagonal
+        assert_eq!(top(1, 10) >> 8, 0, "open floor");
     }
 }

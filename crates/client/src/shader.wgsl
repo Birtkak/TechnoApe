@@ -29,17 +29,23 @@ struct Globals {
     sun_col: vec4f,
     moon_col: vec4f,
     sky: vec4f,
+    n_lamps: vec4u, // x: lamps in `lamps`
 };
-struct Chunk { base: vec3i, info: u32 }; // base in columns and layers; info = face | level << 3 | body << 8
+// base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
+struct Chunk { base: vec3i, info: u32, off: u32 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
 @group(0) @binding(1) var<storage, read> quads: array<vec2u>;
 @group(0) @binding(2) var<storage, read> chunks: array<Chunk>;
-// a block's look from data/blocks.toml (ADR 0013): info = pattern | side << 8; patterns 0 plain, 1 grass, 2 stone
+// a block's look from data/blocks.toml (ADR 0013): info = pattern | side << 8 | metal (0..255) << 16 | gives light
+// << 24; patterns 0 plain, 1 grass, 2 stone
 struct Look { colour: vec3f, info: u32 };
 @group(0) @binding(3) var<storage, read> looks: array<Look, 256>;
 // every chunk's terrain near and far, drawn or not, one instance each with mask 1 << body (ADR 0022)
 @group(0) @binding(5) var acc: acceleration_structure;
+// the lamps near the camera (ADR 0022): pos from the camera, w its body; col its light
+struct Lamp { pos: vec4f, col: vec4f };
+@group(0) @binding(8) var<storage, read> lamps: array<Lamp>;
 
 struct VOut {
     @builtin(position) clip: vec4f,
@@ -49,6 +55,7 @@ struct VOut {
     @location(3) @interpolate(flat) ci: u32,
     @location(4) normal: vec3f,
     @location(5) rel: vec3f, // from the camera
+    @location(6) ao: f32,    // open 1 .. shut in
 };
 
 fn axis(i: u32) -> vec3f { return vec3f(f32(i == 0u), f32(i == 1u), f32(i == 2u)); }
@@ -80,7 +87,15 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     let q = quads[vi / 6u];
     let dir = (q.x >> 28u) & 7u;
     let a = dir / 2u;
-    let local = quad_corner(q, vi % 6u, 0.0);
+    let k = vi % 6u;
+    let local = quad_corner(q, k, 0.0);
+    // the corner in the face's u, v: as quad_corner lays it out
+    var cu = array<u32, 6>(0u, 1u, 1u, 0u, 1u, 0u);
+    var cv = array<u32, 6>(0u, 0u, 1u, 0u, 1u, 1u);
+    var ku = cu[k];
+    var kv = cv[k];
+    if ((dir & 1u) == 1u) { ku = cv[k]; kv = cu[k]; }
+    let occl = (q.y >> (8u + 2u * (ku + 2u * kv))) & 3u;
     let c = chunks[ii];
     let b = g.bodies[c.info >> 8u];
     let gp = grid(c, local);
@@ -96,6 +111,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     let rel = brot(b, (f.up * r - b.cam_hi) - b.cam_lo);
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
+    o.ao = 1.0 - 0.2 * f32(occl);
     o.local = local;
     o.dir = dir;
     o.mat = q.y;
@@ -117,7 +133,7 @@ fn expand(@builtin(global_invocation_id) id: vec3u) {
     let bd = builds[id.y];
     if (id.x >= bd.n) { return; }
     let q = quads[bd.off + id.x];
-    let c = Chunk(bd.base, bd.info);
+    let c = Chunk(bd.base, bd.info, bd.off);
     let b = g.bodies[c.info >> 8u];
     for (var k = 0u; k < 6u; k++) {
         let gp = grid(c, quad_corner(q, k, GROW));
@@ -174,11 +190,11 @@ fn left_by(i: u32, p: vec3f, lp: vec3f, lr: f32) -> f32 {
     return 1.0 - cover(rs, rb, atan2(length(cross(ld, v)), dot(ld, v)));
 }
 
-// one ray through the terrain of body `body`: 1 if it gets out
-fn ray(p: vec3f, n: vec3f, d: vec3f, body: u32) -> f32 {
+// one ray through the terrain of body `body`: 1 if it gets out, or as far as tmax
+fn ray(p: vec3f, n: vec3f, d: vec3f, body: u32, tmax: f32) -> f32 {
     var rq: ray_query;
     let o = p + n * (0.02 + length(p) * 2e-5);
-    rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_TERMINATE_ON_FIRST_HIT, 1u << body, 0.0, 1e5, o, d));
+    rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_TERMINATE_ON_FIRST_HIT, 1u << body, 0.0, tmax, o, d));
     rayQueryProceed(&rq);
     return select(1.0, 0.0, rayQueryGetCommittedIntersection(&rq).kind != RAY_QUERY_INTERSECTION_NONE);
 }
@@ -195,7 +211,24 @@ fn in_disc(s: vec3f, ar: f32, px: vec2u) -> vec3f {
 struct Light { l: vec3f, sun: f32, day: f32 };
 
 // the light on a surface of body `body` at p (from the camera) with normal n
-fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
+const LAMP_R: f32 = 8.0;
+const LAMP_RAYS: u32 = 3u;
+const NONE: u32 = 0xffffffffu;
+
+// a lamp's light d2 square metres away: falling off with the square of the distance, to nothing at LAMP_R
+fn lamp_light(lp: Lamp, d2: f32) -> vec3f {
+    let x = 1.0 - d2 / (LAMP_R * LAMP_R);
+    return lp.col.rgb * x * x * 1.5 / (1.0 + d2);
+}
+
+// lamp i's direct light on a surface at p facing n, before its shadow
+fn lamp_on(i: u32, p: vec3f, n: vec3f) -> vec3f {
+    let v = lamps[i].pos.xyz - p;
+    let d2 = dot(v, v);
+    return lamp_light(lamps[i], d2) * max(dot(n, v) * inverseSqrt(d2), 0.0);
+}
+
+fn light(p: vec3f, n: vec3f, body: u32, px: vec2u, ao: f32) -> Light {
     let up = normalize(p - g.bodies[body].ctr.xyz);
     let sd = normalize(g.sun_pos.xyz - p);
     // eclipses: every other body's sphere over the sun's disc
@@ -207,13 +240,13 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     o.day = smoothstep(-0.2, 0.15, dot(up, sd)) * ecl;
     let mi = u32(g.moon_col.w);
     let moon = g.moon_col.rgb * select(1.0, 0.0, body == mi);
-    o.l = mix(NIGHT_AMB, DAY_AMB, o.day) + moon * 0.25;
+    o.l = (mix(NIGHT_AMB, DAY_AMB, o.day) + moon * 0.25) * ao;
     let ndl = dot(n, sd);
     let vis = ecl * left_by(body, p, g.sun_pos.xyz, g.sun_pos.w);
     if (ndl > 0.0 && vis > 0.0) {
         let ar = g.sun_pos.w / length(g.sun_pos.xyz - p);
-        o.sun = vis * ray(p, n, in_disc(sd, ar, px), body);
-        o.l += g.sun_col.rgb * ndl * o.sun;
+        o.sun = vis * ray(p, n, in_disc(sd, ar, px), body, 1e5);
+        o.l += g.sun_col.rgb * ndl * o.sun * (0.6 + 0.4 * ao);
     }
     // the moon's light where the sun's is weak, through the same terrain
     if (o.day < 0.5 && max(moon.r, moon.b) > 0.001) {
@@ -225,10 +258,75 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
             for (var i = 0u; i < 4u; i++) {
                 if (i != mi) { mv *= left_by(i, p, mc.xyz, mc.w); }
             }
-            if (mv > 0.0) { o.l += moon * ndm * mv * ray(p, n, md, body); }
+            if (mv > 0.0) { o.l += moon * ndm * mv * ray(p, n, md, body, 1e5); }
         }
     }
+    // the lamps: shadow rays to the LAMP_RAYS strongest here; the others get their mean visibility, and every
+    // lamp a share without a ray for the light its room bounces back
+    var top = array<u32, LAMP_RAYS>(NONE, NONE, NONE);
+    var topw = array<f32, LAMP_RAYS>(0.0, 0.0, 0.0);
+    var rest = vec3f(0.0);
+    for (var i = 0u; i < g.n_lamps.x; i++) {
+        let lp = lamps[i];
+        let v = lp.pos.xyz - p;
+        let d2 = dot(v, v);
+        if (u32(lp.pos.w) != body || d2 > LAMP_R * LAMP_R) { continue; }
+        o.l += lamp_light(lp, d2) * 0.12 * ao;
+        let w = dot(lamp_on(i, p, n), vec3f(0.3, 0.5, 0.2));
+        if (w <= 0.0) { continue; }
+        // keep the strongest: insert into the short list, the weakest falls to `rest`
+        var j = i;
+        var wj = w;
+        for (var k = 0u; k < LAMP_RAYS; k++) {
+            if (wj > topw[k]) {
+                let tj = top[k];
+                let tw = topw[k];
+                top[k] = j;
+                topw[k] = wj;
+                j = tj;
+                wj = tw;
+            }
+        }
+        if (j != NONE) { rest += lamp_on(j, p, n); }
+    }
+    var seen_n = 0.0;
+    var seen_v = 0.0;
+    for (var k = 0u; k < LAMP_RAYS; k++) {
+        if (top[k] == NONE) { continue; }
+        let lp = lamps[top[k]];
+        let v = lp.pos.xyz - p;
+        let d = length(v);
+        // stop short of the lamp's own block: a 0.5 m block's corners are 0.433 m from its middle
+        let vis = select(ray(p, n, v / d, body, d - 0.44), 1.0, d < 0.45);
+        o.l += lamp_on(top[k], p, n) * vis;
+        seen_n += 1.0;
+        seen_v += vis;
+    }
+    if (seen_n > 0.0) { o.l += rest * (seen_v / seen_n); }
     return o;
+}
+
+// what a ray from p sees: the terrain it hits, lit, or the sky (a metal's reflection)
+fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u) -> vec3f {
+    var rq: ray_query;
+    rayQueryInitialize(&rq, acc, RayDesc(0u, 1u << body, 0.0, 4000.0, p, d));
+    rayQueryProceed(&rq);
+    let h = rayQueryGetCommittedIntersection(&rq);
+    if (h.kind == RAY_QUERY_INTERSECTION_NONE) { return sky_colour(d); }
+    let c = chunks[h.instance_custom_data];
+    let q = quads[c.off + h.primitive_index / 2u];
+    let dir = (q.x >> 28u) & 7u;
+    let a = dir / 2u;
+    let b = g.bodies[c.info >> 8u];
+    let gp = grid(c, quad_corner(q, 0u, 0.0));
+    let f = frame_at(c.info & 7u, b, gp.x, gp.y);
+    var hn = f.up;
+    if (a == 0u) { hn = normalize(f.s - f.n * f.ta); }
+    if (a == 1u) { hn = normalize(f.t - f.n * f.tb); }
+    if ((dir & 1u) == 1u) { hn = -hn; }
+    let m = q.y & 255u;
+    if ((looks[m].info >> 24u) == 1u) { return looks[m].colour; }
+    return looks[m].colour * light(p + d * h.t, brot(b, hn), body, px, 1.0).l;
 }
 
 
@@ -275,8 +373,30 @@ fn fs(i: VOut) -> @location(0) vec4f {
     let f = fract(i.local);
     let t = vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]);
     let col = texel(i.mat, i.dir, cell, t, f.z);
-    let l = light(i.rel, normalize(i.normal), c.info >> 8u, vec2u(i.clip.xy));
-    return vec4f(col * l.l, 1.0);
+    let look = looks[i.mat & 255u];
+    if ((look.info >> 24u) == 1u) { return vec4f(col * 1.15, 1.0); } // it gives light: it shows its own
+    let n = normalize(i.normal);
+    let body = c.info >> 8u;
+    let px = vec2u(i.clip.xy);
+    let l = light(i.rel, n, body, px, i.ao);
+    var out = col * l.l;
+    let metal = f32((look.info >> 16u) & 255u) / 255.0;
+    if (metal > 0.0) {
+        // a metal mirrors what is around it, tinted by its colour, more so at a grazing angle
+        let v = -normalize(i.rel);
+        let fres = metal + (1.0 - metal) * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+        let r = seen(i.rel + n * (0.02 + length(i.rel) * 2e-5), reflect(-v, n), body, px);
+        out = mix(out, r * mix(vec3f(1.0), col, metal), fres);
+        // and the sun's glint, where the sun reaches
+        out += col * g.sun_col.rgb * 3.0 * l.sun * metal * pow(max(dot(reflect(-v, n), normalize(g.sun_pos.xyz - i.rel)), 0.0), 48.0);
+    }
+    return vec4f(shoulder(out), 1.0);
+}
+
+// bright light rolls off above 0.8 instead of clipping; everything under it is left as it is
+fn shoulder(c: vec3f) -> vec3f {
+    let k = 0.8;
+    return select(c, k + (1.0 - k) * (1.0 - exp(-(c - k) / (1.0 - k))), c > vec3f(k));
 }
 
 // ---- water (ADR 0020) ----
@@ -419,7 +539,7 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     if (dot(n, v) < 0.0) { n = -n; } // seen from under the surface
     let facing = max(dot(n, v), 0.0);
     let fres = 0.08 + 0.92 * pow(1.0 - facing, 5.0);
-    let l = light(i.rel, n, i.body, vec2u(i.clip.xy));
+    let l = light(i.rel, n, i.body, vec2u(i.clip.xy), 1.0);
     var col = vec3f(0.06, 0.24, 0.36) * (l.l + 0.1 * l.day);
     // the sky in it, and the sun's glint where the sun reaches
     col = mix(col, g.sky.rgb + vec3f(0.17, 0.13, 0.01) * l.day, fres * 0.7);
@@ -433,7 +553,7 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
         col = mix(col, vec3f(0.85, 0.92, 1.0), 0.25);
         a = max(a, 0.8);
     }
-    return vec4f(col, a);
+    return vec4f(shoulder(col), a);
 }
 
 // ---- the sky (ADR 0022) ----
@@ -454,7 +574,11 @@ fn vs_sky(@builtin(vertex_index) vi: u32) -> SkyOut {
 @fragment
 fn fs_sky(i: SkyOut) -> @location(0) vec4f {
     let w = g.inv_vp * vec4f(i.ndc, 1.0, 1.0);
-    let d = normalize(w.xyz / w.w);
+    return vec4f(sky_colour(normalize(w.xyz / w.w)), 1.0);
+}
+
+// the sky in direction d
+fn sky_colour(d: vec3f) -> vec3f {
     let s = normalize(g.sun_pos.xyz);
     let rs = g.sun_pos.w / length(g.sun_pos.xyz);
     let ang = atan2(length(cross(d, s)), dot(d, s));
@@ -465,5 +589,5 @@ fn fs_sky(i: SkyOut) -> @location(0) vec4f {
         // limb darkening: the disc dims towards its edge
         c = mix(vec3f(1.0, 0.86, 0.6), vec3f(1.0, 0.98, 0.92), sqrt(1.0 - (ang / rs) * (ang / rs)));
     }
-    return vec4f(c, 1.0);
+    return c;
 }
