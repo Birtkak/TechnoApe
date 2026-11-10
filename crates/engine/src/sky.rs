@@ -72,8 +72,13 @@ impl Sky {
     }
     /// The share of the sun's disc the moon hides, seen from inertial point p: 0 none, 1 total.
     pub fn eclipse(&self, t: f64, p: DVec3) -> f64 {
-        let (s, m) = (self.sun(t) - p, self.moon(t).centre - p);
-        let (rs, rm) = ((SUN_RADIUS / s.length()).asin(), (self.moon_radius / m.length()).asin());
+        self.covered(t, p, self.moon(t).centre, self.moon_radius)
+    }
+    /// The share of the sun's disc a sphere at `c` of radius `r` hides, seen from inertial point p: the moon
+    /// over the planet (`eclipse`), or the planet over the moon (a lunar eclipse, which dims the moonlight).
+    pub fn covered(&self, t: f64, p: DVec3, c: DVec3, r: f64) -> f64 {
+        let (s, m) = (self.sun(t) - p, c - p);
+        let (rs, rm) = ((SUN_RADIUS / s.length()).asin(), (r / m.length()).min(1.0).asin());
         let d = s.cross(m).length().atan2(s.dot(m));
         if d >= rs + rm {
             return 0.0;
@@ -212,5 +217,16 @@ mod tests {
         }
         assert!(s.planet(YEAR).centre.distance(s.planet(0.0).centre) < 1e-6);
         assert!(s.planet(YEAR / 2.0).centre.distance(-s.planet(0.0).centre) < 1e-6);
+    }
+
+    #[test]
+    fn the_planet_hides_the_sun_from_the_moon_behind_it() {
+        let s = sky();
+        let t = 300.0;
+        let (sun, p) = (s.sun(t), s.planet(t).centre);
+        let away = (p - sun).normalize();
+        assert_eq!(s.covered(t, p + away * s.moon_orbit, p, s.planet_radius), 1.0);
+        let side = away.cross(DVec3::Z).normalize();
+        assert_eq!(s.covered(t, p + side * s.moon_orbit, p, s.planet_radius), 0.0);
     }
 }

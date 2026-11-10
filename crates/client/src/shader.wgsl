@@ -1,3 +1,5 @@
+enable wgpu_ray_query;
+
 // Vertex pulling: no vertex buffers. One 8-byte quad per face; its 6 vertices are made here and mapped from
 // grid coordinates (column i, column j, layer) onto the cube-sphere (ADR 0003).
 // Every vertex is computed from its global integer grid point, so neighbouring quads and chunks agree exactly.
@@ -14,8 +16,20 @@ struct Body {
     rot0: vec4f,
     rot1: vec4f,
     rot2: vec4f,
+    ctr: vec4f,    // the body's centre from the camera, in the camera's frame; w its radius, 0 for no body
 };
-struct Globals { view_proj: mat4x4f, sun: vec4f, bodies: array<Body, 4> }; // sun.w: the water's clock, s
+// sun: the direction to the sun, w the water's clock in s; sun_pos: the sun's centre from the camera, w its
+// radius; sun_col: its light; moon_col: the moon's light (rgb, w its body index); sky: the sky's colour here
+struct Globals {
+    view_proj: mat4x4f,
+    sun: vec4f,
+    bodies: array<Body, 4>,
+    inv_vp: mat4x4f,
+    sun_pos: vec4f,
+    sun_col: vec4f,
+    moon_col: vec4f,
+    sky: vec4f,
+};
 struct Chunk { base: vec3i, info: u32 }; // base in columns and layers; info = face | level << 3 | body << 8
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -24,6 +38,8 @@ struct Chunk { base: vec3i, info: u32 }; // base in columns and layers; info = f
 // a block's look from data/blocks.toml (ADR 0013): info = pattern | side << 8; patterns 0 plain, 1 grass, 2 stone
 struct Look { colour: vec3f, info: u32 };
 @group(0) @binding(3) var<storage, read> looks: array<Look, 256>;
+// every chunk's terrain near and far, drawn or not, one instance each with mask 1 << body (ADR 0022)
+@group(0) @binding(5) var acc: acceleration_structure;
 
 struct VOut {
     @builtin(position) clip: vec4f,
@@ -32,14 +48,13 @@ struct VOut {
     @location(2) @interpolate(flat) mat: u32,
     @location(3) @interpolate(flat) ci: u32,
     @location(4) normal: vec3f,
+    @location(5) rel: vec3f, // from the camera
 };
 
 fn axis(i: u32) -> vec3f { return vec3f(f32(i == 0u), f32(i == 1u), f32(i == 2u)); }
 
-@vertex
-fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
-    let q = quads[vi / 6u];
-    let k = vi % 6u;
+// corner k of quad q in its chunk's cells; grow widens it by that many cells on every side
+fn quad_corner(q: vec2u, k: u32, grow: f32) -> vec3f {
     let lo = q.x;
     let p = vec3f(f32(lo & 63u), f32((lo >> 6u) & 63u), f32((lo >> 12u) & 63u));
     let w = f32(((lo >> 18u) & 31u) + 1u);
@@ -52,32 +67,35 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     var du = cu[k];
     var dv = cv[k];
     if ((dir & 1u) == 1u) { du = cv[k]; dv = cu[k]; }
-    let local = p + axis((a + 1u) % 3u) * (du * w) + axis((a + 2u) % 3u) * (dv * h);
+    return p + axis((a + 1u) % 3u) * (du * (w + 2.0 * grow) - grow) + axis((a + 2u) % 3u) * (dv * (h + 2.0 * grow) - grow);
+}
 
+// a point of chunk c, in its cells, on the cube-sphere: the grid point and its frame
+fn grid(c: Chunk, local: vec3f) -> vec3f {
+    return vec3f(c.base) + local * f32(1u << ((c.info >> 3u) & 31u));
+}
+
+@vertex
+fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+    let q = quads[vi / 6u];
+    let dir = (q.x >> 28u) & 7u;
+    let a = dir / 2u;
+    let local = quad_corner(q, vi % 6u, 0.0);
     let c = chunks[ii];
-    let face = c.info & 7u;
-    let level = (c.info >> 3u) & 31u;
     let b = g.bodies[c.info >> 8u];
-    // face normal and in-face axes, the same table as engine::world::AX
-    var fnv = array<vec3f, 6>(vec3f(1., 0., 0.), vec3f(-1., 0., 0.), vec3f(0., 1., 0.), vec3f(0., -1., 0.), vec3f(0., 0., 1.), vec3f(0., 0., -1.));
-    var fsv = array<vec3f, 6>(vec3f(0., 1., 0.), vec3f(0., 0., 1.), vec3f(0., 0., 1.), vec3f(1., 0., 0.), vec3f(1., 0., 0.), vec3f(0., 1., 0.));
-    var ftv = array<vec3f, 6>(vec3f(0., 0., 1.), vec3f(0., 1., 0.), vec3f(1., 0., 0.), vec3f(0., 0., 1.), vec3f(0., 1., 0.), vec3f(1., 0., 0.));
-    let n = fnv[face];
-    let s = fsv[face];
-    let t = ftv[face];
-    let gp = c.base + (vec3i(local) << vec3u(level));
-    let ta = tan((f32(gp.x) - b.half_n) * b.theta);
-    let tb = tan((f32(gp.y) - b.half_n) * b.theta);
-    let up = normalize(n + s * ta + t * tb);
-    let r = b.r0 * exp(f32(gp.z) * b.lnq);
+    let gp = grid(c, local);
+    let f = frame_at(c.info & 7u, b, gp.x, gp.y);
+    let r = b.r0 * exp(gp.z * b.lnq);
     // the sides of a column are planes through the body's centre; its top is the sphere
-    var normal = up;
-    if (a == 0u) { normal = normalize(s - n * ta); }
-    if (a == 1u) { normal = normalize(t - n * tb); }
+    var normal = f.up;
+    if (a == 0u) { normal = normalize(f.s - f.n * f.ta); }
+    if (a == 1u) { normal = normalize(f.t - f.n * f.tb); }
     if ((dir & 1u) == 1u) { normal = -normal; }
 
     var o: VOut;
-    o.clip = g.view_proj * vec4f(brot(b, (up * r - b.cam_hi) - b.cam_lo), 1.0);
+    let rel = brot(b, (f.up * r - b.cam_hi) - b.cam_lo);
+    o.clip = g.view_proj * vec4f(rel, 1.0);
+    o.rel = rel;
     o.local = local;
     o.dir = dir;
     o.mat = q.y;
@@ -85,6 +103,134 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     o.normal = brot(b, normal);
     return o;
 }
+
+// ---- the traced geometry (ADR 0022) ----
+// Each new chunk's land quads become 6 vertices each in its body's frame, from the body's centre, for its BLAS.
+// Grown by GROW cells, so greedy quads meeting at T-junctions overlap instead of leaving hairline cracks.
+struct Build { base: vec3i, info: u32, off: u32, n: u32, dst: u32, _p: u32 };
+@group(0) @binding(6) var<storage, read> builds: array<Build>;
+@group(0) @binding(7) var<storage, read_write> verts: array<f32>;
+const GROW: f32 = 0.01;
+
+@compute @workgroup_size(64)
+fn expand(@builtin(global_invocation_id) id: vec3u) {
+    let bd = builds[id.y];
+    if (id.x >= bd.n) { return; }
+    let q = quads[bd.off + id.x];
+    let c = Chunk(bd.base, bd.info);
+    let b = g.bodies[c.info >> 8u];
+    for (var k = 0u; k < 6u; k++) {
+        let gp = grid(c, quad_corner(q, k, GROW));
+        let p = frame_at(c.info & 7u, b, gp.x, gp.y).up * (b.r0 * exp(gp.z * b.lnq));
+        let o = (bd.dst + id.x * 6u + k) * 3u;
+        verts[o] = p.x;
+        verts[o + 1u] = p.y;
+        verts[o + 2u] = p.z;
+    }
+}
+
+// ---- light (ADR 0022) ----
+// The sun is the one source. Direct light is what the bodies' spheres leave of its disc (eclipses, and the
+// horizon of the body far away) times one ray through the terrain to a point of the disc (soft shadows).
+// The moon reflects it by its phase. The sky's light fades with the sun's height over the horizon here.
+const PI: f32 = 3.14159265;
+const DAY_AMB: vec3f = vec3f(0.33, 0.35, 0.40);
+const NIGHT_AMB: vec3f = vec3f(0.018, 0.022, 0.035);
+
+fn hash2(p: vec2u) -> f32 {
+    var h = p.x * 73856093u ^ p.y * 19349663u;
+    h = (h ^ (h >> 13u)) * 1274126177u;
+    h = h ^ (h >> 16u);
+    return f32(h & 65535u) / 65535.0;
+}
+
+// the share of a disc of angular radius rs that a disc of angular radius rb, d away, covers
+fn cover(rs: f32, rb: f32, d: f32) -> f32 {
+    if (d >= rs + rb) { return 0.0; }
+    if (d <= rb - rs) { return 1.0; }
+    if (d <= rs - rb) { return (rb / rs) * (rb / rs); }
+    if (rb > 20.0 * rs) {
+        // a horizon: the body's edge is a straight line across the disc, x radii from its centre
+        let x = clamp((d - rb) / rs, -1.0, 1.0);
+        return (acos(x) - x * sqrt(1.0 - x * x)) / PI;
+    }
+    // two discs in the small-angle plane: the lens they share
+    let l1 = rs * rs * acos(clamp((d * d + rs * rs - rb * rb) / (2.0 * d * rs), -1.0, 1.0));
+    let l2 = rb * rb * acos(clamp((d * d + rb * rb - rs * rs) / (2.0 * d * rb), -1.0, 1.0));
+    let k = sqrt(max((-d + rs + rb) * (d + rs - rb) * (d - rs + rb) * (d + rs + rb), 0.0)) * 0.5;
+    return clamp((l1 + l2 - k) / (PI * rs * rs), 0.0, 1.0);
+}
+
+// what body i's sphere leaves of a light disc at lp of radius lr, seen from p; a point inside the sphere
+// (under its nominal surface) leaves it to the terrain's rays
+fn left_by(i: u32, p: vec3f, lp: vec3f, lr: f32) -> f32 {
+    let bc = g.bodies[i].ctr;
+    let v = bc.xyz - p;
+    let dist = length(v);
+    let ld = lp - p;
+    if (bc.w <= 0.0 || dist <= bc.w || dist - bc.w > length(ld)) { return 1.0; }
+    let rs = asin(min(lr / length(ld), 1.0));
+    let rb = asin(bc.w / dist);
+    return 1.0 - cover(rs, rb, atan2(length(cross(ld, v)), dot(ld, v)));
+}
+
+// one ray through the terrain of body `body`: 1 if it gets out
+fn ray(p: vec3f, n: vec3f, d: vec3f, body: u32) -> f32 {
+    var rq: ray_query;
+    let o = p + n * (0.02 + length(p) * 2e-5);
+    rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_TERMINATE_ON_FIRST_HIT, 1u << body, 0.0, 1e5, o, d));
+    rayQueryProceed(&rq);
+    return select(1.0, 0.0, rayQueryGetCommittedIntersection(&rq).kind != RAY_QUERY_INTERSECTION_NONE);
+}
+
+// a direction to a point of a disc of angular radius ar around direction s, from a per-pixel number pair
+fn in_disc(s: vec3f, ar: f32, px: vec2u) -> vec3f {
+    let t = normalize(cross(s, select(vec3f(0., 1., 0.), vec3f(1., 0., 0.), abs(s.y) > 0.9)));
+    let b = cross(s, t);
+    let r = ar * sqrt(hash2(px));
+    let ph = 2.0 * PI * hash2(px + vec2u(7919u, 104729u));
+    return normalize(s + (t * cos(ph) + b * sin(ph)) * r);
+}
+
+struct Light { l: vec3f, sun: f32, day: f32 };
+
+// the light on a surface of body `body` at p (from the camera) with normal n
+fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
+    let up = normalize(p - g.bodies[body].ctr.xyz);
+    let sd = normalize(g.sun_pos.xyz - p);
+    // eclipses: every other body's sphere over the sun's disc
+    var ecl = 1.0;
+    for (var i = 0u; i < 4u; i++) {
+        if (i != body) { ecl *= left_by(i, p, g.sun_pos.xyz, g.sun_pos.w); }
+    }
+    var o: Light;
+    o.day = smoothstep(-0.2, 0.15, dot(up, sd)) * ecl;
+    let mi = u32(g.moon_col.w);
+    let moon = g.moon_col.rgb * select(1.0, 0.0, body == mi);
+    o.l = mix(NIGHT_AMB, DAY_AMB, o.day) + moon * 0.25;
+    let ndl = dot(n, sd);
+    let vis = ecl * left_by(body, p, g.sun_pos.xyz, g.sun_pos.w);
+    if (ndl > 0.0 && vis > 0.0) {
+        let ar = g.sun_pos.w / length(g.sun_pos.xyz - p);
+        o.sun = vis * ray(p, n, in_disc(sd, ar, px), body);
+        o.l += g.sun_col.rgb * ndl * o.sun;
+    }
+    // the moon's light where the sun's is weak, through the same terrain
+    if (o.day < 0.5 && max(moon.r, moon.b) > 0.001) {
+        let mc = g.bodies[mi].ctr;
+        let md = normalize(mc.xyz - p);
+        let ndm = dot(n, md);
+        if (ndm > 0.0) {
+            var mv = 1.0;
+            for (var i = 0u; i < 4u; i++) {
+                if (i != mi) { mv *= left_by(i, p, mc.xyz, mc.w); }
+            }
+            if (mv > 0.0) { o.l += moon * ndm * mv * ray(p, n, md, body); }
+        }
+    }
+    return o;
+}
+
 
 fn hash(p: vec3i) -> f32 {
     var h = u32(p.x) * 73856093u ^ u32(p.y) * 19349663u ^ u32(p.z) * 83492791u;
@@ -129,8 +275,8 @@ fn fs(i: VOut) -> @location(0) vec4f {
     let f = fract(i.local);
     let t = vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]);
     let col = texel(i.mat, i.dir, cell, t, f.z);
-    let light = 0.35 + 0.65 * max(dot(normalize(i.normal), g.sun.xyz), 0.0);
-    return vec4f(col * light, 1.0);
+    let l = light(i.rel, normalize(i.normal), c.info >> 8u, vec2u(i.clip.xy));
+    return vec4f(col * l.l, 1.0);
 }
 
 // ---- water (ADR 0020) ----
@@ -147,6 +293,7 @@ struct WOut {
     @location(0) rel: vec3f, // from the camera
     @location(1) normal: vec3f,
     @location(2) @interpolate(flat) side: u32,
+    @location(3) @interpolate(flat) body: u32,
 };
 
 // the outward direction at grid point (gi, gj) of a face, and the face's normal and in-face axes
@@ -170,13 +317,15 @@ fn frame_at(face: u32, b: Body, gi: f32, gj: f32) -> Frame {
     return f;
 }
 
-fn wout(b: Body, up: vec3f, layer: f32, normal: vec3f, side: u32) -> WOut {
+fn wout(bi: u32, up: vec3f, layer: f32, normal: vec3f, side: u32) -> WOut {
+    let b = g.bodies[bi];
     let rel = brot(b, (up * (b.r0 * exp(layer * b.lnq)) - b.cam_hi) - b.cam_lo);
     var o: WOut;
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
     o.normal = brot(b, normal);
     o.side = side;
+    o.body = bi;
     return o;
 }
 
@@ -201,7 +350,7 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> W
     if (q.y == 1u) {
         layer = max(layer, f32(c.base.z + (i32((lo >> 12u) & 63u) << level)) + 1.0);
     }
-    return wout(b, f.up, layer, f.up, 0u);
+    return wout(c.info >> 8u, f.up, layer, f.up, 0u);
 }
 
 @vertex
@@ -211,12 +360,13 @@ fn vs_water(@builtin(vertex_index) vi: u32) -> WOut {
     let c = tri[vi % 6u];
     let hh = mix(q.prev, q.cur, clamp((g.sun.w - q.t0) / MOVE_S, 0.0, 1.0));
     let face = q.info & 7u;
-    let b = g.bodies[(q.info >> 3u) & 3u];
+    let bi = (q.info >> 3u) & 3u;
+    let b = g.bodies[bi];
     let kind = (q.info >> 5u) & 7u;
     if (kind == 5u) {
         // a droplet: a square of cur.w metres facing the camera, at (i + cur.x, j + cur.y, layer cur.z)
         let f = frame_at(face, b, f32(q.i) + q.cur.x, f32(q.j) + q.cur.y);
-        var o = wout(b, f.up, q.cur.z, -normalize(f.up), 2u);
+        var o = wout(bi, f.up, q.cur.z, -normalize(f.up), 2u);
         var cx = array<f32, 6>(-1., 1., 1., -1., 1., -1.);
         var cy = array<f32, 6>(-1., -1., 1., -1., 1., 1.);
         let k = vi % 6u;
@@ -259,7 +409,7 @@ fn vs_water(@builtin(vertex_index) vi: u32) -> WOut {
     } else {
         normal = normalize(f.t - f.n * f.tb) * select(-1.0, 1.0, kind == 4u);
     }
-    return wout(b, f.up, z, normal, u32(kind != 0u));
+    return wout(bi, f.up, z, normal, u32(kind != 0u));
 }
 
 @fragment
@@ -269,10 +419,11 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     if (dot(n, v) < 0.0) { n = -n; } // seen from under the surface
     let facing = max(dot(n, v), 0.0);
     let fres = 0.08 + 0.92 * pow(1.0 - facing, 5.0);
-    let light = 0.45 + 0.55 * max(dot(n, g.sun.xyz), 0.0);
-    var col = vec3f(0.06, 0.24, 0.36) * light;
-    col = mix(col, vec3f(0.62, 0.78, 0.96), fres * 0.7);
-    col += vec3f(pow(max(dot(reflect(-g.sun.xyz, n), v), 0.0), 120.0));
+    let l = light(i.rel, n, i.body, vec2u(i.clip.xy));
+    var col = vec3f(0.06, 0.24, 0.36) * (l.l + 0.1 * l.day);
+    // the sky in it, and the sun's glint where the sun reaches
+    col = mix(col, g.sky.rgb + vec3f(0.17, 0.13, 0.01) * l.day, fres * 0.7);
+    col += g.sun_col.rgb * 1.5 * l.sun * pow(max(dot(reflect(-g.sun.xyz, n), v), 0.0), 120.0);
     var a = clamp(0.62 + 0.35 * fres, 0.0, 0.96);
     if (i.side == 2u) {
         return vec4f(0.85, 0.93, 1.0, 0.85);
@@ -283,4 +434,36 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
         a = max(a, 0.8);
     }
     return vec4f(col, a);
+}
+
+// ---- the sky (ADR 0022) ----
+// A triangle over the screen at the far plane, drawn first: the sky's colour here, the sun as a sphere 0.53
+// degrees across with the air's glow around it by day. Bodies in front of it (the moon in an eclipse, the
+// planet from space) are terrain, drawn over it.
+struct SkyOut { @builtin(position) clip: vec4f, @location(0) ndc: vec2f };
+
+@vertex
+fn vs_sky(@builtin(vertex_index) vi: u32) -> SkyOut {
+    let uv = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u)) * 2.0 - 1.0;
+    var o: SkyOut;
+    o.clip = vec4f(uv, 0.0, 1.0);
+    o.ndc = uv;
+    return o;
+}
+
+@fragment
+fn fs_sky(i: SkyOut) -> @location(0) vec4f {
+    let w = g.inv_vp * vec4f(i.ndc, 1.0, 1.0);
+    let d = normalize(w.xyz / w.w);
+    let s = normalize(g.sun_pos.xyz);
+    let rs = g.sun_pos.w / length(g.sun_pos.xyz);
+    let ang = atan2(length(cross(d, s)), dot(d, s));
+    var c = g.sky.rgb;
+    let glow = exp(-ang * 12.0) * 0.35 + exp(-ang * 80.0) * 0.6;
+    c += g.sun_col.rgb * glow * g.sky.w;
+    if (ang < rs) {
+        // limb darkening: the disc dims towards its edge
+        c = mix(vec3f(1.0, 0.86, 0.6), vec3f(1.0, 0.98, 0.92), sqrt(1.0 - (ang / rs) * (ang / rs)));
+    }
+    return vec4f(c, 1.0);
 }

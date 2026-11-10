@@ -1,5 +1,6 @@
 //! The TechnoApe client: window, renderer and the benchmark runs (docs/plans/roadmap.md, "The shared benchmark").
 mod hud;
+mod rt;
 mod sys;
 mod water;
 
@@ -28,6 +29,8 @@ const MAX_CHUNKS: usize = 1 << 16;
 const MAX_WQUADS: usize = 1 << 18;
 const TS_RING: usize = 8;
 const MAX_BODIES: usize = 4; // the size of `bodies` in shader.wgsl
+/// The full moon's light, a quarter of the sun's direct light and bluish: night stays readable (ADR 0022).
+const MOON_LIGHT: Vec3 = Vec3::new(0.12, 0.14, 0.18);
 
 struct Args(HashMap<String, String>);
 impl Args {
@@ -51,6 +54,8 @@ struct BodyGpu {
     _p: [f32; 2],
     /// The body's frame turned into the camera's (ADR 0022): columns.
     rot: [[f32; 4]; 3],
+    /// Its centre from the camera in the camera's frame, and its radius (0: no body).
+    ctr: [f32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -58,6 +63,11 @@ struct Globals {
     view_proj: [[f32; 4]; 4],
     sun: [f32; 4],
     bodies: [BodyGpu; MAX_BODIES],
+    inv_vp: [[f32; 4]; 4],
+    sun_pos: [f32; 4],
+    sun_col: [f32; 4],
+    moon_col: [f32; 4],
+    sky: [f32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -156,7 +166,7 @@ fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64, q: f64, a
 /// The world time at which the orbit run starts: the first moment the moon stands 90 degrees from the spawn's
 /// zenith, as the route was laid out before the bodies moved (ADR 0022).
 fn orbit_start(w: &World) -> f64 {
-    let side = |t: f64| (w.pose(0, t).rot * DVec3::Y).dot(w.pose(1, t).centre);
+    let side = |t: f64| (w.pose(0, t).rot * DVec3::Y).dot(w.pose(1, t).centre - w.pose(0, t).centre);
     let mut t = 0.0;
     while t < engine::sky::DAY && side(t).signum() == side(t + 0.5).signum() {
         t += 0.5;
@@ -194,6 +204,7 @@ struct Gpu {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    sky_pipeline: wgpu::RenderPipeline,
     /// The overlays (ADR 0017): ghost lines and the 2D layer, with their vertex and rectangle buffers.
     ghost_pipeline: wgpu::RenderPipeline,
     ghost_buf: wgpu::Buffer,
@@ -217,13 +228,10 @@ struct Gpu {
 }
 
 impl Gpu {
-    fn new(window: Arc<Window>, a: &Args, cap: u32) -> Gpu {
-        let backends = match a.s("backend", "vulkan").as_str() {
-            "dx12" => wgpu::Backends::DX12,
-            _ => wgpu::Backends::VULKAN,
-        };
+    /// The GPU, and the traced terrain bound to it. Vulkan only: wgpu's ray queries are there (ADR 0022).
+    fn new(window: Arc<Window>, a: &Args, cap: u32) -> (Gpu, rt::Rt) {
         let mut idesc = wgpu::InstanceDescriptor::new_without_display_handle();
-        idesc.backends = backends;
+        idesc.backends = wgpu::Backends::VULKAN;
         idesc.flags = wgpu::InstanceFlags::empty();
         let instance = wgpu::Instance::new(idesc);
         let surface = instance.create_surface(window.clone()).unwrap();
@@ -240,9 +248,15 @@ impl Gpu {
             eprintln!("[technoape] WARNING: adapter is not a discrete GPU");
         }
         let af = adapter.features();
+        // the light is traced: a GPU without hardware ray queries cannot run the game (ADR 0022)
+        assert!(
+            af.contains(wgpu::Features::EXPERIMENTAL_RAY_QUERY),
+            "TechnoApe needs a GPU with hardware ray tracing (Vulkan ray queries); {} has none",
+            info.name
+        );
         let want = wgpu::Features::INDIRECT_FIRST_INSTANCE | wgpu::Features::TIMESTAMP_QUERY;
-        let feats = af & want;
-        let mut limits = wgpu::Limits::default();
+        let feats = (af & want) | wgpu::Features::EXPERIMENTAL_RAY_QUERY;
+        let mut limits = wgpu::Limits::default().using_minimum_supported_acceleration_structure_values();
         let al = adapter.limits();
         limits.max_storage_buffer_binding_size = al.max_storage_buffer_binding_size;
         limits.max_buffer_size = al.max_buffer_size;
@@ -250,7 +264,9 @@ impl Gpu {
             label: None,
             required_features: feats,
             required_limits: limits,
-            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            // SAFETY: wgpu gates ray queries as experimental; the client requires them and the gate's views and
+            // filmstrips check what they draw
+            experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
             memory_hints: wgpu::MemoryHints::Performance,
             trace: wgpu::Trace::Off,
         }))
@@ -328,8 +344,15 @@ impl Gpu {
                 storage(2),
                 storage(3),
                 storage(4),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::AccelerationStructure { vertex_return: false },
+                    count: None,
+                },
             ],
         });
+        let rt = rt::Rt::new(&device, &shader, &globals, &quads, MAX_CHUNKS as u32);
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bgl,
@@ -339,6 +362,7 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 2, resource: chunks.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 3, resource: looks.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 4, resource: wquads.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: rt.tlas.as_binding() },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -398,6 +422,29 @@ impl Gpu {
                 cache: None,
             })
         };
+        // the sky: first, behind everything, writing no depth
+        let sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sky"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_sky"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_sky"),
+                targets: &[Some(format.into())],
+                compilation_options: Default::default(),
+            }),
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
         let sea_pipeline = liquid("vs_sea");
         let water_pipeline = liquid("vs_water");
         let overlay = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -470,8 +517,9 @@ impl Gpu {
             (qs, resolve, ring)
         });
         let capture = (a.get("capture_ms", 0) > 0 || a.0.contains_key("shot")).then(|| buf("capture", (W * H * 4) as u64, U::MAP_READ | U::COPY_DST));
-        Gpu {
+        let gpu = Gpu {
             window,
+            sky_pipeline,
             ts_period: queue.get_timestamp_period(),
             device,
             queue,
@@ -495,7 +543,8 @@ impl Gpu {
             capture,
             adapter_name: info.name.clone(),
             backend: format!("{:?}", info.backend),
-        }
+        };
+        (gpu, rt)
     }
 
     fn upload(&self, off: u32, q: &[[u32; 2]]) {
@@ -560,6 +609,8 @@ fn parse_acts(s: &str) -> Vec<(f64, String)> {
 struct App {
     args: Args,
     gpu: Option<Gpu>,
+    /// The traced terrain (ADR 0022), beside the GPU it lives on.
+    rt: Option<rt::Rt>,
     world: World,
     link: Link<ToServer, ToClient>,
     /// run=play: the player this client predicts, the keys held, mouse motion since the last frame, the look
@@ -993,7 +1044,15 @@ impl App {
         let gpu = self.gpu.as_ref().unwrap();
         let mut st = FrameStats::default();
         let budget = (upload_mb * 1e6) as usize;
-        self.streamer.apply(budget, &mut st, |off, q| gpu.upload(off, q));
+        let mut ups = Vec::new();
+        self.streamer.apply(budget, &mut st, |off, q| {
+            gpu.upload(off, q);
+            ups.push(off);
+        });
+        let rt = self.rt.as_mut().unwrap();
+        for off in ups {
+            rt.forget(off);
+        }
         if !self.clicks.is_empty() {
             let (world, streamer, frame) = (&self.world, &self.streamer, self.streamer.frame);
             let mut done = Vec::new();
@@ -1047,10 +1106,18 @@ impl App {
         let mut args: Vec<DrawArgs> = Vec::with_capacity(draws.len());
         let mut sea_args: Vec<DrawArgs> = Vec::new();
         let mut nquads = 0u64;
+        let mut insts: Vec<rt::Inst> = Vec::with_capacity(draws.len());
         for (ci, d) in draws.iter().enumerate().take(MAX_CHUNKS) {
             let k = d.key;
-            table.push(ChunkGpu { base: k.base().into(), info: k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8 });
+            let info = k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8;
+            table.push(ChunkGpu { base: k.base().into(), info });
             let land = d.len - d.water;
+            if land > 0 {
+                insts.push(rt::Inst { off: d.off, land, base: k.base().into(), info, body: k.body });
+            }
+            if d.hidden {
+                continue;
+            }
             args.push(DrawArgs { vertex_count: land * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci as u32 });
             if d.water > 0 {
                 sea_args.push(DrawArgs { vertex_count: d.water * 6, instance_count: 1, first_vertex: (d.off + land) * 6, first_instance: ci as u32 });
@@ -1072,7 +1139,37 @@ impl App {
         let cf = self.world.frame_at(p.pos);
         let sun = (self.world.from_inertial(cf, self.world.sky.sun(self.world.time)) - p.pos).normalize().as_vec3();
         let clock = self.start.elapsed().as_secs_f32();
-        let mut g = Globals { view_proj: vp.to_cols_array_2d(), sun: [sun.x, sun.y, sun.z, clock], bodies: bytemuck::Zeroable::zeroed() };
+        let (sky_m, wt) = (&self.world.sky, self.world.time);
+        let sun_at = self.world.from_inertial(cf, sky_m.sun(wt)) - p.pos;
+        // the moon's light: sunlight by its phase seen from the planet, less what the planet hides of the sun
+        let (sp, mp, pp) = (sky_m.sun(wt), sky_m.moon(wt).centre, sky_m.planet(wt).centre);
+        let phase = 0.5 * (1.0 + (sp - mp).normalize().dot((pp - mp).normalize()));
+        let moon = MOON_LIGHT * (phase * (1.0 - sky_m.covered(wt, mp, pp, sky_m.planet_radius))) as f32;
+        // the sky here: the sun's height over this horizon and what the moon hides of it, and the air thinning
+        let day = {
+            let h = self.world.up_at(p.pos).dot(sun_at.normalize());
+            let x = ((h + 0.2) / 0.35).clamp(0.0, 1.0);
+            (x * x * (3.0 - 2.0 * x) * (1.0 - sky_m.eclipse(wt, self.world.to_inertial(p.pos)))) as f32
+        };
+        // shortcut: a body with a sea has air, the moon none, until bodies carry their atmosphere in data
+        let x = self.world.to_inertial(p.pos);
+        let over_air = (0..self.world.bodies.len())
+            .filter(|&i| self.world.bodies[i].sea.is_some())
+            .map(|i| (x - self.world.pose(i, wt).centre).length() - self.world.bodies[i].radius)
+            .fold(f64::MAX, f64::min);
+        let air = (1.0 - over_air.max(0.0) / 1500.0).clamp(0.0, 1.0) as f32;
+        let sky_c = Vec3::new(0.45, 0.65, 0.95) * day * air + Vec3::new(0.01, 0.012, 0.025);
+        let mut g = Globals {
+            view_proj: vp.to_cols_array_2d(),
+            sun: [sun.x, sun.y, sun.z, clock],
+            bodies: bytemuck::Zeroable::zeroed(),
+            inv_vp: vp.inverse().to_cols_array_2d(),
+            sun_pos: [sun_at.x as f32, sun_at.y as f32, sun_at.z as f32, engine::sky::SUN_RADIUS as f32],
+            sun_col: [1.0 * 0.65, 0.97 * 0.65, 0.9 * 0.65, 0.0],
+            moon_col: [moon.x, moon.y, moon.z, 1.0],
+            sky: [sky_c.x, sky_c.y, sky_c.z, day * air],
+        };
+        let mut at = [[0f32; 12]; MAX_BODIES];
         for (bi, (b, o)) in self.world.bodies.iter().zip(g.bodies.iter_mut()).enumerate() {
             // the camera in the body's frame, relative to its centre, in two floats per axis: one float is
             // 0.1 mm coarse at 1 km; and the body's frame turned into the camera's
@@ -1091,7 +1188,15 @@ impl App {
                 half_n: b.n as f32 * 0.5,
                 _p: [b.sea.map_or(-1.0, |s| s as f32), 0.0],
                 rot: [col(m.x_axis), col(m.y_axis), col(m.z_axis)],
+                ctr: { let v = (m.as_dmat3() * -c).as_vec3(); [v.x, v.y, v.z, b.radius as f32] },
             };
+            // the body's traced terrain into the camera's frame: x -> m (x - c), rows of 3x4
+            let (md, t) = (m.as_dmat3(), m.as_dmat3() * -c);
+            at[bi] = [
+                md.x_axis.x as f32, md.y_axis.x as f32, md.z_axis.x as f32, t.x as f32,
+                md.x_axis.y as f32, md.y_axis.y as f32, md.z_axis.y as f32, t.y as f32,
+                md.x_axis.z as f32, md.y_axis.z as f32, md.z_axis.z as f32, t.z as f32,
+            ];
         }
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
         if !table.is_empty() {
@@ -1102,10 +1207,7 @@ impl App {
             gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 16) as u64, bytemuck::cast_slice(&sea_args));
         }
 
-        // sky darkens with altitude
-        let altm = self.world.altitude(p.pos).max(0.0);
-        let k = (1.0 - altm / 1500.0).clamp(0.0, 1.0);
-        let mut sky = wgpu::Color { r: 0.45 * k + 0.01, g: 0.65 * k + 0.01, b: 0.95 * k + 0.03, a: 1.0 };
+        let mut sky = wgpu::Color { r: sky_c.x as f64, g: sky_c.y as f64, b: sky_c.z as f64, a: 1.0 };
         if self.shot.is_some() {
             // the crack detector's colour: no block or sky has it, so every such pixel is a hole or sky
             sky = wgpu::Color { r: 1.0, g: 0.0, b: 1.0, a: 1.0 };
@@ -1124,6 +1226,9 @@ impl App {
         let cpu1 = Instant::now();
         let fview = frame.texture.create_view(&Default::default());
         let mut enc = gpu.device.create_command_encoder(&Default::default());
+        let rt = self.rt.as_mut().unwrap();
+        rt.record(&gpu.device, &gpu.queue, &mut enc, &insts, &at, self.streamer.frame);
+        let rt_pending = rt.pending;
         // timestamp slot: read a finished one, then reuse
         let mut ts_use = None;
         if let Some((_, _, ring)) = &gpu.ts {
@@ -1168,8 +1273,13 @@ impl App {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            rp.set_pipeline(&gpu.pipeline);
             rp.set_bind_group(0, &gpu.bind, &[]);
+            // the crack detector's shots keep the plain clear colour
+            if self.shot.is_none() {
+                rp.set_pipeline(&gpu.sky_pipeline);
+                rp.draw(0..3, 0..1);
+            }
+            rp.set_pipeline(&gpu.pipeline);
             if self.args.get("mdi", 1) == 1 {
                 rp.multi_draw_indirect(&gpu.indirect, 0, args.len() as u32);
             } else {
@@ -1284,7 +1394,7 @@ impl App {
         }
         if self.loaded_at.is_none() {
             let el = self.start.elapsed().as_secs_f64();
-            if (self.streamer.idle() && st.missing == 0 && self.streamer.frame > 10) || el > 60.0 {
+            if (self.streamer.idle() && st.missing == 0 && rt_pending == 0 && self.streamer.frame > 10) || el > 60.0 {
                 eprintln!("[technoape] loaded in {:.2} s, {} chunks, {} quads", el, self.streamer.slot_count(), self.streamer.alloc.used);
                 self.loaded_at = Some(Instant::now());
                 self.last_pos = p.pos;
@@ -1552,7 +1662,9 @@ impl ApplicationHandler for App {
             window.set_cursor_visible(false);
         }
         let cap: u32 = self.args.get("quad_cap_m", 16u32) * 1_000_000;
-        self.gpu = Some(Gpu::new(window, &self.args, cap));
+        let (gpu, rt) = Gpu::new(window, &self.args, cap);
+        self.gpu = Some(gpu);
+        self.rt = Some(rt);
         self.start = Instant::now();
         self.last_frame = Instant::now();
     }
@@ -1715,6 +1827,7 @@ fn main() {
         time0,
         args,
         gpu: None,
+        rt: None,
         world,
         link,
         me: phys::Player::at(spawn, DVec3::X),

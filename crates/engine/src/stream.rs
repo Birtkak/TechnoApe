@@ -89,6 +89,8 @@ pub struct DrawChunk {
     pub off: u32,
     pub len: u32,
     pub water: u32,
+    /// Outside the view or behind a horizon: not drawn, only traced.
+    pub hidden: bool,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -340,7 +342,7 @@ impl Streamer {
         }
     }
 
-    /// Append a ready chunk to the draw list if visible; true if it is ready (drawn or culled).
+    /// Append a ready chunk to the draw list, marked hidden if culled; true if it is ready.
     fn emit(&mut self, view: &View, k: Key, hidden: Option<bool>, out: &mut Vec<DrawChunk>) -> bool {
         let Some(s) = self.slots.get_mut(&k) else { return false };
         s.last_seen = self.frame;
@@ -350,9 +352,9 @@ impl Streamer {
             State::Empty => return true,
             State::Ready { off, len, water } => (off, len, water),
         };
-        if !hidden.unwrap_or_else(|| self.hidden(view, k.body, &bd)) {
-            out.push(DrawChunk { key: k, off, len, water });
-        }
+        // hidden chunks are listed too: they are not drawn, but they cast shadows (ADR 0022)
+        let hidden = hidden.unwrap_or_else(|| self.hidden(view, k.body, &bd));
+        out.push(DrawChunk { key: k, off, len, water, hidden });
         true
     }
 

@@ -87,6 +87,25 @@ pure functions of the world's time, the same on every machine.
     disc the moon covers.
   - Moonlight is a second source: the sun's light reflected by the lit part of the moon, from the moon's real
     position, with its brightness following the phase.
+- **As built (2026-11-10), sun, moon and sky:**
+  - The terrain stays rasterised; its fragment shader traces the light. The streamer lists the chunks it
+    culls as hidden, so terrain out of view still casts shadows.
+  - `crates/client/src/rt.rs`: a BLAS per chunk mesh, built from its quads expanded on the GPU (`expand`), at
+    most 2^17 quads a frame. Quads are grown by 0.01 cell instead of split at T-junctions: the overlap closes
+    the cracks just as well, in one line. The TLAS is rebuilt every frame in the camera's frame, and its
+    instance mask is `1 << body`. A surface traces only its own body's terrain; other bodies block light as
+    spheres.
+  - Direct sun is the share of the disc the other spheres leave (the eclipse), times what the own body's sphere
+    leaves (its horizon, for terrain past the streamed range), times one ray to a random point of the disc.
+  - The moon's light is `MOON_LIGHT` (bluish, a quarter of the sun's direct light at full moon) times its phase
+    seen from the planet, less the share of the sun the planet hides from it (`Sky::covered`, a lunar
+    eclipse). It is traced only where the day factor is under a half.
+  - The sky's light and colour fade with the sun's height over the local horizon (twilight from -0.2 to 0.15).
+    Night ambient is near black until block light comes. A body without a sea has no air: its sky is black.
+  - The sky pass draws the sun as a 0.53 degree disc with limb darkening and a glow. The moon passing in front
+    of it is terrain, so an eclipse on screen needs nothing special.
+  - Cost on the dev PC: about +0.7 ms p99 standing and +1.7 ms flying (BLAS builds as chunks stream),
+    and +300 MB VRAM.
 - **Block light.**
   - Coloured (RGB) and smooth, flooded per block on the meshing workers.
   - It is sampled per vertex and blended across faces, and it feeds the same shading.
