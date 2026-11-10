@@ -44,3 +44,9 @@ id = 6
 name = "blue lamp"
 colour = [0.62, 0.82, 1.0]
 light = [0.35, 0.6, 1.0]
+
+# the moon's ground: a pale dust that throws the sunlight back (bug 2026-11-10_20-49-46)
+[[block]]
+id = 7
+name = "moon dust"
+colour = [0.86, 0.86, 0.84]

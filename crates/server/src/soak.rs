@@ -75,7 +75,7 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         let d = rng.dir();
         // now and then flying, which only creative bots may
         let fly = if rng.f() < 0.1 { rng.range(1.0, 40.0) as f32 } else { 0.0 };
-        Input { mv: [rng.range(-1.0, 1.0) as f32, rng.range(-1.0, 1.0) as f32], jump: rng.f() < 0.3, fwd: d.as_vec3().to_array(), pitch: 0.0, turn: rng.range(-0.1, 0.1) as f32, fly, down: rng.f() < 0.3, t: 0.0 }
+        Input { mv: [rng.range(-1.0, 1.0) as f32, rng.range(-1.0, 1.0) as f32], jump: rng.f() < 0.3, fwd: d.as_vec3().to_array(), pitch: 0.0, turn: rng.range(-0.1, 0.1) as f32, tilt: rng.range(-0.05, 0.05) as f32, roll: rng.range(-0.05, 0.05) as f32, fly, down: rng.f() < 0.3, t: 0.0 }
     };
     if r < 0.05 {
         b.link.send(ToServer::Input(walk(&mut b.rng)));

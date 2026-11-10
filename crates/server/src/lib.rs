@@ -249,7 +249,7 @@ impl Server {
         for c in &self.clients {
             let p = &c.phys;
             h = fnv(h, &c.player.id.to_le_bytes());
-            for v in [p.pos, p.vel, p.fwd] {
+            for v in [p.pos, p.vel, p.fwd, p.up] {
                 for x in v.to_array() {
                     h = fnv(h, &x.to_bits().to_le_bytes());
                 }
@@ -263,7 +263,7 @@ impl Server {
                 h = fnv(h, &x.to_bits().to_le_bytes());
             }
             if let Some(i) = c.input {
-                for x in [i.mv[0], i.mv[1], i.fwd[0], i.fwd[1], i.fwd[2], i.pitch, i.turn] {
+                for x in [i.mv[0], i.mv[1], i.fwd[0], i.fwd[1], i.fwd[2], i.pitch, i.turn, i.tilt, i.roll] {
                     h = fnv(h, &x.to_bits().to_le_bytes());
                 }
                 h = fnv(h, &[i.jump as u8]);
@@ -1165,7 +1165,10 @@ mod tests {
         drain(&links[0]);
         let l = &links[0];
         let start = s.clients[0].phys;
-        let inp = |k: u32| Input { mv: [1.0, (k % 7) as f32 / 7.0 - 0.5], jump: k % 40 == 0, fwd: [1.0, 0.0, 0.2], pitch: 0.0, ..Default::default() };
+        // each step at its own time near the server's clock, as a client sends it: the moon's pull moves with
+        // the clock (ADR 0024)
+        let t0 = s.world.time + 0.5;
+        let inp = |k: u32| Input { mv: [1.0, (k % 7) as f32 / 7.0 - 0.5], jump: k % 40 == 0, fwd: [1.0, 0.0, 0.2], pitch: 0.0, t: t0 + k as f64 * phys::DT, ..Default::default() };
         // 3 s of steps in batches of three, one batch a tick, with a duplicate and an old one thrown in
         let mut me = start;
         for t in 0..60u32 {
@@ -1174,7 +1177,7 @@ mod tests {
                 l.send(ToServer::Steps { first: 2, inputs: vec![inp(2)] });
             }
             for k in t * 3 + 1..t * 3 + 4 {
-                phys::step(&s.world, &mut me, &inp(k), phys::DT);
+                phys::step_at(&mut s.world, &mut me, &inp(k), phys::DT);
             }
             s.tick();
         }

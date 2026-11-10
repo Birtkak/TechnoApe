@@ -18,6 +18,8 @@ pub const SEA_DEPTH: f64 = 4.0;
 pub const OCEAN: f64 = 0.55;
 pub const CS: i32 = 32; // cells per chunk edge
 pub const P: usize = 34; // padded edge
+/// Gravity at a body's surface, m/s^2 (ADR 0007, 0024).
+pub const G: f64 = 9.81;
 /// No generated surface lies farther than this from a body's radius (m).
 pub const AMP: f64 = 80.0;
 /// The relief of a body without continents (the moon): +-30 m of hills.
@@ -114,6 +116,8 @@ pub struct Body {
     land: Option<Box<Land>>,
     /// Where players start: the land nearest the +y pole (a direction from the centre).
     pub spawn: DVec3,
+    /// What generation lays down: the top, the band under it, the rock below (block ids).
+    pub ground: [u8; 3],
 }
 
 /// Continents, oceans and islands (ADR 0021). Heights are metres over the sea level. The continents' sizes
@@ -224,7 +228,7 @@ impl Body {
         let r0 = radius - CRUST.min(radius * 0.5); // small bodies keep half their radius
         let lnq = (1.0 + BLOCK / radius).ln();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y }
+        Body { centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN }
     }
     /// The body with continents, oceans and a sea (ADR 0020, 0021), and its spawn on land.
     pub fn with_continents(mut self, seed: i32) -> Self {
@@ -315,10 +319,10 @@ impl Solid<'_> {
         let h = b.height(b.dir(c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5));
         let mut z = ((b.layer_of(h) - 0.5).floor() as i32 + 1).max(0);
         // the same test as `generated_under`, so the two never disagree by a layer
-        while z > 0 && material(h - b.layer_r(z as f64 - 0.5)) == AIR {
+        while z > 0 && material(h - b.layer_r(z as f64 - 0.5), &b.ground) == AIR {
             z -= 1;
         }
-        while material(h - b.layer_r(z as f64 + 0.5)) != AIR {
+        while material(h - b.layer_r(z as f64 + 0.5), &b.ground) != AIR {
             z += 1;
         }
         z
@@ -383,15 +387,16 @@ pub struct Bounds {
 static GEN: std::sync::LazyLock<[u8; 3]> =
     std::sync::LazyLock::new(|| [BLOCKS.id("grass"), BLOCKS.id("dirt"), BLOCKS.id("stone")]);
 
-pub fn material(depth: f64) -> u8 {
+/// The generated block `depth` metres under the surface, from a body's `ground`.
+pub fn material(depth: f64, ground: &[u8; 3]) -> u8 {
     if depth < 0.0 {
         AIR
     } else if depth < 0.5 {
-        GEN[0]
+        ground[0]
     } else if depth < 4.0 {
-        GEN[1]
+        ground[1]
     } else {
-        GEN[2]
+        ground[2]
     }
 }
 
@@ -433,7 +438,8 @@ impl World {
     /// A planet and its moon 3 km away, with `planet_n` and `moon_n` columns per face edge.
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
         let planet = Body::new(DVec3::ZERO, planet_n, seed).with_continents(seed);
-        let moon = Body::new(MOON_AT, moon_n, seed + 1);
+        let mut moon = Body::new(MOON_AT, moon_n, seed + 1);
+        moon.ground = [BLOCKS.id("moon dust"), BLOCKS.id("moon dust"), GEN[2]];
         // the moon orbits 2.83 planet radii out, as from the 1 km planet; never nearer than 3 km (small test planets)
         let sky = Sky { planet_radius: planet.radius, moon_radius: moon.radius, moon_orbit: (planet.radius * 2.83).max(3000.0) };
         World {
@@ -525,6 +531,20 @@ impl World {
             .map(|i| (x - self.pose(i, self.time).centre).length() - self.bodies[i].radius)
             .fold(f64::MAX, f64::min)
     }
+    /// Gravity at a position (ADR 0024), m/s^2 in its frame's coordinates: every body pulls towards its centre
+    /// where it is now, with G over all its terrain (within AMP of its radius) and the square of the distance
+    /// less past that, so down turns smoothly from one body to the other and fades out in deep space.
+    pub fn gravity(&self, p: DVec3) -> DVec3 {
+        let f = self.frame_at(p);
+        (0..self.bodies.len())
+            .map(|i| {
+                let c = if i == f { self.nominal(f) } else { self.from_inertial(f, self.pose(i, self.time).centre) };
+                let d = c - p;
+                let r = d.length().max(1e-6);
+                d / r * G * ((self.bodies[i].radius + AMP) / r).min(1.0).powi(2)
+            })
+            .sum()
+    }
     /// Up at a position: away from the body whose frame it is in; in deep space, away from the nearest body.
     pub fn up_at(&self, p: DVec3) -> DVec3 {
         let f = self.frame_at(p);
@@ -595,10 +615,11 @@ impl World {
     }
     /// The generated material of block b under a surface at radius `height` (its `column_height`).
     pub fn generated_under(&self, b: Block, height: f64) -> u8 {
+        let body = &self.bodies[b.body as usize];
         if b.pos.z < 0 {
-            return GEN[2];
+            return body.ground[2];
         }
-        material(height - self.bodies[b.body as usize].layer_r(b.pos.z as f64 + 0.5))
+        material(height - body.layer_r(b.pos.z as f64 + 0.5), &body.ground)
     }
     /// The column that holds block b.
     pub fn col(b: Block) -> Col {
@@ -903,7 +924,7 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
         let core = l < 0.0;
         for (i, hv) in h.iter().enumerate() {
             let d = hv - r;
-            let mut m = if core || d >= dirt { 3 } else if d >= grass { 2 } else if d >= 0.0 { 1 } else { 0 };
+            let mut m = if core || d >= dirt { body.ground[2] } else if d >= grass { body.ground[1] } else if d >= 0.0 { body.ground[0] } else { 0 };
             if z == P - 1 && z_air >= 0 && *hv < r_air {
                 // the skirt rule for the top padding, which has no cells above it here (ADR 0018). shortcut:
                 // from the generated height alone, edits over the chunk do not count; a dug hole there could

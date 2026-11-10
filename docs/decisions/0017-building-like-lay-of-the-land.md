@@ -32,7 +32,7 @@ Each of the four, and for the plain dig, a round brush with a radius or ADR 0008
 ## How it plays (first version, on the playtest to-test list)
 - **Bare hands:** left click digs the aimed block, right click places the hotbar's block in front of it.
   A white outline marks the aimed block.
-- **Build hammer** (H, until items exist): right-drag places the tool's shape, and Q cycles box, cylinder
+- **Build hammer** (H, until items exist): right-drag places the tool's shape, and Q (B since ADR 0024) cycles box, cylinder
   and cone.
   - A box spans the drag (a line, wall or floor).
   - A cylinder or cone is centred where the press was, with the drag as its radius. The mouse wheel sets
@@ -43,7 +43,7 @@ Each of the four, and for the plain dig, a round brush with a radius or ADR 0008
   - nine slots, held counts in survival, a gold strip in creative (C switches modes)
   - the height beside the hotbar for cylinders and cones
   - the mode and tool in the window title until the HUD has text
-- `acts=` scripts the same inputs for checks without hands, e.g. `acts="1:c,2:h,2.2:q,3:R,3.1:m:-200:0,4:r"`.
+- `acts=` scripts the same inputs for checks without hands, e.g. `acts="1:c,2:h,2.2:b,3:R,3.1:m:-200:0,4:r"`.
 
 ## Consequences
 - The server accepts any shape from anyone, like the creative switch. It checks for a hammer once items exist.

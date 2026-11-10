@@ -271,13 +271,34 @@ pub fn brackets(p: &mut Paint, b: [f32; 4], arm: f32, all: bool, colour: [f32; 4
 /// Screen pixels a font pixel of the menu's buttons.
 const MENU_PX: f32 = PX * 1.5;
 
+/// A menu row that is a slider: where its value sits on the track (0..1), the value as text, and whether that
+/// text is being typed (its number was clicked).
+pub type Slider = Option<(f32, String, bool)>;
+
+/// A slider's track, after its label, and the room its number takes after that.
+const TRACK: f32 = 320.0;
+const NUMBER: f32 = 7.0 * 8.0 * MENU_PX;
+/// Slider labels take at least this many characters' room, so the tracks line up (the longest one's).
+const SLIDER_LABEL: usize = 17;
+
 /// The menu's buttons on a `h` pixels high screen: x, y, width and height in pixels, a column on the left,
-/// each as wide as its number and label: what is drawn lit is what takes the click.
-pub fn menu_boxes(h: f32, items: &[String]) -> Vec<[f32; 4]> {
+/// each as wide as its number and label (and a slider's track and value): what is drawn lit takes the click.
+pub fn menu_boxes(h: f32, items: &[String], sliders: &[Slider]) -> Vec<[f32; 4]> {
     let (bh, gap, glyph) = (50.0, 10.0, 8.0 * MENU_PX);
     let top = (h * 0.36).max(230.0);
-    let width = |l: &String| 20.0 + 4.0 * glyph + l.chars().count() as f32 * glyph + 12.0;
-    items.iter().enumerate().map(|(k, l)| [96.0, top + k as f32 * (bh + gap), width(l), bh]).collect()
+    let width = |k: usize, l: &String| {
+        let slider = if sliders.get(k).is_some_and(|s| s.is_some()) { 24.0 + TRACK + 24.0 + NUMBER } else { 0.0 };
+        let chars = if slider > 0.0 { l.chars().count().max(SLIDER_LABEL) } else { l.chars().count() };
+        20.0 + 4.0 * glyph + chars as f32 * glyph + slider + 12.0
+    };
+    items.iter().enumerate().map(|(k, l)| [96.0, top + k as f32 * (bh + gap), width(k, l), bh]).collect()
+}
+
+/// A slider row's track and number, each x, y, width and height, from its box and label.
+pub fn slider_parts(b: [f32; 4], label: &str) -> ([f32; 4], [f32; 4]) {
+    let glyph = 8.0 * MENU_PX;
+    let x = b[0] + 20.0 + 4.0 * glyph + label.chars().count().max(SLIDER_LABEL) as f32 * glyph + 24.0;
+    ([x, b[1], TRACK, b[3]], [x + TRACK + 24.0, b[1], NUMBER, b[3]])
 }
 
 /// The game's name: the title page draws it as the logo instead of plain text.
@@ -351,8 +372,8 @@ fn planet(p: &mut Paint, x: f32, y: f32, r: f32) {
 /// The menu (the title's and Esc's): a shade fading out from the left, the page's title large with a
 /// readout under it (the title page's is the logo), and a numbered list; the button under the pointer a
 /// solid cyan box in corner brackets.
-pub fn menu(p: &mut Paint, title: &str, items: &[String], hint: &str, hover: Option<usize>) {
-    let boxes = menu_boxes(p.h, items);
+pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hint: &str, hover: Option<usize>, caret: bool) {
+    let boxes = menu_boxes(p.h, items, sliders);
     let (x, top) = (96.0, boxes.first().map_or(p.h * 0.36, |b| b[1]));
     let shade = x + 900.0;
     p.rect(0.0, 0.0, shade, p.h, [0.0, 0.02, 0.05, 0.45], 0);
@@ -384,6 +405,25 @@ pub fn menu(p: &mut Paint, title: &str, items: &[String], hint: &str, hover: Opt
         } else {
             p.text_px(b[0] + 20.0, ty, &n, [0.44, 0.83, 1.0, 0.6], lp);
             p.text_px(lx, ty, label, [0.92, 0.95, 0.98, 0.95], lp);
+        }
+        if let Some(Some((at, value, typing))) = sliders.get(k) {
+            let (t, n) = slider_parts(*b, label);
+            let (ink, dim) = if lit { ([0.01, 0.06, 0.12, 1.0], [0.01, 0.06, 0.12, 0.35]) } else { (CYAN, [0.44, 0.83, 1.0, 0.25]) };
+            let (cy, at) = (t[1] + t[3] / 2.0, at.clamp(0.0, 1.0));
+            p.rect(t[0], cy - 2.0, t[2], 4.0, dim, 0);
+            p.rect(t[0], cy - 2.0, t[2] * at, 4.0, ink, 0);
+            p.rect(t[0] + t[2] * at - 5.0, cy - 12.0, 10.0, 24.0, if lit { ink } else { [0.96, 0.98, 1.0, 1.0] }, 0);
+            let shown = if *typing && caret { format!("{value}_") } else { value.clone() };
+            if *typing {
+                // the number being typed sits in its own dark field, bracketed
+                p.rect(n[0] - 8.0, n[1] + 4.0, n[2], n[3] - 8.0, [0.02, 0.04, 0.07, 0.95], 0);
+                brackets(p, [n[0] - 8.0, n[1] + 4.0, n[2], n[3] - 8.0], 8.0, true, CYAN);
+                p.text_px(n[0], ty, &shown, [1.0, 1.0, 1.0, 1.0], lp);
+            } else if lit {
+                p.text_flat(n[0], ty, &shown, ink, lp);
+            } else {
+                p.text_px(n[0], ty, &shown, [0.92, 0.95, 0.98, 0.95], lp);
+            }
         }
     }
 }

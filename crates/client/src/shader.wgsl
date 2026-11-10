@@ -707,12 +707,15 @@ fn sky_colour(d: vec3f) -> vec3f {
     let edge = mix(0.02, 0.35, air);
     // the aureole: in the air a bright halo a few sun widths across, under the disc's soft edge too
     c += tint * vec3f(1.0, 0.85, 0.6) * exp(-max(ang - r, 0.0) / (rs * 3.0)) * 0.6 * air;
+    // out of the air nothing softens it: a glare tight round the disc and a faint wide one, so it reads as a
+    // light and not a grey dot (bug 2026-11-10_20-45-58)
+    c += vec3f(1.0, 0.95, 0.88) * (exp(-max(ang - r, 0.0) / (rs * 1.5)) * 0.5 + exp(-ang * 25.0) * 0.05) * (1.0 - air);
     let disc = 1.0 - smoothstep(1.0 - edge, 1.0, ang / r);
     if (disc > 0.0) {
         // limb darkening: the disc dims towards its edge
         let x = min(ang / r, 1.0);
         // brighter than anything around it; the air's colour shows through the glare
-        let face = mix(0.8, 1.0, sqrt(1.0 - x * x)) * mix(vec3f(1.0, 0.98, 0.96), tint * vec3f(2.4, 2.1, 1.7), air);
+        let face = mix(0.8, 1.0, sqrt(1.0 - x * x)) * mix(vec3f(6.0, 5.9, 5.8), tint * vec3f(2.4, 2.1, 1.7), air);
         c = mix(c, face, disc);
     }
     return c;

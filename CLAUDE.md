@@ -66,7 +66,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `script=-` takes them live from stdin). Output is one JSON line per report or block. Use bots, not a second
   windowed client, for multiplayer checks: two windows on one PC throttle each other (ADR 0006).
 - Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block, right click places one;
-  H the build hammer, Q its shape, wheel its height; B the bucket, left scoops, right pours; C held zooms 3x;
+  H the build hammer, B its shape, wheel its height; V the bucket, left scoops, right pours;
+  in space the mouse pitches you freely and Q/E roll, gravity rights you as it pulls (ADR 0024); C held zooms 3x;
   1-9 the hotbar; space swims up in water, ADR 0020; T chats, / runs a command: /time, /playmode, /give,
   /goto, /timewarp (. and , step it), /help; Tab completes a command, the arrows pick, else the up arrow
   recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed up to

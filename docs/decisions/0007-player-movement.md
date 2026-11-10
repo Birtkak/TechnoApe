@@ -17,7 +17,7 @@ so movement must run there too, yet a player must feel their own input at once a
 
 ## Decision
 Option 3, in `crates/engine/src/phys.rs`:
-- **Radial gravity:** up is away from the nearest body's centre; G = 9.81 m/s². No frame per face: the look
+- **Radial gravity** (superseded by ADR 0024: every body pulls, and the player has an orientation of its own): up is away from the nearest body's centre; G = 9.81 m/s². No frame per face: the look
   direction is kept in the tangent plane and carried along, so seams need no special case.
 - **Snappy walking:** the horizontal velocity is the wished one (4.3 m/s), on the ground and in the air; a
   jump of 4.8 m/s (about 1.2 m). Inertia and air control are a feel call for later (ADR 0008).

@@ -730,7 +730,10 @@ struct App {
     mouse: (f64, f64),
     pitch: f64,
     /// The mouse's turn (radians to the left) not stepped yet: the next step takes it, the camera shows it now.
+    /// Out in space (`phys::free`) the mouse's pitch tilts the body and Q/E roll it, the same way (ADR 0024).
     turn: f64,
+    tilt: f64,
+    roll: f64,
     input: Input,
     /// Times the server's state, replayed to now, differed from the prediction by over a millimetre.
     snaps: u64,
@@ -843,6 +846,9 @@ struct App {
     menu: Option<Menu>,
     pointer: (f32, f32),
     menu_boxes: Vec<[f32; 4]>,
+    /// The settings' slider being dragged, and the one whose number is being typed with the text so far.
+    drag: Option<usize>,
+    edit: Option<(usize, String)>,
     onscreen: bool,
     /// Creative flight (ADR 0023): on or not, its speed (the wheel), and when space was last pressed.
     flying: bool,
@@ -953,6 +959,34 @@ impl Settings {
     }
 }
 
+/// How fast Q and E roll the body out in space (ADR 0024), radians a second.
+const ROLL: f64 = 1.5;
+
+/// The settings' sliders, rows 2 and 3 (field of view, mouse sensitivity): the track's ends, its step, and the
+/// most a typed number may be (the least is the track's).
+const SLIDERS: [(f64, f64, f64, f64); 2] = [(30.0, 130.0, 1.0, 130.0), (0.05, 5.0, 0.05, 10.0)];
+
+impl Settings {
+    /// Settings row k's slider value, when it is a slider.
+    fn slider(&self, k: usize) -> Option<f64> {
+        match k {
+            2 => Some(self.fov),
+            3 => Some(self.sensitivity),
+            _ => None,
+        }
+    }
+    /// Sets slider k to v, kept to the slider's range and step.
+    fn set_slider(&mut self, k: usize, v: f64) {
+        let (lo, _, step, max) = SLIDERS[k - 2];
+        let v = ((v.clamp(lo, max) / step).round() * step * 100.0).round() / 100.0;
+        if k == 2 { self.fov = v } else { self.sensitivity = v }
+    }
+    /// Slider k's value as its number shows it.
+    fn slider_text(&self, k: usize) -> String {
+        if k == 2 { format!("{:.0}", self.fov) } else { format!("{:.2}x", self.sensitivity) }
+    }
+}
+
 /// The value after `cur` in `list` (before it when `back`), around the end; from the nearest when `cur` is
 /// not in it.
 fn cycle<T: Copy + PartialEq>(list: &[T], cur: T, back: bool) -> T {
@@ -970,6 +1004,13 @@ fn settings_read_back_and_values_cycle() {
     assert_eq!(cycle(&FOVS, 110.0, false), 60.0);
     assert_eq!(cycle(&FOVS, 60.0, true), 110.0);
     assert_eq!(cycle(&FOVS, 70.0, false), 80.0);
+    let mut s = Settings::default();
+    s.set_slider(2, 83.4);
+    s.set_slider(3, 0.333);
+    assert_eq!((s.fov, s.sensitivity, s.slider_text(3)), (83.0, 0.35, "0.35x".to_string()));
+    s.set_slider(2, 500.0);
+    s.set_slider(3, 0.0);
+    assert_eq!((s.slider(2), s.slider(3), s.slider(4)), (Some(130.0), Some(0.05), None));
 }
 
 /// What the last frame drew, for F3 and bug reports.
@@ -1009,7 +1050,7 @@ impl App {
                     }
                 }
             }
-            "q" => {
+            "b" => {
                 self.tool.kind = match self.tool.kind {
                     Kind::Box => Kind::Cylinder,
                     Kind::Cylinder => Kind::Cone,
@@ -1040,7 +1081,7 @@ impl App {
             "fly" if self.creative => self.flying = !self.flying,
             "fly" => self.note("flying is creative's: /playmode creative".into()),
             "h" => (self.hammer, self.bucket) = (!self.hammer, false),
-            "b" => (self.bucket, self.hammer) = (!self.bucket, false),
+            "v" => (self.bucket, self.hammer) = (!self.bucket, false),
             // the chat and the bug report (ADR 0023): t opens the chat, / opens it on a command, type:x writes,
             // back takes a character, enter sends or saves, cancel closes; say:x sends a line at once
             "t" | "/" if !self.texting() => {
@@ -1109,12 +1150,25 @@ impl App {
                 }
                 (self.recall, self.pick) = (at, None);
             }
-            "cancel" => (self.typing, self.bug, self.bug_shot) = (None, None, None),
+            "cancel" => (self.typing, self.bug, self.bug_shot, self.edit) = (None, None, None, None),
+            // lclick: a left click at the pointer in the menu, let go at once (a slider jumps there)
+            "lclick" => {
+                self.menu_click(false);
+                if self.drag.take().is_some() {
+                    self.save_settings();
+                }
+            }
             "back" => {
-                if let Some(t) = self.typing.as_mut().or(self.bug.as_mut()) {
+                if let Some(t) = self.typing.as_mut().or(self.bug.as_mut()).or(self.edit.as_mut().map(|e| &mut e.1)) {
                     t.pop();
                 }
                 self.pick = Some(0);
+            }
+            // a slider's number takes digits and a point only
+            a if a.starts_with("type:") && self.edit.is_some() => {
+                let t = &mut self.edit.as_mut().unwrap().1;
+                let room = 6usize.saturating_sub(t.len());
+                t.extend(a[5..].chars().filter(|c| c.is_ascii_digit() || *c == '.').take(room));
             }
             a if a.starts_with("type:") => {
                 if let Some(t) = self.typing.as_mut().or(self.bug.as_mut()) {
@@ -1148,13 +1202,61 @@ impl App {
             }
             Some(Menu::Pause) => vec!["Back to game".into(), "Settings".into(), "Main menu".into(), "Quit game".into()],
             Some(Menu::Settings) => vec![
-                if s.display == "windowed fullscreen" { format!("Resolution: {}x{} (the screen's)", w(), h()) } else { format!("Resolution: {}x{}", s.width, s.height) },
+                if s.display == "windowed fullscreen" { format!("Resolution: {}x{} (native)", w(), h()) } else { format!("Resolution: {}x{}", s.width, s.height) },
                 format!("Display: {}", s.display),
-                format!("Field of view: {:.0} degrees", s.fov),
-                format!("Mouse sensitivity: {:.2}x", s.sensitivity),
+                "Field of view".into(),
+                "Mouse sensitivity".into(),
                 format!("Detail distance: {:.0}", s.detail),
                 "Done".into(),
             ],
+        }
+    }
+
+    /// The open page's sliders, row by row (the settings' field of view and mouse sensitivity).
+    fn menu_sliders(&self) -> Vec<hud::Slider> {
+        (0..self.menu_items().len())
+            .map(|k| {
+                let v = self.settings.slider(k).filter(|_| self.menu == Some(Menu::Settings))?;
+                let (lo, hi, _, _) = SLIDERS[k - 2];
+                let typing = self.edit.as_ref().filter(|e| e.0 == k);
+                Some((((v - lo) / (hi - lo)) as f32, typing.map_or(self.settings.slider_text(k), |e| e.1.clone()), typing.is_some()))
+            })
+            .collect()
+    }
+
+    /// A left or right click at the pointer in the menu: on a slider's track it drags the slider, on its number
+    /// it starts typing one; anywhere else on a button it presses it.
+    fn menu_click(&mut self, back: bool) {
+        let (x, y) = self.pointer;
+        let Some(k) = self.menu_boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]) else { return };
+        if self.menu_sliders().get(k).is_some_and(|s| s.is_some()) {
+            let (t, n) = hud::slider_parts(self.menu_boxes[k], &self.menu_items()[k]);
+            if x >= n[0] - 12.0 {
+                self.edit = Some((k, String::new()));
+                return;
+            }
+            if x >= t[0] - 12.0 && !back {
+                self.drag = Some(k);
+                self.slide();
+                return;
+            }
+        }
+        self.menu_press(k, back);
+    }
+
+    /// The dragged slider follows the pointer along its track.
+    fn slide(&mut self) {
+        let Some(k) = self.drag else { return };
+        let (t, _) = hud::slider_parts(self.menu_boxes[k], &self.menu_items()[k]);
+        let (lo, hi, _, _) = SLIDERS[k - 2];
+        let f = ((self.pointer.0 - t[0]) / t[2]).clamp(0.0, 1.0) as f64;
+        self.settings.set_slider(k, lo + f * (hi - lo));
+    }
+
+    /// Keeps the settings in their file.
+    fn save_settings(&mut self) {
+        if let Err(e) = std::fs::write(&self.settings_file, self.settings.text()) {
+            self.note(format!("the settings could not be saved to {}: {e}", self.settings_file));
         }
     }
 
@@ -1202,9 +1304,7 @@ impl App {
                 if k <= 1 {
                     self.apply_display();
                 }
-                if let Err(e) = std::fs::write(&self.settings_file, self.settings.text()) {
-                    self.note(format!("the settings could not be saved to {}: {e}", self.settings_file));
-                }
+                self.save_settings();
             }
             (Some(Menu::Settings), 5) => self.set_menu(Some(self.home())),
             _ => {}
@@ -1325,7 +1425,7 @@ impl App {
     /// A text is being written (the chat or the bug report's form), or F9 waits for its frame: keys and the
     /// mouse go there, not to the player.
     fn texting(&self) -> bool {
-        self.typing.is_some() || self.bug.is_some() || self.bug_grab
+        self.typing.is_some() || self.bug.is_some() || self.bug_grab || self.edit.is_some()
     }
 
     /// A line of this client's own for the chat, and the log.
@@ -1343,6 +1443,13 @@ impl App {
 
     /// Enter: the chat's line goes to the server (it runs the commands), the bug report to bugs/.
     fn submit(&mut self) {
+        if let Some((k, t)) = self.edit.take() {
+            if let Ok(v) = t.parse::<f64>() {
+                self.settings.set_slider(k, v);
+                self.save_settings();
+            }
+            return;
+        }
         if let Some(line) = self.typing.take() {
             let line = line.trim().to_string();
             self.recall = None;
@@ -1643,12 +1750,13 @@ impl App {
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save; a new one gets its own."),
                 Menu::Pause => ("Paused", "The world runs on. Esc goes back to the game."),
-                Menu::Settings => ("Settings", "Left click: the next value. Right click: the one before."),
+                Menu::Settings => ("Settings", "Click: the next value. Drag a slider, or click its number."),
             };
-            let (items, boxes) = (self.menu_items(), hud::menu_boxes(h() as f32, &self.menu_items()));
+            let (items, sliders) = (self.menu_items(), self.menu_sliders());
+            let boxes = hud::menu_boxes(h() as f32, &items, &sliders);
             let (x, y) = self.pointer;
             let hover = boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]);
-            hud::menu(&mut paint, title, &items, hint, hover);
+            hud::menu(&mut paint, title, &items, &sliders, hint, hover, caret);
             self.menu_boxes = boxes;
         }
         // the bug report's form over everything, the menus too
@@ -1712,9 +1820,16 @@ impl App {
             let sens = 0.0025 * self.settings.sensitivity / self.zoom;
             // the look is the player's own and turns in the steps, so no frame change makes it mean another way
             self.turn -= mx * sens;
-            self.pitch = (self.pitch - my * sens).clamp(-1.55, 1.55);
             // flight is creative's; the server holds to that too
             self.flying &= self.creative;
+            if phys::free(&self.world, &self.me, self.flying) {
+                // out here the mouse pitches the body itself, the head's tilt folded into it, and Q/E roll it
+                self.tilt += std::mem::take(&mut self.pitch) - my * sens;
+                let q = |c: KeyCode| self.keys.contains(&c) as i32 as f64;
+                self.roll += (q(KeyCode::KeyE) - q(KeyCode::KeyQ)) * ROLL * dt;
+            } else {
+                self.pitch = (self.pitch - my * sens).clamp(-1.55, 1.55);
+            }
             let k = |c: KeyCode| self.keys.contains(&c) as i32 as f32;
             let auto = a.get("autowalk", 0) == 1;
             let mut inp = Input {
@@ -1731,7 +1846,18 @@ impl App {
             while self.debt >= phys::DT {
                 self.prev = self.me.pos;
                 inp.turn = std::mem::take(&mut self.turn) as f32;
+                (inp.tilt, inp.roll) = (std::mem::take(&mut self.tilt) as f32, std::mem::take(&mut self.roll) as f32);
+                let f0 = self.world.frame_at(self.me.pos);
                 phys::step(&self.world, &mut self.me, &inp, phys::DT);
+                let f1 = self.world.frame_at(self.me.pos);
+                if f0 != f1 {
+                    // a step into another frame: the drawn path and what is left of a correction go along, or the
+                    // camera is drawn between two places in two frames for a frame
+                    let (r, off) = self.world.place(f0, f1);
+                    self.prev = r * (self.prev - self.world.nominal(f0)) + off;
+                    self.smooth = r * self.smooth;
+                    self.path.clear();
+                }
                 self.steps.push_back((self.next_step, inp));
                 self.next_step += 1;
                 if self.loaded_at.is_some() {
@@ -1751,8 +1877,13 @@ impl App {
             // is left of the last correction
             self.smooth *= (-dt / CORRECT_S).exp();
             let pos = self.prev.lerp(self.me.pos, self.debt / phys::DT) + self.smooth;
-            let up = phys::up(&self.world, pos);
+            // the body as last stepped, with the turn, tilt and roll the next step takes shown now; the head's
+            // pitch over its horizon
+            let up = self.me.body_up(phys::up(&self.world, pos));
             let fwd = DQuat::from_axis_angle(up, self.turn) * phys::tangent(self.me.fwd, up, self.me.fwd);
+            let tilt = DQuat::from_axis_angle(fwd.cross(up).normalize(), self.tilt);
+            let (up, fwd) = (tilt * up, tilt * fwd);
+            let up = DQuat::from_axis_angle(fwd, self.roll) * up;
             let look = DQuat::from_axis_angle(fwd.cross(up), self.pitch) * fwd;
             Pose { pos: pos + up * phys::EYE, fwd: look, up }
         } else {
@@ -2455,7 +2586,7 @@ impl App {
         if off.length() >= 2.0 {
             // a teleport (/goto, a respawn): the look is the server's, in the frame it lands in, level; the
             // steps not answered yet only turn it
-            self.pitch = 0.0;
+            (self.pitch, self.tilt, self.roll) = (0.0, 0.0, 0.0);
         }
         self.drift_max = self.drift_max.max(off.length());
         if off.length() > 0.001 {
@@ -2679,9 +2810,9 @@ impl ApplicationHandler for App {
                     }
                 } else if state == ElementState::Pressed {
                     let key = match code {
-                        KeyCode::KeyQ => Some("q".to_string()),
                         KeyCode::KeyH => Some("h".to_string()),
                         KeyCode::KeyB => Some("b".to_string()),
+                        KeyCode::KeyV => Some("v".to_string()),
                         KeyCode::KeyT => Some("t".to_string()),
                         KeyCode::Space => Some("space".to_string()),
                         KeyCode::F3 => Some("f3".to_string()),
@@ -2699,13 +2830,17 @@ impl ApplicationHandler for App {
                     self.keys.remove(&code);
                 }
             }
-            WindowEvent::CursorMoved { position, .. } => self.pointer = (position.x as f32, position.y as f32),
+            WindowEvent::CursorMoved { position, .. } => {
+                self.pointer = (position.x as f32, position.y as f32);
+                self.slide();
+            }
+            WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } if self.drag.is_some() => {
+                self.drag = None;
+                self.save_settings();
+            }
             WindowEvent::Resized(size) if self.run == "play" && self.onscreen => self.resize(size.width, size.height),
             WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } if self.menu.is_some() && !self.texting() => {
-                let (x, y) = self.pointer;
-                if let Some(k) = self.menu_boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]) {
-                    self.menu_press(k, button == MouseButton::Right);
-                }
+                self.menu_click(button == MouseButton::Right);
             }
             WindowEvent::MouseInput { .. } | WindowEvent::MouseWheel { .. } if self.texting() || self.menu.is_some() => {}
             WindowEvent::MouseInput { state, button, .. } => {
@@ -2889,6 +3024,8 @@ fn main() {
         mouse: (0.0, 0.0),
         pitch: 0.0,
         turn: 0.0,
+        tilt: 0.0,
+        roll: 0.0,
         input: Input::default(),
         snaps: 0,
         tail_prev: 0.0,
@@ -2956,6 +3093,8 @@ fn main() {
         menu: None,
         pointer: (0.0, 0.0),
         menu_boxes: Vec::new(),
+        drag: None,
+        edit: None,
         onscreen: false,
         flying: false,
         fly_speed: 11.0,
