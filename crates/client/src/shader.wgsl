@@ -44,7 +44,9 @@ struct Chunk { base: vec3i, info: u32, off: u32 };
 // << 24; patterns 0 plain, 1 grass, 2 stone
 struct Look { colour: vec3f, info: u32 };
 @group(0) @binding(3) var<storage, read> looks: array<Look, 256>;
-// every chunk's terrain near and far, drawn or not, one instance each with mask 1 << body (ADR 0022)
+// every chunk's terrain near and far, drawn or not, one instance each with mask 1 << body (ADR 0022), in its
+// body's frame relative to its centre: the instances carry no transform, a ray is turned into that frame here
+// (ADR 0025, B)
 @group(0) @binding(5) var acc: acceleration_structure;
 // the lamps near the camera (ADR 0022): pos from the camera, w its body; col its light
 struct Lamp { pos: vec4f, col: vec4f };
@@ -199,11 +201,18 @@ fn ray_origin(p: vec3f, n: vec3f) -> vec3f {
     return p + n * (0.02 + length(p) * 2e-5);
 }
 
+// a point from the camera into body b's frame, relative to its centre; a direction d turns as `d * mat3x3f(rot)`
+fn to_body(b: Body, p: vec3f) -> vec3f {
+    return b.cam_hi + (b.cam_lo + p * mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz));
+}
+
 // one ray through the terrain of body `body`: 1 if it gets out, or as far as tmax from `ray_origin`
 fn ray(p: vec3f, n: vec3f, d: vec3f, body: u32, tmax: f32) -> f32 {
     var rq: ray_query;
-    let o = ray_origin(p, n);
-    rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_TERMINATE_ON_FIRST_HIT, 1u << body, 0.0, tmax, o, d));
+    let b = g.bodies[body];
+    let o = to_body(b, ray_origin(p, n));
+    let db = d * mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz);
+    rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_TERMINATE_ON_FIRST_HIT, 1u << body, 0.0, tmax, o, db));
     rayQueryProceed(&rq);
     return select(1.0, 0.0, rayQueryGetCommittedIntersection(&rq).kind != RAY_QUERY_INTERSECTION_NONE);
 }
@@ -336,7 +345,9 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
 // lamp's light is already direct light
 fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> vec3f {
     var rq: ray_query;
-    rayQueryInitialize(&rq, acc, RayDesc(0u, 1u << body, 0.0, tmax, p, d));
+    let bb = g.bodies[body];
+    let db = d * mat3x3f(bb.rot0.xyz, bb.rot1.xyz, bb.rot2.xyz);
+    rayQueryInitialize(&rq, acc, RayDesc(0u, 1u << body, 0.0, tmax, to_body(bb, p), db));
     rayQueryProceed(&rq);
     let h = rayQueryGetCommittedIntersection(&rq);
     if (h.kind == RAY_QUERY_INTERSECTION_NONE) { return select(sky_colour(d), sky_light(p, body), bounce); }

@@ -153,6 +153,43 @@ struct ChunkGpu {
     off: u32,
     _p: [u32; 3],
 }
+
+/// The chunk table's entries by mesh offset, kept between frames so a traced instance's index stays valid and
+/// the TLAS is rebuilt only when its instances change (ADR 0025, B): the index and the frame last drawn.
+#[derive(Default)]
+struct ChunkSlots {
+    at: std::collections::HashMap<u32, (u32, u64)>,
+    free: Vec<u32>,
+    next: u32,
+}
+
+impl ChunkSlots {
+    /// The entry for the mesh at `off`, and whether it is new (its table entry must be written).
+    fn get(&mut self, off: u32, frame: u64) -> (u32, bool) {
+        if let Some(e) = self.at.get_mut(&off) {
+            e.1 = frame;
+            return (e.0, false);
+        }
+        let i = self.free.pop().unwrap_or_else(|| {
+            self.next += 1;
+            self.next - 1
+        });
+        self.at.insert(off, (i, frame));
+        (i, true)
+    }
+
+    /// Entries not drawn this frame go back to the free list.
+    fn sweep(&mut self, frame: u64) {
+        let free = &mut self.free;
+        self.at.retain(|_, e| {
+            let keep = e.1 == frame;
+            if !keep {
+                free.push(e.0);
+            }
+            keep
+        });
+    }
+}
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct LampGpu {
@@ -729,6 +766,7 @@ struct App {
     gpu: Option<Gpu>,
     /// The traced terrain (ADR 0022), beside the GPU it lives on.
     rt: Option<rt::Rt>,
+    slots: ChunkSlots,
     /// The bounce light (ADR 0022).
     gi: Option<gi::Gi>,
     world: World,
@@ -2043,6 +2081,10 @@ impl App {
         let rt = self.rt.as_mut().unwrap();
         for off in ups {
             rt.forget(off);
+            // new quads at an offset: its table entry is for another chunk now
+            if let Some((i, _)) = self.slots.at.remove(&off) {
+                self.slots.free.push(i);
+            }
         }
         if !self.clicks.is_empty() {
             let (world, streamer, frame) = (&self.world, &self.streamer, self.streamer.frame);
@@ -2098,28 +2140,33 @@ impl App {
             self.streamer.evict(120);
         }
 
-        // build per-frame chunk table and indirect args
-        let mut table: Vec<ChunkGpu> = Vec::with_capacity(draws.len());
+        // the indirect args per frame; the chunk table's entries only for meshes new to it (ADR 0025, B)
+        let mut table: Vec<(u32, ChunkGpu)> = Vec::new();
         let mut args: Vec<DrawArgs> = Vec::with_capacity(draws.len());
         let mut sea_args: Vec<DrawArgs> = Vec::new();
         let mut nquads = 0u64;
         let mut insts: Vec<rt::Inst> = Vec::with_capacity(draws.len());
-        for (ci, d) in draws.iter().enumerate().take(MAX_CHUNKS) {
+        let frame_no = self.streamer.frame;
+        for d in draws.iter().take(MAX_CHUNKS) {
             let k = d.key;
             let info = k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8;
-            table.push(ChunkGpu { base: k.base().into(), info, off: d.off, _p: [0; 3] });
+            let (ci, new) = self.slots.get(d.off, frame_no);
+            assert!((ci as usize) < MAX_CHUNKS, "chunk table full");
+            if new {
+                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, _p: [0; 3] }));
+            }
             let land = d.len - d.water;
             if land > 0 {
-                insts.push(rt::Inst { off: d.off, land, base: k.base().into(), info, body: k.body, ci: ci as u32 });
+                insts.push(rt::Inst { off: d.off, land, base: k.base().into(), info, body: k.body, ci });
             }
             if d.hidden {
                 continue;
             }
-            args.push(DrawArgs { vertex_count: land * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci as u32 });
+            args.push(DrawArgs { vertex_count: land * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci });
             if d.water > 0 {
                 // vs_sea draws each sea quad in SEA_SUB^2 pieces, one instance each: instance = chunk * pieces + piece
                 let pieces = SEA_SUB * SEA_SUB;
-                sea_args.push(DrawArgs { vertex_count: d.water * 6, instance_count: pieces, first_vertex: (d.off + land) * 6, first_instance: ci as u32 * pieces });
+                sea_args.push(DrawArgs { vertex_count: d.water * 6, instance_count: pieces, first_vertex: (d.off + land) * 6, first_instance: ci * pieces });
             }
             nquads += d.len as u64;
         }
@@ -2193,7 +2240,6 @@ impl App {
                 [to_stars.z_axis.x, to_stars.z_axis.y, to_stars.z_axis.z, 0.0],
             ],
         };
-        let mut at = [[0f32; 12]; MAX_BODIES];
         // per body: the camera in its coordinates, and its frame in the camera's
         let mut cams = [(DVec3::ZERO, glam::DMat3::IDENTITY); MAX_BODIES];
         for (bi, (b, o)) in self.world.bodies.iter().zip(g.bodies.iter_mut()).enumerate() {
@@ -2216,14 +2262,7 @@ impl App {
                 rot: [col(m.x_axis), col(m.y_axis), col(m.z_axis)],
                 ctr: { let v = (m.as_dmat3() * -c).as_vec3(); [v.x, v.y, v.z, b.radius as f32] },
             };
-            // the body's traced terrain into the camera's frame: x -> m (x - c), rows of 3x4
-            let (md, t) = (m.as_dmat3(), m.as_dmat3() * -c);
-            cams[bi] = (c + b.centre, md);
-            at[bi] = [
-                md.x_axis.x as f32, md.y_axis.x as f32, md.z_axis.x as f32, t.x as f32,
-                md.x_axis.y as f32, md.y_axis.y as f32, md.z_axis.y as f32, t.y as f32,
-                md.x_axis.z as f32, md.y_axis.z as f32, md.z_axis.z as f32, t.z as f32,
-            ];
+            cams[bi] = (c + b.centre, m.as_dmat3());
         }
         // the lamps: gathered again when the edits change or every 10 frames, placed every frame
         let ec = self.world.edit_count;
@@ -2247,8 +2286,11 @@ impl App {
             gpu.queue.write_buffer(&gpu.lamps, 0, bytemuck::cast_slice(&lamps));
         }
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
-        if !table.is_empty() {
-            gpu.queue.write_buffer(&gpu.chunks, 0, bytemuck::cast_slice(&table));
+        self.slots.sweep(frame_no);
+        for (ci, c) in &table {
+            gpu.queue.write_buffer(&gpu.chunks, (*ci as usize * std::mem::size_of::<ChunkGpu>()) as u64, bytemuck::bytes_of(c));
+        }
+        if !args.is_empty() {
             gpu.queue.write_buffer(&gpu.indirect, 0, bytemuck::cast_slice(&args));
         }
         if !sea_args.is_empty() {
@@ -2326,7 +2368,7 @@ impl App {
         };
         stamp(&mut enc, 0);
         let rt = self.rt.as_mut().unwrap();
-        rt.record(&gpu.device, &gpu.queue, &mut enc, &insts, &at, self.streamer.frame);
+        rt.record(&gpu.device, &gpu.queue, &mut enc, &insts, self.streamer.frame);
         let rt_pending = rt.pending;
         self.drawn.rt_pending = rt_pending;
         stamp(&mut enc, 1);
@@ -3100,6 +3142,7 @@ fn main() {
         args,
         gpu: None,
         rt: None,
+        slots: ChunkSlots::default(),
         gi: None,
         lamps: Vec::new(),
         lamps_at: (0, usize::MAX),

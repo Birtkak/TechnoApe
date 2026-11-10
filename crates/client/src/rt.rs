@@ -1,5 +1,7 @@
 //! The traced terrain (ADR 0022): a BLAS for every chunk mesh the streamer selects, drawn or hidden, under one
-//! TLAS in the camera's frame, rebuilt every frame. A new mesh's quads are expanded into triangles on the GPU
+//! TLAS. Every instance has the identity transform and the mask `1 << body`: rays are turned into their body's
+//! frame in the shader, so the TLAS is rebuilt only when its instances change, not when the camera moves
+//! (ADR 0025, B). A new mesh's quads are expanded into triangles on the GPU
 //! (`expand` in shader.wgsl, the drawn geometry slightly grown) into a scratch buffer its BLAS is built from;
 //! the BLAS keeps no reference to it, so the next frame reuses it.
 use std::collections::HashMap;
@@ -41,6 +43,10 @@ pub struct Rt {
     /// By mesh offset in the quad buffer: its land quads, its BLAS, the frame it was last traced.
     blas: HashMap<u32, (u32, wgpu::Blas, u64)>,
     n: usize,
+    /// The instances the TLAS was last built from: (mesh offset, chunk-table index, body).
+    built: Vec<(u32, u32, u8)>,
+    /// TLAS builds, for the benchmark line.
+    pub tlas_builds: u64,
     /// Chunks that waited for their BLAS in the last frame.
     pub pending: usize,
 }
@@ -75,7 +81,7 @@ impl Rt {
                 wgpu::BindGroupEntry { binding: 7, resource: verts.as_entire_binding() },
             ],
         });
-        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, pending: 0 }
+        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0 }
     }
 
     /// New quads were written at `off`: a BLAS from there is stale.
@@ -83,9 +89,9 @@ impl Rt {
         self.blas.remove(&off);
     }
 
-    /// Build the missing BLAS within the budget and the TLAS from every chunk that has one. `at[body]` is the
-    /// body's frame in the camera's: rows of a 3x4 transform.
-    pub fn record(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, insts: &[Inst], at: &[[f32; 12]], frame: u64) {
+    /// Build the missing BLAS within the budget, and the TLAS from every chunk that has one when that set or a
+    /// BLAS in it changed.
+    pub fn record(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, insts: &[Inst], frame: u64) {
         let mut todo: Vec<Build> = Vec::new();
         let mut sizes = Vec::new();
         let mut quads = 0;
@@ -126,17 +132,26 @@ impl Rt {
             cp.set_bind_group(0, &self.bind, &[]);
             cp.dispatch_workgroups(most.div_ceil(64), todo.len() as u32, 1);
         }
-        let mut n = 0;
+        const IDENTITY: [f32; 12] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+        let mut now = Vec::with_capacity(insts.len());
         for c in insts {
             let Some(e) = self.blas.get_mut(&c.off).filter(|b| b.0 == c.land) else { continue };
             e.2 = frame;
-            self.tlas[n] = Some(wgpu::TlasInstance::new(&e.1, at[c.body as usize], c.ci, 1 << c.body));
-            n += 1;
+            now.push((c.off, c.ci, c.body));
         }
-        for i in n..self.n {
-            self.tlas[i] = None;
+        // a new BLAS at an offset the last build had is a change too; the TLAS is built at least once before use
+        let rebuild = !todo.is_empty() || now != self.built || self.tlas_builds == 0;
+        if rebuild {
+            for (n, &(off, ci, body)) in now.iter().enumerate() {
+                self.tlas[n] = Some(wgpu::TlasInstance::new(&self.blas[&off].1, IDENTITY, ci, 1 << body));
+            }
+            for i in now.len()..self.n {
+                self.tlas[i] = None;
+            }
+            self.n = now.len();
+            self.built = now;
+            self.tlas_builds += 1;
         }
-        self.n = n;
         let entries: Vec<wgpu::BlasBuildEntry> = todo
             .iter()
             .zip(&sizes)
@@ -154,7 +169,9 @@ impl Rt {
                 }]),
             })
             .collect();
-        enc.build_acceleration_structures(entries.iter(), std::iter::once(&self.tlas));
+        if rebuild {
+            enc.build_acceleration_structures(entries.iter(), std::iter::once(&self.tlas));
+        }
         if frame % 30 == 0 {
             self.blas.retain(|_, b| frame - b.2 < KEEP_FRAMES);
         }
