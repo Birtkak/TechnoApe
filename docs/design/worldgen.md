@@ -159,6 +159,10 @@ Each mineral has a rule for where it forms, so finding one teaches where to look
 - Depends on fine cells and felled trees (roadmap), so it is the last stage built.
 
 ## Luna
+Luna is about 1 km in radius (ADR 0027; 177 m before): 14 km² of surface, so the stages below have room.
+Each body's 8 cube corners hold something made (ADR 0027): the bake keeps those sites clear and places
+the structures; what they are is in `open-questions.md`.
+
 No air, no water cycle, no plates. Its bake is a different, shorter pipeline:
 
 | # | Stage | What it computes |

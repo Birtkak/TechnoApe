@@ -70,6 +70,12 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      erosion, rivers, climate, real rocks and minerals, counted ore bodies), then tides, seasons and
      living plants. This replaces "the Earth-like biomes and the moon's ores" below and brings the air
      grid's spike and the material ledger forward.
+   Designs written 2026-11-10 for the steps after it, all proposals until built (`docs/design/`):
+   `world-data.md` (what a block is: runs per column, 16-bit ids, regions, the ledger), `ore-budget.md`,
+   `air.md` (the grid ADR 0010 asks to spike), `rivers-and-tides.md`, `networks.md` (shafts, pipes,
+   wires, belts on one graph), `crafting.md` (processes the world or a machine can meet; the starter),
+   and `open-questions.md`. ADR 0027: Luna grows to about 1 km, the ape learns by doing, Terra has
+   animals and hostile creatures, the cube corners hold something made.
 3. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; **world
    physics** (ADR 0017: loose blocks fall and slide, unsupported builds collapse); **blueprints** (ADR 0017:
    capture, name, paste, materials paid from storage); the

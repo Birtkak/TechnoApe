@@ -71,6 +71,9 @@ package E (the height cache) every stage here builds on.
 - Checks: the water ledger over a soak with dams built and broken; a tide filmstrip over one day.
 
 ### W6. Luna
+- **First:** Luna at N = 3072 (1,061 m, ADR 0027) and its orbit moved out (proposal 30 km): `sky.rs`,
+  the `orbit` benchmark's trip, the views. **Taste call:** the orbit's distance, by how Luna looks from
+  Terra and how wide a total eclipse's band is.
 - Its own bake (the design's Luna table): highlands, maria toward Terra, craters by size and age,
   regolith depth, lava tubes, its ores. Shadow at the poles computed, then the ice decided.
 - **Taste call:** Luna's ice; the look from Terra's surface (the maria are its face) and from orbit.
@@ -82,6 +85,17 @@ package E (the height cache) every stage here builds on.
   planet, then growth and spread, then plants as blocks near players.
 - Checks: a soak where a bot clear-cuts a patch; cover returns within the set time and the ledger of wood
   holds.
+
+## Designs each stage reads
+| Stage | Design |
+|---|---|
+| W2, W4 | `docs/design/world-data.md`: the column record and runs, 16-bit ids, the three readers' test, the ledger |
+| W3 | `docs/design/air.md`: the grid, its passes, the spike's questions |
+| W4 | `docs/design/ore-budget.md`: stock per mineral, distances from the spawn, the per-seed report |
+| W5 | `docs/design/rivers-and-tides.md`: the reach graph, a reach at rest, the tide function |
+| all | `docs/design/open-questions.md`: the taste calls, decided and open |
+
+After the world: `docs/design/networks.md` (shafts first) and `docs/design/crafting.md` (the starter).
 
 ## Order and why
 W0 any time. W1 and W2 first: everything reads the heights. W3 before W4 because bauxite, soils and
