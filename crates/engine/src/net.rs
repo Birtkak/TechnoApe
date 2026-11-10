@@ -11,7 +11,6 @@ pub const DEFAULT_PORT: u16 = 7777;
 pub const TICK_HZ: f64 = 20.0;
 /// How far from the player an edit may be; the server drops anything farther.
 pub const REACH: f64 = 16.0;
-pub const MATERIALS: u8 = 4;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum ToServer {
@@ -25,8 +24,9 @@ pub enum ToServer {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum ToClient {
-    /// First message: the world is rebuilt from these numbers, then `Edits` brings what changed.
-    Welcome { id: u32, seed: i32, planet_n: i32, moon_n: i32 },
+    /// First message: the world is rebuilt from these numbers, then `Edits` brings what changed. `blocks` is
+    /// the block registry's hash (`BLOCKS.hash`): a client from a build with other blocks refuses to play.
+    Welcome { id: u32, seed: i32, planet_n: i32, moon_n: i32, blocks: u64 },
     Edits(Vec<(Block, u8)>),
     Players(Vec<Player>),
 }
@@ -140,8 +140,8 @@ mod tests {
         client.send(e.clone());
         assert_eq!(server.rx.recv().unwrap(), ToServer::Hello { name: "bot".into() });
         assert_eq!(server.rx.recv().unwrap(), e);
-        server.send(ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512 });
-        assert_eq!(client.rx.recv().unwrap(), ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512 });
+        server.send(ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9 });
+        assert_eq!(client.rx.recv().unwrap(), ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9 });
         drop(server);
         assert!(client.rx.recv().is_err(), "a dropped peer closes the link");
     }

@@ -17,6 +17,9 @@ struct Chunk { base: vec3i, info: u32 }; // base in columns and layers; info = f
 @group(0) @binding(0) var<uniform> g: Globals;
 @group(0) @binding(1) var<storage, read> quads: array<vec2u>;
 @group(0) @binding(2) var<storage, read> chunks: array<Chunk>;
+// a block's look from data/blocks.toml (ADR 0013): info = pattern | side << 8; patterns 0 plain, 1 grass, 2 stone
+struct Look { colour: vec3f, info: u32 };
+@group(0) @binding(3) var<storage, read> looks: array<Look, 256>;
 
 struct VOut {
     @builtin(position) clip: vec4f,
@@ -88,11 +91,9 @@ fn hash(p: vec3i) -> f32 {
 // Block look: 16 texels per 0.5 m block (ADR 0002, prototypes/block-look/).
 // shortcut: texels are hashed here instead of read from 16x16 images, until content brings a texture atlas.
 const TEXELS: f32 = 16.0;
-fn palette(mat: u32) -> vec3f {
-    if (mat == 1u) { return vec3f(0.30, 0.58, 0.20); }
-    if (mat == 2u) { return vec3f(0.47, 0.33, 0.20); }
-    return vec3f(0.5, 0.5, 0.52);
-}
+const PLAIN: u32 = 0u;
+const GRASS: u32 = 1u;
+const STONE: u32 = 2u;
 
 // a pixel-art texel on an N x N grid per block face: 3 tones of noise, grass tops, a grass fringe on the
 // upper rows of a grass block's sides, dark crack texels in stone
@@ -101,15 +102,17 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32) -> vec3f {
     let ti = vec2i(floor(t * n));
     let h = hash(cell * i32(n) + vec3i(ti.x, ti.y, i32(dir)));
     let tone = 0.82 + 0.12 * floor(h * 3.0);
-    var m = mat;
-    if (mat == 1u && dir != 4u) {
-        // a side of a grass block is dirt, with 2-4 rows of grass hanging over the top edge
+    var m = mat & 255u;
+    if ((looks[m].info & 255u) == GRASS && dir != 4u) {
+        // a side of a grass block takes its side block's look, with 2-4 rows of grass over the top edge
         let fringe = 2.0 + floor(hash(cell * i32(n) + vec3i(ti.x, 7, i32(dir))) * 3.0);
-        if (floor(hgt * n) < n - fringe) { m = 2u; }
+        if (floor(hgt * n) < n - fringe) { m = looks[m].info >> 8u; }
     }
-    var c = palette(m) * tone;
-    if (m == 0u && h > 0.94) { c *= 0.6; }
-    if (m == 1u && h > 0.9) { c *= 1.15; }
+    let look = looks[m];
+    let pattern = look.info & 255u;
+    var c = look.colour * tone;
+    if (pattern == STONE && h > 0.94) { c *= 0.6; }
+    if (pattern == GRASS && h > 0.9) { c *= 1.15; }
     return c;
 }
 

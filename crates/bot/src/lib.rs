@@ -90,7 +90,8 @@ impl Bot {
     pub fn receive(&mut self) -> bool {
         loop {
             match self.link.try_recv() {
-                Recv::Msg(ToClient::Welcome { id, seed, planet_n, moon_n }) => {
+                Recv::Msg(ToClient::Welcome { id, seed, planet_n, moon_n, blocks }) => {
+                    assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
                     let w = World::new(planet_n, moon_n, seed);
                     self.id = id;
                     // the server spawns players just over the +y pole; an empty input makes this one a

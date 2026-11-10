@@ -242,6 +242,18 @@ impl Gpu {
         let quads = buf("quads", cap as u64 * 8, U::STORAGE | U::COPY_DST);
         let chunks = buf("chunks", (MAX_CHUNKS * 16) as u64, U::STORAGE | U::COPY_DST);
         let indirect = buf("indirect", (MAX_CHUNKS * 16) as u64, U::INDIRECT | U::COPY_DST);
+        // every block's look from the registry (ADR 0013): colour rgb, then pattern | side << 8, 16 bytes each
+        let looks = buf("looks", 256 * 16, U::STORAGE | U::COPY_DST);
+        let look: Vec<[u32; 4]> = (0..=255u8)
+            .map(|id| match engine::blocks::BLOCKS.get(id) {
+                Some(d) => {
+                    let [r, g, b] = d.colour.map(f32::to_bits);
+                    [r, g, b, d.pattern as u32 | (d.side as u32) << 8]
+                }
+                None => [0.5f32.to_bits(), 0.5f32.to_bits(), 0.5f32.to_bits(), (id as u32) << 8],
+            })
+            .collect();
+        queue.write_buffer(&looks, 0, bytemuck::cast_slice(&look));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -271,6 +283,7 @@ impl Gpu {
                 },
                 storage(1),
                 storage(2),
+                storage(3),
             ],
         });
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -280,6 +293,7 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 1, resource: quads.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 2, resource: chunks.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: looks.as_entire_binding() },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1030,7 +1044,10 @@ fn main() {
     };
     link.send(ToServer::Hello { name: args.s("name", "player") });
     let (my_id, world) = match link.rx.recv_timeout(Duration::from_secs(10)) {
-        Ok(ToClient::Welcome { id, seed, planet_n, moon_n }) => (id, World::new(planet_n, moon_n, seed)),
+        Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks }) => {
+            assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
+            (id, World::new(planet_n, moon_n, seed))
+        }
         other => panic!("no welcome from the server: {other:?}"),
     };
     // the server spawns players on the +y pole; the client starts its prediction there too

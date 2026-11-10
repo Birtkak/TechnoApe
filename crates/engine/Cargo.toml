@@ -9,3 +9,4 @@ rayon.workspace = true
 fastnoise-lite = "1"
 serde.workspace = true
 postcard.workspace = true
+toml = "0.8"

@@ -7,7 +7,8 @@
 //! where the state parts from the recording.
 pub mod soak;
 
-use engine::net::{local, Link, Player, Recv, ToClient, ToServer, MATERIALS, REACH, TICK_HZ};
+use engine::net::{local, Link, Player, Recv, ToClient, ToServer, REACH, TICK_HZ};
+use engine::blocks::BLOCKS;
 use engine::phys::{self, Input};
 use engine::world::{fnv, Block, World};
 use glam::DVec3;
@@ -147,7 +148,7 @@ impl Server {
             self.next_id += 1;
             self.log(Ev::Join { tick: self.tick, id });
             let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
-            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m });
+            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash });
             let all: Vec<(Block, u8)> = self
                 .world
                 .edits
@@ -196,7 +197,7 @@ impl Server {
                     Recv::Msg(ToServer::Edit { block, material }) => {
                         let at = DVec3::from_array(self.clients[i].player.pos);
                         // a solid block never goes where it would trap a player
-                        let traps = material != 0 && self.clients.iter().any(|c| phys::holds(&self.world, &c.phys, block));
+                        let traps = BLOCKS.solid(material) && self.clients.iter().any(|c| phys::holds(&self.world, &c.phys, block));
                         if self.valid_edit(block, material, at) && !traps && self.world.block(block) != material {
                             self.world.set_block(block, material);
                             changed.push((block, material));
@@ -261,7 +262,7 @@ impl Server {
     fn valid_edit(&self, b: Block, m: u8, at: DVec3) -> bool {
         let Some(body) = self.world.bodies.get(b.body as usize) else { return false };
         b.face < 6
-            && m < MATERIALS
+            && BLOCKS.get(m).is_some()
             && (0..body.n).contains(&b.pos.x)
             && (0..body.n).contains(&b.pos.y)
             && (0..body.layers).contains(&b.pos.z)

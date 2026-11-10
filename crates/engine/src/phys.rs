@@ -5,6 +5,7 @@
 //! Collision is in grid space: the player's box is `WIDTH` x `WIDTH` x `HEIGHT` in nominal blocks, aligned with
 //! the columns and layers of the face under the feet, and it overlaps a cell or it does not. The answer depends
 //! on the position alone (not the look, not the way there), so a position the physics accepts stays free.
+use crate::blocks::BLOCKS;
 use crate::world::{Block, World, BLOCK};
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
@@ -90,7 +91,7 @@ pub fn blocked(world: &World, pos: DVec3) -> bool {
     let mut col: Option<((u8, u8, i32, i32), f64)> = None;
     cells(world, pos).any(|b| {
         if let Some(m) = world.edit(b) {
-            return m != 0;
+            return BLOCKS.solid(m);
         }
         let key = (b.body, b.face, b.pos.x, b.pos.y);
         let h = match col {
@@ -98,7 +99,7 @@ pub fn blocked(world: &World, pos: DVec3) -> bool {
             _ => world.column_height(b),
         };
         col = Some((key, h));
-        world.generated_under(b, h) != 0
+        BLOCKS.solid(world.generated_under(b, h))
     })
 }
 

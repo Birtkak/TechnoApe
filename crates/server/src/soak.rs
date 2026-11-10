@@ -4,7 +4,8 @@
 //! the core, and every bot's copy of the world equals the server's. A failure is shrunk to the fewest bots
 //! that still fail it.
 use crate::Server;
-use engine::net::{local, Link, Recv, ToClient, ToServer, MATERIALS};
+use engine::net::{local, Link, Recv, ToClient, ToServer};
+use engine::blocks::BLOCKS;
 use engine::phys::{self, Input};
 use engine::world::World;
 use glam::DVec3;
@@ -83,7 +84,8 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
     } else if r < 0.085 {
         let feet = s.clients[me].phys.pos;
         let at = feet + b.rng.dir() * b.rng.range(0.0, 3.0);
-        let m = if b.rng.f() < 0.5 { 0 } else { 1 + (b.rng.next() % (MATERIALS as u64 - 1)) as u8 };
+        let ids: Vec<u8> = BLOCKS.placeable().map(|d| d.id).collect();
+        let m = if b.rng.f() < 0.5 { 0 } else { ids[(b.rng.next() % ids.len() as u64) as usize] };
         b.link.send(ToServer::Edit { block: s.world.block_at(at), material: m });
     }
 }

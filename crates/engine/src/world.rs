@@ -1,5 +1,6 @@
 //! Terrain: bodies on the equi-angular cube-sphere grid (ADR 0003), generated from the seed, plus a sparse
 //! edit map. A block is (face, column i, column j, layer); layers are geometric shells, so blocks stay cubic.
+use crate::blocks::{AIR, BLOCKS};
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::{DVec3, IVec3};
 use std::collections::HashMap;
@@ -162,15 +163,19 @@ pub struct Bounds {
     pub rad: f64,
 }
 
+/// The blocks generation names, looked up once in the registry: grass, dirt, stone.
+static GEN: std::sync::LazyLock<[u8; 3]> =
+    std::sync::LazyLock::new(|| [BLOCKS.id("grass"), BLOCKS.id("dirt"), BLOCKS.id("stone")]);
+
 pub fn material(depth: f64) -> u8 {
     if depth < 0.0 {
-        0
+        AIR
     } else if depth < 0.5 {
-        1
+        GEN[0]
     } else if depth < 4.0 {
-        2
+        GEN[1]
     } else {
-        3
+        GEN[2]
     }
 }
 
@@ -261,7 +266,7 @@ impl World {
     /// The generated material of block b under a surface at radius `height` (its `column_height`).
     pub fn generated_under(&self, b: Block, height: f64) -> u8 {
         if b.pos.z < 0 {
-            return 3;
+            return GEN[2];
         }
         material(height - self.bodies[b.body as usize].layer_r(b.pos.z as f64 + 0.5))
     }
