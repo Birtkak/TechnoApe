@@ -102,6 +102,9 @@ pub struct FrameStats {
     pub requests: u32,
 }
 
+/// Added to a request's distance when something is already drawn there: every hole goes first.
+const REFINE: f64 = 1e9;
+
 /// The chunks, at every level (or only `level`), whose cells or padding sample block `b`.
 fn sampling(world: &World, b: Block, level: Option<u8>) -> Vec<Key> {
     let body = &world.bodies[b.body as usize];
@@ -251,6 +254,12 @@ impl Streamer {
         matches!(self.slots.get(k), Some(s) if s.state != State::Pending)
     }
 
+    /// Chunk `k` splits for this view: the camera is nearer than `kk` of its edges.
+    fn splits(&self, world: &World, view: &View, k: &Key, kk: f64) -> bool {
+        let bd = self.slots.get(k).map_or_else(|| world.bodies[k.body as usize].bounds(*k), |s| s.bounds);
+        k.level > 0 && ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0) < kk * k.edge()
+    }
+
     fn hidden(&self, view: &View, body: u8, b: &Bounds) -> bool {
         let v = view.rel(body, b.c);
         !view.in_frustum(body, b) || (self.opts.horizon && view.hz.iter().any(|h| horizon_hidden(v, h, b)))
@@ -287,7 +296,7 @@ impl Streamer {
             if k.level > 0 && d < kk * k.edge() {
                 if !draw && d >= self.opts.k * k.edge() && needs_job {
                     // split only because of the look-ahead margin: the real camera may still want this chunk itself
-                    reqs.push((d / k.edge() * prio_mul, k));
+                    reqs.push((d * prio_mul + REFINE, k));
                 }
                 let mut kids = [k; 8];
                 let mut nk = 0;
@@ -299,7 +308,10 @@ impl Streamer {
                     }
                 }
                 let kids = &kids[..nk];
-                let all = kids.iter().all(|c| self.resolved(c));
+                // a child that splits too is no child to wait for: only leaves get meshes, so it never has one,
+                // and its own children decide what covers what (a chunk meshed as a leaf from far away would
+                // otherwise cover forever once the camera is back)
+                let all = kids.iter().all(|c| self.resolved(c) || self.splits(world, view, c, kk));
                 let mut cov = covered;
                 if !all && !covered && draw && self.emit(view, k, None, out) {
                     cov = true;
@@ -311,13 +323,21 @@ impl Streamer {
             }
             // wanted leaf
             let hidden = self.hidden(view, k.body, &bd);
+            // stand-in from finer chunks left over from before
+            let stand_in = pending
+                && !covered
+                && k.level > 0
+                && (0..8).all(|i| { let c = k.child(i); !Self::in_band(world, c) || self.resolved(&c) });
             if needs_job {
-                let mut p = d / k.edge() * prio_mul;
+                // metres, not edges: in edges every level's leaves rank alike, so far and near work interleaved
+                // at random; in metres the work radiates out from the camera, holes (nothing drawn) first. The
+                // look-ahead never sees cover, so its pending chunks rank as holes: ready before the camera is there.
+                let mut p = d * prio_mul;
                 if hidden {
                     p *= 3.0;
                 }
-                if pending && !covered && !hidden {
-                    p *= 0.25;
+                if !pending || covered || hidden || stand_in {
+                    p += REFINE;
                 }
                 reqs.push((p, k));
                 st.requests += 1;
@@ -326,8 +346,7 @@ impl Streamer {
                 if draw && !hidden {
                     st.missing += 1;
                     if !covered {
-                        // stand-in from finer chunks left over from before
-                        if k.level > 0 && (0..8).all(|i| { let c = k.child(i); !Self::in_band(world, c) || self.resolved(&c) }) {
+                        if stand_in {
                             for i in 0..8 {
                                 self.emit(view, k.child(i), None, out);
                             }
@@ -491,6 +510,69 @@ impl Streamer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Selects, meshes and applies until nothing is missing or asked for; the chunks it draws.
+    fn settle(s: &mut Streamer, w: &World, cam: DVec3) -> Vec<DrawChunk> {
+        let view = View::new(cam, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], w);
+        for _ in 0..5000 {
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            s.apply(usize::MAX, &mut st, |_, _| {});
+            s.frame += 1;
+            s.select(w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            s.dispatch(w, &mut reqs);
+            if s.frame % 30 == 0 {
+                s.evict(120); // as the client does
+            }
+            if st.missing == 0 && st.requests == 0 && s.idle() && s.frame % 200 == 0 {
+                return out;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        panic!("never settled");
+    }
+
+    #[test]
+    fn coming_back_from_far_away_draws_the_fine_chunks_again() {
+        // far away the near chunks' coarse ancestors are the leaves and get meshes; back on the ground those
+        // ancestors split again, and their children, which never get meshes, must not keep them covering
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let mut s = Streamer::new(&w, 1 << 22, opts);
+        let ground = w.bodies[0].spawn_point() + w.bodies[0].spawn * 1.7;
+        let fine = |out: &[DrawChunk]| out.iter().filter(|d| !d.hidden).map(|d| d.key.level).min().unwrap();
+        assert_eq!(fine(&settle(&mut s, &w, ground)), 0);
+        assert!(fine(&settle(&mut s, &w, w.bodies[0].spawn * w.bodies[0].radius * 4.0)) > 0, "far away: coarse");
+        assert_eq!(fine(&settle(&mut s, &w, ground)), 0, "the finest level drawn on the ground once back");
+    }
+
+    #[test]
+    fn after_a_move_requests_radiate_out_from_the_camera() {
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, horizon: false, prefetch_s: 0.0, max_inflight: 64 };
+        let mut s = Streamer::new(&w, 1 << 22, opts);
+        let b = &w.bodies[0];
+        let up = b.spawn;
+        let side = up.any_orthonormal_vector();
+        settle(&mut s, &w, b.spawn_point() + up * 1.7);
+        // a fast flight: 300 m further along, a little higher
+        let cam = b.spawn_point() + side * 300.0 + up * 20.0;
+        let view = View::new(cam, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+        let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+        s.frame += 1;
+        s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+        reqs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap()); // as dispatch hands them out
+        let dist = |k: &Key| {
+            let bd = w.bodies[k.body as usize].bounds(*k);
+            ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0)
+        };
+        let refine: Vec<(u8, f64)> = reqs.iter().filter(|r| r.0 >= REFINE).map(|r| (r.1.level, dist(&r.1))).collect();
+        let levels: std::collections::BTreeSet<u8> = refine.iter().map(|r| r.0).collect();
+        assert!(refine.len() > 20 && levels.len() > 2, "{} refinements over levels {levels:?}", refine.len());
+        // nearer first, whatever the level (in edges, a coarse chunk far away ranked with a fine one at hand)
+        for p in refine.windows(2) {
+            assert!(p[0].1 <= p[1].1 + 1e-6, "{:?} before {:?}", p[0], p[1]);
+        }
+    }
+
     #[test]
     fn horizon_hides_only_what_is_behind_the_core() {
         let w = World::new(1536, 512, 1337);

@@ -66,14 +66,28 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `script=-` takes them live from stdin). Output is one JSON line per report or block. Use bots, not a second
   windowed client, for multiplayer checks: two windows on one PC throttle each other (ADR 0006).
 - Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block, right click places one;
-  H the build hammer, Q its shape, wheel its height; B the bucket, left scoops, right pours; C creative;
-  1-9 the hotbar; space swims up in water, ADR 0020). `acts="t:action,..."`
-  scripts those inputs off-screen (ADR 0017), and a filmstrip shows the result.
+  H the build hammer, Q its shape, wheel its height; B the bucket, left scoops, right pours; C held zooms 3x;
+  1-9 the hotbar; space swims up in water, ADR 0020; T chats, / runs a command: /time, /playmode, /give,
+  /goto, /timewarp (. and , step it), /help; Tab completes a command, the arrows pick, else the up arrow
+  recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed up to
+  1 km/s; F3 the overlay of
+  numbers; F9 a bug report; Esc the menu: settings for resolution, display mode, field of view, mouse and
+  detail, kept in `settings.txt`, ADR 0023). `acts="t:action,..."`
+  scripts those inputs off-screen (ADR 0017; `say:/time set noon`, `f3`, `f9`, `type:text`, `tab`, `enter`, `esc`, `click:1`, `C`/`c` the zoom;
+  `seconds=` ends a play run, `settings=out/x.txt` keeps the real settings out of it), and a
+  filmstrip shows the result.
+- **Builds for the developer** (double-click; without arguments the game plays on screen in the repository's
+  folder, saves/ and bugs/): `bash tools/playtest.sh build` refreshes `build/TechnoApe.exe` after every change
+  that can be run; `bash tools/playtest.sh` refreshes `playtest/TechnoApe.exe` only when handing a version over
+  to play-test. `target/` is Claude's own.
+- **Bug reports:** F9 writes `bugs/<UTC time>/`: `report.md` (the developer's words, a run=stand line for the
+  same view, the F3 state, the chat), `screen.png`, and `world.sav` when there was a save. When asked to look
+  at bugs, read those first.
 - To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet, `time=s`
   sets the sky's clock (0 is 9 am at the spawn, a day is 1200 s; ADR 0022), `place=di:dj:dl:block,...` puts
   blocks (lamps, copper; `_` for a space) around the stand point;
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
-- **The gate:** `bash tools/check.sh` (about 6 min, most of it the soak's floods: tests, a soak, its replay, the quick benchmark, the fixed
+- **The gate:** `bash tools/check.sh` (about 4.5 min, 5.5 after a release build; the soak and its replay run beside the tests and the fixed viewpoints: tests, a soak, its replay, the quick benchmark, the fixed
   viewpoints and a played run's feel report, ADR 0018) prints
   one JSON verdict; it is what "done" means (ADR 0011). Soak alone: `technoape-server soak=1 bots=50 minutes=10
   seed=1` (a failure prints its repro line and writes `out/soak-fail.rec`). Sessions record to `out/rec/`;

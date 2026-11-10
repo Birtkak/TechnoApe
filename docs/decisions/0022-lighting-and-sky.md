@@ -54,7 +54,8 @@ pure functions of the world's time, the same on every machine.
 - **The moon.**
   - It orbits at 2.83 planet radii (ADR 0021), inclined 40° to the ecliptic, with its nodes fixed in the
     inertial frame.
-  - The synodic month is 8 days and the year 27 days (9 hours of play): 3.4 new moons a year. A whole number
+  - The synodic month is 16 days and the year 54 days (18 hours of play; 8 and 27 until 2026-11-10, when the
+    developer found the orbits too quick): 3.4 new moons a year. A whole number
     of months per year would put the new moons at the same places each year, always in or always out of
     eclipse season.
   - It is tidally locked: the same face always looks at the planet.

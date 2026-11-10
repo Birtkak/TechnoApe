@@ -14,7 +14,9 @@ use engine::edit::{self, Shape};
 use engine::phys::{self, Input};
 use engine::liquid::{Col, TILE, U};
 use engine::world::{fnv, Block, FxMap, World};
+use engine::sky;
 use glam::DVec3;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use save::{Save, Saved};
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -53,6 +55,14 @@ const WATER_BUDGET: usize = 60_000;
 /// views from orbit show water.
 const WATER_RANGE: f64 = 128.0;
 const WATER_BYTES: usize = 16 * 1024;
+
+/// How far /goto sun stands from the sun's centre, in sun radii: it fills about 23 degrees.
+const SUN_VIEW: f64 = 5.0;
+
+/// The longest chat line the server takes, in characters.
+const CHAT_MAX: usize = 256;
+/// The fastest time warp: the 54-day year in about 6 s.
+const MAX_WARP: u64 = 10_000;
 
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
@@ -93,6 +103,10 @@ pub struct Server {
     pub tick: u64,
     /// The world's age when this server started (from its save): the sky's clock runs on from it.
     tick0: u64,
+    /// The time warp (/timewarp): world ticks per tick, 1 is real time. A restart is back at 1.
+    /// shortcut: only the clock runs faster, not the physics, so a player leaving a body's frame under warp
+    /// keeps its real-time velocity; physics steps under warp when ships fly orbits.
+    warp: u64,
     /// Seconds per tick, for the physics; `run` sets it from its rate.
     pub dt: f64,
     /// Time the physics has not stepped through yet (less than one `phys::DT`).
@@ -124,6 +138,7 @@ impl Server {
             next_id: 1,
             tick: 0,
             tick0: 0,
+            warp: 1,
             dt: 1.0 / TICK_HZ,
             debt: 0.0,
             rec: None,
@@ -177,7 +192,7 @@ impl Server {
             made: self.made,
             removed: self.removed,
             sea_extra: self.world.water.sea_extra,
-            tick: self.tick0 + self.tick,
+            tick: self.tick0.wrapping_add(self.tick),
         }
     }
 
@@ -286,7 +301,8 @@ impl Server {
 
     pub fn tick(&mut self) {
         // the sky's clock: the world's age, which a save carries on (ADR 0022)
-        self.world.time = (self.tick0 + self.tick) as f64 / TICK_HZ;
+        self.tick0 = self.tick0.wrapping_add(self.warp - 1);
+        self.world.time = self.tick0.wrapping_add(self.tick) as f64 / TICK_HZ;
         if self.tick == 0 {
             let [b0, b1] = [&self.world.bodies[0], &self.world.bodies[1]];
             let start = Ev::Start { planet_n: b0.n, moon_n: b1.n, seed: self.seed, dt: self.dt };
@@ -353,15 +369,13 @@ impl Server {
                                 c.inv[m as usize] = n;
                             }
                         }
+                        let line = format!("{} joined", self.clients[i].player.name);
+                        self.say(line);
                     }
                     Recv::Msg(ToServer::Move { pos, fwd, pitch }) => {
                         if pos.iter().all(|c| c.is_finite()) && fwd.iter().all(|c| c.is_finite()) {
-                            let c = &mut self.clients[i];
-                            let p = DVec3::from_array(pos);
-                            c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
-                            (c.input, c.credit) = (None, 0);
-                            c.queue.clear();
-                            (c.player.pos, c.player.fwd, c.player.pitch) = (pos, fwd, pitch);
+                            self.put(i, DVec3::from_array(pos), DVec3::from_array(fwd.map(f64::from)));
+                            self.clients[i].player.pitch = pitch;
                         }
                     }
                     Recv::Msg(ToServer::Input(inp)) => {
@@ -392,6 +406,7 @@ impl Server {
                         let c = &mut self.clients[i];
                         (c.creative, c.inv_dirty) = (on, true);
                     }
+                    Recv::Msg(ToServer::Chat(text)) => self.chat(i, &text),
                     Recv::Empty => break,
                     Recv::Closed => {
                         open = false;
@@ -405,6 +420,7 @@ impl Server {
                 let c = self.clients.swap_remove(i);
                 if !c.player.name.is_empty() {
                     self.absent.insert(c.player.name.clone(), saved(&c));
+                    self.say(format!("{} left", c.player.name));
                 }
             }
         }
@@ -412,7 +428,10 @@ impl Server {
         let steps = ((self.debt + 1e-9) / phys::DT) as u32;
         self.debt -= steps as f64 * phys::DT;
         for c in &mut self.clients {
-            if let Some(inp) = c.input {
+            // flight is creative's (ADR 0023)
+            let creative = c.creative;
+            let walk = move |inp: Input| if creative { inp } else { Input { fly: 0.0, ..inp } };
+            if let Some(inp) = c.input.map(walk) {
                 for _ in 0..steps {
                     phys::step(&self.world, &mut c.phys, &inp, phys::DT);
                 }
@@ -424,13 +443,19 @@ impl Server {
                 c.credit = (c.credit + steps).min(CREDIT_MAX);
                 while c.credit > 0 {
                     let Some((seq, inp)) = c.queue.pop_front() else { break };
-                    phys::step(&self.world, &mut c.phys, &inp, phys::DT);
+                    let mut inp = walk(inp);
+                    // at the client's time when it is near this clock (it predicted the step then), else at this one
+                    let near = 2.0 * self.warp as f64; // two seconds of real time
+                    if (inp.t - self.world.time).abs() > near {
+                        inp.t = 0.0;
+                    }
+                    phys::step_at(&mut self.world, &mut c.phys, &inp, phys::DT);
                     (c.acked, c.credit, c.player.pitch) = (seq, c.credit - 1, inp.pitch);
                 }
                 c.player.pos = c.phys.pos.to_array();
                 c.player.fwd = c.phys.fwd.as_vec3().to_array();
             }
-            c.link.send(ToClient::You { step: c.acked, me: c.phys, time: self.world.time });
+            c.link.send(ToClient::You { step: c.acked, me: c.phys, time: self.world.time, warp: self.warp as f64 });
         }
         // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics
         // took, fewer when that would spend more than WATER_BUDGET
@@ -492,6 +517,190 @@ impl Server {
         }
     }
 
+    /// Puts player `i` at `p` looking along `look` (in the tangent plane there), at rest.
+    fn put(&mut self, i: usize, p: DVec3, look: DVec3) {
+        let c = &mut self.clients[i];
+        c.phys = phys::Player::at(p, phys::tangent(look, phys::up(&self.world, p), DVec3::X));
+        (c.input, c.credit) = (None, 0);
+        c.queue.clear();
+        (c.player.pos, c.player.fwd) = (p.to_array(), c.phys.fwd.as_vec3().to_array());
+    }
+
+    /// Where /goto takes a player (ADR 0023): the planet's spawn, the moon where the sun is 45 degrees up, or a
+    /// spot in space SUN_VIEW sun radii from the sun's centre with the sun on its horizon; and the way to look.
+    fn goto(&self, to: &str) -> Option<(DVec3, DVec3)> {
+        let w = &self.world;
+        let body = |i: usize| w.bodies.get(i).map(|b| (b.spawn_point(), b.spawn.any_orthonormal_vector()));
+        match to {
+            "planet" | "home" | "spawn" => body(0),
+            // the day side, the sun 45 degrees up: the moon's night is black
+            "moon" if w.bodies.len() > 1 => {
+                let p = w.pose(1, w.time);
+                let s = (p.rot.inverse() * (w.sky.sun(w.time) - p.centre)).normalize();
+                let d = (s + s.any_orthonormal_vector()).normalize();
+                Some((w.bodies[1].stand_point(d), s))
+            }
+            "sun" => {
+                let (sun, planet) = (w.sky.sun(w.time), w.sky.planet(w.time).centre);
+                // beside the sun as seen from the planet: up there is away from the planet, the sun level
+                let side = (planet - sun).normalize().cross(DVec3::Z).normalize();
+                let x = sun + side * sky::SUN_RADIUS * SUN_VIEW;
+                let (pos, f) = w.locate(x);
+                Some((pos, w.pose(f, w.time).rot.inverse() * (sun - x)))
+            }
+            _ => None,
+        }
+    }
+
+    /// One line to everyone's chat.
+    fn say(&self, line: String) {
+        for c in &self.clients {
+            c.link.send(ToClient::Chat(line.clone()));
+        }
+    }
+
+    /// A chat line from client `i` (ADR 0023): a '/' command runs here and answers it alone; any other line
+    /// goes to everyone with its sender's name.
+    fn chat(&mut self, i: usize, text: &str) {
+        let text: String = text.chars().filter(|c| !c.is_control()).take(CHAT_MAX).collect();
+        let text = text.trim();
+        if let Some(cmd) = text.strip_prefix('/') {
+            let answer = self.command(i, cmd);
+            self.clients[i].link.send(ToClient::Chat(answer));
+        } else if !text.is_empty() {
+            let name = &self.clients[i].player.name;
+            self.say(format!("<{}> {text}", if name.is_empty() { "?" } else { name }));
+        }
+    }
+
+    /// The commands (ADR 0023), and the answer for the player who gave one. shortcut: anyone may run every
+    /// command; an operator role when servers go public.
+    fn command(&mut self, i: usize, cmd: &str) -> String {
+        let w: Vec<&str> = cmd.split_whitespace().collect();
+        let mode = |creative: bool| if creative { "creative" } else { "survival" };
+        match w.first().map(|s| s.to_lowercase()).as_deref() {
+            Some("help") | None => [
+                "Commands:",
+                "  /time                the time of day at the spawn",
+                "  /time set <when>     sunrise day noon sunset night",
+                "                       midnight, 14:30, or world seconds",
+                "  /time add <seconds>  move the clock on",
+                "  /playmode <mode>     creative or survival",
+                "  /give <block> [n]    n blocks, 64 if left out",
+                "  /goto <where>        planet (home), moon, or sun",
+                "  /timewarp <n>        the clock n times faster (1 to 10000,",
+                "                       up, down); . and , step it too",
+                "  /help                this list",
+                "Creative: double space flies, the wheel sets the speed.",
+            ]
+            .join("\n"),
+            Some("time") => {
+                let now = self.tick0.wrapping_add(self.tick) as f64 / TICK_HZ;
+                let named = |v: &str| match v {
+                    "sunrise" => Some(6.0),
+                    "day" => Some(9.0),
+                    "noon" => Some(12.0),
+                    "sunset" => Some(18.0),
+                    "night" => Some(21.0),
+                    "midnight" => Some(0.0),
+                    _ => {
+                        let (h, m) = v.split_once(':')?;
+                        let (h, m) = (h.parse::<u32>().ok()?, m.parse::<u32>().ok()?);
+                        (h < 24 && m < 60).then(|| h as f64 + m as f64 / 60.0)
+                    }
+                };
+                let secs = |v: &str| v.parse::<f64>().ok().filter(|s| s.is_finite());
+                let to = match (w.get(1).copied(), w.get(2).copied()) {
+                    (None | Some("query"), _) => None,
+                    (Some("set"), Some(v)) => match (named(v), secs(v)) {
+                        (Some(h), _) => Some(sky::next_hour(now, h)),
+                        (None, Some(s)) if s >= 0.0 => Some(s),
+                        _ => return format!("not a time: {v}\n  try noon, sunset, 14:30 or a number of seconds"),
+                    },
+                    (Some("add"), Some(v)) => match secs(v).map(|s| now + s) {
+                        Some(t) if t >= 0.0 => Some(t),
+                        _ => return format!("not a number of seconds: {v}"),
+                    },
+                    _ => return "usage:\n  /time\n  /time set <sunrise|day|noon|sunset|night|midnight|hh:mm|seconds>\n  /time add <seconds>".into(),
+                };
+                let t = match to {
+                    Some(t) => {
+                        // the next tick shows it; a time before this session's start wraps the tick counter
+                        let ticks = (t.min(1e15) * TICK_HZ).round() as u64;
+                        self.tick0 = ticks.wrapping_sub(self.tick);
+                        self.world.time = ticks as f64 / TICK_HZ;
+                        self.world.time
+                    }
+                    None => now,
+                };
+                let (day, h) = sky::clock(t);
+                let what = if to.is_some() { "time set to" } else { "it is" };
+                let m = (h * 60.0).round() as u32 % (24 * 60);
+                format!("{what} day {day}, {:02}:{:02} at the spawn (world time {t:.0} s)", m / 60, m % 60)
+            }
+            Some("goto") => {
+                let to = w.get(1).map(|s| s.to_lowercase()).unwrap_or_default();
+                if to == "sun" && !self.clients[i].creative {
+                    return "the sun is creative's: there is nothing to stand on\n  /playmode creative, then /goto sun".into();
+                }
+                match self.goto(&to) {
+                    Some((p, look)) => {
+                        self.put(i, p, look);
+                        format!("gone to the {}", if to == "home" || to == "spawn" { "planet" } else { &to })
+                    }
+                    None => "usage: /goto planet|moon|sun\n  planet (or home) is the spawn".into(),
+                }
+            }
+            Some("timewarp") | Some("warp") => {
+                let now = self.warp;
+                let to = match w.get(1).map(|s| s.to_lowercase()).as_deref() {
+                    None => return format!("the time warp is {now}x
+usage: /timewarp <1 to {MAX_WARP}|up|down>"),
+                    Some("up") => (now * 10).min(MAX_WARP),
+                    Some("down") => (now / 10).max(1),
+                    Some(v) => match v.trim_end_matches('x').parse::<u64>() {
+                        Ok(n) if (1..=MAX_WARP).contains(&n) => n,
+                        _ => return format!("not a time warp: {v}
+  1 (real time) to {MAX_WARP}"),
+                    },
+                };
+                self.warp = to;
+                let (day, year) = (sky::DAY / to as f64, sky::YEAR / to as f64);
+                format!("time warp {to}x: a day in {day:.0} s, a year in {year:.0} s")
+            }
+            Some("playmode") | Some("gamemode") => {
+                let c = &mut self.clients[i];
+                let on = match w.get(1).map(|s| s.to_lowercase()).as_deref() {
+                    None => return format!("you play in {} mode\nusage: /playmode creative|survival", mode(c.creative)),
+                    Some("creative" | "c" | "1") => true,
+                    Some("survival" | "s" | "0") => false,
+                    Some(m) => return format!("no play mode '{m}': creative or survival"),
+                };
+                (c.creative, c.inv_dirty) = (on, true);
+                format!("play mode: {}", mode(on))
+            }
+            Some("give") => {
+                // the count is a last word that is a number; the block name is the words before it
+                let (words, n) = match w.last().and_then(|s| s.parse::<u32>().ok()) {
+                    Some(n) if w.len() > 2 => (&w[1..w.len() - 1], n),
+                    _ => (&w[1..], 64),
+                };
+                let name = words.join(" ");
+                let Some(d) = BLOCKS.placeable().find(|d| d.name.eq_ignore_ascii_case(&name)) else {
+                    let all: Vec<&str> = BLOCKS.placeable().map(|d| d.name.as_str()).collect();
+                    let what = if name.is_empty() { String::new() } else { format!("no block '{name}'\n") };
+                    return format!("{what}usage: /give <block> [count]\nblocks: {}", all.join(", "));
+                };
+                let c = &mut self.clients[i];
+                let held = &mut c.inv[d.id as usize];
+                *held = held.saturating_add(n);
+                c.inv_dirty = true;
+                format!("gave {n} {}: {} held", d.name, *held)
+            }
+            Some(other) => format!("unknown command /{other}\n  /help lists the commands"),
+        }
+    }
+
     /// Where a new player's feet go: on the surface at the planet's +y pole, like the client's benchmark.
     fn spawn(&self) -> DVec3 {
         let b = &self.world.bodies[0];
@@ -549,19 +758,25 @@ impl Server {
     fn send_water(&mut self) {
         // each tile built and measured once a tick, however many clients get it
         let mut built: FxMap<Col, (Vec<engine::liquid::ColWater>, usize)> = FxMap::default();
-        for c in &mut self.clients {
-            let me = DVec3::from_array(c.player.pos);
+        // what each client lacks, nearest first: a pass over every tile per client, so side by side when there
+        // are many (in a game's own server the meshing fills rayon's pool, and one client needs no help)
+        let seen: Vec<(DVec3, &FxMap<Col, u64>)> = self.clients.iter().map(|c| (DVec3::from_array(c.player.pos), &c.tiles)).collect();
+        let lacks = |(me, have): &(DVec3, &FxMap<Col, u64>)| {
             let mut want: Vec<(u64, Col)> = self
                 .tiles
                 .iter()
-                .filter(|(t, (v, _))| c.tiles.get(t).is_none_or(|s| s < v))
-                .map(|(t, (_, at))| ((at.distance(me) * 16.0) as u64, *t))
+                .filter(|(t, (v, _))| have.get(t).is_none_or(|s| s < v))
+                .map(|(t, (_, at))| ((at.distance(*me) * 16.0) as u64, *t))
                 .filter(|(d, _)| (*d as f64) < WATER_RANGE * 16.0)
                 .collect();
+            want.sort_unstable();
+            want
+        };
+        let wants: Vec<Vec<(u64, Col)>> = if seen.len() >= 8 { seen.par_iter().map(lacks).collect() } else { seen.iter().map(lacks).collect() };
+        for (c, want) in self.clients.iter_mut().zip(wants) {
             if want.is_empty() {
                 continue;
             }
-            want.sort_unstable();
             let (mut msg, mut bytes) = (Vec::new(), 0);
             for (_, t) in want {
                 let (cols, n) = built.entry(t).or_insert_with(|| {
@@ -931,7 +1146,7 @@ mod tests {
         let (mut s, links) = server_with(1);
         drain(&links[0]);
         let start = DVec3::from_array(s.clients[0].player.pos);
-        links[0].send(ToServer::Input(Input { mv: [1.0, 0.0], jump: true, fwd: [1.0, 0.0, 0.0], pitch: 0.0 }));
+        links[0].send(ToServer::Input(Input { mv: [1.0, 0.0], jump: true, fwd: [1.0, 0.0, 0.0], pitch: 0.0, ..Default::default() }));
         for _ in 0..60 {
             s.tick(); // 3 s at the default 20 Hz
         }
@@ -950,7 +1165,7 @@ mod tests {
         drain(&links[0]);
         let l = &links[0];
         let start = s.clients[0].phys;
-        let inp = |k: u32| Input { mv: [1.0, (k % 7) as f32 / 7.0 - 0.5], jump: k % 40 == 0, fwd: [1.0, 0.0, 0.2], pitch: 0.0 };
+        let inp = |k: u32| Input { mv: [1.0, (k % 7) as f32 / 7.0 - 0.5], jump: k % 40 == 0, fwd: [1.0, 0.0, 0.2], pitch: 0.0, ..Default::default() };
         // 3 s of steps in batches of three, one batch a tick, with a duplicate and an old one thrown in
         let mut me = start;
         for t in 0..60u32 {
@@ -971,6 +1186,148 @@ mod tests {
         s.tick();
         assert_eq!((s.clients[0].acked, s.clients[0].queue.len()), (186, 54));
         assert!((start.pos - me.pos).length() > 3.0);
+    }
+
+    #[test]
+    fn a_client_whose_clock_is_off_lands_where_it_predicted_in_space() {
+        // out of a body's frame, up and the way ahead follow where the bodies are: the server must step at
+        // the client's time, or every flight there is corrected (the camera glitch of bugs/2026-11-10_19-03-47)
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        l.send(ToServer::Creative(true));
+        s.tick();
+        let w = &s.world;
+        let (pc, mc) = (w.sky.planet(w.time).centre, w.sky.moon(w.time).centre);
+        let (pos, f) = w.locate(pc + (pc - mc).normalize() * 2500.0);
+        assert_eq!(f, engine::world::INERTIAL);
+        l.send(ToServer::Move { pos: pos.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        drain(l);
+        let mut me = s.clients[0].phys;
+        let mut cw = World::new(256, 32, 1);
+        for t in 0..40u32 {
+            cw.time = s.world.time - 0.04; // the client's clock a little behind the server's
+            let inp = Input { mv: [1.0, 0.3], fwd: [0.0, 1.0, 0.0], fly: 1000.0, jump: t % 2 == 0, t: cw.time, ..Default::default() };
+            for _ in 0..3 {
+                phys::step(&cw, &mut me, &inp, phys::DT);
+            }
+            l.send(ToServer::Steps { first: t * 3 + 1, inputs: vec![inp; 3] });
+            s.tick();
+        }
+        let (step, server) = drain(l).into_iter().filter_map(|m| if let ToClient::You { step, me, .. } = m { Some((step, me)) } else { None }).last().unwrap();
+        assert_eq!(step, 120);
+        assert!((server.pos - me.pos).length() < 1e-9, "the server is {} m off", (server.pos - me.pos).length());
+        assert!((me.pos - pos).length() > 100.0, "it flew");
+    }
+
+    #[test]
+    fn chat_reaches_everyone_and_commands_answer_their_sender() {
+        let (mut s, links) = server_with(2);
+        links[0].send(ToServer::Hello { name: "ape".into() });
+        links[1].send(ToServer::Hello { name: "bot".into() });
+        s.tick();
+        let chat = |l: &Link<ToServer, ToClient>| -> Vec<String> {
+            drain(l).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect()
+        };
+        assert!(chat(&links[1]).contains(&"ape joined".to_string()));
+        chat(&links[0]);
+        links[0].send(ToServer::Chat("hello there".into()));
+        links[0].send(ToServer::Chat("/time set noon".into()));
+        links[0].send(ToServer::Chat("/give Blue Lamp 5".into()));
+        links[0].send(ToServer::Chat("/give stone".into()));
+        links[0].send(ToServer::Chat("/playmode creative".into()));
+        links[0].send(ToServer::Chat("/nope".into()));
+        s.tick();
+        let (a, b) = (chat(&links[0]), chat(&links[1]));
+        assert_eq!(b, vec!["<ape> hello there".to_string()], "commands answer only their sender");
+        assert_eq!(a.len(), 6, "{a:?}");
+        assert!(a[1].starts_with("time set to day 1, 12:00"), "{}", a[1]);
+        assert_eq!((a[2].as_str(), a[3].as_str()), ("gave 5 blue lamp: 5 held", "gave 64 stone: 64 held"));
+        assert!(a[5].starts_with("unknown command"));
+        s.tick();
+        assert!((s.world.time - sky::DAY / 8.0).abs() < 0.2, "{}", s.world.time);
+        let c = &s.clients.iter().find(|c| c.player.name == "ape").unwrap();
+        assert!(c.creative && c.inv[BLOCKS.id("blue lamp") as usize] == 5 && c.inv[BLOCKS.id("stone") as usize] == 64);
+        // time runs on from where it was set, and survives a save
+        assert!(s.snapshot().tick as f64 / TICK_HZ > sky::DAY / 8.0);
+        links[0].send(ToServer::Chat("/time set 10".into()));
+        links[0].send(ToServer::Chat("/time".into()));
+        s.tick();
+        let a = chat(&links[0]);
+        assert!(a.iter().any(|l| l.starts_with("it is day 1, 09:12")), "{a:?}");
+        s.tick();
+        assert!((s.world.time - 10.0).abs() < 0.2, "a time before the session's start: {}", s.world.time);
+    }
+
+    #[test]
+    fn timewarp_runs_the_clock_faster() {
+        let (mut s, links) = server_with(1);
+        s.tick();
+        links[0].send(ToServer::Chat("/timewarp 100".into()));
+        s.tick();
+        let t0 = s.world.time;
+        for _ in 0..10 {
+            s.tick();
+        }
+        assert!((s.world.time - t0 - 10.0 * 100.0 / TICK_HZ).abs() < 1e-6, "{}", s.world.time - t0);
+        let you = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::You { warp, .. } = m { Some(warp) } else { None }).last();
+        assert_eq!(you, Some(100.0));
+        links[0].send(ToServer::Chat("/timewarp up".into()));
+        links[0].send(ToServer::Chat("/timewarp 0".into()));
+        s.tick();
+        assert_eq!(s.warp, 1000, "0 is refused, up is ten times");
+    }
+
+    #[test]
+    fn commands_complete_to_known_words() {
+        // every line the completion list builds (engine::net::complete) is one the commands know
+        let mut lines = vec!["/".to_string()];
+        let mut full = Vec::new();
+        while let Some(l) = lines.pop() {
+            let (at, opts) = engine::net::complete(&l);
+            if opts.is_empty() {
+                full.push(l.trim_end().to_string());
+            }
+            lines.extend(opts.iter().map(|o| format!("{}{o} ", &l[..at])));
+        }
+        assert!(full.len() > 15, "{full:?}");
+        let (mut s, links) = server_with(1);
+        s.tick();
+        drain(&links[0]);
+        for l in &full {
+            links[0].send(ToServer::Chat(l.clone()));
+        }
+        s.tick();
+        let answers: Vec<String> = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
+        assert_eq!(answers.len(), full.len(), "{answers:?}");
+        for (l, a) in full.iter().zip(&answers) {
+            assert!(!["unknown command", "no play mode", "no block", "not a"].iter().any(|bad| a.starts_with(bad)), "{l}: {a}");
+        }
+    }
+
+    #[test]
+    fn goto_takes_a_player_to_the_bodies_and_the_sun() {
+        let (mut s, links) = server_with(1);
+        let me = |s: &Server| s.clients[0].phys.pos;
+        for (to, body) in [("moon", 1), ("planet", 0)] {
+            links[0].send(ToServer::Chat(format!("/goto {to}")));
+            s.tick();
+            let b = &s.world.bodies[body];
+            let r = (me(&s) - b.centre).length();
+            assert!((r - b.top((me(&s) - b.centre) / r)).abs() < 3.0, "{to}: {r}");
+            assert!(!phys::inside(&s.world, &s.clients[0].phys));
+        }
+        links[0].send(ToServer::Chat("/goto sun".into()));
+        s.tick();
+        assert!(me(&s).distance(s.world.bodies[0].spawn_point()) < 3.0, "survival stays");
+        links[0].send(ToServer::Chat("/playmode creative".into()));
+        links[0].send(ToServer::Chat("/goto sun".into()));
+        s.tick();
+        let x = s.world.to_inertial(me(&s));
+        let d = (x - s.world.sky.sun(s.world.time)).length() / sky::SUN_RADIUS;
+        assert!((d - SUN_VIEW).abs() < 0.1, "{d} sun radii away");
+        let got: Vec<ToClient> = drain(&links[0]);
+        assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == "gone to the sun")));
     }
 
     #[test]

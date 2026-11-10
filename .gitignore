@@ -28,3 +28,11 @@ PC-optimization-report.md
 
 # Game saves (ADR 0016)
 /saves/
+
+# Bug reports from F9 (ADR 0023)
+/bugs/
+
+# The developer's builds (tools/playtest.sh)
+/build/
+/playtest/
+/settings.txt

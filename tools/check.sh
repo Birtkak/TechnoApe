@@ -3,7 +3,8 @@
 # that soak (determinism and the flight recorder), the quick benchmark (budget in every run, no missing chunks
 # in fly), the fixed viewpoints (tools/views.sh: cracks and pixels against the baselines) and a played run's
 # feel report (ADR 0018). Prints one JSON verdict line, exit 1 on any failure; each failure carries its repro.
-# Usage: bash tools/check.sh [soak_minutes]   (default 3; about 6 min in all, most of it the soak and its replay)
+# Usage: bash tools/check.sh [soak_minutes]   (default 3; about 4 min in all after a build, most of it the soak
+# and its replay, which run beside the tests and the viewpoints)
 cd "$(dirname "$0")/.."
 export PATH="$HOME/Tools/rust/cargo/bin:$PATH" CARGO_HOME="${CARGO_HOME:-$HOME/Tools/rust/cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/Tools/rust/rustup}"
 mkdir -p out/check
@@ -12,15 +13,26 @@ MIN=${1:-3}
 SEED=$(( $(date +%s) % 100000 ))
 fails=()
 
+cargo build --release >out/check/build.log 2>&1 || { echo '{"ok":false,"error":"release build failed: out/check/build.log"}'; exit 1; }
+
+# the soak and its replay (CPU, timing nothing) run beside the tests and the viewpoints (no timing either);
+# the benchmark and the played run measure frame times, so they wait until both are done
+S=target/release/technoape-server.exe
+( timeout 600 $S soak=1 bots=50 minutes=$MIN seed=$SEED record=out/check/soak.rec >out/check/soak.json
+  timeout 600 $S replay=out/check/soak.rec >out/check/replay.json ) &
+sim=$!
+
 if cargo test --workspace >out/check/test.log 2>&1; then tests=ok; else
   tests=fail; fails+=("cargo test: $(grep -E '^test .* FAILED$' out/check/test.log | head -3 | sed 's/^test //;s/ \.\.\. FAILED//' | tr '\n' ' ')")
 fi
-cargo build --release >out/check/build.log 2>&1 || { echo '{"ok":false,"error":"release build failed: out/check/build.log"}'; exit 1; }
 
-S=target/release/technoape-server.exe
-soak=$(timeout 600 $S soak=1 bots=50 minutes=$MIN seed=$SEED record=out/check/soak.rec)
+views=$(bash tools/views.sh | tail -1)
+echo "$views" | grep -q '"ok": true' || fails+=("views: $(echo "$views" | python -I -c "import json,sys; print('; '.join(json.loads(sys.stdin.read())['failures']))" 2>/dev/null || echo "$views")")
+
+wait $sim
+soak=$(tail -1 out/check/soak.json)
 echo "$soak" | grep -q '"soak":"ok"' || fails+=("soak: $soak")
-replay=$(timeout 600 $S replay=out/check/soak.rec)
+replay=$(tail -1 out/check/replay.json)
 echo "$replay" | grep -q '"diverged":null' || fails+=("replay: $replay (repro: technoape-server replay=out/check/soak.rec)")
 
 bench=()
@@ -31,13 +43,10 @@ for r in stand fly orbit edit; do
     || fails+=("bench $r: budget or streaming failed (repro: technoape.exe run=$r quick=1)")
 done
 
-views=$(bash tools/views.sh | tail -1)
-echo "$views" | grep -q '"ok": true' || fails+=("views: $(echo "$views" | python -I -c "import json,sys; print('; '.join(json.loads(sys.stdin.read())['failures']))" 2>/dev/null || echo "$views")")
-
 # a played run: walk over hills, dig, place, build with the hammer. Clicks must show within a 60 Hz frame,
 # and the server must never correct the prediction (ADR 0019)
-ACTS="0.5:m:0:250,1:c,2:L,2.1:l,3:R,3.1:r,4:L,4.1:l,5:h,5.2:R,5.3:m:-100:0,5.6:r,7:L,7.1:l,8:R,8.1:r"
-feel=$(timeout 120 target/release/technoape.exe run=play save=0 seconds=10 autowalk=1 acts="$ACTS" 2>/dev/null | tail -1 \
+ACTS="0.5:m:0:250,1:say:/playmode creative,2:L,2.1:l,3:R,3.1:r,4:L,4.1:l,5:h,5.2:R,5.3:m:-100:0,5.6:r,7:L,7.1:l,8:R,8.1:r"
+feel=$(MSYS_NO_PATHCONV=1 timeout 120 target/release/technoape.exe run=play save=0 seconds=10 autowalk=1 acts="$ACTS" 2>/dev/null | tail -1 \
   | python -I -c "import json,sys; print(json.dumps(json.loads(sys.stdin.read())['feel']))" 2>/dev/null)
 echo "$feel" | python -I -c "import json,sys; f=json.loads(sys.stdin.read()); sys.exit(0 if f['corrections'] == 0 and f['clicks'] >= 4 and f['clicks_not_shown'] == 0 and f['click_to_change_ms_max'] <= 16.7 else 1)" 2>/dev/null \
   || fails+=("feel: $feel (repro: technoape.exe run=play save=0 seconds=10 autowalk=1 acts=\"$ACTS\")")

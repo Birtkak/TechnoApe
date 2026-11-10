@@ -30,6 +30,9 @@ struct Globals {
     moon_col: vec4f,
     sky: vec4f,
     n_lamps: vec4u, // x: lamps in `lamps`, y: the frame number (the bounce rays' seed)
+    // the camera's frame turned into the inertial one (the stars'), as columns; x.w the air around the
+    // camera (0 in space .. 1), y.w the sun's height over the horizon (sine)
+    stars: array<vec4f, 3>,
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 struct Chunk { base: vec3i, info: u32, off: u32 };
@@ -524,10 +527,19 @@ fn wout(bi: u32, up: vec3f, layer: f32, normal: vec3f, side: u32) -> WOut {
     return o;
 }
 
+// A sea quad is drawn as SEA_SUB x SEA_SUB pieces: one flat chord sags under the sphere (0.25 m for a 90 m
+// quad), and where a neighbour's corner meets its edge mid-way that sag opened a seam onto the seabed. In
+// pieces the sag is SEA_SUB^2 times smaller (4 mm). Each piece is an instance: chunk * SEA_SUB^2 + piece
+// (main.rs SEA_SUB is the same).
+const SEA_SUB: u32 = 8u;
+
 @vertex
-fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> WOut {
+fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> WOut {
     let q = quads[vi / 6u];
     let k = vi % 6u;
+    let ii = inst / (SEA_SUB * SEA_SUB);
+    let piece = inst % (SEA_SUB * SEA_SUB);
+    let sub = vec2f(f32(piece % SEA_SUB), f32(piece / SEA_SUB));
     let lo = q.x;
     let p = vec2f(f32(lo & 63u), f32((lo >> 6u) & 63u));
     let w = f32(((lo >> 18u) & 31u) + 1u);
@@ -537,7 +549,8 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> W
     let c = chunks[ii];
     let level = (c.info >> 3u) & 31u;
     let b = g.bodies[c.info >> 8u];
-    let gp = vec2f(c.base.xy) + (p + vec2f(cu[k] * w, cv[k] * h)) * f32(1u << level);
+    let at = (sub + vec2f(cu[k], cv[k])) / f32(SEA_SUB);
+    let gp = vec2f(c.base.xy) + (p + at * vec2f(w, h)) * f32(1u << level);
     let f = frame_at(c.info & 7u, b, gp.x, gp.y);
     // a far coarse cell that holds the sea level but is solid: the water lies a layer over its top, or the
     // top face hides it
@@ -649,11 +662,21 @@ fn vs_sky(@builtin(vertex_index) vi: u32) -> SkyOut {
 @fragment
 fn fs_sky(i: SkyOut) -> GOut {
     let w = g.inv_vp * vec4f(i.ndc, 1.0, 1.0);
+    let d = normalize(w.xyz / w.w);
+    // a pixel's width as an angle, before any branch (derivatives need uniform control flow)
+    let px = max(length(fwidth(d)), 1e-5);
     var o: GOut;
-    o.direct = vec4f(sky_colour(normalize(w.xyz / w.w)), 1.0);
+    o.direct = vec4f(sky_colour(d) + stars(d, px), 1.0);
     o.albedo = vec4f(0.0);
     o.gbuf = vec4f(0.0);
     return o;
+}
+
+// the air the sun's light passes on its way down: white in space, yellow by day, orange to red low down
+fn sun_tint() -> vec3f {
+    let h = g.stars[1].w;
+    let mass = min(1.0 / (max(h, 0.0) + 0.035), 28.0);
+    return mix(vec3f(1.0), exp(-vec3f(0.02, 0.06, 0.16) * mass) / exp(-vec3f(0.02, 0.06, 0.16)), g.stars[0].w);
 }
 
 // the sky in direction d
@@ -661,12 +684,85 @@ fn sky_colour(d: vec3f) -> vec3f {
     let s = normalize(g.sun_pos.xyz);
     let rs = g.sun_pos.w / length(g.sun_pos.xyz);
     let ang = atan2(length(cross(d, s)), dot(d, s));
+    let air = g.stars[0].w;
+    let tint = sun_tint();
     var c = g.sky.rgb;
     let glow = exp(-ang * 12.0) * 0.35 + exp(-ang * 80.0) * 0.6;
-    c += g.sun_col.rgb * glow * g.sky.w;
-    if (ang < rs) {
+    c += g.sun_col.rgb * tint * vec3f(1.0, 0.9, 0.75) * glow * g.sky.w;
+    // a low sun reddens the sky around it
+    let h = g.stars[1].w;
+    let low = (1.0 - smoothstep(0.0, 0.3, h)) * smoothstep(-0.15, 0.0, h) * air;
+    c = mix(c, vec3f(0.95, 0.45, 0.15) * max(g.sky.w, 0.15), 0.75 * exp(-ang * 1.6) * low);
+    // in the air the sun's glare makes it look bigger and softer-edged; in space it is its own size, sharp
+    let r = rs * (1.0 + 1.3 * air);
+    let edge = mix(0.02, 0.35, air);
+    // the aureole: in the air a bright halo a few sun widths across, under the disc's soft edge too
+    c += tint * vec3f(1.0, 0.85, 0.6) * exp(-max(ang - r, 0.0) / (rs * 3.0)) * 0.6 * air;
+    let disc = 1.0 - smoothstep(1.0 - edge, 1.0, ang / r);
+    if (disc > 0.0) {
         // limb darkening: the disc dims towards its edge
-        c = mix(vec3f(1.0, 0.86, 0.6), vec3f(1.0, 0.98, 0.92), sqrt(1.0 - (ang / rs) * (ang / rs)));
+        let x = min(ang / r, 1.0);
+        // brighter than anything around it; the air's colour shows through the glare
+        let face = mix(0.8, 1.0, sqrt(1.0 - x * x)) * mix(vec3f(1.0, 0.98, 0.96), tint * vec3f(2.4, 2.1, 1.7), air);
+        c = mix(c, face, disc);
     }
     return c;
+}
+
+// pcg3d (Jarzynski and Olano 2020): no rows or streaks where neighbouring cells' numbers correlate
+fn pcg3d(p: vec3u) -> vec3u {
+    var v = p * 1664525u + 1013904223u;
+    v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+    v = v ^ (v >> vec3u(16u));
+    v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+    return v;
+}
+fn hash4(p: vec3i) -> vec4f {
+    let a = pcg3d(vec3u(p));
+    let b = pcg3d(a ^ vec3u(0x9e3779b9u));
+    return vec4f(vec4u(a, b.x) >> vec4u(8u)) / 16777215.0;
+}
+
+// one layer of stars: the sky in cells 1/n across, a star in `chance` of them
+fn star_layer(d: vec3f, n: f32, chance: f32, px: f32, gain: f32) -> vec3f {
+    let c = vec3i(floor(d * n));
+    let a = hash4(c);
+    if (a.x > chance) { return vec3f(0.0); }
+    let b = hash4(c + vec3i(7919, 104729, 1299709));
+    let s = normalize(vec3f(c) + 0.25 + 0.5 * a.yzw);
+    let r = length(cross(d, s)) / px; // in pixels
+    // most stars are faint; their colours from red giants to blue-white
+    let bright = pow(b.x, 7.0) * gain + 0.015;
+    let col = mix(mix(vec3f(1.0, 0.72, 0.5), vec3f(1.0, 0.95, 0.88), smoothstep(0.0, 0.5, b.y)), vec3f(0.72, 0.82, 1.0), smoothstep(0.55, 1.0, b.y));
+    return col * bright * exp(-r * r * 1.2) * step(0.0, dot(d, s));
+}
+
+fn vnoise(p: vec3f) -> f32 {
+    let i = vec3i(floor(p));
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    var v = 0.0;
+    for (var k = 0u; k < 8u; k++) {
+        let o = vec3i(i32(k & 1u), i32((k >> 1u) & 1u), i32(k >> 2u));
+        let wgt = mix(1.0 - u, u, vec3f(o));
+        v += hash4(i + o).x * wgt.x * wgt.y * wgt.z;
+    }
+    return v;
+}
+
+// the stars and the galaxy's band, fixed in the inertial frame, where the sky is dark enough to show them
+fn stars(dc: vec3f, px: f32) -> vec3f {
+    let dark = 1.0 - smoothstep(0.004, 0.08, dot(g.sky.rgb, vec3f(0.3, 0.5, 0.2)));
+    // none in front of the sun's disc
+    let to_sun = normalize(g.sun_pos.xyz);
+    let behind = dot(dc, to_sun) > cos(g.sun_pos.w / length(g.sun_pos.xyz) * (1.0 + 1.3 * g.stars[0].w));
+    if (dark <= 0.0 || behind) { return vec3f(0.0); }
+    let d = normalize(mat3x3f(g.stars[0].xyz, g.stars[1].xyz, g.stars[2].xyz) * dc);
+    let gal = normalize(vec3f(0.31, -0.46, 0.83));
+    let lat = dot(d, gal);
+    let band = exp(-lat * lat / 0.02) * (0.4 + vnoise(d * 7.0) * 0.8 + vnoise(d * 23.0) * 0.4);
+    var c = vec3f(0.045, 0.045, 0.055) * band * (0.5 + vnoise(d * 60.0));
+    c += star_layer(d, 110.0, 0.09 * (1.0 + 2.0 * band), px, 0.9);
+    c += star_layer(d, 45.0, 0.05, px, 2.5);
+    return c * dark;
 }

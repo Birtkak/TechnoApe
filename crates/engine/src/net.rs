@@ -31,6 +31,9 @@ pub enum ToServer {
     /// The bucket (ADR 0020): `fill` scoops up to a block of water from the gap that holds block `at`, else
     /// the bucket is poured out into it. Answered by `Done` with the same `seq`, like an edit.
     Bucket { seq: u32, at: Block, fill: bool },
+    /// A chat line, or a command when it starts with '/' (ADR 0023): the server answers a command to this
+    /// player alone and passes any other line to everyone, with the sender's name.
+    Chat(String),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -45,7 +48,7 @@ pub enum ToClient {
     /// This player's whole physics state after the step numbered `step` of its `Steps` (0: none yet), every
     /// tick, and the world's time that poses the sky (ADR 0022). The client replays its later inputs from here
     /// (ADR 0019).
-    You { step: u32, me: crate::phys::Player, time: f64 },
+    You { step: u32, me: crate::phys::Player, time: f64, warp: f64 },
     /// This player's mode, every block kind it holds a nonzero count of, and the water in its bucket (units,
     /// `liquid::U` a block); sent on join and on change.
     Inventory { creative: bool, counts: Vec<(u8, u32)>, water: u32 },
@@ -54,6 +57,8 @@ pub enum ToClient {
     /// than the dead band, or settled, since this client last had it: nearest first, within reach and a byte
     /// budget per tick.
     Water(Vec<(crate::liquid::Col, Vec<crate::liquid::ColWater>)>),
+    /// A line for the chat (ADR 0023): a player's words, an answer to a command, someone joining or leaving.
+    Chat(String),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -149,6 +154,39 @@ where
     Ok(Link { tx: out_tx, rx: in_rx })
 }
 
+/// The command line's completions (ADR 0023): where the word being typed starts in `line`, and what could
+/// stand there. The server's `command` runs the commands; `commands_complete_to_known_words` there checks
+/// that this list names only what it knows.
+pub fn complete(line: &str) -> (usize, Vec<String>) {
+    let Some(rest) = line.strip_prefix('/') else { return (line.len(), Vec::new()) };
+    let words: Vec<String> = rest.split(' ').filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
+    let typed = if rest.ends_with(' ') || rest.is_empty() { 0 } else { 1 };
+    let before = &words[..words.len() - typed];
+    // a block's name has spaces: after /give everything typed is one name
+    let (at, options): (usize, Vec<String>) = match before.first().map(String::as_str) {
+        Some("give") => {
+            // "give" is a whole word, so a space follows it
+            let at = line.len() - rest[rest.find(' ').unwrap_or(0)..].trim_start().len();
+            (at, crate::blocks::BLOCKS.placeable().map(|d| d.name.clone()).collect())
+        }
+        first => {
+            let words: &[&str] = match (first, before.get(1).map(String::as_str), before.len()) {
+                (None, _, _) => &["time", "playmode", "give", "goto", "timewarp", "help"],
+                (Some("timewarp" | "warp"), None, 1) => &["1", "10", "100", "1000", "10000", "up", "down"],
+                (Some("time"), None, 1) => &["set", "add"],
+                (Some("time"), Some("set"), 2) => &["sunrise", "day", "noon", "sunset", "night", "midnight"],
+                (Some("playmode" | "gamemode"), None, 1) => &["creative", "survival"],
+                (Some("goto"), None, 1) => &["planet", "home", "moon", "sun"],
+                _ => &[],
+            };
+            (line.len() - rest.rsplit(' ').next().unwrap_or("").len(), words.iter().map(|w| w.to_string()).collect())
+        }
+    };
+    let part = line[at..].to_lowercase();
+    // a word typed out in full needs no list
+    (at, options.into_iter().filter(|o| o.to_lowercase().starts_with(&part) && o.to_lowercase() != part).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +207,24 @@ mod tests {
         assert_eq!(client.rx.recv().unwrap(), ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9 });
         drop(server);
         assert!(client.rx.recv().is_err(), "a dropped peer closes the link");
+    }
+
+    #[test]
+    fn commands_complete() {
+        let c = |l: &str| complete(l);
+        assert_eq!(c("/"), (1, vec!["time".into(), "playmode".into(), "give".into(), "goto".into(), "timewarp".into(), "help".into()]));
+        assert_eq!(c("/g"), (1, vec!["give".to_string(), "goto".to_string()]));
+        assert_eq!(c("/time "), (6, vec!["set".to_string(), "add".to_string()]));
+        assert_eq!(c("/time set N"), (10, vec!["noon".to_string(), "night".to_string()]));
+        assert_eq!(c("/PlayMode c"), (10, vec!["creative".to_string()]));
+        assert_eq!(c("/goto moon "), (11, vec![]));
+        assert_eq!(c("hello"), (5, vec![]));
+        // a block's name is one word for this, spaces and all
+        let (at, v) = c("/give blue l");
+        assert_eq!((at, v), (6, vec!["blue lamp".to_string()]));
+        assert_eq!(c("/give stone 5").1, Vec::<String>::new());
+        // the completion put in place completes nothing more
+        let (at, v) = c("/time set no");
+        assert_eq!(format!("{}{}", &"/time set no"[..at], v[0]), "/time set noon");
     }
 }

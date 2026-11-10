@@ -30,6 +30,8 @@ pub enum Cmd {
     Place(DVec3, u8),
     Block(DVec3),
     Report,
+    /// A chat line or a '/' command (ADR 0023): the rest of the line.
+    Say(String),
     Quit,
 }
 
@@ -49,6 +51,7 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
         "place" => Cmd::Place(v()?, num(4)? as u8),
         "block" => Cmd::Block(v()?),
         "report" => Cmd::Report,
+        "say" => Cmd::Say(w[1..].join(" ")),
         "quit" => Cmd::Quit,
         _ => return Err(format!("unknown command '{}'", w[0])),
     }))
@@ -122,6 +125,7 @@ impl Bot {
                 }
                 Recv::Msg(ToClient::Done { ok, .. }) => self.refused += !ok as u64,
                 Recv::Msg(ToClient::Inventory { .. } | ToClient::You { .. }) => {}
+                Recv::Msg(ToClient::Chat(t)) => self.notes.push(format!("{{\"bot\":{:?},\"chat\":{t:?}}}", self.name)),
                 Recv::Msg(ToClient::Water(v)) => {
                     if let Some(w) = self.world.as_mut() {
                         for (t, cols) in &v {
@@ -154,7 +158,7 @@ impl Bot {
             } else {
                 // jump when the last tick brought it no closer: something higher than the step-up is in the way
                 let jump = dist > self.last_dist - 0.02;
-                self.link.send(ToServer::Input(Input { mv: [1.0, 0.0], jump, fwd: (d / dist).as_vec3().to_array(), pitch: 0.0 }));
+                self.link.send(ToServer::Input(Input { mv: [1.0, 0.0], jump, fwd: (d / dist).as_vec3().to_array(), pitch: 0.0, ..Default::default() }));
             }
             self.last_dist = dist;
         }
@@ -198,6 +202,7 @@ impl Bot {
                     self.name, self.start.elapsed().as_secs_f64(), self.pos.x, self.pos.y, self.pos.z, self.players, self.edits_applied, self.refused
                 ));
             }
+            Cmd::Say(t) => self.link.send(ToServer::Chat(t.clone())),
             Cmd::Quit => {}
         }
         None
@@ -279,7 +284,9 @@ mod tests {
         });
         let mut dout = Vec::new();
         digger.run(parse_script(&format!("spawn 0 {h} 0; wait 0.2; dig 0.25 -0.5 0.25; dig 0.25 -1.0 0.25; wait 0.2; block 0.25 -0.5 0.25; report; wait 1")).unwrap(), None, |l| dout.push(l));
-        let wout = w.join().unwrap();
+        let (wchat, wout): (Vec<String>, Vec<String>) = w.join().unwrap().into_iter().partition(|l| l.contains("\"chat\""));
+        let dout: Vec<String> = dout.into_iter().filter(|l| !l.contains("\"chat\"")).collect();
+        assert!(wchat.iter().any(|l| l.contains("digger joined")), "{wchat:?}");
         assert!(dout[0].contains("\"material\":0"), "{dout:?}");
         assert!(wout[0].contains("\"material\":0") && wout[1].contains("\"material\":0"), "{wout:?}");
         assert!(wout[2].contains("\"players\":2") && wout[2].contains("\"edits_applied\":2"), "{wout:?}");
@@ -297,7 +304,7 @@ mod tests {
         let start = b.pos;
         b.run(parse_script("walk 10 0 0; wait 1.5").unwrap(), None, |l| out.push(l));
         let moved = b.pos - start;
-        assert!(out.is_empty(), "{out:?}");
+        assert!(out.iter().all(|l| l.contains("\"chat\"")), "{out:?}");
         assert!((moved.x - 10.0).abs() < 1.0 && moved.z.abs() < 1.0, "moved {moved:?}");
         let w = b.world.as_ref().unwrap();
         let up = phys::up(w, b.pos);

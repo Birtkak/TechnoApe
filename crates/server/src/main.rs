@@ -142,12 +142,13 @@ fn run_replay(path: &str, until: Option<u64>) {
     let s = &r.server;
     let diverged = r.diverged.map_or("null".into(), |(t, want, got)| format!("{{\"tick\":{t},\"recorded\":\"{want:016x}\",\"replayed\":\"{got:016x}\"}}"));
     println!(
-        "{{\"replay\":{path:?},\"ticks\":{},\"checks\":{},\"diverged\":{diverged},\"hash\":\"{:016x}\",\"players\":{},\"edits\":{},\"positions\":{}}}",
+        "{{\"replay\":{path:?},\"ticks\":{},\"checks\":{},\"diverged\":{diverged},\"hash\":\"{:016x}\",\"players\":{},\"edits\":{},\"time\":{:.1},\"positions\":{}}}",
         s.tick,
         r.checks,
         s.hash(),
         s.players(),
         s.world.edit_count,
+        s.world.time,
         s.positions()
     );
     if r.diverged.is_some() {

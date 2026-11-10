@@ -42,7 +42,7 @@ fn ghost_fs(i: GhostOut) -> @location(0) vec4f {
 struct Rect {
     @location(0) xy: vec4f,    // x0, y0, x1, y1 in clip space
     @location(1) colour: vec4f,
-    @location(2) glyph: u32,   // 0 solid, 1..10 the digits 0..9
+    @location(2) glyph: u32,   // 0 solid, 1..10 the digits 0..9, 32..126 an ASCII character of FONT
 };
 struct UiOut {
     @builtin(position) clip: vec4f,
@@ -67,9 +67,15 @@ fn ui_vs(@builtin(vertex_index) vi: u32, r: Rect) -> UiOut {
 // bit 14 is the top-left pixel, rows of three from the top
 const DIGITS = array<u32, 10>(31599u, 11415u, 29671u, 29647u, 23497u, 31183u, 31215u, 29257u, 31727u, 31695u);
 
+// FONT, the 8 x 8 font (ADR 0023), is appended by the client from `hud::font_wgsl`
 @fragment
 fn ui_fs(i: UiOut) -> @location(0) vec4f {
-    if (i.glyph > 0u) {
+    if (i.glyph >= 32u) {
+        let x = u32(clamp(i.uv.x * 8.0, 0.0, 7.0));
+        let y = u32(clamp((1.0 - i.uv.y) * 8.0, 0.0, 7.0));
+        let word = FONT[(i.glyph - 32u) * 2u + y / 4u];
+        if (((word >> ((y % 4u) * 8u + x)) & 1u) == 0u) { discard; }
+    } else if (i.glyph > 0u) {
         let x = u32(clamp(i.uv.x * 3.0, 0.0, 2.0));
         let y = u32(clamp((1.0 - i.uv.y) * 5.0, 0.0, 4.0));
         if (((DIGITS[i.glyph - 1u] >> (14u - (y * 3u + x))) & 1u) == 0u) { discard; }

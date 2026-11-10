@@ -9,6 +9,27 @@ use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
 use windows::Win32::System::Threading::{GetCurrentProcess, GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
 
+/// A UTC date and time for file names, from seconds since 1970: 2026-11-10_14-03-22.
+pub fn utc_stamp(secs: u64) -> String {
+    // days to a civil date (Howard Hinnant's algorithm)
+    let (z, s) = ((secs / 86400) as i64 + 719468, secs % 86400);
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let (d, m) = (doy - (153 * mp + 2) / 5 + 1, if mp < 10 { mp + 3 } else { mp - 9 });
+    let y = yoe + era * 400 + (m <= 2) as i64;
+    format!("{y:04}-{m:02}-{d:02}_{:02}-{:02}-{:02}", s / 3600, s / 60 % 60, s % 60)
+}
+
+#[test]
+fn utc_stamps() {
+    assert_eq!(utc_stamp(0), "1970-01-01_00-00-00");
+    assert_eq!(utc_stamp(1_700_000_000), "2023-11-14_22-13-20");
+    assert_eq!(utc_stamp(951_782_400), "2000-02-29_00-00-00");
+}
+
 pub fn ram_mb() -> f64 {
     let mut c = PROCESS_MEMORY_COUNTERS::default();
     unsafe {

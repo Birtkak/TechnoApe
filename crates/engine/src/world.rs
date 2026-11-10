@@ -241,7 +241,11 @@ impl Body {
     /// Where a player starts: over the spawn, clear of the highest ground within a metre, so a steep slope
     /// never holds it inside a block; it drops onto the ground from there.
     pub fn spawn_point(&self) -> DVec3 {
-        let d = self.spawn;
+        self.stand_point(self.spawn)
+    }
+    /// Feet on the surface over direction d (from the centre): over the highest ground a step around.
+    pub fn stand_point(&self, d: DVec3) -> DVec3 {
+        let d = d.normalize();
         let a = d.any_orthonormal_vector();
         let b = d.cross(a);
         let mut top: f64 = 0.0;

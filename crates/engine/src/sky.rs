@@ -10,10 +10,10 @@ use std::f64::consts::TAU;
 /// The solar day (ADR 0008).
 pub const DAY: f64 = 1200.0;
 /// From new moon to new moon.
-pub const MONTH: f64 = 8.0 * DAY;
+pub const MONTH: f64 = 16.0 * DAY;
 /// Once around the sun: the planet's orbit, which carries the sun along the ecliptic. Not a whole number of months, so the new
 /// moons meet the eclipse seasons at different places each year.
-pub const YEAR: f64 = 27.0 * DAY;
+pub const YEAR: f64 = 54.0 * DAY;
 /// The moon's orbit against the ecliptic: steep, so only about a third of new moons eclipse the sun.
 pub const INCLINATION: f64 = 40.0 * TAU / 360.0;
 /// The planet's orbit around the sun, and the sun's size: 0.53 degrees across, as Earth's.
@@ -23,6 +23,18 @@ pub const SUN_RADIUS: f64 = 4625.0;
 const SPIN0: f64 = -0.375 * TAU;
 /// Where the moon starts on its orbit, from its ascending node: a first quarter in the evening sky.
 const MOON0: f64 = 0.25 * TAU;
+
+/// The clock at the spawn (ADR 0023): world time 0 is 9 am there and a day is DAY seconds. The day (the
+/// first is 1) and the hour, 0 to 24.
+pub fn clock(t: f64) -> (u64, f64) {
+    let h = 9.0 + 24.0 * t / DAY;
+    ((h / 24.0).floor().max(0.0) as u64 + 1, h.rem_euclid(24.0))
+}
+
+/// The first world time from `t` on when the spawn's clock shows `hour`.
+pub fn next_hour(t: f64, hour: f64) -> f64 {
+    t + (hour - clock(t).1).rem_euclid(24.0) / 24.0 * DAY
+}
 
 /// The sky of one world: the sizes it needs from the world's bodies.
 #[derive(Clone, Copy, Debug)]
@@ -190,6 +202,24 @@ mod tests {
         assert!((moons / 5..=moons * 3 / 5).contains(&solar), "{solar} of {moons}");
         assert!((moons / 5..=moons * 3 / 5).contains(&lunar), "{lunar} of {moons}");
         assert!(total > 0, "no total eclipse in 10 years");
+    }
+
+    #[test]
+    fn the_spawn_clock_has_the_sun_overhead_at_noon() {
+        assert_eq!(clock(0.0), (1, 9.0));
+        assert_eq!(clock(DAY), (2, 9.0));
+        let noon = next_hour(0.0, 12.0);
+        assert!((noon - DAY / 8.0).abs() < 1e-9 && next_hour(noon, 12.0) == noon);
+        assert!((clock(next_hour(noon, 6.5)).1 - 6.5).abs() < 1e-9 && next_hour(noon, 6.5) > noon);
+        // the spawn is near the planet's body +y, on the equator: the sun straight up at noon, down at midnight
+        let s = sky();
+        let height = |t: f64| {
+            let p = s.planet(t);
+            (p.rot * DVec3::Y).dot((s.sun(t) - p.centre).normalize())
+        };
+        assert!(height(noon) > 0.99, "{}", height(noon));
+        assert!(height(next_hour(0.0, 0.0)) < -0.99);
+        assert!(height(next_hour(0.0, 6.0)).abs() < 0.02 && height(next_hour(0.0, 18.0)).abs() < 0.02);
     }
 
     #[test]

@@ -23,6 +23,8 @@ const FLOAT: f64 = 0.8;
 /// at any frame rate or tick rate; each side carries the time that did not fill a step over to the next.
 pub const DT: f64 = 1.0 / 60.0;
 const SUBSTEP: f64 = 0.25;
+/// Creative flight (ADR 0023): the fastest a flying player may ask for, m/s.
+pub const FLY_MAX: f64 = 1000.0;
 const CONTACT: f64 = 0.001;
 
 /// What a player wants this tick: `mv` is forward and right in -1..1, `fwd` the look direction.
@@ -32,6 +34,17 @@ pub struct Input {
     pub jump: bool,
     pub fwd: [f32; 3],
     pub pitch: f32,
+    /// Creative flight (ADR 0023): the speed in m/s, 0 walking. No gravity; jump rises, `down` sinks, and
+    /// the box still collides. The server takes it from creative players only.
+    #[serde(default)]
+    pub fly: f32,
+    #[serde(default)]
+    pub down: bool,
+    /// The world time the client stepped this at, 0 for none. Out of a body's frame where the player goes
+    /// depends on where the bodies are, so the server steps it at the same time (`step_at`), or a client
+    /// whose clock is a little off is corrected all the way.
+    #[serde(default)]
+    pub t: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -146,7 +159,17 @@ fn one_layer(world: &World, pos: DVec3) -> f64 {
 
 /// An input any side may step with: finite numbers only.
 pub fn sane(inp: &Input) -> bool {
-    inp.fwd.iter().chain(inp.mv.iter()).chain([&inp.pitch]).all(|c| c.is_finite())
+    inp.fwd.iter().chain(inp.mv.iter()).chain([&inp.pitch, &inp.fly]).all(|c| c.is_finite()) && inp.t.is_finite()
+}
+
+/// One step at the input's own world time (`Input::t`; the world's when 0), the world's clock put back after.
+pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) {
+    let now = world.time;
+    if inp.t != 0.0 {
+        world.time = inp.t;
+    }
+    step(world, p, inp, dt);
+    world.time = now;
 }
 
 /// One step of `dt` seconds for one player.
@@ -163,21 +186,28 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
         None => 0.0,
     };
     let mv = DVec3::new(inp.mv[1].clamp(-1.0, 1.0) as f64, 0.0, inp.mv[0].clamp(-1.0, 1.0) as f64);
-    let wish = (right * mv.x + fwd * mv.z).clamp_length_max(1.0) * WALK * (1.0 - 0.5 * sub);
-    let mut v_up = p.vel.dot(up) - G * dt;
-    if p.on_ground && inp.jump && sub < 0.3 {
-        v_up = JUMP;
-    }
-    if sub > 0.0 {
-        // buoyancy that holds the body FLOAT under, drag, and jump held swims up
-        v_up += G / FLOAT * sub * dt;
-        v_up *= 1.0 - (3.0 * sub * dt).min(1.0);
-        if inp.jump && sub > 0.3 {
-            v_up = v_up.max(SWIM);
+    let flying = inp.fly > 0.0;
+    if flying {
+        // the move and up or down at the asked speed, nothing else
+        let vert = inp.jump as i32 as f64 - inp.down as i32 as f64;
+        p.vel = ((right * mv.x + fwd * mv.z).clamp_length_max(1.0) + up * vert) * (inp.fly as f64).min(FLY_MAX);
+    } else {
+        let wish = (right * mv.x + fwd * mv.z).clamp_length_max(1.0) * WALK * (1.0 - 0.5 * sub);
+        let mut v_up = p.vel.dot(up) - G * dt;
+        if p.on_ground && inp.jump && sub < 0.3 {
+            v_up = JUMP;
         }
+        if sub > 0.0 {
+            // buoyancy that holds the body FLOAT under, drag, and jump held swims up
+            v_up += G / FLOAT * sub * dt;
+            v_up *= 1.0 - (3.0 * sub * dt).min(1.0);
+            if inp.jump && sub > 0.3 {
+                v_up = v_up.max(SWIM);
+            }
+        }
+        // snappy: the horizontal velocity is the wish, on the ground and in the air
+        p.vel = wish + up * v_up;
     }
-    // snappy: the horizontal velocity is the wish, on the ground and in the air
-    p.vel = wish + up * v_up;
 
     let total = p.vel * dt;
     let n = (total.length() / SUBSTEP).ceil().max(1.0);
@@ -188,7 +218,7 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
     for _ in 0..n as usize {
         for h in [dr, df] {
             let was = p.pos;
-            if slide(world, &mut p.pos, h) && p.on_ground {
+            if slide(world, &mut p.pos, h) && p.on_ground && !flying {
                 // step-up: one block up, the same move, then back down onto the step
                 let mut q = was + up * rise;
                 if !blocked(world, q) && !slide(world, &mut q, h) {
@@ -231,6 +261,29 @@ mod tests {
         for _ in 0..(secs * 20.0) as usize {
             step(w, p, inp, 0.05);
         }
+    }
+
+    #[test]
+    fn flight_holds_still_rises_moves_at_its_speed_and_collides() {
+        let w = world();
+        let start = ground(&w) + up(&w, ground(&w)) * 20.0;
+        let u = up(&w, start);
+        let fwd = tangent(DVec3::X, u, DVec3::Z);
+        let mut p = Player::at(start, fwd);
+        let f = fwd.as_vec3().to_array();
+        let hover = Input { fwd: f, fly: 30.0, ..Default::default() };
+        run(&w, &mut p, &hover, 2.0);
+        assert!(p.pos.distance(start) < 1e-9, "no gravity: {}", p.pos.distance(start));
+        run(&w, &mut p, &Input { jump: true, ..hover }, 1.0);
+        assert!(((p.pos - start).dot(u) - 30.0).abs() < 0.01, "rises at its speed");
+        let at = p.pos;
+        run(&w, &mut p, &Input { mv: [1.0, 0.0], ..hover }, 1.0);
+        assert!((p.pos.distance(at) - 30.0).abs() < 0.5, "{}", p.pos.distance(at));
+        // down into the ground: stops on it, outside the blocks
+        run(&w, &mut p, &Input { down: true, ..hover }, 4.0);
+        assert!(!inside(&w, &p) && p.on_ground, "landed");
+        let fast = Input { fly: 1e9, ..hover };
+        assert!(sane(&fast) && !sane(&Input { fly: f32::NAN, ..hover }));
     }
 
     #[test]

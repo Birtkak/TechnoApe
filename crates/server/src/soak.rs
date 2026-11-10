@@ -12,6 +12,7 @@ use engine::world::World;
 use engine::edit::{Kind, Predictor, Shape};
 use glam::{DVec3, IVec3};
 use std::path::Path;
+use rayon::prelude::*;
 use std::sync::mpsc::channel;
 
 pub const MOON_N: i32 = 32;
@@ -72,7 +73,9 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
     let r = b.rng.f();
     let walk = |rng: &mut Rng| {
         let d = rng.dir();
-        Input { mv: [rng.range(-1.0, 1.0) as f32, rng.range(-1.0, 1.0) as f32], jump: rng.f() < 0.3, fwd: d.as_vec3().to_array(), pitch: 0.0 }
+        // now and then flying, which only creative bots may
+        let fly = if rng.f() < 0.1 { rng.range(1.0, 40.0) as f32 } else { 0.0 };
+        Input { mv: [rng.range(-1.0, 1.0) as f32, rng.range(-1.0, 1.0) as f32], jump: rng.f() < 0.3, fwd: d.as_vec3().to_array(), pitch: 0.0, fly, down: rng.f() < 0.3, t: 0.0 }
     };
     if r < 0.05 {
         b.link.send(ToServer::Input(walk(&mut b.rng)));
@@ -106,6 +109,9 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         b.link.send(ToServer::Edit { seq, shape, material: m });
     } else if r < 0.087 {
         b.link.send(ToServer::Creative(b.rng.f() < 0.5));
+    } else if r < 0.0875 {
+        let lines = ["hi", "/time", "/time add 30", "/give stone 3", "/give nothing", "/playmode survival", "/bad", "/time set 99:99"];
+        b.link.send(ToServer::Chat(lines[(b.rng.next() % lines.len() as u64) as usize].into()));
     } else if r < 0.1 {
         // the bucket, mostly where it reaches water or air, some of it out of reach or into rock
         let feet = s.clients[me].phys.pos;
@@ -174,7 +180,8 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
             act(b, &s, me);
         }
         s.tick();
-        for b in &mut bots {
+        // each bot keeps its own world: they take what the server sent side by side
+        bots.par_iter_mut().for_each(|b| {
             while let Recv::Msg(m) = b.link.try_recv() {
                 match m {
                     ToClient::Edits(v) => {
@@ -193,7 +200,7 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
                     _ => {}
                 }
             }
-        }
+        });
         check(&s).map_err(|what| Fail { tick: t, what })?;
         (ws.stored, ws.awake) = (ws.stored.max(s.world.water.stored()), ws.awake.max(s.world.water.awake()));
         if t % 100 == 0 || t + 1 == ticks {
