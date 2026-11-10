@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
-use windows::Win32::System::Threading::GetCurrentProcess;
+use windows::Win32::System::Threading::{GetCurrentProcess, GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
 
 pub fn ram_mb() -> f64 {
     let mut c = PROCESS_MEMORY_COUNTERS::default();
@@ -15,6 +15,15 @@ pub fn ram_mb() -> f64 {
         let _ = GetProcessMemoryInfo(GetCurrentProcess(), &mut c, std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32);
     }
     c.WorkingSetSize as f64 / 1048576.0
+}
+
+/// Puts the calling thread below normal priority.
+pub fn below_normal() {
+    unsafe {
+        if let Err(e) = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL) {
+            eprintln!("[technoape] worker priority unchanged: {e}");
+        }
+    }
 }
 
 /// This process's dedicated VRAM use on the adapter with the most dedicated memory (WDDM counts all APIs).

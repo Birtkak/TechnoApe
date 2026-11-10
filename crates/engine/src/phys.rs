@@ -86,7 +86,20 @@ pub fn cells(world: &World, pos: DVec3) -> impl Iterator<Item = Block> + '_ {
 
 /// True when the player's box with its feet at `pos` overlaps a solid block.
 pub fn blocked(world: &World, pos: DVec3) -> bool {
-    cells(world, pos).any(|b| world.block(b) != 0)
+    // `cells` walks the layers of one column after another: one terrain lookup per column, not per cell
+    let mut col: Option<((u8, u8, i32, i32), f64)> = None;
+    cells(world, pos).any(|b| {
+        if let Some(m) = world.edit(b) {
+            return m != 0;
+        }
+        let key = (b.body, b.face, b.pos.x, b.pos.y);
+        let h = match col {
+            Some((k, h)) if k == key => h,
+            _ => world.column_height(b),
+        };
+        col = Some((key, h));
+        world.generated_under(b, h) != 0
+    })
 }
 
 /// True when the player is inside a block: what the physics never lets happen by itself.

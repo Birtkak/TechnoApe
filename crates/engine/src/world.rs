@@ -3,6 +3,7 @@
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::{DVec3, IVec3};
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 use std::sync::Arc;
 
@@ -11,6 +12,31 @@ pub const CS: i32 = 32; // cells per chunk edge
 pub const P: usize = 34; // padded edge
 pub const AMP: f64 = 30.0;
 pub const CRUST: f64 = 64.0;
+
+/// FxHash-style hasher for the maps keyed by chunks and cells: SipHash cost a third of the streamer's selection
+/// time, and every block lookup goes through `World::edits`.
+#[derive(Default)]
+pub struct Fx(u64);
+impl Hasher for Fx {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, b: &[u8]) {
+        for x in b {
+            self.write_u64(*x as u64);
+        }
+    }
+    fn write_u8(&mut self, v: u8) {
+        self.write_u64(v as u64)
+    }
+    fn write_i32(&mut self, v: i32) {
+        self.write_u64(v as u32 as u64)
+    }
+    fn write_u64(&mut self, v: u64) {
+        self.0 = (self.0.rotate_left(5) ^ v).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+pub type FxMap<K, V> = HashMap<K, V, BuildHasherDefault<Fx>>;
 
 /// FNV-1a: stable across runs, builds and compiler versions, so a hash can be stored next to a replay (ADR 0011).
 pub fn fnv(h: u64, bytes: &[u8]) -> u64 {
@@ -165,7 +191,7 @@ impl Block {
 pub struct World {
     pub bodies: Arc<Vec<Body>>,
     /// Edits bucketed by level 0 chunk; value = material that replaces the generated one.
-    pub edits: HashMap<Key, HashMap<IVec3, u8>>,
+    pub edits: FxMap<Key, FxMap<IVec3, u8>>,
     pub edit_count: usize,
 }
 
@@ -174,7 +200,7 @@ impl World {
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
         World {
             bodies: Arc::new(vec![Body::new(DVec3::ZERO, planet_n, seed), Body::new(DVec3::new(3000.0, 0.0, 0.0), moon_n, seed + 1)]),
-            edits: HashMap::new(),
+            edits: FxMap::default(),
             edit_count: 0,
         }
     }
@@ -223,14 +249,23 @@ impl World {
         body.centre + body.dir(b.face as usize, p.x, p.y) * body.layer_r(p.z)
     }
     pub fn generated_block(&self, b: Block) -> u8 {
+        self.generated_under(b, self.column_height(b))
+    }
+    /// The terrain's surface radius over block b's column: the costly part of `generated_block`, the same for
+    /// every layer of a column.
+    pub fn column_height(&self, b: Block) -> f64 {
+        let body = &self.bodies[b.body as usize];
+        let p = b.pos.as_dvec3() + 0.5;
+        body.height(body.dir(b.face as usize, p.x, p.y))
+    }
+    /// The generated material of block b under a surface at radius `height` (its `column_height`).
+    pub fn generated_under(&self, b: Block, height: f64) -> u8 {
         if b.pos.z < 0 {
             return 3;
         }
-        let body = &self.bodies[b.body as usize];
-        let p = b.pos.as_dvec3() + 0.5;
-        material(body.height(body.dir(b.face as usize, p.x, p.y)) - body.layer_r(p.z))
+        material(height - self.bodies[b.body as usize].layer_r(b.pos.z as f64 + 0.5))
     }
-    fn edit(&self, b: Block) -> Option<u8> {
+    pub fn edit(&self, b: Block) -> Option<u8> {
         self.edits.get(&b.chunk()).and_then(|m| m.get(&b.pos)).copied()
     }
     pub fn block(&self, b: Block) -> u8 {
@@ -272,7 +307,7 @@ impl World {
         let c0 = k.pos * CS - 1; // padded cell (0, 0, 0) in cells of this level
         let lo = c0 * s;
         let hi = lo + IVec3::splat(P as i32 * s);
-        let mut take = |m: &HashMap<IVec3, u8>| {
+        let mut take = |m: &FxMap<IVec3, u8>| {
             for (b, v) in m {
                 let q = *b - lo - half;
                 if q.x.rem_euclid(s) | q.y.rem_euclid(s) | q.z.rem_euclid(s) != 0 {

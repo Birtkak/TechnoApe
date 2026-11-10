@@ -3,6 +3,40 @@
 The shared benchmark of `docs/plans/roadmap.md`, measured as ADR 0004 says. Newest first.
 Run it: `bash tools/bench.sh`, then `python -I tools/summarize.py`.
 
+## 2026-11-10: half-length series after the speed levers (ADR 0012)
+
+Reference machine, release build, 1920x1080 off-screen, vsync off. **Half-length runs** from here on
+(`length=0.5`: `stand` and `edit` 15 s, `fly` 30 s, `orbit` the same trip in 32 s, 5 s warm-up), 3 reps, 26
+reps in 13 min, none disturbed by a compiler. `big` is the 1 km planet (N = 3072), `huge` the 4 km planet
+(N = 12288, R = 4245 m). Not comparable one to one with the full-length rows below: `orbit` flies its trip
+twice as fast, and `fly` covers half the lap.
+
+| series | planet m | run | reps | | fps_avg | frame_p50_ms | frame_p99_ms | frame_max_ms | cpu_ms_p99 | gpu_ms_p99 | ram_mb | vram_mb | chunks_meshed_per_s | missing_chunks_max | holes_max | draws_avg | quads_avg | budget | spikes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| big | 1061 | stand | 3 | median | 2913.4 | 0.342 | 0.608 | 1.022 | 0.281 | 0.256 | 158 | 495 | 0 | 0 | 0 | 447 | 540872 | | |
+| | | | | worst | 2911.1 | 0.342 | 0.611 | 1.274 | 0.285 | 0.256 | 159 | 495 | 0 | 0 | 0 | 447 | 540872 | ok | 0 |
+| big | 1061 | fly | 3 | median | 2839.2 | 0.321 | 0.588 | 1.014 | 0.4 | 0.29 | 162 | 495 | 944.2 | 0 | 0 | 451 | 560768 | | |
+| | | | | worst | 2823.6 | 0.325 | 0.69 | 1.181 | 0.403 | 0.293 | 162 | 495 | 943.4 | 0 | 0 | 451 | 560861 | ok | 0 |
+| big | 1061 | orbit | 3 | median | 4647.3 | 0.194 | 0.454 | 1.813 | 0.303 | 0.297 | 163 | 495 | 411.2 | 0 | 0 | 79 | 133169 | | |
+| | | | | worst | 4635.8 | 0.195 | 0.459 | 2.557 | 0.304 | 0.297 | 163 | 495 | 411.2 | 0 | 0 | 79 | 133208 | ok | 0 |
+| big | 1061 | edit | 3 | median | 2596.4 | 0.378 | 0.691 | 2.12 | 0.358 | 0.295 | 164 | 495 | 160 | 0 | 0 | 443 | 578883 | | |
+| | | | | worst | 2593.9 | 0.378 | 0.694 | 2.444 | 0.389 | 0.296 | 164 | 495 | 160 | 0 | 0 | 443 | 578886 | ok | 0 |
+| huge | 4245 | stand | 3 | median | 2519.2 | 0.396 | 0.665 | 1.367 | 0.339 | 0.306 | 159 | 495 | 0 | 0 | 0 | 492 | 677876 | | |
+| | | | | worst | 2517 | 0.397 | 0.667 | 1.437 | 0.339 | 0.307 | 159 | 495 | 0 | 0 | 0 | 492 | 677876 | ok | 0 |
+| huge | 4245 | fly | 3 | median | 2309.9 | 0.432 | 0.704 | 1.473 | 0.437 | 0.378 | 161 | 495 | 811.5 | 0 | 0 | 530 | 730160 | | |
+| | | | | worst | 2302.2 | 0.434 | 0.706 | 1.918 | 0.451 | 0.379 | 162 | 495 | 809.3 | 0 | 0 | 530 | 730173 | ok | 0 |
+| huge | 4245 | orbit | 3 | median | 3610.8 | 0.245 | 0.558 | 1.214 | 0.426 | 0.423 | 162 | 495 | 1889.6 | 32 | 0 | 193 | 299612 | | |
+| | | | | worst | 3609.8 | 0.245 | 0.558 | 2.622 | 0.426 | 0.424 | 162 | 495 | 1888.8 | 32 | 0 | 193 | 299681 | ok | 0 |
+| huge | 4245 | edit | 3 | median | 3084.2 | 0.309 | 0.589 | 2.447 | 0.294 | 0.21 | 164 | 495 | 181.1 | 0 | 0 | 251 | 399119 | | |
+| | | | | worst | 3075.9 | 0.309 | 0.6 | 2.46 | 0.315 | 0.211 | 165 | 495 | 180.3 | 0 | 0 | 251 | 399122 | ok | 0 |
+
+- **Budget:** all 24 reps hold ADR 0004 with no frame over 8.3 ms; worst p99 0.71 ms, worst frame 2.6 ms.
+- **The 4 km planet** costs about 15% of the frame rate (`stand` 2,519 against 2,913 fps, 25% more quads) and
+  holds the budget by a factor of 12. `orbit` there shows up to 32 missing chunks while it crosses 3.5 km
+  between bodies at twice the full run's speed; `fly` has none.
+- **Levers** (ablation in ADR 0012): the soak 2.8x faster; mimalloc 17% less meshing time; the frame numbers
+  a few percent up, within the noise of a calm machine.
+
 ## 2026-11-10: engine base on the cube-sphere grid
 
 Reference machine (RTX 3070, Vulkan), release build, 1920x1080 off-screen, vsync off, 10 s warm-up, 3 reps per

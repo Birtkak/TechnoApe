@@ -132,6 +132,8 @@ fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64, q: f64, a
     }
 }
 
+static LOW_WORKERS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn run_len(run: &str, warm: f64, q: f64) -> f64 {
     warm + q * match run {
         "fly" => 60.0,
@@ -435,9 +437,9 @@ struct App {
 impl App {
     fn frame(&mut self) {
         let a = &self.args;
-        // quick=1: quarter-length runs and a 3 s warm-up, for iterating; never a final number
-        let q: f64 = if a.get("quick", 0) == 1 { 0.25 } else { 1.0 };
-        let warm: f64 = a.get("warmup", if q < 1.0 { 3.0 } else { 10.0 });
+        // length= scales a run (the benchmark uses 0.5); quick=1 is 0.25, for iterating, never a final number
+        let q: f64 = a.get("length", if a.get("quick", 0) == 1 { 0.25 } else { 1.0 });
+        let warm: f64 = a.get("warmup", (10.0 * q).max(3.0));
         let speed: f64 = a.get("speed", 60.0);
         let alt: f64 = a.get("alt", 20.0);
         let upload_mb: f64 = a.get("upload_mb", 16.0);
@@ -846,7 +848,7 @@ impl App {
                 "\"missing_chunks_max\":{},\"holes_max\":{},\"draws_avg\":{:.0},\"quads_avg\":{:.0},\"quad_buffer_mb\":{:.1},",
                 "\"select_ms_p50\":{:.3},\"submit_ms_p50\":{:.3},\"pre_acquire_ms_p50\":{:.3},\"edits_per_s\":{:.0},\"job_us_avg\":{:.0},",
                 "\"edits_sent\":{},\"edits_applied\":{},\"players\":{},\"feet\":[{:.2},{:.2},{:.2}],\"snaps\":{},\"drift_max_m\":{:.2},\"frames\":{},\"capture_stalls\":{},\"speed\":{},\"k\":{},\"greedy\":{},\"horizon\":{},\"mdi\":{},\"prefetch_s\":{},",
-                "\"threads\":{},\"alloc_fail\":{},\"backend\":\"{}\",\"adapter\":\"{}\",\"spikes\":[{}]}}"
+                "\"threads\":{},\"low_workers\":{},\"alloc_fail\":{},\"backend\":\"{}\",\"adapter\":\"{}\",\"spikes\":[{}]}}"
             ),
             self.run,
             a.s("label", ""),
@@ -893,6 +895,7 @@ impl App {
             a.get("mdi", 1),
             o.prefetch_s,
             rayon::current_num_threads(),
+            LOW_WORKERS.load(std::sync::atomic::Ordering::Relaxed),
             self.streamer.alloc_fail,
             gpu.backend,
             gpu.adapter_name,
@@ -978,6 +981,10 @@ impl ApplicationHandler for App {
     }
 }
 
+/// mimalloc: the Windows heap is slow under many threads (speed-lever spike, ADR 0012).
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() {
     let args = Args(
         std::env::args()
@@ -986,7 +993,10 @@ fn main() {
             .collect(),
     );
     let threads: usize = args.get("threads", std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).saturating_sub(2).max(1));
-    rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
+    // workers below normal priority can never preempt the frame thread (speed-lever spike, ADR 0012)
+    let low = args.get("low_workers", 1) == 1;
+    LOW_WORKERS.store(low, std::sync::atomic::Ordering::Relaxed);
+    rayon::ThreadPoolBuilder::new().num_threads(threads).start_handler(move |_| if low { sys::below_normal() }).build_global().unwrap();
     let run = args.s("run", "stand");
     if run == "meshbench" {
         sys::meshbench(&args.0);

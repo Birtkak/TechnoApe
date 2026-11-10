@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The shared benchmark (docs/plans/roadmap.md): 3 reps per run, off-screen, every run with a hard timeout.
-# Usage: bash tools/bench.sh [base|big|strips]...   then: python -I tools/summarize.py
+# The shared benchmark (docs/plans/roadmap.md): 3 reps per run at half length, off-screen, every run with a
+# hard timeout. The default (big strips) takes about 8 min; base and huge add about 6 min each.
+# Usage: bash tools/bench.sh [base|big|huge|strips]...   then: python -I tools/summarize.py
 # Lines go to out/raw.jsonl, the rep log to out/reps.log. Build first: cargo build --release
 cd "$(dirname "$0")/.."
 P=target/release/technoape.exe
@@ -21,7 +22,7 @@ go() { # label run extra-args...
     rm -f out/.busy_seen out/.rep.jsonl
     busy && touch out/.busy_seen # gave up waiting after 30 min
     ( while sleep 3; do busy && touch out/.busy_seen; done ) & local sampler=$!
-    timeout 170 $P run=$run label=$label out=out/.rep.jsonl "$@" 2>>out/bench.log >/dev/null || echo "FAILED $label $run $* (exit $?)" | tee -a out/bench.log >&2
+    timeout 170 $P run=$run label=$label length=0.5 out=out/.rep.jsonl "$@" 2>>out/bench.log >/dev/null || echo "FAILED $label $run $* (exit $?)" | tee -a out/bench.log >&2
     kill $sampler 2>/dev/null
     busy && touch out/.busy_seen
     if [ -e out/.busy_seen ]; then
@@ -34,12 +35,14 @@ go() { # label run extra-args...
   done
   rm -f out/.busy_seen out/.rep.jsonl
 }
-steps=${*:-base big strips}
+steps=${*:-big strips}
 for s in $steps; do case $s in
 base) # the benchmark planet (500 m class), comparable over time
   for i in 1 2 3; do for r in stand fly orbit edit; do go base $r planet=1536; done; done ;;
 big) # the first playable's 1 km planet must hold the budget too
   for i in 1 2 3; do for r in stand fly orbit edit; do go big $r planet=3072; done; done ;;
+huge) # headroom: the 4 km planet (fundamentals.md section 3)
+  for i in 1 2 3; do for r in stand fly orbit edit; do go huge $r planet=12288; done; done ;;
 strips)
   go strip fly capture_ms=2500 sheet=out/fly_strip.png
   go strip orbit capture_ms=2500 sheet=out/orbit_strip.png ;;

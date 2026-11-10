@@ -1,35 +1,10 @@
 //! LOD octree selection, job scheduling on worker threads, GPU sub-allocation of chunk meshes.
 use crate::mesh::{mesh, Mesh};
-use crate::world::{fold, generate, Block, Bounds, Gen, Key, World, CS};
+use crate::world::{fold, generate, Block, Bounds, FxMap, Gen, Key, World, CS};
 use glam::{DVec3, IVec3, Vec4};
-use std::collections::HashMap;
-use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Instant;
 
-/// FxHash-style hasher: SipHash cost a third of the selection time.
-#[derive(Default)]
-pub struct Fx(u64);
-impl Hasher for Fx {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-    fn write(&mut self, b: &[u8]) {
-        for x in b {
-            self.write_u64(*x as u64);
-        }
-    }
-    fn write_u8(&mut self, v: u8) {
-        self.write_u64(v as u64)
-    }
-    fn write_i32(&mut self, v: i32) {
-        self.write_u64(v as u32 as u64)
-    }
-    fn write_u64(&mut self, v: u64) {
-        self.0 = (self.0.rotate_left(5) ^ v).wrapping_mul(0x517c_c1b7_2722_0a95);
-    }
-}
-type FxMap<K, V> = HashMap<K, V, BuildHasherDefault<Fx>>;
 
 #[derive(Clone, Copy)]
 pub struct Opts {

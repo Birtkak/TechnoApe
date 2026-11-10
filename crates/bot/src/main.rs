@@ -8,6 +8,10 @@ use std::io::BufRead;
 use std::net::TcpStream;
 use std::sync::mpsc::channel;
 
+/// mimalloc: the Windows heap is slow under many threads (speed-lever spike, ADR 0012).
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() {
     let args: HashMap<String, String> = std::env::args().skip(1).filter_map(|a| a.split_once('=').map(|(k, v)| (k.to_string(), v.to_string()))).collect();
     let addr = args.get("connect").cloned().unwrap_or_else(|| format!("127.0.0.1:{DEFAULT_PORT}"));

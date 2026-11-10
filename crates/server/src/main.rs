@@ -15,6 +15,10 @@ use std::path::Path;
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+/// mimalloc: the Windows heap is slow under many threads (speed-lever spike, ADR 0012).
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() {
     let args: HashMap<String, String> = std::env::args().skip(1).filter_map(|a| a.split_once('=').map(|(k, v)| (k.to_string(), v.to_string()))).collect();
     let num = |k: &str, d: i32| args.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);

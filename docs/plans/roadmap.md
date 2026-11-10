@@ -38,9 +38,8 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      `crates/engine/src/phys.rs`, shared by the server, the client's `run=play` and the bots' `walk`;
    - ~~test harness I: soak, state hash, flight recorder with replay, one gate~~ done 2026-11-10 (ADR 0011):
      `tools/check.sh`. Its first runs moved collision into grid space (ADR 0007, revised);
-   - **cheap speed levers**, one spike on the benchmark (fundamentals section 3): mimalloc, a fast hasher,
-     the soak's physics (50 bots x 10 minutes take 45 s),
-     worker priority below the frame thread; a `huge` row for the 4 km planet (N = 12288);
+   - ~~cheap speed levers and a `huge` row~~ done 2026-11-10 (ADR 0012): a column cache in the physics, Fx
+     for edits, mimalloc, low-priority workers; the soak 2.8x faster, the 4 km planet holds ADR 0004;
    - dig and place blocks **as brushes and dragged shapes, predicted on the client** (ADR 0008); a block
      registry from data instead of `MATERIALS`; saves of only what changed;
    - **test harness II** with the first visuals that can break: fixed viewpoints compared by number, the
@@ -72,14 +71,17 @@ The engine keeps the spikes' benchmark as its performance check, so numbers stay
 
 - **World:** one planet, radius 500 m, 0.5 m blocks, seeded noise terrain (+-30 m), 3 materials, crust 64 m
   thick (the core below is never meshed). Moon: radius 150 m, 3 km away, same rules.
-- **Runs** (uncapped, vsync off, 1920x1080, reference machine):
-  1. `stand`: 30 s standing on the surface, looking at the horizon.
-  2. `fly`: 60 s at 20 m altitude, 60 m/s around the equator.
-  3. `orbit`: from the ground straight up to 3 km, across to the moon, land, back, with no load screen.
-  4. `edit`: 30 s of 2000 block changes/s within 10 m.
+- **Runs** (uncapped, vsync off, 1920x1080, reference machine), at half length since 2026-11-10 so a series
+  takes minutes, not half an hour (`length=0.5`, 5 s warm-up; rows before that date are full length):
+  1. `stand`: 15 s standing on the surface, looking at the horizon.
+  2. `fly`: 30 s at 20 m altitude, 60 m/s around the equator.
+  3. `orbit`: from the ground straight up to 3 km, across to the moon, land, back, with no load screen, in 32 s.
+  4. `edit`: 15 s of 2000 block changes/s within 10 m.
+- **Series:** `big` (the 1 km planet) and the filmstrips by default, about 8 min; `base` (531 m, comparable
+  with the spikes) and `huge` (4 km) on demand, about 6 min each.
 - **Output:** one JSON line per run: `fps_avg`, `frame_p50_ms`, `frame_p99_ms`, `frame_max_ms`, `ram_mb`,
   `vram_mb`, `chunks_meshed_per_s`, `missing_chunks_max`, plus filmstrips of `fly` and `orbit`.
 - **Targets:** ADR 0004 in all four runs, `missing_chunks_max == 0` in `fly`; stretch: `stand` >= 300 fps.
-- **Honest numbers:** release builds, nothing else heavy running, 10 s warm-up excluded, 3 reps per run
+- **Honest numbers:** release builds, nothing else heavy running, the warm-up excluded, 3 reps per run
   (median and worst), CPU and GPU ms reported separately, an ablation row per big optimisation. `quick=1`
   gives quarter-length runs for a smoke check in about a minute.
