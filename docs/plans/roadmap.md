@@ -45,8 +45,9 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      registry (ADR 0013), box edits with a survival inventory (ADR 0014), prediction (ADR 0015), saves
      (ADR 0016), single-block hands and a **build hammer** with Lay of the Land's shapes (ADR 0017: box,
      cylinder, cone, with a ghost and a hotbar). Done 2026-11-10; mining tools come later;
-   - **test harness II** with the first visuals that can break: fixed viewpoints compared by number, the
-     crack detector, the feel report;
+   - ~~**test harness II** with the first visuals that can break: fixed viewpoints compared by number, the
+     crack detector, the feel report~~ done 2026-11-10 (ADR 0018): `tools/views.sh`, `shot=`, the `feel`
+     field, all in the gate. Found: a pinhole crack at the LOD view and a start-up correction (open);
    - water as fill levels, with fine 12.5 cm splashes near the player; the total volume is counted from the
      start (the water cycle needs it, ADR 0010);
    - lighting: block light, the sun around the planet, the 20 minute day, shadow maps;

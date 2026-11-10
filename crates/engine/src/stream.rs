@@ -98,6 +98,34 @@ pub struct FrameStats {
     pub requests: u32,
 }
 
+/// The chunks, at every level (or only `level`), whose cells or padding sample block `b`.
+fn sampling(world: &World, b: Block, level: Option<u8>) -> Vec<Key> {
+    let body = &world.bodies[b.body as usize];
+    let mut keys = Vec::new();
+    for l in 0..=body.root_level {
+        if level.is_some_and(|only| only != l) {
+            continue;
+        }
+        let s = 1i32 << l;
+        let q = b.pos - s / 2; // coarse cells sample the block in their middle
+        if q.x.rem_euclid(s) | q.y.rem_euclid(s) | q.z.rem_euclid(s) != 0 {
+            continue;
+        }
+        let cell = q.div_euclid(IVec3::splat(s));
+        let own = Key { body: b.body, face: b.face, level: l, pos: cell.div_euclid(IVec3::splat(CS)) };
+        keys.push(own);
+        for d in [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z] {
+            let c = cell + d;
+            let (f, ci, cj) = fold(b.face as usize, c.x, c.y, body.n >> l);
+            let k = Key { face: f as u8, pos: IVec3::new(ci, cj, c.z).div_euclid(IVec3::splat(CS)), ..own };
+            if k != own && !keys.contains(&k) {
+                keys.push(k);
+            }
+        }
+    }
+    keys
+}
+
 pub struct Streamer {
     slots: FxMap<Key, Slot>,
     tx: Sender<JobResult>,
@@ -375,30 +403,17 @@ impl Streamer {
 
     /// An edit changed a block: every chunk that samples it, in its cells or its padding, gets a new version.
     pub fn touch_block(&mut self, world: &World, b: Block) {
-        let body = &world.bodies[b.body as usize];
-        for l in 0..=body.root_level {
-            let s = 1i32 << l;
-            let q = b.pos - s / 2; // coarse cells sample the block in their middle
-            if q.x.rem_euclid(s) | q.y.rem_euclid(s) | q.z.rem_euclid(s) != 0 {
-                continue;
-            }
-            let cell = q.div_euclid(IVec3::splat(s));
-            let own = Key { body: b.body, face: b.face, level: l, pos: cell.div_euclid(IVec3::splat(CS)) };
-            let mut bump = |k: Key| {
-                if let Some(sl) = self.slots.get_mut(&k) {
-                    sl.want_v += 1;
-                }
-            };
-            bump(own);
-            for d in [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z] {
-                let c = cell + d;
-                let (f, ci, cj) = fold(b.face as usize, c.x, c.y, body.n >> l);
-                let k = Key { face: f as u8, pos: IVec3::new(ci, cj, c.z).div_euclid(IVec3::splat(CS)), ..own };
-                if k != own {
-                    bump(k);
-                }
+        for k in sampling(world, b, None) {
+            if let Some(sl) = self.slots.get_mut(&k) {
+                sl.want_v += 1;
             }
         }
+    }
+
+    /// True when every full-detail chunk that samples block `b` draws its latest version: an edit there is
+    /// on screen (the feel report's click-to-change, fundamentals section 1).
+    pub fn shows(&self, world: &World, b: Block) -> bool {
+        sampling(world, b, Some(0)).iter().all(|k| self.slots.get(k).is_none_or(|s| s.shown_v >= s.want_v))
     }
 
     pub fn evict(&mut self, age: u64) {

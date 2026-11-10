@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The one gate (docs/design/fundamentals.md section 4, ADR 0011): tests, a soak on a fresh seed, a replay of
 # that soak (determinism and the flight recorder), the quick benchmark (budget in every run, no missing chunks
-# in fly). Prints one JSON verdict line, exit 1 on any failure; each failure carries its repro line.
-# Usage: bash tools/check.sh [soak_minutes]   (default 3; about 1.5 min in all)
+# in fly), the fixed viewpoints (tools/views.sh: cracks and pixels against the baselines) and a played run's
+# feel report (ADR 0018). Prints one JSON verdict line, exit 1 on any failure; each failure carries its repro.
+# Usage: bash tools/check.sh [soak_minutes]   (default 3; about 2 min in all)
 cd "$(dirname "$0")/.."
 export PATH="$HOME/Tools/rust/cargo/bin:$PATH" CARGO_HOME="${CARGO_HOME:-$HOME/Tools/rust/cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/Tools/rust/rustup}"
 mkdir -p out/check
@@ -30,11 +31,22 @@ for r in stand fly orbit edit; do
     || fails+=("bench $r: budget or streaming failed (repro: technoape.exe run=$r quick=1)")
 done
 
-printf '%s\n' "$tests" "$soak" "$replay" "${bench[@]}" "--" "${fails[@]}" | python -I -c "
+views=$(bash tools/views.sh | tail -1)
+echo "$views" | grep -q '"ok": true' || fails+=("views: $(echo "$views" | python -I -c "import json,sys; print('; '.join(json.loads(sys.stdin.read())['failures']))" 2>/dev/null || echo "$views")")
+
+# a played run: walk over hills, dig, place, build with the hammer. Clicks must show within a 60 Hz frame;
+# one correction at the start is known (the client walks before the server has its first input)
+ACTS="0.5:m:0:250,1:c,2:L,2.1:l,3:R,3.1:r,4:L,4.1:l,5:h,5.2:R,5.3:m:-100:0,5.6:r,7:L,7.1:l,8:R,8.1:r"
+feel=$(timeout 120 target/release/technoape.exe run=play save=0 seconds=10 autowalk=1 acts="$ACTS" 2>/dev/null | tail -1 \
+  | python -I -c "import json,sys; print(json.dumps(json.loads(sys.stdin.read())['feel']))" 2>/dev/null)
+echo "$feel" | python -I -c "import json,sys; f=json.loads(sys.stdin.read()); sys.exit(0 if f['corrections'] <= 1 and f['clicks'] >= 4 and f['clicks_not_shown'] == 0 and f['click_to_change_ms_max'] <= 16.7 else 1)" 2>/dev/null \
+  || fails+=("feel: $feel (repro: technoape.exe run=play save=0 seconds=10 autowalk=1 acts=\"$ACTS\")")
+
+printf '%s\n' "$tests" "$soak" "$replay" "$views" "$feel" "${bench[@]}" "--" "${fails[@]}" | python -I -c "
 import json, sys
 lines = sys.stdin.read().split('\n')
 cut = lines.index('--')
-tests, soak, replay, bench, fails = lines[0], lines[1], lines[2], lines[3:cut], [l for l in lines[cut + 1:] if l]
+tests, soak, replay, views, feel, bench, fails = lines[0], lines[1], lines[2], lines[3], lines[4], lines[5:cut], [l for l in lines[cut + 1:] if l]
 def js(s):
     try: return json.loads(s)
     except Exception: return s
@@ -43,6 +55,10 @@ for l in bench:
     d = js(l)
     if isinstance(d, dict): b[d['run']] = {k: d[k] for k in ('budget_ok', 'fps_avg', 'frame_p99_ms', 'frame_max_ms', 'missing_chunks_max')}
 r = js(replay)
-print(json.dumps({'ok': not fails, 'tests': tests, 'soak': js(soak), 'replay': {k: r[k] for k in ('ticks', 'checks', 'diverged', 'hash')} if isinstance(r, dict) and 'checks' in r else r, 'bench': b, 'failures': fails}))
+v, f = js(views), js(feel)
+print(json.dumps({'ok': not fails, 'tests': tests, 'soak': js(soak), 'replay': {k: r[k] for k in ('ticks', 'checks', 'diverged', 'hash')} if isinstance(r, dict) and 'checks' in r else r, 'bench': b,
+    'views': v['views'] if isinstance(v, dict) else v,
+    'feel': {k: f[k] for k in ('corrections', 'jerk_p99', 'jerk_max', 'clicks', 'click_to_change_frames_max', 'click_to_change_ms_max')} if isinstance(f, dict) else f,
+    'failures': fails}))
 sys.exit(1 if fails else 0)
 "

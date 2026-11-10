@@ -405,7 +405,7 @@ impl Gpu {
             let ring = (0..TS_RING).map(|_| (buf("ts-read", 16, U::MAP_READ | U::COPY_DST), Arc::new(AtomicBool::new(false)), false)).collect();
             (qs, resolve, ring)
         });
-        let capture = (a.get("capture_ms", 0) > 0).then(|| buf("capture", (W * H * 4) as u64, U::MAP_READ | U::COPY_DST));
+        let capture = (a.get("capture_ms", 0) > 0 || a.0.contains_key("shot")).then(|| buf("capture", (W * H * 4) as u64, U::MAP_READ | U::COPY_DST));
         Gpu {
             window,
             ts_period: queue.get_timestamp_period(),
@@ -542,6 +542,19 @@ struct App {
     /// acts=: scripted input for checks without hands, as (seconds after load, action), soonest last.
     acts: Vec<(f64, String)>,
     title: String,
+    /// shot=: where one settled frame of run=stand goes, and what it measured (ADR 0018).
+    shot: Option<String>,
+    shot_json: String,
+    /// The last frame's camera (position, forward, up): the crack detector casts its rays from it.
+    cam: (DVec3, DVec3, DVec3),
+    /// The feel report (ADR 0018): edits not on screen yet (frame and time of the click, their cells), then
+    /// each one's frames and milliseconds until it was; the last physics positions and the jerk between them.
+    clicks: Vec<(u64, Instant, Vec<Block>)>,
+    shown: Vec<(u64, f64)>,
+    path: Vec<DVec3>,
+    jerks: Vec<(f64, f64)>,
+    /// When each correction came and how far it moved the player.
+    snap_t: Vec<(f64, f64)>,
     last_pos: DVec3,
     sheet: Vec<image::RgbaImage>,
     next_cap: f64,
@@ -641,8 +654,11 @@ impl App {
         }
         let me = &self.me;
         let (seq, cells) = self.pred.edit(&mut self.world, s, m, |w, c| phys::holds(w, me, c));
-        for c in cells {
-            self.streamer.touch_block(&self.world, c);
+        for c in &cells {
+            self.streamer.touch_block(&self.world, *c);
+        }
+        if !cells.is_empty() {
+            self.clicks.push((self.streamer.frame, Instant::now(), cells));
         }
         self.link.send(ToServer::Edit { seq, shape: *s, material: m });
     }
@@ -744,6 +760,16 @@ impl App {
             while self.debt >= phys::DT {
                 self.prev = self.me.pos;
                 phys::step(&self.world, &mut self.me, &inp, phys::DT);
+                if self.loaded_at.is_some() {
+                    // the third difference of the fixed-step path: jerk in m/s^3
+                    self.path.push(self.me.pos);
+                    if self.path.len() > 4 {
+                        self.path.remove(0);
+                    }
+                    if let [a, b, c, d] = self.path[..] {
+                        self.jerks.push((t, (d - c * 3.0 + b * 3.0 - a).length() / phys::DT.powi(3)));
+                    }
+                }
                 self.debt -= phys::DT;
             }
             self.input = inp;
@@ -789,8 +815,10 @@ impl App {
                             // from the acknowledged tick comes when real latency makes this visible
                             self.drift_max = self.drift_max.max(sp.distance(self.me.pos));
                             if sp.distance(self.me.pos) > 1.0 {
+                                self.snap_t.push((t, sp.distance(self.me.pos)));
                                 (self.me.pos, self.prev) = (sp, sp);
                                 self.snaps += 1;
+                                self.path.clear(); // a correction is counted as one, not as jerk
                                 self.me.vel = DVec3::ZERO;
                             }
                         }
@@ -853,10 +881,23 @@ impl App {
         let mut st = FrameStats::default();
         let budget = (upload_mb * 1e6) as usize;
         self.streamer.apply(budget, &mut st, |off, q| gpu.upload(off, q));
+        if !self.clicks.is_empty() {
+            let (world, streamer, frame) = (&self.world, &self.streamer, self.streamer.frame);
+            let mut done = Vec::new();
+            self.clicks.retain(|(f, at, cells)| {
+                let on = cells.iter().all(|b| streamer.shows(world, *b));
+                if on {
+                    done.push((frame - f, at.elapsed().as_secs_f64() * 1000.0));
+                }
+                !on
+            });
+            self.shown.extend(done);
+        }
 
         let aspect = W as f32 / H as f32;
         let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(70f32.to_radians(), aspect, 0.1);
         let up = if p.fwd.dot(p.up).abs() > 0.98 { DVec3::Z } else { p.up };
+        self.cam = (p.pos, p.fwd, up);
         let viewm = glam::camera::rh::view::look_to_mat4(Vec3::ZERO, p.fwd.as_vec3(), up.as_vec3());
         let vp = proj * viewm;
         let view = View::new(p.pos, frustum_planes(vp), &self.world);
@@ -926,7 +967,11 @@ impl App {
         let b = &self.world.bodies[near];
         let altm = ((p.pos - b.centre).length() - b.radius).max(0.0);
         let k = (1.0 - altm / 1500.0).clamp(0.0, 1.0);
-        let sky = wgpu::Color { r: 0.45 * k + 0.01, g: 0.65 * k + 0.01, b: 0.95 * k + 0.03, a: 1.0 };
+        let mut sky = wgpu::Color { r: 0.45 * k + 0.01, g: 0.65 * k + 0.01, b: 0.95 * k + 0.03, a: 1.0 };
+        if self.shot.is_some() {
+            // the crack detector's colour: no block or sky has it, so every such pixel is a hole or sky
+            sky = wgpu::Color { r: 1.0, g: 0.0, b: 1.0, a: 1.0 };
+        }
 
         let frame = match gpu.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
@@ -1009,7 +1054,9 @@ impl App {
             enc.resolve_query_set(qs, (i * 2) as u32..(i * 2 + 2) as u32, resolve, (i * 256) as u64);
             enc.copy_buffer_to_buffer(resolve, (i * 256) as u64, &ring[i].0, 0, 16);
         }
-        let cap_now = gpu.capture.is_some() && self.loaded_at.is_some() && t >= self.next_cap;
+        // a shot waits a second after loading, so the last meshes are in
+        let cap_at = if self.shot.is_some() { 1.0 } else { self.next_cap };
+        let cap_now = gpu.capture.is_some() && self.loaded_at.is_some() && t >= cap_at;
         if cap_now {
             enc.copy_texture_to_buffer(
                 frame.texture.as_image_copy(),
@@ -1044,7 +1091,10 @@ impl App {
         gpu.queue.present(frame);
         let pres = tpres.elapsed().as_secs_f64();
         let tail0 = Instant::now();
-        if cap_now {
+        if cap_now && self.shot.is_some() {
+            self.take_shot();
+            self.finish();
+        } else if cap_now {
             self.capture_frame(t);
         }
 
@@ -1093,30 +1143,106 @@ impl App {
         self.frame_end = Some(end);
     }
 
-    fn capture_frame(&mut self, t: f64) {
-        let every: f64 = self.args.get("capture_ms", 0.0) / 1000.0;
-        self.next_cap = t + every;
+    /// The frame copied to the capture buffer, at full size.
+    fn read_frame(&self) -> image::RgbaImage {
         let gpu = self.gpu.as_ref().unwrap();
         let buf = gpu.capture.as_ref().unwrap();
         buf.slice(..).map_async(wgpu::MapMode::Read, |_| {});
         let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
         let data = buf.slice(..).get_mapped_range().unwrap();
         let bgra = matches!(gpu.config.format, wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb);
-        let tw: u32 = self.args.get("capture_w", 384);
-        let th = tw * H / W;
-        let mut img = image::RgbaImage::new(tw, th);
-        for y in 0..th {
-            for x in 0..tw {
-                let sx = x * W / tw;
-                let sy = y * H / th;
-                let i = ((sy * W + sx) * 4) as usize;
-                let (r, g, b) = if bgra { (data[i + 2], data[i + 1], data[i]) } else { (data[i], data[i + 1], data[i + 2]) };
-                img.put_pixel(x, y, image::Rgba([r, g, b, 255]));
-            }
+        let mut img = image::RgbaImage::new(W, H);
+        for (i, px) in img.pixels_mut().enumerate() {
+            let d = &data[i * 4..i * 4 + 4];
+            *px = image::Rgba(if bgra { [d[2], d[1], d[0], 255] } else { [d[0], d[1], d[2], 255] });
         }
         drop(data);
         buf.unmap();
+        img
+    }
+
+    fn capture_frame(&mut self, t: f64) {
+        let every: f64 = self.args.get("capture_ms", 0.0) / 1000.0;
+        self.next_cap = t + every;
+        let full = self.read_frame();
+        let tw: u32 = self.args.get("capture_w", 384);
+        let th = tw * H / W;
+        let img = image::RgbaImage::from_fn(tw, th, |x, y| *full.get_pixel(x * W / tw, y * H / th));
         self.sheet.push(img);
+    }
+
+    /// shot= (ADR 0018): counts cracks, the clear colour where a ray from the camera must meet a body (it
+    /// passes inside the lowest terrain any column can have), then stores the frame at a third of its size
+    /// and counts the pixels that differ from baseline= by more than 8 of 255 in a channel.
+    fn take_shot(&mut self) {
+        let img = self.read_frame();
+        let (pos, fwd, up) = self.cam;
+        let right = fwd.cross(up).normalize();
+        let cu = right.cross(fwd);
+        let th = (70f64.to_radians() / 2.0).tan();
+        let aspect = W as f64 / H as f64;
+        let mut cracks = 0u64;
+        let mut at: Vec<String> = Vec::new();
+        for (x, y, px) in img.enumerate_pixels() {
+            if px.0[..3] != [255, 0, 255] {
+                continue;
+            }
+            let nx = (2.0 * (x as f64 + 0.5) / W as f64 - 1.0) * th * aspect;
+            let ny = (1.0 - 2.0 * (y as f64 + 0.5) / H as f64) * th;
+            let d = (fwd + right * nx + cu * ny).normalize();
+            let hits = |c: DVec3, r: f64| {
+                let oc = pos - c;
+                let (b, cc) = (oc.dot(d), oc.dot(oc) - r * r);
+                b * b - cc >= 0.0 && -b + (b * b - cc).sqrt() > 0.0
+            };
+            if self.world.bodies.iter().any(|b| hits(b.centre, b.radius - engine::world::AMP - 1.0)) {
+                cracks += 1;
+                if at.len() < 8 {
+                    at.push(format!("[{x},{y}]"));
+                }
+            }
+        }
+        let small = image::imageops::resize(&img, W / 3, H / 3, image::imageops::FilterType::Triangle);
+        let base = self.args.0.get("baseline").and_then(|b| image::open(b).ok()).map(|i| i.to_rgba8());
+        let diff = base.filter(|b| b.dimensions() == small.dimensions()).map(|b| {
+            let n = small.pixels().zip(b.pixels()).filter(|(p, q)| p.0.iter().zip(q.0.iter()).any(|(u, v)| u.abs_diff(*v) > 8)).count();
+            n as f64 / (small.width() * small.height()) as f64 * 100.0
+        });
+        let path = self.shot.clone().unwrap();
+        if let Some(d) = std::path::Path::new(&path).parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        if let Err(e) = small.save(&path) {
+            eprintln!("[technoape] shot {path}: {e}");
+        }
+        self.shot_json = format!("\"shot\":{{\"file\":{path:?},\"cracks\":{cracks},\"crack_px\":[{}],\"diff_pct\":{}}},", at.join(","), diff.map_or("null".into(), |d| format!("{d:.3}")));
+    }
+
+    /// run=play's feel report (fundamentals section 1, ADR 0018) as a JSON field, or nothing in other runs.
+    fn feel(&self) -> String {
+        if self.run != "play" {
+            return String::new();
+        }
+        let mut mags: Vec<f32> = self.jerks.iter().map(|j| j.1 as f32).collect();
+        let mut top = self.jerks.clone();
+        top.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let top: Vec<String> = top.iter().take(5).map(|(t, j)| format!("{{\"t\":{t:.2},\"jerk\":{j:.0}}}")).collect();
+        let frames = self.shown.iter().map(|c| c.0).max().unwrap_or(0);
+        let ms = self.shown.iter().map(|c| c.1).fold(0.0, f64::max);
+        format!(
+            "\"feel\":{{\"corrections\":{},\"corrections_at\":[{}],\"drift_max_m\":{:.3},\"jerk_p50\":{:.0},\"jerk_p99\":{:.0},\"jerk_max\":{:.0},\"jerk_top\":[{}],\"clicks\":{},\"clicks_not_shown\":{},\"click_to_change_frames_max\":{},\"click_to_change_ms_max\":{:.2}}},",
+            self.snaps,
+            self.snap_t.iter().map(|(t, d)| format!("{{\"t\":{t:.2},\"m\":{d:.2}}}")).collect::<Vec<_>>().join(","),
+            self.drift_max,
+            pct(&mut mags, 0.5),
+            pct(&mut mags, 0.99),
+            pct(&mut mags, 1.0),
+            top.join(","),
+            self.shown.len(),
+            self.clicks.len(),
+            frames,
+            ms
+        )
     }
 
     fn finish(&mut self) {
@@ -1195,6 +1321,8 @@ impl App {
             gpu.adapter_name,
             s.spikes.join(",")
         );
+        // the shot's and the feel report's fields go in before the spikes
+        let line = line.replacen("\"spikes\":", &format!("{}{}\"spikes\":", self.shot_json, self.feel()), 1);
         println!("{}", line);
         if let Some(path) = a.0.get("out") {
             use std::io::Write;
@@ -1389,7 +1517,7 @@ fn main() {
     let streamer = Streamer::new(&world, cap, opts);
     let el = EventLoop::new().unwrap();
     el.set_control_flow(ControlFlow::Poll);
-    let (acts, creative) = (parse_acts(&args.s("acts", "")), run != "play");
+    let (acts, creative, shot) = (parse_acts(&args.s("acts", "")), run != "play", args.0.get("shot").cloned());
     let mut app = App {
         args,
         gpu: None,
@@ -1432,6 +1560,14 @@ fn main() {
         ui_n: 0,
         acts,
         title: String::new(),
+        shot,
+        shot_json: String::new(),
+        cam: (DVec3::ZERO, DVec3::X, DVec3::Y),
+        clicks: Vec::new(),
+        shown: Vec::new(),
+        path: Vec::new(),
+        jerks: Vec::new(),
+        snap_t: Vec::new(),
         last_pos: DVec3::ZERO,
         sheet: Vec::new(),
         next_cap: 0.0,

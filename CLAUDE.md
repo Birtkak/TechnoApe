@@ -70,10 +70,13 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   scripts those inputs off-screen (ADR 0017), and a filmstrip shows the result.
 - To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet;
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
-- **The gate:** `bash tools/check.sh` (about 1.5 min: tests, a soak, its replay, the quick benchmark) prints
+- **The gate:** `bash tools/check.sh` (about 2 min: tests, a soak, its replay, the quick benchmark, the fixed
+  viewpoints and a played run's feel report, ADR 0018) prints
   one JSON verdict; it is what "done" means (ADR 0011). Soak alone: `technoape-server soak=1 bots=50 minutes=10
   seed=1` (a failure prints its repro line and writes `out/soak-fail.rec`). Sessions record to `out/rec/`;
   `technoape-server replay=file until=tick` replays one headless and dumps the players.
+- Viewpoints: `bash tools/views.sh` renders `tests/views/views.txt` and compares by number (cracks, pixels);
+  after a deliberate visual change, look at `out/views/*.png`, then `bash tools/views.sh accept`.
 - Full benchmark: `bash tools/bench.sh` (about 8 min for the 1 km planet and filmstrips; add `base` or `huge` for
   the other planets, about 6 min each; repeats reps a compiler disturbed), then
   `python -I tools/summarize.py`. Results: `docs/benchmarks.md`. Do not compile while it runs.
