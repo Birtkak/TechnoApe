@@ -173,6 +173,8 @@ pub struct Streamer {
     touched: Vec<Key>,
     /// Walks done, for the benchmark line.
     pub walks: u64,
+    /// Quad-buffer offsets released since the client last took them: their BLAS go too (ADR 0025, G).
+    pub released: Vec<u32>,
 }
 
 pub struct View {
@@ -273,6 +275,7 @@ impl Streamer {
             dirty: true,
             touched: Vec::new(),
             walks: 0,
+            released: Vec::new(),
         }
     }
 
@@ -535,6 +538,7 @@ impl Streamer {
             let s = self.slots.get_mut(&r.key).unwrap();
             if let State::Ready { off, len, .. } = s.state {
                 self.alloc.release(off, len);
+                self.released.push(off);
             }
             // a remesh that stays drawn changes only its range: the last walk's list takes it in place; any other
             // change of state can change what the walk picks
@@ -584,13 +588,14 @@ impl Streamer {
     pub fn evict(&mut self, age: u64) {
         // a slot is seen by walks: frames that only cull see none (ADR 0025, F)
         let f = self.walk_frame;
-        let alloc = &mut self.alloc;
+        let (alloc, released) = (&mut self.alloc, &mut self.released);
         let n = self.slots.len();
         self.slots.retain(|_, s| {
             let keep = s.inflight || f.saturating_sub(s.last_seen) < age;
             if !keep {
                 if let State::Ready { off, len, .. } = s.state {
                     alloc.release(off, len);
+                    released.push(off);
                 }
             }
             keep

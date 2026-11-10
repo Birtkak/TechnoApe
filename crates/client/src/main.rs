@@ -2082,6 +2082,10 @@ impl App {
             ups.push(off);
         });
         let rt = self.rt.as_mut().unwrap();
+        // a released mesh's BLAS goes the same frame (ADR 0025, G)
+        for off in self.streamer.released.drain(..) {
+            rt.forget(off);
+        }
         for off in ups {
             rt.forget(off);
             // new quads at an offset: its table entry is for another chunk now
@@ -2141,6 +2145,10 @@ impl App {
         lap!("dispatch");
         if self.streamer.frame % 30 == 0 {
             self.streamer.evict(120);
+            let rt = self.rt.as_mut().unwrap();
+            for off in self.streamer.released.drain(..) {
+                rt.forget(off);
+            }
         }
 
         // the indirect args per frame; the chunk table's entries only for meshes new to it (ADR 0025, B)
@@ -2374,7 +2382,7 @@ impl App {
         };
         stamp(&mut enc, 0);
         let rt = self.rt.as_mut().unwrap();
-        rt.record(&gpu.device, &gpu.queue, &mut enc, &insts, self.streamer.frame);
+        rt.record(&gpu.device, &gpu.queue, &mut enc, &insts);
         let rt_pending = rt.pending;
         self.drawn.rt_pending = rt_pending;
         stamp(&mut enc, 1);
@@ -2848,6 +2856,10 @@ impl App {
             }
         }
         // the shot's and the feel report's fields go in before the spikes
+        // what wgpu itself holds at the end, finer than the driver's 256 MB blocks in vram_mb (ADR 0025, G)
+        if let Some(r) = gpu.device.generate_allocator_report() {
+            stages += &format!("\"gpu_alloc_mb\":{:.0},\"gpu_reserved_mb\":{:.0},", r.total_allocated_bytes as f64 / 1e6, r.total_reserved_bytes as f64 / 1e6);
+        }
         stages += &format!("\"job_us_after_load\":{job_us_after:.0},\"jobs_after_load\":{later},\"walks\":{},\"tlas_builds\":{},", self.streamer.walks, self.rt.as_ref().map_or(0, |r| r.tlas_builds));
         let line = line.replacen("\"spikes\":", &format!("{}{}{}\"spikes\":", self.shot_json, self.feel(), stages), 1);
         println!("{}", line);

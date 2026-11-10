@@ -9,8 +9,6 @@ use std::collections::HashMap;
 /// Quads expanded and built per frame at most: a stream of new chunks is spread over frames, as meshing is.
 const BUILD_QUADS: u32 = 1 << 17;
 const BUILDS_MAX: usize = 256;
-/// A BLAS no instance used for this many frames is dropped: its mesh was replaced or evicted.
-const KEEP_FRAMES: u64 = 120;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -40,8 +38,9 @@ pub struct Rt {
     bind: wgpu::BindGroup,
     builds: wgpu::Buffer,
     verts: wgpu::Buffer,
-    /// By mesh offset in the quad buffer: its land quads, its BLAS, the frame it was last traced.
-    blas: HashMap<u32, (u32, wgpu::Blas, u64)>,
+    /// By mesh offset in the quad buffer: its land quads and its BLAS, dropped when the streamer releases the
+    /// offset (ADR 0025, G).
+    blas: HashMap<u32, (u32, wgpu::Blas)>,
     n: usize,
     /// The instances the TLAS was last built from: (mesh offset, chunk-table index, body).
     built: Vec<(u32, u32, u8)>,
@@ -91,7 +90,7 @@ impl Rt {
 
     /// Build the missing BLAS within the budget, and the TLAS from every chunk that has one when that set or a
     /// BLAS in it changed.
-    pub fn record(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, insts: &[Inst], frame: u64) {
+    pub fn record(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, insts: &[Inst]) {
         let mut todo: Vec<Build> = Vec::new();
         let mut sizes = Vec::new();
         let mut quads = 0;
@@ -119,7 +118,7 @@ impl Rt {
                 },
                 wgpu::BlasGeometrySizeDescriptors::Triangles { descriptors: vec![size.clone()] },
             );
-            self.blas.insert(c.off, (c.land, blas, frame));
+            self.blas.insert(c.off, (c.land, blas));
             todo.push(Build { base: c.base, info: c.info, off: c.off, n: c.land, dst: quads * 6, _p: 0 });
             sizes.push(size);
             quads += c.land;
@@ -135,8 +134,9 @@ impl Rt {
         const IDENTITY: [f32; 12] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
         let mut now = Vec::with_capacity(insts.len());
         for c in insts {
-            let Some(e) = self.blas.get_mut(&c.off).filter(|b| b.0 == c.land) else { continue };
-            e.2 = frame;
+            if !self.blas.get(&c.off).is_some_and(|b| b.0 == c.land) {
+                continue;
+            }
             now.push((c.off, c.ci, c.body));
         }
         // a new BLAS at an offset the last build had is a change too; the TLAS is built at least once before use
@@ -171,9 +171,6 @@ impl Rt {
             .collect();
         if rebuild {
             enc.build_acceleration_structures(entries.iter(), std::iter::once(&self.tlas));
-        }
-        if frame % 30 == 0 {
-            self.blas.retain(|_, b| frame - b.2 < KEEP_FRAMES);
         }
     }
 }
