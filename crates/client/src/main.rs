@@ -2848,7 +2848,7 @@ impl App {
             }
         }
         // the shot's and the feel report's fields go in before the spikes
-        stages += &format!("\"job_us_after_load\":{job_us_after:.0},\"jobs_after_load\":{later},");
+        stages += &format!("\"job_us_after_load\":{job_us_after:.0},\"jobs_after_load\":{later},\"walks\":{},\"tlas_builds\":{},", self.streamer.walks, self.rt.as_ref().map_or(0, |r| r.tlas_builds));
         let line = line.replacen("\"spikes\":", &format!("{}{}{}\"spikes\":", self.shot_json, self.feel(), stages), 1);
         println!("{}", line);
         if let Some(path) = a.0.get("out") {

@@ -68,6 +68,21 @@ struct Slot {
     shown_v: u32,
     inflight: bool,
     bounds: Bounds,
+    /// The walk that last drew it as a wanted leaf: a touch on a frame without a walk requests it (ADR 0025, F).
+    leaf_at: u64,
+    /// The walk that last drew it, and where in its list.
+    drawn_at: (u64, u32),
+}
+
+/// The last LOD walk (ADR 0025, F): which chunks it drew, their bounds, its stats, and the camera in each
+/// body's frame it walked for. Frames without a walk cull this list instead.
+struct Walk {
+    draws: Vec<(DrawChunk, Bounds)>,
+    /// Where `draws` starts in the walk's output.
+    first: u32,
+    missing: u32,
+    holes: u32,
+    cams: Vec<DVec3>,
 }
 
 impl Slot {
@@ -84,6 +99,7 @@ pub struct JobResult {
 }
 
 /// One drawable range of the quad buffer: `len` quads, the last `water` of them the sea's surface.
+#[derive(Clone, Copy)]
 pub struct DrawChunk {
     pub key: Key,
     pub off: u32,
@@ -148,6 +164,15 @@ pub struct Streamer {
     pub jobs_done: u64,
     pub alloc_fail: u64,
     pub ahead_reqs: Vec<(f64, Key)>,
+    walk: Option<Walk>,
+    /// The frame of the last walk; slots age from it.
+    walk_frame: u64,
+    /// A job was applied or a slot evicted since the last walk: the next frame walks.
+    dirty: bool,
+    /// Slots touched since the last frame.
+    touched: Vec<Key>,
+    /// Walks done, for the benchmark line.
+    pub walks: u64,
 }
 
 pub struct View {
@@ -243,6 +268,11 @@ impl Streamer {
             jobs_done: 0,
             alloc_fail: 0,
             ahead_reqs: Vec::new(),
+            walk: None,
+            walk_frame: 0,
+            dirty: true,
+            touched: Vec::new(),
+            walks: 0,
         }
     }
 
@@ -278,6 +308,27 @@ impl Streamer {
         reqs: &mut Vec<(f64, Key)>,
         st: &mut FrameStats,
     ) {
+        // the walk depends on the camera's place and the slots only: a frame where neither changed culls the
+        // last walk's chunks for this look instead (ADR 0025, F)
+        let cams: Vec<DVec3> = (0..world.bodies.len()).map(|b| view.cam_in(b as u8)).collect();
+        if draw {
+            let still = self.walk.as_ref().is_some_and(|w| {
+                w.cams.iter().zip(&cams).zip(world.bodies.iter()).all(|((a, b), body)| {
+                    // 4 m near a body, more the higher over it: the moon's orbit alone does not force a walk
+                    let over = (b.length() - body.radius).max(0.0);
+                    (*a - *b).length() < 4.0 + 0.01 * over
+                })
+            });
+            if still && !self.dirty {
+                self.cull(view, prio_mul, out, reqs, st);
+                return;
+            }
+            self.dirty = false;
+            self.touched.clear();
+            self.walk_frame = self.frame;
+            self.walks += 1;
+        }
+        let (first, missing0, holes0) = (out.len(), st.missing, st.holes);
         let mut stack: Vec<(Key, bool)> = self.roots.iter().map(|k| (*k, false)).collect();
         // The look-ahead splits 10 % earlier: its camera is a straight-line guess, and a chunk the real camera
         // only grazes (a few frames inside the split distance) would otherwise never be requested ahead.
@@ -291,6 +342,8 @@ impl Streamer {
                 shown_v: 0,
                 inflight: false,
                 bounds: world.bodies[k.body as usize].bounds(k),
+                leaf_at: 0,
+                drawn_at: (0, 0),
             });
             slot.last_seen = frame;
             let (bd, needs_job, pending) = (slot.bounds, slot.needs_job(), slot.state == State::Pending);
@@ -361,12 +414,41 @@ impl Streamer {
                 self.emit(view, k, Some(hidden), out);
             }
         }
+        if draw {
+            let draws = out[first..].iter().map(|d| (*d, self.slots[&d.key].bounds)).collect();
+            self.walk = Some(Walk { draws, first: first as u32, missing: st.missing - missing0, holes: st.holes - holes0, cams });
+        }
+    }
+
+    /// A frame without a walk: the last walk's chunks culled for this view, and the touched ones it drew as
+    /// leaves requested.
+    fn cull(&mut self, view: &View, prio_mul: f64, out: &mut Vec<DrawChunk>, reqs: &mut Vec<(f64, Key)>, st: &mut FrameStats) {
+        let w = self.walk.as_ref().unwrap();
+        st.missing += w.missing;
+        st.holes += w.holes;
+        for (d, bd) in &w.draws {
+            let dist = ((bd.c - view.cam_in(d.key.body)).length() - bd.rad).max(0.0);
+            out.push(DrawChunk { hidden: self.hidden(view, d.key.body, bd), dist: dist as f32, ..*d });
+        }
+        for k in std::mem::take(&mut self.touched) {
+            let Some(s) = self.slots.get(&k) else { continue };
+            if s.leaf_at == self.walk_frame && s.needs_job() {
+                let d = ((s.bounds.c - view.cam_in(k.body)).length() - s.bounds.rad).max(0.0);
+                let hidden = self.hidden(view, k.body, &s.bounds);
+                reqs.push((d * prio_mul * if hidden { 3.0 } else { 1.0 } + REFINE, k));
+                st.requests += 1;
+            }
+        }
     }
 
     /// Append a ready chunk to the draw list, marked hidden if culled; true if it is ready.
     fn emit(&mut self, view: &View, k: Key, hidden: Option<bool>, out: &mut Vec<DrawChunk>) -> bool {
         let Some(s) = self.slots.get_mut(&k) else { return false };
         s.last_seen = self.frame;
+        if hidden.is_some() {
+            s.leaf_at = self.frame;
+        }
+        s.drawn_at = (self.frame, out.len() as u32);
         let bd = s.bounds;
         let (off, len, water) = match s.state {
             State::Pending => return false,
@@ -454,6 +536,15 @@ impl Streamer {
             if let State::Ready { off, len, .. } = s.state {
                 self.alloc.release(off, len);
             }
+            // a remesh that stays drawn changes only its range: the last walk's list takes it in place; any other
+            // change of state can change what the walk picks
+            match (s.state, new, &mut self.walk) {
+                (State::Ready { .. }, State::Ready { off, len, water }, Some(w)) if s.drawn_at.0 == self.walk_frame => {
+                    let d = &mut w.draws[(s.drawn_at.1 - w.first) as usize].0;
+                    (d.off, d.len, d.water) = (off, len, water);
+                }
+                _ => self.dirty = true,
+            }
             s.state = new;
             s.shown_v = r.version;
             st.applied += 1;
@@ -465,6 +556,7 @@ impl Streamer {
         for k in sampling(world, b, None) {
             if let Some(sl) = self.slots.get_mut(&k) {
                 sl.want_v += 1;
+                self.touched.push(k);
             }
         }
     }
@@ -480,6 +572,7 @@ impl Streamer {
             let k = Key { body: t.body(), face: t.face(), level: l, pos: IVec3::new(t.i() * TILE / span, t.j() * TILE / span, cz.div_euclid(CS)) };
             if let Some(sl) = self.slots.get_mut(&k) {
                 sl.want_v += 1;
+                self.touched.push(k);
             }
         }
     }
@@ -489,8 +582,10 @@ impl Streamer {
     }
 
     pub fn evict(&mut self, age: u64) {
-        let f = self.frame;
+        // a slot is seen by walks: frames that only cull see none (ADR 0025, F)
+        let f = self.walk_frame;
         let alloc = &mut self.alloc;
+        let n = self.slots.len();
         self.slots.retain(|_, s| {
             let keep = s.inflight || f.saturating_sub(s.last_seen) < age;
             if !keep {
@@ -500,6 +595,7 @@ impl Streamer {
             }
             keep
         });
+        self.dirty |= self.slots.len() != n;
     }
 
     pub fn idle(&self) -> bool {
