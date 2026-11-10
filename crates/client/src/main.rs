@@ -69,6 +69,14 @@ const MAX_WQUADS: usize = 1 << 18;
 /// The sea's quads are drawn in SEA_SUB x SEA_SUB pieces (shader.wgsl vs_sea has the same number).
 const SEA_SUB: u32 = 8;
 const TS_RING: usize = 8;
+/// Timestamps a frame writes (ADR 0025): before the ray-tracing builds, after them, after the G-buffer, after
+/// `gi_trace`, after `temporal`, after the `atrous` passes, after the screen pass.
+const TS_N: usize = 7;
+/// The GPU's stages between those timestamps; `gap` is the GPU idle from the last frame's end to this one's start.
+const GPU_STAGES: [&str; 8] = ["rt", "gbuffer", "trace", "temporal", "atrous", "screen", "total", "gap"];
+/// The frame thread's stretches, back to back: together they are the frame (ADR 0025).
+const CPU_STAGES: [&str; 15] =
+    ["pose", "msgs", "edits", "apply", "select", "dispatch", "table", "acquire", "rt", "encode", "submit", "post", "present", "tail", "between"];
 const MAX_BODIES: usize = 4; // the size of `bodies` in shader.wgsl
 /// The full moon's light, a quarter of the sun's direct light and bluish: night stays readable (ADR 0022).
 const MOON_LIGHT: Vec3 = Vec3::new(0.12, 0.14, 0.18);
@@ -342,7 +350,7 @@ impl Gpu {
             "TechnoApe needs a GPU with hardware ray tracing (Vulkan ray queries); {} has none",
             info.name
         );
-        let want = wgpu::Features::INDIRECT_FIRST_INSTANCE | wgpu::Features::TIMESTAMP_QUERY;
+        let want = wgpu::Features::INDIRECT_FIRST_INSTANCE | wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
         let feats = (af & want) | wgpu::Features::EXPERIMENTAL_RAY_QUERY;
         let mut limits = wgpu::Limits::default().using_minimum_supported_acceleration_structure_values();
         let al = adapter.limits();
@@ -588,14 +596,15 @@ impl Gpu {
         let ghost_buf = buf("ghost", (hud::GHOST_MAX * 20) as u64, U::VERTEX | U::COPY_DST);
         let ui_buf = buf("ui", (hud::RECTS_MAX * 36) as u64, U::VERTEX | U::COPY_DST);
         let depth = depth_view(&device);
-        let ts = feats.contains(wgpu::Features::TIMESTAMP_QUERY).then(|| {
+        // a timestamp between passes needs both features; without them no GPU times
+        let ts = feats.contains(wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS).then(|| {
             let qs = device.create_query_set(&wgpu::QuerySetDescriptor {
                 label: None,
                 ty: wgpu::QueryType::Timestamp,
-                count: (TS_RING * 2) as u32,
+                count: (TS_RING * TS_N) as u32,
             });
             let resolve = buf("ts-resolve", (TS_RING * 256) as u64, U::QUERY_RESOLVE | U::COPY_SRC);
-            let ring = (0..TS_RING).map(|_| (buf("ts-read", 16, U::MAP_READ | U::COPY_DST), Arc::new(AtomicBool::new(false)), false)).collect();
+            let ring = (0..TS_RING).map(|_| (buf("ts-read", (TS_N * 8) as u64, U::MAP_READ | U::COPY_DST), Arc::new(AtomicBool::new(false)), false)).collect();
             (qs, resolve, ring)
         });
         // play keeps one for the bug report's screenshot (F9)
@@ -671,7 +680,11 @@ struct Samples {
     sel_ms: Vec<f32>,
     acq_ms: Vec<f32>,
     submit_ms: Vec<f32>,
-    spikes: Vec<String>,
+    /// Per stage of `CPU_STAGES` and `GPU_STAGES`, every measured frame.
+    cpu_st: Vec<Vec<f32>>,
+    gpu_st: Vec<Vec<f32>>,
+    /// A frame over budget: its frame number, the CPU part, and the GPU stages once they are read back.
+    spikes: Vec<(u64, String, Option<String>)>,
     capture_stalls: u32,
 }
 
@@ -831,6 +844,11 @@ struct App {
     f3: bool,
     recent: VecDeque<f32>,
     gpu_last: f64,
+    /// ADR 0025: the frame number each timestamp slot was written in, the GPU's end of the last frame read
+    /// back (ticks), and the last frame's CPU stretches, which the next frame's interval is made of.
+    ts_frames: [u64; TS_RING],
+    gpu_end: Option<(u64, u64)>,
+    seg_prev: [f64; CPU_STAGES.len()],
     mem: (f64, f64),
     drawn: Drawn,
     /// F9: the frame is grabbed first, then the form holds what is written, and Enter writes it all to bugs/
@@ -1802,6 +1820,16 @@ impl App {
             return;
         }
         let cpu0 = Instant::now();
+        // ADR 0025: each stretch of the frame thread, back to back from `now`
+        let mut seg = [0f64; CPU_STAGES.len()];
+        let mut mark = now;
+        macro_rules! lap {
+            ($name:literal) => {{
+                let n = Instant::now();
+                seg[CPU_STAGES.iter().position(|s| *s == $name).unwrap()] += (n - mark).as_secs_f64();
+                mark = n;
+            }};
+        }
         // the sky's clock: the server's in play, else time= seconds into the world plus the run's own
         if self.run != "play" {
             self.world.time = self.time0 + t;
@@ -1895,6 +1923,7 @@ impl App {
         let p = if self.home() == Menu::Title { self.title_view(t) } else { p };
         let vel = if dt > 0.0 && self.loaded_at.is_some() { (p.pos - self.last_pos) / dt } else { DVec3::ZERO };
         self.last_pos = p.pos;
+        lap!("pose");
 
         // the server's deltas: edits land in the world and remesh their chunks here, never directly
         loop {
@@ -1967,6 +1996,7 @@ impl App {
             }
             self.last_move = t;
         }
+        lap!("msgs");
 
         // edits: 2000 toggles/s within 10 m of the feet, sent to the server; they count when its delta is back
         if self.run == "edit" && self.loaded_at.is_some() {
@@ -2000,6 +2030,7 @@ impl App {
                 self.edits_done += 1;
             }
         }
+        lap!("edits");
 
         let gpu = self.gpu.as_ref().unwrap();
         let mut st = FrameStats::default();
@@ -2025,6 +2056,7 @@ impl App {
             });
             self.shown.extend(done);
         }
+        lap!("apply");
 
         let aspect = w() as f32 / h() as f32;
         let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse((self.fov() as f32).to_radians(), aspect, 0.1);
@@ -2038,6 +2070,7 @@ impl App {
         let mut draws: Vec<DrawChunk> = Vec::new();
         let mut reqs = Vec::new();
         self.streamer.frame += 1;
+        lap!("table");
         let ts0 = Instant::now();
         self.streamer.select(&self.world, &view, true, 1.0, &mut draws, &mut reqs, &mut st);
         let pf = self.streamer.opts.prefetch_s;
@@ -2057,8 +2090,10 @@ impl App {
             reqs.extend_from_slice(&ahead_reqs);
             self.streamer.ahead_reqs = ahead_reqs;
         }
+        lap!("select");
         self.streamer.dispatch(&self.world, &mut reqs);
         let sel = ts0.elapsed().as_secs_f64();
+        lap!("dispatch");
         if self.streamer.frame % 30 == 0 {
             self.streamer.evict(120);
         }
@@ -2225,6 +2260,7 @@ impl App {
             // the crack detector's colour: no block or sky has it, so every such pixel is a hole or sky
             sky = wgpu::Color { r: 1.0, g: 0.0, b: 1.0, a: 1.0 };
         }
+        lap!("table");
 
         let frame = match gpu.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
@@ -2236,13 +2272,10 @@ impl App {
         };
         let cpu_a = cpu0.elapsed().as_secs_f64();
         let acq = cpu_a;
+        lap!("acquire");
         let cpu1 = Instant::now();
         let fview = frame.texture.create_view(&Default::default());
         let mut enc = gpu.device.create_command_encoder(&Default::default());
-        let rt = self.rt.as_mut().unwrap();
-        rt.record(&gpu.device, &gpu.queue, &mut enc, &insts, &at, self.streamer.frame);
-        let rt_pending = rt.pending;
-        self.drawn.rt_pending = rt_pending;
         // timestamp slot: read a finished one, then reuse
         let mut ts_use = None;
         if let Some((_, _, ring)) = &gpu.ts {
@@ -2251,26 +2284,54 @@ impl App {
             if *pending {
                 if flag.load(Ordering::Acquire) {
                     let data = rb.slice(..).get_mapped_range().unwrap();
-                    let v: &[u64] = bytemuck::cast_slice(&data);
-                    let ms = (v[1].wrapping_sub(v[0])) as f64 * gpu.ts_period as f64 / 1e6;
+                    let v: Vec<u64> = bytemuck::cast_slice(&data).to_vec();
                     drop(data);
                     rb.unmap();
-                    if measuring && ms < 1000.0 {
-                        self.samples.gpu_ms.push(ms as f32);
+                    let ms = |a: u64, b: u64| b.wrapping_sub(a) as f64 * gpu.ts_period as f64 / 1e6;
+                    // the old gpu_ms (G-buffer start to screen end) stays comparable; the stages are new
+                    let old = ms(v[1], v[6]);
+                    let f = self.ts_frames[i];
+                    let gap = match self.gpu_end {
+                        Some((pf, end)) if pf + 1 == f => ms(end, v[0]),
+                        _ => f64::NAN,
+                    };
+                    self.gpu_end = Some((f, v[6]));
+                    let st: Vec<f64> = (0..6).map(|k| ms(v[k], v[k + 1])).chain([ms(v[0], v[6]), gap]).collect();
+                    if old < 1000.0 {
+                        if measuring {
+                            self.samples.gpu_ms.push(old as f32);
+                            let g = &mut self.samples.gpu_st;
+                            g.resize(GPU_STAGES.len(), Vec::new());
+                            for (k, x) in st.iter().enumerate() {
+                                if x.is_finite() {
+                                    g[k].push(*x as f32);
+                                }
+                            }
+                        }
+                        if let Some(s) = self.samples.spikes.iter_mut().find(|s| s.0 == f) {
+                            s.2 = Some(GPU_STAGES.iter().zip(&st).map(|(n, x)| format!("\"{n}\":{:.2}", if x.is_finite() { *x } else { -1.0 })).collect::<Vec<_>>().join(","));
+                        }
                     }
-                    self.gpu_last = ms;
+                    self.gpu_last = old;
                     ts_use = Some(i);
                 }
             } else {
                 ts_use = Some(i);
             }
         }
+        let stamp = |enc: &mut wgpu::CommandEncoder, k: usize| {
+            if let (Some(i), Some((qs, _, _))) = (ts_use, &gpu.ts) {
+                enc.write_timestamp(qs, (i * TS_N + k) as u32);
+            }
+        };
+        stamp(&mut enc, 0);
+        let rt = self.rt.as_mut().unwrap();
+        rt.record(&gpu.device, &gpu.queue, &mut enc, &insts, &at, self.streamer.frame);
+        let rt_pending = rt.pending;
+        self.drawn.rt_pending = rt_pending;
+        stamp(&mut enc, 1);
+        lap!("rt");
         {
-            let tsw = ts_use.map(|i| wgpu::RenderPassTimestampWrites {
-                query_set: &gpu.ts.as_ref().unwrap().0,
-                beginning_of_pass_write_index: Some((i * 2) as u32),
-                end_of_pass_write_index: Some((i * 2 + 1) as u32),
-            });
             // the G-buffer: the sky and the terrain; the bounce light and the composite come after
             let gi = self.gi.as_mut().unwrap();
             let [tdirect, talbedo, tgbuf] = gi.targets();
@@ -2290,11 +2351,7 @@ impl App {
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.0), store: wgpu::StoreOp::Store }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: tsw.as_ref().map(|t| wgpu::RenderPassTimestampWrites {
-                    query_set: t.query_set,
-                    beginning_of_pass_write_index: t.beginning_of_pass_write_index,
-                    end_of_pass_write_index: None,
-                }),
+                timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -2313,7 +2370,9 @@ impl App {
                 }
             }
             drop(rp);
-            gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some());
+            stamp(&mut enc, 2);
+            gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some(), &mut |e, k| stamp(e, 3 + k));
+            stamp(&mut enc, 5);
             // the screen: direct and bounced light, then the water and the overlays over it
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("screen"),
@@ -2328,11 +2387,7 @@ impl App {
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Discard }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: tsw.map(|t| wgpu::RenderPassTimestampWrites {
-                    query_set: t.query_set,
-                    beginning_of_pass_write_index: None,
-                    end_of_pass_write_index: t.end_of_pass_write_index,
-                }),
+                timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -2363,9 +2418,11 @@ impl App {
                 rp.draw(0..6, 0..self.ui_n);
             }
         }
+        stamp(&mut enc, 6);
         if let (Some(i), Some((qs, resolve, ring))) = (ts_use, &gpu.ts) {
-            enc.resolve_query_set(qs, (i * 2) as u32..(i * 2 + 2) as u32, resolve, (i * 256) as u64);
-            enc.copy_buffer_to_buffer(resolve, (i * 256) as u64, &ring[i].0, 0, 16);
+            enc.resolve_query_set(qs, (i * TS_N) as u32..((i + 1) * TS_N) as u32, resolve, (i * 256) as u64);
+            enc.copy_buffer_to_buffer(resolve, (i * 256) as u64, &ring[i].0, 0, (TS_N * 8) as u64);
+            self.ts_frames[i] = self.streamer.frame;
         }
         // a shot waits a second after loading, so the last meshes are in
         let cap_at = if self.shot.is_some() { 1.0 } else { self.next_cap };
@@ -2383,9 +2440,11 @@ impl App {
                 wgpu::Extent3d { width: w(), height: h(), depth_or_array_layers: 1 },
             );
         }
+        lap!("encode");
         let tsub = Instant::now();
         gpu.queue.submit([enc.finish()]);
         let sub = tsub.elapsed().as_secs_f64();
+        lap!("submit");
         if let (Some(i), Some((_, _, ring))) = (ts_use, &gpu.ts) {
             let f = ring[i].1.clone();
             f.store(false, Ordering::Release);
@@ -2403,9 +2462,11 @@ impl App {
         let _ = gpu.device.poll(wgpu::PollType::Poll);
         let cpu_b = cpu1.elapsed().as_secs_f64();
         gpu.window.pre_present_notify();
+        lap!("post");
         let tpres = Instant::now();
         gpu.queue.present(frame);
         let pres = tpres.elapsed().as_secs_f64();
+        lap!("present");
         let tail0 = Instant::now();
         if self.bug_grab {
             let shot = if bug_now { Some(self.read_frame()) } else { None };
@@ -2434,11 +2495,33 @@ impl App {
         }
         if measuring && !skip {
             let s = &mut self.samples;
-            // every frame over the 120 fps budget names where its time went (ADR 0004)
+            // this frame's interval is the last frame's stretches and the wait before this one (ADR 0025)
+            let mut fs = self.seg_prev;
+            fs[CPU_STAGES.len() - 1] = between;
+            s.cpu_st.resize(CPU_STAGES.len(), Vec::new());
+            for (v, x) in s.cpu_st.iter_mut().zip(fs) {
+                v.push((x * 1000.0) as f32);
+            }
+            // every frame over the 120 fps budget names where its time went (ADR 0004); the GPU's stages are
+            // the last frame's, filled in when they are read back
             if dt * 1000.0 > 8.3 && s.spikes.len() < 50 {
-                s.spikes.push(format!(
-                    "{{\"t\":{:.2},\"frame_ms\":{:.2},\"cpu_ms\":{:.2},\"select_ms\":{:.2},\"submit_ms\":{:.2},\"present_ms\":{:.2},\"prev_tail_ms\":{:.2},\"between_ms\":{:.2},\"chunks_applied\":{}}}",
-                    t, dt * 1000.0, (cpu_a + cpu_b) * 1000.0, sel * 1000.0, sub * 1000.0, pres * 1000.0, self.tail_prev * 1000.0, between * 1000.0, st.applied
+                let stages: Vec<String> = CPU_STAGES.iter().zip(fs).map(|(n, x)| format!("\"{n}\":{:.2}", x * 1000.0)).collect();
+                s.spikes.push((
+                    self.streamer.frame - 1,
+                    format!(
+                        "\"t\":{:.2},\"frame_ms\":{:.2},\"cpu_ms\":{:.2},\"select_ms\":{:.2},\"submit_ms\":{:.2},\"present_ms\":{:.2},\"prev_tail_ms\":{:.2},\"between_ms\":{:.2},\"chunks_applied\":{},\"cpu\":{{{}}}",
+                        t,
+                        dt * 1000.0,
+                        (cpu_a + cpu_b) * 1000.0,
+                        sel * 1000.0,
+                        sub * 1000.0,
+                        pres * 1000.0,
+                        self.tail_prev * 1000.0,
+                        between * 1000.0,
+                        st.applied,
+                        stages.join(",")
+                    ),
+                    None,
                 ));
             }
             s.frame_ms.push((dt * 1000.0) as f32);
@@ -2469,7 +2552,9 @@ impl App {
                 self.last_pos = p.pos;
             }
         }
-        let end = Instant::now();
+        lap!("tail");
+        self.seg_prev = seg;
+        let end = mark;
         self.tail_prev = (end - tail0).as_secs_f64();
         self.frame_end = Some(end);
     }
@@ -2700,10 +2785,19 @@ impl App {
             self.streamer.alloc_fail,
             gpu.backend,
             gpu.adapter_name,
-            s.spikes.join(",")
+            s.spikes.iter().map(|(_, c, g)| format!("{{{c},\"gpu\":{{{}}}}}", g.as_deref().unwrap_or(""))).collect::<Vec<_>>().join(",")
         );
+        // ADR 0025: every stage's p50 and p99, the frame thread's and the GPU's
+        let mut stages = String::new();
+        for (key, names, v) in [("cpu", &CPU_STAGES[..], &mut s.cpu_st), ("gpu", &GPU_STAGES[..], &mut s.gpu_st)] {
+            v.resize(names.len(), Vec::new());
+            for p in [0.5, 0.99] {
+                let f: Vec<String> = names.iter().zip(v.iter_mut()).map(|(n, x)| format!("\"{n}\":{:.3}", pct(x, p))).collect();
+                stages += &format!("\"{key}_p{}\":{{{}}},", (p * 100.0) as u32, f.join(","));
+            }
+        }
         // the shot's and the feel report's fields go in before the spikes
-        let line = line.replacen("\"spikes\":", &format!("{}{}\"spikes\":", self.shot_json, self.feel()), 1);
+        let line = line.replacen("\"spikes\":", &format!("{}{}{}\"spikes\":", self.shot_json, self.feel(), stages), 1);
         println!("{}", line);
         if let Some(path) = a.0.get("out") {
             use std::io::Write;
@@ -3082,6 +3176,9 @@ fn main() {
         f3: false,
         recent: VecDeque::new(),
         gpu_last: 0.0,
+        ts_frames: [0; TS_RING],
+        gpu_end: None,
+        seg_prev: [0.0; CPU_STAGES.len()],
         mem: (sys::ram_mb(), sys::vram_mb()),
         drawn: Drawn::default(),
         bug_grab: false,

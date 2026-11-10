@@ -253,7 +253,8 @@ impl Gi {
 
     /// After the terrain pass: trace, gather over frames, smooth. `cam` is the camera in frame `cf`'s
     /// coordinates; a change of frame or a jump drops the history. `still` averages without a limit.
-    pub fn record(&mut self, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, vp: Mat4, cam: DVec3, cf: usize, still: bool) {
+    /// `stamp(enc, k)` writes the timer after the trace (0) and after `temporal` (1) (ADR 0025).
+    pub fn record(&mut self, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, vp: Mat4, cam: DVec3, cf: usize, still: bool, stamp: &mut dyn FnMut(&mut wgpu::CommandEncoder, usize)) {
         let p = (self.frame % 2) as usize;
         let (prev_vp, delta, reset) = match self.prev {
             Some((pvp, pcam, pcf)) if pcf == cf && (cam - pcam).length() < 20.0 => (pvp, (cam - pcam).as_vec3(), 0.0),
@@ -276,9 +277,15 @@ impl Gi {
         cp.set_bind_group(0, &self.trace0, &[]);
         cp.set_bind_group(1, &self.trace1[p], &[]);
         cp.dispatch_workgroups(self.size.0.div_ceil(16), self.size.1.div_ceil(16), 1);
+        drop(cp);
+        stamp(enc, 0);
+        let mut cp = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("temporal"), timestamp_writes: None });
         cp.set_pipeline(&self.temporal);
         cp.set_bind_group(0, &self.passes[p][0], &[]);
         cp.dispatch_workgroups(groups.0, groups.1, 1);
+        drop(cp);
+        stamp(enc, 1);
+        let mut cp = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("atrous"), timestamp_writes: None });
         cp.set_pipeline(&self.atrous);
         for g in &self.passes[p][1..] {
             cp.set_bind_group(0, g, &[]);

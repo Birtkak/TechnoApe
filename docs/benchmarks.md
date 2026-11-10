@@ -3,6 +3,28 @@
 The shared benchmark of `docs/plans/roadmap.md`, measured as ADR 0004 says. Newest first.
 Run it: `bash tools/bench.sh`, then `python -I tools/summarize.py`.
 
+## 2026-11-10: before the optimisation pass (ADR 0025), with the traced light
+
+Reference machine, release build, 1920x1080 off-screen, the default series (`bash tools/bench.sh`: the 4 km
+planet, 3 reps at half length, and the filmstrips), 12 reps, none disturbed by a compiler. The first series with
+the ray-traced lighting of ADR 0022; the baseline the optimisation pass (ADR 0025) is measured against.
+
+| series | planet m | run | reps | | fps_avg | frame_p50_ms | frame_p99_ms | frame_max_ms | cpu_ms_p99 | gpu_ms_p99 | ram_mb | vram_mb | chunks_meshed_per_s | missing_chunks_max | holes_max | draws_avg | quads_avg | budget | spikes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| small | 4245 | stand | 3 | median | 257 | 3.866 | 4.929 | 9.346 | 4.642 | 3.282 | 309 | 1064 | 0 | 0 | 0 | 402 | 588734 | | |
+| | | | | worst | 255.4 | 3.9 | 5.357 | 15.962 | 4.94 | 3.302 | 340 | 1064 | 0 | 0 | 0 | 402 | 588734 | ok | 23 |
+| small | 4245 | fly | 3 | median | 185.4 | 5.26 | 7.446 | 11.363 | 7.231 | 6.018 | 357 | 1064 | 951.8 | 0 | 0 | 450 | 535072 | | |
+| | | | | worst | 183.5 | 5.295 | 7.603 | 17.75 | 7.353 | 6.13 | 371 | 1064 | 951.8 | 0 | 0 | 450 | 535804 | FAIL | 26 |
+| small | 4245 | orbit | 3 | median | 293.4 | 3.455 | 5.148 | 10.799 | 4.931 | 3.684 | 357 | 1066 | 674.1 | 134 | 0 | 80 | 159722 | | |
+| | | | | worst | 287.9 | 3.481 | 5.443 | 23.077 | 5.051 | 3.749 | 363 | 1066 | 662.5 | 162 | 0 | 80 | 159808 | FAIL | 25 |
+| small | 4245 | edit | 3 | median | 177.7 | 5.603 | 6.94 | 13.276 | 6.634 | 4.552 | 333 | 1832 | 757.9 | 0 | 0 | 270 | 446613 | | |
+| | | | | worst | 176.5 | 5.617 | 8.109 | 13.552 | 7.525 | 4.612 | 343 | 1832 | 755.7 | 0 | 0 | 270 | 446618 | ok | 44 |
+
+- **Budget:** p99 holds everywhere (worst 8.1 ms in `edit`), but `fly` and `orbit` each have a rep with a frame
+  over 16.7 ms (17.8 and 23.1 ms), so they fail ADR 0004. 118 spikes over 8.3 ms in 12 reps.
+- **Against the series below:** the frame went from about 0.4 to 3.5-5.6 ms (frame rate a factor 10 down), VRAM
+  from 495 to 1064 MB (1832 MB in `edit`), the mesh jobs from about 45 to 600-1000 µs.
+
 ## 2026-11-10: half-length series after the speed levers (ADR 0012)
 
 Reference machine, release build, 1920x1080 off-screen, vsync off. **Half-length runs** from here on
