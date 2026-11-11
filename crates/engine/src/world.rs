@@ -1,6 +1,7 @@
 //! Terrain: bodies on the equi-angular cube-sphere grid (ADR 0003), generated from the seed, plus a sparse
 //! edit map. A block is (face, column i, column j, layer); layers are geometric shells, so blocks stay cubic.
 use crate::blocks::{AIR, BLOCKS};
+use crate::bodies::{Generator, BODIES};
 use crate::liquid::{Col, Ground, Liquids, OPEN, U};
 use crate::sky::{Pose, Sky};
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
@@ -97,6 +98,10 @@ pub fn fold(face: usize, i: i32, j: i32, n: i32) -> (usize, i32, i32) {
 }
 
 pub struct Body {
+    /// Its row's name in `data/bodies.toml`: Terra, Luna.
+    pub name: String,
+    /// Whether it has air (the sky's colour, ADR 0022).
+    pub air: bool,
     pub centre: DVec3,
     /// Nominal surface radius: the mean block there is BLOCK wide.
     pub radius: f64,
@@ -250,7 +255,7 @@ impl Body {
         let r0 = radius - CRUST.min(radius * 0.5); // small bodies keep half their radius
         let lnq = (1.0 + BLOCK / radius).ln();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN, tiles: HeightCache::default() }
+        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN, tiles: HeightCache::default() }
     }
     /// The body with continents, oceans and a sea (ADR 0020, 0021), and its spawn on land.
     pub fn with_continents(mut self, seed: i32) -> Self {
@@ -534,15 +539,23 @@ pub struct World {
 }
 
 impl World {
-    /// A planet and its moon 3 km away, with `planet_n` and `moon_n` columns per face edge.
+    /// The bodies of `data/bodies.toml` (Terra and Luna), with `planet_n` and `moon_n` columns per face edge.
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
-        let planet = Body::new(DVec3::ZERO, planet_n, seed).with_continents(seed);
-        let mut moon = Body::new(MOON_AT, moon_n, seed + 1);
-        moon.ground = [BLOCKS.id("moon dust"), BLOCKS.id("moon dust"), GEN[2]];
-        // the moon orbits 2.83 planet radii out, as from the 1 km planet; never nearer than 3 km (small test planets)
-        let sky = Sky { planet_radius: planet.radius, moon_radius: moon.radius, moon_orbit: (planet.radius * 2.83).max(3000.0) };
+        assert_eq!(BODIES.len(), 2, "the sky (sky.rs) poses a planet and one moon");
+        let bodies: Vec<Body> = BODIES
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let mut b = Body::new(if i == 0 { DVec3::ZERO } else { MOON_AT }, [planet_n, moon_n][i], seed + i as i32);
+                (b.name, b.air, b.ground) = (row.name.clone(), row.air, row.ground);
+                if row.generator == Generator::Continents { b.with_continents(seed + i as i32) } else { b }
+            })
+            .collect();
+        // Luna circles Terra `orbit` radii out (2.83, as from the 1 km planet), never nearer than orbit_min
+        let (k, min) = BODIES[1].orbit.expect("the second body has an orbit");
+        let sky = Sky { planet_radius: bodies[0].radius, moon_radius: bodies[1].radius, moon_orbit: (bodies[0].radius * k).max(min) };
         World {
-            bodies: Arc::new(vec![planet, moon]),
+            bodies: Arc::new(bodies),
             sky,
             time: 0.0,
             edits: FxMap::default(),

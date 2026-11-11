@@ -52,13 +52,13 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
     factory.
   - **The planet's facts are rules:** the sun and time zones (dark, cold night side; solar power follows the
     sun), a finite planet (deposits run out, scars show from orbit), real orbits (things can orbit; cargo can
-    be shot to the moon).
+    be shot to Luna).
   - **Megaprojects pull the ages:** each tech age ends in a planet-scale build that changes the world.
   - **Planet size is open:** 1 km first; 1-5 km or more if playtests find it limiting.
 - Progression (ADR 0009, proposal of the tiers in `progression.md`): **you are an ape** that starts with bare
   hands; a **starter** of stone, fire, steam and cogs (an hour to copper, 7-10 hours to electricity); then
   **electricity in GregTech-style tiers**, quite realistic; **released steam returns as rain**; megaprojects
-  are **free-form, judged by a rule**; orbit and the moon are **visited about halfway, lived on late**; after
+  are **free-form, judged by a rule**; orbit and Luna are **visited about halfway, lived on late**; after
   the moon base an **exotic resource** feeds the space technology that leaves the planet; late in the game a
   **whole planet can be mined out and drained**.
 - The planet's air (ADR 0010, detail in `progression.md`): a **water cycle, weather, pollution and

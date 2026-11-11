@@ -304,7 +304,7 @@ impl App {
         let p99 = pct(&mut ms, 0.99);
         let (day, h) = engine::sky::clock(w.time);
         let m = (h * 60.0).round() as u32 % (24 * 60);
-        let body = ["Terra", "Luna"].get(bi).copied().unwrap_or("a body");
+        let body = b.name.as_str();
         let sea = b.sea.map_or(String::new(), |s| format!(", {:.1} m over the sea", r - s));
         let look = match self.aim {
             Some((hit, _)) => format!(
@@ -372,7 +372,7 @@ impl App {
                 vec![
                     ("On", if space { "nothing: in space".into() } else { body.to_string() }, 0),
                     if space {
-                        ("Away", format!("{:.1} km from the sun's centre, {:.1} km from Terra's", to_sun / 1000.0, to_planet / 1000.0), 0)
+                        ("Away", format!("{:.1} km from the sun's centre, {:.1} km from {}'s", to_sun / 1000.0, to_planet / 1000.0, w.bodies[0].name), 0)
                     } else {
                         ("XYZ", format!("{:.2} / {:.2} / {:.2} from the centre", rel.x, rel.y, rel.z), 0)
                     },
@@ -387,9 +387,9 @@ impl App {
                 vec![
                     ("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0),
                     ("Sun", format!("{:.1} degrees over the horizon", d.sun_deg), 0),
-                    ("Luna", format!("{:.0}% lit", d.moon_lit * 100.0), 0),
+                    ("Moon", format!("{} {:.0}% lit", w.bodies.get(1).map_or("none", |b| b.name.as_str()), d.moon_lit * 100.0), 0),
                     ("Seed", format!("{}", self.seed), 0),
-                    ("Size", format!("Terra {} and Luna {} columns a face", w.bodies[0].n, w.bodies.get(1).map_or(0, |b| b.n)), 0),
+                    ("Size", w.bodies.iter().map(|b| format!("{} {}", b.name, b.n)).collect::<Vec<_>>().join(", ") + " columns a face", 0),
                 ],
             ),
             section(
@@ -458,7 +458,7 @@ impl App {
                 b.n
             )
         } else {
-            "(run=stand stands on the planet only)".into()
+            "(run=stand stands on Terra only)".into()
         };
         let mut args: Vec<String> = self.args.0.iter().map(|(k, v)| format!("{k}={v}")).collect();
         args.sort();

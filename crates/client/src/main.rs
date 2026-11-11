@@ -19,6 +19,7 @@ use gpu::*;
 use menu::*;
 use play::*;
 
+use engine::bodies::BODIES;
 use engine::blocks::{AIR, BLOCKS};
 use engine::edit::{self, Kind, Predictor, Shape, Tool};
 use engine::net::{self, Link, Recv, ToClient, ToServer, TICK_HZ};
@@ -281,7 +282,7 @@ fn main() {
         }
         None => {
             let (accept_tx, accept_rx) = std::sync::mpsc::channel();
-            let (planet, moon, seed) = (args.get("planet", 12288), args.get("moon", 512), args.get("seed", 1337));
+            let (planet, moon, seed) = (args.get("planet", BODIES[0].n), args.get("moon", BODIES[1].n), args.get("seed", 1337));
             // the flight recorder (ADR 0011): on for play on screen, or wherever record= says
             let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
             let rec = args.0.get("record").cloned().or((args.get("onscreen", 0) == 1).then(|| format!("out/rec/play-{unix}.rec")));
