@@ -33,7 +33,14 @@ impl App {
         if !measuring || self.run == "play" {
             self.streamer.job_times.clear();
             if let Some(v) = &self.tick_log {
-                v.lock().unwrap().clear();
+                let mut v = v.lock().unwrap();
+                if self.run == "play" {
+                    // F3's graph: the last ten seconds of ticks
+                    self.ticks.extend(v.drain(..).map(|ms| (now, ms)));
+                    let over = self.ticks.len().saturating_sub(10 * TICK_HZ as usize);
+                    self.ticks.drain(..over);
+                }
+                v.clear();
             }
         }
         let len = if self.run == "play" { a.get("seconds", f64::INFINITY) } else { run_len(&self.run, warm, q) };
@@ -416,7 +423,16 @@ impl App {
         let sky_c = Vec3::new(0.45, 0.65, 0.95) * day * air + Vec3::new(0.01, 0.012, 0.025);
         // the bounce light on or off (off: a flat fill from the sky), and the screen's brightness
         let fill = sky_c * 0.35 + Vec3::splat(0.01);
-        let tune = (self.settings.on(S::Bounce), [fill.x, fill.y, fill.z, self.settings.get(S::Brightness) as f32]);
+        // the air: the horizon's colour (as `sky_colour` in shader.wgsl makes it) for far ground to fade
+        // into, a third of the way by 1 km; and the bounce drawn half again as strong in the air, so a
+        // shadow under the open sky keeps its colour while a cave stays dark
+        let haze = sky_c + Vec3::new(0.55, 0.60, 0.62) * day * air * 0.45;
+        let tune = (
+            self.settings.on(S::Bounce),
+            [fill.x, fill.y, fill.z, self.settings.get(S::Brightness) as f32],
+            [haze.x, haze.y, haze.z, air / 2500.0],
+            [0.5 * air, 0.0, 0.0, cf as f32],
+        );
         // the sunlight through the air: the longer its way through it (the lower the sun), the more blue and
         // green it loses; at noon as it was, in space white (shader.wgsl sun_tint is the same)
         let sun_h = self.world.up_at(p.pos).dot(sun_at.normalize()) as f32;
@@ -659,7 +675,7 @@ impl App {
             if self.ghost_n > 0 {
                 rp.set_pipeline(&gpu.ghost_pipeline);
                 rp.set_vertex_buffer(0, gpu.ghost_buf.slice(..));
-                rp.draw(0..self.ghost_n, 0..1);
+                rp.draw(0..self.ghost_n, 0..9); // nine times, a pixel apart: overlay.wgsl ghost_vs
             }
             if self.ui_n > 0 {
                 rp.set_pipeline(&gpu.ui_pipeline);
@@ -797,7 +813,7 @@ impl App {
                 self.loaded_at = Some(Instant::now());
                 self.jobs_at_load = (self.streamer.job_us_total, self.streamer.jobs_done as u64);
                 if self.run == "play" {
-                    self.chat_line(format!("TechnoApe {BUILD}: T chats, / runs a command (/help), F3 shows the numbers, F9 reports a bug"));
+                    self.chat_line("Welcome to Terra. T chats, / runs a command, Esc opens the menu.".to_string());
                 }
                 self.last_pos = p.pos;
             }

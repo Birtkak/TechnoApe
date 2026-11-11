@@ -50,6 +50,33 @@ impl App {
             // the menu by keys: next and prev move along the rows, go presses one (a slider: types its number),
             // nudge+ and nudge- change a value; scroll:n moves the window of rows; bind:name gives a waiting
             // key row its key (bind:none clears it)
+            // waypoint: marks where the player stands, on the body it stands on (N)
+            "waypoint" => {
+                let (w, at) = (&self.world, self.me.pos);
+                let body = w.frame_at(at);
+                if !self.creative {
+                    self.note("waypoints come with the compass, which is still to be made: /playmode creative has them".into());
+                } else if body == engine::world::INERTIAL {
+                    self.note("no waypoints out in space yet: stand on a body".into());
+                } else {
+                    let rel = at - w.bodies[body].centre;
+                    let name = nav::next_name(&self.waypoints);
+                    let line = format!("{name} at {} on {}", nav::geo_text(nav::geo(rel, self.meridian(body))), w.bodies[body].name);
+                    self.waypoints.push(nav::Waypoint { name, body, rel });
+                    self.note(line);
+                    self.save_waypoints();
+                }
+            }
+            // remove: the world under the keyboard's row, asked about first (the Delete key)
+            "remove" => {
+                let (x, y) = self.pointer;
+                let under = self.menu_boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]).map(|v| v + self.scroll);
+                match (self.menu, self.sel.or(under)) {
+                    (Some(Menu::Worlds), Some(k)) if k < self.worlds.len() => self.set_menu(Some(Menu::Remove(k))),
+                    (Some(Menu::Waypoints), Some(k)) => self.remove_waypoint(k),
+                    _ => {}
+                }
+            }
             "next" => self.select(1),
             "prev" => self.select(-1),
             "go" => {
@@ -121,6 +148,8 @@ impl App {
                 Some(Menu::Settings) => Some(self.home()),
                 Some(Menu::Page(_)) => Some(Menu::Settings),
                 Some(Menu::Title | Menu::Worlds) => Some(Menu::Title),
+                Some(Menu::Remove(_)) => Some(Menu::Worlds),
+                Some(Menu::Waypoints) => Some(Menu::Pause),
             }),
             // point:x:y puts the pointer there (pixels), to see a button lit
             a if a.starts_with("point:") => {
@@ -267,6 +296,18 @@ impl App {
 
     /// The F3 overlay's lines (ADR 0023), left and right column; a bug report carries them too.
     pub(crate) fn debug_lines(&self) -> (Vec<String>, Vec<String>) {
+        // F3's groups as plain lines, for the bug report
+        let text = |v: Vec<hud::Section>| -> Vec<String> {
+            v.into_iter().flat_map(|s| std::iter::once(format!("[{}]", s.title)).chain(s.rows.into_iter().map(|r| format!("{}: {}", r.0, r.1)))).collect()
+        };
+        let (l, r) = self.debug_sections();
+        (text(l), text(r))
+    }
+
+    /// F3's numbers in groups (ADR 0023; regrouped 2026-11-11): what the game costs, how the simulation
+    /// keeps up, where the player is, the world, the player; then what is drawn, the machine, the session.
+    /// A value is coloured by how it stands against its limit (ADR 0004).
+    pub(crate) fn debug_sections(&self) -> (Vec<hud::Section>, Vec<hud::Section>) {
         let (pos, fwd, _) = self.cam;
         let w = &self.world;
         let space = w.frame_at(pos) == engine::world::INERTIAL;
@@ -287,14 +328,14 @@ impl App {
         let sea = b.sea.map_or(String::new(), |s| format!(", {:.1} m over the sea", r - s));
         let look = match self.aim {
             Some((hit, _)) => format!(
-                "Looking at: {} (face {}, {} {}, layer {})",
+                "{} (face {}, {} {}, layer {})",
                 BLOCKS.get(w.block(hit)).map_or("?", |d| d.name.as_str()),
                 hit.face,
                 hit.pos.x,
                 hit.pos.y,
                 hit.pos.z
             ),
-            None => "Looking at: nothing in reach".into(),
+            None => "nothing in reach".into(),
         };
         let (yaw, pitch) = stand_angles(w.up_at(pos), fwd);
         let tool = if self.bucket { "bucket" } else if self.hammer { "build hammer" } else { "hands" };
@@ -302,47 +343,113 @@ impl App {
         let block = self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)).map_or("-", |d| d.name.as_str());
         let d = &self.drawn;
         let gpu = self.gpu.as_ref().unwrap();
+        // good, near the limit (three quarters of it), over it
+        let tone = |v: f64, limit: f64| if v > limit { 3 } else if v > limit * 0.75 { 2 } else { 1 };
+        let section = |title, rows| hud::Section { title, rows, graph: None };
+        // the server's last ticks (a local server's; a remote one's times stay there)
+        let tick_ms = 1000.0 / TICK_HZ;
+        let mut ticks: Vec<f32> = self.ticks.iter().map(|t| t.1).collect();
+        let bars: Vec<f32> = ticks.iter().map(|ms| ms / tick_ms as f32).collect();
+        let since = Instant::now() - Duration::from_secs(2);
+        let rate = self.ticks.iter().filter(|t| t.0 >= since).count() as f64 / 2.0;
+        let simulation = if self.tick_log.is_none() {
+            vec![("Tick", "the server is remote: its times stay there".into(), 0)]
+        } else if ticks.is_empty() {
+            vec![("Tick", "no tick yet".into(), 0)]
+        } else {
+            let worst = ticks.iter().copied().fold(0.0, f32::max) as f64;
+            let p50 = pct(&mut ticks, 0.5);
+            vec![
+                // ADR 0004: a tick's p99 within half its time; the line across the graph is that half
+                ("Tick", format!("{p50:.1} ms typical, {worst:.1} ms worst, of {tick_ms:.0}"), if worst > tick_ms { 3 } else if worst > tick_ms / 2.0 { 2 } else { 1 }),
+                ("Speed", format!("{rate:.1} of {TICK_HZ:.0} ticks a second"), if (ticks.len() as f64) < 2.0 * TICK_HZ { 0 } else if rate < TICK_HZ * 0.75 { 3 } else if rate < TICK_HZ - 1.0 { 2 } else { 1 }),
+            ]
+        };
         let left = vec![
-            format!("TechnoApe {BUILD} ({}), Pillars of Simulation Engine", if cfg!(debug_assertions) { "debug" } else { "release" }),
-            format!("{:.0} fps, frame {avg:.2} ms average, {p99:.2} ms p99, GPU {:.2} ms", 1000.0 / avg.max(0.01), self.gpu_last),
-            if space {
-                format!("In space: {:.1} km from the sun's centre, {:.1} km from {}'s", to_sun / 1000.0, to_planet / 1000.0, w.bodies[0].name)
-            } else {
-                format!("XYZ: {:.2} / {:.2} / {:.2} from {body}'s centre", rel.x, rel.y, rel.z)
-            },
-            if space { "Height: no ground under you".into() } else { format!("Height: {r:.1} m from the centre, {:.1} m over the ground{sea}", r - b.top(up)) },
-            if space {
-                "Feet in block: none".into()
-            } else {
-                format!("Feet in block: {body} face {} at {} {}, layer {}", blk.face, blk.pos.x, blk.pos.y, blk.pos.z)
-            },
-            format!("Facing: yaw {yaw:.1}, pitch {pitch:.1}"),
-            look,
-            format!(
-                "Time: day {day}, {:02}:{:02} at the spawn, world time {:.0} s{}",
-                m / 60,
-                m % 60,
-                w.time,
-                self.clock.filter(|c| c.1 > 1.0).map_or(String::new(), |c| format!(", warp {}x", c.1))
+            section(
+                "Performance",
+                vec![
+                    ("Frame", format!("{:.0} fps, {avg:.2} ms average", 1000.0 / avg.max(0.01)), 0),
+                    ("Worst 1%", format!("{p99:.2} ms of 8.3"), tone(p99 as f64, 8.3)),
+                    ("GPU", format!("{:.2} ms", self.gpu_last), 0),
+                    ("Memory", format!("RAM {:.0} MB, VRAM {:.0} MB", self.mem.0, self.mem.1), tone(self.mem.0 as f64, 8000.0).max(tone(self.mem.1 as f64, 6000.0))),
+                ],
             ),
-            format!("Sun {:.1} degrees over the horizon, {} {:.0}% lit", d.sun_deg, w.bodies.get(1).map_or("the moon", |b| b.name.as_str()), d.moon_lit * 100.0),
-            format!("Mode: {}, {tool}, slot {}: {block}", if self.creative { "creative" } else { "survival" }, self.slot + 1),
-            format!("Chunks: {} drawn of {} kept, {} quads, {} traced builds waiting", d.chunks, self.streamer.slot_count(), d.quads, d.rt_pending),
-            format!("Streaming: {} missing, {} holes, {} requests, {} jobs running", d.streaming.0, d.streaming.1, d.streaming.2, d.streaming.3),
-            format!("Lamps near: {}, water quads: {}, edits applied: {}", self.lamps.len(), self.wquad_n, self.edits_applied),
-            format!("Players: {}, corrections: {}", self.players, self.snaps),
-            String::new(),
-            "F3 hides this. T chats, / runs a command (/help), F9 reports a bug".into(),
+            hud::Section {
+                title: "Simulation",
+                rows: simulation
+                    .into_iter()
+                    .chain([
+                        ("Players", format!("{}", self.players), 0),
+                        ("Corrections", format!("{}", self.snaps), 0),
+                        ("Warp", self.clock.map_or("1x".into(), |c| format!("{}x", c.1)), 0),
+                    ])
+                    .collect(),
+                graph: (!bars.is_empty()).then_some((bars, 0.5)),
+            },
+            section(
+                "Position",
+                vec![
+                    ("On", if space { "nothing: in space".into() } else { body.to_string() }, 0),
+                    if space {
+                        ("Away", format!("{:.1} km from Sol's centre, {:.1} km from {}'s", to_sun / 1000.0, to_planet / 1000.0, w.bodies[0].name), 0)
+                    } else {
+                        ("XYZ", format!("{:.2} / {:.2} / {:.2} from the centre", rel.x, rel.y, rel.z), 0)
+                    },
+                    ("Height", if space { "no ground under you".into() } else { format!("{:.1} m over the ground{sea}", r - b.top(up)) }, 0),
+                    ("Feet in", if space { "no block".into() } else { format!("face {} at {} {}, layer {}", blk.face, blk.pos.x, blk.pos.y, blk.pos.z) }, 0),
+                    ("Facing", format!("yaw {yaw:.1}, pitch {pitch:.1}"), 0),
+                    ("Looking at", look, 0),
+                    ("Where", if space { "no latitude out here".into() } else { format!("{}, {:.0} m up", nav::geo_text(nav::geo(rel, self.meridian(bi))), r - b.radius) }, 0),
+                ],
+            ),
+            section(
+                "World",
+                vec![
+                    ("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0),
+                    ("Sol", format!("{:.1} degrees over the horizon", d.sun_deg), 0),
+                    ("Moon", format!("{} {:.0}% lit", w.bodies.get(1).map_or("none", |b| b.name.as_str()), d.moon_lit * 100.0), 0),
+                    ("Seed", format!("{}", self.seed), 0),
+                    ("Size", w.bodies.iter().map(|b| format!("{} {}", b.name, b.n)).collect::<Vec<_>>().join(", ") + " columns a face", 0),
+                ],
+            ),
+            section(
+                "Player",
+                vec![("Mode", if self.creative { "creative" } else { "survival" }.into(), 0), ("Tool", tool, 0), ("Slot", format!("{}: {block}", self.slot + 1), 0)],
+            ),
         ];
         let right = vec![
-            format!("GPU: {}", gpu.adapter_name),
-            format!("{} with ray queries, {}x{}", gpu.backend, gpu.config.width, gpu.config.height),
-            format!("RAM {:.0} MB, VRAM {:.0} MB", self.mem.0, self.mem.1),
-            format!("CPU: {} workers", rayon::current_num_threads()),
-            format!("World: seed {}, {}", self.seed, w.bodies.iter().map(|b| format!("{} {} columns a face", b.name, b.n)).collect::<Vec<_>>().join(", ")),
-            format!("Server: {}", self.server_at),
-            format!("Save: {}", self.save_path.as_deref().unwrap_or("none")),
-            format!("Recording: {}", self.rec_path.as_deref().unwrap_or("none")),
+            section(
+                "Drawn",
+                vec![
+                    ("Chunks", format!("{} of {} kept", d.chunks, self.streamer.slot_count()), 0),
+                    ("Quads", format!("{}", d.quads), 0),
+                    ("Traced", format!("{} builds waiting", d.rt_pending), 0),
+                    ("Missing", format!("{} chunks, {} holes", d.streaming.0, d.streaming.1), if d.streaming.1 > 0 { 2 } else { 0 }),
+                    ("Loading", format!("{} requests, {} jobs running", d.streaming.2, d.streaming.3), 0),
+                    ("Lamps", format!("{} near", self.lamps.len()), 0),
+                    ("Water", format!("{} quads", self.wquad_n), 0),
+                    ("Edits", format!("{} applied", self.edits_applied), 0),
+                ],
+            ),
+            section(
+                "Machine",
+                vec![
+                    ("GPU", gpu.adapter_name.clone(), 0),
+                    ("Backend", format!("{} with ray queries", gpu.backend), 0),
+                    ("Screen", format!("{}x{}", gpu.config.width, gpu.config.height), 0),
+                    ("CPU", format!("{} workers", rayon::current_num_threads()), 0),
+                    ("Build", format!("{BUILD} ({})", if cfg!(debug_assertions) { "debug" } else { "release" }), 0),
+                ],
+            ),
+            section(
+                "Session",
+                vec![
+                    ("Server", self.server_at.clone(), 0),
+                    ("Save", self.save_path.clone().unwrap_or("none".into()), 0),
+                    ("Recording", self.rec_path.clone().unwrap_or("none".into()), 0),
+                ],
+            ),
         ];
         (left, right)
     }
@@ -462,6 +569,11 @@ impl App {
                 return;
             }
         }
+        // what the player sees of it at once: the hand swings and sparks of the block fly (ADR 0030)
+        let seen = if dig { self.aim.map(|a| self.world.block(a.0)) } else { Some(m) };
+        if let Some(d) = seen.and_then(|b| BLOCKS.get(b)) {
+            self.acted = (Instant::now(), d.colour, self.acted.2.wrapping_add(17));
+        }
         let me = &self.me;
         let (seq, cells) = self.pred.edit(&mut self.world, s, m, |w, c| phys::holds(w, me, c));
         for c in &cells {
@@ -512,13 +624,25 @@ impl App {
         }
         let slots: Vec<hud::Slot> = (0..9)
             .filter_map(|k| self.slot_block(k))
-            .map(|m| hud::Slot { colour: BLOCKS.get(m).unwrap().colour, count: (!self.creative).then(|| self.held_count(m)) })
+            .map(|m| {
+                let d = BLOCKS.get(m).unwrap();
+                // a grass block's sides are another block's (blocks.toml `side`)
+                let side = BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
+                hud::Slot { colour: d.colour, side, pattern: d.pattern as u8, count: (!self.creative).then(|| self.held_count(m)) }
+            })
             .collect();
         let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
         // the title menu shows the orbit view and itself only
-        let title = self.home() == Menu::Title;
+        // the title page and any open menu stand alone: no hotbar, chat or labels under them
+        let title = self.home() == Menu::Title || self.menu.is_some();
         let (lw, lh) = self.ui_size();
-        let mut rects = if title { Vec::new() } else { hud::layer(lw, lh, &slots, self.slot, self.creative, height) };
+        // the block in hand by name over the hotbar: full for two seconds after a change of slot, then gone in half
+        if self.held_name.0 != self.slot {
+            self.held_name = (self.slot, Instant::now());
+        }
+        let shown = (2.5 - self.held_name.1.elapsed().as_secs_f32()).clamp(0.0, 0.5) * 2.0;
+        let held = self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)).map(|d| (d.name.clone(), shown));
+        let mut rects = if title { Vec::new() } else { hud::layer(lw, lh, &slots, self.slot, self.creative, height, held.as_ref().map(|h| (h.0.as_str(), h.1))) };
         if self.world.water_surface(p.pos).is_some() {
             // under water: a blue veil first, under the HUD. shortcut: a veil, not fog, until the sky has fog
             rects.insert(0, hud::Rect { xy: [-1.0, -1.0, 1.0, 1.0], colour: [0.05, 0.25, 0.4, 0.55], glyph: 0 });
@@ -526,8 +650,8 @@ impl App {
         // the text over it (ADR 0023): F3's numbers, the chat, the bug report's form
         let mut paint = hud::Paint::new(lw, lh);
         if self.f3 {
-            let (l, r) = self.debug_lines();
-            hud::columns(&mut paint, &l, &r);
+            let (l, r) = self.debug_sections();
+            hud::panels(&mut paint, &l, &r);
         }
         let lines: Vec<(f32, &str)> = self.chat.iter().map(|(at, l)| (at.elapsed().as_secs_f32(), l.as_str())).collect();
         let caret = self.start.elapsed().as_millis() / 400 % 2 == 0;
@@ -535,15 +659,92 @@ impl App {
         if !title {
             hud::chat(&mut paint, &lines, self.typing.as_deref(), caret, at, &hints, self.pick);
         }
-        if self.flying {
+        // the compass and the waypoints (docs/design/navigation.md): creative's for now; in survival they are
+        // earned with the first tool that gives them (the developer, 2026-11-11), which does not exist yet
+        let mut label_y = 10.0;
+        let (eye, fwd) = (p.pos, p.fwd);
+        let on = self.world.frame_at(eye);
+        if self.creative && !title && self.menu.is_none() && !self.f3 && on != engine::world::INERTIAL {
+            let b = &self.world.bodies[on];
+            let rel = eye - b.centre;
+            let up = rel.normalize();
+            let here: Vec<(usize, &nav::Waypoint)> = self.waypoints.iter().enumerate().filter(|w| w.1.body == on).collect();
+            let marks: Vec<(f64, [f32; 3])> = here.iter().map(|(k, w)| (nav::bearing(up, w.rel - rel), nav::COLOURS[k % nav::COLOURS.len()])).collect();
+            let heading = nav::bearing(up, fwd);
+            let text = format!("{}  {}  {:.0} m up", b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius);
+            label_y = hud::compass(&mut paint, heading, &marks, &text) + 10.0;
+            // this frame's view, as `frame` makes it after this: from the camera, the up kept off the look
+            let cam_up = if fwd.cross(p.up).length() < 1e-4 { DVec3::Z } else { p.up };
+            let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse((self.fov() as f32).to_radians(), w() as f32 / h() as f32, 0.1);
+            let vp = proj * glam::camera::rh::view::look_to_mat4(Vec3::ZERO, fwd.as_vec3(), cam_up.as_vec3());
+            // 4. the nearest sixteen are drawn: more would crowd the view and the HUD's room for rectangles
+            let mut here = here;
+            here.sort_by(|a, b| (a.1.rel - rel).length_squared().total_cmp(&(b.1.rel - rel).length_squared()));
+            here.truncate(16);
+            for (k, w) in here {
+                // a beam from where it stands to a height that grows with how far it is, so the tag stays
+                // over the ground between: 3 m up close by, 60 m from 400 m on
+                let far = (w.rel - rel).length();
+                let rise = (far * 0.15).clamp(3.0, 60.0);
+                let screen = |d: DVec3| {
+                    let clip = vp * d.as_vec3().extend(1.0);
+                    (clip.w > 0.01).then(|| ((clip.x / clip.w * 0.5 + 0.5) * lw, (0.5 - clip.y / clip.w * 0.5) * lh))
+                };
+                if let (Some(base), Some(top)) = (screen(w.rel - rel), screen(w.rel + w.rel.normalize() * rise - rel)) {
+                    // a beam that would run up past the compass ends under it, its tag there
+                    let roof = label_y + 96.0; // under the looked-at label too
+                    let (base, top) = if top.1 >= roof {
+                        (base, top)
+                    } else if base.1 > roof {
+                        let t = (base.1 - roof) / (base.1 - top.1);
+                        (base, (base.0 + (top.0 - base.0) * t, roof))
+                    } else {
+                        // its foot is up there too: no beam, the tag where the foot points
+                        ((base.0, roof), (base.0, roof))
+                    };
+                    if top.0 > -200.0 && top.0 < lw + 200.0 && top.1 >= roof - 0.5 && top.1 < lh + 100.0 {
+                        let far = if far >= 1000.0 { format!("{:.1} km", far / 1000.0) } else { format!("{far:.0} m") };
+                        hud::marker(&mut paint, base, top, nav::COLOURS[k % nav::COLOURS.len()], &w.name, &far);
+                    }
+                }
+            }
+        }
+        // what the crosshair is on (the developer, 2026-11-11), when no menu or overlay is over the top
+        if let (Some((hit, _)), None, false) = (self.aim, self.menu, self.f3 || title) {
+            if let Some(d) = BLOCKS.get(self.world.block(hit)) {
+                let lit = d.light.iter().any(|c| *c > 0.0);
+                let note = match (lit, d.metal > 0.0) {
+                    (true, true) => "gives light, metal",
+                    (true, false) => "gives light",
+                    (false, true) => "metal",
+                    _ => "",
+                };
+                let side = BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
+                hud::looking_at(&mut paint, &d.name, d.colour, side, d.pattern as u8, note, label_y);
+            }
+        }
+        // the block in hand, large at the lower right, dipping when it digs or places; and the sparks
+        let since = self.acted.0.elapsed().as_secs_f32();
+        if !title {
+            if let (Some(d), false) = (self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)), self.hammer || self.bucket || self.f3 || lw < 1100.0) {
+                let swing = if since < 0.18 { (since / 0.18 * std::f32::consts::PI).sin() } else { 0.0 };
+                let side = BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
+                let (x, y) = (lw - 250.0 - 46.0 * swing, lh - 236.0 + 60.0 * swing);
+                hud::cube(&mut |x, y, w, h, c, g| paint.rect(x, y, w, h, c, g), x, y, 176.0, d.colour, side, d.pattern as u8, 1.0);
+            }
+            hud::sparks(&mut paint, since, self.acted.1, self.acted.2);
+        }
+        if self.flying && !title {
             let s = format!("Flying {:.0} m/s", self.fly_speed);
-            // right of the hotbar (hud::layer: nine 44 px slots 6 px apart), clear of the chat
-            paint.text(lw / 2.0 + 222.0 + 16.0, lh - 46.0, &s, [1.0, 1.0, 1.0, 0.9]);
+            // over the hotbar's right end (hud::layer: its pane ends 268 px right of the middle)
+            paint.text_px(lw / 2.0 + 268.0 - s.len() as f32 * hud::ADV * hud::PX * 0.75, lh - 110.0, &s, [1.0, 1.0, 1.0, 0.9], hud::PX * 0.75);
         }
         if let Some(m) = self.menu {
             let (title, hint) = match m {
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
-                Menu::Worlds => ("Singleplayer", "A world carries on from its save; a new one gets its own."),
+                Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),
+                Menu::Remove(_) => ("Remove world", "It moves to saves/removed/ and can be put back by hand."),
+                Menu::Waypoints => ("Waypoints", "N drops one where you stand. Right click or Delete takes one away."),
                 Menu::Pause => ("Paused", "The world runs on. Esc goes back to the game."),
                 Menu::Settings => ("Settings", "Click or Enter: the next value. Right click: the one before. Arrows move."),
                 Menu::Page(p) => settings::PAGES[p],
@@ -562,7 +763,15 @@ impl App {
                 Some(k) => k.checked_sub(self.scroll).filter(|v| *v < boxes.len()),
                 None => under,
             };
-            hud::menu(&mut paint, title, items, sliders, hint, hover, caret, self.scroll);
+            // the page slides in over a tenth of a second, the lit row out as long (ADR 0030)
+            let now = Instant::now();
+            if self.lit.0 != hover {
+                self.lit = (hover, now);
+            }
+            // (off screen the rows stand still, so a scripted run's pictures repeat; motion=1 shows it there)
+            let moving = self.onscreen || self.args.get("motion", 0) == 1;
+            let ease = if moving { ((now - self.menu_since).as_secs_f32() / 0.14, (now - self.lit.1).as_secs_f32() / 0.1) } else { (1.0, 1.0) };
+            hud::menu(&mut paint, title, items, sliders, hint, hover, caret, self.scroll, ease);
             self.menu_boxes = boxes;
         }
         // the bug report's form over everything, the menus too

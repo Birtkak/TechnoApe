@@ -42,6 +42,14 @@ package E (the height cache) every stage here builds on.
 - Checks: a walk test (a bot follows a river from spring to sea and never climbs); `fly` and `orbit`
   with no holes; mesh job time per level against the optimisation pass's numbers.
 
+### W2b. The globe map (after W2; `docs/design/navigation.md` part 3)
+- The bake's coarse map drawn as one textured sphere the player turns, zooms and clicks to set a waypoint
+  (ADR 0030 has the coordinates, the compass and the waypoints it builds on).
+- It fills in as the player sees the world: a seen-mask per coarse cell, kept beside the save.
+- Spike first: the globe from the bake's mips in a frame, and what the seen-mask costs to keep.
+- **Taste calls:** is the map a tool to be made; does one player's map show to friends; its look.
+- Checks: a filmstrip of the globe turning; a bot walks a line and only that band is drawn.
+
 ### W3. Air, climate, seasons, biomes
 - **First the spike ADR 0010 already asks for:** the coarse air grid's tick cost on Terra (target under
   0.5 ms of the server tick).

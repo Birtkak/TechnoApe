@@ -79,6 +79,12 @@ pub(crate) struct App {
     pub(crate) aim: Option<(Block, Block)>,
     pub(crate) held: Option<(bool, Block, Block)>,
     pub(crate) slot: usize,
+    /// The last dig or place: when, the colour of what was dug or placed, and a number that shapes its sparks.
+    pub(crate) acted: (Instant, [f32; 3], u32),
+    /// What each world of the Singleplayer list is (seed, size, last played), beside `worlds`.
+    pub(crate) world_notes: Vec<String>,
+    /// The slot whose block's name shows over the hotbar, and since when.
+    pub(crate) held_name: (usize, Instant),
     pub(crate) creative: bool,
     pub(crate) inv: Vec<(u8, u32)>,
     /// Units of water in the bucket (ADR 0020).
@@ -133,6 +139,14 @@ pub(crate) struct App {
     /// what the last frame drew.
     pub(crate) f3: bool,
     pub(crate) recent: VecDeque<f32>,
+    /// The places the player marked and the file they are kept in (beside the save; none without one).
+    pub(crate) waypoints: Vec<nav::Waypoint>,
+    pub(crate) waypoint_file: Option<String>,
+    /// When the open menu page came up, and the row lit and since when: the menu's short motion.
+    pub(crate) menu_since: Instant,
+    pub(crate) lit: (Option<usize>, Instant),
+    /// Play: the local server's last ticks, when each was seen and how long it took (ms), for F3's graph.
+    pub(crate) ticks: VecDeque<(Instant, f32)>,
     pub(crate) gpu_last: f64,
     /// ADR 0025: the frame number each timestamp slot was written in, the GPU's end of the last frame read
     /// back (ticks), and the last frame's CPU stretches, which the next frame's interval is made of.

@@ -22,19 +22,32 @@ struct Globals { view_proj: mat4x4f, sun: vec4f, bodies: array<Body, 4> };
 struct GhostOut {
     @builtin(position) clip: vec4f,
     @location(0) colour: vec4f,
+    // where along the shape this is, in turns of the colour wheel: the idle outline's colours run along it
+    @location(1) along: f32,
 };
 
 @vertex
-fn ghost_vs(@location(0) pos: vec3f, @location(1) body: u32, @location(2) colour: vec4f) -> GhostOut {
+fn ghost_vs(@builtin(instance_index) inst: u32, @location(0) pos: vec3f, @location(1) body: u32, @location(2) colour: vec4f) -> GhostOut {
     let b = g.bodies[body];
     var o: GhostOut;
     o.clip = g.view_proj * vec4f(mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz) * ((pos - b.cam_hi) - b.cam_lo), 1.0);
+    // a line is one pixel wide: drawn nine times, a pixel apart in a 3 x 3 square, it is three (a pixel of
+    // a 1080 line high screen; shortcut: not read from the real size, so nearer four on a 1440 line one)
+    o.clip += vec4f(f32(inst % 3u) - 1.0, f32(inst / 3u) - 1.0, 0.0, 0.0) * vec4f(1.0 / 960.0, 1.0 / 540.0, 0.0, 0.0) * o.clip.w;
     o.colour = colour;
+    o.along = dot(pos, vec3f(0.31, 0.37, 0.43));
     return o;
 }
 
 @fragment
 fn ghost_fs(i: GhostOut) -> @location(0) vec4f {
+    // the outline of what is aimed at (white from the client, play.rs) turns slowly through the colours, a
+    // turn every 12 s, the hues running along its edges; a held dig stays red and a held place green
+    if (i.colour.a < 0.7 && min(i.colour.r, min(i.colour.g, i.colour.b)) > 0.99) {
+        let h = fract(g.sun.w / 12.0 + i.along);
+        let rgb = clamp(abs(fract(vec3f(h) + vec3f(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+        return vec4f(mix(vec3f(1.0), rgb, 0.8), 0.95);
+    }
     return i.colour;
 }
 

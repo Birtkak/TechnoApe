@@ -7,6 +7,7 @@ mod gpu;
 mod hud;
 mod menu;
 mod play;
+mod nav;
 mod rt;
 mod settings;
 mod sim;
@@ -140,6 +141,7 @@ impl ApplicationHandler for App {
                             KeyCode::ArrowRight => self.act("nudge+"),
                             KeyCode::ArrowLeft => self.act("nudge-"),
                             KeyCode::Enter | KeyCode::NumpadEnter => self.act("go"),
+                            KeyCode::Delete => self.act("remove"),
                             _ => {}
                         }
                     }
@@ -307,11 +309,10 @@ fn main() {
             }
             let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let st = stop.clone();
-            if run != "play" {
-                let v = Arc::new(std::sync::Mutex::new(Vec::new()));
-                server.tick_ms = Some(v.clone());
-                tick_log = Some(v);
-            }
+            // every tick's time: the benchmark's numbers (ADR 0025, S) and F3's graph in play
+            let v = Arc::new(std::sync::Mutex::new(Vec::new()));
+            server.tick_ms = Some(v.clone());
+            tick_log = Some(v);
             local_server = Some((stop, std::thread::spawn(move || server.run(TICK_HZ, &st))));
             let (c, s) = net::local();
             accept_tx.send(s).unwrap();
@@ -332,6 +333,8 @@ fn main() {
         }
         other => panic!("no welcome from the server: {other:?}"),
     };
+    // the waypoints live beside the save (shortcut: none without one, and none per remote server yet)
+    let waypoint_file = save_path.as_ref().map(|s| format!("{s}.waypoints"));
     // the server spawns players on the +y pole; the client starts its prediction there too
     let spawn = world.bodies[0].spawn_point();
     assert!(world.bodies.len() <= MAX_BODIES);
@@ -426,6 +429,9 @@ fn main() {
         aim: None,
         held: None,
         slot: 0,
+        held_name: (usize::MAX, Instant::now()),
+        acted: (Instant::now() - Duration::from_secs(10), [0.0; 3], 0),
+        world_notes: Vec::new(),
         creative,
         inv: Vec::new(),
         bucket_water: 0,
@@ -458,6 +464,11 @@ fn main() {
         clock: None,
         f3: false,
         recent: VecDeque::new(),
+        waypoints: waypoint_file.as_deref().and_then(|f| std::fs::read_to_string(f).ok()).map_or(Vec::new(), |t| nav::parse(&t)),
+        waypoint_file,
+        menu_since: Instant::now(),
+        lit: (None, Instant::now()),
+        ticks: VecDeque::new(),
         gpu_last: 0.0,
         ts_frames: [0; TS_RING],
         gpu_end: None,

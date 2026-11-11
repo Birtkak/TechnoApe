@@ -12,6 +12,10 @@ struct Post {
     cfg: vec4u,    // x the frames a history holds at most, y the smoothing step, z the frame number,
                    // w 1 when the bounce light is off
     tune: vec4f,   // rgb the flat fill that stands in for the bounce then; w the screen's brightness
+    air: vec4f,    // rgb the air's colour at the horizon; w how fast the ground fades into it, per metre
+    amb: vec4f,    // x how much stronger the bounce light is drawn (the sky's light in the shadows: it
+                   // reaches only where the bounce rays did, so a cave stays dark); w the body the camera
+                   // is on, whose ground alone fades into the air
 };
 
 @group(0) @binding(0) var<uniform> u: Post;
@@ -173,7 +177,12 @@ fn fs_composite(@builtin(position) pos: vec4f) -> @location(0) vec4f {
             ws += w;
         }
         let bounce = select(textureLoad(bounce_t, min(px / 2, hs - 1), 0).rgb, sum / ws, ws > 1e-4);
-        c += textureLoad(albedo_t, px, 0).rgb * bounce;
+        c += textureLoad(albedo_t, px, 0).rgb * bounce * (1.0 + u.amb.x);
+    }
+    if (gb.w > 0.0 && u.air.w > 0.0 && round(textureLoad(albedo_t, px, 0).a * 3.0) == u.amb.w) {
+        // far ground fades into the air (ADR 0030). shortcut: by distance alone, so a long tunnel fades
+        // too; the air's own grid (W3) will know where air is lit
+        c = mix(c, u.air.rgb, 1.0 - exp(-gb.w * u.air.w));
     }
     c = shoulder(c);
     // the settings' brightness: a curve over the finished picture, 1 leaves it as it is

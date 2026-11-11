@@ -165,6 +165,7 @@ acts! {
     Bug "bug" "Bug report" k(KeyCode::F9), "f9" "";
     WarpUp "warp_up" "Time warp faster" k(KeyCode::Period), "warp+" "";
     WarpDown "warp_down" "Time warp slower" k(KeyCode::Comma), "warp-" "";
+    Waypoint "waypoint" "Drop a waypoint" k(KeyCode::KeyN), "waypoint" "";
     Slot1 "slot1" "Hotbar 1" k(KeyCode::Digit1), "1" "";
     Slot2 "slot2" "Hotbar 2" k(KeyCode::Digit2), "2" "";
     Slot3 "slot3" "Hotbar 3" k(KeyCode::Digit3), "3" "";

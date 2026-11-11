@@ -19,12 +19,103 @@ pub(crate) fn list_worlds() -> Vec<String> {
     v.into_iter().take(WORLDS_SHOWN).map(|(_, p)| p).collect()
 }
 
+/// Takes a world out of the list: its save moves to removed/ beside it, under its own name or the first free
+/// one after it, so nothing is ever deleted or written over. Says where it went.
+pub(crate) fn remove_world(save: &str) -> std::io::Result<std::path::PathBuf> {
+    let from = std::path::Path::new(save);
+    let dir = from.parent().unwrap_or(std::path::Path::new(".")).join("removed");
+    std::fs::create_dir_all(&dir)?;
+    let stem = from.file_stem().and_then(|s| s.to_str()).unwrap_or("world");
+    let to = (1..).map(|n| dir.join(if n == 1 { format!("{stem}.sav") } else { format!("{stem}-{n}.sav") })).find(|p| !p.exists()).unwrap();
+    std::fs::rename(from, &to)?;
+    // its waypoints go with it, so the next world of that name starts with none and this one keeps its own
+    let marks = format!("{save}.waypoints");
+    if std::path::Path::new(&marks).exists() {
+        std::fs::rename(&marks, format!("{}.waypoints", to.display()))?;
+    }
+    Ok(to)
+}
+
+#[test]
+fn a_removed_world_moves_aside_and_never_over_another() {
+    let dir = std::env::temp_dir().join(format!("technoape-remove-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let save = dir.join("world-1.sav");
+    let marks = dir.join("world-1.sav.waypoints");
+    for text in ["first", "second"] {
+        std::fs::write(&save, text).unwrap();
+        std::fs::write(&marks, text).unwrap();
+        remove_world(save.to_str().unwrap()).unwrap();
+        assert!(!save.exists() && !marks.exists(), "the save and its waypoints both go");
+    }
+    assert_eq!(std::fs::read_to_string(dir.join("removed/world-1-2.sav.waypoints")).unwrap(), "second");
+    assert_eq!(std::fs::read_to_string(dir.join("removed/world-1.sav")).unwrap(), "first");
+    assert_eq!(std::fs::read_to_string(dir.join("removed/world-1-2.sav")).unwrap(), "second");
+    assert!(remove_world(save.to_str().unwrap()).is_err(), "a save that is not there");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// How long ago, in the largest unit that fits: "just now", "5 min ago", "3 h ago", "2 days ago".
+pub(crate) fn ago(secs: u64) -> String {
+    match secs {
+        0..=59 => "just now".into(),
+        60..=3599 => format!("{} min ago", secs / 60),
+        3600..=86_399 => format!("{} h ago", secs / 3600),
+        86_400..=172_799 => "yesterday".into(),
+        _ => format!("{} days ago", secs / 86_400),
+    }
+}
+
+/// What a world of the list is: its seed, its planet's size and when it was last played. A save this build
+/// cannot read says so, and is still listed.
+/// shortcut: reads the whole save for two numbers, on the frame thread, when the page opens; a header of
+/// its own in the save format when saves grow past a few megabytes.
+pub(crate) fn world_note(path: &str) -> String {
+    let played = std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).map_or(String::new(), |d| format!(", played {}", ago(d.as_secs())));
+    match server::save::Save::read(std::path::Path::new(path)) {
+        Ok(s) => {
+            let size = match s.planet_n {
+                12288 => "4 km".to_string(),
+                24576 => "8 km".to_string(),
+                n => format!("{n} columns"),
+            };
+            format!("seed {}, {size}{played}", s.seed)
+        }
+        Err(_) => format!("not readable by this build{played}"),
+    }
+}
+
+#[test]
+fn a_world_s_age_is_told_in_the_largest_unit_that_fits() {
+    let told: Vec<String> = [0, 59, 60, 3599, 3600, 86_399, 86_400, 172_800, 30 * 86_400].into_iter().map(ago).collect();
+    assert_eq!(told, ["just now", "just now", "1 min ago", "59 min ago", "1 h ago", "23 h ago", "yesterday", "2 days ago", "30 days ago"]);
+    assert!(world_note("no/such/file.sav").starts_with("not readable"));
+}
+
+/// The row of the "remove world k?" page that removes: never row k itself, where the pointer still is from
+/// the click that asked, so a second click by habit keeps the world.
+pub(crate) fn remove_row(k: usize) -> usize {
+    (k != 1) as usize
+}
+
+#[test]
+fn the_removing_row_is_not_under_the_click_that_asked() {
+    for k in 0..WORLDS_SHOWN {
+        assert!(remove_row(k) != k && remove_row(k) < 2, "world {k}");
+    }
+}
+
 /// The menu's pages (ADR 0023): the title's, and the pause menu's.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum Menu {
     Title,
     Worlds,
+    /// The question before world k of the list is removed.
+    Remove(usize),
     Pause,
+    /// The places the player marked (the pause menu's): a right click or Delete takes one away.
+    Waypoints,
     /// The list of the settings' pages, one of them (`settings::PAGES`), and the question after a display
     /// change: keep it?
     Settings,
@@ -105,10 +196,28 @@ impl App {
             None => Vec::new(),
             Some(Menu::Title) => vec!["Singleplayer".into(), "Settings".into(), "Quit game".into()],
             Some(Menu::Worlds) => {
-                let names = self.worlds.iter().map(|p| p.trim_start_matches("saves/").trim_end_matches(".sav").to_string());
-                names.chain(["New world".into(), "Back".into()]).collect()
+                let names = self.worlds.iter().zip(&self.world_notes).map(|(p, n)| format!("{}   {n}", p.trim_start_matches("saves/").trim_end_matches(".sav")));
+                names.chain(["New world: Terra, 4 km, a seed of its own".into(), "Back".into()]).collect()
             }
-            Some(Menu::Pause) => vec!["Back to game".into(), "Settings".into(), "Main menu".into(), "Quit game".into()],
+            Some(Menu::Remove(k)) => {
+                let name = self.worlds.get(k).map_or("", |p| p.trim_start_matches("saves/").trim_end_matches(".sav"));
+                let mut rows = vec!["Keep it".to_string(), format!("Remove {name}")];
+                if remove_row(k) == 0 {
+                    rows.swap(0, 1);
+                }
+                rows
+            }
+            Some(Menu::Pause) => vec!["Back to game".into(), "Settings".into(), "Waypoints".into(), "Main menu".into(), "Quit game".into()],
+            Some(Menu::Waypoints) => {
+                let w = &self.world;
+                let me = self.me.pos;
+                let rows = self.waypoints.iter().map(|p| {
+                    let b = &w.bodies[p.body.min(w.bodies.len() - 1)];
+                    let far = if w.frame_at(me) == p.body { format!("{:.0} m away", (b.centre + p.rel - me).length()) } else { "on another body".into() };
+                    if self.creative { format!("{}: {} {}, {far}", p.name, b.name, nav::geo_text(nav::geo(p.rel, self.meridian(p.body)))) } else { p.name.clone() }
+                });
+                rows.chain(["Back".into()]).collect()
+            }
             Some(Menu::Settings) => settings::PAGES.iter().map(|p| p.0.to_string()).chain(["Done".into()]).collect(),
             Some(Menu::Confirm) => {
                 let left = self.revert.as_ref().map_or(0, |r| r.1.saturating_duration_since(Instant::now()).as_secs() + 1);
@@ -210,7 +319,7 @@ impl App {
 
     /// Left and right on the keyboard's row: a slider a step, any other row its value before or after.
     pub(crate) fn nudge(&mut self, back: bool) {
-        let Some(k) = self.sel else { return };
+        let Some(k) = self.sel.filter(|_| matches!(self.menu, Some(Menu::Page(_)))) else { return };
         if let Some(Row::Set(s)) = self.page_row(k) {
             if let settings::Kind::Slider { step, .. } = settings::DEFS[s as usize].kind {
                 let before = self.settings.clone();
@@ -227,7 +336,26 @@ impl App {
         match (self.menu, k) {
             (Some(Menu::Title), 0) => self.set_menu(Some(Menu::Worlds)),
             (Some(Menu::Title) | Some(Menu::Pause), 1) => self.set_menu(Some(Menu::Settings)),
-            (Some(Menu::Title), 2) | (Some(Menu::Pause), 3) => self.finish(),
+            (Some(Menu::Title), 2) | (Some(Menu::Pause), 4) => self.finish(),
+            (Some(Menu::Pause), 2) => self.set_menu(Some(Menu::Waypoints)),
+            (Some(Menu::Waypoints), k) if k < self.waypoints.len() => {
+                if back {
+                    self.remove_waypoint(k);
+                }
+            }
+            (Some(Menu::Waypoints), _) => self.set_menu(Some(Menu::Pause)),
+            // the right button on a world asks whether to remove it
+            (Some(Menu::Worlds), k) if k < self.worlds.len() && back => self.set_menu(Some(Menu::Remove(k))),
+            (Some(Menu::Remove(k)), row) if row == remove_row(k) && !back => {
+                if let Some(save) = self.worlds.get(k).cloned() {
+                    match remove_world(&save) {
+                        Ok(to) => self.note(format!("{save} moved to {}", to.display().to_string().replace('\\', "/"))),
+                        Err(e) => self.note(format!("{save} could not be removed: {e}")),
+                    }
+                }
+                self.set_menu(Some(Menu::Worlds));
+            }
+            (Some(Menu::Remove(_)), _) => self.set_menu(Some(Menu::Worlds)),
             (Some(Menu::Worlds), k) if k < self.worlds.len() => self.start_again(vec![format!("save={}", self.worlds[k])]),
             (Some(Menu::Worlds), k) if k == self.worlds.len() => {
                 // a new world: the first free saves/world-N.sav, a seed from the clock; the server makes the file
@@ -237,7 +365,7 @@ impl App {
             }
             (Some(Menu::Worlds), _) => self.set_menu(Some(Menu::Title)),
             (Some(Menu::Pause), 0) => self.set_menu(None),
-            (Some(Menu::Pause), 2) => self.start_again(TITLE_ARGS[2..].iter().map(|s| s.to_string()).collect()),
+            (Some(Menu::Pause), 3) => self.start_again(TITLE_ARGS[2..].iter().map(|s| s.to_string()).collect()),
             (Some(Menu::Settings), k) if k < settings::PAGES.len() => self.set_menu(Some(Menu::Page(k))),
             (Some(Menu::Settings), _) => self.set_menu(Some(self.home())),
             (Some(Menu::Confirm), 0) => {
@@ -344,6 +472,29 @@ impl App {
         self.set_menu(Some(Menu::Page(0)));
     }
 
+    /// The meridian a body's longitudes count from: the spawn's on the first body, on a moon the middle of
+    /// the face it keeps turned to its planet (its -x, `engine::sky`).
+    pub(crate) fn meridian(&self, body: usize) -> DVec3 {
+        if body == 0 { self.world.bodies[0].spawn_point() - self.world.bodies[0].centre } else { -DVec3::X }
+    }
+
+    /// Keeps the waypoints in their file, when the world has one.
+    pub(crate) fn save_waypoints(&mut self) {
+        if let Some(f) = self.waypoint_file.clone() {
+            if let Err(e) = std::fs::write(&f, nav::text(&self.waypoints)) {
+                self.note(format!("the waypoints could not be saved to {f}: {e}"));
+            }
+        }
+    }
+
+    pub(crate) fn remove_waypoint(&mut self, k: usize) {
+        if k < self.waypoints.len() {
+            let w = self.waypoints.remove(k);
+            self.note(format!("{} removed", w.name));
+            self.save_waypoints();
+        }
+    }
+
     /// The key or button for the key row that waits for one; None clears it.
     pub(crate) fn bind_to(&mut self, b: Option<Bind>) {
         if let Some((a, slot)) = self.rebind.take() {
@@ -437,9 +588,11 @@ impl App {
     pub(crate) fn set_menu(&mut self, m: Option<Menu>) {
         if m == Some(Menu::Worlds) {
             self.worlds = list_worlds();
+            self.world_notes = self.worlds.iter().map(|p| world_note(p)).collect();
         }
         if m != self.menu {
             self.scroll = 0;
+            self.menu_since = Instant::now();
         }
         (self.sel, self.rebind) = (None, None);
         self.menu = m;

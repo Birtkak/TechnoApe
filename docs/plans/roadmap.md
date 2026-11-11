@@ -75,7 +75,8 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
    `air.md` (the grid ADR 0010 asks to spike), `rivers-and-tides.md`, `networks.md` (shafts, pipes,
    wires, belts on one graph), `crafting.md` (processes the world or a machine can meet; the starter),
    `settings.md` (2026-11-11: every page of the settings menu, whose each setting is, and the order to
-   build them), and `open-questions.md`. ADR 0027: Luna grows to about 1 km, the ape learns by doing, Terra has
+   build them), `navigation.md` (2026-11-11: latitude and longitude, the compass and waypoints, built in
+   ADR 0030; the globe map after the bake, the attitude ball with the jetpack), and `open-questions.md`. ADR 0027: Luna grows to about 1 km, the ape learns by doing, Terra has
    animals and hostile creatures, the cube corners hold something made.
 3. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; **world
    physics** (ADR 0017: loose blocks fall and slide, unsupported builds collapse); **blueprints** (ADR 0017:

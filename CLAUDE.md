@@ -74,7 +74,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block, right click places one;
   H the build hammer, B its shape, wheel its height; V the bucket, left scoops, right pours;
   in space the mouse pitches you freely and Q/E roll, gravity rights you as it pulls (ADR 0024); C held zooms 3x;
-  1-9 the hotbar; space swims up in water, ADR 0020; T chats, / runs a command: /time, /playmode, /give,
+  1-9 the hotbar; N drops a waypoint and creative shows the compass, where you are and the waypoints
+  (ADR 0030; Esc, Waypoints lists them); space swims up in water, ADR 0020; T chats, / runs a command: /time, /playmode, /give,
   /goto, /timewarp (. and , step it), /help; Tab completes a command, the arrows pick, else the up arrow
   recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed up to
   1 km/s; F3 the overlay of
