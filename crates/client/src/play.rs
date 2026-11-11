@@ -1123,7 +1123,8 @@ impl App {
             let (x, y) = self.pointer;
             let under = boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]);
             // the keyboard's row is the lit one until the pointer moves
-            let hover = match self.sel {
+            // (the row typed into stays lit: its box changes width under a still pointer as the text grows)
+            let hover = match self.edit.as_ref().map(|e| e.0).or(self.sel) {
                 Some(k) => k.checked_sub(self.scroll).filter(|v| *v < boxes.len()),
                 None => under,
             };

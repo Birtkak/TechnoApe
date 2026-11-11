@@ -329,7 +329,7 @@ impl App {
                     "Planet".into(),
                     format!("Size:  {}, {km} radius, {} km around", SIZE_WORDS[n.size].0, cols * 4 / 1000),
                     "Rules".into(),
-                    format!("Mode:  {}", if n.creative { "creative: fly, every block, no health or hunger" } else { "survival: health, hunger, digging takes time" }),
+                    format!("Mode:  {}", if n.creative { "creative" } else { "survival" }),
                     String::new(),
                     "Create world".into(),
                     "Back".into(),
@@ -420,7 +420,12 @@ impl App {
     /// it starts typing one; anywhere else on a button it presses it.
     pub(crate) fn menu_click(&mut self, back: bool) {
         let (x, y) = self.pointer;
-        let Some(v) = self.menu_boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]) else { return };
+        let v = self.menu_boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]);
+        // a click anywhere but on the row typed into keeps what was typed, as Enter does
+        if self.edit.as_ref().is_some_and(|e| v.map(|v| v + self.scroll) != Some(e.0)) {
+            self.submit();
+        }
+        let Some(v) = v else { return };
         let k = v + self.scroll;
         if self.menu_sliders().get(k).is_some_and(|s| s.is_some()) {
             let (t, n) = hud::slider_parts(self.menu_boxes[v], &self.menu_items()[k]);
