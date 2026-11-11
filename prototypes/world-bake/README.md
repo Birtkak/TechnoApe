@@ -5,7 +5,59 @@ and seam-free on the cube-sphere? The stages are plates, their boundaries, uplif
 erosion, sea level, then rivers and lakes. The budget proposal: 30 s for Terra, 2 min for the huge planet,
 under 10 MB on disk, under 100 MB of server RAM. The answers are measured below.
 
-**Answer.** Yes for time and seams; memory is over the proposal.
+**12 km default (2026-11-11).** The developer proposed planets of 8 km (small), 12 km (default) and 20 km
+(big), because on Terra's 4 km the features change too quickly. The bake now defaults to 12 km (N 17376 of
+1 m blocks, ADR 0033), with 48 fine steps and fewer lakes. Seed 5:
+
+| planet | N (1 m blocks) | time | peak RAM | disk | lakes | lake share of land | land p50 / p90 / p99 m |
+|---|---|---|---|---|---|---|---|
+| 12 km, before the lake work (24 fine steps) | 17376 | 148 s | 1.4 GB | 26 MB | 191 | 9.4 % | 22.4 / 47.2 / 66.7 |
+| **12 km, now (48 fine steps)** | **17376** | **218 s** (292 before the 2nd speedup) | **1.6 GB** | **26 MB** | **119** | **4.6 %** | **17.1 / 44.7 / 67.1** |
+| 4.2 km (old Terra), now | 6144 | 20 s (28 before) | 0.21 GB | 3.6 MB | 42 | 1.7 % | 19.3 / 51.0 / 78.5 |
+| 20 km, before the lake work | 28960 | 399 s | 3.9 GB | 68 MB | 286 | 15 % | 20.6 / 45.6 / 62.9 |
+
+- **The bake is over its 2 min proposal at 12 km** (3.6 min); the fine steps are 75 % of it. A 12 km bake
+  has 8x Terra's cells at 8 m.
+- **The second speedup (2026-11-11), exact:** 292 to 218 s at 12 km, 28 to 20 s at 4 km. The same land:
+  rivers, lakes, lake cells, percentiles and the last step's change all equal. A hash of the heights alone
+  was equal on two seeds; the bake's hash changes because the river and lake lists follow the flood order.
+  - Measured at 12 km before it, a fine step took 5.2 s: the flood 3.5 (one thread), grouping the basins
+    0.64, finding the oceans 0.29.
+  - **The drainage runs per land mass:** no water crosses from one mass to another, so each floods, and
+    groups its basins, on its own thread. The receivers stay one parallel pass over all cells. Seed 5's
+    largest mass holds 57 % of the land, so this alone gave 1.5x on the flood.
+  - **Big masses flood through buckets** (`Buckets`): a key's top 20 bits pick a bucket, and only the
+    current bucket is a binary heap. The same pops as the radix heap, about 20 % faster on the big mass.
+  - Now a fine step at 12 km takes about 3.1 s: the largest mass's flood 1.7, the oceans and masses
+    (two serial labellings) 0.55, the basins 0.5.
+  - Tests: `the_monotone_queues_pop_in_heap_order` (failed with the bucket push broken on purpose), and
+    the slow-path test now checks the water level, receivers and area to the bit with the order by mass.
+- **Where the lakes came from**, measured at 12 km:
+  - More coarse steps do not change them: 1.27 M lake cells at 320, 640 and 1280 coarse steps.
+  - Refining to 8 m starts the fine level at 15 % lake share. The fine steps drain that: 24 steps leave
+    9 %, 48 leave about 4.5 %, 64 leave 3.3 %.
+  - Most of what is left is shallow: lagoons the rising sea level leaves behind coastal ridges, and pits
+    the 8 m hillslope diffusion makes by filling one-cell river beds.
+- **What changed:**
+  - **A bug, fixed:** the flood's epsilon (1e-4 per cell) added up over plains wider than about 500 cells
+    (4 km) to the lake threshold. Such plains counted as lake floors, so erosion never cut them. The lake
+    test now uses the spill level without the epsilon (`Drainage::lvl`). Test
+    `a_wide_plain_is_no_lake_and_a_pit_is`, seen failing first (506,596 plain cells taken for lake).
+  - **48 fine steps** instead of 24 (the developer: "give erosion more steps").
+  - **A lake must be 1 m deep somewhere** (`min_lake_m`). A shallower one is a puddle or lagoon, filled to
+    flat ground at its level. The rivers test checks it, and failed with the filling switched off.
+- **Tried and dropped** (each lowered the plains or did not help):
+  - Filling the refine's hollows before the fine steps: the median land fell from 29 to 17 m on Terra.
+  - Silting lakes up by a share of their depth per step: wide shallow flats, more lake area at the
+    coarse level, and capping lake floors at the lake level halved the median land.
+  - Weaker diffusion at 8 m: no fewer lakes on Terra.
+- **The median land at 12 km is 17 m against 22 m before.** That is the plains the developer chose higher,
+  now 5 m lower: a taste check for the next look.
+- **1 m blocks (ADR 0033):** `planet=` counts 1 m columns now, so every N is half what it was at the same
+  size in metres: 6144 is the 4.2 km planet, 12288 the 8.5 km one. The tests bake 768 (small) and 1536
+  (rivers). The bake's 8 m cells are unchanged, so is everything it measures in metres.
+
+**Answer (4 km Terra, before the 12 km default).** Yes for time and seams; memory is over the proposal.
 - **Time:** Terra bakes in **13.1 s** and the huge planet in **61.6 s** (release build, this PC, seed 5),
   with the higher plains and the 120/60 m relief the developer chose (below). Asked "make it faster", the
   bake went from 18.4 and 99.3 s to these with the same result to the bit (same hash; below).
@@ -24,25 +76,26 @@ Throwaway code: its own cargo project, nothing depends on it, no engine code cha
 ```
 cd prototypes/world-bake
 cargo build --release
-target/release/world-bake.exe seed=1 planet=12288            # one bake: JSON line, out/seed-1-planet-12288/{sheet,orbit}.png, bake.bin.gz
-target/release/world-bake.exe mode=seeds planet=12288        # 12 seeds: out/seeds-planet-12288.png
+target/release/world-bake.exe seed=1                         # one 12 km bake: JSON line, out/seed-1-planet-17376/{sheet,orbit}.png, bake.bin.gz
+target/release/world-bake.exe mode=seeds planet=6144         # 12 seeds of the 4 km planet: out/seeds-planet-6144.png
 target/release/world-bake.exe mode=relief seed=1             # relief variants: out/relief-seed-1.png
 cargo test --release                                         # grid folds, determinism, rivers, sea share
 ```
-- **Options:** `planet=` (12288 Terra, 24576 huge), `mountain=` and `sea=` (the relief in metres),
+- **Options:** `planet=` in 1 m columns (17376 the 12 km default, 6144 the 4 km planet), `min_lake=`,
+  `coarse_dt=`, `fine_dt=`, `mountain=` and `sea=` (the relief in metres),
   `coarse_iters=` and `fine_iters=`, `draw=0` (no pictures), `variants=50:25,120:60` (for relief).
 - **Seam measure:** `SEAMS=1` prints the mean slope inside faces and across seams at each step.
 - **Parameters:** every knob, and the three taste calls marked `TASTE CALL`, are in one place: `Params`
   in `src/bake.rs`.
 
-Copies of the sheets are in `images/` (`out/` is not kept in git).
+The 12 km sheets are `images/sheet-seed-5-12km.png` and `images/orbit-seed-5-12km.png`. Copies of the sheets are in `images/` (`out/` is not kept in git).
 
 ## What it does, step by step, and where each method comes from
 All steps run on the engine's own cube-sphere: six faces of m x m cells, with the engine's face axes and
 the equi-angular warp (ADR 0003). A map cell therefore lines up with chunks.
-- **Cell size:** 8 m cells (worldgen.md), so m = N / 16.
-  - Terra: 768 cells per face edge, 3.5 M cells.
-  - Huge: 1536 per face edge, 14.2 M cells.
+- **Cell size:** 8 m cells (worldgen.md), so m = N / 8 with N in 1 m columns.
+  - 12 km (default): 2172 cells per face edge, 28.3 M cells.
+  - 4 km: 768 cells per face edge, 3.5 M cells (the tables below were measured there).
 - **Coarse level:** 4 x 4 fine cells, so 32 m.
 - **Why 8 m:** a river at 8 m is one cell wide, the size worldgen.md stores per cell. A grid of 4 m cells has as many cells as the
   huge planet at 8 m, so it would take about 70 s for Terra.
