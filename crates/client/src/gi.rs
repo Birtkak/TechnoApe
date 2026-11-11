@@ -19,6 +19,8 @@ struct Post {
     rays: [[f32; 4]; 4],
     delta: [f32; 4],
     cfg: [u32; 4],
+    /// The fill light when the bounce is off (rgb) and the screen's brightness (the settings').
+    tune: [f32; 4],
 }
 
 pub struct Gi {
@@ -280,7 +282,7 @@ impl Gi {
     /// After the terrain pass: trace, gather over frames, smooth. `cam` is the camera in frame `cf`'s
     /// coordinates; a change of frame or a jump drops the history. `still` averages without a limit.
     /// `stamp(enc, k)` writes the timer after the trace (0) and after `temporal` (1) (ADR 0025).
-    pub fn record(&mut self, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, vp: Mat4, cam: DVec3, cf: usize, still: bool, stamp: &mut dyn FnMut(&mut wgpu::CommandEncoder, usize)) {
+    pub fn record(&mut self, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, vp: Mat4, cam: DVec3, cf: usize, still: bool, tune: (bool, [f32; 4]), stamp: &mut dyn FnMut(&mut wgpu::CommandEncoder, usize)) {
         let p = (self.frame % 2) as usize;
         let (prev_vp, delta, reset) = match self.prev {
             Some((pvp, pcam, pcf)) if pcf == cf && (cam - pcam).length() < 20.0 => (pvp, (cam - pcam).as_vec3(), 0.0),
@@ -302,9 +304,18 @@ impl Gi {
                 prev_vp: prev_vp.to_cols_array_2d(),
                 rays,
                 delta: [delta.x, delta.y, delta.z, reset],
-                cfg: [cap, step, self.frame as u32, 0],
+                cfg: [cap, step, self.frame as u32, !tune.0 as u32],
+                tune: tune.1,
             };
             queue.write_buffer(u, 0, bytemuck::bytes_of(&post));
+        }
+        if !tune.0 {
+            // the bounce light is off (the settings): no rays, no smoothing; the composite fills in flat
+            stamp(enc, 0);
+            stamp(enc, 1);
+            self.prev = None;
+            self.frame += 1;
+            return;
         }
         let groups = (self.size.0.div_ceil(16), self.size.1.div_ceil(16));
         let mut cp = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("gi"), timestamp_writes: None });

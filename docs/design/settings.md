@@ -4,6 +4,9 @@
   change. ADR 0023 holds what exists today: resolution, display mode, field of view, mouse sensitivity and
   detail distance, in `settings.txt`.
 - For: the coding session that builds it, one page at a time (order at the end).
+- **Built 2026-11-11 (ADR 0028):** the page frame and Display, Graphics, Controls, Keys and Accessibility,
+  the rows whose systems exist. Not yet: render scale, HDR, the first-start measurement, each preset as a
+  benchmark row, and every row marked with a system to come.
 
 ## Rules
 1. **A setting exists only when the thing it changes exists.** No greyed-out rows for systems to come. The
@@ -38,7 +41,7 @@ Keys, Sound, Interface, Game, Accessibility, World, Server, then Debug when it i
 | Cap in the background | 30 / same as above | 30 | when the window has no focus; a server on the same PC keeps its cores |
 | Wait for the display (vsync) | off / on | by the cap package's measurement | whichever caps with less input delay becomes the default; the other stays a choice |
 | Render scale | 50 to 100 % in steps | 100 % | the 3D picture drawn smaller and scaled up; the interface stays sharp. The first lever for a weaker GPU |
-| Field of view | 60 to 110 | 80 | exists; the zoom key divides it |
+| Field of view | 60 to 110 | 70 | exists; the zoom key divides it. 70 stays the default: benchmarks and the reference views are drawn at the defaults |
 | Brightness | a gamma curve, with a test picture: a cave mouth at dusk | middle | the ray-traced night is dark on purpose; this is the screen's correction, not a cheat |
 | HDR output | off / on | off | later, with its own spike |
 

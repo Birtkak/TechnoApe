@@ -34,6 +34,11 @@ struct Globals {
     // the camera's frame turned into the inertial one (the stars'), as columns; x.w the air around the
     // camera (0 in space .. 1), y.w the sun's height over the horizon (sine)
     stars: array<vec4f, 3>,
+    // x: the settings' graphics rows, a bit each: 1 sharp sun shadows, 2 no reflections, 4 flat block
+    // colours, 8 no stars (`App::gfx_bits` in main.rs); 0 is the picture the game is tuned for.
+    // y: the settings' brightness in thousandths (post.wgsl has it as `tune.w`), for what is drawn after
+    // the composite
+    opt: vec4u,
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 struct Chunk { base: vec3i, info: u32, off: u32 };
@@ -302,7 +307,10 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     let vis = ecl * left_by(body, p, g.sun_pos.xyz, g.sun_pos.w);
     if (ndl > 0.0 && vis > 0.0) {
         let ar = g.sun_pos.w / length(g.sun_pos.xyz - p);
-        o.sun = vis * ray(p, n, in_disc(sd, ar, px), body, 1e5);
+        // soft: towards a point of the sun's disc; sharp: towards its middle
+        var to_sun = sd;
+        if ((g.opt.x & 1u) == 0u) { to_sun = in_disc(sd, ar, px); }
+        o.sun = vis * ray(p, n, to_sun, body, 1e5);
         o.l += g.sun_col.rgb * ndl * o.sun;
     }
     // the moon's light where the sun's is weak, through the same terrain
@@ -493,7 +501,8 @@ fn fs(i: VOut) -> GOut {
     let c = chunks[i.ci];
     let cell = vec3i(floor(i.local - axis(a) * sgn * 0.5)) + (c.base >> vec3u((c.info >> 3u) & 31u)) + vec3i(i32(c.info & 7u) * 977);
     let f = fract(i.local);
-    let t = vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]);
+    // flat colours: every pixel of a face takes its middle texel
+    let t = select(vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]), vec2f(0.5), (g.opt.x & 4u) != 0u);
     let col = texel(i.mat, i.dir, cell, t, f.z);
     let look = looks[i.mat & 255u];
     let n = normalize(i.normal);
@@ -511,7 +520,7 @@ fn fs(i: VOut) -> GOut {
     var out = col * l.l;
     var diffuse = 1.0;
     let metal = f32((look.info >> 16u) & 255u) / 255.0;
-    if (metal > 0.0) {
+    if (metal > 0.0 && (g.opt.x & 2u) == 0u) {
         // a metal mirrors what is around it, tinted by its colour, more so at a grazing angle
         let v = -normalize(i.rel);
         let fres = metal + (1.0 - metal) * pow(1.0 - max(dot(n, v), 0.0), 5.0);
@@ -723,7 +732,9 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
         col = mix(col, vec3f(0.85, 0.92, 1.0), 0.25);
         a = max(a, 0.8);
     }
-    return vec4f(shoulder(col), a);
+    var lit = shoulder(col);
+    if (g.opt.y != 1000u) { lit = pow(lit, vec3f(1000.0 / f32(g.opt.y))); }
+    return vec4f(lit, a);
 }
 
 // ---- the sky (ADR 0022) ----
@@ -748,7 +759,9 @@ fn fs_sky(i: SkyOut) -> GOut {
     // a pixel's width as an angle, before any branch (derivatives need uniform control flow)
     let px = max(length(fwidth(d)), 1e-5);
     var o: GOut;
-    o.direct = vec4f(sky_colour(d) + stars(d, px), 1.0);
+    var st = vec3f(0.0);
+    if ((g.opt.x & 8u) == 0u) { st = stars(d, px); }
+    o.direct = vec4f(sky_colour(d) + st, 1.0);
     o.albedo = vec4f(0.0);
     o.gbuf = vec2u(0u);
     return o;

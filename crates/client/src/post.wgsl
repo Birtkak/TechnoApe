@@ -9,7 +9,9 @@ struct Post {
     prev_vp: mat4x4f,
     rays: mat4x4f, // x: the view ray through the screen's top-left corner, y and z its change across x and y
     delta: vec4f,  // the camera's move since last frame, in the camera's frame; w 1 to drop the history
-    cfg: vec4u,    // x the frames a history holds at most, y the smoothing step, z the frame number
+    cfg: vec4u,    // x the frames a history holds at most, y the smoothing step, z the frame number,
+                   // w 1 when the bounce light is off
+    tune: vec4f,   // rgb the flat fill that stands in for the bounce then; w the screen's brightness
 };
 
 @group(0) @binding(0) var<uniform> u: Post;
@@ -147,7 +149,9 @@ fn fs_composite(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let px = vec2i(pos.xy);
     var c = textureLoad(direct_t, px, 0).rgb;
     let gb = gload(gbuf, px);
-    if (gb.w > 0.0) {
+    if (gb.w > 0.0 && u.cfg.w == 1u) {
+        c += textureLoad(albedo_t, px, 0).rgb * u.tune.rgb;
+    } else if (gb.w > 0.0) {
         // the four half-resolution values around this pixel, bilinear and by normal and plane against it; the
         // nearest one where none fits
         let hs = vec2i(textureDimensions(bounce_t));
@@ -171,7 +175,10 @@ fn fs_composite(@builtin(position) pos: vec4f) -> @location(0) vec4f {
         let bounce = select(textureLoad(bounce_t, min(px / 2, hs - 1), 0).rgb, sum / ws, ws > 1e-4);
         c += textureLoad(albedo_t, px, 0).rgb * bounce;
     }
-    return vec4f(shoulder(c), 1.0);
+    c = shoulder(c);
+    // the settings' brightness: a curve over the finished picture, 1 leaves it as it is
+    if (u.tune.w != 1.0) { c = pow(c, vec3f(1.0 / u.tune.w)); }
+    return vec4f(c, 1.0);
 }
 
 // bright light rolls off above 0.8 instead of clipping; everything under it is left as it is
