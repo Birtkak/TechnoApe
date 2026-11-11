@@ -3,6 +3,36 @@
 The shared benchmark of `docs/plans/roadmap.md`, measured as ADR 0004 says. Newest first.
 Run it: `bash tools/bench.sh`, then `python -I tools/summarize.py`.
 
+## 2026-11-11: the bake in the engine (ADR 0043, biomes and still plants)
+
+Reference machine, release build, `quick=1`, `out/.lock` held; the 4 km planet baked from seed 1337 (25.0 s on
+8 of 12 threads, once, then loaded from its 17.7 MB file).
+
+| run | frame p99 ms | max ms | GPU p50 ms (baseline) | job µs (baseline) | RAM MB | VRAM MB | tick p99 ms (baseline) | budget |
+|---|---|---|---|---|---|---|---|---|
+| `stand` at the spawn (`at=1125.34,3634.37,1915.81`, a forest) | 2.69 | 3.03 | 1.74 (1.69) | 357 (551) | 352 | 815 | - | ok |
+| `fly` | 4.01 | 4.92 | 1.58 (1.51) | 267 (455) | 413 | 817 | - | ok |
+| `sim` (50 bots at the spawn) | 3.36 | 5.31 | 1.97 (1.67) | 354 (588) | 371 | 815 | 1.88 (2.70) | ok |
+
+The default `stand` (`at=0,1,0`) is open sea on this map, no longer the baseline's scene. Soak (50 bots, 1 min,
+seed 1, a baked planet of 256 columns): 8.0 s, the same hash twice and in its replay.
+
+## 2026-11-11: the air grid spike (ADR 0010, `prototypes/air`)
+
+Reference machine, release build, `air mode=cost` (300 live steps of 1 s after 100 to warm up; `out/.lock`
+held). A step runs once a second of world time, spread over the 20 ticks.
+
+| planet | columns | state MB | step ms, 1 thread | per tick, 1 thread | step ms, 12 threads | per tick, 12 threads | target |
+|---|---|---|---|---|---|---|---|
+| Terra 4 km (N 6144) | 13,824 | 1.6 | 4.59 | 0.229 | 1.43 | 0.072 | 0.5 ms: ok |
+| 8 km (N 12288) | 55,296 | 6.3 | 19.0 | 0.951 | 5.41 | 0.270 | over on 1 thread |
+| 12 km (N 17376) | 110,976 | 12.7 | 37.7 | 1.887 | 9.53 | 0.476 | over on 1 thread |
+
+The bake's climate (30 days of 10 s steps) on Terra: 5.4 s on all threads.
+
+The bake's stages 5 to 8 (ADR 0042; `world-bake`, 8 threads of 12, seed 5): Terra 4 km 17.0 s to 22.5 s
+(+5.4 s, of which the air model 4.2 s; peak 349 MB, +136 MB); 12 km 167 s to 233 s (+66 s, air 56 s; 2.7 GB).
+
 ## 2026-11-11: `run=fx`, the effects' benchmark (ADR 0031)
 
 Reference machine, release build, 1920x1080 off-screen, `run=fx quick=1` three times on the 4 km planet (not

@@ -42,7 +42,7 @@ may open it differ.
   lies in piles and chests is part of the body's material ledger. Carried things count for the body the
   ape stands on; a trip to Luna moves them from one ledger to the other.
 
-## Carrying (decided: B, ADR 0043)
+## Carrying (decided: B, ADR 0047)
 The chore-to-factory rule covers hauling too: carried by hand, then a cart, a belt, a railway.
 
 | Option | For | Against |
@@ -66,7 +66,7 @@ feel, which the developer chose for digging (ADR 0034).
   - **uses:** from the material's strength. A dig costs one.
 - A tool head is a **form**, so a new metal arrives with its pick, axe and shovel (one row, as its gear
   and wire). A head and a handle make the tool.
-- **A worn-out tool leaves nothing** (the developer's call, ADR 0043; against a head left as scrap). Its
+- **A worn-out tool leaves nothing** (the developer's call, ADR 0047; against a head left as scrap). Its
   metal is worn away: the body's ledger moves it to a **worn away** row, as the water's has "used up", so
   the count stays exact. On a finite planet that makes tools a real drain on metal, and a better metal's
   longer life worth its cost.
@@ -82,7 +82,7 @@ feel, which the developer chose for digging (ADR 0034).
   room.
 - Three things make piles: the ape **sets an item down** (right click with it in hand on a block's top),
   **drops** it (a key), or **digs**: a dug block falls to the ground as a pile where it was (the
-  developer's call, ADR 0043, as in Minecraft; against today's straight into the inventory).
+  developer's call, ADR 0047, as in Minecraft; against today's straight into the inventory).
 - **Walking over a pile picks it up**: an ape within 1.5 m of a pile takes what its slots have room for,
   checked on the server each tick against the few cells around each ape. What does not fit stays. A thing
   the ape itself set down or dropped waits until the ape has stepped away once, so it is not taken

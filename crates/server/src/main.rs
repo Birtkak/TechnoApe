@@ -42,7 +42,7 @@ fn main() {
         }
         None => {
             let planet = num("planet", engine::bodies::BODIES[0].n);
-            Server::new(planet, num("moon", engine::bodies::columns(1, planet)), num("seed", 1337), rx)
+            Server::baked(planet, num("moon", engine::bodies::columns(1, planet)), num("seed", 1337), rx)
         }
     };
     server.autosave = (save != "0").then(|| (save.clone().into(), 30 * TICK_HZ as u64));

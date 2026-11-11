@@ -197,7 +197,11 @@ No air, no water cycle, no plates. Its bake is a different, shorter pipeline:
    `prototypes/world-bake` has it as its default). The engine's default seed, 1337 today, moves to it in W2.
 4. **The wait** when a world is made: is 30 s with a progress view fine?
 5. **Tilt and season strength** (20°?), and **tide height** (1 m?).
-6. **The biome list** and each biome's look.
+6. ~~**The biome list**~~ **decided 2026-11-11** (the developer; ADR 0042): the full list above, 12 on land
+   and 3 in the sea, each shown on a look sheet before it is accepted. Also decided then: biome maps first
+   in the prototype, then the bake with its biomes into the engine (W2 with W3); the climate from the air
+   grid itself, not a simpler stand-in; per biome its ground blocks and still plants as plain generated
+   blocks (living plants stay W7). **Still open:** each biome's look (ground blocks, colours, plants).
 7. **Luna's ice.**
 8. **How much the player is told:** a map item, a compass, rock names on hover, or all learned by eye.
 

@@ -15,7 +15,9 @@ use std::path::Path;
 use rayon::prelude::*;
 use std::sync::mpsc::channel;
 
-pub const MOON_N: i32 = 32;
+/// Luna's columns per face edge in the soak: at 128 (radius 88 m) its +-30 m hills stay over its core, at 32
+/// (radius 22 m) a sixth of its ground lies under the core and walking bots fell in.
+pub const MOON_N: i32 = 128;
 
 /// splitmix64: each bot draws from its own stream, so removing one bot leaves the others' choices as they were.
 struct Rng(u64);
@@ -176,7 +178,9 @@ pub struct WaterStats {
 pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&Path>) -> Result<(u64, WaterStats), Fail> {
     let mut ws = WaterStats::default();
     let (tx, rx) = channel();
-    let mut s = Server::new(planet_n, MOON_N, seed as i32, rx);
+    // the planet baked (ADR 0043), as a new game's: the bots share its map, as a local client does
+    let mut s = Server::baked(planet_n, MOON_N, seed as i32, rx);
+    let map = s.world.bodies[0].map().cloned();
     if let Some(p) = record {
         s.record(p).map_err(|e| Fail { tick: 0, what: format!("cannot record to {}: {e}", p.display()) })?;
     }
@@ -188,7 +192,7 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
             c.send(ToServer::Hello { name: format!("bot{k}") }); // named, so the save keeps it
             // an empty input makes it a walker, as in the bot crate
             c.send(ToServer::Input(Input::default()));
-            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::new(planet_n, MOON_N, seed as i32), pred: Predictor::default(), digging: None }
+            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::with_map(planet_n, MOON_N, seed as i32, map.clone()), pred: Predictor::default(), digging: None }
         })
         .collect();
     s.tick(); // everyone joins

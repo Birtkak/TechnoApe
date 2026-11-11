@@ -25,7 +25,7 @@ three jobs for everyone else:
 - **Noticed entries are the game's guidance.** The journal opens on the list of open questions, the ones
   that touch a need that is low first (thirsty: the questions about water). There are no quest markers
   and no "next step" arrow: a question is as far as the game pushes.
-- A known entry is **exact** (left to Claude by the developer, ADR 0043; against entries that stay
+- A known entry is **exact** (left to Claude by the developer, ADR 0047; against entries that stay
   vague): once the ape has fired a
   pot, the entry says the temperature and the time. The mystery is before the first try, not after.
 - **Failures teach too.** Clay fired too cold crumbles, and the entry becomes noticed with a line of what
@@ -45,7 +45,7 @@ three jobs for everyone else:
 - **Looking at a thing** notices it: the block or pile under the crosshair is already known to the game
   each tick for digging, so a lookup of that kind in the journal's rows costs nothing.
 
-## Who holds it (decided: A, ADR 0043)
+## Who holds it (decided: A, ADR 0047)
 
 | Option | For | Against |
 |---|---|---|
