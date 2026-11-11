@@ -112,6 +112,10 @@ pub fn place_colours(s: &str) -> Vec<Option<[f32; 3]>> {
     out
 }
 
+/// Font pixels from one character to the next: a glyph is 5 wide, so one pixel stands between two. (A glyph
+/// is still drawn as its whole 8 x 8 cell, one column in; the cells' empty columns overlap.)
+pub const ADV: f32 = 6.0;
+
 /// Screen pixels per font pixel, and the height of a line of text.
 pub const PX: f32 = 2.0;
 pub const LINE: f32 = 10.0 * PX + 2.0;
@@ -157,7 +161,7 @@ impl Paint {
             if g == ' ' as u32 {
                 continue;
             }
-            let cx = x + k as f32 * size;
+            let cx = x + k as f32 * ADV * px;
             if shadow {
                 self.rect(cx + px, y + px, size, size, [0.0, 0.0, 0.0, colour[3] * 0.7], g);
             }
@@ -167,7 +171,7 @@ impl Paint {
 }
 
 pub fn text_width(s: &str) -> f32 {
-    s.chars().count() as f32 * 8.0 * PX
+    s.chars().count() as f32 * ADV * PX
 }
 
 /// `s` broken into lines of at most `cols` characters, at spaces where it can.
@@ -234,17 +238,21 @@ pub fn chat(p: &mut Paint, lines: &[(f32, &str)], typing: Option<&str>, caret: b
     }
     let keep = if typing.is_some() { CHAT_LINES * 2 } else { CHAT_LINES };
     let rows = &rows[rows.len().saturating_sub(keep)..];
-    let width = CHAT_COLS as f32 * 8.0 * PX + 8.0;
+    let width = rows.iter().map(|r| text_width(&r.2)).fold(0.0, f32::max) + 22.0;
     let bottom = p.h - 128.0;
     for (k, (a, c, r)) in rows.iter().rev().enumerate() {
         let y = bottom - (k + 1) as f32 * LINE;
         p.rect(4.0, y, width, LINE, [PANEL[0], PANEL[1], PANEL[2], PANEL[3] * a], 0);
         p.rect(4.0, y, 3.0, LINE, [CYAN[0], CYAN[1], CYAN[2], 0.8 * a], 0);
         p.text(12.0, y + 2.0, r, [c[0], c[1], c[2], *a]);
+        // who said it, in the accent, over the line's own white
+        if let Some(end) = r.find('>').filter(|_| r.starts_with('<')) {
+            p.text(12.0, y + 2.0, &r[..=end], [CYAN[0], CYAN[1], CYAN[2], *a]);
+        }
     }
     if let Some(t) = typing {
         // the end of a long line shows
-        let cols = ((p.w - 24.0) / (8.0 * PX)) as usize - 1;
+        let cols = ((p.w - 24.0) / (ADV * PX)) as usize - 1;
         let shown: String = t.chars().skip(t.chars().count().saturating_sub(cols)).collect();
         let y = p.h - LINE - 8.0;
         p.rect(4.0, y - 2.0, p.w - 8.0, LINE + 4.0, [PANEL[0], PANEL[1], PANEL[2], 0.9], 0);
@@ -313,7 +321,7 @@ pub fn panels(p: &mut Paint, left: &[Section], right: &[Section]) {
 /// A section's width and height at `px` pixels a dot, and where its values start after the labels: in one
 /// column, two characters after the longest label.
 fn section_size(s: &Section, px: f32) -> (f32, f32, f32) {
-    let (glyph, line) = (8.0 * px, 10.0 * px + 2.0);
+    let (glyph, line) = (ADV * px, 10.0 * px + 2.0);
     let chars = |t: &str| t.chars().count() as f32 * glyph;
     let label_w = (s.rows.iter().map(|r| r.0.len()).max().unwrap_or(0) + 2) as f32 * glyph;
     let rows_w = s.rows.iter().map(|r| label_w + chars(&r.1)).fold(chars(s.title), f32::max);
@@ -328,13 +336,13 @@ fn panels_size(list: &[Section], px: f32) -> (f32, f32) {
 
 /// What the crosshair is on, top middle: a swatch of the block's colour, its name, and under it what is
 /// worth knowing about it (empty for most blocks).
-pub fn looking_at(p: &mut Paint, name: &str, colour: [f32; 3], note: &str, y: f32) {
+pub fn looking_at(p: &mut Paint, name: &str, colour: [f32; 3], side: [f32; 3], note: &str, y: f32) {
     let w = text_width(name).max(text_width(note)) + 34.0 + 20.0;
     let h = if note.is_empty() { LINE + 12.0 } else { 2.0 * LINE + 12.0 };
     let x = (p.w - w) / 2.0;
     glass(p, x, y, w, h);
     brackets(p, [x - 4.0, y - 4.0, w + 8.0, h + 8.0], 8.0, false, CYAN);
-    p.rect(x + 10.0, y + 6.0, 20.0, 20.0, [colour[0], colour[1], colour[2], 1.0], 0);
+    cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 8.0, y + 4.0, 24.0, colour, side, 1.0);
     p.text(x + 10.0 + 34.0, y + 7.0, name, [0.95, 0.95, 0.95, 1.0]);
     if !note.is_empty() {
         p.text(x + 10.0 + 34.0, y + 7.0 + LINE, note, [0.62, 0.72, 0.82, 1.0]);
@@ -390,14 +398,14 @@ pub type Slider = Option<(f32, String, bool)>;
 
 /// A slider's track, after its label, and the room its number takes after that.
 const TRACK: f32 = 320.0;
-const NUMBER: f32 = 7.0 * 8.0 * MENU_PX;
+const NUMBER: f32 = 7.0 * ADV * MENU_PX;
 /// Slider labels take at least this many characters' room, so the tracks line up (the longest one's).
 const SLIDER_LABEL: usize = 17;
 
 /// The menu's buttons on a `h` pixels high screen: x, y, width and height in pixels, a column on the left,
 /// each as wide as its number and label (and a slider's track and value): what is drawn lit takes the click.
 pub fn menu_boxes(h: f32, items: &[String], sliders: &[Slider]) -> Vec<[f32; 4]> {
-    let (bh, gap, glyph) = (50.0, 10.0, 8.0 * MENU_PX);
+    let (bh, gap, glyph) = (50.0, 10.0, ADV * MENU_PX);
     let top = (h * 0.36).max(230.0);
     let width = |k: usize, l: &String| {
         let slider = if sliders.get(k).is_some_and(|s| s.is_some()) { 24.0 + TRACK + 24.0 + NUMBER } else { 0.0 };
@@ -409,7 +417,7 @@ pub fn menu_boxes(h: f32, items: &[String], sliders: &[Slider]) -> Vec<[f32; 4]>
 
 /// A slider row's track and number, each x, y, width and height, from its box and label.
 pub fn slider_parts(b: [f32; 4], label: &str) -> ([f32; 4], [f32; 4]) {
-    let glyph = 8.0 * MENU_PX;
+    let glyph = ADV * MENU_PX;
     let x = b[0] + 20.0 + 4.0 * glyph + label.chars().count().max(SLIDER_LABEL) as f32 * glyph + 24.0;
     ([x, b[1], TRACK, b[3]], [x + TRACK + 24.0, b[1], NUMBER, b[3]])
 }
@@ -520,16 +528,20 @@ pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hi
         let dx = -36.0 * (1.0 - smooth(ease.0 * (1.0 + 0.12 * items.len() as f32) - 0.12 * k as f32)) + if lit { 8.0 * smooth(ease.1) } else { 0.0 };
         let b = &[b[0] + dx, b[1], b[2], b[3]];
         if !lit {
-            p.rect(b[0], b[1], b[2], b[3], [PANEL[0], PANEL[1], PANEL[2], 0.4], 0);
-            p.rect(b[0], b[1], 3.0, b[3], [CYAN[0], CYAN[1], CYAN[2], 0.35], 0);
+            cut(p, b[0], b[1], b[2], b[3], [PANEL[0], PANEL[1], PANEL[2], 0.5]);
+            p.rect(b[0], b[1] + 2.0, 3.0, b[3] - 4.0, [CYAN[0], CYAN[1], CYAN[2], 0.4], 0);
         }
         let ty = b[1] + (b[3] - 7.0 * lp) / 2.0;
         let tw = b[2];
         if lit {
-            p.rect(b[0], b[1], tw, b[3], CYAN, 0);
+            // the lit row glows as the slot in hand does
+            for (grow, a) in [(8.0, 0.07), (5.0, 0.12), (3.0, 0.2)] {
+                cut(p, b[0] - grow, b[1] - grow, tw + 2.0 * grow, b[3] + 2.0 * grow, [CYAN[0], CYAN[1], CYAN[2], a]);
+            }
+            cut(p, b[0], b[1], tw, b[3], CYAN);
             brackets(p, [b[0] - 6.0, b[1] - 6.0, tw + 12.0, b[3] + 12.0], 12.0, false, CYAN);
         }
-        let (n, lx) = (format!("{:02}", first + k + 1), b[0] + 20.0 + 4.0 * 8.0 * lp);
+        let (n, lx) = (format!("{:02}", first + k + 1), b[0] + 20.0 + 4.0 * ADV * lp);
         if lit {
             let ink = [0.01, 0.06, 0.12, 1.0];
             p.text_flat(b[0] + 20.0, ty, &n, ink, lp);
@@ -563,7 +575,7 @@ pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hi
 /// The bug report's form (F9): a panel in the middle of the screen with the text written so far.
 pub fn bug_form(p: &mut Paint, text: &str, caret: bool) {
     let cols = 60;
-    let (pw, ph) = (cols as f32 * 8.0 * PX + 40.0, 15.0 * LINE + 50.0);
+    let (pw, ph) = (cols as f32 * ADV * PX + 40.0, 15.0 * LINE + 50.0);
     let (x, y) = ((p.w - pw) / 2.0, (p.h - ph) / 2.0);
     p.rect(0.0, 0.0, p.w, p.h, [0.0, 0.0, 0.0, 0.35], 0);
     p.rect(x, y, pw, ph, [0.02, 0.04, 0.07, 0.9], 0);
@@ -653,15 +665,15 @@ pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3])], text: &st
         match k {
             0 | 6 | 12 | 18 => {
                 let c = if k == 0 { CYAN } else { [0.96, 0.97, 1.0, 1.0] };
-                p.text(tx - 8.0, y + 6.0, ["N", "E", "S", "W"][k / 6], [c[0], c[1], c[2], a]);
+                p.text(tx - 7.0, y + 6.0, ["N", "E", "S", "W"][k / 6], [c[0], c[1], c[2], a]);
             }
             3 | 9 | 15 | 21 => {
                 let px = PX * 0.75;
-                p.text_px(tx - 8.0 * px, y + 9.0, ["NE", "SE", "SW", "NW"][k / 6], [dim[0], dim[1], dim[2], a], px);
+                p.text_px(tx - ADV * px, y + 9.0, ["NE", "SE", "SW", "NW"][k / 6], [dim[0], dim[1], dim[2], a], px);
             }
             _ if k % 2 == 0 => {
                 let (px, t) = (PX * 0.5, format!("{}", k * 15));
-                p.text_px(tx - t.len() as f32 * 4.0 * px, y + 12.0, &t, [dim[0], dim[1], dim[2], 0.8 * a], px);
+                p.text_px(tx - t.len() as f32 * ADV / 2.0 * px, y + 12.0, &t, [dim[0], dim[1], dim[2], 0.8 * a], px);
             }
             _ => {}
         }
@@ -683,7 +695,7 @@ pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3])], text: &st
     p.rect(mid - 0.5, y + 7.0, 1.0, h - 9.0, [CYAN[0], CYAN[1], CYAN[2], 0.35], 0);
     // under it: the heading in the accent, then where the player is
     let (px, deg) = (PX * 0.75, format!("{:03.0}", heading.round().rem_euclid(360.0)));
-    let chars = |t: &str| t.chars().count() as f32 * 8.0 * px;
+    let chars = |t: &str| t.chars().count() as f32 * ADV * px;
     let tw = chars(&deg) + if text.is_empty() { 0.0 } else { 16.0 + chars(text) };
     let (bx, by, bh) = (mid - tw / 2.0, y + h + 7.0, 10.0 * px + 8.0);
     glass(p, bx - 10.0, by, tw + 20.0, bh);
@@ -708,7 +720,7 @@ pub fn marker(p: &mut Paint, base: (f32, f32), top: (f32, f32), colour: [f32; 3]
     p.rect(base.0 - 6.0, base.1 - 1.0, 12.0, 2.0, [colour[0], colour[1], colour[2], 0.9], 0);
     // the tag, centred over the beam's top
     let px = PX * 0.75;
-    let chars = |t: &str| t.chars().count() as f32 * 8.0 * px;
+    let chars = |t: &str| t.chars().count() as f32 * ADV * px;
     let w = 26.0 + chars(name) + 12.0 + chars(far) + 10.0;
     let (h, x) = (10.0 * px + 10.0, top.0 - w / 2.0);
     let y = top.1 - h - 4.0;
@@ -754,16 +766,17 @@ pub struct Slot {
     pub count: Option<u32>,
 }
 
+/// A box with its corners cut by two pixels: full width less the corners, and the two steps in.
+pub fn cut(p: &mut Paint, x: f32, y: f32, w: f32, h: f32, c: [f32; 4]) {
+    p.rect(x + 2.0, y, w - 4.0, h, c, 0);
+    p.rect(x, y + 2.0, 2.0, h - 4.0, c, 0);
+    p.rect(x + w - 2.0, y + 2.0, 2.0, h - 4.0, c, 0);
+}
+
 /// A pane of the HUD's glass at (x, y), what every floating part of the HUD stands on: a soft shadow down
 /// and right of it, corners cut by two pixels, the glass a shade lighter in its upper half, a hairline of the
 /// accent round it and a light along its top.
 pub fn glass(p: &mut Paint, x: f32, y: f32, w: f32, h: f32) {
-    // the three boxes of a shape with its corners cut: full width less the corners, and the two steps in
-    let cut = |p: &mut Paint, x: f32, y: f32, w: f32, h: f32, c: [f32; 4]| {
-        p.rect(x + 2.0, y, w - 4.0, h, c, 0);
-        p.rect(x, y + 2.0, 2.0, h - 4.0, c, 0);
-        p.rect(x + w - 2.0, y + 2.0, 2.0, h - 4.0, c, 0);
-    };
     cut(p, x + 3.0, y + 4.0, w, h, [0.0, 0.0, 0.0, 0.2]);
     cut(p, x - 1.0, y - 1.0, w + 2.0, h + 2.0, [CYAN[0], CYAN[1], CYAN[2], 0.28]);
     cut(p, x, y, w, h, [PANEL[0], PANEL[1], PANEL[2], 0.86]);
@@ -922,7 +935,7 @@ mod tests {
     #[test]
     fn the_looked_at_block_is_named_in_the_middle_with_its_colour() {
         let mut p = Paint::new(1920.0, 1080.0);
-        looking_at(&mut p, "Copper", [0.8, 0.5, 0.2], "metal", 10.0);
+        looking_at(&mut p, "Copper", [0.8, 0.5, 0.2], [0.4, 0.2, 0.1], "metal", 10.0);
         let swatch = p.out.iter().find(|r| r.colour == [0.8, 0.5, 0.2, 1.0]).expect("the block's colour");
         assert!(swatch.xy[0] < 0.0 && swatch.xy[3] > 0.9, "left of the middle, at the top");
         // the name and the note, a glyph and its shadow per letter

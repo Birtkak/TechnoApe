@@ -628,7 +628,8 @@ impl App {
             .collect();
         let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
         // the title menu shows the orbit view and itself only
-        let title = self.home() == Menu::Title;
+        // the title page and any open menu stand alone: no hotbar, chat or labels under them
+        let title = self.home() == Menu::Title || self.menu.is_some();
         let (lw, lh) = self.ui_size();
         // the block in hand by name over the hotbar: full for two seconds after a change of slot, then gone in half
         if self.held_name.0 != self.slot {
@@ -710,7 +711,8 @@ impl App {
                     (false, true) => "metal",
                     _ => "",
                 };
-                hud::looking_at(&mut paint, &d.name, d.colour, note, label_y);
+                let side = BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
+                hud::looking_at(&mut paint, &d.name, d.colour, side, note, label_y);
             }
         }
         if self.flying {

@@ -804,7 +804,7 @@ impl App {
                 self.loaded_at = Some(Instant::now());
                 self.jobs_at_load = (self.streamer.job_us_total, self.streamer.jobs_done as u64);
                 if self.run == "play" {
-                    self.chat_line(format!("TechnoApe {BUILD}: T chats, / runs a command (/help), F3 shows the numbers, F9 reports a bug"));
+                    self.chat_line("Welcome to Terra. T chats, / runs a command, Esc opens the menu.".to_string());
                 }
                 self.last_pos = p.pos;
             }
