@@ -244,7 +244,8 @@ mod tests {
 
     #[test]
     fn bad_rows_are_refused() {
-        let good = include_str!("../../../data/biomes.toml");
+        // A checkout on Windows may give the file CRLF line ends; the rows below are written with LF.
+        let good = &include_str!("../../../data/biomes.toml").replace("\r\n", "\n");
         assert!(parse(good).is_ok());
         for (from, to, why) in [
             ("height = [8, 12]", "height = [8, 40]", "too tall"),
