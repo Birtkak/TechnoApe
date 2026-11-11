@@ -531,9 +531,13 @@ fn main() {
         // this window stays up until the next one has drawn, so the desktop never shows between them (ADR 0038)
         let shown = std::env::temp_dir().join(format!("technoape-shown-{}", std::process::id()));
         let exe = std::env::current_exe().expect("the game's own path");
+        // (one left by an earlier process of this number would end the wait before the window is there)
+        let _ = std::fs::remove_file(&shown);
         match std::process::Command::new(exe).args(&next).arg(format!("shown={}", shown.display())).spawn() {
-            Ok(_) => {
-                sys::wait_shown(&shown, Duration::from_secs(5));
+            Ok(mut next) => {
+                // (a world may take long to load: the wait ends when it shows, or at once when it has ended
+                // without showing, so a world that fails to load never leaves this window frozen)
+                sys::wait_shown(&shown, Duration::from_secs(30), || !matches!(next.try_wait(), Ok(None)));
             }
             Err(e) => eprintln!("[technoape] could not start again with {next:?}: {e}"),
         }

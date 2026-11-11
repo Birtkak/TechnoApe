@@ -96,3 +96,13 @@ switching on at 0.5. Taste call for the developer: the fade's width (7 degrees).
 ### Consequences
 On Terra's ground the last minutes before sunset are a little dimmer than before (sun under 7 degrees); the
 fixed viewpoints differ by at most 0.026 % of pixels, under their limit. Two smoothsteps per lit pixel.
+
+## Added 2026-11-11: the review, and the developer's answers
+A fresh reviewer read the three commits and found no defect in the streaming or the light. On the window:
+the old window waited a fixed 5 s, so a world that failed to load left it frozen that long, and one that
+loaded slower than 5 s brought the flash back. The developer: "the sun dimming is fine and fix the failed
+to load wait time". **Changed:** the old window now watches the new process and closes at once when that
+has ended without showing anything; while it lives the wait is 30 s. A file left by an earlier process of
+the same number is cleared before the wait. **Left:** a frame may be presented a moment before the screen
+shows it, so a flicker of one frame is still possible; the streaming test was not seen failing by the
+reviewer (its author reports 96 holes before, 0 after).
