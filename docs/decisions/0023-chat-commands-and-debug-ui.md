@@ -131,7 +131,7 @@ having been there. The HUD so far drew rectangles and a 3 x 5 digit font only.
 - **What the crosshair is on** is named top middle with a swatch of its colour, and "gives light" or "metal"
   under it where that holds (`hud::looking_at`); hidden under F3, the menus and the title.
 - **The outline of the aimed block** turns slowly through the colours (a turn in 12 s, the hues running
-  along its edges) and is two pixels wide (the ghost drawn four times a pixel apart, `overlay.wgsl`); a held
+  along its edges) and is three pixels wide (the ghost drawn nine times a pixel apart, `overlay.wgsl`); a held
   dig stays red, a held place green.
 - **Removing a world:** right click or Delete on a world of the Singleplayer list asks first; the row that
   removes is never the one under the pointer that asked. The save moves to `saves/removed/` under the

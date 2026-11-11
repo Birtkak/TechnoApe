@@ -666,7 +666,7 @@ impl App {
             if self.ghost_n > 0 {
                 rp.set_pipeline(&gpu.ghost_pipeline);
                 rp.set_vertex_buffer(0, gpu.ghost_buf.slice(..));
-                rp.draw(0..self.ghost_n, 0..4); // four times, a pixel apart: overlay.wgsl ghost_vs
+                rp.draw(0..self.ghost_n, 0..9); // nine times, a pixel apart: overlay.wgsl ghost_vs
             }
             if self.ui_n > 0 {
                 rp.set_pipeline(&gpu.ui_pipeline);

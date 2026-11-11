@@ -31,9 +31,9 @@ fn ghost_vs(@builtin(instance_index) inst: u32, @location(0) pos: vec3f, @locati
     let b = g.bodies[body];
     var o: GhostOut;
     o.clip = g.view_proj * vec4f(mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz) * ((pos - b.cam_hi) - b.cam_lo), 1.0);
-    // a line is one pixel wide: drawn four times, a pixel right, down and both, it is two (a pixel of a
-    // 1080 line high screen; shortcut: not read from the real size, so a little under two on a larger one)
-    o.clip += vec4f(f32(inst & 1u) / 960.0, -f32(inst >> 1u) / 540.0, 0.0, 0.0) * o.clip.w;
+    // a line is one pixel wide: drawn nine times, a pixel apart in a 3 x 3 square, it is three (a pixel of
+    // a 1080 line high screen; shortcut: not read from the real size, so nearer four on a 1440 line one)
+    o.clip += vec4f(f32(inst % 3u) - 1.0, f32(inst / 3u) - 1.0, 0.0, 0.0) * vec4f(1.0 / 960.0, 1.0 / 540.0, 0.0, 0.0) * o.clip.w;
     o.colour = colour;
     o.along = dot(pos, vec3f(0.31, 0.37, 0.43));
     return o;
