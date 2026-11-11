@@ -288,10 +288,10 @@ impl App {
             // /sound <name> plays a row of data/sounds.toml here, for the developer's ears
             if let Some(n) = line.strip_prefix("/sound") {
                 let n = n.trim();
-                if !self.audio.has(n) {
+                if self.audio.has(n) {
+                    self.audio.play(n, None, 1.0, 1.0, true);
+                } else {
                     self.note(format!("No sound '{n}'. Try dig.stone, step.grass, place.metal, ui.click."));
-                } else if !self.audio.play(n, None, 1.0, 1.0, true) {
-                    self.note("Nothing carries it here.".into());
                 }
                 return;
             }

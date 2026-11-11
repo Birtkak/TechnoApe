@@ -110,6 +110,9 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             if l.freq.iter().any(|f| !(20.0..=16000.0).contains(f)) || !(0.5..=20.0).contains(&l.q) || !(0.0..=2.0).contains(&l.gain) {
                 return bad("a layer's freq 20..16000, q 0.5..20, gain 0..2");
             }
+            if l.wave == Wave::Noise && (l.q < 0.6 || l.freq.iter().any(|f| *f > 7000.0)) {
+                return bad("a noise layer's q from 0.6, freq to 7000 (past that its filter is not stable)");
+            }
             if !(0.0005..=1.0).contains(&l.attack) || !(0.0..=1.0).contains(&l.delay) || (r.loops == 0.0 && !(0.005..=4.0).contains(&l.decay)) {
                 return bad("a layer's attack 0.0005..1, delay 0..1, decay 0.005..4");
             }
@@ -213,8 +216,8 @@ fn wav(path: &std::path::Path) -> Result<Clip, String> {
     .map_err(|e| e.to_string())?;
     let ch = spec.channels.max(1) as usize;
     let data: Vec<f32> = all.chunks(ch).map(|c| c.iter().sum::<f32>() / ch as f32).collect();
-    if data.is_empty() {
-        return Err("no samples".into());
+    if data.is_empty() || spec.sample_rate == 0 {
+        return Err("no samples, or no rate".into());
     }
     Ok(Clip { data: data.into(), rate: spec.sample_rate as f32 })
 }
@@ -271,7 +274,7 @@ pub struct Stats {
     /// The longest the sound card said a buffer waits before it is heard, in microseconds.
     pub delay_us: AtomicU32,
     pub device: Mutex<String>,
-    /// The game's side is gone: the card's thread closes.
+    /// The game's side is gone, or the card is (unplugged): the card's thread closes.
     gone: AtomicBool,
 }
 
@@ -416,7 +419,6 @@ impl Mixer {
 /// thread: the takes are made here, off the frame thread.
 fn card(rx: mpsc::Receiver<Msg>, rows: Vec<Row>, stats: Arc<Stats>) -> Result<(), String> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-    let bank = Arc::new(Bank::load(rows, Some(std::path::Path::new("data/sounds"))));
     let dev = cpal::default_host().default_output_device().ok_or("no sound device")?;
     let cfg = dev.default_output_config().map_err(|e| e.to_string())?;
     if cfg.sample_format() != cpal::SampleFormat::F32 {
@@ -432,6 +434,7 @@ fn card(rx: mpsc::Receiver<Msg>, rows: Vec<Row>, stats: Arc<Stats>) -> Result<()
     let mut config: cpal::StreamConfig = cfg.into();
     config.buffer_size = size;
     *stats.device.lock().unwrap() = dev.name().unwrap_or_default();
+    let bank = Arc::new(Bank::load(rows, Some(std::path::Path::new("data/sounds"))));
     // what was asked for while the takes were being made is old news; levels and held rows still count
     let mut mixer = Mixer::new(rx, bank, rate as f32, stats.clone());
     for m in mixer.rx.try_iter().collect::<Vec<_>>() {
@@ -440,7 +443,7 @@ fn card(rx: mpsc::Receiver<Msg>, rows: Vec<Row>, stats: Arc<Stats>) -> Result<()
         }
     }
     let mut pair = vec![0.0f32; 2 * 16384];
-    let st = stats.clone();
+    let (st, lost) = (stats.clone(), stats.clone());
     let stream = dev
         .build_output_stream(
             &config,
@@ -466,7 +469,10 @@ fn card(rx: mpsc::Receiver<Msg>, rows: Vec<Row>, stats: Arc<Stats>) -> Result<()
                     st.delay_us.fetch_max(d.as_micros() as u32 + (frames as u64 * 1_000_000 / rate as u64) as u32, Relaxed);
                 }
             },
-            |e| eprintln!("[technoape] sound: {e}"),
+            move |e| {
+                eprintln!("[technoape] sound: {e}");
+                lost.gone.store(true, Relaxed);
+            },
             None,
         )
         .map_err(|e| e.to_string())?;
@@ -494,24 +500,28 @@ pub struct Audio {
     pub carry: f32,
     pub dull: f32,
     open: bool,
+    /// When a lost card may be opened again.
+    retry: std::time::Instant,
 }
 
 impl Audio {
     pub fn new() -> Audio {
         let rows = parse(ROWS_TOML).expect("data/sounds.toml");
         // the far end is dropped: until a card is opened the messages go nowhere
-        Audio { tx: mpsc::channel().0, rows, stats: Arc::default(), played: BTreeMap::new(), seed: 0x2F6E2B1, levels: (-1.0, [0.0; 3]), ear: [DVec3::ZERO, DVec3::X, DVec3::Y, DVec3::Z], carry: 1.0, dull: 0.0, open: false }
+        Audio { tx: mpsc::channel().0, rows, stats: Arc::default(), played: BTreeMap::new(), seed: 0x2F6E2B1, levels: (-1.0, [0.0; 3]), ear: [DVec3::ZERO, DVec3::X, DVec3::Y, DVec3::Z], carry: 1.0, dull: 0.0, open: false, retry: std::time::Instant::now() }
     }
 
     /// Starts the sound card's thread; a machine without one plays on in silence.
     pub fn open(&mut self) {
         let (tx, rx) = mpsc::channel();
-        (self.tx, self.open, self.levels.0) = (tx, true, -1.0);
+        // each card has its own stats: the old one's `gone` must not close the new one
+        (self.tx, self.open, self.levels.0, self.stats) = (tx, true, -1.0, Arc::default());
         let (rows, stats) = (self.rows.clone(), self.stats.clone());
         std::thread::spawn(move || {
-            if let Err(e) = card(rx, rows, stats) {
+            if let Err(e) = card(rx, rows, stats.clone()) {
                 eprintln!("[technoape] no sound: {e}");
             }
+            stats.gone.store(true, Relaxed);
         });
     }
 
@@ -552,10 +562,18 @@ impl Audio {
         true
     }
 
-    /// A row that goes round (the wind): how loud it is now.
+    /// A row that goes round (the wind): how loud it is now. Called every frame, so it is also where a
+    /// lost card (unplugged, or none yet) is tried again, every two seconds.
     pub fn hold(&mut self, name: &str, gain: f32) {
-        if let (true, Some(k)) = (self.open, self.rows.iter().position(|r| r.name == name)) {
-            let _ = self.tx.send(Msg::Hold { row: k as u16, gain: gain * self.carry, dull: self.dull });
+        if !self.open {
+            return;
+        }
+        if self.stats.gone.load(Relaxed) && self.retry.elapsed().as_secs() >= 2 {
+            self.retry = std::time::Instant::now();
+            self.open();
+        }
+        if let Some(k) = self.rows.iter().position(|r| r.name == name) {
+            let _ = self.tx.send(Msg::Hold { row: k as u16, gain, dull: self.dull });
         }
     }
 
@@ -759,7 +777,16 @@ mod tests {
         assert!(!a.play("dig.stone", at, 1.0, 1.0, false), "no air, no sound");
         assert!(a.play("dig.stone", at, 1.0, 1.0, true), "but your own digging, through the suit");
         assert!(a.play("ui.click", None, 1.0, 1.0, false), "and the interface");
-        assert_eq!(a.played["dig.stone"], 2);
-        assert!(a.json().contains("\"dig.stone\":2"));
+        // what the mixer is told: half as loud and fully dull, and a place to the head's right is +x
+        let (tx, rx) = mpsc::channel();
+        a.tx = tx;
+        a.ear = [DVec3::ZERO, DVec3::NEG_Z, DVec3::Y, DVec3::X];
+        a.play("dig.stone", Some(DVec3::new(1.0, 2.0, -3.0)), 1.0, 1.0, true);
+        match rx.try_recv() {
+            Ok(Msg::Play { gain, dull, rel, .. }) => assert_eq!((gain, dull, rel), (0.5, 1.0, Some([3.0, 2.0, 1.0]))),
+            _ => panic!("no message"),
+        }
+        assert_eq!(a.played["dig.stone"], 3);
+        assert!(a.json().contains("\"dig.stone\":3"));
     }
 }

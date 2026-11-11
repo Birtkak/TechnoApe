@@ -50,4 +50,12 @@ Not spiked against each other by measurement: the choice turns on testability, w
   a second; moving sources need an update message); WAV only; a card that does not take floats stays silent.
 - Until the effects system (ADR 0031) lands, sounds start at their own few call sites (the click, the
   server's edits, the physics step, the menu); they move onto its events when the two branches meet.
-- The review's findings: see the commit that adds this ADR.
+- **The review found, and the next commit fixed:** footsteps while pressed against a wall (the distance
+  was the wish's, not the way gone); a block read per incoming edit cell on the frame thread, needed for
+  three at most; far edits using up a batch's three sounds; wind in vacuum under "softened" and "full" and
+  none at the title; a lost card left messages queueing for ever (its thread now ends and the card is
+  tried again every two seconds); a second open closed itself; a recording with no rate jammed a voice;
+  the checks let through a noise filter that is not stable. Still without a test: the call sites (steps,
+  landings, other players' edits), checked by a scripted run's counts only.
+- One build rule: `sound =` in `data/blocks.toml` changes the blocks' hash, so a client of this build
+  refuses a server of an older one until the server is rebuilt.

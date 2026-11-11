@@ -18,8 +18,8 @@
    a file `data/sounds/<row's name>.wav` (or `<name>.1.wav`, `<name>.2.wav`... for variants) replaces the
    code-made sound of that name. The developer drops a file in where a sound feels cheap; nothing else
    changes.
-4. **A block names its material's sound** (`sound = "stone"` in `data/blocks.toml`; the default is by its
-   pattern). Digging stone plays `dig.stone`, walking on it `step.stone`. A new block gets sound for free.
+4. **A block names its material's sound** (`sound = "stone"` in `data/blocks.toml`; stone when it names
+   none). Digging stone plays `dig.stone`, walking on it `step.stone`. A new block gets sound for free.
 5. **Never the frame thread, never a stall** (principle 8). Every row is rendered to samples when the game
    loads; the sound card's own thread mixes them. The game only sends small messages (play this here, the
    listener is there). A hard cap of 32 voices, the quietest dropped first.

@@ -114,7 +114,7 @@ impl App {
                     // a footstep every STEP_M walked and a landing after a fall, in the sound of the block
                     // underfoot; the landing is the step, lower and louder with the speed
                     let land = in_air && fall > 4.0;
-                    self.walked += self.me.vel.length() * phys::DT;
+                    self.walked += (self.me.pos - self.prev).length();
                     if land || self.walked >= STEP_M {
                         self.walked = 0.0;
                         let feet = self.me.pos;
@@ -179,16 +179,15 @@ impl App {
                 Recv::Msg(ToClient::Edits(v)) => {
                     let mut heard = 0;
                     for (b, m) in v {
-                        let was = self.world.block(b);
+                        let was = (heard < 3 && self.loaded_at.is_some()).then(|| self.world.block(b));
                         if self.pred.server(&mut self.world, b, m) {
                             self.streamer.touch_block(&self.world, b);
                             // another player's digging and building is heard too: up to three cells of an
                             // edit (this player's own were heard at the click, and are not shown here)
-                            if was != m && heard < 3 && self.loaded_at.is_some() {
-                                heard += 1;
+                            if let Some(was) = was.filter(|w| *w != m) {
                                 let (what, id) = if m == AIR { ("dig", was) } else { ("place", m) };
                                 if let Some(d) = BLOCKS.get(id) {
-                                    self.audio.play(&format!("{what}.{}", d.sound), Some(self.world.block_centre(b)), 1.0, 1.0, false);
+                                    heard += self.audio.play(&format!("{what}.{}", d.sound), Some(self.world.block_centre(b)), 1.0, 1.0, false) as u32;
                                 }
                             }
                         }
@@ -456,8 +455,8 @@ impl App {
         let listening = self.focused || !self.onscreen || !self.settings.on(S::MuteBack);
         self.audio.levels(if listening { vol(S::Volume) } else { 0.0 }, [vol(S::VolWorld), vol(S::VolSteps), vol(S::VolUi)]);
         // (the title's camera circles high and fast: a breeze there, not a gale)
-        let wind = if self.home() == Menu::Title { 0.15 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + vel.length() / 50.0).min(1.0) };
-        self.audio.hold("wind", wind as f32);
+        let wind = if self.home() == Menu::Title { 0.15 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + self.me.vel.length() / 50.0).min(1.0) as f32 * air };
+        self.audio.hold("wind", wind);
         let sky_c = Vec3::new(0.45, 0.65, 0.95) * day * air + Vec3::new(0.01, 0.012, 0.025);
         // the bounce light on or off (off: a flat fill from the sky), and the screen's brightness
         let fill = sky_c * 0.35 + Vec3::splat(0.01);
