@@ -1,7 +1,7 @@
 # CLAUDE.md – TechnoApe
 
 First-person survival and automation game on small spherical planets of 0.5 m blocks, with a seamless climb
-to orbit and over to the moon. Our own engine, the Pillars of Simulation Engine, in Rust + wgpu; multiplayer
+to orbit and over to Luna. Our own engine, the Pillars of Simulation Engine, in Rust + wgpu; multiplayer
 from day one (a dedicated Linux server on the home server over Tailscale, singleplayer is a local server). Solo developer; Claude Code does
 most implementation, the developer steers, plays and decides.
 

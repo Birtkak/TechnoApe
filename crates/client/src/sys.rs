@@ -74,7 +74,7 @@ pub fn vram_mb() -> f64 {
 /// Generate + mesh the level 0 chunks around the stand spot, single-threaded and on all workers.
 pub fn meshbench(args: &HashMap<String, String>) {
     let num = |k: &str, d: i32| args.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
-    let world = World::new(num("planet", 12288), 512, 1337);
+    let world = World::new(num("planet", engine::bodies::BODIES[0].n), engine::bodies::BODIES[1].n, 1337);
     let greedy = num("greedy", 1) == 1;
     let radius = num("chunks", 6);
     let b = &world.bodies[0];

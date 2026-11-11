@@ -133,7 +133,7 @@ impl Save {
             },
         };
         for (id, name) in &s.blocks {
-            if BLOCKS.get(*id).map(|d| &d.name) != Some(name) {
+            if !BLOCKS.get(*id).is_some_and(|d| &d.name == name || d.was.contains(name)) {
                 return Err(format!("block {id} was '{name}' in the save; data/blocks.toml no longer has it so"));
             }
         }
@@ -167,5 +167,16 @@ mod tests {
         let s = Save::from_bytes(&postcard::to_allocvec(&v1).unwrap()).unwrap();
         assert_eq!((s.version, s.seed, s.edits, s.water.len(), s.made), (VERSION, 9, vec![(b, 0)], 0, 0));
         assert_eq!((s.players[0].inv.clone(), s.players[0].water, s.players[0].creative), (vec![(2, 7)], 0, true));
+    }
+
+    /// A block renamed in data (moon dust became regolith, W0) keeps its id: a save under the old name loads.
+    #[test]
+    fn a_save_with_a_renamed_block_loads() {
+        let old: Vec<(u8, String)> = registry().into_iter().map(|(id, n)| (id, if n == "regolith" { "moon dust".into() } else { n })).collect();
+        assert!(old.iter().any(|b| b.1 == "moon dust"));
+        let v1 = (1u32, 9i32, 256i32, 32i32, old, Vec::<(Block, u8)>::new(), Vec::<(String, [f64; 3], [f32; 3], bool, Vec<(u8, u32)>)>::new());
+        assert!(Save::from_bytes(&postcard::to_allocvec(&v1).unwrap()).is_ok());
+        let bad = (1u32, 9i32, 256i32, 32i32, vec![(7u8, "cheese".to_string())], Vec::<(Block, u8)>::new(), Vec::<(String, [f64; 3], [f32; 3], bool, Vec<(u8, u32)>)>::new());
+        assert!(Save::from_bytes(&postcard::to_allocvec(&bad).unwrap()).is_err(), "an unknown name is still refused");
     }
 }

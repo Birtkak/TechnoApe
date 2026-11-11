@@ -406,10 +406,10 @@ impl App {
             let x = ((h + 0.2) / 0.35).clamp(0.0, 1.0);
             (x * x * (3.0 - 2.0 * x) * (1.0 - sky_m.eclipse(wt, self.world.to_inertial(p.pos)))) as f32
         };
-        // shortcut: a body with a sea has air, the moon none, until bodies carry their atmosphere in data
+        // the bodies with air (data/bodies.toml): the nearest one's sky
         let x = self.world.to_inertial(p.pos);
         let over_air = (0..self.world.bodies.len())
-            .filter(|&i| self.world.bodies[i].sea.is_some())
+            .filter(|&i| self.world.bodies[i].air)
             .map(|i| (x - self.world.pose(i, wt).centre).length() - self.world.bodies[i].radius)
             .fold(f64::MAX, f64::min);
         let air = (1.0 - over_air.max(0.0) / 1500.0).clamp(0.0, 1.0) as f32;

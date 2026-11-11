@@ -21,7 +21,7 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
    - ~~the planet has a 1 km radius (ADR 0003)~~ since 2026-11-10 a **continental planet of 4 km**, 8 km
      for the huge one (ADR 0021: 55 % ocean, 3-5 continents and islands, hills and ranges to 50 m). The
      benchmark's `small` series runs it, `base` (531 m) and `huge` (8 km) on demand; all must hold ADR 0004;
-   - the moon is in the sky and **reachable with a creative fly mode**, seamlessly; the jetpack comes later;
+   - Luna is in the sky and **reachable with a creative fly mode**, seamlessly; the jetpack comes later;
    - **survival-style inventory:** dug blocks go to a hotbar and inventory and are placed from it; a creative
      toggle for testing;
    - **no playtest builds before the whole first playable is done.** Until then each step is checked with
@@ -32,7 +32,7 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      2026-11-10 (ADR 0006);
    - ~~test bots on the player protocol, driven by script or live control channel~~ done 2026-11-10
      (`crates/bot`, `technoape-bot`);
-   - ~~world data on the cube-sphere, generation from the seed, streaming, visible-but-tidy LOD, the moon~~
+   - ~~world data on the cube-sphere, generation from the seed, streaming, visible-but-tidy LOD, Luna~~
      done 2026-11-10: the engine base had all but the LOD seams; skirts in `generate` close them;
    - ~~radial gravity, walking and jumping in the local frame, collision~~ done 2026-11-09 (ADR 0007):
      `crates/engine/src/phys.rs`, shared by the server, the client's `run=play` and the bots' `walk`;
@@ -56,7 +56,7 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      with the biomes;
    - **lighting and the sky's mechanics** (the developer's calls, 2026-11-10; spike in `prototypes/lighting/`):
      ray-traced light with the sun as the only source, a real sphere. The planet rotates (the 20 minute day
-     comes from its spin) and the moon orbits on a tilted orbit, so its phases and moonlight follow from
+     comes from its spin) and Luna orbits on a tilted orbit, so its phases and moonlight follow from
      where it is. Eclipses are a real blockage of the light, each place on the planet getting its own share
      of totality. Soft but fairly sharp shadows, ambient occlusion, smooth coloured block light, and
      reflections on metal (later telescopes). Hardware ray queries on Vulkan: about 1.8 ms per 1080p frame
@@ -68,7 +68,7 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
    - **Terra and Luna** (the planet's and the moon's names; ADR 0026, `docs/design/worldgen.md`,
      staged in `docs/plans/worldgen-plan.md`): each body simulated once when the world is made (plates,
      erosion, rivers, climate, real rocks and minerals, counted ore bodies), then tides, seasons and
-     living plants. This replaces "the Earth-like biomes and the moon's ores" below and brings the air
+     living plants. This replaces "the Earth-like biomes and Luna's ores" below and brings the air
      grid's spike and the material ledger forward.
    Designs written 2026-11-10 for the steps after it, all proposals until built (`docs/design/`):
    `world-data.md` (what a block is: runs per column, 16-bit ids, regions, the ledger), `ore-budget.md`,
@@ -80,7 +80,7 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
 3. **After the first playable:** fine cells (breaking, sand, debris), chiselled blocks, felled trees; **world
    physics** (ADR 0017: loose blocks fall and slide, unsupported builds collapse); **blueprints** (ADR 0017:
    capture, name, paste, materials paid from storage); the
-   Earth-like biomes and the moon's ores; crafting and the first machines (designed fresh); AI players;
+   Earth-like biomes and Luna's ores; crafting and the first machines (designed fresh); AI players;
    jetpack and the climb to orbit; the dedicated server on the home server and auto-update (ADR 0005).
    From ADR 0008: the survival needs and rooms (air, heat); counted deposits; **a material ledger per
    body** (the developer, 2026-11-10): every planet, moon and star knows how much of each material it holds,
@@ -93,7 +93,7 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
    The coarse generated totals come from integrating the generator over each body; gravity that falls off with
    distance and orbits; the first megaproject. **Big builds seen from afar:** a far chunk point-samples
    edits, so a structure thinner than a coarse cell vanishes from orbit; keep a per-level summary of edits
-   (a coarse cell is built when its blocks are). **Builds in free space** (a ring around the moon, a
+   (a coarse cell is built when its blocks are). **Builds in free space** (a ring around Luna, a
    structure around the sun) need their own grid, as ships do: a body's grid ends at its build headroom
    (ADR 0021).
    From ADR 0010, **the planet's air:** one coarse grid for the whole planet. Spike it first and measure the
@@ -101,7 +101,7 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
    - temperature and the **water cycle** (steam and evaporation return as rain), with the survival needs;
    - **weather** (clouds, rain, wind, storms, lightning), with LV;
    - **pollution** (smoke and waste in air, water and soil; filters and scrubbers), with MV;
-   - **radiation** (ore, reactors, waste, fallout; unshielded space and the moon), with EV.
+   - **radiation** (ore, reactors, waste, fallout; unshielded space and Luna), with EV.
 
    Keep open from now on (ADR 0009): a whole planet can be mined out and drained late in the game, so no
    world data or save format may assume the core is never dug or that water is a fixed amount.
@@ -118,7 +118,7 @@ The engine keeps the spikes' benchmark as its performance check, so numbers stay
   takes minutes, not half an hour (`length=0.5`, 5 s warm-up; rows before that date are full length):
   1. `stand`: 15 s standing on the surface, looking at the horizon.
   2. `fly`: 30 s at 20 m altitude, 60 m/s around the equator.
-  3. `orbit`: from the ground straight up to 3 km, across to the moon, land, back, with no load screen, in 32 s.
+  3. `orbit`: from the ground straight up to 3 km, across to Luna, land, back, with no load screen, in 32 s.
   4. `edit`: 15 s of 2000 block changes/s within 10 m.
 - **Series:** `small` (the standard 4 km planet) and the filmstrips by default, about 8 min; `base` (531 m,
   comparable with the spikes) and `huge` (8 km) on demand, about 6 min each.

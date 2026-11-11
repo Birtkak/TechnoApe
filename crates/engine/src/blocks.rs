@@ -32,6 +32,8 @@ struct Raw {
     light: [f32; 3],
     #[serde(default)]
     metal: f32,
+    #[serde(default)]
+    was: Vec<String>,
 }
 fn yes() -> bool {
     true
@@ -59,6 +61,8 @@ pub struct Def {
     pub light: [f32; 3],
     /// How much it reflects like a metal, 0..1.
     pub metal: f32,
+    /// Names it had before: a save that knew it by one of them still loads.
+    pub was: Vec<String>,
 }
 
 pub struct Registry {
@@ -92,7 +96,7 @@ impl Registry {
                 None => r.id,
                 Some(s) => f.block.iter().find(|o| &o.name == s).ok_or(format!("block '{}': no block '{s}' for its side", r.name))?.id,
             };
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, side, light: r.light, metal: r.metal });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, side, light: r.light, metal: r.metal, was: r.was.clone() });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}

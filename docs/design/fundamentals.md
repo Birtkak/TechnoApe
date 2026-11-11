@@ -7,7 +7,7 @@
 
 ## 0. The numbers the planet gives us
 
-| | standard 4 km planet (N = 12288) | huge 8 km planet (N = 24576) | moon (N = 512) |
+| | standard 4 km planet (N = 12288) | huge 8 km planet (N = 24576) | Luna (N = 512) |
 |---|---|---|---|
 | radius | 4244 m | 8488 m | 177 m |
 | walk around at 4.3 m/s | 103 min | 207 min | 4 min |
@@ -40,7 +40,7 @@ in a `feel` report (section 4) next to the frame times.
 - Coyote time and a jump buffer of about 100 ms each; sprint about 6.5 m/s with a slight FOV widening;
   crouch never walks off an edge (building on a sphere needs it).
 - Step-up eases the camera over about 80 ms so 0.5 m stairs do not jitter; a small landing dip.
-- Per-body gravity is data: the moon is floaty. Changing bodies rolls "up" over at least a second.
+- Per-body gravity is data: Luna is floaty. Changing bodies rolls "up" over at least a second.
 - Measured by camera jerk (the third derivative of the camera path) in a walk-over-hills run: steps, seams
   and corrections show up as spikes with a tick number.
 
@@ -68,8 +68,8 @@ in a `feel` report (section 4) next to the frame times.
   draw edits and buildings, not just generated terrain. Late game needs recycling. Megaproject: a survey
   satellite that maps what is left.
 - **Real orbits:** gravity falls off with distance above the surface; thrown things, players and cargo can
-  orbit. The moon's rail is a real orbit for the planet's gravity, so transfers behave. A stable orbit with
-  no thrust is switched to its ellipse and costs nothing per tick. Megaproject: a mass driver to the moon.
+  orbit. Luna's rail is a real orbit for the planet's gravity, so transfers behave. A stable orbit with
+  no thrust is switched to its ellipse and costs nothing per tick. Megaproject: a mass driver to Luna.
 - **Megaprojects pull the ages:** each tech age ends in one planet-scale build that changes the world.
 - **The planet has air** (ADR 0010): a water cycle (vented steam and evaporation return as rain, so ponds
   refill), weather, pollution and radiation, on one coarse grid for the whole planet. Detail in
@@ -99,7 +99,7 @@ message, a player. The fundamentals that make that true, in the order they will 
    to, as generic entity deltas (not a special `Players` message), with a protocol version in `Hello`.
 7. **Saves:** edits and entities per region, versioned, with the registry table, written by a worker to a
    temp file and renamed.
-8. **Bodies are data:** radius (N), gravity, generator, atmosphere, orbit. More bodies is more rows.
+8. **Bodies are data** (`data/bodies.toml`): radius (N), gravity, generator, atmosphere, orbit. More bodies is more rows.
 9. **No abstraction ahead of need:** a system is a function over the world called from the tick. A trait or
    scheduler appears when the third system needs it, not before.
 
@@ -144,7 +144,7 @@ Rules that follow:
 - **Count work, not just time.** Deterministic counters (cells visited, quads made, bytes sent, allocations)
   are exact and never flake; tests assert them. Time is measured by the benchmark, work by the tests.
 - **Worst cases are named runs**, like `edit` today: a flood, 50 players in one spot, a fully built planet
-  seen from the moon.
+  seen from Luna.
 - **Shipped builds are not `native`.** `target-cpu=native` is right for the dev PC's numbers and wrong for
   the Linux server and other players' PCs: release artefacts use `x86-64-v3` (ADR 0005, when updates ship).
 

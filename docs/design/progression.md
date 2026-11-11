@@ -10,7 +10,7 @@ You are an ape with bare hands on a small, finite planet. A **starter** of 7-10 
 and fire (copper after about an hour) to steam and turning cogs. From then on the game runs on **electricity
 in tiers** (LV, MV, HV, ...), as in GregTech: the same system all the way up, with better cables, machines
 and sources. Each tier tames a survival need and ends in **a megaproject you design yourself**, which the
-planet judges by its result, not its shape. Orbit and the moon are visited about halfway; living there is the
+planet judges by its result, not its shape. Orbit and Luna are visited about halfway; living there is the
 second half. After the moon base an **exotic resource** opens the space technology that leaves the planet,
 and by then a whole moon or planet can be **mined out and drained**. Power stays the main thing to the end.
 
@@ -31,13 +31,13 @@ Three rules keep the tiers from becoming a list:
 | **LV** | 10-15 more | food (cold storage), light | **Steady grid:** a set power held for a full day and night. A rain-fed dam, steam on grown charcoal, wind and batteries: your design. |
 | **MV** | 15-20 | distance: ore from other faces | **Ring railway:** a closed track that goes once around the planet. |
 | **HV** | 20-25 | the night, everywhere; clean air | **Power ring:** a set power, without burning fuel, for three full days. A ring of panels, big storage, or a tower at a pole that always sees the sun. |
-| **EV** | 25-30 | air (tanks, a suit) | **First orbit:** a satellite in a stable orbit that passes over every face. It maps the deposits that are left. First visit to the moon. |
-| **IV** | 30-40 | every need, in sealed rooms | **Moon base:** keeps an ape alive on the moon for a set time with nothing delivered, and sends a set tonnage of ore to the planet. Unlocks the exotic resource. |
+| **EV** | 25-30 | air (tanks, a suit) | **First orbit:** a satellite in a stable orbit that passes over every face. It maps the deposits that are left. First visit to Luna. |
+| **IV** | 30-40 | every need, in sealed rooms | **Moon base:** keeps an ape alive on Luna for a set time with nothing delivered, and sends a set tonnage of ore to the planet. Unlocks the exotic resource. |
 | **Exotic** | open | closed loops: nothing is carried in | **The Ark:** a ship with a living room that sustains itself and a drive fed by the exotic liquid. Leads to the next planet. |
 
 - Starter to HV is one planet and the three networks: the game up to the first visit to space, and the
   content target after the first playable.
-- IV and the exotic age need the moon as a place to live and, for the Ark, a destination.
+- IV and the exotic age need Luna as a place to live and, for the Ark, a destination.
 - The hours are the developer's scale (2026-11-09): about 110-150 hours to the moon base.
 - The metals, confirmed by the developer: copper in the first hour, bronze through the steam age, iron at
   its end, steel as the gate to MV.
@@ -123,7 +123,7 @@ What each big step is and what it gives you. The last milestone of an age opens 
 | **Life support loop** | plants, a water recycler | no deliveries needed |
 | **Radiators** | panels that shed heat to space | the limit on every machine and power plant off the planet |
 | **Reactor** | fission: radiation, shielding, waste | steady power without sun |
-| **Mass driver** | an electric rail on the moon (orbit there is 17 m/s) | ore to the planet for almost nothing |
+| **Mass driver** | an electric rail on Luna (orbit there is 17 m/s) | ore to the planet for almost nothing |
 
 ### Exotic
 
@@ -131,7 +131,7 @@ What each big step is and what it gives you. The last milestone of an age opens 
 |---|---|---|
 | **The raw exotic** | a material found only off the planet | the feed for the refinery |
 | **The refinery** | makes the quantum liquid; draws more power than everything before it | warp fuel |
-| **Fusion** | fuel from the moon | the power the refinery asks for |
+| **Fusion** | fuel from Luna | the power the refinery asks for |
 | **Planet eater** | a miner that takes whole chunks; pumps that empty seas | a moon, then a planet, mined out and drained: the mass the Ark needs |
 | **Orbital yard** | a dock in free fall | things too big to launch |
 | **Warp drive** | fed by the quantum liquid | the next planet |
@@ -156,7 +156,7 @@ Three things flow, on one network engine (`fundamentals.md` 2.5):
   transformers that survive it, and the machines built for it.
 - **Three ways to get it wrong:** too little supply and the voltage sags, machines slow down; too much
   voltage and a machine burns out; too much current and the cable heats, melts and can start a fire.
-- **In space,** waste heat only leaves through radiators: a power plant on the moon is limited by how fast it
+- **In space,** waste heat only leaves through radiators: a power plant on Luna is limited by how fast it
   sheds heat, not by how much sun it gets.
 
 ## The planet's air: water, weather, pollution, radiation
@@ -181,7 +181,7 @@ to its neighbours. It is not a real weather model; the rules are picked for play
 - **Radiation** has two sources. *Rock and machines:* radioactive ore, reactors and their waste radiate;
   blocks between you and the source stop it, thick and dense ones best. Leaked material is pollution that
   fades slowly and travels with the same wind and rain. *Space:* the planet's air shields the surface. In
-  orbit and on the moon the sun's radiation is unfiltered and solar storms are the moon's weather, so living
+  orbit and on Luna the sun's radiation is unfiltered and solar storms are Luna's weather, so living
   there means living under rock. Dose builds up in the body and fades slowly.
 
 Where each one bites:
@@ -212,9 +212,9 @@ planet.
 - **Water and rock are counted, not fixed.** Water leaves the cycle when you tank it, split it in an
   electrolyser, ship it away or feed it to the refinery. Rain is only what the air and the seas still hold: a
   drained planet is a dry planet, and its weather dies with it.
-- **The size of the job:** the moon is 23 million m³ (190 million blocks), the 1 km planet 5 billion m³ (40
-  billion blocks). A machine taking 1,000 blocks a second needs two days for the moon and 460 days for the
-  planet. So planet eaters take **whole chunks**, and the moon is the first body you can finish.
+- **The size of the job:** Luna is 23 million m³ (190 million blocks), the 1 km planet 5 billion m³ (40
+  billion blocks). A machine taking 1,000 blocks a second needs two days for Luna and 460 days for the
+  planet. So planet eaters take **whole chunks**, and Luna is the first body you can finish.
 - **Why you would:** the exotic refinery and the Ark ask for mass on a scale no deposit holds.
 - Engine needs, each its own ADR and spike when the time comes:
   - a save stores "this volume is gone", not 40 billion edits;

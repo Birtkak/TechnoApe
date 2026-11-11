@@ -283,7 +283,7 @@ impl App {
         let p99 = pct(&mut ms, 0.99);
         let (day, h) = engine::sky::clock(w.time);
         let m = (h * 60.0).round() as u32 % (24 * 60);
-        let body = ["planet", "moon"].get(bi).copied().unwrap_or("body");
+        let body = b.name.as_str();
         let sea = b.sea.map_or(String::new(), |s| format!(", {:.1} m over the sea", r - s));
         let look = match self.aim {
             Some((hit, _)) => format!(
@@ -306,9 +306,9 @@ impl App {
             format!("TechnoApe {BUILD} ({}), Pillars of Simulation Engine", if cfg!(debug_assertions) { "debug" } else { "release" }),
             format!("{:.0} fps, frame {avg:.2} ms average, {p99:.2} ms p99, GPU {:.2} ms", 1000.0 / avg.max(0.01), self.gpu_last),
             if space {
-                format!("In space: {:.1} km from the sun's centre, {:.1} km from the planet's", to_sun / 1000.0, to_planet / 1000.0)
+                format!("In space: {:.1} km from the sun's centre, {:.1} km from {}'s", to_sun / 1000.0, to_planet / 1000.0, w.bodies[0].name)
             } else {
-                format!("XYZ: {:.2} / {:.2} / {:.2} from the {body}'s centre", rel.x, rel.y, rel.z)
+                format!("XYZ: {:.2} / {:.2} / {:.2} from {body}'s centre", rel.x, rel.y, rel.z)
             },
             if space { "Height: no ground under you".into() } else { format!("Height: {r:.1} m from the centre, {:.1} m over the ground{sea}", r - b.top(up)) },
             if space {
@@ -325,7 +325,7 @@ impl App {
                 w.time,
                 self.clock.filter(|c| c.1 > 1.0).map_or(String::new(), |c| format!(", warp {}x", c.1))
             ),
-            format!("Sun {:.1} degrees over the horizon, the moon {:.0}% lit", d.sun_deg, d.moon_lit * 100.0),
+            format!("Sun {:.1} degrees over the horizon, {} {:.0}% lit", d.sun_deg, w.bodies.get(1).map_or("the moon", |b| b.name.as_str()), d.moon_lit * 100.0),
             format!("Mode: {}, {tool}, slot {}: {block}", if self.creative { "creative" } else { "survival" }, self.slot + 1),
             format!("Chunks: {} drawn of {} kept, {} quads, {} traced builds waiting", d.chunks, self.streamer.slot_count(), d.quads, d.rt_pending),
             format!("Streaming: {} missing, {} holes, {} requests, {} jobs running", d.streaming.0, d.streaming.1, d.streaming.2, d.streaming.3),
@@ -339,7 +339,7 @@ impl App {
             format!("{} with ray queries, {}x{}", gpu.backend, gpu.config.width, gpu.config.height),
             format!("RAM {:.0} MB, VRAM {:.0} MB", self.mem.0, self.mem.1),
             format!("CPU: {} workers", rayon::current_num_threads()),
-            format!("World: seed {}, planet {} and moon {} columns a face", self.seed, w.bodies[0].n, w.bodies.get(1).map_or(0, |b| b.n)),
+            format!("World: seed {}, {}", self.seed, w.bodies.iter().map(|b| format!("{} {} columns a face", b.name, b.n)).collect::<Vec<_>>().join(", ")),
             format!("Server: {}", self.server_at),
             format!("Save: {}", self.save_path.as_deref().unwrap_or("none")),
             format!("Recording: {}", self.rec_path.as_deref().unwrap_or("none")),
@@ -372,7 +372,7 @@ impl App {
                 b.n
             )
         } else {
-            "(run=stand stands on the planet only)".into()
+            "(run=stand stands on Terra only)".into()
         };
         let mut args: Vec<String> = self.args.0.iter().map(|(k, v)| format!("{k}={v}")).collect();
         args.sort();

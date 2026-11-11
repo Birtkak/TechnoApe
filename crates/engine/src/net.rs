@@ -170,13 +170,16 @@ pub fn complete(line: &str) -> (usize, Vec<String>) {
             (at, crate::blocks::BLOCKS.placeable().map(|d| d.name.clone()).collect())
         }
         first => {
+            // /goto takes every body's name and words (data/bodies.toml), and the sun
+            let names: Vec<String> = crate::bodies::BODIES.iter().flat_map(|r| std::iter::once(r.name.to_lowercase()).chain(r.words.clone())).collect();
+            let places: Vec<&str> = names.iter().map(String::as_str).chain(["sun"]).collect();
             let words: &[&str] = match (first, before.get(1).map(String::as_str), before.len()) {
                 (None, _, _) => &["time", "playmode", "give", "goto", "timewarp", "help"],
                 (Some("timewarp" | "warp"), None, 1) => &["1", "10", "100", "1000", "10000", "up", "down"],
                 (Some("time"), None, 1) => &["set", "add"],
                 (Some("time"), Some("set"), 2) => &["sunrise", "day", "noon", "sunset", "night", "midnight"],
                 (Some("playmode" | "gamemode"), None, 1) => &["creative", "survival"],
-                (Some("goto"), None, 1) => &["planet", "home", "moon", "sun"],
+                (Some("goto"), None, 1) => &places,
                 _ => &[],
             };
             (line.len() - rest.rsplit(' ').next().unwrap_or("").len(), words.iter().map(|w| w.to_string()).collect())
@@ -218,6 +221,10 @@ mod tests {
         assert_eq!(c("/time set N"), (10, vec!["noon".to_string(), "night".to_string()]));
         assert_eq!(c("/PlayMode c"), (10, vec!["creative".to_string()]));
         assert_eq!(c("/goto moon "), (11, vec![]));
+        let s = |v: &[&str]| v.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        assert_eq!(c("/goto "), (6, s(&["terra", "planet", "home", "spawn", "luna", "moon", "sun"])));
+        assert_eq!(c("/goto L"), (6, s(&["luna"])));
+        assert_eq!(c("/goto t"), (6, s(&["terra"])));
         assert_eq!(c("hello"), (5, vec![]));
         // a block's name is one word for this, spaces and all
         let (at, v) = c("/give blue l");

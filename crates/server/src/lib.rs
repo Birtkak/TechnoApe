@@ -533,20 +533,12 @@ impl Server {
         (c.player.pos, c.player.fwd) = (p.to_array(), c.phys.fwd.as_vec3().to_array());
     }
 
-    /// Where /goto takes a player (ADR 0023): the planet's spawn, the moon where the sun is 45 degrees up, or a
-    /// spot in space SUN_VIEW sun radii from the sun's centre with the sun on its horizon; and the way to look.
+    /// Where /goto takes a player (ADR 0023): Terra's spawn, another body (Luna) where the sun is 45 degrees up,
+    /// or a spot in space SUN_VIEW sun radii from the sun's centre with the sun on its horizon; and the way to look.
+    /// A body is named by its row in `data/bodies.toml` (Terra or planet, Luna or moon).
     fn goto(&self, to: &str) -> Option<(DVec3, DVec3)> {
         let w = &self.world;
-        let body = |i: usize| w.bodies.get(i).map(|b| (b.spawn_point(), b.spawn.any_orthonormal_vector()));
         match to {
-            "planet" | "home" | "spawn" => body(0),
-            // the day side, the sun 45 degrees up: the moon's night is black
-            "moon" if w.bodies.len() > 1 => {
-                let p = w.pose(1, w.time);
-                let s = (p.rot.inverse() * (w.sky.sun(w.time) - p.centre)).normalize();
-                let d = (s + s.any_orthonormal_vector()).normalize();
-                Some((w.bodies[1].stand_point(d), s))
-            }
             "sun" => {
                 let (sun, planet) = (w.sky.sun(w.time), w.sky.planet(w.time).centre);
                 // beside the sun as seen from the planet: up there is away from the planet, the sun level
@@ -555,7 +547,16 @@ impl Server {
                 let (pos, f) = w.locate(x);
                 Some((pos, w.pose(f, w.time).rot.inverse() * (sun - x)))
             }
-            _ => None,
+            _ => match engine::bodies::find(to).filter(|&i| i < w.bodies.len())? {
+                0 => Some((w.bodies[0].spawn_point(), w.bodies[0].spawn.any_orthonormal_vector())),
+                // the day side, the sun 45 degrees up: an airless night is black
+                i => {
+                    let p = w.pose(i, w.time);
+                    let s = (p.rot.inverse() * (w.sky.sun(w.time) - p.centre)).normalize();
+                    let d = (s + s.any_orthonormal_vector()).normalize();
+                    Some((w.bodies[i].stand_point(d), s))
+                }
+            },
         }
     }
 
@@ -594,7 +595,7 @@ impl Server {
                 "  /time add <seconds>  move the clock on",
                 "  /playmode <mode>     creative or survival",
                 "  /give <block> [n]    n blocks, 64 if left out",
-                "  /goto <where>        planet (home), moon, or sun",
+                "  /goto <where>        terra (home), luna, or sun",
                 "  /timewarp <n>        the clock n times faster (1 to 10000,",
                 "                       up, down); . and , step it too",
                 "  /help                this list",
@@ -653,9 +654,9 @@ impl Server {
                 match self.goto(&to) {
                     Some((p, look)) => {
                         self.put(i, p, look);
-                        format!("gone to the {}", if to == "home" || to == "spawn" { "planet" } else { &to })
+                        format!("gone to {}", engine::bodies::find(&to).map_or("the sun", |b| self.world.bodies[b].name.as_str()))
                     }
-                    None => "usage: /goto planet|moon|sun\n  planet (or home) is the spawn".into(),
+                    None => "usage: /goto terra|luna|sun\n  terra (or planet, home) is the spawn".into(),
                 }
             }
             Some("timewarp") | Some("warp") => {
@@ -1319,7 +1320,7 @@ mod tests {
     fn goto_takes_a_player_to_the_bodies_and_the_sun() {
         let (mut s, links) = server_with(1);
         let me = |s: &Server| s.clients[0].phys.pos;
-        for (to, body) in [("moon", 1), ("planet", 0)] {
+        for (to, body) in [("moon", 1), ("planet", 0), ("Luna", 1), ("terra", 0)] {
             links[0].send(ToServer::Chat(format!("/goto {to}")));
             s.tick();
             let b = &s.world.bodies[body];
@@ -1337,7 +1338,9 @@ mod tests {
         let d = (x - s.world.sky.sun(s.world.time)).length() / sky::SUN_RADIUS;
         assert!((d - SUN_VIEW).abs() < 0.1, "{d} sun radii away");
         let got: Vec<ToClient> = drain(&links[0]);
-        assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == "gone to the sun")));
+        for line in ["gone to the sun", "gone to Luna", "gone to Terra"] {
+            assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == line)), "{line}");
+        }
     }
 
     #[test]
