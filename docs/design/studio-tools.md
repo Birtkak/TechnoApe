@@ -91,8 +91,8 @@ colours = ["stone dark", "stone", "copper"]   # game palette names; at most 62 p
 name = "body"
 parent = ""                # "" for a root; else another part's name
 at = [0, 0, 0]             # where the box's corner sits in the parent's voxels (a root: in the cell)
-pivot = [8, 0, 8]          # the point it turns about, in its own voxels
-box = [16, 12, 16]         # x, y (up), z in voxels, each 1..64
+pivot = [4, 0, 4]          # the point it turns about, in its own voxels
+box = [8, 6, 8]            # x, y (up), z in voxels, each 1..32
 voxels = """
 aab.....
 """                        # layers from the bottom up, a blank line between layers; in a layer one row
@@ -101,7 +101,7 @@ aab.....
 [[point]]                  # a named place for an effect, a sound or a held thing
 name = "flame"
 part = "body"
-at = [8, 4, 2]
+at = [4, 2, 1]
 
 [[clip]]
 name = "work"
@@ -114,7 +114,7 @@ key = [
                            # ease: linear, smooth, step (how it leaves this key); a part with no key rests
 ```
 
-- A voxel is 1/16 m. A root part's `at` places it in a 1 m cell whose corner is 0,0,0.
+- A voxel is 12.5 cm, the fine cell of ADR 0033: 8 to a block's edge, two texture pixels wide. A root part's `at` places it in a 1 m cell whose corner is 0,0,0.
 - In the game: each part is meshed once (hidden faces dropped, flat runs merged), drawn per instance with
   one transform per part, lit by the light of the cell it stands in. A block row may name `model = "x"`:
   the model is drawn in the cell in place of the cube (the cell still collides as a whole block for now).
@@ -126,7 +126,7 @@ under the pointer, right click removes, the picker and palette as on Textures; b
 on the plane of the face first clicked; mirror in x and z; a slice slider hides everything above a height.
 **Shade by light:** one click recolours every voxel along its ramp by how exposed it is (open sides lighter,
 crevices and undersides darker), the corner an artist would paint by hand. **Extrude:** drag a face of a
-selection to pull it out. **From a texture:** a block's painted faces become a 16-voxel cube to carve. The
+selection to pull it out. **From a texture:** a block's painted faces become an 8-voxel cube to carve (each voxel the commoner colour of its 2 x 2 pixels). The
 parts are a tree in the files column of the page with their pivots shown as crosses; a **timeline** under the
 view has one row per part with its keys, a play button and a clip chooser; moving or turning a part while
 the timeline stands on a time sets a key there. **Ready-made motions** fill a clip from one choice (spin
@@ -167,6 +167,10 @@ On top of today's rows in `data/effects.toml` (ADR 0031):
 - **Glow:** how much light an effect's particles give, from its gradient.
 - **Lasting effects:** `rate` particles per second for as long as it plays (a fire burns, a chimney
   smokes), beside today's one-time `count`.
+- **Where they start and how they look:** `start` gains ring, cone (an angle about a direction) and a box of
+  any size; `look` gains a model (a leaf, a chip) and a small painted texture; particles may face the camera,
+  lie along their flight (rain, sparks) or tumble. An effect may play another when a particle dies or lands
+  (today's `then`), and several rows may be grouped into one named effect (fire = flames + embers + smoke).
 - **The page:** the effect playing in the game's renderer on a small scene; the gradient as a bar with
   stops to drag and palette swatches to drop on it; curves as small graphs; the noise shown as a moving
   field; **presets** (fire, smoke, sparks, steam, dust, drip, glint, leaves) as starts; a wall of variations.

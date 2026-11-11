@@ -536,6 +536,8 @@ pub struct World {
     /// nothing scans the edits (ADR 0025, H).
     pub lights: FxMap<Block, [f32; 3]>,
     pub lights_rev: u64,
+    /// The cells whose block names a model (ADR 0047), with the block: drawn as models, not cubes.
+    pub models: FxMap<Block, u8>,
     /// Water (ADR 0020): on the server it flows; a client keeps the server's copy.
     pub water: Liquids,
 }
@@ -564,6 +566,7 @@ impl World {
             edit_count: 0,
             lights: FxMap::default(),
             lights_rev: 0,
+            models: FxMap::default(),
             water: Liquids::default(),
         }
     }
@@ -793,6 +796,11 @@ impl World {
         let light = BLOCKS.get(m).map_or([0.0; 3], |d| d.light);
         let changed = if light != [0.0; 3] { self.lights.insert(b, light) != Some(light) } else { self.lights.remove(&b).is_some() };
         self.lights_rev += changed as u64;
+        if BLOCKS.get(m).is_some_and(|d| d.model.is_some()) {
+            self.models.insert(b, m);
+        } else {
+            self.models.remove(&b);
+        }
     }
     /// Puts back what `edit` returned: an edit, or (None) the generated block with no edit recorded.
     pub fn put_edit(&mut self, b: Block, e: Option<u8>) {
@@ -804,6 +812,7 @@ impl World {
                     if cells.remove(&b.pos).is_some() {
                         self.edit_count -= 1;
                         self.lights_rev += self.lights.remove(&b).is_some() as u64;
+                        self.models.remove(&b);
                     }
                     if cells.is_empty() {
                         self.edits.remove(&k);

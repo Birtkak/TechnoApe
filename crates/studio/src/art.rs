@@ -120,25 +120,78 @@ pub fn add_variant(img: &Img, copy: usize) -> Option<Img> {
     Some(Img { w, px })
 }
 
-/// Undo and redo of one file: whole snapshots, a few KB each.
+/// One undo step: the picture before an edit, and the edit's name for the history list.
+#[derive(Clone, Debug)]
+pub struct Step {
+    pub name: String,
+    pub img: Img,
+}
+
+/// Undo and redo of one file: whole snapshots, a few KB each, each with its edit's name.
 #[derive(Default, Clone)]
 pub struct History {
-    pub undo: Vec<Img>,
-    pub redo: Vec<Img>,
+    pub undo: Vec<Step>,
+    pub redo: Vec<Step>,
 }
 
 impl History {
-    /// Call before an edit with the picture as it was.
-    pub fn push(&mut self, before: Img) {
-        self.undo.push(before);
+    /// Call before an edit with the picture as it was and the edit's name ("Pencil", "Fill").
+    pub fn push(&mut self, before: Img, name: &str) {
+        self.undo.push(Step { name: name.into(), img: before });
         self.redo.clear();
     }
     pub fn undo(&mut self, now: &mut Img) -> bool {
-        self.undo.pop().map(|b| self.redo.push(std::mem::replace(now, b))).is_some()
+        self.undo.pop().map(|s| self.redo.push(Step { img: std::mem::replace(now, s.img), name: s.name })).is_some()
     }
     pub fn redo(&mut self, now: &mut Img) -> bool {
-        self.redo.pop().map(|b| self.undo.push(std::mem::replace(now, b))).is_some()
+        self.redo.pop().map(|s| self.undo.push(Step { img: std::mem::replace(now, s.img), name: s.name })).is_some()
     }
+    /// Undoes or redoes until `n` steps are left to undo (a click on the history list).
+    pub fn back_to(&mut self, now: &mut Img, n: usize) {
+        while self.undo.len() > n && self.undo(now) {}
+        while self.undo.len() < n && self.redo(now) {}
+    }
+    /// Every picture it holds, to repaint them all when a palette colour changes.
+    pub fn imgs(&mut self) -> impl Iterator<Item = &mut Img> {
+        self.undo.iter_mut().chain(self.redo.iter_mut()).map(|s| &mut s.img)
+    }
+}
+
+/// One texture file open in the Studio: the picture, its undo, and the file as it is on disk.
+pub struct Doc {
+    pub img: Img,
+    pub hist: History,
+    /// The file as it is on disk; none for a file not yet saved.
+    pub saved: Option<Img>,
+}
+impl Doc {
+    pub fn loaded(img: Img) -> Doc {
+        Doc { img: img.clone(), hist: History::default(), saved: Some(img) }
+    }
+    /// It differs from the disk's, so undoing back to the saved picture clears its dot.
+    pub fn dirty(&self) -> bool {
+        self.saved.as_ref() != Some(&self.img)
+    }
+}
+
+/// The block a texture file belongs to: `<block>.png` or `<block>_top/_side/_bottom.png`, by the names given.
+pub fn block_of<'a>(file: &str, names: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let stem = file.rsplit(['/', '\\']).next()?.strip_suffix(".png")?;
+    names.into_iter().find(|n| (0..4).any(|f| file_name(n, f) == format!("{stem}.png"))).map(String::from)
+}
+
+/// `check=1` over `data/`: the palette's colours, the textures that passed, and every refusal.
+pub fn check_data(data: &Path) -> Result<(usize, usize, Vec<String>), String> {
+    let read = |f: &str| std::fs::read_to_string(data.join(f)).map_err(|e| format!("data/{f}: {e}"));
+    let reg = Registry::parse(&read("blocks.toml")?).map_err(|e| format!("data/blocks.toml: {e}"))?;
+    let pal = Palette::parse(&read("palette.toml")?).map_err(|e| format!("data/palette.toml: {e}"))?;
+    let (ok, bad) = check_dir(&data.join("textures"), &pal, &reg);
+    // the paths as the developer reads them, whatever folder `data` was given as
+    let bad = bad.into_iter().map(|b| match b.split_once("/textures/") {
+        Some((_, rest)) => format!("data/textures/{rest}"),
+        None => b,
+    });
+    Ok((pal.colours.len(), ok, bad.collect()))
 }
 
 /// Reads a texture held to the game's rule (`engine::textures::decode`, ADR 0045).
@@ -351,10 +404,10 @@ mod tests {
         let mut img = Img::filled(1, A);
         let mut h = History::default();
         let first = img.clone();
-        h.push(img.clone());
+        h.push(img.clone(), "Pencil");
         pencil(&mut img, 0, 0, 0, B, false);
         let second = img.clone();
-        h.push(img.clone());
+        h.push(img.clone(), "Fill");
         pencil(&mut img, 0, 1, 0, B, false);
         let third = img.clone();
         assert!(h.undo(&mut img) && img == second);
@@ -364,8 +417,31 @@ mod tests {
         assert!(h.redo(&mut img) && img == third);
         assert!(!h.redo(&mut img));
         h.undo(&mut img);
-        h.push(img.clone());
+        h.push(img.clone(), "Line");
         assert!(h.redo.is_empty(), "a new edit drops the redo");
+    }
+
+    #[test]
+    fn the_history_names_its_steps_and_a_click_goes_back_to_one() {
+        let mut img = Img::filled(1, A);
+        let mut h = History::default();
+        let pics: Vec<Img> = (0..4)
+            .map(|i| {
+                let before = img.clone();
+                h.push(img.clone(), ["Pencil", "Fill", "Shade", "Line"][i]);
+                pencil(&mut img, 0, i, 0, B, false);
+                before
+            })
+            .collect();
+        let last = img.clone();
+        assert_eq!(h.undo.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["Pencil", "Fill", "Shade", "Line"]);
+        h.back_to(&mut img, 1);
+        assert_eq!((h.undo.len(), h.redo.len(), &img), (1, 3, &pics[1]), "back to after the first step");
+        assert_eq!(h.redo.last().unwrap().name, "Fill", "the next redo is the step after it");
+        h.back_to(&mut img, 4);
+        assert_eq!(img, last, "and forward again");
+        h.back_to(&mut img, 0);
+        assert_eq!(img, pics[0]);
     }
 
     #[test]
@@ -486,6 +562,16 @@ mod tests {
         assert_eq!(pngs(&d), vec!["rock.png", "rock_top.png"]);
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 2, "no temporary left");
         let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn a_texture_file_names_its_block() {
+        let names = ["grass", "dirt", "blue lamp"];
+        assert_eq!(block_of("data/textures/grass_top.png", names), Some("grass".into()));
+        assert_eq!(block_of("dirt.png", names), Some("dirt".into()));
+        assert_eq!(block_of("blue lamp_side.png", names), Some("blue lamp".into()));
+        assert_eq!(block_of("sand.png", names), None);
+        assert_eq!(block_of("grass_left.png", names), None);
     }
 
     #[test]

@@ -1,8 +1,11 @@
 //! `technoape-studio`: paints the game's block textures from its one palette (docs/design/studio.md, ADR 0046).
 //! Without arguments it opens its window in the repository the exe sits in. Headless, one JSON line each:
 //! `check=1` (palette and every texture), `drafts=1`, `render=<png> sheet=out/x.png` (tiled 3 x 3),
-//! `shot=out/studio.png [open=<block>] [page=palette]` (one frame of the window, off-screen).
+//! `shot=out/studio.png [open=<block>] [page=palette] [cmd=id,id..] [query=text] [scale=1.5] [size=1280x800]
+//! [pointer=x,y]` (one frame of the window, off-screen: `cmd` runs commands as the command box does, e.g.
+//! `frame:keys`, `tool.shade`; `query` opens the command box with that typed; `pointer` hovers there).
 mod art;
+mod shell;
 mod ui;
 
 use eframe::egui;
@@ -29,10 +32,8 @@ fn write_rgba(path: &str, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
 }
 
 fn check() -> Result<String, String> {
-    let reg = engine::blocks::Registry::parse(&std::fs::read_to_string("data/blocks.toml").map_err(|e| e.to_string())?).map_err(|e| format!("data/blocks.toml: {e}"))?;
-    let pal = std::fs::read_to_string(ui::PAL).map_err(|e| e.to_string()).and_then(|t| engine::palette::Palette::parse(&t)).map_err(|e| format!("{}: {e}", ui::PAL))?;
-    let (ok, bad) = art::check_dir(Path::new(ui::TEX), &pal, &reg);
-    let line = format!("{{\"check\":{},\"palette\":{},\"textures\":{ok},\"refused\":{}}}", js(if bad.is_empty() { "ok" } else { "failed" }), pal.colours.len(), list(&bad));
+    let (pal, ok, bad) = art::check_data(Path::new("data"))?;
+    let line = format!("{{\"check\":{},\"palette\":{pal},\"textures\":{ok},\"refused\":{}}}", js(if bad.is_empty() { "ok" } else { "failed" }), list(&bad));
     if bad.is_empty() {
         Ok(line)
     } else {
@@ -48,14 +49,18 @@ fn render(file: &str, sheet: &str) -> Result<String, String> {
 }
 
 /// One frame of the window drawn off-screen by egui's own wgpu renderer, read back into a PNG.
-fn shot(studio: &mut ui::Studio, path: &str, w: u32, h: u32) -> Result<String, String> {
+fn shot(studio: &mut ui::Studio, path: &str, w: u32, h: u32, pointer: Option<egui::Pos2>) -> Result<String, String> {
     let ctx = egui::Context::default();
     ctx.set_theme(egui::Theme::Dark);
+    ctx.set_zoom_factor(studio.settings.scale);
     let mut textures = vec![];
     let mut out = None;
-    // a few passes, so sizes measured in one frame are laid out in the next
-    for _ in 0..3 {
-        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w as f32, h as f32))), ..Default::default() };
+    // a few passes, so sizes measured in one frame are laid out in the next; half a second apart, so a
+    // tooltip under `pointer` shows
+    let points = egui::vec2(w as f32, h as f32) / studio.settings.scale;
+    for pass in 0..4 {
+        let events = pointer.map(|p| vec![egui::Event::PointerMoved(p)]).unwrap_or_default();
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, points)), time: Some(pass as f64 * 0.5), events, ..Default::default() };
         let mut o = ctx.run_ui(input, |ui| studio.show(ui));
         textures.extend(std::mem::take(&mut o.textures_delta.set));
         o.textures_delta.clear();
@@ -145,8 +150,8 @@ fn main() {
     let get = |k: &str| args.get(k).map(String::as_str);
     let load = || {
         let mut s = ui::Studio::load(get("open"))?;
-        if get("page") == Some("palette") {
-            s.page = ui::Page::Palette;
+        if let Some(p) = get("page") {
+            s.run_command(&format!("page:{p}"));
         }
         Ok::<_, String>(s)
     };
@@ -157,7 +162,22 @@ fn main() {
     } else if let Some(file) = get("render") {
         render(file, get("sheet").unwrap_or("out/studio-sheet.png"))
     } else if let Some(path) = get("shot") {
-        load().and_then(|mut s| shot(&mut s, path, 1280, 800))
+        let (w, h) = get("size").and_then(|s| s.split_once('x')).and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?))).unwrap_or((1280, 800));
+        let pointer = get("pointer").and_then(|s| s.split_once(',')).and_then(|(x, y)| Some(egui::pos2(x.parse().ok()?, y.parse().ok()?)));
+        load().and_then(|mut s| {
+            // a shot never writes the developer's studio.txt
+            s.keep_settings();
+            if let Some(k) = get("scale").and_then(|k| k.parse::<f32>().ok()) {
+                s.settings.scale = k.clamp(0.8, 2.0);
+            }
+            for c in get("cmd").into_iter().flat_map(|c| c.split(',')).filter(|c| !c.is_empty()) {
+                s.run_command(c);
+            }
+            if let Some(q) = get("query") {
+                s.type_query(q);
+            }
+            shot(&mut s, path, w, h, pointer)
+        })
     } else {
         let studio = match load() {
             Ok(s) => s,

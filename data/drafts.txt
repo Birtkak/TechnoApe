@@ -1,1 +1,2 @@
 data/palette.toml
+data/models/furnace.toml

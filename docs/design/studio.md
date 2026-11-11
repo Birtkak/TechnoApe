@@ -4,7 +4,7 @@
   made by hand and not by AI; the name is the developer's). Steps 1 to 3 are being built. The coding
   agents spike each step, measure it and write the ADRs that follow ADR 0044.
 - The developer's calls (2026-11-11): block textures and voxel models first, particles and trees and
-  structures later; 1/16 m voxels; models have simple moving parts from the first version; Claude may make
+  structures later; 12.5 cm model voxels (first 1/16 m, changed the same evening); models have simple moving parts from the first version; Claude may make
   drafts, the developer redoes them.
 
 ## The rule it serves
@@ -77,11 +77,11 @@ One window, three columns under a bar of pages (Textures, Palette; later Models,
 
 ## Models (second)
 A model is for everything that is not a whole 1 m cube: the tool in the hand, a dropped item, a plant, a
-torch, a machine, later creatures and players. Its voxels are 1/16 m, the same grid as the texture pixels
-(vision, point 4), so a model and a block beside it never differ in pixel size.
+torch, a machine, later creatures and players. Its voxels are 12.5 cm, the size of the fine cells (ADR 0033), two texture pixels wide,
+so a model is made of the same pieces the world will break into and its edges fall on the pixel grid.
 
 - `data/models/<name>.toml`: the game palette's colours it uses, by name, and **parts**. A part has a name, a parent, a
-  pivot, and a box of voxels up to 64 on a side (4 m), written as layers of palette letters. It is text so
+  pivot, and a box of voxels up to 32 on a side (4 m), written as layers of palette letters. It is text so
   git shows what changed and Claude can write a draft.
 - **Clips:** a model has named clips (`idle`, `use`, `walk`); a clip has keyframes that move and turn whole
   parts about their pivots, a length, an easing and whether it loops. Parts are rigid: no bending, no bones
@@ -123,7 +123,7 @@ watch on `data/`) is built once in steps 3 and 5 and these pages reuse it.
 
 ## Left out on purpose
 Import and export of other tools' formats, sculpting, bones and bending meshes, textures on models (a
-model's voxels carry colour only), sizes other than 16 px and 1/16 m, an editor inside the game. Each can be
+model's voxels carry colour only), sizes other than 16 px and 12.5 cm, an editor inside the game. Each can be
 added when its lack is felt.
 
 ## Build order

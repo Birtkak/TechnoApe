@@ -24,7 +24,7 @@ budget of ADR 0004; Claude must be able to check the tool and its files without 
 Option 3, as designed in `docs/design/studio.md`. The developer's calls of 2026-11-11:
 
 - Block textures and voxel models first; particles, then trees and structures, later.
-- Model voxels are 1/16 m, the texture pixel's size.
+- Model voxels are 12.5 cm, the fine cell of ADR 0033 (first chosen as 1/16 m; changed the same evening so a model matches what the world will break into).
 - Models have rigid moving parts with keyframed clips from the first version.
 - Claude may make drafts; they are listed (`data/drafts.txt`) until the developer has redone them.
 - One fixed palette (`data/palette.toml`): every texture and model is painted from it, and the file check

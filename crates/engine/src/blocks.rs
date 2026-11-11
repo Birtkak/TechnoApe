@@ -84,6 +84,7 @@ struct Raw {
     hardness: f32,
     #[serde(default)]
     loose: bool,
+    model: Option<String>,
 }
 fn stone() -> String {
     "stone".into()
@@ -136,6 +137,9 @@ pub struct Def {
     /// Bare hands take it (dirt, sand, a lamp): dug in survival it goes into the inventory. A block that is
     /// not loose breaks by hand in its time but gives nothing (the tools that take it come later).
     pub loose: bool,
+    /// The model (`data/models/<model>.toml`, ADR 0047) drawn in its cell in place of the cube; the cell
+    /// still collides as a whole block.
+    pub model: Option<String>,
 }
 
 pub struct Registry {
@@ -194,7 +198,7 @@ impl Registry {
                 None => r.id,
                 Some(s) => f.block.iter().find(|o| &o.name == s).ok_or(format!("block '{}': no block '{s}' for its side", r.name))?.id,
             };
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, model: r.model.clone() });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}
@@ -277,6 +281,13 @@ mod tests {
         ] {
             assert!(Registry::parse(bad).is_err(), "{why}");
         }
+    }
+
+    #[test]
+    fn a_row_may_name_a_model() {
+        let r = Registry::parse("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"furnace\"\nhardness = 3\nmodel = \"furnace\"\n").unwrap();
+        assert_eq!(r.get(1).unwrap().model.as_deref(), Some("furnace"));
+        assert!(BLOCKS.placeable().all(|d| d.model.is_none()), "no row of data/blocks.toml uses a model yet");
     }
 
     #[test]

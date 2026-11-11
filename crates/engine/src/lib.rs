@@ -4,6 +4,7 @@ pub mod bodies;
 pub mod edit;
 pub mod liquid;
 pub mod mesh;
+pub mod models;
 pub mod net;
 pub mod palette;
 pub mod phys;

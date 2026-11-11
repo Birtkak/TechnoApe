@@ -122,6 +122,15 @@ pub struct FrameStats {
     pub requests: u32,
 }
 
+/// Edits of blocks that name a model become air for the mesher (ADR 0047).
+pub fn hide_models(edits: &mut [(u32, u8)], reg: &crate::blocks::Registry) {
+    for e in edits.iter_mut() {
+        if reg.get(e.1).is_some_and(|d| d.model.is_some()) {
+            e.1 = crate::blocks::AIR;
+        }
+    }
+}
+
 /// Added to a request's distance when something is already drawn there: every hole goes first.
 const REFINE: f64 = 1e9;
 
@@ -509,7 +518,11 @@ impl Streamer {
             s.inflight = true;
             self.inflight += 1;
             let version = s.want_v;
-            let edits = world.edits_for(k);
+            // a cell whose block is a model is drawn by the client's models, not meshed (ADR 0047)
+            let mut edits = world.edits_for(k);
+            if !world.models.is_empty() {
+                hide_models(&mut edits, &crate::blocks::BLOCKS);
+            }
             let tx = self.tx.clone();
             let bodies = world.bodies.clone();
             let greedy = self.opts.greedy;
@@ -648,6 +661,14 @@ impl Streamer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_model_block_is_not_meshed() {
+        let reg = crate::blocks::Registry::parse("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"rock\"\nhardness = 1\n[[block]]\nid = 2\nname = \"furnace\"\nhardness = 3\nmodel = \"furnace\"\n").unwrap();
+        let mut e = vec![(5, 1), (6, 2)];
+        hide_models(&mut e, &reg);
+        assert_eq!(e, vec![(5, 1), (6, 0)]);
+    }
     /// Selects, meshes and applies until nothing is missing or asked for; the chunks it draws.
     fn settle(s: &mut Streamer, w: &World, cam: DVec3) -> Vec<DrawChunk> {
         let view = View::new(cam, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], w);

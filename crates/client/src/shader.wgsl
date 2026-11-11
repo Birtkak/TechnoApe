@@ -624,13 +624,15 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32) -> vec3f {
         m = (looks[m].info >> 8u) & 255u;
     }
     painted = (select(looks[m].tex, looks[m].tex2, dir == 5u) >> sh) & 65535u;
-    // on a side, x runs along it and y down from its top edge (t is (y, z) on an x face, (z, x) on a y face)
+    // on a side, x runs left to right as seen from outside and y down from its top edge (t is (y, z) on an x
+    // face, (z, x) on a y face; along +y on +x and along +x on -y read rightwards, the other two are turned)
     var x = ti.x;
     var y = ti.y;
     if (dir < 4u) {
         let on_y = dir / 2u == 1u;
         x = select(ti.x, ti.y, on_y);
         y = 15 - select(ti.y, ti.x, on_y);
+        if (dir == 1u || dir == 2u) { x = 15 - x; }
     }
     if (painted != 0u) {
         // one of its variants by the cell's hash, the same on every face of the block
