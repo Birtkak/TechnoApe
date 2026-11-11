@@ -21,6 +21,8 @@ fn main() {
     p.cell_m = num("cell", p.cell_m);
     p.coarse_iters = num("coarse_iters", p.coarse_iters as f64) as usize;
     p.fine_iters = num("fine_iters", p.fine_iters as f64) as usize;
+    p.shield_uplift = num("shield", p.shield_uplift);
+    p.old_range_uplift = num("old", p.old_range_uplift);
     let planet = num("planet", 12288.0) as u32;
     let out = PathBuf::from(args.get("out").map_or("out", String::as_str));
     std::fs::create_dir_all(&out).unwrap();
@@ -205,8 +207,11 @@ fn report(b: &Bake, seed: u64, planet: u32, p: &Params, disk: u64) {
     let (ws, commit) = peak_mb();
     let times: Vec<String> = b.times.iter().map(|(k, v)| format!("\"{k}\":{v:.2}")).collect();
     let lake_cells: u32 = b.lakes.iter().map(|l| l.cells).sum();
+    let mut lh: Vec<f32> = (0..b.h.len()).filter(|&c| b.land(c)).map(|c| b.h[c].max(0.0)).collect();
+    lh.sort_by(f32::total_cmp);
+    let q = |f: f64| lh.get(((lh.len().max(1) - 1) as f64 * f) as usize).copied().unwrap_or(0.0);
     println!(
-        "{{\"seed\":{seed},\"planet\":{planet},\"radius_m\":{:.0},\"cells\":{},\"cell_m\":{},\"seconds\":{{{}}},\"total_s\":{total:.2},\"peak_ws_mb\":{ws:.0},\"peak_commit_mb\":{commit:.0},\"disk_bytes\":{disk},\"hash\":\"{:016x}\",\"land_share\":{:.3},\"top_m\":{:.1},\"deep_m\":{:.1},\"plates\":{},\"rivers\":{},\"lakes\":{},\"lake_cells\":{lake_cells},\"last_change_m\":[{:.4},{:.4}],\"drains\":{}}}",
+        "{{\"seed\":{seed},\"planet\":{planet},\"radius_m\":{:.0},\"cells\":{},\"cell_m\":{},\"seconds\":{{{}}},\"total_s\":{total:.2},\"peak_ws_mb\":{ws:.0},\"peak_commit_mb\":{commit:.0},\"disk_bytes\":{disk},\"hash\":\"{:016x}\",\"land_share\":{:.3},\"top_m\":{:.1},\"deep_m\":{:.1},\"plates\":{},\"rivers\":{},\"lakes\":{},\"lake_cells\":{lake_cells},\"land_p50_p90_p99_m\":[{:.1},{:.1},{:.1}],\"last_change_m\":[{:.4},{:.4}],\"drains\":{}}}",
         b.g.r,
         b.h.len(),
         p.cell_m,
@@ -218,6 +223,9 @@ fn report(b: &Bake, seed: u64, planet: u32, p: &Params, disk: u64) {
         b.plate.iter().max().map_or(0, |m| m + 1),
         b.rivers.len(),
         b.lakes.len(),
+        q(0.5),
+        q(0.9),
+        q(0.99),
         b.converged.0 * b.scale.0,
         b.converged.1 * b.scale.0,
         check_rivers(b).is_ok(),

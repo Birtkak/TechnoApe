@@ -36,6 +36,10 @@ pub struct Params {
     /// A cell is a river when it drains this much, m^2.
     pub river_area_m2: f32,
     pub plates: (u32, u32),
+    /// Uplift inside continents, as a share of the peak's: the old shields' patchy rise, and old worn
+    /// ranges along ancient sutures. These raise the plains against the ranges at the plate edges.
+    pub shield_uplift: f64,
+    pub old_range_uplift: f64,
     /// The share of crust that is continental (a little over the land share: the lowest of it is shelf).
     pub continental: f32,
     /// Feature widths as shares of the radius: they scale with the planet (ADR 0021: continents do, hills
@@ -53,7 +57,7 @@ impl Default for Params {
             ocean_share: 0.55,
             cell_m: 8.0,
             coarse: 4,
-            coarse_iters: 160,
+            coarse_iters: 320,
             fine_iters: 24,
             k: 0.5,
             m_exp: 0.5,
@@ -61,6 +65,8 @@ impl Default for Params {
             uplift: 1.0,
             river_area_m2: 1.5e5,
             plates: (8, 14),
+            shield_uplift: 0.35,
+            old_range_uplift: 0.8,
             continental: 0.48,
             collision_w: 0.05,
             arc_w: 0.035,
@@ -300,9 +306,9 @@ pub fn tectonics(g: &Grid, seed: u64, p: &Params) -> Tectonics {
         let nz = at(&base, d, 6.0) as f64;
         if cont[c] {
             // old shields far inside: a slow, patchy rise that makes hills, not ranges
-            v += 0.05 * (1.0 + nz);
+            v += p.shield_uplift * (1.0 + nz);
             // old worn ranges along ancient sutures: the ridges of a low noise
-            v += 0.35 * (1.0 - 4.0 * at(&old, d, 2.2).abs() as f64).max(0.0);
+            v += p.old_range_uplift * (1.0 - 4.0 * at(&old, d, 2.2).abs() as f64).max(0.0);
         }
         for (s, a) in &spots {
             v += a * (-(d.dot(*s).clamp(-1., 1.).acos() * r / (p.arc_w * r * 0.5)).powi(2)).exp();
