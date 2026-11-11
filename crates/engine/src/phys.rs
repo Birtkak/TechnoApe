@@ -26,6 +26,8 @@ const SUBSTEP: f64 = 0.25;
 /// Creative flight (ADR 0023): the fastest a flying player may ask for, m/s.
 pub const FLY_MAX: f64 = 1000.0;
 const CONTACT: f64 = 0.001;
+/// How far a walk lifts over a snag in the floor, metres: far under a block, so a ledge needs a jump.
+const SKIM: f64 = 0.02;
 /// The body's own orientation (ADR 0024): gravity turns its up towards the pull this fast, rad/s, at full G;
 /// with the square of the pull less higher up, so deep space leaves it as it is.
 pub const RIGHT: f64 = 3.0;
@@ -213,9 +215,13 @@ pub fn ledge_ahead(world: &World, p: &Player) -> bool {
     if !p.on_ground || dir.length() < 0.5 {
         return false;
     }
+    // across the body's width: a ledge's corner stops the box though the middle of the way is free
+    let (dir, side) = (dir.normalize(), dir.cross(up).normalize() * (WIDTH * 0.5));
     let solid = |h: f64| {
-        let id = world.block(world.block_at(p.pos + dir.normalize() * (WIDTH * 0.5 + 0.5) + up * h));
-        crate::blocks::BLOCKS.get(id).is_some_and(|d| d.solid)
+        [-1.0, 0.0, 1.0].iter().any(|k| {
+            let id = world.block(world.block_at(p.pos + dir * (WIDTH * 0.5 + 0.5) + side * *k + up * h));
+            crate::blocks::BLOCKS.get(id).is_some_and(|d| d.solid)
+        })
     };
     solid(0.5 * BLOCK) && !solid(1.5 * BLOCK) && !solid(2.5 * BLOCK)
 }
@@ -311,7 +317,16 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
     let mut on_ground = false;
     for _ in 0..n as usize {
         for h in [dr, df] {
-            slide(world, &mut p.pos, h);
+            let was = p.pos;
+            if slide(world, &mut p.pos, h) && p.on_ground && !flying {
+                // the floor itself can be in the way by a hair (up is the pull's, which another body tilts
+                // off the grid's): the same move from SKIM higher, then back down. A ledge still stops it.
+                let mut q = was + up * SKIM;
+                if !blocked(world, q) && !slide(world, &mut q, h) {
+                    slide(world, &mut q, up * -SKIM);
+                    p.pos = q;
+                }
+            }
         }
         if slide(world, &mut p.pos, du) {
             if d.dot(down) > 0.0 {
