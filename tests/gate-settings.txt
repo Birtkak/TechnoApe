@@ -1,0 +1,6 @@
+width=1920
+height=1080
+display=windowed fullscreen
+fov=80
+sensitivity=1
+detail=8
