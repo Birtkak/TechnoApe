@@ -1,6 +1,7 @@
 # The bodies (fundamentals section 2: bodies are data; schema and checks in crates/engine/src/bodies.rs).
 # A row's place is the body's index: on the wire, in saves and in every frame. Never reorder rows.
-# `n`: columns per face edge by default (planet= and moon= on the command line override it; ADR 0021).
+# `n`: columns per face edge by default, each a 1 m block wide (ADR 0033): 6144 is the 4 km planet
+# `n` again: (planet= and moon= on the command line override it; ADR 0021).
 # `generator`: continents (ADR 0021's land and sea) or hills (noise only). `ground`: the top, the band under
 # it and the rock below, by block name. `air`: the sky's colour and the air's thinning (ADR 0022).
 # `orbit`: how far out it circles the first body, in that body's radii, and never nearer than `orbit_min`
@@ -9,7 +10,7 @@
 [[body]]
 name = "Terra"
 words = ["planet", "home", "spawn"]
-n = 12288
+n = 6144
 generator = "continents"
 ground = ["grass", "dirt", "stone"]
 air = true
@@ -17,7 +18,7 @@ air = true
 [[body]]
 name = "Luna"
 words = ["moon"]
-n = 512
+n = 256
 generator = "hills"
 ground = ["regolith", "regolith", "stone"]
 air = false

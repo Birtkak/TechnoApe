@@ -1,6 +1,6 @@
 # 0001 – Planets first: small spherical worlds of 0.5 m blocks
 
-- **Status:** accepted
+- **Status:** accepted (the block is 1 m since ADR 0033; the rest stands)
 - **Date:** 2026-11-08 (proposed), accepted 2026-11-09 with ADR 0002 and 0003
 
 ## Context

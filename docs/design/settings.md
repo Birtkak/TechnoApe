@@ -100,6 +100,9 @@ One row per action, grouped as the play line in CLAUDE.md groups them: moving, d
   by the key's position on the board, so WASD stays under the same fingers on an AZERTY board.
 - Every action the player can do has a row. A test fails when an input in the code has none.
 
+Auto jump (Controls and Accessibility, off): a ledge one block high in the way of a walk is jumped
+(ADR 0033).
+
 ### Sound (with the audio system, the roadmap's last step of the first playable)
 Built with the first cut of sound (ADR 0032): master, world, footsteps, interface, mute in the background,
 sound in space. The other rows arrive with their sounds.

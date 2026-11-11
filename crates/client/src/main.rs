@@ -276,8 +276,8 @@ fn main() {
         return;
     }
     // the world comes from the server: a remote one (connect=host[:port]) or a local one on its own thread
-    // (planet= and moon= are columns per face edge: 12288 is the 4 km planet, the standard; 24576 the 8 km huge
-    // one; 1536 the benchmark's 500 m class)
+    // (planet= and moon= are columns per face edge, 1 m each, ADR 0033: 6144 is the 4 km planet, the standard;
+    // 12288 the 8 km huge one; 768 the benchmark's 500 m class)
     let mut local_server = None;
     let mut tick_log = None;
     let (mut save_path, mut rec_path) = (None, None);
@@ -433,7 +433,7 @@ fn main() {
         rng: 0x9E3779B97F4A7C15,
         edits_done: 0,
         pred: Predictor::default(),
-        tool: Tool { kind: Kind::Box, single: true, height: 8 },
+        tool: Tool { kind: Kind::Box, single: true, height: 4 },
         hammer: false,
         bucket: false,
         aim: None,

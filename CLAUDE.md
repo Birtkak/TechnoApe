@@ -1,6 +1,6 @@
 # CLAUDE.md – TechnoApe
 
-First-person survival and automation game on small spherical planets of 0.5 m blocks, with a seamless climb
+First-person survival and automation game on small spherical planets of 1 m blocks (ADR 0033), with a seamless climb
 to orbit and over to Luna. Our own engine, the Pillars of Simulation Engine, in Rust + wgpu; multiplayer
 from day one (a dedicated Linux server on the home server over Tailscale, singleplayer is a local server). Solo developer; Claude Code does
 most implementation, the developer steers, plays and decides.
@@ -62,7 +62,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - `cargo test` (engine logic), `cargo build --release` (the binary lands in `target/release/technoape.exe`).
 - A run is `technoape.exe key=value ...`, off-screen unless `onscreen=1`. It prints one JSON line (ADR 0004:
   frame times, RAM, VRAM, `budget_ok`, a `spikes` list) and exits:
-  `run=stand|fly|orbit|edit`, `quick=1` (quarter length, a smoke check in seconds), `planet=12288|24576|1536`
+  `run=stand|fly|orbit|edit`, `quick=1` (quarter length, a smoke check in seconds), `planet=6144|12288|768`
   (columns per face edge: the standard 4 km planet, the huge 8 km one, a small one; ADR 0021), `seed=`, `out=file.jsonl`, `connect=host[:7777]` to join a running server
   (`technoape-server listen=0.0.0.0:7777 planet= seed=` prints a JSON line every 5 s).
 - Saves (ADR 0016): `run=play` keeps `saves/seed-<seed>-planet-<n>.sav`, the server `saves/server.sav`; both

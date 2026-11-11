@@ -279,9 +279,9 @@ fn ambient(day: f32) -> vec3f {
 // the light on a surface of body `body` at p (from the camera) with normal n
 const LAMP_R: f32 = 8.0;
 const LAMP_RAYS: u32 = 3u;
-// a shadow ray stops this far from a lamp's middle: past its corners (0.433 m on a 0.5 m block, a little more
+// a shadow ray stops this far from a lamp's middle: past its corners (0.87 m on a 1 m block, a little more
 // where the grid's columns are wider), so the lamp never shadows itself
-const LAMP_STOP: f32 = 0.5;
+const LAMP_STOP: f32 = 1.0;
 const NONE: u32 = 0xffffffffu;
 
 // a lamp's light d2 square metres away: falling off with the square of the distance, to nothing at LAMP_R
@@ -466,7 +466,7 @@ fn hash(p: vec3i) -> f32 {
     return f32(h & 1023u) / 1023.0;
 }
 
-// Block look: 16 texels per 0.5 m block (ADR 0002, prototypes/block-look/).
+// Block look: 16 texels per 1 m block (ADR 0033) (ADR 0002, prototypes/block-look/).
 // shortcut: texels are hashed here instead of read from 16x16 images, until content brings a texture atlas.
 const TEXELS: f32 = 16.0;
 const PLAIN: u32 = 0u;

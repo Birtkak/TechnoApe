@@ -109,7 +109,7 @@ mod tests {
         assert_eq!((BODIES[0].generator, BODIES[0].air, BODIES[0].orbit), (Generator::Continents, true, None));
         assert_eq!((BODIES[1].generator, BODIES[1].air, BODIES[1].orbit), (Generator::Hills, false, Some((2.83, 3000.0))));
         assert_eq!(BODIES[1].ground[0], BLOCKS.id("regolith"));
-        assert_eq!((BODIES[0].n, BODIES[1].n), (12288, 512));
+        assert_eq!((BODIES[0].n, BODIES[1].n), (6144, 256));
         assert_eq!((find("planet"), find("TERRA"), find("moon"), find("luna"), find("sun")), (Some(0), Some(0), Some(1), Some(1), None));
     }
 

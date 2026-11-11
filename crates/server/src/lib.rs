@@ -879,6 +879,9 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
     };
     let (tx, rx) = channel();
     let (mut s, rest) = match evs.get(1) {
+        // (a recording carries no version of its own; one that starts from an older save is from before
+        // 1 m blocks, ADR 0033. shortcut: one that starts from the seed alone is not told apart)
+        Some(Ev::Loaded(save)) if save.version != save::VERSION => return Err(std::io::Error::other("a recording of an older world (0.5 m blocks, ADR 0033)")),
         Some(Ev::Loaded(save)) => (Server::from_save(save.clone(), rx), &evs[2..]),
         _ => (Server::new(*planet_n, *moon_n, *seed, rx), &evs[1..]),
     };

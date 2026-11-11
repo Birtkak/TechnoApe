@@ -1,6 +1,6 @@
 # 0003 – The planet grid is an equi-angular cube-sphere; its seams are part of the world
 
-- **Status:** accepted
+- **Status:** accepted (the block is 1 m and the fine cells 8 to its edge since ADR 0033; the grid stands)
 - **Date:** 2026-11-09 (grid from the sphere grid spike, `prototypes/sphere-grid/README.md`; the seams are
   the developer's call)
 

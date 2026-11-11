@@ -11,7 +11,7 @@ use std::hash::{BuildHasherDefault, Hasher};
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 use std::sync::Arc;
 
-pub const BLOCK: f64 = 0.5;
+pub const BLOCK: f64 = 1.0;
 /// The planet's sea lies this far under its nominal radius (ADR 0020); the continents decide how much of it
 /// is sea (ADR 0021).
 pub const SEA_DEPTH: f64 = 4.0;
@@ -281,9 +281,10 @@ impl Body {
         let b = d.cross(a);
         let mut top: f64 = 0.0;
         for (x, y) in [(0.0, 0.0), (1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7), (-0.7, -0.7)] {
-            top = top.max(self.height((d * self.radius + (a * x + b * y)).normalize()));
+            top = top.max(self.height((d * self.radius + (a * x + b * y) * (1.5 * BLOCK)).normalize()));
         }
-        self.centre + d * (top + 0.6)
+        // (a block's top stands up to half a block over its column's height)
+        self.centre + d * (top + 0.6 + 0.5 * BLOCK)
     }
     /// The radius of the surface over direction d: the ground, or the sea over it.
     pub fn top(&self, d: DVec3) -> f64 {
@@ -491,7 +492,8 @@ static GEN: std::sync::LazyLock<[u8; 3]> =
 pub fn material(depth: f64, ground: &[u8; 3]) -> u8 {
     if depth < 0.0 {
         AIR
-    } else if depth < 0.5 {
+    } else if depth < BLOCK {
+        // the top block, wherever its middle lies under the surface: the mesh draws it so too (`generate`)
         ground[0]
     } else if depth < 4.0 {
         ground[1]
@@ -1159,15 +1161,23 @@ mod tests {
         }
     }
 
+    /// The top block of a column is the body's top material however deep its middle lies, then the band,
+    /// then the rock: what `World::block` says is what the mesh draws.
     #[test]
-    fn blocks_are_cubic_and_half_a_metre_at_the_surface() {
+    fn the_top_block_is_the_top_material() {
+        let g = [1, 2, 3];
+        assert_eq!([-0.1, 0.05, 0.95, 1.05, 3.9, 4.1].map(|d| material(d, &g)), [AIR, 1, 1, 2, 2, 3]);
+    }
+
+    #[test]
+    fn blocks_are_cubic_and_a_metre_at_the_surface() {
         let b = Body::new(DVec3::ZERO, 3072, 1);
         let l = b.layer_of(b.radius);
         let thick = b.layer_r(l + 1.0) - b.layer_r(l);
         assert!((thick - BLOCK).abs() < 1e-3, "layer {thick} m");
         let mid = b.n as f64 * 0.5;
         let wide = (b.dir(2, mid + 1.0, mid) - b.dir(2, mid, mid)).length() * b.radius;
-        assert!(wide > 0.5 && wide < 0.56, "widest column {wide} m");
+        assert!(wide > BLOCK && wide < 1.12 * BLOCK, "widest column {wide} m");
         assert_eq!((b.root_level, b.roots()), (5, 3));
     }
 

@@ -1,4 +1,4 @@
-//! Player movement (ADR 0007, 0024): every body's gravity, the body's own orientation, snappy walking, a jump, one-block step-up, and box collision
+//! Player movement (ADR 0007, 0024): every body's gravity, the body's own orientation, snappy walking, a jump (a ledge one block high needs it, ADR 0033), and box collision
 //! against the blocks. The server runs it per tick from each player's `Input`; the client runs the same code
 //! per frame for its own player, takes the same numbered steps, and replays from the server's state (ADR 0019).
 //!
@@ -205,10 +205,19 @@ fn slide(world: &World, pos: &mut DVec3, d: DVec3) -> bool {
     true
 }
 
-/// One layer's thickness at `pos`, a little over: the step-up climbs exactly one block, wherever it is.
-fn one_layer(world: &World, pos: DVec3) -> f64 {
-    let b = &world.bodies[world.nearest(pos)];
-    (pos - b.centre).length() * (b.lnq.exp() - 1.0) * 1.01
+/// Auto jump (the settings, ADR 0033): a walking player has a ledge one block high in the way, with room
+/// on top of it. The client turns this into a jump; the server sees an ordinary jump.
+pub fn ledge_ahead(world: &World, p: &Player) -> bool {
+    let up = up(world, p.pos);
+    let dir = p.vel.reject_from(up);
+    if !p.on_ground || dir.length() < 0.5 {
+        return false;
+    }
+    let solid = |h: f64| {
+        let id = world.block(world.block_at(p.pos + dir.normalize() * (WIDTH * 0.5 + 0.5) + up * h));
+        crate::blocks::BLOCKS.get(id).is_some_and(|d| d.solid)
+    };
+    solid(0.5 * BLOCK) && !solid(1.5 * BLOCK) && !solid(2.5 * BLOCK)
 }
 
 /// An input any side may step with: finite numbers only.
@@ -299,19 +308,10 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
     let n = (total.length() / SUBSTEP).ceil().max(1.0);
     let d = total / n;
     let (dr, df, du) = (right * d.dot(right), fwd * d.dot(fwd), up * d.dot(up));
-    let rise = one_layer(world, p.pos);
     let mut on_ground = false;
     for _ in 0..n as usize {
         for h in [dr, df] {
-            let was = p.pos;
-            if slide(world, &mut p.pos, h) && p.on_ground && !flying {
-                // step-up: one block up, the same move, then back down onto the step
-                let mut q = was + up * rise;
-                if !blocked(world, q) && !slide(world, &mut q, h) {
-                    slide(world, &mut q, up * -rise);
-                    p.pos = q;
-                }
-            }
+            slide(world, &mut p.pos, h);
         }
         if slide(world, &mut p.pos, du) {
             if d.dot(down) > 0.0 {
@@ -501,7 +501,8 @@ mod tests {
         let sea = b.radius - crate::world::SEA_DEPTH;
         let mut p = Player::at(d * (sea - 1.0), DVec3::X);
         run(&w, &mut p, &Input::default(), 10.0);
-        let under = sea - p.pos.length();
+        // (the sea's top sits in a layer, up to a block from its nominal depth)
+        let under = w.water_surface(p.pos).expect("in the water") - p.pos.length();
         assert!(!p.on_ground && under > 1.0 && under < 1.6, "feet {under} m under the surface");
         let mut q = Player::at(d * (sea - 3.5), DVec3::X);
         step(&w, &mut q, &Input { jump: true, ..Default::default() }, 0.5);
@@ -526,6 +527,45 @@ mod tests {
         assert!(p.on_ground && (p.pos - floor).length() < 0.01);
     }
 
+    /// A ledge one block high stops a walk; a jump clears it (ADR 0033: no step-up on 1 m blocks).
+    #[test]
+    fn a_block_high_ledge_needs_a_jump() {
+        let mut w = world();
+        let b0 = w.block_at(ground(&w) - up(&w, ground(&w)) * 0.5);
+        let at = |dx: i32, dy: i32, dz: i32| Block { pos: b0.pos + glam::IVec3::new(dx, dy, dz), ..b0 };
+        // a floor, clear above, and a wall one block high across it three blocks ahead
+        for dx in -3..=7 {
+            for dy in -3..=3 {
+                w.set_block(at(dx, dy, 0), 3);
+                for dz in 1..=5 {
+                    w.set_block(at(dx, dy, dz), if dz == 1 && dx == 3 { 3 } else { 0 });
+                }
+            }
+        }
+        let start = w.block_centre(b0);
+        let u = up(&w, start);
+        let dir = (w.block_centre(at(1, 0, 0)) - start).reject_from(u).normalize();
+        let f = dir.as_vec3().to_array();
+        let mut p = Player::at(start + u * 0.6, dir);
+        run(&w, &mut p, &Input { fwd: f, ..Default::default() }, 1.0);
+        let walk = Input { mv: [1.0, 0.0], fwd: f, ..Default::default() };
+        run(&w, &mut p, &walk, 3.0);
+        let along = |p: &Player| (p.pos - start).dot(dir);
+        assert!(p.on_ground && along(&p) > 1.5 && along(&p) < 2.5, "the ledge stops the walk, at {} m", along(&p));
+        // auto jump (the settings): the ledge in the way is seen and jumped, flat ground is not
+        let mut q = p.clone();
+        assert!(ledge_ahead(&w, &q), "the ledge is seen");
+        let mut hops = 0;
+        for _ in 0..40 {
+            let jump = ledge_ahead(&w, &q);
+            hops += (jump && q.on_ground) as i32;
+            step(&w, &mut q, &Input { jump, ..walk }, 0.05);
+        }
+        assert!(along(&q) > 4.0 && hops <= 2, "auto jump clears it: {} m along, {hops} hops", along(&q));
+        run(&w, &mut p, &Input { jump: true, ..walk }, 1.0);
+        assert!(along(&p) > 4.0, "a jump clears it: {} m along", along(&p));
+    }
+
     #[test]
     fn walks_over_hills_without_sinking() {
         let w = world();
@@ -539,7 +579,8 @@ mod tests {
         }
         let up = up(&w, p.pos);
         let moved = (p.pos - start).reject_from(up).length();
-        assert!(moved > 20.0, "walked {moved} m in 10 s");
+        // (every ledge of these steep hills is a jump now, ADR 0033)
+        assert!(moved > 10.0, "walked {moved} m in 10 s");
         // fwd is tangent where the step began; one step on this 88 m test planet tilts up by ~0.002
         assert!((p.fwd.dot(up)).abs() < 1e-2 && (p.fwd.length() - 1.0).abs() < 1e-9);
     }

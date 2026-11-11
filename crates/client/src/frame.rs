@@ -94,7 +94,8 @@ impl App {
             let auto = a.get("autowalk", 0) == 1;
             let mut inp = Input {
                 mv: [if auto { 1.0 } else { k(Act::Forward) - k(Act::Back) }, k(Act::Right) - k(Act::Left)],
-                jump: auto || self.settings.held(&self.keys, Act::Jump),
+                // (auto jump, the settings: a ledge one block high in the way of the walk is jumped)
+                jump: auto || self.settings.held(&self.keys, Act::Jump) || (self.settings.on(S::AutoJump) && !self.flying && phys::ledge_ahead(&self.world, &self.me)),
                 pitch: self.pitch as f32,
                 fly: if self.flying { self.fly_speed as f32 } else { 0.0 },
                 down: self.flying && self.settings.held(&self.keys, Act::Down),

@@ -113,7 +113,7 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
 ## The shared benchmark
 The engine keeps the spikes' benchmark as its performance check, so numbers stay comparable over time.
 
-- **World:** one planet, radius 500 m, 0.5 m blocks, seeded noise terrain (+-30 m), 3 materials, crust 64 m
+- **World:** one planet, radius 500 m, 1 m blocks (ADR 0033; 0.5 m until then), seeded noise terrain (+-30 m), 3 materials, crust 64 m
   thick (the core below is never meshed). Moon: radius 150 m, 3 km away, same rules.
 - **Runs** (uncapped, vsync off, 1920x1080, reference machine), at half length since 2026-11-10 so a series
   takes minutes, not half an hour (`length=0.5`, 5 s warm-up; rows before that date are full length):

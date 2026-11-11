@@ -64,6 +64,7 @@ settings! {
     ZoomSens "zoom_sensitivity" "Zoomed sensitivity" Kind::Slider { lo: 0.25, hi: 3.0, step: 0.05, max: 3.0, unit: Unit::Times }, 1.0;
     InvertY "invert_look" "Invert look up and down" Kind::Choice(OFF_ON), 0.0;
     ZoomMode "zoom_mode" "Zoom" Kind::Choice(&["hold", "press once"]), 0.0;
+    AutoJump "auto_jump" "Auto jump" Kind::Choice(OFF_ON), 0.0;
     FlyTap "fly_tap" "Double tap to fly" Kind::Slider { lo: 0.15, hi: 0.6, step: 0.05, max: 0.6, unit: Unit::Secs }, 0.3;
     UiScale "interface_scale" "Interface scale" Kind::Steps { list: &[0.75, 1.0, 1.25, 1.5, 2.0], lo: 0.5, hi: 3.0 }, 1.0;
     Contrast "high_contrast" "High contrast interface" Kind::Choice(OFF_ON), 0.0;
@@ -213,10 +214,10 @@ pub fn page_rows(page: usize) -> Vec<Row> {
     match page {
         0 => vec![Row::Resolution, Set(S::Monitor), Set(S::Display), Set(S::FrameCap), Set(S::BackCap), Set(S::Vsync), Set(S::Fov), Set(S::Brightness)],
         1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Textures), Set(S::Stars)],
-        2 => vec![Set(S::Sensitivity), Set(S::ZoomSens), Set(S::InvertY), Set(S::ZoomMode), Set(S::FlyTap)],
+        2 => vec![Set(S::Sensitivity), Set(S::ZoomSens), Set(S::InvertY), Set(S::ZoomMode), Set(S::AutoJump), Set(S::FlyTap)],
         3 => ALL_ACTS.iter().map(|a| Row::Key(*a)).chain([Row::KeyDefaults]).collect(),
         4 => vec![Set(S::Volume), Set(S::VolWorld), Set(S::VolSteps), Set(S::VolUi), Set(S::MuteBack), Set(S::SpaceSound)],
-        _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::ZoomMode), Set(S::Textures), Set(S::Brightness)],
+        _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::ZoomMode), Set(S::AutoJump), Set(S::Textures), Set(S::Brightness)],
     }
 }
 
