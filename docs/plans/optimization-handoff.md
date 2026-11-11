@@ -166,21 +166,30 @@ Only if A shows the TLAS build (GPU plus `rt.record` on the CPU) over about 0.15
 
 ## The target: `stand` at 800 fps or more (the developer, 2026-11-10)
 
-That is a frame of 1.25 ms at 1080p on the 4 km planet, against 3.9 ms now. Rough arithmetic from ADR
-0022's stage costs (estimates until package A measures them):
+That is a frame of 1.25 ms at 1080p on the 4 km planet. Measured after packages A to I2 (2026-11-11,
+`stand quick=1`, p50, three runs): the frame is 2.03-2.17 ms (about 470 fps), against 3.6 ms before the
+pass.
 
-| stage | now ms | after B and C | needed for 1.25 |
-|---|---|---|---|
-| outside the timed passes (TLAS, CPU, present) | 1.0 | 0.2 | 0.15 |
-| G-buffer and composite | 0.65 | 0.65 | 0.35 |
-| direct light's rays in `fs` | 0.8 | 0.8 | 0.45 |
-| bounce rays | 0.12 | 0.12 | 0.1 |
-| history and smoothing | 1.3 | 0.35 | 0.2 |
-| **frame** | **3.9** | **about 2.1 (470 fps)** | **1.25** |
+| stage | before the pass | now | budget for 1.25 | how |
+|---|---|---|---|---|
+| TLAS and BLAS (`rt`) | 0.19 | 0.00 | 0.00 | done (B) |
+| G-buffer: raster, sun, lamp and reflection rays | 1.36 | 0.78 | 0.45 | J: thinner G-buffer, the eclipse terms off the pixel; D step 2 if overdraw shows |
+| bounce rays (`trace`) | 0.14 | 0.18 | 0.15 | as is |
+| history and smoothing (`temporal` + `atrous`) | 1.24 | 0.52 | 0.30 | J: fold `temporal` into the first pass, two passes |
+| composite (`screen`) | 0.15 | 0.19 | 0.15 | reads a thinner G-buffer |
+| GPU idle between frames (`gap`) | 0.51 | 0.46 | 0.05 | a second frame in flight (see below) |
+| margin | | | 0.15 | |
+| **frame** | **3.6** | **about 2.1** | **1.25** | |
 
-So B and C get about halfway; the rest needs package J. Right after A, replace this table with the
-measured stages and a budget per stage that sums to 1.25 ms, and tell the developer whether it is in reach
-without changing the look.
+Is it in reach without changing the look? On paper, yes, but only just, and only with two items that
+have not been tried:
+- The idle gap. It survived B (the CPU now hands the GPU its commands 0.8 ms sooner), so it is not late
+  recording. The likeliest fix is letting the next frame's work queue while the present's copy runs.
+  That does not change the picture; it adds a frame of latency, which is the developer's call.
+- The G-buffer at 0.45. J's items, measured one at a time.
+
+Nothing in the table needs a look change. If both items fall short, the half-resolution sun shadow (J's
+taste call) is the reserve.
 
 ### J. The last 0.9 ms (after B, C and D, in this order, each measured)
 - **A thinner G-buffer.** 28 bytes a pixel now. The distance comes from the depth buffer (reverse-Z
