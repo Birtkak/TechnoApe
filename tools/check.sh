@@ -6,15 +6,27 @@
 # Usage: bash tools/check.sh [soak_minutes]   (default 3; about 4 min in all after a build, most of it the soak
 # and its replay, which run beside the tests and the viewpoints)
 #        bash tools/check.sh fast            the same checks cut short for use after every change: a 1 minute
-#        soak, the stand and fly benchmarks only. The full gate stays what a handover needs.
+#        soak, the stand, fly and sim benchmarks only. The full gate stays what a handover needs.
+#        bash tools/check.sh accept-perf     three quick runs of each benchmark run, their medians written to
+#        tests/perf/baseline.json: for a change that is slower (or faster) on purpose; its commit says why.
+# Every benchmark run is held to its baseline too (tools/perf.py, ADR 0025 K): a run worse than its tolerance
+# is run twice more and judged on the median of the three.
 # The verdict's "seconds" says where the time went.
 cd "$(dirname "$0")/.."
 export PATH="$HOME/Tools/rust/cargo/bin:$PATH" CARGO_HOME="${CARGO_HOME:-$HOME/Tools/rust/cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/Tools/rust/rustup}"
 mkdir -p out/check
 [ -d out/.lock ] && { echo '{"ok":false,"error":"a benchmark is running (out/.lock)"}'; exit 1; }
 FAST=; [ "$1" = fast ] && { FAST=1; shift; }
+ALL="stand fly orbit edit sim"
+if [ "$1" = accept-perf ]; then
+  cargo build --release >out/check/build.log 2>&1 || { echo "release build failed: out/check/build.log" >&2; exit 1; }
+  for i in 1 2 3; do for r in $ALL; do
+    printf '%s\t%s\n' $r "$(timeout 170 target/release/technoape.exe run=$r quick=1 2>/dev/null | tail -1)"
+  done; done | python -I tools/perf.py accept
+  exit $?
+fi
 MIN=${1:-$([ $FAST ] && echo 1 || echo 3)}
-RUNS=$([ $FAST ] && echo "stand fly" || echo "stand fly orbit edit")
+RUNS=$([ $FAST ] && echo "stand fly sim" || echo "$ALL")
 SECONDS=0
 SEED=$(( $(date +%s) % 100000 ))
 fails=()
@@ -51,6 +63,11 @@ for r in $RUNS; do
   bench+=("$line")
   echo "$line" | python -I -c "import json,sys; d=json.loads(sys.stdin.read()); sys.exit(0 if d['budget_ok'] and (d['run']!='fly' or d['missing_chunks_max']==0) else 1)" 2>/dev/null \
     || fails+=("bench $r: budget or streaming failed (repro: technoape.exe run=$r quick=1)")
+  if ! echo "$line" | python -I tools/perf.py check $r >/dev/null; then
+    more=$(for i in 1 2; do timeout 170 target/release/technoape.exe run=$r quick=1 2>/dev/null | tail -1; done)
+    msg=$(printf '%s\n%s\n' "$line" "$more" | python -I tools/perf.py check $r) \
+      || fails+=("perf $r: $msg, the median of three quick runs against tests/perf/baseline.json (repro: technoape.exe run=$r quick=1; slower on purpose: bash tools/check.sh accept-perf)")
+  fi
 done
 t_bench=$SECONDS
 
@@ -77,7 +94,7 @@ def js(s):
 b = {}
 for l in bench:
     d = js(l)
-    if isinstance(d, dict): b[d['run']] = {k: d[k] for k in ('budget_ok', 'fps_avg', 'frame_p99_ms', 'frame_max_ms', 'missing_chunks_max')}
+    if isinstance(d, dict): b[d['run']] = {k: d[k] for k in ('budget_ok', 'fps_avg', 'frame_p50_ms', 'frame_p99_ms', 'frame_max_ms', 'missing_chunks_max')}
 r = js(replay)
 v, f = js(views), js(feel)
 print(json.dumps({'ok': not fails, 'fast': '$FAST' == '1', 'seconds': js(times), 'tests': tests, 'soak': js(soak), 'replay': {k: r[k] for k in ('ticks', 'checks', 'diverged', 'hash')} if isinstance(r, dict) and 'checks' in r else r, 'bench': b,

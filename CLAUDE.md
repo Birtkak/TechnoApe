@@ -97,8 +97,11 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - **The gate:** `bash tools/check.sh` (about 4.5 min, 5.5 after a release build; the soak and its replay run beside the tests and the fixed viewpoints: tests, a soak, its replay, the quick benchmark, the fixed
   viewpoints and a played run's feel report, ADR 0018) prints
   one JSON verdict; it is what "done" means (ADR 0011). **After every change: `bash tools/check.sh fast`**
-  (80 s after a build: a 1 minute soak, `stand` and `fly` only; the verdict's `seconds` says where the time
-  went); the full gate is for handovers. Soak alone: `technoape-server soak=1 bots=50 minutes=10
+  (95 s after a build: a 1 minute soak, `stand`, `fly` and `sim` only; the verdict's `seconds` says where the
+  time went); the full gate is for handovers. Both tiers hold every benchmark run to `tests/perf/baseline.json`
+  (`tools/perf.py`, ADR 0025 K: the frame thread's own work, the GPU stages, job time, VRAM, sim's tick); a
+  change slower on purpose runs `bash tools/check.sh accept-perf` and its commit says why. Hold `out/.lock`
+  (`mkdir`, `rmdir` after) around runs whose numbers you keep while another session shares the PC. Soak alone: `technoape-server soak=1 bots=50 minutes=10
   seed=1` (a failure prints its repro line and writes `out/soak-fail.rec`). Sessions record to `out/rec/`;
   `technoape-server replay=file until=tick` replays one headless and dumps the players.
 - Viewpoints: `bash tools/views.sh` renders `tests/views/views.txt` and compares by number (cracks, pixels);
