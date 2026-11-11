@@ -878,7 +878,9 @@ struct App {
     /// next frame's time, outside its timed phases, so a spike reports them.
     tail_prev: f64,
     frame_end: Option<Instant>,
-    last_move: f64,
+    /// When the last steps went to the server: by the wall clock, since the player moves (from its spawn) before
+    /// the world has loaded, and a second's steps held back past the server's queue were lost (a correction).
+    last_move: Instant,
     edits_applied: u64,
     players: usize,
     streamer: Streamer,
@@ -2103,7 +2105,7 @@ impl App {
                 }
             }
         }
-        if t - self.last_move >= 1.0 / TICK_HZ {
+        if (now - self.last_move).as_secs_f64() >= 1.0 / TICK_HZ {
             if self.run == "play" {
                 let inputs: Vec<Input> = self.steps.iter().filter(|s| s.0 >= self.unsent).map(|s| s.1).collect();
                 if !inputs.is_empty() {
@@ -2114,7 +2116,7 @@ impl App {
                 // the benchmark runs fly: the camera position is sent as the player's position
                 self.link.send(ToServer::Move { pos: p.pos.to_array(), fwd: p.fwd.as_vec3().to_array(), pitch: 0.0 });
             }
-            self.last_move = t;
+            self.last_move = now;
         }
         lap!("msgs");
 
@@ -3270,7 +3272,7 @@ fn main() {
         snaps: 0,
         tail_prev: 0.0,
         frame_end: None,
-        last_move: 0.0,
+        last_move: Instant::now(),
         edits_applied: 0,
         players: 0,
         streamer,
