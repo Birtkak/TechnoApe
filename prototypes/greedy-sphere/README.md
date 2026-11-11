@@ -1,5 +1,8 @@
 # Greedy quads on the sphere (ADR 0025, package I)
 
+**Adopted (2026-11-11) as ADR 0025's I2:** the developer chose the lattice. In the engine it is capped by level
+(`Body::lattice`: 8 cells, halved where the sag would pass half a pixel), and merging is on by default.
+
 **Question.** The mesher can already merge faces (`greedy=1`), but it is off by default. A merged quad's edge
 is a straight chord. The small quads beside it follow the sphere through every grid point, so the fear was
 cracks (ADR 0018 counted 406 crack pixels with `greedy=1`).

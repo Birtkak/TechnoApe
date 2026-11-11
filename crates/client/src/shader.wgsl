@@ -93,6 +93,27 @@ fn grid(c: Chunk, local: vec3f) -> vec3f {
     return vec3f(c.base) + local * f32(1u << ((c.info >> 3u) & 31u));
 }
 
+// where a point of chunk c (in its cells) is drawn, from the body's centre: trilinear between the exact grid
+// points on the chunk's lattice (`Body::lattice`, 1 << info bits 16-17 cells), so a merged quad's edge, inside
+// one lattice cell, passes through its neighbours' corners (ADR 0025 I2). `at` is the quad's own corner, which
+// picks the cell.
+fn place(c: Chunk, b: Body, local: vec3f, at: vec3f) -> vec3f {
+    let s = f32(1u << ((c.info >> 3u) & 31u));
+    let n = f32(1u << ((c.info >> 16u) & 3u));
+    let l0 = floor(at / n) * n;
+    let t = (local - l0) / n;
+    let g0 = vec3f(c.base) + l0 * s;
+    let st = n * s;
+    // the four columns' directions from one frame: the cube's axes are shared, only the tangents differ
+    let f = frame_at(c.info & 7u, b, g0.x, g0.y);
+    let ta1 = tan((g0.x + st - b.half_n) * b.theta);
+    let tb1 = tan((g0.y + st - b.half_n) * b.theta);
+    let u0 = mix(f.up, normalize(f.n + f.s * ta1 + f.t * f.tb), t.x);
+    let u1 = mix(normalize(f.n + f.s * f.ta + f.t * tb1), normalize(f.n + f.s * ta1 + f.t * tb1), t.x);
+    let r = mix(b.r0 * exp(g0.z * b.lnq), b.r0 * exp((g0.z + st) * b.lnq), t.z);
+    return mix(u0, u1, t.y) * r;
+}
+
 @vertex
 fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
     let q = quads[vi / 6u];
@@ -108,7 +129,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     if ((dir & 1u) == 1u) { ku = cv[k]; kv = cu[k]; }
     let occl = (q.y >> (8u + 2u * (ku + 2u * kv))) & 3u;
     let c = chunks[ii];
-    let b = g.bodies[c.info >> 8u];
+    let b = g.bodies[(c.info >> 8u) & 255u];
     let gp = grid(c, local);
     let f = frame_at(c.info & 7u, b, gp.x, gp.y);
     let r = b.r0 * exp(gp.z * b.lnq);
@@ -119,7 +140,8 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     if ((dir & 1u) == 1u) { normal = -normal; }
 
     var o: VOut;
-    let rel = brot(b, (f.up * r - b.cam_hi) - b.cam_lo);
+    let at = quad_corner(q, 0u, 0.0);
+    let rel = brot(b, (place(c, b, local, at) - b.cam_hi) - b.cam_lo);
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
     o.ao = 1.0 - 0.2 * f32(occl);
@@ -145,10 +167,10 @@ fn expand(@builtin(global_invocation_id) id: vec3u) {
     if (id.x >= bd.n) { return; }
     let q = quads[bd.off + id.x];
     let c = Chunk(bd.base, bd.info, bd.off);
-    let b = g.bodies[c.info >> 8u];
+    let b = g.bodies[(c.info >> 8u) & 255u];
     for (var k = 0u; k < 6u; k++) {
-        let gp = grid(c, quad_corner(q, k, GROW));
-        let p = frame_at(c.info & 7u, b, gp.x, gp.y).up * (b.r0 * exp(gp.z * b.lnq));
+        let at = quad_corner(q, 0u, 0.0);
+        let p = place(c, b, quad_corner(q, k, GROW), at);
         let o = (bd.dst + id.x * 6u + k) * 3u;
         verts[o] = p.x;
         verts[o + 1u] = p.y;
@@ -375,7 +397,7 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> ve
     let q = quads[c.off + h.primitive_index / 2u];
     let dir = (q.x >> 28u) & 7u;
     let a = dir / 2u;
-    let b = g.bodies[c.info >> 8u];
+    let b = g.bodies[(c.info >> 8u) & 255u];
     let gp = grid(c, quad_corner(q, 0u, 0.0));
     let f = frame_at(c.info & 7u, b, gp.x, gp.y);
     var hn = f.up;
@@ -473,7 +495,7 @@ fn fs(i: VOut) -> GOut {
     let col = texel(i.mat, i.dir, cell, t, f.z);
     let look = looks[i.mat & 255u];
     let n = normalize(i.normal);
-    let body = c.info >> 8u;
+    let body = (c.info >> 8u) & 255u;
     var o: GOut;
     o.gbuf = vec4f(n, length(i.rel));
     if ((look.info >> 24u) == 1u) {
@@ -588,7 +610,7 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) ->
     var cv = array<f32, 6>(0., 0., 1., 0., 1., 1.);
     let c = chunks[ii];
     let level = (c.info >> 3u) & 31u;
-    let b = g.bodies[c.info >> 8u];
+    let b = g.bodies[(c.info >> 8u) & 255u];
     let at = (sub + vec2f(cu[k], cv[k])) / f32(SEA_SUB);
     let gp = vec2f(c.base.xy) + (p + at * vec2f(w, h)) * f32(1u << level);
     let f = frame_at(c.info & 7u, b, gp.x, gp.y);
@@ -598,7 +620,7 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) ->
     if (q.y == 1u) {
         layer = max(layer, f32(c.base.z + (i32((lo >> 12u) & 63u) << level)) + 1.0);
     }
-    return wout(c.info >> 8u, f.up, layer, f.up, 0u);
+    return wout((c.info >> 8u) & 255u, f.up, layer, f.up, 0u);
 }
 
 @vertex

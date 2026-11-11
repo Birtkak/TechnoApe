@@ -493,7 +493,7 @@ impl Streamer {
                 let body = &bodies[k.body as usize];
                 let gen = generate(body, k, &edits);
                 let mut mesh = match &gen {
-                    Gen::Cells(c) => Some(mesh(c, greedy)).filter(|m| !m.quads.is_empty()),
+                    Gen::Cells(c) => Some(mesh(c, if greedy { body.lattice(k.level) as usize } else { 1 })).filter(|m| !m.quads.is_empty()),
                     _ => None,
                 };
                 let sea = sea_quads(body, k, &wet, &gen);

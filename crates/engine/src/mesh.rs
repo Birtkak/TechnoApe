@@ -12,7 +12,9 @@ pub struct Mesh {
     pub water: u32,
 }
 
-pub fn mesh(cells: &[u8; P * P * P], greedy: bool) -> Mesh {
+/// `lattice` > 1 merges faces into quads that stay inside the cells of a lattice that many cells wide, where the
+/// renderer places vertices by interpolation (`Body::lattice`, ADR 0025 I2); 1 merges nothing.
+pub fn mesh(cells: &[u8; P * P * P], lattice: usize) -> Mesh {
     // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3.
     let mut cols = [[0u64; P * P]; 3];
     for z in 0..P {
@@ -88,15 +90,16 @@ pub fn mesh(cells: &[u8; P * P * P], greedy: bool) -> Mesh {
                         // a merged quad has one occlusion per corner: only open faces merge
                         let open = |u: usize, v: usize| ao(u, v, d) == 0;
                         let mut w = 1;
-                        if greedy && o == 0 {
-                            while u + w < 32 && rows[v] >> (u + w) & 1 == 1 && mat(u + w, v, d) == m && open(u + w, v) {
+                        if lattice > 1 && o == 0 {
+                            // never across a lattice line
+                            while u + w < 32 && (u + w) % lattice != 0 && rows[v] >> (u + w) & 1 == 1 && mat(u + w, v, d) == m && open(u + w, v) {
                                 w += 1;
                             }
                         }
                         let mask = (((1u64 << w) - 1) << u) as u32;
                         let mut h = 1;
-                        if greedy && o == 0 {
-                            while v + h < 32 && rows[v + h] & mask == mask && (u..u + w).all(|i| mat(i, v + h, d) == m && open(i, v + h)) {
+                        if lattice > 1 && o == 0 {
+                            while v + h < 32 && (v + h) % lattice != 0 && rows[v + h] & mask == mask && (u..u + w).all(|i| mat(i, v + h, d) == m && open(i, v + h)) {
                                 h += 1;
                             }
                         }
@@ -134,7 +137,7 @@ mod tests {
     fn single_cell_has_six_faces_and_slab_merges() {
         let mut c = Box::new([0u8; P * P * P]);
         c[pidx(5, 5, 5)] = 3;
-        let m = mesh(&c, true);
+        let m = mesh(&c, 8);
         assert_eq!(m.counts, [1; 6]);
         let mut c = Box::new([0u8; P * P * P]);
         for z in 1..33 {
@@ -142,9 +145,9 @@ mod tests {
                 c[pidx(x, 1, z)] = 1;
             }
         }
-        let m = mesh(&c, true);
-        assert_eq!(m.counts[2], 1); // whole top merged into one 32x32 quad
-        let m = mesh(&c, false);
+        let m = mesh(&c, 8);
+        assert_eq!(m.counts[2], 16); // the top merged into 8x8 quads, one per lattice cell
+        let m = mesh(&c, 1);
         assert_eq!(m.counts[2], 1024);
     }
 
@@ -158,7 +161,7 @@ mod tests {
             }
             c[pidx(6, 2, z)] = 1;
         }
-        let m = mesh(&c, false);
+        let m = mesh(&c, 1);
         let top = |x: u32, z: u32| m.quads.iter().find(|q| (q[0] >> 28) & 7 == 2 && q[0] & 63 == x && (q[0] >> 12) & 63 == z).unwrap()[1];
         // a=y: u = z, v = x; corners with v = 1 (x + 1) touch the wall
         let ao = top(4, 10) >> 8;

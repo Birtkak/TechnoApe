@@ -293,6 +293,20 @@ impl Body {
     pub fn layer_r(&self, l: f64) -> f64 {
         self.r0 * (l * self.lnq).exp()
     }
+    /// The lattice, in cells, that a chunk of `level` merges its quads inside and the renderer places its vertices
+    /// on (ADR 0025 I2): 8, halved while a lattice cell's sag off the sphere, (n cell)^2 / 8R, would pass half a
+    /// pixel (1.1 mrad at 1080p) at the nearest distance that level is drawn from at the lowest detail, 2 chunk
+    /// edges. A function of the body and level alone, so a mesh and its draw always agree.
+    pub fn lattice(&self, level: u8) -> u32 {
+        let cell = self.radius * std::f64::consts::FRAC_PI_2 / self.n as f64 * (1u64 << level) as f64;
+        let near = 2.0 * CS as f64 * cell;
+        let mut n = 8;
+        while n > 1 && (n as f64 * cell).powi(2) / (8.0 * self.radius) > 0.5 * 1.1e-3 * near {
+            n /= 2;
+        }
+        n
+    }
+
     pub fn layer_of(&self, r: f64) -> f64 {
         (r / self.r0).ln() / self.lnq
     }
@@ -1075,7 +1089,7 @@ mod tests {
         let hz = b.layer_of(b.height(b.dir(2, (mid * CS + CS / 2) as f64, (mid * CS + CS / 2) as f64))) as i32;
         let k = Key { body: 0, face: 2, level: 0, pos: IVec3::new(mid, mid, hz.div_euclid(CS)) };
         let Gen::Cells(c) = generate(&b, k, &[]) else { panic!("surface chunk has cells") };
-        let m = crate::mesh::mesh(&c, false);
+        let m = crate::mesh::mesh(&c, 1);
         // every -x face sits at cell x = 0 of a column whose surface is inside the chunk; with +-30 m
         // terrain most of the 32 border columns qualify, and without skirts there would be none
         let west = m.quads.iter().filter(|q| (q[0] >> 28) & 7 == 1 && q[0] & 63 == 0).count();
@@ -1337,5 +1351,21 @@ mod frame_tests {
         assert!(w.reframe(&mut pos, &mut vel).is_some());
         let orbit = std::f64::consts::TAU * w.sky.moon_orbit * (1.0 / crate::sky::MONTH + 1.0 / crate::sky::YEAR);
         assert!((vel - pv).length() > 0.8 * orbit, "{} against the orbit's {orbit}", (vel - pv).length());
+    }
+}
+
+#[cfg(test)]
+mod lattice_tests {
+    use super::*;
+    // 8 cells near the ground, never growing with the level, a power of two that divides a chunk
+    #[test]
+    fn the_lattice_shrinks_with_the_level() {
+        for n in [1536, 12288, 24576] {
+            let b = Body::new(DVec3::ZERO, n, 1);
+            assert_eq!(b.lattice(0), 8, "planet {n}");
+            let l: Vec<u32> = (0..=12).map(|lv| b.lattice(lv)).collect();
+            assert!(l.windows(2).all(|w| w[1] <= w[0]) && l.iter().all(|x| x.is_power_of_two() && CS as u32 % x == 0), "{l:?}");
+            assert!(l[12] < 8, "planet {n}: {l:?}");
+        }
     }
 }

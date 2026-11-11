@@ -75,7 +75,7 @@ pub fn vram_mb() -> f64 {
 pub fn meshbench(args: &HashMap<String, String>) {
     let num = |k: &str, d: i32| args.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
     let world = World::new(num("planet", 12288), 512, 1337);
-    let greedy = num("greedy", 0) == 1;
+    let greedy = num("greedy", 1) == 1;
     let radius = num("chunks", 6);
     let b = &world.bodies[0];
     // the middle of the +y face, through the terrain's height range
@@ -94,7 +94,7 @@ pub fn meshbench(args: &HashMap<String, String>) {
         let g = generate(b, *k, &[]);
         let t1 = Instant::now();
         let (q, kind) = match g {
-            Gen::Cells(c) => (mesh(&c, greedy).quads.len(), 2),
+            Gen::Cells(c) => (mesh(&c, if greedy { b.lattice(0) as usize } else { 1 }).quads.len(), 2),
             Gen::Empty => (0, 0),
             Gen::Solid => (0, 1),
         };

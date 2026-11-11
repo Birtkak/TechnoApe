@@ -2239,7 +2239,9 @@ impl App {
         let frame_no = self.streamer.frame;
         for d in draws.iter().take(MAX_CHUNKS) {
             let k = d.key;
-            let info = k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8;
+            // the lattice its quads were merged in (ADR 0025 I2), as log2 at bit 16
+            let lat = if self.streamer.opts.greedy { self.world.bodies[k.body as usize].lattice(k.level) } else { 1 };
+            let info = k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8 | lat.trailing_zeros() << 16;
             let (ci, new) = self.slots.get(d.off, frame_no);
             assert!((ci as usize) < MAX_CHUNKS, "chunk table full");
             if new {
@@ -3225,9 +3227,8 @@ fn main() {
     SIZE.store((settings.width as u64) << 32 | settings.height as u64, Ordering::Relaxed);
     let opts = Opts {
         k: args.get("k", settings.detail),
-        // shortcut: no greedy merging, a merged quad is a chord across the curved grid and leaves cracks;
-        // merge inside a lattice with interpolated corners when quad counts matter
-        greedy: args.get("greedy", 0) == 1,
+        // merging inside a lattice with interpolated corners (ADR 0025 I2); greedy=0 draws every face
+        greedy: args.get("greedy", 1) == 1,
         horizon: args.get("horizon", 1) == 1,
         prefetch_s: args.get("prefetch", 0.5),
         max_inflight: args.get("inflight", threads * 4),
