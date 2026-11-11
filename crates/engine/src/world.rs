@@ -656,12 +656,14 @@ impl World {
     /// sphere of influence, so gravity stays the same across the hand-over between frames.
     pub fn gravity(&self, p: DVec3) -> DVec3 {
         let f = self.frame_at(p);
-        let centre = |i: usize| if i == f { self.nominal(f) } else { self.from_inertial(f, self.pose(i, self.time).centre) };
+        let mut centre = [DVec3::ZERO; 4];
+        for (i, c) in centre.iter_mut().enumerate().take(self.bodies.len()) {
+            *c = if i == f { self.nominal(f) } else { self.from_inertial(f, self.pose(i, self.time).centre) };
+        }
         let pull_at = |x: DVec3| -> DVec3 {
             (0..self.bodies.len())
-                .filter(|&i| i != f || x != self.nominal(f))
                 .map(|i| {
-                    let d = centre(i) - x;
+                    let d = centre[i] - x;
                     let r = d.length().max(1e-6);
                     d / r * self.surface_g(i) * (self.bodies[i].radius / r.max(0.9 * self.bodies[i].radius)).powi(2)
                 })

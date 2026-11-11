@@ -51,8 +51,39 @@ a half nights.
 
 **Chosen:** the shader lights a body other than the camera's with white sunlight (`sun_on`; the camera's
 body index rides in `sun_col.w`). In an eclipse, what a body with air hides of the sun comes back as `COPPER`
-(0.23, 0.07, 0.02), without terrain shadows, so the whole moon glows evenly copper red, about a third as
+(0.23, 0.07, 0.02) along the sunlight's own ray (so hills still shade it), and the whole moon glows evenly copper red, about a third as
 bright as the sun's red channel. Measured in the report's view (`run=stand ... time=124231.8`, a 64 % moon):
 the moon's pixels were red over blue 2.4, now 0.9 (grey). An eclipse (`at=0.2046,0.96321,-0.17425 pitch=89
 time=4350 seed=1337`): an even copper disc, red over blue 3.5. Cost: one compare and one max per light()
 call, nothing on the CPU.
+
+## C. Lamp light in shapes (bugs 2026-11-11_13-00-53 and 2026-11-10_19-45-23)
+
+Cause: a lamp's shadow ray aimed at the middle of its block and stopped 1 m short. For a lamp set into a
+floor or wall (the usual way to light a dug room) the middle is half a block inside; a ray from a wall that
+came in flatter than about 30 degrees passed through the blocks beside the lamp before its stop and counted
+the lamp as hidden. So each lamp lit the walls only inside a cone, whose edge drew hard arcs and slanted
+lines, and with several lamps those overlapped into the polygon patches of the report. A lamp standing on
+the ground shadowed the ground by its own corners the same way (the black spikes of 2026-11-10_19-45-23).
+
+Options: (1) soft lamp shadows by aiming at a random point of the lamp: noisy, and the same cone; (2) aim at
+the point of the lamp's block nearest the surface (a block lamp is an area light): exact, one ray as before;
+(3) trace every lamp: more rays. Also tried: easing the third traced lamp over to the untraced lamps' mean
+visibility where they swap places; it changed nothing visible, so it was dropped. **Chosen: (2).**
+`lamp_target` (shader.wgsl) works in the grid's own coordinates (the face's two angles and the log of the
+radius), where a block is a box, clamps the ray's origin into the lamp's cell plus 2 cm, turns that back,
+and the ray stops 1 cm short of it. Faces the surface is not beyond are not pushed out, so a ray along a
+floor to a lamp on that floor stays over it.
+
+Evidence (`run=stand at=0.038284,0.999241,0.007201 eye=-5 pitch=-30 time=900 seed=443734500 planet=6144
+place=` a 5x5 pit 7 deep with 8 lamps): before, arcs and slanted edges across the walls and the lower walls
+dark; after, the walls evenly lit, falling off with distance only. The 2026-11-10 view with one lamp on the
+grass: no spikes, and the grass around it now glows (mean red 35-44 near it against 22-24 away; it was
+darker near the lamp than away from it with the first try of this fix). Fixed views (`tools/views.sh`):
+unchanged. Cost: on the GPU a few atan/tan per traced lamp (at most 3 a pixel); nothing on the CPU.
+
+Review (a fresh reviewer read the diff): found that the first version of `lamp_target` projected onto the
+block's two side normals as if they were square, which they are not near a face's corners (fixed: grid
+coordinates), and that the copper glow skipped the body's own horizon and terrain (fixed: it shares the
+sunlight's ray); gravity's centres were worked out twice per step in a moon's frame (fixed). `FREE_G` 2 to 1
+is deliberate (part A).

@@ -279,9 +279,9 @@ fn ambient(day: f32) -> vec3f {
 // the light on a surface of body `body` at p (from the camera) with normal n
 const LAMP_R: f32 = 8.0;
 const LAMP_RAYS: u32 = 3u;
-// a shadow ray stops this far from a lamp's middle: past its corners (0.87 m on a 1 m block, a little more
-// where the grid's columns are wider), so the lamp never shadows itself
-const LAMP_STOP: f32 = 1.0;
+// a shadow ray goes to the lamp's block, not its middle (`lamp_target`), and stops this far short of it, so
+// the lamp never shadows itself
+const LAMP_STOP: f32 = 0.01;
 const NONE: u32 = 0xffffffffu;
 
 // a lamp's light d2 square metres away: falling off with the square of the distance, to nothing at LAMP_R
@@ -297,6 +297,34 @@ fn sun_on(body: u32) -> vec3f {
 }
 // the sunlight left in a planet's full shadow, bent round it through its air: dim copper, even over the moon
 const COPPER: vec3f = vec3f(0.65, 0.2, 0.06) * 0.35;
+
+// where a shadow ray from o aims at lamp lp: the point of its block nearest o, 2 cm out from the faces o is
+// beyond (out along the others too, or in, would put a flat ray's end inside the blocks beside it). Aimed at
+// the middle, the ray to a lamp set in a floor or wall passed through the blocks beside it wherever it came
+// in flatter than 30 degrees, and the lamp's light ended there in a hard cone over the walls; a lamp on the
+// ground cast spikes from its own corners (bugs 2026-11-11_13-00-53, 2026-11-10_19-45-23; ADR 0037).
+// Worked in the grid's own coordinates (the face's two angles and the log of the radius, its face the up's
+// largest axis), where the block is a box: o clamped into the lamp's cell and turned back.
+fn lamp_target(lp: Lamp, o: vec3f) -> vec3f {
+    let b = g.bodies[u32(lp.pos.w)];
+    let m = mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz);
+    let up = normalize(lp.pos.xyz - b.ctr.xyz);
+    let ub = up * m;
+    let a = abs(ub);
+    var axis = 2u;
+    if (a.x >= a.y && a.x >= a.z) { axis = 0u; } else if (a.y >= a.z) { axis = 1u; }
+    let f = frame_at(axis * 2u + select(0u, 1u, ub[axis] < 0.0), b, 0.0, 0.0);
+    let r = length(lp.pos.xyz - b.ctr.xyz);
+    let at = vec3f(atan(dot(ub, f.s) / dot(ub, f.n)), atan(dot(ub, f.t) / dot(ub, f.n)), log(r));
+    let ob = (o - b.ctr.xyz) * m;
+    let ro = length(ob);
+    let q = vec3f(atan(dot(ob, f.s) / dot(ob, f.n)), atan(dot(ob, f.t) / dot(ob, f.n)), log(ro));
+    // half a cell each way (an angle's metres are about the radius times it), and 2 cm
+    let half = vec3f(0.5 * b.theta, 0.5 * b.theta, 0.5 * b.lnq) + 0.02 / r;
+    let c = clamp(q, at - half, at + half);
+    let tb = normalize(f.n + f.s * tan(c.x) + f.t * tan(c.y)) * exp(c.z);
+    return m * tb + b.ctr.xyz;
+}
 
 fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     let up = normalize(p - g.bodies[body].ctr.xyz);
@@ -318,16 +346,16 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     let moon = g.moon_col.rgb * select(1.0, 0.0, body == mi);
     o.l = vec3f(0.0);
     let ndl = dot(n, sd);
-    let vis = ecl * left_by(body, p, g.sun_pos.xyz, g.sun_pos.w);
-    if (ndl > 0.0 && vis > 0.0) {
+    let occ = left_by(body, p, g.sun_pos.xyz, g.sun_pos.w);
+    if (ndl > 0.0 && occ > 0.0 && max(ecl, copper) > 0.0) {
         let ar = g.sun_pos.w / length(g.sun_pos.xyz - p);
         // soft: towards a point of the sun's disc; sharp: towards its middle
         var to_sun = sd;
         if ((g.opt.x & 1u) == 0u) { to_sun = in_disc(sd, ar, px); }
-        o.sun = vis * ray(p, n, to_sun, body, 1e5);
-        o.l += sun_on(body) * ndl * o.sun;
+        let seen = occ * ray(p, n, to_sun, body, 1e5);
+        o.sun = ecl * seen;
+        o.l += (sun_on(body) * ecl + COPPER * copper) * ndl * seen;
     }
-    if (ndl > 0.0 && copper > 0.0) { o.l += COPPER * ndl * copper; }
     // the moon's light where the sun's is weak, through the same terrain
     if (o.day < 0.5 && max(moon.r, moon.b) > 0.001) {
         let mc = g.bodies[mi].ctr;
@@ -395,7 +423,8 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         let lp = lamps[top[k]];
         // aimed from where the ray starts: from p, the 2 cm offset carried its end into the lamp by its corners
         // (bug 2026-11-10_19-45-23)
-        let v = lp.pos.xyz - ray_origin(p, n);
+        let ro = ray_origin(p, n);
+        let v = lamp_target(lp, ro) - ro;
         let d = length(v);
         let vis = select(ray(p, n, v / d, body, d - LAMP_STOP), 1.0, d < LAMP_STOP);
         o.l += topl[k] * vis;
