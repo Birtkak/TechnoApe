@@ -155,6 +155,7 @@ Seconds per stage, seed 1:
     yellow transform, bright continental crust); rivers and lakes.
   - bottom row: the globe from two sides, then the four close-ups (height, then rivers).
 - **`images/orbit-seed-1.png`:** the globe from orbit, 1000 px.
+- **`images/sheet-seed-5.png`, `images/orbit-seed-5.png`:** the same for seed 5, Terra's default.
 - **`images/sheet-seed-1-huge.png`:** the same sheet for the huge planet.
 - **`images/seeds-planet-12288.png`:** seeds 1 to 12, left to right and top to bottom, a globe and the
   unfolded cube each.
@@ -198,6 +199,9 @@ Seconds per stage, seed 1:
   - Land on seed 1: half above 20 m, 90 % under 41 m, 99 % under 62 m.
   - Over the 12 seeds the median land is 19 to 35 m. Seed 11 is the highest: median 35 m, p99 85 m.
   - The colours are by absolute metres, so the sheets now show brown uplands and grey and white peaks.
+- **Default seed 5 (the developer's call, 2026-11-11),** from the sheet of 12 (row 2, first globe): the
+  most varied land, with plains, ranges and gulfs. Its land at 120 m: median 30 m, p99 78 m. It is
+  `DEFAULT_SEED` in `src/main.rs`; the engine's default seed (1337) moves to it in W2.
 - **The shape stays across the variants:** relief is the last, linear step, so the three variants are one
   shape at three heights. At 200 m the snow line shows; at 50 m the coast range is a hill.
 

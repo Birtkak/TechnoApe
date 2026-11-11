@@ -11,6 +11,9 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+/// TASTE CALL, decided 2026-11-11: Terra's default seed, picked from the sheet of 12 (worldgen.md, call 3).
+pub const DEFAULT_SEED: u64 = 5;
+
 fn main() {
     let args: HashMap<String, String> =
         std::env::args().skip(1).filter_map(|a| a.split_once('=').map(|(k, v)| (k.to_string(), v.to_string()))).collect();
@@ -28,7 +31,7 @@ fn main() {
     std::fs::create_dir_all(&out).unwrap();
     match args.get("mode").map_or("bake", String::as_str) {
         "bake" => {
-            let seed = num("seed", 1.0) as u64;
+            let seed = num("seed", DEFAULT_SEED as f64) as u64;
             let b = bake::bake(planet, seed, &p);
             let dir = out.join(format!("seed-{seed}-planet-{planet}"));
             std::fs::create_dir_all(&dir).unwrap();
@@ -54,7 +57,7 @@ fn main() {
             img.save(&out.join(format!("seeds-planet-{planet}.png")));
         }
         "relief" => {
-            let seed = num("seed", 1.0) as u64;
+            let seed = num("seed", DEFAULT_SEED as f64) as u64;
             let vars: Vec<(f32, f32)> = args
                 .get("variants")
                 .map_or("50:25,120:60,200:100", String::as_str)
