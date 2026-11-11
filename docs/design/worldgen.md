@@ -185,9 +185,11 @@ No air, no water cycle, no plates. Its bake is a different, shorter pipeline:
 - The mass driver, the planet eater and the ledger read the same counted bodies as on Terra.
 
 ## Taste calls still open (the developer's, before or at the stage named)
-1. **Relief** (stage 3): ranges to 50 m and seas 25 m deep today (ADR 0021). Higher ranges read better
-   from orbit and give snow lines; they cost streamed layers. *Proposal:* ranges to 120 m, trenches to
-   60 m.
+1. ~~**Relief** (stage 3)~~ **decided 2026-11-11** (the developer, on the W1 prototype's sheets, as its
+   coding session reported): **ranges to 120 m and seas to 60 m**, and **higher plains**: more uplift inside
+   the continents, so the median land of seed 1 stands at 20 m, not 1.5 m (`prototypes/world-bake`,
+   commits f376991 and 93cff69). It was 50 m and 25 m (ADR 0021). Also decided there: **the bake's size on
+   disk matters less than its speed**; the huge planet's 13.3 MB against the 10 MB proposed is accepted.
 2. **How deep the ground goes** (stage 9): the crust is 64 m today. *Proposal:* 192 m, with the hot,
    undiggable-for-now zone below; the save format already may not assume it stays (ADR 0009).
 3. **The look of the default Terra:** picked from sheets of baked seeds (prototype W1).
