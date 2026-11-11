@@ -219,7 +219,7 @@ impl App {
                 Some(Menu::Settings) => Some(self.home()),
                 Some(Menu::Page(_)) => Some(Menu::Settings),
                 Some(Menu::Title | Menu::Worlds) => Some(Menu::Title),
-                Some(Menu::Remove(_)) => Some(Menu::Worlds),
+                Some(Menu::Remove(_) | Menu::NewWorld) => Some(Menu::Worlds),
                 Some(Menu::Waypoints) => Some(Menu::Pause),
                 Some(Menu::Waypoint(_)) => Some(Menu::Waypoints),
                 Some(Menu::Playtest) => None,
@@ -285,7 +285,7 @@ impl App {
             }
             // a slider's number takes digits and a point only; the keys' search and a waypoint's name take words
             a if a.starts_with("type:") && self.edit.is_some() => {
-                let words = matches!(self.menu, Some(Menu::Waypoint(_))) || self.page_row(0) == Some(Row::Search);
+                let words = matches!(self.menu, Some(Menu::Waypoint(_) | Menu::NewWorld)) || self.page_row(0) == Some(Row::Search);
                 let t = &mut self.edit.as_mut().unwrap().1;
                 let room = (if words { 32usize } else { 6 }).saturating_sub(t.chars().count());
                 t.extend(a[5..].chars().filter(|c| if words { !c.is_control() } else { c.is_ascii_digit() || *c == '.' }).take(room));
@@ -452,6 +452,16 @@ impl App {
                 w.name = name;
                 self.save_waypoints();
             }
+            return;
+        }
+        if let (Some((k, t)), Some(Menu::NewWorld)) = (&self.edit, self.menu) {
+            // a new world's name (an empty one keeps the old) or its seed (an empty one is a new seed)
+            match (*k, menu::safe_name(t)) {
+                (menu::NW_NAME, name) if !name.is_empty() => self.new_world.name = name,
+                (menu::NW_SEED, _) => self.new_world.seed = t.trim().to_string(),
+                _ => {}
+            }
+            self.edit = None;
             return;
         }
         if let Some((k, t)) = self.edit.take() {
@@ -1092,6 +1102,7 @@ impl App {
                 Menu::Dead => ("You died", cause.as_str()),
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),
+                Menu::NewWorld => ("New world", "The same seed and size always make the same world. Click a row to change it."),
                 Menu::Remove(_) => ("Remove world", "It moves to saves/removed/ and can be put back by hand."),
                 Menu::Waypoints => ("Waypoints", "N drops one where you stand. Click one to change it; right click or Delete takes it away."),
                 Menu::Waypoint(_) => ("Waypoint", "Click the name to type a new one. Click a row for its next value, right click the one before."),
@@ -1112,7 +1123,8 @@ impl App {
             let (x, y) = self.pointer;
             let under = boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]);
             // the keyboard's row is the lit one until the pointer moves
-            let hover = match self.sel {
+            // (the row typed into stays lit: its box changes width under a still pointer as the text grows)
+            let hover = match self.edit.as_ref().map(|e| e.0).or(self.sel) {
                 Some(k) => k.checked_sub(self.scroll).filter(|v| *v < boxes.len()),
                 None => under,
             };

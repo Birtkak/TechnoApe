@@ -496,7 +496,20 @@ fn planet(p: &mut Paint, x: f32, y: f32, r: f32) {
 /// solid cyan box in corner brackets.
 /// `first` is the number of rows above the ones shown (the page scrolled). `ease` is how far the page has
 /// come in and how far the lit row has slid out, each 0 to 1 over about a tenth of a second.
-/// `tones` marks rows: 1 a warning (a key two actions share), drawn red; 2 a heading, drawn as plain text.
+/// `tones` marks rows: 1 a warning (a key two actions share), drawn red; 2 a heading, drawn as plain text;
+/// 3 and up a "key: value" row whose value is written in `TINTS[tone - 3]`, the key dimmer; `ACTION` the
+/// button that does the page's deed, green.
+pub const TINTS: [[f32; 3]; 8] = [
+    [0.96, 0.98, 1.0],  // white: a name
+    [0.55, 0.62, 0.7],  // grey: nothing chosen
+    [1.0, 0.85, 0.25],  // yellow: a seed
+    [0.44, 0.83, 1.0],  // cyan
+    [0.42, 0.86, 0.45], // green
+    [0.8, 0.9, 0.3],    // lime
+    [1.0, 0.62, 0.22],  // orange
+    [1.0, 0.42, 0.38],  // red
+];
+pub const ACTION: u8 = 255;
 pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], tones: &[u8], hint: &str, hover: Option<usize>, caret: bool, first: usize, ease: (f32, f32)) {
     // the world a little darker under any menu but the title's, whose backdrop is the picture
     if title != GAME_NAME {
@@ -536,9 +549,16 @@ pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], to
             continue;
         }
         let red = [1.0, 0.42, 0.38, 1.0];
+        let green = [0.42, 0.86, 0.45, 1.0];
+        let tint = (tone as usize).checked_sub(3).and_then(|t| TINTS.get(t)).map(|c| [c[0], c[1], c[2], 1.0]);
         if !lit {
             cut(p, b[0], b[1], b[2], b[3], [PANEL[0], PANEL[1], PANEL[2], 0.5]);
-            let bar = if tone == 1 { red } else { [CYAN[0], CYAN[1], CYAN[2], 0.4] };
+            let bar = match (tone, tint) {
+                (1, _) => red,
+                (ACTION, _) => green,
+                (_, Some(c)) => [c[0], c[1], c[2], 0.7],
+                _ => [CYAN[0], CYAN[1], CYAN[2], 0.4],
+            };
             p.rect(b[0], b[1] + 2.0, 3.0, b[3] - 4.0, bar, 0);
         }
         let tw = b[2];
@@ -557,7 +577,14 @@ pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], to
             p.text_flat(lx, ty, label, ink, lp);
         } else {
             p.text_px(b[0] + 20.0, ty, &n, [0.44, 0.83, 1.0, if contrast { 1.0 } else { 0.6 }], lp);
-            p.text_px(lx, ty, label, if tone == 1 { red } else { [0.92, 0.95, 0.98, 0.95] }, lp);
+            match (tint, label.find(':')) {
+                // the key dimmer, its value in the row's colour, where the label has it
+                (Some(c), Some(i)) => {
+                    p.text_px(lx, ty, &label[..=i], [0.62, 0.72, 0.82, 0.95], lp);
+                    p.text_px(lx + label[..=i].chars().count() as f32 * ADV * lp, ty, &label[i + 1..], c, lp);
+                }
+                _ => p.text_px(lx, ty, label, if tone == 1 { red } else if tone == ACTION { green } else { [0.92, 0.95, 0.98, 0.95] }, lp),
+            }
         }
         if let Some(Some((at, value, typing))) = sliders.get(k) {
             let (t, n) = slider_parts(*b, label);
