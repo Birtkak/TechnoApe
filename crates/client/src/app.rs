@@ -91,6 +91,12 @@ pub(crate) struct App {
     pub(crate) inv: Vec<(u8, u32)>,
     /// Units of water in the bucket (ADR 0020).
     pub(crate) bucket_water: u32,
+    /// Health and hunger as the server last told them (ADR 0040), the lowest health seen, when each last fell
+    /// and from what (the lost cells flash), and how this player died while it is dead.
+    pub(crate) vitals: (u8, u8),
+    pub(crate) health_min: u8,
+    pub(crate) flash: [(Instant, u8); 2],
+    pub(crate) dead: Option<String>,
     /// The mesh of the tiles that hold stored water, and how many of its quads the GPU has.
     pub(crate) water: water::WaterMesh,
     pub(crate) wquad_n: u32,

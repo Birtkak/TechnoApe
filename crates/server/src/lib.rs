@@ -15,6 +15,7 @@ use engine::phys::{self, Input};
 use engine::liquid::{Col, TILE, U};
 use engine::world::{fnv, Block, FxMap, World};
 use engine::sky;
+use engine::vitals::{self, Vitals};
 use glam::DVec3;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -67,7 +68,7 @@ const MAX_WARP: u64 = 10_000;
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
     let inv = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
-    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, inv, water: c.water }
+    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, inv, water: c.water, vitals: c.vitals.clone() }
 }
 
 struct Client {
@@ -92,6 +93,11 @@ struct Client {
     done: Vec<(u32, bool)>,
     /// The inventory changed this tick (or the player just joined).
     inv_dirty: bool,
+    /// Health and hunger (ADR 0040); the motion the last physics step ended with, for the next one's impact;
+    /// what the client was last told of them.
+    vitals: Vitals,
+    was: DVec3,
+    sent: Option<((u8, u8), bool)>,
 }
 
 pub struct Server {
@@ -259,6 +265,7 @@ impl Server {
             }
             h = fnv(h, &[p.on_ground as u8, c.input.is_some() as u8, c.creative as u8]);
             h = fnv(h, &c.water.to_le_bytes());
+            h = fnv(h, &postcard::to_allocvec(&(&c.vitals, c.was.to_array())).unwrap());
             for n in c.inv.iter() {
                 h = fnv(h, &n.to_le_bytes());
             }
@@ -348,6 +355,9 @@ impl Server {
                 tiles: FxMap::default(),
                 done: Vec::new(),
                 inv_dirty: true,
+                vitals: Vitals::default(),
+                was: DVec3::ZERO,
+                sent: None,
             });
         }
         let mut changed: Vec<(Block, u8)> = Vec::new();
@@ -370,7 +380,7 @@ impl Server {
                         if let Some(sv) = self.absent.remove(&c.player.name) {
                             let p = DVec3::from_array(sv.pos);
                             c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(sv.fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
-                            (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water) = (sv.pos, sv.fwd, sv.creative, true, sv.water);
+                            (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water, c.vitals) = (sv.pos, sv.fwd, sv.creative, true, sv.water, sv.vitals);
                             c.inv.fill(0);
                             for (m, n) in sv.inv {
                                 c.inv[m as usize] = n;
@@ -379,6 +389,8 @@ impl Server {
                         let line = format!("{} joined", self.clients[i].player.name);
                         self.say(line);
                     }
+                    // a dead player stays where it fell (ADR 0040)
+                    Recv::Msg(ToServer::Move { .. }) if self.clients[i].vitals.dead.is_some() => {}
                     Recv::Msg(ToServer::Move { pos, fwd, pitch }) => {
                         if pos.iter().all(|c| c.is_finite()) && fwd.iter().all(|c| c.is_finite()) {
                             self.put(i, DVec3::from_array(pos), DVec3::from_array(fwd.map(f64::from)));
@@ -414,6 +426,13 @@ impl Server {
                         (c.creative, c.inv_dirty) = (on, true);
                     }
                     Recv::Msg(ToServer::Chat(text)) => self.chat(i, &text, &mut changed),
+                    Recv::Msg(ToServer::Respawn) => {
+                        if self.clients[i].vitals.dead.is_some() {
+                            let p = self.spawn();
+                            self.put(i, p, DVec3::X);
+                            self.clients[i].vitals = Vitals::default();
+                        }
+                    }
                     Recv::Empty => break,
                     Recv::Closed => {
                         open = false;
@@ -434,13 +453,19 @@ impl Server {
         self.debt += self.dt;
         let steps = ((self.debt + 1e-9) / phys::DT) as u32;
         self.debt -= steps as f64 * phys::DT;
+        let mut deaths = Vec::new();
         for c in &mut self.clients {
-            // flight is creative's (ADR 0023)
-            let creative = c.creative;
-            let walk = move |inp: Input| if creative { inp } else { Input { fly: 0.0, ..inp } };
+            // flight is creative's (ADR 0023); a dead player's input moves nothing (ADR 0040)
+            let (creative, dead) = (c.creative, c.vitals.dead.is_some());
+            let walk = move |inp: Input| {
+                let inp = if creative { inp } else { Input { fly: 0.0, ..inp } };
+                if dead { vitals::still(inp) } else { inp }
+            };
             if let Some(inp) = c.input.map(walk) {
                 for _ in 0..steps {
+                    let before = c.phys;
                     phys::step(&self.world, &mut c.phys, &inp, phys::DT);
+                    live(c, &self.world, &before, &inp, &mut deaths);
                 }
                 c.player.pos = c.phys.pos.to_array();
                 c.player.fwd = c.phys.fwd.as_vec3().to_array();
@@ -456,13 +481,18 @@ impl Server {
                     if (inp.t - self.world.time).abs() > near {
                         inp.t = 0.0;
                     }
+                    let before = c.phys;
                     phys::step_at(&mut self.world, &mut c.phys, &inp, phys::DT);
+                    live(c, &self.world, &before, &inp, &mut deaths);
                     (c.acked, c.credit, c.player.pitch) = (seq, c.credit - 1, inp.pitch);
                 }
                 c.player.pos = c.phys.pos.to_array();
                 c.player.fwd = c.phys.fwd.as_vec3().to_array();
             }
             c.link.send(ToClient::You { step: c.acked, me: c.phys, time: self.world.time, warp: self.warp as f64 });
+        }
+        for line in deaths {
+            self.say(line);
         }
         // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics
         // took, fewer when that would spend more than WATER_BUDGET
@@ -493,6 +523,11 @@ impl Server {
             if std::mem::take(&mut c.inv_dirty) {
                 let counts = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
                 c.link.send(ToClient::Inventory { creative: c.creative, counts, water: c.water });
+            }
+            let shown = (c.vitals.shown(), c.vitals.dead.is_some());
+            if c.sent != Some(shown) {
+                c.sent = Some(shown);
+                c.link.send(ToClient::Vitals { health: shown.0 .0, hunger: shown.0 .1, dead: c.vitals.dead.clone() });
             }
         }
         let players: Vec<Player> = self.clients.iter().map(|c| c.player.clone()).collect();
@@ -528,7 +563,7 @@ impl Server {
     fn put(&mut self, i: usize, p: DVec3, look: DVec3) {
         let c = &mut self.clients[i];
         c.phys = phys::Player::at(p, phys::tangent(look, phys::up(&self.world, p), DVec3::X));
-        (c.input, c.credit) = (None, 0);
+        (c.input, c.credit, c.was) = (None, 0, DVec3::ZERO);
         c.queue.clear();
         (c.player.pos, c.player.fwd) = (p.to_array(), c.phys.fwd.as_vec3().to_array());
     }
@@ -602,6 +637,8 @@ impl Server {
                 "  /goto <where>        terra (home: the spawn), luna, or sun",
                 "  /timewarp <n>        the clock n times faster (1 to 10000,",
                 "                       up, down); . and , step it too",
+                "  /heal, /feed [n]     full health, full hunger (or n)",
+                "  /hurt <points>       takes health: 2 points a segment",
                 "  /help                this list",
                 "Creative: double space flies, the wheel sets the speed.",
             ]
@@ -650,6 +687,48 @@ impl Server {
                 let m = (h * 60.0).round() as u32 % (24 * 60);
                 format!("{what} day {day}, {:02}:{:02} at the spawn (world time {t:.0} s)", m / 60, m % 60)
             }
+            // shortcut: until there is food and harm of more kinds, these let the overlay and the death screen be
+            // tried (ADR 0040); they go to the operator role with the others
+            Some(cmd @ ("heal" | "feed" | "hurt")) => {
+                let c = &mut self.clients[i];
+                if c.vitals.dead.is_some() {
+                    return "you are dead: respawn first".into();
+                }
+                if c.creative {
+                    return "creative has no health or hunger: /playmode survival".into();
+                }
+                match cmd {
+                    "heal" => {
+                        c.vitals.health = vitals::MAX;
+                        "health full".into()
+                    }
+                    // a number sets it there: /feed 0 shows empty hunger
+                    "feed" => match w.get(1).map(|s| s.parse::<u8>()) {
+                        None => {
+                            c.vitals.hunger = vitals::MAX as f64;
+                            "hunger full".into()
+                        }
+                        Some(Ok(n)) if n <= vitals::MAX => {
+                            c.vitals.hunger = n as f64;
+                            format!("hunger {n} of {}", vitals::MAX)
+                        }
+                        _ => format!("usage: /feed [0 to {}]", vitals::MAX),
+                    },
+                    _ => {
+                        let Some(n) = w.get(1).and_then(|s| s.parse::<u32>().ok()).filter(|n| *n > 0) else {
+                            return "usage: /hurt <points>\n  20 is full health, 2 points a segment".into();
+                        };
+                        let name = if c.player.name.is_empty() { "?".to_string() } else { c.player.name.clone() };
+                        if c.vitals.hurt(n.min(255) as u8, || format!("{name} was hurt by a command")) {
+                            let line = c.vitals.dead.clone().unwrap_or_default();
+                            self.say(line);
+                            return "you died".into();
+                        }
+                        format!("took {n}: health {} of {}", c.vitals.health, vitals::MAX)
+                    }
+                }
+            }
+            Some("goto") if self.clients[i].vitals.dead.is_some() => "you are dead: respawn first".into(),
             Some("goto") => {
                 let to = w.get(1).map(|s| s.to_lowercase()).unwrap_or_default();
                 if to == "sun" && !self.clients[i].creative {
@@ -754,7 +833,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
     /// Client `i` digs or places `shape`: all of it or none. False when the shape fails `valid_shape` or a
     /// survival player cannot pay for every block it places.
     fn edit(&mut self, i: usize, shape: &Shape, m: u8, changed: &mut Vec<(Block, u8)>) -> bool {
-        if !self.valid_shape(shape, m, DVec3::from_array(self.clients[i].player.pos)) {
+        if self.clients[i].vitals.dead.is_some() || !self.valid_shape(shape, m, DVec3::from_array(self.clients[i].player.pos)) {
             return false;
         }
         // a solid block never goes where it would trap a player
@@ -766,6 +845,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 for (_, old) in &cells {
                     c.inv[*old as usize] = c.inv[*old as usize].saturating_add(1);
                 }
+                c.vitals.dug(cells.len());
             } else {
                 let Some(left) = c.inv[m as usize].checked_sub(cells.len() as u32) else { return false };
                 c.inv[m as usize] = left;
@@ -847,7 +927,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         let body = self.world.bodies.get(at.body as usize);
         let inside = body.is_some_and(|b| at.face < 6 && (0..b.n).contains(&at.pos.x) && (0..b.n).contains(&at.pos.y) && (0..b.layers).contains(&at.pos.z));
         let feet = DVec3::from_array(self.clients[i].player.pos);
-        if !inside || self.world.block_centre(at).distance(feet) > REACH || BLOCKS.solid(self.world.block(at)) {
+        if !inside || self.clients[i].vitals.dead.is_some() || self.world.block_centre(at).distance(feet) > REACH || BLOCKS.solid(self.world.block(at)) {
             return false;
         }
         let col = World::col(at);
@@ -882,6 +962,30 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             && BLOCKS.get(m).is_some()
             && s.cells().all(|b| self.world.block_centre(b).distance(at) <= REACH)
     }
+}
+
+/// After one physics step of client `c` from `before` with `inp` (ADR 0040): the impact it took, if it hit
+/// something solid hard enough, and a step of hunger. Creative has neither: nothing drains, nothing hurts.
+/// A death's line for everyone goes to `deaths`.
+fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, deaths: &mut Vec<String>) {
+    let (now, hit) = vitals::impact(c.was, before, &c.phys, phys::DT);
+    c.was = now;
+    if c.creative {
+        return;
+    }
+    if hit > vitals::safe_speed() {
+        // landing in water costs nothing (asked only for a hit that would hurt)
+        let up = phys::up(world, c.phys.pos);
+        if world.water_surface(c.phys.pos + up * 0.05).is_none() {
+            let into = before.vel.dot(up) / before.vel.length().max(1e-9);
+            let what = if into < -0.7 { "the ground" } else if into > 0.7 { "a ceiling" } else { "a wall" };
+            let name = if c.player.name.is_empty() { "?" } else { c.player.name.as_str() };
+            if c.vitals.hurt(vitals::impact_damage(hit), || format!("{name} hit {what} at {hit:.0} m/s")) {
+                deaths.extend(c.vitals.dead.clone());
+            }
+        }
+    }
+    c.vitals.step(inp.mv != [0.0, 0.0]);
 }
 
 /// What a replay found.
@@ -1427,6 +1531,189 @@ mod tests {
         assert!(a[3].starts_with("a player stands there"), "a solid block never traps a player: {a:?}");
         let edits: usize = drain(&links[1]).into_iter().map(|m| if let ToClient::Edits(e) = m { e.len() } else { 0 }).sum();
         assert_eq!(edits, 2, "everyone sees the blocks");
+    }
+
+    /// Puts player 0 `metres` over the ground at `on_land`'s spot, walking (an empty input), and ticks until
+    /// it has stood still on the ground for a second; its health then.
+    fn drop_from(s: &mut Server, l: &Link<ToServer, ToClient>, metres: f64) -> u8 {
+        let (pole, _) = on_land(s);
+        let up = phys::up(&s.world, pole);
+        l.send(ToServer::Move { pos: (pole + up * (metres - 2.0)).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        l.send(ToServer::Input(Input::default()));
+        for _ in 0..140 {
+            s.tick();
+        }
+        assert!(s.clients[0].phys.on_ground, "landed");
+        s.clients[0].vitals.health
+    }
+
+    fn vitals_of(got: &[ToClient]) -> Vec<(u8, u8, Option<String>)> {
+        got.iter().filter_map(|m| if let ToClient::Vitals { health, hunger, dead } = m { Some((*health, *hunger, dead.clone())) } else { None }).collect()
+    }
+
+    fn chats(got: &[ToClient]) -> Vec<String> {
+        got.iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t.clone()) } else { None }).collect()
+    }
+
+    #[test]
+    fn a_hard_landing_hurts_by_its_speed_and_a_soft_one_or_creative_does_not() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        assert_eq!(vitals_of(&drain(l)), vec![(20, 20, None)], "sent on join");
+        assert_eq!(drop_from(&mut s, l, 2.5), 20, "a short drop is free");
+        let h = drop_from(&mut s, l, 13.0);
+        assert!((9..=11).contains(&(20 - h)), "13 m costs about 10: {h} left");
+        let got = drain(l);
+        assert!(vitals_of(&got).iter().any(|v| v.0 == h), "the client is told: {:?}", vitals_of(&got));
+        l.send(ToServer::Creative(true));
+        assert_eq!(drop_from(&mut s, l, 30.0), h, "creative takes no impact");
+    }
+
+    #[test]
+    fn a_cliff_on_luna_costs_what_its_landing_speed_says() {
+        // whatever Luna's pull is: the damage follows the speed, so a weak pull lands softly
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        l.send(ToServer::Chat("/goto luna".into()));
+        s.tick();
+        let feet = s.clients[0].phys.pos;
+        let (up, g) = phys::pull(&s.world, feet);
+        l.send(ToServer::Move { pos: (feet + up * 18.0).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        l.send(ToServer::Input(Input::default()));
+        for _ in 0..400 {
+            s.tick();
+        }
+        let want = vitals::impact_damage((2.0 * g * 18.0).sqrt());
+        assert!(s.clients[0].phys.on_ground);
+        assert!((20 - s.clients[0].vitals.health).abs_diff(want) <= 1, "{} left, {want} expected under a pull of {g}", s.clients[0].vitals.health);
+    }
+
+    #[test]
+    fn landing_in_water_costs_nothing() {
+        let (mut s, links) = server_with(1);
+        let b = &s.world.bodies[0];
+        let sea = b.radius - engine::world::SEA_DEPTH;
+        let d = (0..2000)
+            .map(|k| {
+                let z = 1.0 - 2.0 * (k as f64 + 0.5) / 2000.0;
+                let t = k as f64 * 2.4;
+                DVec3::new((1.0 - z * z).sqrt() * t.cos(), z, (1.0 - z * z).sqrt() * t.sin())
+            })
+            .find(|&d| b.height(d) < sea - 3.0)
+            .expect("the planet has sea");
+        let at = b.centre + d * (sea + 15.0);
+        links[0].send(ToServer::Move { pos: at.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        links[0].send(ToServer::Input(Input::default()));
+        for _ in 0..200 {
+            s.tick();
+        }
+        assert_eq!(s.clients[0].vitals.health, 20);
+    }
+
+    #[test]
+    fn death_stops_the_player_tells_everyone_and_lasts_until_a_respawn() {
+        let (mut s, links) = server_with(2);
+        links[0].send(ToServer::Hello { name: "ape".into() });
+        s.tick();
+        drain(&links[1]);
+        assert_eq!(drop_from(&mut s, &links[0], 45.0), 0);
+        let cause = s.clients[0].vitals.dead.clone().expect("dead");
+        assert!(cause.starts_with("ape hit the ground at ") && cause.ends_with(" m/s"), "{cause}");
+        assert!(chats(&drain(&links[1])).contains(&cause), "everyone is told");
+        assert!(vitals_of(&drain(&links[0])).contains(&(0, 20, Some(cause.clone()))));
+        // dead, it moves nothing and edits nothing
+        let at = s.clients[0].phys.pos;
+        let (_, under) = on_land(&s);
+        links[0].send(ToServer::Move { pos: (at + DVec3::X * 50.0).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        links[0].send(ToServer::Input(Input { mv: [1.0, 0.0], jump: true, ..Default::default() }));
+        links[0].send(ToServer::Edit { seq: 1, shape: Shape::one(under), material: AIR });
+        links[0].send(ToServer::Chat("/heal".into()));
+        for _ in 0..20 {
+            s.tick();
+        }
+        assert!(s.clients[0].phys.pos.distance(at) < 0.05, "moved {}", s.clients[0].phys.pos.distance(at));
+        let got = drain(&links[0]);
+        assert!(got.contains(&ToClient::Done { seq: 1, ok: false }));
+        assert!(chats(&got).contains(&"you are dead: respawn first".to_string()));
+        // a dead player who leaves is dead when it comes back, through a save too
+        drop(links);
+        s.tick();
+        let mut back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+        let (tx, rx) = channel();
+        back.accept = rx;
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        c.send(ToServer::Hello { name: "ape".into() });
+        back.tick();
+        assert_eq!(back.clients[0].vitals.dead.as_ref(), Some(&cause));
+        assert!(vitals_of(&drain(&c)).contains(&(0, 20, Some(cause.clone()))));
+        // a respawn: at the spawn, full again
+        c.send(ToServer::Respawn);
+        back.tick();
+        let me = &back.clients[0];
+        assert!(me.phys.pos.distance(back.world.bodies[0].spawn_point()) < 1.0);
+        assert_eq!(me.vitals, Vitals::default());
+        assert_eq!(vitals_of(&drain(&c)), vec![(20, 20, None)]);
+    }
+
+    #[test]
+    fn hunger_follows_the_player_s_steps_not_the_warped_clock() {
+        let (mut s, links) = server_with(2);
+        links[0].send(ToServer::Chat("/timewarp 10000".into()));
+        links[0].send(ToServer::Input(Input { mv: [1.0, 0.0], jump: true, fwd: [1.0, 0.0, 0.0], ..Default::default() }));
+        links[1].send(ToServer::Creative(true));
+        links[1].send(ToServer::Input(Input { mv: [1.0, 0.0], ..Default::default() }));
+        for _ in 0..200 {
+            s.tick(); // 10 s, more than 3 game years at the warp
+        }
+        let lost = 20.0 - s.clients[0].vitals.hunger;
+        let want = 10.0 * vitals::WALK_DRAIN * 20.0 / sky::DAY;
+        assert!((lost - want).abs() < 1e-6, "walking 10 s costs {want}, not {lost}");
+        assert_eq!(s.clients[1].vitals, Vitals::default(), "creative drains nothing");
+        // a block dug costs a twentieth of a point
+        let ground = s.world.bodies[0].centre + DVec3::Z * s.world.bodies[0].height(DVec3::Z);
+        let deep = s.world.block_at(ground - DVec3::Z * 6.0);
+        links[0].send(ToServer::Move { pos: (ground + DVec3::Z).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        let h = s.clients[0].vitals.hunger;
+        links[0].send(ToServer::Edit { seq: 1, shape: Shape { max: deep.pos + 1, ..Shape::one(deep) }, material: AIR });
+        s.tick();
+        assert!((h - s.clients[0].vitals.hunger - 8.0 * vitals::DIG).abs() < 0.01, "{h} to {}", s.clients[0].vitals.hunger);
+    }
+
+    #[test]
+    fn heal_feed_and_hurt_try_the_overlay_and_the_death_screen() {
+        let (mut s, links) = server_with(2);
+        let l = &links[0];
+        l.send(ToServer::Hello { name: "ape".into() });
+        s.tick();
+        drain(l);
+        drain(&links[1]);
+        for line in ["/hurt 5", "/hurt", "/hurt x", "/heal", "/hurt 7", "/playmode creative", "/hurt 3", "/heal", "/playmode survival"] {
+            l.send(ToServer::Chat(line.into()));
+        }
+        s.clients[0].vitals.hunger = 3.0;
+        l.send(ToServer::Chat("/feed".into()));
+        s.tick();
+        let got = drain(l);
+        let a = chats(&got);
+        assert_eq!(a[0], "took 5: health 15 of 20");
+        assert!(a[1].starts_with("usage: /hurt") && a[2].starts_with("usage: /hurt"), "{a:?}");
+        assert_eq!((a[3].as_str(), a[4].as_str()), ("health full", "took 7: health 13 of 20"));
+        assert!(a[6].starts_with("creative has no health") && a[7].starts_with("creative has no health"), "{a:?}");
+        assert_eq!(a[9], "hunger full");
+        assert!(s.clients[0].vitals.health == 13 && s.clients[0].vitals.hunger > 19.99, "{:?}", s.clients[0].vitals);
+        l.send(ToServer::Chat("/feed 0".into()));
+        l.send(ToServer::Chat("/feed 21".into()));
+        s.tick();
+        let got = drain(l);
+        assert_eq!(chats(&got), vec!["hunger 0 of 20".to_string(), "usage: /feed [0 to 20]".to_string()]);
+        assert!(vitals_of(&got).contains(&(13, 0, None)), "{:?}", vitals_of(&got));
+        l.send(ToServer::Chat("/hurt 40".into()));
+        s.tick();
+        assert_eq!(s.clients[0].vitals.dead.as_deref(), Some("ape was hurt by a command"));
+        assert!(chats(&drain(&links[1])).contains(&"ape was hurt by a command".to_string()));
+        assert!(vitals_of(&drain(l)).contains(&(0, 0, Some("ape was hurt by a command".into()))));
     }
 
     #[test]

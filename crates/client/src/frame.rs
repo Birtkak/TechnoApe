@@ -108,6 +108,10 @@ impl App {
                 self.prev = self.me.pos;
                 inp.turn = std::mem::take(&mut self.turn) as f32;
                 (inp.tilt, inp.roll) = (std::mem::take(&mut self.tilt) as f32, std::mem::take(&mut self.roll) as f32);
+                if self.dead.is_some() {
+                    // the server steps a dead player so (ADR 0040): the prediction keeps with it
+                    inp = engine::vitals::still(inp);
+                }
                 let f0 = self.world.frame_at(self.me.pos);
                 let in_air = !self.me.on_ground;
                 phys::step(&self.world, &mut self.me, &inp, phys::DT);
@@ -230,6 +234,7 @@ impl App {
                 }
                 Recv::Msg(ToClient::You { .. }) => {}
                 Recv::Msg(ToClient::Inventory { creative, counts, water }) => (self.creative, self.inv, self.bucket_water) = (creative, counts, water),
+                Recv::Msg(ToClient::Vitals { health, hunger, dead }) => self.vitals_in(health, hunger, dead),
                 Recv::Msg(ToClient::Water(v)) => {
                     let mut ts = Vec::with_capacity(v.len());
                     for (t, cols) in &v {

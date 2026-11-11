@@ -34,6 +34,8 @@ pub enum ToServer {
     /// A chat line, or a command when it starts with '/' (ADR 0023): the server answers a command to this
     /// player alone and passes any other line to everyone, with the sender's name.
     Chat(String),
+    /// A dead player back at the spawn with full health and hunger (ADR 0040); nothing while alive.
+    Respawn,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -59,6 +61,9 @@ pub enum ToClient {
     Water(Vec<(crate::liquid::Col, Vec<crate::liquid::ColWater>)>),
     /// A line for the chat (ADR 0023): a player's words, an answer to a command, someone joining or leaving.
     Chat(String),
+    /// This player's health and hunger, 0 to `vitals::MAX` (ADR 0040), and how it died while it is dead;
+    /// sent on join and when what the HUD shows changes.
+    Vitals { health: u8, hunger: u8, dead: Option<String> },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -174,7 +179,7 @@ pub fn complete(line: &str) -> (usize, Vec<String>) {
             let names: Vec<String> = crate::bodies::BODIES.iter().flat_map(|r| std::iter::once(r.name.to_lowercase()).chain(r.words.clone())).collect();
             let places: Vec<&str> = names.iter().map(String::as_str).chain(["sun"]).collect();
             let words: &[&str] = match (first, before.get(1).map(String::as_str), before.len()) {
-                (None, _, _) => &["time", "playmode", "give", "place", "goto", "timewarp", "help"],
+                (None, _, _) => &["time", "playmode", "give", "place", "goto", "timewarp", "heal", "feed", "hurt", "help"],
                 (Some("timewarp" | "warp"), None, 1) => &["1", "10", "100", "1000", "10000", "up", "down"],
                 (Some("time"), None, 1) => &["set", "add"],
                 (Some("time"), Some("set"), 2) => &["sunrise", "day", "noon", "sunset", "night", "midnight"],
@@ -215,7 +220,8 @@ mod tests {
     #[test]
     fn commands_complete() {
         let c = |l: &str| complete(l);
-        assert_eq!(c("/"), (1, vec!["time".into(), "playmode".into(), "give".into(), "place".into(), "goto".into(), "timewarp".into(), "help".into()]));
+        assert_eq!(c("/"), (1, ["time", "playmode", "give", "place", "goto", "timewarp", "heal", "feed", "hurt", "help"].map(String::from).to_vec()));
+        assert_eq!(c("/h"), (1, ["heal", "hurt", "help"].map(String::from).to_vec()));
         assert_eq!(c("/g"), (1, vec!["give".to_string(), "goto".to_string()]));
         assert_eq!(c("/time "), (6, vec!["set".to_string(), "add".to_string()]));
         assert_eq!(c("/time set N"), (10, vec!["noon".to_string(), "night".to_string()]));

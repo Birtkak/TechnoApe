@@ -76,7 +76,9 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   in space the mouse pitches you freely and Q/E roll, gravity rights you as it pulls (ADR 0024); C held zooms 3x;
   1-9 or the wheel the hotbar; N drops a waypoint and creative shows the compass, where you are and the waypoints
   (ADR 0030; Esc, Waypoints lists them, a click names, colours and sets where one shows; K hides them, ADR 0036); space swims up in water, ADR 0020; T chats, / runs a command: /time, /playmode, /give,
-  /place <block> [face i j layer], /goto terra|luna|sun, /timewarp (. and , step it), /help; /sound <name> plays a row of `data/sounds.toml` (ADR 0032:
+  /place <block> [face i j layer], /goto terra|luna|sun, /timewarp (. and , step it), /heal, /feed [n], /hurt <points>
+  (survival's health and hunger, ADR 0040: impacts hurt, hunger drains, the bars over the hotbar are
+  survival's; at 0 health the death screen's `click:0` respawns), /help; /sound <name> plays a row of `data/sounds.toml` (ADR 0032:
   a recording `data/sounds/<name>.wav` replaces the code-made one; `sounds=1` prints every sound in numbers;
   off-screen runs are silent unless `sound=1`, and a play run's JSON counts what it played under `audio`); Tab completes a command, the arrows pick, else the up arrow
   recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed (not the hotbar) up to

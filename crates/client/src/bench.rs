@@ -367,6 +367,17 @@ impl App {
                 busy / secs.max(1e-9)
             );
         }
+        if self.run == "play" {
+            // ADR 0040: health and hunger at the end, the lowest health, and whether the player is dead
+            stages += &format!(
+                "\"vitals\":{{\"creative\":{},\"health\":{},\"hunger\":{},\"health_min\":{},\"dead\":{}}},",
+                self.creative,
+                self.vitals.0,
+                self.vitals.1,
+                self.health_min,
+                self.dead.as_ref().map_or("null".into(), |c| format!("{c:?}"))
+            );
+        }
         let jobs = std::mem::take(&mut self.streamer.job_times);
         let (mut wait, work): (Vec<f32>, Vec<f32>) = jobs.iter().map(|&(w, u)| (w / 1000.0, u)).unzip();
         let frame_busy = s.cpu_ms.iter().map(|x| *x as f64).sum::<f64>() / 1000.0;
