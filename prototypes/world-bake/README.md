@@ -6,9 +6,9 @@ erosion, sea level, then rivers and lakes. The budget proposal: 30 s for Terra, 
 under 10 MB on disk, under 100 MB of server RAM. The answers are measured below.
 
 **Answer.** Yes for time and seams; memory is over the proposal.
-- **Time:** Terra bakes in **18.4 s** and the huge planet in **99.3 s** (release build, this PC), with
-  the higher plains and the 120/60 m relief the developer chose (below). The relief is the last, linear
-  step and costs nothing; the huge planet measured 105.7 s once at 120 m.
+- **Time:** Terra bakes in **13.1 s** and the huge planet in **61.6 s** (release build, this PC, seed 5),
+  with the higher plains and the 120/60 m relief the developer chose (below). Asked "make it faster", the
+  bake went from 18.4 and 99.3 s to these with the same result to the bit (same hash; below).
 - **Determinism:** the same seed gives the same hash twice, and another seed a different one.
 - **Rivers:** every river runs downhill to the sea or a lake. This is a test, seen failing first.
 - **Seams:** the seams and corners do not show, after one fix (below).
@@ -75,25 +75,45 @@ Seconds per stage, seed 1:
 | stage | Terra (N 12288, 3.5 M cells) | huge (N 24576, 14.2 M cells) |
 |---|---|---|
 | grid | 0.11 | 0.43 |
-| 1+2 plates and boundaries | 0.53 | 2.16 |
-| 3 erosion, coarse (320 steps at 32 m) | 5.97 | 31.27 |
-| refine to 8 m | 0.35 | 1.66 |
-| 3 erosion, fine (24 steps at 8 m) | 10.57 | 60.03 |
-| 4 sea and coast | 0.83 | 3.60 |
+| 1+2 plates and boundaries | 0.56 | 1.94 |
+| 3 erosion, coarse (320 steps at 32 m) | 4.98 | 20.78 |
+| refine to 8 m | 0.35 | 1.42 |
+| 3 erosion, fine (24 steps at 8 m) | 6.34 | 34.04 |
+| 4 sea and coast | 0.74 | 2.92 |
 | 4 rivers and lakes | 0.02 | 0.09 |
-| **total** | **18.37** (budget 30) | **99.25** (budget 120) |
-| peak working set, MB | 174 | 673 |
+| **total** | **13.10** (budget 30; 18.37 before) | **61.60** (budget 120; 99.25 before) |
+| peak working set, MB | 189 | 720 |
 | on disk, gz: heights as i16 dm, plates, rivers | 2.7 MB (3.6 at 120 m) | 9.8 MB (13.3 at 120 m) |
 | uncompressed | 10.7 MB | 43.1 MB |
 
-- **Seed to seed:** 12 Terra seeds took 17 to 20 s each. A second run of seed 1 took 19.9 s.
+- **Seed to seed:** before the speedup, 12 Terra seeds took 17 to 20 s each. After it, three runs of seed 5
+  took 13.1 to 13.9 s.
 - **Where the time goes:** the fine erosion steps are 58 % and the coarse ones 32 %. Each step is one Priority-Flood (a heap over
   the 1.6 M land cells), a receiver pass, an O(n) accumulation and the implicit solve, about 0.4 s for
   Terra.
-  - The huge planet costs 5.4x Terra for 4x the cells: the heap's log factor and memory traffic. At 99 s
-    it is inside the 2 min proposal, with little room.
-  - Most of it is single-threaded by design (the flood and the solve run in order). Only the receivers,
-    the diffusion and the refinement run on rayon, cell by cell.
+  - The huge planet costs 4.7x Terra for 4x the cells, mostly memory traffic.
+- **The speedup (2026-11-11), exact:** measured per step on Terra's fine level, the flood was 4.9 s of the
+  24 steps, the implicit solve 2.1, the coast seeding 0.4.
+  - The flood's binary heap is now a radix heap (a monotone queue: Priority-Flood never pushes below the
+    last key). The same keys come out in the same order: 4.9 to 3.5 s.
+  - The area sum and the implicit solve run per river basin in parallel: basins share no cell, and inside
+    a basin the order is the flood's. Solve 2.1 to 0.3 s; the area costs 0.4 to 0.9 s more for grouping.
+  - The coast seeding runs on rayon.
+  - Kept as the reference: the test `the_fast_drainage_matches_the_slow_path` runs the old binary-heap
+    flood and serial area sum beside the new ones and wants the same order and the same bits. It failed
+    when the basin sweep was broken on purpose.
+  - The flood is now the largest single cost and still serial. Splitting it by land mass would keep the
+    heights but change the order of the river and lake lists, so the hash.
+- **Longer erosion steps, tried and not taken:** the solver is implicit, so `coarse_dt`/`fine_dt` (default
+  1) allow fewer, longer steps. They change the land, so they are a taste call, not a free speedup. Seed 5:
+
+| steps | Terra s | land p50 / p90 / p99 m | lakes |
+|---|---|---|---|
+| 320 coarse, 24 fine (default) | 13.9 | 29.6 / 55.6 / 77.7 | 80 |
+| 160 coarse at dt 2 | 11.6 | 24.3 / 52.6 / 77.2 | 99 |
+| 80 coarse at dt 4 | 8.9 | 19.7 / 51.3 / 81.0 | 88 |
+| 160 coarse at dt 2, 12 fine at dt 2 | 7.4 | 32.6 / 61.5 / 85.4 | 183 |
+
 - **Steady state:** it is not reached. After the last step the largest change on land is still 1.8 m per
   step (of 50 m relief); the plains are still rising.
   - With the old, low plains, twice the steps (400 coarse, 60 fine) took 41 s: the same land, a little

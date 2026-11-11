@@ -24,6 +24,8 @@ fn main() {
     p.cell_m = num("cell", p.cell_m);
     p.coarse_iters = num("coarse_iters", p.coarse_iters as f64) as usize;
     p.fine_iters = num("fine_iters", p.fine_iters as f64) as usize;
+    p.coarse_dt = num("coarse_dt", p.coarse_dt as f64) as f32;
+    p.fine_dt = num("fine_dt", p.fine_dt as f64) as f32;
     p.shield_uplift = num("shield", p.shield_uplift);
     p.old_range_uplift = num("old", p.old_range_uplift);
     let planet = num("planet", 12288.0) as u32;

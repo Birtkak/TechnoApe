@@ -26,6 +26,9 @@ pub struct Params {
     pub coarse: usize,
     pub coarse_iters: usize,
     pub fine_iters: usize,
+    /// How long a step is: the solver is implicit, so a longer step is stable and needs fewer steps.
+    pub coarse_dt: f32,
+    pub fine_dt: f32,
     /// Stream power: dh/dt = U - K A^m S (n = 1), A in m^2.
     pub k: f32,
     pub m_exp: f32,
@@ -59,6 +62,8 @@ impl Default for Params {
             coarse: 4,
             coarse_iters: 320,
             fine_iters: 24,
+            coarse_dt: 1.0,
+            fine_dt: 1.0,
             k: 0.5,
             m_exp: 0.5,
             kappa: 1.5,
@@ -344,6 +349,9 @@ pub struct Drainage {
     pub recv: Vec<u32>,
     pub order: Vec<u32>,
     pub area: Vec<f32>,
+    /// the land cells by basin (`basins`)
+    pub cells: Vec<u32>,
+    pub start: Vec<usize>,
 }
 
 /// A lake: the filled surface stands this much over the ground (model metres).
@@ -380,27 +388,107 @@ pub fn oceans(g: &Grid, h: &[f32], sea: f32) -> Vec<bool> {
     ocean
 }
 
+/// A monotone priority queue (radix heap, Ahuja et al. 1990): pops the exact minimum as long as nothing
+/// smaller than the last popped key is pushed, which Priority-Flood guarantees. O(1) amortised per key
+/// against the binary heap's O(log n); the same keys come out in the same order.
+pub struct Radix {
+    last: u64,
+    b: Vec<Vec<u64>>,
+}
+impl Radix {
+    pub fn new() -> Radix {
+        Radix { last: 0, b: vec![Vec::new(); 65] }
+    }
+    fn slot(&self, x: u64) -> usize {
+        if x == self.last { 0 } else { 64 - (x ^ self.last).leading_zeros() as usize }
+    }
+    pub fn push(&mut self, x: u64) {
+        debug_assert!(x >= self.last);
+        let i = self.slot(x);
+        self.b[i].push(x);
+    }
+    pub fn pop(&mut self) -> Option<u64> {
+        if self.b[0].is_empty() {
+            let i = (1..65).find(|&i| !self.b[i].is_empty())?;
+            let v = std::mem::take(&mut self.b[i]);
+            self.last = *v.iter().min().unwrap();
+            for x in &v {
+                let j = self.slot(*x);
+                self.b[j].push(*x);
+            }
+            self.b[i] = v;
+            self.b[i].clear();
+        }
+        self.b[0].pop()
+    }
+}
+
+/// The land cells grouped by the river basin they drain through (the cell whose receiver is the sea),
+/// each group in `order`'s order: basins share no cell, so each runs on its own thread.
+fn basins(order: &[u32], recv: &[u32], ocean: &[bool]) -> (Vec<u32>, Vec<usize>) {
+    let n = recv.len();
+    let mut root = vec![NONE; n];
+    let mut index = vec![NONE; n];
+    let mut count: Vec<usize> = Vec::new();
+    for &c in order {
+        let r = recv[c as usize];
+        let rt = if ocean[r as usize] { c } else { root[r as usize] };
+        root[c as usize] = rt;
+        if index[rt as usize] == NONE {
+            index[rt as usize] = count.len() as u32;
+            count.push(0);
+        }
+        count[index[rt as usize] as usize] += 1;
+    }
+    let mut start = vec![0usize; count.len() + 1];
+    for i in 0..count.len() {
+        start[i + 1] = start[i] + count[i];
+    }
+    let mut at = start.clone();
+    let mut cells = vec![0u32; order.len()];
+    for &c in order {
+        let k = index[root[c as usize] as usize] as usize;
+        cells[at[k]] = c;
+        at[k] += 1;
+    }
+    (cells, start)
+}
+
+/// Writes from parallel basins into one slice: sound because basins share no cell.
+#[derive(Clone, Copy)]
+struct Shared(*mut f32);
+unsafe impl Send for Shared {}
+unsafe impl Sync for Shared {}
+impl Shared {
+    unsafe fn get(&self, i: usize) -> f32 {
+        *self.0.add(i)
+    }
+    unsafe fn set(&self, i: usize, v: f32) {
+        *self.0.add(i) = v
+    }
+}
+
 pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
     let n = g.n();
     let ocean = oceans(g, h, sea);
     let mut w: Vec<f32> = h.iter().zip(&ocean).map(|(&v, &o)| if o { sea } else { v }).collect();
     let mut done = ocean.clone();
-    let mut q = BinaryHeap::new();
-    for c in 0..n as u32 {
-        if !done[c as usize] && g.around(c).any(|o| ocean[o as usize]) {
-            done[c as usize] = true;
-            q.push(Reverse((key(w[c as usize]), c)));
-        }
+    let coast: Vec<u32> = (0..n as u32).into_par_iter().filter(|&c| !ocean[c as usize] && g.around(c).any(|o| ocean[o as usize])).collect();
+    let mut q = Radix::new();
+    for &c in &coast {
+        done[c as usize] = true;
+        q.push((key(w[c as usize]) as u64) << 32 | c as u64);
     }
     let mut order = Vec::with_capacity(n / 2);
-    while let Some(Reverse((_, c))) = q.pop() {
+    while let Some(x) = q.pop() {
+        let c = x as u32;
         order.push(c);
         let wc = w[c as usize];
         for o in g.around(c) {
             if !done[o as usize] {
                 done[o as usize] = true;
                 w[o as usize] = h[o as usize].max(wc + EPS);
-                q.push(Reverse((key(w[o as usize]), o)));
+                q.push((key(w[o as usize]) as u64) << 32 | o as u64);
             }
         }
     }
@@ -424,41 +512,51 @@ pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
         })
         .collect();
     let mut area: Vec<f32> = (0..n as u32).into_par_iter().map(|c| g.area(c)).collect();
-    for &c in order.iter().rev() {
-        let r = recv[c as usize];
-        if r != NONE && !ocean[r as usize] {
-            area[r as usize] += area[c as usize];
+    let (cells, start) = basins(&order, &recv, &ocean);
+    let a = Shared(area.as_mut_ptr());
+    (0..start.len() - 1).into_par_iter().for_each(|k| {
+        for &c in cells[start[k]..start[k + 1]].iter().rev() {
+            let r = recv[c as usize];
+            if !ocean[r as usize] {
+                // SAFETY: c and r are in basin k, which no other thread touches
+                unsafe { a.set(r as usize, a.get(r as usize) + a.get(c as usize)) };
+            }
         }
-    }
-    Drainage { w, recv, order, area, ocean }
+    });
+    Drainage { w, recv, order, area, ocean, cells, start }
 }
 
 /// Stage 3 at one level: uplift against stream-power erosion, solved implicitly along the receivers
 /// (Braun and Willett 2013; the scheme of Cordonnier et al. 2016), with hillslope diffusion, the sea level
 /// cut at the ocean share every step. Returns the largest change of the last step (metres).
-pub fn erode(g: &Grid, h: &mut [f32], u: &[f32], p: &Params, iters: usize) -> f32 {
+pub fn erode(g: &Grid, h: &mut [f32], u: &[f32], p: &Params, iters: usize, dt: f32) -> f32 {
     let mut last = 0.0;
     let n = g.n();
     for _ in 0..iters {
         let sea = quantile(h, p.ocean_share);
         let d = drain(g, h, sea);
         let before = h.to_vec();
-        for &c in &d.order {
-            let c = c as usize;
-            if d.w[c] - h[c] > LAKE {
-                // a lake floor: it fills, nothing cuts it
-                h[c] += u[c].max(0.0);
-                continue;
+        let hs = Shared(h.as_mut_ptr());
+        (0..d.start.len() - 1).into_par_iter().for_each(|k| {
+            for &c in &d.cells[d.start[k]..d.start[k + 1]] {
+                let c = c as usize;
+                // SAFETY: c and its receiver are in basin k, which no other thread touches
+                let hc = unsafe { hs.get(c) };
+                if d.w[c] - hc > LAKE {
+                    // a lake floor: it fills, nothing cuts it
+                    unsafe { hs.set(c, hc + dt * u[c].max(0.0)) };
+                    continue;
+                }
+                let r = d.recv[c] as usize;
+                let base = if d.ocean[r] { sea } else { let hr = unsafe { hs.get(r) }; if d.w[r] - hr > LAKE { d.w[r] } else { hr } };
+                let f = dt * p.k * d.area[c].powf(p.m_exp) / g.dist(c as u32, r as u32);
+                unsafe { hs.set(c, ((hc + dt * u[c]) + f * base) / (1.0 + f)) };
             }
-            let r = d.recv[c] as usize;
-            let base = if d.ocean[r] { sea } else if d.w[r] - h[r] > LAKE { d.w[r] } else { h[r] };
-            let f = p.k * d.area[c].powf(p.m_exp) / g.dist(c as u32, r as u32);
-            h[c] = ((h[c] + u[c]) + f * base) / (1.0 + f);
-        }
+        });
         // the sea floor rises with the arcs and sinks into the trenches, within bounds
         for c in 0..n {
             if d.ocean[c] {
-                h[c] = (h[c] + u[c] * 0.5).max(-120.0);
+                h[c] = (h[c] + dt * u[c] * 0.5).max(-120.0);
             }
         }
         // hillslope diffusion on land; the sea's neighbours count at the waterline, so coasts stay
@@ -474,7 +572,7 @@ pub fn erode(g: &Grid, h: &mut [f32], u: &[f32], p: &Params, iters: usize) -> f3
                 s += (if d.ocean[o as usize] { sea.max(snap[o as usize]) } else { snap[o as usize] } - snap[c]) / l2;
                 wsum += 1.0 / l2;
             }
-            let a = (p.kappa * wsum).min(0.5) / wsum.max(1e-12);
+            let a = (dt * p.kappa * wsum).min(0.5) / wsum.max(1e-12);
             *hv = snap[c] + a * s;
         });
         last = (0..n).filter(|&c| !d.ocean[c]).map(|c| (h[c] - before[c]).abs()).fold(0.0, f32::max);
@@ -569,7 +667,7 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
     let tc = tectonics(&gc, seed, p);
     lap("plates and boundaries", &mut times);
     let mut hc = tc.h0.clone();
-    let conv_c = erode(&gc, &mut hc, &tc.uplift, p, p.coarse_iters);
+    let conv_c = erode(&gc, &mut hc, &tc.uplift, p, p.coarse_iters, p.coarse_dt);
     lap("erosion, coarse", &mut times);
     if std::env::var("SEAMS").is_ok() {
         eprintln!("seams h0 {:?} uplift {:?} coarse {:?}", seam_steps(&gc, &tc.h0), seam_steps(&gc, &tc.uplift), seam_steps(&gc, &hc));
@@ -587,7 +685,7 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
     let (plate, boundary) = (to_fine(&tc.plate), to_fine(&tc.boundary));
     let continental: Vec<bool> = (0..gf.n() as u32).map(|c| tc.continental[gc.locate(gf.d(c)) as usize]).collect();
     lap("refine", &mut times);
-    let conv_f = erode(&gf, &mut h, &u, p, p.fine_iters);
+    let conv_f = erode(&gf, &mut h, &u, p, p.fine_iters, p.fine_dt);
     lap("erosion, fine", &mut times);
     if std::env::var("SEAMS").is_ok() {
         eprintln!("seams fine {:?}", seam_steps(&gf, &h));
@@ -680,5 +778,63 @@ impl Bake {
             h = fnv(h, &l.level.to_bits().to_le_bytes());
         }
         h
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The fast drainage (radix heap, basins in parallel) against the slow path it replaced, kept here as
+    /// the reference: a binary-heap Priority-Flood and one serial sweep of the area. Same order, same water
+    /// level, the same area to the bit.
+    #[test]
+    fn the_fast_drainage_matches_the_slow_path() {
+        let g = Grid::new(48, 1000.0);
+        let n = g.n();
+        let h: Vec<f32> = (0..n)
+            .map(|c| {
+                let d = g.dir[c];
+                let x = (c as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40;
+                40.0 * (3.0 * d[0]).sin() * (2.0 * d[1]).cos() + 25.0 * d[2] + (x % 1000) as f32 * 0.004
+            })
+            .collect();
+        let sea = quantile(&h, 0.5);
+        let d = drain(&g, &h, sea);
+
+        let ocean = oceans(&g, &h, sea);
+        let mut w: Vec<f32> = h.iter().zip(&ocean).map(|(&v, &o)| if o { sea } else { v }).collect();
+        let mut done = ocean.clone();
+        let mut q = BinaryHeap::new();
+        for c in 0..n as u32 {
+            if !done[c as usize] && g.around(c).any(|o| ocean[o as usize]) {
+                done[c as usize] = true;
+                q.push(Reverse((key(w[c as usize]), c)));
+            }
+        }
+        let mut order = Vec::new();
+        while let Some(Reverse((_, c))) = q.pop() {
+            order.push(c);
+            let wc = w[c as usize];
+            for o in g.around(c) {
+                if !done[o as usize] {
+                    done[o as usize] = true;
+                    w[o as usize] = h[o as usize].max(wc + EPS);
+                    q.push(Reverse((key(w[o as usize]), o)));
+                }
+            }
+        }
+        let mut area: Vec<f32> = (0..n as u32).map(|c| g.area(c)).collect();
+        for &c in order.iter().rev() {
+            let r = d.recv[c as usize];
+            if r != NONE && !ocean[r as usize] {
+                area[r as usize] += area[c as usize];
+            }
+        }
+        assert!(order.len() > n / 4, "too little land to test: {}", order.len());
+        assert!(d.start.len() > 2, "one basin only");
+        assert_eq!(d.order, order, "flood order");
+        assert!(d.w.iter().zip(&w).all(|(a, b)| a.to_bits() == b.to_bits()), "water level");
+        assert!(d.area.iter().zip(&area).all(|(a, b)| a.to_bits() == b.to_bits()), "area");
     }
 }
