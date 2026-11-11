@@ -581,6 +581,35 @@ mod tests {
         assert!(along(&p) > 4.0, "a jump clears it: {} m along", along(&p));
     }
 
+    /// A level floor never stops a walk, whichever way it goes: the pull's up is a hair off the grid's
+    /// (the other body tilts it), so a level move can point into the floor (found in play, ADR 0033).
+    #[test]
+    fn a_level_floor_is_walked_every_way() {
+        let mut w = World::new(6144, 256, 1337);
+        let d = w.bodies[0].spawn;
+        let b0 = w.block_at(w.bodies[0].centre + d * (w.bodies[0].height(d) - 0.5));
+        for dx in -8..=8 {
+            for dy in -8..=8 {
+                for dz in 0..=5 {
+                    w.set_block(Block { pos: b0.pos + glam::IVec3::new(dx, dy, dz), ..b0 }, if dz == 0 { 3 } else { 0 });
+                }
+            }
+        }
+        let start = w.block_centre(b0);
+        let u = up(&w, start);
+        for k in 0..8 {
+            let a = k as f64 * std::f64::consts::FRAC_PI_4;
+            let dir = tangent(DVec3::X, u, DVec3::Z);
+            let dir = dir * a.cos() + dir.cross(u) * a.sin();
+            let mut p = Player::at(start + u * 0.6, dir);
+            let f = dir.as_vec3().to_array();
+            run(&w, &mut p, &Input { fwd: f, ..Default::default() }, 1.0);
+            run(&w, &mut p, &Input { mv: [1.0, 0.0], fwd: f, ..Default::default() }, 1.0);
+            let moved = (p.pos - start).reject_from(u).length();
+            assert!(moved > 3.5, "walked {moved} m in 1 s, way {k}");
+        }
+    }
+
     #[test]
     fn walks_over_hills_without_sinking() {
         let w = world();

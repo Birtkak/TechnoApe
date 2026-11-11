@@ -69,8 +69,15 @@ simulation, in world crafting, chisseling and building intricate things".
   blocks now, the default height 4); a recording that starts from an older save replayed as nonsense;
   the dam-break test still counted half metres; a bot test dug the same block twice by half the seeds; a
   start point's clearance was sized for half-metre steps.
+- **The water's small thresholds stay in block units**, so twice as large in metres (a 3 cm film, 12 cm/s
+  for calm). Tried halving them to keep the metres: water then stays awake longer for a film nobody sees
+  on a 1 m block (the ledge's run-off and the slow fill both took over their time), so the cheaper
+  values stand (CPU first).
+- **A lamp still lights 8 m**, now 8 blocks where it was 16: the same light in the world. Wider is a
+  taste call with a GPU cost, not taken here.
+- **The floor snag** (a walk standing still on level ground once the step-up was gone) has its test:
+  `a_level_floor_is_walked_every_way`, 0.8 m in a second without the 2 cm lift.
 - **Tuning left for after, each a look or a measurement:** the sea's top sits up to a block from its
-  nominal depth (0.4 m over on Terra, so the lowest shore is wet); the water's small thresholds are in
-  block units and so twice as large in metres (3 cm, 12 cm/s) and a slow fill now takes up to three
-  minutes to lie flat; a lamp's 8 m is 8 blocks of light, where it was 16; the soak's bots still dig
+  nominal depth (0.4 m over on Terra, so the lowest shore is wet); a slow fill of an 80 m basin takes up to three minutes to lie flat (its waves have twice as far
+  to go); the soak's bots still dig
   2 x 2 x 2 groups, now 2 m.
