@@ -2,6 +2,7 @@
 mod gi;
 mod hud;
 mod rt;
+mod sim;
 mod sys;
 mod water;
 
@@ -996,6 +997,8 @@ struct App {
     /// The lamps near the camera (`gather_lamps`), and the frame and edit count they were gathered at.
     lamps: Vec<(u8, DVec3, [f32; 3])>,
     lamps_at: (u64, u64),
+    /// The local server's tick lengths in ms, for every run but play (ADR 0025, S).
+    tick_log: Option<Arc<std::sync::Mutex<Vec<f32>>>>,
     /// What the overlay buffers hold: the ghost's shape and colour, its vertex count, the rectangle count.
     ghost_of: Option<(Shape, [u8; 4])>,
     ghost_n: u32,
@@ -2013,6 +2016,13 @@ impl App {
         self.last_frame = now;
         let t = self.loaded_at.map(|l| (now - l).as_secs_f64()).unwrap_or(0.0);
         let measuring = self.loaded_at.is_some() && t >= warm;
+        // the tick and job numbers count from the measuring on, and play keeps none
+        if !measuring || self.run == "play" {
+            self.streamer.job_times.clear();
+            if let Some(v) = &self.tick_log {
+                v.lock().unwrap().clear();
+            }
+        }
         let len = if self.run == "play" { a.get("seconds", f64::INFINITY) } else { run_len(&self.run, warm, q) };
         if t >= len && self.loaded_at.is_some() {
             self.finish();
@@ -3023,6 +3033,31 @@ impl App {
             stages += &format!("\"gpu_alloc_mb\":{:.0},\"gpu_reserved_mb\":{:.0},", r.total_allocated_bytes as f64 / 1e6, r.total_reserved_bytes as f64 / 1e6);
         }
         stages += &format!("\"job_us_after_load\":{job_us_after:.0},\"jobs_after_load\":{later},\"walks\":{},\"tlas_builds\":{},", self.streamer.walks, self.rt.as_ref().map_or(0, |r| r.tlas_builds));
+        // ADR 0025, S: the server's ticks, the workers' jobs and what each holds of the cores over the measured time
+        if let Some(v) = &self.tick_log {
+            let mut v = v.lock().unwrap().clone();
+            let busy = v.iter().map(|x| *x as f64).sum::<f64>() / 1000.0;
+            stages += &format!(
+                "\"ticks\":{},\"tick_ms_p50\":{:.3},\"tick_ms_p99\":{:.3},\"tick_ms_max\":{:.3},\"tick_cores\":{:.3},",
+                v.len(),
+                pct(&mut v, 0.5),
+                pct(&mut v, 0.99),
+                pct(&mut v, 1.0),
+                busy / secs.max(1e-9)
+            );
+        }
+        let jobs = std::mem::take(&mut self.streamer.job_times);
+        let (mut wait, work): (Vec<f32>, Vec<f32>) = jobs.iter().map(|&(w, u)| (w / 1000.0, u)).unzip();
+        let frame_busy = s.cpu_ms.iter().map(|x| *x as f64).sum::<f64>() / 1000.0;
+        stages += &format!(
+            "\"jobs_measured\":{},\"job_wait_ms_p50\":{:.3},\"job_wait_ms_p99\":{:.3},\"job_wait_ms_max\":{:.3},\"worker_cores\":{:.3},\"frame_cores\":{:.3},",
+            jobs.len(),
+            pct(&mut wait, 0.5),
+            pct(&mut wait, 0.99),
+            pct(&mut wait, 1.0),
+            work.iter().map(|x| *x as f64).sum::<f64>() / 1e6 / secs.max(1e-9),
+            frame_busy / secs.max(1e-9)
+        );
         let line = line.replacen("\"spikes\":", &format!("{}{}{}\"spikes\":", self.shot_json, self.feel(), stages), 1);
         println!("{}", line);
         if let Some(path) = a.0.get("out") {
@@ -3235,6 +3270,7 @@ fn main() {
     // (planet= and moon= are columns per face edge: 12288 is the 4 km planet, the standard; 24576 the 8 km huge
     // one; 1536 the benchmark's 500 m class)
     let mut local_server = None;
+    let mut tick_log = None;
     let (mut save_path, mut rec_path) = (None, None);
     let link: Link<ToServer, ToClient> = match args.0.get("connect") {
         Some(addr) => {
@@ -3269,9 +3305,17 @@ fn main() {
             }
             let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let st = stop.clone();
+            if run != "play" {
+                let v = Arc::new(std::sync::Mutex::new(Vec::new()));
+                server.tick_ms = Some(v.clone());
+                tick_log = Some(v);
+            }
             local_server = Some((stop, std::thread::spawn(move || server.run(TICK_HZ, &st))));
             let (c, s) = net::local();
             accept_tx.send(s).unwrap();
+            if run == "sim" {
+                sim::start(accept_tx.clone(), args.get("bots", 50), seed as u64);
+            }
             c
         }
     };
@@ -3289,6 +3333,11 @@ fn main() {
     // the server spawns players on the +y pole; the client starts its prediction there too
     let spawn = world.bodies[0].spawn_point();
     assert!(world.bodies.len() <= MAX_BODIES);
+    // run=sim stands at the spawn, among its players (sim.rs)
+    if run == "sim" && !args.0.contains_key("at") {
+        let s = world.bodies[0].spawn;
+        args.0.insert("at".into(), format!("{},{},{}", s.x, s.y, s.z));
+    }
     // place=di:dj:dl:block,... (a name, _ for a space) sets blocks around the stand point, the air block at its
     // feet the origin: lamps or metal in a shot without a session. Only the client's world has them.
     if run != "play" {
@@ -3329,6 +3378,7 @@ fn main() {
         gi: None,
         lamps: Vec::new(),
         lamps_at: (0, u64::MAX),
+        tick_log,
         world,
         link,
         me: phys::Player::at(spawn, DVec3::X),

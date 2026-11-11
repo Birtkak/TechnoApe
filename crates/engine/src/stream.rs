@@ -96,6 +96,8 @@ pub struct JobResult {
     version: u32,
     mesh: Option<Mesh>,
     pub us: f64,
+    /// From the request to a worker taking it up.
+    wait_us: f32,
 }
 
 /// One drawable range of the quad buffer: `len` quads, the last `water` of them the sea's surface.
@@ -162,6 +164,8 @@ pub struct Streamer {
     pub opts: Opts,
     pub job_us_total: f64,
     pub jobs_done: u64,
+    /// Every applied job's wait for a worker and its own time, in us, until the owner takes them (ADR 0025, S).
+    pub job_times: Vec<(f32, f32)>,
     pub alloc_fail: u64,
     pub ahead_reqs: Vec<(f64, Key)>,
     walk: Option<Walk>,
@@ -268,6 +272,7 @@ impl Streamer {
             opts,
             job_us_total: 0.0,
             jobs_done: 0,
+            job_times: Vec::new(),
             alloc_fail: 0,
             ahead_reqs: Vec::new(),
             walk: None,
@@ -488,8 +493,10 @@ impl Streamer {
                 Some(_) if 1 << k.level <= TILE => world.water.wet_tiles(k.body, k.face, k.base().x, k.base().y, k.span()),
                 _ => Vec::new(),
             };
+            let queued = Instant::now();
             rayon::spawn(move || {
                 let t = Instant::now();
+                let wait_us = (t - queued).as_secs_f32() * 1e6;
                 let body = &bodies[k.body as usize];
                 let gen = generate(body, k, &edits);
                 let mut mesh = match &gen {
@@ -502,7 +509,7 @@ impl Streamer {
                     m.water = sea.len() as u32;
                     m.quads.extend(sea);
                 }
-                let _ = tx.send(JobResult { key: k, version, mesh, us: t.elapsed().as_secs_f64() * 1e6 });
+                let _ = tx.send(JobResult { key: k, version, mesh, us: t.elapsed().as_secs_f64() * 1e6, wait_us });
             });
         }
         reqs.clear();
@@ -516,6 +523,7 @@ impl Streamer {
             self.inflight -= 1;
             self.jobs_done += 1;
             self.job_us_total += r.us;
+            self.job_times.push((r.wait_us, r.us as f32));
             let Some(s) = self.slots.get_mut(&r.key) else { continue };
             s.inflight = false;
             if r.version < s.shown_v {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The shared benchmark (docs/plans/roadmap.md): 3 reps per run at half length, off-screen, every run with a
-# hard timeout. The default (small strips) takes about 8 min; base and huge add about 6 min each.
+# hard timeout. The default (small strips) takes about 9 min; base and huge add about 6 min each.
 # Usage: bash tools/bench.sh [base|small|huge|strips]...   then: python -I tools/summarize.py
 # Lines go to out/raw.jsonl, the rep log to out/reps.log. Build first: cargo build --release
 cd "$(dirname "$0")/.."
@@ -39,8 +39,8 @@ steps=${*:-small strips}
 for s in $steps; do case $s in
 base) # the benchmark planet (500 m class), comparable over time
   for i in 1 2 3; do for r in stand fly orbit edit; do go base $r planet=1536; done; done ;;
-small) # the standard 4 km planet (ADR 0021) must hold the budget
-  for i in 1 2 3; do for r in stand fly orbit edit; do go small $r planet=12288; done; done ;;
+small) # the standard 4 km planet (ADR 0021) must hold the budget; sim is stand with 50 players at work (ADR 0025, S)
+  for i in 1 2 3; do for r in stand fly orbit edit sim; do go small $r planet=12288; done; done ;;
 huge) # the huge 8 km planet (ADR 0021)
   for i in 1 2 3; do for r in stand fly orbit edit; do go huge $r planet=24576; done; done ;;
 strips)

@@ -16,3 +16,12 @@ for (label, radius, run), rs in groups.items():
     ok = "ok" if all(r["budget_ok"] for r in rs) else "FAIL"
     print(f"| {label} | {radius:g} | {run} | {len(rs)} | median | " + " | ".join(med) + " | | |")
     print(f"| | | | | worst | " + " | ".join(worst) + f" | {ok} | {sum(len(r['spikes']) for r in rs)} |")
+
+# the runs with a simulation in them (run=sim, ADR 0025 S): the server's tick and the workers' queue
+S = ["players", "tick_ms_p50", "tick_ms_p99", "tick_ms_max", "tick_cores", "job_wait_ms_p99", "worker_cores", "frame_cores"]
+sims = {k: rs for k, rs in groups.items() if all("tick_ms_p99" in r and r["players"] > 1 for r in rs)}
+if sims:
+    print("\n| series | planet m | run | reps | | " + " | ".join(S) + " |\n|" + "---|" * (len(S) + 5))
+    for (label, radius, run), rs in sims.items():
+        print(f"| {label} | {radius:g} | {run} | {len(rs)} | median | " + " | ".join(f"{statistics.median(r[f] for r in rs):g}" for f in S) + " |")
+        print(f"| | | | | worst | " + " | ".join(f"{max(r[f] for r in rs):g}" for f in S) + " |")

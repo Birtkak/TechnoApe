@@ -126,6 +126,8 @@ pub struct Server {
     pub water_bytes: u64,
     /// Every water tile that ever changed: the tick it last changed (its version) and its centre.
     tiles: FxMap<Col, (u64, DVec3)>,
+    /// When set, `run` adds every tick's length in ms (ADR 0025, S: the benchmark line's tick numbers).
+    pub tick_ms: Option<std::sync::Arc<std::sync::Mutex<Vec<f32>>>>,
 }
 
 impl Server {
@@ -150,6 +152,7 @@ impl Server {
             water_skipped: 0,
             water_bytes: 0,
             tiles: FxMap::default(),
+            tick_ms: None,
         }
     }
 
@@ -279,7 +282,11 @@ impl Server {
         let step = Duration::from_secs_f64(1.0 / hz);
         let mut next = Instant::now();
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+            let t = Instant::now();
             self.tick();
+            if let Some(v) = &self.tick_ms {
+                v.lock().unwrap().push(t.elapsed().as_secs_f32() * 1000.0);
+            }
             next += step;
             match next.checked_duration_since(Instant::now()) {
                 Some(d) => std::thread::sleep(d),
