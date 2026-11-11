@@ -1,0 +1,24 @@
+[package]
+name = "world-bake"
+version = "0.1.0"
+edition = "2021"
+description = "Throwaway spike: the bake of Terra's land (worldgen W1). Nothing depends on it."
+
+# its own workspace: not a member of the game's
+[workspace]
+
+[dependencies]
+glam = "0.34"
+rayon = "1"
+fastnoise-lite = "1"
+png = "0.18"
+flate2 = "1"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# the tests bake small planets; unoptimised they take minutes
+[profile.test]
+opt-level = 3
