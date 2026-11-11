@@ -12,6 +12,8 @@ struct Post {
     cfg: vec4u,    // x the frames a history holds at most, y the smoothing step, z the frame number,
                    // w 1 when the bounce light is off
     tune: vec4f,   // rgb the flat fill that stands in for the bounce then; w the screen's brightness
+    air: vec4f,    // rgb the air's colour at the horizon; w how fast the ground fades into it, per metre
+    amb: vec4f,    // rgb the sky's own light on every surface, so a shadow keeps its colour
 };
 
 @group(0) @binding(0) var<uniform> u: Post;
@@ -174,6 +176,11 @@ fn fs_composite(@builtin(position) pos: vec4f) -> @location(0) vec4f {
         }
         let bounce = select(textureLoad(bounce_t, min(px / 2, hs - 1), 0).rgb, sum / ws, ws > 1e-4);
         c += textureLoad(albedo_t, px, 0).rgb * bounce;
+    }
+    if (gb.w > 0.0) {
+        // a shadow is lit by the whole sky, not black; and far ground fades into the air (ADR 0030)
+        c += textureLoad(albedo_t, px, 0).rgb * u.amb.rgb;
+        c = mix(c, u.air.rgb, 1.0 - exp(-gb.w * u.air.w));
     }
     c = shoulder(c);
     // the settings' brightness: a curve over the finished picture, 1 leaves it as it is

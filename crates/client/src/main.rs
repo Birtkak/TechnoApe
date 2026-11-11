@@ -430,6 +430,8 @@ fn main() {
         held: None,
         slot: 0,
         held_name: (usize::MAX, Instant::now()),
+        acted: (Instant::now() - Duration::from_secs(10), [0.0; 3], 0),
+        world_notes: Vec::new(),
         creative,
         inv: Vec::new(),
         bucket_water: 0,

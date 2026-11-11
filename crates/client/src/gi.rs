@@ -21,6 +21,10 @@ struct Post {
     cfg: [u32; 4],
     /// The fill light when the bounce is off (rgb) and the screen's brightness (the settings').
     tune: [f32; 4],
+    /// The air between the camera and what it sees: its colour at the horizon (rgb) and how fast the ground
+    /// fades into it, per metre (w); and the sky's own light on every surface, shadows too (rgb).
+    air: [f32; 4],
+    amb: [f32; 4],
 }
 
 pub struct Gi {
@@ -282,7 +286,7 @@ impl Gi {
     /// After the terrain pass: trace, gather over frames, smooth. `cam` is the camera in frame `cf`'s
     /// coordinates; a change of frame or a jump drops the history. `still` averages without a limit.
     /// `stamp(enc, k)` writes the timer after the trace (0) and after `temporal` (1) (ADR 0025).
-    pub fn record(&mut self, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, vp: Mat4, cam: DVec3, cf: usize, still: bool, tune: (bool, [f32; 4]), stamp: &mut dyn FnMut(&mut wgpu::CommandEncoder, usize)) {
+    pub fn record(&mut self, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, vp: Mat4, cam: DVec3, cf: usize, still: bool, tune: (bool, [f32; 4], [f32; 4], [f32; 4]), stamp: &mut dyn FnMut(&mut wgpu::CommandEncoder, usize)) {
         let p = (self.frame % 2) as usize;
         let (prev_vp, delta, reset) = match self.prev {
             Some((pvp, pcam, pcf)) if pcf == cf && (cam - pcam).length() < 20.0 => (pvp, (cam - pcam).as_vec3(), 0.0),
@@ -306,6 +310,8 @@ impl Gi {
                 delta: [delta.x, delta.y, delta.z, reset],
                 cfg: [cap, step, self.frame as u32, !tune.0 as u32],
                 tune: tune.1,
+                air: tune.2,
+                amb: tune.3,
             };
             queue.write_buffer(u, 0, bytemuck::bytes_of(&post));
         }

@@ -79,6 +79,10 @@ pub(crate) struct App {
     pub(crate) aim: Option<(Block, Block)>,
     pub(crate) held: Option<(bool, Block, Block)>,
     pub(crate) slot: usize,
+    /// The last dig or place: when, the colour of what was dug or placed, and a number that shapes its sparks.
+    pub(crate) acted: (Instant, [f32; 3], u32),
+    /// What each world of the Singleplayer list is (seed, size, last played), beside `worlds`.
+    pub(crate) world_notes: Vec<String>,
     /// The slot whose block's name shows over the hotbar, and since when.
     pub(crate) held_name: (usize, Instant),
     pub(crate) creative: bool,

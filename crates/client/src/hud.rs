@@ -336,13 +336,13 @@ fn panels_size(list: &[Section], px: f32) -> (f32, f32) {
 
 /// What the crosshair is on, top middle: a swatch of the block's colour, its name, and under it what is
 /// worth knowing about it (empty for most blocks).
-pub fn looking_at(p: &mut Paint, name: &str, colour: [f32; 3], side: [f32; 3], note: &str, y: f32) {
+pub fn looking_at(p: &mut Paint, name: &str, colour: [f32; 3], side: [f32; 3], pattern: u8, note: &str, y: f32) {
     let w = text_width(name).max(text_width(note)) + 34.0 + 20.0;
     let h = if note.is_empty() { LINE + 12.0 } else { 2.0 * LINE + 12.0 };
     let x = (p.w - w) / 2.0;
     glass(p, x, y, w, h);
     brackets(p, [x - 4.0, y - 4.0, w + 8.0, h + 8.0], 8.0, false, CYAN);
-    cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 8.0, y + 4.0, 24.0, colour, side, 1.0);
+    cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 6.0, y + (h - 16.0) / 2.0, 16.0, colour, side, pattern, 1.0);
     p.text(x + 10.0 + 34.0, y + 7.0, name, [0.95, 0.95, 0.95, 1.0]);
     if !note.is_empty() {
         p.text(x + 10.0 + 34.0, y + 7.0 + LINE, note, [0.62, 0.72, 0.82, 1.0]);
@@ -734,28 +734,75 @@ pub fn marker(p: &mut Paint, base: (f32, f32), top: (f32, f32), colour: [f32; 3]
     p.text_px(x + 26.0 + chars(name) + 12.0, y + 5.0, far, [0.62, 0.72, 0.82, 1.0], px);
 }
 
-/// A little cube of a block, seen from above a corner, in the square at (x, y): its top in `top`, the two
-/// sides it shows in `side`, the right one in shade. Rows of rectangles two pixels high.
-pub fn cube(rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32), x: f32, y: f32, size: f32, top: [f32; 3], side: [f32; 3], dim: f32) {
-    let (hw, q, tall) = (size / 2.0, size / 4.0, size / 2.0);
-    let shade = |c: [f32; 3], k: f32| [c[0] * k * dim, c[1] * k * dim, c[2] * k * dim, 1.0];
-    let mut r = 0.0;
-    while r < size {
-        let yy = r + 1.0;
-        // the top: a rhombus as wide as the square, half as high
-        let half = hw * (1.0 - (yy - q).abs() / q);
-        let odd = (r as i32 / 2) % 2 == 1;
-        if half > 0.0 {
-            rect(x + hw - half, y + r, half, 2.0, shade(top, if odd { 1.0 } else { 0.92 }), 0);
-            rect(x + hw, y + r, half, 2.0, shade(top, if odd { 0.92 } else { 1.0 }), 0);
+/// Sparks of a block's colour flying from the middle of the screen after a dig or a place: `age` seconds
+/// since it happened, gone after `SPARK_S`. Where each goes is fixed by its number and `seed`, so the burst
+/// is the same every frame of its life.
+pub const SPARK_S: f32 = 0.45;
+pub fn sparks(p: &mut Paint, age: f32, colour: [f32; 3], seed: u32) {
+    if !(0.0..SPARK_S).contains(&age) {
+        return;
+    }
+    let (cx, cy) = (p.w / 2.0, p.h / 2.0);
+    for k in 0..14u32 {
+        let mut h = seed.wrapping_add(k).wrapping_mul(0x9E37_79B1);
+        h ^= h >> 15;
+        h = h.wrapping_mul(0x2C1B_3C6D);
+        let (a, b, c) = ((h & 255) as f32 / 255.0, (h >> 8 & 255) as f32 / 255.0, (h >> 16 & 255) as f32 / 255.0);
+        // out and a little up, then down under their weight
+        let ang = a * std::f32::consts::TAU;
+        let speed = 120.0 + 260.0 * b;
+        let (x, y) = (cx + ang.cos() * speed * age, cy + (ang.sin() * speed - 140.0) * age + 900.0 * age * age);
+        let (size, tone) = (4.0 + 5.0 * c, 0.75 + 0.35 * b);
+        let fade = 1.0 - (age / SPARK_S).powi(2);
+        p.rect(x - size / 2.0, y - size / 2.0, size, size, [(colour[0] * tone).min(1.0), (colour[1] * tone).min(1.0), (colour[2] * tone).min(1.0), fade], 0);
+    }
+}
+
+/// A little cube of a block, seen from above a corner, in the square at (x, y), drawn texel by texel as
+/// the world draws a block (shader.wgsl `texel`): 8 x 8 texels a face in three tones of the block's colour,
+/// a grass block's sides its side block's with grass hanging over the top edge, dark cracks in stone. The
+/// left side is in half shade, the right in more. `pattern` is `engine::blocks::Pattern as u8`.
+pub fn cube(rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32), x: f32, y: f32, size: f32, top: [f32; 3], side: [f32; 3], pattern: u8, dim: f32) {
+    // a texel is 2u wide and u high on the top, u wide and u high on a side; the cube is 16u across and high
+    let u = (size / 16.0).floor().max(1.0);
+    let (x, y) = (x + (size - 16.0 * u) / 2.0, y + (size - 16.0 * u) / 2.0);
+    // the same noise for the same block every frame: seeded by its colours
+    let seed = (top[0] * 255.0) as u32 ^ ((top[1] * 255.0) as u32) << 8 ^ ((side[2] * 255.0) as u32) << 16;
+    let noise = |i: u32, j: u32, face: u32| {
+        let mut h = seed ^ i.wrapping_mul(0x9E37_79B1) ^ j.wrapping_mul(0x85EB_CA77) ^ face.wrapping_mul(0xC2B2_AE3D);
+        h ^= h >> 15;
+        h = h.wrapping_mul(0x2C1B_3C6D);
+        h ^= h >> 12;
+        (h & 0xFFFF) as f32 / 65536.0
+    };
+    let paint = |c: [f32; 3], h: f32, shade: f32| {
+        let mut k = (0.82 + 0.12 * (h * 3.0).floor()) * shade * dim;
+        if pattern == 2 && h > 0.94 {
+            k *= 0.6;
         }
-        // the sides: under the rhombus's lower edges, `tall` high
-        let (lo, hi) = (((yy - q - tall) / q * hw).clamp(0.0, hw), ((yy - q) / q * hw).clamp(0.0, hw));
-        if hi > lo {
-            rect(x + lo, y + r, hi - lo, 2.0, shade(side, if odd { 0.78 } else { 0.72 }), 0);
-            rect(x + size - hi, y + r, hi - lo, 2.0, shade(side, if odd { 0.52 } else { 0.56 }), 0);
+        [(c[0] * k).min(1.0), (c[1] * k).min(1.0), (c[2] * k).min(1.0), 1.0]
+    };
+    for i in 0..8u32 {
+        for j in 0..8u32 {
+            // the top: a diamond lattice, each texel a brick; the far ones first, the near ones over them
+            let h = noise(i, j, 0);
+            let c = paint(top, h, if pattern == 1 && h > 0.9 { 1.15 } else { 1.0 });
+            rect(x + (7.0 + i as f32 - j as f32) * u, y + (i + j) as f32 * u / 2.0, 2.0 * u, u, c, 0);
         }
-        r += 2.0;
+    }
+    for i in 0..8u32 {
+        // the two sides, column by column down from the top's lower edges
+        let fringe = 2 + (noise(i, 99, 1) * 3.0) as u32;
+        for k in 0..8u32 {
+            for (face, cx, cy, shade) in [
+                (1, x + i as f32 * u, y + 4.0 * u + (i as f32 + 1.0) * u / 2.0, 0.78),
+                (2, x + (8.0 + i as f32) * u, y + 8.0 * u - i as f32 * u / 2.0, 0.56),
+            ] {
+                // grass hangs two to four texels over a grass block's sides
+                let c = if pattern == 1 && k < fringe { top } else { side };
+                rect(cx, cy + k as f32 * u, u, u, paint(c, noise(i, k, face), shade), 0);
+            }
+        }
     }
 }
 
@@ -763,6 +810,8 @@ pub struct Slot {
     pub colour: [f32; 3],
     /// The colour of its sides (a grass block's are another block's).
     pub side: [f32; 3],
+    /// Its pattern (`engine::blocks::Pattern as u8`): plain, grass, stone.
+    pub pattern: u8,
     pub count: Option<u32>,
 }
 
@@ -831,7 +880,7 @@ pub fn layer(w: f32, h: f32, slots: &[Slot], selected: usize, creative: bool, to
         digits(&mut p, x + 4.0 + 6.0, y + 4.0 + 7.5, k as u32 + 1, 1.5, if on { CYAN } else { [0.62, 0.72, 0.82, 0.7] });
         if let Some(sl) = slots.get(k) {
             let dim = if sl.count == Some(0) { 0.35 } else { 1.0 };
-            cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 9.0, y + 10.0, size - 18.0, sl.colour, sl.side, dim);
+            cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 10.0, y + 12.0, 32.0, sl.colour, sl.side, sl.pattern, dim);
             if let Some(c) = sl.count {
                 digits(&mut p, x + size - 3.0, y + size - 3.0, c, 2.0, [1.0, 1.0, 1.0, 1.0]);
             }
@@ -893,12 +942,32 @@ mod tests {
     }
 
     #[test]
+    fn sparks_fly_out_from_the_middle_fade_and_end() {
+        let spread = |age: f32| {
+            let mut p = Paint::new(1920.0, 1080.0);
+            sparks(&mut p, age, [0.5, 0.3, 0.1], 7);
+            let far = p.out.iter().map(|r| ((r.xy[0] + r.xy[2]) / 2.0 * 960.0).hypot((r.xy[1] + r.xy[3]) / 2.0 * 540.0)).fold(0.0, f32::max);
+            (p.out.len(), far, p.out.first().map_or(0.0, |r| r.colour[3]))
+        };
+        let (early, late) = (spread(0.05), spread(0.4));
+        assert_eq!((early.0, late.0), (14, 14));
+        assert!(late.1 > early.1 * 3.0 && late.2 < early.2, "{early:?} then {late:?}");
+        assert_eq!((spread(SPARK_S).0, spread(-0.1).0), (0, 0), "none before it happens or after its time");
+    }
+
+    #[test]
     fn a_block_s_cube_fills_its_square_in_three_shades() {
         let mut p = Paint::new(100.0, 100.0);
         let mut rect = |x: f32, y: f32, w: f32, h: f32, c: [f32; 4], g: u32| p.rect(x, y, w, h, c, g);
-        cube(&mut rect, 10.0, 10.0, 32.0, [0.2, 0.8, 0.2], [0.5, 0.3, 0.1], 1.0);
-        let shades: std::collections::HashSet<[u32; 3]> = p.out.iter().map(|r| [r.colour[0], r.colour[1], r.colour[2]].map(|c| (c * 1000.0) as u32)).collect();
-        assert_eq!(shades.len(), 6, "the top and the two sides, each in two near shades");
+        cube(&mut rect, 10.0, 10.0, 32.0, [0.2, 0.8, 0.2], [0.5, 0.3, 0.1], 1, 1.0);
+        // 64 texels a face on three faces; a grass block: green on top and hanging over the brown sides
+        assert_eq!(p.out.len(), 3 * 64);
+        let green = |r: &&Rect| r.colour[1] > r.colour[0];
+        assert_eq!(p.out[..64].iter().filter(green).count(), 64, "the top is grass");
+        let sides = p.out[64..].iter().filter(green).count();
+        assert!((2 * 8 * 2..=2 * 8 * 4).contains(&sides), "two to four rows of grass over each side: {sides}");
+        let tones: std::collections::HashSet<u32> = p.out[..64].iter().map(|r| (r.colour[1] * 1000.0) as u32).collect();
+        assert!(tones.len() >= 3, "the top in at least three tones");
         // inside the square, and as wide as it where the top is widest
         let px = |v: f32| (v + 1.0) / 2.0 * 100.0;
         assert!(p.out.iter().all(|r| px(r.xy[0]) >= 9.99 && px(r.xy[2]) <= 42.01));
@@ -935,8 +1004,9 @@ mod tests {
     #[test]
     fn the_looked_at_block_is_named_in_the_middle_with_its_colour() {
         let mut p = Paint::new(1920.0, 1080.0);
-        looking_at(&mut p, "Copper", [0.8, 0.5, 0.2], [0.4, 0.2, 0.1], "metal", 10.0);
-        let swatch = p.out.iter().find(|r| r.colour == [0.8, 0.5, 0.2, 1.0]).expect("the block's colour");
+        looking_at(&mut p, "Copper", [0.8, 0.5, 0.2], [0.4, 0.2, 0.1], 0, "metal", 10.0);
+        // its cube: texels in tones of its colour (red over green over blue, as copper is)
+        let swatch = p.out.iter().find(|r| r.glyph == 0 && r.colour[0] > r.colour[1] && r.colour[1] > r.colour[2] && r.colour[0] > 0.5).expect("the block's colour");
         assert!(swatch.xy[0] < 0.0 && swatch.xy[3] > 0.9, "left of the middle, at the top");
         // the name and the note, a glyph and its shadow per letter
         let glyphs = p.out.iter().filter(|r| r.glyph != 0).count();
@@ -1043,7 +1113,7 @@ mod tests {
 
     #[test]
     fn the_layer_has_a_crosshair_and_nine_slots() {
-        let slots = [Slot { colour: [0.5; 3], side: [0.4; 3], count: Some(12) }];
+        let slots = [Slot { colour: [0.5; 3], side: [0.4; 3], pattern: 2, count: Some(12) }];
         let r = layer(1280.0, 720.0, &slots, 0, false, None, Some(("Grass", 1.0)));
         assert!(r.len() >= 2 + 1 + 9 * 2 + 4, "{}", r.len());
         assert!(r.iter().all(|r| r.xy[0] < r.xy[2] && r.xy[1] < r.xy[3] && r.xy.iter().all(|v| (-1.0..=1.0).contains(v))));

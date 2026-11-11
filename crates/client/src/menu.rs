@@ -56,6 +56,41 @@ fn a_removed_world_moves_aside_and_never_over_another() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// How long ago, in the largest unit that fits: "just now", "5 min ago", "3 h ago", "2 days ago".
+pub(crate) fn ago(secs: u64) -> String {
+    match secs {
+        0..=59 => "just now".into(),
+        60..=3599 => format!("{} min ago", secs / 60),
+        3600..=86_399 => format!("{} h ago", secs / 3600),
+        86_400..=172_799 => "yesterday".into(),
+        _ => format!("{} days ago", secs / 86_400),
+    }
+}
+
+/// What a world of the list is: its seed, its planet's size and when it was last played. A save this build
+/// cannot read says so, and is still listed.
+pub(crate) fn world_note(path: &str) -> String {
+    let played = std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).map_or(String::new(), |d| format!(", played {}", ago(d.as_secs())));
+    match server::save::Save::read(std::path::Path::new(path)) {
+        Ok(s) => {
+            let size = match s.planet_n {
+                12288 => "4 km".to_string(),
+                24576 => "8 km".to_string(),
+                n => format!("{n} columns"),
+            };
+            format!("seed {}, {size}{played}", s.seed)
+        }
+        Err(_) => format!("not readable by this build{played}"),
+    }
+}
+
+#[test]
+fn a_world_s_age_is_told_in_the_largest_unit_that_fits() {
+    let told: Vec<String> = [0, 59, 60, 3599, 3600, 86_399, 86_400, 172_800, 30 * 86_400].into_iter().map(ago).collect();
+    assert_eq!(told, ["just now", "just now", "1 min ago", "59 min ago", "1 h ago", "23 h ago", "yesterday", "2 days ago", "30 days ago"]);
+    assert!(world_note("no/such/file.sav").starts_with("not readable"));
+}
+
 /// The row of the "remove world k?" page that removes: never row k itself, where the pointer still is from
 /// the click that asked, so a second click by habit keeps the world.
 pub(crate) fn remove_row(k: usize) -> usize {
@@ -159,8 +194,8 @@ impl App {
             None => Vec::new(),
             Some(Menu::Title) => vec!["Singleplayer".into(), "Settings".into(), "Quit game".into()],
             Some(Menu::Worlds) => {
-                let names = self.worlds.iter().map(|p| p.trim_start_matches("saves/").trim_end_matches(".sav").to_string());
-                names.chain(["New world".into(), "Back".into()]).collect()
+                let names = self.worlds.iter().zip(&self.world_notes).map(|(p, n)| format!("{}   {n}", p.trim_start_matches("saves/").trim_end_matches(".sav")));
+                names.chain(["New world: Terra, 4 km, a seed of its own".into(), "Back".into()]).collect()
             }
             Some(Menu::Remove(k)) => {
                 let name = self.worlds.get(k).map_or("", |p| p.trim_start_matches("saves/").trim_end_matches(".sav"));
@@ -551,6 +586,7 @@ impl App {
     pub(crate) fn set_menu(&mut self, m: Option<Menu>) {
         if m == Some(Menu::Worlds) {
             self.worlds = list_worlds();
+            self.world_notes = self.worlds.iter().map(|p| world_note(p)).collect();
         }
         if m != self.menu {
             self.scroll = 0;
