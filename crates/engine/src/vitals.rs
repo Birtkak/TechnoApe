@@ -189,9 +189,12 @@ mod tests {
         assert!(stand < 0.5, "standing loses nothing: {stand}");
         p.pos += up * 13.0;
         let (most, _) = run(&w, &mut p, &Input::default(), 150);
-        let want = from(13.0, phys::pull(&w, p.pos).1);
-        assert!(p.on_ground && (most - want).abs() < 0.5, "{most} m/s, a 13 m fall lands at {want}");
-        assert!((impact_damage(most) as i32 - 10).abs() <= 1);
+        // (the pull is weaker up there, more so on this small test planet: ADR 0037; the landing lies
+        // between what the pull at the top and the pull at the ground would give)
+        let (lo, hi) = (from(13.0, phys::pull(&w, p.pos + up * 13.0).1), from(13.0, phys::pull(&w, p.pos).1));
+        assert!(p.on_ground && most > lo - 0.5 && most < hi + 0.5, "{most} m/s, a 13 m fall lands at {lo} to {hi}");
+        assert_eq!(impact_damage(most), impact_damage(hi).min(impact_damage(most)), "no more than the full pull's");
+        assert!(impact_damage(most) >= 7 && impact_damage(most) <= 11, "{}", impact_damage(most));
     }
 
     #[test]
