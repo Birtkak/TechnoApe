@@ -647,19 +647,39 @@ impl World {
             .map(|i| (x - self.pose(i, self.time).centre).length() - self.bodies[i].radius)
             .fold(f64::MAX, f64::min)
     }
-    /// Gravity at a position (ADR 0024), m/s^2 in its frame's coordinates: every body pulls towards its centre
-    /// where it is now, with G over all its terrain (within AMP of its radius) and the square of the distance
-    /// less past that, so down turns smoothly from one body to the other and fades out in deep space.
+    /// Gravity at a position (ADR 0024, 0037), m/s^2 in its frame's coordinates: every body pulls towards its
+    /// centre where it is now, the square of the distance less with height, so down turns smoothly from one
+    /// body to the other and fades out in deep space. At its radius a body pulls with `surface_g`; deeper in
+    /// a little more, up to 1.25 times at 0.9 of its radius and no more.
+    /// Near a moon its own fall around the planet cancels the planet's pull, so only the tide is left (Terra
+    /// pulls about 1.2 m/s^2 at Luna, more than half of Luna's own); that fades out by the edge of the moon's
+    /// sphere of influence, so gravity stays the same across the hand-over between frames.
     pub fn gravity(&self, p: DVec3) -> DVec3 {
         let f = self.frame_at(p);
-        (0..self.bodies.len())
-            .map(|i| {
-                let c = if i == f { self.nominal(f) } else { self.from_inertial(f, self.pose(i, self.time).centre) };
-                let d = c - p;
-                let r = d.length().max(1e-6);
-                d / r * G * ((self.bodies[i].radius + AMP) / r).min(1.0).powi(2)
-            })
-            .sum()
+        let mut centre = [DVec3::ZERO; 4];
+        for (i, c) in centre.iter_mut().enumerate().take(self.bodies.len()) {
+            *c = if i == f { self.nominal(f) } else { self.from_inertial(f, self.pose(i, self.time).centre) };
+        }
+        let pull_at = |x: DVec3| -> DVec3 {
+            (0..self.bodies.len())
+                .map(|i| {
+                    let d = centre[i] - x;
+                    let r = d.length().max(1e-6);
+                    d / r * self.surface_g(i) * (self.bodies[i].radius / r.max(0.9 * self.bodies[i].radius)).powi(2)
+                })
+                .sum()
+        };
+        let g = pull_at(p);
+        if f == 0 || f == INERTIAL {
+            return g;
+        }
+        let k = 1.0 - smooth01(((p - self.nominal(f)).length() / self.soi(f) - 0.5) / 0.47);
+        g - pull_at(self.nominal(f)) * k
+    }
+    /// Body i's pull at its radius (ADR 0037): G on the first (Terra) whatever its size, and on another the
+    /// square root of its radius over the first's, so Luna pulls about a fifth as hard.
+    pub fn surface_g(&self, i: usize) -> f64 {
+        G * (self.bodies[i].radius / self.bodies[0].radius).sqrt()
     }
     /// Up at a position: away from the body whose frame it is in; in deep space, away from the nearest body.
     pub fn up_at(&self, p: DVec3) -> DVec3 {

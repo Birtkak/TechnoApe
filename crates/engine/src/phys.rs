@@ -14,7 +14,9 @@ pub const WIDTH: f64 = 0.6;
 pub const HEIGHT: f64 = 1.8;
 pub const EYE: f64 = 1.6;
 pub const WALK: f64 = 4.3;
-pub const JUMP: f64 = 4.8; // about 1.2 m high
+/// The push of a jump, m/s, the same on every body: 1.25 m high at G stepped at DT (ADR 0037); higher
+/// where gravity is weaker.
+pub const JUMP: f64 = 4.87;
 pub const G: f64 = crate::world::G;
 /// Swimming (ADR 0020): rising speed with jump held, m/s; a body floats with this share of it under water.
 pub const SWIM: f64 = 2.0;
@@ -37,7 +39,7 @@ pub const HOLD: f64 = 8.0;
 pub const NEAR: f64 = 1500.0;
 /// Out of a hold the mouse's pitch turns the body itself and Q/E roll it, where the pull is under FREE_G or
 /// has not righted the body to within FREE_TILT yet; otherwise it tilts the head over the body's horizon.
-pub const FREE_G: f64 = 2.0;
+pub const FREE_G: f64 = 1.0;
 pub const FREE_TILT: f64 = 0.1;
 
 /// What a player wants this tick: `mv` is forward and right in -1..1, `pitch` the head's look over the body's
@@ -439,10 +441,10 @@ mod tests {
             let far = w.gravity(w.from_inertial(crate::world::INERTIAL, x));
             assert!((near - far).length() < 1e-9 * far.length().max(1e-6), "{near} against {far}");
         }
-        // G over the ground, the square of the distance less far out
+        // about G on the ground, the square of the distance less far out
         let g = ground(&w);
-        assert!((w.gravity(g).length() - G).abs() < 0.01 && w.gravity(g).dot(up(&w, g)) < 0.0);
-        let r = w.bodies[0].radius + crate::world::AMP;
+        assert!((w.gravity(g).length() - G).abs() < 0.05 * G && w.gravity(g).dot(up(&w, g)) < 0.0);
+        let r = w.bodies[0].radius;
         assert!((w.gravity(g.normalize() * r * 2.0).length() - G / 4.0).abs() < 0.01);
     }
 
@@ -540,6 +542,60 @@ mod tests {
         }
         assert!(peak > 0.9 && peak < 1.5, "peak {peak}");
         assert!(p.on_ground && (p.pos - floor).length() < 0.01);
+    }
+
+    /// The highest a jump at the client's step lifts the feet, standing at `floor` direction `d` of body `bi`.
+    fn peak(w: &World, bi: usize) -> (f64, f64) {
+        let b = &w.bodies[bi];
+        let d = if bi == 0 { b.spawn } else { DVec3::Y };
+        let mut p = Player::at(b.centre + d * (b.height(d) + 3.0), DVec3::X);
+        for _ in 0..240 {
+            step(w, &mut p, &Input::default(), DT);
+        }
+        assert!(p.on_ground);
+        let (floor, (up, g)) = (p.pos, pull(w, p.pos));
+        step(w, &mut p, &Input { jump: true, ..Default::default() }, DT);
+        let mut top: f64 = 0.0;
+        for _ in 0..600 {
+            step(w, &mut p, &Input::default(), DT);
+            top = top.max((p.pos - floor).dot(up));
+        }
+        assert!(p.on_ground);
+        (top, g)
+    }
+
+    /// Bug 2026-11-11_13-08-58 (ADR 0037): on Terra a jump tops out at 1.25 blocks; the same push on a
+    /// smaller body, with less gravity, goes higher.
+    #[test]
+    fn a_jump_is_a_block_and_a_quarter_on_terra_and_higher_on_luna() {
+        let w = World::new(6144, 256, 1337);
+        let (h, g) = peak(&w, 0);
+        // at the spawn the ground is a little off sea level, so the pull is a little off G
+        let want = 1.25 * G / g;
+        assert!((h - want).abs() < 0.015 && (h - 1.25).abs() < 0.05, "{h} m against {want} (pull {g})");
+        let (hl, gl) = peak(&w, 1);
+        eprintln!("Terra: {h:.3} m at {g:.3} m/s^2; Luna: {hl:.2} m at {gl:.3} m/s^2");
+        assert!(gl < G / 3.0 && hl > 4.0 && (hl * gl / (h * g) - 1.0).abs() < 0.03, "Luna: {hl} m at {gl}");
+    }
+
+    /// Gravity (ADR 0037): G at Terra's sea level whatever its size, the square root of its radius over
+    /// Terra's on another body, a little stronger deeper in (bounded), and the square of the distance less out.
+    #[test]
+    fn gravity_scales_with_the_body_and_grows_a_little_towards_the_core() {
+        for (n, m) in [(6144, 256), (768, 32)] {
+            let w = World::new(n, m, 1);
+            let (t, l) = (&w.bodies[0], &w.bodies[1]);
+            let at = |b: &crate::world::Body, r: f64| w.gravity(b.centre + DVec3::Y * r).length();
+            assert!((at(t, t.radius) - G).abs() < 1e-3, "{}", at(t, t.radius));
+            let gl = G * (l.radius / t.radius).sqrt();
+            assert!((at(l, l.radius) - gl).abs() < 0.02 * gl, "{} against {gl}", at(l, l.radius));
+            for b in [t, l] {
+                let s = at(b, b.radius);
+                assert!(at(b, b.radius - 30.0) > s && at(b, b.radius * 0.5) <= s * 1.25 + 1e-9);
+            }
+            // (out from Luna the planet's pull comes back in, so only Terra shows the plain square law)
+            assert!((at(t, t.radius * 2.0) - G / 4.0).abs() < 0.01 * G);
+        }
     }
 
     /// A ledge one block high stops a walk; a jump clears it (ADR 0033: no step-up on 1 m blocks).

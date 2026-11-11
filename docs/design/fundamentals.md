@@ -13,7 +13,7 @@
 | walk around at 4.3 m/s | 103 min | 207 min | 4 min |
 | horizon at eye height | 117 m | 165 m | 24 m |
 | sunset moves over the ground (20 min day) | 22 m/s | 44 m/s | – |
-| speed of a surface orbit / one lap | 204 m/s / 131 s | 289 m/s / 185 s | 17 m/s at lunar gravity |
+| speed of a surface orbit / one lap | 204 m/s / 131 s | 289 m/s / 185 s | 18 m/s at Luna's 1.9 m/s² |
 | surface | 226 km² | 905 km² | 0.4 km² |
 
 - Nobody on foot keeps up with the sunset.
@@ -40,7 +40,9 @@ in a `feel` report (section 4) next to the frame times.
 - Coyote time and a jump buffer of about 100 ms each; sprint about 6.5 m/s with a slight FOV widening;
   crouch never walks off an edge (building on a sphere needs it).
 - Step-up eases the camera over about 80 ms so stairs of half blocks (when the fine cells bring them) do not jitter; a small landing dip.
-- Per-body gravity is data: Luna is floaty. Changing bodies rolls "up" over at least a second.
+- Gravity follows a body's size (ADR 0037): G at Terra's sea level, the square root of the radius ratio on
+  another body (Luna about a fifth: floaty), a little stronger deeper in. One jump push everywhere: 1.25 m
+  on Terra, about 6.5 m on Luna. Changing bodies rolls "up" over at least a second.
 - Measured by camera jerk (the third derivative of the camera path) in a walk-over-hills run: steps, seams
   and corrections show up as spikes with a tick number.
 
@@ -99,7 +101,7 @@ message, a player. The fundamentals that make that true, in the order they will 
    to, as generic entity deltas (not a special `Players` message), with a protocol version in `Hello`.
 7. **Saves:** edits and entities per region, versioned, with the registry table, written by a worker to a
    temp file and renamed.
-8. **Bodies are data** (`data/bodies.toml`): radius (N), gravity, generator, atmosphere, orbit. More bodies is more rows.
+8. **Bodies are data** (`data/bodies.toml`): radius (N, and from it gravity, ADR 0037), generator, atmosphere, orbit. More bodies is more rows.
 9. **No abstraction ahead of need:** a system is a function over the world called from the tick. A trait or
    scheduler appears when the third system needs it, not before.
 
