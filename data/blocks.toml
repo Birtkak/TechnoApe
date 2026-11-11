@@ -87,8 +87,8 @@ name = "sand"
 hardness = 0.6
 loose = true
 sound = "dust"
-colour = [0.86, 0.78, 0.55]
-pattern = "speckle"
+colour = [0.88, 0.74, 0.47]
+contrast = 0.6
 
 [[block]]
 id = 9
@@ -239,7 +239,7 @@ name = "meadow grass"
 hardness = 0.9
 loose = true
 sound = "grass"
-colour = [0.45, 0.65, 0.20]
+colour = [0.40, 0.56, 0.21]
 pattern = "grass"
 side = "dirt"
 
@@ -249,7 +249,7 @@ name = "scrub grass"
 hardness = 0.9
 loose = true
 sound = "grass"
-colour = [0.48, 0.50, 0.25]
+colour = [0.50, 0.52, 0.24]
 pattern = "grass"
 side = "dirt"
 
@@ -259,7 +259,7 @@ name = "savanna grass"
 hardness = 0.9
 loose = true
 sound = "grass"
-colour = [0.72, 0.64, 0.32]
+colour = [0.74, 0.62, 0.28]
 pattern = "grass"
 side = "dirt"
 

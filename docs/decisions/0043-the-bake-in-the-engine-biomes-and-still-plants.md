@@ -27,6 +27,22 @@ the save and the download. It also records the looks the developer accepted:
 | deep sea | mud / clay | none |
 | warm reef | sand, coral patches / sand | none |
 
+After seeing them in game, the developer asked for four changes (2026-11-11), made in data and in `Plant::block`:
+
+- **Sand** is a warmer yellow, plain with soft grain instead of speckle; it read grey-white.
+- **Dry scrub** has fewer dirt and gravel patches (0.1 and 0.04, from 0.2 and 0.1); it read as rubble.
+- **Trees** are fewer and less boxy:
+  - broadleaf crowns have a radius of 2, from 3;
+  - every round crown loses about a third of its outer shell to a hash;
+  - fewer spots grow trees: broadleaf 0.25 (from 0.35), jungle 0.4 (0.6), spruce 0.38 (0.5).
+  - Forests show trunks and ground between the crowns, not a closed roof.
+- **Grasses:** meadow is less neon, scrub and savanna a little warmer.
+- A fresh reviewer read the crown change and found nothing. It checked that the hash cannot overflow
+  within the reach and height limits, and that about 35 % of the shell is dropped.
+- The soak gives `2ccfc15b35aeef0d` on two runs. Two quick `sim` runs have `budget_ok`, with max
+  frames of 5.0 and 4.5 ms and a tick p99 of 1.5 ms. A first run after the build had one 23.8 ms stall,
+  and the reruns had none.
+
 New blocks (ids 8 to 29): sand, snow, ice, gravel, clay, mud, log, four leaves (spruce, broadleaf, jungle,
 acacia), cactus, shrub, reed, coral, and seven tinted grasses. The tints are separate blocks, so far chunks
 show each biome's colour without any change to the renderer or shaders.

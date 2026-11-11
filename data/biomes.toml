@@ -26,7 +26,7 @@ shape = "round"
 trunk = "log"
 leaves = "broadleaf leaves"
 height = [6, 9]
-radius = 3
+radius = 2
 
 [[plant]]
 name = "jungle tree"
@@ -85,14 +85,14 @@ top = "cold grass"
 band = "dirt"
 rock = "stone"
 patches = [["snow", 0.15]]
-plants = [["spruce", 0.5], ["shrub", 0.05]]
+plants = [["spruce", 0.38], ["shrub", 0.05]]
 
 [[biome]]
 name = "temperate forest"
 top = "grass"
 band = "dirt"
 rock = "stone"
-plants = [["broadleaf", 0.35], ["shrub", 0.15]]
+plants = [["broadleaf", 0.25], ["shrub", 0.12]]
 
 [[biome]]
 name = "grassland"
@@ -106,7 +106,7 @@ name = "dry scrub"
 top = "scrub grass"
 band = "dirt"
 rock = "stone"
-patches = [["dirt", 0.2], ["gravel", 0.1]]
+patches = [["dirt", 0.1], ["gravel", 0.04]]
 plants = [["shrub", 0.2]]
 
 [[biome]]
@@ -128,7 +128,7 @@ name = "rain forest"
 top = "jungle grass"
 band = "dirt"
 rock = "stone"
-plants = [["jungle tree", 0.6], ["shrub", 0.3]]
+plants = [["jungle tree", 0.4], ["shrub", 0.25]]
 
 [[biome]]
 name = "wetland"

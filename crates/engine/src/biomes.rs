@@ -136,7 +136,10 @@ impl Plant {
             }),
             Shape::Round => {
                 let (zc, rv) = (h as f32 - 0.8 * r, (0.8 * r).max(1.0));
-                wood(zc as i32 + 1).or_else(|| leaf(d2 / (r * r).max(1.0) + ((z as f32 - zc) / rv).powi(2) <= 1.0))
+                let e = d2 / (r * r).max(1.0) + ((z as f32 - zc) / rv).powi(2);
+                // The crown's outer shell loses about a third of its leaves, so it reads round and ragged, not a box.
+                let k = ((dx * 73_856_093) ^ (dz * 19_349_663) ^ (z * 83_492_791) ^ (h * 2_654_435)).wrapping_mul(0x2c1b_3c6d) as u32 >> 24;
+                wood(zc as i32 + 1).or_else(|| leaf(e <= 1.0 && (e < 0.5 || k > 90)))
             }
             Shape::Flat => wood(h).or_else(|| {
                 let w = if z == h { r } else if z == h - 1 { r - 1.0 } else { -1.0 };
@@ -247,8 +250,8 @@ mod tests {
             ("height = [8, 12]", "height = [8, 40]", "too tall"),
             ("radius = 3\n\n[[plant]]\nname = \"broadleaf\"", "radius = 5\n\n[[plant]]\nname = \"broadleaf\"", "too wide"),
             ("leaves = \"spruce leaves\"", "leaves = \"cheese\"", "no such block"),
-            ("[\"spruce\", 0.5]", "[\"spruce\", 0.99]", "shares over 1"),
-            ("[\"spruce\", 0.5]", "[\"oak\", 0.5]", "no such plant"),
+            ("[\"spruce\", 0.38]", "[\"spruce\", 0.99]", "shares over 1"),
+            ("[\"spruce\", 0.38]", "[\"oak\", 0.5]", "no such plant"),
             ("name = \"tundra\"", "name = \"steppe\"", "not the bake's biome"),
             ("name = \"cactus\"\nshape = \"column\"\ntrunk = \"cactus\"", "name = \"cactus\"\nshape = \"column\"", "a column with no trunk"),
         ] {
