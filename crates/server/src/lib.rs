@@ -711,6 +711,8 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             Some("place") => {
                 // bugs/2026-11-11_13-03-12: the last four words, when numbers, are F3's "Feet in" (face, i, j,
                 // layer) on the body the player is on; without them the block under the feet. Free, like /give.
+                // shortcut: anyone may place any block anywhere on their body, as anyone may run every command;
+                // it becomes the owner's and creative's when the server has roles
                 let nums: Vec<i32> = w.iter().skip(1).rev().take(4).map_while(|s| s.parse().ok()).collect();
                 let (words, at) = if nums.len() == 4 { (&w[1..w.len() - 4], Some(nums)) } else { (&w[1..], None) };
                 let name = words.join(" ");
@@ -725,7 +727,8 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                     return "there is no body under you out here: /place works on Terra and Luna".into();
                 }
                 let b = match at {
-                    Some(n) => Block { body: body as u8, face: n[3].clamp(0, 255) as u8, pos: glam::IVec3::new(n[2], n[1], n[0]) },
+                    // (a face that is no face, a negative one too, fails `fits` below)
+                    Some(n) => Block { body: body as u8, face: u8::try_from(n[3]).unwrap_or(u8::MAX), pos: glam::IVec3::new(n[2], n[1], n[0]) },
                     None => world.block_at(feet - phys::up(world, feet) * 0.5),
                 };
                 if !Shape::one(b).fits(world) {
@@ -1410,10 +1413,15 @@ mod tests {
         links[0].send(ToServer::Chat(format!("/place copper {} {} {} {}", there.face, q.x, q.y, q.z)));
         links[0].send(ToServer::Chat("/place nothing".into()));
         links[0].send(ToServer::Chat(format!("/place stone {} {} {} {}", under.face, p.x, p.y, p.z + 1)));
+        // (the review) a face that is none, a negative one too, and a place off the grid are refused
+        for bad in ["-1 5 5 0", "6 5 5 0", "0 5 5 2000000000", "0 -5 5 0"] {
+            links[0].send(ToServer::Chat(format!("/place stone {bad}")));
+        }
         s.tick();
         assert_eq!((s.world.block(under), s.world.block(there)), (BLOCKS.id("blue lamp"), BLOCKS.id("copper")));
         let a: Vec<String> = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
-        assert_eq!(a.len(), 4, "{a:?}");
+        assert_eq!(a.len(), 8, "{a:?}");
+        assert!(a[4..].iter().all(|t| t.starts_with("no such block on")), "{a:?}");
         assert!(a[0].starts_with("placed blue lamp at face") && a[1].starts_with("placed copper"), "{a:?}");
         assert!(a[2].starts_with("no block 'nothing'"), "{a:?}");
         assert!(a[3].starts_with("a player stands there"), "a solid block never traps a player: {a:?}");

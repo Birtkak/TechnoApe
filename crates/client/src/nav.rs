@@ -141,10 +141,13 @@ pub fn next_eclipse(sky: &engine::sky::Sky, from: f64, lunar: bool) -> Option<f6
     let near = if lunar { sky.planet_radius - 2.0 * sky.moon_radius } else { 0.8 * sky.planet_radius };
     // a line-up lasts over a thousand seconds (Luna moves a few metres a second), so a minute's step finds it
     const STEP: f64 = 60.0;
-    let (mut t, mut prev) = (from, off(from));
-    while t < from + engine::sky::PERIOD {
+    // (`closing`: Luna was seen coming nearer the line, so a search begun just past one eclipse's middle
+    // finds the next one)
+    let (mut t, mut prev, mut closing) = (from, off(from), false);
+    while t < from + engine::sky::PERIOD + 4000.0 {
         let next = off(t + STEP);
-        if prev < near && next >= prev {
+        closing |= next < prev;
+        if closing && prev < near && next >= prev {
             // the closest moment lies within a step either side: narrow it down
             let (mut a, mut b) = ((t - STEP).max(from), t + STEP);
             for _ in 0..60 {
@@ -251,6 +254,11 @@ mod tests {
         assert!(s.eclipse(solar, p + hit) > 0.999, "{}", s.eclipse(solar, p + hit));
         assert!((hit.length() - s.planet_radius).abs() < 1e-6);
         assert_eq!(s.covered(lunar, s.moon(lunar).centre, s.planet(lunar).centre, s.planet_radius), 1.0);
+        // (the review) asked again just past an eclipse's middle, the answer is the one after it, not this one
+        for (found, lunar) in [(solar, false), (lunar, true)] {
+            let after = next_eclipse(&s, found + 90.0, lunar).expect("another");
+            assert!(after > found + 2000.0, "{after} after {found}");
+        }
         // nothing earlier: a minute before, the sun was not yet hidden there
         assert!(s.eclipse(solar - 60.0, p + hit) < 0.999);
     }

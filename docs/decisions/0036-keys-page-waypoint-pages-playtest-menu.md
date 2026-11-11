@@ -42,3 +42,11 @@ command; and /goto without the old words planet and moon.
 - A waypoint set to "always" is drawn through the bodies in front of it; that is what "always" means.
 - /place costs nothing in survival; the operator role (ADR 0023's shortcut) will have to cover it.
 - Review: not reviewed by a fresh reader before this commit (the batch's overseer reviews the branch).
+
+## Added 2026-11-11: the review
+A fresh reviewer read the commit. **Found and fixed:** `/place` took a negative face for face 0 (refused
+now, with a place off the grid, in its test); an eclipse asked for again just past its middle answered
+with the same one (the search now waits until Luna is seen closing in; the test asks twice).
+**Found and left, each a shortcut written where it lives:** `/place` and the F10 rows work for anyone in
+any play mode, as every command does until the server has roles; the eclipse row reads the client's
+clock, so under a time warp it can be a little off.
