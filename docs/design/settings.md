@@ -112,7 +112,7 @@ sound in space. The other rows arrive with their sounds.
 | Output device | the system's, or one by name | the system's |
 | Speakers | headphones (3D for two ears) / stereo / surround | headphones |
 | Reverb in caves and rooms | off / on | on |
-| Sound in space | true (only through what you touch and your suit) / softened / full | true |
+| Sound in space | realistic (only through what you touch and your suit) / softened / full | realistic |
 | Mute in the background | off / on | on |
 | Voice chat | off / push to talk / open, input device, others' volume by distance | off; with the dedicated server |
 | Subtitles for sounds | off / on, with the direction | off; also on Accessibility |
@@ -223,7 +223,7 @@ Each is an existing argument or overlay given a row; a tester should not need th
 ## Decided by the developer, 2026-11-11
 - **High is the default preset and what ADR 0004 is measured at.**
 - **A compass and coordinates are earned in survival and always shown in creative.**
-- **Sound in space is true by default:** only what you touch and your suit carry it.
+- **Sound in space is realistic by default:** only what you touch and your suit carry it.
 - **A world's owner may change most world rows at any time, for now.** It is for playtesting and is looked
   at again later; the rows marked "no" stay fixed because the bake or the sky hangs on them.
 - **Built first, in one piece:** Display, Graphics, Controls, Keys and Accessibility, the rows whose

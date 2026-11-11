@@ -9,7 +9,9 @@
 # its end, `q` how narrow a noise's filter is (1), `attack` (0.002 s) and `decay` (seconds to fall to a
 # thousandth), `gain` among the layers (1), `delay` (0 s).
 # A block's `sound` in data/blocks.toml names a family: it needs dig.<it>, place.<it> and step.<it>.
-# A landing is the step, lower and louder.
+# A footstep is a heel and, a moment later, a toe; eight takes, and no take plays twice running.
+# A landing is a step; from two blocks up `land` thumps with it, louder and lower the further the fall.
+# In a loop a layer with a `decay` is a note: it starts at its `delay` and rings round the loop's end.
 
 # --- stone: a crack, a click and a thump ---
 [[sound]]
@@ -42,11 +44,13 @@ name = "step.stone"
 bus = "steps"
 reach = 16
 gain = 0.3
-variants = 4
+variants = 8
 pitch = 0.12
 layer = [
-  { wave = "noise", freq = [1500, 800], q = 1.5, decay = 0.05 },
-  { wave = "sine", freq = [120, 70], decay = 0.04, gain = 0.5 },
+  { wave = "noise", freq = [700, 350], q = 0.9, decay = 0.05 },
+  { wave = "sine", freq = [95, 60], decay = 0.05, gain = 0.6 },
+  { wave = "noise", freq = [1800, 1000], q = 1.2, decay = 0.035, gain = 0.45, delay = 0.085 },
+  { wave = "noise", freq = [3500, 2500], q = 1.0, decay = 0.02, gain = 0.15, delay = 0.09 },
 ]
 
 # --- dirt: a soft crumble ---
@@ -78,11 +82,12 @@ name = "step.dirt"
 bus = "steps"
 reach = 16
 gain = 0.25
-variants = 4
+variants = 8
 pitch = 0.12
 layer = [
-  { wave = "noise", freq = [500, 250], q = 0.7, decay = 0.07 },
-  { wave = "sine", freq = [100, 60], decay = 0.04, gain = 0.4 },
+  { wave = "noise", freq = [350, 180], q = 0.7, decay = 0.07 },
+  { wave = "sine", freq = [85, 55], decay = 0.05, gain = 0.5 },
+  { wave = "noise", freq = [700, 400], q = 0.8, decay = 0.06, gain = 0.5, delay = 0.09 },
 ]
 
 # --- grass: dirt with a rustle on top ---
@@ -114,11 +119,13 @@ name = "step.grass"
 bus = "steps"
 reach = 16
 gain = 0.22
-variants = 4
+variants = 8
 pitch = 0.12
 layer = [
-  { wave = "noise", freq = [2000, 3000], q = 1.0, attack = 0.01, decay = 0.09 },
-  { wave = "noise", freq = [450, 250], q = 0.7, decay = 0.06, gain = 0.7 },
+  { wave = "noise", freq = [300, 170], q = 0.7, decay = 0.07 },
+  { wave = "sine", freq = [80, 55], decay = 0.05, gain = 0.4 },
+  { wave = "noise", freq = [2200, 3200], q = 1.0, attack = 0.015, decay = 0.1, gain = 0.45, delay = 0.03 },
+  { wave = "noise", freq = [600, 350], q = 0.8, decay = 0.05, gain = 0.4, delay = 0.095 },
 ]
 
 # --- metal: it rings ---
@@ -154,12 +161,13 @@ name = "step.metal"
 bus = "steps"
 reach = 20
 gain = 0.25
-variants = 4
+variants = 8
 pitch = 0.1
 layer = [
-  { wave = "sine", freq = [520, 510], decay = 0.12 },
-  { wave = "sine", freq = [1380, 1370], decay = 0.07, gain = 0.4 },
-  { wave = "noise", freq = [2500, 1500], q = 1.0, decay = 0.02, gain = 0.6 },
+  { wave = "noise", freq = [500, 250], q = 0.8, decay = 0.04 },
+  { wave = "sine", freq = [520, 510], decay = 0.1, gain = 0.5 },
+  { wave = "sine", freq = [1380, 1370], decay = 0.06, gain = 0.2 },
+  { wave = "noise", freq = [2200, 1400], q = 1.0, decay = 0.02, gain = 0.35, delay = 0.08 },
 ]
 
 # --- glass (the lamps): a bright clink ---
@@ -194,11 +202,12 @@ name = "step.glass"
 bus = "steps"
 reach = 16
 gain = 0.22
-variants = 4
+variants = 8
 pitch = 0.1
 layer = [
-  { wave = "sine", freq = [1700, 1690], decay = 0.05 },
-  { wave = "noise", freq = [2500, 1800], q = 1.2, decay = 0.03, gain = 0.8 },
+  { wave = "noise", freq = [600, 300], q = 0.8, decay = 0.04 },
+  { wave = "sine", freq = [1700, 1690], decay = 0.04, gain = 0.4 },
+  { wave = "noise", freq = [2500, 1800], q = 1.2, decay = 0.025, gain = 0.4, delay = 0.08 },
 ]
 
 # --- dust (Luna's regolith): a dry, soft puff ---
@@ -229,10 +238,25 @@ name = "step.dust"
 bus = "steps"
 reach = 16
 gain = 0.22
-variants = 4
+variants = 8
 pitch = 0.12
 layer = [
-  { wave = "noise", freq = [900, 450], q = 0.6, attack = 0.008, decay = 0.11 },
+  { wave = "noise", freq = [500, 250], q = 0.6, attack = 0.006, decay = 0.09 },
+  { wave = "noise", freq = [900, 450], q = 0.6, attack = 0.008, decay = 0.1, gain = 0.6, delay = 0.09 },
+]
+
+# --- the body coming down: under the step of whatever it lands on ---
+[[sound]]
+name = "land"
+bus = "steps"
+reach = 20
+gain = 0.6
+variants = 4
+pitch = 0.08
+layer = [
+  { wave = "sine", freq = [110, 45], decay = 0.16 },
+  { wave = "noise", freq = [300, 120], q = 0.7, decay = 0.12, gain = 0.6 },
+  { wave = "noise", freq = [900, 500], q = 0.8, decay = 0.05, gain = 0.2, delay = 0.02 },
 ]
 
 # --- the interface: small and dry, in the head ---
@@ -266,4 +290,37 @@ loop = 6.0
 layer = [
   { wave = "noise", freq = [350, 350], q = 0.6 },
   { wave = "noise", freq = [1100, 1100], q = 0.8, gain = 0.3 },
+]
+
+# --- the title's music: slow chords that go round, soft and far away ---
+[[sound]]
+name = "music.menu"
+bus = "music"
+gain = 0.35
+loop = 32.0
+layer = [
+  { wave = "sine", freq = [110, 110], delay = 0, attack = 3.5, decay = 10, gain = 1 },
+  { wave = "sine", freq = [110.4, 110.4], delay = 0, attack = 3.5, decay = 10, gain = 0.6 },
+  { wave = "sine", freq = [164.81, 164.81], delay = 0, attack = 3.5, decay = 10, gain = 0.7 },
+  { wave = "sine", freq = [246.94, 246.94], delay = 0, attack = 3.5, decay = 10, gain = 0.5 },
+  { wave = "sine", freq = [261.63, 261.63], delay = 0, attack = 3.5, decay = 10, gain = 0.4 },
+  { wave = "sine", freq = [87.31, 87.31], delay = 8, attack = 3.5, decay = 10, gain = 1 },
+  { wave = "sine", freq = [87.62, 87.62], delay = 8, attack = 3.5, decay = 10, gain = 0.6 },
+  { wave = "sine", freq = [130.81, 130.81], delay = 8, attack = 3.5, decay = 10, gain = 0.7 },
+  { wave = "sine", freq = [220, 220], delay = 8, attack = 3.5, decay = 10, gain = 0.5 },
+  { wave = "sine", freq = [329.63, 329.63], delay = 8, attack = 3.5, decay = 10, gain = 0.35 },
+  { wave = "sine", freq = [130.81, 130.81], delay = 16, attack = 3.5, decay = 10, gain = 1 },
+  { wave = "sine", freq = [131.25, 131.25], delay = 16, attack = 3.5, decay = 10, gain = 0.6 },
+  { wave = "sine", freq = [196, 196], delay = 16, attack = 3.5, decay = 10, gain = 0.7 },
+  { wave = "sine", freq = [293.66, 293.66], delay = 16, attack = 3.5, decay = 10, gain = 0.45 },
+  { wave = "sine", freq = [329.63, 329.63], delay = 16, attack = 3.5, decay = 10, gain = 0.35 },
+  { wave = "sine", freq = [98, 98], delay = 24, attack = 3.5, decay = 10, gain = 1 },
+  { wave = "sine", freq = [98.33, 98.33], delay = 24, attack = 3.5, decay = 10, gain = 0.6 },
+  { wave = "sine", freq = [146.83, 146.83], delay = 24, attack = 3.5, decay = 10, gain = 0.7 },
+  { wave = "sine", freq = [246.94, 246.94], delay = 24, attack = 3.5, decay = 10, gain = 0.5 },
+  { wave = "sine", freq = [329.63, 329.63], delay = 24, attack = 3.5, decay = 10, gain = 0.3 },
+  { wave = "triangle", freq = [659.26, 659.26], delay = 4, attack = 2, decay = 6, gain = 0.07 },
+  { wave = "triangle", freq = [783.99, 783.99], delay = 13, attack = 2, decay = 6, gain = 0.07 },
+  { wave = "triangle", freq = [587.33, 587.33], delay = 20, attack = 2, decay = 6, gain = 0.07 },
+  { wave = "triangle", freq = [493.88, 493.88], delay = 29, attack = 2, decay = 6, gain = 0.07 },
 ]

@@ -505,6 +505,7 @@ fn main() {
         focused: true,
         audio: audio::Audio::new(),
         walked: 0.0,
+        fell: 0.0,
         next_frame: Instant::now(),
         onscreen: false,
         flying: false,

@@ -610,6 +610,37 @@ mod tests {
         }
     }
 
+    /// Bug report 2026-11-11_12-59-49 ("i get stuck on nothing it seems", in a room dug 6 m down): a room
+    /// two blocks high under the ground is walked every way, at the spawn and far from it, where the
+    /// grid's up and the pull's lie further apart.
+    #[test]
+    fn a_dug_room_is_walked_every_way() {
+        let mut w = World::new(6144, 256, 1337);
+        for d in [w.bodies[0].spawn, (w.bodies[0].spawn + DVec3::new(0.4, 0.1, 0.3)).normalize()] {
+            let b0 = w.block_at(w.bodies[0].centre + d * (w.bodies[0].height(d) - 6.5));
+            for dx in -5..=5 {
+                for dy in -5..=5 {
+                    for dz in 0..=3 {
+                        w.set_block(Block { pos: b0.pos + glam::IVec3::new(dx, dy, dz), ..b0 }, if dz == 0 || dz == 3 { 3 } else { 0 });
+                    }
+                }
+            }
+            let start = w.block_centre(b0);
+            let u = up(&w, start);
+            for k in 0..8 {
+                let a = k as f64 * std::f64::consts::FRAC_PI_4;
+                let dir = tangent(DVec3::X, u, DVec3::Z);
+                let dir = dir * a.cos() + dir.cross(u) * a.sin();
+                let mut p = Player::at(start + u * 0.6, dir);
+                let f = dir.as_vec3().to_array();
+                run(&w, &mut p, &Input { fwd: f, ..Default::default() }, 1.0);
+                run(&w, &mut p, &Input { mv: [1.0, 0.0], fwd: f, ..Default::default() }, 1.0);
+                let moved = (p.pos - start).reject_from(u).length();
+                assert!(moved > 3.5 && !inside(&w, &p), "walked {moved} m in 1 s, way {k}, at {d:?}");
+            }
+        }
+    }
+
     #[test]
     fn walks_over_hills_without_sinking() {
         let w = world();

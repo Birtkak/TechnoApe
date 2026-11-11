@@ -44,6 +44,18 @@
 - The system: rows, code-made sounds, recordings, the mixer, places, the cap, the checks of rule 6.
 - Sounds: digging and placing by material (also other players'), footsteps and landing by the block
   underfoot, the menu's hover and click, wind that grows with height and speed, the hotbar's tick.
+- **So the ear does not tire** (bug report 2026-11-11_12-56-13, "audio fatigue relief, this goes for all
+  sounds"): a row never plays the same take twice running; each take of a one-shot differs in its noise,
+  its layers' pitch, length and weight; each play is up to 15 % louder or softer and varies in pitch by
+  the row's `pitch`. A footstep is a heel and, a moment later, a toe, in eight takes.
+- **Landing:** a step; from two blocks up the row `land` thumps under it, louder and lower the further
+  the fall (`audio::thump`, by the metres fallen, so it holds under any gravity). Dust at the feet
+  waits for the effects system.
+- **The title plays music, not wind** (`music.menu`, a 32 s round of slow chords made in code like the
+  rest; the Music slider, 60 %). In a loop a layer with a decay is a note that rings round the loop's end.
+- **The review page:** `python -I tools/review_pages.py` writes `out/review/sound-bench.html`, where every
+  row is made by a port of the game's recipe (the same numbers as `sounds=1`), heard, changed and given
+  a verdict; its "Copy my review" is what comes back.
 - Settings, page Sound: master, world, footsteps, interface (0 to 100 %), mute in the background, sound in
   space.
 - The play run's JSON gains `audio`: the device, its delay in ms, the most voices at once, the mixer's

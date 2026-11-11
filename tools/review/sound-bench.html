@@ -1,0 +1,354 @@
+<title>TechnoApe Sound Bench</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* layout: a sticky console strip on top, then one column of sound strips grouped by material; each strip is
+   waveform + transport on a line, its layers fold out underneath */
+:root {
+  --bg: #0c131d; --panel: #131d2b; --panel2: #1a2638; --line: #263448; --ink: #dde7f1; --muted: #8497ad;
+  --accent: #5cc8e8; --accent-ink: #06222c; --warm: #e8b45c; --good: #6fd08c; --bad: #ef7d6e;
+  --display: "Chakra Petch", "Segoe UI", sans-serif; --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #eef2f6; --panel: #ffffff; --panel2: #f4f7fa; --line: #d3dce6; --ink: #15202d; --muted: #5a6b7e;
+  --accent: #0b7fa3; --accent-ink: #ffffff; --warm: #9a5f00; --good: #1f8a45; --bad: #c2402f; color-scheme: light } }
+:root[data-theme="light"] {
+  --bg: #eef2f6; --panel: #ffffff; --panel2: #f4f7fa; --line: #d3dce6; --ink: #15202d; --muted: #5a6b7e;
+  --accent: #0b7fa3; --accent-ink: #ffffff; --warm: #9a5f00; --good: #1f8a45; --bad: #c2402f; color-scheme: light }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--body); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel) }
+.wrap { max-width: 1080px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
+header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding-block: 10px; }
+h1 { font: 600 20px/1 var(--display); letter-spacing: .04em; text-transform: uppercase; margin: 0; }
+h1 small { font: 400 12px var(--mono); color: var(--muted); letter-spacing: 0; text-transform: none; margin-left: 8px }
+.grow { flex: 1 1 auto }
+label.ctl { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px }
+main.wrap { padding-block: 18px 60px; display: flex; flex-direction: column; gap: 26px; }
+.intro { color: var(--muted); max-width: 70ch; margin: 0 }
+.intro b { color: var(--ink); font-weight: 500 }
+.filters { display: flex; flex-wrap: wrap; gap: 6px }
+button, select, input { font: inherit; color: inherit }
+button { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; cursor: pointer }
+button:hover { border-color: var(--accent) }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+button.on, button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600 }
+button.ghost { background: none }
+section.fam > h2 { font: 600 15px var(--display); letter-spacing: .08em; text-transform: uppercase; margin: 0 0 2px; }
+section.fam > p { margin: 0 0 10px; color: var(--muted); font-size: 12px }
+.strips { display: flex; flex-direction: column; gap: 8px }
+.strip { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.strip.changed { border-color: var(--warm) }
+.top { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; }
+.name { font: 500 14px var(--mono); overflow-wrap: anywhere }
+.meta { font: 400 11px var(--mono); color: var(--muted); margin-top: 3px }
+.pill { display: inline-block; font: 500 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 99px; padding: 0 7px; color: var(--muted) }
+.changed .pill.ch { color: var(--warm); border-color: var(--warm) }
+canvas.wave { width: 100%; height: 56px; display: block; background: var(--panel2); border-radius: 4px; cursor: pointer }
+.tr { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; max-width: 330px }
+.tr button { padding: 4px 8px; font-size: 12px }
+.tr .takes { display: flex; gap: 2px }
+.tr .takes button { min-width: 26px; padding: 4px 0; font-family: var(--mono) }
+.rev { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 12px 10px; align-items: center }
+.rev select, .rev input, td input, td select, .rowp input, textarea { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px }
+.rev input { flex: 1 1 220px; min-width: 0 }
+.edit { border-top: 1px solid var(--line); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px }
+.rowp { display: flex; flex-wrap: wrap; gap: 8px 14px }
+.rowp label, th { font: 400 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em }
+.rowp label { display: flex; flex-direction: column; gap: 2px }
+.rowp input { width: 84px; font-family: var(--mono) }
+.scroll { overflow-x: auto }
+table { border-collapse: collapse; font-variant-numeric: tabular-nums }
+th { text-align: left; padding: 0 6px 4px 0; font-weight: 400 }
+td { padding: 2px 6px 2px 0 }
+td input { width: 76px; font-family: var(--mono) } td select { font-family: var(--mono) }
+.acts { display: flex; flex-wrap: wrap; gap: 6px }
+.hint { color: var(--muted); font-size: 12px; margin: 0 }
+#out { position: fixed; inset: auto 0 0 0; z-index: 6; background: var(--panel); border-top: 1px solid var(--accent); }
+#out .wrap { padding-block: 12px calc(12px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 8px }
+#out textarea { width: 100%; height: 210px; font: 12px/1.4 var(--mono); color: var(--ink); resize: vertical }
+#out .h { display: flex; gap: 10px; align-items: center }
+@media (max-width: 720px) { .top { grid-template-columns: minmax(0, 1fr) } .tr { justify-content: flex-start; max-width: none } }
+</style>
+
+<header class="bar"><div class="wrap">
+  <h1>Sound Bench <small id="count"></small></h1>
+  <span class="grow"></span>
+  <label class="ctl">Volume <input id="vol" type="range" min="0" max="100" value="70"></label>
+  <label class="ctl"><input id="auto" type="checkbox" checked> Play when I change a number</label>
+  <button id="stop">Stop all</button>
+  <button id="copy" class="primary">Copy my review</button>
+</div></header>
+
+<main class="wrap">
+  <p class="intro">Every sound in <b>data/sounds.toml</b>, made here by the same recipe the game uses. Click a waveform to hear take 1,
+  the numbered buttons for the other takes, <b>As in game</b> for a random take at a varied pitch and loudness. Open <b>Layers</b> to change a sound,
+  give each a verdict, then <b>Copy my review</b> and paste it to Claude. Nothing here changes the game by itself.</p>
+  <div class="filters" id="filters"></div>
+  <div id="list" style="display:flex;flex-direction:column;gap:26px"></div>
+</main>
+
+<div id="out" hidden><div class="wrap">
+  <div class="h"><b id="outmsg">Your review</b><span class="grow"></span><button id="outclose">Close</button></div>
+  <textarea id="outtext" readonly></textarea>
+</div></div>
+
+<script>
+const DATA = /*DATA*/{"sounds":[],"blocks":[],"built":""}/*END*/;
+const RATE = 48000;
+const DEF = { q: 1, attack: 0.002, decay: 0, gain: 1, delay: 0 };
+const ORIG = JSON.parse(JSON.stringify(DATA.sounds));
+let rows = JSON.parse(JSON.stringify(DATA.sounds));
+let review = {};
+try {
+  const s = JSON.parse(localStorage.getItem('sound-bench') || '{}');
+  if (s.built === DATA.built && s.rows) rows = rows.map(r => s.rows[r.name] || r);
+  review = s.review || {};
+} catch (e) {}
+function save() {
+  try {
+    const ch = {}; rows.forEach((r, i) => { if (changed(i)) ch[r.name] = r; });
+    localStorage.setItem('sound-bench', JSON.stringify({ built: DATA.built, rows: ch, review }));
+  } catch (e) {}
+}
+const changed = i => JSON.stringify(rows[i]) !== JSON.stringify(ORIG[i]);
+
+// --- the game's recipe (crates/client/src/audio.rs, `render`), line for line ---
+function rnd(s) { let v = s.v; v = (v ^ (v << 13)) >>> 0; v = (v ^ (v >>> 17)) >>> 0; v = (v ^ (v << 5)) >>> 0; s.v = v; return (v >>> 8) / 16777216; }
+function render(r, variant) {
+  let h = 2166136261;
+  for (const c of new TextEncoder().encode(r.name)) h = Math.imul(h ^ c, 16777619) >>> 0;
+  const s = { v: ((h ^ Math.imul(variant + 1, 0x9E3779B9)) | 1) >>> 0 };
+  const loops = r.loop || 0, lap = Math.floor(loops * RATE), fade = loops > 0 ? Math.floor(0.1 * RATE) : 0;
+  const L = r.layer.map(l => Object.assign({}, DEF, l));
+  const note = l => loops > 0 && l.decay > 0;
+  const nOf = l => loops > 0 && !note(l) ? lap + fade : Math.floor((l.attack + l.decay) * RATE);
+  const len = loops > 0 ? lap + fade : Math.max(0, ...L.map(l => Math.floor(l.delay * RATE) + Math.floor(nOf(l) * 1.16)));
+  const out = new Float32Array(len), ring = new Float32Array(L.some(note) ? lap : 0);
+  for (const l0 of L) {
+    const tune = 1 + (r.pitch || 0) * (rnd(s) - 0.5);
+    let long = 1, weight = 1;
+    if (loops === 0 && (r.variants || 1) > 1) { long = 1 + 0.3 * (rnd(s) - 0.5); weight = 1 + 0.3 * (rnd(s) - 0.5); }
+    const l = Object.assign({}, l0, { decay: l0.decay * long, gain: l0.gain * weight });
+    const n = nOf(l), start = Math.floor(l.delay * RATE), one = new Float32Array(n);
+    const low = [0, 0], band = [0, 0]; let phase = 0, peak = 1e-9;
+    for (let i = 0; i < n; i++) {
+      const t = i / RATE, held = loops > 0 && !note(l);
+      const along = held ? 0 : t / (l.attack + l.decay);
+      const f = l.freq[0] * Math.pow(l.freq[1] / l.freq[0], along) * tune;
+      let x;
+      if (l.wave === 'noise') {
+        const fc = 2 * Math.sin(Math.PI * Math.min(f, RATE / 6.5) / RATE);
+        x = rnd(s) * 2 - 1;
+        for (let k = 0; k < 2; k++) { low[k] += fc * band[k]; band[k] += fc * (x - low[k] - band[k] / l.q); x = band[k]; }
+      } else {
+        phase = (phase + f / RATE) % 1;
+        x = l.wave === 'sine' ? Math.sin(2 * Math.PI * phase) : l.wave === 'triangle' ? 1 - 4 * Math.abs(phase - 0.5) : (0.5 - phase >= 0 ? 0.5 : -0.5);
+      }
+      const env = held ? 1 : t < l.attack ? t / l.attack : Math.exp(-6.9 * (t - l.attack) / l.decay);
+      one[i] = x * env; peak = Math.max(peak, Math.abs(one[i]));
+    }
+    for (let i = 0; i < n; i++) { if (note(l)) ring[(start + i) % lap] += one[i] / peak * l.gain; else if (start + i < len) out[start + i] += one[i] / peak * l.gain; }
+  }
+  let res = out;
+  if (fade > 0) {
+    const keep = len - fade;
+    for (let i = 0; i < fade; i++) { const w = i / fade; out[i] = out[i] * Math.sqrt(w) + out[keep + i] * Math.sqrt(1 - w); }
+    res = out.subarray(0, keep);
+    for (let i = 0; i < ring.length; i++) res[i] += ring[i];
+  }
+  let peak = 1e-9; for (const v of res) peak = Math.max(peak, Math.abs(v));
+  const g = (r.gain ?? 1) / peak; for (let i = 0; i < res.length; i++) res[i] *= g;
+  return res;
+}
+// a landing's thump by the metres fallen (audio.rs, `thump`)
+const thump = drop => drop < 1.6 ? null : [Math.min(0.3 + (drop - 1.6) * 0.1, 1.5), 1 - Math.min((drop - 1.6) * 0.04, 0.35)];
+
+// --- playing ---
+let ctx = null, master = null; const cache = new Map(), live = new Set(), loopsOn = new Map(), walks = new Map(), last = {};
+function audio() {
+  if (!ctx) { ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: RATE }); master = ctx.createGain(); master.connect(ctx.destination); setVol(); }
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+const setVol = () => { if (master) master.gain.value = Math.pow(document.getElementById('vol').value / 100, 2); };
+function clip(i, take) {
+  const key = i + ':' + take;
+  if (!cache.has(key)) cache.set(key, render(rows[i], take));
+  return cache.get(key);
+}
+function play(i, take, gain = 1, pitch = 1, loop = false) {
+  const c = audio(), d = clip(i, take), buf = c.createBuffer(1, Math.max(1, d.length), RATE);
+  buf.copyToChannel(d, 0);
+  const src = c.createBufferSource(), g = c.createGain();
+  src.buffer = buf; src.playbackRate.value = pitch; src.loop = loop; g.gain.value = gain;
+  src.connect(g).connect(master); src.start();
+  live.add(src); src.onended = () => live.delete(src);
+  return src;
+}
+function asInGame(i, gain = 1, pitch = 1) {
+  const r = rows[i], n = r.variants || 1;
+  let t = 0;
+  if (n > 1) { t = Math.floor(Math.random() * (n - 1)); if (last[i] !== undefined && t >= last[i]) t++; }
+  last[i] = t;
+  play(i, t, gain * (r.bus === 'ui' ? 1 : 0.85 + 0.3 * Math.random()), pitch * (1 + (r.pitch || 0) * (Math.random() * 2 - 1)));
+  return t;
+}
+function stopAll() {
+  live.forEach(s => { try { s.stop(); } catch (e) {} }); live.clear(); loopsOn.clear();
+  walks.forEach(id => clearInterval(id)); walks.clear();
+  document.querySelectorAll('button.on[data-toggle]').forEach(b => b.classList.remove('on'));
+}
+
+// --- the page ---
+const el = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v); }
+  kids.flat().forEach(k => e.append(k)); return e;
+};
+const famOf = n => { const p = n.split('.'); return ['dig', 'place', 'step'].includes(p[0]) ? p[1] : p[0] === 'ui' ? 'interface' : p[0] === 'land' ? 'body' : 'air and music'; };
+const FAM_NOTE = { interface: 'Menus and the hotbar. In the head, not in the world.', body: 'Under the footstep when you come down from two blocks or more.', 'air and music': 'These go round for as long as they are held: wind in the world, music at the title.' };
+let filter = 'all';
+function draw(i) {
+  const cv = document.getElementById('w' + i); if (!cv) return;
+  const d = clip(i, 0), w = cv.width = cv.clientWidth * devicePixelRatio, h = cv.height = cv.clientHeight * devicePixelRatio, g = cv.getContext('2d');
+  const css = getComputedStyle(document.documentElement);
+  g.clearRect(0, 0, w, h); g.fillStyle = css.getPropertyValue(changed(i) ? '--warm' : '--accent');
+  // (drawn to the row's own peak, so a quiet sound still shows its shape)
+  const per = d.length / w, zoom = 0.94 / Math.max(0.01, rows[i].gain ?? 1);
+  for (let x = 0; x < w; x++) {
+    let lo = 1, hi = -1; const a = Math.floor(x * per), b = Math.max(a + 1, Math.floor((x + 1) * per));
+    const stepBy = Math.max(1, Math.floor((b - a) / 64));
+    for (let k = a; k < b && k < d.length; k += stepBy) { lo = Math.min(lo, d[k]); hi = Math.max(hi, d[k]); }
+    g.fillRect(x, (1 - hi * zoom) * h / 2, 1, Math.max(1, (hi - lo) * zoom * h / 2));
+  }
+}
+function metaText(i) {
+  const r = rows[i], d = clip(i, 0);
+  let rms = 0; for (const v of d) rms += v * v; rms = Math.sqrt(rms / d.length);
+  return `${(d.length / RATE).toFixed(d.length > RATE ? 1 : 3)} s · peak ${(r.gain ?? 1).toFixed(2)} · rms ${rms.toFixed(3)}`;
+}
+function refresh(i, sound) {
+  for (const k of [...cache.keys()]) if (k.startsWith(i + ':')) cache.delete(k);
+  const s = document.getElementById('s' + i);
+  s.classList.toggle('changed', changed(i));
+  s.querySelector('.meta').textContent = metaText(i); draw(i); count(); save();
+  if (sound && document.getElementById('auto').checked && !(rows[i].loop > 0)) play(i, 0);
+}
+const num = (v, on, a = {}) => el('input', Object.assign({ type: 'number', step: 'any', value: v, oninput: e => { const x = parseFloat(e.target.value); if (isFinite(x)) on(x); } }, a));
+function editor(i) {
+  const r = rows[i], box = el('div', { class: 'edit' });
+  const set = () => refresh(i, true);
+  const rowp = el('div', { class: 'rowp' },
+    el('label', {}, 'gain (peak)', num(r.gain ?? 1, x => { r.gain = x; set(); }, { min: 0, max: 2, id: `g${i}` })),
+    el('label', {}, 'takes', num(r.variants ?? 1, x => { r.variants = Math.round(x); set(); rebuild(i, true); }, { min: 1, max: 8, step: 1, id: `v${i}` })),
+    el('label', {}, 'pitch varies ±', num(r.pitch ?? 0, x => { r.pitch = x; set(); }, { min: 0, max: 0.5, id: `p${i}` })),
+    el('label', {}, 'heard to (m)', num(r.reach ?? 24, x => { r.reach = x; set(); }, { min: 1, max: 200, id: `r${i}` })),
+    r.loop ? el('label', {}, 'goes round (s)', num(r.loop, x => { r.loop = x; set(); }, { min: 0.5, max: 60, id: `l${i}` })) : []);
+  const tb = el('tbody');
+  r.layer.forEach((l, k) => {
+    const f = (key, a) => el('td', {}, num(l[key] ?? DEF[key], x => { l[key] = x; set(); }, Object.assign({ id: `i${i}-${k}-${key}` }, a)));
+    tb.append(el('tr', {},
+      el('td', {}, el('select', { id: `i${i}-${k}-w`, onchange: e => { l.wave = e.target.value; set(); } }, ['noise', 'sine', 'triangle', 'square'].map(w => el('option', { selected: w === l.wave }, w)))),
+      el('td', {}, num(l.freq[0], x => { l.freq[0] = x; set(); }, { min: 20, max: 16000, id: `i${i}-${k}-f0` })),
+      el('td', {}, num(l.freq[1], x => { l.freq[1] = x; set(); }, { min: 20, max: 16000, id: `i${i}-${k}-f1` })),
+      f('q', { min: 0.5, max: 20 }), f('attack', { min: 0.0005 }), f('decay', { min: 0 }), f('gain', { min: 0, max: 2 }), f('delay', { min: 0 }),
+      el('td', {}, el('button', { class: 'ghost', title: 'Hear this layer alone', onclick: () => { const keep = r.layer; r.layer = [l]; cache.delete(i + ':solo'); cache.set(i + ':solo', render(r, 0)); r.layer = keep; play(i, 'solo', 1, 1); } }, 'Solo')),
+      el('td', {}, r.layer.length > 1 ? el('button', { class: 'ghost', title: 'Remove this layer', onclick: () => { r.layer.splice(k, 1); set(); rebuild(i, true); } }, '✕') : [])));
+  });
+  box.append(rowp, el('div', { class: 'scroll' }, el('table', {}, el('thead', {}, el('tr', {}, ['wave', 'Hz at start', 'Hz at end', 'q (noise)', 'attack s', 'decay s', 'gain', 'delay s', '', ''].map(h => el('th', {}, h)))), tb)),
+    el('div', { class: 'acts' },
+      el('button', { onclick: () => { r.layer.push({ wave: 'noise', freq: [800, 400], decay: 0.05, gain: 0.5 }); set(); rebuild(i, true); } }, 'Add a layer'),
+      el('button', { onclick: () => { rows[i] = JSON.parse(JSON.stringify(ORIG[i])); refresh(i, false); rebuild(i, true); } }, 'Put back the game\'s'),
+      el('button', { onclick: () => show('This row, for data/sounds.toml', toml(rows[i])) }, 'Show as TOML')),
+    el('p', { class: 'hint' }, r.loop ? 'In a loop, a layer with a decay is a note that starts at its delay; without a decay it sounds all the way round.' : 'A layer fades from its first Hz to its last while it decays. Noise goes through a band-pass filter at that Hz; a higher q makes it narrower and more tonal.'));
+  return box;
+}
+function strip(i, open) {
+  const r = rows[i], isLoop = r.loop > 0, isStep = r.name.startsWith('step.'), rv = review[r.name] || (review[r.name] = { v: '', n: '' });
+  const tr = el('div', { class: 'tr' });
+  if (isLoop) tr.append(el('button', { 'data-toggle': 1, onclick: e => { if (loopsOn.has(i)) { try { loopsOn.get(i).stop(); } catch (x) {} loopsOn.delete(i); e.target.classList.remove('on'); } else { loopsOn.set(i, play(i, 0, 1, 1, true)); e.target.classList.add('on'); } } }, 'Play round'));
+  else {
+    tr.append(el('div', { class: 'takes' }, Array.from({ length: r.variants || 1 }, (_, t) => el('button', { title: 'Take ' + (t + 1), onclick: () => play(i, t) }, t + 1))),
+      el('button', { onclick: () => asInGame(i) }, 'As in game'));
+    if (isStep) tr.append(el('button', { 'data-toggle': 1, title: 'Footsteps at a walk, with the game\'s variation', onclick: e => { if (walks.has(i)) { clearInterval(walks.get(i)); walks.delete(i); e.target.classList.remove('on'); } else { asInGame(i); walks.set(i, setInterval(() => asInGame(i), 420)); e.target.classList.add('on'); } } }, 'Walk'));
+    if (r.name === 'land') [2, 4, 8, 16].forEach(m => tr.append(el('button', { title: `A fall of ${m} m`, onclick: () => { const [g, p] = thump(m); asInGame(i, g, p); } }, m + ' m')));
+  }
+  tr.append(el('button', { onclick: () => rebuild(i, !document.getElementById('s' + i).querySelector('.edit')) }, 'Layers'));
+  const s = el('div', { class: 'strip' + (changed(i) ? ' changed' : ''), id: 's' + i },
+    el('div', { class: 'top' },
+      el('div', {}, el('div', { class: 'name' }, r.name), el('div', {}, el('span', { class: 'pill' }, r.bus), ' ', el('span', { class: 'pill ch' }, changed(i) ? 'changed' : 'as shipped')), el('div', { class: 'meta' }, '')),
+      el('canvas', { class: 'wave', id: 'w' + i, title: 'Click to play', onclick: () => isLoop ? null : play(i, 0) }), tr),
+    el('div', { class: 'rev' },
+      el('select', { id: 'rv' + i, 'aria-label': 'Verdict for ' + r.name, onchange: e => { rv.v = e.target.value; count(); save(); } }, ['', 'good', 'tweak', 'redo', 'replace with a recording'].map(v => el('option', { value: v, selected: rv.v === v }, v || 'no verdict'))),
+      el('input', { id: 'rn' + i, type: 'text', placeholder: 'What should change? (optional)', value: rv.n, 'aria-label': 'Note for ' + r.name, oninput: e => { rv.n = e.target.value; save(); } })),
+    open ? editor(i) : []);
+  return s;
+}
+function rebuild(i, open) {
+  const old = document.getElementById('s' + i), s = strip(i, open); old.replaceWith(s);
+  s.querySelector('.meta').textContent = metaText(i); s.querySelector('.pill.ch').textContent = changed(i) ? 'changed' : 'as shipped'; draw(i);
+}
+function count() {
+  const ch = rows.filter((_, i) => changed(i)).length, rv = rows.filter(r => review[r.name] && review[r.name].v).length;
+  document.getElementById('count').textContent = `${rows.length} sounds · ${rv} with a verdict · ${ch} changed`;
+  rows.forEach((_, i) => { const p = document.querySelector(`#s${i} .pill.ch`); if (p) p.textContent = changed(i) ? 'changed' : 'as shipped'; });
+}
+function build() {
+  const list = document.getElementById('list'); list.textContent = '';
+  const fams = [...new Set(rows.map(r => famOf(r.name)))];
+  const fl = document.getElementById('filters'); fl.textContent = '';
+  ['all', ...fams].forEach(f => fl.append(el('button', { class: f === filter ? 'on' : '', onclick: () => { filter = f; build(); } }, f)));
+  fams.filter(f => filter === 'all' || f === filter).forEach(f => {
+    const used = DATA.blocks.filter(b => (b.sound || 'stone') === f && b.id !== 0).map(b => b.name);
+    const note = FAM_NOTE[f] || (used.length ? 'The blocks that sound like this: ' + used.join(', ') + '.' : 'No block uses this family yet.');
+    const box = el('div', { class: 'strips' });
+    rows.forEach((r, i) => { if (famOf(r.name) === f) box.append(strip(i, false)); });
+    list.append(el('section', { class: 'fam' }, el('h2', {}, f), el('p', {}, note), box));
+  });
+  rows.forEach((r, i) => { const s = document.getElementById('s' + i); if (s) { s.querySelector('.meta').textContent = metaText(i); draw(i); } });
+  count();
+}
+// --- what goes back to Claude ---
+const fmt = x => String(+(+x).toFixed(5));
+function toml(r) {
+  const o = ['[[sound]]', `name = "${r.name}"`, `bus = "${r.bus}"`];
+  if (r.reach != null) o.push('reach = ' + fmt(r.reach));
+  if (r.gain != null) o.push('gain = ' + fmt(r.gain));
+  if (r.variants != null) o.push('variants = ' + r.variants);
+  if (r.pitch != null) o.push('pitch = ' + fmt(r.pitch));
+  if (r.loop) o.push('loop = ' + (+r.loop).toFixed(1));
+  o.push('layer = [');
+  r.layer.forEach(l => {
+    const p = [`wave = "${l.wave}"`, `freq = [${fmt(l.freq[0])}, ${fmt(l.freq[1])}]`];
+    ['q', 'delay', 'attack', 'decay', 'gain'].forEach(k => { if (l[k] != null && !(k === 'q' && l.wave !== 'noise')) p.push(`${k} = ${fmt(l[k])}`); });
+    o.push('  { ' + p.join(', ') + ' },');
+  });
+  o.push(']'); return o.join('\n');
+}
+function show(title, text) {
+  document.getElementById('outmsg').textContent = title; const t = document.getElementById('outtext'); t.value = text; document.getElementById('out').hidden = false;
+  const done = ok => { document.getElementById('outmsg').textContent = title + (ok ? ' (copied)' : ' (select it and copy)'); if (!ok) { t.focus(); t.select(); } };
+  try { navigator.clipboard.writeText(text).then(() => done(true), () => done(false)); } catch (e) { done(false); }
+}
+document.getElementById('copy').onclick = () => {
+  const o = ['Sound review (Sound Bench, rows of ' + DATA.built + ')', ''];
+  const vs = rows.filter(r => review[r.name] && (review[r.name].v || review[r.name].n));
+  o.push(vs.length ? 'Verdicts:' : 'No verdicts given.');
+  vs.forEach(r => o.push(`- ${r.name}: ${review[r.name].v || 'note'}${review[r.name].n ? ' - ' + review[r.name].n : ''}`));
+  const ch = rows.filter((_, i) => changed(i));
+  o.push('', ch.length ? 'Changed rows, to replace the ones of the same name in data/sounds.toml:' : 'No rows changed.');
+  ch.forEach(r => o.push('', toml(r)));
+  show('Your review', o.join('\n'));
+};
+document.getElementById('outclose').onclick = () => { document.getElementById('out').hidden = true; };
+document.getElementById('stop').onclick = stopAll;
+document.getElementById('vol').oninput = setVol;
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => rows.forEach((_, i) => draw(i)), 150); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => rows.forEach((_, i) => draw(i)));
+new MutationObserver(() => rows.forEach((_, i) => draw(i))).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+build();
+</script>

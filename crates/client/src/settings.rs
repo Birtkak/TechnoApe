@@ -72,8 +72,9 @@ settings! {
     VolWorld "volume_world" "World" VOLUME, 100.0;
     VolSteps "volume_footsteps" "Footsteps" VOLUME, 100.0;
     VolUi "volume_interface" "Interface" VOLUME, 100.0;
+    VolMusic "volume_music" "Music" VOLUME, 60.0;
     MuteBack "mute_in_background" "Mute in the background" Kind::Choice(OFF_ON), 1.0;
-    SpaceSound "sound_in_space" "Sound in space" Kind::Choice(&["true", "softened", "full"]), 0.0;
+    SpaceSound "sound_in_space" "Sound in space" Kind::Choice(&["realistic", "softened", "full"]), 0.0;
 }
 
 /// A key or a mouse button, by where it is on the board (a KeyCode), so WASD stays under the same fingers on
@@ -216,7 +217,7 @@ pub fn page_rows(page: usize) -> Vec<Row> {
         1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Textures), Set(S::Stars)],
         2 => vec![Set(S::Sensitivity), Set(S::ZoomSens), Set(S::InvertY), Set(S::ZoomMode), Set(S::AutoJump), Set(S::FlyTap)],
         3 => ALL_ACTS.iter().map(|a| Row::Key(*a)).chain([Row::KeyDefaults]).collect(),
-        4 => vec![Set(S::Volume), Set(S::VolWorld), Set(S::VolSteps), Set(S::VolUi), Set(S::MuteBack), Set(S::SpaceSound)],
+        4 => vec![Set(S::Volume), Set(S::VolWorld), Set(S::VolSteps), Set(S::VolUi), Set(S::VolMusic), Set(S::MuteBack), Set(S::SpaceSound)],
         _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::ZoomMode), Set(S::AutoJump), Set(S::Textures), Set(S::Brightness)],
     }
 }

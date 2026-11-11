@@ -188,6 +188,8 @@ pub(crate) struct App {
     /// Sound (docs/design/sound.md), and the metres walked since the last footstep.
     pub(crate) audio: audio::Audio,
     pub(crate) walked: f64,
+    /// The metres fallen since the ground was left, for the landing's thump.
+    pub(crate) fell: f64,
     pub(crate) next_frame: Instant,
     pub(crate) onscreen: bool,
     /// Creative flight (ADR 0023): on or not, its speed (the wheel), and when space was last pressed.

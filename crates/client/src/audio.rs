@@ -28,6 +28,7 @@ pub enum Wave {
 pub enum Bus {
     World = 0,
     Steps = 1,
+    Music = 3,
     Ui = 2,
 }
 
@@ -103,8 +104,8 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         if r.layer.is_empty() || !(1..=8).contains(&r.variants) {
             return bad("needs a layer and 1 to 8 variants");
         }
-        if !(0.0..=2.0).contains(&r.gain) || !(1.0..=200.0).contains(&r.reach) || !(0.0..=0.5).contains(&r.pitch) || !(0.0..=10.0).contains(&r.loops) {
-            return bad("gain 0..2, reach 1..200, pitch 0..0.5, loop 0..10");
+        if !(0.0..=2.0).contains(&r.gain) || !(1.0..=200.0).contains(&r.reach) || !(0.0..=0.5).contains(&r.pitch) || !(r.loops == 0.0 || (0.5..=60.0).contains(&r.loops)) {
+            return bad("gain 0..2, reach 1..200, pitch 0..0.5, loop 0.5..60 or none");
         }
         for l in &r.layer {
             if l.freq.iter().any(|f| !(20.0..=16000.0).contains(f)) || !(0.5..=20.0).contains(&l.q) || !(0.0..=2.0).contains(&l.gain) {
@@ -113,12 +114,34 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             if l.wave == Wave::Noise && (l.q < 0.6 || l.freq.iter().any(|f| *f > 7000.0)) {
                 return bad("a noise layer's q from 0.6, freq to 7000 (past that its filter is not stable)");
             }
-            if !(0.0005..=1.0).contains(&l.attack) || !(0.0..=1.0).contains(&l.delay) || (r.loops == 0.0 && !(0.005..=4.0).contains(&l.decay)) {
+            if r.loops > 0.0 {
+                // (a layer with a decay is a note in the loop; without, it sounds all the way round)
+                if !(0.0005..=10.0).contains(&l.attack) || !(0.0..r.loops).contains(&l.delay) || !(0.0..=20.0).contains(&l.decay) || l.attack + l.decay > r.loops || (l.decay == 0.0 && l.delay != 0.0) {
+                    return bad("in a loop a layer's attack 0.0005..10, delay within the loop (none without a decay), decay 0..20, and no longer than the loop");
+                }
+            } else if !(0.0005..=1.0).contains(&l.attack) || !(0.0..=1.0).contains(&l.delay) || !(0.005..=4.0).contains(&l.decay) {
                 return bad("a layer's attack 0.0005..1, delay 0..1, decay 0.005..4");
             }
         }
     }
     Ok(f.sound)
+}
+
+/// A landing's thump (the row `land`) by the metres fallen: none for a jump's own landing, a small one
+/// from two blocks, louder and lower from higher. `(gain, pitch)`.
+pub fn thump(drop: f64) -> Option<(f32, f32)> {
+    let over = (drop - 1.6) as f32;
+    (over >= 0.0).then(|| ((0.3 + over * 0.1).min(1.5), 1.0 - (over * 0.04).min(0.35)))
+}
+
+/// Which take plays next: any but the one this row played last, so no sound is heard twice running.
+pub fn next_take(seed: &mut u32, variants: u32, last: u8) -> u8 {
+    if variants < 2 {
+        return 0;
+    }
+    // one of the others, each as likely
+    let t = ((rand(seed) * (variants - 1) as f32) as u8).min(variants as u8 - 2);
+    t + (t >= last) as u8
 }
 
 fn rand(s: &mut u32) -> f32 {
@@ -133,18 +156,26 @@ pub fn render(r: &Row, variant: u32) -> Vec<f32> {
     let mut seed = r.name.bytes().fold(2166136261u32, |h, b| (h ^ b as u32).wrapping_mul(16777619)) ^ (variant + 1).wrapping_mul(0x9E3779B9) | 1;
     // a loop is made a little longer and its tail faded into its head, so it goes round without a seam
     let fade = if r.loops > 0.0 { (0.1 * RATE) as usize } else { 0 };
-    let n_of = |l: &Layer| if r.loops > 0.0 { (r.loops * RATE) as usize + fade } else { ((l.attack + l.decay) * RATE) as usize };
-    let len = r.layer.iter().map(|l| (l.delay * RATE) as usize + n_of(l)).max().unwrap_or(0);
+    let lap = (r.loops * RATE) as usize;
+    // (in a loop a layer with a decay is a note: it rings on round the loop's end into its start)
+    let note = |l: &Layer| r.loops > 0.0 && l.decay > 0.0;
+    let n_of = |l: &Layer| if r.loops > 0.0 && !note(l) { lap + fade } else { ((l.attack + l.decay) * RATE) as usize };
+    let len = if r.loops > 0.0 { lap + fade } else { r.layer.iter().map(|l| (l.delay * RATE) as usize + (n_of(l) as f32 * 1.16) as usize).max().unwrap_or(0) };
     let mut out = vec![0.0f32; len];
+    let mut ring = vec![0.0f32; if r.layer.iter().any(note) { lap } else { 0 }];
     let mut one = Vec::new();
     for l in &r.layer {
         let tune = 1.0 + r.pitch * (rand(&mut seed) - 0.5);
+        // each take of a one-shot is a little longer or shorter and weighs its layers its own way, so the
+        // ear does not learn it (bug report 2026-11-11_12-56-13)
+        let (long, weight) = if r.loops == 0.0 && r.variants > 1 { (1.0 + 0.3 * (rand(&mut seed) - 0.5), 1.0 + 0.3 * (rand(&mut seed) - 0.5)) } else { (1.0, 1.0) };
+        let l = &Layer { decay: l.decay * long, gain: l.gain * weight, ..l.clone() };
         let (n, start) = (n_of(l), (l.delay * RATE) as usize);
         let (mut low, mut band, mut phase) = ([0.0f32; 2], [0.0f32; 2], 0.0f32);
         one.clear();
         for i in 0..n {
             let t = i as f32 / RATE;
-            let along = if r.loops > 0.0 { 0.0 } else { t / (l.attack + l.decay) };
+            let along = if r.loops > 0.0 && !note(l) { 0.0 } else { t / (l.attack + l.decay) };
             let f = l.freq[0] * (l.freq[1] / l.freq[0]).powf(along) * tune;
             let s = match l.wave {
                 Wave::Noise => {
@@ -168,7 +199,7 @@ pub fn render(r: &Row, variant: u32) -> Vec<f32> {
                     }
                 }
             };
-            let env = if r.loops > 0.0 {
+            let env = if r.loops > 0.0 && !note(l) {
                 1.0
             } else if t < l.attack {
                 t / l.attack
@@ -179,7 +210,11 @@ pub fn render(r: &Row, variant: u32) -> Vec<f32> {
         }
         let peak = one.iter().fold(1e-9f32, |m, s| m.max(s.abs()));
         for (i, s) in one.iter().enumerate() {
-            out[start + i] += s / peak * l.gain;
+            if note(l) {
+                ring[(start + i) % lap] += s / peak * l.gain;
+            } else {
+                out[start + i] += s / peak * l.gain;
+            }
         }
     }
     if fade > 0 {
@@ -189,6 +224,7 @@ pub fn render(r: &Row, variant: u32) -> Vec<f32> {
             out[i] = out[i] * w.sqrt() + out[keep + i] * (1.0 - w).sqrt();
         }
         out.truncate(keep);
+        out.iter_mut().zip(&ring).for_each(|(o, n)| *o += n);
     }
     let peak = out.iter().fold(1e-9f32, |m, s| m.max(s.abs()));
     out.iter_mut().for_each(|s| *s *= r.gain / peak);
@@ -256,13 +292,18 @@ impl Bank {
     }
 }
 
+#[cfg(test)]
+fn rows_for_tests() -> Vec<Row> {
+    parse(ROWS_TOML).unwrap()
+}
+
 pub enum Msg {
     /// Play a row's take once: how loud, at what pitch, where from the head (metres right, up, ahead; none
     /// for a sound that is nowhere), and how dull (0..1).
     Play { row: u16, take: u8, gain: f32, pitch: f32, rel: Option<[f32; 3]>, dull: f32 },
     /// A row that goes round: how loud and how dull it is now. It starts with the first of these.
     Hold { row: u16, gain: f32, dull: f32 },
-    Levels { master: f32, bus: [f32; 3] },
+    Levels { master: f32, bus: [f32; 4] },
 }
 
 /// What the mixer reports, for F3 and the run's JSON.
@@ -302,14 +343,14 @@ pub struct Mixer {
     rate: f32,
     voices: Vec<Voice>,
     master: (f32, f32),
-    bus: [f32; 3],
+    bus: [f32; 4],
     stats: Arc<Stats>,
 }
 
 impl Mixer {
     pub fn new(rx: mpsc::Receiver<Msg>, bank: Arc<Bank>, rate: f32, stats: Arc<Stats>) -> Mixer {
         stats.rate.store(rate as u32, Relaxed);
-        Mixer { rx, bank, rate, voices: Vec::with_capacity(VOICES), master: (1.0, 1.0), bus: [1.0; 3], stats }
+        Mixer { rx, bank, rate, voices: Vec::with_capacity(VOICES), master: (1.0, 1.0), bus: [1.0; 4], stats }
     }
 
     /// The low-pass's weight for a dullness of 0 (open) to 1 (800 Hz).
@@ -325,7 +366,7 @@ impl Mixer {
                 let lp = self.lp(dull);
                 if let Some(k) = self.voices.iter().position(|v| v.held == Some(row)) {
                     (self.voices[k].want, self.voices[k].lp) = (gain, lp);
-                } else if let (Some(c), true) = (self.bank.clips.get(row as usize).and_then(|c| c.first()), self.voices.len() < VOICES) {
+                } else if let (Some(c), true) = (self.bank.clips.get(row as usize).and_then(|c| c.first()), gain > 0.0 && self.voices.len() < VOICES) {
                     let bus = self.bank.rows[row as usize].bus as usize;
                     self.voices.push(Voice { clip: c.clone(), at: 0.0, step: (c.rate / self.rate) as f64, pan: [0.707; 2], lag: [0.0; 2], level: 0.0, want: gain, lp, z: [0.0; 2], bus, held: Some(row) });
                 }
@@ -401,7 +442,8 @@ impl Mixer {
             }
         }
         // a one-shot is done when its later ear has heard its end
-        self.voices.retain(|v| v.held.is_some() || v.at - v.lag[0].max(v.lag[1]) < v.clip.data.len() as f64);
+        // (a held row that has faded to nothing gives its voice back: it starts anew when it is wanted)
+        self.voices.retain(|v| if v.held.is_some() { v.want > 0.0 || v.level > 1e-4 } else { v.at - v.lag[0].max(v.lag[1]) < v.clip.data.len() as f64 });
         // the master eases over the buffer (a mute never clicks); tanh keeps a loud moment from clipping
         let (from, to) = self.master;
         for f in 0..frames {
@@ -492,7 +534,9 @@ pub struct Audio {
     /// How often each row was played, for the run's JSON: a check without ears.
     pub played: BTreeMap<String, u32>,
     seed: u32,
-    levels: (f32, [f32; 3]),
+    levels: (f32, [f32; 4]),
+    /// The take each row played last (`next_take`).
+    last: Vec<u8>,
     /// The head: where it is, and its right, up and ahead.
     pub ear: [DVec3; 4],
     /// How much of a sound the air carries here (0 in space, by the settings), and how dull the head hears
@@ -508,7 +552,7 @@ impl Audio {
     pub fn new() -> Audio {
         let rows = parse(ROWS_TOML).expect("data/sounds.toml");
         // the far end is dropped: until a card is opened the messages go nowhere
-        Audio { tx: mpsc::channel().0, rows, stats: Arc::default(), played: BTreeMap::new(), seed: 0x2F6E2B1, levels: (-1.0, [0.0; 3]), ear: [DVec3::ZERO, DVec3::X, DVec3::Y, DVec3::Z], carry: 1.0, dull: 0.0, open: false, retry: std::time::Instant::now() }
+        Audio { tx: mpsc::channel().0, rows, stats: Arc::default(), played: BTreeMap::new(), seed: 0x2F6E2B1, levels: (-1.0, [0.0; 4]), last: Vec::new(), ear: [DVec3::ZERO, DVec3::X, DVec3::Y, DVec3::Z], carry: 1.0, dull: 0.0, open: false, retry: std::time::Instant::now() }
     }
 
     /// Starts the sound card's thread; a machine without one plays on in silence.
@@ -555,8 +599,14 @@ impl Audio {
         if gain < 0.001 || rel.is_some_and(|d| d[0] * d[0] + d[1] * d[1] + d[2] * d[2] >= r.reach * r.reach) {
             return false;
         }
-        let take = (rand(&mut self.seed) * r.variants as f32) as u8;
+        // never the same twice running: another take, and each play a little louder or softer, higher or lower
+        self.last.resize(self.rows.len(), u8::MAX);
+        let take = next_take(&mut self.seed, r.variants, self.last[k]);
+        self.last[k] = take;
         let pitch = pitch * (1.0 + r.pitch * (rand(&mut self.seed) * 2.0 - 1.0));
+        if r.bus != Bus::Ui {
+            gain *= 0.85 + 0.3 * rand(&mut self.seed);
+        }
         *self.played.entry(name.to_string()).or_default() += 1;
         let _ = self.tx.send(Msg::Play { row: k as u16, take, gain, pitch, rel, dull });
         true
@@ -578,7 +628,7 @@ impl Audio {
     }
 
     /// The volume sliders, each 0..1; sent on when they change.
-    pub fn levels(&mut self, master: f32, bus: [f32; 3]) {
+    pub fn levels(&mut self, master: f32, bus: [f32; 4]) {
         if self.levels != (master, bus) {
             self.levels = (master, bus);
             let _ = self.tx.send(Msg::Levels { master, bus });
@@ -650,7 +700,7 @@ mod tests {
             let rms = (a.iter().map(|s| s * s).sum::<f32>() / a.len() as f32).sqrt();
             assert!((peak - r.gain).abs() < 1e-3 && peak <= 1.0, "{}: peak {peak}", r.name);
             assert!(rms > 0.01 * r.gain, "{}: all but silent, rms {rms}", r.name);
-            assert!(a.len() as f32 / RATE <= 10.0, "{}: {} s", r.name, a.len() as f32 / RATE);
+            assert!(a.len() as f32 / RATE <= 60.0, "{}: {} s", r.name, a.len() as f32 / RATE);
             if r.loops > 0.0 {
                 // no seam: the step from its end to its start is no bigger than its steps anywhere else
                 let big = a.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
@@ -672,7 +722,7 @@ mod tests {
                 assert!(rows.iter().any(|r| r.name == name), "block '{}' needs the sound '{name}'", d.name);
             }
         }
-        for name in ["ui.hover", "ui.click", "ui.tick", "wind"] {
+        for name in ["ui.hover", "ui.click", "ui.tick", "wind", "land", "music.menu"] {
             assert!(rows.iter().any(|r| r.name == name), "{name}");
         }
     }
@@ -715,19 +765,79 @@ mod tests {
         assert!(m.voices.iter().all(|v| v.want == 0.5), "a quieter one does not push a louder one out");
         assert!(b.iter().all(|s| s.abs() <= 1.0), "many at once do not clip");
         // the master at nothing: silence once it has eased there, and the voices still end
-        tx.send(Msg::Levels { master: 0.0, bus: [1.0; 3] }).unwrap();
+        tx.send(Msg::Levels { master: 0.0, bus: [1.0; 4] }).unwrap();
         m.mix(&mut b);
         let mut b = vec![0.0f32; 2 * 48000];
         m.mix(&mut b);
         assert!(b.iter().all(|s| *s == 0.0) && m.voices.is_empty());
         // a bus at nothing silences its own sounds only
-        tx.send(Msg::Levels { master: 1.0, bus: [0.0, 1.0, 1.0] }).unwrap();
+        tx.send(Msg::Levels { master: 1.0, bus: [0.0, 1.0, 1.0, 1.0] }).unwrap();
         play(&tx, 1.0);
         m.mix(&mut b);
         assert!(b[1000..].iter().all(|s| *s == 0.0));
         tx.send(Msg::Play { row: row(&rows, "ui.click"), take: 0, gain: 1.0, pitch: 1.0, rel: None, dull: 0.0 }).unwrap();
         m.mix(&mut b);
         assert!(energy(&b, 0) > 0.0);
+    }
+
+    /// Bug report 2026-11-11_12-56-46 and 12-57-17: a thump from two blocks, a louder one from higher,
+    /// none for a jump's own landing (1.25 m).
+    #[test]
+    fn a_fall_of_two_blocks_thumps_and_a_higher_one_louder() {
+        assert_eq!(thump(1.3), None, "a jump's landing is a step");
+        let (small, big) = (thump(2.0).expect("two blocks"), thump(8.0).expect("eight"));
+        assert!(small.0 >= 0.2 && small.0 <= 0.6 && big.0 > small.0 * 1.5 && big.1 < small.1, "{small:?} {big:?}");
+        assert!(thump(500.0).unwrap().0 <= 1.5);
+    }
+
+    /// Bug report 2026-11-11_12-56-13 (fatigue): a row never plays the same take twice running.
+    #[test]
+    fn no_take_twice_running() {
+        let (mut seed, mut last) = (77u32, 0u8);
+        for _ in 0..500 {
+            let t = next_take(&mut seed, 4, last);
+            assert!(t < 4 && t != last);
+            last = t;
+        }
+        assert_eq!(next_take(&mut seed, 1, 0), 0, "one take is all there is");
+        // (xorshift's fixed point of all ones gives the largest number `rand` can: still a take there is)
+        assert!(next_take(&mut 0xFFFF_FFFFu32.clone(), 4, 0) < 4 && next_take(&mut 0xFFFF_FF00u32.clone(), 2, 0) == 1);
+    }
+
+    /// Bug report 2026-11-11_12-55-41: the title plays music, not the wind. In a loop a layer with a decay
+    /// is a note: it rings on round the loop's end into its start.
+    #[test]
+    fn a_note_in_a_loop_rings_round_its_end() {
+        let rows = parse("[[sound]]\nname='x'\nbus='music'\nloop=2.0\nlayer=[{wave='sine',freq=[220,220],delay=1.8,attack=0.1,decay=1.0}]").unwrap();
+        let a = render(&rows[0], 0);
+        assert_eq!(a.len(), 2 * RATE as usize);
+        let e = |from: usize, to: usize| a[from..to].iter().map(|s| s * s).sum::<f32>();
+        assert!(e(0, 4800) > 10.0, "the note's tail is at the start: {}", e(0, 4800));
+        assert!(e(48000, 72000) < 1e-3, "and silence before it starts: {}", e(48000, 72000));
+        // (the review: rows that would have broken the making of a loop are refused)
+        for bad in ["loop=4.0\nlayer=[{wave='sine',freq=[200,200],delay=1}]", "loop=0.00001\nlayer=[{wave='sine',freq=[200,200],attack=0.000001,decay=0.000001}]"] {
+            assert!(parse(&format!("[[sound]]\nname='x'\nbus='music'\n{bad}")).is_err(), "{bad}");
+        }
+        let all = super::rows_for_tests();
+        let m = all.iter().find(|r| r.name == "music.menu").expect("the title's music");
+        assert!(m.bus == Bus::Music && m.loops >= 20.0);
+    }
+
+    /// A row held at nothing takes no voice, and one that has faded away gives its voice back.
+    #[test]
+    fn a_silent_held_row_takes_no_voice() {
+        let (tx, mut m, rows) = mixer();
+        let k = row(&rows, "wind");
+        let mut b = vec![0.0f32; 2 * 48000];
+        tx.send(Msg::Hold { row: k, gain: 0.0, dull: 0.0 }).unwrap();
+        m.mix(&mut b);
+        assert!(m.voices.is_empty());
+        tx.send(Msg::Hold { row: k, gain: 1.0, dull: 0.0 }).unwrap();
+        m.mix(&mut b);
+        tx.send(Msg::Hold { row: k, gain: 0.0, dull: 0.0 }).unwrap();
+        m.mix(&mut b);
+        m.mix(&mut b);
+        assert!(m.voices.is_empty(), "faded away and gone");
     }
 
     #[test]
@@ -740,9 +850,11 @@ mod tests {
             m.mix(&mut b);
             assert!(energy(&b, 0) > 1.0, "still blowing");
         }
-        tx.send(Msg::Hold { row: k, gain: 0.0, dull: 0.0 }).unwrap();
+        tx.send(Msg::Hold { row: k, gain: 0.7, dull: 0.0 }).unwrap();
         m.mix(&mut b);
         assert_eq!(m.voices.len(), 1, "one voice, however often it is told");
+        tx.send(Msg::Hold { row: k, gain: 0.0, dull: 0.0 }).unwrap();
+        m.mix(&mut b);
         assert!(b[2 * 47000..].iter().all(|s| s.abs() < 1e-3), "faded out");
     }
 
@@ -783,7 +895,8 @@ mod tests {
         a.ear = [DVec3::ZERO, DVec3::NEG_Z, DVec3::Y, DVec3::X];
         a.play("dig.stone", Some(DVec3::new(1.0, 2.0, -3.0)), 1.0, 1.0, true);
         match rx.try_recv() {
-            Ok(Msg::Play { gain, dull, rel, .. }) => assert_eq!((gain, dull, rel), (0.5, 1.0, Some([3.0, 2.0, 1.0]))),
+            // (each play is up to 15% louder or softer)
+            Ok(Msg::Play { gain, dull, rel, .. }) => assert!((0.42..0.58).contains(&gain) && (dull, rel) == (1.0, Some([3.0, 2.0, 1.0])), "{gain} {dull} {rel:?}"),
             _ => panic!("no message"),
         }
         assert_eq!(a.played["dig.stone"], 3);

@@ -109,20 +109,36 @@ impl App {
                 inp.turn = std::mem::take(&mut self.turn) as f32;
                 (inp.tilt, inp.roll) = (std::mem::take(&mut self.tilt) as f32, std::mem::take(&mut self.roll) as f32);
                 let f0 = self.world.frame_at(self.me.pos);
-                let (in_air, fall) = (!self.me.on_ground, -self.me.vel.dot(phys::up(&self.world, self.me.pos)));
+                let in_air = !self.me.on_ground;
                 phys::step(&self.world, &mut self.me, &inp, phys::DT);
+                // the metres fallen since the ground was left (a flight or a swim is no fall)
+                // (nothing is added in the step that changes the frame the place is told in: `prev` is still
+                // in the old one)
+                let sunk = if self.world.frame_at(self.me.pos) == f0 { -(self.me.pos - self.prev).dot(phys::up(&self.world, self.me.pos)) } else { 0.0 };
+                // (a step of more than 3 m is a teleport; the water is asked only in the air)
+                self.fell = if self.me.on_ground {
+                    self.fell
+                } else if self.flying || sunk > 3.0 || self.world.water_surface(self.me.pos).is_some() {
+                    0.0
+                } else {
+                    self.fell + sunk.max(0.0)
+                };
                 if self.loaded_at.is_some() && self.me.on_ground && !self.flying {
-                    // a footstep every STEP_M walked and a landing after a fall, in the sound of the block
-                    // underfoot; the landing is the step, lower and louder with the speed
-                    let land = in_air && fall > 4.0;
+                    // a footstep every STEP_M walked and one on landing, in the sound of the block underfoot;
+                    // a fall of two blocks or more thumps as well, louder and lower the further it was
+                    let land = in_air && self.fell > 0.3;
+                    let thump = if in_air { audio::thump(self.fell) } else { None };
+                    self.fell = 0.0;
                     self.walked += (self.me.pos - self.prev).length();
                     if land || self.walked >= STEP_M {
                         self.walked = 0.0;
                         let feet = self.me.pos;
                         let under = self.world.block(self.world.block_at(feet - phys::up(&self.world, feet) * 0.25));
                         if let Some(d) = BLOCKS.get(under).filter(|d| d.solid) {
-                            let (gain, pitch) = if land { ((fall as f32 / 5.0).clamp(1.0, 2.5), 0.75) } else { (1.0, 1.0) };
-                            self.audio.play(&format!("step.{}", d.sound), Some(feet), gain, pitch, true);
+                            self.audio.play(&format!("step.{}", d.sound), Some(feet), if land { 1.3 } else { 1.0 }, 1.0, true);
+                            if let Some((gain, pitch)) = thump {
+                                self.audio.play("land", Some(feet), gain, pitch, true);
+                            }
                         }
                     }
                 }
@@ -454,10 +470,12 @@ impl App {
         self.audio.dull = if self.world.water_surface(p.pos).is_some() { 0.8 } else { 0.0 };
         let vol = |s: S| (self.settings.get(s) / 100.0) as f32;
         let listening = self.focused || !self.onscreen || !self.settings.on(S::MuteBack);
-        self.audio.levels(if listening { vol(S::Volume) } else { 0.0 }, [vol(S::VolWorld), vol(S::VolSteps), vol(S::VolUi)]);
-        // (the title's camera circles high and fast: a breeze there, not a gale)
-        let wind = if self.home() == Menu::Title { 0.15 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + self.me.vel.length() / 50.0).min(1.0) as f32 * air };
+        self.audio.levels(if listening { vol(S::Volume) } else { 0.0 }, [vol(S::VolWorld), vol(S::VolSteps), vol(S::VolUi), vol(S::VolMusic)]);
+        // (the title has its music and no wind: bug reports 2026-11-11_12-53-31 and 12-55-41)
+        let title = self.home() == Menu::Title;
+        let wind = if title { 0.0 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + self.me.vel.length() / 50.0).min(1.0) as f32 * air };
         self.audio.hold("wind", wind);
+        self.audio.hold("music.menu", if title { 1.0 } else { 0.0 });
         let sky_c = Vec3::new(0.45, 0.65, 0.95) * day * air + Vec3::new(0.01, 0.012, 0.025);
         // the bounce light on or off (off: a flat fill from the sky), and the screen's brightness
         let fill = sky_c * 0.35 + Vec3::splat(0.01);

@@ -59,3 +59,16 @@ Not spiked against each other by measurement: the choice turns on testability, w
   landings, other players' edits), checked by a scripted run's counts only.
 - One build rule: `sound =` in `data/blocks.toml` changes the blocks' hash, so a client of this build
   refuses a server of an older one until the server is rebuilt.
+
+## Added 2026-11-11: the first play test's reports
+Six F9 reports (2026-11-11_12-53-31 to 12-57-17) changed the first cut; `docs/design/sound.md` has the
+rules. Music at the title in place of wind (a loop may hold notes; a fourth bus and slider, Music), takes
+that never repeat and vary more, footsteps of heel and toe, a thump by the metres fallen.
+- **The review found, and this change fixed:** a loop's steady layer with a delay wrote past the end of
+  its buffer, and a loop shorter than a sample divided by zero (both refused by the row check now); the
+  largest number the random source gives could pick a take that does not exist; the water was asked on
+  every physics step (now only in the air); a fall could gain a few metres in the step that changes the
+  frame a place is told in.
+- **CPU:** the frame thread gains one water lookup per physics step while in the air, nothing on the
+  ground. The mixer gains nothing; the title's music is 32 s of samples (6 MB) made once on the card's
+  thread.
