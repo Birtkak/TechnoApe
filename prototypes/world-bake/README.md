@@ -7,11 +7,13 @@ under 10 MB on disk, under 100 MB of server RAM. The answers are measured below.
 
 **Answer.** Yes for time and seams; memory is over the proposal.
 - **Time:** Terra bakes in **18.4 s** and the huge planet in **99.3 s** (release build, this PC), with
-  the higher plains the developer chose (below).
+  the higher plains and the 120/60 m relief the developer chose (below). The relief is the last, linear
+  step and costs nothing; the huge planet measured 105.7 s once at 120 m.
 - **Determinism:** the same seed gives the same hash twice, and another seed a different one.
 - **Rivers:** every river runs downhill to the sea or a lake. This is a test, seen failing first.
 - **Seams:** the seams and corners do not show, after one fix (below).
-- **Disk:** the result is **2.7 MB** for Terra and **9.8 MB** for the huge planet, compressed. That is
+- **Disk:** the result is **3.6 MB** for Terra and **13.3 MB** for the huge planet, compressed, at 120 m
+  of relief. The developer: file size matters little, performance does. That is
   heights, plates and rivers only; W2's full record will be bigger.
 - **Memory (over the proposal):** the bake process peaks at **174 MB** for Terra and **673 MB** for the
   huge planet.
@@ -81,7 +83,7 @@ Seconds per stage, seed 1:
 | 4 rivers and lakes | 0.02 | 0.09 |
 | **total** | **18.37** (budget 30) | **99.25** (budget 120) |
 | peak working set, MB | 174 | 673 |
-| on disk, gz: heights as i16 dm, plates, rivers | 2.7 MB | 9.8 MB |
+| on disk, gz: heights as i16 dm, plates, rivers | 2.7 MB (3.6 at 120 m) | 9.8 MB (13.3 at 120 m) |
 | uncompressed | 10.7 MB | 43.1 MB |
 
 - **Seed to seed:** 12 Terra seeds took 17 to 20 s each. A second run of seed 1 took 19.9 s.
@@ -102,16 +104,17 @@ Seconds per stage, seed 1:
   2 x 4 bytes per cell: 28 MB for Terra and 113 MB for the huge planet as f32.
   - The bake's peak can come down by storing directions as i16 or computing them, by not cloning h each
     step, and by a flat neighbour table instead of the HashMap. That is W2's work.
-- **Disk:** 2.7 MB holds the height (i16, decimetres), the plate of each cell and the river segments.
+- **Disk:** 2.7 MB at 50 m relief, 3.6 MB at 120 m (taller heights compress worse), holds the height (i16, decimetres), the plate of each cell and the river segments.
   W2 adds rock, soil, climate and biome per cell (worldgen.md: about 16 bytes). These are smooth fields
-  and compress well, but the huge planet is already at 9.8 MB, so **the huge planet will exceed 10 MB**
-  unless the stored map is coarser than 8 m there.
+  and compress well. At 120 m the huge planet is already 13.3 MB, over the 10 MB proposal. The
+  developer said file size matters little next to performance (2026-11-11), so this is accepted, not a
+  problem to fix.
 
 ### Determinism
 - `cargo test`: the same seed twice gives the same hash, and another seed a different one (small planet).
 - Terra, run twice:
-  - seed 1: `b3bb565958c98537` and `b3bb565958c98537`;
-  - seed 2: `47fc10f775682e0b`.
+  - seed 1: `dc857243a29b98c1` and `dc857243a29b98c1`;
+  - seed 2: `d7537fe44cdb9183` (both at 120/60 m).
 - **How:** every queue breaks ties by cell index, every sum runs in a fixed order, and rayon only maps
   cells to values one by one. The sea level is `select_nth_unstable` (deterministic) and then a fixed
   bisection.
@@ -191,6 +194,10 @@ Seconds per stage, seed 1:
   - **The price is lakes:** 49 to 432 per seed (1.5 % of the land on seed 1), mostly small basins where
     uplift outruns the rivers. Seed 11 is a lake district.
   - Stronger plains (0.5 / 1.0) gave more lakes for 2 m more of median height, so I stopped at 0.35 / 0.8.
+- **Relief 120 m / 60 m (the developer's call, 2026-11-11):** the defaults in `Params`.
+  - Land on seed 1: half above 20 m, 90 % under 41 m, 99 % under 62 m.
+  - Over the 12 seeds the median land is 19 to 35 m. Seed 11 is the highest: median 35 m, p99 85 m.
+  - The colours are by absolute metres, so the sheets now show brown uplands and grey and white peaks.
 - **The shape stays across the variants:** relief is the last, linear step, so the three variants are one
   shape at three heights. At 200 m the snow line shows; at 50 m the coast range is a hill.
 

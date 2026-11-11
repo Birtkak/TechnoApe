@@ -14,9 +14,9 @@ use std::time::Instant;
 /// on the command line, nowhere else.
 #[derive(Clone, Debug)]
 pub struct Params {
-    /// TASTE CALL: the highest land over the sea, metres (ADR 0021 today: 50; worldgen proposal: 120).
+    /// TASTE CALL, decided 2026-11-11: 120 m (ADR 0021 had 50). The highest land over the sea, metres.
     pub mountain_m: f32,
-    /// TASTE CALL: the deepest sea under it, metres (ADR 0021 today: 25; worldgen proposal: 60).
+    /// TASTE CALL, decided 2026-11-11: 60 m (ADR 0021 had 25). The deepest sea under it, metres.
     pub sea_depth_m: f32,
     /// The share of the surface under the sea (ADR 0021: 55 %).
     pub ocean_share: f32,
@@ -52,8 +52,8 @@ pub struct Params {
 impl Default for Params {
     fn default() -> Params {
         Params {
-            mountain_m: 50.0,
-            sea_depth_m: 25.0,
+            mountain_m: 120.0,
+            sea_depth_m: 60.0,
             ocean_share: 0.55,
             cell_m: 8.0,
             coarse: 4,
