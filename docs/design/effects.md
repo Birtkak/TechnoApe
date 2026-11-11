@@ -74,7 +74,7 @@ then the break is the burst alone.
 **Decided (the developer, 2026-11-11): as in Minecraft.** In survival a block takes time to dig, held down,
 by its hardness and the tool; cracks spread over it while it is dug and the burst comes when it goes;
 creative stays instant. To be built on its own (hardness in the blocks' data, the hold on the client, the
-server checking the time, other players seeing the cracks).
+server checking the time, other players seeing the cracks). Built as ADR 0034: the `crack` look and the `chip` row.
 
 ## Later, on the same system
 Footstep dust and landing puffs by the block underfoot; rain, snow and blown sand from the air (W3);

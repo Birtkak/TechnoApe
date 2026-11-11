@@ -861,8 +861,8 @@ fn stars(dc: vec3f, px: f32) -> vec3f {
 // facing the camera (its last 30 vertices folded away). Lit by `light()` as the terrain is, so the sun, its
 // shadows and the lamps fall on them, and the bounce light after the G-buffer; not in the traced scene, so
 // they cast no shadow. p: in its body's frame from the centre; info = block | body << 8 | look << 10 (0
-// debris, 1 square, 2 block); a, b: a debris' texel seed, a square's colour (b, rgba8), a cell's columns
-// (a = i | j << 15) and layer | face << 16 (b).
+// debris, 1 square, 2 block, 3 crack: a dig's cracks over a real cell, angle its share done, ADR 0034); a, b: a
+// debris' texel seed, a square's colour (b, rgba8), a cell's columns (a = i | j << 15) and layer | face << 16 (b).
 struct FxP { p: vec3f, size: f32, info: u32, angle: f32, a: u32, b: u32 };
 @group(0) @binding(10) var<storage, read> fxp: array<FxP>;
 
@@ -874,6 +874,7 @@ struct FxOut {
     @location(3) @interpolate(flat) info: u32, // as FxP's, and the face's dir << 12
     @location(4) @interpolate(flat) a: u32,
     @location(5) @interpolate(flat) b: u32,
+    @location(6) @interpolate(flat) k: f32, // a crack's share done
 };
 
 // corner k (0..5) of face `dir` (axis dir / 2, negative when odd) of the unit cube, 0..1: CCW from outside,
@@ -917,9 +918,10 @@ fn vs_fx(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Fx
     o.info = q.info | dir << 12u;
     o.a = q.a;
     o.b = q.b;
+    o.k = q.angle;
     var pb: vec3f; // in the body's frame from its centre
     var nb: vec3f;
-    if (look == 2u) {
+    if (look >= 2u) {
         // a whole cell, scaled about its middle, its corners from the grid as `vs` places the terrain's
         let cell = vec3f(f32(q.a & 0x7fffu), f32((q.a >> 15u) & 0x7fffu), f32(q.b & 0xffffu));
         let c = cube_corner(dir, k);
@@ -964,10 +966,10 @@ fn vs_fx(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Fx
     let rel = brot(b, (pb - b.cam_hi) - b.cam_lo);
     o.rel = rel;
     o.clip = g.view_proj * vec4f(rel, 1.0);
-    if (look == 2u) {
+    if (look >= 2u) {
         // a whole cell over the real one (its mesh is late on purpose while it grows): a centimetre nearer in
-        // depth only, so it wins over the terrain's faces where they meet
-        let near = g.view_proj * vec4f(rel * max(1.0 - 0.01 / length(rel), 0.0), 1.0);
+        // depth only, so it wins over the terrain's faces where they meet; cracks two, over the very same faces
+        let near = g.view_proj * vec4f(rel * max(1.0 - select(0.01, 0.02, look == 3u) / length(rel), 0.0), 1.0);
         o.clip.z = near.z / near.w * o.clip.w;
     }
     o.normal = brot(b, nb);
@@ -984,7 +986,7 @@ fn fx_colour(i: FxOut) -> vec3f {
     if (look == 1u) { return unpack4x8unorm(i.b).rgb; }
     let uv = vec2f(i.uvw[(a + 1u) % 3u], i.uvw[(a + 2u) % 3u]);
     let flat_t = (g.opt.x & 4u) != 0u;
-    if (look == 2u) {
+    if (look >= 2u) {
         let cell = vec3i(i32(i.a & 0x7fffu), i32((i.a >> 15u) & 0x7fffu), i32(i.b & 0xffffu)) + vec3i(i32(i.b >> 16u) * 977);
         return texel(mat, dir, cell, select(uv, vec2f(0.5), flat_t), i.uvw.z);
     }
@@ -1001,7 +1003,8 @@ fn fx_out(i: FxOut, col: vec3f, l: vec3f) -> GOut {
     let body = (i.info >> 8u) & 3u;
     var o: GOut;
     o.gbuf = gb_pack(normalize(i.normal), length(i.rel));
-    if ((looks[i.info & 255u].info >> 24u) == 1u && ((i.info >> 10u) & 3u) != 1u) {
+    let look = (i.info >> 10u) & 3u;
+    if ((looks[i.info & 255u].info >> 24u) == 1u && (look == 0u || look == 2u)) {
         // a piece of a lamp shows its own light
         o.direct = vec4f(col * 1.15, 1.0);
         o.albedo = vec4f(0.0, 0.0, 0.0, f32(body) / 3.0);
@@ -1012,10 +1015,40 @@ fn fx_out(i: FxOut, col: vec3f, l: vec3f) -> GOut {
     return o;
 }
 
+// whether this texel of a face is cracked, a share k of the way through its dig (ADR 0034): rays from near the
+// face's middle, more and longer in ten steps, each a texel wide and wandering a little, picked by the cell
+// and the face so no two faces crack alike
+fn cracked(i: FxOut) -> bool {
+    let dir = (i.info >> 12u) & 7u;
+    let a = dir / 2u;
+    let t = floor(vec2f(i.uvw[(a + 1u) % 3u], i.uvw[(a + 2u) % 3u]) * TEXELS);
+    let p = (t + 0.5) / TEXELS - 0.5;
+    let stage = floor(clamp(i.k, 0.0, 1.0) * 10.0) / 10.0;
+    if (stage <= 0.0) { return false; }
+    let seed = fx_hash(i.a ^ fx_hash(i.b ^ (dir * 0x9e3779b9u)));
+    let rays = 2u + u32(stage * 5.0);
+    let r = length(p);
+    let tw = 1.0 / TEXELS;
+    for (var n = 0u; n < rays; n++) {
+        let h = fx_hash(seed + n * 7919u);
+        let reach = stage * (0.35 + f32(h & 255u) / 255.0 * 0.4);
+        if (r > reach || r < tw * 0.5) { continue; }
+        // wanders by a texel or so every two texels out
+        let wander = (f32(fx_hash(h ^ u32(r * 8.0)) & 255u) / 255.0 - 0.5) * 0.5;
+        let ang = f32((h >> 8u) & 1023u) / 1024.0 * 6.2831853 + wander;
+        let d = abs(dot(p, vec2f(-sin(ang), cos(ang))));
+        if (d < tw * 0.55 && dot(p, vec2f(cos(ang), sin(ang))) > 0.0) { return true; }
+    }
+    return false;
+}
+
 // lit as the terrain is: its own sun ray (and the lamps' and the moon's) for every pixel; one visibility per
 // particle was 20 % cheaper and lost the lamps, the moon and the soft edge (prototypes/effects/)
 @fragment
 fn fs_fx(i: FxOut) -> GOut {
+    let look = (i.info >> 10u) & 3u;
+    if (look == 3u && !cracked(i)) { discard; }
     let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u, vec2u(i.clip.xy));
-    return fx_out(i, fx_colour(i), l.l);
+    // a crack shows the block's own texel, dark, as a gap in it
+    return fx_out(i, fx_colour(i) * select(1.0, 0.3, look == 3u), l.l);
 }

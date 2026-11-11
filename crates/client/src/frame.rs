@@ -202,6 +202,14 @@ impl App {
                     }
                 }
                 Recv::Msg(ToClient::Players(ps)) => self.players = ps.len(),
+                // another player's dig (ADR 0034): its cracks run on from this
+                Recv::Msg(ToClient::Digging { id, at }) => {
+                    let now = self.start.elapsed().as_secs_f64();
+                    self.digs.retain(|d| d.0 != id);
+                    if let Some((s, done, rate)) = at {
+                        self.digs.push((id, s, done, rate, now, now - HIT_S));
+                    }
+                }
                 Recv::Msg(ToClient::You { step, me, time, warp }) if self.run == "play" => {
                     // the first, or a jump (/time set): straight there
                     if self.clock.is_none_or(|(_, w, _)| (time - self.world.time).abs() > 2.0 * w.max(warp) + 1.0) {
@@ -470,6 +478,8 @@ impl App {
             self.fx.follow(self.settings.at(S::Particles));
             self.water.spray(&self.world, dt as f32, &mut self.fx);
             self.fx.step(&self.world, (dt as f32).min(0.1));
+            self.cracks(self.start.elapsed().as_secs_f64());
+            let gpu = self.gpu.as_ref().unwrap();
             let d = self.fx.drawn();
             let k = d.len().min(MAX_FX);
             if k > 0 {
@@ -480,6 +490,8 @@ impl App {
                 self.samples.fx_live += k as u64;
             }
         }
+        // taken again: the cracks above needed all of self
+        let gpu = self.gpu.as_ref().unwrap();
         lap!("fx");
         // the sun where the sky has it, seen from the camera's frame (ADR 0022)
         let cf = self.world.frame_at(p.pos);

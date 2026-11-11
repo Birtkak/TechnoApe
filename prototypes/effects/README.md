@@ -34,3 +34,7 @@ and run `bash prototypes/effects/measure.sh`. `git apply -R` the patch after.
 
 `close.png` and `far.png` are filmstrip frames of a break and a place, close and from 20 m (the commands are
 in ADR 0031).
+
+`dig.png` is a survival dig held (ADR 0034), four frames enlarged: the grass top cracking, then the next blocks
+down breaking under the hold. It is from `technoape.exe run=play save=0 settings=out/dig-settings.txt
+seconds=4.5 acts="0.2:say:/playmode survival,0.5:m:0:700,1.0:L" capture_ms=250 capture_w=480 sheet=out/dig.png`.

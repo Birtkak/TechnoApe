@@ -34,6 +34,10 @@ pub enum ToServer {
     /// A chat line, or a command when it starts with '/' (ADR 0023): the server answers a command to this
     /// player alone and passes any other line to everyone, with the sender's name.
     Chat(String),
+    /// The shape this survival player now holds the dig on, or none: let go or looking elsewhere (ADR 0034).
+    /// The server counts the time held on it (`edit::Hold`) and takes the dig's `Edit` only once it has had
+    /// its `edit::dig_time`; a shape left keeps its time for `edit::DIG_KEEP_S`.
+    Dig(Option<Shape>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -59,6 +63,9 @@ pub enum ToClient {
     Water(Vec<(crate::liquid::Col, Vec<crate::liquid::ColWater>)>),
     /// A line for the chat (ADR 0023): a player's words, an answer to a command, someone joining or leaving.
     Chat(String),
+    /// Another player's dig (ADR 0034): the shape, the share of it done when this was sent and the share it
+    /// gains a second (the client runs the cracks on from those), or none when it stopped or finished.
+    Digging { id: u32, at: Option<(Shape, f32, f32)> },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

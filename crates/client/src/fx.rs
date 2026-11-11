@@ -37,7 +37,12 @@ pub enum Look {
     Debris = 0,
     Square = 1,
     Block = 2,
+    /// Cracks over a cell being dug (ADR 0034): drawn by `Fx::crack`, not by a row.
+    Crack = 3,
 }
+
+/// Cracked cells drawn a frame at most: a hammer's dig shows its first ones.
+pub const CRACKS: usize = 64;
 
 fn one() -> f32 {
     1.0
@@ -107,6 +112,9 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         }
         if (r.count as f32 * SCALE[2]) as usize > CAP[0] / 4 {
             return Err(format!("effect {n}: {} particles an event at most", CAP[0] / 4));
+        }
+        if r.look == Look::Crack {
+            return Err(format!("effect {n}: cracks are drawn by the dig, not by a row"));
         }
         if r.look == Look::Square && r.colour.is_none() {
             return Err(format!("effect {n}: a square needs a colour"));
@@ -280,6 +288,8 @@ pub struct Fx {
     cursor: usize,
     /// The Particles setting's choice the pool follows, or none (benchmarks, fx_cap=).
     pub setting: Option<usize>,
+    /// Cracks drawn since the last step.
+    cracks: usize,
 }
 
 /// The cell events a frame that play an effect.
@@ -288,7 +298,7 @@ pub const EVENTS: u32 = 32;
 impl Fx {
     pub fn new(on: bool, cap: usize, scale: f32, seed: u32) -> Fx {
         let cap = cap.max(1);
-        Fx { on, pool: Vec::with_capacity(cap), out: Vec::with_capacity(cap), later: Vec::with_capacity(256), cap, scale, rng: seed.max(1), next_tag: 1, played: 0, events: 0, cursor: 0, setting: None }
+        Fx { on, pool: Vec::with_capacity(cap), out: Vec::with_capacity(cap + CRACKS), later: Vec::with_capacity(256), cap, scale, rng: seed.max(1), next_tag: 1, played: 0, events: 0, cursor: 0, setting: None, cracks: 0 }
     }
 
     /// A new cap and scale (the Particles setting changed): the pool shrinks at once or grows its room once.
@@ -297,7 +307,7 @@ impl Fx {
         self.scale = scale;
         self.pool.truncate(self.cap);
         self.pool.reserve_exact(self.cap - self.pool.len());
-        self.out.reserve_exact(self.cap.saturating_sub(self.out.len()));
+        self.out.reserve_exact((self.cap + CRACKS).saturating_sub(self.out.len()));
     }
 
     /// Follows the Particles setting's choice k, when `setting` says this run does (run=play without fx_cap=).
@@ -368,7 +378,7 @@ impl Fx {
             let spin = r.spin * (self.rnd() * 2.0 - 1.0);
             let seed = (self.rnd() * 16777216.0) as u32;
             let (a, b) = match (r.look, at.cell) {
-                (Look::Block, Some(c)) => (c.pos.x as u32 & 0x7fff | (c.pos.y as u32 & 0x7fff) << 15, c.pos.z as u32 & 0xffff | (c.face as u32) << 16),
+                (Look::Block, Some(c)) => cell_code(c),
                 (Look::Square, _) => {
                     let c = r.colour.unwrap_or([1.0; 3]).map(|x| (x.clamp(0.0, 1.0) * 255.0).round() as u32);
                     (seed, c[0] | c[1] << 8 | c[2] << 16 | 255 << 24)
@@ -439,6 +449,7 @@ impl Fx {
         let rows = &*ROWS;
         self.events = 0;
         self.out.clear();
+        self.cracks = 0;
         let mut i = 0;
         while i < self.pool.len() {
             let q = &mut self.pool[i];
@@ -523,10 +534,26 @@ impl Fx {
         self.pool.iter().filter(|p| p.rest).map(|p| world.block_at(world.bodies[p.body as usize].centre + p.p.as_dvec3())).collect()
     }
 
+    /// Cracks over cell b this frame, `k` of the way (0..1) to its dig's end (ADR 0034): drawn over the real
+    /// block in the block's own colours, not kept (the next `step` clears them), `CRACKS` a frame at most.
+    pub fn crack(&mut self, world: &World, b: Block, k: f32) {
+        if !self.on || self.cracks >= CRACKS {
+            return;
+        }
+        self.cracks += 1;
+        let (a, code) = cell_code(b);
+        self.out.push(FxGpu { p: [0.0; 3], size: 1.0, info: world.block(b) as u32 | (b.body as u32) << 8 | (Look::Crack as u32) << 10, angle: k.clamp(0.0, 1.0), a, b: code });
+    }
+
     /// The particles for the GPU as the last step left them, in a buffer kept from frame to frame.
     pub fn drawn(&self) -> &[FxGpu] {
         &self.out
     }
+}
+
+/// A cell as the shader's `block` and `crack` looks find it on the grid: column and face.
+fn cell_code(c: Block) -> (u32, u32) {
+    (c.pos.x as u32 & 0x7fff | (c.pos.y as u32 & 0x7fff) << 15, c.pos.z as u32 & 0xffff | (c.face as u32) << 16)
 }
 
 /// A cell the client's world changed, with what it was: a solid block gone plays the break, one come the place.
@@ -807,6 +834,31 @@ mod tests {
         let over: Vec<&P> = fx.pool.iter().filter(|p| p.tag == 1 && col.holds(p.p, p.p.length())).collect();
         assert!(!over.is_empty());
         assert!(over.iter().all(|p| !p.rest), "debris over the broken block still lies on it");
+    }
+
+    #[test]
+    fn cracks_draw_over_a_cell_for_one_frame_and_never_grow_the_buffer() {
+        let w = world();
+        let c = surface(&w);
+        let mut fx = Fx::new(true, 16, 1.0, 1);
+        let room = fx.out.capacity();
+        fx.step(&w, 0.01);
+        fx.crack(&w, c, 0.5);
+        let d = fx.drawn();
+        assert_eq!(d.len(), 1);
+        assert_eq!((d[0].angle, d[0].info >> 10 & 3, d[0].info & 255), (0.5, Look::Crack as u32, w.block(c) as u32));
+        // drawn this frame only: the caller says again each frame how far the dig is
+        fx.step(&w, 0.01);
+        assert!(fx.drawn().is_empty());
+        for _ in 0..CRACKS + 5 {
+            fx.crack(&w, c, 1.0);
+        }
+        assert_eq!(fx.drawn().len(), CRACKS);
+        assert_eq!(fx.out.capacity(), room);
+        // effects off: none
+        let mut off = Fx::new(false, 16, 1.0, 1);
+        off.crack(&w, c, 0.5);
+        assert!(off.drawn().is_empty());
     }
 
     #[test]

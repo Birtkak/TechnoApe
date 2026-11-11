@@ -97,6 +97,68 @@ pub fn changes(world: &World, shape: &Shape, m: u8, keep_clear: impl Fn(Block) -
         .collect()
 }
 
+/// Seconds a survival player holds to dig `shape` with bare hands (ADR 0034): its hardest block's hardness,
+/// so the hammer digs a shape in its slowest cell's time (the developer, 2026-11-11); 0 when there is nothing
+/// to dig. Creative does not wait.
+pub fn dig_time(world: &World, shape: &Shape) -> f32 {
+    shape.cells().filter_map(|b| BLOCKS.get(world.block(b))).filter(|d| d.solid).map(|d| d.hardness).fold(0.0, f32::max)
+}
+
+/// Seconds a half-dug shape keeps its progress after its player looks away or lets go (ADR 0034).
+pub const DIG_KEEP_S: f32 = 5.0;
+/// Half-dug shapes kept at most.
+const KEPT: usize = 8;
+
+/// A survival dig held over time (ADR 0034), as the server counts it and the client shows it: the shape held
+/// now, the clock when the hold began and the seconds it had before; shapes left half dug keep their seconds
+/// for `DIG_KEEP_S`. The clock is the caller's, in seconds (the server's ticks, the client's frames).
+#[derive(Clone, Debug, Default)]
+pub struct Hold {
+    now: Option<(Shape, f64, f32)>,
+    kept: Vec<(Shape, f32, f64)>,
+}
+
+impl Hold {
+    /// Holds on `at` from clock `t`, or lets go: the shape held before keeps its seconds, a kept one comes
+    /// back with its own. True when what is held changed.
+    pub fn on(&mut self, at: Option<Shape>, t: f64) -> bool {
+        if self.shape() == at {
+            return false;
+        }
+        if let Some((s, t0, base)) = self.now.take() {
+            self.kept.push((s, base + (t - t0) as f32, t));
+        }
+        self.kept.retain(|k| t - k.2 <= DIG_KEEP_S as f64);
+        if self.kept.len() > KEPT {
+            self.kept.remove(0);
+        }
+        self.now = at.map(|s| (s, t, self.kept.iter().position(|k| k.0 == s).map_or(0.0, |i| self.kept.remove(i).1)));
+        true
+    }
+
+    /// The shape held now.
+    pub fn shape(&self) -> Option<Shape> {
+        self.now.map(|n| n.0)
+    }
+
+    /// Seconds held on `s` by clock `t`: 0 unless it is the shape held now.
+    pub fn held(&self, s: &Shape, t: f64) -> f32 {
+        self.now.filter(|n| n.0 == *s).map_or(0.0, |(_, t0, base)| base + (t - t0) as f32)
+    }
+
+    /// The dig went: nothing is held, and nothing kept of that shape.
+    pub fn done(&mut self) {
+        if let Some((s, ..)) = self.now.take() {
+            self.kept.retain(|k| k.0 != s);
+        }
+    }
+
+    /// The shapes left half dug that still keep their seconds by clock `t`, with them.
+    pub fn kept(&self, t: f64) -> impl Iterator<Item = (Shape, f32)> + '_ {
+        self.kept.iter().filter(move |k| t - k.2 <= DIG_KEEP_S as f64).map(|k| (k.0, k.1))
+    }
+}
+
 /// A group of 2 x 2 x 2 blocks around `b`, kept on its face. It was the plain dig and place on 0.5 m
 /// blocks (ADR 0008); since ADR 0033 that is one block, and only the soak's bots still use this.
 pub fn brush(world: &World, b: Block) -> Shape {
@@ -239,6 +301,44 @@ impl Predictor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hold_counts_its_time_and_keeps_a_left_shape_five_seconds() {
+        let b = |i| Shape::one(Block { body: 0, face: 2, pos: IVec3::new(i, 0, 0) });
+        let mut h = Hold::default();
+        assert!(h.on(Some(b(1)), 10.0) && !h.on(Some(b(1)), 10.5), "only a change counts");
+        assert_eq!(h.held(&b(1), 11.0), 1.0);
+        // elsewhere for 2 s: the first keeps its second, shown while kept; back, it goes on from it
+        h.on(Some(b(2)), 11.0);
+        assert_eq!((h.held(&b(1), 12.0), h.held(&b(2), 12.0)), (0.0, 1.0));
+        assert_eq!(h.kept(12.0).collect::<Vec<_>>(), vec![(b(1), 1.0)]);
+        h.on(Some(b(1)), 13.0);
+        assert_eq!(h.held(&b(1), 13.5), 1.5);
+        // let go for longer than DIG_KEEP_S: it starts over
+        h.on(None, 14.0);
+        assert_eq!(h.kept(14.0 + DIG_KEEP_S as f64 + 0.1).count(), 0);
+        h.on(Some(b(1)), 14.0 + DIG_KEEP_S as f64 + 0.1);
+        assert_eq!(h.held(&b(1), 14.0 + DIG_KEEP_S as f64 + 0.1), 0.0);
+        // a dig that went keeps nothing
+        h.done();
+        assert_eq!((h.shape(), h.kept(20.0).count()), (None, 0));
+    }
+
+    #[test]
+    fn a_dig_takes_its_slowest_cell_s_time() {
+        let mut w = World::new(256, 32, 1);
+        let b = &w.bodies[0];
+        let top = w.block_at(b.centre + DVec3::Z * (b.height(DVec3::Z) - 0.5));
+        let hard = |n: &str| BLOCKS.get(BLOCKS.id(n)).unwrap().hardness;
+        w.set_block(top, BLOCKS.id("dirt"));
+        let below = Block { pos: top.pos - IVec3::Z, ..top };
+        w.set_block(below, BLOCKS.id("stone"));
+        assert_eq!(dig_time(&w, &Shape::one(top)), hard("dirt"));
+        // the hammer's shape over dirt and stone goes in the stone's time, not the sum (the developer, 2026-11-11)
+        assert_eq!(dig_time(&w, &Shape { min: below.pos, ..Shape::one(top) }), hard("stone"));
+        let air = Block { pos: top.pos + IVec3::Z * 3, ..top };
+        assert_eq!(dig_time(&w, &Shape::one(air)), 0.0);
+    }
 
     #[test]
     fn a_box_covers_its_cells_and_the_limits_hold() {

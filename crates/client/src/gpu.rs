@@ -56,7 +56,7 @@ pub(crate) const GPU_STAGES: [&str; 9] = ["rt", "gbuffer", "fx", "trace", "tempo
 pub(crate) const CPU_STAGES: [&str; 16] =
     ["pose", "msgs", "edits", "apply", "select", "dispatch", "table", "fx", "acquire", "rt", "encode", "submit", "post", "present", "tail", "between"];
 /// The particles the GPU holds (ADR 0031): the largest pool, "many".
-pub(crate) const MAX_FX: usize = crate::fx::CAP[2];
+pub(crate) const MAX_FX: usize = crate::fx::CAP[2] + crate::fx::CRACKS;
 pub(crate) const MAX_BODIES: usize = 4; // the size of `bodies` in shader.wgsl
 /// The full moon's light, a quarter of the sun's direct light and bluish: night stays readable (ADR 0022).
 pub(crate) const MOON_LIGHT: Vec3 = Vec3::new(0.12, 0.14, 0.18);

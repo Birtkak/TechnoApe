@@ -71,7 +71,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   runs windowless players on the protocol (commands: spawn, walk, wait, dig, place, block, report, quit;
   `script=-` takes them live from stdin). Output is one JSON line per report or block. Use bots, not a second
   windowed client, for multiplayer checks: two windows on one PC throttle each other (ADR 0006).
-- Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block, right click places one;
+- Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block (in survival held, by its hardness, ADR 0034), right click places one;
   H the build hammer, B its shape, wheel its height; V the bucket, left scoops, right pours;
   in space the mouse pitches you freely and Q/E roll, gravity rights you as it pulls (ADR 0024); C held zooms 3x;
   1-9 the hotbar; N drops a waypoint and creative shows the compass, where you are and the waypoints

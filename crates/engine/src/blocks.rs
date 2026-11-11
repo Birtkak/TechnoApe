@@ -36,6 +36,10 @@ struct Raw {
     was: Vec<String>,
     #[serde(default = "stone")]
     sound: String,
+    #[serde(default)]
+    hardness: f32,
+    #[serde(default)]
+    loose: bool,
 }
 fn stone() -> String {
     "stone".into()
@@ -71,6 +75,11 @@ pub struct Def {
     /// Its material's sound (docs/design/sound.md): digging it plays `dig.<sound>`, walking on it
     /// `step.<sound>`. The client checks that those rows exist.
     pub sound: String,
+    /// Seconds a survival player digs it with bare hands (ADR 0034); every solid block has one.
+    pub hardness: f32,
+    /// Bare hands take it (dirt, sand, a lamp): dug in survival it goes into the inventory. A block that is
+    /// not loose breaks by hand in its time but gives nothing (the tools that take it come later).
+    pub loose: bool,
 }
 
 pub struct Registry {
@@ -100,11 +109,14 @@ impl Registry {
             if !(0.0..=1.0).contains(&r.metal) {
                 return Err(format!("block '{}': metal outside 0..1", r.name));
             }
+            if r.solid && !(r.hardness > 0.0 && r.hardness <= 60.0) {
+                return Err(format!("block '{}': a solid block needs a hardness in 0..60 s", r.name));
+            }
             let side = match &r.side {
                 None => r.id,
                 Some(s) => f.block.iter().find(|o| &o.name == s).ok_or(format!("block '{}': no block '{s}' for its side", r.name))?.id,
             };
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone() });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}
@@ -149,16 +161,30 @@ mod tests {
     }
 
     #[test]
+    fn every_solid_block_takes_its_time_and_bare_hands_take_only_loose_things() {
+        for d in BLOCKS.placeable() {
+            assert!(d.hardness > 0.0 && d.hardness <= 60.0, "{}: {} s", d.name, d.hardness);
+        }
+        let get = |n: &str| BLOCKS.get(BLOCKS.id(n)).unwrap().clone();
+        let (dirt, stone) = (get("dirt"), get("stone"));
+        assert!(dirt.loose && dirt.hardness < 1.0, "dirt goes by hand in under a second");
+        assert!(!stone.loose && stone.hardness > 5.0, "stone is slow by hand and gives nothing");
+    }
+
+    #[test]
     fn bad_files_are_refused() {
         let air = "[[block]]\nid = 0\nname = \"air\"\nsolid = false\n";
         assert!(Registry::parse(air).is_ok());
+        assert!(Registry::parse(&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 0.5\nloose = true\n")).is_ok());
         for (bad, why) in [
             ("[[block]]\nid = 0\nname = \"rock\"\n", "0 is not air"),
             (&format!("{air}[[block]]\nid = 0\nname = \"x\"\n"), "id twice"),
             (&format!("{air}[[block]]\nid = 1\nname = \"air\"\n"), "name twice"),
             (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nside = \"y\"\n"), "unknown side"),
             (&format!("{air}[[block]]\nid = 1\nname = \"x\"\ncolour = [2.0, 0, 0]\n"), "colour"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 3\n"), "unknown field"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 3\nwobble = 3\n"), "unknown field"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\n"), "a solid block without its hardness"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 100\n"), "hardness"),
             (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nlight = [5.0, 0, 0]\n"), "light"),
             (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nmetal = 1.5\n"), "metal"),
         ] {

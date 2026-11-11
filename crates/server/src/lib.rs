@@ -92,7 +92,15 @@ struct Client {
     done: Vec<(u32, bool)>,
     /// The inventory changed this tick (or the player just joined).
     inv_dirty: bool,
+    /// The survival dig it holds (ADR 0034), on the server's clock.
+    hold: edit::Hold,
 }
+
+/// Allowance on a survival dig's time for the network: the `Dig` and its `Edit` travel the same way, so most
+/// of their delays cancel; this covers the rest and a tick's step.
+const DIG_LAG_S: f32 = 0.15;
+/// And a share of the dig's time: the server's clock drops the time of a late tick, the client's does not.
+const DIG_LAG_SHARE: f32 = 0.05;
 
 pub struct Server {
     pub world: World,
@@ -348,6 +356,7 @@ impl Server {
                 tiles: FxMap::default(),
                 done: Vec::new(),
                 inv_dirty: true,
+                hold: edit::Hold::default(),
             });
         }
         let mut changed: Vec<(Block, u8)> = Vec::new();
@@ -404,6 +413,11 @@ impl Server {
                     Recv::Msg(ToServer::Edit { seq, shape, material }) => {
                         let ok = self.edit(i, &shape, material, &mut changed);
                         self.clients[i].done.push((seq, ok));
+                        // the dig is done: its hold ends, and the others' cracks with it
+                        if ok && self.clients[i].hold.shape() == Some(shape) {
+                            self.clients[i].hold.done();
+                            self.tell_dig(i, None);
+                        }
                     }
                     Recv::Msg(ToServer::Bucket { seq, at, fill }) => {
                         let ok = self.bucket(i, at, fill);
@@ -414,6 +428,7 @@ impl Server {
                         (c.creative, c.inv_dirty) = (on, true);
                     }
                     Recv::Msg(ToServer::Chat(text)) => self.chat(i, &text),
+                    Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
                     Recv::Empty => break,
                     Recv::Closed => {
                         open = false;
@@ -424,6 +439,7 @@ impl Server {
             if open {
                 i += 1;
             } else {
+                self.tell_dig(i, None);
                 let c = self.clients.swap_remove(i);
                 if !c.player.name.is_empty() {
                     self.absent.insert(c.player.name.clone(), saved(&c));
@@ -715,11 +731,49 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         b.spawn_point()
     }
 
-    /// Client `i` digs or places `shape`: all of it or none. False when the shape fails `valid_shape` or a
-    /// survival player cannot pay for every block it places.
+    /// The server's clock in seconds: ticks, so a replay decides as the run did.
+    fn clock(&self) -> f64 {
+        self.tick as f64 * self.dt
+    }
+
+    /// Client i holds its dig on `at` now, or on nothing (ADR 0034; `edit::Hold` keeps a left shape's
+    /// seconds), and the others are told.
+    fn dig(&mut self, i: usize, at: Option<Shape>) {
+        let now = self.clock();
+        let pos = DVec3::from_array(self.clients[i].player.pos);
+        let at = at.filter(|s| s.sane() && !self.clients[i].creative && self.valid_shape(s, AIR, pos) && edit::dig_time(&self.world, s) > 0.0);
+        let (world, c) = (&self.world, &mut self.clients[i]);
+        if !c.hold.on(at, now) {
+            return;
+        }
+        let told = at.map(|s| (s, edit::dig_time(world, &s))).filter(|(_, need)| *need > 0.0).map(|(s, need)| (s, (c.hold.held(&s, now) / need).min(1.0), 1.0 / need));
+        self.tell_dig(i, told);
+    }
+
+    /// Every other player hears of client i's dig.
+    fn tell_dig(&self, i: usize, at: Option<(Shape, f32, f32)>) {
+        let id = self.clients[i].player.id;
+        for (k, o) in self.clients.iter().enumerate() {
+            if k != i {
+                o.link.send(ToClient::Digging { id, at });
+            }
+        }
+    }
+
+    /// Client `i` digs or places `shape`: all of it or none. False when the shape fails `valid_shape`, a
+    /// survival dig was not held for its time, or a survival player cannot pay for every block it places.
     fn edit(&mut self, i: usize, shape: &Shape, m: u8, changed: &mut Vec<(Block, u8)>) -> bool {
         if !self.valid_shape(shape, m, DVec3::from_array(self.clients[i].player.pos)) {
             return false;
+        }
+        // a survival dig is taken once it was held for its time (ADR 0034)
+        if m == AIR && !self.clients[i].creative {
+            let now = self.clock();
+            let held = self.clients[i].hold.held(shape, now);
+            let need = edit::dig_time(&self.world, shape);
+            if held + DIG_LAG_S + need * DIG_LAG_SHARE < need {
+                return false;
+            }
         }
         // a solid block never goes where it would trap a player
         let (world, clients) = (&self.world, &self.clients);
@@ -727,7 +781,8 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         let c = &mut self.clients[i];
         if !c.creative && !cells.is_empty() {
             if m == AIR {
-                for (_, old) in &cells {
+                // bare hands take only loose blocks; the rest breaks into nothing (shortcut: no tools yet, ADR 0034)
+                for (_, old) in cells.iter().filter(|(_, old)| BLOCKS.get(*old).is_some_and(|d| d.loose)) {
                     c.inv[*old as usize] = c.inv[*old as usize].saturating_add(1);
                 }
             } else {
@@ -1040,9 +1095,17 @@ mod tests {
         assert_eq!(s.world.block(deep), stone);
         let brush = Shape { max: deep.pos + 1, ..Shape::one(deep) };
         l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        // held for the stone's time: dug, but bare hands take nothing of stone (ADR 0034); it is given instead
+        l.send(ToServer::Dig(Some(brush)));
+        s.tick();
+        let t = edit::dig_time(&s.world, &brush);
+        wait(&mut s, t);
         l.send(ToServer::Edit { seq: 1, shape: brush, material: AIR });
         s.tick();
         assert!(brush.cells().all(|b| s.world.block(b) == AIR));
+        assert_eq!(s.clients[0].inv[stone as usize], 0);
+        l.send(ToServer::Chat("/give stone 8".into()));
+        s.tick();
         let got = drain(l);
         assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![], water: 0 }), "sent on join");
         assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(stone, 8)], water: 0 }));
@@ -1057,6 +1120,136 @@ mod tests {
         assert_eq!(s.world.edit_count, 8, "the world is as generated again, but the cells stay recorded");
     }
 
+    /// Ticks for `s` seconds.
+    fn wait(s: &mut Server, secs: f32) {
+        for _ in 0..(secs as f64 * TICK_HZ).round() as u32 {
+            s.tick();
+        }
+    }
+
+    /// A survival player on dry land over a dirt cell (made dirt), and the cell.
+    fn over_dirt(s: &mut Server, l: &Link<ToServer, ToClient>) -> Block {
+        let (pole, under) = on_land(s);
+        let cell = Block { pos: under.pos - glam::IVec3::Z, ..under };
+        s.world.set_block(cell, BLOCKS.id("dirt"));
+        l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        drain(l);
+        cell
+    }
+
+    #[test]
+    fn a_survival_dig_takes_its_time_and_stone_by_hand_gives_nothing() {
+        let (mut s, links) = server_with(2);
+        let l = &links[0];
+        let dirt = over_dirt(&mut s, l);
+        let one = Shape::one(dirt);
+        let need = edit::dig_time(&s.world, &one);
+        // at once: refused, as is a dig held for 40 % of its time
+        l.send(ToServer::Edit { seq: 1, shape: one, material: AIR });
+        l.send(ToServer::Dig(Some(one)));
+        s.tick();
+        wait(&mut s, need * 0.4);
+        l.send(ToServer::Edit { seq: 2, shape: one, material: AIR });
+        s.tick();
+        let got = drain(l);
+        assert!(got.contains(&ToClient::Done { seq: 1, ok: false }) && got.contains(&ToClient::Done { seq: 2, ok: false }), "{got:?}");
+        assert_eq!(s.world.block(dirt), BLOCKS.id("dirt"));
+        // the other player sees the cracks: the shape, how far it was and how fast it goes
+        let id = s.clients[0].player.id;
+        assert!(drain(&links[1]).iter().any(|m| matches!(m, ToClient::Digging { id: i, at: Some((sh, done, rate)) } if *i == id && *sh == one && *done == 0.0 && (*rate - 1.0 / need).abs() < 1e-6)));
+        // held on for its time: dug, and dirt goes into the inventory
+        wait(&mut s, need * 0.6);
+        l.send(ToServer::Edit { seq: 3, shape: one, material: AIR });
+        s.tick();
+        let got = drain(l);
+        assert!(got.contains(&ToClient::Done { seq: 3, ok: true }), "{got:?}");
+        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(BLOCKS.id("dirt"), 1)], water: 0 }), "{got:?}");
+        assert!(drain(&links[1]).contains(&ToClient::Digging { id, at: None }), "the cracks end with the dig");
+        // stone by hand: slow, and nothing comes of it (the developer, 2026-11-11)
+        let stone = Block { pos: dirt.pos - glam::IVec3::Z, ..dirt };
+        s.world.set_block(stone, BLOCKS.id("stone"));
+        let one = Shape::one(stone);
+        l.send(ToServer::Dig(Some(one)));
+        s.tick();
+        let t = edit::dig_time(&s.world, &one);
+        wait(&mut s, t);
+        l.send(ToServer::Edit { seq: 4, shape: one, material: AIR });
+        s.tick();
+        let got = drain(l);
+        assert!(got.contains(&ToClient::Done { seq: 4, ok: true }) && s.world.block(stone) == AIR, "{got:?}");
+        assert_eq!(s.clients[0].inv[BLOCKS.id("stone") as usize], 0);
+        // creative does not wait
+        l.send(ToServer::Creative(true));
+        let below = Block { pos: stone.pos - glam::IVec3::Z, ..stone };
+        l.send(ToServer::Edit { seq: 5, shape: Shape::one(below), material: AIR });
+        s.tick();
+        assert!(drain(l).contains(&ToClient::Done { seq: 5, ok: true }));
+    }
+
+    #[test]
+    fn a_half_dug_block_waits_five_seconds_for_its_digger() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let dirt = over_dirt(&mut s, l);
+        let one = Shape::one(dirt);
+        let need = edit::dig_time(&s.world, &one);
+        let other = Shape::one(Block { pos: dirt.pos + glam::IVec3::X, ..dirt });
+        // half, a look elsewhere for 2 s, back for the other half: dug
+        l.send(ToServer::Dig(Some(one)));
+        s.tick();
+        wait(&mut s, need * 0.5);
+        l.send(ToServer::Dig(Some(other)));
+        s.tick();
+        wait(&mut s, 2.0);
+        l.send(ToServer::Dig(Some(one)));
+        s.tick();
+        wait(&mut s, need * 0.5);
+        l.send(ToServer::Edit { seq: 1, shape: one, material: AIR });
+        s.tick();
+        assert!(drain(l).contains(&ToClient::Done { seq: 1, ok: true }));
+        // half, let go for longer than DIG_KEEP_S: it starts over
+        let below = Block { pos: dirt.pos - glam::IVec3::Z, ..dirt };
+        s.world.set_block(below, BLOCKS.id("dirt"));
+        let next = Shape::one(below);
+        l.send(ToServer::Dig(Some(next)));
+        s.tick();
+        wait(&mut s, need * 0.6);
+        l.send(ToServer::Dig(None));
+        s.tick();
+        wait(&mut s, edit::DIG_KEEP_S + 1.0);
+        l.send(ToServer::Dig(Some(next)));
+        s.tick();
+        wait(&mut s, need * 0.4);
+        l.send(ToServer::Edit { seq: 2, shape: next, material: AIR });
+        s.tick();
+        assert!(drain(l).contains(&ToClient::Done { seq: 2, ok: false }));
+    }
+
+    #[test]
+    fn a_dig_held_on_nothing_gathers_no_time_and_a_leaver_s_cracks_end() {
+        let (mut s, mut links) = server_with(2);
+        let dirt = over_dirt(&mut s, &links[0]);
+        let air = Block { pos: dirt.pos + glam::IVec3::Z, ..dirt };
+        assert_eq!(s.world.block(air), AIR);
+        // held on the air, then a block lands there: it takes its whole time from then
+        links[0].send(ToServer::Dig(Some(Shape::one(air))));
+        s.tick();
+        wait(&mut s, 2.0);
+        s.world.set_block(air, BLOCKS.id("dirt"));
+        links[0].send(ToServer::Edit { seq: 1, shape: Shape::one(air), material: AIR });
+        s.tick();
+        assert!(drain(&links[0]).contains(&ToClient::Done { seq: 1, ok: false }));
+        // the other player sees a dig, and its end when the digger leaves
+        links[0].send(ToServer::Dig(Some(Shape::one(dirt))));
+        s.tick();
+        let id = s.clients[0].player.id;
+        assert!(drain(&links[1]).iter().any(|m| matches!(m, ToClient::Digging { id: d, at: Some(_) } if *d == id)));
+        drop(links.remove(0));
+        s.tick();
+        assert!(drain(&links[0]).contains(&ToClient::Digging { id, at: None }));
+    }
+
     #[test]
     fn a_saved_player_comes_back_with_what_it_held() {
         let (mut s, links) = server_with(1);
@@ -1065,7 +1258,11 @@ mod tests {
         let deep = s.world.block_at(ground - DVec3::Z * 6.0);
         l.send(ToServer::Hello { name: "ape".into() });
         l.send(ToServer::Move { pos: (ground + DVec3::Z).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        // stone by hand gives nothing (ADR 0034): the stone it holds is given, and the dig still changes the world
+        l.send(ToServer::Chat("/give stone 1".into()));
+        l.send(ToServer::Creative(true));
         l.send(ToServer::Edit { seq: 1, shape: Shape::one(deep), material: AIR });
+        l.send(ToServer::Creative(false));
         s.tick();
         drop(links); // the player leaves; the server keeps it by name
         s.tick();

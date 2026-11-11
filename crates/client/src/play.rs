@@ -28,7 +28,11 @@ impl App {
                 }
             }
             "l" | "r" => {
-                if let Some((dig, at, end)) = self.held.take().filter(|h| h.0 == (a == "l")) {
+                if a == "l" {
+                    self.dig_again = false;
+                }
+                // a survival dig goes once held for its time (`dig_step`), not on letting go (ADR 0034)
+                if let Some((dig, at, end)) = self.held.take().filter(|h| h.0 == (a == "l") && !(h.0 && !self.creative)) {
                     if let Some(s) = self.shape(dig, at, end) {
                         self.apply(&s, dig);
                     }
@@ -611,6 +615,79 @@ impl App {
         self.link.send(ToServer::Edit { seq, shape: *s, material: m });
     }
 
+    /// The survival dig (ADR 0034): the held dig gathers time on its shape (`edit::Hold`, as the server
+    /// counts it), hits every `HIT_S`, and goes once it has its `edit::dig_time`; held on, the block under the
+    /// aim is next.
+    pub(crate) fn dig_step(&mut self, now: f64) {
+        if std::mem::take(&mut self.dig_again) {
+            if let Some((hit, before)) = self.aim {
+                let a = self.anchor(hit, before, true);
+                self.held = Some((true, a, a));
+            }
+        }
+        let want = match self.held {
+            Some((true, at, end)) if !self.creative && self.aim.is_some() => self.shape(true, at, end).filter(|s| s.fits(&self.world) && edit::dig_time(&self.world, s) > 0.0),
+            _ => None,
+        };
+        if self.hold.on(want, now) {
+            self.link.send(ToServer::Dig(want));
+            self.dig_hit = now - HIT_S;
+        }
+        let Some(s) = want else { return };
+        if now - self.dig_hit >= HIT_S {
+            self.dig_hit = now;
+            self.hit(&s);
+        }
+        if self.hold.held(&s, now) >= edit::dig_time(&self.world, &s) {
+            self.hold.done();
+            self.apply(&s, true);
+            (self.held, self.dig_again) = (None, true);
+        }
+    }
+
+    /// A hit of a dig on shape `s`: chips off its nearest solid cell and the dig's sound, softer and higher.
+    fn hit(&mut self, s: &Shape) {
+        let eye = self.me.pos;
+        let near = |c: &Block| self.world.block_centre(*c).distance_squared(eye);
+        let Some(c) = s.cells().filter(|c| BLOCKS.solid(self.world.block(*c))).min_by(|a, b| near(a).total_cmp(&near(b))) else { return };
+        let m = self.world.block(c);
+        self.fx.play(fx::id("chip"), &fx::At::cell(&self.world, c, m));
+        if let Some(d) = BLOCKS.get(m) {
+            self.audio.play(&format!("dig.{}", d.sound), Some(self.world.block_centre(c)), HIT_GAIN, HIT_PITCH, false);
+        }
+    }
+
+    /// Cracks over the cells being dug, this frame (ADR 0034): this player's dig, the shapes it left half dug
+    /// while they keep their time, and the other players' digs run on from what the server told, with their
+    /// hits.
+    pub(crate) fn cracks(&mut self, now: f64) {
+        let (world, fx) = (&self.world, &mut self.fx);
+        let share = |s: &Shape, held: f32| (held / edit::dig_time(world, s).max(1e-3)).min(1.0);
+        let mut draw = |s: &Shape, k: f32| {
+            for c in s.cells().filter(|c| BLOCKS.solid(world.block(*c))).take(fx::CRACKS) {
+                fx.crack(world, c, k);
+            }
+        };
+        if let Some(s) = self.hold.shape() {
+            draw(&s, share(&s, self.hold.held(&s, now)));
+        }
+        for (s, held) in self.hold.kept(now) {
+            draw(&s, share(&s, held));
+        }
+        // a dig the server stopped telling of (its player left) ends on its own
+        self.digs.retain(|d| now - d.4 < 60.0);
+        for &(_, s, done, rate, since, _) in &self.digs {
+            draw(&s, (done + rate * (now - since) as f32).min(1.0));
+        }
+        for k in 0..self.digs.len() {
+            if now - self.digs[k].5 >= HIT_S {
+                self.digs[k].5 = now;
+                let s = self.digs[k].1;
+                self.hit(&s);
+            }
+        }
+    }
+
     /// A cell's delta heard (docs/design/sound.md): a dig in the sound of what was there, a place in the new
     /// block's; whether it played.
     pub(crate) fn heard(&mut self, b: Block, was: u8, now: u8, touch: bool) -> bool {
@@ -651,6 +728,7 @@ impl App {
             (None, Some((hit, _))) => Some((Shape::one(hit), true, false)),
             (None, None) => None,
         };
+        self.dig_step(self.start.elapsed().as_secs_f64());
         let ghost = ghost.filter(|(s, ..)| s.fits(&self.world)).map(|(s, dig, held)| {
             let colour = match (held, dig) {
                 (false, _) => [255, 255, 255, 150],

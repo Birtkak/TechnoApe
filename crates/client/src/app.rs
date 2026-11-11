@@ -9,6 +9,10 @@ pub(crate) const ZOOM: f64 = 3.0;
 pub(crate) const AIM_REACH: f64 = 8.0;
 /// Metres between two footsteps: one every 0.42 s at a walk.
 pub(crate) const STEP_M: f64 = 1.8;
+/// A survival dig's hits (ADR 0034): one every HIT_S held, chips and the dig's sound, softer and higher.
+pub(crate) const HIT_S: f64 = 0.25;
+pub(crate) const HIT_GAIN: f32 = 0.45;
+pub(crate) const HIT_PITCH: f32 = 1.3;
 /// A placed block grows into place this long (data/effects.toml's grow: its `grow` share of its life).
 pub(crate) const GROW_S: f64 = 0.1;
 /// The block in hand's bob with the steps (ADR 0031): left and down by its pixels once a footstep, by the
@@ -95,6 +99,13 @@ pub(crate) struct App {
     /// Blocks this player placed, growing into place: when their mesh may show (the clock `start`), the cell,
     /// the block, the grow's tag, and whether the mesh was asked for (play.rs `apply`).
     pub(crate) growing: Vec<(f64, Block, u8, u32, bool)>,
+    /// The survival dig (ADR 0034): what is held and kept (on the clock `start`, as the server keeps it on
+    /// its own), the last hit, and whether to go on to the next block under the aim; the other players' digs
+    /// by id: shape, share done and gained a second as told, when told, their last hit.
+    pub(crate) hold: edit::Hold,
+    pub(crate) dig_hit: f64,
+    pub(crate) dig_again: bool,
+    pub(crate) digs: Vec<(u32, Shape, f32, f32, f64, f64)>,
     /// fxedit=: cells to change and when (seconds after loading), soonest last.
     pub(crate) fx_edits: Vec<(f64, Block, u8)>,
     /// What each world of the Singleplayer list is (seed, size, last played), beside `worlds`.
