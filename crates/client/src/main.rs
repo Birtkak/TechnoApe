@@ -2,6 +2,7 @@
 mod gi;
 mod hud;
 mod rt;
+mod settings;
 mod sim;
 mod sys;
 mod water;
@@ -13,6 +14,7 @@ use engine::phys::{self, Input};
 use engine::stream::{DrawChunk, FrameStats, Opts, Streamer, View};
 use engine::world::{Block, World};
 use server::Server;
+use settings::{Act, Bind, Row, Settings, S};
 use glam::{DQuat, DVec3, IVec3, Mat4, Vec3, Vec4};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -294,6 +296,8 @@ struct Globals {
     /// The camera's frame in the inertial one (the stars'), as columns; [0][3] the air here, [1][3] the sun's
     /// height over the horizon (sine).
     stars: [[f32; 4]; 3],
+    /// x: the settings' graphics rows, a bit each (`App::gfx_bits`).
+    opt: [u32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -896,18 +900,6 @@ const CORRECT_S: f64 = 0.1;
 const ZOOM: f64 = 3.0;
 const AIM_REACH: f64 = 8.0;
 /// Two presses of space this close (seconds) take off or land.
-const FLY_TAP: f64 = 0.3;
-const DIGITS: [KeyCode; 9] = [
-    KeyCode::Digit1,
-    KeyCode::Digit2,
-    KeyCode::Digit3,
-    KeyCode::Digit4,
-    KeyCode::Digit5,
-    KeyCode::Digit6,
-    KeyCode::Digit7,
-    KeyCode::Digit8,
-    KeyCode::Digit9,
-];
 
 /// acts="2:C,2.5:c,3:R,3.5:r": (seconds after load, action), sorted so the soonest is last.
 fn parse_acts(s: &str) -> Vec<(f64, String)> {
@@ -933,7 +925,7 @@ struct App {
     prev: DVec3,
     debt: f64,
     drift_max: f64,
-    keys: std::collections::HashSet<KeyCode>,
+    keys: std::collections::HashSet<Bind>,
     mouse: (f64, f64),
     pitch: f64,
     /// The mouse's turn (radians to the left) not stepped yet: the next step takes it, the camera shows it now.
@@ -1068,6 +1060,16 @@ struct App {
     /// The settings' slider being dragged, and the one whose number is being typed with the text so far.
     drag: Option<usize>,
     edit: Option<(usize, String)>,
+    /// The first row the menu shows, the row the keyboard is on, the key row waiting for its key (and which
+    /// of its two), and the display settings to go back to unless the change is kept by then.
+    scroll: usize,
+    sel: Option<usize>,
+    rebind: Option<(Act, usize)>,
+    revert: Option<(Settings, Instant)>,
+    /// The zoom is on; the window has the keyboard; when the frame cap lets the next frame start.
+    zoomed: bool,
+    focused: bool,
+    next_frame: Instant,
     onscreen: bool,
     /// Creative flight (ADR 0023): on or not, its speed (the wheel), and when space was last pressed.
     flying: bool,
@@ -1108,103 +1110,32 @@ enum Menu {
     Title,
     Worlds,
     Pause,
+    /// The list of the settings' pages, one of them (`settings::PAGES`), and the question after a display
+    /// change: keep it?
     Settings,
+    Page(usize),
+    Confirm,
 }
 
 /// Window sizes the settings offer, those that fit the monitor.
 const RESOLUTIONS: [(u32, u32); 5] = [(1280, 720), (1600, 900), (1920, 1080), (2560, 1440), (3840, 2160)];
-const FOVS: [f64; 6] = [60.0, 70.0, 80.0, 90.0, 100.0, 110.0];
-const SENSITIVITIES: [f64; 8] = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
-/// Chunks split when the camera is nearer than this many of their edges (`Opts::k`): more is finer far out.
-const DETAILS: [f64; 5] = [3.0, 4.0, 5.0, 6.0, 8.0];
-
-/// Play's settings (ADR 0023), kept as key=value lines in settings.txt; other runs keep the defaults, so
-/// benchmarks and views do not change with them.
-#[derive(Clone, Debug, PartialEq)]
-struct Settings {
-    width: u32,
-    height: u32,
-    /// One of DISPLAYS.
-    display: &'static str,
-    fov: f64,
-    sensitivity: f64,
-    detail: f64,
-}
-
-/// How the game shows: a window of the chosen size; a borderless window over the whole screen at its size;
-/// or the screen switched to the chosen size (exclusive).
-const DISPLAYS: [&str; 3] = ["windowed", "windowed fullscreen", "fullscreen"];
-
-impl Default for Settings {
-    fn default() -> Settings {
-        Settings { width: 1920, height: 1080, display: "windowed", fov: 70.0, sensitivity: 1.0, detail: 4.0 }
-    }
-}
 
 /// The window's fullscreen state for `s` on monitor `m`, and the size to render at: exclusive fullscreen
 /// takes the monitor's fastest mode of the chosen size, or the whole screen borderless when it has none.
 fn fullscreen(s: &Settings, m: Option<winit::monitor::MonitorHandle>) -> (Option<winit::window::Fullscreen>, (u32, u32)) {
     use winit::window::Fullscreen;
-    let Some(m) = m.filter(|_| s.display != "windowed") else { return (None, (s.width, s.height)) };
+    let size = (s.get(S::Width) as u32, s.get(S::Height) as u32);
+    let Some(m) = m.filter(|_| s.name(S::Display) != "windowed") else { return (None, size) };
     let screen = (m.size().width, m.size().height);
-    let mode = m.video_modes().filter(|v| (v.size().width, v.size().height) == (s.width, s.height)).max_by_key(|v| v.refresh_rate_millihertz());
+    let mode = m.video_modes().filter(|v| (v.size().width, v.size().height) == size).max_by_key(|v| v.refresh_rate_millihertz());
     match mode {
-        Some(v) if s.display == "fullscreen" => (Some(Fullscreen::Exclusive(v)), (s.width, s.height)),
+        Some(v) if s.name(S::Display) == "fullscreen" => (Some(Fullscreen::Exclusive(v)), size),
         _ => (Some(Fullscreen::Borderless(Some(m))), screen),
-    }
-}
-
-impl Settings {
-    fn parse(text: &str) -> Settings {
-        let mut s = Settings::default();
-        for (k, v) in text.lines().filter_map(|l| l.split_once('=')).map(|(k, v)| (k.trim(), v.trim())) {
-            match k {
-                "width" => s.width = v.parse().unwrap_or(s.width).clamp(640, 7680),
-                "height" => s.height = v.parse().unwrap_or(s.height).clamp(360, 4320),
-                "display" => s.display = DISPLAYS.iter().find(|d| **d == v).copied().unwrap_or(s.display),
-                "fov" => s.fov = v.parse().unwrap_or(s.fov).clamp(30.0, 130.0),
-                "sensitivity" => s.sensitivity = v.parse().unwrap_or(s.sensitivity).clamp(0.05, 10.0),
-                "detail" => s.detail = v.parse().unwrap_or(s.detail).clamp(2.0, 12.0),
-                _ => {}
-            }
-        }
-        s
-    }
-    fn text(&self) -> String {
-        format!(
-            "width={}\nheight={}\ndisplay={}\nfov={}\nsensitivity={}\ndetail={}\n",
-            self.width, self.height, self.display, self.fov, self.sensitivity, self.detail
-        )
     }
 }
 
 /// How fast Q and E roll the body out in space (ADR 0024), radians a second.
 const ROLL: f64 = 1.5;
-
-/// The settings' sliders, rows 2 and 3 (field of view, mouse sensitivity): the track's ends, its step, and the
-/// most a typed number may be (the least is the track's).
-const SLIDERS: [(f64, f64, f64, f64); 2] = [(30.0, 130.0, 1.0, 130.0), (0.05, 5.0, 0.05, 10.0)];
-
-impl Settings {
-    /// Settings row k's slider value, when it is a slider.
-    fn slider(&self, k: usize) -> Option<f64> {
-        match k {
-            2 => Some(self.fov),
-            3 => Some(self.sensitivity),
-            _ => None,
-        }
-    }
-    /// Sets slider k to v, kept to the slider's range and step.
-    fn set_slider(&mut self, k: usize, v: f64) {
-        let (lo, _, step, max) = SLIDERS[k - 2];
-        let v = ((v.clamp(lo, max) / step).round() * step * 100.0).round() / 100.0;
-        if k == 2 { self.fov = v } else { self.sensitivity = v }
-    }
-    /// Slider k's value as its number shows it.
-    fn slider_text(&self, k: usize) -> String {
-        if k == 2 { format!("{:.0}", self.fov) } else { format!("{:.2}x", self.sensitivity) }
-    }
-}
 
 /// The value after `cur` in `list` (before it when `back`), around the end; from the nearest when `cur` is
 /// not in it.
@@ -1213,23 +1144,16 @@ fn cycle<T: Copy + PartialEq>(list: &[T], cur: T, back: bool) -> T {
     list[if back { (i + list.len() - 1) % list.len() } else { (i + 1) % list.len() }]
 }
 
-#[test]
-fn settings_read_back_and_values_cycle() {
-    let s = Settings { width: 2560, height: 1440, display: "windowed fullscreen", fov: 90.0, sensitivity: 0.5, detail: 6.0 };
-    assert_eq!(Settings::parse(&s.text()), s);
-    assert_eq!(Settings::parse("display=sideways").display, "windowed");
-    assert_eq!(cycle(&DISPLAYS, "fullscreen", false), "windowed");
-    assert_eq!(Settings::parse("fov=nonsense\nwidth=99999\njunk"), Settings { width: 7680, ..Settings::default() });
-    assert_eq!(cycle(&FOVS, 110.0, false), 60.0);
-    assert_eq!(cycle(&FOVS, 60.0, true), 110.0);
-    assert_eq!(cycle(&FOVS, 70.0, false), 80.0);
-    let mut s = Settings::default();
-    s.set_slider(2, 83.4);
-    s.set_slider(3, 0.333);
-    assert_eq!((s.fov, s.sensitivity, s.slider_text(3)), (83.0, 0.35, "0.35x".to_string()));
-    s.set_slider(2, 500.0);
-    s.set_slider(3, 0.0);
-    assert_eq!((s.slider(2), s.slider(3), s.slider(4)), (Some(130.0), Some(0.05), None));
+/// A mouse button as a binding.
+fn mouse_bind(b: MouseButton) -> Option<Bind> {
+    Some(Bind::Mouse(match b {
+        MouseButton::Left => 1,
+        MouseButton::Right => 2,
+        MouseButton::Middle => 3,
+        MouseButton::Back => 4,
+        MouseButton::Forward => 5,
+        _ => return None,
+    }))
 }
 
 /// What the last frame drew, for F3 and bug reports.
@@ -1277,8 +1201,35 @@ impl App {
                 }
             }
             // C held zooms (it is read from the held keys); acts press it with C, let go with c
-            "C" => drop(self.keys.insert(KeyCode::KeyC)),
-            "c" => drop(self.keys.remove(&KeyCode::KeyC)),
+            "C" => self.zoomed = true,
+            "c" => self.zoomed = false,
+            // the zoom's key: held, or pressed once to stay (the settings' choice)
+            "zoom" => self.zoomed = self.settings.at(S::ZoomMode) == 0 || !self.zoomed,
+            "unzoom" => self.zoomed &= self.settings.at(S::ZoomMode) == 1,
+            // the menu by keys: next and prev move along the rows, go presses one (a slider: types its number),
+            // nudge+ and nudge- change a value; scroll:n moves the window of rows; bind:name gives a waiting
+            // key row its key (bind:none clears it)
+            "next" => self.select(1),
+            "prev" => self.select(-1),
+            "go" => {
+                if let Some(k) = self.sel {
+                    if self.menu_sliders().get(k).is_some_and(|s| s.is_some()) {
+                        self.edit = Some((k, String::new()));
+                    } else {
+                        self.menu_press(k, false);
+                    }
+                }
+            }
+            "nudge+" | "nudge-" => self.nudge(a == "nudge-"),
+            a if a.starts_with("scroll:") => self.scroll_by(a[7..].parse().unwrap_or(0)),
+            a if a.starts_with("bind:") => self.bind_to(Bind::parse(&a[5..])),
+            // key+:name and key-:name press and let go of a key or button itself (KeyW, Mouse1), through the
+            // settings' bindings as the keyboard does
+            a if a.starts_with("key+:") || a.starts_with("key-:") => {
+                if let Some(b) = Bind::parse(&a[5..]) {
+                    self.bind_event(b, a.starts_with("key+"), true);
+                }
+            }
             // the wheel: the flight speed while flying, unless the hammer holds a shape with a height
             "up" | "down" if self.flying && !(self.hammer && self.tool.kind != Kind::Box) => {
                 let f = if a == "up" { 1.25 } else { 1.0 / 1.25 };
@@ -1290,7 +1241,7 @@ impl App {
             // space twice within FLY_TAP seconds takes off or lands (creative, ADR 0023)
             "space" => {
                 let now = Instant::now();
-                if self.space_at.is_some_and(|t| (now - t).as_secs_f64() < FLY_TAP) {
+                if self.space_at.is_some_and(|t| (now - t).as_secs_f64() < self.settings.get(S::FlyTap)) {
                     self.space_at = None;
                     self.act("fly");
                 } else {
@@ -1309,6 +1260,7 @@ impl App {
                 (self.recall, self.pick) = (None, None);
                 (self.held, self.mouse) = (None, (0.0, 0.0));
                 self.keys.clear();
+                self.zoomed &= self.settings.at(S::ZoomMode) == 1;
             }
             "f3" => self.f3 = !self.f3,
             // . and , step the time warp ten times up or down (the server's /timewarp answers)
@@ -1317,13 +1269,16 @@ impl App {
                 self.bug_grab = true;
                 (self.held, self.mouse) = (None, (0.0, 0.0));
                 self.keys.clear();
+                self.zoomed &= self.settings.at(S::ZoomMode) == 1;
             }
             "enter" => self.submit(),
             // the menu (ADR 0023): esc opens it, goes back a page or closes it; click:k and rclick:k press button k
+            "esc" if self.menu == Some(Menu::Confirm) => self.undo_display(),
             "esc" => self.set_menu(match self.menu {
                 None => Some(Menu::Pause),
-                Some(Menu::Pause) => None,
+                Some(Menu::Pause) | Some(Menu::Confirm) => None,
                 Some(Menu::Settings) => Some(self.home()),
+                Some(Menu::Page(_)) => Some(Menu::Settings),
                 Some(Menu::Title | Menu::Worlds) => Some(Menu::Title),
             }),
             // point:x:y puts the pointer there (pixels), to see a button lit
@@ -1409,7 +1364,33 @@ impl App {
         }
     }
 
-    /// The menu's buttons on its open page.
+    /// The interface's scale, and the screen's size in the interface's own pixels.
+    fn ui(&self) -> f32 {
+        self.settings.get(S::UiScale) as f32
+    }
+    fn ui_size(&self) -> (f32, f32) {
+        (w() as f32 / self.ui(), h() as f32 / self.ui())
+    }
+
+    fn monitors(&self) -> Vec<winit::monitor::MonitorHandle> {
+        self.gpu.as_ref().map_or(Vec::new(), |g| g.window.available_monitors().collect())
+    }
+    /// The settings' monitor, or the one the window is on when there is no such.
+    fn monitor(&self) -> Option<winit::monitor::MonitorHandle> {
+        let win = &self.gpu.as_ref()?.window;
+        let n = self.settings.at(S::Monitor);
+        n.checked_sub(1).and_then(|k| win.available_monitors().nth(k)).or_else(|| win.current_monitor())
+    }
+
+    /// Row `k` of the open settings page.
+    fn page_row(&self, k: usize) -> Option<Row> {
+        match self.menu {
+            Some(Menu::Page(p)) => settings::page_rows(p).get(k).copied(),
+            _ => None,
+        }
+    }
+
+    /// The menu's buttons on its open page, all of them: the menu shows as many as fit, from `scroll` on.
     fn menu_items(&self) -> Vec<String> {
         let s = &self.settings;
         match self.menu {
@@ -1420,25 +1401,45 @@ impl App {
                 names.chain(["New world".into(), "Back".into()]).collect()
             }
             Some(Menu::Pause) => vec!["Back to game".into(), "Settings".into(), "Main menu".into(), "Quit game".into()],
-            Some(Menu::Settings) => vec![
-                if s.display == "windowed fullscreen" { format!("Resolution: {}x{} (native)", w(), h()) } else { format!("Resolution: {}x{}", s.width, s.height) },
-                format!("Display: {}", s.display),
-                "Field of view".into(),
-                "Mouse sensitivity".into(),
-                format!("Detail distance: {:.0}", s.detail),
-                "Done".into(),
-            ],
+            Some(Menu::Settings) => settings::PAGES.iter().map(|p| p.0.to_string()).chain(["Done".into()]).collect(),
+            Some(Menu::Confirm) => {
+                let left = self.revert.as_ref().map_or(0, |r| r.1.saturating_duration_since(Instant::now()).as_secs() + 1);
+                vec!["Keep these display settings".into(), format!("Go back ({left} s)")]
+            }
+            Some(Menu::Page(p)) => settings::page_rows(p)
+                .into_iter()
+                .map(|r| match r {
+                    Row::Resolution if s.name(S::Display) == "windowed fullscreen" => format!("Resolution: {}x{} (native)", w(), h()),
+                    Row::Resolution => format!("Resolution: {}x{}", s.get(S::Width), s.get(S::Height)),
+                    Row::Set(S::Monitor) => match s.at(S::Monitor).min(self.monitors().len()) {
+                        0 => "Monitor: the one the window is on".into(),
+                        k => format!("Monitor: {k} of {}", self.monitors().len()),
+                    },
+                    Row::Set(x) => s.row_text(x),
+                    Row::Preset => format!("Preset: {}", s.preset().map_or("Custom", |i| settings::PRESETS[i])),
+                    Row::Key(a) if self.rebind.map(|r| r.0) == Some(a) => format!("{}: press a key or a button", settings::ACTS[a as usize].label),
+                    Row::Key(a) => s.key_text(a),
+                    Row::KeyDefaults => "Back to the default keys".into(),
+                })
+                .chain(["Back".into()])
+                .collect(),
         }
     }
 
-    /// The open page's sliders, row by row (the settings' field of view and mouse sensitivity).
+    /// How many rows fit under the page's title.
+    fn menu_fit(&self) -> usize {
+        let h = self.ui_size().1;
+        (((h - (h * 0.36).max(230.0) - 76.0) / 60.0) as usize).max(3) // clear of the hotbar
+    }
+
+    /// The open page's sliders, row by row.
     fn menu_sliders(&self) -> Vec<hud::Slider> {
         (0..self.menu_items().len())
             .map(|k| {
-                let v = self.settings.slider(k).filter(|_| self.menu == Some(Menu::Settings))?;
-                let (lo, hi, _, _) = SLIDERS[k - 2];
+                let Some(Row::Set(s)) = self.page_row(k) else { return None };
+                let (at, text) = self.settings.slider(s)?;
                 let typing = self.edit.as_ref().filter(|e| e.0 == k);
-                Some((((v - lo) / (hi - lo)) as f32, typing.map_or(self.settings.slider_text(k), |e| e.1.clone()), typing.is_some()))
+                Some((at, typing.map_or(text, |e| e.1.clone()), typing.is_some()))
             })
             .collect()
     }
@@ -1447,9 +1448,10 @@ impl App {
     /// it starts typing one; anywhere else on a button it presses it.
     fn menu_click(&mut self, back: bool) {
         let (x, y) = self.pointer;
-        let Some(k) = self.menu_boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]) else { return };
+        let Some(v) = self.menu_boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]) else { return };
+        let k = v + self.scroll;
         if self.menu_sliders().get(k).is_some_and(|s| s.is_some()) {
-            let (t, n) = hud::slider_parts(self.menu_boxes[k], &self.menu_items()[k]);
+            let (t, n) = hud::slider_parts(self.menu_boxes[v], &self.menu_items()[k]);
             if x >= n[0] - 12.0 {
                 self.edit = Some((k, String::new()));
                 return;
@@ -1466,17 +1468,50 @@ impl App {
     /// The dragged slider follows the pointer along its track.
     fn slide(&mut self) {
         let Some(k) = self.drag else { return };
-        let (t, _) = hud::slider_parts(self.menu_boxes[k], &self.menu_items()[k]);
-        let (lo, hi, _, _) = SLIDERS[k - 2];
-        let f = ((self.pointer.0 - t[0]) / t[2]).clamp(0.0, 1.0) as f64;
-        self.settings.set_slider(k, lo + f * (hi - lo));
+        let (Some(Row::Set(s)), Some(b)) = (self.page_row(k), k.checked_sub(self.scroll).and_then(|v| self.menu_boxes.get(v))) else { return };
+        let (t, _) = hud::slider_parts(*b, &self.menu_items()[k]);
+        self.settings.slide(s, ((self.pointer.0 - t[0]) / t[2]) as f64);
     }
 
     /// Keeps the settings in their file.
     fn save_settings(&mut self) {
+        if self.revert.is_some() {
+            return; // a display change nobody has kept yet stays out of the file
+        }
         if let Err(e) = std::fs::write(&self.settings_file, self.settings.text()) {
             self.note(format!("the settings could not be saved to {}: {e}", self.settings_file));
         }
+    }
+
+    /// The keyboard's place in the menu moves by `d` rows; the window of rows follows it.
+    fn select(&mut self, d: i32) {
+        let n = self.menu_items().len();
+        if n == 0 {
+            return;
+        }
+        let k = self.sel.map_or(0, |k| (k as i32 + d).clamp(0, n as i32 - 1) as usize);
+        self.sel = Some(k);
+        self.scroll = self.scroll.clamp((k + 1).saturating_sub(self.menu_fit()), k);
+    }
+
+    /// The window of rows moves by `d` (the wheel).
+    fn scroll_by(&mut self, d: i32) {
+        let most = self.menu_items().len().saturating_sub(self.menu_fit());
+        self.scroll = (self.scroll as i32 + d).clamp(0, most as i32) as usize;
+    }
+
+    /// Left and right on the keyboard's row: a slider a step, any other row its value before or after.
+    fn nudge(&mut self, back: bool) {
+        let Some(k) = self.sel else { return };
+        if let Some(Row::Set(s)) = self.page_row(k) {
+            if let settings::Kind::Slider { step, .. } = settings::DEFS[s as usize].kind {
+                let before = self.settings.clone();
+                self.settings.set(s, self.settings.get(s) + if back { -step } else { step });
+                self.apply_settings(&before);
+                return;
+            }
+        }
+        self.menu_press(k, back);
     }
 
     /// Button `k` of the open page pressed (`back`: with the right button, a value goes the other way).
@@ -1495,39 +1530,161 @@ impl App {
             (Some(Menu::Worlds), _) => self.set_menu(Some(Menu::Title)),
             (Some(Menu::Pause), 0) => self.set_menu(None),
             (Some(Menu::Pause), 2) => self.start_again(TITLE_ARGS[2..].iter().map(|s| s.to_string()).collect()),
-            (Some(Menu::Settings), 0..=4) => {
-                let s = &mut self.settings;
-                match k {
-                    0 if s.display != "windowed fullscreen" => {
-                        // a window fits the screen; exclusive fullscreen takes the sizes the screen can switch to
-                        let mon = self.gpu.as_ref().and_then(|g| g.window.current_monitor());
-                        let exclusive = s.display == "fullscreen";
-                        let fits: Vec<(u32, u32)> = RESOLUTIONS
-                            .iter()
-                            .copied()
-                            .filter(|r| match &mon {
-                                None => true,
-                                Some(m) if exclusive => m.video_modes().any(|v| (v.size().width, v.size().height) == *r),
-                                Some(m) => r.0 <= m.size().width && r.1 <= m.size().height,
-                            })
-                            .collect();
-                        (s.width, s.height) = cycle(if fits.is_empty() { &RESOLUTIONS[..1] } else { &fits }, (s.width, s.height), back);
-                    }
-                    0 => {}
-                    1 => s.display = cycle(&DISPLAYS, s.display, back),
-                    2 => s.fov = cycle(&FOVS, s.fov, back),
-                    3 => s.sensitivity = cycle(&SENSITIVITIES, s.sensitivity, back),
-                    _ => s.detail = cycle(&DETAILS, s.detail, back),
-                }
-                self.streamer.opts.k = self.settings.detail;
-                if k <= 1 {
-                    self.apply_display();
-                }
+            (Some(Menu::Settings), k) if k < settings::PAGES.len() => self.set_menu(Some(Menu::Page(k))),
+            (Some(Menu::Settings), _) => self.set_menu(Some(self.home())),
+            (Some(Menu::Confirm), 0) => {
+                self.revert = None;
                 self.save_settings();
+                self.set_menu(Some(Menu::Page(0)));
             }
-            (Some(Menu::Settings), 5) => self.set_menu(Some(self.home())),
+            (Some(Menu::Confirm), _) => self.undo_display(),
+            (Some(Menu::Page(_)), k) => match self.page_row(k) {
+                Some(row) => self.change(row, back),
+                None => self.set_menu(Some(Menu::Settings)),
+            },
             _ => {}
         }
+    }
+
+    /// A settings row pressed: its next value (the one before when `back`), applied at once.
+    fn change(&mut self, row: Row, back: bool) {
+        let before = self.settings.clone();
+        match row {
+            Row::Resolution if self.settings.name(S::Display) == "windowed fullscreen" => {}
+            Row::Resolution => {
+                // a window fits the screen; exclusive fullscreen takes the sizes the screen can switch to
+                let mon = self.monitor();
+                let exclusive = self.settings.name(S::Display) == "fullscreen";
+                let fits: Vec<(u32, u32)> = RESOLUTIONS
+                    .iter()
+                    .copied()
+                    .filter(|r| match &mon {
+                        None => true,
+                        Some(m) if exclusive => m.video_modes().any(|v| (v.size().width, v.size().height) == *r),
+                        Some(m) => r.0 <= m.size().width && r.1 <= m.size().height,
+                    })
+                    .collect();
+                let cur = (self.settings.get(S::Width) as u32, self.settings.get(S::Height) as u32);
+                let (nw, nh) = cycle(if fits.is_empty() { &RESOLUTIONS[..1] } else { &fits }, cur, back);
+                self.settings.set(S::Width, nw as f64);
+                self.settings.set(S::Height, nh as f64);
+            }
+            Row::Preset => {
+                // from Custom to High, the default
+                let n = match (self.settings.preset(), back) {
+                    (None, _) => 2,
+                    (Some(i), false) => (i + 1) % 4,
+                    (Some(i), true) => (i + 3) % 4,
+                };
+                self.settings.set_preset(n);
+            }
+            Row::Set(S::Monitor) => {
+                // 0 (the window's own), then each screen
+                let n = self.monitors().len() + 1;
+                let i = self.settings.at(S::Monitor).min(n - 1);
+                self.settings.set(S::Monitor, ((i + if back { n - 1 } else { 1 }) % n) as f64);
+            }
+            Row::Set(s) => self.settings.cycle(s, back),
+            Row::Key(a) => {
+                // the row waits for its key: the first with the left button, the second with the right
+                self.rebind = Some((a, back as usize));
+                return;
+            }
+            Row::KeyDefaults => self.settings.default_binds(),
+        }
+        self.apply_settings(&before);
+    }
+
+    /// Does what a change of the settings from `before` needs, and keeps the file. A change that could lose the
+    /// picture is kept only once the player says so (docs/design/settings.md): it goes back after 10 s.
+    fn apply_settings(&mut self, before: &Settings) {
+        self.streamer.opts.k = self.settings.get(S::Detail);
+        hud::set_contrast(self.settings.on(S::Contrast));
+        if self.settings.on(S::Vsync) != before.on(S::Vsync) {
+            self.apply_present();
+        }
+        if settings::RISKY.iter().any(|s| self.settings.get(*s) != before.get(*s)) {
+            self.apply_display();
+            // off screen there is no picture to lose; confirm=1 asks all the same, for scripted checks
+            if self.onscreen || self.args.get("confirm", 0) == 1 {
+                if self.revert.is_none() {
+                    self.revert = Some((before.clone(), Instant::now() + Duration::from_secs(10)));
+                }
+                self.set_menu(Some(Menu::Confirm));
+                return;
+            }
+        }
+        if self.revert.is_none() {
+            self.save_settings();
+        }
+    }
+
+    /// The surface waits for the display or does not, as the settings say.
+    fn apply_present(&mut self) {
+        let vsync = self.settings.on(S::Vsync);
+        let Some(gpu) = self.gpu.as_mut() else { return };
+        gpu.config.present_mode = if vsync { wgpu::PresentMode::AutoVsync } else { wgpu::PresentMode::AutoNoVsync };
+        gpu.surface.configure(&gpu.device, &gpu.config);
+    }
+
+    /// The display settings from before the change nobody kept.
+    fn undo_display(&mut self) {
+        let Some((old, _)) = self.revert.take() else { return };
+        self.settings = old;
+        self.apply_display();
+        self.save_settings();
+        self.set_menu(Some(Menu::Page(0)));
+    }
+
+    /// The key or button for the key row that waits for one; None clears it.
+    fn bind_to(&mut self, b: Option<Bind>) {
+        if let Some((a, slot)) = self.rebind.take() {
+            self.settings.binds[a as usize][slot] = b;
+            self.save_settings();
+        }
+    }
+
+    /// A key or button went down or up: the inputs of the actions bound to it. A key held repeats nothing.
+    /// `fire` false only holds the key down.
+    fn bind_event(&mut self, b: Bind, down: bool, fire: bool) {
+        let changed = if down { self.keys.insert(b) } else { self.keys.remove(&b) };
+        if !changed || !fire {
+            return;
+        }
+        for a in self.settings.acts_of(b).collect::<Vec<_>>() {
+            let d = &settings::ACTS[a as usize];
+            let input = if down { d.press } else { d.release };
+            if !input.is_empty() {
+                self.act(input);
+            }
+        }
+    }
+
+    /// Frames a second play is held to on screen (the settings' cap; in the background its own), None for no
+    /// cap. Benchmarks and off-screen runs have none.
+    fn cap_hz(&self) -> Option<f64> {
+        if self.run != "play" || !self.onscreen {
+            return None;
+        }
+        let refresh = self.gpu.as_ref()?.window.current_monitor().and_then(|m| m.refresh_rate_millihertz()).filter(|m| *m >= 10_000).map_or(60.0, |m| m as f64 / 1000.0);
+        let cap = match self.settings.at(S::FrameCap) {
+            0 => Some(refresh),
+            1 => Some(refresh / 2.0),
+            7 => None,
+            _ => self.settings.name(S::FrameCap).parse().ok(),
+        }
+        .filter(|hz: &f64| *hz >= 1.0);
+        if !self.focused && self.settings.at(S::BackCap) == 0 {
+            return Some(cap.unwrap_or(30.0).min(30.0));
+        }
+        cap
+    }
+
+    /// The graphics rows the shaders read, a bit each (`g.opt.x`): sharp sun shadows, no reflections, flat
+    /// block colours, no stars. The defaults are 0, today's picture.
+    fn gfx_bits(&self) -> u32 {
+        let s = &self.settings;
+        (s.at(S::Shadows) == 0) as u32 | (!s.on(S::Reflections) as u32) << 1 | ((s.at(S::Textures) == 0) as u32) << 2 | (!s.on(S::Stars) as u32) << 3
     }
 
     /// The title menu's view: in orbit over the planet's sunlit limb, the planet filling the left half and the
@@ -1573,9 +1730,14 @@ impl App {
         if m == Some(Menu::Worlds) {
             self.worlds = list_worlds();
         }
+        if m != self.menu {
+            self.scroll = 0;
+        }
+        (self.sel, self.rebind) = (None, None);
         self.menu = m;
         (self.held, self.mouse) = (None, (0.0, 0.0));
         self.keys.clear();
+        self.zoomed &= self.settings.at(S::ZoomMode) == 1;
         if self.onscreen {
             let win = &self.gpu.as_ref().unwrap().window;
             if m.is_some() {
@@ -1590,15 +1752,20 @@ impl App {
     /// The window as the settings say: fullscreen at the screen's size, or a window of the chosen size.
     fn apply_display(&mut self) {
         if !self.onscreen {
-            self.resize(self.settings.width, self.settings.height);
+            self.resize(self.settings.get(S::Width) as u32, self.settings.get(S::Height) as u32);
             return;
         }
         let win = self.gpu.as_ref().unwrap().window.clone();
-        let (fs, (nw, nh)) = fullscreen(&self.settings, win.current_monitor());
+        let mon = self.monitor();
+        let (fs, (nw, nh)) = fullscreen(&self.settings, mon.clone());
         let windowed = fs.is_none();
         win.set_fullscreen(fs);
         win.set_decorations(windowed);
         if windowed {
+            // a window moves to the settings' monitor when it is on another
+            if let Some(m) = mon.filter(|m| self.settings.at(S::Monitor) > 0 && Some(m) != win.current_monitor().as_ref()) {
+                win.set_outer_position(m.position());
+            }
             let _ = win.request_inner_size(winit::dpi::PhysicalSize::new(nw, nh));
         }
         self.resize(nw, nh);
@@ -1639,7 +1806,7 @@ impl App {
 
     /// The field of view drawn now, in degrees: the setting's, narrowed by the zoom.
     fn fov(&self) -> f64 {
-        2.0 * ((self.settings.fov.to_radians() / 2.0).tan() / self.zoom).atan().to_degrees()
+        2.0 * ((self.settings.get(S::Fov).to_radians() / 2.0).tan() / self.zoom).atan().to_degrees()
     }
 
     /// A text is being written (the chat or the bug report's form), or F9 waits for its frame: keys and the
@@ -1664,9 +1831,10 @@ impl App {
     /// Enter: the chat's line goes to the server (it runs the commands), the bug report to bugs/.
     fn submit(&mut self) {
         if let Some((k, t)) = self.edit.take() {
-            if let Ok(v) = t.parse::<f64>() {
-                self.settings.set_slider(k, v);
-                self.save_settings();
+            if let (Ok(v), Some(Row::Set(s))) = (t.parse::<f64>(), self.page_row(k)) {
+                let before = self.settings.clone();
+                self.settings.set(s, v);
+                self.apply_settings(&before);
             }
             return;
         }
@@ -1943,13 +2111,14 @@ impl App {
         let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
         // the title menu shows the orbit view and itself only
         let title = self.home() == Menu::Title;
-        let mut rects = if title { Vec::new() } else { hud::layer(w() as f32, h() as f32, &slots, self.slot, self.creative, height) };
+        let (lw, lh) = self.ui_size();
+        let mut rects = if title { Vec::new() } else { hud::layer(lw, lh, &slots, self.slot, self.creative, height) };
         if self.world.water_surface(p.pos).is_some() {
             // under water: a blue veil first, under the HUD. shortcut: a veil, not fog, until the sky has fog
             rects.insert(0, hud::Rect { xy: [-1.0, -1.0, 1.0, 1.0], colour: [0.05, 0.25, 0.4, 0.55], glyph: 0 });
         }
         // the text over it (ADR 0023): F3's numbers, the chat, the bug report's form
-        let mut paint = hud::Paint::new(w() as f32, h() as f32);
+        let mut paint = hud::Paint::new(lw, lh);
         if self.f3 {
             let (l, r) = self.debug_lines();
             hud::columns(&mut paint, &l, &r);
@@ -1963,20 +2132,31 @@ impl App {
         if self.flying {
             let s = format!("Flying {:.0} m/s", self.fly_speed);
             // right of the hotbar (hud::layer: nine 44 px slots 6 px apart), clear of the chat
-            paint.text(w() as f32 / 2.0 + 222.0 + 16.0, h() as f32 - 46.0, &s, [1.0, 1.0, 1.0, 0.9]);
+            paint.text(lw / 2.0 + 222.0 + 16.0, lh - 46.0, &s, [1.0, 1.0, 1.0, 0.9]);
         }
         if let Some(m) = self.menu {
             let (title, hint) = match m {
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save; a new one gets its own."),
                 Menu::Pause => ("Paused", "The world runs on. Esc goes back to the game."),
-                Menu::Settings => ("Settings", "Click: the next value. Drag a slider, or click its number."),
+                Menu::Settings => ("Settings", "Click or Enter: the next value. Right click: the one before. Arrows move."),
+                Menu::Page(p) => settings::PAGES[p],
+                Menu::Confirm => ("Display", "Can you see this? It goes back by itself if you do nothing."),
             };
             let (items, sliders) = (self.menu_items(), self.menu_sliders());
-            let boxes = hud::menu_boxes(h() as f32, &items, &sliders);
+            // as many rows as fit, from `scroll` on
+            self.scroll = self.scroll.min(items.len().saturating_sub(self.menu_fit()));
+            let end = (self.scroll + self.menu_fit()).min(items.len());
+            let (items, sliders) = (&items[self.scroll..end], &sliders[self.scroll..end]);
+            let boxes = hud::menu_boxes(lh, items, sliders);
             let (x, y) = self.pointer;
-            let hover = boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]);
-            hud::menu(&mut paint, title, &items, &sliders, hint, hover, caret);
+            let under = boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]);
+            // the keyboard's row is the lit one until the pointer moves
+            let hover = match self.sel {
+                Some(k) => k.checked_sub(self.scroll).filter(|v| *v < boxes.len()),
+                None => under,
+            };
+            hud::menu(&mut paint, title, items, sliders, hint, hover, caret, self.scroll);
             self.menu_boxes = boxes;
         }
         // the bug report's form over everything, the menus too
@@ -2052,9 +2232,12 @@ impl App {
             // the same fixed steps as on the server, whose position wins when the two drift apart
             let (mx, my) = std::mem::take(&mut self.mouse);
             // C held zooms 3x, eased over about 0.1 s; the mouse turns as much slower
-            let want = if self.keys.contains(&KeyCode::KeyC) { ZOOM } else { 1.0 };
+            let want = if self.zoomed { ZOOM } else { 1.0 };
             self.zoom += (want - self.zoom) * (1.0 - (-dt / 0.04).exp());
-            let sens = 0.0025 * self.settings.sensitivity / self.zoom;
+            // zoomed, the mouse turns as much slower, times the settings' own factor for it
+            let zs = 1.0 + (self.settings.get(S::ZoomSens) - 1.0) * (self.zoom - 1.0) / (ZOOM - 1.0);
+            let sens = 0.0025 * self.settings.get(S::Sensitivity) * zs / self.zoom;
+            let my = if self.settings.on(S::InvertY) { -my } else { my };
             // the look is the player's own and turns in the steps, so no frame change makes it mean another way
             self.turn -= mx * sens;
             // flight is creative's; the server holds to that too
@@ -2062,19 +2245,19 @@ impl App {
             if phys::free(&self.world, &self.me, self.flying) {
                 // out here the mouse pitches the body itself, the head's tilt folded into it, and Q/E roll it
                 self.tilt += std::mem::take(&mut self.pitch) - my * sens;
-                let q = |c: KeyCode| self.keys.contains(&c) as i32 as f64;
-                self.roll += (q(KeyCode::KeyE) - q(KeyCode::KeyQ)) * ROLL * dt;
+                let q = |a: Act| self.settings.held(&self.keys, a) as i32 as f64;
+                self.roll += (q(Act::RollRight) - q(Act::RollLeft)) * ROLL * dt;
             } else {
                 self.pitch = (self.pitch - my * sens).clamp(-1.55, 1.55);
             }
-            let k = |c: KeyCode| self.keys.contains(&c) as i32 as f32;
+            let k = |a: Act| self.settings.held(&self.keys, a) as i32 as f32;
             let auto = a.get("autowalk", 0) == 1;
             let mut inp = Input {
-                mv: [if auto { 1.0 } else { k(KeyCode::KeyW) - k(KeyCode::KeyS) }, k(KeyCode::KeyD) - k(KeyCode::KeyA)],
-                jump: auto || self.keys.contains(&KeyCode::Space),
+                mv: [if auto { 1.0 } else { k(Act::Forward) - k(Act::Back) }, k(Act::Right) - k(Act::Left)],
+                jump: auto || self.settings.held(&self.keys, Act::Jump),
                 pitch: self.pitch as f32,
                 fly: if self.flying { self.fly_speed as f32 } else { 0.0 },
-                down: self.flying && (self.keys.contains(&KeyCode::ShiftLeft) || self.keys.contains(&KeyCode::ShiftRight)),
+                down: self.flying && self.settings.held(&self.keys, Act::Down),
                 t: self.world.time,
                 ..Default::default()
             };
@@ -2398,6 +2581,9 @@ impl App {
             .fold(f64::MAX, f64::min);
         let air = (1.0 - over_air.max(0.0) / 1500.0).clamp(0.0, 1.0) as f32;
         let sky_c = Vec3::new(0.45, 0.65, 0.95) * day * air + Vec3::new(0.01, 0.012, 0.025);
+        // the bounce light on or off (off: a flat fill from the sky), and the screen's brightness
+        let fill = sky_c * 0.35 + Vec3::splat(0.01);
+        let tune = (self.settings.on(S::Bounce), [fill.x, fill.y, fill.z, self.settings.get(S::Brightness) as f32]);
         // the sunlight through the air: the longer its way through it (the lower the sun), the more blue and
         // green it loses; at noon as it was, in space white (shader.wgsl sun_tint is the same)
         let sun_h = self.world.up_at(p.pos).dot(sun_at.normalize()) as f32;
@@ -2418,6 +2604,7 @@ impl App {
             moon_col: [moon.x, moon.y, moon.z, 1.0],
             sky: [sky_c.x, sky_c.y, sky_c.z, day * air],
             n_lamps: [0; 4],
+            opt: [self.gfx_bits(), (self.settings.get(S::Brightness) * 1000.0).round() as u32, 0, 0],
             stars: [
                 [to_stars.x_axis.x, to_stars.x_axis.y, to_stars.x_axis.z, air],
                 [to_stars.y_axis.x, to_stars.y_axis.y, to_stars.y_axis.z, sun_h],
@@ -2453,6 +2640,7 @@ impl App {
         if self.lamps_at.1 != ec || self.streamer.frame >= self.lamps_at.0 + 10 {
             let c: Vec<DVec3> = cams.iter().map(|c| c.0).collect();
             self.lamps = gather_lamps(&self.world, &c[..self.world.bodies.len()]);
+            self.lamps.truncate([16, 64, MAX_LAMPS][self.settings.at(S::Lamps)]);
             self.lamps_at = (self.streamer.frame, ec);
         }
         let lamps: Vec<LampGpu> = self
@@ -2599,7 +2787,7 @@ impl App {
             }
             drop(rp);
             stamp(&mut enc, 2);
-            gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some(), &mut |e, k| stamp(e, 3 + k));
+            gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some(), tune, &mut |e, k| stamp(e, 3 + k));
             stamp(&mut enc, 5);
             // the screen: direct and bounced light, then the water and the overlays over it
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -3089,7 +3277,8 @@ impl ApplicationHandler for App {
         self.onscreen = onscreen;
         // play on screen as the settings say (ADR 0023): a window with a title bar, or fullscreen
         let play = onscreen && self.run == "play";
-        let (fs, (fw, fh)) = if play { fullscreen(&self.settings, el.primary_monitor()) } else { (None, (w(), h())) };
+        let mon = self.settings.at(S::Monitor).checked_sub(1).and_then(|k| el.available_monitors().nth(k)).or_else(|| el.primary_monitor());
+        let (fs, (fw, fh)) = if play { fullscreen(&self.settings, mon) } else { (None, (w(), h())) };
         SIZE.store((fw as u64) << 32 | fh as u64, Ordering::Relaxed);
         let attrs = Window::default_attributes()
             .with_fullscreen(fs.clone())
@@ -3114,6 +3303,10 @@ impl ApplicationHandler for App {
         self.gi = Some(gi);
         self.start = Instant::now();
         self.last_frame = Instant::now();
+        hud::set_contrast(self.settings.on(S::Contrast));
+        if play && self.settings.on(S::Vsync) {
+            self.apply_present();
+        }
         if self.home() == Menu::Title {
             self.set_menu(Some(Menu::Title));
         }
@@ -3124,7 +3317,7 @@ impl ApplicationHandler for App {
                 self.finish();
                 el.exit();
             }
-            WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(code), state, text, .. }, .. } => {
+            WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(code), state, text, repeat, .. }, .. } => {
                 if self.texting() {
                     // the chat's bar or the bug report's form takes the keys; Esc closes it
                     if state == ElementState::Pressed {
@@ -3145,12 +3338,27 @@ impl ApplicationHandler for App {
                     return;
                 }
                 if self.menu.is_some() {
-                    // the menus take Esc; F3 and F9 (a bug report) work in them too
-                    if state == ElementState::Pressed {
+                    if state == ElementState::Pressed && self.rebind.is_some() {
+                        // a key row waits for its key: Esc leaves it as it was, Backspace clears it
+                        // the Enter or arrow still held from choosing the row repeats; that is no answer
+                        match code {
+                            _ if repeat => {}
+                            KeyCode::Escape => self.rebind = None,
+                            KeyCode::Backspace => self.bind_to(None),
+                            c if Bind::Key(c).name() != "?" => self.bind_to(Some(Bind::Key(c))),
+                            _ => {}
+                        }
+                    } else if state == ElementState::Pressed {
+                        // the menus take Esc, the arrows and Enter; F3 and F9 (a bug report) work in them too
                         match code {
                             KeyCode::Escape => self.act("esc"),
                             KeyCode::F3 => self.act("f3"),
                             KeyCode::F9 => self.act("f9"),
+                            KeyCode::ArrowDown => self.act("next"),
+                            KeyCode::ArrowUp => self.act("prev"),
+                            KeyCode::ArrowRight => self.act("nudge+"),
+                            KeyCode::ArrowLeft => self.act("nudge-"),
+                            KeyCode::Enter | KeyCode::NumpadEnter => self.act("go"),
                             _ => {}
                         }
                     }
@@ -3163,30 +3371,21 @@ impl ApplicationHandler for App {
                     if state == ElementState::Pressed {
                         self.act("esc");
                     }
-                } else if state == ElementState::Pressed {
-                    let key = match code {
-                        KeyCode::KeyH => Some("h".to_string()),
-                        KeyCode::KeyB => Some("b".to_string()),
-                        KeyCode::KeyV => Some("v".to_string()),
-                        KeyCode::KeyT => Some("t".to_string()),
-                        KeyCode::Space => Some("space".to_string()),
-                        KeyCode::F3 => Some("f3".to_string()),
-                        KeyCode::F9 => Some("f9".to_string()),
-                        KeyCode::Period => Some("warp+".to_string()),
-                        KeyCode::Comma => Some("warp-".to_string()),
-                        _ if text.as_deref() == Some("/") => Some("/".to_string()),
-                        _ => (1..=9).find(|d| code == DIGITS[d - 1]).map(|d| d.to_string()),
-                    };
-                    if let (Some(k), false) = (key, self.keys.contains(&code)) {
-                        self.act(&k);
-                    }
-                    self.keys.insert(code);
                 } else {
-                    self.keys.remove(&code);
+                    // the settings' bindings say what a key does (docs/design/settings.md, Keys)
+                    // a key that types "/" opens the chat on a command wherever the layout has it, and its own
+                    // actions stay quiet for that press (ADR 0023; on a German board it is shift and 7)
+                    let down = state == ElementState::Pressed;
+                    let slash = down && !repeat && text.as_deref() == Some("/");
+                    self.bind_event(Bind::Key(code), down, !slash);
+                    if slash {
+                        self.act("/");
+                    }
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.pointer = (position.x as f32, position.y as f32);
+                self.pointer = (position.x as f32 / self.ui(), position.y as f32 / self.ui());
+                self.sel = None;
                 self.slide();
             }
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } if self.drag.is_some() => {
@@ -3194,17 +3393,28 @@ impl ApplicationHandler for App {
                 self.save_settings();
             }
             WindowEvent::Resized(size) if self.run == "play" && self.onscreen => self.resize(size.width, size.height),
+            WindowEvent::Focused(f) => self.focused = f,
             WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } if self.menu.is_some() && !self.texting() => {
-                self.menu_click(button == MouseButton::Right);
+                if self.rebind.is_some() {
+                    if let Some(b) = mouse_bind(button) {
+                        self.bind_to(Some(b));
+                    }
+                } else {
+                    self.menu_click(button == MouseButton::Right);
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } if self.menu.is_some() && !self.texting() => {
+                let y = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y as f64,
+                    MouseScrollDelta::PixelDelta(p) => p.y / 40.0,
+                };
+                self.scroll_by(if y > 0.0 { -1 } else { 1 });
             }
             WindowEvent::MouseInput { .. } | WindowEvent::MouseWheel { .. } if self.texting() || self.menu.is_some() => {}
             WindowEvent::MouseInput { state, button, .. } => {
-                let k = match button {
-                    MouseButton::Left => "L",
-                    MouseButton::Right => "R",
-                    _ => return,
-                };
-                self.act(&if state == ElementState::Pressed { k.to_string() } else { k.to_lowercase() });
+                if let Some(b) = mouse_bind(button) {
+                    self.bind_event(b, state == ElementState::Pressed, true);
+                }
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let y = match delta {
@@ -3231,6 +3441,17 @@ impl ApplicationHandler for App {
         if self.done {
             el.exit();
             return;
+        }
+        if self.revert.as_ref().is_some_and(|r| Instant::now() >= r.1) {
+            self.undo_display();
+        }
+        // the frame cap (docs/design/settings.md, Display): sleep up to the next frame's time
+        if let Some(hz) = self.cap_hz() {
+            let now = Instant::now();
+            if self.next_frame > now {
+                std::thread::sleep(self.next_frame - now);
+            }
+            self.next_frame = self.next_frame.max(now) + Duration::from_secs_f64(1.0 / hz);
         }
         self.frame();
     }
@@ -3353,9 +3574,14 @@ fn main() {
     // play's settings (ADR 0023); every other run keeps the defaults
     let settings_file = args.s("settings", "settings.txt");
     let settings = if run == "play" { Settings::parse(&std::fs::read_to_string(&settings_file).unwrap_or_default()) } else { Settings::default() };
-    SIZE.store((settings.width as u64) << 32 | settings.height as u64, Ordering::Relaxed);
+    // dump=1: what the file means, every row and key as one JSON line, and nothing else
+    if args.get("dump", 0) == 1 {
+        println!("{}", settings.json());
+        return;
+    }
+    SIZE.store((settings.get(S::Width) as u64) << 32 | settings.get(S::Height) as u64, Ordering::Relaxed);
     let opts = Opts {
-        k: args.get("k", settings.detail),
+        k: args.get("k", settings.get(S::Detail)),
         // merging inside a lattice with interpolated corners (ADR 0025 I2); greedy=0 draws every face
         greedy: args.get("greedy", 1) == 1,
         horizon: args.get("horizon", 1) == 1,
@@ -3469,6 +3695,13 @@ fn main() {
         menu_boxes: Vec::new(),
         drag: None,
         edit: None,
+        scroll: 0,
+        sel: None,
+        rebind: None,
+        revert: None,
+        zoomed: false,
+        focused: true,
+        next_frame: Instant::now(),
         onscreen: false,
         flying: false,
         fly_speed: 11.0,

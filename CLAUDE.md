@@ -78,9 +78,10 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   /goto, /timewarp (. and , step it), /help; Tab completes a command, the arrows pick, else the up arrow
   recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed up to
   1 km/s; F3 the overlay of
-  numbers; F9 a bug report; Esc the menu: settings for resolution, display mode, field of view, mouse and
-  detail, kept in `settings.txt`, ADR 0023). `acts="t:action,..."`
-  scripts those inputs off-screen (ADR 0017; `say:/time set noon`, `f3`, `f9`, `type:text`, `tab`, `enter`, `esc`, `click:1`, `point:x:y`, `C`/`c` the zoom;
+  numbers; F9 a bug report; Esc the menu: settings in pages (Display, Graphics, Controls, Keys,
+  Accessibility), every key rebindable, kept in `settings.txt`, ADR 0023 and 0028; `dump=1` prints a
+  settings file's meaning as JSON). `acts="t:action,..."`
+  scripts those inputs off-screen (ADR 0017; `say:/time set noon`, `f3`, `f9`, `type:text`, `tab`, `enter`, `esc`, `click:1`, `point:x:y`, `C`/`c` the zoom, `next`/`prev`/`go`/`nudge+` the menu by keys, `bind:KeyW`, `key+:KeyW`/`key-:KeyW` a real key through the bindings;
   `seconds=` ends a play run, `settings=out/x.txt` keeps the real settings out of it), and a
   filmstrip shows the result.
 - **Builds for the developer** (double-click; without arguments the title menu opens on screen in the repository's

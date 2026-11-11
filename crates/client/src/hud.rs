@@ -268,6 +268,12 @@ pub fn brackets(p: &mut Paint, b: [f32; 4], arm: f32, all: bool, colour: [f32; 4
     }
 }
 
+/// The settings' high contrast interface: the menu's shade nearly solid, its numbers full strength.
+static CONTRAST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn set_contrast(on: bool) {
+    CONTRAST.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Screen pixels a font pixel of the menu's buttons.
 const MENU_PX: f32 = PX * 1.5;
 
@@ -372,13 +378,16 @@ fn planet(p: &mut Paint, x: f32, y: f32, r: f32) {
 /// The menu (the title's and Esc's): a shade fading out from the left, the page's title large with a
 /// readout under it (the title page's is the logo), and a numbered list; the button under the pointer a
 /// solid cyan box in corner brackets.
-pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hint: &str, hover: Option<usize>, caret: bool) {
+/// `first` is the number of rows above the ones shown (the page scrolled).
+pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hint: &str, hover: Option<usize>, caret: bool, first: usize) {
+    let contrast = CONTRAST.load(std::sync::atomic::Ordering::Relaxed);
+    let dark = if contrast { 0.94 } else { 0.45 };
     let boxes = menu_boxes(p.h, items, sliders);
     let (x, top) = (96.0, boxes.first().map_or(p.h * 0.36, |b| b[1]));
     let shade = x + 900.0;
-    p.rect(0.0, 0.0, shade, p.h, [0.0, 0.02, 0.05, 0.45], 0);
+    p.rect(0.0, 0.0, shade, p.h, [0.0, 0.02, 0.05, dark], 0);
     for k in 0..16 {
-        p.rect(shade + k as f32 * 16.0, 0.0, 16.0, p.h, [0.0, 0.02, 0.05, 0.45 * (1.0 - (k as f32 + 1.0) / 17.0)], 0);
+        p.rect(shade + k as f32 * 16.0, 0.0, 16.0, p.h, [0.0, 0.02, 0.05, dark * (1.0 - (k as f32 + 1.0) / 17.0)], 0);
     }
     if title == GAME_NAME {
         logo(p, x, top - 190.0, 12.0);
@@ -397,13 +406,13 @@ pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hi
             p.rect(b[0], b[1], tw, b[3], CYAN, 0);
             brackets(p, [b[0] - 6.0, b[1] - 6.0, tw + 12.0, b[3] + 12.0], 12.0, false, CYAN);
         }
-        let (n, lx) = (format!("{:02}", k + 1), b[0] + 20.0 + 4.0 * 8.0 * lp);
+        let (n, lx) = (format!("{:02}", first + k + 1), b[0] + 20.0 + 4.0 * 8.0 * lp);
         if lit {
             let ink = [0.01, 0.06, 0.12, 1.0];
             p.text_flat(b[0] + 20.0, ty, &n, ink, lp);
             p.text_flat(lx, ty, label, ink, lp);
         } else {
-            p.text_px(b[0] + 20.0, ty, &n, [0.44, 0.83, 1.0, 0.6], lp);
+            p.text_px(b[0] + 20.0, ty, &n, [0.44, 0.83, 1.0, if contrast { 1.0 } else { 0.6 }], lp);
             p.text_px(lx, ty, label, [0.92, 0.95, 0.98, 0.95], lp);
         }
         if let Some(Some((at, value, typing))) = sliders.get(k) {
