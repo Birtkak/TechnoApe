@@ -1,7 +1,7 @@
 # 0043 – The bake in the engine: Terra's map, biome ground and still plants
 
-- **Status:** accepted (the developer accepted the biome layout and looks on 2026-11-11: "Accept both");
-  the views wait for the developer's look before `tools/views.sh accept`
+- **Status:** accepted (the developer accepted the biome layout on 2026-11-11: "Accept both", and the
+  changed looks: "Looks good"); the fixed views were re-accepted on the baked map
 - **Date:** 2026-11-11
 
 ## Context
