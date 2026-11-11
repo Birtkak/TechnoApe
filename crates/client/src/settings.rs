@@ -10,6 +10,7 @@ pub enum Unit {
     Deg,
     Times,
     Secs,
+    Pct,
 }
 
 /// What kind of value a setting holds. All are kept as an f64: a choice is its index.
@@ -31,6 +32,7 @@ pub struct Def {
 }
 
 const OFF_ON: &[&str] = &["off", "on"];
+const VOLUME: Kind = Kind::Slider { lo: 0.0, hi: 100.0, step: 5.0, max: 100.0, unit: Unit::Pct };
 
 macro_rules! settings {
     ($($id:ident $key:literal $label:literal $kind:expr, $def:expr;)*) => {
@@ -65,6 +67,12 @@ settings! {
     FlyTap "fly_tap" "Double tap to fly" Kind::Slider { lo: 0.15, hi: 0.6, step: 0.05, max: 0.6, unit: Unit::Secs }, 0.3;
     UiScale "interface_scale" "Interface scale" Kind::Steps { list: &[0.75, 1.0, 1.25, 1.5, 2.0], lo: 0.5, hi: 3.0 }, 1.0;
     Contrast "high_contrast" "High contrast interface" Kind::Choice(OFF_ON), 0.0;
+    Volume "volume" "Master volume" VOLUME, 100.0;
+    VolWorld "volume_world" "World" VOLUME, 100.0;
+    VolSteps "volume_footsteps" "Footsteps" VOLUME, 100.0;
+    VolUi "volume_interface" "Interface" VOLUME, 100.0;
+    MuteBack "mute_in_background" "Mute in the background" Kind::Choice(OFF_ON), 1.0;
+    SpaceSound "sound_in_space" "Sound in space" Kind::Choice(&["true", "softened", "full"]), 0.0;
 }
 
 /// A key or a mouse button, by where it is on the board (a KeyCode), so WASD stays under the same fingers on
@@ -196,6 +204,7 @@ pub const PAGES: &[(&str, &str)] = &[
     ("Graphics", "A preset sets the rows under it. High is what the game is tuned for."),
     ("Controls", "Drag a slider, or click its number to type one."),
     ("Keys", "Left click: first key. Right click: second. Backspace clears, Esc cancels."),
+    ("Sound", "In space, true carries only what you touch, through your suit."),
     ("Accessibility", "Some rows are also on other pages; they are the same setting."),
 ];
 
@@ -206,6 +215,7 @@ pub fn page_rows(page: usize) -> Vec<Row> {
         1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Textures), Set(S::Stars)],
         2 => vec![Set(S::Sensitivity), Set(S::ZoomSens), Set(S::InvertY), Set(S::ZoomMode), Set(S::FlyTap)],
         3 => ALL_ACTS.iter().map(|a| Row::Key(*a)).chain([Row::KeyDefaults]).collect(),
+        4 => vec![Set(S::Volume), Set(S::VolWorld), Set(S::VolSteps), Set(S::VolUi), Set(S::MuteBack), Set(S::SpaceSound)],
         _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::ZoomMode), Set(S::Textures), Set(S::Brightness)],
     }
 }
@@ -288,6 +298,7 @@ impl Settings {
             Unit::Deg => format!("{v:.0}"),
             Unit::Times => format!("{v:.2}x"),
             Unit::Secs => format!("{v:.2}s"),
+            Unit::Pct => format!("{v:.0}%"),
         };
         Some((((v - lo) / (hi - lo)) as f32, text))
     }

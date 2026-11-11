@@ -7,6 +7,8 @@ pub(crate) const CORRECT_S: f64 = 0.1;
 /// How much C held magnifies.
 pub(crate) const ZOOM: f64 = 3.0;
 pub(crate) const AIM_REACH: f64 = 8.0;
+/// Metres between two footsteps: one every 0.42 s at a walk.
+pub(crate) const STEP_M: f64 = 1.8;
 /// Two presses of space this close (seconds) take off or land.
 
 pub(crate) struct App {
@@ -183,6 +185,9 @@ pub(crate) struct App {
     /// The zoom is on; the window has the keyboard; when the frame cap lets the next frame start.
     pub(crate) zoomed: bool,
     pub(crate) focused: bool,
+    /// Sound (docs/design/sound.md), and the metres walked since the last footstep.
+    pub(crate) audio: audio::Audio,
+    pub(crate) walked: f64,
     pub(crate) next_frame: Instant,
     pub(crate) onscreen: bool,
     /// Creative flight (ADR 0023): on or not, its speed (the wheel), and when space was last pressed.

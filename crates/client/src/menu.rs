@@ -333,6 +333,7 @@ impl App {
 
     /// Button `k` of the open page pressed (`back`: with the right button, a value goes the other way).
     pub(crate) fn menu_press(&mut self, k: usize, back: bool) {
+        self.audio.play("ui.click", None, 1.0, 1.0, false);
         match (self.menu, k) {
             (Some(Menu::Title), 0) => self.set_menu(Some(Menu::Worlds)),
             (Some(Menu::Title) | Some(Menu::Pause), 1) => self.set_menu(Some(Menu::Settings)),

@@ -76,10 +76,12 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   in space the mouse pitches you freely and Q/E roll, gravity rights you as it pulls (ADR 0024); C held zooms 3x;
   1-9 the hotbar; N drops a waypoint and creative shows the compass, where you are and the waypoints
   (ADR 0030; Esc, Waypoints lists them); space swims up in water, ADR 0020; T chats, / runs a command: /time, /playmode, /give,
-  /goto, /timewarp (. and , step it), /help; Tab completes a command, the arrows pick, else the up arrow
+  /goto, /timewarp (. and , step it), /help; /sound <name> plays a row of `data/sounds.toml` (ADR 0032:
+  a recording `data/sounds/<name>.wav` replaces the code-made one; `sounds=1` prints every sound in numbers;
+  off-screen runs are silent unless `sound=1`, and a play run's JSON counts what it played under `audio`); Tab completes a command, the arrows pick, else the up arrow
   recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed up to
   1 km/s; F3 the overlay of
-  numbers; F9 a bug report; Esc the menu: settings in pages (Display, Graphics, Controls, Keys,
+  numbers; F9 a bug report; Esc the menu: settings in pages (Display, Graphics, Controls, Keys, Sound,
   Accessibility), every key rebindable, kept in `settings.txt`, ADR 0023 and 0028; `dump=1` prints a
   settings file's meaning as JSON). `acts="t:action,..."`
   scripts those inputs off-screen (ADR 0017; `say:/time set noon`, `f3`, `f9`, `type:text`, `tab`, `enter`, `esc`, `click:1`, `point:x:y`, `C`/`c` the zoom, `next`/`prev`/`go`/`nudge+` the menu by keys, `bind:KeyW`, `key+:KeyW`/`key-:KeyW` a real key through the bindings;

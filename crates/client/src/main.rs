@@ -1,5 +1,6 @@
 //! The TechnoApe client: window, renderer and the benchmark runs (docs/plans/roadmap.md, "The shared benchmark").
 mod app;
+mod audio;
 mod bench;
 mod frame;
 mod gi;
@@ -57,6 +58,10 @@ impl ApplicationHandler for App {
         }
         let onscreen = self.args.get("onscreen", 0) == 1;
         self.onscreen = onscreen;
+        // sound where someone listens: play on screen (sound=0 keeps it quiet, sound=1 opens the card anywhere)
+        if self.args.get("sound", (onscreen && self.run == "play") as i32) == 1 {
+            self.audio.open();
+        }
         // play on screen as the settings say (ADR 0023): a window with a title bar, or fullscreen
         let play = onscreen && self.run == "play";
         let mon = self.settings.at(S::Monitor).checked_sub(1).and_then(|k| el.available_monitors().nth(k)).or_else(|| el.primary_monitor());
@@ -358,6 +363,11 @@ fn main() {
     // play's settings (ADR 0023); every other run keeps the defaults
     let settings_file = args.s("settings", "settings.txt");
     let settings = if run == "play" { Settings::parse(&std::fs::read_to_string(&settings_file).unwrap_or_default()) } else { Settings::default() };
+    // sounds=1: every sound in numbers, as one JSON line, and nothing else
+    if args.get("sounds", 0) == 1 {
+        println!("{}", audio::report());
+        return;
+    }
     // dump=1: what the file means, every row and key as one JSON line, and nothing else
     if args.get("dump", 0) == 1 {
         println!("{}", settings.json());
@@ -493,6 +503,8 @@ fn main() {
         revert: None,
         zoomed: false,
         focused: true,
+        audio: audio::Audio::new(),
+        walked: 0.0,
         next_frame: Instant::now(),
         onscreen: false,
         flying: false,

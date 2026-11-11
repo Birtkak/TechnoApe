@@ -34,6 +34,11 @@ struct Raw {
     metal: f32,
     #[serde(default)]
     was: Vec<String>,
+    #[serde(default = "stone")]
+    sound: String,
+}
+fn stone() -> String {
+    "stone".into()
 }
 fn yes() -> bool {
     true
@@ -63,6 +68,9 @@ pub struct Def {
     pub metal: f32,
     /// Names it had before: a save that knew it by one of them still loads.
     pub was: Vec<String>,
+    /// Its material's sound (docs/design/sound.md): digging it plays `dig.<sound>`, walking on it
+    /// `step.<sound>`. The client checks that those rows exist.
+    pub sound: String,
 }
 
 pub struct Registry {
@@ -96,7 +104,7 @@ impl Registry {
                 None => r.id,
                 Some(s) => f.block.iter().find(|o| &o.name == s).ok_or(format!("block '{}': no block '{s}' for its side", r.name))?.id,
             };
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, side, light: r.light, metal: r.metal, was: r.was.clone() });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone() });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}

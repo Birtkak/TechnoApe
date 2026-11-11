@@ -1,0 +1,269 @@
+# The sounds (docs/design/sound.md; schema and checks in crates/client/src/audio.rs).
+# A row is made in code from its layers, unless a recording of its name lies in data/sounds/:
+# `dig.stone.wav`, or `dig.stone.1.wav`, `dig.stone.2.wav`... for several takes (WAV; the row's `gain`,
+# `reach` and `pitch` still apply).
+# `bus`: whose volume slider it follows (world, steps, ui). `reach`: metres at which it is gone (24).
+# `gain`: its loudest sample (1). `variants`: how many takes are made (1). `pitch`: the share each play's
+# pitch varies by (0). `loop`: seconds of a sound that goes round.
+# A layer: `wave` (noise through a band-pass filter, sine, triangle, square), `freq` in Hz at its start and
+# its end, `q` how narrow a noise's filter is (1), `attack` (0.002 s) and `decay` (seconds to fall to a
+# thousandth), `gain` among the layers (1), `delay` (0 s).
+# A block's `sound` in data/blocks.toml names a family: it needs dig.<it>, place.<it> and step.<it>.
+# A landing is the step, lower and louder.
+
+# --- stone: a crack, a click and a thump ---
+[[sound]]
+name = "dig.stone"
+bus = "world"
+reach = 30
+gain = 0.7
+variants = 4
+pitch = 0.1
+layer = [
+  { wave = "noise", freq = [2200, 900], q = 1.2, decay = 0.11 },
+  { wave = "noise", freq = [5000, 4000], q = 0.8, decay = 0.012, gain = 0.8 },
+  { wave = "sine", freq = [150, 70], decay = 0.07, gain = 0.6 },
+  { wave = "noise", freq = [1400, 700], q = 2.0, decay = 0.05, gain = 0.4, delay = 0.06 },
+]
+
+[[sound]]
+name = "place.stone"
+bus = "world"
+gain = 0.6
+variants = 3
+pitch = 0.08
+layer = [
+  { wave = "sine", freq = [190, 90], decay = 0.06 },
+  { wave = "noise", freq = [1800, 1200], q = 1.5, decay = 0.03, gain = 0.6 },
+]
+
+[[sound]]
+name = "step.stone"
+bus = "steps"
+reach = 16
+gain = 0.3
+variants = 4
+pitch = 0.12
+layer = [
+  { wave = "noise", freq = [1500, 800], q = 1.5, decay = 0.05 },
+  { wave = "sine", freq = [120, 70], decay = 0.04, gain = 0.5 },
+]
+
+# --- dirt: a soft crumble ---
+[[sound]]
+name = "dig.dirt"
+bus = "world"
+gain = 0.6
+variants = 4
+pitch = 0.1
+layer = [
+  { wave = "noise", freq = [600, 220], q = 0.7, decay = 0.15 },
+  { wave = "noise", freq = [1600, 1000], q = 1.0, decay = 0.05, gain = 0.3 },
+  { wave = "noise", freq = [900, 500], q = 1.5, decay = 0.06, gain = 0.3, delay = 0.07 },
+]
+
+[[sound]]
+name = "place.dirt"
+bus = "world"
+gain = 0.5
+variants = 3
+pitch = 0.08
+layer = [
+  { wave = "sine", freq = [140, 70], decay = 0.07 },
+  { wave = "noise", freq = [500, 300], q = 0.8, decay = 0.06, gain = 0.7 },
+]
+
+[[sound]]
+name = "step.dirt"
+bus = "steps"
+reach = 16
+gain = 0.25
+variants = 4
+pitch = 0.12
+layer = [
+  { wave = "noise", freq = [500, 250], q = 0.7, decay = 0.07 },
+  { wave = "sine", freq = [100, 60], decay = 0.04, gain = 0.4 },
+]
+
+# --- grass: dirt with a rustle on top ---
+[[sound]]
+name = "dig.grass"
+bus = "world"
+gain = 0.6
+variants = 4
+pitch = 0.1
+layer = [
+  { wave = "noise", freq = [600, 220], q = 0.7, decay = 0.14 },
+  { wave = "noise", freq = [3500, 5500], q = 0.8, decay = 0.13, gain = 0.35 },
+  { wave = "noise", freq = [900, 500], q = 1.5, decay = 0.06, gain = 0.3, delay = 0.07 },
+]
+
+[[sound]]
+name = "place.grass"
+bus = "world"
+gain = 0.5
+variants = 3
+pitch = 0.08
+layer = [
+  { wave = "sine", freq = [140, 70], decay = 0.07 },
+  { wave = "noise", freq = [3000, 4500], q = 0.8, decay = 0.07, gain = 0.4 },
+]
+
+[[sound]]
+name = "step.grass"
+bus = "steps"
+reach = 16
+gain = 0.22
+variants = 4
+pitch = 0.12
+layer = [
+  { wave = "noise", freq = [2000, 3000], q = 1.0, attack = 0.01, decay = 0.09 },
+  { wave = "noise", freq = [450, 250], q = 0.7, decay = 0.06, gain = 0.7 },
+]
+
+# --- metal: it rings ---
+[[sound]]
+name = "dig.metal"
+bus = "world"
+reach = 36
+gain = 0.6
+variants = 3
+pitch = 0.06
+layer = [
+  { wave = "sine", freq = [880, 870], decay = 0.4 },
+  { wave = "sine", freq = [2217, 2200], decay = 0.3, gain = 0.6 },
+  { wave = "sine", freq = [3640, 3620], decay = 0.18, gain = 0.35 },
+  { wave = "noise", freq = [5000, 3000], q = 0.8, decay = 0.015, gain = 0.8 },
+]
+
+[[sound]]
+name = "place.metal"
+bus = "world"
+reach = 30
+gain = 0.55
+variants = 3
+pitch = 0.06
+layer = [
+  { wave = "sine", freq = [660, 655], decay = 0.2 },
+  { wave = "sine", freq = [1750, 1740], decay = 0.12, gain = 0.5 },
+  { wave = "sine", freq = [170, 90], decay = 0.05, gain = 0.8 },
+]
+
+[[sound]]
+name = "step.metal"
+bus = "steps"
+reach = 20
+gain = 0.25
+variants = 4
+pitch = 0.1
+layer = [
+  { wave = "sine", freq = [520, 510], decay = 0.12 },
+  { wave = "sine", freq = [1380, 1370], decay = 0.07, gain = 0.4 },
+  { wave = "noise", freq = [2500, 1500], q = 1.0, decay = 0.02, gain = 0.6 },
+]
+
+# --- glass (the lamps): a bright clink ---
+[[sound]]
+name = "dig.glass"
+bus = "world"
+gain = 0.55
+variants = 4
+pitch = 0.12
+layer = [
+  { wave = "sine", freq = [2400, 2380], decay = 0.16 },
+  { wave = "sine", freq = [3900, 3880], decay = 0.12, gain = 0.6 },
+  { wave = "sine", freq = [5300, 5280], decay = 0.09, gain = 0.4 },
+  { wave = "noise", freq = [6000, 4500], q = 0.8, decay = 0.03, gain = 0.7 },
+  { wave = "noise", freq = [5000, 6500], q = 2.0, decay = 0.05, gain = 0.3, delay = 0.08 },
+]
+
+[[sound]]
+name = "place.glass"
+bus = "world"
+gain = 0.45
+variants = 3
+pitch = 0.08
+layer = [
+  { wave = "sine", freq = [1900, 1880], decay = 0.08 },
+  { wave = "sine", freq = [3100, 3080], decay = 0.05, gain = 0.5 },
+  { wave = "sine", freq = [180, 100], decay = 0.04, gain = 0.6 },
+]
+
+[[sound]]
+name = "step.glass"
+bus = "steps"
+reach = 16
+gain = 0.22
+variants = 4
+pitch = 0.1
+layer = [
+  { wave = "sine", freq = [1700, 1690], decay = 0.05 },
+  { wave = "noise", freq = [2500, 1800], q = 1.2, decay = 0.03, gain = 0.8 },
+]
+
+# --- dust (Luna's regolith): a dry, soft puff ---
+[[sound]]
+name = "dig.dust"
+bus = "world"
+gain = 0.5
+variants = 4
+pitch = 0.1
+layer = [
+  { wave = "noise", freq = [1100, 450], q = 0.6, attack = 0.006, decay = 0.2 },
+  { wave = "noise", freq = [2600, 1800], q = 0.8, decay = 0.07, gain = 0.3 },
+]
+
+[[sound]]
+name = "place.dust"
+bus = "world"
+gain = 0.45
+variants = 3
+pitch = 0.08
+layer = [
+  { wave = "sine", freq = [130, 70], decay = 0.06 },
+  { wave = "noise", freq = [900, 500], q = 0.6, decay = 0.09, gain = 0.8 },
+]
+
+[[sound]]
+name = "step.dust"
+bus = "steps"
+reach = 16
+gain = 0.22
+variants = 4
+pitch = 0.12
+layer = [
+  { wave = "noise", freq = [900, 450], q = 0.6, attack = 0.008, decay = 0.11 },
+]
+
+# --- the interface: small and dry, in the head ---
+[[sound]]
+name = "ui.hover"
+bus = "ui"
+gain = 0.12
+layer = [{ wave = "sine", freq = [1300, 1250], decay = 0.03 }]
+
+[[sound]]
+name = "ui.click"
+bus = "ui"
+gain = 0.25
+layer = [
+  { wave = "sine", freq = [760, 520], decay = 0.06 },
+  { wave = "noise", freq = [3000, 2000], q = 1.0, decay = 0.008, gain = 0.5 },
+]
+
+[[sound]]
+name = "ui.tick"
+bus = "ui"
+gain = 0.15
+layer = [{ wave = "triangle", freq = [1700, 1650], decay = 0.02 }]
+
+# --- the air: goes round, its loudness follows height and speed ---
+[[sound]]
+name = "wind"
+bus = "world"
+gain = 0.5
+loop = 6.0
+layer = [
+  { wave = "noise", freq = [350, 350], q = 0.6 },
+  { wave = "noise", freq = [1100, 1100], q = 0.8, gain = 0.3 },
+]

@@ -101,6 +101,8 @@ One row per action, grouped as the play line in CLAUDE.md groups them: moving, d
 - Every action the player can do has a row. A test fails when an input in the code has none.
 
 ### Sound (with the audio system, the roadmap's last step of the first playable)
+Built with the first cut of sound (ADR 0032): master, world, footsteps, interface, mute in the background,
+sound in space. The other rows arrive with their sounds.
 | Setting | Values | Default |
 |---|---|---|
 | Master, world, machines, creatures, weather, footsteps, interface, music | 0 to 100 % each | 100, music 60 |

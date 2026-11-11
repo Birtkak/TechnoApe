@@ -223,6 +223,9 @@ impl App {
             a if a.starts_with("say:") => self.link.send(ToServer::Chat(a[4..].to_string())),
             _ => {
                 if let Ok(d) = a.parse::<usize>() {
+                    if self.slot != d.clamp(1, 9) - 1 {
+                        self.audio.play("ui.tick", None, 1.0, 1.0, false);
+                    }
                     self.slot = d.clamp(1, 9) - 1;
                 } else if let Some((x, y)) = a.strip_prefix("m:").and_then(|r| r.split_once(':')) {
                     self.mouse.0 += x.parse().unwrap_or(0.0);
@@ -281,6 +284,16 @@ impl App {
             }
             if line.starts_with('/') {
                 self.chat_line(format!("> {line}"));
+            }
+            // /sound <name> plays a row of data/sounds.toml here, for the developer's ears
+            if let Some(n) = line.strip_prefix("/sound") {
+                let n = n.trim();
+                if !self.audio.has(n) {
+                    self.note(format!("No sound '{n}'. Try dig.stone, step.grass, place.metal, ui.click."));
+                } else if !self.audio.play(n, None, 1.0, 1.0, true) {
+                    self.note("Nothing carries it here.".into());
+                }
+                return;
             }
             // nothing stands under the sun: a creative player flies there
             if line.eq_ignore_ascii_case("/goto sun") && self.creative {
@@ -579,6 +592,10 @@ impl App {
         for c in &cells {
             self.streamer.touch_block(&self.world, *c);
         }
+        // heard the frame of the click (fundamentals.md), in the sound of what was dug or placed
+        if let (Some(c), Some(d)) = (cells.first(), seen.and_then(|b| BLOCKS.get(b))) {
+            self.audio.play(&format!("{}.{}", if dig { "dig" } else { "place" }, d.sound), Some(self.world.block_centre(*c)), 1.0, 1.0, true);
+        }
         if !cells.is_empty() {
             self.clicks.push((self.streamer.frame, Instant::now(), cells));
         }
@@ -767,6 +784,9 @@ impl App {
             let now = Instant::now();
             if self.lit.0 != hover {
                 self.lit = (hover, now);
+                if hover.is_some() {
+                    self.audio.play("ui.hover", None, 1.0, 1.0, false);
+                }
             }
             // (off screen the rows stand still, so a scripted run's pictures repeat; motion=1 shows it there)
             let moving = self.onscreen || self.args.get("motion", 0) == 1;

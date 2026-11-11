@@ -379,6 +379,7 @@ impl App {
             work.iter().map(|x| *x as f64).sum::<f64>() / 1e6 / secs.max(1e-9),
             frame_busy / secs.max(1e-9)
         );
+        stages += &self.audio.json();
         let line = line.replacen("\"spikes\":", &format!("{}{}{}\"spikes\":", self.shot_json, self.feel(), stages), 1);
         println!("{}", line);
         if let Some(path) = a.0.get("out") {
