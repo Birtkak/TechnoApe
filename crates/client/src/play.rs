@@ -1,6 +1,22 @@
 //! run=play: building, digging and the bucket, `acts=` scripted input, chat and commands, F3 and F9, reconciling with the server (ADR 0025 L: moved out of main.rs).
 use super::*;
 
+/// The playtest menu's rows (F10, bugs/2026-11-11_13-12-42): a name, its steps and what to look for. A step
+/// is a command as typed in the chat, or `eclipse:sun`, `eclipse:luna` (the clock and the player go to the
+/// next one), `fly:<m/s>` (flying, at that speed), `give:all` (64 of every block). A new thing worth a look
+/// gets a row here.
+pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
+    ("Eclipse of the sun: Luna in front of Sol", &["eclipse:sun"], ""),
+    ("Eclipse of Luna: in Terra's shadow", &["eclipse:luna"], ""),
+    ("On Luna: a fifth of the gravity, Terra overhead", &["/playmode creative", "/goto luna"], "A jump is about 6 m here. Terra's night side should fade in, with no hard line."),
+    ("Fast flight: 1000 m/s over Terra", &["/playmode creative", "/goto terra", "fly:1000"], "Fly low and turn hard: the ground should never vanish."),
+    ("Midnight: the moon grey, not red", &["/goto terra", "/time set midnight"], "Find Luna: grey-white, unless an eclipse is on."),
+    ("Sunset: the light fading out", &["/goto terra", "/time set sunset"], "The sunlight on the ground should dim smoothly as Sol sets."),
+    ("Lamps at night: a kit for a lit room", &["/goto terra", "/time set night", "/give lamp 32", "/give blue lamp 32"], "Dig a room and set lamps into its floor and walls: even light, no hard cones."),
+    ("Every block: 64 of each", &["give:all"], "64 of every block is yours."),
+    ("Home at noon, in survival", &["/goto terra", "/time set noon", "/playmode survival"], "Back at the spawn, at noon."),
+];
+
 /// acts="2:C,2.5:c,3:R,3.5:r": (seconds after load, action), sorted so the soonest is last.
 pub(crate) fn parse_acts(s: &str) -> Vec<(f64, String)> {
     let mut v: Vec<(f64, String)> =
@@ -13,6 +29,25 @@ pub(crate) fn parse_acts(s: &str) -> Vec<(f64, String)> {
 pub(crate) fn wheel_slot(slot: usize, down: bool) -> usize {
     (slot + if down { 1 } else { 8 }) % 9
 }
+
+#[test]
+fn every_playtest_row_is_made_of_steps_the_game_knows() {
+        let mut names = std::collections::HashSet::new();
+        for (name, steps, _) in PLAYTEST {
+            assert!(names.insert(name) && !steps.is_empty(), "{name}");
+            for s in *steps {
+                let known = match s.split_once(':') {
+                    Some(("eclipse", w)) => w == "sun" || w == "luna",
+                    Some(("fly", v)) => v.parse::<f64>().is_ok_and(|v| (1.0..=phys::FLY_MAX).contains(&v)),
+                    Some(("give", w)) => w == "all",
+                    _ => ["/playmode creative", "/playmode survival", "/goto terra", "/goto luna"].contains(s)
+                        || s.strip_prefix("/time set ").is_some_and(|w| ["sunrise", "day", "noon", "sunset", "night", "midnight"].contains(&w))
+                        || s.strip_prefix("/give ").and_then(|r| r.rsplit_once(' ')).is_some_and(|(b, n)| BLOCKS.placeable().any(|d| d.name == b) && n.parse::<u32>().is_ok()),
+                };
+                assert!(known, "{name}: '{s}'");
+            }
+        }
+    }
 
 #[test]
 fn the_wheel_steps_through_the_hotbar_round_its_ends() {
@@ -280,7 +315,28 @@ impl App {
     /// F10's eclipses (bugs/2026-11-11_13-12-42): the clock to the next one the sky's functions show, the
     /// player where it is seen best, and a line saying where to look. Luna's shadow on Terra: where its middle
     /// meets the ground, 20 s before, so it comes over; Luna in Terra's shadow: under Luna, at that moment.
-    pub(crate) fn eclipse(&mut self, lunar: bool) {
+    /// A row of the playtest menu: its steps in turn, then the line that says what to look for.
+    pub(crate) fn playtest(&mut self, k: usize) {
+        let (_, steps, look) = PLAYTEST[k];
+        for step in steps {
+            match *step {
+                "eclipse:sun" => self.eclipse(false),
+                "eclipse:luna" => self.eclipse(true),
+                "give:all" => {
+                    for d in BLOCKS.placeable() {
+                        self.link.send(ToServer::Chat(format!("/give {} 64", d.name)));
+                    }
+                }
+                s if s.starts_with("fly:") => (self.flying, self.fly_speed) = (true, s[4..].parse().unwrap_or(250.0)),
+                s => self.link.send(ToServer::Chat(s.to_string())),
+            }
+        }
+        if !look.is_empty() {
+            self.note(look.to_string());
+        }
+    }
+
+    fn eclipse(&mut self, lunar: bool) {
         let sky = self.world.sky;
         let Some(t) = nav::next_eclipse(&sky, self.world.time, lunar) else {
             self.note("no eclipse in the sky's whole cycle: Luna's orbit never lines up".into());

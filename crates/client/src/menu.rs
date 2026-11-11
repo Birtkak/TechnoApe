@@ -254,7 +254,7 @@ impl App {
                     "Back".into(),
                 ]
             }
-            Some(Menu::Playtest) => vec!["Eclipse of the sun: Luna in front of Sol".into(), "Eclipse of Luna: in Terra's shadow".into(), "Back to game".into()],
+            Some(Menu::Playtest) => play::PLAYTEST.iter().map(|r| r.0.to_string()).chain(["Back to game".to_string()]).collect(),
             Some(Menu::Settings) => settings::PAGES.iter().map(|p| p.0.to_string()).chain(["Done".into()]).collect(),
             Some(Menu::Confirm) => {
                 let left = self.revert.as_ref().map_or(0, |r| r.1.saturating_duration_since(Instant::now()).as_secs() + 1);
@@ -405,8 +405,8 @@ impl App {
                 self.set_menu(Some(Menu::Waypoints));
             }
             (Some(Menu::Waypoint(_)), _) => self.set_menu(Some(Menu::Waypoints)),
-            (Some(Menu::Playtest), k) if k < 2 => {
-                self.eclipse(k == 1);
+            (Some(Menu::Playtest), k) if k < play::PLAYTEST.len() => {
+                self.playtest(k);
                 self.set_menu(None);
             }
             (Some(Menu::Playtest), _) => self.set_menu(None),
