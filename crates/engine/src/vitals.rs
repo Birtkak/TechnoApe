@@ -55,7 +55,10 @@ pub fn impact(was: DVec3, before: &phys::Player, after: &phys::Player, dt: f64) 
     // stopped step too, is no impact)
     let n = left.normalize_or_zero();
     let now = after.vel - n * after.vel.dot(n).max(0.0);
-    (now, if n == DVec3::ZERO { (was - now).length() } else { (was - now).dot(n).abs() })
+    // (a landing the physics settled without anything left over: what was lost along the body's up; the
+    // walk changing way in the same step is no part of it)
+    let along = if n != DVec3::ZERO { n } else { after.up };
+    (now, if along == DVec3::ZERO { (was - now).length() } else { (was - now).dot(along).abs() })
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -178,6 +181,18 @@ mod tests {
             (was, most, last) = (now, most.max(hit), hit);
         }
         (most, last)
+    }
+
+    /// The review: turning round in the step that lands is no part of the impact. Down at 6 m/s and
+    /// forward at 4, landing with the walk reversed, is a hit of 6, not of the 10 the whole change is.
+    #[test]
+    fn turning_round_as_you_land_adds_nothing() {
+        let (up, fwd) = (DVec3::Y, DVec3::X);
+        let before = phys::Player { pos: DVec3::ZERO, vel: fwd * 4.0 - up * 6.0, fwd, on_ground: false, up };
+        let vel = fwd * -4.0;
+        let after = phys::Player { pos: vel * phys::DT, vel, fwd, on_ground: true, up };
+        let (_, lost) = impact(before.vel, &before, &after, phys::DT);
+        assert!((lost - 6.0).abs() < 1e-9, "{lost}");
     }
 
     #[test]

@@ -70,3 +70,18 @@ drawn bar styles, "B". **Changed:** each is one smooth bar that empties towards 
 orange stomach), with its number at the inner end; the stretch lost flashes, low health pulses with warning
 corners, empty hunger is outlined. Four rows in the playtest menu (F10) show the bars, the warnings, the
 death screen and an impact. The death screen's look has not been judged yet.
+
+## Added 2026-11-11: the signs, and the review
+- **The signs.** The developer on the stomach: "make the stomach icon look better", "not quite there yet",
+  a picture of the kind he meant (outlined, lit, shaded: "like this but in our color"), "maybe have icons
+  hold more pixels", "darken the outline pixels for the health symbol", "make sure icons fit inside their
+  box". Both signs are now 28 px in four tones (a dark outline, the body, a light, a shaded side), drawn
+  from shapes by `tools/hud_icons.py`, and their panes are 32 px high so they sit inside.
+- **The review found, and this fixed:** a player that died part-way through a tick's steps kept walking for
+  the rest of them; turning round in the step that lands added the turn to the impact (6 m/s down read as
+  10): only what is lost along the body's up counts there, with a test seen failing first.
+- **The review found, and left:** a sideways impact cannot hurt in survival today (walking is too slow to
+  pass the safe speed and only creative flies), so its test only proves the measure; a ceiling never
+  hurts; leaving creative in mid-flight keeps the speed, so the landing can kill; and a changed client can
+  dodge an impact by asking for a move or for creative just before it, as it can use /heal: the server
+  trusts its players until it has roles (the same shortcut as every command).

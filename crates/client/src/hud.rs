@@ -926,7 +926,7 @@ pub fn layer(w: f32, h: f32, slots: &[Slot], selected: usize, creative: bool, to
 }
 
 /// The health and hunger rows' height, over the hotbar's pane.
-pub const VITALS_H: f32 = 24.0;
+pub const VITALS_H: f32 = 32.0;
 /// A lit cell of health, of hunger, a dark one, and the warning colour.
 pub const HEALTH: [f32; 4] = [0.36, 0.95, 0.62, 1.0];
 pub const HUNGER: [f32; 4] = [1.0, 0.7, 0.22, 1.0];
@@ -944,7 +944,7 @@ pub const FLASH_S: f32 = 0.6;
 pub fn vitals(p: &mut Paint, (health, hunger): (u8, u8), ages: [(f32, u8); 2], t: f32) {
     let contrast = CONTRAST.load(std::sync::atomic::Ordering::Relaxed);
     let (cx, y0) = (p.w / 2.0, p.h - 52.0 - 22.0 - 10.0 - 8.0 - VITALS_H);
-    let (pw, track, bar_h) = (262.0, VITALS_TRACK, 10.0);
+    let (pw, track, bar_h) = (262.0, VITALS_TRACK, 12.0);
     let dark = if contrast { [0.24, 0.28, 0.34, 1.0] } else { [0.10, 0.14, 0.19, 0.9] };
     let max = engine::vitals::MAX as f32;
     for (k, (value, lit)) in [(health, HEALTH), (hunger, HUNGER)].into_iter().enumerate() {
@@ -954,7 +954,7 @@ pub fn vitals(p: &mut Paint, (health, hunger): (u8, u8), ages: [(f32, u8); 2], t
         let low = !right && value <= 4 && value > 0;
         let pulse = if low { 0.55 + 0.45 * (0.5 + 0.5 * (t * std::f32::consts::TAU / 1.2).sin()) } else { 1.0 };
         // the bar runs from the sign at the outer end towards the middle: `along` is a stretch of it
-        let (tx, by) = (if right { x + pw - 30.0 - track } else { x + 30.0 }, y0 + (VITALS_H - bar_h) / 2.0);
+        let (tx, by) = (if right { x + pw - 36.0 - track } else { x + 36.0 }, y0 + (VITALS_H - bar_h) / 2.0);
         let along = |from: f32, to: f32| (if right { tx + track * (1.0 - to / max) } else { tx + track * from / max }, track * (to - from) / max);
         p.rect(tx, by, track, bar_h, dark, 0);
         if value > 0 {
@@ -968,28 +968,38 @@ pub fn vitals(p: &mut Paint, (health, hunger): (u8, u8), ages: [(f32, u8); 2], t
             let (bx, bw) = along(value as f32, from as f32);
             p.rect(bx, by, bw, bar_h, [1.0, 1.0, 1.0, 0.95], 0);
         }
-        // the sign, lit while there is any: 8 x 8 of 2 px
-        let (ix, iy) = (if right { x + pw - 23.0 } else { x + 7.0 }, y0 + 4.0);
+        // the sign, lit while there is any, drawn from its rows, inside its pane
+        let (ix, iy) = (if right { x + pw - 3.0 - SIGN } else { x + 3.0 }, y0 + (VITALS_H - SIGN) / 2.0);
         let sign = match (value, right) {
             (0, true) => WARN,
             (0, false) => dark,
             _ => [lit[0], lit[1], lit[2], pulse],
         };
-        for (j, row) in (if right { STOMACH } else { CROSS }).iter().enumerate() {
-            // (each row's lit cells as one rectangle a run)
-            let mut i = 0;
-            while i < 8 {
-                let run = (i..8).take_while(|c| row >> (7 - c) & 1 == 1).count();
-                if run > 0 {
-                    p.rect(ix + i as f32 * 2.0, iy + j as f32 * 2.0, run as f32 * 2.0, 2.0, sign, 0);
+        let rows: &[&str] = if right { &STOMACH } else { &CROSS };
+        let px = SIGN / rows.len() as f32;
+        let tone = |k: f32, white: f32| [sign[0] * k + white, sign[1] * k + white, sign[2] * k + white, sign[3]];
+        for (j, row) in rows.iter().enumerate() {
+            // (each run of one tone as one rectangle)
+            let (row, mut i) = (row.as_bytes(), 0);
+            while i < row.len() {
+                let run = row[i..].iter().take_while(|c| **c == row[i]).count();
+                let colour = match row[i] {
+                    b'#' => Some(sign),
+                    b'o' => Some(tone(0.26, 0.0)),
+                    b'-' => Some(tone(0.8, 0.0)),
+                    b'+' => Some(tone(0.6, 0.4)),
+                    _ => None,
+                };
+                if let Some(c) = colour {
+                    p.rect(ix + i as f32 * px, iy + j as f32 * px, run as f32 * px, px, c, 0);
                 }
-                i += run.max(1);
+                i += run;
             }
         }
         // its number at the inner end
         let n = value.to_string();
         let nx = if right { x + 8.0 } else { x + pw - 8.0 - text_width(&n) };
-        p.text(nx, y0 + 5.0, &n, [1.0, 1.0, 1.0, if value == 0 { 0.6 } else { 0.9 }]);
+        p.text(nx, y0 + 9.0, &n, [1.0, 1.0, 1.0, if value == 0 { 0.6 } else { 0.9 }]);
         let warn = low || (right && value == 0);
         if right && value == 0 {
             for (dx, dy, w, h) in [(0.0, 0.0, pw, 2.0), (0.0, VITALS_H - 2.0, pw, 2.0), (0.0, 0.0, 2.0, VITALS_H), (pw - 2.0, 0.0, 2.0, VITALS_H)] {
@@ -999,11 +1009,76 @@ pub fn vitals(p: &mut Paint, (health, hunger): (u8, u8), ages: [(f32, u8); 2], t
         brackets(p, [x - 3.0, y0 - 3.0, pw + 6.0, VITALS_H + 6.0], 7.0, warn, if warn { WARN } else { CYAN });
     }
 }
+/// A sign's side, in pixels.
+pub const SIGN: f32 = 28.0;
 /// How long a full bar is, in pixels.
 pub const VITALS_TRACK: f32 = 178.0;
-/// The signs, a row a byte: a cross, and a stomach (its tube at the top left).
-const CROSS: [u8; 8] = [0b00011000, 0b00011000, 0b00011000, 0b11111111, 0b11111111, 0b00011000, 0b00011000, 0b00011000];
-const STOMACH: [u8; 8] = [0b00110000, 0b00110000, 0b00111110, 0b01111111, 0b11111111, 0b11111111, 0b01111110, 0b00111100];
+/// The signs, 28 px square in four tones: `o` the dark outline, `#` the body, `+` the light on it, `-` its
+/// shaded side. The developer asked for a stomach like a picture he sent (outlined, lit, shaded), for
+/// "icons that hold more pixels" and a darker outline; these are our own, drawn from shapes by
+/// `tools/hud_icons.py`, which prints these rows.
+#[rustfmt::skip]
+const CROSS: [&str; 28] = [
+    "............................",
+    "............................",
+    "...........oooooo...........",
+    "..........o#####-o..........",
+    "..........o#++##-o..........",
+    "..........o++++#-o..........",
+    "..........o++++#-o..........",
+    "..........o#++##-o..........",
+    "..........o#####-o..........",
+    "..........o#####-o..........",
+    "...ooooooo########ooooooo...",
+    "..o#####################-o..",
+    "..o#++++################-o..",
+    "..o#++++################-o..",
+    "..o#####################-o..",
+    "..o#####################-o..",
+    "..o-------#######--------o..",
+    "...ooooooo######--ooooooo...",
+    "..........o#####-o..........",
+    "..........o#####-o..........",
+    "..........o#####-o..........",
+    "..........o#####-o..........",
+    "..........o#####-o..........",
+    "..........o#####-o..........",
+    "..........o------o..........",
+    "...........oooooo...........",
+    "............................",
+    "............................",
+];
+#[rustfmt::skip]
+const STOMACH: [&str; 28] = [
+    "......oooo..................",
+    ".....o###-o.................",
+    ".....o##+-o.................",
+    ".....o##+-o.................",
+    "......o#+-o.................",
+    "......o###-o....oooooo......",
+    ".......o####oooo######oo....",
+    ".......o-##########+###-o...",
+    "........o-######+++++++#-o..",
+    ".........o######+++++++#-o..",
+    "..........o#######+++#++#-o.",
+    "..........o###########++#-o.",
+    "..........o############+#-o.",
+    "..........o##############-o.",
+    ".........o###############-o.",
+    "........o###############--o.",
+    "........o###############-o..",
+    "........o##############--o..",
+    ".....ooo##############--o...",
+    "....o################--o....",
+    "...o################--o.....",
+    "..o####--------##----o......",
+    ".o####--ooooooo---ooo.......",
+    ".o###--o.......ooo..........",
+    ".o###-o.....................",
+    ".o-#--o.....................",
+    ".oo--oo.....................",
+    "...oo.......................",
+];
 
 #[cfg(test)]
 mod tests {
@@ -1021,20 +1096,22 @@ mod tests {
         let n = |r: &[Rect], c: [f32; 4]| r.iter().filter(|q| q.colour == c).count();
         // the longest rectangle of a colour, in pixels: the bar (the signs' runs are 16 px at most)
         let bar = |r: &[Rect], c: [f32; 4]| r.iter().filter(|q| q.colour == c).map(|q| (q.xy[2] - q.xy[0]) * 640.0).fold(0.0f32, f32::max);
+        const _: () = assert!(VITALS_TRACK > 2.0 * SIGN, "a bar is longer than any run of a sign");
         let r = draw((13, 20), old);
         assert!((bar(&r, HEALTH) - VITALS_TRACK * 13.0 / 20.0).abs() < 0.01, "13 of 20: {}", bar(&r, HEALTH));
         assert!((bar(&r, HUNGER) - VITALS_TRACK).abs() < 0.01, "full: {}", bar(&r, HUNGER));
         // health's bar starts at its left end, hunger's ends at its right: both empty towards their signs
         let ends = |c: [f32; 4]| r.iter().filter(|q| q.colour == c).max_by(|a, b| (a.xy[2] - a.xy[0]).total_cmp(&(b.xy[2] - b.xy[0]))).map(|q| q.xy).unwrap();
         assert!(ends(HEALTH)[0] < 0.0 && ends(HUNGER)[2] > 0.0);
-        // each has its sign (a cross is 8 runs, a stomach 8) and its number
-        assert_eq!((n(&r, HEALTH), n(&r, HUNGER)), (1 + 8, 1 + 8));
+        // each has its sign: its body is a run or more on most of its 28 rows
+        assert!((1 + 14..=1 + 60).contains(&n(&r, HEALTH)) && (1 + 14..=1 + 60).contains(&n(&r, HUNGER)), "{} {}", n(&r, HEALTH), n(&r, HUNGER));
         // (each character is drawn with its shadow)
         assert_eq!(r.iter().filter(|q| q.glyph != 0).count(), 2 * (2 + 2), "13 and 20");
         assert_eq!(n(&r, WARN), 0, "nothing to warn of");
         assert!(r.iter().all(|q| q.xy.iter().all(|v| (-1.0..=1.0).contains(v))), "on screen");
-        // over the hotbar: every rect above its pane (which starts 84 px from the bottom)
+        // over the hotbar: every rect above its pane (which starts 84 px from the bottom), the signs too
         assert!(r.iter().all(|q| (1.0 - q.xy[1]) / 2.0 * 720.0 <= 720.0 - 84.0 + 0.01));
+        const _: () = assert!(SIGN + 4.0 <= VITALS_H, "a sign fits inside its pane");
         // a drop from 20 to 13 flashes the stretch lost, then not
         let white = [1.0, 1.0, 1.0, 0.95];
         let f = draw((13, 20), [(0.05, 20), (10.0, 0)]);

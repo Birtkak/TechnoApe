@@ -463,6 +463,8 @@ impl Server {
             };
             if let Some(inp) = c.input.map(walk) {
                 for _ in 0..steps {
+                    // (a player that died in an earlier step of this tick moves no more in it)
+                    let inp = if c.vitals.dead.is_some() { vitals::still(inp) } else { inp };
                     let before = c.phys;
                     phys::step(&self.world, &mut c.phys, &inp, phys::DT);
                     live(c, &self.world, &before, &inp, &mut deaths);
