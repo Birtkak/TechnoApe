@@ -12,12 +12,26 @@ under 10 MB on disk, under 100 MB of server RAM. The answers are measured below.
 | planet | N (1 m blocks) | time | peak RAM | disk | lakes | lake share of land | land p50 / p90 / p99 m |
 |---|---|---|---|---|---|---|---|
 | 12 km, before the lake work (24 fine steps) | 17376 | 148 s | 1.4 GB | 26 MB | 191 | 9.4 % | 22.4 / 47.2 / 66.7 |
-| **12 km, now (48 fine steps)** | **17376** | **292 s** | **1.6 GB** | **26 MB** | **119** | **4.6 %** | **17.1 / 44.7 / 67.1** |
-| 4.2 km (old Terra), now | 6144 | 28 s | 0.21 GB | 3.6 MB | 42 | 1.7 % | 19.3 / 51.0 / 78.5 |
+| **12 km, now (48 fine steps)** | **17376** | **218 s** (292 before the 2nd speedup) | **1.6 GB** | **26 MB** | **119** | **4.6 %** | **17.1 / 44.7 / 67.1** |
+| 4.2 km (old Terra), now | 6144 | 20 s (28 before) | 0.21 GB | 3.6 MB | 42 | 1.7 % | 19.3 / 51.0 / 78.5 |
 | 20 km, before the lake work | 28960 | 399 s | 3.9 GB | 68 MB | 286 | 15 % | 20.6 / 45.6 / 62.9 |
 
-- **The bake is over its 2 min proposal at 12 km** (4.9 min); the fine steps are 74 % of it. A 12 km bake
+- **The bake is over its 2 min proposal at 12 km** (3.6 min); the fine steps are 75 % of it. A 12 km bake
   has 8x Terra's cells at 8 m.
+- **The second speedup (2026-11-11), exact:** 292 to 218 s at 12 km, 28 to 20 s at 4 km. The same land:
+  rivers, lakes, lake cells, percentiles and the last step's change all equal. A hash of the heights alone
+  was equal on two seeds; the bake's hash changes because the river and lake lists follow the flood order.
+  - Measured at 12 km before it, a fine step took 5.2 s: the flood 3.5 (one thread), grouping the basins
+    0.64, finding the oceans 0.29.
+  - **The drainage runs per land mass:** no water crosses from one mass to another, so each floods, and
+    groups its basins, on its own thread. The receivers stay one parallel pass over all cells. Seed 5's
+    largest mass holds 57 % of the land, so this alone gave 1.5x on the flood.
+  - **Big masses flood through buckets** (`Buckets`): a key's top 20 bits pick a bucket, and only the
+    current bucket is a binary heap. The same pops as the radix heap, about 20 % faster on the big mass.
+  - Now a fine step at 12 km takes about 3.1 s: the largest mass's flood 1.7, the oceans and masses
+    (two serial labellings) 0.55, the basins 0.5.
+  - Tests: `the_monotone_queues_pop_in_heap_order` (failed with the bucket push broken on purpose), and
+    the slow-path test now checks the water level, receivers and area to the bit with the order by mass.
 - **Where the lakes came from**, measured at 12 km:
   - More coarse steps do not change them: 1.27 M lake cells at 320, 640 and 1280 coarse steps.
   - Refining to 8 m starts the fine level at 15 % lake share. The fine steps drain that: 24 steps leave

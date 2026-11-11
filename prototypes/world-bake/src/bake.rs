@@ -435,49 +435,140 @@ impl Radix {
     }
 }
 
-/// The land cells grouped by the river basin they drain through (the cell whose receiver is the sea),
-/// each group in `order`'s order: basins share no cell, so each runs on its own thread.
-fn basins(order: &[u32], recv: &[u32], ocean: &[bool]) -> (Vec<u32>, Vec<usize>) {
-    let n = recv.len();
-    let mut root = vec![NONE; n];
-    let mut index = vec![NONE; n];
-    let mut count: Vec<usize> = Vec::new();
-    for &c in order {
-        let r = recv[c as usize];
-        let rt = if ocean[r as usize] { c } else { root[r as usize] };
-        root[c as usize] = rt;
-        if index[rt as usize] == NONE {
-            index[rt as usize] = count.len() as u32;
-            count.push(0);
+
+/// A monotone priority queue for big floods: keys go into buckets by their top bits, and only the current
+/// bucket is a binary heap. Pops the exact minimum while nothing smaller than the last pop is pushed, as
+/// Priority-Flood guarantees: the same keys in the same order as `Radix`, with fewer moves per key.
+pub struct Buckets {
+    cur: usize,
+    heap: BinaryHeap<Reverse<u64>>,
+    b: Vec<Vec<u64>>,
+}
+impl Buckets {
+    /// 2^20 buckets: a key's top 20 bits, so a bucket spans 2^-11 of a height's magnitude
+    const SHIFT: u32 = 44;
+    pub fn new() -> Buckets {
+        Buckets { cur: 0, heap: BinaryHeap::new(), b: vec![Vec::new(); 1 << (64 - Self::SHIFT)] }
+    }
+    pub fn push(&mut self, x: u64) {
+        let i = (x >> Self::SHIFT) as usize;
+        if i <= self.cur && !self.heap.is_empty() {
+            debug_assert!(i == self.cur);
+            self.heap.push(Reverse(x));
+        } else {
+            self.b[i].push(x);
+            self.cur = self.cur.min(i);
         }
-        count[index[rt as usize] as usize] += 1;
     }
-    let mut start = vec![0usize; count.len() + 1];
-    for i in 0..count.len() {
-        start[i + 1] = start[i] + count[i];
+    pub fn pop(&mut self) -> Option<u64> {
+        loop {
+            if let Some(Reverse(x)) = self.heap.pop() {
+                return Some(x);
+            }
+            while self.cur < self.b.len() && self.b[self.cur].is_empty() {
+                self.cur += 1;
+            }
+            if self.cur == self.b.len() {
+                return None;
+            }
+            let v = std::mem::take(&mut self.b[self.cur]);
+            self.heap = BinaryHeap::from(v.into_iter().map(Reverse).collect::<Vec<_>>());
+        }
     }
-    let mut at = start.clone();
-    let mut cells = vec![0u32; order.len()];
-    for &c in order {
-        let k = index[root[c as usize] as usize] as usize;
-        cells[at[k]] = c;
-        at[k] += 1;
-    }
-    (cells, start)
 }
 
-/// Writes from parallel basins into one slice: sound because basins share no cell.
+pub trait Queue {
+    fn push(&mut self, x: u64);
+    fn pop(&mut self) -> Option<u64>;
+}
+impl Queue for Radix {
+    fn push(&mut self, x: u64) {
+        Radix::push(self, x)
+    }
+    fn pop(&mut self) -> Option<u64> {
+        Radix::pop(self)
+    }
+}
+impl Queue for Buckets {
+    fn push(&mut self, x: u64) {
+        Buckets::push(self, x)
+    }
+    fn pop(&mut self) -> Option<u64> {
+        Buckets::pop(self)
+    }
+}
+
+/// Priority-Flood of one land mass from its coast: fills `w` (with the epsilon) and `lvl` (without),
+/// returns the cells from the coast up.
+/// SAFETY: the caller hands each mass to one thread; its cells and their land neighbours are its own.
+unsafe fn flood<Q: Queue>(mut q: Q, coast: &[u32], g: &Grid, h: &[f32], ws: Shared<f32>, ls: Shared<f32>, ds: Shared<bool>) -> Vec<u32> {
+    unsafe {
+        for &c in coast {
+            ds.set(c as usize, true);
+            q.push((key(ws.get(c as usize)) as u64) << 32 | c as u64);
+        }
+        let mut order = Vec::new();
+        while let Some(x) = q.pop() {
+            let c = x as u32;
+            order.push(c);
+            let (wc, lc) = (ws.get(c as usize), ls.get(c as usize));
+            for o in g.around(c) {
+                if !ds.get(o as usize) {
+                    ds.set(o as usize, true);
+                    let ho = h[o as usize];
+                    ws.set(o as usize, ho.max(wc + EPS));
+                    ls.set(o as usize, ho.max(lc));
+                    q.push((key(ws.get(o as usize)) as u64) << 32 | o as u64);
+                }
+            }
+        }
+        order
+    }
+}
+
+/// Writes from parallel land masses or basins into one slice: sound because they share no cell.
 #[derive(Clone, Copy)]
-struct Shared(*mut f32);
-unsafe impl Send for Shared {}
-unsafe impl Sync for Shared {}
-impl Shared {
-    unsafe fn get(&self, i: usize) -> f32 {
+struct Shared<T>(*mut T);
+unsafe impl<T> Send for Shared<T> {}
+unsafe impl<T> Sync for Shared<T> {}
+impl<T: Copy> Shared<T> {
+    unsafe fn get(&self, i: usize) -> T {
         *self.0.add(i)
     }
-    unsafe fn set(&self, i: usize, v: f32) {
+    unsafe fn set(&self, i: usize, v: T) {
         *self.0.add(i) = v
     }
+}
+
+/// The coast cells of each land mass (land cells connected through land), the masses in the order of
+/// their first cell, each one's coast in cell order. No water crosses from one mass to another, so each
+/// drains on its own thread.
+fn masses(g: &Grid, ocean: &[bool], coast: &[u32]) -> Vec<Vec<u32>> {
+    let n = g.n();
+    let mut label = vec![NONE; n];
+    let mut k = 0u32;
+    let mut stack = Vec::new();
+    for c0 in 0..n as u32 {
+        if ocean[c0 as usize] || label[c0 as usize] != NONE {
+            continue;
+        }
+        label[c0 as usize] = k;
+        stack.push(c0);
+        while let Some(c) = stack.pop() {
+            for o in g.around(c) {
+                if !ocean[o as usize] && label[o as usize] == NONE {
+                    label[o as usize] = k;
+                    stack.push(o);
+                }
+            }
+        }
+        k += 1;
+    }
+    let mut seeds = vec![Vec::new(); k as usize];
+    for &c in coast {
+        seeds[label[c as usize] as usize].push(c);
+    }
+    seeds
 }
 
 pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
@@ -487,25 +578,23 @@ pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
     let mut lvl = w.clone();
     let mut done = ocean.clone();
     let coast: Vec<u32> = (0..n as u32).into_par_iter().filter(|&c| !ocean[c as usize] && g.around(c).any(|o| ocean[o as usize])).collect();
-    let mut q = Radix::new();
-    for &c in &coast {
-        done[c as usize] = true;
-        q.push((key(w[c as usize]) as u64) << 32 | c as u64);
-    }
-    let mut order = Vec::with_capacity(n / 2);
-    while let Some(x) = q.pop() {
-        let c = x as u32;
-        order.push(c);
-        let (wc, lc) = (w[c as usize], lvl[c as usize]);
-        for o in g.around(c) {
-            if !done[o as usize] {
-                done[o as usize] = true;
-                w[o as usize] = h[o as usize].max(wc + EPS);
-                lvl[o as usize] = h[o as usize].max(lc);
-                q.push((key(w[o as usize]) as u64) << 32 | o as u64);
+    let seeds = masses(g, &ocean, &coast);
+    let (ws, ls, ds) = (Shared(w.as_mut_ptr()), Shared(lvl.as_mut_ptr()), Shared(done.as_mut_ptr()));
+    let floods: Vec<Vec<u32>> = seeds
+        .par_iter()
+        .map(|coast| {
+            // SAFETY: a mass's cells and their land neighbours belong to it alone; the sea is only read
+            // a long coast means a big mass: buckets beat the radix heap there, a small one needs no 2^20 buckets
+            unsafe {
+                if coast.len() > 20_000 {
+                    flood(Buckets::new(), coast, g, h, ws, ls, ds)
+                } else {
+                    flood(Radix::new(), coast, g, h, ws, ls, ds)
+                }
             }
-        }
-    }
+        })
+        .collect();
+    // the receivers: the steepest way down the filled surface
     let recv: Vec<u32> = (0..n as u32)
         .into_par_iter()
         .map(|c| {
@@ -525,8 +614,46 @@ pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
             best.1
         })
         .collect();
+    // the basins: grouped by the cell that drains into the sea, each in flood order
+    let (mut root, mut index) = (vec![NONE; n], vec![NONE; n]);
+    let (roots, idx) = (Shared(root.as_mut_ptr()), Shared(index.as_mut_ptr()));
+    let parts: Vec<(Vec<u32>, Vec<u32>, Vec<usize>)> = floods
+        .into_par_iter()
+        .map(|order| {
+            // SAFETY: as the flood: a basin lies inside one mass
+            unsafe {
+                let mut count: Vec<usize> = Vec::new();
+                for &c in &order {
+                    let r = recv[c as usize];
+                    let rt = if ocean[r as usize] { c } else { roots.get(r as usize) };
+                    roots.set(c as usize, rt);
+                    if rt == c {
+                        idx.set(c as usize, count.len() as u32);
+                        count.push(0);
+                    }
+                    count[idx.get(rt as usize) as usize] += 1;
+                }
+                let mut at: Vec<usize> = count.iter().scan(0, |a, &k| { let s = *a; *a += k; Some(s) }).collect();
+                let mut cells = vec![0u32; order.len()];
+                for &c in &order {
+                    let k = idx.get(roots.get(c as usize) as usize) as usize;
+                    cells[at[k]] = c;
+                    at[k] += 1;
+                }
+                (order, cells, count)
+            }
+        })
+        .collect();
+    let land: usize = parts.iter().map(|p| p.0.len()).sum();
+    let (mut order, mut cells, mut start) = (Vec::with_capacity(land), Vec::with_capacity(land), vec![0usize]);
+    for (o, c, k) in parts {
+        order.extend(o);
+        cells.extend(c);
+        for k in k {
+            start.push(start.last().unwrap() + k);
+        }
+    }
     let mut area: Vec<f32> = (0..n as u32).into_par_iter().map(|c| g.area(c)).collect();
-    let (cells, start) = basins(&order, &recv, &ocean);
     let a = Shared(area.as_mut_ptr());
     (0..start.len() - 1).into_par_iter().for_each(|k| {
         for &c in cells[start[k]..start[k + 1]].iter().rev() {
@@ -815,9 +942,9 @@ impl Bake {
 mod tests {
     use super::*;
 
-    /// The fast drainage (radix heap, basins in parallel) against the slow path it replaced, kept here as
-    /// the reference: a binary-heap Priority-Flood and one serial sweep of the area. Same order, same water
-    /// level, the same area to the bit.
+    /// The fast drainage (land masses and basins in parallel, radix heap and buckets) against the slow path
+    /// it replaced, kept here as the reference: one binary-heap Priority-Flood and one serial sweep of the
+    /// area. The same water level and the same area to the bit.
     /// A plain wider than LAKE / EPS cells is no lake: the flood's epsilon must not add up to one there (it
     /// did, and the erosion then left such plains alone as lake floors). A pit is still a lake.
     #[test]
@@ -836,6 +963,39 @@ mod tests {
         let wet = (0..g.n()).filter(|&c| pit(g.dir[c]) && d.lake(c, h[c])).count();
         assert!(pits > 10 && wet == pits, "the pit: {wet} of {pits} cells are lake");
         assert_eq!(plain, 0, "plain cells taken for lake");
+    }
+
+    /// The buckets and the radix heap pop what a binary heap pops, for keys pushed as a flood pushes them:
+    /// never under the last pop, often in the current bucket, sometimes far above it.
+    #[test]
+    fn the_monotone_queues_pop_in_heap_order() {
+        let mut rng = Rng::new(3);
+        let (mut b, mut r, mut heap) = (Buckets::new(), Radix::new(), BinaryHeap::new());
+        let mut c = 0u64;
+        let mut push = |x: u64, b: &mut Buckets, r: &mut Radix, heap: &mut BinaryHeap<Reverse<u64>>| {
+            c += 1;
+            let x = x << 32 | c;
+            b.push(x);
+            r.push(x);
+            heap.push(Reverse(x));
+        };
+        for _ in 0..1000 {
+            push(key(rng.f() as f32 * 50.0) as u64, &mut b, &mut r, &mut heap);
+        }
+        let mut popped = 0;
+        while let Some(Reverse(x)) = heap.pop() {
+            assert_eq!((b.pop(), r.pop()), (Some(x), Some(x)), "pop {popped}");
+            popped += 1;
+            let v = f32::from_bits((x >> 32) as u32 & 0x7fff_ffff); // key() of a positive height sets the top bit
+            if popped < 200_000 {
+                for k in 0..3 {
+                    let up = [1e-4, 0.01 * rng.f() as f32, 5.0 * rng.f() as f32][k];
+                    push(key(v + up) as u64, &mut b, &mut r, &mut heap);
+                }
+            }
+        }
+        assert_eq!((b.pop(), r.pop()), (None, None));
+        assert!(popped > 200_000);
     }
 
     #[test]
@@ -883,7 +1043,15 @@ mod tests {
         }
         assert!(order.len() > n / 4, "too little land to test: {}", order.len());
         assert!(d.start.len() > 2, "one basin only");
-        assert_eq!(d.order, order, "flood order");
+        // the order goes mass by mass now: the same cells, each after its receiver
+        let mut a = d.order.clone();
+        a.sort_unstable();
+        let mut b = order.clone();
+        b.sort_unstable();
+        assert_eq!(a, b, "flooded cells");
+        let mut at = vec![usize::MAX; n];
+        d.order.iter().enumerate().for_each(|(i, &c)| at[c as usize] = i);
+        assert!(d.order.iter().all(|&c| { let r = d.recv[c as usize] as usize; d.ocean[r] || at[r] < at[c as usize] }), "a receiver after its cell");
         assert!(d.w.iter().zip(&w).all(|(a, b)| a.to_bits() == b.to_bits()), "water level");
         assert!(d.area.iter().zip(&area).all(|(a, b)| a.to_bits() == b.to_bits()), "area");
     }
