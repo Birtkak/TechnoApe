@@ -116,5 +116,6 @@ from higher up, so debris on a block over a void of 9 or more did not fall when 
   overhangs or the player.
 - shortcut: a hammer's batch from the server is applied cell by cell, so a burst early in it can take a
   floor from a cell a later one removes; `fall_through` then drops it.
-- **Waiting for the developer:** whether blocks take time to break in survival. Until answered the break is
-  the burst alone, at one click. The debris has one look (cubes of the block's texels); no second candidate.
+- **Decided by the developer (2026-11-11):** blocks take time to dig in survival, as in Minecraft (by
+  hardness and tool, cracks while dug, creative instant); not built here, the break stays the burst alone
+  at one click until that work lands. The debris has one look (cubes of the block's texels); no second candidate.
