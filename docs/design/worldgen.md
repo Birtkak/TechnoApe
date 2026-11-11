@@ -192,7 +192,9 @@ No air, no water cycle, no plates. Its bake is a different, shorter pipeline:
    disk matters less than its speed**; the huge planet's 13.3 MB against the 10 MB proposed is accepted.
 2. **How deep the ground goes** (stage 9): the crust is 64 m today. *Proposal:* 192 m, with the hot,
    undiggable-for-now zone below; the save format already may not assume it stays (ADR 0009).
-3. **The look of the default Terra:** picked from sheets of baked seeds (prototype W1).
+3. ~~**The look of the default Terra**~~ **decided 2026-11-11** (the developer, from the sheet of 12 baked
+   seeds, as the W1 coding session reported): **seed 5** (land median 30 m, the highest 1 % over 78 m;
+   `prototypes/world-bake` has it as its default). The engine's default seed, 1337 today, moves to it in W2.
 4. **The wait** when a world is made: is 30 s with a progress view fine?
 5. **Tilt and season strength** (20°?), and **tide height** (1 m?).
 6. **The biome list** and each biome's look.

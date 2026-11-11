@@ -59,6 +59,7 @@ away, as every need is, not a second game).
 From `worldgen.md`; each stage of `worldgen-plan.md` stops for its own:
 ~~relief (how high, how deep)~~ decided 2026-11-11: ranges to 120 m, seas to 60 m, plains raised (median
 land 20 m on seed 1), and the bake's file size matters less than its speed; how deep the ground goes; the
-look of the default Terra (a seed from the sheet of 12 in `prototypes/world-bake/images/`); the wait when a
+~~look of the default Terra~~ decided 2026-11-11: seed 5 of the sheet of 12 in
+`prototypes/world-bake/images/` (the engine's default seed moves to it in W2); the wait when a
 world is made (Terra bakes in about 18 s, the huge planet in about 105 s: is that fine?); the tilt and how strong seasons are; the tide's height; the biome list and looks; Luna's
 ice; how much the player is told (map, compass, rock names).
