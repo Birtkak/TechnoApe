@@ -283,7 +283,7 @@ fn main() {
     let mut local_server = None;
     let mut tick_log = None;
     let (mut save_path, mut rec_path) = (None, None);
-    let link: Link<ToServer, ToClient> = match args.0.get("connect") {
+    let mut link: Link<ToServer, ToClient> = match args.0.get("connect") {
         Some(addr) => {
             let addr = if addr.contains(':') { addr.clone() } else { format!("{addr}:{}", net::DEFAULT_PORT) };
             net::tcp(std::net::TcpStream::connect(&addr).expect("connect to the server")).expect("link")
@@ -303,7 +303,7 @@ fn main() {
                     eprintln!("[technoape] carrying on from {} ({} edited cells)", p.display(), s.edits.len());
                     Server::from_save(s, accept_rx)
                 }
-                None => Server::new(planet, moon, seed, accept_rx),
+                None => Server::baked(planet, moon, seed, accept_rx),
             };
             server.autosave = save.clone().map(|p| (p.into(), 30 * TICK_HZ as u64));
             save_path = save;
@@ -334,9 +334,11 @@ fn main() {
         link.send(ToServer::Creative(true)); // the edit benchmark places stone it never dug
     }
     let (_id, mut world, seed) = match link.rx.recv_timeout(Duration::from_secs(10)) {
-        Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks }) => {
+        Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, map }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
-            (id, World::new(planet_n, moon_n, seed), seed)
+            // the baked map (ADR 0043): the local server's in memory, else from the disk or the server
+            let map = map.map(|h| engine::net::fetch_map(&mut link, seed, planet_n, h).unwrap_or_else(|e| panic!("{e}")));
+            (id, World::with_map(planet_n, moon_n, seed, map), seed)
         }
         other => panic!("no welcome from the server: {other:?}"),
     };

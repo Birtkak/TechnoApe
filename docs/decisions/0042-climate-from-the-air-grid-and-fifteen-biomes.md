@@ -1,6 +1,7 @@
 # 0042 – Terra's climate from the air grid, and fifteen biomes
 
-- **Status:** accepted (the developer's calls and the prototype); each biome's look is still open
+- **Status:** accepted (the developer's calls and the prototype); the looks were accepted on 2026-11-11 and
+  built in ADR 0043
 - **Date:** 2026-11-11
 
 ## Context

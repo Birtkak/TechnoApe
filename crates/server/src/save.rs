@@ -9,14 +9,15 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// 2 added water (ADR 0020), 3 the world's time (ADR 0022), 4 is the world of 1 m blocks (ADR 0033), 5 keeps
-/// every player's health and hunger (ADR 0040). A save of versions 1 to 3 holds a world of 0.5 m blocks, whose
-/// cells mean other places now: it is refused. One of version 4 loads, its players at full health and hunger.
-pub const VERSION: u32 = 5;
+/// every player's health and hunger (ADR 0040), 6 names the baked map it was played on (ADR 0043). A save of
+/// versions 1 to 3 holds a world of 0.5 m blocks, whose cells mean other places now: it is refused. One of
+/// version 4 loads, its players at full health and hunger; one of 4 or 5 keeps its noise land.
+pub const VERSION: u32 = 6;
 
-/// A save as written; `Save<SavedV4>` is how version 4 lies on disk (postcard keeps no field names, so a
-/// player with one more field is another layout).
+/// A save as written; `Save<SavedV4, ()>` is how version 4 lies on disk and `Save<Saved, ()>` version 5
+/// (postcard keeps no field names, so a player with one more field is another layout; `()` is no bytes).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Save<P = Saved> {
+pub struct Save<P = Saved, M = Option<u64>> {
     pub version: u32,
     pub seed: i32,
     pub planet_n: i32,
@@ -35,6 +36,9 @@ pub struct Save<P = Saved> {
     pub sea_extra: i64,
     /// The world's age in ticks: the sky's clock (ADR 0022).
     pub tick: u64,
+    /// The hash of the baked map the planet stands on (`engine::bake::Map`); None: the noise land of a save
+    /// from before the bake.
+    pub map: M,
 }
 
 /// A player the save remembers, found again by name on `Hello`.
@@ -75,14 +79,21 @@ impl Save {
     /// Reads a save and checks it is this version (or 4, carried over) and its blocks are this build's blocks.
     pub fn from_bytes(b: &[u8]) -> Result<Save, String> {
         let now = postcard::from_bytes::<Save>(b).ok().filter(|s| s.version == VERSION);
-        let s: Save = match now.ok_or_else(|| postcard::from_bytes::<Save<SavedV4>>(b)) {
-            Ok(s) => s,
-            Err(Ok(s)) if s.version == 4 => {
-                let players = s.players.into_iter().map(|p| Saved { name: p.name, pos: p.pos, fwd: p.fwd, creative: p.creative, inv: p.inv, water: p.water, vitals: Vitals::default() }).collect();
-                let Save { seed, planet_n, moon_n, blocks, edits, water, made, removed, sea_extra, tick, .. } = s;
-                Save { version: VERSION, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick }
+        let v5 = || postcard::from_bytes::<Save<Saved, ()>>(b).ok().filter(|s| s.version == 5);
+        let s: Save = if let Some(s) = now {
+            s
+        } else if let Some(s) = v5() {
+            let Save { seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, .. } = s;
+            Save { version: VERSION, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map: None }
+        } else {
+            match postcard::from_bytes::<Save<SavedV4, ()>>(b) {
+                Ok(s) if s.version == 4 => {
+                    let players = s.players.into_iter().map(|p| Saved { name: p.name, pos: p.pos, fwd: p.fwd, creative: p.creative, inv: p.inv, water: p.water, vitals: Vitals::default() }).collect();
+                    let Save { seed, planet_n, moon_n, blocks, edits, water, made, removed, sea_extra, tick, .. } = s;
+                    Save { version: VERSION, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map: None }
+                }
+                _ => return Err(format!("not a save of version {VERSION}, 5 or 4: older ones are worlds of 0.5 m blocks (ADR 0033)")),
             }
-            _ => return Err(format!("not a save of version {VERSION} or 4: older ones are worlds of 0.5 m blocks (ADR 0033)")),
         };
         for (id, name) in &s.blocks {
             if !BLOCKS.get(*id).is_some_and(|d| &d.name == name || d.was.contains(name)) {
@@ -113,7 +124,7 @@ mod tests {
 
     fn save(version: u32, blocks: Vec<(u8, String)>) -> Save {
         let b = Block { body: 0, face: 1, pos: IVec3::new(3, 4, 5) };
-        Save { version, seed: 9, planet_n: 256, moon_n: 32, blocks, edits: vec![(b, 0)], players: Vec::new(), water: Vec::new(), made: 0, removed: 0, sea_extra: 0, tick: 7 }
+        Save { version, seed: 9, planet_n: 256, moon_n: 32, blocks, edits: vec![(b, 0)], players: Vec::new(), water: Vec::new(), made: 0, removed: 0, sea_extra: 0, tick: 7, map: Some(0x5eed) }
     }
 
     /// A save reads back as written; one from the world of 0.5 m blocks is refused, and says why.
@@ -131,18 +142,29 @@ mod tests {
     fn a_save_from_before_vitals_loads_at_full_health() {
         let p4 = SavedV4 { name: "ape".into(), pos: [1.0, 2.0, 3.0], fwd: [1.0, 0.0, 0.0], creative: false, inv: vec![(2, 5)], water: 7 };
         let s = save(VERSION, registry());
-        let old = Save::<SavedV4> {
+        let old = Save::<SavedV4, ()> {
             version: 4, seed: s.seed, planet_n: s.planet_n, moon_n: s.moon_n, blocks: s.blocks.clone(), edits: s.edits.clone(), players: vec![p4],
-            water: Vec::new(), made: 0, removed: 0, sea_extra: 0, tick: 7,
+            water: Vec::new(), made: 0, removed: 0, sea_extra: 0, tick: 7, map: (),
         };
         let back = Save::from_bytes(&postcard::to_allocvec(&old).unwrap()).expect("version 4 loads");
-        assert_eq!(back.version, VERSION);
+        assert_eq!((back.version, back.map), (VERSION, None), "an old save keeps its noise land");
         assert_eq!((back.players[0].name.as_str(), back.players[0].water, &back.players[0].vitals), ("ape", 7, &Vitals::default()));
         assert_eq!(back.edits, s.edits);
         let hurt = Vitals { health: 3, hunger: 0.25, clock: 17, dead: Some("ape fell 30 m".into()) };
         let mut now = back.clone();
         now.players[0].vitals = hurt.clone();
         assert_eq!(Save::from_bytes(&now.to_bytes()).unwrap().players[0].vitals, hurt);
+    }
+
+    /// A save of version 5 (before the bake) loads on its noise land; this version keeps its map's hash.
+    #[test]
+    fn a_save_from_before_the_bake_keeps_its_noise_land() {
+        let s = save(VERSION, registry());
+        let Save { seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, .. } = s.clone();
+        let v5 = Save::<Saved, ()> { version: 5, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map: () };
+        let back = Save::from_bytes(&postcard::to_allocvec(&v5).unwrap()).expect("version 5 loads");
+        assert_eq!((back.map, back.edits.clone()), (None, s.edits.clone()));
+        assert_eq!(Save::from_bytes(&s.to_bytes()).unwrap().map, Some(0x5eed));
     }
 
     /// A block renamed in data (moon dust became regolith, W0) keeps its id: a save under the old name loads.

@@ -1,0 +1,172 @@
+# Terra's biomes and still plants (ADR 0042, 0043; schema and checks in crates/engine/src/biomes.rs).
+# The biome rows are the bake's biomes in its order (crates/engine/src/bake/life.rs, ICE .. REEF): never
+# reorder them. Looks accepted by the developer on 2026-11-11; every number here is open to taste.
+#
+# A biome: `top` the block at the surface, `band` the blocks under it to 4 m, `rock` below.
+# `patches`: [block, share] pairs: that share of the surface (in clumps of a few metres) is that block
+# instead of `top`. `snow_over`: the top is snow from this height over the sea (metres) up.
+# `plants`: [plant, share] pairs: the share of the candidate spots (one every 4 x 4 columns, jittered)
+# that grow that plant; the shares add up to at most 1.
+#
+# A plant (generated as plain blocks; they do not grow, living plants are W7): `shape` cone (a spruce),
+# round (a crown on a trunk), flat (a flat top, the savanna's), column (a cactus, a reed: `trunk` only),
+# bush (`leaves` only). `height`: [lowest, highest] in blocks. `radius`: the crown's, in blocks, 0..3.
+
+[[plant]]
+name = "spruce"
+shape = "cone"
+trunk = "log"
+leaves = "spruce leaves"
+height = [8, 12]
+radius = 3
+
+[[plant]]
+name = "broadleaf"
+shape = "round"
+trunk = "log"
+leaves = "broadleaf leaves"
+height = [6, 9]
+radius = 3
+
+[[plant]]
+name = "jungle tree"
+shape = "round"
+trunk = "log"
+leaves = "jungle leaves"
+height = [12, 16]
+radius = 3
+
+[[plant]]
+name = "acacia"
+shape = "flat"
+trunk = "log"
+leaves = "acacia leaves"
+height = [5, 7]
+radius = 3
+
+[[plant]]
+name = "shrub"
+shape = "bush"
+leaves = "shrub"
+height = [1, 2]
+radius = 0
+
+[[plant]]
+name = "cactus"
+shape = "column"
+trunk = "cactus"
+height = [2, 4]
+radius = 0
+
+[[plant]]
+name = "reed"
+shape = "column"
+trunk = "reed"
+height = [1, 2]
+radius = 0
+
+[[biome]]
+name = "ice"
+top = "ice"
+band = "snow"
+rock = "stone"
+
+[[biome]]
+name = "tundra"
+top = "tundra grass"
+band = "dirt"
+rock = "stone"
+patches = [["gravel", 0.25]]
+plants = [["shrub", 0.03]]
+
+[[biome]]
+name = "cold forest"
+top = "cold grass"
+band = "dirt"
+rock = "stone"
+patches = [["snow", 0.15]]
+plants = [["spruce", 0.5], ["shrub", 0.05]]
+
+[[biome]]
+name = "temperate forest"
+top = "grass"
+band = "dirt"
+rock = "stone"
+plants = [["broadleaf", 0.35], ["shrub", 0.15]]
+
+[[biome]]
+name = "grassland"
+top = "meadow grass"
+band = "dirt"
+rock = "stone"
+plants = [["broadleaf", 0.015], ["shrub", 0.04]]
+
+[[biome]]
+name = "dry scrub"
+top = "scrub grass"
+band = "dirt"
+rock = "stone"
+patches = [["dirt", 0.2], ["gravel", 0.1]]
+plants = [["shrub", 0.2]]
+
+[[biome]]
+name = "desert"
+top = "sand"
+band = "sand"
+rock = "stone"
+plants = [["cactus", 0.03]]
+
+[[biome]]
+name = "savanna"
+top = "savanna grass"
+band = "dirt"
+rock = "stone"
+plants = [["acacia", 0.04], ["shrub", 0.03]]
+
+[[biome]]
+name = "rain forest"
+top = "jungle grass"
+band = "dirt"
+rock = "stone"
+plants = [["jungle tree", 0.6], ["shrub", 0.3]]
+
+[[biome]]
+name = "wetland"
+top = "mud"
+band = "clay"
+rock = "stone"
+patches = [["marsh grass", 0.5]]
+plants = [["reed", 0.35], ["shrub", 0.05]]
+
+[[biome]]
+name = "alpine"
+top = "gravel"
+band = "stone"
+rock = "stone"
+patches = [["stone", 0.4]]
+snow_over = 100.0
+
+[[biome]]
+name = "beach"
+top = "sand"
+band = "sand"
+rock = "stone"
+
+[[biome]]
+name = "shelf"
+top = "sand"
+band = "sand"
+rock = "stone"
+
+[[biome]]
+name = "deep sea"
+top = "mud"
+band = "clay"
+rock = "stone"
+
+[[biome]]
+name = "warm reef"
+top = "sand"
+band = "sand"
+rock = "stone"
+patches = [["coral", 0.35]]

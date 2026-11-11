@@ -33,7 +33,8 @@ const CHECK_EVERY: u64 = 20;
 /// of ticks done when the hash was taken.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Ev {
-    Start { planet_n: i32, moon_n: i32, seed: i32, dt: f64 },
+    /// `map`: the baked map's hash (ADR 0043), None for the noise land.
+    Start { planet_n: i32, moon_n: i32, seed: i32, dt: f64, map: Option<u64> },
     /// Right after `Start` when the server began from a save: the save itself, so a replay starts there too.
     Loaded(Save),
     Join { tick: u64, id: u32 },
@@ -142,12 +143,31 @@ pub struct Server {
     tiles: FxMap<Col, (u64, DVec3)>,
     /// When set, `run` adds every tick's length in ms (ADR 0025, S: the benchmark line's tick numbers).
     pub tick_ms: Option<std::sync::Arc<std::sync::Mutex<Vec<f32>>>>,
+    /// The baked map as `ToClient::Map` pieces, made on the first request (18 MB for the 4 km planet).
+    map_pieces: Option<Vec<ToClient>>,
 }
 
 impl Server {
+    /// A server on the noise land (tests, saves from before the bake).
     pub fn new(planet_n: i32, moon_n: i32, seed: i32, accept: Receiver<ServerLink>) -> Server {
+        Server::with_world(World::new(planet_n, moon_n, seed), seed, accept)
+    }
+    /// A new game's server: its planet baked (ADR 0043), from memory, the disk or baked now.
+    pub fn baked(planet_n: i32, moon_n: i32, seed: i32, accept: Receiver<ServerLink>) -> Server {
+        Server::with_world(World::baked(planet_n, moon_n, seed), seed, accept)
+    }
+    /// A server on the map of this hash (None: the noise land); the bake is redone if it is not kept. A map that
+    /// comes out other than the hash stops the game, as a save this build cannot read does: its edits belong
+    /// to other ground, and the next autosave would write over the old map's name.
+    pub fn on_map(planet_n: i32, moon_n: i32, seed: i32, map: Option<u64>, accept: Receiver<ServerLink>) -> Server {
+        let Some(h) = map else { return Server::new(planet_n, moon_n, seed, accept) };
+        let m = engine::bake::find(seed, planet_n, Some(h)).unwrap_or_else(|| engine::bake::keep(engine::bake::Map::bake(seed, planet_n)));
+        assert_eq!(m.hash, h, "this world was played on another map of seed {seed} (map version {}): it cannot be carried on", engine::bake::VERSION);
+        Server::with_world(World::with_map(planet_n, moon_n, seed, Some(m)), seed, accept)
+    }
+    fn with_world(world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
         Server {
-            world: World::new(planet_n, moon_n, seed),
+            world,
             seed,
             accept,
             clients: Vec::new(),
@@ -167,12 +187,13 @@ impl Server {
             water_bytes: 0,
             tiles: FxMap::default(),
             tick_ms: None,
+            map_pieces: None,
         }
     }
 
     /// A server that carries on from `save` (its seed and planet win over any given elsewhere).
     pub fn from_save(save: Save, accept: Receiver<ServerLink>) -> Server {
-        let mut s = Server::new(save.planet_n, save.moon_n, save.seed, accept);
+        let mut s = Server::on_map(save.planet_n, save.moon_n, save.seed, save.map, accept);
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);
         }
@@ -210,7 +231,13 @@ impl Server {
             removed: self.removed,
             sea_extra: self.world.water.sea_extra,
             tick: self.tick0.wrapping_add(self.tick),
+            map: self.map_hash(),
         }
+    }
+
+    /// The hash of the baked map the planet stands on, None for the noise land.
+    pub fn map_hash(&self) -> Option<u64> {
+        self.world.bodies[0].map().map(|m| m.hash)
     }
 
     pub fn players(&self) -> usize {
@@ -327,7 +354,7 @@ impl Server {
         self.world.time = self.tick0.wrapping_add(self.tick) as f64 / TICK_HZ;
         if self.tick == 0 {
             let [b0, b1] = [&self.world.bodies[0], &self.world.bodies[1]];
-            let start = Ev::Start { planet_n: b0.n, moon_n: b1.n, seed: self.seed, dt: self.dt };
+            let start = Ev::Start { planet_n: b0.n, moon_n: b1.n, seed: self.seed, dt: self.dt, map: self.map_hash() };
             self.log(start);
             if let Some(save) = self.loaded.take() {
                 self.log(Ev::Loaded(save));
@@ -338,7 +365,7 @@ impl Server {
             self.next_id += 1;
             self.log(Ev::Join { tick: self.tick, id });
             let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
-            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash });
+            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, map: self.map_hash() });
             let all: Vec<(Block, u8)> = self
                 .world
                 .edits
@@ -448,6 +475,14 @@ impl Server {
                         }
                     }
                     Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
+                    Recv::Msg(ToServer::Map) => {
+                        if let Some(m) = self.world.bodies[0].map() {
+                            // shortcut: any client may ask again; a limit per client when servers go public
+                            for p in self.map_pieces.get_or_insert_with(|| engine::net::map_pieces(m)) {
+                                self.clients[i].link.send(p.clone());
+                            }
+                        }
+                    }
                     Recv::Empty => break,
                     Recv::Closed => {
                         open = false;
@@ -1071,7 +1106,7 @@ pub fn read_recording(path: &Path) -> std::io::Result<Vec<Ev>> {
 /// disagrees.
 pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
     let evs = read_recording(path)?;
-    let Some(Ev::Start { planet_n, moon_n, seed, dt }) = evs.first() else {
+    let Some(Ev::Start { planet_n, moon_n, seed, dt, map }) = evs.first() else {
         return Err(std::io::Error::other("not a recording: no Start"));
     };
     let (tx, rx) = channel();
@@ -1080,7 +1115,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
         // 1 m blocks, ADR 0033. shortcut: one that starts from the seed alone is not told apart)
         Some(Ev::Loaded(save)) if save.version != save::VERSION => return Err(std::io::Error::other("a recording of an older world (0.5 m blocks, ADR 0033)")),
         Some(Ev::Loaded(save)) => (Server::from_save(save.clone(), rx), &evs[2..]),
-        _ => (Server::new(*planet_n, *moon_n, *seed, rx), &evs[1..]),
+        _ => (Server::on_map(*planet_n, *moon_n, *seed, *map, rx), &evs[1..]),
     };
     s.dt = *dt;
     let mut links: HashMap<u32, Link<ToServer, ToClient>> = HashMap::new();

@@ -40,7 +40,7 @@ fn main() {
             eprintln!("[technoape-server] carrying on from {save} ({} edited cells)", s.edits.len());
             Server::from_save(s, rx)
         }
-        None => Server::new(num("planet", engine::bodies::BODIES[0].n), num("moon", engine::bodies::BODIES[1].n), num("seed", 1337), rx),
+        None => Server::baked(num("planet", engine::bodies::BODIES[0].n), num("moon", engine::bodies::BODIES[1].n), num("seed", 1337), rx),
     };
     server.autosave = (save != "0").then(|| (save.clone().into(), 30 * TICK_HZ as u64));
     let unix = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());

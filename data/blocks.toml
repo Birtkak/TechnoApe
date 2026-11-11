@@ -78,3 +78,207 @@ loose = true
 sound = "dust"
 was = ["moon dust"]
 colour = [0.86, 0.86, 0.84]
+
+# The biomes' ground and still plants (ADR 0042, 0043; data/biomes.toml): accepted 2026-11-11, looks open to taste
+
+[[block]]
+id = 8
+name = "sand"
+hardness = 0.6
+loose = true
+sound = "dust"
+colour = [0.86, 0.78, 0.55]
+pattern = "speckle"
+
+[[block]]
+id = 9
+name = "snow"
+hardness = 0.4
+loose = true
+sound = "dust"
+colour = [0.93, 0.95, 0.97]
+
+[[block]]
+id = 10
+name = "ice"
+hardness = 1.5
+loose = true
+sound = "glass"
+colour = [0.68, 0.82, 0.94]
+contrast = 0.4
+
+[[block]]
+id = 11
+name = "gravel"
+hardness = 0.9
+loose = true
+sound = "stone"
+colour = [0.55, 0.53, 0.50]
+pattern = "pebbles"
+
+[[block]]
+id = 12
+name = "clay"
+hardness = 0.9
+loose = true
+sound = "dirt"
+colour = [0.62, 0.50, 0.42]
+
+[[block]]
+id = 13
+name = "mud"
+hardness = 0.6
+loose = true
+sound = "dirt"
+colour = [0.33, 0.26, 0.20]
+
+[[block]]
+id = 14
+name = "log"
+hardness = 2.0
+loose = true
+sound = "dirt"
+colour = [0.40, 0.28, 0.17]
+pattern = "rings"
+
+[[block]]
+id = 15
+name = "spruce leaves"
+hardness = 0.3
+loose = true
+sound = "grass"
+colour = [0.12, 0.30, 0.18]
+pattern = "speckle"
+
+[[block]]
+id = 16
+name = "broadleaf leaves"
+hardness = 0.3
+loose = true
+sound = "grass"
+colour = [0.22, 0.45, 0.15]
+pattern = "speckle"
+
+[[block]]
+id = 17
+name = "jungle leaves"
+hardness = 0.3
+loose = true
+sound = "grass"
+colour = [0.10, 0.36, 0.10]
+pattern = "speckle"
+
+[[block]]
+id = 18
+name = "acacia leaves"
+hardness = 0.3
+loose = true
+sound = "grass"
+colour = [0.40, 0.48, 0.18]
+pattern = "speckle"
+
+[[block]]
+id = 19
+name = "cactus"
+hardness = 0.6
+loose = true
+sound = "grass"
+colour = [0.25, 0.50, 0.22]
+
+[[block]]
+id = 20
+name = "shrub"
+hardness = 0.3
+loose = true
+sound = "grass"
+colour = [0.30, 0.42, 0.16]
+pattern = "speckle"
+
+[[block]]
+id = 21
+name = "reed"
+hardness = 0.2
+loose = true
+sound = "grass"
+colour = [0.55, 0.58, 0.30]
+
+[[block]]
+id = 22
+name = "coral"
+hardness = 2.0
+loose = true
+sound = "stone"
+colour = [0.90, 0.45, 0.42]
+pattern = "pebbles"
+
+# grass tinted per biome: the far planet shows the biome's colour with no change to the renderer
+
+[[block]]
+id = 23
+name = "tundra grass"
+hardness = 0.9
+loose = true
+sound = "grass"
+colour = [0.45, 0.52, 0.36]
+pattern = "grass"
+side = "dirt"
+
+[[block]]
+id = 24
+name = "cold grass"
+hardness = 0.9
+loose = true
+sound = "grass"
+colour = [0.22, 0.45, 0.32]
+pattern = "grass"
+side = "dirt"
+
+[[block]]
+id = 25
+name = "meadow grass"
+hardness = 0.9
+loose = true
+sound = "grass"
+colour = [0.45, 0.65, 0.20]
+pattern = "grass"
+side = "dirt"
+
+[[block]]
+id = 26
+name = "scrub grass"
+hardness = 0.9
+loose = true
+sound = "grass"
+colour = [0.48, 0.50, 0.25]
+pattern = "grass"
+side = "dirt"
+
+[[block]]
+id = 27
+name = "savanna grass"
+hardness = 0.9
+loose = true
+sound = "grass"
+colour = [0.72, 0.64, 0.32]
+pattern = "grass"
+side = "dirt"
+
+[[block]]
+id = 28
+name = "jungle grass"
+hardness = 0.9
+loose = true
+sound = "grass"
+colour = [0.15, 0.45, 0.12]
+pattern = "grass"
+side = "dirt"
+
+[[block]]
+id = 29
+name = "marsh grass"
+hardness = 0.9
+loose = true
+sound = "grass"
+colour = [0.20, 0.36, 0.16]
+pattern = "grass"
+side = "dirt"

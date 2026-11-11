@@ -3,6 +3,20 @@
 The shared benchmark of `docs/plans/roadmap.md`, measured as ADR 0004 says. Newest first.
 Run it: `bash tools/bench.sh`, then `python -I tools/summarize.py`.
 
+## 2026-11-11: the bake in the engine (ADR 0043, biomes and still plants)
+
+Reference machine, release build, `quick=1`, `out/.lock` held; the 4 km planet baked from seed 1337 (25.0 s on
+8 of 12 threads, once, then loaded from its 17.7 MB file).
+
+| run | frame p99 ms | max ms | GPU p50 ms (baseline) | job µs (baseline) | RAM MB | VRAM MB | tick p99 ms (baseline) | budget |
+|---|---|---|---|---|---|---|---|---|
+| `stand` at the spawn (`at=1125.34,3634.37,1915.81`, a forest) | 2.69 | 3.03 | 1.74 (1.69) | 357 (551) | 352 | 815 | - | ok |
+| `fly` | 4.01 | 4.92 | 1.58 (1.51) | 267 (455) | 413 | 817 | - | ok |
+| `sim` (50 bots at the spawn) | 3.36 | 5.31 | 1.97 (1.67) | 354 (588) | 371 | 815 | 1.88 (2.70) | ok |
+
+The default `stand` (`at=0,1,0`) is open sea on this map, no longer the baseline's scene. Soak (50 bots, 1 min,
+seed 1, a baked planet of 256 columns): 8.0 s, the same hash twice and in its replay.
+
 ## 2026-11-11: the air grid spike (ADR 0010, `prototypes/air`)
 
 Reference machine, release build, `air mode=cost` (300 live steps of 1 s after 100 to warm up; `out/.lock`
