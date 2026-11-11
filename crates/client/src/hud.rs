@@ -614,9 +614,17 @@ pub fn bug_form(p: &mut Paint, text: &str, caret: bool) {
 pub fn ghost(world: &World, s: &Shape, colour: [u8; 4]) -> Vec<GhostVert> {
     let cells: FxMap<IVec3, ()> = s.cells().map(|b| (b.pos, ())).collect();
     let body = &world.bodies[s.body as usize];
+    // where the mesh draws grid point p: between the exact points of its lattice cell, as shader.wgsl `place`
+    // does (on the sphere the outline stood up to 2 mm off its block, bug 2026-11-11_17-38-47)
+    let n = body.lattice(0) as i32;
     let corner = |p: IVec3| {
-        let v = body.dir(s.face as usize, p.x as f64, p.y as f64) * body.layer_r(p.z as f64);
-        GhostVert { pos: v.as_vec3().to_array(), body: s.body as u32, colour }
+        let l0 = p.map(|c| c.div_euclid(n) * n);
+        let t = (p - l0).as_dvec3() / n as f64;
+        let d = |i: i32, j: i32| body.dir(s.face as usize, i as f64, j as f64);
+        let u0 = d(l0.x, l0.y).lerp(d(l0.x + n, l0.y), t.x);
+        let u1 = d(l0.x, l0.y + n).lerp(d(l0.x + n, l0.y + n), t.x);
+        let r = body.layer_r(l0.z as f64) + (body.layer_r((l0.z + n) as f64) - body.layer_r(l0.z as f64)) * t.z;
+        GhostVert { pos: (u0.lerp(u1, t.y) * r).as_vec3().to_array(), body: s.body as u32, colour }
     };
     let mut out = Vec::new();
     for p in cells.keys() {
@@ -1105,6 +1113,7 @@ mod tests {
         assert_eq!((word(true), word(false)), (2, 0));
     }
     use engine::world::Block;
+    use glam::DVec3;
 
     #[test]
     fn the_compass_puts_north_in_the_middle_when_facing_it_and_a_waypoint_at_its_bearing() {
@@ -1274,6 +1283,25 @@ mod tests {
         assert_eq!(ghost(&w, &brush, [255; 4]).len(), 24 * 8, "a 2 x 2 x 2 cube shows its 24 outer faces");
         let big = Shape { max: b.pos + IVec3::new(31, 31, 1), kind: Kind::Box, ..Shape::one(b) };
         assert!(ghost(&w, &big, [255; 4]).len() <= GHOST_MAX);
+    }
+
+    #[test]
+    fn a_ghost_sits_where_the_mesh_draws_its_block() {
+        // the shader places a vertex between the exact grid points of its lattice cell (`place`, ADR 0025 I2):
+        // a block in the middle of one is drawn on the chord, up to 2 mm under the sphere, so an outline on the
+        // sphere stood off its block (bug 2026-11-11_17-38-47)
+        let w = World::new(6144, 256, 1);
+        let body = &w.bodies[0];
+        let n = body.lattice(0) as i32;
+        let b = Block { body: 0, face: 2, pos: IVec3::new(5736 - 5736 % n + n / 2, 3464, 8 * n) };
+        let lines = ghost(&w, &Shape::one(b), [255; 4]);
+        let p = b.pos;
+        let exact = |i: i32, j: i32, l: i32| body.dir(2, i as f64, j as f64) * body.layer_r(l as f64);
+        let x0 = p.x - n / 2;
+        let chord = exact(x0, p.y, p.z).lerp(exact(x0 + n, p.y, p.z), 0.5);
+        let near = lines.iter().map(|v| (DVec3::from(v.pos.map(|c| c as f64)) - chord).length()).fold(f64::MAX, f64::min);
+        assert!(near < 5e-4, "the corner at the lattice cell's middle is {:.2} mm off the drawn chord", near * 1e3);
+        assert!((exact(p.x, p.y, p.z) - chord).length() > 1e-3, "the sphere is a millimetre off it here");
     }
 
     #[test]

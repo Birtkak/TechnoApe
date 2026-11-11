@@ -598,7 +598,7 @@ impl App {
             moon_col: [moon.x, moon.y, moon.z, 1.0],
             sky: [sky_c.x, sky_c.y, sky_c.z, day * air],
             n_lamps: [0; 4],
-            opt: [self.gfx_bits(), (self.settings.get(S::Brightness) * 1000.0).round() as u32, 0, 0],
+            opt: [self.gfx_bits(), (self.settings.get(S::Brightness) * 1000.0).round() as u32, w(), h()],
             stars: [
                 [to_stars.x_axis.x, to_stars.x_axis.y, to_stars.x_axis.z, air],
                 [to_stars.y_axis.x, to_stars.y_axis.y, to_stars.y_axis.z, sun_h],

@@ -372,9 +372,10 @@ fn main() {
         // the soonest last, whatever order they came in
         fx_edits.sort_by(|a: &(f64, Block, u8), b| b.0.total_cmp(&a.0));
     }
-    // play's settings (ADR 0023); every other run keeps the defaults
+    // play's settings (ADR 0023); every other run keeps the defaults unless settings= names a file (a shot at
+    // another screen size)
     let settings_file = args.s("settings", "settings.txt");
-    let settings = if run == "play" { Settings::parse(&std::fs::read_to_string(&settings_file).unwrap_or_default()) } else { Settings::default() };
+    let settings = if run == "play" || args.0.contains_key("settings") { Settings::parse(&std::fs::read_to_string(&settings_file).unwrap_or_default()) } else { Settings::default() };
     // sounds=1: every sound in numbers, as one JSON line, and nothing else
     if args.get("sounds", 0) == 1 {
         println!("{}", audio::report());

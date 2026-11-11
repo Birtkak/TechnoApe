@@ -127,7 +127,10 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     let dir = (q.x >> 28u) & 7u;
     let a = dir / 2u;
     let k = vi % 6u;
-    let local = quad_corner(q, k, 0.0);
+    // grown by a millimetre: a merged quad's edge and its neighbours' corners on it are worked out apart, at
+    // f32's grain at the body's radius (a quarter millimetre at 4 km), and met with pixel holes of sky between
+    // them (bug 2026-11-11_17-38-04, ADR 0041); the overlap closes them, too thin to see as a lip
+    let local = quad_corner(q, k, DRAW_GROW);
     // the corner in the face's u, v: as quad_corner lays it out
     var cu = array<u32, 6>(0u, 1u, 1u, 0u, 1u, 0u);
     var cv = array<u32, 6>(0u, 0u, 1u, 0u, 1u, 1u);
@@ -167,6 +170,8 @@ struct Build { base: vec3i, info: u32, off: u32, n: u32, dst: u32, _p: u32 };
 @group(0) @binding(6) var<storage, read> builds: array<Build>;
 @group(0) @binding(7) var<storage, read_write> verts: array<f32>;
 const GROW: f32 = 0.01;
+// the drawn quads' own overlap, in cells (`vs`)
+const DRAW_GROW: f32 = 0.001;
 
 @compute @workgroup_size(64)
 fn expand(@builtin(global_invocation_id) id: vec3u) {
@@ -193,6 +198,8 @@ fn expand(@builtin(global_invocation_id) id: vec3u) {
 const PI: f32 = 3.14159265;
 const DAY_AMB: vec3f = vec3f(0.33, 0.35, 0.40);
 const NIGHT_AMB: vec3f = vec3f(0.018, 0.022, 0.035);
+// the night sky's own faint light (`sky_colour`)
+const NIGHT_GLOW: vec3f = vec3f(0.02, 0.03, 0.07);
 
 fn hash2(p: vec2u) -> f32 {
     var h = p.x * 73856093u ^ p.y * 19349663u;
@@ -285,17 +292,19 @@ fn ambient(day: f32) -> vec3f {
 }
 
 // the light on a surface of body `body` at p (from the camera) with normal n
-const LAMP_R: f32 = 8.0;
+const LAMP_R: f32 = 12.0;
 const LAMP_RAYS: u32 = 3u;
 // a shadow ray goes to the lamp's block, not its middle (`lamp_target`), and stops this far short of it, so
 // the lamp never shadows itself
 const LAMP_STOP: f32 = 0.01;
 const NONE: u32 = 0xffffffffu;
 
-// a lamp's light d2 square metres away: falling off with the square of the distance, to nothing at LAMP_R
+// a lamp's light d2 square metres away: falling off with the square of the distance from 2 m, to nothing at
+// LAMP_R. It was 1.5 / (1 + d2) to 8 m, a seventh at 3 m and nothing past 6; the developer asked for "much more
+// light" (bug 2026-11-11_17-43-39, ADR 0041): now 7 times that at 3 m, 20 at 6, a glow to 10
 fn lamp_light(lp: Lamp, d2: f32) -> vec3f {
     let x = 1.0 - d2 / (LAMP_R * LAMP_R);
-    return lp.col.rgb * x * x * 1.5 / (1.0 + d2);
+    return lp.col.rgb * x * x * 3.0 / (1.0 + 0.25 * d2);
 }
 
 // the sunlight on body `body`: through the air as the camera sees the sun on its own body; white on
@@ -605,7 +614,10 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32) -> vec3f {
     var m = mat & 255u;
     if ((looks[m].info & 255u) == GRASS && dir != 4u) {
         // a side of a grass block takes its side block's look, with 2-4 rows of grass over the top edge
-        let fringe = 2.0 + floor(hash(cell * i32(n) + vec3i(ti.x, 7, i32(dir))) * 3.0);
+        // hashed by the texel's column along the side: t is (z, x) on a y face, so ti.x there is the row, and
+        // the fringe came out as stray rows of grass down the side (bug 2026-11-11_17-48-16, ADR 0041)
+        let along = select(ti.x, ti.y, dir / 2u == 1u);
+        let fringe = 2.0 + floor(hash(cell * i32(n) + vec3i(along, 7, i32(dir))) * 3.0);
         if (floor(hgt * n) < n - fringe) { m = (looks[m].info >> 8u) & 255u; }
     } else if (dir != 4u) {
         // any other block's side is its own id unless it names one (the mask drops metal and light)
@@ -912,6 +924,9 @@ fn sky_colour(d: vec3f) -> vec3f {
     if (g.bodies[1].ctr.w > 0.0 && dot(g.bodies[1].ctr.xyz, g.bodies[1].ctr.xyz) < dot(ctr, ctr)) { ctr = g.bodies[1].ctr.xyz; }
     let el = clamp(dot(d, normalize(-ctr)), 0.0, 1.0);
     c = c * mix(1.0, 0.8, el * air) + vec3f(0.55, 0.60, 0.62) * g.sky.w * pow(1.0 - el, 5.0) * 0.45;
+    // a night in the air is never black: airglow and starlight, a faint blue, brighter towards the horizon,
+    // for the nights neither Sol nor Luna is up (the developer's call on bug 2026-11-11_17-47-11, ADR 0041)
+    c += NIGHT_GLOW * air * (1.0 - smoothstep(0.0, 0.15, g.sky.w)) * (0.5 + pow(1.0 - el, 3.0));
     let glow = exp(-ang * 12.0) * 0.35 + exp(-ang * 80.0) * 0.6;
     c += g.sun_col.rgb * tint * vec3f(1.0, 0.9, 0.75) * glow * g.sky.w;
     // a low sun reddens the sky around it
