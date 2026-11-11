@@ -1,0 +1,187 @@
+--- a/crates/client/src/shader.wgsl
++++ b/crates/client/src/shader.wgsl
+@@ -865,6 +865,8 @@
+ // (a = i | j << 15) and layer | face << 16 (b).
+ struct FxP { p: vec3f, size: f32, info: u32, angle: f32, a: u32, b: u32 };
+ @group(0) @binding(10) var<storage, read> fxp: array<FxP>;
++// the spike's other way (prototypes/effects/): one sun visibility per particle, from `fx_light`
++@group(0) @binding(11) var<storage, read> fx_vis: array<f32>;
+ 
+ struct FxOut {
+     @builtin(position) clip: vec4f,
+@@ -874,6 +876,7 @@
+     @location(3) @interpolate(flat) info: u32, // as FxP's, and the face's dir << 12
+     @location(4) @interpolate(flat) a: u32,
+     @location(5) @interpolate(flat) b: u32,
++    @location(6) @interpolate(flat) idx: u32,
+ };
+ 
+ // corner k (0..5) of face `dir` (axis dir / 2, negative when odd) of the unit cube, 0..1: CCW from outside,
+@@ -917,6 +920,7 @@
+     o.info = q.info | dir << 12u;
+     o.a = q.a;
+     o.b = q.b;
++    o.idx = ii;
+     var pb: vec3f; // in the body's frame from its centre
+     var nb: vec3f;
+     if (look == 2u) {
+@@ -1012,10 +1016,30 @@
+     return o;
+ }
+ 
+-// lit as the terrain is: its own sun ray (and the lamps' and the moon's) for every pixel; one visibility per
+-// particle was 20 % cheaper and lost the lamps, the moon and the soft edge (prototypes/effects/)
++// lit as the terrain is: its own sun ray (and the lamps' and the moon's) for every pixel
+ @fragment
+ fn fs_fx(i: FxOut) -> GOut {
+     let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u, vec2u(i.clip.xy));
+     return fx_out(i, fx_colour(i), l.l);
+ }
++
++// the spike's other way: the sun's visibility once per particle (fx_vis), no lamps' or moon's rays
++@fragment
++fn fs_fx_one(i: FxOut) -> GOut {
++    let sd = normalize(g.sun_pos.xyz - i.rel);
++    return fx_out(i, fx_colour(i), g.sun_col.rgb * max(dot(normalize(i.normal), sd), 0.0) * fx_vis[i.idx]);
++}
++
++@group(1) @binding(0) var<storage, read_write> fx_vis_w: array<f32>;
++@compute @workgroup_size(64)
++fn fx_light(@builtin(global_invocation_id) id: vec3u) {
++    if (id.x >= g.opt.z) { return; }
++    let q = fxp[id.x];
++    let bi = (q.info >> 8u) & 3u;
++    let b = g.bodies[bi];
++    let rel = brot(b, (q.p - b.cam_hi) - b.cam_lo);
++    let up = brot(b, normalize(q.p));
++    var vis = left_by(bi, rel, g.sun_pos.xyz, g.sun_pos.w);
++    if (vis > 0.0) { vis *= ray(rel + up * q.size, up, normalize(g.sun_pos.xyz - rel), bi, 1e5); }
++    fx_vis_w[id.x] = vis;
++}
+--- a/crates/client/src/gpu.rs
++++ b/crates/client/src/gpu.rs
+@@ -343,9 +343,12 @@
+     pub(crate) sea_pipeline: wgpu::RenderPipeline,
+     pub(crate) water_pipeline: wgpu::RenderPipeline,
+     pub(crate) wquads: wgpu::Buffer,
+-    /// The effects (ADR 0031): the particles, drawn into the G-buffer lit per pixel.
++    /// The effects (ADR 0031): the particles, drawn into the G-buffer lit per pixel (`fx_pipeline`) or, the
++    /// spike's other way, with one sun visibility per particle from `fx_light` (pipeline, its two groups).
+     pub(crate) fx_buf: wgpu::Buffer,
+     pub(crate) fx_pipeline: wgpu::RenderPipeline,
++    pub(crate) fx_one_pipeline: wgpu::RenderPipeline,
++    pub(crate) fx_light: (wgpu::ComputePipeline, wgpu::BindGroup, wgpu::BindGroup),
+     pub(crate) bind: wgpu::BindGroup,
+     pub(crate) globals: wgpu::Buffer,
+     pub(crate) quads: wgpu::Buffer,
+@@ -441,6 +444,7 @@
+         let indirect = buf("indirect", (MAX_CHUNKS * 32) as u64, U::INDIRECT | U::COPY_DST);
+         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
+         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
++        let fx_vis = buf("fx vis", (MAX_FX * 4) as u64, U::STORAGE);
+         // every block's look from the registry (ADR 0013): colour rgb, then pattern | side << 8, 16 bytes each
+         let looks = buf("looks", 256 * 16, U::STORAGE | U::COPY_DST);
+         let look: Vec<[u32; 4]> = (0..=255u8)
+@@ -489,6 +493,7 @@
+                 storage(8),
+                 storage(9),
+                 storage(10),
++                storage(11),
+                 wgpu::BindGroupLayoutEntry {
+                     binding: 5,
+                     visibility: wgpu::ShaderStages::FRAGMENT,
+@@ -511,6 +516,7 @@
+                 wgpu::BindGroupEntry { binding: 8, resource: lamps.as_entire_binding() },
+                 wgpu::BindGroupEntry { binding: 9, resource: lamp_cells.as_entire_binding() },
+                 wgpu::BindGroupEntry { binding: 10, resource: fx_buf.as_entire_binding() },
++                wgpu::BindGroupEntry { binding: 11, resource: fx_vis.as_entire_binding() },
+             ],
+         });
+         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+@@ -546,8 +552,7 @@
+             cache: None,
+         });
+         // the effects: into the G-buffer as the terrain, with its depth (ADR 0031)
+-        let fx_pipeline = {
+-            let fs = "fs_fx";
++        let fx_pipe = |fs| {
+             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                 label: Some(fs),
+                 layout: Some(&layout),
+@@ -571,6 +576,32 @@
+                 cache: None,
+             })
+         };
++        let (fx_pipeline, fx_one_pipeline) = (fx_pipe("fs_fx"), fx_pipe("fs_fx_one"));
++        let fx_light = {
++            let p = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
++                label: Some("fx_light"),
++                layout: None,
++                module: &shader,
++                entry_point: Some("fx_light"),
++                compilation_options: Default::default(),
++                cache: None,
++            });
++            let g0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
++                label: None,
++                layout: &p.get_bind_group_layout(0),
++                entries: &[
++                    wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() },
++                    wgpu::BindGroupEntry { binding: 5, resource: rt.tlas.as_binding() },
++                    wgpu::BindGroupEntry { binding: 10, resource: fx_buf.as_entire_binding() },
++                ],
++            });
++            let g1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
++                label: None,
++                layout: &p.get_bind_group_layout(1),
++                entries: &[wgpu::BindGroupEntry { binding: 0, resource: fx_vis.as_entire_binding() }],
++            });
++            (p, g0, g1)
++        };
+         // water: blended over the terrain, tested against its depth but not writing it, seen from both sides
+         let liquid = |vs| {
+             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+@@ -712,6 +743,8 @@
+             wquads,
+             fx_buf,
+             fx_pipeline,
++            fx_one_pipeline,
++            fx_light,
+             ghost_pipeline,
+             ghost_buf,
+             ui_pipeline,
+--- a/crates/client/src/frame.rs
++++ b/crates/client/src/frame.rs
+@@ -513,7 +513,7 @@
+             moon_col: [moon.x, moon.y, moon.z, 1.0],
+             sky: [sky_c.x, sky_c.y, sky_c.z, day * air],
+             n_lamps: [0; 4],
+-            opt: [self.gfx_bits(), (self.settings.get(S::Brightness) * 1000.0).round() as u32, 0, 0],
++            opt: [self.gfx_bits(), (self.settings.get(S::Brightness) * 1000.0).round() as u32, self.fx_n, 0],
+             stars: [
+                 [to_stars.x_axis.x, to_stars.x_axis.y, to_stars.x_axis.z, air],
+                 [to_stars.y_axis.x, to_stars.y_axis.y, to_stars.y_axis.z, sun_h],
+@@ -698,6 +698,14 @@
+             stamp(&mut enc, 2);
+             // the effects (ADR 0031): over the terrain into the same G-buffer, in a pass of their own to time it
+             if self.fx_n > 0 {
++                let one = self.args.s("fxlit", "frag") == "one";
++                if one {
++                    let mut cp = enc.begin_compute_pass(&Default::default());
++                    cp.set_pipeline(&gpu.fx_light.0);
++                    cp.set_bind_group(0, &gpu.fx_light.1, &[]);
++                    cp.set_bind_group(1, &gpu.fx_light.2, &[]);
++                    cp.dispatch_workgroups(self.fx_n.div_ceil(64), 1, 1);
++                }
+                 let load = |view| {
+                     Some(wgpu::RenderPassColorAttachment {
+                         view,
+@@ -719,7 +727,7 @@
+                     multiview_mask: None,
+                 });
+                 rp.set_bind_group(0, &gpu.bind, &[]);
+-                rp.set_pipeline(&gpu.fx_pipeline);
++                rp.set_pipeline(if one { &gpu.fx_one_pipeline } else { &gpu.fx_pipeline });
+                 rp.draw(0..36, 0..self.fx_n);
+             }
+             stamp(&mut enc, 3);

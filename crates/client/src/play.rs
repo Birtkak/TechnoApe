@@ -80,7 +80,11 @@ impl App {
                 }
             }
             "l" | "r" => {
-                if let Some((dig, at, end)) = self.held.take().filter(|h| h.0 == (a == "l")) {
+                if a == "l" {
+                    self.dig_again = false;
+                }
+                // a survival dig goes once held for its time (`dig_step`), not on letting go (ADR 0034)
+                if let Some((dig, at, end)) = self.held.take().filter(|h| h.0 == (a == "l") && !(h.0 && !self.creative)) {
                     if let Some(s) = self.shape(dig, at, end) {
                         self.apply(&s, dig);
                     }
@@ -781,24 +785,123 @@ impl App {
                 return;
             }
         }
-        // what the player sees of it at once: the hand swings and sparks of the block fly (ADR 0030)
-        let seen = if dig { self.aim.map(|a| self.world.block(a.0)) } else { Some(m) };
-        if let Some(d) = seen.and_then(|b| BLOCKS.get(b)) {
-            self.acted = (Instant::now(), d.colour, self.acted.2.wrapping_add(17));
-        }
+        // what the player sees of it at once (ADR 0031): the hand dips, the cells break or place with their effects
+        let now = self.start.elapsed().as_secs_f64();
+        self.dip = fx::Track { tween: fx::Tween::new(now, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
+        // the cells' deltas, as the server's are (frame.rs): each its effect, the first its sound, heard the
+        // frame of the click (fundamentals.md)
         let me = &self.me;
+        let olds = edit::changes(&self.world, s, m, |c| phys::holds(&self.world, me, c));
         let (seq, cells) = self.pred.edit(&mut self.world, s, m, |w, c| phys::holds(w, me, c));
-        for c in &cells {
-            self.streamer.touch_block(&self.world, *c);
+        for &(b, was) in &olds {
+            fx::changed(&mut self.fx, &self.world, b, was, self.world.block(b));
         }
-        // heard the frame of the click (fundamentals.md), in the sound of what was dug or placed
-        if let (Some(c), Some(d)) = (cells.first(), seen.and_then(|b| BLOCKS.get(b))) {
-            self.audio.play(&format!("{}.{}", if dig { "dig" } else { "place" }, d.sound), Some(self.world.block_centre(*c)), 1.0, 1.0, true);
+        if let Some(&(b, was)) = olds.first() {
+            self.heard(b, was, self.world.block(b), true);
         }
-        if !cells.is_empty() {
-            self.clicks.push((self.streamer.frame, Instant::now(), cells));
+        if self.fx.on && !dig && cells.len() == 1 {
+            // the effect draws it this frame, so the click shows at once
+            self.grow(cells[0], m);
+            self.shown.push((0, 0.0));
+        } else {
+            for c in &cells {
+                self.streamer.touch_block(&self.world, *c);
+            }
+            if !cells.is_empty() {
+                self.clicks.push((self.streamer.frame, Instant::now(), cells));
+            }
         }
         self.link.send(ToServer::Edit { seq, shape: *s, material: m });
+    }
+
+    /// The survival dig (ADR 0034): the held dig gathers time on its shape (`edit::Hold`, as the server
+    /// counts it), hits every `HIT_S`, and goes once it has its `edit::dig_time`; held on, the block under the
+    /// aim is next.
+    pub(crate) fn dig_step(&mut self, now: f64) {
+        if std::mem::take(&mut self.dig_again) {
+            if let Some((hit, before)) = self.aim {
+                let a = self.anchor(hit, before, true);
+                self.held = Some((true, a, a));
+            }
+        }
+        let want = match self.held {
+            Some((true, at, end)) if !self.creative && self.aim.is_some() => self.shape(true, at, end).filter(|s| s.fits(&self.world) && edit::dig_time(&self.world, s) > 0.0),
+            _ => None,
+        };
+        if self.hold.on(want, now) {
+            self.link.send(ToServer::Dig(want));
+            self.dig_hit = now - HIT_S;
+        }
+        let Some(s) = want else { return };
+        if now - self.dig_hit >= HIT_S {
+            self.dig_hit = now;
+            self.hit(&s);
+        }
+        if self.hold.held(&s, now) >= edit::dig_time(&self.world, &s) {
+            self.hold.done();
+            self.apply(&s, true);
+            (self.held, self.dig_again) = (None, true);
+        }
+    }
+
+    /// A hit of a dig on shape `s`: chips off its nearest solid cell and the dig's sound, softer and higher.
+    fn hit(&mut self, s: &Shape) {
+        let eye = self.me.pos;
+        let near = |c: &Block| self.world.block_centre(*c).distance_squared(eye);
+        let Some(c) = s.cells().filter(|c| BLOCKS.solid(self.world.block(*c))).min_by(|a, b| near(a).total_cmp(&near(b))) else { return };
+        let m = self.world.block(c);
+        self.fx.play(fx::id("chip"), &fx::At::cell(&self.world, c, m));
+        if let Some(d) = BLOCKS.get(m) {
+            self.audio.play(&format!("dig.{}", d.sound), Some(self.world.block_centre(c)), HIT_GAIN, HIT_PITCH, false);
+        }
+    }
+
+    /// Cracks over the cells being dug, this frame (ADR 0034): this player's dig, the shapes it left half dug
+    /// while they keep their time, and the other players' digs run on from what the server told, with their
+    /// hits.
+    pub(crate) fn cracks(&mut self, now: f64) {
+        let (world, fx) = (&self.world, &mut self.fx);
+        let share = |s: &Shape, held: f32| (held / edit::dig_time(world, s).max(1e-3)).min(1.0);
+        let mut draw = |s: &Shape, k: f32| {
+            for c in s.cells().filter(|c| BLOCKS.solid(world.block(*c))).take(fx::CRACKS) {
+                fx.crack(world, c, k);
+            }
+        };
+        if let Some(s) = self.hold.shape() {
+            draw(&s, share(&s, self.hold.held(&s, now)));
+        }
+        for (s, held) in self.hold.kept(now) {
+            draw(&s, share(&s, held));
+        }
+        // a dig the server stopped telling of (its player left) ends on its own
+        self.digs.retain(|d| now - d.4 < 60.0);
+        for &(_, s, done, rate, since, _) in &self.digs {
+            draw(&s, (done + rate * (now - since) as f32).min(1.0));
+        }
+        for k in 0..self.digs.len() {
+            if now - self.digs[k].5 >= HIT_S {
+                self.digs[k].5 = now;
+                let s = self.digs[k].1;
+                self.hit(&s);
+            }
+        }
+    }
+
+    /// A cell's delta heard (docs/design/sound.md): a dig in the sound of what was there, a place in the new
+    /// block's; whether it played.
+    pub(crate) fn heard(&mut self, b: Block, was: u8, now: u8, touch: bool) -> bool {
+        let (what, id) = if now == AIR { ("dig", was) } else { ("place", now) };
+        match BLOCKS.get(id).filter(|_| was != now) {
+            Some(d) => self.audio.play(&format!("{what}.{}", d.sound), Some(self.world.block_centre(b)), 1.0, 1.0, touch),
+            None => false,
+        }
+    }
+
+    /// One placed block grows into place over its cell (ADR 0031); its own mesh waits until the grow is done
+    /// (frame.rs).
+    pub(crate) fn grow(&mut self, b: Block, m: u8) {
+        let tag = self.fx.play(fx::id("grow"), &fx::At::cell(&self.world, b, m));
+        self.growing.push((self.start.elapsed().as_secs_f64() + GROW_S, b, m, tag, false));
     }
 
     /// Each frame of run=play: scripted acts that are due, the aim, the ghost and the 2D layer.
@@ -824,6 +927,7 @@ impl App {
             (None, Some((hit, _))) => Some((Shape::one(hit), true, false)),
             (None, None) => None,
         };
+        self.dig_step(self.start.elapsed().as_secs_f64());
         let ghost = ghost.filter(|(s, ..)| s.fits(&self.world)).map(|(s, dig, held)| {
             let colour = match (held, dig) {
                 (false, _) => [255, 255, 255, 150],
@@ -961,16 +1065,17 @@ impl App {
                 hud::looking_at(&mut paint, &d.name, d.colour, side, d.pattern as u8, note, label_y);
             }
         }
-        // the block in hand, large at the lower right, dipping when it digs or places; and the sparks
-        let since = self.acted.0.elapsed().as_secs_f32();
+        // the block in hand, large at the lower right, on its tracks (ADR 0031): the dip when it digs or places,
+        // a bob with the steps
         if !title {
             if let (Some(d), false) = (self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)), self.hammer || self.bucket || self.f3 || lw < 1100.0) {
-                let swing = if since < 0.18 { (since / 0.18 * std::f32::consts::PI).sin() } else { 0.0 };
+                let [dx, dy] = self.dip.at(self.start.elapsed().as_secs_f64());
+                let pace = if self.me.on_ground { (self.me.vel.length() / 4.0).min(1.0) as f32 } else { 0.0 };
+                let [bx, by] = BOB.at(self.walked).map(|v| v * pace);
                 let side = BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
-                let (x, y) = (lw - 250.0 - 46.0 * swing, lh - 236.0 + 60.0 * swing);
+                let (x, y) = (lw - 250.0 + dx + bx, lh - 236.0 + dy + by);
                 hud::cube(&mut |x, y, w, h, c, g| paint.rect(x, y, w, h, c, g), x, y, 176.0, d.colour, side, d.pattern as u8, 1.0);
             }
-            hud::sparks(&mut paint, since, self.acted.1, self.acted.2);
         }
         if self.flying && !title {
             let s = format!("Flying {:.0} m/s", self.fly_speed);

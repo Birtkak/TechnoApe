@@ -50,6 +50,8 @@ Not spiked against each other by measurement: the choice turns on testability, w
   a second; moving sources need an update message); WAV only; a card that does not take floats stays silent.
 - Until the effects system (ADR 0031) lands, sounds start at their own few call sites (the click, the
   server's edits, the physics step, the menu); they move onto its events when the two branches meet.
+  *Done with the merge:* digs and places are heard from the cell events (ADR 0031, "After one-metre
+  blocks"); steps, landings and the menu keep their call sites.
 - **The review found, and the next commit fixed:** footsteps while pressed against a wall (the distance
   was the wish's, not the way gone); a block read per incoming edit cell on the frame thread, needed for
   three at most; far edits using up a batch's three sounds; wind in vacuum under "softened" and "full" and

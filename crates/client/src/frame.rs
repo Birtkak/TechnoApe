@@ -142,6 +142,12 @@ impl App {
                             self.audio.play(&format!("step.{}", d.sound), Some(feet), if land { 1.3 } else { 1.0 }, 1.0, true);
                             if let Some((gain, pitch)) = thump {
                                 self.audio.play("land", Some(feet), gain, pitch, true);
+                                // bits of the ground thrown up round the feet, more from higher (bug report
+                                // 2026-11-11_12-57-17: "a bit louder thump and particles")
+                                let c = self.world.block_at(feet + phys::up(&self.world, feet) * 0.1);
+                                for _ in 0..(1.0 + gain * 3.0) as u32 {
+                                    self.fx.play(crate::fx::id("chip"), &crate::fx::At::cell(&self.world, c, under));
+                                }
                             }
                         }
                     }
@@ -200,16 +206,14 @@ impl App {
                 Recv::Msg(ToClient::Edits(v)) => {
                     let mut heard = 0;
                     for (b, m) in v {
-                        let was = (heard < 3 && self.loaded_at.is_some()).then(|| self.world.block(b));
-                        if self.pred.server(&mut self.world, b, m) {
+                        // the cell's delta: its effect and, for up to three cells of an edit, its sound (another
+                        // player's digging and building; this player's own were seen and heard at the click)
+                        let hear = heard < 3 && self.loaded_at.is_some();
+                        let (shows, was) = fx::server_edit(&mut self.fx, &mut self.pred, &mut self.world, b, m, hear);
+                        if shows {
                             self.streamer.touch_block(&self.world, b);
-                            // another player's digging and building is heard too: up to three cells of an
-                            // edit (this player's own were heard at the click, and are not shown here)
-                            if let Some(was) = was.filter(|w| *w != m) {
-                                let (what, id) = if m == AIR { ("dig", was) } else { ("place", m) };
-                                if let Some(d) = BLOCKS.get(id) {
-                                    heard += self.audio.play(&format!("{what}.{}", d.sound), Some(self.world.block_centre(b)), 1.0, 1.0, false) as u32;
-                                }
+                            if let Some(was) = was.filter(|_| hear) {
+                                heard += self.heard(b, was, m, false) as u32;
                             }
                         }
                         self.edits_applied += 1;
@@ -224,6 +228,14 @@ impl App {
                     }
                 }
                 Recv::Msg(ToClient::Players(ps)) => self.players = ps.len(),
+                // another player's dig (ADR 0034): its cracks run on from this
+                Recv::Msg(ToClient::Digging { id, at }) => {
+                    let now = self.start.elapsed().as_secs_f64();
+                    self.digs.retain(|d| d.0 != id);
+                    if let Some((s, done, rate)) = at {
+                        self.digs.push((id, s, done, rate, now, now - HIT_S));
+                    }
+                }
                 Recv::Msg(ToClient::You { step, me, time, warp }) if self.run == "play" => {
                     // the first, or a jump (/time set): straight there
                     if self.clock.is_none_or(|(_, w, _)| (time - self.world.time).abs() > 2.0 * w.max(warp) + 1.0) {
@@ -309,6 +321,61 @@ impl App {
                 self.link.send(ToServer::Edit { seq, shape: Shape::one(b), material: m });
                 self.edits_done += 1;
             }
+        }
+        // run=fx (ADR 0031): bursts of the break on the ground 2-14 m ahead until fx_n particles are alive
+        if self.run == "fx" && self.loaded_at.is_some() {
+            let want: usize = self.args.get("fx_n", crate::fx::CAP[1]);
+            let ahead = (p.fwd - p.up * p.fwd.dot(p.up)).normalize_or(DVec3::X);
+            let side = p.up.cross(ahead);
+            let brk = crate::fx::id("break");
+            for _ in 0..64 {
+                if self.fx.live() + 12 > want {
+                    break;
+                }
+                let mut r = || {
+                    self.rng ^= self.rng << 13;
+                    self.rng ^= self.rng >> 7;
+                    self.rng ^= self.rng << 17;
+                    (self.rng >> 11) as f64 / (1u64 << 53) as f64
+                };
+                let d = (p.pos + ahead * (2.0 + 12.0 * r()) + side * (r() * 2.0 - 1.0) * 8.0 - self.world.bodies[0].centre).normalize();
+                let pl = &self.world.bodies[0];
+                // the air cell over the ground, which lands them on its top; its look is the ground's
+                let c = self.world.block_at(pl.centre + d * (pl.height(d) + 0.1));
+                let under = self.world.block(engine::world::Block { pos: c.pos - IVec3::Z, ..c });
+                self.fx.play(brk, &crate::fx::At::cell(&self.world, c, under));
+            }
+        }
+        // fxedit=: a cell changed as a click would change it, with its effects
+        while self.fx_edits.last().is_some_and(|e| self.loaded_at.is_some() && e.0 <= t) {
+            let (_, b, m) = self.fx_edits.pop().unwrap();
+            let was = self.world.block(b);
+            self.world.set_block(b, m);
+            fx::changed(&mut self.fx, &self.world, b, was, m);
+            if self.fx.on && BLOCKS.solid(m) && !BLOCKS.solid(was) {
+                self.grow(b, m);
+            } else {
+                self.streamer.touch_block(&self.world, b);
+            }
+        }
+        // a placed block that grew into place: its mesh may show now, and the grow ends once it does
+        if !self.growing.is_empty() {
+            let now = self.start.elapsed().as_secs_f64();
+            let (world, streamer, fxs) = (&self.world, &mut self.streamer, &mut self.fx);
+            self.growing.retain_mut(|(due, b, m, tag, touched)| {
+                if !*touched && now >= *due {
+                    streamer.touch_block(world, *b);
+                    *touched = true;
+                }
+                let over = world.block(*b) != *m || (*touched && streamer.shows(world, *b)) || now > *due - crate::app::GROW_S + 2.0;
+                if over {
+                    fxs.end(*tag);
+                    if !*touched {
+                        streamer.touch_block(world, *b);
+                    }
+                }
+                !over
+            });
         }
         lap!("edits");
 
@@ -425,17 +492,34 @@ impl App {
         // near to far, so the depth test drops what is hidden before its fragments trace their rays (ADR 0025, D)
         args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
         let args: Vec<DrawArgs> = args.into_iter().map(|a| a.1).collect();
-        // the water mesh when it changed, the droplets after it every frame
+        // the water mesh when it changed
         let n = self.water.all.len().min(MAX_WQUADS);
         if std::mem::take(&mut self.water.changed) {
             gpu.queue.write_buffer(&gpu.wquads, 0, bytemuck::cast_slice(&self.water.all[..n]));
         }
-        let drops = self.water.particles(&self.world, dt as f32);
-        let d = drops.len().min(MAX_WQUADS - n);
-        if d > 0 {
-            gpu.queue.write_buffer(&gpu.wquads, (n * std::mem::size_of::<water::WQuad>()) as u64, bytemuck::cast_slice(&drops[..d]));
+        self.wquad_n = n as u32;
+        lap!("table");
+        // the effects (ADR 0031): the water's spray, every particle moved on, the pool to the GPU
+        self.fx_n = 0;
+        if self.fx.on {
+            self.fx.follow(self.settings.at(S::Particles));
+            self.water.spray(&self.world, dt as f32, &mut self.fx);
+            self.fx.step(&self.world, (dt as f32).min(0.1));
+            self.cracks(self.start.elapsed().as_secs_f64());
+            let gpu = self.gpu.as_ref().unwrap();
+            let d = self.fx.drawn();
+            let k = d.len().min(MAX_FX);
+            if k > 0 {
+                gpu.queue.write_buffer(&gpu.fx_buf, 0, bytemuck::cast_slice(&d[..k]));
+            }
+            self.fx_n = k as u32;
+            if measuring {
+                self.samples.fx_live += k as u64;
+            }
         }
-        self.wquad_n = (n + d) as u32;
+        // taken again: the cracks above needed all of self
+        let gpu = self.gpu.as_ref().unwrap();
+        lap!("fx");
         // the sun where the sky has it, seen from the camera's frame (ADR 0022)
         let cf = self.world.frame_at(p.pos);
         let sun = (self.world.from_inertial(cf, self.world.sky.sun(self.world.time)) - p.pos).normalize().as_vec3();
@@ -615,14 +699,14 @@ impl App {
                     rb.unmap();
                     let ms = |a: u64, b: u64| b.wrapping_sub(a) as f64 * gpu.ts_period as f64 / 1e6;
                     // the old gpu_ms (G-buffer start to screen end) stays comparable; the stages are new
-                    let old = ms(v[1], v[6]);
+                    let old = ms(v[1], v[7]);
                     let f = self.ts_frames[i];
                     let gap = match self.gpu_end {
                         Some((pf, end)) if pf + 1 == f => ms(end, v[0]),
                         _ => f64::NAN,
                     };
-                    self.gpu_end = Some((f, v[6]));
-                    let st: Vec<f64> = (0..6).map(|k| ms(v[k], v[k + 1])).chain([ms(v[0], v[6]), gap]).collect();
+                    self.gpu_end = Some((f, v[7]));
+                    let st: Vec<f64> = (0..7).map(|k| ms(v[k], v[k + 1])).chain([ms(v[0], v[7]), gap]).collect();
                     if old < 1000.0 {
                         if measuring {
                             self.samples.gpu_ms.push(old as f32);
@@ -697,8 +781,35 @@ impl App {
             }
             drop(rp);
             stamp(&mut enc, 2);
-            gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some(), tune, &mut |e, k| stamp(e, 3 + k));
-            stamp(&mut enc, 5);
+            // the effects (ADR 0031): over the terrain into the same G-buffer, in a pass of their own to time it
+            if self.fx_n > 0 {
+                let load = |view| {
+                    Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                    })
+                };
+                let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("fx"),
+                    color_attachments: &[load(tdirect), load(talbedo), load(tgbuf)],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &gpu.depth,
+                        depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                rp.set_bind_group(0, &gpu.bind, &[]);
+                rp.set_pipeline(&gpu.fx_pipeline);
+                rp.draw(0..36, 0..self.fx_n);
+            }
+            stamp(&mut enc, 3);
+            gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some(), tune, &mut |e, k| stamp(e, 4 + k));
+            stamp(&mut enc, 6);
             // the screen: direct and bounced light, then the water and the overlays over it
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("screen"),
@@ -744,7 +855,7 @@ impl App {
                 rp.draw(0..6, 0..self.ui_n);
             }
         }
-        stamp(&mut enc, 6);
+        stamp(&mut enc, 7);
         if let (Some(i), Some((qs, resolve, ring))) = (ts_use, &gpu.ts) {
             enc.resolve_query_set(qs, (i * TS_N) as u32..((i + 1) * TS_N) as u32, resolve, (i * 256) as u64);
             enc.copy_buffer_to_buffer(resolve, (i * 256) as u64, &ring[i].0, 0, (TS_N * 8) as u64);

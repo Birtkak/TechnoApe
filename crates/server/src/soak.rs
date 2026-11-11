@@ -9,7 +9,7 @@ use engine::net::{local, Link, Recv, ToClient, ToServer};
 use engine::blocks::BLOCKS;
 use engine::phys::{self, Input};
 use engine::world::World;
-use engine::edit::{Kind, Predictor, Shape};
+use engine::edit::{self, Kind, Predictor, Shape};
 use glam::{DVec3, IVec3};
 use std::path::Path;
 use rayon::prelude::*;
@@ -44,6 +44,8 @@ struct Bot {
     link: Link<ToServer, ToClient>,
     world: World,
     pred: Predictor,
+    /// A dig held (ADR 0034): the shape and the tick its `Edit` goes, once its time is up.
+    digging: Option<(Shape, u64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,6 +72,14 @@ fn spot(w: &World, r: &mut Rng) -> DVec3 {
 }
 
 fn act(b: &mut Bot, s: &Server, me: usize) {
+    // a held dig whose time is up is sent (survival takes it, unless the bot moved or the cells changed)
+    if let Some((shape, _)) = b.digging.filter(|d| s.tick >= d.1) {
+        b.digging = None;
+        let me = &s.clients[me].phys;
+        let (seq, _) = b.pred.edit(&mut b.world, &shape, 0, |w, c| phys::holds(w, me, c));
+        b.link.send(ToServer::Edit { seq, shape, material: 0 });
+        return;
+    }
     let r = b.rng.f();
     let walk = |rng: &mut Rng| {
         let d = rng.dir();
@@ -103,6 +113,13 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         let at = s.world.block_at(at);
         let kind = [Kind::Box, Kind::Cylinder, Kind::Cone][k(3) as usize];
         let shape = Shape { max: at.pos + ext, kind, ..Shape::one(at) };
+        // half the digs are held for their time first, now and then let go early; the rest come at once
+        if m == 0 && b.rng.f() < 0.5 {
+            let t = edit::dig_time(&s.world, &shape) as f64 * if b.rng.f() < 0.8 { 1.05 } else { 0.5 };
+            b.link.send(ToServer::Dig(Some(shape)));
+            b.digging = Some((shape, s.tick + (t / s.dt).ceil() as u64 + 1));
+            return;
+        }
         // the bot predicts like a client; its own box is the only one it keeps clear
         let me = &s.clients[me].phys;
         let (seq, _) = b.pred.edit(&mut b.world, &shape, m, |w, c| phys::holds(w, me, c));
@@ -171,7 +188,7 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
             c.send(ToServer::Hello { name: format!("bot{k}") }); // named, so the save keeps it
             // an empty input makes it a walker, as in the bot crate
             c.send(ToServer::Input(Input::default()));
-            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::new(planet_n, MOON_N, seed as i32), pred: Predictor::default() }
+            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::new(planet_n, MOON_N, seed as i32), pred: Predictor::default(), digging: None }
         })
         .collect();
     s.tick(); // everyone joins

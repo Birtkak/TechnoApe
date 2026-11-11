@@ -492,6 +492,10 @@ function blockInspector(b) {
   f.append(el('label', { for: 'bf-m' }, 'Metal'), el('div', {}, el('input', { type: 'range', id: 'bf-m', min: 0, max: 1, step: 0.05, value: b.metal || 0, oninput: e => { const x = +e.target.value; if (x) b.metal = x; else delete b.metal; mv.textContent = x.toFixed(2); touchB(b); } }), mv));
   f.append(el('label', { for: 'bf-lo' }, 'Gives light'), el('div', {}, el('input', { type: 'checkbox', id: 'bf-lo', checked: !!b.light, onchange: e => { if (e.target.checked) b.light = [1, 0.72, 0.42]; else delete b.light; touchB(b, true); } })));
   if (b.light) f.append(...colourField(b, 'light', 'Its light', 'bf-l'));
+  if (b.solid !== false) {
+    f.append(el('label', { for: 'bf-h' }, 'Dig time (s)'), el('div', {}, el('input', { type: 'number', id: 'bf-h', min: 0.05, max: 60, step: 0.05, value: b.hardness ?? 1, oninput: e => { const x = parseFloat(e.target.value); if (x > 0 && x <= 60) { b.hardness = x; touchB(b); } } }), el('code', {}, 'by bare hands, in survival')));
+    f.append(el('label', { for: 'bf-lz' }, 'Hands take it'), el('div', {}, el('input', { type: 'checkbox', id: 'bf-lz', checked: !!b.loose, onchange: e => { if (e.target.checked) b.loose = true; else delete b.loose; touchB(b); } }), el('code', {}, b.loose ? 'it goes into the inventory' : 'it breaks and gives nothing')));
+  }
   f.append(el('label', { for: 'bf-so' }, 'Sounds like'), el('div', {}, el('select', { id: 'bf-so', onchange: e => { if (e.target.value === 'stone') delete b.sound; else b.sound = e.target.value; touchB(b, true); } }, FAMS.map(s => el('option', { selected: fam === s }, s)))));
   const hear = el('div', { class: 'row' }, ['dig', 'place', 'step'].map(w => { const i = rowIndex(`${w}.${fam}`); return i < 0 ? [] : el('button', { id: 'bh-' + w, onclick: () => asInGame(i) }, w[0].toUpperCase() + w.slice(1)); }),
     rowIndex('step.' + fam) >= 0 ? el('button', { id: 'bh-walk', class: walks.has(rowIndex('step.' + fam)) ? 'on' : '', onclick: e => toggleWalk(rowIndex('step.' + fam), e.currentTarget) }, 'Walk on it') : [],
@@ -573,7 +577,7 @@ function paintGallery(b) {
 function buildBlocks() {
   const shelf = $('shelf'); shelf.textContent = '';
   realBlocks().forEach(b => shelf.append(tile(b)));
-  shelf.append(el('button', { class: 'tile add', id: 'addblock', onclick: () => { const id = Math.max(...blocks.map(b => b.id), ...ORIG_B.map(b => b.id)) + 1; blocks.push({ id, name: 'new block ' + id, colour: [0.6, 0.55, 0.5] }); selB = id; save(); tally(); buildBlocks(); } }, '+ Add a block'));
+  shelf.append(el('button', { class: 'tile add', id: 'addblock', onclick: () => { const id = Math.max(...blocks.map(b => b.id), ...ORIG_B.map(b => b.id)) + 1; blocks.push({ id, name: 'new block ' + id, colour: [0.6, 0.55, 0.5], hardness: 1, loose: true }); selB = id; save(); tally(); buildBlocks(); } }, '+ Add a block'));
   const b = blocks.find(o => o.id === selB) || realBlocks()[0]; selB = b.id;
   $('binsp').replaceChildren(blockInspector(b));
   realBlocks().forEach(paintBlock); showIdeas(b);
@@ -715,6 +719,8 @@ function tomlB(b) {
   const o = ['[[block]]', 'id = ' + b.id, `name = "${b.name}"`];
   if (b.solid === false) o.push('solid = false');
   if (b.sound) o.push(`sound = "${b.sound}"`);
+  if (b.hardness != null) o.push('hardness = ' + fmt(b.hardness, 2));
+  if (b.loose) o.push('loose = true');
   if (b.was) o.push('was = [' + b.was.map(w => `"${w}"`).join(', ') + ']');
   if (b.colour) o.push('colour = ' + arr(b.colour));
   if (b.colour2) o.push('colour2 = ' + arr(b.colour2));

@@ -48,13 +48,15 @@ pub(crate) const MAX_WQUADS: usize = 1 << 18;
 pub(crate) const SEA_SUB: u32 = 8;
 pub(crate) const TS_RING: usize = 8;
 /// Timestamps a frame writes (ADR 0025): before the ray-tracing builds, after them, after the G-buffer, after
-/// `gi_trace`, after `temporal`, after the `atrous` passes, after the screen pass.
-pub(crate) const TS_N: usize = 7;
+/// the effects (ADR 0031), after `gi_trace`, after `temporal`, after the `atrous` passes, after the screen pass.
+pub(crate) const TS_N: usize = 8;
 /// The GPU's stages between those timestamps; `gap` is the GPU idle from the last frame's end to this one's start.
-pub(crate) const GPU_STAGES: [&str; 8] = ["rt", "gbuffer", "trace", "temporal", "atrous", "screen", "total", "gap"];
+pub(crate) const GPU_STAGES: [&str; 9] = ["rt", "gbuffer", "fx", "trace", "temporal", "atrous", "screen", "total", "gap"];
 /// The frame thread's stretches, back to back: together they are the frame (ADR 0025).
-pub(crate) const CPU_STAGES: [&str; 15] =
-    ["pose", "msgs", "edits", "apply", "select", "dispatch", "table", "acquire", "rt", "encode", "submit", "post", "present", "tail", "between"];
+pub(crate) const CPU_STAGES: [&str; 16] =
+    ["pose", "msgs", "edits", "apply", "select", "dispatch", "table", "fx", "acquire", "rt", "encode", "submit", "post", "present", "tail", "between"];
+/// The particles the GPU holds (ADR 0031): the largest pool, "many".
+pub(crate) const MAX_FX: usize = crate::fx::CAP[2] + crate::fx::CRACKS;
 pub(crate) const MAX_BODIES: usize = 4; // the size of `bodies` in shader.wgsl
 /// The full moon's light, a quarter of the sun's direct light and bluish: night stays readable (ADR 0022).
 pub(crate) const MOON_LIGHT: Vec3 = Vec3::new(0.12, 0.14, 0.18);
@@ -341,6 +343,9 @@ pub(crate) struct Gpu {
     pub(crate) sea_pipeline: wgpu::RenderPipeline,
     pub(crate) water_pipeline: wgpu::RenderPipeline,
     pub(crate) wquads: wgpu::Buffer,
+    /// The effects (ADR 0031): the particles, drawn into the G-buffer lit per pixel.
+    pub(crate) fx_buf: wgpu::Buffer,
+    pub(crate) fx_pipeline: wgpu::RenderPipeline,
     pub(crate) bind: wgpu::BindGroup,
     pub(crate) globals: wgpu::Buffer,
     pub(crate) quads: wgpu::Buffer,
@@ -435,6 +440,7 @@ impl Gpu {
         // the terrain's draws, then the sea's at MAX_CHUNKS * 16
         let indirect = buf("indirect", (MAX_CHUNKS * 32) as u64, U::INDIRECT | U::COPY_DST);
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
+        let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
         // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 64 bytes each: colour rgb,
         // pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast
         let looks = buf("looks", 256 * 64, U::STORAGE | U::COPY_DST);
@@ -490,6 +496,7 @@ impl Gpu {
                 storage(4),
                 storage(8),
                 storage(9),
+                storage(10),
                 wgpu::BindGroupLayoutEntry {
                     binding: 5,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -511,6 +518,7 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 5, resource: rt.tlas.as_binding() },
                 wgpu::BindGroupEntry { binding: 8, resource: lamps.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 9, resource: lamp_cells.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 10, resource: fx_buf.as_entire_binding() },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -545,6 +553,32 @@ impl Gpu {
             multiview_mask: None,
             cache: None,
         });
+        // the effects: into the G-buffer as the terrain, with its depth (ADR 0031)
+        let fx_pipeline = {
+            let fs = "fs_fx";
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(fs),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_fx"), buffers: &[], compilation_options: Default::default() },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(fs),
+                    targets: &gi::TARGETS.map(|f| Some(f.into())),
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState { cull_mode: Some(wgpu::Face::Back), ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Greater),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
         // water: blended over the terrain, tested against its depth but not writing it, seen from both sides
         let liquid = |vs| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -684,6 +718,8 @@ impl Gpu {
             sea_pipeline,
             water_pipeline,
             wquads,
+            fx_buf,
+            fx_pipeline,
             ghost_pipeline,
             ghost_buf,
             ui_pipeline,

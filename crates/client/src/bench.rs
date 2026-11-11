@@ -133,6 +133,8 @@ pub(crate) struct Samples {
     /// A frame over budget: its frame number, the CPU part, and the GPU stages once they are read back.
     pub(crate) spikes: Vec<(u64, String, Option<String>)>,
     pub(crate) capture_stalls: u32,
+    /// Particles drawn, summed over the measured frames (ADR 0031).
+    pub(crate) fx_live: u64,
 }
 
 pub(crate) fn pct(v: &mut Vec<f32>, p: f64) -> f32 {
@@ -352,6 +354,7 @@ impl App {
         if let Some(r) = gpu.device.generate_allocator_report() {
             stages += &format!("\"gpu_alloc_mb\":{:.0},\"gpu_reserved_mb\":{:.0},", r.total_allocated_bytes as f64 / 1e6, r.total_reserved_bytes as f64 / 1e6);
         }
+        stages += &format!("\"fx_live_avg\":{:.0},", s.fx_live as f64 / s.frames.max(1) as f64);
         stages += &format!("\"job_us_after_load\":{job_us_after:.0},\"jobs_after_load\":{later},\"walks\":{},\"tlas_builds\":{},", self.streamer.walks, self.rt.as_ref().map_or(0, |r| r.tlas_builds));
         // ADR 0025, S: the server's ticks, the workers' jobs and what each holds of the cores over the measured time
         // play drains the ticks for F3, so its line carries no tick numbers

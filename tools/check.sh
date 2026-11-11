@@ -17,7 +17,7 @@ export PATH="$HOME/Tools/rust/cargo/bin:$PATH" CARGO_HOME="${CARGO_HOME:-$HOME/T
 mkdir -p out/check
 [ -d out/.lock ] && { echo '{"ok":false,"error":"a benchmark is running (out/.lock)"}'; exit 1; }
 FAST=; [ "$1" = fast ] && { FAST=1; shift; }
-ALL="stand fly orbit edit sim"
+ALL="stand fly orbit edit sim fx"
 if [ "$1" = accept-perf ]; then
   cargo build --release >out/check/build.log 2>&1 || { echo "release build failed: out/check/build.log" >&2; exit 1; }
   for i in 1 2 3; do for r in $ALL; do

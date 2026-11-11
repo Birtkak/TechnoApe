@@ -80,6 +80,10 @@ struct Raw {
     was: Vec<String>,
     #[serde(default = "stone")]
     sound: String,
+    #[serde(default)]
+    hardness: f32,
+    #[serde(default)]
+    loose: bool,
 }
 fn stone() -> String {
     "stone".into()
@@ -127,6 +131,11 @@ pub struct Def {
     /// Its material's sound (docs/design/sound.md): digging it plays `dig.<sound>`, walking on it
     /// `step.<sound>`. The client checks that those rows exist.
     pub sound: String,
+    /// Seconds a survival player digs it with bare hands (ADR 0034); every solid block has one.
+    pub hardness: f32,
+    /// Bare hands take it (dirt, sand, a lamp): dug in survival it goes into the inventory. A block that is
+    /// not loose breaks by hand in its time but gives nothing (the tools that take it come later).
+    pub loose: bool,
 }
 
 pub struct Registry {
@@ -178,11 +187,14 @@ impl Registry {
             if !(0.0..=1.0).contains(&amount) {
                 return Err(format!("block '{}': amount outside 0..1", r.name));
             }
+            if r.solid && !(r.hardness > 0.0 && r.hardness <= 60.0) {
+                return Err(format!("block '{}': a solid block needs a hardness in 0..60 s", r.name));
+            }
             let side = match &r.side {
                 None => r.id,
                 Some(s) => f.block.iter().find(|o| &o.name == s).ok_or(format!("block '{}': no block '{s}' for its side", r.name))?.id,
             };
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone() });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}
@@ -227,27 +239,41 @@ mod tests {
     }
 
     #[test]
+    fn every_solid_block_takes_its_time_and_bare_hands_take_only_loose_things() {
+        for d in BLOCKS.placeable() {
+            assert!(d.hardness > 0.0 && d.hardness <= 60.0, "{}: {} s", d.name, d.hardness);
+        }
+        let get = |n: &str| BLOCKS.get(BLOCKS.id(n)).unwrap().clone();
+        let (dirt, stone) = (get("dirt"), get("stone"));
+        assert!(dirt.loose && dirt.hardness < 1.0, "dirt goes by hand in under a second");
+        assert!(!stone.loose && stone.hardness > 5.0, "stone is slow by hand and gives nothing");
+    }
+
+    #[test]
     fn bad_files_are_refused() {
         let air = "[[block]]\nid = 0\nname = \"air\"\nsolid = false\n";
         assert!(Registry::parse(air).is_ok());
+        assert!(Registry::parse(&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 0.5\nloose = true\n")).is_ok());
         for (bad, why) in [
             ("[[block]]\nid = 0\nname = \"rock\"\n", "0 is not air"),
             (&format!("{air}[[block]]\nid = 0\nname = \"x\"\n"), "id twice"),
             (&format!("{air}[[block]]\nid = 1\nname = \"air\"\n"), "name twice"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nside = \"y\"\n"), "unknown side"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\ncolour = [2.0, 0, 0]\n"), "colour"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 3\n"), "unknown field"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nlight = [5.0, 0, 0]\n"), "light"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nmetal = 1.5\n"), "metal"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\npattern = \"bricks\"\nsize = 0\n"), "size 0"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\npattern = \"bricks\"\nsize = 9\n"), "size 9"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\npattern = \"tiles\"\namount = 1.2\n"), "amount"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\ncontrast = 2.5\n"), "contrast"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\ncolour2 = [0, -1, 0]\n"), "colour2"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\ncolour3 = [0, 1.5, 0]\n"), "colour3"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nsize = 4\n"), "size on plain"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\npattern = \"stone\"\namount = 0.5\n"), "amount on stone"),
-            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\npattern = \"marble\"\n"), "unknown pattern"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\nside = \"y\"\n"), "unknown side"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\ncolour = [2.0, 0, 0]\n"), "colour"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 3\nwobble = 3\n"), "unknown field"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\n"), "a solid block without its hardness"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 100\n"), "hardness"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\nlight = [5.0, 0, 0]\n"), "light"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\nmetal = 1.5\n"), "metal"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\npattern = \"bricks\"\nsize = 0\n"), "size 0"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\npattern = \"bricks\"\nsize = 9\n"), "size 9"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\npattern = \"tiles\"\namount = 1.2\n"), "amount"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\ncontrast = 2.5\n"), "contrast"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\ncolour2 = [0, -1, 0]\n"), "colour2"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\ncolour3 = [0, 1.5, 0]\n"), "colour3"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\nsize = 4\n"), "size on plain"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\npattern = \"stone\"\namount = 0.5\n"), "amount on stone"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\npattern = \"marble\"\n"), "unknown pattern"),
         ] {
             assert!(Registry::parse(bad).is_err(), "{why}");
         }
@@ -268,9 +294,9 @@ mod tests {
             ("rings", 2, 0.5),
         ];
         for (i, (p, _, _)) in all.iter().enumerate() {
-            text += &format!("[[block]]\nid = {}\nname = \"{p}\"\npattern = \"{p}\"\ncolour = [0.6, 0.4, 0.8]\n", i + 1);
+            text += &format!("[[block]]\nid = {}\nname = \"{p}\"\nhardness = 1\npattern = \"{p}\"\ncolour = [0.6, 0.4, 0.8]\n", i + 1);
         }
-        text += "[[block]]\nid = 20\nname = \"set\"\npattern = \"bricks\"\ncolour2 = [0.1, 0.2, 0.3]\ncolour3 = [0.9, 0.8, 0.7]\nsize = 8\namount = 1.0\ncontrast = 0.0\nside = \"rings\"\n";
+        text += "[[block]]\nid = 20\nname = \"set\"\nhardness = 1\npattern = \"bricks\"\ncolour2 = [0.1, 0.2, 0.3]\ncolour3 = [0.9, 0.8, 0.7]\nsize = 8\namount = 1.0\ncontrast = 0.0\nside = \"rings\"\n";
         let r = Registry::parse(&text).unwrap();
         for (i, (p, size, amount)) in all.iter().enumerate() {
             let d = r.get(i as u8 + 1).unwrap();

@@ -3,6 +3,23 @@
 The shared benchmark of `docs/plans/roadmap.md`, measured as ADR 0004 says. Newest first.
 Run it: `bash tools/bench.sh`, then `python -I tools/summarize.py`.
 
+## 2026-11-11: `run=fx`, the effects' benchmark (ADR 0031)
+
+Reference machine, release build, 1920x1080 off-screen, `run=fx quick=1` three times on the 4 km planet (not
+the full series; `bash tools/bench.sh` runs it in the small series from now on). `stand`'s view with bursts of
+debris 2-14 m ahead kept at 4,096 live.
+
+| run | reps | | fps_avg | frame_p50_ms | frame_p99_ms | frame_max_ms | cpu_ms_p99 | gpu_ms_p99 | ram_mb | vram_mb | fx_live_avg | cpu fx p50 | gpu fx p50 | budget |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| fx | 3 | median | 447.7 | 2.167 | 7.129 | 9.214 | 6.588 | 1.827 | 309 | 813 | 4085 | 0.065 | 0.060 | ok |
+| | | worst | 444.2 | 2.187 | 7.464 | 10.161 | 7.175 | 1.835 | 309 | 813 | 4085 | 0.067 | 0.061 | ok |
+
+- **The effects themselves:** 0.065 ms of the frame thread (the proposal was 0.05: missed, ADR 0031) and
+  0.060 ms of the GPU (inside 0.15).
+- **The p99 of 7 ms in two of the three reps** is not theirs: in every frame over 8.3 ms the frame thread
+  waits 6-7.6 ms in `acquire` (the driver's `get_current_texture`) and the GPU's timed stages stay at 1.5-1.7
+  ms, with `fx` at 0.05-0.1. The first rep has none (p99 2.77). Not looked into further.
+
 ## 2026-11-11: after the optimisation pass (ADR 0025)
 
 Reference machine, release build, 1920x1080 off-screen, the default series (`bash tools/bench.sh`: the 4 km
