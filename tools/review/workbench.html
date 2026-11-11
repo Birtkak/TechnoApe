@@ -1,0 +1,600 @@
+<title>TechnoApe Workbench</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Pixelify+Sans:wght@500;600&display=swap">
+<style>
+/* layout: the game's HUD as a workbench. A console strip on top with two benches (Blocks, Sounds); each bench
+   is a shelf on the left to pick from and one inspector on the right that holds the thing picked. */
+:root {
+  --bg: #080d14; --panel: #0f1824; --raised: #162232; --line: #223246; --ink: #dfe9f3; --muted: #7f93a9;
+  --accent: #57c7e6; --accent-ink: #04202a; --warm: #f0b24a; --good: #6fd08c; --bad: #ef7d6e; --alt: #b79cf2;
+  --stage-a: #1b2a3d; --stage-b: #0a1119; --wave: #57c7e6;
+  --display: "Pixelify Sans", "Chakra Petch", "Segoe UI", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #e9eef3; --panel: #ffffff; --raised: #f1f5f8; --line: #cfd9e3; --ink: #121d29; --muted: #586a7d;
+  --accent: #0a7c9f; --accent-ink: #ffffff; --warm: #a26400; --good: #1c8442; --bad: #bf3d2c; --alt: #6b4fc0;
+  --stage-a: #dfe8f0; --stage-b: #b9c8d6; --wave: #0a7c9f; color-scheme: light } }
+:root[data-theme="light"] {
+  --bg: #e9eef3; --panel: #ffffff; --raised: #f1f5f8; --line: #cfd9e3; --ink: #121d29; --muted: #586a7d;
+  --accent: #0a7c9f; --accent-ink: #ffffff; --warm: #a26400; --good: #1c8442; --bad: #bf3d2c; --alt: #6b4fc0;
+  --stage-a: #dfe8f0; --stage-b: #b9c8d6; --wave: #0a7c9f; color-scheme: light }
+* { box-sizing: border-box }
+html { scroll-padding-top: 70px }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--body); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel) }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+button, select, input, textarea { font: inherit; color: inherit }
+button { background: var(--raised); border: 1px solid var(--line); border-radius: 3px; padding: 5px 10px; cursor: pointer }
+button:hover { border-color: var(--accent) }
+:is(button, input, select, textarea, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600 }
+button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink) }
+input[type=text], input[type=number], select, textarea { background: var(--raised); border: 1px solid var(--line); border-radius: 3px; padding: 4px 6px; min-width: 0 }
+input[type=number] { font-family: var(--mono) }
+
+/* the console strip */
+header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
+header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding-block: 9px; }
+.brand { font: 600 21px/1 var(--display); letter-spacing: .03em; margin: 0; white-space: nowrap }
+.brand span { color: var(--accent) }
+nav.tabs { display: flex; gap: 2px; background: var(--raised); border: 1px solid var(--line); border-radius: 4px; padding: 2px }
+nav.tabs a { font: 500 13px var(--body); color: var(--muted); text-decoration: none; padding: 4px 14px; border-radius: 2px; display: flex; gap: 7px; align-items: baseline }
+nav.tabs a[aria-current="page"] { background: var(--panel); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent) }
+nav.tabs a b { font: 400 11px var(--mono); color: var(--muted) }
+.grow { flex: 1 1 auto }
+.ctl { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px }
+.ctl input[type=range] { width: 90px }
+
+main.wrap { padding-block: 18px 80px; }
+.lede { color: var(--muted); max-width: 78ch; margin: 0 0 16px }
+.lede b { color: var(--ink); font-weight: 500 }
+.bench { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px); gap: 18px; align-items: start }
+.insp { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 62px); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; min-width: 0;
+  max-height: calc(100vh - 80px); overflow-y: auto; }
+/* the HUD's corner ticks, on the one panel that holds the thing picked */
+.insp::before, .insp::after { content: ""; position: absolute; width: 9px; height: 9px; border: 2px solid var(--accent); pointer-events: none }
+.insp::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0 }
+.insp::after { top: -1px; right: -1px; border-left: 0; border-bottom: 0 }
+.insp > .pad { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 12px }
+h2 { font: 600 13px var(--display); letter-spacing: .1em; text-transform: uppercase; margin: 0; color: var(--muted) }
+.eyebrow { font: 400 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em }
+.chip { font: 500 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); white-space: nowrap }
+.chip.warm { color: var(--warm); border-color: var(--warm) }
+.dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--line); flex: none }
+.dot.good { background: var(--good); border-color: var(--good) } .dot.tweak { background: var(--warm); border-color: var(--warm) }
+.dot.redo { background: var(--bad); border-color: var(--bad) } .dot.other { background: var(--alt); border-color: var(--alt) }
+.title { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.title input { font: 500 16px var(--mono); flex: 1 1 150px }
+.title .nm { font: 500 16px var(--mono); flex: 1 1 150px; overflow-wrap: anywhere }
+.fields { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 7px 10px; align-items: center }
+.fields > label { font: 400 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em }
+.fields > div { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; min-width: 0 }
+.fields select { max-width: 100% }
+.fields input[type=number] { width: 76px }
+.fields input[type=color] { width: 36px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 3px; background: none }
+.fields input[type=range] { flex: 1 1 90px; min-width: 0 }
+code { font: 11px var(--mono); color: var(--muted) }
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center }
+.sep { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 8px }
+.verdict { display: flex; gap: 4px; flex-wrap: wrap }
+.verdict button { font-size: 12px; padding: 3px 9px; display: flex; gap: 6px; align-items: center }
+.verdict button[aria-pressed="true"] { border-color: var(--ink); background: var(--panel) }
+.note { width: 100% }
+.hint { color: var(--muted); font-size: 12px; margin: 0 }
+
+/* blocks */
+.shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px }
+.tile { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 0; border-radius: 5px; overflow: hidden; background: var(--panel); text-align: left }
+.tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) }
+.tile .st, .stage { background: radial-gradient(ellipse at 50% 38%, var(--stage-a), var(--stage-b)); }
+.tile .st { display: grid; place-items: center; padding: 8px 0 4px }
+.tile canvas { width: 104px; height: 104px }
+.tile .lb { padding: 7px 9px 8px; display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line) }
+.tile .lb span:first-child { font: 500 13px var(--mono); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.tile.add { align-items: center; justify-content: center; min-height: 150px; color: var(--muted); border-style: dashed; background: none; text-align: center }
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; padding: 14px; align-items: center; border-radius: 4px 4px 0 0 }
+.stage .cube { width: 100%; max-width: 230px; aspect-ratio: 1; justify-self: center }
+.flat { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px }
+.flat canvas { width: 100%; aspect-ratio: 1; image-rendering: pixelated; border: 1px solid var(--line) }
+.flat canvas.wall { grid-column: 1 / -1; aspect-ratio: 3 / 1 }
+.flat span { font: 400 10px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; text-align: center }
+.modelnote { margin-top: 18px; border: 1px dashed var(--line); border-radius: 5px; padding: 12px 14px; color: var(--muted); max-width: 78ch }
+.modelnote b { color: var(--ink); font-weight: 500 }
+
+/* sounds */
+.fam { margin-bottom: 18px }
+.fam > p { margin: 2px 0 8px; color: var(--muted); font-size: 12px }
+.srow { display: grid; grid-template-columns: 30px minmax(0, 150px) minmax(60px, 1fr) auto; gap: 10px; align-items: center; padding: 4px 8px 4px 4px; border: 1px solid transparent; border-radius: 4px; cursor: pointer }
+.srow:nth-child(odd) { background: var(--panel) }
+.srow:hover { border-color: var(--line) }
+.srow[aria-selected="true"] { border-color: var(--accent); background: var(--raised) }
+.srow .pl { width: 30px; height: 28px; padding: 0; font-size: 11px }
+.srow .sn { font: 500 13px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: none; border: 0; padding: 0; text-align: left }
+.srow canvas { width: 100%; height: 28px; display: block }
+.srow .marks { display: flex; gap: 5px; align-items: center; min-width: 34px; justify-content: flex-end }
+#view-sounds .bench { grid-template-columns: minmax(0, 1fr) minmax(0, 590px) }
+.big { width: 100%; height: 150px; display: block; background: var(--raised); border-radius: 4px 4px 0 0; cursor: pointer }
+.takes { display: flex; gap: 2px }
+.takes button { min-width: 27px; padding: 5px 0; font: 12px var(--mono) }
+.scroll { overflow-x: auto }
+table { border-collapse: collapse; font-variant-numeric: tabular-nums }
+th { text-align: left; padding: 0 5px 4px 0; font: 400 10px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap }
+td { padding: 2px 5px 2px 0 }
+td input[type=number] { width: 50px; padding: 4px 3px } td button { padding: 3px 7px; font-size: 12px }
+.params { display: flex; flex-wrap: wrap; gap: 8px 12px }
+.params label { display: flex; flex-direction: column; gap: 2px; font: 400 10px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em }
+.params input { width: 78px }
+
+#out { position: fixed; inset: auto 0 0 0; z-index: 6; background: var(--panel); border-top: 2px solid var(--accent); }
+#out .wrap { padding-block: 12px calc(12px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 8px }
+#out textarea { width: 100%; height: 230px; font: 12px/1.4 var(--mono); resize: vertical }
+#out .h { display: flex; gap: 10px; align-items: center }
+@media (max-width: 900px) { .bench { grid-template-columns: minmax(0, 1fr) } .insp { position: relative; top: 0; max-height: none; order: -1 } }
+@media (max-width: 480px) { .stage { grid-template-columns: minmax(0, 1fr) } .srow { grid-template-columns: 30px minmax(0, 1fr) auto } .srow canvas { display: none } }
+@media (prefers-reduced-motion: no-preference) { .tile, .srow, button { transition: border-color .12s } }
+</style>
+
+<header class="bar"><div class="wrap">
+  <p class="brand">Techno<span>Ape</span> Workbench</p>
+  <nav class="tabs" aria-label="Benches">
+    <a href="#blocks" id="tab-blocks">Blocks <b id="n-blocks"></b></a>
+    <a href="#sounds" id="tab-sounds">Sounds <b id="n-sounds"></b></a>
+  </nav>
+  <span class="grow"></span>
+  <span class="ctl" id="tally"></span>
+  <label class="ctl">Volume <input id="vol" type="range" min="0" max="100" value="70"></label>
+  <button id="stop">Stop sound</button>
+  <button id="copy" class="primary">Copy my review</button>
+</div></header>
+
+<main class="wrap">
+  <section id="view-blocks">
+    <p class="lede">Every block in <b>data/blocks.toml</b>, drawn texel for texel by the game's own recipe. Pick one, change its look or its sound,
+    hear it, and give it a verdict. <b>Copy my review</b> collects everything from both benches to paste to Claude; nothing here changes the game by itself.</p>
+    <div class="bench">
+      <div><div class="shelf" id="shelf"></div>
+        <p class="modelnote"><b>Models.</b> Every block is a full cube today and the game has no other models yet: no player body, tools, machines or creatures.
+        Shapes smaller than a block come with the 12.5 cm fine cells, eight to a block's edge. When the first models exist they get a bench here.
+        Colours are shown before the game's sun, shadow and haze.</p></div>
+      <aside class="insp" id="binsp" aria-label="The block picked"></aside>
+    </div>
+  </section>
+  <section id="view-sounds" hidden>
+    <p class="lede">Every sound in <b>data/sounds.toml</b>, made here by the same recipe the game uses, sample for sample. The triangle plays take 1;
+    pick a sound to hear its other takes, hear it <b>as in the game</b> (a random take, a little louder or softer, higher or lower), and change its layers.</p>
+    <div class="bench">
+      <div id="slist"></div>
+      <aside class="insp" id="sinsp" aria-label="The sound picked"></aside>
+    </div>
+  </section>
+</main>
+
+<div id="out" hidden><div class="wrap">
+  <div class="h"><b id="outmsg">Your review</b><span class="grow"></span><button id="outclose">Close</button></div>
+  <textarea id="outtext" readonly aria-label="Review text"></textarea>
+</div></div>
+
+<script>
+const DATA = /*DATA*/{"sounds":[],"blocks":[],"built":""}/*END*/;
+const RATE = 48000, DEF = { q: 1, attack: 0.002, decay: 0, gain: 1, delay: 0 };
+const clone = x => JSON.parse(JSON.stringify(x));
+const ORIG_S = clone(DATA.sounds), ORIG_B = clone(DATA.blocks);
+let rows = clone(DATA.sounds), blocks = clone(DATA.blocks), review = { b: {}, s: {} }, N = 16, selB = 1, selS = 0;
+try {
+  const s = JSON.parse(localStorage.getItem('workbench') || '{}');
+  if (s.built === DATA.built) { if (s.rows) rows = rows.map(r => s.rows[r.name] || r); if (s.blocks) blocks = s.blocks; }
+  if (s.review) review = Object.assign(review, s.review);
+} catch (e) {}
+const origB = b => ORIG_B.find(o => o.id === b.id);
+const changedB = b => JSON.stringify(b) !== JSON.stringify(origB(b) || null);
+const changedS = i => JSON.stringify(rows[i]) !== JSON.stringify(ORIG_S[i]);
+function save() {
+  try {
+    const ch = {}; rows.forEach((r, i) => { if (changedS(i)) ch[r.name] = r; });
+    localStorage.setItem('workbench', JSON.stringify({ built: DATA.built, rows: ch, blocks, review }));
+  } catch (e) {}
+}
+const el = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v); }
+  kids.flat().forEach(k => e.append(k)); return e;
+};
+const $ = id => document.getElementById(id);
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+// rebuilding a panel must not take the keyboard away from the control being used
+function keepFocus(fn) { const id = document.activeElement && document.activeElement.id; fn(); if (id && $(id)) $(id).focus(); }
+const VERDICTS = { b: ['good', 'tweak', 'redo', 'needs a real texture'], s: ['good', 'tweak', 'redo', 'replace with a recording'] };
+const dotClass = v => !v ? '' : ['good', 'tweak', 'redo'].includes(v) ? v : 'other';
+function verdictBox(kind, key, after) {
+  const rv = review[kind][key] || (review[kind][key] = { v: '', n: '' });
+  const box = el('div', { class: 'verdict', role: 'group', 'aria-label': 'Verdict' });
+  VERDICTS[kind].forEach((v, k) => box.append(el('button', { id: `vd-${kind}-${k}`, 'aria-pressed': String(rv.v === v), onclick: () => { rv.v = rv.v === v ? '' : v; save(); tally(); keepFocus(after); } }, el('span', { class: 'dot ' + dotClass(v) }), v)));
+  return [el('h2', {}, 'Your verdict'), box,
+    el('input', { class: 'note', id: `vn-${kind}`, type: 'text', placeholder: 'What should change? (optional)', value: rv.n, 'aria-label': 'Note', oninput: e => { rv.n = e.target.value; save(); } })];
+}
+
+// ================= the game's recipes =================
+// sounds: crates/client/src/audio.rs, `render`, line for line
+function rnd(s) { let v = s.v; v = (v ^ (v << 13)) >>> 0; v = (v ^ (v >>> 17)) >>> 0; v = (v ^ (v << 5)) >>> 0; s.v = v; return (v >>> 8) / 16777216; }
+function render(r, variant) {
+  let h = 2166136261;
+  for (const c of new TextEncoder().encode(r.name)) h = Math.imul(h ^ c, 16777619) >>> 0;
+  const s = { v: ((h ^ Math.imul(variant + 1, 0x9E3779B9)) | 1) >>> 0 };
+  const loops = r.loop || 0, lap = Math.floor(loops * RATE), fade = loops > 0 ? Math.floor(0.1 * RATE) : 0;
+  const L = r.layer.map(l => Object.assign({}, DEF, l));
+  const note = l => loops > 0 && l.decay > 0;
+  const nOf = l => loops > 0 && !note(l) ? lap + fade : Math.floor((l.attack + l.decay) * RATE);
+  const len = loops > 0 ? lap + fade : Math.max(0, ...L.map(l => Math.floor(l.delay * RATE) + Math.floor(nOf(l) * 1.16)));
+  const out = new Float32Array(len), ring = new Float32Array(L.some(note) ? lap : 0);
+  for (const l0 of L) {
+    const tune = 1 + (r.pitch || 0) * (rnd(s) - 0.5);
+    let long = 1, weight = 1;
+    if (loops === 0 && (r.variants || 1) > 1) { long = 1 + 0.3 * (rnd(s) - 0.5); weight = 1 + 0.3 * (rnd(s) - 0.5); }
+    const l = Object.assign({}, l0, { decay: l0.decay * long, gain: l0.gain * weight });
+    const n = nOf(l), start = Math.floor(l.delay * RATE), one = new Float32Array(n);
+    const low = [0, 0], band = [0, 0]; let phase = 0, peak = 1e-9;
+    for (let i = 0; i < n; i++) {
+      const t = i / RATE, held = loops > 0 && !note(l);
+      const along = held ? 0 : t / (l.attack + l.decay);
+      const f = l.freq[0] * Math.pow(l.freq[1] / l.freq[0], along) * tune;
+      let x;
+      if (l.wave === 'noise') {
+        const fc = 2 * Math.sin(Math.PI * Math.min(f, RATE / 6.5) / RATE);
+        x = rnd(s) * 2 - 1;
+        for (let k = 0; k < 2; k++) { low[k] += fc * band[k]; band[k] += fc * (x - low[k] - band[k] / l.q); x = band[k]; }
+      } else {
+        phase = (phase + f / RATE) % 1;
+        x = l.wave === 'sine' ? Math.sin(2 * Math.PI * phase) : l.wave === 'triangle' ? 1 - 4 * Math.abs(phase - 0.5) : (0.5 - phase >= 0 ? 0.5 : -0.5);
+      }
+      const env = held ? 1 : t < l.attack ? t / l.attack : Math.exp(-6.9 * (t - l.attack) / l.decay);
+      one[i] = x * env; if (Math.abs(one[i]) > peak) peak = Math.abs(one[i]);
+    }
+    for (let i = 0; i < n; i++) { if (note(l)) { if (lap) ring[(start + i) % lap] += one[i] / peak * l.gain; } else if (start + i < len) out[start + i] += one[i] / peak * l.gain; }
+  }
+  let res = out;
+  if (fade > 0) {
+    const keep = len - fade;
+    for (let i = 0; i < fade; i++) { const w = i / fade; out[i] = out[i] * Math.sqrt(w) + out[keep + i] * Math.sqrt(1 - w); }
+    res = out.subarray(0, keep);
+    for (let i = 0; i < ring.length; i++) res[i] += ring[i];
+  }
+  let peak = 1e-9; for (let i = 0; i < res.length; i++) if (Math.abs(res[i]) > peak) peak = Math.abs(res[i]);
+  const g = (r.gain ?? 1) / peak; for (let i = 0; i < res.length; i++) res[i] *= g;
+  return res;
+}
+const thump = drop => drop < 1.6 ? null : [Math.min(0.3 + (drop - 1.6) * 0.1, 1.5), 1 - Math.min((drop - 1.6) * 0.04, 0.35)];
+// blocks: crates/client/src/shader.wgsl, `hash` and `texel`
+function hash(x, y, z) {
+  let h = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791)) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  return (h & 1023) / 1023;
+}
+function texel(b, dir, cell, tx, ty, row) {   // dir 4 is the top; `row` counts texels up from the block's foot
+  const h = hash(cell[0] * N + tx, cell[1] * N + ty, cell[2] * N + dir);
+  const tone = 0.82 + 0.12 * Math.floor(h * 3);
+  let m = b;
+  if ((b.pattern || 'plain') === 'grass' && dir !== 4) {
+    const fringe = 2 + Math.floor(hash(cell[0] * N + tx, cell[1] * N + 7, cell[2] * N + dir) * 3);
+    if (row < N - fringe) m = blocks.find(o => o.name === b.side) || b;
+  }
+  const p = m.pattern || 'plain', col = m.colour || [0.5, 0.5, 0.5];
+  let k = tone;
+  if (p === 'stone' && h > 0.94) k *= 0.6;
+  if (p === 'grass' && h > 0.9) k *= 1.15;
+  return col.map(c => c * k);
+}
+
+// ================= sound out =================
+let ctx = null, master = null; const cache = new Map(), live = new Set(), loopsOn = new Map(), walks = new Map(), last = {};
+function audio() {
+  if (!ctx) { ctx = new (window.AudioContext || window.webkitAudioContext)(); master = ctx.createGain(); master.connect(ctx.destination); setVol(); }
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+const setVol = () => { if (master) master.gain.value = Math.pow($('vol').value / 100, 2); };
+function clip(i, take) { const key = i + ':' + take; if (!cache.has(key)) cache.set(key, render(rows[i], take)); return cache.get(key); }
+function playData(d, gain = 1, pitch = 1, loop = false) {
+  const c = audio(), buf = c.createBuffer(1, Math.max(1, d.length), RATE);
+  buf.copyToChannel(d, 0);
+  const src = c.createBufferSource(), g = c.createGain();
+  src.buffer = buf; src.playbackRate.value = pitch; src.loop = loop; g.gain.value = gain;
+  src.connect(g).connect(master); src.start();
+  live.add(src); src.onended = () => live.delete(src);
+  return src;
+}
+const play = (i, take, gain, pitch, loop) => playData(clip(i, take), gain, pitch, loop);
+function asInGame(i, gain = 1, pitch = 1) {
+  const r = rows[i], n = r.variants || 1;
+  let t = 0;
+  if (n > 1) { t = Math.floor(Math.random() * (n - 1)); if (last[i] !== undefined && t >= last[i]) t++; }
+  last[i] = t;
+  play(i, t, gain * (r.bus === 'ui' ? 1 : 0.85 + 0.3 * Math.random()), pitch * (1 + (r.pitch || 0) * (Math.random() * 2 - 1)));
+}
+function toggleLoop(i, btn) {
+  if (loopsOn.has(i)) { try { loopsOn.get(i).stop(); } catch (e) {} loopsOn.delete(i); } else loopsOn.set(i, play(i, 0, 1, 1, true));
+  if (btn) btn.classList.toggle('on', loopsOn.has(i));
+}
+function toggleWalk(i, btn) {
+  if (walks.has(i)) { clearInterval(walks.get(i)); walks.delete(i); } else { asInGame(i); walks.set(i, setInterval(() => asInGame(i), 420)); }
+  if (btn) btn.classList.toggle('on', walks.has(i));
+}
+function stopAll() {
+  live.forEach(s => { try { s.stop(); } catch (e) {} }); live.clear(); loopsOn.clear();
+  walks.forEach(id => clearInterval(id)); walks.clear();
+  document.querySelectorAll('button.on').forEach(b => b.classList.remove('on'));
+}
+const rowIndex = name => rows.findIndex(r => r.name === name);
+
+// ================= blocks bench =================
+const rgb = (c, shade = 1) => `rgb(${c.map(v => Math.round(Math.max(0, Math.min(1, v * shade)) * 255)).join(',')})`;
+function face(g, b, dir, cell, shade) {
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { g.fillStyle = rgb(texel(b, dir, cell, i, j, N - 1 - j), b.light ? 1 : shade); g.fillRect(i, j, 1.04, 1.04); }
+}
+function drawCube(cv, b) {
+  const px = Math.max(1, Math.round((cv.clientWidth || 104) * (window.devicePixelRatio || 1)));
+  cv.width = cv.height = px; const g = cv.getContext('2d'), u = px / 150;
+  const W = 60 * u, H = 66 * u, cx = px / 2, y0 = 10 * u, T = [cx, y0], R = [cx + W, y0 + W / 2], L = [cx - W, y0 + W / 2], B = [cx, y0 + W];
+  const hull = () => { g.beginPath(); g.moveTo(...T); g.lineTo(...R); g.lineTo(R[0], R[1] + H); g.lineTo(B[0], B[1] + H); g.lineTo(L[0], L[1] + H); g.lineTo(...L); g.closePath(); };
+  g.fillStyle = 'rgba(0,0,0,.28)'; g.beginPath(); g.ellipse(cx, B[1] + H - 4 * u, W * 0.95, W * 0.36, 0, 0, 7); g.fill();
+  if (b.light) { g.shadowColor = rgb(b.light); g.shadowBlur = 22 * u; g.fillStyle = rgb(b.light); hull(); g.fill(); g.shadowBlur = 0; }
+  const put = (o, a, c, dir, shade) => { g.setTransform(a[0] / N, a[1] / N, c[0] / N, c[1] / N, o[0], o[1]); face(g, b, dir, [3, 5, 2], shade); };
+  put(T, [R[0] - T[0], R[1] - T[1]], [L[0] - T[0], L[1] - T[1]], 4, 1);
+  put(L, [B[0] - L[0], B[1] - L[1]], [0, H], 0, 0.76);
+  put(B, [R[0] - B[0], R[1] - B[1]], [0, H], 2, 0.56);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  if (b.metal) { const gr = g.createLinearGradient(L[0], T[1], R[0], B[1] + H); gr.addColorStop(0.3, 'rgba(255,255,255,0)'); gr.addColorStop(0.47, `rgba(255,255,255,${0.42 * b.metal})`); gr.addColorStop(0.62, 'rgba(255,255,255,0)'); g.fillStyle = gr; hull(); g.fill(); }
+}
+function drawFlat(cv, b, dir, cells) {
+  cv.width = N * cells; cv.height = N; const g = cv.getContext('2d');
+  for (let c = 0; c < cells; c++) { g.setTransform(1, 0, 0, 1, c * N, 0); face(g, b, dir, [3 + c, 5, 2], 1); }
+}
+const hex = c => '#' + c.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('');
+const unhex = h => [1, 3, 5].map(i => +(parseInt(h.slice(i, i + 2), 16) / 255).toFixed(2));
+const FAMS = [...new Set(DATA.sounds.filter(s => s.name.startsWith('step.')).map(s => s.name.slice(5)))];
+const realBlocks = () => blocks.filter(b => b.id);
+function tile(b) {
+  const v = (review.b[b.id] || {}).v;
+  return el('button', { class: 'tile', id: 'tile' + b.id, 'aria-pressed': String(b.id === selB), onclick: () => { selB = b.id; keepFocus(buildBlocks); } },
+    el('span', { class: 'st' }, el('canvas', { role: 'img', 'aria-label': b.name })),
+    el('span', { class: 'lb' }, el('span', {}, b.name), changedB(b) ? el('span', { class: 'chip warm' }, origB(b) ? 'changed' : 'new') : [], el('span', { class: 'dot ' + dotClass(v), title: v || 'no verdict' })));
+}
+function paintBlock(b) {
+  const t = $('tile' + b.id); if (t) drawCube(t.querySelector('canvas'), b);
+  if (b.id === selB && $('bcube')) { drawCube($('bcube'), b); drawFlat($('btop'), b, 4, 1); drawFlat($('bside'), b, 0, 1); drawFlat($('bwall'), b, 0, 3); }
+}
+function touchB(b, rebuild) {
+  save(); tally();
+  if (rebuild) return keepFocus(buildBlocks);
+  blocks.forEach(o => { if (o === b || o.side === b.name) paintBlock(o); });
+  const t = $('tile' + b.id), n = tile(b); t.replaceWith(n); drawCube(n.querySelector('canvas'), b);
+  $('bstate').textContent = !origB(b) ? 'new' : changedB(b) ? 'changed' : 'as shipped'; $('bstate').classList.toggle('warm', changedB(b));
+}
+function colourField(b, key, label, id) {
+  const txt = el('code', {}, '[' + b[key].join(', ') + ']');
+  return [el('label', { for: id }, label), el('div', {}, el('input', { type: 'color', id, value: hex(b[key]), oninput: e => { b[key] = unhex(e.target.value); txt.textContent = '[' + b[key].join(', ') + ']'; touchB(b); } }), txt)];
+}
+function blockInspector(b) {
+  const f = el('div', { class: 'fields' }), fam = b.sound || 'stone';
+  f.append(...colourField(b, 'colour', 'Colour', 'bf-c'));
+  f.append(el('label', { for: 'bf-p' }, 'Pattern'), el('div', {}, el('select', { id: 'bf-p', onchange: e => { if (e.target.value === 'plain') delete b.pattern; else b.pattern = e.target.value; if (b.pattern === 'grass' && !b.side) b.side = 'dirt'; if (b.pattern !== 'grass') delete b.side; touchB(b, true); } },
+    [['plain', 'plain: three tones'], ['grass', 'grass: bright top, a fringe on the sides'], ['stone', 'stone: dark crack texels']].map(([v, t]) => el('option', { value: v, selected: (b.pattern || 'plain') === v }, t)))));
+  if (b.pattern === 'grass') f.append(el('label', { for: 'bf-s' }, 'Its sides'), el('div', {}, el('select', { id: 'bf-s', onchange: e => { b.side = e.target.value; touchB(b); } }, realBlocks().filter(o => o !== b).map(o => el('option', { selected: o.name === b.side }, o.name)))));
+  const mv = el('code', {}, (b.metal || 0).toFixed(2));
+  f.append(el('label', { for: 'bf-m' }, 'Metal'), el('div', {}, el('input', { type: 'range', id: 'bf-m', min: 0, max: 1, step: 0.05, value: b.metal || 0, oninput: e => { const x = +e.target.value; if (x) b.metal = x; else delete b.metal; mv.textContent = x.toFixed(2); touchB(b); } }), mv));
+  f.append(el('label', { for: 'bf-lo' }, 'Gives light'), el('div', {}, el('input', { type: 'checkbox', id: 'bf-lo', checked: !!b.light, onchange: e => { if (e.target.checked) b.light = [1, 0.72, 0.42]; else delete b.light; touchB(b, true); } })));
+  if (b.light) f.append(...colourField(b, 'light', 'Its light', 'bf-l'));
+  f.append(el('label', { for: 'bf-so' }, 'Sounds like'), el('div', {}, el('select', { id: 'bf-so', onchange: e => { if (e.target.value === 'stone') delete b.sound; else b.sound = e.target.value; touchB(b, true); } }, FAMS.map(s => el('option', { selected: fam === s }, s)))));
+  const hear = el('div', { class: 'row' }, ['dig', 'place', 'step'].map(w => { const i = rowIndex(`${w}.${fam}`); return i < 0 ? [] : el('button', { id: 'bh-' + w, onclick: () => asInGame(i) }, w[0].toUpperCase() + w.slice(1)); }),
+    rowIndex('step.' + fam) >= 0 ? el('button', { id: 'bh-walk', class: walks.has(rowIndex('step.' + fam)) ? 'on' : '', onclick: e => toggleWalk(rowIndex('step.' + fam), e.currentTarget) }, 'Walk on it') : [],
+    el('button', { id: 'bh-open', onclick: () => { selS = Math.max(0, rowIndex('step.' + fam)); location.hash = 'sounds'; } }, 'Open its sounds'));
+  return el('div', {},
+    el('div', { class: 'stage' }, el('canvas', { class: 'cube', id: 'bcube', role: 'img', 'aria-label': b.name + ' as a cube' }),
+      el('div', { class: 'flat' }, el('canvas', { id: 'btop' }), el('canvas', { id: 'bside' }), el('span', {}, 'top'), el('span', {}, 'side'), el('canvas', { class: 'wall', id: 'bwall' }), el('span', { style: 'grid-column:1/-1' }, 'three blocks of wall'))),
+    el('div', { class: 'pad' },
+      el('div', { class: 'title' }, el('input', { type: 'text', id: 'bf-n', value: b.name, 'aria-label': 'Name', oninput: e => { const was = b.name; b.name = e.target.value; blocks.forEach(o => { if (o.side === was) o.side = b.name; }); save(); $('tile' + b.id).querySelector('.lb span').textContent = b.name; } }),
+        el('span', { class: 'chip' }, 'id ' + b.id), el('span', { class: 'chip' + (changedB(b) ? ' warm' : ''), id: 'bstate' }, !origB(b) ? 'new' : changedB(b) ? 'changed' : 'as shipped')),
+      f,
+      el('div', { class: 'sep' }, el('h2', {}, 'Hear it'), hear),
+      el('div', { class: 'sep' }, verdictBox('b', b.id, buildBlocks)),
+      el('div', { class: 'sep' }, el('div', { class: 'row' },
+        el('label', { class: 'ctl' }, 'Texels a block', el('select', { id: 'bf-tx', onchange: e => { N = +e.target.value; keepFocus(buildBlocks); } }, [16, 32].map(n => el('option', { selected: n === N }, n)))),
+        el('span', { class: 'grow' }),
+        origB(b) ? el('button', { id: 'bf-back', onclick: () => { const o = clone(origB(b)); Object.keys(b).forEach(k => delete b[k]); Object.assign(b, o); touchB(b, true); } }, 'Put back the game\'s')
+                 : el('button', { id: 'bf-rm', onclick: () => { blocks.splice(blocks.indexOf(b), 1); delete review.b[b.id]; selB = realBlocks()[0].id; save(); tally(); buildBlocks(); } }, 'Remove'),
+        el('button', { id: 'bf-toml', onclick: () => show('This block, for data/blocks.toml', tomlB(b)) }, 'Show as TOML')))));
+}
+function buildBlocks() {
+  const shelf = $('shelf'); shelf.textContent = '';
+  realBlocks().forEach(b => shelf.append(tile(b)));
+  shelf.append(el('button', { class: 'tile add', id: 'addblock', onclick: () => { const id = Math.max(...blocks.map(b => b.id), ...ORIG_B.map(b => b.id)) + 1; blocks.push({ id, name: 'new block ' + id, colour: [0.6, 0.55, 0.5] }); selB = id; save(); tally(); buildBlocks(); } }, '+ Add a block'));
+  const b = blocks.find(o => o.id === selB) || realBlocks()[0]; selB = b.id;
+  $('binsp').replaceChildren(blockInspector(b));
+  realBlocks().forEach(paintBlock);
+}
+
+// ================= sounds bench =================
+const famOf = n => { const p = n.split('.'); return ['dig', 'place', 'step'].includes(p[0]) ? p[1] : p[0] === 'ui' ? 'interface' : p[0] === 'land' ? 'body' : 'air and music'; };
+const FAM_NOTE = { interface: 'Menus and the hotbar. In the head, not in the world.', body: 'Under the footstep when you come down from two blocks or more.', 'air and music': 'These go round for as long as they are held: wind in the world, music at the title.' };
+function drawWave(cv, d, zoom, axis) {
+  const dpr = window.devicePixelRatio || 1, w = cv.width = Math.max(1, Math.round(cv.clientWidth * dpr)), h = cv.height = Math.max(1, Math.round(cv.clientHeight * dpr)), g = cv.getContext('2d');
+  g.clearRect(0, 0, w, h);
+  const base = axis ? 16 * dpr : 0, hh = h - base;
+  if (axis) {
+    const secs = d.length / RATE, step = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10].find(s => secs / s <= 8) || 10;
+    g.font = `${10 * dpr}px ${cssv('--mono') || 'monospace'}`; g.textBaseline = 'bottom';
+    for (let t = 0; t <= secs + 1e-9; t += step) {
+      const x = Math.round(t / secs * (w - 1));
+      g.fillStyle = cssv('--line'); g.fillRect(x, 0, 1, hh);
+      g.fillStyle = cssv('--muted'); const lab = step < 1 ? Math.round(t * 1000) + ' ms' : t.toFixed(0) + ' s';
+      g.textAlign = x < 20 * dpr ? 'left' : x > w - 30 * dpr ? 'right' : 'center'; g.fillText(lab, x, h - 2 * dpr);
+    }
+    g.fillStyle = cssv('--line'); g.fillRect(0, hh / 2, w, 1);
+  }
+  g.fillStyle = cssv('--wave');
+  const per = d.length / w;
+  for (let x = 0; x < w; x++) {
+    let lo = 1, hi = -1; const a = Math.floor(x * per), b = Math.max(a + 1, Math.floor((x + 1) * per)), by = Math.max(1, Math.floor((b - a) / 64));
+    for (let k = a; k < b && k < d.length; k += by) { if (d[k] < lo) lo = d[k]; if (d[k] > hi) hi = d[k]; }
+    if (hi < lo) continue;
+    g.fillRect(x, (1 - hi * zoom) * hh / 2, 1, Math.max(1, (hi - lo) * zoom * hh / 2));
+  }
+}
+const zoomOf = i => 0.92 / Math.max(0.01, rows[i].gain ?? 1);
+function srow(i) {
+  const r = rows[i], v = (review.s[r.name] || {}).v, loop = r.loop > 0;
+  const pick = () => { selS = i; keepFocus(buildSounds); };
+  return el('div', { class: 'srow', id: 'srow' + i, role: 'option', 'aria-selected': String(i === selS), onclick: pick },
+    el('button', { class: 'pl' + (loopsOn.has(i) ? ' on' : ''), id: 'pl' + i, title: loop ? 'Play round, or stop' : 'Play take 1', 'aria-label': 'Play ' + r.name, onclick: e => { e.stopPropagation(); loop ? toggleLoop(i, e.currentTarget) : play(i, 0); } }, '▶'),
+    el('button', { class: 'sn', id: 'sn' + i, onclick: e => { e.stopPropagation(); pick(); } }, r.name),
+    el('canvas', { id: 'mini' + i, 'aria-hidden': 'true' }),
+    el('span', { class: 'marks' }, changedS(i) ? el('span', { class: 'chip warm' }, 'changed') : [], el('span', { class: 'dot ' + dotClass(v), title: v || 'no verdict' })));
+}
+let queue = [];
+function pump() {   // the waveforms are drawn one at a time, so the page is there before the long ones are made
+  const i = queue.shift(); if (i === undefined) return;
+  const cv = $('mini' + i); if (cv && cv.clientWidth) drawWave(cv, clip(i, 0), zoomOf(i), false);
+  if (queue.length) setTimeout(pump, 0);
+}
+const num = (id, v, on, a = {}) => el('input', Object.assign({ type: 'number', step: 'any', id, value: v, oninput: e => { const x = parseFloat(e.target.value); if (isFinite(x)) on(x); } }, a));
+let soundTimer = 0;
+function touchS(i, rebuild) {
+  for (const k of [...cache.keys()]) if (k.startsWith(i + ':')) cache.delete(k);
+  save(); tally();
+  if (rebuild) return keepFocus(buildSounds);
+  // (a long loop takes a moment to make: wait until the typing stops)
+  clearTimeout(soundTimer);
+  soundTimer = setTimeout(() => { paintSound(i); const r = $('srow' + i); if (r) { const n = srow(i); r.replaceWith(n); drawWave($('mini' + i), clip(i, 0), zoomOf(i), false); } if (!(rows[i].loop > 0)) play(i, 0); }, rows[i].loop > 0 ? 500 : 120);
+}
+function paintSound(i) {
+  if (i !== selS || !$('sbig')) return;
+  const d = clip(i, 0); let rms = 0; for (let k = 0; k < d.length; k++) rms += d[k] * d[k];
+  drawWave($('sbig'), d, zoomOf(i), true);
+  $('smeta').textContent = `${(d.length / RATE).toFixed(d.length > RATE ? 1 : 3)} s · peak ${(rows[i].gain ?? 1).toFixed(2)} · rms ${Math.sqrt(rms / d.length).toFixed(3)}`;
+  $('sstate').textContent = changedS(i) ? 'changed' : 'as shipped'; $('sstate').classList.toggle('warm', changedS(i));
+}
+function soundInspector(i) {
+  const r = rows[i], loop = r.loop > 0, fam = famOf(r.name), used = DATA.blocks.filter(b => b.id && (b.sound || 'stone') === fam);
+  const tr = el('div', { class: 'row' });
+  if (loop) tr.append(el('button', { id: 'st-loop', class: loopsOn.has(i) ? 'on' : '', onclick: e => toggleLoop(i, e.currentTarget) }, 'Play round'));
+  else {
+    tr.append(el('div', { class: 'takes', role: 'group', 'aria-label': 'Takes' }, Array.from({ length: r.variants || 1 }, (_, t) => el('button', { id: 'st-t' + t, title: 'Take ' + (t + 1), onclick: () => play(i, t) }, t + 1))),
+      el('button', { id: 'st-game', class: 'primary', onclick: () => asInGame(i) }, 'As in the game'));
+    if (r.name.startsWith('step.')) tr.append(el('button', { id: 'st-walk', class: walks.has(i) ? 'on' : '', onclick: e => toggleWalk(i, e.currentTarget) }, 'Walk'));
+    if (r.name === 'land') [2, 4, 8, 16].forEach(m => tr.append(el('button', { id: 'st-d' + m, title: `A fall of ${m} m`, onclick: () => { const [g, p] = thump(m); asInGame(i, g, p); } }, m + ' m fall')));
+  }
+  const tb = el('tbody');
+  r.layer.forEach((l, k) => {
+    const f = (key, a) => el('td', {}, num(`sl${k}-${key}`, l[key] ?? DEF[key], x => { l[key] = x; touchS(i); }, a));
+    tb.append(el('tr', {},
+      el('td', {}, el('select', { id: `sl${k}-w`, 'aria-label': 'Wave', onchange: e => { l.wave = e.target.value; touchS(i); } }, ['noise', 'sine', 'triangle', 'square'].map(w => el('option', { selected: w === l.wave }, w)))),
+      el('td', {}, num(`sl${k}-f0`, l.freq[0], x => { l.freq[0] = x; touchS(i); }, { min: 20, max: 16000 })),
+      el('td', {}, num(`sl${k}-f1`, l.freq[1], x => { l.freq[1] = x; touchS(i); }, { min: 20, max: 16000 })),
+      f('q', { min: 0.6, max: 20 }), f('attack', { min: 0.0005 }), f('decay', { min: 0 }), f('gain', { min: 0, max: 2 }), f('delay', { min: 0 }),
+      el('td', {}, el('button', { id: `sl${k}-solo`, title: 'Hear this layer alone', onclick: () => playData(render(Object.assign({}, r, { layer: [l] }), 0)) }, 'Solo')),
+      el('td', {}, r.layer.length > 1 ? el('button', { id: `sl${k}-rm`, title: 'Remove this layer', 'aria-label': 'Remove layer', onclick: () => { r.layer.splice(k, 1); touchS(i, true); } }, '✕') : [])));
+  });
+  return el('div', {},
+    el('canvas', { class: 'big', id: 'sbig', title: loop ? '' : 'Click to play take 1', onclick: () => loop ? null : play(i, 0) }),
+    el('div', { class: 'pad' },
+      el('div', { class: 'title' }, el('span', { class: 'nm' }, r.name), el('span', { class: 'chip' }, r.bus), el('span', { class: 'chip', id: 'sstate' }, '')),
+      el('div', { class: 'eyebrow', id: 'smeta' }, ''),
+      tr,
+      used.length && !FAM_NOTE[fam] ? el('div', { class: 'row' }, el('span', { class: 'eyebrow' }, 'Used by'), used.map(b => el('button', { id: 'su' + b.id, onclick: () => { selB = b.id; location.hash = 'blocks'; } }, b.name))) : el('p', { class: 'hint' }, FAM_NOTE[fam] || 'No block uses this family yet.'),
+      el('div', { class: 'sep' }, el('h2', {}, 'The whole sound'), el('div', { class: 'params' },
+        el('label', {}, 'gain (peak)', num('sp-g', r.gain ?? 1, x => { r.gain = x; touchS(i); }, { min: 0, max: 2 })),
+        loop ? [] : el('label', {}, 'takes', el('input', { type: 'number', id: 'sp-v', min: 1, max: 8, step: 1, value: r.variants ?? 1, onchange: e => { r.variants = Math.max(1, Math.min(8, Math.round(+e.target.value || 1))); touchS(i, true); } })),
+        el('label', {}, 'pitch varies ±', num('sp-p', r.pitch ?? 0, x => { r.pitch = x; touchS(i); }, { min: 0, max: 0.5 })),
+        el('label', {}, 'heard to (m)', num('sp-r', r.reach ?? 24, x => { r.reach = x; touchS(i); }, { min: 1, max: 200 })),
+        loop ? el('label', {}, 'goes round (s)', num('sp-l', r.loop, x => { if (x >= 0.5 && x <= 60) { r.loop = x; touchS(i); } }, { min: 0.5, max: 60 })) : [])),
+      el('div', { class: 'sep' }, el('h2', {}, 'Its layers'),
+        el('div', { class: 'scroll' }, el('table', {}, el('thead', {}, el('tr', {}, ['wave', 'Hz start', 'Hz end', 'q', 'attack s', 'decay s', 'gain', 'delay s', '', ''].map(h => el('th', {}, h)))), tb)),
+        el('p', { class: 'hint' }, loop ? 'In a loop, a layer with a decay is a note that starts at its delay; without a decay it sounds all the way round.' : 'A layer slides from its first Hz to its last while it decays. Noise goes through a band-pass filter at that Hz; a higher q makes it narrower and more tonal.'),
+        el('div', { class: 'row' }, el('button', { id: 'sl-add', onclick: () => { r.layer.push(loop ? { wave: 'sine', freq: [220, 220], attack: 2, decay: 6, gain: 0.5 } : { wave: 'noise', freq: [800, 400], decay: 0.05, gain: 0.5 }); touchS(i, true); } }, 'Add a layer'))),
+      el('div', { class: 'sep' }, verdictBox('s', r.name, buildSounds)),
+      el('div', { class: 'sep' }, el('div', { class: 'row' }, el('span', { class: 'grow' }),
+        el('button', { id: 'sp-back', onclick: () => { rows[i] = clone(ORIG_S[i]); touchS(i, true); } }, 'Put back the game\'s'),
+        el('button', { id: 'sp-toml', onclick: () => show('This row, for data/sounds.toml', tomlS(rows[i])) }, 'Show as TOML')))));
+}
+function buildSounds() {
+  const list = $('slist'); list.textContent = '';
+  [...new Set(rows.map(r => famOf(r.name)))].forEach(f => {
+    const used = DATA.blocks.filter(b => b.id && (b.sound || 'stone') === f).map(b => b.name);
+    const box = el('div', { role: 'listbox', 'aria-label': f });
+    rows.forEach((r, i) => { if (famOf(r.name) === f) box.append(srow(i)); });
+    list.append(el('section', { class: 'fam' }, el('h2', {}, f), el('p', {}, FAM_NOTE[f] || (used.length ? 'Blocks that sound like this: ' + used.join(', ') + '.' : 'No block uses this family yet.')), box));
+  });
+  $('sinsp').replaceChildren(soundInspector(selS)); paintSound(selS);
+  queue = rows.map((_, i) => i).sort((a, b) => (rows[a].loop || 0) - (rows[b].loop || 0)); pump();
+}
+
+// ================= what goes back to Claude =================
+const fmt = (x, d = 5) => String(+(+x).toFixed(d)), arr = a => '[' + a.map(x => fmt(x, 3)).join(', ') + ']';
+function tomlS(r) {
+  const o = ['[[sound]]', `name = "${r.name}"`, `bus = "${r.bus}"`];
+  if (r.reach != null) o.push('reach = ' + fmt(r.reach));
+  if (r.gain != null) o.push('gain = ' + fmt(r.gain));
+  if (r.variants != null) o.push('variants = ' + r.variants);
+  if (r.pitch != null) o.push('pitch = ' + fmt(r.pitch));
+  if (r.loop) o.push('loop = ' + (+r.loop).toFixed(1));
+  o.push('layer = [');
+  r.layer.forEach(l => { const p = [`wave = "${l.wave}"`, `freq = [${fmt(l.freq[0])}, ${fmt(l.freq[1])}]`]; ['q', 'delay', 'attack', 'decay', 'gain'].forEach(k => { if (l[k] != null && !(k === 'q' && l.wave !== 'noise')) p.push(`${k} = ${fmt(l[k])}`); }); o.push('  { ' + p.join(', ') + ' },'); });
+  o.push(']'); return o.join('\n');
+}
+function tomlB(b) {
+  const o = ['[[block]]', 'id = ' + b.id, `name = "${b.name}"`];
+  if (b.solid === false) o.push('solid = false');
+  if (b.sound) o.push(`sound = "${b.sound}"`);
+  if (b.was) o.push('was = [' + b.was.map(w => `"${w}"`).join(', ') + ']');
+  if (b.colour) o.push('colour = ' + arr(b.colour));
+  if (b.pattern) o.push(`pattern = "${b.pattern}"`);
+  if (b.pattern === 'grass' && b.side) o.push(`side = "${b.side}"`);
+  if (b.metal) o.push('metal = ' + fmt(b.metal, 3));
+  if (b.light) o.push('light = ' + arr(b.light));
+  return o.join('\n');
+}
+function show(title, text) {
+  $('outmsg').textContent = title; const t = $('outtext'); t.value = text; $('out').hidden = false;
+  const done = ok => { $('outmsg').textContent = title + (ok ? ' (copied)' : ' (select it and copy)'); if (!ok) { t.focus(); t.select(); } };
+  try { navigator.clipboard.writeText(text).then(() => done(true), () => done(false)); } catch (e) { done(false); }
+}
+function reviewText() {
+  const o = ['TechnoApe Workbench review (data of ' + DATA.built + ')', '', '## Blocks'];
+  const vb = realBlocks().filter(b => review.b[b.id] && (review.b[b.id].v || review.b[b.id].n));
+  o.push(vb.length ? 'Verdicts:' : 'No verdicts given.');
+  vb.forEach(b => o.push(`- ${b.name}: ${review.b[b.id].v || 'note'}${review.b[b.id].n ? ' - ' + review.b[b.id].n : ''}`));
+  const cb = realBlocks().filter(changedB);
+  o.push(cb.length ? '\nChanged or new rows for data/blocks.toml:' : 'No rows changed.');
+  cb.forEach(b => o.push('', tomlB(b)));
+  o.push('', '## Sounds');
+  const vs = rows.filter(r => review.s[r.name] && (review.s[r.name].v || review.s[r.name].n));
+  o.push(vs.length ? 'Verdicts:' : 'No verdicts given.');
+  vs.forEach(r => o.push(`- ${r.name}: ${review.s[r.name].v || 'note'}${review.s[r.name].n ? ' - ' + review.s[r.name].n : ''}`));
+  const cs = rows.filter((_, i) => changedS(i));
+  o.push(cs.length ? '\nChanged rows, to replace the ones of the same name in data/sounds.toml:' : 'No rows changed.');
+  cs.forEach(r => o.push('', tomlS(r)));
+  return o.join('\n');
+}
+function tally() {
+  const nb = realBlocks().length, v = realBlocks().filter(b => (review.b[b.id] || {}).v).length + rows.filter(r => (review.s[r.name] || {}).v).length;
+  const c = realBlocks().filter(changedB).length + rows.filter((_, i) => changedS(i)).length;
+  $('n-blocks').textContent = nb; $('n-sounds').textContent = rows.length;
+  $('tally').textContent = `${v} of ${nb + rows.length} judged · ${c} changed`;
+}
+function route() {
+  const v = location.hash === '#sounds' ? 'sounds' : 'blocks';
+  $('view-blocks').hidden = v !== 'blocks'; $('view-sounds').hidden = v !== 'sounds';
+  ['blocks', 'sounds'].forEach(n => { if (n === v) $('tab-' + n).setAttribute('aria-current', 'page'); else $('tab-' + n).removeAttribute('aria-current'); });
+  v === 'blocks' ? buildBlocks() : buildSounds();
+}
+$('copy').onclick = () => show('Your review', reviewText());
+$('outclose').onclick = () => { $('out').hidden = true; };
+$('stop').onclick = stopAll;
+$('vol').oninput = setVol;
+addEventListener('hashchange', route);
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(route, 150); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', route);
+new MutationObserver(route).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+tally(); route();
+</script>

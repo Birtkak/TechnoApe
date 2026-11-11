@@ -1,5 +1,5 @@
-"""The review pages (tools/review/*.html) filled with the game's own data: `python -I tools/review_pages.py`
-writes out/review/sound-bench.html and block-bench.html. The sounds are made in the page by a port of
+"""The review page (tools/review/workbench.html) filled with the game's own data: `python -I tools/review_pages.py`
+writes out/review/workbench.html, one page with a bench for blocks and one for sounds. The sounds are made in the page by a port of
 crates/client/src/audio.rs `render`; the texels by a port of shader.wgsl `texel`."""
 import json, os, subprocess, tomllib
 
@@ -8,7 +8,7 @@ load = lambda p: tomllib.load(open(os.path.join(root, p), 'rb'))
 built = subprocess.run(['git', 'log', '-1', '--format=%h %cs'], cwd=root, capture_output=True, text=True).stdout.strip()
 data = json.dumps({'sounds': load('data/sounds.toml')['sound'], 'blocks': load('data/blocks.toml')['block'], 'built': built})
 os.makedirs(os.path.join(root, 'out/review'), exist_ok=True)
-for name in ['sound-bench.html', 'block-bench.html']:
+for name in ['workbench.html']:
     src = os.path.join(root, 'tools/review', name)
     if not os.path.exists(src):
         continue
