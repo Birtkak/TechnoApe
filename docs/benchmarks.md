@@ -3,6 +3,60 @@
 The shared benchmark of `docs/plans/roadmap.md`, measured as ADR 0004 says. Newest first.
 Run it: `bash tools/bench.sh`, then `python -I tools/summarize.py`.
 
+## 2026-11-11: after the optimisation pass (ADR 0025)
+
+Reference machine, release build, 1920x1080 off-screen, the default series (`bash tools/bench.sh`: the 4 km
+planet, 3 reps at half length, and the filmstrips), 15 reps, none disturbed by a compiler. The pass's packages
+A to J2 are in (ADR 0025), and the series gains `sim`: `stand`'s view at the spawn with 50 players walking,
+digging and placing and water running (ADR 0025, S).
+
+| series | planet m | run | reps | | fps_avg | frame_p50_ms | frame_p99_ms | frame_max_ms | cpu_ms_p99 | gpu_ms_p99 | ram_mb | vram_mb | chunks_meshed_per_s | missing_chunks_max | holes_max | draws_avg | quads_avg | budget | spikes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| small | 4245 | stand | 3 | median | 566.4 | 1.61 | 2.464 | 3.398 | 2.296 | 1.697 | 322 | 811 | 0 | 0 | 0 | 402 | 401205 | | |
+| | | | | worst | 563.1 | 1.629 | 2.487 | 5.476 | 2.31 | 1.699 | 325 | 811 | 0 | 0 | 0 | 402 | 401205 | ok | 0 |
+| small | 4245 | fly | 3 | median | 459.3 | 2.059 | 4.236 | 11.159 | 4.043 | 3.071 | 427 | 813 | 952.4 | 0 | 0 | 447 | 214739 | | |
+| | | | | worst | 452.1 | 2.102 | 4.327 | 11.611 | 4.15 | 3.116 | 427 | 813 | 952.3 | 0 | 0 | 447 | 215567 | ok | 76 |
+| small | 4245 | orbit | 3 | median | 571.4 | 1.67 | 3.182 | 5.447 | 3.035 | 2.278 | 418 | 813 | 930.1 | 201 | 0 | 80 | 92280 | | |
+| | | | | worst | 555.4 | 1.718 | 3.195 | 9.955 | 3.046 | 2.293 | 425 | 813 | 928.6 | 214 | 0 | 80 | 92415 | ok | 1 |
+| small | 4245 | edit | 3 | median | 253.7 | 3.993 | 4.949 | 6.333 | 4.702 | 3.278 | 390 | 811 | 956.4 | 0 | 0 | 270 | 302022 | | |
+| | | | | worst | 252.8 | 4.014 | 4.951 | 10.099 | 4.714 | 3.3 | 393 | 811 | 955.8 | 0 | 0 | 270 | 302043 | ok | 1 |
+| small | 4245 | sim | 3 | median | 536.1 | 1.753 | 3.04 | 4.861 | 2.801 | 1.795 | 343 | 811 | 9 | 0 | 0 | 404 | 407885 | | |
+| | | | | worst | 531.9 | 1.763 | 3.119 | 6.823 | 2.887 | 1.802 | 350 | 813 | 8.7 | 0 | 0 | 404 | 408016 | ok | 0 |
+
+| series | planet m | run | reps | | players | tick_ms_p50 | tick_ms_p99 | tick_ms_max | tick_cores | job_wait_ms_p99 | worker_cores | frame_cores |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| small | 4245 | sim | 3 | median | 51 | 3.213 | 4.322 | 4.899 | 0.065 | 0.015 | 0.002 | 0.926 |
+| | | | | worst | 51 | 3.251 | 4.553 | 5.124 | 0.065 | 0.043 | 0.002 | 0.926 |
+
+- **Budget:** every run holds ADR 0004 in every rep. The worst p99 is 4.95 ms (`edit`), the worst frame 11.6 ms
+  (`fly`). The tick holds the budget ADR 0004 now gives it: p99 4.6 ms at worst against 25.
+- **Against the series before the pass** (below), medians:
+
+  | run | fps | frame p99 ms | frame max ms | CPU p99 ms | GPU p99 ms | VRAM MB |
+  |---|---|---|---|---|---|---|
+  | stand | 257 → 566 | 4.93 → 2.46 | 9.3 → 3.4 | 4.64 → 2.30 | 3.28 → 1.70 | 1064 → 811 |
+  | fly | 185 → 459 | 7.45 → 4.24 | 11.4 → 11.2 | 7.23 → 4.04 | 6.02 → 3.07 | 1064 → 813 |
+  | orbit | 293 → 571 | 5.15 → 3.18 | 10.8 → 5.4 | 4.93 → 3.04 | 3.68 → 2.28 | 1066 → 813 |
+  | edit | 178 → 254 | 6.94 → 4.95 | 13.3 → 6.3 | 6.63 → 4.70 | 4.55 → 3.28 | 1832 → 811 |
+
+  `fly` and `orbit` no longer fail: their worst frames went from 17.8 and 23.1 ms to 11.6 and 10.0 ms.
+  The spikes over 8.3 ms went from 118 to 78. `fly` has 76 of them; `orbit`, `edit` and `stand` 1, 1 and 0.
+- **`stand` ends at 566 fps**, not the 800 of the pass's first target, which the developer dropped
+  (2026-11-11).
+- **`fly`'s 76 spikes** come in one burst in each rep, about 1.4 s of 9.5-11.6 ms frames 500-580 m into the
+  flight; their place follows the flight's speed, not the clock.
+  - The frame thread spends 7-8 ms of each such frame in `get_current_texture`, with 0.8 ms of CPU, while the
+    GPU's timed stages stay at their usual 1.6 ms. So it is a wait in the driver, not our work.
+  - It came with ADR 0025's J2: J1's build has none.
+  - It depends on how video memory happens to be laid out, not on J2's code: J2 with the quad buffer at 12, 20
+    or 24 MB (`quad_cap_m=`) instead of 16 has none, and standing still at that spot shows none either.
+  - Which allocation triggers it is open; see ADR 0025's J2 row.
+- **`orbit`'s missing chunks** went up, at most 214 against 162 before: with the far levels loading on the same
+  workers but more of them asked for in time, this was not looked into.
+- **`sim`:** 51 players cost the frame p99 0.6 ms against `stand` (3.04 against 2.46). The tick takes 3.2 ms of
+  its 50 at p50 (0.07 of a core), and the meshing workers are nearly idle. The frame thread holds 0.93 of a
+  core in every run: nothing caps the frame rate, and the driver's wait for the screen keeps it busy.
+
 ## 2026-11-10: before the optimisation pass (ADR 0025), with the traced light
 
 Reference machine, release build, 1920x1080 off-screen, the default series (`bash tools/bench.sh`: the 4 km
