@@ -330,7 +330,8 @@ fn main() {
         }
     };
     link.send(ToServer::Hello { name: args.s("name", "player") });
-    if run != "play" {
+    // (mode=creative: a new world made creative on its page; a world carried on keeps each player's own mode)
+    if run != "play" || args.s("mode", "") == "creative" {
         link.send(ToServer::Creative(true)); // the edit benchmark places stone it never dug
     }
     let (_id, mut world, seed) = match link.rx.recv_timeout(Duration::from_secs(10)) {

@@ -60,9 +60,7 @@ pub(crate) fn new_world_args(w: &NewWorld, clock: i32, taken: impl Fn(&str) -> b
     let n = SIZES[w.size.min(SIZES.len() - 1)].0;
     let mut a = vec![format!("save={save}"), format!("seed={}", seed_of(&w.seed).unwrap_or(clock)), format!("planet={n}"), format!("moon={}", n / 24)];
     if w.creative {
-        // shortcut: the mode is the server's and has no start argument, so the command is typed for the
-        // player a second in; a mode in the save's header when worlds get more rules of their own
-        a.push("acts=1:say:/playmode creative".into());
+        a.push("mode=creative".into());
     }
     a
 }
@@ -74,7 +72,7 @@ fn a_new_world_starts_as_its_page_says() {
     let (a, b) = (seed_of("ape planet").unwrap(), seed_of("2147483647").unwrap());
     assert!(a > 0 && b > 0 && b < 0x4000_0000 && seed_of("ape planet") == Some(a) && seed_of("ape planer") != Some(a), "words and the ends of i32 are hashed: {a} {b}");
     let w = NewWorld { name: " my/world: 1 ".into(), seed: "5".into(), size: 3, creative: true };
-    assert_eq!(new_world_args(&w, 99, |p| p == "saves/myworld 1.sav"), ["save=saves/myworld 1-2.sav", "seed=5", "planet=12288", "moon=512", "acts=1:say:/playmode creative"]);
+    assert_eq!(new_world_args(&w, 99, |p| p == "saves/myworld 1.sav"), ["save=saves/myworld 1-2.sav", "seed=5", "planet=12288", "moon=512", "mode=creative"]);
     assert_eq!(new_world_args(&NewWorld::default(), 99, |_| false), ["save=saves/world.sav", "seed=99", "planet=6144", "moon=256"]);
     assert!(SIZES.iter().all(|(n, _)| n % 768 == 0 && (n / 768).count_ones() == 1), "3 * 2^k columns");
 }
