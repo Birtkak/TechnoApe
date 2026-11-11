@@ -19,8 +19,9 @@
 - Nobody on foot keeps up with the sunset.
 - **The planet's size stays a parameter** (ADR 0008): nothing may assume R = 4244 m. The standard planet is
   4 km and the huge one 8 km (ADR 0021); the engine must hold its budget on both.
-- A player is 1.2 blocks wide and 3.6 blocks tall. A walkable tunnel is 2 x 4 blocks: 16 blocks per metre,
-  against Minecraft's 2. Any feel that copies Minecraft's one-block actions is 8x the clicks.
+- A player is one block wide and two tall (ADR 0033: 1 m blocks). A walkable tunnel is 1 x 2 blocks, 2 blocks
+  per metre, as in Minecraft, so Minecraft's one-block actions carry over.
+- Luna's column is today's Luna; ADR 0027 grows it to about 1 km (N = 3072), built in `worldgen-plan.md` W6.
 
 ## 1. Game feel
 

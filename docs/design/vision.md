@@ -8,8 +8,8 @@ A first-person survival and automation game on small spherical planets of 1 m bl
 dig into it, build factories on it, and fly up to orbit and over to its moon without a loading screen.
 
 ## The idea
-- **Planets you can hold in your head.** Each planet is 0.3-1 km in radius: you can walk around it in under
-  an hour, see its curve, and reach space by climbing. One planet and its moon first, **Terra** and **Luna** (ADR 0026: each simulated once when the world is
+- **Planets you can hold in your head.** Terra is 4 km in radius (ADR 0021): you can walk around it in under
+  two hours, see its curve, and reach space by climbing. One planet and its moon first, **Terra** and **Luna** (ADR 0026: each simulated once when the world is
   made, `worldgen.md`); a solar system later
   (ADR 0001).
 - **Building and automation with depth.** Minecraft-style building; machines, conveyors, pipes and power with
@@ -48,15 +48,15 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
   (ADR 0005).
 - Day about 20 minutes; saves hold only what changed (ADR 0002).
 - Feel and rules (ADR 0008, detail in `fundamentals.md`):
-  - **Tools are brushes:** a dig or place covers 1 m (2 x 2 x 2 blocks), single blocks on a held key; building
-    drags out lines, walls and floors.
+  - **Tools are brushes:** a dig or place is one 1 m block (ADR 0033), better tools carry bigger brushes; the
+    build hammer drags out lines, walls, floors and shapes (ADR 0017).
   - **Survival is harsh:** food, water, temperature and air. Every need starts as a chore and ends as a
     factory.
   - **The planet's facts are rules:** the sun and time zones (dark, cold night side; solar power follows the
     sun), a finite planet (deposits run out, scars show from orbit), real orbits (things can orbit; cargo can
     be shot to Luna).
   - **Megaprojects pull the ages:** each tech age ends in a planet-scale build that changes the world.
-  - **Planet size is open:** 1 km first; 1-5 km or more if playtests find it limiting.
+  - **Planet size is a parameter:** 4 km as standard, 8 km for the huge one (ADR 0021).
 - Progression (ADR 0009, proposal of the tiers in `progression.md`): **you are an ape** that starts with bare
   hands; a **starter** of stone, fire, steam and cogs (an hour to copper, 7-10 hours to electricity); then
   **electricity in GregTech-style tiers**, quite realistic; **released steam returns as rain**; megaprojects
@@ -69,8 +69,9 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
 ## Open design questions (decide when they become relevant)
 - The tiers themselves: `progression.md` proposes Starter, LV, MV, HV, EV, IV and an exotic tier, with a
   megaproject each; the exotic resource's name and rule.
-- How an ape learns (by doing it once in the world, or a research tree); AI players as the ape's troop.
-- How fast needs drain, and what death costs.
-- What the 8 cube corners hold as landmarks (ADR 0003).
-- Combat and creatures.
+- Decided in ADR 0027: the ape learns by doing and seeing (`journal.md`), Terra has animals and hostile
+  creatures, the 8 cube corners hold something made. What the creatures and the made things are is open
+  (`open-questions.md`).
+- AI players as the ape's troop.
+- How fast needs drain, and what death costs (proposed in `needs.md`); how the ape carries (`items.md`).
 - Magic or wands: dropped for now, may return later.

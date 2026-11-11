@@ -48,12 +48,24 @@ away, as every need is, not a second game).
 | Question | Options | Recommended |
 |---|---|---|
 | **How hands craft** | in the world (place things, strike, pour) / a crafting grid in the inventory / both by age | in the world through the stone age, a workbench surface after; no grid. It is the same rule as learning by seeing. |
-| **What death costs** | drop what you carry where you died and wake at Home / keep everything, wake weak and far / one life | drop and wake at Home, with the body's place marked; the walk back at night is the cost |
 | **How fast needs drain** | per day (drink twice, eat once) / faster / slower | per 20 minute day: thirst twice, food once, so a day's routine exists; tuned in the first playtest |
 | **The AI troop** | other apes who gather and build beside you / only later / never | later: after the starter content, as a use of the bots' protocol |
 | **The exotic resource's rule** | decays unless kept cold / unstable near power / needs constant flow | with the corners' story: decide them together |
 | **How hard pollution and radiation punish** | permanent damage / slow natural recovery | recovery, slow alone and fast with a cleanup factory (progression's proposal) |
 | **Tiers above IV, and what the next planet changes** | – | leave until the moon base exists |
+
+## Opened 2026-11-11 by `items.md`, `needs.md` and `journal.md`
+
+| Question | Options | Recommended |
+|---|---|---|
+| **Where a dug block goes** | straight into the slots / it pops out and is walked over | straight in; only what does not fit lies on the ground |
+| **Worn-out tools** | leave their head as scrap to recast / vanish / never wear | scrap: the cost is the trip to the furnace, and the ledger loses nothing |
+| **Food groups** | none / variety matters | none: depth comes from the chain, not from more bars |
+| **A known entry** | exact numbers / stays vague | exact, from the ape's own try |
+
+Decided the same day (ADR 0043): the ape carries in the hotbar's 9 slots and rows earned by packs; death
+drops a pile and a waypoint where the ape died, and it wakes at its sleeping place with full needs; the
+first night in the open hurts and does not kill; each ape has its own journal.
 
 ## Taste calls waiting inside the world generation plan
 From `worldgen.md`; each stage of `worldgen-plan.md` stops for its own:

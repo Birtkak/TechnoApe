@@ -90,7 +90,8 @@ a night; **The Works** is ingots out of a line over a day with no ape's input co
   megaproject in small.
 
 ## What this needs from the engine, in order
-1. Items and inventories beyond blocks (today the inventory counts block kinds).
+1. Items and inventories beyond blocks (today the inventory counts block kinds): designed in `items.md`,
+   whose piles are the "things lying in the world" of step 3. What the ape has learned: `journal.md`.
 2. The temperature field near fires (the air cell plus local sources) and rooms.
 3. The process runner: things lying in the world (a pot by a fire, a pan in a stream) checked against
    conditions on a slow tick, only where they are.

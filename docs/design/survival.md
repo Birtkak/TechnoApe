@@ -15,5 +15,5 @@ The first, simple version (ADR 0040); both grow deeper later (food, air, tempera
 - **Creative** has neither, and shows no bars: the bars over the hotbar are how survival is told from creative.
 - Until food exists: `/heal`, `/feed [points]`, `/hurt <points>`.
 
-Open: what dying costs once there is something to lose; food, cooking and how hunger feels; whether creative
-flight should ever be hurt.
+Where it grows (thirst, breath, warmth, food as items, what dying costs, and the order to build them):
+`needs.md`, a proposal. Still open there: whether creative flight should ever be hurt (today: no).

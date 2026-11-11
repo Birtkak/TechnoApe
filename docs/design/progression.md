@@ -112,7 +112,7 @@ What each big step is and what it gives you. The last milestone of an age opens 
 | **Fuel and engines** | hydrogen and oxygen, or methane | the jetpack, vehicles, rocket engines |
 | **Pressure suit** | sealed, with air tanks | high altitude and vacuum: the air need in a bottle |
 | **Computer** | guidance and the planet map | satellites; control over distance |
-| **Rocket or launcher** | a chemical rocket, or an electric rail up a mountain (orbit is 102 m/s) | orbit |
+| **Rocket or launcher** | a chemical rocket, or an electric rail up a mountain (orbit is 204 m/s) | orbit |
 | **First moon landing** | you, a suit, a flag | samples of the ores the planet lacks |
 
 ### IV
@@ -123,7 +123,7 @@ What each big step is and what it gives you. The last milestone of an age opens 
 | **Life support loop** | plants, a water recycler | no deliveries needed |
 | **Radiators** | panels that shed heat to space | the limit on every machine and power plant off the planet |
 | **Reactor** | fission: radiation, shielding, waste | steady power without sun |
-| **Mass driver** | an electric rail on Luna (orbit there is 17 m/s) | ore to the planet for almost nothing |
+| **Mass driver** | an electric rail on Luna (orbit there is 18 m/s today, about 72 m/s on the 1 km Luna of ADR 0027) | ore to the planet for almost nothing |
 
 ### Exotic
 
@@ -194,10 +194,9 @@ Where each one bites:
 | Radiation | EV: first orbit, the suit | IV: reactors, a moon without air | IV: shielding, bases under rock, waste stores |
 
 Cost and checks:
-- The grid is small. On the 1 km planet, cells 32 m wide are 48 x 48 per face: about 14,000 columns, a few
-  layers high. It updates about once a second, spread over ticks, for the whole planet whether chunks are
-  awake or not. The 4 km planet has 16 times the area, so the cell size scales with the planet. Target: under
-  0.5 ms of the server tick; a spike measures it before anything is built on it.
+- The grid is small (`air.md`): on Terra, columns 128 m wide are 48 x 48 per face, about 14,000 columns of
+  four layers. It updates about once a second, spread over ticks, for the whole planet whether chunks are
+  awake or not. Target: under 0.5 ms of the server tick; a spike measures it before anything is built on it.
 - Rain becomes blocks of water only where chunks are awake; elsewhere it goes straight into the pond's total.
 - Each has a conservation law for the soak test (`fundamentals.md` 4.8): water at the start = on the planet
   + in the air + in pipes and tanks + used up + shipped away; pollution made = in the air + in water and
@@ -212,9 +211,9 @@ planet.
 - **Water and rock are counted, not fixed.** Water leaves the cycle when you tank it, split it in an
   electrolyser, ship it away or feed it to the refinery. Rain is only what the air and the seas still hold: a
   drained planet is a dry planet, and its weather dies with it.
-- **The size of the job:** Luna is 23 million m³ (190 million blocks), the 1 km planet 5 billion m³ (40
-  billion blocks). A machine taking 1,000 blocks a second needs two days for Luna and 460 days for the
-  planet. So planet eaters take **whole chunks**, and Luna is the first body you can finish.
+- **The size of the job** (1 m blocks, ADR 0033): the 1 km Luna of ADR 0027 is 5 billion blocks, Terra
+  320 billion. A machine taking 1,000 blocks a second needs 58 days for Luna and 10 years for Terra. So
+  planet eaters take **whole chunks**, and Luna is the first body you can finish.
 - **Why you would:** the exotic refinery and the Ark ask for mass on a scale no deposit holds.
 - Engine needs, each its own ADR and spike when the time comes:
   - a save stores "this volume is gone", not 40 billion edits;
@@ -243,20 +242,21 @@ planet.
 - **The planet's air** above: one coarse grid for the whole planet, always running, deterministic, in the
   tick. The temperature field is part of it.
 - **Bulk removal** ("Eating a planet"): coarse volumes in the save, a grid that can go below the crust.
-- **The small planet makes space cheap:** a surface orbit is 102 m/s (204 m/s at 4 km). Throwing something
+- **The small planet makes space cheap:** a surface orbit is 204 m/s on Terra. Throwing something
   into orbit with a steam catapult or an electric rail is physically possible before rockets. Do not design
   against it; players who find it have earned it.
 
 ## The opening (proposal)
-Dawn at a face centre, near water. Thirst comes first, then food. Night arrives after ten minutes: dark and
-cold. Two honest answers: build a fire and a shelter (costs wood and time), or **follow the day**: the sunset
-moves at 5.6 m/s on the 1 km planet, between walking and sprinting, and sprinting costs food and water. Caves
-are warm. Home, the first megaproject, is the moment the ape stops running from the night.
+Dawn at a face centre, near water. Thirst comes first, then food (`needs.md`). Night arrives after ten
+minutes: dark and cold. The honest answers: build a fire and a shelter (costs wood and time), or find a cave,
+which is warm. Following the day is not one: on the 4 km Terra the sunset moves at 22 m/s, and nobody on
+foot keeps up (it was 5.6 m/s on the 1 km planet this was first written for). Home, the first megaproject,
+is the moment the ape stops fearing the night.
 
 ## Open (taste calls for later)
-- **How an ape learns:** unlocks by doing the thing once in the world (rule 2), against a research tree.
+- ~~How an ape learns~~ decided in ADR 0027: by doing and seeing, nothing locked (`journal.md`).
 - **The troop:** AI players as other apes of your troop (gather, build, settle), friends as more apes.
-- How fast needs drain and what death costs.
+- How fast needs drain and what death costs (proposed in `needs.md`).
 - Which ores sit where (faces, depth, corners, moon) and how much: the finite budget.
 - The exotic resource: its name, its raw material, its hard rule.
 - How many tiers sit above IV and what the next planet changes.
