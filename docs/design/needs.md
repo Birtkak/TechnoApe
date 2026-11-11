@@ -46,10 +46,22 @@ days: `open-questions.md`'s "thirst twice, food once", with hunger's built rates
 - Food items have `feeds` (points) and a day they spoil (`items.md`). Raw plants and meat feed little;
   the same thing cooked feeds about twice as much, so fire pays at once.
 - Spoiled food is not gone: it is compost (elements are conserved), which the farm wants.
-- **No food groups or vitamins** (*taste call*): variety would be a list to tick, and pillar 2 asks for
-  decisions. If food needs depth later, it comes from the chain (flour, bread, preserved food for the
-  trip to Luna), not from a second set of bars.
-- Chore to factory: foraging, the cooking fire, the farm with mill and oven, the cold store.
+- **Four food groups** (the developer's call, ADR 0043): **protein** (meat, fish, eggs, nuts, beans),
+  **vegetables and fruit** as one, **dairy**, and **carbohydrates** (grain, roots, bread). A food's row
+  names its group; a cooked dish of several foods counts for each.
+- How they act is a *proposal*, to tune in play:
+  - The body remembers when it last ate of each group. A group is **lit** for two game days after, shown
+    as four small marks beside the hunger bar. No new bars.
+  - **Variety rewards; it does not punish.** One group lit is the plain ape. Each further group lit makes
+    hunger drain a tenth slower and health come back a fifth faster; all four add two points to the top
+    of health. An ape living on berries is never hurt for it, only plain.
+  - The reason for reward only: dairy needs herded animals, which the first hours do not have, and a
+    penalty for a food that cannot yet exist is not a decision.
+- So the groups are the food chain's ladder: forage (vegetables and fruit), the hunt or the snare
+  (protein), the farm, mill and oven (carbohydrates), the herd (dairy). The moon base's life support loop
+  must grow all four, or its apes live plain.
+- Chore to factory: foraging, the cooking fire, the farm with mill and oven, the herd, the cold store, a
+  kitchen line.
 
 ### Warmth
 - The **felt temperature** is `air.md`'s local temperature: the air where the ape stands, plus nearby
@@ -109,9 +121,10 @@ days: `open-questions.md`'s "thirst twice, food once", with hunger's built rates
    nothing new but a fresh-water source near the spawn, which the bake's rivers and lakes give
    (`worldgen-plan.md` W3); until then, rain-fed ponds by hand with `/place`.
 2. **Breath:** under water and above the air. Small, and it gives water its danger.
-3. **Death's cost:** piles (`items.md` step 3), the death waypoint, the sleeping place.
-4. **Food as items:** `feeds` and the spoiling day (`items.md` step 6), plants to forage (the biomes), the
-   cooking fire (the first process of `crafting.md`). Hunger's floor of 1 health goes.
+3. **Death's cost:** piles (`items.md` step 2), the death waypoint, the sleeping place.
+4. **Food as items:** `feeds`, the group and the spoiling day (`items.md` step 6), plants to forage (the
+   biomes), the cooking fire (the first process of `crafting.md`), the four marks. Hunger's floor of 1
+   health goes. Protein waits for animals, dairy for herding (ADR 0027's creatures).
 5. **Warmth, stage one:** the formula, the fire's reach, the roof check, the sign on the HUD, hides.
 6. **Warmth, stage two:** the air grid's temperature and rooms.
 
@@ -122,7 +135,9 @@ days: `open-questions.md`'s "thirst twice, food once", with hunger's built rates
   - an ape that never acts dies of thirst late on the first day (thirst is empty at 800 s, health at
     1,000 s), not sooner;
   - an ape that only drinks lives through the first night hurt, and starves early on the second day;
-  - an ape that drinks, forages and lights a fire reaches the second dawn with full health.
+  - an ape that drinks, forages and lights a fire reaches the second dawn with full health;
+  - an ape fed from all four groups for two days has 22 health at its top and outlasts the plain ape's
+    hunger by the stated share.
   A change to any rate that moves these is a change someone meant.
 - The soak's invariant: no need outside 0..20, a dead ape takes no steps, and water drunk is in the
   water's ledger.

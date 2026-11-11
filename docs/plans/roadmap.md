@@ -81,7 +81,7 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
    `needs.md` (2026-11-11: thirst, breath, warmth, food as items and what death costs, after ADR 0040),
    `journal.md` (2026-11-11: ADR 0027's learning by doing and seeing, on a list of events out of the tick),
    and `open-questions.md`; their four taste calls are ADR 0043. **A build order across the three**, each step small and checked alone: items
-   steps 1-3 (slots, the screen, piles), needs steps 1-3 (thirst, breath, death's cost), the journal's
+   steps 1-3 (slots, piles, the screen), needs steps 1-3 (thirst, breath, death's cost), the journal's
    steps 1-3 (events, `look:` and `have:`, the book); then the process runner of `crafting.md` brings
    tools, food and `do:`/`see:` together. ADR 0027: Luna grows to about 1 km, the ape learns by doing, Terra has
    animals and hostile creatures, the cube corners hold something made.

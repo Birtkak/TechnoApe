@@ -25,7 +25,8 @@ three jobs for everyone else:
 - **Noticed entries are the game's guidance.** The journal opens on the list of open questions, the ones
   that touch a need that is low first (thirsty: the questions about water). There are no quest markers
   and no "next step" arrow: a question is as far as the game pushes.
-- A known entry is **exact** (*taste call*, against entries that stay vague): once the ape has fired a
+- A known entry is **exact** (left to Claude by the developer, ADR 0043; against entries that stay
+  vague): once the ape has fired a
   pot, the entry says the temperature and the time. The mystery is before the first try, not after.
 - **Failures teach too.** Clay fired too cold crumbles, and the entry becomes noticed with a line of what
   went wrong: "The pot fell apart. The fire was not hot enough?" A failed process is an event like a

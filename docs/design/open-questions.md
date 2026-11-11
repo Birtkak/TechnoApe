@@ -58,14 +58,13 @@ away, as every need is, not a second game).
 
 | Question | Options | Recommended |
 |---|---|---|
-| **Where a dug block goes** | straight into the slots / it pops out and is walked over | straight in; only what does not fit lies on the ground |
-| **Worn-out tools** | leave their head as scrap to recast / vanish / never wear | scrap: the cost is the trip to the furnace, and the ledger loses nothing |
-| **Food groups** | none / variety matters | none: depth comes from the chain, not from more bars |
-| **A known entry** | exact numbers / stays vague | exact, from the ape's own try |
+| **What the food groups do** (the four groups are decided) | reward variety only / also punish a group long missed | reward only (`needs.md`): dairy cannot exist in the first hours |
 
 Decided the same day (ADR 0043): the ape carries in the hotbar's 9 slots and rows earned by packs; death
 drops a pile and a waypoint where the ape died, and it wakes at its sleeping place with full needs; the
-first night in the open hurts and does not kill; each ape has its own journal.
+first night in the open hurts and does not kill; each ape has its own journal; a dug block falls to the
+ground and is walked over; a worn-out tool leaves nothing; food has four groups (protein, vegetables and
+fruit, dairy, carbohydrates); a known journal entry is exact.
 
 ## Taste calls waiting inside the world generation plan
 From `worldgen.md`; each stage of `worldgen-plan.md` stops for its own:

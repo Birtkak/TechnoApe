@@ -66,9 +66,10 @@ feel, which the developer chose for digging (ADR 0034).
   - **uses:** from the material's strength. A dig costs one.
 - A tool head is a **form**, so a new metal arrives with its pick, axe and shovel (one row, as its gear
   and wire). A head and a handle make the tool.
-- **A worn-out tool leaves its head as scrap** of the same metal, to melt and cast again (*taste call*,
-  against tools that vanish or never wear). The cost of wear is the trip back to the furnace, the ledger
-  loses nothing, and recycling exists from the first copper axe.
+- **A worn-out tool leaves nothing** (the developer's call, ADR 0043; against a head left as scrap). Its
+  metal is worn away: the body's ledger moves it to a **worn away** row, as the water's has "used up", so
+  the count stays exact. On a finite planet that makes tools a real drain on metal, and a better metal's
+  longer life worth its cost.
 - `data/blocks.toml` gains `tool` and `grade` beside `hardness` and `loose`. A data test: every block
   that is not loose names a tool, and some tool of its grade can be made by its tier (the reachability
   test of `crafting.md`).
@@ -80,9 +81,14 @@ feel, which the developer chose for digging (ADR 0034).
   per cell at most, and it holds up to 4 stacks; a fifth kind dropped there goes to the nearest cell with
   room.
 - Three things make piles: the ape **sets an item down** (right click with it in hand on a block's top),
-  **drops** it (a key), or a dig gives more than the ape can carry (the rest lies where the block was).
-  Dug blocks still go straight to the inventory when there is room, as today: fewer things to simulate
-  and fewer clicks (*taste call*, against Minecraft's blocks that pop out and are walked over).
+  **drops** it (a key), or **digs**: a dug block falls to the ground as a pile where it was (the
+  developer's call, ADR 0043, as in Minecraft; against today's straight into the inventory).
+- **Walking over a pile picks it up**: an ape within 1.5 m of a pile takes what its slots have room for,
+  checked on the server each tick against the few cells around each ape. What does not fit stays. A thing
+  the ape itself set down or dropped waits until the ape has stepped away once, so it is not taken
+  straight back.
+- A dug shape (the build hammer's box of up to 2,048 cells) does not leave a pile a cell: its drops
+  gather into as few piles as hold them, in the shape's cells nearest the ape.
 - **Nothing despawns.** The planet is finite and counted, so a thing that vanishes would be matter lost.
   Piles merge by cell, so their number is bounded by the cells an ape has littered, and a pile nobody
   touches is plain data in its region: it costs nothing in the tick (fundamentals 2.4).
@@ -90,7 +96,7 @@ feel, which the developer chose for digging (ADR 0034).
   open vessels against the conditions at their cell: wet clay pots set down by a fire dry and then fire;
   a pan of gravel set in a stream washes. No second kind of "placed item" is needed until the fine cells
   bring shaped things.
-- A pile falls with the block under it and floats or sinks by its density when water comes (with world
+- A dug block's drop lands on the first floor under its cell. A pile falls with the block under it and floats or sinks by its density when water comes (with world
   physics, ADR 0017; until then it stays where it is and drops when its floor is dug).
 - **Death** makes a pile of what the ape carried (`needs.md`).
 
@@ -114,24 +120,25 @@ feel, which the developer chose for digging (ADR 0034).
 - Sim code visits holders in a fixed order (block entities by their stable id, piles by chunk then cell).
   The state hash covers every slot.
 - Saves: a version bump. An old save's counts load into slots in block id order; what does not fit lies
-  in a pile at the player's feet.
+  in piles at the player's feet.
 
 ## Tests
 - Data alone: every block has its item; ids and names are unique; every tool kind a block names exists;
   a stack size is 1..64.
 - **A conservation law for the soak** (fundamentals 4.8): the count of each item over all apes, piles and
-  containers changes only by a dig, a place, a recipe or a spoiled food, and each of those reports its
-  change. Bots move, split, drop and take stacks at random, some out of reach and some to full slots.
+  containers changes only by a dig, a place, a recipe, a spoiled food or a tool worn away, and each of
+  those reports its change. Bots move, split, drop and take stacks at random, some out of reach and some to full slots.
 - Two answers must agree: the client's predicted slots against the server's after every `Done`.
 - A named worst case for the benchmark: a face littered with 100,000 piles, asleep. It must cost no tick
   time, and a region of them must mesh and draw inside the budget.
 
 ## Order of building
-1. The item registry and slots in place of counts: the hotbar is slots 0-8, digging fills them, the save
-   bumps, bots get `slots`. No new content: the gate's soak hash changes and nothing else.
-2. The screen and `Move`, with prediction.
-3. Piles: set down, drop, overflow, pick up; the conservation check in the soak.
-4. Tools as data: `tool` and `grade` on blocks, speed, uses, scrap. This needs the first recipes
+1. The item registry and slots in place of counts: the hotbar is slots 0-8, digging still fills them,
+   the save bumps, bots get `slots`. No new content: the gate's soak hash changes and nothing else.
+2. Piles: a dig drops, walking over picks up, set down, drop; the conservation check in the soak. The
+   soak's bots dig far more than players do, so this step carries the littered-face benchmark.
+3. The screen and `Move`, with prediction.
+4. Tools as data: `tool` and `grade` on blocks, speed, uses, the worn away row. This needs the first recipes
    (knapping a hand axe), so it lands with `crafting.md`'s process runner.
 5. Containers as block entities, and packs that add rows.
 6. Payloads: food's day, vessels and the bucket.

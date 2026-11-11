@@ -31,11 +31,25 @@ The developer chose the recommendation in all four.
 ## Consequences
 - The inventory moves from counts per block to slots (`items.md` step 1) before any pack exists; until a
   basket can be made, survival has nine slots, so the basket must be an early and short craft.
-- ADR 0040's "the inventory is kept" on respawn ends when piles exist (`items.md` step 3, `needs.md`
+- ADR 0040's "the inventory is kept" on respawn ends when piles exist (`items.md` step 2, `needs.md`
   step 3). A sleeping place becomes a thing to build and claim.
 - Warmth is tuned against one sentence, and a scripted bot's first night is its test (`needs.md`, Tests).
   The air spike's day and night swing answers to it.
 - The journal's state is per player in the save and the state hash; seeing needs events with a place and
   a cause (`journal.md`).
-- Still open (`open-questions.md`): where a dug block goes, what a worn-out tool leaves, food groups, and
-  whether a known entry is exact. The designs carry a recommendation for each as their default.
+
+## Added 2026-11-11: four more calls
+Asked the four smaller questions the designs had left on a recommendation, the developer answered:
+"1: ground 2: nothing 3: Protein, vegetables / fruit together, dairy and carbohydrates and 4 u can
+decide". Three of them go against the recommendation.
+- **A dug block falls to the ground** as a pile and is picked up by walking over it, as in Minecraft
+  (recommended: straight into the slots). Piles therefore come second in `items.md`'s build order, before
+  the inventory screen, and a dug shape gathers its drops into few piles.
+- **A worn-out tool leaves nothing** (recommended: its head as scrap). The metal goes to a "worn away" row
+  of the body's ledger, so tools drain a finite planet's metal.
+- **Food has four groups:** protein, vegetables and fruit together, dairy, carbohydrates (recommended:
+  none). *Claude's reading, not the developer's word:* how they act. `needs.md` proposes four marks beside
+  the hunger bar and a reward for variety with no penalty, since dairy needs herded animals; whether a
+  missing group should ever hurt is open (`open-questions.md`).
+- **A known journal entry is exact**, with the numbers of the ape's own try: left to Claude, who kept the
+  recommendation.
