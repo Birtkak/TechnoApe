@@ -29,6 +29,54 @@ pub(crate) fn parse_acts(s: &str) -> Vec<(f64, String)> {
     v
 }
 
+/// Where the steps the server has not answered take a player from the server's last word on it (ADR 0019).
+pub(crate) fn replay(world: &mut World, server: phys::Player, steps: &VecDeque<(u32, Input)>) -> phys::Player {
+    let mut me = server;
+    for (_, inp) in steps {
+        phys::step_at(world, &mut me, inp, phys::DT);
+    }
+    me
+}
+
+/// The player just after this client predicted an edit: the server takes the steps it has not answered after
+/// the edit, so they are taken again in the edited world now, not when its next word comes as a correction.
+pub(crate) fn after_edit(world: &mut World, server: Option<phys::Player>, steps: &VecDeque<(u32, Input)>, me: phys::Player) -> phys::Player {
+    server.map_or(me, |s| replay(world, s, steps))
+}
+
+#[test]
+fn a_dig_under_the_feet_moves_the_prediction_as_the_server_will() {
+    // the feel run's correction (gate on bd6e422): the server takes the steps it has not answered after the
+    // dig, so they fall; the prediction had them standing until the server's next word said otherwise
+    let mut w = World::new(256, 32, 1337);
+    let b = &w.bodies[0];
+    let feet = b.spawn * (b.height(b.spawn) + 0.6);
+    let up = phys::up(&w, feet);
+    let mut server = phys::Player::at(feet + up * 2.0, phys::tangent(DVec3::X, up, DVec3::Z));
+    for _ in 0..60 {
+        phys::step_at(&mut w, &mut server, &Input::default(), phys::DT);
+    }
+    assert!(server.on_ground);
+    // six steps taken here and not answered yet, standing
+    let steps: VecDeque<(u32, Input)> = (1..=6).map(|k| (k, Input::default())).collect();
+    let me = replay(&mut w, server, &steps);
+    // the ground under the whole body
+    let side = phys::tangent(DVec3::X, up, DVec3::Z);
+    let across = up.cross(side);
+    for (a, c) in [(-1.0, -1.0), (-1.0, 0.0), (-1.0, 1.0), (0.0, -1.0), (0.0, 0.0), (0.0, 1.0), (1.0, -1.0), (1.0, 0.0), (1.0, 1.0)] {
+        let under = w.block_at(me.pos - up * 0.5 + side * (a * 0.6) + across * (c * 0.6));
+        w.set_block(under, AIR);
+    }
+    // the server: the dig, then those six steps
+    let mut truth = server;
+    for (_, inp) in &steps {
+        phys::step_at(&mut w, &mut truth, inp, phys::DT);
+    }
+    assert!(truth.pos.distance(me.pos) > 0.01, "the dig must change those steps");
+    let got = after_edit(&mut w, Some(server), &steps, me);
+    assert!(got.pos.distance(truth.pos) < 1e-9, "the prediction is {:.3} m from the server's", got.pos.distance(truth.pos));
+}
+
 /// The hotbar slot (0 to 8) the wheel turns to from `slot`: on to the next when it turns down, round the end.
 pub(crate) fn wheel_slot(slot: usize, down: bool) -> usize {
     (slot + if down { 1 } else { 8 }) % 9
@@ -821,6 +869,16 @@ impl App {
                 self.clicks.push((self.streamer.frame, Instant::now(), cells));
             }
         }
+        // the player's own edit moves it at once, eased like a correction but not counted as one.
+        // shortcut: steps the server took before the edit came, whose answer is still on its way, are taken
+        // again here as if after it (a one-frame window locally, a round trip remote); an edit that names its
+        // step, applied by the server after that step, closes it
+        let me = after_edit(&mut self.world, self.server_me, &self.steps, self.me);
+        let off = self.me.pos - me.pos;
+        if off.length() > 0.001 && off.length() < 2.0 {
+            (self.smooth, self.prev, self.me) = (self.smooth + off, self.prev - off, me);
+            self.path.clear();
+        }
         self.link.send(ToServer::Edit { seq, shape: *s, material: m });
     }
 
@@ -1168,6 +1226,7 @@ impl App {
     /// where that lands is where this player is. A difference is a correction, drawn eased out unless it is a
     /// jump of metres (a teleport, a respawn). The first answer places the player.
     pub(crate) fn reconcile(&mut self, step: u32, server: phys::Player, t: f64) {
+        self.server_me = Some(server);
         if !self.spawned {
             (self.me, self.prev, self.spawned) = (server, server.pos, true);
             self.steps.retain(|s| s.0 > step);
@@ -1175,14 +1234,7 @@ impl App {
         }
         self.steps.retain(|s| s.0 > step);
         // each step again at the time it was first taken (the server takes it at that time too)
-        let replay = |world: &mut World, steps: &VecDeque<(u32, Input)>| {
-            let mut me = server;
-            for (_, inp) in steps {
-                phys::step_at(world, &mut me, inp, phys::DT);
-            }
-            me
-        };
-        let me = replay(&mut self.world, &self.steps);
+        let me = replay(&mut self.world, server, &self.steps);
         let off = self.me.pos - me.pos;
         if off.length() >= 2.0 {
             // a teleport (/goto, a respawn): the look is the server's, in the frame it lands in, level; the

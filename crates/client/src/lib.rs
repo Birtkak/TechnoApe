@@ -434,6 +434,7 @@ pub fn main() {
         next_step: 1,
         unsent: 1,
         spawned: false,
+        server_me: None,
         smooth: DVec3::ZERO,
         debt: 0.0,
         drift_max: 0.0,

@@ -54,6 +54,8 @@ pub(crate) struct App {
     pub(crate) next_step: u32,
     pub(crate) unsent: u32,
     pub(crate) spawned: bool,
+    /// The server's last word on this player, which `reconcile` and a predicted edit replay from (ADR 0019).
+    pub(crate) server_me: Option<phys::Player>,
     /// What a correction moved the drawn position by; it eases out over CORRECT_S.
     pub(crate) smooth: DVec3,
     /// Seconds the last frame spent after present (stats, loading checks), and when it ended: both land in the
