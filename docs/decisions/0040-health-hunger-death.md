@@ -62,3 +62,11 @@ should cost little or nothing; hitting a surface fast should kill whatever the g
 - The scale (3 m free, 1 point a metre) is Terra's fall in metres, written as a speed; other harm (lava,
   air, vacuum) adds causes to `Vitals::hurt`.
 - Review: not yet reviewed by a fresh reader (to do before merging into main, working principle 12).
+
+## Added 2026-11-11: the developer on the look
+Shown the first bars (ten two-half cells a row, a fuel cell for hunger): "no that is very ugly", then "keep
+the colors and the health symbol but make the hunger symbol a stomach and change the bars", and of three
+drawn bar styles, "B". **Changed:** each is one smooth bar that empties towards its sign (a green cross, an
+orange stomach), with its number at the inner end; the stretch lost flashes, low health pulses with warning
+corners, empty hunger is outlined. Four rows in the playtest menu (F10) show the bars, the warnings, the
+death screen and an impact. The death screen's look has not been judged yet.

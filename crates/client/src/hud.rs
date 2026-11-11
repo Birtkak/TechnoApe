@@ -934,67 +934,62 @@ pub const WARN: [f32; 4] = [1.0, 0.36, 0.26, 1.0];
 /// How long a lost point flashes, seconds.
 pub const FLASH_S: f32 = 0.6;
 
-/// Health and hunger (ADR 0040) as the readout of a suit: two panes of the HUD's glass just over the hotbar,
-/// health on its left half and hunger on its right, ten cells each, a cell's half a point, filled from each
-/// pane's outer end where its sign stands: a cross for health, a fuel cell that empties for hunger. `ages`
-/// is, for each, how long ago it last fell and from what: the points lost since flash for FLASH_S. At 4
-/// points or less health's cells pulse slowly and its corners turn the warning colour; hunger at none is
-/// outlined in it. `t` is the clock the pulse runs on.
+/// Health and hunger (ADR 0040): two panes of the HUD's glass just over the hotbar, health on its left half
+/// and hunger on its right. Each is one smooth bar that empties towards its sign at the pane's outer end (a
+/// cross for health, a stomach for hunger) with its number at the inner end; the developer chose this look
+/// over ten cells a row ("keep the colors and the health symbol but make the hunger symbol a stomach and
+/// change the bars", then look B of three). `ages` is, for each, how long ago it last fell and from what:
+/// the stretch lost flashes for FLASH_S. At 4 points or less health's bar pulses slowly and its corners
+/// turn the warning colour; hunger at none is outlined in it. `t` is the clock the pulse runs on.
 pub fn vitals(p: &mut Paint, (health, hunger): (u8, u8), ages: [(f32, u8); 2], t: f32) {
     let contrast = CONTRAST.load(std::sync::atomic::Ordering::Relaxed);
     let (cx, y0) = (p.w / 2.0, p.h - 52.0 - 22.0 - 10.0 - 8.0 - VITALS_H);
-    // a cell is two halves with a hairline between, the cells well apart: ten segments read as ten
-    let (pw, cell, gap, ch) = (262.0, 16.0, 7.0, 12.0);
+    let (pw, track, bar_h) = (262.0, VITALS_TRACK, 10.0);
     let dark = if contrast { [0.24, 0.28, 0.34, 1.0] } else { [0.10, 0.14, 0.19, 0.9] };
+    let max = engine::vitals::MAX as f32;
     for (k, (value, lit)) in [(health, HEALTH), (hunger, HUNGER)].into_iter().enumerate() {
         let right = k == 1;
         let x = if right { cx + 6.0 } else { cx - 6.0 - pw };
         glass(p, x, y0, pw, VITALS_H);
-        // the cells run from the sign at the outer end towards the middle
-        let at = |i: f32, w: f32| if right { x + pw - 28.0 - i - w } else { x + 28.0 + i };
         let low = !right && value <= 4 && value > 0;
         let pulse = if low { 0.55 + 0.45 * (0.5 + 0.5 * (t * std::f32::consts::TAU / 1.2).sin()) } else { 1.0 };
-        let (age, from) = ages[k];
-        let flash = age < FLASH_S && ((age * 10.0) as u32).is_multiple_of(2);
-        for c in 0..10 {
-            for half in 0..2 {
-                let point = (2 * c + half + 1) as u8;
-                let hx = at(c as f32 * (cell + gap) + half as f32 * 9.0, 7.0);
-                let cy = y0 + (VITALS_H - ch) / 2.0;
-                let colour = if point <= value {
-                    [lit[0], lit[1], lit[2], lit[3] * pulse]
-                } else if flash && point <= from {
-                    [1.0, 1.0, 1.0, 0.95]
-                } else {
-                    dark
-                };
-                p.rect(hx, cy, 7.0, ch, colour, 0);
-                if point <= value {
-                    // a lit cell's light along its top
-                    p.rect(hx, cy, 7.0, 2.0, [1.0, 1.0, 1.0, 0.3 * pulse], 0);
-                }
-            }
+        // the bar runs from the sign at the outer end towards the middle: `along` is a stretch of it
+        let (tx, by) = (if right { x + pw - 30.0 - track } else { x + 30.0 }, y0 + (VITALS_H - bar_h) / 2.0);
+        let along = |from: f32, to: f32| (if right { tx + track * (1.0 - to / max) } else { tx + track * from / max }, track * (to - from) / max);
+        p.rect(tx, by, track, bar_h, dark, 0);
+        if value > 0 {
+            let (bx, bw) = along(0.0, value as f32);
+            p.rect(bx, by, bw, bar_h, [lit[0], lit[1], lit[2], lit[3] * pulse], 0);
+            // its light along the top
+            p.rect(bx, by, bw, 3.0, [1.0, 1.0, 1.0, 0.28 * pulse], 0);
         }
-        // the sign, lit while there is any
-        let (ix, iy) = (if right { x + pw - 20.0 } else { x + 8.0 }, y0 + 6.0);
+        let (age, from) = ages[k];
+        if age < FLASH_S && ((age * 10.0) as u32).is_multiple_of(2) && from > value {
+            let (bx, bw) = along(value as f32, from as f32);
+            p.rect(bx, by, bw, bar_h, [1.0, 1.0, 1.0, 0.95], 0);
+        }
+        // the sign, lit while there is any: 8 x 8 of 2 px
+        let (ix, iy) = (if right { x + pw - 23.0 } else { x + 7.0 }, y0 + 4.0);
         let sign = match (value, right) {
             (0, true) => WARN,
             (0, false) => dark,
             _ => [lit[0], lit[1], lit[2], pulse],
         };
-        if right {
-            // a fuel cell: its walls, its cap, and what is left in it
-            for (dx, dy, w, h) in [(0.0, 1.0, 2.0, 12.0), (8.0, 1.0, 2.0, 12.0), (0.0, 1.0, 10.0, 2.0), (0.0, 11.0, 10.0, 2.0), (3.0, -1.0, 4.0, 2.0)] {
-                p.rect(ix + dx, iy + dy, w, h, sign, 0);
+        for (j, row) in (if right { STOMACH } else { CROSS }).iter().enumerate() {
+            // (each row's lit cells as one rectangle a run)
+            let mut i = 0;
+            while i < 8 {
+                let run = (i..8).take_while(|c| row >> (7 - c) & 1 == 1).count();
+                if run > 0 {
+                    p.rect(ix + i as f32 * 2.0, iy + j as f32 * 2.0, run as f32 * 2.0, 2.0, sign, 0);
+                }
+                i += run.max(1);
             }
-            let fill = 8.0 * value as f32 / engine::vitals::MAX as f32;
-            if fill > 0.0 {
-                p.rect(ix + 2.0, iy + 11.0 - fill, 6.0, fill, sign, 0);
-            }
-        } else {
-            p.rect(ix + 4.0, iy, 4.0, 12.0, sign, 0);
-            p.rect(ix, iy + 4.0, 12.0, 4.0, sign, 0);
         }
+        // its number at the inner end
+        let n = value.to_string();
+        let nx = if right { x + 8.0 } else { x + pw - 8.0 - text_width(&n) };
+        p.text(nx, y0 + 5.0, &n, [1.0, 1.0, 1.0, if value == 0 { 0.6 } else { 0.9 }]);
         let warn = low || (right && value == 0);
         if right && value == 0 {
             for (dx, dy, w, h) in [(0.0, 0.0, pw, 2.0), (0.0, VITALS_H - 2.0, pw, 2.0), (0.0, 0.0, 2.0, VITALS_H), (pw - 2.0, 0.0, 2.0, VITALS_H)] {
@@ -1004,6 +999,11 @@ pub fn vitals(p: &mut Paint, (health, hunger): (u8, u8), ages: [(f32, u8); 2], t
         brackets(p, [x - 3.0, y0 - 3.0, pw + 6.0, VITALS_H + 6.0], 7.0, warn, if warn { WARN } else { CYAN });
     }
 }
+/// How long a full bar is, in pixels.
+pub const VITALS_TRACK: f32 = 178.0;
+/// The signs, a row a byte: a cross, and a stomach (its tube at the top left).
+const CROSS: [u8; 8] = [0b00011000, 0b00011000, 0b00011000, 0b11111111, 0b11111111, 0b00011000, 0b00011000, 0b00011000];
+const STOMACH: [u8; 8] = [0b00110000, 0b00110000, 0b00111110, 0b01111111, 0b11111111, 0b11111111, 0b01111110, 0b00111100];
 
 #[cfg(test)]
 mod tests {
@@ -1011,7 +1011,7 @@ mod tests {
     use engine::edit::Kind;
 
     #[test]
-    fn the_vitals_light_a_half_cell_a_point_and_warn_when_low() {
+    fn the_vitals_are_two_bars_as_long_as_what_is_left_and_warn_when_low() {
         let draw = |v: (u8, u8), ages: [(f32, u8); 2]| {
             let mut p = Paint::new(1280.0, 720.0);
             vitals(&mut p, v, ages, 0.3);
@@ -1019,20 +1019,30 @@ mod tests {
         };
         let old = [(10.0, 0); 2];
         let n = |r: &[Rect], c: [f32; 4]| r.iter().filter(|q| q.colour == c).count();
+        // the longest rectangle of a colour, in pixels: the bar (the signs' runs are 16 px at most)
+        let bar = |r: &[Rect], c: [f32; 4]| r.iter().filter(|q| q.colour == c).map(|q| (q.xy[2] - q.xy[0]) * 640.0).fold(0.0f32, f32::max);
         let r = draw((13, 20), old);
-        // health: 13 lit halves and its cross; hunger: all 20 and its full cell (walls, cap, fill)
-        assert_eq!((n(&r, HEALTH), n(&r, HUNGER)), (13 + 2, 20 + 6));
+        assert!((bar(&r, HEALTH) - VITALS_TRACK * 13.0 / 20.0).abs() < 0.01, "13 of 20: {}", bar(&r, HEALTH));
+        assert!((bar(&r, HUNGER) - VITALS_TRACK).abs() < 0.01, "full: {}", bar(&r, HUNGER));
+        // health's bar starts at its left end, hunger's ends at its right: both empty towards their signs
+        let ends = |c: [f32; 4]| r.iter().filter(|q| q.colour == c).max_by(|a, b| (a.xy[2] - a.xy[0]).total_cmp(&(b.xy[2] - b.xy[0]))).map(|q| q.xy).unwrap();
+        assert!(ends(HEALTH)[0] < 0.0 && ends(HUNGER)[2] > 0.0);
+        // each has its sign (a cross is 8 runs, a stomach 8) and its number
+        assert_eq!((n(&r, HEALTH), n(&r, HUNGER)), (1 + 8, 1 + 8));
+        // (each character is drawn with its shadow)
+        assert_eq!(r.iter().filter(|q| q.glyph != 0).count(), 2 * (2 + 2), "13 and 20");
         assert_eq!(n(&r, WARN), 0, "nothing to warn of");
         assert!(r.iter().all(|q| q.xy.iter().all(|v| (-1.0..=1.0).contains(v))), "on screen");
         // over the hotbar: every rect above its pane (which starts 84 px from the bottom)
         assert!(r.iter().all(|q| (1.0 - q.xy[1]) / 2.0 * 720.0 <= 720.0 - 84.0 + 0.01));
-        // a fall from 20 to 13 flashes the seven points lost, then not
+        // a drop from 20 to 13 flashes the stretch lost, then not
         let white = [1.0, 1.0, 1.0, 0.95];
-        assert_eq!(n(&draw((13, 20), [(0.05, 20), (10.0, 0)]), white), 7);
+        let f = draw((13, 20), [(0.05, 20), (10.0, 0)]);
+        assert!((bar(&f, white) - VITALS_TRACK * 7.0 / 20.0).abs() < 0.01, "{}", bar(&f, white));
         assert_eq!(n(&draw((13, 20), [(FLASH_S + 0.1, 20), (10.0, 0)]), white), 0);
         // health at 4 or less warns at its corners; empty hunger is outlined and its sign turns
         let r = draw((3, 0), old);
-        assert!(n(&r, WARN) >= 4 + 8 + 5 + 8, "{}", n(&r, WARN));
+        assert!(n(&r, WARN) >= 4 + 8 + 4 + 8, "{}", n(&r, WARN));
         assert_eq!(n(&r, HUNGER), 0);
     }
 
