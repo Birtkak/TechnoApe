@@ -562,17 +562,17 @@ impl App {
         if !s.fits(&self.world) {
             return;
         }
-        // what the player sees of it at once: the hand swings and sparks of the block fly (ADR 0030)
-        let seen = if dig { self.aim.map(|a| self.world.block(a.0)) } else { Some(m) };
-        if let Some(d) = seen.and_then(|b| BLOCKS.get(b)) {
-            self.acted = (Instant::now(), d.colour, self.acted.2.wrapping_add(17));
-        }
         if !dig && !self.creative {
             let me = &self.me;
             let need = edit::changes(&self.world, s, m, |c| phys::holds(&self.world, me, c)).len() as u32;
             if need > self.held_count(m) {
                 return;
             }
+        }
+        // what the player sees of it at once: the hand swings and sparks of the block fly (ADR 0030)
+        let seen = if dig { self.aim.map(|a| self.world.block(a.0)) } else { Some(m) };
+        if let Some(d) = seen.and_then(|b| BLOCKS.get(b)) {
+            self.acted = (Instant::now(), d.colour, self.acted.2.wrapping_add(17));
         }
         let me = &self.me;
         let (seq, cells) = self.pred.edit(&mut self.world, s, m, |w, c| phys::holds(w, me, c));
@@ -693,11 +693,14 @@ impl App {
                 if let (Some(base), Some(top)) = (screen(w.rel - rel), screen(w.rel + w.rel.normalize() * rise - rel)) {
                     // a beam that would run up past the compass ends under it, its tag there
                     let roof = label_y + 96.0; // under the looked-at label too
-                    let top = if top.1 < roof && base.1 > roof {
+                    let (base, top) = if top.1 >= roof {
+                        (base, top)
+                    } else if base.1 > roof {
                         let t = (base.1 - roof) / (base.1 - top.1);
-                        (base.0 + (top.0 - base.0) * t, roof)
+                        (base, (base.0 + (top.0 - base.0) * t, roof))
                     } else {
-                        top
+                        // its foot is up there too: no beam, the tag where the foot points
+                        ((base.0, roof), (base.0, roof))
                     };
                     if top.0 > -200.0 && top.0 < lw + 200.0 && top.1 >= roof - 0.5 && top.1 < lh + 100.0 {
                         let far = if far >= 1000.0 { format!("{:.1} km", far / 1000.0) } else { format!("{far:.0} m") };
@@ -723,7 +726,7 @@ impl App {
         // the block in hand, large at the lower right, dipping when it digs or places; and the sparks
         let since = self.acted.0.elapsed().as_secs_f32();
         if !title {
-            if let (Some(d), false) = (self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)), self.hammer || self.bucket) {
+            if let (Some(d), false) = (self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)), self.hammer || self.bucket || self.f3 || lw < 1100.0) {
                 let swing = if since < 0.18 { (since / 0.18 * std::f32::consts::PI).sin() } else { 0.0 };
                 let side = BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
                 let (x, y) = (lw - 250.0 - 46.0 * swing, lh - 236.0 + 60.0 * swing);
@@ -731,10 +734,10 @@ impl App {
             }
             hud::sparks(&mut paint, since, self.acted.1, self.acted.2);
         }
-        if self.flying {
+        if self.flying && !title {
             let s = format!("Flying {:.0} m/s", self.fly_speed);
-            // right of the hotbar (hud::layer: nine 44 px slots 6 px apart), clear of the chat
-            paint.text(lw / 2.0 + 222.0 + 16.0, lh - 46.0, &s, [1.0, 1.0, 1.0, 0.9]);
+            // over the hotbar's right end (hud::layer: its pane ends 268 px right of the middle)
+            paint.text_px(lw / 2.0 + 268.0 - s.len() as f32 * hud::ADV * hud::PX * 0.75, lh - 110.0, &s, [1.0, 1.0, 1.0, 0.9], hud::PX * 0.75);
         }
         if let Some(m) = self.menu {
             let (title, hint) = match m {

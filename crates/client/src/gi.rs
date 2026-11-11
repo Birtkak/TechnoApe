@@ -22,7 +22,7 @@ struct Post {
     /// The fill light when the bounce is off (rgb) and the screen's brightness (the settings').
     tune: [f32; 4],
     /// The air between the camera and what it sees: its colour at the horizon (rgb) and how fast the ground
-    /// fades into it, per metre (w); and the sky's own light on every surface, shadows too (rgb).
+    /// fades into it, per metre (w); and how much stronger the bounce is drawn (x), the camera's body (w).
     air: [f32; 4],
     amb: [f32; 4],
 }

@@ -69,6 +69,8 @@ pub(crate) fn ago(secs: u64) -> String {
 
 /// What a world of the list is: its seed, its planet's size and when it was last played. A save this build
 /// cannot read says so, and is still listed.
+/// shortcut: reads the whole save for two numbers, on the frame thread, when the page opens; a header of
+/// its own in the save format when saves grow past a few megabytes.
 pub(crate) fn world_note(path: &str) -> String {
     let played = std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).map_or(String::new(), |d| format!(", played {}", ago(d.as_secs())));
     match server::save::Save::read(std::path::Path::new(path)) {

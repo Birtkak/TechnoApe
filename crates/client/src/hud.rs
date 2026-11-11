@@ -26,8 +26,9 @@ pub struct Rect {
 
 /// The most ghost vertices: every edge of every cell of the largest shape.
 pub const GHOST_MAX: usize = engine::edit::MAX_CELLS as usize * 24;
-/// Enough for the F3 overlay and a full chat: two rectangles (shadow and face) a character.
-pub const RECTS_MAX: usize = 8192;
+/// Enough for F3, a full chat being typed, the hotbar's and the hand's cubes (192 rectangles each) and
+/// sixteen waypoints together: about 11,000 at the most, two rectangles (shadow and face) a character.
+pub const RECTS_MAX: usize = 16384;
 
 /// The game's own font (data/font.txt): 8 x 8 cells from ' ' to '~', a byte a row from the top, the
 /// leftmost pixel the lowest bit. Errors name what is wrong with the file.

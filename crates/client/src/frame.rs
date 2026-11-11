@@ -424,13 +424,14 @@ impl App {
         // the bounce light on or off (off: a flat fill from the sky), and the screen's brightness
         let fill = sky_c * 0.35 + Vec3::splat(0.01);
         // the air: the horizon's colour (as `sky_colour` in shader.wgsl makes it) for far ground to fade
-        // into, a third of the way by 1 km, and the sky's own light in the shadows
-        let (haze, amb) = (sky_c + Vec3::new(0.55, 0.60, 0.62) * day * air * 0.45, sky_c * 0.14);
+        // into, a third of the way by 1 km; and the bounce drawn half again as strong in the air, so a
+        // shadow under the open sky keeps its colour while a cave stays dark
+        let haze = sky_c + Vec3::new(0.55, 0.60, 0.62) * day * air * 0.45;
         let tune = (
             self.settings.on(S::Bounce),
             [fill.x, fill.y, fill.z, self.settings.get(S::Brightness) as f32],
             [haze.x, haze.y, haze.z, air / 2500.0],
-            [amb.x, amb.y, amb.z, 0.0],
+            [0.5 * air, 0.0, 0.0, cf as f32],
         );
         // the sunlight through the air: the longer its way through it (the lower the sun), the more blue and
         // green it loses; at noon as it was, in space white (shader.wgsl sun_tint is the same)
