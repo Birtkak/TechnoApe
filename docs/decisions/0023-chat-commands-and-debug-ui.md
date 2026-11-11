@@ -67,7 +67,8 @@ having been there. The HUD so far drew rectangles and a 3 x 5 digit font only.
   clock) and Back. Picking one closes this world (the local server saves as it stops) and starts the game
   again as `run=play onscreen=1 save=<file>`; the pause menu's Main menu goes back to the title the same
   way. A fresh process per world, so no state of the old world (chunks, traced builds, the prediction)
-  has to be torn down by hand; the cost is the window closing and opening again.
+  has to be torn down by hand; the cost was the window closing and opening again (ADR 0038 A: the old
+  window now stays until the new one has drawn).
 - **F3:** two columns of the client's state: build, frame and GPU times, position on the body, the block at
   the feet and the aimed one, the clock, the sun and moon, mode and tool, chunks, quads, lamps, players;
   the GPU, backend, RAM and VRAM, workers, seed and sizes, server, save and recording.

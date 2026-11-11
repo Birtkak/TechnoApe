@@ -525,10 +525,15 @@ fn main() {
     }
     // a world picked in the menu, or back to the title: the game again, once the old save is written
     if let Some(next) = app.next.take() {
-        drop(app);
+        // this window stays up until the next one has drawn, so the desktop never shows between them (ADR 0038)
+        let shown = std::env::temp_dir().join(format!("technoape-shown-{}", std::process::id()));
         let exe = std::env::current_exe().expect("the game's own path");
-        if let Err(e) = std::process::Command::new(exe).args(&next).spawn() {
-            eprintln!("[technoape] could not start again with {next:?}: {e}");
+        match std::process::Command::new(exe).args(&next).arg(format!("shown={}", shown.display())).spawn() {
+            Ok(_) => {
+                sys::wait_shown(&shown, Duration::from_secs(5));
+            }
+            Err(e) => eprintln!("[technoape] could not start again with {next:?}: {e}"),
         }
+        drop(app);
     }
 }
