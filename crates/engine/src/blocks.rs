@@ -14,6 +14,44 @@ pub enum Pattern {
     Plain = 0,
     Grass = 1,
     Stone = 2,
+    Pebbles = 3,
+    Speckle = 4,
+    Frame = 5,
+    Weave = 6,
+    Planks = 7,
+    Tiles = 8,
+    Bricks = 9,
+    Rings = 10,
+}
+
+impl Pattern {
+    /// A pattern with parts' default `size` and `amount` (tools/review/workbench.html `PATTERNS[..].def`);
+    /// plain, grass and stone take neither.
+    pub fn defaults(self) -> Option<(u8, f32)> {
+        use Pattern::*;
+        match self {
+            Plain | Grass | Stone => None,
+            Pebbles => Some((1, 0.5)),
+            Speckle => Some((5, 0.6)),
+            Frame => Some((2, 0.8)),
+            Weave => Some((4, 0.35)),
+            Planks => Some((4, 0.5)),
+            Tiles => Some((8, 0.3)),
+            Bricks => Some((4, 0.5)),
+            Rings => Some((2, 0.5)),
+        }
+    }
+}
+
+/// The page's `darker` and `lighter`, rounded to two places as it writes them.
+fn two_places(v: f32) -> f32 {
+    ((v as f64 * 100.0).round() / 100.0) as f32
+}
+fn darker(c: [f32; 3]) -> [f32; 3] {
+    c.map(|v| two_places(v * 0.55))
+}
+fn lighter(c: [f32; 3]) -> [f32; 3] {
+    c.map(|v| two_places((v * 1.25 + 0.2).min(1.0)))
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -27,6 +65,12 @@ struct Raw {
     colour: [f32; 3],
     #[serde(default)]
     pattern: Pattern,
+    colour2: Option<[f32; 3]>,
+    colour3: Option<[f32; 3]>,
+    size: Option<u8>,
+    amount: Option<f32>,
+    #[serde(default = "one")]
+    contrast: f32,
     side: Option<String>,
     #[serde(default)]
     light: [f32; 3],
@@ -39,6 +83,9 @@ struct Raw {
 }
 fn stone() -> String {
     "stone".into()
+}
+fn one() -> f32 {
+    1.0
 }
 fn yes() -> bool {
     true
@@ -60,7 +107,16 @@ pub struct Def {
     pub solid: bool,
     pub colour: [f32; 3],
     pub pattern: Pattern,
-    /// The block whose look a grass block's sides take.
+    /// A pattern's second and third parts (ADR 0039); default a darker and a lighter `colour`.
+    pub colour2: [f32; 3],
+    pub colour3: [f32; 3],
+    /// A pattern's scale in texels, 1..8, and how much of its parts it shows, 0..1; 0 for plain, grass, stone.
+    pub size: u8,
+    pub amount: f32,
+    /// How strong the three tones of grain are, 0..2; 1 is the look before ADR 0039.
+    pub contrast: f32,
+    /// The block whose look its four sides and foot take: a grass block's under its fringe, any other's
+    /// wholly. Its own id when it names none.
     pub side: u8,
     /// The light it gives (ADR 0022), as a colour times its strength; zero for most blocks.
     pub light: [f32; 3],
@@ -80,7 +136,8 @@ pub struct Registry {
 
 impl Registry {
     /// Reads and checks a registry: 0 is a non-solid "air", ids and names are unique, every `side` exists,
-    /// colours lie in 0..1.
+    /// colours lie in 0..1, `size`, `amount` and `contrast` in their ranges. `hash` covers the whole text,
+    /// so a client and a server whose looks differ in any field refuse each other.
     pub fn parse(text: &str) -> Result<Registry, String> {
         let f: File = toml::from_str(text).map_err(|e| e.to_string())?;
         let mut defs: Vec<Option<Def>> = vec![None; 256];
@@ -100,11 +157,32 @@ impl Registry {
             if !(0.0..=1.0).contains(&r.metal) {
                 return Err(format!("block '{}': metal outside 0..1", r.name));
             }
+            for (c, what) in [(r.colour2, "colour2"), (r.colour3, "colour3")] {
+                if c.is_some_and(|c| c.iter().any(|c| !(0.0..=1.0).contains(c))) {
+                    return Err(format!("block '{}': {what} outside 0..1", r.name));
+                }
+            }
+            if !(0.0..=2.0).contains(&r.contrast) {
+                return Err(format!("block '{}': contrast outside 0..2", r.name));
+            }
+            let (size, amount) = match r.pattern.defaults() {
+                None if r.size.is_some() || r.amount.is_some() => {
+                    return Err(format!("block '{}': pattern {:?} takes no size or amount", r.name, r.pattern));
+                }
+                None => (0, 0.0),
+                Some((s, a)) => (r.size.unwrap_or(s), r.amount.unwrap_or(a)),
+            };
+            if r.pattern.defaults().is_some() && !(1..=8).contains(&size) {
+                return Err(format!("block '{}': size outside 1..8 texels", r.name));
+            }
+            if !(0.0..=1.0).contains(&amount) {
+                return Err(format!("block '{}': amount outside 0..1", r.name));
+            }
             let side = match &r.side {
                 None => r.id,
                 Some(s) => f.block.iter().find(|o| &o.name == s).ok_or(format!("block '{}': no block '{s}' for its side", r.name))?.id,
             };
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone() });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone() });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}
@@ -161,8 +239,47 @@ mod tests {
             (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 3\n"), "unknown field"),
             (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nlight = [5.0, 0, 0]\n"), "light"),
             (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nmetal = 1.5\n"), "metal"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\npattern = \"bricks\"\nsize = 0\n"), "size 0"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\npattern = \"bricks\"\nsize = 9\n"), "size 9"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\npattern = \"tiles\"\namount = 1.2\n"), "amount"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\ncontrast = 2.5\n"), "contrast"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\ncolour2 = [0, -1, 0]\n"), "colour2"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\ncolour3 = [0, 1.5, 0]\n"), "colour3"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nsize = 4\n"), "size on plain"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\npattern = \"stone\"\namount = 0.5\n"), "amount on stone"),
+            (&format!("{air}[[block]]\nid = 1\nname = \"x\"\npattern = \"marble\"\n"), "unknown pattern"),
         ] {
             assert!(Registry::parse(bad).is_err(), "{why}");
         }
+    }
+
+    #[test]
+    fn every_pattern_with_parts_parses_with_the_pages_defaults() {
+        // the defaults are tools/review/workbench.html `PATTERNS[..].def`, `darker` and `lighter`
+        let mut text = String::from("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n");
+        let all = [
+            ("pebbles", 1, 0.5),
+            ("speckle", 5, 0.6),
+            ("frame", 2, 0.8),
+            ("weave", 4, 0.35),
+            ("planks", 4, 0.5),
+            ("tiles", 8, 0.3),
+            ("bricks", 4, 0.5),
+            ("rings", 2, 0.5),
+        ];
+        for (i, (p, _, _)) in all.iter().enumerate() {
+            text += &format!("[[block]]\nid = {}\nname = \"{p}\"\npattern = \"{p}\"\ncolour = [0.6, 0.4, 0.8]\n", i + 1);
+        }
+        text += "[[block]]\nid = 20\nname = \"set\"\npattern = \"bricks\"\ncolour2 = [0.1, 0.2, 0.3]\ncolour3 = [0.9, 0.8, 0.7]\nsize = 8\namount = 1.0\ncontrast = 0.0\nside = \"rings\"\n";
+        let r = Registry::parse(&text).unwrap();
+        for (i, (p, size, amount)) in all.iter().enumerate() {
+            let d = r.get(i as u8 + 1).unwrap();
+            assert_eq!((d.pattern as u8, d.size, d.amount, d.contrast), (i as u8 + 3, *size, *amount, 1.0), "{p}");
+            assert_eq!(d.colour2, [0.33, 0.22, 0.44], "{p}: darker");
+            assert_eq!(d.colour3, [0.95, 0.7, 1.0], "{p}: lighter");
+        }
+        let d = r.get(20).unwrap();
+        assert_eq!((d.colour2, d.colour3, d.size, d.amount, d.contrast), ([0.1, 0.2, 0.3], [0.9, 0.8, 0.7], 8, 1.0, 0.0));
+        assert_eq!(d.side, r.id("rings"), "any block may take another's look on its sides");
     }
 }
