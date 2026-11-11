@@ -162,10 +162,10 @@ pub fn complete(line: &str) -> (usize, Vec<String>) {
     let words: Vec<String> = rest.split(' ').filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
     let typed = if rest.ends_with(' ') || rest.is_empty() { 0 } else { 1 };
     let before = &words[..words.len() - typed];
-    // a block's name has spaces: after /give everything typed is one name
+    // a block's name has spaces: after /give and /place everything typed is one name
     let (at, options): (usize, Vec<String>) = match before.first().map(String::as_str) {
-        Some("give") => {
-            // "give" is a whole word, so a space follows it
+        Some("give" | "place") => {
+            // the command is a whole word, so a space follows it
             let at = line.len() - rest[rest.find(' ').unwrap_or(0)..].trim_start().len();
             (at, crate::blocks::BLOCKS.placeable().map(|d| d.name.clone()).collect())
         }
@@ -174,7 +174,7 @@ pub fn complete(line: &str) -> (usize, Vec<String>) {
             let names: Vec<String> = crate::bodies::BODIES.iter().flat_map(|r| std::iter::once(r.name.to_lowercase()).chain(r.words.clone())).collect();
             let places: Vec<&str> = names.iter().map(String::as_str).chain(["sun"]).collect();
             let words: &[&str] = match (first, before.get(1).map(String::as_str), before.len()) {
-                (None, _, _) => &["time", "playmode", "give", "goto", "timewarp", "help"],
+                (None, _, _) => &["time", "playmode", "give", "place", "goto", "timewarp", "help"],
                 (Some("timewarp" | "warp"), None, 1) => &["1", "10", "100", "1000", "10000", "up", "down"],
                 (Some("time"), None, 1) => &["set", "add"],
                 (Some("time"), Some("set"), 2) => &["sunrise", "day", "noon", "sunset", "night", "midnight"],
@@ -215,14 +215,14 @@ mod tests {
     #[test]
     fn commands_complete() {
         let c = |l: &str| complete(l);
-        assert_eq!(c("/"), (1, vec!["time".into(), "playmode".into(), "give".into(), "goto".into(), "timewarp".into(), "help".into()]));
+        assert_eq!(c("/"), (1, vec!["time".into(), "playmode".into(), "give".into(), "place".into(), "goto".into(), "timewarp".into(), "help".into()]));
         assert_eq!(c("/g"), (1, vec!["give".to_string(), "goto".to_string()]));
         assert_eq!(c("/time "), (6, vec!["set".to_string(), "add".to_string()]));
         assert_eq!(c("/time set N"), (10, vec!["noon".to_string(), "night".to_string()]));
         assert_eq!(c("/PlayMode c"), (10, vec!["creative".to_string()]));
-        assert_eq!(c("/goto moon "), (11, vec![]));
+        assert_eq!(c("/goto luna "), (11, vec![]));
         let s = |v: &[&str]| v.iter().map(|w| w.to_string()).collect::<Vec<_>>();
-        assert_eq!(c("/goto "), (6, s(&["terra", "planet", "home", "spawn", "luna", "moon", "sun"])));
+        assert_eq!(c("/goto "), (6, s(&["terra", "home", "spawn", "luna", "sun"])));
         assert_eq!(c("/goto L"), (6, s(&["luna"])));
         assert_eq!(c("/goto t"), (6, s(&["terra"])));
         assert_eq!(c("hello"), (5, vec![]));
@@ -230,6 +230,8 @@ mod tests {
         let (at, v) = c("/give blue l");
         assert_eq!((at, v), (6, vec!["blue lamp".to_string()]));
         assert_eq!(c("/give stone 5").1, Vec::<String>::new());
+        assert_eq!(c("/place blue l"), (7, vec!["blue lamp".to_string()]));
+        assert_eq!(c("/p"), (1, vec!["playmode".to_string(), "place".to_string()]));
         // the completion put in place completes nothing more
         let (at, v) = c("/time set no");
         assert_eq!(format!("{}{}", &"/time set no"[..at], v[0]), "/time set noon");

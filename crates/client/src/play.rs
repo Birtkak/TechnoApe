@@ -9,6 +9,18 @@ pub(crate) fn parse_acts(s: &str) -> Vec<(f64, String)> {
     v
 }
 
+/// The hotbar slot (0 to 8) the wheel turns to from `slot`: on to the next when it turns down, round the end.
+pub(crate) fn wheel_slot(slot: usize, down: bool) -> usize {
+    (slot + if down { 1 } else { 8 }) % 9
+}
+
+#[test]
+fn the_wheel_steps_through_the_hotbar_round_its_ends() {
+    // bugs/2026-11-11_13-14-13
+    assert_eq!((wheel_slot(0, true), wheel_slot(4, true), wheel_slot(8, true)), (1, 5, 0));
+    assert_eq!((wheel_slot(0, false), wheel_slot(5, false)), (8, 4));
+}
+
 impl App {
     /// One input of run=play's building, from the keyboard and mouse or from acts=: L/R press and l/r release
     /// the dig and place buttons, h takes up or puts away the build hammer, b the bucket, q cycles its box, cylinder and
@@ -62,7 +74,7 @@ impl App {
                     let rel = at - w.bodies[body].centre;
                     let name = nav::next_name(&self.waypoints);
                     let line = format!("{name} at {} on {}", nav::geo_text(nav::geo(rel, self.meridian(body))), w.bodies[body].name);
-                    self.waypoints.push(nav::Waypoint { name, body, rel });
+                    self.waypoints.push(nav::Waypoint::new(name, body, rel, self.waypoints.len()));
                     self.note(line);
                     self.save_waypoints();
                 }
@@ -98,14 +110,29 @@ impl App {
                     self.bind_event(b, a.starts_with("key+"), true);
                 }
             }
-            // the wheel: the flight speed while flying, unless the hammer holds a shape with a height
-            "up" | "down" if self.flying && !(self.hammer && self.tool.kind != Kind::Box) => {
+            // the wheel (bugs/2026-11-11_13-14-13): a cylinder's or cone's height while the hammer holds one,
+            // else the flight speed while flying, else the hotbar's slot as the number keys pick it
+            "up" | "down" if self.hammer && self.tool.kind != Kind::Box => {
+                self.tool.height = (self.tool.height + if a == "up" { 1 } else { -1 }).clamp(1, edit::MAX_SIDE);
+            }
+            "up" | "down" if self.flying => {
                 let f = if a == "up" { 1.25 } else { 1.0 / 1.25 };
                 self.fly_speed = (self.fly_speed * f).clamp(1.0, phys::FLY_MAX);
             }
-            "up" | "down" => {
-                self.tool.height = (self.tool.height + if a == "up" { 1 } else { -1 }).clamp(1, edit::MAX_SIDE);
+            "up" | "down" => self.act(&(wheel_slot(self.slot, a == "down") + 1).to_string()),
+            // the waypoints' marks on and off (bugs/2026-11-11_13-16-39), kept in the settings
+            "waypoints" => {
+                let on = !self.settings.on(S::Marks);
+                self.settings.set(S::Marks, on as u8 as f64);
+                self.save_settings();
+                self.note(if on { "waypoints shown".into() } else { "waypoints hidden".into() });
             }
+            // F10: the playtest menu, opened or closed (bugs/2026-11-11_13-12-42)
+            "f10" if !self.texting() => self.set_menu(match self.menu {
+                None => Some(Menu::Playtest),
+                Some(Menu::Playtest) => None,
+                m => m,
+            }),
             // space twice within FLY_TAP seconds takes off or lands (creative, ADR 0023)
             "space" => {
                 let now = Instant::now();
@@ -150,6 +177,8 @@ impl App {
                 Some(Menu::Title | Menu::Worlds) => Some(Menu::Title),
                 Some(Menu::Remove(_)) => Some(Menu::Worlds),
                 Some(Menu::Waypoints) => Some(Menu::Pause),
+                Some(Menu::Waypoint(_)) => Some(Menu::Waypoints),
+                Some(Menu::Playtest) => None,
             }),
             // point:x:y puts the pointer there (pixels), to see a button lit
             a if a.starts_with("point:") => {
@@ -207,12 +236,15 @@ impl App {
                     t.pop();
                 }
                 self.pick = Some(0);
+                self.follow_search();
             }
-            // a slider's number takes digits and a point only
+            // a slider's number takes digits and a point only; the keys' search and a waypoint's name take words
             a if a.starts_with("type:") && self.edit.is_some() => {
+                let words = matches!(self.menu, Some(Menu::Waypoint(_))) || self.page_row(0) == Some(Row::Search);
                 let t = &mut self.edit.as_mut().unwrap().1;
-                let room = 6usize.saturating_sub(t.len());
-                t.extend(a[5..].chars().filter(|c| c.is_ascii_digit() || *c == '.').take(room));
+                let room = (if words { 32usize } else { 6 }).saturating_sub(t.chars().count());
+                t.extend(a[5..].chars().filter(|c| if words { !c.is_control() } else { c.is_ascii_digit() || *c == '.' }).take(room));
+                self.follow_search();
             }
             a if a.starts_with("type:") => {
                 if let Some(t) = self.typing.as_mut().or(self.bug.as_mut()) {
@@ -235,6 +267,56 @@ impl App {
                 }
             }
         }
+    }
+
+    /// While the keys' search is typed into, the rows under it follow each key.
+    fn follow_search(&mut self) {
+        if let (Some((_, t)), Some(Row::Search)) = (&self.edit, self.page_row(0)) {
+            self.key_query = t.clone();
+            (self.sel, self.scroll) = (None, 0);
+        }
+    }
+
+    /// F10's eclipses (bugs/2026-11-11_13-12-42): the clock to the next one the sky's functions show, the
+    /// player where it is seen best, and a line saying where to look. Luna's shadow on Terra: where its middle
+    /// meets the ground, 20 s before, so it comes over; Luna in Terra's shadow: under Luna, at that moment.
+    pub(crate) fn eclipse(&mut self, lunar: bool) {
+        let sky = self.world.sky;
+        let Some(t) = nav::next_eclipse(&sky, self.world.time, lunar) else {
+            self.note("no eclipse in the sky's whole cycle: Luna's orbit never lines up".into());
+            return;
+        };
+        let (bodies, pose) = (self.world.bodies.clone(), sky.planet(t));
+        let b = &bodies[0];
+        // the shadow's middle on the ground: on the sea-level sphere first, then again at the ground's height there
+        let on_ground = |r: f64| nav::shadow_at(&sky, t, r);
+        let x = if lunar {
+            Some(sky.moon(t).centre - pose.centre)
+        } else {
+            on_ground(b.radius).and_then(|x| on_ground(b.top(pose.rot.inverse() * x.normalize())))
+        };
+        let Some(x) = x else {
+            self.note("the next eclipse's shadow misses Terra".into());
+            return;
+        };
+        let d = pose.rot.inverse() * x.normalize();
+        // over the ground and over the sea; a creative player hovers there
+        let feet = b.centre + d * ((b.stand_point(d) - b.centre).length().max(b.top(d) + 0.6));
+        let eye = pose.to_inertial(b.centre, feet + d * 1.7);
+        let target = if lunar { sky.moon(t).centre } else { sky.sun(t) };
+        let look = pose.rot.inverse() * (target - eye).normalize();
+        let (up_deg, bearing) = (look.dot(d).clamp(-1.0, 1.0).asin().to_degrees(), nav::bearing(d, look));
+        let lead = if lunar { 0.0 } else { 20.0 };
+        let what = if lunar {
+            format!("Luna in Terra's shadow ({:.0}% of Sol hidden from it)", sky.covered(t, sky.moon(t).centre, pose.centre, sky.planet_radius) * 100.0)
+        } else {
+            format!("Luna over Sol in {lead:.0} s ({:.0}% hidden here)", sky.eclipse(t, eye) * 100.0)
+        };
+        let line = format!("{what}: look {up_deg:.0} degrees up, bearing {bearing:.0}, from {}", nav::geo_text(nav::geo(d, self.meridian(0))));
+        self.link.send(ToServer::Chat(format!("/time set {:.2}", t - lead)));
+        self.link.send(ToServer::Move { pos: feet.to_array(), fwd: look.as_vec3().to_array(), pitch: 0.0 });
+        self.flying |= self.creative;
+        self.note(line);
     }
 
     /// The completions of the command being typed.
@@ -268,6 +350,16 @@ impl App {
 
     /// Enter: the chat's line goes to the server (it runs the commands), the bug report to bugs/.
     pub(crate) fn submit(&mut self) {
+        if let (Some((_, t)), Some(Menu::Waypoint(j))) = (&self.edit, self.menu) {
+            // a waypoint's new name; an empty one keeps the old
+            let name = t.trim().to_string();
+            self.edit = None;
+            if let Some(w) = self.waypoints.get_mut(j).filter(|_| !name.is_empty()) {
+                w.name = name;
+                self.save_waypoints();
+            }
+            return;
+        }
         if let Some((k, t)) = self.edit.take() {
             if let (Ok(v), Some(Row::Set(s))) = (t.parse::<f64>(), self.page_row(k)) {
                 let before = self.settings.clone();
@@ -681,33 +773,48 @@ impl App {
         let mut label_y = 10.0;
         let (eye, fwd) = (p.pos, p.fwd);
         let on = self.world.frame_at(eye);
-        if self.creative && !title && self.menu.is_none() && !self.f3 && on != engine::world::INERTIAL {
-            let b = &self.world.bodies[on];
-            let rel = eye - b.centre;
-            let up = rel.normalize();
-            let here: Vec<(usize, &nav::Waypoint)> = self.waypoints.iter().enumerate().filter(|w| w.1.body == on).collect();
-            let marks: Vec<(f64, [f32; 3])> = here.iter().map(|(k, w)| (nav::bearing(up, w.rel - rel), nav::COLOURS[k % nav::COLOURS.len()])).collect();
-            let heading = nav::bearing(up, fwd);
-            let text = format!("{}  {}  {:.0} m up", b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius);
-            label_y = hud::compass(&mut paint, heading, &marks, &text) + 10.0;
+        if self.creative && !title && self.menu.is_none() && !self.f3 {
+            // each waypoint where it is now in the camera's frame (it may be on another body, or this one in
+            // space), and its up there; those its view lets show from here, unless the marks are switched off
+            let wd = &self.world;
+            let here: Vec<(&nav::Waypoint, DVec3, DVec3)> = self
+                .waypoints
+                .iter()
+                .filter(|p| p.body < wd.bodies.len() && self.settings.on(S::Marks))
+                .map(|p| {
+                    let (rot, off) = wd.place(p.body, on);
+                    (p, rot * p.rel + off, rot * p.rel.normalize())
+                })
+                .filter(|(p, at, _)| p.shown(on, at.distance(eye)))
+                .collect();
+            let colour = |p: &nav::Waypoint| nav::COLOURS[p.colour % nav::COLOURS.len()];
+            if on != engine::world::INERTIAL {
+                let b = &wd.bodies[on];
+                let rel = eye - b.centre;
+                let up = rel.normalize();
+                let marks: Vec<(f64, [f32; 3], usize)> = here.iter().map(|(p, at, _)| (nav::bearing(up, *at - eye), colour(p), p.icon)).collect();
+                let heading = nav::bearing(up, fwd);
+                let text = format!("{}  {}  {:.0} m up", b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius);
+                label_y = hud::compass(&mut paint, heading, &marks, &text) + 10.0;
+            }
             // this frame's view, as `frame` makes it after this: from the camera, the up kept off the look
             let cam_up = if fwd.cross(p.up).length() < 1e-4 { DVec3::Z } else { p.up };
             let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse((self.fov() as f32).to_radians(), w() as f32 / h() as f32, 0.1);
             let vp = proj * glam::camera::rh::view::look_to_mat4(Vec3::ZERO, fwd.as_vec3(), cam_up.as_vec3());
             // 4. the nearest sixteen are drawn: more would crowd the view and the HUD's room for rectangles
             let mut here = here;
-            here.sort_by(|a, b| (a.1.rel - rel).length_squared().total_cmp(&(b.1.rel - rel).length_squared()));
+            here.sort_by(|a, b| a.1.distance_squared(eye).total_cmp(&b.1.distance_squared(eye)));
             here.truncate(16);
-            for (k, w) in here {
+            for (w, at, up) in here {
                 // a beam from where it stands to a height that grows with how far it is, so the tag stays
                 // over the ground between: 3 m up close by, 60 m from 400 m on
-                let far = (w.rel - rel).length();
+                let far = at.distance(eye);
                 let rise = (far * 0.15).clamp(3.0, 60.0);
                 let screen = |d: DVec3| {
                     let clip = vp * d.as_vec3().extend(1.0);
                     (clip.w > 0.01).then(|| ((clip.x / clip.w * 0.5 + 0.5) * lw, (0.5 - clip.y / clip.w * 0.5) * lh))
                 };
-                if let (Some(base), Some(top)) = (screen(w.rel - rel), screen(w.rel + w.rel.normalize() * rise - rel)) {
+                if let (Some(base), Some(top)) = (screen(at - eye), screen(at + up * rise - eye)) {
                     // a beam that would run up past the compass ends under it, its tag there
                     let roof = label_y + 96.0; // under the looked-at label too
                     let (base, top) = if top.1 >= roof {
@@ -721,7 +828,7 @@ impl App {
                     };
                     if top.0 > -200.0 && top.0 < lw + 200.0 && top.1 >= roof - 0.5 && top.1 < lh + 100.0 {
                         let far = if far >= 1000.0 { format!("{:.1} km", far / 1000.0) } else { format!("{far:.0} m") };
-                        hud::marker(&mut paint, base, top, nav::COLOURS[k % nav::COLOURS.len()], &w.name, &far);
+                        hud::marker(&mut paint, base, top, colour(w), w.icon, &w.name, &far);
                     }
                 }
             }
@@ -761,17 +868,21 @@ impl App {
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),
                 Menu::Remove(_) => ("Remove world", "It moves to saves/removed/ and can be put back by hand."),
-                Menu::Waypoints => ("Waypoints", "N drops one where you stand. Right click or Delete takes one away."),
+                Menu::Waypoints => ("Waypoints", "N drops one where you stand. Click one to change it; right click or Delete takes it away."),
+                Menu::Waypoint(_) => ("Waypoint", "Click the name to type a new one. Click a row for its next value, right click the one before."),
+                Menu::Playtest => ("Playtest", "Set-ups to look at: the clock and you move there. F10 or Esc closes it."),
                 Menu::Pause => ("Paused", "The world runs on. Esc goes back to the game."),
                 Menu::Settings => ("Settings", "Click or Enter: the next value. Right click: the one before. Arrows move."),
                 Menu::Page(p) => settings::PAGES[p],
                 Menu::Confirm => ("Display", "Can you see this? It goes back by itself if you do nothing."),
             };
-            let (items, sliders) = (self.menu_items(), self.menu_sliders());
+            let (items, sliders, tones) = (self.menu_items(), self.menu_sliders(), self.menu_tones());
             // as many rows as fit, from `scroll` on
             self.scroll = self.scroll.min(items.len().saturating_sub(self.menu_fit()));
             let end = (self.scroll + self.menu_fit()).min(items.len());
             let (items, sliders) = (&items[self.scroll..end], &sliders[self.scroll..end]);
+            // (the tones end before the page's last row, Back, which has none)
+            let tones = tones.get(self.scroll.min(tones.len())..end.min(tones.len())).unwrap_or(&[]);
             let boxes = hud::menu_boxes(lh, items, sliders);
             let (x, y) = self.pointer;
             let under = boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]);
@@ -791,7 +902,7 @@ impl App {
             // (off screen the rows stand still, so a scripted run's pictures repeat; motion=1 shows it there)
             let moving = self.onscreen || self.args.get("motion", 0) == 1;
             let ease = if moving { ((now - self.menu_since).as_secs_f32() / 0.14, (now - self.lit.1).as_secs_f32() / 0.1) } else { (1.0, 1.0) };
-            hud::menu(&mut paint, title, items, sliders, hint, hover, caret, self.scroll, ease);
+            hud::menu(&mut paint, title, items, sliders, tones, hint, hover, caret, self.scroll, ease);
             self.menu_boxes = boxes;
         }
         // the bug report's form over everything, the menus too

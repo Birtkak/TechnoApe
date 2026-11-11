@@ -87,6 +87,7 @@ why it cannot start, and names the GPU it found. Not a settings row.
 | In space: the mouse | pitches and yaws freely (ADR 0024) / keeps the horizon | freely |
 | In space: roll keys | Q and E / swapped | Q and E |
 | Build hammer: the wheel | height / size, with a held key for the other | height (ADR 0017) |
+| The wheel otherwise | – | flight speed while flying, else the hotbar (ADR 0036) |
 | Place where I look / where I stand | the aimed face / the block ahead of the feet | aimed face |
 | Controller | off / on, with stick dead zones, curves and trigger thresholds | off; later, own spike |
 
@@ -94,6 +95,10 @@ why it cannot start, and names the GPU it found. Not a settings row.
 One row per action, grouped as the play line in CLAUDE.md groups them: moving, digging and placing, tools
 (hammer, bucket), the hotbar, flight and space, chat and commands, the interface (F3, F9, the menu).
 - Click a row, press a key or a mouse button; Esc cancels, Backspace clears. Two keys per action.
+- **Built (ADR 0036):** the rows sit under headings (Moving; Hands and tools; Hotbar; Looking and finding;
+  Chat, time and testing) as a table: the action, its first key, its second. A search row on top keeps
+  the actions with a word starting with what is typed, or a key of that name: type a key to see every
+  action on it. A key two actions share is red on both rows, with "(also ...)".
 - A clash is shown on both rows and allowed only between groups that are never live together (a menu key
   and a movement key).
 - "Back to defaults" per group and for all. The bindings are in `settings.txt` as `key.<action>=<name>`,

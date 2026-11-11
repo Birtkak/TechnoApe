@@ -413,7 +413,7 @@ impl Server {
                         let c = &mut self.clients[i];
                         (c.creative, c.inv_dirty) = (on, true);
                     }
-                    Recv::Msg(ToServer::Chat(text)) => self.chat(i, &text),
+                    Recv::Msg(ToServer::Chat(text)) => self.chat(i, &text, &mut changed),
                     Recv::Empty => break,
                     Recv::Closed => {
                         open = false;
@@ -569,11 +569,11 @@ impl Server {
 
     /// A chat line from client `i` (ADR 0023): a '/' command runs here and answers it alone; any other line
     /// goes to everyone with its sender's name.
-    fn chat(&mut self, i: usize, text: &str) {
+    fn chat(&mut self, i: usize, text: &str, changed: &mut Vec<(Block, u8)>) {
         let text: String = text.chars().filter(|c| !c.is_control()).take(CHAT_MAX).collect();
         let text = text.trim();
         if let Some(cmd) = text.strip_prefix('/') {
-            let answer = self.command(i, cmd);
+            let answer = self.command(i, cmd, changed);
             self.clients[i].link.send(ToClient::Chat(answer));
         } else if !text.is_empty() {
             let name = &self.clients[i].player.name;
@@ -583,9 +583,11 @@ impl Server {
 
     /// The commands (ADR 0023), and the answer for the player who gave one. shortcut: anyone may run every
     /// command; an operator role when servers go public.
-    fn command(&mut self, i: usize, cmd: &str) -> String {
+    fn command(&mut self, i: usize, cmd: &str, changed: &mut Vec<(Block, u8)>) -> String {
         let w: Vec<&str> = cmd.split_whitespace().collect();
         let mode = |creative: bool| if creative { "creative" } else { "survival" };
+        let block_named = |name: &str| BLOCKS.placeable().find(|d| d.name.eq_ignore_ascii_case(name));
+        let blocks = || BLOCKS.placeable().map(|d| d.name.as_str()).collect::<Vec<&str>>().join(", ");
         match w.first().map(|s| s.to_lowercase()).as_deref() {
             Some("help") | None => [
                 "Commands:",
@@ -595,7 +597,9 @@ impl Server {
                 "  /time add <seconds>  move the clock on",
                 "  /playmode <mode>     creative or survival",
                 "  /give <block> [n]    n blocks, 64 if left out",
-                "  /goto <where>        terra (home), luna, or sun",
+                "  /place <block>       one under your feet; or at",
+                "    [face i j layer]   that block of the body you are on (F3)",
+                "  /goto <where>        terra (home: the spawn), luna, or sun",
                 "  /timewarp <n>        the clock n times faster (1 to 10000,",
                 "                       up, down); . and , step it too",
                 "  /help                this list",
@@ -656,7 +660,7 @@ impl Server {
                         self.put(i, p, look);
                         format!("gone to {}", engine::bodies::find(&to).map_or("the sun", |b| self.world.bodies[b].name.as_str()))
                     }
-                    None => "usage: /goto terra|luna|sun\n  terra (or planet, home) is the spawn".into(),
+                    None => "usage: /goto terra|luna|sun\n  terra (or home) is the spawn".into(),
                 }
             }
             Some("timewarp") | Some("warp") => {
@@ -694,16 +698,45 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                     _ => (&w[1..], 64),
                 };
                 let name = words.join(" ");
-                let Some(d) = BLOCKS.placeable().find(|d| d.name.eq_ignore_ascii_case(&name)) else {
-                    let all: Vec<&str> = BLOCKS.placeable().map(|d| d.name.as_str()).collect();
+                let Some(d) = block_named(&name) else {
                     let what = if name.is_empty() { String::new() } else { format!("no block '{name}'\n") };
-                    return format!("{what}usage: /give <block> [count]\nblocks: {}", all.join(", "));
+                    return format!("{what}usage: /give <block> [count]\nblocks: {}", blocks());
                 };
                 let c = &mut self.clients[i];
                 let held = &mut c.inv[d.id as usize];
                 *held = held.saturating_add(n);
                 c.inv_dirty = true;
                 format!("gave {n} {}: {} held", d.name, *held)
+            }
+            Some("place") => {
+                // bugs/2026-11-11_13-03-12: the last four words, when numbers, are F3's "Feet in" (face, i, j,
+                // layer) on the body the player is on; without them the block under the feet. Free, like /give.
+                let nums: Vec<i32> = w.iter().skip(1).rev().take(4).map_while(|s| s.parse().ok()).collect();
+                let (words, at) = if nums.len() == 4 { (&w[1..w.len() - 4], Some(nums)) } else { (&w[1..], None) };
+                let name = words.join(" ");
+                let Some(d) = block_named(&name) else {
+                    let what = if name.is_empty() { String::new() } else { format!("no block '{name}'\n") };
+                    return format!("{what}usage: /place <block> [face i j layer]\nblocks: {}", blocks());
+                };
+                let world = &self.world;
+                let feet = self.clients[i].phys.pos;
+                let body = world.frame_at(feet);
+                if body == engine::world::INERTIAL {
+                    return "there is no body under you out here: /place works on Terra and Luna".into();
+                }
+                let b = match at {
+                    Some(n) => Block { body: body as u8, face: n[3].clamp(0, 255) as u8, pos: glam::IVec3::new(n[2], n[1], n[0]) },
+                    None => world.block_at(feet - phys::up(world, feet) * 0.5),
+                };
+                if !Shape::one(b).fits(world) {
+                    return format!("no such block on {}: face 0 to 5, then i j layer as F3 shows them", world.bodies[body].name);
+                }
+                if BLOCKS.solid(d.id) && self.clients.iter().any(|c| phys::holds(world, &c.phys, b)) {
+                    return "a player stands there: a solid block would trap them".into();
+                }
+                self.world.set_block(b, d.id);
+                changed.push((b, d.id));
+                format!("placed {} at face {} {} {}, layer {}", d.name, b.face, b.pos.x, b.pos.y, b.pos.z)
             }
             Some(other) => format!("unknown command /{other}\n  /help lists the commands"),
         }
@@ -1323,7 +1356,7 @@ mod tests {
     fn goto_takes_a_player_to_the_bodies_and_the_sun() {
         let (mut s, links) = server_with(1);
         let me = |s: &Server| s.clients[0].phys.pos;
-        for (to, body) in [("moon", 1), ("planet", 0), ("Luna", 1), ("terra", 0)] {
+        for (to, body) in [("Luna", 1), ("home", 0), ("luna", 1), ("terra", 0)] {
             links[0].send(ToServer::Chat(format!("/goto {to}")));
             s.tick();
             let b = &s.world.bodies[body];
@@ -1344,6 +1377,48 @@ mod tests {
         for line in ["gone to the sun", "gone to Luna", "gone to Terra"] {
             assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == line)), "{line}");
         }
+    }
+
+    #[test]
+    fn goto_knows_the_bodies_by_name_only() {
+        // bugs/2026-11-11_13-10-42: planet and moon are gone, Terra and Luna are the names
+        let (mut s, links) = server_with(1);
+        s.tick();
+        drain(&links[0]);
+        for to in ["planet", "moon"] {
+            links[0].send(ToServer::Chat(format!("/goto {to}")));
+        }
+        links[0].send(ToServer::Chat("/help".into()));
+        s.tick();
+        let a: Vec<String> = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
+        assert!(a[0].starts_with("usage: /goto") && a[1].starts_with("usage: /goto"), "{a:?}");
+        assert!(!a.iter().any(|l| l.contains("planet") || l.contains("moon")), "{a:?}");
+    }
+
+    #[test]
+    fn place_puts_a_block_under_the_player_or_where_it_is_told() {
+        // bugs/2026-11-11_13-03-12
+        let (mut s, links) = server_with(2);
+        s.tick();
+        drain(&links[0]);
+        drain(&links[1]);
+        let feet = s.clients[0].phys.pos;
+        let under = s.world.block_at(feet - phys::up(&s.world, feet) * 0.5);
+        let there = Block { pos: under.pos + glam::IVec3::new(3, 0, 4), ..under };
+        let (p, q) = (under.pos, there.pos);
+        links[0].send(ToServer::Chat("/place blue lamp".into()));
+        links[0].send(ToServer::Chat(format!("/place copper {} {} {} {}", there.face, q.x, q.y, q.z)));
+        links[0].send(ToServer::Chat("/place nothing".into()));
+        links[0].send(ToServer::Chat(format!("/place stone {} {} {} {}", under.face, p.x, p.y, p.z + 1)));
+        s.tick();
+        assert_eq!((s.world.block(under), s.world.block(there)), (BLOCKS.id("blue lamp"), BLOCKS.id("copper")));
+        let a: Vec<String> = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
+        assert_eq!(a.len(), 4, "{a:?}");
+        assert!(a[0].starts_with("placed blue lamp at face") && a[1].starts_with("placed copper"), "{a:?}");
+        assert!(a[2].starts_with("no block 'nothing'"), "{a:?}");
+        assert!(a[3].starts_with("a player stands there"), "a solid block never traps a player: {a:?}");
+        let edits: usize = drain(&links[1]).into_iter().map(|m| if let ToClient::Edits(e) = m { e.len() } else { 0 }).sum();
+        assert_eq!(edits, 2, "everyone sees the blocks");
     }
 
     #[test]
