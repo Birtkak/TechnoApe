@@ -68,3 +68,31 @@ five after.
 ### Consequences
 While its children load, a coarse chunk stays drawn a little longer than before (coarse ground for a moment
 instead of none). The walk's cost grows only where chunks were split unmeshed; it is per walk, not per frame.
+
+## C. A hard band across Terra seen from far away (report 2026-11-11_13-06-37)
+
+### Context
+"the seems should be more gradient where i zoomed in": Terra from 100 m over Luna, zoomed, shows a sharp
+line across the disc where the ground steps from lit to dim. It is not a LOD ring: the geometry runs on
+across it unchanged. It is a line of equal sun height, parallel to the terminator, and two terms switch
+there at once in `light()` (shader.wgsl): the sun's light ends where the sun sets behind the body's sphere
+(`left_by`, over the sun's half-degree disc, about 37 m of ground; sides of blocks facing the sun go from
+full light to none), and the moon's light was switched on only where `day < 0.5`. On the ground it is never
+seen whole; from orbit or the moon it is a hard edge. Reproduced with `run=stand at=0,1,0 eye=4000 pitch=-89
+time=20837`: a straight step across the dim side.
+
+### Options considered
+1. **Fade the sun near the horizon where the body has air, and fade the moon in** – a smoothstep each; it is
+   what air does (the sun dims as it sets), costs nothing measurable, keeps Luna's airless edge hard.
+2. **Soften the sphere's cover over a larger angle on every body** – also blurs Luna's terminator, which
+   has no air to blur it.
+3. **Blend the far planet's lighting in a pass of its own** – a new pass for one line.
+
+### Decision
+Option 1: `sunset()` fades the sun's direct light from 7 degrees over the horizon to 1.7 below, on bodies
+with a sea (as `sky_light` decides air); the moon's light fades in as `day` goes from 0.5 to 0.3 instead of
+switching on at 0.5. Taste call for the developer: the fade's width (7 degrees).
+
+### Consequences
+On Terra's ground the last minutes before sunset are a little dimmer than before (sun under 7 degrees); the
+fixed viewpoints differ by at most 0.026 % of pixels, under their limit. Two smoothsteps per lit pixel.

@@ -271,6 +271,13 @@ fn sky_light(p: vec3f, body: u32) -> vec3f {
     return DAY_SKY * day * select(0.0, 1.0, b.sea >= 0.0) + NIGHT_AMB;
 }
 
+// the share of the sun's direct light the air lets through near the horizon, where the body has air (a sea):
+// it fades over the last few degrees, so the line where the sun sets behind the body's sphere is a gradient
+// seen from far away, not a hard edge (ADR 0038 C); 1 on a body without air
+fn sunset(up: vec3f, sd: vec3f, body: u32) -> f32 {
+    return select(1.0, smoothstep(-0.03, 0.12, dot(up, sd)), g.bodies[body].sea >= 0.0);
+}
+
 // a flat stand-in for the light from around, where no bounce ray is traced: water, and what rays hit
 fn ambient(day: f32) -> vec3f {
     return mix(NIGHT_AMB, DAY_AMB, day);
@@ -304,7 +311,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     let moon = g.moon_col.rgb * select(1.0, 0.0, body == mi);
     o.l = vec3f(0.0);
     let ndl = dot(n, sd);
-    let vis = ecl * left_by(body, p, g.sun_pos.xyz, g.sun_pos.w);
+    let vis = ecl * left_by(body, p, g.sun_pos.xyz, g.sun_pos.w) * sunset(up, sd, body);
     if (ndl > 0.0 && vis > 0.0) {
         let ar = g.sun_pos.w / length(g.sun_pos.xyz - p);
         // soft: towards a point of the sun's disc; sharp: towards its middle
@@ -323,6 +330,8 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
             for (var i = 0u; i < 4u; i++) {
                 if (i != mi && ((g.n_lamps.w >> i) & 1u) == 1u) { mv *= left_by(i, p, mc.xyz, mc.w); }
             }
+            // faded in as the sun's ambient fades out, not switched on at once (ADR 0038 C)
+            mv *= 1.0 - smoothstep(0.3, 0.5, o.day);
             if (mv > 0.0) { o.l += moon * ndm * mv * ray(p, n, md, body, 1e5); }
         }
     }
