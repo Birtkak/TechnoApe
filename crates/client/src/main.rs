@@ -2,6 +2,7 @@
 mod app;
 mod bench;
 mod frame;
+mod fx;
 mod gi;
 mod gpu;
 mod hud;
@@ -345,6 +346,9 @@ fn main() {
     }
     // place=di:dj:dl:block,... (a name, _ for a space) sets blocks around the stand point, the air block at its
     // feet the origin: lamps or metal in a shot without a session. Only the client's world has them.
+    // fxedit=t:di:dj:dl:block,... does the same t seconds after loading, as a click would, with its effects
+    // (ADR 0031; with fx=1): filmstrips of a break and a place
+    let mut fx_edits = Vec::new();
     if run != "play" {
         let at: Vec<f64> = args.s("at", "0,1,0").split(',').filter_map(|v| v.parse().ok()).collect();
         let up = DVec3::new(at[0], at[1], at[2]).normalize();
@@ -354,6 +358,13 @@ fn main() {
             let d = IVec3::new(f[0].parse().unwrap(), f[1].parse().unwrap(), f[2].parse().unwrap());
             world.set_block(Block { pos: feet.pos + d, ..feet }, BLOCKS.id(&f[3].replace('_', " ")));
         }
+        for spec in args.s("fxedit", "").split(',').filter(|s| !s.is_empty()) {
+            let f: Vec<&str> = spec.split(':').collect();
+            let d = IVec3::new(f[1].parse().unwrap(), f[2].parse().unwrap(), f[3].parse().unwrap());
+            fx_edits.push((f[0].parse::<f64>().unwrap(), Block { pos: feet.pos + d, ..feet }, BLOCKS.id(&f[4].replace('_', " "))));
+        }
+        // the soonest last, whatever order they came in
+        fx_edits.sort_by(|a: &(f64, Block, u8), b| b.0.total_cmp(&a.0));
     }
     // play's settings (ADR 0023); every other run keeps the defaults
     let settings_file = args.s("settings", "settings.txt");
@@ -379,6 +390,17 @@ fn main() {
     let (acts, creative, shot) = (parse_acts(&args.s("acts", "")), run != "play", args.0.get("shot").cloned());
     let time0 = args.get("time", if run == "orbit" { orbit_start(&world) } else { 0.0 });
     let server_at = args.0.get("connect").map_or("on this machine".to_string(), |a| a.clone());
+    // effects play in play and their own benchmark; elsewhere only with fx=1, so pictures repeat (ADR 0031)
+    let fx = {
+        let on = run == "play" || run == "fx" || args.get("fx", 0) == 1;
+        let k = settings.at(S::Particles);
+        let mut fx = fx::Fx::new(on, args.get("fx_cap", if run == "fx" { fx::CAP[2] } else { fx::CAP[k] }).min(MAX_FX), fx::SCALE[k], seed as u32);
+        // play follows the Particles setting as the menu changes it
+        if run == "play" && args.get("fx_cap", 0usize) == 0 {
+            fx.setting = Some(k);
+        }
+        fx
+    };
     let mut app = App {
         time0,
         args,
@@ -430,7 +452,12 @@ fn main() {
         held: None,
         slot: 0,
         held_name: (usize::MAX, Instant::now()),
-        acted: (Instant::now() - Duration::from_secs(10), [0.0; 3], 0),
+        fx,
+        fx_n: 0,
+        dip: fx::Track { tween: fx::Tween::new(-10.0, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [0.0; 2] },
+        walked: 0.0,
+        growing: Vec::new(),
+        fx_edits,
         world_notes: Vec::new(),
         creative,
         inv: Vec::new(),

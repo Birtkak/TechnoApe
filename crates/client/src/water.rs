@@ -35,27 +35,9 @@ pub struct WaterMesh {
     /// The quads of all tiles, rebuilt when one changed.
     pub all: Vec<WQuad>,
     pub changed: bool,
-    /// Splash and spray (ADR 0020: particles on the client; real fine cells come later).
-    drops: Vec<Drop>,
+    /// The spray's numbers (ADR 0020, its droplets ADR 0031).
     rng: u32,
 }
-
-/// A droplet: where on the grid (column, fraction of it, layer), how fast (columns and layers per second),
-/// how long it has left, and the floor it splashes on.
-#[derive(Clone, Copy)]
-struct Drop {
-    face: u8,
-    body: u8,
-    i: i32,
-    j: i32,
-    p: [f32; 3],
-    v: [f32; 3],
-    life: f32,
-    floor: f32,
-}
-
-/// The most droplets at once.
-const DROPS: usize = 3000;
 
 impl WaterMesh {
     /// Tiles `ts` arrived (already in `world.water`): their surfaces move from what is shown now, and they
@@ -159,88 +141,40 @@ impl WaterMesh {
 }
 
 impl WaterMesh {
-    /// Steps the droplets by `dt` and spawns new ones over every side that drops more than half a block (a
-    /// fall or a front), as quads (kind 5) for the shader.
-    pub fn particles(&mut self, world: &World, dt: f32) -> Vec<WQuad> {
-        let mut rnd = {
-            let mut r = self.rng.max(1);
-            move || {
-                r ^= r << 13;
-                r ^= r >> 17;
-                r ^= r << 5;
-                (r as f32 / u32::MAX as f32, r)
-            }
+    /// The spray over every side that drops more than half a block (a fall or a front): droplets of the
+    /// effects' `spray` row (ADR 0031), which splash where they land.
+    pub fn spray(&mut self, world: &World, dt: f32, fx: &mut crate::fx::Fx) {
+        let mut r = self.rng.max(1);
+        let mut rnd = move || {
+            r ^= r << 13;
+            r ^= r >> 17;
+            r ^= r << 5;
+            (r as f32 / u32::MAX as f32, r)
         };
-        // spawn: a side's drop in layers, toward its neighbour
+        let spray = crate::fx::id("spray");
         for q in &self.all {
             let kind = q.info >> 5 & 7;
             let fall = (q.cur[0] + q.cur[1] - q.cur[2] - q.cur[3]) * 0.5;
-            if !(1..=4).contains(&kind) || fall < 1.0 || self.drops.len() >= DROPS {
+            if !(1..=4).contains(&kind) || fall < 1.0 || rnd().0 > dt * 12.0 * fall.min(8.0) {
                 continue;
             }
-            let b = &world.bodies[(q.info >> 3 & 3) as usize];
-            let m_per_layer = (b.layer_r(q.cur[0] as f64) * b.lnq) as f32;
-            let m_per_col = (b.layer_r(q.cur[0] as f64) * std::f64::consts::FRAC_PI_2 / b.n as f64) as f32;
-            if rnd().0 > dt * 12.0 * fall.min(8.0) {
-                continue;
-            }
+            let (face, bi) = ((q.info & 7) as usize, (q.info >> 3 & 3) as usize);
+            let b = &world.bodies[bi];
             let (out_u, out_v, edge_u, edge_v) = match kind {
                 1 => (-1.0, 0.0, 0.0, 1.0),
                 2 => (1.0, 0.0, 0.0, 1.0),
                 3 => (0.0, -1.0, 1.0, 0.0),
                 _ => (0.0, 1.0, 1.0, 0.0),
             };
-            let along = rnd().0;
-            let start = [0.5 + out_u * 0.5 + edge_u * (along - 0.5), 0.5 + out_v * 0.5 + edge_v * (along - 0.5)];
-            let speed = (0.6 + rnd().0) / m_per_col;
-            self.drops.push(Drop {
-                face: (q.info & 7) as u8,
-                body: (q.info >> 3 & 3) as u8,
-                i: q.i,
-                j: q.j,
-                p: [start[0], start[1], q.cur[0] - 0.05],
-                v: [out_u * speed, out_v * speed, (rnd().0 * 0.5) / m_per_layer],
-                life: 2.0,
-                floor: q.cur[2].min(q.cur[3]),
-            });
-        }
-        // move: gravity, and a splash where a falling drop meets the water or floor under it
-        let mut splash = Vec::new();
-        for d in &mut self.drops {
-            let b = &world.bodies[d.body as usize];
-            let g = 9.81 / (b.layer_r(d.p[2] as f64) * b.lnq) as f32;
-            d.v[2] -= g * dt;
-            for k in 0..3 {
-                d.p[k] += d.v[k] * dt;
-            }
-            d.life -= dt;
-            if d.p[2] < d.floor && d.v[2] < 0.0 {
-                d.life = 0.0;
-                if d.v[2] < -1.0 {
-                    splash.push(*d);
-                }
-            }
-        }
-        self.drops.retain(|d| d.life > 0.0);
-        for s in splash {
-            for _ in 0..3 {
-                if self.drops.len() >= DROPS {
-                    break;
-                }
-                let a = rnd().0 * std::f32::consts::TAU;
-                let up = -s.v[2] * (0.15 + 0.2 * rnd().0);
-                self.drops.push(Drop { p: [s.p[0], s.p[1], s.floor + 0.02], v: [a.cos() * 1.5, a.sin() * 1.5, up], life: 0.6, floor: s.floor, ..s });
-            }
+            let along = rnd().0 as f64;
+            let (u, v) = (q.i as f64 + 0.5 + out_u * 0.5 + edge_u * (along - 0.5), q.j as f64 + 0.5 + out_v * 0.5 + edge_v * (along - 0.5));
+            let up = b.dir(face, u, v);
+            let out = (b.dir(face, u + out_u * 0.01, v + out_v * 0.01) - up).normalize();
+            let p = up * b.layer_r(q.cur[0] as f64 - 0.05);
+            let vel = out * (0.6 + rnd().0 as f64) + up * (rnd().0 as f64 * 0.25);
+            fx.play(spray, &crate::fx::At::point(bi as u8, p, vel, b.layer_r(q.cur[2].min(q.cur[3]) as f64)));
         }
         self.rng = rnd().1;
-        self.drops
-            .iter()
-            .map(|d| {
-                let (fi, fj) = (d.p[0].floor(), d.p[1].floor());
-                let at = [d.p[0] - fi, d.p[1] - fj, d.p[2], 0.03];
-                WQuad { i: d.i + fi as i32, j: d.j + fj as i32, info: d.face as u32 | (d.body as u32) << 3 | 5 << 5, t0: 0.0, prev: at, cur: at }
-            })
-            .collect()
     }
 }
 

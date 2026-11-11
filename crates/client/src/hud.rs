@@ -735,30 +735,6 @@ pub fn marker(p: &mut Paint, base: (f32, f32), top: (f32, f32), colour: [f32; 3]
     p.text_px(x + 26.0 + chars(name) + 12.0, y + 5.0, far, [0.62, 0.72, 0.82, 1.0], px);
 }
 
-/// Sparks of a block's colour flying from the middle of the screen after a dig or a place: `age` seconds
-/// since it happened, gone after `SPARK_S`. Where each goes is fixed by its number and `seed`, so the burst
-/// is the same every frame of its life.
-pub const SPARK_S: f32 = 0.45;
-pub fn sparks(p: &mut Paint, age: f32, colour: [f32; 3], seed: u32) {
-    if !(0.0..SPARK_S).contains(&age) {
-        return;
-    }
-    let (cx, cy) = (p.w / 2.0, p.h / 2.0);
-    for k in 0..14u32 {
-        let mut h = seed.wrapping_add(k).wrapping_mul(0x9E37_79B1);
-        h ^= h >> 15;
-        h = h.wrapping_mul(0x2C1B_3C6D);
-        let (a, b, c) = ((h & 255) as f32 / 255.0, (h >> 8 & 255) as f32 / 255.0, (h >> 16 & 255) as f32 / 255.0);
-        // out and a little up, then down under their weight
-        let ang = a * std::f32::consts::TAU;
-        let speed = 120.0 + 260.0 * b;
-        let (x, y) = (cx + ang.cos() * speed * age, cy + (ang.sin() * speed - 140.0) * age + 900.0 * age * age);
-        let (size, tone) = (4.0 + 5.0 * c, 0.75 + 0.35 * b);
-        let fade = 1.0 - (age / SPARK_S).powi(2);
-        p.rect(x - size / 2.0, y - size / 2.0, size, size, [(colour[0] * tone).min(1.0), (colour[1] * tone).min(1.0), (colour[2] * tone).min(1.0), fade], 0);
-    }
-}
-
 /// A little cube of a block, seen from above a corner, in the square at (x, y), drawn texel by texel as
 /// the world draws a block (shader.wgsl `texel`): 8 x 8 texels a face in three tones of the block's colour,
 /// a grass block's sides its side block's with grass hanging over the top edge, dark cracks in stone. The
@@ -940,20 +916,6 @@ mod tests {
         let y = |v: f32| (1.0 - v) / 2.0 * 1080.0;
         assert!(y(lo) >= 799.0 && y(lo) <= 802.0 && y(hi) < 500.0, "from {} up to {}", y(lo), y(hi));
         assert_eq!(p.out.iter().filter(|r| r.glyph != 0).count(), 2 * ("Home".len() + "120m".len()));
-    }
-
-    #[test]
-    fn sparks_fly_out_from_the_middle_fade_and_end() {
-        let spread = |age: f32| {
-            let mut p = Paint::new(1920.0, 1080.0);
-            sparks(&mut p, age, [0.5, 0.3, 0.1], 7);
-            let far = p.out.iter().map(|r| ((r.xy[0] + r.xy[2]) / 2.0 * 960.0).hypot((r.xy[1] + r.xy[3]) / 2.0 * 540.0)).fold(0.0, f32::max);
-            (p.out.len(), far, p.out.first().map_or(0.0, |r| r.colour[3]))
-        };
-        let (early, late) = (spread(0.05), spread(0.4));
-        assert_eq!((early.0, late.0), (14, 14));
-        assert!(late.1 > early.1 * 3.0 && late.2 < early.2, "{early:?} then {late:?}");
-        assert_eq!((spread(SPARK_S).0, spread(-0.1).0), (0, 0), "none before it happens or after its time");
     }
 
     #[test]

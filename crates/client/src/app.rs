@@ -7,6 +7,11 @@ pub(crate) const CORRECT_S: f64 = 0.1;
 /// How much C held magnifies.
 pub(crate) const ZOOM: f64 = 3.0;
 pub(crate) const AIM_REACH: f64 = 8.0;
+/// A placed block grows into place this long (data/effects.toml's grow: its `grow` share of its life).
+pub(crate) const GROW_S: f64 = 0.1;
+/// The block in hand's bob with the steps (ADR 0031): left and down by its pixels once a step, by metres walked.
+pub(crate) const BOB: fx::Track<[f32; 2]> =
+    fx::Track { tween: fx::Tween { start: 0.0, len: 0.9, curve: fx::Curve::Pulse, repeat: true }, from: [0.0, 0.0], to: [-4.0, 9.0] };
 /// Two presses of space this close (seconds) take off or land.
 
 pub(crate) struct App {
@@ -79,8 +84,17 @@ pub(crate) struct App {
     pub(crate) aim: Option<(Block, Block)>,
     pub(crate) held: Option<(bool, Block, Block)>,
     pub(crate) slot: usize,
-    /// The last dig or place: when, the colour of what was dug or placed, and a number that shapes its sparks.
-    pub(crate) acted: (Instant, [f32; 3], u32),
+    /// The effects (ADR 0031): the particle pool and the particles drawn this frame; the block in hand's dip
+    /// (a track, from the clock `start`) and the metres walked that bob it.
+    pub(crate) fx: fx::Fx,
+    pub(crate) fx_n: u32,
+    pub(crate) dip: fx::Track<[f32; 2]>,
+    pub(crate) walked: f64,
+    /// Blocks this player placed, growing into place: when their mesh may show (the clock `start`), the cell,
+    /// the block, the grow's tag, and whether the mesh was asked for (play.rs `apply`).
+    pub(crate) growing: Vec<(f64, Block, u8, u32, bool)>,
+    /// fxedit=: cells to change and when (seconds after loading), soonest last.
+    pub(crate) fx_edits: Vec<(f64, Block, u8)>,
     /// What each world of the Singleplayer list is (seed, size, last played), beside `worlds`.
     pub(crate) world_notes: Vec<String>,
     /// The slot whose block's name shows over the hotbar, and since when.

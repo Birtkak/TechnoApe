@@ -29,5 +29,11 @@
     "job_us_avg": 394,
     "vram_mb": 813,
     "tick_ms_p99": 3.876
+  },
+  "fx": {
+    "work_ms": 0.555,
+    "gpu_ms_p50": 1.716,
+    "job_us_avg": 394,
+    "vram_mb": 813
   }
 }

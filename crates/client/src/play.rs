@@ -569,20 +569,35 @@ impl App {
                 return;
             }
         }
-        // what the player sees of it at once: the hand swings and sparks of the block fly (ADR 0030)
-        let seen = if dig { self.aim.map(|a| self.world.block(a.0)) } else { Some(m) };
-        if let Some(d) = seen.and_then(|b| BLOCKS.get(b)) {
-            self.acted = (Instant::now(), d.colour, self.acted.2.wrapping_add(17));
-        }
+        // what the player sees of it at once (ADR 0031): the hand dips, the cells break or place with their effects
+        let now = self.start.elapsed().as_secs_f64();
+        self.dip = fx::Track { tween: fx::Tween::new(now, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
         let me = &self.me;
+        let olds = if self.fx.on { edit::changes(&self.world, s, m, |c| phys::holds(&self.world, me, c)) } else { Vec::new() };
         let (seq, cells) = self.pred.edit(&mut self.world, s, m, |w, c| phys::holds(w, me, c));
-        for c in &cells {
-            self.streamer.touch_block(&self.world, *c);
+        for &(b, was) in &olds {
+            fx::changed(&mut self.fx, &self.world, b, was, self.world.block(b));
         }
-        if !cells.is_empty() {
-            self.clicks.push((self.streamer.frame, Instant::now(), cells));
+        if self.fx.on && !dig && cells.len() == 1 {
+            // the effect draws it this frame, so the click shows at once
+            self.grow(cells[0], m);
+            self.shown.push((0, 0.0));
+        } else {
+            for c in &cells {
+                self.streamer.touch_block(&self.world, *c);
+            }
+            if !cells.is_empty() {
+                self.clicks.push((self.streamer.frame, Instant::now(), cells));
+            }
         }
         self.link.send(ToServer::Edit { seq, shape: *s, material: m });
+    }
+
+    /// One placed block grows into place over its cell (ADR 0031); its own mesh waits until the grow is done
+    /// (frame.rs).
+    pub(crate) fn grow(&mut self, b: Block, m: u8) {
+        let tag = self.fx.play(fx::id("grow"), &fx::At::cell(&self.world, b, m));
+        self.growing.push((self.start.elapsed().as_secs_f64() + GROW_S, b, m, tag, false));
     }
 
     /// Each frame of run=play: scripted acts that are due, the aim, the ghost and the 2D layer.
@@ -723,16 +738,17 @@ impl App {
                 hud::looking_at(&mut paint, &d.name, d.colour, side, d.pattern as u8, note, label_y);
             }
         }
-        // the block in hand, large at the lower right, dipping when it digs or places; and the sparks
-        let since = self.acted.0.elapsed().as_secs_f32();
+        // the block in hand, large at the lower right, on its tracks (ADR 0031): the dip when it digs or places,
+        // a bob with the steps
         if !title {
             if let (Some(d), false) = (self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)), self.hammer || self.bucket || self.f3 || lw < 1100.0) {
-                let swing = if since < 0.18 { (since / 0.18 * std::f32::consts::PI).sin() } else { 0.0 };
+                let [dx, dy] = self.dip.at(self.start.elapsed().as_secs_f64());
+                let pace = if self.me.on_ground { (self.me.vel.length() / 4.0).min(1.0) as f32 } else { 0.0 };
+                let [bx, by] = BOB.at(self.walked).map(|v| v * pace);
                 let side = BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
-                let (x, y) = (lw - 250.0 - 46.0 * swing, lh - 236.0 + 60.0 * swing);
+                let (x, y) = (lw - 250.0 + dx + bx, lh - 236.0 + dy + by);
                 hud::cube(&mut |x, y, w, h, c, g| paint.rect(x, y, w, h, c, g), x, y, 176.0, d.colour, side, d.pattern as u8, 1.0);
             }
-            hud::sparks(&mut paint, since, self.acted.1, self.acted.2);
         }
         if self.flying && !title {
             let s = format!("Flying {:.0} m/s", self.fly_speed);

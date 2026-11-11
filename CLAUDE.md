@@ -62,7 +62,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - `cargo test` (engine logic), `cargo build --release` (the binary lands in `target/release/technoape.exe`).
 - A run is `technoape.exe key=value ...`, off-screen unless `onscreen=1`. It prints one JSON line (ADR 0004:
   frame times, RAM, VRAM, `budget_ok`, a `spikes` list) and exits:
-  `run=stand|fly|orbit|edit`, `quick=1` (quarter length, a smoke check in seconds), `planet=12288|24576|1536`
+  `run=stand|fly|orbit|edit|sim|fx` (`fx` keeps `fx_n=` particles alive, ADR 0031), `quick=1` (quarter length, a smoke check in seconds), `planet=12288|24576|1536`
   (columns per face edge: the standard 4 km planet, the huge 8 km one, a small one; ADR 0021), `seed=`, `out=file.jsonl`, `connect=host[:7777]` to join a running server
   (`technoape-server listen=0.0.0.0:7777 planet= seed=` prints a JSON line every 5 s).
 - Saves (ADR 0016): `run=play` keeps `saves/seed-<seed>-planet-<n>.sav`, the server `saves/server.sav`; both
@@ -94,7 +94,9 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   at bugs, read those first.
 - To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet, `time=s`
   sets the sky's clock (0 is 9 am at the spawn, a day is 1200 s; ADR 0022), `place=di:dj:dl:block,...` puts
-  blocks (lamps, copper; `_` for a space) around the stand point;
+  blocks (lamps, copper; `_` for a space) around the stand point; effects play only in `run=play` unless
+  `fx=1` (ADR 0031; `fx_cap=` the pool, the Particles setting few/normal/many), and
+  `fxedit=t:di:dj:dl:block,...` (`air` to dig) edits cells at t seconds to film a break or a place;
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
 - **The gate:** `bash tools/check.sh` (about 4.5 min, 5.5 after a release build; the soak and its replay run beside the tests and the fixed viewpoints: tests, a soak, its replay, the quick benchmark, the fixed
   viewpoints and a played run's feel report, ADR 0018) prints

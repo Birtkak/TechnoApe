@@ -575,7 +575,6 @@ fn shoulder(c: vec3f) -> vec3f {
 struct WQuad { i: i32, j: i32, info: u32, t0: f32, prev: vec4f, cur: vec4f };
 @group(0) @binding(4) var<storage, read> wq: array<WQuad>;
 const MOVE_S: f32 = 0.05;
-const ASPECT: f32 = 1920.0 / 1080.0;
 
 struct WOut {
     @builtin(position) clip: vec4f,
@@ -662,17 +661,6 @@ fn vs_water(@builtin(vertex_index) vi: u32) -> WOut {
     let bi = (q.info >> 3u) & 3u;
     let b = g.bodies[bi];
     let kind = (q.info >> 5u) & 7u;
-    if (kind == 5u) {
-        // a droplet: a square of cur.w metres facing the camera, at (i + cur.x, j + cur.y, layer cur.z)
-        let f = frame_at(face, b, f32(q.i) + q.cur.x, f32(q.j) + q.cur.y);
-        var o = wout(bi, f.up, q.cur.z, -normalize(f.up), 2u);
-        var cx = array<f32, 6>(-1., 1., 1., -1., 1., -1.);
-        var cy = array<f32, 6>(-1., -1., 1., -1., 1., 1.);
-        let k = vi % 6u;
-        // world size in clip space: 1 / tan(35 degrees), the field of view's half
-        o.clip = vec4f(o.clip.xy + vec2f(cx[k] / ASPECT, cy[k]) * q.cur.w * 1.43, o.clip.zw);
-        return o;
-    }
     var du = 0.0;
     var dv = 0.0;
     var z = 0.0;
@@ -724,9 +712,6 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     col = mix(col, g.sky.rgb + vec3f(0.17, 0.13, 0.01) * l.day, fres * 0.7);
     col += g.sun_col.rgb * 1.5 * l.sun * pow(max(dot(reflect(-g.sun.xyz, n), v), 0.0), 120.0);
     var a = clamp(0.62 + 0.35 * fres, 0.0, 0.96);
-    if (i.side == 2u) {
-        return vec4f(0.85, 0.93, 1.0, 0.85);
-    }
     if (i.side == 1u) {
         // a front or a fall: churned, lighter
         col = mix(col, vec3f(0.85, 0.92, 1.0), 0.25);
@@ -869,4 +854,168 @@ fn stars(dc: vec3f, px: f32) -> vec3f {
     c += star_layer(d, 110.0, 0.09 * (1.0 + 2.0 * band), px, 0.9);
     c += star_layer(d, 45.0, 0.05, px, 2.5);
     return c * dark;
+}
+
+// ---- effects (ADR 0031, crates/client/src/fx.rs) ----
+// One instanced draw into the G-buffer: 36 vertices a particle, a cube (debris, or a whole cell) or a square
+// facing the camera (its last 30 vertices folded away). Lit by `light()` as the terrain is, so the sun, its
+// shadows and the lamps fall on them, and the bounce light after the G-buffer; not in the traced scene, so
+// they cast no shadow. p: in its body's frame from the centre; info = block | body << 8 | look << 10 (0
+// debris, 1 square, 2 block); a, b: a debris' texel seed, a square's colour (b, rgba8), a cell's columns
+// (a = i | j << 15) and layer | face << 16 (b).
+struct FxP { p: vec3f, size: f32, info: u32, angle: f32, a: u32, b: u32 };
+@group(0) @binding(10) var<storage, read> fxp: array<FxP>;
+
+struct FxOut {
+    @builtin(position) clip: vec4f,
+    @location(0) rel: vec3f,
+    @location(1) normal: vec3f,
+    @location(2) uvw: vec3f, // in the cube, 0..1 a side
+    @location(3) @interpolate(flat) info: u32, // as FxP's, and the face's dir << 12
+    @location(4) @interpolate(flat) a: u32,
+    @location(5) @interpolate(flat) b: u32,
+};
+
+// corner k (0..5) of face `dir` (axis dir / 2, negative when odd) of the unit cube, 0..1: CCW from outside,
+// in quad_corner's order
+fn cube_corner(dir: u32, k: u32) -> vec3f {
+    var cu = array<f32, 6>(0., 1., 1., 0., 1., 0.);
+    var cv = array<f32, 6>(0., 0., 1., 0., 1., 1.);
+    var du = cu[k];
+    var dv = cv[k];
+    if ((dir & 1u) == 1u) { du = cv[k]; dv = cu[k]; }
+    let a = dir / 2u;
+    let side = select(1.0, 0.0, (dir & 1u) == 1u);
+    return axis(a) * side + axis((a + 1u) % 3u) * du + axis((a + 2u) % 3u) * dv;
+}
+
+fn fx_hash(x: u32) -> u32 {
+    var h = x * 747796405u + 2891336453u;
+    h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+    return (h >> 22u) ^ h;
+}
+
+// the rotation by an angle (cos cs, sin sn) about unit axis ax
+fn turn_about(ax: vec3f, cs: f32, sn: f32) -> mat3x3f {
+    let t = 1.0 - cs;
+    return mat3x3f(
+        vec3f(t * ax.x * ax.x + cs, t * ax.x * ax.y + sn * ax.z, t * ax.x * ax.z - sn * ax.y),
+        vec3f(t * ax.x * ax.y - sn * ax.z, t * ax.y * ax.y + cs, t * ax.y * ax.z + sn * ax.x),
+        vec3f(t * ax.x * ax.z + sn * ax.y, t * ax.y * ax.z - sn * ax.x, t * ax.z * ax.z + cs),
+    );
+}
+
+@vertex
+fn vs_fx(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> FxOut {
+    let q = fxp[ii];
+    let look = (q.info >> 10u) & 3u;
+    let bi = (q.info >> 8u) & 3u;
+    let b = g.bodies[bi];
+    let dir = vi / 6u;
+    let k = vi % 6u;
+    var o: FxOut;
+    o.info = q.info | dir << 12u;
+    o.a = q.a;
+    o.b = q.b;
+    var pb: vec3f; // in the body's frame from its centre
+    var nb: vec3f;
+    if (look == 2u) {
+        // a whole cell, scaled about its middle, its corners from the grid as `vs` places the terrain's
+        let cell = vec3f(f32(q.a & 0x7fffu), f32((q.a >> 15u) & 0x7fffu), f32(q.b & 0xffffu));
+        let c = cube_corner(dir, k);
+        let gp = cell + 0.5 + (c - 0.5) * q.size;
+        let f = frame_at(q.b >> 16u, b, gp.x, gp.y);
+        pb = f.up * (b.r0 * exp(gp.z * b.lnq));
+        let a = dir / 2u;
+        nb = f.up;
+        if (a == 0u) { nb = normalize(f.s - f.n * f.ta); }
+        if (a == 1u) { nb = normalize(f.t - f.n * f.tb); }
+        if ((dir & 1u) == 1u) { nb = -nb; }
+        o.uvw = c;
+    } else if (look == 1u) {
+        // a square facing the camera: corners along the camera's right and the body's up there
+        if (dir > 0u) {
+            o.clip = vec4f(0.0, 0.0, -1.0, 1.0);
+            return o;
+        }
+        let rel = brot(b, (q.p - b.cam_hi) - b.cam_lo);
+        let fwd = normalize(rel);
+        var right = cross(fwd, brot(b, normalize(q.p)));
+        if (dot(right, right) < 1e-6) { right = cross(fwd, vec3f(0.0, 0.0, 1.0)); }
+        right = normalize(right);
+        let up = cross(right, fwd);
+        var cx = array<f32, 6>(-1., 1., 1., -1., 1., -1.);
+        var cy = array<f32, 6>(-1., -1., 1., -1., 1., 1.);
+        o.rel = rel + (right * cx[k] + up * cy[k]) * (0.5 * q.size);
+        o.clip = g.view_proj * vec4f(o.rel, 1.0);
+        o.normal = -fwd;
+        o.uvw = vec3f(cx[k], cy[k], 0.0) * 0.5 + 0.5;
+        return o;
+    } else {
+        // debris: a cube turned by `angle` about an axis of its own
+        let h = fx_hash(q.a);
+        let ax = normalize(vec3f(f32(h & 255u), f32((h >> 8u) & 255u), f32((h >> 16u) & 255u)) - 127.25);
+        let c = cube_corner(dir, k);
+        let turn = turn_about(ax, cos(q.angle), sin(q.angle));
+        pb = q.p + turn * ((c - 0.5) * q.size);
+        nb = turn * (axis(dir / 2u) * select(1.0, -1.0, (dir & 1u) == 1u));
+        o.uvw = c;
+    }
+    let rel = brot(b, (pb - b.cam_hi) - b.cam_lo);
+    o.rel = rel;
+    o.clip = g.view_proj * vec4f(rel, 1.0);
+    if (look == 2u) {
+        // a whole cell over the real one (its mesh is late on purpose while it grows): a centimetre nearer in
+        // depth only, so it wins over the terrain's faces where they meet
+        let near = g.view_proj * vec4f(rel * max(1.0 - 0.01 / length(rel), 0.0), 1.0);
+        o.clip.z = near.z / near.w * o.clip.w;
+    }
+    o.normal = brot(b, nb);
+    return o;
+}
+
+// a particle's colour: a square's own; a cell's texels as `fs` has them; a debris cube's 2 x 2 texels a side
+// from a place of its block picked by its seed
+fn fx_colour(i: FxOut) -> vec3f {
+    let look = (i.info >> 10u) & 3u;
+    let mat = i.info & 255u;
+    let dir = (i.info >> 12u) & 7u;
+    let a = dir / 2u;
+    if (look == 1u) { return unpack4x8unorm(i.b).rgb; }
+    let uv = vec2f(i.uvw[(a + 1u) % 3u], i.uvw[(a + 2u) % 3u]);
+    let flat_t = (g.opt.x & 4u) != 0u;
+    if (look == 2u) {
+        let cell = vec3i(i32(i.a & 0x7fffu), i32((i.a >> 15u) & 0x7fffu), i32(i.b & 0xffffu)) + vec3i(i32(i.b >> 16u) * 977);
+        return texel(mat, dir, cell, select(uv, vec2f(0.5), flat_t), i.uvw.z);
+    }
+    let h = fx_hash(i.a);
+    let base = vec2f(f32(h % 14u), f32((h >> 4u) % 14u));
+    // a third of a grass block's pieces show its top, the others its side, some with the fringe
+    let d = select(0u, 4u, (h >> 8u) % 3u == 0u);
+    let hgt = f32((h >> 12u) & 15u) / 16.0;
+    let cell = vec3i(i32(h & 0xfffu), i32((h >> 12u) & 0xfffu), 7);
+    return texel(mat, d, cell, select((base + floor(uv * 2.0) + 0.5) / TEXELS, vec2f(0.5), flat_t), hgt);
+}
+
+fn fx_out(i: FxOut, col: vec3f, l: vec3f) -> GOut {
+    let body = (i.info >> 8u) & 3u;
+    var o: GOut;
+    o.gbuf = gb_pack(normalize(i.normal), length(i.rel));
+    if ((looks[i.info & 255u].info >> 24u) == 1u && ((i.info >> 10u) & 3u) != 1u) {
+        // a piece of a lamp shows its own light
+        o.direct = vec4f(col * 1.15, 1.0);
+        o.albedo = vec4f(0.0, 0.0, 0.0, f32(body) / 3.0);
+        return o;
+    }
+    o.direct = vec4f(col * l, 1.0);
+    o.albedo = vec4f(col, f32(body) / 3.0);
+    return o;
+}
+
+// lit as the terrain is: its own sun ray (and the lamps' and the moon's) for every pixel; one visibility per
+// particle was 20 % cheaper and lost the lamps, the moon and the soft edge (prototypes/effects/)
+@fragment
+fn fs_fx(i: FxOut) -> GOut {
+    let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u, vec2u(i.clip.xy));
+    return fx_out(i, fx_colour(i), l.l);
 }
