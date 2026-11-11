@@ -259,6 +259,18 @@ layer = [
   { wave = "noise", freq = [900, 500], q = 0.8, decay = 0.05, gain = 0.2, delay = 0.02 },
 ]
 
+# --- harm (ADR 0040): this player's health falling; in the head, short, a dull knock and a breath out ---
+[[sound]]
+name = "hurt"
+bus = "world"
+gain = 0.45
+variants = 3
+pitch = 0.08
+layer = [
+  { wave = "sine", freq = [180, 90], decay = 0.12 },
+  { wave = "noise", freq = [700, 300], q = 0.8, attack = 0.01, decay = 0.18, gain = 0.5, delay = 0.03 },
+]
+
 # --- the interface: small and dry, in the head ---
 [[sound]]
 name = "ui.hover"

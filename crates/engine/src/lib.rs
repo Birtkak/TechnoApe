@@ -8,4 +8,5 @@ pub mod net;
 pub mod phys;
 pub mod sky;
 pub mod stream;
+pub mod vitals;
 pub mod world;

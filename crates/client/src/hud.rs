@@ -905,13 +905,17 @@ pub fn layer(w: f32, h: f32, slots: &[Slot], selected: usize, creative: bool, to
         }
     }
     // what is in hand by name, over the bar, and the mode as a small word at its left end
+    // (in survival over the health and hunger rows, `vitals`)
+    let ly = y0 - pad - 34.0 - if creative { 0.0 } else { VITALS_H + 10.0 };
     if let Some((name, a)) = held.filter(|h| h.1 > 0.0) {
         let tw = text_width(name);
-        p.rect(cx - tw / 2.0 - 10.0, y0 - pad - 34.0, tw + 20.0, LINE + 6.0, [PANEL[0], PANEL[1], PANEL[2], PANEL[3] * a], 0);
-        p.text(cx - tw / 2.0, y0 - pad - 30.0, name, [0.95, 0.95, 0.95, a]);
+        p.rect(cx - tw / 2.0 - 10.0, ly, tw + 20.0, LINE + 6.0, [PANEL[0], PANEL[1], PANEL[2], PANEL[3] * a], 0);
+        p.text(cx - tw / 2.0, ly + 4.0, name, [0.95, 0.95, 0.95, a]);
     }
-    let (word, colour) = if creative { ("CREATIVE", [0.98, 0.8, 0.3, 0.95]) } else { ("SURVIVAL", [0.62, 0.72, 0.82, 0.8]) };
-    p.text_px(x0 - pad, y0 - pad - 16.0, word, colour, PX * 0.75);
+    // survival shows its health and hunger there instead (ADR 0040)
+    if creative {
+        p.text_px(x0 - pad, y0 - pad - 16.0, "CREATIVE", [0.98, 0.8, 0.3, 0.95], PX * 0.75);
+    }
     if let Some(hgt) = tool_height {
         let x = x0 - pad - size - 14.0;
         glass(&mut p, x, y0, size, size);
@@ -921,10 +925,122 @@ pub fn layer(w: f32, h: f32, slots: &[Slot], selected: usize, creative: bool, to
     p.out
 }
 
+/// The health and hunger rows' height, over the hotbar's pane.
+pub const VITALS_H: f32 = 24.0;
+/// A lit cell of health, of hunger, a dark one, and the warning colour.
+pub const HEALTH: [f32; 4] = [0.36, 0.95, 0.62, 1.0];
+pub const HUNGER: [f32; 4] = [1.0, 0.7, 0.22, 1.0];
+pub const WARN: [f32; 4] = [1.0, 0.36, 0.26, 1.0];
+/// How long a lost point flashes, seconds.
+pub const FLASH_S: f32 = 0.6;
+
+/// Health and hunger (ADR 0040) as the readout of a suit: two panes of the HUD's glass just over the hotbar,
+/// health on its left half and hunger on its right, ten cells each, a cell's half a point, filled from each
+/// pane's outer end where its sign stands: a cross for health, a fuel cell that empties for hunger. `ages`
+/// is, for each, how long ago it last fell and from what: the points lost since flash for FLASH_S. At 4
+/// points or less health's cells pulse slowly and its corners turn the warning colour; hunger at none is
+/// outlined in it. `t` is the clock the pulse runs on.
+pub fn vitals(p: &mut Paint, (health, hunger): (u8, u8), ages: [(f32, u8); 2], t: f32) {
+    let contrast = CONTRAST.load(std::sync::atomic::Ordering::Relaxed);
+    let (cx, y0) = (p.w / 2.0, p.h - 52.0 - 22.0 - 10.0 - 8.0 - VITALS_H);
+    // a cell is two halves with a hairline between, the cells well apart: ten segments read as ten
+    let (pw, cell, gap, ch) = (262.0, 16.0, 7.0, 12.0);
+    let dark = if contrast { [0.24, 0.28, 0.34, 1.0] } else { [0.10, 0.14, 0.19, 0.9] };
+    for (k, (value, lit)) in [(health, HEALTH), (hunger, HUNGER)].into_iter().enumerate() {
+        let right = k == 1;
+        let x = if right { cx + 6.0 } else { cx - 6.0 - pw };
+        glass(p, x, y0, pw, VITALS_H);
+        // the cells run from the sign at the outer end towards the middle
+        let at = |i: f32, w: f32| if right { x + pw - 28.0 - i - w } else { x + 28.0 + i };
+        let low = !right && value <= 4 && value > 0;
+        let pulse = if low { 0.55 + 0.45 * (0.5 + 0.5 * (t * std::f32::consts::TAU / 1.2).sin()) } else { 1.0 };
+        let (age, from) = ages[k];
+        let flash = age < FLASH_S && ((age * 10.0) as u32).is_multiple_of(2);
+        for c in 0..10 {
+            for half in 0..2 {
+                let point = (2 * c + half + 1) as u8;
+                let hx = at(c as f32 * (cell + gap) + half as f32 * 9.0, 7.0);
+                let cy = y0 + (VITALS_H - ch) / 2.0;
+                let colour = if point <= value {
+                    [lit[0], lit[1], lit[2], lit[3] * pulse]
+                } else if flash && point <= from {
+                    [1.0, 1.0, 1.0, 0.95]
+                } else {
+                    dark
+                };
+                p.rect(hx, cy, 7.0, ch, colour, 0);
+                if point <= value {
+                    // a lit cell's light along its top
+                    p.rect(hx, cy, 7.0, 2.0, [1.0, 1.0, 1.0, 0.3 * pulse], 0);
+                }
+            }
+        }
+        // the sign, lit while there is any
+        let (ix, iy) = (if right { x + pw - 20.0 } else { x + 8.0 }, y0 + 6.0);
+        let sign = match (value, right) {
+            (0, true) => WARN,
+            (0, false) => dark,
+            _ => [lit[0], lit[1], lit[2], pulse],
+        };
+        if right {
+            // a fuel cell: its walls, its cap, and what is left in it
+            for (dx, dy, w, h) in [(0.0, 1.0, 2.0, 12.0), (8.0, 1.0, 2.0, 12.0), (0.0, 1.0, 10.0, 2.0), (0.0, 11.0, 10.0, 2.0), (3.0, -1.0, 4.0, 2.0)] {
+                p.rect(ix + dx, iy + dy, w, h, sign, 0);
+            }
+            let fill = 8.0 * value as f32 / engine::vitals::MAX as f32;
+            if fill > 0.0 {
+                p.rect(ix + 2.0, iy + 11.0 - fill, 6.0, fill, sign, 0);
+            }
+        } else {
+            p.rect(ix + 4.0, iy, 4.0, 12.0, sign, 0);
+            p.rect(ix, iy + 4.0, 12.0, 4.0, sign, 0);
+        }
+        let warn = low || (right && value == 0);
+        if right && value == 0 {
+            for (dx, dy, w, h) in [(0.0, 0.0, pw, 2.0), (0.0, VITALS_H - 2.0, pw, 2.0), (0.0, 0.0, 2.0, VITALS_H), (pw - 2.0, 0.0, 2.0, VITALS_H)] {
+                p.rect(x + dx, y0 + dy, w, h, WARN, 0);
+            }
+        }
+        brackets(p, [x - 3.0, y0 - 3.0, pw + 6.0, VITALS_H + 6.0], 7.0, warn, if warn { WARN } else { CYAN });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use engine::edit::Kind;
+
+    #[test]
+    fn the_vitals_light_a_half_cell_a_point_and_warn_when_low() {
+        let draw = |v: (u8, u8), ages: [(f32, u8); 2]| {
+            let mut p = Paint::new(1280.0, 720.0);
+            vitals(&mut p, v, ages, 0.3);
+            p.out
+        };
+        let old = [(10.0, 0); 2];
+        let n = |r: &[Rect], c: [f32; 4]| r.iter().filter(|q| q.colour == c).count();
+        let r = draw((13, 20), old);
+        // health: 13 lit halves and its cross; hunger: all 20 and its full cell (walls, cap, fill)
+        assert_eq!((n(&r, HEALTH), n(&r, HUNGER)), (13 + 2, 20 + 6));
+        assert_eq!(n(&r, WARN), 0, "nothing to warn of");
+        assert!(r.iter().all(|q| q.xy.iter().all(|v| (-1.0..=1.0).contains(v))), "on screen");
+        // over the hotbar: every rect above its pane (which starts 84 px from the bottom)
+        assert!(r.iter().all(|q| (1.0 - q.xy[1]) / 2.0 * 720.0 <= 720.0 - 84.0 + 0.01));
+        // a fall from 20 to 13 flashes the seven points lost, then not
+        let white = [1.0, 1.0, 1.0, 0.95];
+        assert_eq!(n(&draw((13, 20), [(0.05, 20), (10.0, 0)]), white), 7);
+        assert_eq!(n(&draw((13, 20), [(FLASH_S + 0.1, 20), (10.0, 0)]), white), 0);
+        // health at 4 or less warns at its corners; empty hunger is outlined and its sign turns
+        let r = draw((3, 0), old);
+        assert!(n(&r, WARN) >= 4 + 8 + 5 + 8, "{}", n(&r, WARN));
+        assert_eq!(n(&r, HUNGER), 0);
+    }
+
+    #[test]
+    fn survival_shows_no_mode_word_and_creative_does() {
+        let word = |creative| layer(1280.0, 720.0, &[], 0, creative, None, None).iter().filter(|r| r.glyph == 'C' as u32).count();
+        assert_eq!((word(true), word(false)), (2, 0));
+    }
     use engine::world::Block;
 
     #[test]

@@ -197,6 +197,8 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
                             b.world.water.set_tile(*t, cols);
                         }
                     }
+                    // a bot that dies (a survival bot's hard landing, ADR 0040) is back at the spawn at once
+                    ToClient::Vitals { dead: Some(_), .. } => b.link.send(ToServer::Respawn),
                     _ => {}
                 }
             }

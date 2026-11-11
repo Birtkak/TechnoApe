@@ -179,6 +179,7 @@ impl App {
                 Some(Menu::Waypoints) => Some(Menu::Pause),
                 Some(Menu::Waypoint(_)) => Some(Menu::Waypoints),
                 Some(Menu::Playtest) => None,
+                Some(Menu::Dead) => Some(Menu::Dead),
             }),
             // point:x:y puts the pointer there (pixels), to see a button lit
             a if a.starts_with("point:") => {
@@ -317,6 +318,34 @@ impl App {
         self.link.send(ToServer::Move { pos: feet.to_array(), fwd: look.as_vec3().to_array(), pitch: 0.0 });
         self.flying |= self.creative;
         self.note(line);
+    }
+
+    /// The server's health and hunger for this player (ADR 0040): a drop flashes and health's is heard;
+    /// death opens the death screen, the respawn closes it.
+    pub(crate) fn vitals_in(&mut self, health: u8, hunger: u8, dead: Option<String>) {
+        let now = Instant::now();
+        if health < self.vitals.0 {
+            self.flash[0] = (now, self.vitals.0);
+            self.audio.play("hurt", None, 1.0, 1.0, true);
+        }
+        if hunger < self.vitals.1 {
+            self.flash[1] = (now, self.vitals.1);
+        }
+        (self.vitals, self.health_min) = ((health, hunger), self.health_min.min(health));
+        match dead {
+            Some(cause) if self.dead.is_none() => {
+                eprintln!("[technoape] {cause}");
+                (self.dead, self.flying) = (Some(cause), false);
+                self.set_menu(Some(Menu::Dead));
+            }
+            None if self.dead.is_some() => {
+                self.dead = None;
+                if self.menu == Some(Menu::Dead) {
+                    self.set_menu(None);
+                }
+            }
+            _ => {}
+        }
     }
 
     /// The completions of the command being typed.
@@ -520,7 +549,24 @@ impl App {
             ),
             section(
                 "Player",
-                vec![("Mode", if self.creative { "creative" } else { "survival" }.into(), 0), ("Tool", tool, 0), ("Slot", format!("{}: {block}", self.slot + 1), 0)],
+                {
+                    // ADR 0040: points of 20, two to a segment; creative has neither
+                    let (hp, food) = self.vitals;
+                    let of = |v: u8, low: bool| if self.creative { ("none in creative".to_string(), 0) } else { (format!("{v} of 20"), if v == 0 { 3 } else if low { 2 } else { 1 }) };
+                    let ((h, ht), (f, ft)) = (of(hp, hp <= 4), of(food, food <= 4));
+                    let h = match &self.dead {
+                        Some(c) => format!("dead: {c}"),
+                        None if !self.creative => format!("{h}, lowest {}", self.health_min),
+                        None => h,
+                    };
+                    vec![
+                        ("Mode", if self.creative { "creative" } else { "survival" }.into(), 0),
+                        ("Health", h, ht),
+                        ("Hunger", f, ft),
+                        ("Tool", tool, 0),
+                        ("Slot", format!("{}: {block}", self.slot + 1), 0),
+                    ]
+                },
             ),
         ];
         let right = vec![
@@ -752,6 +798,13 @@ impl App {
         let shown = (2.5 - self.held_name.1.elapsed().as_secs_f32()).clamp(0.0, 0.5) * 2.0;
         let held = self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)).map(|d| (d.name.clone(), shown));
         let mut rects = if title { Vec::new() } else { hud::layer(lw, lh, &slots, self.slot, self.creative, height, held.as_ref().map(|h| (h.0.as_str(), h.1))) };
+        if !title && !self.creative {
+            // health and hunger over the hotbar (ADR 0040): survival's, and how it is told from creative
+            let mut p = hud::Paint::new(lw, lh);
+            let ages = self.flash.map(|(at, from)| (at.elapsed().as_secs_f32(), from));
+            hud::vitals(&mut p, self.vitals, ages, self.start.elapsed().as_secs_f32());
+            rects.extend(p.out);
+        }
         if self.world.water_surface(p.pos).is_some() {
             // under water: a blue veil first, under the HUD. shortcut: a veil, not fog, until the sky has fog
             rects.insert(0, hud::Rect { xy: [-1.0, -1.0, 1.0, 1.0], colour: [0.05, 0.25, 0.4, 0.55], glyph: 0 });
@@ -864,7 +917,13 @@ impl App {
             paint.text_px(lw / 2.0 + 268.0 - s.len() as f32 * hud::ADV * hud::PX * 0.75, lh - 110.0, &s, [1.0, 1.0, 1.0, 0.9], hud::PX * 0.75);
         }
         if let Some(m) = self.menu {
+            let cause = self.dead.clone().unwrap_or_default();
+            if m == Menu::Dead {
+                // the world under it darker and a little red, before the menu's own shade
+                paint.rect(0.0, 0.0, lw, lh, [0.22, 0.0, 0.02, 0.4], 0);
+            }
             let (title, hint) = match m {
+                Menu::Dead => ("You died", cause.as_str()),
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),
                 Menu::Remove(_) => ("Remove world", "It moves to saves/removed/ and can be put back by hand."),

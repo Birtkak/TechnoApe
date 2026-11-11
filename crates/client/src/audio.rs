@@ -722,7 +722,7 @@ mod tests {
                 assert!(rows.iter().any(|r| r.name == name), "block '{}' needs the sound '{name}'", d.name);
             }
         }
-        for name in ["ui.hover", "ui.click", "ui.tick", "wind", "land", "music.menu"] {
+        for name in ["ui.hover", "ui.click", "ui.tick", "wind", "land", "hurt", "music.menu"] {
             assert!(rows.iter().any(|r| r.name == name), "{name}");
         }
     }

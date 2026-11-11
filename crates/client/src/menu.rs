@@ -129,6 +129,8 @@ pub(crate) enum Menu {
     Settings,
     Page(usize),
     Confirm,
+    /// The death screen (ADR 0040): how, Respawn, or back to the title. Esc does not close it.
+    Dead,
 }
 
 /// Window sizes the settings offer, those that fit the monitor.
@@ -231,6 +233,7 @@ impl App {
                 }
                 rows
             }
+            Some(Menu::Dead) => vec!["Respawn".into(), "To the title".into()],
             Some(Menu::Pause) => vec!["Back to game".into(), "Settings".into(), "Waypoints".into(), "Main menu".into(), "Quit game".into()],
             Some(Menu::Waypoints) => {
                 let w = &self.world;
@@ -432,6 +435,9 @@ impl App {
             }
             (Some(Menu::Worlds), _) => self.set_menu(Some(Menu::Title)),
             (Some(Menu::Pause), 0) => self.set_menu(None),
+            // the server answers a respawn with full health, which closes this page (`vitals_in`)
+            (Some(Menu::Dead), 0) => self.link.send(ToServer::Respawn),
+            (Some(Menu::Dead), 1) => self.start_again(TITLE_ARGS[2..].iter().map(|s| s.to_string()).collect()),
             (Some(Menu::Pause), 3) => self.start_again(TITLE_ARGS[2..].iter().map(|s| s.to_string()).collect()),
             (Some(Menu::Settings), k) if k < settings::PAGES.len() => self.set_menu(Some(Menu::Page(k))),
             (Some(Menu::Settings), _) => self.set_menu(Some(self.home())),

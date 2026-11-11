@@ -124,7 +124,10 @@ impl Bot {
                     }
                 }
                 Recv::Msg(ToClient::Done { ok, .. }) => self.refused += !ok as u64,
-                Recv::Msg(ToClient::Inventory { .. } | ToClient::You { .. }) => {}
+                Recv::Msg(ToClient::Inventory { .. } | ToClient::You { .. } | ToClient::Vitals { dead: None, .. }) => {}
+                // a bot that dies respawns at once (ADR 0040); it builds in creative, so only a switch to
+                // survival can get it there
+                Recv::Msg(ToClient::Vitals { dead: Some(_), .. }) => self.link.send(ToServer::Respawn),
                 Recv::Msg(ToClient::Chat(t)) => self.notes.push(format!("{{\"bot\":{:?},\"chat\":{t:?}}}", self.name)),
                 Recv::Msg(ToClient::Water(v)) => {
                     if let Some(w) = self.world.as_mut() {
