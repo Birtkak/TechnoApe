@@ -29,6 +29,8 @@ pub struct Params {
     /// How long a step is: the solver is implicit, so a longer step is stable and needs fewer steps.
     pub coarse_dt: f32,
     pub fine_dt: f32,
+    /// A lake must be this deep somewhere, metres; a shallower one is filled.
+    pub min_lake_m: f32,
     /// Stream power: dh/dt = U - K A^m S (n = 1), A in m^2.
     pub k: f32,
     pub m_exp: f32,
@@ -61,9 +63,10 @@ impl Default for Params {
             cell_m: 8.0,
             coarse: 4,
             coarse_iters: 320,
-            fine_iters: 24,
+            fine_iters: 48,
             coarse_dt: 1.0,
             fine_dt: 1.0,
+            min_lake_m: 1.0,
             k: 0.5,
             m_exp: 0.5,
             kappa: 1.5,
@@ -344,14 +347,23 @@ fn quantile(h: &[f32], share: f32) -> f32 {
 /// so a cell's receiver comes before it (the stack order of Braun and Willett 2013).
 pub struct Drainage {
     pub ocean: Vec<bool>,
-    /// the filled surface: the ground, or the lake's level over it
+    /// the filled surface: the ground, or the lake's level over it, sloped by the epsilon so water runs
     pub w: Vec<f32>,
+    /// the spill level without the epsilon: where it stands over the ground there is a lake
+    pub lvl: Vec<f32>,
     pub recv: Vec<u32>,
     pub order: Vec<u32>,
     pub area: Vec<f32>,
     /// the land cells by basin (`basins`)
     pub cells: Vec<u32>,
     pub start: Vec<usize>,
+}
+
+impl Drainage {
+    /// Water stands over this cell: a lake, not a plain the flood's epsilon slopes.
+    pub fn lake(&self, c: usize, h: f32) -> bool {
+        !self.ocean[c] && self.lvl[c] - h > LAKE
+    }
 }
 
 /// A lake: the filled surface stands this much over the ground (model metres).
@@ -472,6 +484,7 @@ pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
     let n = g.n();
     let ocean = oceans(g, h, sea);
     let mut w: Vec<f32> = h.iter().zip(&ocean).map(|(&v, &o)| if o { sea } else { v }).collect();
+    let mut lvl = w.clone();
     let mut done = ocean.clone();
     let coast: Vec<u32> = (0..n as u32).into_par_iter().filter(|&c| !ocean[c as usize] && g.around(c).any(|o| ocean[o as usize])).collect();
     let mut q = Radix::new();
@@ -483,11 +496,12 @@ pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
     while let Some(x) = q.pop() {
         let c = x as u32;
         order.push(c);
-        let wc = w[c as usize];
+        let (wc, lc) = (w[c as usize], lvl[c as usize]);
         for o in g.around(c) {
             if !done[o as usize] {
                 done[o as usize] = true;
                 w[o as usize] = h[o as usize].max(wc + EPS);
+                lvl[o as usize] = h[o as usize].max(lc);
                 q.push((key(w[o as usize]) as u64) << 32 | o as u64);
             }
         }
@@ -523,7 +537,7 @@ pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
             }
         }
     });
-    Drainage { w, recv, order, area, ocean, cells, start }
+    Drainage { w, lvl, recv, order, area, ocean, cells, start }
 }
 
 /// Stage 3 at one level: uplift against stream-power erosion, solved implicitly along the receivers
@@ -542,13 +556,13 @@ pub fn erode(g: &Grid, h: &mut [f32], u: &[f32], p: &Params, iters: usize, dt: f
                 let c = c as usize;
                 // SAFETY: c and its receiver are in basin k, which no other thread touches
                 let hc = unsafe { hs.get(c) };
-                if d.w[c] - hc > LAKE {
+                if d.lake(c, hc) {
                     // a lake floor: it fills, nothing cuts it
                     unsafe { hs.set(c, hc + dt * u[c].max(0.0)) };
                     continue;
                 }
                 let r = d.recv[c] as usize;
-                let base = if d.ocean[r] { sea } else { let hr = unsafe { hs.get(r) }; if d.w[r] - hr > LAKE { d.w[r] } else { hr } };
+                let base = if d.ocean[r] { sea } else { let hr = unsafe { hs.get(r) }; if d.lake(r, hr) { d.lvl[r] } else { hr } };
                 let f = dt * p.k * d.area[c].powf(p.m_exp) / g.dist(c as u32, r as u32);
                 unsafe { hs.set(c, ((hc + dt * u[c]) + f * base) / (1.0 + f)) };
             }
@@ -613,6 +627,8 @@ pub struct Lake {
     pub cells: u32,
     /// level over the sea, metres
     pub level: f32,
+    /// the deepest water, metres
+    pub depth: f32,
 }
 
 pub struct Bake {
@@ -623,6 +639,8 @@ pub struct Bake {
     pub h: Vec<f32>,
     /// the filled surface: lake levels, metres over the sea
     pub w: Vec<f32>,
+    /// the lake level without the flood's epsilon (`Drainage::lvl`), metres over the sea
+    pub lvl: Vec<f32>,
     pub recv: Vec<u32>,
     pub area: Vec<f32>,
     pub plate: Vec<u8>,
@@ -642,7 +660,7 @@ impl Bake {
         !self.ocean[c]
     }
     pub fn lake(&self, c: usize) -> bool {
-        self.land(c) && self.w[c] - self.h[c] > LAKE * self.land_scale()
+        self.land(c) && self.lvl[c] - self.h[c] > LAKE * self.land_scale()
     }
     /// metres per model metre on land, kept for the lake test
     pub fn land_scale(&self) -> f32 {
@@ -657,9 +675,9 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
         times.push((name, t.elapsed().as_secs_f64()));
         t = Instant::now();
     };
-    // the engine's radius for N columns of 0.5 m (ADR 0003)
-    let r = planet_n as f64 * 0.5 / (2.0 * std::f64::consts::PI / 3.0).sqrt();
-    let mf = ((planet_n as f64 * 0.5 / p.cell_m).round() as usize).max(p.coarse * 8);
+    // the engine's radius for N columns of 1 m blocks (ADR 0003, 0033)
+    let r = planet_n as f64 / (2.0 * std::f64::consts::PI / 3.0).sqrt();
+    let mf = ((planet_n as f64 / p.cell_m).round() as usize).max(p.coarse * 8);
     let mf = mf - mf % p.coarse;
     let gc = Grid::new(mf / p.coarse, r);
     let gf = Grid::new(mf, r);
@@ -708,8 +726,9 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
     let deep = h.iter().fold(0f32, |a, &v| a.max(sea - v)).max(1e-3);
     let scale = (p.mountain_m / top, p.sea_depth_m / deep);
     let sc = |v: f32| if v >= sea { (v - sea) * scale.0 } else { (v - sea) * scale.1 };
-    let hm: Vec<f32> = h.iter().map(|&v| sc(v)).collect();
+    let mut hm: Vec<f32> = h.iter().map(|&v| sc(v)).collect();
     let wm: Vec<f32> = d.w.iter().map(|&v| sc(v)).collect();
+    let lm: Vec<f32> = d.lvl.iter().map(|&v| sc(v)).collect();
     lap("sea and coast", &mut times);
 
     let rivers: Vec<River> = d
@@ -719,17 +738,17 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
         .map(|&c| River { cell: c, to: d.recv[c as usize], area: d.area[c as usize] })
         .collect();
     // lakes: the connected cells where the filled surface stands over the ground
-    let lake_at = |c: usize| !d.ocean[c] && wm[c] - hm[c] > LAKE * scale.0;
+    let lake_at = |c: usize| !d.ocean[c] && lm[c] - hm[c] > LAKE * scale.0;
     let mut seen = vec![false; gf.n()];
-    let mut lakes = Vec::new();
+    let mut found: Vec<Vec<u32>> = Vec::new();
     for &c0 in &d.order {
         if seen[c0 as usize] || !lake_at(c0 as usize) {
             continue;
         }
-        let (mut stack, mut cells) = (vec![c0], 0u32);
+        let (mut stack, mut cells) = (vec![c0], Vec::new());
         seen[c0 as usize] = true;
         while let Some(c) = stack.pop() {
-            cells += 1;
+            cells.push(c);
             for o in gf.around(c) {
                 if !seen[o as usize] && lake_at(o as usize) {
                     seen[o as usize] = true;
@@ -737,11 +756,22 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
                 }
             }
         }
-        lakes.push(Lake { cells, level: wm[c0 as usize] });
+        found.push(cells);
+    }
+    // a lake shallower than `min_lake_m` everywhere is a puddle or a lagoon the rising sea left: its silt
+    // fills it, flat ground at the water's level
+    let mut lakes = Vec::new();
+    for cells in found {
+        let depth = cells.iter().map(|&c| lm[c as usize] - hm[c as usize]).fold(0f32, f32::max);
+        if depth < p.min_lake_m {
+            cells.iter().for_each(|&c| hm[c as usize] = lm[c as usize]);
+        } else {
+            lakes.push(Lake { cells: cells.len() as u32, level: lm[cells[0] as usize], depth });
+        }
     }
     lap("rivers and lakes", &mut times);
     let (recv, area, ocean) = (d.recv, d.area, d.ocean);
-    Bake { g: gf, h: hm, w: wm, recv, area, ocean, plate, boundary, continental, rivers, lakes, times, converged: (conv_c, conv_f), scale }
+    Bake { g: gf, h: hm, w: wm, lvl: lm, recv, area, ocean, plate, boundary, continental, rivers, lakes, times, converged: (conv_c, conv_f), scale }
 }
 
 /// Mean height step between neighbours (inside a face, across a seam): a seam that shows has a larger one.
@@ -788,6 +818,26 @@ mod tests {
     /// The fast drainage (radix heap, basins in parallel) against the slow path it replaced, kept here as
     /// the reference: a binary-heap Priority-Flood and one serial sweep of the area. Same order, same water
     /// level, the same area to the bit.
+    /// A plain wider than LAKE / EPS cells is no lake: the flood's epsilon must not add up to one there (it
+    /// did, and the erosion then left such plains alone as lake floors). A pit is still a lake.
+    #[test]
+    fn a_wide_plain_is_no_lake_and_a_pit_is() {
+        let g = Grid::new(512, 1000.0);
+        let pit = |d: [f32; 3]| d[0] > 0.995;
+        let h: Vec<f32> = (0..g.n())
+            .map(|c| {
+                let d = g.dir[c];
+                if d[0] < -0.9 { -10.0 } else if pit(d) { 0.0 } else { 1.0 }
+            })
+            .collect();
+        let d = drain(&g, &h, -5.0);
+        let plain = (0..g.n()).filter(|&c| h[c] == 1.0 && d.lake(c, h[c])).count();
+        let pits = (0..g.n()).filter(|&c| pit(g.dir[c])).count();
+        let wet = (0..g.n()).filter(|&c| pit(g.dir[c]) && d.lake(c, h[c])).count();
+        assert!(pits > 10 && wet == pits, "the pit: {wet} of {pits} cells are lake");
+        assert_eq!(plain, 0, "plain cells taken for lake");
+    }
+
     #[test]
     fn the_fast_drainage_matches_the_slow_path() {
         let g = Grid::new(48, 1000.0);

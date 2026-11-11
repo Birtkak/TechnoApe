@@ -1,4 +1,4 @@
-//! World bake spike (worldgen W1): `world-bake mode=bake seed=1 planet=12288`. See README.md.
+//! World bake spike (worldgen W1): `world-bake mode=bake seed=1 planet=17376`. See README.md.
 mod bake;
 mod grid;
 mod render;
@@ -26,9 +26,10 @@ fn main() {
     p.fine_iters = num("fine_iters", p.fine_iters as f64) as usize;
     p.coarse_dt = num("coarse_dt", p.coarse_dt as f64) as f32;
     p.fine_dt = num("fine_dt", p.fine_dt as f64) as f32;
+    p.min_lake_m = num("min_lake", p.min_lake_m as f64) as f32;
     p.shield_uplift = num("shield", p.shield_uplift);
     p.old_range_uplift = num("old", p.old_range_uplift);
-    let planet = num("planet", 12288.0) as u32;
+    let planet = num("planet", 17376.0) as u32;
     let out = PathBuf::from(args.get("out").map_or("out", String::as_str));
     std::fs::create_dir_all(&out).unwrap();
     match args.get("mode").map_or("bake", String::as_str) {
@@ -106,6 +107,7 @@ fn rescale(b: &mut Bake, mountain: f32, sea: f32) {
     let f = |v: &mut f32| *v *= if *v >= 0.0 { l } else { s };
     b.h.iter_mut().for_each(f);
     b.w.iter_mut().for_each(f);
+    b.lvl.iter_mut().for_each(f);
     b.scale = (b.scale.0 * l, b.scale.1 * s);
 }
 
@@ -283,7 +285,7 @@ mod tests {
 
     fn small(seed: u64) -> Bake {
         // the small planet of ADR 0021 (531 m) at 8 m cells: 96 a face, 24 coarse
-        bake::bake(1536, seed, &Params::default())
+        bake::bake(768, seed, &Params::default())
     }
 
     #[test]
@@ -295,13 +297,15 @@ mod tests {
 
     #[test]
     fn every_river_reaches_the_sea_or_a_lake_downhill() {
-        // the 1 km planet (Luna's size from W6), with smaller rivers counted, so there are plenty
+        // the 1 km planet (Luna's size from W6; 1536 columns of 1 m), with smaller rivers counted, so there are plenty
         let p = Params { river_area_m2: 2e4, ..Params::default() };
         for seed in [1, 2, 3] {
-            let b = bake::bake(3072, seed, &p);
+            let b = bake::bake(1536, seed, &p);
             assert!(b.rivers.len() > 20, "seed {seed}: {} rivers", b.rivers.len());
             let walked = check_rivers(&b).unwrap_or_else(|e| panic!("seed {seed}: {e}"));
             assert!(walked >= b.rivers.len());
+            // a lake is at least min_lake_m deep somewhere; the shallower ones were filled
+            assert!(b.lakes.iter().all(|l| l.depth >= p.min_lake_m), "seed {seed}: a lake under {} m", p.min_lake_m);
         }
     }
 
