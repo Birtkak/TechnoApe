@@ -787,6 +787,9 @@ impl App {
         let tpres = Instant::now();
         gpu.queue.present(frame);
         let pres = tpres.elapsed().as_secs_f64();
+        if let Some(f) = self.args.0.remove("shown") {
+            let _ = std::fs::write(f, ""); // the process before this one may close its window now (ADR 0038)
+        }
         lap!("present");
         let tail0 = Instant::now();
         if self.bug_grab {
